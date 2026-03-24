@@ -24,6 +24,29 @@ This creates symlinks in `~/.claude/commands/` for all skills, making them avail
 
 ## Skills
 
+### `/pst:code-review`
+
+Code review with worktree-isolated fix verification. Every finding is validated by applying the suggested fix in an isolated worktree and running quality gates — findings that break the build are dropped. Supports GitHub PR reviews, local-only output, autonomous auto-fix, and multi-round sweep mode.
+
+```
+/pst:code-review 42
+/pst:code-review https://github.com/owner/repo/pull/42
+/pst:code-review --local
+/pst:code-review --autofix
+/pst:code-review --sweep
+```
+
+### `/pst:qa`
+
+Autonomous QA testing that synthesizes test plans from PR context and code diffs, then executes via browser automation (Playwright MCP or CDP). Auto-judges pass/fail and posts evidence to the PR. Use `--guided` for interactive human-driven testing.
+
+```
+/pst:qa 42
+/pst:qa https://github.com/owner/repo/pull/42
+/pst:qa --guided
+/pst:qa --post-merge
+```
+
 ### `/decide-for-me`
 
 Tells Claude to pick the best approach instead of presenting options. Evaluates simplicity, reliability, scalability, maintainability, and end-user experience.
