@@ -8,6 +8,7 @@ SKILLS=(
   "decide-for-me"
   "pst:code-review"
   "pst:qa"
+  "pst:react-refactor"
   "spec-gen"
   "validate-quality-gates"
 )
@@ -49,5 +50,26 @@ for skill in "${SKILLS[@]}"; do
   echo "Installed /$skill → $src"
 done
 
+# ── External skill dependencies ──────────────────────────────────────
+# pst:react-refactor layers on Vercel's react-best-practices.
+# Install it globally so every project gets the latest industry rules.
+
+EXTERNAL_SKILLS=(
+  "vercel-labs/agent-skills --skill vercel-react-best-practices"
+)
+
+if command -v npx &>/dev/null; then
+  for ext in "${EXTERNAL_SKILLS[@]}"; do
+    echo ""
+    echo "Installing external dependency: $ext"
+    # shellcheck disable=SC2086
+    npx -y skills add $ext -g -y 2>&1 | sed 's/^/  /'
+  done
+else
+  echo ""
+  echo "WARNING: npx not found — skipping external skill dependencies."
+  echo "         Install Node.js and run ./install.sh again to get Vercel react-best-practices."
+fi
+
 echo ""
-echo "Run /decide-for-me, /pst:code-review, /pst:qa, /spec-gen, or /validate-quality-gates in any Claude Code session."
+echo "Run /decide-for-me, /pst:code-review, /pst:qa, /pst:react-refactor, /spec-gen, or /validate-quality-gates in any Claude Code session."
