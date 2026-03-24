@@ -58,7 +58,7 @@ WARNING: Vercel react-best-practices not found.
 
 ## Stage 3 — Personal Override Rules
 
-These 10 rules are **OVERRIDE priority** — they take precedence over any Vercel rule on conflict.
+These 15 rules are **OVERRIDE priority** — they take precedence over any Vercel rule on conflict.
 
 | # | Rule |
 |---|------|
@@ -67,11 +67,16 @@ These 10 rules are **OVERRIDE priority** — they take precedence over any Verce
 | 3 | Test files co-located next to their hook: `useMyHook.test.ts` alongside `useMyHook.ts`. |
 | 4 | Tests use **vitest** exclusively. No jest. No React Testing Library for pure logic. Only use `renderHook` from `@testing-library/react` when the hook calls React APIs (`useState`, `useEffect`, etc.). Pure functions exported from hook files are tested directly. |
 | 5 | **Comprehensive test coverage**: every branch, edge case, error state, boundary value, and statement. Tests should be thorough enough that business logic bugs are caught in hooks, not in integration tests. |
-| 6 | **Zero `eslint-disable` comments** in hook files. If the linter complains, the code pattern is wrong — fix the code, don't suppress the warning. |
+| 6 | **Zero `eslint-disable` comments** in all files (hooks, components, tests). If the linter complains, fix the code or adjust the ESLint config. **NEVER introduce an `eslint-disable` without explicit user approval** — use AskUserQuestion to explain the lint error, the context, and propose alternatives (fix the code, adjust the rule config, or suppress). Default recommendation is to NOT suppress. |
 | 7 | `useState`, `useEffect`, and other React hooks used **only in standard patterns**. No workarounds, no hacks, no non-standard invocations that fight the framework. |
 | 8 | **Server components by default** in Next.js. Add `'use client'` only when the component genuinely needs client-side interactivity. Do not add it preemptively. |
 | 9 | **Named exports only** — no default exports for hooks or components. |
 | 10 | **Codify the architecture decision** in the target repo for future LLM runs (see Stage 7). |
+| 11 | **Use `next/image` `<Image>` instead of HTML `<img>`** in Next.js projects. Replace `<img>` with `<Image>` from `next/image`, providing required `width`/`height` or `fill` props. Skip if not Next.js. |
+| 12 | **ESLint `--max-warnings 0`**: All lint runs MUST pass with zero warnings. Use `--max-warnings 0` flag. Warnings are treated as errors. |
+| 13 | **Strict TypeScript — no escape hatches**: No `any` types, no `@ts-ignore`, no `@ts-expect-error`, no `as` type assertions unless truly unavoidable (document why inline). Prefer type guards or generics. |
+| 14 | **Prettier compliance**: All created and modified files MUST conform to the project's Prettier configuration. Run Prettier check as part of verification. Skip if Prettier is not configured in the project. |
+| 15 | **Minimize `eslint-disable` everywhere** — not just hooks. Applies to component files, test files, and any other file touched during refactoring. See Rule 6 for the mandatory AskUserQuestion workflow. |
 
 ---
 
@@ -141,6 +146,9 @@ Create `use{Name}.ts` in the same directory as the component (or in a `hooks/` s
 - Standard React hook patterns only
 - Pure helper functions exported alongside the hook for direct testing
 - Clear TypeScript types for inputs and outputs
+- No `any` types — use proper generics or specific types
+- No `@ts-ignore` or `@ts-expect-error` — fix the type error instead
+- No `as` type assertions unless absolutely necessary (document why if used)
 
 **Example structure:**
 
@@ -190,6 +198,7 @@ Replace inline business logic with hook call(s). The component should now be pri
 
 - Import the hook(s) with named imports
 - Remove extracted logic from the component body
+- If the project uses Next.js: replace any HTML `<img>` tags with `<Image>` from `next/image` while editing the component
 - Verify the component still compiles (no missing references)
 
 ### 5d. Create the Test File
@@ -252,12 +261,16 @@ After all refactoring, scan the modified and created files for anti-patterns:
 
 Use dedicated tools (not shell equivalents):
 
-- **Grep** for `eslint-disable` in all hook files — any match is a violation
+- **Grep** for `eslint-disable` in ALL modified and created files (hooks, components, tests) — any match triggers the AskUserQuestion workflow from Rule 6
 - **Glob** for `use*.tsx` files (excluding `*.test.tsx`) — hooks should be `.ts`, not `.tsx`
 - **Grep** for `export default` in new files — should be named exports only
 - **Grep** for `useState` in component files — more than 2 occurrences suggests business logic that should have been extracted
+- **Grep** for `<img` in component `.tsx` files (Next.js projects only) — should be `<Image>` from `next/image`
+- **Grep** for `: any` or `as any` in all modified/created files — strict type safety violation
+- **Grep** for `@ts-ignore` and `@ts-expect-error` in all modified/created files — violation
+- **Grep** for `as ` type assertions (regex: `\bas \w`) in hook and component files — flag for review
 
-Fix any violations found.
+Fix any violations found. For `eslint-disable` findings, follow the AskUserQuestion workflow in Rule 6 before taking action.
 
 ---
 
@@ -285,7 +298,11 @@ Check the **target repo** (not this skills repo) for existing documentation of t
 - Pure helper functions exported alongside hooks for direct unit testing
 - Named exports only, no default exports
 - Server components by default in Next.js; `'use client'` only when needed
-- Zero tolerance for `eslint-disable` in hook files
+- Zero tolerance for `eslint-disable` in all files (hooks, components, tests)
+- Use `next/image` `<Image>` instead of HTML `<img>` (Next.js projects)
+- Strict TypeScript: no `any`, no `@ts-ignore`, no `as` assertions without justification
+- ESLint must pass with `--max-warnings 0`
+- All code must be Prettier-compliant
 ```
 
 **If already documented:** Skip this stage.
@@ -305,9 +322,15 @@ Run full quality gates:
 | Check | Command |
 |-------|---------|
 | Build | `$PKG run build` |
-| Lint | `$PKG run lint` |
+| Lint | `$PKG run lint -- --max-warnings 0` |
 | Typecheck | `$PKG run typecheck` |
 | Test | `$PKG run test` |
+| Prettier | `$PKG exec prettier --check .` (or `$PKG run format:check` if the project has a script) |
+| Type assertions | Grep all modified/created files for `: any`, `as any`, `@ts-ignore`, `@ts-expect-error` — zero tolerance, fix all violations |
+
+**Lint `--max-warnings 0` note:** If the project's `lint` script already includes `--max-warnings 0`, the bare `$PKG run lint` is sufficient. Check `package.json` scripts first. If the lint script wraps `next lint` or `eslint` without the flag, append `-- --max-warnings 0`.
+
+**Prettier note:** If Prettier is not configured in the project (no `.prettierrc`, `prettier.config.*`, or `prettier` key in `package.json`), skip the Prettier check and note it in the summary.
 
 If any gate fails: read the error, fix the issue, re-run all gates from the top (max 3 fix cycles). If a script doesn't exist, skip it and note.
 
@@ -324,9 +347,13 @@ Test files created:   {M}
 Tests passing:        {X}/{Y}
 Architecture doc:     {created | updated | already present}
 Quality gates:        {ALL PASSED | FAILED — see above}
+Prettier:             {COMPLIANT | NOT CHECKED — no Prettier config}
+ESLint warnings:      {0 | N remaining — see above}
+Type safety:          {CLEAN | N violations — see above}
+next/image:           {COMPLIANT | N/A — not Next.js | N violations}
 
 External rules: Vercel react-best-practices {loaded | not installed}
-Personal overrides: 10 rules applied
+Personal overrides: 15 rules applied
 
 Files created:
   src/hooks/useDashboardFilters.ts
@@ -351,3 +378,6 @@ Files modified:
 | Quality gate failures after 3 cycles | Report and stop |
 | Vercel rules file not found | Degrade gracefully, log install command |
 | Component has no extractable logic | Skip and note in discovery report |
+| `eslint-disable` appears necessary during refactoring | MUST use AskUserQuestion — present the lint error, the code context, and 3 options: (1) fix the code, (2) adjust ESLint config, (3) suppress with comment. Default recommendation is option 1 or 2. |
+| Prettier not installed or no config found | Skip Prettier check, note in summary report |
+| `--max-warnings 0` flag not supported by lint script | Try `$PKG exec eslint --max-warnings 0 .` directly; if that fails, run bare lint and manually count warnings |
