@@ -58,25 +58,26 @@ WARNING: Vercel react-best-practices not found.
 
 ## Stage 3 — Personal Override Rules
 
-These 15 rules are **OVERRIDE priority** — they take precedence over any Vercel rule on conflict.
+### Shared rules (load first)
+
+Locate and read the shared rules file via Glob for `**/skills/_shared/pst-react-rules.md`. These 8 rules (S1–S8) are the shared React/Next.js code quality baseline used across all `/pst:*` skills — named exports, server components, `next/image`, strict TypeScript, zero `eslint-disable`, ESLint `--max-warnings 0`, Prettier compliance, and business logic in hooks.
+
+**If not found:** Use these inline fallbacks — S1: Named exports only. S2: Server components by default. S3: `next/image` over `<img>`. S4: Strict TypeScript — no `any`, `@ts-ignore`, `@ts-expect-error`, unwarranted `as`. S5: Zero `eslint-disable` — AskUserQuestion workflow. S6: ESLint `--max-warnings 0`. S7: Prettier compliance. S8: Business logic in `use*.ts` hooks, standard patterns only.
+
+### React-refactor-specific rules
+
+These 6 additional rules apply specifically to the refactoring workflow:
 
 | # | Rule |
 |---|------|
-| 1 | Business logic MUST live in custom hooks (`use*.ts`), never in component `.tsx` files. Components are for UI composition only. |
-| 2 | Custom hooks use `.ts` extension — they contain no JSX, so `.tsx` is unnecessary. |
-| 3 | Test files co-located next to their hook: `useMyHook.test.ts` alongside `useMyHook.ts`. |
-| 4 | Tests use **vitest** exclusively. No jest. No React Testing Library for pure logic. Only use `renderHook` from `@testing-library/react` when the hook calls React APIs (`useState`, `useEffect`, etc.). Pure functions exported from hook files are tested directly. |
-| 5 | **Comprehensive test coverage**: every branch, edge case, error state, boundary value, and statement. Tests should be thorough enough that business logic bugs are caught in hooks, not in integration tests. |
-| 6 | **Zero `eslint-disable` comments** in all files (hooks, components, tests). If the linter complains, fix the code or adjust the ESLint config. **NEVER introduce an `eslint-disable` without explicit user approval** — use AskUserQuestion to explain the lint error, the context, and propose alternatives (fix the code, adjust the rule config, or suppress). Default recommendation is to NOT suppress. |
-| 7 | `useState`, `useEffect`, and other React hooks used **only in standard patterns**. No workarounds, no hacks, no non-standard invocations that fight the framework. |
-| 8 | **Server components by default** in Next.js. Add `'use client'` only when the component genuinely needs client-side interactivity. Do not add it preemptively. |
-| 9 | **Named exports only** — no default exports for hooks or components. |
-| 10 | **Codify the architecture decision** in the target repo for future LLM runs (see Stage 7). |
-| 11 | **Use `next/image` `<Image>` instead of HTML `<img>`** in Next.js projects. Replace `<img>` with `<Image>` from `next/image`, providing required `width`/`height` or `fill` props. Skip if not Next.js. |
-| 12 | **ESLint `--max-warnings 0`**: All lint runs MUST pass with zero warnings. Use `--max-warnings 0` flag. Warnings are treated as errors. |
-| 13 | **Strict TypeScript — no escape hatches**: No `any` types, no `@ts-ignore`, no `@ts-expect-error`, no `as` type assertions unless truly unavoidable (document why inline). Prefer type guards or generics. |
-| 14 | **Prettier compliance**: All created and modified files MUST conform to the project's Prettier configuration. Run Prettier check as part of verification. Skip if Prettier is not configured in the project. |
-| 15 | **Minimize `eslint-disable` everywhere** — not just hooks. Applies to component files, test files, and any other file touched during refactoring. See Rule 6 for the mandatory AskUserQuestion workflow. |
+| R1 | Custom hooks use `.ts` extension — they contain no JSX, so `.tsx` is unnecessary. |
+| R2 | Test files co-located next to their hook: `useMyHook.test.ts` alongside `useMyHook.ts`. |
+| R3 | Tests use **vitest** exclusively. No jest. No React Testing Library for pure logic. Only use `renderHook` from `@testing-library/react` when the hook calls React APIs (`useState`, `useEffect`, etc.). Pure functions exported from hook files are tested directly. |
+| R4 | **Comprehensive test coverage**: every branch, edge case, error state, boundary value, and statement. Tests should be thorough enough that business logic bugs are caught in hooks, not in integration tests. |
+| R5 | **Codify the architecture decision** in the target repo for future LLM runs (see Stage 7). |
+| R6 | **Minimize `eslint-disable` everywhere** — applies to component files, test files, and any file touched during refactoring. See shared rule S5 for the mandatory AskUserQuestion workflow. |
+
+All 14 rules (8 shared + 6 specific) are **OVERRIDE priority** — they take precedence over any Vercel rule on conflict.
 
 ---
 
@@ -261,7 +262,7 @@ After all refactoring, scan the modified and created files for anti-patterns:
 
 Use dedicated tools (not shell equivalents):
 
-- **Grep** for `eslint-disable` in ALL modified and created files (hooks, components, tests) — any match triggers the AskUserQuestion workflow from Rule 6
+- **Grep** for `eslint-disable` in ALL modified and created files (hooks, components, tests) — any match triggers the AskUserQuestion workflow from shared rule S5
 - **Glob** for `use*.tsx` files (excluding `*.test.tsx`) — hooks should be `.ts`, not `.tsx`
 - **Grep** for `export default` in new files — should be named exports only
 - **Grep** for `useState` in component files — more than 2 occurrences suggests business logic that should have been extracted
@@ -270,7 +271,7 @@ Use dedicated tools (not shell equivalents):
 - **Grep** for `@ts-ignore` and `@ts-expect-error` in all modified/created files — violation
 - **Grep** for `as ` type assertions (regex: `\bas \w`) in hook and component files — flag for review
 
-Fix any violations found. For `eslint-disable` findings, follow the AskUserQuestion workflow in Rule 6 before taking action.
+Fix any violations found. For `eslint-disable` findings, follow the AskUserQuestion workflow in shared rule S5 before taking action.
 
 ---
 
@@ -353,7 +354,7 @@ Type safety:          {CLEAN | N violations — see above}
 next/image:           {COMPLIANT | N/A — not Next.js | N violations}
 
 External rules: Vercel react-best-practices {loaded | not installed}
-Personal overrides: 15 rules applied
+Personal overrides: 14 rules applied (8 shared + 6 specific)
 
 Files created:
   src/hooks/useDashboardFilters.ts
