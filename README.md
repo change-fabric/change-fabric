@@ -24,6 +24,16 @@ This creates symlinks in `~/.claude/commands/` for all skills, making them avail
 
 ## Skills
 
+### `/pst:next`
+
+Assess the current state of your work and get one opinionated recommendation for the best next step. Reads git state, GitHub PR status, and project context to tell you THE answer, not a menu of options.
+
+```
+/pst:next
+/pst:next --verbose
+/pst:next --why
+```
+
 ### `/pst:code-review`
 
 Code review with worktree-isolated fix verification. Every finding is validated by applying the suggested fix in an isolated worktree and running quality gates - findings that break the build are dropped. Supports GitHub PR reviews, local-only output, autonomous auto-fix, and multi-round sweep mode.
