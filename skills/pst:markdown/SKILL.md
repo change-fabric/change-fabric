@@ -21,25 +21,26 @@ Re-render or summarize the most recent substantive response as clean markdown te
 
 ## Formatting Rules (always applied)
 
-* Use `*` (asterisk) for bullet list items — never `-` (hyphen)
-* Use 4 spaces for nested indentation
-* Clean, readable markdown structure
+- Use `*` (asterisk) for bullet list items — never `-` (hyphen)
+- Use 4 spaces for nested indentation
+- Never use em dashes (—) — replace every occurrence with a regular hyphen-minus (`-`) or rephrase
+- Clean, readable markdown structure
 
 ---
 
 ## Default Mode (no flag)
 
-* Standard markdown bold: `**bold**` (double asterisk)
-* Tables are fine
-* Standard markdown headings, code blocks, links, etc.
+- Standard markdown bold: `**bold**` (double asterisk)
+- Tables are fine
+- Standard markdown headings, code blocks, links, etc.
 
 ---
 
 ## Slack Mode (`--slack`)
 
-* Bold uses single asterisk: `*bold*` instead of `**bold**`
-* Prefer lists over tables — tables do not render well in Slack
-* Convert any tabular data into labeled list items instead
+- Bold uses single asterisk: `*bold*` instead of `**bold**`
+- Prefer lists over tables — tables do not render well in Slack
+- Convert any tabular data into labeled list items instead
 
 ---
 
