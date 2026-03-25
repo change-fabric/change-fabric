@@ -1,7 +1,7 @@
 ---
 name: pst:push
 description: Auto-commit, push to PR, refresh PR description, and validate test plan checkboxes
-argument-hint: "[--dry-run]"
+argument-hint: "[--dry-run] [--no-validate]"
 allowed-tools: Bash, Read, Grep, Glob, Agent
 ---
 
@@ -20,6 +20,7 @@ This is a lightweight alternative to `/pst:qa` -- terminal commands only, no bro
 **Parse arguments:**
 
 - `--dry-run` - validate locally without pushing, creating PRs, posting comments, or updating checkboxes
+- `--no-validate` - push and refresh the PR but skip validation, the validation comment, and checkbox updates (skips Phases 4-6)
 - No arguments - full push-and-validate cycle
 
 ---
@@ -231,6 +232,8 @@ Store the updated body as `PR_BODY` for checkbox parsing in the next phase.
 
 ## Phase 4 - Parse Checkboxes
 
+**Skip if `--no-validate`.**
+
 Parse all unchecked checkboxes (`- [ ] ...`) from `PR_BODY`. Store them in a tracking list:
 
 ```
@@ -248,6 +251,8 @@ The `index` is the positional occurrence of the checkbox in the full PR body (0-
 ---
 
 ## Phase 5 - Validate
+
+**Skip if `--no-validate`.**
 
 For each unchecked checkbox, interpret the text and run a code-level validation.
 
@@ -296,6 +301,8 @@ For each checkbox:
 ---
 
 ## Phase 6 - Report & Update
+
+**Skip if `--no-validate`.**
 
 ### 6a. Post Validation Comment
 
@@ -368,10 +375,10 @@ branch: {BRANCH}
 pr: #{N} ({url})
 pushed: {yes|skipped (dry-run)}
 pr-refreshed: {yes|no (just created)|skipped (dry-run)}
-checkboxes: {total found}
-pass: {N} | fail: {N} | skip: {N}
-pr-comment: {posted|skipped (dry-run)}
-pr-checkboxes: {N checked}/{total}
+checkboxes: {total found|skipped (no-validate)}
+pass: {N} | fail: {N} | skip: {N}     {omit if --no-validate}
+pr-comment: {posted|skipped (dry-run)|skipped (no-validate)}
+pr-checkboxes: {N checked}/{total}|skipped (no-validate)}
 --- END PUSH RESULT ---
 ```
 
