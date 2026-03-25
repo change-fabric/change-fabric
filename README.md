@@ -4,7 +4,7 @@ A collection of personal [Claude Code](https://docs.anthropic.com/en/docs/claude
 
 ## Prerequisites
 
-- [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) installed
+- [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) and/or [OpenAI Codex CLI](https://github.com/openai/codex) installed
 
 ## Install
 
@@ -14,13 +14,20 @@ cd skills
 ./install.sh
 ```
 
-This creates symlinks in `~/.claude/commands/` for all skills, making them available in every Claude Code session.
+This creates symlinks for all skills, making them available system-wide:
+
+- **Claude Code**: `~/.claude/commands/{name}.md` (file symlinks)
+- **OpenAI Codex**: `~/.codex/skills/{name}/` (directory symlinks) -- only if `~/.codex/` exists
+
+Re-run `./install.sh` any time you install a new CLI to pick it up.
 
 ## Uninstall
 
 ```bash
 ./install.sh --uninstall
 ```
+
+Removes symlinks from both `~/.claude/commands/` and `~/.codex/skills/`.
 
 ## Skills
 
