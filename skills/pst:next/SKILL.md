@@ -345,9 +345,49 @@ NEXT STEP
 You have {COMMITS_AHEAD} commits on {BRANCH} with no PR. Run quality gates before opening one.
 
   /validate-quality-gates
+
+Then sweep for AI slop before the PR goes up:
+  /pst:slop
 ```
 
-**Why:** Catching build/lint/type/test failures before opening a PR saves review cycles and keeps CI green from the start.
+**Why:** Catching build/lint/type/test failures before opening a PR saves review cycles and keeps CI green from the start. A slop sweep after quality gates catches the cosmetic and structural issues that linters miss - em dashes, excessive docs, dead code, unnecessary abstractions.
+
+---
+
+### Rule 14b: Feature branch, PR exists, CI passing, pre-review slop check
+
+**Condition:** `$PR_STATE` is `OPEN`, `$CI_STATUS` is `passing`, `$REVIEW_DECISION` is empty or `REVIEW_REQUIRED`, and the branch diff contains potential slop signals.
+
+To detect slop signals cheaply (without running the full skill), check:
+
+```bash
+# Quick slop sniff - any of these in the branch diff?
+DIFF_CONTENT=$(git diff "$DEFAULT_BRANCH...HEAD")
+SLOP_SIGNALS=0
+echo "$DIFF_CONTENT" | grep -cP '\x{2014}' && SLOP_SIGNALS=$((SLOP_SIGNALS + 1))  # em dash
+echo "$DIFF_CONTENT" | grep -c 'eslint-disable' && SLOP_SIGNALS=$((SLOP_SIGNALS + 1))
+echo "$DIFF_CONTENT" | grep -c '@ts-ignore\|@ts-nocheck' && SLOP_SIGNALS=$((SLOP_SIGNALS + 1))
+echo "$DIFF_CONTENT" | grep -c 'console\.log' && SLOP_SIGNALS=$((SLOP_SIGNALS + 1))
+echo "$DIFF_CONTENT" | grep -c 'as any' && SLOP_SIGNALS=$((SLOP_SIGNALS + 1))
+echo "$DIFF_CONTENT" | grep -c '\.skip(' && SLOP_SIGNALS=$((SLOP_SIGNALS + 1))
+```
+
+If `SLOP_SIGNALS` > 0, this rule matches **instead of** Rule 11 (code review). Clean up slop before requesting review.
+
+**Output:**
+
+```
+NEXT STEP
+---------
+PR #{PR_NUMBER} is up and CI is green, but I spotted slop signals in the diff. Clean up before review.
+
+  /pst:slop
+
+Then get it reviewed:
+  /pst:code-review {PR_NUMBER}
+```
+
+**Why:** Reviewers should spend time on logic and architecture, not pointing out em dashes, `console.log` leftovers, or `eslint-disable` comments. A quick slop sweep respects their time.
 
 ---
 

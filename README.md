@@ -46,6 +46,15 @@ Code review with worktree-isolated fix verification. Every finding is validated 
 /pst:code-review --sweep
 ```
 
+### `/pst:push`
+
+Auto-commit, push the current branch, ensure a PR exists against the default branch, and refresh the PR title and description to reflect all changes on the branch. Then autonomously validate every unchecked test-plan checkbox via terminal commands (build, lint, typecheck, test) and code-level checks -- no browser automation. Posts a validation comment and checks off passing items.
+
+```
+/pst:push
+/pst:push --dry-run
+```
+
 ### `/pst:qa`
 
 Autonomous QA testing that synthesizes test plans from PR context and code diffs, then executes via browser automation (Playwright MCP or CDP). Auto-judges pass/fail and posts evidence to the PR. Use `--guided` for interactive human-driven testing.
@@ -69,6 +78,17 @@ Extract business logic from React/Next.js components into tested custom hooks. U
 ```
 
 Vercel react-best-practices (64+ industry rules) is installed automatically by `./install.sh` via the skills CLI. The skill degrades gracefully if the external dependency is missing.
+
+### `/pst:slop`
+
+Scan for and remove common AI-generated slop from your branch changes (default) or the entire repo (`--repo`). Detects em dashes, excessive documentation, disabled quality gates, band-aid exclusions, over-complicated abstractions, dead code, error theater, and type safety escapes. Interactive by default - presents findings and asks before fixing.
+
+```
+/pst:slop
+/pst:slop --repo
+/pst:slop --dry-run
+/pst:slop --auto
+```
 
 ### `/decide-for-me`
 
