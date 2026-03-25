@@ -47,7 +47,15 @@ The Vercel skill ships with `SKILL.md`, `AGENTS.md`, and a `rules/` directory co
 
 **If found:** Read `SKILL.md` and `AGENTS.md` with the `Read` tool. For deeper context, also read files in the `rules/` directory. Internalize these as the baseline layer. Personal override rules (Stage 3) take precedence on any conflict.
 
-**If not found:** Log this warning and proceed with personal rules only:
+**If not found:** Auto-install and retry:
+
+```bash
+npx -y skills add vercel-labs/agent-skills --skill vercel-react-best-practices -g -y
+```
+
+After install, re-check the resolution paths above. If found now, read and internalize as normal.
+
+**If install fails or skill still not found after install:** Log this warning and proceed with personal rules only:
 
 ```
 WARNING: Vercel react-best-practices not found.

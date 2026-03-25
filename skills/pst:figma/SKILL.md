@@ -44,7 +44,15 @@ Load the Figma implement-design skill as the structured baseline workflow. Insta
 
 **If found:** Read with the `Read` tool. Internalize the 7-step workflow as the baseline layer. Personal override rules (Stage 3) take precedence on any conflict.
 
-**If not found:** Log this warning and proceed with personal rules only:
+**If not found:** Auto-install and retry:
+
+```bash
+npx -y skills add https://github.com/figma/mcp-server-guide --skill figma-implement-design -g -y
+```
+
+After install, re-check the resolution paths above. If found now, read and internalize as normal.
+
+**If install fails or skill still not found after install:** Log this warning and proceed with personal rules only:
 
 ```
 WARNING: Figma implement-design skill not found.
@@ -63,7 +71,15 @@ Load Vercel react-best-practices for React/Next.js code quality rules.
 
 **If found:** Read `SKILL.md` and `AGENTS.md` with the `Read` tool. Internalize as supplementary quality layer.
 
-**If not found:** Skip silently - this is supplementary, not required.
+**If not found:** Auto-install and retry:
+
+```bash
+npx -y skills add vercel-labs/agent-skills --skill vercel-react-best-practices -g -y
+```
+
+After install, re-check the resolution paths above. If found now, read and internalize as normal.
+
+**If install fails or skill still not found after install:** Skip silently - this is supplementary, not required.
 
 ---
 
