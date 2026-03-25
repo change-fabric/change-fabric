@@ -1,6 +1,6 @@
 ---
 name: pst:react-refactor
-description: Extract business logic from React/Next.js components into tested custom hooks — layered on Vercel react-best-practices
+description: Extract business logic from React/Next.js components into tested custom hooks - layered on Vercel react-best-practices
 argument-hint: "[file-pattern | --all | --branch <name> | --dry-run]"
 allowed-tools: Bash, Read, Edit, Write, Grep, Glob, Agent, AskUserQuestion
 ---
@@ -11,16 +11,16 @@ Extract business logic from React/Next.js components into custom hooks with comp
 
 ---
 
-## Stage 1 — Input Parsing
+## Stage 1 - Input Parsing
 
 <arguments> #$ARGUMENTS </arguments>
 
 **Parse arguments:**
 
-- File glob pattern (e.g., `src/components/Dashboard.tsx`) — refactor specific files
-- `--all` — scan entire `src/` for components with extractable business logic
-- `--branch <name>` — scope to files changed on the named branch vs the default branch
-- `--dry-run` — analysis only, no file modifications, print what would change
+- File glob pattern (e.g., `src/components/Dashboard.tsx`) - refactor specific files
+- `--all` - scan entire `src/` for components with extractable business logic
+- `--branch <name>` - scope to files changed on the named branch vs the default branch
+- `--dry-run` - analysis only, no file modifications, print what would change
 
 **Default behavior (no arguments):** Detect `.tsx` files changed on the current branch vs the default branch:
 
@@ -33,15 +33,15 @@ If no `.tsx` files found on the branch, ask the user via AskUserQuestion what to
 
 ---
 
-## Stage 2 — External Rules Loading
+## Stage 2 - External Rules Loading
 
 Load Vercel react-best-practices as the industry baseline. These rules are installed by `install.sh` via the skills CLI (`npx skills add vercel-labs/agent-skills --skill vercel-react-best-practices -g`).
 
 **Resolution order** (first match wins):
 
-1. `~/.claude/skills/vercel-react-best-practices/SKILL.md` — global skills CLI install location
-2. `./.claude/skills/vercel-react-best-practices/SKILL.md` — project-local skills CLI install
-3. `~/.claude/commands/vercel-react-best-practices.md` — legacy commands directory
+1. `~/.claude/skills/vercel-react-best-practices/SKILL.md` - global skills CLI install location
+2. `./.claude/skills/vercel-react-best-practices/SKILL.md` - project-local skills CLI install
+3. `~/.claude/commands/vercel-react-best-practices.md` - legacy commands directory
 
 The Vercel skill ships with `SKILL.md`, `AGENTS.md`, and a `rules/` directory containing categorized rule files.
 
@@ -56,13 +56,13 @@ WARNING: Vercel react-best-practices not found.
 
 ---
 
-## Stage 3 — Personal Override Rules
+## Stage 3 - Personal Override Rules
 
 ### Shared rules (load first)
 
-Locate and read the shared rules file via Glob for `**/skills/_shared/pst-react-rules.md`. These 8 rules (S1–S8) are the shared React/Next.js code quality baseline used across all `/pst:*` skills — named exports, server components, `next/image`, strict TypeScript, zero `eslint-disable`, ESLint `--max-warnings 0`, Prettier compliance, and business logic in hooks.
+Locate and read the shared rules file via Glob for `**/skills/_shared/pst-react-rules.md`. These 8 rules (S1–S8) are the shared React/Next.js code quality baseline used across all `/pst:*` skills - named exports, server components, `next/image`, strict TypeScript, zero `eslint-disable`, ESLint `--max-warnings 0`, Prettier compliance, and business logic in hooks.
 
-**If not found:** Use these inline fallbacks — S1: Named exports only. S2: Server components by default. S3: `next/image` over `<img>`. S4: Strict TypeScript — no `any`, `@ts-ignore`, `@ts-expect-error`, unwarranted `as`. S5: Zero `eslint-disable` — AskUserQuestion workflow. S6: ESLint `--max-warnings 0`. S7: Prettier compliance. S8: Business logic in `use*.ts` hooks, standard patterns only.
+**If not found:** Use these inline fallbacks - S1: Named exports only. S2: Server components by default. S3: `next/image` over `<img>`. S4: Strict TypeScript - no `any`, `@ts-ignore`, `@ts-expect-error`, unwarranted `as`. S5: Zero `eslint-disable` - AskUserQuestion workflow. S6: ESLint `--max-warnings 0`. S7: Prettier compliance. S8: Business logic in `use*.ts` hooks, standard patterns only.
 
 ### React-refactor-specific rules
 
@@ -70,18 +70,18 @@ These 6 additional rules apply specifically to the refactoring workflow:
 
 | # | Rule |
 |---|------|
-| R1 | Custom hooks use `.ts` extension — they contain no JSX, so `.tsx` is unnecessary. |
+| R1 | Custom hooks use `.ts` extension - they contain no JSX, so `.tsx` is unnecessary. |
 | R2 | Test files co-located next to their hook: `useMyHook.test.ts` alongside `useMyHook.ts`. |
 | R3 | Tests use **vitest** exclusively. No jest. No React Testing Library for pure logic. Only use `renderHook` from `@testing-library/react` when the hook calls React APIs (`useState`, `useEffect`, etc.). Pure functions exported from hook files are tested directly. |
 | R4 | **Comprehensive test coverage**: every branch, edge case, error state, boundary value, and statement. Tests should be thorough enough that business logic bugs are caught in hooks, not in integration tests. |
 | R5 | **Codify the architecture decision** in the target repo for future LLM runs (see Stage 7). |
-| R6 | **Minimize `eslint-disable` everywhere** — applies to component files, test files, and any file touched during refactoring. See shared rule S5 for the mandatory AskUserQuestion workflow. |
+| R6 | **Minimize `eslint-disable` everywhere** - applies to component files, test files, and any file touched during refactoring. See shared rule S5 for the mandatory AskUserQuestion workflow. |
 
-All 14 rules (8 shared + 6 specific) are **OVERRIDE priority** — they take precedence over any Vercel rule on conflict.
+All 14 rules (8 shared + 6 specific) are **OVERRIDE priority** - they take precedence over any Vercel rule on conflict.
 
 ---
 
-## Stage 4 — Discovery
+## Stage 4 - Discovery
 
 For each target `.tsx` file:
 
@@ -108,16 +108,16 @@ Files scanned: {N}
 Candidates for refactoring: {M}
 Skipped (already clean): {K}
 
-  src/components/Dashboard.tsx — 3 extractable blocks (state mgmt, data transform, API orchestration)
-  src/components/UserForm.tsx  — 2 extractable blocks (validation, form submission)
-  src/components/Settings.tsx  — SKIP (business logic already in useSettings hook)
+  src/components/Dashboard.tsx - 3 extractable blocks (state mgmt, data transform, API orchestration)
+  src/components/UserForm.tsx  - 2 extractable blocks (validation, form submission)
+  src/components/Settings.tsx  - SKIP (business logic already in useSettings hook)
 ```
 
 **If `--dry-run`:** Stop here. Do not modify any files.
 
 ---
 
-## Stage 5 — Refactoring
+## Stage 5 - Refactoring
 
 Process each candidate component. **If multiple candidates share a directory or imports, process them sequentially to avoid conflicting edits.** Only parallelize across independent directories.
 
@@ -147,8 +147,8 @@ Create `use{Name}.ts` in the same directory as the component (or in a `hooks/` s
 - Standard React hook patterns only
 - Pure helper functions exported alongside the hook for direct testing
 - Clear TypeScript types for inputs and outputs
-- No `any` types — use proper generics or specific types
-- No `@ts-ignore` or `@ts-expect-error` — fix the type error instead
+- No `any` types - use proper generics or specific types
+- No `@ts-ignore` or `@ts-expect-error` - fix the type error instead
 - No `as` type assertions unless absolutely necessary (document why if used)
 
 **Example structure:**
@@ -169,17 +169,17 @@ interface DashboardFiltersOutput {
   setSortOrder: (order: SortOrder) => void;
 }
 
-// Pure function — tested directly, no renderHook needed
+// Pure function - tested directly, no renderHook needed
 export function applyFilter(data: DashboardItem[], filter: FilterType): DashboardItem[] {
   // ...
 }
 
-// Pure function — tested directly
+// Pure function - tested directly
 export function sortData(data: DashboardItem[], order: SortOrder): DashboardItem[] {
   // ...
 }
 
-// Hook — uses React state, tested with renderHook
+// Hook - uses React state, tested with renderHook
 export function useDashboardFilters({ initialData }: DashboardFiltersInput): DashboardFiltersOutput {
   const [activeFilter, setFilter] = useState<FilterType>('all');
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
@@ -213,7 +213,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { useDashboardFilters, applyFilter, sortData } from './useDashboardFilters';
 
-// Pure function tests — no renderHook needed
+// Pure function tests - no renderHook needed
 describe('applyFilter', () => {
   it('returns all items when filter is "all"', () => { /* ... */ });
   it('filters by category correctly', () => { /* ... */ });
@@ -229,7 +229,7 @@ describe('sortData', () => {
   it('is stable for equal values', () => { /* ... */ });
 });
 
-// Hook tests — needs renderHook because of useState
+// Hook tests - needs renderHook because of useState
 describe('useDashboardFilters', () => {
   it('initializes with default filter and sort', () => { /* ... */ });
   it('updates filtered data when filter changes', () => { /* ... */ });
@@ -256,26 +256,26 @@ If tests fail, fix the issue and re-run (max 3 attempts). If still failing after
 
 ---
 
-## Stage 6 — Anti-Pattern Scan
+## Stage 6 - Anti-Pattern Scan
 
 After all refactoring, scan the modified and created files for anti-patterns:
 
 Use dedicated tools (not shell equivalents):
 
-- **Grep** for `eslint-disable` in ALL modified and created files (hooks, components, tests) — any match triggers the AskUserQuestion workflow from shared rule S5
-- **Glob** for `use*.tsx` files (excluding `*.test.tsx`) — hooks should be `.ts`, not `.tsx`
-- **Grep** for `export default` in new files — should be named exports only
-- **Grep** for `useState` in component files — more than 2 occurrences suggests business logic that should have been extracted
-- **Grep** for `<img` in component `.tsx` files (Next.js projects only) — should be `<Image>` from `next/image`
-- **Grep** for `: any` or `as any` in all modified/created files — strict type safety violation
-- **Grep** for `@ts-ignore` and `@ts-expect-error` in all modified/created files — violation
-- **Grep** for `as ` type assertions (regex: `\bas \w`) in hook and component files — flag for review
+- **Grep** for `eslint-disable` in ALL modified and created files (hooks, components, tests) - any match triggers the AskUserQuestion workflow from shared rule S5
+- **Glob** for `use*.tsx` files (excluding `*.test.tsx`) - hooks should be `.ts`, not `.tsx`
+- **Grep** for `export default` in new files - should be named exports only
+- **Grep** for `useState` in component files - more than 2 occurrences suggests business logic that should have been extracted
+- **Grep** for `<img` in component `.tsx` files (Next.js projects only) - should be `<Image>` from `next/image`
+- **Grep** for `: any` or `as any` in all modified/created files - strict type safety violation
+- **Grep** for `@ts-ignore` and `@ts-expect-error` in all modified/created files - violation
+- **Grep** for `as ` type assertions (regex: `\bas \w`) in hook and component files - flag for review
 
 Fix any violations found. For `eslint-disable` findings, follow the AskUserQuestion workflow in shared rule S5 before taking action.
 
 ---
 
-## Stage 7 — Architecture Codification
+## Stage 7 - Architecture Codification
 
 Check the **target repo** (not this skills repo) for existing documentation of the hook extraction pattern:
 
@@ -310,7 +310,7 @@ Check the **target repo** (not this skills repo) for existing documentation of t
 
 ---
 
-## Stage 8 — Verification
+## Stage 8 - Verification
 
 Detect the package manager:
 
@@ -327,7 +327,7 @@ Run full quality gates:
 | Typecheck | `$PKG run typecheck` |
 | Test | `$PKG run test` |
 | Prettier | `$PKG exec prettier --check .` (or `$PKG run format:check` if the project has a script) |
-| Type assertions | Grep all modified/created files for `: any`, `as any`, `@ts-ignore`, `@ts-expect-error` — zero tolerance, fix all violations |
+| Type assertions | Grep all modified/created files for `: any`, `as any`, `@ts-ignore`, `@ts-expect-error` - zero tolerance, fix all violations |
 
 **Lint `--max-warnings 0` note:** If the project's `lint` script already includes `--max-warnings 0`, the bare `$PKG run lint` is sufficient. Check `package.json` scripts first. If the lint script wraps `next lint` or `eslint` without the flag, append `-- --max-warnings 0`.
 
@@ -337,7 +337,7 @@ If any gate fails: read the error, fix the issue, re-run all gates from the top 
 
 ---
 
-## Stage 9 — Summary Report
+## Stage 9 - Summary Report
 
 ```
 REACT REFACTOR COMPLETE
@@ -347,11 +347,11 @@ Hooks created:        {M}
 Test files created:   {M}
 Tests passing:        {X}/{Y}
 Architecture doc:     {created | updated | already present}
-Quality gates:        {ALL PASSED | FAILED — see above}
-Prettier:             {COMPLIANT | NOT CHECKED — no Prettier config}
-ESLint warnings:      {0 | N remaining — see above}
-Type safety:          {CLEAN | N violations — see above}
-next/image:           {COMPLIANT | N/A — not Next.js | N violations}
+Quality gates:        {ALL PASSED | FAILED - see above}
+Prettier:             {COMPLIANT | NOT CHECKED - no Prettier config}
+ESLint warnings:      {0 | N remaining - see above}
+Type safety:          {CLEAN | N violations - see above}
+next/image:           {COMPLIANT | N/A - not Next.js | N violations}
 
 External rules: Vercel react-best-practices {loaded | not installed}
 Personal overrides: 14 rules applied (8 shared + 6 specific)
@@ -379,6 +379,6 @@ Files modified:
 | Quality gate failures after 3 cycles | Report and stop |
 | Vercel rules file not found | Degrade gracefully, log install command |
 | Component has no extractable logic | Skip and note in discovery report |
-| `eslint-disable` appears necessary during refactoring | MUST use AskUserQuestion — present the lint error, the code context, and 3 options: (1) fix the code, (2) adjust ESLint config, (3) suppress with comment. Default recommendation is option 1 or 2. |
+| `eslint-disable` appears necessary during refactoring | MUST use AskUserQuestion - present the lint error, the code context, and 3 options: (1) fix the code, (2) adjust ESLint config, (3) suppress with comment. Default recommendation is option 1 or 2. |
 | Prettier not installed or no config found | Skip Prettier check, note in summary report |
 | `--max-warnings 0` flag not supported by lint script | Try `$PKG exec eslint --max-warnings 0 .` directly; if that fails, run bare lint and manually count warnings |

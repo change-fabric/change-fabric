@@ -21,9 +21,9 @@ Re-render or summarize the most recent substantive response as clean markdown te
 
 ## Formatting Rules (always applied)
 
-- Use `*` (asterisk) for bullet list items — never `-` (hyphen)
+- Use `*` (asterisk) for bullet list items - never `-` (hyphen)
 - Use 4 spaces for nested indentation
-- Never use em dashes (—) — replace every occurrence with a regular hyphen-minus (`-`) or rephrase
+- Never use em dashes - replace every occurrence with a regular hyphen-minus (`-`) or rephrase
 - Clean, readable markdown structure
 
 ---
@@ -39,16 +39,16 @@ Re-render or summarize the most recent substantive response as clean markdown te
 ## Slack Mode (`--slack`)
 
 - Bold uses single asterisk: `*bold*` instead of `**bold**`
-- Prefer lists over tables — tables do not render well in Slack
+- Prefer lists over tables - tables do not render well in Slack
 - Convert any tabular data into labeled list items instead
 
 ---
 
 ## Execution
 
-**Step 1 — Render.** Look back at the most recent substantive response in the conversation (before this skill was invoked). Re-render or summarize that content as clean markdown, applying the formatting rules above and the mode-specific rules.
+**Step 1 - Render.** Look back at the most recent substantive response in the conversation (before this skill was invoked). Re-render or summarize that content as clean markdown, applying the formatting rules above and the mode-specific rules.
 
-**Step 2 — Copy to clipboard.** Pipe the final markdown to `pbcopy` using the Bash tool:
+**Step 2 - Copy to clipboard.** Pipe the final markdown to `pbcopy` using the Bash tool:
 
 ```bash
 cat <<'MARKDOWN' | pbcopy
@@ -56,4 +56,4 @@ cat <<'MARKDOWN' | pbcopy
 MARKDOWN
 ```
 
-**Step 3 — Confirm.** Print a short confirmation that the content was copied, noting which format was used (standard markdown or Slack markdown).
+**Step 3 - Confirm.** Print a short confirmation that the content was copied, noting which format was used (standard markdown or Slack markdown).

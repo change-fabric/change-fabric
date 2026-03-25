@@ -1,6 +1,6 @@
 ---
 name: pst:figma
-description: Implement Figma designs into production-ready code — layered on Figma implement-design with opinionated project conventions
+description: Implement Figma designs into production-ready code - layered on Figma implement-design with opinionated project conventions
 argument-hint: "<figma-url> [--dry-run]"
 allowed-tools: Bash, Read, Edit, Write, Grep, Glob, Agent, AskUserQuestion
 ---
@@ -11,14 +11,14 @@ Translate Figma designs into production-ready code with pixel-perfect accuracy. 
 
 ---
 
-## Stage 1 — Input Parsing
+## Stage 1 - Input Parsing
 
 <arguments> #$ARGUMENTS </arguments>
 
 **Parse arguments:**
 
-- Figma URL (e.g., `https://figma.com/design/:fileKey/:fileName?node-id=1-2`) — the design to implement
-- `--dry-run` — fetch design context and report what would be implemented, no file creation
+- Figma URL (e.g., `https://figma.com/design/:fileKey/:fileName?node-id=1-2`) - the design to implement
+- `--dry-run` - fetch design context and report what would be implemented, no file creation
 
 **Extract from URL:**
 
@@ -30,7 +30,7 @@ If no Figma URL provided, ask the user via AskUserQuestion.
 
 ---
 
-## Stage 2 — External Rules Loading
+## Stage 2 - External Rules Loading
 
 ### Primary: Figma implement-design
 
@@ -38,9 +38,9 @@ Load the Figma implement-design skill as the structured baseline workflow. Insta
 
 **Resolution order** (first match wins):
 
-1. `~/.claude/skills/figma-implement-design/SKILL.md` — global skills CLI install location
-2. `./.claude/skills/figma-implement-design/SKILL.md` — project-local skills CLI install
-3. `~/.claude/plugins/cache/**/figma-implement-design/SKILL.md` — Claude plugin cache (resolve via Glob)
+1. `~/.claude/skills/figma-implement-design/SKILL.md` - global skills CLI install location
+2. `./.claude/skills/figma-implement-design/SKILL.md` - project-local skills CLI install
+3. `~/.claude/plugins/cache/**/figma-implement-design/SKILL.md` - Claude plugin cache (resolve via Glob)
 
 **If found:** Read with the `Read` tool. Internalize the 7-step workflow as the baseline layer. Personal override rules (Stage 3) take precedence on any conflict.
 
@@ -57,23 +57,23 @@ Load Vercel react-best-practices for React/Next.js code quality rules.
 
 **Resolution order** (first match wins):
 
-1. `~/.claude/skills/vercel-react-best-practices/SKILL.md` — global skills CLI install location
-2. `./.claude/skills/vercel-react-best-practices/SKILL.md` — project-local skills CLI install
-3. `~/.claude/commands/vercel-react-best-practices.md` — legacy commands directory
+1. `~/.claude/skills/vercel-react-best-practices/SKILL.md` - global skills CLI install location
+2. `./.claude/skills/vercel-react-best-practices/SKILL.md` - project-local skills CLI install
+3. `~/.claude/commands/vercel-react-best-practices.md` - legacy commands directory
 
 **If found:** Read `SKILL.md` and `AGENTS.md` with the `Read` tool. Internalize as supplementary quality layer.
 
-**If not found:** Skip silently — this is supplementary, not required.
+**If not found:** Skip silently - this is supplementary, not required.
 
 ---
 
-## Stage 3 — Personal Override Rules
+## Stage 3 - Personal Override Rules
 
 ### Shared rules (load first)
 
 Locate and read the shared rules file via Glob for `**/skills/_shared/pst-react-rules.md`. These 8 rules are the shared React/Next.js code quality baseline used across all `/pst:*` skills.
 
-**If not found:** Use these inline fallbacks — S1: Named exports only. S2: Server components by default. S3: `next/image` over `<img>`. S4: Strict TypeScript. S5: Zero `eslint-disable`. S6: ESLint `--max-warnings 0`. S7: Prettier compliance. S8: Business logic in hooks.
+**If not found:** Use these inline fallbacks - S1: Named exports only. S2: Server components by default. S3: `next/image` over `<img>`. S4: Strict TypeScript. S5: Zero `eslint-disable`. S6: ESLint `--max-warnings 0`. S7: Prettier compliance. S8: Business logic in hooks.
 
 ### Figma-specific rules
 
@@ -87,26 +87,26 @@ These 5 additional rules apply specifically to Figma design implementation:
 | F4 | **Responsive implementation required.** Do not implement only the single viewport shown in Figma. Infer responsive behavior from Figma auto-layout constraints. If breakpoint behavior is ambiguous, ask the user via AskUserQuestion. |
 | F5 | **Progressive Figma fetching for large artboards.** Never call `get_design_context` or `get_screenshot` on a node that may contain multiple pages or states (e.g., an entire page-level frame). Start with `get_metadata` to inspect the node tree and child count. If the node has more than ~5 direct children or appears to be a page-level container, fetch each child node individually via separate `get_design_context` calls rather than pulling the entire artboard at once. This avoids MCP timeouts and oversized responses. |
 
-All 13 rules (8 shared + 5 specific) are **OVERRIDE priority** — they take precedence over any Figma or Vercel baseline rule on conflict.
+All 13 rules (8 shared + 5 specific) are **OVERRIDE priority** - they take precedence over any Figma or Vercel baseline rule on conflict.
 
 ---
 
-## Stage 4 — Design Context Fetching
+## Stage 4 - Design Context Fetching
 
 This stage wraps the Figma baseline Steps 1–4 with personal guardrails. Always use the progressive fetching strategy (Rule F5) to avoid MCP timeouts on large artboards.
 
-1. **Probe node structure first** via `get_metadata(fileKey=":fileKey", nodeId=":nodeId")` — inspect the node type, child count, and tree depth before fetching design context
+1. **Probe node structure first** via `get_metadata(fileKey=":fileKey", nodeId=":nodeId")` - inspect the node type, child count, and tree depth before fetching design context
 2. **If node is small** (≤5 direct children, not a page-level container): proceed normally with `get_design_context` and `get_screenshot`
-3. **If node is large** (>5 direct children or is a page-level container): fetch each child node individually via separate `get_design_context` calls and capture screenshots per child — do not attempt to pull the entire artboard at once
-4. **Capture screenshot(s)** via `get_screenshot` — keep as visual reference throughout implementation (per-child if using progressive fetching)
-5. **Download assets** from Figma MCP server — use `localhost` sources directly, do not import icon packages or create placeholders
+3. **If node is large** (>5 direct children or is a page-level container): fetch each child node individually via separate `get_design_context` calls and capture screenshots per child - do not attempt to pull the entire artboard at once
+4. **Capture screenshot(s)** via `get_screenshot` - keep as visual reference throughout implementation (per-child if using progressive fetching)
+5. **Download assets** from Figma MCP server - use `localhost` sources directly, do not import icon packages or create placeholders
 6. **Scan project** for existing design system: search for theme files, token definitions, component libraries
 
 **If `--dry-run`:** Print the design context summary (components identified, tokens to map, assets to download, existing components that could be reused) and stop here.
 
 ---
 
-## Stage 5 — Project Convention Discovery
+## Stage 5 - Project Convention Discovery
 
 Before writing any code, survey the target project:
 
@@ -132,7 +132,7 @@ Existing matches: Button, Card, Input (reusable)
 
 ---
 
-## Stage 5b — Target Location Confirmation
+## Stage 5b - Target Location Confirmation
 
 Before writing any code, infer where in the application this design should be implemented and confirm with the user via AskUserQuestion.
 
@@ -143,17 +143,17 @@ Before writing any code, infer where in the application this design should be im
    - A design showing a modal with form fields → a new component in the project's component directory
    - A design matching an existing page's layout → modification of that existing page
 
-2. **Search the project** for existing files that match the inferred target — check for route directories, page files, and components that already implement similar UI.
+2. **Search the project** for existing files that match the inferred target - check for route directories, page files, and components that already implement similar UI.
 
 3. **Present the inference and ask for confirmation** via AskUserQuestion. Include:
    - What the design appears to represent (e.g., "This looks like a search results page")
    - The inferred target file path(s) (e.g., "I'd implement this at `src/app/search/page.tsx`")
    - Whether this would create new files or modify existing ones
-   - Any ambiguity (e.g., "This could be a standalone page or a section within the dashboard — which is it?")
+   - Any ambiguity (e.g., "This could be a standalone page or a section within the dashboard - which is it?")
 
 4. **If the design spans multiple locations** (e.g., a prototype showing a flow across several pages or screens), list each screen and its inferred target separately. Ask the user to confirm all locations and whether they want the full flow implemented or just a subset.
 
-**Example — single location:**
+**Example - single location:**
 
 ```
 Based on the Figma design, this appears to be a **search results page** with filters and pagination.
@@ -163,17 +163,17 @@ I'd implement this at:
   → src/components/search/SearchResults.tsx (new component)
   → src/components/search/SearchFilters.tsx (new component)
 
-The project already has src/app/search/ with a basic page — I'd extend it.
+The project already has src/app/search/ with a basic page - I'd extend it.
 
 Is this the right location, or should this go somewhere else?
 ```
 
-**Example — multi-location prototype:**
+**Example - multi-location prototype:**
 
 ```
 This Figma prototype covers a 3-screen flow:
 
-  1. Search page       → src/app/search/page.tsx (existing — extend)
+  1. Search page       → src/app/search/page.tsx (existing - extend)
   2. Result detail      → src/app/results/[id]/page.tsx (new)
   3. Booking confirm    → src/app/booking/confirm/page.tsx (new)
 
@@ -184,7 +184,7 @@ Shared components across screens:
 Should I implement the full flow, or focus on specific screens?
 ```
 
-**Example — entire app / top-level Figma:**
+**Example - entire app / top-level Figma:**
 
 If the design covers an entire application (many pages, flows, or the top-level Figma file), do **not** attempt to implement everything at once. Instead, ask the user to scope down:
 
@@ -198,7 +198,7 @@ Implementing everything at once would be too broad. Which section should I focus
   2. Dashboard (2 screens)
   3. Search & results (3 screens)
   4. Settings (2 screens)
-  5. Other — tell me which screens
+  5. Other - tell me which screens
 
 Best practice: focus on one flow or section at a time for higher fidelity.
 ```
@@ -207,7 +207,7 @@ Do not proceed to Stage 6 until the user confirms the target location(s) and sco
 
 ---
 
-## Stage 6 — Implementation
+## Stage 6 - Implementation
 
 Use Agent sub-tasks for complex multi-component designs. For each component/element from the Figma design:
 
@@ -250,23 +250,23 @@ When no existing component matches, create new ones following all override rules
 
 ---
 
-## Stage 7 — Anti-Pattern Scan
+## Stage 7 - Anti-Pattern Scan
 
 After implementation, scan all created and modified files using dedicated tools (not shell equivalents):
 
-- **Grep** for hardcoded hex colors (`#[0-9a-fA-F]{3,8}` outside token definitions) — should use design tokens (F1)
-- **Grep** for `eslint-disable` — zero tolerance (S5)
-- **Grep** for `export default` in new files — should be named exports (S1)
-- **Grep** for `: any` or `as any` — strict TypeScript violation (S4)
-- **Grep** for `@ts-ignore` and `@ts-expect-error` — violation (S4)
-- **Grep** for `<img` in `.tsx` files (Next.js only) — should be `<Image>` from `next/image` (S3)
-- **Grep** for inline `style=` attributes — should use styling system (F3)
+- **Grep** for hardcoded hex colors (`#[0-9a-fA-F]{3,8}` outside token definitions) - should use design tokens (F1)
+- **Grep** for `eslint-disable` - zero tolerance (S5)
+- **Grep** for `export default` in new files - should be named exports (S1)
+- **Grep** for `: any` or `as any` - strict TypeScript violation (S4)
+- **Grep** for `@ts-ignore` and `@ts-expect-error` - violation (S4)
+- **Grep** for `<img` in `.tsx` files (Next.js only) - should be `<Image>` from `next/image` (S3)
+- **Grep** for inline `style=` attributes - should use styling system (F3)
 
 Fix all violations found. For `eslint-disable` findings, follow the AskUserQuestion workflow in shared rule S5 before taking action.
 
 ---
 
-## Stage 8 — Visual Validation
+## Stage 8 - Visual Validation
 
 Compare the implemented UI against the Figma screenshot from Stage 4.
 
@@ -274,7 +274,7 @@ Compare the implemented UI against the Figma screenshot from Stage 4.
 
 - [ ] Layout matches (spacing, alignment, sizing)
 - [ ] Typography matches (font, size, weight, line height)
-- [ ] Colors match exactly — and all use project tokens, not raw hex
+- [ ] Colors match exactly - and all use project tokens, not raw hex
 - [ ] Spacing uses project scale, no magic numbers
 - [ ] Interactive states work as designed (hover, active, disabled, focus)
 - [ ] Responsive behavior follows Figma auto-layout constraints
@@ -284,7 +284,7 @@ Compare the implemented UI against the Figma screenshot from Stage 4.
 
 ---
 
-## Stage 9 — Quality Gates
+## Stage 9 - Quality Gates
 
 Detect the package manager:
 
@@ -300,7 +300,7 @@ Run full quality gates:
 | Lint | `$PKG run lint -- --max-warnings 0` |
 | Typecheck | `$PKG run typecheck` |
 | Prettier | `$PKG exec prettier --check .` (or `$PKG run format:check` if available) |
-| Type assertions | Grep all modified/created files for `: any`, `as any`, `@ts-ignore`, `@ts-expect-error` — zero tolerance |
+| Type assertions | Grep all modified/created files for `: any`, `as any`, `@ts-ignore`, `@ts-expect-error` - zero tolerance |
 
 **Lint note:** If the project's `lint` script already includes `--max-warnings 0`, bare `$PKG run lint` is sufficient. Check `package.json` scripts first.
 
@@ -310,7 +310,7 @@ If any gate fails: read the error, fix the issue, re-run all gates (max 3 fix cy
 
 ---
 
-## Stage 10 — Summary Report
+## Stage 10 - Summary Report
 
 ```
 FIGMA IMPLEMENTATION COMPLETE
@@ -319,13 +319,13 @@ Components created:    {N}
 Components reused:     {M}
 Assets downloaded:     {A}
 Design tokens mapped:  {T}
-Quality gates:         {ALL PASSED | FAILED — see above}
-Prettier:              {COMPLIANT | NOT CHECKED — no config}
+Quality gates:         {ALL PASSED | FAILED - see above}
+Prettier:              {COMPLIANT | NOT CHECKED - no config}
 ESLint warnings:       {0 | N remaining}
 Type safety:           {CLEAN | N violations}
-next/image:            {COMPLIANT | N/A — not Next.js}
-Accessibility:         {CHECKED | ISSUES — see above}
-Responsive:            {IMPLEMENTED | SINGLE VIEWPORT — see above}
+next/image:            {COMPLIANT | N/A - not Next.js}
+Accessibility:         {CHECKED | ISSUES - see above}
+Responsive:            {IMPLEMENTED | SINGLE VIEWPORT - see above}
 
 External rules: Figma implement-design {loaded | not installed}
 Supplementary:  Vercel react-best-practices {loaded | not installed}

@@ -1,6 +1,6 @@
 # skills
 
-A collection of personal [Claude Code](https://docs.anthropic.com/en/docs/claude-code) skills — reusable prompt shortcuts for common workflows.
+A collection of personal [Claude Code](https://docs.anthropic.com/en/docs/claude-code) skills - reusable prompt shortcuts for common workflows.
 
 ## Prerequisites
 
@@ -26,7 +26,7 @@ This creates symlinks in `~/.claude/commands/` for all skills, making them avail
 
 ### `/pst:code-review`
 
-Code review with worktree-isolated fix verification. Every finding is validated by applying the suggested fix in an isolated worktree and running quality gates — findings that break the build are dropped. Supports GitHub PR reviews, local-only output, autonomous auto-fix, and multi-round sweep mode.
+Code review with worktree-isolated fix verification. Every finding is validated by applying the suggested fix in an isolated worktree and running quality gates - findings that break the build are dropped. Supports GitHub PR reviews, local-only output, autonomous auto-fix, and multi-round sweep mode.
 
 ```
 /pst:code-review 42
@@ -70,7 +70,7 @@ Tells Claude to pick the best approach instead of presenting options. Evaluates 
 
 ### `/spec-gen`
 
-Launches an in-depth interview to build a complete implementation spec. Covers technical details, UI/UX, concerns, tradeoffs, and scope — asks non-obvious questions until the spec is ready.
+Launches an in-depth interview to build a complete implementation spec. Covers technical details, UI/UX, concerns, tradeoffs, and scope - asks non-obvious questions until the spec is ready.
 
 ```
 /spec-gen
@@ -79,7 +79,7 @@ Launches an in-depth interview to build a complete implementation spec. Covers t
 
 ### `/validate-quality-gates`
 
-Runs build, lint, typecheck, test, and test:coverage in a loop — fixing failures as it goes until all checks pass cleanly.
+Runs build, lint, typecheck, test, and test:coverage in a loop - fixing failures as it goes until all checks pass cleanly.
 
 ```
 /validate-quality-gates

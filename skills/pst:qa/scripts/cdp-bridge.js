@@ -1,15 +1,15 @@
 #!/usr/bin/env node
 'use strict';
 
-// CDP Bridge — Chrome DevTools Protocol helper for QA testing.
+// CDP Bridge - Chrome DevTools Protocol helper for QA testing.
 // Zero npm dependencies. Requires Node 22+ (native WebSocket).
 //
 // Commands:
-//   launch    — Start Chrome with remote debugging, return connection info
-//   stream    — Background process that logs CDP events to a JSONL file
-//   capture   — One-shot queries: dom, screenshot, url, metrics
-//   run       — Execute browser actions: navigate, click, type, focus, evaluate
-//   teardown  — Kill Chrome + stream processes, clean up temp files
+//   launch    - Start Chrome with remote debugging, return connection info
+//   stream    - Background process that logs CDP events to a JSONL file
+//   capture   - One-shot queries: dom, screenshot, url, metrics
+//   run       - Execute browser actions: navigate, click, type, focus, evaluate
+//   teardown  - Kill Chrome + stream processes, clean up temp files
 
 const { parseArgs } = require('node:util');
 const { execSync, spawn } = require('node:child_process');
@@ -93,7 +93,7 @@ function locateBrowser() {
     }
   }
 
-  // Linux / fallback — try PATH
+  // Linux / fallback - try PATH
   const names = ['google-chrome', 'google-chrome-stable', 'chromium', 'chromium-browser'];
   for (const name of names) {
     try {
@@ -146,7 +146,7 @@ function pause(ms) {
 }
 
 // ---------------------------------------------------------------------------
-// ChromeLink — CDP WebSocket connection
+// ChromeLink - CDP WebSocket connection
 // ---------------------------------------------------------------------------
 
 class ChromeLink {

@@ -28,7 +28,7 @@ if [[ "${1:-}" == "--uninstall" ]]; then
       rm "$dst"
       echo "Uninstalled /$skill (removed $dst)"
     else
-      echo "Nothing to uninstall — $dst not found."
+      echo "Nothing to uninstall - $dst not found."
     fi
   done
   exit 0
@@ -71,7 +71,7 @@ if command -v npx &>/dev/null; then
   done
 else
   echo ""
-  echo "WARNING: npx not found — skipping external skill dependencies."
+  echo "WARNING: npx not found - skipping external skill dependencies."
   echo "         Install Node.js and run ./install.sh again to get Vercel react-best-practices."
 fi
 

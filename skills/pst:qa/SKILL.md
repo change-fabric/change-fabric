@@ -1,6 +1,6 @@
 ---
 name: pst:qa
-description: Autonomous QA testing — synthesizes test plans from PR context, executes via browser automation, auto-judges pass/fail
+description: Autonomous QA testing - synthesizes test plans from PR context, executes via browser automation, auto-judges pass/fail
 argument-hint: "[PR-number | PR-URL] [--post-merge] [--guided]"
 allowed-tools: Bash, Read, Edit, Grep, Glob, AskUserQuestion, Agent
 ---
@@ -20,7 +20,7 @@ Synthesize a test plan from PR context and code changes, then execute it via bro
 1. Matches `https://github.com/.*/pull/\d+` → **PR URL** → extract PR number
 2. Matches `^\d+$` → **PR number**
 3. `--post-merge` flag: Force post-merge mode (skip PR context gathering)
-4. `--guided` flag: Interactive mode — human performs steps, judges pass/fail
+4. `--guided` flag: Interactive mode - human performs steps, judges pass/fail
 
 **Defaults:** Autonomous execution, pre-merge mode.
 
@@ -58,15 +58,15 @@ If found → store PR metadata. If not found → use **AskUserQuestion**:
 No open PR found for this branch.
 
 Options:
-1. Pre-merge — I'll create a PR later
-2. Post-merge — the feature is already merged
+1. Pre-merge - I'll create a PR later
+2. Post-merge - the feature is already merged
 3. Abort
 ```
 
 **Stacked PR detection**: If `BASE_BRANCH` differs from the repo's default branch:
 
 ```
-Note: Stacked PR detected — PR #{N} will be diffed against {BASE_BRANCH}, not the default branch.
+Note: Stacked PR detected - PR #{N} will be diffed against {BASE_BRANCH}, not the default branch.
 ```
 
 ---
@@ -121,7 +121,7 @@ Set `QA_WORKTREE=true`, work from `$QA_DIR` for all subsequent stages.
 
 ## Context Gathering
 
-Gather all available context to build a test plan. No external project management tools — everything comes from the repo and PR.
+Gather all available context to build a test plan. No external project management tools - everything comes from the repo and PR.
 
 **1. PR Description**
 
@@ -245,7 +245,7 @@ Test Data: {specific data needed, or "N/A"}
 **If guided**, present via **AskUserQuestion**:
 
 ```
-TEST PLAN — PR #{N}
+TEST PLAN - PR #{N}
 ─────────────────
 
 Mode: {pre-merge|post-merge}
@@ -331,12 +331,12 @@ Set `QA_URL=http://localhost:$QA_PORT`.
 
 ### Browser Tier Selection
 
-Resolve once before the first test case. Check in order — first available wins:
+Resolve once before the first test case. Check in order - first available wins:
 
 | Tier | Method         | Detection                                       | When                       |
 | ---- | -------------- | ----------------------------------------------- | -------------------------- |
-| 0    | Playwright MCP | `mcp__playwright__browser_navigate` is callable | Preferred — headless, fast |
-| 1    | CDP bridge     | Script exists at resolved path                  | Fallback — visible Chrome  |
+| 0    | Playwright MCP | `mcp__playwright__browser_navigate` is callable | Preferred - headless, fast |
+| 1    | CDP bridge     | Script exists at resolved path                  | Fallback - visible Chrome  |
 | 2    | Manual / human | Neither available                               | Last resort                |
 
 **Resolve CDP bridge path:**
@@ -374,18 +374,18 @@ When using Playwright MCP, skip CDP launch entirely. Navigate to `$QA_URL` befor
 
 Playwright MCP tools reference:
 
-- `mcp__playwright__browser_navigate` — navigate to URLs
-- `mcp__playwright__browser_click` — click elements
-- `mcp__playwright__browser_fill_form` — fill form fields
-- `mcp__playwright__browser_type` — type text
-- `mcp__playwright__browser_press_key` — press keys
-- `mcp__playwright__browser_take_screenshot` — capture evidence
-- `mcp__playwright__browser_wait_for` — wait for async updates
-- `mcp__playwright__browser_snapshot` — accessibility tree for DOM verification
-- `mcp__playwright__browser_evaluate` — run JS assertions
-- `mcp__playwright__browser_drag` — drag-and-drop
-- `mcp__playwright__browser_hover` — hover
-- `mcp__playwright__browser_select_option` — dropdowns
+- `mcp__playwright__browser_navigate` - navigate to URLs
+- `mcp__playwright__browser_click` - click elements
+- `mcp__playwright__browser_fill_form` - fill form fields
+- `mcp__playwright__browser_type` - type text
+- `mcp__playwright__browser_press_key` - press keys
+- `mcp__playwright__browser_take_screenshot` - capture evidence
+- `mcp__playwright__browser_wait_for` - wait for async updates
+- `mcp__playwright__browser_snapshot` - accessibility tree for DOM verification
+- `mcp__playwright__browser_evaluate` - run JS assertions
+- `mcp__playwright__browser_drag` - drag-and-drop
+- `mcp__playwright__browser_hover` - hover
+- `mcp__playwright__browser_select_option` - dropdowns
 
 If any Playwright tool fails with tool-not-found → fall back to Tier 1 (CDP) for remaining tests.
 
@@ -412,9 +412,9 @@ Save to `$QA_EVIDENCE_DIR/progress.json`. Update after each test case completes.
 
 ### Autonomous Execution (default)
 
-**CRITICAL — COMPLETION MANDATE:** Execute ALL test cases without stopping. Do NOT pause or end your turn until every test case is done and Cleanup + Report stages are complete. The ONLY reason to stop is a fallback-to-human scenario.
+**CRITICAL - COMPLETION MANDATE:** Execute ALL test cases without stopping. Do NOT pause or end your turn until every test case is done and Cleanup + Report stages are complete. The ONLY reason to stop is a fallback-to-human scenario.
 
-**Pre-test check (Tier 1 — CDP):**
+**Pre-test check (Tier 1 - CDP):**
 
 ```bash
 grep '"exception"' "$CDP_JSONL" | tail -5
@@ -425,7 +425,7 @@ Log warnings if errors found.
 
 **For each test case TC-N:**
 
-**Step 1 — Execute steps.**
+**Step 1 - Execute steps.**
 
 Tier 0 (Playwright):
 
@@ -440,7 +440,7 @@ Tier 1 (CDP):
 - Type → `run --type focus --selector "$S"` + `run --type type --text "$TEXT"`
 - Wait → check URL via `capture --port $CDP_PORT --type url`
 
-**Step 2 — Capture evidence.**
+**Step 2 - Capture evidence.**
 
 Tier 0: `browser_take_screenshot` → save to `$QA_EVIDENCE_DIR/tc${N}-result.png`
 Tier 1:
@@ -451,7 +451,7 @@ node "$CDP_BRIDGE" capture --port $CDP_PORT --type dom
 node "$CDP_BRIDGE" capture --port $CDP_PORT --type url
 ```
 
-**Step 3 — Auto-judge.**
+**Step 3 - Auto-judge.**
 
 Compare actual state against expected result:
 
@@ -462,12 +462,12 @@ Compare actual state against expected result:
 
 Verdicts: `pass` | `fail` | `skip` (precondition not met)
 
-**Step 4 — Record.**
+**Step 4 - Record.**
 
 Update `progress.json`. Log to terminal:
 
 ```
-TC-{N}: {title} — {PASS|FAIL|SKIP}
+TC-{N}: {title} - {PASS|FAIL|SKIP}
   {brief explanation if fail/skip}
 ```
 
@@ -553,7 +553,7 @@ If removal fails, warn with manual cleanup command.
 Generate `$QA_EVIDENCE_DIR/report.md`:
 
 ```markdown
-# QA Report — PR #{N}
+# QA Report - PR #{N}
 
 **Date:** {ISO date}
 **Mode:** {pre-merge|post-merge}
@@ -568,11 +568,11 @@ Generate `$QA_EVIDENCE_DIR/report.md`:
 
 ## Results
 
-### TC-1: {title} — PASS
+### TC-1: {title} - PASS
 
 Evidence: tc1-result.png
 
-### TC-2: {title} — FAIL
+### TC-2: {title} - FAIL
 
 **Actual:** {what happened}
 **Expected:** {what should have happened}
@@ -602,7 +602,7 @@ If a PR exists and mode is not `--post-merge`:
 
 ```bash
 gh pr comment $PR_NUMBER --body "$(cat <<'EOF'
-## QA Results — {PASSED|FAILED|PARTIAL}
+## QA Results - {PASSED|FAILED|PARTIAL}
 
 | Total | Pass | Fail | Skip |
 |-------|------|------|------|
@@ -613,7 +613,7 @@ gh pr comment $PR_NUMBER --body "$(cat <<'EOF'
 <details>
 <summary>Full Results</summary>
 
-{Per test case: TC-N: title — verdict}
+{Per test case: TC-N: title - verdict}
 
 </details>
 
@@ -628,24 +628,24 @@ EOF
 
 After posting the QA comment, check off any PR description checkboxes whose corresponding test cases passed.
 
-**Step 1 — Identify passed checkboxes:**
+**Step 1 - Identify passed checkboxes:**
 
 From the test results, collect all test cases that:
 
 - Have a verdict of `pass`
 - Have a `PR Checkbox Index` that is not `N/A`
 
-**Step 2 — Fetch current PR body:**
+**Step 2 - Fetch current PR body:**
 
 ```bash
 PR_BODY=$(gh pr view $PR_NUMBER --json body --jq .body)
 ```
 
-**Step 3 — Replace checkboxes:**
+**Step 3 - Replace checkboxes:**
 
 For each passed checkbox index, replace the Nth unchecked checkbox (`- [ ]`) with a checked one (`- [x]`). Process replacements from highest index to lowest to preserve positional accuracy.
 
-**Step 4 — Update PR description:**
+**Step 4 - Update PR description:**
 
 Use the GitHub API to update the PR body (avoids token scope issues with `gh pr edit`):
 
@@ -653,7 +653,7 @@ Use the GitHub API to update the PR body (avoids token scope issues with `gh pr 
 gh api repos/{owner}/{repo}/pulls/$PR_NUMBER --method PATCH --field body="$UPDATED_BODY"
 ```
 
-**Step 5 — Log result:**
+**Step 5 - Log result:**
 
 ```
 PR checkboxes updated: {N} of {total} checked off

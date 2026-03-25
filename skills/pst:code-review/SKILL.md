@@ -1,6 +1,6 @@
 ---
 name: pst:code-review
-description: Code review with worktree-isolated fix verification — every finding must survive a quality gate before being reported
+description: Code review with worktree-isolated fix verification - every finding must survive a quality gate before being reported
 argument-hint: "[PR-number | PR-URL | --local | --preflight | --autofix | --sweep]"
 allowed-tools: Bash, Read, Edit, Grep, Glob, Agent, AskUserQuestion
 ---
@@ -18,11 +18,11 @@ Perform a **context-aware code review** where every finding is validated by appl
 **Parse arguments:**
 
 - PR number (e.g., `42`)
-- PR URL (e.g., `https://github.com/{owner}/{repo}/pull/{N}`) — including cross-repo
-- `--local` — terminal output only, no GitHub interaction
-- `--preflight` — alias for `--local`. Terminal output only, no GitHub interaction
-- `--autofix` — fully autonomous: apply all verified fixes + auto-approve the PR
-- `--sweep` — multi-round autonomous review-and-fix loop until clean or max rounds
+- PR URL (e.g., `https://github.com/{owner}/{repo}/pull/{N}`) - including cross-repo
+- `--local` - terminal output only, no GitHub interaction
+- `--preflight` - alias for `--local`. Terminal output only, no GitHub interaction
+- `--autofix` - fully autonomous: apply all verified fixes + auto-approve the PR
+- `--sweep` - multi-round autonomous review-and-fix loop until clean or max rounds
 
 **Default: GitHub PR mode** (post review to PR). `--local` or `--preflight` for terminal-only output. `--autofix` for autonomous fix + approve. `--sweep` for iterative cleanup.
 
@@ -43,9 +43,9 @@ cd "$REVIEW_DIR" && gh pr checkout {N}
 
 Combines worktree isolation and branch freshness checking into a single stage.
 
-**Skip if `--sweep`** — sweep mode operates on the current working directory against the default branch.
+**Skip if `--sweep`** - sweep mode operates on the current working directory against the default branch.
 
-**Skip if cross-repo** — already cloned to `REVIEW_DIR` above.
+**Skip if cross-repo** - already cloned to `REVIEW_DIR` above.
 
 **Resolve PR head:**
 
@@ -93,7 +93,7 @@ For `--sweep` mode: compute merge-base via `git merge-base origin/$DEFAULT_BRANC
 
 ## Context Gathering
 
-Build a picture of the codebase and the change under review. No external project management tool integration — all context comes from the repo and PR.
+Build a picture of the codebase and the change under review. No external project management tool integration - all context comes from the repo and PR.
 
 1. **Repo context**: Read `CLAUDE.md`, `.context/architecture.md`, `.context/patterns.md`, recent ADRs (cap at 10 most recent)
 2. **PR metadata**: `gh pr view {N} --json number,title,body,baseRefName,headRefName,url,labels` + `gh pr diff {N}`
@@ -106,9 +106,9 @@ Build a picture of the codebase and the change under review. No external project
        ...
      ]
      ```
-     The `index` is the positional occurrence (0-based) in the full PR body. Include checkbox items as additional review verification targets — if a checkbox describes something verifiable through code analysis (e.g., "no regressions", "handles edge case X"), treat it as a review item to validate during Analysis.
-3. **Commit messages**: `git log --oneline {base}...HEAD` — understand the narrative of changes
-4. **No context available?** → Use AskUserQuestion: "What is this project? Key architectural patterns? Critical invariants?" — gather minimum sufficient context for this review round.
+     The `index` is the positional occurrence (0-based) in the full PR body. Include checkbox items as additional review verification targets - if a checkbox describes something verifiable through code analysis (e.g., "no regressions", "handles edge case X"), treat it as a review item to validate during Analysis.
+3. **Commit messages**: `git log --oneline {base}...HEAD` - understand the narrative of changes
+4. **No context available?** → Use AskUserQuestion: "What is this project? Key architectural patterns? Critical invariants?" - gather minimum sufficient context for this review round.
 5. **Pattern inference**: For each changed file, sample 2-3 similar files (same directory, same extension). Detect patterns: naming conventions, import ordering, error handling style, test structure. Only flag deviations when **75%+ of sampled files agree** on a pattern. Tag these as "inferred pattern" findings.
 
 ---
@@ -158,9 +158,9 @@ Agent:
 **Sub-agent workflow:**
 
 1. Read the file and surrounding code context
-2. **Trace the dependency graph** — follow callers/callees until hitting system boundaries (API, DB, external service). Understand the blast radius.
+2. **Trace the dependency graph** - follow callers/callees until hitting system boundaries (API, DB, external service). Understand the blast radius.
 3. Validate against: ADRs, patterns files, inferred patterns from the Analysis stage
-4. **Filter check** — DISCARD the finding if:
+4. **Filter check** - DISCARD the finding if:
    - It's a style preference disguised as a warning (rename, blank line, import order)
    - It flags a phantom bug from incomplete context (e.g., non-null flagged as nullable when the type system guarantees it)
    - CI tooling would already catch it (eslint, tsc, prettier rules)
@@ -201,7 +201,7 @@ Write comments to a temp JSON file, pass via `--input`, clean up after.
 **Inline comment format:**
 
 ````markdown
-**R{N}** `{severity}` — {title}
+**R{N}** `{severity}` - {title}
 
 {problem description in 1-2 sentences}
 
@@ -259,7 +259,7 @@ Multi-round autonomous code review with auto-fix. No GitHub interaction.
 
 1. Compute diff: `git diff $(git merge-base origin/$DEFAULT_BRANCH HEAD)...HEAD`
 2. Run full Analysis + Verification (autonomous, no AskUserQuestion)
-3. Collect VERIFIED findings (criticals + warnings only — skip nits in sweep)
+3. Collect VERIFIED findings (criticals + warnings only - skip nits in sweep)
 4. If `round >= MIN_ROUNDS` AND 0 criticals → print clean summary, exit loop
 5. If criticals found:
    - Auto-apply all verified fixes
@@ -279,7 +279,7 @@ Fixed: {file list} | Commit: {short hash}
 **Final summary:**
 
 ```
-SWEEP COMPLETE — {N} round(s), {total fixes} applied, status: CLEAN|REMAINING
+SWEEP COMPLETE - {N} round(s), {total fixes} applied, status: CLEAN|REMAINING
 ```
 
 ### Conversation Resolution
@@ -306,7 +306,7 @@ To get thread node IDs, query review threads before prompting:
 gh api graphql -f query='{ repository(owner: "OWNER", name: "REPO") { pullRequest(number: N) { reviewThreads(first: 50) { nodes { id isResolved comments(first: 1) { nodes { databaseId body path line } } } } } } }'
 ```
 
-Match `databaseId` to REST comment IDs to correlate threads. **Always resolve after replying** — responding without resolving leaves conversations dangling.
+Match `databaseId` to REST comment IDs to correlate threads. **Always resolve after replying** - responding without resolving leaves conversations dangling.
 
 In `--autofix` mode: auto-reply "Fixed" for conversations whose findings were addressed in this run. Leave others unresolved.
 
@@ -321,7 +321,7 @@ After posting the review and resolving conversations, check off PR description c
 A PR checkbox is eligible to be checked if:
 
 - It describes something verifiable through static code analysis (e.g., "handles error case X", "validates input", "no regressions in Y")
-- The review confirmed the behavior is correct — either no related findings, or related findings were all nits
+- The review confirmed the behavior is correct - either no related findings, or related findings were all nits
 - It was NOT contradicted by a critical or warning finding
 
 Do NOT check off checkboxes that:
@@ -330,23 +330,23 @@ Do NOT check off checkboxes that:
 - Were associated with a critical or warning finding
 - Are ambiguous or cannot be determined from code analysis alone
 
-**Step 1 — Fetch current PR body:**
+**Step 1 - Fetch current PR body:**
 
 ```bash
 PR_BODY=$(gh pr view $PR_NUMBER --json body --jq .body)
 ```
 
-**Step 2 — Replace checkboxes:**
+**Step 2 - Replace checkboxes:**
 
 For each verified checkbox index, replace the Nth unchecked checkbox (`- [ ]`) with `- [x]`. Process from highest index to lowest.
 
-**Step 3 — Update PR description:**
+**Step 3 - Update PR description:**
 
 ```bash
 gh api repos/{owner}/{repo}/pulls/$PR_NUMBER --method PATCH --field body="$UPDATED_BODY"
 ```
 
-**Step 4 — Log result:**
+**Step 4 - Log result:**
 
 ```
 PR checkboxes updated: {N} of {total} checked off ({M} require manual/runtime verification)
