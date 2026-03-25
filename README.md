@@ -17,9 +17,11 @@ cd skills
 This creates symlinks for all skills, making them available system-wide:
 
 - **Claude Code**: `~/.claude/commands/{name}.md` (file symlinks)
-- **OpenAI Codex**: `~/.codex/skills/{name}/` (directory symlinks) -- only if `~/.codex/` exists
+- **OpenAI Codex**: `$CODEX_HOME/skills/{name}/` (directory symlinks, defaults to `~/.codex/skills/`)
 
-Re-run `./install.sh` any time you install a new CLI to pick it up.
+Re-run `./install.sh` any time you install a new CLI to pick it up. Restart Codex after installing new skills so it reloads them.
+
+Codex skills are not invoked as slash commands. In Codex, mention the skill name in your prompt, for example: `Use pst:push to push this branch and validate the PR.`
 
 ## Uninstall
 
@@ -27,7 +29,7 @@ Re-run `./install.sh` any time you install a new CLI to pick it up.
 ./install.sh --uninstall
 ```
 
-Removes symlinks from both `~/.claude/commands/` and `~/.codex/skills/`.
+Removes symlinks from both `~/.claude/commands/` and `$CODEX_HOME/skills/`.
 
 ## Skills
 

@@ -3,7 +3,12 @@ set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "$0")" && pwd)"
 CLAUDE_COMMANDS_DIR="$HOME/.claude/commands"
-CODEX_SKILLS_DIR="$HOME/.codex/skills"
+CODEX_HOME_SET=false
+if [[ -n "${CODEX_HOME:-}" ]]; then
+  CODEX_HOME_SET=true
+fi
+CODEX_HOME="${CODEX_HOME:-$HOME/.codex}"
+CODEX_SKILLS_DIR="$CODEX_HOME/skills"
 
 SKILLS=(
   "decide-for-me"
@@ -49,7 +54,8 @@ fi
 mkdir -p "$CLAUDE_COMMANDS_DIR"
 
 CODEX_AVAILABLE=false
-if [[ -d "$HOME/.codex" ]]; then
+if [[ "$CODEX_HOME_SET" == true || -d "$CODEX_HOME" || -x "$(command -v codex 2>/dev/null)" ]]; then
+  mkdir -p "$CODEX_HOME"
   mkdir -p "$CODEX_SKILLS_DIR"
   CODEX_AVAILABLE=true
 fi
@@ -116,10 +122,14 @@ fi
 echo ""
 echo "Skills installed for Claude Code (${#SKILLS[@]} skills -> ~/.claude/commands/)"
 if [[ "$CODEX_AVAILABLE" == true ]]; then
-  echo "Skills installed for OpenAI Codex  (${#SKILLS[@]} skills -> ~/.codex/skills/)"
+  echo "Skills installed for OpenAI Codex  (${#SKILLS[@]} skills -> $CODEX_SKILLS_DIR/)"
+  echo "Restart Codex to pick up new skills."
 else
-  echo "Codex CLI not detected (~/.codex/ not found) -- skipping Codex install."
-  echo "Re-run ./install.sh after installing Codex to enable."
+  echo "Codex CLI not detected and CODEX_HOME not set -- skipping Codex install."
+  echo "Re-run ./install.sh after installing Codex or set CODEX_HOME to enable."
 fi
 echo ""
-echo "Available: /decide-for-me, /pst:auto, /pst:code-review, /pst:demo, /pst:figma, /pst:markdown, /pst:next, /pst:push, /pst:qa, /pst:react-refactor, /pst:slop, /spec-gen, /validate-quality-gates"
+echo "Claude commands: /decide-for-me, /pst:auto, /pst:code-review, /pst:demo, /pst:figma, /pst:markdown, /pst:next, /pst:push, /pst:qa, /pst:react-refactor, /pst:slop, /spec-gen, /validate-quality-gates"
+if [[ "$CODEX_AVAILABLE" == true ]]; then
+  echo "Codex skills: mention the skill name in your prompt, for example: 'Use pst:push to push this branch and validate the PR.'"
+fi
