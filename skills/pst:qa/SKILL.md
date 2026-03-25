@@ -1,7 +1,7 @@
 ---
 name: pst:qa
 description: Autonomous QA testing - synthesizes test plans from PR context, executes via browser automation, auto-judges pass/fail
-argument-hint: "[PR-number | PR-URL] [--post-merge] [--guided]"
+argument-hint: "[PR-number | PR-URL] [--post-merge] [--guided] [--preflight]"
 allowed-tools: Bash, Read, Edit, Grep, Glob, AskUserQuestion, Agent
 ---
 
@@ -21,6 +21,7 @@ Synthesize a test plan from PR context and code changes, then execute it via bro
 2. Matches `^\d+$` → **PR number**
 3. `--post-merge` flag: Force post-merge mode (skip PR context gathering)
 4. `--guided` flag: Interactive mode - human performs steps, judges pass/fail
+5. `--preflight` flag: Local-only mode - terminal output only, no artifacts saved to repo, no GitHub/Jira interaction
 
 **Defaults:** Autonomous execution, pre-merge mode.
 
@@ -391,6 +392,14 @@ If any Playwright tool fails with tool-not-found → fall back to Tier 1 (CDP) f
 
 ### Evidence Directory
 
+**If `--preflight`:** Use a temporary directory for evidence (screenshots needed for auto-judging but not persisted):
+
+```bash
+QA_EVIDENCE_DIR=$(mktemp -d "${TMPDIR:-/tmp}/pst-qa-preflight-XXXXXX")
+```
+
+**Otherwise:**
+
 ```bash
 QA_EVIDENCE_DIR=".qa/pr-${PR_NUMBER}"
 mkdir -p "$QA_EVIDENCE_DIR"
@@ -548,7 +557,31 @@ If removal fails, warn with manual cleanup command.
 
 ## Report & Evidence
 
+### Preflight Mode (`--preflight`)
+
+**Skip** all artifact persistence and external interaction (Write Report, Commit Evidence, Post PR Comment, Update PR Checkboxes). Instead:
+
+**1. Print the full report to terminal** using the same markdown format as the report file (summary table + per-test-case results with verdicts and failure details).
+
+**2. Suggest next step** based on results:
+
+- **All pass:** "All tests passed. Run `/pst:qa` (without `--preflight`) to save evidence and post results to the PR."
+- **Any fail:** "Failures detected. Fix the issues above, then re-run `/pst:qa --preflight` to verify before posting."
+- **All skip:** "All tests were skipped. Check preconditions and environment setup."
+
+**3. Clean up temp evidence directory:**
+
+```bash
+rm -rf "$QA_EVIDENCE_DIR"
+```
+
+**4. Print the Output Contract** (with `evidence: none (preflight)`, `github-comment: skipped (preflight)`, `pr-checkboxes: skipped (preflight)`), then stop.
+
+---
+
 ### Write Report
+
+**Skip if `--preflight`.**
 
 Generate `$QA_EVIDENCE_DIR/report.md`:
 
@@ -583,6 +616,8 @@ Evidence: tc2-result.png
 
 ### Commit Evidence (pre-merge only)
 
+**Skip if `--preflight`.**
+
 If there are screenshots or report files:
 
 ```bash
@@ -597,6 +632,8 @@ git push origin HEAD:refs/heads/$HEAD_BRANCH
 ```
 
 ### Post PR Comment
+
+**Skip if `--preflight`.**
 
 If a PR exists and mode is not `--post-merge`:
 
@@ -624,7 +661,7 @@ EOF
 
 ### Update PR Checkboxes
 
-**Skip if:** `--post-merge`, `--local`, or no PR exists.
+**Skip if:** `--post-merge`, `--preflight`, `--local`, or no PR exists.
 
 After posting the QA comment, check off any PR description checkboxes whose corresponding test cases passed.
 
