@@ -1,7 +1,7 @@
 ---
 name: pst:push
 description: Auto-commit, push to PR, refresh PR description, validate test plan, and check off passing items.
-argument-hint: "[--dry-run] [--comment]"
+argument-hint: "[--dry-run] [--comment] [--no-desc]"
 allowed-tools: Bash, Read, Grep, Glob, Agent
 ---
 
@@ -23,6 +23,7 @@ This is a lightweight alternative to `/pst:qa` -- terminal commands only, no bro
 
 - `--dry-run` - analyze and validate locally without pushing, creating PRs, posting comments, or updating checkboxes
 - `--comment` - also post a validation results comment on the GitHub PR (Phase 6a)
+- `--no-desc` - skip refreshing the PR title and description (Phase 3). Useful when you've manually crafted the PR description and don't want it overwritten.
 - No arguments - full push, PR refresh, validate, and checkbox update cycle (terminal output only, no GitHub comment)
 
 ---
@@ -154,7 +155,7 @@ Store the new `PR_NUMBER`, `PR_URL`, `PR_BODY`.
 
 Every run, update the PR title and body to accurately reflect the **full** set of changes on the branch -- not just the latest commit. PRs drift as work accumulates; this phase keeps them honest.
 
-**Skip if `--dry-run` or no PR exists.**
+**Skip if `--dry-run`, `--no-desc`, or no PR exists.**
 
 ### 3a. Gather Full Branch Context
 
@@ -370,7 +371,7 @@ Always print this block at the end for machine parsing:
 branch: {BRANCH}
 pr: #{N} ({url})
 pushed: {yes|skipped (dry-run)}
-pr-refreshed: {yes|no (just created)|skipped (dry-run)}
+pr-refreshed: {yes|no (just created)|skipped (dry-run)|skipped (--no-desc)}
 checkboxes: {total found}
 pass: {N} | fail: {N} | skip: {N}
 pr-comment: {posted|skipped (dry-run)|skipped (no --comment)}
