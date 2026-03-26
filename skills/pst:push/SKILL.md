@@ -1,13 +1,15 @@
 ---
 name: pst:push
-description: Auto-commit, push to PR, refresh PR description, and validate test plan checkboxes
-argument-hint: "[--dry-run] [--no-validate]"
+description: Auto-commit, push to PR, refresh PR description, validate test plan, and check off passing items.
+argument-hint: "[--dry-run] [--comment]"
 allowed-tools: Bash, Read, Grep, Glob, Agent
 ---
 
 # Push & Validate
 
-Auto-commit uncommitted changes, push the current branch, ensure a PR exists against the default branch, refresh the PR title and description to reflect all changes on the branch, then autonomously validate every unchecked test-plan checkbox. Post a validation comment and check off passing items.
+Auto-commit uncommitted changes, push the current branch, ensure a PR exists against the default branch, refresh the PR title and description to reflect all changes on the branch, then validate every unchecked test-plan checkbox locally and check off passing items on the PR.
+
+By default, validation results are shown in the terminal only. Pass `--comment` to also post a validation results comment on the GitHub PR.
 
 This is a lightweight alternative to `/pst:qa` -- terminal commands only, no browser automation.
 
@@ -19,9 +21,9 @@ This is a lightweight alternative to `/pst:qa` -- terminal commands only, no bro
 
 **Parse arguments:**
 
-- `--dry-run` - validate locally without pushing, creating PRs, posting comments, or updating checkboxes
-- `--no-validate` - push and refresh the PR but skip validation, the validation comment, and checkbox updates (skips Phases 4-6)
-- No arguments - full push-and-validate cycle
+- `--dry-run` - analyze and validate locally without pushing, creating PRs, posting comments, or updating checkboxes
+- `--comment` - also post a validation results comment on the GitHub PR (Phase 6a)
+- No arguments - full push, PR refresh, validate, and checkbox update cycle (terminal output only, no GitHub comment)
 
 ---
 
@@ -232,8 +234,6 @@ Store the updated body as `PR_BODY` for checkbox parsing in the next phase.
 
 ## Phase 4 - Parse Checkboxes
 
-**Skip if `--no-validate`.**
-
 Parse all unchecked checkboxes (`- [ ] ...`) from `PR_BODY`. Store them in a tracking list:
 
 ```
@@ -251,8 +251,6 @@ The `index` is the positional occurrence of the checkbox in the full PR body (0-
 ---
 
 ## Phase 5 - Validate
-
-**Skip if `--no-validate`.**
 
 For each unchecked checkbox, interpret the text and run a code-level validation.
 
@@ -302,11 +300,9 @@ For each checkbox:
 
 ## Phase 6 - Report & Update
 
-**Skip if `--no-validate`.**
-
 ### 6a. Post Validation Comment
 
-**Skip if `--dry-run`.**
+**Skip unless `--comment`. Skip if `--dry-run`.**
 
 ```bash
 gh pr comment $PR_NUMBER --body "$(cat <<'EOF'
@@ -375,10 +371,10 @@ branch: {BRANCH}
 pr: #{N} ({url})
 pushed: {yes|skipped (dry-run)}
 pr-refreshed: {yes|no (just created)|skipped (dry-run)}
-checkboxes: {total found|skipped (no-validate)}
-pass: {N} | fail: {N} | skip: {N}     {omit if --no-validate}
-pr-comment: {posted|skipped (dry-run)|skipped (no-validate)}
-pr-checkboxes: {N checked}/{total}|skipped (no-validate)}
+checkboxes: {total found}
+pass: {N} | fail: {N} | skip: {N}
+pr-comment: {posted|skipped (dry-run)|skipped (no --comment)}
+pr-checkboxes: {N checked}/{total}
 --- END PUSH RESULT ---
 ```
 
