@@ -348,7 +348,16 @@ mkdir -p "{SKILL_DIR}"
 
 2. Write the generated content to `$SKILL_PATH` using the Write tool.
 
-3. Print the output contract:
+3. Create a symlink for Claude Code slash-command discovery:
+
+```bash
+mkdir -p ".claude/commands"
+ln -sf "../../${SKILL_DIR}/SKILL.md" ".claude/commands/${APP_ID}:demo:${FEATURE_NAME}.md"
+```
+
+This makes the skill discoverable via `/` autocomplete in Claude Code while keeping the canonical file in `.agents/skills/` for cross-agent compatibility (e.g., OpenAI Codex).
+
+4. Print the output contract:
 
 ```
 DEMO SKILL GENERATED
@@ -360,8 +369,10 @@ Mode:     {created | updated}
 Steps:    {N}
 Est. runtime: ~{N} min
 
+Symlink: .claude/commands/{APP_ID}:demo:{FEATURE_NAME}.md → {SKILL_PATH}
+
 Ready to commit with your feature branch:
-  git add "{SKILL_PATH}"
+  git add "{SKILL_PATH}" ".claude/commands/${APP_ID}:demo:${FEATURE_NAME}.md"
 
 To run the demo:
   /{APP_ID}:demo:{FEATURE_NAME}

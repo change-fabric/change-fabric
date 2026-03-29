@@ -1,7 +1,7 @@
 ---
 name: pst:qa
 description: Autonomous QA testing - synthesizes test plans from PR context, executes via browser automation, auto-judges pass/fail
-argument-hint: "[PR-number | PR-URL] [--post-merge] [--guided] [--preflight]"
+argument-hint: "[PR-number | PR-URL] [--post-merge] [--guided] [--preflight] [--save-evidence]"
 allowed-tools: Bash, Read, Edit, Grep, Glob, AskUserQuestion, Agent
 ---
 
@@ -22,6 +22,7 @@ Synthesize a test plan from PR context and code changes, then execute it via bro
 3. `--post-merge` flag: Force post-merge mode (skip PR context gathering)
 4. `--guided` flag: Interactive mode - human performs steps, judges pass/fail
 5. `--preflight` flag: Local-only mode - terminal output only, no artifacts saved to repo, no GitHub/Jira interaction
+6. `--save-evidence` flag: Persist QA evidence to the repo (`.qa/` directory), commit, and push to the PR branch. Without this flag, evidence uses a temp directory and is cleaned up after the run.
 
 **Defaults:** Autonomous execution, pre-merge mode.
 
@@ -392,13 +393,7 @@ If any Playwright tool fails with tool-not-found → fall back to Tier 1 (CDP) f
 
 ### Evidence Directory
 
-**If `--preflight`:** Use a temporary directory for evidence (screenshots needed for auto-judging but not persisted):
-
-```bash
-QA_EVIDENCE_DIR=$(mktemp -d "${TMPDIR:-/tmp}/pst-qa-preflight-XXXXXX")
-```
-
-**Otherwise:**
+**If `--save-evidence` (and not `--preflight`):**
 
 ```bash
 QA_EVIDENCE_DIR=".qa/pr-${PR_NUMBER}"
@@ -406,6 +401,12 @@ mkdir -p "$QA_EVIDENCE_DIR"
 ```
 
 For post-merge: `.qa/post-merge-$(date +%Y%m%d)/`
+
+**Otherwise (default):** Use a temporary directory for evidence (screenshots needed for auto-judging but not persisted):
+
+```bash
+QA_EVIDENCE_DIR=$(mktemp -d "${TMPDIR:-/tmp}/pst-qa-XXXXXX")
+```
 
 ### Progress Checkpoint
 
@@ -577,11 +578,23 @@ rm -rf "$QA_EVIDENCE_DIR"
 
 **4. Print the Output Contract** (with `evidence: none (preflight)`, `github-comment: skipped (preflight)`, `pr-checkboxes: skipped (preflight)`), then stop.
 
+### Default Mode (no `--save-evidence`, no `--preflight`)
+
+Runs the full QA flow including PR comment and checkbox updates, but does **not** persist evidence in the repo. After reporting:
+
+**1. Clean up temp evidence directory:**
+
+```bash
+rm -rf "$QA_EVIDENCE_DIR"
+```
+
+**2. Print Output Contract** with `evidence: none (temp, cleaned up)`.
+
 ---
 
 ### Write Report
 
-**Skip if `--preflight`.**
+**Skip unless `--save-evidence` is set (and not `--preflight`).**
 
 Generate `$QA_EVIDENCE_DIR/report.md`:
 
@@ -616,7 +629,7 @@ Evidence: tc2-result.png
 
 ### Commit Evidence (pre-merge only)
 
-**Skip if `--preflight`.**
+**Skip unless `--save-evidence` is set (and not `--preflight`).**
 
 If there are screenshots or report files:
 
@@ -654,7 +667,7 @@ gh pr comment $PR_NUMBER --body "$(cat <<'EOF'
 
 </details>
 
-Evidence committed to branch: `{HEAD_BRANCH}`
+{If --save-evidence: "Evidence committed to branch: `{HEAD_BRANCH}`" | Otherwise: omit this line}
 EOF
 )"
 ```
@@ -709,7 +722,7 @@ mode: {pre-merge|post-merge}
 execution: {autonomous|guided}
 result: {PASSED|FAILED|PARTIAL}
 total: {N} | pass: {M} | fail: {K} | skip: {J}
-evidence: {path to report}
+evidence: {path to report (--save-evidence) | none (default, cleaned up) | none (preflight)}
 github-comment: {posted|skipped}
 pr-checkboxes: {N checked}/{total found}
 --- END QA RESULT ---

@@ -95,6 +95,17 @@ Autonomous QA testing that synthesizes test plans from PR context and code diffs
 /pst:qa --post-merge
 ```
 
+### `/pst:resolve-threads`
+
+Address every unresolved conversation on a GitHub PR. Fetches all review threads, top-level comments, and review summaries, then classifies each (filtering out bots, CI previews, and redundant review summaries). For actionable feedback: tests a fix in an isolated worktree, and if it passes quality gates, squash-merges it into the branch and replies confirming. For inapplicable suggestions: replies with reasoning. Resolves all threads when done. Top-level comment replies include a blockquote of the original for clarity.
+
+```
+/pst:resolve-threads
+/pst:resolve-threads 42
+/pst:resolve-threads https://github.com/owner/repo/pull/42
+/pst:resolve-threads --dry-run
+```
+
 ### `/pst:react-refactor`
 
 Extract business logic from React/Next.js components into tested custom hooks. Uses [Vercel react-best-practices](https://github.com/vercel-labs/agent-skills) (64+ rules) as the industry baseline, layered with opinionated architecture preferences: hooks in `*.ts` files, comprehensive vitest coverage, zero `eslint-disable`, named exports only.

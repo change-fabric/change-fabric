@@ -19,12 +19,12 @@ Perform a **context-aware code review** where every finding is validated by appl
 
 - PR number (e.g., `42`)
 - PR URL (e.g., `https://github.com/{owner}/{repo}/pull/{N}`) - including cross-repo
-- `--local` - terminal output only, no GitHub interaction
-- `--preflight` - alias for `--local`. Terminal output only, no GitHub interaction
+- `--local` - terminal output only, no GitHub interaction (single pass)
+- `--preflight` - multi-round local review (min 3, max 5 rounds). Terminal output only, no GitHub interaction, no code edits
 - `--autofix` - fully autonomous: apply all verified fixes + auto-approve the PR
 - `--sweep` - multi-round autonomous review-and-fix loop until clean or max rounds
 
-**Default: GitHub PR mode** (post review to PR). `--local` or `--preflight` for terminal-only output. `--autofix` for autonomous fix + approve. `--sweep` for iterative cleanup.
+**Default: GitHub PR mode** (post review to PR). `--local` for single-pass terminal output. `--preflight` for multi-round terminal review (min 3, max 5 rounds). `--autofix` for autonomous fix + approve. `--sweep` for iterative cleanup.
 
 **Cross-repo detection:** If URL points to a different repo than the current directory:
 
@@ -43,7 +43,7 @@ cd "$REVIEW_DIR" && gh pr checkout {N}
 
 Combines worktree isolation and branch freshness checking into a single stage.
 
-**Skip if `--sweep`** - sweep mode operates on the current working directory against the default branch.
+**Skip if `--sweep` or `--preflight`** - these modes operate on the current working directory against the default branch.
 
 **Skip if cross-repo** - already cloned to `REVIEW_DIR` above.
 
@@ -238,9 +238,47 @@ Verify: {test command + expected result}
 
 **Shell safety:** always wrap body in heredoc with single-quoted delimiter (`'EOF'`).
 
-### Local Mode (`--local` / `--preflight`)
+### Local Mode (`--local`)
 
-Same Analysis + Verification stages. Output findings to terminal with severity markers. No GitHub interaction. No code edits.
+Same Analysis + Verification stages (single pass). Output findings to terminal with severity markers. No GitHub interaction. No code edits.
+
+### Preflight Mode (`--preflight`)
+
+Multi-round read-only code review. No GitHub interaction. No code edits. No AskUserQuestion calls (fully autonomous).
+
+**Constants:** `MIN_ROUNDS = 3`, `MAX_ROUNDS = 5`
+
+**Round loop:**
+
+1. Compute diff: `git diff $(git merge-base origin/$DEFAULT_BRANCH HEAD)...HEAD`
+2. Run full Analysis + Verification (autonomous)
+3. Collect VERIFIED findings (criticals + warnings only after round 1; include nits in round 1)
+4. If `round >= MIN_ROUNDS` AND 0 findings (criticals + warnings) → print clean summary, exit loop
+5. If findings remain AND `round < MAX_ROUNDS` → narrow focus for next round:
+   - Exclude file+line combinations already reported in prior rounds
+   - Increase scrutiny: look deeper at blast radius, edge cases, concurrency, and error paths
+   - Print round summary
+6. If `round == MAX_ROUNDS` AND findings remain → report all accumulated findings, exit loop
+
+**Important:** Preflight never modifies code. Each round re-analyzes the same diff with progressively deeper scrutiny, building a comprehensive findings list. Earlier rounds catch obvious issues; later rounds dig into subtler problems.
+
+**Terminal output per round:**
+
+```
+PREFLIGHT ROUND {N}/{MAX}
+Criticals: {n} | Warnings: {n} | Nits: {n}
+New findings: {list of R-IDs} | Cumulative: {total}
+```
+
+**Final summary:**
+
+```
+PREFLIGHT COMPLETE - {N} round(s), {total findings} reported
+  Criticals: {n} | Warnings: {n} | Nits: {n}
+  Status: CLEAN|FINDINGS_REMAIN
+```
+
+All findings from all rounds are presented in the final terminal output, deduplicated and sorted by severity.
 
 ### Autofix Mode (`--autofix`)
 
@@ -284,7 +322,7 @@ SWEEP COMPLETE - {N} round(s), {total fixes} applied, status: CLEAN|REMAINING
 
 ### Conversation Resolution
 
-**Skip if `--sweep` or `--local`.**
+**Skip if `--sweep`, `--local`, or `--preflight`.**
 
 After posting the review, check for unresolved conversations from prior reviews:
 
