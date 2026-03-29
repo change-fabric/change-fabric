@@ -142,7 +142,7 @@ Derive a PR title from the branch name or first commit subject. Build a PR body 
 Create the PR:
 
 ```bash
-gh pr create --base "$DEFAULT_BRANCH" --head "$BRANCH" --title "$TITLE" --body "$BODY"
+gh pr create --draft --base "$DEFAULT_BRANCH" --head "$BRANCH" --title "$TITLE" --body "$BODY"
 ```
 
 Store the new `PR_NUMBER`, `PR_URL`, `PR_BODY`.
