@@ -20,11 +20,11 @@ Perform a **context-aware code review** where every finding is validated by appl
 - PR number (e.g., `42`)
 - PR URL (e.g., `https://github.com/{owner}/{repo}/pull/{N}`) - including cross-repo
 - `--local` - terminal output only, no GitHub interaction (single pass)
-- `--preflight` - multi-round local review (min 3, max 5 rounds). Terminal output only, no GitHub interaction, no code edits
+- `--preflight` - multi-round local review with auto-fix (min 3, max 5 rounds). No GitHub interaction. Applies all verified fixes and commits.
 - `--autofix` - fully autonomous: apply all verified fixes + auto-approve the PR
 - `--sweep` - multi-round autonomous review-and-fix loop until clean or max rounds
 
-**Default: GitHub PR mode** (post review to PR). `--local` for single-pass terminal output. `--preflight` for multi-round terminal review (min 3, max 5 rounds). `--autofix` for autonomous fix + approve. `--sweep` for iterative cleanup.
+**Default: GitHub PR mode** (post review to PR). `--local` for single-pass terminal output. `--preflight` for multi-round review with auto-fix (min 3, max 5 rounds). `--autofix` for autonomous fix + approve. `--sweep` for iterative cleanup.
 
 **Cross-repo detection:** If URL points to a different repo than the current directory:
 
@@ -244,7 +244,9 @@ Same Analysis + Verification stages (single pass). Output findings to terminal w
 
 ### Preflight Mode (`--preflight`)
 
-Multi-round read-only code review. No GitHub interaction. No code edits. No AskUserQuestion calls (fully autonomous).
+Multi-round code review with auto-fix. No GitHub interaction. No AskUserQuestion calls (fully autonomous).
+
+Preflight combines review + fix: it finds issues, verifies fixes in isolated worktrees, then applies all verified fixes directly. This is the recommended pre-push workflow.
 
 **Constants:** `MIN_ROUNDS = 3`, `MAX_ROUNDS = 5`
 
@@ -253,32 +255,46 @@ Multi-round read-only code review. No GitHub interaction. No code edits. No AskU
 1. Compute diff: `git diff $(git merge-base origin/$DEFAULT_BRANCH HEAD)...HEAD`
 2. Run full Analysis + Verification (autonomous)
 3. Collect VERIFIED findings (criticals + warnings only after round 1; include nits in round 1)
-4. If `round >= MIN_ROUNDS` AND 0 findings (criticals + warnings) → print clean summary, exit loop
-5. If findings remain AND `round < MAX_ROUNDS` → narrow focus for next round:
-   - Exclude file+line combinations already reported in prior rounds
+4. **Auto-apply all verified fixes** (they've already proven to pass quality gates in worktree verification)
+5. If fixes were applied: `git add {fixed files}` (do NOT commit yet -- all rounds accumulate into one commit)
+6. If `round >= MIN_ROUNDS` AND 0 new findings (criticals + warnings) on the updated diff -> print clean summary, exit loop
+7. If findings remain AND `round < MAX_ROUNDS` -> narrow focus for next round:
+   - Re-diff against the now-modified working tree
+   - Exclude file+line combinations already fixed in prior rounds
    - Increase scrutiny: look deeper at blast radius, edge cases, concurrency, and error paths
    - Print round summary
-6. If `round == MAX_ROUNDS` AND findings remain → report all accumulated findings, exit loop
+8. If `round == MAX_ROUNDS` AND findings remain -> report remaining unfixed findings, exit loop
 
-**Important:** Preflight never modifies code. Each round re-analyzes the same diff with progressively deeper scrutiny, building a comprehensive findings list. Earlier rounds catch obvious issues; later rounds dig into subtler problems.
+**After the round loop completes**, if any fixes were applied across all rounds:
+
+```bash
+git add {all fixed files from all rounds}
+git commit -m "fix: preflight review findings
+
+Applied {N} verified fixes across {M} rounds.
+Findings: {summary of R-IDs and titles}
+
+Co-Authored-By: Claude <noreply@anthropic.com>"
+```
 
 **Terminal output per round:**
 
 ```
 PREFLIGHT ROUND {N}/{MAX}
 Criticals: {n} | Warnings: {n} | Nits: {n}
-New findings: {list of R-IDs} | Cumulative: {total}
+New findings: {list of R-IDs} | Fixed: {list of R-IDs applied} | Cumulative: {total}
 ```
 
 **Final summary:**
 
 ```
-PREFLIGHT COMPLETE - {N} round(s), {total findings} reported
+PREFLIGHT COMPLETE - {N} round(s), {total findings} found, {fixed count} auto-fixed
   Criticals: {n} | Warnings: {n} | Nits: {n}
+  Fixed: {list of R-IDs} | Remaining: {list of R-IDs or "none"}
   Status: CLEAN|FINDINGS_REMAIN
 ```
 
-All findings from all rounds are presented in the final terminal output, deduplicated and sorted by severity.
+All findings from all rounds are presented in the final terminal output, deduplicated and sorted by severity. Fixed findings are marked with a checkmark.
 
 ### Autofix Mode (`--autofix`)
 

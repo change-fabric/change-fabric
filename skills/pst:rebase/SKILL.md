@@ -141,82 +141,115 @@ Proceed to Phase 4.
 
 ### If rebase hits conflicts
 
-For each conflict, attempt automatic resolution:
+Use a batch auto-resolve loop to handle conflicts efficiently, especially when the feature branch has many commits that overlap with upstream changes.
 
-**Step 1 -- Identify conflicted files:**
+**Important shell compatibility notes:**
+- Use `bash` (not `zsh`) for resolve scripts -- `mapfile` and other bashisms are unavailable in zsh
+- Use `git status --porcelain` (not `git diff --name-only --diff-filter=U`) to detect conflicts -- the latter can miss files with special characters (parentheses, spaces) in paths
+- Conflict types: `UU` = both modified, `AA` = both added, `DU` = deleted by us / modified by them, `UD` = modified by us / deleted by them
 
-```bash
-CONFLICTS=$(git diff --name-only --diff-filter=U)
-```
-
-**Step 2 -- For each conflicted file, attempt resolution:**
-
-For each file in `$CONFLICTS`:
-
-1. **Drizzle migration file** (any file under a detected Drizzle directory):
-   - These will be removed in Phase 4 regardless. Accept the base version to keep the rebase moving.
-   - Note: during rebase, `--ours` = the base branch (being rebased onto), `--theirs` = the feature commit being replayed.
-     ```bash
-     git checkout --ours "$FILE"
-     git add "$FILE"
-     ```
-
-2. **Lock files** (`pnpm-lock.yaml`, `yarn.lock`, `package-lock.json`):
-   - Accept the base branch version, then regenerate.
-   - Note: during rebase, `--ours` = the base branch.
-     ```bash
-     git checkout --ours "$FILE"
-     git add "$FILE"
-     ```
-   - Set `REGENERATE_LOCKFILE=true` for Phase 5.
-
-3. **Source code files** (`.ts`, `.tsx`, `.js`, `.jsx`, `.py`, `.go`, `.rs`, etc.):
-   - Read the conflicted file to understand both sides
-   - Analyze the conflict markers (`<<<<<<<`, `=======`, `>>>>>>>`)
-   - **If one side is a strict superset of the other** (e.g., base added lines that our branch didn't touch): accept the superset
-   - **If both sides modified the same lines differently**: attempt an intelligent merge:
-     - Read the surrounding context
-     - If the intent of both changes is clear and non-contradictory, combine them
-     - If the changes are contradictory or ambiguous, use AskUserQuestion:
-       ```
-       Conflict in {file}:{lines}
-
-       BASE (upstream) version:
-       {base side}
-
-       FEATURE (your branch) version:
-       {feature side}
-
-       How should this be resolved? (Enter 'base', 'feature', or paste the desired code)
-       ```
-   - After resolution:
-     ```bash
-     git add "$FILE"
-     ```
-
-4. **Config files** (`.json`, `.yaml`, `.yml`, `.toml`, non-lock):
-   - Read both sides of the conflict
-   - If the conflict is in a version field, added keys, or list items: merge both additions
-   - If truly ambiguous: ask the user via AskUserQuestion
-   - After resolution:
-     ```bash
-     git add "$FILE"
-     ```
-
-5. **Any other file type**:
-   - Attempt to read and understand the conflict
-   - If resolution is obvious (e.g., both sides added different items to a list), resolve automatically
-   - If ambiguous: ask the user via AskUserQuestion
-
-**Step 3 -- Continue rebase after resolving all conflicts in this step:**
+**Write and run a bash resolve script** (`/tmp/rebase-resolve.sh`):
 
 ```bash
-git rebase --continue
+#!/bin/bash
+# Auto-resolve rebase conflicts by accepting base (ours) version
+# During rebase: --ours = base branch, --theirs = feature commit being replayed
+set -euo pipefail
+
+MAX=100
+AUTO_RESOLVED=0
+USER_RESOLVED=0
+REGENERATE_LOCKFILE=false
+
+for i in $(seq 1 $MAX); do
+  # Check if rebase is still in progress
+  if [ ! -d .git/rebase-merge ] && [ ! -d .git/rebase-apply ]; then
+    echo "REBASE_COMPLETE"
+    echo "AUTO_RESOLVED=$AUTO_RESOLVED"
+    echo "USER_RESOLVED=$USER_RESOLVED"
+    echo "REGENERATE_LOCKFILE=$REGENERATE_LOCKFILE"
+    exit 0
+  fi
+
+  # Detect conflicts using porcelain (handles special chars in paths)
+  conflicts=$(git status --porcelain 2>/dev/null | grep -E '^(UU|AA|DU|UD) ' | sed 's/^.. //' || true)
+
+  if [ -z "$conflicts" ]; then
+    GIT_EDITOR=true git rebase --continue 2>&1 || true
+    continue
+  fi
+
+  echo "=== Iteration $i: Resolving $(echo "$conflicts" | wc -l | tr -d ' ') conflict(s) ==="
+
+  while IFS= read -r f; do
+    # Determine conflict type from porcelain output
+    ctype=$(git status --porcelain 2>/dev/null | grep -F "$f" | head -1 | cut -c1-2)
+
+    # 1. Drizzle migration files -- accept base or remove
+    if echo "$f" | grep -qE "(drizzle|migrations)"; then
+      if [ "$ctype" = "DU" ] || [ "$ctype" = "UD" ]; then
+        git rm "$f" 2>/dev/null || true
+      else
+        git checkout --ours "$f" 2>/dev/null && git add "$f" 2>/dev/null || git rm "$f" 2>/dev/null || true
+      fi
+
+    # 2. Lock files -- accept base, regenerate later
+    elif echo "$f" | grep -qE '(pnpm-lock\.yaml|yarn\.lock|package-lock\.json)$'; then
+      git checkout --ours "$f" 2>/dev/null && git add "$f" 2>/dev/null || true
+      REGENERATE_LOCKFILE=true
+
+    # 3. All other files -- accept base version
+    #    (Feature commits replaying onto an updated base: base already has the latest)
+    else
+      if [ "$ctype" = "DU" ]; then
+        # File deleted on base, modified by feature -- accept deletion
+        git rm "$f" 2>/dev/null || true
+      elif [ "$ctype" = "UD" ]; then
+        # File modified on base, deleted by feature -- keep base version
+        git checkout --ours "$f" 2>/dev/null && git add "$f" 2>/dev/null || true
+      else
+        git checkout --ours "$f" 2>/dev/null && git add "$f" 2>/dev/null || git add "$f" 2>/dev/null || true
+      fi
+    fi
+  done <<< "$conflicts"
+
+  AUTO_RESOLVED=$((AUTO_RESOLVED + $(echo "$conflicts" | wc -l | tr -d ' ')))
+  GIT_EDITOR=true git rebase --continue 2>&1 | tail -5
+done
+
+echo "REBASE_FAILED: Max iterations ($MAX) reached"
+exit 1
 ```
 
-If `git rebase --continue` requires a commit message, accept the default.
+Run it:
 
-**Repeat Steps 1-3** for each subsequent commit in the rebase that hits conflicts.
+```bash
+bash /tmp/rebase-resolve.sh
+```
+
+**If the batch loop completes** (`REBASE_COMPLETE`), proceed to Phase 4.
+
+**If the batch loop fails**, fall back to **manual per-file resolution** for the stuck commit:
+
+For each conflicted file, read the conflict markers and attempt intelligent resolution:
+
+1. **If one side is a strict superset** (base added lines the feature didn't touch): accept the superset
+2. **If both sides modified the same lines differently**:
+   - If the intent is clear and non-contradictory: combine them
+   - If ambiguous: use AskUserQuestion:
+     ```
+     Conflict in {file}:{lines}
+
+     BASE (upstream) version:
+     {base side}
+
+     FEATURE (your branch) version:
+     {feature side}
+
+     How should this be resolved? (Enter 'base', 'feature', or paste the desired code)
+     ```
+
+After resolving, `git add "$FILE"` and `GIT_EDITOR=true git rebase --continue`, then re-run the batch loop for remaining commits.
 
 ### If rebase is unrecoverable
 
