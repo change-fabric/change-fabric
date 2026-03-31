@@ -84,6 +84,17 @@ Auto-commit, push the current branch, ensure a PR exists against the default bra
 /pst:push --dry-run
 ```
 
+### `/pst:rebase`
+
+Rebase the current branch onto a base branch with automatic conflict resolution, Drizzle migration cleanup, and force-push. Infers the base branch from the current PR or falls back to the repo default. Automatically removes all Drizzle database migrations from the feature branch (you regenerate them manually via Drizzle Kit after). Asks for user input only when a conflict is genuinely ambiguous.
+
+```
+/pst:rebase
+/pst:rebase main
+/pst:rebase develop --no-push
+/pst:rebase --dry-run
+```
+
 ### `/pst:qa`
 
 Autonomous QA testing that synthesizes test plans from PR context and code diffs, then executes via browser automation (Playwright MCP or CDP). Auto-judges pass/fail and posts evidence to the PR. Use `--guided` for interactive human-driven testing.
