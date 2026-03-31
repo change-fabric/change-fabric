@@ -41,6 +41,7 @@ Re-render or summarize the most recent substantive response as clean markdown te
 - Bold uses single asterisk: `*bold*` instead of `**bold**`
 - Prefer lists over tables - tables do not render well in Slack
 - Convert any tabular data into labeled list items instead
+- Links: use bare URLs (`https://example.com`) or markdown-style `[label](https://example.com)` - **NEVER** use Slack pipe-link syntax (`<https://...|label>`)
 
 ---
 
