@@ -714,6 +714,7 @@ After the script runs, display its output to the user as-is (the script handles 
 ### If `--install` was used
 
 Remind the user to commit the new files:
+
 - `.github/scripts/check-claude-md.sh` -- the checker script, committed into the repo
 - `.github/workflows/check-claude-md.yml` -- GitHub Action that runs on PRs touching CLAUDE.md files
 - `.husky/pre-commit` -- pre-commit hook (only if Husky was already initialized)
@@ -737,15 +738,15 @@ This is the core remediation workflow. The bash script handles detection; this p
 
 Read the script output and categorize failures:
 
-| Failure | Fix Strategy |
-|---------|-------------|
-| Rule 1 (line count > 200) | Section extraction -- relocate reference material |
-| Rule 2 (char count > 40k) | Same as Rule 1, applied across all files |
-| Rule 3 (MEMORY.md lines > 200) | Consolidate and compress memory entries |
-| Rule 4 (MEMORY.md bytes > 25KB) | Same as Rule 3 |
-| Rule 5 (no headers) | Add markdown structure |
-| Rule 6 (vague patterns) | Rewrite vague instructions to be concrete |
-| Rule 7 (large, no imports) | Create `.claude/rules/` and split |
+| Failure                         | Fix Strategy                                      |
+| ------------------------------- | ------------------------------------------------- |
+| Rule 1 (line count > 200)       | Section extraction -- relocate reference material |
+| Rule 2 (char count > 40k)       | Same as Rule 1, applied across all files          |
+| Rule 3 (MEMORY.md lines > 200)  | Consolidate and compress memory entries           |
+| Rule 4 (MEMORY.md bytes > 25KB) | Same as Rule 3                                    |
+| Rule 5 (no headers)             | Add markdown structure                            |
+| Rule 6 (vague patterns)         | Rewrite vague instructions to be concrete         |
+| Rule 7 (large, no imports)      | Create `.claude/rules/` and split                 |
 
 #### Step 2: Present the fix plan
 
@@ -758,11 +759,9 @@ Use **AskUserQuestion** to present a numbered list of proposed changes. Example:
 >    - Move "## API Patterns" (lines 113-198) → `.context/api-patterns.md`
 >    - Leave 2-line pointers: `See .context/architecture.md` and `See .context/api-patterns.md`
 >    - Result: ~118 lines remaining
->
 > 2. **Rule 6 -- 2 vague patterns found**
 >    - Line 23: "Follow best practices" → "Run `npm run lint && npm run typecheck` before committing"
 >    - Line 67: "Test your changes" → "Run `npm test` and ensure all tests pass before pushing"
->
 > 3. **Rule 7 -- No .claude/rules/ or imports**
 >    - Create `.claude/rules/` directory
 >
@@ -776,11 +775,11 @@ This is the most complex fix. For each oversized CLAUDE.md:
 
 **3A. Analyze sections.** Read the file and parse it into sections by markdown headers (`#`, `##`, `###`). For each section, classify it:
 
-| Classification | Criteria | Action |
-|---------------|----------|--------|
-| **Directive** | Short, imperative instructions. Commands like "always", "never", "use X". Under 10 lines. | KEEP in CLAUDE.md |
-| **Reference** | Detailed explanations, architecture docs, API patterns, examples, tables > 5 rows, code blocks > 5 lines. | RELOCATE |
-| **Convention** | Style rules, naming patterns, file organization rules. | Keep if short, relocate if > 15 lines |
+| Classification | Criteria                                                                                                  | Action                                |
+| -------------- | --------------------------------------------------------------------------------------------------------- | ------------------------------------- |
+| **Directive**  | Short, imperative instructions. Commands like "always", "never", "use X". Under 10 lines.                 | KEEP in CLAUDE.md                     |
+| **Reference**  | Detailed explanations, architecture docs, API patterns, examples, tables > 5 rows, code blocks > 5 lines. | RELOCATE                              |
+| **Convention** | Style rules, naming patterns, file organization rules.                                                    | Keep if short, relocate if > 15 lines |
 
 **3B. Choose relocation targets.** Follow established patterns in the repo:
 
@@ -795,7 +794,7 @@ This is the most complex fix. For each oversized CLAUDE.md:
    - Code style rules → `.claude/rules/code-style.md`
    - Git workflow → `.claude/rules/git-workflow.md`
    - PR conventions → `.claude/rules/pr-conventions.md`
-   Note: `.claude/rules/*.md` files are auto-loaded by Claude Code, so they don't need explicit pointers.
+     Note: `.claude/rules/*.md` files are auto-loaded by Claude Code, so they don't need explicit pointers.
 
 3. **If neither exists** -- create `.context/` for reference material and `.claude/rules/` for conventions. Prefer `.claude/rules/` for anything Claude should always see (it's auto-loaded). Use `.context/` for deeper reference material that Claude can read on demand.
 
@@ -809,9 +808,10 @@ This is the most complex fix. For each oversized CLAUDE.md:
    ```
 3. Replace the section in CLAUDE.md with a compact pointer:
    - For `.context/` files: `- See [Section Name](.context/filename.md) for details`
-   - For `.claude/rules/` files: *(no pointer needed -- auto-loaded by Claude Code)*. Just remove the section and note in a comment: `<!-- Moved to .claude/rules/filename.md (auto-loaded) -->`
+   - For `.claude/rules/` files: _(no pointer needed -- auto-loaded by Claude Code)_. Just remove the section and note in a comment: `<!-- Moved to .claude/rules/filename.md (auto-loaded) -->`
 
 **3D. Verify budget.** After all extractions, count the remaining lines. If still over 200:
+
 - Look for more sections to extract (lower the "short" threshold)
 - Compress remaining content: convert paragraphs to bullet points, remove redundant phrasing
 - If still over 200 after compression, use **AskUserQuestion**: "CLAUDE.md is still at N lines after extraction. Which remaining sections should I trim or relocate?"

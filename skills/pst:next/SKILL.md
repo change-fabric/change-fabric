@@ -490,11 +490,11 @@ Print the `NEXT STEP` block, then append the **Why:** line from the matched rule
 
 ## Error Handling
 
-| Condition | Action |
-|-----------|--------|
-| Not a git repo | Exit with message (Rule 1) |
+| Condition                               | Action                                                                                                                                                     |
+| --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Not a git repo                          | Exit with message (Rule 1)                                                                                                                                 |
 | `gh` not installed or not authenticated | Skip GitHub signals; decision tree still works on git-only rules; append note: "(GitHub state unavailable - install/auth `gh` for better recommendations)" |
-| Detached HEAD | Rule 2 |
-| No `package.json` | `HAS_QUALITY_SCRIPTS=false`; skip React-specific recommendations |
-| No remote configured | Skip ahead/behind computation; treat as "fresh branch" if on non-default branch |
-| Default branch detection fails | Fall back to `main` |
+| Detached HEAD                           | Rule 2                                                                                                                                                     |
+| No `package.json`                       | `HAS_QUALITY_SCRIPTS=false`; skip React-specific recommendations                                                                                           |
+| No remote configured                    | Skip ahead/behind computation; treat as "fresh branch" if on non-default branch                                                                            |
+| Default branch detection fails          | Fall back to `main`                                                                                                                                        |

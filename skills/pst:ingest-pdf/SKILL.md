@@ -29,14 +29,14 @@ If a `.context/` directory exists with relevant subdirectories, prefer that stru
 
 Determine what kind of artifact this is based on its content. Use the classification to pick the right subdirectory and filename:
 
-| Type | Subdirectory | Filename pattern |
-| ----------------------------- | ------------ | ---------------------- |
-| Email thread / correspondence | `issues/` | `YYYY-MM-DD-<slug>.md` |
-| Invoice | `invoices/` | `YYYY-MM-DD-<slug>.md` |
-| Statement of Work / contract | `sows/` | `YYYY-MM-DD-<slug>.md` |
-| Spec / technical document | `specs/` | `YYYY-MM-DD-<slug>.md` |
+| Type                          | Subdirectory    | Filename pattern       |
+| ----------------------------- | --------------- | ---------------------- |
+| Email thread / correspondence | `issues/`       | `YYYY-MM-DD-<slug>.md` |
+| Invoice                       | `invoices/`     | `YYYY-MM-DD-<slug>.md` |
+| Statement of Work / contract  | `sows/`         | `YYYY-MM-DD-<slug>.md` |
+| Spec / technical document     | `specs/`        | `YYYY-MM-DD-<slug>.md` |
 | Brand guide / style reference | `brand-guides/` | `YYYY-MM-DD-<slug>.md` |
-| Other | `issues/` | `YYYY-MM-DD-<slug>.md` |
+| Other                         | `issues/`       | `YYYY-MM-DD-<slug>.md` |
 
 Use today's date unless the document itself contains a more relevant date (e.g., an invoice date, email date).
 

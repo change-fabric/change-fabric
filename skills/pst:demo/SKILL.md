@@ -42,11 +42,11 @@ DEFAULT_BRANCH="${DEFAULT_BRANCH:-main}"
 
 **Guards -- stop if any are true:**
 
-| Condition | Message |
-|-----------|---------|
-| Not a git repo | "Not a git repo." |
+| Condition                              | Message                              |
+| -------------------------------------- | ------------------------------------ |
+| Not a git repo                         | "Not a git repo."                    |
 | On default branch with 0 commits ahead | "No feature branch changes to demo." |
-| No changed files on branch | "No changes found on this branch." |
+| No changed files on branch             | "No changes found on this branch."   |
 
 **Gather:**
 
@@ -142,6 +142,7 @@ SKILL_PATH="${SKILL_DIR}/SKILL.md"
 **If `$SKILL_PATH` exists AND `--update` flag is set:** enter update mode silently.
 
 **If `$SKILL_PATH` exists AND no `--update` flag:** use **AskUserQuestion**: "A demo skill already exists at `$SKILL_PATH`. Update it with the latest branch changes?"
+
 - Yes: enter update mode
 - No: stop
 
@@ -161,15 +162,15 @@ This is the core analysis phase. Read the full diff and categorize changes to bu
 
 Sort `CHANGED_FILES` into buckets:
 
-| Category | Patterns |
-|----------|----------|
-| Routes / Pages | `app/**/page.{tsx,jsx,ts,js}`, `pages/**`, `src/routes/**` |
-| Components | `components/**/*.{tsx,jsx}`, `src/**/*.{tsx,jsx}` (non-page) |
-| API Endpoints | `app/api/**`, `pages/api/**`, `src/api/**`, `routes/**` |
-| Database | `migrations/**`, `prisma/**`, `drizzle/**`, `schema.*` |
-| Config | `*.config.*`, `.env*`, `package.json` |
-| Tests | `**/*.test.*`, `**/*.spec.*`, `__tests__/**` |
-| Styles | `**/*.css`, `**/*.scss`, `tailwind.*` |
+| Category       | Patterns                                                     |
+| -------------- | ------------------------------------------------------------ |
+| Routes / Pages | `app/**/page.{tsx,jsx,ts,js}`, `pages/**`, `src/routes/**`   |
+| Components     | `components/**/*.{tsx,jsx}`, `src/**/*.{tsx,jsx}` (non-page) |
+| API Endpoints  | `app/api/**`, `pages/api/**`, `src/api/**`, `routes/**`      |
+| Database       | `migrations/**`, `prisma/**`, `drizzle/**`, `schema.*`       |
+| Config         | `*.config.*`, `.env*`, `package.json`                        |
+| Tests          | `**/*.test.*`, `**/*.spec.*`, `__tests__/**`                 |
+| Styles         | `**/*.css`, `**/*.scss`, `tailwind.*`                        |
 
 ### 5B. Extract Demo-Relevant Details
 
@@ -247,7 +248,7 @@ showing and why it matters.
 ## Prerequisites
 
 - Dev server running (`{dev_command}`)
-{each prerequisite as a bullet}
+  {each prerequisite as a bullet}
 
 ---
 
@@ -382,14 +383,14 @@ To run the demo:
 
 ## Error Handling
 
-| Condition | Action |
-|-----------|--------|
-| Not a git repo | Stop: "Not a git repo." |
-| On default branch, no changes | Stop: "No feature branch changes to demo." |
-| No changed files on branch | Stop: "No changes found on this branch." |
-| `gh` not available | Continue without PR context; derive from commits only |
-| `.agents/skills/` does not exist | Create it |
-| Skill already exists (no `--update`) | Ask: "Demo skill already exists. Update it?" |
-| No routes or UI files in diff | Generate a minimal skill with API/backend-focused steps instead |
-| User cancels at any AskUserQuestion | Stop gracefully |
-| More than 8 steps after synthesis | Cut to 8. Move extras to "Bonus (if time)" section. |
+| Condition                            | Action                                                          |
+| ------------------------------------ | --------------------------------------------------------------- |
+| Not a git repo                       | Stop: "Not a git repo."                                         |
+| On default branch, no changes        | Stop: "No feature branch changes to demo."                      |
+| No changed files on branch           | Stop: "No changes found on this branch."                        |
+| `gh` not available                   | Continue without PR context; derive from commits only           |
+| `.agents/skills/` does not exist     | Create it                                                       |
+| Skill already exists (no `--update`) | Ask: "Demo skill already exists. Update it?"                    |
+| No routes or UI files in diff        | Generate a minimal skill with API/backend-focused steps instead |
+| User cancels at any AskUserQuestion  | Stop gracefully                                                 |
+| More than 8 steps after synthesis    | Cut to 8. Move extras to "Bonus (if time)" section.             |

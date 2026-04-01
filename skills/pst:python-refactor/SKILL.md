@@ -39,15 +39,15 @@ Detect the Python project type and tooling to tailor the refactoring approach.
 
 **Project type detection** (check imports and project files):
 
-| Signal | Project type |
-|--------|--------------|
-| `from django` / `django` in requirements | Django |
-| `from flask` / `flask` in requirements | Flask |
-| `from fastapi` / `fastapi` in requirements | FastAPI |
-| `import click` / `import typer` | CLI app |
-| `pyproject.toml` with `[tool.poetry]` | Poetry project |
+| Signal                                      | Project type            |
+| ------------------------------------------- | ----------------------- |
+| `from django` / `django` in requirements    | Django                  |
+| `from flask` / `flask` in requirements      | Flask                   |
+| `from fastapi` / `fastapi` in requirements  | FastAPI                 |
+| `import click` / `import typer`             | CLI app                 |
+| `pyproject.toml` with `[tool.poetry]`       | Poetry project          |
 | `setup.py` / `setup.cfg` / `pyproject.toml` | Standard Python package |
-| None of the above | Script / library |
+| None of the above                           | Script / library        |
 
 **Tooling detection:**
 
@@ -80,34 +80,34 @@ These rules govern all refactoring decisions. They are **non-negotiable** unless
 
 ### Structural rules
 
-| # | Rule |
-|---|------|
-| P1 | **Business logic out of views/routes/handlers.** Views should delegate to service functions or classes, not contain logic. |
-| P2 | **Pure functions preferred.** Extract logic as pure functions (input -> output, no side effects) whenever possible. Only use classes when state management across multiple operations is genuinely needed. |
-| P3 | **One module, one responsibility.** Each extracted module should have a single, clear purpose. Name it after what it does, not where it came from. |
-| P4 | **Test files co-located or in parallel `tests/` tree.** Match the project's existing convention. If no convention exists, use a `tests/` directory mirroring the source structure. |
-| P5 | **pytest exclusively.** No unittest.TestCase (unless the project already uses it pervasively). Use pytest fixtures, parametrize, and plain assert. |
-| P6 | **Comprehensive test coverage:** every branch, edge case, error state, boundary value. Business logic bugs should be caught in unit tests, not integration tests. |
+| #   | Rule                                                                                                                                                                                                       |
+| --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| P1  | **Business logic out of views/routes/handlers.** Views should delegate to service functions or classes, not contain logic.                                                                                 |
+| P2  | **Pure functions preferred.** Extract logic as pure functions (input -> output, no side effects) whenever possible. Only use classes when state management across multiple operations is genuinely needed. |
+| P3  | **One module, one responsibility.** Each extracted module should have a single, clear purpose. Name it after what it does, not where it came from.                                                         |
+| P4  | **Test files co-located or in parallel `tests/` tree.** Match the project's existing convention. If no convention exists, use a `tests/` directory mirroring the source structure.                         |
+| P5  | **pytest exclusively.** No unittest.TestCase (unless the project already uses it pervasively). Use pytest fixtures, parametrize, and plain assert.                                                         |
+| P6  | **Comprehensive test coverage:** every branch, edge case, error state, boundary value. Business logic bugs should be caught in unit tests, not integration tests.                                          |
 
 ### Type safety rules
 
-| # | Rule |
-|---|------|
-| T1 | **All function signatures fully typed.** Parameters and return types -- no exceptions. |
-| T2 | **No `Any` type.** Use proper generics, `Union`, `Protocol`, or specific types. |
-| T3 | **No `type: ignore` comments.** Fix the type error instead. If truly unavoidable, use AskUserQuestion. |
-| T4 | **Use modern type syntax.** `list[str]` not `List[str]`, `str | None` not `Optional[str]` (Python 3.10+). For older projects, use `from __future__ import annotations`. |
-| T5 | **Dataclasses or Pydantic for structured data.** No raw dicts for domain objects. |
+| #   | Rule                                                                                                   |
+| --- | ------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------- |
+| T1  | **All function signatures fully typed.** Parameters and return types -- no exceptions.                 |
+| T2  | **No `Any` type.** Use proper generics, `Union`, `Protocol`, or specific types.                        |
+| T3  | **No `type: ignore` comments.** Fix the type error instead. If truly unavoidable, use AskUserQuestion. |
+| T4  | **Use modern type syntax.** `list[str]` not `List[str]`, `str                                          | None`not`Optional[str]`(Python 3.10+). For older projects, use`from **future** import annotations`. |
+| T5  | **Dataclasses or Pydantic for structured data.** No raw dicts for domain objects.                      |
 
 ### Code quality rules
 
-| # | Rule |
-|---|------|
-| Q1 | **Named exports only.** Use `__all__` to declare public API in extracted modules. |
-| Q2 | **No `noqa` comments.** Fix the lint violation. If truly unavoidable, use AskUserQuestion. |
-| Q3 | **No bare `except`.** Always catch specific exceptions. |
-| Q4 | **No mutable default arguments.** Use `None` with a sentinel pattern. |
-| Q5 | **Docstrings on public functions** only when the name and types don't fully convey intent. Skip obvious ones. |
+| #   | Rule                                                                                                          |
+| --- | ------------------------------------------------------------------------------------------------------------- |
+| Q1  | **Named exports only.** Use `__all__` to declare public API in extracted modules.                             |
+| Q2  | **No `noqa` comments.** Fix the lint violation. If truly unavoidable, use AskUserQuestion.                    |
+| Q3  | **No bare `except`.** Always catch specific exceptions.                                                       |
+| Q4  | **No mutable default arguments.** Use `None` with a sentinel pattern.                                         |
+| Q5  | **Docstrings on public functions** only when the name and types don't fully convey intent. Skip obvious ones. |
 
 ---
 
@@ -382,12 +382,12 @@ Check the **target repo** (not this skills repo) for existing documentation of t
 
 Run full quality gates using the detected tooling from Stage 2:
 
-| Check | Command |
-|-------|---------|
-| Tests | `$PKG pytest --tb=short` |
-| Type check | `$PKG $TYPE_CHECKER .` (or scoped to changed files) |
-| Lint | `$PKG $LINTER check .` (ruff) or `$PKG $LINTER .` (flake8) |
-| Format | `$PKG ruff format --check .` or `$PKG black --check .` (detect which is configured) |
+| Check            | Command                                                                                                     |
+| ---------------- | ----------------------------------------------------------------------------------------------------------- |
+| Tests            | `$PKG pytest --tb=short`                                                                                    |
+| Type check       | `$PKG $TYPE_CHECKER .` (or scoped to changed files)                                                         |
+| Lint             | `$PKG $LINTER check .` (ruff) or `$PKG $LINTER .` (flake8)                                                  |
+| Format           | `$PKG ruff format --check .` or `$PKG black --check .` (detect which is configured)                         |
 | Type annotations | Grep all modified/created files for `: Any`, `-> Any`, `type: ignore` -- zero tolerance, fix all violations |
 
 **Formatter detection:** Check `pyproject.toml` and config files for `ruff.format`, `black`, or `autopep8`. If no formatter is configured, skip the format check and note it in the summary.
@@ -430,15 +430,15 @@ Files modified:
 
 ## Error Handling
 
-| Condition | Action |
-|-----------|--------|
-| No `.py` files found in scope | Exit with message: "No Python files found in scope." |
-| pytest not installed | Log: `"pytest not found. Install: pip install pytest"` and abort |
-| Extraction is ambiguous (unclear what to extract) | Ask user via AskUserQuestion |
-| Test failures after 3 fix attempts | Report the failing tests, continue to next module |
-| Quality gate failures after 3 cycles | Report and stop |
-| Module has no extractable logic | Skip and note in discovery report |
-| `noqa` appears necessary during refactoring | MUST use AskUserQuestion -- present the lint error, the code context, and 3 options: (1) fix the code, (2) adjust lint config, (3) suppress with comment. Default recommendation is option 1 or 2. |
-| `type: ignore` appears necessary | Same AskUserQuestion workflow as `noqa` |
-| Type checker not installed | Skip type check, note in summary report |
-| Formatter not configured | Skip format check, note in summary report |
+| Condition                                         | Action                                                                                                                                                                                             |
+| ------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| No `.py` files found in scope                     | Exit with message: "No Python files found in scope."                                                                                                                                               |
+| pytest not installed                              | Log: `"pytest not found. Install: pip install pytest"` and abort                                                                                                                                   |
+| Extraction is ambiguous (unclear what to extract) | Ask user via AskUserQuestion                                                                                                                                                                       |
+| Test failures after 3 fix attempts                | Report the failing tests, continue to next module                                                                                                                                                  |
+| Quality gate failures after 3 cycles              | Report and stop                                                                                                                                                                                    |
+| Module has no extractable logic                   | Skip and note in discovery report                                                                                                                                                                  |
+| `noqa` appears necessary during refactoring       | MUST use AskUserQuestion -- present the lint error, the code context, and 3 options: (1) fix the code, (2) adjust lint config, (3) suppress with comment. Default recommendation is option 1 or 2. |
+| `type: ignore` appears necessary                  | Same AskUserQuestion workflow as `noqa`                                                                                                                                                            |
+| Type checker not installed                        | Skip type check, note in summary report                                                                                                                                                            |
+| Formatter not configured                          | Skip format check, note in summary report                                                                                                                                                          |

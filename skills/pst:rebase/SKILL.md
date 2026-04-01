@@ -34,9 +34,9 @@ DEFAULT_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@
 DEFAULT_BRANCH="${DEFAULT_BRANCH:-main}"
 ```
 
-| Condition | Action |
-|---|---|
-| `$BRANCH` is empty | Stop: "Not on a branch. Check out a branch first." |
+| Condition                          | Action                                                                |
+| ---------------------------------- | --------------------------------------------------------------------- |
+| `$BRANCH` is empty                 | Stop: "Not on a branch. Check out a branch first."                    |
 | `$BRANCH` equals `$DEFAULT_BRANCH` | Stop: "You're on {DEFAULT_BRANCH}. Check out a feature branch first." |
 
 **Base branch resolution order:**
@@ -144,6 +144,7 @@ Proceed to Phase 4.
 Use a batch auto-resolve loop to handle conflicts efficiently, especially when the feature branch has many commits that overlap with upstream changes.
 
 **Important shell compatibility notes:**
+
 - Use `bash` (not `zsh`) for resolve scripts -- `mapfile` and other bashisms are unavailable in zsh
 - Use `git status --porcelain` (not `git diff --name-only --diff-filter=U`) to detect conflicts -- the latter can miss files with special characters (parentheses, spaces) in paths
 - Conflict types: `UU` = both modified, `AA` = both added, `DU` = deleted by us / modified by them, `UD` = modified by us / deleted by them
@@ -237,6 +238,7 @@ For each conflicted file, read the conflict markers and attempt intelligent reso
 2. **If both sides modified the same lines differently**:
    - If the intent is clear and non-contradictory: combine them
    - If ambiguous: use AskUserQuestion:
+
      ```
      Conflict in {file}:{lines}
 
@@ -287,6 +289,7 @@ REMOVE_LIST=$(comm -23 <(echo "$CURRENT_MIGRATIONS") <(echo "$BASE_MIGRATIONS"))
 ```
 
 This catches:
+
 - Migrations that were on our branch before the rebase (our own feature migrations)
 - Migrations that somehow got introduced during the rebase from upstream
 - Any migration files not present in the base branch's version of the directory
@@ -430,14 +433,14 @@ pushed: {yes | skipped (--no-push) | skipped (--dry-run)}
 
 ## Error Handling
 
-| Condition | Action |
-|---|---|
-| On default branch | Stop with message |
-| Base branch not found | Stop: "Branch `{BASE_BRANCH}` not found on origin." |
-| `git` not available | Stop with message |
-| Rebase unrecoverable | Abort rebase, restore stash, stop with message |
-| Push fails | Stop with error, do not lose local state |
-| Stash pop conflicts | Warn user, leave stash intact |
-| No Drizzle dirs found | Skip migration cleanup silently |
-| `gh` not available | Warn (cannot detect PR base), fall back to default branch |
-| Lock file regeneration fails | Warn but continue |
+| Condition                    | Action                                                    |
+| ---------------------------- | --------------------------------------------------------- |
+| On default branch            | Stop with message                                         |
+| Base branch not found        | Stop: "Branch `{BASE_BRANCH}` not found on origin."       |
+| `git` not available          | Stop with message                                         |
+| Rebase unrecoverable         | Abort rebase, restore stash, stop with message            |
+| Push fails                   | Stop with error, do not lose local state                  |
+| Stash pop conflicts          | Warn user, leave stash intact                             |
+| No Drizzle dirs found        | Skip migration cleanup silently                           |
+| `gh` not available           | Warn (cannot detect PR base), fall back to default branch |
+| Lock file regeneration fails | Warn but continue                                         |

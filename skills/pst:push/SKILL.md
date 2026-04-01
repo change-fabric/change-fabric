@@ -39,11 +39,11 @@ DEFAULT_BRANCH="${DEFAULT_BRANCH:-main}"
 STATUS=$(git status --porcelain 2>/dev/null)
 ```
 
-| Condition | Action |
-|---|---|
-| `$BRANCH` is empty | Stop: "Not on a branch. Check out a branch first." |
-| `$BRANCH` equals `$DEFAULT_BRANCH` | Stop: "You're on {DEFAULT_BRANCH}. Check out a feature branch first." |
-| `gh` not available (`command -v gh`) | Stop: "GitHub CLI (gh) is required but not found." |
+| Condition                            | Action                                                                |
+| ------------------------------------ | --------------------------------------------------------------------- |
+| `$BRANCH` is empty                   | Stop: "Not on a branch. Check out a branch first."                    |
+| `$BRANCH` equals `$DEFAULT_BRANCH`   | Stop: "You're on {DEFAULT_BRANCH}. Check out a feature branch first." |
+| `gh` not available (`command -v gh`) | Stop: "GitHub CLI (gh) is required but not found."                    |
 
 ### Auto-Commit
 
@@ -128,15 +128,18 @@ Derive a PR title from the branch name or first commit subject. Build a PR body 
 
 ```markdown
 ## Summary
+
 {1-3 bullet points from commit messages}
 
 ## Test plan
+
 {Generate checkboxes based on what changed:}
+
 - [ ] Build passes
 - [ ] Tests pass
 - [ ] Lint clean
 - [ ] Types check
-{Add more specific items based on the diff - e.g., if new exports were added, check they exist}
+      {Add more specific items based on the diff - e.g., if new exports were added, check they exist}
 ```
 
 Create the PR:
@@ -195,6 +198,7 @@ If the PR was just created in Phase 2, skip this phase (it is already up to date
 
 ```markdown
 ## Summary
+
 - {bullet point per logical change, derived from commits and diff}
 - {cover ALL changes on the branch, not just the latest commit}
 ```
@@ -208,6 +212,7 @@ If the PR was just created in Phase 2, skip this phase (it is already up to date
 
 ```markdown
 ## Test plan
+
 - [x] {previously checked items stay checked}
 - [ ] {existing unchecked items preserved}
 - [ ] {new items for newly introduced changes}
@@ -267,18 +272,18 @@ else PKG="npm"; fi
 
 Interpret each checkbox's text and map it to a validation command. Use case-insensitive matching on the checkbox text.
 
-| Checkbox text matches | Validation |
-|---|---|
-| `build` or `compile` | `$PKG run build` |
-| `test` (but not `typecheck`) | `$PKG run test` |
-| `lint` | `$PKG run lint` |
-| `typecheck` or `type check` or `types` | `$PKG run typecheck` |
-| `coverage` | `$PKG run test:coverage` |
-| `ci pass` or `checks pass` | `gh pr checks $PR_NUMBER --json name,state` (pass if all conclusions are "SUCCESS") |
-| References a specific file path | Use Glob to verify the file exists |
-| References a specific export or function | Use Grep to verify it exists in the codebase |
-| Requires browser, visual, or manual verification | Verdict: `skip` with reason "requires browser/manual verification" |
-| Cannot determine validation approach | Verdict: `skip` with reason "unable to determine validation command" |
+| Checkbox text matches                            | Validation                                                                          |
+| ------------------------------------------------ | ----------------------------------------------------------------------------------- |
+| `build` or `compile`                             | `$PKG run build`                                                                    |
+| `test` (but not `typecheck`)                     | `$PKG run test`                                                                     |
+| `lint`                                           | `$PKG run lint`                                                                     |
+| `typecheck` or `type check` or `types`           | `$PKG run typecheck`                                                                |
+| `coverage`                                       | `$PKG run test:coverage`                                                            |
+| `ci pass` or `checks pass`                       | `gh pr checks $PR_NUMBER --json name,state` (pass if all conclusions are "SUCCESS") |
+| References a specific file path                  | Use Glob to verify the file exists                                                  |
+| References a specific export or function         | Use Grep to verify it exists in the codebase                                        |
+| Requires browser, visual, or manual verification | Verdict: `skip` with reason "requires browser/manual verification"                  |
+| Cannot determine validation approach             | Verdict: `skip` with reason "unable to determine validation command"                |
 
 ### Execution
 
@@ -383,14 +388,14 @@ pr-checkboxes: {N checked}/{total}
 
 ## Error Handling
 
-| Condition | Action |
-|---|---|
-| On default branch | Stop with message |
-| Dirty working tree | Auto-commit (skip secrets/env/build artifacts) |
-| `gh` not installed/authed | Stop with message |
-| Push fails | Stop with error, suggest `git pull --rebase` |
-| PR creation fails | Stop with error, print gh output |
-| No checkboxes found | Print message, stop with clean output contract |
-| Validation command times out (5 min) | Verdict: `skip`, reason: "timed out" |
-| Validation command not in package.json | Verdict: `skip`, reason: "no {script} script" |
-| PR body update fails (422 or other) | Warn but do not fail the whole run |
+| Condition                              | Action                                         |
+| -------------------------------------- | ---------------------------------------------- |
+| On default branch                      | Stop with message                              |
+| Dirty working tree                     | Auto-commit (skip secrets/env/build artifacts) |
+| `gh` not installed/authed              | Stop with message                              |
+| Push fails                             | Stop with error, suggest `git pull --rebase`   |
+| PR creation fails                      | Stop with error, print gh output               |
+| No checkboxes found                    | Print message, stop with clean output contract |
+| Validation command times out (5 min)   | Verdict: `skip`, reason: "timed out"           |
+| Validation command not in package.json | Verdict: `skip`, reason: "no {script} script"  |
+| PR body update fails (422 or other)    | Warn but do not fail the whole run             |

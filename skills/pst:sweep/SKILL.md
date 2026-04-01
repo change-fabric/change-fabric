@@ -49,10 +49,10 @@ OWNER=$(echo "$OWNER_REPO" | cut -d/ -f1)
 REPO=$(echo "$OWNER_REPO" | cut -d/ -f2)
 ```
 
-| Condition | Action |
-|---|---|
-| `gh` not available | Stop: "GitHub CLI (gh) is required." |
-| `gh auth status` fails | Stop: "Run `gh auth login` first." |
+| Condition              | Action                               |
+| ---------------------- | ------------------------------------ |
+| `gh` not available     | Stop: "GitHub CLI (gh) is required." |
+| `gh auth status` fails | Stop: "Run `gh auth login` first."   |
 
 **Parse config:**
 
@@ -95,6 +95,7 @@ Starting from the full list, apply filters sequentially:
 For each remaining PR, classify:
 
 - **Has unresolved threads:** Query each PR for unresolved review threads (only if `resolve` is in STAGES):
+
   ```bash
   gh api graphql -f query='
   {
@@ -108,6 +109,7 @@ For each remaining PR, classify:
     }
   }'
   ```
+
   Count unresolved threads. Store as `unresolvedThreads` on the PR.
 
 - **Review status:** From `reviewDecision` -- `APPROVED`, `CHANGES_REQUESTED`, `REVIEW_REQUIRED`, or empty.
@@ -162,7 +164,7 @@ For each PR in the current wave, launch a background agent with worktree isolati
 
 **Agent prompt per PR:**
 
-```
+````
 Agent:
   description: "Sweep PR #N: {title}"
   isolation: worktree
@@ -230,7 +232,7 @@ Agent:
 
     pipeline-overall: [PASSED|FAILED|ERROR]
     --- END SWEEP PIPELINE RESULT ---
-```
+````
 
 Only include stages that are in `STAGES`. For omitted stages, output `status: SKIPPED` in the result block.
 
@@ -273,12 +275,12 @@ Create a markdown report at `/tmp/pst-sweep-$(date +%Y%m%d-%H%M%S).md`:
 
 ## Summary
 
-| Metric        | Count |
-|---------------|-------|
-| Total PRs     | N     |
-| Passed        | N     |
-| Failed        | N     |
-| Errors        | N     |
+| Metric    | Count |
+| --------- | ----- |
+| Total PRs | N     |
+| Passed    | N     |
+| Failed    | N     |
+| Errors    | N     |
 
 Filters: {author: X | label: Y | none}
 Stages: {resolve, review, qa}
@@ -298,8 +300,9 @@ Stages: {resolve, review, qa}
 **Resolve Threads:** SKIPPED (--no-drafts excluded, or not in stages)
 **Code Review:** COMMENT -- 2 findings (0 critical)
 **QA:** 2/4 test cases passed -- 2 FAILED
-  - TC-2: Broken link in sidebar -- FAIL
-  - TC-4: Image alt text missing -- FAIL
+
+- TC-2: Broken link in sidebar -- FAIL
+- TC-4: Image alt text missing -- FAIL
 
 ---
 
@@ -329,7 +332,8 @@ Options:
 Option behaviors:
 
 - **Fix now** -- launch an Agent with `isolation: worktree`:
-  ```
+
+  ````
   Agent:
     description: "Fix sweep findings for PR #N"
     isolation: worktree
@@ -346,8 +350,10 @@ Option behaviors:
       ```bash
       gh pr checkout $PR_NUMBER
       ```
-  ```
+  ````
+
 - **Post comment** -- post a summary of all pipeline findings as a PR comment:
+
   ```bash
   gh pr comment $PR_NUMBER --body "$(cat <<'EOF'
   ## Sweep Results
@@ -358,6 +364,7 @@ Option behaviors:
   EOF
   )"
   ```
+
 - **View details** -- display the full section from the sweep report
 - **Skip** -- record decision and move on
 
@@ -425,21 +432,21 @@ results:
 
 ## Edge Cases
 
-| Scenario | Action |
-|---|---|
-| No open PRs | "Nothing to sweep" message, exit cleanly |
-| All PRs pass | Skip triage walk-through, "All clear" summary |
-| Agent crash | Record ERROR, continue other agents, include in triage |
-| `gh` not authenticated | Abort with: "Run `gh auth login` first" |
-| Concurrency cap exceeded | Batch into waves (Phase 2.1) |
-| User cancels mid-triage | Partial results, still emit SWEEP RESULT |
-| PR has no review threads | `resolve` stage completes instantly with "No unresolved conversations" |
-| PR branch is stale | Pipeline runs anyway; code-review may flag staleness |
-| Rate limiting (429) | Wait and retry once per affected API call |
-| Worktree creation fails | Record ERROR for that item, continue others |
-| `--author` matches no PRs | "No open PRs match --author X" and exit cleanly |
-| `--label` matches no PRs | "No open PRs match --label X" and exit cleanly |
-| Combined filters match nothing | "No open PRs match the given filters" and exit cleanly |
+| Scenario                       | Action                                                                 |
+| ------------------------------ | ---------------------------------------------------------------------- |
+| No open PRs                    | "Nothing to sweep" message, exit cleanly                               |
+| All PRs pass                   | Skip triage walk-through, "All clear" summary                          |
+| Agent crash                    | Record ERROR, continue other agents, include in triage                 |
+| `gh` not authenticated         | Abort with: "Run `gh auth login` first"                                |
+| Concurrency cap exceeded       | Batch into waves (Phase 2.1)                                           |
+| User cancels mid-triage        | Partial results, still emit SWEEP RESULT                               |
+| PR has no review threads       | `resolve` stage completes instantly with "No unresolved conversations" |
+| PR branch is stale             | Pipeline runs anyway; code-review may flag staleness                   |
+| Rate limiting (429)            | Wait and retry once per affected API call                              |
+| Worktree creation fails        | Record ERROR for that item, continue others                            |
+| `--author` matches no PRs      | "No open PRs match --author X" and exit cleanly                        |
+| `--label` matches no PRs       | "No open PRs match --label X" and exit cleanly                         |
+| Combined filters match nothing | "No open PRs match the given filters" and exit cleanly                 |
 
 ## Error Handling
 

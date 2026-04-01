@@ -76,14 +76,14 @@ Locate and read the shared rules file via Glob for `**/skills/_shared/pst-react-
 
 These 6 additional rules apply specifically to the refactoring workflow:
 
-| # | Rule |
-|---|------|
-| R1 | Custom hooks use `.ts` extension - they contain no JSX, so `.tsx` is unnecessary. |
-| R2 | Test files co-located next to their hook: `useMyHook.test.ts` alongside `useMyHook.ts`. |
-| R3 | Tests use **vitest** exclusively. No jest. No React Testing Library for pure logic. Only use `renderHook` from `@testing-library/react` when the hook calls React APIs (`useState`, `useEffect`, etc.). Pure functions exported from hook files are tested directly. |
-| R4 | **Comprehensive test coverage**: every branch, edge case, error state, boundary value, and statement. Tests should be thorough enough that business logic bugs are caught in hooks, not in integration tests. |
-| R5 | **Codify the architecture decision** in the target repo for future LLM runs (see Stage 7). |
-| R6 | **Minimize `eslint-disable` everywhere** - applies to component files, test files, and any file touched during refactoring. See shared rule S5 for the mandatory AskUserQuestion workflow. |
+| #   | Rule                                                                                                                                                                                                                                                                 |
+| --- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| R1  | Custom hooks use `.ts` extension - they contain no JSX, so `.tsx` is unnecessary.                                                                                                                                                                                    |
+| R2  | Test files co-located next to their hook: `useMyHook.test.ts` alongside `useMyHook.ts`.                                                                                                                                                                              |
+| R3  | Tests use **vitest** exclusively. No jest. No React Testing Library for pure logic. Only use `renderHook` from `@testing-library/react` when the hook calls React APIs (`useState`, `useEffect`, etc.). Pure functions exported from hook files are tested directly. |
+| R4  | **Comprehensive test coverage**: every branch, edge case, error state, boundary value, and statement. Tests should be thorough enough that business logic bugs are caught in hooks, not in integration tests.                                                        |
+| R5  | **Codify the architecture decision** in the target repo for future LLM runs (see Stage 7).                                                                                                                                                                           |
+| R6  | **Minimize `eslint-disable` everywhere** - applies to component files, test files, and any file touched during refactoring. See shared rule S5 for the mandatory AskUserQuestion workflow.                                                                           |
 
 All 14 rules (8 shared + 6 specific) are **OVERRIDE priority** - they take precedence over any Vercel rule on conflict.
 
@@ -163,7 +163,7 @@ Create `use{Name}.ts` in the same directory as the component (or in a `hooks/` s
 
 ```typescript
 // useDashboardFilters.ts
-import { useState, useMemo } from 'react';
+import { useState, useMemo } from "react";
 
 interface DashboardFiltersInput {
   initialData: DashboardItem[];
@@ -178,23 +178,31 @@ interface DashboardFiltersOutput {
 }
 
 // Pure function - tested directly, no renderHook needed
-export function applyFilter(data: DashboardItem[], filter: FilterType): DashboardItem[] {
+export function applyFilter(
+  data: DashboardItem[],
+  filter: FilterType,
+): DashboardItem[] {
   // ...
 }
 
 // Pure function - tested directly
-export function sortData(data: DashboardItem[], order: SortOrder): DashboardItem[] {
+export function sortData(
+  data: DashboardItem[],
+  order: SortOrder,
+): DashboardItem[] {
   // ...
 }
 
 // Hook - uses React state, tested with renderHook
-export function useDashboardFilters({ initialData }: DashboardFiltersInput): DashboardFiltersOutput {
-  const [activeFilter, setFilter] = useState<FilterType>('all');
-  const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
+export function useDashboardFilters({
+  initialData,
+}: DashboardFiltersInput): DashboardFiltersOutput {
+  const [activeFilter, setFilter] = useState<FilterType>("all");
+  const [sortOrder, setSortOrder] = useState<SortOrder>("desc");
 
   const filteredData = useMemo(
     () => sortData(applyFilter(initialData, activeFilter), sortOrder),
-    [initialData, activeFilter, sortOrder]
+    [initialData, activeFilter, sortOrder],
   );
 
   return { filteredData, activeFilter, setFilter, sortOrder, setSortOrder };
@@ -217,32 +225,62 @@ Create `use{Name}.test.ts` co-located with the hook file.
 **Test file structure:**
 
 ```typescript
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { renderHook, act } from '@testing-library/react';
-import { useDashboardFilters, applyFilter, sortData } from './useDashboardFilters';
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { renderHook, act } from "@testing-library/react";
+import {
+  useDashboardFilters,
+  applyFilter,
+  sortData,
+} from "./useDashboardFilters";
 
 // Pure function tests - no renderHook needed
-describe('applyFilter', () => {
-  it('returns all items when filter is "all"', () => { /* ... */ });
-  it('filters by category correctly', () => { /* ... */ });
-  it('returns empty array for empty input', () => { /* ... */ });
-  it('handles unknown filter type gracefully', () => { /* ... */ });
+describe("applyFilter", () => {
+  it('returns all items when filter is "all"', () => {
+    /* ... */
+  });
+  it("filters by category correctly", () => {
+    /* ... */
+  });
+  it("returns empty array for empty input", () => {
+    /* ... */
+  });
+  it("handles unknown filter type gracefully", () => {
+    /* ... */
+  });
 });
 
-describe('sortData', () => {
-  it('sorts ascending', () => { /* ... */ });
-  it('sorts descending', () => { /* ... */ });
-  it('handles empty array', () => { /* ... */ });
-  it('handles single item', () => { /* ... */ });
-  it('is stable for equal values', () => { /* ... */ });
+describe("sortData", () => {
+  it("sorts ascending", () => {
+    /* ... */
+  });
+  it("sorts descending", () => {
+    /* ... */
+  });
+  it("handles empty array", () => {
+    /* ... */
+  });
+  it("handles single item", () => {
+    /* ... */
+  });
+  it("is stable for equal values", () => {
+    /* ... */
+  });
 });
 
 // Hook tests - needs renderHook because of useState
-describe('useDashboardFilters', () => {
-  it('initializes with default filter and sort', () => { /* ... */ });
-  it('updates filtered data when filter changes', () => { /* ... */ });
-  it('updates filtered data when sort order changes', () => { /* ... */ });
-  it('recomputes when initialData changes', () => { /* ... */ });
+describe("useDashboardFilters", () => {
+  it("initializes with default filter and sort", () => {
+    /* ... */
+  });
+  it("updates filtered data when filter changes", () => {
+    /* ... */
+  });
+  it("updates filtered data when sort order changes", () => {
+    /* ... */
+  });
+  it("recomputes when initialData changes", () => {
+    /* ... */
+  });
 });
 ```
 
@@ -328,13 +366,13 @@ if [ -f pnpm-lock.yaml ]; then PKG="pnpm"; elif [ -f yarn.lock ]; then PKG="yarn
 
 Run full quality gates:
 
-| Check | Command |
-|-------|---------|
-| Build | `$PKG run build` |
-| Lint | `$PKG run lint -- --max-warnings 0` |
-| Typecheck | `$PKG run typecheck` |
-| Test | `$PKG run test` |
-| Prettier | `$PKG exec prettier --check .` (or `$PKG run format:check` if the project has a script) |
+| Check           | Command                                                                                                                      |
+| --------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| Build           | `$PKG run build`                                                                                                             |
+| Lint            | `$PKG run lint -- --max-warnings 0`                                                                                          |
+| Typecheck       | `$PKG run typecheck`                                                                                                         |
+| Test            | `$PKG run test`                                                                                                              |
+| Prettier        | `$PKG exec prettier --check .` (or `$PKG run format:check` if the project has a script)                                      |
 | Type assertions | Grep all modified/created files for `: any`, `as any`, `@ts-ignore`, `@ts-expect-error` - zero tolerance, fix all violations |
 
 **Lint `--max-warnings 0` note:** If the project's `lint` script already includes `--max-warnings 0`, the bare `$PKG run lint` is sufficient. Check `package.json` scripts first. If the lint script wraps `next lint` or `eslint` without the flag, append `-- --max-warnings 0`.
@@ -378,15 +416,15 @@ Files modified:
 
 ## Error Handling
 
-| Condition | Action |
-|-----------|--------|
-| No `.tsx` files found in scope | Exit with message: "No React component files found in scope." |
-| vitest not installed | Log: `"vitest not found. Install: $PKG add -D vitest"` and abort |
-| Hook extraction is ambiguous (unclear what to extract) | Ask user via AskUserQuestion |
-| Test failures after 3 fix attempts | Report the failing tests, continue to next component |
-| Quality gate failures after 3 cycles | Report and stop |
-| Vercel rules file not found | Degrade gracefully, log install command |
-| Component has no extractable logic | Skip and note in discovery report |
-| `eslint-disable` appears necessary during refactoring | MUST use AskUserQuestion - present the lint error, the code context, and 3 options: (1) fix the code, (2) adjust ESLint config, (3) suppress with comment. Default recommendation is option 1 or 2. |
-| Prettier not installed or no config found | Skip Prettier check, note in summary report |
-| `--max-warnings 0` flag not supported by lint script | Try `$PKG exec eslint --max-warnings 0 .` directly; if that fails, run bare lint and manually count warnings |
+| Condition                                              | Action                                                                                                                                                                                              |
+| ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| No `.tsx` files found in scope                         | Exit with message: "No React component files found in scope."                                                                                                                                       |
+| vitest not installed                                   | Log: `"vitest not found. Install: $PKG add -D vitest"` and abort                                                                                                                                    |
+| Hook extraction is ambiguous (unclear what to extract) | Ask user via AskUserQuestion                                                                                                                                                                        |
+| Test failures after 3 fix attempts                     | Report the failing tests, continue to next component                                                                                                                                                |
+| Quality gate failures after 3 cycles                   | Report and stop                                                                                                                                                                                     |
+| Vercel rules file not found                            | Degrade gracefully, log install command                                                                                                                                                             |
+| Component has no extractable logic                     | Skip and note in discovery report                                                                                                                                                                   |
+| `eslint-disable` appears necessary during refactoring  | MUST use AskUserQuestion - present the lint error, the code context, and 3 options: (1) fix the code, (2) adjust ESLint config, (3) suppress with comment. Default recommendation is option 1 or 2. |
+| Prettier not installed or no config found              | Skip Prettier check, note in summary report                                                                                                                                                         |
+| `--max-warnings 0` flag not supported by lint script   | Try `$PKG exec eslint --max-warnings 0 .` directly; if that fails, run bare lint and manually count warnings                                                                                        |

@@ -185,8 +185,8 @@ Apply heuristic pattern detection mapped to OWASP Top 10 2021 categories. Read e
 
 #### A03 Injection
 
-- SQL injection -- template literals or concatenation in SQL queries (`\`SELECT.*\$\{`, `.query(.*\+`)
-- Command injection -- template literals in `exec`, `spawn`, `execSync` (`exec(\`.*\$\{`)
+- SQL injection -- template literals or concatenation in SQL queries (`\`SELECT._\$\{`, `.query(._\+`)
+- Command injection -- template literals in `exec`, `spawn`, `execSync` (`exec(\`.\*\$\{`)
 - XSS -- `dangerouslySetInnerHTML` without sanitization, `innerHTML` assignment with user data
 - Template injection -- user input in template engine render calls
 - NoSQL injection -- user input directly in MongoDB query objects
@@ -257,14 +257,14 @@ Heuristic patterns are primary. AI is secondary for reducing false positives.
 
 Each finding gets:
 
-| Field   | Description                                                                                               |
-| ------- | --------------------------------------------------------------------------------------------------------- |
-| `owasp` | OWASP Top 10 category (A01--A10)                                                                          |
-| `cwe`   | CWE identifier                                                                                            |
-| `cve`   | CVE identifier (dependency findings only)                                                                 |
-| `cvss`  | CVSS score (0.0--10.0)                                                                                    |
+| Field   | Description                                                                                              |
+| ------- | -------------------------------------------------------------------------------------------------------- |
+| `owasp` | OWASP Top 10 category (A01--A10)                                                                         |
+| `cwe`   | CWE identifier                                                                                           |
+| `cve`   | CVE identifier (dependency findings only)                                                                |
+| `cvss`  | CVSS score (0.0--10.0)                                                                                   |
 | `risk`  | `critical` (CVSS >= 9.0), `high` (7.0--8.9), `medium` (4.0--6.9), `low` (0.1--3.9), `info` (0.0 or none) |
-| `tier`  | Remediation tier: `safe`, `moderate`, or `risky`                                                          |
+| `tier`  | Remediation tier: `safe`, `moderate`, or `risky`                                                         |
 
 **CVSS fallback:** When a finding has no numeric CVSS score (e.g., GitHub advisories with severity label only), map the severity label: `critical` -> 9.5, `high` -> 7.5, `medium` -> 5.0, `low` -> 2.0. Use these synthetic scores for risk classification and sorting only -- do not include them in the CVSS field of the output (use `null` instead).
 
@@ -575,48 +575,48 @@ Add a `zap-scan` job after `dependency-audit`. Use **AskUserQuestion** to get:
 - Health check URL (e.g., `http://localhost:3000/api/health`)
 
 ```yaml
-  zap-scan:
-    runs-on: ubuntu-latest
-    needs: dependency-audit
-    steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: "pnpm"
-      - run: pnpm install --frozen-lockfile
-      - name: Build application
-        run: pnpm build
-      - name: Start application
-        run: |
-          <app-start-command> &
-          APP_READY=false
-          for i in $(seq 1 30); do
-            if curl -s -o /dev/null -w "%{http_code}" <health-url> | grep -qE "200|302"; then
-              echo "App is ready"
-              APP_READY=true
-              break
-            fi
-            echo "Waiting for app... ($i/30)"
-            sleep 2
-          done
-          if [ "$APP_READY" != "true" ]; then
-            echo "::error::App failed to start within 60 seconds"
-            exit 1
+zap-scan:
+  runs-on: ubuntu-latest
+  needs: dependency-audit
+  steps:
+    - uses: actions/checkout@v4
+    - uses: pnpm/action-setup@v4
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 20
+        cache: "pnpm"
+    - run: pnpm install --frozen-lockfile
+    - name: Build application
+      run: pnpm build
+    - name: Start application
+      run: |
+        <app-start-command> &
+        APP_READY=false
+        for i in $(seq 1 30); do
+          if curl -s -o /dev/null -w "%{http_code}" <health-url> | grep -qE "200|302"; then
+            echo "App is ready"
+            APP_READY=true
+            break
           fi
-      - name: Run ZAP Baseline Scan
-        uses: zaproxy/action-baseline@v0.14.0
-        with:
-          target: <health-url>
-          allow_issue_writing: false
-      - name: Upload ZAP report
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: zap-scan
-          path: report_html.html
-          retention-days: 30
+          echo "Waiting for app... ($i/30)"
+          sleep 2
+        done
+        if [ "$APP_READY" != "true" ]; then
+          echo "::error::App failed to start within 60 seconds"
+          exit 1
+        fi
+    - name: Run ZAP Baseline Scan
+      uses: zaproxy/action-baseline@v0.14.0
+      with:
+        target: <health-url>
+        allow_issue_writing: false
+    - name: Upload ZAP report
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: zap-scan
+        path: report_html.html
+        retention-days: 30
 ```
 
 ### Phase 3: Write Workflow
@@ -726,15 +726,15 @@ report-path: /path/to/report.json (if --output)
 
 ## Error Handling
 
-| Condition                    | Action                                                  |
-| ---------------------------- | ------------------------------------------------------- |
-| Not a git repo               | Stop: "Not a git repo."                                 |
-| No package.json found        | Skip dependency audit, run static analysis only         |
-| Docker not available         | Abort pentest with install instructions                 |
-| ZAP image pull fails         | Abort pentest with network troubleshooting hint         |
-| Target URL unreachable       | Abort pentest with connectivity error                   |
-| GitHub API rate limit (429)  | Wait, retry once, then skip GitHub Advisory source      |
-| OSV.dev unreachable          | Warn and continue with other sources                    |
-| pnpm audit fails to parse    | Warn and continue with other sources                    |
-| No findings                  | Report clean scan with risk-score: 0                    |
-| Test failure after dep bump  | Revert change, escalate to moderate tier                |
+| Condition                   | Action                                             |
+| --------------------------- | -------------------------------------------------- |
+| Not a git repo              | Stop: "Not a git repo."                            |
+| No package.json found       | Skip dependency audit, run static analysis only    |
+| Docker not available        | Abort pentest with install instructions            |
+| ZAP image pull fails        | Abort pentest with network troubleshooting hint    |
+| Target URL unreachable      | Abort pentest with connectivity error              |
+| GitHub API rate limit (429) | Wait, retry once, then skip GitHub Advisory source |
+| OSV.dev unreachable         | Warn and continue with other sources               |
+| pnpm audit fails to parse   | Warn and continue with other sources               |
+| No findings                 | Report clean scan with risk-score: 0               |
+| Test failure after dep bump | Revert change, escalate to moderate tier           |

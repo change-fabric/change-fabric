@@ -273,13 +273,16 @@ Pre-push local code review with iterative fix cycles.
 3. If verified critical or warning findings exist:
    - Apply the suggested fixes
    - Commit fixes:
+
      ```bash
      git add <fixed files>
      git commit -m "fix: address preflight review round N findings
 
      Co-Authored-By: Claude <noreply@anthropic.com>"
      ```
+
    - Re-run: `Skill("validate-quality-gates")`
+
 4. If `round >= MIN_ROUNDS` AND 0 criticals AND 0 warnings remaining -> exit loop
 5. If `round == MAX_ROUNDS` AND issues remain -> log residual findings, exit loop
 

@@ -32,10 +32,10 @@ DEFAULT_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@
 DEFAULT_BRANCH="${DEFAULT_BRANCH:-main}"
 ```
 
-| Condition | Action |
-|---|---|
-| `$BRANCH` is empty | Stop: "Not on a branch." |
-| `gh` not available | Stop: "GitHub CLI (gh) is required." |
+| Condition            | Action                                                |
+| -------------------- | ----------------------------------------------------- |
+| `$BRANCH` is empty   | Stop: "Not on a branch."                              |
+| `gh` not available   | Stop: "GitHub CLI (gh) is required."                  |
 | No PR found for args | Stop: "No open PR found. Provide a PR number or URL." |
 
 **Resolve PR metadata:**
@@ -128,16 +128,16 @@ For every item collected in Phase 2, classify it into one of these categories:
 
 ### Classification categories
 
-| Category | Description | Examples |
-|---|---|---|
-| `bot` | Automated CI/deploy comment | Vercel preview, Netlify deploy, Codecov, GitHub Actions bot, Dependabot |
+| Category                   | Description                                                                      | Examples                                                                                                                                                                  |
+| -------------------------- | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `bot`                      | Automated CI/deploy comment                                                      | Vercel preview, Netlify deploy, Codecov, GitHub Actions bot, Dependabot                                                                                                   |
 | `review-summary-redundant` | A review body that only restates what the reviewer's inline comments already say | Reviewer submits a review with body "Please fix the null check on line 42 and rename the variable" when those exact things are already inline comments in the same review |
-| `review-summary-unique` | A review body with substantive feedback not covered by inline comments | Architectural concerns, cross-cutting suggestions, questions about approach |
-| `inline-feedback` | An unresolved inline code comment with actionable feedback | "This should handle the null case", "Consider using a Map here" |
-| `inline-question` | An inline comment that asks a question rather than suggesting a change | "Why was this approach chosen?", "Is this intentional?" |
-| `top-level-feedback` | A top-level issue comment with actionable feedback | Suggestions, concerns, requests for changes |
-| `top-level-question` | A top-level comment asking a question | "What's the migration plan?", "Have you considered X?" |
-| `noise` | Reaction-only, emoji-only, "+1", "LGTM", or otherwise non-actionable | |
+| `review-summary-unique`    | A review body with substantive feedback not covered by inline comments           | Architectural concerns, cross-cutting suggestions, questions about approach                                                                                               |
+| `inline-feedback`          | An unresolved inline code comment with actionable feedback                       | "This should handle the null case", "Consider using a Map here"                                                                                                           |
+| `inline-question`          | An inline comment that asks a question rather than suggesting a change           | "Why was this approach chosen?", "Is this intentional?"                                                                                                                   |
+| `top-level-feedback`       | A top-level issue comment with actionable feedback                               | Suggestions, concerns, requests for changes                                                                                                                               |
+| `top-level-question`       | A top-level comment asking a question                                            | "What's the migration plan?", "Have you considered X?"                                                                                                                    |
+| `noise`                    | Reaction-only, emoji-only, "+1", "LGTM", or otherwise non-actionable             |                                                                                                                                                                           |
 
 ### Classification rules
 
@@ -235,6 +235,7 @@ Agent:
    - Do not refactor beyond what was requested
    - Do not change unrelated code
    - Run quality gates:
+
      ```bash
      # Detect package manager
      if [ -f pnpm-lock.yaml ]; then PKG="pnpm"
@@ -246,6 +247,7 @@ Agent:
      $PKG run typecheck 2>&1
      $PKG run test 2>&1
      ```
+
    - If all gates pass: verdict is `FIXED`
    - If any gate fails: attempt to fix the gate failure (one retry). If still failing, verdict is `NOT_FIXABLE` with reason.
 
@@ -420,6 +422,7 @@ mutation {
 ```
 
 Do this for:
+
 - All `FIXED` threads
 - All `ALREADY_ADDRESSED` threads
 - All `NOT_APPLICABLE` threads (we replied with reasoning)
@@ -428,6 +431,7 @@ Do this for:
 - All `ANSWERED` threads (question was answered)
 
 **Do NOT resolve:**
+
 - Bot/CI comments (they are not review threads)
 - Top-level issue comments (they are not resolvable via the API)
 
@@ -533,15 +537,15 @@ pushed: {yes | no}
 
 ## Error Handling
 
-| Condition | Action |
-|---|---|
-| 401/403 from GitHub | Stop: instruct `gh auth login` |
-| 422 posting reply | Warn, skip that reply, continue with remaining |
-| Rate limited (429) | Wait and retry once, then warn and continue |
-| No unresolved conversations | Print "No unresolved conversations on PR #{N}." and exit cleanly |
-| Sub-agent worktree failure | Skip that item with `NOT_FIXABLE` verdict |
-| All sub-agents fail | Post replies without fixes, note "unable to test fixes in isolation" |
-| Combined quality gate fails after bisect | Remove all suspect fixes, push only clean ones |
-| Push fails | Stop with error, do not post replies (fixes not yet on remote) |
-| Dirty working tree | Stop: "Clean your working tree before running this skill." |
-| GraphQL resolve fails | Warn per thread, continue resolving others |
+| Condition                                | Action                                                               |
+| ---------------------------------------- | -------------------------------------------------------------------- |
+| 401/403 from GitHub                      | Stop: instruct `gh auth login`                                       |
+| 422 posting reply                        | Warn, skip that reply, continue with remaining                       |
+| Rate limited (429)                       | Wait and retry once, then warn and continue                          |
+| No unresolved conversations              | Print "No unresolved conversations on PR #{N}." and exit cleanly     |
+| Sub-agent worktree failure               | Skip that item with `NOT_FIXABLE` verdict                            |
+| All sub-agents fail                      | Post replies without fixes, note "unable to test fixes in isolation" |
+| Combined quality gate fails after bisect | Remove all suspect fixes, push only clean ones                       |
+| Push fails                               | Stop with error, do not post replies (fixes not yet on remote)       |
+| Dirty working tree                       | Stop: "Clean your working tree before running this skill."           |
+| GraphQL resolve fails                    | Warn per thread, continue resolving others                           |

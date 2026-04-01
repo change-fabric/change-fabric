@@ -69,8 +69,8 @@ Severity levels: `auto-fix` (safe to fix without asking), `review` (fix is likel
 
 Search for the em dash character (U+2014) and the en dash (U+2013) in all scanned files.
 
-- In prose/markdown: replace em dash with ` - ` (space-hyphen-space)
-- In code comments: replace em dash with ` - `
+- In prose/markdown: replace em dash with `-` (space-hyphen-space)
+- In code comments: replace em dash with `-`
 - In string literals: replace em dash with `-`
 - Exception: third-party files, vendored code, or quoted text from external sources
 
@@ -88,6 +88,7 @@ In **branch mode**, compare the diff to find documentation added alongside code 
 In **repo mode**, scan for the same patterns across all files.
 
 Do NOT flag:
+
 - Comments explaining non-obvious business logic or "why" decisions
 - API documentation for public interfaces
 - License headers
@@ -137,6 +138,7 @@ Look for patterns that suggest unnecessary indirection:
 - **Adapter layers with no adaptation:** Wrapper classes/functions that pass through every argument unchanged
 
 Do NOT flag:
+
 - Abstractions that exist for testability (dependency injection)
 - Re-exports that aggregate multiple modules into a public API
 - Wrappers that add error handling, logging, or caching
@@ -219,6 +221,7 @@ Skip confirmation. Proceed directly to Phase 4 for all auto-fix and review items
 > - **Flag only ({N}):** Band-aid exclusions, type safety escapes
 >
 > What would you like me to do?
+>
 > 1. Fix all auto-fix + review items
 > 2. Fix auto-fix items only, show me review items
 > 3. Walk me through each category one at a time
@@ -319,10 +322,10 @@ If `--dry-run`, replace "fixed" with "would fix" throughout.
 
 ## Error Handling
 
-| Condition | Action |
-|---|---|
-| Not a git repo | Stop: "Not a git repo." |
-| No changed files on branch | Fall back to `--repo` mode with a note |
-| Typecheck fails after fixes | Revert all changes, suggest `--dry-run` |
-| File is binary | Skip silently |
-| File is in `node_modules` or vendored | Skip silently |
+| Condition                             | Action                                  |
+| ------------------------------------- | --------------------------------------- |
+| Not a git repo                        | Stop: "Not a git repo."                 |
+| No changed files on branch            | Fall back to `--repo` mode with a note  |
+| Typecheck fails after fixes           | Revert all changes, suggest `--dry-run` |
+| File is binary                        | Skip silently                           |
+| File is in `node_modules` or vendored | Skip silently                           |

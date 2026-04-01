@@ -95,13 +95,13 @@ Locate and read the shared rules file via Glob for `**/skills/_shared/pst-react-
 
 These 5 additional rules apply specifically to Figma design implementation:
 
-| # | Rule |
-|---|------|
-| F1 | **Project design tokens over Figma raw values.** Never hardcode hex colors, pixel font sizes, or magic-number spacing from Figma. Map every Figma value to the project's design system tokens (CSS variables, Tailwind theme, styled-components theme, etc.). If no matching token exists, flag it via AskUserQuestion: create a new token or use the closest existing one. |
-| F2 | **Reuse existing components before creating new ones.** Before implementing a Figma element, search the project for an existing component that matches (buttons, inputs, cards, modals, etc.). Extend or compose existing components rather than duplicating. Document the decision. |
-| F3 | **No inline styles except truly dynamic values** (e.g., computed positions, user-controlled colors). All static styling must go through the project's styling system (CSS modules, Tailwind classes, styled-components, etc.). |
-| F4 | **Responsive implementation required.** Do not implement only the single viewport shown in Figma. Infer responsive behavior from Figma auto-layout constraints. If breakpoint behavior is ambiguous, ask the user via AskUserQuestion. |
-| F5 | **Progressive Figma fetching for large artboards.** Never call `get_design_context` or `get_screenshot` on a node that may contain multiple pages or states (e.g., an entire page-level frame). Start with `get_metadata` to inspect the node tree and child count. If the node has more than ~5 direct children or appears to be a page-level container, fetch each child node individually via separate `get_design_context` calls rather than pulling the entire artboard at once. This avoids MCP timeouts and oversized responses. |
+| #   | Rule                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| F1  | **Project design tokens over Figma raw values.** Never hardcode hex colors, pixel font sizes, or magic-number spacing from Figma. Map every Figma value to the project's design system tokens (CSS variables, Tailwind theme, styled-components theme, etc.). If no matching token exists, flag it via AskUserQuestion: create a new token or use the closest existing one.                                                                                                                                                             |
+| F2  | **Reuse existing components before creating new ones.** Before implementing a Figma element, search the project for an existing component that matches (buttons, inputs, cards, modals, etc.). Extend or compose existing components rather than duplicating. Document the decision.                                                                                                                                                                                                                                                    |
+| F3  | **No inline styles except truly dynamic values** (e.g., computed positions, user-controlled colors). All static styling must go through the project's styling system (CSS modules, Tailwind classes, styled-components, etc.).                                                                                                                                                                                                                                                                                                          |
+| F4  | **Responsive implementation required.** Do not implement only the single viewport shown in Figma. Infer responsive behavior from Figma auto-layout constraints. If breakpoint behavior is ambiguous, ask the user via AskUserQuestion.                                                                                                                                                                                                                                                                                                  |
+| F5  | **Progressive Figma fetching for large artboards.** Never call `get_design_context` or `get_screenshot` on a node that may contain multiple pages or states (e.g., an entire page-level frame). Start with `get_metadata` to inspect the node tree and child count. If the node has more than ~5 direct children or appears to be a page-level container, fetch each child node individually via separate `get_design_context` calls rather than pulling the entire artboard at once. This avoids MCP timeouts and oversized responses. |
 
 All 13 rules (8 shared + 5 specific) are **OVERRIDE priority** - they take precedence over any Figma or Vercel baseline rule on conflict.
 
@@ -310,12 +310,12 @@ if [ -f pnpm-lock.yaml ]; then PKG="pnpm"; elif [ -f yarn.lock ]; then PKG="yarn
 
 Run full quality gates:
 
-| Check | Command |
-|-------|---------|
-| Build | `$PKG run build` |
-| Lint | `$PKG run lint -- --max-warnings 0` |
-| Typecheck | `$PKG run typecheck` |
-| Prettier | `$PKG exec prettier --check .` (or `$PKG run format:check` if available) |
+| Check           | Command                                                                                                  |
+| --------------- | -------------------------------------------------------------------------------------------------------- |
+| Build           | `$PKG run build`                                                                                         |
+| Lint            | `$PKG run lint -- --max-warnings 0`                                                                      |
+| Typecheck       | `$PKG run typecheck`                                                                                     |
+| Prettier        | `$PKG exec prettier --check .` (or `$PKG run format:check` if available)                                 |
 | Type assertions | Grep all modified/created files for `: any`, `as any`, `@ts-ignore`, `@ts-expect-error` - zero tolerance |
 
 **Lint note:** If the project's `lint` script already includes `--max-warnings 0`, bare `$PKG run lint` is sufficient. Check `package.json` scripts first.
@@ -364,16 +364,16 @@ Design token mappings:
 
 ## Error Handling
 
-| Condition | Action |
-|-----------|--------|
-| No Figma URL provided | Ask user via AskUserQuestion |
-| Figma MCP server not connected | Exit: "Figma MCP server not accessible. Ensure it's configured." |
+| Condition                                                           | Action                                                                                     |
+| ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| No Figma URL provided                                               | Ask user via AskUserQuestion                                                               |
+| Figma MCP server not connected                                      | Exit: "Figma MCP server not accessible. Ensure it's configured."                           |
 | Design context too large, truncated, or MCP call exceeds ~2 minutes | Use `get_metadata` to probe node tree first, then fetch child nodes individually (Rule F5) |
-| No design system tokens found in project | Warn user, offer to create token file via AskUserQuestion |
-| No matching token for a Figma value | AskUserQuestion: create new token or use closest existing |
-| Asset download fails | Log warning, use placeholder with TODO comment |
-| Quality gate failures after 3 cycles | Report and stop |
-| Figma implement-design skill not found | Degrade gracefully, log install command |
-| Target location ambiguous or no matching route found | Ask user via AskUserQuestion before proceeding |
-| Ambiguous responsive behavior | Ask user via AskUserQuestion |
-| Component already exists in project | Reuse/extend it, do not duplicate |
+| No design system tokens found in project                            | Warn user, offer to create token file via AskUserQuestion                                  |
+| No matching token for a Figma value                                 | AskUserQuestion: create new token or use closest existing                                  |
+| Asset download fails                                                | Log warning, use placeholder with TODO comment                                             |
+| Quality gate failures after 3 cycles                                | Report and stop                                                                            |
+| Figma implement-design skill not found                              | Degrade gracefully, log install command                                                    |
+| Target location ambiguous or no matching route found                | Ask user via AskUserQuestion before proceeding                                             |
+| Ambiguous responsive behavior                                       | Ask user via AskUserQuestion                                                               |
+| Component already exists in project                                 | Reuse/extend it, do not duplicate                                                          |
