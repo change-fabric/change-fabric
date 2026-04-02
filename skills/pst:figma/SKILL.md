@@ -34,7 +34,7 @@ If no Figma URL provided, ask the user via AskUserQuestion.
 
 ### Primary: Figma implement-design
 
-Load the Figma implement-design skill as the structured baseline workflow. Installed by `install.sh` via `npx skills add https://github.com/figma/mcp-server-guide --skill figma-implement-design -g`.
+Load the Figma implement-design skill as the structured baseline workflow. Installed by `install.sh` via `npx skills add https://github.com/figma/mcp-server-guide -g`.
 
 **Resolution order** (first match wins):
 
@@ -47,7 +47,7 @@ Load the Figma implement-design skill as the structured baseline workflow. Insta
 **If not found:** Auto-install and retry:
 
 ```bash
-npx -y skills add https://github.com/figma/mcp-server-guide --skill figma-implement-design -g -y
+npx -y skills@latest add https://github.com/figma/mcp-server-guide -g
 ```
 
 After install, re-check the resolution paths above. If found now, read and internalize as normal.
@@ -56,7 +56,7 @@ After install, re-check the resolution paths above. If found now, read and inter
 
 ```
 WARNING: Figma implement-design skill not found.
-         Run ./install.sh or: npx -y skills add https://github.com/figma/mcp-server-guide --skill figma-implement-design -g -y
+         Run ./install.sh or: npx -y skills@latest add https://github.com/figma/mcp-server-guide -g
 ```
 
 ### Supplementary: Vercel react-best-practices
@@ -74,7 +74,7 @@ Load Vercel react-best-practices for React/Next.js code quality rules.
 **If not found:** Auto-install and retry:
 
 ```bash
-npx -y skills add vercel-labs/agent-skills --skill vercel-react-best-practices -g -y
+npx -y skills@latest add vercel-labs/agent-skills -g
 ```
 
 After install, re-check the resolution paths above. If found now, read and internalize as normal.

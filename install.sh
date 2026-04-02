@@ -108,8 +108,8 @@ done
 # NOTE: These are Claude Code-specific via `npx skills add -g`.
 
 EXTERNAL_SKILLS=(
-  "vercel-labs/agent-skills --skill vercel-react-best-practices"
-  "https://github.com/figma/mcp-server-guide --skill figma-implement-design"
+  "vercel-labs/agent-skills"
+  "https://github.com/figma/mcp-server-guide"
 )
 
 if command -v npx &>/dev/null; then
@@ -117,12 +117,12 @@ if command -v npx &>/dev/null; then
     echo ""
     echo "Installing external dependency: $ext"
     # shellcheck disable=SC2086
-    npx -y skills add $ext -g -y 2>&1 | sed 's/^/  /'
+    npx -y skills@latest add $ext -g -y 2>&1 | sed 's/^/  /' || echo "  WARNING: Failed to install $ext (non-fatal)"
   done
 else
   echo ""
   echo "WARNING: npx not found - skipping external skill dependencies."
-  echo "         Install Node.js and run ./install.sh again to get Vercel react-best-practices."
+  echo "         Install Node.js and run ./install.sh again to get external skills."
 fi
 
 # ── Summary ──────────────────────────────────────────────────────────

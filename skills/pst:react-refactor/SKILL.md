@@ -35,7 +35,7 @@ If no `.tsx` files found on the branch, ask the user via AskUserQuestion what to
 
 ## Stage 2 - External Rules Loading
 
-Load Vercel react-best-practices as the industry baseline. These rules are installed by `install.sh` via the skills CLI (`npx skills add vercel-labs/agent-skills --skill vercel-react-best-practices -g`).
+Load Vercel react-best-practices as the industry baseline. These rules are installed by `install.sh` via the skills CLI (`npx skills add vercel-labs/agent-skills -g`).
 
 **Resolution order** (first match wins):
 
@@ -50,7 +50,7 @@ The Vercel skill ships with `SKILL.md`, `AGENTS.md`, and a `rules/` directory co
 **If not found:** Auto-install and retry:
 
 ```bash
-npx -y skills add vercel-labs/agent-skills --skill vercel-react-best-practices -g -y
+npx -y skills@latest add vercel-labs/agent-skills -g
 ```
 
 After install, re-check the resolution paths above. If found now, read and internalize as normal.
@@ -59,7 +59,7 @@ After install, re-check the resolution paths above. If found now, read and inter
 
 ```
 WARNING: Vercel react-best-practices not found.
-         Run ./install.sh or: npx -y skills add vercel-labs/agent-skills --skill vercel-react-best-practices -g -y
+         Run ./install.sh or: npx -y skills@latest add vercel-labs/agent-skills -g
 ```
 
 ---
