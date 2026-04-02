@@ -110,20 +110,29 @@ If `$STATUS` is non-empty:
 - Stash changes: `git stash push -m "pst:rebase auto-stash"`
 - Set `STASHED=true` to restore later
 
-### 2d. Record current HEAD
+### 2d. Record current HEAD and detect divergence
 
 ```bash
 ORIGINAL_HEAD=$(git rev-parse HEAD)
 COMMIT_COUNT=$(git rev-list --count "origin/$BASE_BRANCH..HEAD")
+DIFF_STAT=$(git diff --shortstat "origin/$BASE_BRANCH..HEAD" 2>/dev/null || echo "")
 ```
 
 Log:
 
 ```
 Branch has {COMMIT_COUNT} commits ahead of origin/{BASE_BRANCH}
+Diff stat: {DIFF_STAT}
 ```
 
-**If `--dry-run`:** Print the analysis (base branch, commit count, Drizzle dirs found, migrations that would be removed) and stop here.
+**Pre-rebase divergence warning:** If `COMMIT_COUNT` is high (>10) but `DIFF_STAT` shows very few changed lines (e.g., <50 insertions+deletions), log a warning:
+
+```
+WARNING: {COMMIT_COUNT} commits but only {N} lines changed -- likely stale commits from squash-merged PRs or an un-rebased release merge.
+These will be cleaned up automatically (empty commits dropped, optional squash offered).
+```
+
+**If `--dry-run`:** Print the analysis (base branch, commit count, diff stat, divergence warning if applicable, Drizzle dirs found, migrations that would be removed) and stop here.
 
 ---
 
@@ -132,12 +141,14 @@ Branch has {COMMIT_COUNT} commits ahead of origin/{BASE_BRANCH}
 Run the rebase with automatic conflict resolution strategy.
 
 ```bash
-git rebase "origin/$BASE_BRANCH" --no-autosquash
+git rebase "origin/$BASE_BRANCH" --no-autosquash --empty=drop
 ```
+
+The `--empty=drop` flag automatically removes commits that become empty after replay -- this is the primary defense against squash-merged downstack PRs leaving ghost commits on the upstack branch.
 
 ### If rebase completes cleanly
 
-Proceed to Phase 4.
+Proceed to Phase 3.5.
 
 ### If rebase hits conflicts
 
@@ -228,7 +239,7 @@ Run it:
 bash /tmp/rebase-resolve.sh
 ```
 
-**If the batch loop completes** (`REBASE_COMPLETE`), proceed to Phase 4.
+**If the batch loop completes** (`REBASE_COMPLETE`), proceed to Phase 3.5.
 
 **If the batch loop fails**, fall back to **manual per-file resolution** for the stuck commit:
 
@@ -264,6 +275,98 @@ git rebase --abort
 Stop with: "Rebase aborted -- unable to automatically resolve conflicts. Manual intervention required."
 
 If we stashed changes earlier, restore them: `git stash pop`
+
+---
+
+## Phase 3.5 -- Post-Rebase Bloat Detection
+
+After the rebase completes (with empty commits already dropped by `--empty=drop`), check whether the remaining commit history is proportionate to the actual changes.
+
+### 3.5a. Gather post-rebase metrics
+
+```bash
+POST_COMMIT_COUNT=$(git rev-list --count "origin/$BASE_BRANCH..HEAD")
+# Extract total lines changed (insertions + deletions)
+LINES_CHANGED=$(git diff --numstat "origin/$BASE_BRANCH" 2>/dev/null | awk '{s+=$1+$2} END {print s+0}')
+# Count files changed
+FILES_CHANGED=$(git diff --name-only "origin/$BASE_BRANCH" 2>/dev/null | wc -l | tr -d ' ')
+```
+
+### 3.5b. Detect bloat scenarios
+
+**Scenario A -- Redundant commits survived empty-drop:** If `POST_COMMIT_COUNT` > `COMMIT_COUNT * 0.8` AND `LINES_CHANGED` < `POST_COMMIT_COUNT * 10`, commits may be functionally redundant even though they're not empty (e.g., they re-apply changes already on the base with minor diffs). This happens when development was merged to production and the branch was based on a stale development.
+
+**Scenario B -- Commit/change ratio is extreme:** If `POST_COMMIT_COUNT` > 5 AND `LINES_CHANGED` / `POST_COMMIT_COUNT` < 10 (fewer than 10 lines changed per commit on average), the history is bloated.
+
+**Scenario C -- Many commits, tiny diff:** If `POST_COMMIT_COUNT` > 10 AND `LINES_CHANGED` < 50, this is almost certainly a stale-base or squash-merge artifact.
+
+### 3.5c. Offer auto-squash
+
+If any bloat scenario is detected:
+
+```
+BLOAT DETECTED: {POST_COMMIT_COUNT} commits but only {LINES_CHANGED} lines changed across {FILES_CHANGED} files.
+
+Root cause is likely one of:
+  1. Downstack PR(s) were squash-merged -- their individual commits are now redundant
+  2. A release merge (e.g., development -> production) included your base commits,
+     and the branch wasn't rebased onto the updated base before continuing work
+
+Recommendation: Squash into a single commit to produce a clean PR.
+```
+
+Use AskUserQuestion:
+
+```
+Squash {POST_COMMIT_COUNT} commits into one? (Y/n)
+```
+
+**If yes (default):**
+
+```bash
+# Soft-reset to the merge base, then recommit all changes as one
+git reset --soft "origin/$BASE_BRANCH"
+# Stage everything (the reset preserves changes in the index)
+git add -A
+```
+
+Then use AskUserQuestion to get a commit message, pre-filling with the original branch name as a suggestion:
+
+```
+Commit message for the squashed commit?
+(Suggestion: {BRANCH_NAME converted to title case, e.g., "feat/add-user-profile" -> "Add user profile"})
+```
+
+```bash
+git commit -m "$(cat <<'EOF'
+{USER_MESSAGE}
+
+Co-Authored-By: Claude <noreply@anthropic.com>
+EOF
+)"
+```
+
+Log:
+
+```
+Squashed {POST_COMMIT_COUNT} commits into 1
+```
+
+**If no:** Proceed without squashing. Log: "Keeping {POST_COMMIT_COUNT} commits as-is."
+
+### 3.5d. Log dropped commits
+
+Report how many commits were dropped by `--empty=drop`:
+
+```bash
+DROPPED=$((COMMIT_COUNT - POST_COMMIT_COUNT))
+```
+
+If `DROPPED` > 0:
+
+```
+Dropped {DROPPED} empty commit(s) (from squash-merged PRs or duplicate cherry-picks)
+```
 
 ---
 
@@ -419,7 +522,11 @@ Always print this block at the end:
 --- REBASE RESULT ---
 branch: {BRANCH}
 base: origin/{BASE_BRANCH}
-commits-rebased: {N}
+commits-before: {N}
+commits-after: {N}
+empty-commits-dropped: {N}
+squashed: {yes (N -> 1) | no}
+lines-changed: {N}
 conflicts-resolved: {N auto-resolved} auto, {N user-resolved} manual
 drizzle-migrations-removed: {N}
 drizzle-dirs: {dir1, dir2, ... | none}
