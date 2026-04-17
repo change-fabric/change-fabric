@@ -14,12 +14,22 @@ cd skills
 ./install.sh
 ```
 
-This creates symlinks for all skills, making them available system-wide:
+This installs skills for Claude and Codex by default. Use `--claude` or `--codex` to narrow scope.
+
+It creates symlinks system-wide:
 
 - **Claude Code**: `~/.claude/commands/{name}.md` (file symlinks)
 - **OpenAI Codex**: `$CODEX_HOME/skills/{name}/` (directory symlinks, defaults to `~/.codex/skills/`)
 
 Re-run `./install.sh` any time you install a new CLI to pick it up. Restart Codex after installing new skills so it reloads them.
+
+Examples:
+
+```bash
+./install.sh
+./install.sh --claude
+./install.sh --codex
+```
 
 Codex skills are not invoked as slash commands. In Codex, mention the skill name in your prompt, for example: `Use pst:push to push this branch and validate the PR.`
 
@@ -29,7 +39,22 @@ Codex skills are not invoked as slash commands. In Codex, mention the skill name
 ./install.sh --uninstall
 ```
 
-Removes symlinks from both `~/.claude/commands/` and `$CODEX_HOME/skills/`.
+Or use the standalone wrapper:
+
+```bash
+./uninstall.sh
+```
+
+Defaults to removing both Claude and Codex symlinks. Use provider flags to narrow scope:
+
+```bash
+./install.sh --uninstall --claude
+./install.sh --uninstall --codex
+./uninstall.sh --claude
+./uninstall.sh --codex
+```
+
+Removes symlinks from `~/.claude/commands/` and/or `$CODEX_HOME/skills/`.
 
 ## Skills
 

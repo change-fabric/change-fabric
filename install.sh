@@ -9,6 +9,9 @@ if [[ -n "${CODEX_HOME:-}" ]]; then
 fi
 CODEX_HOME="${CODEX_HOME:-$HOME/.codex}"
 CODEX_SKILLS_DIR="$CODEX_HOME/skills"
+WANTS_CLAUDE=false
+WANTS_CODEX=false
+UNINSTALL=false
 
 SKILLS=(
   "decide-for-me"
@@ -40,17 +43,64 @@ OLD_SKILLS=(
   "pst-qa"
 )
 
+usage() {
+  cat <<'EOF'
+Usage: ./install.sh [--claude] [--codex] [--uninstall] [-h|--help]
+
+Defaults to installing or uninstalling both Claude and Codex.
+
+Options:
+  --claude     Operate on Claude only
+  --codex      Operate on Codex only
+  --uninstall  Remove installed symlinks instead of creating them
+  -h, --help   Show this message
+EOF
+}
+
+for arg in "$@"; do
+  case "$arg" in
+    --claude)
+      WANTS_CLAUDE=true
+      ;;
+    --codex)
+      WANTS_CODEX=true
+      ;;
+    --uninstall)
+      UNINSTALL=true
+      ;;
+    --help|-h)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "Unknown argument: $arg" >&2
+      usage >&2
+      exit 1
+      ;;
+  esac
+done
+
+INSTALL_CLAUDE=false
+INSTALL_CODEX=false
+if [[ "$WANTS_CLAUDE" == true || "$WANTS_CODEX" == true ]]; then
+  INSTALL_CLAUDE="$WANTS_CLAUDE"
+  INSTALL_CODEX="$WANTS_CODEX"
+else
+  INSTALL_CLAUDE=true
+  INSTALL_CODEX=true
+fi
+
 # ── Uninstall ────────────────────────────────────────────────────────
-if [[ "${1:-}" == "--uninstall" ]]; then
+if [[ "$UNINSTALL" == true ]]; then
   for skill in "${SKILLS[@]}" "${OLD_SKILLS[@]}"; do
     claude_dst="$CLAUDE_COMMANDS_DIR/$skill.md"
-    if [[ -L "$claude_dst" ]]; then
+    if [[ "$INSTALL_CLAUDE" == true && -L "$claude_dst" ]]; then
       rm "$claude_dst"
       echo "Uninstalled /$skill from Claude Code (removed $claude_dst)"
     fi
 
     codex_dst="$CODEX_SKILLS_DIR/$skill"
-    if [[ -L "$codex_dst" ]]; then
+    if [[ "$INSTALL_CODEX" == true && -L "$codex_dst" ]]; then
       rm "$codex_dst"
       echo "Uninstalled /$skill from Codex (removed $codex_dst)"
     fi
@@ -59,10 +109,12 @@ if [[ "${1:-}" == "--uninstall" ]]; then
 fi
 
 # ── Detect available CLIs ────────────────────────────────────────────
-mkdir -p "$CLAUDE_COMMANDS_DIR"
+if [[ "$INSTALL_CLAUDE" == true ]]; then
+  mkdir -p "$CLAUDE_COMMANDS_DIR"
+fi
 
 CODEX_AVAILABLE=false
-if [[ "$CODEX_HOME_SET" == true || -d "$CODEX_HOME" || -x "$(command -v codex 2>/dev/null)" ]]; then
+if [[ "$INSTALL_CODEX" == true && ("$CODEX_HOME_SET" == true || -d "$CODEX_HOME" || -x "$(command -v codex 2>/dev/null)" || "$WANTS_CODEX" == true) ]]; then
   mkdir -p "$CODEX_HOME"
   mkdir -p "$CODEX_SKILLS_DIR"
   CODEX_AVAILABLE=true
@@ -71,12 +123,12 @@ fi
 # ── Clean up orphaned symlinks ───────────────────────────────────────
 for old in "${OLD_SKILLS[@]}"; do
   claude_dst="$CLAUDE_COMMANDS_DIR/$old.md"
-  if [[ -L "$claude_dst" ]]; then
+  if [[ "$INSTALL_CLAUDE" == true && -L "$claude_dst" ]]; then
     rm "$claude_dst"
     echo "Removed orphaned /$old -> $claude_dst"
   fi
 
-  if [[ "$CODEX_AVAILABLE" == true ]]; then
+  if [[ "$INSTALL_CODEX" == true && "$CODEX_AVAILABLE" == true ]]; then
     codex_dst="$CODEX_SKILLS_DIR/$old"
     if [[ -L "$codex_dst" ]]; then
       rm "$codex_dst"
@@ -90,11 +142,13 @@ for skill in "${SKILLS[@]}"; do
   # Claude Code: file symlink to SKILL.md
   claude_src="$REPO_DIR/skills/$skill/SKILL.md"
   claude_dst="$CLAUDE_COMMANDS_DIR/$skill.md"
-  ln -sfn "$claude_src" "$claude_dst"
-  echo "Installed /$skill -> $claude_src"
+  if [[ "$INSTALL_CLAUDE" == true ]]; then
+    ln -sfn "$claude_src" "$claude_dst"
+    echo "Installed /$skill -> $claude_src"
+  fi
 
   # Codex: directory symlink to skill folder (includes scripts/ etc.)
-  if [[ "$CODEX_AVAILABLE" == true ]]; then
+  if [[ "$INSTALL_CODEX" == true && "$CODEX_AVAILABLE" == true ]]; then
     codex_src="$REPO_DIR/skills/$skill"
     codex_dst="$CODEX_SKILLS_DIR/$skill"
     ln -sfn "$codex_src" "$codex_dst"
@@ -113,14 +167,14 @@ EXTERNAL_SKILLS=(
   "https://github.com/figma/mcp-server-guide"
 )
 
-if command -v npx &>/dev/null; then
+if [[ "$INSTALL_CLAUDE" == true ]] && command -v npx &>/dev/null; then
   for ext in "${EXTERNAL_SKILLS[@]}"; do
     echo ""
     echo "Installing external dependency: $ext"
     # shellcheck disable=SC2086
     npx -y skills@latest add $ext -g -y 2>&1 | sed 's/^/  /' || echo "  WARNING: Failed to install $ext (non-fatal)"
   done
-else
+elif [[ "$INSTALL_CLAUDE" == true ]]; then
   echo ""
   echo "WARNING: npx not found - skipping external skill dependencies."
   echo "         Install Node.js and run ./install.sh again to get external skills."
@@ -128,16 +182,22 @@ fi
 
 # ── Summary ──────────────────────────────────────────────────────────
 echo ""
-echo "Skills installed for Claude Code (${#SKILLS[@]} skills -> ~/.claude/commands/)"
-if [[ "$CODEX_AVAILABLE" == true ]]; then
+if [[ "$INSTALL_CLAUDE" == true && "$INSTALL_CODEX" == true ]]; then
+  echo "Skills installed for Claude Code (${#SKILLS[@]} skills -> ~/.claude/commands/)"
+elif [[ "$INSTALL_CLAUDE" == true ]]; then
+  echo "Skills installed for Claude Code only (${#SKILLS[@]} skills -> ~/.claude/commands/)"
+fi
+if [[ "$INSTALL_CODEX" == true && "$CODEX_AVAILABLE" == true ]]; then
   echo "Skills installed for OpenAI Codex  (${#SKILLS[@]} skills -> $CODEX_SKILLS_DIR/)"
   echo "Restart Codex to pick up new skills."
-else
+elif [[ "$INSTALL_CODEX" == true ]]; then
   echo "Codex CLI not detected and CODEX_HOME not set -- skipping Codex install."
   echo "Re-run ./install.sh after installing Codex or set CODEX_HOME to enable."
 fi
 echo ""
-echo "Claude commands: /decide-for-me, /pst:auto, /pst:claude-md, /pst:code-review, /pst:demo, /pst:figma, /pst:ingest-pdf, /pst:markdown, /pst:next, /pst:patch, /pst:push, /pst:python-refactor, /pst:qa, /pst:quality-gates, /pst:rebase, /pst:react-refactor, /pst:resolve-threads, /pst:slop, /pst:sweep, /spec-gen, /validate-quality-gates"
-if [[ "$CODEX_AVAILABLE" == true ]]; then
+if [[ "$INSTALL_CLAUDE" == true ]]; then
+  echo "Claude commands: /decide-for-me, /pst:auto, /pst:claude-md, /pst:code-review, /pst:demo, /pst:figma, /pst:ingest-pdf, /pst:markdown, /pst:next, /pst:patch, /pst:push, /pst:python-refactor, /pst:qa, /pst:quality-gates, /pst:rebase, /pst:react-refactor, /pst:resolve-threads, /pst:slop, /pst:sweep, /spec-gen, /validate-quality-gates"
+fi
+if [[ "$INSTALL_CODEX" == true && "$CODEX_AVAILABLE" == true ]]; then
   echo "Codex skills: mention the skill name in your prompt, for example: 'Use pst:push to push this branch and validate the PR.'"
 fi
