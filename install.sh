@@ -23,6 +23,7 @@ SKILLS=(
   "pst:patch"
   "pst:push"
   "pst:python-refactor"
+  "pst:quality-gates"
   "pst:qa"
   "pst:rebase"
   "pst:resolve-threads"
@@ -136,7 +137,7 @@ else
   echo "Re-run ./install.sh after installing Codex or set CODEX_HOME to enable."
 fi
 echo ""
-echo "Claude commands: /decide-for-me, /pst:auto, /pst:claude-md, /pst:code-review, /pst:demo, /pst:figma, /pst:ingest-pdf, /pst:markdown, /pst:next, /pst:patch, /pst:push, /pst:python-refactor, /pst:qa, /pst:rebase, /pst:react-refactor, /pst:resolve-threads, /pst:slop, /pst:sweep, /spec-gen, /validate-quality-gates"
+echo "Claude commands: /decide-for-me, /pst:auto, /pst:claude-md, /pst:code-review, /pst:demo, /pst:figma, /pst:ingest-pdf, /pst:markdown, /pst:next, /pst:patch, /pst:push, /pst:python-refactor, /pst:qa, /pst:quality-gates, /pst:rebase, /pst:react-refactor, /pst:resolve-threads, /pst:slop, /pst:sweep, /spec-gen, /validate-quality-gates"
 if [[ "$CODEX_AVAILABLE" == true ]]; then
   echo "Codex skills: mention the skill name in your prompt, for example: 'Use pst:push to push this branch and validate the PR.'"
 fi
