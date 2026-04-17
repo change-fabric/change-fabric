@@ -180,6 +180,21 @@ Agent:
     gh pr checkout $PR_NUMBER
     ```
 
+    Then bootstrap the worktree so pre-commit/pre-push hooks and quality
+    gates can actually run (env symlinks, deps, husky hooks path):
+    ```bash
+    if [ -f pnpm-lock.yaml ]; then PKG="pnpm"
+    elif [ -f yarn.lock ]; then PKG="yarn"
+    else PKG="npm"; fi
+    if grep -q '"worktree:init"' package.json 2>/dev/null; then
+      $PKG run worktree:init
+    fi
+    ```
+    If the repo doesn't define `worktree:init`, fall back to
+    `$PKG install --frozen-lockfile`. Without this step, downstream
+    stages will misreport (missing env files masquerade as real
+    failures) and pre-push hooks will fail.
+
     Run these stages SEQUENTIALLY. Run ALL stages to completion
     -- do NOT short-circuit on failure. Record results for each stage.
 

@@ -222,6 +222,19 @@ Agent:
 
 **Sub-agent workflow:**
 
+0. **Bootstrap the worktree first.** If `package.json` has a `worktree:init` script (or equivalent name like `agent:init`, `bootstrap`), run it immediately after `cd`'ing into the worktree:
+
+   ```bash
+   if [ -f pnpm-lock.yaml ]; then PKG="pnpm"
+   elif [ -f yarn.lock ]; then PKG="yarn"
+   else PKG="npm"; fi
+   if grep -q '"worktree:init"' package.json 2>/dev/null; then
+     $PKG run worktree:init
+   fi
+   ```
+
+   This installs deps + symlinks env files + fixes husky hooks path. Without it, pre-commit/pre-push hooks will fail on missing env files and quality gates will misreport. If the script doesn't exist, fall back to `$PKG install --frozen-lockfile` only.
+
 1. **Understand the feedback:** Read the comment, the referenced file(s) and surrounding context. If inline, read the specific lines and the full function/component they belong to.
 
 2. **Assess relevance:** Determine if the suggestion is:
@@ -237,11 +250,6 @@ Agent:
    - Run quality gates:
 
      ```bash
-     # Detect package manager
-     if [ -f pnpm-lock.yaml ]; then PKG="pnpm"
-     elif [ -f yarn.lock ]; then PKG="yarn"
-     else PKG="npm"; fi
-
      $PKG run build 2>&1
      $PKG run lint 2>&1
      $PKG run typecheck 2>&1

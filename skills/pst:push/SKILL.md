@@ -1,8 +1,8 @@
 ---
 name: pst:push
 description: Auto-commit, push to PR, refresh PR description, validate test plan, and check off passing items.
-argument-hint: "[--dry-run] [--comment] [--no-desc]"
-allowed-tools: Bash, Read, Grep, Glob, Agent
+argument-hint: "[--dry-run] [--comment] [--no-desc] [--skip-slop]"
+allowed-tools: Bash, Read, Grep, Glob, Agent, Skill, AskUserQuestion
 ---
 
 # Push & Validate
@@ -24,6 +24,7 @@ This is a lightweight alternative to `/pst:qa` -- terminal commands only, no bro
 - `--dry-run` - analyze and validate locally without pushing, creating PRs, posting comments, or updating checkboxes
 - `--comment` - also post a validation results comment on the GitHub PR (Phase 6a)
 - `--no-desc` - skip refreshing the PR title and description (Phase 3). Useful when you've manually crafted the PR description and don't want it overwritten.
+- `--skip-slop` - bypass the Phase 1.5 slop gate. Use only when you've consciously decided that committed slop is fine (e.g., re-pushing a reviewed branch without re-scanning).
 - No arguments - full push, PR refresh, validate, and checkbox update cycle (terminal output only, no GitHub comment)
 
 ---
@@ -87,6 +88,100 @@ Auto-committed: {message} ({N} files)
 ```
 
 **Skip if `--dry-run`:** Still analyze and log what would be committed, but do not actually stage or commit.
+
+---
+
+## Phase 1.5 - Slop Gate
+
+Defense against AI-generated slop reaching the remote. Runs on every invocation unless `--skip-slop` is set.
+
+**Skip if:** `--skip-slop` OR `--dry-run`.
+
+### 1.5a. Scan
+
+Invoke the slop skill in dry-run mode, scoped to branch changes:
+
+```
+Skill("pst:slop", "--dry-run")
+```
+
+The skill compares the branch diff against the default branch and reports findings grouped by category and severity (`auto-fix`, `review`, `flag`). See `pst:slop` Phase 2 for the full category list -- em dashes, excessive documentation, disabled quality gates, band-aid exclusions, over-complicated abstractions, dead code, error theater, type safety escapes.
+
+### 1.5b. Triage
+
+Parse the slop scan output. Classify the findings:
+
+| Class             | Severities               | Default Action                     |
+| ----------------- | ------------------------ | ---------------------------------- |
+| **Clean**         | zero findings            | Continue to Phase 2                |
+| **Safe-fix only** | only `auto-fix` findings | Auto-apply fixes, commit, continue |
+| **Needs review**  | any `review` findings    | Halt, present findings, ask user   |
+| **Blocker**       | any `flag` findings      | Halt, present findings, ask user   |
+
+### 1.5c. Safe-fix only path
+
+If every finding is severity `auto-fix` (em dashes, dead `console.log`, commented-out code, clearly-unnecessary suppression comments):
+
+```
+Skill("pst:slop", "--auto")
+```
+
+After fixes apply, commit them automatically:
+
+```bash
+git add -A
+git commit -m "chore: strip AI slop before push
+
+Applied /pst:slop --auto: {brief summary of categories touched}.
+
+Co-Authored-By: Claude <noreply@anthropic.com>"
+```
+
+Log: `Slop gate: {N} auto-fixes applied and committed. Continuing.`
+
+Continue to Phase 2.
+
+### 1.5d. Needs-review / blocker path
+
+If any finding has severity `review` or `flag`, **do not push**. Present the full slop report in the terminal, then use **AskUserQuestion**:
+
+> Slop scan flagged {N} items needing a human call:
+>
+> - **Auto-fix ({N}):** {categories with counts}
+> - **Review ({N}):** {categories with counts}
+> - **Flag ({N}):** {categories with counts}
+>
+> Representative findings:
+>
+> - `{file}:{line}` - {category}: {one-line description}
+> - `{file}:{line}` - {category}: {one-line description}
+> - ... (up to 5)
+>
+> Push is blocked until you decide. What should I do?
+>
+> 1. Apply auto-fix + review fixes, commit, push
+> 2. Apply auto-fix only, push anyway (review items stay as-is)
+> 3. Walk me through each category before deciding
+> 4. Push anyway, I've already reviewed the findings (adds `--skip-slop` ack)
+> 5. Abort push
+
+Handle the response:
+
+- **Option 1:** Run `Skill("pst:slop", "--auto")`, commit the fixes with the message in 1.5c, then continue to Phase 2.
+- **Option 2:** Invoke `Skill("pst:slop")` interactively and choose its option 2 ("Fix auto-fix items only, show me review items"). Commit if anything changed, then continue to Phase 2. Log the remaining review items for the terminal report. (`pst:slop --auto` would also apply review items, so it cannot be used here.)
+- **Option 3:** Invoke `Skill("pst:slop")` (interactive mode, no `--auto`) and let the user pick category-by-category. After it returns, commit any fixes and continue to Phase 2.
+- **Option 4:** Log the acknowledgement (`Slop gate bypassed by user: {N} review, {N} flag items acknowledged`) and continue to Phase 2. Include the unresolved findings in the final Output Contract.
+- **Option 5:** Stop with exit message `Push aborted at slop gate.` Do not push, do not create/update a PR.
+
+### 1.5e. Scoping and performance
+
+- The slop scan operates on the branch diff only (default mode in `pst:slop`), so it's bounded by the size of the PR, not the repo.
+- If `git merge-base` fails or the branch has zero changes vs. the default branch, skip the gate with a note: `Slop gate: no branch changes to scan, skipping.`
+- If the slop skill itself errors out, treat it as a soft failure: log the error, warn the user, and continue (so a broken slop scanner doesn't permanently wedge pushes). Do NOT auto-bypass if `--skip-slop` was not set -- ask via AskUserQuestion whether to push anyway.
+
+### 1.5f. Why this gate exists
+
+Concrete trigger case: AI-generated boilerplate (header comment blocks, narration comments, unrequested README sections) shipping in small config files where the human-authored content is a single line. The slop scan's category 2 (Excessive Documentation) catches this. Without the gate, a push routes that material to the remote before anyone sees it. With the gate, the review-severity finding stops the push and surfaces the specific file/lines for a decision.
 
 ---
 
@@ -375,7 +470,8 @@ Always print this block at the end for machine parsing:
 --- PUSH RESULT ---
 branch: {BRANCH}
 pr: #{N} ({url})
-pushed: {yes|skipped (dry-run)}
+slop-gate: {clean|fixed N|acknowledged N review + N flag|skipped (--skip-slop)|skipped (dry-run)|error: {reason}}
+pushed: {yes|skipped (dry-run)|aborted at slop gate}
 pr-refreshed: {yes|no (just created)|skipped (dry-run)|skipped (--no-desc)}
 checkboxes: {total found}
 pass: {N} | fail: {N} | skip: {N}

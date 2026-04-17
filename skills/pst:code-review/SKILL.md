@@ -157,6 +157,13 @@ Agent:
 
 **Sub-agent workflow:**
 
+0. **Bootstrap the worktree first.** If `package.json` has a `worktree:init` script (or equivalent name like `agent:init`, `bootstrap`), run it immediately after `cd`'ing into the worktree:
+   ```bash
+   if grep -q '"worktree:init"' package.json 2>/dev/null; then
+     $PKG_MANAGER run worktree:init
+   fi
+   ```
+   This installs deps + symlinks env files + fixes husky hooks path. Without it, pre-commit/pre-push hooks will fail on missing env files and the quality-gate step below will misreport. If the script doesn't exist, fall back to `$PKG_MANAGER install --frozen-lockfile` only.
 1. Read the file and surrounding code context
 2. **Trace the dependency graph** - follow callers/callees until hitting system boundaries (API, DB, external service). Understand the blast radius.
 3. Validate against: ADRs, patterns files, inferred patterns from the Analysis stage
@@ -197,6 +204,31 @@ Post a single grouped review via `gh api POST /repos/{owner}/{repo}/pulls/{N}/re
 Get `commit_id`: `gh pr view <N> --json headRefOid --jq .headRefOid` (validate `^[0-9a-f]{40}$`; fallback: `git rev-parse HEAD`; both fail → body-only review via `gh pr review`).
 
 Write comments to a temp JSON file, pass via `--input`, clean up after.
+
+**Capture the posted review's `html_url`** from the API response and immediately open it in the user's default browser so they can see it without leaving their workflow:
+
+```bash
+REVIEW_RESPONSE=$(gh api "/repos/{owner}/{repo}/pulls/{N}/reviews" --method POST --input "$TMP_JSON")
+REVIEW_URL=$(echo "$REVIEW_RESPONSE" | jq -r '.html_url')
+
+# Open in browser (cross-platform fallback chain)
+if [ -n "$REVIEW_URL" ] && [ "$REVIEW_URL" != "null" ]; then
+  if command -v open >/dev/null 2>&1; then
+    open "$REVIEW_URL"           # macOS
+    echo "Opened review in browser: $REVIEW_URL"
+  elif command -v xdg-open >/dev/null 2>&1; then
+    xdg-open "$REVIEW_URL"       # Linux
+    echo "Opened review in browser: $REVIEW_URL"
+  elif command -v start >/dev/null 2>&1; then
+    start "$REVIEW_URL"          # Windows (Git Bash/WSL)
+    echo "Opened review in browser: $REVIEW_URL"
+  else
+    echo "Review posted (no browser opener available): $REVIEW_URL"
+  fi
+fi
+```
+
+Fallback to `gh pr review` body-only mode: after posting, open the PR URL instead -- `open "$(gh pr view $N --json url --jq .url)"`. If the browser-open command itself fails (e.g., headless CI), print the URL prominently and continue -- never block on this.
 
 **Inline comment format:**
 
@@ -302,6 +334,7 @@ All findings from all rounds are presented in the final terminal output, dedupli
 - Auto-apply all verified fixes (they've already proven to pass quality gates)
 - One squashed commit for all fixes
 - If 0 criticals remain + PR exists → auto-post APPROVE via GitHub API
+- After posting the review/approval, **open the review `html_url` in the browser** using the same `open`/`xdg-open`/`start` fallback chain described in GitHub PR Mode above. Never block on failure.
 
 ### Sweep Mode (`--sweep`)
 

@@ -1,3 +1,12 @@
+---
+name: pst:ingest-pdf
+description: Ingest a PDF from disk into the current repo as a structured markdown file
+argument-hint: "/absolute/path/to/file.pdf"
+allowed-tools: Read, Write, Edit, Bash, Grep, Glob
+---
+
+# Ingest PDF
+
 Ingest a PDF (email, letter, invoice, contract, or other artifact) into the current repo as a structured markdown file.
 
 ## Input
