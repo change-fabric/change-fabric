@@ -127,12 +127,15 @@ Generate candidate review findings from the diff.
    - Performance (N+1 queries, unnecessary re-renders, missing indexes)
 4. **Generate candidate findings** with format:
    - ID: `R{N}` (sequential)
-   - Severity: `critical` | `warning` | `nit`
-   - File + line range
+   - Severity: `critical` | `warning` | `nit` | `observation`
+   - File + line range (omit line range for `observation` if it is file- or architecture-scoped)
    - Category (from list above)
    - Title (short)
    - Problem description (1-2 sentences)
-   - Suggested fix (specific, minimal)
+   - Suggested fix (specific, minimal) - **omit for `observation`**; observations have no fix
+
+   `observation` is reserved for architectural notes with no concrete fix. Max 2 per review. Observations are body-only prose in Reporting and do **not** enter the Verification stage. See the Verification section's "Observation severity" subsection for the full rule set.
+
 5. **Pre-filter**: Drop findings that are:
    - Style nitpicks mis-classified as warnings → downgrade to nit or drop
    - Already caught by CI tooling (eslint, tsc, prettier) → drop
@@ -144,62 +147,117 @@ Generate candidate review findings from the diff.
 
 The core differentiator: every candidate finding is validated by a sub-agent that applies the fix and runs quality gates.
 
-**For EACH candidate finding**, spawn a sub-agent:
+### Invariant (non-negotiable)
+
+Every candidate finding that survives the pre-filter step in Analysis **MUST** be verified by its own isolated-worktree sub-agent that (i) applies the proposed fix and (ii) runs the full quality-gate suite. This is the property that distinguishes `/pst:code-review` from an opinion dump. Collapsing verification into a single shared worktree, skipping the fix-application step, or declaring findings "static-analysis-verifiable" to bypass this loop is **not permitted** - those rationales are rejected regardless of how sensible they sound in the moment.
+
+The only exception is the `observation` severity (see below), which has no fix to apply and therefore no gate to run.
+
+### Rejected rationales
+
+The following shortcuts have all been proposed in the past and are **explicitly rejected**. If the sub-agent's reasoning matches any of these shapes, the run has failed its invariant and the final report must flag it as a failure mode, not a "defensible shortcut."
+
+- _"`EnterWorktree` is a deferred tool requiring a schema fetch, so I used one shared worktree."_ → Wrong entry point. The `Task` tool with `isolation: "worktree"` is the mechanism, and `Task` is always live - no schema fetch required. Spawn with `Task({ subagent_type: "general-purpose", isolation: "worktree", run_in_background: true, prompt: ... })`.
+- _"Each sub-agent would re-run `pnpm run worktree:init`, which is expensive given a shared environmental gap (e.g., missing service credentials, unreachable external providers)."_ → Cost of correctness. `node_modules` is typically hardlink/sparse-copied by the worktree harness, so re-bootstrap is cheap. Partial environment failures (e.g., a provider-specific codegen step unable to reach its dev backend) are acceptable and **must not** block verification of diffs that don't exercise the unavailable service. Run `worktree:init || true` and proceed; the gate-execution step already handles partial-gate scenarios.
+- _"The findings are statically verifiable (schema orphans, stale comments, routing order, missing concurrency caps) - a single quality-gate pass covers them."_ → The per-finding gate is not only about build/runtime regression. It also cross-checks that (a) the finding correctly describes the target code, (b) the proposed fix is minimal and doesn't silently break surrounding tests or types, and (c) multiple independent findings don't have conflicting or overlapping fixes. Those properties **only** hold when each fix is applied in isolation.
+
+### Observation severity (the single escape hatch)
+
+For rare architectural notes that have no concrete fix ("consider splitting this module in a future pass", "this pattern is diverging from the rest of the codebase - worth a team discussion"), use the `observation` severity.
+
+- Observations are **body-only prose** in the review summary - no inline comment, no fix block, no `suggestion` code block, no quality-gate claim.
+- Observations are **excluded from per-finding verification** because they have no fix to apply.
+- **Cap: at most 2 observations per review.** If you find yourself wanting to emit a 3rd, open a follow-up issue or ADR instead.
+
+`observation` is the **only** valid path for a finding that does not run through isolated-worktree verification. Any other finding that skips the loop is a bug.
+
+### Spawning sub-agents
+
+**For EACH candidate finding** that survived the Analysis pre-filter and is **not** an `observation`, spawn a sub-agent:
 
 ```
-Agent:
+Task:
+  subagent_type: general-purpose
   description: "Verify finding R{N}: {title}"
   isolation: worktree
   run_in_background: true
+  prompt: "<self-contained per-finding verification instructions>"
 ```
 
 **All agents spawn simultaneously.** Each gets its own isolated worktree copy of the code.
 
-**Sub-agent workflow:**
+### Sub-agent workflow (numbered - no step is optional unless noted)
 
-0. **Bootstrap the worktree first.** If `package.json` has a `worktree:init` script (or equivalent name like `agent:init`, `bootstrap`), run it immediately after `cd`'ing into the worktree:
+1. **Bootstrap the worktree (best-effort).** If `package.json` has a `worktree:init` script (or equivalent name like `agent:init`, `bootstrap`), run it immediately after `cd`'ing into the worktree. **Do not fail on partial bootstrap** - missing env vars or unreachable external services are expected in verification worktrees:
    ```bash
    if grep -q '"worktree:init"' package.json 2>/dev/null; then
-     $PKG_MANAGER run worktree:init
+     $PKG_MANAGER run worktree:init || true
+   else
+     $PKG_MANAGER install --frozen-lockfile || true
    fi
    ```
-   This installs deps + symlinks env files + fixes husky hooks path. Without it, pre-commit/pre-push hooks will fail on missing env files and the quality-gate step below will misreport. If the script doesn't exist, fall back to `$PKG_MANAGER install --frozen-lockfile` only.
-1. Read the file and surrounding code context
-2. **Trace the dependency graph** - follow callers/callees until hitting system boundaries (API, DB, external service). Understand the blast radius.
-3. Validate against: ADRs, patterns files, inferred patterns from the Analysis stage
-4. **Filter check** - DISCARD the finding if:
-   - It's a style preference disguised as a warning (rename, blank line, import order)
-   - It flags a phantom bug from incomplete context (e.g., non-null flagged as nullable when the type system guarantees it)
-   - CI tooling would already catch it (eslint, tsc, prettier rules)
-   - It's over-engineering (excessive abstraction, unnecessary error handling for impossible cases)
-   - The fix would break existing tests or API contracts
-   - It doesn't materially affect reliability, correctness, or maintainability
-5. **Apply the suggested fix** in the worktree (minimum edit, don't refactor beyond the finding)
-6. **Run quality gates**: detect package manager, then execute:
+   This installs deps, symlinks env files, and fixes husky hooks path where possible. Bootstrap failure is **not** grounds to skip steps 2–7. Carry on and let the gate-execution step in 6 handle what can and cannot run.
+2. **Read the target file, surrounding code context, and trace the dependency graph.** Follow callers/callees until hitting system boundaries (API, DB, external service). Understand the blast radius.
+3. **Validate against:** ADRs, patterns files, inferred patterns from the Analysis stage.
+4. **Filter-discard check - DISCARD the finding (verdict: `DROPPED`) if:**
+   - It's a style preference disguised as a warning (rename, blank line, import order).
+   - It flags a phantom bug from incomplete context (e.g., non-null flagged as nullable when the type system guarantees it).
+   - CI tooling would already catch it (eslint, tsc, prettier rules).
+   - It's over-engineering (excessive abstraction, unnecessary error handling for impossible cases).
+   - The fix would break existing tests or API contracts.
+   - It doesn't materially affect reliability, correctness, or maintainability.
+
+   This step may drop the finding **before** a fix is applied. It may **not** be used as a reason to skip step 5 for a finding that was not dropped here.
+
+5. **Apply the suggested fix** in the worktree. Minimum edit - don't refactor beyond the finding. This is the step most likely to be skipped under time pressure or "static-analysis-verifiable" reasoning; skipping it invalidates the whole run.
+6. **Run quality gates.** Detect the package manager, then execute:
+
    ```bash
    $PKG_MANAGER run build 2>&1
    $PKG_MANAGER run lint 2>&1
    $PKG_MANAGER run typecheck 2>&1
    $PKG_MANAGER run test 2>&1
    ```
-   If any gate fails → **drop the finding entirely**. If the repo has no test suite, treat the test gate as N/A.
-7. Produce a verdict: `VERIFIED` (fix works, gates pass) or `DROPPED` (fix breaks something or finding is invalid)
+
+   Gate-result classification:
+   - **PASS:** command exits 0 after applying the fix.
+   - **FAIL:** command exits non-zero and the same command also exits 0 on the unedited base commit. Verdict → `DROPPED`.
+   - **N/A:** command exits non-zero on both the fix and the unedited base (environmental constraint, not a regression caused by the fix). Record the gate as N/A with the identical-failure evidence. N/A is acceptable but must be explicit and proven, not assumed.
+
+   At least **one gate must execute to a PASS or a proven-N/A verdict**. If zero gates run (e.g., bootstrap totally failed and no gate command is invokable), the verdict is `DROPPED`.
+
+7. **Produce a verdict:**
+   - `VERIFIED` - the fix applied cleanly **and** every runnable gate either passed or is a proven N/A with evidence.
+   - `DROPPED` - the finding was filtered in step 4, the fix could not apply cleanly, a gate failed only on the fixed tree, or zero gates were runnable.
+
+   No other verdicts are valid. "Skipped for time," "covered by another finding," and "probably fine - it's just a comment" are all `DROPPED`.
 
 **After all sub-agents complete:**
 
-- Collect results. VERIFIED findings proceed to Reporting. DROPPED findings are discarded silently.
+- Collect results. `VERIFIED` findings proceed to Reporting. `DROPPED` findings are recorded with a one-line reason for the Reporting stage's "Dropped during verification" section.
 - Clean up all verification worktrees.
+- Assert `VERIFIED + DROPPED == total non-observation candidates`. If the count doesn't balance, a sub-agent silently skipped the loop - treat the entire review as invalid and re-run the missing sub-agents before posting.
 
 ---
 
 ## Reporting
+
+### Required review-body sections (GitHub PR bodies)
+
+Every review body posted to GitHub - regardless of mode (default or `--autofix`) - **must** contain the following sections in this order:
+
+1. **Summary** - max 8 bullets.
+2. **Findings** - table of `VERIFIED` findings (critical / warning / nit).
+3. **Observations** - the body-only prose list (0, 1, or 2 items; omit the section if empty).
+4. **Dropped during verification** - enumerate every candidate finding that ended the Verification stage with a `DROPPED` verdict, one line each, with the one-line reason (filter-discard rule matched, gate regression, no gate runnable, etc.).
+5. **Verification integrity** - a single assertion line: `VERIFIED (${V}) + DROPPED (${D}) = ${V+D} non-observation candidates.` This number **must** match the total candidates produced by Analysis after pre-filter. If it doesn't, the run is invalid.
 
 ### GitHub PR Mode (default)
 
 Post a single grouped review via `gh api POST /repos/{owner}/{repo}/pulls/{N}/reviews`:
 
 - Event: `REQUEST_CHANGES` if any critical finding, else `COMMENT`
-- Body: Summary (max 8 bullets) + findings table + count of dropped findings
+- Body: the 5 required sections above, in order
 
 Get `commit_id`: `gh pr view <N> --json headRefOid --jq .headRefOid` (validate `^[0-9a-f]{40}$`; fallback: `git rev-parse HEAD`; both fail → body-only review via `gh pr review`).
 
@@ -454,14 +512,28 @@ If removal fails, warn with manual cleanup command.
 
 ### Error Handling
 
-| Condition                  | Action                                             |
-| -------------------------- | -------------------------------------------------- |
-| 401/403 from GitHub        | Instruct `gh auth login`                           |
-| 422 (invalid line comment) | Remove invalid comments, retry                     |
-| 429 (rate limit)           | Wait, retry, fallback to body-only                 |
-| Empty diff                 | Exit with message                                  |
-| Sub-agent worktree failure | Skip that finding with "unverified" caveat         |
-| All sub-agents fail        | Fall back to unverified review with warning banner |
-| Worktree creation fails    | Fall back to reviewing in host repo with warning   |
-| Worktree cleanup fails     | Warn with manual cleanup command                   |
-| Sweep max rounds exceeded  | Report remaining issues, exit                      |
+| Condition                  | Action                                                                      |
+| -------------------------- | --------------------------------------------------------------------------- |
+| 401/403 from GitHub        | Instruct `gh auth login`                                                    |
+| 422 (invalid line comment) | Remove invalid comments, retry                                              |
+| 429 (rate limit)           | Wait, retry, fallback to body-only                                          |
+| Empty diff                 | Exit with message                                                           |
+| Sub-agent worktree failure | Verdict `DROPPED` for that finding (record reason). No "unverified" bypass. |
+| All sub-agents fail        | Abort the review. Do not post "unverified" findings to the PR.              |
+| Worktree creation fails    | Retry once; on second failure, abort the review with clear error.           |
+| Worktree cleanup fails     | Warn with manual cleanup command                                            |
+| Sweep max rounds exceeded  | Report remaining issues, exit                                               |
+
+---
+
+## Output contract
+
+Every run - GitHub PR, `--local`, `--preflight`, `--autofix`, or `--sweep` - must emit, as the **final line** of the terminal / background-task output, the self-audit line:
+
+```
+Per-finding verification: ${VERIFIED}/${TOTAL} candidates ran isolated quality gates.
+```
+
+Where `TOTAL` is the count of non-`observation` candidates that survived Analysis pre-filter, and `VERIFIED` is the count that reached verdict `VERIFIED`. `DROPPED` candidates still count as having "run" the gate - what is being audited is whether the isolated-worktree loop was entered, not whether the finding survived.
+
+If `VERIFIED + DROPPED < TOTAL` - i.e., any non-`observation` finding is missing its isolated sub-agent run - the agent **must** abort the run, re-dispatch the missing sub-agents, and re-emit the self-audit line only after every non-`observation` candidate has reached VERIFIED or DROPPED. Posting (or printing a final report) with a sub-1.0 ratio is not permitted. A ratio below 1.0 with any finding that never entered the loop means the skill's core invariant was violated.
