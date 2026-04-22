@@ -113,11 +113,15 @@ Auto-commit, push the current branch, ensure a PR exists against the default bra
 
 Rebase the current branch onto a base branch with automatic conflict resolution, Drizzle migration cleanup, and force-push. Infers the base branch from the current PR or falls back to the repo default. Automatically removes all Drizzle database migrations from the feature branch (you regenerate them manually via Drizzle Kit after). Asks for user input only when a conflict is genuinely ambiguous.
 
+Includes a **Pre-Push Safety Gate** (Phase 6.5) that logs any theirs-unique hunks dropped by `--ours` auto-resolves and runs a post-rebase typecheck against a pre-rebase baseline. If the rebase introduces new typecheck errors, the push is blocked until you acknowledge, reset, or override with `--yolo`.
+
 ```
 /pst:rebase
 /pst:rebase main
 /pst:rebase develop --no-push
 /pst:rebase --dry-run
+/pst:rebase --skip-typecheck     # baseline/gate skipped; content-drop log still runs
+/pst:rebase --yolo               # downgrades gate block to a loud warning
 ```
 
 ### `/pst:qa`

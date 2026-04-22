@@ -1,7 +1,7 @@
 ---
 name: pst:rebase
 description: Rebase current branch onto base, auto-resolve conflicts, remove Drizzle migrations from the feature branch, and force-push.
-argument-hint: "[base-branch] [--no-push] [--dry-run]"
+argument-hint: "[base-branch] [--no-push] [--dry-run] [--skip-typecheck] [--yolo]"
 allowed-tools: Bash, Read, Edit, Write, Grep, Glob, AskUserQuestion
 ---
 
@@ -20,6 +20,8 @@ Rebase the current feature branch onto a target base branch, automatically resol
 - `<base-branch>` -- explicit branch to rebase onto (e.g., `main`, `develop`, `origin/main`)
 - `--no-push` -- skip the final `git push --force-with-lease`
 - `--dry-run` -- analyze what would happen without modifying anything
+- `--skip-typecheck` -- skip the Phase 3.25 post-rebase typecheck gate. Content-preservation logging still runs. Use only when the project has no typecheck script or the script is known to be broken on the base branch too.
+- `--yolo` -- acknowledge content drops and typecheck regressions and push anyway. Mirrors `--no-push` as an explicit escape hatch. The guard still logs everything; `--yolo` just downgrades the block to a loud warning.
 - No arguments -- infer the base branch (see Phase 1)
 
 ---
@@ -118,6 +120,48 @@ COMMIT_COUNT=$(git rev-list --count "origin/$BASE_BRANCH..HEAD")
 DIFF_STAT=$(git diff --shortstat "origin/$BASE_BRANCH..HEAD" 2>/dev/null || echo "")
 ```
 
+### 2e. Baseline typecheck (for regression comparison)
+
+Capture the feature branch's typecheck error count **before** the rebase so Phase 3.25 can diff against it. A clean pre-rebase baseline is expected -- but if the branch was already broken, we still want to detect whether the rebase made it _worse_.
+
+```bash
+# Detect package manager first (needed to construct the typecheck command)
+if [ -f pnpm-lock.yaml ]; then PKG="pnpm"
+elif [ -f yarn.lock ]; then PKG="yarn"
+else PKG="npm"; fi
+
+# Detect a typecheck script -- order matters (most explicit first)
+PRE_TYPECHECK_CMD=""
+if [ -f package.json ]; then
+  if grep -qE '"typecheck"\s*:' package.json; then
+    PRE_TYPECHECK_CMD="$PKG run typecheck"
+  elif grep -qE '"tsc"\s*:' package.json; then
+    PRE_TYPECHECK_CMD="$PKG run tsc"
+  elif command -v tsc >/dev/null 2>&1 && [ -f tsconfig.json ]; then
+    PRE_TYPECHECK_CMD="npx tsc --noEmit"
+  fi
+elif [ -f pyproject.toml ] && command -v mypy >/dev/null 2>&1; then
+  PRE_TYPECHECK_CMD="mypy ."
+fi
+
+if [ -n "$PRE_TYPECHECK_CMD" ]; then
+  # Run with a short timeout -- baseline only, don't block on slow typecheck
+  PRE_TYPECHECK_OUT=$(timeout 180 bash -c "$PRE_TYPECHECK_CMD" 2>&1 || true)
+  PRE_TYPECHECK_EXIT=$?
+  PRE_TYPECHECK_ERRORS=$(echo "$PRE_TYPECHECK_OUT" | grep -cE '(error TS[0-9]+|error:)' || echo "0")
+else
+  PRE_TYPECHECK_ERRORS="n/a"
+fi
+```
+
+Log:
+
+```
+Pre-rebase typecheck baseline: {PRE_TYPECHECK_ERRORS} error(s) [cmd: {PRE_TYPECHECK_CMD or "none detected"}]
+```
+
+If `--skip-typecheck` is set, skip this step and set `PRE_TYPECHECK_ERRORS="skipped"`.
+
 Log:
 
 ```
@@ -172,6 +216,40 @@ MAX=100
 AUTO_RESOLVED=0
 USER_RESOLVED=0
 REGENERATE_LOCKFILE=false
+CONTENT_DROPS_LOG="/tmp/rebase-content-drops.log"
+CONTENT_DROPS_COUNT=0
+: > "$CONTENT_DROPS_LOG"
+
+# Helper: log theirs-unique hunks that will be dropped when we accept --ours.
+# This is the content-preservation guard. For each auto-accepted --ours resolve
+# on a non-Drizzle, non-lockfile, non-deletion conflict, we compute what the
+# feature branch (theirs) had that the base branch (ours) does NOT have, and
+# record it. Phase 3.25 summarizes this before the push gate.
+log_content_drop() {
+  local file="$1"
+  # Skip if either index stage is missing (e.g., add/add where one side is empty)
+  git show ":2:$file" >/dev/null 2>&1 || return 0
+  git show ":3:$file" >/dev/null 2>&1 || return 0
+
+  # Diff ours -> theirs. Lines prefixed with "+" are present in theirs but not ours,
+  # i.e. the content we are about to drop. Capture file:hunk-header:+line trios.
+  local drops
+  drops=$(git diff --no-color --no-index --unified=0 \
+    <(git show ":2:$file") <(git show ":3:$file") 2>/dev/null \
+    | awk -v f="$file" '
+        /^@@/ { hunk = $0; next }
+        /^\+[^+]/ { print f ":" hunk "\n  + " substr($0, 2) }
+      ' || true)
+
+  if [ -n "$drops" ]; then
+    CONTENT_DROPS_COUNT=$((CONTENT_DROPS_COUNT + 1))
+    {
+      echo "=== $file ==="
+      echo "$drops"
+      echo ""
+    } >> "$CONTENT_DROPS_LOG"
+  fi
+}
 
 for i in $(seq 1 $MAX); do
   # Check if rebase is still in progress
@@ -180,6 +258,8 @@ for i in $(seq 1 $MAX); do
     echo "AUTO_RESOLVED=$AUTO_RESOLVED"
     echo "USER_RESOLVED=$USER_RESOLVED"
     echo "REGENERATE_LOCKFILE=$REGENERATE_LOCKFILE"
+    echo "CONTENT_DROPS_COUNT=$CONTENT_DROPS_COUNT"
+    echo "CONTENT_DROPS_LOG=$CONTENT_DROPS_LOG"
     exit 0
   fi
 
@@ -215,11 +295,16 @@ for i in $(seq 1 $MAX); do
     else
       if [ "$ctype" = "DU" ]; then
         # File deleted on base, modified by feature -- accept deletion
+        # The feature's modifications ARE being dropped here -- log them.
+        log_content_drop "$f" || true
         git rm "$f" 2>/dev/null || true
       elif [ "$ctype" = "UD" ]; then
         # File modified on base, deleted by feature -- keep base version
         git checkout --ours "$f" 2>/dev/null && git add "$f" 2>/dev/null || true
       else
+        # UU/AA: both modified. Accepting --ours may silently drop theirs-unique
+        # hunks. Log them BEFORE resolving so Phase 3.25 can report.
+        log_content_drop "$f" || true
         git checkout --ours "$f" 2>/dev/null && git add "$f" 2>/dev/null || git add "$f" 2>/dev/null || true
       fi
     fi
@@ -502,9 +587,117 @@ If the stash pop conflicts, warn the user: "Your stashed changes conflict with t
 
 ---
 
+## Phase 6.5 -- Pre-Push Safety Gate (Content Preservation + Typecheck)
+
+The auto-resolve loop in Phase 3 accepts `--ours` (base) for every non-Drizzle, non-lockfile conflict. That is mechanically correct but **semantically unsafe**: if the feature branch added net-new content in a file that also changed on the base, the `--ours` resolve silently discards that content. This phase catches the regression before it's pushed.
+
+**Concrete failure mode (the incident that motivated this gate):** FaithBase PR #38 (`nc/02-cost-cap-rate-limit-primitive`) added a new `llmCostLedger` table and `by_org_and_time` index to `convex/schema.ts`. When the skill rebased onto `main`, `convex/schema.ts` conflicted because `main` had unrelated schema changes. The loop accepted `--ours` -- `main`'s `schema.ts` -- silently dropping the new table and index. The rebase was pushed; 7 typecheck errors surfaced only during later code review.
+
+The gate has two layers: **content-preservation log** (pre-resolution telemetry, already populated by Phase 3) and **post-rebase typecheck** (did we break the build?).
+
+### 6.5a. Report content drops
+
+If `CONTENT_DROPS_COUNT` > 0, surface the log:
+
+```
+CONTENT DROPS: Phase 3 accepted --ours on {CONTENT_DROPS_COUNT} file(s) with
+theirs-unique content. The feature branch's additions in these files were
+DISCARDED in favor of the base branch's version.
+
+Sample drops (first 40 lines of /tmp/rebase-content-drops.log):
+{head -n 40 /tmp/rebase-content-drops.log}
+
+Full log: /tmp/rebase-content-drops.log
+```
+
+If `CONTENT_DROPS_COUNT` = 0, log: `Content preservation: no theirs-unique hunks were discarded during auto-resolve.`
+
+### 6.5b. Post-rebase typecheck
+
+**Skip if `--skip-typecheck`** or if `PRE_TYPECHECK_CMD` was empty in Phase 2e. Log `Typecheck gate: skipped ({reason})` and jump to 6.5c.
+
+Run the same typecheck command captured in Phase 2e:
+
+```bash
+POST_TYPECHECK_OUT=$(timeout 300 bash -c "$PRE_TYPECHECK_CMD" 2>&1 || true)
+POST_TYPECHECK_EXIT=$?
+POST_TYPECHECK_ERRORS=$(echo "$POST_TYPECHECK_OUT" | grep -cE '(error TS[0-9]+|error:)' || echo "0")
+```
+
+Compute the regression delta:
+
+```bash
+if [ "$PRE_TYPECHECK_ERRORS" = "n/a" ] || [ "$PRE_TYPECHECK_ERRORS" = "skipped" ]; then
+  TYPECHECK_REGRESSIONS="unknown (no baseline)"
+else
+  TYPECHECK_REGRESSIONS=$((POST_TYPECHECK_ERRORS - PRE_TYPECHECK_ERRORS))
+fi
+```
+
+Log the result:
+
+```
+Post-rebase typecheck: {POST_TYPECHECK_ERRORS} error(s) (baseline: {PRE_TYPECHECK_ERRORS}, delta: {+N | -N | 0})
+```
+
+If the delta is positive (regressed), print the first 30 lines of `POST_TYPECHECK_OUT` so the user sees which errors are new.
+
+### 6.5c. Decide: block, warn, or pass
+
+Classify the run:
+
+| Condition                                                               | Classification |
+| ----------------------------------------------------------------------- | -------------- |
+| `CONTENT_DROPS_COUNT` = 0 AND `TYPECHECK_REGRESSIONS` <= 0              | **clean**      |
+| `CONTENT_DROPS_COUNT` > 0 AND `TYPECHECK_REGRESSIONS` <= 0              | **warn**       |
+| `TYPECHECK_REGRESSIONS` > 0 (regardless of content drops)               | **blocker**    |
+| `TYPECHECK_REGRESSIONS` = "unknown (no baseline)" AND content drops > 0 | **warn**       |
+
+**clean:** Log `Safety gate: clean, proceeding to push.` and continue to Phase 7.
+
+**warn:** Print the full content-drops log head and ask:
+
+> Phase 3 auto-resolve dropped content from {CONTENT_DROPS_COUNT} file(s).
+> Typecheck regressions: {TYPECHECK_REGRESSIONS}.
+>
+> The log is at `/tmp/rebase-content-drops.log`. Review before deciding.
+>
+> 1. Inspect the log and proceed (I have reviewed the drops)
+> 2. Abort before push (run `git reset --hard {ORIGINAL_HEAD}` to restore)
+> 3. Skip push but keep the rebased state (equivalent to `--no-push`)
+
+Use AskUserQuestion. On option 1, set `GATE_DECISION="warn-acknowledged"` and continue to Phase 7. On option 2, run `git reset --hard "$ORIGINAL_HEAD"` and stop. On option 3, set `PUSH_BLOCKED=true` and skip Phase 7.
+
+**blocker:** Print the typecheck output and the content-drops log head. Ask:
+
+> BLOCKED: Rebase introduced {TYPECHECK_REGRESSIONS} new typecheck error(s). This
+> is the `--ours` content-drop failure mode -- Phase 3 likely accepted base versions
+> of files where the feature branch added net-new content.
+>
+> First 30 lines of new errors:
+> {POST_TYPECHECK_OUT head}
+>
+> Content drops logged: {CONTENT_DROPS_COUNT} file(s) at /tmp/rebase-content-drops.log
+>
+> 1. Abort and reset to pre-rebase HEAD ({ORIGINAL_HEAD}) -- recommended
+> 2. Skip push, keep the broken rebased state for manual inspection
+> 3. Push anyway (requires `--yolo` flag; without it this option is hidden)
+
+If `--yolo` is set, option 3 is available and chooses it passes with a loud warning: `WARNING: --yolo pushed through a typecheck regression. CONTENT_DROPS={N}, REGRESSIONS={N}.` and sets `GATE_DECISION="yolo"`. Without `--yolo`, option 3 is not offered. Default to option 1 on ambiguous input.
+
+**Non-interactive fallback:** If AskUserQuestion is unavailable in the execution environment (e.g., skill invoked in a fully autonomous pipeline), behavior is:
+
+- **clean:** continue
+- **warn:** continue with `GATE_DECISION="warn-autoproceed"` and include the drops log path in the Output Contract
+- **blocker:** if `--yolo` is set, push with a warning. Otherwise stop with `Pre-push safety gate blocked the push. Content drops: {N}. Typecheck regressions: {N}. Re-run with --yolo to override or manually fix.`
+
+Set `PUSH_BLOCKED=true` on any stop/skip path so the Output Contract reflects it.
+
+---
+
 ## Phase 7 -- Push
 
-**Skip if `--no-push`.**
+**Skip if `--no-push` or `PUSH_BLOCKED=true`.**
 
 ```bash
 git push --force-with-lease origin "$BRANCH"
@@ -528,11 +721,17 @@ empty-commits-dropped: {N}
 squashed: {yes (N -> 1) | no}
 lines-changed: {N}
 conflicts-resolved: {N auto-resolved} auto, {N user-resolved} manual
+content-drops-flagged: {N} (log: /tmp/rebase-content-drops.log)
+typecheck-baseline: {N | n/a | skipped}
+typecheck-post-rebase: {N | skipped}
+typecheck-regressions: {N | unknown (no baseline) | skipped}
+safety-gate: {clean | warn-acknowledged | warn-autoproceed | yolo | blocked}
+push-blocked: {yes | no}
 drizzle-migrations-removed: {N}
 drizzle-dirs: {dir1, dir2, ... | none}
 lockfile-regenerated: {yes | no}
 stash: {restored | not needed}
-pushed: {yes | skipped (--no-push) | skipped (--dry-run)}
+pushed: {yes | skipped (--no-push) | skipped (--dry-run) | skipped (safety gate)}
 --- END REBASE RESULT ---
 ```
 
@@ -540,14 +739,19 @@ pushed: {yes | skipped (--no-push) | skipped (--dry-run)}
 
 ## Error Handling
 
-| Condition                    | Action                                                    |
-| ---------------------------- | --------------------------------------------------------- |
-| On default branch            | Stop with message                                         |
-| Base branch not found        | Stop: "Branch `{BASE_BRANCH}` not found on origin."       |
-| `git` not available          | Stop with message                                         |
-| Rebase unrecoverable         | Abort rebase, restore stash, stop with message            |
-| Push fails                   | Stop with error, do not lose local state                  |
-| Stash pop conflicts          | Warn user, leave stash intact                             |
-| No Drizzle dirs found        | Skip migration cleanup silently                           |
-| `gh` not available           | Warn (cannot detect PR base), fall back to default branch |
-| Lock file regeneration fails | Warn but continue                                         |
+| Condition                                      | Action                                                                                           |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| On default branch                              | Stop with message                                                                                |
+| Base branch not found                          | Stop: "Branch `{BASE_BRANCH}` not found on origin."                                              |
+| `git` not available                            | Stop with message                                                                                |
+| Rebase unrecoverable                           | Abort rebase, restore stash, stop with message                                                   |
+| Push fails                                     | Stop with error, do not lose local state                                                         |
+| Stash pop conflicts                            | Warn user, leave stash intact                                                                    |
+| No Drizzle dirs found                          | Skip migration cleanup silently                                                                  |
+| `gh` not available                             | Warn (cannot detect PR base), fall back to default branch                                        |
+| Lock file regeneration fails                   | Warn but continue                                                                                |
+| No typecheck script detected (Phase 2e)        | Set `PRE_TYPECHECK_ERRORS="n/a"`, skip 6.5b typecheck, continue. Content-drop log still runs.    |
+| Typecheck regression detected without `--yolo` | Block push via Phase 6.5c, print new errors + drops log, require manual decision                 |
+| Typecheck regression with `--yolo`             | Push with a loud warning, record `safety-gate: yolo` in Output Contract                          |
+| Content drops with no typecheck regression     | Warn, require acknowledgement (or auto-proceed in non-interactive mode), record drops log path   |
+| Typecheck times out (>300s in Phase 6.5b)      | Treat as `unknown (no baseline)`, apply `warn` classification if content drops > 0 else continue |
