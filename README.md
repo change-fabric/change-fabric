@@ -1,10 +1,10 @@
 # skills
 
-A collection of personal [Claude Code](https://docs.anthropic.com/en/docs/claude-code) skills - reusable prompt shortcuts for common workflows.
+A collection of personal coding-agent skills - reusable workflow prompts for Claude Code, OpenAI Codex, and Pi Coding Agent.
 
 ## Prerequisites
 
-- [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) and/or [OpenAI Codex CLI](https://github.com/openai/codex) installed
+- [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code), [OpenAI Codex CLI](https://github.com/openai/codex), and/or [Pi Coding Agent](https://github.com/badlogic/pi) installed
 
 ## Install
 
@@ -14,12 +14,15 @@ cd skills
 ./install.sh
 ```
 
-This installs skills for Claude and Codex by default. Use `--claude` or `--codex` to narrow scope.
+This installs skills for Claude, Codex, and Pi by default. Use `--claude`, `--codex`, or `--pi` to narrow scope.
 
 It creates symlinks system-wide:
 
 - **Claude Code**: `~/.claude/commands/{name}.md` (file symlinks)
 - **OpenAI Codex**: `$CODEX_HOME/skills/{name}/` (directory symlinks, defaults to `~/.codex/skills/`)
+- **Pi Coding Agent**: `$PI_HOME/skills/{safe-name}/` wrapper skills (defaults to `~/.pi/agent/skills/`)
+
+Pi skill names are Agent Skills-safe lower-kebab aliases. For example, `pst:push` installs as `/skill:pst-push`.
 
 Re-run `./install.sh` any time you install a new CLI to pick it up. Restart Codex after installing new skills so it reloads them.
 
@@ -29,6 +32,7 @@ Examples:
 ./install.sh
 ./install.sh --claude
 ./install.sh --codex
+./install.sh --pi
 ```
 
 Codex skills are not invoked as slash commands. In Codex, mention the skill name in your prompt, for example: `Use pst:push to push this branch and validate the PR.`
@@ -45,16 +49,18 @@ Or use the standalone wrapper:
 ./uninstall.sh
 ```
 
-Defaults to removing both Claude and Codex symlinks. Use provider flags to narrow scope:
+Defaults to removing Claude, Codex, and Pi installs. Use provider flags to narrow scope:
 
 ```bash
 ./install.sh --uninstall --claude
 ./install.sh --uninstall --codex
+./install.sh --uninstall --pi
 ./uninstall.sh --claude
 ./uninstall.sh --codex
+./uninstall.sh --pi
 ```
 
-Removes symlinks from `~/.claude/commands/` and/or `$CODEX_HOME/skills/`.
+Removes symlinks from `~/.claude/commands/` and/or `$CODEX_HOME/skills/`, plus Pi wrapper directories from `$PI_HOME/skills/`.
 
 ## Skills
 
