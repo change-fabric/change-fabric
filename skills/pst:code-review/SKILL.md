@@ -263,11 +263,39 @@ Get `commit_id`: `gh pr view <N> --json headRefOid --jq .headRefOid` (validate `
 
 Write comments to a temp JSON file, pass via `--input`, clean up after.
 
-**Capture the posted review's `html_url`** from the API response and immediately open it in the user's default browser so they can see it without leaving their workflow:
+**Idempotency guard - run this BEFORE the POST.** The GitHub reviews API creates a new review on every POST with no deduplication. Skip the POST only when the most recent event on the PR is already a review from this user (meaning nothing has happened since that review that would warrant a new one). A new commit or a resolved thread after the last review means a fresh review is still appropriate.
+
+```bash
+CURRENT_USER=$(gh api /user --jq .login 2>/dev/null)
+
+# Get the most recent review by this user (if any) and its submitted commit SHA
+LAST_REVIEW=$(gh api "/repos/{owner}/{repo}/pulls/{N}/reviews" \
+  --jq "[.[] | select(.user.login == \"${CURRENT_USER}\")] | last | {id: .id, commit_id: .commit_id}" \
+  2>/dev/null)
+LAST_REVIEW_ID=$(echo "$LAST_REVIEW" | jq -r '.id // empty')
+LAST_REVIEW_SHA=$(echo "$LAST_REVIEW" | jq -r '.commit_id // empty')
+
+# Only skip if the last review was on the current HEAD SHA (no new commits since)
+if [ -n "$LAST_REVIEW_ID" ] && [ "$LAST_REVIEW_SHA" = "$HEAD_SHA" ]; then
+  REVIEW_URL="https://github.com/{owner}/{repo}/pull/{N}#pullrequestreview-${LAST_REVIEW_ID}"
+  echo "Review already posted at HEAD $HEAD_SHA (ID: $LAST_REVIEW_ID). Skipping duplicate POST."
+  open "$REVIEW_URL" 2>/dev/null || echo "Review URL: $REVIEW_URL"
+  # Jump to worktree cleanup - do NOT call POST below
+fi
+# If there are new commits since the last review, fall through and POST normally
+```
+
+**POST the review (only if no existing review was found above).** ⚠️ **NEVER call this endpoint more than once per run.** Once the response is captured, the review is live - if parsing fails, extract from the raw response without retrying POST:
 
 ```bash
 REVIEW_RESPONSE=$(gh api "/repos/{owner}/{repo}/pulls/{N}/reviews" --method POST --input "$TMP_JSON")
-REVIEW_URL=$(echo "$REVIEW_RESPONSE" | jq -r '.html_url')
+
+# Extract URL with jq; fall back to grep+construct if jq fails (e.g., Unicode in body)
+REVIEW_ID=$(echo "$REVIEW_RESPONSE" | grep -o '"id":[0-9]*' | head -1 | sed 's/"id"://')
+REVIEW_URL=$(echo "$REVIEW_RESPONSE" | jq -r '.html_url' 2>/dev/null)
+if [ -z "$REVIEW_URL" ] || [ "$REVIEW_URL" = "null" ]; then
+  REVIEW_URL="https://github.com/{owner}/{repo}/pull/{N}#pullrequestreview-${REVIEW_ID}"
+fi
 
 # Open in browser (cross-platform fallback chain)
 if [ -n "$REVIEW_URL" ] && [ "$REVIEW_URL" != "null" ]; then
