@@ -1,7 +1,7 @@
 ---
 name: pst:ready
-description: Bring one or many open PRs to merge-ready state -- rebase onto base, await CI and auto-fix failures, loop resolve-threads + code-review until clean, re-verify CI, open in the browser. Multiple PR URLs run in parallel via background agents in isolated worktrees, cross-repo capable.
-argument-hint: "<PR-URL> [<PR-URL>...] [--merge] [--dry-run] [--no-open] [--open-all] [--max-parallel N] [--max-ci-attempts N] [--max-review-rounds N]"
+description: Bring one or many open PRs to merge-ready state -- rebase onto base, await CI and auto-fix failures, loop resolve-threads + code-review until clean, re-verify CI, then eagerly settle (poll for late-arriving CI fails and reviewer threads from bots like Codex until N consecutive clean polls), open in the browser. Multiple PR URLs run in parallel via background agents in isolated worktrees, cross-repo capable.
+argument-hint: "<PR-URL> [<PR-URL>...] [--merge] [--dry-run] [--no-open] [--open-all] [--max-parallel N] [--max-ci-attempts N] [--max-review-rounds N] [--settle-interval N] [--settle-passes N] [--settle-timeout N] [--no-settle]"
 allowed-tools: Bash, Read, Edit, Write, Grep, Glob, Agent, AskUserQuestion, Skill
 ---
 
@@ -11,7 +11,7 @@ Take one or more open GitHub pull requests from wherever they are today (behind 
 
 For a **single PR**, run the full pipeline in place (or in a worktree/temp clone for cross-repo). For **multiple PRs**, dispatch each to its own background agent running the same pipeline in an isolated worktree, group PRs by repo to share temp clones where sensible, then aggregate the results at the end.
 
-The per-PR pipeline is pure composition over existing `/pst:*` skills plus three pieces of new logic: a bounded CI wait + auto-fix loop, a post-green PR title/description refresh, and an auto-validation pass over the test-plan checkboxes. It chains them in the order a human would:
+The per-PR pipeline is pure composition over existing `/pst:*` skills plus four pieces of new logic: a bounded CI wait + auto-fix loop, an eager settling loop that waits out late-arriving CI runs and bot reviewer threads (Codex, copilot-pull-request-reviewer) until the PR has been quiet for N consecutive polls, a post-green PR title/description refresh, and an auto-validation pass over the test-plan checkboxes. It chains them in the order a human would:
 
 1. Rebase onto the PR's base branch (`pst:rebase`).
 2. Wait for CI; when something fails, diagnose and patch until green (new logic here).
@@ -19,9 +19,10 @@ The per-PR pipeline is pure composition over existing `/pst:*` skills plus three
 4. Run a verified-fix code review to catch new issues (`pst:code-review --sweep`).
 5. Repeat (3) + (4) until no unresolved threads and no remaining criticals.
 6. Re-verify CI is still green after all review-loop commits.
-7. Refresh the PR title and description to describe what actually shipped.
-8. Parse the test plan, auto-validate the items that can be validated, post a validation comment, and tick the boxes that passed.
-9. Open the PR in the browser so the human can merge.
+7. Eagerly settle: poll the PR on a fixed cadence; whenever a late-arriving CI failure, reviewer thread (Codex, copilot-pull-request-reviewer, etc.), or blocking comment appears, auto-fix or re-run `pst:resolve-threads`, then keep polling until the PR has been quiet for N consecutive polls.
+8. Refresh the PR title and description to describe what actually shipped.
+9. Parse the test plan, auto-validate the items that can be validated, post a validation comment, and tick the boxes that passed.
+10. Open the PR in the browser so the human can merge.
 
 ---
 
@@ -39,6 +40,10 @@ The per-PR pipeline is pure composition over existing `/pst:*` skills plus three
 - `--max-parallel N` -- dispatcher mode only: cap concurrent background agents at N. Default `4` to avoid GitHub API throttling. Ignored with 1 URL.
 - `--max-ci-attempts N` -- override the default CI auto-fix attempt budget (default `3`). Flows through to every child.
 - `--max-review-rounds N` -- override the default review-loop round cap (default `5`). Flows through to every child.
+- `--settle-interval N` -- seconds between settling-loop polls in Phase 5.5 (default `180` = 3 minutes). Flows through to every child.
+- `--settle-passes N` -- consecutive clean polls required to exit Phase 5.5 (default `3`). Flows through to every child.
+- `--settle-timeout N` -- hard timeout in seconds for the entire Phase 5.5 settling loop (default `1800` = 30 minutes). Flows through to every child.
+- `--no-settle` -- skip Phase 5.5 entirely. Restores the pre-settling behavior of advancing straight from Phase 5 (CI pass 2) to Phase 6 (PR refresh). Flows through to every child.
 
 **Validate:**
 
@@ -114,7 +119,11 @@ At the top of the caller's cwd, write `.pst-ready-dispatcher.json` (excluded fro
     "open_all": false,
     "max_parallel": 4,
     "max_ci_attempts": 3,
-    "max_review_rounds": 5
+    "max_review_rounds": 5,
+    "settle_interval": 180,
+    "settle_passes": 3,
+    "settle_timeout": 1800,
+    "no_settle": false
   },
   "groups": [
     {
@@ -175,7 +184,7 @@ Working directory:  {WORKTREE_PATH}  (already created, on the PR head, clean tre
 Base branch:        {BASE_BRANCH}
 Head SHA:           {HEAD_SHA}
 Group root:         {GROUP_ROOT}  (shared with sibling PRs in the same repo -- treat as read-only from other siblings' perspective)
-Flags to honor:     --max-ci-attempts={N} --max-review-rounds={M} {--dry-run?} {--merge?}
+Flags to honor:     --max-ci-attempts={N} --max-review-rounds={M} --settle-interval={S} --settle-passes={P} --settle-timeout={T} {--no-settle?} {--dry-run?} {--merge?}
 
 Your job is to execute Phases 0..8 from the /pst:ready single-PR pipeline entirely inside {WORKTREE_PATH}. DO NOT open the browser -- the dispatcher handles that after it collects all children. DO NOT write to the dispatcher's progress file.
 
@@ -193,6 +202,7 @@ When you are done, return a single JSON object on the final line of your output 
     "ci_pass1_attempts": <int>,
     "review_rounds": <int>,
     "ci_pass2_attempts": <int>,
+    "settle": { "clean_polls": <int>, "remediations": <int>, "timed_out": <bool>, "disabled": <bool> },
     "pr_refresh": "updated" | "unchanged" | "skipped" | "failed",
     "test_plan": { "validated": <int>, "failed": <int>, "manual": <int> },
     "residual": [ ... phase-scoped residual entries ... ],
@@ -659,9 +669,131 @@ Mark `ci-wait-2` completed.
 
 ---
 
+## Phase 5.5 -- Eager Settling Loop
+
+Runs only after Phase 5 has cleared. Skipped when `--no-settle` is passed and skipped in `--dry-run`.
+
+Phases 4 and 5 each converge once and exit -- they do not wait for external reviewers (OpenAI Codex, copilot-pull-request-reviewer, etc.) that post fresh review threads _after_ `pst:resolve-threads` returns, and they do not wait for async CI workflows (preview deploys, downstream integration runs) that trigger only after a review-loop push. Phase 5.5 closes both gaps by polling the PR on a fixed cadence and only advancing once the PR has been quiet for `SETTLE_PASSES` consecutive polls.
+
+### 5.5.1 Settle knobs
+
+| Variable          | Default                                               | Source                |
+| ----------------- | ----------------------------------------------------- | --------------------- |
+| `SETTLE_INTERVAL` | `180` (seconds)                                       | `--settle-interval N` |
+| `SETTLE_PASSES`   | `3`                                                   | `--settle-passes N`   |
+| `SETTLE_TIMEOUT`  | `1800` (seconds, total elapsed time across all polls) | `--settle-timeout N`  |
+
+If `--no-settle` was passed: write `settle: { "disabled": true }` to the progress file, mark `settle` completed, and skip to Phase 6.
+
+### 5.5.2 Settle state in the progress file
+
+```json
+{
+  "settle": {
+    "started_at": "<iso8601>",
+    "consecutive_clean": 2,
+    "polls_total": 5,
+    "last_poll_at": "<iso8601>",
+    "remediations": [
+      {
+        "poll": 3,
+        "kind": "new-thread",
+        "action": "ran pst:resolve-threads",
+        "head_sha_after": "..."
+      },
+      {
+        "poll": 4,
+        "kind": "failing-check",
+        "action": "ran phase-3 fix sub-agent",
+        "head_sha_after": "..."
+      },
+      {
+        "poll": 4,
+        "kind": "blocking-comment",
+        "action": "ran spec-creator",
+        "head_sha_after": "..."
+      }
+    ]
+  }
+}
+```
+
+Initialize the block at entry to the phase with `started_at = now`, `consecutive_clean = 0`, `polls_total = 0`.
+
+### 5.5.3 Per-iteration logic
+
+Loop:
+
+1. `sleep $SETTLE_INTERVAL`. Increment `polls_total`. Update `last_poll_at`.
+2. Refresh the head SHA in case a push landed between iterations:
+   ```bash
+   git fetch origin "$HEAD_BRANCH"
+   HEAD_SHA=$(git rev-parse "origin/$HEAD_BRANCH")
+   ```
+3. Fetch state cheaply via three parallel calls:
+   - **Checks:** `gh pr checks "$PR_NUMBER" --json name,state,bucket,workflow` -- looking for any `bucket == "fail"` or `bucket == "cancel"` against `$HEAD_SHA`.
+   - **Threads:** the same GraphQL `reviewThreads` query used in Phase 4.B; count `isResolved == false AND isOutdated == false`.
+   - **Blocking comments:** the same scan as Phase 3.2.1 (`scripts/scan-blocking-comments.sh` or the inline fallback).
+4. Determine poll state:
+   - **`pending`-only (no fails, no new threads, no blocking comments, but at least one check is still `pending`):** treat as a _neutral_ poll. Do **not** increment `consecutive_clean`, do **not** reset it. Persist progress and continue. This lets the loop wait through long async CI workflows without prematurely advancing or restarting the counter every time CI re-runs.
+   - **Clean (zero fails, zero unresolved threads, zero blocking comments, zero `pending`):** `consecutive_clean += 1`. Persist progress.
+   - **Non-clean (any of fails, new threads, or new blocking comments present):** run remediation per 5.5.4, reset `consecutive_clean = 0`, append a `remediations[]` entry, persist progress.
+5. Exit conditions, checked in order at the end of each iteration:
+   - **Settled:** `consecutive_clean >= SETTLE_PASSES` -- advance to Phase 6.
+   - **Timeout:** elapsed seconds since `started_at` `>= SETTLE_TIMEOUT` -- halt with residual (see 5.5.5).
+   - **Otherwise:** loop back to step 1.
+
+### 5.5.4 Remediation per kind
+
+When a poll is non-clean, run the relevant remediation **before** the next iteration so the next poll sees the post-fix state:
+
+- **New failing / cancelled checks** -- enter the Phase 3.3 / 3.4 sub-flow: classify from logs, delegate to a fix sub-agent in an isolated worktree, parse its `CI_FIX_RESULT={...}` line, cherry-pick the commit into `$WORK_DIR`, `git push --force-with-lease`, refresh `$HEAD_SHA`. The settling-loop fix counts against the shared `MAX_CI_ATTEMPTS` budget tracked as `ci_attempts_pass2`; if Phase 5 already exhausted that budget, halt with residual (5.5.5) rather than spending fixes you do not have.
+- **New unresolved threads** -- `Skill("pst:resolve-threads", "$PR_URL")`. After it returns, refresh `$HEAD_SHA`. This skill handles bot reviews the same way it handles human ones, so Codex / copilot-pull-request-reviewer follow-ups are absorbed automatically.
+- **New blocking comments** -- handle per Phase 3.2.1 (typically `spec-creator` or the equivalent for the sentinel). Commit, force-with-lease push, refresh `$HEAD_SHA`.
+
+A single poll can produce more than one `remediations[]` entry (e.g., one for a new check failure and one for a new thread). Reset `consecutive_clean` to 0 once, not per entry.
+
+### 5.5.5 Residual on timeout or unfixable remediation
+
+If `SETTLE_TIMEOUT` elapses before reaching `SETTLE_PASSES` consecutive clean polls, OR a remediation step cannot succeed (sub-agent returns `no-fix` for every failing check; `pst:resolve-threads` reports unresolvable threads; CI budget exhausted), halt with:
+
+```
+Phase 5.5 stopped after {polls_total} poll(s) ({remediations_count} remediation(s) applied).
+Last state:
+  - {N} failing check(s)
+  - {U} unresolved thread(s)
+  - {B} blocking comment(s)
+
+Resume with: /pst:ready $PR_URL  (progress file preserved)
+```
+
+Append a `residual` entry of the form `{phase: "settle", reason: "timeout" | "ci-budget" | "unfixable-thread" | "unfixable-comment"}` so a resume run can read it.
+
+### 5.5.6 Dry-run behavior
+
+`--dry-run` skips Phase 5.5 entirely. Log `Phase 5.5: skipped (dry-run)`.
+
+### 5.5.7 Completion
+
+When the loop exits cleanly, mark `settle` completed and record:
+
+```json
+{
+  "settle": {
+    "started_at": "...",
+    "ended_at": "<iso8601>",
+    "consecutive_clean": 3,
+    "polls_total": 7,
+    "remediations": [ ... ]
+  }
+}
+```
+
+---
+
 ## Phase 6 -- Refresh PR Title and Description
 
-This phase runs **only after CI pass 2 is green** (i.e., after Phase 5 has cleared). The branch is now the finished product; the PR body should describe what actually shipped, not what the branch looked like at opening.
+This phase runs **only after CI pass 2 is green** (i.e., after Phase 5 has cleared and Phase 5.5 has settled or was skipped). The branch is now the finished product; the PR body should describe what actually shipped, not what the branch looked like at opening.
 
 ### 6.1 Gather the source material
 
@@ -824,6 +956,7 @@ gh pr comment "$PR_NUMBER" --repo "$PR_OWNER/$PR_REPO" --body "$(cat <<'ATTESTAT
 | Resolve threads | $THREADS_SUMMARY |
 | Code review | $REVIEW_SUMMARY |
 | CI (pass 2) | $CI_PASS2_SUMMARY |
+| Settling | $SETTLE_SUMMARY |
 | PR refresh | $PR_REFRESH_SUMMARY |
 | Test plan | $TEST_PLAN_SUMMARY |
 
@@ -841,6 +974,7 @@ Populate each `$*_SUMMARY` variable from what the phases recorded:
 | `THREADS_SUMMARY`    | `"{N} resolved · {N} CHANGES_REQUESTED dismissed"` or `"none"`                                                                       |
 | `REVIEW_SUMMARY`     | `"{R} round(s) · 0 criticals · 0 warnings"` or `"{R} round(s) · {C} critical(s) fixed"`                                              |
 | `CI_PASS2_SUMMARY`   | Same format as pass 1                                                                                                                |
+| `SETTLE_SUMMARY`     | `"{P} clean poll(s) · {R} remediation(s)"`, `"disabled"` (when `--no-settle`), or `"timed out after {N} poll(s)"` on residual        |
 | `PR_REFRESH_SUMMARY` | `"title + description updated"` or `"no changes needed"`                                                                             |
 | `TEST_PLAN_SUMMARY`  | `"{V} validated / {F} failed / {M} manual"` or `"nothing to validate"`                                                               |
 
@@ -864,6 +998,7 @@ Print a final summary to the terminal:
   CI (pass 1):     green after {X} attempt(s)   ✓
   Review rounds:   {Y} of {MAX_REVIEW_ROUNDS}   ✓
   CI (pass 2):     green after {Z} attempt(s)   ✓
+  Settling:        {P} clean polls / {R} remediations  ✓
   PR refresh:      title + description updated  ✓
   Test plan:       {V} validated / {F} failed / {M} manual
   Attestation:     posted to PR                 ✓
@@ -1046,6 +1181,7 @@ In `--dry-run`: skip this phase entirely. Print: `--merge: would squash-merge PR
 - Phase 3: skip sub-agent fix attempts; print failing checks and their classifications.
 - Phase 4: `pst:resolve-threads --dry-run` + `pst:code-review --sweep --dry-run`; report counts only.
 - Phase 5: identical to Phase 3 under dry-run.
+- Phase 5.5: skipped entirely. Print `Phase 5.5: skipped (dry-run).`
 - Phase 6: print the proposed title and body diff; do not `PATCH` the PR.
 - Phase 7: parse and classify the test plan; print the would-be comment and checkbox diff; do not post or `PATCH`.
 - Phase 8: skip browser; print what the final summary would look like.
@@ -1076,12 +1212,27 @@ Written after every phase completes, at `$WORK_DIR/.pst-ready-progress.json`:
     "ci-wait-1",
     "review-loop",
     "ci-wait-2",
+    "settle",
     "refresh-pr"
   ],
   "skipped": [],
   "ci_attempts_pass1": 2,
   "ci_attempts_pass2": 0,
   "review_rounds": 1,
+  "settle": {
+    "started_at": "2026-04-24T17:50:00Z",
+    "ended_at": "2026-04-24T18:01:00Z",
+    "consecutive_clean": 3,
+    "polls_total": 5,
+    "remediations": [
+      {
+        "poll": 2,
+        "kind": "new-thread",
+        "action": "ran pst:resolve-threads",
+        "head_sha_after": "abc1234"
+      }
+    ]
+  },
   "test_plan": { "validated": 3, "failed": 0, "manual": 4 },
   "pr_files": ["src/a.ts", "src/b.ts"],
   "residual": [],
@@ -1110,6 +1261,7 @@ The file is only deleted when `state` reaches `post_merge_ci_verified` in Phase 
 - Rebase produces conflicts that `pst:rebase` could not auto-resolve.
 - `MAX_CI_ATTEMPTS` consumed in Phase 3 or Phase 5 with failures remaining.
 - `MAX_REVIEW_ROUNDS` consumed in Phase 4 with unresolved threads or remaining criticals/warnings.
+- `SETTLE_TIMEOUT` elapses in Phase 5.5 before `SETTLE_PASSES` consecutive clean polls, or a Phase 5.5 remediation step is unfixable (CI budget exhausted, unresolvable thread, unhandled blocking comment).
 - Sub-agent fix attempts return no viable patch for every failing check in a round.
 - `gh` auth fails, `git push --force-with-lease` is rejected, or the PR is closed/merged mid-run.
 
