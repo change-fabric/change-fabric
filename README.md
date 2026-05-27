@@ -181,6 +181,22 @@ Address every unresolved conversation on a GitHub PR. Fetches all review threads
 /pst:resolve-threads --dry-run
 ```
 
+### `/pst:secrets`
+
+An encrypted personal credential drawer - somewhere to stuff API keys and tokens instead of leaving them in plaintext on the filesystem. Secrets are KMS-encrypted into AWS SSM Parameter Store SecureString values; only a local pointer registry (names/paths, never values) lives on disk. Reads require a live MFA'd AWS session, enforced both by the tooling and by the KMS key policy itself (which denies `kms:Decrypt` without `aws:MultiFactorAuthPresent`, so even leaked non-MFA credentials cannot decrypt). The local pointer registry is namespaced by AWS account, so the same scheme scales across multiple accounts. Capture happens through a localhost-only masked browser form, so values never enter the chat transcript. Not for production/service-principal secrets - those belong in their own systems with service-role access.
+
+```
+/pst:secrets                          # status: session check + list pointers
+/pst:secrets set "my Linear API key"  # browser capture → KMS-encrypt → SSM
+/pst:secrets get LINEAR_API_KEY       # decrypt one value (capture in a var)
+/pst:secrets export OPENAI_API_KEY ANTHROPIC_API_KEY
+/pst:secrets list                     # pointers grouped by account (no values)
+/pst:secrets rm OLD_KEY               # delete (SSM parameter + pointer)
+/pst:secrets provision                # one-time KMS + MFA-deny policy setup per account
+```
+
+Configured via `PST_SECRETS_PROFILE` / `_REGION` / `_KMS_KEY` / `_PREFIX` env vars (nothing baked into the lib). Requires the `aws` CLI and an MFA session (e.g. via an `/aws-mfa`-style flow). Ships with a 22-test AWS-mocked suite under `skills/pst:secrets/tests/`.
+
 ### `/pst:react-refactor`
 
 Extract business logic from React/Next.js components into tested custom hooks. Uses [Vercel react-best-practices](https://github.com/vercel-labs/agent-skills) (64+ rules) as the industry baseline, layered with opinionated architecture preferences: hooks in `*.ts` files, comprehensive vitest coverage, zero `eslint-disable`, named exports only.
