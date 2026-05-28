@@ -1,7 +1,7 @@
 ---
 name: pst:secrets
 description: Personal credential drawer - 1Password by default (config-driven), AWS KMS+SSM as a flag-selectable backend; no plaintext on disk except an opt-in, auto-shredded session cache
-argument-hint: '[set "<desc>" | get <NAME> [--fresh] | export <NAME...> [--fresh] | list | rm <NAME> | session start [<NAME...>|--all] [--ttl 12h] | session status | session end | config [--refresh|doctor|--project]] [--aws | --profile <p> | --account <a> --vault <v> | --semantic "<text>"]'
+argument-hint: 'set "<desc>" | get <NAME> | list | session start <NAME...> | config'
 allowed-tools: Bash, Read
 ---
 
