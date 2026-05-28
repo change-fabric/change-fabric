@@ -1,0 +1,74 @@
+---
+// A browser/app chrome frame for prototype mockups. Render the proposed screen
+// as real theme markup in the default slot — a live storybook frame, not an
+// image. `chrome="browser"` shows a URL bar; `chrome="app"` a window titlebar.
+interface Props {
+  chrome?: "browser" | "app" | "none";
+  url?: string;
+  title?: string;
+  anchor?: string;
+}
+const { chrome = "browser", url, title, anchor } = Astro.props;
+---
+
+<figure class="ps-mockup" data-anchor={anchor ?? title ?? url}>
+  {
+    chrome !== "none" && (
+      <div class="bar">
+        <span class="dots" aria-hidden="true">
+          <i /> <i /> <i />
+        </span>
+        {chrome === "browser" && url && <span class="url">{url}</span>}
+        {chrome === "app" && title && <span class="wtitle">{title}</span>}
+      </div>
+    )
+  }
+  <div class="screen"><slot /></div>
+</figure>
+
+<style>
+  .ps-mockup {
+    margin: 0;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+    box-shadow: var(--shadow-lg);
+    background: var(--surface);
+  }
+  .bar {
+    display: flex;
+    align-items: center;
+    gap: 0.9rem;
+    padding: 0.65rem 0.9rem;
+    background: var(--subtle);
+    border-bottom: 1px solid var(--border);
+  }
+  .dots {
+    display: inline-flex;
+    gap: 0.35rem;
+  }
+  .dots i {
+    width: 0.7rem;
+    height: 0.7rem;
+    border-radius: 50%;
+    background: var(--border);
+  }
+  .url,
+  .wtitle {
+    font-size: 0.8rem;
+    color: var(--muted);
+    font-family: var(--font-mono);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 0.2rem 0.7rem;
+  }
+  .wtitle {
+    font-family: var(--font-body);
+    border: 0;
+    background: none;
+  }
+  .screen {
+    padding: clamp(1rem, 3vw, 1.8rem);
+  }
+</style>

@@ -1,0 +1,47 @@
+---
+// A framed home for a hand-authored inline SVG (architecture, pipeline, flow).
+// Author real SVG in the default slot — storybook-quality, not a screenshot.
+// Keep SVG using currentColor / the theme vars so it reads on the surface.
+interface Props {
+  title?: string;
+  caption?: string;
+  anchor?: string;
+  bleed?: boolean;
+}
+const { title, caption, anchor, bleed = false } = Astro.props;
+---
+
+<figure class:list={["ps-diagram", { bleed }]} data-anchor={anchor ?? title}>
+  {title && <figcaption class="dtitle">{title}</figcaption>}
+  <div class="canvas"><slot /></div>
+  {caption && <figcaption class="caption">{caption}</figcaption>}
+</figure>
+
+<style>
+  .ps-diagram {
+    margin: 0;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: clamp(1.2rem, 3vw, 2rem);
+    box-shadow: var(--shadow);
+  }
+  .dtitle {
+    font-family: var(--font-display);
+    font-weight: 560;
+    font-size: var(--step-1);
+    margin-bottom: 1rem;
+  }
+  .canvas :global(svg) {
+    display: block;
+    width: 100%;
+    height: auto;
+    color: var(--accent);
+  }
+  .caption {
+    margin-top: 1rem;
+    color: var(--muted);
+    font-size: 0.9rem;
+    text-align: center;
+  }
+</style>

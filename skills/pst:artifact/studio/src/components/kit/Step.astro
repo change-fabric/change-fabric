@@ -1,0 +1,82 @@
+---
+import Pill from "./Pill.astro";
+
+interface Props {
+  title: string;
+  // Right-aligned pills, e.g. owner, priority, effort.
+  owner?: string;
+  effort?: string;
+  priority?: "P0" | "P1" | "P2" | "P3";
+  done?: boolean;
+}
+const { title, owner, effort, priority, done = false } = Astro.props;
+const prioTone =
+  priority === "P0" ? "danger" : priority === "P1" ? "warning" : "neutral";
+---
+
+<li class:list={["ps-step", { done }]} data-anchor={title}>
+  <div class="head">
+    <h3>{title}</h3>
+    <div class="tags">
+      {priority && <Pill tone={prioTone}>{priority}</Pill>}
+      {effort && <Pill tone="neutral">{effort}</Pill>}
+      {owner && <Pill tone="accent">{owner}</Pill>}
+    </div>
+  </div>
+  <div class="body"><slot /></div>
+</li>
+
+<style>
+  .ps-step {
+    counter-increment: step;
+    position: relative;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1.3rem 1.4rem 1.3rem 4rem;
+    box-shadow: var(--shadow-sm);
+  }
+  .ps-step::before {
+    content: counter(step);
+    position: absolute;
+    left: 1.25rem;
+    top: 1.25rem;
+    width: 1.85rem;
+    height: 1.85rem;
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+    color: var(--accent);
+    font-family: var(--font-display);
+    font-weight: 650;
+    font-size: 0.9rem;
+  }
+  .ps-step.done::before {
+    content: "✓";
+    background: var(--accent);
+    color: var(--accent-text);
+  }
+  .head {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+    align-items: baseline;
+    justify-content: space-between;
+  }
+  .head h3 {
+    font-size: var(--step-1);
+  }
+  .tags {
+    display: flex;
+    gap: 0.4rem;
+    flex-wrap: wrap;
+  }
+  .body {
+    color: var(--muted);
+    margin-top: 0.5rem;
+  }
+  .body :global(> * + *) {
+    margin-top: 0.5rem;
+  }
+</style>

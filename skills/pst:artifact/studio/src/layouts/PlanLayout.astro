@@ -1,0 +1,222 @@
+---
+import "../lib/fonts";
+import "../styles/global.css";
+import { themeVars, type ThemeKey } from "@lib/theme";
+import { siteConfig } from "@lib/siteconfig";
+import CommentLayer from "@components/comments/CommentLayer.astro";
+import type { Thread } from "@lib/feedback";
+
+interface PlanData {
+  title: string;
+  permalink: string;
+  eyebrow?: string;
+  subtitle?: string;
+  summary?: string;
+  theme: ThemeKey;
+  accent?: string;
+  tags?: string[];
+  status?: "draft" | "shared" | "final";
+  sourcePath?: string;
+  createdAt?: Date;
+  updatedAt?: Date;
+}
+
+interface Props {
+  plan: PlanData;
+  id: string;
+  threads?: Thread[];
+}
+const { plan, id, threads = [] } = Astro.props;
+const cfg = siteConfig();
+const noindex = cfg.noindex !== false;
+const style = themeVars(plan.theme, plan.accent);
+const stamp = plan.updatedAt ?? plan.createdAt;
+const dateLabel = stamp
+  ? stamp.toLocaleDateString("en-US", {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+      timeZone: "UTC",
+    })
+  : null;
+const analytics = !import.meta.env.DEV && cfg.analyticsEndpoint ? cfg.analyticsEndpoint : "";
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    {noindex && <meta name="robots" content="noindex, nofollow" />}
+    <title>{plan.title}</title>
+    {plan.summary && <meta name="description" content={plan.summary} />}
+    <meta name="generator" content="pst:artifact studio" />
+    <link rel="icon" href="/favicon-32x32.png" type="image/png" sizes="32x32" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon-256x256.png" />
+  </head>
+  <body style={style}>
+    <div class="plan-root">
+      <nav class="topbar">
+        <a class="brand" href="/">
+          <span class="dot" aria-hidden="true"></span> Artifacts
+        </a>
+        <div class="meta">
+          {
+            analytics && (
+              <span
+                class="views"
+                id="ps-views"
+                data-endpoint={analytics}
+                data-id={id}
+                hidden
+              >
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+                <span id="ps-views-n">—</span>
+              </span>
+            )
+          }
+          {plan.status && <span class={`status s-${plan.status}`}>{plan.status}</span>}
+        </div>
+      </nav>
+
+      <main>
+        <slot />
+      </main>
+
+      <footer class="plan-footer">
+        <div class="container container-wide">
+          <div class="row">
+            <span>
+              {plan.sourcePath ? <>From <code>{plan.sourcePath}</code></> : "Private artifact"}
+            </span>
+            {dateLabel && <span>{dateLabel}</span>}
+          </div>
+          <p class="fineprint">
+            A private planning artifact · not indexed · made with the
+            <code>/pst:artifact</code> studio
+          </p>
+        </div>
+      </footer>
+    </div>
+
+    <CommentLayer id={id} threads={threads} />
+
+    {
+      analytics && (
+        <script is:inline>
+          (function () {
+            var el = document.getElementById("ps-views");
+            if (!el) return;
+            var endpoint = el.getAttribute("data-endpoint");
+            var id = el.getAttribute("data-id");
+            fetch(endpoint + (endpoint.indexOf("?") > -1 ? "&" : "?") + "id=" + encodeURIComponent(id))
+              .then(function (r) { return r.json(); })
+              .then(function (d) {
+                if (d && typeof d.views === "number") {
+                  document.getElementById("ps-views-n").textContent =
+                    d.views.toLocaleString();
+                  el.hidden = false;
+                }
+              })
+              .catch(function () {});
+          })();
+        </script>
+      )
+    }
+
+    <style>
+      .plan-root {
+        display: flex;
+        flex-direction: column;
+        min-height: 100vh;
+      }
+      main {
+        flex: 1;
+      }
+      .topbar {
+        position: sticky;
+        top: 0;
+        z-index: 30;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0.7rem clamp(1rem, 5vw, 2.5rem);
+        background: color-mix(in srgb, var(--bg) 86%, transparent);
+        backdrop-filter: saturate(1.4) blur(8px);
+        border-bottom: 1px solid var(--border);
+      }
+      .brand {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        text-decoration: none;
+        color: var(--text);
+        font-weight: 600;
+        font-size: 0.92rem;
+        letter-spacing: -0.01em;
+      }
+      .brand .dot {
+        width: 0.7rem;
+        height: 0.7rem;
+        border-radius: 50% 50% 50% 2px;
+        background: var(--accent);
+      }
+      .topbar .meta {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.7rem;
+      }
+      .views {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        color: var(--muted);
+        font-size: 0.82rem;
+        font-variant-numeric: tabular-nums;
+      }
+      .status {
+        font-size: 0.7rem;
+        font-weight: 600;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        padding: 0.3em 0.7em;
+        border-radius: 999px;
+        background: var(--subtle);
+        color: var(--muted);
+        border: 1px solid var(--border);
+      }
+      .status.s-final {
+        background: color-mix(in srgb, #16915b 14%, transparent);
+        color: #16915b;
+        border-color: transparent;
+      }
+      .status.s-shared {
+        background: color-mix(in srgb, var(--accent) 14%, transparent);
+        color: var(--accent);
+        border-color: transparent;
+      }
+      .plan-footer {
+        border-top: 1px solid var(--border);
+        padding-block: 2.2rem;
+        color: var(--muted);
+      }
+      .plan-footer .row {
+        display: flex;
+        justify-content: space-between;
+        gap: 1rem;
+        flex-wrap: wrap;
+        font-size: 0.88rem;
+      }
+      .fineprint {
+        margin-top: 0.6rem;
+        font-size: 0.78rem;
+        opacity: 0.8;
+      }
+      .plan-footer code,
+      .fineprint code {
+        font-family: var(--font-mono);
+        font-size: 0.85em;
+      }
+    </style>
+  </body>
+</html>

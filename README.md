@@ -216,6 +216,21 @@ The two backends trade off deliberately: 1Password is gated by the desktop app /
 
 **Session mode (autonomy):** when you'll be away from the machine or want to give the agent more rope for a single session, `session start` fetches the chosen secrets once and materializes them to a private, `0600`, time-boxed cache under `$TMPDIR`; `get`/`export` then serve from it without re-prompting for TouchID/MFA. It is deliberately the one path that puts plaintext on disk, defended by a short lifetime rather than encryption: a TTL (default 12h), a detached watchdog that shreds at the deadline, a Claude Code SessionEnd hook (`session install-hook`), and `session end` on demand. Use `--fresh` on a `get`/`export` to bypass it.
 
+### `/pst:artifact`
+
+A private, self-hosted "Claude Artifacts" for plans. Turns a plan - recommended next steps from the terminal, or a markdown file - into a **bespoke, interactive web artifact** rendered by a local Astro "studio" app: each plan is its own page, composed (not templated) from a rich component kit and given its own art direction, so two plans never look like the same boilerplate. Review it with **Figma/Vercel-style click-anywhere comments** - drop a pin anywhere and it auto-captures the nearest anchor, section, and surrounding text to `feedback/<id>.json`; `--feedback <id>` reads those threads back to revise. Publish to a **no-index subdomain** with one command (Amazon-style `/p/<id>/<slug>` URLs where the short id is canonical and the slug is cosmetic). Replaces the old single-file `/plan-io` builder.
+
+```
+/pst:artifact                         # pivot the plan from this conversation
+/pst:artifact --exec                  # executive summary of the session
+/pst:artifact ./docs/plan.md --theme technical --title "Q3 Migration"
+/pst:artifact --feedback k3f9q2       # revise from comments left in the browser
+/pst:artifact --publish k3f9q2        # build → S3 → CloudFront (opt-in)
+/pst:artifact --list
+```
+
+Works locally out of the box (Node 20+). Publishing is **bring-your-own domain + AWS account**: copy `plans.config.example.json` → `plans.config.json`, `terraform apply` the included S3 + CloudFront + ACM + Route53 module (bucket name and distribution are derived from your domain - no infra IDs in config), and it just works. No-index/no-follow by default; an optional, off-by-default per-artifact view counter is included. See [`skills/pst:artifact/README.md`](skills/pst:artifact/README.md).
+
 ### `/pst:react-refactor`
 
 Extract business logic from React/Next.js components into tested custom hooks. Uses [Vercel react-best-practices](https://github.com/vercel-labs/agent-skills) (64+ rules) as the industry baseline, layered with opinionated architecture preferences: hooks in `*.ts` files, comprehensive vitest coverage, zero `eslint-disable`, named exports only.

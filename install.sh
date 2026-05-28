@@ -32,6 +32,7 @@ SKILLS=(
   "pst:markdown"
   "pst:next"
   "pst:patch"
+  "pst:artifact"
   "pst:push"
   "pst:python-refactor"
   "pst:quality-gates"
@@ -51,6 +52,7 @@ SKILLS=(
 OLD_SKILLS=(
   "pst-code-review"
   "pst-qa"
+  "pst:plan"
 )
 
 usage() {

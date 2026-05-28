@@ -1,0 +1,7 @@
+# Astro build + deps
+node_modules/
+dist/
+.astro/
+
+# Local comment threads — captured during `astro dev`, never committed
+feedback/*.json

@@ -1,0 +1,187 @@
+---
+title: "From a wall of text to a planning studio"
+permalink: "planning-studio"
+eyebrow: "pst:artifact · field guide"
+subtitle: "How an artifact is composed — and the reference for every block in the kit."
+summary: "A worked example of the pst:artifact studio: bespoke art direction, the component kit, click-anywhere comments, and one-command publishing."
+theme: "technical"
+status: "final"
+sourcePath: "skills/pst:artifact/README.md"
+tags: ["meta", "reference"]
+createdAt: 2026-05-28
+updatedAt: 2026-05-28
+---
+
+import {
+  Hero, Section, Stats, Stat, Steps, Step, Features, Feature,
+  Card, CardGrid, Compare, Ledger, Mockup, Diagram, Callout, Pill, Link,
+} from "@kit";
+
+<Hero
+  treatment="gradient"
+  eyebrow="pst:artifact · field guide"
+  title="Plans that read like a product,"
+  titleAccent="not a changelog"
+  subtitle="Each artifact is composed from a small kit of blocks and given its own art direction — so it fits the prompt instead of looking like the same template every time."
+  status="reference"
+  meta={[
+    { label: "Surface", value: "Astro studio" },
+    { label: "Comments", value: "Click-anywhere" },
+    { label: "Publish", value: "one command" },
+  ]}
+/>
+
+<Section
+  title="Why this exists"
+  aside="The before & after"
+  lede="Markdown plans glaze over. A wall of identical rows on a dark background is the opposite of executive-friendly. This studio trades that for composition, hierarchy, and negative space."
+>
+  <Stats variant="cards">
+    <Stat color="slate" value="1" label="kit" note="~18 composable blocks" />
+    <Stat color="forest" value="5" label="art directions" note="palette + type per plan" />
+    <Stat color="clay" value="0" label="walls of text" note="by construction" />
+    <Stat color="ochre" value="∞" label="bespoke layouts" note="you compose them" />
+  </Stats>
+</Section>
+
+<Section title="The block vocabulary" aside="Author with these" tint>
+  <Features cols={3}>
+    <Feature icon="rocket" title="Hero">
+      The opening outcome statement. Four treatments — wash, gradient, rule, and a
+      framed cover card.
+    </Feature>
+    <Feature icon="chart" title="Stats">
+      Headline numbers as solid colored cards or quiet hairline cells — the
+      fastest executive scan.
+    </Feature>
+    <Feature icon="flag" title="Steps">
+      A numbered, prescriptive timeline with owner / effort / priority pills.
+    </Feature>
+    <Feature icon="layers" title="Compare">
+      A sortable tradeoff table — click a header to re-rank options.
+    </Feature>
+    <Feature icon="book" title="Ledger">
+      Grouped key → value line items with hairlines and italic subheads.
+    </Feature>
+    <Feature icon="flow" title="Diagram & Mockup">
+      A frame for hand-authored inline SVG, and a browser/app chrome for live
+      prototype screens.
+    </Feature>
+  </Features>
+</Section>
+
+<Section title="A real architecture diagram" aside="Hand-authored SVG">
+  <Diagram
+    title="From prompt to published artifact"
+    caption="The skill authors content; the studio builds; Terraform-provisioned CloudFront serves it."
+  >
+    <svg viewBox="0 0 760 180" role="img" aria-label="pipeline">
+      <defs>
+        <marker id="ah" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto">
+          <path d="M0 0 L9 4.5 L0 9 z" fill="currentColor" />
+        </marker>
+      </defs>
+      <g font-family="var(--font-mono)" font-size="13" text-anchor="middle">
+        <g>
+          <rect x="10" y="60" width="150" height="60" rx="10" fill="none" stroke="currentColor" stroke-width="1.5" />
+          <text x="85" y="86" fill="var(--text)">/pst:artifact</text>
+          <text x="85" y="104" fill="var(--muted)" font-size="11">authors MDX</text>
+        </g>
+        <g>
+          <rect x="210" y="60" width="150" height="60" rx="10" fill="none" stroke="currentColor" stroke-width="1.5" />
+          <text x="285" y="86" fill="var(--text)">studio</text>
+          <text x="285" y="104" fill="var(--muted)" font-size="11">astro build</text>
+        </g>
+        <g>
+          <rect x="410" y="60" width="150" height="60" rx="10" fill="none" stroke="currentColor" stroke-width="1.5" />
+          <text x="485" y="86" fill="var(--text)">S3 + CloudFront</text>
+          <text x="485" y="104" fill="var(--muted)" font-size="11">no-index edge</text>
+        </g>
+        <g>
+          <rect x="610" y="60" width="140" height="60" rx="10" fill="var(--accent)" />
+          <text x="680" y="86" fill="#fff">/p/&lt;id&gt;/slug</text>
+          <text x="680" y="104" fill="rgba(255,255,255,.8)" font-size="11">shareable</text>
+        </g>
+        <line x1="162" y1="90" x2="206" y2="90" stroke="currentColor" stroke-width="1.5" marker-end="url(#ah)" />
+        <line x1="362" y1="90" x2="406" y2="90" stroke="currentColor" stroke-width="1.5" marker-end="url(#ah)" />
+        <line x1="562" y1="90" x2="606" y2="90" stroke="currentColor" stroke-width="1.5" marker-end="url(#ah)" />
+      </g>
+    </svg>
+  </Diagram>
+</Section>
+
+<Section title="Choosing a hosting approach" aside="Sortable">
+  <Compare
+    caption="Click a column to sort. The studio picks static + edge routing."
+    columns={[
+      { key: "opt", label: "Approach" },
+      { key: "portable", label: "Portable" },
+      { key: "rich", label: "Rich UI" },
+      { key: "setup", label: "Setup (min)", numeric: true },
+    ]}
+    rows={[
+      { opt: "Single self-contained HTML", portable: "Yes", rich: "Limited", setup: 0 },
+      { opt: "Astro static + CloudFront", portable: "Link", rich: "High", setup: 20 },
+      { opt: "Full SSR app", portable: "No", rich: "High", setup: 60 },
+    ]}
+  />
+</Section>
+
+<Section title="How you'd ship it" aside="Prescriptive">
+  <Steps>
+    <Step title="Author the artifact" priority="P0" effort="S" owner="claude">
+      `/pst:artifact` writes a bespoke MDX page into the studio and opens `astro dev`.
+    </Step>
+    <Step title="Review with click-anywhere comments" priority="P1" effort="S" owner="you">
+      Drop pins anywhere; each captures the nearest anchor, section, and local
+      text. Threads save to `feedback/<id>.json`.
+    </Step>
+    <Step title="Revise from feedback" priority="P1" effort="M" owner="claude">
+      `/pst:artifact --feedback <id>` reads the threads back and edits the page.
+    </Step>
+    <Step title="Publish" priority="P2" effort="S" owner="you">
+      `/pst:artifact --publish <id>` builds, syncs to S3, invalidates CloudFront, and
+      prints the shareable URL.
+    </Step>
+  </Steps>
+</Section>
+
+<Section title="Inventory of the kit" aside="19 blocks" tint>
+  <Ledger
+    groups={[
+      {
+        title: "Structure",
+        rows: [
+          { label: "Hero", value: "4 treatments" },
+          { label: "Section", value: "ruled header" },
+          { label: "CardGrid / Card", value: "idea cards" },
+        ],
+      },
+      {
+        title: "Data",
+        rows: [
+          { label: "Stats / Stat", value: "cards · divided" },
+          { label: "Compare", value: "sortable" },
+          { label: "Ledger", value: "grouped" },
+        ],
+      },
+      {
+        title: "Show, don't tell",
+        rows: [
+          { label: "Diagram", value: "inline SVG" },
+          { label: "Mockup", value: "browser · app" },
+          { label: "Features / Feature", value: "icon grid" },
+        ],
+      },
+    ]}
+  />
+</Section>
+
+<Section>
+  <Callout tone="tip" title="Authoring rule of thumb">
+    Lead with the outcome, vary the rhythm, and put a `data-anchor` on every
+    meaningful unit so it's commentable. If two adjacent sections use the same
+    block, you're drifting back toward a wall of text — switch the composition.
+    See <Link href="https://docs.astro.build/en/guides/content-collections/">Astro content collections</Link> for how pages are wired.
+  </Callout>
+</Section>

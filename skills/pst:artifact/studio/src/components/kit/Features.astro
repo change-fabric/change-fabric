@@ -1,0 +1,24 @@
+---
+interface Props {
+  cols?: 2 | 3 | 4;
+  class?: string;
+}
+const { cols = 3, class: cls } = Astro.props;
+---
+
+<div class:list={["ps-features", `c-${cols}`, cls]} style={`--cols:${cols}`}>
+  <slot />
+</div>
+
+<style>
+  .ps-features {
+    display: grid;
+    gap: clamp(1rem, 2.5vw, 1.6rem);
+    grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+  }
+  @media (min-width: 60rem) {
+    .ps-features {
+      grid-template-columns: repeat(var(--cols), 1fr);
+    }
+  }
+</style>

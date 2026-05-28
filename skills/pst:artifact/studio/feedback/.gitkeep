@@ -1,0 +1,2 @@
+# Comment threads land here as <id>.json during `astro dev` (git-ignored).
+# `/pst:artifact --feedback <id>` reads them to revise the artifact.

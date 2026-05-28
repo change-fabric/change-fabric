@@ -1,0 +1,29 @@
+{
+  "name": "pst-artifact-studio",
+  "type": "module",
+  "version": "0.1.0",
+  "private": true,
+  "description": "The artifacts studio - a private, self-hosted Claude-Artifacts-style host for interactive plans, built with Astro.",
+  "scripts": {
+    "dev": "astro dev",
+    "start": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview",
+    "astro": "astro",
+    "a11y": "vitest run src/a11y.test.ts",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@astrojs/mdx": "^4.0.0",
+    "astro": "^5.1.0"
+  },
+  "devDependencies": {
+    "vitest": "^3.0.0",
+    "@fontsource-variable/fraunces": "^5.1.0",
+    "@fontsource-variable/inter": "^5.1.0",
+    "@fontsource-variable/jetbrains-mono": "^5.1.0",
+    "@fontsource-variable/newsreader": "^5.1.0",
+    "@fontsource-variable/sora": "^5.1.0",
+    "@fontsource-variable/space-grotesk": "^5.1.0"
+  }
+}

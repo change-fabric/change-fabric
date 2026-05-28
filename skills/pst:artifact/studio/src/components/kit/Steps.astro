@@ -1,0 +1,20 @@
+---
+// A numbered, prescriptive timeline — the backbone of a plan's "next steps".
+// Wrap <Step> children. Auto-numbers via a CSS counter.
+interface Props {
+  class?: string;
+}
+const { class: cls } = Astro.props;
+---
+
+<ol class:list={["ps-steps", cls]}><slot /></ol>
+
+<style>
+  .ps-steps {
+    counter-reset: step;
+    list-style: none;
+    padding: 0;
+    display: grid;
+    gap: 1rem;
+  }
+</style>

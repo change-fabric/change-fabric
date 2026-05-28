@@ -1,0 +1,40 @@
+---
+// A styled external link. Only emit one when you have a real, canonical URL —
+// never fabricate. Opens in a new tab with safe rel.
+import Icon from "./Icon.astro";
+
+interface Props {
+  href: string;
+  external?: boolean;
+  class?: string;
+}
+const { href, external = true, class: cls } = Astro.props;
+const ext = external && /^https?:\/\//.test(href);
+---
+
+<a
+  class:list={["ps-link", cls]}
+  href={href}
+  {...ext ? { target: "_blank", rel: "noopener noreferrer" } : {}}
+>
+  <slot />
+  {ext && <Icon name="arrow-up-right" size={15} />}
+</a>
+
+<style>
+  .ps-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25em;
+    font-weight: 500;
+    text-decoration: none;
+    border-bottom: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+    transition: border-color 0.15s ease;
+  }
+  .ps-link:hover {
+    border-bottom-color: var(--accent);
+  }
+  .ps-link svg {
+    opacity: 0.7;
+  }
+</style>

@@ -1,0 +1,84 @@
+---
+// A clean key → value list with hairline rows, optionally grouped under italic
+// serif subheads (the "Full Inventory" / line-items pattern). Value sits flush
+// right. Great for inventories, budgets, scopes, checklists-at-a-glance.
+interface Row {
+  label: string;
+  value: string | number;
+  hint?: string;
+}
+interface Group {
+  title?: string;
+  rows: Row[];
+}
+interface Props {
+  groups?: Group[];
+  rows?: Row[];
+  anchor?: string;
+}
+const { groups, rows, anchor } = Astro.props;
+const resolved: Group[] = groups ?? (rows ? [{ rows }] : []);
+---
+
+<div class="ps-ledger" data-anchor={anchor}>
+  {
+    resolved.map((g) => (
+      <div class="group">
+        {g.title && <p class="group-title">{g.title}</p>}
+        <dl>
+          {g.rows.map((r) => (
+            <div class="row" data-anchor={r.label}>
+              <dt>
+                {r.label}
+                {r.hint && <span class="hint"> — {r.hint}</span>}
+              </dt>
+              <dd>{r.value}</dd>
+            </div>
+          ))}
+        </dl>
+      </div>
+    ))
+  }
+</div>
+
+<style>
+  .group + .group {
+    margin-top: 2rem;
+  }
+  .group-title {
+    font-family: var(--font-display);
+    font-style: italic;
+    font-size: var(--step-1);
+    color: var(--accent);
+    margin-bottom: 0.4rem;
+  }
+  dl {
+    margin: 0;
+  }
+  .row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.7rem 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .row:first-child {
+    border-top: 1px solid var(--border);
+  }
+  dt {
+    font-weight: 500;
+  }
+  .hint {
+    color: var(--muted);
+    font-weight: 400;
+    font-size: 0.9em;
+  }
+  dd {
+    margin: 0;
+    font-family: var(--font-display);
+    font-weight: 560;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+</style>

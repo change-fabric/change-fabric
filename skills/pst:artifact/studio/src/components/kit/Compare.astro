@@ -1,0 +1,161 @@
+---
+// A sortable comparison table for options / tradeoffs. Click a header to sort.
+// `columns[].numeric` sorts that column numerically. First column is the row
+// label. Cell values may be strings or numbers; render pills/marks in the
+// `cells` slot is not supported — keep cells as plain values for sortability.
+interface Column {
+  key: string;
+  label: string;
+  numeric?: boolean;
+}
+interface Props {
+  columns: Column[];
+  rows: Record<string, string | number>[];
+  caption?: string;
+  anchor?: string;
+}
+const { columns, rows, caption, anchor } = Astro.props;
+---
+
+<div class="ps-compare" data-anchor={anchor ?? caption}>
+  <table>
+    {caption && <caption>{caption}</caption>}
+    <thead>
+      <tr>
+        {
+          columns.map((c) => (
+            <th
+              scope="col"
+              data-sort={c.numeric ? "num" : "txt"}
+              class={c.numeric ? "num" : ""}
+            >
+              <button type="button">
+                {c.label}
+                <span class="arrow" aria-hidden="true" />
+              </button>
+            </th>
+          ))
+        }
+      </tr>
+    </thead>
+    <tbody>
+      {
+        rows.map((r) => (
+          <tr>
+            {columns.map((c, i) => (
+              <td class={c.numeric ? "num" : ""} data-th={c.label}>
+                {i === 0 ? <strong>{r[c.key]}</strong> : r[c.key]}
+              </td>
+            ))}
+          </tr>
+        ))
+      }
+    </tbody>
+  </table>
+</div>
+
+<style>
+  .ps-compare {
+    overflow-x: auto;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.95rem;
+  }
+  caption {
+    text-align: left;
+    padding: 1rem 1.2rem 0;
+    color: var(--muted);
+    font-size: 0.85rem;
+  }
+  th {
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+    background: var(--subtle);
+  }
+  th.num,
+  td.num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+  th button {
+    all: unset;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.8rem 1.1rem;
+    width: 100%;
+    box-sizing: border-box;
+    font-weight: 600;
+    font-size: 0.78rem;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  th.num button {
+    justify-content: flex-end;
+  }
+  .arrow {
+    width: 0.6rem;
+    height: 0.6rem;
+    opacity: 0;
+    border-left: 1.5px solid currentColor;
+    border-bottom: 1.5px solid currentColor;
+    transform: rotate(-45deg);
+    transition: transform 0.15s ease;
+  }
+  th[aria-sort] .arrow {
+    opacity: 1;
+  }
+  th[aria-sort="descending"] .arrow {
+    transform: rotate(135deg);
+  }
+  td {
+    padding: 0.8rem 1.1rem;
+    border-bottom: 1px solid var(--border);
+    color: var(--muted);
+  }
+  td strong {
+    color: var(--text);
+    font-weight: 560;
+  }
+  tbody tr:last-child td {
+    border-bottom: 0;
+  }
+  tbody tr:hover {
+    background: color-mix(in srgb, var(--accent) 4%, transparent);
+  }
+</style>
+
+<script>
+  document.querySelectorAll<HTMLElement>(".ps-compare table").forEach((table) => {
+    const ths = Array.from(table.tHead?.rows[0]?.cells ?? []);
+    const tbody = table.tBodies[0];
+    ths.forEach((th, idx) => {
+      th.querySelector("button")?.addEventListener("click", () => {
+        const numeric = th.getAttribute("data-sort") === "num";
+        const asc = th.getAttribute("aria-sort") !== "ascending";
+        ths.forEach((h) => h.removeAttribute("aria-sort"));
+        th.setAttribute("aria-sort", asc ? "ascending" : "descending");
+        const rows = Array.from(tbody.rows);
+        rows.sort((a, b) => {
+          const x = (a.cells[idx]?.textContent ?? "").trim();
+          const y = (b.cells[idx]?.textContent ?? "").trim();
+          let r: number;
+          if (numeric) {
+            r = (parseFloat(x) || 0) - (parseFloat(y) || 0);
+          } else {
+            r = x.localeCompare(y);
+          }
+          return asc ? r : -r;
+        });
+        rows.forEach((row) => tbody.appendChild(row));
+      });
+    });
+  });
+</script>

@@ -1,0 +1,30 @@
+---
+// A row of headline numbers — the fastest executive-friendly scan, and the
+// signature "big stockpiles" move. Wrap <Stat> children.
+//   variant="cards"   solid colored cards in a gapped row (high impact)
+//   variant="divided" quiet hairline-divided cells (understated)
+interface Props {
+  variant?: "cards" | "divided";
+  class?: string;
+}
+const { variant = "cards", class: cls } = Astro.props;
+---
+
+<div class:list={["ps-stats", `v-${variant}`, cls]}><slot /></div>
+
+<style>
+  .ps-stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  }
+  .v-cards {
+    gap: clamp(0.7rem, 1.5vw, 1rem);
+  }
+  .v-divided {
+    gap: 1px;
+    background: var(--border);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+  }
+</style>
