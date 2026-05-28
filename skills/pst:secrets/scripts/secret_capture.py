@@ -131,7 +131,8 @@ def merge_env(path: Path, updates: dict[str, str]) -> None:
     os.chmod(path, 0o600)
 
 
-def make_handler(spec: dict, out_path: Path, backend: str, dest: str, cfg=None):
+def make_handler(spec: dict, out_path: Path, backend_obj, dest: str):
+    """backend_obj is a SecretBackend (op / aws-ssm) or None for the file backend."""
     class Handler(http.server.BaseHTTPRequestHandler):
         def log_message(self, *a):  # stay quiet
             pass
@@ -155,12 +156,11 @@ def make_handler(spec: dict, out_path: Path, backend: str, dest: str, cfg=None):
             data = urllib.parse.parse_qs(self.rfile.read(n).decode())
             updates = {f["env"]: data.get(f["env"], [""])[0].strip() for f in spec["fields"]}
             try:
-                if backend == "aws-ssm":
-                    from aws_secrets import put_secret
+                if backend_obj is not None:
                     labels = {f["env"]: f.get("label", f["env"]) for f in spec["fields"]}
                     for env, val in updates.items():
                         if val:
-                            put_secret(cfg, env, val, labels.get(env))
+                            backend_obj.put(env, val, labels.get(env))
                 else:
                     merge_env(out_path, updates)
             except Exception as exc:  # surface failure in-browser + on stderr
@@ -212,15 +212,61 @@ def build_spec(args) -> dict:
         return json.loads(Path(args.spec).read_text())
     if not args.field:
         sys.exit("need --preset, --spec, or at least one --field")
-    # --out is only meaningful for the file backend; aws-ssm needs no path.
     if args.backend == "file" and not args.out:
         sys.exit("--backend file needs --out <path>")
     return {
         "title": args.title or "Enter secrets",
         "subtitle": args.subtitle or "",
-        "out": args.out or "(aws-ssm)",
+        "out": args.out or "(managed backend)",
         "fields": [parse_field(f) for f in args.field],
     }
+
+
+def _resolve_destination(args):
+    """Resolve a write destination from config + flags. Returns a config.Resolution.
+
+    Raises config.ConfigError with guidance if no catalog exists or nothing
+    resolves -- the agent should then run `/pst:secrets config` (guided setup).
+    """
+    import config as cfgmod
+    catalog = cfgmod.load_catalog()
+    if catalog is None:
+        raise cfgmod.ConfigError(
+            "No pst:secrets catalog yet. Run `/pst:secrets config` to set up your "
+            "1Password accounts/vaults and a default destination."
+        )
+    overlay_pair = cfgmod.find_overlay(Path.cwd(), catalog)
+    overlay = overlay_pair[1] if overlay_pair else None
+    overlay_source = str(overlay_pair[0]) if overlay_pair else "overlay"
+    flags = cfgmod.ResolveFlags(
+        backend=args.backend if args.backend in ("op", "aws-ssm") else None,
+        aws=args.aws, profile=args.profile, account=args.account,
+        vault=args.vault, semantic=args.semantic,
+    )
+    return cfgmod.resolve(catalog, overlay, flags, overlay_source=overlay_source)
+
+
+def _confirm_destination(resolution, args) -> bool:
+    """Script-owned confirm-on-write. Non-interactive callers (the agent harness)
+    must pass --confirm-destination matching the resolved drawer id; an
+    interactive TTY is prompted. Returns True if confirmed."""
+    if args.confirm_destination:
+        if args.confirm_destination != resolution.drawer_id:
+            print(f"Refusing to write: --confirm-destination "
+                  f"'{args.confirm_destination}' does not match the resolved "
+                  f"destination '{resolution.drawer_id}'.\nResolved: {resolution.describe()}",
+                  file=sys.stderr)
+            return False
+        return True
+    if sys.stdin.isatty():
+        print(f"\nDestination: {resolution.describe()}")
+        print(f"  drawer-id: {resolution.drawer_id}")
+        reply = input("Write the secret here? [y/N] ").strip().lower()
+        return reply in ("y", "yes")
+    print("Refusing to write without confirmation. Re-run with "
+          f"--confirm-destination {resolution.drawer_id}\nResolved: {resolution.describe()}",
+          file=sys.stderr)
+    return False
 
 
 def main() -> int:
@@ -231,37 +277,65 @@ def main() -> int:
     ap.add_argument("--title")
     ap.add_argument("--subtitle")
     ap.add_argument("--field", action="append", help="ENV[:Label[:hint]] (repeatable)")
-    ap.add_argument("--backend", choices=("file", "aws-ssm"), default="file",
-                    help="file = plaintext env file (default); aws-ssm = KMS-encrypted SSM SecureString")
-    ap.add_argument("--profile", help="(aws-ssm) AWS CLI profile")
-    ap.add_argument("--region", help="(aws-ssm) AWS region")
-    ap.add_argument("--kms-key", dest="kms_key", help="(aws-ssm) KMS key id/alias")
-    ap.add_argument("--prefix", help="(aws-ssm) SSM parameter name prefix")
+    ap.add_argument("--backend", choices=("file", "op", "aws-ssm"), default=None,
+                    help="override backend; default = resolved from config")
+    ap.add_argument("--aws", action="store_true", help="use the AWS SSM backend")
+    ap.add_argument("--profile", help="named drawer profile from the catalog")
+    ap.add_argument("--account", help="op account handle / aws account name")
+    ap.add_argument("--vault", help="op vault alias/name within the account")
+    ap.add_argument("--semantic", help="natural-language destination, e.g. 'family shared vault'")
+    ap.add_argument("--resolve-only", action="store_true",
+                    help="print the resolved destination as JSON and exit (no write)")
+    ap.add_argument("--confirm-destination",
+                    help="drawer id that must match the resolved destination to allow the write")
+    ap.add_argument("--out-legacy", dest="out", help=argparse.SUPPRESS)
     args = ap.parse_args()
 
-    spec = build_spec(args)
-    out_path = Path(os.path.expanduser(spec.get("out", "/dev/null")))
-
-    cfg = None
-    if args.backend == "aws-ssm":
-        from aws_secrets import Config, SecretError, ensure_session
-        cfg = Config.from_env(profile=args.profile, region=args.region,
-                              kms_key=args.kms_key, prefix=args.prefix)
-        try:  # fail fast before opening a browser if the session is dead
-            ensure_session(cfg)
-        except SecretError as exc:
-            print(str(exc), file=sys.stderr); return 2
-        dest = (f"Encrypted to AWS SSM ({cfg.prefix}/*, KMS {cfg.kms_key}, "
-                f"region {cfg.region}). Nothing is written to disk in plaintext -")
-    else:
+    # Legacy plaintext file backend: bypass resolution entirely.
+    if args.backend == "file":
+        spec = build_spec(args)
+        out_path = Path(os.path.expanduser(spec.get("out", "/dev/null")))
         dest = f"Saved to {spec['out']} (chmod 600)."
+        return _serve(spec, out_path, None, dest, "file")
 
+    from config import ConfigError
+    try:
+        resolution = _resolve_destination(args)
+    except ConfigError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+
+    if args.resolve_only:
+        print(json.dumps({
+            "backend": resolution.backend,
+            "drawer_id": resolution.drawer_id,
+            "describe": resolution.describe(),
+            "source": resolution.source,
+        }))
+        return 0
+
+    spec = build_spec(args)
+    if not _confirm_destination(resolution, args):
+        return 3
+
+    from backend import get_backend
+    backend_obj = get_backend(resolution)
+    try:  # fail fast before opening a browser if the session/unlock is dead
+        backend_obj.ensure_session()
+    except Exception as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+    dest = f"{resolution.describe()} - nothing is written to disk in plaintext -"
+    return _serve(spec, Path("/dev/null"), backend_obj, dest, resolution.backend)
+
+
+def _serve(spec: dict, out_path: Path, backend_obj, dest: str, backend_name: str) -> int:
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.bind(("127.0.0.1", 0)); port = sock.getsockname()[1]; sock.close()
     httpd = http.server.HTTPServer(("127.0.0.1", port),
-                                   make_handler(spec, out_path, args.backend, dest, cfg))
+                                   make_handler(spec, out_path, backend_obj, dest))
     url = f"http://127.0.0.1:{port}/{TOKEN}"
-    target = (f"AWS SSM {cfg.prefix}/*" if args.backend == "aws-ssm" else spec["out"])
+    target = dest if backend_obj is not None else spec["out"]
     print(f"Secret-capture form (localhost only): {url}")
     print(f"Fields: {', '.join(f['env'] for f in spec['fields'])}  →  {target}")
     print("Fill it in your browser; this server shuts down once you save.")
@@ -276,9 +350,9 @@ def main() -> int:
     httpd.shutdown()
     if _failed.is_set():
         print("No secrets saved (storage error above).", file=sys.stderr); return 1
-    if args.backend == "aws-ssm":
+    if backend_obj is not None:
         if _done.is_set():
-            print("Stored to AWS SSM (KMS-encrypted); local pointer registry updated.")
+            print(f"Stored to {backend_name}; local pointer registry updated.")
             return 0
         print("No secrets saved.", file=sys.stderr); return 1
     if out_path.exists():

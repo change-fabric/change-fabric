@@ -2,10 +2,11 @@
 """AWS-backed secret storage for the pst:secrets credential drawer.
 
 Secrets are stored as KMS-encrypted SSM Parameter Store *SecureString* values.
-The plaintext never lands on disk - only a local *pointer registry* mapping each
-logical name to its SSM path is kept locally. Decryption requires a live AWS
-session (in practice, an MFA-gated session minted by /aws-mfa); an expired
-session simply makes retrieval fail with an actionable message.
+The plaintext never lands on disk -- only a local *pointer registry* (see
+`registry.py`) mapping each logical name to its SSM path is kept locally.
+Decryption requires a live AWS session (in practice an MFA-gated one minted by
+/aws-mfa); the KMS key policy additionally denies decrypt without MFA, so even
+leaked long-lived credentials cannot decrypt.
 
 This module is intentionally generic (no account/region baked in). Callers
 configure it via env vars or explicit kwargs:
@@ -15,22 +16,24 @@ configure it via env vars or explicit kwargs:
   PST_SECRETS_KMS_KEY   KMS key id/alias for SecureString (default: alias/pst-secrets)
   PST_SECRETS_PREFIX    SSM parameter name prefix         (default: /pst-secrets)
 
-Environment-specific values (Patrick's personal account, profile pstaylor-mfa)
-live in the pst:secrets SKILL.md, not here -- so this stays portable/OSS-able.
-
 It shells out to the `aws` CLI rather than taking a boto3 dependency.
 """
 from __future__ import annotations
 
-import datetime as _dt
 import json
 import os
 import subprocess
 from dataclasses import dataclass
-from pathlib import Path
 
-REGISTRY_PATH = Path(os.path.expanduser("~/.config/pst-secrets/registry.json"))
-REGISTRY_VERSION = 1
+from registry import (
+    aws_drawer_id,
+    delete_pointer,
+    get_drawer,
+    get_pointer,
+    load_registry,
+    now_iso,
+    put_pointer,
+)
 
 __all__ = [
     "Config",
@@ -39,8 +42,7 @@ __all__ = [
     "put_secret",
     "get_secret",
     "delete_secret",
-    "list_accounts",
-    "load_registry",
+    "AwsSsmBackend",
 ]
 
 
@@ -104,92 +106,53 @@ def ensure_session(cfg: Config) -> str:
     return json.loads(res.stdout).get("Arn", "?")
 
 
-# ---------------------------------------------------------------- registry
-#
-# Namespaced by AWS account so the drawer scales to multiple accounts (personal
-# + client profiles) without name collisions:
-#
-#   {"version": 1,
-#    "accounts": {
-#      "569032832755": {"region": "...", "kms_key": "...",
-#                       "secrets": {"NAME": {"ssm_path", "label", "updated"}}}}}
-#
-# `_normalize` tolerates an older flat `{"secrets": {...}}` shape by folding it
-# under its account, so a hand-edited or legacy registry still loads cleanly.
-
-def _normalize(reg: dict) -> dict:
-    if "accounts" in reg:  # already namespaced
-        reg["version"] = REGISTRY_VERSION
-        return reg
-    # flat → namespaced
-    account = reg.get("account", "unknown")
-    migrated: dict = {"version": REGISTRY_VERSION, "backend": "aws-ssm", "accounts": {}}
-    if reg.get("secrets"):
-        migrated["accounts"][account] = {
-            "region": reg.get("region", ""),
-            "kms_key": reg.get("kms_key", ""),
-            "secrets": reg["secrets"],
-        }
-    return migrated
+def _drawer_id(cfg: Config, account: str) -> str:
+    return aws_drawer_id(account, cfg.region, cfg.prefix)
 
 
-def load_registry() -> dict:
-    if REGISTRY_PATH.exists():
-        return _normalize(json.loads(REGISTRY_PATH.read_text()))
-    return {"version": REGISTRY_VERSION, "backend": "aws-ssm", "accounts": {}}
+def _drawer_fields(cfg: Config, account: str) -> dict:
+    return {"backend": "aws-ssm", "account_id": account, "region": cfg.region,
+            "kms_key": cfg.kms_key, "prefix": cfg.prefix}
 
 
-def save_registry(reg: dict) -> None:
-    REGISTRY_PATH.parent.mkdir(parents=True, exist_ok=True)
-    REGISTRY_PATH.write_text(json.dumps(reg, indent=2) + "\n")
-    os.chmod(REGISTRY_PATH, 0o600)
+def _registered_path(account: str, name: str, cfg: Config) -> str:
+    pointer = get_pointer(_drawer_id(cfg, account), name)
+    return (pointer or {}).get("ssm_path") or cfg.ssm_path(name)
 
-
-def _account_entry(reg: dict, account: str, cfg: Config) -> dict:
-    acct = reg.setdefault("accounts", {}).setdefault(
-        account, {"region": cfg.region, "kms_key": cfg.kms_key, "secrets": {}}
-    )
-    acct["region"], acct["kms_key"] = cfg.region, cfg.kms_key  # keep current
-    acct.setdefault("secrets", {})
-    return acct
-
-
-def _registered_path(reg: dict, account: str, name: str, cfg: Config) -> str:
-    return (
-        reg.get("accounts", {}).get(account, {}).get("secrets", {}).get(name, {}).get("ssm_path")
-        or cfg.ssm_path(name)
-    )
-
-
-# ---------------------------------------------------------------- store / fetch
 
 def put_secret(cfg: Config, name: str, value: str, label: str | None = None) -> None:
-    """Encrypt+store one secret as a SecureString and record a local pointer."""
+    """Encrypt+store one secret as a SecureString and record a local pointer.
+
+    The value is passed via `--cli-input-json` on stdin (not `--value` on argv),
+    so it never appears in the process list or shell history.
+    """
     account = _account_of(ensure_session(cfg))
+    payload = {
+        "Name": cfg.ssm_path(name),
+        "Type": "SecureString",
+        "KeyId": cfg.kms_key,
+        "Overwrite": True,
+        "Value": value,
+    }
     res = _aws(
         cfg, "ssm", "put-parameter",
-        "--name", cfg.ssm_path(name),
-        "--type", "SecureString",
-        "--key-id", cfg.kms_key,
-        "--overwrite",
-        "--value", value,
+        "--cli-input-json", "file:///dev/stdin",
         "--output", "json",
+        input_text=json.dumps(payload),
     )
     if res.returncode != 0:
         raise SecretError(f"Failed to store '{name}' in SSM:\n{res.stderr.strip()}")
-    reg = load_registry()
-    _account_entry(reg, account, cfg)["secrets"][name] = {
-        "ssm_path": cfg.ssm_path(name),
-        "label": label or name,
-        "updated": _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds"),
-    }
-    save_registry(reg)
+    put_pointer(
+        _drawer_id(cfg, account), name,
+        {"ssm_path": cfg.ssm_path(name), "label": label or name, "updated": now_iso()},
+        **_drawer_fields(cfg, account),
+    )
 
 
 def get_secret(cfg: Config, name: str) -> str:
     """Fetch+decrypt one secret from the authenticated account. Returns plaintext."""
     account = _account_of(ensure_session(cfg))
-    path = _registered_path(load_registry(), account, name, cfg)
+    path = _registered_path(account, name, cfg)
     res = _aws(
         cfg, "ssm", "get-parameter",
         "--name", path, "--with-decryption",
@@ -202,17 +165,33 @@ def get_secret(cfg: Config, name: str) -> str:
 
 def delete_secret(cfg: Config, name: str) -> None:
     account = _account_of(ensure_session(cfg))
-    reg = load_registry()
-    path = _registered_path(reg, account, name, cfg)
+    path = _registered_path(account, name, cfg)
     res = _aws(cfg, "ssm", "delete-parameter", "--name", path)
     if res.returncode != 0 and "ParameterNotFound" not in res.stderr:
         raise SecretError(f"Failed to delete '{name}' from SSM:\n{res.stderr.strip()}")
-    secrets = reg.get("accounts", {}).get(account, {}).get("secrets", {})
-    if name in secrets:
-        del secrets[name]
-        save_registry(reg)
+    delete_pointer(_drawer_id(cfg, account), name)
 
 
-def list_accounts() -> dict[str, dict]:
-    """Local pointer metadata grouped by account - never values. Needs no session."""
-    return load_registry().get("accounts", {})
+class AwsSsmBackend:
+    """SecretBackend adapter over the env-driven AWS SSM functions."""
+
+    def __init__(self, cfg: Config) -> None:
+        self.cfg = cfg
+        self._account: str | None = None
+
+    @property
+    def drawer_id(self) -> str:
+        # Best-effort before auth; the registry write resolves the real account.
+        return _drawer_id(self.cfg, self._account or "unknown")
+
+    def ensure_session(self) -> None:
+        self._account = _account_of(ensure_session(self.cfg))
+
+    def put(self, name: str, value: str, label: str | None = None) -> None:
+        put_secret(self.cfg, name, value, label)
+
+    def get(self, name: str) -> str:
+        return get_secret(self.cfg, name)
+
+    def delete(self, name: str) -> None:
+        delete_secret(self.cfg, name)
