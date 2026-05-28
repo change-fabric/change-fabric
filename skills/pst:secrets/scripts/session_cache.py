@@ -391,36 +391,63 @@ def install_hook() -> int:
 # ---------------------------------------------------------------- CLI
 
 def _resolve_targets(names: list[str], use_all: bool,
-                     scope: dict) -> list[tuple[str, object]]:
+                     scope: dict) -> tuple[list[tuple[str, object]], list[str]]:
+    """Resolve (name, backend) pairs to materialize, plus a list of skips.
+
+    The cache is name-keyed, so a NAME that lives in more than one drawer cannot
+    be represented unambiguously. The explicit-name path defers to
+    ``locate_backend``, which already raises on that ambiguity. The ``--all``
+    path would otherwise silently keep the last drawer's value; instead it
+    *skips* every colliding name and reports it, so an unattended agent never
+    sources the wrong secret. Skipped names are materialized explicitly with
+    ``--account``/``--vault``.
+    """
     targets: list[tuple[str, object]] = []
+    skipped: list[str] = []
     if use_all:
+        # name -> [(drawer_id, backend), ...]; a list longer than 1 is a collision.
+        by_name: dict[str, list[tuple[str, object]]] = {}
         for _did, drawer in all_drawers().items():
             backend = backend_from_drawer(drawer)
             for name in drawer.get("secrets", {}):
-                targets.append((name, backend))
-        return targets
+                by_name.setdefault(name, []).append((backend.drawer_id, backend))
+        for name, hits in by_name.items():
+            if len(hits) == 1:
+                targets.append((name, hits[0][1]))
+            else:
+                where = ", ".join(did for did, _ in hits)
+                skipped.append(
+                    f"{name}: in multiple drawers ({where}); materialize it "
+                    f"explicitly, e.g. session start {name} --account <handle>."
+                )
+        return targets, skipped
     import secret_fetch  # lazy: avoids an import cycle (secret_fetch imports us)
     for name in names:
         targets.append((name, secret_fetch.locate_backend(name, **scope)))
-    return targets
+    return targets, skipped
 
 
 def cmd_start(args: argparse.Namespace) -> int:
     scope = {"aws": args.aws, "account": args.account, "vault": args.vault}
     try:
         ttl = parse_duration(args.ttl)
-        targets = _resolve_targets(args.names, args.all, scope)
+        targets, skipped = _resolve_targets(args.names, args.all, scope)
     except (ValueError, RuntimeError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
     if not targets:
-        print("error: nothing to materialize. Pass secret NAMEs or --all, and "
-              "capture some first via /pst:secrets set \"<desc>\".", file=sys.stderr)
+        if skipped:
+            print("error: every matched secret is ambiguous; materialize each "
+                  "explicitly with --account/--vault:\n  " + "\n  ".join(skipped),
+                  file=sys.stderr)
+        else:
+            print("error: nothing to materialize. Pass secret NAMEs or --all, and "
+                  "capture some first via /pst:secrets set \"<desc>\".", file=sys.stderr)
         return 2
 
     values: dict[str, str] = {}
     drawers: dict[str, str] = {}
-    failures: list[str] = []
+    failures: list[str] = list(skipped)  # collisions are skips too
     for name, backend in targets:
         try:
             values[name] = backend.get(name)

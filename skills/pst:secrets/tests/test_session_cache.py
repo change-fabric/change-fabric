@@ -201,3 +201,77 @@ def test_fetch_warms_on_miss(monkeypatch, capsys):
     sf.main(["get", "OPENAI_API_KEY"])
     assert capsys.readouterr().out == "backend-OPENAI_API_KEY"
     assert sc.lookup("OPENAI_API_KEY") == "backend-OPENAI_API_KEY"  # warmed
+
+
+# ---------------------------------------------------------------- --all collisions
+
+def _fake_drawers(monkeypatch, drawers):
+    """Stub registry/backend so --all resolution runs against in-memory drawers.
+
+    backend_from_drawer receives only the drawer dict, so reverse-map identity to
+    the drawer id and hand back a fake whose .drawer_id / .get reflect it.
+    """
+    ids = {id(d): did for did, d in drawers.items()}
+
+    class _Backend:
+        def __init__(self, drawer_id):
+            self.drawer_id = drawer_id
+
+        def get(self, name):
+            return f"{self.drawer_id}:{name}"
+
+    monkeypatch.setattr(sc, "all_drawers", lambda: drawers)
+    monkeypatch.setattr(sc, "backend_from_drawer", lambda d: _Backend(ids[id(d)]))
+
+
+def test_resolve_all_skips_duplicate_names(monkeypatch):
+    _fake_drawers(monkeypatch, {
+        "op:acct:A:vault:V": {"secrets": {"SHARED": {}, "ONLY_A": {}}},
+        "op:acct:B:vault:W": {"secrets": {"SHARED": {}, "ONLY_B": {}}},
+    })
+    targets, skipped = sc._resolve_targets([], use_all=True, scope={})
+
+    assert sorted(n for n, _ in targets) == ["ONLY_A", "ONLY_B"]
+    assert len(skipped) == 1
+    msg = skipped[0]
+    assert msg.startswith("SHARED:")
+    assert "op:acct:A:vault:V" in msg and "op:acct:B:vault:W" in msg
+
+
+def test_resolve_all_no_collision_takes_everything(monkeypatch):
+    _fake_drawers(monkeypatch, {
+        "op:acct:A:vault:V": {"secrets": {"A_KEY": {}}},
+        "op:acct:B:vault:W": {"secrets": {"B_KEY": {}}},
+    })
+    targets, skipped = sc._resolve_targets([], use_all=True, scope={})
+    assert sorted(n for n, _ in targets) == ["A_KEY", "B_KEY"]
+    assert skipped == []
+
+
+def test_start_all_materializes_unique_and_skips_collision(monkeypatch, capsys):
+    _fake_drawers(monkeypatch, {
+        "op:acct:A:vault:V": {"secrets": {"SHARED": {}, "ONLY_A": {}}},
+        "op:acct:B:vault:W": {"secrets": {"SHARED": {}, "ONLY_B": {}}},
+    })
+    rc = sc.main(["start", "--all"])
+    assert rc == 0
+
+    # Unique names materialized; the colliding name is NOT in the cache.
+    assert sc.lookup("ONLY_A") == "op:acct:A:vault:V:ONLY_A"
+    assert sc.lookup("ONLY_B") == "op:acct:B:vault:W:ONLY_B"
+    assert sc.lookup("SHARED") is None
+
+    err = capsys.readouterr().err
+    assert "Skipped" in err and "SHARED" in err
+
+
+def test_start_all_errors_when_every_name_collides(monkeypatch, capsys):
+    _fake_drawers(monkeypatch, {
+        "op:acct:A:vault:V": {"secrets": {"SHARED": {}}},
+        "op:acct:B:vault:W": {"secrets": {"SHARED": {}}},
+    })
+    rc = sc.main(["start", "--all"])
+    assert rc == 2
+    assert sc.is_live() is False
+    err = capsys.readouterr().err
+    assert "ambiguous" in err and "SHARED" in err
