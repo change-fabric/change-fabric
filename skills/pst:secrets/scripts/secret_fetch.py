@@ -15,6 +15,11 @@ Usage:
 Scope with --profile/--account/--vault/--aws when the same NAME lives in more
 than one drawer.
 
+When a session cache is live (see `session_cache.py` / `/pst:secrets session
+start`), `get`/`export` read from it first -- no backend unlock -- and warm any
+backend miss back into it. Pass `--fresh` (alias `--no-session`) to force a
+backend read.
+
 Security: `get` prints the raw value to stdout by design (the consumption
 interface -- capture it in a subshell). `list` shows only names/pointers/times.
 """
@@ -23,6 +28,7 @@ from __future__ import annotations
 import argparse
 import sys
 
+import session_cache
 from backend import backend_from_drawer
 from registry import all_drawers
 
@@ -40,29 +46,35 @@ def _matching_drawer_ids(name: str) -> list[str]:
             if name in d.get("secrets", {})]
 
 
-def _scope_filter(args: argparse.Namespace) -> "callable | None":
+def _scope_filter(aws: bool, account: "str | None", vault: "str | None") -> "callable | None":
     """Optional predicate to narrow drawers by flag, for disambiguation."""
     def pred(drawer: dict) -> bool:
-        if args.aws and drawer.get("backend") != "aws-ssm":
+        if aws and drawer.get("backend") != "aws-ssm":
             return False
-        if args.account:
+        if account:
             handles = {drawer.get("account"), drawer.get("account_id")}
-            if args.account not in handles:
+            if account not in handles:
                 return False
-        if args.vault:
+        if vault:
             handles = {drawer.get("vault"), drawer.get("vault_id")}
-            if args.vault not in handles:
+            if vault not in handles:
                 return False
         return True
-    if args.aws or args.account or args.vault:
+    if aws or account or vault:
         return pred
     return None
 
 
-def _locate(name: str, args: argparse.Namespace):
+def locate_backend(name: str, *, aws: bool = False,
+                   account: "str | None" = None, vault: "str | None" = None):
+    """Resolve the single backend holding ``name``, or raise LocateError.
+
+    Shared by the read path and `session start`; scope flags disambiguate a
+    NAME that lives in more than one drawer.
+    """
     drawers = all_drawers()
     ids = _matching_drawer_ids(name)
-    pred = _scope_filter(args)
+    pred = _scope_filter(aws, account, vault)
     if pred:
         ids = [did for did in ids if pred(drawers[did])]
     if not ids:
@@ -72,8 +84,28 @@ def _locate(name: str, args: argparse.Namespace):
         where = ", ".join(ids)
         raise LocateError(f"'{name}' exists in multiple drawers: {where}. "
                           f"Disambiguate with --account/--vault/--aws.")
-    drawer_id = ids[0]
-    return backend_from_drawer(drawers[drawer_id])
+    return backend_from_drawer(drawers[ids[0]])
+
+
+def _locate(name: str, args: argparse.Namespace):
+    return locate_backend(name, aws=args.aws, account=args.account, vault=args.vault)
+
+
+def _read_value(name: str, args: argparse.Namespace) -> str:
+    """Read one value, preferring a live session cache unless --fresh.
+
+    On a cache miss during a live session the freshly-read backend value is
+    warmed into the cache, so the next access stays unlock-free too.
+    """
+    if not args.fresh:
+        cached = session_cache.lookup(name)
+        if cached is not None:
+            return cached
+    backend = _locate(name, args)
+    value = backend.get(name)
+    if not args.fresh:
+        session_cache.warm(name, value, getattr(backend, "drawer_id", None))
+    return value
 
 
 def _print_list() -> int:
@@ -98,7 +130,12 @@ def _print_list() -> int:
     return 0
 
 
-def main() -> int:
+def _add_fresh(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--fresh", "--no-session", dest="fresh", action="store_true",
+                        help="bypass the session cache and read from the backend")
+
+
+def main(argv: "list[str] | None" = None) -> int:
     ap = argparse.ArgumentParser(description="Fetch pst:secrets values across backends.")
     ap.add_argument("--aws", action="store_true", help="scope to the AWS backend")
     ap.add_argument("--account", help="scope to an op account handle / aws account")
@@ -106,24 +143,24 @@ def main() -> int:
     sub = ap.add_subparsers(dest="cmd", required=True)
     g = sub.add_parser("get", help="print one value to stdout")
     g.add_argument("name")
+    _add_fresh(g)
     e = sub.add_parser("export", help="emit `export NAME=value` lines")
     e.add_argument("names", nargs="+")
+    _add_fresh(e)
     sub.add_parser("list", help="list known secret names + pointers (no values)")
     r = sub.add_parser("rm", help="delete a secret (backend item + local pointer)")
     r.add_argument("name")
-    args = ap.parse_args()
+    args = ap.parse_args(argv)
 
     try:
         if args.cmd == "list":
             return _print_list()
         if args.cmd == "get":
-            backend = _locate(args.name, args)
-            sys.stdout.write(backend.get(args.name))
+            sys.stdout.write(_read_value(args.name, args))
             return 0
         if args.cmd == "export":
             for name in args.names:
-                backend = _locate(name, args)
-                sys.stdout.write(f"export {name}={_shell_quote(backend.get(name))}\n")
+                sys.stdout.write(f"export {name}={_shell_quote(_read_value(name, args))}\n")
             return 0
         if args.cmd == "rm":
             backend = _locate(args.name, args)

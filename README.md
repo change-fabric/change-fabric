@@ -203,10 +203,14 @@ An encrypted personal credential drawer - somewhere to stuff API keys and tokens
 /pst:secrets export OPENAI_API_KEY ANTHROPIC_API_KEY
 /pst:secrets list                     # pointers grouped by account (no values)
 /pst:secrets rm OLD_KEY               # delete (SSM parameter + pointer)
+/pst:secrets session start --all      # materialize for 12h → autonomous, unlock-free reads
+/pst:secrets session status / end     # inspect / shred the session cache
 /pst:secrets provision                # one-time KMS + MFA-deny policy setup per account
 ```
 
-Configured via `PST_SECRETS_PROFILE` / `_REGION` / `_KMS_KEY` / `_PREFIX` env vars (nothing baked into the lib). Requires the `aws` CLI and an MFA session (e.g. via an `/aws-mfa`-style flow). Ships with a 22-test AWS-mocked suite under `skills/pst:secrets/tests/`.
+Configured via `PST_SECRETS_PROFILE` / `_REGION` / `_KMS_KEY` / `_PREFIX` env vars (nothing baked into the lib). Requires the `aws` CLI and an MFA session (e.g. via an `/aws-mfa`-style flow).
+
+**Session mode (autonomy):** when you'll be away from the machine or want to give the agent more rope for a single session, `session start` fetches the chosen secrets once and materializes them to a private, `0600`, time-boxed cache under `$TMPDIR`; `get`/`export` then serve from it without re-prompting for TouchID/MFA. It is deliberately the one path that puts plaintext on disk, defended by a short lifetime rather than encryption: a TTL (default 12h), a detached watchdog that shreds at the deadline, a Claude Code SessionEnd hook (`session install-hook`), and `session end` on demand. Use `--fresh` on a `get`/`export` to bypass it.
 
 ### `/pst:react-refactor`
 
