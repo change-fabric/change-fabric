@@ -194,21 +194,25 @@ Address every unresolved conversation on a GitHub PR. Fetches all review threads
 
 ### `/pst:secrets`
 
-An encrypted personal credential drawer - somewhere to stuff API keys and tokens instead of leaving them in plaintext on the filesystem. Secrets are KMS-encrypted into AWS SSM Parameter Store SecureString values; only a local pointer registry (names/paths, never values) lives on disk. Reads require a live MFA'd AWS session, enforced both by the tooling and by the KMS key policy itself (which denies `kms:Decrypt` without `aws:MultiFactorAuthPresent`, so even leaked non-MFA credentials cannot decrypt). The local pointer registry is namespaced by AWS account, so the same scheme scales across multiple accounts. Capture happens through a localhost-only masked browser form, so values never enter the chat transcript. Not for production/service-principal secrets - those belong in their own systems with service-role access.
+A personal credential drawer - somewhere to stuff API keys and tokens instead of leaving them in plaintext on the filesystem. By default secrets land in **1Password** (via the `op` CLI); an **AWS KMS+SSM SecureString** backend stays available behind `--aws` or a config profile. Only a local pointer registry (names + where the value lives, never values) sits on disk, so `list` needs no unlock. Which backend a `set` uses is **config-driven** - a global catalog of your 1Password accounts/vaults plus per-project overlays produces a suggested destination, and every write **confirms that destination** before the value is captured through a localhost-only masked browser form, so values never enter the chat transcript or argv. Not for production/service-principal secrets - those belong in their own systems with service-role access.
+
+The two backends trade off deliberately: 1Password is gated by the desktop app / CLI unlock state (great for day-to-day personal keys); `--aws` adds a live MFA session **plus** a KMS key policy that denies `kms:Decrypt` without `aws:MultiFactorAuthPresent` (so even leaked non-MFA credentials cannot decrypt) - use it for anything that needs the harder MFA gate.
 
 ```
-/pst:secrets                          # status: session check + list pointers
-/pst:secrets set "my Linear API key"  # browser capture → KMS-encrypt → SSM
-/pst:secrets get LINEAR_API_KEY       # decrypt one value (capture in a var)
+/pst:secrets                          # status: doctor + list pointers
+/pst:secrets set "my Linear API key"  # resolve → CONFIRM destination → browser capture → 1Password
+/pst:secrets set "..." --aws          # same flow, AWS KMS+SSM backend
+/pst:secrets get LINEAR_API_KEY       # one value to stdout (capture in a var)
 /pst:secrets export OPENAI_API_KEY ANTHROPIC_API_KEY
-/pst:secrets list                     # pointers grouped by account (no values)
-/pst:secrets rm OLD_KEY               # delete (SSM parameter + pointer)
+/pst:secrets list                     # pointers grouped by drawer (no values, no unlock)
+/pst:secrets rm OLD_KEY               # delete (backend item + local pointer)
 /pst:secrets session start --all      # materialize for 12h → autonomous, unlock-free reads
 /pst:secrets session status / end     # inspect / shred the session cache
-/pst:secrets provision                # one-time KMS + MFA-deny policy setup per account
+/pst:secrets config                   # first-run setup / --refresh / doctor / --project overlay
+/pst:secrets provision                # AWS only: one-time KMS + MFA-deny policy setup per account
 ```
 
-Configured via `PST_SECRETS_PROFILE` / `_REGION` / `_KMS_KEY` / `_PREFIX` env vars (nothing baked into the lib). Requires the `aws` CLI and an MFA session (e.g. via an `/aws-mfa`-style flow).
+1Password needs the `op` CLI 2.x with desktop-app integration enabled; the optional AWS backend needs the `aws` CLI and an MFA session (e.g. via an `/aws-mfa`-style flow), configured per account in the catalog or via `PST_SECRETS_PROFILE` / `_REGION` / `_KMS_KEY` / `_PREFIX`.
 
 **Session mode (autonomy):** when you'll be away from the machine or want to give the agent more rope for a single session, `session start` fetches the chosen secrets once and materializes them to a private, `0600`, time-boxed cache under `$TMPDIR`; `get`/`export` then serve from it without re-prompting for TouchID/MFA. It is deliberately the one path that puts plaintext on disk, defended by a short lifetime rather than encryption: a TTL (default 12h), a detached watchdog that shreds at the deadline, a Claude Code SessionEnd hook (`session install-hook`), and `session end` on demand. Use `--fresh` on a `get`/`export` to bypass it.
 
