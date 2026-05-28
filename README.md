@@ -64,6 +64,17 @@ Removes symlinks from `~/.claude/commands/` and/or `$CODEX_HOME/skills/`, plus P
 
 ## Skills
 
+### `/pst:adversarial-review`
+
+Plan a subject, hand off an adversarial review of that plan to another model, and start building in parallel. Writes three artifacts to a per-subject working dir and opens them in VS Code: a phased `PLAN.md` (scope, design options + recommendation, risks, acceptance criteria), a self-contained `ADVERSARIAL-REVIEW-PROMPT.md` to paste into Codex (it attacks the plan, edits it inline, and emits a rationale-bearing changelog), and a `CHANGELOG.md` stub for the reviewer to fill. Then it eagerly implements the plan on a dedicated draft PR in an isolated worktree -- foundations and low-churn pieces first -- without waiting for the review to come back. Re-run it with the returned changelog to fold the fixes into both the plan and the in-flight implementation. The mechanical, error-prone steps (slug/path/branch derivation, idempotent scaffold writes, worktree + draft-PR creation, changelog parsing) are handled by a tested helper, `scripts/adversarial_review.py` -- the model only does the creative work (plan body, prompt context, implementation), mirroring `/plan-io`'s builder split.
+
+```
+/pst:adversarial-review "a rate limiter for the public API"
+/pst:adversarial-review "migrate auth to Better Auth" --no-impl
+/pst:adversarial-review "redesign the billing webhook handler" --impl-now
+/pst:adversarial-review <changelog-path-or-paste>   # second pass: apply returned changelog
+```
+
 ### `/pst:auto`
 
 High-autonomy orchestrator that turns rough, unstructured prompts into review-ready pull requests. Asks up to 3 clarifying questions, then runs autonomously through implementation, slop cleanup, quality gates, preflight code review, push/PR creation, QA, and a final autofix review pass. Opens the finished PR in your browser.
