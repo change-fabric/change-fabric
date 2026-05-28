@@ -1,8 +1,0 @@
-domain           = "artifacts.pstaylor.net"
-hosted_zone_name = "pstaylor.net"
-aws_profile      = "personal"
-
-# Optional overrides:
-# aws_region  = "us-east-1"
-# price_class = "PriceClass_100"
-# tags        = { project = "artifacts-studio" }

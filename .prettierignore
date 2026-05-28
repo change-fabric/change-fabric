@@ -2,12 +2,9 @@ node_modules
 pnpm-lock.yaml
 .qa
 
-# pst:artifact studio — Astro files have no prettier parser without the astro
-# plugin; build output and MDX content are generated/JSX-heavy.
 dist
 .astro
 **/*.astro
-skills/pst:artifact/studio/src/content/plans
 
 # Terraform state + lock (generated locally, git-ignored)
 **/*.tfstate
