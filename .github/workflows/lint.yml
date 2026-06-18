@@ -6,20 +6,13 @@ on:
   pull_request:
 
 jobs:
-  no-emdash:
+  lint:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
         with:
           persist-credentials: false
       - run: bash scripts/lint-no-emdash.sh
-
-  prettier:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          persist-credentials: false
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v6
         with:
