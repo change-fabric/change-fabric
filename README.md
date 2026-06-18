@@ -103,6 +103,14 @@ Assess the current state of your work and get one opinionated recommendation for
 /pst:next --why
 ```
 
+### `/pst:now`
+
+Snapshot what every active agent and initiative in this session is focused on right now. Returns a 320-char executive summary of the current goal, followed by a flat bullet list (one per agent/initiative, max 120 chars each). Present-tense only -- no recommendations.
+
+```
+/pst:now
+```
+
 ### `/pst:ready`
 
 Bring one or many existing open PRs to merge-ready state in a single invocation.
