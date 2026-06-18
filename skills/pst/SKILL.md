@@ -116,6 +116,8 @@ rules a hook reminds about (non-blocking). Detail and examples are in
     4. **Opus validator** (background, `model: opus`, `effort: high`): verify the implementation matches the plan, run smoke/integration tests, apply any inline fixes, then report results.
        4.5. **Haiku commit writer** (background, `model: haiku`): after validation passes, read the diff and the original plan and produce a conventional-commit message (rule-10 co-author trailer, no em dashes).
 
+20. **OrbStack Docker for ephemeral infra** `[NUDGE]`. Common dev infrastructure (Postgres, Redis, RabbitMQ, and similar) must run as OrbStack Docker containers, not as native installs or bare k3s services. Prefer a named `docker run -d` over compose when a single service suffices. Track each session-scoped container with `scripts/pst-docker.rb register <name-or-id>` so the session-end hook can reap it (`docker stop` + `docker rm`). Containers started with `--rm` are self-cleaning and do not need tracking. Suppress reaping with `PST_KEEP_DOCKER=1`.
+
 ## Usage
 
 `/pst` activates, `/pst off` disarms. Mechanics, merge modes, and rule detail are

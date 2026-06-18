@@ -34,6 +34,7 @@ anchor = <<~ANCHOR.chomp
   14 prove-it: green + real E2E, never "should work".
   16 brevity: paragraphs <=320 chars, bullets <=160.
   19 pipeline: before writing any file for a feature/fix, run Stage 0 Haiku classifier first -- only a trivial verdict skips the pipeline.
+  20 orbstack-docker: Postgres/Redis/etc. as docker containers; track with pst-docker.rb register <name>; session-end reaper cleans up.
   Hard rules (em-dash, model-tier, merge-gate, review-gate, open-on-post, local-only) are hook-enforced.
 ANCHOR
 

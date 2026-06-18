@@ -131,6 +131,31 @@ Claude Code binds hooks at session startup, in the session that first installs
 the shim the guards engage from the next session onward; later sessions arm
 immediately.
 
+## Rule 20: OrbStack Docker for ephemeral infra
+
+All common dev services (Postgres, Redis, RabbitMQ, etc.) run as OrbStack Docker containers. Never install them natively or spin up bare k3s services for local dev.
+
+**Starting a tracked Postgres container:**
+
+```sh
+docker run -d --name myapp_pg_dev \
+  -e POSTGRES_PASSWORD=devpass -e POSTGRES_DB=myapp_dev \
+  -p 5432:5432 postgres:16
+ruby scripts/pst-docker.rb register myapp_pg_dev
+```
+
+The session-end hook reaps it automatically via `docker stop` + `docker rm`.
+
+**One-shot containers** (script runs, exits, gone): use `docker run --rm ...`. No tracking needed; Docker cleans up on exit.
+
+**Helper: `scripts/pst-docker.rb`**
+
+- `register <name-or-id>` -- append to `~/.claude/pst/docker/<session_id>`
+- `reap` -- stop and remove all tracked containers immediately (useful if you want to clean up mid-session)
+- `list` -- show what is currently tracked
+
+**Override:** `PST_KEEP_DOCKER=1` skips the reaper at session end (e.g., you want the container to survive for debugging).
+
 ## Three-agent sequence (rule 19)
 
 Default pattern for any feature or fix. Sequential: each stage feeds the next. Haiku helper stages (0.5, 1.5, 2.5, 3.5, 4.5) do mechanical and compression work around the three thinking tiers so Opus and Sonnet tokens stay on reasoning and implementation. Stage 0 (Haiku classifier) gates the whole pipeline.
