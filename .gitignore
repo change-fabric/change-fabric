@@ -11,3 +11,7 @@ node_modules
 .env.*
 !.env.example
 .pytest_cache/
+
+# Python bytecode
+__pycache__/
+*.pyc

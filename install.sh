@@ -22,6 +22,7 @@ UNINSTALL=false
 
 SKILLS=(
   "decide-for-me"
+  "pst"
   "pst:adversarial-review"
   "pst:auto"
   "pst:claude-md"

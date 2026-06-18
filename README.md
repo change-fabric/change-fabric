@@ -64,6 +64,14 @@ Removes symlinks from `~/.claude/commands/` and/or `$CODEX_HOME/skills/`, plus P
 
 ## Skills
 
+### `/pst`
+
+Activate Patrick's engineering doctrine as **hard, standing rules for the rest of the session**, portable to whatever repo or area you're operating in. Once invoked, every subsequent request is governed by: eager background-agent swarms doing the heavy lifting in isolated git worktrees (foreground stays clean), continuous tidying (prompts before pruning orphaned worktrees), PR + admin-bypass squash merge **only on green CI**, root-cause CI fixes over band-aids, at least one **mandatory adversarial review round (with fixes implemented)** before merge, and a **local-Kubernetes quality gate**: apps configured in the local k3s private cloud must deploy and pass adversarial E2E validation locally before any remote (e.g. AWS) promotion. Also enforces the anonymized GitHub no-reply git identity on every commit. The umbrella mode that composes the other `/pst:*` skills (`auto`, `ready`, `sweep`, `adversarial-review`, `code-review`, `rebase`) as its concrete tools.
+
+```
+/pst            # turn the doctrine on for the rest of this session, then keep working
+```
+
 ### `/pst:adversarial-review`
 
 Plan a subject, hand off an adversarial review of that plan to another model, and start building in parallel. Writes three artifacts to a per-subject working dir and opens them in VS Code: a phased `PLAN.md` (scope, design options + recommendation, risks, acceptance criteria), a self-contained `ADVERSARIAL-REVIEW-PROMPT.md` to paste into Codex (it attacks the plan, edits it inline, and emits a rationale-bearing changelog), and a `CHANGELOG.md` stub for the reviewer to fill. Then it eagerly implements the plan on a dedicated draft PR in an isolated worktree -- foundations and low-churn pieces first -- without waiting for the review to come back. Re-run it with the returned changelog to fold the fixes into both the plan and the in-flight implementation. The mechanical, error-prone steps (slug/path/branch derivation, idempotent scaffold writes, worktree + draft-PR creation, changelog parsing) are handled by a tested helper, `scripts/adversarial_review.py` -- the model only does the creative work (plan body, prompt context, implementation), mirroring `/plan-io`'s builder split.
