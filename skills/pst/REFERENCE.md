@@ -131,9 +131,9 @@ Claude Code binds hooks at session startup, in the session that first installs
 the shim the guards engage from the next session onward; later sessions arm
 immediately.
 
-## Rule 20: OrbStack Docker for ephemeral infra
+## Rule 20: OrbStack Docker for ephemeral infra and app servers
 
-All common dev services (Postgres, Redis, RabbitMQ, etc.) run as OrbStack Docker containers. Never install them natively or spin up bare k3s services for local dev.
+All common dev services (Postgres, Redis, RabbitMQ, etc.) AND application dev servers (Next.js, and similar Node/frontend apps) run as OrbStack Docker containers. Never install them natively, spin up bare k3s services for local dev, or run `npm run dev` on the host.
 
 **Starting a tracked Postgres container:**
 
@@ -145,6 +145,18 @@ ruby scripts/pst-docker.rb register myapp_pg_dev
 ```
 
 The session-end hook reaps it automatically via `docker stop` + `docker rm`.
+
+**Starting a tracked Next.js dev server:**
+
+```sh
+docker run -d --name myapp_web_dev \
+  -v $(pwd):/app -w /app \
+  -p 3000:3000 \
+  node:22-alpine sh -c "npm install && npm run dev"
+ruby scripts/pst-docker.rb register myapp_web_dev
+```
+
+Same pattern for any Node/frontend app: volume-mount the repo, expose the dev port, register the container. Hot reload works via volume mounts.
 
 **One-shot containers** (script runs, exits, gone): use `docker run --rm ...`. No tracking needed; Docker cleans up on exit.
 
