@@ -118,6 +118,8 @@ rules a hook reminds about (non-blocking). Detail and examples are in
 
 20. **OrbStack Docker for ephemeral infra** `[NUDGE]`. Common dev infrastructure (Postgres, Redis, RabbitMQ, and similar) must run as OrbStack Docker containers, not as native installs or bare k3s services. Prefer a named `docker run -d` over compose when a single service suffices. Track each session-scoped container with `scripts/pst-docker.rb register <name-or-id>` so the session-end hook can reap it (`docker stop` + `docker rm`). Containers started with `--rm` are self-cleaning and do not need tracking. Suppress reaping with `PST_KEEP_DOCKER=1`.
 
+21. **gh CLI for GitHub** `[NUDGE]`. Use `gh` as the primary interface for all GitHub interactions: creating PRs, viewing checks, commenting, listing issues, and cutting releases. Do not reach for the browser or raw API calls when `gh` covers the task. Common invocations: `gh pr create`, `gh pr checks`, `gh pr view --web`, `gh issue list`, `gh release create`. Read commands are always allowed; mutating commands are blocked in local-only mode (rule 18).
+
 ## Usage
 
 `/pst` activates, `/pst off` disarms. Mechanics, merge modes, and rule detail are

@@ -156,6 +156,24 @@ The session-end hook reaps it automatically via `docker stop` + `docker rm`.
 
 **Override:** `PST_KEEP_DOCKER=1` skips the reaper at session end (e.g., you want the container to survive for debugging).
 
+## Rule 21: gh CLI for GitHub
+
+`gh` is the default tool for anything touching GitHub. Use it over manual browser actions or raw API calls wherever possible.
+
+**Common commands:**
+
+- `gh pr create --title "..." --body "..."` -- open a new pull request
+- `gh pr view --web` -- open the current branch's PR in the browser
+- `gh pr checks` -- view CI status for the current PR
+- `gh pr list` -- list open PRs in the repo
+- `gh pr merge <pr> --squash --admin` -- merge a PR (rule 5 guard enforces green CI)
+- `gh issue list` -- list open issues
+- `gh issue create --title "..." --body "..."` -- open a new issue
+- `gh release create <tag> --notes "..."` -- cut a release
+- `gh pr comment <pr> --body "..."` -- post a comment on a PR
+
+Read commands (`gh pr view`, `gh pr checks`, `gh issue view`, `gh pr list`) are always allowed, even in local-only mode (rule 18). Mutating commands (`gh pr create`, `gh pr merge`, `gh issue create`) are blocked in local-only mode; use `PST_ALLOW_REMOTE=1` to override once.
+
 ## Three-agent sequence (rule 19)
 
 Default pattern for any feature or fix. Sequential: each stage feeds the next. Haiku helper stages (0.5, 1.5, 2.5, 3.5, 4.5) do mechanical and compression work around the three thinking tiers so Opus and Sonnet tokens stay on reasoning and implementation. Stage 0 (Haiku classifier) gates the whole pipeline.

@@ -35,6 +35,7 @@ anchor = <<~ANCHOR.chomp
   16 brevity: paragraphs <=320 chars, bullets <=160.
   19 pipeline: before writing any file for a feature/fix, run Stage 0 Haiku classifier first -- only a trivial verdict skips the pipeline.
   20 orbstack-docker: Postgres/Redis/etc. as docker containers; track with pst-docker.rb register <name>; session-end reaper cleans up.
+  21 gh-cli: use gh for all GitHub work (pr create/view/checks, issue list, release create); never reach for the browser when gh covers it.
   Hard rules (em-dash, model-tier, merge-gate, review-gate, open-on-post, local-only) are hook-enforced.
 ANCHOR
 
