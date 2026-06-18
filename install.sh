@@ -31,6 +31,7 @@ SKILLS=(
   "pst:figma"
   "pst:ingest-pdf"
   "pst:markdown"
+  "pst:loom"
   "pst:next"
   "pst:patch"
   "pst:push"
