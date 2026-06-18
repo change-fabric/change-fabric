@@ -33,7 +33,7 @@ anchor = <<~ANCHOR.chomp
   13 run-to-completion: work through gates autonomously on completion-intent.
   14 prove-it: green + real E2E, never "should work".
   16 brevity: paragraphs <=320 chars, bullets <=160.
-  19 pipeline: features/fixes run the 10-stage Haiku/Opus/Sonnet sequence; Stage 0 classifier decides.
+  19 pipeline: before writing any file for a feature/fix, run Stage 0 Haiku classifier first -- only a trivial verdict skips the pipeline.
   Hard rules (em-dash, model-tier, merge-gate, review-gate, open-on-post, local-only) are hook-enforced.
 ANCHOR
 

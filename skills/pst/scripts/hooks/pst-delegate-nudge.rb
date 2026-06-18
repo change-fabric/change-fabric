@@ -63,6 +63,18 @@ rescue StandardError
   0
 end + 1
 
+if n == 1
+  d = Pst.default_branch(File.dirname(path))
+  if Pst.current_branch(File.dirname(path)) == d
+    puts JSON.generate(
+      'hookSpecificOutput' => { 'hookEventName' => 'PostToolUse' },
+      'additionalContext' =>
+        "PST: editing directly on the default branch '#{d}'. " \
+        'Create a feature branch before continuing.'
+    )
+  end
+end
+
 if n >= THRESHOLD
   File.write(counter, '0')
   puts JSON.generate(

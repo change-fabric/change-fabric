@@ -4,6 +4,8 @@
 # the literal em dash glyph (use Pst::EM).
 require 'json'
 require 'fileutils'
+require 'open3'
+require 'timeout'
 
 module Pst
   EM = [0x2014].pack('U') # em dash (long dash); built so no literal glyph appears
@@ -66,5 +68,30 @@ module Pst
   # Merge mode 4: this session may not mutate remote GitHub state.
   def local_only?(sid = session_id)
     !sid.to_s.empty? && File.exist?(File.join(local_dir, sid))
+  end
+
+  # Default branch for the repo at `dir`, resolved from origin/HEAD.
+  # Falls back to "main" on any failure.
+  def default_branch(dir)
+    dir = Dir.pwd unless dir && File.directory?(dir)
+    out, st = Timeout.timeout(10) do
+      Open3.capture2e('git', '-C', dir, 'symbolic-ref', 'refs/remotes/origin/HEAD')
+    end
+    return 'main' unless st.success?
+    ref = out.strip
+    ref.empty? ? 'main' : ref.split('/').last
+  rescue StandardError
+    'main'
+  end
+
+  # Current checked-out branch name at `dir`, or '' on failure/detached HEAD.
+  def current_branch(dir)
+    dir = Dir.pwd unless dir && File.directory?(dir)
+    out, st = Timeout.timeout(10) do
+      Open3.capture2e('git', '-C', dir, 'rev-parse', '--abbrev-ref', 'HEAD')
+    end
+    st.success? ? out.strip : ''
+  rescue StandardError
+    ''
   end
 end

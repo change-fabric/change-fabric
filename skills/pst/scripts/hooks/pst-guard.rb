@@ -86,6 +86,28 @@ def local_guard(cmd)
             'and pick another merge mode, or override once with PST_ALLOW_REMOTE=1.')
 end
 
+# Block `git push` to the repo's default branch. Fires in all merge modes except
+# local-only (local_guard already covers that). Override: PST_ALLOW_MAIN_PUSH=1.
+def push_guard(cmd, cwd)
+  return unless cmd =~ /\bgit\s+push\b/
+  return if Pst.local_only?
+  return if ENV['PST_ALLOW_MAIN_PUSH'] == '1'
+
+  dir = cwd && File.directory?(cwd) ? cwd : Dir.pwd
+  d = Pst.default_branch(dir)
+  b = Regexp.escape(d)
+
+  explicit_dest = (cmd =~ /:#{b}(?:\s|\z)/) || (cmd =~ /\bgit\s+push\b[^|;&]*\s#{b}(?:\s|\z)/)
+  bare = cmd !~ /:/ && cmd !~ /\bgit\s+push\b[^|;&]*\s#{b}(?:\s|\z)/
+  targets_default = explicit_dest || (bare && Pst.current_branch(dir) == d)
+
+  return unless targets_default
+
+  Pst.deny!("PST push guard: pushing directly to the default branch '#{d}' is not " \
+            'allowed. Open a PR from a feature branch and merge through the ' \
+            "gates (rules 5/7) instead. Override once with PST_ALLOW_MAIN_PUSH=1.")
+end
+
 Pst.allow! unless Pst.armed?
 
 tool = Pst.payload['tool_name'].to_s
@@ -106,6 +128,7 @@ when 'Bash'
               'Rephrase the message without em dashes.')
   end
   local_guard(cmd)
+  push_guard(cmd, Pst.payload['cwd'])
   merge_guard(cmd, Pst.payload['cwd'])
 when 'Agent', 'Task'
   # Rule 2: spawns must set an explicit model. Effort is not a spawn parameter,
