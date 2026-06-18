@@ -31,6 +31,7 @@ SKILLS=(
   "pst:figma"
   "pst:ingest-pdf"
   "pst:markdown"
+  "pst:later"
   "pst:loom"
   "pst:next"
   "pst:now"
@@ -313,7 +314,7 @@ elif [[ "$INSTALL_PI" == true ]]; then
 fi
 echo ""
 if [[ "$INSTALL_CLAUDE" == true ]]; then
-  echo "Claude commands: /decide-for-me, /pst:adversarial-review, /pst:auto, /pst:claude-md, /pst:code-review, /pst:demo, /pst:figma, /pst:ingest-pdf, /pst:markdown, /pst:next, /pst:now, /pst:patch, /pst:push, /pst:python-refactor, /pst:qa, /pst:quality-gates, /pst:react-refactor, /pst:ready, /pst:rebase, /pst:resolve-threads, /pst:secrets, /pst:slop, /pst:sweep, /spec-gen, /validate-quality-gates"
+  echo "Claude commands: /decide-for-me, /pst:adversarial-review, /pst:auto, /pst:claude-md, /pst:code-review, /pst:demo, /pst:figma, /pst:ingest-pdf, /pst:markdown, /pst:later, /pst:next, /pst:now, /pst:patch, /pst:push, /pst:python-refactor, /pst:qa, /pst:quality-gates, /pst:react-refactor, /pst:ready, /pst:rebase, /pst:resolve-threads, /pst:secrets, /pst:slop, /pst:sweep, /spec-gen, /validate-quality-gates"
 fi
 if [[ "$INSTALL_CODEX" == true && "$CODEX_AVAILABLE" == true ]]; then
   echo "Codex skills: mention the skill name in your prompt, for example: 'Use pst:push to push this branch and validate the PR.'"

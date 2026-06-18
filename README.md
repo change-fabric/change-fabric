@@ -111,6 +111,14 @@ Snapshot what every active agent and initiative in this session is focused on ri
 /pst:now
 ```
 
+### `/pst:later`
+
+Roadmap horizon view. Runs `/pst:now` and `/pst:next` in parallel, then uses an Opus background agent (high effort) to reason about second-order consequences and surface the 3-5 stages that come after the immediate next step. Returns a 320-char exec summary plus 1-5 opinionated bullets (160 chars max each).
+
+```
+/pst:later
+```
+
 ### `/pst:ready`
 
 Bring one or many existing open PRs to merge-ready state in a single invocation.
