@@ -162,11 +162,61 @@ Same pattern for any Node/frontend app: volume-mount the repo, expose the dev po
 
 **Helper: `scripts/pst-docker.rb`**
 
-- `register <name-or-id>` -- append to `~/.claude/pst/docker/<session_id>`
-- `reap` -- stop and remove all tracked containers immediately (useful if you want to clean up mid-session)
-- `list` -- show what is currently tracked
+- `register <name> [port] [subdomain]` -- append to `~/.claude/pst/docker/<session_id>`; port and subdomain are optional (bare name is backward-compatible)
+- `reap` -- stop and remove all tracked containers immediately (removes Caddy routes first for subdomain-registered entries)
+- `list` -- show what is currently tracked (name, port, subdomain)
 
 **Override:** `PST_KEEP_DOCKER=1` skips the reaper at session end (e.g., you want the container to survive for debugging).
+
+### Tailscale access via shared Caddy proxy
+
+| Approach                                          | Verdict                                                                   |
+| ------------------------------------------------- | ------------------------------------------------------------------------- |
+| Shared host Caddy + wildcard `*.dev.pstaylor.net` | Recommended                                                               |
+| `tailscale serve`                                 | Rejects: binds only to MagicDNS hostname, not `*.pstaylor.net` subdomains |
+| Tailscale Funnel                                  | Rejects: exposes to public internet                                       |
+| Per-app k3s deployment                            | Too heavy for ephemeral branches                                          |
+
+**Starting a subdomain-accessible container:**
+
+```sh
+# start container with explicit host port
+docker run -d --name myapp_feat_abc123 \
+  -e NEXTAUTH_URL=https://myapp-abc123.dev.pstaylor.net \
+  -e AUTH_TRUST_HOST=true \
+  -p 3001:3000 \
+  node:22-alpine sh -c "npm install && npm run dev"
+
+# add Caddy route (admin API; server name is srv0 by default)
+curl -s -X POST http://localhost:2019/config/apps/http/servers/srv0/routes \
+  -H "Content-Type: application/json" \
+  -d '{"match":[{"host":["myapp-abc123.dev.pstaylor.net"]}],"handle":[{"handler":"reverse_proxy","upstreams":[{"dial":"localhost:3001"}]}]}'
+
+# register with port and subdomain for reaper
+ruby scripts/pst-docker.rb register myapp_feat_abc123 3001 myapp-abc123.dev.pstaylor.net
+```
+
+**Escape hatch: OAuth-locked apps**
+
+```sh
+# NextAuth/Auth.js with Google/GitHub: keep localhost, access on host port
+docker run -d --name myapp_oauth_dev \
+  -e NEXTAUTH_URL=http://localhost:3000 \
+  -p 3000:3000 \
+  node:22-alpine sh -c "npm install && npm run dev"
+ruby scripts/pst-docker.rb register myapp_oauth_dev 3000 localhost
+```
+
+Providers reject unregistered redirect hosts. Run OAuth-locked variants on localhost; use mock sessions or MailPit for A/B throwaway envs.
+
+**Port collision:** Two branches of the same app both default to `:3000` internally. Always publish to a distinct host port (`-p 3001:3000`, `-p 3002:3000`, etc.) and record it in `register`.
+
+**Prerequisites:**
+
+- One `*.dev.pstaylor.net` A record in Route53 pointing at the proxy tailnet IP
+- Caddy with `caddy-dns/route53` module (check with `caddy list-modules | grep route53`; rebuild with `xcaddy` if absent -- the Homebrew Caddy does not include it)
+- Caddy admin API enabled at `localhost:2019`
+- The Caddy TLS policy for `*.dev.pstaylor.net` must use a DNS-01 issuer (Route53); the internal issuer used for `.test` domains does not work for public subdomains
 
 ## Rule 21: gh CLI for GitHub
 
