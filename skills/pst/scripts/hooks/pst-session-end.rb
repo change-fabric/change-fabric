@@ -18,4 +18,8 @@ unless sid.empty?
       FileUtils.rm_f(docker_file)
     end
   end
+
+  # Rule 22: clear session ledger
+  ledger_file = Pst.ledger_path(sid)
+  FileUtils.rm_f(ledger_file)
 end

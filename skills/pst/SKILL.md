@@ -85,7 +85,7 @@ rules a hook reminds about (non-blocking). Detail and examples are in
 15. **Refactor like a craftsman.** Two hats (never mix refactor with behavior
     change), refactor only under green tests (characterization tests first), Tidy
     First, no coverage regression on changed lines, rule of three before
-    abstracting. Smell vocabulary in `REFERENCE.md`.
+    abstracting. Smell catalog in `MAINTAINABILITY.md` (shared with rule 23).
 16. **Response brevity** (soft default). Keep each paragraph to 320 characters or
     less and each flat-list bullet to 160 or less; prefer at most 5 bullets. Split
     long prose into multiple short paragraphs rather than one long one.
@@ -123,6 +123,10 @@ rules a hook reminds about (non-blocking). Detail and examples are in
     **Escape hatch:** when an app has hard host-whitelisting (NextAuth/Auth.js OAuth callbacks, Google/GitHub OAuth apps, CORS allowlists), set the app's self-URL env var (e.g. `NEXTAUTH_URL`, `AUTH_URL`, `NEXT_PUBLIC_SITE_URL`) to `http://localhost:3000` and access it on that port instead. The `localhost` mode is explicitly sanctioned. For throwaway A/B variants of OAuth-locked apps, use mock sessions or MailPit magic-link rather than live third-party OAuth.
 
 21. **gh CLI for GitHub** `[NUDGE]`. Use `gh` as the primary interface for all GitHub interactions: creating PRs, viewing checks, commenting, listing issues, and cutting releases. Do not reach for the browser or raw API calls when `gh` covers the task. Common invocations: `gh pr create`, `gh pr checks`, `gh pr view --web`, `gh issue list`, `gh release create`. Read commands are always allowed; mutating commands are blocked in local-only mode (rule 18).
+
+22. **Multi-repo orchestration ledger** `[NUDGE]`. When spanning 2 or more repos, directories, or parallel tasks in a single session, initialize a session ledger (`pst-ledger.rb init` -- called automatically on arm) and register each spawned task on creation (`pst-ledger.rb register <id> --repo <path> --intent <summary>`). Update status on completion (`pst-ledger.rb done|fail <id>`). Pass `pst-ledger.rb context` as the context header to each new agent so sibling task state is always known. Inspect with `/pst:tasks`.
+
+23. **Maintainability review on every code change** `[NUDGE]`. After any change that touches at least one code file (non-docs, non-lockfile), run a Fowler-smell pass using `MAINTAINABILITY.md` as the rubric. This is a separate refactoring commit (two hats per rule 15): behavior stays identical, only structure improves. The pass is Haiku-tier since it is lightweight. The only exemption is a changeset that touches zero code files (docs-only, lockfile-only, or pure config values). A small diff does not exempt a change -- smells manifest at any size. Run with `/pst:adversarial-review` or inline. See `MAINTAINABILITY.md` for the 16 canonical smells.
 
 ## Usage
 

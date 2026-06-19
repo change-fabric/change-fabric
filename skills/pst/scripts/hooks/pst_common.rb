@@ -94,4 +94,29 @@ module Pst
   rescue StandardError
     ''
   end
+
+  IN_FLIGHT_STATUSES = %w[pending running].freeze
+
+  def ledger_path(sid = session_id)
+    File.join(HOME, 'ledger', "#{sid}.json")
+  end
+
+  # Read and parse a ledger file by path. Empty array on missing or corrupt file.
+  # Single source of ledger-read behavior shared by the CLI and the hooks so
+  # neither side reimplements the on-disk schema knowledge.
+  def read_entries(path)
+    return [] unless File.exist?(path)
+
+    JSON.parse(File.read(path))
+  rescue StandardError
+    []
+  end
+
+  def load_ledger(sid = session_id)
+    read_entries(ledger_path(sid))
+  end
+
+  def in_flight_count(sid = session_id)
+    load_ledger(sid).count { |e| IN_FLIGHT_STATUSES.include?(e['status']) }
+  end
 end
