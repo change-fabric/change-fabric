@@ -68,7 +68,8 @@ end
 #    shared lib) to a stable, repo-independent location.
 %w[pst-guard.py pst-session-start.sh pst-session-end.sh].each { |f| FileUtils.rm_f(File.join(BIN, f)) }
 %w[pst_common.rb pst-guard.rb pst-session-start.rb pst-session-end.rb
-   pst-prompt-reminder.rb pst-delegate-nudge.rb pst-open-on-post.rb].each do |f|
+   pst-prompt-reminder.rb pst-delegate-nudge.rb pst-open-on-post.rb
+   pst-post-compact.rb].each do |f|
   FileUtils.install(File.join(HOOKS, f), File.join(BIN, f), mode: 0o755)
 end
 

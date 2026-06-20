@@ -54,6 +54,13 @@ prompt = strip.call(hooks['UserPromptSubmit'])
 prompt << { 'hooks' => [{ 'type' => 'command', 'command' => cmd.call('pst-prompt-reminder.rb') }] }
 hooks['UserPromptSubmit'] = prompt
 
+compact = strip.call(hooks['PostCompact'])
+compact << {
+  'matcher' => 'auto',
+  'hooks' => [{ 'type' => 'command', 'command' => cmd.call('pst-post-compact.rb') }]
+}
+hooks['PostCompact'] = compact
+
 post = strip.call(hooks['PostToolUse'])
 post << {
   'matcher' => 'Write|Edit|MultiEdit',
