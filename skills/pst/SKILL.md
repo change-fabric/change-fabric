@@ -135,6 +135,8 @@ rules a hook reminds about (non-blocking). Detail and examples are in
 
 23. **Maintainability review on every code change** `[NUDGE]`. After any change that touches at least one code file (non-docs, non-lockfile), run a Fowler-smell pass using `MAINTAINABILITY.md` as the rubric. This is a separate refactoring commit (two hats per rule 15): behavior stays identical, only structure improves. The pass is Haiku-tier since it is lightweight. The only exemption is a changeset that touches zero code files (docs-only, lockfile-only, or pure config values). A small diff does not exempt a change -- smells manifest at any size. Run with `/pst:adversarial-review` or inline. See `MAINTAINABILITY.md` for the 16 canonical smells.
 
+24. **Best-of-N implementation tournament** `[NUDGE]`. For substantive refactors or extensions where multiple valid implementations exist, spawn 2-5 parallel Sonnet agents in isolated worktrees with divergent strategies, then have an Opus judge pick the winner using MAINTAINABILITY.md criteria. Skip for trivial one-way fixes. Rule 15 two-hats applies. `/pst:refactor` is the full implementation protocol.
+
 ## Usage
 
 `/pst` activates, `/pst off` disarms. Mechanics, merge modes, and rule detail are
