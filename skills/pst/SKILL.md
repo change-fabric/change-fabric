@@ -57,6 +57,12 @@ rules a hook reminds about (non-blocking). Detail and examples are in
 5. **Merge** `[HOOK]`. PR then prefer squash, by the chosen merge mode. A direct
    `gh pr merge` is blocked unless CI is fully green; `--auto` defers to GitHub;
    override `PST_ALLOW_RED_MERGE=1`. `/pst:ready` and `/pst:rebase` assist.
+   **Awaiting CI (admin-bypass or auto-merge):** after adversarial review is
+   recorded (rule 7), treat "await green CI then merge" as a single
+   run-to-completion directive (rule 13) -- do not stop and wait for re-prompt.
+   Use `gh pr checks <PR#> --watch` to block until all checks settle, then
+   merge on pass or report failures on fail. If CI did not trigger, re-run with
+   `gh pr checks <PR#> --rerun-failed` and watch.
 6. **CI root cause.** Fix CI for real; no band-aids that mask the issue. Flag any
    unavoidable quick fix as debt.
 7. **Adversarial review before merge** `[HOOK]`. At least one round
