@@ -34,9 +34,11 @@ git ls-files | grep -Ev '\.(lock|snap|min\.(js|css)|pb\.go|pb_test\.go)$' \
   | grep -E '\.(rb|py|ts|tsx|js|jsx|go|rs|java|kt|swift|ex|exs|cs|cpp|c|h)$'
 ```
 
-## 2. Opus smell analysis
+## 2. Opus smell analysis (background)
 
-Spawn one **foreground** Opus agent (`model: opus`) with:
+Spawn one background Opus agent (`model: opus`) and **await its result before
+proceeding to Step 3** -- do not advance until the findings JSON is in hand.
+Agent input:
 
 - The full content of `MAINTAINABILITY.md` (read via the path resolved above).
 - The list of code files from step 1.
@@ -169,13 +171,14 @@ Steps each agent must follow:
 
 ## 6. Opus judge selects winner
 
-After all N agents return (foreground means they are all done before this
-step begins), parse each `---tournament-result---` block. If an agent's output
-contains no result block at all, treat it as `STATUS: skipped: result block
-missing`. Collect the SHA and diff for every agent with `STATUS: committed`. If
-zero agents committed, report all skip reasons and stop.
+After all N agents return (all were foreground, so their results are in hand),
+parse each `---tournament-result---` block. If an agent's output contains no
+result block at all, treat it as `STATUS: skipped: result block missing`.
+Collect the SHA and diff for every agent with `STATUS: committed`. If zero
+agents committed, report all skip reasons and stop.
 
-Spawn one **foreground** Opus agent (`model: opus`) with:
+Spawn one background Opus agent (`model: opus`) and **await its result before
+proceeding to Step 7**. Agent input:
 
 - All committed diffs (from the result blocks -- no worktree access needed).
 - The smell findings from Step 2.
