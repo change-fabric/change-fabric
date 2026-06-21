@@ -38,6 +38,7 @@ SKILLS=(
   "pst:patch"
   "pst:push"
   "pst:python-refactor"
+  "pst:refactor"
   "pst:quality-gates"
   "pst:qa"
   "pst:rebase"
