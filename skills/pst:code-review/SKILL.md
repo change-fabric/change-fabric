@@ -7,7 +7,9 @@ allowed-tools: Bash, Read, Edit, Grep, Glob, Agent, AskUserQuestion
 
 # Code Review with Fix Verification
 
-Perform a **context-aware code review** where every finding is validated by applying the suggested fix in an isolated worktree and running quality gates. Findings that break the build, fail tests, or can't be cleanly applied are dropped before reporting. This eliminates false positives and ensures every reported issue has a proven fix.
+Context-aware code review. Every finding is validated by applying the fix in an isolated
+worktree and running quality gates. Findings that break the build, fail tests, or cannot
+be applied cleanly are dropped before reporting.
 
 ---
 
@@ -15,52 +17,40 @@ Perform a **context-aware code review** where every finding is validated by appl
 
 <arguments> #$ARGUMENTS </arguments>
 
-**Parse arguments:**
+Modes:
 
-- PR number (e.g., `42`)
-- PR URL (e.g., `https://github.com/{owner}/{repo}/pull/{N}`) - including cross-repo
-- `--local` - terminal output only, no GitHub interaction (single pass)
-- `--preflight` - multi-round local review with auto-fix (min 3, max 5 rounds). No GitHub interaction. Applies all verified fixes and commits.
-- `--autofix` - fully autonomous: apply all verified fixes + post the review per the event policy (APPROVE when clean, REQUEST_CHANGES when blocking findings remain)
-- `--sweep` - multi-round autonomous review-and-fix loop until clean or max rounds
+- PR number or URL: GitHub PR mode (post review to PR). Cross-repo: clone to a temp dir.
+- `--local`: terminal output only, single pass, no GitHub interaction.
+- `--preflight`: multi-round review with auto-fix (min 3, max 5 rounds). Commits verified fixes.
+- `--autofix`: fully autonomous -- apply verified fixes + post review per event policy.
+- `--sweep`: multi-round autonomous review-and-fix loop (min 2, max 5 rounds).
 
-**Default: GitHub PR mode** (post review to PR). `--local` for single-pass terminal output. `--preflight` for multi-round review with auto-fix (min 3, max 5 rounds). `--autofix` for autonomous fix + review (approve when clean, else request changes). `--sweep` for iterative cleanup.
-
-**Cross-repo detection:** If URL points to a different repo than the current directory:
+**Re-review detection:** Check `gh api /repos/{owner}/{repo}/pulls/{N}/reviews` for a prior
+review. If one exists, scope the diff using:
 
 ```bash
-TMPDIR="${TMPDIR:-${TEMP:-/tmp}}"
-REVIEW_DIR=$(mktemp -d "$TMPDIR/pst-review-XXXXXX")
-gh repo clone {owner}/{repo} "$REVIEW_DIR" -- --depth=50
-cd "$REVIEW_DIR" && gh pr checkout {N}
+PRIOR_REVIEW_SHA=$(gh api /repos/{owner}/{repo}/pulls/{N}/reviews \
+  --jq '[.[] | select(.state=="APPROVED" or .state=="CHANGES_REQUESTED")] | last | .commit_id')
+git diff "$PRIOR_REVIEW_SHA"..HEAD -- $(gh pr diff $N --name-only)
 ```
 
-**Re-review detection:** Check for an existing review from a prior run via `gh api /repos/{owner}/{repo}/pulls/{N}/reviews`. If a previous review exists, scope the diff to changes since the last reviewed commit. Only report critical and warning findings (no nits on re-review). If 0 criticals + 0 warnings → post APPROVE; any critical or warning → REQUEST_CHANGES (see the Reporting section's "Review event policy" for the bare-COMMENT exceptions).
+If PRIOR_REVIEW_SHA is empty (first review), use the full diff. Report only critical and
+warning findings. Zero criticals + zero warnings: APPROVE; else REQUEST_CHANGES.
 
 ---
 
 ## Workspace Setup
 
-Combines worktree isolation and branch freshness checking into a single stage.
-
-**Skip if `--sweep` or `--preflight`** - these modes operate on the current working directory against the default branch.
-
-**Skip if cross-repo** - already cloned to `REVIEW_DIR` above.
-
-**Resolve PR head:**
+Skip if `--sweep` or `--preflight` (operate on working directory). Skip if cross-repo
+(already cloned to temp dir).
 
 ```bash
 HEAD_BRANCH=$(gh pr view $N --json headRefName --jq .headRefName)
 HEAD_SHA=$(gh pr view $N --json headRefOid --jq .headRefOid)
 ```
 
-**Skip worktree if all true:**
-
-1. Current branch matches `$HEAD_BRANCH`
-2. `HEAD` matches `$HEAD_SHA`
-3. Working tree is clean (`git status --porcelain` empty)
-
-**Otherwise, create a detached worktree:**
+Skip worktree if: current branch matches HEAD_BRANCH, HEAD matches HEAD_SHA, working tree
+is clean. Otherwise:
 
 ```bash
 REPO_ROOT=$(git rev-parse --path-format=absolute --git-common-dir | sed 's|/.git$||')
@@ -70,303 +60,194 @@ git worktree remove --force "$REVIEW_DIR" 2>/dev/null
 git worktree add --detach "$REVIEW_DIR" "$HEAD_SHA"
 ```
 
-Set `REVIEW_WORKTREE=true`, work from `$REVIEW_DIR` for all subsequent stages.
-
-**Branch freshness check:**
-
-```bash
-BASE_BRANCH=$(gh pr view $N --json baseRefName --jq .baseRefName)
-git fetch origin "$BASE_BRANCH"
-git merge-base --is-ancestor "origin/$BASE_BRANCH" HEAD
-```
-
-- **Current (exit 0):** Proceed.
-- **Stale (exit 1):** Check for migration files in the diff (`migrations/`, `drizzle/`, `prisma/migrations/`).
-  - Migrations present → **critical** finding: "Branch is behind `$BASE_BRANCH` and contains migrations. Rebase required to prevent migration ordering issues."
-  - No migrations → **warning** finding: "Branch is behind `$BASE_BRANCH`. Consider rebasing for clean history."
-
-In `--autofix` mode: report staleness but do NOT auto-rebase (that's a developer decision).
-
-For `--sweep` mode: compute merge-base via `git merge-base origin/$DEFAULT_BRANCH HEAD` where `$DEFAULT_BRANCH` is read from the repo's GitHub default branch.
+Set `REVIEW_WORKTREE=true`. Branch freshness: if stale and migrations present, emit critical
+finding; if stale with no migrations, emit warning finding.
 
 ---
 
 ## Context Gathering
 
-Build a picture of the codebase and the change under review. No external project management tool integration - all context comes from the repo and PR.
-
-1. **Repo context**: Read `CLAUDE.md`, `.context/architecture.md`, `.context/patterns.md`, recent ADRs (cap at 10 most recent)
-2. **PR metadata**: `gh pr view {N} --json number,title,body,baseRefName,headRefName,url,labels` + `gh pr diff {N}`
-   - For `--sweep` mode: skip `gh pr view`. Use `git diff $(git merge-base origin/$DEFAULT_BRANCH HEAD)...HEAD`. No AskUserQuestion calls (fully autonomous).
-   - **PR Checkbox Tracking:** Parse all unchecked checkboxes (`- [ ] ...`) from the PR body. Store them for later:
-     ```
-     PR_CHECKBOXES = [
-       { index: 0, text: "Verify no regressions in auth flow", checked: false },
-       { index: 1, text: "Confirm error handling for edge case X", checked: false },
-       ...
-     ]
-     ```
-     The `index` is the positional occurrence (0-based) in the full PR body. Include checkbox items as additional review verification targets - if a checkbox describes something verifiable through code analysis (e.g., "no regressions", "handles edge case X"), treat it as a review item to validate during Analysis.
-3. **Commit messages**: `git log --oneline {base}...HEAD` - understand the narrative of changes
-4. **No context available?** → Use AskUserQuestion: "What is this project? Key architectural patterns? Critical invariants?" - gather minimum sufficient context for this review round.
-5. **Pattern inference**: For each changed file, sample 2-3 similar files (same directory, same extension). Detect patterns: naming conventions, import ordering, error handling style, test structure. Only flag deviations when **75%+ of sampled files agree** on a pattern. Tag these as "inferred pattern" findings.
+1. Read `CLAUDE.md`, `.context/architecture.md`, `.context/patterns.md`, recent ADRs (cap 10).
+2. PR metadata: `gh pr view {N} --json number,title,body,baseRefName,headRefName,url,labels`
+   plus `gh pr diff {N}`. Parse unchecked checkboxes (`- [ ] ...`) as verification targets.
+3. Commit messages: `git log --oneline {base}...HEAD`.
+4. No context available: use AskUserQuestion for minimum context.
+5. Pattern inference: sample 2-3 similar files per changed file. Flag deviations only when
+   75%+ of sampled files agree on a pattern (tag as "inferred pattern" findings).
 
 ---
 
-## Analysis
+## Analysis -- Tournament
 
-Generate candidate review findings from the diff.
+### Diff-size gate
 
-1. **Get the diff**: `gh pr diff {N}` or `git diff $MERGE_BASE...HEAD`
-2. **Large diff triage**: 100+ changed files → prioritize by risk (security-sensitive > core logic > UI/config), cap analysis at 50 files, note what was skipped
-3. **Analyze through categories in priority order:**
-   - Security (injection, auth, secrets, input validation)
-   - Reliability (error handling, null safety, race conditions, resource leaks)
-   - Correctness (logic errors, off-by-one, wrong assumptions)
-   - Maintainability (complexity, coupling, naming, dead code)
-   - Performance (N+1 queries, unnecessary re-renders, missing indexes)
-4. **Generate candidate findings** with format:
-   - ID: `R{N}` (sequential)
-   - Severity: `critical` | `warning` | `nit` | `observation`
-   - File + line range (omit line range for `observation` if it is file- or architecture-scoped)
-   - Category (from list above)
-   - Title (short)
-   - Problem description (1-2 sentences)
-   - Suggested fix (specific, minimal) - **omit for `observation`**; observations have no fix
+```bash
+LINES_CHANGED=$(git diff $(gh pr view $N --json baseRefOid --jq .baseRefOid)...$(gh pr view $N --json headRefOid --jq .headRefOid) | grep -cE '^\+[^+]|^-[^-]' || echo 0)
+```
 
-   `observation` is reserved for architectural notes with no concrete fix. Max 2 per review. Observations are body-only prose in Reporting and do **not** enter the Verification stage. See the Verification section's "Observation severity" subsection for the full rule set.
+- **Small** (fewer than 200 lines): spawn a single foreground Sonnet agent (Strategy B). Pass its
+  `---review-result---` block directly to pre-filter; skip the Opus judge.
+- **Medium** (200-500 lines): N=3 tournament.
+- **Large** (500+ lines): N=3 tournament.
 
-5. **Pre-filter**: Drop findings that are:
-   - Style nitpicks mis-classified as warnings → downgrade to nit or drop
-   - Already caught by CI tooling (eslint, tsc, prettier) → drop
-   - Missing a concrete, actionable fix → drop
+### Parallel Sonnet agents (N=3)
+
+Spawn 3 **foreground** Sonnet agents in a **single response turn** (`run_in_background: false`).
+Pass the full diff text in each prompt. Read-only analysis -- no file or GitHub mutations.
+
+Each analysis agent prompt must open with: "Read, Grep, and Glob only -- no Bash, Edit, Write,
+Skills, commits, comments, reviews, or any GitHub resource mutation."
+
+**Strategy A -- Security-first:** Prioritize OWASP A01-A10 and injection/auth/crypto
+findings. Weight critical/high findings 3x. Surface every possible security finding even
+if uncertain.
+
+**Strategy B -- Correctness-first:** Lead with logic errors, null-safety violations, race
+conditions, off-by-one errors, and type mismatches. De-prioritize style and maintainability.
+
+**Strategy C -- Blast-radius-first:** Trace call chains to score each finding by how many
+callers are affected. Rank by blast radius, not severity category. Surface cross-cutting
+concerns that touch many files.
+
+Each agent returns findings in exactly this block:
+
+```
+---review-result---
+STRATEGY: <A|B|C>
+FINDING_COUNT: <integer>
+FINDINGS:
+<JSON array: [{"file":"...","line":"<start>-<end>","severity":"critical|high|medium|low","category":"...","description":"...","fix":"..."}]>
+---end-review-result---
+```
+
+`line` format: `"<start>-<end>"` (single: `"42-42"`, range: `"42-45"`). End value required.
+
+### Opus judge (foreground, N=3 only)
+
+After all three agents return, spawn one **foreground Opus agent** (`model: opus`). Await
+its result before proceeding. Provide all three finding sets and these rules:
+
+**Deduplication:** Same `file` AND `max(start_A, start_B) <= min(end_A, end_B) + 5` (bounds from `line` field).
+
+**Keep a finding if:** it appears in 2 or more strategy finding sets, OR its severity is
+`critical` in any strategy.
+
+**Confidence scoring:** 1 strategy = 1, 2 strategies = 3, 3 strategies = 5.
+
+**Output:** merged, ranked by confidence (highest first); judge synthesizes `title` as 8-word imperative. Return exactly:
+
+```
+---judge-result---
+FINDINGS:
+[{"file":"...","line":"<start>-<end>","severity":"critical|high|medium|low","category":"...","description":"...","fix":"...","title":"<8-word imperative>","confidence":1|3|5,"strategies":["A","B","C"]}]
+---end-judge-result---
+```
+
+### Pre-filter
+
+**Severity remapping (analysis -> reporting):** critical->critical, high->warning, medium->nit,
+low->drop (2+ strategies agree: nit instead).
+
+After the judge (or Strategy B for N=1), apply remapping above. Drop findings that are: style
+nitpicks mis-classified as warnings, already caught by CI tooling (eslint, tsc, prettier), or
+missing a concrete actionable fix.
+
+Assign IDs `R{N}` (sequential). Severity: `critical | warning | nit | observation`.
+Include file + line range, category, title, problem (1-2 sentences), fix (omit for
+`observation`). `observation` is for architectural notes with no concrete fix. Max 2 per
+review. Observations do not enter Verification.
+
+If 0 candidates survive (excluding observations): skip verification; VERIFIED=0, DROPPED=0. Proceed to Reporting.
 
 ---
 
 ## Verification
 
-The core differentiator: every candidate finding is validated by a sub-agent that applies the fix and runs quality gates.
-
 ### Invariant (non-negotiable)
 
-Every candidate finding that survives the pre-filter step in Analysis **MUST** be verified by its own isolated-worktree sub-agent that (i) applies the proposed fix and (ii) runs the full quality-gate suite. This is the property that distinguishes `/pst:code-review` from an opinion dump. Collapsing verification into a single shared worktree, skipping the fix-application step, or declaring findings "static-analysis-verifiable" to bypass this loop is **not permitted** - those rationales are rejected regardless of how sensible they sound in the moment.
+Every non-`observation` finding surviving pre-filter **MUST** be verified by its own
+isolated-worktree sub-agent: (i) apply the fix, (ii) run the full quality-gate suite.
 
-The only exception is the `observation` severity (see below), which has no fix to apply and therefore no gate to run.
-
-### Rejected rationales
-
-The following shortcuts have all been proposed in the past and are **explicitly rejected**. If the sub-agent's reasoning matches any of these shapes, the run has failed its invariant and the final report must flag it as a failure mode, not a "defensible shortcut."
-
-- _"`EnterWorktree` is a deferred tool requiring a schema fetch, so I used one shared worktree."_ → Wrong entry point. The `Task` tool with `isolation: "worktree"` is the mechanism, and `Task` is always live - no schema fetch required. Spawn with `Task({ subagent_type: "general-purpose", isolation: "worktree", run_in_background: true, prompt: ... })`.
-- _"Each sub-agent would re-run `pnpm run worktree:init`, which is expensive given a shared environmental gap (e.g., missing service credentials, unreachable external providers)."_ → Cost of correctness. `node_modules` is typically hardlink/sparse-copied by the worktree harness, so re-bootstrap is cheap. Partial environment failures (e.g., a provider-specific codegen step unable to reach its dev backend) are acceptable and **must not** block verification of diffs that don't exercise the unavailable service. Run `worktree:init || true` and proceed; the gate-execution step already handles partial-gate scenarios.
-- _"The findings are statically verifiable (schema orphans, stale comments, routing order, missing concurrency caps) - a single quality-gate pass covers them."_ → The per-finding gate is not only about build/runtime regression. It also cross-checks that (a) the finding correctly describes the target code, (b) the proposed fix is minimal and doesn't silently break surrounding tests or types, and (c) multiple independent findings don't have conflicting or overlapping fixes. Those properties **only** hold when each fix is applied in isolation.
-
-### Observation severity (the single escape hatch)
-
-For rare architectural notes that have no concrete fix ("consider splitting this module in a future pass", "this pattern is diverging from the rest of the codebase - worth a team discussion"), use the `observation` severity.
-
-- Observations are **body-only prose** in the review summary - no inline comment, no fix block, no `suggestion` code block, no quality-gate claim.
-- Observations are **excluded from per-finding verification** because they have no fix to apply.
-- **Cap: at most 2 observations per review.** If you find yourself wanting to emit a 3rd, open a follow-up issue or ADR instead.
-
-`observation` is the **only** valid path for a finding that does not run through isolated-worktree verification. Any other finding that skips the loop is a bug.
-
-### Spawning sub-agents
-
-**For EACH candidate finding** that survived the Analysis pre-filter and is **not** an `observation`, spawn a sub-agent:
+Spawn per finding:
 
 ```
-Task:
+Agent:
   subagent_type: general-purpose
-  description: "Verify finding R{N}: {title}"
   isolation: worktree
   run_in_background: true
-  prompt: "<self-contained per-finding verification instructions>"
+  description: "Verify finding R{N}: {title}"
+  prompt: "<self-contained verification instructions>"
 ```
 
-**All agents spawn simultaneously.** Each gets its own isolated worktree copy of the code.
+All agents spawn simultaneously. Each gets its own isolated worktree copy.
 
-### Sub-agent workflow (numbered - no step is optional unless noted)
+### Sub-agent workflow
 
-1. **Bootstrap the worktree (best-effort).** If `package.json` has a `worktree:init` script (or equivalent name like `agent:init`, `bootstrap`), run it immediately after `cd`'ing into the worktree. **Do not fail on partial bootstrap** - missing env vars or unreachable external services are expected in verification worktrees:
-   ```bash
-   if grep -q '"worktree:init"' package.json 2>/dev/null; then
-     $PKG_MANAGER run worktree:init || true
-   else
-     $PKG_MANAGER install --frozen-lockfile || true
-   fi
-   ```
-   This installs deps, symlinks env files, and fixes husky hooks path where possible. Bootstrap failure is **not** grounds to skip steps 2–7. Carry on and let the gate-execution step in 6 handle what can and cannot run.
-2. **Read the target file, surrounding code context, and trace the dependency graph.** Follow callers/callees until hitting system boundaries (API, DB, external service). Understand the blast radius.
-3. **Validate against:** ADRs, patterns files, inferred patterns from the Analysis stage.
-4. **Filter-discard check - DISCARD the finding (verdict: `DROPPED`) if:**
-   - It's a style preference disguised as a warning (rename, blank line, import order).
-   - It flags a phantom bug from incomplete context (e.g., non-null flagged as nullable when the type system guarantees it).
-   - CI tooling would already catch it (eslint, tsc, prettier rules).
-   - It's over-engineering (excessive abstraction, unnecessary error handling for impossible cases).
-   - The fix would break existing tests or API contracts.
-   - It doesn't materially affect reliability, correctness, or maintainability.
+1. Bootstrap: run `worktree:init` (or `install --frozen-lockfile`) with `|| true`. Carry on.
+2. Read target file, trace call graph to system boundaries.
+3. Validate against ADRs and inferred patterns.
+4. **DISCARD (`DROPPED`) if:** style preference disguised as warning; phantom bug from
+   incomplete context; CI would already catch it; over-engineering; fix breaks existing
+   tests or API contracts; does not materially affect reliability, correctness, or
+   maintainability.
+5. Apply the suggested fix. Minimum edit.
+6. Run quality gates: `build`, `lint`, `typecheck`, `test`. PASS = exits 0. FAIL = exits
+   non-zero when base passed. N/A = exits non-zero on both (record identical-failure
+   evidence). At least one gate must reach PASS or proven-N/A; zero runnable gates = DROPPED.
+7. Verdict: `VERIFIED` (fix applied + all runnable gates passed or proven-N/A) or `DROPPED`.
 
-   This step may drop the finding **before** a fix is applied. It may **not** be used as a reason to skip step 5 for a finding that was not dropped here.
-
-5. **Apply the suggested fix** in the worktree. Minimum edit - don't refactor beyond the finding. This is the step most likely to be skipped under time pressure or "static-analysis-verifiable" reasoning; skipping it invalidates the whole run.
-6. **Run quality gates.** Detect the package manager, then execute:
-
-   ```bash
-   $PKG_MANAGER run build 2>&1
-   $PKG_MANAGER run lint 2>&1
-   $PKG_MANAGER run typecheck 2>&1
-   $PKG_MANAGER run test 2>&1
-   ```
-
-   Gate-result classification:
-   - **PASS:** command exits 0 after applying the fix.
-   - **FAIL:** command exits non-zero and the same command also exits 0 on the unedited base commit. Verdict → `DROPPED`.
-   - **N/A:** command exits non-zero on both the fix and the unedited base (environmental constraint, not a regression caused by the fix). Record the gate as N/A with the identical-failure evidence. N/A is acceptable but must be explicit and proven, not assumed.
-
-   At least **one gate must execute to a PASS or a proven-N/A verdict**. If zero gates run (e.g., bootstrap totally failed and no gate command is invokable), the verdict is `DROPPED`.
-
-7. **Produce a verdict:**
-   - `VERIFIED` - the fix applied cleanly **and** every runnable gate either passed or is a proven N/A with evidence.
-   - `DROPPED` - the finding was filtered in step 4, the fix could not apply cleanly, a gate failed only on the fixed tree, or zero gates were runnable.
-
-   No other verdicts are valid. "Skipped for time," "covered by another finding," and "probably fine - it's just a comment" are all `DROPPED`.
-
-**After all sub-agents complete:**
-
-- Collect results. `VERIFIED` findings proceed to Reporting. `DROPPED` findings are recorded with a one-line reason for the Reporting stage's "Dropped during verification" section.
-- Clean up all verification worktrees.
-- Assert `VERIFIED + DROPPED == total non-observation candidates`. If the count doesn't balance, a sub-agent silently skipped the loop - treat the entire review as invalid and re-run the missing sub-agents before posting.
+After all sub-agents complete: collect results, clean up worktrees. Assert
+`VERIFIED + DROPPED == total non-observation candidates`. If the count does not balance,
+re-dispatch missing sub-agents before reporting.
 
 ---
 
 ## Reporting
 
-### Required review-body sections (GitHub PR bodies)
+### Required sections (in order)
 
-Every review body posted to GitHub - regardless of mode (default or `--autofix`) - **must** contain the following sections in this order:
+1. **Summary** -- max 8 bullets.
+2. **Findings** -- table of VERIFIED findings (critical / warning / nit).
+3. **Observations** -- body-only prose; omit section if empty.
+4. **Dropped during verification** -- one line per DROPPED finding with reason.
+5. **Verification integrity** -- `VERIFIED (${V}) + DROPPED (${D}) = ${V+D} non-observation candidates.`
 
-1. **Summary** - max 8 bullets.
-2. **Findings** - table of `VERIFIED` findings (critical / warning / nit).
-3. **Observations** - the body-only prose list (0, 1, or 2 items; omit the section if empty).
-4. **Dropped during verification** - enumerate every candidate finding that ended the Verification stage with a `DROPPED` verdict, one line each, with the one-line reason (filter-discard rule matched, gate regression, no gate runnable, etc.).
-5. **Verification integrity** - a single assertion line: `VERIFIED (${V}) + DROPPED (${D}) = ${V+D} non-observation candidates.` This number **must** match the total candidates produced by Analysis after pre-filter. If it doesn't, the run is invalid.
+### Review event policy
 
-### Review event policy (never a bare COMMENT)
+Never post a bare COMMENT as the terminal event except: (1) self-authored PR (GitHub rejects
+APPROVE and REQUEST_CHANGES with 422 on your own PR) or (2) explicit user instruction.
 
-A code review must **always** land as an explicit GitHub review event - `APPROVE` or `REQUEST_CHANGES`. It must **never** post a plain `COMMENT` as the terminal review event, except in the two cases below.
+- Any VERIFIED critical or warning: `REQUEST_CHANGES`.
+- Otherwise: `APPROVE`.
 
-**Event selection:**
+Detect self-authored: compare `gh api /user --jq .login` with
+`gh pr view $N --json author --jq '.author.login'`. Flag self-authored only when both are
+non-empty and equal.
 
-- Any `VERIFIED` **critical or warning** finding → `REQUEST_CHANGES`.
-- Otherwise (0 verified criticals and 0 verified warnings) → `APPROVE`.
+### Inline comment position mapping
 
-**The only two exceptions where `COMMENT` is permitted as the terminal event:**
+GitHub's inline comment API requires a diff `position` integer, not a source line number. For
+each VERIFIED finding, map `file + line` to a diff position via hunk headers. If the line is
+not in the diff, fall back to a PR body comment with a `file:line` reference. Best-effort.
 
-1. **Self-authored PR.** The PR author equals the authenticated gh user. GitHub forbids submitting **both** `APPROVE` and `REQUEST_CHANGES` on your own PR - the reviews API returns `422 Unprocessable Entity` for either. `COMMENT` is the only review event the author may post. Detect with:
-   ```bash
-   CURRENT_USER=$(gh api /user --jq .login 2>/dev/null)
-   PR_AUTHOR=$(gh pr view "$N" --json author --jq '.author.login // empty' 2>/dev/null)
-   ```
-   Treat the PR as self-authored **only** when both values are non-empty and equal: `[ -n "$CURRENT_USER" ] && [ "$PR_AUTHOR" = "$CURRENT_USER" ]`. If `CURRENT_USER` is empty (e.g. a CI `GITHUB_TOKEN` with no `/user`) or `PR_AUTHOR` is empty (deleted/ghost author), do **not** infer self-authorship - proceed with the normal `APPROVE`/`REQUEST_CHANGES` selection. When the PR _is_ self-authored, fall back to `COMMENT` for **every** outcome - blocking findings included (they still render in the body; only the event type changes), because GitHub rejects both non-COMMENT events with 422.
-2. **Explicit user instruction.** The user explicitly told this run to post the review as a comment.
+### GitHub PR mode
 
-In every other case, `COMMENT` is forbidden - pick `APPROVE` or `REQUEST_CHANGES`.
+Post via `gh api POST /repos/{owner}/{repo}/pulls/{N}/reviews`. Idempotency guard: skip
+POST if most recent review from this user is already at HEAD_SHA. Never POST more than once
+per run. Open review URL in browser after posting (open / xdg-open / start fallback chain).
 
-### GitHub PR Mode (default)
-
-Post a single grouped review via `gh api POST /repos/{owner}/{repo}/pulls/{N}/reviews`:
-
-- Event: per the **Review event policy** above - `REQUEST_CHANGES` if any verified critical or warning finding, else `APPROVE`. `COMMENT` only under exception (1) self-authored PR (GitHub rejects both `APPROVE` and `REQUEST_CHANGES` on your own PR with 422) or (2) explicit user instruction.
-- Body: the 5 required sections above, in order
-
-Get `commit_id`: `gh pr view <N> --json headRefOid --jq .headRefOid` (validate `^[0-9a-f]{40}$`; fallback: `git rev-parse HEAD`; both fail → body-only review via `gh pr review` using the policy-selected event flag (`--approve` or `--request-changes`, never a bare `--comment` outside the two exceptions)).
-
-Write comments to a temp JSON file, pass via `--input`, clean up after.
-
-**Idempotency guard - run this BEFORE the POST.** The GitHub reviews API creates a new review on every POST with no deduplication. Skip the POST only when the most recent event on the PR is already a review from this user (meaning nothing has happened since that review that would warrant a new one). A new commit or a resolved thread after the last review means a fresh review is still appropriate.
-
-```bash
-CURRENT_USER=$(gh api /user --jq .login 2>/dev/null)
-
-# Get the most recent review by this user (if any) and its submitted commit SHA
-LAST_REVIEW=$(gh api "/repos/{owner}/{repo}/pulls/{N}/reviews" \
-  --jq "[.[] | select(.user.login == \"${CURRENT_USER}\")] | last | {id: .id, commit_id: .commit_id}" \
-  2>/dev/null)
-LAST_REVIEW_ID=$(echo "$LAST_REVIEW" | jq -r '.id // empty')
-LAST_REVIEW_SHA=$(echo "$LAST_REVIEW" | jq -r '.commit_id // empty')
-
-# Only skip if the last review was on the current HEAD SHA (no new commits since)
-if [ -n "$LAST_REVIEW_ID" ] && [ "$LAST_REVIEW_SHA" = "$HEAD_SHA" ]; then
-  REVIEW_URL="https://github.com/{owner}/{repo}/pull/{N}#pullrequestreview-${LAST_REVIEW_ID}"
-  echo "Review already posted at HEAD $HEAD_SHA (ID: $LAST_REVIEW_ID). Skipping duplicate POST."
-  open "$REVIEW_URL" 2>/dev/null || echo "Review URL: $REVIEW_URL"
-  # Jump to worktree cleanup - do NOT call POST below
-fi
-# If there are new commits since the last review, fall through and POST normally
-```
-
-**POST the review (only if no existing review was found above).** ⚠️ **NEVER call this endpoint more than once per run.** Once the response is captured, the review is live - if parsing fails, extract from the raw response without retrying POST:
-
-```bash
-REVIEW_RESPONSE=$(gh api "/repos/{owner}/{repo}/pulls/{N}/reviews" --method POST --input "$TMP_JSON")
-
-# Extract URL with jq; fall back to grep+construct if jq fails (e.g., Unicode in body)
-REVIEW_ID=$(echo "$REVIEW_RESPONSE" | grep -o '"id":[0-9]*' | head -1 | sed 's/"id"://')
-REVIEW_URL=$(echo "$REVIEW_RESPONSE" | jq -r '.html_url' 2>/dev/null)
-if [ -z "$REVIEW_URL" ] || [ "$REVIEW_URL" = "null" ]; then
-  REVIEW_URL="https://github.com/{owner}/{repo}/pull/{N}#pullrequestreview-${REVIEW_ID}"
-fi
-
-# Open in browser (cross-platform fallback chain)
-if [ -n "$REVIEW_URL" ] && [ "$REVIEW_URL" != "null" ]; then
-  if command -v open >/dev/null 2>&1; then
-    open "$REVIEW_URL"           # macOS
-    echo "Opened review in browser: $REVIEW_URL"
-  elif command -v xdg-open >/dev/null 2>&1; then
-    xdg-open "$REVIEW_URL"       # Linux
-    echo "Opened review in browser: $REVIEW_URL"
-  elif command -v start >/dev/null 2>&1; then
-    start "$REVIEW_URL"          # Windows (Git Bash/WSL)
-    echo "Opened review in browser: $REVIEW_URL"
-  else
-    echo "Review posted (no browser opener available): $REVIEW_URL"
-  fi
-fi
-```
-
-Fallback to `gh pr review` body-only mode (still passing the policy-selected `--approve`/`--request-changes` flag, never a bare `--comment` outside the two exceptions): after posting, open the PR URL instead -- `open "$(gh pr view $N --json url --jq .url)"`. If the browser-open command itself fails (e.g., headless CI), print the URL prominently and continue -- never block on this.
-
-**Inline comment format:**
+Inline comment format:
 
 ````markdown
 **R{N}** `{severity}` - {title}
 
-{problem description in 1-2 sentences}
+{problem in 1-2 sentences}
 
-**Fix:** {specific change needed}
+**Fix:** {specific change}
 
-<details>
-<summary>Verification Details</summary>
+<details><summary>Verification Details</summary>
 
-**Blast radius:** {dependency trace summary}
-**Context checked:** {ADRs, patterns, inferred conventions referenced}
-**Quality gates:** PASSED (build, lint, typecheck, test)
-
-</details>
-
-<details>
-<summary>Fix Prompt (paste into any AI tool)</summary>
-
-```
-Fix R{N} from a code review.
-Repo: {repo} | PR: #{N} | File: {path} | Location: {function/line-range}
-
-Problem: {precise description}
-Required change: {smallest possible fix}
-Expected outcome: {correct behavior}
-Verify: {test command + expected result}
-```
+**Blast radius:** {summary} | **Quality gates:** PASSED (build, lint, typecheck, test)
 
 </details>
 
@@ -375,214 +256,64 @@ Verify: {test command + expected result}
 ```
 ````
 
-**Shell safety:** always wrap body in heredoc with single-quoted delimiter (`'EOF'`).
+### Local mode (`--local`)
 
-### Local Mode (`--local`)
+Full Analysis + Verification. Terminal output only. No GitHub interaction, no code edits.
 
-Same Analysis + Verification stages (single pass). Output findings to terminal with severity markers. No GitHub interaction. No code edits.
+### Preflight mode (`--preflight`)
 
-### Preflight Mode (`--preflight`)
+Min 3, max 5 rounds. No AskUserQuestion. Each round: diff, analyze, verify, apply VERIFIED
+fixes. Exit after min rounds when 0 criticals + 0 warnings remain. One squashed commit after
+all rounds. Terminal: `PREFLIGHT ROUND {N}/{MAX} | Criticals: {n} | Warnings: {n} | Fixed: {list}`.
 
-Multi-round code review with auto-fix. No GitHub interaction. No AskUserQuestion calls (fully autonomous).
+### Autofix mode (`--autofix`)
 
-Preflight combines review + fix: it finds issues, verifies fixes in isolated worktrees, then applies all verified fixes directly. This is the recommended pre-push workflow.
+Fully autonomous. Apply all VERIFIED fixes in one squashed commit. Post per event policy.
+Open browser after posting.
 
-**Constants:** `MIN_ROUNDS = 3`, `MAX_ROUNDS = 5`
+### Sweep mode (`--sweep`)
 
-**Round loop:**
+Min 2, max 5 rounds. Skip nits. Each round commits fixes
+(`git commit -m "fix: sweep round {N} findings"`). Exit when 0 criticals after min rounds.
 
-1. Compute diff: `git diff $(git merge-base origin/$DEFAULT_BRANCH HEAD)...HEAD`
-2. Run full Analysis + Verification (autonomous)
-3. Collect VERIFIED findings (criticals + warnings only after round 1; include nits in round 1)
-4. **Auto-apply all verified fixes** (they've already proven to pass quality gates in worktree verification)
-5. If fixes were applied: `git add {fixed files}` (do NOT commit yet -- all rounds accumulate into one commit)
-6. If `round >= MIN_ROUNDS` AND 0 new findings (criticals + warnings) on the updated diff -> print clean summary, exit loop
-7. If findings remain AND `round < MAX_ROUNDS` -> narrow focus for next round:
-   - Re-diff against the now-modified working tree
-   - Exclude file+line combinations already fixed in prior rounds
-   - Increase scrutiny: look deeper at blast radius, edge cases, concurrency, and error paths
-   - Print round summary
-8. If `round == MAX_ROUNDS` AND findings remain -> report remaining unfixed findings, exit loop
+### Conversation resolution
 
-**After the round loop completes**, if any fixes were applied across all rounds:
+Skip if `--sweep`, `--local`, or `--preflight`. After posting, resolve unresolved threads
+via AskUserQuestion (Reply Fixed / Won't Fix / Acknowledged / Skip). Resolve via GraphQL
+mutation after replying. Always resolve after replying.
 
-```bash
-git add {all fixed files from all rounds}
-git commit -m "fix: preflight review findings
+### PR checkbox updates
 
-Applied {N} verified fixes across {M} rounds.
-Findings: {summary of R-IDs and titles}
+Skip if `--sweep`, `--local`, `--preflight`, or no checkboxes found. Check off checkboxes
+verifiable through static analysis that were not contradicted by a critical or warning
+finding. Update via `gh api repos/{owner}/{repo}/pulls/$PR_NUMBER --method PATCH`.
 
-Co-Authored-By: Claude <noreply@anthropic.com>"
-```
+### Worktree cleanup
 
-**Terminal output per round:**
+If `REVIEW_WORKTREE=true`: `git worktree remove --force "$REVIEW_DIR"`. Warn with manual
+command on failure.
 
-```
-PREFLIGHT ROUND {N}/{MAX}
-Criticals: {n} | Warnings: {n} | Nits: {n}
-New findings: {list of R-IDs} | Fixed: {list of R-IDs applied} | Cumulative: {total}
-```
+### Error handling
 
-**Final summary:**
-
-```
-PREFLIGHT COMPLETE - {N} round(s), {total findings} found, {fixed count} auto-fixed
-  Criticals: {n} | Warnings: {n} | Nits: {n}
-  Fixed: {list of R-IDs} | Remaining: {list of R-IDs or "none"}
-  Status: CLEAN|FINDINGS_REMAIN
-```
-
-All findings from all rounds are presented in the final terminal output, deduplicated and sorted by severity. Fixed findings are marked with a checkmark.
-
-### Autofix Mode (`--autofix`)
-
-- Fully autonomous (no AskUserQuestion calls)
-- Auto-apply all verified fixes (they've already proven to pass quality gates)
-- One squashed commit for all fixes
-- Post the review per the **Review event policy** (see GitHub PR Mode): any remaining verified critical or warning → `REQUEST_CHANGES`; otherwise (0 criticals + 0 warnings remain) and PR exists → auto-post `APPROVE` via GitHub API. `COMMENT` only under the two exceptions - (1) self-authored PR (GitHub rejects both `APPROVE` and `REQUEST_CHANGES` on your own PR with 422) or (2) explicit user instruction.
-- After posting the review/approval, **open the review `html_url` in the browser** using the same `open`/`xdg-open`/`start` fallback chain described in GitHub PR Mode above. Never block on failure.
-
-### Sweep Mode (`--sweep`)
-
-Multi-round autonomous code review with auto-fix. No GitHub interaction.
-
-**Constants:** `MIN_ROUNDS = 2`, `MAX_ROUNDS = 5`
-
-**Round loop:**
-
-1. Compute diff: `git diff $(git merge-base origin/$DEFAULT_BRANCH HEAD)...HEAD`
-2. Run full Analysis + Verification (autonomous, no AskUserQuestion)
-3. Collect VERIFIED findings (criticals + warnings only - skip nits in sweep)
-4. If `round >= MIN_ROUNDS` AND 0 criticals → print clean summary, exit loop
-5. If criticals found:
-   - Auto-apply all verified fixes
-   - `git add {fixed files}`
-   - `git commit -m "fix: sweep round {N} findings"`
-   - Print round summary
-6. If `round == MAX_ROUNDS` AND criticals remain → report remaining, exit loop
-
-**Terminal output per round:**
-
-```
-SWEEP ROUND {N}/{MAX}
-Criticals: {n} | Warnings: {n} | Nits: {n}
-Fixed: {file list} | Commit: {short hash}
-```
-
-**Final summary:**
-
-```
-SWEEP COMPLETE - {N} round(s), {total fixes} applied, status: CLEAN|REMAINING
-```
-
-### Conversation Resolution
-
-**Skip if `--sweep`, `--local`, or `--preflight`.**
-
-After posting the review, check for unresolved conversations from prior reviews:
-
-```bash
-gh api repos/{owner}/{repo}/pulls/{N}/comments --jq '[.[] | select(.in_reply_to_id == null)] | length'
-```
-
-If unresolved conversations exist, present each via **AskUserQuestion** with options: Reply Fixed (cite commit), Won't Fix (explain), Acknowledged, or Skip.
-
-Post replies for each addressed conversation and resolve threads via GraphQL:
-
-```bash
-gh api graphql -f query='mutation { resolveReviewThread(input: {threadId: "THREAD_NODE_ID"}) { thread { isResolved } } }'
-```
-
-To get thread node IDs, query review threads before prompting:
-
-```bash
-gh api graphql -f query='{ repository(owner: "OWNER", name: "REPO") { pullRequest(number: N) { reviewThreads(first: 50) { nodes { id isResolved comments(first: 1) { nodes { databaseId body path line } } } } } } }'
-```
-
-Match `databaseId` to REST comment IDs to correlate threads. **Always resolve after replying** - responding without resolving leaves conversations dangling.
-
-In `--autofix` mode: auto-reply "Fixed" for conversations whose findings were addressed in this run. Leave others unresolved.
-
-### Update PR Checkboxes
-
-**Skip if:** `--sweep`, `--local`, `--preflight`, or no PR exists, or no `PR_CHECKBOXES` were found.
-
-After posting the review and resolving conversations, check off PR description checkboxes that were verified through code analysis.
-
-**Which checkboxes to check off:**
-
-A PR checkbox is eligible to be checked if:
-
-- It describes something verifiable through static code analysis (e.g., "handles error case X", "validates input", "no regressions in Y")
-- The review confirmed the behavior is correct - either no related findings, or related findings were all nits
-- It was NOT contradicted by a critical or warning finding
-
-Do NOT check off checkboxes that:
-
-- Require runtime/manual testing to verify (e.g., "test in staging", "verify UI looks correct")
-- Were associated with a critical or warning finding
-- Are ambiguous or cannot be determined from code analysis alone
-
-**Step 1 - Fetch current PR body:**
-
-```bash
-PR_BODY=$(gh pr view $PR_NUMBER --json body --jq .body)
-```
-
-**Step 2 - Replace checkboxes:**
-
-For each verified checkbox index, replace the Nth unchecked checkbox (`- [ ]`) with `- [x]`. Process from highest index to lowest.
-
-**Step 3 - Update PR description:**
-
-```bash
-gh api repos/{owner}/{repo}/pulls/$PR_NUMBER --method PATCH --field body="$UPDATED_BODY"
-```
-
-**Step 4 - Log result:**
-
-```
-PR checkboxes updated: {N} of {total} checked off ({M} require manual/runtime verification)
-```
-
-In `--autofix` mode: also check off checkboxes if the autofix resolved a related finding.
-
-### Worktree Cleanup
-
-If `REVIEW_WORKTREE=true`:
-
-```bash
-cd "$REPO_ROOT"
-git worktree remove --force "$REVIEW_DIR"
-```
-
-If removal fails, warn with manual cleanup command.
-
-### Error Handling
-
-| Condition                  | Action                                                                                         |
-| -------------------------- | ---------------------------------------------------------------------------------------------- |
-| 401/403 from GitHub        | Instruct `gh auth login`                                                                       |
-| 422 (invalid line comment) | Remove invalid comments, retry                                                                 |
-| 429 (rate limit)           | Wait, retry, fallback to body-only carrying the policy event (`--approve`/`--request-changes`) |
-| Empty diff                 | Exit with message                                                                              |
-| Sub-agent worktree failure | Verdict `DROPPED` for that finding (record reason). No "unverified" bypass.                    |
-| All sub-agents fail        | Abort the review. Do not post "unverified" findings to the PR.                                 |
-| Worktree creation fails    | Retry once; on second failure, abort the review with clear error.                              |
-| Worktree cleanup fails     | Warn with manual cleanup command                                                               |
-| Sweep max rounds exceeded  | Report remaining issues, exit                                                                  |
+| Condition                  | Action                                                    |
+| -------------------------- | --------------------------------------------------------- |
+| 401/403 from GitHub        | Instruct `gh auth login`                                  |
+| 422 (invalid line comment) | Remove invalid comments, retry                            |
+| 429 (rate limit)           | Wait, retry, fallback to body-only with policy event flag |
+| Empty diff                 | Exit with message                                         |
+| Sub-agent worktree failure | Verdict DROPPED for that finding. No unverified bypass.   |
+| All sub-agents fail        | Abort. Do not post unverified findings.                   |
+| Worktree creation fails    | Retry once; abort on second failure with clear error.     |
 
 ---
 
-## Output contract
+## Output Contract
 
-Every run - GitHub PR, `--local`, `--preflight`, `--autofix`, or `--sweep` - must emit, as the **final line** of the terminal / background-task output, the self-audit line:
+Every run must emit as its final line:
 
 ```
 Per-finding verification: ${VERIFIED}/${TOTAL} candidates ran isolated quality gates.
 ```
 
-Where `TOTAL` is the count of non-`observation` candidates that survived Analysis pre-filter, and `VERIFIED` is the count that reached verdict `VERIFIED`. `DROPPED` candidates still count as having "run" the gate - what is being audited is whether the isolated-worktree loop was entered, not whether the finding survived.
-
-If `VERIFIED + DROPPED < TOTAL` - i.e., any non-`observation` finding is missing its isolated sub-agent run - the agent **must** abort the run, re-dispatch the missing sub-agents, and re-emit the self-audit line only after every non-`observation` candidate has reached VERIFIED or DROPPED. Posting (or printing a final report) with a sub-1.0 ratio is not permitted. A ratio below 1.0 with any finding that never entered the loop means the skill's core invariant was violated.
+TOTAL is non-observation candidates that survived pre-filter. If `VERIFIED + DROPPED < TOTAL`,
+abort, re-dispatch missing sub-agents, and re-emit only after every candidate has a verdict.
