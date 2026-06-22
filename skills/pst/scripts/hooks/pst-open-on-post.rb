@@ -5,7 +5,56 @@
 # PR/issue/Jira description updated), open the resulting page in the browser so
 # he can see what was posted on his behalf (rule 17). Side effect only; this hook
 # NEVER blocks. Inert unless armed. Skip a single run with PST_NO_BROWSER=1.
+require 'fileutils'
+require 'json'
 require_relative 'pst_common'
+
+# --- Dedup: prevent the same URL from being opened twice in quick succession.
+# `gh pr create` fires a PostToolUse event and then `gh pr edit` fires another
+# within milliseconds for the same PR URL. Without dedup the browser tab opens
+# twice. The dedup file is global (not session-scoped), which is intentional:
+# if two sessions open the same URL within the TTL window, the second is
+# suppressed -- the consequence is only a skipped browser tab, which is fine.
+DEDUP_DIR = File.expand_path('~/.cache/pst-hooks')
+DEDUP_FILE = File.join(DEDUP_DIR, 'open-on-post-dedup.json')
+DEDUP_TTL = 10 # seconds -- double-fires happen within milliseconds; 10s is generous
+
+def recently_opened?(url)
+  return false unless File.exist?(DEDUP_FILE)
+
+  begin
+    entries = JSON.parse(File.read(DEDUP_FILE))
+    cutoff = Time.now.to_i - DEDUP_TTL
+    entries.any? { |e| e['url'] == url && e['at'].to_i >= cutoff }
+  rescue JSON::ParserError
+    File.delete(DEDUP_FILE) rescue nil
+    false
+  rescue StandardError
+    false
+  end
+end
+
+def record_opened(url)
+  FileUtils.mkdir_p(DEDUP_DIR)
+  entries = if File.exist?(DEDUP_FILE)
+    begin
+      JSON.parse(File.read(DEDUP_FILE))
+    rescue JSON::ParserError
+      File.delete(DEDUP_FILE) rescue nil
+      []
+    end
+  else
+    []
+  end
+  cutoff = Time.now.to_i - DEDUP_TTL
+  entries.reject! { |e| e['at'].to_i < cutoff }
+  entries << { 'url' => url, 'at' => Time.now.to_i }
+  tmp = DEDUP_FILE + '.tmp'
+  File.write(tmp, JSON.generate(entries))
+  File.rename(tmp, DEDUP_FILE)
+rescue StandardError
+  # A write failure must never block the open.
+end
 
 exit 0 unless Pst.armed?
 exit 0 if ENV['PST_NO_BROWSER'] == '1'
@@ -48,5 +97,10 @@ urls = urls.uniq.first(3)
 exit 0 if urls.empty?
 
 opener = RUBY_PLATFORM =~ /darwin/ ? 'open' : 'xdg-open'
-urls.each { |u| system(opener, u, %i[out err] => File::NULL) }
+urls.each do |u|
+  next if recently_opened?(u)
+
+  record_opened(u)
+  system(opener, u, %i[out err] => File::NULL)
+end
 exit 0
