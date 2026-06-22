@@ -358,3 +358,46 @@ The Stage 0 Haiku classifier owns this decision. It returns `trivial` only on a 
    approval, or hand off merge-ready (rule 5, merge-guard enforced).
 7. If not gated pre-merge, validate locally before any remote promotion (rule 8).
 8. Run `pst-worktrees.rb` and offer to prune orphaned worktrees (rule 4).
+
+## Rule 25 -- Context hygiene and output compression
+
+**Provenance:** inspired by [headroom](https://github.com/headroomlabs-ai/headroom), a context-compression research project.
+
+### Pre-execution output limiting
+
+Before running bash commands that may produce large output, append limiting flags:
+
+| Scenario          | Limiting flag                                |
+| ----------------- | -------------------------------------------- |
+| `git log`         | `git log --oneline -20`                      |
+| `find`            | `find . -name "*.rb" \| head -50`            |
+| `cat` large file  | Use `Read` with `offset`/`limit` instead     |
+| JSON API response | `jq '{keys: keys, sample: .[0:2]}'`          |
+| Log file          | `grep -E 'ERROR\|WARN' app.log \| tail -100` |
+
+### Content-type routing
+
+| Content type | What to extract                                                  |
+| ------------ | ---------------------------------------------------------------- |
+| JSON         | Schema shape + key fields + item count                           |
+| Logs         | Errors and warnings first; summary of rest                       |
+| Code         | Read with `offset`/`limit`; avoid full-file reads on large files |
+| Prose / docs | Key points only; skip boilerplate                                |
+
+### CCR pattern (Compress-Cache-Retrieve)
+
+For large intermediate artifacts that must persist across agents:
+
+1. **Compress:** distill to the minimum needed (schema, summary, key facts).
+2. **Cache:** write to the session scratchpad directory with a descriptive filename (e.g. `schema-users-table.json`).
+3. **Retrieve:** downstream agents use the Read tool on that path; pass the path in the agent prompt.
+
+This avoids re-passing large blobs through the context chain; the scratchpad persists for the session lifetime.
+
+### Cache-preservation note
+
+Anthropic's prompt cache keys on an exact contiguous prefix. Mutating or compressing earlier messages in an active session invalidates the cache from the first changed token onward. Compression helps future turns by keeping the context smaller; it does not preserve the current cached prefix. Only append to an active session; do not rewrite earlier content.
+
+### Verbosity-at-tail
+
+Put the most load-bearing instruction last in a long prompt -- models weight the tail of a prompt more heavily. In practice: lead a response with the actionable summary; put verbose output, debug traces, and raw data at the end. This is a drafting heuristic, not a guarantee.
