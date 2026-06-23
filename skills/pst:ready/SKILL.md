@@ -239,10 +239,46 @@ Test Plan checkboxes). Preserve existing `- [x]` boxes. Push via
 
 ## Phase 7 -- Test Plan Validation
 
-Parse `- [ ]` items under a `Test plan` heading. Classify as auto-validatable
-(lint, typecheck, build, CI-green, grep claims) or manual-only. Run auto-
-validatable checks; post one comment via `gh pr comment`; tick `- [x]` for
-passed items via PATCH. Skip if no heading or no unchecked items.
+**Mandatory.** Cannot be skipped even if all items appear manual. Every item must
+be classified and documented.
+
+Parse all `- [ ]` items under a `Test plan` heading. Classify each into one of
+three buckets:
+
+- **Shell-executable**: contains a command runnable in the PR worktree: `grep`,
+  `find`, `curl` (localhost/loopback), `git`, `docker`, `pnpm`/`npm`/`ruby`/
+  `python` invocations, lint, typecheck, build commands. Run these.
+- **Environment-dependent**: requires a live external service, remote URL,
+  physical hardware, or credentials not present in the worktree. Skip with a
+  labeled reason.
+- **Narrative/manual**: describes a human action with no shell equivalent. Skip
+  with a labeled reason.
+
+**Execution (shell-executable items):** Run each command in `$WORK_DIR`. Capture
+stdout, stderr, and exit code. Pass = exit 0 (or non-empty output when the item
+asserts "returns X" or "outputs Y"). Fail = non-zero exit or empty when output is
+expected.
+
+**PATCH the PR body:** tick `- [x]` for each passing item. Leave `- [ ]` for
+failures. Append ` _(skipped: <reason>)_` inline after each skipped item (either
+bucket). Push via:
+
+```bash
+gh api repos/$PR_OWNER/$PR_REPO/pulls/$PR_NUMBER \
+  --method PATCH --field body="$UPDATED_BODY"
+```
+
+**Post one validation comment** tagged `<!-- pst:test-plan-validation -->` with a
+results table:
+
+| Item | Bucket                | Result  | Output snippet                |
+| ---- | --------------------- | ------- | ----------------------------- |
+| ...  | shell-executable      | PASS    | `<first 120 chars of stdout>` |
+| ...  | environment-dependent | SKIPPED | no live DB                    |
+| ...  | narrative             | SKIPPED | manual UI action              |
+
+Do not skip this phase. If there is no `Test plan` heading, note that in the
+attestation comment (Phase 8) and continue.
 
 ---
 

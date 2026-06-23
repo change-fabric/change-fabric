@@ -143,6 +143,8 @@ rules a hook reminds about (non-blocking). Detail and examples are in
 
 27. **Stacked PR order** `[NUDGE]`. When working a stack of PRs, sequence top-to-bottom: the PR targeting `main` (or the shared base branch) is reviewed and merged first. Do not review, repair, or merge an upstack PR until all downstack PRs have landed. If the user attempts to merge out of order, redirect them to the base PR first. See `REFERENCE.md` ## Stacked PR order (rule 27) for terminology and an example stack.
 
+28. **Test plan auto-execution** `[NUDGE]`. Before any PR is presented for human review, execute every auto-runnable test plan item. A test plan item is auto-runnable if it contains a shell command (backtick or code block), a `grep`/`find`/`curl`/`ls`/`docker`/`git` invocation, a lint or typecheck command, or any check whose pass/fail can be determined without live user interaction, external OAuth, or hardware not present in the worktree. Run each item in the PR's worktree. Tick `- [x]` for passing items by PATCHing the PR body via `gh api`. Post a single validation comment summarizing all results before surfacing the PR to the user. Only leave boxes unchecked for items that require live user interaction, physical hardware, or credentials unavailable in the current environment -- and label each skipped item with a short reason.
+
 ## Usage
 
 `/pst` activates, `/pst off` disarms. Mechanics, merge modes, and rule detail are

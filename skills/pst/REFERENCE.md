@@ -464,3 +464,46 @@ main
 Merge PR #10 into main, rebase PR #11 onto main, then merge PR #11, rebase PR #12, then merge PR #12. Never touch PR #12 while PR #10 is unmerged -- the diff is wrong and the review is misleading.
 
 **Why it matters:** reviewing or merging upstack PRs before downstack ones inflates the upstack diff with changes that belong to downstack PRs, making review noisy and defeating the purpose of keeping stacked PR diffs small.
+
+## Test plan auto-execution (rule 28)
+
+Every test plan item in a PR must be classified and acted on before the PR is surfaced for human review. Three buckets:
+
+### Bucket taxonomy
+
+| Bucket                    | Definition                                                                                                                             | Action                           |
+| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------- |
+| **Shell-executable**      | Contains a runnable command: `grep`, `find`, `curl` (localhost), `git`, `docker`, `pnpm`/`npm`/`ruby`/`python`, lint, typecheck, build | Run in PR worktree; tick on pass |
+| **Environment-dependent** | Requires live external service, remote URL, physical hardware, or credentials not in worktree                                          | Skip with labeled reason         |
+| **Narrative/manual**      | Describes a human action (click X, verify Y visually) with no shell equivalent                                                         | Skip with labeled reason         |
+
+### Canonical example (shell-executable)
+
+From cove PR #58:
+
+```
+- [ ] `grep -rn 'kc \|require_cluster\|rollout' scripts/mail-load.sh scripts/gmail-load.sh scripts/cove-mail-sync.sh` returns nothing
+```
+
+This is shell-executable. Run the command in the PR worktree. Pass = exit 0 with empty stdout (the item asserts "returns nothing"). Tick `- [x]` on pass. If the grep finds matches, leave `- [ ]` and report in the validation comment.
+
+### PATCH mechanism
+
+After running all shell-executable items, update the PR body with ticked checkboxes and inline skip annotations:
+
+```bash
+# Build the updated body string (replace - [ ] with - [x] for passing items,
+# append _(skipped: <reason>)_ for skipped items)
+gh api repos/$OWNER/$REPO/pulls/$NUMBER \
+  --method PATCH \
+  --field body="$UPDATED_BODY"
+```
+
+Then post a single `<!-- pst:test-plan-validation -->` comment with the results table before calling Phase 8.
+
+### Skip annotation format
+
+Inline, immediately after the item text:
+
+- [ ] Deploy to staging and verify login flow _(skipped: requires live OAuth credentials)_
+- [ ] Check hardware sensor output _(skipped: physical device not in worktree)_
