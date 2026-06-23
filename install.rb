@@ -76,6 +76,7 @@ end
 class Installer
   HOOKS = {
     "SessionStart"     => "session_start.rb",
+    "PreToolUse"       => "merge_mode_guard.rb",
     "PostToolUse"      => "merge_mode_record.rb",
     "UserPromptSubmit" => "merge_mode_restate.rb"
   }.freeze

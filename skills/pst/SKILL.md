@@ -33,3 +33,9 @@ Acknowledge the choice in one line, then proceed.
 - **Local only:** Never `git push`, never open PRs.
 - **Merge ready:** After completing work, push and open a PR. Stop, do not merge.
 - **Admin bypass:** After completing work, push, open a PR, then run `gh pr merge --squash --admin`.
+
+A `PreToolUse` hook (`merge_mode_guard.rb`) backs these rules by denying the
+obvious violating Bash commands for the active mode (`git push` under Local
+only, `gh pr merge` under Local only or Merge ready). It is an advisory
+guardrail, not a sandbox: it matches on the command text and is bypassable, so
+honoring the mode in your own actions is still the primary mechanism.

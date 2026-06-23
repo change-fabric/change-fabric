@@ -10,6 +10,7 @@ SCRIPTS = File.expand_path("../scripts", __dir__)
 require_relative "#{SCRIPTS}/merge_mode_store"
 require_relative "#{SCRIPTS}/merge_mode_record"
 require_relative "#{SCRIPTS}/merge_mode_restate"
+require_relative "#{SCRIPTS}/merge_mode_guard"
 require_relative "#{SCRIPTS}/session_start"
 
 module TempHome
@@ -122,6 +123,44 @@ class MergeModeRecordTest < Minitest::Test
   def test_persists_answer_for_ask_user_question
     MergeModeRecord.new(event("AskUserQuestion")).call
     assert_equal "Admin bypass", MergeModeStore.new("s1").mode
+  end
+end
+
+class MergeModeGuardTest < Minitest::Test
+  include TempHome
+
+  def decision(command:, mode:, tool: "Bash")
+    MergeModeStore.new("s1").write(mode) if mode
+    io = StringIO.new
+    event = { "session_id" => "s1", "tool_name" => tool, "tool_input" => { "command" => command } }
+    MergeModeGuard.new(event).emit(io)
+    io.string.empty? ? nil : JSON.parse(io.string).dig("hookSpecificOutput", "permissionDecision")
+  end
+
+  def test_local_only_denies_push
+    assert_equal "deny", decision(command: "git push origin main", mode: "Local only")
+  end
+
+  def test_local_only_denies_merge
+    assert_equal "deny", decision(command: "gh pr merge --squash", mode: "Local only")
+  end
+
+  def test_merge_ready_allows_push_but_denies_merge
+    assert_nil decision(command: "git push origin main", mode: "Merge ready")
+    assert_equal "deny", decision(command: "gh pr merge --admin", mode: "Merge ready")
+  end
+
+  def test_admin_bypass_allows_everything
+    assert_nil decision(command: "gh pr merge --admin", mode: "Admin bypass")
+    assert_nil decision(command: "git push origin main", mode: "Admin bypass")
+  end
+
+  def test_ignores_non_bash_tools
+    assert_nil decision(command: "git push", mode: "Local only", tool: "Edit")
+  end
+
+  def test_no_decision_when_mode_unset
+    assert_nil decision(command: "git push origin main", mode: nil)
   end
 end
 
