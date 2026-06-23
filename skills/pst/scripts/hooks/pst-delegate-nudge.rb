@@ -67,10 +67,12 @@ if n == 1
   d = Pst.default_branch(File.dirname(path))
   if Pst.current_branch(File.dirname(path)) == d
     puts JSON.generate(
-      'hookSpecificOutput' => { 'hookEventName' => 'PostToolUse' },
-      'additionalContext' =>
-        "PST: editing directly on the default branch '#{d}'. " \
-        'Create a feature branch before continuing.'
+      'hookSpecificOutput' => {
+        'hookEventName' => 'PostToolUse',
+        'additionalContext' =>
+          "PST: editing directly on the default branch '#{d}'. " \
+          'Create a feature branch before continuing.'
+      }
     )
   end
 end
@@ -78,13 +80,15 @@ end
 if n >= THRESHOLD
   File.write(counter, '0')
   puts JSON.generate(
-    'hookSpecificOutput' => { 'hookEventName' => 'PostToolUse' },
-    'additionalContext' =>
-      "PST: #{n} inline implementation edits in the primary worktree this session. " \
-      'If this is independent, well-scoped, non-gating grunt work, delegate it to a ' \
-      'background Sonnet agent in an isolated worktree (rule 1) instead of continuing ' \
-      'inline. Run `pst-mode.rb foreground on` to silence this when foreground work ' \
-      'is intentional.'
+    'hookSpecificOutput' => {
+      'hookEventName' => 'PostToolUse',
+      'additionalContext' =>
+        "PST: #{n} inline implementation edits in the primary worktree this session. " \
+        'If this is independent, well-scoped, non-gating grunt work, delegate it to a ' \
+        'background Sonnet agent in an isolated worktree (rule 1) instead of continuing ' \
+        'inline. Run `pst-mode.rb foreground on` to silence this when foreground work ' \
+        'is intentional.'
+    }
   )
 else
   File.write(counter, n.to_s)

@@ -35,15 +35,10 @@ module Pst
   end
 
   # Signal a PreToolUse deny and exit. Reason must not contain an em dash.
+  # exit 2 blocks the tool call; stderr is surfaced to Claude as the error.
   def deny!(reason)
-    puts JSON.generate(
-      'hookSpecificOutput' => {
-        'hookEventName' => 'PreToolUse',
-        'permissionDecision' => 'deny',
-        'permissionDecisionReason' => reason
-      }
-    )
-    exit 0
+    $stderr.puts reason
+    exit 2
   end
 
   def reviewed_dir
