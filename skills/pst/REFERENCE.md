@@ -442,3 +442,25 @@ Before the Haiku pre-flight agent scouts the repo, it must read `~/.claude/proje
 ### Validation
 
 Run `/pst:claude-md` to validate `MEMORY.md` structure (size, frontmatter, index format). That skill checks compliance of the auto-memory directory; this rule governs what to write and when.
+
+## Stacked PR order (rule 27)
+
+**Terminology:**
+
+- **Top of stack** (downstack): the PR whose base branch is `main` (or whatever the shared base is). This is the first PR to merge.
+- **Bottom of stack** (upstack): the outermost PR, stacked on top of one or more others. This merges last.
+
+**Correct merge order:** top to bottom -- base-targeting PR first, outermost PR last.
+
+**Example stack (3 PRs):**
+
+```
+main
+ └── feat/auth-core          (PR #10, targets main)        <-- merge first
+      └── feat/auth-ui       (PR #11, targets feat/auth-core)
+           └── feat/auth-e2e (PR #12, targets feat/auth-ui) <-- merge last
+```
+
+Merge PR #10 into main, rebase PR #11 onto main, then merge PR #11, rebase PR #12, then merge PR #12. Never touch PR #12 while PR #10 is unmerged -- the diff is wrong and the review is misleading.
+
+**Why it matters:** reviewing or merging upstack PRs before downstack ones inflates the upstack diff with changes that belong to downstack PRs, making review noisy and defeating the purpose of keeping stacked PR diffs small.

@@ -141,6 +141,8 @@ rules a hook reminds about (non-blocking). Detail and examples are in
 
 26. **Persist durable learnings to auto memory** `[NUDGE]`. When the session produces a learning that would help a future session in this repo -- a root-caused CI fix (rule 6), a winning tournament strategy for this repo (rule 24), a recurring dropped-finding pattern from code review, or a discovered build/bootstrap command -- save it to auto memory. See `REFERENCE.md` ## Auto memory for the full taxonomy, topic-file conventions, and the ledger-vs-memory boundary. Read auto memory before re-deriving repo facts (rule 19 Stage 0.5). Do not save PR numbers, SHAs, ledger contents, one-off task status, or anything already in CLAUDE.md.
 
+27. **Stacked PR order** `[NUDGE]`. When working a stack of PRs, sequence top-to-bottom: the PR targeting `main` (or the shared base branch) is reviewed and merged first. Do not review, repair, or merge an upstack PR until all downstack PRs have landed. If the user attempts to merge out of order, redirect them to the base PR first. See `REFERENCE.md` ## Stacked PR order (rule 27) for terminology and an example stack.
+
 ## Usage
 
 `/pst` activates, `/pst off` disarms. Mechanics, merge modes, and rule detail are
