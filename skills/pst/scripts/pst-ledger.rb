@@ -53,11 +53,7 @@ end
 
 def transition(file, id, new_status, summary: nil)
   entries = Pst.read_entries(file)
-  entry = find_entry(entries, id)
-  unless entry
-    warn "pst-ledger: entry #{id} not found"
-    exit 1
-  end
+  entry = find_entry_or_exit(entries, id)
   entry['status']     = new_status
   entry['updated_at'] = NOW
   entry['summary']    = summary unless summary.nil?
@@ -87,6 +83,26 @@ def find_entry(entries, id)
   entries.find { |e| e['id'] == id }
 end
 
+# Validate that a positional id was supplied; exit with usage message if not.
+def require_id!(positional, usage)
+  id = positional[0]
+  unless id && !id.empty?
+    warn usage
+    exit 1
+  end
+  id
+end
+
+# Find an entry by id or exit with an error message.
+def find_entry_or_exit(entries, id)
+  entry = find_entry(entries, id)
+  unless entry
+    warn "pst-ledger: entry #{id} not found"
+    exit 1
+  end
+  entry
+end
+
 # Display projection: the columns `list` and `context` render. Both derive their
 # cells from this, so adding or renaming a column is a one-place change.
 def display_fields(entry)
@@ -109,11 +125,7 @@ when 'init'
   puts "pst-ledger: initialized ledger for session #{sid}"
 
 when 'register'
-  id = positional[0]
-  unless id && !id.empty?
-    warn 'usage: pst-ledger.rb register <id> [--repo <path>] [--worktree <path>] [--intent <str>] [--label <str>] [--agent <str>]'
-    exit 1
-  end
+  id = require_id!(positional, 'usage: pst-ledger.rb register <id> [--repo <path>] [--worktree <path>] [--intent <str>] [--label <str>] [--agent <str>]')
   entries = Pst.read_entries(ledger_file)
   if find_entry(entries, id)
     warn "pst-ledger: entry #{id} already exists; use update to modify it"
@@ -136,17 +148,9 @@ when 'register'
   puts "pst-ledger: registered #{id}"
 
 when 'update'
-  id = positional[0]
-  unless id && !id.empty?
-    warn 'usage: pst-ledger.rb update <id> [--status <s>] [--summary <str>]'
-    exit 1
-  end
+  id = require_id!(positional, 'usage: pst-ledger.rb update <id> [--status <s>] [--summary <str>]')
   entries = Pst.read_entries(ledger_file)
-  entry = find_entry(entries, id)
-  unless entry
-    warn "pst-ledger: entry #{id} not found"
-    exit 1
-  end
+  entry = find_entry_or_exit(entries, id)
   entry['status']     = flags['status']  if flags.key?('status')
   entry['summary']    = flags['summary'] if flags.key?('summary')
   entry['updated_at'] = NOW

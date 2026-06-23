@@ -15,6 +15,10 @@ def capture(*argv, dir:)
   Timeout.timeout(25) { Open3.capture2e(*argv, chdir: dir) }
 end
 
+def resolve_dir(cwd)
+  cwd && File.directory?(cwd) ? cwd : Dir.pwd
+end
+
 def head_sha(pr, dir)
   if pr
     out, st = capture('gh', 'pr', 'view', pr, '--json', 'headRefOid', '-q', '.headRefOid', dir: dir)
@@ -29,35 +33,42 @@ def merge_guard(cmd, cwd)
   return unless cmd =~ /\bgh\s+pr\s+merge\b/
   return if cmd =~ /\s--auto\b/ # auto-merge defers to GitHub's approval + checks gate
 
-  dir = cwd && File.directory?(cwd) ? cwd : Dir.pwd
+  dir = resolve_dir(cwd)
   pr = cmd[%r{\bgh\s+pr\s+merge\b.*?\s(\d+|https?://\S+)}, 1]
 
-  # CI gate (rule 5)
-  unless ENV['PST_ALLOW_RED_MERGE'] == '1'
-    argv = ['gh', 'pr', 'checks']
-    argv << pr if pr
-    begin
-      out, status = capture(*argv, dir: dir)
-    rescue Timeout::Error
-      Pst.deny!('PST merge guard: timed out verifying CI. Rule 5 needs fully green ' \
-                'CI. Re-run after CI reports, or set PST_ALLOW_RED_MERGE=1.')
-    rescue StandardError => e
-      Pst.deny!("PST merge guard: could not verify CI (#{e.class}). Set " \
-                'PST_ALLOW_RED_MERGE=1 to override if CI is green.')
-    end
-    code = status&.exitstatus
-    unless code.zero? || out =~ /no check|no checks reported/i
-      summary = out.to_s.lines.first(10).map(&:rstrip).join("\n")
-      Pst.deny!("PST merge guard: CI is not fully green, rule 5 blocks this merge " \
-                "(gh pr checks exit #{code}). Wait for all checks, or set " \
-                "PST_ALLOW_RED_MERGE=1.\n#{summary}")
-    end
-  end
+  check_ci_gate(pr, dir)
+  check_review_gate(pr, dir)
+end
 
-  # Review gate (rule 7)
+# -- private helpers for merge_guard ------------------------------------------
+
+def check_ci_gate(pr_ref, dir)
+  return if ENV['PST_ALLOW_RED_MERGE'] == '1'
+
+  argv = ['gh', 'pr', 'checks']
+  argv << pr_ref if pr_ref
+  begin
+    out, status = capture(*argv, dir: dir)
+  rescue Timeout::Error
+    Pst.deny!('PST merge guard: timed out verifying CI. Rule 5 needs fully green ' \
+              'CI. Re-run after CI reports, or set PST_ALLOW_RED_MERGE=1.')
+  rescue StandardError => e
+    Pst.deny!("PST merge guard: could not verify CI (#{e.class}). Set " \
+              'PST_ALLOW_RED_MERGE=1 to override if CI is green.')
+  end
+  code = status&.exitstatus
+  return if code.zero? || out =~ /no check|no checks reported/i
+
+  summary = out.to_s.lines.first(10).map(&:rstrip).join("\n")
+  Pst.deny!("PST merge guard: CI is not fully green, rule 5 blocks this merge " \
+            "(gh pr checks exit #{code}). Wait for all checks, or set " \
+            "PST_ALLOW_RED_MERGE=1.\n#{summary}")
+end
+
+def check_review_gate(pr_ref, dir)
   return if ENV['PST_ALLOW_UNREVIEWED_MERGE'] == '1'
 
-  sha = head_sha(pr, dir)
+  sha = head_sha(pr_ref, dir)
   return if Pst.reviewed?(sha)
 
   Pst.deny!("PST review gate: no adversarial review recorded for commit " \
@@ -93,7 +104,7 @@ def push_guard(cmd, cwd)
   return if Pst.local_only?
   return if ENV['PST_ALLOW_MAIN_PUSH'] == '1'
 
-  dir = cwd && File.directory?(cwd) ? cwd : Dir.pwd
+  dir = resolve_dir(cwd)
   d = Pst.default_branch(dir)
   b = Regexp.escape(d)
 

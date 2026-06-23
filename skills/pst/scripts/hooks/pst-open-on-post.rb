@@ -19,16 +19,22 @@ DEDUP_DIR = File.expand_path('~/.cache/pst-hooks')
 DEDUP_FILE = File.join(DEDUP_DIR, 'open-on-post-dedup.json')
 DEDUP_TTL = 10 # seconds -- double-fires happen within milliseconds; 10s is generous
 
+def load_dedup_entries
+  return [] unless File.exist?(DEDUP_FILE)
+
+  JSON.parse(File.read(DEDUP_FILE))
+rescue JSON::ParserError
+  File.delete(DEDUP_FILE) rescue nil
+  []
+end
+
 def recently_opened?(url)
   return false unless File.exist?(DEDUP_FILE)
 
   begin
-    entries = JSON.parse(File.read(DEDUP_FILE))
+    entries = load_dedup_entries
     cutoff = Time.now.to_i - DEDUP_TTL
     entries.any? { |e| e['url'] == url && e['at'].to_i >= cutoff }
-  rescue JSON::ParserError
-    File.delete(DEDUP_FILE) rescue nil
-    false
   rescue StandardError
     false
   end
@@ -36,16 +42,7 @@ end
 
 def record_opened(url)
   FileUtils.mkdir_p(DEDUP_DIR)
-  entries = if File.exist?(DEDUP_FILE)
-    begin
-      JSON.parse(File.read(DEDUP_FILE))
-    rescue JSON::ParserError
-      File.delete(DEDUP_FILE) rescue nil
-      []
-    end
-  else
-    []
-  end
+  entries = load_dedup_entries
   cutoff = Time.now.to_i - DEDUP_TTL
   entries.reject! { |e| e['at'].to_i < cutoff }
   entries << { 'url' => url, 'at' => Time.now.to_i }

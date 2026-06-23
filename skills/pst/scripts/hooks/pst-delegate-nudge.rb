@@ -57,11 +57,7 @@ THRESHOLD = 3
 dir = File.join(Pst::HOME, 'delegate')
 FileUtils.mkdir_p(dir)
 counter = File.join(dir, sid)
-n = begin
-  File.read(counter).to_i
-rescue StandardError
-  0
-end + 1
+n = Pst.read_counter(counter) + 1
 
 if n == 1
   d = Pst.default_branch(File.dirname(path))

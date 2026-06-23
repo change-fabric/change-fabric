@@ -36,32 +36,34 @@ if ARGV[0] == 'off'
   exit 0
 end
 
-if ARGV[0] == 'foreground'
+def toggle_flag(subdir, flag_name, on_suffix: nil, off_suffix: nil)
   sid = resolve_sid
-  fdir = File.join(PST_HOME, 'foreground')
-  FileUtils.mkdir_p(fdir)
+  dir = File.join(PST_HOME, subdir)
+  FileUtils.mkdir_p(dir)
+  sid_part = sid ? " (session #{sid})" : ''
   if ARGV[1] == 'off'
-    FileUtils.rm_f(File.join(fdir, sid)) if sid
-    puts "pst: foreground mode off#{sid ? " (session #{sid})" : ''}"
+    FileUtils.rm_f(File.join(dir, sid)) if sid
+    msg = "pst: #{flag_name} mode off#{sid_part}"
+    msg += "; #{off_suffix}" if off_suffix
+    puts msg
   else
-    FileUtils.touch(File.join(fdir, sid)) if sid
-    puts "pst: foreground mode on#{sid ? " (session #{sid})" : ''}; delegate nudges silenced"
+    FileUtils.touch(File.join(dir, sid)) if sid
+    msg = "pst: #{flag_name} mode on#{sid_part}"
+    msg += "; #{on_suffix}" if on_suffix
+    puts msg
   end
   exit 0
 end
 
+if ARGV[0] == 'foreground'
+  toggle_flag('foreground', 'foreground',
+              on_suffix: 'delegate nudges silenced')
+end
+
 if ARGV[0] == 'local'
-  sid = resolve_sid
-  ldir = File.join(PST_HOME, 'local')
-  FileUtils.mkdir_p(ldir)
-  if ARGV[1] == 'off'
-    FileUtils.rm_f(File.join(ldir, sid)) if sid
-    puts "pst: local-only mode off#{sid ? " (session #{sid})" : ''}; remote pushes and PRs follow the chosen merge mode"
-  else
-    FileUtils.touch(File.join(ldir, sid)) if sid
-    puts "pst: local-only mode on#{sid ? " (session #{sid})" : ''}; git push and gh pr/issue mutations are blocked"
-  end
-  exit 0
+  toggle_flag('local', 'local-only',
+              on_suffix: 'git push and gh pr/issue mutations are blocked',
+              off_suffix: 'remote pushes and PRs follow the chosen merge mode')
 end
 
 # 1. Remove any prior non-Ruby hook scripts, then install the Ruby ones (plus the

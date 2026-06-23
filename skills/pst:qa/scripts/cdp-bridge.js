@@ -171,6 +171,30 @@ function pause(ms) {
 }
 
 // ---------------------------------------------------------------------------
+// Port / target helpers (shared across stream, capture, run)
+// ---------------------------------------------------------------------------
+
+function requirePort(command) {
+  const port = parseInt(args.port);
+  if (!port) fail("args", `--port is required for ${command} command`);
+  return port;
+}
+
+async function waitForPageTarget(port, { attempts = 15, delayMs = 500 } = {}) {
+  for (let i = 0; i < attempts; i++) {
+    try {
+      const targets = await fetchJson(`http://127.0.0.1:${port}/json`);
+      const page = targets.find((t) => t.type === "page");
+      if (page) return page;
+    } catch {
+      /* retry */
+    }
+    await pause(delayMs);
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------------
 // ChromeLink - CDP WebSocket connection
 // ---------------------------------------------------------------------------
 
@@ -214,21 +238,9 @@ class ChromeLink {
     }
 
     // Get WebSocket debugger URL
-    let targets;
-    for (let attempt = 0; attempt < 15; attempt++) {
-      try {
-        targets = await fetchJson(`http://127.0.0.1:${port}/json`);
-        break;
-      } catch {
-        await pause(500);
-      }
-    }
-
-    if (!targets)
+    const page = await waitForPageTarget(port);
+    if (!page)
       fail("connect", `Could not reach Chrome DevTools on port ${port}`);
-
-    const page = targets.find((t) => t.type === "page");
-    if (!page) fail("connect", "No page target found in Chrome");
 
     const wsUrl = page.webSocketDebuggerUrl;
 
@@ -318,22 +330,11 @@ async function handleLaunch() {
   chrome.unref();
 
   // Wait for DevTools endpoint to be reachable
-  let wsUrl = null;
-  for (let i = 0; i < 30; i++) {
-    try {
-      const targets = await fetchJson(`http://127.0.0.1:${debugPort}/json`);
-      const page = targets.find((t) => t.type === "page");
-      if (page) {
-        wsUrl = page.webSocketDebuggerUrl;
-        break;
-      }
-    } catch {
-      /* retry */
-    }
-    await pause(300);
-  }
-
-  if (!wsUrl) {
+  const launchPage = await waitForPageTarget(debugPort, {
+    attempts: 30,
+    delayMs: 300,
+  });
+  if (!launchPage) {
     try {
       process.kill(chrome.pid);
     } catch {}
@@ -342,6 +343,7 @@ async function handleLaunch() {
       "Chrome started but DevTools endpoint never became reachable",
     );
   }
+  const wsUrl = launchPage.webSocketDebuggerUrl;
 
   ok({
     chromePid: chrome.pid,
@@ -356,8 +358,7 @@ async function handleLaunch() {
 // ---------------------------------------------------------------------------
 
 async function handleStream() {
-  const port = parseInt(args.port);
-  if (!port) fail("args", "--port is required for stream command");
+  const port = requirePort("stream");
 
   const outputPath =
     args.output || path.join(os.tmpdir(), `pst-qa-stream-${Date.now()}.jsonl`);
@@ -458,8 +459,7 @@ async function handleStream() {
 // ---------------------------------------------------------------------------
 
 async function handleCapture() {
-  const port = parseInt(args.port);
-  if (!port) fail("args", "--port is required for capture command");
+  const port = requirePort("capture");
 
   const captureType = args.type || "url";
   const link = await ChromeLink.attach(port);
@@ -514,12 +514,105 @@ async function handleCapture() {
 }
 
 // ---------------------------------------------------------------------------
+// Command: run -- action handlers
+// ---------------------------------------------------------------------------
+
+async function runNavigate(link) {
+  const url = args.url;
+  if (!url) fail("args", "--url is required for navigate action");
+  // Register load listener BEFORE navigating to avoid race condition
+  // where fast navigations (about:blank, cached) fire before listener is attached
+  let didLoad = false;
+  const loaded = new Promise((resolve) => {
+    link.on("Page.loadEventFired", () => {
+      didLoad = true;
+      resolve();
+    });
+    setTimeout(resolve, 10000);
+  });
+  await link.send("Page.navigate", { url });
+  await loaded;
+  ok({ action: "navigate", url, timedOut: !didLoad });
+}
+
+async function runClick(link) {
+  const x = parseInt(args.x);
+  const y = parseInt(args.y);
+  if (isNaN(x) || isNaN(y))
+    fail("args", "--x and --y are required for click action");
+  await link.send("Input.dispatchMouseEvent", {
+    type: "mousePressed",
+    x,
+    y,
+    button: "left",
+    clickCount: 1,
+  });
+  await link.send("Input.dispatchMouseEvent", {
+    type: "mouseReleased",
+    x,
+    y,
+    button: "left",
+    clickCount: 1,
+  });
+  ok({ action: "click", x, y });
+}
+
+async function runType(link) {
+  const text = args.text;
+  if (!text) fail("args", "--text is required for type action");
+  for (const char of text) {
+    await link.send("Input.dispatchKeyEvent", {
+      type: "keyDown",
+      text: char,
+    });
+    await link.send("Input.dispatchKeyEvent", { type: "keyUp" });
+  }
+  ok({ action: "type", length: text.length });
+}
+
+async function runFocus(link) {
+  const selector = args.selector;
+  if (!selector) fail("args", "--selector is required for focus action");
+  await link.send("Runtime.evaluate", {
+    expression: `document.querySelector(${JSON.stringify(selector)})?.focus()`,
+  });
+  ok({ action: "focus", selector });
+}
+
+async function runClickSelector(link) {
+  const selector = args.selector;
+  if (!selector)
+    fail("args", "--selector is required for click-selector action");
+  const result = await link.send("Runtime.evaluate", {
+    expression: `(() => { const el = document.querySelector(${JSON.stringify(selector)}); if (!el) return { found: false }; el.click(); return { found: true }; })()`,
+    returnByValue: true,
+  });
+  const found = result.result.value?.found ?? false;
+  if (!found) fail("element", `No element found for selector: ${selector}`);
+  ok({ action: "click-selector", selector });
+}
+
+async function runEvaluate(link) {
+  const expr = args.expr;
+  if (!expr) fail("args", "--expr is required for evaluate action");
+  const result = await link.send("Runtime.evaluate", {
+    expression: expr,
+    returnByValue: true,
+    awaitPromise: true,
+  });
+  if (result.exceptionDetails) {
+    fail("evaluate", result.exceptionDetails.text);
+  } else {
+    ok({ action: "evaluate", value: result.result.value });
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Command: run
 // ---------------------------------------------------------------------------
 
 async function handleRun() {
-  const port = parseInt(args.port);
-  if (!port) fail("args", "--port is required for run command");
+  const port = requirePort("run");
 
   const actionType = args.type;
   if (!actionType) fail("args", "--type is required for run command");
@@ -529,105 +622,24 @@ async function handleRun() {
   // Enable Page domain so page lifecycle events (loadEventFired, frameNavigated) fire
   await link.send("Page.enable");
 
+  const dispatch = {
+    navigate: runNavigate,
+    click: runClick,
+    type: runType,
+    focus: runFocus,
+    "click-selector": runClickSelector,
+    evaluate: runEvaluate,
+  };
+
   try {
-    switch (actionType) {
-      case "navigate": {
-        const url = args.url;
-        if (!url) fail("args", "--url is required for navigate action");
-        // Register load listener BEFORE navigating to avoid race condition
-        // where fast navigations (about:blank, cached) fire before listener is attached
-        let didLoad = false;
-        const loaded = new Promise((resolve) => {
-          link.on("Page.loadEventFired", () => {
-            didLoad = true;
-            resolve();
-          });
-          setTimeout(resolve, 10000);
-        });
-        await link.send("Page.navigate", { url });
-        await loaded;
-        ok({ action: "navigate", url, timedOut: !didLoad });
-        break;
-      }
-      case "click": {
-        const x = parseInt(args.x);
-        const y = parseInt(args.y);
-        if (isNaN(x) || isNaN(y))
-          fail("args", "--x and --y are required for click action");
-        await link.send("Input.dispatchMouseEvent", {
-          type: "mousePressed",
-          x,
-          y,
-          button: "left",
-          clickCount: 1,
-        });
-        await link.send("Input.dispatchMouseEvent", {
-          type: "mouseReleased",
-          x,
-          y,
-          button: "left",
-          clickCount: 1,
-        });
-        ok({ action: "click", x, y });
-        break;
-      }
-      case "type": {
-        const text = args.text;
-        if (!text) fail("args", "--text is required for type action");
-        for (const char of text) {
-          await link.send("Input.dispatchKeyEvent", {
-            type: "keyDown",
-            text: char,
-          });
-          await link.send("Input.dispatchKeyEvent", { type: "keyUp" });
-        }
-        ok({ action: "type", length: text.length });
-        break;
-      }
-      case "focus": {
-        const selector = args.selector;
-        if (!selector) fail("args", "--selector is required for focus action");
-        await link.send("Runtime.evaluate", {
-          expression: `document.querySelector(${JSON.stringify(selector)})?.focus()`,
-        });
-        ok({ action: "focus", selector });
-        break;
-      }
-      case "click-selector": {
-        const selector = args.selector;
-        if (!selector)
-          fail("args", "--selector is required for click-selector action");
-        const result = await link.send("Runtime.evaluate", {
-          expression: `(() => { const el = document.querySelector(${JSON.stringify(selector)}); if (!el) return { found: false }; el.click(); return { found: true }; })()`,
-          returnByValue: true,
-        });
-        const found = result.result.value?.found ?? false;
-        if (!found)
-          fail("element", `No element found for selector: ${selector}`);
-        ok({ action: "click-selector", selector });
-        break;
-      }
-      case "evaluate": {
-        const expr = args.expr;
-        if (!expr) fail("args", "--expr is required for evaluate action");
-        const result = await link.send("Runtime.evaluate", {
-          expression: expr,
-          returnByValue: true,
-          awaitPromise: true,
-        });
-        if (result.exceptionDetails) {
-          fail("evaluate", result.exceptionDetails.text);
-        } else {
-          ok({ action: "evaluate", value: result.result.value });
-        }
-        break;
-      }
-      default:
-        fail(
-          "args",
-          `Unknown action type: ${actionType}. Use: navigate, click, click-selector, type, focus, evaluate`,
-        );
+    const handler = dispatch[actionType];
+    if (!handler) {
+      fail(
+        "args",
+        `Unknown action type: ${actionType}. Use: navigate, click, click-selector, type, focus, evaluate`,
+      );
     }
+    await handler(link);
   } finally {
     link.close();
   }

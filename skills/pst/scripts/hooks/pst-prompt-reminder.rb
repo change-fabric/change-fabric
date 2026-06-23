@@ -16,11 +16,7 @@ sid = Pst.session_id
 turns_dir = File.join(Pst::HOME, 'reminder-turns')
 FileUtils.mkdir_p(turns_dir)
 counter_file = File.join(turns_dir, sid)
-turn = begin
-  File.read(counter_file).to_i
-rescue StandardError
-  0
-end + 1
+turn = Pst.read_counter(counter_file) + 1
 File.write(counter_file, turn.to_s)
 
 # Silent for the first 3 turns -- doctrine is fresh from arming.
