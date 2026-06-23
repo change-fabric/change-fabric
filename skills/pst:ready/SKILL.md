@@ -10,7 +10,7 @@ allowed-tools: Bash, Read, Edit, Write, Grep, Glob, Agent, AskUserQuestion, Skil
 Drive PRs to merge-ready state. Single PR: run inline. 2+ URLs: dispatcher.
 
 Pipeline: workspace setup (0-1) --> tournament repair (T) --> settling (5.5)
---> PR refresh (6) --> test-plan (7) --> open and summarize (8).
+--> PR refresh (6) --> test-plan (7) --> refactor (7.5) --> open and summarize (8).
 
 ## Input
 
@@ -282,10 +282,49 @@ attestation comment (Phase 8) and continue.
 
 ---
 
+## Phase 7.5 -- Refactor Pass
+
+Invoke the `pst:refactor` skill on the PR's working tree. This phase is
+non-optional and runs on every `pst:ready` invocation.
+
+**How to invoke:** Use the Skill tool to call `pst:refactor`. If the Skill tool
+is not available in the current agent context, read
+`skills/pst:refactor/SKILL.md` and follow its instructions inline, scoped to
+`$WORK_DIR`.
+
+The refactor pass runs in the same worktree (`$WORK_DIR`) as the rest of the
+pipeline -- no new worktree is created.
+
+**If pst:refactor produces commits:**
+
+```bash
+REFACTOR_SHA=$(git rev-parse HEAD)
+git push --force-with-lease origin "$HEAD_BRANCH"
+```
+
+Cherry-pick the refactor commit(s) onto the PR branch before proceeding to
+Phase 8. Update `HEAD_SHA` after the push.
+
+**If pst:refactor produces no changes:** log `refactor: no smells found` and
+continue.
+
+Record the outcome in the progress file under key `refactor_result`:
+
+```json
+{ "smells_found": 0, "smells_fixed": 0, "committed": false }
+```
+
+---
+
 ## Phase 8 -- Open and Summarize
 
-Post an attestation comment (`<!-- pst:ready-attestation -->`). Unless
-`--no-open`, `gh pr view "$PR_URL" --web`. Print a terminal summary.
+Post an attestation comment (`<!-- pst:ready-attestation -->`). The comment
+must include a refactor summary line, for example:
+
+- `refactor: no smells found` -- if Phase 7.5 found nothing.
+- `refactor: N smells fixed (commit <sha>)` -- if Phase 7.5 committed changes.
+
+Unless `--no-open`, `gh pr view "$PR_URL" --web`. Print a terminal summary.
 
 Delete `.pst-ready-progress.json` on success. Preserve on any halt.
 
@@ -319,4 +358,4 @@ re-dispatches only failed children.
   real branch only after the winner is cherry-picked in Phase T.3.
 - Resume: `completed[]` lets `/pst:ready $PR_URL` resume from the first
   incomplete phase; tournament gate re-appears if Phase T did not finish.
-- Composition: delegates to `pst:rebase`, `pst:resolve-threads`, `pst:code-review`.
+- Composition: delegates to `pst:rebase`, `pst:resolve-threads`, `pst:code-review`, `pst:refactor`.
