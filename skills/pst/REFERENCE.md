@@ -401,3 +401,44 @@ Anthropic's prompt cache keys on an exact contiguous prefix. Mutating or compres
 ### Verbosity-at-tail
 
 Put the most load-bearing instruction last in a long prompt -- models weight the tail of a prompt more heavily. In practice: lead a response with the actionable summary; put verbose output, debug traces, and raw data at the end. This is a drafting heuristic, not a guarantee.
+
+## Auto memory (rule 26)
+
+Auto memory is the **cross-session**, **Claude-written** knowledge layer. CLAUDE.md is human-written standing rules. They are complementary: CLAUDE.md injects every session; auto memory entries are loaded on demand from `~/.claude/projects/<repo>/memory/`.
+
+### Save/skip taxonomy
+
+| Save                                                                                     | Skip                                                 |
+| ---------------------------------------------------------------------------------------- | ---------------------------------------------------- |
+| Root-caused CI failure + fix (rule 6)                                                    | PR numbers, SHAs, ledger contents                    |
+| Repo-scoped tournament winner + one-line rationale (rule 24)                             | One-off task status or in-progress work              |
+| Recurring DROPPED finding patterns from `pst:code-review` (calibrated false positives)   | Anything already in CLAUDE.md or derivable from code |
+| Discovered build/bootstrap commands (`npm ci --frozen-lockfile`, package-manager quirks) | Ephemeral session state                              |
+| Recurring VERIFIED finding patterns that signal a persistent design blind spot           | Transient observations that won't recur              |
+
+### MEMORY.md-as-index discipline
+
+`MEMORY.md` is a concise, flat index -- one line per entry, under ~150 characters. Only the first 200 lines (25 KB) load at session start. Push detail to topic files:
+
+| Topic                                             | Filename                  |
+| ------------------------------------------------- | ------------------------- |
+| Tournament strategy history                       | `tournament-strategy.md`  |
+| Code-review calibration (false positive patterns) | `code-review-patterns.md` |
+| CI root-cause log                                 | `ci-fixes.md`             |
+| Build/bootstrap discoveries                       | `build-commands.md`       |
+
+### Read-before-derive heuristic (rule 19, Stage 0.5)
+
+Before the Haiku pre-flight agent scouts the repo, it must read `~/.claude/projects/<repo>/memory/MEMORY.md` (if it exists) and any relevant topic files. Scout only facts not already in memory. This prevents redundant re-discovery of build commands, package manager quirks, and other stable repo facts on every run.
+
+### Ledger vs auto memory boundary (rule 22)
+
+| Ledger (`pst-ledger.rb`)                                  | Auto memory                                        |
+| --------------------------------------------------------- | -------------------------------------------------- |
+| Session-scoped; dies at session end                       | Persists across sessions                           |
+| Task registration, in-flight status, sibling coordination | Durable learnings that reduce future re-derivation |
+| Who is doing what right now                               | What we have learned about this repo over time     |
+
+### Validation
+
+Run `/pst:claude-md` to validate `MEMORY.md` structure (size, frontmatter, index format). That skill checks compliance of the auto-memory directory; this rule governs what to write and when.
