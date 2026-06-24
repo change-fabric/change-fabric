@@ -56,8 +56,9 @@ end
 class InstallerTest < Minitest::Test
   HOOK_SCRIPTS = %w[
     session_start.rb merge_mode_guard.rb merge_mode_record.rb merge_mode_restate.rb
+    skill_detect.rb skill_inject.rb skill_review.rb
   ].freeze
-  EVENTS = %w[SessionStart PreToolUse PostToolUse UserPromptSubmit].freeze
+  EVENTS = %w[SessionStart PreToolUse PostToolUse UserPromptSubmit Stop].freeze
 
   def setup
     @home = Dir.mktmpdir
@@ -83,10 +84,20 @@ class InstallerTest < Minitest::Test
     end
   end
 
-  def test_links_skill_to_repo_source
+  def test_links_every_skill_to_its_repo_source
     paths = install
-    assert File.symlink?(paths.skill_link), "skill link should be a symlink"
-    assert_equal paths.skill_source, File.readlink(paths.skill_link)
+    paths.skill_sources.each do |source|
+      link = paths.skill_link(File.basename(source))
+      assert File.symlink?(link), "#{File.basename(source)} skill should be a symlink"
+      assert_equal source, File.readlink(link)
+    end
+  end
+
+  def test_links_the_auto_skills_alongside_pst
+    paths = install
+    linked = paths.skill_sources.map { |s| File.basename(s) }
+    assert_includes linked, "ruby"
+    assert_includes linked, "refactoring"
   end
 
   def test_wires_every_event_with_the_interpreter_path
@@ -101,8 +112,8 @@ class InstallerTest < Minitest::Test
     paths = install
     install
     hooks = JSON.parse(File.read(paths.settings))["hooks"]
-    counts = hooks.values.map { |section| section.sum { |group| group["hooks"].size } }
-    assert_equal [ 1, 1, 1, 1 ], counts
+    counts = EVENTS.map { |event| hooks[event].sum { |group| group["hooks"].size } }
+    assert_equal [ 2, 1, 2, 1, 1 ], counts
     assert File.exist?("#{paths.settings}.bak"), "second install should back up settings"
   end
 end

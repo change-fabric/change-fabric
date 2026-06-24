@@ -16,13 +16,15 @@ module Install
     end
 
     def scripts      = File.join(@repo, 'scripts')
-    def skill_source = File.join(@repo, 'skills', 'pst')
+    def skills_dir   = File.join(@repo, 'skills')
     def bin          = File.join(@home, '.claude', 'pst', 'bin')
-    def skill_link   = File.join(@home, '.claude', 'skills', 'pst')
+    def skills_root  = File.join(@home, '.claude', 'skills')
     def settings     = File.join(@home, '.claude', 'settings.json')
 
-    def scripts_glob      = Dir.glob(File.join(scripts, '*.rb'))
-    def script_dest(name) = File.join(bin, name)
+    def scripts_glob       = Dir.glob(File.join(scripts, '*.rb'))
+    def skill_sources      = Dir.glob(File.join(skills_dir, '*')).select { |p| File.directory?(p) }
+    def script_dest(name)  = File.join(bin, name)
+    def skill_link(name)   = File.join(skills_root, name)
   end
 
   # Resolves the absolute path of the running Ruby interpreter for hook shebangs.
@@ -64,9 +66,11 @@ module Install
     end
 
     def add_event_hooks(hooks, events)
-      events.each do |event, command|
+      events.each do |event, commands|
         section = (hooks[event] ||= [])
-        section << { 'hooks' => [ { 'type' => 'command', 'command' => command } ] }
+        Array(commands).each do |command|
+          section << { 'hooks' => [ { 'type' => 'command', 'command' => command } ] }
+        end
       end
     end
 
@@ -92,10 +96,11 @@ module Install
   # Top-level orchestration: copies hooks, links the skill, and wires settings.
   class Installer
     HOOKS = {
-      'SessionStart' => 'session_start.rb',
-      'PreToolUse' => 'merge_mode_guard.rb',
-      'PostToolUse' => 'merge_mode_record.rb',
-      'UserPromptSubmit' => 'merge_mode_restate.rb'
+      'SessionStart' => %w[session_start.rb skill_detect.rb],
+      'PreToolUse' => %w[merge_mode_guard.rb],
+      'PostToolUse' => %w[merge_mode_record.rb skill_inject.rb],
+      'UserPromptSubmit' => %w[merge_mode_restate.rb],
+      'Stop' => %w[skill_review.rb]
     }.freeze
 
     def initialize(paths:, ruby:)
@@ -105,7 +110,7 @@ module Install
 
     def install
       place_hooks
-      link_skill
+      link_skills
       report(wire_settings)
     end
 
@@ -121,10 +126,13 @@ module Install
       end
     end
 
-    def link_skill
-      FileUtils.mkdir_p(File.dirname(@paths.skill_link))
-      FileUtils.rm_f(@paths.skill_link) if File.symlink?(@paths.skill_link)
-      FileUtils.ln_sf(@paths.skill_source, @paths.skill_link)
+    def link_skills
+      @paths.skill_sources.each do |source|
+        link = @paths.skill_link(File.basename(source))
+        FileUtils.mkdir_p(File.dirname(link))
+        FileUtils.rm_f(link) if File.symlink?(link)
+        FileUtils.ln_sf(source, link)
+      end
     end
 
     def wire_settings
@@ -134,13 +142,16 @@ module Install
     end
 
     def commands
-      HOOKS.to_h { |event, name| [ event, "#{@ruby} #{@paths.script_dest(name)}" ] }
+      HOOKS.to_h do |event, names|
+        [ event, names.map { |name| "#{@ruby} #{@paths.script_dest(name)}" } ]
+      end
     end
 
     def report(settings)
-      puts 'merge-mode shim installed:'
+      skills = @paths.skill_sources.map { |s| File.basename(s) }.join(', ')
+      puts 'pst shim installed:'
       puts "  hooks    -> #{@paths.bin} (#{HOOKS.keys.join(', ')})"
-      puts "  skill    -> #{@paths.skill_link}"
+      puts "  skills   -> #{@paths.skills_root} (#{skills})"
       puts "  settings -> #{@paths.settings} (backup at #{settings.backup_path})"
     end
   end
