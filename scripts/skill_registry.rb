@@ -12,7 +12,7 @@ module SkillRegistry
   # What `all_code: true` matches. Centralized so a code-wide skill declares
   # intent (`all_code`) instead of re-listing extensions in its frontmatter.
   CODE_EXTENSIONS = %w[
-    rb rake gemspec ru py js jsx mjs cjs ts tsx go rs java kt kts c h cc cpp hpp
+    rb rake gemspec ru py js jsx mjs cjs ts tsx mts cts go rs java kt kts c h cc cpp hpp
     cs php swift scala clj cljs ex exs erl hs ml sh bash zsh sql lua dart groovy
     r jl vue svelte
   ].freeze
