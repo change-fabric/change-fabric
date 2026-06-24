@@ -2,7 +2,10 @@
 
 Each subdirectory is a Claude Code skill (`SKILL.md` with YAML frontmatter).
 `install.rb` symlinks every one into `~/.claude/skills/`, so they are all
-invocable directly (e.g. `/pst:refactoring`).
+invocable directly (e.g. `/pst:refactoring`). Re-running it also prunes its own
+stale links: a symlink into this repo's `skills/` with no matching source (a
+renamed or deleted skill) is removed, while real dirs and links into other
+repos are left alone.
 
 Directory names stay plain and portable (no colons committed to git). The
 `pst:` namespace lives only in each skill's frontmatter `name:`, which is what

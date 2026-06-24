@@ -144,12 +144,32 @@ module Install
     end
 
     def link_skills
-      @paths.skill_sources.each do |source|
-        link = @paths.skill_link(SkillName.of(source))
+      links = @paths.skill_sources.to_h { |source| [ @paths.skill_link(SkillName.of(source)), source ] }
+      prune_stale_links(links.keys)
+      links.each do |link, source|
         FileUtils.mkdir_p(File.dirname(link))
         FileUtils.rm_f(link) if File.symlink?(link)
         FileUtils.ln_sf(source, link)
       end
+    end
+
+    # Removes skill symlinks this installer owns - those pointing into the repo's
+    # skills dir - that no current source still claims, so a renamed or deleted
+    # skill leaves no dangling link. Real dirs and links into other repos are not
+    # ours to touch, mirroring how managed_dir scopes the settings sweep.
+    def prune_stale_links(keep)
+      managed_skill_links.each { |link| FileUtils.rm_f(link) unless keep.include?(link) }
+    end
+
+    def managed_skill_links
+      Dir.glob(File.join(@paths.skills_root, '*')).select { |entry| points_into_repo_skills?(entry) }
+    end
+
+    def points_into_repo_skills?(entry)
+      return false unless File.symlink?(entry)
+
+      target = File.expand_path(File.readlink(entry), File.dirname(entry))
+      target.start_with?(File.expand_path(@paths.skills_dir) + File::SEPARATOR)
     end
 
     def wire_settings

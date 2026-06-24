@@ -107,6 +107,28 @@ class InstallerTest < Minitest::Test
     refute(plain.any? { |base| base.include?(":") }, "on-disk skill dirs must stay colon-free")
   end
 
+  def test_prunes_a_managed_link_whose_source_is_gone
+    paths = install
+    stale = paths.skill_link("pst:renamed")
+    File.symlink(File.join(paths.skills_dir, "renamed"), stale)
+    install
+    refute File.symlink?(stale), "a link into the repo skills dir with no current source should be pruned"
+  end
+
+  def test_leaves_unmanaged_skill_entries_alone
+    paths = install
+    real = paths.skill_link("vendor-skill")
+    FileUtils.mkdir_p(real)
+    foreign_target = Dir.mktmpdir
+    foreign = paths.skill_link("foreign")
+    File.symlink(foreign_target, foreign)
+    install
+    assert File.directory?(real), "a real (non-symlink) skill dir must be left alone"
+    assert File.symlink?(foreign), "a link pointing outside the repo must be left alone"
+  ensure
+    FileUtils.remove_entry(foreign_target) if foreign_target
+  end
+
   def test_wires_every_event_with_the_interpreter_path
     paths = install
     hooks = JSON.parse(File.read(paths.settings))["hooks"]
