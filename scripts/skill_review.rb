@@ -81,13 +81,25 @@ class SkillReview
     TEXT
   end
 
-  # all_code skills match by extension, which can misfire on data or prose that
-  # merely looks like code. Tell the reviewer to judge code-ness first.
+  # Each scope frames what the reviewer should treat as in-bounds. all_code
+  # matches by extension, which can misfire on data or prose that merely looks
+  # like code, so judge code-ness first. all_files is deliberately broad, so the
+  # reviewer must not skip prose or documentation as "not code".
   def taxonomy_note(skill)
-    return '' unless skill&.all_code?
+    return code_only_note if skill&.all_code?
+    return every_file_note if skill&.all_files?
 
+    ''
+  end
+
+  def code_only_note
     "\nFirst confirm each changed file is genuinely code (it may be code embedded " \
       "in another format). Review only real code; mark anything that is not code as clean.\n"
+  end
+
+  def every_file_note
+    "\nThis skill applies to every changed file, including prose and documentation, " \
+      "not just code. Review all of them.\n"
   end
 end
 

@@ -11,6 +11,7 @@ class SkillReviewTest < Minitest::Test
     @skills = Dir.mktmpdir
     skill_dir("ruby", auto: { "extensions" => [ "rb" ] }, body: "POODR-PRINCIPLES")
     skill_dir("refactoring", auto: { "all_code" => true }, body: "FOWLER-PRINCIPLES")
+    skill_dir("ai-slop", auto: { "all_files" => true }, body: "SLOP-PRINCIPLES")
   end
 
   def teardown
@@ -50,6 +51,13 @@ class SkillReviewTest < Minitest::Test
   def test_extension_section_has_no_taxonomy_note
     enqueue("ruby", "/p/user.rb", "h1")
     refute_includes review["reason"], "genuinely code"
+  end
+
+  def test_all_files_section_tells_reviewer_to_include_prose
+    enqueue("ai-slop", "/p/README.md", "h1")
+    reason = review["reason"]
+    assert_includes reason, "prose and documentation"
+    refute_includes reason, "mark anything that is not code as clean"
   end
 
   def test_fires_once_per_batch

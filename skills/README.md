@@ -38,10 +38,12 @@ The pst shim then surfaces it without anyone invoking it:
 - **Project fingerprint** (`skill_detect.rb`, SessionStart) is a deterministic
   marker-file scan that announces which skills apply, once per session. Project
   type is a file-presence question (`Gemfile`, `*.gemspec`), so it needs no LLM.
-- **Review** runs a model against the changed code. Whether a skill reviews is a
-  convention, not a flag: `all_files` skills surface their body only, while
-  code-oriented skills (`all_code` or explicit `extensions`) are reviewed. As you
-  edit, `skill_inject.rb` queues every changed file a reviewed skill matches. When
+- **Review** runs a model against the changed files. Every matching skill is
+  reviewed; the scope only frames what counts as in-bounds. `all_code` and
+  `extensions` skills review code (the prompt tells the reviewer to skip files
+  that merely look like code), while `all_files` skills (`pst:ai-slop`) review
+  every changed file, prose and documentation included. As you edit,
+  `skill_inject.rb` queues every changed file each matching skill covers. When
   the turn ends, `skill_review.rb` (Stop hook) drains that queue and blocks once,
   handing the agent a fixed prompt - the skill's principles plus the changed file
   list - to run a haiku background-agent review. Draining the queue and honoring

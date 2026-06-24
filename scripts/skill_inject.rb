@@ -45,14 +45,14 @@ class SkillInject
     input['file_path'] || input['notebook_path']
   end
 
-  # Records every review-enabled match so the Stop hook reviews the batch. The
-  # content hash lets the queue review each distinct version once and converge.
+  # Records every match so the Stop hook reviews the batch. The content hash
+  # lets the queue review each distinct version once and converge.
   def enqueue_reviews(skills, path)
     hash = content_hash(path)
     return unless hash
 
     queue = ReviewQueue.new(@event['session_id'])
-    skills.select(&:review?).each { |skill| queue.add(skill.name, path, hash) }
+    skills.each { |skill| queue.add(skill.name, path, hash) }
   end
 
   def content_hash(path)

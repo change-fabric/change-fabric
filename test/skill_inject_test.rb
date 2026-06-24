@@ -63,23 +63,22 @@ class SkillInjectTest < Minitest::Test
     assert_nil context(tool: "Edit", path: "/p/README.md", skills: only_ruby)
   end
 
-  def test_reviewed_skills_are_queued_with_a_content_hash
+  def test_every_matching_skill_is_queued_with_a_content_hash
     edit("foo.rb")
     queued = ReviewQueue.new("s1").drain
-    assert_equal %w[refactoring ruby], queued.map { |q| q[:skill] }.uniq.sort
-    refute_includes queued.map { |q| q[:skill] }, "ai-slop"
+    assert_equal %w[ai-slop refactoring ruby], queued.map { |q| q[:skill] }.uniq.sort
     assert(queued.all? { |q| q[:hash].to_s.length == 16 }, "each entry carries a content hash")
   end
 
-  def test_surface_only_skill_does_not_queue
+  def test_prose_change_queues_the_all_files_skill
     edit("notes.md")
-    assert_empty ReviewQueue.new("s1").drain
+    assert_equal %w[ai-slop], ReviewQueue.new("s1").drain.map { |q| q[:skill] }.uniq
   end
 
   def test_re_editing_same_content_does_not_grow_the_queue
     edit("foo.rb", content: "same")
     edit("foo.rb", content: "same")
-    assert_equal 2, ReviewQueue.new("s1").drain.size, "ruby + refactoring, one entry each"
+    assert_equal 3, ReviewQueue.new("s1").drain.size, "ruby + refactoring + ai-slop, one entry each"
   end
 
   def test_surfaces_each_skill_at_most_once_per_session

@@ -48,10 +48,6 @@ module SkillRegistry
     def all_files? = @auto['all_files'] == true
     def body = @body
 
-    # Review is a convention, not a flag: all_files skills surface their body
-    # only; code-oriented skills (all_code or explicit extensions) are reviewed.
-    def review? = !all_files?
-
     def matches?(path)
       return true if all_files?
 

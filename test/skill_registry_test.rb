@@ -74,16 +74,6 @@ class SkillRegistryTest < Minitest::Test
     refute load.first.matches?("/proj/README.md")
   end
 
-  def test_review_follows_scope_convention
-    skill_dir("ai-slop", auto: { "all_files" => true })
-    skill_dir("refactoring", auto: { "all_code" => true })
-    skill_dir("ruby", auto: { "extensions" => [ "rb" ] })
-    by_name = load.to_h { |s| [ s.name, s ] }
-    refute by_name["ai-slop"].review?, "all_files surfaces only"
-    assert by_name["refactoring"].review?, "all_code is reviewed"
-    assert by_name["ruby"].review?, "extension skills are reviewed"
-  end
-
   def test_malformed_skill_is_skipped_not_fatal
     dir = File.join(@skills, "broken")
     FileUtils.mkdir_p(dir)
@@ -91,16 +81,13 @@ class SkillRegistryTest < Minitest::Test
     assert_equal [], load
   end
 
-  def test_shipped_skills_declare_intended_scope_and_review
+  def test_shipped_skills_declare_intended_scope
     by_name = SkillRegistry.load(REPO_SKILLS).to_h { |s| [ s.name, s ] }
-    assert by_name["pst:ruby"].review?
     assert by_name["pst:ruby"].matches?("app/models/user.rb")
     assert by_name["pst:refactoring"].all_code?
-    assert by_name["pst:refactoring"].review?
     assert by_name["pst:refactoring"].matches?("src/main.go")
     refute by_name["pst:refactoring"].matches?("docs/notes.md")
     assert by_name["pst:ai-slop"].all_files?
-    refute by_name["pst:ai-slop"].review?
     assert by_name["pst:ai-slop"].matches?("docs/notes.md")
     assert by_name["pst:ai-slop"].matches?("app/models/user.rb")
   end
