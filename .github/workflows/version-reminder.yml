@@ -1,0 +1,25 @@
+name: version-reminder
+
+on:
+  pull_request:
+    paths:
+      - "scripts/**"
+      - "skills/**"
+      - "install.rb"
+
+jobs:
+  remind:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Warn when shipped code changes without a VERSION bump
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if git diff --name-only "$BASE_SHA"...HEAD | grep -q '^VERSION$'; then
+            echo "VERSION changed; nothing to remind."
+            exit 0
+          fi
+          echo "::warning title=No VERSION bump::This PR changes scripts/, skills/, or install.rb but does not touch VERSION. Bump it (semver) if this is a release-worthy change."
