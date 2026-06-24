@@ -9,6 +9,23 @@ Directory names stay plain and portable (no colons committed to git). The
 `SkillRegistry` and Claude Code resolve by; `install.rb` names the symlink from
 that single source. `pst` itself is the namespace root and stays unprefixed.
 
+Skills fall into two kinds, by whether they carry an `auto:` block.
+
+## Command skills (manually invoked)
+
+A skill with no `auto:` block is a command: it runs only when you invoke it, and
+the hooks never surface it. These are verbs the agent performs on demand.
+
+| Skill | Does |
+|---|---|
+| `pst` | Sets and enforces the session merge mode. |
+| `pst:refactor` | Refactors a scope you name (PR, branch, repo, file, or glob), routing each file through the auto-firing skills that cover it. |
+
+`pst:refactor` reuses the routing below by shelling out to `skill_route.rb`
+(`scripts/skill_route.rb`, copied to the shim bin but not wired as a hook): it
+maps a changeset's files to the skills that match, so a one-shot refactor
+applies the same rubrics the per-edit hooks would.
+
 ## Auto-firing skills
 
 A skill becomes **auto-firing** by adding an `auto:` block to its frontmatter.
@@ -44,6 +61,3 @@ The pst shim then surfaces it without anyone invoking it:
 | `detect` | Glob markers, relative to project root, that mark the skill active at SessionStart |
 | `all_code` | `true` = matches every code file via the central extension list (used by `pst:refactoring`) |
 | `all_files` | `true` = matches every edited file, code or prose (used by `pst:ai-slop`) |
-
-Skills with no `auto:` block (like `pst`) are plain user-invocable skills and
-are never surfaced automatically.
