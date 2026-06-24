@@ -7,6 +7,9 @@ require "stringio"
 require "tmpdir"
 
 SCRIPTS = File.expand_path("../scripts", __dir__)
+require_relative "#{SCRIPTS}/hook_event"
+require_relative "#{SCRIPTS}/guarded_command"
+require_relative "#{SCRIPTS}/merge_mode_answer"
 require_relative "#{SCRIPTS}/merge_mode_store"
 require_relative "#{SCRIPTS}/merge_mode_record"
 require_relative "#{SCRIPTS}/merge_mode_restate"
@@ -16,7 +19,7 @@ require_relative "#{SCRIPTS}/session_start"
 module TempHome
   def setup
     @home = Dir.mktmpdir
-    @prev_home = ENV["HOME"]
+    @prev_home = Dir.home
     ENV["HOME"] = @home
   end
 
@@ -77,8 +80,8 @@ end
 class MergeModeAnswerTest < Minitest::Test
   def real_response(answer)
     {
-      "questions" => [{ "question" => "How should I handle changes from this session?",
-                        "header" => "Merge mode" }],
+      "questions" => [ { "question" => "How should I handle changes from this session?",
+                        "header" => "Merge mode" } ],
       "answers" => { "How should I handle changes from this session?" => answer }
     }
   end
@@ -89,7 +92,7 @@ class MergeModeAnswerTest < Minitest::Test
 
   def test_ignores_questions_without_merge_mode_header
     response = {
-      "questions" => [{ "question" => "Pick a color", "header" => "Color" }],
+      "questions" => [ { "question" => "Pick a color", "header" => "Color" } ],
       "answers" => { "Pick a color" => "blue" }
     }
     assert_nil MergeModeAnswer.new(response).label
@@ -101,6 +104,40 @@ class MergeModeAnswerTest < Minitest::Test
   end
 end
 
+class GuardedCommandTest < Minitest::Test
+  def violation(command, mode)
+    GuardedCommand.new(command, mode).violation
+  end
+
+  def test_local_only_flags_push_and_merge
+    assert_equal "git push", violation("git push origin main", "Local only")
+    assert_equal "gh pr merge", violation("gh pr merge --squash", "Local only")
+  end
+
+  def test_merge_ready_allows_push_but_flags_merge
+    assert_nil violation("git push origin main", "Merge ready")
+    assert_equal "gh pr merge", violation("gh pr merge --admin", "Merge ready")
+  end
+
+  def test_admin_bypass_flags_nothing
+    assert_nil violation("git push origin main", "Admin bypass")
+    assert_nil violation("gh pr merge --admin", "Admin bypass")
+  end
+
+  def test_unknown_mode_flags_nothing
+    assert_nil violation("git push origin main", "Bogus mode")
+  end
+
+  def test_matches_on_word_boundaries_only
+    assert_nil violation("git pushups", "Local only")
+    assert_nil violation("legit-push helper", "Local only")
+  end
+
+  def test_handles_non_string_command
+    assert_nil violation(nil, "Local only")
+  end
+end
+
 class MergeModeRecordTest < Minitest::Test
   include TempHome
 
@@ -109,7 +146,7 @@ class MergeModeRecordTest < Minitest::Test
       "session_id" => "s1",
       "tool_name" => tool_name,
       "tool_response" => {
-        "questions" => [{ "question" => "q", "header" => "Merge mode" }],
+        "questions" => [ { "question" => "q", "header" => "Merge mode" } ],
         "answers" => { "q" => "Admin bypass" }
       }
     }

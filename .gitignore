@@ -1,0 +1,6 @@
+# Git worktrees created inside the repo
+/.worktrees/
+/worktrees/
+
+# macOS / editor cruft
+.DS_Store

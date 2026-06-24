@@ -1,11 +1,13 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 
-require "json"
-require_relative "merge_mode_store"
+require 'json'
+require_relative 'hook_event'
+require_relative 'merge_mode_store'
 
+# SessionStart hook: asks for a merge mode, or restates one already chosen.
 class MergeModeHook
-  EVENT = "SessionStart"
+  EVENT = 'SessionStart'
 
   ASK = <<~TEXT.strip
     [pst] Before responding to anything else, call the AskUserQuestion tool to set the session's MERGE MODE.
@@ -35,7 +37,7 @@ class MergeModeHook
   end
 
   def directive
-    mode = MergeModeStore.new(@event["session_id"]).mode
+    mode = MergeModeStore.new(@event['session_id']).mode
     mode ? restate(mode) : ASK
   end
 
@@ -44,6 +46,4 @@ class MergeModeHook
   end
 end
 
-if __FILE__ == $PROGRAM_NAME
-  MergeModeHook.new(HookEvent.read).emit
-end
+MergeModeHook.new(HookEvent.read).emit if __FILE__ == $PROGRAM_NAME

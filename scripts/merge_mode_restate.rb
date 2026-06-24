@@ -1,18 +1,20 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 
-require "json"
-require_relative "merge_mode_store"
+require 'json'
+require_relative 'hook_event'
+require_relative 'merge_mode_store'
 
+# UserPromptSubmit hook: re-injects the active merge mode as context each turn.
 class MergeModeRestate
-  EVENT = "UserPromptSubmit"
+  EVENT = 'UserPromptSubmit'
 
   def initialize(event)
     @event = event
   end
 
   def emit(io = $stdout)
-    mode = MergeModeStore.new(@event["session_id"]).mode
+    mode = MergeModeStore.new(@event['session_id']).mode
     return unless mode
 
     io.puts(JSON.generate(payload(mode)))
@@ -29,6 +31,4 @@ class MergeModeRestate
   end
 end
 
-if __FILE__ == $PROGRAM_NAME
-  MergeModeRestate.new(HookEvent.read).emit
-end
+MergeModeRestate.new(HookEvent.read).emit if __FILE__ == $PROGRAM_NAME

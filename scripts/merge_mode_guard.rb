@@ -1,45 +1,23 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 
-require_relative "merge_mode_store"
+require 'json'
+require_relative 'hook_event'
+require_relative 'merge_mode_store'
+require_relative 'guarded_command'
 
-# Advisory guardrail, not airtight enforcement: a simple regex match on the
-# Bash command. It catches the obvious cases (a bare `git push` / `gh pr merge`)
-# and is trivially bypassable (env-var indirection, git -c, non-Bash tools). It
-# exists to make an accidental violation of the chosen mode loud, not to sandbox.
-class GuardedCommand
-  PUSH = /\bgit\s+push\b/
-  MERGE = /\bgh\s+pr\s+merge\b/
-
-  FORBIDDEN = {
-    "Local only"  => { PUSH => "git push", MERGE => "gh pr merge" },
-    "Merge ready" => { MERGE => "gh pr merge" }
-  }.freeze
-
-  def initialize(command, mode)
-    @command = command.to_s
-    @mode = mode
-  end
-
-  def violation
-    FORBIDDEN.fetch(@mode, {}).each do |pattern, action|
-      return action if @command.match?(pattern)
-    end
-    nil
-  end
-end
-
+# PreToolUse hook: denies a Bash command that violates the session's merge mode.
 class MergeModeGuard
-  EVENT = "PreToolUse"
+  EVENT = 'PreToolUse'
 
   def initialize(event)
     @event = event
   end
 
   def emit(io = $stdout)
-    return unless @event["tool_name"] == "Bash"
+    return unless @event['tool_name'] == 'Bash'
 
-    mode = MergeModeStore.new(@event["session_id"]).mode
+    mode = MergeModeStore.new(@event['session_id']).mode
     return unless mode
 
     action = GuardedCommand.new(command, mode).violation
@@ -51,21 +29,19 @@ class MergeModeGuard
   private
 
   def command
-    input = @event["tool_input"]
-    input.is_a?(Hash) ? input["command"] : nil
+    input = @event['tool_input']
+    input.is_a?(Hash) ? input['command'] : nil
   end
 
   def deny(action, mode)
     {
       hookSpecificOutput: {
         hookEventName: EVENT,
-        permissionDecision: "deny",
+        permissionDecision: 'deny',
         permissionDecisionReason: "[pst] Merge mode is #{mode}: #{action} is not allowed. Run /pst to change the mode."
       }
     }
   end
 end
 
-if __FILE__ == $PROGRAM_NAME
-  MergeModeGuard.new(HookEvent.read).emit
-end
+MergeModeGuard.new(HookEvent.read).emit if __FILE__ == $PROGRAM_NAME
