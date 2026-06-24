@@ -105,8 +105,8 @@ class MergeModeAnswerTest < Minitest::Test
 end
 
 class GuardedCommandTest < Minitest::Test
-  def violation(command, mode)
-    GuardedCommand.new(command, mode).violation
+  def violation(command, mode, branch: nil)
+    GuardedCommand.new(command, mode, branch: branch).violation
   end
 
   def test_local_only_flags_push_and_merge
@@ -114,9 +114,31 @@ class GuardedCommandTest < Minitest::Test
     assert_equal "gh pr merge", violation("gh pr merge --squash", "Local only")
   end
 
-  def test_merge_ready_allows_push_but_flags_merge
-    assert_nil violation("git push origin main", "Merge ready")
+  def test_merge_ready_flags_merge
     assert_equal "gh pr merge", violation("gh pr merge --admin", "Merge ready")
+  end
+
+  def test_merge_ready_allows_pushing_a_feature_branch
+    assert_nil violation("git push origin my-feature", "Merge ready", branch: "my-feature")
+    assert_nil violation("git push -u origin my-feature", "Merge ready", branch: "my-feature")
+  end
+
+  def test_merge_ready_flags_explicit_push_to_trunk
+    assert_equal "a direct push to the trunk", violation("git push origin main", "Merge ready")
+    assert_equal "a direct push to the trunk", violation("git push origin master", "Merge ready")
+    assert_equal "a direct push to the trunk", violation("git push -u origin main", "Merge ready")
+    assert_equal "a direct push to the trunk", violation("git push origin HEAD:main", "Merge ready")
+  end
+
+  def test_merge_ready_flags_bare_push_while_on_trunk
+    assert_equal "a direct push to the trunk", violation("git push", "Merge ready", branch: "main")
+    assert_equal "a direct push to the trunk", violation("git push origin", "Merge ready", branch: "main")
+    assert_equal "a direct push to the trunk", violation("git push origin HEAD", "Merge ready", branch: "main")
+  end
+
+  def test_merge_ready_allows_bare_push_while_on_feature_branch
+    assert_nil violation("git push", "Merge ready", branch: "my-feature")
+    assert_nil violation("git push origin", "Merge ready", branch: "my-feature")
   end
 
   def test_admin_bypass_flags_nothing
@@ -182,9 +204,13 @@ class MergeModeGuardTest < Minitest::Test
     assert_equal "deny", decision(command: "gh pr merge --squash", mode: "Local only")
   end
 
-  def test_merge_ready_allows_push_but_denies_merge
-    assert_nil decision(command: "git push origin main", mode: "Merge ready")
+  def test_merge_ready_allows_feature_push_but_denies_merge
+    assert_nil decision(command: "git push origin my-feature", mode: "Merge ready")
     assert_equal "deny", decision(command: "gh pr merge --admin", mode: "Merge ready")
+  end
+
+  def test_merge_ready_denies_explicit_push_to_trunk
+    assert_equal "deny", decision(command: "git push origin main", mode: "Merge ready")
   end
 
   def test_admin_bypass_allows_everything

@@ -20,7 +20,7 @@ class MergeModeGuard
     mode = MergeModeStore.new(@event['session_id']).mode
     return unless mode
 
-    action = GuardedCommand.new(command, mode).violation
+    action = GuardedCommand.new(command, mode, branch: branch_for(command)).violation
     return unless action
 
     io.puts(JSON.generate(deny(action, mode)))
@@ -31,6 +31,20 @@ class MergeModeGuard
   def command
     input = @event['tool_input']
     input.is_a?(Hash) ? input['command'] : nil
+  end
+
+  # Only shell out for pushes, so the common Bash command pays nothing.
+  def branch_for(command)
+    return nil unless command.to_s.match?(GuardedCommand::PUSH)
+
+    current_branch
+  end
+
+  def current_branch
+    out = `git rev-parse --abbrev-ref HEAD 2>/dev/null`.strip
+    out.empty? ? nil : out
+  rescue StandardError
+    nil
   end
 
   def deny(action, mode)

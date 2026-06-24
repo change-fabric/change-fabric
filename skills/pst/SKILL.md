@@ -35,7 +35,9 @@ Acknowledge the choice in one line, then proceed.
 - **Admin bypass:** After completing work, push, open a PR, then run `gh pr merge --squash --admin`.
 
 A `PreToolUse` hook (`merge_mode_guard.rb`) backs these rules by denying the
-obvious violating Bash commands for the active mode (`git push` under Local
-only, `gh pr merge` under Local only or Merge ready). It is an advisory
-guardrail, not a sandbox: it matches on the command text and is bypassable, so
-honoring the mode in your own actions is still the primary mechanism.
+obvious violating Bash commands for the active mode: `git push` under Local
+only, `gh pr merge` under Local only or Merge ready, and a direct push to the
+trunk under Merge ready (an explicit `main`/`master` refspec, or a bare
+`git push` while the current branch is the trunk). It is an advisory guardrail,
+not a sandbox: it matches on the command text and is bypassable, so honoring the
+mode in your own actions is still the primary mechanism.
