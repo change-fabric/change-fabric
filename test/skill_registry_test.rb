@@ -93,15 +93,15 @@ class SkillRegistryTest < Minitest::Test
 
   def test_shipped_skills_declare_intended_scope_and_review
     by_name = SkillRegistry.load(REPO_SKILLS).to_h { |s| [ s.name, s ] }
-    assert by_name["ruby"].review?
-    assert by_name["ruby"].matches?("app/models/user.rb")
-    assert by_name["refactoring"].all_code?
-    assert by_name["refactoring"].review?
-    assert by_name["refactoring"].matches?("src/main.go")
-    refute by_name["refactoring"].matches?("docs/notes.md")
-    assert by_name["ai-slop"].all_files?
-    refute by_name["ai-slop"].review?
-    assert by_name["ai-slop"].matches?("docs/notes.md")
-    assert by_name["ai-slop"].matches?("app/models/user.rb")
+    assert by_name["pst:ruby"].review?
+    assert by_name["pst:ruby"].matches?("app/models/user.rb")
+    assert by_name["pst:refactoring"].all_code?
+    assert by_name["pst:refactoring"].review?
+    assert by_name["pst:refactoring"].matches?("src/main.go")
+    refute by_name["pst:refactoring"].matches?("docs/notes.md")
+    assert by_name["pst:ai-slop"].all_files?
+    refute by_name["pst:ai-slop"].review?
+    assert by_name["pst:ai-slop"].matches?("docs/notes.md")
+    assert by_name["pst:ai-slop"].matches?("app/models/user.rb")
   end
 end

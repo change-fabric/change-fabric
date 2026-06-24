@@ -46,7 +46,7 @@ class SkillReview
   def cap_notice(entries)
     "[pst review] Round cap (#{ReviewQueue::CAP}) reached; #{entries.size} file(s) " \
       'still changing. Automatic design review is paused for this session; review ' \
-      'remaining changes manually or invoke /ruby.'
+      'remaining changes manually or invoke /pst:ruby.'
   end
 
   def skills_by_name = registry.to_h { |skill| [ skill.name, skill ] }

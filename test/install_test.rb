@@ -87,17 +87,24 @@ class InstallerTest < Minitest::Test
   def test_links_every_skill_to_its_repo_source
     paths = install
     paths.skill_sources.each do |source|
-      link = paths.skill_link(File.basename(source))
+      link = paths.skill_link(Install::SkillName.of(source))
       assert File.symlink?(link), "#{File.basename(source)} skill should be a symlink"
       assert_equal source, File.readlink(link)
     end
   end
 
-  def test_links_the_auto_skills_alongside_pst
+  def test_links_the_auto_skills_under_the_namespace_keeping_pst_plain
     paths = install
-    linked = paths.skill_sources.map { |s| File.basename(s) }
-    assert_includes linked, "ruby"
-    assert_includes linked, "refactoring"
+    linked = paths.skill_sources.map { |s| Install::SkillName.of(s) }
+    assert_includes linked, "pst:ruby"
+    assert_includes linked, "pst:refactoring"
+    assert_includes linked, "pst", "the namespace root stays unprefixed, not pst:pst"
+  end
+
+  def test_namespace_lives_only_in_frontmatter_not_the_directory
+    paths = install
+    plain = paths.skill_sources.map { |s| File.basename(s) }
+    refute(plain.any? { |base| base.include?(":") }, "on-disk skill dirs must stay colon-free")
   end
 
   def test_wires_every_event_with_the_interpreter_path

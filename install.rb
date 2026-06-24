@@ -4,10 +4,27 @@
 require 'json'
 require 'fileutils'
 require 'rbconfig'
+require 'yaml'
+require_relative 'scripts/skill_registry'
 
 # Installs the pst merge-mode shim: hook scripts, the skill symlink, and the
 # settings.json wiring. Internals are namespaced so the file stays one unit.
 module Install
+  # Resolves a skill's installed name from its SKILL.md frontmatter `name`, the
+  # single source of truth for the `pst:` namespace. Keeping it here means the
+  # on-disk directory stays plain and portable (no colons committed to git);
+  # the namespace is applied once, at symlink time. Falls back to the directory
+  # basename so a skill missing or mangling its frontmatter still links.
+  module SkillName
+    def self.of(source)
+      front, = SkillRegistry::Frontmatter.split(File.read(File.join(source, 'SKILL.md')))
+      meta = front && YAML.safe_load(front)
+      name = meta['name'] if meta.is_a?(Hash)
+      name.to_s.empty? ? File.basename(source) : name.to_s
+    rescue StandardError
+      File.basename(source)
+    end
+  end
   # Resolves every source and destination path the installer touches.
   class Paths
     def initialize(repo:, home:)
@@ -128,7 +145,7 @@ module Install
 
     def link_skills
       @paths.skill_sources.each do |source|
-        link = @paths.skill_link(File.basename(source))
+        link = @paths.skill_link(SkillName.of(source))
         FileUtils.mkdir_p(File.dirname(link))
         FileUtils.rm_f(link) if File.symlink?(link)
         FileUtils.ln_sf(source, link)
@@ -148,7 +165,7 @@ module Install
     end
 
     def report(settings)
-      skills = @paths.skill_sources.map { |s| File.basename(s) }.join(', ')
+      skills = @paths.skill_sources.map { |s| SkillName.of(s) }.join(', ')
       puts 'pst shim installed:'
       puts "  hooks    -> #{@paths.bin} (#{HOOKS.keys.join(', ')})"
       puts "  skills   -> #{@paths.skills_root} (#{skills})"

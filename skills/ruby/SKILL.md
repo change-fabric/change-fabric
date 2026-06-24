@@ -1,5 +1,5 @@
 ---
-name: ruby
+name: pst:ruby
 description: Sandi Metz POODR design principles. Auto-applied by the pst shim on every Ruby change; also invocable directly.
 auto:
   extensions: [rb, rake, gemspec, ru]

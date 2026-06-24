@@ -2,7 +2,12 @@
 
 Each subdirectory is a Claude Code skill (`SKILL.md` with YAML frontmatter).
 `install.rb` symlinks every one into `~/.claude/skills/`, so they are all
-invocable directly (e.g. `/refactoring`).
+invocable directly (e.g. `/pst:refactoring`).
+
+Directory names stay plain and portable (no colons committed to git). The
+`pst:` namespace lives only in each skill's frontmatter `name:`, which is what
+`SkillRegistry` and Claude Code resolve by; `install.rb` names the symlink from
+that single source. `pst` itself is the namespace root and stays unprefixed.
 
 ## Auto-firing skills
 
@@ -26,7 +31,7 @@ The pst shim then surfaces it without anyone invoking it:
   `stop_hook_active` keep it to one block per batch; a per-file content hash makes
   the review -> fix -> re-edit loop converge. The hook writes the prompt; the agent
   runs the review.
-- **Authoring reminders** (`slop_remind.rb`, PreToolUse) surface `ai-slop` when a
+- **Authoring reminders** (`slop_remind.rb`, PreToolUse) surface `pst:ai-slop` when a
   Bash command is about to write a commit message, branch name, or PR title/body,
   so the rubric applies to authored text, not just file contents.
 
@@ -37,8 +42,8 @@ The pst shim then surfaces it without anyone invoking it:
 | `extensions` | File extensions (no dot) that trigger per-edit surfacing |
 | `basenames` | Exact filenames that trigger surfacing (e.g. `Rakefile`) |
 | `detect` | Glob markers, relative to project root, that mark the skill active at SessionStart |
-| `all_code` | `true` = matches every code file via the central extension list (used by `refactoring`) |
-| `all_files` | `true` = matches every edited file, code or prose (used by `ai-slop`) |
+| `all_code` | `true` = matches every code file via the central extension list (used by `pst:refactoring`) |
+| `all_files` | `true` = matches every edited file, code or prose (used by `pst:ai-slop`) |
 
 Skills with no `auto:` block (like `pst`) are plain user-invocable skills and
 are never surfaced automatically.
