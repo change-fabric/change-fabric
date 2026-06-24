@@ -2,9 +2,7 @@
 name: refactoring
 description: Fowler refactoring smells and moves. Auto-applied by the pst shim on every code change of any kind; also invocable directly.
 auto:
-  extensions: [rb, rake, gemspec, ru, py, js, jsx, mjs, cjs, ts, tsx, go, rs, java, kt, kts, c, h, cc, cpp, hpp, cs, php, swift, scala, clj, cljs, ex, exs, erl, hs, ml, sh, bash, zsh, sql, lua, dart, groovy, r, jl, vue, svelte]
-  universal: true
-  review: false
+  all_code: true
 ---
 
 # Fowler Refactoring Cheat Sheet

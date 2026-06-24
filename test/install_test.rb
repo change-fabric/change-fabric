@@ -56,7 +56,7 @@ end
 class InstallerTest < Minitest::Test
   HOOK_SCRIPTS = %w[
     session_start.rb merge_mode_guard.rb merge_mode_record.rb merge_mode_restate.rb
-    skill_detect.rb skill_inject.rb skill_review.rb
+    skill_detect.rb skill_inject.rb skill_review.rb slop_remind.rb
   ].freeze
   EVENTS = %w[SessionStart PreToolUse PostToolUse UserPromptSubmit Stop].freeze
 
@@ -113,7 +113,7 @@ class InstallerTest < Minitest::Test
     install
     hooks = JSON.parse(File.read(paths.settings))["hooks"]
     counts = EVENTS.map { |event| hooks[event].sum { |group| group["hooks"].size } }
-    assert_equal [ 2, 1, 2, 1, 1 ], counts
+    assert_equal [ 2, 2, 2, 1, 1 ], counts
     assert File.exist?("#{paths.settings}.bak"), "second install should back up settings"
   end
 end

@@ -18,11 +18,12 @@ class ReviewQueue
   end
 
   # Queue path under skill at the given content hash, unless that exact content
-  # was already reviewed. Dedupes by path, keeping the latest hash.
+  # was already reviewed under that skill. Keyed by (skill, path) so several
+  # skills can review the same file; re-queuing the pair keeps the latest hash.
   def add(skill, path, hash)
-    return if !persistable? || reviewed[path] == hash
+    return if !persistable? || reviewed[key(skill, path)] == hash
 
-    rows = entries.reject { |row| row[:path] == path }
+    rows = entries.reject { |row| row[:skill] == skill && row[:path] == path }
     rows << { skill: skill, path: path, hash: hash }
     write(queue_file, rows.map { |row| "#{row[:skill]}\t#{row[:path]}\t#{row[:hash]}" })
   end
@@ -39,8 +40,8 @@ class ReviewQueue
     return unless persistable?
 
     map = reviewed
-    rows.each { |row| map[row[:path]] = row[:hash] }
-    write(reviewed_file, map.map { |path, hash| "#{path}\t#{hash}" })
+    rows.each { |row| map[key(row[:skill], row[:path])] = row[:hash] }
+    write(reviewed_file, map.map { |pair, hash| "#{pair}\t#{hash}" })
   end
 
   def bump_round = write(rounds_file, [ (rounds + 1).to_s ])
@@ -62,10 +63,12 @@ class ReviewQueue
 
   def reviewed
     read(reviewed_file).to_h do |line|
-      path, hash = line.split("\t", 2)
-      [ path, hash ]
+      skill, path, hash = line.split("\t", 3)
+      [ key(skill, path), hash ]
     end
   end
+
+  def key(skill, path) = "#{skill}\t#{path}"
 
   def read(path)
     return [] unless persistable? && File.exist?(path)

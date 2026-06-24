@@ -49,11 +49,12 @@ class SkillReview
       'remaining changes manually or invoke /ruby.'
   end
 
-  def bodies = registry.to_h { |skill| [ skill.name, skill.body ] }
+  def skills_by_name = registry.to_h { |skill| [ skill.name, skill ] }
 
   def prompt(entries)
+    by_name = skills_by_name
     sections = entries.group_by { |entry| entry[:skill] }
-                      .map { |skill, rows| review_section(skill, rows) }
+                      .map { |name, rows| review_section(by_name[name], name, rows) }
     <<~TEXT.strip
       [pst review] Before you finish: #{entries.size} file(s) changed this session
       under review-enabled skills. Spawn a background review agent now, then finish.
@@ -67,17 +68,26 @@ class SkillReview
     TEXT
   end
 
-  def review_section(skill, rows)
+  def review_section(skill, name, rows)
     files = rows.map { |row| "- #{row[:path]}" }.join("\n")
     <<~TEXT.strip
-      ## Review against the #{skill} skill
-
+      ## Review against the #{name} skill
+      #{taxonomy_note(skill)}
       Files:
       #{files}
 
-      #{skill} principles:
-      #{bodies[skill] || '(principles unavailable)'}
+      #{name} principles:
+      #{skill&.body || '(principles unavailable)'}
     TEXT
+  end
+
+  # all_code skills match by extension, which can misfire on data or prose that
+  # merely looks like code. Tell the reviewer to judge code-ness first.
+  def taxonomy_note(skill)
+    return '' unless skill&.all_code?
+
+    "\nFirst confirm each changed file is genuinely code (it may be code embedded " \
+      "in another format). Review only real code; mark anything that is not code as clean.\n"
   end
 end
 
