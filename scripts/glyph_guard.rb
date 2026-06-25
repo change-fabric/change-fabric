@@ -5,7 +5,9 @@ require 'json'
 require_relative 'hook_event'
 
 # PreToolUse hook: denies a tool call whose authored text carries an AI-slop
-# glyph (em-dash, bullet, ellipsis, smart quotes). The "no em-dash" doctrine was
+# glyph (em-dash, bullet, ellipsis, smart quotes) or a banned attribution phrase
+# (the agent harness appends a Claude Code footer to commits and PR bodies by
+# default; Patrick does not want it on any surface). The "no em-dash" doctrine was
 # advisory only, so a probabilistic author could leak the character straight to
 # an external surface - the leak that prompted this was a Jira comment posted via
 # MCP, a surface no git-side or Bash-only check can see. PreToolUse is the one
@@ -32,6 +34,14 @@ class GlyphGuard
   }.freeze
 
   PATTERN = Regexp.union(*BANNED.keys)
+
+  # Banned authored phrases (not single glyphs) => the fix named in the deny
+  # reason. The harness footer is "Generated with [Claude Code](...)"; the bracket
+  # is optional so both the linked and plain forms are caught.
+  BANNED_PHRASES = {
+    /generated with \[?claude code/i =>
+      'remove the agent attribution footer (the "Generated with" / "Claude Code" line)'
+  }.freeze
 
   # Bash commands that author outbound text (mirrors slop_remind's categories).
   # Other Bash is left alone so glyph-handling commands (grep/sed over the
@@ -65,9 +75,14 @@ class GlyphGuard
 
   private
 
+  # Each offender is a ready "what -> fix" line for the deny reason, so glyphs and
+  # phrases report through one path.
   def offenders
     text = scannable.join
-    BANNED.keys.select { |glyph| text.include?(glyph) }
+    glyphs = BANNED.select { |glyph, _| text.include?(glyph) }
+                   .map { |glyph, fix| "#{glyph} -> #{fix}" }
+    phrases = BANNED_PHRASES.select { |pattern, _| text.match?(pattern) }.values
+    glyphs + phrases
   end
 
   # Strings authored by this call, by tool. The added side only: Edit/MultiEdit
@@ -111,14 +126,13 @@ class GlyphGuard
   end
 
   def deny(found)
-    fixes = found.map { |glyph| "#{glyph} -> #{BANNED[glyph]}" }.join('; ')
     {
       hookSpecificOutput: {
         hookEventName: EVENT,
         permissionDecision: 'deny',
         permissionDecisionReason:
-          "[pst] Banned AI-slop glyph(s) in #{@event['tool_name']} input: #{fixes}. " \
-          'Rewrite without them. Set PST_ALLOW_GLYPH=1 only if a glyph is genuinely ' \
+          "[pst] Banned AI-slop content in #{@event['tool_name']} input: #{found.join('; ')}. " \
+          'Rewrite without it. Set PST_ALLOW_GLYPH=1 only if it is genuinely ' \
           'required (e.g. editing a third-party fixture).'
       }
     }

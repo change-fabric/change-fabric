@@ -145,4 +145,29 @@ class InstallerTest < Minitest::Test
     assert_equal [ 2, 4, 2, 1, 1 ], counts
     assert File.exist?("#{paths.settings}.bak"), "second install should back up settings"
   end
+
+  def test_adds_claude_skills_to_pi_settings
+    paths = install
+    settings = JSON.parse(File.read(paths.pi_settings))
+    assert_includes settings["skills"], paths.skills_root
+  end
+
+  def test_mirrors_portable_skill_names_to_opencode
+    paths = install
+    translated = File.join(paths.opencode_skills_root, "pst-typescript", "SKILL.md")
+    assert File.exist?(translated), "OpenCode should get a translated skill copy"
+    frontmatter = File.read(translated).match(/\A---\n(.*?)\n---/m)[1]
+    assert_includes frontmatter, "name: pst-typescript"
+    config = JSON.parse(File.read(paths.opencode_config))
+    assert_includes config.dig("skills", "paths"), paths.opencode_skills_root
+  end
+
+  def test_preserves_unmanaged_opencode_skill_dirs
+    paths = install
+    custom = File.join(paths.opencode_skills_root, "custom")
+    FileUtils.mkdir_p(custom)
+    File.write(File.join(custom, "SKILL.md"), "---\nname: custom\ndescription: Custom\n---\n")
+    install
+    assert File.directory?(custom), "unmanaged OpenCode skills should be left alone"
+  end
 end

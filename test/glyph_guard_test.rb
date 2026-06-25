@@ -99,4 +99,41 @@ class GlyphGuardTest < Minitest::Test
     assert_nil decision("Write", "content" => 123)
     assert_nil decision("MultiEdit", "edits" => "not-an-array")
   end
+
+  # Built from fragments so this test file does not itself carry the banned phrase
+  # (writing it would otherwise trip the guard the next time it is authored).
+  GEN = "Generated with"
+  CC = %w[Claude Code].join(" ")
+  FOOTER = "#{GEN} [#{CC}](https://claude.com/claude-code)"
+
+  def test_denies_attribution_footer_in_pr_body_file_write
+    assert_equal "deny", decision("Write", "content" => "## What\n\nthing\n\n#{FOOTER}")
+  end
+
+  def test_denies_attribution_footer_in_git_commit
+    assert_equal "deny", decision("Bash", "command" => "git commit -m 'feat: x\n\n#{FOOTER}'")
+  end
+
+  def test_denies_plain_footer_without_markdown_link
+    assert_equal "deny", decision("Write", "content" => "#{GEN} #{CC}")
+  end
+
+  def test_denies_footer_in_mcp_comment
+    body = { "issueIdOrKey" => "ABC-1", "commentBody" => "done. #{FOOTER}" }
+    assert_equal "deny", decision("mcp__claude_ai_Atlassian__addCommentToJiraIssue", body)
+  end
+
+  def test_deny_reason_names_the_footer_fix
+    reason = guard("Write", "content" => FOOTER)["permissionDecisionReason"]
+    assert_includes reason, "attribution footer"
+  end
+
+  def test_escape_hatch_allows_footer_when_env_set
+    ENV["PST_ALLOW_GLYPH"] = "1"
+    assert_nil decision("Write", "content" => FOOTER)
+  end
+
+  def test_allows_unrelated_mention_of_claude_code
+    assert_nil decision("Write", "content" => "We run Claude Code in CI.")
+  end
 end

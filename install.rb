@@ -24,6 +24,10 @@ module Install
     rescue StandardError
       File.basename(source)
     end
+
+    def self.portable(name)
+      name.to_s.downcase.gsub(/[^a-z0-9]+/, '-').gsub(/-+/, '-').gsub(/\A-|\-\z/, '')
+    end
   end
   # Resolves every source and destination path the installer touches.
   class Paths
@@ -34,14 +38,18 @@ module Install
 
     def scripts      = File.join(@repo, 'scripts')
     def skills_dir   = File.join(@repo, 'skills')
-    def bin          = File.join(@home, '.claude', 'pst', 'bin')
-    def skills_root  = File.join(@home, '.claude', 'skills')
-    def settings     = File.join(@home, '.claude', 'settings.json')
+    def bin                  = File.join(@home, '.claude', 'pst', 'bin')
+    def skills_root          = File.join(@home, '.claude', 'skills')
+    def settings             = File.join(@home, '.claude', 'settings.json')
+    def pi_settings          = File.join(@home, '.pi', 'agent', 'settings.json')
+    def opencode_config      = File.join(@home, '.config', 'opencode', 'opencode.jsonc')
+    def opencode_skills_root = File.join(@home, '.config', 'opencode', 'skills')
 
-    def scripts_glob       = Dir.glob(File.join(scripts, '*.rb'))
-    def skill_sources      = Dir.glob(File.join(skills_dir, '*')).select { |p| File.directory?(p) }
-    def script_dest(name)  = File.join(bin, name)
-    def skill_link(name)   = File.join(skills_root, name)
+    def scripts_glob          = Dir.glob(File.join(scripts, '*.rb'))
+    def skill_sources         = Dir.glob(File.join(skills_dir, '*')).select { |p| File.directory?(p) }
+    def script_dest(name)     = File.join(bin, name)
+    def skill_link(name)      = File.join(skills_root, name)
+    def opencode_skill(name)  = File.join(opencode_skills_root, SkillName.portable(name))
   end
 
   # Resolves the absolute path of the running Ruby interpreter for hook shebangs.
@@ -110,7 +118,125 @@ module Install
     end
   end
 
-  # Top-level orchestration: copies hooks, links the skill, and wires settings.
+  # Adds the Claude Code skill directory to Pi without copying stale skill dirs.
+  class PiSettingsFile
+    def initialize(path)
+      @path = path
+    end
+
+    def wire(skill_paths)
+      data = load
+      paths = Array(data['skills'])
+      Array(skill_paths).each { |path| paths << path unless paths.include?(path) }
+      data['skills'] = paths
+      persist(data)
+    end
+
+    private
+
+    def load
+      File.exist?(@path) ? JSON.parse(File.read(@path)) : {}
+    rescue JSON::ParserError
+      {}
+    end
+
+    def persist(data)
+      FileUtils.mkdir_p(File.dirname(@path))
+      FileUtils.cp(@path, "#{@path}.bak") if File.exist?(@path)
+      tmp = "#{@path}.tmp"
+      File.write(tmp, "#{JSON.pretty_generate(data)}\n")
+      File.rename(tmp, @path)
+    end
+  end
+
+  # Points OpenCode at a generated, OpenCode-safe translation of the same skills.
+  class OpenCodeConfigFile
+    def initialize(path)
+      @path = path
+    end
+
+    def wire(skill_paths)
+      data = load
+      skills = data['skills'].is_a?(Hash) ? data['skills'] : {}
+      paths = Array(skills['paths'])
+      Array(skill_paths).each { |path| paths << path unless paths.include?(path) }
+      skills['paths'] = paths
+      data['skills'] = skills
+      persist(data)
+    end
+
+    private
+
+    def load
+      File.exist?(@path) ? JSON.parse(strip_jsonc(File.read(@path))) : {}
+    rescue JSON::ParserError
+      {}
+    end
+
+    def strip_jsonc(text)
+      text.gsub(%r{/\*.*?\*/}m, '').lines.map { |line| line.sub(%r{\s*//.*\z}, '') }.join
+    end
+
+    def persist(data)
+      FileUtils.mkdir_p(File.dirname(@path))
+      FileUtils.cp(@path, "#{@path}.bak") if File.exist?(@path)
+      tmp = "#{@path}.tmp"
+      File.write(tmp, "#{JSON.pretty_generate(data)}\n")
+      File.rename(tmp, @path)
+    end
+  end
+
+  # OpenCode is stricter about skill names, so pst:foo becomes pst-foo there.
+  class OpenCodeSkillMirror
+    MARKER = '.pst-generated'.freeze
+
+    def initialize(paths)
+      @paths = paths
+    end
+
+    def mirror(sources)
+      links = sources.to_h { |source| [ @paths.opencode_skill(SkillName.of(source)), source ] }
+      prune_stale(links.keys)
+      links.each { |dest, source| write_skill(dest, source) }
+    end
+
+    private
+
+    def prune_stale(keep)
+      Dir.glob(File.join(@paths.opencode_skills_root, '*')).each do |entry|
+        next unless generated?(entry) && !keep.include?(entry)
+
+        FileUtils.rm_rf(entry)
+      end
+    end
+
+    def generated?(entry)
+      File.exist?(File.join(entry, MARKER))
+    end
+
+    def write_skill(dest, source)
+      return if File.exist?(dest) && !generated?(dest)
+
+      FileUtils.rm_rf(dest)
+      FileUtils.mkdir_p(File.dirname(dest))
+      FileUtils.cp_r(source, dest)
+      rewrite_frontmatter_name(File.join(dest, 'SKILL.md'), SkillName.portable(SkillName.of(source)))
+      File.write(File.join(dest, MARKER), "source: #{source}\n")
+    end
+
+    def rewrite_frontmatter_name(path, name)
+      front, body = SkillRegistry::Frontmatter.split(File.read(path))
+      meta = front && YAML.safe_load(front)
+      return unless meta.is_a?(Hash)
+
+      meta['name'] = name
+      File.write(path, "---\n#{YAML.dump(meta).sub(/\A---\n/, '')}---\n#{body}")
+    rescue StandardError
+      nil
+    end
+  end
+
+  # Top-level orchestration: copies hooks, links skills, and wires settings.
   class Installer
     HOOKS = {
       'SessionStart' => %w[session_start.rb skill_detect.rb],
@@ -128,6 +254,8 @@ module Install
     def install
       place_hooks
       link_skills
+      mirror_to_pi
+      mirror_to_opencode
       report(wire_settings)
     end
 
@@ -184,11 +312,22 @@ module Install
       end
     end
 
+    def mirror_to_pi
+      PiSettingsFile.new(@paths.pi_settings).wire([ @paths.skills_root ])
+    end
+
+    def mirror_to_opencode
+      OpenCodeSkillMirror.new(@paths).mirror(@paths.skill_sources)
+      OpenCodeConfigFile.new(@paths.opencode_config).wire([ @paths.opencode_skills_root ])
+    end
+
     def report(settings)
       skills = @paths.skill_sources.map { |s| SkillName.of(s) }.join(', ')
       puts 'pst shim installed:'
       puts "  hooks    -> #{@paths.bin} (#{HOOKS.keys.join(', ')})"
       puts "  skills   -> #{@paths.skills_root} (#{skills})"
+      puts "  pi       -> #{@paths.pi_settings}"
+      puts "  opencode -> #{@paths.opencode_skills_root}"
       puts "  settings -> #{@paths.settings} (backup at #{settings.backup_path})"
     end
   end

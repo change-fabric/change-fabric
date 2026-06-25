@@ -27,6 +27,7 @@ Remove:
 - unnecessary configuration
 - generic praise
 - marketing language
+- agent attribution footers (the "Generated with" / "Claude Code" line some harnesses append to commits and PRs)
 
 Punctuation (no AI-slop glyphs; en-dash is fine):
 - no em-dash: use a spaced hyphen ' - ' or restructure
