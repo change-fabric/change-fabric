@@ -38,9 +38,9 @@ class SettingsFileTest < Minitest::Test
   end
 
   def test_preserves_unmanaged_hooks
-    sonar = "/Users/pst/code/sonar/exe/sonar hook"
-    hooks = wire("hooks" => { "Stop" => [ { "hooks" => [ { "type" => "command", "command" => sonar } ] } ] })
-    assert_includes commands(hooks["Stop"]), sonar
+    foreign = "/usr/local/bin/notify hook"
+    hooks = wire("hooks" => { "Stop" => [ { "hooks" => [ { "type" => "command", "command" => foreign } ] } ] })
+    assert_includes commands(hooks["Stop"]), foreign
   end
 
   def test_wires_target_event_without_duplicating_on_reinstall
