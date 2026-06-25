@@ -152,6 +152,20 @@ class InstallerTest < Minitest::Test
     assert_includes settings["skills"], paths.skills_root
   end
 
+  def test_links_pi_hook_extension
+    paths = install
+    assert File.symlink?(paths.pi_extension_link), "Pi hook extension should be symlinked"
+    assert_equal paths.pi_extension_source, File.readlink(paths.pi_extension_link)
+  end
+
+  def test_preserves_unmanaged_pi_extension_dir
+    paths = Install::Paths.new(repo: @repo, home: @home)
+    FileUtils.mkdir_p(paths.pi_extension_link)
+    install
+    assert File.directory?(paths.pi_extension_link), "unmanaged Pi extension dir should be preserved"
+    refute File.symlink?(paths.pi_extension_link), "unmanaged Pi extension dir should not be replaced"
+  end
+
   def test_mirrors_portable_skill_names_to_opencode
     paths = install
     translated = File.join(paths.opencode_skills_root, "pst-typescript", "SKILL.md")

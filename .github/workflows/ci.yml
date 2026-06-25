@@ -15,7 +15,15 @@ jobs:
         with:
           ruby-version: "3.4"
           bundler-cache: true
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci --ignore-scripts
       - run: bundle exec rubocop
+      - name: TypeScript smoke test
+        if: ${{ !cancelled() }}
+        run: npm run typecheck
       - name: rake test
         if: ${{ !cancelled() }}
         run: bundle exec rake test

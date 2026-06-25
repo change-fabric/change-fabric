@@ -46,6 +46,9 @@ module Install
     def opencode_config      = File.join(@home, '.config', 'opencode', 'opencode.jsonc')
     def opencode_skills_root = File.join(@home, '.config', 'opencode', 'skills')
     def legacy_pi_roots      = [ File.join(@home, '.pi', 'agent', 'skills'), File.join(@home, '.agents', 'skills') ]
+    def pi_extensions_root   = File.join(@home, '.pi', 'agent', 'extensions')
+    def pi_extension_source  = File.join(@repo, 'extensions', 'pi-pst-hooks')
+    def pi_extension_link    = File.join(pi_extensions_root, 'pst-hooks')
 
     def scripts_glob         = Dir.glob(File.join(scripts, '*.rb'))
     def skill_sources        = Dir.glob(File.join(skills_dir, '*')).select { |p| File.directory?(p) }
@@ -375,6 +378,7 @@ module Install
     def install
       place_hooks
       link_skills
+      link_pi_extension
       mirror_to_pi
       mirror_to_opencode
       report(wire_settings)
@@ -400,6 +404,14 @@ module Install
         FileUtils.rm_f(link) if File.symlink?(link)
         FileUtils.ln_sf(source, link)
       end
+    end
+
+    def link_pi_extension
+      return if File.exist?(@paths.pi_extension_link) && !File.symlink?(@paths.pi_extension_link)
+
+      FileUtils.mkdir_p(@paths.pi_extensions_root)
+      FileUtils.rm_f(@paths.pi_extension_link)
+      FileUtils.ln_sf(@paths.pi_extension_source, @paths.pi_extension_link)
     end
 
     # Removes skill symlinks this installer owns - those pointing into the repo's
@@ -449,6 +461,7 @@ module Install
       puts "  hooks    -> #{@paths.bin} (#{HOOKS.keys.join(', ')})"
       puts "  skills   -> #{@paths.skills_root} (#{skills})"
       puts "  pi       -> #{@paths.pi_settings}"
+      puts "  pi hooks -> #{@paths.pi_extension_link}"
       puts "  opencode -> #{@paths.opencode_skills_root}"
       puts "  settings -> #{@paths.settings} (backup at #{settings.backup_path})"
     end

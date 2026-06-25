@@ -4,3 +4,6 @@
 
 # macOS / editor cruft
 .DS_Store
+
+# Node deps for the Pi hook extension toolchain
+/node_modules/
