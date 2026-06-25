@@ -114,7 +114,7 @@ module Install
   class Installer
     HOOKS = {
       'SessionStart' => %w[session_start.rb skill_detect.rb],
-      'PreToolUse' => %w[merge_mode_guard.rb slop_remind.rb],
+      'PreToolUse' => %w[merge_mode_guard.rb glyph_guard.rb slop_remind.rb],
       'PostToolUse' => %w[merge_mode_record.rb skill_inject.rb],
       'UserPromptSubmit' => %w[merge_mode_restate.rb],
       'Stop' => %w[skill_review.rb]

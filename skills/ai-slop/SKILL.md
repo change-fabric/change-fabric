@@ -28,6 +28,12 @@ Remove:
 - generic praise
 - marketing language
 
+Punctuation (no AI-slop glyphs; en-dash is fine):
+- no em-dash: use a spaced hyphen ' - ' or restructure
+- no bullet glyph: use '*' or '-' for lists
+- no ellipsis glyph: use '...'
+- no smart quotes: use straight ' and "
+
 Comments:
 - explain why
 - explain constraints
