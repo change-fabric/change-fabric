@@ -40,7 +40,8 @@ class SkillReviewTest < Minitest::Test
     assert_equal "block", out["decision"]
     assert_includes out["reason"], "/p/user.rb"
     assert_includes out["reason"], "POODR-PRINCIPLES"
-    assert_includes out["reason"], "run_in_background: true"
+    assert_includes out["reason"], "run_in_background: false"
+    assert_includes out["reason"], "review_ack.rb"
   end
 
   def test_all_code_section_includes_taxonomy_note
@@ -60,10 +61,11 @@ class SkillReviewTest < Minitest::Test
     refute_includes reason, "mark anything that is not code as clean"
   end
 
-  def test_fires_once_per_batch
+  def test_blocks_until_acked
     enqueue("ruby", "/p/user.rb", "h1")
-    assert review, "first stop should block for review"
-    assert_nil review, "queue drained, second stop should not block"
+    assert review, "blocks while the batch is unreviewed"
+    ReviewQueue.new("s1").ack
+    assert_nil review, "ack records the verdict; no further block"
   end
 
   def test_respects_stop_hook_active_guard
@@ -74,18 +76,18 @@ class SkillReviewTest < Minitest::Test
   def test_converges_then_retriggers_on_new_content
     enqueue("ruby", "/p/user.rb", "h1")
     assert_equal "block", review["decision"], "round 1: find"
+    ReviewQueue.new("s1").ack
     ReviewQueue.new("s1").add("ruby", "/p/user.rb", "h1")
-    assert_nil review, "identical content must not start another round"
+    assert_nil review, "identical content stays reviewed, no new round"
     ReviewQueue.new("s1").add("ruby", "/p/user.rb", "h2")
     assert_equal "block", review["decision"], "new content re-triggers a review"
   end
 
   def test_round_cap_surfaces_a_visible_notice_instead_of_blocking
+    enqueue("ruby", "/p/user.rb", "h1")
     ReviewQueue::CAP.times do |i|
-      enqueue("ruby", "/p/f#{i}.rb", "h#{i}")
       assert_equal "block", review["decision"], "round #{i + 1} should block"
     end
-    enqueue("ruby", "/p/extra.rb", "hx")
     out = review
     assert_nil out["decision"], "must not block once capped"
     assert_includes out["systemMessage"], "Round cap"

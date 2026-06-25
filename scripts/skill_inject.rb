@@ -3,6 +3,7 @@
 
 require 'json'
 require 'digest'
+require 'open3'
 require_relative 'hook_event'
 require_relative 'skill_registry'
 require_relative 'skill_store'
@@ -46,13 +47,44 @@ class SkillInject
   end
 
   # Records every match so the Stop hook reviews the batch. The content hash
-  # lets the queue review each distinct version once and converge.
+  # lets the queue review each distinct version once and converge. Only files git
+  # would carry off the machine are enqueued; surfacing the cheat sheet still
+  # happens for any edit, but a scratchpad or git-ignored file must not arm the
+  # gate, since the gate exists to review what a push or PR will publish.
   def enqueue_reviews(skills, path)
+    return unless trackable?(path)
+
     hash = content_hash(path)
     return unless hash
 
     queue = ReviewQueue.new(@event['session_id'])
     skills.each { |skill| queue.add(skill.name, path, hash) }
+  end
+
+  # Trackable means inside a git work tree and not ignored. Both checks run git
+  # from the file's own directory, so a path in another repo is judged by that
+  # repo.
+  def trackable?(path)
+    dir = File.dirname(path)
+    inside_work_tree?(dir) && !ignored?(dir, path)
+  end
+
+  def inside_work_tree?(dir)
+    out, status = capture_git(dir, 'rev-parse', '--is-inside-work-tree')
+    status&.success? && out.strip == 'true'
+  end
+
+  def ignored?(dir, path)
+    _out, status = capture_git(dir, 'check-ignore', '-q', path)
+    status&.success? || false
+  end
+
+  # Any git failure (no repo, no git) fails closed: a nil status reads as false
+  # in both callers, so the file is treated as not trackable.
+  def capture_git(dir, *args)
+    Open3.capture2e('git', '-C', dir, *args)
+  rescue StandardError
+    [ '', nil ]
   end
 
   def content_hash(path)

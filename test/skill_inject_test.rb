@@ -10,6 +10,7 @@ class SkillInjectTest < Minitest::Test
     super
     @skills = Dir.mktmpdir
     @proj = Dir.mktmpdir
+    system("git", "init", "-q", @proj) # enqueue only tracks files inside a work tree
     skill_dir("ruby", auto: { "extensions" => [ "rb" ] })
     skill_dir("refactoring", auto: { "all_code" => true })
     skill_dir("ai-slop", auto: { "all_files" => true })
@@ -65,20 +66,20 @@ class SkillInjectTest < Minitest::Test
 
   def test_every_matching_skill_is_queued_with_a_content_hash
     edit("foo.rb")
-    queued = ReviewQueue.new("s1").drain
+    queued = ReviewQueue.new("s1").pending
     assert_equal %w[ai-slop refactoring ruby], queued.map { |q| q[:skill] }.uniq.sort
     assert(queued.all? { |q| q[:hash].to_s.length == 16 }, "each entry carries a content hash")
   end
 
   def test_prose_change_queues_the_all_files_skill
     edit("notes.md")
-    assert_equal %w[ai-slop], ReviewQueue.new("s1").drain.map { |q| q[:skill] }.uniq
+    assert_equal %w[ai-slop], ReviewQueue.new("s1").pending.map { |q| q[:skill] }.uniq
   end
 
   def test_re_editing_same_content_does_not_grow_the_queue
     edit("foo.rb", content: "same")
     edit("foo.rb", content: "same")
-    assert_equal 3, ReviewQueue.new("s1").drain.size, "ruby + refactoring + ai-slop, one entry each"
+    assert_equal 3, ReviewQueue.new("s1").pending.size, "ruby + refactoring + ai-slop, one entry each"
   end
 
   def test_surfaces_each_skill_at_most_once_per_session
@@ -88,6 +89,22 @@ class SkillInjectTest < Minitest::Test
 
   def test_ignores_non_edit_tools
     assert_nil context(tool: "Bash", path: "/p/foo.rb")
+  end
+
+  def test_file_outside_any_repo_is_not_enqueued
+    outside = Dir.mktmpdir
+    path = File.join(outside, "scratch.rb")
+    File.write(path, "x")
+    assert context(tool: "Edit", path: path), "cheat sheet still surfaces for any edit"
+    assert_empty ReviewQueue.new("s1").pending, "out-of-repo file must not arm the gate"
+  ensure
+    FileUtils.remove_entry(outside)
+  end
+
+  def test_git_ignored_file_is_not_enqueued
+    File.write(File.join(@proj, ".gitignore"), "ignored.rb\n")
+    edit("ignored.rb")
+    assert_empty ReviewQueue.new("s1").pending, "git-ignored file must not arm the gate"
   end
 
   def test_reads_notebook_path
