@@ -14,7 +14,9 @@ Triggered two ways:
 - **Discerned:** when the turn establishes that a PR or branch just merged (the
   user says "I merged #N", or a PR you were tracking now reads merged), run this
   without being asked. Confirm the merge is real before pruning, do not infer it
-  from an open PR.
+  from an open PR. A `UserPromptSubmit` hook (`prune_remind.rb`) surfaces this
+  skill when the prompt reads as a completed merge; it is advisory, the guards
+  below still apply.
 
 Two rules govern every deletion:
 
