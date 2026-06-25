@@ -170,4 +170,55 @@ class InstallerTest < Minitest::Test
     install
     assert File.directory?(custom), "unmanaged OpenCode skills should be left alone"
   end
+
+  def test_prunes_stale_pi_copies_of_managed_skills
+    paths = Install::Paths.new(repo: @repo, home: @home)
+    stale = File.join(paths.legacy_pi_roots.first, "pst-typescript")
+    FileUtils.mkdir_p(stale)
+    File.write(File.join(stale, "SKILL.md"), "---\nname: pst:typescript\ndescription: Old copy\n---\n")
+    install
+    refute File.exist?(stale), "managed stale Pi skill copy should be removed"
+  end
+
+  def test_preserves_unmanaged_pi_skill_dirs
+    paths = Install::Paths.new(repo: @repo, home: @home)
+    custom = File.join(paths.legacy_pi_roots.first, "custom")
+    FileUtils.mkdir_p(custom)
+    File.write(File.join(custom, "SKILL.md"), "---\nname: custom\ndescription: Custom\n---\n")
+    install
+    assert File.directory?(custom), "unmanaged Pi skills should be left alone"
+  end
+
+  def test_prunes_old_opencode_generated_marker_dirs
+    paths = Install::Paths.new(repo: @repo, home: @home)
+    stale = File.join(paths.opencode_skills_root, "pst-old")
+    FileUtils.mkdir_p(stale)
+    File.write(File.join(stale, ".pst-generated"), "source: old\n")
+    install
+    refute File.exist?(stale), "old generated OpenCode skill mirror should be removed"
+  end
+
+  def test_preserves_opencode_jsonc_strings_with_urls
+    paths = Install::Paths.new(repo: @repo, home: @home)
+    FileUtils.mkdir_p(File.dirname(paths.opencode_config))
+    File.write(paths.opencode_config, %({\n  "$schema": "https://opencode.ai/config.json",\n  // comment\n  "share": "disabled",\n  "username": "quote: \\\" // not a comment"\n}\n))
+    install
+    config = JSON.parse(File.read(paths.opencode_config))
+    assert_equal "https://opencode.ai/config.json", config["$schema"]
+    assert_equal "disabled", config["share"]
+    assert_equal "quote: \" // not a comment", config["username"]
+  end
+
+  def test_jsonc_stripper_removes_line_and_block_comments
+    text = %({\n  // line\n  "a": 1, /* block */\n  /* multi\n     line */ "b": 2\n})
+    assert_equal({ "a" => 1, "b" => 2 }, JSON.parse(Install::JsoncStripper.strip(text)))
+  end
+
+  def test_jsonc_stripper_keeps_comment_markers_inside_strings
+    text = %({ "u": "http://x", "c": "/* not a comment */", "e": "esc \\" // still string" })
+    parsed = JSON.parse(Install::JsoncStripper.strip(text))
+    assert_equal "http://x", parsed["u"]
+    assert_equal "/* not a comment */", parsed["c"]
+    assert_equal "esc \" // still string", parsed["e"]
+  end
 end

@@ -4,6 +4,7 @@
 require 'json'
 require 'fileutils'
 require 'rbconfig'
+require 'set'
 require 'yaml'
 require_relative 'scripts/skill_registry'
 
@@ -36,20 +37,21 @@ module Install
       @home = home
     end
 
-    def scripts      = File.join(@repo, 'scripts')
-    def skills_dir   = File.join(@repo, 'skills')
+    def scripts              = File.join(@repo, 'scripts')
+    def skills_dir           = File.join(@repo, 'skills')
     def bin                  = File.join(@home, '.claude', 'pst', 'bin')
     def skills_root          = File.join(@home, '.claude', 'skills')
     def settings             = File.join(@home, '.claude', 'settings.json')
     def pi_settings          = File.join(@home, '.pi', 'agent', 'settings.json')
     def opencode_config      = File.join(@home, '.config', 'opencode', 'opencode.jsonc')
     def opencode_skills_root = File.join(@home, '.config', 'opencode', 'skills')
+    def legacy_pi_roots      = [ File.join(@home, '.pi', 'agent', 'skills'), File.join(@home, '.agents', 'skills') ]
 
-    def scripts_glob          = Dir.glob(File.join(scripts, '*.rb'))
-    def skill_sources         = Dir.glob(File.join(skills_dir, '*')).select { |p| File.directory?(p) }
-    def script_dest(name)     = File.join(bin, name)
-    def skill_link(name)      = File.join(skills_root, name)
-    def opencode_skill(name)  = File.join(opencode_skills_root, SkillName.portable(name))
+    def scripts_glob         = Dir.glob(File.join(scripts, '*.rb'))
+    def skill_sources        = Dir.glob(File.join(skills_dir, '*')).select { |p| File.directory?(p) }
+    def script_dest(name)    = File.join(bin, name)
+    def skill_link(name)     = File.join(skills_root, name)
+    def opencode_skill(name) = File.join(opencode_skills_root, SkillName.portable(name))
   end
 
   # Resolves the absolute path of the running Ruby interpreter for hook shebangs.
@@ -118,6 +120,43 @@ module Install
     end
   end
 
+  # Removes stale Pi/Agent Skills copies now that Claude Code is source of truth.
+  class LegacyPiSkillPruner
+    def initialize(paths)
+      @paths = paths
+    end
+
+    def prune
+      managed = managed_skill_names
+      @paths.legacy_pi_roots.each do |root|
+        Dir.glob(File.join(root, '*')).each do |entry|
+          FileUtils.rm_rf(entry) if managed.include?(skill_name(entry))
+        end
+      end
+    end
+
+    private
+
+    def managed_skill_names
+      @paths.skill_sources.flat_map do |source|
+        name = SkillName.of(source)
+        [ name, SkillName.portable(name) ]
+      end.to_set
+    end
+
+    def skill_name(entry)
+      path = File.join(entry, 'SKILL.md')
+      return unless File.exist?(path)
+
+      front, = SkillRegistry::Frontmatter.split(File.read(path))
+      meta = front && YAML.safe_load(front)
+      name = meta['name'] if meta.is_a?(Hash)
+      name.to_s.empty? ? nil : name.to_s
+    rescue StandardError
+      nil
+    end
+  end
+
   # Adds the Claude Code skill directory to Pi without copying stale skill dirs.
   class PiSettingsFile
     def initialize(path)
@@ -150,6 +189,89 @@ module Install
   end
 
   # Points OpenCode at a generated, OpenCode-safe translation of the same skills.
+  # Strips JSONC comments (// line and /* block */) while leaving any
+  # comment-like sequences inside string literals untouched. A cursor walks
+  # the text and each step is delegated to the current state, so "are we
+  # inside a string?" lives in the state objects instead of one wide branch.
+  class JsoncStripper
+    def self.strip(text) = new(text).strip
+
+    def initialize(text)
+      @cursor = Cursor.new(text)
+    end
+
+    def strip
+      state = Outside
+      state = state.step(@cursor) until @cursor.done?
+      @cursor.output
+    end
+
+    # Holds the scan position and the stripped output, exposing only the
+    # moves the states need so the states stay free of index arithmetic.
+    class Cursor
+      attr_reader :output
+
+      def initialize(text)
+        @text = text
+        @pos = 0
+        @output = String.new
+      end
+
+      def done? = @pos >= @text.length
+      def peek = @text[@pos]
+      def starts?(token) = @text[@pos, token.length] == token
+
+      def keep
+        @output << @text[@pos]
+        @pos += 1
+      end
+
+      def skip_line_comment
+        @pos += 2
+        @pos += 1 while !done? && peek != "\n"
+      end
+
+      def skip_block_comment
+        @pos += 2
+        @pos += 1 until done? || starts?('*/')
+        @pos += 2
+      end
+    end
+
+    # Default state: copy bytes through, but enter a string or skip a comment
+    # when one begins.
+    module Outside
+      def self.step(cursor)
+        if cursor.peek == '"'
+          cursor.keep
+          Inside
+        elsif cursor.starts?('//')
+          cursor.skip_line_comment
+          self
+        elsif cursor.starts?('/*')
+          cursor.skip_block_comment
+          self
+        else
+          cursor.keep
+          self
+        end
+      end
+    end
+
+    # Inside a string literal: copy every byte verbatim so comment markers are
+    # preserved, and treat a backslash as escaping the next byte so an escaped
+    # quote does not end the string early.
+    module Inside
+      def self.step(cursor)
+        char = cursor.peek
+        cursor.keep
+        return Outside if char == '"'
+        cursor.keep if char == '\\' && !cursor.done?
+        self
+      end
+    end
+  end
+
   class OpenCodeConfigFile
     def initialize(path)
       @path = path
@@ -173,9 +295,7 @@ module Install
       {}
     end
 
-    def strip_jsonc(text)
-      text.gsub(%r{/\*.*?\*/}m, '').lines.map { |line| line.sub(%r{\s*//.*\z}, '') }.join
-    end
+    def strip_jsonc(text) = JsoncStripper.strip(text)
 
     def persist(data)
       FileUtils.mkdir_p(File.dirname(@path))
@@ -188,7 +308,8 @@ module Install
 
   # OpenCode is stricter about skill names, so pst:foo becomes pst-foo there.
   class OpenCodeSkillMirror
-    MARKER = '.pst-generated'.freeze
+    MARKER = '.pst-generated-from-claude'.freeze
+    LEGACY_MARKERS = [ MARKER, '.pst-generated' ].freeze
 
     def initialize(paths)
       @paths = paths
@@ -211,7 +332,7 @@ module Install
     end
 
     def generated?(entry)
-      File.exist?(File.join(entry, MARKER))
+      LEGACY_MARKERS.any? { |marker| File.exist?(File.join(entry, marker)) }
     end
 
     def write_skill(dest, source)
@@ -313,6 +434,7 @@ module Install
     end
 
     def mirror_to_pi
+      LegacyPiSkillPruner.new(@paths).prune
       PiSettingsFile.new(@paths.pi_settings).wire([ @paths.skills_root ])
     end
 
