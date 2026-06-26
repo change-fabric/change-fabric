@@ -1,39 +1,33 @@
 ---
 name: pst:prune
-description: After a PR merges, fast-forward the trunk to origin and prune merged branches and worktrees, locally and on the remote, so the clone is clean. Never deletes unmerged or dirty work without an explicit AskUserQuestion approval, and never deletes a remote branch without one.
+description: After a PR merges, fast-forward the trunk and prune merged branches and worktrees (local and remote), and optionally clear untracked junk. Protects keepers like env files with secrets. Never deletes unmerged, uncommitted, or untracked work, or any remote branch, without an explicit AskUserQuestion yes.
 ---
 
 # PST Prune
 
-Return the local clone, and the remote, to a clean state on the latest trunk
-after a PR lands.
+Return the local clone and the remote to a clean state on the latest trunk after
+a PR lands.
 
-Triggered two ways:
+**Trigger:** `/pst:prune`, or unprompted when the turn confirms a PR or branch
+merged ("I merged #N", or a tracked PR now reads merged). Verify the merge is
+real; never infer it from an open PR. The `prune_remind.rb` hook only surfaces
+the skill; these guards still apply.
 
-- **Manually:** `/pst:prune`.
-- **Discerned:** when the turn establishes that a PR or branch just merged (the
-  user says "I merged #N", or a PR you were tracking now reads merged), run this
-  without being asked. Confirm the merge is real before pruning, do not infer it
-  from an open PR. A `UserPromptSubmit` hook (`prune_remind.rb`) surfaces this
-  skill when the prompt reads as a completed merge; it is advisory, the guards
-  below still apply.
+## Invariants (never violate)
 
-Two rules govern every deletion:
+1. Delete local work only when it is both clean and fully merged into the trunk.
+   Surface anything else; never discard it on your own judgment.
+2. Never `git push origin --delete` without an AskUserQuestion yes and a written
+   justification, even for a fully merged branch.
+3. Never `git clean` without an AskUserQuestion yes scoped to named paths, and
+   never `git clean -x`/`-X`. Plain `git clean` already skips gitignored files,
+   which is where a real `.env` with secrets lives; `-x` would sweep exactly those.
 
-1. **Never discard unmerged or uncommitted work on your own judgment.** Local
-   pruning is applied only to branches and worktrees that are both clean and
-   fully merged into the trunk. Anything else is surfaced, not removed.
-2. **Never delete a remote branch without explicit approval.** A
-   `git push origin --delete` is destructive and shared. Always get an
-   `AskUserQuestion` yes first, with a written justification, even when the
-   branch is fully merged.
-
-Honor the session merge mode. Under Local only, do not push at all (remote
-pruning is off); the remote half is skipped and only local pruning runs.
+Honor the session merge mode: under Local only, skip every remote step.
 
 ## Trunk
 
-Resolve the trunk from the remote default, do not assume `main`:
+Resolve from the remote default, do not assume `main`:
 
 ```bash
 git remote set-head origin -a >/dev/null 2>&1
@@ -42,55 +36,41 @@ TRUNK=$(git symbolic-ref --short refs/remotes/origin/HEAD | sed 's#^origin/##')
 
 ## Workflow
 
-1. **Survey.** `git worktree list`, `git branch -vv`, `git branch -r`,
-   `git status -sb`. Note the current branch and which worktree is the host.
-2. **Fetch.** `git fetch --prune origin`. This drops tracking refs for remote
-   branches already deleted on the server (a merge often auto-deletes the head
-   branch), and refreshes the merge checks below. Pruning a stale tracking ref
-   is not a remote deletion and needs no approval.
-3. **Classify** every local branch, every worktree, and every remote branch
-   other than the trunk:
-   - *Dirty worktree:* `git status` not clean -> rogue.
-   - *Unmerged branch* (local or remote): `git rev-list --count origin/$TRUNK..<ref>`
-     > 0 -> rogue.
-   - *Clean and merged:* working tree clean and zero unmerged commits -> prunable.
-4. **Fast-forward the trunk.** Switch the host worktree to `$TRUNK`, then
-   `git pull --ff-only origin $TRUNK`. If the fast-forward is refused, the local
-   trunk has diverged: treat it as rogue and ask.
-5. **Prune safe local work.** `git worktree prune` to clear stale metadata, then
-   `git worktree remove <path>` for each non-host worktree classified prunable,
-   and `git branch -d <branch>` for each prunable branch (lowercase `-d` refuses
-   an unmerged branch as a backstop).
-6. **Prune the remote, with approval.** For remote branches other than the trunk
-   that still exist after step 2, do not delete silently. Use `AskUserQuestion`
-   (see Asking) and only on an explicit yes run
-   `git push origin --delete <branch>`.
-7. **Re-prune tracking refs.** `git fetch --prune origin` if anything changed.
-8. **Report.** Show the final `git branch`, `git branch -r`,
-   `git worktree list`, and `git status -sb`, and list anything left in place
-   because it was rogue or declined.
+1. **Survey:** `git worktree list`, `git branch -vv`, `git branch -r`,
+   `git status -sb`. Note the current branch and host worktree.
+2. **Fetch:** `git fetch --prune origin` (drops tracking refs for server-deleted
+   branches and refreshes merge checks; not a remote deletion).
+3. **Classify** each branch and worktree against the trunk:
+   - dirty worktree, or `git rev-list --count origin/$TRUNK..<ref>` > 0 -> rogue.
+   - clean and zero unmerged commits -> prunable.
+4. **Fast-forward:** switch the host worktree to `$TRUNK`, `git pull --ff-only
+   origin $TRUNK`. If refused, the local trunk diverged: treat as rogue and ask.
+5. **Prune local:** `git worktree prune`, then `git worktree remove <path>` and
+   `git branch -d <branch>` per prunable item (`-d` refuses unmerged as a backstop).
+6. **Clean untracked** (per surviving worktree): `git clean -nd` to preview,
+   classify (see below), then ask. Run `git clean -fd -- <paths>` only on a yes.
+7. **Prune remote:** for non-trunk `origin/<branch>` still present after step 2,
+   ask, then `git push origin --delete <branch>` only on a yes.
+8. **Re-prune:** `git fetch --prune origin` if anything changed.
+9. **Report:** final `git branch`, `git branch -r`, `git worktree list`,
+   `git status -sb`, plus anything kept because it was rogue or declined.
+
+## Classifying untracked
+
+From `git clean -nd`, when unsure treat as a keeper:
+- **Keeper** (never in a clean command): `.env`, `.env.*`, `.envrc`, `*.pem`,
+  `*.key`, `*.crt`, `*.p12`, `*.pfx`, `id_rsa*`, anything secrets-pathed, and any
+  hand-authored file (config, note, script).
+- **Junk:** build output and tool/OS cruft - `.DS_Store`, `Thumbs.db`, `*.log`,
+  `*.tmp`, `*.swp`, `*~`, known build directories.
 
 ## Asking
 
-Use `AskUserQuestion` in two situations. Name the specific branch or worktree
-and the evidence, so the choice is informed. Other agents may own a branch or
-worktree you see, which is why these are surfaced rather than removed.
+Name the specific item and the evidence; another agent may own what you see.
+Run nothing destructive until the matching question returns a yes.
 
-**Rogue work** (unmerged commits, or a dirty worktree). Per item, offer at
-least:
-
-- **Keep it** (leave it untouched).
-- **Delete anyway** - only on explicit confirmation, since it discards work
-  (`git branch -D`, `git worktree remove --force`, and for a remote branch
-  `git push origin --delete`).
-
-**Destructive remote deletion** (deleting any `origin/<branch>`, even a merged
-one). State the justification before asking, for example "origin/feature-x is
-fully merged into $TRUNK as of PR #N, so deleting it on the remote discards
-nothing." Offer:
-
-- **Delete on the remote** (`git push origin --delete <branch>`).
-- **Keep it.**
-
-Do not run any `git push ... --delete` until the matching question returns an
-explicit approval.
+| Situation | Options |
+| --- | --- |
+| Rogue work (unmerged commits or dirty worktree) | Keep it; or Delete anyway (explicit only): `git branch -D`, `git worktree remove --force`, `git push origin --delete` |
+| Remote deletion of any `origin/<branch>` | State justification ("merged into $TRUNK as of #N, deleting discards nothing"), then Delete on remote; or Keep it |
+| Untracked files | Clean the junk (`git clean -fd -- <junk>`, keepers excluded); Clean named keepers too (explicit only); or Keep everything |
