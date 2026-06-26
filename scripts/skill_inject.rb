@@ -28,11 +28,17 @@ class SkillInject
     path = changed_path
     return unless path
 
-    matched = registry.select { |skill| skill.matches?(path) }
-    return if matched.empty?
+    # Enqueue on the structural match (gates skipped), so a file authored before
+    # its require marker still enters the queue; the require/exclude gates are
+    # applied at review time against the final tree (review_scope). Surfacing
+    # stays gated to the project as it stands, so a non-matching project does not
+    # see the cheat sheet.
+    structural = registry.select { |skill| skill.matches?(path) }
+    return if structural.empty?
 
-    enqueue_reviews(matched, path)
-    surface(matched, io)
+    enqueue_reviews(structural, path)
+    root = repo_root(path)
+    surface(structural.select { |skill| skill.matches?(path, root: root) }, io)
   end
 
   private
@@ -44,6 +50,16 @@ class SkillInject
     return unless input.is_a?(Hash)
 
     input['file_path'] || input['notebook_path']
+  end
+
+  # Project root for exclusion gating, resolved from the changed file's own
+  # directory so a path in another repo is judged by that repo. Any git failure
+  # yields nil; matches? then skips exclusion, so an unresolved root never
+  # suppresses a skill. Suppression is the aggressive action and must not fire
+  # on uncertainty.
+  def repo_root(path)
+    out, status = capture_git(File.dirname(path), 'rev-parse', '--show-toplevel')
+    status&.success? ? out.strip : nil
   end
 
   # Records every match so the Stop hook reviews the batch. The content hash

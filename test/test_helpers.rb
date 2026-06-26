@@ -45,3 +45,51 @@ module SkillFactory
     File.write(File.join(dir, "SKILL.md"), contents)
   end
 end
+
+# Shared setup and project builders for the SkillRegistry test files
+# (core matching, paths, exclude, require, dep). Each file is a focused
+# Minitest::Test that includes this; @skills is a throwaway skills dir.
+module SkillRegistryHelpers
+  include SkillFactory
+
+  def setup
+    @skills = Dir.mktmpdir
+  end
+
+  def teardown
+    FileUtils.remove_entry(@skills)
+  end
+
+  def load = SkillRegistry.load(@skills)
+
+  # Builds a throwaway project dir holding the given relative files (parents
+  # created, contents empty) and returns its path; the caller removes it.
+  def project_with(*relpaths)
+    dir = Dir.mktmpdir
+    relpaths.each do |rel|
+      full = File.join(dir, rel)
+      FileUtils.mkdir_p(File.dirname(full))
+      FileUtils.touch(full)
+    end
+    dir
+  end
+
+  # Builds a throwaway project from a { relative_path => contents } map, so a
+  # case can give package.json real JSON rather than the empty files project_with
+  # touches. Caller removes the dir.
+  def project_with_files(files)
+    dir = Dir.mktmpdir
+    files.each do |rel, body|
+      full = File.join(dir, rel)
+      FileUtils.mkdir_p(File.dirname(full))
+      File.write(full, body)
+    end
+    dir
+  end
+
+  # A package.json body listing the given runtime and dev dependencies.
+  def pkg(deps: [], dev: [])
+    JSON.generate("dependencies" => deps.to_h { |d| [ d, "^1" ] },
+                  "devDependencies" => dev.to_h { |d| [ d, "^1" ] })
+  end
+end

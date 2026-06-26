@@ -6,6 +6,7 @@ require_relative 'hook_event'
 require_relative 'skill_registry'
 require_relative 'review_queue'
 require_relative 'review_prompt'
+require_relative 'review_scope'
 
 # Stop hook: when the turn ends, if review-enabled files changed this session and
 # have no review verdict yet, block and hand the agent the review prompt. This is
@@ -27,9 +28,10 @@ class SkillReview
     return if @event['stop_hook_active']
 
     queue = ReviewQueue.new(@event['session_id'])
-    return if queue.empty?
+    pending = ReviewScope.covered(queue.pending, registry)
+    return if pending.empty?
 
-    io.puts(JSON.generate(response(queue)))
+    io.puts(JSON.generate(response(queue, pending)))
   end
 
   private
@@ -38,11 +40,11 @@ class SkillReview
 
   # Block to drive a review, unless the round cap is reached: then surface a
   # loud, non-blocking notice rather than silently swallowing further reviews.
-  def response(queue)
-    return { systemMessage: ReviewPrompt.cap_notice(queue.pending.size) } if queue.capped?
+  def response(queue, pending)
+    return { systemMessage: ReviewPrompt.cap_notice(pending.size) } if queue.capped?
 
     queue.bump_round
-    { decision: 'block', reason: ReviewPrompt.build(queue.pending, registry, @event['session_id']) }
+    { decision: 'block', reason: ReviewPrompt.build(pending, registry, @event['session_id']) }
   end
 end
 

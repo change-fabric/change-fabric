@@ -2,18 +2,11 @@
 
 require_relative "test_helpers"
 
+# Core loading and matching: extensions, basenames, detect markers, the
+# all_code/all_files scope flags, and the shipped skills' intended scope.
+# Path, exclude, require, and dep gating live in sibling files.
 class SkillRegistryTest < Minitest::Test
-  include SkillFactory
-
-  def setup
-    @skills = Dir.mktmpdir
-  end
-
-  def teardown
-    FileUtils.remove_entry(@skills)
-  end
-
-  def load = SkillRegistry.load(@skills)
+  include SkillRegistryHelpers
 
   def test_loads_only_skills_with_an_auto_block
     skill_dir("ruby", auto: { "extensions" => [ "rb" ] })

@@ -6,6 +6,7 @@ require_relative 'hook_event'
 require_relative 'skill_registry'
 require_relative 'review_queue'
 require_relative 'review_prompt'
+require_relative 'review_scope'
 require_relative 'guarded_command'
 
 # PreToolUse hook: when the agent is about to push or open a PR and files changed
@@ -38,9 +39,10 @@ class ReviewGate
     return unless command.match?(TRIGGER)
 
     queue = ReviewQueue.new(@event['session_id'])
-    return if queue.empty?
+    pending = ReviewScope.covered(queue.pending, registry)
+    return if pending.empty?
 
-    io.puts(JSON.generate(response(queue)))
+    io.puts(JSON.generate(response(queue, pending)))
   end
 
   private
@@ -52,11 +54,11 @@ class ReviewGate
     input.is_a?(Hash) ? input['command'].to_s : ''
   end
 
-  def response(queue)
-    return { systemMessage: ReviewPrompt.cap_notice(queue.pending.size) } if queue.capped?
+  def response(queue, pending)
+    return { systemMessage: ReviewPrompt.cap_notice(pending.size) } if queue.capped?
 
     queue.bump_round
-    deny(ReviewPrompt.build(queue.pending, registry, @event['session_id']))
+    deny(ReviewPrompt.build(pending, registry, @event['session_id']))
   end
 
   def deny(reason)
