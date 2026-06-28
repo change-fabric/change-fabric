@@ -32,6 +32,7 @@ class:           truth | active | ephemeral
 status:          active | done | superseded | archived (defaults to active)
 ttl:             ephemeral only, a day count like 14d
 expires:         ephemeral only, derived date, ttl applied to last_touched
+review_after:    optional (truth), a day count; past it the doc is review-due
 last_touched:    ISO-8601 timestamp, rewritten on every capture
 originSessionId: session id that wrote the doc
 originDevice:    short hostname, from .ctx-meta/device
@@ -43,12 +44,16 @@ Validation enforced on write:
 - `class` is required and one of the three.
 - `truth` may not carry `ttl` or `expires`.
 - `ephemeral` must carry `ttl`; `expires` is computed.
+- `review_after`, if set, must be a day count.
 - `status` defaults to `active`.
 
 ## Class taxonomy
 
 - `truth` - signed contracts, architecture and client-identity decisions, PRDs.
-  Never auto-expires; retention never proposes it for removal.
+  Never auto-expires and is never auto-removed. After a long no-touch interval
+  (the doc's `review_after`, or a default of 365 days) it becomes review-due:
+  prune surfaces it for a human to reconfirm (re-attest), archive, or remove, so
+  a durable fact nobody has touched in a year does not bloat the store forever.
 - `active` - deep-research implementation plans, standalone task lists, live
   client comms and working notes. A candidate for archival once `done` or
   `superseded`.

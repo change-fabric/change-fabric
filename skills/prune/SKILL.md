@@ -54,6 +54,13 @@ TRUNK=$(git symbolic-ref --short refs/remotes/origin/HEAD | sed 's#^origin/##')
 8. **Re-prune:** `git fetch --prune origin` if anything changed.
 9. **Report:** final `git branch`, `git branch -r`, `git worktree list`,
    `git status -sb`, plus anything kept because it was rogue or declined.
+10. **Ctx maintenance:** if `~/.claude/pst/bin/ctx_retention.rb` exists, run
+    `ruby ~/.claude/pst/bin/ctx_retention.rb prune` for this project's context
+    store. It auto-removes expired ephemeral docs; for each `needs review` item
+    AskUserQuestion (Archive / Remove / Keep) before acting, and apply with
+    `ctx_store.rb archive|remove <name>`; surface `structural issues` for the user
+    to fix. Never touch a `truth` doc. This is the pst:ctx prune flow; its skill
+    has the detail. Local-only, so it runs under every merge mode.
 
 ## Classifying untracked
 

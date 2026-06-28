@@ -20,10 +20,19 @@ class CtxStore
 
   NAME_PATTERN = /\A[a-z0-9][a-z0-9-]*\z/
 
+  # The on-disk shape: a YAML frontmatter block, the --- fence, then the body.
+  # Doc bodies and archive digests both serialize through here so what gets
+  # written stays byte-identical to what Frontmatter.split reads back.
+  def self.render(front, body) = "#{YAML.dump(front)}---\n\n#{body}\n"
+
+  # A doc paired with the class directory it sits in, so a caller (retention's
+  # structural check) can compare the on-disk class to the frontmatter class.
+  Entry = Data.define(:klass_dir, :doc)
+
   # One ctx doc as a value: frontmatter fields plus the markdown body. Built
   # whole, never mutated, so it doubles as the serialization unit.
   Doc = Data.define(
-    :name, :description, :klass, :status, :ttl, :expires,
+    :name, :description, :klass, :status, :ttl, :expires, :review_after,
     :last_touched, :origin_session_id, :origin_device, :supersedes, :body
   ) do
     def self.parse(text)
@@ -37,6 +46,7 @@ class CtxStore
         name: meta['name'].to_s, description: meta['description'].to_s,
         klass: meta['class'].to_s, status: (meta['status'] || 'active').to_s,
         ttl: present(meta['ttl']), expires: present(meta['expires']),
+        review_after: present(meta['review_after']),
         last_touched: meta['last_touched'].to_s, origin_session_id: meta['originSessionId'].to_s,
         origin_device: meta['originDevice'].to_s, supersedes: present(meta['supersedes']), body:
       )
@@ -44,7 +54,7 @@ class CtxStore
 
     def self.present(value) = value.nil? || value.to_s.empty? ? nil : value.to_s
 
-    def to_markdown = "#{YAML.dump(front)}---\n\n#{body}\n"
+    def to_markdown = CtxStore.render(front, body)
 
     # String keys in capture order; nils dropped so absent optional fields stay
     # out of the frontmatter. Psych quotes the timestamp and date values, so they
@@ -52,7 +62,7 @@ class CtxStore
     def front
       {
         'name' => name, 'description' => description, 'class' => klass, 'status' => status,
-        'ttl' => ttl, 'expires' => expires, 'last_touched' => last_touched,
+        'ttl' => ttl, 'expires' => expires, 'review_after' => review_after, 'last_touched' => last_touched,
         'originSessionId' => self.class.present(origin_session_id),
         'originDevice' => self.class.present(origin_device), 'supersedes' => supersedes
       }.compact
@@ -113,11 +123,12 @@ class CtxStore
     @committer = committer || GitCommitter.new(@store_dir)
   end
 
-  def write(name:, description:, klass:, body:, status: 'active', ttl: nil, supersedes: nil)
+  def write(name:, description:, klass:, body:, status: 'active', ttl: nil, supersedes: nil, review_after: nil)
     klass = klass.to_s
     ttl = ttl&.to_s
-    validate!(name: name.to_s, description: description.to_s, klass:, ttl:)
-    doc = build(name.to_s, description.to_s, klass, status.to_s, ttl, supersedes, body.to_s)
+    review_after = review_after&.to_s
+    validate!(name: name.to_s, description: description.to_s, klass:, ttl:, review_after:)
+    doc = build(name.to_s, description.to_s, klass, status.to_s, ttl, review_after, supersedes, body.to_s)
     persist(doc)
     after_mutation("capture #{doc.name}")
     doc
@@ -134,6 +145,19 @@ class CtxStore
     docs.sort_by(&:name)
   end
 
+  # Each live doc with the class directory it sits in. Retention needs the
+  # directory (not just the frontmatter class) to flag a doc filed under the
+  # wrong class.
+  def entries
+    CtxPaths::CLASSES.flat_map do |klass|
+      dir = CtxPaths.class_dir(klass, @cwd, home: @home)
+      Dir.glob(File.join(dir, '*.md')).sort.filter_map do |path|
+        doc = safe_parse(path)
+        doc && Entry.new(klass_dir: klass, doc:)
+      end
+    end
+  end
+
   def delete(name)
     path = path_for(name)
     return false unless path
@@ -143,40 +167,75 @@ class CtxStore
     true
   end
 
+  # Compact a live doc into a short digest under archive/ and drop the live copy.
+  # The verbatim original stays in git history, so archiving means drop-from-live,
+  # not lose-forever. archive/ is outside the live classes, so the index and the
+  # structural check skip it.
+  def archive(name, digest = nil)
+    doc = read(name)
+    return false unless doc
+
+    File.delete(path_for(name))
+    write_archive(doc, digest || default_digest(doc))
+    after_mutation("archive #{name}")
+    true
+  end
+
   def device = @device ||= read_or_init_device
 
   private
 
-  def build(name, description, klass, status, ttl, supersedes, body)
+  def build(name, description, klass, status, ttl, review_after, supersedes, body)
     at = @now || Time.now
     Doc.new(
       name:, description:, klass:, status:, ttl:,
-      expires: (Ttl.expires(at, ttl) if klass == 'ephemeral' && ttl),
+      expires: (Ttl.expires(at, ttl) if klass == 'ephemeral' && ttl), review_after:,
       last_touched: at.iso8601, origin_session_id: @session_id, origin_device: device,
       supersedes: Doc.present(supersedes), body:
     )
   end
 
-  def validate!(name:, description:, klass:, ttl:)
+  def validate!(name:, description:, klass:, ttl:, review_after:)
     raise InvalidDoc, "unknown class #{klass.inspect}" unless CtxPaths.klass?(klass)
     raise InvalidDoc, 'truth docs may not carry a ttl' if klass == 'truth' && ttl
     raise InvalidDoc, 'ephemeral docs require a ttl' if klass == 'ephemeral' && ttl.nil?
     raise InvalidDoc, "ttl must be a day count like 14d, got #{ttl.inspect}" if ttl && Ttl.days(ttl).nil?
+    raise InvalidDoc, "review_after must be a day count like 365d, got #{review_after.inspect}" if review_after && Ttl.days(review_after).nil?
     raise InvalidDoc, "name must be a slug, got #{name.inspect}" unless NAME_PATTERN.match?(name)
     raise InvalidDoc, 'description must not be empty' if description.strip.empty?
   end
 
-  def persist(doc)
-    path = doc_path(doc)
+  def persist(doc) = write_atomically(doc_path(doc), doc.to_markdown)
+
+  # Temp-file-plus-rename so a crash mid-write leaves a gitignored *.tmp, never a
+  # half-written live doc. Shared by every doc write (capture and archive).
+  def write_atomically(path, content)
     FileUtils.mkdir_p(File.dirname(path))
     tmp = "#{path}.tmp"
-    File.write(tmp, doc.to_markdown)
+    File.write(tmp, content)
     File.rename(tmp, path)
   end
 
   def after_mutation(action)
     CtxIndex.rebuild(@store_dir)
     @committer.call("ctx: #{action} [#{device}]")
+  end
+
+  def write_archive(doc, digest)
+    path = File.join(CtxPaths.class_dir(CtxPaths::ARCHIVE, @cwd, home: @home), "#{doc.name}.md")
+    write_atomically(path, archive_markdown(doc, digest))
+  end
+
+  def archive_markdown(doc, digest)
+    front = { 'name' => doc.name, 'description' => doc.description,
+              'class' => CtxPaths::ARCHIVE, 'status' => 'archived',
+              'archived_from' => doc.klass, 'last_touched' => doc.last_touched }.compact
+    CtxStore.render(front, digest)
+  end
+
+  def default_digest(doc)
+    first = doc.body.to_s.lines.map(&:strip).find { |line| !line.empty? }.to_s
+    [ doc.description, first ].reject(&:empty?).join(' - ')
   end
 
   def doc_path(doc) = File.join(CtxPaths.class_dir(doc.klass, @cwd, home: @home), "#{doc.name}.md")
@@ -210,7 +269,7 @@ class CtxStore
   # following the pst:ctx skill; the session id is an argument because there is no
   # hook event to read it from.
   class CLI
-    FLAG_KEYS = %w[name desc class status ttl supersedes session].freeze
+    FLAG_KEYS = %w[name desc class status ttl review-after supersedes session].freeze
 
     def self.run(argv, out: $stdout, input: $stdin)
       verb, *rest = argv
@@ -224,15 +283,23 @@ class CtxStore
       when 'capture' then capture(store, flags, out:, input:)
       when 'recall' then recall(store, positional.first, out:)
       when 'list' then list(store, flags, out:)
-      else out.puts('usage: ctx_store.rb capture|recall|list [--flags]')
+      when 'archive' then mutate(store, :archive, positional.first, 'archived', out:)
+      when 'remove' then mutate(store, :delete, positional.first, 'removed', out:)
+      else out.puts('usage: ctx_store.rb capture|recall|list|archive|remove [--flags]')
       end
+    end
+
+    # archive and remove share a shape: act on one named doc, report what happened.
+    def self.mutate(store, verb, name, past_tense, out:)
+      done = name && store.public_send(verb, name)
+      out.puts(done ? "#{past_tense} #{name}" : "no ctx doc named #{name.inspect}")
     end
 
     def self.capture(store, flags, out:, input:)
       doc = store.write(
         name: flags['name'], description: flags['desc'], klass: flags['class'],
         status: flags['status'] || 'active', ttl: flags['ttl'], supersedes: flags['supersedes'],
-        body: input.read
+        review_after: flags['review-after'], body: input.read
       )
       out.puts("captured #{doc.name} (#{doc.klass})")
     rescue InvalidDoc => e

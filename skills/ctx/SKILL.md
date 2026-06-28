@@ -44,8 +44,10 @@ printf '%s' "Body of the note, one concern per doc." | \
 ```
 
 An `ephemeral` doc requires `--ttl` (a day count like `14d`); a `truth` doc must
-not carry one. Capture refuses an unknown class, a bad name, or an empty
-description rather than writing a malformed doc.
+not carry one. A `truth` doc may set `--review-after <Nd>` to tune its review
+horizon (default 365 days), after which prune surfaces it for re-attestation.
+Capture refuses an unknown class, a bad name, or an empty description rather than
+writing a malformed doc.
 
 ### recall
 
@@ -65,6 +67,40 @@ ruby ~/.claude/pst/bin/ctx_store.rb list --class active --status active
 
 `INDEX.md` at the store root holds the same one-line-per-doc summary and is
 regenerated on every write; read it for a cheap overview.
+
+### prune
+
+Garbage-collect and relevance-check the store. Run it on an ongoing basis, in
+particular after a PR merges (the pst:prune skill calls it for you).
+
+```bash
+ruby ~/.claude/pst/bin/ctx_retention.rb prune
+```
+
+It auto-removes expired ephemeral docs (their ttl was the consent) and prints two
+lists it never acts on by itself:
+
+- `needs review` - done/superseded and over-cap active docs (suggested action
+  `archive`), stale active docs (`review`), and `truth` docs past their review
+  horizon (`review-due`). For each, AskUserQuestion with Archive / Remove / Keep
+  before doing anything. On a yes, apply it:
+
+  ```bash
+  ruby ~/.claude/pst/bin/ctx_store.rb archive <name>   # compact to a digest, drop the live copy
+  ruby ~/.claude/pst/bin/ctx_store.rb remove <name>    # drop the live copy
+  ```
+
+  Keep means bump the doc with a fresh capture so it stops reading as stale. For a
+  `review-due` truth doc, default to Keep (re-attest the fact); only archive or
+  remove if it is genuinely obsolete.
+
+- `structural issues` - a doc that does not parse, sits under the wrong class, or
+  has an invalid status. Surface these for the user to fix; do not auto-edit.
+
+Invariants (mirroring pst:prune): `truth` is never auto-removed or auto-archived
+(it only ever reaches the review set), and nothing in the review set is removed
+or archived without an explicit yes. Archiving is compact-and-drop, with git
+history as the verbatim backstop.
 
 ## Authoring rules
 

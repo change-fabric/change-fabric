@@ -91,6 +91,18 @@ class CtxStoreTest < Minitest::Test
     assert_raises(CtxStore::InvalidDoc) { store.write(name: "Bad Name", description: "d", klass: "active", body: "b") }
   end
 
+  def test_review_after_round_trips
+    doc = store.write(name: "msa", description: "contract", klass: "truth", review_after: "180d", body: "x")
+    assert_equal "180d", doc.review_after
+    assert_equal "180d", CtxStore::Doc.parse(File.read(doc_file("truth", "msa"))).review_after
+  end
+
+  def test_bad_review_after_is_rejected
+    assert_raises(CtxStore::InvalidDoc) do
+      store.write(name: "msa", description: "contract", klass: "truth", review_after: "soon", body: "x")
+    end
+  end
+
   def test_index_rebuilt_after_write
     store.write(name: "plan", description: "the plan", klass: "active", body: "x")
     assert_includes index_text, "- [plan](active/plan.md) - the plan"
@@ -132,6 +144,29 @@ class CtxStoreTest < Minitest::Test
     assert_nil store.read("a")
     refute_includes index_text, "(active/a.md)"
     assert_equal "ctx: remove a [mac-mini]", @committer.messages.last
+  end
+
+  def test_archive_drops_live_and_writes_a_digest
+    store.write(name: "p", description: "the plan", klass: "active", body: "first line\nmore")
+    assert store.archive("p")
+    assert_nil store.read("p")
+
+    tomb = File.join(CtxPaths.class_dir(CtxPaths::ARCHIVE, CWD, home: @home), "p.md")
+    assert File.exist?(tomb), "archive tombstone should exist"
+    assert_includes File.read(tomb), "the plan"
+    refute_includes index_text, "(active/p.md)"
+    assert_equal "ctx: archive p [mac-mini]", @committer.messages.last
+  end
+
+  def test_archive_missing_doc_returns_false
+    refute store.archive("nope")
+  end
+
+  def test_entries_pair_each_doc_with_its_class_directory
+    store.write(name: "t", description: "dt", klass: "truth", body: "x")
+    store.write(name: "a", description: "da", klass: "active", body: "x")
+    pairs = store.entries.map { |entry| [ entry.klass_dir, entry.doc.name ] }.sort
+    assert_equal [ [ "active", "a" ], [ "truth", "t" ] ], pairs
   end
 
   def test_cli_parses_flags_and_positionals
