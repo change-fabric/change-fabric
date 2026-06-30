@@ -6,7 +6,8 @@ require_relative "#{SKILL_SCRIPTS}/ctx_store"
 class CtxStoreTest < Minitest::Test
   include SkillTempHome
 
-  CWD = "/Users/pst/code/demo"
+  # Under @home (the redirected HOME), so the store-keying guard accepts it.
+  def cwd = File.join(@home, "code", "demo")
 
   # Records commit messages instead of shelling out to git, so writes are tested
   # without a real repo or a configured identity.
@@ -24,16 +25,16 @@ class CtxStoreTest < Minitest::Test
   end
 
   def store
-    CtxStore.new(cwd: CWD, home: @home, session_id: "sess-1", device: "mac-mini",
+    CtxStore.new(cwd: cwd, home: @home, session_id: "sess-1", device: "laptop-a",
                  committer: @committer, now: @clock)
   end
 
   def doc_file(klass, name)
-    File.join(CtxPaths.class_dir(klass, CWD, home: @home), "#{name}.md")
+    File.join(CtxPaths.class_dir(klass, cwd, home: @home), "#{name}.md")
   end
 
   def index_text
-    File.read(File.join(CtxPaths.store_dir(CWD, home: @home), "INDEX.md"))
+    File.read(File.join(CtxPaths.store_dir(cwd, home: @home), "INDEX.md"))
   end
 
   # Swaps File.rename for one that raises, so the atomic temp-then-rename write
@@ -55,10 +56,16 @@ class CtxStoreTest < Minitest::Test
     $VERBOSE = verbose
   end
 
+  def test_constructor_refuses_a_cwd_outside_home
+    assert_raises(CtxPaths::NotAProject) do
+      CtxStore.new(cwd: "/elsewhere/scratch", home: @home, committer: @committer)
+    end
+  end
+
   def test_write_stamps_provenance_and_round_trips
     doc = store.write(name: "plan", description: "the plan: phase one", klass: "active", body: "step one")
     assert_equal "2026-06-27T09:00:00-04:00", doc.last_touched
-    assert_equal "mac-mini", doc.origin_device
+    assert_equal "laptop-a", doc.origin_device
     assert_equal "sess-1", doc.origin_session_id
 
     saved = CtxStore::Doc.parse(File.read(doc_file("active", "plan")))
@@ -110,7 +117,7 @@ class CtxStoreTest < Minitest::Test
 
   def test_write_commits_locally_with_device_tag
     store.write(name: "plan", description: "the plan", klass: "active", body: "x")
-    assert_equal [ "ctx: capture plan [mac-mini]" ], @committer.messages
+    assert_equal [ "ctx: capture plan [laptop-a]" ], @committer.messages
   end
 
   def test_partial_write_leaves_no_live_doc
@@ -143,7 +150,7 @@ class CtxStoreTest < Minitest::Test
     assert store.delete("a")
     assert_nil store.read("a")
     refute_includes index_text, "(active/a.md)"
-    assert_equal "ctx: remove a [mac-mini]", @committer.messages.last
+    assert_equal "ctx: remove a [laptop-a]", @committer.messages.last
   end
 
   def test_archive_drops_live_and_writes_a_digest
@@ -151,11 +158,11 @@ class CtxStoreTest < Minitest::Test
     assert store.archive("p")
     assert_nil store.read("p")
 
-    tomb = File.join(CtxPaths.class_dir(CtxPaths::ARCHIVE, CWD, home: @home), "p.md")
+    tomb = File.join(CtxPaths.class_dir(CtxPaths::ARCHIVE, cwd, home: @home), "p.md")
     assert File.exist?(tomb), "archive tombstone should exist"
     assert_includes File.read(tomb), "the plan"
     refute_includes index_text, "(active/p.md)"
-    assert_equal "ctx: archive p [mac-mini]", @committer.messages.last
+    assert_equal "ctx: archive p [laptop-a]", @committer.messages.last
   end
 
   def test_archive_missing_doc_returns_false

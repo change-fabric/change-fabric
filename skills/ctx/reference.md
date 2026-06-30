@@ -6,7 +6,8 @@ this is the detail it defers to.
 ## Store layout
 
 Keyed by the absolute cwd with every `/` turned to `-`, byte-identical across
-both Macs because both run under `/Users/pst`.
+devices because they run under the same home (pinned per device by install.rb,
+so the repo never names it).
 
 ```
 ~/.claude/pst/ctx/<dashed-cwd>/
@@ -79,7 +80,7 @@ class: truth
 status: active
 last_touched: '2026-06-27T09:00:00-04:00'
 originSessionId: 3f2a
-originDevice: mac-mini
+originDevice: laptop-a
 ---
 Scope, rate, term. The signed PDF lives elsewhere; this is the durable record.
 ```
@@ -88,15 +89,15 @@ An ephemeral doc:
 
 ```
 ---
-name: nas-bootstrap-scratch
-description: Throwaway notes while standing up the NAS git remote.
+name: remote-bootstrap-scratch
+description: Throwaway notes while standing up the sync git remote.
 class: ephemeral
 status: active
 ttl: 14d
 expires: '2026-07-11'
 last_touched: '2026-06-27T09:12:00-04:00'
 originSessionId: 92a2
-originDevice: mac-mini
+originDevice: laptop-a
 ---
 Commands tried, what worked. Safe to expire once bootstrap lands.
 ```

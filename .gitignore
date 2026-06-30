@@ -7,3 +7,7 @@
 
 # Node deps for the Pi hook extension toolchain
 /node_modules/
+
+# Per-device home pin written by install.rb; never committed (it holds an
+# absolute user path). Only the installed copy under ~/.claude carries it.
+.expected-home

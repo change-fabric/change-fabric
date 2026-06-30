@@ -7,12 +7,12 @@ require_relative 'hook_event'
 # PreToolUse hook: denies a tool call whose authored text carries an AI-slop
 # glyph (em-dash, bullet, ellipsis, smart quotes) or a banned attribution phrase
 # (the agent harness appends a Claude Code footer to commits and PR bodies by
-# default; Patrick does not want it on any surface). The "no em-dash" doctrine was
-# advisory only, so a probabilistic author could leak the character straight to
-# an external surface - the leak that prompted this was a Jira comment posted via
-# MCP, a surface no git-side or Bash-only check can see. PreToolUse is the one
-# interception point that sits in front of every outbound surface (Bash, file
-# writes, MCP), and it can deny before anything external happens, so the model
+# default; the maintainer does not want it on any surface). The "no em-dash"
+# doctrine was advisory only, so a probabilistic author could leak the character
+# straight to an external surface - the leak that prompted this was a Jira comment
+# posted via MCP, a surface no git-side or Bash-only check can see. PreToolUse is
+# the one interception point that sits in front of every outbound surface (Bash,
+# file writes, MCP), and it can deny before anything external happens, so the model
 # retries clean - the same self-correcting loop as merge_mode_guard.
 #
 # Like the other guards here this is a loud guardrail, not a sandbox: it matches

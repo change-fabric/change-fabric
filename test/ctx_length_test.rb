@@ -11,16 +11,18 @@ require_relative "#{SKILL_SCRIPTS}/ctx_store"
 class CtxLengthTest < Minitest::Test
   include SkillTempHome
 
-  CWD = "/Users/pst/code/demo"
   MAX_BODY_LINES = 300
   WARN_BODY_LINES = 200
   MAX_NAME_CHARS = 64
   MAX_DESCRIPTION_CHARS = 1024
   VALID_STATUS = %w[active done superseded archived].freeze
 
+  # Under @home (the redirected HOME), so the store-keying guard accepts it.
+  def cwd = File.join(@home, "code", "demo")
+
   def setup
     super
-    store = CtxStore.new(cwd: CWD, home: @home, session_id: "s", device: "dev",
+    store = CtxStore.new(cwd: cwd, home: @home, session_id: "s", device: "dev",
                          committer: ->(_message) { }, now: Time.new(2026, 6, 27))
     store.write(name: "contract", description: "a signed master services agreement", klass: "truth", body: "terms")
     store.write(name: "plan", description: "implementation plan, in flight", klass: "active", body: "steps")
@@ -28,7 +30,7 @@ class CtxLengthTest < Minitest::Test
   end
 
   def each_doc
-    base = CtxPaths.store_dir(CWD, home: @home)
+    base = CtxPaths.store_dir(cwd, home: @home)
     CtxPaths::CLASSES.each do |klass|
       Dir.glob(File.join(base, klass, "*.md")).sort.each do |path|
         front, body = SkillRegistry::Frontmatter.split(File.read(path))

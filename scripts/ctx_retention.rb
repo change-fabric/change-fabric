@@ -141,6 +141,8 @@ class CtxRetention
       when 'prune', nil then prune(out:)
       else out.puts('usage: ctx_retention.rb prune')
       end
+    rescue CtxPaths::NotAProject => e
+      out.puts("refused: #{e.message}")
     end
 
     def self.prune(out:, store: CtxStore.new(cwd: Dir.pwd))

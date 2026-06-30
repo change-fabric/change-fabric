@@ -377,6 +377,7 @@ module Install
 
     def install
       place_hooks
+      pin_expected_home
       link_skills
       link_pi_extension
       mirror_to_pi
@@ -394,6 +395,14 @@ module Install
         FileUtils.cp(source, dest)
         FileUtils.chmod(0o755, dest)
       end
+    end
+
+    # Records this device's home beside the installed scripts so ctx_paths keys
+    # the store and catches a wrong runtime HOME without the repo naming an
+    # absolute user path. Written after place_hooks, which wipes the bin dir, and
+    # read via __dir__ so it survives a session launched with a divergent HOME.
+    def pin_expected_home
+      File.write(File.join(@paths.bin, '.expected-home'), Dir.home)
     end
 
     def link_skills

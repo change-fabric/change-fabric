@@ -13,7 +13,7 @@ require_relative 'skill_registry'
 # CRUD over .ctx docs: markdown files with a YAML frontmatter block, grouped by
 # class (truth/active/ephemeral) under the per-project store. Writes are atomic
 # (temp file plus rename) and stamp provenance on every capture. After any
-# mutation the INDEX is rebuilt and a local commit is made; pushing to the NAS
+# mutation the INDEX is rebuilt and a local commit is made; pushing to a sync
 # remote is a later phase, so a store with no origin simply never pushes.
 class CtxStore
   class InvalidDoc < StandardError; end
@@ -69,14 +69,14 @@ class CtxStore
     end
   end
 
-  # Commits the store locally after a mutation. Push to the NAS remote is a later
+  # Commits the store locally after a mutation. Push to a sync remote is a later
   # phase, so this only commits. Failures are swallowed: a doc that was written
   # must not be lost because git lacks an identity or the store is not a repo yet.
   #
   # The commit author is a neutral system identity, not a person: the store is
-  # private (local plus the NAS remote), so authorship there is cosmetic, and the
-  # `-c` overrides keep a missing global git identity from failing the commit. Set
-  # the store's own user.name/user.email if a real author is wanted.
+  # private (local plus an optional sync remote), so authorship there is cosmetic,
+  # and the `-c` overrides keep a missing global git identity from failing the
+  # commit. Set the store's own user.name/user.email if a real author is wanted.
   class GitCommitter
     IDENTITY = { name: 'pst-ctx', email: 'pst-ctx@localhost' }.freeze
 
@@ -114,6 +114,7 @@ class CtxStore
   end
 
   def initialize(cwd: Dir.pwd, session_id: '', device: nil, home: Dir.home, committer: nil, now: nil)
+    CtxPaths.assert_project!(cwd)
     @cwd = cwd
     @session_id = session_id.to_s
     @home = home
@@ -276,6 +277,8 @@ class CtxStore
       flags, positional = parse(rest)
       store = CtxStore.new(cwd: Dir.pwd, session_id: flags['session'].to_s)
       dispatch(verb, store, flags, positional, out:, input:)
+    rescue CtxPaths::NotAProject => e
+      out.puts("refused: #{e.message}")
     end
 
     def self.dispatch(verb, store, flags, positional, out:, input:)

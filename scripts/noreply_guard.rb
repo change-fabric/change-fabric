@@ -12,9 +12,9 @@ require_relative 'hook_event'
 # the command and the git state, and is trivially bypassable (git -c, env-var
 # indirection). It exists to make an accidental identity slip loud.
 #
-# Only GitHub remotes are guarded. The ctx store's NAS remote and any other host
-# are left alone, so a deliberately non-GitHub identity (the pst-ctx system author)
-# still pushes there.
+# Only GitHub remotes are guarded. A non-GitHub remote (for example the ctx
+# store's sync remote) is left alone, so a deliberately non-GitHub identity (the
+# ctx system author) still pushes there.
 
 # Pure decision: given the command text, the resolved remote URL, and the emails
 # of the commits to be pushed, return the first offending email or nil.

@@ -20,7 +20,7 @@ class CtxSurfaceTest < Minitest::Test
           touched: "2026-06-20T09:00:00-04:00", expires: nil, description: "desc #{name}")
     CtxStore::Doc.new(
       name:, description:, klass:, status:, ttl: nil, expires:, review_after: nil,
-      last_touched: touched, origin_session_id: "s", origin_device: "mac-mini",
+      last_touched: touched, origin_session_id: "s", origin_device: "laptop-a",
       supersedes: nil, body:
     )
   end
@@ -33,7 +33,7 @@ class CtxSurfaceTest < Minitest::Test
   end
 
   def select(docs, roadmap_obj: nil, meta: {})
-    CtxSurface.select(cwd: "/Users/pst/code/demo", home: @home, now: NOW,
+    CtxSurface.select(cwd: "/w/code/demo", home: @home, now: NOW,
                       store: FakeStore.new(docs, roadmap_obj, meta))
   end
 
@@ -141,7 +141,7 @@ class CtxSurfaceTest < Minitest::Test
     assert_includes out, "good", "the well-formed doc still surfaces"
     refute_empty out
 
-    empty = CtxSurface.render(CtxSurface.select(cwd: "/Users/pst/code/empty", home: @home, now: NOW))
+    empty = CtxSurface.render(CtxSurface.select(cwd: "/w/code/empty", home: @home, now: NOW))
     assert_equal "", empty
   end
 

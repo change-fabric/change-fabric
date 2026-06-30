@@ -220,7 +220,7 @@ module CtxSurface
 
   # Rank tuple (section 2), compared lexically so the order is fully explainable:
   # tier ascending, then last_touched descending, then name ascending. Names are
-  # unique per store, so this is a total, reproducible order on both Macs.
+  # unique per store, so this is a total, reproducible order on every device.
   def self.compare_rank(a, b, focus)
     by_tier = tier(a, focus) <=> tier(b, focus)
     return by_tier unless by_tier.zero?

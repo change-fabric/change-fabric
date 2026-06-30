@@ -13,7 +13,7 @@ require_relative 'ctx_surface'
 # library does the work, this entrypoint just reads, renders, and fails silent.
 #
 # A context-surfacing hook must never crash or block a session, so every path
-# ends in "emit what we can, never raise." The backgrounded NAS pull (sync
+# ends in "emit what we can, never raise." The backgrounded remote pull (sync
 # engine, a later phase) is fired separately and is not part of this synchronous
 # local select.
 class CtxSessionStart

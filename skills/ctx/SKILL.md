@@ -21,7 +21,7 @@ project context (a plan, a contract, a client thread, a decision) that should
 outlive the session. For a single non-obvious fact about the codebase, prefer
 harness auto-memory; `.ctx` is for the larger durable artifacts above.
 
-The store commits locally on every write. Pushing to the NAS git remote and
+The store commits locally on every write. Pushing to a configured git remote and
 cross-device sync arrive in a later phase, so a write here is always safe and
 offline.
 

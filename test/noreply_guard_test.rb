@@ -3,9 +3,9 @@
 require_relative "test_helpers"
 require_relative "#{SKILL_SCRIPTS}/noreply_guard"
 
-NOREPLY_EMAIL = "1963845+pstaylor-patrick@users.noreply.github.com"
-REAL_EMAIL = "patrick@pstaylor.net"
-GITHUB_URL = "https://github.com/pstaylor-patrick/synology.git"
+NOREPLY_EMAIL = "12345+octocat@users.noreply.github.com"
+REAL_EMAIL = "dev@example.com"
+GITHUB_URL = "https://github.com/acme/widgets.git"
 
 class NoreplyCheckTest < Minitest::Test
   def offending(command:, remote_url:, author_emails:)
@@ -22,8 +22,8 @@ class NoreplyCheckTest < Minitest::Test
   end
 
   def test_ignores_non_github_remotes
-    nas = "http://100.78.26.69:3000/ctx/store.git"
-    assert_nil offending(command: "git push origin main", remote_url: nas, author_emails: [ REAL_EMAIL ])
+    other = "http://192.0.2.10:3000/ctx/store.git"
+    assert_nil offending(command: "git push origin main", remote_url: other, author_emails: [ REAL_EMAIL ])
   end
 
   def test_ignores_non_push_commands

@@ -6,12 +6,14 @@ require_relative "#{SKILL_SCRIPTS}/ctx_retention"
 class CtxRetentionTest < Minitest::Test
   include SkillTempHome
 
-  CWD = "/Users/pst/code/demo"
   NOOP = ->(_message) { }
   NOW = Time.new(2026, 6, 27, 12, 0, 0, "-04:00")
 
+  # Under @home (the redirected HOME), so the store-keying guard accepts it.
+  def cwd = File.join(@home, "code", "demo")
+
   def store(now: nil)
-    CtxStore.new(cwd: CWD, home: @home, session_id: "s", device: "dev", committer: NOOP, now: now)
+    CtxStore.new(cwd: cwd, home: @home, session_id: "s", device: "dev", committer: NOOP, now: now)
   end
 
   def write(now:, **fields)
@@ -23,7 +25,7 @@ class CtxRetentionTest < Minitest::Test
   end
 
   def write_raw(klass, name, extra_front)
-    dir = CtxPaths.class_dir(klass, CWD, home: @home)
+    dir = CtxPaths.class_dir(klass, cwd, home: @home)
     FileUtils.mkdir_p(dir)
     File.write(File.join(dir, "#{name}.md"), "---\nname: #{name}\ndescription: x\n#{extra_front}\n---\n\nbody\n")
   end
