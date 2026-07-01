@@ -18,7 +18,10 @@ the skill; these guards still apply.
 1. Delete local work only when it is both clean and fully merged into the trunk.
    Surface anything else; never discard it on your own judgment.
 2. Never `git push origin --delete` without an AskUserQuestion yes and a written
-   justification, even for a fully merged branch.
+   justification, even for a fully merged branch. Exception: the single case
+   verified in step 7 (`CURRENT_BRANCH`, content-merged, confirmed via `gh pr
+   view` against a real merged PR, never merely asserted by the human). This
+   never extends to any other remote branch found in the same sweep.
 3. Never `git clean` without an AskUserQuestion yes scoped to named paths, and
    never `git clean -x`/`-X`. Plain `git clean` already skips gitignored files,
    which is where a real `.env` with secrets lives; `-x` would sweep exactly those.
@@ -37,7 +40,8 @@ TRUNK=$(git symbolic-ref --short refs/remotes/origin/HEAD | sed 's#^origin/##')
 ## Workflow
 
 1. **Survey:** `git worktree list`, `git branch -vv`, `git branch -r`,
-   `git status -sb`. Note the current branch and host worktree.
+   `git status -sb`. Note `CURRENT_BRANCH` (the branch checked out in the host
+   worktree) before step 4 fast-forwards it away, and the host worktree path.
 2. **Fetch:** `git fetch --prune origin` (drops tracking refs for server-deleted
    branches and refreshes merge checks; not a remote deletion).
 3. **Classify:** run `ruby ~/.claude/pst/bin/branch_classify.rb $TRUNK` and act on
@@ -57,8 +61,14 @@ TRUNK=$(git symbolic-ref --short refs/remotes/origin/HEAD | sed 's#^origin/##')
    `git branch -d <branch>` per prunable item (`-d` refuses unmerged as a backstop).
 6. **Clean untracked** (per surviving worktree): `git clean -nd` to preview,
    classify (see below), then ask. Run `git clean -fd -- <paths>` only on a yes.
-7. **Prune remote:** for non-trunk `origin/<branch>` still present after step 2,
-   ask, then `git push origin --delete <branch>` only on a yes.
+7. **Prune remote:** for non-trunk `origin/<branch>` still present after step 2:
+   if `branch == CURRENT_BRANCH` and its classify `kind` was `prunable` or
+   `squash_merged`, run `ruby ~/.claude/pst/bin/merge_confirmation.rb <branch>
+   <kind>`. On `confirmed: true`, delete directly (no question); report the
+   evidence (PR number, verified `MERGED`, `headRefName` match, `kind`) in the
+   final report instead of a question. On `confirmed: false`, or for every
+   other `origin/<branch>` (including ones incidentally merged), ask as below,
+   then `git push origin --delete <branch>` only on a yes.
 8. **Re-prune:** `git fetch --prune origin` if anything changed.
 9. **Report:** final `git branch`, `git branch -r`, `git worktree list`,
    `git status -sb`, plus anything kept because it was rogue or declined.
@@ -87,5 +97,6 @@ Run nothing destructive until the matching question returns a yes.
 | Situation | Options |
 | --- | --- |
 | Rogue work (unmerged commits or dirty worktree) | Keep it; or Delete anyway (explicit only): `git branch -D`, `git worktree remove --force`, `git push origin --delete` |
-| Remote deletion of any `origin/<branch>` | State justification ("merged into $TRUNK as of #N, deleting discards nothing"), then Delete on remote; or Keep it |
+| Remote deletion of `CURRENT_BRANCH`, verified via `merge_confirmation.rb` | No question: state the evidence (PR #N, `MERGED`, `headRefName` match, `kind`), then delete |
+| Remote deletion of any other `origin/<branch>` | State justification ("merged into $TRUNK as of #N, deleting discards nothing"), then Delete on remote; or Keep it |
 | Untracked files | Clean the junk (`git clean -fd -- <junk>`, keepers excluded); Clean named keepers too (explicit only); or Keep everything |
