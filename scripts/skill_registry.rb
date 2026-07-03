@@ -44,6 +44,8 @@ module SkillRegistry
                .reject { |p| p.split(File::SEPARATOR).include?('node_modules') }
     parsed = files.filter_map { |path| dep_keys(path) }
     parsed.empty? ? nil : parsed.flatten.uniq
+  rescue SystemCallError
+    nil
   end
 
   # Dependency + devDependency names for one package.json, or nil if it cannot be
