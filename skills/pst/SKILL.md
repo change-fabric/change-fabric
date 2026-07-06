@@ -30,7 +30,9 @@ Acknowledge the choice in one line, then proceed.
 
 ## Applying the mode
 
-- **Local only:** Never `git push`, never open PRs.
+- **Local only:** Never `git push`, never open a new PR. Posting review
+  comments to a PR that already exists on GitHub is neither a push nor a
+  merge and is not restricted by this mode.
 - **Merge ready:** After completing work, push and open a PR. Stop, do not merge.
 - **Admin bypass:** After completing work, push, open a PR, then run `gh pr merge --squash --admin`.
 

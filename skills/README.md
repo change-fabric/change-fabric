@@ -23,6 +23,8 @@ the hooks never surface it. These are verbs the agent performs on demand.
 |---|---|
 | `pst` | Sets and enforces the session merge mode. |
 | `pst:refactor` | Refactors a scope you name (PR, branch, repo, file, or glob), routing each file through the auto-firing skills that cover it. |
+| `pst:code-review` | Reviews a scope you name (PR, branch, files, or a feature description), verifies each candidate finding in an isolated worktree, and posts only what survives. |
+| `pst:ctx` | Captures, recalls, and lists durable project context in the shim-owned .ctx store. |
 | `pst:prune` | Post-merge cleanup: fast-forwards the trunk and prunes merged branches and worktrees, local and remote, asking before it discards unmerged work or deletes any remote branch. |
 
 `pst:refactor` reuses the routing below by shelling out to `skill_route.rb`
