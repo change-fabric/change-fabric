@@ -26,6 +26,7 @@ the hooks never surface it. These are verbs the agent performs on demand.
 | `pst:code-review` | Reviews a scope you name (PR, branch, files, or a feature description), verifies each candidate finding in an isolated worktree, and posts only what survives. |
 | `pst:ctx` | Captures, recalls, and lists durable project context in the shim-owned .ctx store. |
 | `pst:prune` | Post-merge cleanup: fast-forwards the trunk and prunes merged branches and worktrees, local and remote, asking before it discards unmerged work or deletes any remote branch. |
+| `pst:resolve-threads` | Resolves every unresolved review thread on a PR by evaluating each in its own isolated worktree, then implements the fix, dismisses it, or defers to a human, replying and resolving on GitHub accordingly. |
 | `pst:qa` | Scopes and runs an ad hoc Playwright QA pass against a natural-language target (a PR, a feature, a flow) in an ephemeral browserless Chromium container, and optionally posts findings as PR comments. |
 
 `pst:refactor` reuses the routing below by shelling out to `skill_route.rb`
