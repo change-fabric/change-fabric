@@ -9,6 +9,7 @@
 class GuardedCommand
   PUSH = /\bgit\s+push\b/
   MERGE = /\bgh\s+pr\s+merge\b/
+  PR_CREATE = /\bgh\s+pr\s+create\b/
   TRUNK = %w[main master].freeze
 
   def initialize(command, mode, branch: nil)
@@ -25,6 +26,8 @@ class GuardedCommand
     when 'Merge ready'
       return 'a direct push to the trunk' if push_to_trunk?
       return 'gh pr merge' if merge?
+    when 'Yolo'
+      return 'gh pr create' if pr_create?
     end
     nil
   end
@@ -37,6 +40,10 @@ class GuardedCommand
 
   def merge?
     @command.match?(MERGE)
+  end
+
+  def pr_create?
+    @command.match?(PR_CREATE)
   end
 
   # Merge ready allows pushing a feature branch but never the trunk, which would

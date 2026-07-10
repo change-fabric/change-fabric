@@ -18,6 +18,7 @@ class MergeModeHook
       1. "Local only" - No push, no PR. Changes stay on disk.
       2. "Merge ready" - Push branch, open PR, ensure CI is green. The user merges manually.
       3. "Admin bypass" - Push branch, open PR, then squash-merge via `gh pr merge --squash --admin` once CI is green. No other quality passes.
+      4. "Yolo" - Commit and push straight to the target branch (main, or whichever branch is in play). Never create a new PR; merging an existing PR is fine.
 
     After the user answers, acknowledge the choice in one line, then proceed. Apply the chosen mode for the rest of the session unless /pst changes it.
   TEXT

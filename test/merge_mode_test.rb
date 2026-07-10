@@ -146,6 +146,16 @@ class GuardedCommandTest < Minitest::Test
     assert_nil violation("gh pr merge --admin", "Admin bypass")
   end
 
+  def test_yolo_allows_push_to_trunk
+    assert_nil violation("git push origin main", "Yolo")
+    assert_nil violation("git push", "Yolo", branch: "main")
+  end
+
+  def test_yolo_flags_pr_create_but_allows_merge
+    assert_equal "gh pr create", violation("gh pr create --fill", "Yolo")
+    assert_nil violation("gh pr merge --squash", "Yolo")
+  end
+
   def test_unknown_mode_flags_nothing
     assert_nil violation("git push origin main", "Bogus mode")
   end
@@ -216,6 +226,12 @@ class MergeModeGuardTest < Minitest::Test
   def test_admin_bypass_allows_everything
     assert_nil decision(command: "gh pr merge --admin", mode: "Admin bypass")
     assert_nil decision(command: "git push origin main", mode: "Admin bypass")
+  end
+
+  def test_yolo_allows_trunk_push_and_pr_merge_but_denies_pr_create
+    assert_nil decision(command: "git push origin main", mode: "Yolo")
+    assert_nil decision(command: "gh pr merge --squash", mode: "Yolo")
+    assert_equal "deny", decision(command: "gh pr create --fill", mode: "Yolo")
   end
 
   def test_ignores_non_bash_tools
