@@ -47,11 +47,15 @@ const APPLY_SCHEMA = {
   required: [ "applied", "note" ]
 }
 
-const threads = args.threads
-const repoPath = args.repoPath
-const headSha = args.headSha
-const prTitle = args.prTitle
-const prBody = args.prBody
+// Some hosts hand this script a JSON-encoded string instead of the parsed
+// object the Workflow contract promises; tolerate both.
+const scope = typeof args === "string" ? JSON.parse(args) : args
+
+const threads = scope.threads
+const repoPath = scope.repoPath
+const headSha = scope.headSha
+const prTitle = scope.prTitle
+const prBody = scope.prBody
 
 function threadContext(t) {
   const convo = t.comments.map((c) => c.author + ": " + c.body).join("\n")
