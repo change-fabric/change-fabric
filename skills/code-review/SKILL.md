@@ -24,7 +24,10 @@ comment; when in doubt, drop it.
 Accepted forms, resolved in this order:
 
 1. A PR URL or `owner/repo#123` / bare `#123` (current repo when owner/repo is
-   omitted). Resolve via `pull_request_read`.
+   omitted). Resolve with the `gh` CLI via Bash (e.g. `gh pr view <n> --json
+   ...`), the default and reliable path since no GitHub MCP server is assumed
+   to be configured; fall back to an MCP-style `pull_request_read` tool only
+   if one happens to be available.
 2. A branch or ref: diff against the default branch.
 3. An explicit file list or glob.
 4. A semantic description of a feature ("the auth refactor", "the caching
@@ -38,12 +41,21 @@ If scope is ambiguous, ask which PR or files are meant. Do not guess.
 
 ## Workflow
 
-1. **Resolve scope to files, a repo, and a head commit.** PR: `pull_request_
-   read` with `get_diff`, `get_files`, and `get_comments`/`get_review_
-   comments` so ground already covered by a human or a prior review is not
-   re-flagged; if the PR's head is not already fetched locally, fetch it
-   (e.g. `git fetch origin pull/<N>/head`) so it resolves to a real local
-   commit. Everything else: `git diff`, `git show`, or plain reads. Record
+1. **Resolve scope to files, a repo, and a head commit.** PR: prefer the `gh`
+   CLI via Bash as the default method, since no GitHub MCP server is assumed
+   to be configured: `gh pr view <n> --json files` for `get_files`, `gh pr
+   diff <n>` for `get_diff`, and `gh api repos/<owner>/<repo>/pulls/<n>/
+   comments --paginate` for `get_comments`/`get_review_comments`, so ground
+   already covered by a human or a prior review is not re-flagged. `gh pr
+   diff` can fail on very large PRs (HTTP 406, diff too large); when it
+   does, fall back to fetching the PR head locally (`git fetch origin
+   pull/<N>/head:pr-<N>`) and diffing locally against the base branch with
+   plain `git diff`/`git show`. If the PR's head is not already fetched
+   locally, fetch it the same way so it resolves to a real local commit.
+   An MCP-style `pull_request_read` tool (`get_diff`/`get_files`/
+   `get_comments`/`get_review_comments`) is an acceptable alternative when
+   one happens to be configured, but `gh` is the default. Everything else:
+   `git diff`, `git show`, or plain reads. Record
    `repoPath` (the local clone's absolute path) and `headSha` (the commit
    whose code is under review, i.e. the PR's head or the branch tip, never
    the merge-base) alongside the file list; step 2 needs a real commit
@@ -81,11 +93,17 @@ If scope is ambiguous, ask which PR or files are meant. Do not guess.
    silently fall back to hand-applying fixes without surfacing this report.
 4. **Post.** Before this step, read `reference/posting.md` for the tier
    bars and comment-rendering rules.
-   - PR scope: `pull_request_review_write` with `create` (no `event`, so it
-     stays pending), then `add_comment_to_pending_review` per finding in
-     `posted`, anchored to `path`/`line` with the body rendered per
-     `reference/posting.md`, then `submit_pending` with `event: "COMMENT"`.
-     Never `REQUEST_CHANGES` or `APPROVE` unless asked. Posting these review
+   - PR scope: use the `gh` CLI via Bash by default, submitting the review
+     and its comments in one call, e.g. `gh api
+     repos/<owner>/<repo>/pulls/<n>/reviews --method POST -f event=COMMENT
+     --input review.json`, with a JSON payload built from `posted` (each
+     entry anchored to `path`/`line`, body rendered per
+     `reference/posting.md`). An MCP-style `pull_request_review_write` with
+     `create` (no `event`, so it stays pending), then
+     `add_comment_to_pending_review` per finding, then `submit_pending` with
+     `event: "COMMENT"`, is an acceptable alternative when such a tool
+     happens to be configured. Never `REQUEST_CHANGES` or `APPROVE` unless
+     asked. Posting these review
      comments is not a `git push`, a `gh pr merge`, or opening a PR, so the
      pst merge mode does not gate it: post in every mode (Local only
      included) whenever the user approves in step 3. Merge mode restricts

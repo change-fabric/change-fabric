@@ -29,9 +29,19 @@ can be resolved unambiguously, ask which one is meant.
 
 ## Workflow
 
-1. **Resolve the PR and its threads.** `pull_request_read` with `get`, `get_
-   diff`, `get_files`, and `get_review_comments` (paginate with `after` until
-   exhausted). Keep only threads where `isResolved` is false. For each,
+1. **Resolve the PR and its threads.** Use the `gh` CLI via Bash by default,
+   since no GitHub MCP server is assumed to be configured:
+   `gh pr view <n> --json ...` for `get`, `gh pr diff <n>` for `get_diff`
+   (falling back to fetching the PR head locally and diffing with plain
+   `git diff`/`git show` if `gh pr diff` fails on a very large PR with HTTP
+   406), `gh pr view <n> --json files` for `get_files`, and `gh api graphql`
+   for `get_review_comments` since resolving a thread later needs its
+   GraphQL node id (a REST-only call like `gh api repos/<owner>/<repo>/
+   pulls/<n>/comments --paginate` does not carry that id). An MCP-style
+   `pull_request_read` tool with `get`/`get_diff`/`get_files`/
+   `get_review_comments` is an acceptable alternative when one happens to be
+   configured, but `gh` is the default. Keep only threads where `isResolved`
+   is false. For each,
    collect `threadId` (the GraphQL node id, for resolving), the anchor
    `path`/`line`, every comment in the thread in order (author, body), and
    whether the thread is outdated (its anchor line may no longer exist in the
@@ -60,12 +70,17 @@ can be resolved unambiguously, ask which one is meant.
    no longer applied cleanly once earlier fixes landed) get no commit and
    fold into `needsHuman` for reporting and replies.
 6. **Reply and resolve.** Before this step, read `reference/replying.md`
-   for the verdict bars and reply-style rules. For `fixed` and `wontFix`:
-   `add_reply_to_pull_request_comment` on the thread's last comment stating
-   what happened (the commit, or the dismissal rationale), then `resolve_
-   review_thread` with the `threadId`. For `needsHuman` and `conflicts`:
-   reply with the open question or the drift that needs a human look, and
-   leave the thread unresolved.
+   for the verdict bars and reply-style rules. Use the `gh` CLI via Bash by
+   default. For `fixed` and `wontFix`: reply on the thread's
+   last comment with `gh api repos/<owner>/<repo>/pulls/<n>/comments/
+   <comment_id>/replies -f body=...` stating what happened (the commit, or
+   the dismissal rationale), then resolve the thread with `gh api graphql
+   -f query='mutation { resolveReviewThread(input: {threadId: "<threadId>"})
+   { thread { id } } }'`. An MCP-style `add_reply_to_pull_request_comment`
+   and `resolve_review_thread` (with the `threadId`) is an acceptable
+   alternative when such tools happen to be configured. For `needsHuman` and
+   `conflicts`: reply with the open question or the drift that needs a human
+   look, and leave the thread unresolved.
 7. **Push.** Push the branch carrying the new commits. The session's active
    pst merge mode (see `pst`) governs whether that push, and any PR update,
    actually happens versus staying local.

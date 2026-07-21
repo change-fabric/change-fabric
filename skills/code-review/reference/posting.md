@@ -23,9 +23,10 @@ prefix.
 
 One finding, one comment: an emoji-badged tier header (`🔴 P1`, `🟠 P2`,
 `🟢 P3`) and title on line 1, then the concrete failure scenario, then the
-fix. Before calling `add_comment_to_pending_review`, pipe the finding as
-JSON (`{tier, title, scenario, suggestion}`, `scenario` carrying the
-evidence-backed detail) to `ruby ~/.claude/pst/bin/render_finding_comment.rb`
+fix. Before including the comment in the `gh api` review payload (or calling
+`add_comment_to_pending_review`, if using the MCP-style fallback), pipe the
+finding as JSON (`{tier, title, scenario, suggestion}`, `scenario` carrying
+the evidence-backed detail) to `ruby ~/.claude/pst/bin/render_finding_comment.rb`
 on stdin and post its stdout verbatim as the comment body. The script owns
 the template, the badge, and the char-budget fallback (drop the suggestion
 block, then truncate the scenario) once the finding is over its 640-char
