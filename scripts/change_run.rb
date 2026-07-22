@@ -55,6 +55,7 @@ class ChangeRun
     return sweep_stale_resources if @scope == 'sweep'
 
     config = ChangeConfig.load(@config_path, profile: @profile)
+    log("[change] warning: #{config.spec_version_mismatch}") if config.spec_version_mismatch
     lanes = resolve_lanes(config)
     findings = with_app(config) { |ctx| execute(config, lanes, ctx) }
     report = write_report(config, findings, lanes)

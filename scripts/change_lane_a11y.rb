@@ -88,6 +88,8 @@ class ChangeLaneA11y < ChangeLane
         const baseUrl = #{JSON.generate(base_url)};
         const routes = #{JSON.generate(routes)};
         const axeUrl = #{JSON.generate(AXE_CDN)};
+        const basicAuth = #{JSON.generate(basic_auth)};
+        if (basicAuth) await page.authenticate({ username: basicAuth.username, password: basicAuth.password });
         const out = [];
         for (const route of routes) {
           try {

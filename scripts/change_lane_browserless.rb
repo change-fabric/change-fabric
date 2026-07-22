@@ -297,6 +297,8 @@ class ChangeLaneBrowserless < ChangeLane
         const viewports = #{JSON.generate(viewports)};
         const auth = #{JSON.generate(js_auth(auth))};
         const figmaRefs = #{JSON.generate(figma_refs)};
+        const basicAuth = #{JSON.generate(basic_auth)};
+        if (basicAuth) await page.authenticate({ username: basicAuth.username, password: basicAuth.password });
 
         let authOk = null;
         let authError = null;

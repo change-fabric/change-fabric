@@ -1,7 +1,9 @@
 ---
 # CHANGE.md is the single change-fabric file. Copy it to <repo-root>/CHANGE.md
-# and edit. Its frontmatter carries two blocks:
+# and edit. Its frontmatter carries an optional spec_version plus two blocks:
 #
+#   spec_version:   the schema version this file is authored against (optional;
+#                   compared to the installed toolkit at load, warns on drift).
 #   change_config:  the mechanical target-app details the audit lanes read
 #                   (boot, health, routes, thresholds, viewports).
 #   change_policy:  the machine-checkable governance the merge gate enforces.
@@ -14,6 +16,13 @@
 # CHANGE.md must be self-contained: it must not cite or depend on another
 # tool's own internal conventions (a coding harness's config vocabulary, an
 # unrelated CLAUDE.md table). It is read by change-fabric alone.
+#
+# This template shows a single deploy target. A repo with more than one real
+# target (a local Docker stack plus a real staging/production deployment)
+# names each as a change_config.profiles entry instead; see the frontmatter
+# spec's "Multiple deploy targets (profiles)" worked example.
+
+spec_version: "0.3.0"
 
 change_config:
   project: my-app                 # label used in the Desktop report filename
@@ -112,6 +121,14 @@ change_config:
       routes: ["/login", "/register", "/home", "/dashboard"]
       threshold: serious          # minor | moderate | serious | critical
       base_url: http://myapp-portal:3000   # optional per-lane override
+      # Only set this when the target itself sits behind HTTP Basic Auth (not
+      # the same thing as the browserless lane's form-based auth: below).
+      # Names of env vars, never real values; answered via page.authenticate(),
+      # never a url-embedded credential (the Fetch spec forbids it). Rejected
+      # at load on k6/zap, since neither lane reads it.
+      # basic_auth:
+      #   username_env: PORTAL_BASIC_AUTH_USER
+      #   password_env: PORTAL_BASIC_AUTH_PASSWORD
 
     zap:
       enabled: true

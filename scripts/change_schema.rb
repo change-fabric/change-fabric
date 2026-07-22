@@ -15,7 +15,7 @@
 # spec doc's changelog. A field-set change without a matching version bump, or a
 # version bump the doc does not reflect, is exactly what the drift test catches.
 module ChangeSchema
-  VERSION = '0.2.0'
+  VERSION = '0.3.0'
 
   # The four audit lanes, the authoritative list the config validator enforces.
   LANES = %w[k6 a11y zap browserless].freeze
@@ -26,6 +26,11 @@ module ChangeSchema
   #   <branch> any git branch name under promotion
   #   []       a field on each item of a list
   FIELDS = [
+    # The one field outside both change_config: and change_policy: (0.3.0):
+    # the schema version a CHANGE.md was authored against, compared against
+    # this constant at config load to catch a toolkit/file version skew that
+    # would otherwise surface later as a confusing silently-ignored field.
+    'spec_version',
     # change_config: mechanical target-app details the audit lanes read.
     'change_config.project',
     'change_config.boot.up',
@@ -38,6 +43,10 @@ module ChangeSchema
     'change_config.boot.env_file',
     'change_config.lanes.<lane>.enabled',
     'change_config.lanes.<lane>.base_url',
+    # basic_auth (0.3.0): only meaningful on a browser lane (a11y, browserless);
+    # k6 and zap never read it and a config setting it there is rejected.
+    'change_config.lanes.<lane>.basic_auth.username_env',
+    'change_config.lanes.<lane>.basic_auth.password_env',
     'change_config.lanes.k6.script',
     'change_config.lanes.k6.env',
     'change_config.lanes.k6.thresholds.http_req_failed',
@@ -104,6 +113,8 @@ module ChangeSchema
     'change_config.profiles.<profile>.boot.env_file',
     'change_config.profiles.<profile>.lanes.<lane>.enabled',
     'change_config.profiles.<profile>.lanes.<lane>.base_url',
+    'change_config.profiles.<profile>.lanes.<lane>.basic_auth.username_env',
+    'change_config.profiles.<profile>.lanes.<lane>.basic_auth.password_env',
     # change_policy: machine-checkable governance the merge gate enforces.
     'change_policy.protected_branches',
     'change_policy.gate.require_change_pass',

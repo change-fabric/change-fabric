@@ -52,13 +52,22 @@ module ChangeDocker
     if configured && !configured.empty?
       yield Network.new(name: configured, owned: false)
     else
-      name = "pst-change-#{SecureRandom.hex(4)}"
-      Open3.capture2e('docker', 'network', 'create', name)
-      begin
-        yield Network.new(name: name, owned: true)
-      ensure
-        Open3.capture2e('docker', 'network', 'rm', name)
-      end
+      create_ephemeral_network("pst-change-#{SecureRandom.hex(4)}") { |network| yield network }
+    end
+  end
+
+  # A create failure (a name collision, a daemon hiccup) used to go unchecked:
+  # the run proceeded as if a real network existed, only to fail confusingly
+  # at the first container that tried to join it. Raising here with docker's
+  # own output makes that failure immediate and named.
+  def create_ephemeral_network(name)
+    out, status = Open3.capture2e('docker', 'network', 'create', name)
+    raise "failed to create network '#{name}': #{out.strip}" unless status.success?
+
+    begin
+      yield Network.new(name: name, owned: true)
+    ensure
+      Open3.capture2e('docker', 'network', 'rm', name)
     end
   end
 
@@ -85,8 +94,8 @@ module ChangeDocker
     cmd = [ 'docker', 'run', '-d', '--rm', '--name', name ]
     cmd += [ '--network', network ] if network
     cmd += [ '-p', "127.0.0.1:#{port}:3000", '-e', "TOKEN=#{token}", BROWSERLESS_IMAGE ]
-    _out, status = Open3.capture2e(*cmd)
-    raise 'failed to start browserless container' unless status.success?
+    out, status = Open3.capture2e(*cmd)
+    raise "failed to start browserless container: #{out.strip}" unless status.success?
   end
 
   # Prefix every ephemeral resource this platform creates carries, so a

@@ -1,6 +1,7 @@
 import { marked } from "marked";
 import specMarkdown from "./generated/spec.md?raw";
 import archivedV0_1_0 from "./archive/0.1.0.md?raw";
+import archivedV0_2_0 from "./archive/0.2.0.md?raw";
 
 // The canonical CHANGE.md frontmatter spec, embedded at build time (see
 // scripts/embed-spec.mjs), plus the version history the /spec pages render.
@@ -31,14 +32,14 @@ export interface SpecVersion {
   version: string;
   date: string;
   status: "current" | "superseded";
-  // The raw markdown for a version. Only the current version is embedded here;
-  // a future version adds its own entry (and its archived markdown) as one more
-  // row, which is all the versions index and this map need to grow.
+  // The raw markdown for this version: specMarkdown for the current row,
+  // a frozen src/archive/<version>.md import for every superseded row.
   markdown: string;
 }
 
 export const VERSIONS: SpecVersion[] = [
   { version: CURRENT_VERSION, date: "2026-07-22", status: "current", markdown: specMarkdown },
+  { version: "0.2.0", date: "2026-07-22", status: "superseded", markdown: archivedV0_2_0 },
   { version: "0.1.0", date: "2026-07-21", status: "superseded", markdown: archivedV0_1_0 },
 ];
 

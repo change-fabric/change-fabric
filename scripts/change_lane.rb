@@ -22,6 +22,30 @@ class ChangeLane
 
   def base_url = @config.base_url(@context.target_url)
 
+  # HTTP Basic Auth credentials for a browser lane hitting a target gated by it
+  # (0.3.0), or nil when unconfigured. Answered via Puppeteer's
+  # page.authenticate() in the lane's own /function module, never by embedding
+  # credentials in a url: a https://user:pass@host url loads fine, but the Fetch
+  # spec forbids constructing a Request from a url carrying credentials, so any
+  # same-origin fetch() the loaded page's own JS makes (a framework's Server
+  # Action, an RSC navigation, exactly what a real login-gated page triggers)
+  # throws and crashes the page.
+  #
+  # Config carries username_env/password_env (env var NAMES), never the real
+  # values, the same indirection browserless.auth.email_env/password_env
+  # already uses for form-based logins: a real credential is never written
+  # into CHANGE.md.
+  def basic_auth
+    raw = @config['basic_auth']
+    return nil unless raw.is_a?(Hash)
+
+    username = ENV[raw['username_env'].to_s].to_s
+    password = ENV[raw['password_env'].to_s].to_s
+    return nil if username.empty? || password.empty?
+
+    { 'username' => username, 'password' => password }
+  end
+
   def routes
     list = Array(@config['routes']).map(&:to_s).reject(&:empty?)
     list.empty? ? self.class::DEFAULT_ROUTES : list

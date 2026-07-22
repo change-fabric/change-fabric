@@ -18,6 +18,14 @@ class ChangeConfigTest < Minitest::Test
     end
   end
 
+  def with_frontmatter(front)
+    Dir.mktmpdir do |root|
+      path = File.join(root, "CHANGE.md")
+      File.write(path, "#{YAML.dump(front)}---\n\nbody\n")
+      yield ChangeConfig.load(path), root
+    end
+  end
+
   def test_enabled_lanes_in_fixed_order_and_skips_disabled
     config = { "project" => "app", "lanes" => {
       "browserless" => { "enabled" => true },
@@ -221,6 +229,83 @@ class ChangeConfigTest < Minitest::Test
   def test_a_repo_with_no_profiles_block_ignores_a_nil_profile_request
     with_config("project" => "app", "lanes" => { "k6" => { "enabled" => true } }) do |loaded, _root|
       assert_equal "app", loaded.project
+    end
+  end
+
+  def test_basic_auth_is_permitted_on_a_browser_lane
+    config = {
+      "project" => "app",
+      "lanes" => { "a11y" => { "enabled" => true, "basic_auth" => { "username_env" => "SVC_USER", "password_env" => "SVC_PASS" } } }
+    }
+    with_config(config) do |loaded, _root|
+      assert_equal({ "username_env" => "SVC_USER", "password_env" => "SVC_PASS" }, loaded.lane("a11y")["basic_auth"])
+    end
+  end
+
+  def test_basic_auth_is_rejected_on_k6
+    config = {
+      "project" => "app",
+      "lanes" => { "k6" => { "enabled" => true, "basic_auth" => { "username_env" => "SVC_USER", "password_env" => "SVC_PASS" } } }
+    }
+    error = assert_raises(ChangeConfig::ConfigError) { with_config(config) { |_c| } }
+    assert_match(/basic_auth.*k6/, error.message)
+  end
+
+  def test_basic_auth_is_rejected_on_zap
+    config = {
+      "project" => "app",
+      "lanes" => { "zap" => { "enabled" => true, "basic_auth" => { "username_env" => "SVC_USER", "password_env" => "SVC_PASS" } } }
+    }
+    error = assert_raises(ChangeConfig::ConfigError) { with_config(config) { |_c| } }
+    assert_match(/basic_auth.*zap/, error.message)
+  end
+
+  def test_profile_basic_auth_override_is_permitted_on_a_browser_lane
+    config = {
+      "project" => "app", "lanes" => { "a11y" => { "enabled" => true } },
+      "profiles" => { "staging" => { "lanes" => { "a11y" => { "basic_auth" => { "username_env" => "SVC_USER", "password_env" => "SVC_PASS" } } } } }
+    }
+    with_config(config, "staging") do |loaded, _root|
+      assert_equal({ "username_env" => "SVC_USER", "password_env" => "SVC_PASS" }, loaded.lane("a11y")["basic_auth"])
+    end
+  end
+
+  def test_profile_basic_auth_override_is_rejected_on_k6
+    config = {
+      "project" => "app", "lanes" => { "k6" => { "enabled" => true } },
+      "profiles" => { "staging" => { "lanes" => { "k6" => { "basic_auth" => { "username_env" => "SVC_USER", "password_env" => "SVC_PASS" } } } } }
+    }
+    error = assert_raises(ChangeConfig::ConfigError) { with_config(config, "staging") { |_c| } }
+    assert_match(/basic_auth.*k6/, error.message)
+  end
+
+  def test_spec_version_matching_the_toolkit_has_no_mismatch
+    front = { "spec_version" => ChangeSchema::VERSION, "change_config" => { "project" => "app", "lanes" => { "k6" => { "enabled" => true } } } }
+    with_frontmatter(front) { |loaded, _root| assert_nil loaded.spec_version_mismatch }
+  end
+
+  def test_spec_version_absent_has_no_mismatch
+    front = { "change_config" => { "project" => "app", "lanes" => { "k6" => { "enabled" => true } } } }
+    with_frontmatter(front) { |loaded, _root| assert_nil loaded.spec_version_mismatch }
+  end
+
+  def test_spec_version_older_than_the_toolkit_warns
+    front = { "spec_version" => "0.1.0", "change_config" => { "project" => "app", "lanes" => { "k6" => { "enabled" => true } } } }
+    with_frontmatter(front) do |loaded, _root|
+      warning = loaded.spec_version_mismatch
+      refute_nil warning
+      assert_match(/0\.1\.0/, warning)
+      assert_match(/#{Regexp.escape(ChangeSchema::VERSION)}/, warning)
+    end
+  end
+
+  def test_doctor_surfaces_the_spec_version_mismatch
+    front = { "spec_version" => "0.1.0", "change_config" => { "project" => "app", "lanes" => { "k6" => { "enabled" => true } } } }
+    Dir.mktmpdir do |root|
+      path = File.join(root, "CHANGE.md")
+      File.write(path, "#{YAML.dump(front)}---\n\nbody\n")
+      summary = ChangeConfig.doctor(path)
+      assert_match(/spec_version 0\.1\.0/, summary)
     end
   end
 

@@ -51,6 +51,38 @@ class ChangeDockerTest < Minitest::Test
     refute status.success?, "ephemeral network should be removed after the block"
   end
 
+  # start_browserless used to discard docker's own stderr on failure, so a
+  # missing/renamed network (the boot.network inheritance footgun: a non-local
+  # profile inheriting a local-only network name) surfaced as a bare "failed to
+  # start browserless container" with nothing to act on.
+  def test_with_browserless_surfaces_dockers_own_error_on_a_bad_network
+    skip "docker not available" unless ChangeDocker.available?
+
+    error = assert_raises(RuntimeError) do
+      ChangeDocker.with_browserless(network: "pst-change-no-such-network-#{SecureRandom.hex(4)}") { |_s| }
+    end
+    assert_match(/network/i, error.message)
+  end
+
+  # docker network create used to run unchecked: a failure (a name collision, a
+  # daemon hiccup) was silently ignored and the run proceeded as if a real
+  # network existed, only to fail confusingly at the first container that tried
+  # to join it.
+  def test_with_network_raises_with_dockers_output_when_create_fails
+    skip "docker not available" unless ChangeDocker.available?
+
+    existing = "pst-change-#{SecureRandom.hex(4)}"
+    Open3.capture2e("docker", "network", "create", existing)
+    begin
+      error = assert_raises(RuntimeError) do
+        ChangeDocker.send(:create_ephemeral_network, existing) { |_n| }
+      end
+      assert_match(/#{Regexp.escape(existing)}/, error.message)
+    ensure
+      Open3.capture2e("docker", "network", "rm", existing)
+    end
+  end
+
   # The dogfooding fix: a run that crashes before its own teardown leaves a
   # `pst-change-*` container or network behind, with no way to reclaim it.
   def test_sweep_removes_an_orphaned_container_and_network

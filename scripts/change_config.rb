@@ -41,8 +41,12 @@ class ChangeConfig
   # surface (routes, thresholds, viewports) per environment. That keeps the
   # documented field set small and every profile field's meaning identical to
   # its base-config counterpart, rather than a second, parallel schema.
-  PROFILE_LANE_KEYS = %w[enabled base_url].freeze
+  PROFILE_LANE_KEYS = %w[enabled base_url basic_auth].freeze
   PROFILE_TOP_KEYS = %w[project boot lanes].freeze
+
+  # basic_auth (0.3.0) is answered via page.authenticate() in a browser page, so
+  # it only means anything on a lane that actually drives one.
+  BROWSER_LANES = %w[a11y browserless].freeze
 
   def self.load(path, profile: nil)
     raise ConfigError, "CHANGE.md not found: #{path}. #{REFERENCE_HINT}" unless File.exist?(path)
@@ -51,7 +55,7 @@ class ChangeConfig
     config = front['change_config']
     raise ConfigError, missing_config_message(path) unless config.is_a?(Hash)
 
-    new(config, File.dirname(path), profile: profile)
+    new(config, File.dirname(path), profile: profile, spec_version: front['spec_version'])
   end
 
   def self.missing_config_message(path)
@@ -80,6 +84,7 @@ class ChangeConfig
     config = load(path, profile: profile)
     boot = config.boot
     lines = [ "CHANGE.md OK: #{path}" ]
+    lines << "warning: #{config.spec_version_mismatch}" if config.spec_version_mismatch
     lines << "profile: #{config.profile}" if config.profile
     lines += [
       "project: #{config.project}",
@@ -99,8 +104,9 @@ class ChangeConfig
   # repo-relative paths (a k6 script) the lanes reference. `profile` selects
   # a named change_config.profiles entry (v0.2.0); nil is the ordinary,
   # pre-0.2.0 single-target shape.
-  def initialize(raw, dir, profile: nil)
+  def initialize(raw, dir, profile: nil, spec_version: nil)
     @dir = dir
+    @declared_spec_version = spec_version.to_s
     @profile = resolve_profile_name(raw, profile)
     @raw = @profile ? merge_profile(raw, @profile) : raw
     validate
@@ -112,6 +118,23 @@ class ChangeConfig
   # The resolved profile name, or nil when this config has no profiles block
   # (or none was requested and none is configured as the default).
   def profile = @profile
+
+  # nil when CHANGE.md's frontmatter spec_version is absent or matches this
+  # toolkit's ChangeSchema::VERSION; otherwise a named, actionable message.
+  # spec_version is optional and unenforced (a mismatch never raises): a repo
+  # pinned to an older schema still loads and runs, since every field this
+  # toolkit added since is simply additive. The point is visibility, not a
+  # gate, catching the class of bug where a config was authored against a
+  # newer schema than the toolkit installed reading it actually understands
+  # (a field silently ignored) before that surfaces as a confusing runtime gap.
+  def spec_version_mismatch
+    return nil if @declared_spec_version.empty? || @declared_spec_version == ChangeSchema::VERSION
+
+    "CHANGE.md declares spec_version #{@declared_spec_version} but the installed change-fabric is " \
+      "#{ChangeSchema::VERSION}. If #{@declared_spec_version} is older, fields added since are silently " \
+      "ignored; if newer, this toolkit may not understand fields it relies on yet. Update the toolkit or " \
+      'CHANGE.md\'s spec_version.'
+  end
 
   # The repo root: the directory holding CHANGE.md.
   def repo_root = @dir
@@ -169,11 +192,13 @@ class ChangeConfig
       raise ConfigError, "profile '#{name}' lane '#{lane}' override must be a mapping" unless section.is_a?(Hash)
 
       unknown_lane = section.keys - PROFILE_LANE_KEYS
-      next if unknown_lane.empty?
+      unless unknown_lane.empty?
+        raise ConfigError,
+              "profile '#{name}' lane '#{lane}' sets unknown key(s): #{unknown_lane.join(', ')}. " \
+              "A profile's lane override may only set #{PROFILE_LANE_KEYS.join(', ')}; other lane behavior is shared across profiles."
+      end
 
-      raise ConfigError,
-            "profile '#{name}' lane '#{lane}' sets unknown key(s): #{unknown_lane.join(', ')}. " \
-            "A profile's lane override may only set #{PROFILE_LANE_KEYS.join(', ')}; other lane behavior is shared across profiles."
+      reject_basic_auth_outside_browser_lanes(lane, section, subject: "profile '#{name}' lane '#{lane}'")
     end
   end
 
@@ -195,6 +220,26 @@ class ChangeConfig
     unknown = (lanes || {}).keys - LANES
     raise ConfigError, "unknown lane(s): #{unknown.join(', ')}" unless unknown.empty?
     raise ConfigError, 'no lanes enabled' if enabled_lanes.empty?
+
+    validate_basic_auth_lanes(lanes || {})
+  end
+
+  # basic_auth only means anything on a lane that drives a real browser page
+  # (a11y, browserless); k6 and zap never read it, so setting it there is
+  # silently a no-op rather than the credential gate an author would expect.
+  # Shared by the base-config validator and the per-profile lane validator so
+  # the rule and its message stay in exactly one place.
+  def validate_basic_auth_lanes(lanes)
+    lanes.each { |name, section| reject_basic_auth_outside_browser_lanes(name, section, subject: "lane '#{name}'") }
+  end
+
+  def reject_basic_auth_outside_browser_lanes(lane, section, subject:)
+    return unless section.is_a?(Hash) && section.key?('basic_auth')
+    return if BROWSER_LANES.include?(lane)
+
+    raise ConfigError,
+          "#{subject} sets basic_auth, but basic_auth only applies to a browser lane " \
+          "(#{BROWSER_LANES.join(', ')}); #{lane} never reads it."
   end
 
   # How to bring the target app up and confirm it is ready before any lane runs.
