@@ -17,8 +17,15 @@ require 'time'
 # `scope: all` record that passed satisfies the release gate, so a single-lane
 # `pst:k6` run never accidentally unlocks a staging merge.
 class ChangeGateStore
-  def initialize(sha)
+  # `profile` scopes the record to one of a CHANGE.md's named change_config
+  # profiles (v0.2.0), so a comprehensive pass against `staging` never
+  # satisfies a gate that requires `production`, or the unscoped (no
+  # profiles configured) gate. nil keeps today's single-target path exactly
+  # as it has always been, sha-only, so every pre-profiles record and every
+  # unprofiled repo is unaffected.
+  def initialize(sha, profile: nil)
     @sha = sha.to_s
+    @profile = profile.to_s.empty? ? nil : profile.to_s
   end
 
   def record(scope:, status:, project:, lanes:, report:)
@@ -54,5 +61,5 @@ class ChangeGateStore
 
   def recordable? = !@sha.empty?
 
-  def path = File.join(Dir.home, '.claude', 'pst', 'change', @sha)
+  def path = File.join(Dir.home, '.claude', 'pst', 'change', @profile ? "#{@sha}__#{@profile}" : @sha)
 end

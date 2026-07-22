@@ -10,11 +10,11 @@ class ChangeConfigTest < Minitest::Test
   # Writes a CHANGE.md whose frontmatter carries the given change_config hash
   # (dumped as YAML) plus a prose body, then loads it. YAML.dump emits the
   # leading `---`, so appending the closing fence yields valid frontmatter.
-  def with_config(config)
+  def with_config(config, profile = nil)
     Dir.mktmpdir do |root|
       path = File.join(root, "CHANGE.md")
       File.write(path, "#{YAML.dump("change_config" => config)}---\n\nbody\n")
-      yield ChangeConfig.load(path), root
+      yield ChangeConfig.load(path, profile: profile), root
     end
   end
 
@@ -128,5 +128,111 @@ class ChangeConfigTest < Minitest::Test
 
   def test_doctor_raises_the_same_config_error_on_a_bad_file
     assert_raises(ChangeConfig::ConfigError) { ChangeConfig.doctor("/no/such/CHANGE.md") }
+  end
+
+  def test_profile_overrides_project_and_boot_and_lane_base_url
+    config = {
+      "project" => "app", "boot" => { "up" => "docker compose up -d", "target_url" => "http://app:3000" },
+      "lanes" => { "k6" => { "enabled" => true, "base_url" => "http://app:3000" } },
+      "profiles" => {
+        "staging" => {
+          "project" => "app-staging",
+          "boot" => { "up" => "true", "down" => "true", "target_url" => "https://staging.app" },
+          "lanes" => { "k6" => { "base_url" => "https://staging.app" } }
+        }
+      }
+    }
+    with_config(config, "staging") do |loaded, _root|
+      assert_equal "app-staging", loaded.project
+      assert_equal "true", loaded.boot.up
+      assert_equal "https://staging.app", loaded.boot.target_url
+      assert_equal "https://staging.app", loaded.lane("k6").base_url("fallback")
+    end
+  end
+
+  def test_unselected_fields_inherit_from_the_base_config
+    config = {
+      "project" => "app",
+      "lanes" => { "a11y" => { "enabled" => true, "routes" => [ "/login" ], "threshold" => "serious" } },
+      "profiles" => { "staging" => { "project" => "app-staging" } }
+    }
+    with_config(config, "staging") do |loaded, _root|
+      assert_equal [ "/login" ], loaded.lane("a11y")["routes"]
+      assert_equal "serious", loaded.lane("a11y")["threshold"]
+    end
+  end
+
+  def test_default_profile_is_used_when_none_is_passed
+    config = {
+      "project" => "app", "default_profile" => "staging",
+      "lanes" => { "k6" => { "enabled" => true } },
+      "profiles" => { "staging" => { "project" => "app-staging" } }
+    }
+    with_config(config) do |loaded, _root|
+      assert_equal "app-staging", loaded.project
+    end
+  end
+
+  def test_profiles_present_with_no_selection_and_no_default_raises
+    config = {
+      "project" => "app", "lanes" => { "k6" => { "enabled" => true } },
+      "profiles" => { "staging" => { "project" => "app-staging" } }
+    }
+    error = assert_raises(ChangeConfig::ConfigError) { with_config(config) { |_c| } }
+    assert_match(/no profile was selected/, error.message)
+  end
+
+  def test_unknown_profile_name_raises
+    config = {
+      "project" => "app", "lanes" => { "k6" => { "enabled" => true } },
+      "profiles" => { "staging" => { "project" => "app-staging" } }
+    }
+    error = assert_raises(ChangeConfig::ConfigError) { with_config(config, "prod") { |_c| } }
+    assert_match(/unknown profile 'prod'/, error.message)
+  end
+
+  def test_profile_lane_key_outside_the_allowed_set_is_rejected
+    config = {
+      "project" => "app", "lanes" => { "a11y" => { "enabled" => true, "routes" => [ "/" ] } },
+      "profiles" => { "staging" => { "lanes" => { "a11y" => { "routes" => [ "/staging" ] } } } }
+    }
+    error = assert_raises(ChangeConfig::ConfigError) { with_config(config, "staging") { |_c| } }
+    assert_match(/profile 'staging'.*a11y.*routes/, error.message)
+  end
+
+  def test_profile_lanes_that_is_not_a_mapping_raises_config_error
+    config = {
+      "project" => "app", "lanes" => { "k6" => { "enabled" => true } },
+      "profiles" => { "staging" => { "lanes" => "bogus" } }
+    }
+    error = assert_raises(ChangeConfig::ConfigError) { with_config(config, "staging") { |_c| } }
+    assert_match(/profile 'staging'.*lanes.*mapping/, error.message)
+  end
+
+  def test_profile_lane_override_that_is_not_a_mapping_is_rejected
+    config = {
+      "project" => "app", "lanes" => { "a11y" => { "enabled" => true, "routes" => [ "/" ] } },
+      "profiles" => { "staging" => { "lanes" => { "a11y" => "bogus" } } }
+    }
+    error = assert_raises(ChangeConfig::ConfigError) { with_config(config, "staging") { |_c| } }
+    assert_match(/profile 'staging' lane 'a11y'.*mapping/, error.message)
+  end
+
+  def test_a_repo_with_no_profiles_block_ignores_a_nil_profile_request
+    with_config("project" => "app", "lanes" => { "k6" => { "enabled" => true } }) do |loaded, _root|
+      assert_equal "app", loaded.project
+    end
+  end
+
+  def test_doctor_reports_the_resolved_profile
+    config = {
+      "project" => "app", "lanes" => { "k6" => { "enabled" => true } },
+      "profiles" => { "staging" => { "project" => "app-staging" } }
+    }
+    with_config(config, "staging") do |_loaded, root|
+      summary = ChangeConfig.doctor(File.join(root, "CHANGE.md"), profile: "staging")
+      assert_match(/profile: staging/, summary)
+      assert_match(/project: app-staging/, summary)
+    end
   end
 end

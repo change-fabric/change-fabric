@@ -35,14 +35,23 @@ class ChangeConfig
                      'separate .pst file, but the shipped platform inlines it into CHANGE.md ' \
                      'frontmatter. Migrate the config into the frontmatter block here.'
 
-  def self.load(path)
+  # A profile (v0.2.0) may only override these change_config keys: enough to
+  # point the same lanes at a different deployed target (a different project
+  # label, boot command, or lane base_url/enabled), never a different audit
+  # surface (routes, thresholds, viewports) per environment. That keeps the
+  # documented field set small and every profile field's meaning identical to
+  # its base-config counterpart, rather than a second, parallel schema.
+  PROFILE_LANE_KEYS = %w[enabled base_url].freeze
+  PROFILE_TOP_KEYS = %w[project boot lanes].freeze
+
+  def self.load(path, profile: nil)
     raise ConfigError, "CHANGE.md not found: #{path}. #{REFERENCE_HINT}" unless File.exist?(path)
 
     front = ChangeFrontmatter.parse_file(path)
     config = front['change_config']
     raise ConfigError, missing_config_message(path) unless config.is_a?(Hash)
 
-    new(config, File.dirname(path))
+    new(config, File.dirname(path), profile: profile)
   end
 
   def self.missing_config_message(path)
@@ -67,11 +76,12 @@ class ChangeConfig
 
   # Loads and reports on a CHANGE.md without running any lane: a fast
   # well-formed check an author runs while iterating, before a full sweep.
-  def self.doctor(path)
-    config = load(path)
+  def self.doctor(path, profile: nil)
+    config = load(path, profile: profile)
     boot = config.boot
-    lines = [
-      "CHANGE.md OK: #{path}",
+    lines = [ "CHANGE.md OK: #{path}" ]
+    lines << "profile: #{config.profile}" if config.profile
+    lines += [
       "project: #{config.project}",
       "enabled lanes: #{config.enabled_lanes.join(', ')}",
       "boot.up: #{boot.up? ? boot.up : '(none, assumes the app is already running)'}",
@@ -86,15 +96,22 @@ class ChangeConfig
   end
 
   # `dir` is the CHANGE.md directory, i.e. the repo root, used to resolve
-  # repo-relative paths (a k6 script) the lanes reference.
-  def initialize(raw, dir)
-    @raw = raw
+  # repo-relative paths (a k6 script) the lanes reference. `profile` selects
+  # a named change_config.profiles entry (v0.2.0); nil is the ordinary,
+  # pre-0.2.0 single-target shape.
+  def initialize(raw, dir, profile: nil)
     @dir = dir
+    @profile = resolve_profile_name(raw, profile)
+    @raw = @profile ? merge_profile(raw, @profile) : raw
     validate
   end
 
   def project = @raw.fetch('project', 'project').to_s
   def boot = Boot.new(@raw['boot'] || {}, @dir)
+
+  # The resolved profile name, or nil when this config has no profiles block
+  # (or none was requested and none is configured as the default).
+  def profile = @profile
 
   # The repo root: the directory holding CHANGE.md.
   def repo_root = @dir
@@ -108,6 +125,63 @@ class ChangeConfig
   def lane(name) = LaneConfig.new(name.to_s, @raw.dig('lanes', name.to_s) || {}, @dir)
 
   private
+
+  # nil when `raw` has no profiles block at all (a request is simply ignored,
+  # so an unprofiled CHANGE.md never has to know profiles exist). Otherwise
+  # the requested name, or `default_profile`, or a loud error: a profiles
+  # block with no way to pick one is treated as author error, not a silent
+  # "run something anyway".
+  def resolve_profile_name(raw, requested)
+    profiles = raw['profiles']
+    return nil unless profiles.is_a?(Hash) && !profiles.empty?
+
+    name = requested.to_s.empty? ? raw['default_profile'].to_s : requested.to_s
+    if name.empty?
+      raise ConfigError,
+            "change_config.profiles is set but no profile was selected: pass --profile NAME or set default_profile. " \
+            "Defined profiles: #{profiles.keys.join(', ')}"
+    end
+    raise ConfigError, "unknown profile '#{name}'; defined profiles: #{profiles.keys.join(', ')}" unless profiles[name].is_a?(Hash)
+
+    name
+  end
+
+  # The base config with the named profile's overrides deep-merged over it.
+  # `profiles`/`default_profile` themselves are dropped from the result so a
+  # merged config is indistinguishable in shape from an ordinary unprofiled
+  # one, which is what every downstream reader (Boot, LaneConfig, validate)
+  # already expects.
+  def merge_profile(raw, name)
+    profile = raw.dig('profiles', name)
+    validate_profile_keys(name, profile)
+    base = raw.reject { |key, _| %w[profiles default_profile].include?(key) }
+    deep_merge(base, profile)
+  end
+
+  def validate_profile_keys(name, profile)
+    unknown_top = profile.keys - PROFILE_TOP_KEYS
+    raise ConfigError, "profile '#{name}' sets unknown key(s): #{unknown_top.join(', ')}. Profiles may only set #{PROFILE_TOP_KEYS.join(', ')}." unless unknown_top.empty?
+
+    lanes = profile['lanes']
+    raise ConfigError, "profile '#{name}' lanes must be a mapping" unless lanes.nil? || lanes.is_a?(Hash)
+
+    (lanes || {}).each do |lane, section|
+      raise ConfigError, "profile '#{name}' lane '#{lane}' override must be a mapping" unless section.is_a?(Hash)
+
+      unknown_lane = section.keys - PROFILE_LANE_KEYS
+      next if unknown_lane.empty?
+
+      raise ConfigError,
+            "profile '#{name}' lane '#{lane}' sets unknown key(s): #{unknown_lane.join(', ')}. " \
+            "A profile's lane override may only set #{PROFILE_LANE_KEYS.join(', ')}; other lane behavior is shared across profiles."
+    end
+  end
+
+  def deep_merge(base, override)
+    base.merge(override) do |_key, base_val, override_val|
+      base_val.is_a?(Hash) && override_val.is_a?(Hash) ? deep_merge(base_val, override_val) : override_val
+    end
+  end
 
   def lane_enabled?(name)
     section = @raw.dig('lanes', name)
@@ -182,14 +256,16 @@ if __FILE__ == $PROGRAM_NAME
   if ARGV.first == 'doctor'
     config_flag = ARGV.index('--config')
     path = config_flag ? ARGV[config_flag + 1] : ChangeConfig::DEFAULT_PATH
+    profile_flag = ARGV.index('--profile')
+    profile = profile_flag ? ARGV[profile_flag + 1] : nil
     begin
-      puts ChangeConfig.doctor(path)
+      puts ChangeConfig.doctor(path, profile: profile)
     rescue ChangeConfig::ConfigError => e
       warn "[change] setup error: #{e.message}"
       exit 2
     end
   else
-    warn 'usage: change_config.rb doctor [--config PATH]'
+    warn 'usage: change_config.rb doctor [--config PATH] [--profile NAME]'
     exit 1
   end
 end

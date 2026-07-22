@@ -15,7 +15,7 @@
 # spec doc's changelog. A field-set change without a matching version bump, or a
 # version bump the doc does not reflect, is exactly what the drift test catches.
 module ChangeSchema
-  VERSION = '0.1.0'
+  VERSION = '0.2.0'
 
   # The four audit lanes, the authoritative list the config validator enforces.
   LANES = %w[k6 a11y zap browserless].freeze
@@ -87,6 +87,23 @@ module ChangeSchema
     'change_config.lanes.browserless.auth.steps[].timeout_ms',
     'change_config.lanes.browserless.figma.token_env',
     'change_config.lanes.browserless.figma.max_diff_percent',
+    # change_config.profiles (0.2.0): named deploy-target overrides sharing one
+    # audit surface. A profile may only set project, boot.*, and a lane's
+    # enabled/base_url, never its routes/thresholds/viewports, so one CHANGE.md
+    # keeps a single documented audit shape across every environment instead of
+    # a parallel schema per profile.
+    'change_config.default_profile',
+    'change_config.profiles.<profile>.project',
+    'change_config.profiles.<profile>.boot.up',
+    'change_config.profiles.<profile>.boot.down',
+    'change_config.profiles.<profile>.boot.network',
+    'change_config.profiles.<profile>.boot.target_url',
+    'change_config.profiles.<profile>.boot.health.url',
+    'change_config.profiles.<profile>.boot.health.expect_status',
+    'change_config.profiles.<profile>.boot.health.timeout_seconds',
+    'change_config.profiles.<profile>.boot.env_file',
+    'change_config.profiles.<profile>.lanes.<lane>.enabled',
+    'change_config.profiles.<profile>.lanes.<lane>.base_url',
     # change_policy: machine-checkable governance the merge gate enforces.
     'change_policy.protected_branches',
     'change_policy.gate.require_change_pass',
@@ -95,6 +112,10 @@ module ChangeSchema
     'change_policy.promotion.<branch>.require_change_pass',
     'change_policy.promotion.<branch>.ci_gate',
     'change_policy.promotion.<branch>.ci_skippable',
+    # change_policy.promotion.<branch>.profile (0.2.0): scopes this branch's
+    # require_change_pass gate to one named change_config profile's own
+    # recorded run, instead of any profile-less comprehensive run.
+    'change_policy.promotion.<branch>.profile',
     'change_policy.admin_bypass.allowed',
     'change_policy.admin_bypass.require_change_pass',
     'change_policy.admin_bypass.conditions'

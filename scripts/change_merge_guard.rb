@@ -80,14 +80,18 @@ class ChangeMergeGuard
   end
 
   # Shared gate check: a comprehensive pst:change run must have passed for this
-  # exact head SHA.
+  # exact head SHA, scoped to the branch's named profile (v0.2.0) when its
+  # promotion rule names one.
   def gate_violation(base, sha, policy, kind:)
-    return nil if ChangeGateStore.new(sha).comprehensive_pass?
+    profile = policy.profile_for(base)
+    return nil if ChangeGateStore.new(sha, profile: profile).comprehensive_pass?
 
     conditions = policy.admin_bypass_conditions
     note = conditions.empty? ? '' : "Repo policy: #{conditions}. "
-    "#{kind} into '#{base}' is gated: no passing comprehensive pst:change run recorded for head " \
-      "#{sha[0, 12]}. Run /pst:change against this PR first. #{note}#{escape_note}"
+    target = profile ? "the '#{profile}' profile" : 'a comprehensive'
+    "#{kind} into '#{base}' is gated: no passing #{target} pst:change run recorded for head " \
+      "#{sha[0, 12]}. Run /pst:change against this PR first#{profile ? " with --profile #{profile}" : ''}. " \
+      "#{note}#{escape_note}"
   end
 
   def escape_note = 'Set PST_ALLOW_UNGATED_MERGE=1 to override for a genuine exception.'

@@ -1,6 +1,6 @@
 # CHANGE.md frontmatter specification
 
-Schema version: 0.1.0
+Schema version: 0.2.0
 
 Status: stable. This is the golden reference for authoring a repo's `CHANGE.md`
 frontmatter. A maintainer or an AI agent creating a new repo's `CHANGE.md` reads
@@ -59,6 +59,7 @@ Field paths are dotted. Placeholder segments are literal and mean:
 
 - `<lane>`: any of the four lanes, `k6`, `a11y`, `zap`, `browserless`.
 - `<branch>`: any git branch name (a promotion target such as `staging`).
+- `<profile>`: any name under `change_config.profiles` (a deploy target such as `staging`).
 - `[]`: a field on each item of a list.
 
 Required means the platform cannot run without it. Almost everything is optional
@@ -133,6 +134,45 @@ up and confirm it is ready; `lanes` describes what to audit.
 | `change_config.lanes.browserless.figma.token_env` | string | no (default `FIGMA_ACCESS_TOKEN`) | Name of the environment variable holding a real Figma personal access token. |
 | `change_config.lanes.browserless.figma.max_diff_percent` | number | no (default 10) | Pixel-diff percentage above which a route's Figma alignment check fails; a nonzero diff at or below this still reports as a warn so a rerun after a fix shows the number moving toward zero. |
 
+### change_config.profiles (0.2.0): multiple deploy targets, one audit shape
+
+A repo with more than one deployable target (a local Docker stack, a real
+staging deployment, a real production deployment) declares each as a named
+profile under `change_config.profiles` instead of a second, parallel
+`CHANGE.<env>.md` file. A profile deep-merges its own values over the base
+`change_config` above; anything it does not set is inherited unchanged. This
+keeps one documented audit surface (the same lane routes, thresholds, and
+viewports) across every environment, and lets a profile state only what
+actually differs: how to reach that target and which lane base URLs point at
+it. `ruby ~/.claude/pst/bin/change_run.rb all --profile staging` runs the
+`staging` profile; omitting `--profile` uses `change_config.default_profile`
+when set, or the bare `change_config` fields when there is no `profiles` block
+at all. A `profiles` block with no `--profile` flag and no `default_profile`
+is a setup error, not a silent default, since running the wrong environment's
+audit against the wrong target is worse than refusing to guess.
+
+A profile may set only `project`, `boot.*`, and a lane's `enabled`/`base_url`;
+setting anything else (a lane's `routes`, `thresholds`, `viewports`, or any
+other lane field) is rejected. This is the deliberate scope limit that keeps
+`profiles.<profile>.*` a small, fully documented mirror of the base config's
+own mechanical fields rather than a second copy of the whole schema: a
+profile changes *where* the same audit runs, never *what* it audits.
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `change_config.default_profile` | string | no | The profile `--profile` falls back to when omitted. Required (as an explicit `--profile` flag, if not set here) whenever `profiles` is non-empty. |
+| `change_config.profiles.<profile>.project` | string | no | Overrides `change_config.project` for this profile. |
+| `change_config.profiles.<profile>.boot.up` | string | no | Overrides `change_config.boot.up`. A real, already-running deployment (staging, production) typically sets this to `"true"`, a no-op, since there is nothing to boot; the `health` check below is what actually confirms the target is reachable. |
+| `change_config.profiles.<profile>.boot.down` | string | no | Overrides `change_config.boot.down`. |
+| `change_config.profiles.<profile>.boot.network` | string | no | Overrides `change_config.boot.network`. |
+| `change_config.profiles.<profile>.boot.target_url` | string | no | Overrides `change_config.boot.target_url`. |
+| `change_config.profiles.<profile>.boot.health.url` | string | no | Overrides `change_config.boot.health.url`. |
+| `change_config.profiles.<profile>.boot.health.expect_status` | integer | no | Overrides `change_config.boot.health.expect_status`. |
+| `change_config.profiles.<profile>.boot.health.timeout_seconds` | integer | no | Overrides `change_config.boot.health.timeout_seconds`. |
+| `change_config.profiles.<profile>.boot.env_file` | string or list of string | no | Overrides `change_config.boot.env_file`. |
+| `change_config.profiles.<profile>.lanes.<lane>.enabled` | boolean | no | Overrides whether `<lane>` runs under this profile (e.g. skip `zap` locally, require it in staging). |
+| `change_config.profiles.<profile>.lanes.<lane>.base_url` | string | no | Overrides `<lane>`'s base URL for this profile. The lane's other fields (`routes`, `thresholds`, `viewports`, ...) are always inherited from the base `change_config.lanes.<lane>` block; a profile cannot set them. |
+
 ## change_policy fields
 
 The machine-checkable block the merge gate (`change_merge_guard.rb`) reads. The
@@ -148,6 +188,7 @@ rules in a form the gate can enforce, and the body is expected to explain it.
 | `change_policy.promotion.<branch>.require_change_pass` | boolean | no (default true) | Gates a merge into this branch on a passing comprehensive pst:change run for the head SHA. |
 | `change_policy.promotion.<branch>.ci_gate` | string | no | The CI that must be green to promote (read by humans; explained in prose). |
 | `change_policy.promotion.<branch>.ci_skippable` | boolean | no | Whether that CI gate can be skipped, and the prose says by whom. |
+| `change_policy.promotion.<branch>.profile` | string | no | (0.2.0) Scopes `require_change_pass` to one named `change_config.profiles` entry's own recorded pass, instead of any profile-less comprehensive run. A passing `staging` profile run never satisfies a branch whose rule names `production`. |
 | `change_policy.admin_bypass.allowed` | boolean | no (default false) | Whether admin-bypass merging (`gh pr merge --admin`) is permitted at all for a protected branch. |
 | `change_policy.admin_bypass.require_change_pass` | boolean | no (default true) | Whether an allowed admin bypass still requires the pst:change gate to have passed. |
 | `change_policy.admin_bypass.conditions` | string | no | The repo's stated condition for an acceptable admin bypass, surfaced in the gate's deny reason. |
@@ -198,6 +239,56 @@ change_policy:
     conditions: "CI green on the head commit; the tech lead may bypass-merge own work when no separate reviewer is available"
 ```
 
+### Multiple deploy targets (profiles)
+
+One repo, three real targets sharing the same lane definitions: a local
+Docker stack (the base config, no profile needed), a real staging deployment,
+and a real production deployment. Staging and production both no-op `boot.up`
+/`boot.down` since there is nothing to boot, and point the same `k6` lane at
+their own already-running host. `production`'s promotion rule requires the
+`production` profile's own pass, not staging's.
+
+```
+change_config:
+  project: my-app
+  boot:
+    up: docker compose up -d --build app
+    down: docker compose down
+    target_url: http://app:3000
+    health:
+      url: http://localhost:3000/health
+  lanes:
+    k6:
+      env: { BASE_URL: http://app:3000 }
+  profiles:
+    staging:
+      project: my-app-staging
+      boot:
+        up: "true"
+        down: "true"
+        target_url: https://staging.my-app.example
+        health: { url: https://staging.my-app.example/health }
+      lanes:
+        k6: { base_url: https://staging.my-app.example }
+    production:
+      project: my-app-production
+      boot:
+        up: "true"
+        down: "true"
+        target_url: https://my-app.example
+        health: { url: https://my-app.example/health }
+      lanes:
+        k6: { base_url: https://my-app.example }
+change_policy:
+  promotion:
+    staging: { require_change_pass: true, profile: staging }
+    production: { require_change_pass: true, profile: production }
+```
+
+`ruby ~/.claude/pst/bin/change_run.rb all --profile staging` runs the
+`staging` profile; a bare `change_run.rb all` still runs the base config
+(the local Docker stack here) since no `default_profile` is set.
+
 For a full example of every field, see `reference/CHANGE.template.md`.
 
 ## Versioning and changelog
@@ -235,3 +326,11 @@ Version scheme (semver for the schema):
   then a code from a second form), a field's value resolved from `env` or a
   `code_source` that polls an HTTP endpoint live rather than ever reading,
   storing, or logging the code on the host.
+- 0.2.0: `change_config.profiles`, named deploy-target overrides (a local
+  Docker stack, a real staging or production deployment) sharing one audit
+  surface instead of a separate `CHANGE.<env>.md` per environment. A profile
+  may set `project`, `boot.*`, and a lane's `enabled`/`base_url`, deep-merged
+  over the base `change_config`; `default_profile` and `change_run.rb
+  --profile NAME` select one. `change_policy.promotion.<branch>.profile`
+  scopes that branch's gate to one named profile's own recorded pass, so a
+  passing `staging` run never satisfies a `production` promotion gate.

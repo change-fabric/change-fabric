@@ -50,6 +50,20 @@ class ChangePolicyTest < Minitest::Test
     end
   end
 
+  def test_profile_for_reads_the_promotion_rules_profile
+    front = <<~YAML
+      change_policy:
+        promotion:
+          staging: { require_change_pass: true, profile: staging }
+          production: { require_change_pass: true }
+    YAML
+    policy(front) do |p|
+      assert_equal "staging", p.profile_for("staging")
+      assert_nil p.profile_for("production")
+      assert_nil p.profile_for("development")
+    end
+  end
+
   def test_malformed_frontmatter_falls_back_to_default_protection
     Dir.mktmpdir do |root|
       File.write(File.join(root, "CHANGE.md"), "no frontmatter here\n")

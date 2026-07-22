@@ -40,7 +40,12 @@ class ChangeRunTest < Minitest::Test
   end
 
   def test_sweep_scope_is_a_valid_argument
-    assert_equal [ "sweep", ChangeConfig::DEFAULT_PATH ], runner.send(:parse_args, %w[sweep])
+    assert_equal [ "sweep", ChangeConfig::DEFAULT_PATH, nil ], runner.send(:parse_args, %w[sweep])
+  end
+
+  def test_profile_flag_is_parsed
+    assert_equal [ "all", ChangeConfig::DEFAULT_PATH, "staging" ],
+                 runner.send(:parse_args, %w[all --profile staging])
   end
 
   # boot.env_file: the compose build-arg trap fix. A KEY=VALUE file gets parsed

@@ -73,6 +73,16 @@ class ChangePolicy
     block.is_a?(Hash) ? block : {}
   end
 
+  # The named change_config profile (v0.2.0) whose comprehensive pass gates
+  # promotion into this branch, or nil when the branch's rule does not name
+  # one (the unscoped gate: any profile-less comprehensive run, matching
+  # pre-0.2.0 behavior).
+  def profile_for(branch)
+    rule = promotion[branch.to_s]
+    value = rule.is_a?(Hash) ? rule['profile'] : nil
+    value.to_s.empty? ? nil : value.to_s
+  end
+
   # Whether admin-bypass merging (`gh pr merge --admin`, skipping the normal
   # review/CI wait) is permitted at all for a protected branch. Conservative
   # default is false: a repo must state in CHANGE.md that it allows the practice.

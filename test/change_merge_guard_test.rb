@@ -41,11 +41,12 @@ class ChangeMergeGuardTest < Minitest::Test
     FileUtils.remove_entry(@root)
   end
 
-  def write_change_md(admin_allowed:)
+  def write_change_md(admin_allowed:, staging_profile: nil)
+    profile_line = staging_profile ? ", profile: #{staging_profile}" : ""
     front = <<~YAML
       change_policy:
         promotion:
-          staging: { require_change_pass: true }
+          staging: { require_change_pass: true#{profile_line} }
           production: { require_change_pass: true }
         admin_bypass:
           allowed: #{admin_allowed}
@@ -54,12 +55,14 @@ class ChangeMergeGuardTest < Minitest::Test
     File.write(File.join(@root, "CHANGE.md"), "---\n#{front}---\n\nbody\n")
   end
 
-  def record_pass
-    ChangeGateStore.new(SHA).record(scope: "all", status: "pass", project: "app", lanes: {}, report: "r.md")
+  def record_pass(profile: nil)
+    ChangeGateStore.new(SHA, profile: profile).record(
+      scope: "all", status: "pass", project: "app", lanes: {}, report: "r.md"
+    )
   end
 
-  def decision(command, base:, admin_allowed: false)
-    write_change_md(admin_allowed: admin_allowed)
+  def decision(command, base:, admin_allowed: false, staging_profile: nil)
+    write_change_md(admin_allowed: admin_allowed, staging_profile: staging_profile)
     event = { "tool_name" => "Bash", "tool_input" => { "command" => command } }
     io = StringIO.new
     StubMergeGuard.new(event, root: @root, pr: [ base, SHA ]).emit(io)
@@ -100,5 +103,15 @@ class ChangeMergeGuardTest < Minitest::Test
   def test_admin_bypass_allowed_with_gate_passes
     record_pass
     assert_nil decision("gh pr merge 12 --admin", base: "production", admin_allowed: true)
+  end
+
+  def test_profile_scoped_promotion_checks_that_profiles_gate_not_the_default
+    record_pass
+    assert_equal "deny", decision("gh pr merge 12 --squash", base: "staging", staging_profile: "staging")
+  end
+
+  def test_profile_scoped_promotion_passes_once_that_profile_recorded
+    record_pass(profile: "staging")
+    assert_nil decision("gh pr merge 12 --squash", base: "staging", staging_profile: "staging")
   end
 end

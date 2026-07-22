@@ -65,13 +65,15 @@ SHA; the lanes read the `change_config:` block.
    config vocabulary, an unrelated CLAUDE.md table) instead of stating the
    target app's own boot and audit details directly.
 3. **Run the sweep.** From the target repo root:
-   `ruby ~/.claude/pst/bin/change_run.rb all`. This boots the app per the
-   config, waits for its health signal, stands up the ephemeral runners
+   `ruby ~/.claude/pst/bin/change_run.rb all`. Add `--profile NAME` to run a
+   named profile from `change_config.profiles` (a real staging or production
+   target) instead of the base config. This boots the app per the config,
+   waits for its health signal, stands up the ephemeral runners
    (digest-pinned, `--rm`, per pst:docker), runs k6, a11y, ZAP, and browserless
    lanes, tears everything down, writes the report pair to `~/Desktop`, and
-   records the gate under the head SHA. Exit 0 means every lane passed, 1 means
-   a lane failed, 2 means a setup failure (no docker, bad config, app never
-   ready).
+   records the gate under the head SHA (and the profile, when one was given).
+   Exit 0 means every lane passed, 1 means a lane failed, 2 means a setup
+   failure (no docker, bad config, app never ready).
 4. **Report.** Summarize the per-lane pass/fail and the failing findings from
    the Markdown report. Name both report paths (the `.md` and the `.csv`) so the
    run is reproducible and shareable.
@@ -113,6 +115,13 @@ and policy together). Shape under `change_config:`:
 
 A lane a project does not want is omitted or set `enabled: false`. A project can
 carry the config alone with none of the tools installed as repo dependencies.
+
+A repo with more than one real deploy target (a local Docker stack, a real
+staging or production deployment) declares each as a named profile under
+`change_config.profiles` rather than a second `CHANGE.<env>.md` file; see
+`reference/CHANGE-frontmatter-spec.md`'s profiles section. `change_run.rb all
+--profile staging` runs a named profile, and `change_policy.promotion.<branch>.
+profile` scopes that branch's merge gate to the matching profile's own pass.
 
 ## Policy (CHANGE.md body and `change_policy:`)
 

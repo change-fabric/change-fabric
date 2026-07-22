@@ -21,7 +21,7 @@ require_relative 'change_lane_browserless'
 # lanes, writes a CSV+Markdown report pair to the Desktop, and records the
 # outcome under the git head SHA so the merge gate can consult it later.
 #
-# Usage: change_run.rb <all|k6|a11y|zap|browserless> [--config PATH]
+# Usage: change_run.rb <all|k6|a11y|zap|browserless> [--config PATH] [--profile NAME]
 #
 # Everything that stands up gets torn down: the app via the config's `down`
 # command, the browser container and any ephemeral network via their block
@@ -47,14 +47,14 @@ class ChangeRun
   end
 
   def initialize(argv)
-    @scope, @config_path = parse_args(argv)
+    @scope, @config_path, @profile = parse_args(argv)
   end
 
   def run
     return abort_setup('docker is not available') unless ChangeDocker.available?
     return sweep_stale_resources if @scope == 'sweep'
 
-    config = ChangeConfig.load(@config_path)
+    config = ChangeConfig.load(@config_path, profile: @profile)
     lanes = resolve_lanes(config)
     findings = with_app(config) { |ctx| execute(config, lanes, ctx) }
     report = write_report(config, findings, lanes)
@@ -70,12 +70,14 @@ class ChangeRun
   def parse_args(argv)
     scope = argv.first
     path = ChangeConfig::DEFAULT_PATH
+    profile = nil
     OptionParser.new do |o|
       o.on('--config PATH') { |value| path = value }
+      o.on('--profile NAME') { |value| profile = value }
     end.parse(argv.drop(1))
     valid = %w[all sweep] + ChangeConfig::LANES
     abort_and_exit("scope must be one of: #{valid.join(', ')}") unless valid.include?(scope)
-    [ scope, path ]
+    [ scope, path, profile ]
   end
 
   # Force-removes any `pst-change-*` container or network left behind by a run
@@ -250,7 +252,7 @@ class ChangeRun
   # passed satisfies the release merge gate; a single-lane run records its own
   # scope and never unlocks a protected-branch merge.
   def record_gate(config, _lanes, findings, report)
-    ChangeGateStore.new(head_sha).record(
+    ChangeGateStore.new(head_sha, profile: config.profile).record(
       scope: @scope, status: findings.passed? ? 'pass' : 'fail',
       project: config.project, lanes: findings.lane_status,
       report: File.basename(report[:markdown])
@@ -263,7 +265,7 @@ class ChangeRun
     log("[change] #{findings.failures.size} failing finding(s)")
     log("[change] report: #{report[:markdown]}")
     log("[change] data:   #{report[:csv]}")
-    log("[change] #{findings.passed? ? 'PASS' : 'FAIL'} (scope: #{@scope})")
+    log("[change] #{findings.passed? ? 'PASS' : 'FAIL'} (scope: #{@scope}#{@profile ? ", profile: #{@profile}" : ''})")
   end
 
   def repo_root

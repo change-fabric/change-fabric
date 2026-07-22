@@ -44,4 +44,27 @@ class ChangeGateStoreTest < Minitest::Test
     store.record(scope: "all", status: "pass", project: "app", lanes: {}, report: "r.md")
     assert_nil store.read
   end
+
+  def test_profile_scoped_record_does_not_satisfy_the_unscoped_gate
+    ChangeGateStore.new("abc123", profile: "staging").record(
+      scope: "all", status: "pass", project: "app", lanes: {}, report: "r.md"
+    )
+    refute ChangeGateStore.new("abc123").comprehensive_pass?
+  end
+
+  def test_unscoped_record_does_not_satisfy_a_profile_scoped_gate
+    ChangeGateStore.new("abc123").record(scope: "all", status: "pass", project: "app", lanes: {}, report: "r.md")
+    refute ChangeGateStore.new("abc123", profile: "staging").comprehensive_pass?
+  end
+
+  def test_two_profiles_record_independently_for_the_same_sha
+    ChangeGateStore.new("abc123", profile: "staging").record(
+      scope: "all", status: "pass", project: "app", lanes: {}, report: "r.md"
+    )
+    ChangeGateStore.new("abc123", profile: "prod").record(
+      scope: "all", status: "fail", project: "app", lanes: {}, report: "r.md"
+    )
+    assert ChangeGateStore.new("abc123", profile: "staging").comprehensive_pass?
+    refute ChangeGateStore.new("abc123", profile: "prod").comprehensive_pass?
+  end
 end
