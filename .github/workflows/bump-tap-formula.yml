@@ -1,6 +1,6 @@
 name: bump-tap-formula
 
-# Publishes a tagged toolkit release to the pstaylor-patrick/homebrew-pst tap,
+# Publishes a tagged toolkit release to the pstaylor-patrick/homebrew-cf tap,
 # per docs/homebrew-distribution-plan.md section 4. Separate from
 # tag-on-version.yml on purpose: that workflow's only job is cutting the tag,
 # this one's only job is publishing it, so a tap-publish failure never blocks
@@ -17,8 +17,13 @@ on:
   push:
     tags: ["skills/v*"]
 
-permissions:
-  contents: read
+# This repo's own GITHUB_TOKEN does nothing here: the only auth used is the
+# TAP_BUMP_TOKEN PAT (via HOMEBREW_GITHUB_API_TOKEN), scoped to the tap repo.
+permissions: {}
+
+concurrency:
+  group: bump-tap-formula-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   bump:
@@ -28,7 +33,7 @@ jobs:
         id: gate
         run: |
           if [ -z "$TAP_BUMP_TOKEN" ]; then
-            echo "TAP_BUMP_TOKEN not set; skipping until pstaylor-patrick/homebrew-pst exists and the secret is configured."
+            echo "TAP_BUMP_TOKEN not set; skipping until pstaylor-patrick/homebrew-cf exists and the secret is configured."
             echo "ready=false" >> "$GITHUB_OUTPUT"
           else
             echo "ready=true" >> "$GITHUB_OUTPUT"
@@ -43,8 +48,8 @@ jobs:
         env:
           HOMEBREW_GITHUB_API_TOKEN: ${{ secrets.TAP_BUMP_TOKEN }}
         run: |
-          brew tap pstaylor-patrick/pst
+          brew tap pstaylor-patrick/cf
           brew bump-formula-pr \
             --no-browse --no-audit \
             --url "https://github.com/pstaylor-patrick/change-fabric/archive/refs/tags/skills/v${VERSION}.tar.gz" \
-            pstaylor-patrick/pst/change-fabric
+            pstaylor-patrick/cf/change-fabric
