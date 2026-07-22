@@ -1,0 +1,41 @@
+name: deploy-site
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "site/**"
+      - "skills/change/reference/CHANGE-frontmatter-spec.md"
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: deploy-site
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: site
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: site/package-lock.json
+      - run: npm ci
+      - run: npm run build
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.DEPLOY_SITE_ROLE_ARN }}
+          aws-region: us-east-1
+      - name: Publish
+        env:
+          SITE_BUCKET: ${{ vars.SITE_BUCKET }}
+          WWW_DISTRIBUTION_ID: ${{ vars.WWW_DISTRIBUTION_ID }}
+        run: ./infra/deploy.sh

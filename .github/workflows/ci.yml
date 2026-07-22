@@ -27,3 +27,9 @@ jobs:
       - name: rake test
         if: ${{ !cancelled() }}
         run: bundle exec rake test
+      - name: site build
+        if: ${{ !cancelled() }}
+        working-directory: site
+        run: |
+          npm ci
+          npm run build

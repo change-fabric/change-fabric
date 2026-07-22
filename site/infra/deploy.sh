@@ -2,11 +2,13 @@
 # Publishes the built site: syncs site/dist to the Terraform-managed S3 bucket
 # and invalidates the www CloudFront distribution so the new build is served
 # immediately. Run `npm run build` in site/ first, then `terraform apply` in
-# site/infra/, then this. Reads the bucket and distribution id from Terraform
-# outputs, so there are no hardcoded ids here.
+# site/infra/, then this.
+#
+# Reads the bucket and distribution id from SITE_BUCKET/WWW_DISTRIBUTION_ID if
+# set (CI: no Terraform state access needed, just the two ids as repo
+# variables), else from Terraform outputs (local use).
 set -euo pipefail
 
-export AWS_PROFILE="${AWS_PROFILE:-personal}"
 export AWS_PAGER=""
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -17,8 +19,14 @@ if [ ! -f "$dist/index.html" ]; then
   exit 1
 fi
 
-bucket="$(terraform -chdir="$here" output -raw site_bucket)"
-distribution="$(terraform -chdir="$here" output -raw www_distribution_id)"
+if [ -n "${SITE_BUCKET:-}" ] && [ -n "${WWW_DISTRIBUTION_ID:-}" ]; then
+  bucket="$SITE_BUCKET"
+  distribution="$WWW_DISTRIBUTION_ID"
+else
+  export AWS_PROFILE="${AWS_PROFILE:-personal}"
+  bucket="$(terraform -chdir="$here" output -raw site_bucket)"
+  distribution="$(terraform -chdir="$here" output -raw www_distribution_id)"
+fi
 
 # Icon files are referenced by static, unversioned filenames (no content hash),
 # so an immutable year-long cache leaves a browser stuck on a stale icon after

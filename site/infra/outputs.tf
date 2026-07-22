@@ -22,3 +22,8 @@ output "apex_url" {
   description = "Apex URL, which redirects to the canonical www URL."
   value       = "https://${var.domain}"
 }
+
+output "deploy_site_role_arn" {
+  description = "IAM role deploy-site.yml assumes via OIDC to publish the site."
+  value       = aws_iam_role.deploy_site.arn
+}
