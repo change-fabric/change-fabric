@@ -135,9 +135,15 @@ def handle_stream(event)
 end
 
 # --- sweep path -------------------------------------------------------------
+# SSM's PutParameter rejects an empty-string Value outright (ValidationException:
+# "Member must have length greater than or equal to 1"), so "start fresh" can
+# never be persisted as "". This sentinel satisfies that constraint and is
+# treated the same as absent/blank on read.
+NO_CURSOR = "none"
+
 def read_cursor
   param = SSM.get_parameter(name: ENV["SWEEP_CURSOR_PARAM"]).parameter.value
-  return nil if param.nil? || param.strip.empty?
+  return nil if param.nil? || param.strip.empty? || param.strip == NO_CURSOR
 
   JSON.parse(param)
 rescue Aws::SSM::Errors::ParameterNotFound
@@ -162,14 +168,20 @@ def handle_sweep(_event)
     limit: ENV["SWEEP_PAGE_LIMIT"].to_i
   }
   cursor = read_cursor
-  query_args[:exclusive_start_key] = cursor if cursor
+  query_args[:exclusive_start_key] = cursor if cursor && !cursor.empty?
 
   response = DYNAMODB.query(query_args)
   response.items.each { |item| process_item(item) }
 
-  # Persist the pagination watermark. Empty string when the page drained means
+  # Persist the pagination watermark. NO_CURSOR when the page drained means
   # "start fresh from the oldest pending item next run" (plan section 6.4).
-  next_cursor = response.last_evaluated_key ? JSON.generate(response.last_evaluated_key) : ""
+  # DynamoDB can return a present-but-empty LastEvaluatedKey (its own documented
+  # "empty means no more pages" signal) rather than omitting the field, which the
+  # SDK surfaces as {} here, not nil. {} is truthy in Ruby, so both this write and
+  # the read above must check emptiness explicitly, not just presence, or a stale
+  # "{}" cursor gets persisted and the next sweep's query rejects it outright.
+  last_key = response.last_evaluated_key
+  next_cursor = (last_key && !last_key.empty?) ? JSON.generate(last_key) : NO_CURSOR
   write_cursor(next_cursor)
 end
 
