@@ -7,6 +7,7 @@ require_relative 'hook_event'
 require_relative 'change_policy'
 require_relative 'change_gate_store'
 require_relative 'change_override_store'
+require_relative 'guarded_command'
 
 # PreToolUse hook: gates a `gh pr merge` that lands into a repo's protected
 # branch (staging/production, or whatever CHANGE.md names) on a comprehensive
@@ -23,8 +24,6 @@ require_relative 'change_override_store'
 # governance.
 class ChangeMergeGuard
   EVENT = 'PreToolUse'
-  MERGE = /\bgh\b[^&|;]*\bpr\b[^&|;]*\bmerge\b/
-  ADMIN = /\s--admin\b/
 
   def initialize(event)
     @event = event
@@ -33,7 +32,7 @@ class ChangeMergeGuard
   def emit(io = $stdout)
     return if ENV['PST_ALLOW_UNGATED_MERGE'] == '1'
     return unless @event['tool_name'] == 'Bash'
-    return unless command.match?(MERGE)
+    return unless GuardedCommand.merge?(command)
 
     reason = violation
     io.puts(JSON.generate(deny(reason))) if reason
@@ -106,7 +105,7 @@ class ChangeMergeGuard
       "record an override: ruby ~/.claude/pst/bin/change_override.rb <sha> --reason '<why>'."
   end
 
-  def admin?(cmd) = cmd.match?(ADMIN)
+  def admin?(cmd) = GuardedCommand.tokens(cmd).include?('--admin')
 
   def repo_root
     out, status = Open3.capture2e('git', 'rev-parse', '--show-toplevel')

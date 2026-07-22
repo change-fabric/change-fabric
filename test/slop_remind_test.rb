@@ -63,6 +63,14 @@ class SlopRemindTest < Minitest::Test
     assert_nil remind("git commit", tool: "Edit")
   end
 
+  def test_ignores_git_log_mentioning_commit_in_grep
+    assert_nil remind('git log --grep "commit message cleanup"')
+  end
+
+  def test_ignores_pr_view_mentioning_create_in_query
+    assert_nil remind('gh pr view 12 --json title -q "note: run gh pr create later"')
+  end
+
   def test_silent_without_ai_slop_skill
     empty = Dir.mktmpdir
     io = StringIO.new

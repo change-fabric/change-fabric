@@ -62,6 +62,11 @@ class ReviewGateTest < Minitest::Test
     assert_nil gate("git push", tool: "Edit")
   end
 
+  def test_allows_commit_mentioning_pr_create_in_message
+    enqueue
+    assert_nil gate('git commit -m "prepares for gh pr create later"')
+  end
+
   def test_stays_denied_until_acked
     enqueue
     assert_equal "deny", decision(gate("git push")), "blocks while unreviewed"

@@ -26,9 +26,6 @@ require_relative 'guarded_command'
 class ReviewGate
   EVENT = 'PreToolUse'
 
-  PR_CREATE = /\bgh\b[^&|;]*\bpr\b[^&|;]*\bcreate\b/
-  TRIGGER = Regexp.union(GuardedCommand::PUSH, PR_CREATE)
-
   def initialize(event, skills: nil)
     @event = event
     @skills = skills
@@ -36,7 +33,7 @@ class ReviewGate
 
   def emit(io = $stdout)
     return unless @event['tool_name'] == 'Bash'
-    return unless command.match?(TRIGGER)
+    return unless GuardedCommand.push?(command) || GuardedCommand.pr_create?(command)
 
     queue = ReviewQueue.new(@event['session_id'])
     pending = ReviewScope.covered(queue.pending, registry)

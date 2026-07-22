@@ -79,6 +79,11 @@ class ChangeMergeGuardTest < Minitest::Test
     assert_nil decision("gh pr view 12", base: "production")
   end
 
+  def test_ignores_merge_phrase_inside_quoted_pr_body
+    command = 'gh pr edit 5 --body "mentions gh pr merge in prose"'
+    assert_nil decision(command, base: "production")
+  end
+
   def test_unprotected_base_merges_freely
     assert_nil decision("gh pr merge 12 --squash", base: "development")
   end

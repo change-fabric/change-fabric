@@ -1,16 +1,34 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 
+require 'shellwords'
+
 # Advisory guardrail, not airtight enforcement: it inspects the Bash command
 # text (plus the current branch, for bare pushes). It catches the obvious cases
 # and is trivially bypassable (env-var indirection, `git -c`, non-Bash tools).
 # It exists to make an accidental violation of the chosen mode loud, not to
 # sandbox.
 class GuardedCommand
-  PUSH = /\bgit\s+push\b/
-  MERGE = /\bgh\s+pr\s+merge\b/
-  PR_CREATE = /\bgh\s+pr\s+create\b/
   TRUNK = %w[main master].freeze
+
+  # Tokenizes via Shellwords, so a quoted string (a commit message, a PR body)
+  # collapses into one token instead of leaking its words into the surrounding
+  # command - "gh pr edit --body 'run gh pr merge later'" never looks like an
+  # invocation of `gh pr merge`.
+  def self.tokens(command)
+    Shellwords.split(command.to_s)
+  rescue ArgumentError
+    command.to_s.split
+  end
+
+  # True when `words` appear as an exact contiguous run of tokens.
+  def self.invokes?(command, *words)
+    tokens(command).each_cons(words.size).any? { |window| window == words }
+  end
+
+  def self.push?(command) = invokes?(command, 'git', 'push')
+  def self.merge?(command) = invokes?(command, 'gh', 'pr', 'merge')
+  def self.pr_create?(command) = invokes?(command, 'gh', 'pr', 'create')
 
   def initialize(command, mode, branch: nil)
     @command = command.to_s
@@ -35,15 +53,15 @@ class GuardedCommand
   private
 
   def push?
-    @command.match?(PUSH)
+    self.class.push?(@command)
   end
 
   def merge?
-    @command.match?(MERGE)
+    self.class.merge?(@command)
   end
 
   def pr_create?
-    @command.match?(PR_CREATE)
+    self.class.pr_create?(@command)
   end
 
   # Merge ready allows pushing a feature branch but never the trunk, which would

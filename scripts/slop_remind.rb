@@ -5,6 +5,7 @@ require 'json'
 require_relative 'hook_event'
 require_relative 'skill_registry'
 require_relative 'skill_store'
+require_relative 'guarded_command'
 
 # PreToolUse hook: the pst:ai-slop rubric governs text authored through git/gh,
 # not just file contents. When a Bash command is about to write a commit message,
@@ -17,10 +18,26 @@ class SlopRemind
   SKILL = 'pst:ai-slop'
 
   CATEGORIES = {
-    'commit message' => /\bgit\b[^&|;]*\bcommit\b/,
-    'branch name' => /\bgit\s+(?:checkout\s+-b|switch\s+-c|branch\s+(?:-[mM]\b|[^-\s]))/,
-    'PR title or description' => /\bgh\b[^&|;]*\bpr\b[^&|;]*\b(?:create|edit)\b/
+    'commit message' => ->(cmd) { GuardedCommand.invokes?(cmd, 'git', 'commit') },
+    'branch name' => ->(cmd) { branch_creation?(cmd) },
+    'PR title or description' => lambda { |cmd|
+      GuardedCommand.invokes?(cmd, 'gh', 'pr', 'create') || GuardedCommand.invokes?(cmd, 'gh', 'pr', 'edit')
+    }
   }.freeze
+
+  # `git checkout -b`/`git switch -c` always create; `git branch` creates only
+  # with a name argument (a rename via -m/-M still counts, but -a/-d/etc do not).
+  def self.branch_creation?(cmd)
+    tokens = GuardedCommand.tokens(cmd)
+    return true if tokens.each_cons(3).any? { |w| w == %w[git checkout -b] }
+    return true if tokens.each_cons(3).any? { |w| w == %w[git switch -c] }
+
+    idx = tokens.each_cons(2).find_index { |a, b| a == 'git' && b == 'branch' }
+    return false unless idx
+
+    arg = tokens[idx + 2]
+    arg && (arg.match?(/\A-[mM]\z/) || !arg.start_with?('-'))
+  end
 
   def initialize(event, skills: nil)
     @event = event
@@ -47,7 +64,7 @@ class SlopRemind
   end
 
   def categorize(cmd)
-    CATEGORIES.find { |_, pattern| cmd.match?(pattern) }&.first
+    CATEGORIES.find { |_, matcher| matcher.call(cmd) }&.first
   end
 
   def skill

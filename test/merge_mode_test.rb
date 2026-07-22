@@ -168,6 +168,11 @@ class GuardedCommandTest < Minitest::Test
   def test_handles_non_string_command
     assert_nil violation(nil, "Local only")
   end
+
+  def test_ignores_merge_phrase_inside_quoted_prose
+    command = 'gh pr edit 5 --body "run gh pr merge only after ci"'
+    assert_nil violation(command, "Local only")
+  end
 end
 
 class MergeModeRecordTest < Minitest::Test

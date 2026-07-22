@@ -35,7 +35,7 @@ class MergeModeGuard
 
   # Only shell out for pushes, so the common Bash command pays nothing.
   def branch_for(command)
-    return nil unless command.to_s.match?(GuardedCommand::PUSH)
+    return nil unless GuardedCommand.push?(command)
 
     current_branch
   end
