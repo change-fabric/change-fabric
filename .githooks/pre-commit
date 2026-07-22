@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+# Pre-commit hook: catch locally what CI would otherwise catch first.
+#
+# Enable it in a fresh clone with:
+#   git config core.hooksPath .githooks
+# (or run `rake hooks:install`).
+set -euo pipefail
+
+repo_root="$(git rev-parse --show-toplevel)"
+cd "$repo_root"
+
+if ! command -v ruby >/dev/null 2>&1; then
+  echo "[pre-commit] ruby not found; skipping local checks" >&2
+  exit 0
+fi
+
+staged="$(git diff --cached --name-only)"
+
+# The fast, always-cheap check: the CHANGE.md frontmatter spec doc and the
+# schema registry must not drift apart. Runs on its own even when nothing
+# else below fires, since it is a single test file, not the whole suite.
+if echo "$staged" | grep -qE '^(scripts/change_schema\.rb|skills/change/reference/CHANGE-frontmatter-spec\.md|test/change_schema_spec_test\.rb)$'; then
+  echo "[pre-commit] checking CHANGE.md frontmatter spec against ChangeSchema..."
+  if ! ruby -Itest test/change_schema_spec_test.rb >/tmp/pst-change-schema-check.out 2>&1; then
+    cat /tmp/pst-change-schema-check.out >&2
+    echo "[pre-commit] CHANGE.md spec/code drift detected; fix before committing (or bypass with 'git commit --no-verify')." >&2
+    exit 1
+  fi
+fi
+
+# The full local quality gate: run the same commands CI runs, via bundle exec
+# (not a bare `ruby`/`rake`), so a Gemfile/Gemfile.lock drift from the CI
+# runner's gem set (e.g. a default gem removed in a newer Ruby, like `csv` in
+# 3.4) fails here instead of only in CI. Only when a Ruby-affecting file is
+# staged, so a docs-only commit stays fast.
+if echo "$staged" | grep -qE '\.rb$|^(Gemfile|Gemfile\.lock)$'; then
+  if ! command -v bundle >/dev/null 2>&1; then
+    echo "[pre-commit] bundler not found; skipping rake test and rubocop" >&2
+    exit 0
+  fi
+
+  echo "[pre-commit] bundle exec rake test..."
+  if ! bundle exec rake test >/tmp/pst-rake-test-check.out 2>&1; then
+    cat /tmp/pst-rake-test-check.out >&2
+    echo "[pre-commit] rake test failed; fix before committing (or bypass with 'git commit --no-verify')." >&2
+    exit 1
+  fi
+
+  echo "[pre-commit] rubocop..."
+  if ! bundle exec rubocop >/tmp/pst-rubocop-check.out 2>&1; then
+    cat /tmp/pst-rubocop-check.out >&2
+    echo "[pre-commit] rubocop found offenses; fix before committing (or bypass with 'git commit --no-verify')." >&2
+    exit 1
+  fi
+fi
+
+exit 0

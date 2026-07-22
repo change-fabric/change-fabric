@@ -28,6 +28,10 @@ the hooks never surface it. These are verbs the agent performs on demand.
 | `pst:prune` | Post-merge cleanup: fast-forwards the trunk and prunes merged branches and worktrees, local and remote, asking before it discards unmerged work or deletes any remote branch. |
 | `pst:resolve-threads` | Resolves every unresolved review thread on a PR by evaluating each in its own isolated worktree, then implements the fix, dismisses it, or defers to a human, replying and resolving on GitHub accordingly. |
 | `pst:qa` | Scopes and runs an ad hoc Playwright QA pass against a natural-language target (a PR, a feature, a flow) in an ephemeral browserless Chromium container, and optionally posts findings as PR comments. |
+| `pst:change` | Runs the deterministic, config-driven release-gate sweep (all four dockerized audit lanes: k6 load, axe-core a11y, OWASP ZAP pentest, browserless responsive UX) against a project's root `CHANGE.md` (its `change_config:` frontmatter), aggregates a CSV+Markdown report on the Desktop, and records a pass/fail gate for the head commit. |
+| `pst:k6` | Runs just the k6 load/burst lane of the change-fabric platform against a project's config. |
+| `pst:a11y` | Runs just the axe-core accessibility lane of the change-fabric platform against a project's config. |
+| `pst:zap` | Runs just the OWASP ZAP penetration-test lane of the change-fabric platform against a project's config. |
 
 `pst:refactor` reuses the routing below by shelling out to `skill_route.rb`
 (`scripts/skill_route.rb`, copied to the shim bin but not wired as a hook): it

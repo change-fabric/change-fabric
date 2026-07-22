@@ -173,11 +173,12 @@ would-be-approved local state, and since nothing landed, also skips step
   the last pushed commit as-is, report the persistent failing jobs and
   logs, do not proceed to checkpoint 2 or the approval.
 - `open` CLI missing: handled inline in step 12 above, never fails the run.
-- Haiku relevance call in the Workflow selects zero of the two gated skills
-  (`pst:qa`, `pst:refactor`): expected and fine for small/docs-only
-  changes. `pst:code-review` and `pst:ai-slop` are floors and the two
-  resolve-threads sweeps are floors; all four still run regardless of the
-  Haiku call's outcome. Only `pst:qa` and `pst:refactor` are ever skipped.
+- Haiku relevance call in the Workflow selects zero of the three gated skills
+  (`pst:qa`, `pst:refactor`, `pst:change`): expected and fine for small/docs-only
+  changes, and `pst:change` also self-skips in a repo with no `CHANGE.md`.
+  `pst:code-review` and `pst:ai-slop` are floors and the two resolve-threads
+  sweeps are floors; all four still run regardless of the Haiku call's outcome.
+  Only `pst:qa`, `pst:refactor`, and `pst:change` are ever skipped.
 - User answers "no" at either checkpoint under Explicit sign-off mode: do
   not abort destructively, do not auto-revert. Leave all local
   commits/fixes on disk as-is and stop the run, reporting the current

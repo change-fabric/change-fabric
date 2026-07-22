@@ -36,21 +36,30 @@ export const meta = {
   ]
 }
 
+// Default iterate-and-fix cap when the caller passes none; kept in the 3-5 band
+// SKILL.md's step 3-7 requests.
+const DEFAULT_ITERATION_CAP = 4
+
+// The checkpoint-1 summary budget from reference/summaries.md; on overflow, trim
+// to leave room for the three-dot marker.
+const EXEC_SUMMARY_MAX = 640
+const TRUNCATE_AT = EXEC_SUMMARY_MAX - 3
+
+// Every gated lane reports the same { relevant, rationale } shape; build it once
+// so adding a lane cannot drift one copy out of sync with the others.
+function relevanceLane() {
+  return {
+    type: "object",
+    properties: { relevant: { type: "boolean" }, rationale: { type: "string" } },
+    required: [ "relevant", "rationale" ]
+  }
+}
+
+const RELEVANCE_LANES = [ "qa", "refactor", "change" ]
 const RELEVANCE_SCHEMA = {
   type: "object",
-  properties: {
-    qa: {
-      type: "object",
-      properties: { relevant: { type: "boolean" }, rationale: { type: "string" } },
-      required: [ "relevant", "rationale" ]
-    },
-    refactor: {
-      type: "object",
-      properties: { relevant: { type: "boolean" }, rationale: { type: "string" } },
-      required: [ "relevant", "rationale" ]
-    }
-  },
-  required: [ "qa", "refactor" ]
+  properties: Object.fromEntries(RELEVANCE_LANES.map((lane) => [ lane, relevanceLane() ])),
+  required: RELEVANCE_LANES
 }
 
 const LANE_SCHEMA = {
@@ -100,7 +109,7 @@ const repoPath = scope.repoPath
 const headSha = scope.headSha
 const routeOutput = scope.routeOutput
 const isPR = Boolean(scope.isPR)
-const cap = scope.cap ?? 4
+const cap = scope.cap ?? DEFAULT_ITERATION_CAP
 const ciFixContext = scope.ciFixContext ?? null
 
 // isolation: "worktree" on the Agent calls below only isolates this
@@ -118,9 +127,9 @@ function worktreeSetup() {
 
 phase("Relevance")
 const relevance = await agent(
-  "Two pst quality lanes, pst:qa and pst:refactor, are gated on relevance to this change; " +
-  "decide each independently. pst:code-review and pst:ai-slop are not part of this decision, " +
-  "they run unconditionally regardless of what you say here.\n\n" +
+  "Three pst quality lanes, pst:qa, pst:refactor, and pst:change, are gated on relevance to " +
+  "this change; decide each independently. pst:code-review and pst:ai-slop are not part of " +
+  "this decision, they run unconditionally regardless of what you say here.\n\n" +
   "qa.relevant should be true when the change touches a user-facing or browser-drivable " +
   "surface, or when the route summary below lists a UI rubric (pst:react, pst:nextjs, " +
   "pst:client-state, pst:vite). A change with no reachable UI or flow to smoke-test should " +
@@ -128,6 +137,11 @@ const relevance = await agent(
   "refactor.relevant should be true when the route summary lists any matched skill other than " +
   "pst:ai-slop alone. A pure-docs change whose only route hit is pst:ai-slop should get " +
   "refactor.relevant: false; there is no code shape to refactor.\n\n" +
+  "change.relevant should be true when the change plausibly affects load/performance, " +
+  "accessibility, security posture (headers, auth, cookies, dependencies), or responsive UX, " +
+  "AND the target repo carries a root CHANGE.md with a change_config: block (without it there is nothing for the " +
+  "config-driven sweep to run). A pure-docs or internal-refactor change in a repo with no " +
+  "change-fabric config should get change.relevant: false.\n\n" +
   "Files:\n" + files.join("\n") + "\n\nRoute output (ruby skill_route.rb):\n" + routeOutput,
   { model: "haiku", phase: "Relevance", schema: RELEVANCE_SCHEMA }
 )
@@ -141,47 +155,86 @@ const relevance = await agent(
 const selectedSkills = [ "pst:code-review", "pst:ai-slop" ]
 if (relevance.qa.relevant) selectedSkills.push("pst:qa")
 if (relevance.refactor.relevant) selectedSkills.push("pst:refactor")
+if (relevance.change.relevant) selectedSkills.push("pst:change")
 log("Selected lanes: " + selectedSkills.join(", "))
 
+// Every lane prompt is the same envelope around a body: an optional worktree
+// preamble, the body, the file list, and an optional route-output appendix.
+// Building it in one place means a change to that envelope (a new preamble, a
+// reworded file header) happens once, not once per lane. `body` is the only part
+// that differs between lanes.
+function buildPrompt(body, { setup = false, route = false } = {}) {
+  return (setup ? worktreeSetup() : "") + body +
+    "\n\nFiles:\n" + files.join("\n") +
+    (route ? "\n\nRoute output:\n" + routeOutput : "")
+}
+
 function codeReviewPrompt() {
-  return worktreeSetup() +
+  return buildPrompt(
     "Review these files for correctness bugs, security issues, missing or wrong test " +
     "coverage, and refactor opportunities. Apply the matched skill rubrics from the route " +
     "output below where they cover a file, plus general judgment where they do not. Verify " +
     "each candidate finding by reproducing it in the worktree (a failing test or an actual " +
     "invocation), not by re-reading the code and agreeing. Fix every confirmed issue directly " +
-    "in " + repoPath + " rather than posting comments about it.\n\nFiles:\n" + files.join("\n") +
-    "\n\nRoute output:\n" + routeOutput
+    "in " + repoPath + " rather than posting comments about it.",
+    { setup: true, route: true }
+  )
 }
 
 function aiSlopPrompt() {
-  return "Apply the pst:ai-slop rubric to every changed file: no filler, no em-dash, no " +
+  return buildPrompt(
+    "Apply the pst:ai-slop rubric to every changed file: no filler, no em-dash, no " +
     "bullet glyph other than markdown '-'/'*', no ellipsis glyph, no smart quotes, no agent " +
     "attribution footers, self-documenting code, comments only for why not what. Fix " +
-    "violations directly in " + repoPath + ".\n\nFiles:\n" + files.join("\n")
+    "violations directly in " + repoPath + "."
+  )
 }
 
 function qaPrompt() {
-  return "Scope a Playwright smoke-test plan for this change per pst:qa's own approach: an " +
+  return buildPrompt(
+    "Scope a Playwright smoke-test plan for this change per pst:qa's own approach: an " +
     "ephemeral browserless Chromium container, a digest-pinned image, never a host daemon. " +
     "Execute the plan against the app under test. Fix anything code-fixable that the flows " +
-    "surface directly in " + repoPath + "; report anything else as a deferred finding.\n\n" +
-    "Files:\n" + files.join("\n")
+    "surface directly in " + repoPath + "; report anything else as a deferred finding."
+  )
 }
 
 function refactorPrompt() {
-  return worktreeSetup() +
+  return buildPrompt(
     "Route these files through the applicable pst skill rubrics via the route output below. " +
     "For each smell found, apply the smallest behavior-preserving refactor, then verify with " +
-    "the repo's tests or build. Apply confirmed refactors directly in " + repoPath + ".\n\n" +
-    "Files:\n" + files.join("\n") + "\n\nRoute output:\n" + routeOutput
+    "the repo's tests or build. Apply confirmed refactors directly in " + repoPath + ".",
+    { setup: true, route: true }
+  )
+}
+
+// pst:change is the deterministic config-driven release-gate sweep. Unlike the
+// other lanes it does not "find and fix" a rubric; it runs the four dockerized
+// audit lanes against the repo's root CHANGE.md config and gates on their result. So
+// its lane treats a failing audit as blocking and fixes what is code-fixable
+// (an added security header, an axe label, a viewport overflow), leaving load
+// or infrastructure findings as deferred. It records the comprehensive gate
+// under the head SHA, which the merge hook later requires for a protected-branch
+// merge.
+function changePrompt() {
+  return buildPrompt(
+    "Run the comprehensive pst:change sweep against " + repoPath + ": from that repo root " +
+    "run `ruby ~/.claude/pst/bin/change_run.rb all`. It boots the app, runs the k6, a11y, ZAP, " +
+    "and browserless responsive lanes in ephemeral digest-pinned containers per pst:docker, and " +
+    "writes a CSV+Markdown report to the Desktop. Treat any failing lane as blocking. Fix what " +
+    "is code-fixable directly in " + repoPath + " (a missing security header, an axe violation, " +
+    "a responsive overflow), re-run to confirm, and report load or infrastructure findings that " +
+    "are not code-fixable as deferred. If the repo has no CHANGE.md config, report that and set " +
+    "blocking: false; there is nothing to gate."
+  )
 }
 
 const lanePrompts = {
   "pst:code-review": codeReviewPrompt,
   "pst:ai-slop": aiSlopPrompt,
   "pst:qa": qaPrompt,
-  "pst:refactor": refactorPrompt
+  "pst:refactor": refactorPrompt,
+  "pst:change": changePrompt
 }
 
 phase("Quality")
@@ -278,7 +331,7 @@ let execSummaryDraft = "Lanes: " + selectedSkills.join(", ") + ". Fixed " + tota
   ", deferred " + totalDeferred + " across " + iterations.length + " iteration(s), " +
   (converged ? "reached would-approve" : "cap reached without would-approve") + ". " + ciNote +
   ". Thread sweeps: {{threadSweeps}}"
-if (execSummaryDraft.length > 640) execSummaryDraft = execSummaryDraft.slice(0, 637) + "..."
+if (execSummaryDraft.length > EXEC_SUMMARY_MAX) execSummaryDraft = execSummaryDraft.slice(0, TRUNCATE_AT) + "..."
 
 return {
   selectedSkills,
