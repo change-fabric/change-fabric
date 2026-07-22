@@ -1,8 +1,22 @@
 import { marked } from "marked";
 import specMarkdown from "./generated/spec.md?raw";
+import archivedV0_1_0 from "./archive/0.1.0.md?raw";
 
 // The canonical CHANGE.md frontmatter spec, embedded at build time (see
 // scripts/embed-spec.mjs), plus the version history the /spec pages render.
+//
+// Only the CURRENT version is derived (src/generated/spec.md, regenerated
+// every build from skills/change/reference/CHANGE-frontmatter-spec.md).
+// Every superseded version is a frozen snapshot checked into src/archive/,
+// since the live source only ever holds the current text. A version bump
+// that does not also freeze a src/archive/<old-version>.md entry here
+// silently drops that version from /spec and 404s its own HTML page (its
+// public/spec/<version>.md raw file survives untouched across deploys
+// since deploy.sh never deletes old objects, but nothing in VERSIONS
+// points to it anymore): copy the previous CHANGE-frontmatter-spec.md
+// (e.g. via `git show change-schema/v<old>:skills/change/reference/
+// CHANGE-frontmatter-spec.md`) into src/archive/<old-version>.md, import
+// it below with `?raw`, and add it to VERSIONS as one more `superseded` row.
 
 export const SPEC_MARKDOWN = specMarkdown;
 
@@ -24,7 +38,8 @@ export interface SpecVersion {
 }
 
 export const VERSIONS: SpecVersion[] = [
-  { version: CURRENT_VERSION, date: "2026-07-21", status: "current", markdown: specMarkdown },
+  { version: CURRENT_VERSION, date: "2026-07-22", status: "current", markdown: specMarkdown },
+  { version: "0.1.0", date: "2026-07-21", status: "superseded", markdown: archivedV0_1_0 },
 ];
 
 export function findVersion(version: string): SpecVersion | undefined {
