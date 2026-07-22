@@ -7,6 +7,7 @@ require "tmpdir"
 require "fileutils"
 require_relative "../scripts/change_merge_guard"
 require_relative "../scripts/change_gate_store"
+require_relative "../scripts/change_override_store"
 
 # A guard with the two shell-backed lookups stubbed, so the decision logic can be
 # exercised without a real repo or gh. The CHANGE.md policy read and the gate
@@ -112,6 +113,30 @@ class ChangeMergeGuardTest < Minitest::Test
 
   def test_profile_scoped_promotion_passes_once_that_profile_recorded
     record_pass(profile: "staging")
+    assert_nil decision("gh pr merge 12 --squash", base: "staging", staging_profile: "staging")
+  end
+
+  # The reachable substitute for PST_ALLOW_UNGATED_MERGE=1 (unreachable from
+  # inside an agent session, since the guard reads that var from its own
+  # process, fixed at harness launch): a human-recorded file the guard checks
+  # instead, scoped to this exact (sha, profile).
+  def test_recorded_override_suppresses_a_normal_gate_denial
+    ChangeOverrideStore.new(SHA).record(reason: "urgent", recorded_by: "pst")
+    assert_nil decision("gh pr merge 12 --squash", base: "staging")
+  end
+
+  def test_recorded_override_suppresses_an_admin_bypass_denial
+    ChangeOverrideStore.new(SHA).record(reason: "urgent", recorded_by: "pst")
+    assert_nil decision("gh pr merge 12 --squash --admin", base: "production", admin_allowed: false)
+  end
+
+  def test_override_scoped_to_a_different_profile_does_not_suppress
+    ChangeOverrideStore.new(SHA, profile: "production").record(reason: "urgent", recorded_by: "pst")
+    assert_equal "deny", decision("gh pr merge 12 --squash", base: "staging", staging_profile: "staging")
+  end
+
+  def test_override_scoped_to_the_right_profile_suppresses
+    ChangeOverrideStore.new(SHA, profile: "staging").record(reason: "urgent", recorded_by: "pst")
     assert_nil decision("gh pr merge 12 --squash", base: "staging", staging_profile: "staging")
   end
 end

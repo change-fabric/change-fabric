@@ -6,6 +6,7 @@ require 'open3'
 require_relative 'hook_event'
 require_relative 'change_policy'
 require_relative 'change_gate_store'
+require_relative 'change_override_store'
 
 # PreToolUse hook: gates a `gh pr merge` that lands into a repo's protected
 # branch (staging/production, or whatever CHANGE.md names) on a comprehensive
@@ -56,6 +57,7 @@ class ChangeMergeGuard
     pr = pr_facts or return nil
     base, sha = pr
     return nil unless policy.protects?(base)
+    return nil if ChangeOverrideStore.new(sha, profile: policy.profile_for(base)).authorized?
 
     admin?(command) ? admin_violation(policy, base, sha) : normal_violation(policy, base, sha)
   end
@@ -94,7 +96,15 @@ class ChangeMergeGuard
       "#{note}#{escape_note}"
   end
 
-  def escape_note = 'Set PST_ALLOW_UNGATED_MERGE=1 to override for a genuine exception.'
+  # PST_ALLOW_UNGATED_MERGE=1 only works if it was exported before this
+  # session's own hook process started, which an agent mid-session cannot
+  # arrange. The reachable path: a human runs change_override.rb themselves,
+  # from their own real terminal (it refuses without one), to record an
+  # auditable, sha-scoped override the guard checks in #violation above.
+  def escape_note
+    'Set PST_ALLOW_UNGATED_MERGE=1 before this session started, or, from your own terminal, ' \
+      "record an override: ruby ~/.claude/pst/bin/change_override.rb <sha> --reason '<why>'."
+  end
 
   def admin?(cmd) = cmd.match?(ADMIN)
 
