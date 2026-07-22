@@ -11,3 +11,7 @@
 # Per-device home pin written by install.rb; never committed (it holds an
 # absolute user path). Only the installed copy under ~/.claude carries it.
 .expected-home
+
+# Local change-fabric team private key (cf_team_init.rb/cf_team_join.rb),
+# base64 Ed25519 seed. Never committed; the public key lives in CHANGE.md.
+.env.cf-team

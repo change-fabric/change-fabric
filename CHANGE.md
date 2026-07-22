@@ -1,4 +1,10 @@
 ---
+contributors_team:
+  team_id: changefabric-core
+  public_key_ed25519: 3BXo6b9PO7gy35dZT1i7Znsaky4sOPn9b6V5JwdnW+4=
+  contributors:
+    - { id: pst, name: Patrick Taylor }
+
 change_config:
   project: changefabric-site
 
