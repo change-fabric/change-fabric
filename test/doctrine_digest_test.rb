@@ -24,6 +24,14 @@ class DoctrineDigestTest < Minitest::Test
     assert_includes text, "AI-slop"
   end
 
+  def test_injects_the_pr_length_tenet
+    text = context("sess-pr")
+    assert_includes text, "PR titles"
+    assert_includes text, "60 char"
+    assert_includes text, "640 char"
+    assert_includes text, "bona fide reason"
+  end
+
   def test_marks_session_start_event
     out = emit("sess-2")
     assert_equal "SessionStart", JSON.parse(out).dig("hookSpecificOutput", "hookEventName")

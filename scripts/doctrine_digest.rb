@@ -25,7 +25,10 @@ class DoctrineDigest
     'in dedicated per-use-case Docker containers. Never a host or system-level daemon ' \
     '(no brew install/services for them) and never a global install.',
     'Author every outbound surface (code, prose, commits, PRs, comments) without AI-slop ' \
-    'glyphs (no em-dash, bullet, ellipsis, or smart quotes) or agent attribution footers.'
+    'glyphs (no em-dash, bullet, ellipsis, or smart quotes) or agent attribution footers.',
+    'PR titles <= 60 chars. PR descriptions <= 640 chars, unless a bona fide reason needs ' \
+    'more (a code snippet, a test-plan checklist); the core description should still stay ' \
+    'inside 640 chars even then.'
   ].freeze
 
   POINTER = 'File-type rubrics (TypeScript, Ruby, Rails, React, ...) auto-apply as you edit matching files.'
