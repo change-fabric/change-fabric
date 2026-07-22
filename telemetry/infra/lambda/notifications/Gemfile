@@ -1,0 +1,4 @@
+source "https://rubygems.org"
+
+gem "ed25519"
+gem "aws-sdk-dynamodb"

@@ -3,3 +3,7 @@ inherit_gem:
 
 AllCops:
   TargetRubyVersion: 3.4
+  # Vendored gems built locally per Lambda package (see telemetry/infra's
+  # .gitignore); never committed, not our code, and not fmt-worthy.
+  Exclude:
+    - 'telemetry/infra/lambda/*/vendor/**/*'

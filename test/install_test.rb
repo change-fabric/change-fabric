@@ -59,8 +59,9 @@ class InstallerTest < Minitest::Test
     prune_remind.rb skill_detect.rb skill_inject.rb skill_review.rb slop_remind.rb
     glyph_guard.rb review_gate.rb noreply_guard.rb ctx_session_start.rb
     doctrine_digest.rb docker_doctrine_guard.rb change_merge_guard.rb
+    telemetry_emit.rb presence_probe.rb secret_alert_poll.rb secret_ack.rb
   ].freeze
-  EVENTS = %w[SessionStart PreToolUse PostToolUse UserPromptSubmit Stop].freeze
+  EVENTS = %w[SessionStart PreToolUse PostToolUse UserPromptSubmit Stop SessionEnd].freeze
 
   def setup
     @home = Dir.mktmpdir
@@ -144,7 +145,7 @@ class InstallerTest < Minitest::Test
     install
     hooks = JSON.parse(File.read(paths.settings))["hooks"]
     counts = EVENTS.map { |event| hooks[event].sum { |group| group["hooks"].size } }
-    assert_equal [ 4, 7, 2, 2, 1 ], counts
+    assert_equal [ 5, 8, 3, 2, 1, 1 ], counts
     assert File.exist?("#{paths.settings}.bak"), "second install should back up settings"
   end
 

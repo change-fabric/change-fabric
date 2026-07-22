@@ -363,10 +363,11 @@ module Install
   # Top-level orchestration: copies hooks, links skills, and wires settings.
   class Installer
     HOOKS = {
-      'SessionStart' => %w[session_start.rb skill_detect.rb ctx_session_start.rb doctrine_digest.rb],
-      'PreToolUse' => %w[merge_mode_guard.rb glyph_guard.rb slop_remind.rb review_gate.rb noreply_guard.rb docker_doctrine_guard.rb change_merge_guard.rb],
-      'PostToolUse' => %w[merge_mode_record.rb skill_inject.rb],
+      'SessionStart' => %w[session_start.rb skill_detect.rb ctx_session_start.rb doctrine_digest.rb secret_alert_poll.rb],
+      'PreToolUse' => %w[merge_mode_guard.rb glyph_guard.rb slop_remind.rb review_gate.rb noreply_guard.rb docker_doctrine_guard.rb change_merge_guard.rb presence_probe.rb],
+      'PostToolUse' => %w[merge_mode_record.rb skill_inject.rb secret_ack.rb],
       'UserPromptSubmit' => %w[merge_mode_restate.rb prune_remind.rb],
+      'SessionEnd' => %w[telemetry_emit.rb],
       'Stop' => %w[skill_review.rb]
     }.freeze
 

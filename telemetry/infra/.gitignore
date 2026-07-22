@@ -1,0 +1,19 @@
+# Terraform working files. The lock file (.terraform.lock.hcl) is committed; the
+# provider cache, local state, and plan artifacts are not. State lives in the S3
+# backend, not on disk.
+.terraform/
+*.tfstate
+*.tfstate.*
+.terraform.tfstate.lock.info
+crash.log
+*.tfplan
+tfplan
+
+# Zip artifacts archive_file builds from the plain-zip Lambda directories.
+build/
+
+# Vendored gems: rebuilt from each Gemfile.lock at package time (see each
+# lambda directory's README), never committed. Platform-specific (built
+# inside a Linux container to match the Lambda runtime ABI), so a committed
+# copy would be both huge and wrong on a different host.
+lambda/*/vendor/
