@@ -19,7 +19,7 @@ jobs:
       - name: Tag the merge commit when VERSION is new
         run: |
           version="$(tr -d '[:space:]' < VERSION)"
-          tag="v${version}"
+          tag="skills/v${version}"
           if git rev-parse "$tag" >/dev/null 2>&1; then
             echo "$tag already exists; nothing to do"
             exit 0
