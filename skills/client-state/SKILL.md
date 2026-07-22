@@ -1,6 +1,6 @@
 ---
-name: pst:client-state
-description: Redux Toolkit and TanStack Query state management. Auto-applied by the pst shim on every client-state change; also invocable directly.
+name: cf:client-state
+description: Redux Toolkit and TanStack Query state management. Auto-applied by the cf shim on every client-state change; also invocable directly.
 auto:
   extensions: [js, jsx]
   require:

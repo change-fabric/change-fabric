@@ -6,7 +6,7 @@ require_relative 'hook_event'
 
 # PreToolUse hook: denies a Bash command that stands up a project service as a
 # host or system-level daemon (Homebrew or a bare daemon binary), the action the
-# pst:docker doctrine forbids. The doctrine ships as a file-gated skill, so it
+# cf:docker doctrine forbids. The doctrine ships as a file-gated skill, so it
 # only surfaced when a Dockerfile/compose/Brewfile was edited; the violation that
 # prompted this (a Homebrew Caddy running where a Docker Caddy already won) was a
 # `brew` command in a session that touched none of those files, so no skill fired.
@@ -16,7 +16,7 @@ require_relative 'hook_event'
 # Like the other guards here this is a loud guardrail, not a sandbox. It matches
 # only the known service daemons (the same set the skill's CI grep names), so
 # `brew install jq` or `brew services list` pass untouched, and it is bypassable
-# (PST_ALLOW_HOSTDAEMON=1) for the rare genuinely-not-project-work case.
+# (CF_ALLOW_HOSTDAEMON=1) for the rare genuinely-not-project-work case.
 class DockerDoctrineGuard
   EVENT = 'PreToolUse'
 
@@ -49,7 +49,7 @@ class DockerDoctrineGuard
   def initialize(event) = @event = event
 
   def emit(io = $stdout)
-    return if ENV['PST_ALLOW_HOSTDAEMON'] == '1'
+    return if ENV['CF_ALLOW_HOSTDAEMON'] == '1'
     return unless @event['tool_name'] == 'Bash'
 
     offender = offending_snippet(command)
@@ -79,9 +79,9 @@ class DockerDoctrineGuard
         hookEventName: EVENT,
         permissionDecision: 'deny',
         permissionDecisionReason:
-          "[pst:docker] '#{offender.strip}' runs a project service as a host or system daemon. " \
+          "[cf:docker] '#{offender.strip}' runs a project service as a host or system daemon. " \
           'Run it in a dedicated Docker container (a Compose service or docker run), not Homebrew or a host daemon. ' \
-          'Set PST_ALLOW_HOSTDAEMON=1 only if this is genuinely not project work.'
+          'Set CF_ALLOW_HOSTDAEMON=1 only if this is genuinely not project work.'
       }
     }
   end

@@ -1,11 +1,11 @@
 ---
-name: pst:code-review
+name: cf:code-review
 description: Review a pull request, branch, file set, or feature description for correctness bugs and refactor opportunities. Verifies each candidate finding in an isolated worktree before posting only the ones that survive, so PR feedback is curated instead of noisy.
 ---
 
-# PST Code Review
+# CF Code Review
 
-Trigger: `/pst:code-review <scope>`.
+Trigger: `/cf:code-review <scope>`.
 
 Question: does this finding survive an isolated attempt to refute it? A
 plausible-sounding comment that was never checked against the real code is the
@@ -105,7 +105,7 @@ If scope is ambiguous, ask which PR or files are meant. Do not guess.
      happens to be configured. Never `REQUEST_CHANGES` or `APPROVE` unless
      asked. Posting these review
      comments is not a `git push`, a `gh pr merge`, or opening a PR, so the
-     pst merge mode does not gate it: post in every mode (Local only
+     cf merge mode does not gate it: post in every mode (Local only
      included) whenever the user approves in step 3. Merge mode restricts
      only landing code, never review commentary on a PR that already
      exists.

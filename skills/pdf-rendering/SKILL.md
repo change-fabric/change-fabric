@@ -1,6 +1,6 @@
 ---
-name: pst:pdf-rendering
-description: Server-side PDF generation with Puppeteer and Handlebars. Auto-applied by the pst shim on every PDF-rendering change; also invocable directly.
+name: cf:pdf-rendering
+description: Server-side PDF generation with Puppeteer and Handlebars. Auto-applied by the cf shim on every PDF-rendering change; also invocable directly.
 auto:
   extensions: [js, mjs, hbs, handlebars, html]
   require:

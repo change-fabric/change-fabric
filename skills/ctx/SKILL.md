@@ -1,12 +1,12 @@
 ---
-name: pst:ctx
+name: cf:ctx
 description: Capture, recall, and list durable project context in the shim-owned .ctx store, a git-backed set of classed markdown docs kept outside any project's own source control and keyed by working directory. Use to record contracts, plans, client notes, and decisions that must persist across sessions and devices, distinct from the harness auto-memory.
 ---
 
-# PST Context Store
+# CF Context Store
 
 A per-project store of durable context (`.ctx`) that lives at
-`~/.claude/pst/ctx/<dashed-cwd>/`, outside the project's own git. It is shim
+`~/.claude/cf/ctx/<dashed-cwd>/`, outside the project's own git. It is shim
 owned and git backed, distinct from harness auto-memory. Each doc is markdown
 with a YAML frontmatter block and belongs to one class:
 
@@ -16,7 +16,7 @@ with a YAML frontmatter block and belongs to one class:
 
 See `reference.md` for the full frontmatter schema and class taxonomy.
 
-**Trigger:** `/pst:ctx`, or when the user asks to remember, record, or look up
+**Trigger:** `/cf:ctx`, or when the user asks to remember, record, or look up
 project context (a plan, a contract, a client thread, a decision) that should
 outlive the session. For a single non-obvious fact about the codebase, prefer
 harness auto-memory; `.ctx` is for the larger durable artifacts above.
@@ -27,7 +27,7 @@ offline.
 
 ## Verbs
 
-Run the store CLI at `~/.claude/pst/bin/ctx_store.rb`.
+Run the store CLI at `~/.claude/cf/bin/ctx_store.rb`.
 
 ### capture
 
@@ -37,9 +37,9 @@ stdin. Pass the current session id when known.
 
 ```bash
 printf '%s' "Body of the note, one concern per doc." | \
-  ruby ~/.claude/pst/bin/ctx_store.rb capture \
+  ruby ~/.claude/cf/bin/ctx_store.rb capture \
     --name ctx-system-plan --class active \
-    --desc "Implementation plan for the pst:ctx store, in flight." \
+    --desc "Implementation plan for the cf:ctx store, in flight." \
     --session "$SESSION_ID"
 ```
 
@@ -54,7 +54,7 @@ writing a malformed doc.
 Print one doc by name.
 
 ```bash
-ruby ~/.claude/pst/bin/ctx_store.rb recall ctx-system-plan
+ruby ~/.claude/cf/bin/ctx_store.rb recall ctx-system-plan
 ```
 
 ### list
@@ -62,7 +62,7 @@ ruby ~/.claude/pst/bin/ctx_store.rb recall ctx-system-plan
 Show the live docs, optionally filtered.
 
 ```bash
-ruby ~/.claude/pst/bin/ctx_store.rb list --class active --status active
+ruby ~/.claude/cf/bin/ctx_store.rb list --class active --status active
 ```
 
 `INDEX.md` at the store root holds the same one-line-per-doc summary and is
@@ -71,10 +71,10 @@ regenerated on every write; read it for a cheap overview.
 ### prune
 
 Garbage-collect and relevance-check the store. Run it on an ongoing basis, in
-particular after a PR merges (the pst:prune skill calls it for you).
+particular after a PR merges (the cf:prune skill calls it for you).
 
 ```bash
-ruby ~/.claude/pst/bin/ctx_retention.rb prune
+ruby ~/.claude/cf/bin/ctx_retention.rb prune
 ```
 
 It auto-removes expired ephemeral docs (their ttl was the consent) and prints two
@@ -86,8 +86,8 @@ lists it never acts on by itself:
   before doing anything. On a yes, apply it:
 
   ```bash
-  ruby ~/.claude/pst/bin/ctx_store.rb archive <name>   # compact to a digest, drop the live copy
-  ruby ~/.claude/pst/bin/ctx_store.rb remove <name>    # drop the live copy
+  ruby ~/.claude/cf/bin/ctx_store.rb archive <name>   # compact to a digest, drop the live copy
+  ruby ~/.claude/cf/bin/ctx_store.rb remove <name>    # drop the live copy
   ```
 
   Keep means bump the doc with a fresh capture so it stops reading as stale. For a
@@ -97,7 +97,7 @@ lists it never acts on by itself:
 - `structural issues` - a doc that does not parse, sits under the wrong class, or
   has an invalid status. Surface these for the user to fix; do not auto-edit.
 
-Invariants (mirroring pst:prune): `truth` is never auto-removed or auto-archived
+Invariants (mirroring cf:prune): `truth` is never auto-removed or auto-archived
 (it only ever reaches the review set), and nothing in the review set is removed
 or archived without an explicit yes. Archiving is compact-and-drop, with git
 history as the verbatim backstop.

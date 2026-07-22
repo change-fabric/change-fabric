@@ -33,7 +33,7 @@ module CtxPaths
   # '-srv-u-code-x', matching the harness's own dashed-cwd memory keys.
   def self.dashed(cwd) = cwd.to_s.gsub('/', '-')
 
-  def self.ctx_root(home = Dir.home) = File.join(home, '.claude', 'pst', 'ctx')
+  def self.ctx_root(home = Dir.home) = File.join(home, '.claude', 'cf', 'ctx')
 
   def self.store_dir(cwd, home: Dir.home) = File.join(ctx_root(home), dashed(cwd))
 

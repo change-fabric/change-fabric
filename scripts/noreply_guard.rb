@@ -98,7 +98,7 @@ class NoreplyGuard
       hookSpecificOutput: {
         hookEventName: EVENT,
         permissionDecision: 'deny',
-        permissionDecisionReason: "[pst] GitHub push blocked: commit author #{email} is not a " \
+        permissionDecisionReason: "[cf] GitHub push blocked: commit author #{email} is not a " \
           '@users.noreply.github.com identity and would expose a real email. Re-author with your ' \
           'GitHub noreply email (git commit --amend --reset-author after setting the global ' \
           'user.email), and never pass a -c user.email override on a GitHub push.'

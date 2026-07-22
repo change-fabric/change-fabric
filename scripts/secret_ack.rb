@@ -55,7 +55,7 @@ class SecretAck
     session_id = @event['session_id'].to_s
     return nil if session_id.empty?
 
-    File.join(Dir.home, '.claude', 'pst', 'sessions', session_id, 'pending-secret-ack.json')
+    File.join(Dir.home, '.claude', 'cf', 'sessions', session_id, 'pending-secret-ack.json')
   end
 
   def read_stash

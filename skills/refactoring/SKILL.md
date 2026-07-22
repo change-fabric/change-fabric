@@ -1,6 +1,6 @@
 ---
-name: pst:refactoring
-description: Fowler refactoring smells and moves. Auto-applied by the pst shim on every code change of any kind; also invocable directly.
+name: cf:refactoring
+description: Fowler refactoring smells and moves. Auto-applied by the cf shim on every code change of any kind; also invocable directly.
 auto:
   all_code: true
 ---

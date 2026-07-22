@@ -8,11 +8,11 @@ require 'set'
 require 'yaml'
 require_relative 'scripts/skill_registry'
 
-# Installs the pst merge-mode shim: hook scripts, the skill symlink, and the
+# Installs the cf merge-mode shim: hook scripts, the skill symlink, and the
 # settings.json wiring. Internals are namespaced so the file stays one unit.
 module Install
   # Resolves a skill's installed name from its SKILL.md frontmatter `name`, the
-  # single source of truth for the `pst:` namespace. Keeping it here means the
+  # single source of truth for the `cf:` namespace. Keeping it here means the
   # on-disk directory stays plain and portable (no colons committed to git);
   # the namespace is applied once, at symlink time. Falls back to the directory
   # basename so a skill missing or mangling its frontmatter still links.
@@ -39,7 +39,10 @@ module Install
 
     def scripts              = File.join(@repo, 'scripts')
     def skills_dir           = File.join(@repo, 'skills')
-    def bin                  = File.join(@home, '.claude', 'pst', 'bin')
+    def bin                  = File.join(@home, '.claude', 'cf', 'bin')
+    def legacy_bin           = File.join(@home, '.claude', 'pst', 'bin')
+    def state_root           = File.join(@home, '.claude', 'cf')
+    def legacy_state_root    = File.join(@home, '.claude', 'pst')
     def skills_root          = File.join(@home, '.claude', 'skills')
     def settings             = File.join(@home, '.claude', 'settings.json')
     def pi_settings          = File.join(@home, '.pi', 'agent', 'settings.json')
@@ -47,8 +50,8 @@ module Install
     def opencode_skills_root = File.join(@home, '.config', 'opencode', 'skills')
     def legacy_pi_roots      = [ File.join(@home, '.pi', 'agent', 'skills'), File.join(@home, '.agents', 'skills') ]
     def pi_extensions_root   = File.join(@home, '.pi', 'agent', 'extensions')
-    def pi_extension_source  = File.join(@repo, 'extensions', 'pi-pst-hooks')
-    def pi_extension_link    = File.join(pi_extensions_root, 'pst-hooks')
+    def pi_extension_source  = File.join(@repo, 'extensions', 'pi-cf-hooks')
+    def pi_extension_link    = File.join(pi_extensions_root, 'cf-hooks')
 
     def scripts_glob         = Dir.glob(File.join(scripts, '*.rb'))
     def skill_sources        = Dir.glob(File.join(skills_dir, '*')).select { |p| File.directory?(p) }
@@ -68,10 +71,13 @@ module Install
   end
 
   # Wires managed hooks into ~/.claude/settings.json idempotently, with a backup.
+  # `managed_dir` is the current bin; `legacy_dirs` are prior bins (a former
+  # ~/.claude/pst/bin from before the cf rename) whose stale entries must be
+  # swept on the same run that adds the current ones, or every hook fires twice.
   class SettingsFile
-    def initialize(path, managed_dir:)
+    def initialize(path, managed_dir:, legacy_dirs: [])
       @path = path
-      @managed_dir = managed_dir
+      @managed_dirs = ([ managed_dir ] + Array(legacy_dirs)).uniq
     end
 
     def wire(events)
@@ -112,7 +118,10 @@ module Install
     def remove_managed_from_group(group)
       return unless group.is_a?(Hash) && group['hooks'].is_a?(Array)
 
-      group['hooks'].reject! { |hook| hook['command'].to_s.include?(@managed_dir) }
+      group['hooks'].reject! do |hook|
+        command = hook['command'].to_s
+        @managed_dirs.any? { |dir| command.include?(dir) }
+      end
     end
 
     def persist(data)
@@ -309,10 +318,12 @@ module Install
     end
   end
 
-  # OpenCode is stricter about skill names, so pst:foo becomes pst-foo there.
+  # OpenCode is stricter about skill names, so cf:foo becomes cf-foo there.
   class OpenCodeSkillMirror
-    MARKER = '.pst-generated-from-claude'.freeze
-    LEGACY_MARKERS = [ MARKER, '.pst-generated' ].freeze
+    MARKER = '.cf-generated-from-claude'.freeze
+    # Recognize the current marker plus the pre-rename markers so mirrors from a
+    # prior pst-branded install are still spotted and pruned.
+    LEGACY_MARKERS = [ MARKER, '.pst-generated-from-claude', '.pst-generated' ].freeze
 
     def initialize(paths)
       @paths = paths
@@ -377,6 +388,7 @@ module Install
     end
 
     def install
+      migrate_state_root
       place_hooks
       pin_expected_home
       link_skills
@@ -387,6 +399,26 @@ module Install
     end
 
     private
+
+    # Best-effort carry-over of the state root from the pre-rename location so a
+    # prior install's sessions/ctx/change/teams/telemetry survive the cf rename.
+    # Only acts when the old root exists and the new one does not; if both exist
+    # it leaves both untouched rather than attempting a merge. Runs before
+    # place_hooks so the moved tree is in place before anything writes into it.
+    def migrate_state_root
+      legacy = @paths.legacy_state_root
+      current = @paths.state_root
+      return unless File.directory?(legacy)
+
+      if File.exist?(current)
+        puts "note: both #{legacy} and #{current} exist; leaving both in place, no migration"
+        return
+      end
+
+      FileUtils.mkdir_p(File.dirname(current))
+      FileUtils.mv(legacy, current)
+      puts "migrated state root #{legacy} -> #{current}"
+    end
 
     def place_hooks
       FileUtils.rm_rf(@paths.bin)
@@ -444,7 +476,7 @@ module Install
     end
 
     def wire_settings
-      settings = SettingsFile.new(@paths.settings, managed_dir: @paths.bin)
+      settings = SettingsFile.new(@paths.settings, managed_dir: @paths.bin, legacy_dirs: [ @paths.legacy_bin ])
       settings.wire(commands)
       settings
     end
@@ -467,7 +499,7 @@ module Install
 
     def report(settings)
       skills = @paths.skill_sources.map { |s| SkillName.of(s) }.join(', ')
-      puts 'pst shim installed:'
+      puts 'cf shim installed:'
       puts "  hooks    -> #{@paths.bin} (#{HOOKS.keys.join(', ')})"
       puts "  skills   -> #{@paths.skills_root} (#{skills})"
       puts "  pi       -> #{@paths.pi_settings}"

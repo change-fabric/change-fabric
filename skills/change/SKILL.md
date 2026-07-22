@@ -1,9 +1,9 @@
 ---
-name: pst:change
-description: Deterministic, config-driven release-gate sweep. Runs all four dockerized audit lanes (k6 load, axe-core accessibility, OWASP ZAP pentest, browserless responsive UX) against a project's change-fabric config, aggregates every finding into one CSV and Markdown report on the Desktop, and records a pass/fail gate for the head commit. Invocable directly and gated into pst:drive.
+name: cf:change
+description: Deterministic, config-driven release-gate sweep. Runs all four dockerized audit lanes (k6 load, axe-core accessibility, OWASP ZAP pentest, browserless responsive UX) against a project's change-fabric config, aggregates every finding into one CSV and Markdown report on the Desktop, and records a pass/fail gate for the head commit. Invocable directly and gated into cf:drive.
 ---
 
-# PST Change (change fabric)
+# CF Change (change fabric)
 
 The comprehensive, unattended release-gate sweep. One file per project, the
 repo-root `CHANGE.md`, tells the platform how to boot the target app and what to
@@ -12,26 +12,26 @@ audit (its `change_config:` frontmatter) and how the repo is governed (its
 it and produces one shareable report pair plus a gate record for the PR's head
 commit.
 
-Trigger: `/pst:change [<PR, branch, or target description>]`.
+Trigger: `/cf:change [<PR, branch, or target description>]`.
 
 Question: would this change survive a release-quality sweep of load,
 accessibility, security, and responsive UX, deterministically and on the record?
 
-## pst:change vs pst:qa
+## cf:change vs cf:qa
 
 Both drive browsers in an ephemeral browserless container, but they are
 different tools:
 
-- `pst:qa` is ad hoc, model-scoped, natural-language-driven. It scopes a
+- `cf:qa` is ad hoc, model-scoped, natural-language-driven. It scopes a
   Playwright smoke plan from a described flow, clarifies ambiguity with the
   user, and explores. Use it for exploratory UAT of a specific feature.
-- `pst:change` is deterministic and config-driven. It reads the repo-root
+- `cf:change` is deterministic and config-driven. It reads the repo-root
   `CHANGE.md` and runs a fixed four-lane audit (load, a11y, security, responsive
   UX) with no per-run scoping decisions, meant to run unattended before a
   release-affecting merge. It writes a reproducible report and records a
   pass/fail gate the merge hook enforces.
 
-Reach for `pst:qa` to investigate; reach for `pst:change` to gate.
+Reach for `cf:qa` to investigate; reach for `cf:change` to gate.
 
 ## The single project file
 
@@ -58,18 +58,18 @@ SHA; the lanes read the `change_config:` block.
 2. **Confirm the config.** Ensure a `CHANGE.md` with a `change_config:`
    frontmatter block exists at the target repo root. If it does not, this repo is
    not change-fabric-integrated yet; say so and stop rather than guessing an
-   audit surface. Scoping a target from a description follows pst:qa's phase 1-5
+   audit surface. Scoping a target from a description follows cf:qa's phase 1-5
    shape only where the config leaves a choice open; the config is the source of
    truth for what to audit. `CHANGE.md` must be self-contained: reject or flag a
    config that cites another tool's own internal conventions (a coding harness's
    config vocabulary, an unrelated CLAUDE.md table) instead of stating the
    target app's own boot and audit details directly.
 3. **Run the sweep.** From the target repo root:
-   `ruby ~/.claude/pst/bin/change_run.rb all`. Add `--profile NAME` to run a
+   `ruby ~/.claude/cf/bin/change_run.rb all`. Add `--profile NAME` to run a
    named profile from `change_config.profiles` (a real staging or production
    target) instead of the base config. This boots the app per the config,
    waits for its health signal, stands up the ephemeral runners
-   (digest-pinned, `--rm`, per pst:docker), runs k6, a11y, ZAP, and browserless
+   (digest-pinned, `--rm`, per cf:docker), runs k6, a11y, ZAP, and browserless
    lanes, tears everything down, writes the report pair to `~/Desktop`, and
    records the gate under the head SHA (and the profile, when one was given).
    Exit 0 means every lane passed, 1 means a lane failed, 2 means a setup
@@ -147,8 +147,8 @@ in the form the merge gate enforces.
 
 The single-lane skills run one lane each with the same config and report
 shape but record only their own scope (never the comprehensive gate the merge
-hook requires): `pst:k6`, `pst:a11y`, `pst:zap`. The browserless responsive
-lane has no standalone skill; it runs as part of `pst:change`.
+hook requires): `cf:k6`, `cf:a11y`, `cf:zap`. The browserless responsive
+lane has no standalone skill; it runs as part of `cf:change`.
 
 ## Failure modes
 
@@ -156,7 +156,7 @@ lane has no standalone skill; it runs as part of `pst:change`.
   2 and names the cause. Report it and stop; never fall back to a host daemon.
 - No `CHANGE.md` with a `change_config:` block: the repo is not integrated. The
   error names the template and spec doc to author one against. Run
-  `ruby ~/.claude/pst/bin/change_config.rb doctor` against a `CHANGE.md` in
+  `ruby ~/.claude/cf/bin/change_config.rb doctor` against a `CHANGE.md` in
   progress to validate it before a full sweep.
 - `boot.up` never returns: it must leave the app running in the background, not
   block. A foreground dev-server command has to self-detach (see the template's
@@ -168,6 +168,6 @@ lane has no standalone skill; it runs as part of `pst:change`.
   behind a bare timeout.
 - A browser lane runs but browserless never becomes ready: the lane records a
   failing finding rather than crashing the whole run.
-- Leftover `pst-change-*` containers or networks from a run that crashed before
-  its teardown: `ruby ~/.claude/pst/bin/change_run.rb sweep` force-removes any
+- Leftover `cf-change-*` containers or networks from a run that crashed before
+  its teardown: `ruby ~/.claude/cf/bin/change_run.rb sweep` force-removes any
   not owned by the current run.

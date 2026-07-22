@@ -16,7 +16,7 @@ require_relative 'hook_event'
 # retries clean - the same self-correcting loop as merge_mode_guard.
 #
 # Like the other guards here this is a loud guardrail, not a sandbox: it matches
-# authored content and is bypassable (PST_ALLOW_GLYPH=1 is the documented escape
+# authored content and is bypassable (CF_ALLOW_GLYPH=1 is the documented escape
 # hatch for the rare genuine insertion, e.g. editing a third-party fixture).
 class GlyphGuard
   EVENT = 'PreToolUse'
@@ -63,7 +63,7 @@ class GlyphGuard
   end
 
   def emit(io = $stdout)
-    return if ENV['PST_ALLOW_GLYPH'] == '1'
+    return if ENV['CF_ALLOW_GLYPH'] == '1'
 
     found = offenders
     return if found.empty?
@@ -131,8 +131,8 @@ class GlyphGuard
         hookEventName: EVENT,
         permissionDecision: 'deny',
         permissionDecisionReason:
-          "[pst] Banned AI-slop content in #{@event['tool_name']} input: #{found.join('; ')}. " \
-          'Rewrite without it. Set PST_ALLOW_GLYPH=1 only if it is genuinely ' \
+          "[cf] Banned AI-slop content in #{@event['tool_name']} input: #{found.join('; ')}. " \
+          'Rewrite without it. Set CF_ALLOW_GLYPH=1 only if it is genuinely ' \
           'required (e.g. editing a third-party fixture).'
       }
     }

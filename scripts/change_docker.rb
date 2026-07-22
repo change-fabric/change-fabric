@@ -7,7 +7,7 @@ require 'net/http'
 require 'json'
 require 'uri'
 
-# Ephemeral-container plumbing shared by every lane, holding the pst:docker
+# Ephemeral-container plumbing shared by every lane, holding the cf:docker
 # doctrine in one place: every runner image is digest-pinned, every container is
 # `--rm`, and nothing here stands up a host or long-lived daemon. A lane asks for
 # a one-shot run or a scoped browser; this module owns the run, the network, and
@@ -31,7 +31,7 @@ module ChangeDocker
 
   # Runs a one-shot container to completion and returns [stdout+stderr, ok?].
   # `--rm` and the digest pin are enforced here so no lane can opt out. `name`
-  # gets the `pst-change-` prefix every resource this platform creates carries,
+  # gets the `cf-change-` prefix every resource this platform creates carries,
   # so a container orphaned by a crashed run (`--rm` never ran) is identifiable
   # and reachable by `sweep`. Extra args are the image plus its command.
   def run(network:, image:, args:, env: {}, mounts: {}, name: nil)
@@ -52,7 +52,7 @@ module ChangeDocker
     if configured && !configured.empty?
       yield Network.new(name: configured, owned: false)
     else
-      create_ephemeral_network("pst-change-#{SecureRandom.hex(4)}") { |network| yield network }
+      create_ephemeral_network("cf-change-#{SecureRandom.hex(4)}") { |network| yield network }
     end
   end
 
@@ -78,7 +78,7 @@ module ChangeDocker
   # exit whether the block succeeds or raises.
   def with_browserless(network:)
     token = SecureRandom.hex(8)
-    name = "pst-change-bl-#{SecureRandom.hex(4)}"
+    name = "cf-change-bl-#{SecureRandom.hex(4)}"
     port = free_port
     start_browserless(name, network, port, token)
     begin
@@ -101,10 +101,10 @@ module ChangeDocker
   # Prefix every ephemeral resource this platform creates carries, so a
   # container or network orphaned by a run that crashed before its own
   # teardown (a kill, an interrupted host) is identifiable and reclaimable.
-  RESOURCE_PREFIX = 'pst-change-'
+  RESOURCE_PREFIX = 'cf-change-'
 
   # Force-removes any running container or existing network carrying the
-  # `pst-change-` prefix. Meant to run standalone, between runs, so every match
+  # `cf-change-` prefix. Meant to run standalone, between runs, so every match
   # is by definition not part of a run in progress. Returns the names removed.
   def sweep
     containers = matching_names('docker', 'ps', '-a', '--filter', "name=#{RESOURCE_PREFIX}", '--format', '{{.Names}}')

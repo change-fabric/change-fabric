@@ -40,7 +40,7 @@ class SkillRouteTest < Minitest::Test
 
   def test_render_reports_no_match
     ruby_skill
-    assert_equal "No pst skills match the given files.", route(%w[README.md]).render
+    assert_equal "No cf skills match the given files.", route(%w[README.md]).render
   end
 
   def test_from_reads_paths_from_stdin_when_argv_empty
@@ -53,10 +53,10 @@ class SkillRouteTest < Minitest::Test
   def test_shipped_skills_route_a_mixed_changeset
     skills = SkillRegistry.load(REPO_SKILLS)
     grouped = SkillRoute.new(%w[app/user.rb src/app.tsx README.md], skills: skills).by_skill
-    assert_equal %w[README.md app/user.rb src/app.tsx], grouped["pst:ai-slop"]
-    assert_equal %w[app/user.rb src/app.tsx], grouped["pst:refactoring"]
-    assert_equal %w[app/user.rb], grouped["pst:ruby"]
-    assert_equal %w[src/app.tsx], grouped["pst:react"]
-    refute grouped.key?("pst:vite")
+    assert_equal %w[README.md app/user.rb src/app.tsx], grouped["cf:ai-slop"]
+    assert_equal %w[app/user.rb src/app.tsx], grouped["cf:refactoring"]
+    assert_equal %w[app/user.rb], grouped["cf:ruby"]
+    assert_equal %w[src/app.tsx], grouped["cf:react"]
+    refute grouped.key?("cf:vite")
   end
 end

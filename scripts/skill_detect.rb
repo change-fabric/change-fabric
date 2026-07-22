@@ -42,7 +42,7 @@ class SkillDetect
   end
 
   def context(names)
-    text = "[pst] Auto-skills active for this project: #{names.join(', ')}. " \
+    text = "[cf] Auto-skills active for this project: #{names.join(', ')}. " \
            'Their guidance will be surfaced automatically as you change matching files.'
     { hookSpecificOutput: { hookEventName: EVENT, additionalContext: text } }
   end

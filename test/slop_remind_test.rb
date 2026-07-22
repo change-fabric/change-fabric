@@ -9,7 +9,7 @@ class SlopRemindTest < Minitest::Test
   def setup
     super
     @skills = Dir.mktmpdir
-    skill_dir("pst:ai-slop", auto: { "all_files" => true }, body: "SLOP-RUBRIC")
+    skill_dir("cf:ai-slop", auto: { "all_files" => true }, body: "SLOP-RUBRIC")
   end
 
   def teardown

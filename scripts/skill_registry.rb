@@ -25,7 +25,7 @@ module SkillRegistry
   PATH_FLAGS = File::FNM_PATHNAME | File::FNM_EXTGLOB | File::FNM_DOTMATCH
 
   # The runtime install lives at ~/.claude/skills; from a hook in
-  # ~/.claude/pst/bin that is two levels up. Tests pass an explicit dir.
+  # ~/.claude/cf/bin that is two levels up. Tests pass an explicit dir.
   def self.default_dir = File.expand_path('../../skills', __dir__)
 
   # Union of dependency and devDependency names across every package.json in the

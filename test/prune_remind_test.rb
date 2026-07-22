@@ -62,7 +62,7 @@ class PruneRemindTest < Minitest::Test
   end
 
   def test_reminder_points_at_the_skill
-    assert_includes context("I merged #6"), "/pst:prune"
+    assert_includes context("I merged #6"), "/cf:prune"
   end
 
   def test_quiet_on_missing_prompt

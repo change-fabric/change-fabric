@@ -1,23 +1,23 @@
 ---
-name: pst:qa
+name: cf:qa
 description: Ad hoc QA smoke-test runner. Scopes a Playwright test plan from a natural-language target (a pull request, a described feature, a flow), clarifies ambiguity, then executes the plan against an ephemeral browserless Chromium container and reports findings, optionally as GitHub PR comments; invocable directly.
 ---
 
-# PST QA Runner
+# CF QA Runner
 
 Ad hoc, model-scoped smoke testing. Never auto-fires; invoke directly with a
 natural-language target: a PR (number, URL, or description of one), a running
 app or URL, or a semantically described feature or flow.
 
-Distinct from `pst:change`: this skill is ad hoc, model-scoped, and
-natural-language-driven, for exploratory UAT of a described flow. `pst:change` is
+Distinct from `cf:change`: this skill is ad hoc, model-scoped, and
+natural-language-driven, for exploratory UAT of a described flow. `cf:change` is
 the deterministic, config-driven, comprehensive release-gate sweep (k6 load,
 axe-core accessibility, OWASP ZAP pentest, and browserless responsive UX) that
 reads a project's root `CHANGE.md` and runs unattended before a
-release-affecting merge. Reach for `pst:qa` to investigate; reach for
-`pst:change` to gate.
+release-affecting merge. Reach for `cf:qa` to investigate; reach for
+`cf:change` to gate.
 
-Doctrine: `pst:docker` applies. The browser runs in one dedicated, ephemeral
+Doctrine: `cf:docker` applies. The browser runs in one dedicated, ephemeral
 container per run (`docker run --rm ...`, digest-pinned image), never a host
 daemon, never a reused long-lived container.
 
@@ -66,7 +66,7 @@ to:
    setup step, and wait for a real readiness signal (a 200 from a health or
    root route), never a fixed sleep.
 2. Launch the ephemeral browserless Chromium container, digest-pinned per
-   `pst:docker`, and connect Playwright over CDP to it. Never launch or reuse
+   `cf:docker`, and connect Playwright over CDP to it. Never launch or reuse
    a host-level browser process in place of the container.
 3. Drive each plan flow with Playwright, asserting its concrete checks. If a
    flow's assertion could plausibly match more than one element, treat that as

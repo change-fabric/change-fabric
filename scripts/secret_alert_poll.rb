@@ -14,7 +14,7 @@ require_relative 'hook_http'
 # transcripts. On a finding, inject an AskUserQuestion directive and stash the
 # finding so the PostToolUse ack hook (secret_ack.rb) can report the choice.
 # Fail silent: any error, timeout, missing key, or no-finding response injects
-# nothing. Off unless PST_SECRET_ALERTS=1.
+# nothing. Off unless CF_SECRET_ALERTS=1.
 class SecretAlertPoll
   EVENT = 'SessionStart'
   ENDPOINT = 'https://api.changefabric.org/notifications'
@@ -31,7 +31,7 @@ class SecretAlertPoll
   end
 
   def emit(io = $stdout)
-    return unless ENV['PST_SECRET_ALERTS'] == '1'
+    return unless ENV['CF_SECRET_ALERTS'] == '1'
 
     identity = ContributorsTeam.new(cwd).identity
     return unless identity
@@ -73,12 +73,12 @@ class SecretAlertPoll
   end
 
   # Stash {finding_id, team_id, contributor_id} for secret_ack.rb, mirroring
-  # merge_mode_store's ~/.claude/pst/sessions/<session_id>/... path convention.
+  # merge_mode_store's ~/.claude/cf/sessions/<session_id>/... path convention.
   def stash(identity, finding)
     session_id = @event['session_id'].to_s
     return if session_id.empty?
 
-    path = File.join(Dir.home, '.claude', 'pst', 'sessions', session_id, 'pending-secret-ack.json')
+    path = File.join(Dir.home, '.claude', 'cf', 'sessions', session_id, 'pending-secret-ack.json')
     FileUtils.mkdir_p(File.dirname(path))
     File.write(path, JSON.generate(
                        'finding_id' => finding['finding_id'].to_s,
@@ -93,7 +93,7 @@ class SecretAlertPoll
 
   def directive(finding)
     <<~TEXT.strip
-      [pst] Before responding to anything else, call the AskUserQuestion tool about a possible leaked secret found in an earlier session's transcript.
+      [cf] Before responding to anything else, call the AskUserQuestion tool about a possible leaked secret found in an earlier session's transcript.
 
       Detector: #{finding['rule_id']}
       Masked preview: #{finding['masked_preview']}

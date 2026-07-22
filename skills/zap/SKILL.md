@@ -1,16 +1,16 @@
 ---
-name: pst:zap
+name: cf:zap
 description: Runs just the OWASP ZAP penetration-test lane of the change-fabric platform against a project's config. Runs the digest-pinned ZAP baseline (passive spider and passive checks, no attack traffic) as an ephemeral container against each in-scope target, turns every alert into a finding, and writes a CSV and Markdown report to the Desktop. Invocable directly for a standalone security check.
 ---
 
-# PST ZAP
+# CF ZAP
 
 The standalone OWASP ZAP penetration-test lane of the change-fabric platform.
 Runs only the security audit; for the full four-lane release sweep use
-`pst:change`. This lane is net-new to the platform: no ZAP automation existed in
+`cf:change`. This lane is net-new to the platform: no ZAP automation existed in
 the source repos, so the platform defines the contract.
 
-Trigger: `/pst:zap [<target>]`.
+Trigger: `/cf:zap [<target>]`.
 
 Question: does each in-scope target pass a passive ZAP baseline without a
 high-risk alert (or, in strict mode, any alert)?
@@ -20,15 +20,15 @@ high-risk alert (or, in strict mode, any alert)?
 From the target repo root (a repo carrying `CHANGE.md`):
 
 ```
-ruby ~/.claude/pst/bin/change_run.rb zap
+ruby ~/.claude/cf/bin/change_run.rb zap
 ```
 
 This boots the app per `boot`, waits for its health signal, runs the ZAP image's
-baseline automation (digest-pinned, `--rm`, per pst:docker) against each url in
+baseline automation (digest-pinned, `--rm`, per cf:docker) against each url in
 `lanes.zap.targets` on the run network, tears the app down, writes the report
 pair to `~/Desktop`, and records a `zap` scope gate under the head SHA. A
 `zap`-scope record never satisfies the comprehensive merge gate; only a full
-`pst:change` run does.
+`cf:change` run does.
 
 The baseline is passive: it spiders the target and runs passive checks (security
 headers, cookie flags, information leakage, known-vulnerable libraries). It sends

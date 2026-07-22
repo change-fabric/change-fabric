@@ -4,7 +4,7 @@
 require 'json'
 require 'open3'
 
-# Read-only classifier behind pst:prune's step 3. Runs the same git checks the
+# Read-only classifier behind cf:prune's step 3. Runs the same git checks the
 # skill used to ask an agent to run by hand (rev-list count, diff against
 # trunk, worktree cleanliness) and returns one verdict per local branch. It
 # only decides; deleting anything still goes through the skill's

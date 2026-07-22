@@ -1,14 +1,14 @@
 ---
-name: pst:drive
+name: cf:drive
 description: Drive a PR to an approved, green state end to end. Sweeps existing review threads, runs a relevance-gated local quality loop (code review, QA, refactor, slop) fixing what it finds, predicts CI locally, then pushes, waits for real CI green, and posts an approval. Supports two sign-off modes, explicit checkpoints or full auto.
 ---
 
-# PST Drive
+# CF Drive
 
 Drive a pull request, branch, or change set through review, fixes, CI, and
 approval in one run.
 
-Trigger: `/pst:drive <PR url or change set>`.
+Trigger: `/cf:drive <PR url or change set>`.
 
 Question: would this change earn a real approval on GitHub, and is CI
 actually green, not just plausibly so?
@@ -27,7 +27,7 @@ actually green, not just plausibly so?
 Step 0, before resolving scope or doing any other work: call
 `AskUserQuestion` exactly once.
 
-- Question: "How should /pst:drive handle sign-off before pushing and
+- Question: "How should /cf:drive handle sign-off before pushing and
   before approving?"
 - Header: "Sign-off"
 - Option 1 (listed first, default/recommended): **Explicit sign-off** -
@@ -43,7 +43,7 @@ the rest of the run.
 
 ## Scope
 
-Accepted forms, resolved in the same order as `pst:code-review`'s step 1: a
+Accepted forms, resolved in the same order as `cf:code-review`'s step 1: a
 PR URL, `owner/repo#123`, a bare `#123` (current repo when owner/repo is
 omitted), a branch (diff against the default branch), an explicit file list
 or glob, or a semantic feature description. The PR-scoped steps (both
@@ -55,17 +55,17 @@ loop and CI prediction only; see Failure modes.
 
 Three independent axes:
 
-(a) The outer session's own pst merge mode, the one running this
-implementation session while `pst:drive` itself is being added or edited, is
-irrelevant to `pst:drive`'s runtime behavior. It only governs how that
+(a) The outer session's own cf merge mode, the one running this
+implementation session while `cf:drive` itself is being added or edited, is
+irrelevant to `cf:drive`'s runtime behavior. It only governs how that
 session lands its own change to this skill. It is not part of this skill's
 own logic.
 
-(b) A future invocation's active pst merge mode governs whether
-`pst:drive`'s real GitHub-landing actions happen: the step-8 `git push`,
+(b) A future invocation's active cf merge mode governs whether
+`cf:drive`'s real GitHub-landing actions happen: the step-8 `git push`,
 and (unrestricted, since it is a comment action) the step-11 approval.
-Exactly like `pst:resolve-threads` SKILL.md's closing line about its own
-push, the session's active pst merge mode governs whether that push
+Exactly like `cf:resolve-threads` SKILL.md's closing line about its own
+push, the session's active cf merge mode governs whether that push
 actually happens versus staying local. Steps 1 through 7 are local-only
 regardless of merge mode; step 8's push is the first action merge mode
 gates.
@@ -74,14 +74,14 @@ gates.
 `AskUserQuestion` checkpoints interrupt the flow. It is fully orthogonal to
 merge mode.
 
-Under Full auto plus Local only: `pst:drive` runs the entire local pipeline
+Under Full auto plus Local only: `cf:drive` runs the entire local pipeline
 (steps 1-7, both thread sweeps, the quality loop, local CI prediction) all
 the way to a would-be-approved, would-be-green state, then stops cleanly at
 the step-8 boundary and reports that it did not push or approve because the
 active merge mode is Local only. It does not rely on the
 `merge_mode_guard.rb` hook to block it partway through; steps 1-7 never
 touch git push/PR actions at all, so the guard is never even invoked there.
-`pst:drive`'s own logic checks the merge mode before attempting the step-8
+`cf:drive`'s own logic checks the merge mode before attempting the step-8
 push. Under Local only, at step 8 it skips the push, skips the CI poll (step
 9), skips the approval (steps 10-11), emits a final report describing the
 would-be-approved local state, and since nothing landed, also skips step
@@ -93,14 +93,14 @@ would-be-approved local state, and since nothing landed, also skips step
    the rest of the run.
 1. **(SKILL.md)** Resolve scope to `files`, `repoPath`, `headSha`. PR: use
    PR-reading tools, fetch the head if not local. Else: `git diff`/`git
-   show`/plain reads. Also run `ruby ~/.claude/pst/bin/skill_route.rb
+   show`/plain reads. Also run `ruby ~/.claude/cf/bin/skill_route.rb
    <files>` here in SKILL.md (the sandboxed Workflow script cannot shell
    out) and capture its stdout as `routeOutput` to pass in as an arg.
 2. **(SKILL.md, PR scope only, hard floor, always runs regardless of
    sign-off mode or Haiku relevance results)** Pre-loop thread sweep:
-   invoke `pst:resolve-threads` against the PR, but explicitly instruct it
+   invoke `cf:resolve-threads` against the PR, but explicitly instruct it
    inline to proceed automatically through its own report/reply/resolve
-   steps with no `AskUserQuestion` of its own, and to not push (`pst:drive`
+   steps with no `AskUserQuestion` of its own, and to not push (`cf:drive`
    owns the single push at step 8; resolve-threads' commits stay local and
    ride out with that push). Capture its `{ fixed, wontFix, needsHuman,
    conflicts }` counts and one-line rationales for use in step 8's
@@ -117,7 +117,7 @@ would-be-approved local state, and since nothing landed, also skips step
    iterationCap, ciPrediction, fixesSummary, execSummaryDraft }`.
 6b. **(SKILL.md, PR scope only, hard floor, same non-pausing rule as step
    2)** Post-loop thread sweep: once the Workflow call above returns,
-   invoke `pst:resolve-threads` again the same way, to catch anything that
+   invoke `cf:resolve-threads` again the same way, to catch anything that
    landed on the PR while the loop was iterating. Fold its outcome into
    checkpoint 1 alongside step 2's sweep.
 8. **(SKILL.md)** Checkpoint 1. Only proceed once `ciPrediction.green` is
@@ -126,9 +126,9 @@ would-be-approved local state, and since nothing landed, also skips step
    outcomes (per `reference/summaries.md`'s checkpoint-1 format), call
    `AskUserQuestion` for an explicit go/no-go. Under Full auto: skip the
    summary and the question entirely. Either way, this push is
-   additionally gated by the active pst merge mode: Local only means stop
+   additionally gated by the active cf merge mode: Local only means stop
    here and report (see Merge mode above); Merge ready/Admin bypass/Yolo
-   proceed per their own normal push semantics (`pst:drive` only ever
+   proceed per their own normal push semantics (`cf:drive` only ever
    pushes here, never opens a new PR; the PR already exists by definition
    since this whole flow is PR-scoped from step 1 onward). Push the
    branch.
@@ -174,11 +174,11 @@ would-be-approved local state, and since nothing landed, also skips step
   logs, do not proceed to checkpoint 2 or the approval.
 - `open` CLI missing: handled inline in step 12 above, never fails the run.
 - Haiku relevance call in the Workflow selects zero of the three gated skills
-  (`pst:qa`, `pst:refactor`, `pst:change`): expected and fine for small/docs-only
-  changes, and `pst:change` also self-skips in a repo with no `CHANGE.md`.
-  `pst:code-review` and `pst:ai-slop` are floors and the two resolve-threads
+  (`cf:qa`, `cf:refactor`, `cf:change`): expected and fine for small/docs-only
+  changes, and `cf:change` also self-skips in a repo with no `CHANGE.md`.
+  `cf:code-review` and `cf:ai-slop` are floors and the two resolve-threads
   sweeps are floors; all four still run regardless of the Haiku call's outcome.
-  Only `pst:qa`, `pst:refactor`, and `pst:change` are ever skipped.
+  Only `cf:qa`, `cf:refactor`, and `cf:change` are ever skipped.
 - User answers "no" at either checkpoint under Explicit sign-off mode: do
   not abort destructively, do not auto-revert. Leave all local
   commits/fixes on disk as-is and stop the run, reporting the current
@@ -187,6 +187,6 @@ would-be-approved local state, and since nothing landed, also skips step
   commit is already pushed and CI is already green, so stop before
   approving and report that the PR is pushed and green but not approved.
   Neither "no" silently re-enters the iterate loop; re-invoking
-  `/pst:drive` is how the user resumes.
+  `/cf:drive` is how the user resumes.
 - The `Workflow` call errors or returns no result: say so explicitly and
   stop; do not silently hand-apply fixes or push.

@@ -43,7 +43,7 @@ class ChangeDockerTest < Minitest::Test
     ChangeDocker.with_network(nil) do |net|
       captured = net
       assert net.owned
-      assert net.name.start_with?("pst-change-")
+      assert net.name.start_with?("cf-change-")
       _out, status = Open3.capture2e("docker", "network", "inspect", net.name)
       assert status.success?, "ephemeral network should exist during the block"
     end
@@ -59,7 +59,7 @@ class ChangeDockerTest < Minitest::Test
     skip "docker not available" unless ChangeDocker.available?
 
     error = assert_raises(RuntimeError) do
-      ChangeDocker.with_browserless(network: "pst-change-no-such-network-#{SecureRandom.hex(4)}") { |_s| }
+      ChangeDocker.with_browserless(network: "cf-change-no-such-network-#{SecureRandom.hex(4)}") { |_s| }
     end
     assert_match(/network/i, error.message)
   end
@@ -71,7 +71,7 @@ class ChangeDockerTest < Minitest::Test
   def test_with_network_raises_with_dockers_output_when_create_fails
     skip "docker not available" unless ChangeDocker.available?
 
-    existing = "pst-change-#{SecureRandom.hex(4)}"
+    existing = "cf-change-#{SecureRandom.hex(4)}"
     Open3.capture2e("docker", "network", "create", existing)
     begin
       error = assert_raises(RuntimeError) do
@@ -84,13 +84,13 @@ class ChangeDockerTest < Minitest::Test
   end
 
   # The dogfooding fix: a run that crashes before its own teardown leaves a
-  # `pst-change-*` container or network behind, with no way to reclaim it.
+  # `cf-change-*` container or network behind, with no way to reclaim it.
   def test_sweep_removes_an_orphaned_container_and_network
     skip "docker not available" unless ChangeDocker.available?
 
-    network = "pst-change-#{SecureRandom.hex(4)}"
+    network = "cf-change-#{SecureRandom.hex(4)}"
     Open3.capture2e("docker", "network", "create", network)
-    container = "pst-change-zap-#{SecureRandom.hex(4)}"
+    container = "cf-change-zap-#{SecureRandom.hex(4)}"
     Open3.capture2e("docker", "run", "-d", "--name", container, "alpine", "sleep", "60")
 
     removed = ChangeDocker.sweep

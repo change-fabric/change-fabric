@@ -6,7 +6,7 @@ require_relative 'ctx_paths'
 require_relative 'ctx_store'
 require_relative 'skill_registry'
 
-# Deterministic SessionStart context selection: decides WHICH pst:ctx docs to
+# Deterministic SessionStart context selection: decides WHICH cf:ctx docs to
 # inject and at WHAT fidelity, under a hard budget, with no LLM call, no
 # randomness, and no clock dependence beyond comparing expires/last_touched to
 # `now`. The whole point of the store is that injection stays cheap, so the
@@ -15,7 +15,7 @@ require_relative 'skill_registry'
 #
 # Fidelity levels: FULL (header line plus body), INDEX (a single line), OMITTED
 # (not injected, still recallable). Selection assigns exactly one level to every
-# live doc plus the roadmap. See pst-ctx-surfacing-design.md for the full spec.
+# live doc plus the roadmap. See cf-ctx-surfacing-design.md for the full spec.
 module CtxSurface
   # All TUNABLE. The byte budget is the real guard; the line budget is the
   # human-legible proxy. The floor (roadmap + focused plan) is exempt from the
@@ -161,7 +161,7 @@ module CtxSurface
     notes        = []
 
     roadmap_demoted = roadmap&.body_oversize? || false
-    notes << 'roadmap exceeded the inline size cap; recall it with pst:ctx recall ROADMAP' if roadmap_demoted
+    notes << 'roadmap exceeded the inline size cap; recall it with cf:ctx recall ROADMAP' if roadmap_demoted
     notes << "focused plan #{focus_sized.name} was too large to inline; recall it by name" if focus_demote
 
     full_focus = focus_sized unless focus_demote
@@ -252,7 +252,7 @@ module CtxSurface
     slots = [ CTX_INDEX_LINE_CAP - truth.size, 0 ].max
     kept = truth + other.first(slots)
     dropped = other.size - other.first(slots).size
-    overflow = dropped.positive? ? "(+#{dropped} more docs, run pst:ctx list)" : nil
+    overflow = dropped.positive? ? "(+#{dropped} more docs, run cf:ctx list)" : nil
     [ kept, overflow ]
   end
 
@@ -358,7 +358,7 @@ module CtxSurface
   # no slop glyphs (glyph_guard.rb would deny otherwise). Emits "" when there is
   # nothing to surface so the hook can stay silent on an empty store.
   class Renderer
-    HEADER = '## Project context (pst:ctx)'
+    HEADER = '## Project context (cf:ctx)'
 
     def initialize(surface) = @s = surface
 
@@ -373,7 +373,7 @@ module CtxSurface
 
     def roadmap_section
       return nil unless @s.roadmap
-      return "### Roadmap\n(roadmap too large to inline; recall with pst:ctx recall ROADMAP)" if @s.roadmap_demoted
+      return "### Roadmap\n(roadmap too large to inline; recall with cf:ctx recall ROADMAP)" if @s.roadmap_demoted
 
       "### Roadmap\n#{@s.roadmap.body}"
     end
@@ -397,7 +397,7 @@ module CtxSurface
 
       lines = @s.index.map { |sized| index_line(sized) }
       lines << @s.overflow_note if @s.overflow_note
-      "### Index (recall by name with pst:ctx recall <name>)\n#{lines.join("\n")}"
+      "### Index (recall by name with cf:ctx recall <name>)\n#{lines.join("\n")}"
     end
 
     def notes_section

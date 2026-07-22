@@ -10,7 +10,7 @@ class MergeModeHook
   EVENT = 'SessionStart'
 
   ASK = <<~TEXT.strip
-    [pst] Before responding to anything else, call the AskUserQuestion tool to set the session's MERGE MODE.
+    [cf] Before responding to anything else, call the AskUserQuestion tool to set the session's MERGE MODE.
 
     Question: "How should I handle changes from this session?"
     Header: "Merge mode"
@@ -20,7 +20,7 @@ class MergeModeHook
       3. "Admin bypass" - Push branch, open PR, then squash-merge via `gh pr merge --squash --admin` once CI is green. No other quality passes.
       4. "Yolo" - Commit and push straight to the target branch (main, or whichever branch is in play). Never create a new PR; merging an existing PR is fine.
 
-    After the user answers, acknowledge the choice in one line, then proceed. Apply the chosen mode for the rest of the session unless /pst changes it.
+    After the user answers, acknowledge the choice in one line, then proceed. Apply the chosen mode for the rest of the session unless /cf changes it.
   TEXT
 
   def initialize(event)
@@ -43,7 +43,7 @@ class MergeModeHook
   end
 
   def restate(mode)
-    "[pst] Merge mode for this session is already set to #{mode}. Honor it per the /pst rules; run /pst to change it."
+    "[cf] Merge mode for this session is already set to #{mode}. Honor it per the /cf rules; run /cf to change it."
   end
 end
 

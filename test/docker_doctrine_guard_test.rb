@@ -8,11 +8,11 @@ require_relative "../scripts/docker_doctrine_guard"
 
 class DockerDoctrineGuardTest < Minitest::Test
   def setup
-    @prev = ENV.delete("PST_ALLOW_HOSTDAEMON")
+    @prev = ENV.delete("CF_ALLOW_HOSTDAEMON")
   end
 
   def teardown
-    ENV["PST_ALLOW_HOSTDAEMON"] = @prev if @prev
+    ENV["CF_ALLOW_HOSTDAEMON"] = @prev if @prev
   end
 
   def guard(tool_name, tool_input)
@@ -80,7 +80,7 @@ class DockerDoctrineGuardTest < Minitest::Test
   end
 
   def test_escape_hatch_bypasses
-    ENV["PST_ALLOW_HOSTDAEMON"] = "1"
+    ENV["CF_ALLOW_HOSTDAEMON"] = "1"
     assert_nil decision("brew services start caddy")
   end
 
@@ -88,6 +88,6 @@ class DockerDoctrineGuardTest < Minitest::Test
     reason = guard("Bash", "command" => "brew install redis")&.dig("permissionDecisionReason")
     assert_includes reason, "brew install redis"
     assert_includes reason, "Docker container"
-    assert_includes reason, "PST_ALLOW_HOSTDAEMON=1"
+    assert_includes reason, "CF_ALLOW_HOSTDAEMON=1"
   end
 end

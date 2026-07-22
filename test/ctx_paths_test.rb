@@ -16,7 +16,7 @@ class CtxPathsTest < Minitest::Test
   end
 
   def test_store_dir_keys_under_home
-    assert_equal "#{HOME}/.claude/pst/ctx/-srv-u-code-x",
+    assert_equal "#{HOME}/.claude/cf/ctx/-srv-u-code-x",
                  CtxPaths.store_dir("/srv/u/code/x", home: HOME)
   end
 

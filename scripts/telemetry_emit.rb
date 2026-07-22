@@ -16,7 +16,7 @@ require_relative 'shell_git'
 # SessionEnd hook (Capability A, plan section 9.1): fire-and-forget upload of the
 # session's metadata plus its raw Claude Code transcript to the change-fabric
 # backend. Never on the critical path, never blocks, discards every error and
-# always exits 0. Off unless PST_TELEMETRY=1.
+# always exits 0. Off unless CF_TELEMETRY=1.
 #
 # The section 3 identity retrofit: when the cwd's repo carries a
 # `contributors_team` block and a local contributor is configured, the emit
@@ -29,14 +29,14 @@ class TelemetryEmit
   # A few seconds is fine: this is fire-and-forget at session end, not a hot path.
   OPEN_TIMEOUT = 3
   READ_TIMEOUT = 5
-  API_SECRET_PATH = File.join(Dir.home, '.claude', 'pst', 'telemetry', 'api-secret')
+  API_SECRET_PATH = File.join(Dir.home, '.claude', 'cf', 'telemetry', 'api-secret')
 
   def initialize(event)
     @event = event
   end
 
   def run
-    return unless ENV['PST_TELEMETRY'] == '1'
+    return unless ENV['CF_TELEMETRY'] == '1'
 
     api_secret = read_api_secret
     return unless api_secret
@@ -87,7 +87,7 @@ class TelemetryEmit
       git_dirty: git_dirty?,
       merge_mode: MergeModeStore.new(@event['session_id']).mode,
       change_gate: change_gate,
-      pst_skills_active: pst_skills_active,
+      cf_skills_active: cf_skills_active,
       host: hostname,
       schema_version: 2
     }
@@ -116,7 +116,7 @@ class TelemetryEmit
     "#{record['scope']}/#{record['status']}"
   end
 
-  def pst_skills_active
+  def cf_skills_active
     SkillRegistry.load.select { |skill| skill.detected?(cwd) }.map(&:name)
   rescue StandardError
     []

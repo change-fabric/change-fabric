@@ -1,6 +1,6 @@
-# pst:qa validation prompt (run on a host with real Docker access)
+# cf:qa validation prompt (run on a host with real Docker access)
 
-This repo's cloud session proved the `pst:qa` orchestration (opus scope ->
+This repo's cloud session proved the `cf:qa` orchestration (opus scope ->
 clarify -> opus refine -> sonnet execute -> report) end to end against a
 throwaway two-page Express app, using the sandbox's pre-installed local
 Chromium in place of the ephemeral browserless Docker container, because
@@ -17,10 +17,10 @@ validation and land any further fixes as a follow-up PR against this branch.
 
 ## Prompt to paste
 
-Validate the `pst:qa` skill (`skills/qa/SKILL.md` in `pstaylor-patrick/skills`)
+Validate the `cf:qa` skill (`skills/qa/SKILL.md` in `pstaylor-patrick/skills`)
 against real Docker. Build each app below in a private temp directory outside
 this repo (e.g. under `/tmp` or `~/scratch`), never commit them, and delete
-them when done. For each app, invoke `pst:qa` ad hoc with a natural-language
+them when done. For each app, invoke `cf:qa` ad hoc with a natural-language
 target describing a real flow in that app, let it run its full phase
 sequence, and confirm:
 
@@ -55,7 +55,7 @@ Apps to build and test against:
 4. **Python (a local Lambda-style handler)** - use a lightweight local
    emulator (e.g. AWS SAM CLI `sam local start-api`, or a plain Flask/Chalice
    dev server standing in for the handler) fronted by a couple of HTTP
-   routes. Target: an API-only flow with no browser chrome, to prove `pst:qa`
+   routes. Target: an API-only flow with no browser chrome, to prove `cf:qa`
    degrades sensibly when there is little or nothing to visually assert.
 5. **Multi-container Docker Compose app** - at least a frontend container plus
    a backend/API container (add a datastore container if convenient). Target:

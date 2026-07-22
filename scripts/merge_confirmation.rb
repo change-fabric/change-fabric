@@ -4,7 +4,7 @@
 require 'json'
 require 'open3'
 
-# Decides whether the single narrow auto-delete exception in pst:prune step 7
+# Decides whether the single narrow auto-delete exception in cf:prune step 7
 # applies: the branch that was HEAD in the host worktree this session, already
 # classified prunable/squash_merged by BranchClassify, gets one more check
 # against GitHub itself before its remote ref can go without an

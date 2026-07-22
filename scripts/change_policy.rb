@@ -54,7 +54,7 @@ class ChangePolicy
   def protects?(branch) = protected_branches.include?(branch.to_s)
 
   # A normal (non-admin) merge into a protected branch needs a passing
-  # comprehensive pst:change run for the head SHA unless that branch's promotion
+  # comprehensive cf:change run for the head SHA unless that branch's promotion
   # rule opts out. Read per-branch so staging and production can differ.
   def require_change_pass?(branch)
     rule = promotion[branch.to_s]
@@ -92,7 +92,7 @@ class ChangePolicy
     !!@policy.dig('admin_bypass', 'allowed')
   end
 
-  # Whether an allowed admin bypass still requires the pst:change gate to have
+  # Whether an allowed admin bypass still requires the cf:change gate to have
   # passed for the head SHA. Defaults to true so "allowed" never silently means
   # "ungated".
   def admin_bypass_requires_change_pass?

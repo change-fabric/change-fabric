@@ -12,4 +12,4 @@ require_relative 'review_queue'
 # there is no event on stdin to read it from.
 session = ARGV[0].to_s
 rows = ReviewQueue.new(session).ack
-puts "[pst review] Recorded #{rows.size} file(s) as reviewed; gate released."
+puts "[cf review] Recorded #{rows.size} file(s) as reviewed; gate released."

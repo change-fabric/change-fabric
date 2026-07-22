@@ -1,6 +1,6 @@
 ---
-name: pst:redis
-description: Redis cache and session usage. Auto-applied by the pst shim on every Redis-related change; also invocable directly.
+name: cf:redis
+description: Redis cache and session usage. Auto-applied by the cf shim on every Redis-related change; also invocable directly.
 auto:
   extensions: [js, mjs]
   require:
@@ -22,7 +22,7 @@ Favor:
 - Treat misses and outages as recoverable.
 - Bound payload size; prefer ids over full documents.
 - Use `SCAN` for iteration and bulk maintenance.
-- Run dev and test Redis in a dedicated Docker container, one per use case; point `REDIS_URL` at it (pst:docker doctrine).
+- Run dev and test Redis in a dedicated Docker container, one per use case; point `REDIS_URL` at it (cf:docker doctrine).
 
 Forbid by default:
 - A Homebrew or system Redis daemon for project work (`brew services start redis`, host `redis-server`).

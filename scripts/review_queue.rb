@@ -11,7 +11,7 @@ require 'fileutils'
 # is a loud last resort against a batch that never gets reviewed (a stuck or
 # non-compliant loop); ack resets it, so it counts denials since the last review,
 # not for the session's whole life. State lives under
-# ~/.claude/pst/sessions/<id>/; a blank session id is non-persistable.
+# ~/.claude/cf/sessions/<id>/; a blank session id is non-persistable.
 class ReviewQueue
   CAP = 5
 
@@ -104,7 +104,7 @@ class ReviewQueue
 
   def persistable? = !@session_id.empty?
 
-  def dir           = File.join(Dir.home, '.claude', 'pst', 'sessions', @session_id)
+  def dir           = File.join(Dir.home, '.claude', 'cf', 'sessions', @session_id)
   def queue_file    = File.join(dir, 'review-queue')
   def reviewed_file = File.join(dir, 'review-reviewed')
   def rounds_file   = File.join(dir, 'review-rounds')

@@ -1,6 +1,6 @@
 ---
-name: pst:javascript
-description: Modern JavaScript (ESM/JSX) design and safety. Auto-applied by the pst shim on every JavaScript change; also invocable directly.
+name: cf:javascript
+description: Modern JavaScript (ESM/JSX) design and safety. Auto-applied by the cf shim on every JavaScript change; also invocable directly.
 auto:
   extensions: [js, mjs, cjs, jsx]
   detect: [package.json, "eslint.config.*", ".eslintrc*", jsconfig.json]

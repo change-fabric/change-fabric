@@ -54,14 +54,14 @@ class SkillRegistryExcludeTest < Minitest::Test
 
   def test_shipped_drizzle_fires_on_drizzle_files_only
     by_name = SkillRegistry.load(REPO_SKILLS).to_h { |s| [ s.name, s ] }
-    drizzle = by_name["pst:drizzle"]
+    drizzle = by_name["cf:drizzle"]
     assert drizzle.matches?("src/db/schema.ts")
     assert drizzle.matches?("drizzle.config.ts")
     refute drizzle.matches?("src/components/Button.tsx")
   end
 
   def test_shipped_drizzle_suppressed_in_prisma_project
-    drizzle = SkillRegistry.load(REPO_SKILLS).find { |s| s.name == "pst:drizzle" }
+    drizzle = SkillRegistry.load(REPO_SKILLS).find { |s| s.name == "cf:drizzle" }
     prisma = project_with("prisma/schema.prisma", "src/db/schema.ts")
     real = project_with("drizzle.config.ts", "src/db/schema.ts")
     refute drizzle.matches?(File.join(prisma, "src/db/schema.ts"), root: prisma)
@@ -72,7 +72,7 @@ class SkillRegistryExcludeTest < Minitest::Test
   end
 
   def test_shipped_github_actions_fires_on_workflows_only
-    gha = SkillRegistry.load(REPO_SKILLS).find { |s| s.name == "pst:github-actions" }
+    gha = SkillRegistry.load(REPO_SKILLS).find { |s| s.name == "cf:github-actions" }
     assert gha.matches?(".github/workflows/ci.yml")
     refute gha.matches?("docker-compose.yml")
     refute gha.matches?("config/app.yaml")

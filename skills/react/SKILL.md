@@ -1,6 +1,6 @@
 ---
-name: pst:react
-description: React predictable-UI rubric. Auto-applied by the pst shim on every React component change; also invocable directly.
+name: cf:react
+description: React predictable-UI rubric. Auto-applied by the cf shim on every React component change; also invocable directly.
 auto:
   extensions: [jsx, tsx]
 ---

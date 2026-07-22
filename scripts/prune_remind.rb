@@ -5,15 +5,15 @@ require 'json'
 require_relative 'hook_event'
 
 # UserPromptSubmit hook: when the prompt says a merge already happened, surface
-# the pst:prune skill so post-merge cleanup is offered without being asked.
+# the cf:prune skill so post-merge cleanup is offered without being asked.
 #
-# This is the automated half of pst:prune's hybrid trigger: the skill is still
+# This is the automated half of cf:prune's hybrid trigger: the skill is still
 # manually invocable, but a completed merge is a reliable cue that the local
 # clone wants reconciling. It only matches past-tense, completed merges ("I
 # merged #6", "PR is merged", "squash-merged") so an imperative ("merge this")
 # or "merge conflict" does not fire it. The word boundary keeps "unmerged" out.
 #
-# Advisory only: it injects context, it does not act, so pst:prune's own guards
+# Advisory only: it injects context, it does not act, so cf:prune's own guards
 # still apply.
 class PruneRemind
   EVENT = 'UserPromptSubmit'
@@ -52,8 +52,8 @@ class PruneRemind
   end
 
   def context
-    '[pst] This prompt reads as a completed merge. If a PR or branch just ' \
-      'merged, run /pst:prune to fast-forward the trunk and prune merged ' \
+    '[cf] This prompt reads as a completed merge. If a PR or branch just ' \
+      'merged, run /cf:prune to fast-forward the trunk and prune merged ' \
       'branches and worktrees (local and remote). Honor its guards: never ' \
       'delete unmerged or dirty work, and never delete a remote branch, ' \
       'without an explicit AskUserQuestion approval.'

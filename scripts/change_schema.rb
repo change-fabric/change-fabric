@@ -10,7 +10,7 @@
 # cannot land without updating both.
 #
 # VERSION is the schema's own semver, independent of the repo's VERSION file
-# (which versions the whole pst skills toolkit). Bump it only when a CHANGE.md
+# (which versions the whole cf skills toolkit). Bump it only when a CHANGE.md
 # frontmatter field is added, removed, or renamed, and record the change in the
 # spec doc's changelog. A field-set change without a matching version bump, or a
 # version bump the doc does not reflect, is exactly what the drift test catches.

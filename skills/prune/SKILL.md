@@ -1,14 +1,14 @@
 ---
-name: pst:prune
+name: cf:prune
 description: After a PR merges, fast-forward the trunk and prune merged branches and worktrees (local and remote), and optionally clear untracked junk. Protects keepers like env files with secrets. Never deletes unmerged, uncommitted, or untracked work, or any remote branch, without an explicit AskUserQuestion yes.
 ---
 
-# PST Prune
+# CF Prune
 
 Return the local clone and the remote to a clean state on the latest trunk after
 a PR lands.
 
-**Trigger:** `/pst:prune`, or unprompted when the turn confirms a PR or branch
+**Trigger:** `/cf:prune`, or unprompted when the turn confirms a PR or branch
 merged ("I merged #N", or a tracked PR now reads merged). Verify the merge is
 real; never infer it from an open PR. The `prune_remind.rb` hook only surfaces
 the skill; these guards still apply.
@@ -44,7 +44,7 @@ TRUNK=$(git symbolic-ref --short refs/remotes/origin/HEAD | sed 's#^origin/##')
    worktree) before step 4 fast-forwards it away, and the host worktree path.
 2. **Fetch:** `git fetch --prune origin` (drops tracking refs for server-deleted
    branches and refreshes merge checks; not a remote deletion).
-3. **Classify:** run `ruby ~/.claude/pst/bin/branch_classify.rb $TRUNK` and act on
+3. **Classify:** run `ruby ~/.claude/cf/bin/branch_classify.rb $TRUNK` and act on
    its JSON, one entry per local branch other than trunk:
    - `kind: "prunable"` -> zero unmerged commits against `origin/$TRUNK`.
    - `kind: "squash_merged"` -> commits aren't literally in trunk history, but a
@@ -63,7 +63,7 @@ TRUNK=$(git symbolic-ref --short refs/remotes/origin/HEAD | sed 's#^origin/##')
    classify (see below), then ask. Run `git clean -fd -- <paths>` only on a yes.
 7. **Prune remote:** for non-trunk `origin/<branch>` still present after step 2:
    if `branch == CURRENT_BRANCH` and its classify `kind` was `prunable` or
-   `squash_merged`, run `ruby ~/.claude/pst/bin/merge_confirmation.rb <branch>
+   `squash_merged`, run `ruby ~/.claude/cf/bin/merge_confirmation.rb <branch>
    <kind>`. On `confirmed: true`, delete directly (no question); report the
    evidence (PR number, verified `MERGED`, `headRefName` match, `kind`) in the
    final report instead of a question. On `confirmed: false`, or for every
@@ -72,12 +72,12 @@ TRUNK=$(git symbolic-ref --short refs/remotes/origin/HEAD | sed 's#^origin/##')
 8. **Re-prune:** `git fetch --prune origin` if anything changed.
 9. **Report:** final `git branch`, `git branch -r`, `git worktree list`,
    `git status -sb`, plus anything kept because it was rogue or declined.
-10. **Ctx maintenance:** if `~/.claude/pst/bin/ctx_retention.rb` exists, run
-    `ruby ~/.claude/pst/bin/ctx_retention.rb prune` for this project's context
+10. **Ctx maintenance:** if `~/.claude/cf/bin/ctx_retention.rb` exists, run
+    `ruby ~/.claude/cf/bin/ctx_retention.rb prune` for this project's context
     store. It auto-removes expired ephemeral docs; for each `needs review` item
     AskUserQuestion (Archive / Remove / Keep) before acting, and apply with
     `ctx_store.rb archive|remove <name>`; surface `structural issues` for the user
-    to fix. Never touch a `truth` doc. This is the pst:ctx prune flow; its skill
+    to fix. Never touch a `truth` doc. This is the cf:ctx prune flow; its skill
     has the detail. Local-only, so it runs under every merge mode.
 
 ## Classifying untracked

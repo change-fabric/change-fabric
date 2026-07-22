@@ -10,7 +10,7 @@ class SkillRegistryTest < Minitest::Test
 
   def test_loads_only_skills_with_an_auto_block
     skill_dir("ruby", auto: { "extensions" => [ "rb" ] })
-    plain_skill("pst")
+    plain_skill("cf")
     assert_equal [ "ruby" ], load.map(&:name)
   end
 
@@ -76,12 +76,12 @@ class SkillRegistryTest < Minitest::Test
 
   def test_shipped_skills_declare_intended_scope
     by_name = SkillRegistry.load(REPO_SKILLS).to_h { |s| [ s.name, s ] }
-    assert by_name["pst:ruby"].matches?("app/models/user.rb")
-    assert by_name["pst:refactoring"].all_code?
-    assert by_name["pst:refactoring"].matches?("src/main.go")
-    refute by_name["pst:refactoring"].matches?("docs/notes.md")
-    assert by_name["pst:ai-slop"].all_files?
-    assert by_name["pst:ai-slop"].matches?("docs/notes.md")
-    assert by_name["pst:ai-slop"].matches?("app/models/user.rb")
+    assert by_name["cf:ruby"].matches?("app/models/user.rb")
+    assert by_name["cf:refactoring"].all_code?
+    assert by_name["cf:refactoring"].matches?("src/main.go")
+    refute by_name["cf:refactoring"].matches?("docs/notes.md")
+    assert by_name["cf:ai-slop"].all_files?
+    assert by_name["cf:ai-slop"].matches?("docs/notes.md")
+    assert by_name["cf:ai-slop"].matches?("app/models/user.rb")
   end
 end

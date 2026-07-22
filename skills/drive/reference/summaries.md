@@ -1,4 +1,4 @@
-# pst:drive summary reference
+# cf:drive summary reference
 
 Read this before composing any of the three bodies below. It has no bearing
 on the rest of the workflow.
@@ -11,7 +11,7 @@ At most 640 characters, plain prose. Cover, in order:
 - What the iterate loop fixed: pull the counts and lane list from
   `fixesSummary`.
 - Both thread-sweep outcomes: `fixed`/`wontFix`/`needsHuman` counts from the
-  step-2 and step-6b `pst:resolve-threads` runs, folded into
+  step-2 and step-6b `cf:resolve-threads` runs, folded into
   `execSummaryDraft`'s `{{threadSweeps}}` placeholder.
 - The local CI prediction result (`ciPrediction.green` and any job that did
   not pass).

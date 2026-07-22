@@ -1,4 +1,4 @@
-# pst:code-review posting reference
+# cf:code-review posting reference
 
 Read this before step 4 (posting any comment). It has no bearing on steps 1-3.
 
@@ -16,7 +16,7 @@ severe it sounds:
 Drop anything that only clears the P3 bar and has no suggestion block; it is
 noise, not feedback. Every posted finding needs a `title` (written by the
 Verify stage in workflow.js); render the comment body via `ruby
-~/.claude/pst/bin/render_finding_comment.rb`, never a hand-written tier
+~/.claude/cf/bin/render_finding_comment.rb`, never a hand-written tier
 prefix.
 
 ## Posting style
@@ -26,13 +26,13 @@ One finding, one comment: an emoji-badged tier header (`🔴 P1`, `🟠 P2`,
 fix. Before including the comment in the `gh api` review payload (or calling
 `add_comment_to_pending_review`, if using the MCP-style fallback), pipe the
 finding as JSON (`{tier, title, scenario, suggestion}`, `scenario` carrying
-the evidence-backed detail) to `ruby ~/.claude/pst/bin/render_finding_comment.rb`
+the evidence-backed detail) to `ruby ~/.claude/cf/bin/render_finding_comment.rb`
 on stdin and post its stdout verbatim as the comment body. The script owns
 the template, the badge, and the char-budget fallback (drop the suggestion
 block, then truncate the scenario) once the finding is over its 640-char
 cap; do the prose-trimming judgment call yourself first so the script's
 truncation is a safety net, not the first line of defense. No summary of
-the summary, no praise, no restating the diff. Apply `pst:ai-slop`'s
+the summary, no praise, no restating the diff. Apply `cf:ai-slop`'s
 punctuation and tone rules to `title` and `scenario` before rendering.
 
 Add a GitHub suggestion block only when the fix is mechanical and

@@ -3,8 +3,8 @@
 
 require_relative 'skill_registry'
 
-# CLI for the /pst:refactor command (copied to the shim bin but not wired as a
-# hook): given a changeset's files, prints which auto-firing pst skills cover
+# CLI for the /cf:refactor command (copied to the shim bin but not wired as a
+# hook): given a changeset's files, prints which auto-firing cf skills cover
 # each, reusing the exact match rules the per-edit hooks use. The command
 # resolves a scope to a file list, runs it through here, and applies each named
 # skill's rubric. Paths come from ARGV, or newline-delimited stdin when ARGV is
@@ -31,7 +31,7 @@ class SkillRoute
 
   def render
     grouped = by_skill
-    return 'No pst skills match the given files.' if grouped.empty?
+    return 'No cf skills match the given files.' if grouped.empty?
 
     grouped.sort.map do |name, files|
       "#{name} (#{files.length}):\n" + files.map { |f| "  #{f}" }.join("\n")

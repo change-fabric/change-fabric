@@ -154,7 +154,7 @@ profile under `change_config.profiles` instead of a second, parallel
 keeps one documented audit surface (the same lane routes, thresholds, and
 viewports) across every environment, and lets a profile state only what
 actually differs: how to reach that target and which lane base URLs point at
-it. `ruby ~/.claude/pst/bin/change_run.rb all --profile staging` runs the
+it. `ruby ~/.claude/cf/bin/change_run.rb all --profile staging` runs the
 `staging` profile; omitting `--profile` uses `change_config.default_profile`
 when set, or the bare `change_config` fields when there is no `profiles` block
 at all. A `profiles` block with no `--profile` flag and no `default_profile`
@@ -171,7 +171,7 @@ of the whole schema: a profile changes *where* the same audit runs, never
 
 **Adopting profiles without breaking the bare merge gate.** The moment a
 `profiles` block is non-empty, a bare `change_run.rb all` (the invocation
-`pst:drive`'s local-stack lane and the merge hook's own gate both run) has no
+`cf:drive`'s local-stack lane and the merge hook's own gate both run) has no
 profile to resolve and raises, per the setup-error rule above. Give it one:
 add an empty (or near-empty) profile for whatever the bare config already is
 (conventionally named `local`) and set `default_profile: local`. A bare run
@@ -208,12 +208,12 @@ rules in a form the gate can enforce, and the body is expected to explain it.
 | `change_policy.gate.require_change_pass` | boolean | no (default true) | Fallback gate for a protected branch that has no `promotion` rule of its own. |
 | `change_policy.promotion.<branch>.review_required` | boolean | no | Whether a merge review is required to promote into this branch (read by humans; explained in prose). |
 | `change_policy.promotion.<branch>.self_review_allowed` | boolean | no | Whether the author may review or merge their own change (read by humans; explained in prose). |
-| `change_policy.promotion.<branch>.require_change_pass` | boolean | no (default true) | Gates a merge into this branch on a passing comprehensive pst:change run for the head SHA. |
+| `change_policy.promotion.<branch>.require_change_pass` | boolean | no (default true) | Gates a merge into this branch on a passing comprehensive cf:change run for the head SHA. |
 | `change_policy.promotion.<branch>.ci_gate` | string | no | The CI that must be green to promote (read by humans; explained in prose). |
 | `change_policy.promotion.<branch>.ci_skippable` | boolean | no | Whether that CI gate can be skipped, and the prose says by whom. |
 | `change_policy.promotion.<branch>.profile` | string | no | (0.2.0) Scopes `require_change_pass` to one named `change_config.profiles` entry's own recorded pass, instead of any profile-less comprehensive run. A passing `staging` profile run never satisfies a branch whose rule names `production`. |
 | `change_policy.admin_bypass.allowed` | boolean | no (default false) | Whether admin-bypass merging (`gh pr merge --admin`) is permitted at all for a protected branch. |
-| `change_policy.admin_bypass.require_change_pass` | boolean | no (default true) | Whether an allowed admin bypass still requires the pst:change gate to have passed. |
+| `change_policy.admin_bypass.require_change_pass` | boolean | no (default true) | Whether an allowed admin bypass still requires the cf:change gate to have passed. |
 | `change_policy.admin_bypass.conditions` | string | no | The repo's stated condition for an acceptable admin bypass, surfaced in the gate's deny reason. |
 
 ## Worked examples
@@ -313,7 +313,7 @@ change_policy:
     production: { require_change_pass: true, profile: production }
 ```
 
-`ruby ~/.claude/pst/bin/change_run.rb all --profile staging` runs the
+`ruby ~/.claude/cf/bin/change_run.rb all --profile staging` runs the
 `staging` profile; a bare `change_run.rb all` resolves `default_profile:
 local`, which changes nothing (`local: {}` has no overrides) but is what
 makes the bare invocation resolve at all instead of raising the
@@ -333,7 +333,7 @@ For a full example of every field, see `reference/CHANGE.template.md`.
 The schema carries its own semantic version (`ChangeSchema::VERSION` in
 `scripts/change_schema.rb`, mirrored by the "Schema version" line at the top of
 this document). It is independent of the repo's `VERSION` file, which versions
-the whole pst skills toolkit. Adding, removing, or renaming a frontmatter field
+the whole cf skills toolkit. Adding, removing, or renaming a frontmatter field
 is a schema change: bump this version, update `scripts/change_schema.rb`, and
 record the change below in the same pass. The drift test fails if the field set
 or the version here and in the code disagree, so a schema change cannot land
@@ -380,7 +380,7 @@ pre-release you actually want a consumer to be able to pin, same
 
 - 0.1.0: initial pre-release specification, dogfooded end to end against real
   consumer repos before its first tagged release. Consolidates the mechanical
-  config (formerly a separate `.pst/change.yml`) and the governance policy
+  config (formerly a separate `.cf/change.yml`) and the governance policy
   into the single `CHANGE.md` frontmatter, with `change_config:` and
   `change_policy:` blocks. Includes, from that dogfooding: authenticated
   browserless checks and Figma visual alignment (`routes[]` as a mapping with

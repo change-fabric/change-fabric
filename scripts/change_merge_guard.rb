@@ -11,10 +11,10 @@ require_relative 'guarded_command'
 
 # PreToolUse hook: gates a `gh pr merge` that lands into a repo's protected
 # branch (staging/production, or whatever CHANGE.md names) on a comprehensive
-# pst:change run having passed for the PR's head commit, and enforces the repo's
+# cf:change run having passed for the PR's head commit, and enforces the repo's
 # own admin-bypass policy from CHANGE.md. Same shape as merge_mode_guard: it
 # reads the Bash command text and denies with a reason, a loud guardrail rather
-# than a sandbox, bypassable (PST_ALLOW_UNGATED_MERGE=1) for the genuine
+# than a sandbox, bypassable (CF_ALLOW_UNGATED_MERGE=1) for the genuine
 # exception.
 #
 # One file informs the decision: the repo-root CHANGE.md, whose `change_policy:`
@@ -30,7 +30,7 @@ class ChangeMergeGuard
   end
 
   def emit(io = $stdout)
-    return if ENV['PST_ALLOW_UNGATED_MERGE'] == '1'
+    return if ENV['CF_ALLOW_UNGATED_MERGE'] == '1'
     return unless @event['tool_name'] == 'Bash'
     return unless GuardedCommand.merge?(command)
 
@@ -80,7 +80,7 @@ class ChangeMergeGuard
     gate_violation(base, sha, policy, kind: 'merge')
   end
 
-  # Shared gate check: a comprehensive pst:change run must have passed for this
+  # Shared gate check: a comprehensive cf:change run must have passed for this
   # exact head SHA, scoped to the branch's named profile (v0.2.0) when its
   # promotion rule names one.
   def gate_violation(base, sha, policy, kind:)
@@ -90,19 +90,19 @@ class ChangeMergeGuard
     conditions = policy.admin_bypass_conditions
     note = conditions.empty? ? '' : "Repo policy: #{conditions}. "
     target = profile ? "the '#{profile}' profile" : 'a comprehensive'
-    "#{kind} into '#{base}' is gated: no passing #{target} pst:change run recorded for head " \
-      "#{sha[0, 12]}. Run /pst:change against this PR first#{profile ? " with --profile #{profile}" : ''}. " \
+    "#{kind} into '#{base}' is gated: no passing #{target} cf:change run recorded for head " \
+      "#{sha[0, 12]}. Run /cf:change against this PR first#{profile ? " with --profile #{profile}" : ''}. " \
       "#{note}#{escape_note}"
   end
 
-  # PST_ALLOW_UNGATED_MERGE=1 only works if it was exported before this
+  # CF_ALLOW_UNGATED_MERGE=1 only works if it was exported before this
   # session's own hook process started, which an agent mid-session cannot
   # arrange. The reachable path: a human runs change_override.rb themselves,
   # from their own real terminal (it refuses without one), to record an
   # auditable, sha-scoped override the guard checks in #violation above.
   def escape_note
-    'Set PST_ALLOW_UNGATED_MERGE=1 before this session started, or, from your own terminal, ' \
-      "record an override: ruby ~/.claude/pst/bin/change_override.rb <sha> --reason '<why>'."
+    'Set CF_ALLOW_UNGATED_MERGE=1 before this session started, or, from your own terminal, ' \
+      "record an override: ruby ~/.claude/cf/bin/change_override.rb <sha> --reason '<why>'."
   end
 
   def admin?(cmd) = GuardedCommand.tokens(cmd).include?('--admin')
@@ -147,7 +147,7 @@ class ChangeMergeGuard
       hookSpecificOutput: {
         hookEventName: EVENT,
         permissionDecision: 'deny',
-        permissionDecisionReason: "[pst:change] #{reason}"
+        permissionDecisionReason: "[cf:change] #{reason}"
       }
     }
   end

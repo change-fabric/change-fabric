@@ -207,7 +207,7 @@ change_policy:
 
   # Per-environment promotion rules. Each key is the branch a promotion merges
   # INTO. require_change_pass gates that merge on a passing comprehensive
-  # pst:change run for the head SHA. The other keys are read by humans and
+  # cf:change run for the head SHA. The other keys are read by humans and
   # explained in the prose; state them honestly.
   promotion:
     staging:
@@ -280,7 +280,7 @@ Give a direct rule, not "sometimes it is fine".
   admin-merges routinely once CI is green, including the author merging their
   own work when no separate reviewer is available, write that down as the actual
   policy and name the guardrail that still applies (for example: the
-  comprehensive pst:change audit gate must still have passed for the head
+  comprehensive cf:change audit gate must still have passed for the head
   commit, which the merge hook enforces).
 - The conditions under which it is NOT acceptable (for example: a red CI, an
   unresolved review thread, a change to auth or billing that a second person

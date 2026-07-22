@@ -8,8 +8,8 @@ class RenderFindingCommentTest < Minitest::Test
   end
 
   def test_renders_badge_title_and_scenario
-    body = render("tier" => "P2", "title" => "Missing pst:ctx row", "scenario" => "It is absent from the table.")
-    assert_equal "**🟠 P2 - Missing pst:ctx row**\n\nIt is absent from the table.", body
+    body = render("tier" => "P2", "title" => "Missing cf:ctx row", "scenario" => "It is absent from the table.")
+    assert_equal "**🟠 P2 - Missing cf:ctx row**\n\nIt is absent from the table.", body
   end
 
   def test_uses_the_right_badge_per_tier

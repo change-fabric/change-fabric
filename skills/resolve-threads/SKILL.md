@@ -1,11 +1,11 @@
 ---
-name: pst:resolve-threads
+name: cf:resolve-threads
 description: Resolves every unresolved review thread on a pull request. Each thread is evaluated by its own background agent inside an isolated git worktree, weighing the comment against the full pull request and repository context, then either implementing the fix directly, dismissing it with a recorded rationale, or deferring it to a human when the call is ambiguous. Verdicts are reported before any code, reply, or resolution reaches GitHub.
 ---
 
-# PST Resolve Threads
+# CF Resolve Threads
 
-Trigger: `/pst:resolve-threads <PR>`.
+Trigger: `/cf:resolve-threads <PR>`.
 
 Question: given everything this thread's author could see plus everything the
 repository as a whole can add, is the recommendation worth acting on? A
@@ -82,5 +82,5 @@ can be resolved unambiguously, ask which one is meant.
    `conflicts`: reply with the open question or the drift that needs a human
    look, and leave the thread unresolved.
 7. **Push.** Push the branch carrying the new commits. The session's active
-   pst merge mode (see `pst`) governs whether that push, and any PR update,
+   cf merge mode (see `cf`) governs whether that push, and any PR update,
    actually happens versus staying local.

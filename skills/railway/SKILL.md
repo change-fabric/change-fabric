@@ -1,6 +1,6 @@
 ---
-name: pst:railway
-description: Railway deploy and service configuration. Auto-applied by the pst shim on every Railway deploy change; also invocable directly.
+name: cf:railway
+description: Railway deploy and service configuration. Auto-applied by the cf shim on every Railway deploy change; also invocable directly.
 auto:
   basenames: [railway.toml, railway.json, .railwayignore, Dockerfile]
   detect: [railway.toml, railway.json, .railwayignore, Dockerfile]

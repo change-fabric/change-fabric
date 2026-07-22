@@ -1,6 +1,6 @@
 ---
-name: pst:terraform
-description: Terraform safe-change rubric. Auto-applied by the pst shim on every Terraform change; also invocable directly.
+name: cf:terraform
+description: Terraform safe-change rubric. Auto-applied by the cf shim on every Terraform change; also invocable directly.
 auto:
   extensions: [tf, tfvars]
   detect: ["*.tf", .terraform.lock.hcl]

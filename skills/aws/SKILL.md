@@ -1,6 +1,6 @@
 ---
-name: pst:aws
-description: AWS Well-Architected rubric. Auto-applied by the pst shim in AWS infrastructure projects; also invocable directly.
+name: cf:aws
+description: AWS Well-Architected rubric. Auto-applied by the cf shim in AWS infrastructure projects; also invocable directly.
 auto:
   basenames: [cdk.json, serverless.yml, serverless.yaml, samconfig.toml, template.yaml, template.yml, aws-exports.js]
   detect: [cdk.json, serverless.yml, serverless.yaml, samconfig.toml, template.yaml, template.yml, aws-exports.js, .aws]

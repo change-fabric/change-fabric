@@ -22,27 +22,27 @@ type HookContext = {
 
 type Selector = (message: string, options: string[]) => Promise<string | undefined>;
 
-const HOOK_BIN = join(process.env.HOME ?? "", ".claude", "pst", "bin");
-const RUBY = process.env.PST_RUBY ?? "ruby";
+const HOOK_BIN = join(process.env.HOME ?? "", ".claude", "cf", "bin");
+const RUBY = process.env.CF_RUBY ?? "ruby";
 const MERGE_MODES = ["Local only", "Merge ready", "Admin bypass"] as const;
 const PI_SESSION_PREFIX = "pi-";
 const UNSET_MERGE_MODE_CONTEXT =
-	"[pst pi] No merge mode is set for this Pi session. Pi does not have Claude Code AskUserQuestion parity in non-UI modes, so run /pst before pushing, opening PRs, or merging.";
+	"[cf pi] No merge mode is set for this Pi session. Pi does not have Claude Code AskUserQuestion parity in non-UI modes, so run /cf before pushing, opening PRs, or merging.";
 const STOP_BEST_EFFORT_CONTEXT =
-	"[pst pi] Pi has no blocking Stop hook. Treat this follow-up as a required review gate before declaring the work complete.";
+	"[cf pi] Pi has no blocking Stop hook. Treat this follow-up as a required review gate before declaring the work complete.";
 const HOOK_TIMEOUT_MS = 5_000;
 
-export default function pstHooks(pi: ExtensionAPI) {
+export default function cfHooks(pi: ExtensionAPI) {
 	let pendingContext: string[] = [];
 	let stopHookActive = false;
 
-	pi.registerCommand("pst", {
-		description: "Set the pst merge mode for this Pi session",
+	pi.registerCommand("cf", {
+		description: "Set the cf merge mode for this Pi session",
 		handler: async (args, ctx) => {
 			const mode = await resolveMode(args, ctx);
 			if (!mode) return;
 			writeMergeMode(sessionId(ctx), mode);
-			ctx.ui.notify(`pst merge mode: ${mode}`, "info");
+			ctx.ui.notify(`cf merge mode: ${mode}`, "info");
 		},
 	});
 
@@ -71,7 +71,7 @@ export default function pstHooks(pi: ExtensionAPI) {
 			const output = await runHook(script, payload, ctx.cwd);
 			const decision = output.hookSpecificOutput?.permissionDecision;
 			if (decision === "deny") {
-				return { block: true, reason: output.hookSpecificOutput?.permissionDecisionReason ?? "Blocked by pst hook" };
+				return { block: true, reason: output.hookSpecificOutput?.permissionDecisionReason ?? "Blocked by cf hook" };
 			}
 			emitContext(pi, output.hookSpecificOutput?.additionalContext);
 		}
@@ -108,7 +108,7 @@ async function ensureMergeMode(ctx: HookContext & { hasUI?: boolean; ui?: { sele
 	if (readMergeMode(id)) return;
 	if (!ctx.hasUI || !ctx.ui?.select) return;
 
-	const mode = await ctx.ui.select("Merge mode for this pst session", [...MERGE_MODES]);
+	const mode = await ctx.ui.select("Merge mode for this cf session", [...MERGE_MODES]);
 	if (isMergeMode(mode)) writeMergeMode(id, mode);
 }
 
@@ -167,7 +167,7 @@ async function runAndQueue(_pi: ExtensionAPI, pending: string[], script: string,
 
 function emitContext(pi: ExtensionAPI, context: string | undefined) {
 	if (!context) return;
-	pi.sendMessage({ customType: "pst-hook", content: context, display: true }, { deliverAs: "steer" });
+	pi.sendMessage({ customType: "cf-hook", content: context, display: true }, { deliverAs: "steer" });
 }
 
 function runHook(script: string, event: Record<string, unknown>, cwd: string): Promise<HookOutput> {
@@ -232,7 +232,7 @@ function sessionId(ctx: HookContext) {
 }
 
 function mergeModePath(id: string) {
-	return join(process.env.HOME ?? "", ".claude", "pst", "sessions", id, "merge-mode");
+	return join(process.env.HOME ?? "", ".claude", "cf", "sessions", id, "merge-mode");
 }
 
 function readMergeMode(id: string) {

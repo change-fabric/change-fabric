@@ -114,7 +114,7 @@ class SkillInject
     fresh = first_time(skills)
     return if fresh.empty?
 
-    text = fresh.map { |skill| "[pst skill: #{skill.name}] active this session.\n\n#{skill.body}" }
+    text = fresh.map { |skill| "[cf skill: #{skill.name}] active this session.\n\n#{skill.body}" }
                 .join("\n\n---\n\n")
     io.puts(JSON.generate(hookSpecificOutput: { hookEventName: EVENT, additionalContext: text }))
   end

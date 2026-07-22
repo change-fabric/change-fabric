@@ -24,7 +24,7 @@ module ReviewPrompt
     sections = entries.group_by { |entry| entry[:skill] }
                       .map { |name, rows| section(by_name[name], name, rows) }
     <<~TEXT.strip
-      [pst review] #{entries.size} file(s) changed this session under review-enabled
+      [cf review] #{entries.size} file(s) changed this session under review-enabled
       skills have not been reviewed yet. Review them before this work leaves the machine.
 
       Run the review now and WAIT for its result (do not background it):
@@ -46,9 +46,9 @@ module ReviewPrompt
   def ack_command(session_id) = "ruby #{ACK_SCRIPT} #{session_id}"
 
   def cap_notice(count)
-    "[pst review] Round cap (#{ReviewQueue::CAP}) reached; #{count} file(s) " \
+    "[cf review] Round cap (#{ReviewQueue::CAP}) reached; #{count} file(s) " \
       'still changing. Automatic design review is paused for this session; review ' \
-      'remaining changes manually or invoke /pst:ruby.'
+      'remaining changes manually or invoke /cf:ruby.'
   end
 
   def section(skill, name, rows)

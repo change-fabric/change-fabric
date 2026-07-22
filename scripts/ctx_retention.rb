@@ -7,7 +7,7 @@ require_relative 'ctx_paths'
 require_relative 'ctx_store'
 
 # Decides what in a ctx store is purgeable or needs attention, mirroring
-# pst:prune's stance: truth is never a candidate, ephemeral past its ttl is safe
+# cf:prune's stance: truth is never a candidate, ephemeral past its ttl is safe
 # to drop (the ttl was prior consent), and done/superseded/over-cap/stale active
 # docs are surfaced for an explicit decision rather than removed. It also runs a
 # structural check (does a doc parse, does its class match its directory). The
@@ -133,7 +133,7 @@ class CtxRetention
 
   # Runs retention over the current project's store: auto-removes expired
   # ephemeral docs, then reports the review set and any structural issues for the
-  # agent (the pst:ctx prune verb) to act on. It never archives or removes a
+  # agent (the cf:ctx prune verb) to act on. It never archives or removes a
   # review-set doc on its own; that needs an explicit yes.
   class CLI
     def self.run(argv, out: $stdout)
@@ -152,7 +152,7 @@ class CtxRetention
     end
 
     def self.report(out, removed, review, issues)
-      out.puts("[pst:ctx prune] #{Dir.pwd}")
+      out.puts("[cf:ctx prune] #{Dir.pwd}")
       out.puts("auto-removed (expired ephemeral): #{removed.empty? ? 'none' : removed.join(', ')}")
       out.puts('needs review:')
       out.puts(review.empty? ? '  none' : review.map { |candidate| review_line(candidate) }.join("\n"))

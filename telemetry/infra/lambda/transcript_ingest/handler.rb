@@ -45,7 +45,7 @@ def handler(event:, context:)
     "git_dirty" => meta["git_dirty"],
     "merge_mode" => meta["merge_mode"],
     "change_gate" => meta["change_gate"],
-    "pst_skills_active" => meta["pst_skills_active"],
+    "cf_skills_active" => meta["cf_skills_active"],
     "host" => meta["host"],
     "scan_status" => "pending",
     "schema_version" => 2,

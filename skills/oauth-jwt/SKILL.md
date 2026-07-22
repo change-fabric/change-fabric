@@ -1,6 +1,6 @@
 ---
-name: pst:oauth-jwt
-description: OAuth 2.0 and JWT auth flows. Auto-applied by the pst shim on every auth-related change; also invocable directly.
+name: cf:oauth-jwt
+description: OAuth 2.0 and JWT auth flows. Auto-applied by the cf shim on every auth-related change; also invocable directly.
 auto:
   extensions: [js, jsx, mjs]
   require:

@@ -5,7 +5,7 @@ require_relative 'change_sha_record'
 
 # Records the outcome of a change-fabric run keyed by the git head SHA it ran
 # against, so a merge gate in a later session can ask "did a comprehensive
-# pst:change run pass for the exact commit this PR merges?" State is keyed by SHA
+# cf:change run pass for the exact commit this PR merges?" State is keyed by SHA
 # rather than session id (unlike the merge-mode and review stores) precisely
 # because the writer and the reader are different sessions: change_run writes
 # after a run, the merge guard reads when a `gh pr merge` is attempted, possibly
@@ -13,7 +13,7 @@ require_relative 'change_sha_record'
 #
 # A record is written for every run, standalone lane or comprehensive; only a
 # `scope: all` record that passed satisfies the release gate, so a single-lane
-# `pst:k6` run never accidentally unlocks a staging merge. `profile` scopes the
+# `cf:k6` run never accidentally unlocks a staging merge. `profile` scopes the
 # record to one of a CHANGE.md's named change_config profiles (v0.2.0), so a
 # comprehensive pass against `staging` never satisfies a gate that requires
 # `production`, or the unscoped (no profiles configured) gate.

@@ -3,7 +3,7 @@
 
 require 'json'
 
-# Renders one pst:code-review finding as a posted PR comment body. Takes a
+# Renders one cf:code-review finding as a posted PR comment body. Takes a
 # JSON finding on stdin ({tier, title, scenario, suggestion?}) and prints the
 # final markdown to stdout, so the agent never hand-assembles the template or
 # does its own char-budget arithmetic.

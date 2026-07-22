@@ -113,7 +113,7 @@ class ContributorsTeam
 
   # Local path holding just the contributor_id string, written by cf-team-join.
   def contributor_id_path(team_id)
-    File.join(Dir.home, '.claude', 'pst', 'teams', team_id.to_s, 'contributor_id')
+    File.join(Dir.home, '.claude', 'cf', 'teams', team_id.to_s, 'contributor_id')
   end
 
   def git(*args) = ShellGit.run(@start_dir, *args)

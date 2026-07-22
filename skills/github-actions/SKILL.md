@@ -1,6 +1,6 @@
 ---
-name: pst:github-actions
-description: GitHub Actions CI/CD workflows. Auto-applied by the pst shim on every workflow change; also invocable directly.
+name: cf:github-actions
+description: GitHub Actions CI/CD workflows. Auto-applied by the cf shim on every workflow change; also invocable directly.
 auto:
   paths:
     - ".github/workflows/*.yml"

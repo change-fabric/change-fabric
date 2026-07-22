@@ -21,8 +21,8 @@ staged="$(git diff --cached --name-only)"
 # else below fires, since it is a single test file, not the whole suite.
 if echo "$staged" | grep -qE '^(scripts/change_schema\.rb|skills/change/reference/CHANGE-frontmatter-spec\.md|test/change_schema_spec_test\.rb)$'; then
   echo "[pre-commit] checking CHANGE.md frontmatter spec against ChangeSchema..."
-  if ! ruby -Itest test/change_schema_spec_test.rb >/tmp/pst-change-schema-check.out 2>&1; then
-    cat /tmp/pst-change-schema-check.out >&2
+  if ! ruby -Itest test/change_schema_spec_test.rb >/tmp/cf-change-schema-check.out 2>&1; then
+    cat /tmp/cf-change-schema-check.out >&2
     echo "[pre-commit] CHANGE.md spec/code drift detected; fix before committing (or bypass with 'git commit --no-verify')." >&2
     exit 1
   fi
@@ -40,15 +40,15 @@ if echo "$staged" | grep -qE '\.rb$|^(Gemfile|Gemfile\.lock)$'; then
   fi
 
   echo "[pre-commit] bundle exec rake test..."
-  if ! bundle exec rake test >/tmp/pst-rake-test-check.out 2>&1; then
-    cat /tmp/pst-rake-test-check.out >&2
+  if ! bundle exec rake test >/tmp/cf-rake-test-check.out 2>&1; then
+    cat /tmp/cf-rake-test-check.out >&2
     echo "[pre-commit] rake test failed; fix before committing (or bypass with 'git commit --no-verify')." >&2
     exit 1
   fi
 
   echo "[pre-commit] rubocop..."
-  if ! bundle exec rubocop >/tmp/pst-rubocop-check.out 2>&1; then
-    cat /tmp/pst-rubocop-check.out >&2
+  if ! bundle exec rubocop >/tmp/cf-rubocop-check.out 2>&1; then
+    cat /tmp/cf-rubocop-check.out >&2
     echo "[pre-commit] rubocop found offenses; fix before committing (or bypass with 'git commit --no-verify')." >&2
     exit 1
   fi

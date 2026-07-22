@@ -1,6 +1,6 @@
 ---
-name: pst:drizzle
-description: Drizzle ORM schema, migrations, and queries. Auto-applied by the pst shim on every Drizzle change; also invocable directly.
+name: cf:drizzle
+description: Drizzle ORM schema, migrations, and queries. Auto-applied by the cf shim on every Drizzle change; also invocable directly.
 auto:
   paths:
     - "drizzle.config.*"

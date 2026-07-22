@@ -1,4 +1,4 @@
-# pst:ctx reference
+# cf:ctx reference
 
 Schema and taxonomy for `.ctx` docs. The SKILL.md body is the working guide;
 this is the detail it defers to.
@@ -10,7 +10,7 @@ devices because they run under the same home (pinned per device by install.rb,
 so the repo never names it).
 
 ```
-~/.claude/pst/ctx/<dashed-cwd>/
+~/.claude/cf/ctx/<dashed-cwd>/
   INDEX.md            one line per live doc, regenerated on every write
   ROADMAP.md          the single shared roadmap doc (later phase)
   truth/              class: truth

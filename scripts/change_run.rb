@@ -14,8 +14,8 @@ require_relative 'change_lane_a11y'
 require_relative 'change_lane_zap'
 require_relative 'change_lane_browserless'
 
-# The change-fabric orchestrator: the one command the pst:change / pst:k6 /
-# pst:a11y / pst:zap skills invoke. It reads a project's config, boots the target
+# The change-fabric orchestrator: the one command the cf:change / cf:k6 /
+# cf:a11y / cf:zap skills invoke. It reads a project's config, boots the target
 # app and waits for its health signal, stands up the ephemeral runners (a shared
 # browserless container only when a browser lane runs), executes the requested
 # lanes, writes a CSV+Markdown report pair to the Desktop, and records the
@@ -81,7 +81,7 @@ class ChangeRun
     [ scope, path, profile ]
   end
 
-  # Force-removes any `pst-change-*` container or network left behind by a run
+  # Force-removes any `cf-change-*` container or network left behind by a run
   # that crashed before its own teardown ran. Takes no CHANGE.md, since it is
   # meant to run standalone between runs, not as part of one.
   def sweep_stale_resources

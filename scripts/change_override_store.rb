@@ -5,7 +5,7 @@ require_relative 'change_sha_record'
 
 # Records a human-authorized override of the change-fabric merge gate for one
 # exact (sha[, profile]): the reachable substitute change_merge_guard.rb reads
-# when PST_ALLOW_UNGATED_MERGE=1 cannot be, because that env var is read inside
+# when CF_ALLOW_UNGATED_MERGE=1 cannot be, because that env var is read inside
 # the guard's own PreToolUse hook process, whose environment is fixed at
 # harness launch and unreachable from anything an agent exports or prefixes on
 # a command mid-session. change_override.rb is the human-run companion that

@@ -1,4 +1,4 @@
-# pst:resolve-threads reply reference
+# cf:resolve-threads reply reference
 
 Read this before step 6 (replying to and resolving threads). It has no
 bearing on steps 1-5.
@@ -15,5 +15,5 @@ bearing on steps 1-5.
 
 One reply per thread, plain prose, no restating the original comment. State
 the outcome first (fixed in commit X, not fixing because Y, or the open
-question), then stop. Apply `pst:ai-slop`'s punctuation and tone rules to
+question), then stop. Apply `cf:ai-slop`'s punctuation and tone rules to
 every reply body before posting.

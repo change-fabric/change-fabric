@@ -1,6 +1,6 @@
 ---
-name: pst:typescript
-description: TypeScript strict-safety rubric. Auto-applied by the pst shim on every TypeScript change; also invocable directly.
+name: cf:typescript
+description: TypeScript strict-safety rubric. Auto-applied by the cf shim on every TypeScript change; also invocable directly.
 auto:
   extensions: [ts, tsx, mts, cts]
   detect: [tsconfig.json]

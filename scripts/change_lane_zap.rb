@@ -39,7 +39,7 @@ class ChangeLaneZap < ChangeLane
   def strict? = @config.fetch('strict', false)
 
   def scan(target)
-    Dir.mktmpdir('pst-change-zap') do |dir|
+    Dir.mktmpdir('cf-change-zap') do |dir|
       report = 'report.json'
       out, status = execute(target, dir, report)
       @context.log("[zap] #{target} exit #{exit_code(status)}")

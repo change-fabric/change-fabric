@@ -95,7 +95,7 @@ class SkillRegistryDepTest < Minitest::Test
   end
 
   def test_shipped_pdf_rendering_gates_on_puppeteer_not_pdfkit
-    pdf = SkillRegistry.load(REPO_SKILLS).find { |s| s.name == "pst:pdf-rendering" }
+    pdf = SkillRegistry.load(REPO_SKILLS).find { |s| s.name == "cf:pdf-rendering" }
     pup = project_with_files("package.json" => pkg(deps: %w[puppeteer]), "src/invoice.js" => "")
     kit = project_with_files("package.json" => pkg(deps: %w[pdfkit]), "src/invoice.js" => "")
     assert pdf.matches?(File.join(pup, "src/invoice.js"), root: pup)
@@ -105,7 +105,7 @@ class SkillRegistryDepTest < Minitest::Test
   end
 
   def test_shipped_express_gates_on_express_not_fastify
-    exp = SkillRegistry.load(REPO_SKILLS).find { |s| s.name == "pst:express-node" }
+    exp = SkillRegistry.load(REPO_SKILLS).find { |s| s.name == "cf:express-node" }
     e = project_with_files("package.json" => pkg(deps: %w[express]), "src/server.js" => "")
     f = project_with_files("package.json" => pkg(deps: %w[fastify]), "src/server.js" => "")
     assert exp.matches?(File.join(e, "src/server.js"), root: e)
@@ -115,7 +115,7 @@ class SkillRegistryDepTest < Minitest::Test
   end
 
   def test_shipped_js_testing_drops_bare_extension_overmatch
-    jst = SkillRegistry.load(REPO_SKILLS).find { |s| s.name == "pst:js-testing" }
+    jst = SkillRegistry.load(REPO_SKILLS).find { |s| s.name == "cf:js-testing" }
     proj = project_with_files("package.json" => pkg(dev: %w[vitest]),
                               "src/foo.test.js" => "", "src/foo.js" => "")
     assert jst.matches?(File.join(proj, "src/foo.test.js"), root: proj)
@@ -126,7 +126,7 @@ class SkillRegistryDepTest < Minitest::Test
   end
 
   def test_shipped_drizzle_covers_db_directory
-    drizzle = SkillRegistry.load(REPO_SKILLS).find { |s| s.name == "pst:drizzle" }
+    drizzle = SkillRegistry.load(REPO_SKILLS).find { |s| s.name == "cf:drizzle" }
     drz = project_with_files("drizzle.config.js" => "", "src/db/client.js" => "", "src/db/migrate.js" => "")
     assert drizzle.matches?(File.join(drz, "src/db/client.js"), root: drz)
     assert drizzle.matches?(File.join(drz, "src/db/migrate.js"), root: drz)

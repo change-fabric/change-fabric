@@ -1,6 +1,6 @@
 ---
-name: pst:rails
-description: Rails convention-over-configuration rubric. Auto-applied by the pst shim in Rails projects; also invocable directly.
+name: cf:rails
+description: Rails convention-over-configuration rubric. Auto-applied by the cf shim in Rails projects; also invocable directly.
 auto:
   extensions: [erb, jbuilder]
   basenames: [routes.rb, application_controller.rb, application_record.rb, application_job.rb, application_mailer.rb, schema.rb]

@@ -38,7 +38,7 @@ class ChangeShaRecord
   end
 
   def path
-    File.join(Dir.home, '.claude', 'pst', 'change', "#{@profile ? "#{@sha}__#{@profile}" : @sha}#{extension}")
+    File.join(Dir.home, '.claude', 'cf', 'change', "#{@profile ? "#{@sha}__#{@profile}" : @sha}#{extension}")
   end
 
   # Subclasses override when more than one kind of record can exist for the

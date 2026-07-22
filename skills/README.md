@@ -2,15 +2,15 @@
 
 Each subdirectory is a Claude Code skill (`SKILL.md` with YAML frontmatter).
 `install.rb` symlinks every one into `~/.claude/skills/`, so they are all
-invocable directly (e.g. `/pst:refactoring`). Re-running it also prunes its own
+invocable directly (e.g. `/cf:refactoring`). Re-running it also prunes its own
 stale links: a symlink into this repo's `skills/` with no matching source (a
 renamed or deleted skill) is removed, while real dirs and links into other
 repos are left alone.
 
 Directory names stay plain and portable (no colons committed to git). The
-`pst:` namespace lives only in each skill's frontmatter `name:`, which is what
+`cf:` namespace lives only in each skill's frontmatter `name:`, which is what
 `SkillRegistry` and Claude Code resolve by; `install.rb` names the symlink from
-that single source. `pst` itself is the namespace root and stays unprefixed.
+that single source. `cf` itself is the namespace root and stays unprefixed.
 
 Skills fall into two kinds, by whether they carry an `auto:` block.
 
@@ -21,19 +21,19 @@ the hooks never surface it. These are verbs the agent performs on demand.
 
 | Skill | Does |
 |---|---|
-| `pst` | Sets and enforces the session merge mode. |
-| `pst:refactor` | Refactors a scope you name (PR, branch, repo, file, or glob), routing each file through the auto-firing skills that cover it. |
-| `pst:code-review` | Reviews a scope you name (PR, branch, files, or a feature description), verifies each candidate finding in an isolated worktree, and posts only what survives. |
-| `pst:ctx` | Captures, recalls, and lists durable project context in the shim-owned .ctx store. |
-| `pst:prune` | Post-merge cleanup: fast-forwards the trunk and prunes merged branches and worktrees, local and remote, asking before it discards unmerged work or deletes any remote branch. |
-| `pst:resolve-threads` | Resolves every unresolved review thread on a PR by evaluating each in its own isolated worktree, then implements the fix, dismisses it, or defers to a human, replying and resolving on GitHub accordingly. |
-| `pst:qa` | Scopes and runs an ad hoc Playwright QA pass against a natural-language target (a PR, a feature, a flow) in an ephemeral browserless Chromium container, and optionally posts findings as PR comments. |
-| `pst:change` | Runs the deterministic, config-driven release-gate sweep (all four dockerized audit lanes: k6 load, axe-core a11y, OWASP ZAP pentest, browserless responsive UX) against a project's root `CHANGE.md` (its `change_config:` frontmatter), aggregates a CSV+Markdown report on the Desktop, and records a pass/fail gate for the head commit. |
-| `pst:k6` | Runs just the k6 load/burst lane of the change-fabric platform against a project's config. |
-| `pst:a11y` | Runs just the axe-core accessibility lane of the change-fabric platform against a project's config. |
-| `pst:zap` | Runs just the OWASP ZAP penetration-test lane of the change-fabric platform against a project's config. |
+| `cf` | Sets and enforces the session merge mode. |
+| `cf:refactor` | Refactors a scope you name (PR, branch, repo, file, or glob), routing each file through the auto-firing skills that cover it. |
+| `cf:code-review` | Reviews a scope you name (PR, branch, files, or a feature description), verifies each candidate finding in an isolated worktree, and posts only what survives. |
+| `cf:ctx` | Captures, recalls, and lists durable project context in the shim-owned .ctx store. |
+| `cf:prune` | Post-merge cleanup: fast-forwards the trunk and prunes merged branches and worktrees, local and remote, asking before it discards unmerged work or deletes any remote branch. |
+| `cf:resolve-threads` | Resolves every unresolved review thread on a PR by evaluating each in its own isolated worktree, then implements the fix, dismisses it, or defers to a human, replying and resolving on GitHub accordingly. |
+| `cf:qa` | Scopes and runs an ad hoc Playwright QA pass against a natural-language target (a PR, a feature, a flow) in an ephemeral browserless Chromium container, and optionally posts findings as PR comments. |
+| `cf:change` | Runs the deterministic, config-driven release-gate sweep (all four dockerized audit lanes: k6 load, axe-core a11y, OWASP ZAP pentest, browserless responsive UX) against a project's root `CHANGE.md` (its `change_config:` frontmatter), aggregates a CSV+Markdown report on the Desktop, and records a pass/fail gate for the head commit. |
+| `cf:k6` | Runs just the k6 load/burst lane of the change-fabric platform against a project's config. |
+| `cf:a11y` | Runs just the axe-core accessibility lane of the change-fabric platform against a project's config. |
+| `cf:zap` | Runs just the OWASP ZAP penetration-test lane of the change-fabric platform against a project's config. |
 
-`pst:refactor` reuses the routing below by shelling out to `skill_route.rb`
+`cf:refactor` reuses the routing below by shelling out to `skill_route.rb`
 (`scripts/skill_route.rb`, copied to the shim bin but not wired as a hook): it
 maps a changeset's files to the skills that match, so a one-shot refactor
 applies the same rubrics the per-edit hooks would.
@@ -41,7 +41,7 @@ applies the same rubrics the per-edit hooks would.
 ## Auto-firing skills
 
 A skill becomes **auto-firing** by adding an `auto:` block to its frontmatter.
-The pst shim then surfaces it without anyone invoking it:
+The cf shim then surfaces it without anyone invoking it:
 
 - **Per-edit routing** (`skill_inject.rb`, PostToolUse) is deterministic
   file-type matching. On every edit whose path matches, the skill's body is
@@ -53,7 +53,7 @@ The pst shim then surfaces it without anyone invoking it:
 - **Review** runs a model against the changed files. Every matching skill is
   reviewed; the scope only frames what counts as in-bounds. `all_code` and
   `extensions` skills review code (the prompt tells the reviewer to skip files
-  that merely look like code), while `all_files` skills (`pst:ai-slop`) review
+  that merely look like code), while `all_files` skills (`cf:ai-slop`) review
   every changed file, prose and documentation included. As you edit,
   `skill_inject.rb` queues every changed file each matching skill covers. When
   the turn ends, `skill_review.rb` (Stop hook) drains that queue and blocks once,
@@ -62,7 +62,7 @@ The pst shim then surfaces it without anyone invoking it:
   `stop_hook_active` keep it to one block per batch; a per-file content hash makes
   the review -> fix -> re-edit loop converge. The hook writes the prompt; the agent
   runs the review.
-- **Authoring reminders** (`slop_remind.rb`, PreToolUse) surface `pst:ai-slop` when a
+- **Authoring reminders** (`slop_remind.rb`, PreToolUse) surface `cf:ai-slop` when a
   Bash command is about to write a commit message, branch name, or PR title/body,
   so the rubric applies to authored text, not just file contents.
 
@@ -73,5 +73,5 @@ The pst shim then surfaces it without anyone invoking it:
 | `extensions` | File extensions (no dot) that trigger per-edit surfacing |
 | `basenames` | Exact filenames that trigger surfacing (e.g. `Rakefile`) |
 | `detect` | Glob markers, relative to project root, that mark the skill active at SessionStart |
-| `all_code` | `true` = matches every code file via the central extension list (used by `pst:refactoring`) |
-| `all_files` | `true` = matches every edited file, code or prose (used by `pst:ai-slop`) |
+| `all_code` | `true` = matches every code file via the central extension list (used by `cf:refactoring`) |
+| `all_files` | `true` = matches every edited file, code or prose (used by `cf:ai-slop`) |

@@ -2,7 +2,7 @@
 
 This is the human runbook for the AWS-backed change-fabric telemetry, presence,
 and secret-alert system. All three capabilities are OFF by default and gated
-behind per-capability `PST_*` env vars, so nothing here runs until you opt in.
+behind per-capability `CF_*` env vars, so nothing here runs until you opt in.
 
 ## One time per team (the founder)
 
@@ -44,18 +44,18 @@ Your `<your-contributor-id>` must match an `id` in the CHANGE.md
    env var, or, given neither, prints the `op read` hint above and exits.
 2. Caches it in the macOS login Keychain under service `change-fabric-presence`,
    account `<team_id>` (with `-U`, so re-running updates rather than errors).
-3. Writes your contributor id to `~/.claude/pst/teams/<team_id>/contributor_id`,
+3. Writes your contributor id to `~/.claude/cf/teams/<team_id>/contributor_id`,
    the file the hooks read to resolve "which contributor am I".
 
 ## The capability env vars (all off by default)
 
 Set the ones you want, per plan sections 9 and 10:
 
-- `PST_TELEMETRY=1` enables the `SessionEnd` transcript upload (Capability A,
+- `CF_TELEMETRY=1` enables the `SessionEnd` transcript upload (Capability A,
   `telemetry_emit.rb`).
-- `PST_PRESENCE=1` enables the `PreToolUse` presence/collision probe on
+- `CF_PRESENCE=1` enables the `PreToolUse` presence/collision probe on
   `Edit`/`Write`/`NotebookEdit` (Capability B, `presence_probe.rb`).
-- `PST_SECRET_ALERTS=1` enables the `SessionStart` secret-alert poll and its
+- `CF_SECRET_ALERTS=1` enables the `SessionStart` secret-alert poll and its
   `PostToolUse` acknowledgement (Capability C, `secret_alert_poll.rb` +
   `secret_ack.rb`).
 
@@ -65,7 +65,7 @@ Set the ones you want, per plan sections 9 and 10:
 as `x-api-key`. Provision it once, out of band, into:
 
 ```
-~/.claude/pst/telemetry/api-secret
+~/.claude/cf/telemetry/api-secret
 ```
 
 a single-line file holding the secret value (the SSM `/cf-telemetry/api-secret`
@@ -80,6 +80,6 @@ provisioned by `cf_team_join.rb`.
   the secret poll injects nothing). Capability A does not sign and does not need
   the gem.
 - After changing any script here, re-run `install.rb` to sync the live install
-  (`~/.claude/pst/bin/` and `~/.claude/settings.json`). `cf_team_init.rb` and
+  (`~/.claude/cf/bin/` and `~/.claude/settings.json`). `cf_team_init.rb` and
   `cf_team_join.rb` are human-run tools, not hooks, so they are intentionally not
   wired into `settings.json`.

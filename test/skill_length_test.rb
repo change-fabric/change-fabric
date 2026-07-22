@@ -31,7 +31,7 @@ class SkillLengthTest < Minitest::Test
   MAX_DESCRIPTION_CHARS = 1024
 
   # Lowercase letters, numbers, and hyphens, with an optional `namespace:` prefix
-  # (this repo namespaces every skill as `pst:<slug>`).
+  # (this repo namespaces every skill as `cf:<slug>`).
   NAME_PATTERN = /\A[a-z0-9-]+(?::[a-z0-9-]+)?\z/
   RESERVED_NAME_WORDS = %w[anthropic claude].freeze
 

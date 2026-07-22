@@ -99,12 +99,12 @@ class ChangeConfigTest < Minitest::Test
     end
   end
 
-  # A pre-1.0 placeholder-era file (a separate .pst config, since consolidated
+  # A pre-1.0 placeholder-era file (a separate .cf config, since consolidated
   # into CHANGE.md's own frontmatter) gets a migration hint, not a bare error.
   def test_placeholder_era_sibling_config_gets_a_migration_hint
     Dir.mktmpdir do |root|
-      FileUtils.mkdir_p(File.join(root, ".pst"))
-      File.write(File.join(root, ".pst", "change-fabric.yml"), "placeholder: true\n")
+      FileUtils.mkdir_p(File.join(root, ".cf"))
+      File.write(File.join(root, ".cf", "change-fabric.yml"), "placeholder: true\n")
       path = File.join(root, "CHANGE.md")
       File.write(path, "---\nchange_policy: {}\n---\n\nbody\n")
       error = assert_raises(ChangeConfig::ConfigError) { ChangeConfig.load(path) }
@@ -115,7 +115,7 @@ class ChangeConfigTest < Minitest::Test
   def test_placeholder_era_prose_reference_gets_a_migration_hint
     Dir.mktmpdir do |root|
       path = File.join(root, "CHANGE.md")
-      File.write(path, "---\nchange_policy: {}\n---\n\nSee .pst/change-fabric.yml for config.\n")
+      File.write(path, "---\nchange_policy: {}\n---\n\nSee .cf/change-fabric.yml for config.\n")
       error = assert_raises(ChangeConfig::ConfigError) { ChangeConfig.load(path) }
       assert_match(/pre-1\.0 placeholder layout/, error.message)
     end

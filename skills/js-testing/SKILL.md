@@ -1,6 +1,6 @@
 ---
-name: pst:js-testing
-description: Vitest, Jest, Cypress, and Testing Library tests. Auto-applied by the pst shim on every JS test change; also invocable directly.
+name: cf:js-testing
+description: Vitest, Jest, Cypress, and Testing Library tests. Auto-applied by the cf shim on every JS test change; also invocable directly.
 auto:
   paths:
     - "**/*.test.{js,jsx,mjs,cjs}"

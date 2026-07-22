@@ -1,6 +1,6 @@
 ---
-name: pst:ai-slop
-description: AI slop rubric. Auto-applied by the pst shim to everything you author (code, prose, commit messages, branch names, PR titles and descriptions); also invocable directly.
+name: cf:ai-slop
+description: AI slop rubric. Auto-applied by the cf shim to everything you author (code, prose, commit messages, branch names, PR titles and descriptions); also invocable directly.
 auto:
   all_files: true
 ---

@@ -1,6 +1,6 @@
 ---
-name: pst:prisma
-description: Prisma ORM schema, migrations, and queries. Auto-applied by the pst shim on every Prisma change; also invocable directly.
+name: cf:prisma
+description: Prisma ORM schema, migrations, and queries. Auto-applied by the cf shim on every Prisma change; also invocable directly.
 auto:
   extensions: [prisma]
   detect: [prisma/schema.prisma, "prisma.config.*", "prisma/migrations/**"]

@@ -48,7 +48,7 @@ class SkillRegistryRequireTest < Minitest::Test
   end
 
   def test_shipped_drizzle_fires_on_js_schema_in_drizzle_project
-    drizzle = SkillRegistry.load(REPO_SKILLS).find { |s| s.name == "pst:drizzle" }
+    drizzle = SkillRegistry.load(REPO_SKILLS).find { |s| s.name == "cf:drizzle" }
     drz = project_with("drizzle.config.js", "src/db/schema.js")
     plain = project_with("src/db/schema.js")
     assert drizzle.matches?(File.join(drz, "src/db/schema.js"), root: drz),
@@ -61,7 +61,7 @@ class SkillRegistryRequireTest < Minitest::Test
   end
 
   def test_shipped_turbo_workspaces_requires_a_turbo_json
-    turbo = SkillRegistry.load(REPO_SKILLS).find { |s| s.name == "pst:turbo-workspaces" }
+    turbo = SkillRegistry.load(REPO_SKILLS).find { |s| s.name == "cf:turbo-workspaces" }
     mono = project_with_files("turbo.json" => "{}", "package.json" => "{}", "apps/web/package.json" => "{}")
     plain = project_with_files("package.json" => "{}")
     assert turbo.matches?(File.join(mono, "apps/web/package.json"), root: mono)
@@ -72,7 +72,7 @@ class SkillRegistryRequireTest < Minitest::Test
   end
 
   def test_shipped_docker_matches_provisioning_files_only
-    docker = SkillRegistry.load(REPO_SKILLS).find { |s| s.name == "pst:docker" }
+    docker = SkillRegistry.load(REPO_SKILLS).find { |s| s.name == "cf:docker" }
     assert docker.matches?("Dockerfile")
     assert docker.matches?("apps/api/Dockerfile")
     assert docker.matches?("docker-compose.yml")

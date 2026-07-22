@@ -14,7 +14,7 @@ require_relative 'hook_http'
 # AskUserQuestion directive. Latency-critical and FAIL OPEN: any error, timeout,
 # missing key, or non-collision response prints nothing and exits 0. Presence
 # may miss a collision but must never stand between a contributor and their edit.
-# Off unless PST_PRESENCE=1.
+# Off unless CF_PRESENCE=1.
 class PresenceProbe
   EVENT = 'PreToolUse'
   ENDPOINT = 'https://api.changefabric.org/presence'
@@ -32,7 +32,7 @@ class PresenceProbe
   end
 
   def emit(io = $stdout)
-    return unless ENV['PST_PRESENCE'] == '1'
+    return unless ENV['CF_PRESENCE'] == '1'
     return unless EDIT_TOOLS.include?(@event['tool_name'])
 
     file_path = target_file
@@ -125,7 +125,7 @@ class PresenceProbe
     other = result['other_name'].to_s
     detected_at = result['detected_at'].to_s
     <<~TEXT.strip
-      [pst] Live-presence collision: #{other} is already editing this file (detected at #{detected_at}). Before responding to anything else, call the AskUserQuestion tool.
+      [cf] Live-presence collision: #{other} is already editing this file (detected at #{detected_at}). Before responding to anything else, call the AskUserQuestion tool.
 
       Question: "#{other} is already working in this file. How do you want to proceed?"
       Header: "File collision"

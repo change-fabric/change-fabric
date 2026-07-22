@@ -32,7 +32,7 @@ class ChangeMergeGuardTest < Minitest::Test
     @home = Dir.mktmpdir
     @prev = Dir.home
     ENV["HOME"] = @home
-    ENV.delete("PST_ALLOW_UNGATED_MERGE")
+    ENV.delete("CF_ALLOW_UNGATED_MERGE")
     @root = Dir.mktmpdir
   end
 
@@ -71,7 +71,7 @@ class ChangeMergeGuardTest < Minitest::Test
   end
 
   def test_escape_hatch_suppresses_the_guard
-    ENV["PST_ALLOW_UNGATED_MERGE"] = "1"
+    ENV["CF_ALLOW_UNGATED_MERGE"] = "1"
     assert_nil decision("gh pr merge 12 --squash", base: "production")
   end
 
@@ -121,27 +121,27 @@ class ChangeMergeGuardTest < Minitest::Test
     assert_nil decision("gh pr merge 12 --squash", base: "staging", staging_profile: "staging")
   end
 
-  # The reachable substitute for PST_ALLOW_UNGATED_MERGE=1 (unreachable from
+  # The reachable substitute for CF_ALLOW_UNGATED_MERGE=1 (unreachable from
   # inside an agent session, since the guard reads that var from its own
   # process, fixed at harness launch): a human-recorded file the guard checks
   # instead, scoped to this exact (sha, profile).
   def test_recorded_override_suppresses_a_normal_gate_denial
-    ChangeOverrideStore.new(SHA).record(reason: "urgent", recorded_by: "pst")
+    ChangeOverrideStore.new(SHA).record(reason: "urgent", recorded_by: "cf")
     assert_nil decision("gh pr merge 12 --squash", base: "staging")
   end
 
   def test_recorded_override_suppresses_an_admin_bypass_denial
-    ChangeOverrideStore.new(SHA).record(reason: "urgent", recorded_by: "pst")
+    ChangeOverrideStore.new(SHA).record(reason: "urgent", recorded_by: "cf")
     assert_nil decision("gh pr merge 12 --squash --admin", base: "production", admin_allowed: false)
   end
 
   def test_override_scoped_to_a_different_profile_does_not_suppress
-    ChangeOverrideStore.new(SHA, profile: "production").record(reason: "urgent", recorded_by: "pst")
+    ChangeOverrideStore.new(SHA, profile: "production").record(reason: "urgent", recorded_by: "cf")
     assert_equal "deny", decision("gh pr merge 12 --squash", base: "staging", staging_profile: "staging")
   end
 
   def test_override_scoped_to_the_right_profile_suppresses
-    ChangeOverrideStore.new(SHA, profile: "staging").record(reason: "urgent", recorded_by: "pst")
+    ChangeOverrideStore.new(SHA, profile: "staging").record(reason: "urgent", recorded_by: "cf")
     assert_nil decision("gh pr merge 12 --squash", base: "staging", staging_profile: "staging")
   end
 end

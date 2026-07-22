@@ -20,7 +20,7 @@ class SkillStoreTest < Minitest::Test
   def test_record_is_newline_terminated_and_separated
     SkillStore.new("s1").mark(%w[ruby])
     SkillStore.new("s1").mark(%w[refactoring])
-    path = File.join(@home, ".claude", "pst", "sessions", "s1", "skills-surfaced")
+    path = File.join(@home, ".claude", "cf", "sessions", "s1", "skills-surfaced")
     assert_equal "ruby\nrefactoring\n", File.read(path)
   end
 
@@ -28,6 +28,6 @@ class SkillStoreTest < Minitest::Test
     store = SkillStore.new("")
     store.mark(%w[a])
     assert_equal %w[a], store.fresh(%w[a])
-    assert_empty Dir.glob(File.join(@home, ".claude", "pst", "sessions", "**", "*"))
+    assert_empty Dir.glob(File.join(@home, ".claude", "cf", "sessions", "**", "*"))
   end
 end

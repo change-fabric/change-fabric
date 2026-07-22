@@ -5,9 +5,9 @@ require 'json'
 require_relative 'hook_event'
 require_relative 'skill_store'
 
-# SessionStart hook: injects the handful of pst tenets that hold for an ENTIRE
+# SessionStart hook: injects the handful of cf tenets that hold for an ENTIRE
 # session regardless of which files are open, distilled to one line each. The
-# heavyweight rubrics (pst:typescript, pst:ruby, ...) stay file-gated because they
+# heavyweight rubrics (cf:typescript, cf:ruby, ...) stay file-gated because they
 # only matter when you touch a matching file; these few are surface-anywhere, so a
 # file-edit trigger surfaces them too late or not at all. This is the proactive
 # complement to the guards: glyph_guard and docker_doctrine_guard deny a violation
@@ -56,7 +56,7 @@ class DoctrineDigest
 
   def context
     body = TENETS.map { |tenet| "- #{tenet}" }.join("\n")
-    text = "[pst] Session doctrine (applies all session, not just on matching edits):\n#{body}\n#{POINTER}"
+    text = "[cf] Session doctrine (applies all session, not just on matching edits):\n#{body}\n#{POINTER}"
     { hookSpecificOutput: { hookEventName: EVENT, additionalContext: text } }
   end
 end

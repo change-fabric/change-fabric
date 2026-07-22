@@ -78,7 +78,7 @@ class CtxStore
   # and the `-c` overrides keep a missing global git identity from failing the
   # commit. Set the store's own user.name/user.email if a real author is wanted.
   class GitCommitter
-    IDENTITY = { name: 'pst-ctx', email: 'pst-ctx@localhost' }.freeze
+    IDENTITY = { name: 'cf-ctx', email: 'cf-ctx@localhost' }.freeze
 
     def initialize(store_dir) = @store_dir = store_dir
 
@@ -267,7 +267,7 @@ class CtxStore
   end
 
   # Maps the capture/recall/list verbs to store calls. The agent runs this after
-  # following the pst:ctx skill; the session id is an argument because there is no
+  # following the cf:ctx skill; the session id is an argument because there is no
   # hook event to read it from.
   class CLI
     FLAG_KEYS = %w[name desc class status ttl review-after supersedes session].freeze

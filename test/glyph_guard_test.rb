@@ -14,11 +14,11 @@ class GlyphGuardTest < Minitest::Test
   EN = "–"      # en dash, allowed
 
   def setup
-    @prev = ENV.delete("PST_ALLOW_GLYPH")
+    @prev = ENV.delete("CF_ALLOW_GLYPH")
   end
 
   def teardown
-    ENV["PST_ALLOW_GLYPH"] = @prev if @prev
+    ENV["CF_ALLOW_GLYPH"] = @prev if @prev
   end
 
   def guard(tool_name, tool_input)
@@ -91,7 +91,7 @@ class GlyphGuardTest < Minitest::Test
   end
 
   def test_escape_hatch_allows_when_env_set
-    ENV["PST_ALLOW_GLYPH"] = "1"
+    ENV["CF_ALLOW_GLYPH"] = "1"
     assert_nil decision("Write", "content" => "title#{EM}body")
   end
 
@@ -129,7 +129,7 @@ class GlyphGuardTest < Minitest::Test
   end
 
   def test_escape_hatch_allows_footer_when_env_set
-    ENV["PST_ALLOW_GLYPH"] = "1"
+    ENV["CF_ALLOW_GLYPH"] = "1"
     assert_nil decision("Write", "content" => FOOTER)
   end
 

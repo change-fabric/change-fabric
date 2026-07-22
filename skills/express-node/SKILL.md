@@ -1,6 +1,6 @@
 ---
-name: pst:express-node
-description: Express and Node.js ESM backend. Auto-applied by the pst shim on every Express backend change; also invocable directly.
+name: cf:express-node
+description: Express and Node.js ESM backend. Auto-applied by the cf shim on every Express backend change; also invocable directly.
 auto:
   extensions: [js, mjs]
   require:

@@ -5,7 +5,7 @@ require 'fileutils'
 
 # Per-session memory of which auto-skills have already been surfaced, so the
 # shim injects each one's cheat sheet at most once a session instead of on every
-# edit. Keyed by session id under ~/.claude/pst/sessions, alongside merge-mode.
+# edit. Keyed by session id under ~/.claude/cf/sessions, alongside merge-mode.
 # A blank session id is treated as non-persistable (nothing is recorded, so
 # everything reads as not-yet-surfaced and the caller still functions).
 class SkillStore
@@ -35,5 +35,5 @@ class SkillStore
 
   def persistable? = !@session_id.empty?
 
-  def path = File.join(Dir.home, '.claude', 'pst', 'sessions', @session_id, @key)
+  def path = File.join(Dir.home, '.claude', 'cf', 'sessions', @session_id, @key)
 end

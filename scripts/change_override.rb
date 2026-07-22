@@ -4,7 +4,7 @@
 require 'optparse'
 require_relative 'change_override_store'
 
-# Human-run companion to change_merge_guard.rb's PST_ALLOW_UNGATED_MERGE escape
+# Human-run companion to change_merge_guard.rb's CF_ALLOW_UNGATED_MERGE escape
 # hatch, for the case that hatch is documented but unreachable: the guard reads
 # that env var from its own PreToolUse hook process, whose environment is fixed
 # at harness launch, so nothing an agent exports or prefixes on a command

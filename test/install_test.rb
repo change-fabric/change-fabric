@@ -11,7 +11,8 @@ require_relative "../install"
 class SettingsFileTest < Minitest::Test
   def setup
     @dir = Dir.mktmpdir
-    @bin = File.join(@dir, ".claude", "pst", "bin")
+    @bin = File.join(@dir, ".claude", "cf", "bin")
+    @legacy_bin = File.join(@dir, ".claude", "pst", "bin")
     @settings = File.join(@dir, "settings.json")
   end
 
@@ -21,7 +22,7 @@ class SettingsFileTest < Minitest::Test
 
   def wire(initial = {})
     File.write(@settings, JSON.generate(initial)) unless initial.empty?
-    Install::SettingsFile.new(@settings, managed_dir: @bin)
+    Install::SettingsFile.new(@settings, managed_dir: @bin, legacy_dirs: [ @legacy_bin ])
                          .wire("SessionStart" => "ruby #{@bin}/session_start.rb")
     JSON.parse(File.read(@settings))["hooks"]
   end
@@ -32,9 +33,19 @@ class SettingsFileTest < Minitest::Test
 
   def test_sweeps_managed_hook_from_an_event_it_does_not_wire
     hooks = wire("hooks" => {
-                   "PreToolUse" => [ { "hooks" => [ { "type" => "command", "command" => "ruby #{@bin}/pst-guard.rb" } ] } ]
+                   "PreToolUse" => [ { "hooks" => [ { "type" => "command", "command" => "ruby #{@bin}/cf-guard.rb" } ] } ]
                  })
     refute hooks.key?("PreToolUse"), "stale managed hook in an unwired event should be removed"
+  end
+
+  def test_sweeps_legacy_bin_hook_entries_so_they_are_not_left_firing
+    hooks = wire("hooks" => {
+                   "PreToolUse" => [ { "hooks" => [ { "type" => "command", "command" => "ruby #{@legacy_bin}/glyph_guard.rb" } ] } ]
+                 })
+    refute hooks.key?("PreToolUse"), "a hook under the pre-rename ~/.claude/pst/bin must be swept"
+    session = commands(hooks["SessionStart"])
+    assert_equal 1, session.size
+    assert_includes session.first, @bin
   end
 
   def test_preserves_unmanaged_hooks
@@ -96,12 +107,12 @@ class InstallerTest < Minitest::Test
     end
   end
 
-  def test_links_the_auto_skills_under_the_namespace_keeping_pst_plain
+  def test_links_the_auto_skills_under_the_namespace_keeping_cf_plain
     paths = install
     linked = paths.skill_sources.map { |s| Install::SkillName.of(s) }
-    assert_includes linked, "pst:ruby"
-    assert_includes linked, "pst:refactoring"
-    assert_includes linked, "pst", "the namespace root stays unprefixed, not pst:pst"
+    assert_includes linked, "cf:ruby"
+    assert_includes linked, "cf:refactoring"
+    assert_includes linked, "cf", "the namespace root stays unprefixed, not cf:cf"
   end
 
   def test_namespace_lives_only_in_frontmatter_not_the_directory
@@ -112,7 +123,7 @@ class InstallerTest < Minitest::Test
 
   def test_prunes_a_managed_link_whose_source_is_gone
     paths = install
-    stale = paths.skill_link("pst:renamed")
+    stale = paths.skill_link("cf:renamed")
     File.symlink(File.join(paths.skills_dir, "renamed"), stale)
     install
     refute File.symlink?(stale), "a link into the repo skills dir with no current source should be pruned"
@@ -171,10 +182,10 @@ class InstallerTest < Minitest::Test
 
   def test_mirrors_portable_skill_names_to_opencode
     paths = install
-    translated = File.join(paths.opencode_skills_root, "pst-typescript", "SKILL.md")
+    translated = File.join(paths.opencode_skills_root, "cf-typescript", "SKILL.md")
     assert File.exist?(translated), "OpenCode should get a translated skill copy"
     frontmatter = File.read(translated).match(/\A---\n(.*?)\n---/m)[1]
-    assert_includes frontmatter, "name: pst-typescript"
+    assert_includes frontmatter, "name: cf-typescript"
     config = JSON.parse(File.read(paths.opencode_config))
     assert_includes config.dig("skills", "paths"), paths.opencode_skills_root
   end
@@ -190,9 +201,9 @@ class InstallerTest < Minitest::Test
 
   def test_prunes_stale_pi_copies_of_managed_skills
     paths = Install::Paths.new(repo: @repo, home: @home)
-    stale = File.join(paths.legacy_pi_roots.first, "pst-typescript")
+    stale = File.join(paths.legacy_pi_roots.first, "cf-typescript")
     FileUtils.mkdir_p(stale)
-    File.write(File.join(stale, "SKILL.md"), "---\nname: pst:typescript\ndescription: Old copy\n---\n")
+    File.write(File.join(stale, "SKILL.md"), "---\nname: cf:typescript\ndescription: Old copy\n---\n")
     install
     refute File.exist?(stale), "managed stale Pi skill copy should be removed"
   end
@@ -206,13 +217,15 @@ class InstallerTest < Minitest::Test
     assert File.directory?(custom), "unmanaged Pi skills should be left alone"
   end
 
-  def test_prunes_old_opencode_generated_marker_dirs
+  # The legacy `.pst-generated` marker from a pre-rename install must still be
+  # recognized so those old mirrors are pruned; it stays in LEGACY_MARKERS.
+  def test_prunes_legacy_pst_marked_opencode_dirs
     paths = Install::Paths.new(repo: @repo, home: @home)
-    stale = File.join(paths.opencode_skills_root, "pst-old")
+    stale = File.join(paths.opencode_skills_root, "legacy-old")
     FileUtils.mkdir_p(stale)
     File.write(File.join(stale, ".pst-generated"), "source: old\n")
     install
-    refute File.exist?(stale), "old generated OpenCode skill mirror should be removed"
+    refute File.exist?(stale), "legacy generated OpenCode skill mirror should be removed"
   end
 
   def test_preserves_opencode_jsonc_strings_with_urls
@@ -237,5 +250,47 @@ class InstallerTest < Minitest::Test
     assert_equal "http://x", parsed["u"]
     assert_equal "/* not a comment */", parsed["c"]
     assert_equal "esc \" // still string", parsed["e"]
+  end
+end
+
+# Exercises the pre-rename state-root carry-over against a temp HOME only; the
+# real ~/.claude is never touched.
+class StateRootMigrationTest < Minitest::Test
+  def setup
+    @home = Dir.mktmpdir
+    @repo = File.expand_path("..", __dir__)
+    @legacy = File.join(@home, ".claude", "pst")
+    @current = File.join(@home, ".claude", "cf")
+  end
+
+  def teardown
+    FileUtils.remove_entry(@home)
+  end
+
+  def install
+    paths = Install::Paths.new(repo: @repo, home: @home)
+    capture_io { Install::Installer.new(paths: paths, ruby: "/usr/bin/ruby").install }
+    paths
+  end
+
+  def test_moves_legacy_state_root_to_the_cf_location
+    FileUtils.mkdir_p(File.join(@legacy, "teams"))
+    File.write(File.join(@legacy, "teams", "marker"), "carry me over\n")
+    install
+    refute File.exist?(@legacy), "legacy ~/.claude/pst should be gone after migration"
+    moved = File.join(@current, "teams", "marker")
+    assert File.exist?(moved), "state should now live under ~/.claude/cf"
+    assert_equal "carry me over\n", File.read(moved)
+  end
+
+  def test_is_a_no_op_when_both_roots_already_exist
+    FileUtils.mkdir_p(@legacy)
+    File.write(File.join(@legacy, "marker"), "legacy\n")
+    FileUtils.mkdir_p(@current)
+    File.write(File.join(@current, "marker"), "current\n")
+    install
+    assert File.exist?(File.join(@legacy, "marker")), "legacy root must be left untouched"
+    assert_equal "legacy\n", File.read(File.join(@legacy, "marker"))
+    assert_equal "current\n", File.read(File.join(@current, "marker"))
   end
 end

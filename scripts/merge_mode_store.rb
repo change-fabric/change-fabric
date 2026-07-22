@@ -4,7 +4,7 @@
 require 'fileutils'
 
 # Reads and writes the chosen merge mode for a session, keyed by session id
-# under ~/.claude/pst/sessions. A blank session id is treated as non-persistable.
+# under ~/.claude/cf/sessions. A blank session id is treated as non-persistable.
 class MergeModeStore
   def initialize(session_id)
     @session_id = session_id.to_s
@@ -27,5 +27,5 @@ class MergeModeStore
 
   def persistable? = !@session_id.empty?
 
-  def path = File.join(Dir.home, '.claude', 'pst', 'sessions', @session_id, 'merge-mode')
+  def path = File.join(Dir.home, '.claude', 'cf', 'sessions', @session_id, 'merge-mode')
 end

@@ -85,7 +85,7 @@ module CfTeamJoin
   end
 
   def contributor_id_path(team_id)
-    File.join(Dir.home, '.claude', 'pst', 'teams', team_id, 'contributor_id')
+    File.join(Dir.home, '.claude', 'cf', 'teams', team_id, 'contributor_id')
   end
 end
 

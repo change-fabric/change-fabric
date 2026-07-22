@@ -1,14 +1,14 @@
 ---
-name: pst:k6
+name: cf:k6
 description: Runs just the k6 load/burst lane of the change-fabric platform against a project's config. Boots the target app, runs the digest-pinned grafana/k6 image as an ephemeral container, grades each threshold, and writes a CSV and Markdown report (with the scenario-driven load narrative) to the Desktop. Invocable directly for a standalone load check.
 ---
 
-# PST k6
+# CF k6
 
 The standalone k6 load/burst lane of the change-fabric platform. Runs only the
-load audit; for the full four-lane release sweep use `pst:change`.
+load audit; for the full four-lane release sweep use `cf:change`.
 
-Trigger: `/pst:k6 [<target>]`.
+Trigger: `/cf:k6 [<target>]`.
 
 Question: does the target sustain its expected peak load with margin, and how
 does it behave when deliberately pushed past its ceiling?
@@ -18,16 +18,16 @@ does it behave when deliberately pushed past its ceiling?
 From the target repo root (a repo carrying `CHANGE.md`):
 
 ```
-ruby ~/.claude/pst/bin/change_run.rb k6
+ruby ~/.claude/cf/bin/change_run.rb k6
 ```
 
 This boots the app per `boot`, waits for its health signal, runs the k6
 container against the configured target with the lane's env and thresholds,
 tears the app down, writes the report pair to `~/Desktop`, and records a `k6`
 scope gate under the head SHA. A `k6`-scope record never satisfies the
-comprehensive merge gate; only a full `pst:change` run does.
+comprehensive merge gate; only a full `cf:change` run does.
 
-The k6 image, digest-pinned and `--rm` per pst:docker, runs the project's own
+The k6 image, digest-pinned and `--rm` per cf:docker, runs the project's own
 script (`lanes.k6.script`) or the platform's built-in light-load default when
 the project ships none.
 
@@ -45,7 +45,7 @@ built for a non-engineer go/no-go reader, not a raw metrics dump:
 - One relatable comparison for the scale.
 
 Every input is the project's own, supplied in the config; nothing is hardcoded.
-The CSV stays purely tabular. See `pst:change`'s `reference/CHANGE.template.md`
+The CSV stays purely tabular. See `cf:change`'s `reference/CHANGE.template.md`
 and `reference/CHANGE-frontmatter-spec.md` for the `scenario` shape.
 
 ## Read the output

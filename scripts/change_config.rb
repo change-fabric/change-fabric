@@ -32,7 +32,7 @@ class ChangeConfig
                    "Everything (change_config: and change_policy:) belongs in this file's YAML " \
                    'frontmatter; there is no separate config file.'
   PLACEHOLDER_HINT = 'This looks like a pre-1.0 placeholder layout: config used to live in a ' \
-                     'separate .pst file, but the shipped platform inlines it into CHANGE.md ' \
+                     'separate .cf file, but the shipped platform inlines it into CHANGE.md ' \
                      'frontmatter. Migrate the config into the frontmatter block here.'
 
   # A profile (v0.2.0) may only override these change_config keys: enough to
@@ -65,15 +65,15 @@ class ChangeConfig
   end
 
   # Narrow, string-based detection so it only fires on the specific pre-1.0
-  # shape (a sibling .pst config file, or CHANGE.md prose still pointing at
+  # shape (a sibling .cf config file, or CHANGE.md prose still pointing at
   # one) and never misfires on a valid file that simply lacks change_config:.
   def self.placeholder_era_layout?(path)
     dir = File.dirname(path)
-    return true if File.exist?(File.join(dir, '.pst', 'change-fabric.yml'))
-    return true if File.exist?(File.join(dir, '.pst', 'change.yml'))
+    return true if File.exist?(File.join(dir, '.cf', 'change-fabric.yml'))
+    return true if File.exist?(File.join(dir, '.cf', 'change.yml'))
 
     body = File.read(path)
-    body.include?('placeholder: true') || body.include?('.pst/change-fabric.yml') || body.include?('.pst/change.yml')
+    body.include?('placeholder: true') || body.include?('.cf/change-fabric.yml') || body.include?('.cf/change.yml')
   rescue StandardError
     false
   end

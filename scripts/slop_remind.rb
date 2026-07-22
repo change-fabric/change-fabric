@@ -7,15 +7,15 @@ require_relative 'skill_registry'
 require_relative 'skill_store'
 require_relative 'guarded_command'
 
-# PreToolUse hook: the pst:ai-slop rubric governs text authored through git/gh,
+# PreToolUse hook: the cf:ai-slop rubric governs text authored through git/gh,
 # not just file contents. When a Bash command is about to write a commit message,
 # a branch name, or a PR title/description, surface the rubric at that moment. The
-# full rubric is injected once per session (sharing pst:ai-slop's surfaced marker
+# full rubric is injected once per session (sharing cf:ai-slop's surfaced marker
 # with skill_inject, so it is not repeated after a file edit already showed it);
 # later authoring gets a one-line pointer, once per category, to avoid noise.
 class SlopRemind
   EVENT = 'PreToolUse'
-  SKILL = 'pst:ai-slop'
+  SKILL = 'cf:ai-slop'
 
   CATEGORIES = {
     'commit message' => ->(cmd) { GuardedCommand.invokes?(cmd, 'git', 'commit') },
@@ -82,9 +82,9 @@ class SlopRemind
     surfaced = SkillStore.new(@event['session_id'])
     if surfaced.fresh([ SKILL ]) == [ SKILL ]
       surfaced.mark([ SKILL ])
-      "[pst #{SKILL}] You are authoring a #{category}. Apply this rubric:\n\n#{skill.body}"
+      "[cf #{SKILL}] You are authoring a #{category}. Apply this rubric:\n\n#{skill.body}"
     else
-      "[pst #{SKILL}] You are authoring a #{category}; apply the AI slop rubric already in context."
+      "[cf #{SKILL}] You are authoring a #{category}; apply the AI slop rubric already in context."
     end
   end
 end

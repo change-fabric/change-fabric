@@ -120,7 +120,7 @@ class CtxSurfaceTest < Minitest::Test
     truth_lines = surface.index.select { |s| s.klass == "truth" }
     assert_equal 62, truth_lines.size, "all truth lines win the cap"
     refute(surface.index.any? { |s| s.klass == "ephemeral" }, "no ephemeral line displaces a truth line")
-    assert_equal "(+3 more docs, run pst:ctx list)", surface.overflow_note
+    assert_equal "(+3 more docs, run cf:ctx list)", surface.overflow_note
   end
 
   # 6. select() is a pure function of its inputs: two runs render byte-identically.

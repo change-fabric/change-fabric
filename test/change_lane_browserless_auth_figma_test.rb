@@ -72,22 +72,22 @@ class ChangeLaneBrowserlessAuthFigmaTest < Minitest::Test
   end
 
   def test_auth_required_route_with_missing_credentials_is_blocked
-    with_env("PST_TEST_EMAIL" => nil, "PST_TEST_PASSWORD" => nil) do
+    with_env("CF_TEST_EMAIL" => nil, "CF_TEST_PASSWORD" => nil) do
       raw = { "routes" => [ { "path" => "/dashboard", "auth" => true } ],
-              "auth" => { "login_url" => "/login", "email_env" => "PST_TEST_EMAIL",
-                          "password_env" => "PST_TEST_PASSWORD" } }
+              "auth" => { "login_url" => "/login", "email_env" => "CF_TEST_EMAIL",
+                          "password_env" => "CF_TEST_PASSWORD" } }
       l = lane(raw)
       ready, finding = l.send(:resolve_auth, l.send(:route_entries), l.send(:auth_config))
       refute ready
-      assert_includes finding.detail, "PST_TEST_EMAIL"
+      assert_includes finding.detail, "CF_TEST_EMAIL"
     end
   end
 
   def test_auth_required_route_with_real_credentials_is_ready
-    with_env("PST_TEST_EMAIL" => "user@example.org", "PST_TEST_PASSWORD" => "hunter2") do
+    with_env("CF_TEST_EMAIL" => "user@example.org", "CF_TEST_PASSWORD" => "hunter2") do
       raw = { "routes" => [ { "path" => "/dashboard", "auth" => true } ],
-              "auth" => { "login_url" => "/login", "email_env" => "PST_TEST_EMAIL",
-                          "password_env" => "PST_TEST_PASSWORD" } }
+              "auth" => { "login_url" => "/login", "email_env" => "CF_TEST_EMAIL",
+                          "password_env" => "CF_TEST_PASSWORD" } }
       l = lane(raw)
       ready, finding = l.send(:resolve_auth, l.send(:route_entries), l.send(:auth_config))
       assert ready
@@ -98,9 +98,9 @@ class ChangeLaneBrowserlessAuthFigmaTest < Minitest::Test
   # --- auth.steps (multi-step / OTP login) -------------------------------------
 
   def test_legacy_shorthand_normalizes_into_a_single_step
-    with_env("PST_TEST_EMAIL" => "user@example.org", "PST_TEST_PASSWORD" => "hunter2") do
-      auth = lane("auth" => { "login_url" => "/login", "email_env" => "PST_TEST_EMAIL",
-                               "password_env" => "PST_TEST_PASSWORD" }).send(:auth_config)
+    with_env("CF_TEST_EMAIL" => "user@example.org", "CF_TEST_PASSWORD" => "hunter2") do
+      auth = lane("auth" => { "login_url" => "/login", "email_env" => "CF_TEST_EMAIL",
+                               "password_env" => "CF_TEST_PASSWORD" }).send(:auth_config)
       steps = auth.steps
       assert_equal 1, steps.size
       assert_equal "/login", steps.first[:url]

@@ -48,7 +48,7 @@ class ChangeLaneK6 < ChangeLane
   JS
 
   def run
-    Dir.mktmpdir('pst-change-k6') do |dir|
+    Dir.mktmpdir('cf-change-k6') do |dir|
       script = resolve_script(dir)
       summary = File.join(dir, 'summary.json')
       out, status = execute(script, summary, dir)

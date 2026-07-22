@@ -45,7 +45,7 @@ class MergeModeStoreTest < Minitest::Test
     store = MergeModeStore.new("")
     store.write("Merge ready")
     assert_nil store.mode
-    assert_empty Dir.glob(File.join(@home, ".claude", "pst", "sessions", "**", "*"))
+    assert_empty Dir.glob(File.join(@home, ".claude", "cf", "sessions", "**", "*"))
   end
 
   def test_rewrite_overwrites_previous_mode
