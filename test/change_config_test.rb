@@ -299,6 +299,22 @@ class ChangeConfigTest < Minitest::Test
     end
   end
 
+  def test_spec_version_mismatch_notes_a_prerelease_on_the_file_side
+    front = { "spec_version" => "0.4.0-alpha.1", "change_config" => { "project" => "app", "lanes" => { "k6" => { "enabled" => true } } } }
+    with_frontmatter(front) do |loaded, _root|
+      warning = loaded.spec_version_mismatch
+      refute_nil warning
+      assert_match(/pre-release/, warning)
+    end
+  end
+
+  def test_spec_version_mismatch_between_two_stable_versions_has_no_prerelease_note
+    front = { "spec_version" => "0.1.0", "change_config" => { "project" => "app", "lanes" => { "k6" => { "enabled" => true } } } }
+    with_frontmatter(front) do |loaded, _root|
+      refute_match(/pre-release/, loaded.spec_version_mismatch)
+    end
+  end
+
   def test_doctor_surfaces_the_spec_version_mismatch
     front = { "spec_version" => "0.1.0", "change_config" => { "project" => "app", "lanes" => { "k6" => { "enabled" => true } } } }
     Dir.mktmpdir do |root|
