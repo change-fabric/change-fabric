@@ -40,12 +40,29 @@ class ChangeRunTest < Minitest::Test
   end
 
   def test_sweep_scope_is_a_valid_argument
-    assert_equal [ "sweep", ChangeConfig::DEFAULT_PATH, nil ], runner.send(:parse_args, %w[sweep])
+    args = runner.send(:parse_args, %w[sweep])
+    assert_equal "sweep", args.scope
+    assert_equal ChangeConfig::DEFAULT_PATH, args.config_path
+    assert_nil args.profile
+    assert_equal [], args.apps
   end
 
   def test_profile_flag_is_parsed
-    assert_equal [ "all", ChangeConfig::DEFAULT_PATH, "staging" ],
-                 runner.send(:parse_args, %w[all --profile staging])
+    args = runner.send(:parse_args, %w[all --profile staging])
+    assert_equal "all", args.scope
+    assert_equal ChangeConfig::DEFAULT_PATH, args.config_path
+    assert_equal "staging", args.profile
+  end
+
+  def test_app_flag_is_repeatable
+    args = runner.send(:parse_args, %w[all --app portal --app scattergram])
+    assert_equal %w[portal scattergram], args.apps
+  end
+
+  def test_target_url_and_health_url_flags_are_parsed
+    args = runner.send(:parse_args, %w[all --target-url https://preview.example --health-url https://preview.example/health])
+    assert_equal "https://preview.example", args.target_url
+    assert_equal "https://preview.example/health", args.health_url
   end
 
   # boot.env_file: the compose build-arg trap fix. A KEY=VALUE file gets parsed
@@ -69,5 +86,22 @@ class ChangeRunTest < Minitest::Test
     boot.define_singleton_method(:env_files) { [ "/no/such/.env.local" ] }
     output = capture_stderr { assert_raises(SystemExit) { runner.send(:boot_up, boot) } }
     assert_match(%r{boot\.env_file not found: /no/such/\.env\.local}, output)
+  end
+
+  FakeBoot = Struct.new(:target_url)
+  FakeConfig = Struct.new(:profile, :boot, :lane_targets)
+
+  def test_report_meta_states_the_resolved_profile_and_target
+    config = FakeConfig.new("staging", FakeBoot.new("https://staging.example"), { "k6" => [ "https://staging.example" ] })
+    meta = runner.send(:report_meta, config, Findings.new)
+    assert_equal "staging", meta["profile"]
+    assert_equal "https://staging.example", meta["target"]
+    assert_equal "k6=https://staging.example", meta["lane targets"]
+  end
+
+  def test_report_meta_states_none_when_there_is_no_profile
+    config = FakeConfig.new(nil, FakeBoot.new("http://app:3000"), {})
+    meta = runner.send(:report_meta, config, Findings.new)
+    assert_equal "(none)", meta["profile"]
   end
 end

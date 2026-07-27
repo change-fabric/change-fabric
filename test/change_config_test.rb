@@ -10,11 +10,11 @@ class ChangeConfigTest < Minitest::Test
   # Writes a CHANGE.md whose frontmatter carries the given change_config hash
   # (dumped as YAML) plus a prose body, then loads it. YAML.dump emits the
   # leading `---`, so appending the closing fence yields valid frontmatter.
-  def with_config(config, profile = nil)
+  def with_config(config, profile = nil, overrides = {})
     Dir.mktmpdir do |root|
       path = File.join(root, "CHANGE.md")
       File.write(path, "#{YAML.dump("change_config" => config)}---\n\nbody\n")
-      yield ChangeConfig.load(path, profile: profile), root
+      yield ChangeConfig.load(path, profile: profile, overrides: overrides), root
     end
   end
 
@@ -334,6 +334,185 @@ class ChangeConfigTest < Minitest::Test
       summary = ChangeConfig.doctor(File.join(root, "CHANGE.md"), profile: "staging")
       assert_match(/profile: staging/, summary)
       assert_match(/project: app-staging/, summary)
+    end
+  end
+
+  def test_zap_targets_default_to_the_lane_base_url
+    config = { "project" => "app", "boot" => { "target_url" => "http://app:3000" }, "lanes" => { "zap" => { "enabled" => true } } }
+    with_config(config) do |loaded, _root|
+      assert_equal [ "http://app:3000" ], loaded.lane("zap").targets("http://app:3000")
+    end
+  end
+
+  def test_relative_zap_targets_resolve_against_the_lane_base_url
+    config = {
+      "project" => "app", "boot" => { "target_url" => "http://app:3000" },
+      "lanes" => { "zap" => { "enabled" => true, "targets" => [ "/", "/admin" ] } }
+    }
+    with_config(config) do |loaded, _root|
+      assert_equal %w[http://app:3000/ http://app:3000/admin], loaded.lane("zap").targets("http://app:3000")
+    end
+  end
+
+  def test_absolute_zap_targets_pass_through_unchanged
+    config = {
+      "project" => "app", "boot" => { "target_url" => "http://app:3000" },
+      "lanes" => { "zap" => { "enabled" => true, "targets" => [ "http://other-host:4000" ] } }
+    }
+    with_config(config) do |loaded, _root|
+      assert_equal [ "http://other-host:4000" ], loaded.lane("zap").targets("http://app:3000")
+    end
+  end
+
+  def test_a_profile_may_override_zap_targets
+    config = {
+      "project" => "app", "boot" => { "target_url" => "http://app:3000" },
+      "lanes" => { "zap" => { "enabled" => true, "targets" => [ "/" ] } },
+      "profiles" => { "staging" => { "boot" => { "target_url" => "https://staging.app" }, "lanes" => { "zap" => { "targets" => [ "/admin" ] } } } }
+    }
+    with_config(config, "staging") do |loaded, _root|
+      assert_equal [ "https://staging.app/admin" ], loaded.lane("zap").targets("https://staging.app")
+    end
+  end
+
+  def test_a_profile_setting_targets_on_a_non_zap_lane_is_rejected
+    config = {
+      "project" => "app", "lanes" => { "a11y" => { "enabled" => true, "routes" => [ "/" ] } },
+      "profiles" => { "staging" => { "lanes" => { "a11y" => { "targets" => [ "/" ] } } } }
+    }
+    error = assert_raises(ChangeConfig::ConfigError) { with_config(config, "staging") { |_c| } }
+    assert_match(/profile 'staging' lane 'a11y'.*targets.*only applies to the zap lane/, error.message)
+  end
+
+  def test_lane_targets_reports_every_enabled_lane
+    config = {
+      "project" => "app", "boot" => { "target_url" => "http://app:3000" },
+      "lanes" => {
+        "k6" => { "enabled" => true },
+        "zap" => { "enabled" => true, "targets" => [ "/admin" ] },
+        "a11y" => { "enabled" => false }
+      }
+    }
+    with_config(config) do |loaded, _root|
+      assert_equal({ "k6" => [ "http://app:3000" ], "zap" => [ "http://app:3000/admin" ] }, loaded.lane_targets)
+    end
+  end
+
+  def test_target_url_override_wins_over_the_resolved_profile
+    config = {
+      "project" => "app", "boot" => { "target_url" => "http://app:3000" },
+      "lanes" => { "k6" => { "enabled" => true } },
+      "profiles" => { "staging" => { "boot" => { "target_url" => "https://staging.app" } } }
+    }
+    with_config(config, "staging", { target_url: "https://preview-123.app" }) do |loaded, _root|
+      assert_equal "https://preview-123.app", loaded.boot.target_url
+    end
+  end
+
+  def test_health_url_override_wins_over_the_resolved_profile
+    config = {
+      "project" => "app", "boot" => { "target_url" => "http://app:3000", "health" => { "url" => "http://app:3000/health", "expect_status" => 204 } },
+      "lanes" => { "k6" => { "enabled" => true } }
+    }
+    with_config(config, nil, { health_url: "https://preview-123.app/health" }) do |loaded, _root|
+      assert_equal "https://preview-123.app/health", loaded.boot.health_url
+      assert_equal 204, loaded.boot.health_status
+    end
+  end
+
+  def test_load_app_resolves_repo_relative_paths_against_the_repo_root
+    Dir.mktmpdir do |root|
+      app_dir = File.join(root, "apps", "portal")
+      FileUtils.mkdir_p(app_dir)
+      script_path = File.join(root, "apps", "load", "smoke.js")
+      FileUtils.mkdir_p(File.dirname(script_path))
+      File.write(script_path, "// smoke")
+      app_config_path = File.join(app_dir, "CHANGE.app.yml")
+      File.write(app_config_path, YAML.dump(
+        "change_config" => { "project" => "portal", "lanes" => { "k6" => { "enabled" => true, "script" => "apps/load/smoke.js" } } }
+      ))
+
+      loaded = ChangeConfig.load_app(app_config_path, root: root)
+      assert_equal script_path, loaded.lane("k6").path("script")
+    end
+  end
+
+  def test_load_app_rejects_a_change_policy_block
+    Dir.mktmpdir do |root|
+      path = File.join(root, "CHANGE.app.yml")
+      File.write(path, YAML.dump(
+        "change_config" => { "project" => "portal", "lanes" => { "k6" => { "enabled" => true } } },
+        "change_policy" => { "protected_branches" => [ "production" ] }
+      ))
+      error = assert_raises(ChangeConfig::ConfigError) { ChangeConfig.load_app(path, root: root) }
+      assert_match(/change_policy.*repo-wide/, error.message)
+    end
+  end
+
+  def test_load_app_rejects_an_unknown_top_level_key
+    Dir.mktmpdir do |root|
+      path = File.join(root, "CHANGE.app.yml")
+      File.write(path, YAML.dump(
+        "change_config" => { "project" => "portal", "lanes" => { "k6" => { "enabled" => true } } },
+        "spec_version" => "0.4.0"
+      ))
+      error = assert_raises(ChangeConfig::ConfigError) { ChangeConfig.load_app(path, root: root) }
+      assert_match(/unknown top-level key\(s\): spec_version/, error.message)
+    end
+  end
+
+  def test_load_app_rejects_a_nested_apps_registry
+    Dir.mktmpdir do |root|
+      path = File.join(root, "CHANGE.app.yml")
+      File.write(path, YAML.dump(
+        "change_config" => { "project" => "portal", "apps" => {}, "lanes" => { "k6" => { "enabled" => true } } }
+      ))
+      error = assert_raises(ChangeConfig::ConfigError) { ChangeConfig.load_app(path, root: root) }
+      assert_match(/may not itself declare change_config.apps/, error.message)
+    end
+  end
+
+  def test_load_app_missing_file_names_the_path
+    Dir.mktmpdir do |root|
+      path = File.join(root, "apps", "missing", "CHANGE.app.yml")
+      error = assert_raises(ChangeConfig::ConfigError) { ChangeConfig.load_app(path, root: root) }
+      assert_match(/app config not found: #{Regexp.escape(path)}/, error.message)
+    end
+  end
+
+  def test_doctor_prints_resolved_lane_targets
+    config = {
+      "project" => "app", "boot" => { "target_url" => "http://app:3000" },
+      "lanes" => { "k6" => { "enabled" => true }, "zap" => { "enabled" => true, "targets" => [ "/admin" ] } }
+    }
+    with_config(config) do |_loaded, root|
+      summary = ChangeConfig.doctor(File.join(root, "CHANGE.md"))
+      assert_match(/lane targets:/, summary)
+      assert_match(%r{k6: http://app:3000}, summary)
+      assert_match(%r{zap: http://app:3000/admin}, summary)
+    end
+  end
+
+  def test_doctor_warns_on_a_lane_target_host_that_differs_from_the_profile_target
+    config = {
+      "project" => "app", "boot" => { "target_url" => "http://app:3000" },
+      "lanes" => { "zap" => { "enabled" => true, "targets" => [ "http://host.docker.internal:3000" ] } },
+      "profiles" => { "production" => { "boot" => { "target_url" => "https://example.com" } } }
+    }
+    with_config(config, "production") do |_loaded, root|
+      summary = ChangeConfig.doctor(File.join(root, "CHANGE.md"), profile: "production")
+      assert_match(/warning: lane 'zap' target 'http:\/\/host\.docker\.internal:3000' does not match profile 'production'/, summary)
+    end
+  end
+
+  def test_doctor_does_not_warn_when_there_is_no_profiles_block
+    config = {
+      "project" => "app", "boot" => { "target_url" => "http://app:3000" },
+      "lanes" => { "zap" => { "enabled" => true, "targets" => [ "http://other-host:9000" ] } }
+    }
+    with_config(config) do |_loaded, root|
+      summary = ChangeConfig.doctor(File.join(root, "CHANGE.md"))
+      refute_match(/not profile-scoped/, summary)
     end
   end
 end

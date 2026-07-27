@@ -1,0 +1,75 @@
+# CHANGE.app.yml is one app's change_config in a monorepo (schema 0.4.0). It is
+# not CHANGE.md: no frontmatter fence, no prose, no spec_version, and no
+# change_policy: block. Governance is repo-wide and lives only in the root
+# CHANGE.md, whose change_config.apps registry points here (conventionally
+# apps/<name>/CHANGE.app.yml); a change_policy: key in this file is a load
+# error naming the file, not a silently-ignored one.
+#
+# The only accepted top-level key here is change_config:, and it accepts every
+# field documented under "change_config fields" in
+# skills/change/reference/CHANGE-frontmatter-spec.md, minus change_config.apps
+# itself (the registry is flat, one level, no nesting).
+#
+# Every repo-relative path below (a k6 script, a boot command's working
+# directory) resolves against the REPO ROOT, the directory holding the root
+# CHANGE.md, never against this file's own directory. Copy this file to
+# apps/<name>/CHANGE.app.yml, register it under the root CHANGE.md's
+# change_config.apps, and edit.
+#
+# See "change_config.apps (0.4.0): multiple apps, one governance policy" in
+# the frontmatter spec for the registry side, and CHANGE.template.md for the
+# full single-app field reference this file's change_config: block mirrors.
+
+change_config:
+  project: my-repo-portal          # label used in this app's own report filename
+
+  boot:
+    # In a monorepo where several apps are services of one shared
+    # docker-compose.yml, a naive `docker compose down` here tears down every
+    # sibling app's containers too. Prefer an idempotent "already running?"
+    # guard and leave the stack's actual lifecycle owned outside the sweep:
+    up: docker compose ps portal --status running --format '{{.Names}}' | grep -q my-repo-portal
+    down: "true"
+    network: my-repo_default
+    target_url: http://my-repo-portal:3000
+    health:
+      url: http://localhost:3000/health
+      expect_status: 200
+      timeout_seconds: 120
+
+  lanes:
+    k6:
+      enabled: true
+      env:
+        BASE_URL: http://my-repo-portal:3000
+
+    a11y:
+      enabled: true
+      routes: ["/login", "/dashboard"]
+      threshold: serious          # minor | moderate | serious | critical
+
+    zap:
+      enabled: true
+      # Omit targets entirely to scan this lane's own base url (which follows
+      # the active profile). Relative entries ("/", "/admin") also resolve
+      # against the base url. Only an absolute entry is a fixed global value
+      # no profile can override; prefer relative when this app has profiles.
+      strict: false
+      auth: null
+
+    browserless:
+      enabled: true
+      routes: ["/login", "/dashboard"]
+      viewports:
+        - { name: mobile, width: 390, height: 844 }
+        - { name: desktop, width: 1440, height: 900 }
+      base_url: http://my-repo-portal:3000
+
+  # An app may define its own profiles exactly as a single-app CHANGE.md does;
+  # see change_config.profiles in the frontmatter spec. When
+  # change_policy.promotion.<branch>.profile names a profile at the root, every
+  # app required for that branch must either define that profile name here or
+  # have no profiles: block at all, or the merge gate is unsatisfiable by
+  # construction (change_config.rb doctor flags this).
+  profiles:
+    local: {}

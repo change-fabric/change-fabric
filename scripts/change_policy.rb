@@ -83,6 +83,23 @@ class ChangePolicy
     value.to_s.empty? ? nil : value.to_s
   end
 
+  # The change_config.apps (0.4.0) names required to gate a merge into this
+  # branch, or nil meaning "every registered enabled app" (the default, and
+  # also what an explicitly empty list resolves to). An empty list is never
+  # treated as "gate nothing": this method is read from inside a fail-open
+  # PreToolUse hook, so raising here would silently weaken the gate rather
+  # than loudly reject the config; `doctor` is where an explicitly empty list
+  # is reported as the setup error it actually is. Meaningless outside
+  # monorepo mode, where the caller never has more than one app to ask about.
+  def apps_for(branch)
+    rule = promotion[branch.to_s]
+    list = rule.is_a?(Hash) ? rule['apps'] : nil
+    return nil unless list.is_a?(Array)
+
+    names = list.map(&:to_s)
+    names.empty? ? nil : names
+  end
+
   # Whether admin-bypass merging (`gh pr merge --admin`, skipping the normal
   # review/CI wait) is permitted at all for a protected branch. Conservative
   # default is false: a repo must state in CHANGE.md that it allows the practice.
