@@ -17,22 +17,85 @@ require_relative 'change_sha_record'
 # record to one of a CHANGE.md's named change_config profiles (v0.2.0), so a
 # comprehensive pass against `staging` never satisfies a gate that requires
 # `production`, or the unscoped (no profiles configured) gate.
+#
+# A monorepo (v0.4.0 `change_config.apps`) records one entry per app under the
+# same (sha, profile) key rather than one file per app: a merge gate asks one
+# question per SHA, and keying by app would multiply override files too, forcing
+# a human recording an override to enumerate apps. `record(app: ...)` merges
+# into whatever is already on disk for this (sha, profile) instead of
+# overwriting, so a `--app portal` run today and a `--app scattergram` run
+# tomorrow both land in the same record. Merging is sound precisely because the
+# key already expires the moment the head moves: any entry found under this SHA
+# was, by construction, produced against this exact tree. The top-level
+# `scope`/`status`/`report` fields are retained as the aggregate across every
+# recorded app, so a 0.3.1-era reader (single-app mode, `app` always nil) sees
+# exactly the record shape it always has.
 class ChangeGateStore < ChangeShaRecord
-  def record(scope:, status:, project:, lanes:, report:)
-    write(
-      'sha' => @sha,
-      'scope' => scope.to_s,
-      'status' => status.to_s,
-      'project' => project.to_s,
-      'lanes' => lanes,
-      'report' => report.to_s,
-      'recorded_at' => Time.now.utc.iso8601
-    )
+  def record(scope:, status:, project:, lanes:, report:, app: nil, profile: nil, target: nil)
+    if app
+      record_app(app.to_s, scope: scope, status: status, lanes: lanes, report: report, project: project, target: target)
+    else
+      payload = {
+        'sha' => @sha,
+        'scope' => scope.to_s,
+        'status' => status.to_s,
+        'project' => project.to_s,
+        'lanes' => lanes,
+        'report' => report.to_s,
+        'recorded_at' => Time.now.utc.iso8601
+      }
+      payload['profile'] = profile.to_s unless profile.to_s.empty?
+      payload['target'] = target.to_s unless target.to_s.empty?
+      write(payload)
+    end
   end
 
   # The release gate's question: did a comprehensive run pass for this SHA?
-  def comprehensive_pass?
+  # With no `apps` list, unchanged 0.3.1 behavior: the top-level aggregate must
+  # be a passing `all` run. With an `apps` list, every named app must itself
+  # carry a passing `all` entry in the record's `apps` map; a record written by
+  # a pre-0.4.0 toolkit has no `apps` map at all and so fails closed rather than
+  # being misread as "every app passed".
+  def comprehensive_pass?(apps: nil)
     record = read
-    record && record['scope'] == 'all' && record['status'] == 'pass'
+    return false unless record
+
+    return record['scope'] == 'all' && record['status'] == 'pass' unless apps
+
+    apps.all? { |name| app_passed?(record, name) }
+  end
+
+  # The subset of `names` with no passing comprehensive entry recorded, for a
+  # merge-gate deny message that names exactly what is missing rather than
+  # forcing the operator to diff the whole record by hand.
+  def missing_apps(names)
+    record = read
+    names.reject { |name| app_passed?(record, name) }
+  end
+
+  private
+
+  def app_passed?(record, name)
+    entry = record && record['apps'] && record['apps'][name.to_s]
+    entry && entry['scope'] == 'all' && entry['status'] == 'pass'
+  end
+
+  def record_app(app, scope:, status:, lanes:, report:, project:, target:)
+    payload = read || { 'sha' => @sha }
+    payload['project'] = project.to_s
+    apps = (payload['apps'] ||= {})
+    apps[app] = {
+      'scope' => scope.to_s,
+      'status' => status.to_s,
+      'lanes' => lanes,
+      'report' => report.to_s
+    }
+    apps[app]['target'] = target.to_s unless target.to_s.empty?
+
+    payload['scope'] = scope.to_s
+    payload['status'] = apps.values.all? { |entry| entry['status'] == 'pass' } ? 'pass' : 'fail'
+    payload['report'] = report.to_s
+    payload['recorded_at'] = Time.now.utc.iso8601
+    write(payload)
   end
 end

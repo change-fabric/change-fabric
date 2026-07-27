@@ -4,6 +4,7 @@
 require 'json'
 require 'open3'
 require_relative 'hook_event'
+require_relative 'change_apps'
 require_relative 'change_policy'
 require_relative 'change_gate_store'
 require_relative 'change_override_store'
@@ -82,17 +83,50 @@ class ChangeMergeGuard
 
   # Shared gate check: a comprehensive cf:change run must have passed for this
   # exact head SHA, scoped to the branch's named profile (v0.2.0) when its
-  # promotion rule names one.
+  # promotion rule names one, and (0.4.0) to the branch's required app set in a
+  # monorepo -- the policy's own promotion.<branch>.apps list, or every
+  # registered enabled app when that is absent. Single-app mode asks the same
+  # question it always has: `apps` stays nil, so comprehensive_pass? falls back
+  # to its 0.3.1 top-level scope/status check.
   def gate_violation(base, sha, policy, kind:)
     profile = policy.profile_for(base)
-    return nil if ChangeGateStore.new(sha, profile: profile).comprehensive_pass?
+    apps = required_apps(base, policy)
+    store = ChangeGateStore.new(sha, profile: profile)
+    return nil if store.comprehensive_pass?(apps: apps)
 
     conditions = policy.admin_bypass_conditions
     note = conditions.empty? ? '' : "Repo policy: #{conditions}. "
     target = profile ? "the '#{profile}' profile" : 'a comprehensive'
     "#{kind} into '#{base}' is gated: no passing #{target} cf:change run recorded for head " \
-      "#{sha[0, 12]}. Run /cf:change against this PR first#{profile ? " with --profile #{profile}" : ''}. " \
+      "#{sha[0, 12]}#{missing_apps_clause(store, apps)}. #{rerun_hint(profile, apps, store)} " \
       "#{note}#{escape_note}"
+  end
+
+  # The app names (0.4.0) a passing gate record must cover for this branch, or
+  # nil in single-app mode (where comprehensive_pass? asks its original,
+  # unscoped question). Registry read failures fail open (nil, meaning "do not
+  # scope by app") rather than deny a merge the guard cannot actually evaluate.
+  def required_apps(base, policy)
+    registry = ChangeAppRegistry.load(File.join(repo_root, 'CHANGE.md'))
+    return nil unless registry.multi_app?
+
+    policy.apps_for(base) || registry.enabled_entries.map(&:name)
+  rescue StandardError
+    nil
+  end
+
+  def missing_apps_clause(store, apps)
+    return '' unless apps
+
+    " for app(s): #{store.missing_apps(apps).join(', ')}"
+  end
+
+  def rerun_hint(profile, apps, store)
+    flags = []
+    flags << "--profile #{profile}" if profile
+    flags << "--app #{store.missing_apps(apps).join(' --app ')}" if apps
+    suffix = flags.empty? ? '' : " with #{flags.join(' ')}"
+    "Run /cf:change against this PR first#{suffix}."
   end
 
   # CF_ALLOW_UNGATED_MERGE=1 only works if it was exported before this

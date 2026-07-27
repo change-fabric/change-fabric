@@ -20,9 +20,12 @@
 # This template shows a single deploy target. A repo with more than one real
 # target (a local Docker stack plus a real staging/production deployment)
 # names each as a change_config.profiles entry instead; see the frontmatter
-# spec's "Multiple deploy targets (profiles)" worked example.
+# spec's "Multiple deploy targets (profiles)" worked example. A repo with more
+# than one genuinely different APP (not just deploy target) instead uses
+# change_config.apps, a root registry of per-app CHANGE.app.yml files; see the
+# spec's "change_config.apps" section and reference/CHANGE.app.template.yml.
 
-spec_version: "0.3.0"
+spec_version: "0.4.0"
 
 change_config:
   project: my-app                 # label used in the Desktop report filename
@@ -91,6 +94,10 @@ change_config:
       # default (a constant-VU GET against a health route).
       script: apps/load/scripts/smoke.js
       env:
+        # An absolute BASE_URL here is a fixed value no profile can override,
+        # the same trap zap.targets below documents. Fine for a single-target
+        # repo; a repo with profiles usually omits BASE_URL entirely so k6
+        # inherits the active profile's own target instead.
         BASE_URL: http://myapp-core:3000
         VUS: "5"
         DURATION: "30s"
@@ -132,6 +139,14 @@ change_config:
 
     zap:
       enabled: true
+      # Omit targets entirely to scan this lane's own base_url (or
+      # boot.target_url), which is what follows profiles.<profile>.boot.
+      # An entry may also be relative ("/", "/admin"), resolved the same way,
+      # so a multi-path scope stays profile-portable. Only an absolute entry
+      # (as below) is a fixed value no profile can override, which is correct
+      # here only because this repo's ZAP scope genuinely spans two distinct
+      # services; restate it per profile under profiles.<profile>.lanes.zap
+      # .targets if this repo also has profiles.
       targets:
         - http://myapp-portal:3000
         - http://myapp-core:3000

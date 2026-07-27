@@ -1,6 +1,7 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 
+require 'uri'
 require 'yaml'
 require_relative 'change_frontmatter'
 require_relative 'change_schema'
@@ -41,21 +42,59 @@ class ChangeConfig
   # surface (routes, thresholds, viewports) per environment. That keeps the
   # documented field set small and every profile field's meaning identical to
   # its base-config counterpart, rather than a second, parallel schema.
-  PROFILE_LANE_KEYS = %w[enabled base_url basic_auth].freeze
+  # `targets` (0.4.0) is the one exception: a target list is a *where*, the
+  # same reason `base_url` is already overridable, not a *what*.
+  PROFILE_LANE_KEYS = %w[enabled base_url basic_auth targets].freeze
   PROFILE_TOP_KEYS = %w[project boot lanes].freeze
 
   # basic_auth (0.3.0) is answered via page.authenticate() in a browser page, so
   # it only means anything on a lane that actually drives one.
   BROWSER_LANES = %w[a11y browserless].freeze
 
-  def self.load(path, profile: nil)
+  # Lanes that read a `targets` list at all (0.4.0). Only zap has a notion of
+  # more than one in-scope url; every other lane has exactly one base_url.
+  TARGET_LANES = %w[zap].freeze
+
+  def self.load(path, profile: nil, root: nil, overrides: {})
     raise ConfigError, "CHANGE.md not found: #{path}. #{REFERENCE_HINT}" unless File.exist?(path)
 
     front = ChangeFrontmatter.parse_file(path)
     config = front['change_config']
     raise ConfigError, missing_config_message(path) unless config.is_a?(Hash)
 
-    new(config, File.dirname(path), profile: profile, spec_version: front['spec_version'])
+    new(config, root || File.dirname(path), profile: profile, spec_version: front['spec_version'], overrides: overrides)
+  end
+
+  # Loads one app's change_config from a standalone config file (conventionally
+  # `<app-dir>/CHANGE.app.yml`, registered under a monorepo root CHANGE.md's
+  # `change_config.apps`). `root` is always the repo root (the directory
+  # holding the root CHANGE.md), never this file's own directory: every
+  # repo-relative path and boot command an app config carries resolves the
+  # same way a single-app CHANGE.md's would, regardless of where the app file
+  # itself lives.
+  def self.load_app(path, root:, profile: nil, overrides: {})
+    raise ConfigError, "app config not found: #{path}. #{REFERENCE_HINT}" unless File.exist?(path)
+
+    raw = YAML.safe_load(File.read(path), aliases: true)
+    raise ConfigError, "app config is not a mapping: #{path}" unless raw.is_a?(Hash)
+
+    unknown_top = raw.keys - ChangeSchema::APP_FILE_TOP_KEYS
+    raise ConfigError, app_top_key_message(path, unknown_top) unless unknown_top.empty?
+
+    config = raw['change_config']
+    raise ConfigError, "app config has no change_config: block (or it is not a mapping): #{path}" unless config.is_a?(Hash)
+    if config.key?('apps')
+      raise ConfigError, "app config '#{path}' may not itself declare change_config.apps; the registry is flat, one level"
+    end
+
+    new(config, root, profile: profile, overrides: overrides)
+  end
+
+  def self.app_top_key_message(path, unknown_top)
+    message = "app config '#{path}' sets unknown top-level key(s): #{unknown_top.join(', ')}. " \
+              "An app file's only accepted top-level key is change_config:."
+    message += ' Governance is repo-wide and lives only in the root CHANGE.md.' if unknown_top.include?('change_policy')
+    message
   end
 
   def self.missing_config_message(path)
@@ -78,12 +117,20 @@ class ChangeConfig
     false
   end
 
-  # Loads and reports on a CHANGE.md without running any lane: a fast
-  # well-formed check an author runs while iterating, before a full sweep.
-  def self.doctor(path, profile: nil)
-    config = load(path, profile: profile)
+  # Loads and reports on a CHANGE.md (or, given an already-loaded config, just
+  # that config) without running any lane: a fast well-formed check an author
+  # runs while iterating, before a full sweep.
+  def self.doctor(path, profile: nil, overrides: {})
+    doctor_lines(path, load(path, profile: profile, overrides: overrides)).join("\n")
+  end
+
+  # The single-config doctor report body. Shared by the plain single-app
+  # `doctor` above and by ChangeAppRegistry, which calls this once per
+  # registered app so a monorepo doctor walk and a single-app one read
+  # identically.
+  def self.doctor_lines(label, config)
     boot = config.boot
-    lines = [ "CHANGE.md OK: #{path}" ]
+    lines = [ "CHANGE.md OK: #{label}" ]
     lines << "warning: #{config.spec_version_mismatch}" if config.spec_version_mismatch
     lines << "profile: #{config.profile}" if config.profile
     lines += [
@@ -97,18 +144,57 @@ class ChangeConfig
     else
       lines << "boot.health.url: #{boot.health_url}"
     end
-    lines.join("\n")
+    lines << 'lane targets:'
+    config.lane_targets.each { |lane, targets| lines << "  #{lane}: #{targets.join(', ')}" }
+    lines.concat(target_mismatch_warnings(config))
+    lines
+  end
+
+  # Warns when a lane's own absolute url literal (an absolute zap target, an
+  # explicit lane base_url, a k6 env BASE_URL) points somewhere other than the
+  # resolved profile's own boot.target_url host. Only meaningful once a config
+  # actually has a resolved profile: an unprofiled config has exactly one
+  # target by construction, so there is nothing for a literal to disagree
+  # with. A warning, not an error: a deliberately cross-origin scope is
+  # legitimate, just rarely what the author meant when profiles exist.
+  def self.target_mismatch_warnings(config)
+    return [] unless config.profile
+
+    profile_host = uri_host(config.boot.target_url)
+    return [] unless profile_host
+
+    config.enabled_lanes.each_with_object([]) do |lane_name, warnings|
+      config.lane(lane_name).absolute_literals.each do |literal|
+        host = uri_host(literal)
+        next if host.nil? || host == profile_host
+
+        warnings << "warning: lane '#{lane_name}' target '#{literal}' does not match profile " \
+                    "'#{config.profile}' target '#{config.boot.target_url}'; an absolute lane target " \
+                    'is not profile-scoped.'
+      end
+    end
+  end
+
+  def self.uri_host(url)
+    URI.parse(url.to_s).host
+  rescue URI::InvalidURIError
+    nil
   end
 
   # `dir` is the CHANGE.md directory, i.e. the repo root, used to resolve
   # repo-relative paths (a k6 script) the lanes reference. `profile` selects
   # a named change_config.profiles entry (v0.2.0); nil is the ordinary,
-  # pre-0.2.0 single-target shape.
-  def initialize(raw, dir, profile: nil, spec_version: nil)
+  # pre-0.2.0 single-target shape. `overrides` (0.4.0) carries an optional
+  # `:target_url` and/or `:health_url`, deep-merged into `boot` after the
+  # profile merge so a CLI flag always wins over whatever the resolved
+  # profile set, letting an ephemeral preview deployment's url be passed at
+  # invocation time instead of committed and hand-edited.
+  def initialize(raw, dir, profile: nil, spec_version: nil, overrides: {})
     @dir = dir
     @declared_spec_version = spec_version.to_s
     @profile = resolve_profile_name(raw, profile)
-    @raw = @profile ? merge_profile(raw, @profile) : raw
+    merged = @profile ? merge_profile(raw, @profile) : raw
+    @raw = apply_overrides(merged, overrides)
     validate
   end
 
@@ -151,7 +237,37 @@ class ChangeConfig
 
   def lane(name) = LaneConfig.new(name.to_s, @raw.dig('lanes', name.to_s) || {}, @dir)
 
+  # The resolved target(s) each enabled lane will actually hit, keyed by lane
+  # name: `zap` may carry more than one, every other lane exactly one. Used by
+  # `doctor` so an author sees at a glance what a selected `--profile` sends
+  # each lane at, and to catch a lane target that silently did not follow a
+  # profile switch.
+  def lane_targets
+    enabled_lanes.to_h { |name| [ name, resolved_targets(name) ] }
+  end
+
   private
+
+  def resolved_targets(name)
+    lane_config = lane(name)
+    return lane_config.targets(boot.target_url) if name == 'zap'
+
+    if name == 'k6'
+      env_url = lane_config.env['BASE_URL'].to_s
+      return [ env_url ] unless env_url.empty?
+    end
+
+    [ lane_config.base_url(boot.target_url) ]
+  end
+
+  def apply_overrides(raw, overrides)
+    boot_overrides = {}
+    boot_overrides['target_url'] = overrides[:target_url].to_s if overrides[:target_url]
+    boot_overrides['health'] = { 'url' => overrides[:health_url].to_s } if overrides[:health_url]
+    return raw if boot_overrides.empty?
+
+    deep_merge(raw, { 'boot' => boot_overrides })
+  end
 
   # This toolkit does no ordering or comparison on SemVer prerelease
   # identifiers (0.4.0-alpha.1); a bare hyphen check is enough to flag that
@@ -211,6 +327,7 @@ class ChangeConfig
       end
 
       reject_basic_auth_outside_browser_lanes(lane, section, subject: "profile '#{name}' lane '#{lane}'")
+      reject_targets_outside_target_lanes(lane, section, subject: "profile '#{name}' lane '#{lane}'")
     end
   end
 
@@ -252,6 +369,17 @@ class ChangeConfig
     raise ConfigError,
           "#{subject} sets basic_auth, but basic_auth only applies to a browser lane " \
           "(#{BROWSER_LANES.join(', ')}); #{lane} never reads it."
+  end
+
+  # targets (0.4.0) only means anything on zap; every other lane has exactly
+  # one base_url, so accepting targets there would be a scope list an author
+  # believes is doing something that no lane script ever reads.
+  def reject_targets_outside_target_lanes(lane, section, subject:)
+    return unless section.is_a?(Hash) && section.key?('targets')
+    return if TARGET_LANES.include?(lane)
+
+    raise ConfigError,
+          "#{subject} sets targets, but targets only applies to the zap lane; #{lane} never reads it."
   end
 
   # How to bring the target app up and confirm it is ready before any lane runs.
@@ -306,23 +434,65 @@ class ChangeConfig
     end
 
     def base_url(fallback) = (@raw['base_url'] || fallback).to_s
+
+    # The zap lane's scanned urls (0.4.0). Absent, the lane base url alone.
+    # An entry may be absolute (used as-is) or relative (resolved against the
+    # lane base url exactly as change_lane.rb#redirected_path already resolves
+    # a11y/browserless routes), so a multi-path scope stays profile-portable
+    # instead of pinning every profile at one committed host.
+    def targets(fallback)
+      list = Array(@raw['targets']).map(&:to_s).reject(&:empty?)
+      base = base_url(fallback)
+      return [ base ] if list.empty?
+
+      list.map { |entry| absolute?(entry) ? entry : URI.join("#{base}/", entry).to_s }
+    end
+
+    # The absolute url literals this lane was authored with: an absolute
+    # `targets` entry, an explicit `base_url`, or (on k6) `env['BASE_URL']`.
+    # Each is a fixed value no profile switch changes, which is exactly what
+    # `doctor`'s profile-mismatch lint checks against the resolved profile's
+    # own target.
+    def absolute_literals
+      literals = Array(@raw['targets']).map(&:to_s).select { |entry| absolute?(entry) }
+      literals << @raw['base_url'].to_s if @raw['base_url']
+      literals << env['BASE_URL'].to_s if @name == 'k6' && env['BASE_URL']
+      literals.reject(&:empty?).uniq
+    end
+
+    private
+
+    def absolute?(value) = value.to_s.match?(%r{\A[a-z][a-z0-9+.\-]*://}i)
   end
 end
 
 if __FILE__ == $PROGRAM_NAME
+  # Run directly (not required), this file's own path was never added to
+  # $LOADED_FEATURES, so change_apps.rb's own require_relative of this same
+  # file would otherwise reload and redefine every constant above. Registering
+  # it first makes that require_relative the no-op it should be.
+  $LOADED_FEATURES << File.expand_path(__FILE__) unless $LOADED_FEATURES.include?(File.expand_path(__FILE__))
+  require_relative 'change_apps'
+
   if ARGV.first == 'doctor'
     config_flag = ARGV.index('--config')
     path = config_flag ? ARGV[config_flag + 1] : ChangeConfig::DEFAULT_PATH
     profile_flag = ARGV.index('--profile')
     profile = profile_flag ? ARGV[profile_flag + 1] : nil
+    apps = ARGV.each_index.select { |i| ARGV[i] == '--app' }.map { |i| ARGV[i + 1] }
+    target_url_flag = ARGV.index('--target-url')
+    health_url_flag = ARGV.index('--health-url')
+    overrides = {}
+    overrides[:target_url] = ARGV[target_url_flag + 1] if target_url_flag
+    overrides[:health_url] = ARGV[health_url_flag + 1] if health_url_flag
     begin
-      puts ChangeConfig.doctor(path, profile: profile)
+      puts ChangeAppRegistry.doctor(path, profile: profile, apps: apps, overrides: overrides)
     rescue ChangeConfig::ConfigError => e
       warn "[change] setup error: #{e.message}"
       exit 2
     end
   else
-    warn 'usage: change_config.rb doctor [--config PATH] [--profile NAME]'
+    warn 'usage: change_config.rb doctor [--config PATH] [--profile NAME] [--app NAME]... [--target-url URL] [--health-url URL]'
     exit 1
   end
 end

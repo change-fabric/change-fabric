@@ -31,10 +31,9 @@ class ChangeLaneZap < ChangeLane
 
   private
 
-  def targets
-    list = Array(@config['targets']).map(&:to_s).reject(&:empty?)
-    list.empty? ? [ base_url ] : list
-  end
+  # Delegates to the config so the lane and `doctor`'s resolved-target report
+  # can never disagree about what this scan is actually about to hit.
+  def targets = @config.targets(@context.target_url)
 
   def strict? = @config.fetch('strict', false)
 

@@ -5,6 +5,7 @@ require "json"
 require "stringio"
 require "tmpdir"
 require "fileutils"
+require "yaml"
 require_relative "../scripts/change_merge_guard"
 require_relative "../scripts/change_gate_store"
 require_relative "../scripts/change_override_store"
@@ -143,5 +144,85 @@ class ChangeMergeGuardTest < Minitest::Test
   def test_override_scoped_to_the_right_profile_suppresses
     ChangeOverrideStore.new(SHA, profile: "staging").record(reason: "urgent", recorded_by: "cf")
     assert_nil decision("gh pr merge 12 --squash", base: "staging", staging_profile: "staging")
+  end
+
+  def write_multi_app_change_md(promotion_apps: nil)
+    FileUtils.mkdir_p(File.join(@root, "apps/portal"))
+    FileUtils.mkdir_p(File.join(@root, "apps/scattergram"))
+    File.write(File.join(@root, "apps/portal/CHANGE.app.yml"),
+               YAML.dump("change_config" => { "project" => "portal", "lanes" => { "k6" => { "enabled" => true } } }))
+    File.write(File.join(@root, "apps/scattergram/CHANGE.app.yml"),
+               YAML.dump("change_config" => { "project" => "scattergram", "lanes" => { "k6" => { "enabled" => true } } }))
+
+    apps_clause = promotion_apps ? ", apps: [#{promotion_apps.join(', ')}]" : ""
+    front = <<~YAML
+      change_config:
+        project: my-repo
+        apps:
+          portal: { config: apps/portal/CHANGE.app.yml }
+          scattergram: { config: apps/scattergram/CHANGE.app.yml }
+      change_policy:
+        promotion:
+          production: { require_change_pass: true#{apps_clause} }
+    YAML
+    File.write(File.join(@root, "CHANGE.md"), "---\n#{front}---\n\nbody\n")
+  end
+
+  def multi_app_decision(command, base: "production")
+    event = { "tool_name" => "Bash", "tool_input" => { "command" => command } }
+    io = StringIO.new
+    StubMergeGuard.new(event, root: @root, pr: [ base, SHA ]).emit(io)
+    return nil if io.string.empty?
+
+    parsed = JSON.parse(io.string).dig("hookSpecificOutput")
+    [ parsed["permissionDecision"], parsed["permissionDecisionReason"] ]
+  end
+
+  def record_app_pass(app)
+    ChangeGateStore.new(SHA).record(scope: "all", status: "pass", project: "my-repo", lanes: {}, report: "r.md", app: app)
+  end
+
+  def test_denies_when_one_of_two_required_apps_has_no_pass
+    write_multi_app_change_md
+    record_app_pass("portal")
+    decision, = multi_app_decision("gh pr merge 12 --squash")
+    assert_equal "deny", decision
+  end
+
+  def test_allows_when_every_required_app_passed
+    write_multi_app_change_md
+    record_app_pass("portal")
+    record_app_pass("scattergram")
+    assert_nil multi_app_decision("gh pr merge 12 --squash")
+  end
+
+  def test_allows_when_the_policy_apps_list_excludes_the_unpassed_app
+    write_multi_app_change_md(promotion_apps: [ "portal" ])
+    record_app_pass("portal")
+    assert_nil multi_app_decision("gh pr merge 12 --squash")
+  end
+
+  def test_deny_reason_names_the_missing_app_and_the_rerun_command
+    write_multi_app_change_md
+    record_app_pass("portal")
+    _decision, reason = multi_app_decision("gh pr merge 12 --squash")
+    assert_match(/app\(s\): scattergram/, reason)
+    assert_match(/--app scattergram/, reason)
+  end
+
+  def test_fails_open_when_the_registry_cannot_be_read
+    front = <<~YAML
+      change_config:
+        project: my-repo
+        apps:
+          portal: { config: apps/portal/CHANGE.app.yml }
+      change_policy:
+        promotion:
+          production: { require_change_pass: true }
+    YAML
+    File.write(File.join(@root, "CHANGE.md"), "---\n#{front}---\n\nbody\n")
+
+    record_pass
+    assert_nil multi_app_decision("gh pr merge 12 --squash")
   end
 end
