@@ -42,15 +42,16 @@ class ChangeAppRegistry
     root = File.dirname(change_md_path)
     apps = config['apps']
 
-    return new(single_app_entries(change_md_path, root, config), root, multi_app: false) if apps.nil?
+    project = config['project'].to_s
+    project = 'project' if project.empty?
 
-    new(registry_entries(change_md_path, root, config, apps), root, multi_app: true)
+    return new(single_app_entries(change_md_path, root, project), root, project, multi_app: false) if apps.nil?
+
+    new(registry_entries(change_md_path, root, config, apps), root, project, multi_app: true)
   end
 
-  def self.single_app_entries(change_md_path, root, config)
-    name = config['project'].to_s
-    name = 'project' if name.empty?
-    [ Entry.new(name: name, config_path: change_md_path, path: root, description: nil, enabled: true, root: root, synthetic: true) ]
+  def self.single_app_entries(change_md_path, root, project)
+    [ Entry.new(name: project, config_path: change_md_path, path: root, description: nil, enabled: true, root: root, synthetic: true) ]
   end
   private_class_method :single_app_entries
 
@@ -89,9 +90,10 @@ class ChangeAppRegistry
   end
   private_class_method :build_entry
 
-  def initialize(entries, root, multi_app:)
+  def initialize(entries, root, project, multi_app:)
     @entries = entries
     @root = root
+    @project = project
     @multi_app = multi_app
   end
 
@@ -99,6 +101,10 @@ class ChangeAppRegistry
   def entries = @entries
   def enabled_entries = @entries.select(&:enabled)
   def names = @entries.map(&:name)
+
+  # The repo label from the root change_config.project: what a sweep roll-up
+  # and the gate record's aggregate use, never one app file's own project.
+  def project = @project
 
   # Resolves `--app NAME` (repeatable) against the registry, in the order
   # requested. An unknown name raises listing the registered apps, the same
