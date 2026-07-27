@@ -23,10 +23,17 @@ data "aws_iam_policy_document" "deploy_site_trust" {
       values   = ["sts.amazonaws.com"]
     }
 
+    # GitHub emits the sub claim as repo:OWNER/REPO:... normally, but switches
+    # permanently to repo:OWNER@ownerId/REPO@repoId:... once a repo has ever
+    # been renamed (this one has). StringLike with both shapes survives either
+    # form and any future rename, without loosening the owner/repo match.
     condition {
-      test     = "StringEquals"
+      test     = "StringLike"
       variable = "token.actions.githubusercontent.com:sub"
-      values   = ["repo:pstaylor-patrick/change-fabric:ref:refs/heads/main"]
+      values = [
+        "repo:pstaylor-patrick/change-fabric:ref:refs/heads/main",
+        "repo:pstaylor-patrick@*/change-fabric@*:ref:refs/heads/main",
+      ]
     }
   }
 }
