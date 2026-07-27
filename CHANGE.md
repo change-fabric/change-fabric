@@ -61,7 +61,7 @@ change_policy:
   admin_bypass:
     allowed: false
     require_change_pass: true
-    conditions: "not used; the maintainer merges every PR by hand once CI and the pst:change gate are both green, per this repo's own CLAUDE.md"
+    conditions: "not used; the maintainer merges every PR by hand once CI and the cf:change gate are both green, per this repo's own CLAUDE.md"
 ---
 
 # Change management for pstaylor-patrick/change-fabric
@@ -83,7 +83,7 @@ service.
 Every PR into `main` must have CI green: `ci.yml` runs `bundle exec
 rubocop`, a TypeScript typecheck (`npm run typecheck`), and `bundle exec
 rake test`. This is not currently skippable. A merge review is not required
-in practice today (see self-review below), but the comprehensive `pst:change`
+in practice today (see self-review below), but the comprehensive `cf:change`
 audit gate must still have passed for the head commit before merge, which
 the change-fabric merge hook enforces regardless.
 
@@ -92,7 +92,7 @@ the change-fabric merge hook enforces regardless.
 This repo currently has a single active maintainer, so self-review is the
 actual practice. GitHub itself blocks a literal self-approval review (`gh pr
 review --approve` on your own PR fails), so approval on this repo typically
-comes from an agent-driven review (`pst:code-review`, `pst:drive`) rather
+comes from an agent-driven review (`cf:code-review`, `cf:drive`) rather
 than a second human. The maintainer still merges every PR by hand; this
 repo's own `CLAUDE.md` states that explicitly, and no agent should run `gh
 pr merge` here without being told to.
@@ -102,9 +102,9 @@ pr merge` here without being told to.
 - **Not acceptable, ever, on this repo**: `gh pr merge --admin` bypassing
   the normal review or CI wait. This repo's `CLAUDE.md` states plainly that
   the maintainer merges every PR manually; an agent should push, open or
-  update the PR, and get CI and the `pst:change` gate green, then stop and
+  update the PR, and get CI and the `cf:change` gate green, then stop and
   wait to be told to merge.
-- CI must be green and the comprehensive `pst:change` audit must have
+- CI must be green and the comprehensive `cf:change` audit must have
   passed for the head commit before a merge happens at all, regardless of
   who performs it.
 
@@ -113,5 +113,5 @@ pr merge` here without being told to.
 `ci.yml`'s single `ci` job: `bundle exec rubocop`, a TypeScript smoke
 typecheck (`npm run typecheck`), then `bundle exec rake test`. Not
 skippable. Additionally, the change-fabric merge-gating hook
-(`change_merge_guard.rb`) requires a passing comprehensive `pst:change` run
+(`change_merge_guard.rb`) requires a passing comprehensive `cf:change` run
 recorded for the PR's head SHA before `gh pr merge` into `main` is allowed.
