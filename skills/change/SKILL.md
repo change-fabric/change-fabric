@@ -50,6 +50,18 @@ config and policy in one file. The merge-gating hook reads the `change_policy:`
 block to decide whether a merge into a protected branch is allowed for the head
 SHA; the lanes read the `change_config:` block.
 
+**Monorepos (0.4.0).** A repo with more than one genuinely different app (not
+just a different deploy target of the same app; that is what
+`change_config.profiles` is for) declares a registry instead:
+`change_config.apps.<name>.config` points at that app's own
+`apps/<name>/CHANGE.app.yml`, a config-only file (its only accepted top-level
+key is `change_config:`; governance stays repo-wide in the root `CHANGE.md`).
+`reference/CHANGE.app.template.yml` is the annotated starting point for an app
+file. See `reference/CHANGE-frontmatter-spec.md`'s `change_config.apps` section
+for the full shape. A repo with no `change_config.apps` key is completely
+unaffected: single-app mode is a registry of exactly one entry, the root file
+itself.
+
 ## Workflow
 
 1. **Resolve scope.** A PR (read its head, check it out so the run happens on
@@ -67,13 +79,22 @@ SHA; the lanes read the `change_config:` block.
 3. **Run the sweep.** From the target repo root:
    `ruby ~/.claude/cf/bin/change_run.rb all`. Add `--profile NAME` to run a
    named profile from `change_config.profiles` (a real staging or production
-   target) instead of the base config. This boots the app per the config,
-   waits for its health signal, stands up the ephemeral runners
+   target) instead of the base config. In a monorepo (`change_config.apps`),
+   a bare `all` sweeps every registered, enabled app in turn and passes only
+   if all of them do; add `--app NAME` (repeatable) to narrow the sweep to one
+   or more named apps, composing with `--profile` exactly as it always has (a
+   per-app deploy-target selector, resolved independently for each app in the
+   sweep). `--target-url URL` and `--health-url URL` override the resolved
+   boot target at invocation time, so an ephemeral preview deployment's url
+   never has to be committed and hand-edited. This boots the app per the
+   config, waits for its health signal, stands up the ephemeral runners
    (digest-pinned, `--rm`, per cf:docker), runs k6, a11y, ZAP, and browserless
-   lanes, tears everything down, writes the report pair to `~/Desktop`, and
-   records the gate under the head SHA (and the profile, when one was given).
-   Exit 0 means every lane passed, 1 means a lane failed, 2 means a setup
-   failure (no docker, bad config, app never ready).
+   lanes, tears everything down, writes the report pair to `~/Desktop` (one
+   pair per app, plus a Markdown roll-up index when the sweep covers more than
+   one app), and records the gate under the head SHA (and the profile, when
+   one was given). Exit 0 means every app's every lane passed, 1 means a lane
+   in any app failed, 2 means a setup failure (no docker, bad config, app
+   never ready).
 4. **Report.** Summarize the per-lane pass/fail and the failing findings from
    the Markdown report. Name both report paths (the `.md` and the `.csv`) so the
    run is reproducible and shareable.
@@ -95,8 +116,11 @@ and policy together). Shape under `change_config:`:
   `http_req_duration`).
 - `lanes.a11y`: `enabled`, `routes`, `threshold`
   (`minor|moderate|serious|critical`, default `serious`), optional `base_url`.
-- `lanes.zap`: `enabled`, `targets` (list of in-scope urls), `strict` (fail on
-  any low-or-above alert; default fails only on high-risk), optional `auth`
+- `lanes.zap`: `enabled`, `targets` (list of in-scope urls; an entry may be
+  relative, resolved against the lane base url, or absolute; omit entirely to
+  scan the lane base url itself; prefer relative when `profiles` exist, since
+  an absolute entry is a fixed value no profile can override), `strict` (fail
+  on any low-or-above alert; default fails only on high-risk), optional `auth`
   (reserved for authenticated scans; the baseline runs unauthenticated).
 - `lanes.browserless`: `enabled`, `routes` (a plain string, or a mapping with
   `path` plus optional `auth: true` and a `figma: {file_key, node_id}` block),
@@ -122,6 +146,23 @@ staging or production deployment) declares each as a named profile under
 `reference/CHANGE-frontmatter-spec.md`'s profiles section. `change_run.rb all
 --profile staging` runs a named profile, and `change_policy.promotion.<branch>.
 profile` scopes that branch's merge gate to the matching profile's own pass.
+
+### Monorepos
+
+`change_config.profiles` changes *where* one app's audit runs, never *what* it
+audits; it cannot express a second app with different routes, a different
+boot, and no auth at all. `change_config.apps` is the axis for that: a
+registry, each entry naming an app's own `CHANGE.app.yml`
+(`config`, optional `path`/`description`/`enabled`). An app file's `boot`,
+`lanes`, and `profiles` behave exactly as a single-app `CHANGE.md`'s do, and
+its repo-relative paths and boot commands resolve against the repo root, not
+the app file's own directory. The root cannot declare `change_config.apps`
+alongside its own `boot`/`lanes`/`profiles`/`default_profile`; adopting the
+monorepo shape is a verbatim move of that block into one app file.
+`change_policy.promotion.<branch>.apps` restricts which apps' passes gate a
+branch; omitted, every registered enabled app is required. See the frontmatter
+spec's `change_config.apps` section for the full field set and a worked
+example, and `reference/CHANGE.app.template.yml` for the app-file template.
 
 ## Policy (CHANGE.md body and `change_policy:`)
 
@@ -171,3 +212,12 @@ lane has no standalone skill; it runs as part of `cf:change`.
 - Leftover `cf-change-*` containers or networks from a run that crashed before
   its teardown: `ruby ~/.claude/cf/bin/change_run.rb sweep` force-removes any
   not owned by the current run.
+- Root registers `change_config.apps` but also declares its own
+  `boot`/`lanes`/`profiles`/`default_profile`: a load error naming both keys.
+  A root that is simultaneously a registry and an app makes `--app` meaningless
+  for that one app and makes `change_policy.promotion.<branch>.profile`
+  ambiguous about whose profile is meant; move the conflicting block into one
+  app's own `CHANGE.app.yml`.
+- An app has no passing record for the head SHA: the merge guard denies,
+  naming exactly which app(s) are missing and the `--app` re-run command
+  (e.g. `change_run.rb all --profile production --app scattergram`).
