@@ -73,4 +73,31 @@ class ChangePolicyTest < Minitest::Test
       refute p.admin_bypass_allowed?
     end
   end
+
+  def test_apps_for_defaults_to_nil
+    front = <<~YAML
+      change_policy:
+        promotion:
+          production: { require_change_pass: true }
+    YAML
+    policy(front) { |p| assert_nil p.apps_for("production") }
+  end
+
+  def test_apps_for_returns_the_explicit_list
+    front = <<~YAML
+      change_policy:
+        promotion:
+          production: { require_change_pass: true, apps: [portal] }
+    YAML
+    policy(front) { |p| assert_equal %w[portal], p.apps_for("production") }
+  end
+
+  def test_apps_for_treats_an_empty_list_as_every_app
+    front = <<~YAML
+      change_policy:
+        promotion:
+          production: { require_change_pass: true, apps: [] }
+    YAML
+    policy(front) { |p| assert_nil p.apps_for("production") }
+  end
 end

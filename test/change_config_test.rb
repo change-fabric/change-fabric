@@ -479,4 +479,40 @@ class ChangeConfigTest < Minitest::Test
       assert_match(/app config not found: #{Regexp.escape(path)}/, error.message)
     end
   end
+
+  def test_doctor_prints_resolved_lane_targets
+    config = {
+      "project" => "app", "boot" => { "target_url" => "http://app:3000" },
+      "lanes" => { "k6" => { "enabled" => true }, "zap" => { "enabled" => true, "targets" => [ "/admin" ] } }
+    }
+    with_config(config) do |_loaded, root|
+      summary = ChangeConfig.doctor(File.join(root, "CHANGE.md"))
+      assert_match(/lane targets:/, summary)
+      assert_match(%r{k6: http://app:3000}, summary)
+      assert_match(%r{zap: http://app:3000/admin}, summary)
+    end
+  end
+
+  def test_doctor_warns_on_a_lane_target_host_that_differs_from_the_profile_target
+    config = {
+      "project" => "app", "boot" => { "target_url" => "http://app:3000" },
+      "lanes" => { "zap" => { "enabled" => true, "targets" => [ "http://host.docker.internal:3000" ] } },
+      "profiles" => { "production" => { "boot" => { "target_url" => "https://example.com" } } }
+    }
+    with_config(config, "production") do |_loaded, root|
+      summary = ChangeConfig.doctor(File.join(root, "CHANGE.md"), profile: "production")
+      assert_match(/warning: lane 'zap' target 'http:\/\/host\.docker\.internal:3000' does not match profile 'production'/, summary)
+    end
+  end
+
+  def test_doctor_does_not_warn_when_there_is_no_profiles_block
+    config = {
+      "project" => "app", "boot" => { "target_url" => "http://app:3000" },
+      "lanes" => { "zap" => { "enabled" => true, "targets" => [ "http://other-host:9000" ] } }
+    }
+    with_config(config) do |_loaded, root|
+      summary = ChangeConfig.doctor(File.join(root, "CHANGE.md"))
+      refute_match(/not profile-scoped/, summary)
+    end
+  end
 end

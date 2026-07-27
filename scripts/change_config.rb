@@ -117,12 +117,20 @@ class ChangeConfig
     false
   end
 
-  # Loads and reports on a CHANGE.md without running any lane: a fast
-  # well-formed check an author runs while iterating, before a full sweep.
-  def self.doctor(path, profile: nil)
-    config = load(path, profile: profile)
+  # Loads and reports on a CHANGE.md (or, given an already-loaded config, just
+  # that config) without running any lane: a fast well-formed check an author
+  # runs while iterating, before a full sweep.
+  def self.doctor(path, profile: nil, overrides: {})
+    doctor_lines(path, load(path, profile: profile, overrides: overrides)).join("\n")
+  end
+
+  # The single-config doctor report body. Shared by the plain single-app
+  # `doctor` above and by ChangeAppRegistry, which calls this once per
+  # registered app so a monorepo doctor walk and a single-app one read
+  # identically.
+  def self.doctor_lines(label, config)
     boot = config.boot
-    lines = [ "CHANGE.md OK: #{path}" ]
+    lines = [ "CHANGE.md OK: #{label}" ]
     lines << "warning: #{config.spec_version_mismatch}" if config.spec_version_mismatch
     lines << "profile: #{config.profile}" if config.profile
     lines += [
@@ -136,7 +144,41 @@ class ChangeConfig
     else
       lines << "boot.health.url: #{boot.health_url}"
     end
-    lines.join("\n")
+    lines << 'lane targets:'
+    config.lane_targets.each { |lane, targets| lines << "  #{lane}: #{targets.join(', ')}" }
+    lines.concat(target_mismatch_warnings(config))
+    lines
+  end
+
+  # Warns when a lane's own absolute url literal (an absolute zap target, an
+  # explicit lane base_url, a k6 env BASE_URL) points somewhere other than the
+  # resolved profile's own boot.target_url host. Only meaningful once a config
+  # actually has a resolved profile: an unprofiled config has exactly one
+  # target by construction, so there is nothing for a literal to disagree
+  # with. A warning, not an error: a deliberately cross-origin scope is
+  # legitimate, just rarely what the author meant when profiles exist.
+  def self.target_mismatch_warnings(config)
+    return [] unless config.profile
+
+    profile_host = uri_host(config.boot.target_url)
+    return [] unless profile_host
+
+    config.enabled_lanes.each_with_object([]) do |lane_name, warnings|
+      config.lane(lane_name).absolute_literals.each do |literal|
+        host = uri_host(literal)
+        next if host.nil? || host == profile_host
+
+        warnings << "warning: lane '#{lane_name}' target '#{literal}' does not match profile " \
+                    "'#{config.profile}' target '#{config.boot.target_url}'; an absolute lane target " \
+                    'is not profile-scoped.'
+      end
+    end
+  end
+
+  def self.uri_host(url)
+    URI.parse(url.to_s).host
+  rescue URI::InvalidURIError
+    nil
   end
 
   # `dir` is the CHANGE.md directory, i.e. the repo root, used to resolve
@@ -425,19 +467,32 @@ class ChangeConfig
 end
 
 if __FILE__ == $PROGRAM_NAME
+  # Run directly (not required), this file's own path was never added to
+  # $LOADED_FEATURES, so change_apps.rb's own require_relative of this same
+  # file would otherwise reload and redefine every constant above. Registering
+  # it first makes that require_relative the no-op it should be.
+  $LOADED_FEATURES << File.expand_path(__FILE__) unless $LOADED_FEATURES.include?(File.expand_path(__FILE__))
+  require_relative 'change_apps'
+
   if ARGV.first == 'doctor'
     config_flag = ARGV.index('--config')
     path = config_flag ? ARGV[config_flag + 1] : ChangeConfig::DEFAULT_PATH
     profile_flag = ARGV.index('--profile')
     profile = profile_flag ? ARGV[profile_flag + 1] : nil
+    apps = ARGV.each_index.select { |i| ARGV[i] == '--app' }.map { |i| ARGV[i + 1] }
+    target_url_flag = ARGV.index('--target-url')
+    health_url_flag = ARGV.index('--health-url')
+    overrides = {}
+    overrides[:target_url] = ARGV[target_url_flag + 1] if target_url_flag
+    overrides[:health_url] = ARGV[health_url_flag + 1] if health_url_flag
     begin
-      puts ChangeConfig.doctor(path, profile: profile)
+      puts ChangeAppRegistry.doctor(path, profile: profile, apps: apps, overrides: overrides)
     rescue ChangeConfig::ConfigError => e
       warn "[change] setup error: #{e.message}"
       exit 2
     end
   else
-    warn 'usage: change_config.rb doctor [--config PATH] [--profile NAME]'
+    warn 'usage: change_config.rb doctor [--config PATH] [--profile NAME] [--app NAME]... [--target-url URL] [--health-url URL]'
     exit 1
   end
 end
