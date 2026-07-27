@@ -15,16 +15,32 @@
 # spec doc's changelog. A field-set change without a matching version bump, or a
 # version bump the doc does not reflect, is exactly what the drift test catches.
 module ChangeSchema
-  VERSION = '0.3.1'
+  VERSION = '0.4.0'
 
   # The four audit lanes, the authoritative list the config validator enforces.
   LANES = %w[k6 a11y zap browserless].freeze
 
+  # The only top-level key an app config file (change_config.apps.<app>.config,
+  # 0.4.0) may declare. Governance is repo-wide and lives only in the root
+  # CHANGE.md; a change_policy: block in an app file is rejected at load rather
+  # than silently ignored, since its author would otherwise believe it was
+  # doing something.
+  APP_FILE_TOP_KEYS = %w[change_config].freeze
+
+  # Root change_config keys that become an error once change_config.apps
+  # (0.4.0) is present: a root that is simultaneously a registry and an app
+  # makes --app meaningless for that app and makes
+  # change_policy.promotion.<branch>.profile ambiguous about whose profile is
+  # meant.
+  ROOT_APP_MODE_FORBIDDEN = %w[boot lanes profiles default_profile].freeze
+
   # Every accepted frontmatter field, as a dotted path. Placeholder segments are
   # literal and appear identically in the spec doc so the two match exactly:
-  #   <lane>   any of the LANES above
-  #   <branch> any git branch name under promotion
-  #   []       a field on each item of a list
+  #   <lane>    any of the LANES above
+  #   <branch>  any git branch name under promotion
+  #   <profile> any name under change_config.profiles
+  #   <app>     any name under change_config.apps (an app in a monorepo, 0.4.0)
+  #   []        a field on each item of a list
   FIELDS = [
     # The one field outside both change_config: and change_policy: (0.3.0):
     # the schema version a CHANGE.md was authored against, compared against
@@ -115,6 +131,19 @@ module ChangeSchema
     'change_config.profiles.<profile>.lanes.<lane>.base_url',
     'change_config.profiles.<profile>.lanes.<lane>.basic_auth.username_env',
     'change_config.profiles.<profile>.lanes.<lane>.basic_auth.password_env',
+    # profiles.<profile>.lanes.zap.targets (0.4.0): the one lane field a
+    # profile may restate, for a ZAP scope spanning two genuinely distinct
+    # services that a relative-path targets entry cannot express.
+    'change_config.profiles.<profile>.lanes.zap.targets',
+    # change_config.apps (0.4.0): a registry of the several genuinely
+    # different apps one monorepo contains, each with its own config file
+    # (change_config.apps.<app>.config). See the "change_config.apps" section
+    # of the spec doc; an app file's own change_config: block accepts every
+    # field documented above except change_config.apps.* itself.
+    'change_config.apps.<app>.config',
+    'change_config.apps.<app>.path',
+    'change_config.apps.<app>.description',
+    'change_config.apps.<app>.enabled',
     # change_policy: machine-checkable governance the merge gate enforces.
     'change_policy.protected_branches',
     'change_policy.gate.require_change_pass',
@@ -127,6 +156,10 @@ module ChangeSchema
     # require_change_pass gate to one named change_config profile's own
     # recorded run, instead of any profile-less comprehensive run.
     'change_policy.promotion.<branch>.profile',
+    # promotion.<branch>.apps (0.4.0): restricts which change_config.apps
+    # entries' comprehensive passes gate a merge into this branch. Omitted,
+    # every registered enabled app is required.
+    'change_policy.promotion.<branch>.apps',
     'change_policy.admin_bypass.allowed',
     'change_policy.admin_bypass.require_change_pass',
     'change_policy.admin_bypass.conditions'
