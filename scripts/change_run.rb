@@ -3,6 +3,7 @@
 
 require 'open3'
 require 'optparse'
+require_relative 'change_apps'
 require_relative 'change_config'
 require_relative 'change_docker'
 require_relative 'change_findings'
@@ -22,11 +23,21 @@ require_relative 'change_lane_browserless'
 # outcome under the git head SHA so the merge gate can consult it later.
 #
 # Usage: change_run.rb <all|k6|a11y|zap|browserless> [--config PATH] [--profile NAME]
+#        [--app NAME]... [--target-url URL] [--health-url URL]
+#
+# In a monorepo (change_config.apps, 0.4.0) a bare `all` sweeps every
+# registered, enabled app, in registry order, each with its own boot/teardown
+# lifecycle, and exits 0 only if every app passed; --app narrows the sweep.
+# Single-app mode (no change_config.apps) is unaffected: the registry is
+# exactly one synthetic entry pointing at the root CHANGE.md itself.
 #
 # Everything that stands up gets torn down: the app via the config's `down`
 # command, the browser container and any ephemeral network via their block
-# helpers. Exit status is 0 when every run lane passed, 1 when any lane failed,
-# 2 on a setup failure (no docker, bad config, app never ready).
+# helpers. Exit status is 0 when every app's every lane passed, 1 when any
+# lane in any app failed, 2 on a setup failure (no docker, bad config, app
+# never ready) -- which, for a boot failure inside one app's lifecycle, hard
+# -exits the whole sweep rather than continuing to the next app, the correct
+# fail-closed behavior for a release gate.
 class ChangeRun
   BROWSER_LANES = %w[a11y browserless].freeze
   OUTPUT_TAIL_LINES = 40
@@ -42,26 +53,25 @@ class ChangeRun
     def log(message) = logger.call(message)
   end
 
+  Args = Struct.new(:scope, :config_path, :profile, :apps, :target_url, :health_url, keyword_init: true)
+
   def self.main(argv)
     new(argv).run
   end
 
   def initialize(argv)
-    @scope, @config_path, @profile = parse_args(argv)
+    @args = parse_args(argv)
   end
 
   def run
     return abort_setup('docker is not available') unless ChangeDocker.available?
-    return sweep_stale_resources if @scope == 'sweep'
+    return sweep_stale_resources if @args.scope == 'sweep'
 
-    config = ChangeConfig.load(@config_path, profile: @profile)
-    log("[change] warning: #{config.spec_version_mismatch}") if config.spec_version_mismatch
-    lanes = resolve_lanes(config)
-    findings = with_app(config) { |ctx| execute(config, lanes, ctx) }
-    report = write_report(config, findings, lanes)
-    record_gate(config, lanes, findings, report)
-    summarize(findings, report)
-    findings.passed? ? 0 : 1
+    registry = ChangeAppRegistry.load(@args.config_path)
+    entries = @args.apps.empty? ? registry.enabled_entries : registry.fetch(@args.apps)
+    results = entries.map { |entry| run_entry(entry, multi: registry.multi_app?) }
+    write_rollup(registry, results) if registry.multi_app?
+    results.all? { |result| result[:passed] } ? 0 : 1
   rescue ChangeConfig::ConfigError => e
     abort_setup(e.message)
   end
@@ -72,18 +82,33 @@ class ChangeRun
     scope = argv.first
     path = ChangeConfig::DEFAULT_PATH
     profile = nil
+    apps = []
+    target_url = nil
+    health_url = nil
     OptionParser.new do |o|
       o.on('--config PATH') { |value| path = value }
       o.on('--profile NAME') { |value| profile = value }
+      o.on('--app NAME') { |value| apps << value }
+      o.on('--target-url URL') { |value| target_url = value }
+      o.on('--health-url URL') { |value| health_url = value }
     end.parse(argv.drop(1))
     valid = %w[all sweep] + ChangeConfig::LANES
     abort_and_exit("scope must be one of: #{valid.join(', ')}") unless valid.include?(scope)
-    [ scope, path, profile ]
+    Args.new(scope: scope, config_path: path, profile: profile, apps: apps, target_url: target_url, health_url: health_url)
+  end
+
+  def overrides
+    { target_url: @args.target_url, health_url: @args.health_url }.compact
   end
 
   # Force-removes any `cf-change-*` container or network left behind by a run
   # that crashed before its own teardown ran. Takes no CHANGE.md, since it is
   # meant to run standalone between runs, not as part of one.
+  #
+  # Per-app runs are sequential today (never concurrent), so a global reap of
+  # every cf-change-* resource is safe. If per-app runs ever become
+  # concurrent, this would reap a sibling app's still-live containers; revisit
+  # this method before adding any concurrency.
   def sweep_stale_resources
     removed = ChangeDocker.sweep
     removed[:containers].each { |name| log("[change] removed stale container: #{name}") }
@@ -92,10 +117,31 @@ class ChangeRun
     0
   end
 
-  def resolve_lanes(config)
-    return config.enabled_lanes if @scope == 'all'
+  # One app's full boot -> lanes -> report -> gate-record cycle. `multi` names
+  # the run in every log line and report filename only when this sweep covers
+  # more than one app, so a single-app repo's output is unchanged.
+  def run_entry(entry, multi:)
+    config = entry.load(profile: @args.profile, overrides: overrides)
+    log("[change] warning: #{config.spec_version_mismatch}") if config.spec_version_mismatch
+    label = multi ? entry.name : nil
+    log("[change] app: #{entry.name}") if multi
+    lanes = resolve_lanes(config)
+    findings = with_app(config) { |ctx| execute(config, lanes, ctx) }
+    report = write_report(config, findings, lanes, app: label)
+    record_gate(config, findings, report, app: label)
+    summarize(findings, report, app: label)
+    { app: entry.name, passed: findings.passed?, failing: findings.failures.size, report: File.basename(report[:markdown]) }
+  end
 
-    [ @scope ]
+  def write_rollup(registry, results)
+    rollup = ChangeReport.rollup(project: registry.project, scope: @args.scope, rows: results)
+    log("[change] sweep report: #{rollup[:markdown]}")
+  end
+
+  def resolve_lanes(config)
+    return config.enabled_lanes if @args.scope == 'all'
+
+    [ @args.scope ]
   end
 
   # Boots the app, waits for health, then yields a context to run lanes in,
@@ -233,12 +279,25 @@ class ChangeRun
     out.to_s.lines.last(OUTPUT_TAIL_LINES).join
   end
 
-  def write_report(config, findings, lanes)
+  def write_report(config, findings, lanes, app:)
     ChangeReport.new(
-      project: config.project, scope: @scope, findings: findings,
-      meta: { 'head' => head_sha, 'lanes' => findings.lanes.join(', ') },
+      project: config.project, scope: @args.scope, findings: findings, app: app,
+      meta: report_meta(config, findings),
       sections: report_sections(config, lanes)
     ).write
+  end
+
+  # `profile`/`target`/`lane targets` (0.4.0) state which deployment this
+  # report actually audited, not just which profile was requested, so the
+  # exact silent-mismatch a profile-unaware lane could otherwise cause (one
+  # lane auditing a different host than the rest) is visible in the artifact
+  # itself rather than depending on a careful read of the CSV's target column.
+  def report_meta(config, findings)
+    {
+      'head' => head_sha, 'lanes' => findings.lanes.join(', '),
+      'profile' => config.profile || '(none)', 'target' => config.boot.target_url,
+      'lane targets' => config.lane_targets.map { |lane, targets| "#{lane}=#{targets.join(',')}" }.join(', ')
+    }
   end
 
   # Narrative sections that belong in the Markdown but not the CSV. Today only
@@ -251,22 +310,27 @@ class ChangeRun
 
   # Records the outcome under the head SHA. Only a comprehensive `all` run that
   # passed satisfies the release merge gate; a single-lane run records its own
-  # scope and never unlocks a protected-branch merge.
-  def record_gate(config, _lanes, findings, report)
+  # scope and never unlocks a protected-branch merge. `app` (0.4.0) merges this
+  # entry into the (sha, profile) record's per-app map instead of overwriting
+  # it, so a monorepo swept one `--app` at a time still ends up with one
+  # complete record.
+  def record_gate(config, findings, report, app:)
     ChangeGateStore.new(head_sha, profile: config.profile).record(
-      scope: @scope, status: findings.passed? ? 'pass' : 'fail',
+      scope: @args.scope, status: findings.passed? ? 'pass' : 'fail',
       project: config.project, lanes: findings.lane_status,
-      report: File.basename(report[:markdown])
+      report: File.basename(report[:markdown]), app: app,
+      profile: config.profile, target: config.boot.target_url
     )
   end
 
-  def summarize(findings, report)
+  def summarize(findings, report, app:)
     log('')
-    findings.lane_status.each { |lane, status| log("[change] #{lane}: #{status.upcase}") }
-    log("[change] #{findings.failures.size} failing finding(s)")
-    log("[change] report: #{report[:markdown]}")
-    log("[change] data:   #{report[:csv]}")
-    log("[change] #{findings.passed? ? 'PASS' : 'FAIL'} (scope: #{@scope}#{@profile ? ", profile: #{@profile}" : ''})")
+    prefix = app ? "[#{app}] " : ''
+    findings.lane_status.each { |lane, status| log("[change] #{prefix}#{lane}: #{status.upcase}") }
+    log("[change] #{prefix}#{findings.failures.size} failing finding(s)")
+    log("[change] #{prefix}report: #{report[:markdown]}")
+    log("[change] #{prefix}data:   #{report[:csv]}")
+    log("[change] #{prefix}#{findings.passed? ? 'PASS' : 'FAIL'} (scope: #{@args.scope}#{@args.profile ? ", profile: #{@args.profile}" : ''})")
   end
 
   def repo_root
