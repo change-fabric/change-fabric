@@ -13,7 +13,7 @@ require 'uri'
 # a one-shot run or a scoped browser; this module owns the run, the network, and
 # the teardown so a lane script never writes a raw `docker run`.
 module ChangeDocker
-  # Images reused verbatim from the AMFM ad hoc runners this platform subsumes, so
+  # Images reused verbatim from the ad hoc runners this platform subsumes, so
   # a project migrating off those files gets byte-identical tooling. Bump these in
   # one place when a runner is upgraded.
   K6_IMAGE = 'grafana/k6:1.4.0@sha256:6a3ee54ac0e9ff5527923f6295257453dd88012f32f40dadf0eb1b638cbb21c7'

@@ -38,7 +38,7 @@ require_relative 'change_figma'
 #   browser canvas, so decode-and-diff happens there rather than in Ruby, which
 #   has no image-decoding library in this repo's Gemfile).
 #
-# This is the deterministic, config-driven counterpart to the AMFM
+# This is the deterministic, config-driven counterpart to a prior client's
 # apps/e2e/src/smoke.ts / full.ts Playwright-over-CDP harness: same ephemeral
 # browserless container, but a fixed responsive/auth/visual-alignment rubric
 # across a viewport matrix rather than hand-authored flow assertions.

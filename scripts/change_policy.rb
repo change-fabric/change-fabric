@@ -103,8 +103,9 @@ class ChangePolicy
   # Whether admin-bypass merging (`gh pr merge --admin`, skipping the normal
   # review/CI wait) is permitted at all for a protected branch. Conservative
   # default is false: a repo must state in CHANGE.md that it allows the practice.
-  # AMFM, whose established flow admin-merges routinely once CI is green, sets
-  # this true with `require_change_pass: true` so the audit gate still applies.
+  # Some adopting repos, whose established flow admin-merges routinely once CI
+  # is green, set this true with `require_change_pass: true` so the audit gate
+  # still applies.
   def admin_bypass_allowed?
     !!@policy.dig('admin_bypass', 'allowed')
   end

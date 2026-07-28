@@ -86,8 +86,8 @@ class ChangeGateStoreTest < Minitest::Test
 
   def test_two_app_runs_on_one_sha_merge_rather_than_clobber
     store = ChangeGateStore.new("abc123")
-    store.record(scope: "all", status: "pass", project: "amfm", lanes: {}, report: "portal.md", app: "portal")
-    store.record(scope: "all", status: "pass", project: "amfm", lanes: {}, report: "scattergram.md", app: "scattergram")
+    store.record(scope: "all", status: "pass", project: "app", lanes: {}, report: "portal.md", app: "portal")
+    store.record(scope: "all", status: "pass", project: "app", lanes: {}, report: "scattergram.md", app: "scattergram")
 
     record = store.read
     assert_equal %w[portal scattergram].sort, record["apps"].keys.sort
@@ -97,8 +97,8 @@ class ChangeGateStoreTest < Minitest::Test
 
   def test_aggregate_status_fails_when_any_app_failed
     store = ChangeGateStore.new("abc123")
-    store.record(scope: "all", status: "pass", project: "amfm", lanes: {}, report: "portal.md", app: "portal")
-    store.record(scope: "all", status: "fail", project: "amfm", lanes: {}, report: "scattergram.md", app: "scattergram")
+    store.record(scope: "all", status: "pass", project: "app", lanes: {}, report: "portal.md", app: "portal")
+    store.record(scope: "all", status: "fail", project: "app", lanes: {}, report: "scattergram.md", app: "scattergram")
 
     record = store.read
     assert_equal "fail", record["status"]
@@ -106,15 +106,15 @@ class ChangeGateStoreTest < Minitest::Test
 
   def test_comprehensive_pass_with_an_app_list_requires_every_named_app
     store = ChangeGateStore.new("abc123")
-    store.record(scope: "all", status: "pass", project: "amfm", lanes: {}, report: "portal.md", app: "portal")
-    store.record(scope: "all", status: "pass", project: "amfm", lanes: {}, report: "scattergram.md", app: "scattergram")
+    store.record(scope: "all", status: "pass", project: "app", lanes: {}, report: "portal.md", app: "portal")
+    store.record(scope: "all", status: "pass", project: "app", lanes: {}, report: "scattergram.md", app: "scattergram")
 
     assert store.comprehensive_pass?(apps: %w[portal scattergram])
   end
 
   def test_comprehensive_pass_with_an_app_list_fails_on_a_missing_app
     store = ChangeGateStore.new("abc123")
-    store.record(scope: "all", status: "pass", project: "amfm", lanes: {}, report: "portal.md", app: "portal")
+    store.record(scope: "all", status: "pass", project: "app", lanes: {}, report: "portal.md", app: "portal")
 
     refute store.comprehensive_pass?(apps: %w[portal scattergram])
   end
@@ -135,7 +135,7 @@ class ChangeGateStoreTest < Minitest::Test
 
   def test_missing_apps_names_only_the_unrecorded_apps
     store = ChangeGateStore.new("abc123")
-    store.record(scope: "all", status: "pass", project: "amfm", lanes: {}, report: "portal.md", app: "portal")
+    store.record(scope: "all", status: "pass", project: "app", lanes: {}, report: "portal.md", app: "portal")
 
     assert_equal %w[scattergram], store.missing_apps(%w[portal scattergram])
   end
