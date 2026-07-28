@@ -19,20 +19,20 @@ class ChangeLaneRedirectTest < Minitest::Test
   end
 
   def browserless_lane
-    config = ChangeConfig::LaneConfig.new("browserless", { "base_url" => "https://portal.REDACTEDstaging.org" }, "/repo")
-    ChangeLaneBrowserless.new(config, Ctx.new("net", "https://portal.REDACTEDstaging.org"))
+    config = ChangeConfig::LaneConfig.new("browserless", { "base_url" => "https://portal.example.com" }, "/repo")
+    ChangeLaneBrowserless.new(config, Ctx.new("net", "https://portal.example.com"))
   end
 
   def a11y_lane
-    config = ChangeConfig::LaneConfig.new("a11y", { "base_url" => "https://portal.REDACTEDstaging.org" }, "/repo")
-    ChangeLaneA11y.new(config, Ctx.new("net", "https://portal.REDACTEDstaging.org"))
+    config = ChangeConfig::LaneConfig.new("a11y", { "base_url" => "https://portal.example.com" }, "/repo")
+    ChangeLaneA11y.new(config, Ctx.new("net", "https://portal.example.com"))
   end
 
   # A clean cell (requested page actually served) still passes.
   def test_browserless_same_path_is_pass
     check = {
       "viewport" => "desktop", "width" => 1440, "height" => 900, "route" => "/login",
-      "httpStatus" => 200, "finalUrl" => "https://portal.REDACTEDstaging.org/login",
+      "httpStatus" => 200, "finalUrl" => "https://portal.example.com/login",
       "scrollWidth" => 1440, "overflow" => false, "consoleErrors" => 0
     }
     finding = browserless_lane.send(:check_finding, check)
@@ -43,7 +43,7 @@ class ChangeLaneRedirectTest < Minitest::Test
   def test_browserless_auth_redirect_is_warn_not_pass
     check = {
       "viewport" => "desktop", "width" => 1440, "height" => 900, "route" => "/dashboard",
-      "httpStatus" => 200, "finalUrl" => "https://portal.REDACTEDstaging.org/login",
+      "httpStatus" => 200, "finalUrl" => "https://portal.example.com/login",
       "scrollWidth" => 1440, "overflow" => false, "consoleErrors" => 0
     }
     finding = browserless_lane.send(:check_finding, check)
@@ -56,7 +56,7 @@ class ChangeLaneRedirectTest < Minitest::Test
   def test_browserless_trailing_slash_is_not_a_redirect
     check = {
       "viewport" => "mobile", "width" => 390, "height" => 844, "route" => "/resources",
-      "httpStatus" => 200, "finalUrl" => "https://portal.REDACTEDstaging.org/resources/",
+      "httpStatus" => 200, "finalUrl" => "https://portal.example.com/resources/",
       "scrollWidth" => 390, "overflow" => false, "consoleErrors" => 0
     }
     finding = browserless_lane.send(:check_finding, check)
@@ -67,7 +67,7 @@ class ChangeLaneRedirectTest < Minitest::Test
   # violations to the requested route.
   def test_a11y_auth_redirect_is_reported_as_redirect
     route = {
-      "route" => "/dashboard", "finalUrl" => "https://portal.REDACTEDstaging.org/login",
+      "route" => "/dashboard", "finalUrl" => "https://portal.example.com/login",
       "violations" => [ { "id" => "color-contrast", "impact" => "serious",
                           "help" => "contrast", "helpUrl" => "x", "nodes" => [ "button" ] } ]
     }
@@ -81,7 +81,7 @@ class ChangeLaneRedirectTest < Minitest::Test
   # A route that served itself still reports its real violations.
   def test_a11y_same_path_reports_violations
     route = {
-      "route" => "/login", "finalUrl" => "https://portal.REDACTEDstaging.org/login",
+      "route" => "/login", "finalUrl" => "https://portal.example.com/login",
       "violations" => [ { "id" => "color-contrast", "impact" => "serious",
                           "help" => "contrast", "helpUrl" => "x", "nodes" => [ "button" ] } ]
     }

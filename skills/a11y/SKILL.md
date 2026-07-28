@@ -29,7 +29,7 @@ pair to `~/Desktop`, and records an `a11y` scope gate under the head SHA. An
 `a11y`-scope record never satisfies the comprehensive merge gate; only a full
 `cf:change` run does.
 
-This is the platform's version of the REDACTED `apps/e2e/src/a11y.ts` scan: same
+This is the platform's version of a prior client's `apps/e2e/src/a11y.ts` scan: same
 axe-core-over-browserless approach, but driven by the shared config and reported
 through the change-fabric report pair.
 

@@ -7,7 +7,7 @@ require_relative 'change_findings'
 
 # The accessibility lane. Drives axe-core against each configured route inside
 # the shared browserless Chromium container (no host browser, no second image),
-# reusing the exact approach of the REDACTED apps/e2e/src/a11y.ts it subsumes: load
+# reusing the exact approach of a prior client's apps/e2e/src/a11y.ts it subsumes: load
 # the page over the browser, inject axe-core, run it against the rendered DOM,
 # and grade each violation against an impact threshold. A violation at or above
 # the threshold (default "serious") is a fail; below it is a warn.
