@@ -1,4 +1,4 @@
-// pst:drive Workflow script. Pass this file's contents verbatim as
+// cf:drive Workflow script. Pass this file's contents verbatim as
 // Workflow's `script` argument; do not paraphrase, summarize, or edit it in
 // transit. It owns the local quality-and-CI engine SKILL.md's steps 3-7
 // describe by hand: relevance-gating the two optional lanes, iterating the
@@ -26,7 +26,7 @@
 //                       delegate to a cheaper tier.
 
 export const meta = {
-  name: "pst-drive-quality-and-ci",
+  name: "cf-drive-quality-and-ci",
   description: "Relevance-gate quality lanes, iterate fixes to a would-approve state, then predict CI locally",
   phases: [
     { title: "Relevance", model: "haiku" },
@@ -127,15 +127,15 @@ function worktreeSetup() {
 
 phase("Relevance")
 const relevance = await agent(
-  "Three pst quality lanes, pst:qa, pst:refactor, and pst:change, are gated on relevance to " +
-  "this change; decide each independently. pst:code-review and pst:ai-slop are not part of " +
+  "Three cf quality lanes, cf:qa, cf:refactor, and cf:change, are gated on relevance to " +
+  "this change; decide each independently. cf:code-review and cf:ai-slop are not part of " +
   "this decision, they run unconditionally regardless of what you say here.\n\n" +
   "qa.relevant should be true when the change touches a user-facing or browser-drivable " +
-  "surface, or when the route summary below lists a UI rubric (pst:react, pst:nextjs, " +
-  "pst:client-state, pst:vite). A change with no reachable UI or flow to smoke-test should " +
+  "surface, or when the route summary below lists a UI rubric (cf:react, cf:nextjs, " +
+  "cf:client-state, cf:vite). A change with no reachable UI or flow to smoke-test should " +
   "get qa.relevant: false.\n\n" +
   "refactor.relevant should be true when the route summary lists any matched skill other than " +
-  "pst:ai-slop alone. A pure-docs change whose only route hit is pst:ai-slop should get " +
+  "cf:ai-slop alone. A pure-docs change whose only route hit is cf:ai-slop should get " +
   "refactor.relevant: false; there is no code shape to refactor.\n\n" +
   "change.relevant should be true when the change plausibly affects load/performance, " +
   "accessibility, security posture (headers, auth, cookies, dependencies), or responsive UX, " +
@@ -146,16 +146,16 @@ const relevance = await agent(
   { model: "haiku", phase: "Relevance", schema: RELEVANCE_SCHEMA }
 )
 
-// pst:ai-slop's own frontmatter is `auto: all_files: true`, matching every
+// cf:ai-slop's own frontmatter is `auto: all_files: true`, matching every
 // file unconditionally; gating it on a relevance call would just replay
-// that same always-true answer through an extra agent call. pst:code-review
+// that same always-true answer through an extra agent call. cf:code-review
 // is the other floor: correctness and refactor-opportunity coverage a
 // change of any size should get, not something a relevance guess should be
 // allowed to skip.
-const selectedSkills = [ "pst:code-review", "pst:ai-slop" ]
-if (relevance.qa.relevant) selectedSkills.push("pst:qa")
-if (relevance.refactor.relevant) selectedSkills.push("pst:refactor")
-if (relevance.change.relevant) selectedSkills.push("pst:change")
+const selectedSkills = [ "cf:code-review", "cf:ai-slop" ]
+if (relevance.qa.relevant) selectedSkills.push("cf:qa")
+if (relevance.refactor.relevant) selectedSkills.push("cf:refactor")
+if (relevance.change.relevant) selectedSkills.push("cf:change")
 log("Selected lanes: " + selectedSkills.join(", "))
 
 // Every lane prompt is the same envelope around a body: an optional worktree
@@ -183,7 +183,7 @@ function codeReviewPrompt() {
 
 function aiSlopPrompt() {
   return buildPrompt(
-    "Apply the pst:ai-slop rubric to every changed file: no filler, no em-dash, no " +
+    "Apply the cf:ai-slop rubric to every changed file: no filler, no em-dash, no " +
     "bullet glyph other than markdown '-'/'*', no ellipsis glyph, no smart quotes, no agent " +
     "attribution footers, self-documenting code, comments only for why not what. Fix " +
     "violations directly in " + repoPath + "."
@@ -192,7 +192,7 @@ function aiSlopPrompt() {
 
 function qaPrompt() {
   return buildPrompt(
-    "Scope a Playwright smoke-test plan for this change per pst:qa's own approach: an " +
+    "Scope a Playwright smoke-test plan for this change per cf:qa's own approach: an " +
     "ephemeral browserless Chromium container, a digest-pinned image, never a host daemon. " +
     "Execute the plan against the app under test. Fix anything code-fixable that the flows " +
     "surface directly in " + repoPath + "; report anything else as a deferred finding."
@@ -201,14 +201,14 @@ function qaPrompt() {
 
 function refactorPrompt() {
   return buildPrompt(
-    "Route these files through the applicable pst skill rubrics via the route output below. " +
+    "Route these files through the applicable cf skill rubrics via the route output below. " +
     "For each smell found, apply the smallest behavior-preserving refactor, then verify with " +
     "the repo's tests or build. Apply confirmed refactors directly in " + repoPath + ".",
     { setup: true, route: true }
   )
 }
 
-// pst:change is the deterministic config-driven release-gate sweep. Unlike the
+// cf:change is the deterministic config-driven release-gate sweep. Unlike the
 // other lanes it does not "find and fix" a rubric; it runs the four dockerized
 // audit lanes against the repo's root CHANGE.md config and gates on their result. So
 // its lane treats a failing audit as blocking and fixes what is code-fixable
@@ -218,9 +218,9 @@ function refactorPrompt() {
 // merge.
 function changePrompt() {
   return buildPrompt(
-    "Run the comprehensive pst:change sweep against " + repoPath + ": from that repo root " +
-    "run `ruby ~/.claude/pst/bin/change_run.rb all`. It boots the app, runs the k6, a11y, ZAP, " +
-    "and browserless responsive lanes in ephemeral digest-pinned containers per pst:docker, and " +
+    "Run the comprehensive cf:change sweep against " + repoPath + ": from that repo root " +
+    "run `ruby ~/.claude/cf/bin/change_run.rb all`. It boots the app, runs the k6, a11y, ZAP, " +
+    "and browserless responsive lanes in ephemeral digest-pinned containers per cf:docker, and " +
     "writes a CSV+Markdown report to the Desktop. Treat any failing lane as blocking. Fix what " +
     "is code-fixable directly in " + repoPath + " (a missing security header, an axe violation, " +
     "a responsive overflow), re-run to confirm, and report load or infrastructure findings that " +
@@ -230,11 +230,11 @@ function changePrompt() {
 }
 
 const lanePrompts = {
-  "pst:code-review": codeReviewPrompt,
-  "pst:ai-slop": aiSlopPrompt,
-  "pst:qa": qaPrompt,
-  "pst:refactor": refactorPrompt,
-  "pst:change": changePrompt
+  "cf:code-review": codeReviewPrompt,
+  "cf:ai-slop": aiSlopPrompt,
+  "cf:qa": qaPrompt,
+  "cf:refactor": refactorPrompt,
+  "cf:change": changePrompt
 }
 
 phase("Quality")
@@ -243,7 +243,7 @@ let converged = false
 for (let n = 1; n <= cap; n++) {
   // Lanes run sequentially, not in parallel, within one iteration: every
   // lane can write to the same repoPath, and parallel writes would collide.
-  // This mirrors pst:resolve-threads' own sequential Apply phase for the
+  // This mirrors cf:resolve-threads' own sequential Apply phase for the
   // same reason (its Evaluate phase parallelizes because worktrees isolate
   // it; its Apply phase, which touches the shared repoPath, does not).
   const lanesRun = []
