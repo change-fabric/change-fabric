@@ -32,6 +32,12 @@ class DoctrineDigestTest < Minitest::Test
     assert_includes text, "bona fide reason"
   end
 
+  def test_injects_the_sensitive_term_tenet
+    text = context("sess-terms")
+    assert_includes text, "shared across projects"
+    assert_includes text, "sensitive_terms.txt"
+  end
+
   def test_marks_session_start_event
     out = emit("sess-2")
     assert_equal "SessionStart", JSON.parse(out).dig("hookSpecificOutput", "hookEventName")

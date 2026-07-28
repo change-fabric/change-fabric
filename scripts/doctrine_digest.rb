@@ -28,7 +28,10 @@ class DoctrineDigest
     'glyphs (no em-dash, bullet, ellipsis, or smart quotes) or agent attribution footers.',
     'PR titles <= 60 chars. PR descriptions <= 640 chars, unless a bona fide reason needs ' \
     'more (a code snippet, a test-plan checklist); the core description should still stay ' \
-    'inside 640 chars even then.'
+    'inside 640 chars even then.',
+    'This toolkit is shared across projects: keep authored output generic, no specific ' \
+    'client, customer, or downstream-project name or domain. Maintain your own flagged-term ' \
+    'list at ~/.claude/cf/sensitive_terms.txt.'
   ].freeze
 
   POINTER = 'File-type rubrics (TypeScript, Ruby, Rails, React, ...) auto-apply as you edit matching files.'
