@@ -174,8 +174,18 @@ module ChangeDocker
     # browserless lanes crash with "no implicit conversion of String into
     # Integer": Array({data,type}) yields [key, value] pairs, and indexing a pair
     # by a string key raised.
+    # browserless's own function-execution timeout defaults to well under our
+    # client-side read_timeout below (30s in the stock image), so a module that
+    # walks a multi-route/multi-viewport matrix with an auth login flow first
+    # (as the browserless lane's real-app checks do) can legitimately exceed it
+    # and gets killed server-side with "408 Request has timed out" even though
+    # the client would have waited longer. Pass an explicit timeout in ms,
+    # just under our own read_timeout, so browserless's limit is never the
+    # first one hit.
+    FUNCTION_TIMEOUT_MS = 115_000
+
     def run_function(code)
-      uri = URI("http://127.0.0.1:#{@port}/function?token=#{@token}")
+      uri = URI("http://127.0.0.1:#{@port}/function?token=#{@token}&timeout=#{FUNCTION_TIMEOUT_MS}")
       response = post(uri, code, 'application/javascript')
       raise "browserless /function failed: #{response.code} #{response.body}" unless response.is_a?(Net::HTTPSuccess)
 
