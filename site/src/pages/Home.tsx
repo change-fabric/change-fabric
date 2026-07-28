@@ -47,6 +47,25 @@ Feature branches merge to \`main\` behind a review. Promotion PRs go
 Admin-bypass merging is not used here.
 `;
 
+// A generic two-app monorepo registry, matching the shape of the "apps"
+// worked example in the frontmatter spec (0.4.0) without naming a real client.
+const MONOREPO_APPS_YAML = `# CHANGE.md (repo root)
+change_config:
+  project: acme-platform
+  apps:
+    portal:
+      config: apps/portal/CHANGE.app.yml
+      description: Authenticated multi-route app
+    marketing:
+      config: apps/marketing/CHANGE.app.yml
+      description: Static, unauthenticated site
+change_policy:
+  promotion:
+    production:
+      require_change_pass: true
+      apps: [portal]   # omit to require every registered app
+`;
+
 function LaneCard({ name, role, detail, url }: (typeof LANES)[number]) {
   return (
     <a className="lane" href={url} target="_blank" rel="noopener noreferrer">
@@ -90,6 +109,17 @@ export function Home() {
           Every field is documented in the{" "}
           <a href={specPath(CURRENT_VERSION)}>frontmatter spec</a>.
         </p>
+      </section>
+
+      <section className="contract">
+        <h2>One repo, many apps</h2>
+        <p className="section-lede">
+          A monorepo registers each app&apos;s own config under{" "}
+          <code>change_config.apps</code>, one <code>CHANGE.app.yml</code> per app. Governance
+          stays a single <code>change_policy</code> for the whole repo, and a promotion rule can
+          require as few or as many app passes as that branch needs.
+        </p>
+        <CodeBlock code={MONOREPO_APPS_YAML} label="CHANGE.md" />
       </section>
     </Layout>
   );
