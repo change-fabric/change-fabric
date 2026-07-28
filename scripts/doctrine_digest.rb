@@ -28,15 +28,25 @@ class DoctrineDigest
     'glyphs (no em-dash, bullet, ellipsis, or smart quotes) or agent attribution footers.',
     'PR titles <= 60 chars. PR descriptions <= 640 chars, unless a bona fide reason needs ' \
     'more (a code snippet, a test-plan checklist); the core description should still stay ' \
-    'inside 640 chars even then.',
+    'inside 640 chars even then.'
+  ].freeze
+
+  # Only relevant while working on this toolkit itself: a client's own repo
+  # mentioning its own name is normal, so this tenet would be noise (and
+  # misleading, citing a file convention scoped to this repo) anywhere else.
+  CF_REPO_TENET =
     'This toolkit is shared across projects: keep authored output generic, no specific ' \
     'client, customer, or downstream-project name or domain. Maintain your own flagged-term ' \
     'list at ~/.claude/cf/sensitive_terms.txt.'
-  ].freeze
+
+  CF_REPO_REMOTE = %r{[/:]pstaylor-patrick/change-fabric(?:\.git)?\b}i
 
   POINTER = 'File-type rubrics (TypeScript, Ruby, Rails, React, ...) auto-apply as you edit matching files.'
 
-  def initialize(event) = @event = event
+  def initialize(event, remote_v: -> { `git remote -v 2>/dev/null` })
+    @event = event
+    @remote_v = remote_v
+  end
 
   def emit(io = $stdout)
     return unless announce?
@@ -48,6 +58,14 @@ class DoctrineDigest
 
   private
 
+  def tenets
+    cf_toolkit_repo? ? TENETS + [ CF_REPO_TENET ] : TENETS
+  end
+
+  def cf_toolkit_repo?
+    @remote_v.call.to_s.lines.any? { |line| line.match?(CF_REPO_REMOTE) }
+  end
+
   # Once per session: SessionStart also fires on resume and clear, and the tenets
   # do not change within a session, so a second injection would be pure noise.
   def announce?
@@ -58,7 +76,7 @@ class DoctrineDigest
   end
 
   def context
-    body = TENETS.map { |tenet| "- #{tenet}" }.join("\n")
+    body = tenets.map { |tenet| "- #{tenet}" }.join("\n")
     text = "[cf] Session doctrine (applies all session, not just on matching edits):\n#{body}\n#{POINTER}"
     { hookSpecificOutput: { hookEventName: EVENT, additionalContext: text } }
   end
