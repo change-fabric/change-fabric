@@ -6,14 +6,17 @@ require_relative "#{SKILL_SCRIPTS}/doctrine_digest"
 class DoctrineDigestTest < Minitest::Test
   include SkillTempHome
 
-  def emit(session_id)
+  CF_REMOTE = -> { "origin\thttps://github.com/pstaylor-patrick/change-fabric.git (fetch)\n" }
+  CLIENT_REMOTE = -> { "origin\thttps://github.com/some-client/their-app.git (fetch)\n" }
+
+  def emit(session_id, remote_v: CF_REMOTE)
     io = StringIO.new
-    DoctrineDigest.new("session_id" => session_id).emit(io)
+    DoctrineDigest.new({ "session_id" => session_id }, remote_v: remote_v).emit(io)
     io.string
   end
 
-  def context(session_id)
-    out = emit(session_id)
+  def context(session_id, remote_v: CF_REMOTE)
+    out = emit(session_id, remote_v: remote_v)
     out.empty? ? nil : JSON.parse(out).dig("hookSpecificOutput", "additionalContext")
   end
 
@@ -32,10 +35,15 @@ class DoctrineDigestTest < Minitest::Test
     assert_includes text, "bona fide reason"
   end
 
-  def test_injects_the_sensitive_term_tenet
-    text = context("sess-terms")
+  def test_injects_the_sensitive_term_tenet_in_the_cf_toolkit_repo
+    text = context("sess-terms", remote_v: CF_REMOTE)
     assert_includes text, "shared across projects"
     assert_includes text, "sensitive_terms.txt"
+  end
+
+  def test_omits_the_sensitive_term_tenet_outside_the_cf_toolkit_repo
+    text = context("sess-client-terms", remote_v: CLIENT_REMOTE)
+    refute_includes text, "sensitive_terms.txt"
   end
 
   def test_marks_session_start_event
