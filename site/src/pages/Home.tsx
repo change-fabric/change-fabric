@@ -114,10 +114,9 @@ export function Home() {
       <section className="contract">
         <h2>One repo, many apps</h2>
         <p className="section-lede">
-          A monorepo registers each app&apos;s own config under{" "}
-          <code>change_config.apps</code>, one <code>CHANGE.app.yml</code> per app. Governance
-          stays a single <code>change_policy</code> for the whole repo, and a promotion rule can
-          require as few or as many app passes as that branch needs.
+          Each app in the monorepo gets its own <code>CHANGE.app.yml</code>, listed under{" "}
+          <code>change_config.apps</code> in the root file. One <code>change_policy</code> still
+          governs the whole repo, and each promotion rule picks which apps it requires a pass from.
         </p>
         <CodeBlock code={MONOREPO_APPS_YAML} label="CHANGE.md" />
       </section>
