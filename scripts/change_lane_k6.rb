@@ -49,6 +49,13 @@ class ChangeLaneK6 < ChangeLane
 
   def run
     Dir.mktmpdir('cf-change-k6') do |dir|
+      # Dir.mktmpdir defaults to 0700, owned by the host user running this
+      # script. The k6 image runs its process as a fixed, non-root uid
+      # (12345) baked into the container, unrelated to the host user, and
+      # needs to both read the mounted script and write --summary-export
+      # back into this same directory. World-writable is safe here: it is a
+      # throwaway per-run temp directory, torn down when this block exits.
+      File.chmod(0o777, dir)
       script = resolve_script(dir)
       summary = File.join(dir, 'summary.json')
       out, status = execute(script, summary, dir)
