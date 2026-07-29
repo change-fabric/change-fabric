@@ -5,8 +5,9 @@
   "type": "module",
   "scripts": {
     "embed-spec": "node scripts/embed-spec.mjs",
-    "prebuild": "npm run embed-spec",
-    "predev": "npm run embed-spec",
+    "embed-reference": "node scripts/embed-reference.mjs",
+    "prebuild": "npm run embed-spec && npm run embed-reference",
+    "predev": "npm run embed-spec && npm run embed-reference",
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview"

@@ -510,3 +510,46 @@ code {
     align-items: flex-start;
   }
 }
+
+.reference-index h2 {
+  margin-top: 40px;
+  margin-bottom: 12px;
+  font-size: 1.15rem;
+}
+
+.reference-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 12px;
+}
+
+.reference-list-item {
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.reference-list-item a {
+  font-weight: 600;
+  text-decoration: none;
+  color: var(--text);
+}
+
+.reference-list-item a:hover {
+  color: var(--accent);
+}
+
+.reference-list-item p {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+.reference-events {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin: 6px 0 0;
+}

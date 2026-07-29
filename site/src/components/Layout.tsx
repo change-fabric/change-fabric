@@ -32,6 +32,9 @@ export function Layout({ children }: { children: ReactNode }) {
           <a className="nav-link" href={specPath(CURRENT_VERSION)}>
             Spec
           </a>
+          <a className="nav-link" href="/reference">
+            Reference
+          </a>
           <a
             className="nav-link nav-icon"
             href={REPO_URL}
@@ -52,6 +55,7 @@ export function Layout({ children }: { children: ReactNode }) {
           <a href="/">Home</a>
           <a href={specPath(CURRENT_VERSION)}>Spec</a>
           <a href="/spec">Versions</a>
+          <a href="/reference">Reference</a>
           <a href={REPO_URL} target="_blank" rel="noopener noreferrer">
             GitHub
           </a>
