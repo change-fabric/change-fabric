@@ -17,7 +17,7 @@ validation and land any further fixes as a follow-up PR against this branch.
 
 ## Prompt to paste
 
-Validate the `cf:qa` skill (`skills/qa/SKILL.md` in `pstaylor-patrick/skills`)
+Validate the `cf:qa` skill (`skills/qa/SKILL.md` in `change-fabric/change-fabric`)
 against real Docker. Build each app below in a private temp directory outside
 this repo (e.g. under `/tmp` or `~/scratch`), never commit them, and delete
 them when done. For each app, invoke `cf:qa` ad hoc with a natural-language
