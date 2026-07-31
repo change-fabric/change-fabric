@@ -64,7 +64,7 @@ change_policy:
     conditions: "not used; the maintainer merges every PR by hand once CI and the cf:change gate are both green, per this repo's own CLAUDE.md"
 ---
 
-# Change management for pstaylor-patrick/change-fabric
+# Change management for change-fabric/change-fabric
 
 The straight-answer governance FAQ for this repo. Point a teammate here when
 they ask how a change reaches `main`, whether every PR needs a review, or

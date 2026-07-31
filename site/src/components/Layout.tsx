@@ -3,7 +3,7 @@ import { GithubLogo, MoonIcon, SunIcon } from "../icons";
 import { useTheme } from "../theme";
 import { CURRENT_VERSION, specPath } from "../spec";
 
-const REPO_URL = "https://github.com/pstaylor-patrick/change-fabric";
+const REPO_URL = "https://github.com/change-fabric/change-fabric";
 
 function ThemeToggle() {
   const { theme, toggle } = useTheme();

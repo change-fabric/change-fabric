@@ -31,8 +31,9 @@ data "aws_iam_policy_document" "deploy_site_trust" {
       test     = "StringLike"
       variable = "token.actions.githubusercontent.com:sub"
       values = [
-        "repo:pstaylor-patrick/change-fabric:ref:refs/heads/main",
+        "repo:change-fabric/change-fabric:ref:refs/heads/main",
         "repo:pstaylor-patrick@*/change-fabric@*:ref:refs/heads/main",
+        "repo:change-fabric@*/change-fabric@*:ref:refs/heads/main",
       ]
     }
   }
