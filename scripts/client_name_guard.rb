@@ -30,7 +30,7 @@ class ClientNameGuard
   # Matches this toolkit's own GitHub remote, however it is cloned (origin,
   # a fork remote, https or ssh). Not a client name: this is the tool's own
   # identity, same as it citing its own repo name elsewhere in its docs.
-  CF_REPO_REMOTE = %r{[/:]pstaylor-patrick/change-fabric(?:\.git)?\b}i
+  CF_REPO_REMOTE = %r{[/:]change-fabric/change-fabric(?:\.git)?\b}i
 
   # Bash commands that author outbound text (mirrors glyph_guard's categories).
   AUTHORING_BASH = [

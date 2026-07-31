@@ -6,7 +6,7 @@ require_relative "#{SKILL_SCRIPTS}/doctrine_digest"
 class DoctrineDigestTest < Minitest::Test
   include SkillTempHome
 
-  CF_REMOTE = -> { "origin\thttps://github.com/pstaylor-patrick/change-fabric.git (fetch)\n" }
+  CF_REMOTE = -> { "origin\thttps://github.com/change-fabric/change-fabric.git (fetch)\n" }
   CLIENT_REMOTE = -> { "origin\thttps://github.com/some-client/their-app.git (fetch)\n" }
 
   def emit(session_id, remote_v: CF_REMOTE)

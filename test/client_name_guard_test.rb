@@ -24,7 +24,7 @@ class ClientNameGuardTest < Minitest::Test
     end
   end
 
-  CF_REMOTE = -> { "origin\thttps://github.com/pstaylor-patrick/change-fabric.git (fetch)\n" }
+  CF_REMOTE = -> { "origin\thttps://github.com/change-fabric/change-fabric.git (fetch)\n" }
   CLIENT_REMOTE = -> { "origin\thttps://github.com/some-client/their-app.git (fetch)\n" }
 
   def guard(terms_path, tool_name, tool_input, remote_v: CF_REMOTE)

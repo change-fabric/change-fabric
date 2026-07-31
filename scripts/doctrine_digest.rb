@@ -39,7 +39,7 @@ class DoctrineDigest
     'client, customer, or downstream-project name or domain. Maintain your own flagged-term ' \
     'list at ~/.claude/cf/sensitive_terms.txt.'
 
-  CF_REPO_REMOTE = %r{[/:]pstaylor-patrick/change-fabric(?:\.git)?\b}i
+  CF_REPO_REMOTE = %r{[/:]change-fabric/change-fabric(?:\.git)?\b}i
 
   POINTER = 'File-type rubrics (TypeScript, Ruby, Rails, React, ...) auto-apply as you edit matching files.'
 

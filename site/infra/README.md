@@ -51,7 +51,7 @@ cd infra
 `.github/workflows/deploy-site.yml` runs this same publish step on every push
 to `main` that touches `site/**` or the CHANGE.md spec doc, authenticating to
 AWS via GitHub's OIDC provider (no long-lived keys). `oidc.tf` defines the IAM
-role it assumes, trusted only for `repo:pstaylor-patrick/change-fabric` pushes
+role it assumes, trusted only for `repo:change-fabric/change-fabric` pushes
 to `main`. The workflow reads `SITE_BUCKET`/`WWW_DISTRIBUTION_ID`/
 `DEPLOY_SITE_ROLE_ARN` from repo variables instead of running Terraform, so CI
 never needs state-backend access; set them once after `terraform apply` from

@@ -1,7 +1,7 @@
 import { Layout } from "../components/Layout";
 import { findHook } from "../reference";
 
-const REPO_URL = "https://github.com/pstaylor-patrick/change-fabric";
+const REPO_URL = "https://github.com/change-fabric/change-fabric";
 
 export function ReferenceHookPage({ id }: { id: string }) {
   const hook = findHook(id);
