@@ -59,6 +59,19 @@ class ContributorsTeam
     nil
   end
 
+  # The stable, remote-agnostic repo id per section 9.2: the git origin remote
+  # (or the first remote) normalized to `host/path` so SSH and HTTPS clones of
+  # the same repo collapse to one value (e.g. `github.com/acme/web`). nil when
+  # there is no remote. Public because it identifies a repo independently of any
+  # team registration: SweepTrustStore keys durable per-repo state on it in
+  # repos that carry no `contributors_team` block at all.
+  def repo_id
+    return @repo_id if defined?(@repo_id)
+
+    url = remote_url
+    @repo_id = url ? normalize_remote(url) : nil
+  end
+
   private
 
   # The parsed `contributors_team` block (a Hash with team_id,
@@ -76,17 +89,6 @@ class ContributorsTeam
     @team
   rescue StandardError
     @team = nil
-  end
-
-  # The stable, remote-agnostic repo id per section 9.2: the git origin remote
-  # (or the first remote) normalized to `host/path` so SSH and HTTPS clones of
-  # the same repo collapse to one value (e.g. `github.com/acme/web`). nil when
-  # there is no remote.
-  def repo_id
-    return @repo_id if defined?(@repo_id)
-
-    url = remote_url
-    @repo_id = url ? normalize_remote(url) : nil
   end
 
   # The locally configured contributor_id for a team, read from the one-line
