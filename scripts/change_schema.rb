@@ -15,7 +15,7 @@
 # spec doc's changelog. A field-set change without a matching version bump, or a
 # version bump the doc does not reflect, is exactly what the drift test catches.
 module ChangeSchema
-  VERSION = '0.4.0'
+  VERSION = '0.5.0'
 
   # The four audit lanes, the authoritative list the config validator enforces.
   LANES = %w[k6 a11y zap browserless].freeze
@@ -162,6 +162,35 @@ module ChangeSchema
     'change_policy.promotion.<branch>.apps',
     'change_policy.admin_bypass.allowed',
     'change_policy.admin_bypass.require_change_pass',
-    'change_policy.admin_bypass.conditions'
+    'change_policy.admin_bypass.conditions',
+    # contributors_team: (0.5.0) the third top-level block. It registers the
+    # repo with a contributors team and, under `artifacts`, with that team's
+    # shared findings-artifact area. The first three fields predate this
+    # version in the code (contributors_team.rb has always read them) and are
+    # documented here for the first time, so the registry finally covers every
+    # frontmatter key change-fabric reads rather than only two of the three
+    # blocks.
+    'contributors_team.team_id',
+    'contributors_team.public_key_ed25519',
+    'contributors_team.contributors[].id',
+    'contributors_team.contributors[].name',
+    # contributors_team.artifacts (0.5.0): the team's S3 + CloudFront artifact
+    # area. Its presence is what turns per-run artifact publishing on; a repo
+    # without it audits, reports, and gates exactly as before. Nothing here is
+    # a credential: basic_auth names where the viewer credential lives, never
+    # what it is.
+    'contributors_team.artifacts.enabled',
+    'contributors_team.artifacts.bucket',
+    'contributors_team.artifacts.region',
+    'contributors_team.artifacts.aws_profile',
+    'contributors_team.artifacts.distribution_id',
+    'contributors_team.artifacts.domain',
+    'contributors_team.artifacts.manifest_table',
+    'contributors_team.artifacts.basic_auth.username',
+    'contributors_team.artifacts.basic_auth.ssm_parameter',
+    'contributors_team.artifacts.basic_auth.secret_ref',
+    'contributors_team.artifacts.media.screenshots',
+    'contributors_team.artifacts.media.video',
+    'contributors_team.artifacts.media.video_fps'
   ].freeze
 end

@@ -1,0 +1,85 @@
+<%#
+  One viewport's annotated PDF: a cover page naming the run, then one page per
+  route walked at this viewport, each carrying that route's full-page
+  screenshot with the findings recorded against it printed directly underneath.
+
+  Rendered by scripts/change_artifact_bundle.rb inside the browserless
+  container via page.pdf(), per cf:pdf-rendering: escaped data only, local
+  assets only (every screenshot arrives as a data URI, so the renderer needs
+  neither the host filesystem nor the network), and explicit page geometry
+  through the @page rule below plus the margins passed to page.pdf().
+
+  Annotations are interleaved captions rather than boxes drawn on the image on
+  purpose: the lanes report selectors and whole-page measurements, never
+  element rectangles, so a drawn box would have to invent coordinates.
+-%>
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title><%= h "#{project} #{section_name} #{run_id}" %></title>
+<style>
+  @page { size: A4; }
+  * { box-sizing: border-box; }
+  body { margin: 0; color: #16181d; font: 11pt/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+  h1 { font-size: 21pt; margin: 0 0 4pt; }
+  h2 { font-size: 13pt; margin: 0 0 6pt; }
+  .muted { color: #5c6370; }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .cover { page-break-after: always; }
+  .facts { width: 100%; border-collapse: collapse; margin-top: 12pt; }
+  .facts th, .facts td { text-align: left; padding: 4pt 6pt; border-bottom: 1px solid #e3e6ea; font-size: 10pt; vertical-align: top; }
+  .facts th { width: 32%; color: #5c6370; font-weight: 600; }
+  .route { page-break-before: always; }
+  .shot { width: 100%; max-height: 165mm; object-fit: contain; object-position: top; border: 1px solid #e3e6ea; }
+  .annotations { margin-top: 8pt; }
+  .annotation { border-left: 3px solid #9aa2ad; padding: 3pt 0 3pt 8pt; margin: 0 0 6pt; font-size: 10pt; }
+  .annotation.fail { border-left-color: #b3261e; }
+  .annotation.warn { border-left-color: #8a6100; }
+  .annotation.pass { border-left-color: #1f7a4d; }
+  .label { font-weight: 700; letter-spacing: .04em; }
+</style>
+</head>
+<body>
+
+<section class="cover">
+  <h1><%= h project %>: <%= h section_name %> walk</h1>
+  <p class="muted">Run <span class="mono"><%= h run_id %></span>, <%= h status_label %>, generated <%= h generated_at %>.</p>
+  <table class="facts">
+    <tr><th>Contributor</th><td><%= h contributor_name %> (<span class="mono"><%= h contributor_id %></span>)</td></tr>
+    <tr><th>Team</th><td class="mono"><%= h team_id %></td></tr>
+    <tr><th>Repo</th><td class="mono"><%= h repo_id %></td></tr>
+    <tr><th>Branch</th><td class="mono"><%= h git['branch'] %></td></tr>
+    <tr><th>Head commit</th><td class="mono"><%= h git['head_sha'] %></td></tr>
+    <tr><th>Pull request</th><td><%= pr_link ? h("#{pr_link['label']} #{pr_link['url']}") : 'not PR scoped' %></td></tr>
+    <tr><th>Target</th><td class="mono"><%= h run['target'] %></td></tr>
+    <tr><th>Routes at this viewport</th><td><%= section_screenshots.size %></td></tr>
+    <tr><th>Findings at this viewport</th><td><%= section_findings.size %></td></tr>
+  </table>
+  <p class="muted">Each page that follows is one route as it rendered at the <%= h section_name %> viewport, with the findings recorded against that route printed underneath the capture. The full run, including the other viewports and the recording of this walk, is in the published artifact page.</p>
+</section>
+
+<% section_screenshots.each do |shot| -%>
+<section class="route">
+  <h2><span class="mono"><%= h shot['route'] %></span></h2>
+  <img class="shot" alt="<%= h "#{section_name} #{shot['route']}" %>" src="<%= h image_src(shot['path']) %>">
+  <div class="annotations">
+    <% rows = findings_for_route(shot['route']) -%>
+    <% if rows.empty? -%>
+      <p class="annotation pass"><span class="label">PASS</span> no finding was recorded for this route at this viewport.</p>
+    <% end -%>
+    <% rows.each do |finding| -%>
+      <p class="annotation <%= h finding['status'] %>">
+        <span class="label"><%= h finding['status'].to_s.upcase %></span>
+        <%= h finding['check'] %>: <%= h finding['detail'] %>
+        <% unless finding['severity'].to_s.empty? -%>
+          <span class="muted">(severity <%= h finding['severity'] %>)</span>
+        <% end -%>
+      </p>
+    <% end -%>
+  </div>
+</section>
+<% end -%>
+
+</body>
+</html>

@@ -1,0 +1,227 @@
+<%#
+  The cf:change findings artifact, one page per run.
+
+  Rendered by scripts/change_artifact_bundle.rb through ChangeArtifactView, and
+  published to the team's S3 + CloudFront area as `index.html` with its
+  screenshots, recordings, and PDFs alongside it. It must stay a static file:
+  all CSS and JS inline, every asset a sibling path in the same key prefix, no
+  network fetch at view time. Anything dynamic (the findings filter) runs
+  client side over the JSON block at the bottom.
+-%>
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title><%= h title %></title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #ffffff; --fg: #16181d; --muted: #5c6370; --line: #e3e6ea; --card: #f7f8fa;
+    --pass: #1f7a4d; --warn: #8a6100; --fail: #b3261e; --link: #1a4fd6;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14161a; --fg: #e8eaee; --muted: #9aa2ad; --line: #2a2e35; --card: #1b1e24;
+      --pass: #4cc38a; --warn: #e0b341; --fail: #ff6b60; --link: #7aa2ff;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+  main { max-width: 1100px; margin: 0 auto; padding: 32px 20px 80px; }
+  h1 { font-size: 26px; margin: 0 0 4px; }
+  h2 { font-size: 19px; margin: 40px 0 12px; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
+  h3 { font-size: 16px; margin: 26px 0 8px; }
+  a { color: var(--link); }
+  code, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
+  .sub { color: var(--muted); margin: 0 0 18px; }
+  .badge { display: inline-block; padding: 3px 10px; border-radius: 999px; font-weight: 700; font-size: 13px; letter-spacing: .04em; }
+  .s-pass { background: color-mix(in srgb, var(--pass) 18%, transparent); color: var(--pass); }
+  .s-warn { background: color-mix(in srgb, var(--warn) 20%, transparent); color: var(--warn); }
+  .s-fail { background: color-mix(in srgb, var(--fail) 18%, transparent); color: var(--fail); }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+  .card dt { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .06em; margin: 0 0 3px; }
+  .card dd { margin: 0; word-break: break-word; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .06em; }
+  .scroll { overflow-x: auto; }
+  .shots { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
+  figure { margin: 0; background: var(--card); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+  figure img { display: block; width: 100%; height: auto; background: #fff; }
+  figcaption { padding: 8px 10px; font-size: 13px; color: var(--muted); }
+  video { width: 100%; max-width: 720px; border: 1px solid var(--line); border-radius: 10px; background: #000; }
+  .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+  .filters input, .filters select { padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--fg); font: inherit; }
+  .note { color: var(--muted); font-size: 13px; }
+</style>
+</head>
+<body>
+<main>
+
+<h1><%= h project %> <span class="badge <%= status_class status %>"><%= h status_label %></span></h1>
+<p class="sub">Run <span class="mono"><%= h run_id %></span>, generated <%= h generated_at %>.
+<%= h counts['fail'].to_i %> failing, <%= h counts['warn'].to_i %> warning, <%= h counts['pass'].to_i %> passing findings across <%= h lanes.size %> lane(s).</p>
+
+<h2>Run context</h2>
+<div class="grid">
+  <dl class="card"><dt>Contributor</dt><dd><%= h contributor_name %> <span class="mono">(<%= h contributor_id %>)</span></dd></dl>
+  <dl class="card"><dt>Team</dt><dd class="mono"><%= h team_id %></dd></dl>
+  <dl class="card"><dt>Repo</dt><dd class="mono"><%= h repo_id %></dd></dl>
+  <dl class="card"><dt>Branch</dt><dd class="mono"><%= h git['branch'] %></dd></dl>
+  <dl class="card"><dt>Head commit</dt><dd class="mono"><%= h git['short_sha'] %></dd><dd class="note"><%= h git['subject'] %></dd></dl>
+  <dl class="card"><dt>Pull request</dt><dd>
+    <% if (link = pr_link) -%>
+      <a href="<%= h link['url'] %>"><%= h link['label'] %></a>
+      <div class="note"><%= h link['title'] %></div>
+    <% else -%>
+      not PR scoped
+    <% end -%>
+  </dd></dl>
+  <dl class="card"><dt>Scope</dt><dd><%= h run['scope'] %><% if run['app'] %> (app: <%= h run['app'] %>)<% end %></dd></dl>
+  <dl class="card"><dt>Profile</dt><dd><%= h run['profile'] %></dd></dl>
+  <dl class="card"><dt>Target</dt><dd class="mono"><%= h run['target'] %></dd></dl>
+</div>
+
+<h3>Team roster</h3>
+<p class="note">
+<% if roster.empty? -%>
+  No contributors registered in this repo's CHANGE.md.
+<% else -%>
+  <%= roster.map { |member| h("#{member['name']} (#{member['id']})") }.join(', ') %>
+<% end -%>
+</p>
+
+<h2>Lane results</h2>
+<div class="scroll">
+<table>
+  <thead><tr><th>Lane</th><th>Result</th><th>Findings</th><th>Failing</th></tr></thead>
+  <tbody>
+  <% lanes.each do |lane| -%>
+    <% rows = findings_for(lane) -%>
+    <tr>
+      <td><%= h lane %></td>
+      <td><span class="badge <%= status_class lane_status[lane] %>"><%= h lane_status[lane].to_s.upcase %></span></td>
+      <td><%= rows.size %></td>
+      <td><%= rows.count { |row| row['status'] == 'fail' } %></td>
+    </tr>
+  <% end -%>
+  </tbody>
+</table>
+</div>
+
+<h2>Findings</h2>
+<div class="row filters">
+  <input id="q" type="search" placeholder="Filter findings" aria-label="Filter findings">
+  <select id="lane" aria-label="Lane">
+    <option value="">All lanes</option>
+    <% lanes.each do |lane| -%><option value="<%= h lane %>"><%= h lane %></option><% end -%>
+  </select>
+  <select id="status" aria-label="Status">
+    <option value="">All statuses</option>
+    <option value="fail">fail</option><option value="warn">warn</option><option value="pass">pass</option>
+  </select>
+  <span class="note" id="count"></span>
+</div>
+<div class="scroll">
+<table id="findings">
+  <thead><tr><th>Lane</th><th>Status</th><th>Severity</th><th>Check</th><th>Location</th><th>Detail</th></tr></thead>
+  <tbody>
+  <% findings.each do |finding| -%>
+    <tr data-lane="<%= h finding['lane'] %>" data-status="<%= h finding['status'] %>">
+      <td><%= h finding['lane'] %></td>
+      <td><span class="badge <%= status_class finding['status'] %>"><%= h finding['status'].to_s.upcase %></span></td>
+      <td><%= h finding['severity'] %></td>
+      <td><%= h finding['check'] %></td>
+      <td class="mono"><%= h finding['location'] %></td>
+      <td><%= h finding['detail'] %></td>
+    </tr>
+  <% end -%>
+  </tbody>
+</table>
+</div>
+
+<h2>Responsive walk by viewport</h2>
+<% if viewports.empty? -%>
+<p class="note">No media was captured for this run. The browserless lane captures screenshots and recordings only when the repo's CHANGE.md carries a contributors_team.artifacts block and the lane is enabled.</p>
+<% end -%>
+<% viewports.each do |viewport| -%>
+<h3><%= h viewport['name'] %></h3>
+<p class="row note">
+  <a href="<%= h viewport['pdf'] %>">Annotated PDF for this viewport</a>
+  <% if video_available?(viewport['video']) -%>
+    <span>Recording: <%= h human_bytes(viewport['video']['bytes']) %></span>
+  <% end -%>
+</p>
+<% if video_available?(viewport['video']) -%>
+<video controls preload="metadata" src="<%= h viewport['video']['path'] %>"></video>
+<% elsif viewport['video'] -%>
+<p class="note">No recording for this viewport: <%= h viewport['video']['error'] %></p>
+<% end -%>
+<div class="shots">
+<% Array(viewport['screenshots']).each do |shot| -%>
+  <figure>
+    <img loading="lazy" alt="<%= h "#{viewport['name']} #{shot['route']}" %>" src="<%= h shot['path'] %>">
+    <figcaption><span class="mono"><%= h shot['route'] %></span></figcaption>
+  </figure>
+<% end -%>
+</div>
+<% rows = Array(viewport['findings']) -%>
+<% unless rows.empty? -%>
+<div class="scroll">
+<table>
+  <thead><tr><th>Status</th><th>Check</th><th>Route</th><th>Detail</th></tr></thead>
+  <tbody>
+  <% rows.each do |finding| -%>
+    <tr>
+      <td><span class="badge <%= status_class finding['status'] %>"><%= h finding['status'].to_s.upcase %></span></td>
+      <td><%= h finding['check'] %></td>
+      <td class="mono"><%= h finding['location'] %></td>
+      <td><%= h finding['detail'] %></td>
+    </tr>
+  <% end -%>
+  </tbody>
+</table>
+</div>
+<% end -%>
+<% end -%>
+
+<h2>Downloads</h2>
+<ul>
+  <li><a href="manifest.json">manifest.json</a>, the machine readable record of this run</li>
+  <% if reports['markdown'] -%><li><a href="report.md">report.md</a>, the Markdown report this run wrote</li><% end -%>
+  <% if reports['csv'] -%><li><a href="report.csv">report.csv</a>, one row per finding</li><% end -%>
+</ul>
+
+<script type="application/json" id="manifest"><%= json manifest %></script>
+<script>
+  (function () {
+    var rows = Array.prototype.slice.call(document.querySelectorAll("#findings tbody tr"));
+    var q = document.getElementById("q");
+    var lane = document.getElementById("lane");
+    var status = document.getElementById("status");
+    var count = document.getElementById("count");
+    function apply() {
+      var text = q.value.trim().toLowerCase();
+      var shown = 0;
+      rows.forEach(function (row) {
+        var ok =
+          (!lane.value || row.dataset.lane === lane.value) &&
+          (!status.value || row.dataset.status === status.value) &&
+          (!text || row.textContent.toLowerCase().indexOf(text) !== -1);
+        row.hidden = !ok;
+        if (ok) shown += 1;
+      });
+      count.textContent = shown + " of " + rows.length + " findings";
+    }
+    [q, lane, status].forEach(function (control) {
+      control.addEventListener("input", apply);
+      control.addEventListener("change", apply);
+    });
+    apply();
+  })();
+</script>
+</main>
+</body>
+</html>
