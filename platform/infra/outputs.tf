@@ -88,6 +88,31 @@ output "staging_database_role" {
   value       = local.staging_role
 }
 
+output "api_domain_name" {
+  description = "Public host the staging API answers on."
+  value       = aws_apigatewayv2_domain_name.api.domain_name
+}
+
+output "api_endpoint" {
+  description = "API Gateway's own execute-api endpoint, behind the custom domain. Useful for isolating a DNS problem from a gateway problem."
+  value       = aws_apigatewayv2_api.api.api_endpoint
+}
+
+output "api_function_name" {
+  description = "Lambda serving the staging API."
+  value       = aws_lambda_function.api.function_name
+}
+
+output "migrate_function_name" {
+  description = "Maintenance Lambda. Invoke it directly to apply migrations or read a row back; nothing routes to it."
+  value       = aws_lambda_function.migrate.function_name
+}
+
+output "ses_from_address" {
+  description = "From address the staging API sends transactional mail as."
+  value       = local.ses_from_address
+}
+
 # Only populated during a bootstrap run. This is the target an SSM port-forward
 # points at; it is null whenever the bastion is torn down, which is its normal
 # state.

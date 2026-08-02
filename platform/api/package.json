@@ -1,0 +1,37 @@
+{
+  "name": "@change-fabric/platform-api",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "db:generate": "drizzle-kit generate"
+  },
+  "dependencies": {
+    "@aws-sdk/client-sesv2": "3.1101.0",
+    "@aws-sdk/client-ssm": "3.1101.0",
+    "better-auth": "1.6.25",
+    "drizzle-orm": "0.45.2",
+    "hono": "4.12.33",
+    "pg": "8.22.0"
+  },
+  "devDependencies": {
+    "@types/aws-lambda": "8.10.162",
+    "@types/node": "22.20.1",
+    "@types/pg": "8.20.3",
+    "drizzle-kit": "0.31.10",
+    "esbuild": "0.28.1",
+    "typescript": "5.9.3",
+    "vitest": "4.1.10"
+  },
+  "allowScripts": {
+    "esbuild@0.18.20": true,
+    "esbuild@0.25.12": true,
+    "esbuild@0.28.1": true
+  }
+}
