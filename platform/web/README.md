@@ -22,8 +22,10 @@ src/pages/              sign up, log in, onboarding, dashboard, teams, accept-in
 src/components/         the shell, the org switcher, the invite dialog, the notice
 basic-auth.function.js  CloudFront Function TEMPLATE, digest substituted at deploy
 deploy.sh               publish the function, sync dist/, invalidate
+test/                   the pure logic, in node, in under a second
 verify/run.mjs          phase 3 headless run: sign-up, onboarding, the dashboard
 verify/teams.mjs        phase 4 headless run: teams, invites, membership, keys
+verify/artifacts.mjs    phase 5 headless run: publishing, and reading a run back
 verify/legacy-migration.mjs  phase 7: a migrated team's findings, as a person sees them
 ```
 
@@ -171,14 +173,50 @@ terraform -chdir=../infra apply   # builds the distribution around it
 
 Every run after that is one run.
 
+## What CI checks
+
+The `platform-web` job in `.github/workflows/ci.yml` runs `npm ci`, then
+`npm run typecheck`, `npm test` and `npm run build`, on every pull request into
+`main` or a `platform/**` branch. It carries no `paths:` filter, matching every
+other job in that workflow: a required check that silently skips is worse than
+one that runs for two minutes on a docs-only change.
+
+`npm test` is Vitest over `test/`, in a node environment, in well under a second.
+It covers the parts of this package that are decisions rather than plumbing: how
+`src/api.ts` turns a failure into something a person can read, the query and body
+shapes the API rejects if they carry an empty value where it expected an absent
+one, where `src/config.ts` resolves the API origin, and that `SLUG_PATTERN` is
+still character-for-character the pattern `platform/api` enforces. That last one
+is the point of the whole file: the mirror exists to save a round trip, and a
+mirror that has drifted is worse than no mirror at all.
+
+There is no component render test here. The components are exercised against real
+staging by `verify/`, and a jsdom render of a page whose only job is to talk to
+the network would assert the mock rather than the app.
+
 ## Verifying a deploy
+
+Four runs, each wired to its own script, plus one that runs all four in order:
+
+```
+export AWS_PROFILE=personal
+npm run verify:all                # signup, teams, artifacts, legacy-migration
+npm run verify:signup             # or any one of them on its own
+npm run verify:teams
+npm run verify:artifacts
+npm run verify:legacy-migration
+```
+
+Each writes its screenshots to its own directory under `.verification/`, so
+`verify:all` ends with all four runs' evidence rather than only the last one's.
+`npm run verify` still means the sign-up run, which is what it always meant.
 
 `verify/run.mjs` drives the real deployed site in a real browser and then checks
 the rows against Postgres, so a pass is not the UI vouching for itself:
 
 ```
 export AWS_PROFILE=personal
-node verify/run.mjs
+npm run verify:signup
 ```
 
 It starts the digest-pinned browserless Chromium container this repo already

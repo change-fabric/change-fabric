@@ -1,0 +1,15 @@
+{
+  // A second pass for test/ and vitest.config.ts, rather than widening
+  // tsconfig.json to cover them.
+  //
+  // The tests read a sibling package's source off disk and stub globals, so they
+  // need Node's types. src/ must NOT have them: this is browser code, and a
+  // `process.env` or a `Buffer` that typechecks here is a bundle that breaks in
+  // a tab. Keeping the app's own pass free of node types is what makes that
+  // mistake a compile error instead of a runtime one.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": ["vite/client", "node"]
+  },
+  "include": ["test", "vitest.config.ts"]
+}

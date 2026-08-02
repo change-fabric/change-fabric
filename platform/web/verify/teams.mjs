@@ -40,7 +40,9 @@ const REGION = "us-east-1";
 const CREDENTIAL_PARAMETER = "/cf-platform/staging/basic-auth-credential";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const shots = path.join(here, "..", ".verification");
+// One directory per script, so `verify:all` ends with all four runs' evidence
+// rather than only the last one's.
+const shots = path.join(here, "..", ".verification", "teams");
 
 const stamp = Date.now();
 // Lower-case on purpose. Better Auth normalises an address before storing it, so
