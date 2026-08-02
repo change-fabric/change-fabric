@@ -8,15 +8,40 @@ It is deployed by `platform/infra`, which zips `dist/` into two functions.
 
 ```
 src/auth-options.ts   Better Auth configuration, plugins, slug immutability
-src/app.ts            the Hono app: /healthz, /api/auth/*, /v1/onboarding
+src/app.ts            the Hono app: route registration and the one error handler
 src/basic-auth.ts     the staging-wide Basic Auth gate
 src/config.ts         environment plus the SSM reads, cached at cold start
 src/email.ts          SES v2 sender
-src/db/schema.ts      Drizzle mirror of every Better Auth table
+src/validation.ts     reading a request body without trusting any of it
+src/api-keys.ts       minting, hashing, and recognising a team API key
+src/store.ts          the platform's own tables, as an interface plus Drizzle
+src/routes/context.ts who is calling, and what they may do
+src/routes/*.ts       teams, keys, invitations, repo links
+src/db/schema.ts      Drizzle mirror of every Better Auth table, plus our own two
 src/index.ts          Lambda handler for the API
 src/migrate.ts        Lambda handler for migrations and one-off read-only checks
 drizzle/              generated migration SQL, applied by the migrate Lambda
 ```
+
+## Routes
+
+| Route | Who |
+| --- | --- |
+| `POST /v1/onboarding` | any session with no organization |
+| `GET /v1/teams`, `GET /v1/repos` | any member |
+| `GET /v1/teams/:id/members`, `GET /v1/teams/:id/keys` | any member |
+| `POST /v1/teams`, `PATCH /v1/teams/:id`, `POST /v1/teams/:id/archive` | owner or admin |
+| `POST`/`DELETE /v1/teams/:id/members/...` | owner or admin |
+| `POST /v1/teams/:id/keys`, `.../keys/:keyId/revoke` | owner or admin |
+| `POST`/`GET /v1/invitations`, `POST /v1/invitations/:id/accept` | owner or admin, except accept |
+| `POST`/`DELETE /v1/repos` | owner or admin |
+| `GET /v1/whoami-key` | a team API key, no session |
+
+Every write to a Better Auth table goes through `auth.api` rather than the
+database, so the plugin's permissions, hooks and cascades all fire. The one read
+that does not is `store.listTeamMembers`: the plugin's own `list-team-members`
+refuses a caller who is not on that team, which is exactly the person a team
+detail page is for.
 
 ## Working on it
 
@@ -89,5 +114,35 @@ team, and neither should block the other.
 The plugin's default-team-on-create is disabled, because a default team would be
 created with no slug and slug is required.
 
-Nothing else lives here yet. `team_api_key`, `repo_link`, `artifact`,
-`artifact_file` and `contributor_alias` belong to phases 4, 5 and 6.
+`team` also carries `archived_at`. Archiving is a soft delete: a team's slug is
+already in artifact paths and in whatever a downstream repository recorded, and
+its keys and repo links point at it, so removing the row would strand references
+rather than retire them.
+
+## The two tables Better Auth does not own
+
+`team_api_key` and `repo_link`. Both cascade from `organization`, so a deleted
+organization takes them with it.
+
+**`team_api_key`** stores only the SHA-256 digest of a key, never the key. The
+raw value is returned by exactly one response, `POST /v1/teams/:id/keys`, and is
+not recoverable afterwards even by the API itself. `key_prefix` exists so a
+person can tell two of their own keys apart later; it is the scheme, the
+organization slug, and six characters of the random segment, which is a strict
+non-secret prefix of the raw value.
+
+The key format is `cfp_<org-slug>_<32 random bytes, base64url>`. Note that the
+base64url alphabet contains an underscore, so the separator before the secret is
+the SECOND underscore from the front, never the last one. Deriving the prefix
+from the last underscore publishes nearly the whole key; `test/api-keys.test.ts`
+holds a property test against exactly that.
+
+**`repo_link`** claims a repository for a team. `repo_id` is the normalized
+`host/path` form of a git remote (`github.com/acme/web`), not a URL, because the
+same repository is reachable over SSH and HTTPS with different spellings and a
+claim has to survive all of them. It is unique across the whole table rather than
+per organization, because the question it answers is "which team owns what this
+run pushed from" and two organizations claiming one repository has no consistent
+answer.
+
+`artifact`, `artifact_file` and `contributor_alias` belong to phases 5 and 6.

@@ -387,9 +387,12 @@ should be used in the meantime.
 `webapp.tf` serves `platform/web` from `app.staging.changefabric.org`: a private
 S3 bucket (`changefabric-platform-app-staging`, public access fully blocked, read
 only by CloudFront through an origin access control), a CloudFront distribution
-on phase 1's wildcard certificate with 403 and 404 both mapped to `/index.html`
-with a 200 for client-side routing, one alias record, and a GitHub OIDC deploy
-role modelled on `site/infra/oidc.tf`.
+on phase 1's wildcard certificate, one alias record, and a GitHub OIDC deploy role
+modelled on `site/infra/oidc.tf`.
+
+Client-side routing is done in the viewer-request function, not with a
+`custom_error_response`. See "The distribution also fronts the API" below for why
+that distinction matters here and nowhere else in this estate.
 
 Structurally this is `site/infra/main.tf`. Two differences carry the design.
 
@@ -408,6 +411,21 @@ in any case: preflights carry no credentials, and the router registers `GET` and
 
 `api.staging.changefabric.org` is unchanged and still reachable directly. This
 adds a second path to the same Lambda, it does not replace the first.
+
+It also rules out the usual SPA fallback. Mapping 403 and 404 to `/index.html`
+with a 200 is how a static site on S3 behind OAC normally does client-side
+routing, and phase 3 did exactly that. A `custom_error_response` is
+**distribution-wide**, though, and this distribution also fronts the API, so once
+phase 4 added routes that legitimately answer 403 (a member attempting an
+owner-only write) and 404 (an id belonging to another organization), every one of
+those reached the browser as a 200 carrying an HTML page. The app could only
+report that the body was unreadable, never the reason the API gave.
+
+The routing therefore moved into the viewer-request function, which rewrites an
+extensionless path that is not `/api/*` or `/v1/*` to `/index.html`. That is
+scoped by construction: an API path is returned untouched, so its status arrives
+at the caller intact. There is no `custom_error_response` on this distribution
+and there should not be one.
 
 ### The Basic Auth gate is a digest, and Terraform does not own it
 

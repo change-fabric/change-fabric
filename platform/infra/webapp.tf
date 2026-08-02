@@ -197,20 +197,18 @@ resource "aws_cloudfront_distribution" "app" {
     }
   }
 
-  # Client-routed SPA: any unknown path is a route, not a missing file, so it
-  # gets index.html with a 200 and the app resolves it. S3 answers a missing key
-  # with 403 rather than 404 under OAC, which is why both are mapped.
-  custom_error_response {
-    error_code         = 403
-    response_code      = 200
-    response_page_path = "/index.html"
-  }
-
-  custom_error_response {
-    error_code         = 404
-    response_code      = 200
-    response_page_path = "/index.html"
-  }
+  # Client-routed SPA routing lives in the viewer-request function
+  # (platform/web/basic-auth.function.js), which rewrites an extensionless,
+  # non-API path to /index.html.
+  #
+  # There is deliberately no custom_error_response here. It used to map 403 and
+  # 404 to /index.html with a 200, which is the usual recipe for a SPA on S3 and
+  # OAC. It cannot work on THIS distribution, because the same distribution also
+  # fronts the API: a custom_error_response is distribution-wide, so a genuine
+  # 403 from an authorization check or a 404 from an unknown id was rewritten
+  # into a 200 carrying an HTML page, and the app saw an unparseable body instead
+  # of the reason the API gave. Rewriting in the function instead is scoped to
+  # the paths that S3 serves.
 
   restrictions {
     geo_restriction {

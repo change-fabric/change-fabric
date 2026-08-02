@@ -74,6 +74,8 @@ export interface ApiConfig {
   cookieDomain: string;
   trustedOrigins: string[];
   sesFromAddress: string;
+  /** Where the web app is served, so an invitation mail can link into it. */
+  appOrigin: string;
 }
 
 async function loadApiConfig(): Promise<ApiConfig> {
@@ -100,6 +102,7 @@ async function loadApiConfig(): Promise<ApiConfig> {
       .map((origin) => origin.trim())
       .filter((origin) => origin !== ""),
     sesFromAddress: requireEnv("SES_FROM_ADDRESS"),
+    appOrigin: requireEnv("APP_ORIGIN"),
   };
 }
 

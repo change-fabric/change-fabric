@@ -29,6 +29,14 @@ export const teamAdditionalFields = {
     input: true,
     unique: true,
   },
+  // Archiving a team is a soft delete. Declared here rather than written behind
+  // the plugin's back so `list-teams` returns it and the surface that renders a
+  // team can tell an archived one from an active one without a second query.
+  archivedAt: {
+    type: "date",
+    required: false,
+    input: true,
+  },
 } as const;
 
 /** Message used for both slug rejections, so a caller sees one contract. */
@@ -70,6 +78,22 @@ export interface AuthDependencies {
     subject: string;
     text: string;
   }) => Promise<void>;
+  /**
+   * Where an invited person lands to accept. The invitation id is appended as a
+   * query parameter, so this is the app's accept route and nothing more.
+   */
+  appOrigin: string;
+  /** Same injection as the verification mail, and for the same reason. */
+  sendInvitationEmail: (message: {
+    to: string;
+    subject: string;
+    text: string;
+  }) => Promise<void>;
+}
+
+/** The accept-invite link an invitation mail carries. */
+export function invitationUrl(appOrigin: string, invitationId: string): string {
+  return `${appOrigin.replace(/\/+$/, "")}/accept-invite?invitation=${encodeURIComponent(invitationId)}`;
 }
 
 /**
@@ -123,11 +147,29 @@ export function buildAuthOptions(deps: AuthDependencies) {
 
     plugins: [
       organization({
+        // The invited address is almost never one this account has already
+        // verified, and on staging it is a mailbox at the SES simulator that
+        // nobody can open. Requiring verification before accepting would make
+        // every invitation undeliverable in practice. This is the plugin's own
+        // default for our id generation; it is written out so the choice is
+        // visible rather than inherited.
+        requireEmailVerificationOnInvitation: false,
+        sendInvitationEmail: async ({ id, email, organization: org, inviter }) => {
+          await deps.sendInvitationEmail({
+            to: email,
+            subject: `Join ${org.name} on change-fabric`,
+            text:
+              `${inviter.user.name || inviter.user.email} invited you to join ` +
+              `${org.name} on change-fabric.\n\n` +
+              `${invitationUrl(deps.appOrigin, id)}\n\n` +
+              `Log in or create an account with this address to accept.\n`,
+          });
+        },
         teams: {
           enabled: true,
           // A default team would be created with no slug, and slug is required.
-          // Team creation is an explicit call that supplies one; phase 4 owns
-          // the surface that makes those calls.
+          // Team creation is an explicit call that supplies one, which is what
+          // POST /v1/teams does.
           defaultTeam: { enabled: false },
         },
         schema: {

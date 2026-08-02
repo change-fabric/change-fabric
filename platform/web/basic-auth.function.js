@@ -37,6 +37,21 @@ function unauthorized() {
   };
 }
 
+// The two path prefixes CloudFront forwards to the API rather than to S3. They
+// are named here for one reason: this function must never rewrite a request that
+// is on its way to the API.
+function isApiPath(uri) {
+  return uri.indexOf('/api/') === 0 || uri.indexOf('/v1/') === 0;
+}
+
+// Whether a path is asking for a file or for one of the app's own routes.
+// /assets/index-abc123.js has an extension and is a file; /teams/xyz does not
+// and is a route the client router resolves.
+function looksLikeFile(uri) {
+  const lastSlash = uri.lastIndexOf('/');
+  return uri.slice(lastSlash + 1).indexOf('.') >= 0;
+}
+
 function handler(event) {
   const request = event.request;
   const header = request.headers.authorization;
@@ -44,6 +59,20 @@ function handler(event) {
 
   const digest = crypto.createHash('sha256').update(header.value).digest('hex');
   if (digest !== EXPECTED_SHA256) return unauthorized();
+
+  // Client-routed SPA. An unknown path is one of the app's routes, not a
+  // missing file, so it is served index.html and the router resolves it.
+  //
+  // This replaced a distribution-wide custom_error_response mapping 403 and 404
+  // to index.html with a 200. That mapping could not tell a missing S3 key from
+  // a real refusal by the API, so once the API grew routes that legitimately
+  // answer 403 and 404, every one of them reached the browser as a 200 carrying
+  // an HTML page. The app then reported "no readable body" instead of the reason
+  // the server actually gave. Rewriting here instead is scoped by construction:
+  // an API path is returned untouched, so its status reaches the caller intact.
+  if (!isApiPath(request.uri) && !looksLikeFile(request.uri)) {
+    request.uri = '/index.html';
+  }
 
   return request;
 }

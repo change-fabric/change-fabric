@@ -431,12 +431,91 @@ h2 {
   border-color: transparent;
 }
 
+.role-archived {
+  color: var(--muted);
+  border-style: dashed;
+}
+
 .muted {
   color: var(--muted);
+}
+
+/*
+ * Teams, keys, and the invite form.
+ *
+ * A form that sits inside a page rather than alone on one, so it lays its fields
+ * out along a row and wraps instead of running the full column width the way the
+ * sign-up and onboarding panels do.
+ */
+.inline-form {
+  flex-direction: row;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 20px 0 8px;
+}
+
+.inline-form .field {
+  min-width: 200px;
+}
+
+.invite-card {
+  margin: 16px 0 8px;
+  max-width: 520px;
+}
+
+.danger-link {
+  color: var(--danger);
+}
+
+.danger-link:hover {
+  color: var(--danger);
+  text-decoration: underline;
+}
+
+/*
+ * The one-time key banner. It is deliberately the loudest thing on the page:
+ * the value inside it cannot be recovered once it is gone, so it should not read
+ * like an ordinary confirmation.
+ */
+.notice-key {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  margin: 16px 0;
+  padding: 16px 18px;
+}
+
+.key-warning {
+  margin: 0 0 10px;
+  font-weight: 600;
+  color: var(--heading);
+}
+
+.key-value {
+  display: block;
+  word-break: break-all;
+  padding: 10px 12px;
+  background: var(--code-bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 0.85rem;
+}
+
+.key-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 12px;
+  flex-wrap: wrap;
 }
 
 @media (max-width: 640px) {
   .summary-grid {
     grid-template-columns: 1fr;
+  }
+
+  .inline-form {
+    flex-direction: column;
+    align-items: stretch;
   }
 }

@@ -7,6 +7,7 @@ import { SignUp } from "./pages/SignUp";
 import { LogIn } from "./pages/LogIn";
 import { VerifyNotice } from "./pages/VerifyNotice";
 import { Onboarding } from "./pages/Onboarding";
+import { AcceptInvite } from "./pages/AcceptInvite";
 import { Dashboard, type ActiveOrg } from "./pages/Dashboard";
 
 /**
@@ -24,6 +25,8 @@ interface Account {
   userEmail: string;
   organizations: OrgSummary[];
   activeOrg: ActiveOrg | null;
+  /** The caller's role in the active organization, as the server reports it. */
+  role: string | undefined;
 }
 
 type Load =
@@ -65,6 +68,7 @@ function useAccount(): { load: Load; refresh: () => void } {
       // organization, which the plugin sets when one is created. A brand new
       // account has none, and that is the onboarding case rather than an error.
       let activeOrg: ActiveOrg | null = null;
+      let role: string | undefined;
       if (organizations.length > 0) {
         const full = await authClient.organization.getFullOrganization();
         const data = full.data;
@@ -78,6 +82,12 @@ function useAccount(): { load: Load; refresh: () => void } {
         } else {
           activeOrg = organizations[0];
         }
+        // The caller's own membership row, which is where the role comes from.
+        // Reading it off the members list rather than from a second request
+        // keeps it consistent with the table rendered right next to it.
+        role = activeOrg.members?.find(
+          (member) => member.userId === user.id,
+        )?.role;
       }
 
       if (!current) {
@@ -90,6 +100,7 @@ function useAccount(): { load: Load; refresh: () => void } {
           userEmail: user.email,
           organizations,
           activeOrg,
+          role,
         },
       });
     }
@@ -155,6 +166,16 @@ export function App() {
     return <VerifyNotice email={account.userEmail} />;
   }
 
+  // Before the onboarding branch, not after it. Somebody following an invitation
+  // link is very often somebody with no organization yet, and that is exactly
+  // the case onboarding would otherwise capture: they would be told to create an
+  // organization while holding an invitation to join one.
+  if (path === "/accept-invite") {
+    return (
+      <AcceptInvite email={account.userEmail} onAccepted={refresh} />
+    );
+  }
+
   if (account.organizations.length === 0) {
     return <Onboarding onCreated={refresh} />;
   }
@@ -162,6 +183,7 @@ export function App() {
   return (
     <Dashboard
       userName={account.userName}
+      role={account.role}
       organizations={account.organizations}
       activeOrg={account.activeOrg}
       onRefresh={refresh}

@@ -2,10 +2,14 @@ import { authClient } from "../auth";
 import { navigate, usePath } from "../router";
 import { NavButton, Shell } from "../components/Shell";
 import { OrgSwitcher, type OrgSummary } from "../components/OrgSwitcher";
+import { InviteDialog } from "../components/InviteDialog";
+import { Teams } from "./Teams";
+import { TeamDetail } from "./TeamDetail";
 
 export interface MemberRow {
   id: string;
   role: string;
+  userId?: string;
   createdAt?: string | Date;
   user?: { name?: string | null; email?: string | null };
 }
@@ -15,16 +19,30 @@ export interface ActiveOrg extends OrgSummary {
 }
 
 /**
- * The authenticated shell and the two screens inside it.
+ * The authenticated shell and the screens inside it.
  *
- * Both screens read the same already-loaded organization rather than fetching
- * their own copy, so switching organizations updates them together and there is
- * no window where the header says one thing and the table says another.
+ * Every screen reads the same already-loaded organization rather than fetching
+ * its own copy, so switching organizations updates them together and there is no
+ * window where the header says one thing and a table says another. The teams
+ * screens are the exception and deliberately so: teams, their members and their
+ * keys change from this surface, so they load their own data and reload it after
+ * a write rather than waiting for the whole account to be refetched.
  *
- * Members is read-only in this phase. Inviting, removing, and contributor-team
- * management arrive with the surfaces that own them; a disabled button now would
- * only advertise something that does not exist.
+ * `canManage` is threaded down from the caller's own `member.role`. It decides
+ * which controls exist, and nothing more: the API refuses a member either way,
+ * and this is only about not offering a button whose one outcome is a refusal.
  */
+
+/** Roles that may change the organization's shape. Mirrors the API's own rule. */
+export function canManageOrganization(role: string | undefined): boolean {
+  if (role === undefined) {
+    return false;
+  }
+  return role
+    .split(",")
+    .map((part) => part.trim())
+    .some((part) => part === "owner" || part === "admin");
+}
 
 function memberName(member: MemberRow): string {
   const name = member.user?.name;
@@ -80,24 +98,37 @@ function MembersTable({ members }: { members: MemberRow[] }) {
   );
 }
 
+/** The team id in `/teams/<id>`, or null for any other path. */
+export function teamIdFromPath(path: string): string | null {
+  const match = /^\/teams\/([^/]+)$/.exec(path);
+  return match?.[1] ?? null;
+}
+
 export function Dashboard({
   userName,
+  role,
   organizations,
   activeOrg,
   onRefresh,
 }: {
   userName: string;
+  role: string | undefined;
   organizations: OrgSummary[];
   activeOrg: ActiveOrg | null;
   onRefresh: () => void;
 }) {
   const path = usePath();
   const members = activeOrg?.members ?? [];
+  const canManage = canManageOrganization(role);
+  const teamId = teamIdFromPath(path);
 
   const nav = (
     <>
       <NavButton to="/" current={path}>
         Dashboard
+      </NavButton>
+      <NavButton to="/teams" current={path}>
+        Teams
       </NavButton>
       <NavButton to="/members" current={path}>
         Members
@@ -116,6 +147,67 @@ export function Dashboard({
     </>
   );
 
+  function body() {
+    if (teamId !== null) {
+      return (
+        <TeamDetail
+          teamId={teamId}
+          orgMembers={members}
+          canManage={canManage}
+        />
+      );
+    }
+
+    if (path === "/teams") {
+      return <Teams canManage={canManage} />;
+    }
+
+    if (path === "/members") {
+      return (
+        <>
+          <h1 style={{ marginTop: 16 }}>Members</h1>
+          <p className="lede">
+            Everyone in {activeOrg?.name ?? "this organization"}. Invite somebody
+            by address, and place them on a team as they join.
+          </p>
+          {canManage ? <InviteDialog onInvited={onRefresh} /> : null}
+          <MembersTable members={members} />
+        </>
+      );
+    }
+
+    return (
+      <>
+        <h1 style={{ marginTop: 16 }} data-testid="dashboard-heading">
+          {activeOrg?.name ?? "No organization"}
+        </h1>
+        <p className="lede">Signed in as {userName}.</p>
+
+        <div className="summary-grid">
+          <div className="summary">
+            <div className="summary-label">Slug</div>
+            <div className="summary-value" data-testid="active-org-slug">
+              {activeOrg?.slug ?? "none"}
+            </div>
+          </div>
+          <div className="summary">
+            <div className="summary-label">Members</div>
+            <div className="summary-value">{members.length}</div>
+          </div>
+          <div className="summary">
+            <div className="summary-label">Your role</div>
+            <div className="summary-value" data-testid="active-role">
+              {role ?? "unknown"}
+            </div>
+          </div>
+        </div>
+
+        <h2>Members</h2>
+        <MembersTable members={members} />
+      </>
+    );
+  }
+
   return (
     <Shell nav={nav}>
       <div style={{ marginTop: 28 }}>
@@ -125,44 +217,7 @@ export function Dashboard({
           onSwitched={onRefresh}
         />
       </div>
-
-      {path === "/members" ? (
-        <>
-          <h1 style={{ marginTop: 16 }}>Members</h1>
-          <p className="lede">
-            Everyone in {activeOrg?.name ?? "this organization"}. Read-only for
-            now: invites and role changes are not part of this phase.
-          </p>
-          <MembersTable members={members} />
-        </>
-      ) : (
-        <>
-          <h1 style={{ marginTop: 16 }} data-testid="dashboard-heading">
-            {activeOrg?.name ?? "No organization"}
-          </h1>
-          <p className="lede">Signed in as {userName}.</p>
-
-          <div className="summary-grid">
-            <div className="summary">
-              <div className="summary-label">Slug</div>
-              <div className="summary-value" data-testid="active-org-slug">
-                {activeOrg?.slug ?? "none"}
-              </div>
-            </div>
-            <div className="summary">
-              <div className="summary-label">Members</div>
-              <div className="summary-value">{members.length}</div>
-            </div>
-            <div className="summary">
-              <div className="summary-label">Organizations</div>
-              <div className="summary-value">{organizations.length}</div>
-            </div>
-          </div>
-
-          <h2>Members</h2>
-          <MembersTable members={members} />
-        </>
-      )}
+      {body()}
     </Shell>
   );
 }

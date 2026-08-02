@@ -15,6 +15,13 @@
       "when": 1785679633826,
       "tag": "0001_grant_staging_app_role",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1785686061103,
+      "tag": "0002_teams_keys_repos",
+      "breakpoints": true
     }
   ]
 }

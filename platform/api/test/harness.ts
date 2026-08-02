@@ -3,6 +3,8 @@ import { memoryAdapter, type MemoryDB } from "better-auth/adapters/memory";
 import { createApp } from "../src/app.js";
 import { createAuth } from "../src/auth-options.js";
 import type { EmailMessage } from "../src/email.js";
+import type { PlatformStore } from "../src/store.js";
+import { createMemoryStore } from "./memory-store.js";
 
 /**
  * A whole API instance backed by an in-memory store.
@@ -44,22 +46,42 @@ export interface StoredTeam {
   slug: string;
 }
 
+export interface StoredTeamMember {
+  id: string;
+  teamId: string;
+  userId: string;
+}
+
+export interface StoredInvitation {
+  id: string;
+  email: string;
+  role: string;
+  status: string;
+  teamId?: string;
+}
+
 export interface StoredRows {
   user: StoredUser[];
   organization: StoredOrganization[];
   member: StoredMember[];
   team: StoredTeam[];
+  teamMember: StoredTeamMember[];
+  invitation: StoredInvitation[];
 }
 
 export interface Harness {
   app: Hono;
   store: MemoryDB;
+  /** The platform's own tables, so a test can read what a route wrote. */
+  platformStore: PlatformStore;
   /**
    * The same rows as `store`, typed. The memory adapter holds `any[]` per
    * model, so every assertion would otherwise repeat the same cast.
    */
   rows: StoredRows;
   sentEmails: EmailMessage[];
+  /** Every invitation mail the plugin asked to be sent. */
+  sentInvitations: EmailMessage[];
 }
 
 export function createHarness(): Harness {
@@ -75,6 +97,7 @@ export function createHarness(): Harness {
     teamMember: [],
   };
   const sentEmails: EmailMessage[] = [];
+  const sentInvitations: EmailMessage[] = [];
 
   const auth = createAuth({
     database: memoryAdapter(store),
@@ -84,13 +107,20 @@ export function createHarness(): Harness {
     // configuration is asserted separately against the options object.
     cookieDomain: "",
     trustedOrigins: ["http://localhost"],
+    appOrigin: "http://localhost",
     sendVerificationEmail: async (message) => {
       sentEmails.push(message);
     },
+    sendInvitationEmail: async (message) => {
+      sentInvitations.push(message);
+    },
   });
+
+  const platformStore = createMemoryStore(store);
 
   const app = createApp({
     auth: async () => auth,
+    store: async () => platformStore,
     basicAuthCredential: async () => TEST_BASIC_AUTH,
   });
 
@@ -107,9 +137,15 @@ export function createHarness(): Harness {
     get team() {
       return store.team as StoredTeam[];
     },
+    get teamMember() {
+      return store.teamMember as StoredTeamMember[];
+    },
+    get invitation() {
+      return store.invitation as StoredInvitation[];
+    },
   };
 
-  return { app, store, rows, sentEmails };
+  return { app, store, platformStore, rows, sentEmails, sentInvitations };
 }
 
 /** Collects the cookies Better Auth set, so the next call is authenticated. */
@@ -155,13 +191,102 @@ export async function onboard(
   user: SignedUpUser,
   body: unknown,
 ): Promise<Response> {
-  return harness.app.request("/v1/onboarding", {
-    method: "POST",
-    headers: {
-      Authorization: AUTHORIZED_HEADER,
-      Cookie: user.cookie,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(body),
+  return call(harness, user, "POST", "/v1/onboarding", body);
+}
+
+/**
+ * An authenticated request to a /v1 route, carrying both layers of auth: the
+ * staging Basic Auth header every route except /healthz needs, and the session
+ * cookie the route's own check reads.
+ */
+export async function call(
+  harness: Harness,
+  user: SignedUpUser | null,
+  method: string,
+  path: string,
+  body?: unknown,
+  extraHeaders: Record<string, string> = {},
+): Promise<Response> {
+  const headers: Record<string, string> = {
+    Authorization: AUTHORIZED_HEADER,
+    ...extraHeaders,
+  };
+  if (user !== null) {
+    headers.Cookie = user.cookie;
+  }
+  if (body !== undefined) {
+    headers["Content-Type"] = "application/json";
+  }
+
+  return harness.app.request(path, {
+    method,
+    headers,
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
+}
+
+/** The parsed body of a call that was expected to succeed, or a loud failure. */
+export async function expectOk<T>(
+  response: Response,
+  expected = 200,
+): Promise<T> {
+  if (response.status !== expected) {
+    throw new Error(
+      `expected ${expected}, got ${response.status}: ${await response.text()}`,
+    );
+  }
+  return (await response.json()) as T;
+}
+
+/**
+ * An organization with an owner, which is where nearly every test starts.
+ * Returns the owner's session and the organization's id and slug.
+ */
+export async function ownedOrganization(
+  harness: Harness,
+  email = "owner@example.test",
+  slug = "acme-research",
+): Promise<{ owner: SignedUpUser; organizationId: string; slug: string }> {
+  const owner = await signUp(harness, email);
+  const created = await expectOk<{ organization: { id: string } }>(
+    await onboard(harness, owner, {
+      organizationName: "Acme Research",
+      organizationSlug: slug,
+    }),
+    201,
+  );
+  return { owner, organizationId: created.organization.id, slug };
+}
+
+/**
+ * A second account invited into an organization and accepted, so a test has a
+ * genuine `member`-role caller rather than one written straight into the store.
+ * Going through the real invitation flow is the point: it is the same path the
+ * deployed app uses, so a test's member is a member the same way.
+ */
+export async function invitedMember(
+  harness: Harness,
+  inviter: SignedUpUser,
+  email: string,
+  teamId?: string,
+): Promise<SignedUpUser> {
+  const invitation = await expectOk<{ invitation: { id: string } }>(
+    await call(harness, inviter, "POST", "/v1/invitations", {
+      email,
+      role: "member",
+      ...(teamId === undefined ? {} : { teamId }),
+    }),
+    201,
+  );
+
+  const invitee = await signUp(harness, email);
+  await expectOk(
+    await call(
+      harness,
+      invitee,
+      "POST",
+      `/v1/invitations/${invitation.invitation.id}/accept`,
+    ),
+  );
+  return invitee;
 }

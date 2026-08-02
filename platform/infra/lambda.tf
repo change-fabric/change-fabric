@@ -172,6 +172,13 @@ resource "aws_lambda_function" "api" {
       COOKIE_DOMAIN    = local.cookie_domain
       TRUSTED_ORIGINS  = join(",", ["https://${local.api_domain}", local.app_origin])
       SES_FROM_ADDRESS = local.ses_from_address
+
+      # Where an invitation mail links to. Named separately from
+      # TRUSTED_ORIGINS rather than parsed out of it, because that list is a set
+      # of origins allowed to call and this is one specific place to send a
+      # person; reading a link target out of a position in a list would break the
+      # day a third origin is trusted.
+      APP_ORIGIN = local.app_origin
     })
   }
 
