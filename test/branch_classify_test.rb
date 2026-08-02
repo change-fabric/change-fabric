@@ -2,15 +2,14 @@
 
 require_relative "test_helpers"
 require_relative "#{SKILL_SCRIPTS}/branch_classify"
-require "open3"
 require "tmpdir"
 
 class BranchClassifyTest < Minitest::Test
   def setup
     @origin = Dir.mktmpdir
     @repo = Dir.mktmpdir
-    git(@origin, "init", "-q", "--bare")
-    git(@repo, "init", "-q", "-b", "main")
+    GitFixture.git_init(@origin, "--bare")
+    GitFixture.git_init(@repo, "-b", "main")
     git(@repo, "config", "user.email", "test@example.com")
     git(@repo, "config", "user.name", "Test")
     git(@repo, "remote", "add", "origin", @origin)
@@ -25,10 +24,7 @@ class BranchClassifyTest < Minitest::Test
     FileUtils.remove_entry(@repo)
   end
 
-  def git(dir, *args)
-    _out, status = Open3.capture2e("git", "-C", dir, *args)
-    raise "git #{args.join(' ')} failed in #{dir}" unless status.success?
-  end
+  def git(dir, *args) = GitFixture.git(dir, *args)
 
   def write_file(name, contents)
     File.write(File.join(@repo, name), contents)

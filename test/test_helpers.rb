@@ -6,6 +6,9 @@ require "json"
 require "stringio"
 require "tmpdir"
 require "fileutils"
+# Clears inherited GIT_DIR and friends before any test (or any code under test)
+# shells out to git. See test/git_fixture.rb.
+require_relative "git_fixture"
 
 SKILL_SCRIPTS = File.expand_path("../scripts", __dir__)
 %w[skill_registry skill_store review_queue skill_inject skill_detect skill_review skill_route slop_remind

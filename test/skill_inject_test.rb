@@ -10,7 +10,7 @@ class SkillInjectTest < Minitest::Test
     super
     @skills = Dir.mktmpdir
     @proj = Dir.mktmpdir
-    system("git", "init", "-q", @proj) # enqueue only tracks files inside a work tree
+    GitFixture.git_init(@proj) # enqueue only tracks files inside a work tree
     skill_dir("ruby", auto: { "extensions" => [ "rb" ] })
     skill_dir("refactoring", auto: { "all_code" => true })
     skill_dir("ai-slop", auto: { "all_files" => true })
