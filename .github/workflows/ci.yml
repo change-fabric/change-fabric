@@ -8,6 +8,10 @@ on:
     # would otherwise run no checks at all until the whole stack landed.
     branches: [main, "platform/**"]
 
+# Nothing here writes to the repository or publishes anything.
+permissions:
+  contents: read
+
 jobs:
   ci:
     runs-on: ubuntu-latest

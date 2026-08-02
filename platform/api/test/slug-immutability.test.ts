@@ -64,7 +64,7 @@ describe("slug immutability", () => {
       message: SLUG_IMMUTABLE_MESSAGE,
     });
 
-    const stored = (harness.store.organization ?? []) as { slug: string }[];
+    const stored = harness.rows.organization;
     expect(stored[0]?.slug).toBe("acme-research");
   });
 
@@ -88,10 +88,7 @@ describe("slug immutability", () => {
     );
 
     expect(response.status).toBe(200);
-    const stored = (harness.store.organization ?? []) as {
-      name: string;
-      slug: string;
-    }[];
+    const stored = harness.rows.organization;
     expect(stored[0]?.name).toBe("Acme Research Group");
     expect(stored[0]?.slug).toBe("acme-research");
   });
@@ -100,14 +97,14 @@ describe("slug immutability", () => {
     const { harness, teamResponse } = await organizationWithTeam();
 
     expect(teamResponse.status).toBe(200);
-    const teams = (harness.store.team ?? []) as { slug: string }[];
+    const teams = harness.rows.team;
     expect(teams).toHaveLength(1);
     expect(teams[0]?.slug).toBe("core");
   });
 
   it("rejects an attempt to change a team slug", async () => {
     const { harness, user } = await organizationWithTeam();
-    const teams = (harness.store.team ?? []) as { id: string; slug: string }[];
+    const teams = harness.rows.team;
     const teamId = teams[0]?.id;
     expect(teamId).toBeDefined();
 
@@ -132,7 +129,7 @@ describe("slug immutability", () => {
       message: SLUG_IMMUTABLE_MESSAGE,
     });
 
-    const after = (harness.store.team ?? []) as { slug: string }[];
+    const after = harness.rows.team;
     expect(after[0]?.slug).toBe("core");
   });
 });

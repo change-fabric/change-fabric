@@ -20,9 +20,45 @@ export const AUTHORIZED_HEADER = `Basic ${Buffer.from(
   `${TEST_BASIC_AUTH.username}:${TEST_BASIC_AUTH.password}`,
 ).toString("base64")}`;
 
+/** The columns a test asserts on. The store itself is untyped by design. */
+export interface StoredUser {
+  id: string;
+  email: string;
+}
+
+export interface StoredOrganization {
+  id: string;
+  name: string;
+  slug: string;
+}
+
+export interface StoredMember {
+  userId: string;
+  organizationId: string;
+  role: string;
+}
+
+export interface StoredTeam {
+  id: string;
+  name: string;
+  slug: string;
+}
+
+export interface StoredRows {
+  user: StoredUser[];
+  organization: StoredOrganization[];
+  member: StoredMember[];
+  team: StoredTeam[];
+}
+
 export interface Harness {
   app: Hono;
   store: MemoryDB;
+  /**
+   * The same rows as `store`, typed. The memory adapter holds `any[]` per
+   * model, so every assertion would otherwise repeat the same cast.
+   */
+  rows: StoredRows;
   sentEmails: EmailMessage[];
 }
 
@@ -58,7 +94,22 @@ export function createHarness(): Harness {
     basicAuthCredential: async () => TEST_BASIC_AUTH,
   });
 
-  return { app, store, sentEmails };
+  const rows: StoredRows = {
+    get user() {
+      return store.user as StoredUser[];
+    },
+    get organization() {
+      return store.organization as StoredOrganization[];
+    },
+    get member() {
+      return store.member as StoredMember[];
+    },
+    get team() {
+      return store.team as StoredTeam[];
+    },
+  };
+
+  return { app, store, rows, sentEmails };
 }
 
 /** Collects the cookies Better Auth set, so the next call is authenticated. */

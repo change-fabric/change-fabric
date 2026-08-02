@@ -17,28 +17,20 @@ describe("signup then onboarding", () => {
     };
     expect(body.organization.slug).toBe("acme-research");
 
-    const users = harness.store.user ?? [];
-    const organizations = harness.store.organization ?? [];
-    const members = harness.store.member ?? [];
+    expect(harness.rows.user).toHaveLength(1);
+    expect(harness.rows.organization).toHaveLength(1);
+    expect(harness.rows.member).toHaveLength(1);
 
-    expect(users).toHaveLength(1);
-    expect(organizations).toHaveLength(1);
-    expect(members).toHaveLength(1);
+    const createdUser = harness.rows.user[0];
+    const createdOrg = harness.rows.organization[0];
+    const createdMember = harness.rows.member[0];
 
-    const createdUser = users[0] as { id: string; email: string };
-    const createdOrg = organizations[0] as { id: string; name: string; slug: string };
-    const createdMember = members[0] as {
-      userId: string;
-      organizationId: string;
-      role: string;
-    };
-
-    expect(createdUser.email).toBe("founder@example.test");
-    expect(createdOrg.name).toBe("Acme Research");
-    expect(createdOrg.slug).toBe("acme-research");
-    expect(createdMember.userId).toBe(createdUser.id);
-    expect(createdMember.organizationId).toBe(createdOrg.id);
-    expect(createdMember.role).toBe("owner");
+    expect(createdUser?.email).toBe("founder@example.test");
+    expect(createdOrg?.name).toBe("Acme Research");
+    expect(createdOrg?.slug).toBe("acme-research");
+    expect(createdMember?.userId).toBe(createdUser?.id);
+    expect(createdMember?.organizationId).toBe(createdOrg?.id);
+    expect(createdMember?.role).toBe("owner");
   });
 
   it("sends a verification mail on sign-up", async () => {
@@ -78,7 +70,7 @@ describe("signup then onboarding", () => {
     });
 
     expect(response.status).toBe(400);
-    expect(harness.store.organization).toHaveLength(0);
+    expect(harness.rows.organization).toHaveLength(0);
   });
 
   it("rejects a missing organization name", async () => {
