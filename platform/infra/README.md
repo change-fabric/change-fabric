@@ -15,6 +15,11 @@ running as two Lambdas behind an HTTP API on `api.staging.changefabric.org`, and
 the two extra interface endpoints those Lambdas need. See
 [The staging API](#the-staging-api) below.
 
+Phase 3 adds the staging web app from `platform/web`: a private S3 bucket behind
+a CloudFront distribution on `app.staging.changefabric.org`, gated by a
+viewer-request CloudFront Function, and a GitHub OIDC deploy role for a future CI
+workflow. See [The staging web app](#the-staging-web-app) below.
+
 This is a separate root from `site/infra` and `telemetry/infra`. It shares the
 state backend bucket and reads the `changefabric.org` hosted zone, but manages
 neither, and it touches nothing either of those roots owns.
@@ -377,12 +382,65 @@ Two things unblock real delivery, in this order:
 `var.ses_from_address` overrides the sender if a different verified identity
 should be used in the meantime.
 
+## The staging web app
+
+`webapp.tf` serves `platform/web` from `app.staging.changefabric.org`: a private
+S3 bucket (`changefabric-platform-app-staging`, public access fully blocked, read
+only by CloudFront through an origin access control), a CloudFront distribution
+on phase 1's wildcard certificate with 403 and 404 both mapped to `/index.html`
+with a 200 for client-side routing, one alias record, and a GitHub OIDC deploy
+role modelled on `site/infra/oidc.tf`.
+
+Structurally this is `site/infra/main.tf`. Two differences carry the design.
+
+### The distribution also fronts the API
+
+There is a second origin, the phase 2 API Gateway custom domain, behind `/api/*`
+and `/v1/*` with caching disabled and every method allowed. The web app is
+therefore **same-origin with its own API**, which is what makes it work behind
+the shared Basic Auth gate at all: a browser replays Basic credentials only to
+the origin that challenged it, so a direct cross-origin call from the app host to
+`api.staging` arrives with no `Authorization` header and the API's own gate
+rejects it. The alternative is shipping the staging credential in the JavaScript
+bundle. Same-origin also removes the CORS preflight, which the API cannot answer
+in any case: preflights carry no credentials, and the router registers `GET` and
+`POST` only. `platform/web/README.md` has the longer version.
+
+`api.staging.changefabric.org` is unchanged and still reachable directly. This
+adds a second path to the same Lambda, it does not replace the first.
+
+### The Basic Auth gate is a digest, and Terraform does not own it
+
+A CloudFront Function has no network access, so unlike the API's Lambda
+middleware it cannot read SSM per request. `platform/web/basic-auth.function.js`
+is a template; `platform/web/deploy.sh` reads
+`/cf-platform/staging/basic-auth-credential`, compiles in only the SHA-256 digest
+of the expected `Authorization` header, and publishes it. The compiled function
+exists only in AWS.
+
+Terraform reads that published function through a data source rather than
+managing its code, because managing it would put the digest into the state file
+and into every plan. The consequence is an ordering constraint on a first-ever
+provision, which `platform/web/README.md` documents: run `deploy.sh` once to
+create the function, then `terraform apply`, then `deploy.sh` again.
+
+### Planning this root, again
+
+The same Postgres caveat as everywhere else in this root applies: without the
+bastion tunnel, `terraform plan` produces a complete and correct plan for every
+AWS resource and then fails on the three `postgresql_*` resources it cannot
+reach. Phase 3 was applied with `-target` on its ten new resources for that
+reason, after confirming the full plan read `10 to add, 0 to change, 0 to
+destroy`. Repeating steps 1 through 4 above is still the way to plan this root
+without the errors.
+
 ## What this root does not own
 
 - The `changefabric.org` hosted zone, and every record `site/infra` or
   `telemetry/infra` already manages. This root only reads the zone id, adds its
-  own certificate validation records, and adds the one alias record for
-  `api.staging.changefabric.org`.
+  own certificate validation records, and adds two alias records:
+  `api.staging.changefabric.org` and `app.staging.changefabric.org`.
 - The `cf-teams` DynamoDB table and everything else in `telemetry/infra`.
-- Any CloudFront distribution or S3 bucket for the web app or the artifacts
-  host. Those arrive in phases 3 and 5.
+- The code of the web app's Basic Auth CloudFront Function. See above.
+- Any CloudFront distribution or S3 bucket for the artifacts host. That arrives
+  in phase 5.
