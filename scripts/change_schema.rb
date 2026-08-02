@@ -15,7 +15,7 @@
 # spec doc's changelog. A field-set change without a matching version bump, or a
 # version bump the doc does not reflect, is exactly what the drift test catches.
 module ChangeSchema
-  VERSION = '0.5.0'
+  VERSION = '0.6.0'
 
   # The four audit lanes, the authoritative list the config validator enforces.
   LANES = %w[k6 a11y zap browserless].freeze
@@ -174,11 +174,35 @@ module ChangeSchema
     'contributors_team.public_key_ed25519',
     'contributors_team.contributors[].id',
     'contributors_team.contributors[].name',
-    # contributors_team.artifacts (0.5.0): the team's S3 + CloudFront artifact
-    # area. Its presence is what turns per-run artifact publishing on; a repo
-    # without it audits, reports, and gates exactly as before. Nothing here is
-    # a credential: basic_auth names where the viewer credential lives, never
-    # what it is.
+    # contributors_team.organization / .team (0.6.0): the repo's team on the
+    # hosted platform, by slug. Committed rather than derived from the API key
+    # because they name the team in a form a human reading the file recognises,
+    # and because together they are the Keychain account the key is stored
+    # under.
+    'contributors_team.organization',
+    'contributors_team.team',
+    # contributors_team.platform (0.6.0): publishing through the hosted
+    # artifacts service. Its presence is what turns per-run artifact publishing
+    # on, and what makes this the primary shape when the deprecated
+    # `artifacts:` block below is also present. Nothing here is a credential:
+    # `api_key_env` names the env var a team API key arrives in, never the key,
+    # and `basic_auth` names env vars for the staging-wide fence in front of the
+    # API, never their values. No bucket, prefix, or distribution appears here
+    # at all: the service owns every one of them.
+    'contributors_team.platform.enabled',
+    'contributors_team.platform.api_url',
+    'contributors_team.platform.api_key_env',
+    'contributors_team.platform.team_id',
+    'contributors_team.platform.basic_auth.username_env',
+    'contributors_team.platform.basic_auth.password_env',
+    'contributors_team.platform.media.screenshots',
+    'contributors_team.platform.media.video',
+    'contributors_team.platform.media.video_fps',
+    # contributors_team.artifacts (0.5.0, DEPRECATED at 0.6.0, removed at
+    # 0.7.0): the per-team S3 + CloudFront area a team provisioned for itself
+    # before the hosted service existed. Still parsed, so a repo that has not
+    # migrated still resolves a configuration and still builds its bundle, but
+    # `platform:` above supersedes it and wins whenever both are present.
     'contributors_team.artifacts.enabled',
     'contributors_team.artifacts.bucket',
     'contributors_team.artifacts.region',

@@ -27,47 +27,56 @@
 # change_config.apps, a root registry of per-app CHANGE.app.yml files; see the
 # spec's "change_config.apps" section and reference/CHANGE.app.template.yml.
 
-spec_version: "0.5.0"
+spec_version: "0.6.0"
 
 # Optional third block: which contributors team owns this repo, and where its
 # cf:change findings artifacts publish. Delete it entirely if this repo is not
-# registered with a team; nothing below the artifacts: key changes how a sweep
+# registered with a team; nothing below the platform: key changes how a sweep
 # audits, reports, or gates.
 #
 # Mint the team once with `ruby ~/.claude/cf/bin/cf_team_init.rb <team_id>
-# "<label>"`, then provision the artifact area once with `ruby
-# ~/.claude/cf/bin/cf_artifacts_init.rb <team_id>`. Each prints the block to
-# paste here. See scripts/CF_TEAM_SETUP.md.
+# "<label>"`, which prints the first half of this block. The second half is the
+# organization and team you created in the platform web app, plus the API key
+# you minted for that team. See scripts/CF_TEAM_SETUP.md.
 contributors_team:
   team_id: my-team
   public_key_ed25519: <base64 verify-only key printed by cf_team_init.rb>
   contributors:
     - { id: pat, name: Pat Taylor }
 
+  # Your team on the hosted platform, by slug. Together these address every run
+  # this repo publishes, and they are the Keychain account the team API key is
+  # stored under.
+  organization: my-org
+  team: my-team
+
   # Present: a completed sweep also builds an HTML findings artifact (contributor
   # and git context, every lane's findings, per-viewport screenshots, a recording
   # per viewport, and an annotated PDF per viewport) and publishes it to the
-  # team's private bucket behind CloudFront, then rebuilds the team index of every
-  # contributor's runs. Absent: none of that happens, and the sweep behaves
-  # exactly as it did before this block existed. Publishing is best effort and is
-  # reported separately; it can never change the run's pass/fail.
-  artifacts:
-    bucket: cf-change-artifacts-my-team
-    region: us-east-1
-    aws_profile: personal        # optional, this is the default; AWS_PROFILE wins
-    distribution_id: E1XXXXXXXXXXXX
-    domain: d111111abcdef8.cloudfront.net
-    manifest_table: cf-change-artifacts   # optional, this is the default
-    # Where the VIEWER credential lives, never the credential itself. The SSM
-    # SecureString is the source of truth: cf_artifacts_init.rb reads it at deploy
-    # time and compiles only its SHA-256 digest into the CloudFront function, since
-    # a CloudFront function has no network access and cannot fetch a secret at
-    # request time. Rotate with `cf_artifacts_init.rb <team_id> --rotate` after
-    # writing the new value to the parameter.
-    basic_auth:
-      username: cf
-      ssm_parameter: /cf-change-artifacts/my-team/basic-auth
-      secret_ref: "op://<shared-vault>/change-fabric artifacts: my-team/password"
+  # artifacts service, which records the run and lists it on the team's findings
+  # page. Absent: none of that happens, and the sweep behaves exactly as it did
+  # before this block existed. Publishing is best effort and is reported
+  # separately; it can never change the run's pass/fail.
+  #
+  # Nothing here is a credential. Publishing authenticates with a team API key
+  # read from the env var named below, or, failing that, from this machine's
+  # Keychain (service change-fabric-platform, account <organization>/<team>),
+  # where `ruby ~/.claude/cf/bin/cf_team_join.rb --platform my-org my-team
+  # --stdin` puts it. There is no bucket, prefix, or distribution to name: the
+  # service owns all three.
+  platform:
+    api_url: https://api.staging.changefabric.org   # optional, this is the default
+    api_key_env: CF_TEAM_API_KEY                    # optional, this is the default
+    # team_id: <the service's own id for this team>
+    #   Optional. Omitted, the publisher asks GET /v1/whoami-key which team the
+    #   key belongs to, which is one round trip and one less unverifiable fact
+    #   committed to this file.
+    # basic_auth:
+    #   A deployment-wide HTTP Basic Auth fence in front of the API, if that
+    #   environment has one (staging does, production will not). Env var NAMES,
+    #   never values, exactly like lanes.<lane>.basic_auth.
+    #   username_env: CF_PLATFORM_BASIC_AUTH_USER
+    #   password_env: CF_PLATFORM_BASIC_AUTH_PASSWORD
     # media:
     #   screenshots: true        # optional, this is the default
     #   video: true              # optional, this is the default

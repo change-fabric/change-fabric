@@ -144,7 +144,7 @@
 
 <h2>Responsive walk by viewport</h2>
 <% if viewports.empty? -%>
-<p class="note">No media was captured for this run. The browserless lane captures screenshots and recordings only when the repo's CHANGE.md carries a contributors_team.artifacts block and the lane is enabled.</p>
+<p class="note">No media was captured for this run. The browserless lane captures screenshots and recordings only when the repo's CHANGE.md carries a contributors_team.platform block and the lane is enabled.</p>
 <% end -%>
 <% viewports.each do |viewport| -%>
 <h3><%= h viewport['name'] %></h3>

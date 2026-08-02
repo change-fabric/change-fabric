@@ -14,7 +14,7 @@ require_relative 'change_media'
 # to about artifacts.
 #
 # `ChangeArtifactStep.for` returns nil unless the repo's CHANGE.md carries a
-# `contributors_team.artifacts:` block, and a nil step is the entire opt-out: no
+# `contributors_team.platform:` block, and a nil step is the entire opt-out: no
 # media sink reaches the browserless lane, no bundle directory is created, and
 # nothing is uploaded. A repo that never adopts the block runs exactly as it did
 # before this file existed.
@@ -85,7 +85,6 @@ class ChangeArtifactStep
     lines = result.warnings.map { |warning| "artifact: #{warning}" }
     lines << "artifact: uploaded #{result.uploaded} file(s)"
     lines << "artifact: #{result.url}" if result.url
-    lines << "artifact index: #{result.index_url}" if result.index_url
     lines
   end
 end

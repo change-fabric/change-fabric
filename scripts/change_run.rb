@@ -26,7 +26,7 @@ require_relative 'change_lane_browserless'
 # Usage: change_run.rb <all|k6|a11y|zap|browserless> [--config PATH] [--profile NAME]
 #        [--app NAME]... [--target-url URL] [--health-url URL] [--no-publish]
 #
-# A repo whose CHANGE.md carries a `contributors_team.artifacts:` block also
+# A repo whose CHANGE.md carries a `contributors_team.platform:` block also
 # gets a findings artifact (an HTML page with the run's screenshots, per
 # viewport recordings, and per viewport PDFs) built and published to the team's
 # S3 + CloudFront area after the gate is recorded; `--no-publish` builds the
@@ -58,7 +58,7 @@ class ChangeRun
   # the network to join, the default target url, the browser session (nil unless
   # a browser lane asked for one), and a logger.
   # `media` (0.32.0) is the run's artifact media sink, or nil. It is nil unless
-  # the repo carries a `contributors_team.artifacts:` block, and a lane holding
+  # the repo carries a `contributors_team.platform:` block, and a lane holding
   # a nil sink captures nothing, which is what keeps the artifact pipeline
   # entirely opt-in.
   Context = Struct.new(:network, :target_url, :health_url, :browserless, :media, :logger, keyword_init: true) do

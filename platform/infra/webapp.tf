@@ -26,8 +26,8 @@
 #    only a SHA-256 digest of the expected Authorization header, compiled in at
 #    deploy time by platform/web/deploy.sh from the SSM parameter. The function's
 #    source in this repo carries a placeholder and nothing else; the published
-#    function exists only in AWS. This mirrors the precedent in
-#    skills/change/reference/artifact-basic-auth.function.js.
+#    function exists only in AWS. This is the estate-wide convention, set by the
+#    per-team artifact function that the artifacts service has since replaced.
 #
 # Terraform does not manage the function's code for the same reason: putting the
 # digest in Terraform would put it in the state file and in every plan output.
