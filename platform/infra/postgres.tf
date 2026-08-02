@@ -7,17 +7,26 @@
 # These resources are gated on var.manage_postgres_objects (default false). The
 # postgresql provider speaks Postgres over TCP 5432 from wherever Terraform
 # runs, and the instance is deliberately unreachable from outside the VPC: no
-# internet gateway, no NAT, publicly_accessible = false. Applying from a laptop
-# therefore creates every AWS resource and leaves these two for a run that has a
-# path into the VPC. README.md documents both ways to get one.
+# internet gateway, no NAT, publicly_accessible = false. An ordinary apply from a
+# laptop therefore creates every AWS resource and leaves these alone; a bootstrap
+# run stands up the bastion in bastion.tf, opens an SSM port-forward, and points
+# the provider at the local end of it. README.md has the procedure.
 # ---------------------------------------------------------------------------
 
 provider "postgresql" {
-  host     = aws_db_instance.platform.address
-  port     = aws_db_instance.platform.port
+  # Empty host means talk to the instance directly, which is what a run from
+  # inside the VPC does. A bootstrap run through an SSM port-forward overrides
+  # both of these to the local end of the tunnel.
+  host = var.postgresql_host != "" ? var.postgresql_host : aws_db_instance.platform.address
+  port = var.postgresql_port != 0 ? var.postgresql_port : aws_db_instance.platform.port
+
   username = aws_db_instance.platform.username
   password = random_password.db_master.result
-  sslmode  = "require"
+
+  # RDS terminates TLS on the instance, so the connection is encrypted even when
+  # it arrives through a local port-forward. Verification stays off because the
+  # tunnel's local hostname can never match the instance's certificate.
+  sslmode = "require"
 
   # RDS grants the master user rds_superuser, not true superuser, so the
   # provider must not attempt superuser-only statements.
@@ -36,6 +45,14 @@ resource "postgresql_database" "staging" {
   encoding   = "UTF8"
   lc_collate = "en_US.UTF-8"
   lc_ctype   = "en_US.UTF-8"
+
+  lifecycle {
+    # Dropping this database destroys every account, organization and team on
+    # staging. Terraform should refuse rather than carry out a plan that says so,
+    # whether that plan came from flipping manage_postgres_objects or from an
+    # unreachable provider making the resource look absent.
+    prevent_destroy = true
+  }
 }
 
 # The application login role. It can connect and it can work inside the staging
@@ -72,6 +89,22 @@ resource "postgresql_grant" "revoke_public_connect" {
   count = var.manage_postgres_objects ? 1 : 0
 
   database    = postgresql_database.staging[0].name
+  role        = "public"
+  object_type = "database"
+  privileges  = []
+}
+
+# Postgres grants PUBLIC connect on the maintenance database, so without this
+# every application role could open a session on `postgres` as well as on its
+# own database. Nothing legitimate needs that: the master user owns the database
+# and keeps its access through the owner ACL, and rdsadmin is a superuser that
+# bypasses the check. Revoking it is what makes "scoped to one database" true
+# rather than merely intended, and it applies to the production role phase 8
+# adds without that phase having to remember.
+resource "postgresql_grant" "revoke_public_connect_maintenance" {
+  count = var.manage_postgres_objects ? 1 : 0
+
+  database    = "postgres"
   role        = "public"
   object_type = "database"
   privileges  = []

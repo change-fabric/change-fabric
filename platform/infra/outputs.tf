@@ -87,3 +87,11 @@ output "staging_database_role" {
   description = "Postgres login role the staging application connects as."
   value       = local.staging_role
 }
+
+# Only populated during a bootstrap run. This is the target an SSM port-forward
+# points at; it is null whenever the bastion is torn down, which is its normal
+# state.
+output "bastion_instance_id" {
+  description = "Ephemeral bootstrap bastion instance id, or null when provision_bastion is false."
+  value       = var.provision_bastion ? aws_instance.bastion[0].id : null
+}

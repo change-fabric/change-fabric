@@ -46,6 +46,10 @@ using the same `postgresql_database` plus `postgresql_role` plus
 `postgresql_grant` trio. Nothing in this phase needs to change for that to
 happen.
 
+Both databases share one login role each, created through the bootstrap
+procedure below. The staging pair exists today; phase 8 adds the production pair
+the same way.
+
 This is a settled decision. A second instance would double the baseline spend,
 the backup surface, and the patching work for two workloads that together stay
 well inside one `db.t4g.small`, which is why the class was chosen with headroom
@@ -162,40 +166,104 @@ aws acm describe-certificate --profile personal --region us-east-1 \
   --query 'Certificate.Status'
 ```
 
-## Creating the Postgres database and role
+## Creating a Postgres database and role: the bootstrap procedure
 
 `postgres.tf` declares `cf_platform_staging`, the `cf_platform_staging_app`
-login role, and its grants. They are gated on `manage_postgres_objects`, which
-defaults to **false**.
+login role, and its grants. They already exist; `manage_postgres_objects`
+defaults to **true** so a plan matches reality.
 
-The reason is reachability, not preference. The `postgresql` provider speaks
-Postgres over TCP 5432 from wherever Terraform runs, and this instance is
-private on purpose: no internet gateway, no NAT, `publicly_accessible = false`.
-A run from a laptop outside the VPC creates every AWS resource and cannot create
-these. Making the instance publicly reachable is not an option either: RDS
-requires an internet gateway in the VPC before it will accept
+Getting them created took a detour, and phase 8 will take the same one to add
+`cf_platform_production`. The `postgresql` provider speaks Postgres over TCP
+5432 from wherever Terraform runs, and this instance is private on purpose: no
+internet gateway, no NAT, `publicly_accessible = false`. A laptop cannot reach
+it. Making the instance publicly reachable is not an alternative either, because
+RDS requires an internet gateway in the VPC before it accepts
 `publicly_accessible = true`, and this VPC has none by design.
 
-So the Postgres objects are applied from a run that has a path into the VPC.
-Either of these gives one, and both are additive changes a human should sign off
-on because each carries its own cost and posture tradeoff:
+`bastion.tf` closes the gap for exactly as long as it takes. It is gated on
+`provision_bastion` (default **false**), and it stands up one `t4g.nano` in a
+private subnet, an instance profile holding `AmazonSSMManagedInstanceCore` and
+nothing else, and interface endpoints for `ssm`, `ssmmessages` and
+`ec2messages`. Session Manager runs entirely over those endpoints, so the
+bastion has no public IP and the VPC still has no internet path. It is created
+for one run and destroyed straight after; the database and role live in RDS and
+outlive it.
 
-1. **A bastion reached through Session Manager.** A small instance in a private
-   subnet plus interface endpoints for `ssm`, `ssmmessages` and `ec2messages`,
-   then `aws ssm start-session` with `AWS-StartPortForwardingSessionToRemoteHost`
-   to forward 5432 to a local port. Three more interface endpoints and one
-   instance of recurring cost.
-2. **Run Terraform from inside the VPC.** A CodeBuild project or a one-shot task
-   in the private subnets, attached to the Lambda security group.
-
-Once a path exists:
+### 1. Stand the bastion up
 
 ```
-terraform apply -var 'manage_postgres_objects=true'
+export AWS_PROFILE=personal
+terraform apply -var provision_bastion=true
 ```
 
-Phase 8 adds the production database the same way, so whichever path is chosen
-here is the one it reuses.
+Wait for the agent to register, which takes a minute or two:
+
+```
+aws ssm describe-instance-information --region us-east-1 \
+  --filters "Key=InstanceIds,Values=$(terraform output -raw bastion_instance_id)" \
+  --query 'InstanceInformationList[0].PingStatus'
+```
+
+### 2. Open a port-forward to the instance
+
+Needs the `session-manager-plugin` alongside the AWS CLI.
+
+```
+aws ssm start-session --region us-east-1 \
+  --target "$(terraform output -raw bastion_instance_id)" \
+  --document-name AWS-StartPortForwardingSessionToRemoteHost \
+  --parameters "{\"host\":[\"$(terraform output -raw rds_address)\"],\"portNumber\":[\"5432\"],\"localPortNumber\":[\"55432\"]}"
+```
+
+### 3. Apply the Postgres objects through the tunnel
+
+In another shell, with the session still open:
+
+```
+terraform apply -var provision_bastion=true \
+  -var postgresql_host=localhost -var postgresql_port=55432
+```
+
+### 4. Tear the bastion down
+
+Because a saved plan does not refresh, build the plan while the tunnel is still
+up, then close it and apply. Otherwise the teardown run tries to reach Postgres
+that is no longer reachable and fails partway.
+
+```
+terraform plan -var provision_bastion=false \
+  -var postgresql_host=localhost -var postgresql_port=55432 \
+  -out=tfplan.teardown
+
+# close the session, then:
+terraform apply tfplan.teardown
+```
+
+Confirm nothing is left behind. The only endpoint should be the SES one, and
+there should be no instances at all:
+
+```
+aws ec2 describe-instances --region us-east-1 \
+  --filters "Name=vpc-id,Values=$(terraform output -raw vpc_id)" \
+            "Name=instance-state-name,Values=pending,running,stopping,stopped" \
+  --query 'Reservations[].Instances[].InstanceId'
+
+aws ec2 describe-vpc-endpoints --region us-east-1 \
+  --filters "Name=vpc-id,Values=$(terraform output -raw vpc_id)" \
+  --query 'VpcEndpoints[].ServiceName'
+```
+
+### Planning this root after the fact
+
+With the bastion gone there is no path to Postgres, so a plain `terraform plan`
+fails on the provider connection. That is deliberate. The alternative, defaulting
+`manage_postgres_objects` to false, would make a plain plan quietly propose
+**dropping the staging database**, so this fails closed instead. `postgres.tf`
+also carries `prevent_destroy` on the database as a second guard.
+
+To plan or apply this root normally, repeat steps 1 through 4 around whatever
+change you are making. Later phases are unaffected: they have their own roots and
+read this one through `terraform_remote_state`, never by planning it.
 
 ## What this root does not own
 
