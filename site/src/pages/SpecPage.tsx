@@ -1,4 +1,5 @@
 import { Layout } from "../components/Layout";
+import { ReleaseNotes } from "../components/ReleaseNotes";
 import { findVersion, rawPath, specHtml } from "../spec";
 
 export function SpecPage({ version }: { version: string }) {
@@ -38,6 +39,7 @@ export function SpecPage({ version }: { version: string }) {
             </a>
           </div>
         </div>
+        <ReleaseNotes version={entry.version} />
         <div className="spec-body" dangerouslySetInnerHTML={{ __html: specHtml(entry.markdown) }} />
       </section>
     </Layout>

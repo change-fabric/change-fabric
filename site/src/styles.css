@@ -412,6 +412,51 @@ code {
   margin: 0 6px;
 }
 
+/* Release notes panel above a version's own spec text */
+.release-notes {
+  margin-top: 28px;
+  padding: 20px 22px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--code-bg);
+}
+
+.release-notes h2 {
+  font-size: 1.15rem;
+  margin: 0;
+  color: var(--heading);
+}
+
+.release-notes-headline {
+  margin: 8px 0 0;
+  color: var(--muted);
+}
+
+.release-notes-list {
+  margin: 18px 0 0;
+}
+
+.release-note + .release-note {
+  margin-top: 14px;
+}
+
+.release-note dt {
+  font-weight: 600;
+  color: var(--heading);
+}
+
+.release-note dd {
+  margin: 4px 0 0;
+  font-size: 0.94rem;
+}
+
+.release-notes-upgrade {
+  margin: 18px 0 0;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+  font-size: 0.94rem;
+}
+
 /* Rendered spec markdown */
 .spec-body {
   margin-top: 28px;
