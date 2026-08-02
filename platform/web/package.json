@@ -11,7 +11,8 @@
     "build": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",
     "preview": "vite preview",
-    "verify": "node verify/run.mjs"
+    "verify": "node verify/run.mjs",
+    "verify:e2e": "node verify/e2e-smoke.mjs"
   },
   "dependencies": {
     "better-auth": "1.6.25",
