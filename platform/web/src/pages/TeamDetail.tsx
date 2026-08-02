@@ -483,6 +483,15 @@ export function TeamDetail({
         {team.archivedAt === null ? null : " (archived)"}
       </p>
 
+      <button
+        type="button"
+        className="nav-link"
+        data-testid="open-artifacts"
+        onClick={() => navigate(`/teams/${team.id}/artifacts`)}
+      >
+        Findings this team published
+      </button>
+
       <ErrorNotice message={error} />
 
       {canManage ? (

@@ -1,4 +1,5 @@
 import type { Context } from "hono";
+import { hashKey, keyIsUsable } from "../api-keys.js";
 import type { Auth } from "../auth-options.js";
 import type { PlatformStore } from "../store.js";
 
@@ -113,6 +114,56 @@ export async function requireOrgAdmin(
     );
   }
   return caller;
+}
+
+/**
+ * Who a team API key says is calling.
+ *
+ * A key belongs to a team, not to a person, so this deliberately carries no
+ * user id. Anything that has to record "who did this" records the key's name
+ * instead, which is the truthful answer for a machine.
+ */
+export interface KeyCaller {
+  keyId: string;
+  keyName: string;
+  organizationId: string;
+  teamId: string;
+}
+
+/**
+ * The one place a presented `x-cf-key` becomes an identity.
+ *
+ * `/v1/whoami-key` and the artifacts machine routes both go through here, so
+ * there is a single definition of what a usable key is and a single place that
+ * stamps `last_used_at`. Duplicating it would be the kind of duplication that
+ * survives a change to only one of its copies.
+ *
+ * A missing, unknown, revoked or expired key all produce the same 401. Telling
+ * the difference would tell a caller which of their guesses was a real key.
+ */
+export async function requireKeyCaller(
+  store: PlatformStore,
+  headers: Headers,
+  now: Date,
+): Promise<KeyCaller> {
+  const presented = headers.get("x-cf-key");
+  if (presented === null || presented === "") {
+    throw new RouteError(401, "x-cf-key header required");
+  }
+
+  const row = await store.findApiKeyByHash(hashKey(presented));
+  if (row === null || !keyIsUsable(row, now)) {
+    throw new RouteError(401, "key is not valid");
+  }
+
+  await store.touchApiKey(row.id, now);
+
+  return {
+    keyId: row.id,
+    keyName: row.name,
+    organizationId: row.organizationId,
+    teamId: row.teamId,
+  };
 }
 
 /** A path parameter, refused rather than silently treated as the string "undefined". */

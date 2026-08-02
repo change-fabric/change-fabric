@@ -6,6 +6,8 @@ import { createDatabase, createPool } from "./db/client.js";
 import { getApiConfig } from "./config.js";
 import { bestEffort, createSesSender } from "./email.js";
 import { createDrizzleStore, type PlatformStore } from "./store.js";
+import { createS3Storage, type ArtifactStorage } from "./storage.js";
+import type { ArtifactsSettings } from "./config.js";
 import * as schema from "./db/schema.js";
 
 /**
@@ -63,9 +65,42 @@ function getRuntime(): Promise<Runtime> {
   return runtime;
 }
 
+/**
+ * The artifacts host, built once per execution environment.
+ *
+ * Cached in module scope like everything else expensive here: the S3 client is
+ * reusable and the signing key is already inside the cached config, so a warm
+ * invocation constructs nothing. Null when this deployment has no artifacts
+ * host, which the routes answer 404 for rather than failing.
+ */
+let artifacts:
+  | Promise<{ settings: ArtifactsSettings; storage: ArtifactStorage } | null>
+  | undefined;
+
+function getArtifacts(): Promise<{
+  settings: ArtifactsSettings;
+  storage: ArtifactStorage;
+} | null> {
+  artifacts ??= getApiConfig()
+    .then((config) =>
+      config.artifacts === null
+        ? null
+        : {
+            settings: config.artifacts,
+            storage: createS3Storage(config.artifacts.bucket),
+          },
+    )
+    .catch((error: unknown) => {
+      artifacts = undefined;
+      throw error;
+    });
+  return artifacts;
+}
+
 const app = createApp({
   auth: async () => (await getRuntime()).auth,
   store: async () => (await getRuntime()).store,
+  artifacts: getArtifacts,
   basicAuthCredential: async () => (await getApiConfig()).basicAuth,
 });
 

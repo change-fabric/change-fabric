@@ -145,4 +145,58 @@ per organization, because the question it answers is "which team owns what this
 run pushed from" and two organizations claiming one repository has no consistent
 answer.
 
-`artifact`, `artifact_file` and `contributor_alias` belong to phases 5 and 6.
+**`artifact`** and **`artifact_file`** are one published findings run and the
+files it declared. The row is the record; S3 is only storage.
+
+`key_prefix` is written at creation as `<org-slug>/<team-slug>/<short-id>/` and
+every presigned URL and every CloudFront signed cookie is scoped to it, so
+authorization is a question about the row rather than about a bucket listing.
+Nothing derives the prefix a second time from parts that could have changed.
+
+`short_id` is ten Crockford base32 characters, unique per **team** rather than
+globally, matching the team slug rule: a short id only ever appears inside a path
+that already names the team. `id` is a ULID, so descending id is descending
+creation time and the listing route's cursor can be the last id seen rather than
+an offset that shifts under a concurrent insert.
+
+`published_at` stays null until `POST /v1/artifacts/:id/complete`. A row with a
+`generated_at` and no `published_at` is a run that was announced and abandoned,
+which is a real state worth seeing rather than one to paper over.
+
+`contributor_user_id` and `contributor_label` are both nullable and both present
+because a run may come from a person (a session) or from a machine (a team API
+key, which belongs to a team and to nobody). Folding them into one column would
+mean losing the foreign key or storing a user id that names nobody.
+
+`repo_id` is nullable in this phase. Phase 6 is what knows which repository a run
+came from; recording a value now would be recording a guess.
+
+## The artifacts routes
+
+| Route | Who | What |
+| --- | --- | --- |
+| `POST /v1/artifacts` | session on the team, or `x-cf-key` scoped to it | Creates the rows and returns one presigned `PUT` per file, 15 minutes. |
+| `POST /v1/artifacts/:id/complete` | same | Sets `published_at`. Compares stored objects against the manifest and records a note; a mismatch never fails the run. |
+| `GET /v1/artifacts?teamId=` | any organization member | Keyset page, newest first. |
+| `GET /v1/artifacts/authorize?teamId=` | session with a `team_member` row | Mints CloudFront signed cookies as three `Set-Cookie` headers. |
+| `GET /v1/artifacts/:shortId/download` | `x-cf-key` only | Presigned `GET` per file. No cookies involved. |
+
+Bytes never pass through this function in either direction. A presigned URL
+carries the SIGNER's authority, not the caller's, which is why the Lambda role
+holds real `s3:PutObject`/`s3:GetObject` on the one bucket and `kms:GenerateDataKey`
+on the platform CMK: the browser or CI job that follows a URL is anonymous to S3.
+
+The bucket's default encryption is SSE-KMS and nothing in `storage.ts` names the
+key. A presigned `PUT` carrying explicit encryption parameters would oblige the
+uploader to send matching headers and turn any mismatch into a 403 they could do
+nothing about; letting the bucket default apply encrypts the object identically
+with one fewer thing to get wrong.
+
+`GET /v1/artifacts/authorize` is the only route that answers with `Set-Cookie`,
+and the cookies are not this application's. CloudFront verifies them at the edge
+against a trusted key group, so this route's own correctness is not the last line
+of defence: a forged cookie fails at CloudFront regardless of what it decided.
+The scope is a team's whole prefix for eight hours, not one artifact, because the
+question it answers does not change between two runs of the same team.
+
+`contributor_alias` belongs to phase 6.

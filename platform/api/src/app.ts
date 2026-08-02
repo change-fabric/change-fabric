@@ -1,14 +1,16 @@
 import { Hono } from "hono";
 import { APIError } from "better-auth/api";
 import { basicAuth } from "./basic-auth.js";
-import type { BasicAuthCredential } from "./config.js";
+import type { ArtifactsSettings, BasicAuthCredential } from "./config.js";
 import type { Auth } from "./auth-options.js";
+import type { ArtifactStorage } from "./storage.js";
 import type { PlatformStore } from "./store.js";
 import { RouteError, type ClientErrorStatus } from "./routes/context.js";
 import { registerTeamRoutes } from "./routes/teams.js";
 import { registerKeyRoutes } from "./routes/keys.js";
 import { registerInvitationRoutes } from "./routes/invitations.js";
 import { registerRepoRoutes } from "./routes/repos.js";
+import { registerArtifactRoutes } from "./routes/artifacts.js";
 import { asObject, requireSlug, requireText, ValidationError } from "./validation.js";
 
 /**
@@ -21,8 +23,12 @@ import { asObject, requireSlug, requireText, ValidationError } from "./validatio
  *   /v1/invitations/* inviting somebody in, and accepting
  *   /v1/repos/*       which team owns which repository
  *   /v1/whoami-key    the one route a team API key authenticates
+ *   /v1/artifacts/*   publishing a findings run, listing runs, and the two ways
+ *                     of reading one back (signed cookies for a browser,
+ *                     presigned URLs for a machine)
  *
- * Artifacts and the publish pipeline belong to later phases.
+ * The publish pipeline that calls /v1/artifacts from a contributor's own
+ * repository belongs to a later phase.
  */
 
 /** The one path outside the staging Basic Auth gate. */
@@ -69,6 +75,15 @@ export interface AppDependencies {
   basicAuthCredential: () => Promise<BasicAuthCredential>;
   /** The platform's own tables. Same laziness, same reason. */
   store: () => Promise<PlatformStore>;
+  /**
+   * The artifacts bucket and the CloudFront signing key, or null in a
+   * deployment that has no artifacts host. Same laziness again: the signing key
+   * is an SSM read, and /healthz must not depend on one.
+   */
+  artifacts?: () => Promise<{
+    settings: ArtifactsSettings;
+    storage: ArtifactStorage;
+  } | null>;
   /** Injected so a test can assert on a timestamp it chose. */
   now?: () => Date;
 }
@@ -79,6 +94,10 @@ export function createApp(deps: AppDependencies): Hono {
     auth: deps.auth,
     store: deps.store,
     now: deps.now ?? (() => new Date()),
+  };
+  const artifactDeps = {
+    ...routeDeps,
+    artifacts: deps.artifacts ?? (async () => null),
   };
 
   // First in the chain, so nothing below it is reachable without the staging
@@ -141,6 +160,7 @@ export function createApp(deps: AppDependencies): Hono {
   registerKeyRoutes(app, routeDeps);
   registerInvitationRoutes(app, routeDeps);
   registerRepoRoutes(app, routeDeps);
+  registerArtifactRoutes(app, artifactDeps);
 
   app.notFound((c) => c.json({ error: "not found" }, 404));
 

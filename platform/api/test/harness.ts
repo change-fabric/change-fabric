@@ -1,3 +1,4 @@
+import { generateKeyPairSync } from "node:crypto";
 import type { Hono } from "hono";
 import { memoryAdapter, type MemoryDB } from "better-auth/adapters/memory";
 import { createApp } from "../src/app.js";
@@ -5,6 +6,7 @@ import { createAuth } from "../src/auth-options.js";
 import type { EmailMessage } from "../src/email.js";
 import type { PlatformStore } from "../src/store.js";
 import { createMemoryStore } from "./memory-store.js";
+import { createMemoryStorage, type MemoryStorage } from "./memory-storage.js";
 
 /**
  * A whole API instance backed by an in-memory store.
@@ -17,6 +19,26 @@ import { createMemoryStore } from "./memory-store.js";
  */
 
 export const TEST_BASIC_AUTH = { username: "staging", password: "s3cret:pair" };
+
+export const TEST_ARTIFACTS_ORIGIN = "https://artifacts.staging.example.test";
+export const TEST_KEY_PAIR_ID = "K1TESTKEYPAIRID";
+
+/**
+ * A throwaway RSA key pair, generated once for the whole test process.
+ *
+ * A real key rather than a placeholder string, because the point of the signing
+ * tests is that the signer produces something a verifier would accept, and a
+ * stub key would only prove that a string was copied into a cookie. 2048 bits is
+ * what CloudFront requires, and generating it once at module load costs a tenth
+ * of a second across the entire suite.
+ */
+const signerKeyPair = generateKeyPairSync("rsa", {
+  modulusLength: 2048,
+  publicKeyEncoding: { type: "spki", format: "pem" },
+  privateKeyEncoding: { type: "pkcs8", format: "pem" },
+});
+
+export const TEST_SIGNER_PUBLIC_KEY = signerKeyPair.publicKey;
 
 export const AUTHORIZED_HEADER = `Basic ${Buffer.from(
   `${TEST_BASIC_AUTH.username}:${TEST_BASIC_AUTH.password}`,
@@ -82,6 +104,8 @@ export interface Harness {
   sentEmails: EmailMessage[];
   /** Every invitation mail the plugin asked to be sent. */
   sentInvitations: EmailMessage[];
+  /** The artifacts bucket, so a test can simulate an upload arriving. */
+  storage: MemoryStorage;
 }
 
 export function createHarness(): Harness {
@@ -117,10 +141,21 @@ export function createHarness(): Harness {
   });
 
   const platformStore = createMemoryStore(store);
+  const storage = createMemoryStorage();
 
   const app = createApp({
     auth: async () => auth,
     store: async () => platformStore,
+    artifacts: async () => ({
+      settings: {
+        bucket: "test-artifacts",
+        origin: TEST_ARTIFACTS_ORIGIN,
+        keyPairId: TEST_KEY_PAIR_ID,
+        privateKey: signerKeyPair.privateKey,
+        cookieDomain: ".staging.example.test",
+      },
+      storage,
+    }),
     basicAuthCredential: async () => TEST_BASIC_AUTH,
   });
 
@@ -145,7 +180,15 @@ export function createHarness(): Harness {
     },
   };
 
-  return { app, store, platformStore, rows, sentEmails, sentInvitations };
+  return {
+    app,
+    store,
+    platformStore,
+    rows,
+    sentEmails,
+    sentInvitations,
+    storage,
+  };
 }
 
 /** Collects the cookies Better Auth set, so the next call is authenticated. */

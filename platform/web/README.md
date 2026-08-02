@@ -198,7 +198,50 @@ session cookie. Every claim is checked against Postgres through the
 The key banner is dismissed BEFORE the keys panel is screenshotted, so no image
 in `.verification/` ever carries a raw key.
 
+`verify/artifacts.mjs` is the phase 5 run, on the same harness:
+
+```
+export AWS_PROFILE=personal
+node verify/artifacts.mjs
+```
+
+Almost none of it is a UI test, and deliberately so. The claims that matter are
+about an edge nobody can see from inside the app, so they are made with curl
+against the live host: that the viewer URL answers 401 without Basic Auth and 302
+with it, that the object path answers CloudFront's own 403 without a signed
+cookie, that the same cookies lifted out of the browser fetch the fixture from
+`artifacts.staging.changefabric.org` outside a browser entirely, that changing one
+character of the signature turns that 200 into a 403, that a team API key gets
+working presigned GET URLs, and that the bucket is unreachable unsigned. The
+browser appears once, for the one claim only a browser can make: that somebody
+following a link to a run they have never opened ends up looking at the run.
+
+## The artifacts surface in this app
+
+Two routes, and they do quite different jobs.
+
+`/teams/:teamId/artifacts` lists what a team published. Every row links straight
+at the artifacts host rather than proxying anything, because the bytes are served
+by CloudFront under a signed cookie and this app's job is only to say which runs
+exist.
+
+`/artifacts/authorize` is the one screen nobody chooses to visit. The artifacts
+host redirects a browser here when it has no CloudFront cookie yet, carrying
+`next` (where they were going) and `team` (a slug, because the edge only ever
+sees the path). It resolves the slug through the caller's own team list, asks
+`GET /v1/artifacts/authorize` for cookies, and follows `next`.
+
+`next` arrives in a query string, so it is attacker-supplied by construction. It
+is followed only after the API has said which prefix it just authorised, and only
+if `next` is inside it; anything else is discarded in favour of the team's own
+viewer root. That check is the reason the authorize route is not an open
+redirect.
+
+It has to be a screen and not a silent effect, because three things can go wrong
+and each is something a person has to be told: they are not on that team, the
+team is not in the organization they are acting as, or the link was malformed.
+
 ## What is not here
 
-Changing somebody's role after they join, and the artifacts surface. Those are
-later phases.
+Changing somebody's role after they join, and the publish pipeline that calls
+`/v1/artifacts` from a contributor's own repository. Those are later phases.

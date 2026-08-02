@@ -20,6 +20,12 @@ a CloudFront distribution on `app.staging.changefabric.org`, gated by a
 viewer-request CloudFront Function, and a GitHub OIDC deploy role for a future CI
 workflow. See [The staging web app](#the-staging-web-app) below.
 
+Phase 5 adds the staging artifacts host: a private S3 bucket of published
+findings runs behind a CloudFront distribution on
+`artifacts.staging.changefabric.org`, gated by the same staging Basic Auth and by
+CloudFront signed cookies the API mints. See [The staging artifacts
+host](#the-staging-artifacts-host) below.
+
 This is a separate root from `site/infra` and `telemetry/infra`. It shares the
 state backend bucket and reads the `changefabric.org` hosted zone, but manages
 neither, and it touches nothing either of those roots owns.
@@ -452,13 +458,113 @@ reason, after confirming the full plan read `10 to add, 0 to change, 0 to
 destroy`. Repeating steps 1 through 4 above is still the way to plan this root
 without the errors.
 
+## The staging artifacts host
+
+`artifacts.tf` serves published findings runs from
+`artifacts.staging.changefabric.org`: a private S3 bucket
+(`changefabric-artifacts-staging`, public access fully blocked, bucket owner
+enforced, SSE-KMS under the shared `alias/cf-platform` CMK), a CloudFront
+distribution on phase 1's wildcard certificate, a CloudFront public key and key
+group, and one alias record.
+
+Bytes never pass through the API in either direction. An upload is a presigned
+`PUT` straight to S3, a machine download is a presigned `GET` straight back out,
+and a browser gets CloudFront signed cookies rather than a proxied response.
+
+### Objects expire after 180 days
+
+`aws_s3_bucket_lifecycle_configuration.artifacts` **deletes** every object older
+than 180 days. That is a real, data-destroying default, chosen because a findings
+run is evidence about a commit that is long superseded by then. Extending the
+window is a one-line change; doing it after the fact does not bring an expired
+object back. A second rule aborts incomplete multipart uploads after seven days.
+
+Versioning is deliberately **off**, unlike the app bucket. Nothing here is ever
+overwritten (each run gets its own short id and therefore its own prefix), so a
+version history would record only abandoned uploads, and it would need its own
+noncurrent-version expiry to stay in agreement with the rule above.
+
+### Two gates, and why there are two cache behaviors
+
+The viewer-request function applies the same staging Basic Auth digest as the
+other two surfaces. `trusted_key_groups` makes CloudFront itself require a valid
+signed cookie. They answer different questions and both apply.
+
+CloudFront evaluates the key group **before** it invokes the function. That was
+measured against this distribution, not assumed: with both on one behavior, an
+anonymous request is answered 403 by CloudFront and the function never runs, so
+it can neither challenge for Basic Auth nor offer a first-time visitor a way to
+get a cookie. The distribution is therefore split:
+
+| Behavior | Key group | What it does |
+| --- | --- | --- |
+| `/v/*` | none | The entry point. Serves no bytes and never reaches the origin: the function answers every request with a 401 or a 302. |
+| default | enforced | The objects. Every request, no exceptions, no list of file types to maintain. |
+
+Enumerating protected behaviors by file extension and leaving the default open
+was the alternative, and it was rejected: it protects the extensions somebody
+remembered and serves the next one in the clear. Making the catch-all the
+protected side means an unanticipated path fails closed.
+
+### The signing key pair
+
+Only the **public** half is in this repository, as
+`cloudfront-signer.pub.pem`, and it is what `aws_cloudfront_public_key` reads.
+The private half was generated locally with `openssl` and written straight to
+`/cf-platform/staging/cloudfront-signer-private-key` with `aws ssm put-parameter`,
+so it has never been in a plan, a state file, or a commit. The API reads it once
+per cold start.
+
+Rotating it:
+
+```
+export AWS_PROFILE=personal
+openssl genrsa -out signer.key 2048
+openssl rsa -in signer.key -pubout -out cloudfront-signer.pub.pem
+
+aws ssm put-parameter --region us-east-1 --overwrite \
+  --name /cf-platform/staging/cloudfront-signer-private-key \
+  --type SecureString --value file://signer.key
+rm signer.key
+
+terraform apply    # adds the new public key to the key group
+```
+
+`create_before_destroy` on the public key means the replacement exists before the
+old one goes, so no cookie already in a browser is invalidated mid-session.
+
+### The S3 gateway endpoint
+
+`endpoints.tf` gained `aws_vpc_endpoint.s3`, a **gateway** endpoint rather than
+an interface one. Presigning needs no network, which is why publishing worked
+before it existed; the `HeadObject` in `POST /v1/artifacts/:id/complete` does,
+and without a path it hung until the function's timeout rather than failing. A
+gateway endpoint is a route in a route table, so it costs nothing per hour and
+nothing per gigabyte, and the VPC still has no internet gateway and no NAT.
+
+### The Basic Auth function, again
+
+`platform/web/artifacts-auth.function.js` is a template and
+`platform/web/deploy-artifacts.sh` compiles the digest in and publishes it, the
+same arrangement and for the same reason as the web app's. Terraform reads the
+published function through a data source. On a first-ever provision, run
+`deploy-artifacts.sh` once, then `terraform apply`.
+
+### The KMS key policy grew a statement
+
+CloudFront reads this bucket through an OAC as the `cloudfront.amazonaws.com`
+service principal, which has no IAM identity for the key policy's root statement
+to delegate to. Without the second statement in `kms.tf`, every object fetch
+fails to decrypt and the host answers 502 for content that is present and
+correct. The grant is decryption only, this account only, and via S3 only.
+
 ## What this root does not own
 
 - The `changefabric.org` hosted zone, and every record `site/infra` or
   `telemetry/infra` already manages. This root only reads the zone id, adds its
-  own certificate validation records, and adds two alias records:
-  `api.staging.changefabric.org` and `app.staging.changefabric.org`.
+  own certificate validation records, and adds three alias records:
+  `api.staging.changefabric.org`, `app.staging.changefabric.org` and
+  `artifacts.staging.changefabric.org`.
 - The `cf-teams` DynamoDB table and everything else in `telemetry/infra`.
-- The code of the web app's Basic Auth CloudFront Function. See above.
-- Any CloudFront distribution or S3 bucket for the artifacts host. That arrives
-  in phase 5.
+- The code of either Basic Auth CloudFront Function. See above.
+- The CloudFront signing private key, which lives only in SSM.

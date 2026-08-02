@@ -1,8 +1,11 @@
 import type {
   ApiKeyRow,
   ApiKeyWithHash,
+  ArtifactFileRow,
+  ArtifactRow,
   PlatformStore,
   RepoLinkRow,
+  TeamContext,
   TeamMemberRow,
 } from "../src/store.js";
 import type { MemoryDB } from "better-auth/adapters/memory";
@@ -19,6 +22,8 @@ import type { MemoryDB } from "better-auth/adapters/memory";
 export function createMemoryStore(betterAuthStore: MemoryDB): PlatformStore {
   const apiKeys: ApiKeyWithHash[] = [];
   const repoLinks: RepoLinkRow[] = [];
+  const artifacts: ArtifactRow[] = [];
+  const artifactFiles: ArtifactFileRow[] = [];
 
   function withoutHash(row: ApiKeyWithHash): ApiKeyRow {
     const { keyHash: _hash, ...rest } = row;
@@ -128,6 +133,112 @@ export function createMemoryStore(betterAuthStore: MemoryDB): PlatformStore {
     async findRepoLinkByRepoId(repoId) {
       const row = repoLinks.find((candidate) => candidate.repoId === repoId);
       return row === undefined ? null : { ...row };
+    },
+
+    // Reads the same in-memory store Better Auth's memory adapter writes, so a
+    // team created through the plugin is visible here exactly as the join in
+    // the Drizzle implementation would see it.
+    async findTeamContext(teamId) {
+      const teams = betterAuthStore.team as {
+        id: string;
+        name: string;
+        slug?: string;
+        organizationId: string;
+        archivedAt?: Date | null;
+      }[];
+      const organizations = betterAuthStore.organization as {
+        id: string;
+        slug: string;
+      }[];
+
+      const found = teams.find((row) => row.id === teamId);
+      if (found === undefined) {
+        return null;
+      }
+      const owner = organizations.find(
+        (row) => row.id === found.organizationId,
+      );
+      if (owner === undefined) {
+        return null;
+      }
+      const context: TeamContext = {
+        teamId: found.id,
+        teamSlug: found.slug ?? "",
+        teamName: found.name,
+        archivedAt: found.archivedAt ?? null,
+        organizationId: owner.id,
+        organizationSlug: owner.slug,
+      };
+      return context;
+    },
+
+    async isTeamMember(teamId, userId) {
+      const members = betterAuthStore.teamMember as {
+        teamId: string;
+        userId: string;
+      }[];
+      return members.some(
+        (row) => row.teamId === teamId && row.userId === userId,
+      );
+    },
+
+    async createArtifact(input) {
+      const { files, ...header } = input;
+      const row: ArtifactRow = {
+        ...header,
+        publishedAt: null,
+        completionNote: null,
+      };
+      artifacts.push(row);
+      for (const file of files) {
+        artifactFiles.push({ ...file, artifactId: row.id });
+      }
+      return { ...row };
+    },
+
+    async shortIdTaken(teamId, shortId) {
+      return artifacts.some(
+        (row) => row.teamId === teamId && row.shortId === shortId,
+      );
+    },
+
+    async findArtifactById(id) {
+      const row = artifacts.find((candidate) => candidate.id === id);
+      return row === undefined ? null : { ...row };
+    },
+
+    async findArtifactsByShortId(shortId) {
+      return artifacts
+        .filter((row) => row.shortId === shortId)
+        .map((row) => ({ ...row }));
+    },
+
+    async listArtifactFiles(artifactId) {
+      return artifactFiles
+        .filter((row) => row.artifactId === artifactId)
+        .map((row) => ({ ...row }))
+        .sort((left, right) => left.path.localeCompare(right.path));
+    },
+
+    async listArtifacts(teamId, limit, before) {
+      return artifacts
+        .filter(
+          (row) =>
+            row.teamId === teamId && (before === null || row.id < before),
+        )
+        .sort((left, right) => (left.id < right.id ? 1 : -1))
+        .slice(0, limit)
+        .map((row) => ({ ...row }));
+    },
+
+    async completeArtifact(id, at, note) {
+      const row = artifacts.find((candidate) => candidate.id === id);
+      if (row === undefined) {
+        return null;
+      }
+      row.publishedAt = at;
+      row.completionNote = note;
+      return { ...row };
     },
   };
 }
