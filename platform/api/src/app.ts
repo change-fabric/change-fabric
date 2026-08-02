@@ -10,6 +10,7 @@ import { registerTeamRoutes } from "./routes/teams.js";
 import { registerKeyRoutes } from "./routes/keys.js";
 import { registerInvitationRoutes } from "./routes/invitations.js";
 import { registerRepoRoutes } from "./routes/repos.js";
+import { registerAliasRoutes } from "./routes/aliases.js";
 import { registerArtifactRoutes } from "./routes/artifacts.js";
 import { asObject, requireSlug, requireText, ValidationError } from "./validation.js";
 
@@ -22,13 +23,11 @@ import { asObject, requireSlug, requireText, ValidationError } from "./validatio
  *   /v1/teams/*       contributor teams, their members, and their API keys
  *   /v1/invitations/* inviting somebody in, and accepting
  *   /v1/repos/*       which team owns which repository
+ *   /v1/teams/:id/aliases  who somebody was on a team before it was hosted here
  *   /v1/whoami-key    the one route a team API key authenticates
  *   /v1/artifacts/*   publishing a findings run, listing runs, and the two ways
  *                     of reading one back (signed cookies for a browser,
  *                     presigned URLs for a machine)
- *
- * The publish pipeline that calls /v1/artifacts from a contributor's own
- * repository belongs to a later phase.
  */
 
 /** The one path outside the staging Basic Auth gate. */
@@ -160,6 +159,7 @@ export function createApp(deps: AppDependencies): Hono {
   registerKeyRoutes(app, routeDeps);
   registerInvitationRoutes(app, routeDeps);
   registerRepoRoutes(app, routeDeps);
+  registerAliasRoutes(app, routeDeps);
   registerArtifactRoutes(app, artifactDeps);
 
   app.notFound((c) => c.json({ error: "not found" }, 404));

@@ -24,7 +24,24 @@ basic-auth.function.js  CloudFront Function TEMPLATE, digest substituted at depl
 deploy.sh               publish the function, sync dist/, invalidate
 verify/run.mjs          phase 3 headless run: sign-up, onboarding, the dashboard
 verify/teams.mjs        phase 4 headless run: teams, invites, membership, keys
+verify/legacy-migration.mjs  phase 7: a migrated team's findings, as a person sees them
 ```
+
+## A session that belongs to organizations but has none active
+
+Better Auth sets a session's active organization when that session CREATES one.
+It does not set one on sign-in, so any session that is not the creating session
+starts with none: signing out and back in, or an organization created for the
+account by something else, which is exactly what `scripts/cf_team_migrate.rb`
+does.
+
+`App.tsx` sets it. Without that, `getFullOrganization()` returns nothing, the
+page falls back to rendering `organizations[0]`, and the result is a screen
+naming an organization the SERVER does not consider active: every `/v1` route
+reads the session, so the page renders a name and then 400s on its first real
+request. The organization switcher would fix it by hand, except that a person
+with exactly one organization is never shown a switcher, so there is no manual
+path out of it at all.
 
 ## Teams, invitations, and keys
 

@@ -16,8 +16,8 @@ src/validation.ts     reading a request body without trusting any of it
 src/api-keys.ts       minting, hashing, and recognising a team API key
 src/store.ts          the platform's own tables, as an interface plus Drizzle
 src/routes/context.ts who is calling, and what they may do
-src/routes/*.ts       teams, keys, invitations, repo links
-src/db/schema.ts      Drizzle mirror of every Better Auth table, plus our own two
+src/routes/*.ts       teams, keys, invitations, repo links, contributor aliases
+src/db/schema.ts      Drizzle mirror of every Better Auth table, plus our own
 src/index.ts          Lambda handler for the API
 src/migrate.ts        Lambda handler for migrations and one-off read-only checks
 drizzle/              generated migration SQL, applied by the migrate Lambda
@@ -35,6 +35,8 @@ drizzle/              generated migration SQL, applied by the migrate Lambda
 | `POST /v1/teams/:id/keys`, `.../keys/:keyId/revoke` | owner or admin |
 | `POST`/`GET /v1/invitations`, `POST /v1/invitations/:id/accept` | owner or admin, except accept |
 | `POST`/`DELETE /v1/repos` | owner or admin |
+| `GET /v1/teams/:id/aliases` | any member |
+| `POST /v1/teams/:id/aliases` | owner or admin |
 | `GET /v1/whoami-key` | a team API key, no session |
 
 Every write to a Better Auth table goes through `auth.api` rather than the
@@ -199,4 +201,44 @@ of defence: a forged cookie fails at CloudFront regardless of what it decided.
 The scope is a team's whole prefix for eight hours, not one artifact, because the
 question it answers does not change between two runs of the same team.
 
-`contributor_alias` belongs to phase 6.
+## `contributor_alias`: who somebody was before this platform
+
+A repository's `CHANGE.md` carries a self-asserted roster of `{id, name}` pairs,
+and every findings run published before this service existed is attributed to
+one of those ids. `contributor_alias` is how such an id keeps meaning something:
+it maps a legacy `contributors[].id` to the team it belonged to, the display
+name it was registered under, and the account behind it when there is one.
+
+| Column | Shape | Why |
+| --- | --- | --- |
+| `team_id` | text, not null, cascade | The alias belongs to a team, not to an organization: rosters are per team. |
+| `legacy_contributor_id` | text, not null | The old `contributors[].id`, e.g. `pst`. |
+| `display_name` | text, not null | The old `contributors[].name`. What historical attribution renders as. |
+| `user_id` | text, nullable, `on delete set null` | The account, once there is one. |
+
+`(team_id, legacy_contributor_id)` is unique, because a roster id names one
+person within one team. It is deliberately NOT unique globally: two unrelated
+teams may each have a contributor called `pst`.
+
+**`user_id` being nullable is the design, not an omission.** A roster names
+people who may never sign in, and refusing to record them until they do would
+make their history read as nobody's. Null means "no account here yet", which is
+a fact worth storing. `on delete set null` keeps the alias, and therefore the
+attribution, when an account is removed.
+
+`POST /v1/teams/:id/aliases` never takes a `userId` from the body. A caller
+naming a user id would be asserting that somebody else's account is the same
+person as a roster entry, which is exactly the claim that must not be
+self-served. It accepts an `email` instead and links only when an account with
+that address exists **and has verified it**; an unverified address is something
+somebody typed at sign-up, not a proof. The route is idempotent: a second call
+for a mapped legacy id answers 200 with the existing row rather than 201, which
+is what lets `scripts/cf_team_migrate.rb` be re-run safely.
+
+`POST /v1/teams` accepts optional `legacyTeamId` and `publicKeyEd25519`, and
+`GET /v1/teams` returns both. They are written in the same statement that
+creates the team because `legacy_team_id` is unique, so claiming a legacy team
+is one atomic decision rather than a two-step one that can be lost halfway. A
+legacy id another team already holds answers 409 rather than surfacing a unique
+violation as a 500; the check reports only that the id is taken, never which
+team took it, because that team may be in an organization the caller cannot see.

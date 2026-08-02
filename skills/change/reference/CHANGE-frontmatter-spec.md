@@ -424,6 +424,68 @@ contributors_team:
       password_env: CF_PLATFORM_BASIC_AUTH_PASSWORD
 ```
 
+### The legacy identity fields and the platform fields run in parallel
+
+`team_id`, `public_key_ed25519` and `contributors` are **not deprecated and have
+no removal version.** They are the registration `cf_team_init.rb` mints, and
+they are what the presence and secret-alert capabilities actually read:
+`scripts/contributors_team.rb` resolves this machine's identity from them,
+`telemetry/infra`'s Lambdas verify signatures against the public key, and the
+`cf-teams` DynamoDB table is keyed on `team_id`. None of that goes through the
+hosted platform, and nothing about adopting `organization`, `team` and
+`platform:` changes it.
+
+So a migrated repo carries **both**, permanently, and they answer different
+questions:
+
+| Fields | Answer | Read by |
+| --- | --- | --- |
+| `team_id`, `public_key_ed25519`, `contributors` | who this repo's contributors are, and how their hooks sign | presence, secret-alerts, `cf-teams` |
+| `organization`, `team`, `platform:` | where this repo's findings artifacts are published | `cf:change`'s artifact step |
+
+The one thing 0.6.0 deprecated is `contributors_team.artifacts`, the per-team
+S3 bucket that predates the hosted service, and only that. It is removed at
+0.7.0. Nothing else in this block is slated for removal.
+
+`platform.team_id` and the top-level `team_id` are deliberately different
+values and are not interchangeable: one is the hosted service's own id for the
+team, the other is the id the team had before the service existed. The link
+between them is recorded server-side as the team's `legacyTeamId`, not by making
+one field mean both.
+
+### Migrating a registered team onto the platform
+
+`ruby scripts/cf_team_migrate.rb --org <slug> --email <you> [--team <slug>]`
+carries an existing registration onto the hosted platform in one run. Against
+the repo it is pointed at (the current directory by default) it reads the
+`contributors_team:` block and then resolves or creates:
+
+- an **organization** for the team,
+- a **team** carrying the old `team_id` as its `legacyTeamId` and the old
+  `public_key_ed25519` as its `publicKeyEd25519`, so the hosted team is
+  provably the same team,
+- your own **team membership**, because the viewer cookies that open a
+  published artifact are minted against team membership and not against an
+  organization role,
+- one **contributor alias** per `contributors[]` entry, mapping the roster id
+  and display name so runs published under the old id still read as somebody,
+- a **repo link** for this repo's normalized `repo_id`,
+- a **team API key**.
+
+It then PRINTS the replacement block and the `cf_team_join.rb --platform`
+command to store the key. It never edits `CHANGE.md`: the change is additive
+and belongs in a reviewed commit like any other.
+
+`--dry-run` reports what it would do and writes nothing at all, including not
+creating an account. Re-running without it is idempotent: the organization,
+team, membership, aliases and repo link are found and reused rather than
+duplicated. A team API key is the one exception, and unavoidably so, because a
+key is returned by exactly one response and cannot be handed back afterwards;
+each real run mints another, and the old ones stay listed and revocable on the
+team's page.
+
+See `scripts/CF_TEAM_SETUP.md` for the runbook.
+
 ### contributors_team.artifacts (0.5.0): deprecated, removed at 0.7.0
 
 Before the hosted service existed, a team provisioned its own private S3 bucket

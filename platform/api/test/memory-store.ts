@@ -3,6 +3,7 @@ import type {
   ApiKeyWithHash,
   ArtifactFileRow,
   ArtifactRow,
+  ContributorAliasRow,
   PlatformStore,
   RepoLinkRow,
   TeamContext,
@@ -24,6 +25,7 @@ export function createMemoryStore(betterAuthStore: MemoryDB): PlatformStore {
   const repoLinks: RepoLinkRow[] = [];
   const artifacts: ArtifactRow[] = [];
   const artifactFiles: ArtifactFileRow[] = [];
+  const aliases: ContributorAliasRow[] = [];
 
   function withoutHash(row: ApiKeyWithHash): ApiKeyRow {
     const { keyHash: _hash, ...rest } = row;
@@ -104,6 +106,54 @@ export function createMemoryStore(betterAuthStore: MemoryDB): PlatformStore {
       }
       row.revokedAt = at;
       return withoutHash(row);
+    },
+
+    // Reads the same in-memory store Better Auth's memory adapter writes, so a
+    // sign-up made through the plugin is visible here exactly as the Drizzle
+    // implementation's select would see it.
+    async legacyTeamIdTaken(legacyTeamId) {
+      const teams = betterAuthStore.team as { legacyTeamId?: string | null }[];
+      return teams.some((row) => row.legacyTeamId === legacyTeamId);
+    },
+
+    async findUserByEmail(email) {
+      const users = betterAuthStore.user as {
+        id: string;
+        email: string;
+        emailVerified?: boolean;
+      }[];
+      const found = users.find((row) => row.email === email);
+      return found === undefined
+        ? null
+        : {
+            id: found.id,
+            email: found.email,
+            emailVerified: found.emailVerified ?? false,
+          };
+    },
+
+    async createContributorAlias(input) {
+      const row: ContributorAliasRow = { ...input, createdAt: new Date() };
+      aliases.push(row);
+      return { ...row };
+    },
+
+    async listContributorAliases(teamId) {
+      return aliases
+        .filter((row) => row.teamId === teamId)
+        .map((row) => ({ ...row }))
+        .sort((left, right) =>
+          left.legacyContributorId.localeCompare(right.legacyContributorId),
+        );
+    },
+
+    async findContributorAlias(teamId, legacyContributorId) {
+      const row = aliases.find(
+        (candidate) =>
+          candidate.teamId === teamId &&
+          candidate.legacyContributorId === legacyContributorId,
+      );
+      return row === undefined ? null : { ...row };
     },
 
     async createRepoLink(input) {
