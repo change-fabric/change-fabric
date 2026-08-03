@@ -186,6 +186,13 @@ class ChangeArtifactsConfig
   # machine is a setup gap, not an audit failure.
   def identity = @team.identity
 
+  # The normalized `host/path` id of the repo this run came from. Deliberately
+  # NOT reached through `identity`: a repo id is a property of the repository,
+  # so it resolves from the git remote alone and stays correct on a machine that
+  # has not joined the team. It is the same value `repo_link` is keyed on, which
+  # is the point. nil only when there is no git remote at all.
+  def repo_id = @team.repo_id
+
   # The team's registered roster, `[{ 'id' =>, 'name' => }, ...]`, straight from
   # the committed `contributors:` list. Rendered as team context on the artifact
   # so a reader sees who else's runs sit beside this one.

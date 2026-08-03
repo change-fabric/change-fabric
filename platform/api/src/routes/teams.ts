@@ -1,6 +1,11 @@
 import { Hono } from "hono";
 import { SLUG_IMMUTABLE_MESSAGE } from "../auth-options.js";
-import { asObject, requireSlug, requireText } from "../validation.js";
+import {
+  asObject,
+  optionalText,
+  requireSlug,
+  requireText,
+} from "../validation.js";
 import {
   readJsonBody,
   requireCaller,
@@ -35,6 +40,17 @@ export interface TeamView {
   organizationId: string;
   createdAt: string | null;
   archivedAt: string | null;
+  /**
+   * The two columns phase 2 put on `team` and nothing has written until now.
+   * They are returned rather than write-only because the migration tool has to
+   * be able to ask "is this legacy team already here" and get an answer, which
+   * is what makes a second run of it a no-op instead of a duplicate. Neither is
+   * a secret: `public_key_ed25519` is the verify-only half of a keypair whose
+   * private half never leaves 1Password and the Keychain, and it is already
+   * committed in plain sight in every registered repo's CHANGE.md.
+   */
+  legacyTeamId: string | null;
+  publicKeyEd25519: string | null;
 }
 
 /**
@@ -53,6 +69,11 @@ function toIsoString(value: unknown): string | null {
   return null;
 }
 
+/** An optional text column, as null rather than as the string "null". */
+function toNullableString(value: unknown): string | null {
+  return typeof value === "string" && value !== "" ? value : null;
+}
+
 export function toTeamView(row: unknown): TeamView {
   const team = row as Record<string, unknown>;
   return {
@@ -62,6 +83,8 @@ export function toTeamView(row: unknown): TeamView {
     organizationId: String(team.organizationId),
     createdAt: toIsoString(team.createdAt),
     archivedAt: toIsoString(team.archivedAt),
+    legacyTeamId: toNullableString(team.legacyTeamId),
+    publicKeyEd25519: toNullableString(team.publicKeyEd25519),
   };
 }
 
@@ -90,8 +113,39 @@ export function registerTeamRoutes(app: Hono, deps: RouteDependencies): void {
       throw new RouteError(409, `a team with the slug ${slug} already exists`);
     }
 
+    /**
+     * What a team was called before it was hosted here, and the verify-only key
+     * its repositories already commit. Both optional, because a team created
+     * fresh in the web app has no history to carry, and both accepted here
+     * rather than patched in afterwards: `legacy_team_id` is unique, so writing
+     * it in the same statement that creates the row is what makes claiming a
+     * legacy team an atomic decision instead of a two-step one that can be lost
+     * halfway.
+     */
+    const legacyTeamId = optionalText(body, "legacyTeamId");
+    const publicKeyEd25519 = optionalText(body, "publicKeyEd25519");
+
+    // Same reasoning as the slug check above: the unique index is still the
+    // guarantee, and this only keeps the predictable case (re-running a
+    // migration against a team somebody already claimed) off the 500 path.
+    if (legacyTeamId !== undefined) {
+      const store = await deps.store();
+      if (await store.legacyTeamIdTaken(legacyTeamId)) {
+        throw new RouteError(
+          409,
+          `the legacy team id ${legacyTeamId} is already claimed`,
+        );
+      }
+    }
+
     const created = await auth.api.createTeam({
-      body: { name, slug, organizationId: caller.organizationId },
+      body: {
+        name,
+        slug,
+        organizationId: caller.organizationId,
+        ...(legacyTeamId === undefined ? {} : { legacyTeamId }),
+        ...(publicKeyEd25519 === undefined ? {} : { publicKeyEd25519 }),
+      },
       headers: c.req.raw.headers,
     });
 

@@ -1,9 +1,25 @@
 ---
 contributors_team:
+  # The legacy registration, untouched. These three fields are what the
+  # presence and secret-alert hooks read (scripts/contributors_team.rb, the
+  # cf-teams DynamoDB table), and nothing below changes that. They are not
+  # deprecated and have no removal version.
   team_id: changefabric-core
   public_key_ed25519: 3BXo6b9PO7gy35dZT1i7Znsaky4sOPn9b6V5JwdnW+4=
   contributors:
     - { id: pst, name: Patrick Taylor }
+  # The hosted platform, added by scripts/cf_team_migrate.rb. The team above is
+  # the same team: it carries `changefabric-core` as its legacyTeamId and the
+  # same public key. Nothing here is a credential; api_key_env and basic_auth
+  # name environment variables, never values.
+  organization: change-fabric
+  team: core
+  platform:
+    api_url: https://api.staging.changefabric.org
+    api_key_env: CF_TEAM_API_KEY
+    basic_auth:
+      username_env: CF_PLATFORM_BASIC_AUTH_USER
+      password_env: CF_PLATFORM_BASIC_AUTH_PASSWORD
 
 change_config:
   project: changefabric-site

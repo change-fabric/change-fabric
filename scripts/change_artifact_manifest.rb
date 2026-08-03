@@ -68,7 +68,13 @@ class ChangeArtifactManifest
 
   private
 
-  def repo_id = (@artifacts.identity&.repo_id || 'unknown-repo')
+  # From the repo, not from the contributor. Reading this off `identity` meant a
+  # machine that had never run `cf_team_join.rb` published `unknown-repo` even
+  # though its git remote resolved perfectly well, which put the artifact's own
+  # repo_id at odds with the `repo_link` row keyed on the real one. Those two
+  # have to agree: the whole point of a repo link is answering "which team owns
+  # what this run pushed from".
+  def repo_id = (@artifacts.repo_id || 'unknown-repo')
 
   def run_context
     {

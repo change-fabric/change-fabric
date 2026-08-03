@@ -112,6 +112,58 @@ If the deployment sits behind a coarse HTTP Basic Auth fence (staging does), add
 `platform.basic_auth.username_env` and `platform.basic_auth.password_env` naming
 the environment variables that hold it, and export them alongside the key.
 
+### Migrating an already-registered team: `cf_team_migrate.rb`
+
+The four steps above are the manual path, and they are fine for a team starting
+from nothing. A team that already has a `cf_team_init.rb` registration (a
+`team_id`, a public key, a roster) should use `cf_team_migrate.rb` instead: it
+does the same thing in one run and, crucially, carries the OLD identity onto the
+new team rather than creating an unrelated one.
+
+```
+CF_PLATFORM_PASSWORD='<your platform password>' \
+CF_PLATFORM_BASIC_AUTH_USER=... CF_PLATFORM_BASIC_AUTH_PASSWORD=... \
+  ruby scripts/cf_team_migrate.rb \
+    --org <organization-slug> --team <team-slug> \
+    --email <you@example.com> --dry-run
+```
+
+Run it with `--dry-run` first. It reports what it would create and writes
+nothing at all, including not creating an account: if there is no platform
+account for `--email` yet, it says so and stops rather than signing one up
+behind a flag that promised not to write. Drop the flag to apply.
+
+Pointed at a repo (the current directory unless `--repo` says otherwise), it
+reads that repo's `contributors_team:` block and resolves or creates:
+
+1. the **organization** named by `--org`,
+2. a **team** (`--team`, default `core`) carrying the old `team_id` as its
+   `legacyTeamId` and the old `public_key_ed25519` as its `publicKeyEd25519`,
+3. **your own membership** of that team, which is what lets your browser open
+   the artifacts it publishes,
+4. one **contributor alias** per `contributors[]` entry, so a run attributed to
+   `pat` still reads as `Pat Taylor` even though `pat` was never an account
+   here. The alias links to a real account only when a **verified** address
+   matches; otherwise it keeps the display name and links to nobody, which is
+   the honest record for somebody who has not signed up,
+5. a **repo link** for this repo's normalized `repo_id`, the same value
+   `scripts/contributors_team.rb` computes,
+6. a **team API key**.
+
+It prints the replacement `contributors_team:` block and the `cf_team_join.rb
+--platform` command for the key. It does not edit `CHANGE.md`; paste the block
+in and commit it like any other change.
+
+Re-running is safe. The organization, team, membership, aliases and repo link
+are found and reused. A key is the one thing it cannot reuse, because a key is
+shown once and is not recoverable even by the API, so every real run mints a
+new one; revoke the ones you did not keep from the team's page in the web app.
+
+**Nothing about the legacy fields changes.** `team_id`, `public_key_ed25519` and
+`contributors` stay in `CHANGE.md`, stay valid, and stay the only thing presence
+and secret-alerts read. The migration is additive: it adds `organization`,
+`team` and `platform:` beside them. The two run in parallel permanently.
+
 ### Migrating from the 0.5.0 `artifacts:` block
 
 The earlier design gave each team its own S3 bucket, CloudFront distribution,
@@ -120,7 +172,8 @@ Basic Auth credential, and DynamoDB manifest table, provisioned by a
 still parse at schema 0.6.0 and a repo carrying them still builds its bundle,
 but the publisher no longer carries an AWS SDK, so nothing is uploaded and the
 run says so. Replace the block with `organization`, `team`, and `platform:`
-above. The legacy fields are removed at schema 0.7.0.
+above. The legacy fields are removed at schema 0.7.0. This is the ONLY part of
+`contributors_team` that is deprecated; the identity fields above are permanent.
 
 ## The capability env vars (all off by default)
 
@@ -155,6 +208,10 @@ provisioned by `cf_team_join.rb`.
   the secret poll injects nothing). Capability A does not sign and does not need
   the gem.
 - After changing any script here, re-run `install.rb` to sync the live install
-  (`~/.claude/cf/bin/` and `~/.claude/settings.json`). `cf_team_init.rb` and
-  `cf_team_join.rb` are human-run tools, not hooks, so they are intentionally not
-  wired into `settings.json`.
+  (`~/.claude/cf/bin/` and `~/.claude/settings.json`). `cf_team_init.rb`,
+  `cf_team_join.rb` and `cf_team_migrate.rb` are human-run tools, not hooks, so
+  they are intentionally not wired into `settings.json`.
+- Those three are also the only scripts here that are NOT fail-soft. Every hook
+  fails open so it can never crash a session; these are one-time provisioning
+  tools, so a missing credential or a refused API call raises and exits nonzero
+  rather than half-finishing quietly.

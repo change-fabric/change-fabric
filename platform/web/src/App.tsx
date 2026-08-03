@@ -71,7 +71,26 @@ function useAccount(): { load: Load; refresh: () => void } {
       let activeOrg: ActiveOrg | null = null;
       let role: string | undefined;
       if (organizations.length > 0) {
-        const full = await authClient.organization.getFullOrganization();
+        let full = await authClient.organization.getFullOrganization();
+
+        // A session that belongs to organizations but has none ACTIVE. It
+        // happens whenever the session is not the one the organization was
+        // created in: signing out and back in, or an organization created for
+        // this account by something else, which is exactly what
+        // `cf_team_migrate.rb` does. Rendering `organizations[0]` without
+        // setting it would leave the page showing an organization the SERVER
+        // does not think is active, and every /v1 route reads the session, so
+        // the page would render a name and then 400 on its first real request.
+        // Setting it is what the organization switcher would do, and a person
+        // with exactly one organization is never shown that switcher.
+        if (!full.data) {
+          const first = organizations[0];
+          if (first !== undefined) {
+            await authClient.organization.setActive({ organizationId: first.id });
+            full = await authClient.organization.getFullOrganization();
+          }
+        }
+
         const data = full.data;
         if (data) {
           activeOrg = {

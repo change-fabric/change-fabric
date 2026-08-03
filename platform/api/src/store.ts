@@ -3,6 +3,7 @@ import type { Database } from "./db/client.js";
 import {
   artifact,
   artifactFile,
+  contributorAlias,
   organization,
   repoLink,
   team,
@@ -72,6 +73,23 @@ export interface NewRepoLink {
   organizationId: string;
   teamId: string;
   repoId: string;
+}
+
+export interface ContributorAliasRow {
+  id: string;
+  teamId: string;
+  legacyContributorId: string;
+  displayName: string;
+  userId: string | null;
+  createdAt: Date;
+}
+
+export interface NewContributorAlias {
+  id: string;
+  teamId: string;
+  legacyContributorId: string;
+  displayName: string;
+  userId: string | null;
 }
 
 export interface TeamMemberRow {
@@ -145,6 +163,48 @@ export interface PlatformStore {
     organizationId: string,
     at: Date,
   ): Promise<ApiKeyRow | null>;
+
+  /**
+   * Whether any team anywhere already carries a legacy team id.
+   *
+   * A boolean rather than the row, deliberately. `legacy_team_id` is unique
+   * across the whole table, so a collision may well be with a team in an
+   * organization the caller cannot see, and answering with that team would tell
+   * them it exists. The caller needs to know the id is spoken for; it does not
+   * need to know by whom.
+   */
+  legacyTeamIdTaken(legacyTeamId: string): Promise<boolean>;
+
+  /**
+   * A person's account by address, or null.
+   *
+   * Used by the migration path to decide whether a legacy roster entry has a
+   * real account behind it. It answers only about existence, never about
+   * credentials, and the route that calls it still decides for itself whether
+   * the address was verified: an unverified address is a claim, not a match, and
+   * linking on one would let anybody inherit somebody else's history by typing
+   * their email at sign-up.
+   */
+  findUserByEmail(
+    email: string,
+  ): Promise<{ id: string; email: string; emailVerified: boolean } | null>;
+
+  createContributorAlias(
+    input: NewContributorAlias,
+  ): Promise<ContributorAliasRow>;
+  listContributorAliases(teamId: string): Promise<ContributorAliasRow[]>;
+  /**
+   * The alias for one legacy id on one team, or null.
+   *
+   * This is what makes re-running a migration a no-op rather than a duplicate:
+   * the unique index is the real guarantee, and this lets the ordinary case
+   * answer "already there" with the existing row instead of a constraint
+   * violation.
+   */
+  findContributorAlias(
+    teamId: string,
+    legacyContributorId: string,
+  ): Promise<ContributorAliasRow | null>;
 
   createRepoLink(input: NewRepoLink): Promise<RepoLinkRow>;
   listRepoLinks(organizationId: string): Promise<RepoLinkRow[]>;
@@ -368,6 +428,58 @@ export function createDrizzleStore(db: Database): PlatformStore {
         )
         .returning();
       return row === undefined ? null : toApiKeyRow(row);
+    },
+
+    async legacyTeamIdTaken(legacyTeamId) {
+      const rows = await db
+        .select({ id: team.id })
+        .from(team)
+        .where(eq(team.legacyTeamId, legacyTeamId))
+        .limit(1);
+      return rows.length > 0;
+    },
+
+    async findUserByEmail(email) {
+      const rows = await db
+        .select({
+          id: user.id,
+          email: user.email,
+          emailVerified: user.emailVerified,
+        })
+        .from(user)
+        .where(eq(user.email, email))
+        .limit(1);
+      return rows[0] ?? null;
+    },
+
+    async createContributorAlias(input) {
+      const [row] = await db.insert(contributorAlias).values(input).returning();
+      if (row === undefined) {
+        throw new Error("insert into contributor_alias returned no row");
+      }
+      return row;
+    },
+
+    async listContributorAliases(teamId) {
+      return db
+        .select()
+        .from(contributorAlias)
+        .where(eq(contributorAlias.teamId, teamId))
+        .orderBy(asc(contributorAlias.legacyContributorId));
+    },
+
+    async findContributorAlias(teamId, legacyContributorId) {
+      const rows = await db
+        .select()
+        .from(contributorAlias)
+        .where(
+          and(
+            eq(contributorAlias.teamId, teamId),
+            eq(contributorAlias.legacyContributorId, legacyContributorId),
+          ),
+        )
+        .limit(1);
+      return rows[0] ?? null;
     },
 
     async createRepoLink(input) {

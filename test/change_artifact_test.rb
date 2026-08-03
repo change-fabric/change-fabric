@@ -30,6 +30,11 @@ class ChangeArtifactTest < Minitest::Test
     def initialize(identity) = @identity = identity
     def identity = @identity
     def repo_root = "/repo"
+    # Resolves from the git remote alone, so it stands whether or not this
+    # machine has joined the team. That is exactly the distinction
+    # ChangeArtifactsConfig#repo_id exists to preserve, so the fake has to keep
+    # the two answerable separately.
+    def repo_id = "github.com/acme/web"
   end
 
   def identity = FakeIdentity.new("acme", "pst", "Pat Taylor", "github.com/acme/web")
@@ -170,11 +175,42 @@ class ChangeArtifactTest < Minitest::Test
     Dir.mktmpdir { |dir| assert_nil ChangeArtifactsConfig.load(dir) }
   end
 
-  # This repo registers a contributors team and no publishing destination, which
-  # is the exact shape the opt-out has to keep working for: a team repo that
-  # publishes nothing and is not asked to.
+  # A repo that registers a contributors team and names no publishing
+  # destination: the exact shape the opt-out has to keep working for, a team
+  # repo that publishes nothing and is not asked to.
+  #
+  # Asserted against a repo built for the purpose rather than against this one.
+  # This repo used to BE that shape, and stopped being it the moment it was
+  # migrated onto the platform (see the test below), which made the property
+  # under test accidental. A fixture states it on purpose instead.
   def test_a_team_repo_without_a_publishing_block_is_not_configured
-    assert_nil ChangeArtifactsConfig.load(File.expand_path("..", __dir__))
+    Dir.mktmpdir do |dir|
+      system("git", "-C", dir, "init", "-q", out: File::NULL, err: File::NULL)
+      File.write(File.join(dir, "CHANGE.md"), <<~MD)
+        ---
+        contributors_team:
+          team_id: acme
+          contributors:
+            - { id: pst, name: Pat Taylor }
+        ---
+      MD
+      assert_nil ChangeArtifactsConfig.load(dir)
+    end
+  end
+
+  # This repo is the first real subject of the legacy migration, so it now
+  # carries both halves at once: the untouched legacy registration AND a
+  # platform destination. Asserting both here is what would catch either being
+  # dropped from CHANGE.md by accident.
+  def test_this_repo_carries_the_legacy_registration_and_a_platform_block
+    config = ChangeArtifactsConfig.load(File.expand_path("..", __dir__))
+
+    refute_nil config
+    assert config.platform?
+    assert_equal "changefabric-core", config.team_id
+    assert_equal [ { "id" => "pst", "name" => "Patrick Taylor" } ], config.roster
+    refute_empty config.organization
+    refute_empty config.team_slug
   end
 
   # --- media sink ----------------------------------------------------------------
@@ -240,6 +276,27 @@ class ChangeArtifactTest < Minitest::Test
     assert_equal "all", data["run"]["scope"]
     assert_equal "fail", data["status"]
     assert_equal({ "total" => 3, "fail" => 1, "warn" => 1, "pass" => 1 }, data["counts"])
+  end
+
+  # A repo id is a property of the REPOSITORY, so it survives a machine that has
+  # never run cf_team_join.rb. Reading it off the identity meant such a machine
+  # published `unknown-repo` even though its git remote resolved perfectly well,
+  # which put the artifact's own repo_id at odds with the repo_link row keyed on
+  # the real one. Those two have to agree.
+  def test_repo_id_resolves_without_a_joined_contributor
+    unjoined = ChangeArtifactsConfig.new(
+      { "team_id" => "acme", "organization" => "acme", "team" => "web", "platform" => {} },
+      team: FakeTeam.new(nil)
+    )
+    data = ChangeArtifactManifest.new(
+      repo_root: Dir.pwd, findings: findings, report: nil, media: nil, artifacts: unjoined,
+      run: { project: "web", app: nil, scope: "all", profile: "(none)", target: "http://app:3000" },
+      generated_at: Time.utc(2026, 8, 1, 12, 30, 0)
+    ).to_h
+
+    assert_nil unjoined.identity
+    assert_equal "unknown", data["contributor_id"]
+    assert_equal "github.com/acme/web", data["repo_id"]
   end
 
   def test_failing_findings_sort_first

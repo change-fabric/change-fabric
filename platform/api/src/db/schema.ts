@@ -20,9 +20,8 @@ import {
  * `repo_link`, `artifact` and `artifact_file`. They are the platform's own,
  * reached through the store in src/store.ts rather than through the plugin, and
  * they reference the plugin's tables by foreign key so a deleted organization
- * takes its keys, its repo links and its artifacts with it.
- * `contributor_alias` belongs to a later phase and is still deliberately
- * absent.
+ * takes its keys, its repo links, its artifacts and its contributor aliases
+ * with it.
  */
 
 export const user = pgTable("user", {
@@ -348,6 +347,53 @@ export const artifact = pgTable(
     uniqueIndex("artifact_team_id_short_id_key").on(
       table.teamId,
       table.shortId,
+    ),
+  ],
+);
+
+/**
+ * Who somebody was on a team before that team was hosted here.
+ *
+ * A repository's CHANGE.md carries a self-asserted roster of `{id, name}` pairs,
+ * and every run published before this platform existed is attributed to one of
+ * those ids. This table is how such an id keeps meaning something once the team
+ * has real accounts behind it: it maps a legacy `contributors[].id` to the team
+ * it belonged to, the display name it was registered under, and, when there is
+ * one, the account that turned out to be the same person.
+ *
+ * `user_id` is nullable, and that is the whole design rather than an oversight.
+ * A roster names people who may never sign in; refusing to record them until
+ * they do would mean their history reads as nobody's. Null means "this legacy
+ * contributor has no account here yet", which is a fact worth storing, and the
+ * column is filled in later if and when a verified address matches. `on delete
+ * set null` keeps the alias, and therefore the historical attribution, when an
+ * account is removed.
+ *
+ * `(team_id, legacy_contributor_id)` is unique: a roster id means one person
+ * within one team, so a second row for the same pair would make the mapping
+ * ambiguous exactly where it is read. It is deliberately not unique globally,
+ * because two unrelated teams may each have a contributor called `pst`.
+ */
+export const contributorAlias = pgTable(
+  "contributor_alias",
+  {
+    id: text("id").primaryKey(),
+    teamId: text("team_id")
+      .notNull()
+      .references(() => team.id, { onDelete: "cascade" }),
+    legacyContributorId: text("legacy_contributor_id").notNull(),
+    displayName: text("display_name").notNull(),
+    userId: text("user_id").references(() => user.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => [
+    index("contributor_alias_team_id_idx").on(table.teamId),
+    index("contributor_alias_user_id_idx").on(table.userId),
+    uniqueIndex("contributor_alias_team_id_legacy_contributor_id_key").on(
+      table.teamId,
+      table.legacyContributorId,
     ),
   ],
 );
