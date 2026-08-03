@@ -1,7 +1,10 @@
 # ---------------------------------------------------------------------------
-# One DNS-validated wildcard certificate covering every staging host:
-# app.staging, api.staging and artifacts.staging all fall under
-# *.staging.changefabric.org, so later phases need no new certificate.
+# One DNS-validated certificate covering every staging host. app.staging,
+# api.staging and artifacts.staging all fall under *.staging.changefabric.org,
+# so later phases need no new certificate; the bare apex staging.changefabric.org
+# does NOT fall under that wildcard (a wildcard covers one label deep, not its
+# own parent), so it rides along as an explicit second name on the same cert
+# rather than needing a certificate of its own.
 #
 # The cert is issued in us-east-1 because CloudFront (phase 5's artifacts host)
 # accepts a certificate only from that region, regardless of where the rest of
@@ -13,8 +16,9 @@
 # ---------------------------------------------------------------------------
 
 resource "aws_acm_certificate" "staging" {
-  domain_name       = local.staging_wildcard
-  validation_method = "DNS"
+  domain_name               = local.staging_wildcard
+  subject_alternative_names = [local.staging_apex]
+  validation_method         = "DNS"
 
   lifecycle {
     create_before_destroy = true

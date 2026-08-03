@@ -137,9 +137,12 @@ resource "aws_cloudfront_distribution" "app" {
   enabled             = true
   is_ipv6_enabled     = true
   default_root_object = "index.html"
-  aliases             = [local.app_domain]
-  comment             = "change-fabric staging web app"
-  price_class         = "PriceClass_100"
+  # The bare staging apex serves the same origins as app.staging, behind the
+  # same Basic Auth function: one distribution, one credential, no redirect
+  # needed to make https://staging.changefabric.org/ itself work.
+  aliases     = [local.app_domain, local.staging_apex]
+  comment     = "change-fabric staging web app"
+  price_class = "PriceClass_100"
 
   origin {
     domain_name              = aws_s3_bucket.app.bucket_regional_domain_name
@@ -226,12 +229,25 @@ resource "aws_cloudfront_distribution" "app" {
 }
 
 # ---------------------------------------------------------------------------
-# DNS. One record, in the zone site/infra owns and this root only reads.
+# DNS. Two records aliasing the same distribution, in the zone site/infra
+# owns and this root only reads.
 # ---------------------------------------------------------------------------
 
 resource "aws_route53_record" "app" {
   zone_id = data.aws_route53_zone.primary.zone_id
   name    = local.app_domain
+  type    = "A"
+
+  alias {
+    name                   = aws_cloudfront_distribution.app.domain_name
+    zone_id                = aws_cloudfront_distribution.app.hosted_zone_id
+    evaluate_target_health = false
+  }
+}
+
+resource "aws_route53_record" "staging_apex" {
+  zone_id = data.aws_route53_zone.primary.zone_id
+  name    = local.staging_apex
   type    = "A"
 
   alias {

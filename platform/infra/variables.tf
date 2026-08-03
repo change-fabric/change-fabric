@@ -10,6 +10,19 @@ variable "domain" {
   default     = "changefabric.org"
 }
 
+# The staging-wide HTTP Basic Auth gate sits in front of every staging surface
+# (web app, API, artifacts host, and the staging apex) on top of the real
+# per-org auth. Phases 2, 3 and 5 read the SSM parameter this writes; this
+# root only provisions it. No default: supplying it is a deliberate act, not
+# something a bare `terraform apply` can do by accident. Set it via a
+# gitignored `secrets.auto.tfvars` (see README.md) or a `TF_VAR_` env var,
+# never as a literal in a committed `.tf` file.
+variable "staging_basic_auth_credential" {
+  description = "Shared HTTP Basic Auth credential (user:pass, colon separated) for every staging surface. Not a per-account secret, but never committed regardless."
+  type        = string
+  sensitive   = true
+}
+
 variable "db_engine_version" {
   description = "Postgres major.minor for the shared cf-platform instance. Pinned so a routine plan never proposes an in-place engine upgrade. 17.10 is the newest stable 17.x this region offers; 17.5 has been superseded."
   type        = string
