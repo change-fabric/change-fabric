@@ -97,8 +97,10 @@ service.
 Landing on `main` is not shipping. Nothing is released or deployed until a
 maintainer pushes the matching tag, one of `skills/vX.Y.Z` (the toolkit),
 `spec/vX.Y.Z` (the CHANGE.md frontmatter specification) or `site/vX.Y.Z`
-(production `changefabric.org`). Each tag has its own publish workflow and
-its own version file. The model and the runbook are in `RELEASING.md`.
+(production `changefabric.org`). Each tag has its own publish workflow. The
+toolkit's version is the tag itself and there is no file to edit; the other
+two carry a version file the tag is checked against. The model and the runbook
+are in `RELEASING.md`.
 
 ## What is required before promoting to main
 

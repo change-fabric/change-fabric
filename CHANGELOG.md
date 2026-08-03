@@ -5,10 +5,10 @@ carried by `ChangeSchema::VERSION` in `scripts/change_schema.rb` and mirrored by
 the "Schema version" line at the top of
 `skills/change/reference/CHANGE-frontmatter-spec.md`.
 
-This is not the version of the cf skills toolkit. That one lives in the root
-`VERSION` file and moves on its own schedule: a toolkit release usually changes
-no schema field at all, and a schema release is often a small part of a much
-larger toolkit release.
+This is not the version of the cf skills toolkit. That one is carried by the
+repo's `skills/v*` release tags, has no file in the tree, and moves on its own
+schedule: a toolkit release usually changes no schema field at all, and a schema
+release is often a small part of a much larger toolkit release.
 
 Every version below has a frozen, permanently addressable rendering at
 `https://www.changefabric.org/spec/<version>`, plus its raw markdown at

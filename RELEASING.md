@@ -5,12 +5,12 @@ tag.
 
 That is the whole rule. A merge to `main` never creates a GitHub Release and
 never deploys the production site. Three independent tracks live in this repo,
-each with its own version file, its own tag namespace, and its own publish
-workflow, and each is released on its own schedule by pushing one tag.
+each with its own tag namespace and its own publish workflow, and each is
+released on its own schedule by pushing one tag.
 
 | Track | Version source of truth | Tag | What the tag publishes |
 | --- | --- | --- | --- |
-| Toolkit | root `VERSION` | `skills/vX.Y.Z` | A GitHub Release, and downstream the Homebrew tap formula bump |
+| Toolkit | the `skills/v*` tags themselves. No file | `skills/vX.Y.Z` | A GitHub Release, and downstream the Homebrew tap formula bump |
 | Spec | `ChangeSchema::VERSION` in `scripts/change_schema.rb` | `spec/vX.Y.Z` | A GitHub Release whose body is the `CHANGELOG.md` section for that version, with the spec markdown attached |
 | Site | `site/VERSION` | `site/vX.Y.Z` | A production deploy of `www.changefabric.org`. No GitHub Release |
 
@@ -18,19 +18,43 @@ workflow, and each is released on its own schedule by pushing one tag.
 
 ### I changed the toolkit (`skills/`, `scripts/`, `install.rb`)
 
-1. Bump the root `VERSION` in your PR. `version-reminder.yml` warns on a PR
-   that touches shipped code without bumping it.
-2. Merge to `main`. Nothing is released yet.
-3. When you want it out, from an up to date `main`:
+There is nothing to edit. The toolkit has no version file; the tag is the
+version.
+
+1. Merge your change to `main`. Nothing is released yet, and nothing in the
+   tree declares a pending version number.
+2. When you want what has accumulated on `main` to go out, look at what the
+   last release was and decide the next number yourself:
 
    ```
-   git tag -a "skills/v$(tr -d '[:space:]' < VERSION)" -m "skills/v$(tr -d '[:space:]' < VERSION)"
-   git push origin "skills/v$(tr -d '[:space:]' < VERSION)"
+   git fetch --tags
+   git tag --list 'skills/v*' | sed 's|^skills/v||' \
+     | sort -t. -k1,1n -k2,2n -k3,3n | tail -1
    ```
 
-   `release-skills.yml` checks the tag against `VERSION` at the tagged commit
-   and publishes a GitHub Release with generated notes. The Homebrew tap
-   formula bump runs off the same tag.
+3. From an up to date `main`, tag and push it:
+
+   ```
+   git tag -a skills/vX.Y.Z -m skills/vX.Y.Z
+   git push origin skills/vX.Y.Z
+   ```
+
+   `release-skills.yml` rejects the tag unless it is plain `MAJOR.MINOR.PATCH`,
+   newly created rather than moved, and strictly greater than every existing
+   `skills/v*` tag. It then publishes a GitHub Release whose notes cover exactly
+   the commits since the previous toolkit tag. The Homebrew tap formula bump
+   runs off the same tag.
+
+A toolkit tag releases everything on `main` at that commit, so pick the number
+from what actually landed since the last one: a new skill or hook is a minor, a
+fix to an existing one is a patch.
+
+To find out what version a checkout corresponds to, ask git rather than the
+tree:
+
+```
+git describe --tags --match 'skills/v*'
+```
 
 ### I changed the spec (a `CHANGE.md` frontmatter field)
 
@@ -125,9 +149,9 @@ triggering removes path filters entirely, so that coupling is gone.
 ### 3. Tags are pushed by a human, never by a workflow
 
 `tag-on-version.yml` is deleted. It pushed `skills/v<VERSION>` automatically on
-every merge to `main` that touched `VERSION`, which is exactly the behaviour
-this document exists to remove: with a publish workflow watching that tag,
-merging a version bump would be releasing.
+every merge to `main` that touched the root `VERSION` file, which is exactly the
+behaviour this document exists to remove: with a publish workflow watching that
+tag, merging a version bump would be releasing.
 
 There is a second, independent reason. That workflow pushed the tag with the
 default `GITHUB_TOKEN`, and GitHub deliberately does not start new workflow runs
@@ -138,15 +162,67 @@ from a maintainer's own machine does fire them.
 No `workflow_dispatch` replacement was added for the same reason: a tag it
 pushed would be just as inert.
 
-### 4. The site's version lives in `site/VERSION`, not `site/package.json`
+### 4. The toolkit has no version file. The tag is the version
+
+The root `VERSION` file is deleted. Nothing ever read it: not `install.rb`, not
+the `Rakefile`, not a single script, hook or test. Its only three consumers were
+release plumbing, and two of them are gone (`tag-on-version.yml`, which used it
+as a trigger, and `version-reminder.yml`, which nagged about it). Once a human
+pushes the tag, a file restating the same number is not a source of truth, it is
+a second place for the truth to be wrong.
+
+So `release-skills.yml` reads the version out of the tag name, and its guardrail
+becomes monotonicity instead of agreement. A tag is rejected unless it is plain
+`MAJOR.MINOR.PATCH`, was newly created rather than force-moved onto an existing
+name, and is strictly greater than every existing `skills/v*` tag. That is a
+strictly stronger check than the file comparison it replaces: a file match only
+ever caught a typo, while this also catches a re-tag, a version that goes
+backwards, and a released version quietly being moved out from under whoever
+pinned it.
+
+The comparison is a field-by-field integer sort, not a string sort, because
+`0.10.0` sorts below `0.9.0` lexically. It is not `sort -V` either, which is not
+SemVer: `sort -V` orders `1.0.0-alpha` after `1.0.0`. Prerelease toolkit tags are
+rejected outright rather than mis-ordered. The toolkit has never floated one, and
+the Homebrew tap has no channel to put one in.
+
+Two consequences worth stating plainly. The next toolkit release is whatever
+number a human picks when they push the next tag; it is no longer pre-declared
+anywhere in the tree, and the deleted file's `0.36.2` was never tagged, so it
+never meant anything. And the question "what version is this checkout" is now
+answered by `git describe --tags --match 'skills/v*'` rather than by reading a
+file.
+
+### 5. `version-reminder.yml` is deleted with it
+
+It warned on a PR that touched `scripts/`, `skills/` or `install.rb` without
+also touching `VERSION`. With no file to touch, it has no referent.
+
+Nothing is lost, because the workflow contradicted the model in this document
+even before the file went away. It asked a contributor to declare release intent
+at PR time, when the whole point of tag-gated releases is that release intent is
+expressed after merge, by whoever decides that what has accumulated on `main` is
+worth shipping. A nudge that fires on every PR touching shipped code, in a repo
+where nearly every PR touches shipped code, is noise that trains people to
+ignore warnings.
+
+### 6. The site keeps its version file, for now
 
 `site/package.json` is `"private": true` and is never published to a registry,
 so its `version` field is inert metadata that nothing reads. It stays at
-`0.0.0`. A `site/VERSION` file matches the root `VERSION` convention exactly,
-which means all three publish workflows read their source of truth the same way
-and a contributor learns one habit instead of two.
+`0.0.0`. `site/VERSION` is a plain greppable file that `deploy-site.yml` checks
+the tag against.
 
-### 5. A `site/v*` tag creates no GitHub Release
+This is now asymmetric with the toolkit track, and the asymmetry is honest
+rather than principled: the same argument that removed root `VERSION` applies to
+`site/VERSION` almost word for word, since nothing reads it either. It is left
+in place because it was not what this change set out to do, and because
+`deploy-site.yml`'s guard has a second, unrelated job anyway (checking that the
+spec version being published is already released), so that workflow does not
+simplify away the way `release-skills.yml` does. Collapsing the site onto its
+tag as well is a reasonable follow-up, deliberately not taken here.
+
+### 7. A `site/v*` tag creates no GitHub Release
 
 The site has no downloadable artifact and nobody pins a version of it. The tag
 itself is the deploy record, and it already answers the only question anyone
@@ -154,24 +230,24 @@ asks, which is what commit production is serving. A Release entry would add
 noise to the same public releases page that the toolkit and the spec use for
 artifacts people really do consume.
 
-### 6. Every publish workflow verifies the tag before it publishes anything
+### 8. Every publish workflow checks the tag before it publishes anything
 
-A tag is a string a human typed. Each workflow re-derives the version from the
-repository at the tagged commit and fails, before creating a release or touching
-production, if the two disagree:
+A tag is a string a human typed. Each workflow validates it against something
+independent and fails, before creating a release or touching production:
 
-- `release-skills.yml` compares the tag against the root `VERSION` file.
+- `release-skills.yml` requires plain semver, a newly created ref, and a version
+  strictly above every existing `skills/v*` tag.
 - `release-spec.yml` compares the tag against `ChangeSchema::VERSION`, against
   the spec doc's own `Schema version` line, and against the presence of a
   matching `## [X.Y.Z]` section in `CHANGELOG.md`.
 - `deploy-site.yml` compares the tag against `site/VERSION`, and requires the
   `spec/v*` tag for the spec version it would publish to already exist.
 
-These are failures, not warnings. A mismatched tag means the person cutting the
-release believed something about the tree that is not true, and the cheapest
-place to find that out is before the artifact is public.
+These are failures, not warnings. A tag that does not check out means the person
+cutting the release believed something that is not true, and the cheapest place
+to find that out is before the artifact is public.
 
-### 7. `platform/` is out of scope
+### 9. `platform/` is out of scope
 
 `platform/api` and `platform/web` deploy continuously through their own
 mechanism and have no external consumer pinning a version. Nothing here changes

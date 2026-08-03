@@ -1,8 +1,11 @@
 name: release-skills
 
 # Publishes the cf toolkit (skills/, scripts/, install.rb) as a GitHub Release
-# when a maintainer pushes a skills/v* tag. Merging a VERSION bump to main
-# stages the release; this tag is what ships it. See RELEASING.md.
+# when a maintainer pushes a skills/v* tag. The tag is the only declaration of
+# the toolkit's version: there is no VERSION file in the tree, so nothing can
+# disagree with the tag and nothing has to be edited to cut a release. The
+# guardrail is therefore monotonicity against the tags already published rather
+# than agreement with a committed file. See RELEASING.md.
 
 on:
   push:
@@ -22,29 +25,90 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          # Full history so --generate-notes has a previous tag to diff against.
+          # Full history and every tag: the guard below compares this tag
+          # against all earlier skills/v* tags.
           fetch-depth: 0
           fetch-tags: true
 
-      - name: The tag must match the VERSION file at the tagged commit
+      - name: The tag must be plain semver, strictly above every earlier one
+        id: guard
+        env:
+          # False when the pushed ref already existed and was force-updated.
+          # The monotonicity check below cannot see that on its own, because it
+          # excludes the tag being pushed from the comparison and would happily
+          # re-accept a moved skills/v0.36.1. A published version is immutable:
+          # moving one changes what a consumer already pinned.
+          REF_WAS_CREATED: ${{ github.event.created }}
         run: |
           version="${GITHUB_REF_NAME#skills/v}"
-          declared="$(tr -d '[:space:]' < VERSION)"
-          if [ "$version" != "$declared" ]; then
-            echo "::error title=Version mismatch::Tag ${GITHUB_REF_NAME} claims ${version} but VERSION at this commit says ${declared}. Delete the tag, fix one of them, and tag again."
+
+          if [ "$REF_WAS_CREATED" != "true" ]; then
+            echo "::error title=Tag moved::${GITHUB_REF_NAME} already existed and was force-updated. A published toolkit version never moves. Cut a higher version instead."
             exit 1
           fi
-          echo "toolkit ${version} confirmed against VERSION"
+
+          # Stable releases only. The toolkit has never floated a prerelease, a
+          # Homebrew tap has no channel to put one in, and accepting -alpha.N
+          # here would mean implementing real SemVer precedence in shell, which
+          # `sort -V` does not do (it orders 1.0.0-alpha AFTER 1.0.0). Three
+          # integer fields compared as integers is auditable and correct;
+          # prereleases stay a deliberate future change rather than an accident
+          # of a loose regex.
+          if ! printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error title=Malformed tag::${GITHUB_REF_NAME} is not skills/vMAJOR.MINOR.PATCH. Toolkit releases are plain semver, with no prerelease or build suffix."
+            exit 1
+          fi
+
+          # Every earlier toolkit tag, this one excluded. The skills/v prefix is
+          # what keeps the bare v* tags from the pre-namespace era out of the
+          # comparison.
+          previous="$(git tag --list 'skills/v*' \
+            | grep -Fxv "$GITHUB_REF_NAME" \
+            | sed 's|^skills/v||' \
+            | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' \
+            | sort -t. -k1,1n -k2,2n -k3,3n \
+            | tail -1)"
+
+          if [ -z "$previous" ]; then
+            # Only reachable with no earlier toolkit tag at all. Not a loophole:
+            # it stops being reachable the moment one exists, which it already
+            # does.
+            echo "no earlier skills/v* tag; ${version} is the first toolkit release"
+            echo "previous=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          highest="$(printf '%s\n%s\n' "$previous" "$version" \
+            | sort -t. -k1,1n -k2,2n -k3,3n | tail -1)"
+          if [ "$version" = "$previous" ] || [ "$highest" != "$version" ]; then
+            echo "::error title=Version goes backwards::${GITHUB_REF_NAME} is not above the highest published toolkit release, skills/v${previous}. Delete this tag and cut a higher one."
+            exit 1
+          fi
+
+          echo "${version} is above skills/v${previous}"
+          echo "previous=skills/v${previous}" >> "$GITHUB_OUTPUT"
 
       - name: Publish the GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
+          # The tag the guard found immediately below this one. Passing it as
+          # --notes-start-tag makes the generated notes cover exactly the range
+          # since the last toolkit release, whether or not that release was ever
+          # published as a GitHub Release. Without it, the first run would
+          # generate notes for the entire history of the repository, since no
+          # GitHub Release exists yet for gh to diff against.
+          PREVIOUS_TAG: ${{ steps.guard.outputs.previous }}
         run: |
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
             echo "release $GITHUB_REF_NAME already exists; nothing to do"
             exit 0
           fi
+          if [ -n "$PREVIOUS_TAG" ]; then
+            set -- --notes-start-tag "$PREVIOUS_TAG"
+          else
+            set --
+          fi
           gh release create "$GITHUB_REF_NAME" \
             --verify-tag \
             --title "cf toolkit ${GITHUB_REF_NAME#skills/v}" \
-            --generate-notes
+            --generate-notes "$@"

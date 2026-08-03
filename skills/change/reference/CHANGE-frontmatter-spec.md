@@ -633,8 +633,9 @@ For a full example of every field, see `reference/CHANGE.template.md`.
 
 The schema carries its own semantic version (`ChangeSchema::VERSION` in
 `scripts/change_schema.rb`, mirrored by the "Schema version" line at the top of
-this document). It is independent of the repo's `VERSION` file, which versions
-the whole cf skills toolkit. Adding, removing, or renaming a frontmatter field
+this document). It is independent of the cf skills toolkit's own version, which
+is carried by that repo's `skills/v*` release tags rather than by any file in
+the tree. Adding, removing, or renaming a frontmatter field
 is a schema change: bump this version, update `scripts/change_schema.rb`, and
 record the change below in the same pass. The drift test fails if the field set
 or the version here and in the code disagree, so a schema change cannot land
