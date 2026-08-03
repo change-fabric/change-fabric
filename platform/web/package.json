@@ -9,10 +9,16 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.test.json",
     "preview": "vite preview",
-    "verify": "node verify/run.mjs",
-    "verify:e2e": "node verify/e2e-smoke.mjs"
+    "test": "vitest run",
+    "verify": "npm run verify:signup",
+    "verify:signup": "node verify/run.mjs",
+    "verify:teams": "node verify/teams.mjs",
+    "verify:artifacts": "node verify/artifacts.mjs",
+    "verify:legacy-migration": "node verify/legacy-migration.mjs",
+    "verify:e2e": "node verify/e2e-smoke.mjs",
+    "verify:all": "npm run verify:signup && npm run verify:teams && npm run verify:artifacts && npm run verify:legacy-migration && npm run verify:e2e"
   },
   "dependencies": {
     "better-auth": "1.6.25",
@@ -20,12 +26,14 @@
     "react-dom": "18.3.1"
   },
   "devDependencies": {
+    "@types/node": "22.20.1",
     "@types/react": "18.3.12",
     "@types/react-dom": "18.3.1",
     "@vitejs/plugin-react": "4.3.4",
     "playwright-core": "1.58.2",
     "typescript": "5.9.3",
-    "vite": "5.4.11"
+    "vite": "5.4.11",
+    "vitest": "4.1.10"
   },
   "allowScripts": {
     "esbuild@0.21.5": true

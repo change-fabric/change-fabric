@@ -66,3 +66,37 @@ jobs:
       - name: lambda bundle builds
         if: ${{ !cancelled() }}
         run: npm run build
+
+  # The staging SPA. A separate job rather than more steps on `platform`,
+  # because the two packages have their own lockfiles and their own npm cache
+  # key, and a failing API build should still tell you whether the app compiles.
+  #
+  # No `paths:` filter, matching every other job here. A filter on `on:` would
+  # scope the WHOLE workflow, and per-job path filtering needs a third-party
+  # action; either way a required check that silently skips is worse than a job
+  # that runs for two minutes on a docs-only PR.
+  platform-web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: platform/web
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v6
+        with:
+          # Nothing pins this build to a runtime the way the API's Lambda does,
+          # so it builds on the same Node the rest of the repo's CI uses.
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: platform/web/package-lock.json
+      - run: npm ci
+      - name: typecheck
+        run: npm run typecheck
+      - name: vitest
+        if: ${{ !cancelled() }}
+        run: npm test
+      # `npm run build` runs tsc again before vite. Left alone rather than
+      # split, so the command CI runs is the command deploy.sh runs.
+      - name: app bundle builds
+        if: ${{ !cancelled() }}
+        run: npm run build

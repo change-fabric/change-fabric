@@ -13,7 +13,10 @@
  * Same browser as everything else in this repo: the digest-pinned browserless
  * Chromium container, over CDP. No host browser, no second automation library.
  *
- *   CF_PLATFORM_PASSWORD=... AWS_PROFILE=personal node verify/legacy-migration.mjs
+ *   AWS_PROFILE=personal node verify/legacy-migration.mjs
+ *
+ * The maintainer's password comes from CF_PLATFORM_PASSWORD, or from this
+ * machine's Keychain when that is unset. See readPassword below.
  *
  * Screenshots land in platform/web/.verification/ (gitignored). They are
  * evidence for the run's own report, not an artifact of the build.
@@ -36,11 +39,18 @@ const REGION = "us-east-1";
 const CREDENTIAL_PARAMETER = "/cf-platform/staging/basic-auth-credential";
 
 const EMAIL = process.env.CF_PLATFORM_EMAIL ?? "patrick@pstaylor.net";
-const PASSWORD = process.env.CF_PLATFORM_PASSWORD ?? "";
 const TEAM_SLUG = process.env.CF_TEAM_SLUG ?? "core";
 
+// The Keychain service this repo already keeps platform credentials under.
+// scripts/change_artifacts_config.rb reads team API keys from
+// `change-fabric-platform`; the account password lives beside it under
+// `change-fabric-platform-account`, keyed by the address it signs in as.
+const KEYCHAIN_SERVICE = "change-fabric-platform-account";
+
 const here = path.dirname(fileURLToPath(import.meta.url));
-const shots = path.join(here, "..", ".verification");
+// One directory per script, so `verify:all` ends with all four runs' evidence
+// rather than only the last one's.
+const shots = path.join(here, "..", ".verification", "legacy-migration");
 const stamp = Date.now();
 
 function record(step, detail) {
@@ -56,6 +66,34 @@ async function freePort() {
       server.close(() => resolve(port));
     });
   });
+}
+
+/**
+ * The maintainer's platform password: the environment first, then this machine's
+ * Keychain.
+ *
+ * Fail-soft in every direction, the same way change_artifacts_config.rb reads a
+ * team key: no Keychain, no entry, or a `security` that is not on this platform
+ * all mean "not here", and main() then says so by name. The fallback exists so
+ * `npm run verify:all` is one command rather than one command plus a secret the
+ * runner had to go and find.
+ */
+async function readPassword() {
+  const fromEnv = process.env.CF_PLATFORM_PASSWORD ?? "";
+  if (fromEnv !== "") {
+    return fromEnv;
+  }
+  try {
+    const { stdout } = await run("security", [
+      "find-generic-password",
+      "-s", KEYCHAIN_SERVICE,
+      "-a", EMAIL,
+      "-w",
+    ]);
+    return stdout.trim();
+  } catch {
+    return "";
+  }
 }
 
 async function readCredential() {
@@ -109,8 +147,12 @@ async function stopBrowserless(container) {
 }
 
 async function main() {
+  const PASSWORD = await readPassword();
   if (PASSWORD === "") {
-    throw new Error("set CF_PLATFORM_PASSWORD to the maintainer's platform password");
+    throw new Error(
+      "no platform password: set CF_PLATFORM_PASSWORD, or store it in the " +
+        `Keychain under service "${KEYCHAIN_SERVICE}" account "${EMAIL}"`,
+    );
   }
   await mkdir(shots, { recursive: true });
 
@@ -178,36 +220,67 @@ async function main() {
     });
     record("teams page", await page.title());
 
-    // The team table renders one "Open" per row, so the row is selected by its
-    // slug and the link is taken from inside it. Matching on the slug alone
-    // would also match the slug cell's own text, which is not a link.
-    const teamRow = page.locator("tr", { hasText: TEAM_SLUG }).first();
-    const openLink = teamRow.locator('a:has-text("Open"), button:has-text("Open")').first();
-    if (await openLink.count()) {
-      await openLink.click();
-      await page.waitForLoadState("networkidle");
-      await page.waitForTimeout(1500);
+    // The rows and the controls carry their own test ids, so each step waits on
+    // the one thing it is about. The previous pass used text matching guarded by
+    // `if (await link.count())`, which meant a missing team, a missing findings
+    // control, or an empty listing all read as a pass: the script took its
+    // screenshots of whatever was on screen and exited 0. Every claim in the
+    // header is now a claim the run actually fails on.
+    await page.waitForSelector('[data-testid="teams-table"]', { timeout: 30_000 });
+    await page.waitForSelector(`[data-testid="team-row-${TEAM_SLUG}"]`, {
+      timeout: 30_000,
+    });
+    record("migrated team is listed", `team row "${TEAM_SLUG}" is on /teams`);
+
+    await page.click(`[data-testid="open-team-${TEAM_SLUG}"]`);
+    await page.waitForSelector('[data-testid="team-heading"]', { timeout: 30_000 });
+    const shownSlug = (await page.textContent('[data-testid="team-slug"]')).trim();
+    if (shownSlug !== TEAM_SLUG) {
+      throw new Error(`team page showed slug "${shownSlug}", expected "${TEAM_SLUG}"`);
     }
     await page.screenshot({
       path: path.join(shots, `phase7-4-team-${stamp}.png`),
       fullPage: true,
     });
+    record(
+      "team page",
+      `"${(await page.textContent('[data-testid="team-heading"]')).trim()}" (${shownSlug})`,
+    );
 
-    const artifactsLink = page
-      .locator('a:has-text("Findings"), button:has-text("Findings")')
-      .first();
-    if (await artifactsLink.count()) {
-      await artifactsLink.click();
-      await page.waitForLoadState("networkidle");
-    }
-    // Wait for the listing to have resolved to something other than its
-    // loading state before the shot is taken.
-    await page.waitForTimeout(2000);
+    await page.click('[data-testid="open-artifacts"]');
+    await page.waitForSelector('[data-testid="artifacts-heading"]', {
+      timeout: 30_000,
+    });
+    // The listing resolves to a table or to the empty notice. Waiting for either
+    // replaces the fixed sleep that used to stand in for both.
+    await page.waitForSelector(
+      '[data-testid="artifacts-table"], [data-testid="artifacts-empty"]',
+      { timeout: 30_000 },
+    );
     await page.screenshot({
       path: path.join(shots, `phase7-5-artifacts-${stamp}.png`),
       fullPage: true,
     });
     record("artifacts page", page.url());
+
+    // The whole point of the phase: the migrated team carries published history.
+    // An empty listing here is the failure this script exists to catch.
+    const rows = await page.$$eval(
+      '[data-testid="artifacts-table"] tbody tr',
+      (trs) =>
+        trs.map((tr) =>
+          Array.from(tr.querySelectorAll("td")).map((td) => td.textContent.trim()),
+        ),
+    );
+    if (rows.length === 0) {
+      throw new Error(
+        `team "${TEAM_SLUG}" listed no published runs; the migrated history is not there`,
+      );
+    }
+    record(
+      "published runs",
+      `${rows.length} run(s) listed, most recent ${JSON.stringify(rows[0])}`,
+    );
 
     const text = await page.locator("body").innerText();
     console.log("\n--- what the artifacts page renders ---");
@@ -218,6 +291,9 @@ async function main() {
     await browser.close().catch(() => {});
     await stopBrowserless(container);
   }
+
+  console.log("\nall verification steps passed");
+  console.log(`screenshots: ${shots}`);
 }
 
 main().catch((error) => {

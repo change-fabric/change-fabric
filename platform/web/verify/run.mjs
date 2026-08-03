@@ -37,7 +37,10 @@ const REGION = "us-east-1";
 const CREDENTIAL_PARAMETER = "/cf-platform/staging/basic-auth-credential";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const shots = path.join(here, "..", ".verification");
+// One directory per script. They used to share `.verification/`, which was fine
+// while each was run on its own and destroys the previous script's evidence the
+// moment `verify:all` runs them back to back.
+const shots = path.join(here, "..", ".verification", "signup");
 
 const stamp = Date.now();
 const account = {
