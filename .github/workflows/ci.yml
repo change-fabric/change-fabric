@@ -4,7 +4,13 @@ on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
+    # Stacked platform branches target their parent, not main, so a phase PR
+    # would otherwise run no checks at all until the whole stack landed.
+    branches: [main, "platform/**"]
+
+# Nothing here writes to the repository or publishes anything.
+permissions:
+  contents: read
 
 jobs:
   ci:
@@ -33,3 +39,30 @@ jobs:
         run: |
           npm ci
           npm run build
+
+  platform:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: platform/api
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v6
+        with:
+          # The Lambda runtime is nodejs22.x, so CI builds and tests on the
+          # version the artifact actually runs on rather than the newest one.
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: platform/api/package-lock.json
+      - run: npm ci
+      - name: typecheck
+        run: npm run typecheck
+      - name: vitest
+        if: ${{ !cancelled() }}
+        run: npm test
+      - name: migrations match the schema
+        if: ${{ !cancelled() }}
+        run: npx drizzle-kit check
+      - name: lambda bundle builds
+        if: ${{ !cancelled() }}
+        run: npm run build

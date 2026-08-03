@@ -13,6 +13,13 @@ terraform {
       source  = "hashicorp/random"
       version = "~> 3.6"
     }
+    # Zips platform/api/dist into the Lambda deployment package, so the built
+    # bundle and the function that runs it stay one apply rather than a build
+    # step plus a separate upload.
+    archive = {
+      source  = "hashicorp/archive"
+      version = "~> 2.4"
+    }
     # Creates the Postgres-level objects (a database and a login role) INSIDE the
     # RDS instance. The AWS provider cannot do this: a database and a role are
     # Postgres catalog objects, not AWS API objects.

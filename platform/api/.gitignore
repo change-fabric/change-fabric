@@ -1,0 +1,5 @@
+# Installed dependencies and the esbuild output. The lock file is committed;
+# node_modules and dist are rebuilt by `npm ci && npm run build`, which is also
+# what has to run before a terraform apply in platform/infra.
+node_modules/
+dist/

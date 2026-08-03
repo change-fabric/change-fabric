@@ -94,9 +94,14 @@ resource "aws_vpc_security_group_ingress_rule" "bastion_endpoints_from_bastion" 
 # Session Manager needs all three: ssm for the control plane, ssmmessages for
 # the session channel, ec2messages for the agent's own polling. Two out of three
 # fails in ways that look like a hung session rather than an error.
+#
+# Only two of them are created here. Phase 2 needs the ssm endpoint permanently,
+# for the API Lambda's cold-start parameter reads, and AWS refuses a second
+# endpoint for the same service with private DNS in the same VPC. It therefore
+# lives in endpoints.tf, and the bastion reaches it through the gated rules
+# there. Nothing about the bootstrap procedure changes.
 locals {
   bastion_endpoint_services = var.provision_bastion ? toset([
-    "com.amazonaws.us-east-1.ssm",
     "com.amazonaws.us-east-1.ssmmessages",
     "com.amazonaws.us-east-1.ec2messages",
   ]) : toset([])

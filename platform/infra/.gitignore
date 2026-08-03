@@ -8,3 +8,7 @@
 crash.log
 *.tfplan
 tfplan*
+
+# Lambda deployment package, zipped from platform/api/dist at plan time. It is
+# a build output of a build output; the source of truth is platform/api.
+build/

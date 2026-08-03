@@ -2,15 +2,18 @@
 
 Terraform for the hosted platform behind `changefabric.org`: the accounts,
 organizations, contributor teams, and rehosted findings artifacts described in
-the platform plan. This root is phase 1, the empty substrate. It provisions no
-application code and no application-facing service, only the network, key,
-database, secrets, and certificate every later phase builds on.
+the platform plan.
 
-What it creates: one VPC (`10.40.0.0/16`) with two private subnets and no
-internet path at all; three security groups (Lambda, RDS, VPC endpoint); an
-interface VPC endpoint for SES SMTP; one CMK (`alias/cf-platform`); one shared
-Postgres instance (`cf-platform`); four SSM SecureString parameters; and a
-DNS-validated wildcard certificate for `*.staging.changefabric.org`.
+Phase 1 laid the substrate: one VPC (`10.40.0.0/16`) with two private subnets
+and no internet path at all; three security groups (Lambda, RDS, VPC endpoint);
+an interface VPC endpoint for SES SMTP; one CMK (`alias/cf-platform`); one
+shared Postgres instance (`cf-platform`); four SSM SecureString parameters; and
+a DNS-validated wildcard certificate for `*.staging.changefabric.org`.
+
+Phase 2 puts the first service on it: the staging API from `platform/api`,
+running as two Lambdas behind an HTTP API on `api.staging.changefabric.org`, and
+the two extra interface endpoints those Lambdas need. See
+[The staging API](#the-staging-api) below.
 
 This is a separate root from `site/infra` and `telemetry/infra`. It shares the
 state backend bucket and reads the `changefabric.org` hosted zone, but manages
@@ -64,14 +67,27 @@ clearing both.
 ## No internet path, and why there is no NAT gateway
 
 The VPC has no internet gateway and no NAT gateway. Nothing in the platform
-originates traffic to the public internet: the one outbound dependency, SES
-SMTP, is reached through an interface VPC endpoint instead. A NAT gateway would
-add both a recurring cost and an internet egress path this design deliberately
-avoids, so introducing one is a decision for a human, not a routine change.
+originates traffic to the public internet: every outbound dependency is reached
+through an interface VPC endpoint instead. A NAT gateway would add both a
+recurring cost and an internet egress path this design deliberately avoids, so
+introducing one is a decision for a human, not a routine change.
 
-The SES endpoint is single-AZ (`us-east-1a`) because an interface endpoint bills
-per ENI per availability zone. That is a staging cost posture; phase 8 revisits
-it alongside production.
+There are three standing endpoints, all single-AZ (`us-east-1a`) because an
+interface endpoint bills per ENI per availability zone. That is a staging cost
+posture; phase 8 revisits it alongside production. Cross-AZ traffic inside the
+VPC reaches them from either subnet, so a Lambda ENI in `us-east-1b` is fine.
+
+| Endpoint | Added by | Why |
+| --- | --- | --- |
+| `email-smtp` | phase 1 | SMTP submission to SES. |
+| `email` | phase 2 | The SES **v2 API**, on `email.us-east-1.amazonaws.com`. This is a different service from SMTP submission, and the phase 1 endpoint does not carry `SendEmail` calls. Without it the SDK call hangs until its own timeout. |
+| `ssm` | phase 2 | The API Lambda reads its secrets from SSM at cold start, and nothing in this VPC can reach a public API. |
+
+The `ssm` endpoint is deliberately a standing one rather than part of the
+bastion's set, because AWS refuses a second endpoint for the same service with
+private DNS in one VPC. `bastion.tf` therefore creates only `ssmmessages` and
+`ec2messages`, and reaches the standing `ssm` endpoint through two gated rules
+in `endpoints.tf` that come and go with the bastion.
 
 ## Secrets
 
@@ -96,11 +112,14 @@ is being built.
 Every staging-facing surface applies it, and all of them read this one parameter
 so the credential stays in a single place:
 
-- phase 2, the staging web app
-- phase 3, the staging API
+- phase 2, the staging API (done)
+- phase 3, the staging web app
 - phase 5, the staging artifacts host
 
-Phase 1 provisions the parameter only. No consuming logic exists yet.
+The API reads it once at cold start, caches it in module scope, and compares
+with a constant-time comparison. Everything except `/healthz` sits behind it;
+`/healthz` is exempt so the Lambda and gateway wiring can be confirmed before
+SSM or the database is reachable.
 
 ### Bootstrapping the parameters by hand
 
@@ -141,9 +160,17 @@ side effect of a plan.
 
 ## Provision
 
+The Lambda deployment package is zipped from `platform/api/dist`, so that has to
+exist before a plan. Build it first, every time:
+
 ```
 export AWS_PROFILE=personal
-cd platform/infra
+
+cd platform/api
+npm ci
+npm run build
+
+cd ../infra
 terraform init
 terraform plan
 terraform apply
@@ -183,11 +210,16 @@ RDS requires an internet gateway in the VPC before it accepts
 `bastion.tf` closes the gap for exactly as long as it takes. It is gated on
 `provision_bastion` (default **false**), and it stands up one `t4g.nano` in a
 private subnet, an instance profile holding `AmazonSSMManagedInstanceCore` and
-nothing else, and interface endpoints for `ssm`, `ssmmessages` and
-`ec2messages`. Session Manager runs entirely over those endpoints, so the
-bastion has no public IP and the VPC still has no internet path. It is created
-for one run and destroyed straight after; the database and role live in RDS and
-outlive it.
+nothing else, and interface endpoints for `ssmmessages` and `ec2messages`. It
+reaches the standing `ssm` endpoint from `endpoints.tf` through two rules gated
+on the same variable. Session Manager runs entirely over those three endpoints,
+so the bastion has no public IP and the VPC still has no internet path. It is
+created for one run and destroyed straight after; the database and role live in
+RDS and outlive it.
+
+This is only for Postgres **catalog** objects, the database and the login role.
+Application schema migrations do not use it: they run inside the VPC through the
+`cf-platform-migrate` Lambda, below.
 
 ### 1. Stand the bastion up
 
@@ -203,6 +235,12 @@ aws ssm describe-instance-information --region us-east-1 \
   --filters "Key=InstanceIds,Values=$(terraform output -raw bastion_instance_id)" \
   --query 'InstanceInformationList[0].PingStatus'
 ```
+
+If it never leaves `None`, check that the role actually carries
+`AmazonSSMManagedInstanceCore`. Terraform has no ordering edge between the
+policy attachment and the instance, so an instance that boots first gets no
+credentials and the agent backs off for a long time. Attaching the policy and
+rebooting the instance clears it.
 
 ### 2. Open a port-forward to the instance
 
@@ -239,8 +277,8 @@ terraform plan -var provision_bastion=false \
 terraform apply tfplan.teardown
 ```
 
-Confirm nothing is left behind. The only endpoint should be the SES one, and
-there should be no instances at all:
+Confirm nothing is left behind. The only endpoints should be the three standing
+ones (`email-smtp`, `email`, `ssm`), and there should be no instances at all:
 
 ```
 aws ec2 describe-instances --region us-east-1 \
@@ -265,11 +303,86 @@ To plan or apply this root normally, repeat steps 1 through 4 around whatever
 change you are making. Later phases are unaffected: they have their own roots and
 read this one through `terraform_remote_state`, never by planning it.
 
+## The staging API
+
+`lambda.tf` and `apigateway.tf` run the code in `platform/api` as two functions
+off one bundle:
+
+| Function | Handler | Shape | Reached by |
+| --- | --- | --- | --- |
+| `cf-platform-api` | `index.handler` | 512 MB, 15s, reserved concurrency 10 | API Gateway, on `api.staging.changefabric.org` |
+| `cf-platform-migrate` | `migrate.handler` | 1024 MB, 300s | direct invoke only, no route |
+
+Both sit in the two private subnets on the phase 1 Lambda security group, and
+share one role whose policy names the four SSM parameters individually rather
+than granting `/cf-platform/*`.
+
+`api.staging.changefabric.org` is a regional custom domain on phase 1's wildcard
+certificate, aliased into the existing zone. It is the only record this root
+adds beyond certificate validation.
+
+### The maintenance function
+
+The database has no path from outside the VPC, so anything that needs to talk to
+it has to run inside. `cf-platform-migrate` is that place. It takes three
+actions:
+
+```
+# apply every pending migration, as the RDS master user
+aws lambda invoke --profile personal --region us-east-1 \
+  --function-name cf-platform-migrate \
+  --cli-binary-format raw-in-base64-out \
+  --payload '{"action":"migrate"}' /dev/stdout
+
+# read a row back, as the application role, in a READ ONLY transaction
+aws lambda invoke --profile personal --region us-east-1 \
+  --function-name cf-platform-migrate \
+  --cli-binary-format raw-in-base64-out \
+  --payload '{"action":"query","sql":"select count(*) from \"user\""}' /dev/stdout
+
+# prove the SES path out of the VPC, using the mailbox simulator
+aws lambda invoke --profile personal --region us-east-1 \
+  --function-name cf-platform-migrate \
+  --cli-binary-format raw-in-base64-out \
+  --payload '{"action":"sesCheck","from":"<a verified identity>","to":"success@simulator.amazonses.com"}' /dev/stdout
+```
+
+Migrations run as the master user because the application role holds no DDL
+privilege by design. Migration `0001` grants that role the table privileges it
+needs, plus default privileges so later migrations do not have to remember.
+
+The `query` action opens a `READ ONLY` transaction and always rolls back, so
+Postgres itself rejects a write regardless of what statement arrives.
+
+### Transactional mail, and what is still missing
+
+The API sends Better Auth's verification mail through the SES v2 API. The path
+works: IAM, the SDK, and the `email` interface endpoint are all in place, and a
+send to `success@simulator.amazonses.com` succeeds from inside the VPC.
+
+What does not work yet is sending **as** `no-reply@staging.changefabric.org`.
+SES rejects it because `changefabric.org` is not a verified SES identity in this
+account, and verifying a domain means publishing three DKIM CNAMEs in the zone.
+That is a deliberate gap: this phase adds exactly one DNS record. A send failure
+is logged and swallowed rather than failing the sign-up it belongs to, so the
+account is created either way.
+
+Two things unblock real delivery, in this order:
+
+1. Verify `changefabric.org` (or `staging.changefabric.org`) as an SES domain
+   identity, which adds the DKIM records to the zone.
+2. Leave the SES sandbox, which is a support request. Until then SES only
+   delivers to verified recipients and to the mailbox simulator.
+
+`var.ses_from_address` overrides the sender if a different verified identity
+should be used in the meantime.
+
 ## What this root does not own
 
 - The `changefabric.org` hosted zone, and every record `site/infra` or
-  `telemetry/infra` already manages. This root only reads the zone id and adds
-  its own certificate validation records.
+  `telemetry/infra` already manages. This root only reads the zone id, adds its
+  own certificate validation records, and adds the one alias record for
+  `api.staging.changefabric.org`.
 - The `cf-teams` DynamoDB table and everything else in `telemetry/infra`.
-- Any Lambda, API Gateway, CloudFront distribution, or S3 bucket for the app,
-  API, or artifacts. Those arrive in phases 2 through 5.
+- Any CloudFront distribution or S3 bucket for the web app or the artifacts
+  host. Those arrive in phases 3 and 5.

@@ -62,6 +62,18 @@ variable "postgresql_port" {
   default     = 0
 }
 
+# Better Auth sends its verification mail from this address through the SES v2
+# API. The default is the address the platform intends to send as; it only
+# starts delivering once changefabric.org (or a subdomain of it) is a verified
+# SES identity, which needs DKIM records this phase deliberately does not add.
+# Until then a send is rejected and logged, and the session it belongs to is
+# unaffected. See README.md.
+variable "ses_from_address" {
+  description = "From address for transactional mail sent by the staging API. Empty derives no-reply@staging.<domain>. Whatever it is has to be an SES-verified identity in us-east-1 before mail actually leaves."
+  type        = string
+  default     = ""
+}
+
 variable "bastion_instance_type" {
   description = "Instance type for the ephemeral bastion. Nothing runs on it but the SSM agent, so the smallest Graviton type is enough."
   type        = string
