@@ -1,0 +1,50 @@
+name: release-skills
+
+# Publishes the cf toolkit (skills/, scripts/, install.rb) as a GitHub Release
+# when a maintainer pushes a skills/v* tag. Merging a VERSION bump to main
+# stages the release; this tag is what ships it. See RELEASING.md.
+
+on:
+  push:
+    tags: ["skills/v*"]
+
+# Creating a release writes to the repository's releases, nothing else.
+permissions:
+  contents: write
+
+concurrency:
+  group: release-skills-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # Full history so --generate-notes has a previous tag to diff against.
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: The tag must match the VERSION file at the tagged commit
+        run: |
+          version="${GITHUB_REF_NAME#skills/v}"
+          declared="$(tr -d '[:space:]' < VERSION)"
+          if [ "$version" != "$declared" ]; then
+            echo "::error title=Version mismatch::Tag ${GITHUB_REF_NAME} claims ${version} but VERSION at this commit says ${declared}. Delete the tag, fix one of them, and tag again."
+            exit 1
+          fi
+          echo "toolkit ${version} confirmed against VERSION"
+
+      - name: Publish the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            echo "release $GITHUB_REF_NAME already exists; nothing to do"
+            exit 0
+          fi
+          gh release create "$GITHUB_REF_NAME" \
+            --verify-tag \
+            --title "cf toolkit ${GITHUB_REF_NAME#skills/v}" \
+            --generate-notes

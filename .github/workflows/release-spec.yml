@@ -1,0 +1,78 @@
+name: release-spec
+
+# Publishes a version of the CHANGE.md frontmatter specification as a GitHub
+# Release when a maintainer pushes a spec/v* tag. The release body is the
+# matching section of the root CHANGELOG.md, so there is exactly one changelog
+# and this workflow reads it rather than inventing a second one.
+#
+# Deliberately does not deploy the site. A spec release and a site deploy are
+# separate acts; deploy-site.yml enforces the one-way ordering between them
+# (the site may lag a spec release, never lead it). See RELEASING.md.
+
+on:
+  push:
+    tags: ["spec/v*"]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-spec-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  SPEC_DOC: skills/change/reference/CHANGE-frontmatter-spec.md
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: The tag, the schema constant and the spec doc must all agree
+        run: |
+          version="${GITHUB_REF_NAME#spec/v}"
+          schema="$(sed -n "s/^[[:space:]]*VERSION = '\(.*\)'[[:space:]]*$/\1/p" scripts/change_schema.rb | head -1)"
+          doc="$(sed -n 's/^Schema version:[[:space:]]*\(.*\)$/\1/p' "$SPEC_DOC" | head -1)"
+          fail=0
+          if [ "$version" != "$schema" ]; then
+            echo "::error title=Version mismatch::Tag ${GITHUB_REF_NAME} claims ${version} but ChangeSchema::VERSION says ${schema}."
+            fail=1
+          fi
+          if [ "$version" != "$doc" ]; then
+            echo "::error title=Version mismatch::Tag ${GITHUB_REF_NAME} claims ${version} but the spec doc's Schema version line says ${doc}."
+            fail=1
+          fi
+          exit "$fail"
+
+      - name: Cut the release notes out of CHANGELOG.md
+        run: |
+          version="${GITHUB_REF_NAME#spec/v}"
+          awk -v v="## [$version]" '
+            index($0, v) == 1 { found = 1; next }
+            found && /^## \[/ { exit }
+            found { print }
+          ' CHANGELOG.md > release-notes.md
+          if [ ! -s release-notes.md ]; then
+            echo "::error title=No changelog entry::CHANGELOG.md has no '## [${version}]' section with a body. Every released spec version documents itself before it ships."
+            exit 1
+          fi
+          echo "notes for ${version}: $(wc -l < release-notes.md) lines"
+
+      - name: Publish the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="${GITHUB_REF_NAME#spec/v}"
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            echo "release $GITHUB_REF_NAME already exists; nothing to do"
+            exit 0
+          fi
+          # The spec markdown rides along as an asset so a consumer can pin and
+          # fetch the exact text of a version without cloning the repo.
+          cp "$SPEC_DOC" "CHANGE-frontmatter-spec-${version}.md"
+          gh release create "$GITHUB_REF_NAME" \
+            --verify-tag \
+            --title "CHANGE.md spec ${version}" \
+            --notes-file release-notes.md \
+            "CHANGE-frontmatter-spec-${version}.md"

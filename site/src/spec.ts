@@ -19,9 +19,11 @@ import archivedV0_5_0 from "./archive/0.5.0.md?raw";
 // public/spec/<version>.md raw file survives untouched across deploys
 // since deploy.sh never deletes old objects, but nothing in VERSIONS
 // points to it anymore): copy the previous CHANGE-frontmatter-spec.md
-// (e.g. via `git show change-schema/v<old>:skills/change/reference/
-// CHANGE-frontmatter-spec.md`) into src/archive/<old-version>.md, import
-// it below with `?raw`, and add it to VERSIONS as one more `superseded` row.
+// (e.g. via `git show spec/v<old>:skills/change/reference/
+// CHANGE-frontmatter-spec.md`, or `change-schema/v<old>` for 0.3.1 and
+// earlier, which predate the current tag prefix) into
+// src/archive/<old-version>.md, import it below with `?raw`, and add it to
+// VERSIONS as one more `superseded` row.
 
 export const SPEC_MARKDOWN = specMarkdown;
 

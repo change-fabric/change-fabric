@@ -1,8 +1,8 @@
 # GitHub Actions authenticates to AWS via OIDC, not long-lived keys. The
 # token.actions.githubusercontent.com provider already exists on this account
 # (bootstrapped once, same reasoning as the Terraform state bucket in
-# README.md); this only creates the role that trusts it, scoped to pushes on
-# this repo's main branch so no other workflow or branch can assume it.
+# README.md); this only creates the role that trusts it, scoped to pushes of a
+# site/v* tag so no other workflow, branch or tag can assume it.
 data "aws_iam_openid_connect_provider" "github" {
   url = "https://token.actions.githubusercontent.com"
 }
@@ -28,12 +28,18 @@ data "aws_iam_policy_document" "deploy_site_trust" {
     # owner@ownerId/repo@repoId:... form on their next rename or transfer.
     # StringLike with both shapes covers the switch whenever it happens,
     # without loosening the owner/repo match.
+    #
+    # The ref is refs/tags/site/v*, not refs/heads/main: deploy-site.yml is
+    # triggered by a site/v* tag now, so a run on main emits a sub this role
+    # no longer trusts. That is deliberate. Deploying production requires a
+    # deliberate tag, and the trust policy says so independently of the
+    # workflow file. See RELEASING.md.
     condition {
       test     = "StringLike"
       variable = "token.actions.githubusercontent.com:sub"
       values = [
-        "repo:change-fabric/change-fabric:ref:refs/heads/main",
-        "repo:change-fabric@*/change-fabric@*:ref:refs/heads/main",
+        "repo:change-fabric/change-fabric:ref:refs/tags/site/v*",
+        "repo:change-fabric@*/change-fabric@*:ref:refs/tags/site/v*",
       ]
     }
   }

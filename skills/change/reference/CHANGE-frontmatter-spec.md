@@ -656,7 +656,7 @@ like `0.4.0a` was considered and rejected, since it is not valid SemVer, is
 ambiguous about direction (reads equally like a patch *after* `0.4.0`), and
 buys nothing a real prerelease identifier doesn't already give for free. The
 suffix is URL-safe as a `/spec/<version>` path segment and a
-`change-schema/v<version>` git tag suffix without escaping, since hyphen and
+`spec/v<version>` git tag suffix without escaping, since hyphen and
 dot are unreserved in both.
 
 The field set may still change between pre-releases: a field added in
@@ -674,8 +674,15 @@ prior stable release, not each alpha/beta iteration along the way.
 Pre-release schema versions are not deployed to the public
 `changefabric.org` site; iterate on a branch (tagging each floated
 pre-release you actually want a consumer to be able to pin, same
-`change-schema/v<version>` convention) and only merge the stable version to
+`spec/v<version>` convention) and only merge the stable version to
 `main`, which is what the site and its `/spec` index track.
+
+A stable version is released by pushing `spec/v<version>` from `main`, which
+publishes a GitHub Release carrying that version's `CHANGELOG.md` section and
+this document as an asset. Merging to `main` releases nothing on its own, and
+the live site is deployed separately by its own tag. The full model, including
+why the earlier `change-schema/v<version>` prefix was retired, is the repo's
+root `RELEASING.md`.
 
 ### Changelog
 

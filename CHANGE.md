@@ -94,6 +94,12 @@ are no `staging`/`production` branches: this repo ships a skills-and-hooks
 toolkit plus a static docs site (`site/`), not a deployed multi-environment
 service.
 
+Landing on `main` is not shipping. Nothing is released or deployed until a
+maintainer pushes the matching tag, one of `skills/vX.Y.Z` (the toolkit),
+`spec/vX.Y.Z` (the CHANGE.md frontmatter specification) or `site/vX.Y.Z`
+(production `changefabric.org`). Each tag has its own publish workflow and
+its own version file. The model and the runbook are in `RELEASING.md`.
+
 ## What is required before promoting to main
 
 Every PR into `main` must have CI green: `ci.yml` runs `bundle exec
