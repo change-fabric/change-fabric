@@ -1,0 +1,10 @@
+# Terraform working files. The lock file (.terraform.lock.hcl) is committed, as
+# in site/infra, telemetry/infra and platform/infra; the provider cache, local
+# state, and plan artifacts are not. State lives in the S3 backend, not on disk.
+.terraform/
+*.tfstate
+*.tfstate.*
+.terraform.tfstate.lock.info
+crash.log
+*.tfplan
+tfplan*
