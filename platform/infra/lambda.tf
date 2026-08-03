@@ -206,6 +206,16 @@ resource "aws_lambda_function" "api" {
       TRUSTED_ORIGINS  = join(",", ["https://${local.api_domain}", local.app_origin])
       SES_FROM_ADDRESS = local.ses_from_address
 
+      # Mailpit. Setting these two REPLACES the SES path for this deployment:
+      # `email.ts` prefers SMTP whenever both are present, and falls back to the
+      # SES v2 API when they are absent. Staging wants the replacement, because
+      # the whole point is a mailbox a person can open; SES in the sandbox
+      # delivers a verification mail to nowhere readable. Unsetting these two
+      # returns this function to the SES path with no code change, which is what
+      # production will do. See platform/api/src/email.ts.
+      SMTP_HOST = local.mailpit_smtp_host
+      SMTP_PORT = tostring(local.mailpit_smtp_port)
+
       # Where an invitation mail links to. Named separately from
       # TRUSTED_ORIGINS rather than parsed out of it, because that list is a set
       # of origins allowed to call and this is one specific place to send a

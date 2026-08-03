@@ -21,11 +21,13 @@
     "better-auth": "1.6.25",
     "drizzle-orm": "0.45.2",
     "hono": "4.12.33",
+    "nodemailer": "9.0.3",
     "pg": "8.22.0"
   },
   "devDependencies": {
     "@types/aws-lambda": "8.10.162",
     "@types/node": "22.20.1",
+    "@types/nodemailer": "8.0.1",
     "@types/pg": "8.20.3",
     "drizzle-kit": "0.31.10",
     "esbuild": "0.28.1",

@@ -4,7 +4,7 @@ import { createApp } from "./app.js";
 import { createAuth, type Auth } from "./auth-options.js";
 import { createDatabase, createPool } from "./db/client.js";
 import { getApiConfig } from "./config.js";
-import { bestEffort, createSesSender } from "./email.js";
+import { bestEffort, chooseSender } from "./email.js";
 import { createDrizzleStore, type PlatformStore } from "./store.js";
 import { createS3Storage, type ArtifactStorage } from "./storage.js";
 import type { ArtifactsSettings } from "./config.js";
@@ -35,7 +35,9 @@ let runtime: Promise<Runtime> | undefined;
 async function buildRuntime(): Promise<Runtime> {
   const config = await getApiConfig();
   const database = createDatabase(createPool(config.database));
-  const sender = bestEffort(createSesSender(config.sesFromAddress));
+  // Mailpit on staging, SES anywhere without an SMTP server configured. The
+  // wrapping is unchanged: mail is a side effect of a sign-up, not part of it.
+  const sender = bestEffort(chooseSender(config.sesFromAddress, config.smtp));
 
   return {
     auth: createAuth({
