@@ -4,6 +4,7 @@ require "minitest/autorun"
 require "json"
 require "tmpdir"
 require "socket"
+require_relative "../scripts/change_artifact_bundle"
 require_relative "../scripts/change_artifacts_config"
 require_relative "../scripts/change_artifact_manifest"
 require_relative "../scripts/change_artifact_publish"
@@ -327,6 +328,36 @@ class ChangeArtifactTest < Minitest::Test
 
   def test_no_media_means_no_viewport_sections
     assert_empty manifest["viewports"]
+  end
+
+  # --- the PDF module the bundle sends to browserless -------------------------------
+
+  # browserless's /function sandbox is not a Node context: it exposes the web
+  # globals and nothing else. A module reaching for `Buffer` or `process` throws
+  # a ReferenceError, and because the artifact step is best-effort that surfaced
+  # only as a warning on a green run, which is how every published bundle came to
+  # be missing every per-viewport PDF. Asserted against the emitted source rather
+  # than by running it, because running it needs the container this suite has no
+  # business standing up.
+  def pdf_module
+    ChangeArtifactBundle.new(dir: "/bundle", manifest: manifest, media: nil, report: nil, artifacts: artifacts)
+                        .send(:pdf_module, "<p>page</p>")
+  end
+
+  def test_the_pdf_module_uses_no_node_only_globals
+    source = pdf_module
+
+    refute_match(/\bBuffer\b/, source)
+    refute_match(/\bprocess\b/, source)
+    refute_match(/\brequire\(/, source)
+  end
+
+  def test_the_pdf_module_encodes_through_btoa
+    source = pdf_module
+
+    assert_includes source, "btoa("
+    assert_includes source, "new Uint8Array(pdf)"
+    assert_includes source, 'type: "application/json"'
   end
 
   # --- rendering -------------------------------------------------------------------

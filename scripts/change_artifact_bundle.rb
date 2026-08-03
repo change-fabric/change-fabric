@@ -130,6 +130,12 @@ class ChangeArtifactBundle
     "data:image/jpeg;base64,#{Base64.strict_encode64(File.binread(path))}"
   end
 
+  # The chunk the returned bytes are walked in when they are turned into base64.
+  # `String.fromCharCode` is variadic, and applying it to a whole multi-megabyte
+  # PDF at once overflows the argument stack, so the bytes are folded in slices
+  # small enough to stay well inside it.
+  PDF_BASE64_CHUNK = 0x8000
+
   # The page itself is not closed here on purpose: browserless owns the page
   # and the browser for the lifetime of one /function call and disposes both
   # when it returns, including when it throws. Closing it from inside the
@@ -137,6 +143,15 @@ class ChangeArtifactBundle
   # assembling. The cf:pdf-rendering rule that no browser resource outlives an
   # error path is satisfied one layer up, by `with_browserless`, which force
   # -removes the container in its own `ensure`.
+  #
+  # `page.pdf` hands back a Uint8Array, and the browserless /function sandbox is
+  # NOT a full Node context: it has no `Buffer` and no `process`, only the web
+  # globals (`btoa`, `TextDecoder`, the typed arrays). `Buffer.from(pdf)` was
+  # therefore a ReferenceError on every call, and because the whole artifact step
+  # is best-effort it surfaced as one warning line on an otherwise green run
+  # rather than as a failure, which is how every published bundle came to be
+  # missing every one of its per-viewport PDFs without anybody noticing.
+  # Encoding through `btoa` keeps this to the globals the sandbox actually has.
   def pdf_module(html)
     <<~JS
       export default async function ({ page }) {
@@ -148,7 +163,15 @@ class ChangeArtifactBundle
           printBackground: true,
           margin: { top: "14mm", right: "12mm", bottom: "14mm", left: "12mm" },
         });
-        return { data: Buffer.from(pdf).toString("base64"), type: "application/json" };
+        const bytes = new Uint8Array(pdf);
+        let binary = "";
+        for (let offset = 0; offset < bytes.length; offset += #{PDF_BASE64_CHUNK}) {
+          binary += String.fromCharCode.apply(
+            null,
+            bytes.subarray(offset, offset + #{PDF_BASE64_CHUNK}),
+          );
+        }
+        return { data: btoa(binary), type: "application/json" };
       }
     JS
   end
