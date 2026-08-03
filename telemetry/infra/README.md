@@ -105,6 +105,49 @@ are written in the same run against the existing zone), then the domain, mapping
 and alias record. Outputs include the API URL, the four table names, the bucket
 name, the CMK arn, and the two ECR repo URLs.
 
+## Log groups are imported, not created
+
+`observability.tf` declares the five Lambda log groups so they carry a retention
+policy. Before it existed, the Lambda service created them implicitly on first
+invoke with the default retention, which is never: `/aws/lambda/cf-secret-scanner`
+alone had reached 238 MB from an hourly job.
+
+**They already exist in AWS.** A fresh `terraform apply` against this state will
+fail with `ResourceAlreadyExistsException` unless they are in state first. They
+were imported once with:
+
+```
+for pair in \
+  "transcript_ingest:cf-transcript-ingest" \
+  "transcript_authorizer:cf-transcript-authorizer" \
+  "presence:cf-presence" \
+  "secret_scanner:cf-secret-scanner" \
+  "notifications:cf-notifications-api"; do
+  key=${pair%%:*}; name=${pair##*:}
+  terraform import \
+    -var "presence_image_uri=..." -var "notifications_image_uri=..." \
+    "aws_cloudwatch_log_group.lambda[\"$key\"]" "/aws/lambda/$name"
+done
+```
+
+Only needed again if this root is ever rebuilt from empty state against existing
+Lambdas.
+
+Note that applying a retention policy **deletes** events older than the window.
+That is the intent, and it is stated here rather than left to be discovered.
+
+## Two Lambdas are deliberately not tagged yet
+
+The `default_tags` block in `main.tf` was applied with `-target` across every
+resource in this root except `aws_lambda_function.transcript_ingest`,
+`transcript_authorizer` and `secret_scanner`.
+
+Those three plan a `source_code_hash` change as well as a tag change, and the two
+cannot be separated: the deployed production code and the code in this repository
+are not the same bytes. Applying them would have shipped an untested code change
+to a live function as a side effect of adding a tag. They pick up their tags on
+the next intentional deploy of this root.
+
 ## Runtime data this root does not own
 
 - `cf-teams` rows are seeded by `cf-team-init` (a `PutItem` of a team's public

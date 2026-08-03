@@ -17,6 +17,42 @@ resource "aws_apigatewayv2_stage" "default" {
   api_id      = aws_apigatewayv2_api.telemetry.id
   name        = "$default"
   auto_deploy = true
+
+  access_log_settings {
+    destination_arn = aws_cloudwatch_log_group.api_access.arn
+    format = jsonencode({
+      requestId               = "$context.requestId"
+      requestTime             = "$context.requestTime"
+      httpMethod              = "$context.httpMethod"
+      routeKey                = "$context.routeKey"
+      status                  = "$context.status"
+      protocol                = "$context.protocol"
+      responseLength          = "$context.responseLength"
+      responseLatency         = "$context.responseLatency"
+      integrationStatus       = "$context.integrationStatus"
+      integrationErrorMessage = "$context.integrationErrorMessage"
+      sourceIp                = "$context.identity.sourceIp"
+      userAgent               = "$context.identity.userAgent"
+    })
+  }
+
+  # Three of the four routes are unauthenticated at the gateway by design: they
+  # verify Ed25519 inside the Lambda, which means the gateway invokes the function
+  # before anything checks the caller. Without a throttle, an unauthenticated
+  # caller can drive Lambda invocations at the ACCOUNT concurrency limit, and no
+  # function in this account sets reserved concurrency, so that starves every
+  # other function in the account, including ones belonging to other workloads.
+  #
+  # The limits are far above real usage (this API is called by a handful of
+  # developer machines) and far below anything that could exhaust the account.
+  default_route_settings {
+    throttling_rate_limit  = var.throttle_rate_limit
+    throttling_burst_limit = var.throttle_burst_limit
+
+    # Per-route metrics, so the alarms in account/infra can eventually be narrowed
+    # from "this API returned a 5xx" to "this route did".
+    detailed_metrics_enabled = true
+  }
 }
 
 # ---- Shared-secret request authorizer for /transcripts (section 5.1) -----
