@@ -5,6 +5,7 @@ require "json"
 require "stringio"
 require "tmpdir"
 require "fileutils"
+require_relative "git_fixture"
 require_relative "../scripts/sweep_trust_store"
 
 class SweepTrustStoreTest < Minitest::Test
@@ -44,16 +45,14 @@ class SweepTrustStoreTest < Minitest::Test
     assert_equal "low", SweepTrustStore.for_dir(https).level("octocat")
   end
 
-  # Isolated from any global or system gitconfig: this test only cares that the
-  # remote url normalizes, and inheriting the developer's own git setup is how
-  # a repo-fixture test picks up unrelated failures.
-  ISOLATED_GIT = { "GIT_CONFIG_GLOBAL" => File::NULL, "GIT_CONFIG_SYSTEM" => File::NULL }.freeze
-
+  # GitFixture isolates each call from any global or system gitconfig, and from
+  # an inherited GIT_DIR: without the latter, `config --local` here writes the
+  # fixture remote into whatever repo the parent process was pointed at.
   def git_repo(remote)
     dir = Dir.mktmpdir
     @repos << dir
-    system(ISOLATED_GIT, "git", "init", "-q", dir, exception: true)
-    system(ISOLATED_GIT, "git", "-C", dir, "config", "--local", "remote.origin.url", remote, exception: true)
+    GitFixture.git_init(dir)
+    GitFixture.git(dir, "config", "--local", "remote.origin.url", remote)
     dir
   end
 
