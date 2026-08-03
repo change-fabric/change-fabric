@@ -46,6 +46,30 @@ cd infra
 `deploy.sh` reads the bucket and distribution id from Terraform outputs, syncs
 `site/dist`, and invalidates CloudFront.
 
+The sync is `--delete` against the live production bucket, so the bucket is
+versioned: a bad build or a run from the wrong directory can be undone rather than
+rebuilt from whichever commit is believed to be good. Non-current versions expire
+after 30 days.
+
+## Security headers
+
+Both distributions attach `aws_cloudfront_response_headers_policy.site`: HSTS for
+one year, `nosniff`, `X-Frame-Options: DENY`, and
+`Referrer-Policy: strict-origin-when-cross-origin`. Applied at the edge, so a
+static site on S3 gets them without an origin that can run code.
+
+HSTS deliberately does NOT set `includeSubDomains` or `preload`. This root owns
+the apex and www; `api.changefabric.org` and the staging hosts belong to other
+roots, and committing them to HTTPS-only for a year from here would be this root
+making a promise on another root's behalf. The reasoning is repeated at the
+resource in `main.tf`.
+
+Verify against the live site rather than the plan:
+
+```
+curl -sSI https://www.changefabric.org/ | grep -i -E 'strict-transport|x-frame|nosniff|referrer'
+```
+
 ## CI/CD
 
 `.github/workflows/deploy-site.yml` runs this same publish step when a

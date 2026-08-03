@@ -32,6 +32,20 @@ terraform {
 provider "aws" {
   region  = "us-east-1"
   profile = var.aws_profile
+
+  # Every resource this root created was untagged, so the production telemetry
+  # backend was invisible to any tag-based cost view. A resource tag also does
+  # nothing for cost attribution until the key is activated for cost allocation,
+  # which account/infra now does; these keys match the ones it activates and the
+  # ones platform/infra already stamps, so the three roots report into the same
+  # budget filter.
+  default_tags {
+    tags = {
+      Project   = "changefabric-telemetry"
+      ManagedBy = "terraform"
+      Root      = "telemetry/infra"
+    }
+  }
 }
 
 # Resource names and the handful of literal identifiers the plan pins (section 2,
