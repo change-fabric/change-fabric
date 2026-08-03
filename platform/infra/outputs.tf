@@ -138,6 +138,41 @@ output "deploy_app_role_arn" {
   value       = aws_iam_role.deploy_app.arn
 }
 
+output "artifacts_domain_name" {
+  description = "Public host the staging artifacts viewer answers on."
+  value       = local.artifacts_domain
+}
+
+output "artifacts_url" {
+  description = "Staging artifacts host. Behind the shared staging Basic Auth gate AND CloudFront signed cookies."
+  value       = "https://${local.artifacts_domain}"
+}
+
+output "artifacts_bucket" {
+  description = "Private S3 bucket holding published findings runs. SSE-KMS under the platform CMK, read only by CloudFront through an OAC or by a presigned URL."
+  value       = aws_s3_bucket.artifacts.bucket
+}
+
+output "artifacts_distribution_id" {
+  description = "CloudFront distribution serving the artifacts host, with a trusted key group enforcing signed cookies."
+  value       = aws_cloudfront_distribution.artifacts.id
+}
+
+output "artifacts_auth_function_name" {
+  description = "Viewer-request function holding the Basic Auth digest and the no-cookie redirect. Its code is published by platform/web/deploy-artifacts.sh, not by Terraform."
+  value       = data.aws_cloudfront_function.artifacts_auth.name
+}
+
+output "artifacts_signer_key_pair_id" {
+  description = "CloudFront public key id the API signs viewer cookies against. The private half lives only in SSM."
+  value       = aws_cloudfront_public_key.artifacts_signer.id
+}
+
+output "artifacts_retention_days" {
+  description = "How long a published run survives before the bucket lifecycle rule deletes it. This destroys data."
+  value       = local.artifacts_retention_days
+}
+
 output "ses_from_address" {
   description = "From address the staging API sends transactional mail as."
   value       = local.ses_from_address

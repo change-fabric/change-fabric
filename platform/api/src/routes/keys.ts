@@ -1,11 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { Hono } from "hono";
-import { hashKey, keyIsUsable, mintKey } from "../api-keys.js";
+import { mintKey } from "../api-keys.js";
 import type { ApiKeyRow } from "../store.js";
 import { asObject, requireText } from "../validation.js";
 import {
   readJsonBody,
   requireCaller,
+  requireKeyCaller,
   requireOrgAdmin,
   requireParam,
   RouteError,
@@ -152,23 +153,13 @@ export function registerKeyRoutes(app: Hono, deps: RouteDependencies): void {
    * the difference would tell a caller which of their guesses was a real key.
    */
   app.get("/v1/whoami-key", async (c) => {
-    const presented = c.req.header("x-cf-key");
-    if (presented === undefined || presented === "") {
-      throw new RouteError(401, "x-cf-key header required");
-    }
-
     const store = await deps.store();
-    const row = await store.findApiKeyByHash(hashKey(presented));
-    if (row === null || !keyIsUsable(row, deps.now())) {
-      throw new RouteError(401, "key is not valid");
-    }
-
-    await store.touchApiKey(row.id, deps.now());
+    const caller = await requireKeyCaller(store, c.req.raw.headers, deps.now());
 
     return c.json({
-      organizationId: row.organizationId,
-      teamId: row.teamId,
-      keyName: row.name,
+      organizationId: caller.organizationId,
+      teamId: caller.teamId,
+      keyName: caller.keyName,
     });
   });
 }

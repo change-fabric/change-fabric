@@ -1,6 +1,8 @@
 import {
+  bigint,
   boolean,
   index,
+  integer,
   pgTable,
   text,
   timestamp,
@@ -14,12 +16,13 @@ import {
  * column's property name is the Better Auth field name, so those two sides must
  * not drift even though the physical column names are snake_case.
  *
- * Below those sit the first two tables Better Auth does NOT own: `team_api_key`
- * and `repo_link`. They are the platform's own, reached through the store in
- * src/store.ts rather than through the plugin, and they reference the plugin's
- * tables by foreign key so a deleted organization takes its keys and its repo
- * links with it. `artifact`, `artifact_file` and `contributor_alias` belong to
- * later phases and are still deliberately absent.
+ * Below those sit the tables Better Auth does NOT own: `team_api_key`,
+ * `repo_link`, `artifact` and `artifact_file`. They are the platform's own,
+ * reached through the store in src/store.ts rather than through the plugin, and
+ * they reference the plugin's tables by foreign key so a deleted organization
+ * takes its keys, its repo links and its artifacts with it.
+ * `contributor_alias` belongs to a later phase and is still deliberately
+ * absent.
  */
 
 export const user = pgTable("user", {
@@ -259,5 +262,126 @@ export const repoLink = pgTable(
   (table) => [
     index("repo_link_team_id_idx").on(table.teamId),
     index("repo_link_organization_id_idx").on(table.organizationId),
+  ],
+);
+
+/**
+ * One published run of findings: the manifest a contributor's tooling declared,
+ * and the pointer to where its files actually live.
+ *
+ * The row is the record; S3 is only storage. That split is what makes the rest
+ * work. `key_prefix` is written here at creation time as
+ * `<org-slug>/<team-slug>/<short-id>/`, and every presigned URL and every
+ * CloudFront signed cookie is scoped to it, so authorization is a question about
+ * this row rather than a question about a bucket listing. Nothing derives the
+ * prefix a second time from parts that could have changed since.
+ *
+ * `published_at` is null until POST /v1/artifacts/:id/complete says the upload
+ * finished. A row with `generated_at` but no `published_at` is a run that was
+ * announced and then abandoned, which is a real state worth being able to see
+ * rather than one to paper over by writing both at once.
+ *
+ * `repo_id` is nullable in this phase on purpose. Phase 6 is what actually knows
+ * which repository a run came from; recording a value here now would be
+ * recording a guess.
+ *
+ * `contributor_user_id` and `contributor_label` are both nullable and both
+ * present because a run may come from a person (a session) or from a machine (a
+ * team API key, which belongs to a team and not to anybody). Folding them into
+ * one column would mean either losing the foreign key or storing a user id that
+ * names nobody.
+ */
+export const artifact = pgTable(
+  "artifact",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    teamId: text("team_id")
+      .notNull()
+      .references(() => team.id, { onDelete: "cascade" }),
+    // Ten Crockford base32 characters. Unique per TEAM rather than globally,
+    // matching the team slug rule directly above: a short id only ever appears
+    // inside a path that already names the team, so global uniqueness would
+    // constrain more than the product needs.
+    shortId: text("short_id").notNull(),
+    repoId: text("repo_id"),
+    contributorUserId: text("contributor_user_id").references(() => user.id, {
+      onDelete: "set null",
+    }),
+    contributorLabel: text("contributor_label"),
+    project: text("project"),
+    branch: text("branch"),
+    headSha: text("head_sha"),
+    prNumber: integer("pr_number"),
+    prUrl: text("pr_url"),
+    // pass, fail or warn. Text rather than an enum because the set of grades is
+    // owned by the audit lanes, not by this schema, and a migration per new
+    // grade would put this table in the way of a change that has nothing to do
+    // with it.
+    status: text("status").notNull(),
+    failCount: integer("fail_count").notNull().default(0),
+    warnCount: integer("warn_count").notNull().default(0),
+    // A total in bytes, so it can exceed a 32-bit integer without anybody
+    // having to think about it. Read back as a JavaScript number because a
+    // findings bundle is megabytes, not petabytes.
+    byteSize: bigint("byte_size", { mode: "number" }).notNull().default(0),
+    keyPrefix: text("key_prefix").notNull(),
+    // When the run itself happened, as the tooling reported it, versus when the
+    // upload finished. They are different clocks and different facts.
+    generatedAt: timestamp("generated_at").notNull().defaultNow(),
+    publishedAt: timestamp("published_at"),
+    expiresAt: timestamp("expires_at"),
+    // What POST .../complete found when it compared the uploaded objects
+    // against what was declared. Null means it agreed. A mismatch is recorded
+    // rather than raised, because a run whose bytes are already in the bucket
+    // is more useful published with a note than refused outright.
+    completionNote: text("completion_note"),
+  },
+  (table) => [
+    index("artifact_team_id_idx").on(table.teamId),
+    index("artifact_organization_id_idx").on(table.organizationId),
+    // The listing route pages by descending id inside one team, so the index it
+    // reads is the compound one rather than either column alone.
+    index("artifact_team_id_id_idx").on(table.teamId, table.id),
+    uniqueIndex("artifact_team_id_short_id_key").on(
+      table.teamId,
+      table.shortId,
+    ),
+  ],
+);
+
+/**
+ * One file inside an artifact.
+ *
+ * The rows are written when the artifact is created, from the manifest the
+ * caller declared, and not when the bytes arrive: the presigned URL each row
+ * corresponds to is handed out in the same response, so a row that never
+ * receives its object is exactly the evidence that an upload was incomplete.
+ * `path` is relative to the artifact's `key_prefix` and never absolute, so the
+ * full S3 key is one concatenation and there is no second spelling of it.
+ */
+export const artifactFile = pgTable(
+  "artifact_file",
+  {
+    id: text("id").primaryKey(),
+    artifactId: text("artifact_id")
+      .notNull()
+      .references(() => artifact.id, { onDelete: "cascade" }),
+    path: text("path").notNull(),
+    contentType: text("content_type").notNull(),
+    bytes: bigint("bytes", { mode: "number" }).notNull(),
+    sha256: text("sha256"),
+  },
+  (table) => [
+    index("artifact_file_artifact_id_idx").on(table.artifactId),
+    // One row per path per artifact. Two rows for the same path would be two
+    // presigned URLs for one key, and whichever upload finished last would win
+    // silently.
+    uniqueIndex("artifact_file_artifact_id_path_key").on(
+      table.artifactId,
+      table.path,
+    ),
   ],
 );

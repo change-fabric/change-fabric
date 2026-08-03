@@ -8,6 +8,7 @@ import { LogIn } from "./pages/LogIn";
 import { VerifyNotice } from "./pages/VerifyNotice";
 import { Onboarding } from "./pages/Onboarding";
 import { AcceptInvite } from "./pages/AcceptInvite";
+import { AuthorizeViewer } from "./pages/AuthorizeViewer";
 import { Dashboard, type ActiveOrg } from "./pages/Dashboard";
 
 /**
@@ -174,6 +175,14 @@ export function App() {
     return (
       <AcceptInvite email={account.userEmail} onAccepted={refresh} />
     );
+  }
+
+  // Also before the onboarding branch, and for the same shape of reason: this
+  // path is arrived at by being redirected here from another host, so sending
+  // somebody to create an organization instead would strand them with no way
+  // back to the link they followed.
+  if (path === "/artifacts/authorize") {
+    return <AuthorizeViewer />;
   }
 
   if (account.organizations.length === 0) {

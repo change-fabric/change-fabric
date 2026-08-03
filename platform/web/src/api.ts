@@ -203,6 +203,79 @@ export async function revokeKey(
   ).apiKey;
 }
 
+export interface Artifact {
+  id: string;
+  shortId: string;
+  teamId: string;
+  organizationId: string;
+  repoId: string | null;
+  contributorUserId: string | null;
+  contributorLabel: string | null;
+  project: string | null;
+  branch: string | null;
+  headSha: string | null;
+  prNumber: number | null;
+  prUrl: string | null;
+  status: string;
+  failCount: number;
+  warnCount: number;
+  byteSize: number;
+  viewerUrl: string;
+  generatedAt: string;
+  publishedAt: string | null;
+  expiresAt: string | null;
+  completionNote: string | null;
+}
+
+export interface ArtifactPage {
+  artifacts: Artifact[];
+  nextCursor: string | null;
+}
+
+export async function listArtifacts(
+  teamId: string,
+  before?: string | null,
+): Promise<ArtifactPage> {
+  const query = new URLSearchParams({ teamId });
+  if (before !== undefined && before !== null && before !== "") {
+    query.set("before", before);
+  }
+  return request<ArtifactPage>(`/v1/artifacts?${query.toString()}`);
+}
+
+/**
+ * What the authorize route says once it has set the cookies.
+ *
+ * `viewerPrefix` is the part that matters to the caller: every URL the cookies
+ * just granted starts with it, so it is what a `next` is checked against before
+ * the browser is sent anywhere.
+ */
+export interface ViewerAuthorization {
+  teamId: string;
+  teamSlug: string;
+  organizationSlug: string;
+  viewerPrefix: string;
+  expiresAt: string;
+}
+
+/**
+ * Asks the API for CloudFront viewer cookies for a team.
+ *
+ * The cookies arrive as Set-Cookie headers on this very response and are
+ * scoped to .staging.changefabric.org, so they are the browser's from the
+ * moment this resolves. That only works because the call is same-origin
+ * through the /v1/* proxy: a cross-origin response's Set-Cookie for a parent
+ * domain would be dropped, which is one more reason config.ts points at this
+ * app's own origin.
+ */
+export async function authorizeViewer(
+  teamId: string,
+): Promise<ViewerAuthorization> {
+  return request<ViewerAuthorization>(
+    `/v1/artifacts/authorize?teamId=${encodeURIComponent(teamId)}`,
+  );
+}
+
 export async function createInvitation(input: {
   email: string;
   teamId?: string;

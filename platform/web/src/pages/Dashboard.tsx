@@ -5,6 +5,7 @@ import { OrgSwitcher, type OrgSummary } from "../components/OrgSwitcher";
 import { InviteDialog } from "../components/InviteDialog";
 import { Teams } from "./Teams";
 import { TeamDetail } from "./TeamDetail";
+import { TeamArtifacts } from "./TeamArtifacts";
 
 export interface MemberRow {
   id: string;
@@ -104,6 +105,12 @@ export function teamIdFromPath(path: string): string | null {
   return match?.[1] ?? null;
 }
 
+/** The team id in `/teams/<id>/artifacts`, or null for any other path. */
+export function artifactsTeamIdFromPath(path: string): string | null {
+  const match = /^\/teams\/([^/]+)\/artifacts$/.exec(path);
+  return match?.[1] ?? null;
+}
+
 export function Dashboard({
   userName,
   role,
@@ -121,6 +128,7 @@ export function Dashboard({
   const members = activeOrg?.members ?? [];
   const canManage = canManageOrganization(role);
   const teamId = teamIdFromPath(path);
+  const artifactsTeamId = artifactsTeamIdFromPath(path);
 
   const nav = (
     <>
@@ -148,6 +156,13 @@ export function Dashboard({
   );
 
   function body() {
+    // Before the team-detail branch, because /teams/<id>/artifacts is a longer
+    // match on the same prefix and the detail regex would otherwise never see
+    // it while this one never fired.
+    if (artifactsTeamId !== null) {
+      return <TeamArtifacts teamId={artifactsTeamId} />;
+    }
+
     if (teamId !== null) {
       return (
         <TeamDetail

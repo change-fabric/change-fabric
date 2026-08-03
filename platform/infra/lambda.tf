@@ -33,6 +33,7 @@ locals {
       local.staging_db_password_param,
       local.staging_auth_secret_param,
       local.staging_basic_auth_param,
+      local.staging_signer_key_param,
     ] : "arn:aws:ssm:us-east-1:${data.aws_caller_identity.current.account_id}:parameter${name}"
   ]
 
@@ -104,6 +105,38 @@ resource "aws_iam_role_policy" "api" {
           "ses:SendRawEmail",
         ]
         Resource = ["arn:aws:ses:us-east-1:${data.aws_caller_identity.current.account_id}:identity/*"]
+      },
+      # Presigning is signing, and a presigned URL carries THIS role's authority
+      # rather than the authority of whoever follows it. The browser or CI job
+      # that uploads or downloads is anonymous to S3; the request is evaluated
+      # against these two statements. That is why they are here at all, and why
+      # they are scoped to one bucket by ARN rather than to s3:* anywhere.
+      #
+      # ListBucket is deliberately absent. Nothing in the API enumerates the
+      # bucket: every key it touches comes from an `artifact_file` row, so the
+      # database is the index and a listing would only be a second, weaker one.
+      {
+        Sid    = "ReadWriteArtifactObjects"
+        Effect = "Allow"
+        Action = [
+          "s3:PutObject",
+          "s3:GetObject",
+        ]
+        Resource = ["${aws_s3_bucket.artifacts.arn}/*"]
+      },
+      # The bucket's default encryption is SSE-KMS under the platform CMK, so a
+      # PUT needs a data key and a GET needs it decrypted. Both happen on behalf
+      # of this role because this role signed the request, which is exactly why
+      # the condition pins them to arriving through S3: this grant is for
+      # storing artifacts and for nothing else.
+      {
+        Sid      = "EncryptArtifactObjects"
+        Effect   = "Allow"
+        Action   = ["kms:GenerateDataKey", "kms:Decrypt"]
+        Resource = [aws_kms_key.platform.arn]
+        Condition = {
+          StringEquals = { "kms:ViaService" = "s3.us-east-1.amazonaws.com" }
+        }
       },
       {
         Sid    = "WriteOwnLogs"
@@ -179,6 +212,16 @@ resource "aws_lambda_function" "api" {
       # person; reading a link target out of a position in a list would break the
       # day a third origin is trusted.
       APP_ORIGIN = local.app_origin
+
+      # The artifacts host. Four values that are set together or not at all, so
+      # a half-configured host is a loud failure at cold start rather than a
+      # 500 on the first publish. The signer parameter is a NAME, not a value:
+      # the private key is read from SSM at cold start and never appears here,
+      # in state, or in a plan.
+      ARTIFACTS_BUCKET           = aws_s3_bucket.artifacts.bucket
+      ARTIFACTS_ORIGIN           = "https://${local.artifacts_domain}"
+      ARTIFACTS_KEY_PAIR_ID      = aws_cloudfront_public_key.artifacts_signer.id
+      ARTIFACTS_SIGNER_PARAMETER = local.staging_signer_key_param
     })
   }
 

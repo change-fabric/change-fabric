@@ -66,6 +66,28 @@ export interface DatabaseSettings {
   password: string;
 }
 
+/**
+ * Everything the artifacts routes need to reach S3 and to mint a viewer cookie.
+ *
+ * The signing private key is read from SSM exactly once per execution
+ * environment, alongside the other three secrets, and then held in memory for
+ * the life of the container. Fetching it per request would put an SSM call on
+ * the path of every authorize round trip for a value that never changes between
+ * them; it would also mean an SSM outage took the viewer down rather than
+ * merely making a cold start slower.
+ */
+export interface ArtifactsSettings {
+  bucket: string;
+  /** `https://artifacts.staging.changefabric.org`, with no trailing slash. */
+  origin: string;
+  /** The CloudFront public key id the trusted key group holds. */
+  keyPairId: string;
+  /** PEM. Never logged, never returned, never written anywhere. */
+  privateKey: string;
+  /** `.staging.changefabric.org`, so one cookie spans app and artifacts. */
+  cookieDomain: string;
+}
+
 export interface ApiConfig {
   basicAuth: BasicAuthCredential;
   betterAuthSecret: string;
@@ -76,14 +98,57 @@ export interface ApiConfig {
   sesFromAddress: string;
   /** Where the web app is served, so an invitation mail can link into it. */
   appOrigin: string;
+  /**
+   * Null when the artifacts host is not configured for this deployment. The
+   * routes answer 503 rather than crashing on a cold start, so an API missing
+   * only this stays fully usable for everything else it serves.
+   */
+  artifacts: ArtifactsSettings | null;
+}
+
+/** Set together or not at all, so a half-configured artifacts host is visible. */
+function artifactsEnvironment(): {
+  bucket: string;
+  origin: string;
+  keyPairId: string;
+  parameter: string;
+} | null {
+  const bucket = process.env.ARTIFACTS_BUCKET;
+  const origin = process.env.ARTIFACTS_ORIGIN;
+  const keyPairId = process.env.ARTIFACTS_KEY_PAIR_ID;
+  const parameter = process.env.ARTIFACTS_SIGNER_PARAMETER;
+
+  const present = [bucket, origin, keyPairId, parameter].filter(
+    (value) => value !== undefined && value !== "",
+  );
+  if (present.length === 0) {
+    return null;
+  }
+  if (present.length !== 4) {
+    throw new ConfigError(
+      "the artifacts host needs ARTIFACTS_BUCKET, ARTIFACTS_ORIGIN, ARTIFACTS_KEY_PAIR_ID and ARTIFACTS_SIGNER_PARAMETER together",
+    );
+  }
+  return {
+    bucket: bucket as string,
+    origin: (origin as string).replace(/\/+$/, ""),
+    keyPairId: keyPairId as string,
+    parameter: parameter as string,
+  };
 }
 
 async function loadApiConfig(): Promise<ApiConfig> {
-  const [basicAuthRaw, betterAuthSecret, databasePassword] = await Promise.all([
-    readSecureParameter(requireEnv("BASIC_AUTH_PARAMETER")),
-    readSecureParameter(requireEnv("BETTER_AUTH_SECRET_PARAMETER")),
-    readSecureParameter(requireEnv("DB_PASSWORD_PARAMETER")),
-  ]);
+  const artifactsEnv = artifactsEnvironment();
+
+  const [basicAuthRaw, betterAuthSecret, databasePassword, signerKey] =
+    await Promise.all([
+      readSecureParameter(requireEnv("BASIC_AUTH_PARAMETER")),
+      readSecureParameter(requireEnv("BETTER_AUTH_SECRET_PARAMETER")),
+      readSecureParameter(requireEnv("DB_PASSWORD_PARAMETER")),
+      artifactsEnv === null
+        ? Promise.resolve(null)
+        : readSecureParameter(artifactsEnv.parameter),
+    ]);
 
   return {
     basicAuth: parseBasicAuthCredential(basicAuthRaw),
@@ -103,6 +168,16 @@ async function loadApiConfig(): Promise<ApiConfig> {
       .filter((origin) => origin !== ""),
     sesFromAddress: requireEnv("SES_FROM_ADDRESS"),
     appOrigin: requireEnv("APP_ORIGIN"),
+    artifacts:
+      artifactsEnv === null || signerKey === null
+        ? null
+        : {
+            bucket: artifactsEnv.bucket,
+            origin: artifactsEnv.origin,
+            keyPairId: artifactsEnv.keyPairId,
+            privateKey: signerKey,
+            cookieDomain: requireEnv("COOKIE_DOMAIN"),
+          },
   };
 }
 
