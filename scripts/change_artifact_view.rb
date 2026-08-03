@@ -115,30 +115,3 @@ class ChangeArtifactView
     cleaned.empty? ? 'none' : cleaned
   end
 end
-
-# The rendering context for the team index: one page at the bucket root listing
-# every published run across every contributor on the team. It holds rows, not a
-# manifest, and deliberately shares nothing with the per-run view beyond the
-# escaping helpers, since the two pages answer different questions ("what did
-# this run find" against "what has this team run").
-class ChangeArtifactIndexView
-  def initialize(rows, team_id:, generated_at:)
-    @rows = rows
-    @team_id = team_id
-    @generated_at = generated_at
-  end
-
-  def render(template_path)
-    ERB.new(File.read(template_path), trim_mode: '-').result(binding)
-  end
-
-  def rows = @rows
-  def team_id = @team_id.to_s
-  def generated_at = @generated_at.to_s
-  def contributors = @rows.map { |row| row['contributor_name'].to_s }.reject(&:empty?).uniq.sort
-  def repos = @rows.map { |row| row['repo_id'].to_s }.reject(&:empty?).uniq.sort
-  def failing = @rows.count { |row| row['status'] == 'fail' }
-
-  def h(text) = ERB::Util.html_escape(text.to_s)
-  def json(data) = JSON.generate(data).gsub('</', '<\\/')
-end

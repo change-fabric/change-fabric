@@ -14,9 +14,10 @@
 // and compiles only its SHA-256 digest in here. Rotating the credential is a
 // put-parameter followed by a re-run of deploy.sh.
 //
-// The digest covers the whole Authorization header value, matching the existing
-// precedent in skills/change/reference/artifact-basic-auth.function.js so there
-// is one algorithm across the estate rather than two.
+// The digest covers the whole Authorization header value, which is one
+// algorithm across the estate rather than two. The per-team CloudFront function
+// this convention came from is gone (the artifacts service replaced per-team
+// provisioning); the convention it set is what survives, here.
 //
 // This gate is coarse and deliberately not the product's authentication. Better
 // Auth's sessions and organization membership run underneath it, in the API. A

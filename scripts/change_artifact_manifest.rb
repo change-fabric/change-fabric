@@ -9,10 +9,10 @@ require_relative 'shell_git'
 
 # The one record a published run is described by: who ran it, against which
 # commit and PR, what the four lanes found, and where its media landed. The
-# artifact page renders it, the bundle writes it out as `manifest.json`, the
-# uploader stores it as a row in the team's manifest table, and the team index
-# page is built from a query over those rows. Building it in one place is what
-# keeps those four consumers from each inventing their own idea of a run.
+# artifact page renders it, the bundle writes it out as `manifest.json`, and the
+# publisher declares it to the artifacts service, which records the run and
+# lists it on the team's findings page. Building it in one place is what keeps
+# those consumers from each inventing their own idea of a run.
 #
 # Every git and GitHub lookup here is best-effort: a detached HEAD, a missing
 # `gh`, or a branch with no PR yields a nil field, never an exception. This is
@@ -51,7 +51,7 @@ class ChangeArtifactManifest
       'roster' => @artifacts.roster, 'git' => git_context, 'run' => run_context,
       'status' => @findings.passed? ? 'pass' : 'fail', 'lane_status' => @findings.lane_status,
       'counts' => counts, 'findings' => findings_rows, 'viewports' => viewport_sections,
-      'reports' => report_names, 'key_prefix' => key_prefix
+      'reports' => report_names
     }
   end
 
@@ -59,17 +59,16 @@ class ChangeArtifactManifest
   # (which orders lexicographically) plus the short head SHA (which makes two
   # runs of the same commit in the same second distinguishable from two runs of
   # different commits).
+  # WHERE the bundle lands is deliberately not decided here. The artifacts
+  # service assigns every run's key prefix from the organization and team the
+  # publishing key belongs to, so a client that invented one would be asserting
+  # a location it has no authority over and that the server would ignore. The
+  # run id above is this manifest's own identifier and stays local to it.
   def run_id = "#{@generated_at.strftime('%Y%m%dT%H%M%SZ')}-#{short_sha}"
-
-  # Where this run's bundle lives in the team bucket. Repo, then contributor,
-  # then run: a prefix a human can browse down, and a natural boundary for a
-  # future per-contributor or per-repo lifecycle rule.
-  def key_prefix = [ repo_id, contributor_segment, run_id ].join('/')
 
   private
 
   def repo_id = (@artifacts.identity&.repo_id || 'unknown-repo')
-  def contributor_segment = (@artifacts.identity&.contributor_id || 'unknown')
 
   def run_context
     {

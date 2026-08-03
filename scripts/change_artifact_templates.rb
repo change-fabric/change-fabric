@@ -1,7 +1,7 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 
-# Locates the three ERB templates the artifact pipeline renders. They live with
+# Locates the two ERB templates the artifact pipeline renders. They live with
 # the skill they belong to (`skills/change/reference/`) rather than beside the
 # scripts, because they are part of what a reader of cf:change is pointed at:
 # the artifact page is as much a documented output shape as `CHANGE.template.md`
@@ -18,13 +18,11 @@ module ChangeArtifactTemplates
 
   PAGE = 'artifact.html.erb'
   PDF = 'artifact-pdf.html.erb'
-  INDEX = 'artifact-index.html.erb'
 
   module_function
 
   def page = path(PAGE)
   def pdf = path(PDF)
-  def index = path(INDEX)
 
   def path(name)
     found = roots.map { |root| File.join(root, name) }.find { |candidate| File.exist?(candidate) }

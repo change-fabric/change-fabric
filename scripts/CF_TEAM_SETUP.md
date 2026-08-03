@@ -47,40 +47,80 @@ Your `<your-contributor-id>` must match an `id` in the CHANGE.md
 3. Writes your contributor id to `~/.claude/cf/teams/<team_id>/contributor_id`,
    the file the hooks read to resolve "which contributor am I".
 
-## One time per team (optional): the findings-artifact area
+## One time per team (optional): publishing findings artifacts
 
-`cf_artifacts_init.rb` provisions the shared S3 + CloudFront area cf:change
-publishes its findings artifacts to. Skip it entirely if the team does not want
-published artifacts; without the `artifacts:` block a sweep behaves exactly as
-it always has.
+A completed `cf:change` sweep can publish its findings artifact to the hosted
+artifacts service, which records the run and lists it on the team's findings
+page in the platform web app. Skip this entirely if the team does not want
+published artifacts; without a `contributors_team.platform:` block a sweep
+behaves exactly as it always has.
 
-```
-ruby scripts/cf_artifacts_init.rb <team_id> [--region us-east-1] [--bucket NAME]
-```
+There is no per-team provisioning script and no per-team AWS anything. The
+service is one shared, Terraform-managed deployment (`platform/infra`), so
+joining it is three steps in the web app and one on your machine:
 
-Run it twice, by design. The first run finds no credential in SSM, generates a
-high-entropy one, prints the `aws ssm put-parameter` and `op item create`
-commands for you to review and run yourself, and provisions nothing. The second
-run reads the credential back from SSM and creates:
+1. **Create the organization and the team** in the platform web app, if they do
+   not exist yet. Note both slugs.
+2. **Mint a team API key** on the team's page. It is shown once. A key names a
+   team and no person, which is what lets CI hold one.
+3. **Add the block to `CHANGE.md`:**
 
-1. a private S3 bucket (public access blocked, ACLs disabled, SSE-S3 on),
-2. a CloudFront distribution reaching it through an Origin Access Control, with
-   a bucket policy allowing only that distribution,
-3. a CloudFront viewer-request function enforcing HTTP Basic Auth, carrying the
-   SHA-256 digest of the credential (never the credential: a CloudFront function
-   has no network access and cannot fetch a secret at request time), and
-4. the `cf-change-artifacts` DynamoDB table the team index page is built from.
+   ```yaml
+   contributors_team:
+     team_id: my-team
+     public_key_ed25519: <base64 verify-only key printed by cf_team_init.rb>
+     contributors:
+       - { id: pat, name: Pat Taylor }
+     organization: my-org
+     team: my-team
+     platform:
+       api_url: https://api.staging.changefabric.org
+       api_key_env: CF_TEAM_API_KEY
+   ```
 
-It then prints the `artifacts:` block to paste under `contributors_team:` in the
-repo's `CHANGE.md`. Nothing in that block is a secret.
+   Nothing in that block is a credential. `api_key_env` names the environment
+   variable the key arrives in, never the key.
 
-Rotating the viewer credential: write the new `username:password` to the same
-SSM parameter, then run `ruby scripts/cf_artifacts_init.rb <team_id> --rotate`,
-which republishes the function with the new digest and touches nothing else.
+4. **Store the key on your machine**, so it lives in neither the repo nor every
+   shell's environment:
 
-Publishing needs `aws-sdk-s3`, `aws-sdk-dynamodb`, and `aws-sdk-cloudfront`
-installed for the runtime that runs `change_run.rb`; a missing gem is a named
-warning on the run, never a failure. Provisioning also needs `aws-sdk-ssm`.
+   ```
+   <op-wrapper> read 'op://<shared-vault>/change-fabric platform key: my-org/my-team/credential' | \
+     ruby scripts/cf_team_join.rb --platform my-org my-team --stdin
+   ```
+
+   It caches the key in the macOS login Keychain under service
+   `change-fabric-platform`, account `<organization>/<team>` (with `-U`, so
+   re-running rotates rather than errors). The publisher reads the named env var
+   first and falls back to this entry, so CI supplies a key through the
+   environment while a laptop needs none.
+
+What a publish does: `POST /v1/artifacts` declares the run and every file in the
+bundle and comes back with one presigned upload URL per file, the bytes go
+straight to storage over those URLs, and `POST /v1/artifacts/:id/complete` says
+it finished. The client needs only Ruby's standard library. It holds no AWS
+credential, names no bucket, and invents no key prefix; the service assigns the
+prefix, owns the index, and decides who may open a run (signed cookies for a
+person's browser, presigned downloads for a machine).
+
+Every step is best effort. A missing key, an unreachable API, or a failed upload
+is a named warning on the run and never changes the sweep's pass/fail: the four
+audit lanes are the release gate, and the artifact is the evidence attached to
+it. The bundle is written to the Desktop either way.
+
+If the deployment sits behind a coarse HTTP Basic Auth fence (staging does), add
+`platform.basic_auth.username_env` and `platform.basic_auth.password_env` naming
+the environment variables that hold it, and export them alongside the key.
+
+### Migrating from the 0.5.0 `artifacts:` block
+
+The earlier design gave each team its own S3 bucket, CloudFront distribution,
+Basic Auth credential, and DynamoDB manifest table, provisioned by a
+`cf_artifacts_init.rb` script that no longer exists. The `artifacts:` fields
+still parse at schema 0.6.0 and a repo carrying them still builds its bundle,
+but the publisher no longer carries an AWS SDK, so nothing is uploaded and the
+run says so. Replace the block with `organization`, `team`, and `platform:`
+above. The legacy fields are removed at schema 0.7.0.
 
 ## The capability env vars (all off by default)
 
@@ -115,7 +155,6 @@ provisioned by `cf_team_join.rb`.
   the secret poll injects nothing). Capability A does not sign and does not need
   the gem.
 - After changing any script here, re-run `install.rb` to sync the live install
-  (`~/.claude/cf/bin/` and `~/.claude/settings.json`). `cf_team_init.rb`,
-  `cf_artifacts_init.rb`, and
+  (`~/.claude/cf/bin/` and `~/.claude/settings.json`). `cf_team_init.rb` and
   `cf_team_join.rb` are human-run tools, not hooks, so they are intentionally not
   wired into `settings.json`.

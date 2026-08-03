@@ -99,7 +99,7 @@ itself.
    the Markdown report. Name both report paths (the `.md` and the `.csv`) so the
    run is reproducible and shareable.
 5. **Publish the findings artifact (optional, 0.32.0).** Only when the repo's
-   `CHANGE.md` carries a `contributors_team.artifacts:` block. See "The findings
+   `CHANGE.md` carries a `contributors_team.platform:` block. See "The findings
    artifact" below. Report the published url and any artifact warning
    separately from the gate; a failed publish never changes the run's verdict.
 
@@ -190,7 +190,7 @@ in the form the merge gate enforces.
 
 ## The findings artifact (0.32.0)
 
-A repo that registers a `contributors_team.artifacts:` block gets one more step
+A repo that registers a `contributors_team.platform:` block gets one more step
 after the gate is recorded: the run's findings become a shareable, durable web
 page instead of a report pair on one person's Desktop. A repo without the block
 is completely unaffected, and no part of this step can change a run's pass/fail.
@@ -228,32 +228,36 @@ captions under each screenshot rather than boxes drawn on it: the lanes report
 selectors and whole-page measurements, never element rectangles, so a drawn box
 would mean inventing coordinates on an evidence artifact.
 
-Where it publishes. `scripts/change_artifact_publish.rb` uploads the bundle to
-`s3://<bucket>/<repo_id>/<contributor_id>/<timestamp>-<sha>/`, records one row
-per run in the team's DynamoDB manifest table, and rebuilds the team index page
-at the bucket root listing every run across every contributor (client-side
-filter and sort over an embedded JSON manifest, no backend). The listing is
-rebuilt from the table rather than by listing S3 because a listing returns keys,
-not runs: reconstructing a row's contributor, result, and PR from the bucket
-alone would mean one GET per run with no consistent point in time, and the table
-also keeps the history after a lifecycle rule expires the media itself.
+Where it publishes. `scripts/change_artifact_publish.rb` publishes the bundle to
+the hosted artifacts service in three calls: `POST /v1/artifacts` declares the
+run and every file in it and comes back with one presigned upload URL per file,
+each file's bytes go straight to storage over its own URL, and
+`POST /v1/artifacts/:id/complete` says the upload finished. The service then
+checks what actually landed against what was declared, records the run, and
+lists it on the team's findings page in the platform web app.
 
-The bucket is private and stays private: CloudFront reaches it through an Origin
-Access Control, and the only bucket-policy statement allows that one
-distribution. Viewers authenticate with HTTP Basic Auth enforced by a CloudFront
-viewer-request function. That function carries only the SHA-256 digest of the
-credential, never the credential: a CloudFront function has no network access,
-so it cannot fetch a secret at request time, and the credential's source of
-truth is an SSM SecureString parameter that `cf_artifacts_init.rb` reads at
-deploy time. Rotating it is a parameter write plus
-`cf_artifacts_init.rb <team_id> --rotate`.
+The client authenticates with a team API key sent as `x-cf-key` and holds
+nothing else. It requires only Ruby's standard library: no AWS SDK, no AWS
+profile, no bucket name, no distribution id, and no key prefix, because the
+service assigns the prefix (`<organization>/<team>/<short-id>/`) and owns the
+index. That is also why the run manifest carries no `key_prefix`: a client that
+invented one would be asserting a location it has no authority over.
 
-Provisioning is one human-run command, never an agent's: `ruby
-~/.claude/cf/bin/cf_artifacts_init.rb <team_id>` creates the bucket, the
-distribution, the function, and the table, and prints the paste-ready
-`artifacts:` block plus the `aws ssm put-parameter` and 1Password commands for
-the human to run. Unlike the hooks it is not fail-open; a failed call raises.
-Add `--no-publish` to `change_run.rb` to build the bundle without uploading it.
+Where the key comes from, in order: the env var named by
+`contributors_team.platform.api_key_env` (default `CF_TEAM_API_KEY`), then this
+machine's Keychain entry under service `change-fabric-platform`, account
+`<organization>/<team>`, which `ruby ~/.claude/cf/bin/cf_team_join.rb --platform
+<organization> <team> --stdin` writes. The key is never in `CHANGE.md`.
+
+Who can read a published run is the service's decision, not the client's. A
+person's browser trades their session for CloudFront signed cookies scoped to
+their team's whole prefix; a machine trades its team API key for presigned
+download URLs. Neither path is something a publishing repo configures.
+
+Provisioning is not a per-team step at all any more. The artifacts service is
+one shared, Terraform-managed deployment (`platform/infra`), and joining it is
+creating a team in the web app and minting that team's API key. Add
+`--no-publish` to `change_run.rb` to build the bundle without publishing it.
 
 ## Lane subsets
 
@@ -289,16 +293,21 @@ lane has no standalone skill; it runs as part of `cf:change`.
   for that one app and makes `change_policy.promotion.<branch>.profile`
   ambiguous about whose profile is meant; move the conflicting block into one
   app's own `CHANGE.app.yml`.
-- The artifact bucket or distribution is not provisioned yet (or the AWS
-  session is expired, or the SDK gems are not installed): the run's lanes,
-  report, and gate are unaffected and the publish step reports the failure as
-  its own line. Provision with `cf_artifacts_init.rb`, or drop the
-  `artifacts:` block to opt out entirely.
-- The basic-auth credential is missing from SSM: `cf_artifacts_init.rb` refuses
-  to provision, prints a generated credential and the exact commands to store
-  it, and stops, so the distribution is never briefly reachable with no working
-  auth check. This never affects a sweep; publishing does not read the
-  credential at all.
+- No team API key is resolvable, the artifacts service is unreachable, or it
+  refuses the key: the run's lanes, report, and gate are unaffected and the
+  publish step reports the failure as its own line, naming the env var to set
+  and the `cf_team_join.rb --platform` command that stores one. The bundle is
+  still on the Desktop either way. Drop the `platform:` block to opt out
+  entirely.
+- Some presigned uploads succeed and others fail: the ones that succeeded are
+  counted, the ones that did not are named one line each, and completion still
+  runs, so the service's own check reports exactly which files never arrived
+  rather than the run silently claiming a bundle it does not have.
+- The repo still carries the deprecated 0.5.0 `contributors_team.artifacts:`
+  block: the bundle is built but nothing is published, and the warning names the
+  migration. The publisher carries no AWS SDK or AWS credential at all, so the
+  per-team bucket path cannot be taken; replace the block with `organization`,
+  `team`, and `platform:` (the legacy block is removed at schema 0.7.0).
 - A viewport's recording fails (no MediaRecorder, a screencast that never
   attaches): a warn finding names the viewport and the reason, and the artifact
   says so in place of that viewport's video. The rest of the artifact publishes.

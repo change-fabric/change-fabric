@@ -1,31 +1,38 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 
+require 'digest'
 require 'json'
-require 'time'
+require 'net/http'
+require 'uri'
 require_relative 'change_artifacts_config'
-require_relative 'change_artifact_templates'
-require_relative 'change_artifact_view'
 
-# Publishes one run's artifact bundle to the team's S3 + CloudFront area, then
-# rebuilds the team index page that lists every published run across every
-# contributor.
+# Publishes one run's artifact bundle to the hosted artifacts service.
 #
-# Best-effort, always. A failed upload is reported and never changes the run's
-# verdict: the four audit lanes are the release gate, and this is the evidence
-# attached to it. Every AWS call, and the SDK require itself, is rescued into a
-# named warning, so a machine with no credentials, no gems, or no provisioned
-# bucket gets a clear sentence instead of a stack trace on top of an otherwise
-# successful audit.
+# Three calls, in this order:
 #
-# The uploader never reads the viewer basic-auth credential. Publishing
-# authenticates to AWS with the operator's own profile; the credential in the
-# `artifacts.basic_auth` block exists for the CloudFront function and for the
-# humans who open the page, and nothing in this path needs it. Keeping it out of
-# the publish flow entirely is why a run can publish from any machine that can
-# write to the bucket without that machine ever holding the viewing secret.
+#   POST /v1/artifacts             declare the run and every file in it, and
+#                                  receive one presigned PUT per file
+#   PUT  <presigned url>           the bytes, straight to object storage
+#   POST /v1/artifacts/:id/complete say the upload finished
+#
+# Everything this used to decide, the server decides now. It assigns the key
+# prefix, it owns the index every team member reads, and it enforces who may
+# open a run. That is why this file requires nothing but Ruby's standard
+# library: there is no bucket to write to, no table to keep, and no edge cache
+# to invalidate, so there is no AWS SDK to load and no AWS credential to hold.
+# The only secret involved is the team API key, which arrives from an env var or
+# this machine's Keychain, is spent on two requests, and is never written
+# anywhere.
+#
+# Best-effort, always, and that contract is the reason this file is structured
+# the way it is. Every step is rescued into a named warning and the run's verdict
+# is untouched by all of them: the four audit lanes are the release gate, and
+# this is the evidence attached to it. A machine with no key, an API that is
+# down, and a presigned URL that expired mid-upload each produce a clear sentence
+# on an otherwise successful audit rather than a stack trace or a red run.
 class ChangeArtifactPublish
-  Result = Struct.new(:url, :uploaded, :index_url, :warnings, keyword_init: true)
+  Result = Struct.new(:url, :uploaded, :short_id, :warnings, keyword_init: true)
 
   CONTENT_TYPES = {
     '.html' => 'text/html; charset=utf-8', '.json' => 'application/json',
@@ -35,14 +42,15 @@ class ChangeArtifactPublish
   }.freeze
   DEFAULT_CONTENT_TYPE = 'application/octet-stream'
 
-  # A run bundle's own assets are addressed by a key prefix carrying a UTC
-  # stamp and the head SHA, so they are immutable by construction and can be
-  # cached forever. The index is rewritten on every publish and must not be.
-  IMMUTABLE_CACHE = 'public, max-age=31536000, immutable'
-  INDEX_CACHE = 'no-cache'
-  INDEX_KEY = 'index.html'
-  INDEX_DATA_KEY = 'runs.json'
-  MAX_INDEX_ROWS = 500
+  # The server's own ceiling (platform/api/src/artifacts.ts). Checked here as
+  # well so an oversized bundle is reported as the local fact it is, naming the
+  # count, instead of arriving as a 400 whose body a reader has to decode.
+  MAX_FILES = 200
+
+  # Generous, because a video can be tens of megabytes on a slow uplink, and
+  # bounded, because a publish that hangs would hold up a finished audit.
+  OPEN_TIMEOUT = 15
+  READ_TIMEOUT = 180
 
   def self.publish(bundle_dir:, artifacts:)
     new(bundle_dir: bundle_dir, artifacts: artifacts).publish
@@ -55,26 +63,63 @@ class ChangeArtifactPublish
   end
 
   def publish
+    return legacy_refusal unless @artifacts.platform?
+
     manifest = read_manifest
     return failure('bundle has no manifest.json; nothing to publish') unless manifest
 
-    client = s3
-    return Result.new(url: nil, uploaded: 0, index_url: nil, warnings: @warnings) unless client
+    key = @artifacts.api_key
+    return failure(missing_key_message) unless key
 
-    uploaded = upload_bundle(client, manifest)
-    row = index_row(manifest)
-    record(row)
-    index_url = rebuild_index(client, manifest['team_id'])
-    Result.new(url: run_url(manifest), uploaded: uploaded, index_url: index_url, warnings: @warnings)
+    files = declared_files
+    return failure('the bundle is empty; nothing to publish') if files.empty?
+    return failure("the bundle holds #{files.size} files, more than the #{MAX_FILES} an artifact may declare") if
+      files.size > MAX_FILES
+
+    run(manifest, files, key)
   rescue StandardError => e
     failure("publish failed: #{e.message}")
   end
 
   private
 
+  # The three calls, each one gated on the previous having produced what the
+  # next needs. A failure at any step stops the sequence and leaves the warnings
+  # already collected in place: half a publish is worth reporting precisely
+  # because it is half.
+  def run(manifest, files, key)
+    team = resolve_team_id(key)
+    return Result.new(url: nil, uploaded: 0, short_id: nil, warnings: @warnings) unless team
+
+    created = create(manifest, files, team, key)
+    return Result.new(url: nil, uploaded: 0, short_id: nil, warnings: @warnings) unless created
+
+    uploaded = upload(created['uploads'], files)
+    complete(created['artifactId'], key)
+
+    Result.new(url: created['viewerUrl'], uploaded: uploaded, short_id: created['shortId'], warnings: @warnings)
+  end
+
   def failure(message)
     @warnings << message
-    Result.new(url: nil, uploaded: 0, index_url: nil, warnings: @warnings)
+    Result.new(url: nil, uploaded: 0, short_id: nil, warnings: @warnings)
+  end
+
+  # A repo still on the 0.5.0 `artifacts:` block reaches here. It is reported
+  # rather than attempted: publishing to a team's own bucket needed the AWS SDKs
+  # and an AWS credential, and this client deliberately carries neither. The
+  # bundle is still built and still sits on the Desktop, which is what keeps
+  # this a migration prompt instead of a lost run.
+  def legacy_refusal
+    failure('this repo still carries the deprecated contributors_team.artifacts block; ' \
+            'the bundle was built but not published. Migrate to contributors_team.platform ' \
+            '(see scripts/CF_TEAM_SETUP.md); the legacy block is removed at schema 0.7.0')
+  end
+
+  def missing_key_message
+    "no team API key: set #{@artifacts.api_key_env}, or run " \
+      "`ruby scripts/cf_team_join.rb --platform #{@artifacts.organization} #{@artifacts.team_slug} --stdin` " \
+      'to store one in the Keychain'
   end
 
   def read_manifest
@@ -85,174 +130,170 @@ class ChangeArtifactPublish
     nil
   end
 
-  # --- AWS clients ----------------------------------------------------------------
+  # --- what is being published -----------------------------------------------
 
-  # The SDKs are required lazily and optionally. This repo's hooks and lanes
-  # carry no AWS dependency, and a repo that has not adopted artifacts should
-  # never need one installed; a missing gem is a named warning, exactly like a
-  # missing bucket.
-  def s3
-    @s3 ||= begin
-      require 'aws-sdk-s3'
-      Aws::S3::Client.new(**aws_options)
-    rescue LoadError
-      @warnings << 'aws-sdk-s3 is not installed; skipping artifact upload (gem install aws-sdk-s3)'
-      nil
-    rescue StandardError => e
-      @warnings << "could not build an S3 client: #{e.message}"
-      nil
+  # Every file in the bundle, declared by relative path with its size and
+  # digest. The digest is computed here rather than left out because the
+  # completion check compares it against what storage actually holds, which is
+  # the only thing that turns "the PUT returned 200" into "the right bytes
+  # landed".
+  def declared_files
+    Dir.glob(File.join(@dir, '**', '*')).select { |path| File.file?(path) }.sort.map do |path|
+      relative = path.delete_prefix("#{@dir}/")
+      body = File.binread(path)
+      {
+        'path' => relative, 'contentType' => content_type(relative),
+        'bytes' => body.bytesize, 'sha256' => Digest::SHA256.hexdigest(body)
+      }
     end
-  end
-
-  def dynamodb
-    @dynamodb ||= begin
-      require 'aws-sdk-dynamodb'
-      Aws::DynamoDB::Client.new(**aws_options)
-    rescue LoadError
-      @warnings << 'aws-sdk-dynamodb is not installed; the run is published but the team index cannot be rebuilt'
-      nil
-    rescue StandardError => e
-      @warnings << "could not build a DynamoDB client: #{e.message}"
-      nil
-    end
-  end
-
-  def aws_options
-    { region: @artifacts.region, profile: ENV.fetch('AWS_PROFILE', @artifacts.aws_profile) }
-  end
-
-  # --- upload ---------------------------------------------------------------------
-
-  def upload_bundle(client, manifest)
-    prefix = manifest['key_prefix'].to_s
-    files(@dir).count do |relative|
-      put(client, key: "#{prefix}/#{relative}", body: File.binread(File.join(@dir, relative)),
-                  content_type: content_type(relative), cache_control: IMMUTABLE_CACHE)
-    end
-  end
-
-  def put(client, key:, body:, content_type:, cache_control:)
-    client.put_object(bucket: @artifacts.bucket, key: key, body: body,
-                      content_type: content_type, cache_control: cache_control)
-    true
   rescue StandardError => e
-    @warnings << "upload failed for #{key}: #{e.message}"
-    false
-  end
-
-  def files(dir)
-    Dir.glob(File.join(dir, '**', '*')).select { |path| File.file?(path) }
-       .map { |path| path.delete_prefix("#{dir}/") }.sort
+    @warnings << "could not read the bundle contents: #{e.message}"
+    []
   end
 
   def content_type(relative) = CONTENT_TYPES.fetch(File.extname(relative).downcase, DEFAULT_CONTENT_TYPE)
 
-  def run_url(manifest)
-    base = @artifacts.base_viewer_url
-    return nil unless base
-
-    "#{base}/#{manifest['key_prefix']}/index.html"
-  end
-
-  # --- the manifest table ------------------------------------------------------------
-
-  # One flat row per run: everything the index table shows, and nothing that
-  # would make the row a second copy of the artifact. The bundle's own
-  # `manifest.json` stays the full record; this is the listing.
-  def index_row(manifest)
+  # The run, in the shape the API's manifest parser accepts. Fields the local
+  # manifest could not resolve (a detached HEAD's branch, a branch with no PR)
+  # are omitted rather than sent empty: the API treats absent as "not known",
+  # and an empty string would be recorded as a value somebody chose.
+  def payload(manifest, files, team_id)
     git = manifest['git'] || {}
+    counts = manifest['counts'] || {}
     {
-      'run_id' => manifest['run_id'], 'generated_at' => manifest['generated_at'],
-      'contributor_id' => manifest['contributor_id'], 'contributor_name' => manifest['contributor_name'],
-      'repo_id' => manifest['repo_id'], 'project' => (manifest['run'] || {})['project'],
-      'branch' => git['branch'], 'pr_number' => git['pr_number'], 'pr_url' => git['pr_url'],
-      'status' => manifest['status'], 'fail_count' => (manifest['counts'] || {})['fail'].to_i,
-      'warn_count' => (manifest['counts'] || {})['warn'].to_i,
-      'key_prefix' => manifest['key_prefix'], 'url' => run_url(manifest)
-    }.compact
+      'teamId' => team_id, 'repoId' => manifest['repo_id'],
+      'project' => (manifest['run'] || {})['project'], 'branch' => git['branch'],
+      'headSha' => git['head_sha'], 'prNumber' => git['pr_number'], 'prUrl' => git['pr_url'],
+      'status' => manifest['status'], 'failCount' => counts['fail'].to_i, 'warnCount' => counts['warn'].to_i,
+      'contributorLabel' => manifest['contributor_name'], 'generatedAt' => manifest['generated_at'],
+      'files' => files
+    }.reject { |_, value| value.nil? || value == '' }
   end
 
-  def record(row)
-    client = dynamodb
-    return unless client
+  # --- the three calls ---------------------------------------------------------
 
-    client.put_item(
-      table_name: @artifacts.manifest_table,
-      item: row.merge('pk' => "TEAM##{@artifacts.team_id}", 'sk' => "RUN##{row['generated_at']}##{row['run_id']}")
-    )
-  rescue StandardError => e
-    @warnings << "could not record the run in #{@artifacts.manifest_table}: #{e.message}; " \
-                 'the artifact is published but will not appear in the team index'
-  end
+  # Which team this key speaks for. A repo may pin it, but usually does not: the
+  # key is already scoped to exactly one team, so asking the API is both fewer
+  # committed facts and the only answer that cannot be stale.
+  def resolve_team_id(key)
+    pinned = @artifacts.platform_team_id
+    return pinned unless pinned.empty?
 
-  # --- the team index -----------------------------------------------------------------
+    body = get_json('/v1/whoami-key', key)
+    return nil unless body
 
-  # The index is regenerated from the manifest table rather than by listing the
-  # bucket. Listing returns keys, not runs: rebuilding a row's contributor,
-  # result, and PR from S3 alone would mean fetching every run's manifest.json
-  # (one request per run, paginated, with no consistent point in time), while
-  # one query returns every row already sorted newest first. The table is also
-  # the thing that survives a bucket lifecycle rule expiring old media: the
-  # listing keeps its history even after the bytes age out.
-  def rebuild_index(client, team_id)
-    rows = query_rows(team_id)
-    return nil unless rows
+    id = body['teamId'].to_s
+    return id unless id.empty?
 
-    html = ChangeArtifactIndexView.new(rows, team_id: team_id, generated_at: Time.now.utc.iso8601)
-                                  .render(ChangeArtifactTemplates.index)
-    put(client, key: INDEX_KEY, body: html, content_type: CONTENT_TYPES['.html'], cache_control: INDEX_CACHE)
-    put(client, key: INDEX_DATA_KEY, body: JSON.generate(rows),
-                content_type: CONTENT_TYPES['.json'], cache_control: INDEX_CACHE)
-    invalidate([ "/#{INDEX_KEY}", "/#{INDEX_DATA_KEY}" ])
-    @artifacts.base_viewer_url
-  rescue StandardError => e
-    @warnings << "could not rebuild the team index: #{e.message}"
+    @warnings << 'the API did not say which team this key belongs to'
     nil
   end
 
-  def query_rows(team_id)
-    client = dynamodb
-    return nil unless client
+  def create(manifest, files, team_id, key)
+    post_json('/v1/artifacts', payload(manifest, files, team_id), key, expect: 201)
+  end
 
-    response = client.query(
-      table_name: @artifacts.manifest_table,
-      key_condition_expression: 'pk = :pk',
-      expression_attribute_values: { ':pk' => "TEAM##{team_id}" },
-      scan_index_forward: false, limit: MAX_INDEX_ROWS
-    )
-    response.items.map { |item| normalize(item) }
+  # The presigned PUTs. No credential of any kind travels on these: the URL is
+  # the whole authority, and it is good for exactly one key for a few minutes.
+  # Counted rather than aborted on the first failure, so a run whose video did
+  # not make it still publishes its findings page.
+  def upload(uploads, files)
+    return 0 unless uploads.is_a?(Array)
+
+    by_path = files.to_h { |file| [ file['path'], file ] }
+    uploads.count { |upload| put(upload, by_path[upload['path'].to_s]) }
+  end
+
+  def put(upload, declared)
+    return false unless declared
+
+    uri = URI.parse(upload['url'].to_s)
+    request = Net::HTTP::Put.new(uri)
+    request['Content-Type'] = declared['contentType']
+    request.body = File.binread(File.join(@dir, declared['path']))
+
+    response = perform(uri, request)
+    return true if response.is_a?(Net::HTTPSuccess)
+
+    @warnings << "upload failed for #{declared['path']}: #{response.code}"
+    false
   rescue StandardError => e
-    @warnings << "could not read #{@artifacts.manifest_table}: #{e.message}"
+    @warnings << "upload failed for #{upload['path']}: #{e.message}"
+    false
+  end
+
+  # Completion is what makes a run visible as finished, and its failure is worth
+  # its own sentence: the bytes are already stored, so the artifact exists but
+  # will read as never having finished until somebody says otherwise.
+  def complete(artifact_id, key)
+    return if artifact_id.to_s.empty?
+
+    body = post_json("/v1/artifacts/#{artifact_id}/complete", {}, key, expect: 200)
+    return unless body
+
+    note = body['note']
+    @warnings << "the service checked the upload and found: #{note}" unless note.to_s.empty?
+  end
+
+  # --- HTTP --------------------------------------------------------------------
+
+  def get_json(path, key) = send_json(Net::HTTP::Get, path, nil, key, 200)
+  def post_json(path, body, key, expect:) = send_json(Net::HTTP::Post, path, body, key, expect)
+
+  def send_json(verb, path, body, key, expect)
+    uri = URI.parse("#{@artifacts.api_url}#{path}")
+    request = verb.new(uri)
+    request['x-cf-key'] = key
+    request['Accept'] = 'application/json'
+    if body
+      request['Content-Type'] = 'application/json'
+      request.body = JSON.generate(body)
+    end
+    apply_basic_auth(request)
+
+    parse(path, perform(uri, request), expect)
+  rescue StandardError => e
+    @warnings << "#{path} failed: #{e.message}"
     nil
   end
 
-  # DynamoDB hands numbers back as BigDecimal, which JSON.generate renders in a
-  # form no JS number parser wants. Coerce to plain integers and strings before
-  # anything is embedded in the page.
-  def normalize(item)
-    item.reject { |key, _| %w[pk sk].include?(key) }
-        .transform_values { |value| value.is_a?(Numeric) ? value.to_i : value.to_s }
+  # The staging-wide Basic Auth fence, when the deployment has one. It is a
+  # second, coarser gate in front of the API's own authentication rather than a
+  # replacement for it, so it is set alongside the key and never instead of it.
+  def apply_basic_auth(request)
+    credential = @artifacts.api_basic_auth
+    return unless credential
+
+    username, password = credential.split(':', 2)
+    request.basic_auth(username.to_s, password.to_s)
   end
 
-  # Only the two rewritten objects are invalidated. A run's own bundle lives
-  # under a stamped prefix that has never been requested before, so it is not in
-  # any edge cache to begin with, and invalidating it would be a wasted (and,
-  # past the free tier, billed) path.
-  def invalidate(paths)
-    return if @artifacts.distribution_id.empty?
+  def parse(path, response, expect)
+    unless response.code.to_i == expect
+      @warnings << "#{path} answered #{response.code}#{detail(response)}"
+      return nil
+    end
 
-    require 'aws-sdk-cloudfront'
-    Aws::CloudFront::Client.new(**aws_options).create_invalidation(
-      distribution_id: @artifacts.distribution_id,
-      invalidation_batch: {
-        paths: { quantity: paths.size, items: paths },
-        caller_reference: "cf-change-#{Time.now.utc.to_i}"
-      }
-    )
-  rescue LoadError
-    @warnings << 'aws-sdk-cloudfront is not installed; the index was uploaded but the edge cache was not invalidated'
-  rescue StandardError => e
-    @warnings << "could not invalidate the CloudFront cache: #{e.message}"
+    JSON.parse(response.body.to_s)
+  rescue JSON::ParserError
+    @warnings << "#{path} answered #{response.code} with a body that is not JSON"
+    nil
+  end
+
+  # The API's own error message when it sent one, and nothing when it did not.
+  # Truncated because a warning is a line in a run's log, not a transcript.
+  def detail(response)
+    message = JSON.parse(response.body.to_s)['error'].to_s
+    message.empty? ? '' : ": #{message[0, 200]}"
+  rescue StandardError
+    ''
+  end
+
+  def perform(uri, request)
+    Net::HTTP.start(
+      uri.hostname, uri.port,
+      use_ssl: uri.scheme == 'https', open_timeout: OPEN_TIMEOUT, read_timeout: READ_TIMEOUT
+    ) { |http| http.request(request) }
   end
 end
 
@@ -265,7 +306,7 @@ if __FILE__ == $PROGRAM_NAME
 
   config = ChangeArtifactsConfig.load(Dir.pwd)
   unless config
-    warn '[change] this repo carries no contributors_team.artifacts block; nothing to publish'
+    warn '[change] this repo carries no contributors_team publishing block; nothing to publish'
     exit 1
   end
 
@@ -273,6 +314,5 @@ if __FILE__ == $PROGRAM_NAME
   result.warnings.each { |warning| warn("[change] artifact: #{warning}") }
   warn("[change] artifact: uploaded #{result.uploaded} file(s)")
   warn("[change] artifact: #{result.url}") if result.url
-  warn("[change] artifact index: #{result.index_url}") if result.index_url
   exit(result.url ? 0 : 1)
 end

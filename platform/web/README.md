@@ -97,9 +97,10 @@ AWS: the plaintext credential and its digest are never committed, never written
 into a Terraform plan, and never stored in Terraform state (which is why the
 distribution reads the function through a data source instead of managing it).
 
-The digest covers the whole header value, matching the existing precedent in
-`skills/change/reference/artifact-basic-auth.function.js`, so there is one
-algorithm across the estate rather than two.
+The digest covers the whole header value, so there is one algorithm across the
+estate rather than two. It began as the per-team artifact function's convention;
+that function is gone now that the artifacts service replaced per-team
+provisioning, and this is where the convention lives.
 
 ### The same function also does the SPA routing
 
