@@ -76,10 +76,11 @@ class ChangeLaneBrowserless < ChangeLane
 
     begin
       result = session.run_function(scan_module(usable, auth_ready ? auth : nil, figma_refs))
-      Array(result).each do |check|
+      cells(result).each do |check|
         findings << check_finding(check)
         findings << figma_diff_finding(check) if check['figmaDiff']
       end
+      findings.concat(capture_media(result))
     rescue StandardError => e
       findings << Finding.new(lane: 'browserless', check: 'viewport scan', status: 'fail', severity: 'high',
                                detail: "scan error: #{e.message}")
@@ -280,6 +281,57 @@ class ChangeLaneBrowserless < ChangeLane
     "#{base_url}#{login_url.start_with?('/') ? login_url : "/#{login_url}"}"
   end
 
+  # --- media ------------------------------------------------------------------
+
+  # The run's media sink, or nil. A sink exists only when the repo carries a
+  # `contributors_team.artifacts:` block, so a repo without one captures
+  # nothing and this lane behaves exactly as it did before media existed. The
+  # respond_to? guard keeps every existing caller that builds its own lane
+  # context (the lane unit tests do) working unchanged.
+  def media = @context.respond_to?(:media) ? @context.media : nil
+
+  def capture_screenshots? = !media.nil? && media.screenshots?
+  def capture_video? = !media.nil? && media.video?
+
+  # The scan payload's route/viewport cells. The module returns a bare array
+  # when nothing is being captured (the shape every prior version returned) and
+  # a `{ cells:, videos: }` mapping when it is, so an existing stub or an older
+  # module response still reads correctly.
+  def cells(result)
+    return Array(result['cells']) if result.is_a?(Hash)
+
+    Array(result)
+  end
+
+  # Moves the captured base64 out of the scan payload and onto disk, returning
+  # a finding only for a recording that failed. A screenshot or a recording is
+  # evidence attached to the report, never a gate signal: a missing one is a
+  # warn, so an artifact-only problem can never turn a passing audit red.
+  def capture_media(result)
+    sink = media
+    return [] unless sink
+
+    cells(result).each do |cell|
+      sink.add_screenshot(viewport: cell['viewport'], route: cell['route'], data: cell['shot']) if cell['shot']
+    end
+    videos(result).map { |video| record_video(sink, video) }.compact
+  end
+
+  def videos(result) = result.is_a?(Hash) ? Array(result['videos']) : []
+
+  def record_video(sink, video)
+    sink.add_video(viewport: video['viewport'], data: video['webm'], error: video['error'])
+    return nil if video['webm'].to_s != ''
+
+    Finding.new(lane: 'browserless', check: "#{video['viewport']} recording", target: base_url,
+                status: 'warn', severity: 'low',
+                detail: "no video recorded for this viewport: #{video['error'] || 'unknown reason'}")
+  end
+
+  def capture_options
+    { screenshots: capture_screenshots?, video: capture_video?, fps: media ? media.video_fps : 0 }
+  end
+
   # --- the browserless module --------------------------------------------------
 
   # One module walks the viewport-by-route matrix in a single page, so an
@@ -289,6 +341,18 @@ class ChangeLaneBrowserless < ChangeLane
   # errors, measures horizontal overflow, and (when a Figma reference was
   # fetched for that route/viewport) screenshots and pixel-diffs against it,
   # returning one flat entry per cell.
+  #
+  # When the run is building a findings artifact (`capture`), the same walk
+  # also collects the evidence that artifact renders: a full-page JPEG per
+  # cell, and one recording per viewport covering that viewport's entire route
+  # walk. The recording is assembled inside Chromium rather than on the host:
+  # CDP's `Page.startScreencast` streams live frames of the page being walked,
+  # a second page in the same browser draws each frame onto a canvas whose
+  # `captureStream()` feeds a `MediaRecorder`, and the resulting WebM comes
+  # back base64 in this same response. That indirection is forced, not
+  # stylistic: the browserless container shares no filesystem or network path
+  # with the host, so a recorder writing a file inside the container would
+  # produce a video nothing on the host could ever read.
   def scan_module(entries, auth, figma_refs)
     <<~JS
       export default async function ({ page }) {
@@ -298,7 +362,10 @@ class ChangeLaneBrowserless < ChangeLane
         const auth = #{JSON.generate(js_auth(auth))};
         const figmaRefs = #{JSON.generate(figma_refs)};
         const basicAuth = #{JSON.generate(basic_auth)};
+        const capture = #{JSON.generate(capture_options)};
         if (basicAuth) await page.authenticate({ username: basicAuth.username, password: basicAuth.password });
+
+        #{recorder_js}
 
         let authOk = null;
         let authError = null;
@@ -415,7 +482,9 @@ class ChangeLaneBrowserless < ChangeLane
         }
 
         const out = [];
+        const videos = [];
         for (const vp of viewports) {
+          const recorder = await startRecording(vp);
           for (const entry of routeEntries) {
             const cell = { viewport: vp.name, width: vp.width, height: vp.height, route: entry.path };
             if (entry.auth) {
@@ -445,6 +514,9 @@ class ChangeLaneBrowserless < ChangeLane
                 const shotBase64 = await page.screenshot({ encoding: "base64" });
                 cell.figmaDiff = await diffAgainstReference(shotBase64, refBase64);
               }
+              if (capture.screenshots) {
+                cell.shot = await page.screenshot({ encoding: "base64", type: "jpeg", quality: 72, fullPage: true });
+              }
             } catch (err) {
               cell.error = String(err);
             } finally {
@@ -452,10 +524,148 @@ class ChangeLaneBrowserless < ChangeLane
             }
             out.push(cell);
           }
+          const video = await stopRecording(recorder, vp);
+          if (video) videos.push(video);
         }
-        return { data: out, type: "application/json" };
+        return { data: { cells: out, videos: videos }, type: "application/json" };
       }
     JS
+  end
+
+  # The in-Chromium recorder, injected into the scan module above.
+  #
+  # `startRecording` opens a second page in the same browser, gives it a canvas
+  # fed to a MediaRecorder, and attaches a CDP screencast on the page actually
+  # being walked; every screencast frame is drawn onto that canvas, so the
+  # recording is a real moving picture of the route walk rather than a slide
+  # show assembled after the fact. `stopRecording` stops both ends and returns
+  # the WebM base64.
+  #
+  # Every failure path here is caught and reported as a per-viewport `error`
+  # string rather than thrown: a browser that cannot record (no MediaRecorder,
+  # a screencast that never attaches) must not take down an audit run whose
+  # actual job is the findings.
+  def recorder_js
+    <<~JS
+      async function startRecording(vp) {
+        if (!capture.video) return null;
+        try {
+          const recorderPage = await page.browser().newPage();
+          await recorderPage.setViewport({ width: vp.width, height: vp.height });
+          await recorderPage.setContent(#{JSON.generate(recorder_page_html)});
+          await recorderPage.evaluate((w, h, fps) => window.__cfStart(w, h, fps), vp.width, vp.height, capture.fps);
+          const client = await page.createCDPSession();
+          const state = { page: recorderPage, client: client, stopped: false, error: null };
+          client.on("Page.screencastFrame", async (frame) => {
+            if (state.stopped) return;
+            try {
+              await recorderPage.evaluate((data) => window.__cfPush(data), frame.data);
+            } catch (err) {
+              state.error = String(err);
+            }
+            try {
+              await client.send("Page.screencastFrameAck", { sessionId: frame.sessionId });
+            } catch (err) {
+              state.error = String(err);
+            }
+          });
+          await client.send("Page.startScreencast", {
+            format: "jpeg",
+            quality: 60,
+            maxWidth: vp.width,
+            maxHeight: vp.height,
+            everyNthFrame: 1,
+          });
+          return state;
+        } catch (err) {
+          return { page: null, client: null, stopped: true, error: String(err) };
+        }
+      }
+
+      async function stopRecording(state, vp) {
+        if (!capture.video) return null;
+        if (!state) return { viewport: vp.name, error: "recording was not started" };
+        state.stopped = true;
+        try {
+          if (state.client) {
+            await state.client.send("Page.stopScreencast");
+            await state.client.detach();
+          }
+          if (!state.page) return { viewport: vp.name, error: state.error || "no recorder page" };
+          const webm = await state.page.evaluate(() => window.__cfStop());
+          await state.page.close();
+          if (!webm) return { viewport: vp.name, error: state.error || "recorder produced no data" };
+          return { viewport: vp.name, webm: webm };
+        } catch (err) {
+          try { if (state.page) await state.page.close(); } catch (closeErr) { void closeErr; }
+          return { viewport: vp.name, error: String(err) };
+        }
+      }
+    JS
+  end
+
+  # The recorder page: a canvas, a MediaRecorder over its captured stream, and
+  # the three globals the module drives it with. Self-contained and asset-free
+  # (no remote font, no CDN script), so it renders identically wherever the
+  # browserless image runs.
+  def recorder_page_html
+    <<~HTML
+      <!doctype html><html><head><meta charset="utf-8"><style>html,body{margin:0;background:#000}</style></head>
+      <body><canvas id="cf-canvas"></canvas><script>
+        let ctx = null, recorder = null, chunks = [], queue = Promise.resolve();
+        window.__cfStart = function (width, height, fps) {
+          const canvas = document.getElementById("cf-canvas");
+          canvas.width = width;
+          canvas.height = height;
+          ctx = canvas.getContext("2d");
+          ctx.fillStyle = "#000";
+          ctx.fillRect(0, 0, width, height);
+          const stream = canvas.captureStream(fps);
+          const preferred = "video/webm;codecs=vp9";
+          const mimeType = window.MediaRecorder && MediaRecorder.isTypeSupported(preferred) ? preferred : "video/webm";
+          recorder = new MediaRecorder(stream, { mimeType: mimeType });
+          chunks = [];
+          recorder.ondataavailable = function (event) { if (event.data && event.data.size) chunks.push(event.data); };
+          recorder.start(1000);
+          return true;
+        };
+        window.__cfPush = function (base64) {
+          queue = queue.then(function () {
+            return new Promise(function (resolve) {
+              const image = new Image();
+              image.onload = function () {
+                const canvas = ctx.canvas;
+                const scale = Math.min(canvas.width / image.width, canvas.height / image.height);
+                const width = image.width * scale;
+                const height = image.height * scale;
+                ctx.fillStyle = "#000";
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                ctx.drawImage(image, (canvas.width - width) / 2, 0, width, height);
+                resolve();
+              };
+              image.onerror = function () { resolve(); };
+              image.src = "data:image/jpeg;base64," + base64;
+            });
+          });
+          return queue;
+        };
+        window.__cfStop = function () {
+          if (!recorder) return Promise.resolve(null);
+          return queue.then(function () {
+            return new Promise(function (resolve) {
+              recorder.onstop = function () {
+                const blob = new Blob(chunks, { type: recorder.mimeType });
+                const reader = new FileReader();
+                reader.onloadend = function () { resolve(String(reader.result).split(",")[1] || null); };
+                reader.onerror = function () { resolve(null); };
+                reader.readAsDataURL(blob);
+              };
+              recorder.stop();
+            });
+          });
+        };
+      </script></body></html>
+    HTML
   end
 
   def js_route_entries(entries, figma_refs)

@@ -4,6 +4,7 @@
 require 'open3'
 require 'optparse'
 require_relative 'change_apps'
+require_relative 'change_artifact'
 require_relative 'change_config'
 require_relative 'change_docker'
 require_relative 'change_findings'
@@ -23,7 +24,14 @@ require_relative 'change_lane_browserless'
 # outcome under the git head SHA so the merge gate can consult it later.
 #
 # Usage: change_run.rb <all|k6|a11y|zap|browserless> [--config PATH] [--profile NAME]
-#        [--app NAME]... [--target-url URL] [--health-url URL]
+#        [--app NAME]... [--target-url URL] [--health-url URL] [--no-publish]
+#
+# A repo whose CHANGE.md carries a `contributors_team.artifacts:` block also
+# gets a findings artifact (an HTML page with the run's screenshots, per
+# viewport recordings, and per viewport PDFs) built and published to the team's
+# S3 + CloudFront area after the gate is recorded; `--no-publish` builds the
+# bundle locally without uploading it. A repo without that block is untouched
+# by all of it.
 #
 # In a monorepo (change_config.apps, 0.4.0) a bare `all` sweeps every
 # registered, enabled app, in registry order, each with its own boot/teardown
@@ -49,11 +57,15 @@ class ChangeRun
   # Per-lane run context. Lanes talk only to this, never to the run internals:
   # the network to join, the default target url, the browser session (nil unless
   # a browser lane asked for one), and a logger.
-  Context = Struct.new(:network, :target_url, :health_url, :browserless, :logger, keyword_init: true) do
+  # `media` (0.32.0) is the run's artifact media sink, or nil. It is nil unless
+  # the repo carries a `contributors_team.artifacts:` block, and a lane holding
+  # a nil sink captures nothing, which is what keeps the artifact pipeline
+  # entirely opt-in.
+  Context = Struct.new(:network, :target_url, :health_url, :browserless, :media, :logger, keyword_init: true) do
     def log(message) = logger.call(message)
   end
 
-  Args = Struct.new(:scope, :config_path, :profile, :apps, :target_url, :health_url, keyword_init: true)
+  Args = Struct.new(:scope, :config_path, :profile, :apps, :target_url, :health_url, :publish, keyword_init: true)
 
   def self.main(argv)
     new(argv).run
@@ -85,16 +97,19 @@ class ChangeRun
     apps = []
     target_url = nil
     health_url = nil
+    publish = true
     OptionParser.new do |o|
       o.on('--config PATH') { |value| path = value }
       o.on('--profile NAME') { |value| profile = value }
       o.on('--app NAME') { |value| apps << value }
       o.on('--target-url URL') { |value| target_url = value }
       o.on('--health-url URL') { |value| health_url = value }
+      o.on('--no-publish') { publish = false }
     end.parse(argv.drop(1))
     valid = %w[all sweep] + ChangeConfig::LANES
     abort_and_exit("scope must be one of: #{valid.join(', ')}") unless valid.include?(scope)
-    Args.new(scope: scope, config_path: path, profile: profile, apps: apps, target_url: target_url, health_url: health_url)
+    Args.new(scope: scope, config_path: path, profile: profile, apps: apps, target_url: target_url,
+             health_url: health_url, publish: publish)
   end
 
   def overrides
@@ -126,10 +141,12 @@ class ChangeRun
     label = multi ? entry.name : nil
     log("[change] app: #{entry.name}") if multi
     lanes = resolve_lanes(config)
-    findings = with_app(config) { |ctx| execute(config, lanes, ctx) }
+    artifact = ChangeArtifactStep.for(repo_root: repo_root, publish: @args.publish, label: label)
+    findings = with_app(config, artifact) { |ctx| execute(config, lanes, ctx) }
     report = write_report(config, findings, lanes, app: label)
     record_gate(config, findings, report, app: label)
     summarize(findings, report, app: label)
+    publish_artifact(artifact, config, findings, report, app: label)
     { app: entry.name, passed: findings.passed?, failing: findings.failures.size, report: File.basename(report[:markdown]) }
   end
 
@@ -147,21 +164,21 @@ class ChangeRun
   # Boots the app, waits for health, then yields a context to run lanes in,
   # tearing the app down afterward. Network and browser lifecycle nest inside so
   # they too are always cleaned up.
-  def with_app(config)
+  def with_app(config, artifact = nil)
     boot = config.boot
     boot_up(boot)
     wait_healthy(boot)
     ChangeDocker.with_network(boot.network) do |network|
-      with_context(config, network) { |ctx| yield ctx }
+      with_context(config, network, artifact) { |ctx| yield ctx }
     end
   ensure
     boot_down(boot)
   end
 
-  def with_context(config, network)
+  def with_context(config, network, artifact = nil)
     ctx_args = {
       network: network.name, target_url: config.boot.target_url,
-      health_url: config.boot.health_url, logger: method(:log)
+      health_url: config.boot.health_url, media: artifact&.media, logger: method(:log)
     }
     if browser_needed?(config)
       ChangeDocker.with_browserless(network: network.name) do |session|
@@ -321,6 +338,23 @@ class ChangeRun
       report: File.basename(report[:markdown]), app: app,
       profile: config.profile, target: config.boot.target_url
     )
+  end
+
+  # The optional final step: build the findings artifact and publish it to the
+  # team's S3 + CloudFront area. Deliberately after `record_gate` and
+  # `summarize`, and deliberately unable to change either: the lanes' pass/fail
+  # is the release gate, and a bucket that is not provisioned yet, an expired
+  # AWS session, or a failed upload is reported as its own line rather than
+  # turning a passing audit into a failing run.
+  def publish_artifact(artifact, config, findings, report, app:)
+    return unless artifact
+
+    run = {
+      project: config.project, app: app, scope: @args.scope,
+      profile: config.profile || '(none)', target: config.boot.target_url
+    }
+    artifact.finish(findings: findings, report: report, run: run)
+            .each { |line| log("[change] #{app ? "[#{app}] " : ''}#{line}") }
   end
 
   def summarize(findings, report, app:)

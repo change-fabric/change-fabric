@@ -1,12 +1,14 @@
 ---
 # CHANGE.md is the single change-fabric file. Copy it to <repo-root>/CHANGE.md
-# and edit. Its frontmatter carries an optional spec_version plus two blocks:
+# and edit. Its frontmatter carries an optional spec_version plus three blocks:
 #
-#   spec_version:   the schema version this file is authored against (optional;
-#                   compared to the installed toolkit at load, warns on drift).
-#   change_config:  the mechanical target-app details the audit lanes read
-#                   (boot, health, routes, thresholds, viewports).
-#   change_policy:  the machine-checkable governance the merge gate enforces.
+#   spec_version:       the schema version this file is authored against (optional;
+#                       compared to the installed toolkit at load, warns on drift).
+#   change_config:      the mechanical target-app details the audit lanes read
+#                       (boot, health, routes, thresholds, viewports).
+#   change_policy:      the machine-checkable governance the merge gate enforces.
+#   contributors_team:  optional; the team this repo belongs to and, under
+#                       artifacts:, where its findings artifacts publish.
 #
 # The prose body below both blocks is the human governance FAQ. There is no
 # separate config file: a repo can carry only this one file, with none of the
@@ -25,7 +27,53 @@
 # change_config.apps, a root registry of per-app CHANGE.app.yml files; see the
 # spec's "change_config.apps" section and reference/CHANGE.app.template.yml.
 
-spec_version: "0.4.0"
+spec_version: "0.5.0"
+
+# Optional third block: which contributors team owns this repo, and where its
+# cf:change findings artifacts publish. Delete it entirely if this repo is not
+# registered with a team; nothing below the artifacts: key changes how a sweep
+# audits, reports, or gates.
+#
+# Mint the team once with `ruby ~/.claude/cf/bin/cf_team_init.rb <team_id>
+# "<label>"`, then provision the artifact area once with `ruby
+# ~/.claude/cf/bin/cf_artifacts_init.rb <team_id>`. Each prints the block to
+# paste here. See scripts/CF_TEAM_SETUP.md.
+contributors_team:
+  team_id: my-team
+  public_key_ed25519: <base64 verify-only key printed by cf_team_init.rb>
+  contributors:
+    - { id: pat, name: Pat Taylor }
+
+  # Present: a completed sweep also builds an HTML findings artifact (contributor
+  # and git context, every lane's findings, per-viewport screenshots, a recording
+  # per viewport, and an annotated PDF per viewport) and publishes it to the
+  # team's private bucket behind CloudFront, then rebuilds the team index of every
+  # contributor's runs. Absent: none of that happens, and the sweep behaves
+  # exactly as it did before this block existed. Publishing is best effort and is
+  # reported separately; it can never change the run's pass/fail.
+  artifacts:
+    bucket: cf-change-artifacts-my-team
+    region: us-east-1
+    aws_profile: personal        # optional, this is the default; AWS_PROFILE wins
+    distribution_id: E1XXXXXXXXXXXX
+    domain: d111111abcdef8.cloudfront.net
+    manifest_table: cf-change-artifacts   # optional, this is the default
+    # Where the VIEWER credential lives, never the credential itself. The SSM
+    # SecureString is the source of truth: cf_artifacts_init.rb reads it at deploy
+    # time and compiles only its SHA-256 digest into the CloudFront function, since
+    # a CloudFront function has no network access and cannot fetch a secret at
+    # request time. Rotate with `cf_artifacts_init.rb <team_id> --rotate` after
+    # writing the new value to the parameter.
+    basic_auth:
+      username: cf
+      ssm_parameter: /cf-change-artifacts/my-team/basic-auth
+      secret_ref: "op://<shared-vault>/change-fabric artifacts: my-team/password"
+    # media:
+    #   screenshots: true        # optional, this is the default
+    #   video: true              # optional, this is the default
+    #   video_fps: 6             # optional, this is the default; the recording rides
+    #                            # back base64 in the lane's own browserless response,
+    #                            # so this is the main lever on that payload's size
 
 change_config:
   project: my-app                 # label used in the Desktop report filename

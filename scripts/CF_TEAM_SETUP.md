@@ -47,6 +47,41 @@ Your `<your-contributor-id>` must match an `id` in the CHANGE.md
 3. Writes your contributor id to `~/.claude/cf/teams/<team_id>/contributor_id`,
    the file the hooks read to resolve "which contributor am I".
 
+## One time per team (optional): the findings-artifact area
+
+`cf_artifacts_init.rb` provisions the shared S3 + CloudFront area cf:change
+publishes its findings artifacts to. Skip it entirely if the team does not want
+published artifacts; without the `artifacts:` block a sweep behaves exactly as
+it always has.
+
+```
+ruby scripts/cf_artifacts_init.rb <team_id> [--region us-east-1] [--bucket NAME]
+```
+
+Run it twice, by design. The first run finds no credential in SSM, generates a
+high-entropy one, prints the `aws ssm put-parameter` and `op item create`
+commands for you to review and run yourself, and provisions nothing. The second
+run reads the credential back from SSM and creates:
+
+1. a private S3 bucket (public access blocked, ACLs disabled, SSE-S3 on),
+2. a CloudFront distribution reaching it through an Origin Access Control, with
+   a bucket policy allowing only that distribution,
+3. a CloudFront viewer-request function enforcing HTTP Basic Auth, carrying the
+   SHA-256 digest of the credential (never the credential: a CloudFront function
+   has no network access and cannot fetch a secret at request time), and
+4. the `cf-change-artifacts` DynamoDB table the team index page is built from.
+
+It then prints the `artifacts:` block to paste under `contributors_team:` in the
+repo's `CHANGE.md`. Nothing in that block is a secret.
+
+Rotating the viewer credential: write the new `username:password` to the same
+SSM parameter, then run `ruby scripts/cf_artifacts_init.rb <team_id> --rotate`,
+which republishes the function with the new digest and touches nothing else.
+
+Publishing needs `aws-sdk-s3`, `aws-sdk-dynamodb`, and `aws-sdk-cloudfront`
+installed for the runtime that runs `change_run.rb`; a missing gem is a named
+warning on the run, never a failure. Provisioning also needs `aws-sdk-ssm`.
+
 ## The capability env vars (all off by default)
 
 Set the ones you want, per plan sections 9 and 10:
@@ -80,6 +115,7 @@ provisioned by `cf_team_join.rb`.
   the secret poll injects nothing). Capability A does not sign and does not need
   the gem.
 - After changing any script here, re-run `install.rb` to sync the live install
-  (`~/.claude/cf/bin/` and `~/.claude/settings.json`). `cf_team_init.rb` and
+  (`~/.claude/cf/bin/` and `~/.claude/settings.json`). `cf_team_init.rb`,
+  `cf_artifacts_init.rb`, and
   `cf_team_join.rb` are human-run tools, not hooks, so they are intentionally not
   wired into `settings.json`.
