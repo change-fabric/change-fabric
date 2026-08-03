@@ -14,9 +14,12 @@ import {
  * column's property name is the Better Auth field name, so those two sides must
  * not drift even though the physical column names are snake_case.
  *
- * Nothing outside Better Auth's own schema lives here. The platform's custom
- * tables (team API keys, repo links, artifacts, contributor aliases) belong to
- * later phases and are deliberately absent.
+ * Below those sit the first two tables Better Auth does NOT own: `team_api_key`
+ * and `repo_link`. They are the platform's own, reached through the store in
+ * src/store.ts rather than through the plugin, and they reference the plugin's
+ * tables by foreign key so a deleted organization takes its keys and its repo
+ * links with it. `artifact`, `artifact_file` and `contributor_alias` belong to
+ * later phases and are still deliberately absent.
  */
 
 export const user = pgTable("user", {
@@ -128,6 +131,11 @@ export const team = pgTable(
     slug: text("slug").notNull(),
     publicKeyEd25519: text("public_key_ed25519"),
     legacyTeamId: text("legacy_team_id").unique(),
+    // Archiving is a soft delete, not a row removal. A team's slug appears in
+    // artifact paths and in whatever a downstream repository already recorded,
+    // and its API keys and repo links point at it, so deleting the row would
+    // strand references rather than retire them. Null means active.
+    archivedAt: timestamp("archived_at"),
   },
   (table) => [
     index("team_organization_id_idx").on(table.organizationId),
@@ -180,5 +188,76 @@ export const invitation = pgTable(
   (table) => [
     index("invitation_organization_id_idx").on(table.organizationId),
     index("invitation_email_idx").on(table.email),
+  ],
+);
+
+/**
+ * A bearer credential a contributor team's tooling presents instead of a
+ * session. Phase 6 is the real consumer; this phase mints, lists and revokes
+ * them, and proves one resolves.
+ *
+ * Only the SHA-256 digest of the raw key is stored, so a copy of this table is
+ * not a copy of anyone's credentials. `key_prefix` exists because the raw key is
+ * shown exactly once and a person still has to be able to tell two of their own
+ * keys apart afterwards; it is a strict, non-secret prefix of the raw value.
+ *
+ * `revoked_at` and `expires_at` are separate: revoking is a decision someone
+ * made, expiring is a date passing, and a lookup has to reject both.
+ */
+export const teamApiKey = pgTable(
+  "team_api_key",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    teamId: text("team_id")
+      .notNull()
+      .references(() => team.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    // Unique, so the digest is what a lookup indexes on and two keys can never
+    // collide into one row silently.
+    keyHash: text("key_hash").notNull().unique(),
+    keyPrefix: text("key_prefix").notNull(),
+    createdByUserId: text("created_by_user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    lastUsedAt: timestamp("last_used_at"),
+    expiresAt: timestamp("expires_at"),
+    revokedAt: timestamp("revoked_at"),
+  },
+  (table) => [
+    index("team_api_key_team_id_idx").on(table.teamId),
+    index("team_api_key_organization_id_idx").on(table.organizationId),
+  ],
+);
+
+/**
+ * A git repository claimed by exactly one contributor team.
+ *
+ * `repo_id` is the normalized `host/path` form of a git remote
+ * (`github.com/acme/web`), not a URL: the same repository is reachable over SSH
+ * and HTTPS with different spellings, and a claim has to survive both. It is
+ * unique across the whole table rather than per organization on purpose, because
+ * the question this row answers is "which team owns what a run pushed from", and
+ * two organizations both claiming one repository has no consistent answer.
+ */
+export const repoLink = pgTable(
+  "repo_link",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    teamId: text("team_id")
+      .notNull()
+      .references(() => team.id, { onDelete: "cascade" }),
+    repoId: text("repo_id").notNull().unique(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => [
+    index("repo_link_team_id_idx").on(table.teamId),
+    index("repo_link_organization_id_idx").on(table.organizationId),
   ],
 );

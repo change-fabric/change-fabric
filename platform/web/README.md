@@ -15,15 +15,32 @@ nothing else.
 ```
 src/config.ts           where API calls go, and why they go there
 src/auth.ts             the one Better Auth client, organization plugin loaded
-src/api.ts              POST /v1/onboarding, the one route Better Auth does not own
+src/api.ts              the platform's own routes, and one place that reads a failure
 src/router.ts           pushState routing, small enough to read in one sitting
 src/App.tsx             account state first, URL second
-src/pages/              sign up, log in, verification notice, onboarding, dashboard
-src/components/         the shell, the org switcher, the error notice
+src/pages/              sign up, log in, onboarding, dashboard, teams, accept-invite
+src/components/         the shell, the org switcher, the invite dialog, the notice
 basic-auth.function.js  CloudFront Function TEMPLATE, digest substituted at deploy
 deploy.sh               publish the function, sync dist/, invalidate
-verify/run.mjs          headless end-to-end run against the deployed site
+verify/run.mjs          phase 3 headless run: sign-up, onboarding, the dashboard
+verify/teams.mjs        phase 4 headless run: teams, invites, membership, keys
 ```
+
+## Teams, invitations, and keys
+
+The Teams screens are the only ones that load their own data rather than reading
+the account state `App.tsx` already fetched. That is deliberate: they are the
+screens that write, so they reload after a write instead of waiting for the whole
+account to be refetched.
+
+A minted key is shown once, in a banner that says so, and then never again. The
+API stores only its digest, so there is nothing to show later even if this page
+wanted to. The listing below the banner shows prefixes only.
+
+The create-team, invite and mint-key controls render only for an owner or an
+admin. That is a courtesy, not the rule: the API answers 403 to a member either
+way, and `verify/teams.mjs` proves it with curl and a real member's session
+cookie rather than by observing that a button was hidden.
 
 ## Working on it
 
@@ -83,6 +100,22 @@ distribution reads the function through a data source instead of managing it).
 The digest covers the whole header value, matching the existing precedent in
 `skills/change/reference/artifact-basic-auth.function.js`, so there is one
 algorithm across the estate rather than two.
+
+### The same function also does the SPA routing
+
+Once the credential checks out, the function rewrites an extensionless path that
+is not `/api/*` or `/v1/*` to `/index.html`, so a deep link or a reload reaches
+the client router.
+
+That replaced a distribution-wide `custom_error_response` mapping 403 and 404 to
+`/index.html` with a 200. That is the usual recipe for a SPA on S3 behind OAC, and
+it cannot work on this distribution, because the same distribution also fronts
+the API: the mapping is distribution-wide, so once the API grew routes that
+legitimately answer 403 (a member attempting an owner-only write) and 404 (an id
+from another organization), every one of those reached the browser as a 200
+carrying an HTML page, and `src/api.ts` reported "no readable body" instead of
+the reason the server gave. Rewriting in the function is scoped by construction:
+an API path is returned untouched, so its status arrives intact.
 
 Rotating the credential:
 
@@ -145,9 +178,27 @@ rows really exist and say what the screen said.
 Screenshots land in `.verification/`, which is gitignored: they are evidence for
 the run that produced them, not an artifact of the build.
 
+`verify/teams.mjs` is the phase 4 run, on the same harness. It drives TWO browser
+contexts side by side, one per person, so an owner and a contributor each hold
+their own cookie jar exactly as two people would:
+
+```
+export AWS_PROFILE=personal
+node verify/teams.mjs
+```
+
+Twelve steps: onboard an owner, create two teams, sign up a second account
+standalone, invite it onto one team, accept through the real link, add it to the
+second team as well, mint a key, resolve that key against `/v1/whoami-key` and
+confirm `last_used_at` moved in Postgres, revoke it and confirm the same call
+stops working, then prove the member-role 403 with curl and that member's own
+session cookie. Every claim is checked against Postgres through the
+`cf-platform-migrate` `query` action, not against what the screen said.
+
+The key banner is dismissed BEFORE the keys panel is screenshotted, so no image
+in `.verification/` ever carries a raw key.
+
 ## What is not here
 
-Inviting members, changing roles, contributor-team CRUD, and API-key management
-are phase 4. The members list is read-only for exactly that reason: a disabled
-button would advertise something that does not exist. The artifacts surface is
-phase 5.
+Changing somebody's role after they join, and the artifacts surface. Those are
+later phases.

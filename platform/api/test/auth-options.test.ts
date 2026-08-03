@@ -9,7 +9,9 @@ function optionsWithDomain(cookieDomain: string) {
     baseURL: "https://api.staging.example.org",
     cookieDomain,
     trustedOrigins: ["https://app.staging.example.org"],
+    appOrigin: "https://app.staging.example.org",
     sendVerificationEmail: async () => undefined,
+    sendInvitationEmail: async () => undefined,
   });
 }
 
