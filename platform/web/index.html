@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>change fabric platform</title>
+    <meta name="robots" content="noindex, nofollow" />
+    <meta
+      name="description"
+      content="The change fabric platform: accounts, organizations, and contributor teams."
+    />
+    <script>
+      // Apply a stored theme choice before first paint to avoid a flash of the
+      // wrong theme. No stored choice means follow prefers-color-scheme via CSS.
+      (function () {
+        try {
+          var t = localStorage.getItem("cf-theme");
+          if (t === "light" || t === "dark") {
+            document.documentElement.setAttribute("data-theme", t);
+          }
+        } catch (e) {}
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

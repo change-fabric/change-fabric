@@ -108,6 +108,36 @@ output "migrate_function_name" {
   value       = aws_lambda_function.migrate.function_name
 }
 
+output "app_domain_name" {
+  description = "Public host the staging web app answers on."
+  value       = local.app_domain
+}
+
+output "app_url" {
+  description = "Staging web app URL. Behind the shared staging Basic Auth gate."
+  value       = "https://${local.app_domain}"
+}
+
+output "app_bucket" {
+  description = "Private S3 bucket holding the built web app. Read only by CloudFront through an OAC."
+  value       = aws_s3_bucket.app.bucket
+}
+
+output "app_distribution_id" {
+  description = "CloudFront distribution serving the web app and proxying /api/* and /v1/* to the API."
+  value       = aws_cloudfront_distribution.app.id
+}
+
+output "app_basic_auth_function_name" {
+  description = "Viewer-request function holding the Basic Auth digest. Its code is published by platform/web/deploy.sh, not by Terraform."
+  value       = data.aws_cloudfront_function.app_basic_auth.name
+}
+
+output "deploy_app_role_arn" {
+  description = "IAM role a future CI workflow assumes via OIDC to publish the web app. Nothing assumes it yet."
+  value       = aws_iam_role.deploy_app.arn
+}
+
 output "ses_from_address" {
   description = "From address the staging API sends transactional mail as."
   value       = local.ses_from_address
