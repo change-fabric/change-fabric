@@ -1,19 +1,24 @@
 name: bump-tap-formula
 
-# Publishes a tagged toolkit release to the pstaylor-patrick/cf Homebrew tap.
-# A custom tap, not homebrew-core: this toolkit fails core's notability bar
-# and its whole job is mutating files outside the Cellar (~/.claude/,
-# ~/.pi/, ~/.config/opencode/), which core rejects. Separate from
-# tag-on-version.yml on purpose: that workflow's only job is cutting the tag,
-# this one's only job is publishing it, so a tap-publish failure never blocks
-# tagging and can be re-run independently. Triggers on the tag itself (a
-# durable artifact) rather than racing tag-on-version.yml inside the same
-# push-to-main event.
+# Publishes a tagged toolkit release to the change-fabric/cf Homebrew tap
+# (github.com/change-fabric/homebrew-cf). A custom tap, not homebrew-core:
+# this toolkit fails core's notability bar and its whole job is mutating
+# files outside the Cellar (~/.claude/, ~/.pi/, ~/.config/opencode/), which
+# core rejects. Separate repo from this one on purpose too: brew's `tap
+# user/name` shorthand requires a repo literally named `homebrew-name`, and
+# keeping formula-bump PRs out of this repo's own PR queue keeps the
+# TAP_BUMP_TOKEN scoped to a small repo instead of this one.
+#
+# Also separate from release-skills.yml on purpose: that workflow's only job
+# is publishing the GitHub Release, this one's only job is bumping the tap,
+# so a tap-publish failure never blocks the release and can be re-run
+# independently. Triggers on the tag itself (a durable artifact) rather than
+# racing release-skills.yml inside the same push event.
 #
 # Inert until the tap exists and TAP_BUMP_TOKEN is set: the guard step below
 # skips cleanly rather than failing on every skills/v* tag in the meantime,
 # since this repo tags several times a day and a failing-by-default workflow
-# would just be noise until the external tap is actually stood up.
+# would just be noise until the tap is actually stood up.
 
 on:
   push:
@@ -35,7 +40,7 @@ jobs:
         id: gate
         run: |
           if [ -z "$TAP_BUMP_TOKEN" ]; then
-            echo "TAP_BUMP_TOKEN not set; skipping until pstaylor-patrick/homebrew-cf exists and the secret is configured."
+            echo "TAP_BUMP_TOKEN not set; skipping until change-fabric/homebrew-cf exists and the secret is configured."
             echo "ready=false" >> "$GITHUB_OUTPUT"
           else
             echo "ready=true" >> "$GITHUB_OUTPUT"
@@ -50,8 +55,8 @@ jobs:
         env:
           HOMEBREW_GITHUB_API_TOKEN: ${{ secrets.TAP_BUMP_TOKEN }}
         run: |
-          brew tap pstaylor-patrick/cf
+          brew tap change-fabric/cf
           brew bump-formula-pr \
             --no-browse --no-audit \
-            --url "https://github.com/pstaylor-patrick/change-fabric/archive/refs/tags/skills/v${VERSION}.tar.gz" \
-            pstaylor-patrick/cf/change-fabric
+            --url "https://github.com/change-fabric/change-fabric/archive/refs/tags/skills/v${VERSION}.tar.gz" \
+            change-fabric/cf/change-fabric
