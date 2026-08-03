@@ -1,11 +1,16 @@
 name: deploy-site
 
+# Publishes www.changefabric.org. Triggered by a site/v* tag, not by a push to
+# main: merging a site change stages it, pushing the tag ships it. No path
+# filters, because a tag deploys the whole tree at that commit rather than the
+# subset of files the last merge happened to touch.
+#
+# The role this assumes is trusted for refs/tags/site/v* only (site/infra/
+# oidc.tf), so nothing else in this repo can deploy production.
+
 on:
   push:
-    branches: [main]
-    paths:
-      - "site/**"
-      - "skills/change/reference/CHANGE-frontmatter-spec.md"
+    tags: ["site/v*"]
 
 permissions:
   id-token: write
@@ -18,23 +23,55 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: site
     steps:
       - uses: actions/checkout@v5
+        with:
+          # Tags are needed for the spec-released guard below.
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: The tag must match site/VERSION at the tagged commit
+        run: |
+          version="${GITHUB_REF_NAME#site/v}"
+          declared="$(tr -d '[:space:]' < site/VERSION)"
+          if [ "$version" != "$declared" ]; then
+            echo "::error title=Version mismatch::Tag ${GITHUB_REF_NAME} claims ${version} but site/VERSION at this commit says ${declared}."
+            exit 1
+          fi
+
+      - name: The spec this build would publish must already be released
+        run: |
+          # The site embeds the spec at build time and presents it as the
+          # current version at /spec. Deploying a spec version that has no
+          # spec/v* tag would publish it as current with no release, no
+          # permanent artifact and nothing to pin. The site may lag a spec
+          # release; it may never lead one. See RELEASING.md decision 2.
+          spec="$(sed -n 's/^Schema version:[[:space:]]*\(.*\)$/\1/p' skills/change/reference/CHANGE-frontmatter-spec.md | head -1)"
+          if [ -z "$spec" ]; then
+            echo "::error title=No spec version::The spec doc has no 'Schema version:' line."
+            exit 1
+          fi
+          if ! git rev-parse -q --verify "refs/tags/spec/v${spec}" >/dev/null; then
+            echo "::error title=Spec not released::This commit carries spec ${spec}, which has no spec/v${spec} tag. Push that tag first, then re-cut this site tag."
+            exit 1
+          fi
+          echo "spec ${spec} is released; site may publish it"
+
       - uses: actions/setup-node@v6
         with:
           node-version: "24"
           cache: npm
           cache-dependency-path: site/package-lock.json
       - run: npm ci
+        working-directory: site
       - run: npm run build
+        working-directory: site
       - uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ vars.DEPLOY_SITE_ROLE_ARN }}
           aws-region: us-east-1
       - name: Publish
+        working-directory: site
         env:
           SITE_BUCKET: ${{ vars.SITE_BUCKET }}
           WWW_DISTRIBUTION_ID: ${{ vars.WWW_DISTRIBUTION_ID }}

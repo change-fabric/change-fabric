@@ -48,11 +48,15 @@ cd infra
 
 ## CI/CD
 
-`.github/workflows/deploy-site.yml` runs this same publish step on every push
-to `main` that touches `site/**` or the CHANGE.md spec doc, authenticating to
-AWS via GitHub's OIDC provider (no long-lived keys). `oidc.tf` defines the IAM
-role it assumes, trusted only for `repo:change-fabric/change-fabric` pushes
-to `main`. The workflow reads `SITE_BUCKET`/`WWW_DISTRIBUTION_ID`/
+`.github/workflows/deploy-site.yml` runs this same publish step when a
+`site/v*` tag is pushed, not on merges to `main`. Merging stages the change;
+the tag ships it (`RELEASING.md`). It authenticates to AWS via GitHub's OIDC
+provider (no long-lived keys). `oidc.tf` defines the IAM role it assumes,
+trusted only for `repo:change-fabric/change-fabric` pushes of a
+`refs/tags/site/v*` ref, so a run on any branch cannot deploy. Re-apply this
+module once before the first tag deploy: the previous trust policy matched
+`refs/heads/main` and will reject the tag run. The workflow reads
+`SITE_BUCKET`/`WWW_DISTRIBUTION_ID`/
 `DEPLOY_SITE_ROLE_ARN` from repo variables instead of running Terraform, so CI
 never needs state-backend access; set them once after `terraform apply` from
 this module's outputs (`site_bucket`, `www_distribution_id`,

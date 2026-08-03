@@ -30,3 +30,9 @@ distributions, an ACM cert, and Route53 records in the existing hosted zone),
 with remote state in an S3 backend. See `infra/README.md`. After
 `terraform apply`, publish the build with `infra/deploy.sh`, which syncs `dist/`
 to the site bucket and invalidates CloudFront.
+
+In CI this runs off a `site/v*` tag, never off a merge to `main`. Bump
+`site/VERSION` in the PR, merge, then push `site/v<that version>` to deploy.
+The site's version is `site/VERSION`; `package.json`'s `version` is inert,
+since the package is private and never published. The full three-track release
+model is the root `RELEASING.md`.
