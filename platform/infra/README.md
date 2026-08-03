@@ -125,6 +125,7 @@ so the credential stays in a single place:
 
 - phase 2, the staging API (done)
 - phase 3, the staging web app
+- the bare staging apex, `staging.changefabric.org` (same distribution as the web app)
 - phase 5, the staging artifacts host
 
 The API reads it once at cold start, caches it in module scope, and compares
@@ -132,12 +133,27 @@ with a constant-time comparison. Everything except `/healthz` sits behind it;
 `/healthz` is exempt so the Lambda and gateway wiring can be confirmed before
 SSM or the database is reachable.
 
+Unlike the other three parameters below, this one is not generated in-config:
+it comes from `var.staging_basic_auth_credential` (see `variables.tf`), which
+has no default. Supply it with a gitignored `secrets.auto.tfvars` in this
+directory (`*.auto.tfvars` and `secrets.tfvars` are both ignored):
+
+```
+# platform/infra/secrets.auto.tfvars, never committed
+staging_basic_auth_credential = "changefabric:changefabric"
+```
+
+or a `TF_VAR_staging_basic_auth_credential` environment variable at plan/apply
+time. Either way, the value never appears as a literal in a `.tf` file: this
+directory is public, and a committed credential is grep-able forever
+regardless of how low-stakes it is.
+
 ### Bootstrapping the parameters by hand
 
-This root generates all three random values in-config with the `random`
+This root generates the other three values in-config with the `random`
 provider, so the first apply needed no out-of-band step and no human ever
-handled a secret. The values reach exactly two places: the encrypted remote
-state, and SSM.
+handled a secret for them. Those values reach exactly two places: the
+encrypted remote state, and SSM.
 
 If a future re-provision should instead seed them out of band (for instance to
 carry an existing value forward), create each parameter before applying and
@@ -457,6 +473,22 @@ reach. Phase 3 was applied with `-target` on its ten new resources for that
 reason, after confirming the full plan read `10 to add, 0 to change, 0 to
 destroy`. Repeating steps 1 through 4 above is still the way to plan this root
 without the errors.
+
+### The staging apex
+
+`staging.changefabric.org` (no `app.` prefix) is a second alias on the same
+distribution and the same origins as the web app, gated by the same Basic
+Auth function: `https://staging.changefabric.org/` works exactly like
+`https://app.staging.changefabric.org/`, no redirect, one credential. It exists
+because the wildcard `*.staging.changefabric.org` certificate does not cover its
+own parent name (a wildcard covers one label deep, not the apex), so the apex
+needed an explicit second SAN on `aws_acm_certificate.staging` rather than
+riding along automatically. Adding a SAN to an issued ACM certificate forces
+`aws_acm_certificate.staging` to be replaced (`create_before_destroy = true`
+handles this with no downtime: the new certificate validates via DNS before the
+old one is destroyed), which in turn touches every resource that references its
+ARN, the web app distribution, the artifacts distribution, and the API Gateway
+custom domain, all in the same apply.
 
 ## The staging artifacts host
 

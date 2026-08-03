@@ -72,12 +72,8 @@ locals {
   staging_auth_secret_param = "/cf-platform/staging/better-auth-secret"
   staging_basic_auth_param  = "/cf-platform/staging/basic-auth-credential"
 
-  # The staging-wide HTTP Basic Auth gate sits in front of every staging surface
-  # (web app, API, artifacts host) on top of the real per-org auth. Phases 2, 3
-  # and 5 read this parameter; this root only provisions it.
-  staging_basic_auth_credential = "changefabric:changefabric"
-
   staging_wildcard = "*.staging.${var.domain}"
+  staging_apex     = "staging.${var.domain}"
 
   tags = {
     Project   = "changefabric-platform"

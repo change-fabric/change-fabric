@@ -12,3 +12,9 @@ tfplan*
 # Lambda deployment package, zipped from platform/api/dist at plan time. It is
 # a build output of a build output; the source of truth is platform/api.
 build/
+
+# Local values for variables that must never be committed (the staging Basic
+# Auth credential, and anything like it later). terraform apply/plan loads
+# *.auto.tfvars automatically; see README.md for the file this is meant to hold.
+*.auto.tfvars
+secrets.tfvars

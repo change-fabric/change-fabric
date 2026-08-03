@@ -70,12 +70,14 @@ resource "aws_ssm_parameter" "staging_better_auth_secret" {
 #
 # The value is a deliberate, non-secret shared credential (user:pass, colon
 # separated), stored as a SecureString for uniformity with the parameters around
-# it rather than because it is sensitive.
+# it rather than because it is sensitive. Even so, it comes from a variable
+# (see variables.tf), never a literal here: this file is public, and a
+# committed credential is grep-able forever regardless of how low-stakes it is.
 resource "aws_ssm_parameter" "staging_basic_auth_credential" {
   name        = local.staging_basic_auth_param
   type        = "SecureString"
-  value       = local.staging_basic_auth_credential
-  description = "Shared HTTP Basic Auth credential (user:pass) gating every staging surface. Consumed by phases 2 (web app), 3 (API) and 5 (artifacts)."
+  value       = var.staging_basic_auth_credential
+  description = "Shared HTTP Basic Auth credential (user:pass) gating every staging surface. Consumed by phases 2 (web app), 3 (API), 5 (artifacts), and the staging apex."
 
   tags = local.tags
 }
