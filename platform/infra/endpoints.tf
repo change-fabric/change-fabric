@@ -19,10 +19,31 @@
 # interface one. See below.
 # ---------------------------------------------------------------------------
 
+# The mailpit phase adds three more, and all three are the price of running a
+# container in a VPC with no internet path. A Fargate task pulls its own image
+# and ships its own logs, and neither of those is something the task's code does:
+# they are done by the platform on its behalf, over the task's ENI, so they need
+# a private path exactly as much as an SDK call would.
+#
+#   ecr.api  the control-plane calls: authorization token, manifest lookup
+#   ecr.dkr  the registry itself, which is what serves the manifest
+#   logs     the awslogs driver, which has nowhere to send a line without it
+#
+# Layer BLOBS are not served by either ECR endpoint. They live in S3, and the
+# gateway endpoint below is what carries them; its policy needed a second
+# statement to say so.
+#
+# AWS's own list for a Fargate task with no internet access is exactly these
+# three plus the S3 gateway endpoint. The `ecs`, `ecs-agent` and `ecs-telemetry`
+# endpoints are deliberately absent: they are the EC2 launch type's requirement,
+# and the ECS documentation states that a task on Fargate does not need them.
 locals {
   platform_endpoint_services = toset([
     "com.amazonaws.us-east-1.ssm",
     "com.amazonaws.us-east-1.email",
+    "com.amazonaws.us-east-1.ecr.api",
+    "com.amazonaws.us-east-1.ecr.dkr",
+    "com.amazonaws.us-east-1.logs",
   ])
 }
 
@@ -75,16 +96,47 @@ resource "aws_vpc_endpoint" "s3" {
   # a mistake in that role cannot reach another bucket THROUGH THIS VPC.
   policy = jsonencode({
     Version = "2012-10-17"
-    Statement = [{
-      Sid       = "ArtifactsBucketOnly"
-      Effect    = "Allow"
-      Principal = "*"
-      Action    = ["s3:GetObject", "s3:PutObject"]
-      Resource  = ["${aws_s3_bucket.artifacts.arn}/*"]
-    }]
+    Statement = [
+      {
+        Sid       = "ArtifactsBucketOnly"
+        Effect    = "Allow"
+        Principal = "*"
+        Action    = ["s3:GetObject", "s3:PutObject"]
+        Resource  = ["${aws_s3_bucket.artifacts.arn}/*"]
+      },
+      # ECR does not serve image layers itself. It hands out a redirect to an
+      # S3 bucket it owns, so a Fargate task pulling through the ecr.dkr
+      # endpoint still fetches every blob over THIS endpoint. Without this
+      # statement the pull fails partway with a layer download error rather
+      # than with anything mentioning S3, which is a confusing place to end up.
+      #
+      # A second statement rather than a wider Resource on the first: the two
+      # grants have nothing to do with each other, and the read here is
+      # AWS-owned public image data rather than anything of ours.
+      {
+        Sid       = "EcrLayerBlobs"
+        Effect    = "Allow"
+        Principal = "*"
+        Action    = ["s3:GetObject"]
+        Resource  = ["arn:aws:s3:::prod-us-east-1-starport-layer-bucket/*"]
+      },
+    ]
   })
 
   tags = merge(local.tags, { Name = "${local.name_prefix}-s3" })
+}
+
+# The Mailpit task reaches the ECR and Logs endpoints through the same group the
+# Lambda uses, for the same reason the bastion does: one endpoint per service per
+# VPC, so the group in front of it is shared and the callers are named in rules
+# rather than given endpoints of their own.
+resource "aws_vpc_security_group_ingress_rule" "vpce_from_mailpit" {
+  security_group_id            = aws_security_group.vpc_endpoint.id
+  description                  = "HTTPS from the Mailpit task, which pulls its image and ships its logs through these endpoints."
+  from_port                    = 443
+  to_port                      = 443
+  ip_protocol                  = "tcp"
+  referenced_security_group_id = aws_security_group.mailpit.id
 }
 
 # The bootstrap bastion also needs the ssm endpoint, and AWS refuses a second

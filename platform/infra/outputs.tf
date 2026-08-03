@@ -173,6 +173,41 @@ output "artifacts_retention_days" {
   value       = local.artifacts_retention_days
 }
 
+output "mailpit_domain_name" {
+  description = "Public host the staging Mailpit UI answers on."
+  value       = local.mailpit_domain
+}
+
+output "mailpit_url" {
+  description = "Staging Mailpit UI. Behind the shared staging Basic Auth gate."
+  value       = "https://${local.mailpit_domain}"
+}
+
+output "mailpit_distribution_id" {
+  description = "CloudFront distribution fronting the internal load balancer in front of Mailpit."
+  value       = aws_cloudfront_distribution.mailpit.id
+}
+
+output "mailpit_auth_function_name" {
+  description = "Viewer-request function holding the Basic Auth digest. Its code is published by platform/mailpit/deploy.sh, not by Terraform."
+  value       = data.aws_cloudfront_function.mailpit_basic_auth.name
+}
+
+output "mailpit_repository_url" {
+  description = "Private ECR repository the Fargate task pulls from. platform/mailpit/mirror-image.sh pushes to it from outside the VPC."
+  value       = aws_ecr_repository.mailpit.repository_url
+}
+
+output "mailpit_smtp_endpoint" {
+  description = "Where the API Lambda submits mail, as host:port. A Cloud Map name resolvable only inside the VPC."
+  value       = "${local.mailpit_smtp_host}:${local.mailpit_smtp_port}"
+}
+
+output "mailpit_service_name" {
+  description = "ECS service running Mailpit, in the cf-platform cluster."
+  value       = aws_ecs_service.mailpit.name
+}
+
 output "ses_from_address" {
   description = "From address the staging API sends transactional mail as."
   value       = local.ses_from_address

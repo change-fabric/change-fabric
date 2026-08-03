@@ -11,7 +11,7 @@ src/auth-options.ts   Better Auth configuration, plugins, slug immutability
 src/app.ts            the Hono app: route registration and the one error handler
 src/basic-auth.ts     the staging-wide Basic Auth gate
 src/config.ts         environment plus the SSM reads, cached at cold start
-src/email.ts          SES v2 sender
+src/email.ts          SMTP sender (staging, Mailpit) and SES v2 sender
 src/validation.ts     reading a request body without trusting any of it
 src/api-keys.ts       minting, hashing, and recognising a team API key
 src/store.ts          the platform's own tables, as an interface plus Drizzle
@@ -75,6 +75,34 @@ invoking `cf-platform-migrate`; see `platform/infra/README.md`.
    `SameSite=Lax`.
 
 Both apply. Neither substitutes for the other.
+
+## Where transactional mail goes
+
+`src/email.ts` carries two senders and picks between them on one fact: whether
+`SMTP_HOST` and `SMTP_PORT` are set.
+
+| Set | Path | Where |
+| --- | --- | --- |
+| yes | SMTP, via nodemailer | Mailpit, on staging. `https://mailpit.staging.changefabric.org` |
+| no | the SES v2 API | wherever SES delivers, which is production's path |
+
+Staging **replaces** SES rather than sending both ways, and the reason is that
+SES is in the sandbox on this account: every send to an address that is not a
+pre-verified identity is rejected. Sending both ways would put a guaranteed
+rejection in the log beside every successful delivery, which teaches a reader to
+skip the one line that would matter if the SES path ever broke for a real
+reason. The SES sender is untouched, still covered, and still exercised directly
+by `migrate.ts`'s `sesCheck` action against the mailbox simulator.
+
+What decides is deliberately the presence of somewhere to submit mail, not an
+environment name. Terraform already knows whether a Mailpit exists in a given
+deployment and already sets these two variables; an `ENVIRONMENT=staging` string
+would be a second claim about the same thing, and the day the two disagreed the
+mail would go somewhere nobody expected.
+
+Either way the send is wrapped in `bestEffort`. A mail is a side effect of
+creating an account or an invitation, not part of it, and a Mailpit task that is
+restarting must no more roll back a sign-up than a sandboxed SES did.
 
 ## Onboarding is explicit
 

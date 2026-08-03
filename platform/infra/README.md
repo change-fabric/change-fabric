@@ -26,6 +26,11 @@ findings runs behind a CloudFront distribution on
 CloudFront signed cookies the API mints. See [The staging artifacts
 host](#the-staging-artifacts-host) below.
 
+The mailpit phase adds a staging mailbox a person can actually open: a Fargate
+service on `mailpit.staging.changefabric.org` that the API sends its
+verification and invitation mail to instead of to a sandboxed SES. See
+[Mailpit, the staging mailbox](#mailpit-the-staging-mailbox) below.
+
 This is a separate root from `site/infra` and `telemetry/infra`. It shares the
 state backend bucket and reads the `changefabric.org` hosted zone, but manages
 neither, and it touches nothing either of those roots owns.
@@ -83,7 +88,7 @@ through an interface VPC endpoint instead. A NAT gateway would add both a
 recurring cost and an internet egress path this design deliberately avoids, so
 introducing one is a decision for a human, not a routine change.
 
-There are three standing endpoints, all single-AZ (`us-east-1a`) because an
+There are six standing endpoints, all single-AZ (`us-east-1a`) because an
 interface endpoint bills per ENI per availability zone. That is a staging cost
 posture; phase 8 revisits it alongside production. Cross-AZ traffic inside the
 VPC reaches them from either subnet, so a Lambda ENI in `us-east-1b` is fine.
@@ -93,6 +98,17 @@ VPC reaches them from either subnet, so a Lambda ENI in `us-east-1b` is fine.
 | `email-smtp` | phase 1 | SMTP submission to SES. |
 | `email` | phase 2 | The SES **v2 API**, on `email.us-east-1.amazonaws.com`. This is a different service from SMTP submission, and the phase 1 endpoint does not carry `SendEmail` calls. Without it the SDK call hangs until its own timeout. |
 | `ssm` | phase 2 | The API Lambda reads its secrets from SSM at cold start, and nothing in this VPC can reach a public API. |
+| `ecr.api`, `ecr.dkr` | mailpit | A Fargate task pulls its own image. Neither of these serves the layer BLOBS, which come over the S3 gateway endpoint. |
+| `logs` | mailpit | The `awslogs` driver, which has nowhere to send a line without it. |
+
+The `ecs`, `ecs-agent` and `ecs-telemetry` endpoints are deliberately absent.
+They are the EC2 launch type's requirement; AWS's own guidance is that a task on
+Fargate does not need them, and the running service proves it.
+
+The S3 gateway endpoint's policy gained a second statement for the same reason:
+ECR hands out a redirect to a bucket it owns rather than serving layers itself,
+so without `prod-us-east-1-starport-layer-bucket` in the policy the pull fails
+partway with a layer error that never mentions S3.
 
 The `ssm` endpoint is deliberately a standing one rather than part of the
 bastion's set, because AWS refuses a second endpoint for the same service with
@@ -590,13 +606,120 @@ to delegate to. Without the second statement in `kms.tf`, every object fetch
 fails to decrypt and the host answers 502 for content that is present and
 correct. The grant is decryption only, this account only, and via S3 only.
 
+## Mailpit, the staging mailbox
+
+`mailpit.tf` runs [Mailpit](https://mailpit.axllent.org) as a Fargate service and
+serves its UI from `mailpit.staging.changefabric.org`. It exists because of the
+gap described in "Transactional mail, and what is still missing" above: SES is in
+the sandbox, `platform/api` logs the rejection and carries on, and staging was
+left with mail that provably left the API and provably went nowhere readable.
+
+The API now sends staging mail to Mailpit over SMTP instead of to SES. That is a
+replacement, not a duplicate, and `platform/api/README.md` says why. Two Lambda
+environment variables (`SMTP_HOST`, `SMTP_PORT`) are the whole switch; unsetting
+them returns the function to SES with no code change, which is what production
+will do.
+
+`platform/mailpit/` holds the Basic Auth function template, its deploy script,
+and the image mirror script.
+
+### Why the image is mirrored rather than pulled through an ECR cache
+
+An `aws_ecr_pull_through_cache_rule` was the intended design. Two independent
+findings ruled it out, both checked against this account rather than inferred:
+
+1. **The credential-free upstreams do not carry Mailpit.** ECR accepts a
+   pull-through rule with no Secrets Manager credential only for
+   `public.ecr.aws` and `registry.k8s.io`; `docker-hub` and `ghcr.io` both
+   answer `UnsupportedUpstreamRegistryException: The specified upstream registry
+   requires authentication`. Mailpit publishes to neither credential-free
+   registry. What ECR Public does carry is a handful of unaffiliated mirrors,
+   the newest of them pinned at `v1.14`, roughly two years behind upstream.
+2. **A pull-through cache cannot make its first pull from this VPC anyway.**
+   AWS documents that the first pull through a cache rule, from a VPC using ECR
+   interface endpoints, requires a public subnet with a NAT gateway routed from
+   the private subnet. That is precisely what this VPC does not have and will
+   not get, so the mechanism is incompatible with the design regardless of
+   credentials.
+
+`platform/mailpit/mirror-image.sh` therefore copies one release into a private
+ECR repository, and it runs outside the VPC. The VPC only ever pulls, over the
+`ecr.api`, `ecr.dkr` and S3 endpoints, which is the property that mattered. The
+source is `ghcr.io/axllent/mailpit`, the Mailpit project's own registry, and the
+script refuses to push unless Docker Hub serves the identical manifest digest
+for the same tag.
+
+### Why it is not a CloudFront VPC origin
+
+A CloudFront VPC origin is the AWS-native answer to "CloudFront in front of a
+fully private backend", and it was the design. AWS refuses it here:
+
+```
+$ aws cloudfront create-vpc-origin --vpc-origin-endpoint-config ...
+An error occurred (InvalidArgument) when calling the CreateVpcOrigin
+operation: does not have an internet gateway in its VPC
+```
+
+The requirement is real but nominal: the documentation states that the gateway
+"is required to denote that the VPC can receive traffic from the internet", that
+it "is not used for routing traffic to origins inside the subnet", and that "you
+don't need to update the routing policies". An internet gateway with no route
+pointing at it changes no reachability. It would still be an internet gateway
+attached to a VPC whose README has said it has none since phase 1, and this
+estate's rule is that adding one is a human's decision. It was not added.
+
+The substitute needs no gateway of any kind:
+
+```
+viewer -> CloudFront (Basic Auth function)
+       -> API Gateway HTTP API, regional custom domain
+       -> VPC link (ENIs in the private subnets)
+       -> internal ALB
+       -> Fargate task, port 8025
+```
+
+Everything the original design wanted is intact: one distribution, the shared
+wildcard certificate, one alias record, and the same viewer-request function.
+Only the hop between CloudFront and the load balancer changed.
+
+### Two gates, again
+
+| Gate | Where | Covers |
+| --- | --- | --- |
+| CloudFront Function | the edge, on `mailpit.staging` | every browser request |
+| Mailpit's own `MP_UI_AUTH` | the container | anyone who finds `mailpit-origin.staging` directly |
+
+Both read the **same** `/cf-platform/staging/basic-auth-credential`. There is no
+second credential and no second parameter: the container receives the value as
+an ECS `secrets` entry pointing at that parameter, and its `user:pass` shape is
+already what `MP_UI_AUTH` wants. The API Gateway's generated
+`execute-api.us-east-1.amazonaws.com` endpoint is disabled, so the custom domain
+is the only way in and Mailpit's own gate is what stands there.
+
+`/livez` stays exempt inside Mailpit even with `MP_UI_AUTH` set, so the load
+balancer health check is unaffected. That was measured against the image the
+task runs.
+
+### The SMTP side has no load balancer
+
+The Lambda dials `mailpit.cf-platform.internal:1025`, an A record Cloud Map
+keeps pointed at the task's own ENI. An application load balancer speaks HTTP
+and cannot carry SMTP, and a network load balancer for one long-lived task would
+be a second balancer to pay for and health-check.
+
+Messages live in the task's memory, capped at 500. A redeploy loses them. This
+is a window onto what the API just sent, not a mail store.
+
 ## What this root does not own
 
 - The `changefabric.org` hosted zone, and every record `site/infra` or
   `telemetry/infra` already manages. This root only reads the zone id, adds its
-  own certificate validation records, and adds three alias records:
-  `api.staging.changefabric.org`, `app.staging.changefabric.org` and
-  `artifacts.staging.changefabric.org`.
+  own certificate validation records, and adds five alias records:
+  `api.staging.changefabric.org`, `app.staging.changefabric.org`,
+  `artifacts.staging.changefabric.org`, `mailpit.staging.changefabric.org` and
+  `mailpit-origin.staging.changefabric.org`. Every one of them is covered by the
+  existing `*.staging.changefabric.org` certificate, so none of them changed
+  `dns.tf`.
 - The `cf-teams` DynamoDB table and everything else in `telemetry/infra`.
 - The code of either Basic Auth CloudFront Function. See above.
 - The CloudFront signing private key, which lives only in SSM.

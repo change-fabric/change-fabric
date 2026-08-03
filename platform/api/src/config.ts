@@ -1,4 +1,5 @@
 import { GetParameterCommand, SSMClient } from "@aws-sdk/client-ssm";
+import type { SmtpSettings } from "./email.js";
 
 /**
  * Runtime configuration, assembled once per Lambda execution environment.
@@ -96,6 +97,15 @@ export interface ApiConfig {
   cookieDomain: string;
   trustedOrigins: string[];
   sesFromAddress: string;
+  /**
+   * Where to submit mail over SMTP, or null to use the SES v2 API instead.
+   *
+   * Staging points this at Mailpit so a person can read what the verification
+   * and invitation mails actually say; production leaves it unset and gets SES.
+   * See `chooseSender` in email.ts for why presence, rather than an environment
+   * name, is what decides.
+   */
+  smtp: SmtpSettings | null;
   /** Where the web app is served, so an invitation mail can link into it. */
   appOrigin: string;
   /**
@@ -104,6 +114,33 @@ export interface ApiConfig {
    * only this stays fully usable for everything else it serves.
    */
   artifacts: ArtifactsSettings | null;
+}
+
+/**
+ * Set together or not at all, on the same principle as the artifacts host: a
+ * host with no port is a typo, not a configuration, and finding out at cold
+ * start is better than finding out when the first mail silently goes nowhere.
+ */
+export function smtpEnvironment(): SmtpSettings | null {
+  const host = process.env.SMTP_HOST;
+  const rawPort = process.env.SMTP_PORT;
+
+  const present = [host, rawPort].filter(
+    (value) => value !== undefined && value !== "",
+  );
+  if (present.length === 0) {
+    return null;
+  }
+  if (present.length !== 2) {
+    throw new ConfigError("SMTP delivery needs SMTP_HOST and SMTP_PORT together");
+  }
+
+  const port = Number.parseInt(rawPort as string, 10);
+  if (!Number.isInteger(port) || port <= 0 || port > 65535) {
+    throw new ConfigError(`SMTP_PORT is not a port number: ${rawPort}`);
+  }
+
+  return { host: host as string, port };
 }
 
 /** Set together or not at all, so a half-configured artifacts host is visible. */
@@ -167,6 +204,7 @@ async function loadApiConfig(): Promise<ApiConfig> {
       .map((origin) => origin.trim())
       .filter((origin) => origin !== ""),
     sesFromAddress: requireEnv("SES_FROM_ADDRESS"),
+    smtp: smtpEnvironment(),
     appOrigin: requireEnv("APP_ORIGIN"),
     artifacts:
       artifactsEnv === null || signerKey === null

@@ -87,6 +87,17 @@ variable "ses_from_address" {
   default     = ""
 }
 
+# The Mailpit version staging runs. The tag is a pin, not a hint: the ECR
+# repository is IMMUTABLE-tagged, so this string identifies exactly one image and
+# re-mirroring the same tag fails rather than swapping what runs underneath.
+# Upgrading is a re-run of platform/mailpit/mirror-image.sh with a new tag and a
+# one-line change here.
+variable "mailpit_image_tag" {
+  description = "Tag of the mirrored Mailpit image in the cf-platform/mailpit ECR repository. Mirror it with platform/mailpit/mirror-image.sh before changing this."
+  type        = string
+  default     = "v1.30.6"
+}
+
 variable "bastion_instance_type" {
   description = "Instance type for the ephemeral bastion. Nothing runs on it but the SSM agent, so the smallest Graviton type is enough."
   type        = string
