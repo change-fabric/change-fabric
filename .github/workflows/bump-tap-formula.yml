@@ -1,0 +1,62 @@
+name: bump-tap-formula
+
+# Publishes a tagged toolkit release to the change-fabric/cf Homebrew tap
+# (github.com/change-fabric/homebrew-cf). A custom tap, not homebrew-core:
+# this toolkit fails core's notability bar and its whole job is mutating
+# files outside the Cellar (~/.claude/, ~/.pi/, ~/.config/opencode/), which
+# core rejects. Separate repo from this one on purpose too: brew's `tap
+# user/name` shorthand requires a repo literally named `homebrew-name`, and
+# keeping formula-bump PRs out of this repo's own PR queue keeps the
+# TAP_BUMP_TOKEN scoped to a small repo instead of this one.
+#
+# Also separate from release-skills.yml on purpose: that workflow's only job
+# is publishing the GitHub Release, this one's only job is bumping the tap,
+# so a tap-publish failure never blocks the release and can be re-run
+# independently. Triggers on the tag itself (a durable artifact) rather than
+# racing release-skills.yml inside the same push event.
+#
+# Inert until the tap exists and TAP_BUMP_TOKEN is set: the guard step below
+# skips cleanly rather than failing on every skills/v* tag in the meantime,
+# since this repo tags several times a day and a failing-by-default workflow
+# would just be noise until the tap is actually stood up.
+
+on:
+  push:
+    tags: ["skills/v*"]
+
+# This repo's own GITHUB_TOKEN does nothing here: the only auth used is the
+# TAP_BUMP_TOKEN PAT (via HOMEBREW_GITHUB_API_TOKEN), scoped to the tap repo.
+permissions: {}
+
+concurrency:
+  group: bump-tap-formula-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  bump:
+    runs-on: macos-latest
+    steps:
+      - name: Check the tap is configured
+        id: gate
+        run: |
+          if [ -z "$TAP_BUMP_TOKEN" ]; then
+            echo "TAP_BUMP_TOKEN not set; skipping until change-fabric/homebrew-cf exists and the secret is configured."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          TAP_BUMP_TOKEN: ${{ secrets.TAP_BUMP_TOKEN }}
+      - name: Compute version from tag
+        if: steps.gate.outputs.ready == 'true'
+        run: echo "VERSION=${GITHUB_REF_NAME#skills/v}" >> "$GITHUB_ENV"
+      - name: Bump the tap formula
+        if: steps.gate.outputs.ready == 'true'
+        env:
+          HOMEBREW_GITHUB_API_TOKEN: ${{ secrets.TAP_BUMP_TOKEN }}
+        run: |
+          brew tap change-fabric/cf
+          brew bump-formula-pr \
+            --no-browse --no-audit \
+            --url "https://github.com/change-fabric/change-fabric/archive/refs/tags/skills/v${VERSION}.tar.gz" \
+            change-fabric/cf/change-fabric
