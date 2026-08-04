@@ -66,7 +66,29 @@ module Install
       resolved = File.join(RbConfig::CONFIG['bindir'], RbConfig::CONFIG['ruby_install_name'])
       raise 'could not resolve a ruby interpreter' unless File.executable?(resolved)
 
-      resolved
+      stable_homebrew_path(resolved) || resolved
+    end
+
+    # RbConfig always reports ruby's real, version-pinned install directory,
+    # even when the process was started through a stable symlink (e.g. a
+    # Homebrew formula's own wrapper, which execs via `opt/ruby/bin/ruby`).
+    # Baking that versioned Cellar path into settings.json means every hook
+    # breaks the moment `brew upgrade ruby` removes the old version's Cellar
+    # directory. Homebrew keeps `opt/<formula>/bin/<exe>` as a symlink that
+    # always points at whichever version is currently linked, so prefer that
+    # stable path whenever the resolved path sits inside a Cellar. Returns nil
+    # (falling back to the resolved path as-is) for any non-Homebrew ruby.
+    def self.stable_homebrew_path(resolved)
+      segments = resolved.split(File::SEPARATOR)
+      cellar_index = segments.index('Cellar')
+      return nil unless cellar_index && segments[cellar_index + 1]
+
+      prefix = segments[0...cellar_index].join(File::SEPARATOR)
+      formula = segments[cellar_index + 1]
+      candidate = File.join(prefix, 'opt', formula, 'bin', RbConfig::CONFIG['ruby_install_name'])
+      return nil unless File.executable?(candidate)
+
+      candidate
     end
   end
 

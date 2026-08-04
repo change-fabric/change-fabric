@@ -8,6 +8,49 @@ require "fileutils"
 
 require_relative "../install"
 
+class RubyInterpreterTest < Minitest::Test
+  def setup
+    @dir = Dir.mktmpdir
+  end
+
+  def teardown
+    FileUtils.remove_entry(@dir)
+  end
+
+  def test_prefers_the_stable_opt_symlink_over_a_versioned_cellar_path
+    exe = RbConfig::CONFIG["ruby_install_name"]
+    cellar_ruby = File.join(@dir, "Cellar", "ruby", "3.4.5", "bin", exe)
+    opt_ruby = File.join(@dir, "opt", "ruby", "bin", exe)
+    FileUtils.mkdir_p(File.dirname(cellar_ruby))
+    FileUtils.mkdir_p(File.dirname(opt_ruby))
+    FileUtils.touch(cellar_ruby)
+    FileUtils.chmod(0o755, cellar_ruby)
+    FileUtils.touch(opt_ruby)
+    FileUtils.chmod(0o755, opt_ruby)
+
+    assert_equal opt_ruby, Install::RubyInterpreter.stable_homebrew_path(cellar_ruby)
+  end
+
+  def test_falls_back_to_nil_when_no_opt_symlink_exists
+    exe = RbConfig::CONFIG["ruby_install_name"]
+    cellar_ruby = File.join(@dir, "Cellar", "ruby", "3.4.5", "bin", exe)
+    FileUtils.mkdir_p(File.dirname(cellar_ruby))
+    FileUtils.touch(cellar_ruby)
+    FileUtils.chmod(0o755, cellar_ruby)
+
+    assert_nil Install::RubyInterpreter.stable_homebrew_path(cellar_ruby)
+  end
+
+  def test_falls_back_to_nil_for_a_non_homebrew_ruby
+    rbenv_ruby = File.join(@dir, "rbenv", "versions", "3.4.10", "bin", "ruby")
+    FileUtils.mkdir_p(File.dirname(rbenv_ruby))
+    FileUtils.touch(rbenv_ruby)
+    FileUtils.chmod(0o755, rbenv_ruby)
+
+    assert_nil Install::RubyInterpreter.stable_homebrew_path(rbenv_ruby)
+  end
+end
+
 class SettingsFileTest < Minitest::Test
   def setup
     @dir = Dir.mktmpdir
