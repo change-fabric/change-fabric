@@ -13,6 +13,7 @@ released on its own schedule by pushing one tag.
 | Toolkit | the `skills/v*` tags themselves. No file | `skills/vX.Y.Z` | A GitHub Release, and downstream the Homebrew tap formula bump |
 | Spec | `ChangeSchema::VERSION` in `scripts/change_schema.rb` | `spec/vX.Y.Z` | A GitHub Release whose body is the `CHANGELOG.md` section for that version, with the spec markdown attached |
 | Site | `site/VERSION` | `site/vX.Y.Z` | A production deploy of `www.changefabric.org`. No GitHub Release |
+| Platform app | the `app/v*` tags themselves. No file | `app/vX.Y.Z` | A production deploy of `app.changefabric.org` (once that environment exists; not yet provisioned) |
 
 ## Runbook
 
@@ -98,6 +99,39 @@ git describe --tags --match 'skills/v*'
 
 A site tag deploys everything sitting on `main` at that commit, not only your
 own change. Tag from a `main` you are willing to ship whole.
+
+### I changed the platform app (`platform/web`, `platform/api`)
+
+Staging deploys continuously: every merge to `main` ships to
+`app.staging.changefabric.org` through `deploy-app-staging.yml`, a sibling
+mechanism to this document, not something you trigger yourself.
+
+A production release is a separate, deliberate act, and it needs the
+production environment to exist first. There is nothing to edit; like the
+toolkit, the platform app has no version file, so the tag is the version.
+
+1. Merge your change to `main`. It goes to staging. Nothing goes to production
+   yet.
+2. Once `app.changefabric.org` and its AWS role are provisioned, when you want
+   what has accumulated on `main` to go out, look at what the last release was
+   and decide the next number yourself:
+
+   ```
+   git fetch --tags
+   git tag --list 'app/v*' | sed 's|^app/v||' \
+     | sort -t. -k1,1n -k2,2n -k3,3n | tail -1
+   ```
+
+3. From an up to date `main`, tag and push it:
+
+   ```
+   git tag -a app/vX.Y.Z -m app/vX.Y.Z
+   git push origin app/vX.Y.Z
+   ```
+
+   `deploy-app-prod.yml` rejects the tag unless it is plain `MAJOR.MINOR.PATCH`,
+   newly created rather than moved, and strictly greater than every existing
+   `app/v*` tag. It then builds `platform/web` and publishes it to production.
 
 ## Decisions
 
@@ -254,7 +288,9 @@ on every push to `main` that touches `platform/web/**`, the same trigger shape
 `platform/infra/webapp.tf`'s deploy role already trusts
 (`ref:refs/heads/main`). No tag, no version file, no external consumer pinning
 a version, matching how this track is out of scope for the rest of this
-document. Production is not yet wired; that is a separate piece of work.
+document. Production now has its own tag-gated track, `app/v*` (see the tracks
+table and "I changed the platform app" above), but the environment it deploys
+to does not exist yet: that provisioning is a separate piece of work.
 
 `platform/api` has no deploy workflow of its own yet.
 

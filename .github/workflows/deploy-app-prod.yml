@@ -1,0 +1,114 @@
+name: deploy-app-prod
+
+# Publishes app.changefabric.org, the platform app's production environment.
+# Triggered by an app/v* tag, not by a push to main: merging a platform change
+# stages it (deploy-app-staging.yml ships it to staging continuously), pushing
+# the tag ships it to production. No path filters, because a tag deploys the
+# whole tree at that commit rather than the subset of files the last merge
+# happened to touch.
+#
+# As of this workflow's introduction, app.changefabric.org and the production
+# AWS role it would assume do not exist yet. Provisioning that environment
+# (Terraform apply, the OIDC trust policy, the bucket and distribution, the
+# DEPLOY_APP_PROD_ROLE_ARN / APP_PROD_BUCKET / APP_PROD_DISTRIBUTION_ID repo
+# variables) is a separate, human-led infrastructure task. This workflow wires
+# up the tag namespace and the guard now so both are correct and in place when
+# that infrastructure lands; until then, pushing an app/v* tag will pass the
+# validation step below and then fail at the AWS credentials step for lack of
+# a role to assume.
+
+on:
+  push:
+    tags: ["app/v*"]
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: deploy-app-prod
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # Full history and every tag: the guard below compares this tag
+          # against all earlier app/v* tags.
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: The tag must be plain semver, strictly above every earlier one
+        env:
+          # False when the pushed ref already existed and was force-updated.
+          # The monotonicity check below cannot see that on its own, because it
+          # excludes the tag being pushed from the comparison and would happily
+          # re-accept a moved app/v0.2.1. A published version is immutable:
+          # moving one changes what a consumer already pinned, and here it
+          # would mean production silently redeploying a commit nobody chose.
+          REF_WAS_CREATED: ${{ github.event.created }}
+        run: |
+          version="${GITHUB_REF_NAME#app/v}"
+
+          if [ "$REF_WAS_CREATED" != "true" ]; then
+            echo "::error title=Tag moved::${GITHUB_REF_NAME} already existed and was force-updated. A published app version never moves. Cut a higher version instead."
+            exit 1
+          fi
+
+          # Stable releases only, same reasoning as release-skills.yml: three
+          # integer fields compared as integers is auditable and correct,
+          # and a prerelease suffix is a deliberate future change, not an
+          # accident of a loose regex.
+          if ! printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error title=Malformed tag::${GITHUB_REF_NAME} is not app/vMAJOR.MINOR.PATCH. App production releases are plain semver, with no prerelease or build suffix."
+            exit 1
+          fi
+
+          # Every earlier app tag, this one excluded. The app/v prefix is what
+          # keeps other namespaces (skills/v*, site/v*, spec/v*) out of the
+          # comparison.
+          previous="$(git tag --list 'app/v*' \
+            | grep -Fxv "$GITHUB_REF_NAME" \
+            | sed 's|^app/v||' \
+            | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' \
+            | sort -t. -k1,1n -k2,2n -k3,3n \
+            | tail -1)"
+
+          if [ -z "$previous" ]; then
+            # Only reachable with no earlier app tag at all. Not a loophole:
+            # it stops being reachable the moment one exists.
+            echo "no earlier app/v* tag; ${version} is the first app production release"
+            exit 0
+          fi
+
+          highest="$(printf '%s\n%s\n' "$previous" "$version" \
+            | sort -t. -k1,1n -k2,2n -k3,3n | tail -1)"
+          if [ "$version" = "$previous" ] || [ "$highest" != "$version" ]; then
+            echo "::error title=Version goes backwards::${GITHUB_REF_NAME} is not above the highest published app release, app/v${previous}. Delete this tag and cut a higher one."
+            exit 1
+          fi
+
+          echo "${version} is above app/v${previous}"
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: platform/web/package-lock.json
+      - run: npm ci
+        working-directory: platform/web
+      - run: npm run build
+        working-directory: platform/web
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.DEPLOY_APP_PROD_ROLE_ARN }}
+          aws-region: us-east-1
+      - name: Publish
+        working-directory: platform/web
+        env:
+          APP_BUCKET: ${{ vars.APP_PROD_BUCKET }}
+          APP_DISTRIBUTION_ID: ${{ vars.APP_PROD_DISTRIBUTION_ID }}
+        run: ./deploy.sh
