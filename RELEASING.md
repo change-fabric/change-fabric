@@ -249,9 +249,14 @@ to find that out is before the artifact is public.
 
 ### 9. `platform/` is out of scope
 
-`platform/api` and `platform/web` deploy continuously through their own
-mechanism and have no external consumer pinning a version. Nothing here changes
-for them.
+`platform/web` deploys continuously to staging: `deploy-app-staging.yml` runs
+on every push to `main` that touches `platform/web/**`, the same trigger shape
+`platform/infra/webapp.tf`'s deploy role already trusts
+(`ref:refs/heads/main`). No tag, no version file, no external consumer pinning
+a version, matching how this track is out of scope for the rest of this
+document. Production is not yet wired; that is a separate piece of work.
+
+`platform/api` has no deploy workflow of its own yet.
 
 ## Operational notes
 

@@ -24,7 +24,6 @@
 set -euo pipefail
 
 export AWS_PAGER=""
-export AWS_PROFILE="${AWS_PROFILE:-personal}"
 
 region="us-east-1"
 credential_parameter="/cf-platform/staging/basic-auth-credential"
@@ -93,6 +92,7 @@ if [ -n "${APP_BUCKET:-}" ] && [ -n "${APP_DISTRIBUTION_ID:-}" ]; then
   bucket="$APP_BUCKET"
   distribution="$APP_DISTRIBUTION_ID"
 else
+  export AWS_PROFILE="${AWS_PROFILE:-personal}"
   bucket="$(terraform -chdir="$infra" output -raw app_bucket 2>/dev/null || true)"
   distribution="$(terraform -chdir="$infra" output -raw app_distribution_id 2>/dev/null || true)"
 fi

@@ -152,6 +152,16 @@ The API picks the new value up on its next cold start; the edge picks it up when
 
 ## Deploying
 
+`deploy-app-staging.yml` runs this on every push to `main` that touches
+`platform/web/**`: `npm ci`, `npm run build`, then `deploy.sh` with
+`APP_BUCKET`/`APP_DISTRIBUTION_ID` from the `APP_STAGING_BUCKET` and
+`APP_STAGING_DISTRIBUTION_ID` repo variables, under a role assumed through
+GitHub OIDC (`DEPLOY_APP_STAGING_ROLE_ARN`, trusted for `ref:refs/heads/main`
+only, per `platform/infra/webapp.tf`). No local Terraform state access needed
+in CI.
+
+To deploy by hand instead:
+
 ```
 export AWS_PROFILE=personal
 npm ci && npm run build
@@ -160,7 +170,10 @@ npm ci && npm run build
 
 `deploy.sh` publishes the Basic Auth function first, then syncs `dist/` (hashed
 assets immutable for a year, `index.html` on a sixty-second must-revalidate so a
-deploy is visible on the next load), then invalidates the distribution.
+deploy is visible on the next load), then invalidates the distribution. Without
+`APP_BUCKET`/`APP_DISTRIBUTION_ID` set, it falls back to reading
+`terraform -chdir=../infra output`, which is when `AWS_PROFILE` defaults to
+`personal`.
 
 On a **first-ever** provision the order is three steps, because the distribution
 references the published function:
