@@ -5,6 +5,14 @@ import { CURRENT_VERSION, specPath } from "../spec";
 
 const REPO_URL = "https://github.com/change-fabric/change-fabric";
 
+// The platform app's root URL. Its "/" path renders a login screen for an
+// unauthenticated visitor (with a link to /signup from there), so a single
+// link to the app's origin covers both log in and sign up. Overridable at
+// build time for a non-default deploy; defaults to production, which does
+// not exist yet as of this link shipping (see platform infrastructure work).
+const APP_ORIGIN: string =
+  import.meta.env.VITE_APP_ORIGIN ?? "https://app.changefabric.org";
+
 function ThemeToggle() {
   const { theme, toggle } = useTheme();
   const next = theme === "dark" ? "light" : "dark";
@@ -59,6 +67,7 @@ export function Layout({ children }: { children: ReactNode }) {
           <a href={REPO_URL} target="_blank" rel="noopener noreferrer">
             GitHub
           </a>
+          <a href={APP_ORIGIN}>Log In / Sign Up</a>
         </nav>
       </footer>
     </div>
