@@ -1,0 +1,48 @@
+name: deploy-app-staging
+
+# Publishes app.staging.changefabric.org. Triggered by any push to main that
+# touches platform/web, unlike deploy-site.yml: this is a staging environment
+# with no external consumer pinning a version, so it deploys continuously
+# rather than waiting on a tag (see RELEASING.md, "platform/ is out of scope").
+#
+# The role this assumes is trusted for ref:refs/heads/main only
+# (platform/infra/webapp.tf), matching this trigger.
+
+on:
+  push:
+    branches: [main]
+    paths: ["platform/web/**"]
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: deploy-app-staging
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: platform/web/package-lock.json
+      - run: npm ci
+        working-directory: platform/web
+      - run: npm run build
+        working-directory: platform/web
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.DEPLOY_APP_STAGING_ROLE_ARN }}
+          aws-region: us-east-1
+      - name: Publish
+        working-directory: platform/web
+        env:
+          APP_BUCKET: ${{ vars.APP_STAGING_BUCKET }}
+          APP_DISTRIBUTION_ID: ${{ vars.APP_STAGING_DISTRIBUTION_ID }}
+        run: ./deploy.sh
