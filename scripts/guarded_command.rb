@@ -30,6 +30,27 @@ class GuardedCommand
   def self.merge?(command) = invokes?(command, 'gh', 'pr', 'merge')
   def self.pr_create?(command) = invokes?(command, 'gh', 'pr', 'create')
 
+  # A `git push` shaped to plausibly publish a tag: `--tags`/`--follow-tags`,
+  # or any positional argument at all beyond `push` itself (a remote, a
+  # refspec, `tag <name>`). Deliberately liberal - it does not know which
+  # positional is the remote and which is a tag name, since that needs a real
+  # repo to resolve (ChangeTagRefs does that). A false positive here costs an
+  # extra, cheap resolution attempt that then finds nothing; it never causes an
+  # extra deny.
+  def self.tag_push?(command)
+    return false unless push?(command)
+
+    toks = tokens(command)
+    rest = toks[(toks.index('push') + 1)..]
+    return true if (rest & %w[--tags --follow-tags]).any?
+
+    rest.any? { |token| !token.start_with?('-') }
+  end
+
+  # `gh release create <tag>`, the other door to publishing a tag: it creates
+  # and pushes the tag in one step.
+  def self.release_create?(command) = invokes?(command, 'gh', 'release', 'create')
+
   def initialize(command, mode, branch: nil)
     @command = command.to_s
     @mode = mode
