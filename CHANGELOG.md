@@ -18,6 +18,73 @@ Every version below has a frozen, permanently addressable rendering at
 field set: major for a removed, renamed or newly required field, minor for a new
 optional field, patch for a documentation-only clarification.
 
+## [0.9.0] - 2026-08-22
+
+Trunk + tag releases: a repo with one trunk and release tags instead of
+long-lived staging/production branches can now be governed and gated too.
+
+### Added
+
+- `change_policy.promotion` accepts a `tag:`-prefixed key (`tag:staging/v*`)
+  alongside branch keys, in the same map. Every field a branch rule carries
+  (`require_change_pass`, `profile`, `apps`, `review_required`, `ci_gate`,
+  `ci_skippable`) means exactly the same thing on a tag rule. `branch:<name>`
+  is an explicit synonym for an unprefixed key.
+- `change_policy.protected_refs`, the superset of `protected_branches` that
+  also accepts `tag:<glob>` entries, unioned with `protected_branches` and
+  with every key under `promotion:`.
+- `change_policy.promotion.<ref>.environment`, a human label for a promotion
+  target used in deny messages and `doctor` output.
+- `change_policy.promotion.<ref>.require_trunk_ancestor` and
+  `.require_prior_tag`, tag-rule-only fields that restore what a branch
+  topology encodes structurally (a commit's promotion order and provenance)
+  for a topology that has to state it instead.
+- `change_tag_guard.rb`, a `PreToolUse` hook gating the tag *push* (a matching
+  `git push`, or `gh release create`) on a passing `cf:change` run recorded
+  for the exact commit, sharing its gate question with `change_merge_guard.rb`
+  through the new `ChangeGateCheck`.
+- `change_run.rb all --for-tag <tagname>`, which resolves a tag against its
+  matching `promotion` rules and sweeps the profile(s) they name against the
+  commit the tag points at.
+- `change_run.rb gate-status [--ref REF]`, a read-only check (no docker, no
+  boot, no lanes) of whether a ref's matching rules are already satisfied.
+- `reference/CHANGE.trunk-tags.example.md`, a complete copy-paste `CHANGE.md`
+  for the trunk + tag topology.
+
+### Compatibility
+
+Fully additive. A `CHANGE.md` with no `tag:` key anywhere parses, runs,
+reports, and gates exactly as it did under 0.8.0. `protected_branches` is
+retained unchanged, not deprecated, and `change_tag_guard.rb` never fires on a
+repo with no tag rule.
+
+## [0.8.0] - 2026-08-21
+
+A profile may override the browserless lane's login flow, so one audit surface
+can reach environments whose logins differ.
+
+### Added
+
+- `change_config.profiles.<profile>.lanes.browserless.auth.*`, a per-profile
+  override of the base `browserless.auth` block, deep-merged field by field.
+  Every field of the base block is overridable: `login_url`, `email_env`,
+  `password_env`, the four selectors, `timeout_ms`, and the multi-step
+  `steps[]` shape down to each field's `env` and `code_source`.
+
+### Compatibility
+
+Fully additive. A `CHANGE.md` whose profiles declare no `browserless.auth`
+override parses, runs, reports, and gates exactly as it did under 0.6.0.
+`auth` in a profile override of any other lane is rejected at load, with the
+same message shape `basic_auth`'s own lane guard already uses, since no other
+lane reads it.
+
+### Note
+
+0.7.0 is deliberately skipped, not missing. It stays reserved for the
+`contributors_team.artifacts` removal that 0.6.0 announced, which is a
+breaking field-set change and has not shipped yet.
+
 ## [0.6.0] - 2026-08-02
 
 Findings artifacts publish through a hosted service instead of a bucket each

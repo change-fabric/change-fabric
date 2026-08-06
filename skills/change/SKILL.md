@@ -95,7 +95,14 @@ itself.
    one app), and records the gate under the head SHA (and the profile, when
    one was given). Exit 0 means every app's every lane passed, 1 means a lane
    in any app failed, 2 means a setup failure (no docker, bad config, app
-   never ready).
+   never ready). Releasing a trunk + tag repo (0.9.0): run against the exact
+   commit the tag will point at with `--for-tag <tagname>` instead of
+   `--profile`, which resolves the tag's matching `change_policy.promotion`
+   rule(s), sweeps the profile(s) they name, and refuses to run if the tag
+   already exists locally and points somewhere other than HEAD; then push the
+   tag. `ruby ~/.claude/cf/bin/change_run.rb gate-status --ref <ref>` checks,
+   read-only, whether a ref's matching rules are already satisfied, without
+   booting anything.
 4. **Report.** Summarize the per-lane pass/fail and the failing findings from
    the Markdown report. Name both report paths (the `.md` and the `.csv`) so the
    run is reproducible and shareable.
@@ -189,7 +196,7 @@ language:
 The prose is the truth a teammate reads; the frontmatter states the same policy
 in the form the merge gate enforces.
 
-### Trunk with environment tags (0.9.0-alpha.1)
+### Trunk with environment tags (0.9.0)
 
 A repo with one trunk (`main`) and no long-lived `staging`/`production`
 branches marks a release with a tag instead (`staging/v1.4.0`,
@@ -208,10 +215,12 @@ patterns, a field misplaced on the wrong kind of rule). See the
 frontmatter spec's "change_policy tag rules" section and
 `reference/CHANGE.trunk-tags.example.md` for a full worked file.
 
-**As of this version, tag rules are declarative and validated but not yet
-enforced**: no hook denies a tag push. A repo can author `tag:` rules today
-and confirm them with `doctor`; the tag-push gate (`change_tag_guard.rb`) and
-`change_run.rb --for-tag`/`gate-status` land in a later schema phase.
+**Enforcement.** `change_tag_guard.rb`, a `PreToolUse` hook, denies publishing
+a protected tag (a matching `git push`, or `gh release create`) with no
+recorded passing run for the exact commit, sharing its gate question with
+`change_merge_guard.rb`. Run against the tagged commit with
+`change_run.rb all --for-tag <tagname>` before pushing; see "Workflow" step
+3. A repo with no `tag:` rule anywhere is unaffected: the hook never fires.
 
 ## The findings artifact (0.32.0)
 
@@ -322,7 +331,13 @@ lane has no standalone skill; it runs as part of `cf:change`.
   explicitly empty `apps: []` on a tag rule, two tag patterns that can match
   the same tag, or `require_trunk_ancestor`/`require_prior_tag` set on a
   branch rule (neither field is read there): all authoring-time warnings or
-  errors, none of them change what a merge or a tag push does yet.
+  errors, none of them change what a merge or a tag push does on their own.
+- Pushing a protected tag is denied: no passing run is recorded for the exact
+  commit. Run `change_run.rb all --for-tag <tagname>` against that commit,
+  then push again; `change_run.rb gate-status --ref <tagname>` shows the same
+  answer without booting anything.
+- A tag push is denied because the tagged commit is not an ancestor of the
+  `require_trunk_ancestor` branch: merge to that branch first, then tag it.
 - No team API key is resolvable, the artifacts service is unreachable, or it
   refuses the key: the run's lanes, report, and gate are unaffected and the
   publish step reports the failure as its own line, naming the env var to set

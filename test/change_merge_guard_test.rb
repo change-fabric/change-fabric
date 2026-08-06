@@ -226,7 +226,7 @@ class ChangeMergeGuardTest < Minitest::Test
     assert_nil multi_app_decision("gh pr merge 12 --squash")
   end
 
-  # --- trunk + tag releases (0.9.0-alpha.1) regression -----------------
+  # --- trunk + tag releases (0.9.0) regression -----------------
 
   def test_a_change_md_carrying_only_tag_rules_does_not_change_any_merge_decision
     # "main" is deliberately not in DEFAULT_PROTECTED, so this exercises the

@@ -84,7 +84,7 @@ class ChangePolicy
   # `tag_rules_for`'s comment for the glob semantics.
   def protects_tag?(tag) = protected_tag_patterns.any? { |pattern| tag_glob_match?(pattern, tag) }
 
-  # protected_refs (0.9.0-alpha.1): the raw list, each entry an unprefixed
+  # protected_refs (0.9.0): the raw list, each entry an unprefixed
   # branch name, `branch:<name>`, or `tag:<glob>`. Superset of
   # `protected_branches`, unioned with it (and with `promotion:`'s keys),
   # never replacing it.
@@ -193,7 +193,7 @@ class ChangePolicy
     value.to_s.empty? ? pattern.to_s : value.to_s
   end
 
-  # Tag-rule-only fields (0.9.0-alpha.1), read as raw rule-hash accessors so
+  # Tag-rule-only fields (0.9.0), read as raw rule-hash accessors so
   # `doctor` can flag either appearing on a branch rule, where nothing reads
   # them. nil when unset.
   def require_trunk_ancestor_for_rule(rule)

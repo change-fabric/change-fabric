@@ -16,7 +16,7 @@
 # spec doc's changelog. A field-set change without a matching version bump, or a
 # version bump the doc does not reflect, is exactly what the drift test catches.
 module ChangeSchema
-  VERSION = '0.9.0-alpha.1'
+  VERSION = '0.9.0'
 
   # The four audit lanes, the authoritative list the config validator enforces.
   LANES = %w[k6 a11y zap browserless].freeze
@@ -41,7 +41,7 @@ module ChangeSchema
   #   <ref>     a promotion target under promotion: an unprefixed key (or
   #             branch:<name>) is a git branch, gated at merge time; a
   #             tag:<glob> key is a tag pattern, gated at tag-push time
-  #             (0.9.0-alpha.1; formerly <branch>, since only branches were
+  #             (0.9.0; formerly <branch>, since only branches were
   #             promotion targets before this version)
   #   <profile> any name under change_config.profiles
   #   <app>     any name under change_config.apps (an app in a monorepo, 0.4.0)
@@ -175,7 +175,7 @@ module ChangeSchema
     'change_config.apps.<app>.enabled',
     # change_policy: machine-checkable governance the merge gate enforces.
     'change_policy.protected_branches',
-    # protected_refs (0.9.0-alpha.1): the superset of protected_branches that
+    # protected_refs (0.9.0): the superset of protected_branches that
     # also accepts tag:<glob> entries (trunk + tag releases). Unioned with
     # protected_branches and with every key under promotion:, never replacing
     # either. A repo with no tag: entries anywhere is bit-for-bit unaffected.
@@ -194,18 +194,18 @@ module ChangeSchema
     # entries' comprehensive passes gate this promotion target. Omitted,
     # every registered enabled app is required.
     'change_policy.promotion.<ref>.apps',
-    # promotion.<ref>.environment (0.9.0-alpha.1): human label for this
+    # promotion.<ref>.environment (0.9.0): human label for this
     # promotion target, used in deny messages and doctor output. Defaults to
     # the key itself; most useful when a tag pattern (tag:release/*/v*) does
     # not read as an environment name on its own.
     'change_policy.promotion.<ref>.environment',
-    # promotion.<ref>.require_trunk_ancestor (0.9.0-alpha.1): tag rules only.
+    # promotion.<ref>.require_trunk_ancestor (0.9.0): tag rules only.
     # The tagged commit must be an ancestor of (or equal to) the named
     # branch. Restores what branch topology encoded structurally (a commit is
     # on staging by construction) for a trunk topology, where it must be
     # stated instead of derived.
     'change_policy.promotion.<ref>.require_trunk_ancestor',
-    # promotion.<ref>.require_prior_tag (0.9.0-alpha.1): tag rules only. A
+    # promotion.<ref>.require_prior_tag (0.9.0): tag rules only. A
     # published tag matching this glob must already point at the same
     # commit: the trunk-topology equivalent of "production only merges from
     # staging".
