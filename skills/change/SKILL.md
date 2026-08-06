@@ -41,7 +41,8 @@ whose frontmatter holds two blocks that split cleanly:
 - `change_config:`: the mechanical target-app config (boot command, health
   check, routes, ZAP scope, k6 thresholds, viewports). See "Config schema".
 - `change_policy:`: the machine-checkable governance the merge gate reads
-  (protected branches, per-environment promotion rules, admin-bypass policy).
+  (protected refs -- branches and release tag patterns -- per-environment
+  promotion rules, admin-bypass policy).
 
 The prose body below the frontmatter is the narrative change-management FAQ (git
 flow, promotion, self-review, when admin-bypass merging is acceptable) a teammate
@@ -148,7 +149,7 @@ A repo with more than one real deploy target (a local Docker stack, a real
 staging or production deployment) declares each as a named profile under
 `change_config.profiles` rather than a second `CHANGE.<env>.md` file; see
 `reference/CHANGE-frontmatter-spec.md`'s profiles section. `change_run.rb all
---profile staging` runs a named profile, and `change_policy.promotion.<branch>.
+--profile staging` runs a named profile, and `change_policy.promotion.<ref>.
 profile` scopes that branch's merge gate to the matching profile's own pass.
 
 ### Monorepos
@@ -163,7 +164,7 @@ its repo-relative paths and boot commands resolve against the repo root, not
 the app file's own directory. The root cannot declare `change_config.apps`
 alongside its own `boot`/`lanes`/`profiles`/`default_profile`; adopting the
 monorepo shape is a verbatim move of that block into one app file.
-`change_policy.promotion.<branch>.apps` restricts which apps' passes gate a
+`change_policy.promotion.<ref>.apps` restricts which apps' passes gate a
 branch; omitted, every registered enabled app is required. See the frontmatter
 spec's `change_config.apps` section for the full field set and a worked
 example, and `reference/CHANGE.app.template.yml` for the app-file template.
@@ -187,6 +188,30 @@ language:
 
 The prose is the truth a teammate reads; the frontmatter states the same policy
 in the form the merge gate enforces.
+
+### Trunk with environment tags (0.9.0-alpha.1)
+
+A repo with one trunk (`main`) and no long-lived `staging`/`production`
+branches marks a release with a tag instead (`staging/v1.4.0`,
+`production/v1.4.0`). `change_policy.promotion` accepts a `tag:`-prefixed key
+(`tag:staging/v*`) alongside branch keys, in the same map: every field a
+branch rule carries (`require_change_pass`, `profile`, `apps`,
+`review_required`, `ci_gate`) means exactly the same thing on a tag rule.
+`change_policy.protected_refs` lists branches and `tag:<glob>` patterns
+together; `protected_branches` is retained unchanged for branch-only repos.
+Two tag-only fields restore what a branch topology encodes structurally:
+`require_trunk_ancestor: main` (the tagged commit must be on `main`) and
+`require_prior_tag: "staging/v*"` (the commit must already carry a lower
+tag). `change_config.rb doctor` validates tag rules exactly as it validates
+branch rules (unsatisfiable profiles, an empty `apps:` list, overlapping tag
+patterns, a field misplaced on the wrong kind of rule). See the
+frontmatter spec's "change_policy tag rules" section and
+`reference/CHANGE.trunk-tags.example.md` for a full worked file.
+
+**As of this version, tag rules are declarative and validated but not yet
+enforced**: no hook denies a tag push. A repo can author `tag:` rules today
+and confirm them with `doctor`; the tag-push gate (`change_tag_guard.rb`) and
+`change_run.rb --for-tag`/`gate-status` land in a later schema phase.
 
 ## The findings artifact (0.32.0)
 
@@ -290,9 +315,14 @@ lane has no standalone skill; it runs as part of `cf:change`.
 - Root registers `change_config.apps` but also declares its own
   `boot`/`lanes`/`profiles`/`default_profile`: a load error naming both keys.
   A root that is simultaneously a registry and an app makes `--app` meaningless
-  for that one app and makes `change_policy.promotion.<branch>.profile`
+  for that one app and makes `change_policy.promotion.<ref>.profile`
   ambiguous about whose profile is meant; move the conflicting block into one
   app's own `CHANGE.app.yml`.
+- `doctor` flags a `promotion.tag:<glob>.profile` no required app defines, an
+  explicitly empty `apps: []` on a tag rule, two tag patterns that can match
+  the same tag, or `require_trunk_ancestor`/`require_prior_tag` set on a
+  branch rule (neither field is read there): all authoring-time warnings or
+  errors, none of them change what a merge or a tag push does yet.
 - No team API key is resolvable, the artifacts service is unreachable, or it
   refuses the key: the run's lanes, report, and gate are unaffected and the
   publish step reports the failure as its own line, naming the env var to set

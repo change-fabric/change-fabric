@@ -16,7 +16,7 @@
 # spec doc's changelog. A field-set change without a matching version bump, or a
 # version bump the doc does not reflect, is exactly what the drift test catches.
 module ChangeSchema
-  VERSION = '0.8.0'
+  VERSION = '0.9.0-alpha.1'
 
   # The four audit lanes, the authoritative list the config validator enforces.
   LANES = %w[k6 a11y zap browserless].freeze
@@ -31,14 +31,18 @@ module ChangeSchema
   # Root change_config keys that become an error once change_config.apps
   # (0.4.0) is present: a root that is simultaneously a registry and an app
   # makes --app meaningless for that app and makes
-  # change_policy.promotion.<branch>.profile ambiguous about whose profile is
+  # change_policy.promotion.<ref>.profile ambiguous about whose profile is
   # meant.
   ROOT_APP_MODE_FORBIDDEN = %w[boot lanes profiles default_profile].freeze
 
   # Every accepted frontmatter field, as a dotted path. Placeholder segments are
   # literal and appear identically in the spec doc so the two match exactly:
   #   <lane>    any of the LANES above
-  #   <branch>  any git branch name under promotion
+  #   <ref>     a promotion target under promotion: an unprefixed key (or
+  #             branch:<name>) is a git branch, gated at merge time; a
+  #             tag:<glob> key is a tag pattern, gated at tag-push time
+  #             (0.9.0-alpha.1; formerly <branch>, since only branches were
+  #             promotion targets before this version)
   #   <profile> any name under change_config.profiles
   #   <app>     any name under change_config.apps (an app in a monorepo, 0.4.0)
   #   []        a field on each item of a list
@@ -171,20 +175,41 @@ module ChangeSchema
     'change_config.apps.<app>.enabled',
     # change_policy: machine-checkable governance the merge gate enforces.
     'change_policy.protected_branches',
+    # protected_refs (0.9.0-alpha.1): the superset of protected_branches that
+    # also accepts tag:<glob> entries (trunk + tag releases). Unioned with
+    # protected_branches and with every key under promotion:, never replacing
+    # either. A repo with no tag: entries anywhere is bit-for-bit unaffected.
+    'change_policy.protected_refs',
     'change_policy.gate.require_change_pass',
-    'change_policy.promotion.<branch>.review_required',
-    'change_policy.promotion.<branch>.self_review_allowed',
-    'change_policy.promotion.<branch>.require_change_pass',
-    'change_policy.promotion.<branch>.ci_gate',
-    'change_policy.promotion.<branch>.ci_skippable',
-    # change_policy.promotion.<branch>.profile (0.2.0): scopes this branch's
-    # require_change_pass gate to one named change_config profile's own
-    # recorded run, instead of any profile-less comprehensive run.
-    'change_policy.promotion.<branch>.profile',
-    # promotion.<branch>.apps (0.4.0): restricts which change_config.apps
-    # entries' comprehensive passes gate a merge into this branch. Omitted,
+    'change_policy.promotion.<ref>.review_required',
+    'change_policy.promotion.<ref>.self_review_allowed',
+    'change_policy.promotion.<ref>.require_change_pass',
+    'change_policy.promotion.<ref>.ci_gate',
+    'change_policy.promotion.<ref>.ci_skippable',
+    # change_policy.promotion.<ref>.profile (0.2.0): scopes this promotion
+    # target's require_change_pass gate to one named change_config profile's
+    # own recorded run, instead of any profile-less comprehensive run.
+    'change_policy.promotion.<ref>.profile',
+    # promotion.<ref>.apps (0.4.0): restricts which change_config.apps
+    # entries' comprehensive passes gate this promotion target. Omitted,
     # every registered enabled app is required.
-    'change_policy.promotion.<branch>.apps',
+    'change_policy.promotion.<ref>.apps',
+    # promotion.<ref>.environment (0.9.0-alpha.1): human label for this
+    # promotion target, used in deny messages and doctor output. Defaults to
+    # the key itself; most useful when a tag pattern (tag:release/*/v*) does
+    # not read as an environment name on its own.
+    'change_policy.promotion.<ref>.environment',
+    # promotion.<ref>.require_trunk_ancestor (0.9.0-alpha.1): tag rules only.
+    # The tagged commit must be an ancestor of (or equal to) the named
+    # branch. Restores what branch topology encoded structurally (a commit is
+    # on staging by construction) for a trunk topology, where it must be
+    # stated instead of derived.
+    'change_policy.promotion.<ref>.require_trunk_ancestor',
+    # promotion.<ref>.require_prior_tag (0.9.0-alpha.1): tag rules only. A
+    # published tag matching this glob must already point at the same
+    # commit: the trunk-topology equivalent of "production only merges from
+    # staging".
+    'change_policy.promotion.<ref>.require_prior_tag',
     'change_policy.admin_bypass.allowed',
     'change_policy.admin_bypass.require_change_pass',
     'change_policy.admin_bypass.conditions',

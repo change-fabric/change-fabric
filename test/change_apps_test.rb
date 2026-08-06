@@ -145,6 +145,126 @@ class ChangeAppRegistryTest < Minitest::Test
     end
   end
 
+  def test_doctor_lists_branch_and_tag_promotion_targets
+    Dir.mktmpdir do |root|
+      change_md = File.join(root, "CHANGE.md")
+      File.write(change_md, <<~MD)
+        ---
+        change_config:
+          project: my-app
+          lanes:
+            k6: { enabled: true }
+        change_policy:
+          promotion:
+            main: { require_change_pass: true }
+            tag:staging/v*: { environment: staging, profile: staging }
+        ---
+        body
+      MD
+
+      summary = ChangeAppRegistry.doctor(change_md)
+      assert_match(/promotion targets:/, summary)
+      assert_match(/branch main: profile=\(none\) apps=every enabled app/, summary)
+      assert_match(/tag:staging\/v\* \(staging\): profile=staging apps=every enabled app/, summary)
+    end
+  end
+
+  def test_doctor_flags_a_tag_promotion_profile_no_required_app_defines
+    Dir.mktmpdir do |root|
+      write_app(File.join(root, "apps/scattergram/CHANGE.app.yml"), {
+        "project" => "scattergram", "default_profile" => "local", "lanes" => { "k6" => { "enabled" => true } },
+        "profiles" => { "local" => {} }
+      })
+      change_md = write_root(
+        root,
+        { "project" => "my-repo", "apps" => { "scattergram" => { "config" => "apps/scattergram/CHANGE.app.yml" } } },
+        { "promotion" => { "tag:production/v*" => { "require_change_pass" => true, "profile" => "production" } } }
+      )
+
+      summary = ChangeAppRegistry.doctor(change_md)
+      assert_match(/promotion\.tag:production\/v\*\.profile 'production' is unsatisfiable: app 'scattergram' has no such profile/, summary)
+    end
+  end
+
+  def test_doctor_flags_an_explicitly_empty_apps_list_on_a_tag_rule
+    Dir.mktmpdir do |root|
+      write_app(File.join(root, "apps/portal/CHANGE.app.yml"), { "project" => "portal", "lanes" => { "k6" => { "enabled" => true } } })
+      change_md = write_root(
+        root,
+        { "project" => "my-repo", "apps" => { "portal" => { "config" => "apps/portal/CHANGE.app.yml" } } },
+        { "promotion" => { "tag:production/v*" => { "require_change_pass" => true, "apps" => [] } } }
+      )
+
+      summary = ChangeAppRegistry.doctor(change_md)
+      assert_match(/change_policy\.promotion\.tag:production\/v\*\.apps is explicitly empty/, summary)
+    end
+  end
+
+  def test_doctor_warns_on_overlapping_tag_patterns
+    Dir.mktmpdir do |root|
+      change_md = File.join(root, "CHANGE.md")
+      File.write(change_md, <<~MD)
+        ---
+        change_config:
+          project: my-app
+          lanes:
+            k6: { enabled: true }
+        change_policy:
+          promotion:
+            tag:staging/v*: { require_change_pass: true }
+            tag:staging/v1.*: { require_change_pass: true }
+        ---
+        body
+      MD
+
+      summary = ChangeAppRegistry.doctor(change_md)
+      assert_match(/tag:staging\/v\* and tag:staging\/v1\.\* can both match the same tag/, summary)
+    end
+  end
+
+  def test_doctor_warns_on_a_literal_looking_tag_pattern
+    Dir.mktmpdir do |root|
+      change_md = File.join(root, "CHANGE.md")
+      File.write(change_md, <<~MD)
+        ---
+        change_config:
+          project: my-app
+          lanes:
+            k6: { enabled: true }
+        change_policy:
+          promotion:
+            tag:release-only: { require_change_pass: true }
+        ---
+        body
+      MD
+
+      summary = ChangeAppRegistry.doctor(change_md)
+      assert_match(/tag:release-only has no glob metacharacter and no '\/'/, summary)
+    end
+  end
+
+  def test_doctor_warns_on_trunk_ancestor_and_prior_tag_misplaced_on_a_branch_rule
+    Dir.mktmpdir do |root|
+      change_md = File.join(root, "CHANGE.md")
+      File.write(change_md, <<~MD)
+        ---
+        change_config:
+          project: my-app
+          lanes:
+            k6: { enabled: true }
+        change_policy:
+          promotion:
+            main: { require_trunk_ancestor: main, require_prior_tag: "staging/v*" }
+        ---
+        body
+      MD
+
+      summary = ChangeAppRegistry.doctor(change_md)
+      assert_match(/promotion\.main\.require_trunk_ancestor is set on a branch rule/, summary)
+      assert_match(/promotion\.main\.require_prior_tag is set on a branch rule/, summary)
+    end
+  end
+
   def test_doctor_flags_a_promotion_profile_no_required_app_defines
     Dir.mktmpdir do |root|
       write_app(File.join(root, "apps/portal/CHANGE.app.yml"), { "project" => "portal", "lanes" => { "k6" => { "enabled" => true } } })

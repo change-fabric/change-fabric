@@ -27,7 +27,7 @@
 # change_config.apps, a root registry of per-app CHANGE.app.yml files; see the
 # spec's "change_config.apps" section and reference/CHANGE.app.template.yml.
 
-spec_version: "0.6.0"
+spec_version: "0.9.0-alpha.1"
 
 # Optional third block: which contributors team owns this repo, and where its
 # cf:change findings artifacts publish. Delete it entirely if this repo is not
@@ -294,6 +294,25 @@ change_policy:
       require_change_pass: true
       ci_gate: "lint, typecheck, unit, e2e, build"
       ci_skippable: false
+
+    # Trunk + tag alternative (one long-lived branch, higher environments are
+    # release tags, not branches): replace the staging/production keys above
+    # with tag: keys instead, e.g.
+    #   tag:staging/v*:
+    #     environment: staging
+    #     require_change_pass: true
+    #     profile: staging
+    #     require_trunk_ancestor: main
+    #   tag:production/v*:
+    #     environment: production
+    #     require_change_pass: true
+    #     profile: production
+    #     require_trunk_ancestor: main
+    #     require_prior_tag: "staging/v*"
+    # Every field above means exactly what it means on a branch key; only the
+    # gated moment differs (a tag push instead of a merge). See the frontmatter
+    # spec's "change_policy tag rules" section and, for a complete file, this
+    # skill's reference/CHANGE.trunk-tags.example.md.
 
   # When admin-bypass merging (gh pr merge --admin, skipping the normal review
   # or CI wait) is permitted at all. Set allowed: true only if the prose below
