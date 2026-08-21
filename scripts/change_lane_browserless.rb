@@ -363,7 +363,19 @@ class ChangeLaneBrowserless < ChangeLane
         const figmaRefs = #{JSON.generate(figma_refs)};
         const basicAuth = #{JSON.generate(basic_auth)};
         const capture = #{JSON.generate(capture_options)};
-        if (basicAuth) await page.authenticate({ username: basicAuth.username, password: basicAuth.password });
+        if (basicAuth) {
+          await page.authenticate({ username: basicAuth.username, password: basicAuth.password });
+          // page.authenticate() only fires on a WWW-Authenticate challenge,
+          // which some gates never send (an ALB fixed-response 401 has no
+          // mechanism to set arbitrary response headers - confirmed against
+          // terraform/cms_signoz_basic_auth.tf's own "KNOWN GAP" comment).
+          // Sending the header unconditionally works regardless of whether
+          // the target's 401 carries a real challenge.
+          // btoa, not Buffer: this module runs inside browserless's function
+          // sandbox, a browser-like context with no Node globals.
+          const encoded = btoa(`${basicAuth.username}:${basicAuth.password}`);
+          await page.setExtraHTTPHeaders({ Authorization: `Basic ${encoded}` });
+        }
 
         #{recorder_js}
 

@@ -48,6 +48,13 @@ class ChangeLaneA11y < ChangeLane
   end
 
   def route_findings(route)
+    if route['nonOkStatus']
+      return [ Finding.new(lane: 'a11y', check: 'non-2xx response', status: 'fail', severity: 'high',
+                           target: base_url, location: route['route'].to_s,
+                           detail: "scanned a non-2xx response (#{route['httpStatus'].inspect}); " \
+                                   'a11y results for this route are not meaningful') ]
+    end
+
     served = redirected_path(route['route'], route['finalUrl'])
     if served
       return [ Finding.new(lane: 'a11y', check: 'redirected', status: 'warn', severity: 'moderate',
@@ -89,16 +96,33 @@ class ChangeLaneA11y < ChangeLane
         const routes = #{JSON.generate(routes)};
         const axeUrl = #{JSON.generate(AXE_CDN)};
         const basicAuth = #{JSON.generate(basic_auth)};
-        if (basicAuth) await page.authenticate({ username: basicAuth.username, password: basicAuth.password });
+        if (basicAuth) {
+          // page.authenticate() only fires on a WWW-Authenticate challenge,
+          // which some gates never send (an ALB fixed-response 401 has no
+          // mechanism to set arbitrary response headers - confirmed against
+          // terraform/cms_signoz_basic_auth.tf's own "KNOWN GAP" comment).
+          // Sending the header unconditionally works regardless of whether
+          // the target's 401 carries a real challenge.
+          // btoa, not Buffer: this module runs inside browserless's function
+          // sandbox, a browser-like context with no Node globals.
+          const encoded = btoa(`${basicAuth.username}:${basicAuth.password}`);
+          await page.setExtraHTTPHeaders({ Authorization: `Basic ${encoded}` });
+        }
         const out = [];
         for (const route of routes) {
           try {
-            await page.goto(baseUrl + route, { waitUntil: "networkidle2", timeout: 30000 });
+            const resp = await page.goto(baseUrl + route, { waitUntil: "networkidle2", timeout: 30000 });
+            const httpStatus = resp ? resp.status() : null;
+            if (!httpStatus || httpStatus < 200 || httpStatus >= 300) {
+              out.push({ route, finalUrl: page.url(), httpStatus, nonOkStatus: true, violations: [] });
+              continue;
+            }
             await page.addScriptTag({ url: axeUrl });
             const result = await page.evaluate(async () => await window.axe.run());
             out.push({
               route,
               finalUrl: page.url(),
+              httpStatus,
               violations: result.violations.map((v) => ({
                 id: v.id,
                 impact: v.impact,
