@@ -279,6 +279,54 @@ class ChangeConfigTest < Minitest::Test
     assert_match(/basic_auth.*k6/, error.message)
   end
 
+  def test_profile_auth_override_is_permitted_on_browserless
+    config = {
+      "project" => "app", "lanes" => { "browserless" => { "enabled" => true, "auth" => { "login_url" => "/login", "email_env" => "E", "password_env" => "P" } } },
+      "profiles" => { "staging" => { "lanes" => { "browserless" => { "auth" => { "login_url" => "/staging-login" } } } } }
+    }
+    with_config(config, "staging") do |loaded, _root|
+      assert_equal "/staging-login", loaded.lane("browserless")["auth"]["login_url"]
+    end
+  end
+
+  def test_profile_auth_override_is_rejected_on_a11y
+    config = {
+      "project" => "app", "lanes" => { "a11y" => { "enabled" => true, "routes" => [ "/" ] } },
+      "profiles" => { "staging" => { "lanes" => { "a11y" => { "auth" => { "login_url" => "/login" } } } } }
+    }
+    error = assert_raises(ChangeConfig::ConfigError) { with_config(config, "staging") { |_c| } }
+    assert_match(/profile 'staging' lane 'a11y'.*auth.*only applies to the browserless lane/, error.message)
+  end
+
+  def test_profile_auth_override_is_rejected_on_zap
+    config = {
+      "project" => "app", "lanes" => { "zap" => { "enabled" => true } },
+      "profiles" => { "staging" => { "lanes" => { "zap" => { "auth" => { "login_url" => "/login" } } } } }
+    }
+    error = assert_raises(ChangeConfig::ConfigError) { with_config(config, "staging") { |_c| } }
+    assert_match(/profile 'staging' lane 'zap'.*auth.*only applies to the browserless lane/, error.message)
+  end
+
+  # A partial profile override (just timeout_ms) deep-merges over the base
+  # auth block rather than replacing it wholesale, exactly like every other
+  # nested-hash lane override this config already supports.
+  def test_profile_auth_override_deep_merges_a_partial_field_over_the_base
+    config = {
+      "project" => "app",
+      "lanes" => { "browserless" => { "enabled" => true, "auth" => {
+        "login_url" => "/login", "email_env" => "BASE_EMAIL", "password_env" => "BASE_PASS", "timeout_ms" => 15_000
+      } } },
+      "profiles" => { "staging" => { "lanes" => { "browserless" => { "auth" => { "timeout_ms" => 30_000 } } } } }
+    }
+    with_config(config, "staging") do |loaded, _root|
+      auth = loaded.lane("browserless")["auth"]
+      assert_equal 30_000, auth["timeout_ms"]
+      assert_equal "/login", auth["login_url"]
+      assert_equal "BASE_EMAIL", auth["email_env"]
+      assert_equal "BASE_PASS", auth["password_env"]
+    end
+  end
+
   def test_spec_version_matching_the_toolkit_has_no_mismatch
     front = { "spec_version" => ChangeSchema::VERSION, "change_config" => { "project" => "app", "lanes" => { "k6" => { "enabled" => true } } } }
     with_frontmatter(front) { |loaded, _root| assert_nil loaded.spec_version_mismatch }

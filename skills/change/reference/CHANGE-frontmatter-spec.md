@@ -1,6 +1,6 @@
 # CHANGE.md frontmatter specification
 
-Schema version: 0.6.0
+Schema version: 0.8.0
 
 Status: stable. This is the golden reference for authoring a repo's `CHANGE.md`
 frontmatter. A maintainer or an AI agent creating a new repo's `CHANGE.md` reads
@@ -170,10 +170,16 @@ A profile may set only `project`, `boot.*`, and a lane's `enabled`/`base_url`/
 scope limit that keeps `profiles.<profile>.*` a small, fully documented
 mirror of the base config's own mechanical fields rather than a second copy
 of the whole schema: a profile changes *where* the same audit runs, never
-*what* it audits. `zap.targets` (0.4.0) is the one exception a profile may
-also set, and it is consistent with the rule rather than a break from it: a
-target list is a *where*, not a *what*, the same reason `base_url` is
-already overridable.
+*what* it audits. `zap.targets` (0.4.0) and `browserless.auth` (0.8.0) are
+the two exceptions a profile may also set, and both are consistent with the
+rule rather than a break from it: a target list and a login url with its
+credential env vars are a *where* (how the same audit reaches a different
+environment), not a *what*, the same reason `base_url` is already
+overridable. `browserless.auth` is rejected on every other lane, since only
+browserless reads it (see `change_config.lanes.zap.auth` above, a separate,
+unrelated reserved field); a profile override deep-merges over the base
+`auth` block field by field, so restating only `timeout_ms` leaves
+`login_url` and the rest inherited rather than dropped.
 
 **Adopting profiles without breaking the bare merge gate.** The moment a
 `profiles` block is non-empty, a bare `change_run.rb all` (the invocation
@@ -202,6 +208,24 @@ worked example below.
 | `change_config.profiles.<profile>.lanes.<lane>.basic_auth.username_env` | string | no | (0.3.0) Overrides `<lane>`'s Basic Auth username env var name for this profile, e.g. when staging sits behind a Basic Auth wall but local dev does not. |
 | `change_config.profiles.<profile>.lanes.<lane>.basic_auth.password_env` | string | no | (0.3.0) Overrides `<lane>`'s Basic Auth password env var name for this profile. |
 | `change_config.profiles.<profile>.lanes.zap.targets` | list of string | no | (0.4.0) Overrides the ZAP scope for this profile. The one lane field other than `enabled`/`base_url`/`basic_auth` a profile may set, for a scope spanning two genuinely distinct services that a relative-path `targets` entry cannot express. Rejected on every other lane; only zap reads it. |
+| `change_config.profiles.<profile>.lanes.browserless.auth.login_url` | string | no | (0.8.0) Overrides `browserless.auth.login_url` for this profile, e.g. when staging's login lives at a different path than local dev's. Rejected on every other lane; only browserless reads `auth`. Deep-merges over the base `auth` block field by field. |
+| `change_config.profiles.<profile>.lanes.browserless.auth.email_env` | string | no | (0.8.0) Overrides `browserless.auth.email_env` for this profile. |
+| `change_config.profiles.<profile>.lanes.browserless.auth.password_env` | string | no | (0.8.0) Overrides `browserless.auth.password_env` for this profile. |
+| `change_config.profiles.<profile>.lanes.browserless.auth.email_selector` | string | no | (0.8.0) Overrides `browserless.auth.email_selector` for this profile. |
+| `change_config.profiles.<profile>.lanes.browserless.auth.password_selector` | string | no | (0.8.0) Overrides `browserless.auth.password_selector` for this profile. |
+| `change_config.profiles.<profile>.lanes.browserless.auth.submit_selector` | string | no | (0.8.0) Overrides `browserless.auth.submit_selector` for this profile. |
+| `change_config.profiles.<profile>.lanes.browserless.auth.wait_for_selector` | string | no | (0.8.0) Overrides `browserless.auth.wait_for_selector` for this profile. |
+| `change_config.profiles.<profile>.lanes.browserless.auth.timeout_ms` | integer | no | (0.8.0) Overrides `browserless.auth.timeout_ms` for this profile, e.g. a slower staging login. |
+| `change_config.profiles.<profile>.lanes.browserless.auth.steps[].url` | string | no | (0.8.0) Overrides `browserless.auth.steps[].url` for this profile (multi-step login). |
+| `change_config.profiles.<profile>.lanes.browserless.auth.steps[].fields[].selector` | string | no | (0.8.0) Overrides `browserless.auth.steps[].fields[].selector` for this profile. |
+| `change_config.profiles.<profile>.lanes.browserless.auth.steps[].fields[].env` | string | no | (0.8.0) Overrides `browserless.auth.steps[].fields[].env` for this profile. |
+| `change_config.profiles.<profile>.lanes.browserless.auth.steps[].fields[].code_source.url` | string | no | (0.8.0) Overrides `browserless.auth.steps[].fields[].code_source.url` for this profile (e.g. a different Mailpit/MailHog host per environment). |
+| `change_config.profiles.<profile>.lanes.browserless.auth.steps[].fields[].code_source.pattern` | string | no | (0.8.0) Overrides `browserless.auth.steps[].fields[].code_source.pattern` for this profile. |
+| `change_config.profiles.<profile>.lanes.browserless.auth.steps[].fields[].code_source.timeout_ms` | integer | no | (0.8.0) Overrides `browserless.auth.steps[].fields[].code_source.timeout_ms` for this profile. |
+| `change_config.profiles.<profile>.lanes.browserless.auth.steps[].fields[].code_source.poll_interval_ms` | integer | no | (0.8.0) Overrides `browserless.auth.steps[].fields[].code_source.poll_interval_ms` for this profile. |
+| `change_config.profiles.<profile>.lanes.browserless.auth.steps[].submit_selector` | string | no | (0.8.0) Overrides `browserless.auth.steps[].submit_selector` for this profile. |
+| `change_config.profiles.<profile>.lanes.browserless.auth.steps[].wait_for_selector` | string | no | (0.8.0) Overrides `browserless.auth.steps[].wait_for_selector` for this profile. |
+| `change_config.profiles.<profile>.lanes.browserless.auth.steps[].timeout_ms` | integer | no | (0.8.0) Overrides `browserless.auth.steps[].timeout_ms` for this profile. |
 
 ### change_config.apps (0.4.0): multiple apps, one governance policy
 
@@ -825,3 +849,14 @@ root `RELEASING.md`.
   removed at 0.7.0. Everything else holds: still default off, still fully
   additive, and still best effort, so a publish that fails is a named warning on
   a run whose verdict the four audit lanes alone decided.
+- 0.8.0: `change_config.profiles.<profile>.lanes.browserless.auth.*` lets a
+  profile override the browserless login flow, deep-merged field by field
+  over the base `browserless.auth` block. `PROFILE_LANE_KEYS` already treats
+  `zap.targets` as an exception to "a profile changes where, never what"; a
+  login url and its credential env vars are the same kind of exception, how a
+  profile's environment is reached rather than what gets audited once the
+  login succeeds. Rejected on every other lane (including a11y, which drives
+  a real browser page too but only ever reads `basic_auth`, never a
+  multi-step login) with the same message shape `basic_auth`'s own
+  lane guard already uses. Not related to the `contributors_team.artifacts`
+  removal reserved for 0.7.0 above; that field set is untouched here.
