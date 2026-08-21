@@ -227,8 +227,8 @@ class ChangeLaneBrowserless < ChangeLane
   end
 
   def grade(check)
-    return [ 'fail', 'high', "auth login failed before this route could be reached: #{check['authError']}" ] if check['authBlocked']
     return [ 'fail', 'high', "navigation error: #{check['error']}" ] if check['error']
+    return auth_failed_grade(check) if check['authBlocked']
     return [ 'fail', 'high', "http #{check['httpStatus']}" ] if bad_status?(check['httpStatus'])
 
     served = redirected_path(check['route'], check['finalUrl'])
@@ -241,6 +241,42 @@ class ChangeLaneBrowserless < ChangeLane
     return [ 'warn', 'low', "#{check['consoleErrors']} console error(s)" ] if check['consoleErrors'].to_i.positive?
 
     [ 'pass', 'info', 'no responsive break' ]
+  end
+
+  # When the login flow failed, the route is still navigated (see #run) and
+  # its real response is what gets graded here - a bad status is still a
+  # fail, reusing the same bad_status? threshold as an ungated route - rather
+  # than every auth-required route collapsing into one generic "auth failed"
+  # finding without ever being visited. Every branch still names the login
+  # failure in its detail so the reader never mistakes an unauthenticated
+  # page for the real gated content, mirroring the redirect idiom's "reflects
+  # that page, not the requested route" wording.
+  def auth_failed_grade(check)
+    note = "auth login failed before this route could be reached: #{check['authError']}#{auth_diagnostics_detail(check)}"
+    return [ 'fail', 'high', note ] if check['httpStatus'].nil?
+    return [ 'fail', 'high', "http #{check['httpStatus']}; #{note}" ] if bad_status?(check['httpStatus'])
+
+    [ 'warn', 'moderate',
+      "the viewport checks reflect the page served without a successful login (http #{check['httpStatus']}), " \
+      "not the requested gated route; #{note}" ]
+  end
+
+  # Renders the auth-failure diagnostics module (F2) captured at the moment
+  # the login flow failed - the url it actually landed on, the last
+  # main-frame response status, the page title, and a body-text snippet - so
+  # a failure reads as a real diagnosis instead of a bare Puppeteer timeout
+  # message. The screenshot in the same payload is attached as media
+  # evidence (see capture_media), not text, so it is not repeated here.
+  def auth_diagnostics_detail(check)
+    diag = check['authDiagnostics']
+    return '' unless diag.is_a?(Hash)
+
+    parts = []
+    parts << "landed on #{diag['url']}" if diag['url'].to_s != ''
+    parts << "http #{diag['status']}" if diag['status']
+    parts << "title #{diag['title'].to_s.inspect}" if diag['title'].to_s != ''
+    parts << "body: #{diag['bodyText'].to_s.inspect}" if diag['bodyText'].to_s != ''
+    parts.empty? ? '' : " (#{parts.join(', ')})"
   end
 
   # Grades the pixel-diff percentage against the configured (or default)
@@ -313,8 +349,19 @@ class ChangeLaneBrowserless < ChangeLane
 
     cells(result).each do |cell|
       sink.add_screenshot(viewport: cell['viewport'], route: cell['route'], data: cell['shot']) if cell['shot']
+      auth_screenshot = auth_screenshot_for(cell)
+      if auth_screenshot
+        sink.add_screenshot(viewport: cell['viewport'], route: "#{cell['route']} (auth failure)", data: auth_screenshot)
+      end
     end
     videos(result).map { |video| record_video(sink, video) }.compact
+  end
+
+  # The auth-failure diagnostic screenshot (F2), captured at the moment the
+  # login flow failed, or nil for every ordinary cell.
+  def auth_screenshot_for(cell)
+    diag = cell['authDiagnostics']
+    diag.is_a?(Hash) ? diag['screenshot'] : nil
   end
 
   def videos(result) = result.is_a?(Hash) ? Array(result['videos']) : []
@@ -381,6 +428,8 @@ class ChangeLaneBrowserless < ChangeLane
 
         let authOk = null;
         let authError = null;
+        let authDiagnostics = null;
+        let lastAuthResponse = null;
 
         // Polls a code_source url (an HTTP endpoint reachable on the run
         // network, e.g. a Mailpit/MailHog dev inbox API) with Node's own
@@ -417,15 +466,36 @@ class ChangeLaneBrowserless < ChangeLane
         }
 
         async function runAuthStep(step) {
-          if (step.url) await page.goto(step.url, { waitUntil: "networkidle2", timeout: step.timeoutMs });
+          if (step.url) lastAuthResponse = await page.goto(step.url, { waitUntil: "networkidle2", timeout: step.timeoutMs });
           for (const field of step.fields) await fillField(field, step.timeoutMs);
           if (step.submitSelector) {
-            await Promise.all([
+            const [navResponse] = await Promise.all([
               page.waitForNavigation({ waitUntil: "networkidle2", timeout: step.timeoutMs }).catch(() => null),
               page.click(step.submitSelector),
             ]);
+            if (navResponse) lastAuthResponse = navResponse;
           }
           if (step.waitForSelector) await page.waitForSelector(step.waitForSelector, { timeout: step.timeoutMs });
+        }
+
+        // Captures a real diagnosis of an auth failure - the url actually
+        // landed on, the last main-frame response status, the page title,
+        // and a body-text snippet - so a reader sees why the login failed
+        // instead of a bare Puppeteer timeout message. Every read is
+        // wrapped so a diagnostics failure (a closed page, a weird DOM)
+        // never masks the real auth error it is describing.
+        async function captureAuthDiagnostics() {
+          const diag = {};
+          try { diag.url = page.url(); } catch (err) { diag.url = null; }
+          try { diag.status = lastAuthResponse ? lastAuthResponse.status() : null; } catch (err) { diag.status = null; }
+          try { diag.title = await page.title(); } catch (err) { diag.title = null; }
+          try {
+            diag.bodyText = await page.evaluate(() => (document.body ? document.body.innerText : "").slice(0, 500));
+          } catch (err) {
+            diag.bodyText = null;
+          }
+          try { diag.screenshot = await page.screenshot({ encoding: "base64" }); } catch (err) { diag.screenshot = null; }
+          return diag;
         }
 
         // Runs every configured step in order, in the same page, so a
@@ -440,6 +510,7 @@ class ChangeLaneBrowserless < ChangeLane
           } catch (err) {
             authOk = false;
             authError = String(err);
+            authDiagnostics = await captureAuthDiagnostics();
           }
           return authOk;
         }
@@ -502,10 +573,13 @@ class ChangeLaneBrowserless < ChangeLane
             if (entry.auth) {
               const ok = await ensureAuth();
               if (!ok) {
+                // Still navigated below and graded on its real response
+                // (F3): an auth-required route no longer collapses into an
+                // identical generic finding for every route without ever
+                // being visited.
                 cell.authBlocked = true;
                 cell.authError = authError;
-                out.push(cell);
-                continue;
+                cell.authDiagnostics = authDiagnostics;
               }
             }
             let consoleErrors = 0;
@@ -521,7 +595,11 @@ class ChangeLaneBrowserless < ChangeLane
               cell.overflow = scrollWidth > vp.width + 1;
               cell.consoleErrors = consoleErrors;
 
-              const refBase64 = entry.figmaViewport === vp.name ? figmaRefs[entry.path] : null;
+              // Suppressed for an auth-failed cell (F3): the screenshot is
+              // of the wrong (unauthenticated) page, so a pixel diff
+              // against the gated route's Figma reference would be
+              // meaningless noise, not a real design-alignment signal.
+              const refBase64 = !cell.authBlocked && entry.figmaViewport === vp.name ? figmaRefs[entry.path] : null;
               if (refBase64) {
                 const shotBase64 = await page.screenshot({ encoding: "base64" });
                 cell.figmaDiff = await diffAgainstReference(shotBase64, refBase64);
