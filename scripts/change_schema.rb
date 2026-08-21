@@ -16,7 +16,7 @@
 # spec doc's changelog. A field-set change without a matching version bump, or a
 # version bump the doc does not reflect, is exactly what the drift test catches.
 module ChangeSchema
-  VERSION = '0.6.0'
+  VERSION = '0.8.0'
 
   # The four audit lanes, the authoritative list the config validator enforces.
   LANES = %w[k6 a11y zap browserless].freeze
@@ -136,6 +136,30 @@ module ChangeSchema
     # profile may restate, for a ZAP scope spanning two genuinely distinct
     # services that a relative-path targets entry cannot express.
     'change_config.profiles.<profile>.lanes.zap.targets',
+    # profiles.<profile>.lanes.browserless.auth (0.8.0): a login url and its
+    # credential env vars are how a profile's environment is reached, not
+    # what gets audited once the login succeeds, the same *where* vs *what*
+    # distinction basic_auth and targets above already rest on. Deep-merges
+    # over the base auth block, so a profile can restate just the field that
+    # differs (e.g. only timeout_ms) without repeating the rest.
+    'change_config.profiles.<profile>.lanes.browserless.auth.login_url',
+    'change_config.profiles.<profile>.lanes.browserless.auth.email_env',
+    'change_config.profiles.<profile>.lanes.browserless.auth.password_env',
+    'change_config.profiles.<profile>.lanes.browserless.auth.email_selector',
+    'change_config.profiles.<profile>.lanes.browserless.auth.password_selector',
+    'change_config.profiles.<profile>.lanes.browserless.auth.submit_selector',
+    'change_config.profiles.<profile>.lanes.browserless.auth.wait_for_selector',
+    'change_config.profiles.<profile>.lanes.browserless.auth.timeout_ms',
+    'change_config.profiles.<profile>.lanes.browserless.auth.steps[].url',
+    'change_config.profiles.<profile>.lanes.browserless.auth.steps[].fields[].selector',
+    'change_config.profiles.<profile>.lanes.browserless.auth.steps[].fields[].env',
+    'change_config.profiles.<profile>.lanes.browserless.auth.steps[].fields[].code_source.url',
+    'change_config.profiles.<profile>.lanes.browserless.auth.steps[].fields[].code_source.pattern',
+    'change_config.profiles.<profile>.lanes.browserless.auth.steps[].fields[].code_source.timeout_ms',
+    'change_config.profiles.<profile>.lanes.browserless.auth.steps[].fields[].code_source.poll_interval_ms',
+    'change_config.profiles.<profile>.lanes.browserless.auth.steps[].submit_selector',
+    'change_config.profiles.<profile>.lanes.browserless.auth.steps[].wait_for_selector',
+    'change_config.profiles.<profile>.lanes.browserless.auth.steps[].timeout_ms',
     # change_config.apps (0.4.0): a registry of the several genuinely
     # different apps one monorepo contains, each with its own config file
     # (change_config.apps.<app>.config). See the "change_config.apps" section

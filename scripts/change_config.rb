@@ -43,8 +43,13 @@ class ChangeConfig
   # documented field set small and every profile field's meaning identical to
   # its base-config counterpart, rather than a second, parallel schema.
   # `targets` (0.4.0) is the one exception: a target list is a *where*, the
-  # same reason `base_url` is already overridable, not a *what*.
-  PROFILE_LANE_KEYS = %w[enabled base_url basic_auth targets].freeze
+  # same reason `base_url` is already overridable, not a *what*. `auth` is a
+  # second exception for the same reason: a login url and its credential env
+  # vars are how a profile's environment is reached, not what gets audited
+  # once the login succeeds - the same distinction that already lets `targets`
+  # and `base_url` vary per profile while routes, thresholds, and viewports
+  # stay shared.
+  PROFILE_LANE_KEYS = %w[enabled base_url basic_auth targets auth].freeze
   PROFILE_TOP_KEYS = %w[project boot lanes].freeze
 
   # basic_auth (0.3.0) is answered via page.authenticate() in a browser page, so
@@ -54,6 +59,12 @@ class ChangeConfig
   # Lanes that read a `targets` list at all (0.4.0). Only zap has a notion of
   # more than one in-scope url; every other lane has exactly one base_url.
   TARGET_LANES = %w[zap].freeze
+
+  # Lanes that read an `auth` login-flow block. Narrower than BROWSER_LANES:
+  # a11y drives a real browser page too, but only ever reads basic_auth, never
+  # a multi-step login flow, so `auth` there would be the same silent no-op
+  # basic_auth's own guard exists to prevent.
+  AUTH_LANES = %w[browserless].freeze
 
   def self.load(path, profile: nil, root: nil, overrides: {})
     raise ConfigError, "CHANGE.md not found: #{path}. #{REFERENCE_HINT}" unless File.exist?(path)
@@ -328,6 +339,7 @@ class ChangeConfig
 
       reject_basic_auth_outside_browser_lanes(lane, section, subject: "profile '#{name}' lane '#{lane}'")
       reject_targets_outside_target_lanes(lane, section, subject: "profile '#{name}' lane '#{lane}'")
+      reject_auth_outside_auth_lanes(lane, section, subject: "profile '#{name}' lane '#{lane}'")
     end
   end
 
@@ -380,6 +392,18 @@ class ChangeConfig
 
     raise ConfigError,
           "#{subject} sets targets, but targets only applies to the zap lane; #{lane} never reads it."
+  end
+
+  # auth (the multi-step login-flow block) only means anything on browserless;
+  # a11y drives a real browser page too but only ever reads basic_auth, so
+  # accepting auth there would be the same silent no-op basic_auth's own
+  # guard exists to prevent.
+  def reject_auth_outside_auth_lanes(lane, section, subject:)
+    return unless section.is_a?(Hash) && section.key?('auth')
+    return if AUTH_LANES.include?(lane)
+
+    raise ConfigError,
+          "#{subject} sets auth, but auth only applies to the browserless lane; #{lane} never reads it."
   end
 
   # How to bring the target app up and confirm it is ready before any lane runs.
