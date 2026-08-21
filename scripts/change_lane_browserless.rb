@@ -43,6 +43,12 @@ require_relative 'change_figma'
 # browserless container, but a fixed responsive/auth/visual-alignment rubric
 # across a viewport matrix rather than hand-authored flow assertions.
 class ChangeLaneBrowserless < ChangeLane
+  # Per-cell timing (F6 step 1): the run's own report reads this after #run to
+  # render a timing table, purely additive instrumentation to make real
+  # duration data visible before any decision to raise FUNCTION_TIMEOUT_MS or
+  # split the scan per viewport is made from measurement instead of a guess.
+  attr_reader :timed_cells
+
   DEFAULT_VIEWPORTS = [
     { 'name' => 'mobile', 'width' => 390, 'height' => 844 },
     { 'name' => 'tablet', 'width' => 768, 'height' => 1024 },
@@ -80,6 +86,7 @@ class ChangeLaneBrowserless < ChangeLane
         findings << check_finding(check)
         findings << figma_diff_finding(check) if check['figmaDiff']
       end
+      @timed_cells = cells(result)
       findings.concat(capture_media(result))
     rescue StandardError => e
       findings << Finding.new(lane: 'browserless', check: 'viewport scan', status: 'fail', severity: 'high',
@@ -88,7 +95,27 @@ class ChangeLaneBrowserless < ChangeLane
     findings
   end
 
+  # A Markdown table of #run's own per-cell timing (F6 step 1), or nil when
+  # #run has not populated @timed_cells (browserless unavailable, or the
+  # scan errored before returning any cell). The run report renders this as
+  # an extra section alongside the k6 narrative, so real duration numbers
+  # are visible in report output instead of only inferred from a timeout.
+  def timing_section
+    return nil if timed_cells.nil? || timed_cells.empty?
+
+    lines = [ '### Browserless per-cell timing (ms)', '',
+              '| Viewport | Route | Nav | Eval | Screenshot | Total |', '| --- | --- | --- | --- | --- | --- |' ]
+    timed_cells.each { |cell| lines << timing_row(cell) }
+    lines.join("\n")
+  end
+
   private
+
+  def timing_row(cell)
+    ms = ->(field) { cell[field].nil? ? '-' : cell[field].to_i.to_s }
+    "| #{cell['viewport']} | #{cell['route']} | #{ms.call('navMs')} | #{ms.call('evalMs')} | " \
+      "#{ms.call('shotMs')} | #{ms.call('totalMs')} |"
+  end
 
   def viewports = (@config['viewports'] || DEFAULT_VIEWPORTS)
 
@@ -585,12 +612,21 @@ class ChangeLaneBrowserless < ChangeLane
             let consoleErrors = 0;
             const onError = (msg) => { if (msg.type() === "error") consoleErrors += 1; };
             page.on("console", onError);
+            // F6 step 1: lightweight Date.now() deltas around this cell's
+            // three real costs, purely additive instrumentation so a future
+            // decision to raise FUNCTION_TIMEOUT_MS or split the scan per
+            // viewport can be made from real numbers instead of a guess.
+            const cellStart = Date.now();
             try {
               await page.setViewport({ width: vp.width, height: vp.height });
+              const navStart = Date.now();
               const resp = await page.goto(baseUrl + entry.path, { waitUntil: "networkidle2", timeout: 30000 });
+              cell.navMs = Date.now() - navStart;
               cell.httpStatus = resp ? resp.status() : null;
               cell.finalUrl = page.url();
+              const evalStart = Date.now();
               const scrollWidth = await page.evaluate(() => document.documentElement.scrollWidth);
+              cell.evalMs = Date.now() - evalStart;
               cell.scrollWidth = scrollWidth;
               cell.overflow = scrollWidth > vp.width + 1;
               cell.consoleErrors = consoleErrors;
@@ -605,13 +641,16 @@ class ChangeLaneBrowserless < ChangeLane
                 cell.figmaDiff = await diffAgainstReference(shotBase64, refBase64);
               }
               if (capture.screenshots) {
+                const shotStart = Date.now();
                 cell.shot = await page.screenshot({ encoding: "base64", type: "jpeg", quality: 72, fullPage: true });
+                cell.shotMs = Date.now() - shotStart;
               }
             } catch (err) {
               cell.error = String(err);
             } finally {
               page.off("console", onError);
             }
+            cell.totalMs = Date.now() - cellStart;
             out.push(cell);
           }
           const video = await stopRecording(recorder, vp);

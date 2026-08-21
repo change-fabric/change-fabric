@@ -142,8 +142,8 @@ class ChangeRun
     log("[change] app: #{entry.name}") if multi
     lanes = resolve_lanes(config)
     artifact = ChangeArtifactStep.for(repo_root: repo_root, publish: @args.publish, label: label)
-    findings = with_app(config, artifact) { |ctx| execute(config, lanes, ctx) }
-    report = write_report(config, findings, lanes, app: label)
+    findings, instances = with_app(config, artifact) { |ctx| execute(config, lanes, ctx) }
+    report = write_report(config, findings, lanes, instances, app: label)
     record_gate(config, findings, report, app: label)
     summarize(findings, report, app: label)
     publish_artifact(artifact, config, findings, report, app: label)
@@ -191,14 +191,19 @@ class ChangeRun
 
   def browser_needed?(config) = !(resolve_lanes(config) & BROWSER_LANES).empty?
 
+  # Returns the lane instances alongside their findings so report_sections
+  # can read a lane's own post-run state (today, browserless's per-cell
+  # timing) without changing what #run itself returns.
   def execute(config, lanes, ctx)
     findings = Findings.new
+    instances = {}
     lanes.each do |name|
       log("[change] running #{name} lane")
       lane = LANE_CLASSES.fetch(name).new(config.lane(name), ctx)
       Array(lane.run).each { |finding| findings.add(finding) }
+      instances[name] = lane
     end
-    findings
+    [ findings, instances ]
   end
 
   def boot_up(boot)
@@ -296,11 +301,11 @@ class ChangeRun
     out.to_s.lines.last(OUTPUT_TAIL_LINES).join
   end
 
-  def write_report(config, findings, lanes, app:)
+  def write_report(config, findings, lanes, instances, app:)
     ChangeReport.new(
       project: config.project, scope: @args.scope, findings: findings, app: app,
       meta: report_meta(config, findings),
-      sections: report_sections(config, lanes)
+      sections: report_sections(config, lanes, instances)
     ).write
   end
 
@@ -317,12 +322,14 @@ class ChangeRun
     }
   end
 
-  # Narrative sections that belong in the Markdown but not the CSV. Today only
-  # the k6 lane contributes one, built from its config scenario block.
-  def report_sections(config, lanes)
-    return [] unless lanes.include?('k6')
-
-    [ ChangeK6Narrative.section(config.lane('k6')['scenario']) ].compact
+  # Narrative sections that belong in the Markdown but not the CSV: the k6
+  # lane's scenario narrative, and (F6 step 1) browserless's own per-cell
+  # timing table read off the instance that already ran it.
+  def report_sections(config, lanes, instances)
+    sections = []
+    sections << ChangeK6Narrative.section(config.lane('k6')['scenario']) if lanes.include?('k6')
+    sections << instances['browserless']&.timing_section if lanes.include?('browserless')
+    sections.compact
   end
 
   # Records the outcome under the head SHA. Only a comprehensive `all` run that
