@@ -39,6 +39,32 @@ class ChangeRunTest < Minitest::Test
     assert_match(/last health check output/, output)
   end
 
+  # report_sections (F6 step 1): the browserless lane's own per-cell timing
+  # table rides alongside the k6 narrative as an extra Markdown section, read
+  # off the lane instance execute() already ran rather than re-derived.
+  StubConfig = Struct.new(:scenario) do
+    def lane(_name) = { "scenario" => scenario }
+  end
+
+  def test_report_sections_includes_browserless_timing_when_the_lane_ran
+    lane = Object.new
+    def lane.timing_section = "### Browserless per-cell timing (ms)"
+    sections = runner.send(:report_sections, StubConfig.new(nil), %w[browserless], { "browserless" => lane })
+    assert_equal [ "### Browserless per-cell timing (ms)" ], sections
+  end
+
+  def test_report_sections_omits_browserless_timing_when_the_lane_did_not_run
+    sections = runner.send(:report_sections, StubConfig.new(nil), %w[a11y], {})
+    assert_empty sections
+  end
+
+  def test_report_sections_omits_browserless_timing_when_it_has_no_data
+    lane = Object.new
+    def lane.timing_section = nil
+    sections = runner.send(:report_sections, StubConfig.new(nil), %w[browserless], { "browserless" => lane })
+    assert_empty sections
+  end
+
   def test_sweep_scope_is_a_valid_argument
     args = runner.send(:parse_args, %w[sweep])
     assert_equal "sweep", args.scope
