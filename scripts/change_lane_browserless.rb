@@ -24,12 +24,12 @@ require_relative 'change_figma'
 #   email on step one, then submit a code on step two, where that code is
 #   resolved live by polling a `code_source.url` reachable on the run network
 #   (a Mailpit/MailHog dev inbox API) rather than ever landing in the config or
-#   the host environment. The single browserless /function call logs in once,
-#   walking every step in the same page, before checking any auth-required
-#   route, so the same session cookies carry into the rest of the matrix. A
-#   route needing auth is only ever checked authenticated for real; if auth is
-#   not configured or a credential is missing, those routes are skipped with a
-#   named failing finding rather than silently graded unauthenticated.
+#   the host environment. The login walks every step in the cell's own page
+#   before that cell's route is checked, so the session cookies it establishes
+#   are the ones that route is graded under and nothing else's. A route needing
+#   auth is only ever checked authenticated for real; if auth is not configured
+#   or a credential is missing, those routes are skipped with a named failing
+#   finding rather than silently graded unauthenticated.
 # - Figma visual alignment: a route entry's `figma:` block (file key + node id)
 #   fetches a rendered reference PNG from the real Figma REST API
 #   (ChangeFigma), then diffs it against browserless's own screenshot of that
@@ -62,6 +62,37 @@ class ChangeLaneBrowserless < ChangeLane
   DEFAULT_MAX_DIFF_PERCENT = 10.0
   DEFAULT_CODE_SOURCE_TIMEOUT_MS = 20_000
   DEFAULT_CODE_SOURCE_POLL_INTERVAL_MS = 1_000
+
+  # Two pixels count as different when the Euclidean distance between their RGB
+  # values exceeds this. It was an unnamed 32 buried in the diff loop, which
+  # made the single number that decides every visual-alignment verdict the one
+  # thing a reviewer could not see. Raising it forgives more; lowering it
+  # reports subpixel rendering noise as a design break.
+  FIGMA_DIFF_THRESHOLD = 32
+
+  # Pinned rendering inputs. A screenshot compared against a fixed reference is
+  # only meaningful if everything that changes how the page rasterizes is held
+  # still: a 2x device pixel ratio doubles the screenshot and shifts every
+  # edge, a different Accept-Language renders different copy at a different
+  # width, and an animation mid-flight differs frame to frame. None of these
+  # were stated before, so the diff percentage carried whatever the container
+  # happened to default to that day.
+  DEVICE_SCALE_FACTOR = 1
+  DEFAULT_LOCALE = 'en-US'
+  # Injected before a Figma reference screenshot: animations and transitions
+  # frozen at their end state, and text antialiasing forced to one mode rather
+  # than left to the platform's own font-smoothing default.
+  DIFF_STABILITY_CSS = <<~CSS
+    *, *::before, *::after {
+      animation-delay: -1ms !important;
+      animation-duration: 1ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 1ms !important;
+      transition-delay: -1ms !important;
+      caret-color: transparent !important;
+      -webkit-font-smoothing: antialiased !important;
+    }
+  CSS
 
   def run
     session = @context.browserless
@@ -119,9 +150,26 @@ class ChangeLaneBrowserless < ChangeLane
 
   def viewports = (@config['viewports'] || DEFAULT_VIEWPORTS)
 
-  # Route entries as a normalized array of { path:, auth:, figma: }. A plain
-  # string route is `{ path: it, auth: false, figma: nil }`; a mapping route can
-  # add `auth: true` and a `figma: { file_key:, node_id:, viewport: }` block.
+  def locale = @config.fetch('locale', DEFAULT_LOCALE).to_s
+
+  # Whether each viewport-by-route cell gets its own browser context. The whole
+  # matrix used to run in one page, so a cell inherited the previous cell's
+  # cookies, storage, scroll position and console listeners: the first route
+  # that set a dismissed-banner flag changed what every later route rendered,
+  # and running the same matrix in a different order gave different findings.
+  # Isolation is the default because a cell's verdict should depend on the
+  # cell, not on its neighbours.
+  #
+  # `cell_isolation: false` is the opt-out for the one case isolation genuinely
+  # breaks: a matrix whose routes are steps of a single stateful flow, where
+  # carrying the session forward is the point. It restores the old shared-page
+  # behavior, including a single login for the whole run.
+  def cell_isolation? = @config.fetch('cell_isolation', true) != false
+
+  # Route entries as a normalized array of { path:, auth:, figma:, wait_for: }. A
+  # plain string route is `{ path: it, auth: false, figma: nil }`; a mapping
+  # route can add `auth: true`, a `wait_for:` readiness contract, and a
+  # `figma: { file_key:, node_id:, viewport: }` block.
   # Overrides the string-only ChangeLane#routes (still available via `routes`,
   # derived below) so the shared redirect-detection helper keeps working
   # unchanged for this lane.
@@ -129,16 +177,17 @@ class ChangeLaneBrowserless < ChangeLane
     list = Array(@config['routes']).map { |item| normalize_route(item) }.reject { |e| e[:path].empty? }
     return list unless list.empty?
 
-    self.class::DEFAULT_ROUTES.map { |path| { path: path, auth: false, figma: nil } }
+    self.class::DEFAULT_ROUTES.map { |path| { path: path, auth: false, figma: nil, wait_for: lane_wait_for } }
   end
 
   def routes = route_entries.map { |e| e[:path] }
 
   def normalize_route(item)
     if item.is_a?(Hash)
-      { path: item['path'].to_s, auth: item['auth'] == true, figma: normalize_figma(item['figma']) }
+      { path: item['path'].to_s, auth: item['auth'] == true, figma: normalize_figma(item['figma']),
+        wait_for: wait_for(item['wait_for'], lane_wait_for) }
     else
-      { path: item.to_s, auth: false, figma: nil }
+      { path: item.to_s, auth: false, figma: nil, wait_for: lane_wait_for }
     end
   end
 
@@ -408,13 +457,20 @@ class ChangeLaneBrowserless < ChangeLane
 
   # --- the browserless module --------------------------------------------------
 
-  # One module walks the viewport-by-route matrix in a single page, so an
-  # authenticated login (when configured) happens once and its cookies carry
-  # into every later navigation on the same page. For each cell it sets the
-  # viewport, navigates, records the response status, counts page console
+  # One module walks the whole viewport-by-route matrix, giving each cell its
+  # own browser context (see #cell_isolation?) so cookies, storage, scroll
+  # position and console listeners never leak from one cell into the next. For
+  # each cell it opens a session, sets the viewport at a pinned device scale
+  # factor, logs in when the route requires it, navigates under that route's
+  # readiness contract, records the response status, counts page console
   # errors, measures horizontal overflow, and (when a Figma reference was
   # fetched for that route/viewport) screenshots and pixel-diffs against it,
   # returning one flat entry per cell.
+  #
+  # Isolation costs a login per authenticated cell, which is the honest price
+  # of a cell whose result does not depend on the cells before it. A flow that
+  # genuinely needs one carried session opts out with `cell_isolation: false`
+  # and gets the old single-session behavior, login included.
   #
   # When the run is building a findings artifact (`capture`), the same walk
   # also collects the evidence that artifact renders: a full-page JPEG per
@@ -426,7 +482,9 @@ class ChangeLaneBrowserless < ChangeLane
   # back base64 in this same response. That indirection is forced, not
   # stylistic: the browserless container shares no filesystem or network path
   # with the host, so a recorder writing a file inside the container would
-  # produce a video nothing on the host could ever read.
+  # produce a video nothing on the host could ever read. Because the page being
+  # walked now changes every cell, the screencast attaches and detaches per
+  # cell while the recorder page and its MediaRecorder span the viewport.
   def scan_module(entries, auth, figma_refs)
     <<~JS
       export default async function ({ page }) {
@@ -437,26 +495,60 @@ class ChangeLaneBrowserless < ChangeLane
         const figmaRefs = #{JSON.generate(figma_refs)};
         const basicAuth = #{JSON.generate(basic_auth)};
         const capture = #{JSON.generate(capture_options)};
-        if (basicAuth) {
-          await page.authenticate({ username: basicAuth.username, password: basicAuth.password });
-          // page.authenticate() only fires on a WWW-Authenticate challenge,
-          // which some gates never send (an ALB fixed-response 401 has no
-          // mechanism to set arbitrary response headers - confirmed against
-          // terraform/cms_signoz_basic_auth.tf's own "KNOWN GAP" comment).
-          // Sending the header unconditionally works regardless of whether
-          // the target's 401 carries a real challenge.
-          // btoa, not Buffer: this module runs inside browserless's function
-          // sandbox, a browser-like context with no Node globals.
-          const encoded = btoa(`${basicAuth.username}:${basicAuth.password}`);
-          await page.setExtraHTTPHeaders({ Authorization: `Basic ${encoded}` });
-        }
+        const isolateCells = #{JSON.generate(cell_isolation?)};
+        const locale = #{JSON.generate(locale)};
+        const deviceScaleFactor = #{JSON.generate(DEVICE_SCALE_FACTOR)};
+        const diffThreshold = #{JSON.generate(FIGMA_DIFF_THRESHOLD)};
+        const diffStabilityCss = #{JSON.generate(DIFF_STABILITY_CSS)};
 
+        #{ChangeLane.wait_for_js}
         #{recorder_js}
 
-        let authOk = null;
-        let authError = null;
-        let authDiagnostics = null;
-        let lastAuthResponse = null;
+        // A cell's own browser context, or the one shared session when
+        // continuity was opted into. Puppeteer renamed this call
+        // (createIncognitoBrowserContext -> createBrowserContext); both names
+        // are probed so the lane is not pinned to one puppeteer major beyond
+        // the browserless image pin itself.
+        async function newBrowserContext(browser) {
+          if (typeof browser.createBrowserContext === "function") return browser.createBrowserContext();
+          if (typeof browser.createIncognitoBrowserContext === "function") return browser.createIncognitoBrowserContext();
+          return null;
+        }
+
+        // Everything that makes a page's rendering reproducible is applied
+        // here, once, at the moment the page is created: the pinned locale
+        // (both the request header and what the page's own JS reads back) and
+        // any basic-auth credentials. A cell never inherits these from a
+        // sibling; it is given them.
+        async function openSession() {
+          const browser = page.browser();
+          const context = await newBrowserContext(browser);
+          const cellPage = context ? await context.newPage() : await browser.newPage();
+          const headers = { "Accept-Language": locale };
+          if (basicAuth) {
+            await cellPage.authenticate({ username: basicAuth.username, password: basicAuth.password });
+            // page.authenticate() only fires on a WWW-Authenticate challenge,
+            // which some gates never send (an ALB fixed-response 401 has no
+            // mechanism to set arbitrary response headers). Sending the header
+            // unconditionally works regardless of whether the target's 401
+            // carries a real challenge.
+            // btoa, not Buffer: this module runs inside browserless's function
+            // sandbox, a browser-like context with no Node globals.
+            headers.Authorization = "Basic " + btoa(`${basicAuth.username}:${basicAuth.password}`);
+          }
+          await cellPage.setExtraHTTPHeaders(headers);
+          await cellPage.evaluateOnNewDocument((lang) => {
+            Object.defineProperty(navigator, "language", { get: () => lang });
+            Object.defineProperty(navigator, "languages", { get: () => [lang] });
+          }, locale);
+          return { context, page: cellPage, authOk: null, authError: null, authDiagnostics: null, lastAuthResponse: null };
+        }
+
+        async function closeSession(session) {
+          if (!session) return;
+          try { await session.page.close(); } catch (err) { void err; }
+          try { if (session.context) await session.context.close(); } catch (err) { void err; }
+        }
 
         // Polls a code_source url (an HTTP endpoint reachable on the run
         // network, e.g. a Mailpit/MailHog dev inbox API) with Node's own
@@ -486,23 +578,25 @@ class ChangeLaneBrowserless < ChangeLane
           );
         }
 
-        async function fillField(field, timeoutMs) {
-          await page.waitForSelector(field.selector, { timeout: timeoutMs });
+        async function fillField(session, field, timeoutMs) {
+          await session.page.waitForSelector(field.selector, { timeout: timeoutMs });
           const value = field.codeSource ? await resolveCodeSource(field.codeSource) : field.value;
-          await page.type(field.selector, value);
+          await session.page.type(field.selector, value);
         }
 
-        async function runAuthStep(step) {
-          if (step.url) lastAuthResponse = await page.goto(step.url, { waitUntil: "networkidle2", timeout: step.timeoutMs });
-          for (const field of step.fields) await fillField(field, step.timeoutMs);
+        async function runAuthStep(session, step) {
+          if (step.url) {
+            session.lastAuthResponse = await session.page.goto(step.url, { waitUntil: "domcontentloaded", timeout: step.timeoutMs });
+          }
+          for (const field of step.fields) await fillField(session, field, step.timeoutMs);
           if (step.submitSelector) {
             const [navResponse] = await Promise.all([
-              page.waitForNavigation({ waitUntil: "networkidle2", timeout: step.timeoutMs }).catch(() => null),
-              page.click(step.submitSelector),
+              session.page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: step.timeoutMs }).catch(() => null),
+              session.page.click(step.submitSelector),
             ]);
-            if (navResponse) lastAuthResponse = navResponse;
+            if (navResponse) session.lastAuthResponse = navResponse;
           }
-          if (step.waitForSelector) await page.waitForSelector(step.waitForSelector, { timeout: step.timeoutMs });
+          if (step.waitForSelector) await session.page.waitForSelector(step.waitForSelector, { timeout: step.timeoutMs });
         }
 
         // Captures a real diagnosis of an auth failure - the url actually
@@ -511,39 +605,44 @@ class ChangeLaneBrowserless < ChangeLane
         // instead of a bare Puppeteer timeout message. Every read is
         // wrapped so a diagnostics failure (a closed page, a weird DOM)
         // never masks the real auth error it is describing.
-        async function captureAuthDiagnostics() {
+        async function captureAuthDiagnostics(session) {
           const diag = {};
-          try { diag.url = page.url(); } catch (err) { diag.url = null; }
-          try { diag.status = lastAuthResponse ? lastAuthResponse.status() : null; } catch (err) { diag.status = null; }
-          try { diag.title = await page.title(); } catch (err) { diag.title = null; }
+          try { diag.url = session.page.url(); } catch (err) { diag.url = null; }
+          try { diag.status = session.lastAuthResponse ? session.lastAuthResponse.status() : null; } catch (err) { diag.status = null; }
+          try { diag.title = await session.page.title(); } catch (err) { diag.title = null; }
           try {
-            diag.bodyText = await page.evaluate(() => (document.body ? document.body.innerText : "").slice(0, 500));
+            diag.bodyText = await session.page.evaluate(() => (document.body ? document.body.innerText : "").slice(0, 500));
           } catch (err) {
             diag.bodyText = null;
           }
-          try { diag.screenshot = await page.screenshot({ encoding: "base64" }); } catch (err) { diag.screenshot = null; }
+          try { diag.screenshot = await session.page.screenshot({ encoding: "base64" }); } catch (err) { diag.screenshot = null; }
           return diag;
         }
 
-        // Runs every configured step in order, in the same page, so a
-        // multi-step login (submit an email, then submit a code from a
-        // second form) carries its session cookies from one step into the
-        // next exactly as a single-form login always has.
-        async function ensureAuth() {
-          if (!auth || authOk !== null) return authOk;
+        // Runs every configured step in order, in this session's own page, so
+        // a multi-step login (submit an email, then submit a code from a
+        // second form) carries its cookies from one step into the next. The
+        // result is memoized on the session, so an isolated cell logs in once
+        // and a continuity run logs in once for the whole matrix.
+        async function ensureAuth(session) {
+          if (!auth || session.authOk !== null) return session.authOk;
           try {
-            for (const step of auth.steps) await runAuthStep(step);
-            authOk = true;
+            for (const step of auth.steps) await runAuthStep(session, step);
+            session.authOk = true;
           } catch (err) {
-            authOk = false;
-            authError = String(err);
-            authDiagnostics = await captureAuthDiagnostics();
+            session.authOk = false;
+            session.authError = String(err);
+            session.authDiagnostics = await captureAuthDiagnostics(session);
           }
-          return authOk;
+          return session.authOk;
         }
 
-        async function diffAgainstReference(shotBase64, refBase64) {
-          return page.evaluate(async (a, b) => {
+        // The pixel comparison. Both images are drawn at their natural size
+        // into an opaque canvas with smoothing off, so nothing here resamples
+        // or blends: a differing pixel is a differing pixel, not an artifact
+        // of how the canvas chose to scale.
+        async function diffAgainstReference(cellPage, shotBase64, refBase64, threshold) {
+          return cellPage.evaluate(async (a, b, cutoff) => {
             function loadImage(base64) {
               return new Promise((resolve, reject) => {
                 const img = new Image();
@@ -556,7 +655,8 @@ class ChangeLaneBrowserless < ChangeLane
               const canvas = document.createElement("canvas");
               canvas.width = img.width;
               canvas.height = img.height;
-              const ctx = canvas.getContext("2d");
+              const ctx = canvas.getContext("2d", { alpha: false, willReadFrequently: true });
+              ctx.imageSmoothingEnabled = false;
               ctx.drawImage(img, 0, 0);
               return { imageData: ctx.getImageData(0, 0, canvas.width, canvas.height), width: canvas.width, height: canvas.height };
             }
@@ -566,7 +666,6 @@ class ChangeLaneBrowserless < ChangeLane
             const ref = toImageData(refImg);
             const width = Math.min(shot.width, ref.width);
             const height = Math.min(shot.height, ref.height);
-            const threshold = 32;
             let diffCount = 0;
             for (let y = 0; y < height; y++) {
               for (let x = 0; x < width; x++) {
@@ -575,7 +674,7 @@ class ChangeLaneBrowserless < ChangeLane
                 const dr = shot.imageData.data[si] - ref.imageData.data[ri];
                 const dg = shot.imageData.data[si + 1] - ref.imageData.data[ri + 1];
                 const db = shot.imageData.data[si + 2] - ref.imageData.data[ri + 2];
-                if (Math.sqrt(dr * dr + dg * dg + db * db) > threshold) diffCount += 1;
+                if (Math.sqrt(dr * dr + dg * dg + db * db) > cutoff) diffCount += 1;
               }
             }
             const totalPixels = width * height;
@@ -588,48 +687,69 @@ class ChangeLaneBrowserless < ChangeLane
               refWidth: ref.width,
               refHeight: ref.height,
             };
-          }, shotBase64, refBase64);
+          }, shotBase64, refBase64, threshold);
         }
 
         const out = [];
         const videos = [];
+        // Non-null only when continuity was opted into: one session carried
+        // across the whole matrix, exactly as the lane behaved before cells
+        // were isolated.
+        let sharedSession = null;
         for (const vp of viewports) {
           const recorder = await startRecording(vp);
           for (const entry of routeEntries) {
             const cell = { viewport: vp.name, width: vp.width, height: vp.height, route: entry.path };
-            if (entry.auth) {
-              const ok = await ensureAuth();
-              if (!ok) {
-                // Still navigated below and graded on its real response
-                // (F3): an auth-required route no longer collapses into an
-                // identical generic finding for every route without ever
-                // being visited.
-                cell.authBlocked = true;
-                cell.authError = authError;
-                cell.authDiagnostics = authDiagnostics;
-              }
-            }
+            const waitFor = entry.waitFor;
+            let session = null;
             let consoleErrors = 0;
             const onError = (msg) => { if (msg.type() === "error") consoleErrors += 1; };
-            page.on("console", onError);
             // F6 step 1: lightweight Date.now() deltas around this cell's
             // three real costs, purely additive instrumentation so a future
             // decision to raise FUNCTION_TIMEOUT_MS or split the scan per
             // viewport can be made from real numbers instead of a guess.
             const cellStart = Date.now();
             try {
-              await page.setViewport({ width: vp.width, height: vp.height });
+              if (isolateCells) {
+                session = await openSession();
+              } else {
+                if (!sharedSession) sharedSession = await openSession();
+                session = sharedSession;
+              }
+              await session.page.setViewport({ width: vp.width, height: vp.height, deviceScaleFactor: deviceScaleFactor });
+              await attachCell(recorder, session.page, vp);
+
+              if (entry.auth) {
+                const ok = await ensureAuth(session);
+                if (!ok) {
+                  // Still navigated below and graded on its real response
+                  // (F3): an auth-required route no longer collapses into an
+                  // identical generic finding for every route without ever
+                  // being visited.
+                  cell.authBlocked = true;
+                  cell.authError = session.authError;
+                  cell.authDiagnostics = session.authDiagnostics;
+                }
+              }
+
+              // Registered after any login and before this cell's own
+              // navigation, so the count covers exactly the route being
+              // graded: not the login page's errors, and not a neighbouring
+              // cell's. It used to be attached to the shared page around a
+              // window that had already navigated, and read before the cell's
+              // remaining awaits had run.
+              session.page.on("console", onError);
               const navStart = Date.now();
-              const resp = await page.goto(baseUrl + entry.path, { waitUntil: "networkidle2", timeout: 30000 });
-              cell.navMs = Date.now() - navStart;
+              const resp = await session.page.goto(baseUrl + entry.path, { waitUntil: waitFor.loadState, timeout: waitFor.timeoutMs });
               cell.httpStatus = resp ? resp.status() : null;
-              cell.finalUrl = page.url();
+              await awaitReadiness(session.page, waitFor);
+              cell.navMs = Date.now() - navStart;
+              cell.finalUrl = session.page.url();
               const evalStart = Date.now();
-              const scrollWidth = await page.evaluate(() => document.documentElement.scrollWidth);
+              const scrollWidth = await session.page.evaluate(() => document.documentElement.scrollWidth);
               cell.evalMs = Date.now() - evalStart;
               cell.scrollWidth = scrollWidth;
               cell.overflow = scrollWidth > vp.width + 1;
-              cell.consoleErrors = consoleErrors;
 
               // Suppressed for an auth-failed cell (F3): the screenshot is
               // of the wrong (unauthenticated) page, so a pixel diff
@@ -637,18 +757,28 @@ class ChangeLaneBrowserless < ChangeLane
               // meaningless noise, not a real design-alignment signal.
               const refBase64 = !cell.authBlocked && entry.figmaViewport === vp.name ? figmaRefs[entry.path] : null;
               if (refBase64) {
-                const shotBase64 = await page.screenshot({ encoding: "base64" });
-                cell.figmaDiff = await diffAgainstReference(shotBase64, refBase64);
+                await session.page.addStyleTag({ content: diffStabilityCss });
+                const shotBase64 = await session.page.screenshot({ encoding: "base64" });
+                cell.figmaDiff = await diffAgainstReference(session.page, shotBase64, refBase64, diffThreshold);
               }
               if (capture.screenshots) {
                 const shotStart = Date.now();
-                cell.shot = await page.screenshot({ encoding: "base64", type: "jpeg", quality: 72, fullPage: true });
+                cell.shot = await session.page.screenshot({ encoding: "base64", type: "jpeg", quality: 72, fullPage: true });
                 cell.shotMs = Date.now() - shotStart;
               }
+              // Read last, after every await this cell makes, so the count
+              // covers the whole cell rather than whatever had arrived by the
+              // time the old code happened to read it.
+              cell.consoleErrors = consoleErrors;
             } catch (err) {
               cell.error = String(err);
+              cell.consoleErrors = consoleErrors;
             } finally {
-              page.off("console", onError);
+              await detachCell(recorder);
+              if (session) {
+                try { session.page.off("console", onError); } catch (err) { void err; }
+                if (isolateCells) await closeSession(session);
+              }
             }
             cell.totalMs = Date.now() - cellStart;
             out.push(cell);
@@ -656,6 +786,7 @@ class ChangeLaneBrowserless < ChangeLane
           const video = await stopRecording(recorder, vp);
           if (video) videos.push(video);
         }
+        await closeSession(sharedSession);
         return { data: { cells: out, videos: videos }, type: "application/json" };
       }
     JS
@@ -663,12 +794,13 @@ class ChangeLaneBrowserless < ChangeLane
 
   # The in-Chromium recorder, injected into the scan module above.
   #
-  # `startRecording` opens a second page in the same browser, gives it a canvas
-  # fed to a MediaRecorder, and attaches a CDP screencast on the page actually
-  # being walked; every screencast frame is drawn onto that canvas, so the
-  # recording is a real moving picture of the route walk rather than a slide
-  # show assembled after the fact. `stopRecording` stops both ends and returns
-  # the WebM base64.
+  # `startRecording` opens a second page in the same browser and gives it a
+  # canvas fed to a MediaRecorder. `attachCell`/`detachCell` then move the CDP
+  # screencast from cell page to cell page as the walk proceeds, since an
+  # isolated cell is a new page each time; every screencast frame is drawn onto
+  # that canvas, so one viewport's recording is a single moving picture of its
+  # whole route walk rather than a slide show assembled after the fact.
+  # `stopRecording` stops the MediaRecorder and returns the WebM base64.
   #
   # Every failure path here is caught and reported as a per-viewport `error`
   # string rather than thrown: a browser that cannot record (no MediaRecorder,
@@ -683,12 +815,21 @@ class ChangeLaneBrowserless < ChangeLane
           await recorderPage.setViewport({ width: vp.width, height: vp.height });
           await recorderPage.setContent(#{JSON.generate(recorder_page_html)});
           await recorderPage.evaluate((w, h, fps) => window.__cfStart(w, h, fps), vp.width, vp.height, capture.fps);
-          const client = await page.createCDPSession();
-          const state = { page: recorderPage, client: client, stopped: false, error: null };
+          return { page: recorderPage, client: null, stopped: false, error: null };
+        } catch (err) {
+          return { page: null, client: null, stopped: true, error: String(err) };
+        }
+      }
+
+      async function attachCell(state, cellPage, vp) {
+        if (!state || !state.page || state.stopped) return;
+        try {
+          const client = await cellPage.createCDPSession();
+          state.client = client;
           client.on("Page.screencastFrame", async (frame) => {
-            if (state.stopped) return;
+            if (state.stopped || !state.page) return;
             try {
-              await recorderPage.evaluate((data) => window.__cfPush(data), frame.data);
+              await state.page.evaluate((data) => window.__cfPush(data), frame.data);
             } catch (err) {
               state.error = String(err);
             }
@@ -705,21 +846,25 @@ class ChangeLaneBrowserless < ChangeLane
             maxHeight: vp.height,
             everyNthFrame: 1,
           });
-          return state;
         } catch (err) {
-          return { page: null, client: null, stopped: true, error: String(err) };
+          state.error = String(err);
         }
+      }
+
+      async function detachCell(state) {
+        if (!state || !state.client) return;
+        const client = state.client;
+        state.client = null;
+        try { await client.send("Page.stopScreencast"); } catch (err) { void err; }
+        try { await client.detach(); } catch (err) { void err; }
       }
 
       async function stopRecording(state, vp) {
         if (!capture.video) return null;
         if (!state) return { viewport: vp.name, error: "recording was not started" };
+        await detachCell(state);
         state.stopped = true;
         try {
-          if (state.client) {
-            await state.client.send("Page.stopScreencast");
-            await state.client.detach();
-          }
           if (!state.page) return { viewport: vp.name, error: state.error || "no recorder page" };
           const webm = await state.page.evaluate(() => window.__cfStop());
           await state.page.close();
@@ -800,7 +945,7 @@ class ChangeLaneBrowserless < ChangeLane
   def js_route_entries(entries, figma_refs)
     entries.map do |e|
       figma_viewport = e[:figma] && figma_refs.key?(e[:path]) ? (e[:figma][:viewport] || viewports.first['name']) : nil
-      { path: e[:path], auth: e[:auth], figmaViewport: figma_viewport }
+      { path: e[:path], auth: e[:auth], figmaViewport: figma_viewport, waitFor: e[:wait_for] }
     end
   end
 

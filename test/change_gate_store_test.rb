@@ -39,6 +39,39 @@ class ChangeGateStoreTest < Minitest::Test
     refute ChangeGateStore.new("never-recorded").comprehensive_pass?
   end
 
+  # The run manifest is stored beside the verdict so a pass recorded weeks ago
+  # can be traced to the inputs that produced it.
+  def test_the_run_manifest_is_stored_with_the_record
+    store = ChangeGateStore.new("abc123")
+    manifest = { "axe-core" => "4.10.2", "config digest" => "sha256:deadbeef" }
+    store.record(scope: "all", status: "pass", project: "app", lanes: {}, report: "r.md", manifest: manifest)
+    assert_equal manifest, store.send(:read)["manifest"]
+  end
+
+  def test_the_manifest_is_stored_per_app_in_a_monorepo_record
+    store = ChangeGateStore.new("abc123")
+    store.record(scope: "all", status: "pass", project: "repo", lanes: {}, report: "r.md", app: "portal",
+                 manifest: { "toolkit version" => "skills/v1.2.3" })
+    assert_equal({ "toolkit version" => "skills/v1.2.3" }, store.send(:read).dig("apps", "portal", "manifest"))
+  end
+
+  # A record from a run that gathered no manifest carries no empty key, so a
+  # pre-manifest record and a manifest-less one read identically.
+  def test_no_manifest_key_when_there_is_nothing_to_record
+    store = ChangeGateStore.new("abc123")
+    store.record(scope: "all", status: "pass", project: "app", lanes: {}, report: "r.md")
+    refute store.send(:read).key?("manifest")
+  end
+
+  # The manifest is evidence, never a gate input: a recorded pass stays a pass
+  # whatever it carries.
+  def test_the_manifest_does_not_change_the_gate_answer
+    store = ChangeGateStore.new("abc123")
+    store.record(scope: "all", status: "pass", project: "app", lanes: {}, report: "r.md",
+                 manifest: { "config digest" => "sha256:whatever" })
+    assert store.comprehensive_pass?
+  end
+
   def test_blank_sha_is_not_recordable
     store = ChangeGateStore.new("")
     store.record(scope: "all", status: "pass", project: "app", lanes: {}, report: "r.md")

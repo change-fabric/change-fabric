@@ -54,6 +54,13 @@ module Install
     def pi_extension_link    = File.join(pi_extensions_root, 'cf-hooks')
 
     def scripts_glob         = Dir.glob(File.join(scripts, '*.rb'))
+    # Assets a script reads at run time rather than requires: today the pinned
+    # axe-core bundle the a11y lane injects instead of fetching from a CDN.
+    # They install beside the scripts, keeping `__dir__`-relative lookups
+    # working identically from the repo and from the installed copy.
+    def vendor               = File.join(scripts, 'vendor')
+    def vendor_glob          = Dir.glob(File.join(vendor, '**', '*')).select { |path| File.file?(path) }
+    def vendor_dest(source)  = File.join(bin, 'vendor', source.delete_prefix("#{vendor}/"))
     def skill_sources        = Dir.glob(File.join(skills_dir, '*')).select { |p| File.directory?(p) }
     def script_dest(name)    = File.join(bin, name)
     def skill_link(name)     = File.join(skills_root, name)
@@ -449,6 +456,16 @@ module Install
         dest = @paths.script_dest(File.basename(source))
         FileUtils.cp(source, dest)
         FileUtils.chmod(0o755, dest)
+      end
+      place_vendor
+    end
+
+    # Run-time assets, not executables: copied without the 0755 the scripts get.
+    def place_vendor
+      @paths.vendor_glob.each do |source|
+        dest = @paths.vendor_dest(source)
+        FileUtils.mkdir_p(File.dirname(dest))
+        FileUtils.cp(source, dest)
       end
     end
 

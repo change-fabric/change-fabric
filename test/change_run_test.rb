@@ -142,6 +142,127 @@ class ChangeRunTest < Minitest::Test
     assert_equal "gate-status", args.scope
     assert_equal "staging/v1.4.0", args.ref
   end
+
+  # --- the run manifest ---------------------------------------------------------
+
+  ManifestConfig = Struct.new(:digest)
+
+  def manifest(lanes) = runner.send(:run_manifest, ManifestConfig.new("abc123"), lanes)
+
+  def test_the_manifest_names_the_digest_pinned_image_of_every_lane_that_ran
+    all = manifest(%w[k6 a11y zap browserless])
+    assert_equal ChangeDocker::K6_IMAGE, all["k6 image"]
+    assert_equal ChangeDocker::ZAP_IMAGE, all["zap image"]
+    assert_equal ChangeDocker::BROWSERLESS_IMAGE, all["browserless image"]
+    assert_match(/@sha256:/, all["browserless image"])
+  end
+
+  # The manifest describes this run, not the platform: a k6-only run names no
+  # browser image it never started.
+  def test_the_manifest_omits_an_image_no_lane_in_this_run_used
+    only_k6 = manifest(%w[k6])
+    assert_equal ChangeDocker::K6_IMAGE, only_k6["k6 image"]
+    refute only_k6.key?("browserless image")
+    refute only_k6.key?("zap image")
+    refute only_k6.key?("axe-core")
+  end
+
+  def test_the_browser_image_is_named_once_for_either_browser_lane
+    assert_equal ChangeDocker::BROWSERLESS_IMAGE, manifest(%w[browserless])["browserless image"]
+    assert_equal ChangeDocker::BROWSERLESS_IMAGE, manifest(%w[a11y])["browserless image"]
+  end
+
+  def test_the_manifest_records_the_vendored_axe_version_when_the_a11y_lane_ran
+    assert_equal ChangeLaneA11y::AXE_VERSION, manifest(%w[a11y])["axe-core"]
+  end
+
+  def test_the_manifest_records_the_resolved_config_digest_and_the_toolkit_version
+    recorded = manifest(%w[k6])
+    assert_equal "sha256:abc123", recorded["config digest"]
+    refute_empty recorded["toolkit version"]
+  end
+
+  # --- the retry policy ----------------------------------------------------------
+
+  # A lane that hands back whatever findings its script was seeded with, one
+  # list per attempt, so a retry can be observed without a container.
+  class ScriptedLane
+    ATTEMPTS = []
+
+    def initialize(config, _ctx)
+      @config = config
+      @attempt = ATTEMPTS.shift
+    end
+
+    def run = @attempt
+  end
+
+  def with_scripted_lane(attempts)
+    ScriptedLane::ATTEMPTS.replace(attempts)
+    original = ChangeRun::LANE_CLASSES
+    ChangeRun.send(:remove_const, :LANE_CLASSES)
+    ChangeRun.const_set(:LANE_CLASSES, original.merge("k6" => ScriptedLane))
+    capture_stderr { yield }
+  ensure
+    ChangeRun.send(:remove_const, :LANE_CLASSES)
+    ChangeRun.const_set(:LANE_CLASSES, original)
+    ScriptedLane::ATTEMPTS.clear
+  end
+
+  def finding(status) = Finding.new(lane: "k6", check: "p95", status: status)
+
+  def lane_config(raw) = ChangeConfig::LaneConfig.new("k6", raw, "/repo")
+
+  # A gate that quietly re-runs until green is not a gate, so nothing retries
+  # unless a lane's own config asks: the second scripted attempt, which would
+  # have passed, is never reached.
+  def test_a_lane_runs_exactly_once_by_default
+    results = nil
+    with_scripted_lane([ [ finding("fail") ], [ finding("pass") ] ]) do
+      results, = runner.send(:run_lane, "k6", lane_config({}), nil)
+      assert_equal 1, ScriptedLane::ATTEMPTS.size
+    end
+    assert_equal [ "fail" ], results.map(&:status)
+    assert_equal [ 1 ], results.map(&:attempts)
+  end
+
+  # A pass bought by a retry is still a pass, and is labeled as bought.
+  def test_a_pass_that_needed_a_retry_is_recorded_as_flaky
+    results = nil
+    with_scripted_lane([ [ finding("fail") ], [ finding("pass") ] ]) do
+      results, = runner.send(:run_lane, "k6", lane_config("retries" => 1), nil)
+    end
+    assert_equal [ "pass" ], results.map(&:status)
+    assert_equal [ 2 ], results.map(&:attempts)
+    assert results.all?(&:flaky)
+  end
+
+  # A failure that survives its budget is a plain failure, never flaky: nothing
+  # about it was intermittent.
+  def test_a_failure_that_survives_every_retry_is_not_flaky
+    results = nil
+    with_scripted_lane([ [ finding("fail") ], [ finding("fail") ], [ finding("fail") ] ]) do
+      results, = runner.send(:run_lane, "k6", lane_config("retries" => 2), nil)
+    end
+    assert_equal [ "fail" ], results.map(&:status)
+    assert_equal [ 3 ], results.map(&:attempts)
+    refute results.any?(&:flaky)
+  end
+
+  def test_a_lane_that_passes_first_time_never_burns_its_budget
+    results = nil
+    with_scripted_lane([ [ finding("pass") ], [ finding("fail") ] ]) do
+      results, = runner.send(:run_lane, "k6", lane_config("retries" => 1), nil)
+    end
+    assert_equal [ 1 ], results.map(&:attempts)
+    refute results.any?(&:flaky)
+  end
+
+  def test_a_negative_retry_count_is_floored_at_no_retries
+    assert_equal 0, runner.send(:retry_budget, lane_config("retries" => -3))
+    assert_equal 0, runner.send(:retry_budget, lane_config({}))
+    assert_equal 2, runner.send(:retry_budget, lane_config("retries" => 2))
+  end
 end
 
 # --for-tag and gate-status resolve against a real CHANGE.md and a real git
