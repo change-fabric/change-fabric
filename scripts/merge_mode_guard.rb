@@ -5,6 +5,7 @@ require 'json'
 require_relative 'hook_event'
 require_relative 'merge_mode_store'
 require_relative 'guarded_command'
+require_relative 'merge_mode_slug'
 
 # PreToolUse hook: denies a Bash command that violates the session's merge mode.
 class MergeModeGuard
@@ -17,9 +18,7 @@ class MergeModeGuard
   def emit(io = $stdout)
     return unless @event['tool_name'] == 'Bash'
 
-    mode = MergeModeStore.new(@event['session_id']).mode
-    return unless mode
-
+    mode = MergeModeSlug.of(MergeModeStore.new(@event['session_id']).mode) || MergeModeSlug::FALLBACK
     action = GuardedCommand.new(command, mode, branch: branch_for(command)).violation
     return unless action
 
@@ -52,7 +51,7 @@ class MergeModeGuard
       hookSpecificOutput: {
         hookEventName: EVENT,
         permissionDecision: 'deny',
-        permissionDecisionReason: "[cf] Merge mode is #{mode}: #{action} is not allowed. Run /cf to change the mode."
+        permissionDecisionReason: "[cf] Merge mode is #{mode}: #{action} is not allowed. Run /cf:admin-bypass, /cf:merge-ready, /cf:local-only, /cf:yolo, or /cf to change the mode."
       }
     }
   end

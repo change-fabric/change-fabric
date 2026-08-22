@@ -60,15 +60,19 @@ TRUNK=$(git symbolic-ref --short refs/remotes/origin/HEAD | sed 's#^origin/##')
 5. **Prune local:** `git worktree prune`, then `git worktree remove <path>` and
    `git branch -d <branch>` per prunable item (`-d` refuses unmerged as a backstop).
 6. **Clean untracked** (per surviving worktree): `git clean -nd` to preview,
-   classify (see below), then ask. Run `git clean -fd -- <paths>` only on a yes.
+   classify (see below), then ask (header `Untracked`). Run `git clean -fd --
+   <paths>` only on a yes. This question is a floor: `away_guard.rb` lets it
+   through even while away mode is on.
 7. **Prune remote:** for non-trunk `origin/<branch>` still present after step 2:
    if `branch == CURRENT_BRANCH` and its classify `kind` was `prunable` or
    `squash_merged`, run `ruby ~/.claude/cf/bin/merge_confirmation.rb <branch>
    <kind>`. On `confirmed: true`, delete directly (no question); report the
    evidence (PR number, verified `MERGED`, `headRefName` match, `kind`) in the
    final report instead of a question. On `confirmed: false`, or for every
-   other `origin/<branch>` (including ones incidentally merged), ask as below,
-   then `git push origin --delete <branch>` only on a yes.
+   other `origin/<branch>` (including ones incidentally merged), ask as below
+   (header `Remote delete`), then `git push origin --delete <branch>` only on a
+   yes. This question is a floor: `away_guard.rb` lets it through even while
+   away mode is on.
 8. **Re-prune:** `git fetch --prune origin` if anything changed.
 9. **Report:** final `git branch`, `git branch -r`, `git worktree list`,
    `git status -sb`, plus anything kept because it was rogue or declined.
@@ -78,7 +82,9 @@ TRUNK=$(git symbolic-ref --short refs/remotes/origin/HEAD | sed 's#^origin/##')
     AskUserQuestion (Archive / Remove / Keep) before acting, and apply with
     `ctx_store.rb archive|remove <name>`; surface `structural issues` for the user
     to fix. Never touch a `truth` doc. This is the cf:ctx prune flow; its skill
-    has the detail. Local-only, so it runs under every merge mode.
+    has the detail. Local-only, so it runs under every merge mode. Under away
+    mode, skip the question and default to Keep, and report which items were
+    deferred this way.
 
 ## Classifying untracked
 
@@ -94,9 +100,13 @@ From `git clean -nd`, when unsure treat as a keeper:
 Name the specific item and the evidence; another agent may own what you see.
 Run nothing destructive until the matching question returns a yes.
 
-| Situation | Options |
-| --- | --- |
-| Rogue work (unmerged commits or dirty worktree) | Keep it; or Delete anyway (explicit only): `git branch -D`, `git worktree remove --force`, `git push origin --delete` |
-| Remote deletion of `CURRENT_BRANCH`, verified via `merge_confirmation.rb` | No question: state the evidence (PR #N, `MERGED`, `headRefName` match, `kind`), then delete |
-| Remote deletion of any other `origin/<branch>` | State justification ("merged into $TRUNK as of #N, deleting discards nothing"), then Delete on remote; or Keep it |
-| Untracked files | Clean the junk (`git clean -fd -- <junk>`, keepers excluded); Clean named keepers too (explicit only); or Keep everything |
+| Situation | Header | Options |
+| --- | --- | --- |
+| Rogue work (unmerged commits or dirty worktree) | (none) | Keep it; or Delete anyway (explicit only): `git branch -D`, `git worktree remove --force`, `git push origin --delete` |
+| Remote deletion of `CURRENT_BRANCH`, verified via `merge_confirmation.rb` | (none) | No question: state the evidence (PR #N, `MERGED`, `headRefName` match, `kind`), then delete |
+| Remote deletion of any other `origin/<branch>` | `Remote delete` | State justification ("merged into $TRUNK as of #N, deleting discards nothing"), then Delete on remote; or Keep it |
+| Untracked files | `Untracked` | Clean the junk (`git clean -fd -- <junk>`, keepers excluded); Clean named keepers too (explicit only); or Keep everything |
+
+`Remote delete` and `Untracked` are both floor headers: `away_guard.rb` lets
+them through even while away mode is on, because their default is destructive
+and no safe default exists.

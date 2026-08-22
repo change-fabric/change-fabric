@@ -2,6 +2,7 @@
 # frozen_string_literal: true
 
 require 'fileutils'
+require_relative 'merge_mode_slug'
 
 # Reads and writes the chosen merge mode for a session, keyed by session id
 # under ~/.claude/cf/sessions. A blank session id is treated as non-persistable.
@@ -19,8 +20,11 @@ class MergeModeStore
   def write(mode)
     return unless persistable?
 
+    slug = MergeModeSlug.of(mode)
+    return unless slug
+
     FileUtils.mkdir_p(File.dirname(path))
-    File.write(path, "#{mode}\n")
+    File.write(path, "#{slug}\n")
   end
 
   private

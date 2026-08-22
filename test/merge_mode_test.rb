@@ -6,26 +6,65 @@ require "json"
 require "stringio"
 require "tmpdir"
 
-SCRIPTS = File.expand_path("../scripts", __dir__)
+SCRIPTS = File.expand_path("../scripts", __dir__) unless defined?(SCRIPTS)
 require_relative "#{SCRIPTS}/hook_event"
+require_relative "#{SCRIPTS}/merge_mode_slug"
 require_relative "#{SCRIPTS}/guarded_command"
 require_relative "#{SCRIPTS}/merge_mode_answer"
 require_relative "#{SCRIPTS}/merge_mode_store"
+require_relative "#{SCRIPTS}/away_store"
+require_relative "#{SCRIPTS}/away_answer"
 require_relative "#{SCRIPTS}/merge_mode_record"
 require_relative "#{SCRIPTS}/merge_mode_restate"
 require_relative "#{SCRIPTS}/merge_mode_guard"
 require_relative "#{SCRIPTS}/session_start"
 
-module TempHome
-  def setup
-    @home = Dir.mktmpdir
-    @prev_home = Dir.home
-    ENV["HOME"] = @home
+unless defined?(TempHome)
+  module TempHome
+    def setup
+      @home = Dir.mktmpdir
+      @prev_home = Dir.home
+      ENV["HOME"] = @home
+    end
+
+    def teardown
+      ENV["HOME"] = @prev_home
+      FileUtils.remove_entry(@home)
+    end
+  end
+end
+
+class MergeModeSlugTest < Minitest::Test
+  def test_normalizes_every_legacy_label
+    assert_equal "local-only", MergeModeSlug.of("Local only")
+    assert_equal "merge-ready", MergeModeSlug.of("Merge ready")
+    assert_equal "admin-bypass", MergeModeSlug.of("Admin bypass")
+    assert_equal "yolo", MergeModeSlug.of("Yolo")
   end
 
-  def teardown
-    ENV["HOME"] = @prev_home
-    FileUtils.remove_entry(@home)
+  def test_identity_when_already_a_slug
+    assert_equal "local-only", MergeModeSlug.of("local-only")
+    assert_equal "merge-ready", MergeModeSlug.of("merge-ready")
+    assert_equal "admin-bypass", MergeModeSlug.of("admin-bypass")
+    assert_equal "yolo", MergeModeSlug.of("yolo")
+  end
+
+  def test_strips_trailing_parenthetical_hint
+    assert_equal "admin-bypass", MergeModeSlug.of("Admin bypass (recommended)")
+  end
+
+  def test_tolerates_mixed_whitespace
+    assert_equal "merge-ready", MergeModeSlug.of("  Merge ready  ")
+    assert_equal "local-only", MergeModeSlug.of("\tLocal only\n")
+  end
+
+  def test_nil_for_garbage
+    assert_nil MergeModeSlug.of("Bogus mode")
+    assert_nil MergeModeSlug.of("something else entirely")
+  end
+
+  def test_nil_for_nil_input
+    assert_nil MergeModeSlug.of(nil)
   end
 end
 
@@ -38,7 +77,7 @@ class MergeModeStoreTest < Minitest::Test
 
   def test_write_then_read_round_trips_stripped
     MergeModeStore.new("s1").write("Merge ready")
-    assert_equal "Merge ready", MergeModeStore.new("s1").mode
+    assert_equal "merge-ready", MergeModeStore.new("s1").mode
   end
 
   def test_blank_session_id_does_not_persist
@@ -51,7 +90,13 @@ class MergeModeStoreTest < Minitest::Test
   def test_rewrite_overwrites_previous_mode
     MergeModeStore.new("s1").write("Local only")
     MergeModeStore.new("s1").write("Admin bypass")
-    assert_equal "Admin bypass", MergeModeStore.new("s1").mode
+    assert_equal "admin-bypass", MergeModeStore.new("s1").mode
+  end
+
+  def test_unrecognized_value_is_not_written
+    store = MergeModeStore.new("s1")
+    store.write("Bogus mode")
+    assert_nil store.mode
   end
 end
 
@@ -110,68 +155,68 @@ class GuardedCommandTest < Minitest::Test
   end
 
   def test_local_only_flags_push_and_merge
-    assert_equal "git push", violation("git push origin main", "Local only")
-    assert_equal "gh pr merge", violation("gh pr merge --squash", "Local only")
+    assert_equal "git push", violation("git push origin main", "local-only")
+    assert_equal "gh pr merge", violation("gh pr merge --squash", "local-only")
   end
 
   def test_merge_ready_flags_merge
-    assert_equal "gh pr merge", violation("gh pr merge --admin", "Merge ready")
+    assert_equal "gh pr merge", violation("gh pr merge --admin", "merge-ready")
   end
 
   def test_merge_ready_allows_pushing_a_feature_branch
-    assert_nil violation("git push origin my-feature", "Merge ready", branch: "my-feature")
-    assert_nil violation("git push -u origin my-feature", "Merge ready", branch: "my-feature")
+    assert_nil violation("git push origin my-feature", "merge-ready", branch: "my-feature")
+    assert_nil violation("git push -u origin my-feature", "merge-ready", branch: "my-feature")
   end
 
   def test_merge_ready_flags_explicit_push_to_trunk
-    assert_equal "a direct push to the trunk", violation("git push origin main", "Merge ready")
-    assert_equal "a direct push to the trunk", violation("git push origin master", "Merge ready")
-    assert_equal "a direct push to the trunk", violation("git push -u origin main", "Merge ready")
-    assert_equal "a direct push to the trunk", violation("git push origin HEAD:main", "Merge ready")
+    assert_equal "a direct push to the trunk", violation("git push origin main", "merge-ready")
+    assert_equal "a direct push to the trunk", violation("git push origin master", "merge-ready")
+    assert_equal "a direct push to the trunk", violation("git push -u origin main", "merge-ready")
+    assert_equal "a direct push to the trunk", violation("git push origin HEAD:main", "merge-ready")
   end
 
   def test_merge_ready_flags_bare_push_while_on_trunk
-    assert_equal "a direct push to the trunk", violation("git push", "Merge ready", branch: "main")
-    assert_equal "a direct push to the trunk", violation("git push origin", "Merge ready", branch: "main")
-    assert_equal "a direct push to the trunk", violation("git push origin HEAD", "Merge ready", branch: "main")
+    assert_equal "a direct push to the trunk", violation("git push", "merge-ready", branch: "main")
+    assert_equal "a direct push to the trunk", violation("git push origin", "merge-ready", branch: "main")
+    assert_equal "a direct push to the trunk", violation("git push origin HEAD", "merge-ready", branch: "main")
   end
 
   def test_merge_ready_allows_bare_push_while_on_feature_branch
-    assert_nil violation("git push", "Merge ready", branch: "my-feature")
-    assert_nil violation("git push origin", "Merge ready", branch: "my-feature")
+    assert_nil violation("git push", "merge-ready", branch: "my-feature")
+    assert_nil violation("git push origin", "merge-ready", branch: "my-feature")
   end
 
   def test_admin_bypass_flags_nothing
-    assert_nil violation("git push origin main", "Admin bypass")
-    assert_nil violation("gh pr merge --admin", "Admin bypass")
+    assert_nil violation("git push origin main", "admin-bypass")
+    assert_nil violation("gh pr merge --admin", "admin-bypass")
   end
 
   def test_yolo_allows_push_to_trunk
-    assert_nil violation("git push origin main", "Yolo")
-    assert_nil violation("git push", "Yolo", branch: "main")
+    assert_nil violation("git push origin main", "yolo")
+    assert_nil violation("git push", "yolo", branch: "main")
   end
 
   def test_yolo_flags_pr_create_but_allows_merge
-    assert_equal "gh pr create", violation("gh pr create --fill", "Yolo")
-    assert_nil violation("gh pr merge --squash", "Yolo")
+    assert_equal "gh pr create", violation("gh pr create --fill", "yolo")
+    assert_nil violation("gh pr merge --squash", "yolo")
   end
 
-  def test_unknown_mode_flags_nothing
-    assert_nil violation("git push origin main", "Bogus mode")
+  def test_unknown_mode_falls_back_to_local_only
+    assert_equal "git push", violation("git push origin main", "Bogus mode")
   end
 
   def test_matches_on_word_boundaries_only
-    assert_nil violation("git pushups", "Local only")
-    assert_nil violation("legit-push helper", "Local only")
+    assert_nil violation("git pushups", "local-only")
+    assert_nil violation("legit-push helper", "local-only")
   end
 
   def test_handles_non_string_command
-    assert_nil violation(nil, "Local only")
+    assert_nil violation(nil, "local-only")
   end
 
   def test_ignores_merge_phrase_inside_quoted_prose
     command = 'gh pr edit 5 --body "run gh pr merge only after ci"'
-    assert_nil violation(command, "Local only")
+    assert_nil violation(command, "local-only")
   end
 end
 
@@ -196,7 +241,27 @@ class MergeModeRecordTest < Minitest::Test
 
   def test_persists_answer_for_ask_user_question
     MergeModeRecord.new(event("AskUserQuestion")).call
-    assert_equal "Admin bypass", MergeModeStore.new("s1").mode
+    assert_equal "admin-bypass", MergeModeStore.new("s1").mode
+  end
+
+  def two_question_event
+    {
+      "session_id" => "s1",
+      "tool_name" => "AskUserQuestion",
+      "tool_response" => {
+        "questions" => [
+          { "question" => "merge-q", "header" => "Merge mode" },
+          { "question" => "away-q", "header" => "Away mode" }
+        ],
+        "answers" => { "merge-q" => "Merge ready", "away-q" => "Away" }
+      }
+    }
+  end
+
+  def test_persists_both_answers_from_a_two_question_payload
+    MergeModeRecord.new(two_question_event).call
+    assert_equal "merge-ready", MergeModeStore.new("s1").mode
+    assert AwayStore.new("s1").away?
   end
 end
 
@@ -212,39 +277,39 @@ class MergeModeGuardTest < Minitest::Test
   end
 
   def test_local_only_denies_push
-    assert_equal "deny", decision(command: "git push origin main", mode: "Local only")
+    assert_equal "deny", decision(command: "git push origin main", mode: "local-only")
   end
 
   def test_local_only_denies_merge
-    assert_equal "deny", decision(command: "gh pr merge --squash", mode: "Local only")
+    assert_equal "deny", decision(command: "gh pr merge --squash", mode: "local-only")
   end
 
   def test_merge_ready_allows_feature_push_but_denies_merge
-    assert_nil decision(command: "git push origin my-feature", mode: "Merge ready")
-    assert_equal "deny", decision(command: "gh pr merge --admin", mode: "Merge ready")
+    assert_nil decision(command: "git push origin my-feature", mode: "merge-ready")
+    assert_equal "deny", decision(command: "gh pr merge --admin", mode: "merge-ready")
   end
 
   def test_merge_ready_denies_explicit_push_to_trunk
-    assert_equal "deny", decision(command: "git push origin main", mode: "Merge ready")
+    assert_equal "deny", decision(command: "git push origin main", mode: "merge-ready")
   end
 
   def test_admin_bypass_allows_everything
-    assert_nil decision(command: "gh pr merge --admin", mode: "Admin bypass")
-    assert_nil decision(command: "git push origin main", mode: "Admin bypass")
+    assert_nil decision(command: "gh pr merge --admin", mode: "admin-bypass")
+    assert_nil decision(command: "git push origin main", mode: "admin-bypass")
   end
 
   def test_yolo_allows_trunk_push_and_pr_merge_but_denies_pr_create
-    assert_nil decision(command: "git push origin main", mode: "Yolo")
-    assert_nil decision(command: "gh pr merge --squash", mode: "Yolo")
-    assert_equal "deny", decision(command: "gh pr create --fill", mode: "Yolo")
+    assert_nil decision(command: "git push origin main", mode: "yolo")
+    assert_nil decision(command: "gh pr merge --squash", mode: "yolo")
+    assert_equal "deny", decision(command: "gh pr create --fill", mode: "yolo")
   end
 
   def test_ignores_non_bash_tools
-    assert_nil decision(command: "git push", mode: "Local only", tool: "Edit")
+    assert_nil decision(command: "git push", mode: "local-only", tool: "Edit")
   end
 
-  def test_no_decision_when_mode_unset
-    assert_nil decision(command: "git push origin main", mode: nil)
+  def test_unset_mode_is_guarded_as_local_only
+    assert_equal "deny", decision(command: "git push origin main", mode: nil)
   end
 end
 
@@ -257,19 +322,36 @@ class SessionStartTest < Minitest::Test
     JSON.parse(io.string).dig("hookSpecificOutput", "additionalContext")
   end
 
-  def test_asks_when_no_mode_persisted
-    assert_includes directive("s1"), "AskUserQuestion"
+  def test_states_the_local_only_fallback_when_nothing_persisted
+    assert_includes directive("s1"), "local-only"
+    refute_includes directive("s1"), "AskUserQuestion"
   end
 
   def test_restates_when_mode_persisted
     MergeModeStore.new("s1").write("Local only")
-    assert_includes directive("s1"), "Local only"
+    assert_includes directive("s1"), "local-only"
   end
 
-  # Guards the cross-file contract: the header the directive tells the model to
-  # use must equal the header the recorder matches on, or recording silently breaks.
-  def test_ask_directive_uses_the_header_the_recorder_matches
-    assert_includes directive("unset"), MergeModeAnswer::HEADER
+  def test_states_away_mode_when_active
+    AwayStore.new("s1").write(AwayStore::AWAY)
+    assert_includes directive("s1"), "Away mode is active"
+  end
+
+  def test_omits_away_statement_when_not_away
+    refute_includes directive("s1"), "Away mode"
+  end
+end
+
+# Guards the cross-file contract: /cf's question headers must equal the
+# headers the recorders match on, or recording silently breaks.
+class CfSkillHeaderContractTest < Minitest::Test
+  def skill_text
+    @skill_text ||= File.read(File.expand_path("../skills/cf/SKILL.md", __dir__))
+  end
+
+  def test_skill_carries_both_answer_headers
+    assert_includes skill_text, MergeModeAnswer::HEADER
+    assert_includes skill_text, AwayAnswer::HEADER
   end
 end
 
@@ -289,6 +371,6 @@ class MergeModeRestateTest < Minitest::Test
   def test_emits_active_mode_when_set
     MergeModeStore.new("s1").write("Merge ready")
     context = JSON.parse(emitted("s1")).dig("hookSpecificOutput", "additionalContext")
-    assert_includes context, "Merge ready"
+    assert_includes context, "merge-ready"
   end
 end

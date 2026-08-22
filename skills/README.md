@@ -21,7 +21,13 @@ the hooks never surface it. These are verbs the agent performs on demand.
 
 | Skill | Does |
 |---|---|
-| `cf` | Sets and enforces the session merge mode. |
+| `cf` | Manual two-question picker for both session axes: merge mode and away mode. Sets and enforces both. |
+| `cf:local-only` | Direct command: sets merge mode to local only. No push, no PR. |
+| `cf:merge-ready` | Direct command: sets merge mode to merge ready. Push branch, open PR, ensure CI green, stop before merging. |
+| `cf:admin-bypass` | Direct command: sets merge mode to admin bypass. Push, open PR, then squash-merge via admin bypass once CI is green. |
+| `cf:yolo` | Direct command: sets merge mode to yolo. Commit and push straight to the target branch, never `gh pr create`. |
+| `cf:away` | Direct command: sets away mode on. Stops asking questions, takes the recommended or safe default, and reports what was assumed. |
+| `cf:active` | Direct command: sets away mode off, so the agent asks normally again. |
 | `cf:refactor` | Refactors a scope you name (PR, branch, repo, file, or glob), routing each file through the auto-firing skills that cover it. |
 | `cf:code-review` | Reviews a scope you name (PR, branch, files, or a feature description), verifies each candidate finding in an isolated worktree, and posts only what survives. |
 | `cf:ctx` | Captures, recalls, and lists durable project context in the shim-owned .ctx store. |
@@ -29,10 +35,12 @@ the hooks never surface it. These are verbs the agent performs on demand.
 | `cf:resolve-threads` | Resolves every unresolved review thread on a PR by evaluating each in its own isolated worktree, then implements the fix, dismisses it, or defers to a human, replying and resolving on GitHub accordingly. |
 | `cf:qa` | Scopes and runs an ad hoc Playwright QA pass against a natural-language target (a PR, a feature, a flow) in an ephemeral browserless Chromium container, and optionally posts findings as PR comments. |
 | `cf:change` | Runs the deterministic, config-driven release-gate sweep (all five dockerized audit lanes: k6 load, axe-core a11y, OWASP ZAP pentest, browserless responsive UX, committed test cases) against a project's root `CHANGE.md` (its `change_config:` frontmatter), aggregates a CSV+Markdown report on the Desktop, and records a pass/fail gate for the head commit. |
+| `cf:drive` | Drives a PR to an approved, green state end to end: sweeps review threads, runs a relevance-gated local quality loop, predicts CI locally, then pushes, waits for real CI, and posts an approval. |
 | `cf:k6` | Runs just the k6 load/burst lane of the change-fabric platform against a project's config. |
 | `cf:a11y` | Runs just the axe-core accessibility lane of the change-fabric platform against a project's config. |
 | `cf:zap` | Runs just the OWASP ZAP penetration-test lane of the change-fabric platform against a project's config. |
 | `cf:testcases` | Runs just the deterministic regression lane of the change-fabric platform: replays the test cases committed in the repo's suite files and grades each one. |
+| `cf:sweep` | Sweeps a repo's open feature PRs and plans how to land them as a group, covering merge order, conflict mitigations, migration sequencing, and a per-contributor trust policy persisted across runs. |
 | `cf:plan` | Researches a goal with background Opus agents, grills the user with AskUserQuestion until the judgment calls are settled, then lands a plan.md, a 4000-character-capped goal.md, and a runnable workflow.js under `$CF_PLANS_ROOT` (default `~/.claude/cf/plans`), plus a handoff prompt for a separate session to execute. |
 
 `cf:refactor` reuses the routing below by shelling out to `skill_route.rb`

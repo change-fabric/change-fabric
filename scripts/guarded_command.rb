@@ -2,6 +2,7 @@
 # frozen_string_literal: true
 
 require 'shellwords'
+require_relative 'merge_mode_slug'
 
 # Advisory guardrail, not airtight enforcement: it inspects the Bash command
 # text (plus the current branch, for bare pushes). It catches the obvious cases
@@ -53,19 +54,25 @@ class GuardedCommand
 
   def initialize(command, mode, branch: nil)
     @command = command.to_s
-    @mode = mode
+    # An unrecognized or missing mode fails safe to the most restrictive mode
+    # rather than to no restriction at all.
+    @mode = MergeModeSlug.of(mode) || MergeModeSlug::FALLBACK
     @branch = branch.to_s
   end
 
   def violation
     case @mode
-    when 'Local only'
+    when 'local-only'
       return 'git push' if push?
       return 'gh pr merge' if merge?
-    when 'Merge ready'
+    when 'merge-ready'
       return 'a direct push to the trunk' if push_to_trunk?
       return 'gh pr merge' if merge?
-    when 'Yolo'
+    when 'admin-bypass'
+      # Deliberately no additional Bash restriction: admin bypass is the mode
+      # that permits both the push and the merge.
+      nil
+    when 'yolo'
       return 'gh pr create' if pr_create?
     end
     nil
@@ -100,11 +107,11 @@ class GuardedCommand
   # Branch names the push would update on the remote. A bare push (no refspec)
   # returns [] and is resolved against the current branch by the caller.
   def push_destinations
-    tokens = @command.split
-    push_index = tokens.index('push')
+    toks = self.class.tokens(@command)
+    push_index = toks.index('push')
     return [] unless push_index
 
-    positionals = tokens[(push_index + 1)..].reject { |t| t.start_with?('-') }
+    positionals = toks[(push_index + 1)..].reject { |t| t.start_with?('-') }
     refspecs = positionals.drop(1) # first positional is the remote
     refspecs.map { |spec| destination_of(spec) }
   end

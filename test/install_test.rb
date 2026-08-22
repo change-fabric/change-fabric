@@ -115,6 +115,7 @@ class InstallerTest < Minitest::Test
     glyph_guard.rb review_gate.rb noreply_guard.rb ctx_session_start.rb
     doctrine_digest.rb docker_doctrine_guard.rb change_merge_guard.rb change_tag_guard.rb
     telemetry_emit.rb presence_probe.rb secret_alert_poll.rb secret_ack.rb
+    mode_command.rb away_guard.rb away_restate.rb
   ].freeze
   EVENTS = %w[SessionStart PreToolUse PostToolUse UserPromptSubmit Stop SessionEnd].freeze
 
@@ -221,7 +222,7 @@ class InstallerTest < Minitest::Test
     install
     hooks = JSON.parse(File.read(paths.settings))["hooks"]
     counts = EVENTS.map { |event| hooks[event].sum { |group| group["hooks"].size } }
-    assert_equal [ 5, 10, 3, 2, 1, 1 ], counts
+    assert_equal [ 5, 11, 3, 4, 1, 1 ], counts
     assert File.exist?("#{paths.settings}.bak"), "second install should back up settings"
   end
 
@@ -357,5 +358,62 @@ class StateRootMigrationTest < Minitest::Test
     assert File.exist?(File.join(@legacy, "marker")), "legacy root must be left untouched"
     assert_equal "legacy\n", File.read(File.join(@legacy, "marker"))
     assert_equal "current\n", File.read(File.join(@current, "marker"))
+  end
+end
+
+# Exercises the retroactive merge-mode slug migration against a temp HOME only;
+# the real ~/.claude is never touched.
+class MergeModeSlugMigrationTest < Minitest::Test
+  def setup
+    @home = Dir.mktmpdir
+    @repo = File.expand_path("..", __dir__)
+  end
+
+  def teardown
+    FileUtils.remove_entry(@home)
+  end
+
+  def install
+    paths = Install::Paths.new(repo: @repo, home: @home)
+    capture_io { Install::Installer.new(paths: paths, ruby: "/usr/bin/ruby").install }
+    paths
+  end
+
+  def session_file(name)
+    File.join(@home, ".claude", "cf", "sessions", name, "merge-mode")
+  end
+
+  def seed(name, content)
+    FileUtils.mkdir_p(File.dirname(session_file(name)))
+    File.write(session_file(name), content)
+  end
+
+  def test_migrates_legacy_labels_and_leaves_unrecognized_content_untouched
+    seed("a", "Local only")
+    seed("b", "Admin bypass (recommended)")
+    seed("c", "yolo")
+    seed("d", "something else entirely")
+
+    install
+
+    assert_equal "local-only", File.read(session_file("a")).strip
+    assert_equal "admin-bypass", File.read(session_file("b")).strip
+    assert_equal "yolo", File.read(session_file("c")).strip
+    assert_equal "something else entirely", File.read(session_file("d")).strip
+  end
+
+  def test_second_run_is_a_no_op
+    seed("a", "Local only")
+    seed("b", "Admin bypass (recommended)")
+    seed("c", "yolo")
+    seed("d", "something else entirely")
+
+    install
+    install
+
+    assert_equal "local-only", File.read(session_file("a")).strip
+    assert_equal "admin-bypass", File.read(session_file("b")).strip
+    assert_equal "yolo", File.read(session_file("c")).strip
+    assert_equal "something else entirely", File.read(session_file("d")).strip
   end
 end

@@ -41,6 +41,11 @@ Under Full auto, no further `AskUserQuestion` fires for the rest of the run,
 including inside the two resolve-threads sweeps below. Store the answer for
 the rest of the run.
 
+Under away mode, skip this question and assume Full auto, reporting that the
+assumption was made. This is the toolkit's own precedent for exactly the
+behavior away mode should have elsewhere. The two later checkpoints (steps
+below) are already dead under Full auto, so they need no separate handling.
+
 ## Scope
 
 Accepted forms, resolved in the same order as `cf:code-review`'s step 1: a
