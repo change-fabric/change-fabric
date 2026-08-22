@@ -84,25 +84,11 @@ change_policy:
       ci_gate: "ci.yml: rubocop, TypeScript typecheck (npm run typecheck), rake test"
       ci_skippable: false
 
-    # Tag rules, gated at tag-push time by change_tag_guard.rb. Each carries the
-    # same require_change_pass strictness as the merge to main, so the exact
-    # commit being released has its own recorded passing sweep rather than
-    # inheriting one from an ancestor. require_trunk_ancestor: main matches this
-    # repo's linear, squash-merge-only history: a release tag never points at an
-    # unmerged commit. No profile:/apps: on any rule; this file declares neither
-    # profiles nor apps, so both would name nothing.
-    #
-    # None of the three sets require_prior_tag. It requires an already-published
-    # tag matching a glob to point at the *same commit* (the trunk equivalent of
-    # "production only from staging"), which is not what these tracks are: they
-    # are three independent namespaces on one trunk with no shared cadence and no
-    # lower environment to promote from. Per-track version monotonicity is a
-    # different question and is already enforced by each publish workflow
-    # (release-skills.yml requires plain semver strictly above every existing
-    # skills tag; release-spec.yml matches the tag against ChangeSchema::VERSION,
-    # the spec doc and CHANGELOG.md; deploy-site.yml matches it against
-    # site/VERSION and requires the spec version it would publish to already be
-    # released).
+    # Tag rules, gated at tag-push time by change_tag_guard.rb. No profile:/apps:
+    # on any rule; this file declares neither, so both would name nothing. No
+    # require_prior_tag either: it wants a published tag at the same commit, which
+    # suits staging-then-production and not three independent namespaces. The
+    # prose sections below explain both choices.
     tag:skills/v*:
       environment: toolkit release
       require_change_pass: true
