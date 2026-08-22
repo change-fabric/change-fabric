@@ -5,6 +5,7 @@ require 'json'
 require_relative 'change_lane'
 require_relative 'change_findings'
 require_relative 'change_figma'
+require_relative 'change_flow_compiler'
 
 # The browserless UX/responsive lane. Loads each route at each configured
 # viewport in the shared browserless Chromium container and asserts the baseline
@@ -387,12 +388,6 @@ class ChangeLaneBrowserless < ChangeLane
                 detail: 'browserless session unavailable; cannot run viewport checks')
   end
 
-  def resolve_login_url(login_url)
-    return login_url if login_url =~ %r{\Ahttps?://}
-
-    "#{base_url}#{login_url.start_with?('/') ? login_url : "/#{login_url}"}"
-  end
-
   # --- media ------------------------------------------------------------------
 
   # The run's media sink, or nil. A sink exists only when the repo carries a
@@ -550,54 +545,7 @@ class ChangeLaneBrowserless < ChangeLane
           try { if (session.context) await session.context.close(); } catch (err) { void err; }
         }
 
-        // Polls a code_source url (an HTTP endpoint reachable on the run
-        // network, e.g. a Mailpit/MailHog dev inbox API) with Node's own
-        // fetch until its body matches, so an out-of-band OTP is read live
-        // rather than ever landing in CHANGE.md or the host environment.
-        async function resolveCodeSource(codeSource) {
-          const deadline = Date.now() + codeSource.timeoutMs;
-          let lastErr = null;
-          while (Date.now() < deadline) {
-            try {
-              const res = await fetch(codeSource.url);
-              const text = await res.text();
-              if (codeSource.pattern) {
-                const match = text.match(new RegExp(codeSource.pattern));
-                if (match) return match[1] || match[0];
-              } else if (text.trim()) {
-                return text.trim();
-              }
-            } catch (err) {
-              lastErr = err;
-            }
-            await new Promise((resolve) => setTimeout(resolve, codeSource.pollIntervalMs));
-          }
-          throw new Error(
-            `code_source did not yield a value within ${codeSource.timeoutMs}ms: ${codeSource.url}` +
-              (lastErr ? ` (last error: ${lastErr})` : "")
-          );
-        }
-
-        async function fillField(session, field, timeoutMs) {
-          await session.page.waitForSelector(field.selector, { timeout: timeoutMs });
-          const value = field.codeSource ? await resolveCodeSource(field.codeSource) : field.value;
-          await session.page.type(field.selector, value);
-        }
-
-        async function runAuthStep(session, step) {
-          if (step.url) {
-            session.lastAuthResponse = await session.page.goto(step.url, { waitUntil: "domcontentloaded", timeout: step.timeoutMs });
-          }
-          for (const field of step.fields) await fillField(session, field, step.timeoutMs);
-          if (step.submitSelector) {
-            const [navResponse] = await Promise.all([
-              session.page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: step.timeoutMs }).catch(() => null),
-              session.page.click(step.submitSelector),
-            ]);
-            if (navResponse) session.lastAuthResponse = navResponse;
-          }
-          if (step.waitForSelector) await session.page.waitForSelector(step.waitForSelector, { timeout: step.timeoutMs });
-        }
+        #{ChangeFlowCompiler.auth_runtime_js}
 
         // Captures a real diagnosis of an auth failure - the url actually
         // landed on, the last main-frame response status, the page title,
@@ -949,35 +897,14 @@ class ChangeLaneBrowserless < ChangeLane
     end
   end
 
+  # The login flow's compilation lives in ChangeFlowCompiler now, so the lane
+  # and the deterministic test-case machinery share one compiler rather than
+  # each growing its own. This lane still owns the `auth:` config shape
+  # (AuthConfig below); it no longer owns the JS that shape turns into.
   def js_auth(auth)
     return nil unless auth
 
-    { steps: auth.steps.map { |step| js_step(step) } }
-  end
-
-  def js_step(step)
-    {
-      url: step[:url] && !step[:url].empty? ? resolve_login_url(step[:url]) : nil,
-      fields: step[:fields].map { |field| js_field(field) },
-      submitSelector: step[:submit_selector],
-      waitForSelector: step[:wait_for_selector],
-      timeoutMs: step[:timeout_ms]
-    }
-  end
-
-  def js_field(field)
-    return { selector: field[:selector], codeSource: js_code_source(field[:code_source]) } if field[:code_source]
-
-    { selector: field[:selector], value: field[:value].to_s }
-  end
-
-  def js_code_source(code_source)
-    {
-      url: code_source[:url],
-      pattern: code_source[:pattern],
-      timeoutMs: code_source[:timeout_ms],
-      pollIntervalMs: code_source[:poll_interval_ms]
-    }
+    ChangeFlowCompiler.compile_auth(auth.steps, base_url: base_url)
   end
 
   # Typed view over the lane's `auth:` block. Two shapes: the original
