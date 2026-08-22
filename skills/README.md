@@ -32,6 +32,7 @@ the hooks never surface it. These are verbs the agent performs on demand.
 | `cf:k6` | Runs just the k6 load/burst lane of the change-fabric platform against a project's config. |
 | `cf:a11y` | Runs just the axe-core accessibility lane of the change-fabric platform against a project's config. |
 | `cf:zap` | Runs just the OWASP ZAP penetration-test lane of the change-fabric platform against a project's config. |
+| `cf:plan` | Researches a goal with background Opus agents, grills the user with AskUserQuestion until the judgment calls are settled, then lands a plan.md, a 4000-character-capped goal.md, and a runnable workflow.js under `$CF_PLANS_ROOT` (default `~/.claude/cf/plans`), plus a handoff prompt for a separate session to execute. |
 
 `cf:refactor` reuses the routing below by shelling out to `skill_route.rb`
 (`scripts/skill_route.rb`, copied to the shim bin but not wired as a hook): it
