@@ -59,7 +59,7 @@ change_config:
 
     a11y:
       enabled: true
-      routes: ["/", "/spec", "/spec/0.1.0"]
+      routes: ["/", "/spec", "/spec/0.1.0", "/reference", "/reference/skills/away", "/reference/hooks/away_guard.rb"]
       threshold: serious
 
     zap:
@@ -74,6 +74,9 @@ change_config:
         - "/"
         - "/spec"
         - "/spec/0.1.0"
+        - "/reference"
+        - "/reference/skills/away"
+        - "/reference/hooks/away_guard.rb"
       viewports:
         - { name: mobile, width: 390, height: 844 }
         - { name: tablet, width: 768, height: 1024 }
