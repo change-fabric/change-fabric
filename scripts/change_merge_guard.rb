@@ -4,9 +4,8 @@
 require 'json'
 require 'open3'
 require_relative 'hook_event'
-require_relative 'change_apps'
 require_relative 'change_policy'
-require_relative 'change_gate_store'
+require_relative 'change_gate_check'
 require_relative 'change_override_store'
 require_relative 'guarded_command'
 
@@ -86,46 +85,26 @@ class ChangeMergeGuard
   # promotion rule names one, and (0.4.0) to the branch's required app set in a
   # monorepo -- the policy's own promotion.<branch>.apps list, or every
   # registered enabled app when that is absent. Single-app mode asks the same
-  # question it always has: `apps` stays nil, so comprehensive_pass? falls back
-  # to its 0.3.1 top-level scope/status check.
+  # question it always has: `apps` stays nil, so ChangeGateCheck#satisfied?
+  # falls back to its 0.3.1 top-level scope/status check. The gate question
+  # itself is asked by ChangeGateCheck, shared with change_tag_guard.rb; only
+  # the deny wording below is specific to a merge.
   def gate_violation(base, sha, policy, kind:)
     profile = policy.profile_for(base)
-    apps = required_apps(base, policy)
-    store = ChangeGateStore.new(sha, profile: profile)
-    return nil if store.comprehensive_pass?(apps: apps)
+    apps = ChangeGateCheck.required_apps(repo_root, policy.apps_for(base))
+    check = ChangeGateCheck.new(sha: sha, profile: profile, apps: apps)
+    return nil if check.satisfied?
 
     conditions = policy.admin_bypass_conditions
     note = conditions.empty? ? '' : "Repo policy: #{conditions}. "
     target = profile ? "the '#{profile}' profile" : 'a comprehensive'
     "#{kind} into '#{base}' is gated: no passing #{target} cf:change run recorded for head " \
-      "#{sha[0, 12]}#{missing_apps_clause(store, apps)}. #{rerun_hint(profile, apps, store)} " \
-      "#{note}#{escape_note}"
+      "#{sha[0, 12]}#{check.missing_apps_clause}. #{rerun_hint(check)} " \
+      "#{note}#{ChangeGateCheck.escape_note}"
   end
 
-  # The app names (0.4.0) a passing gate record must cover for this branch, or
-  # nil in single-app mode (where comprehensive_pass? asks its original,
-  # unscoped question). Registry read failures fail open (nil, meaning "do not
-  # scope by app") rather than deny a merge the guard cannot actually evaluate.
-  def required_apps(base, policy)
-    registry = ChangeAppRegistry.load(File.join(repo_root, 'CHANGE.md'))
-    return nil unless registry.multi_app?
-
-    policy.apps_for(base) || registry.enabled_entries.map(&:name)
-  rescue StandardError
-    nil
-  end
-
-  def missing_apps_clause(store, apps)
-    return '' unless apps
-
-    " for app(s): #{store.missing_apps(apps).join(', ')}"
-  end
-
-  def rerun_hint(profile, apps, store)
-    flags = []
-    flags << "--profile #{profile}" if profile
-    flags << "--app #{store.missing_apps(apps).join(' --app ')}" if apps
-    suffix = flags.empty? ? '' : " with #{flags.join(' ')}"
+  def rerun_hint(check)
+    suffix = check.flags.empty? ? '' : " with #{check.flags.join(' ')}"
     "Run /cf:change against this PR first#{suffix}."
   end
 
@@ -134,10 +113,7 @@ class ChangeMergeGuard
   # arrange. The reachable path: a human runs change_override.rb themselves,
   # from their own real terminal (it refuses without one), to record an
   # auditable, sha-scoped override the guard checks in #violation above.
-  def escape_note
-    'Set CF_ALLOW_UNGATED_MERGE=1 before this session started, or, from your own terminal, ' \
-      "record an override: ruby ~/.claude/cf/bin/change_override.rb <sha> --reason '<why>'."
-  end
+  def escape_note = ChangeGateCheck.escape_note
 
   def admin?(cmd) = GuardedCommand.tokens(cmd).include?('--admin')
 
