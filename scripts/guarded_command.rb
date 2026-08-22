@@ -107,11 +107,11 @@ class GuardedCommand
   # Branch names the push would update on the remote. A bare push (no refspec)
   # returns [] and is resolved against the current branch by the caller.
   def push_destinations
-    tokens = @command.split
-    push_index = tokens.index('push')
+    toks = self.class.tokens(@command)
+    push_index = toks.index('push')
     return [] unless push_index
 
-    positionals = tokens[(push_index + 1)..].reject { |t| t.start_with?('-') }
+    positionals = toks[(push_index + 1)..].reject { |t| t.start_with?('-') }
     refspecs = positionals.drop(1) # first positional is the remote
     refspecs.map { |spec| destination_of(spec) }
   end
