@@ -160,7 +160,7 @@ class AwayGuardTest < Minitest::Test
 
   def test_denies_an_ordinary_question_while_away
     AwayStore.new("s1").write("away")
-    output = guard(tool_name: "AskUserQuestion", questions: [question("Sign-off")])
+    output = guard(tool_name: "AskUserQuestion", questions: [ question("Sign-off") ])
     refute_empty output
     decision = JSON.parse(output).dig("hookSpecificOutput", "permissionDecision")
     assert_equal "deny", decision
@@ -173,25 +173,25 @@ class AwayGuardTest < Minitest::Test
   def test_allows_each_floor_header
     AwayStore.new("s1").write("away")
     %w[Remote\ delete Untracked Secret\ alert].each do |header|
-      output = guard(tool_name: "AskUserQuestion", questions: [question(header)])
+      output = guard(tool_name: "AskUserQuestion", questions: [ question(header) ])
       assert_empty output, "#{header} should be a floor and pass through"
     end
   end
 
   def test_allows_everything_when_not_away
-    output = guard(tool_name: "AskUserQuestion", questions: [question("Sign-off")])
+    output = guard(tool_name: "AskUserQuestion", questions: [ question("Sign-off") ])
     assert_empty output
   end
 
   def test_ignores_non_ask_user_question_tools
     AwayStore.new("s1").write("away")
-    output = guard(tool_name: "Bash", questions: [question("Sign-off")])
+    output = guard(tool_name: "Bash", questions: [ question("Sign-off") ])
     assert_empty output
   end
 
   def test_allows_a_multi_question_call_when_any_one_question_floors
     AwayStore.new("s1").write("away")
-    output = guard(tool_name: "AskUserQuestion", questions: [question("Sign-off"), question("Untracked")])
+    output = guard(tool_name: "AskUserQuestion", questions: [ question("Sign-off"), question("Untracked") ])
     assert_empty output
   end
 end

@@ -14,7 +14,7 @@ class AwayGuard
 
   # Questions that fire even while away, because their default is destructive
   # or a real secret is at stake and no safe default exists.
-  FLOOR = ['Remote delete', 'Untracked', 'Secret alert'].freeze
+  FLOOR = [ 'Remote delete', 'Untracked', 'Secret alert' ].freeze
 
   def initialize(event)
     @event = event

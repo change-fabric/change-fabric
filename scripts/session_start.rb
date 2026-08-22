@@ -28,7 +28,7 @@ class MergeModeHook
   end
 
   def directive
-    lines = [restate(mode)]
+    lines = [ restate(mode) ]
     lines << away_statement if AwayStore.new(@event['session_id']).away?
     lines.join("\n")
   end
