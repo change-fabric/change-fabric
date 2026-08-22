@@ -35,6 +35,29 @@ class ChangeDockerTest < Minitest::Test
     refute seen.owned
   end
 
+  # The host alias. The spec tells authors to reach a host-booted app via
+  # host.docker.internal when no boot.network is configured, but only Docker
+  # Desktop defines that name for free; on Docker Engine every lane failed
+  # against a target the host-side health check had just called healthy.
+  # Asserted on the argv so the flag is covered without a docker daemon.
+  def test_run_command_maps_the_host_alias_to_the_host_gateway
+    argv = ChangeDocker.run_command(network: nil, image: "img", args: [ "cmd" ])
+    assert_includes argv.each_cons(2).to_a, [ "--add-host", "host.docker.internal:host-gateway" ]
+  end
+
+  def test_run_command_keeps_the_image_and_its_command_last
+    argv = ChangeDocker.run_command(network: "net", image: "img", args: %w[a b], name: "cf-change-x")
+    assert_equal %w[img a b], argv.last(3)
+    assert_includes argv.each_cons(2).to_a, [ "--network", "net" ]
+  end
+
+  def test_browserless_command_maps_the_host_alias_to_the_host_gateway
+    argv = ChangeDocker.browserless_command("cf-change-bl-x", "net", 1234, "tok")
+    assert_includes argv.each_cons(2).to_a, [ "--add-host", "host.docker.internal:host-gateway" ]
+    assert_equal ChangeDocker::BROWSERLESS_IMAGE, argv.last
+    assert_includes argv, "127.0.0.1:1234:3000"
+  end
+
   # The ephemeral-network branch really creates and removes a docker network.
   def test_with_network_creates_and_removes_an_ephemeral_network
     skip "docker not available" unless ChangeDocker.available?

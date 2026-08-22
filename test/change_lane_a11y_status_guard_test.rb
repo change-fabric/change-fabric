@@ -79,6 +79,21 @@ class ChangeLaneA11yStatusGuardTest < Minitest::Test
     assert_equal "pass", findings.first.status
   end
 
+  # --- navigation error ---------------------------------------------------------
+
+  # A route the browser could not reach at all (the scan module catches the
+  # throw and pushes `{ route, error, violations: [] }`) used to fall through
+  # to "no violations" and grade as a pass, so an entire lane reported clean
+  # against an unreachable target.
+  def test_navigation_error_is_a_fail_finding
+    route = { "route" => "/", "error" => "Error: net::ERR_CONNECTION_REFUSED at http://host/", "violations" => [] }
+    findings = a11y_lane.send(:route_findings, route)
+    assert_equal 1, findings.size
+    assert_equal "fail", findings.first.status
+    assert_equal "navigation error", findings.first.check
+    assert_includes findings.first.detail, "ERR_CONNECTION_REFUSED"
+  end
+
   def test_module_carries_a_non_ok_status_branch
     js = a11y_lane.send(:scan_module)
     assert_includes js, "nonOkStatus"
