@@ -28,6 +28,37 @@ export interface ReleaseNote {
 }
 
 export const RELEASE_NOTES: Record<string, ReleaseNote> = {
+  "0.10.0": {
+    version: "0.10.0",
+    date: "2026-08-22",
+    headline:
+      "A fifth lane runs regression cases committed to the repo, and four fields that were already live are finally documented.",
+    highlights: [
+      {
+        title: "testcases: browser checks that give the same answer twice",
+        body:
+          "A case is a suite id, tags, a plain-English acceptance sentence, and a list of declarative steps. Ruby compiles those steps into the browser payload, so nothing is generated at run time and the same case at the same commit gives the same verdict. It shares the existing browser container and adds no image.",
+      },
+      {
+        title: "Cases live beside the code they test, not in CHANGE.md",
+        body:
+          "lanes.testcases.suites is a list of globs naming sidecar suite files such as qa/checkout.cf-testcases.yml. Those files carry their own schema, their own spec doc and their own drift test, so a new step verb never needs a CHANGE.md version bump, and a repo with twenty flows does not carry twenty flows' assertions in its governance file.",
+      },
+      {
+        title: "A failing case fails the gate, and gate_tags is the way in",
+        body:
+          "By default every case gates, because a test case that cannot fail the build is a comment. gate_tags names the tags that may fail the gate while a brand-new suite is still being trusted; the rest still run and still report. promotion.<ref>.require_testcases lets a branch require the lane specifically, which require_change_pass alone never asked.",
+      },
+      {
+        title: "Four already-shipped fields stop being undocumented",
+        body:
+          "wait_for (an explicit readiness contract in place of a networkidle timing heuristic), retries (opt-in, zero by default, recording flaky beside a real status), cell_isolation (a fresh browser context per matrix cell) and locale (pinned, not inherited from the host) were all live in the code with no registry row. They have one now.",
+      },
+    ],
+    upgrade:
+      "Additive. A CHANGE.md with no testcases lane parses, runs, reports and gates exactly as it did under 0.9.0. Adopting the lane is two steps: write a suite file beside the flow it covers, and point lanes.testcases.suites at it.",
+  },
+
   "0.9.0": {
     version: "0.9.0",
     date: "2026-08-22",

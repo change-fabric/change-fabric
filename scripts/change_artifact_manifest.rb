@@ -8,7 +8,7 @@ require_relative 'change_artifact_templates'
 require_relative 'shell_git'
 
 # The one record a published run is described by: who ran it, against which
-# commit and PR, what the four lanes found, and where its media landed. The
+# commit and PR, what the lanes found, and where its media landed. The
 # artifact page renders it, the bundle writes it out as `manifest.json`, and the
 # publisher declares it to the artifacts service, which records the run and
 # lists it on the team's findings page. Building it in one place is what keeps

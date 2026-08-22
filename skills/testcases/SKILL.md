@@ -1,0 +1,103 @@
+---
+name: cf:testcases
+description: Runs just the deterministic regression lane of the change-fabric platform against a project's config. Compiles committed test-case suite files into browser steps, replays them inside an ephemeral browserless Chromium container, grades each case, and writes a CSV and Markdown report to the Desktop. Invocable directly for a standalone regression check.
+---
+
+# CF testcases
+
+The standalone regression lane of the change-fabric platform. Runs only the
+committed test cases; for the full five-lane release sweep use `cf:change`.
+
+Trigger: `/cf:testcases [<target>]`.
+
+Question: do this repo's committed test cases still pass?
+
+## Run it
+
+From the target repo root (a repo carrying `CHANGE.md`):
+
+```
+ruby ~/.claude/cf/bin/change_run.rb testcases
+```
+
+This boots the app per `boot`, waits for its health signal, stands up one
+ephemeral browserless Chromium container (digest-pinned, `--rm`, per cf:docker;
+no host browser), loads every suite file `lanes.testcases.suites` names, runs
+each selected case in its own browser context, tears everything down, writes the
+report pair to `~/Desktop`, and records a `testcases` scope gate under the head
+SHA. A `testcases`-scope record never satisfies the comprehensive merge gate;
+only a full `cf:change` run does.
+
+Nothing is generated at run time. A case's steps are compiled to browser
+instructions by Ruby, so the same case at the same commit gives the same
+verdict. That is the difference between this lane and `cf:qa`: `cf:qa` explores
+and finds out what to test, this replays what was already decided.
+
+## Write a case
+
+Cases live in sidecar suite files beside the code they test, conventionally
+`<dir>/<name>.cf-testcases.yml`, never inline in `CHANGE.md`. The full schema
+is `reference/suite-file-spec.md`; the shape is:
+
+```yaml
+suite: checkout
+cases:
+  - id: guest-checkout-happy-path
+    tags: [checkout, smoke]
+    acceptance: >
+      A guest can add an item and reach the confirmation page
+      without creating an account.
+    steps:
+      - goto: /products/widget
+      - click: "[data-test=add-to-cart]"
+      - expect_text: { selector: "[data-test=cart-count]", equals: "1" }
+      - goto: /checkout
+      - fill: { selector: "#email", env: CHECKOUT_TEST_EMAIL }
+      - click: "[data-test=place-order]"
+      - expect_url: { contains: "/confirmation" }
+```
+
+Point `CHANGE.md` at it:
+
+```yaml
+lanes:
+  testcases:
+    suites: [ 'qa/*.cf-testcases.yml' ]
+```
+
+Check it before running the lane: `ruby ~/.claude/cf/bin/change_config.rb doctor`
+reports an unreadable glob, an empty suite, a duplicate case id, an unknown step
+verb, a missing `acceptance`, and a `gate_tags` entry no case carries.
+
+A real credential never goes in a suite file. A `fill` reads its value from the
+env var `env:` names, or polls a `code_source` endpoint from inside the
+container for an out-of-band code.
+
+## Read the output
+
+One finding per case. A passing case reports its `acceptance` sentence; a
+failing one names the step that failed and why. The Markdown report also
+carries a table pairing each case's acceptance criterion with the verdict its
+steps produced.
+
+A failing case fails the lane, and therefore the gate, exactly like every other
+lane. If a case is failing for a reason that is not a regression, fix the case
+in the repo rather than working around the gate: a case nobody trusts is worse
+than no case. `gate_tags` exists for the one legitimate version of that, staged
+adoption of a brand-new suite whose cases should report before they gate.
+
+`acceptance` is required, parsed, and rendered here. Grading that prose against
+what the run actually did is a later phase; today it is documentation the
+report puts in front of the reader.
+
+## Failure modes
+
+- Docker unavailable, or an image cannot be pulled: exits 2 and names the cause;
+  report and stop.
+- No `CHANGE.md` with a `change_config:` block: the repo is not
+  change-fabric-integrated. Say so.
+- A suite glob matching no file, or a suite that fails to parse: a named failing
+  finding, never a quietly empty run. A gate that checks zero cases reports
+  green for the same reason one that checks everything does.
+- browserless never becomes ready: the lane records a failing finding rather
+  than crashing the run.

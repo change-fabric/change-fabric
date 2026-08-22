@@ -72,6 +72,22 @@ class ChangeGateStore < ChangeShaRecord
     apps.all? { |name| app_passed?(record, name) }
   end
 
+  # Whether one named lane passed in the record for this SHA (0.10.0), asked by
+  # a promotion rule that gates on a specific lane
+  # (`promotion.<ref>.require_testcases`) rather than only on the aggregate
+  # verdict. Fails closed: a record that never ran the lane has no entry for
+  # it, and "not run" is not "passed". With an `apps` list every named app's
+  # own entry must carry the passing lane, the same way comprehensive_pass?
+  # scopes by app.
+  def lane_passed?(lane, apps: nil)
+    record = read
+    return false unless record
+
+    return record.dig('lanes', lane.to_s) == 'pass' unless apps
+
+    apps.all? { |name| record.dig('apps', name.to_s, 'lanes', lane.to_s) == 'pass' }
+  end
+
   # The subset of `names` with no passing comprehensive entry recorded, for a
   # merge-gate deny message that names exactly what is missing rather than
   # forcing the operator to diff the whole record by hand.

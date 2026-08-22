@@ -97,12 +97,27 @@ class ChangePolicy
   # rule opts out. Read per-branch so staging and production can differ.
   def require_change_pass?(branch) = require_change_pass_for_rule?(branch_promotion[branch.to_s])
 
+  # Whether a merge into this branch additionally requires the recorded
+  # comprehensive pass to carry a passing `testcases` lane (0.10.0). Opt-in and
+  # default false: a repo adopting the regression lane runs it for a while
+  # before it is willing to have a merge blocked on it, and a lane the repo has
+  # not enabled at all must not silently start gating. Once set, it is stricter
+  # than `require_change_pass` alone, which only asks whether the run passed
+  # overall and would be satisfied by a run that never ran the lane. Read off
+  # `branch_promotion` for the same reason `require_change_pass?` is: a `tag:`
+  # rule must never answer for a branch that happens to read the same.
+  def require_testcases?(branch)
+    rule = branch_promotion[branch.to_s]
+    rule.is_a?(Hash) && rule['require_testcases'] == true
+  end
+
   # The per-environment promotion rules block, unfiltered: every key exactly
   # as authored, branch and tag alike. Each value maps to that target's
   # answers: review_required, self_review_allowed, require_change_pass,
-  # ci_gate, ci_skippable, profile, apps, environment, and (tag rules only)
-  # require_trunk_ancestor/require_prior_tag. The prose body is expected to
-  # expand each into a straight answer a teammate can be pointed at.
+  # ci_gate, ci_skippable, profile, apps, environment, require_testcases, and
+  # (tag rules only) require_trunk_ancestor/require_prior_tag. The prose body
+  # is expected to expand each into a straight answer a teammate can be
+  # pointed at.
   def promotion
     block = @policy['promotion']
     block.is_a?(Hash) ? block : {}

@@ -345,7 +345,7 @@ class ChangeConfigTest < Minitest::Test
       "profiles" => { "staging" => { "lanes" => { "a11y" => { "auth" => { "login_url" => "/login" } } } } }
     }
     error = assert_raises(ChangeConfig::ConfigError) { with_config(config, "staging") { |_c| } }
-    assert_match(/profile 'staging' lane 'a11y'.*auth.*only applies to the browserless lane/, error.message)
+    assert_match(/profile 'staging' lane 'a11y'.*auth.*only applies to a login-driving lane/, error.message)
   end
 
   def test_profile_auth_override_is_rejected_on_zap
@@ -354,7 +354,7 @@ class ChangeConfigTest < Minitest::Test
       "profiles" => { "staging" => { "lanes" => { "zap" => { "auth" => { "login_url" => "/login" } } } } }
     }
     error = assert_raises(ChangeConfig::ConfigError) { with_config(config, "staging") { |_c| } }
-    assert_match(/profile 'staging' lane 'zap'.*auth.*only applies to the browserless lane/, error.message)
+    assert_match(/profile 'staging' lane 'zap'.*auth.*only applies to a login-driving lane/, error.message)
   end
 
   # A partial profile override (just timeout_ms) deep-merges over the base

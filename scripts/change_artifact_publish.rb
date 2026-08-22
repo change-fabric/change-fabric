@@ -27,7 +27,7 @@ require_relative 'change_artifacts_config'
 #
 # Best-effort, always, and that contract is the reason this file is structured
 # the way it is. Every step is rescued into a named warning and the run's verdict
-# is untouched by all of them: the four audit lanes are the release gate, and
+# is untouched by all of them: the audit lanes are the release gate, and
 # this is the evidence attached to it. A machine with no key, an API that is
 # down, and a presigned URL that expired mid-upload each produce a clear sentence
 # on an otherwise successful audit rather than a stack trace or a red run.

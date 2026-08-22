@@ -269,6 +269,18 @@ change_config:
         token_env: FIGMA_ACCESS_TOKEN   # optional, this is the default
         max_diff_percent: 10            # optional, this is the default; above it, the route's diff finding fails
 
+    # The regression lane (0.10.0). Cases are never written here: suites: is a
+    # list of globs naming sidecar suite files that live beside the code they
+    # test (see skills/testcases/reference/suite-file-spec.md). This block only
+    # says which suites this repo gates on and where they are pointed.
+    testcases:
+      enabled: false                    # flip on once at least one suite file exists
+      suites: [ 'qa/*.cf-testcases.yml' ]
+      # tags: [smoke]        # optional; run only cases carrying one of these
+      # gate_tags: [smoke]   # optional; only these tags' cases may fail the gate
+      # viewport: { name: desktop, width: 1440, height: 900 }  # optional, the default
+      # auth: same shape as lanes.browserless.auth above, for cases behind a login
+
 # Machine-checkable policy the change-fabric merge gate enforces. The prose below
 # is the human source of truth; this block states the same rules in the form the
 # hook (change_merge_guard.rb) can act on. Keep the two in agreement.

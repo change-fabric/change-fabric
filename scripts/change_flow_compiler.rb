@@ -232,6 +232,13 @@ class ChangeFlowCompiler
 
     def flow_runtime_js = [ CODE_SOURCE_JS, FLOW_JS ].join("\n")
 
+    # Both runtimes in one module, for a lane that logs in and then walks a
+    # declarative flow in the same page (the testcases lane). Emitting
+    # `auth_runtime_js` and `flow_runtime_js` side by side would declare
+    # `resolveCodeSource` twice, which an ES module rejects outright, so the
+    # shared helper is emitted once here instead.
+    def auth_and_flow_runtime_js = [ CODE_SOURCE_JS, AUTH_JS, FLOW_JS ].join("\n")
+
     # A login url in the config may be absolute or site-relative; the lane has
     # always resolved a relative one against the target's base url.
     def absolute_url(url, base_url)

@@ -28,10 +28,11 @@ the hooks never surface it. These are verbs the agent performs on demand.
 | `cf:prune` | Post-merge cleanup: fast-forwards the trunk and prunes merged branches and worktrees, local and remote, asking before it discards unmerged work or deletes any remote branch. |
 | `cf:resolve-threads` | Resolves every unresolved review thread on a PR by evaluating each in its own isolated worktree, then implements the fix, dismisses it, or defers to a human, replying and resolving on GitHub accordingly. |
 | `cf:qa` | Scopes and runs an ad hoc Playwright QA pass against a natural-language target (a PR, a feature, a flow) in an ephemeral browserless Chromium container, and optionally posts findings as PR comments. |
-| `cf:change` | Runs the deterministic, config-driven release-gate sweep (all four dockerized audit lanes: k6 load, axe-core a11y, OWASP ZAP pentest, browserless responsive UX) against a project's root `CHANGE.md` (its `change_config:` frontmatter), aggregates a CSV+Markdown report on the Desktop, and records a pass/fail gate for the head commit. |
+| `cf:change` | Runs the deterministic, config-driven release-gate sweep (all five dockerized audit lanes: k6 load, axe-core a11y, OWASP ZAP pentest, browserless responsive UX, committed test cases) against a project's root `CHANGE.md` (its `change_config:` frontmatter), aggregates a CSV+Markdown report on the Desktop, and records a pass/fail gate for the head commit. |
 | `cf:k6` | Runs just the k6 load/burst lane of the change-fabric platform against a project's config. |
 | `cf:a11y` | Runs just the axe-core accessibility lane of the change-fabric platform against a project's config. |
 | `cf:zap` | Runs just the OWASP ZAP penetration-test lane of the change-fabric platform against a project's config. |
+| `cf:testcases` | Runs just the deterministic regression lane of the change-fabric platform: replays the test cases committed in the repo's suite files and grades each one. |
 | `cf:plan` | Researches a goal with background Opus agents, grills the user with AskUserQuestion until the judgment calls are settled, then lands a plan.md, a 4000-character-capped goal.md, and a runnable workflow.js under `$CF_PLANS_ROOT` (default `~/.claude/cf/plans`), plus a handoff prompt for a separate session to execute. |
 
 `cf:refactor` reuses the routing below by shelling out to `skill_route.rb`
