@@ -61,7 +61,7 @@ class ChangeAppRegistry
       raise RegistryError,
             "#{change_md_path}: change_config declares apps: alongside #{forbidden.join(', ')}. A root " \
             'that is both a registry and an app is ambiguous (--app would be meaningless for that one ' \
-            "app, and promotion.<branch>.profile would not know whose profile is meant); move " \
+            "app, and promotion.<ref>.profile would not know whose profile is meant); move " \
             "#{forbidden.join(', ')} into one app's own CHANGE.app.yml instead."
     end
     raise RegistryError, "change_config.apps must be a mapping: #{change_md_path}" unless apps.is_a?(Hash)
@@ -119,7 +119,7 @@ class ChangeAppRegistry
   # A well-formed check across the whole registry: one ChangeConfig.doctor
   # -style block per selected app (every enabled app, or the `--app`-requested
   # subset), preceded, in multi-app mode, by the registry header and the
-  # promotion-profile coverage check (a `change_policy.promotion.<branch>.profile`
+  # promotion-profile coverage check (a `change_policy.promotion.<ref>.profile`
   # that some required app cannot satisfy is a merge gate that is
   # unsatisfiable by construction, worth catching here rather than at merge
   # time).
@@ -133,6 +133,7 @@ class ChangeAppRegistry
       lines << "apps: #{described.join(', ')}"
       lines.concat(promotion_profile_coverage_errors(change_md_path, registry))
     end
+    lines.concat(promotion_target_lines(change_md_path))
 
     selected.each do |entry|
       lines << '' unless lines.empty?
@@ -143,53 +144,141 @@ class ChangeAppRegistry
     lines.join("\n")
   end
 
-  # For every protected branch whose promotion rule names a profile, every app
-  # required to gate that branch (the rule's own `apps:` list, or every
-  # registered enabled app when omitted) must either define that profile name
-  # or have no `profiles:` block at all; otherwise the merge gate can never be
-  # satisfied for that app. Also flags an explicitly empty `promotion.<branch>
-  # .apps: []`, which change_policy.rb resolves to "every app" (the fail-closed
-  # reading a hook must take) rather than the "gate nothing" a bare empty list
-  # visually suggests.
+  # For every protected branch, and every protected tag pattern, whose
+  # promotion rule names a profile, every app required to gate it (the rule's
+  # own `apps:` list, or every registered enabled app when omitted) must
+  # either define that profile name or have no `profiles:` block at all;
+  # otherwise the gate can never be satisfied for that app. Also flags an
+  # explicitly empty `promotion.<ref>.apps: []`, which change_policy.rb
+  # resolves to "every app" (the fail-closed reading a hook must take) rather
+  # than the "gate nothing" a bare empty list visually suggests. A tag rule's
+  # `apps:`/`profile:` mean exactly what a branch rule's do, so both are
+  # checked identically here.
   def self.promotion_profile_coverage_errors(change_md_path, registry)
     policy = ChangePolicy.for_repo(File.dirname(change_md_path))
     return [] unless policy
 
-    policy.protected_branches.flat_map do |branch|
-      unsatisfiable_profile_errors(policy, registry, branch) + empty_apps_list_error(policy, branch)
+    branch_errors = policy.protected_branches.flat_map do |branch|
+      rule = policy.branch_promotion[branch.to_s]
+      unsatisfiable_profile_errors(policy, registry, "promotion.#{branch}", rule) +
+        empty_apps_list_error(rule, "promotion.#{branch}")
     end
+    tag_errors = policy.tag_promotion.flat_map do |pattern, rule|
+      unsatisfiable_profile_errors(policy, registry, "promotion.tag:#{pattern}", rule) +
+        empty_apps_list_error(rule, "promotion.tag:#{pattern}")
+    end
+    branch_errors + tag_errors
   end
   private_class_method :promotion_profile_coverage_errors
 
-  def self.unsatisfiable_profile_errors(policy, registry, branch)
-    branch_profile = policy.profile_for(branch)
-    return [] unless branch_profile
+  def self.unsatisfiable_profile_errors(policy, registry, label, rule)
+    rule_profile = policy.profile_for_rule(rule)
+    return [] unless rule_profile
 
-    required_names = policy.apps_for(branch) || registry.enabled_entries.map(&:name)
+    required_names = policy.apps_for_rule(rule) || registry.enabled_entries.map(&:name)
     required_names.filter_map do |name|
       entry = registry.entries.find { |candidate| candidate.name == name }
       next unless entry
 
       begin
-        entry.load(profile: branch_profile)
+        entry.load(profile: rule_profile)
         nil
       rescue ChangeConfig::ConfigError => e
         next unless e.message.include?('unknown profile')
 
-        "error: promotion.#{branch}.profile '#{branch_profile}' is unsatisfiable: app '#{name}' has no such " \
+        "error: #{label}.profile '#{rule_profile}' is unsatisfiable: app '#{name}' has no such " \
           "profile (#{e.message})"
       end
     end
   end
   private_class_method :unsatisfiable_profile_errors
 
-  def self.empty_apps_list_error(policy, branch)
-    raw = policy.promotion[branch.to_s]
-    apps_value = raw.is_a?(Hash) ? raw['apps'] : nil
+  def self.empty_apps_list_error(rule, label)
+    apps_value = rule.is_a?(Hash) ? rule['apps'] : nil
     return [] unless apps_value.is_a?(Array) && apps_value.empty?
 
-    [ "error: change_policy.promotion.#{branch}.apps is explicitly empty; that resolves to every " \
+    [ "error: change_policy.#{label}.apps is explicitly empty; that resolves to every " \
       "registered enabled app, not \"gate nothing\" -- use require_change_pass: false for that." ]
   end
   private_class_method :empty_apps_list_error
+
+  # Independent of app-registry mode (single-app and monorepo alike): a
+  # `promotion targets:` roll-up of every branch and tag rule with its
+  # resolved profile/app set, plus the tag-specific `doctor` warnings from the
+  # trunk + tag releases design: overlapping tag patterns (3.3), a
+  # trunk-ancestor/prior-tag field misplaced on a branch rule (where nothing
+  # reads it), and a `tag:` pattern with no glob metacharacter and no `/`
+  # (probably a literal tag name, which works but was almost certainly meant
+  # to be a pattern).
+  def self.promotion_target_lines(change_md_path)
+    policy = ChangePolicy.for_repo(File.dirname(change_md_path))
+    return [] unless policy
+    return [] if policy.branch_promotion.empty? && policy.tag_promotion.empty?
+
+    lines = [ 'promotion targets:' ]
+    policy.branch_promotion.each do |branch, rule|
+      lines << "  branch #{branch}: #{promotion_target_summary(policy, rule)}"
+      lines.concat(misplaced_tag_field_warnings(policy, "promotion.#{branch}", rule))
+    end
+    policy.tag_promotion.each do |pattern, rule|
+      environment = policy.environment_for_rule(rule, pattern)
+      lines << "  tag:#{pattern} (#{environment}): #{promotion_target_summary(policy, rule)}"
+      lines.concat(literal_tag_pattern_warning(pattern))
+    end
+    lines.concat(overlapping_tag_pattern_warnings(policy))
+    lines
+  end
+  private_class_method :promotion_target_lines
+
+  def self.promotion_target_summary(policy, rule)
+    profile = policy.profile_for_rule(rule) || '(none)'
+    apps = policy.apps_for_rule(rule) || [ 'every enabled app' ]
+    "profile=#{profile} apps=#{apps.join(', ')}"
+  end
+  private_class_method :promotion_target_summary
+
+  def self.misplaced_tag_field_warnings(policy, label, rule)
+    warnings = []
+    if policy.require_trunk_ancestor_for_rule(rule)
+      warnings << "warning: #{label}.require_trunk_ancestor is set on a branch rule; only tag rules read it"
+    end
+    if policy.require_prior_tag_for_rule(rule)
+      warnings << "warning: #{label}.require_prior_tag is set on a branch rule; only tag rules read it"
+    end
+    warnings
+  end
+  private_class_method :misplaced_tag_field_warnings
+
+  def self.literal_tag_pattern_warning(pattern)
+    return [] if pattern.match?(/[*?\[\]{}]/) || pattern.include?('/')
+
+    [ "warning: tag:#{pattern} has no glob metacharacter and no '/'; it matches only the literal tag " \
+      "'#{pattern}', which works but was probably meant to be a pattern" ]
+  end
+  private_class_method :literal_tag_pattern_warning
+
+  # A repo-authoring lint, not a hard rule: two tag patterns "can overlap"
+  # when concretizing one pattern's wildcards with a filler token yields a tag
+  # the other pattern also matches (checked both directions). Heuristic, not
+  # exhaustive, but catches the common case (`tag:staging/v*` and
+  # `tag:staging/v1.*`) so the author sees the union before it surprises them
+  # at push time: every matching rule is required, none silently outranks
+  # another.
+  def self.overlapping_tag_pattern_warnings(policy)
+    patterns = policy.tag_promotion.keys
+    patterns.combination(2).select { |a, b| tag_patterns_overlap?(a, b) }.map do |a, b|
+      "warning: tag:#{a} and tag:#{b} can both match the same tag; every matching rule is required, " \
+        'not just the more specific one'
+    end
+  end
+  private_class_method :overlapping_tag_pattern_warnings
+
+  def self.tag_patterns_overlap?(pattern_a, pattern_b)
+    return false if pattern_a == pattern_b
+
+    sample_a = pattern_a.gsub('**', 'x').gsub('*', 'x')
+    sample_b = pattern_b.gsub('**', 'x').gsub('*', 'x')
+    File.fnmatch(pattern_a, sample_b, File::FNM_PATHNAME) || File.fnmatch(pattern_b, sample_a, File::FNM_PATHNAME)
+  end
+  private_class_method :tag_patterns_overlap?
 end

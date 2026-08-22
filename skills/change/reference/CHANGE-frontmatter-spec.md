@@ -1,11 +1,14 @@
 # CHANGE.md frontmatter specification
 
-Schema version: 0.8.0
+Schema version: 0.9.0-alpha.1
 
-Status: stable. This is the golden reference for authoring a repo's `CHANGE.md`
-frontmatter. A maintainer or an AI agent creating a new repo's `CHANGE.md` reads
-this to get every field right without reverse-engineering the parser. The field
-set and version here are kept honest by `test/change_schema_spec_test.rb`, which
+Status: pre-release. `0.9.0-alpha.1` floats the trunk + tag releases addition
+(`change_policy` tag rules) toward a stable `0.9.0`; the last stable version
+was `0.8.0`. Not deployed to the public site while a pre-release. This is
+otherwise the golden reference for authoring a repo's `CHANGE.md` frontmatter.
+A maintainer or an AI agent creating a new repo's `CHANGE.md` reads this to
+get every field right without reverse-engineering the parser. The field set
+and version here are kept honest by `test/change_schema_spec_test.rb`, which
 fails if this document and the parsing code (`scripts/change_schema.rb`) drift.
 
 ## What CHANGE.md is
@@ -37,7 +40,7 @@ governance FAQ:
 
 ```
 ---
-spec_version: "0.6.0"   # optional: the schema version this file was authored against
+spec_version: "0.9.0-alpha.1"   # optional: the schema version this file was authored against
 change_config:
   ...        # mechanical target-app details the audit lanes read
 change_policy:
@@ -68,7 +71,10 @@ is the field-by-field authority behind it.
 Field paths are dotted. Placeholder segments are literal and mean:
 
 - `<lane>`: any of the four lanes, `k6`, `a11y`, `zap`, `browserless`.
-- `<branch>`: any git branch name (a promotion target such as `staging`).
+- `<ref>`: a promotion target (0.9.0-alpha.1; formerly `<branch>`, since only
+  branches were promotion targets before this version). An unprefixed key (or
+  `branch:<name>`) is a git branch, gated at merge time. A `tag:<glob>` key is
+  a tag pattern, gated at tag-push time. See "change_policy tag rules" below.
 - `<profile>`: any name under `change_config.profiles` (a deploy target such as `staging`).
 - `<app>`: any name under `change_config.apps` (an app in a monorepo, 0.4.0).
 - `[]`: a field on each item of a list.
@@ -263,7 +269,7 @@ present, the root `change_config` may not also declare its own
 `boot`/`lanes`/`profiles`/`default_profile`; that combination is a load
 error naming both keys. A root that is simultaneously a registry and an app
 makes `--app` meaningless for that one app and makes
-`change_policy.promotion.<branch>.profile` ambiguous about whose profile is
+`change_policy.promotion.<ref>.profile` ambiguous about whose profile is
 meant. Adopting the monorepo shape is a verbatim cut-and-paste of the
 existing block into one app file, for example `apps/<name>/CHANGE.app.yml`.
 
@@ -299,7 +305,7 @@ app with no `profiles:` block ignores `--profile` entirely, and an app whose
 per app.
 
 **Not a diff-derived set, on purpose.** The required app set for a merge
-gate (`change_policy.promotion.<branch>.apps`, or every registered enabled
+gate (`change_policy.promotion.<ref>.apps`, or every registered enabled
 app when omitted) is never computed from which files a PR touched. The merge
 guard is a fail-open advisory hook by design: any check it cannot determine
 fails open rather than blocking a merge on a false positive. Computing an
@@ -355,6 +361,68 @@ change_config:
     a11y: { routes: ["/login", "/dashboard"] }
 ```
 
+### change_policy tag rules (0.9.0-alpha.1): trunk with environment tags
+
+`change_config.profiles` and `change_config.apps` answer *where* an audit runs
+and *what* it audits. Tag rules answer a third, orthogonal question: *when* the
+gate is demanded.
+
+Many repos have one trunk, `main`, and mark releases with tags
+(`staging/v1.4.0`, `production/v1.4.0`) rather than long-lived environment
+branches. In that topology the release event is the tag push, not a PR merge,
+so a branch-only `change_policy` governs the merge to `main` and nothing about
+the actual release. A tag rule closes that gap.
+
+**The `tag:` prefix.** Tag rules live inside the same `promotion:` map as
+branch rules, under a `tag:`-prefixed key (`tag:staging/v*`), not in a separate
+block. A git refname cannot contain `:` (`git check-ref-format` rejects it), so
+the prefix is provably unambiguous against every legal branch name. `branch:
+<name>` is accepted as an explicit synonym for an unprefixed key; nothing
+requires it, it exists for a repo that wants symmetry. Every field a branch
+rule already carries (`require_change_pass`, `profile`, `apps`,
+`review_required`, `ci_gate`, `ci_skippable`) means exactly the same thing on a
+tag rule; promoting to staging is one concept, branch topology expresses it as
+a merge, tag topology as a tag push.
+
+**Glob semantics.** `File.fnmatch(pattern, tag, File::FNM_PATHNAME)`. A `*`
+does not cross a `/`, so `tag:staging/v*` matches `staging/v1.4.0` and not
+`staging/hotfix/v1.4.0`; `**` crosses segments. `v*-staging` and
+`release/staging/*` work with no special casing, which is what repo-varying
+tag conventions need.
+
+**Overlapping patterns.** When more than one tag rule matches a tag, every
+matching rule must be satisfied; no specificity ranking is invented, since a
+rule an author wrote and that matches the tag cannot be silently outranked.
+`change_config.rb doctor` warns when two tag patterns can match the same tag,
+so the author sees the union before it surprises them at push time.
+
+**`profile:` and `apps:` compose unchanged.** A tag rule's `profile:` selects a
+`change_config.profiles` entry exactly as a branch rule's does; its `apps:`
+list restricts which `change_config.apps` entries gate it exactly as a branch
+rule's does. Neither is reinvented for tags.
+
+**`require_trunk_ancestor` and `require_prior_tag`.** Branch topology encodes
+promotion order and provenance in the graph itself: you cannot merge to
+`production` except from `staging`. Tag topology loses both unless stated.
+`require_trunk_ancestor: main` requires the tagged commit to be an ancestor of
+(or equal to) the named branch, stopping a production tag being cut on an
+unmerged feature branch. `require_prior_tag: "staging/v*"` requires some
+already-published tag matching the glob to point at the same commit: the
+trunk-topology equivalent of "production only from staging". Both are stated
+as governance in the file a human reads, never derived from a diff or a graph
+walk, and both are ignored (and flagged by `doctor`) on a branch rule, since
+nothing reads them there.
+
+**A repo with no `tag:` key is unaffected.** `protected_branches` is retained,
+not deprecated. `protected_tag_patterns` (the resolved set of `tag:` entries)
+is empty when a repo declares none, and the tag-push gate (a later schema
+phase's enforcement) is inert whenever that set is empty. Phase 1 of this
+schema version adds parsing, resolution, and `doctor` coverage only; no hook
+behavior changes because of a `tag:` key existing in a file.
+
+See the "Trunk with environment tags" worked example below for a complete
+`CHANGE.md`.
+
 ## change_policy fields
 
 The machine-checkable block the merge gate (`change_merge_guard.rb`) reads. The
@@ -363,15 +431,19 @@ rules in a form the gate can enforce, and the body is expected to explain it.
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `change_policy.protected_branches` | list of string | no (default `[staging, production]`) | Branches whose merges are gated. The union of this list and every branch under `promotion`. |
+| `change_policy.protected_branches` | list of string | no (default `[staging, production]`) | Branches whose merges are gated. The union of this list and every branch under `promotion` (a `tag:` key never contributes here; see `protected_refs`). Retained unchanged; not deprecated. |
+| `change_policy.protected_refs` | list of string | no (default `[]`) | (0.9.0-alpha.1) Refs whose promotion is gated, each an unprefixed branch name, `branch:<name>`, or `tag:<glob>`. Unioned with `protected_branches` and with every key under `promotion:`. A repo with no `tag:` entry anywhere is unaffected: `protected_branches` alone still governs branch gating exactly as before this field existed. |
 | `change_policy.gate.require_change_pass` | boolean | no (default true) | Fallback gate for a protected branch that has no `promotion` rule of its own. |
-| `change_policy.promotion.<branch>.review_required` | boolean | no | Whether a merge review is required to promote into this branch (read by humans; explained in prose). |
-| `change_policy.promotion.<branch>.self_review_allowed` | boolean | no | Whether the author may review or merge their own change (read by humans; explained in prose). |
-| `change_policy.promotion.<branch>.require_change_pass` | boolean | no (default true) | Gates a merge into this branch on a passing comprehensive cf:change run for the head SHA. |
-| `change_policy.promotion.<branch>.ci_gate` | string | no | The CI that must be green to promote (read by humans; explained in prose). |
-| `change_policy.promotion.<branch>.ci_skippable` | boolean | no | Whether that CI gate can be skipped, and the prose says by whom. |
-| `change_policy.promotion.<branch>.profile` | string | no | (0.2.0) Scopes `require_change_pass` to one named `change_config.profiles` entry's own recorded pass, instead of any profile-less comprehensive run. A passing `staging` profile run never satisfies a branch whose rule names `production`. |
-| `change_policy.promotion.<branch>.apps` | list of string | no (default every registered enabled app) | (0.4.0) Restricts which `change_config.apps` entries' comprehensive passes gate a merge into this branch. Names must exist in `change_config.apps`. Meaningless (and ignored) outside monorepo mode. An explicitly empty list is reported as a setup error by `doctor` rather than silently gating nothing; use `require_change_pass: false` to gate on nothing. |
+| `change_policy.promotion.<ref>.review_required` | boolean | no | Whether a merge review is required to promote into this ref (read by humans; explained in prose). |
+| `change_policy.promotion.<ref>.self_review_allowed` | boolean | no | Whether the author may review or merge their own change (read by humans; explained in prose). |
+| `change_policy.promotion.<ref>.require_change_pass` | boolean | no (default true) | Gates promotion into this ref on a passing comprehensive cf:change run for the commit. |
+| `change_policy.promotion.<ref>.ci_gate` | string | no | The CI that must be green to promote (read by humans; explained in prose). |
+| `change_policy.promotion.<ref>.ci_skippable` | boolean | no | Whether that CI gate can be skipped, and the prose says by whom. |
+| `change_policy.promotion.<ref>.profile` | string | no | (0.2.0) Scopes `require_change_pass` to one named `change_config.profiles` entry's own recorded pass, instead of any profile-less comprehensive run. A passing `staging` profile run never satisfies a rule that names `production`. |
+| `change_policy.promotion.<ref>.apps` | list of string | no (default every registered enabled app) | (0.4.0) Restricts which `change_config.apps` entries' comprehensive passes gate this promotion target. Names must exist in `change_config.apps`. Meaningless (and ignored) outside monorepo mode. An explicitly empty list is reported as a setup error by `doctor` rather than silently gating nothing; use `require_change_pass: false` to gate on nothing. |
+| `change_policy.promotion.<ref>.environment` | string | no (default the key itself) | (0.9.0-alpha.1) Human label for this promotion target, used in deny messages and `doctor` output. Useful when the pattern (`tag:release/*/v*`) does not read as an environment name. |
+| `change_policy.promotion.<ref>.require_trunk_ancestor` | string | no | (0.9.0-alpha.1) Tag rules only. Branch the tagged commit must be an ancestor of (or equal to). Ignored, and flagged by `doctor`, on a branch rule. |
+| `change_policy.promotion.<ref>.require_prior_tag` | string (glob) | no | (0.9.0-alpha.1) Tag rules only. A published tag matching this glob must already point at the same commit. |
 | `change_policy.admin_bypass.allowed` | boolean | no (default false) | Whether admin-bypass merging (`gh pr merge --admin`) is permitted at all for a protected branch. |
 | `change_policy.admin_bypass.require_change_pass` | boolean | no (default true) | Whether an allowed admin bypass still requires the cf:change gate to have passed. |
 | `change_policy.admin_bypass.conditions` | string | no | The repo's stated condition for an acceptable admin bypass, surfaced in the gate's deny reason. |
@@ -653,6 +725,68 @@ credential written into `CHANGE.md`.
 
 For a full example of every field, see `reference/CHANGE.template.md`.
 
+### Trunk with environment tags
+
+One long-lived branch, `main`. Higher environments are not branches; they are
+tags pushed at a commit already on `main`. The tag rules below are gated at
+tag-push time (a matching `git push` or `gh release create`); the `main` rule
+is gated at merge time exactly as any branch rule is. `require_trunk_ancestor`
+stops a tag being cut on an unmerged commit; `require_prior_tag` on the
+production rule requires the exact commit to already carry a `staging/v*` tag.
+
+```yaml
+change_policy:
+  protected_refs:
+    - main
+    - "tag:staging/v*"
+    - "tag:production/v*"
+
+  promotion:
+    main:
+      review_required: true
+      self_review_allowed: true
+      require_change_pass: true
+      profile: local
+      ci_gate: "lint, typecheck, unit, build"
+      ci_skippable: false
+
+    tag:staging/v*:
+      environment: staging
+      require_change_pass: true
+      profile: staging
+      require_trunk_ancestor: main
+      ci_skippable: false
+
+    tag:production/v*:
+      environment: production
+      require_change_pass: true
+      profile: production
+      require_trunk_ancestor: main
+      require_prior_tag: "staging/v*"
+      review_required: true
+      self_review_allowed: false
+      ci_skippable: false
+```
+
+Monorepo composition: `profile:` and `apps:` on a tag rule mean exactly what
+they mean on a branch rule.
+
+```yaml
+change_policy:
+  promotion:
+    tag:staging/v*:
+      require_change_pass: true
+      profile: staging
+      apps: [portal]              # exactly as on a branch rule
+    tag:production/v*:
+      require_change_pass: true
+      profile: production
+      # apps: omitted, so every registered enabled app must pass
+```
+
+A full copy-paste `CHANGE.md` for this topology is
+`reference/CHANGE.trunk-tags.example.md`.
+
 ## Versioning and changelog
 
 The schema carries its own semantic version (`ChangeSchema::VERSION` in
@@ -731,7 +865,7 @@ root `RELEASING.md`.
   surface instead of a separate `CHANGE.<env>.md` per environment. A profile
   may set `project`, `boot.*`, and a lane's `enabled`/`base_url`, deep-merged
   over the base `change_config`; `default_profile` and `change_run.rb
-  --profile NAME` select one. `change_policy.promotion.<branch>.profile`
+  --profile NAME` select one. `change_policy.promotion.<ref>.profile`
   scopes that branch's gate to one named profile's own recorded pass, so a
   passing `staging` run never satisfies a `production` promotion gate.
 - 0.3.0: `change_config.lanes.<lane>.basic_auth.username_env`/`.password_env`
@@ -773,7 +907,7 @@ root `RELEASING.md`.
   which stays a per-app deploy-target selector. The gate record for a head
   SHA now carries a per-app map and merges across separate `--app` runs
   instead of overwriting, with the pre-existing top-level `scope`/`status`
-  retained as the aggregate. `change_policy.promotion.<branch>.apps`
+  retained as the aggregate. `change_policy.promotion.<ref>.apps`
   restricts which apps' passes gate a branch; omitted, every registered
   enabled app is required, and deliberately not a diff-derived "affected
   apps" set, since the merge guard fails open on anything it cannot
@@ -782,7 +916,7 @@ root `RELEASING.md`.
   parses, runs, reports, and gates exactly as it did under 0.3.1. When
   `apps:` is present the root may not also declare its own
   `boot`/`lanes`/`profiles`, since a root that is simultaneously a registry
-  and an app makes `--app` and `promotion.<branch>.profile` ambiguous, so
+  and an app makes `--app` and `promotion.<ref>.profile` ambiguous, so
   adopting the monorepo shape is a verbatim move of the existing block into
   one app file.
   Also, from auditing a real consumer repo's single-origin ZAP scope across

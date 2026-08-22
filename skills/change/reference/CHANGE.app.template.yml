@@ -67,9 +67,11 @@ change_config:
 
   # An app may define its own profiles exactly as a single-app CHANGE.md does;
   # see change_config.profiles in the frontmatter spec. When
-  # change_policy.promotion.<branch>.profile names a profile at the root, every
-  # app required for that branch must either define that profile name here or
-  # have no profiles: block at all, or the merge gate is unsatisfiable by
-  # construction (change_config.rb doctor flags this).
+  # change_policy.promotion.<ref>.profile names a profile at the root -- on a
+  # branch rule or a tag: rule alike, a tag rule's apps:/profile: work exactly
+  # as a branch rule's do -- every app required for that promotion target must
+  # either define that profile name here or have no profiles: block at all, or
+  # the gate is unsatisfiable by construction (change_config.rb doctor flags
+  # this for both branch and tag rules).
   profiles:
     local: {}

@@ -26,6 +26,19 @@ class ChangeConfigTest < Minitest::Test
     end
   end
 
+  # Temporarily overrides ChangeSchema::VERSION, so a test can exercise a
+  # specific stable/pre-release combination regardless of what the toolkit's
+  # own installed version currently is.
+  def with_schema_version(version)
+    original = ChangeSchema::VERSION
+    ChangeSchema.send(:remove_const, :VERSION)
+    ChangeSchema.const_set(:VERSION, version)
+    yield
+  ensure
+    ChangeSchema.send(:remove_const, :VERSION)
+    ChangeSchema.const_set(:VERSION, original)
+  end
+
   def test_enabled_lanes_in_fixed_order_and_skips_disabled
     config = { "project" => "app", "lanes" => {
       "browserless" => { "enabled" => true },
@@ -357,9 +370,15 @@ class ChangeConfigTest < Minitest::Test
   end
 
   def test_spec_version_mismatch_between_two_stable_versions_has_no_prerelease_note
+    # Stubs the installed ChangeSchema::VERSION to a stable value regardless of
+    # the toolkit's own current (possibly pre-release, e.g. mid-alpha) version,
+    # so this test exercises the two-stable-versions case on purpose rather
+    # than incidentally, whatever VERSION happens to be right now.
     front = { "spec_version" => "0.1.0", "change_config" => { "project" => "app", "lanes" => { "k6" => { "enabled" => true } } } }
-    with_frontmatter(front) do |loaded, _root|
-      refute_match(/pre-release/, loaded.spec_version_mismatch)
+    with_schema_version("0.2.0") do
+      with_frontmatter(front) do |loaded, _root|
+        refute_match(/pre-release/, loaded.spec_version_mismatch)
+      end
     end
   end
 

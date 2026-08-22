@@ -225,4 +225,27 @@ class ChangeMergeGuardTest < Minitest::Test
     record_pass
     assert_nil multi_app_decision("gh pr merge 12 --squash")
   end
+
+  # --- trunk + tag releases (0.9.0-alpha.1) regression -----------------
+
+  def test_a_change_md_carrying_only_tag_rules_does_not_change_any_merge_decision
+    # "main" is deliberately not in DEFAULT_PROTECTED, so this exercises the
+    # tag-only-rules path without also exercising the (correct, separately
+    # tested) DEFAULT_PROTECTED fallback for staging/production.
+    front = <<~YAML
+      change_policy:
+        promotion:
+          tag:staging/v*: { require_change_pass: true, profile: staging }
+          tag:production/v*: { require_change_pass: true }
+        admin_bypass:
+          allowed: false
+          require_change_pass: true
+    YAML
+    File.write(File.join(@root, "CHANGE.md"), "---\n#{front}---\n\nbody\n")
+
+    event = { "tool_name" => "Bash", "tool_input" => { "command" => "gh pr merge 12 --squash" } }
+    io = StringIO.new
+    StubMergeGuard.new(event, root: @root, pr: [ "main", SHA ]).emit(io)
+    assert_empty io.string
+  end
 end
