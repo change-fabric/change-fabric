@@ -1,6 +1,6 @@
 ---
 name: cf:qa
-description: Ad hoc QA smoke-test runner. Scopes a Playwright test plan from a natural-language target (a pull request, a described feature, a flow), clarifies ambiguity, then executes the plan against an ephemeral browserless Chromium container and reports findings, optionally as GitHub PR comments; invocable directly.
+description: Ad hoc QA smoke-test runner. Scopes a browser test plan from a natural-language target (a pull request, a described feature, a flow), clarifies ambiguity, then executes the plan against an ephemeral browserless Chromium container and reports findings, optionally as GitHub PR comments; invocable directly.
 ---
 
 # CF QA Runner
@@ -60,23 +60,51 @@ best guesses, and note the unresolved points in the final report.
 
 ## Phase 4: Execute (background, sonnet)
 
+Execution is deterministic. The model's job is to turn the plan into
+declarative steps; it never writes the browser automation. `scripts/change_flow_compiler.rb`
+compiles those steps into the browserless payload in pure Ruby, so the same
+flow file run twice produces the same JS and the same verdict, and the flow
+survives the session as a file instead of evaporating with the transcript.
+
 Spawn a background Agent (`model: "sonnet"`) with the finalized plan. Task it
 to:
 1. Start the application under test if not already running, per the plan's
    setup step, and wait for a real readiness signal (a 200 from a health or
    root route), never a fixed sleep.
-2. Launch the ephemeral browserless Chromium container, digest-pinned per
-   `cf:docker`, and connect Playwright over CDP to it. Never launch or reuse
-   a host-level browser process in place of the container.
-3. Drive each plan flow with Playwright, asserting its concrete checks. If a
-   flow's assertion could plausibly match more than one element, treat that as
-   a plan gap, not a judgment call: report it as a finding instead of
-   silently picking one. Capture a screenshot plus console/network state on
-   every failure.
-4. Tear the container down even on failure or crash; ephemeral means
-   ephemeral regardless of outcome.
-5. Return findings: one line per flow, pass or fail, with the concrete
-   evidence backing any failure.
+2. Write each plan flow as a flow file: a mapping with `base_url` and `steps`,
+   each step one verb. Actions: `goto`, `click`, `fill` (value from `env`, a
+   literal `value`, or a `code_source`), `select`, `press`, `wait_for`,
+   `screenshot`. Assertions: `expect_visible`, `expect_hidden`, `expect_text`,
+   `expect_url`, `expect_status`, `expect_count`.
+
+   ```yaml
+   base_url: http://127.0.0.1:3000
+   steps:
+     - goto: /products/widget
+     - click: "[data-test=add-to-cart]"
+     - expect_text: { selector: "[data-test=cart-count]", equals: "1" }
+     - fill: { selector: "#email", env: QA_EMAIL }
+     - expect_url: { contains: "/confirmation" }
+   ```
+3. Run each flow with `ruby scripts/change_flow_run.rb <flow.yml>`, which
+   starts the ephemeral browserless Chromium container, digest-pinned per
+   `cf:docker`, runs the compiled payload, and tears the container down even
+   on failure. Never launch or reuse a host-level browser process, and never
+   hand-write Playwright in place of the compiler. `--dump` compiles without
+   running, for reviewing a flow before it runs.
+4. Reach for the `eval:` escape hatch only when no verb covers the check, and
+   say so in the findings: a compiled `eval` step is marked raw JS precisely
+   so a reader can see where the declarative contract was abandoned.
+5. If a flow's assertion could plausibly match more than one element, treat
+   that as a plan gap, not a judgment call: report it as a finding instead of
+   silently picking one.
+6. Return findings: one line per flow, pass or fail, with the concrete
+   evidence backing any failure (the failing step's label and error, plus the
+   screenshot from any `screenshot` step).
+
+Never paste a credential into a flow file or a finding. A value that is a
+secret comes from `env:`, which resolves on the host and reaches only the
+container; the compiler's own redacted view is what may be reported.
 
 ## Phase 5: Report
 

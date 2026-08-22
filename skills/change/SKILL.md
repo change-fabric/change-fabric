@@ -23,8 +23,9 @@ Both drive browsers in an ephemeral browserless container, but they are
 different tools:
 
 - `cf:qa` is ad hoc, model-scoped, natural-language-driven. It scopes a
-  Playwright smoke plan from a described flow, clarifies ambiguity with the
-  user, and explores. Use it for exploratory UAT of a specific feature.
+  smoke plan from a described flow, clarifies ambiguity with the user, and
+  explores. Its steps are compiled and run by the same shared flow compiler
+  this platform's browser lanes use. Use it for exploratory UAT of a feature.
 - `cf:change` is deterministic and config-driven. It reads the repo-root
   `CHANGE.md` and runs a fixed four-lane audit (load, a11y, security, responsive
   UX) with no per-run scoping decisions, meant to run unattended before a
