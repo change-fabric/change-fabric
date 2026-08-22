@@ -106,7 +106,7 @@ class ChangeTagGuard
     "Run /cf:change against this commit first with --for-tag #{tag}#{suffix}."
   end
 
-  # `require_trunk_ancestor: main` (0.9.0-alpha.1): the tagged commit must be
+  # `require_trunk_ancestor: main` (0.9.0): the tagged commit must be
   # an ancestor of (or equal to) the named branch, checked against the
   # remote-tracking ref when one exists (a fresher signal than a possibly
   # stale local branch). Fails open (nil) whenever the branch cannot be
@@ -149,7 +149,7 @@ class ChangeTagGuard
     false
   end
 
-  # `require_prior_tag: "staging/v*"` (0.9.0-alpha.1): some already-published
+  # `require_prior_tag: "staging/v*"` (0.9.0): some already-published
   # tag matching this glob must already point at the same commit. Fails open
   # when `git tag --points-at` cannot even run.
   def prior_tag_violation(policy, tag, rule, sha, root)

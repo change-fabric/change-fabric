@@ -8,6 +8,8 @@ require_relative 'change_artifact'
 require_relative 'change_config'
 require_relative 'change_docker'
 require_relative 'change_findings'
+require_relative 'change_gate_check'
+require_relative 'change_policy'
 require_relative 'change_report'
 require_relative 'change_k6_narrative'
 require_relative 'change_gate_store'
@@ -25,6 +27,22 @@ require_relative 'change_lane_browserless'
 #
 # Usage: change_run.rb <all|k6|a11y|zap|browserless> [--config PATH] [--profile NAME]
 #        [--app NAME]... [--target-url URL] [--health-url URL] [--no-publish]
+#        [--for-tag TAGNAME]
+#        change_run.rb gate-status [--ref REF] [--config PATH]
+#
+# --for-tag TAGNAME (0.9.0, trunk + tag releases): resolves the tag against
+# change_policy.promotion's tag: rules, runs `all` once per distinct profile
+# those rules name (recording each), and refuses to run when the tag already
+# exists locally and does not point at HEAD -- the two ways a tag-topology
+# sweep could otherwise silently record the wrong thing (right commit, wrong
+# profile, or right profile, wrong commit).
+#
+# gate-status [--ref REF] is read-only: no docker, no boot, no lanes. It
+# resolves REF (a tag name, a branch, a SHA; default HEAD), prints every
+# promotion rule that matches, and whether the recorded gate already
+# satisfies each one, exiting 0 only when every matching rule is satisfied.
+# It is what makes change_tag_guard.rb's deny decision reproducible outside
+# the hook.
 #
 # A repo whose CHANGE.md carries a `contributors_team.platform:` block also
 # gets a findings artifact (an HTML page with the run's screenshots, per
@@ -65,7 +83,8 @@ class ChangeRun
     def log(message) = logger.call(message)
   end
 
-  Args = Struct.new(:scope, :config_path, :profile, :apps, :target_url, :health_url, :publish, keyword_init: true)
+  Args = Struct.new(:scope, :config_path, :profile, :apps, :target_url, :health_url, :publish, :for_tag, :ref,
+                     keyword_init: true)
 
   def self.main(argv)
     new(argv).run
@@ -76,19 +95,143 @@ class ChangeRun
   end
 
   def run
+    return gate_status if @args.scope == 'gate-status'
     return abort_setup('docker is not available') unless ChangeDocker.available?
     return sweep_stale_resources if @args.scope == 'sweep'
+    return run_for_tag if @args.for_tag
 
-    registry = ChangeAppRegistry.load(@args.config_path)
-    entries = @args.apps.empty? ? registry.enabled_entries : registry.fetch(@args.apps)
-    results = entries.map { |entry| run_entry(entry, multi: registry.multi_app?) }
-    write_rollup(registry, results) if registry.multi_app?
-    results.all? { |result| result[:passed] } ? 0 : 1
+    run_sweep
   rescue ChangeConfig::ConfigError => e
     abort_setup(e.message)
   end
 
   private
+
+  def run_sweep
+    registry = ChangeAppRegistry.load(@args.config_path)
+    entries = @args.apps.empty? ? registry.enabled_entries : registry.fetch(@args.apps)
+    results = entries.map { |entry| run_entry(entry, multi: registry.multi_app?) }
+    write_rollup(registry, results) if registry.multi_app?
+    results.all? { |result| result[:passed] } ? 0 : 1
+  end
+
+  # --for-tag TAGNAME: runs the same `run_sweep` once per distinct profile the
+  # tag's matching change_policy.promotion tag: rules name, so the recorded
+  # gate lands under the right profile for a tag-topology release. Exits 2
+  # (via resolve_for_tag_profiles / the HEAD check below) rather than running
+  # against a config mistake or the wrong commit.
+  def run_for_tag
+    profiles = resolve_for_tag_profiles(@args.for_tag)
+    original = @args
+    codes = profiles.map do |profile|
+      @args = original.dup
+      @args.profile = profile
+      run_sweep
+    end
+    codes.all?(&:zero?) ? 0 : 1
+  ensure
+    @args = original if original
+  end
+
+  # The distinct `profile` values the tag's matching tag: rules name, after
+  # validating the tag against three of the ways a tag-topology sweep could
+  # otherwise silently record the wrong thing: no rule governs the tag at
+  # all, an explicit --profile conflicts with what the rule(s) name, or the
+  # tag already exists locally and points somewhere other than HEAD.
+  def resolve_for_tag_profiles(tag)
+    policy = ChangePolicy.for_repo(repo_root)
+    abort_and_exit("--for-tag #{tag}: no CHANGE.md found; a tag sweep needs a governed repo") unless policy
+
+    rules = policy.tag_rules_for(tag)
+    if rules.empty?
+      abort_and_exit("--for-tag #{tag}: no change_policy.promotion tag: rule matches this tag; " \
+                      'a tag sweep for an ungoverned tag is a config mistake, not a run to make')
+    end
+
+    check_tag_head_match(tag)
+    profiles = rules.filter_map { |_pattern, rule| policy.profile_for_rule(rule) }.uniq
+    check_for_tag_profile_conflict(tag, profiles)
+    profiles.empty? ? [ @args.profile ] : profiles
+  end
+
+  def check_for_tag_profile_conflict(tag, profiles)
+    return if @args.profile.nil? || profiles.empty? || profiles.include?(@args.profile)
+
+    abort_and_exit("--for-tag #{tag}: --profile #{@args.profile} conflicts with the profile(s) " \
+                    "its matching rule(s) name (#{profiles.join(', ')})")
+  end
+
+  # Refuses to run when the tag already exists locally and points somewhere
+  # other than HEAD: right commit under the wrong profile and right profile
+  # against the wrong commit are exactly the two silent-wrong-record failure
+  # modes --for-tag exists to close. A tag that does not exist locally yet
+  # (the normal pre-push case) is not checked; there is nothing to compare
+  # against.
+  def check_tag_head_match(tag)
+    tag_sha = resolve_ref_sha("#{tag}^{commit}")
+    return unless tag_sha
+    return if tag_sha == head_sha
+
+    abort_and_exit("--for-tag #{tag}: tag points at #{tag_sha[0, 12]} but HEAD is #{head_sha[0, 12]}; " \
+                    'check out the commit the tag points at before running --for-tag')
+  end
+
+  # Read-only: resolves REF (default HEAD) to a commit, prints every
+  # promotion rule that matches it (a branch rule by exact key, tag rules by
+  # fnmatch), and whether ChangeGateCheck already considers the recorded gate
+  # satisfied for each. No docker, no boot, no lanes -- this is what makes
+  # change_tag_guard.rb's and change_merge_guard.rb's own deny decision
+  # reproducible outside the hook. Exits 0 only when every matching rule is
+  # satisfied, 1 when any is not, 2 when the ref or the policy cannot be
+  # resolved at all.
+  def gate_status
+    ref = @args.ref || 'HEAD'
+    root = repo_root
+    policy = ChangePolicy.for_repo(root)
+    unless policy
+      log("[change] gate-status: no CHANGE.md at #{root}; nothing is governed")
+      return 0
+    end
+
+    sha = resolve_ref_sha("#{ref}^{commit}")
+    return abort_setup("gate-status: could not resolve ref '#{ref}' to a commit") unless sha
+
+    rules = matching_rules(policy, ref)
+    if rules.empty?
+      log("[change] gate-status: no promotion rule matches ref '#{ref}' (#{sha[0, 12]})")
+      return 0
+    end
+
+    rules.map { |kind, pattern, rule| report_rule_status(policy, root, sha, kind, pattern, rule) }.all? ? 0 : 1
+  end
+
+  # The `[kind, pattern-or-branch-name, rule]` triples matching this ref: a
+  # branch rule when `ref` is exactly one of `branch_promotion`'s keys, plus
+  # every tag rule whose pattern fnmatches `ref`. A bare SHA matches neither,
+  # which is the correct "nothing governs this ref by name" answer.
+  def matching_rules(policy, ref)
+    rules = []
+    branch_rule = policy.branch_promotion[ref]
+    rules << [ 'branch', ref, branch_rule ] if branch_rule
+    policy.tag_rules_for(ref).each { |pattern, rule| rules << [ 'tag', pattern, rule ] }
+    rules
+  end
+
+  def report_rule_status(policy, root, sha, kind, pattern, rule)
+    profile = policy.profile_for_rule(rule)
+    apps = ChangeGateCheck.required_apps(root, policy.apps_for_rule(rule))
+    check = ChangeGateCheck.new(sha: sha, profile: profile, apps: apps)
+    satisfied = check.satisfied?
+    status = satisfied ? 'SATISFIED' : 'NOT SATISFIED'
+    log("[change] gate-status: #{kind} rule '#{pattern}' (profile=#{profile || '(none)'}): " \
+        "#{status}#{check.missing_apps_clause}")
+    satisfied
+  end
+
+  def resolve_ref_sha(ref)
+    out, status = Open3.capture2e('git', '-C', repo_root, 'rev-parse', '--verify', '--quiet', ref)
+    status.success? ? out.strip : nil
+  end
 
   def parse_args(argv)
     scope = argv.first
@@ -98,6 +241,8 @@ class ChangeRun
     target_url = nil
     health_url = nil
     publish = true
+    for_tag = nil
+    ref = nil
     OptionParser.new do |o|
       o.on('--config PATH') { |value| path = value }
       o.on('--profile NAME') { |value| profile = value }
@@ -105,11 +250,13 @@ class ChangeRun
       o.on('--target-url URL') { |value| target_url = value }
       o.on('--health-url URL') { |value| health_url = value }
       o.on('--no-publish') { publish = false }
+      o.on('--for-tag NAME') { |value| for_tag = value }
+      o.on('--ref REF') { |value| ref = value }
     end.parse(argv.drop(1))
-    valid = %w[all sweep] + ChangeConfig::LANES
+    valid = %w[all sweep gate-status] + ChangeConfig::LANES
     abort_and_exit("scope must be one of: #{valid.join(', ')}") unless valid.include?(scope)
     Args.new(scope: scope, config_path: path, profile: profile, apps: apps, target_url: target_url,
-             health_url: health_url, publish: publish)
+             health_url: health_url, publish: publish, for_tag: for_tag, ref: ref)
   end
 
   def overrides

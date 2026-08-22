@@ -27,7 +27,7 @@
 # change_config.apps, a root registry of per-app CHANGE.app.yml files; see the
 # spec's "change_config.apps" section and reference/CHANGE.app.template.yml.
 
-spec_version: "0.9.0-alpha.1"
+spec_version: "0.9.0"
 
 # Optional third block: which contributors team owns this repo, and where its
 # cf:change findings artifacts publish. Delete it entirely if this repo is not

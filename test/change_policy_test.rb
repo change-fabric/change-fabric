@@ -101,7 +101,7 @@ class ChangePolicyTest < Minitest::Test
     policy(front) { |p| assert_nil p.apps_for("production") }
   end
 
-  # --- trunk + tag releases (0.9.0-alpha.1): prefix splitting -------------
+  # --- trunk + tag releases (0.9.0): prefix splitting -------------
 
   def test_tag_prefixed_promotion_keys_split_into_tag_promotion
     front = <<~YAML

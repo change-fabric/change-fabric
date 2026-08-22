@@ -28,6 +28,58 @@ export interface ReleaseNote {
 }
 
 export const RELEASE_NOTES: Record<string, ReleaseNote> = {
+  "0.9.0": {
+    version: "0.9.0",
+    date: "2026-08-22",
+    headline:
+      "A repo with one trunk and release tags instead of long-lived staging/production branches can now be governed too.",
+    highlights: [
+      {
+        title: "tag: rules live in the same promotion map as branches",
+        body:
+          "change_policy.promotion accepts a tag:-prefixed key (tag:staging/v*) right alongside a branch key, in the same map. Every field a branch rule carries -- require_change_pass, profile, apps, review_required, ci_gate -- means exactly the same thing on a tag rule; promoting to staging is one concept, a branch topology expresses it as a merge and a tag topology expresses it as a tag push.",
+      },
+      {
+        title: "Publishing a protected tag is gated, not just documented",
+        body:
+          "change_tag_guard.rb denies a git push (or gh release create) that would publish a matching tag with no passing cf:change run recorded for the exact commit, sharing its decision with the merge guard so both events answer the same question the same way.",
+      },
+      {
+        title: "require_trunk_ancestor and require_prior_tag replace what branch order used to say for free",
+        body:
+          "A branch topology encodes promotion order and provenance in the graph itself: you cannot merge to production except from staging. A trunk with tags loses both unless a rule states them. require_trunk_ancestor: main stops a tag being cut on an unmerged commit; require_prior_tag: \"staging/v*\" requires the same commit to already carry a lower tag.",
+      },
+      {
+        title: "change_run.rb all --for-tag and gate-status",
+        body:
+          "--for-tag <tagname> resolves a tag against its matching rules, sweeps the profile(s) they name, and refuses to run against the wrong commit. gate-status [--ref REF] is read-only -- no docker, no boot, no lanes -- and answers whether a ref's matching rules are already satisfied, the same question the tag guard's own deny decision answers.",
+      },
+    ],
+    upgrade:
+      "Fully additive. A CHANGE.md with no tag: key anywhere parses, runs, reports, and gates exactly as it did under 0.8.0; protected_branches is retained unchanged, and change_tag_guard.rb never fires without a tag rule to fire on.",
+  },
+
+  "0.8.0": {
+    version: "0.8.0",
+    date: "2026-08-21",
+    headline:
+      "A profile may now override the browserless lane's login flow, so one audit surface reaches environments that log in differently.",
+    highlights: [
+      {
+        title: "browserless.auth is overridable per profile",
+        body:
+          "change_config.profiles.<profile>.lanes.browserless.auth.* deep-merges over the base browserless.auth block field by field. Staging's login url, its credential env vars, its selectors, its timeout, and each step of a multi-step login can differ from local dev's without a second CHANGE.md or a second lane.",
+      },
+      {
+        title: "It is the second deliberate exception to \"a profile changes where, never what\"",
+        body:
+          "PROFILE_LANE_KEYS already treats zap.targets that way. A login url and its credential env vars are the same kind of exception: how a profile's environment is reached, not what gets audited once the login succeeds. Rejected on every other lane, including a11y, which drives a real browser page but only ever reads basic_auth.",
+      },
+    ],
+    upgrade:
+      "Fully additive. A CHANGE.md whose profiles declare no browserless.auth override parses, runs, reports, and gates exactly as it did under 0.6.0. 0.7.0 is skipped, not missing: it stays reserved for the contributors_team.artifacts removal 0.6.0 announced.",
+  },
+
   "0.6.0": {
     version: "0.6.0",
     date: "2026-08-02",

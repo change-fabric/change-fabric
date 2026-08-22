@@ -1,19 +1,21 @@
 ---
 # A complete, copy-paste CHANGE.md for a trunk + tag release topology (schema
-# 0.9.0-alpha.1): one long-lived branch, main, with higher environments named
+# 0.9.0): one long-lived branch, main, with higher environments named
 # by release tags (staging/v1.4.0, production/v1.4.0) instead of long-lived
 # staging/production branches. Copy this file to <repo-root>/CHANGE.md and
 # edit; for the branch-per-environment default, start from CHANGE.template.md
 # instead. See the frontmatter spec's "change_policy tag rules" section for
 # the full field reference this file uses.
 #
-# As of schema 0.9.0-alpha.1 the tag: rules below are declarative and
-# validated by `change_config.rb doctor`, but the tag-push gate itself
-# (denying `git push` of a matching tag without a recorded pass) is not yet
-# enforced by any hook; that enforcement lands in a later schema phase. This
-# file is still the right shape to adopt now.
+# The tag: rules below are validated by `change_config.rb doctor` and
+# enforced at push time by `change_tag_guard.rb`: publishing a matching tag
+# with no recorded passing run for that commit is denied. Run
+# `change_run.rb all --for-tag <tagname>` against the commit being tagged
+# first (it sweeps the right profile against the right commit), or
+# `change_run.rb gate-status --ref <tagname>` to check without running
+# anything, then push the tag.
 
-spec_version: "0.9.0-alpha.1"
+spec_version: "0.9.0"
 
 change_config:
   project: my-app

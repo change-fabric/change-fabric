@@ -43,8 +43,8 @@ const dist = path.join(here, "..", "dist");
 const shots = path.join(here, "..", ".verification");
 const stamp = Date.now();
 
-const CURRENT = process.env.CF_CURRENT_VERSION ?? "0.6.0";
-const ARCHIVED = ["0.5.0", "0.4.0", "0.3.1", "0.3.0", "0.2.0", "0.1.0"];
+const CURRENT = process.env.CF_CURRENT_VERSION ?? "0.9.0";
+const ARCHIVED = ["0.8.0", "0.6.0", "0.5.0", "0.4.0", "0.3.1", "0.3.0", "0.2.0", "0.1.0"];
 
 const MIME = {
   ".html": "text/html; charset=utf-8",
