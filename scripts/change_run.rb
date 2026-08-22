@@ -17,15 +17,16 @@ require_relative 'change_lane_k6'
 require_relative 'change_lane_a11y'
 require_relative 'change_lane_zap'
 require_relative 'change_lane_browserless'
+require_relative 'change_lane_testcases'
 
 # The change-fabric orchestrator: the one command the cf:change / cf:k6 /
-# cf:a11y / cf:zap skills invoke. It reads a project's config, boots the target
+# cf:a11y / cf:zap / cf:testcases skills invoke. It reads a project's config, boots the target
 # app and waits for its health signal, stands up the ephemeral runners (a shared
 # browserless container only when a browser lane runs), executes the requested
 # lanes, writes a CSV+Markdown report pair to the Desktop, and records the
 # outcome under the git head SHA so the merge gate can consult it later.
 #
-# Usage: change_run.rb <all|k6|a11y|zap|browserless> [--config PATH] [--profile NAME]
+# Usage: change_run.rb <all|k6|a11y|zap|browserless|testcases> [--config PATH] [--profile NAME]
 #        [--app NAME]... [--target-url URL] [--health-url URL] [--no-publish]
 #        [--for-tag TAGNAME]
 #        change_run.rb gate-status [--ref REF] [--config PATH]
@@ -65,11 +66,12 @@ require_relative 'change_lane_browserless'
 # -exits the whole sweep rather than continuing to the next app, the correct
 # fail-closed behavior for a release gate.
 class ChangeRun
-  BROWSER_LANES = %w[a11y browserless].freeze
+  BROWSER_LANES = %w[a11y browserless testcases].freeze
   OUTPUT_TAIL_LINES = 40
   LANE_CLASSES = {
     'k6' => ChangeLaneK6, 'a11y' => ChangeLaneA11y,
-    'zap' => ChangeLaneZap, 'browserless' => ChangeLaneBrowserless
+    'zap' => ChangeLaneZap, 'browserless' => ChangeLaneBrowserless,
+    'testcases' => ChangeLaneTestcases
   }.freeze
 
   # Per-lane run context. Lanes talk only to this, never to the run internals:
@@ -530,12 +532,14 @@ class ChangeRun
   end
 
   # Narrative sections that belong in the Markdown but not the CSV: the k6
-  # lane's scenario narrative, and (F6 step 1) browserless's own per-cell
-  # timing table read off the instance that already ran it.
+  # lane's scenario narrative, (F6 step 1) browserless's own per-cell timing
+  # table read off the instance that already ran it, and the testcases lane's
+  # acceptance criteria beside each case's verdict.
   def report_sections(config, lanes, instances)
     sections = []
     sections << ChangeK6Narrative.section(config.lane('k6')['scenario']) if lanes.include?('k6')
     sections << instances['browserless']&.timing_section if lanes.include?('browserless')
+    sections << instances['testcases']&.acceptance_section if lanes.include?('testcases')
     sections.compact
   end
 

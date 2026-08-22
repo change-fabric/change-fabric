@@ -16,10 +16,10 @@
 # spec doc's changelog. A field-set change without a matching version bump, or a
 # version bump the doc does not reflect, is exactly what the drift test catches.
 module ChangeSchema
-  VERSION = '0.9.0'
+  VERSION = '0.10.0'
 
-  # The four audit lanes, the authoritative list the config validator enforces.
-  LANES = %w[k6 a11y zap browserless].freeze
+  # The five audit lanes, the authoritative list the config validator enforces.
+  LANES = %w[k6 a11y zap browserless testcases].freeze
 
   # The only top-level key an app config file (change_config.apps.<app>.config,
   # 0.4.0) may declare. Governance is repo-wide and lives only in the root
@@ -68,6 +68,22 @@ module ChangeSchema
     # k6 and zap never read it and a config setting it there is rejected.
     'change_config.lanes.<lane>.basic_auth.username_env',
     'change_config.lanes.<lane>.basic_auth.password_env',
+    # wait_for (0.10.0): the readiness contract a browser lane waits on before
+    # it grades a page, replacing a bare networkidle2 timing heuristic. The
+    # wait condition is the contract; the timeout is only the failure mode.
+    # The code shipped ahead of this registry (it was written under a phase
+    # forbidden to bump the schema), so these rows document behavior that was
+    # already live rather than announcing new behavior.
+    'change_config.lanes.<lane>.wait_for.load_state',
+    'change_config.lanes.<lane>.wait_for.selector',
+    'change_config.lanes.<lane>.wait_for.url_contains',
+    'change_config.lanes.<lane>.wait_for.url_matches',
+    'change_config.lanes.<lane>.wait_for.timeout_ms',
+    # retries (0.10.0): a lane's own retry budget, 0 by default. Also shipped
+    # ahead of this registry. A gate that re-runs until green is not a gate,
+    # so nothing retries unless a lane asks; a finding that only stopped
+    # failing on a later attempt is recorded flaky beside its real status.
+    'change_config.lanes.<lane>.retries',
     'change_config.lanes.k6.script',
     'change_config.lanes.k6.env',
     'change_config.lanes.k6.thresholds.http_req_failed',
@@ -94,6 +110,16 @@ module ChangeSchema
     'change_config.lanes.browserless.routes[].figma.file_key',
     'change_config.lanes.browserless.routes[].figma.node_id',
     'change_config.lanes.browserless.routes[].figma.viewport',
+    # routes[].wait_for (0.10.0): one route's own readiness contract, same shape
+    # as lanes.<lane>.wait_for above, overriding the lane-wide one field by
+    # field. Also shipped ahead of this registry.
+    'change_config.lanes.browserless.routes[].wait_for',
+    # cell_isolation / locale (0.10.0), likewise already live: each
+    # viewport-by-route cell gets its own browser context unless a stateful
+    # flow opts out, and the pinned locale keeps a rendering from depending on
+    # whichever machine ran the sweep.
+    'change_config.lanes.browserless.cell_isolation',
+    'change_config.lanes.browserless.locale',
     'change_config.lanes.browserless.viewports[].name',
     'change_config.lanes.browserless.viewports[].width',
     'change_config.lanes.browserless.viewports[].height',
@@ -117,6 +143,41 @@ module ChangeSchema
     'change_config.lanes.browserless.auth.steps[].timeout_ms',
     'change_config.lanes.browserless.figma.token_env',
     'change_config.lanes.browserless.figma.max_diff_percent',
+    # change_config.lanes.testcases (0.10.0): the deterministic regression lane.
+    # Cases are never inline here: `suites` is a list of globs naming sidecar
+    # suite files (e.g. qa/checkout.cf-testcases.yml) that live beside the code
+    # they test and carry their own schema (ChangeSuiteSchema, and its own
+    # spec doc and drift test). What belongs in CHANGE.md is only which suites
+    # this repo gates on and where they are pointed.
+    'change_config.lanes.testcases.suites',
+    'change_config.lanes.testcases.tags',
+    'change_config.lanes.testcases.gate_tags',
+    'change_config.lanes.testcases.viewport.name',
+    'change_config.lanes.testcases.viewport.width',
+    'change_config.lanes.testcases.viewport.height',
+    'change_config.lanes.testcases.timeout_ms',
+    # testcases.auth: the same login-flow block browserless.auth already
+    # defines, field for field, because a case behind a login has to get
+    # through the same login. Expanded rather than cross-referenced so the
+    # registry stays one flat list of accepted paths.
+    'change_config.lanes.testcases.auth.login_url',
+    'change_config.lanes.testcases.auth.email_env',
+    'change_config.lanes.testcases.auth.password_env',
+    'change_config.lanes.testcases.auth.email_selector',
+    'change_config.lanes.testcases.auth.password_selector',
+    'change_config.lanes.testcases.auth.submit_selector',
+    'change_config.lanes.testcases.auth.wait_for_selector',
+    'change_config.lanes.testcases.auth.timeout_ms',
+    'change_config.lanes.testcases.auth.steps[].url',
+    'change_config.lanes.testcases.auth.steps[].fields[].selector',
+    'change_config.lanes.testcases.auth.steps[].fields[].env',
+    'change_config.lanes.testcases.auth.steps[].fields[].code_source.url',
+    'change_config.lanes.testcases.auth.steps[].fields[].code_source.pattern',
+    'change_config.lanes.testcases.auth.steps[].fields[].code_source.timeout_ms',
+    'change_config.lanes.testcases.auth.steps[].fields[].code_source.poll_interval_ms',
+    'change_config.lanes.testcases.auth.steps[].submit_selector',
+    'change_config.lanes.testcases.auth.steps[].wait_for_selector',
+    'change_config.lanes.testcases.auth.steps[].timeout_ms',
     # change_config.profiles (0.2.0): named deploy-target overrides sharing one
     # audit surface. A profile may only set project, boot.*, and a lane's
     # enabled/base_url, never its routes/thresholds/viewports, so one CHANGE.md
@@ -164,6 +225,29 @@ module ChangeSchema
     'change_config.profiles.<profile>.lanes.browserless.auth.steps[].submit_selector',
     'change_config.profiles.<profile>.lanes.browserless.auth.steps[].wait_for_selector',
     'change_config.profiles.<profile>.lanes.browserless.auth.steps[].timeout_ms',
+    # profiles.<profile>.lanes.testcases.auth (0.10.0): the same where-vs-what
+    # exception 0.8.0 made for browserless.auth. A profile may say where a
+    # case's environment is reached (base_url, basic_auth, auth), never what
+    # the case checks: suites, tags, gate_tags and viewport stay shared across
+    # every profile, so one CHANGE.md keeps one documented regression surface.
+    'change_config.profiles.<profile>.lanes.testcases.auth.login_url',
+    'change_config.profiles.<profile>.lanes.testcases.auth.email_env',
+    'change_config.profiles.<profile>.lanes.testcases.auth.password_env',
+    'change_config.profiles.<profile>.lanes.testcases.auth.email_selector',
+    'change_config.profiles.<profile>.lanes.testcases.auth.password_selector',
+    'change_config.profiles.<profile>.lanes.testcases.auth.submit_selector',
+    'change_config.profiles.<profile>.lanes.testcases.auth.wait_for_selector',
+    'change_config.profiles.<profile>.lanes.testcases.auth.timeout_ms',
+    'change_config.profiles.<profile>.lanes.testcases.auth.steps[].url',
+    'change_config.profiles.<profile>.lanes.testcases.auth.steps[].fields[].selector',
+    'change_config.profiles.<profile>.lanes.testcases.auth.steps[].fields[].env',
+    'change_config.profiles.<profile>.lanes.testcases.auth.steps[].fields[].code_source.url',
+    'change_config.profiles.<profile>.lanes.testcases.auth.steps[].fields[].code_source.pattern',
+    'change_config.profiles.<profile>.lanes.testcases.auth.steps[].fields[].code_source.timeout_ms',
+    'change_config.profiles.<profile>.lanes.testcases.auth.steps[].fields[].code_source.poll_interval_ms',
+    'change_config.profiles.<profile>.lanes.testcases.auth.steps[].submit_selector',
+    'change_config.profiles.<profile>.lanes.testcases.auth.steps[].wait_for_selector',
+    'change_config.profiles.<profile>.lanes.testcases.auth.steps[].timeout_ms',
     # change_config.apps (0.4.0): a registry of the several genuinely
     # different apps one monorepo contains, each with its own config file
     # (change_config.apps.<app>.config). See the "change_config.apps" section
@@ -210,6 +294,11 @@ module ChangeSchema
     # commit: the trunk-topology equivalent of "production only merges from
     # staging".
     'change_policy.promotion.<ref>.require_prior_tag',
+    # promotion.<ref>.require_testcases (0.10.0): additionally requires the
+    # recorded comprehensive pass for this ref to carry a passing testcases
+    # lane, so a repo can state that a merge here is gated on its regression
+    # cases specifically and not only on the aggregate verdict.
+    'change_policy.promotion.<ref>.require_testcases',
     'change_policy.admin_bypass.allowed',
     'change_policy.admin_bypass.require_change_pass',
     'change_policy.admin_bypass.conditions',

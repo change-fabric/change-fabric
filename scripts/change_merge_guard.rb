@@ -93,7 +93,7 @@ class ChangeMergeGuard
     profile = policy.profile_for(base)
     apps = ChangeGateCheck.required_apps(repo_root, policy.apps_for(base))
     check = ChangeGateCheck.new(sha: sha, profile: profile, apps: apps)
-    return nil if check.satisfied?
+    return check.overridden? ? nil : testcases_violation(base, sha, policy, check, kind: kind) if check.satisfied?
 
     conditions = policy.admin_bypass_conditions
     note = conditions.empty? ? '' : "Repo policy: #{conditions}. "
@@ -101,6 +101,20 @@ class ChangeMergeGuard
     "#{kind} into '#{base}' is gated: no passing #{target} cf:change run recorded for head " \
       "#{sha[0, 12]}#{check.missing_apps_clause}. #{rerun_hint(check)} " \
       "#{note}#{ChangeGateCheck.escape_note}"
+  end
+
+  # The second, narrower question a branch may ask (0.10.0): the run passed
+  # overall, but did the regression lane itself pass? A comprehensive run whose
+  # testcases lane never ran satisfies `require_change_pass` and answers
+  # nothing about the repo's committed cases, which is exactly the gap a repo
+  # setting `require_testcases: true` is closing.
+  def testcases_violation(base, sha, policy, check, kind:)
+    return nil unless policy.require_testcases?(base)
+    return nil if check.store.lane_passed?('testcases', apps: check.apps)
+
+    "#{kind} into '#{base}' is gated: the recorded cf:change run for head #{sha[0, 12]} carries no " \
+      "passing testcases lane, and this branch's promotion rule sets require_testcases. " \
+      "Run /cf:change against this PR with the testcases lane enabled. #{escape_note}"
   end
 
   def rerun_hint(check)

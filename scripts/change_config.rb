@@ -7,6 +7,7 @@ require 'json'
 require 'digest'
 require_relative 'change_frontmatter'
 require_relative 'change_schema'
+require_relative 'change_suite'
 
 # Parses and validates a project's change-fabric config. There is one
 # change-fabric file per repo, `CHANGE.md` at the repo root: its YAML
@@ -56,17 +57,22 @@ class ChangeConfig
 
   # basic_auth (0.3.0) is answered via page.authenticate() in a browser page, so
   # it only means anything on a lane that actually drives one.
-  BROWSER_LANES = %w[a11y browserless].freeze
+  BROWSER_LANES = %w[a11y browserless testcases].freeze
 
   # Lanes that read a `targets` list at all (0.4.0). Only zap has a notion of
   # more than one in-scope url; every other lane has exactly one base_url.
+  # `testcases` (0.10.0) is deliberately not here: a case says where it goes
+  # step by step, from one base url, so a `targets` list on it would be a scope
+  # the lane never reads.
   TARGET_LANES = %w[zap].freeze
 
   # Lanes that read an `auth` login-flow block. Narrower than BROWSER_LANES:
   # a11y drives a real browser page too, but only ever reads basic_auth, never
   # a multi-step login flow, so `auth` there would be the same silent no-op
-  # basic_auth's own guard exists to prevent.
-  AUTH_LANES = %w[browserless].freeze
+  # basic_auth's own guard exists to prevent. `testcases` (0.10.0) reads the
+  # same block, in the same shape, since a case behind a login has to get
+  # through it first.
+  AUTH_LANES = %w[browserless testcases].freeze
 
   def self.load(path, profile: nil, root: nil, overrides: {})
     raise ConfigError, "CHANGE.md not found: #{path}. #{REFERENCE_HINT}" unless File.exist?(path)
@@ -160,7 +166,28 @@ class ChangeConfig
     lines << 'lane targets:'
     config.lane_targets.each { |lane, targets| lines << "  #{lane}: #{targets.join(', ')}" }
     lines.concat(target_mismatch_warnings(config))
+    lines.concat(testcase_suite_lines(config))
     lines
+  end
+
+  # The testcases lane's suite files, checked here rather than only at run
+  # time. Every problem is reported at once, and each is an `error:` line
+  # because each one means the lane checks less than its author believes: a
+  # glob matching nothing, a suite with no cases, a duplicate case id, an
+  # unknown step verb, a case with no acceptance criterion, or a `gate_tags`
+  # entry no case carries. Silent on a repo that does not run the lane.
+  def self.testcase_suite_lines(config)
+    return [] unless config.enabled_lanes.include?('testcases')
+
+    lane = config.lane('testcases')
+    set = ChangeSuiteSet.load(lane['suites'], lane.dir)
+    lines = set.errors.map { |message| "error: #{message}" }
+    lines.concat(set.unmatched_gate_tags(Array(lane['gate_tags'])).map do |tag|
+      "error: lanes.testcases.gate_tags names '#{tag}', which no loaded case carries"
+    end)
+    return lines unless set.errors.empty?
+
+    lines << "testcases: #{set.cases.size} case(s) in #{set.suites.size} suite(s)"
   end
 
   # Warns when a lane's own absolute url literal (an absolute zap target, an
@@ -415,16 +442,17 @@ class ChangeConfig
           "#{subject} sets targets, but targets only applies to the zap lane; #{lane} never reads it."
   end
 
-  # auth (the multi-step login-flow block) only means anything on browserless;
-  # a11y drives a real browser page too but only ever reads basic_auth, so
-  # accepting auth there would be the same silent no-op basic_auth's own
-  # guard exists to prevent.
+  # auth (the multi-step login-flow block) only means anything on a lane that
+  # drives a login: browserless and testcases. a11y drives a real browser page
+  # too but only ever reads basic_auth, so accepting auth there would be the
+  # same silent no-op basic_auth's own guard exists to prevent.
   def reject_auth_outside_auth_lanes(lane, section, subject:)
     return unless section.is_a?(Hash) && section.key?('auth')
     return if AUTH_LANES.include?(lane)
 
     raise ConfigError,
-          "#{subject} sets auth, but auth only applies to the browserless lane; #{lane} never reads it."
+          "#{subject} sets auth, but auth only applies to a login-driving lane " \
+          "(#{AUTH_LANES.join(', ')}); #{lane} never reads it."
   end
 
   # How to bring the target app up and confirm it is ready before any lane runs.
@@ -467,6 +495,12 @@ class ChangeConfig
     end
 
     def name = @name
+
+    # The config directory (the repo root), for a lane that resolves
+    # repo-relative paths itself rather than one key at a time: the testcases
+    # lane expands a list of suite-file globs against it.
+    def dir = @dir
+
     def [](key) = @raw[key.to_s]
     def fetch(key, default) = @raw.fetch(key.to_s, default)
     def env = (@raw['env'] || {}).transform_keys(&:to_s).transform_values(&:to_s)

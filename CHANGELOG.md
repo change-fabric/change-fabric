@@ -18,6 +18,42 @@ Every version below has a frozen, permanently addressable rendering at
 field set: major for a removed, renamed or newly required field, minor for a new
 optional field, patch for a documentation-only clarification.
 
+## [0.10.0] - 2026-08-22
+
+A fifth lane, `testcases`, runs regression cases committed to the repo, and
+four fields that were already live are documented for the first time.
+
+### Added
+
+- `change_config.lanes.testcases.*`: `suites` (globs naming sidecar suite
+  files), `tags`, `gate_tags`, `viewport.name` / `.width` / `.height`,
+  `timeout_ms`, and the full `auth.*` login block, field for field the same
+  shape `lanes.browserless.auth` already defines.
+- `change_config.profiles.<profile>.lanes.testcases.auth.*`. A profile may
+  override exactly `base_url`, `basic_auth.*` and `auth.*` on this lane: where
+  a case is pointed, never what it checks.
+- `change_policy.promotion.<ref>.require_testcases`, which additionally
+  requires the recorded comprehensive pass for that branch to carry a passing
+  `testcases` lane. Fails closed: a record with no entry for the lane is not a
+  pass.
+- `change_config.lanes.<lane>.wait_for.load_state` / `.selector` /
+  `.url_contains` / `.url_matches` / `.timeout_ms`,
+  `change_config.lanes.browserless.routes[].wait_for`,
+  `change_config.lanes.<lane>.retries`,
+  `change_config.lanes.browserless.cell_isolation`, and
+  `change_config.lanes.browserless.locale`. All five behaviors already shipped;
+  they were written under a change forbidden to bump the schema and so had no
+  registry row or spec entry until now.
+
+### Changed
+
+- Cases are never inline in `CHANGE.md`. A suite file is a sidecar
+  (`<dir>/<name>.cf-testcases.yml`) with its own schema registry, its own spec
+  doc (`skills/testcases/reference/suite-file-spec.md`) and its own drift test,
+  so a new step verb does not need a `CHANGE.md` schema bump.
+- `targets` is still rejected on every lane but `zap`. The testcases lane reads
+  no target list, and a scope list nothing reads is worse than no scope.
+
 ## [0.9.0] - 2026-08-22
 
 Trunk + tag releases: a repo with one trunk and release tags instead of
@@ -84,6 +120,7 @@ lane reads it.
 0.7.0 is deliberately skipped, not missing. It stays reserved for the
 `contributors_team.artifacts` removal that 0.6.0 announced, which is a
 breaking field-set change and has not shipped yet.
+
 
 ## [0.6.0] - 2026-08-02
 

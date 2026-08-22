@@ -22,10 +22,24 @@ class ChangeGateCheck
   # passing comprehensive cf:change run is on record, scoped to `apps` (0.4.0
   # monorepo mode) when given, or the unscoped 0.3.1 question otherwise.
   def satisfied?
-    return true if ChangeOverrideStore.new(@sha, profile: @profile).authorized?
+    return true if overridden?
 
     store.comprehensive_pass?(apps: @apps)
   end
+
+  # Whether a human recorded an override for this (sha, profile). Exposed so a
+  # caller asking a second, narrower question on top of `satisfied?` (the
+  # merge guard's require_testcases check, 0.10.0) can tell a real recorded
+  # pass from an override, and let the override waive that question too: it is
+  # the escape hatch for the whole gate, not for part of it.
+  def overridden?
+    return @overridden if defined?(@overridden)
+
+    @overridden = ChangeOverrideStore.new(@sha, profile: @profile).authorized?
+  end
+
+  # The app set this check is scoped to, or nil in single-app mode.
+  attr_reader :apps
 
   # The subset of `apps` with no passing comprehensive entry recorded, or []
   # in single-app mode (where `apps` is nil and the question is unscoped).

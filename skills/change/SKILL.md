@@ -1,6 +1,6 @@
 ---
 name: cf:change
-description: Deterministic, config-driven release-gate sweep. Runs all four dockerized audit lanes (k6 load, axe-core accessibility, OWASP ZAP pentest, browserless responsive UX) against a project's change-fabric config, aggregates every finding into one CSV and Markdown report on the Desktop, and records a pass/fail gate for the head commit. Invocable directly and gated into cf:drive.
+description: Deterministic, config-driven release-gate sweep. Runs all five dockerized audit lanes (k6 load, axe-core accessibility, OWASP ZAP pentest, browserless responsive UX, committed test cases) against a project's change-fabric config, aggregates every finding into one CSV and Markdown report on the Desktop, and records a pass/fail gate for the head commit. Invocable directly and gated into cf:drive.
 ---
 
 # CF Change (change fabric)
@@ -8,7 +8,7 @@ description: Deterministic, config-driven release-gate sweep. Runs all four dock
 The comprehensive, unattended release-gate sweep. One file per project, the
 repo-root `CHANGE.md`, tells the platform how to boot the target app and what to
 audit (its `change_config:` frontmatter) and how the repo is governed (its
-`change_policy:` frontmatter); this skill runs all four dockerized lanes against
+`change_policy:` frontmatter); this skill runs all five dockerized lanes against
 it and produces one shareable report pair plus a gate record for the PR's head
 commit.
 
@@ -298,8 +298,9 @@ creating a team in the web app and minting that team's API key. Add
 
 The single-lane skills run one lane each with the same config and report
 shape but record only their own scope (never the comprehensive gate the merge
-hook requires): `cf:k6`, `cf:a11y`, `cf:zap`. The browserless responsive
-lane has no standalone skill; it runs as part of `cf:change`.
+hook requires): `cf:k6`, `cf:a11y`, `cf:zap`, `cf:testcases`. The
+browserless responsive lane has no standalone skill; it runs as part of
+`cf:change`.
 
 ## Failure modes
 

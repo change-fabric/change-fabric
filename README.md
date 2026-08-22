@@ -15,8 +15,9 @@ Everything is a Claude Code skill under the `cf:` namespace, plus the hooks that
 surface them. Skills come in two kinds.
 
 **Commands you invoke.** `cf` sets the session's merge mode. `cf:change` runs
-the release-gate sweep, four dockerized audit lanes (k6 load, axe-core
-accessibility, OWASP ZAP pentest, browserless responsive UX) against a repo's
+the release-gate sweep, five dockerized audit lanes (k6 load, axe-core
+accessibility, OWASP ZAP pentest, browserless responsive UX, committed test
+cases) against a repo's
 root `CHANGE.md`, and records a pass or fail for the head commit. `cf:drive`
 takes a PR to approved and green. `cf:code-review`, `cf:qa`,
 `cf:resolve-threads`, `cf:refactor`, `cf:prune` and `cf:ctx` cover the rest of
