@@ -17,9 +17,15 @@
   --muted: #586777;
   --heading: #123049;
   --link: #123049;
-  --link-hover: #a9781a;
-  --accent: #b3801d;
-  --accent-soft: rgba(179, 128, 29, 0.12);
+  /* Same value as --accent below: axe does not test hover states, but
+     #a9781a was 3.90:1 on white, the same contrast failure as --accent, just
+     unflagged. */
+  --link-hover: #8a6113;
+  /* Deep enough against every light surface (#ffffff, --bg, --code-bg) to
+     clear WCAG AA 4.5:1 as small text, which is how it is used: .lane-role,
+     .code-copy, .eyebrow. Measured 5.5:1 on white, 5.0:1 on --code-bg. */
+  --accent: #8a6113;
+  --accent-soft: rgba(138, 97, 19, 0.12);
   --gold-btn: #d7a83c;
   --gold-btn-text: #123049;
   --code-bg: #f1f4f8;
@@ -242,6 +248,20 @@ a:hover {
   color: var(--muted);
   font-size: 0.92rem;
   margin: 16px 0 0;
+}
+
+/* Any box whose content is allowed to be wider than the page: a code sample, a
+   reference table. It scrolls inside its own bounds instead of widening the
+   document, and carries tabindex="0" in the markup so a keyboard user can
+   actually scroll it (axe-core scrollable-region-focusable). */
+.scroll-region {
+  overflow-x: auto;
+  max-width: 100%;
+}
+
+.scroll-region:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 /* Code block with copy control */
@@ -480,11 +500,11 @@ code {
   color: var(--heading);
 }
 
+/* The scrolling is the wrapping .scroll-region's job, not the table's, so the
+   table keeps its own semantics and its own layout. */
 .spec-body table {
   width: 100%;
   border-collapse: collapse;
-  display: block;
-  overflow-x: auto;
   font-size: 0.88rem;
 }
 

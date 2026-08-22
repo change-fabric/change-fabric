@@ -63,8 +63,61 @@ export function findVersion(version: string): SpecVersion | undefined {
   return VERSIONS.find((entry) => entry.version === version);
 }
 
+function escapeAttribute(value: string): string {
+  return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
+}
+
+// Wide rendered-markdown content scrolls inside its own box (see .scroll-region
+// in styles.css), and a scroll container has to be reachable by keyboard or a
+// keyboard-only user can never scroll it (axe-core scrollable-region-focusable).
+// So every table and code sample marked emits gets tabindex plus a name taken
+// from the heading it sits under.
+//
+// A table is wrapped rather than labelled in place: the role would replace the
+// element's own table semantics, and the wrapper, not the table, is what
+// scrolls. A <pre> carries no semantics worth keeping, so it is labelled
+// directly and stays its own scroll box, background and padding intact.
+//
+// The only input here is marked's own output, whose <table> and <pre> shape is
+// fixed, and markdown can nest neither inside the other.
+function focusableScrollRegions(html: string): string {
+  const taken = new Set<string>();
+  let heading = "";
+
+  function name(kind: string): string {
+    const base = heading ? `${heading} ${kind}` : kind;
+    let candidate = base;
+    let ordinal = 2;
+    while (taken.has(candidate)) {
+      candidate = `${base} ${ordinal}`;
+      ordinal += 1;
+    }
+    taken.add(candidate);
+    return escapeAttribute(candidate);
+  }
+
+  return html.replace(
+    /<h[1-6][^>]*>([\s\S]*?)<\/h[1-6]>|<table>[\s\S]*?<\/table>|<pre>[\s\S]*?<\/pre>/g,
+    (match: string, headingHtml?: string) => {
+      if (headingHtml !== undefined) {
+        heading = headingHtml.replace(/<[^>]+>/g, "").trim();
+        return match;
+      }
+      if (match.startsWith("<table")) {
+        const label = name("table");
+        return `<div class="scroll-region" tabindex="0" role="region" aria-label="${label}">${match}</div>`;
+      }
+      const label = name("code sample");
+      return match.replace(
+        "<pre>",
+        `<pre class="scroll-region" tabindex="0" role="group" aria-label="${label}">`,
+      );
+    },
+  );
+}
+
 export function specHtml(markdown: string): string {
-  return marked.parse(markdown, { async: false });
+  return focusableScrollRegions(marked.parse(markdown, { async: false }));
 }
 
 export function specPath(version: string): string {
