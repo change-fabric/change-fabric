@@ -92,7 +92,9 @@ lists it never acts on by itself:
 
   Keep means bump the doc with a fresh capture so it stops reading as stale. For a
   `review-due` truth doc, default to Keep (re-attest the fact); only archive or
-  remove if it is genuinely obsolete.
+  remove if it is genuinely obsolete. Under away mode, skip the question
+  entirely and default to Keep for every item, reporting which ones were
+  deferred this way.
 
 - `structural issues` - a doc that does not parse, sits under the wrong class, or
   has an invalid status. Surface these for the user to fix; do not auto-edit.

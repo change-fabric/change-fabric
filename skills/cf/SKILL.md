@@ -5,20 +5,21 @@ description: Set and enforce the session merge mode (local only, merge ready, ad
 
 # CF Merge Mode Shim
 
-The merge-mode question is injected automatically by the `SessionStart` hook
-(`session_start.rb`) on session start, resume, `/clear`, and compaction. The
-chosen mode is persisted per session (a `PostToolUse` hook records the
-`AskUserQuestion` answer to `~/.claude/cf/sessions/<session_id>/merge-mode`)
+The `SessionStart` hook (`session_start.rb`) states the current merge mode
+(falling back to `local-only` when nothing is persisted) on session start,
+resume, `/clear`, and compaction. It never asks. The mode is set by one of the
+six direct commands below or by `/cf`, persisted per session (a `PostToolUse`
+hook records the answer to `~/.claude/cf/sessions/<session_id>/merge-mode`),
 and restated every turn by a `UserPromptSubmit` hook, so it survives
-compaction. Once a mode is persisted, `SessionStart` restates it instead of
-re-asking. This file is the manual `/cf` re-invoke path plus the rules for
+compaction. This file is the manual `/cf` picker path plus the rules for
 applying the chosen mode.
 
 ## /cf
 
-Call `AskUserQuestion` to re-set the session's merge mode:
+Call `AskUserQuestion` once with two questions, to re-set both the session's
+merge mode and its away mode:
 
-**Question:** "How should I handle changes from this session?"
+**Question 1:** "How should I handle changes from this session?"
 **Header:** Merge mode
 **Options:**
 
@@ -30,7 +31,15 @@ Call `AskUserQuestion` to re-set the session's merge mode:
    development/staging/production). Never create a new PR; merging an
    existing PR is still fine.
 
-Acknowledge the choice in one line, then proceed.
+**Question 2:** "Are you at the keyboard for this session?"
+**Header:** Away mode
+**Options:**
+
+1. **Active:** Ask normally.
+2. **Away:** Do not ask questions; take the recommended or safe default and
+   report the assumption.
+
+Acknowledge both choices in one line, then proceed.
 
 ## Applying the mode
 
@@ -51,3 +60,30 @@ trunk under Merge ready (an explicit `main`/`master` refspec, or a bare
 Yolo. It is an advisory guardrail, not a sandbox: it matches on the command
 text and is bypassable, so honoring the mode in your own actions is still
 the primary mechanism.
+
+### The fast path: six direct commands
+
+Each command below sets one axis directly, with no `AskUserQuestion` call, and
+is the preferred way to set or change a mode mid-session. `/cf` remains the
+manual entry point for setting both axes together.
+
+| Command | Sets |
+|---|---|
+| `/cf:local-only` | Merge mode to `local-only` |
+| `/cf:merge-ready` | Merge mode to `merge-ready` |
+| `/cf:admin-bypass` | Merge mode to `admin-bypass` |
+| `/cf:yolo` | Merge mode to `yolo` |
+| `/cf:away` | Away mode on |
+| `/cf:active` | Away mode off |
+
+### Away mode
+
+While away mode is on, `away_restate.rb` reminds every turn not to ask and to
+take the recommended or safe default instead, reporting what was assumed.
+`away_guard.rb` (`PreToolUse`) enforces this by denying any `AskUserQuestion`
+call whose questions do not carry one of three floor headers that still fire
+even while away, because their default is destructive or a real secret is at
+stake: `Remote delete`, `Untracked`, and `Secret alert`. Running `/cf` itself
+is denied while away, since asking both mode questions is a contradiction of
+away mode; the deny message points at the six direct commands and at
+`/cf:active`.

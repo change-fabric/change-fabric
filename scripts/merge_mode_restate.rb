@@ -4,6 +4,7 @@
 require 'json'
 require_relative 'hook_event'
 require_relative 'merge_mode_store'
+require_relative 'merge_mode_slug'
 
 # UserPromptSubmit hook: re-injects the active merge mode as context each turn.
 class MergeModeRestate
@@ -14,7 +15,7 @@ class MergeModeRestate
   end
 
   def emit(io = $stdout)
-    mode = MergeModeStore.new(@event['session_id']).mode
+    mode = MergeModeSlug.of(MergeModeStore.new(@event['session_id']).mode)
     return unless mode
 
     io.puts(JSON.generate(payload(mode)))

@@ -7,6 +7,7 @@ require 'rbconfig'
 require 'set'
 require 'yaml'
 require_relative 'scripts/skill_registry'
+require_relative 'scripts/merge_mode_slug'
 
 # Installs the cf merge-mode shim: hook scripts, the skill symlink, and the
 # settings.json wiring. Internals are namespaced so the file stays one unit.
@@ -404,9 +405,9 @@ module Install
   class Installer
     HOOKS = {
       'SessionStart' => %w[session_start.rb skill_detect.rb ctx_session_start.rb doctrine_digest.rb secret_alert_poll.rb],
-      'PreToolUse' => %w[merge_mode_guard.rb glyph_guard.rb client_name_guard.rb slop_remind.rb review_gate.rb noreply_guard.rb docker_doctrine_guard.rb change_merge_guard.rb change_tag_guard.rb presence_probe.rb],
+      'PreToolUse' => %w[merge_mode_guard.rb away_guard.rb glyph_guard.rb client_name_guard.rb slop_remind.rb review_gate.rb noreply_guard.rb docker_doctrine_guard.rb change_merge_guard.rb change_tag_guard.rb presence_probe.rb],
       'PostToolUse' => %w[merge_mode_record.rb skill_inject.rb secret_ack.rb],
-      'UserPromptSubmit' => %w[merge_mode_restate.rb prune_remind.rb],
+      'UserPromptSubmit' => %w[merge_mode_restate.rb away_restate.rb prune_remind.rb mode_command.rb],
       'SessionEnd' => %w[telemetry_emit.rb],
       'Stop' => %w[skill_review.rb]
     }.freeze
@@ -418,6 +419,7 @@ module Install
 
     def install
       migrate_state_root
+      migrate_merge_mode_slugs
       place_hooks
       pin_expected_home
       link_skills
@@ -447,6 +449,32 @@ module Install
       FileUtils.mkdir_p(File.dirname(current))
       FileUtils.mv(legacy, current)
       puts "migrated state root #{legacy} -> #{current}"
+    end
+
+    # Rewrites any session merge-mode file still holding a legacy
+    # AskUserQuestion label ("Local only") into the canonical slug
+    # ("local-only"). Idempotent by construction: a file already holding the
+    # slug normalizes to itself and is skipped, so this self-heals on every
+    # re-run and on every machine. Unrecognized content is left untouched
+    # rather than guessed at.
+    def migrate_merge_mode_slugs
+      migrated = 0
+      skipped = 0
+      Dir.glob(File.join(@paths.state_root, 'sessions', '*', 'merge-mode')).each do |file|
+        raw = File.read(file).strip
+        slug = MergeModeSlug.of(raw)
+        if slug.nil?
+          skipped += 1
+        elsif slug != raw
+          File.write(file, "#{slug}\n")
+          migrated += 1
+        end
+      end
+      return if migrated.zero? && skipped.zero?
+
+      puts "migrated #{migrated} merge-mode file(s) to slug format (#{skipped} unrecognized, left as-is)"
+    rescue StandardError => e
+      puts "note: merge-mode slug migration skipped (#{e.class})"
     end
 
     def place_hooks

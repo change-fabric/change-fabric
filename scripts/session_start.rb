@@ -4,24 +4,14 @@
 require 'json'
 require_relative 'hook_event'
 require_relative 'merge_mode_store'
+require_relative 'merge_mode_slug'
+require_relative 'away_store'
 
-# SessionStart hook: asks for a merge mode, or restates one already chosen.
+# SessionStart hook: states the current merge mode (falling back to
+# local-only when nothing is persisted) and, when it is on, states away mode.
+# It never asks.
 class MergeModeHook
   EVENT = 'SessionStart'
-
-  ASK = <<~TEXT.strip
-    [cf] Before responding to anything else, call the AskUserQuestion tool to set the session's MERGE MODE.
-
-    Question: "How should I handle changes from this session?"
-    Header: "Merge mode"
-    Options:
-      1. "Local only" - No push, no PR. Changes stay on disk.
-      2. "Merge ready" - Push branch, open PR, ensure CI is green. The user merges manually.
-      3. "Admin bypass" - Push branch, open PR, then squash-merge via `gh pr merge --squash --admin` once CI is green. No other quality passes.
-      4. "Yolo" - Commit and push straight to the target branch (main, or whichever branch is in play). Never create a new PR; merging an existing PR is fine.
-
-    After the user answers, acknowledge the choice in one line, then proceed. Apply the chosen mode for the rest of the session unless /cf changes it.
-  TEXT
 
   def initialize(event)
     @event = event
@@ -38,12 +28,22 @@ class MergeModeHook
   end
 
   def directive
-    mode = MergeModeStore.new(@event['session_id']).mode
-    mode ? restate(mode) : ASK
+    lines = [restate(mode)]
+    lines << away_statement if AwayStore.new(@event['session_id']).away?
+    lines.join("\n")
+  end
+
+  def mode
+    MergeModeSlug.of(MergeModeStore.new(@event['session_id']).mode) || MergeModeSlug::FALLBACK
   end
 
   def restate(mode)
-    "[cf] Merge mode for this session is already set to #{mode}. Honor it per the /cf rules; run /cf to change it."
+    "[cf] Merge mode for this session is #{mode}. Honor it per the /cf rules; " \
+      'run /cf:local-only, /cf:merge-ready, /cf:admin-bypass, /cf:yolo, or /cf to change it.'
+  end
+
+  def away_statement
+    '[cf] Away mode is active for this session. Do not ask questions; take the recommended/safe default and continue. Run /cf:active to end away mode.'
   end
 end
 

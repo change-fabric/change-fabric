@@ -67,6 +67,9 @@ phase 4. Do not ask questions for ceremony.
 Otherwise call `AskUserQuestion` with up to four of the highest-value
 `open_questions` in one batched call. Fold the answers into the plan.
 
+Under away mode, skip this question, proceed on the inferred plan (the
+highest-value guess for each open question), and report the assumption.
+
 ## Phase 3: Refine (background, opus, max 3 rounds)
 
 An answered round can surface new ambiguity. Spawn another background Agent
@@ -140,6 +143,9 @@ or GitHub MCP tools) is available:
   skip. Never post without an explicit go-ahead from this call.
 - Only after approval, post the comment(s).
 
+Under away mode, skip this question, do not post, and report that posting was
+skipped.
+
 ## Phase 6: Offer to promote the flow (foreground)
 
 Exploratory QA used to end as a transcript: the flow worked out by hand
@@ -173,6 +179,9 @@ For each passing flow:
 4. Write the file only on an explicit answer. Never commit it, never open a PR
    for it, and never write without the answer: a test case nobody chose is a
    check nobody owns.
+
+Under away mode, skip this offer entirely and report that the promotion was
+skipped.
 5. If the file is new, say that `CHANGE.md` needs `lanes.testcases.suites` to
    name a glob covering it, or the case is committed and never runs.
 

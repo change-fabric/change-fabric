@@ -138,6 +138,10 @@ In an interactive session, offer that as an `AskUserQuestion` at the moment of
 failure. In CI it fails closed and stays failed: `change_override.rb` refuses
 without a real terminal by design, so no agent can record it for a human.
 
+Under away mode, skip the offer, fail closed the same way CI does, and report
+that the override was not offered. An away session could not act on an answer
+regardless: `change_override.rb` refuses without a real terminal by design.
+
 Grading is the one part of this lane that is not deterministic, and it is kept
 in one named place for that reason. It uses the `claude` CLI by default,
 `CF_ACCEPTANCE_GRADER` to point at something else, and `CF_SKIP_ACCEPTANCE_GRADING=1`

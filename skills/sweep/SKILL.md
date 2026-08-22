@@ -110,6 +110,13 @@ cached for the next sweep.
 To revise a call later: `sweep_trust_store.rb forget <login>` makes that
 contributor unknown again and the next sweep re-asks.
 
+Under away mode, skip the question: default every unknown contributor to
+Blocked for this run and report the defaults applied. Do NOT call
+`sweep_trust_store.rb set` for a guessed answer. The store is durable and
+(repo, contributor) scoped, deliberately not session-scoped, and a guess made
+because the human was away must not outlive the away session; the next
+non-away sweep re-asks that contributor as still unknown.
+
 ## Run mode
 
 Orthogonal to trust: trust is "do I believe this person's code", run mode is
@@ -129,6 +136,11 @@ sign-off**, **Full auto**. This mirrors `cf:drive`'s step-0 sign-off question
 and is separate from it: `cf:drive` still runs under its own Full auto when
 invoked from here, because a sweep that stopped at two checkpoints per PR
 would not be a sweep.
+
+This interactivity check reads the away store: a session with away mode on is
+treated as non-interactive, so the question above is skipped and the run
+falls back to `report` automatically, the same as any other unattended
+invocation. No separate away-mode logic is needed here.
 
 ## Loop mode
 
