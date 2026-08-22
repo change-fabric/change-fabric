@@ -27,8 +27,8 @@ require_relative 'change_lane_testcases'
 # outcome under the git head SHA so the merge gate can consult it later.
 #
 # Usage: change_run.rb <all|k6|a11y|zap|browserless|testcases> [--config PATH] [--profile NAME]
-#        [--app NAME]... [--target-url URL] [--health-url URL] [--no-publish]
-#        [--for-tag TAGNAME]
+#        [--app NAME]... [--target-url URL] [--health-url URL] [--suite NAME]...
+#        [--no-publish] [--for-tag TAGNAME]
 #        change_run.rb gate-status [--ref REF] [--config PATH]
 #
 # --for-tag TAGNAME (0.9.0, trunk + tag releases): resolves the tag against
@@ -44,6 +44,11 @@ require_relative 'change_lane_testcases'
 # satisfies each one, exiting 0 only when every matching rule is satisfied.
 # It is what makes change_tag_guard.rb's deny decision reproducible outside
 # the hook.
+#
+# `--suite <suite-or-tag>` narrows the testcases lane to the named suite or tag.
+# It is the deterministic regression entry point `cf:qa --suite` drives: no
+# scoping model, no generated script, just the committed cases that selection
+# names.
 #
 # A repo whose CHANGE.md carries a `contributors_team.platform:` block also
 # gets a findings artifact (an HTML page with the run's screenshots, per
@@ -81,12 +86,21 @@ class ChangeRun
   # the repo carries a `contributors_team.platform:` block, and a lane holding
   # a nil sink captures nothing, which is what keeps the artifact pipeline
   # entirely opt-in.
-  Context = Struct.new(:network, :target_url, :health_url, :browserless, :media, :logger, keyword_init: true) do
+  # `suite_select` (the `--suite` flag) is the testcases lane's invocation-time
+  # narrowing: a suite id or a tag, naming which committed cases this run is
+  # about. It rides the context rather than the config because it is a property
+  # of this invocation and not of the repo; `cf:qa --suite <name>` is exactly
+  # this flag, and asking for one suite must never require editing CHANGE.md.
+  # Spelled with the prefix because a Struct is Enumerable: a member named
+  # `select` would be shadowed by Enumerable#select, and a lane probing for it
+  # would get a filtered member list rather than the flag.
+  Context = Struct.new(:network, :target_url, :health_url, :browserless, :media, :suite_select, :logger,
+                       keyword_init: true) do
     def log(message) = logger.call(message)
   end
 
-  Args = Struct.new(:scope, :config_path, :profile, :apps, :target_url, :health_url, :publish, :for_tag, :ref,
-                     keyword_init: true)
+  Args = Struct.new(:scope, :config_path, :profile, :apps, :target_url, :health_url, :publish, :suites,
+                    :for_tag, :ref, keyword_init: true)
 
   def self.main(argv)
     new(argv).run
@@ -243,6 +257,7 @@ class ChangeRun
     target_url = nil
     health_url = nil
     publish = true
+    suites = []
     for_tag = nil
     ref = nil
     OptionParser.new do |o|
@@ -251,14 +266,21 @@ class ChangeRun
       o.on('--app NAME') { |value| apps << value }
       o.on('--target-url URL') { |value| target_url = value }
       o.on('--health-url URL') { |value| health_url = value }
+      o.on('--suite NAME') { |value| suites << value }
       o.on('--no-publish') { publish = false }
       o.on('--for-tag NAME') { |value| for_tag = value }
       o.on('--ref REF') { |value| ref = value }
     end.parse(argv.drop(1))
     valid = %w[all sweep gate-status] + ChangeConfig::LANES
     abort_and_exit("scope must be one of: #{valid.join(', ')}") unless valid.include?(scope)
+    # `--suite` narrows the testcases lane and nothing else reads it. Refusing
+    # it outside a run that includes that lane keeps a mistyped invocation from
+    # looking like it filtered something: a flag that is silently ignored is
+    # indistinguishable, from the outside, from a filter that matched.
+    abort_and_exit('--suite narrows the testcases lane; run scope testcases or all') if
+      !suites.empty? && !%w[testcases all].include?(scope)
     Args.new(scope: scope, config_path: path, profile: profile, apps: apps, target_url: target_url,
-             health_url: health_url, publish: publish, for_tag: for_tag, ref: ref)
+             health_url: health_url, publish: publish, suites: suites, for_tag: for_tag, ref: ref)
   end
 
   def overrides
@@ -328,7 +350,8 @@ class ChangeRun
   def with_context(config, network, artifact = nil)
     ctx_args = {
       network: network.name, target_url: config.boot.target_url,
-      health_url: config.boot.health_url, media: artifact&.media, logger: method(:log)
+      health_url: config.boot.health_url, media: artifact&.media, suite_select: @args.suites,
+      logger: method(:log)
     }
     if browser_needed?(config)
       ChangeDocker.with_browserless(network: network.name) do |session|

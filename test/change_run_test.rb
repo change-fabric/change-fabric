@@ -92,6 +92,44 @@ class ChangeRunTest < Minitest::Test
     assert_equal "https://preview.example/health", args.health_url
   end
 
+  # --suite: the deterministic regression entry point cf:qa drives. Repeatable,
+  # and it reaches the lane on the run context rather than through the config,
+  # because it narrows this invocation and not the repo.
+  def test_suite_flag_is_repeatable_on_the_testcases_scope
+    args = runner.send(:parse_args, %w[testcases --suite checkout --suite smoke])
+    assert_equal %w[checkout smoke], args.suites
+  end
+
+  def test_suite_flag_is_accepted_on_a_full_sweep
+    assert_equal %w[checkout], runner.send(:parse_args, %w[all --suite checkout]).suites
+  end
+
+  def test_no_suite_flag_leaves_the_selection_empty
+    assert_equal [], runner.send(:parse_args, %w[testcases]).suites
+  end
+
+  # A flag that is silently ignored is indistinguishable, from the outside, from
+  # a filter that matched, so a scope no testcases lane runs in refuses it.
+  def test_suite_flag_is_refused_on_a_scope_that_cannot_read_it
+    output = capture_stderr { assert_raises(SystemExit) { runner.send(:parse_args, %w[k6 --suite checkout]) } }
+    assert_includes output, "--suite narrows the testcases lane"
+  end
+
+  # No browser lane enabled, so the context is built without standing up a real
+  # browserless container; what is under test is the selection reaching it.
+  ContextConfig = Struct.new(:boot) do
+    def enabled_lanes = %w[k6]
+  end
+
+  def test_the_suite_selection_reaches_the_lane_context
+    run = ChangeRun.new(%w[all --suite checkout])
+    config = ContextConfig.new(Boot.new(nil, nil, "http://app/health", 200, 1, "net", "http://app"))
+    captured = nil
+    run.send(:with_context, config, Struct.new(:name).new("net")) { |ctx| captured = ctx }
+
+    assert_equal %w[checkout], captured.suite_select
+  end
+
   # boot.env_file: the compose build-arg trap fix. A KEY=VALUE file gets parsed
   # (not shell-sourced) and reaches the boot subprocess environment.
   def test_boot_up_sources_env_file_into_the_subprocess

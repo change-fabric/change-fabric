@@ -32,6 +32,12 @@ class ChangeSuite
     # selects everything, so a lane with no filter runs the whole suite.
     def selected?(filter) = filter.empty? || filter.intersect?(tags)
 
+    # Whether an explicit `--suite <suite-or-tag>` selector names this case.
+    # One flag covers both because that is how a person asks for a rerun: they
+    # say "the checkout ones", and whether checkout is the suite's name or a tag
+    # on its cases is an implementation detail of how somebody filed them.
+    def named_by?(selectors) = selectors.include?(suite) || selectors.intersect?(tags)
+
     # Whether a failure of this case may fail the gate. An empty `gate_tags`
     # means every case gates, which is the default and the point: a test case
     # that cannot fail the build is a comment. `gate_tags` is the staged
@@ -158,7 +164,25 @@ class ChangeSuiteSet
 
   # The cases a `tags:` filter selects, in suite-then-file order so a report's
   # case sequence is stable across runs.
-  def selected(tags) = cases.select { |item| item.selected?(tags) }
+  #
+  # An explicit `--suite` selector list wins outright over the configured
+  # `tags:` rather than intersecting with it: a person asking for one suite by
+  # name is narrowing the run themselves, and silently re-applying the config's
+  # filter on top would answer a question they did not ask.
+  def selected(tags, selectors: [])
+    list = Array(selectors).map(&:to_s).reject(&:empty?)
+    return cases.select { |item| item.named_by?(list) } unless list.empty?
+
+    cases.select { |item| item.selected?(tags) }
+  end
+
+  # `--suite` selectors naming no loaded case. Reported rather than left to
+  # surface as an empty run, because "nothing matched" and "nothing to run" look
+  # identical from the outside and mean very different things.
+  def unmatched_selectors(selectors)
+    known = suites.map(&:name) + cases.flat_map(&:tags)
+    Array(selectors).map(&:to_s).reject(&:empty?) - known.uniq
+  end
 
   # `gate_tags` entries matching no loaded case. Almost always a typo or a tag
   # that was renamed in the suite and not in CHANGE.md, and its effect is to

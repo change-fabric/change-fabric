@@ -18,6 +18,7 @@ From the target repo root (a repo carrying `CHANGE.md`):
 
 ```
 ruby ~/.claude/cf/bin/change_run.rb testcases
+ruby ~/.claude/cf/bin/change_run.rb testcases --suite checkout   # one suite or tag
 ```
 
 This boots the app per `boot`, waits for its health signal, stands up one
@@ -86,9 +87,35 @@ in the repo rather than working around the gate: a case nobody trusts is worse
 than no case. `gate_tags` exists for the one legitimate version of that, staged
 adoption of a brand-new suite whose cases should report before they gate.
 
-`acceptance` is required, parsed, and rendered here. Grading that prose against
-what the run actually did is a later phase; today it is documentation the
-report puts in front of the reader.
+## Graded acceptance
+
+Each case gets a second finding: its `acceptance` prose graded against what the
+run observed (the final url, the page title, the visible text, and the step
+record). A page can satisfy every selector assertion and still do the wrong
+thing, which is the failure a selector cannot see.
+
+That verdict can fail the gate. It is deliberately not capped at warn: a
+criterion whose failure cannot fail anything is a comment. `gate_tags` softens
+it exactly as it softens a step failure. An `unclear` verdict is a warn, because
+a grader that declined to decide has not found a defect.
+
+If a verdict is wrong, the escape hatch is the sha-scoped override this repo
+already has, not a new one:
+
+```
+ruby ~/.claude/cf/bin/change_override.rb <head sha> --reason '<why>'
+```
+
+In an interactive session, offer that as an `AskUserQuestion` at the moment of
+failure. In CI it fails closed and stays failed: `change_override.rb` refuses
+without a real terminal by design, so no agent can record it for a human.
+
+Grading is the one part of this lane that is not deterministic, and it is kept
+in one named place for that reason. It uses the `claude` CLI by default,
+`CF_ACCEPTANCE_GRADER` to point at something else, and `CF_SKIP_ACCEPTANCE_GRADING=1`
+to turn it off. With no grader reachable, the lane reports one `warn` naming
+what did not run: unjudged prose is never laundered into a checked criterion,
+and a machine with no grader installed is not a failed run.
 
 ## Failure modes
 
