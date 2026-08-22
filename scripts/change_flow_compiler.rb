@@ -434,14 +434,13 @@ class ChangeFlowCompiler
 
   # --- assertions -------------------------------------------------------------
 
-  def compile_expect_visible(value, _options)
-    selector = selector_for(value, 'expect_visible')
-    { selector: selector, label: "expect_visible #{selector}" }
-  end
+  def compile_expect_visible(value, _options) = expect_selector(value, 'expect_visible')
 
-  def compile_expect_hidden(value, _options)
-    selector = selector_for(value, 'expect_hidden')
-    { selector: selector, label: "expect_hidden #{selector}" }
+  def compile_expect_hidden(value, _options) = expect_selector(value, 'expect_hidden')
+
+  def expect_selector(value, verb)
+    selector = selector_for(value, verb)
+    { selector: selector, label: "#{verb} #{selector}" }
   end
 
   def compile_expect_text(value, _options)
