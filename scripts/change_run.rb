@@ -290,8 +290,9 @@ class ChangeRun
     lanes = resolve_lanes(config)
     artifact = ChangeArtifactStep.for(repo_root: repo_root, publish: @args.publish, label: label)
     findings, instances = with_app(config, artifact) { |ctx| execute(config, lanes, ctx) }
-    report = write_report(config, findings, lanes, instances, app: label)
-    record_gate(config, findings, report, app: label)
+    manifest = run_manifest(config, lanes)
+    report = write_report(config, findings, lanes, instances, app: label, manifest: manifest)
+    record_gate(config, findings, report, app: label, manifest: manifest)
     summarize(findings, report, app: label)
     publish_artifact(artifact, config, findings, report, app: label)
     { app: entry.name, passed: findings.passed?, failing: findings.failures.size, report: File.basename(report[:markdown]) }
@@ -346,11 +347,40 @@ class ChangeRun
     instances = {}
     lanes.each do |name|
       log("[change] running #{name} lane")
-      lane = LANE_CLASSES.fetch(name).new(config.lane(name), ctx)
-      Array(lane.run).each { |finding| findings.add(finding) }
-      instances[name] = lane
+      lane_findings, instances[name] = run_lane(name, config.lane(name), ctx)
+      lane_findings.each { |finding| findings.add(finding) }
     end
     [ findings, instances ]
+  end
+
+  # Runs one lane, retrying it while it fails and its own budget allows. The
+  # budget is 0 by default, so nothing retries unless a lane's config asks for
+  # it: a gate that quietly re-runs until green is not a gate. When a retry
+  # does clear the failure, the surviving findings are recorded with the
+  # attempt count and `flaky: true`, so the pass is visibly a pass that took
+  # more than one try rather than one that looks identical to a clean first
+  # run. The status itself is never rewritten; {pass, warn, fail} stays the
+  # sole gate signal.
+  def run_lane(name, lane_config, ctx)
+    budget = retry_budget(lane_config)
+    attempts = 0
+    lane = nil
+    results = []
+    loop do
+      attempts += 1
+      lane = LANE_CLASSES.fetch(name).new(lane_config, ctx)
+      results = Array(lane.run)
+      break if attempts > budget || results.none?(&:fail?)
+
+      log("[change] #{name} lane failed on attempt #{attempts}; retrying (#{budget - attempts + 1} left)")
+    end
+    [ results.map { |finding| finding.with_attempt(attempts: attempts, flaky: attempts > 1 && !finding.fail?) }, lane ]
+  end
+
+  # A lane's `retries:` count, floored at 0. Opt-in per lane; absent means the
+  # lane runs exactly once, which is what every existing config gets.
+  def retry_budget(lane_config)
+    [ lane_config.fetch('retries', 0).to_i, 0 ].max
   end
 
   def boot_up(boot)
@@ -448,12 +478,42 @@ class ChangeRun
     out.to_s.lines.last(OUTPUT_TAIL_LINES).join
   end
 
-  def write_report(config, findings, lanes, instances, app:)
+  def write_report(config, findings, lanes, instances, app:, manifest: {})
     ChangeReport.new(
       project: config.project, scope: @args.scope, findings: findings, app: app,
       meta: report_meta(config, findings),
+      manifest: manifest,
       sections: report_sections(config, lanes, instances)
     ).write
+  end
+
+  # The inputs this run was produced from, recorded in the report and in the
+  # gate record. A verdict without them is not reproducible in any useful
+  # sense: two runs of "the same" audit could differ because a runner image
+  # moved, the accessibility scanner was a different version, or the config
+  # resolved differently under a profile, and nothing written down could tell
+  # you which. Only the images a lane in this run actually used are listed, so
+  # the manifest describes this run and not the platform in general.
+  def run_manifest(config, lanes)
+    manifest = {}
+    manifest['k6 image'] = ChangeDocker::K6_IMAGE if lanes.include?('k6')
+    manifest['zap image'] = ChangeDocker::ZAP_IMAGE if lanes.include?('zap')
+    manifest['browserless image'] = ChangeDocker::BROWSERLESS_IMAGE unless (lanes & BROWSER_LANES).empty?
+    manifest['axe-core'] = ChangeLaneA11y.axe_version if lanes.include?('a11y')
+    manifest['config digest'] = "sha256:#{config.digest}"
+    manifest['toolkit version'] = toolkit_version
+    manifest
+  end
+
+  # The toolkit has no version file: a release is a `skills/vX.Y.Z` tag, picked
+  # when it is cut. So the honest answer is whatever git says about the tree
+  # these scripts were loaded from, and `(unknown)` when they were installed
+  # somewhere with no git history at all rather than a number nothing backs.
+  def toolkit_version
+    out, status = Open3.capture2e(
+      'git', '-C', __dir__, 'describe', '--tags', '--always', '--dirty', '--match', 'skills/v*'
+    )
+    status.success? && !out.strip.empty? ? out.strip : '(unknown)'
   end
 
   # `profile`/`target`/`lane targets` (0.4.0) state which deployment this
@@ -485,12 +545,12 @@ class ChangeRun
   # entry into the (sha, profile) record's per-app map instead of overwriting
   # it, so a monorepo swept one `--app` at a time still ends up with one
   # complete record.
-  def record_gate(config, findings, report, app:)
+  def record_gate(config, findings, report, app:, manifest: nil)
     ChangeGateStore.new(head_sha, profile: config.profile).record(
       scope: @args.scope, status: findings.passed? ? 'pass' : 'fail',
       project: config.project, lanes: findings.lane_status,
       report: File.basename(report[:markdown]), app: app,
-      profile: config.profile, target: config.boot.target_url
+      profile: config.profile, target: config.boot.target_url, manifest: manifest
     )
   end
 
@@ -516,6 +576,8 @@ class ChangeRun
     prefix = app ? "[#{app}] " : ''
     findings.lane_status.each { |lane, status| log("[change] #{prefix}#{lane}: #{status.upcase}") }
     log("[change] #{prefix}#{findings.failures.size} failing finding(s)")
+    flaky = findings.flaky
+    log("[change] #{prefix}#{flaky.size} finding(s) only stopped failing on a retry") unless flaky.empty?
     log("[change] #{prefix}report: #{report[:markdown]}")
     log("[change] #{prefix}data:   #{report[:csv]}")
     log("[change] #{prefix}#{findings.passed? ? 'PASS' : 'FAIL'} (scope: #{@args.scope}#{@args.profile ? ", profile: #{@args.profile}" : ''})")

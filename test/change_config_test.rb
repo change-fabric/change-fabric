@@ -39,6 +39,43 @@ class ChangeConfigTest < Minitest::Test
     ChangeSchema.const_set(:VERSION, original)
   end
 
+  # --- the resolved-config digest -----------------------------------------------
+
+  # The digest is what the run manifest records, so it has to depend on the
+  # values a run resolved and nothing else. Re-ordering CHANGE.md's keys is not
+  # a config change.
+  def test_the_digest_ignores_key_order
+    a = { "project" => "app", "lanes" => { "k6" => { "enabled" => true }, "zap" => { "enabled" => false } } }
+    b = { "lanes" => { "zap" => { "enabled" => false }, "k6" => { "enabled" => true } }, "project" => "app" }
+    with_config(a) do |first, _root|
+      with_config(b) { |second, _root2| assert_equal first.digest, second.digest }
+    end
+  end
+
+  def test_the_digest_moves_when_a_value_moves
+    a = { "project" => "app", "lanes" => { "k6" => { "enabled" => true } } }
+    b = { "project" => "app", "lanes" => { "k6" => { "enabled" => true, "retries" => 1 } } }
+    with_config(a) do |first, _root|
+      with_config(b) { |second, _root2| refute_equal first.digest, second.digest }
+    end
+  end
+
+  # A profile is part of what a run resolved, so two profiles of one file must
+  # not hash alike: that is exactly the silent mismatch the manifest exists to
+  # make visible.
+  def test_the_digest_reflects_the_resolved_profile
+    config = {
+      "project" => "app", "lanes" => { "k6" => { "enabled" => true } },
+      "profiles" => {
+        "staging" => { "boot" => { "target_url" => "https://staging.example" } },
+        "production" => { "boot" => { "target_url" => "https://prod.example" } }
+      }
+    }
+    with_config(config, "staging") do |staging, _root|
+      with_config(config, "production") { |production, _root2| refute_equal staging.digest, production.digest }
+    end
+  end
+
   def test_enabled_lanes_in_fixed_order_and_skips_disabled
     config = { "project" => "app", "lanes" => {
       "browserless" => { "enabled" => true },

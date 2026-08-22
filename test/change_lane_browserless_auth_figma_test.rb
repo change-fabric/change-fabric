@@ -28,8 +28,10 @@ class ChangeLaneBrowserlessAuthFigmaTest < Minitest::Test
   # --- route normalization ----------------------------------------------------
 
   def test_plain_string_route_has_no_auth_or_figma
-    entries = lane("routes" => [ "/login" ]).send(:route_entries)
-    assert_equal [ { path: "/login", auth: false, figma: nil } ], entries
+    entry = lane("routes" => [ "/login" ]).send(:route_entries).first
+    assert_equal "/login", entry[:path]
+    assert_equal false, entry[:auth]
+    assert_nil entry[:figma]
   end
 
   def test_mapping_route_carries_auth_and_figma

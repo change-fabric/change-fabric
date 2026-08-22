@@ -31,9 +31,15 @@ require_relative 'change_sha_record'
 # recorded app, so a 0.3.1-era reader (single-app mode, `app` always nil) sees
 # exactly the record shape it always has.
 class ChangeGateStore < ChangeShaRecord
-  def record(scope:, status:, project:, lanes:, report:, app: nil, profile: nil, target: nil)
+  # `manifest` is the run's inputs (image digests, the vendored axe version, a
+  # digest of the resolved config, the toolkit version). It is stored beside
+  # the verdict, never consulted by the gate: the gate's question stays "did a
+  # comprehensive run pass for this SHA", and the manifest is what lets someone
+  # reading a recorded pass weeks later see what it was a pass of.
+  def record(scope:, status:, project:, lanes:, report:, app: nil, profile: nil, target: nil, manifest: nil)
     if app
-      record_app(app.to_s, scope: scope, status: status, lanes: lanes, report: report, project: project, target: target)
+      record_app(app.to_s, scope: scope, status: status, lanes: lanes, report: report, project: project,
+                 target: target, manifest: manifest)
     else
       payload = {
         'sha' => @sha,
@@ -46,6 +52,7 @@ class ChangeGateStore < ChangeShaRecord
       }
       payload['profile'] = profile.to_s unless profile.to_s.empty?
       payload['target'] = target.to_s unless target.to_s.empty?
+      payload['manifest'] = manifest unless manifest.nil? || manifest.empty?
       write(payload)
     end
   end
@@ -80,7 +87,7 @@ class ChangeGateStore < ChangeShaRecord
     entry && entry['scope'] == 'all' && entry['status'] == 'pass'
   end
 
-  def record_app(app, scope:, status:, lanes:, report:, project:, target:)
+  def record_app(app, scope:, status:, lanes:, report:, project:, target:, manifest: nil)
     payload = read || { 'sha' => @sha }
     payload['project'] = project.to_s
     apps = (payload['apps'] ||= {})
@@ -91,6 +98,7 @@ class ChangeGateStore < ChangeShaRecord
       'report' => report.to_s
     }
     apps[app]['target'] = target.to_s unless target.to_s.empty?
+    apps[app]['manifest'] = manifest unless manifest.nil? || manifest.empty?
 
     payload['scope'] = scope.to_s
     payload['status'] = apps.values.all? { |entry| entry['status'] == 'pass' } ? 'pass' : 'fail'

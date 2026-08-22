@@ -22,12 +22,20 @@ class ChangeReport
   # byte for byte. Naming always comes from the root project plus the
   # registry key, never an app file's own `project:`, so two app files that
   # happen to share a `project:` value can never collide on disk.
-  def initialize(project:, scope:, findings:, app: nil, meta: {}, sections: [])
+  # `manifest` is the run's inputs: the digest-pinned image every container ran
+  # from, the vendored scanner version, a digest of the resolved config, and
+  # the toolkit that drove it. A report used to name only its verdict, which
+  # made a disagreement between two reports unresolvable: nothing recorded what
+  # either one had actually been run against. The same mapping is stored in the
+  # gate record, so a recorded pass can be traced back to the exact inputs that
+  # produced it rather than trusted on the strength of the word "pass".
+  def initialize(project:, scope:, findings:, app: nil, meta: {}, sections: [], manifest: {})
     @project = project.to_s
     @scope = scope.to_s
     @findings = findings
     @app = app
     @meta = meta
+    @manifest = manifest || {}
     @sections = Array(sections).compact
     @stamp = Time.now.utc.strftime('%Y%m%dT%H%M%SZ')
   end
@@ -90,6 +98,7 @@ class ChangeReport
     lines << "Scope: #{@scope}. Generated #{Time.now.utc.iso8601}. Data: #{csv_name}."
     lines << ''
     lines.concat(meta_lines)
+    lines.concat(manifest_lines)
     lines.concat(summary_table)
     lines << ''
     @sections.each do |section|
@@ -105,6 +114,16 @@ class ChangeReport
 
     rows = @meta.map { |key, value| "- #{key}: #{value}" }
     [ '## Run', '', *rows, '' ]
+  end
+
+  # Rendered as a table rather than a list: a manifest is read by comparing one
+  # run's row against another's, and a table is what makes two of them diffable
+  # by eye.
+  def manifest_lines
+    return [] if @manifest.empty?
+
+    rows = @manifest.map { |key, value| "| #{escape(key)} | #{escape(value)} |" }
+    [ '## Run manifest', '', '| Input | Value |', '| --- | --- |', *rows, '' ]
   end
 
   def summary_table
@@ -124,18 +143,35 @@ class ChangeReport
   def findings_section
     return [ '## Findings', '', 'No findings recorded.' ] if @findings.empty?
 
-    ordered = @findings.sort_by { |finding| finding.fail? ? 0 : 1 }
-    lines = [ '## Findings', '', '| Lane | Status | Severity | Target | Check | Location | Detail |',
-              '| --- | --- | --- | --- | --- | --- | --- |' ]
-    ordered.each { |finding| lines << finding_row(finding) }
+    lines = [ '## Findings', '', '| Lane | Status | Severity | Target | Check | Location | Detail | Attempts |',
+              '| --- | --- | --- | --- | --- | --- | --- | --- |' ]
+    @findings.sort_by { |finding| sort_key(finding) }.each { |finding| lines << finding_row(finding) }
     lines
   end
 
+  # A total order over the rendered row, not just "failures first". The key used
+  # to be the single fail?/not-fail bit, which leaves every finding sharing that
+  # bit unordered relative to its peers: Ruby's sort_by is not stable, so the
+  # same run's findings could render in a different order every time and a diff
+  # between two reports of identical inputs was full of moved lines. Extending
+  # the key through every column a row displays makes two equal keys mean two
+  # identical rows, which are indistinguishable however they land.
+  def sort_key(finding)
+    [ finding.fail? ? 0 : 1, finding.lane, finding.status, finding.severity, finding.target,
+      finding.check, finding.location, finding.detail, finding.help ]
+  end
+
+  # `attempts` renders as a plain count, with the flaky verdict called out
+  # beside it: a pass that took three tries is a different fact from a pass
+  # that took one, and burying that in the CSV alone lets a re-run-until-green
+  # habit look like a clean report.
   def finding_row(finding)
     cells = [ finding.lane, finding.status.upcase, finding.severity, finding.target,
-              finding.check, finding.location, finding.detail ]
+              finding.check, finding.location, finding.detail, attempts_cell(finding) ]
     "| #{cells.map { |cell| escape(cell) }.join(' | ')} |"
   end
+
+  def attempts_cell(finding) = finding.flaky ? "#{finding.attempts} (flaky)" : finding.attempts.to_s
 
   # Keep a finding's free text from breaking the Markdown table: pipes escaped,
   # newlines flattened.

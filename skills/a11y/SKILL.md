@@ -23,8 +23,11 @@ ruby ~/.claude/cf/bin/change_run.rb a11y
 
 This boots the app per `boot`, waits for its health signal, stands up one
 ephemeral browserless Chromium container (digest-pinned, `--rm`, per
-cf:docker; no host browser), injects axe-core into each configured route over
-the browser, grades each violation, tears everything down, writes the report
+cf:docker; no host browser), injects the vendored, version-pinned axe-core
+bundle into each configured route over the browser (never a CDN fetch: a
+scanner resolved at scan time cannot be pinned to a report, and a missing
+bundle is a named failing finding), grades each violation, tears everything
+down, writes the report
 pair to `~/Desktop`, and records an `a11y` scope gate under the head SHA. An
 `a11y`-scope record never satisfies the comprehensive merge gate; only a full
 `cf:change` run does.

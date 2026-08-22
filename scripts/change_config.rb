@@ -3,6 +3,8 @@
 
 require 'uri'
 require 'yaml'
+require 'json'
+require 'digest'
 require_relative 'change_frontmatter'
 require_relative 'change_schema'
 
@@ -240,6 +242,15 @@ class ChangeConfig
   # The repo root: the directory holding CHANGE.md.
   def repo_root = @dir
 
+  # A stable digest of the config this run actually resolved, after the profile
+  # merge and any CLI overrides. Recorded in the run manifest so two reports
+  # that disagree can be checked against what each was run with, instead of the
+  # question stopping at "it passed for me". Keys are sorted before hashing, so
+  # re-ordering CHANGE.md without changing a value leaves the digest alone; the
+  # values are env var names and urls, never secrets, so the hashed input is
+  # safe to derive from the config as-is.
+  def digest = Digest::SHA256.hexdigest(JSON.generate(canonical(@raw)))
+
   # The enabled lanes, in the fixed LANES order so a report's lane sequence is
   # stable across runs regardless of the file's key order.
   def enabled_lanes
@@ -258,6 +269,16 @@ class ChangeConfig
   end
 
   private
+
+  # Key-sorted, symbol-free rendering of a config tree, so #digest depends on
+  # the values a run resolved and not on the order they were written in.
+  def canonical(value)
+    case value
+    when Hash then value.keys.map(&:to_s).sort.to_h { |key| [ key, canonical(value[key]) ] }
+    when Array then value.map { |item| canonical(item) }
+    else value
+    end
+  end
 
   def resolved_targets(name)
     lane_config = lane(name)

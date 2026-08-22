@@ -7,6 +7,7 @@ require "tmpdir"
 require "fileutils"
 
 require_relative "../install"
+require_relative "../scripts/change_lane_a11y"
 
 class RubyInterpreterTest < Minitest::Test
   def setup
@@ -139,6 +140,27 @@ class InstallerTest < Minitest::Test
       assert File.exist?(dest), "#{name} was not copied into bin"
       assert File.executable?(dest), "#{name} should be executable"
     end
+  end
+
+  # The a11y lane reads its pinned axe-core bundle from a path relative to the
+  # script's own directory, and refuses to fetch axe over the network when it
+  # is missing. An install that shipped only the .rb files would turn every
+  # a11y run into that named failure.
+  def test_copies_the_vendored_run_time_assets_beside_the_scripts
+    paths = install
+    refute_empty paths.vendor_glob, "the repo should carry at least one vendored asset"
+    paths.vendor_glob.each do |source|
+      dest = paths.vendor_dest(source)
+      assert File.exist?(dest), "#{source} was not copied into bin/vendor"
+      assert_equal File.size(source), File.size(dest)
+    end
+  end
+
+  def test_the_installed_axe_bundle_is_where_the_a11y_lane_looks_for_it
+    paths = install
+    relative = ChangeLaneA11y::AXE_BUNDLE.delete_prefix("#{File.join(@repo, 'scripts')}/")
+    assert File.exist?(File.join(paths.bin, relative)),
+           "the a11y lane resolves its bundle at scripts/#{relative}; install must mirror that layout"
   end
 
   def test_links_every_skill_to_its_repo_source
