@@ -25,6 +25,9 @@ export function ReleaseNotes({ version }: { version: string }) {
       <p className="release-notes-upgrade">
         <strong>Upgrading:</strong> {note.upgrade}
       </p>
+      <p className="release-notes-more">
+        <a href={`/changelog#v${note.version}`}>See the full changelog</a>
+      </p>
     </section>
   );
 }
