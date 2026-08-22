@@ -43,8 +43,17 @@ const dist = path.join(here, "..", "dist");
 const shots = path.join(here, "..", ".verification");
 const stamp = Date.now();
 
-const CURRENT = process.env.CF_CURRENT_VERSION ?? "0.9.0";
-const ARCHIVED = ["0.8.0", "0.6.0", "0.5.0", "0.4.0", "0.3.1", "0.3.0", "0.2.0", "0.1.0"];
+const CURRENT = process.env.CF_CURRENT_VERSION ?? "0.10.0";
+const ARCHIVED = ["0.9.0", "0.8.0", "0.6.0", "0.5.0", "0.4.0", "0.3.1", "0.3.0", "0.2.0", "0.1.0"];
+
+function versionAtLeast(version, min) {
+  const a = version.split(".").map(Number);
+  const b = min.split(".").map(Number);
+  for (let i = 0; i < 3; i += 1) {
+    if (a[i] !== b[i]) return a[i] > b[i];
+  }
+  return true;
+}
 
 const MIME = {
   ".html": "text/html; charset=utf-8",
@@ -251,12 +260,15 @@ async function main() {
         !body.includes(`Schema version: ${CURRENT}`),
         `/spec/${version} is serving the CURRENT text, not its own frozen text`,
       );
-      // The one section whose heading is version-stamped, so a page serving the
-      // wrong archive entry is caught rather than only a page serving current.
-      assert(
-        !body.includes("contributors_team fields (0.6.0)"),
-        `/spec/${version} contains the 0.6.0 contributors_team section`,
-      );
+      // contributors_team is permanent reference documentation: every version
+      // from 0.6.0 onward legitimately carries this section, so it only
+      // distinguishes a wrong archive entry for a version that predates it.
+      if (!versionAtLeast(version, "0.6.0")) {
+        assert(
+          !body.includes("contributors_team fields (0.6.0)"),
+          `/spec/${version} contains the 0.6.0 contributors_team section`,
+        );
+      }
       record(`/spec/${version}`, `"${shownVersion.replace(/\s+/g, " ")}", frozen at its own text`);
     }
 
@@ -269,6 +281,39 @@ async function main() {
       `/spec/9.9.9 rendered "${unknown}" rather than the unknown-version page`,
     );
     record("/spec/9.9.9", "renders the unknown-version page");
+
+    // --- 5. The RSS feed answers 200 with one item per version -------------
+    // Fetched directly by this Node process rather than through the browser,
+    // so it hits the static server on loopback: HOST_ALIAS only resolves from
+    // inside the browserless container, not from this host process.
+    const allVersions = [CURRENT, ...ARCHIVED];
+    const feedResponse = await fetch(`http://127.0.0.1:${site.port}/changelog.xml`);
+    assert(feedResponse.status === 200, `/changelog.xml answered ${feedResponse.status}`);
+    const feedBody = await feedResponse.text();
+    assert(feedBody.includes("<rss"), "/changelog.xml body does not contain <rss");
+    for (const version of allVersions) {
+      const guid = `changefabric-spec-${version}`;
+      const count = feedBody.split(guid).length - 1;
+      assert(count === 1, `/changelog.xml has ${count} occurrences of guid ${guid}, expected 1`);
+    }
+    record("/changelog.xml", `200, <rss> present, one guid per version (${allVersions.length})`);
+
+    // --- 6. The changelog page has exactly one anchor per version ----------
+    const changelogResponse = await page.goto(`${base}/changelog`, { waitUntil: "networkidle" });
+    assert(
+      changelogResponse?.status() === 200,
+      `/changelog answered ${changelogResponse?.status()}`,
+    );
+    await page.waitForSelector(".changelog-list");
+    for (const version of allVersions) {
+      // An id selector built as a plain string ("#v0.10.0") is invalid CSS: an
+      // unescaped "." inside an id token starts a new compound selector. The
+      // attribute-equality form sidesteps that without needing CSS.escape.
+      const count = await page.locator(`[id="v${version}"]`).count();
+      assert(count === 1, `/changelog has ${count} elements matching id "v${version}", expected 1`);
+    }
+    await page.screenshot({ path: path.join(shots, "10-changelog.png"), fullPage: true });
+    record("/changelog", `one #v<version> anchor for each of ${allVersions.length} versions`);
   } finally {
     await browser.close().catch(() => {});
     await stopBrowserless(container);

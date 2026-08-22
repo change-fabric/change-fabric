@@ -6,8 +6,9 @@
   "scripts": {
     "embed-spec": "node scripts/embed-spec.mjs",
     "embed-reference": "node scripts/embed-reference.mjs",
-    "prebuild": "npm run embed-spec && npm run embed-reference",
-    "predev": "npm run embed-spec && npm run embed-reference",
+    "embed-changelog": "node scripts/embed-changelog.mjs",
+    "prebuild": "npm run embed-spec && npm run embed-reference && npm run embed-changelog",
+    "predev": "npm run embed-spec && npm run embed-reference && npm run embed-changelog",
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",

@@ -55,6 +55,7 @@ export function Layout({ children }: { children: ReactNode }) {
           <a href="/">Home</a>
           <a href={specPath(CURRENT_VERSION)}>Spec</a>
           <a href="/spec">Versions</a>
+          <a href="/changelog">Changelog</a>
           <a href="/reference">Reference</a>
           <a href={REPO_URL} target="_blank" rel="noopener noreferrer">
             GitHub

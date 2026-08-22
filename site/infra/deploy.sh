@@ -63,6 +63,15 @@ if compgen -G "$dist/spec/*.md" >/dev/null; then
   done
 fi
 
+# The feed changes whenever CHANGELOG.md does, which is a spec release and not
+# necessarily a site/VERSION bump, so it gets the same short must-revalidate
+# cache as the raw spec markdown rather than the default immutable year.
+if [ -f "$dist/changelog.xml" ]; then
+  aws s3 cp "$dist/changelog.xml" "s3://$bucket/changelog.xml" \
+    --content-type "application/rss+xml; charset=utf-8" \
+    --cache-control "public, max-age=300, must-revalidate"
+fi
+
 echo "invalidating CloudFront $distribution"
 aws cloudfront create-invalidation --distribution-id "$distribution" --paths "/*" >/dev/null
 
