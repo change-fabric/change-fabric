@@ -33,8 +33,9 @@ module ChangeSuiteSchema
     'cases[].id',
     'cases[].tags',
     # The human-prose criterion: what a person means by "working" for this
-    # case. Required. Parsed, validated as present, and rendered in the report
-    # here; graded against the observed run in a later phase.
+    # case. Required. Graded against what the run observed
+    # (ChangeAcceptanceGrader) and rendered beside that verdict in the report;
+    # the verdict can fail the gate.
     'cases[].acceptance',
     'cases[].retries',
     # The declarative step list, compiled by ChangeFlowCompiler. Each entry is

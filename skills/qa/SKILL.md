@@ -1,6 +1,6 @@
 ---
 name: cf:qa
-description: Ad hoc QA smoke-test runner. Scopes a browser test plan from a natural-language target (a pull request, a described feature, a flow), clarifies ambiguity, then executes the plan against an ephemeral browserless Chromium container and reports findings, optionally as GitHub PR comments; invocable directly.
+description: Ad hoc QA smoke-test runner. Scopes a browser test plan from a natural-language target (a pull request, a described feature, a flow), clarifies ambiguity, then executes the plan against an ephemeral browserless Chromium container and reports findings, optionally as GitHub PR comments, and offers to promote a passing flow into a committed test case. `--suite <suite-or-tag>` instead replays committed cases deterministically, with no scoping model in the loop; invocable directly.
 ---
 
 # CF QA Runner
@@ -20,6 +20,24 @@ release-affecting merge. Reach for `cf:qa` to investigate; reach for
 Doctrine: `cf:docker` applies. The browser runs in one dedicated, ephemeral
 container per run (`docker run --rm ...`, digest-pinned image), never a host
 daemon, never a reused long-lived container.
+
+## Two modes
+
+`/cf:qa --suite <suite-or-tag>` is the deterministic regression mode. It runs
+committed test cases and nothing else:
+
+```
+ruby ~/.claude/cf/bin/change_run.rb testcases --suite <suite-or-tag>
+```
+
+No scoping model, no clarifying round, no generated script: phases 1 to 4 are
+skipped entirely. The selector matches a suite id or a case tag, and it is
+repeatable. A selector matching nothing is a failing finding, never an empty
+run. Report the lane's output and stop; there is nothing to promote, because
+these cases are already committed.
+
+Everything below is the exploratory mode, reached by a natural-language target.
+Use it to find out what to test; use `--suite` to check it still works.
 
 ## Phase 1: Scope the plan (background, opus)
 
@@ -121,6 +139,42 @@ or GitHub MCP tools) is available:
   text, if the question format allows it) and ask whether to post, edit, or
   skip. Never post without an explicit go-ahead from this call.
 - Only after approval, post the comment(s).
+
+## Phase 6: Offer to promote the flow (foreground)
+
+Exploratory QA used to end as a transcript: the flow worked out by hand
+evaporated with the session, and the next regression in it went uncaught. This
+phase ends it as an artifact instead.
+
+Run only after a flow actually passed in phase 4. Skip it for a flow that
+failed: a case is written from a flow known to work, and promoting a red one
+commits the bug as the expected behavior.
+
+For each passing flow:
+1. Render it as a suite file:
+
+   ```
+   ruby ~/.claude/cf/bin/change_flow_run.rb <flow.yml> --promote \
+     --suite <suite-id> --case-id <case-id> --acceptance "<one sentence>" --tags smoke
+   ```
+
+   The renderer parses its own output back through the suite parser before
+   printing, so what it emits is a file the `testcases` lane will accept. It
+   drops the flow's `base_url`: the lane supplies that per profile, and a case
+   pinned to one machine's localhost only runs on that machine.
+2. `--acceptance` is the sentence a person would use to say the flow worked,
+   not a restatement of the steps. It is graded against the run by `cf:change`,
+   and that verdict can fail the gate, so write what actually matters and
+   nothing you would not want enforced.
+3. Call `AskUserQuestion` showing the rendered YAML and the path it would be
+   written to (conventionally `qa/<suite>.cf-testcases.yml`, next to the code it
+   tests), and ask whether to write it, edit it first, or skip. Where the file
+   already exists, show the case as a diff against it.
+4. Write the file only on an explicit answer. Never commit it, never open a PR
+   for it, and never write without the answer: a test case nobody chose is a
+   check nobody owns.
+5. If the file is new, say that `CHANGE.md` needs `lanes.testcases.suites` to
+   name a glob covering it, or the case is committed and never runs.
 
 ## Failure modes
 
