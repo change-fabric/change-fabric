@@ -38,6 +38,14 @@ module ChangeSuiteSchema
     # the verdict can fail the gate.
     'cases[].acceptance',
     'cases[].retries',
+    # The time-boxed flake quarantine. All three keys or none: a quarantine
+    # without a reason cannot be told from a defect somebody muted, and one
+    # without an expiry is permanent, which is the state this feature exists to
+    # make unreachable. A quarantined case still runs and still reports; only
+    # its power to fail the gate is suspended, and only until the date.
+    'cases[].quarantined',
+    'cases[].quarantine_reason',
+    'cases[].quarantine_until',
     # The declarative step list, compiled by ChangeFlowCompiler. Each entry is
     # a mapping naming exactly one verb from STEP_VERBS.
     'cases[].steps'

@@ -2,6 +2,7 @@
 # frozen_string_literal: true
 
 require 'json'
+require 'date'
 require_relative 'change_lane'
 require_relative 'change_lane_browserless'
 require_relative 'change_findings'
@@ -32,6 +33,13 @@ require_relative 'change_acceptance_grader'
 # and still do the wrong thing. Both verdicts can fail the gate, and both are
 # rendered beside the criterion so a reader sees what was meant and what was
 # judged in one place.
+#
+# A genuinely flaky case can be time-boxed out of the gate with `quarantined:`,
+# a required reason, and a required expiry date. It keeps running and keeps
+# reporting; only its power to fail the run is suspended, and only until the
+# date, at which point the shield lapses on its own. The reason and the date are
+# rendered inline beside the case for the same reason the acceptance prose is:
+# debt nobody can see is debt nobody pays.
 class ChangeLaneTestcases < ChangeLane
   LANE = 'testcases'
   DEFAULT_VIEWPORT = { 'name' => 'desktop', 'width' => 1440, 'height' => 900 }.freeze
@@ -48,10 +56,13 @@ class ChangeLaneTestcases < ChangeLane
 
   # `grader` is the seam a test drives; a real run builds the default one, which
   # resolves its command from the environment and reports itself unavailable
-  # rather than raising when nothing is reachable.
-  def initialize(config, context, grader: nil)
+  # rather than raising when nothing is reachable. `today` is the second seam,
+  # for the same reason: a quarantine expiry is a date comparison, and a test
+  # that could only assert it by waiting is not a test.
+  def initialize(config, context, grader: nil, today: nil)
     super(config, context)
     @grader = grader || ChangeAcceptanceGrader.new
+    @today = today
   end
 
   def run
@@ -62,7 +73,7 @@ class ChangeLaneTestcases < ChangeLane
     selected = suite_set.selected(tags, selectors: selectors)
     return errors + [ nothing_to_run ] if selected.empty?
 
-    errors + case_findings(selected, session) + acceptance_findings
+    errors + case_findings(selected, session) + acceptance_findings + quarantine_findings(selected)
   rescue ChangeFlowCompiler::Error => e
     [ finding(check: 'step compile', status: 'fail', severity: 'high',
               detail: "a case's steps could not be compiled: #{e.message}") ]
@@ -80,8 +91,8 @@ class ChangeLaneTestcases < ChangeLane
     return nil if @results.nil? || @results.empty?
 
     lines = [ '### Test cases and their acceptance criteria', '',
-              '| Case | Tags | Steps | Acceptance | Attempts | Criterion | Grader note |',
-              '| --- | --- | --- | --- | --- | --- | --- |' ]
+              '| Case | Tags | Steps | Acceptance | Attempts | Criterion | Grader note | Quarantine |',
+              '| --- | --- | --- | --- | --- | --- | --- | --- |' ]
     @results.each { |result| lines << acceptance_row(result) }
     lines.concat(acceptance_footnotes)
     lines.join("\n")
@@ -94,7 +105,7 @@ class ChangeLaneTestcases < ChangeLane
     verdict = result[:verdict]
     cells = [ item.qualified_id, item.tags.join(' '), result[:status].upcase,
               verdict ? verdict.verdict.upcase : 'NOT GRADED', result[:attempts],
-              flatten(item.acceptance), flatten(verdict&.rationale) ]
+              flatten(item.acceptance), flatten(verdict&.rationale), quarantine_cell(item) ]
     "| #{cells.map { |cell| cell.to_s.gsub('|', '\\|') }.join(' | ')} |"
   end
 
@@ -110,9 +121,47 @@ class ChangeLaneTestcases < ChangeLane
     [ '', ChangeAcceptanceGrader.override_guidance(interactive: interactive?) ]
   end
 
+  # The quarantine, rendered inline beside the case it shields rather than
+  # collected in a footnote. A muted case whose mute is only recorded somewhere
+  # else is how quarantine debt becomes invisible.
+  def quarantine_cell(item)
+    item.quarantine ? flatten(item.quarantine.summary(today)) : '-'
+  end
+
   def flatten(text) = text.to_s.gsub(/\s+/, ' ').strip
 
   def interactive? = ChangeAcceptanceGrader.interactive?
+
+  def today = @today || Date.today
+
+  # --- quarantine ---------------------------------------------------------------
+
+  # Whether a failure of this case may fail the run. Two separate reasons it may
+  # not: no tag of the case is listed in `gate_tags` (staged adoption of a whole
+  # suite), or the case carries a live quarantine (one known-flaky case, time
+  # boxed). They are kept apart because the report has to say which one applied;
+  # "not gated" without a reason is a soft failure nobody chose.
+  def gated?(item) = item.gates?(gate_tags) && !item.quarantined?(today)
+
+  # A quarantine whose date has passed gets its own warn finding, whatever the
+  # case itself did. The case is gating again and the suite file still says it is
+  # muted, so somebody is reading a shield that is not there. It stays a warn:
+  # the gate signal belongs to the case's own verdict, and stale bookkeeping is
+  # not a regression.
+  def quarantine_findings(selected)
+    selected.select { |item| item.quarantine_expired?(today) }.map do |item|
+      finding(check: "#{item.qualified_id} quarantine", status: 'warn', severity: 'medium',
+              detail: "quarantine expired #{item.quarantine.until_on.iso8601} " \
+                      "(#{flatten(item.quarantine.reason)}); this case gates again, " \
+                      'so either fix it or re-quarantine it with a new date')
+    end
+  end
+
+  # Named on a passing case too, so the debt does not become invisible the
+  # moment the flake happens not to fire.
+  def quarantine_note(item)
+    item.quarantine ? " (quarantined #{flatten(item.quarantine.summary(today))})" : ''
+  end
 
   # --- config ------------------------------------------------------------------
 
@@ -274,24 +323,20 @@ class ChangeLaneTestcases < ChangeLane
     return 'warn' unless verdict&.fail? || verdict&.pass?
     return 'pass' if verdict.pass?
 
-    item.gates?(gate_tags) ? 'fail' : 'warn'
+    gated?(item) ? 'fail' : 'warn'
   end
 
   def acceptance_detail(item, verdict, status)
     rationale = flatten(verdict&.rationale)
     rationale = 'the grader returned no rationale' if rationale.empty?
-    note = status == 'warn' && verdict&.fail? ? ungated_acceptance_note : ''
+    note = status == 'warn' && verdict&.fail? ? ungated_note_for(item) : ''
     "criterion: #{flatten(item.acceptance)} | verdict: #{verdict&.verdict || 'unclear'} | #{rationale}#{note}"
-  end
-
-  def ungated_acceptance_note
-    ' (reported, not gated: no tag of this case is listed in gate_tags)'
   end
 
   def status_for(item, record)
     return 'pass' if record && record['ok']
 
-    item.gates?(gate_tags) ? 'fail' : 'warn'
+    gated?(item) ? 'fail' : 'warn'
   end
 
   def case_finding(graded)
@@ -314,7 +359,7 @@ class ChangeLaneTestcases < ChangeLane
   def detail_for(graded)
     record = graded[:record]
     return "case did not run: #{graded[:case].qualified_id} produced no result" if record.nil?
-    return graded[:case].acceptance if record['ok']
+    return "#{graded[:case].acceptance}#{quarantine_note(graded[:case])}" if record['ok']
 
     "#{failure_reason(record)}#{ungated_note(graded)}"
   end
@@ -326,13 +371,24 @@ class ChangeLaneTestcases < ChangeLane
     step ? step['error'].to_s : 'case failed with no step-level error recorded'
   end
 
-  # A failing case that no gate_tag covers still reports; it just cannot fail
-  # the run. Saying so in the finding keeps that from reading as a soft failure
-  # nobody chose.
+  # A failing case that nothing gates still reports; it just cannot fail the
+  # run. Saying WHY in the finding keeps that from reading as a soft failure
+  # nobody chose, and keeps a one-case time-boxed quarantine distinguishable
+  # from a whole suite still being adopted.
   def ungated_note(graded)
     return '' if graded[:status] == 'fail'
 
-    " (reported, not gated: no tag of this case is listed in gate_tags)"
+    ungated_note_for(graded[:case])
+  end
+
+  def ungated_note_for(item)
+    " (reported, not gated: #{ungated_reason(item)})"
+  end
+
+  def ungated_reason(item)
+    return "quarantined #{flatten(item.quarantine.summary(today))}" if item.quarantined?(today)
+
+    'no tag of this case is listed in gate_tags'
   end
 
   def finding(check:, status:, severity:, detail:)

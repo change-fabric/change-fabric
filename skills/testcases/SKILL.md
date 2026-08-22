@@ -68,7 +68,8 @@ lanes:
 
 Check it before running the lane: `ruby ~/.claude/cf/bin/change_config.rb doctor`
 reports an unreadable glob, an empty suite, a duplicate case id, an unknown step
-verb, a missing `acceptance`, and a `gate_tags` entry no case carries.
+verb, a missing `acceptance`, a quarantine missing its reason or its date, and a
+`gate_tags` entry no case carries.
 
 A real credential never goes in a suite file. A `fill` reads its value from the
 env var `env:` names, or polls a `code_source` endpoint from inside the
@@ -86,6 +87,33 @@ lane. If a case is failing for a reason that is not a regression, fix the case
 in the repo rather than working around the gate: a case nobody trusts is worse
 than no case. `gate_tags` exists for the one legitimate version of that, staged
 adoption of a brand-new suite whose cases should report before they gate.
+
+## Quarantine a flaky case
+
+A case that is genuinely flaky can be time-boxed out of the gate instead of
+deleted or left red every run:
+
+```yaml
+  - id: flaky-payment-redirect
+    quarantined: true
+    quarantine_reason: the sandbox gateway drops one redirect in twenty
+    quarantine_until: 2026-09-15
+```
+
+It still runs, still reports, and still shows its verdict; only its power to
+fail the gate is suspended, and only until that date. Both companion keys are
+required, and a reason or a date without `quarantined: true` is rejected, since
+it reads as a live quarantine and is not one.
+
+Quarantine is never permanent. On `quarantine_until` the shield lapses on its
+own and the case gates again, with no second action from anybody. `doctor`
+warns once the expiry is within a week and errors once it has passed; the lane
+adds a `warn` finding for a lapsed one, because the file now claims a shield
+that is not there. The report names the reason and the date beside the case,
+so the debt is visible rather than buried.
+
+Prefer fixing the case. `gate_tags` is for staged adoption of a whole new
+suite; quarantine is for one known-flaky case with a date on it.
 
 ## Graded acceptance
 

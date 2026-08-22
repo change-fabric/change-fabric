@@ -5,6 +5,7 @@ require 'uri'
 require 'yaml'
 require 'json'
 require 'digest'
+require 'date'
 require_relative 'change_frontmatter'
 require_relative 'change_schema'
 require_relative 'change_suite'
@@ -174,8 +175,9 @@ class ChangeConfig
   # time. Every problem is reported at once, and each is an `error:` line
   # because each one means the lane checks less than its author believes: a
   # glob matching nothing, a suite with no cases, a duplicate case id, an
-  # unknown step verb, a case with no acceptance criterion, or a `gate_tags`
-  # entry no case carries. Silent on a repo that does not run the lane.
+  # unknown step verb, a case with no acceptance criterion, a quarantine missing
+  # its reason or its date, or a `gate_tags` entry no case carries. Silent on a
+  # repo that does not run the lane.
   def self.testcase_suite_lines(config)
     return [] unless config.enabled_lanes.include?('testcases')
 
@@ -185,9 +187,26 @@ class ChangeConfig
     lines.concat(set.unmatched_gate_tags(Array(lane['gate_tags'])).map do |tag|
       "error: lanes.testcases.gate_tags names '#{tag}', which no loaded case carries"
     end)
+    lines.concat(quarantine_lines(set))
     return lines unless set.errors.empty?
 
     lines << "testcases: #{set.cases.size} case(s) in #{set.suites.size} suite(s)"
+  end
+
+  # The quarantine debt, raised here rather than only at gate time. An expiry
+  # that has passed is an `error:` because the file now says something untrue,
+  # and one coming due is a `warning:` because the author still has time to
+  # either fix the case or make a deliberate decision to re-quarantine it.
+  # Neither line changes what runs: a quarantine lapses on its own date.
+  def self.quarantine_lines(set)
+    today = Date.today
+    set.expired_quarantines(today).map do |item|
+      "error: testcases case '#{item.qualified_id}' has an expired quarantine " \
+        "(#{item.quarantine.until_on.iso8601}); it gates again, so either fix it or re-quarantine it"
+    end + set.expiring_quarantines(today).map do |item|
+      "warning: testcases case '#{item.qualified_id}' quarantine expires in " \
+        "#{item.quarantine.days_left(today)} day(s) (#{item.quarantine.until_on.iso8601}): #{item.quarantine.reason}"
+    end
   end
 
   # Warns when a lane's own absolute url literal (an absolute zap target, an

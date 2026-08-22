@@ -3,6 +3,7 @@
 require "minitest/autorun"
 require "tmpdir"
 require "yaml"
+require "date"
 require_relative "../scripts/change_config"
 require_relative "../scripts/change_policy"
 require_relative "../scripts/change_gate_store"
@@ -108,6 +109,66 @@ class ChangeConfigTestcasesTest < Minitest::Test
     with_config(config, nil, suite: nil) do |loaded, root|
       lines = ChangeConfig.doctor_lines(root, loaded)
       refute lines.any? { |line| line.include?("testcases") }
+    end
+  end
+
+  # --- doctor on a quarantine ------------------------------------------------------
+
+  # Real dates against the real clock, because doctor's whole job is to tell a
+  # person what their file says TODAY.
+  def quarantined(days_out, reason: "the sandbox gateway drops a redirect")
+    lines = [ "suite: checkout", "cases:", "  - id: happy-path", "    tags: [smoke]",
+              "    acceptance: A guest can reach the confirmation page.", "    quarantined: true" ]
+    lines << "    quarantine_reason: #{reason}" unless reason.nil?
+    lines << "    quarantine_until: #{(Date.today + days_out).iso8601}"
+    "#{lines.concat([ "    steps:", "      - goto: /" ]).join("\n")}\n"
+  end
+
+  def doctor_on(suite)
+    with_config(base, suite: suite) { |config, root| yield ChangeConfig.doctor_lines(root, config) }
+  end
+
+  def test_doctor_is_quiet_about_a_quarantine_with_time_left
+    doctor_on(quarantined(60)) do |lines|
+      refute lines.any? { |line| line.include?("quarantine") }
+    end
+  end
+
+  def test_doctor_warns_on_an_approaching_expiry
+    doctor_on(quarantined(3)) do |lines|
+      warning = lines.find { |line| line.start_with?("warning:") && line.include?("quarantine expires") }
+      assert warning
+      assert_includes warning, "3 day(s)"
+      assert_includes warning, "the sandbox gateway drops a redirect"
+    end
+  end
+
+  # The date is the day the quarantine ends, so it has already lapsed on it.
+  def test_doctor_errors_on_a_quarantine_expiring_today
+    doctor_on(quarantined(0)) do |lines|
+      assert lines.any? { |line| line.start_with?("error:") && line.include?("expired quarantine") }
+    end
+  end
+
+  def test_doctor_errors_on_an_expired_quarantine
+    doctor_on(quarantined(-14)) do |lines|
+      error = lines.find { |line| line.start_with?("error:") && line.include?("expired quarantine") }
+      assert error
+      assert_includes error, "checkout/happy-path"
+      assert_includes error, "it gates again"
+    end
+  end
+
+  def test_doctor_errors_on_a_quarantine_with_no_reason
+    doctor_on(quarantined(30, reason: nil)) do |lines|
+      assert lines.any? { |line| line.start_with?("error:") && line.include?("no `quarantine_reason`") }
+    end
+  end
+
+  def test_doctor_errors_on_a_quarantine_with_no_date
+    suite = quarantined(30).sub(/    quarantine_until: .*\n/, "")
+    doctor_on(suite) do |lines|
+      assert lines.any? { |line| line.start_with?("error:") && line.include?("no `quarantine_until` date") }
     end
   end
 
