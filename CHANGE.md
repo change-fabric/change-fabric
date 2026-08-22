@@ -67,12 +67,61 @@ change_config:
 
 change_policy:
   protected_branches: [main]
+  # Merging to main stages work; nothing ships until a maintainer pushes the
+  # matching release tag. The three tag namespaces below are the actual release
+  # events for this repo's three tracks, so they are gated here alongside main.
+  # See RELEASING.md for the runbook each one belongs to.
+  protected_refs:
+    - main
+    - "tag:skills/v*"
+    - "tag:spec/v*"
+    - "tag:site/v*"
   promotion:
     main:
       review_required: false
       self_review_allowed: true
       require_change_pass: true
       ci_gate: "ci.yml: rubocop, TypeScript typecheck (npm run typecheck), rake test"
+      ci_skippable: false
+
+    # Tag rules, gated at tag-push time by change_tag_guard.rb. Each carries the
+    # same require_change_pass strictness as the merge to main, so the exact
+    # commit being released has its own recorded passing sweep rather than
+    # inheriting one from an ancestor. require_trunk_ancestor: main matches this
+    # repo's linear, squash-merge-only history: a release tag never points at an
+    # unmerged commit. No profile:/apps: on any rule; this file declares neither
+    # profiles nor apps, so both would name nothing.
+    #
+    # None of the three sets require_prior_tag. It requires an already-published
+    # tag matching a glob to point at the *same commit* (the trunk equivalent of
+    # "production only from staging"), which is not what these tracks are: they
+    # are three independent namespaces on one trunk with no shared cadence and no
+    # lower environment to promote from. Per-track version monotonicity is a
+    # different question and is already enforced by each publish workflow
+    # (release-skills.yml requires plain semver strictly above every existing
+    # skills tag; release-spec.yml matches the tag against ChangeSchema::VERSION,
+    # the spec doc and CHANGELOG.md; deploy-site.yml matches it against
+    # site/VERSION and requires the spec version it would publish to already be
+    # released).
+    tag:skills/v*:
+      environment: toolkit release
+      require_change_pass: true
+      require_trunk_ancestor: main
+      ci_gate: "the ci.yml run that gated the merge to main, plus release-skills.yml's own tag checks"
+      ci_skippable: false
+
+    tag:spec/v*:
+      environment: spec release
+      require_change_pass: true
+      require_trunk_ancestor: main
+      ci_gate: "the ci.yml run that gated the merge to main, plus release-spec.yml's version-agreement checks"
+      ci_skippable: false
+
+    tag:site/v*:
+      environment: production site
+      require_change_pass: true
+      require_trunk_ancestor: main
+      ci_gate: "the ci.yml run that gated the merge to main, plus deploy-site.yml's version and spec-release checks"
       ci_skippable: false
   admin_bypass:
     allowed: false
@@ -102,6 +151,10 @@ toolkit's version is the tag itself and there is no file to edit; the other
 two carry a version file the tag is checked against. The model and the runbook
 are in `RELEASING.md`.
 
+Because the release event is a tag push rather than a merge, the three tag
+namespaces are protected refs in their own right, gated at push time by
+`change_tag_guard.rb`.
+
 ## What is required before promoting to main
 
 Every PR into `main` must have CI green: `ci.yml` runs `bundle exec
@@ -110,6 +163,19 @@ rake test`. This is not currently skippable. A merge review is not required
 in practice today (see self-review below), but the comprehensive `cf:change`
 audit gate must still have passed for the head commit before merge, which
 the change-fabric merge hook enforces regardless.
+
+## What is required before cutting a release tag
+
+A `skills/v*`, `spec/v*` or `site/v*` tag may only be pushed at a commit that
+is already an ancestor of `main` and that has its own passing comprehensive
+`cf:change` run recorded. Landing on `main` does not carry that pass forward:
+run `ruby scripts/change_run.rb all --for-tag <tagname>` against the exact
+commit being tagged, or `ruby scripts/change_run.rb gate-status --ref <ref>`
+to check without running anything, then push the tag.
+
+No track requires a prior tag at the same commit. The three tracks release
+independently on their own cadences, and version ordering within each track is
+already checked by that track's own publish workflow, not by this file.
 
 ## Who can review, and is self-review allowed
 
@@ -139,3 +205,15 @@ typecheck (`npm run typecheck`), then `bundle exec rake test`. Not
 skippable. Additionally, the change-fabric merge-gating hook
 (`change_merge_guard.rb`) requires a passing comprehensive `cf:change` run
 recorded for the PR's head SHA before `gh pr merge` into `main` is allowed.
+
+## What CI gates a release tag
+
+No CI runs on the tag itself beyond its own publish workflow's checks:
+`release-skills.yml` (plain semver, newly created, strictly above every
+existing `skills/v*` tag), `release-spec.yml` (tag agrees with
+`ChangeSchema::VERSION`, the spec doc's `Schema version` line and a matching
+`CHANGELOG.md` section) and `deploy-site.yml` (tag agrees with `site/VERSION`,
+and the spec version it would publish as current is already released). The
+functional CI is the `ci.yml` run that gated the merge to `main` for that same
+commit. On top of both, `change_tag_guard.rb` requires the recorded `cf:change`
+pass described above.
