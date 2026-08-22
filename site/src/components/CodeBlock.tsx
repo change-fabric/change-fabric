@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 // clipboard API is unavailable the block is still fully selectable by hand.
 export function CodeBlock({ code, label }: { code: string; label?: string }) {
   const [copied, setCopied] = useState(false);
-  const resetTimer = useRef<number>();
+  const resetTimer = useRef<number | undefined>(undefined);
 
   // Clear a pending reset if the block unmounts, so the timeout never fires on
   // an unmounted component.
@@ -29,7 +29,15 @@ export function CodeBlock({ code, label }: { code: string; label?: string }) {
           {copied ? "Copied" : "Copy"}
         </button>
       </div>
-      <pre>
+      {/* A long line scrolls the block, not the page, so the block itself has
+          to be focusable. role="group" rather than "region" keeps a page full
+          of code samples from adding a pile of same-named landmarks. */}
+      <pre
+        className="scroll-region"
+        tabIndex={0}
+        role="group"
+        aria-label={label ? `${label} code sample` : "Code sample"}
+      >
         <code>{code}</code>
       </pre>
     </div>

@@ -79,6 +79,17 @@ class ChangeLaneA11y < ChangeLane
   end
 
   def route_findings(route)
+    # A route whose navigation threw (the scan module's own catch pushes
+    # `{ route, error, violations: [] }`) used to fall through every branch
+    # below and land on "no violations", which graded a page that never
+    # loaded as a pass. That is the worst possible failure mode for a gate:
+    # a whole lane reported clean against an unreachable target.
+    if route['error']
+      return [ Finding.new(lane: 'a11y', check: 'navigation error', status: 'fail', severity: 'high',
+                           target: base_url, location: route['route'].to_s,
+                           detail: "could not load the route: #{route['error']}") ]
+    end
+
     if route['nonOkStatus']
       return [ Finding.new(lane: 'a11y', check: 'non-2xx response', status: 'fail', severity: 'high',
                            target: base_url, location: route['route'].to_s,

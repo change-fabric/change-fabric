@@ -27,10 +27,25 @@ change_config:
   boot:
     # site/ is a static Vite + React SPA with no backend of its own (see
     # site/README.md). `npm run dev` runs in the foreground, so it is
-    # self-detached here per the change-fabric boot contract.
-    up: "cd site && npm ci && (nohup npm run dev -- --port 5173 --strictPort >/tmp/changefabric-site.log 2>&1 & echo $! >/tmp/changefabric-site.pid)"
-    down: "kill \"$(cat /tmp/changefabric-site.pid)\" 2>/dev/null; rm -f /tmp/changefabric-site.pid"
-    target_url: http://localhost:5173
+    # self-detached here per the change-fabric boot contract. `--host` binds
+    # the dev server to every interface, not just loopback: the lanes run in
+    # containers and reach this process over the docker bridge, which a
+    # 127.0.0.1-only listener refuses. site/vite.config.ts allows the
+    # host.docker.internal Host header that arrives with those requests.
+    up: "cd site && npm ci && (nohup npm run dev -- --port 5173 --strictPort --host 0.0.0.0 >/tmp/changefabric-site.log 2>&1 & echo $! >/tmp/changefabric-site.pid)"
+    # The pid file holds the `npm run dev` wrapper, not the vite process it
+    # spawns, so killing it alone leaves the dev server holding 5173. The next
+    # run then boots into "port already in use", and its health check passes
+    # against the stale server it did not start: a run that audits the
+    # previous checkout. The pkill covers the child by its own command line.
+    # The bracket in `[v]ite` keeps that pattern from matching the teardown
+    # shell's own command line, which would have it kill itself and report a
+    # failed teardown for a teardown that worked.
+    down: "kill \"$(cat /tmp/changefabric-site.pid)\" 2>/dev/null; pkill -f '[v]ite --port 5173 --strictPort' 2>/dev/null; rm -f /tmp/changefabric-site.pid"
+    # No boot.network: this app is booted on the host, not in compose, so the
+    # runners reach it by the spec's host alias. `health.url` stays on
+    # localhost because that poll runs on the host, not in a container.
+    target_url: http://host.docker.internal:5173
     health:
       url: http://localhost:5173/
       expect_status: 200
@@ -49,7 +64,7 @@ change_config:
 
     zap:
       enabled: true
-      targets: ["http://localhost:5173"]
+      targets: ["http://host.docker.internal:5173"]
       strict: false
       auth: null
 
@@ -63,7 +78,7 @@ change_config:
         - { name: mobile, width: 390, height: 844 }
         - { name: tablet, width: 768, height: 1024 }
         - { name: desktop, width: 1440, height: 900 }
-      base_url: http://localhost:5173
+      base_url: http://host.docker.internal:5173
 
 change_policy:
   protected_branches: [main]

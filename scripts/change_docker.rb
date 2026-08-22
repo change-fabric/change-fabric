@@ -20,7 +20,27 @@ module ChangeDocker
   ZAP_IMAGE = 'ghcr.io/zaproxy/zaproxy:stable@sha256:8d387b1a63e3425beef4846e39719f5af2a787753af2d8b6558c6257d7a577a2'
   BROWSERLESS_IMAGE = 'ghcr.io/browserless/chromium:v2.38.1@sha256:78afaada9f7b049783bfed624e6b5e9a2d3438fc04bb46801ed777e82ae1501f'
 
+  # The hostname a runner container addresses the host by, and the docker
+  # magic value that makes it resolve. The spec has always told authors to
+  # reach a host-booted app via `host.docker.internal` when no `boot.network`
+  # is configured, but only Docker Desktop defines that name for free. On
+  # Docker Engine (every Linux host, and CI) the name resolves nowhere, so
+  # every containerized lane failed with ERR_CONNECTION_REFUSED or a DNS
+  # error against a target the host-side health check had just confirmed
+  # healthy. `host-gateway` is docker's own alias for the host as seen from
+  # the container (the bridge gateway, 172.17.0.1 by default); mapping it
+  # here, once, makes the documented convention true everywhere. It is
+  # accepted on Docker Desktop too, where it simply restates the mapping
+  # Desktop already provides, so this is not Linux-only plumbing.
+  HOST_ALIAS = 'host.docker.internal'
+  HOST_GATEWAY = "#{HOST_ALIAS}:host-gateway"
+
   module_function
+
+  # Every container this module starts gets the host alias. Kept as one method
+  # so a new runner cannot be added without it, which is exactly how the zap
+  # and browserless lanes drifted from the spec's documented convention.
+  def host_gateway_args = [ '--add-host', HOST_GATEWAY ]
 
   def available?
     _out, status = Open3.capture2e('docker', 'info')
@@ -35,14 +55,20 @@ module ChangeDocker
   # so a container orphaned by a crashed run (`--rm` never ran) is identifiable
   # and reachable by `sweep`. Extra args are the image plus its command.
   def run(network:, image:, args:, env: {}, mounts: {}, name: nil)
+    Open3.capture2e(*run_command(network: network, image: image, args: args, env: env, mounts: mounts, name: name))
+  end
+
+  # The argv `run` executes, split out so a test can assert the flags without
+  # a docker daemon.
+  def run_command(network:, image:, args:, env: {}, mounts: {}, name: nil)
     cmd = [ 'docker', 'run', '--rm' ]
     cmd += [ '--name', name ] if name
     cmd += [ '--network', network ] if network
+    cmd += host_gateway_args
     env.each { |key, value| cmd += [ '-e', "#{key}=#{value}" ] }
     mounts.each { |host, container| cmd += [ '-v', "#{host}:#{container}" ] }
     cmd << image
-    cmd += Array(args)
-    Open3.capture2e(*cmd)
+    cmd + Array(args)
   end
 
   # Yields a Network the caller uses for the whole run: the app's own network
@@ -91,11 +117,17 @@ module ChangeDocker
   end
 
   def start_browserless(name, network, port, token)
+    out, status = Open3.capture2e(*browserless_command(name, network, port, token))
+    raise "failed to start browserless container: #{out.strip}" unless status.success?
+  end
+
+  # The browser container's argv, split out for the same reason as
+  # run_command: the host alias is asserted in a test, not in a docker run.
+  def browserless_command(name, network, port, token)
     cmd = [ 'docker', 'run', '-d', '--rm', '--name', name ]
     cmd += [ '--network', network ] if network
-    cmd += [ '-p', "127.0.0.1:#{port}:3000", '-e', "TOKEN=#{token}", BROWSERLESS_IMAGE ]
-    out, status = Open3.capture2e(*cmd)
-    raise "failed to start browserless container: #{out.strip}" unless status.success?
+    cmd += host_gateway_args
+    cmd + [ '-p', "127.0.0.1:#{port}:3000", '-e', "TOKEN=#{token}", BROWSERLESS_IMAGE ]
   end
 
   # Prefix every ephemeral resource this platform creates carries, so a
