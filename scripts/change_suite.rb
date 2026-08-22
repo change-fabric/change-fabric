@@ -2,6 +2,7 @@
 # frozen_string_literal: true
 
 require 'yaml'
+require 'date'
 require_relative 'change_suite_schema'
 require_relative 'change_flow_compiler'
 
@@ -21,10 +22,46 @@ require_relative 'change_flow_compiler'
 class ChangeSuite
   Error = Class.new(StandardError)
 
+  # A case's time-boxed flake quarantine: why it is quarantined, and the day the
+  # quarantine ends.
+  #
+  # Quarantine is never permanent, which is the whole reason the date is
+  # required. A case that can be muted indefinitely is a case that gets muted and
+  # forgotten, and a suite of those is a green gate that checks nothing. The
+  # expiry is the forcing function: on `until_on` the shield lapses on its own
+  # and the case gates again, with no second action needed from anybody.
+  #
+  # `until_on` is the day the quarantine ENDS, so it has already lapsed on that
+  # date. Erring toward expiring sooner is the safe direction: the failure mode
+  # of an early expiry is a red gate somebody looks at, and the failure mode of a
+  # late one is a regression nobody sees.
+  Quarantine = Struct.new(:reason, :until_on, keyword_init: true) do
+    # How long before the expiry doctor starts saying so, in days. Long enough
+    # that a person has a working week to either fix the case or make a
+    # deliberate decision to re-quarantine it.
+    WARN_WINDOW_DAYS = 7
+
+    def expired?(today = Date.today) = until_on <= today
+
+    # Not yet lapsed, but close enough that the debt is about to come due.
+    def expiring_soon?(today = Date.today)
+      !expired?(today) && (until_on - today).to_i <= WARN_WINDOW_DAYS
+    end
+
+    def days_left(today = Date.today) = (until_on - today).to_i
+
+    # The one-line form a report and a doctor line both render, so the debt
+    # reads identically wherever a person meets it.
+    def summary(today = Date.today)
+      "#{expired?(today) ? 'EXPIRED' : 'until'} #{until_on.iso8601}: #{reason}"
+    end
+  end
+
   # One case: an id, its tags, the human-prose acceptance criterion, its own
-  # retry budget, and the declarative steps. `steps` stays raw here; the lane
-  # compiles it through ChangeFlowCompiler, which owns the step vocabulary.
-  TestCase = Struct.new(:suite, :id, :tags, :acceptance, :retries, :steps, keyword_init: true) do
+  # retry budget, an optional quarantine, and the declarative steps. `steps`
+  # stays raw here; the lane compiles it through ChangeFlowCompiler, which owns
+  # the step vocabulary.
+  TestCase = Struct.new(:suite, :id, :tags, :acceptance, :retries, :quarantine, :steps, keyword_init: true) do
     # A case's report-facing name, unique across every loaded suite.
     def qualified_id = "#{suite}/#{id}"
 
@@ -44,6 +81,12 @@ class ChangeSuite
     # -adoption escape valve, naming the tags that DO gate while a new suite
     # is still being trusted.
     def gates?(gate_tags) = gate_tags.empty? || gate_tags.intersect?(tags)
+
+    # Whether a live quarantine is currently shielding this case from the gate.
+    # An expired one shields nothing: it is debt the report names, not a mute.
+    def quarantined?(today = Date.today) = !quarantine.nil? && !quarantine.expired?(today)
+
+    def quarantine_expired?(today = Date.today) = !quarantine.nil? && quarantine.expired?(today)
   end
 
   attr_reader :name, :path, :cases
@@ -57,7 +100,9 @@ class ChangeSuite
   # Parses one suite file, raising Error with the offending file named. Every
   # rule here is one the doctor reports and the lane refuses to run past.
   def self.load_file(path)
-    raw = YAML.safe_load(File.read(path), aliases: true)
+    # Date is permitted so an unquoted `quarantine_until: 2026-09-01` parses as
+    # the date it plainly is rather than being refused as a disallowed class.
+    raw = YAML.safe_load(File.read(path), aliases: true, permitted_classes: [ Date ])
     raise Error, "suite file is not a mapping: #{path}" unless raw.is_a?(Hash)
 
     name = raw['suite'].to_s
@@ -94,7 +139,44 @@ class ChangeSuite
     raise Error, "suite '#{name}' case '#{id}' has no acceptance criterion (#{path})" if acceptance.empty?
 
     TestCase.new(suite: name, id: id, tags: string_list(raw_case['tags']), acceptance: acceptance,
-                 retries: retries(raw_case['retries']), steps: steps(raw_case['steps'], name, id, path))
+                 retries: retries(raw_case['retries']),
+                 quarantine: quarantine(raw_case, name, id, path),
+                 steps: steps(raw_case['steps'], name, id, path))
+  end
+
+  # A quarantine is all three keys or none of them. Both companions are required
+  # rather than defaulted because each one, left implicit, is the failure this
+  # feature exists to prevent: without a reason nobody can tell a known flake
+  # from a real defect somebody muted, and without a date the mute is permanent.
+  # A reason or a date on a case that is not quarantined is rejected too, since
+  # it reads to its author as a live quarantine and is not one.
+  def self.quarantine(raw_case, name, id, path)
+    where = "suite '#{name}' case '#{id}' (#{path})"
+    flagged = raw_case['quarantined'] == true
+    reason = raw_case['quarantine_reason'].to_s.strip
+    raw_until = raw_case['quarantine_until']
+
+    unless flagged
+      return nil if reason.empty? && raw_until.nil?
+
+      raise Error, "#{where} sets quarantine keys without `quarantined: true`, so nothing is quarantined"
+    end
+
+    raise Error, "#{where} is quarantined with no `quarantine_reason`" if reason.empty?
+    raise Error, "#{where} is quarantined with no `quarantine_until` date" if raw_until.nil?
+
+    Quarantine.new(reason: reason, until_on: quarantine_date(raw_until, where))
+  end
+
+  # Accepts what YAML already parsed as a date, and an ISO-8601 string for the
+  # quoted form. Anything else is refused by name rather than coerced: a date
+  # that silently parsed as something else sets an expiry nobody chose.
+  def self.quarantine_date(value, where)
+    return value if value.is_a?(Date)
+
+    Date.iso8601(value.to_s)
+  rescue ArgumentError, TypeError
+    raise Error, "#{where} has a `quarantine_until` that is not an ISO-8601 date (YYYY-MM-DD): #{value}"
   end
 
   def self.steps(raw_steps, name, id, path)
@@ -191,5 +273,19 @@ class ChangeSuiteSet
   def unmatched_gate_tags(gate_tags)
     known = cases.flat_map(&:tags).uniq
     Array(gate_tags).map(&:to_s) - known
+  end
+
+  # Every quarantine whose date has passed. Reported wherever suites are
+  # inspected, because an expired quarantine is the one state nobody chose: the
+  # case is gating again and the file still says it is muted, so the next reader
+  # believes a shield that is not there.
+  def expired_quarantines(today = Date.today)
+    cases.select { |item| item.quarantine_expired?(today) }
+  end
+
+  # Quarantines coming due, so the debt is raised while there is still time to
+  # act on it rather than at the moment the gate turns red.
+  def expiring_quarantines(today = Date.today)
+    cases.select { |item| item.quarantine&.expiring_soon?(today) }
   end
 end

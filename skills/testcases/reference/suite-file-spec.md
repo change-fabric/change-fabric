@@ -37,6 +37,9 @@ governance file into every team's assertion dump.
 | `cases[].tags` | list of string | no | Free-form tags. `lanes.testcases.tags` selects which cases run; `lanes.testcases.gate_tags` selects which may fail the gate. |
 | `cases[].acceptance` | string | yes | What a human means by "working" for this case, in plain English. Required, and rendered beside its verdict in the report. A selector assertion cannot catch a page that renders every expected element and still does the wrong thing; this sentence is graded against what the run observed, and that verdict can fail the gate. Write what actually matters, not a restatement of the steps. |
 | `cases[].retries` | integer | no (default 0) | How many times to re-run this case while it fails. Zero by default: a case that only passes sometimes is a finding, not a scheduling problem. A case that passed only after a retry is recorded as a pass with `flaky` beside it and its attempt count, never laundered into a clean first-run pass. |
+| `cases[].quarantined` | boolean | no (default false) | Time-boxes this case out of the gate. It still runs and still reports; its failure just cannot fail the gate, and only until `quarantine_until`. Requires both companions below. |
+| `cases[].quarantine_reason` | string | yes when quarantined | Why this case is quarantined, in plain English. Required, because without it nobody can tell a known flake from a real defect somebody muted. |
+| `cases[].quarantine_until` | date (`YYYY-MM-DD`) | yes when quarantined | The day the quarantine ends. Quarantine is never permanent. The shield has already lapsed on this date, and the case gates again from then on with no second action from anybody. |
 | `cases[].steps` | list of mapping | yes | The ordered steps. Each entry is a mapping naming exactly one verb below, plus an optional `timeout_ms`. The walk stops at the first failing step, because everything after it runs against a page that is no longer in the state the case described. |
 
 ## Step verbs
@@ -72,6 +75,29 @@ OTP is never read, stored, or logged on the host at all. Compiled steps carrying
 a value read from an env var go to the container and nowhere else; the report
 renders step labels and the acceptance prose, never the compiled payload.
 
+## Quarantine
+
+A case that is genuinely flaky can be time-boxed out of the gate rather than
+deleted or left to fail every run:
+
+```yaml
+  - id: flaky-payment-redirect
+    quarantined: true
+    quarantine_reason: the sandbox gateway drops one redirect in twenty
+    quarantine_until: 2026-09-15
+```
+
+It still runs, still reports, and still shows its verdict; only its power to
+fail the gate is suspended. The report and every doctor line carry the reason
+and the date inline, so the debt is visible rather than buried in a file nobody
+opens.
+
+Both companions are required, and a reason or a date without
+`quarantined: true` is rejected outright, because it reads as a live quarantine
+and is not one. `doctor` warns once the expiry is within a week and errors once
+it has passed. Nothing has to be un-quarantined by hand: on the date the shield
+lapses on its own and the case gates again.
+
 ## What the lane rejects
 
 `ruby ~/.claude/cf/bin/change_config.rb doctor` reports each of these, and the
@@ -83,6 +109,9 @@ less than its author believes:
 - a duplicate case id within a suite
 - a step naming an unknown verb, no verb, or more than one verb
 - a case with no `acceptance`
+- a quarantined case missing its `quarantine_reason` or its `quarantine_until`
+- a `quarantine_reason` or `quarantine_until` without `quarantined: true`
+- a `quarantine_until` that is not an ISO-8601 date
 - a `lanes.testcases.gate_tags` entry no loaded case carries
 
 ## Example

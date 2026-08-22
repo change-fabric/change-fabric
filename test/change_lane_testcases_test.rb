@@ -3,6 +3,7 @@
 require "minitest/autorun"
 require "tmpdir"
 require "json"
+require "date"
 require_relative "../scripts/change_config"
 require_relative "../scripts/change_run"
 require_relative "../scripts/change_lane_testcases"
@@ -83,9 +84,10 @@ class ChangeLaneTestcasesTest < Minitest::Test
     end
   end
 
-  def lane(dir, raw = {}, session: nil, select: [], grader: FakeGrader.new)
+  def lane(dir, raw = {}, session: nil, select: [], grader: FakeGrader.new, today: nil)
     config = ChangeConfig::LaneConfig.new("testcases", { "suites" => [ "*.cf-testcases.yml" ] }.merge(raw), dir)
-    ChangeLaneTestcases.new(config, Ctx.new("net", "https://app.example.org", session, select), grader: grader)
+    ChangeLaneTestcases.new(config, Ctx.new("net", "https://app.example.org", session, select),
+                            grader: grader, today: today)
   end
 
   # Only findings about the cases' steps, not the acceptance gradings that now
@@ -442,6 +444,161 @@ class ChangeLaneTestcasesTest < Minitest::Test
 
       assert_includes session.code, "async function observe(page)"
       assert_includes session.code, "observation: ok ? await observe(session.page) : null"
+    end
+  end
+
+  # --- quarantine -------------------------------------------------------------------
+
+  TODAY = Date.new(2026, 8, 22)
+
+  # `happy-path` quarantined until the date the caller names, so every expiry
+  # boundary is one string substitution away from the same suite.
+  def quarantined_suite(until_on)
+    SUITE.sub("    acceptance: A guest can reach the confirmation page.\n",
+              "    acceptance: A guest can reach the confirmation page.\n" \
+              "    quarantined: true\n" \
+              "    quarantine_reason: the sandbox gateway drops a redirect\n" \
+              "    quarantine_until: #{until_on}\n")
+  end
+
+  def quarantined_failure(dir, today: TODAY)
+    result = ok_result(2)
+    result[0] = failed_result(0, [ { "index" => 0, "label" => "goto /products/widget", "ok" => false,
+                                     "error" => "Error: navigation failed" } ])
+    lane(dir, {}, session: FakeSession.new(result), today: today).run
+  end
+
+  # The whole point: a quarantined case still runs and still reports, it just
+  # cannot fail the run while the quarantine is live.
+  def test_a_quarantined_case_reports_its_failure_without_failing_the_gate
+    with_suite(quarantined_suite("2026-09-30")) do |dir|
+      findings = step_findings(quarantined_failure(dir))
+      quarantined = findings.find { |finding| finding.check == "checkout/happy-path" }
+
+      assert_equal "warn", quarantined.status
+      assert_includes quarantined.detail, "navigation failed"
+      assert_includes quarantined.detail, "quarantined until 2026-09-30"
+      assert_includes quarantined.detail, "the sandbox gateway drops a redirect"
+    end
+  end
+
+  # An unquarantined case in the same suite is untouched: quarantine is per
+  # case, never a property the suite catches.
+  def test_quarantine_shields_only_the_case_that_carries_it
+    with_suite(quarantined_suite("2026-09-30")) do |dir|
+      result = [ failed_result(0, []), failed_result(1, []) ]
+      findings = step_findings(lane(dir, {}, session: FakeSession.new(result), today: TODAY).run)
+
+      assert_equal %w[warn fail], findings.map(&:status)
+    end
+  end
+
+  # Well clear of the window: shielded, and nothing warns about it yet.
+  def test_a_quarantine_that_is_not_yet_expiring_shields_and_stays_quiet
+    with_suite(quarantined_suite("2026-12-01")) do |dir|
+      findings = quarantined_failure(dir)
+
+      assert_equal "warn", step_findings(findings).first.status
+      refute findings.any? { |finding| finding.check.end_with?("quarantine") }
+    end
+  end
+
+  # Inside the warning window it still shields: coming due is a prompt to act,
+  # not a lapse.
+  def test_a_quarantine_expiring_soon_still_shields
+    with_suite(quarantined_suite("2026-08-27")) do |dir|
+      assert_equal "warn", step_findings(quarantined_failure(dir)).first.status
+    end
+  end
+
+  # The date is the day the quarantine ENDS, so it has already lapsed on it.
+  # Erring early is the safe direction: an early expiry is a red gate somebody
+  # reads, a late one is a regression nobody sees.
+  def test_a_quarantine_expiring_today_no_longer_shields
+    with_suite(quarantined_suite("2026-08-22")) do |dir|
+      findings = quarantined_failure(dir)
+
+      assert_equal "fail", step_findings(findings).first.status
+      expiry = findings.find { |finding| finding.check == "checkout/happy-path quarantine" }
+      assert_equal "warn", expiry.status
+      assert_includes expiry.detail, "quarantine expired 2026-08-22"
+    end
+  end
+
+  def test_an_expired_quarantine_lets_the_case_fail_again
+    with_suite(quarantined_suite("2026-07-01")) do |dir|
+      findings = quarantined_failure(dir)
+
+      assert_equal "fail", step_findings(findings).first.status
+      assert findings.any? { |finding| finding.check == "checkout/happy-path quarantine" }
+    end
+  end
+
+  # A passing quarantined case is exactly where the debt would otherwise
+  # disappear, so the note is on it too.
+  def test_a_passing_quarantined_case_still_names_its_quarantine
+    with_suite(quarantined_suite("2026-09-30")) do |dir|
+      instance = lane(dir, {}, session: FakeSession.new(ok_result(2)), today: TODAY)
+      findings = step_findings(instance.run)
+
+      assert findings.first.pass?
+      assert_includes findings.first.detail, "quarantined until 2026-09-30"
+      assert_includes instance.acceptance_section, "| until 2026-09-30: the sandbox gateway drops a redirect |"
+      assert_includes instance.acceptance_section, "| checkout/empty-cart |"
+    end
+  end
+
+  # A graded acceptance verdict is softened by a quarantine exactly as a step
+  # failure is: quarantine shields the case, not one half of it.
+  def test_a_quarantine_softens_a_failed_acceptance_verdict_too
+    with_suite(quarantined_suite("2026-09-30")) do |dir|
+      grader = FakeGrader.new(verdicts: { "checkout/happy-path" => [ "fail", "it charged the card twice" ] })
+      findings = acceptance_findings(
+        lane(dir, {}, session: FakeSession.new(ok_result(2)), grader: grader, today: TODAY).run
+      )
+      softened = findings.find { |finding| finding.check == "checkout/happy-path acceptance" }
+
+      assert_equal "warn", softened.status
+      assert_includes softened.detail, "quarantined until 2026-09-30"
+    end
+  end
+
+  # --- quarantine refusals -------------------------------------------------------------
+
+  def test_a_quarantine_with_no_reason_is_refused
+    body = quarantined_suite("2026-09-30").sub("    quarantine_reason: the sandbox gateway drops a redirect\n", "")
+    with_suite(body) do |dir|
+      findings = lane(dir, {}, session: FakeSession.new([])).run
+
+      assert findings.any? { |finding| finding.fail? && finding.detail.include?("no `quarantine_reason`") }
+    end
+  end
+
+  def test_a_quarantine_with_no_date_is_refused
+    body = quarantined_suite("2026-09-30").sub("    quarantine_until: 2026-09-30\n", "")
+    with_suite(body) do |dir|
+      findings = lane(dir, {}, session: FakeSession.new([])).run
+
+      assert findings.any? { |finding| finding.fail? && finding.detail.include?("no `quarantine_until` date") }
+    end
+  end
+
+  # A reason or a date without the flag reads to its author as a live
+  # quarantine and is not one, which is the worst of both states.
+  def test_quarantine_keys_without_the_flag_are_refused
+    body = quarantined_suite("2026-09-30").sub("    quarantined: true\n", "")
+    with_suite(body) do |dir|
+      findings = lane(dir, {}, session: FakeSession.new([])).run
+
+      assert findings.any? { |finding| finding.detail.include?("without `quarantined: true`") }
+    end
+  end
+
+  def test_a_quarantine_date_that_is_not_a_date_is_refused
+    with_suite(quarantined_suite('"next friday"')) do |dir|
+      findings = lane(dir, {}, session: FakeSession.new([])).run
+
+      assert findings.any? { |finding| finding.detail.include?("not an ISO-8601 date") }
     end
   end
 
