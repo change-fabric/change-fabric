@@ -4,11 +4,10 @@
 # Normalizes any persisted or answered merge-mode value to one of the four
 # canonical slugs. Returns nil for anything it does not recognize: an
 # unrecognized value is never guess-laundered into a valid mode, because the
-# callers treat nil as "fail safe to local-only", which is strictly safer than
-# a wrong guess.
+# callers treat nil as "fail safe to merge-ready", the toolkit's default mode.
 module MergeModeSlug
   MODES = %w[local-only merge-ready admin-bypass yolo].freeze
-  FALLBACK = 'local-only'
+  FALLBACK = 'merge-ready'
 
   # Strips a trailing parenthetical so an AskUserQuestion label that carried a
   # hint ("Admin bypass (recommended)") normalizes like the plain label. One

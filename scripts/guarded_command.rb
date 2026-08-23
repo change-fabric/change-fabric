@@ -54,8 +54,8 @@ class GuardedCommand
 
   def initialize(command, mode, branch: nil)
     @command = command.to_s
-    # An unrecognized or missing mode fails safe to the most restrictive mode
-    # rather than to no restriction at all.
+    # An unrecognized or missing mode falls back to the toolkit's default mode
+    # (merge-ready) rather than to no restriction at all.
     @mode = MergeModeSlug.of(mode) || MergeModeSlug::FALLBACK
     @branch = branch.to_s
   end
