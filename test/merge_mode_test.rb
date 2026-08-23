@@ -201,8 +201,8 @@ class GuardedCommandTest < Minitest::Test
     assert_nil violation("gh pr merge --squash", "yolo")
   end
 
-  def test_unknown_mode_falls_back_to_local_only
-    assert_equal "git push", violation("git push origin main", "Bogus mode")
+  def test_unknown_mode_falls_back_to_merge_ready
+    assert_equal "a direct push to the trunk", violation("git push origin main", "Bogus mode")
   end
 
   def test_matches_on_word_boundaries_only
@@ -308,7 +308,7 @@ class MergeModeGuardTest < Minitest::Test
     assert_nil decision(command: "git push", mode: "local-only", tool: "Edit")
   end
 
-  def test_unset_mode_is_guarded_as_local_only
+  def test_unset_mode_is_guarded_as_merge_ready
     assert_equal "deny", decision(command: "git push origin main", mode: nil)
   end
 end
@@ -322,8 +322,8 @@ class SessionStartTest < Minitest::Test
     JSON.parse(io.string).dig("hookSpecificOutput", "additionalContext")
   end
 
-  def test_states_the_local_only_fallback_when_nothing_persisted
-    assert_includes directive("s1"), "local-only"
+  def test_states_the_merge_ready_fallback_when_nothing_persisted
+    assert_includes directive("s1"), "merge-ready"
     refute_includes directive("s1"), "AskUserQuestion"
   end
 

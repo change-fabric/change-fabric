@@ -8,7 +8,7 @@ require_relative 'merge_mode_slug'
 require_relative 'away_store'
 
 # SessionStart hook: states the current merge mode (falling back to
-# local-only when nothing is persisted) and, when it is on, states away mode.
+# merge-ready when nothing is persisted) and, when it is on, states away mode.
 # It never asks.
 class MergeModeHook
   EVENT = 'SessionStart'

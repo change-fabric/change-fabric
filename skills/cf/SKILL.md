@@ -6,7 +6,7 @@ description: Set and enforce the session merge mode (local only, merge ready, ad
 # CF Merge Mode Shim
 
 The `SessionStart` hook (`session_start.rb`) states the current merge mode
-(falling back to `local-only` when nothing is persisted) on session start,
+(falling back to `merge-ready` when nothing is persisted) on session start,
 resume, `/clear`, and compaction. It never asks. The mode is set by one of the
 six direct commands below or by `/cf`, persisted per session (a `PostToolUse`
 hook records the answer to `~/.claude/cf/sessions/<session_id>/merge-mode`),
