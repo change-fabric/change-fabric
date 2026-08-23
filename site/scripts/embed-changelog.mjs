@@ -19,6 +19,19 @@ const raw = readFileSync(changelogPath, "utf8");
 
 const HEADER = /^## \[(\d+\.\d+\.\d+)\] - (\d{4}-\d{2}-\d{2})\s*$/;
 
+// The change-type vocabulary for a version is whatever '### ' headings its
+// body actually carries: Added, Changed, Compatibility, Security, and so on.
+// Deliberately not an allowlist, so a new heading in CHANGELOG.md shows up on
+// the page without a code change here.
+function parseSections(body) {
+  const seen = new Set();
+  for (const line of body.split("\n")) {
+    const match = line.match(/^###\s+(.+?)\s*$/);
+    if (match) seen.add(match[1]);
+  }
+  return [...seen];
+}
+
 function parseChangelog(source) {
   const lines = source.split("\n");
   const starts = [];
@@ -34,7 +47,8 @@ function parseChangelog(source) {
     const body = lines.slice(start.index + 1, end).join("\n").trim();
     const firstSection = body.search(/^### /m);
     const lede = (firstSection === -1 ? body : body.slice(0, firstSection)).trim();
-    return { version: start.version, date: start.date, lede, body };
+    const sections = parseSections(body);
+    return { version: start.version, date: start.date, lede, body, sections };
   });
 }
 
@@ -122,6 +136,7 @@ const withHeadlines = entries.map((entry) => ({
   headline: headlines.get(entry.version) ?? null,
   lede: entry.lede,
   body: entry.body,
+  sections: entry.sections,
 }));
 
 // Drift guard: the currently published spec version must have its own

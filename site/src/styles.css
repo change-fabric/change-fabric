@@ -29,6 +29,11 @@
   --gold-btn: #d7a83c;
   --gold-btn-text: #123049;
   --code-bg: #f1f4f8;
+  /* Timeline rail hairline on the changelog, and the fill behind a
+     change-type tag. Both are neutrals derived from the existing border and
+     surface families, not a new brand color. */
+  --rail: #dde4ed;
+  --tag-bg: #eaeff6;
   color-scheme: light;
 }
 
@@ -48,6 +53,8 @@
     --gold-btn: #e6b84a;
     --gold-btn-text: #0d1b2a;
     --code-bg: #0f2135;
+    --rail: #24384f;
+    --tag-bg: #1b3049;
     color-scheme: dark;
   }
 }
@@ -67,6 +74,8 @@
   --gold-btn: #e6b84a;
   --gold-btn-text: #0d1b2a;
   --code-bg: #0f2135;
+  --rail: #24384f;
+  --tag-bg: #1b3049;
   color-scheme: dark;
 }
 
@@ -487,7 +496,10 @@ code {
   color: var(--accent);
 }
 
-/* Changelog: the full spec release history, one entry per version */
+/* Changelog: the full spec release history as a timeline. Each entry is a
+   two-column row: a left rail carrying a sticky date marker, and the entry
+   card. The rail sits inside the site-wide 820px measure, so the prose column
+   narrows rather than the page widening. */
 .changelog-list {
   list-style: none;
   margin: 28px 0 0;
@@ -495,42 +507,93 @@ code {
 }
 
 .changelog-entry {
+  display: grid;
+  grid-template-columns: 128px minmax(0, 1fr);
+  gap: 20px;
+  padding: 0;
+  border: 0;
+  background: none;
+  border-radius: 0;
+}
+
+.changelog-entry + .changelog-entry {
+  margin-top: 28px;
+}
+
+/* The rail column: a hairline down its right edge, and a date that sticks to
+   the top of the viewport while its own entry is being read. */
+.changelog-rail {
+  position: relative;
+  border-right: 1px solid var(--rail);
+  padding-right: 16px;
+}
+
+.changelog-date {
+  position: sticky;
+  top: 16px;
+  display: block;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--muted);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.changelog-card {
   padding: 20px 22px;
   border: 1px solid var(--border);
   border-radius: 10px;
   background: var(--code-bg);
+  min-width: 0;
 }
 
-.changelog-entry + .changelog-entry {
-  margin-top: 18px;
-}
-
-.changelog-entry h2 {
+/* Quiet metadata row: version, status, change-type tags, copy link. */
+.changelog-meta {
   display: flex;
-  align-items: baseline;
-  gap: 12px;
-  font-size: 1.15rem;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.changelog-version {
+  font-size: 0.95rem;
   margin: 0;
   color: var(--heading);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
-.changelog-entry h2 a {
+.changelog-version a {
   color: var(--link);
 }
 
-.changelog-date {
-  font-size: 0.85rem;
-  font-weight: 400;
+.changelog-tag {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--tag-bg);
   color: var(--muted);
+  font-weight: 600;
 }
 
+/* The promoted headline: the one line that says what the release did. */
 .changelog-headline {
-  margin: 8px 0 0;
-  color: var(--muted);
+  margin: 14px 0 0;
+  font-size: 1.35rem;
+  line-height: 1.3;
+  font-weight: 700;
+  color: var(--heading);
 }
 
 .changelog-body {
   margin-top: 16px;
+}
+
+/* Reuses .code-copy's look; only its placement in the metadata row differs. */
+.changelog-copy {
+  margin-left: auto;
 }
 
 /* Rendered spec markdown */
@@ -629,6 +692,31 @@ code {
   .spec-page-head {
     flex-direction: column;
     align-items: flex-start;
+  }
+  /* The rail has no room on a phone: the row collapses to one column, the
+     hairline moves to a bottom rule under the date, and the date stops
+     sticking (a sticky element inside a one-column stack just covers the
+     content it labels). */
+  .changelog-entry {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+  }
+  .changelog-rail {
+    border-right: 0;
+    padding-right: 0;
+  }
+  .changelog-date {
+    position: static;
+    text-align: left;
+  }
+  .changelog-card {
+    padding: 16px 16px;
+  }
+  .changelog-headline {
+    font-size: 1.15rem;
+  }
+  .changelog-copy {
+    margin-left: 0;
   }
 }
 
