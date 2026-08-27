@@ -198,6 +198,45 @@ class PlanPathsTest < Minitest::Test
     end
   end
 
+  def test_tildeize_collapses_the_home_prefix
+    assert_equal "~/code/repo", PlanPaths.tildeize(File.join(Dir.home, "code", "repo"))
+  end
+
+  def test_tildeize_leaves_a_path_outside_home_unchanged
+    assert_equal "/srv/plans/area/slug", PlanPaths.tildeize("/srv/plans/area/slug")
+  end
+
+  def test_tildeize_leaves_bare_home_unchanged
+    assert_equal Dir.home, PlanPaths.tildeize(Dir.home)
+  end
+
+  def test_resolve_reports_tilde_twins_for_every_path_field
+    Dir.mktmpdir do |root|
+      ENV["CF_PLANS_ROOT"] = root
+      result = PlanPaths.resolve(area: "myarea", slug: "myslug")
+      assert_equal PlanPaths.tildeize(result[:root]), result[:root_tilde]
+      assert_equal PlanPaths.tildeize(result[:area_dir]), result[:area_dir_tilde]
+      assert_equal PlanPaths.tildeize(result[:plan_dir]), result[:plan_dir_tilde]
+      assert_equal PlanPaths.tildeize(result[:plan_md]), result[:plan_md_tilde]
+      assert_equal PlanPaths.tildeize(result[:goal_md]), result[:goal_md_tilde]
+      assert_equal PlanPaths.tildeize(result[:workflow_js]), result[:workflow_js_tilde]
+    ensure
+      ENV.delete("CF_PLANS_ROOT")
+    end
+  end
+
+  def test_cli_tildeize_prints_the_collapsed_path
+    out = StringIO.new
+    PlanPaths::CLI.run([ "tildeize", "--path", File.join(Dir.home, "a", "b") ], out:)
+    assert_equal "~/a/b", out.string.strip
+  end
+
+  def test_cli_tildeize_requires_a_path
+    out = StringIO.new
+    assert_raises(SystemExit) { PlanPaths::CLI.run([ "tildeize" ], out:) }
+    assert_equal({ "error" => "path_required" }, JSON.parse(out.string))
+  end
+
   def test_cli_resolve_reports_area_unresolved_at_home
     Dir.mktmpdir do |root|
       ENV["CF_PLANS_ROOT"] = root

@@ -3,6 +3,14 @@ research section is for the agents at step 4; the writing section is for the
 single agent at step 7. They are never the same agent: research happens before
 the interview, writing happens after it.
 
+`{{repo_path}}` is the absolute path, for the agent's own exploration on this
+machine (`cd`, `grep`, file reads). `{{repo_path_tilde}}` (get it from
+`plan_paths.rb tildeize --path <repo_path>`) is the home-relative form with `~`
+in place of the literal home directory; only the writing agent needs it, and
+only for text it renders into plan.md, goal.md, workflow.js, or the handoff
+prompt, so a repo carried to another machine by `rsync` or similar does not
+carry the source machine's literal home path along with it.
+
 ## Research agent (step 4, writes nothing, asks nothing)
 
 ```
@@ -14,9 +22,11 @@ Larger goal: {{goal_description}}
 Repo or area: {{repo_path}}
 
 Investigate thoroughly: read the real files, run read-only commands, check how
-the thing actually works rather than how it is documented to work. Cite
-absolute file paths for anything load-bearing. Form your own point of view;
-"here are some options" is not a finding.
+the thing actually works rather than how it is documented to work. Cite file
+paths relative to the repo root for anything load-bearing, never the literal
+absolute path (these findings get pasted into plan.md, which must not carry
+a machine-specific home directory). Form your own point of view; "here are
+some options" is not a finding.
 
 Write no files.
 
@@ -57,8 +67,8 @@ answered the open questions; your job is to render that into files, not to
 re-open it.
 
 Goal: {{goal_description}}
-Repo or area: {{repo_path}}
-Plan directory (already created): {{plan_dir}}
+Repo or area: {{repo_path}} (tilde form for anything you write into a file: {{repo_path_tilde}})
+Plan directory (already created): {{plan_dir}} (tilde form: {{plan_dir_tilde}})
 
 DECISIONS LEDGER (the user's own answers, authoritative):
 {{decisions_ledger}}
@@ -70,6 +80,13 @@ Where the ledger and a finding disagree, the ledger wins. Do not soften a
 decision the user made into an option, and do not add an alternative they
 already rejected.
 
+Use the absolute forms above only for your own tool calls on this machine
+(reading the repo, creating the three files at the paths named below). Any
+path you write as text inside plan.md, goal.md, or workflow.js must use the
+tilde form instead: a literal absolute home path breaks the moment the plan is
+carried to a machine where the same account's home sits under a different
+literal path. `plan_check.rb` fails the check below if one leaks through.
+
 Write exactly three files.
 
 1. {{plan_dir}}/plan.md - the full technical plan. No length cap. It must be
@@ -79,7 +96,8 @@ Write exactly three files.
      ledger, each decision naming the answer it came from. This section comes
      early, before the phases, and is the reason the executing session does
      not reopen a settled call;
-   - exact file paths for everything created or edited;
+   - exact file paths for everything created or edited, relative to the repo
+     root (never a literal absolute home path);
    - exact commands, config, and code where the code is what makes the plan
      unambiguous;
    - how the change is verified (the actual test, build, or check command);
@@ -102,6 +120,8 @@ Write exactly three files.
    plan. Read {{skill_dir}}/reference/workflow-template.js first: it carries
    the Workflow tool's authoring contract and the failure modes that only
    surface at run time. Instantiate it against this plan:
+   - `REPO_PATH` and `PLAN_PATH` use the tilde form ({{repo_path_tilde}},
+     {{plan_dir_tilde}}/plan.md), never the literal absolute path;
    - `meta.phases` are the plan's own phases, with the plan's own titles, in
      the plan's own order. Not "Phase 1, Phase 2".
    - every `phase("X")` call matches a `meta.phases` title exactly;

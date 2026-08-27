@@ -1,14 +1,10 @@
 # frozen_string_literal: true
 
-require "minitest/autorun"
-require "json"
-require "stringio"
-require "tmpdir"
-require "fileutils"
-
+require_relative "test_helpers"
 require_relative "#{File.expand_path('../scripts', __dir__)}/plan_check"
 
 class PlanCheckTest < Minitest::Test
+  include SkillTempHome
   # Built from a codepoint, not a literal, so this file never carries the
   # glyph it exists to test for (glyph_guard.rb would otherwise deny writing it).
   EM = [ 0x2014 ].pack("U")
@@ -120,6 +116,36 @@ class PlanCheckTest < Minitest::Test
       refute result.ok?
       assert_includes result.lines, "plan.md: contains a banned AI-slop glyph"
     end
+  end
+
+  def test_literal_absolute_home_path_in_plan_fails
+    with_pair(goal: "short goal", plan: "#{thick_plan}\nSee #{File.join(Dir.home, 'notes')}.") do |goal_path, plan_path|
+      result = PlanCheck.run(goal_path, plan_path)
+      refute result.ok?
+      assert_includes result.lines, "plan.md: contains a literal absolute home path (#{Dir.home}); use ~ instead"
+    end
+  end
+
+  def test_literal_absolute_home_path_in_goal_fails
+    with_pair(goal: "See #{File.join(Dir.home, 'notes')}.", plan: thick_plan) do |goal_path, plan_path|
+      result = PlanCheck.run(goal_path, plan_path)
+      refute result.ok?
+      assert_includes result.lines, "goal.md: contains a literal absolute home path (#{Dir.home}); use ~ instead"
+    end
+  end
+
+  def test_tildeized_path_in_plan_passes
+    with_pair(goal: "short goal", plan: "#{thick_plan}\nSee ~/notes instead.") do |goal_path, plan_path|
+      result = PlanCheck.run(goal_path, plan_path)
+      assert result.ok?
+      assert_includes result.lines, "plan.md: no literal absolute home paths"
+    end
+  end
+
+  def test_literal_absolute_home_path_in_workflow_fails
+    ok, lines = workflow_lines("#{GOOD_WORKFLOW}\nconst REPO_PATH = \"#{Dir.home}/code/repo\"\n")
+    refute ok
+    assert_includes lines, "workflow.js: contains a literal absolute home path (#{Dir.home}); use ~ instead"
   end
 
   def test_checker_uses_glyph_guards_own_pattern_constant

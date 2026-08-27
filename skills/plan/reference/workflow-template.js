@@ -53,9 +53,16 @@ export const meta = {
 }
 
 // Everything the plan fixed at authoring time. Constants here, not inline, so
-// the executing session can see what the plan decided at a glance.
-const REPO_PATH = "ABSOLUTE REPO PATH FROM THE PLAN"
-const PLAN_PATH = "ABSOLUTE plan.md PATH"
+// the executing session can see what the plan decided at a glance. Both use
+// '~' for the home directory, never the literal absolute path: the plan may
+// be carried (rsync or similar) to a machine where the same account's home
+// sits under a different literal path (/Users/pxt vs /home/exe vs
+// /Users/PST), and every use below is inside a natural-language agent()
+// prompt, where a tool with shell access (Bash) expands '~' the normal way. A
+// tool that needs a literal absolute path (Read, Write) cannot use '~'
+// directly; the agent expands it against its own home first.
+const REPO_PATH = "~/HOME-RELATIVE REPO PATH FROM THE PLAN"
+const PLAN_PATH = "~/HOME-RELATIVE plan.md PATH"
 
 // Declare a schema wherever a result drives control flow.
 const PHASE_SCHEMA = {
@@ -75,8 +82,11 @@ const stopOnFailure = input.stopOnFailure ?? true
 // Common preamble for every phase agent. The plan is the source of truth, so
 // each agent reads it rather than trusting a paraphrase in this script.
 function preamble(phaseName) {
-  return "You are executing one phase of a plan that is already settled. Read " +
-    PLAN_PATH + " first, in full, then do only the phase named below. The plan's " +
+  return "You are executing one phase of a plan that is already settled. " +
+    PLAN_PATH + " and " + REPO_PATH + " below use '~' for the home directory; " +
+    "expand it against your own home before passing either to a tool that " +
+    "needs a literal absolute path. Read " + PLAN_PATH +
+    " first, in full, then do only the phase named below. The plan's " +
     "\"Decisions (settled, do not re-litigate)\" section records answers the user " +
     "already gave; treat those as fixed and do not reopen them.\n\n" +
     "Repository: " + REPO_PATH + "\n" +
