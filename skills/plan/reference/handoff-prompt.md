@@ -1,6 +1,13 @@
 Fill every `{{placeholder}}` from this run, then print the fenced block below
 as the final message. Do not add commentary inside the fence.
 
+Every path placeholder here (`{{plan_path}}`, `{{goal_path}}`,
+`{{workflow_path}}`, `{{repo_path}}`) takes the tilde form (from
+`plan_paths.rb`'s `_tilde` fields or its `tildeize` verb), never the literal
+absolute path: this block is meant to be pasted into a fresh session, possibly
+on another machine, and a literal `/Users/pxt/...` or `/home/exe/...` breaks
+the moment the same account's home sits under a different literal path there.
+
 ```markdown
 Execute the plan at {{plan_path}}.
 

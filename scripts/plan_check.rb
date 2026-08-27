@@ -2,16 +2,18 @@
 # frozen_string_literal: true
 
 require_relative 'glyph_guard'
+require_relative 'ctx_paths'
 
 # Mechanically verifies a landed cf:plan triple: plan.md, goal.md, and the
 # workflow.js that operationalizes the plan. Every file must exist and be
 # non-empty, goal.md must be at or under the 4000-character hard cap, no file
-# may carry an AI-slop glyph, and workflow.js must satisfy the Workflow tool's
-# authoring contract as far as a text check can reach it. Every check runs and
-# reports (not fail-fast), so a single invocation names everything wrong at
-# once rather than making the writing agent fix one thing and re-run to
-# discover the next. The glyph check reuses GlyphGuard::PATTERN directly so the
-# checker can never drift from the hook that already guards Write/Edit.
+# may carry an AI-slop glyph or a literal absolute home path, and workflow.js
+# must satisfy the Workflow tool's authoring contract as far as a text check
+# can reach it. Every check runs and reports (not fail-fast), so a single
+# invocation names everything wrong at once rather than making the writing
+# agent fix one thing and re-run to discover the next. The glyph check reuses
+# GlyphGuard::PATTERN directly so the checker can never drift from the hook
+# that already guards Write/Edit.
 module PlanCheck
   GOAL_CAP = 4000
   THIN_PLAN_LINES = 60
@@ -33,6 +35,8 @@ module PlanCheck
     ok &= check_goal_cap(goal_path, lines)
     ok &= check_glyphs(goal_path, 'goal.md', lines)
     ok &= check_glyphs(plan_path, 'plan.md', lines)
+    ok &= check_absolute_home_paths(goal_path, 'goal.md', lines)
+    ok &= check_absolute_home_paths(plan_path, 'plan.md', lines)
     ok &= check_workflow(workflow_path, lines) if workflow_path
 
     warnings = plan_warnings(plan_path)
@@ -48,11 +52,29 @@ module PlanCheck
     return false unless ok
 
     ok &= check_glyphs(path, 'workflow.js', lines)
+    ok &= check_absolute_home_paths(path, 'workflow.js', lines)
     text = File.read(path)
     ok &= require_marker(text, /^export const meta = \{/, 'export const meta = { literal header', lines)
     ok &= require_marker(text, /\bphase\(/, 'at least one phase() call', lines)
     ok &= check_determinism(text, lines)
     ok
+  end
+
+  # A path that survives to another machine only if it never carried the
+  # literal home directory in the first place: rsyncing a repo does not carry
+  # the source machine's /Users/pxt or /home/exe along with it. A landed file
+  # must spell any such path as '~' instead, per PlanPaths.tildeize.
+  def self.check_absolute_home_paths(path, label, lines)
+    return false unless File.exist?(path)
+
+    home = CtxPaths.expected_home
+    if File.read(path).include?(home)
+      lines << "#{label}: contains a literal absolute home path (#{home}); use ~ instead"
+      false
+    else
+      lines << "#{label}: no literal absolute home paths"
+      true
+    end
   end
 
   def self.require_marker(text, pattern, label, lines)

@@ -58,15 +58,37 @@ module PlanPaths
 
   def self.plan_dir(area, slug) = File.join(plans_dir(area), slug.to_s)
 
-  # The full resolve hash the CLI prints as JSON.
+  # Collapses the current home directory prefix to '~', so text written into
+  # plan.md, goal.md, workflow.js, or the handoff prompt survives being carried
+  # to a machine whose home sits under a different literal path (a Mac's
+  # /Users/pxt versus a Linux box's /home/exe versus another Mac's /Users/PST).
+  # The absolute form these paths start as is still what mkdir and File.exist?
+  # need on this machine; only the text rendered into those four artifacts
+  # should ever see the tildeized form. A path outside the home is returned
+  # unchanged, since there is nothing to collapse.
+  def self.tildeize(path)
+    home = CtxPaths.expected_home
+    str = path.to_s
+    str.start_with?("#{home}/") ? str.sub(home, '~') : str
+  end
+
+  # The full resolve hash the CLI prints as JSON. Every path field carries a
+  # '_tilde' twin: the absolute form for actual filesystem use, the tilde form
+  # for anything written into plan.md, goal.md, workflow.js, or the handoff
+  # prompt.
   def self.resolve(area:, slug:)
     dir = plans_dir(area)
     target = plan_dir(area, slug)
+    plan_md = File.join(target, 'plan.md')
+    goal_md = File.join(target, 'goal.md')
+    workflow_js = File.join(target, 'workflow.js')
     {
-      root:, area: area.to_s, area_dir: dir, area_exists: Dir.exist?(dir),
-      slug: slug.to_s, plan_dir: target, plan_dir_exists: Dir.exist?(target),
-      plan_md: File.join(target, 'plan.md'), goal_md: File.join(target, 'goal.md'),
-      workflow_js: File.join(target, 'workflow.js'),
+      root:, root_tilde: tildeize(root),
+      area: area.to_s, area_dir: dir, area_dir_tilde: tildeize(dir), area_exists: Dir.exist?(dir),
+      slug: slug.to_s, plan_dir: target, plan_dir_tilde: tildeize(target), plan_dir_exists: Dir.exist?(target),
+      plan_md:, plan_md_tilde: tildeize(plan_md),
+      goal_md:, goal_md_tilde: tildeize(goal_md),
+      workflow_js:, workflow_js_tilde: tildeize(workflow_js),
       suggested_slug: next_free_slug(area, slug), siblings: siblings(dir)
     }
   end
@@ -100,10 +122,24 @@ module PlanPaths
       case verb
       when 'resolve' then resolve(flags, out)
       when 'mkdir' then mkdir(flags, out)
+      when 'tildeize' then tildeize(flags, out)
       else
-        out.puts('usage: plan_paths.rb resolve --slug S [--area A] | mkdir --area A --slug S')
+        out.puts('usage: plan_paths.rb resolve --slug S [--area A] | mkdir --area A --slug S | ' \
+                  'tildeize --path P')
         exit 2
       end
+    end
+
+    # For any absolute path outside plan_paths.rb's own resolve output, notably
+    # the repo root passed to the research and writing agents: renders the form
+    # to write into plan.md, goal.md, workflow.js, or the handoff prompt.
+    def self.tildeize(flags, out)
+      path = flags['path']
+      if path.to_s.empty?
+        out.puts(JSON.generate('error' => 'path_required'))
+        exit 2
+      end
+      out.puts(PlanPaths.tildeize(path))
     end
 
     def self.resolve(flags, out)

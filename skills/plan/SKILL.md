@@ -67,8 +67,24 @@ fresh session that will execute the plan.
 
    It prints JSON: `root`, `area`, `area_dir`, `area_exists`, `slug`,
    `plan_dir`, `plan_dir_exists`, `plan_md`, `goal_md`, `workflow_js`,
-   `suggested_slug`, `siblings`. Use `--area` only when the invocation named
-   one.
+   `suggested_slug`, `siblings`, plus a `_tilde` twin of every path field
+   (`root_tilde`, `area_dir_tilde`, `plan_dir_tilde`, `plan_md_tilde`,
+   `goal_md_tilde`, `workflow_js_tilde`). Use `--area` only when the
+   invocation named one.
+
+   Use the absolute fields for real filesystem operations (mkdir, Read,
+   Write) on this machine. Use the `_tilde` fields for any text you write
+   into `plan.md`, `goal.md`, `workflow.js`, or the step-10 handoff prompt:
+   the plan directory lives under a user's home, and a literal absolute path
+   like `/Users/pxt/...` or `/home/exe/...` breaks the moment the plan is
+   carried (by `rsync` or similar) to a machine where the same account has a
+   different literal home path (`/Users/PST/...`). For any other absolute
+   path outside this JSON, notably the repo root passed to research and
+   writing agents, get its tilde form the same way:
+
+   ```bash
+   ruby ~/.claude/cf/bin/plan_paths.rb tildeize --path <absolute-path>
+   ```
 
 2. **Settle the destination.** Ask only when `area_exists` is false or
    `plan_dir_exists` is true. A new area means creating a new top-level
