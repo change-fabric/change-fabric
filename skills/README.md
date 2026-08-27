@@ -42,6 +42,7 @@ the hooks never surface it. These are verbs the agent performs on demand.
 | `cf:testcases` | Runs just the deterministic regression lane of the change-fabric platform: replays the test cases committed in the repo's suite files and grades each one. |
 | `cf:sweep` | Sweeps a repo's open feature PRs and plans how to land them as a group, covering merge order, conflict mitigations, migration sequencing, and a per-contributor trust policy persisted across runs. |
 | `cf:plan` | Researches a goal with background Opus agents, grills the user with AskUserQuestion until the judgment calls are settled, then lands a plan.md, a 4000-character-capped goal.md, and a runnable workflow.js under `$CF_PLANS_ROOT` (default `~/.claude/cf/plans`), plus a handoff prompt for a separate session to execute. |
+| `cf:status` | Arms a recurring self-status ping on a real cron loop (`/cf:status [<minutes>]`) and prints a red/yellow/green progress line per active work item on each `/cf:status tick`, only when something changed, stopping itself once every item is green. |
 
 `cf:refactor` reuses the routing below by shelling out to `skill_route.rb`
 (`scripts/skill_route.rb`, copied to the shim bin but not wired as a hook): it
