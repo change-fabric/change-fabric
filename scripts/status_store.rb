@@ -63,7 +63,7 @@ class StatusStore
       key, value = line.strip.split('=', 2)
       memo[key] = value if key && !key.empty?
     end
-  rescue SystemCallError
+  rescue StandardError
     {}
   end
 
@@ -159,12 +159,14 @@ class StatusStore
 
     # Session id resolution order, first hit wins: an explicit --session
     # flag, then CLAUDE_SESSION_ID, then the most recently modified
-    # directory under ~/.claude/cf/sessions.
+    # directory under ~/.claude/cf/sessions. Presence, not truthiness: an
+    # explicitly blank --session or CLAUDE_SESSION_ID must resolve to that
+    # blank value (StatusStore then treats it as non-persistable) rather
+    # than falling through to the newest-directory guess, which would
+    # otherwise read or write an unrelated real session's state.
     def self.resolve_session_id(opts)
-      return opts['session'] if opts['session'] && !opts['session'].to_s.empty?
-
-      env = ENV['CLAUDE_SESSION_ID']
-      return env if env && !env.to_s.empty?
+      return opts['session'] if opts.key?('session')
+      return ENV['CLAUDE_SESSION_ID'] if ENV.key?('CLAUDE_SESSION_ID')
 
       newest_session_dir
     end

@@ -71,7 +71,15 @@ fire, so the prompt handed to `CronCreate` must be exactly `/cf:status tick`.
 Every tick is a full recompute, not a resumption. Nothing is cached between
 ticks except what is in the store.
 
-1. **Resolve** the session id the same way arm mode did.
+1. **Resolve** the session id the same way arm mode did, then run
+   `ruby ~/.claude/cf/bin/status_store.rb show --session <id>` and check
+   `armed`. If it is false, the ping was disarmed (or never armed) but the
+   cron survived: print one line saying the ping is no longer armed, call
+   `CronDelete` on this job if the id can be determined some other way, and
+   stop. Do not call `write` first and do not re-arm from inside a tick: a
+   `write` against an unarmed session silently creates a partial store
+   entry (`armed: true` but `cron_job_id: null`), which is exactly the state
+   this check exists to avoid.
 2. **Recompute the list from live context**, not from the store: read this
    session's actual state (the current todo list, what the last few turns
    were doing, what is blocked waiting on a human or an external system) and

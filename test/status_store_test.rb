@@ -138,6 +138,42 @@ class StatusStoreTest < Minitest::Test
     assert_empty result["items"]
   end
 
+  def test_an_explicitly_blank_session_flag_does_not_fall_back_to_another_session
+    sessions_root = File.join(@home, ".claude", "cf", "sessions")
+    other = File.join(sessions_root, "other-real-session")
+    FileUtils.mkdir_p(other)
+    FileUtils.touch(other, mtime: Time.now + 60)
+
+    assert_equal "", run_cli([ "resolve", "--session", "" ])["session_id"]
+    run_cli([ "write", "--session", "", "--item", "10:ghost" ])
+    refute File.exist?(File.join(other, "status"))
+  end
+
+  def test_an_explicitly_blank_session_env_does_not_fall_back_to_another_session
+    sessions_root = File.join(@home, ".claude", "cf", "sessions")
+    other = File.join(sessions_root, "other-real-session")
+    FileUtils.mkdir_p(other)
+    FileUtils.touch(other, mtime: Time.now + 60)
+
+    ENV["CLAUDE_SESSION_ID"] = ""
+    assert_equal "", run_cli([ "resolve" ])["session_id"]
+    run_cli([ "write", "--item", "10:ghost" ])
+    refute File.exist?(File.join(other, "status"))
+  ensure
+    ENV.delete("CLAUDE_SESSION_ID")
+  end
+
+  def test_a_corrupt_config_file_reads_as_empty_rather_than_raising
+    run_cli([ "arm", "--session", "s1", "--interval", "10", "--cron", "cron_1" ])
+    path = run_cli([ "path", "--session", "s1" ])["config"]
+    File.write(path, "\xFF\xFE not a valid config line")
+    result = run_cli([ "show", "--session", "s1" ])
+    assert result["armed"], "the config file still exists, so armed? (a presence check) stays true"
+    assert_nil result["interval"]
+    assert_nil result["cron_job_id"]
+    assert_empty result["items"]
+  end
+
   def test_disarm_returns_the_recorded_cron_job_id_and_removes_both_files
     run_cli([ "arm", "--session", "s1", "--interval", "10", "--cron", "cron_9" ])
     run_cli([ "write", "--session", "s1", "--item", "10:one" ])
