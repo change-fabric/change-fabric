@@ -54,8 +54,23 @@ Task it to:
   `open_questions` (anything genuinely ambiguous: which environment, which
   account or role, destructive vs read-only actions, viewport, whether auth
   is required).
+- Fill a `screenshot` block alongside them, so the before/after phase needs no
+  second relevance call of its own. Set `screenshot.ui_surface` true when the
+  change touches a user-facing or browser-drivable surface, false when there is
+  no reachable UI to photograph. This is the same judgment `cf:drive`'s Haiku
+  relevance gate already applies; do not add a separate relevance check
+  anywhere.
 
-Run this phase even for a target that looks simple; phases 2 to 4 all consume
+  ```
+  screenshot: {
+    ui_surface: true|false,
+    is_pr: true|false,
+    pr_number: <int or null>,
+    base_ref: "<the PR's base branch, or null>"
+  }
+  ```
+
+Run this phase even for a target that looks simple; phases 2 to 5 all consume
 its output, and the cost is one background agent call.
 
 ## Phase 2: Clarify (foreground)
@@ -127,7 +142,32 @@ Never paste a credential into a flow file or a finding. A value that is a
 secret comes from `env:`, which resolves on the host and reaches only the
 container; the compiler's own redacted view is what may be reported.
 
-## Phase 5: Report
+## Phase 5: Before/after screenshots (deterministic)
+
+What visibly changed on screen between the base ref and HEAD, captured as
+before/after pairs. Deterministic: no model decides which routes to shoot.
+
+Skip this phase, and say plainly that it was skipped and why, in any of these
+cases:
+1. The repo has no root `CHANGE.md`. There is no route or viewport list to work
+   from. This matches `changePrompt()` in `skills/drive/reference/workflow.js`,
+   which already self-skips the same way.
+2. `screenshot.ui_surface` from phase 1 is false. Two full app boots are not
+   worth spending on a backend-only diff.
+3. No second git state is resolvable: a live-app-only target, or a bare
+   description with no diff. A plain skip, not an error, and not a run failure.
+
+Otherwise follow `~/.claude/skills/cf:screenshot/SKILL.md` in full: resolve the
+base ref, capture both sides, diff every route/viewport pair, keep only the
+pairs that actually differ, upload the survivors, and offer the `## Demo` PR
+body edit behind an `AskUserQuestion`. Use `screenshot.pr_number` and
+`screenshot.base_ref` from phase 1 rather than re-deriving them. Zero differing
+pairs is a successful outcome: report it and skip the upload and the offer.
+
+Under away mode, capture and report, but skip the `AskUserQuestion` and make no
+PR body edit; report that the edit was skipped.
+
+## Phase 6: Report
 
 Summarize findings in the chat response first.
 
@@ -146,7 +186,7 @@ or GitHub MCP tools) is available:
 Under away mode, skip this question, do not post, and report that posting was
 skipped.
 
-## Phase 6: Offer to promote the flow (foreground)
+## Phase 7: Offer to promote the flow (foreground)
 
 Exploratory QA used to end as a transcript: the flow worked out by hand
 evaporated with the session, and the next regression in it went uncaught. This
@@ -193,3 +233,5 @@ skipped.
   identifiable feature): ask, do not guess.
 - The app under test never becomes ready: report the timeout as a finding,
   not a crash.
+- The before/after phase cannot resolve a second git state, or the repo has no
+  `CHANGE.md`: the phase skips and says so; it is not a run failure.
