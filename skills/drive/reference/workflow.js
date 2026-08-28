@@ -190,12 +190,32 @@ function aiSlopPrompt() {
   )
 }
 
+// This lane delegates to the skill file instead of restating it. A paraphrase
+// here drifts from cf:qa the moment the skill gains a phase, which is exactly
+// what happened before: the old wording described only scope-and-execute, so a
+// later phase of the skill could never reach cf:drive.
+//
+// The relevance gate above already carries the UI-surface signal cf:qa's own
+// screenshot phase needs: qa.relevant is true precisely when the change touches
+// a user-facing or browser-drivable surface, and when it is false this lane
+// never runs at all. Do not add a second, screenshot-specific gate here. The
+// skill's own phase does its own ui_surface check, and duplicating that wiring
+// in workflow.js is the drift this delegation exists to prevent.
 function qaPrompt() {
   return buildPrompt(
-    "Scope a Playwright smoke-test plan for this change per cf:qa's own approach: an " +
-    "ephemeral browserless Chromium container, a digest-pinned image, never a host daemon. " +
-    "Execute the plan against the app under test. Fix anything code-fixable that the flows " +
-    "surface directly in " + repoPath + "; report anything else as a deferred finding."
+    "Read ~/.claude/skills/cf:qa/SKILL.md in full and follow it end to end for this " +
+    "change, every phase, not a summary of it. This prompt deliberately does not restate " +
+    "the skill: a paraphrase here drifts from the skill file the moment the skill gains a " +
+    "phase. The target is the change described by the files below, in " + repoPath + ". " +
+    "Fix anything code-fixable that the run surfaces directly in " + repoPath + "; report " +
+    "anything else as a deferred finding." +
+    (isPR
+      ? " This target is a real pull request: the branch at " + headSha + " in " + repoPath +
+        " has an open PR. Resolve its number and base branch by running " +
+        "`gh pr view --json number,baseRefName` from " + repoPath + ", and use that when " +
+        "the skill's phase 1 fills its PR context, rather than re-deriving from scratch " +
+        "whether this is a PR."
+      : " This target is not a pull request; there is no PR number to resolve.")
   )
 }
 
