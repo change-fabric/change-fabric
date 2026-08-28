@@ -5,6 +5,7 @@ require 'open3'
 require 'optparse'
 require_relative 'change_apps'
 require_relative 'change_artifact'
+require_relative 'change_boot'
 require_relative 'change_config'
 require_relative 'change_docker'
 require_relative 'change_findings'
@@ -71,8 +72,12 @@ require_relative 'change_lane_testcases'
 # -exits the whole sweep rather than continuing to the next app, the correct
 # fail-closed behavior for a release gate.
 class ChangeRun
+  # The app lifecycle (boot_up / boot_down / wait_healthy / healthy?) lives in
+  # ChangeBoot so cf:screenshot, which boots the same app at two git refs,
+  # shares it instead of growing a second health poller.
+  include ChangeBoot
+
   BROWSER_LANES = %w[a11y browserless testcases].freeze
-  OUTPUT_TAIL_LINES = 40
   LANE_CLASSES = {
     'k6' => ChangeLaneK6, 'a11y' => ChangeLaneA11y,
     'zap' => ChangeLaneZap, 'browserless' => ChangeLaneBrowserless,
@@ -408,101 +413,6 @@ class ChangeRun
     [ lane_config.fetch('retries', 0).to_i, 0 ].max
   end
 
-  def boot_up(boot)
-    return unless boot.up?
-
-    log("[change] booting: #{boot.up}")
-    out, status = Open3.capture2e(boot_env(boot), boot.up, chdir: repo_root)
-    return if status.success?
-
-    abort_and_exit("boot command failed: #{boot.up}\n--- boot output (last #{OUTPUT_TAIL_LINES} lines) ---\n#{tail(out)}")
-  end
-
-  # Parses each configured boot.env_file (simple KEY=VALUE lines, no shell
-  # `source`, so no secret is ever echoed) and merges them into the inherited
-  # process environment, later files winning over earlier ones. This is the
-  # shell-level equivalent of `set -a; source .env.local; set +a`: it makes a
-  # compose `build.args:` entry's `${VAR}` interpolation resolve without the
-  # author having to pre-export anything. Fails fast, by name, when a declared
-  # file is missing.
-  def boot_env(boot)
-    files = boot.env_files
-    return {} if files.empty?
-
-    files.each_with_object({}) do |path, merged|
-      abort_and_exit("boot.env_file not found: #{path}") unless File.exist?(path)
-
-      merged.merge!(parse_env_file(path))
-    end
-  end
-
-  def parse_env_file(path)
-    File.readlines(path).each_with_object({}) do |line, env|
-      stripped = line.strip
-      next if stripped.empty? || stripped.start_with?('#')
-
-      key, value = stripped.delete_prefix('export ').split('=', 2)
-      next unless key && value
-
-      env[key.strip] = value.strip.gsub(/\A['"]|['"]\z/, '')
-    end
-  end
-
-  def boot_down(boot)
-    return if boot.down.empty?
-
-    log("[change] tearing down: #{boot.down}")
-    out, status = Open3.capture2e(boot.down, chdir: repo_root)
-    log("[change] teardown command failed: #{boot.down}\n--- teardown output (last #{OUTPUT_TAIL_LINES} lines) ---\n#{tail(out)}") unless status.success?
-  end
-
-  # Polls the health url from the host until it returns the expected status or
-  # the timeout elapses. A run with no health url skips straight through, trusting
-  # the boot command to have blocked until ready. Carries the last poll's own
-  # curl output into the timeout message, so "never became healthy" names the
-  # actual response (a connection refused, a wrong status, a TLS failure)
-  # instead of leaving the cause to be re-discovered by hand.
-  def wait_healthy(boot)
-    return if boot.health_url.empty?
-
-    deadline = Time.now + boot.health_timeout
-    last_out = nil
-    loop do
-      ok, last_out = healthy?(boot)
-      return if ok
-
-      if Time.now > deadline
-        abort_and_exit("app never became healthy at #{boot.health_url}\n--- last health check output ---\n#{tail(last_out)}")
-      end
-      sleep 2
-    end
-  end
-
-  # The health poll goes through curl, not Net::HTTP, on purpose. Local dev
-  # stacks are commonly fronted by a local CA (a Caddy dev cert), which the OS
-  # keychain trusts but Ruby's OpenSSL does not by default, so Net::HTTP raises
-  # "certificate verify failed" against a URL a browser and curl both accept.
-  # curl trusts the system trust store (and honors SSL_CERT_FILE/SSL_CERT_DIR
-  # when set), so the check works against a local-CA https health url with no
-  # extra configuration. A short per-attempt timeout keeps the outer deadline
-  # loop responsive.
-  # Returns [ok?, output] so a caller giving up on the timeout can carry the
-  # last attempt's own diagnostic into its own message.
-  def healthy?(boot)
-    out, status = Open3.capture2e(
-      'curl', '-sS', '-o', '/dev/null', '-w', '%{http_code}', '--max-time', '5', boot.health_url
-    )
-    [ status.success? && out.strip.to_i == boot.health_status, out ]
-  rescue StandardError => e
-    [ false, e.message ]
-  end
-
-  # A bounded tail of captured subprocess output, so a noisy build log stays
-  # readable while the line that actually explains the failure is still there.
-  def tail(out)
-    out.to_s.lines.last(OUTPUT_TAIL_LINES).join
-  end
-
   def write_report(config, findings, lanes, instances, app:, manifest: {})
     ChangeReport.new(
       project: config.project, scope: @args.scope, findings: findings, app: app,
@@ -623,6 +533,11 @@ class ChangeRun
       status.success? ? out.strip : ''
     end
   end
+
+  # ChangeBoot's methods arrive public through the include; they were private
+  # here before the extraction and stay that way, so this class's public API is
+  # still just `run`.
+  private :boot_up, :boot_env, :parse_env_file, :boot_down, :wait_healthy, :healthy?, :tail
 
   def log(message) = warn(message)
 
