@@ -185,8 +185,8 @@ class ChangeScreenshotCaptureTest < Minitest::Test
   def test_capture_writes_one_png_per_cell_under_the_sides_own_directory
     session = Object.new
     def session.run_function(_code)
-      { "cells" => [ { "viewport" => "desktop", "route" => "/", "shot" => ["fake png".b].pack("m0") },
-                     { "viewport" => "desktop", "route" => "/spec", "shot" => ["fake png".b].pack("m0") } ] }
+      { "cells" => [ { "viewport" => "desktop", "route" => "/", "shot" => [ "fake png".b ].pack("m0") },
+                     { "viewport" => "desktop", "route" => "/spec", "shot" => [ "fake png".b ].pack("m0") } ] }
     end
 
     Dir.mktmpdir do |dir|
