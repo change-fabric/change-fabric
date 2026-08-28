@@ -95,6 +95,72 @@ class ChangeLaneBrowserless < ChangeLane
     }
   CSS
 
+  # The pixel comparison, lifted out of the scan module's heredoc the same way
+  # ChangeLane.wait_for_js is lifted, so a second caller (cf:screenshot's
+  # before/after capture) diffs with exactly this function rather than a
+  # near-copy that can drift from it.
+  #
+  # Both images are drawn at their natural size into an opaque canvas with
+  # smoothing off, so nothing here resamples or blends: a differing pixel is a
+  # differing pixel, not an artifact of how the canvas chose to scale.
+  #
+  # `mime` is a parameter rather than a hardcoded `image/png` data-url prefix:
+  # the Figma path has always compared PNGs and still passes "image/png"
+  # explicitly, but a function whose loader silently assumes one encoding is
+  # type-specific without saying so.
+  def self.diff_against_reference_js
+    <<~JS
+      async function diffAgainstReference(cellPage, shotBase64, refBase64, threshold, mime) {
+        return cellPage.evaluate(async (a, b, cutoff, type) => {
+          function loadImage(base64) {
+            return new Promise((resolve, reject) => {
+              const img = new Image();
+              img.onload = () => resolve(img);
+              img.onerror = reject;
+              img.src = "data:" + (type || "image/png") + ";base64," + base64;
+            });
+          }
+          function toImageData(img) {
+            const canvas = document.createElement("canvas");
+            canvas.width = img.width;
+            canvas.height = img.height;
+            const ctx = canvas.getContext("2d", { alpha: false, willReadFrequently: true });
+            ctx.imageSmoothingEnabled = false;
+            ctx.drawImage(img, 0, 0);
+            return { imageData: ctx.getImageData(0, 0, canvas.width, canvas.height), width: canvas.width, height: canvas.height };
+          }
+          const shotImg = await loadImage(a);
+          const refImg = await loadImage(b);
+          const shot = toImageData(shotImg);
+          const ref = toImageData(refImg);
+          const width = Math.min(shot.width, ref.width);
+          const height = Math.min(shot.height, ref.height);
+          let diffCount = 0;
+          for (let y = 0; y < height; y++) {
+            for (let x = 0; x < width; x++) {
+              const si = (y * shot.width + x) * 4;
+              const ri = (y * ref.width + x) * 4;
+              const dr = shot.imageData.data[si] - ref.imageData.data[ri];
+              const dg = shot.imageData.data[si + 1] - ref.imageData.data[ri + 1];
+              const db = shot.imageData.data[si + 2] - ref.imageData.data[ri + 2];
+              if (Math.sqrt(dr * dr + dg * dg + db * db) > cutoff) diffCount += 1;
+            }
+          }
+          const totalPixels = width * height;
+          return {
+            diffPercent: totalPixels ? (diffCount / totalPixels) * 100 : 100,
+            comparedWidth: width,
+            comparedHeight: height,
+            shotWidth: shot.width,
+            shotHeight: shot.height,
+            refWidth: ref.width,
+            refHeight: ref.height,
+          };
+        }, shotBase64, refBase64, threshold, mime);
+      }
+    JS
+  end
+
   def run
     session = @context.browserless
     return [ unavailable ] unless session
@@ -585,58 +651,7 @@ class ChangeLaneBrowserless < ChangeLane
           return session.authOk;
         }
 
-        // The pixel comparison. Both images are drawn at their natural size
-        // into an opaque canvas with smoothing off, so nothing here resamples
-        // or blends: a differing pixel is a differing pixel, not an artifact
-        // of how the canvas chose to scale.
-        async function diffAgainstReference(cellPage, shotBase64, refBase64, threshold) {
-          return cellPage.evaluate(async (a, b, cutoff) => {
-            function loadImage(base64) {
-              return new Promise((resolve, reject) => {
-                const img = new Image();
-                img.onload = () => resolve(img);
-                img.onerror = reject;
-                img.src = "data:image/png;base64," + base64;
-              });
-            }
-            function toImageData(img) {
-              const canvas = document.createElement("canvas");
-              canvas.width = img.width;
-              canvas.height = img.height;
-              const ctx = canvas.getContext("2d", { alpha: false, willReadFrequently: true });
-              ctx.imageSmoothingEnabled = false;
-              ctx.drawImage(img, 0, 0);
-              return { imageData: ctx.getImageData(0, 0, canvas.width, canvas.height), width: canvas.width, height: canvas.height };
-            }
-            const shotImg = await loadImage(a);
-            const refImg = await loadImage(b);
-            const shot = toImageData(shotImg);
-            const ref = toImageData(refImg);
-            const width = Math.min(shot.width, ref.width);
-            const height = Math.min(shot.height, ref.height);
-            let diffCount = 0;
-            for (let y = 0; y < height; y++) {
-              for (let x = 0; x < width; x++) {
-                const si = (y * shot.width + x) * 4;
-                const ri = (y * ref.width + x) * 4;
-                const dr = shot.imageData.data[si] - ref.imageData.data[ri];
-                const dg = shot.imageData.data[si + 1] - ref.imageData.data[ri + 1];
-                const db = shot.imageData.data[si + 2] - ref.imageData.data[ri + 2];
-                if (Math.sqrt(dr * dr + dg * dg + db * db) > cutoff) diffCount += 1;
-              }
-            }
-            const totalPixels = width * height;
-            return {
-              diffPercent: totalPixels ? (diffCount / totalPixels) * 100 : 100,
-              comparedWidth: width,
-              comparedHeight: height,
-              shotWidth: shot.width,
-              shotHeight: shot.height,
-              refWidth: ref.width,
-              refHeight: ref.height,
-            };
-          }, shotBase64, refBase64, threshold);
-        }
+        #{ChangeLaneBrowserless.diff_against_reference_js}
 
         const out = [];
         const videos = [];
@@ -707,7 +722,7 @@ class ChangeLaneBrowserless < ChangeLane
               if (refBase64) {
                 await session.page.addStyleTag({ content: diffStabilityCss });
                 const shotBase64 = await session.page.screenshot({ encoding: "base64" });
-                cell.figmaDiff = await diffAgainstReference(session.page, shotBase64, refBase64, diffThreshold);
+                cell.figmaDiff = await diffAgainstReference(session.page, shotBase64, refBase64, diffThreshold, "image/png");
               }
               if (capture.screenshots) {
                 const shotStart = Date.now();
