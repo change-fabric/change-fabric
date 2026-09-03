@@ -50,7 +50,10 @@ fire, so the prompt handed to `CronCreate` must be exactly `/cf:status tick`.
    for every later call in this session, passing it explicitly as
    `--session <id>`. If it prints null, say so and stop: without a session id
    there is nowhere to persist state, and an unpersisted loop cannot diff or
-   auto-stop.
+   auto-stop. The id must be this session's own identity and no other:
+   `resolve` reads `CLAUDE_CODE_SESSION_ID` and has no cross-session fallback
+   on purpose, so two sessions running side by side on one machine can never
+   share a store and delete each other's cron.
 
 3. **Create the cron.** Call `CronCreate` with the prompt exactly
    `/cf:status tick` and the schedule for the chosen interval (N minutes with
