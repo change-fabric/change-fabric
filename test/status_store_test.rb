@@ -11,17 +11,17 @@ class StatusStoreTest < Minitest::Test
   def setup
     @home = Dir.mktmpdir
     @prev = Dir.home
-    @prev_session_env = ENV["CLAUDE_SESSION_ID"]
+    @prev_session_env = ENV["CLAUDE_CODE_SESSION_ID"]
     ENV["HOME"] = @home
-    ENV.delete("CLAUDE_SESSION_ID")
+    ENV.delete("CLAUDE_CODE_SESSION_ID")
   end
 
   def teardown
     ENV["HOME"] = @prev
     if @prev_session_env
-      ENV["CLAUDE_SESSION_ID"] = @prev_session_env
+      ENV["CLAUDE_CODE_SESSION_ID"] = @prev_session_env
     else
-      ENV.delete("CLAUDE_SESSION_ID")
+      ENV.delete("CLAUDE_CODE_SESSION_ID")
     end
     FileUtils.remove_entry(@home)
   end
@@ -155,12 +155,12 @@ class StatusStoreTest < Minitest::Test
     FileUtils.mkdir_p(other)
     FileUtils.touch(other, mtime: Time.now + 60)
 
-    ENV["CLAUDE_SESSION_ID"] = ""
+    ENV["CLAUDE_CODE_SESSION_ID"] = ""
     assert_equal "", run_cli([ "resolve" ])["session_id"]
     run_cli([ "write", "--item", "10:ghost" ])
     refute File.exist?(File.join(other, "status"))
   ensure
-    ENV.delete("CLAUDE_SESSION_ID")
+    ENV.delete("CLAUDE_CODE_SESSION_ID")
   end
 
   def test_a_corrupt_config_file_reads_as_empty_rather_than_raising
@@ -191,18 +191,18 @@ class StatusStoreTest < Minitest::Test
     refute result["disarmed"]
   end
 
-  def test_resolve_honors_session_flag_over_env_over_newest_directory_fallback
+  def test_resolve_honors_the_session_flag_over_the_env_var
     sessions_root = File.join(@home, ".claude", "cf", "sessions")
-    FileUtils.mkdir_p(File.join(sessions_root, "dir-session"))
+    FileUtils.mkdir_p(File.join(sessions_root, "some-other-session"))
 
-    ENV["CLAUDE_SESSION_ID"] = "env-session"
+    ENV["CLAUDE_CODE_SESSION_ID"] = "env-session"
     assert_equal "flag-session", run_cli([ "resolve", "--session", "flag-session" ])["session_id"]
     assert_equal "env-session", run_cli([ "resolve" ])["session_id"]
   ensure
-    ENV.delete("CLAUDE_SESSION_ID")
+    ENV.delete("CLAUDE_CODE_SESSION_ID")
   end
 
-  def test_newest_directory_fallback_picks_the_most_recently_modified_session_directory
+  def test_resolve_returns_null_rather_than_guessing_another_sessions_directory
     sessions_root = File.join(@home, ".claude", "cf", "sessions")
     older = File.join(sessions_root, "older-session")
     newer = File.join(sessions_root, "newer-session")
@@ -210,6 +210,19 @@ class StatusStoreTest < Minitest::Test
     FileUtils.mkdir_p(newer)
     FileUtils.touch(newer, mtime: Time.now + 60)
 
-    assert_equal "newer-session", run_cli([ "resolve" ])["session_id"]
+    assert_nil run_cli([ "resolve" ])["session_id"]
+    run_cli([ "write", "--item", "10:ghost" ])
+    refute File.exist?(File.join(newer, "status")), "an unresolved session must write nowhere"
+    refute File.exist?(File.join(older, "status"))
+  end
+
+  def test_writes_leave_no_temp_file_behind
+    run_cli([ "arm", "--session", "s1", "--interval", "10", "--cron", "cron_1" ])
+    run_cli([ "write", "--session", "s1", "--item", "10:one" ])
+    paths = run_cli([ "path", "--session", "s1" ])
+    refute File.exist?("#{paths['config']}.tmp")
+    refute File.exist?("#{paths['items']}.tmp")
+    assert File.exist?(paths["config"])
+    assert File.exist?(paths["items"])
   end
 end
