@@ -85,8 +85,7 @@ class StatusStore
   def write_items(list)
     return unless persistable?
 
-    FileUtils.mkdir_p(session_dir)
-    File.write(items_path, list.map { |item| "#{item.percent}|#{item.label}\n" }.join)
+    write_atomically(items_path, list.map { |item| "#{item.percent}|#{item.label}\n" }.join)
   end
 
   def stamp_tick
@@ -114,8 +113,19 @@ class StatusStore
   def now_iso = Time.now.utc.iso8601
 
   def write_config(hash)
-    FileUtils.mkdir_p(session_dir)
-    File.write(config_path, hash.map { |key, value| "#{key}=#{value}\n" }.join)
+    write_atomically(config_path, hash.map { |key, value| "#{key}=#{value}\n" }.join)
+  end
+
+  # Temp-file-plus-rename, the same shape ctx_store.rb uses, so a crash or an
+  # interleaved write leaves a stray *.tmp rather than a half-written store.
+  # The identity fix above removes the cross-session race; this covers the one
+  # case that legitimately survives it, a subagent and its parent sharing one
+  # session id by design and writing at overlapping moments.
+  def write_atomically(path, content)
+    FileUtils.mkdir_p(File.dirname(path))
+    tmp = "#{path}.tmp"
+    File.write(tmp, content)
+    File.rename(tmp, path)
   end
 
   # The thin CLI the cf:status skill drives from Bash. Every subcommand
@@ -157,28 +167,23 @@ class StatusStore
       opts
     end
 
-    # Session id resolution order, first hit wins: an explicit --session
-    # flag, then CLAUDE_SESSION_ID, then the most recently modified
-    # directory under ~/.claude/cf/sessions. Presence, not truthiness: an
-    # explicitly blank --session or CLAUDE_SESSION_ID must resolve to that
-    # blank value (StatusStore then treats it as non-persistable) rather
-    # than falling through to the newest-directory guess, which would
-    # otherwise read or write an unrelated real session's state.
+    # Session id resolution order, first hit wins: an explicit --session flag,
+    # then CLAUDE_CODE_SESSION_ID, the variable Claude Code actually sets in
+    # the session's own shell. There is deliberately no third tier. The
+    # resolved id must be the CALLING session's own identity or the store is
+    # worthless: two concurrent sessions on one machine that resolve to the
+    # same id clobber each other's item lists and can delete each other's
+    # cron job. A guess that reads "whichever session most recently took a
+    # turn" is exactly that failure, so resolve fails closed (nil) instead,
+    # which is the case SKILL.md already documents as "say so and stop".
+    # Presence, not truthiness: an explicitly blank --session or
+    # CLAUDE_CODE_SESSION_ID resolves to that blank value, and StatusStore
+    # then treats it as non-persistable.
     def self.resolve_session_id(opts)
       return opts['session'] if opts.key?('session')
-      return ENV['CLAUDE_SESSION_ID'] if ENV.key?('CLAUDE_SESSION_ID')
+      return ENV['CLAUDE_CODE_SESSION_ID'] if ENV.key?('CLAUDE_CODE_SESSION_ID')
 
-      newest_session_dir
-    end
-
-    def self.newest_session_dir
-      root = File.join(Dir.home, '.claude', 'cf', 'sessions')
-      return nil unless Dir.exist?(root)
-
-      dirs = Dir.children(root).map { |name| File.join(root, name) }.select { |dir| File.directory?(dir) }
-      return nil if dirs.empty?
-
-      File.basename(dirs.max_by { |dir| File.mtime(dir) })
+      nil
     end
 
     def self.resolve(opts, out)
