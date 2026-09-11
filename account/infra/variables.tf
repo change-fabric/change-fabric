@@ -17,9 +17,55 @@ variable "monthly_budget_usd" {
 }
 
 variable "anomaly_threshold_usd" {
-  description = "Absolute dollar impact a Cost Explorer anomaly must reach before it is mailed. Low enough that a forgotten instance surfaces within a day, high enough that normal daily variance on a bill this size does not."
+  description = "Absolute dollar impact a Cost Explorer anomaly must reach before it is mailed. Was $15, which is above the $8.10/day the aegis-sandbox instance burned, so the incident this root exists to catch sat below the threshold for its whole life. $5 is below any single resource worth knowing about and above daily noise on a bill this size."
   type        = number
-  default     = 15
+  default     = 5
+}
+
+# ---------------------------------------------------------------------------
+# Per-account ceilings.
+#
+# The one budget this root had was tag-filtered, which answers "what did
+# changefabric cost" and not "which account is bleeding". The failure this
+# exists to catch was an untagged hand-launched instance in the payer account,
+# so the filter that would have caught it is LinkedAccount, not a tag: an
+# account id is stamped by AWS and cannot be forgotten the way a tag can.
+#
+# Limits are measured steady-state run rate plus about 20 percent. That is
+# deliberately tight. The payer account's spend is lumpy (roughly $8.16/mo
+# accruing daily plus about $12.98 of Route53 hosted-zone charge landing on the
+# 1st), so a FORECASTED threshold will occasionally fire early in the month on
+# nothing. Tight-with-false-alarms was chosen over loose-and-silent.
+# ---------------------------------------------------------------------------
+variable "account_budgets" {
+  description = "Monthly USD ceiling per linked account, keyed by a human label. The key names the budget; the account_id is the LinkedAccount cost filter."
+  type = map(object({
+    account_id = string
+    limit_usd  = number
+  }))
+
+  default = {
+    "payer" = {
+      account_id = "569032832755"
+      limit_usd  = 25
+    }
+    "j2j-production" = {
+      account_id = "202689043194"
+      limit_usd  = 42
+    }
+    "j2j-staging" = {
+      account_id = "985823270538"
+      limit_usd  = 54
+    }
+    "j2j-dns" = {
+      account_id = "713407295108"
+      limit_usd  = 5
+    }
+    "leagueos" = {
+      account_id = "673586358710"
+      limit_usd  = 5
+    }
+  }
 }
 
 # CloudFront distribution ids are literals rather than data-source lookups on

@@ -1,0 +1,33 @@
+{
+    "ResourceRecordSets": [
+        {
+            "Name": "f3marshall.com.",
+            "Type": "NS",
+            "TTL": 172800,
+            "ResourceRecords": [
+                {
+                    "Value": "ns-67.awsdns-08.com."
+                },
+                {
+                    "Value": "ns-734.awsdns-27.net."
+                },
+                {
+                    "Value": "ns-1541.awsdns-00.co.uk."
+                },
+                {
+                    "Value": "ns-1295.awsdns-33.org."
+                }
+            ]
+        },
+        {
+            "Name": "f3marshall.com.",
+            "Type": "SOA",
+            "TTL": 900,
+            "ResourceRecords": [
+                {
+                    "Value": "ns-67.awsdns-08.com. awsdns-hostmaster.amazon.com. 1 7200 900 1209600 86400"
+                }
+            ]
+        }
+    ]
+}
