@@ -1,0 +1,253 @@
+{
+    "ResourceRecordSets": [
+        {
+            "Name": "joinfold.co.",
+            "Type": "A",
+            "TTL": 60,
+            "ResourceRecords": [
+                {
+                    "Value": "34.117.190.98"
+                }
+            ]
+        },
+        {
+            "Name": "joinfold.co.",
+            "Type": "MX",
+            "TTL": 300,
+            "ResourceRecords": [
+                {
+                    "Value": "1 SMTP.GOOGLE.COM"
+                }
+            ]
+        },
+        {
+            "Name": "joinfold.co.",
+            "Type": "NS",
+            "TTL": 172800,
+            "ResourceRecords": [
+                {
+                    "Value": "ns-648.awsdns-17.net."
+                },
+                {
+                    "Value": "ns-103.awsdns-12.com."
+                },
+                {
+                    "Value": "ns-1831.awsdns-36.co.uk."
+                },
+                {
+                    "Value": "ns-1125.awsdns-12.org."
+                }
+            ]
+        },
+        {
+            "Name": "joinfold.co.",
+            "Type": "SOA",
+            "TTL": 900,
+            "ResourceRecords": [
+                {
+                    "Value": "ns-648.awsdns-17.net. awsdns-hostmaster.amazon.com. 1 7200 900 1209600 86400"
+                }
+            ]
+        },
+        {
+            "Name": "joinfold.co.",
+            "Type": "TXT",
+            "TTL": 300,
+            "ResourceRecords": [
+                {
+                    "Value": "\"google-site-verification=7lJ2OSH4TIEOPbrbGEQG42jM2YAMFcLNCNQNCfUz6PA\""
+                }
+            ]
+        },
+        {
+            "Name": "_acme-challenge.joinfold.co.",
+            "Type": "CNAME",
+            "TTL": 60,
+            "ResourceRecords": [
+                {
+                    "Value": "13749376-e5b3-4769-aadb-793d339ef15a.0.authorize.certificatemanager.goog."
+                }
+            ]
+        },
+        {
+            "Name": "_dmarc.joinfold.co.",
+            "Type": "TXT",
+            "TTL": 300,
+            "ResourceRecords": [
+                {
+                    "Value": "\"v=DMARC1; p=none;\""
+                }
+            ]
+        },
+        {
+            "Name": "google._domainkey.joinfold.co.",
+            "Type": "TXT",
+            "TTL": 300,
+            "ResourceRecords": [
+                {
+                    "Value": "\"v=DKIM1;k=rsa;p=MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQCBzFgcJ7LbFxFau5epfdxDeRw2g416t+i+gzrFXoIrk1csjywa+UzVf0haHwcn6lIYqDgXWBC6JTN7tEAIimsV0AqIt71IOnoKMfrkuf+bIJhxlAVJhecc++NuRyBAjmuklhK9TI/S+VNV4uUbJgVwviLcBDTlaFpGbJGL20yCdwIDAQAB\""
+                }
+            ]
+        },
+        {
+            "Name": "resend._domainkey.joinfold.co.",
+            "Type": "TXT",
+            "TTL": 300,
+            "ResourceRecords": [
+                {
+                    "Value": "\"p=MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDm8X1kHYRmZBcRDR2OuMalC2k9lmMZ36BNM+1UfBctcJVcYoCz+jXaLP8/LxucRUghJZqgI/AUfeWAeSIfiV9lfqA/7dKcP0FoyJqB6tlbFDfvinO/EYQDZPkZzueapMFAJ8FChkEssMm33/04docVGQdnghezZm2lJZvAk8g2qwIDAQAB\""
+                }
+            ]
+        },
+        {
+            "Name": "api.joinfold.co.",
+            "Type": "CNAME",
+            "TTL": 300,
+            "ResourceRecords": [
+                {
+                    "Value": "c745f1a4cf5c4bab.vercel-dns-017.com."
+                }
+            ]
+        },
+        {
+            "Name": "dev.api.joinfold.co.",
+            "Type": "CNAME",
+            "TTL": 300,
+            "ResourceRecords": [
+                {
+                    "Value": "c745f1a4cf5c4bab.vercel-dns-017.com."
+                }
+            ]
+        },
+        {
+            "Name": "app.joinfold.co.",
+            "Type": "A",
+            "TTL": 60,
+            "ResourceRecords": [
+                {
+                    "Value": "34.117.190.98"
+                }
+            ]
+        },
+        {
+            "Name": "_acme-challenge.app.joinfold.co.",
+            "Type": "CNAME",
+            "TTL": 300,
+            "ResourceRecords": [
+                {
+                    "Value": "590d7037-59ea-40dd-a436-86d6c1740792.18.authorize.certificatemanager.goog."
+                }
+            ]
+        },
+        {
+            "Name": "dev.app.joinfold.co.",
+            "Type": "A",
+            "TTL": 300,
+            "ResourceRecords": [
+                {
+                    "Value": "34.54.197.98"
+                }
+            ]
+        },
+        {
+            "Name": "_acme-challenge.dev.app.joinfold.co.",
+            "Type": "CNAME",
+            "TTL": 300,
+            "ResourceRecords": [
+                {
+                    "Value": "79d2dc13-72e9-46d9-bec4-ecc2143b7d6b.13.authorize.certificatemanager.goog."
+                }
+            ]
+        },
+        {
+            "Name": "www.app.joinfold.co.",
+            "Type": "A",
+            "TTL": 60,
+            "ResourceRecords": [
+                {
+                    "Value": "34.117.190.98"
+                }
+            ]
+        },
+        {
+            "Name": "_acme-challenge.www.app.joinfold.co.",
+            "Type": "CNAME",
+            "TTL": 300,
+            "ResourceRecords": [
+                {
+                    "Value": "3d3dd064-d3e1-4dbc-ab12-5e99d2777906.14.authorize.certificatemanager.goog."
+                }
+            ]
+        },
+        {
+            "Name": "dev.joinfold.co.",
+            "Type": "A",
+            "TTL": 60,
+            "ResourceRecords": [
+                {
+                    "Value": "34.54.197.98"
+                }
+            ]
+        },
+        {
+            "Name": "_acme-challenge.dev.joinfold.co.",
+            "Type": "CNAME",
+            "TTL": 300,
+            "ResourceRecords": [
+                {
+                    "Value": "ff254a42-8e1d-44b3-90d9-7294cf6603c3.3.authorize.certificatemanager.goog."
+                }
+            ]
+        },
+        {
+            "Name": "send.joinfold.co.",
+            "Type": "MX",
+            "TTL": 300,
+            "ResourceRecords": [
+                {
+                    "Value": "10 feedback-smtp.us-east-1.amazonses.com"
+                }
+            ]
+        },
+        {
+            "Name": "send.joinfold.co.",
+            "Type": "TXT",
+            "TTL": 300,
+            "ResourceRecords": [
+                {
+                    "Value": "\"v=spf1 include:amazonses.com ~all\""
+                }
+            ]
+        },
+        {
+            "Name": "www.joinfold.co.",
+            "Type": "A",
+            "TTL": 60,
+            "ResourceRecords": [
+                {
+                    "Value": "34.117.190.98"
+                }
+            ]
+        },
+        {
+            "Name": "_acme-challenge.www.joinfold.co.",
+            "Type": "CNAME",
+            "TTL": 60,
+            "ResourceRecords": [
+                {
+                    "Value": "4a681a60-e786-49b2-81cb-62cadd010abc.11.authorize.certificatemanager.goog."
+                }
+            ]
+        },
+        {
+            "Name": "dev.www.joinfold.co.",
+            "Type": "CNAME",
+            "TTL": 300,
+            "ResourceRecords": [
+                {
+                    "Value": "ad7f04ce96348516.vercel-dns-016.com."
+                }
+            ]
+        }
+    ]
+}

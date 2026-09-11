@@ -1,0 +1,63 @@
+{
+    "ResourceRecordSets": [
+        {
+            "Name": "f3marshall.com.",
+            "Type": "A",
+            "TTL": 300,
+            "ResourceRecords": [
+                {
+                    "Value": "216.198.79.1"
+                }
+            ]
+        },
+        {
+            "Name": "f3marshall.com.",
+            "Type": "NS",
+            "TTL": 172800,
+            "ResourceRecords": [
+                {
+                    "Value": "ns-34.awsdns-04.com."
+                },
+                {
+                    "Value": "ns-1645.awsdns-13.co.uk."
+                },
+                {
+                    "Value": "ns-855.awsdns-42.net."
+                },
+                {
+                    "Value": "ns-1311.awsdns-35.org."
+                }
+            ]
+        },
+        {
+            "Name": "f3marshall.com.",
+            "Type": "SOA",
+            "TTL": 900,
+            "ResourceRecords": [
+                {
+                    "Value": "ns-34.awsdns-04.com. awsdns-hostmaster.amazon.com. 1 7200 900 1209600 86400"
+                }
+            ]
+        },
+        {
+            "Name": "stats.f3marshall.com.",
+            "Type": "CNAME",
+            "TTL": 300,
+            "ResourceRecords": [
+                {
+                    "Value": "4ade96b35332e7be.vercel-dns-017.com."
+                }
+            ]
+        },
+        {
+            "Name": "www.f3marshall.com.",
+            "Type": "CNAME",
+            "TTL": 300,
+            "ResourceRecords": [
+                {
+                    "Value": "www"
+                }
+            ]
+        }
+    ]
+}

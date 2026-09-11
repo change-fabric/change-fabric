@@ -1,0 +1,242 @@
+{
+    "ResourceRecordSets": [
+        {
+            "Name": "amfmstaging.org.",
+            "Type": "NS",
+            "TTL": 172800,
+            "ResourceRecords": [
+                {
+                    "Value": "ns-305.awsdns-38.com."
+                },
+                {
+                    "Value": "ns-1863.awsdns-40.co.uk."
+                },
+                {
+                    "Value": "ns-1306.awsdns-35.org."
+                },
+                {
+                    "Value": "ns-805.awsdns-36.net."
+                }
+            ]
+        },
+        {
+            "Name": "amfmstaging.org.",
+            "Type": "SOA",
+            "TTL": 900,
+            "ResourceRecords": [
+                {
+                    "Value": "ns-305.awsdns-38.com. awsdns-hostmaster.amazon.com. 1 7200 900 1209600 86400"
+                }
+            ]
+        },
+        {
+            "Name": "assets.amfmstaging.org.",
+            "Type": "A",
+            "AliasTarget": {
+                "HostedZoneId": "Z2FDTNDATAQYW2",
+                "DNSName": "d2nmxigt7ybqm1.cloudfront.net.",
+                "EvaluateTargetHealth": false
+            }
+        },
+        {
+            "Name": "_7114ef027f4f8e7fa3470eaca1c00848.assets.amfmstaging.org.",
+            "Type": "CNAME",
+            "TTL": 60,
+            "ResourceRecords": [
+                {
+                    "Value": "_dc71915e0cb5cf846a96405d0c416016.jkddzztszm.acm-validations.aws."
+                }
+            ]
+        },
+        {
+            "Name": "core.amfmstaging.org.",
+            "Type": "A",
+            "AliasTarget": {
+                "HostedZoneId": "Z1UJRXOUMOOFQ8",
+                "DNSName": "d-n7vr273gs7.execute-api.us-east-1.amazonaws.com.",
+                "EvaluateTargetHealth": false
+            }
+        },
+        {
+            "Name": "_0c0fe9b032cc24299ef778b428ae4a86.core.amfmstaging.org.",
+            "Type": "CNAME",
+            "TTL": 60,
+            "ResourceRecords": [
+                {
+                    "Value": "_a6b8633421a25425dde13bcd2a0169d1.jkddzztszm.acm-validations.aws."
+                }
+            ]
+        },
+        {
+            "Name": "heartchart.amfmstaging.org.",
+            "Type": "A",
+            "AliasTarget": {
+                "HostedZoneId": "Z2FDTNDATAQYW2",
+                "DNSName": "d269w7753m0cow.cloudfront.net.",
+                "EvaluateTargetHealth": false
+            }
+        },
+        {
+            "Name": "_1bb1613c04b7a541f89327fea1e50feb.heartchart.amfmstaging.org.",
+            "Type": "CNAME",
+            "TTL": 60,
+            "ResourceRecords": [
+                {
+                    "Value": "_84db0016f988f91b0c95ce8d965824b0.jkddzztszm.acm-validations.aws."
+                }
+            ]
+        },
+        {
+            "Name": "images.amfmstaging.org.",
+            "Type": "A",
+            "AliasTarget": {
+                "HostedZoneId": "Z2FDTNDATAQYW2",
+                "DNSName": "d336rghulmerzv.cloudfront.net.",
+                "EvaluateTargetHealth": false
+            }
+        },
+        {
+            "Name": "_8ed1551d32fa20a865a5a8c13c78c4e4.images.amfmstaging.org.",
+            "Type": "CNAME",
+            "TTL": 60,
+            "ResourceRecords": [
+                {
+                    "Value": "_faa2d44724ee71b5e54ed681e3457385.jkddzztszm.acm-validations.aws."
+                }
+            ]
+        },
+        {
+            "Name": "mailpit.amfmstaging.org.",
+            "Type": "A",
+            "AliasTarget": {
+                "HostedZoneId": "Z35SXDOTRQ7X7K",
+                "DNSName": "amfm-staging-142338172.us-east-1.elb.amazonaws.com.",
+                "EvaluateTargetHealth": false
+            }
+        },
+        {
+            "Name": "_a47535d6130666d8d0ebe4924db8be5c.mailpit.amfmstaging.org.",
+            "Type": "CNAME",
+            "TTL": 60,
+            "ResourceRecords": [
+                {
+                    "Value": "_7f988db72ebb47cbed26995c5eb90f73.jkddzztszm.acm-validations.aws."
+                }
+            ]
+        },
+        {
+            "Name": "portal.amfmstaging.org.",
+            "Type": "A",
+            "AliasTarget": {
+                "HostedZoneId": "Z1UJRXOUMOOFQ8",
+                "DNSName": "d-lb05y4wxc0.execute-api.us-east-1.amazonaws.com.",
+                "EvaluateTargetHealth": false
+            }
+        },
+        {
+            "Name": "_6e5e2f57bd7f2791287e5fb163150601.portal.amfmstaging.org.",
+            "Type": "CNAME",
+            "TTL": 60,
+            "ResourceRecords": [
+                {
+                    "Value": "_4afbc65067c17769ee45b8ca4d0b8788.jkddzztszm.acm-validations.aws."
+                }
+            ]
+        },
+        {
+            "Name": "diesel.portal.amfmstaging.org.",
+            "Type": "A",
+            "AliasTarget": {
+                "HostedZoneId": "Z35SXDOTRQ7X7K",
+                "DNSName": "amfm-staging-142338172.us-east-1.elb.amazonaws.com.",
+                "EvaluateTargetHealth": false
+            }
+        },
+        {
+            "Name": "_a9889540e43b6de9c27afdf7b4fd5eab.diesel.portal.amfmstaging.org.",
+            "Type": "CNAME",
+            "TTL": 60,
+            "ResourceRecords": [
+                {
+                    "Value": "_de5928e59a10bbb530adb0c71347ddb1.jkddzztszm.acm-validations.aws."
+                }
+            ]
+        },
+        {
+            "Name": "nikki.portal.amfmstaging.org.",
+            "Type": "A",
+            "AliasTarget": {
+                "HostedZoneId": "Z1UJRXOUMOOFQ8",
+                "DNSName": "d-72whofwk69.execute-api.us-east-1.amazonaws.com.",
+                "EvaluateTargetHealth": false
+            }
+        },
+        {
+            "Name": "_0368bb21c459c3f9e916f58e7d48c299.nikki.portal.amfmstaging.org.",
+            "Type": "CNAME",
+            "TTL": 60,
+            "ResourceRecords": [
+                {
+                    "Value": "_66c38c09b80ad9d67dc9f7ad9d23a2bc.jkddzztszm.acm-validations.aws."
+                }
+            ]
+        },
+        {
+            "Name": "scattergram.amfmstaging.org.",
+            "Type": "A",
+            "AliasTarget": {
+                "HostedZoneId": "Z2FDTNDATAQYW2",
+                "DNSName": "d3sofoi8bcq64l.cloudfront.net.",
+                "EvaluateTargetHealth": false
+            }
+        },
+        {
+            "Name": "_d71e837ffec35f1ad3a4cd2fca0fc7ed.scattergram.amfmstaging.org.",
+            "Type": "CNAME",
+            "TTL": 60,
+            "ResourceRecords": [
+                {
+                    "Value": "_ccee16baf80cdd6a09d21b03f4df0ab1.jkddzztszm.acm-validations.aws."
+                }
+            ]
+        },
+        {
+            "Name": "signoz.amfmstaging.org.",
+            "Type": "A",
+            "AliasTarget": {
+                "HostedZoneId": "Z35SXDOTRQ7X7K",
+                "DNSName": "amfm-staging-142338172.us-east-1.elb.amazonaws.com.",
+                "EvaluateTargetHealth": false
+            }
+        },
+        {
+            "Name": "_6026d00ed5de8cda2621a633b9fb6924.signoz.amfmstaging.org.",
+            "Type": "CNAME",
+            "TTL": 60,
+            "ResourceRecords": [
+                {
+                    "Value": "_933c46101ef93f05dec8621cb081a0a2.jkddzztszm.acm-validations.aws."
+                }
+            ]
+        },
+        {
+            "Name": "worker.amfmstaging.org.",
+            "Type": "A",
+            "AliasTarget": {
+                "HostedZoneId": "Z35SXDOTRQ7X7K",
+                "DNSName": "amfm-staging-142338172.us-east-1.elb.amazonaws.com.",
+                "EvaluateTargetHealth": false
+            }
+        },
+        {
+            "Name": "_07508d514dcdca412a4ea39ff9a7dc9f.worker.amfmstaging.org.",
+            "Type": "CNAME",
+            "TTL": 60,
+            "ResourceRecords": [
+                {
+                    "Value": "_b09db700179f5b028c3877c46ea214d0.jkddzztszm.acm-validations.aws."
+                }
+            ]
+        }
+    ]
+}

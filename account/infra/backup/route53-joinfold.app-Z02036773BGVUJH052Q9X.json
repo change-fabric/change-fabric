@@ -1,0 +1,113 @@
+{
+    "ResourceRecordSets": [
+        {
+            "Name": "joinfold.app.",
+            "Type": "A",
+            "TTL": 300,
+            "ResourceRecords": [
+                {
+                    "Value": "34.117.190.98"
+                }
+            ]
+        },
+        {
+            "Name": "joinfold.app.",
+            "Type": "NS",
+            "TTL": 172800,
+            "ResourceRecords": [
+                {
+                    "Value": "ns-984.awsdns-59.net."
+                },
+                {
+                    "Value": "ns-2045.awsdns-63.co.uk."
+                },
+                {
+                    "Value": "ns-353.awsdns-44.com."
+                },
+                {
+                    "Value": "ns-1261.awsdns-29.org."
+                }
+            ]
+        },
+        {
+            "Name": "joinfold.app.",
+            "Type": "SOA",
+            "TTL": 900,
+            "ResourceRecords": [
+                {
+                    "Value": "ns-984.awsdns-59.net. awsdns-hostmaster.amazon.com. 1 7200 900 1209600 86400"
+                }
+            ]
+        },
+        {
+            "Name": "_acme-challenge.joinfold.app.",
+            "Type": "CNAME",
+            "TTL": 300,
+            "ResourceRecords": [
+                {
+                    "Value": "e7f870d6-9600-4637-98ca-27f4ff471c29.10.authorize.certificatemanager.goog."
+                }
+            ]
+        },
+        {
+            "Name": "app.joinfold.app.",
+            "Type": "A",
+            "TTL": 300,
+            "ResourceRecords": [
+                {
+                    "Value": "34.117.190.98"
+                }
+            ]
+        },
+        {
+            "Name": "_acme-challenge.app.joinfold.app.",
+            "Type": "CNAME",
+            "TTL": 300,
+            "ResourceRecords": [
+                {
+                    "Value": "6c260dbd-66d8-4bd5-87c1-ed73ee350875.17.authorize.certificatemanager.goog."
+                }
+            ]
+        },
+        {
+            "Name": "dev.app.joinfold.app.",
+            "Type": "A",
+            "TTL": 300,
+            "ResourceRecords": [
+                {
+                    "Value": "34.117.190.98"
+                }
+            ]
+        },
+        {
+            "Name": "dev.joinfold.app.",
+            "Type": "A",
+            "TTL": 300,
+            "ResourceRecords": [
+                {
+                    "Value": "34.117.190.98"
+                }
+            ]
+        },
+        {
+            "Name": "www.joinfold.app.",
+            "Type": "A",
+            "TTL": 300,
+            "ResourceRecords": [
+                {
+                    "Value": "34.117.190.98"
+                }
+            ]
+        },
+        {
+            "Name": "dev.www.joinfold.app.",
+            "Type": "A",
+            "TTL": 300,
+            "ResourceRecords": [
+                {
+                    "Value": "34.117.190.98"
+                }
+            ]
+        }
+    ]
+}
