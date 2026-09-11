@@ -28,6 +28,16 @@ output "budget_name" {
   value       = aws_budgets_budget.changefabric.name
 }
 
+output "account_budget_names" {
+  description = "Per-account monthly ceilings, so a reviewer can compare the list against describe-budgets without reading the config."
+  value       = sort([for budget in aws_budgets_budget.account : budget.name])
+}
+
+output "anomaly_monitor_arns" {
+  description = "Both anomaly monitors: one per service, one per linked account."
+  value       = sort([aws_ce_anomaly_monitor.services.arn, aws_ce_anomaly_monitor.accounts.arn])
+}
+
 output "site_health_check_id" {
   description = "Route53 health check behind the outside-in production alarm."
   value       = aws_route53_health_check.site.id
@@ -35,14 +45,16 @@ output "site_health_check_id" {
 
 output "alarm_names" {
   description = "Every alarm this root creates, so a reviewer can compare the list against describe-alarms without reading the config."
+  # The four RDS alarms are splatted rather than named directly because they
+  # carry a count guard while their target instance does not exist; the splat
+  # yields an empty list under the guard and the four names again when the
+  # redeploy path flips it back on.
   value = sort(concat(
-    [
-      aws_cloudwatch_metric_alarm.rds_cpu.alarm_name,
-      aws_cloudwatch_metric_alarm.rds_storage.alarm_name,
-      aws_cloudwatch_metric_alarm.rds_memory.alarm_name,
-      aws_cloudwatch_metric_alarm.rds_connections.alarm_name,
-      aws_cloudwatch_metric_alarm.site_unreachable.alarm_name,
-    ],
+    aws_cloudwatch_metric_alarm.rds_cpu[*].alarm_name,
+    aws_cloudwatch_metric_alarm.rds_storage[*].alarm_name,
+    aws_cloudwatch_metric_alarm.rds_memory[*].alarm_name,
+    aws_cloudwatch_metric_alarm.rds_connections[*].alarm_name,
+    [aws_cloudwatch_metric_alarm.site_unreachable.alarm_name],
     [for alarm in aws_cloudwatch_metric_alarm.lambda_errors : alarm.alarm_name],
     [for alarm in aws_cloudwatch_metric_alarm.lambda_throttles : alarm.alarm_name],
     [for alarm in aws_cloudwatch_metric_alarm.api_5xx : alarm.alarm_name],

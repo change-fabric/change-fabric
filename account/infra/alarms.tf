@@ -19,6 +19,39 @@
 
 locals {
   alarm_actions = [aws_sns_topic.alerts.arn]
+
+  # -------------------------------------------------------------------------
+  # Deliberately NOT here (for now): 21 of the 25 alarms this file declares.
+  #
+  # On 2026-08-30 the payer-account estate was torn down on purpose: the
+  # cf-platform RDS instance, all seven Lambdas, both HTTP APIs and the
+  # staging-artifacts CloudFront distribution no longer exist. The alarm
+  # resources were already in Terraform state, so a refresh drops them and an
+  # unguarded plan proposes recreating 21 alarms pointed at metrics nothing
+  # publishes. An alarm on a deleted target is not a control: it sits in
+  # INSUFFICIENT_DATA forever and trains the reader to ignore the mailbox,
+  # which is the exact failure this root exists to correct.
+  #
+  # They are guarded rather than deleted because the decision on changefabric
+  # was "paused, keep the redeploy path". When the platform comes back, flip
+  # platform_targets_exist to true and the same 21 alarms return unchanged,
+  # with their thresholds and their reasoning intact.
+  #
+  # The four alarms that stay are the four whose targets are still live:
+  # cf-site-apex-5xx-rate, cf-site-www-5xx-rate, cf-staging-app-5xx-rate and
+  # changefabric-site-unreachable.
+  # -------------------------------------------------------------------------
+  platform_targets_exist = false
+
+  # The CloudFront distributions that still exist. staging-artifacts
+  # (E1C6IQBS74A4EG) went with the teardown; the other three serve live
+  # surfaces and are unaffected by the guard above.
+  absent_cloudfront_distributions = ["staging-artifacts"]
+
+  live_cloudfront_distributions = {
+    for label, id in var.cloudfront_distributions : label => id
+    if !contains(local.absent_cloudfront_distributions, label)
+  }
 }
 
 # ---------------------------------------------------------------------------
@@ -28,6 +61,8 @@ locals {
 # ---------------------------------------------------------------------------
 
 resource "aws_cloudwatch_metric_alarm" "rds_cpu" {
+  count = local.platform_targets_exist ? 1 : 0
+
   alarm_name          = "cf-platform-rds-cpu-high"
   alarm_description   = "Shared Postgres instance has been above 85 percent CPU for 15 minutes. On a db.t4g.small this is also the shape of burst-credit exhaustion, which degrades every environment at once."
   namespace           = "AWS/RDS"
@@ -46,6 +81,8 @@ resource "aws_cloudwatch_metric_alarm" "rds_cpu" {
 }
 
 resource "aws_cloudwatch_metric_alarm" "rds_storage" {
+  count = local.platform_targets_exist ? 1 : 0
+
   alarm_name          = "cf-platform-rds-storage-low"
   alarm_description   = "Shared Postgres instance is under 2 GB of free storage. Storage autoscaling is on up to 100 GB, so this firing means autoscaling is not keeping up or has stopped, which ends in a read-only instance."
   namespace           = "AWS/RDS"
@@ -64,6 +101,8 @@ resource "aws_cloudwatch_metric_alarm" "rds_storage" {
 }
 
 resource "aws_cloudwatch_metric_alarm" "rds_memory" {
+  count = local.platform_targets_exist ? 1 : 0
+
   alarm_name          = "cf-platform-rds-memory-low"
   alarm_description   = "Shared Postgres instance is under 200 MB freeable memory. On a 2 GB instance this precedes swapping and then the OOM killer taking Postgres with it."
   namespace           = "AWS/RDS"
@@ -82,6 +121,8 @@ resource "aws_cloudwatch_metric_alarm" "rds_memory" {
 }
 
 resource "aws_cloudwatch_metric_alarm" "rds_connections" {
+  count = local.platform_targets_exist ? 1 : 0
+
   alarm_name          = "cf-platform-rds-connections-high"
   alarm_description   = "Shared Postgres instance is holding more than 150 connections. A db.t4g.small allows roughly 225, and Lambda scaling is the one thing here that can reach that ceiling without warning."
   namespace           = "AWS/RDS"
@@ -108,7 +149,7 @@ resource "aws_cloudwatch_metric_alarm" "rds_connections" {
 # ---------------------------------------------------------------------------
 
 resource "aws_cloudwatch_metric_alarm" "lambda_errors" {
-  for_each = var.lambda_functions
+  for_each = local.platform_targets_exist ? var.lambda_functions : toset([])
 
   alarm_name          = "${each.value}-errors"
   alarm_description   = "${each.value} returned at least one error in a 5 minute window. These functions are low volume enough that a single error is worth a mail rather than a rate threshold that would need traffic to be meaningful."
@@ -128,7 +169,7 @@ resource "aws_cloudwatch_metric_alarm" "lambda_errors" {
 }
 
 resource "aws_cloudwatch_metric_alarm" "lambda_throttles" {
-  for_each = var.lambda_functions
+  for_each = local.platform_targets_exist ? var.lambda_functions : toset([])
 
   alarm_name          = "${each.value}-throttles"
   alarm_description   = "${each.value} was throttled. No function in this account sets reserved concurrency, so a throttle means the account-wide concurrency pool is exhausted and every other function is being starved at the same time."
@@ -154,7 +195,7 @@ resource "aws_cloudwatch_metric_alarm" "lambda_throttles" {
 # ---------------------------------------------------------------------------
 
 resource "aws_cloudwatch_metric_alarm" "api_5xx" {
-  for_each = var.http_apis
+  for_each = local.platform_targets_exist ? var.http_apis : tomap({})
 
   alarm_name          = "cf-${each.key}-5xx"
   alarm_description   = "API ${each.value} (${each.key}) returned server errors. Includes the case where the integration Lambda never answered, which is how a missing VPC path to an AWS service presents from outside."
@@ -183,7 +224,7 @@ resource "aws_cloudwatch_metric_alarm" "api_5xx" {
 # ---------------------------------------------------------------------------
 
 resource "aws_cloudwatch_metric_alarm" "cloudfront_5xx" {
-  for_each = var.cloudfront_distributions
+  for_each = local.live_cloudfront_distributions
 
   alarm_name          = "cf-${each.key}-5xx-rate"
   alarm_description   = "Distribution ${each.value} (${each.key}) is serving more than 5 percent 5xx over 10 minutes. For the two site distributions this is the production marketing site being visibly broken."
