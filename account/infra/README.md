@@ -205,3 +205,64 @@ re-baseline it above the real run rate so it can alarm again.
 
 Nothing in this review destroyed or replaced anything. No RDS instance, no KMS
 key, no VPC, no bucket, no credential rotated.
+
+## Per-account ceilings and the budget filter fix (2026-09-11)
+
+### What prompted it
+
+An invoice analysis of the August 2026 billing period split the organization's
+spend by linked account and found that four fifths of it sat in the payer
+account, almost none of it tagged. The single largest line was one hand-launched
+`c6i.2xlarge` from a closed engagement that ran for six weeks at about $8.26 a
+day. It carried a correct `purpose` tag naming its intended one-day lifetime.
+Nothing read the tag.
+
+Three controls should have caught it and all three failed. The `cf-alerts` SNS
+topic had zero confirmed subscriptions, so no alarm could be delivered. The
+anomaly threshold was $15, above the instance's $8.26 daily burn, so the
+incident sat under the threshold for its whole life. And the one budget this
+root declared was tag-filtered, which answers what a project cost rather than
+which account is bleeding.
+
+### What changed
+
+The budget cost filter was broken. Budgets wants `user:<key>$<value>` for a
+`TagKeyValue` filter, and a literal dollar immediately before an interpolation
+cannot be written inline: HCL scans `$$${project}` left to right as a literal
+`$` followed by the escape `$${`. The three-dollar form does not work either.
+The working form is `format("user:Project$%s", project)`. Until this was fixed
+the `changefabric-monthly` budget matched no tag at all and read $0.00 against a
+$75 limit for its entire life.
+
+Five `aws_budgets_budget.account` entries now filter on `LinkedAccount`, one per
+linked account, at steady-state run rate plus about 20 percent. An account id is
+stamped by AWS and cannot be forgotten the way a tag can. Each carries an ACTUAL
+over 80 percent and a FORECASTED over 100 percent notification.
+
+The anomaly threshold drops from $15 to $5, and a second monitor watches the
+linked accounts as a whole rather than per service, so an untagged workload in
+any account is in scope from the day it appears. Both subscriptions are
+IMMEDIATE with a single SNS subscriber, which is the only shape Cost Explorer
+accepts; the reasoning is in `cost.tf`.
+
+Twenty-one alarms in `alarms.tf` are guarded with `count = 0`. Their targets
+(the shared Postgres instance, seven Lambdas, two HTTP APIs) were torn down on
+2026-08-30. The estate is paused, not retired, and the guards come off with the
+redeploy.
+
+`backup/route53-*.json` holds the exported record sets of five hosted zones
+deleted during the same cleanup. They are committed because they are the undo.
+
+### Deliberately not done
+
+No TTL-tag reaper. It was offered in both auto-stop and auto-terminate form and
+declined. The `purpose` and TTL tag convention stays a convention, unenforced.
+
+The hand-built console budget (`Monthly Budget`, $20, org wide, all four ACTUAL
+thresholds stuck in ALARM) is untouched. It is duplicate noise against the five
+new per-account budgets, and that is a knowingly accepted transitional state.
+Re-baselining it needs one clean billing cycle first, and the cleanup landed
+mid-September, so September does not count. **The first eligible measurement is
+early November 2026, measuring October.** The rule is mechanical: sum
+`UnblendedCost` by `LINKED_ACCOUNT` for the completed month to get `T`, then set
+the limit to `ceil(T * 1.2)`.
