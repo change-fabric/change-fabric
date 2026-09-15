@@ -67,13 +67,15 @@ class ChangeConfig
   # the lane never reads.
   TARGET_LANES = %w[zap].freeze
 
-  # Lanes that read an `auth` login-flow block. Narrower than BROWSER_LANES:
-  # a11y drives a real browser page too, but only ever reads basic_auth, never
-  # a multi-step login flow, so `auth` there would be the same silent no-op
-  # basic_auth's own guard exists to prevent. `testcases` (0.10.0) reads the
-  # same block, in the same shape, since a case behind a login has to get
-  # through it first.
-  AUTH_LANES = %w[browserless testcases].freeze
+  # Lanes that read an `auth` login-flow block. Every browser-driving lane is
+  # here as of 0.11.0. a11y was excluded until then on the reasoning that it
+  # only ever read basic_auth, but that reasoning had the failure backwards: a
+  # config declaring seven routes behind a form login got no error for the
+  # absent `auth`, every route redirected to the login page, and the lane
+  # graded the login page seven times under seven route names. `testcases`
+  # (0.10.0) reads the same block, in the same shape, since a case behind a
+  # login has to get through it first.
+  AUTH_LANES = %w[a11y browserless testcases].freeze
 
   def self.load(path, profile: nil, root: nil, overrides: {})
     raise ConfigError, "CHANGE.md not found: #{path}. #{REFERENCE_HINT}" unless File.exist?(path)

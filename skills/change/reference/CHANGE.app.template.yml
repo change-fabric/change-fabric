@@ -47,6 +47,13 @@ change_config:
       enabled: true
       routes: ["/login", "/dashboard"]
       threshold: serious          # minor | moderate | serious | critical
+      # Routes behind a login need this block, or every one of them redirects
+      # to the login page and axe grades that page under their names. Same
+      # shape as browserless.auth; the login runs once before the route loop.
+      # auth:
+      #   login_url: /login
+      #   email_env: CF_A11Y_EMAIL
+      #   password_env: CF_A11Y_PASSWORD
 
     zap:
       enabled: true

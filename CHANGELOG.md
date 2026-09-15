@@ -18,6 +18,45 @@ Every version below has a frozen, permanently addressable rendering at
 field set: major for a removed, renamed or newly required field, minor for a new
 optional field, patch for a documentation-only clarification.
 
+## [0.11.0] - 2026-09-15
+
+The a11y lane accepts the same form-login block the browserless lane has
+always taken, and a route that does not serve itself now fails instead of
+warning.
+
+### Added
+
+- `change_config.lanes.a11y.auth.*`: the shorthand login
+  (`login_url`, `email_env`, `password_env`, the three selectors,
+  `wait_for_selector`, `timeout_ms`) and the explicit `steps[]` form, field
+  for field the same shape `lanes.browserless.auth` and
+  `lanes.testcases.auth` already define. The lane logs in once, in the scan
+  page, before the route loop, so every route is scanned with the session's
+  cookies. There is no per-route `auth: true` opt-in: an a11y route is a
+  plain path string, and a login that has already happened costs a public
+  route nothing.
+- `change_config.profiles.<profile>.lanes.a11y.auth.*`, the same where-vs-what
+  exception already made for `browserless.auth` and `testcases.auth`. A
+  profile points the login at its own environment; `routes` and `threshold`
+  stay shared.
+
+### Changed
+
+- An `auth:` block on `lanes.a11y` no longer raises a config error. It was
+  rejected on the reasoning that a11y read only `basic_auth`, which had the
+  failure backwards: a config declaring routes behind a form login got no
+  error, every route redirected to the login page, and the lane graded that
+  one page under every route name.
+- A route the browser did not stay on is a failing finding (`redirected`,
+  severity high), not a moderate warn. A warn read as green on the sweep
+  summary, which is how a lane covering one page could report clean across
+  seven routes. A redirect that only adds or drops a trailing slash, or only
+  changes scheme or host, is still not a redirect.
+- A configured login that cannot run (no `login_url`, an unset credential env
+  var) or that fails in the container reports one `auth login` failing finding
+  naming the reason, plus one `route not scanned` finding per route. The lane
+  never falls back to scanning those routes logged out.
+
 ## [0.10.0] - 2026-08-22
 
 A fifth lane, `testcases`, runs regression cases committed to the repo, and

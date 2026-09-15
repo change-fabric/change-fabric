@@ -46,6 +46,41 @@ impact, affected selector, and the Deque help url.
 Fix the component, never weaken the scan. If a violation is a genuine false
 positive, raise it rather than silently excluding the rule.
 
+A route the browser did not stay on reports `redirected` and fails, naming the
+path actually served. Axe ran against that page, not the requested route, so
+the route was not audited and the lane will not call it a pass.
+
+## Routes behind a login
+
+Give the lane a `lanes.a11y.auth:` block, the same login flow
+`lanes.browserless.auth` takes:
+
+```yaml
+lanes:
+  a11y:
+    routes: ["/login", "/home", "/dashboard"]
+    auth:
+      login_url: /login
+      email_env: CF_A11Y_EMAIL
+      password_env: CF_A11Y_PASSWORD
+```
+
+Credentials are named, never written: `email_env` and `password_env` hold the
+names of environment variables read on the host at run time. The login runs
+once in the scan page before the route loop, so every route after it is fetched
+with the session's cookies; no per-route opt-in is needed, and a public route
+costs nothing. A multi-form login (an OTP flow) uses the explicit `auth.steps:`
+list instead, exactly as documented for the browserless lane.
+
+Without the block, every route behind the login redirects to the login page.
+Each one then reports `redirected` and fails, rather than reporting the login
+page's violations under another route's name.
+
+A login that cannot run (no `login_url`, an unset credential env var) or that
+fails in the container reports one `auth login` failing finding naming the
+reason, plus one `route not scanned` finding per route. The lane never falls
+back to scanning those routes logged out.
+
 ## Failure modes
 
 - Docker unavailable, or an image cannot be pulled: exits 2 and names the cause;

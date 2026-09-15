@@ -128,7 +128,11 @@ and policy together). Shape under `change_config:`:
   built-in light-load default), `env`, `thresholds` (`http_req_failed`,
   `http_req_duration`).
 - `lanes.a11y`: `enabled`, `routes`, `threshold`
-  (`minor|moderate|serious|critical`, default `serious`), optional `base_url`.
+  (`minor|moderate|serious|critical`, default `serious`), optional `base_url`,
+  an `auth:` login block in the same shape `lanes.browserless.auth` takes. The
+  login runs once before the route loop, so routes behind it are scanned as the
+  logged-in user; without it each one redirects to the login page and that page
+  is graded under every route's name. A route that does not serve itself fails.
 - `lanes.zap`: `enabled`, `targets` (list of in-scope urls; an entry may be
   relative, resolved against the lane base url, or absolute; omit entirely to
   scan the lane base url itself; prefer relative when `profiles` exist, since

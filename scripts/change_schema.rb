@@ -16,7 +16,7 @@
 # spec doc's changelog. A field-set change without a matching version bump, or a
 # version bump the doc does not reflect, is exactly what the drift test catches.
 module ChangeSchema
-  VERSION = '0.10.0'
+  VERSION = '0.11.0'
 
   # The five audit lanes, the authoritative list the config validator enforces.
   LANES = %w[k6 a11y zap browserless testcases].freeze
@@ -101,6 +101,30 @@ module ChangeSchema
     'change_config.lanes.k6.scenario.comparison',
     'change_config.lanes.a11y.routes',
     'change_config.lanes.a11y.threshold',
+    # a11y.auth (0.11.0): the same login-flow block browserless.auth defines,
+    # field for field, because a page behind a login has to be reached before
+    # axe can say anything true about it. The lane logs in once, in the scan
+    # page, before the route loop; there is no per-route opt-in, since an a11y
+    # route is a plain path string and a logged-in session costs a public route
+    # nothing.
+    'change_config.lanes.a11y.auth.login_url',
+    'change_config.lanes.a11y.auth.email_env',
+    'change_config.lanes.a11y.auth.password_env',
+    'change_config.lanes.a11y.auth.email_selector',
+    'change_config.lanes.a11y.auth.password_selector',
+    'change_config.lanes.a11y.auth.submit_selector',
+    'change_config.lanes.a11y.auth.wait_for_selector',
+    'change_config.lanes.a11y.auth.timeout_ms',
+    'change_config.lanes.a11y.auth.steps[].url',
+    'change_config.lanes.a11y.auth.steps[].fields[].selector',
+    'change_config.lanes.a11y.auth.steps[].fields[].env',
+    'change_config.lanes.a11y.auth.steps[].fields[].code_source.url',
+    'change_config.lanes.a11y.auth.steps[].fields[].code_source.pattern',
+    'change_config.lanes.a11y.auth.steps[].fields[].code_source.timeout_ms',
+    'change_config.lanes.a11y.auth.steps[].fields[].code_source.poll_interval_ms',
+    'change_config.lanes.a11y.auth.steps[].submit_selector',
+    'change_config.lanes.a11y.auth.steps[].wait_for_selector',
+    'change_config.lanes.a11y.auth.steps[].timeout_ms',
     'change_config.lanes.zap.targets',
     'change_config.lanes.zap.strict',
     'change_config.lanes.zap.auth',
@@ -248,6 +272,27 @@ module ChangeSchema
     'change_config.profiles.<profile>.lanes.testcases.auth.steps[].submit_selector',
     'change_config.profiles.<profile>.lanes.testcases.auth.steps[].wait_for_selector',
     'change_config.profiles.<profile>.lanes.testcases.auth.steps[].timeout_ms',
+    # profiles.<profile>.lanes.a11y.auth (0.11.0): the same where-vs-what
+    # exception, for the same reason. A profile may point the login at its own
+    # environment; routes and threshold stay shared.
+    'change_config.profiles.<profile>.lanes.a11y.auth.login_url',
+    'change_config.profiles.<profile>.lanes.a11y.auth.email_env',
+    'change_config.profiles.<profile>.lanes.a11y.auth.password_env',
+    'change_config.profiles.<profile>.lanes.a11y.auth.email_selector',
+    'change_config.profiles.<profile>.lanes.a11y.auth.password_selector',
+    'change_config.profiles.<profile>.lanes.a11y.auth.submit_selector',
+    'change_config.profiles.<profile>.lanes.a11y.auth.wait_for_selector',
+    'change_config.profiles.<profile>.lanes.a11y.auth.timeout_ms',
+    'change_config.profiles.<profile>.lanes.a11y.auth.steps[].url',
+    'change_config.profiles.<profile>.lanes.a11y.auth.steps[].fields[].selector',
+    'change_config.profiles.<profile>.lanes.a11y.auth.steps[].fields[].env',
+    'change_config.profiles.<profile>.lanes.a11y.auth.steps[].fields[].code_source.url',
+    'change_config.profiles.<profile>.lanes.a11y.auth.steps[].fields[].code_source.pattern',
+    'change_config.profiles.<profile>.lanes.a11y.auth.steps[].fields[].code_source.timeout_ms',
+    'change_config.profiles.<profile>.lanes.a11y.auth.steps[].fields[].code_source.poll_interval_ms',
+    'change_config.profiles.<profile>.lanes.a11y.auth.steps[].submit_selector',
+    'change_config.profiles.<profile>.lanes.a11y.auth.steps[].wait_for_selector',
+    'change_config.profiles.<profile>.lanes.a11y.auth.steps[].timeout_ms',
     # change_config.apps (0.4.0): a registry of the several genuinely
     # different apps one monorepo contains, each with its own config file
     # (change_config.apps.<app>.config). See the "change_config.apps" section

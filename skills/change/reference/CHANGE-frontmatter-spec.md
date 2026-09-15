@@ -1,6 +1,6 @@
 # CHANGE.md frontmatter specification
 
-Schema version: 0.10.0
+Schema version: 0.11.0
 
 Status: stable. This is the golden reference for authoring a repo's
 `CHANGE.md` frontmatter. A maintainer or an AI agent creating a new repo's
@@ -124,6 +124,24 @@ up and confirm it is ready; `lanes` describes what to audit.
 | `change_config.lanes.k6.scenario.comparison` | string | no | One relatable comparison for the scale. |
 | `change_config.lanes.a11y.routes` | list of string | no (default `/`) | Routes to scan with axe-core. |
 | `change_config.lanes.a11y.threshold` | enum `minor` `moderate` `serious` `critical` | no (default `serious`) | Impact level at or above which a violation fails the lane. |
+| `change_config.lanes.a11y.auth.login_url` | string | yes, to scan a route behind a login (unless `auth.steps` is used instead) | (0.11.0) The same login-flow block `lanes.browserless.auth` defines, field for field. The lane logs in once before the route loop, so every route is scanned with the session's cookies; there is no per-route opt-in. Login page path (relative to the lane's base url) or absolute url. |
+| `change_config.lanes.a11y.auth.email_env` | string | yes, to log in (shorthand form) | (0.11.0) Name of the environment variable holding the real test login email/username. The value is never written into `CHANGE.md`. |
+| `change_config.lanes.a11y.auth.password_env` | string | yes, to log in (shorthand form) | (0.11.0) Name of the environment variable holding the real test login password. Never written into `CHANGE.md`. |
+| `change_config.lanes.a11y.auth.email_selector` | string | no (default `input[name="email"]`) | (0.11.0) CSS selector for the email/username field (shorthand form). |
+| `change_config.lanes.a11y.auth.password_selector` | string | no (default `input[type="password"]`) | (0.11.0) CSS selector for the password field (shorthand form). |
+| `change_config.lanes.a11y.auth.submit_selector` | string | no (default `button[type="submit"]`) | (0.11.0) CSS selector for the login form's submit control (shorthand form). |
+| `change_config.lanes.a11y.auth.wait_for_selector` | string | no | (0.11.0) Selector to wait for after submit, confirming the post-login page rendered before any route is scanned (shorthand form). |
+| `change_config.lanes.a11y.auth.timeout_ms` | integer | no (default 15000) | (0.11.0) Timeout for each login step (shorthand form). |
+| `change_config.lanes.a11y.auth.steps[].url` | string | yes, on the first step | (0.11.0) Page to navigate to before filling this step's fields, for a login needing more than one form (an OTP flow). |
+| `change_config.lanes.a11y.auth.steps[].fields[].selector` | string | yes | (0.11.0) CSS selector for this step's input field. |
+| `change_config.lanes.a11y.auth.steps[].fields[].env` | string | yes, unless `code_source` is set | (0.11.0) Name of the environment variable holding this field's value. Never written into `CHANGE.md`. Mutually exclusive with `code_source`. |
+| `change_config.lanes.a11y.auth.steps[].fields[].code_source.url` | string | yes, to use `code_source` | (0.11.0) An HTTP endpoint reachable from the browserless container on the run network, polled for this field's value inside the container at fill time, never read or logged on the host. |
+| `change_config.lanes.a11y.auth.steps[].fields[].code_source.pattern` | string | no | (0.11.0) A regex applied to the endpoint's response body; the first capture group (or the whole match) becomes the field value. |
+| `change_config.lanes.a11y.auth.steps[].fields[].code_source.timeout_ms` | integer | no (default 20000) | (0.11.0) How long to keep polling before failing this login attempt. |
+| `change_config.lanes.a11y.auth.steps[].fields[].code_source.poll_interval_ms` | integer | no (default 1000) | (0.11.0) Delay between polling attempts. |
+| `change_config.lanes.a11y.auth.steps[].submit_selector` | string | no (default `button[type="submit"]`) | (0.11.0) CSS selector for this step's submit control. |
+| `change_config.lanes.a11y.auth.steps[].wait_for_selector` | string | no | (0.11.0) Selector to wait for after this step's submit. |
+| `change_config.lanes.a11y.auth.steps[].timeout_ms` | integer | no (default 15000) | (0.11.0) Timeout for this step's navigation, field waits, and post-submit wait. |
 | `change_config.lanes.zap.targets` | list of string | no (default the lane base url) | URLs in scope for the ZAP baseline. An entry may be relative (`/`, `/admin`), resolved against the lane base url exactly as `a11y.routes` and `browserless.routes` already resolve, or absolute. Omitted, the lane scans the lane base url itself. Prefer relative when `profiles` exist: an absolute literal is a single global value no profile can override, so it points every profile at the same host regardless of which one is active. A scope spanning two genuinely distinct services needs absolute urls; restate them per profile under `profiles.<profile>.lanes.zap.targets` below. |
 | `change_config.lanes.zap.strict` | boolean | no (default false) | When true, any low-risk-or-above alert fails; when false, only high-risk fails. |
 | `change_config.lanes.zap.auth` | map or null | no | Reserved for authenticated scans; the baseline runs unauthenticated. |
@@ -234,12 +252,12 @@ scope limit that keeps `profiles.<profile>.*` a small, fully documented
 mirror of the base config's own mechanical fields rather than a second copy
 of the whole schema: a profile changes *where* the same audit runs, never
 *what* it audits. `zap.targets` (0.4.0), `browserless.auth` (0.8.0) and
-`testcases.auth` (0.10.0) are the exceptions a profile may also set, and both are consistent with the
+`testcases.auth` (0.10.0) and `a11y.auth` (0.11.0) are the exceptions a profile may also set, and all are consistent with the
 rule rather than a break from it: a target list and a login url with its
 credential env vars are a *where* (how the same audit reaches a different
 environment), not a *what*, the same reason `base_url` is already
-overridable. `browserless.auth` is rejected on every other lane, since only
-browserless reads it (see `change_config.lanes.zap.auth` above, a separate,
+overridable. The `auth` block is rejected on any lane that does not drive a login
+(`k6`, `zap`), since only a lane that runs the flow reads it (see `change_config.lanes.zap.auth` above, a separate,
 unrelated reserved field); a profile override deep-merges over the base
 `auth` block field by field, so restating only `timeout_ms` leaves
 `login_url` and the rest inherited rather than dropped.
@@ -289,6 +307,24 @@ worked example below.
 | `change_config.profiles.<profile>.lanes.browserless.auth.steps[].submit_selector` | string | no | (0.8.0) Overrides `browserless.auth.steps[].submit_selector` for this profile. |
 | `change_config.profiles.<profile>.lanes.browserless.auth.steps[].wait_for_selector` | string | no | (0.8.0) Overrides `browserless.auth.steps[].wait_for_selector` for this profile. |
 | `change_config.profiles.<profile>.lanes.browserless.auth.steps[].timeout_ms` | integer | no | (0.8.0) Overrides `browserless.auth.steps[].timeout_ms` for this profile. |
+| `change_config.profiles.<profile>.lanes.a11y.auth.login_url` | string | no | (0.11.0) Overrides `a11y.auth.login_url` for this profile. Deep-merges over the base `auth` block field by field. |
+| `change_config.profiles.<profile>.lanes.a11y.auth.email_env` | string | no | (0.11.0) Overrides `a11y.auth.email_env` for this profile. Deep-merges over the base `auth` block field by field. |
+| `change_config.profiles.<profile>.lanes.a11y.auth.password_env` | string | no | (0.11.0) Overrides `a11y.auth.password_env` for this profile. Deep-merges over the base `auth` block field by field. |
+| `change_config.profiles.<profile>.lanes.a11y.auth.email_selector` | string | no | (0.11.0) Overrides `a11y.auth.email_selector` for this profile. Deep-merges over the base `auth` block field by field. |
+| `change_config.profiles.<profile>.lanes.a11y.auth.password_selector` | string | no | (0.11.0) Overrides `a11y.auth.password_selector` for this profile. Deep-merges over the base `auth` block field by field. |
+| `change_config.profiles.<profile>.lanes.a11y.auth.submit_selector` | string | no | (0.11.0) Overrides `a11y.auth.submit_selector` for this profile. Deep-merges over the base `auth` block field by field. |
+| `change_config.profiles.<profile>.lanes.a11y.auth.wait_for_selector` | string | no | (0.11.0) Overrides `a11y.auth.wait_for_selector` for this profile. Deep-merges over the base `auth` block field by field. |
+| `change_config.profiles.<profile>.lanes.a11y.auth.timeout_ms` | integer | no | (0.11.0) Overrides `a11y.auth.timeout_ms` for this profile. Deep-merges over the base `auth` block field by field. |
+| `change_config.profiles.<profile>.lanes.a11y.auth.steps[].url` | string | no | (0.11.0) Overrides `a11y.auth.steps[].url` for this profile. Deep-merges over the base `auth` block field by field. |
+| `change_config.profiles.<profile>.lanes.a11y.auth.steps[].fields[].selector` | string | no | (0.11.0) Overrides `a11y.auth.steps[].fields[].selector` for this profile. Deep-merges over the base `auth` block field by field. |
+| `change_config.profiles.<profile>.lanes.a11y.auth.steps[].fields[].env` | string | no | (0.11.0) Overrides `a11y.auth.steps[].fields[].env` for this profile. Deep-merges over the base `auth` block field by field. |
+| `change_config.profiles.<profile>.lanes.a11y.auth.steps[].fields[].code_source.url` | string | no | (0.11.0) Overrides `a11y.auth.steps[].fields[].code_source.url` for this profile. Deep-merges over the base `auth` block field by field. |
+| `change_config.profiles.<profile>.lanes.a11y.auth.steps[].fields[].code_source.pattern` | string | no | (0.11.0) Overrides `a11y.auth.steps[].fields[].code_source.pattern` for this profile. Deep-merges over the base `auth` block field by field. |
+| `change_config.profiles.<profile>.lanes.a11y.auth.steps[].fields[].code_source.timeout_ms` | integer | no | (0.11.0) Overrides `a11y.auth.steps[].fields[].code_source.timeout_ms` for this profile. Deep-merges over the base `auth` block field by field. |
+| `change_config.profiles.<profile>.lanes.a11y.auth.steps[].fields[].code_source.poll_interval_ms` | integer | no | (0.11.0) Overrides `a11y.auth.steps[].fields[].code_source.poll_interval_ms` for this profile. Deep-merges over the base `auth` block field by field. |
+| `change_config.profiles.<profile>.lanes.a11y.auth.steps[].submit_selector` | string | no | (0.11.0) Overrides `a11y.auth.steps[].submit_selector` for this profile. Deep-merges over the base `auth` block field by field. |
+| `change_config.profiles.<profile>.lanes.a11y.auth.steps[].wait_for_selector` | string | no | (0.11.0) Overrides `a11y.auth.steps[].wait_for_selector` for this profile. Deep-merges over the base `auth` block field by field. |
+| `change_config.profiles.<profile>.lanes.a11y.auth.steps[].timeout_ms` | integer | no | (0.11.0) Overrides `a11y.auth.steps[].timeout_ms` for this profile. Deep-merges over the base `auth` block field by field. |
 | `change_config.profiles.<profile>.lanes.testcases.auth.login_url` | string | no | (0.10.0) Overrides `testcases.auth.login_url` for this profile, e.g. when staging's login lives at a different path than local dev's. Deep-merges over the base `auth` block field by field. |
 | `change_config.profiles.<profile>.lanes.testcases.auth.email_env` | string | no | (0.10.0) Overrides `testcases.auth.email_env` for this profile. |
 | `change_config.profiles.<profile>.lanes.testcases.auth.password_env` | string | no | (0.10.0) Overrides `testcases.auth.password_env` for this profile. |

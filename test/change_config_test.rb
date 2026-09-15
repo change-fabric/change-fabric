@@ -339,13 +339,42 @@ class ChangeConfigTest < Minitest::Test
     end
   end
 
-  def test_profile_auth_override_is_rejected_on_a11y
+  # 0.11.0: a11y drives the same login flow, so it takes the same block, and a
+  # profile may point it at that profile's own environment.
+  def test_auth_is_permitted_on_a11y
     config = {
-      "project" => "app", "lanes" => { "a11y" => { "enabled" => true, "routes" => [ "/" ] } },
-      "profiles" => { "staging" => { "lanes" => { "a11y" => { "auth" => { "login_url" => "/login" } } } } }
+      "project" => "app",
+      "lanes" => { "a11y" => { "enabled" => true, "routes" => [ "/dashboard" ],
+                               "auth" => { "login_url" => "/login", "email_env" => "E", "password_env" => "P" } } }
+    }
+    with_config(config) do |loaded, _root|
+      assert_equal "/login", loaded.lane("a11y")["auth"]["login_url"]
+    end
+  end
+
+  def test_profile_auth_override_is_permitted_on_a11y
+    config = {
+      "project" => "app",
+      "lanes" => { "a11y" => { "enabled" => true, "routes" => [ "/dashboard" ],
+                               "auth" => { "login_url" => "/login", "email_env" => "E", "password_env" => "P" } } },
+      "profiles" => { "staging" => { "lanes" => { "a11y" => { "auth" => { "login_url" => "/staging-login" } } } } }
+    }
+    with_config(config, "staging") do |loaded, _root|
+      assert_equal "/staging-login", loaded.lane("a11y")["auth"]["login_url"]
+      assert_equal "E", loaded.lane("a11y")["auth"]["email_env"]
+    end
+  end
+
+  # The lanes that never drive a login are still rejected, and the message
+  # still names the lanes that do.
+  def test_profile_auth_override_is_rejected_on_k6
+    config = {
+      "project" => "app", "lanes" => { "k6" => { "enabled" => true } },
+      "profiles" => { "staging" => { "lanes" => { "k6" => { "auth" => { "login_url" => "/login" } } } } }
     }
     error = assert_raises(ChangeConfig::ConfigError) { with_config(config, "staging") { |_c| } }
-    assert_match(/profile 'staging' lane 'a11y'.*auth.*only applies to a login-driving lane/, error.message)
+    assert_match(/profile 'staging' lane 'k6'.*auth.*only applies to a login-driving lane/, error.message)
+    assert_includes error.message, "a11y"
   end
 
   def test_profile_auth_override_is_rejected_on_zap
