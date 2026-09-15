@@ -19,10 +19,9 @@ import archivedV0_10_0 from "./archive/0.10.0.md?raw";
 // Every superseded version is a frozen snapshot checked into src/archive/,
 // since the live source only ever holds the current text. A version bump
 // that does not also freeze a src/archive/<old-version>.md entry here
-// silently drops that version from /spec and 404s its own HTML page (its
-// public/spec/<version>.md raw file survives untouched across deploys
-// since deploy.sh never deletes old objects, but nothing in VERSIONS
-// points to it anymore): copy the previous CHANGE-frontmatter-spec.md
+// silently drops that version from /spec and 404s its own HTML page, and
+// drops its public/spec/<version>.md raw file too, since embed-spec.mjs
+// writes one per archive entry: copy the previous CHANGE-frontmatter-spec.md
 // (e.g. via `git show spec/v<old>:skills/change/reference/
 // CHANGE-frontmatter-spec.md`, or `change-schema/v<old>` for 0.3.1 and
 // earlier, which predate the current tag prefix) into
