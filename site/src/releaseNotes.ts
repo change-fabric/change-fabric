@@ -28,6 +28,37 @@ export interface ReleaseNote {
 }
 
 export const RELEASE_NOTES: Record<string, ReleaseNote> = {
+  "0.11.0": {
+    version: "0.11.0",
+    date: "2026-09-15",
+    headline:
+      "The accessibility lane can log in, and a route it never actually reached stops counting as a clean one.",
+    highlights: [
+      {
+        title: "lanes.a11y.auth, the same login block the browser lane already had",
+        body:
+          "Shorthand (login_url, email_env, password_env, the three selectors, wait_for_selector, timeout_ms) or an explicit steps[] list for a login that needs more than one form. It is compiled by the same flow compiler and run by the same login runtime as lanes.browserless.auth and lanes.testcases.auth, so a repo that has written its login once does not write a second dialect of it.",
+      },
+      {
+        title: "One login, then every route",
+        body:
+          "The flow runs once in the scan page before the route loop, so every route after it is fetched with the session cookies. There is no per-route auth: true opt-in the way the browserless lane has one: an a11y route is a plain path string, and a login that has already happened costs a public route nothing.",
+      },
+      {
+        title: "A redirected route now fails instead of warning",
+        body:
+          "Requesting /dashboard and being served /login means axe graded a page nobody asked about. That was a moderate warn, which reads as green on a summary, so a route list that had collapsed onto a single login page could report a clean lane. It is a failing finding now. A redirect that only adds or drops a trailing slash, or only changes scheme or host, is still not a redirect.",
+      },
+      {
+        title: "A login that cannot run says so, and scans nothing",
+        body:
+          "An unset credential env var, a missing login_url, or a login that fails inside the container produces one auth login failure naming the reason plus one route not scanned finding per route. The lane never falls back to scanning those routes logged out, because the violations of a login page filed under seven route names is the false coverage this whole change exists to end.",
+      },
+    ],
+    upgrade:
+      "The fields are additive: a CHANGE.md with no a11y auth block still parses and runs. The redirect grading is not additive. If any a11y route currently redirects, that route moves from warn to fail, so a lane that was passing on warnings alone will go red until either the route is reachable or an auth block is added. That is the point of the release, but budget for it rather than meeting it at tag time.",
+  },
+
   "0.10.0": {
     version: "0.10.0",
     date: "2026-08-22",

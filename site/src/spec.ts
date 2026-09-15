@@ -9,6 +9,7 @@ import archivedV0_5_0 from "./archive/0.5.0.md?raw";
 import archivedV0_6_0 from "./archive/0.6.0.md?raw";
 import archivedV0_8_0 from "./archive/0.8.0.md?raw";
 import archivedV0_9_0 from "./archive/0.9.0.md?raw";
+import archivedV0_10_0 from "./archive/0.10.0.md?raw";
 
 // The canonical CHANGE.md frontmatter spec, embedded at build time (see
 // scripts/embed-spec.mjs), plus the version history the /spec pages render.
@@ -47,7 +48,8 @@ export interface SpecVersion {
 }
 
 export const VERSIONS: SpecVersion[] = [
-  { version: CURRENT_VERSION, date: "2026-08-22", status: "current", markdown: specMarkdown },
+  { version: CURRENT_VERSION, date: "2026-09-15", status: "current", markdown: specMarkdown },
+  { version: "0.10.0", date: "2026-08-22", status: "superseded", markdown: archivedV0_10_0 },
   { version: "0.9.0", date: "2026-08-22", status: "superseded", markdown: archivedV0_9_0 },
   { version: "0.8.0", date: "2026-08-21", status: "superseded", markdown: archivedV0_8_0 },
   { version: "0.6.0", date: "2026-08-02", status: "superseded", markdown: archivedV0_6_0 },
