@@ -74,8 +74,20 @@ class ChangeLaneRedirectTest < Minitest::Test
     findings = a11y_lane.send(:route_findings, route)
     assert_equal 1, findings.size
     assert_equal "redirected", findings.first.check
-    assert_equal "warn", findings.first.status
+    assert_equal "fail", findings.first.status
+    assert_equal "high", findings.first.severity
     assert_includes findings.first.detail, "/login"
+  end
+
+  # A redirect that only adds a trailing slash is the same page, so it is still
+  # graded on its real violations rather than failed.
+  def test_a11y_trailing_slash_is_not_a_redirect
+    route = {
+      "route" => "/resources", "finalUrl" => "https://portal.example.com/resources/",
+      "violations" => []
+    }
+    findings = a11y_lane.send(:route_findings, route)
+    assert_equal "pass", findings.first.status
   end
 
   # A route that served itself still reports its real violations.

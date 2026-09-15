@@ -4,6 +4,8 @@
 require 'json'
 require_relative 'change_lane'
 require_relative 'change_findings'
+require_relative 'change_lane_browserless'
+require_relative 'change_flow_compiler'
 
 # The accessibility lane. Drives axe-core against each configured route inside
 # the shared browserless Chromium container (no host browser, no second image),
@@ -15,6 +17,13 @@ require_relative 'change_findings'
 # The scan runs as a single browserless /function module with the routes, base
 # url, threshold, and the axe-core source itself baked in as literals, so one
 # HTTP round trip returns every route's violations.
+#
+# Authenticated routes (0.11.0): a `lanes.a11y.auth:` block is the same login
+# flow `lanes.browserless.auth` has always taken, and it runs once in the scan
+# page before the route loop, so every route after it is fetched with the
+# session's cookies. The lane deliberately has no per-route `auth: true` opt-in
+# the way browserless does: an a11y route is a plain string, and a login that
+# has already happened in the page costs a logged-out route nothing.
 #
 # axe-core is vendored, not fetched. It used to be pulled from a CDN at scan
 # time, which meant the scanner could change underneath the gate without a
@@ -43,7 +52,13 @@ class ChangeLaneA11y < ChangeLane
     session = @context.browserless
     return [ unavailable ] unless session
 
-    result = session.run_function(scan_module)
+    auth = auth_config
+    blocker = auth && auth_blocker_detail(auth)
+    return [ auth_blocker(blocker) ] + routes.map { |route| auth_skip_finding(route) } if blocker
+
+    result = session.run_function(scan_module(auth))
+    return auth_failure_findings(result['authError']) if result.is_a?(Hash) && result['authError']
+
     Array(result).flat_map { |route| route_findings(route) }
   rescue MissingAxeBundle => e
     [ Finding.new(lane: 'a11y', check: 'axe-core bundle', status: 'fail', severity: 'high',
@@ -78,6 +93,61 @@ class ChangeLaneA11y < ChangeLane
     idx && idx >= IMPACT_ORDER.index(threshold)
   end
 
+  # --- auth -------------------------------------------------------------------
+
+  # The same typed view over the same block shape the browserless lane defines,
+  # reused rather than restated: a repo that has already written its login once
+  # should not write a second dialect of it to scan those pages for violations.
+  def auth_config
+    raw = @config['auth']
+    raw.is_a?(Hash) ? ChangeLaneBrowserless::AuthConfig.new(raw) : nil
+  end
+
+  # Why the configured login cannot even be attempted, or nil when it can. Real
+  # credentials only, exactly as browserless requires them: a login that cannot
+  # run is a named failing finding, never a quiet unauthenticated scan whose
+  # routes would all land on the login page.
+  def auth_blocker_detail(auth)
+    steps = auth.steps
+    return 'auth.login_url is not set' if steps.first[:url].to_s.empty?
+
+    steps.each do |step|
+      step[:fields].each do |field|
+        if field[:code_source]
+          return "a field's code_source.url is not set (selector #{field[:selector].inspect})" if field[:code_source][:url].empty?
+        elsif field[:value].to_s.empty?
+          return "auth env var #{field[:env].inspect} (selector #{field[:selector].inspect}) is unset or empty in this process's environment"
+        end
+      end
+    end
+    nil
+  end
+
+  def auth_blocker(detail)
+    Finding.new(lane: 'a11y', check: 'auth login', status: 'fail', severity: 'high', target: base_url,
+                detail: "cannot scan authenticated routes: #{detail}")
+  end
+
+  def auth_skip_finding(route)
+    Finding.new(lane: 'a11y', check: 'route not scanned', status: 'fail', severity: 'high',
+                target: base_url, location: route.to_s,
+                detail: 'not scanned because the login flow could not run; see the "auth login" finding for the reason')
+  end
+
+  # A login that ran and failed inside the container. Every route is reported
+  # unscanned rather than scanned: each one would have landed on the login page,
+  # and seven copies of the login page's violations under seven route names is
+  # the false coverage this lane's auth support exists to end.
+  def auth_failure_findings(error)
+    [ auth_blocker("the login flow failed: #{error}") ] + routes.map { |route| auth_skip_finding(route) }
+  end
+
+  def js_auth(auth)
+    auth ? ChangeFlowCompiler.compile_auth(auth.steps, base_url: base_url) : nil
+  end
+
+  # --- findings ---------------------------------------------------------------
+
   def route_findings(route)
     # A route whose navigation threw (the scan module's own catch pushes
     # `{ route, error, violations: [] }`) used to fall through every branch
@@ -99,7 +169,11 @@ class ChangeLaneA11y < ChangeLane
 
     served = redirected_path(route['route'], route['finalUrl'])
     if served
-      return [ Finding.new(lane: 'a11y', check: 'redirected', status: 'warn', severity: 'moderate',
+      # Failing, not warning (0.11.0). A warn here read as green on the sweep
+      # summary, which is how a config whose routes all redirected to one login
+      # page could report a clean a11y lane while covering a single route. The
+      # requested route was not audited; a gate cannot call that a pass.
+      return [ Finding.new(lane: 'a11y', check: 'redirected', status: 'fail', severity: 'high',
                            target: base_url, location: route['route'].to_s,
                            detail: "requested #{route['route']}, redirected to #{served}; " \
                                    'axe ran against that page, not the requested route') ]
@@ -137,7 +211,7 @@ class ChangeLaneA11y < ChangeLane
   # The ES module POSTed to browserless /function. Values are interpolated as
   # JSON literals; the module loops routes, injects axe, and returns one entry
   # per route with its violations flattened to the fields the finding needs.
-  def scan_module
+  def scan_module(auth = nil)
     <<~JS
       export default async function ({ page }) {
         const baseUrl = #{JSON.generate(base_url)};
@@ -145,8 +219,10 @@ class ChangeLaneA11y < ChangeLane
         const waitForByRoute = #{JSON.generate(route_wait_for)};
         const axeSource = #{JSON.generate(axe_source)};
         const basicAuth = #{JSON.generate(basic_auth)};
+        const auth = #{JSON.generate(js_auth(auth))};
 
         #{ChangeLane.wait_for_js}
+        #{ChangeFlowCompiler.auth_runtime_js}
         if (basicAuth) {
           // page.authenticate() only fires on a WWW-Authenticate challenge,
           // which some gates never send (an ALB fixed-response 401 has no
@@ -159,6 +235,21 @@ class ChangeLaneA11y < ChangeLane
           const encoded = btoa(`${basicAuth.username}:${basicAuth.password}`);
           await page.setExtraHTTPHeaders({ Authorization: `Basic ${encoded}` });
         }
+
+        // The shared login runtime takes the browserless lane's `session`
+        // (its page plus the last main-frame response, which its diagnostics
+        // read) rather than a bare page. This lane is handed one page and
+        // scans every route in it, so the session is that page wrapped once
+        // here instead of a second dialect of the same login.
+        if (auth) {
+          const session = { page: page, lastAuthResponse: null };
+          try {
+            for (const step of auth.steps) await runAuthStep(session, step);
+          } catch (err) {
+            return { data: { authError: String(err) }, type: "application/json" };
+          }
+        }
+
         const out = [];
         for (const route of routes) {
           const waitFor = waitForByRoute[route];
