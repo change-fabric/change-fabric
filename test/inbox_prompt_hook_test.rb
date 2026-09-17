@@ -84,6 +84,16 @@ class InboxPromptHookTest < Minitest::Test
     assert_match(/\[inbox\] BUILD: 1 pending/, body)
   end
 
+  def test_transcript_title_prefers_the_longest_matching_role
+    init_roster(%w[BUILD BUILD-API])
+    InboxStore::CLI.run([ "append", "BUILD-API", "--from", "BUILD", "--subject", "ship the api" ], out: StringIO.new)
+    transcript = transcript_with_title("sess-9", "Session for BUILD-API work")
+
+    event = { "session_id" => "sess-9", "cwd" => "/x", "transcript_path" => transcript }
+    body = JSON.parse(run_hook(event))["hookSpecificOutput"]["additionalContext"]
+    assert_match(/\[inbox\] BUILD-API: 1 pending/, body)
+  end
+
   def test_bind_wins_over_a_conflicting_transcript_title
     init_roster(%w[PLAN BUILD])
     InboxStore::CLI.run([ "append", "PLAN", "--from", "BUILD", "--subject", "review it" ], out: StringIO.new)

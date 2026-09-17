@@ -55,7 +55,11 @@ class InboxPromptHook
     roles = InboxRoster.roles(root)
     return nil if roles.empty?
 
-    /\b(#{roles.map { |role| Regexp.escape(role) }.join('|')})\b/
+    # Longest first: alternation is ordered, and a role that is a
+    # hyphenated prefix of another (BUILD, BUILD-API) would otherwise win on
+    # a title naming the longer one, because the hyphen is a \b boundary.
+    ordered = roles.sort_by { |role| [ -role.length, role ] }
+    /\b(#{ordered.map { |role| Regexp.escape(role) }.join('|')})\b/
   end
 
   def self.session_role_path(session_id)
