@@ -89,12 +89,7 @@ module InboxStore
     "#{stamp_minute} #{from}->#{to} #{status} #{slug} - #{clamp_clause(clause)}"
   end
 
-  def self.write_atomically(path, content)
-    FileUtils.mkdir_p(File.dirname(path))
-    tmp = "#{path}.tmp"
-    File.write(tmp, content)
-    File.rename(tmp, path)
-  end
+  def self.write_atomically(path, content) = InboxPaths.write_atomically(path, content)
 
   def self.frontmatter(text)
     match = text.match(/\A---\n(.*?)\n---\n/m)

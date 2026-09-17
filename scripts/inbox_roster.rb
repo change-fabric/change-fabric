@@ -3,6 +3,7 @@
 
 require 'json'
 require 'fileutils'
+require_relative 'inbox_paths'
 
 # Owns roster.json: the human-edited, sole source of truth for a project's
 # role set. There is no hardcoded ROLES constant anywhere in this toolkit;
@@ -69,13 +70,6 @@ module InboxRoster
 
   def self.no_roster?(root) = roles(root).empty?
 
-  def self.write_atomically(target, content)
-    FileUtils.mkdir_p(File.dirname(target))
-    tmp = "#{target}.tmp"
-    File.write(tmp, content)
-    File.rename(tmp, target)
-  end
-
   # Writes roster.json once. Refuses (returns false) if one already exists;
   # `init` turns that into the roster_exists error. Hand-editing afterwards
   # is the only supported change, deliberately with no --force.
@@ -85,7 +79,7 @@ module InboxRoster
     sessions = roles.each_with_object({}) { |role, memo| memo[role] = '' }
     data = { 'roles' => roles, 'sessions' => sessions, 'humans' => humans,
              'chain' => chain || roles.join(' -> ') }
-    write_atomically(path(root), JSON.pretty_generate(data))
+    InboxPaths.write_atomically(path(root), JSON.pretty_generate(data))
     true
   end
 
@@ -97,7 +91,7 @@ module InboxRoster
 
     data['sessions'] ||= {}
     data['sessions'][role] = name
-    write_atomically(path(root), JSON.pretty_generate(data))
+    InboxPaths.write_atomically(path(root), JSON.pretty_generate(data))
     true
   end
 end

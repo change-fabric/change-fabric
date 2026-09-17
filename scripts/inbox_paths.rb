@@ -1,6 +1,7 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 
+require 'fileutils'
 require_relative 'change_frontmatter'
 
 # Resolves the inbox root for a project, mirroring CtxPaths' keying so the two
@@ -85,5 +86,14 @@ module InboxPaths
     return from_change_md if from_change_md
 
     default_root(cwd, home: home)
+  end
+
+  # Shared by InboxStore and InboxRoster, both of which require this file
+  # already. Write-then-rename so a reader never observes a half-written file.
+  def self.write_atomically(target, content)
+    FileUtils.mkdir_p(File.dirname(target))
+    tmp = "#{target}.tmp"
+    File.write(tmp, content)
+    File.rename(tmp, target)
   end
 end
