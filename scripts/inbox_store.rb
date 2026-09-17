@@ -240,6 +240,9 @@ module InboxStore
       roles = opts['roles'].to_s.split(',').map { |r| r.strip.upcase }.reject(&:empty?)
       return fail(out, 'missing_roles', 'usage' => USAGE) if roles.empty?
 
+      bad_role = roles.find { |role| !safe_role?(role) }
+      return fail(out, 'bad_role', 'role' => bad_role) if bad_role
+
       root = InboxStore.root
       return fail(out, 'roster_exists', 'path' => InboxRoster.path(root)) if File.exist?(InboxRoster.path(root))
 
@@ -252,6 +255,14 @@ module InboxStore
       FileUtils.touch(InboxStore.ledger_path)
       InboxRoster.write(root, roles: roles)
       emit(out, 'root' => root, 'source' => InboxStore.root_source, 'roles' => roles)
+    end
+
+    # A role must be a single, plain path component: no separators, no
+    # leading dot (so it can never be "." or ".." or a hidden dir), and no
+    # other filesystem-meaningful character. Rejecting anything else keeps
+    # inbox_dir/status_path from ever escaping the configured root.
+    def self.safe_role?(role)
+      role.match?(/\A[A-Za-z0-9_-]+\z/)
     end
 
     def self.root_verb(out)
