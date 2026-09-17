@@ -397,7 +397,7 @@ module InboxStore
         target = unique_destination(InboxStore.done_dir, File.basename(path))
         FileUtils.mv(path, target)
       end
-      clause = blocked || opts['note'] || 'completed'
+      clause = blocked || opts['clause'] || opts['note'] || 'completed'
       line = InboxStore.append_ledger(InboxStore.ledger_line(meta['to'], meta['from'], final,
                                                              InboxStore.slugify(meta['subject']), clause))
       emit(out, 'path' => target, 'status' => final, 'ledger' => line)
