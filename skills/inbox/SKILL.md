@@ -57,9 +57,9 @@ directory for files a `done` item's body points at.
 | `pick <path>` | Claim an item: `pending` -> `in-progress`. Does not touch `blocked`. |
 | `done <path> [--blocked] [--clause C]` | Move an item to `done/` (numbered suffix on a same-stamp collision, never overwritten), or flip it to `blocked` with `--blocked`. Logs a ledger clause. |
 | `unblock <path>` | Return a `blocked` item to `pending`, logged like any other transition. Refuses on an item that is not blocked. |
-| `status [--role <ROLE>]` | Summarize pending counts. |
-| `stamp <path>` | Print an item's parsed frontmatter. |
-| `ledger [clause]` | Append a one-line clause directly, or with no argument print the ledger tail. |
+| `status [--role <ROLE>]` | Print each role's (or one role's) `status/<ROLE>.md` body verbatim. |
+| `stamp <ROLE>` | Rewrite `status/<ROLE>.md`'s `Updated` line to now, preserving its freeform Notes. |
+| `ledger <FROM> <TO> <STATUS> <SLUG> <clause...>` | Append one ledger line built from those fields; no-argument tail printing is not implemented. |
 | `commit` | Commit the inbox root if it is a git repo and dirty; silent no-op otherwise. |
 | `root` | Print the resolved root and which resolution rule fired. |
 
