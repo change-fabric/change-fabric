@@ -45,15 +45,35 @@ module InboxPaths
     File.join(home, '.claude', 'cf', 'inbox', dashed(cwd))
   end
 
-  # Reads inbox_root: straight out of CHANGE.md's frontmatter at the repo
-  # root (== cwd here). Fail-soft: any read or parse trouble, or an absent /
-  # blank key, yields nil so the caller falls through to the default.
+  # Walks upward from cwd looking for a CHANGE.md, so a nested working
+  # directory (a subpackage, a hook invoked from deeper in the tree) still
+  # finds the repo-root file instead of silently missing it. Stops at the
+  # first directory that has one, or returns nil once it reaches the
+  # filesystem root without finding one.
+  def self.find_change_md_root(cwd)
+    dir = File.expand_path(cwd)
+    loop do
+      return dir if File.file?(File.join(dir, 'CHANGE.md'))
+
+      parent = File.dirname(dir)
+      return nil if parent == dir
+
+      dir = parent
+    end
+  end
+
+  # Reads inbox_root: straight out of CHANGE.md's frontmatter, walking up
+  # from cwd to find the repo root first so a nested cwd resolves the same
+  # root as the repo root itself. A relative path expands against that same
+  # root. Fail-soft: any read or parse trouble, or an absent / blank key,
+  # yields nil so the caller falls through to the default.
   def self.change_md_root(cwd, home: Dir.home)
-    front = ChangeFrontmatter.parse_file(File.join(cwd, 'CHANGE.md'))
+    root = find_change_md_root(cwd) or return nil
+    front = ChangeFrontmatter.parse_file(File.join(root, 'CHANGE.md'))
     raw = front['inbox_root']
     return nil if raw.to_s.strip.empty?
 
-    expand(raw.to_s.strip, cwd, home)
+    expand(raw.to_s.strip, root, home)
   rescue StandardError
     nil
   end

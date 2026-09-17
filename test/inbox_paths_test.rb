@@ -46,6 +46,21 @@ class InboxPathsTest < Minitest::Test
     assert_equal "default", InboxPaths.root_source(cwd: @cwd, home: @home)
   end
 
+  def test_change_md_resolved_from_nested_cwd
+    write_change_md("---\ninbox_root: ~/x\n---\n")
+    nested = File.join(@cwd, "packages", "sub")
+    FileUtils.mkdir_p(nested)
+    assert_equal File.join(@home, "x"), InboxPaths.root(cwd: nested, home: @home)
+    assert_equal "change_md", InboxPaths.root_source(cwd: nested, home: @home)
+  end
+
+  def test_change_md_relative_inbox_root_resolves_against_repo_root_not_nested_cwd
+    write_change_md("---\ninbox_root: .inbox\n---\n")
+    nested = File.join(@cwd, "packages", "sub")
+    FileUtils.mkdir_p(nested)
+    assert_equal File.join(@cwd, ".inbox"), InboxPaths.root(cwd: nested, home: @home)
+  end
+
   def test_change_md_with_no_inbox_root_key_yields_default
     write_change_md("---\nspec_version: 0.11.0\n---\n")
     assert_equal "default", InboxPaths.root_source(cwd: @cwd, home: @home)
