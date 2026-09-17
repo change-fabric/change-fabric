@@ -402,6 +402,10 @@ module InboxStore
       path = positional[0].to_s
       return fail(out, 'no_such_item', 'path' => path) unless File.exist?(path)
 
+      meta = InboxStore.frontmatter(File.read(path))
+      status = meta['status'] || 'pending'
+      return fail(out, 'not_pending', 'status' => status) unless status == 'pending'
+
       InboxStore.set_status(path, 'in-progress')
       meta = InboxStore.frontmatter(File.read(path))
       line = InboxStore.append_ledger(InboxStore.ledger_line(meta['to'], meta['from'], 'in-progress',
