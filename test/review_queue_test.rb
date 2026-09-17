@@ -77,4 +77,51 @@ class ReviewQueueTest < Minitest::Test
     queue.add("ruby", "/p/a.rb", "h1")
     assert_empty queue.pending
   end
+
+  def test_rounds_only_climb_while_the_batch_is_unchanged
+    queue = ReviewQueue.new("s1")
+    queue.add("ruby", "/p/a.rb", "h1")
+    (ReviewQueue::CAP - 1).times { queue.bump_round(queue.pending) }
+    refute queue.capped?(queue.pending)
+    queue.add("ruby", "/p/b.rb", "h1")
+    queue.bump_round(queue.pending)
+    assert_equal 1, queue.rounds, "a changed batch starts its own count at 1"
+    refute queue.capped?(queue.pending)
+  end
+
+  def test_identical_batch_denied_cap_times_caps
+    queue = ReviewQueue.new("s1")
+    queue.add("ruby", "/p/a.rb", "h1")
+    ReviewQueue::CAP.times { queue.bump_round(queue.pending) }
+    assert queue.capped?(queue.pending)
+  end
+
+  def test_cap_self_heals_when_the_batch_changes
+    queue = ReviewQueue.new("s1")
+    queue.add("ruby", "/p/a.rb", "h1")
+    ReviewQueue::CAP.times { queue.bump_round(queue.pending) }
+    assert queue.capped?(queue.pending)
+    queue.add("ruby", "/p/a.rb", "h2")
+    refute queue.capped?(queue.pending), "a changed batch resumes review"
+  end
+
+  def test_a_partial_ack_resets_the_count
+    queue = ReviewQueue.new("s1")
+    queue.add("ruby", "/p/a.rb", "h1")
+    queue.add("ruby", "/p/b.rb", "h1")
+    ReviewQueue::CAP.times { queue.bump_round(queue.pending) }
+    queue.ack
+    queue.add("ruby", "/p/c.rb", "h1")
+    refute queue.capped?(queue.pending)
+    assert_equal 0, queue.rounds
+  end
+
+  def test_fingerprint_is_order_independent
+    rows_a = [
+      { skill: "ruby", path: "/p/a.rb", hash: "h1" },
+      { skill: "ruby", path: "/p/b.rb", hash: "h2" }
+    ]
+    rows_b = rows_a.reverse
+    assert_equal ReviewQueue.fingerprint(rows_a), ReviewQueue.fingerprint(rows_b)
+  end
 end

@@ -67,12 +67,17 @@ The cf shim then surfaces it without anyone invoking it:
   `extensions` skills review code (the prompt tells the reviewer to skip files
   that merely look like code), while `all_files` skills (`cf:ai-slop`) review
   every changed file, prose and documentation included. As you edit,
-  `skill_inject.rb` queues every changed file each matching skill covers. When
-  the turn ends, `skill_review.rb` (Stop hook) drains that queue and blocks once,
-  handing the agent a fixed prompt - the skill's principles plus the changed file
-  list - to run a haiku background-agent review. Draining the queue and honoring
-  `stop_hook_active` keep it to one block per batch; a per-file content hash makes
-  the review -> fix -> re-edit loop converge. The hook writes the prompt; the agent
+  `skill_inject.rb` queues every changed file each matching skill covers, except
+  files in a detached-HEAD linked worktree, the disposable kind cf:resolve-threads
+  and cf:code-review create per finding, which are never published. A linked
+  worktree on a branch is publishable and stays reviewed. `skill_review.rb` (Stop)
+  and `review_gate.rb` (PreToolUse on push or PR create) both read the queue
+  without draining it and block or deny while it is non-empty and not capped for
+  the current batch fingerprint, handing the agent a fixed prompt - the skill's
+  principles plus the changed file list - to run a haiku background-agent review.
+  Only `review_ack.rb` drains the queue. `stop_hook_active` still bounds
+  intra-turn looping, and the per-file content hash still makes the
+  review -> fix -> re-edit loop converge. The hook writes the prompt; the agent
   runs the review.
 - **Authoring reminders** (`slop_remind.rb`, PreToolUse) surface `cf:ai-slop` when a
   Bash command is about to write a commit message, branch name, or PR title/body,

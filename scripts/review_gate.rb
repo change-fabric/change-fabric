@@ -17,9 +17,10 @@ require_relative 'guarded_command'
 # Fail-closed and deterministic: the gate never clears itself. It denies while
 # the queue holds unreviewed files and is released only by review_ack (run after
 # a review returns), so dispatching the prompt does not unblock - a finished
-# review does. The round cap is the escape valve against a wedged batch. Local
-# -only sessions never push, so skill_review still covers them at Stop; both read
-# the same queue and the same ack clears both.
+# review does. The round cap is the escape valve against a wedged batch: the
+# identical batch denied CAP times in a row. A changed batch resumes gating on
+# its own. Local-only sessions never push, so skill_review still covers them at
+# Stop; both read the same queue and the same ack clears both.
 #
 # Like merge_mode_guard, this is a loud guardrail keyed on command text, not a
 # sandbox: it is bypassable (git -c, env indirection, a non-Bash path).
@@ -52,9 +53,9 @@ class ReviewGate
   end
 
   def response(queue, pending)
-    return { systemMessage: ReviewPrompt.cap_notice(pending.size) } if queue.capped?
+    return { systemMessage: ReviewPrompt.cap_notice(pending.size) } if queue.capped?(pending)
 
-    queue.bump_round
+    queue.bump_round(pending)
     deny(ReviewPrompt.build(pending, registry, @event['session_id']))
   end
 

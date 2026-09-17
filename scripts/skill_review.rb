@@ -15,7 +15,8 @@ require_relative 'review_scope'
 # cleared only by review_ack (run after a review returns), the same completion
 # signal the gate uses, so the two share one verdict and neither clears the other
 # prematurely. stop_hook_active stops an intra-turn loop; the round cap bounds
-# re-blocking across turns if a batch is never acked.
+# re-blocking across turns if the identical batch is denied CAP times in a row.
+# A changed batch resumes blocking on its own.
 class SkillReview
   EVENT = 'Stop'
 
@@ -41,9 +42,9 @@ class SkillReview
   # Block to drive a review, unless the round cap is reached: then surface a
   # loud, non-blocking notice rather than silently swallowing further reviews.
   def response(queue, pending)
-    return { systemMessage: ReviewPrompt.cap_notice(pending.size) } if queue.capped?
+    return { systemMessage: ReviewPrompt.cap_notice(pending.size) } if queue.capped?(pending)
 
-    queue.bump_round
+    queue.bump_round(pending)
     { decision: 'block', reason: ReviewPrompt.build(pending, registry, @event['session_id']) }
   end
 end
