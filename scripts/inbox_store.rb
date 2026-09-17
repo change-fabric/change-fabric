@@ -313,7 +313,7 @@ module InboxStore
       body = read_body_file(opts)
       slug = InboxStore.slugify(opts['slug'] || subject)
       name = "#{InboxStore.file_stamp}-#{from}-#{slug}.md"
-      path = File.join(InboxStore.inbox_dir(to), name)
+      path = unique_destination(InboxStore.inbox_dir(to), name)
       refs = opts['refs'].to_s
       InboxStore.write_item(path, from: from, to: to, subject: subject, refs: refs, status: 'pending', body: body)
       line = InboxStore.append_ledger(InboxStore.ledger_line(from, to, 'pending', slug, subject))
@@ -339,9 +339,9 @@ module InboxStore
       slug = InboxStore.slugify(opts['slug'] || subject)
       refs = opts['refs'].to_s
       roles = InboxStore.roles
+      name = "#{InboxStore.file_stamp}-#{from}-#{slug}.md"
       paths = roles.map do |role|
-        name = "#{InboxStore.file_stamp}-#{from}-#{slug}.md"
-        path = File.join(InboxStore.inbox_dir(role), name)
+        path = unique_destination(InboxStore.inbox_dir(role), name)
         InboxStore.write_item(path, from: from, to: role, subject: subject, refs: refs, status: 'fyi', body: body)
         path
       end
