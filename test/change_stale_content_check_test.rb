@@ -38,6 +38,49 @@ class ChangeStaleContentCheckTest < Minitest::Test
     assert_empty result.conflicted_files
   end
 
+  # A PR that touches none of the files trunk changed since it was cut cannot
+  # revert those files by merging: a squash merge only ever applies the PR's
+  # own diff. require_base_changed narrows to the intersection so this class
+  # of finding, which fires on nearly every PR under normal merge cadence,
+  # never surfaces.
+  def test_require_base_changed_drops_a_fix_in_a_file_the_pr_never_touched
+    git("checkout", "-q", "pr")
+    write("untouched.txt", "pr change to an unrelated file\n")
+    git("commit", "-q", "-am", "pr change")
+
+    git("checkout", "-q", "trunk")
+    write("shared.txt", "a\nb-FIXED\nc\n")
+    git("commit", "-q", "-am", "trunk fix")
+
+    result = ChangeStaleContentCheck.missing_from("pr", "trunk", dir: @repo, require_base_changed: true)
+    assert_empty result.missing_files
+  end
+
+  def test_require_base_changed_still_flags_a_file_both_sides_touch
+    # Both sides edit lines far enough apart that git's default diff context
+    # does not overlap, so the merge is clean and the finding depends only
+    # on the intersection, not on a conflict.
+    base_lines = (1..20).map { |n| "line#{n}" }
+    git("checkout", "-q", "trunk")
+    write("shared.txt", "#{base_lines.join("\n")}\n")
+    git("commit", "-q", "-am", "give shared.txt twenty lines")
+    git("checkout", "-q", "pr")
+    git("merge", "-q", "trunk")
+
+    git("checkout", "-q", "pr")
+    pr_lines = base_lines.dup.tap { |lines| lines[1] = "line2-from-pr" }
+    write("shared.txt", "#{pr_lines.join("\n")}\n")
+    git("commit", "-q", "-am", "pr change near the top")
+
+    git("checkout", "-q", "trunk")
+    trunk_lines = base_lines.dup.tap { |lines| lines[18] = "line19-from-trunk" }
+    write("shared.txt", "#{trunk_lines.join("\n")}\n")
+    git("commit", "-q", "-am", "trunk change near the bottom")
+
+    result = ChangeStaleContentCheck.missing_from("pr", "trunk", dir: @repo, require_base_changed: true)
+    assert_equal [ "shared.txt" ], result.missing_files
+  end
+
   def test_a_real_conflict_is_not_reported_as_missing
     git("checkout", "-q", "pr")
     write("shared.txt", "a\nb-FROM-PR\nc\n")

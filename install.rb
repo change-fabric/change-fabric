@@ -64,6 +64,7 @@ module Install
     def vendor_dest(source)  = File.join(bin, 'vendor', source.delete_prefix("#{vendor}/"))
     def skill_sources        = Dir.glob(File.join(skills_dir, '*')).select { |p| File.directory?(p) }
     def script_dest(name)    = File.join(bin, name)
+    def manifest             = File.join(bin, '.installed-manifest')
     def skill_link(name)     = File.join(skills_root, name)
     def opencode_skill(name) = File.join(opencode_skills_root, SkillName.portable(name))
   end
@@ -477,15 +478,44 @@ module Install
       puts "note: merge-mode slug migration skipped (#{e.class})"
     end
 
+    # Reconciles bin/ against this run's script set rather than clearing the
+    # whole directory: bin/ is a fixed, well-known path
+    # (~/.claude/cf/bin), and a prior rm_rf here destroyed a user's own
+    # unrelated script that happened to live there too. Only files this
+    # installer itself wrote on a previous run (tracked in the manifest) are
+    # removed when they drop out of the current script set; anything else in
+    # the directory is left alone.
     def place_hooks
-      FileUtils.rm_rf(@paths.bin)
       FileUtils.mkdir_p(@paths.bin)
+      names = @paths.scripts_glob.map { |source| File.basename(source) }.to_set
+      remove_stale_managed_scripts(names)
       @paths.scripts_glob.each do |source|
         dest = @paths.script_dest(File.basename(source))
         FileUtils.cp(source, dest)
         FileUtils.chmod(0o755, dest)
       end
       place_vendor
+      write_manifest(names)
+    end
+
+    def remove_stale_managed_scripts(current_names)
+      previous_names(@paths.manifest).each do |name|
+        next if current_names.include?(name)
+
+        FileUtils.rm_f(@paths.script_dest(name))
+      end
+    end
+
+    def previous_names(manifest)
+      return [] unless File.exist?(manifest)
+
+      File.read(manifest).each_line.map(&:strip).reject(&:empty?)
+    rescue StandardError
+      []
+    end
+
+    def write_manifest(names)
+      File.write(@paths.manifest, "#{names.to_a.sort.join("\n")}\n")
     end
 
     # Run-time assets, not executables: copied without the 0755 the scripts get.
