@@ -222,7 +222,7 @@ class InstallerTest < Minitest::Test
     install
     hooks = JSON.parse(File.read(paths.settings))["hooks"]
     counts = EVENTS.map { |event| hooks[event].sum { |group| group["hooks"].size } }
-    assert_equal [ 5, 11, 3, 4, 1, 1 ], counts
+    assert_equal [ 5, 12, 4, 4, 1, 1 ], counts
     assert File.exist?("#{paths.settings}.bak"), "second install should back up settings"
   end
 
