@@ -16,7 +16,7 @@
 # spec doc's changelog. A field-set change without a matching version bump, or a
 # version bump the doc does not reflect, is exactly what the drift test catches.
 module ChangeSchema
-  VERSION = '0.11.0'
+  VERSION = '0.12.0'
 
   # The five audit lanes, the authoritative list the config validator enforces.
   LANES = %w[k6 a11y zap browserless testcases].freeze
@@ -52,6 +52,11 @@ module ChangeSchema
     # this constant at config load to catch a toolkit/file version skew that
     # would otherwise surface later as a confusing silently-ignored field.
     'spec_version',
+    # The other field outside both change_config: and change_policy: (0.12.0):
+    # overrides where cf:inbox's agent-handoff state lives for this repo. Read
+    # directly from the frontmatter by InboxPaths, never through ChangeConfig,
+    # so a malformed change_config: or change_policy: block never affects it.
+    'inbox_root',
     # change_config: mechanical target-app details the audit lanes read.
     'change_config.project',
     'change_config.boot.up',

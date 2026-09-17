@@ -18,6 +18,21 @@ Every version below has a frozen, permanently addressable rendering at
 field set: major for a removed, renamed or newly required field, minor for a new
 optional field, patch for a documentation-only clarification.
 
+## [0.12.0] - 2026-09-17
+
+A project can point the agent-inbox handoff protocol at a shared root instead
+of the shim's per-project default.
+
+### Added
+
+- `inbox_root`: an optional top-level key giving the absolute path where the
+  `cf:inbox` handoff protocol (roster, per-role inboxes, ledger) stores its
+  state. Read via `ChangeFrontmatter.parse_file`, not nested under
+  `change_config:` or `change_policy:`, since it configures a capability that
+  sits beside `cf:change` rather than a lane within it. Absent, the tool
+  falls back to `INBOX_ROOT` in the environment, then a shim default keyed by
+  the project's own path.
+
 ## [0.11.0] - 2026-09-15
 
 The a11y lane accepts the same form-login block the browserless lane has

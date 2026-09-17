@@ -1,6 +1,7 @@
 ---
 # CHANGE.md is the single change-fabric file. Copy it to <repo-root>/CHANGE.md
-# and edit. Its frontmatter carries an optional spec_version plus three blocks:
+# and edit. Its frontmatter carries an optional spec_version plus three blocks,
+# plus one more optional top-level key unrelated to any of them:
 #
 #   spec_version:       the schema version this file is authored against (optional;
 #                       compared to the installed toolkit at load, warns on drift).
@@ -9,6 +10,12 @@
 #   change_policy:      the machine-checkable governance the merge gate enforces.
 #   contributors_team:  optional; the team this repo belongs to and, under
 #                       artifacts:, where its findings artifacts publish.
+#   inbox_root:         optional; overrides where this repo's cf:inbox agent
+#                       handoff state lives. Unrelated to change_config/
+#                       change_policy and read directly from this file's
+#                       frontmatter, never through the ChangeConfig validator.
+#                       See skills/inbox/SKILL.md. Omit it and cf:inbox falls
+#                       back to a zero-config per-repo default.
 #
 # The prose body below both blocks is the human governance FAQ. There is no
 # separate config file: a repo can carry only this one file, with none of the
@@ -28,6 +35,11 @@
 # spec's "change_config.apps" section and reference/CHANGE.app.template.yml.
 
 spec_version: "0.9.0"
+
+# Optional: overrides where cf:inbox's agent-handoff state (roster, per-role
+# inboxes, ledger) lives for this repo, e.g. to share one inbox across several
+# repos on one team. Delete it to use the zero-config per-repo default instead.
+# inbox_root: ~/notes/team-handoff
 
 # Optional third block: which contributors team owns this repo, and where its
 # cf:change findings artifacts publish. Delete it entirely if this repo is not

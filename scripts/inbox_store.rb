@@ -4,31 +4,35 @@
 require 'json'
 require 'time'
 require 'fileutils'
+require_relative 'inbox_paths'
+require_relative 'inbox_roster'
 
-# The AMFM team inbox at ~/1-areas/servant/amfm/329CFEEE35CE, as a CLI instead
-# of hand-edited markdown. Every failure this replaces was a hand-editing
-# failure: a handoff logged in LEDGER.md with no inbox file behind it, a
-# handoff written inside another role's status file, and a read-modify-write
-# race that duplicated a ledger line. So: LEDGER.md is append-only and this is
-# its only writer, every timestamp comes from the real clock, and the role
-# vocabulary is a closed set that is validated rather than remembered.
+# A generic team inbox, as a CLI instead of hand-edited markdown. Every
+# failure this replaces was a hand-editing failure: a handoff logged in
+# LEDGER.md with no inbox file behind it, a handoff written inside another
+# role's status file, and a read-modify-write race that duplicated a ledger
+# line. So: LEDGER.md is append-only and this is its only writer, every
+# timestamp comes from the real clock, and the role vocabulary is a closed
+# set that is validated rather than remembered (from roster.json, never
+# hardcoded here).
 #
-# This file must stay tracked in change-fabric. install.rb's place_hooks does
-# FileUtils.rm_rf on ~/.claude/cf/bin and rebuilds it from scripts/*.rb alone,
-# so an untracked script living in that directory is destroyed by the next
-# install with no copy anywhere. That is exactly how the original was lost on
-# 2026-09-17; do not "tidy" this back out of the repo.
+# This file must stay tracked in change-fabric. install.rb's place_hooks
+# reconciles ~/.claude/cf/bin against the installed manifest from
+# scripts/*.rb alone, so an untracked script living in that directory does
+# not survive the next install with no copy anywhere. Do not "tidy" this back
+# out of the repo.
 module InboxStore
-  ROLES = %w[PLAN BUILD PULLS DEPLOY QA LOCAL].freeze
-  ACTORS = (ROLES + %w[all PATRICK]).freeze
   STATUSES = %w[pending in-progress done blocked note ack].freeze
+  MAX_CLAUSE = 200
 
   def self.root
-    raw = ENV['INBOX_ROOT'] || File.join(Dir.home, '1-areas', 'servant', 'amfm', '329CFEEE35CE')
+    raw = InboxPaths.root
     File.realpath(raw)
   rescue StandardError
     File.expand_path(raw)
   end
+
+  def self.root_source = InboxPaths.root_source
 
   def self.inbox_dir(role) = File.join(root, 'inbox', role)
 
@@ -38,13 +42,19 @@ module InboxStore
 
   def self.status_path(role) = File.join(root, 'status', "#{role}.md")
 
-  def self.roster
-    JSON.parse(File.read(File.join(root, 'roster.json')))['roles']
-  rescue StandardError
-    {}
-  end
+  def self.roles = InboxRoster.roles(root)
 
-  def self.session_name(role) = roster[role] || role
+  def self.humans = InboxRoster.humans(root)
+
+  def self.actors = InboxRoster.actors(root)
+
+  def self.normalize_actor(value) = InboxRoster.normalize_actor(root, value)
+
+  def self.sessions = InboxRoster.sessions(root)
+
+  def self.session_name(role) = InboxRoster.session_name(root, role)
+
+  def self.no_roster? = InboxRoster.no_roster?(root)
 
   def self.now = Time.now.utc
 
@@ -66,15 +76,28 @@ module InboxStore
     line
   end
 
-  def self.ledger_line(from, to, status, slug, clause)
-    "#{stamp_minute} #{from}->#{to} #{status} #{slug} - #{clause}"
+  # No caller can bypass the cap: this is the only place a clause reaches the
+  # ledger line, called from inside ledger_line itself.
+  def self.clamp_clause(text)
+    flat = text.to_s.gsub(/\s+/, ' ').strip
+    return flat if flat.length <= MAX_CLAUSE
+
+    "#{flat[0, MAX_CLAUSE]} ...(truncated, see item body)"
   end
 
-  def self.write_atomically(path, content)
-    FileUtils.mkdir_p(File.dirname(path))
-    tmp = "#{path}.tmp"
-    File.write(tmp, content)
-    File.rename(tmp, path)
+  def self.ledger_line(from, to, status, slug, clause)
+    "#{stamp_minute} #{from}->#{to} #{status} #{slug} - #{clamp_clause(clause)}"
+  end
+
+  def self.write_atomically(path, content) = InboxPaths.write_atomically(path, content)
+
+  # Writes one item file: frontmatter plus body, atomically. Shared by
+  # append (one recipient) and announce (one call per configured role).
+  def self.write_item(path, from:, to:, subject:, refs:, status:, body:)
+    text = +"---\nfrom: #{from}\nto: #{to}\nsubject: #{subject}\nrefs: #{refs}\nstatus: #{status}\n---\n\n"
+    text << body
+    text << "\n" unless text.end_with?("\n")
+    write_atomically(path, text)
   end
 
   def self.frontmatter(text)
@@ -101,7 +124,7 @@ module InboxStore
   def self.pending(role)
     Dir.glob(File.join(inbox_dir(role), '*.md')).sort.filter_map do |path|
       meta = frontmatter(File.read(path))
-      next if meta['status'] == 'done'
+      next if meta['status'] == 'done' || meta['status'] == 'fyi'
 
       { 'path' => path, 'from' => meta['from'], 'to' => meta['to'],
         'subject' => meta['subject'], 'refs' => meta['refs'],
@@ -117,28 +140,73 @@ module InboxStore
     []
   end
 
+  # The only paths the inbox capability ever writes. A shared root -- the
+  # project root itself, or a directory inside another worktree -- can carry
+  # unrelated tracked or staged changes; scoping every git call to exactly
+  # these paths keeps a session-end commit from ever picking those up, no
+  # matter what else lives alongside the inbox tree.
+  OWNED_PATHS = [ 'inbox', 'done', 'status', 'LEDGER.md', 'roster.json' ].freeze
+
+  def self.owned_paths
+    OWNED_PATHS.select { |rel| File.exist?(File.join(root, rel)) }
+  end
+
+  # Every owned top-level entry that git status --porcelain reports as
+  # changed, restricted to OWNED_PATHS so a shared root's unrelated tracked
+  # or staged changes never surface here. A directory with no changes under
+  # it is left out entirely rather than passed through as an empty pathspec,
+  # which `git commit -- <path>` treats as "nothing matched" and fails.
+  #
+  # -z gives NUL-terminated, unquoted records instead of the default
+  # human-readable format, which wraps a path containing whitespace or other
+  # special characters in double quotes; slicing those quote characters into
+  # the pathspec makes the subsequent add/commit match nothing. A rename
+  # record carries two NUL-separated paths (old, then new); both are real
+  # paths worth including.
+  def self.dirty_paths
+    paths = owned_paths
+    return [] if paths.empty?
+
+    out = IO.popen([ 'git', '-C', root, 'status', '--porcelain', '-z', '--', *paths ], err: File::NULL, &:read)
+    records = out.to_s.split("\0")
+    result = []
+    until records.empty?
+      entry = records.shift
+      next unless entry && entry.length > 3
+
+      status = entry[0, 2]
+      result << entry[3..]
+      result << records.shift if status.include?('R') || status.include?('C')
+    end
+    result.compact.reject(&:empty?)
+  rescue StandardError
+    []
+  end
+
   # No shell, so no quoting question about the root path at all.
   def self.dirty?
-    out = IO.popen([ 'git', '-C', root, 'status', '--porcelain' ], err: File::NULL, &:read)
-    !out.to_s.strip.empty?
-  rescue StandardError
-    false
+    !dirty_paths.empty?
   end
 
   def self.commit(role)
-    return { 'committed' => false, 'reason' => 'clean' } unless dirty?
+    paths = dirty_paths
+    return { 'committed' => false, 'reason' => 'clean' } if paths.empty?
 
     message = "#{role || 'auto'}: #{now.strftime('%Y-%m-%d %H:%M:%S')} UTC"
-    system('git', '-C', root, 'add', '-A', out: File::NULL, err: File::NULL)
-    ok = system('git', '-C', root, 'commit', '-q', '-m', message, out: File::NULL, err: File::NULL)
+    system('git', '-C', root, 'add', '--', *paths, out: File::NULL, err: File::NULL)
+    ok = system('git', '-C', root, 'commit', '-q', '-m', message, '--', *paths, out: File::NULL, err: File::NULL)
     { 'committed' => !!ok, 'message' => message }
   rescue StandardError => e
     { 'committed' => false, 'reason' => e.class.name }
   end
 
   class CLI
-    USAGE = 'inbox_store.rb append <TO> --from <FROM> --subject S [--refs R] [--body-file F] | ' \
-            'list [--role R] [--json] | pick <path> | done <path> [--note N] [--blocked W] | ' \
+    USAGE = 'inbox_store.rb init --roles A,B,C | root | ' \
+            'append <TO> --from <FROM> --subject S [--refs R] [--body-file F] | ' \
+            'announce --from <ROLE> --subject S [--body-file F] [--refs R] | ' \
+            'bind <ROLE> [--session-name NAME] [--session ID] | ' \
+            'list [--role R] [--json] | pick <path> | done <path> [--clause C] [--note N] [--blocked] | ' \
+            'unblock <path> | ' \
             'ledger <FROM> <TO> <status> <slug> <clause> | status [--role R] | stamp <ROLE> | ' \
             'commit [--role R]'
 
@@ -146,17 +214,59 @@ module InboxStore
       command, *rest = argv
       positional, opts = parse(rest)
       case command
+      when 'init' then init(opts, out)
+      when 'root' then root_verb(out)
       when 'append' then append(positional, opts, out)
+      when 'announce' then announce(opts, out)
+      when 'bind' then bind(positional, opts, out)
       when 'list' then list(opts, out)
       when 'pick' then pick(positional, out)
       when 'done' then done(positional, opts, out)
+      when 'unblock' then unblock(positional, out)
       when 'ledger' then ledger(positional, out)
       when 'status' then status(opts, out)
       when 'stamp' then stamp(positional, out)
       when 'commit' then commit(opts, out)
-      else out.puts(JSON.generate('error' => 'usage', 'usage' => USAGE))
+      else emit(out, 'error' => 'usage', 'usage' => USAGE)
       end
     end
+
+    def self.emit(out, hash)
+      out.puts(JSON.generate(hash))
+      hash
+    end
+
+    def self.init(opts, out)
+      roles = opts['roles'].to_s.split(',').map { |r| r.strip.upcase }.reject(&:empty?)
+      return fail(out, 'missing_roles', 'usage' => USAGE) if roles.empty?
+
+      bad_role = roles.find { |role| !safe_role?(role) }
+      return fail(out, 'bad_role', 'role' => bad_role) if bad_role
+
+      root = InboxStore.root
+      return fail(out, 'roster_exists', 'path' => InboxRoster.path(root)) if File.exist?(InboxRoster.path(root))
+
+      FileUtils.mkdir_p(root)
+      roles.each { |role| FileUtils.mkdir_p(InboxStore.inbox_dir(role)) }
+      FileUtils.mkdir_p(InboxStore.done_dir)
+      FileUtils.mkdir_p(File.join(InboxStore.done_dir, 'artifacts'))
+      FileUtils.mkdir_p(File.join(root, 'status'))
+      FileUtils.mkdir_p(File.join(root, 'ledger'))
+      FileUtils.touch(InboxStore.ledger_path)
+      InboxRoster.write(root, roles: roles)
+      emit(out, 'root' => root, 'source' => InboxStore.root_source, 'roles' => roles)
+    end
+
+    # One definition of a safe name, shared with the roster loader so a
+    # hand-edited or legacy roster.json is held to exactly the rule `init`
+    # enforces here.
+    def self.safe_role?(role) = InboxRoster.safe_name?(role)
+
+    def self.root_verb(out)
+      emit(out, 'root' => InboxStore.root, 'source' => InboxStore.root_source)
+    end
+
+    BOOLEAN_FLAGS = %w[blocked json].freeze
 
     def self.parse(argv)
       positional = []
@@ -165,7 +275,12 @@ module InboxStore
       while index < argv.length
         token = argv[index]
         if token.start_with?('--')
-          opts[token.sub(/\A--/, '')] = argv[index += 1]
+          key = token.sub(/\A--/, '')
+          if BOOLEAN_FLAGS.include?(key)
+            opts[key] = true
+          else
+            opts[key] = argv[index += 1]
+          end
         else
           positional << token
         end
@@ -175,51 +290,142 @@ module InboxStore
     end
 
     def self.fail(out, error, extra = {})
-      out.puts(JSON.generate({ 'error' => error }.merge(extra)))
-      false
+      emit(out, { 'error' => error }.merge(extra))
+    end
+
+    def self.read_body_file(opts)
+      opts['body-file'] && File.exist?(opts['body-file']) ? File.read(opts['body-file']) : ''
     end
 
     def self.append(positional, opts, out)
+      return fail(out, 'no_roster') if InboxStore.no_roster?
+
       to = positional[0].to_s.upcase
-      from = opts['from'].to_s.upcase
+      from = InboxStore.normalize_actor(opts['from'])
       subject = opts['subject'].to_s
-      return fail(out, 'bad_role', 'to' => to, 'roles' => InboxStore::ROLES) unless InboxStore::ROLES.include?(to)
-      return fail(out, 'bad_actor', 'from' => from, 'actors' => InboxStore::ACTORS) unless InboxStore::ACTORS.include?(from)
+      return fail(out, 'bad_role', 'to' => to, 'roles' => InboxStore.roles) unless InboxStore.roles.include?(to)
+      return fail(out, 'bad_actor', 'from' => from, 'actors' => InboxStore.actors) unless InboxStore.actors.include?(from)
       return fail(out, 'missing_subject', 'usage' => USAGE) if subject.empty?
 
-      body = opts['body-file'] && File.exist?(opts['body-file']) ? File.read(opts['body-file']) : ''
+      body = read_body_file(opts)
       slug = InboxStore.slugify(opts['slug'] || subject)
       name = "#{InboxStore.file_stamp}-#{from}-#{slug}.md"
-      path = File.join(InboxStore.inbox_dir(to), name)
+      path = unique_destination(InboxStore.inbox_dir(to), name)
       refs = opts['refs'].to_s
-      text = +"---\nfrom: #{from}\nto: #{to}\nsubject: #{subject}\nrefs: #{refs}\nstatus: pending\n---\n\n"
-      text << body
-      text << "\n" unless text.end_with?("\n")
-      InboxStore.write_atomically(path, text)
+      InboxStore.write_item(path, from: from, to: to, subject: subject, refs: refs, status: 'pending', body: body)
       line = InboxStore.append_ledger(InboxStore.ledger_line(from, to, 'pending', slug, subject))
       recipient = InboxStore.session_name(to)
-      out.puts(JSON.generate('path' => path, 'to' => to, 'from' => from, 'slug' => slug,
-                             'ledger' => line, 'recipient' => recipient,
-                             'doorbell' => "Inbox: #{path} - #{subject}"))
+      emit(out, 'path' => path, 'to' => to, 'from' => from, 'slug' => slug,
+                'ledger' => line, 'recipient' => recipient,
+                'doorbell' => "Inbox: #{path} - #{subject}")
+    end
+
+    # Writes one non-actionable fyi item per configured role (including the
+    # sender's own, so the archive is uniform) and appends exactly one
+    # ledger line, not one per role. InboxStore.pending skips status: fyi the
+    # same way it skips done, so no role's actionable list ever shows it.
+    def self.announce(opts, out)
+      return fail(out, 'no_roster') if InboxStore.no_roster?
+
+      from = InboxStore.normalize_actor(opts['from'])
+      subject = opts['subject'].to_s
+      return fail(out, 'bad_actor', 'from' => from, 'actors' => InboxStore.actors) unless InboxStore.actors.include?(from)
+      return fail(out, 'missing_subject', 'usage' => USAGE) if subject.empty?
+
+      body = read_body_file(opts)
+      slug = InboxStore.slugify(opts['slug'] || subject)
+      refs = opts['refs'].to_s
+      roles = InboxStore.roles
+      name = "#{InboxStore.file_stamp}-#{from}-#{slug}.md"
+      paths = roles.map do |role|
+        path = unique_destination(InboxStore.inbox_dir(role), name)
+        InboxStore.write_item(path, from: from, to: role, subject: subject, refs: refs, status: 'fyi', body: body)
+        path
+      end
+      line = InboxStore.append_ledger(InboxStore.ledger_line(from, 'all', 'note', slug, subject))
+      emit(out, 'paths' => paths, 'roles' => roles, 'slug' => slug, 'ledger' => line,
+                'doorbell' => "Inbox announce: #{subject} - notify #{roles.join(', ')}")
+    end
+
+    # Resolves the calling session's id the same way status_store.rb does:
+    # an explicit --session, then CLAUDE_CODE_SESSION_ID, no other fallback.
+    def self.resolve_session_id(opts)
+      return opts['session'] if opts.key?('session')
+      return ENV['CLAUDE_CODE_SESSION_ID'] if ENV.key?('CLAUDE_CODE_SESSION_ID')
+
+      nil
+    end
+
+    def self.bind(positional, opts, out)
+      return fail(out, 'no_roster') if InboxStore.no_roster?
+
+      role = positional[0].to_s.upcase
+      return fail(out, 'bad_role', 'to' => role, 'roles' => InboxStore.roles) unless InboxStore.roles.include?(role)
+
+      session_id = resolve_session_id(opts)
+      return fail(out, 'no_session') if session_id.to_s.empty?
+
+      session_dir = File.join(Dir.home, '.claude', 'cf', 'sessions', session_id)
+      FileUtils.mkdir_p(session_dir)
+      InboxStore.write_atomically(File.join(session_dir, 'inbox-role'), role)
+
+      roster_updated = false
+      if opts['session-name']
+        roster_updated = InboxRoster.bind_session(InboxStore.root, role: role, name: opts['session-name'])
+      end
+
+      emit(out, 'role' => role, 'session' => session_id, 'session_name' => opts['session-name'],
+                'roster_updated' => roster_updated,
+                'doorbell' => "Bound this session to #{role}. Next: inbox_store.rb list --role #{role}")
     end
 
     def self.list(opts, out)
-      roles = opts['role'] ? [ opts['role'].to_s.upcase ] : InboxStore::ROLES
+      return fail(out, 'no_roster') if InboxStore.no_roster?
+
+      if opts['role']
+        role = opts['role'].to_s.upcase
+        return fail(out, 'bad_role', 'to' => role, 'roles' => InboxStore.roles) unless InboxStore.roles.include?(role)
+
+        roles = [ role ]
+      else
+        roles = InboxStore.roles
+      end
       items = roles.flat_map { |role| InboxStore.pending(role) }
-      out.puts(JSON.generate('items' => items, 'count' => items.length,
-                             'ledger_tail' => InboxStore.ledger_tail))
+      emit(out, 'items' => items, 'count' => items.length,
+                'ledger_tail' => InboxStore.ledger_tail)
     end
 
     def self.pick(positional, out)
       path = positional[0].to_s
       return fail(out, 'no_such_item', 'path' => path) unless File.exist?(path)
 
+      meta = InboxStore.frontmatter(File.read(path))
+      status = meta['status'] || 'pending'
+      return fail(out, 'not_pending', 'status' => status) unless status == 'pending'
+
       InboxStore.set_status(path, 'in-progress')
       meta = InboxStore.frontmatter(File.read(path))
       line = InboxStore.append_ledger(InboxStore.ledger_line(meta['to'], meta['from'], 'in-progress',
                                                              InboxStore.slugify(meta['subject']),
                                                              'picked up'))
-      out.puts(JSON.generate('path' => path, 'status' => 'in-progress', 'ledger' => line))
+      emit(out, 'path' => path, 'status' => 'in-progress', 'ledger' => line)
+    end
+
+    # base-2.md, base-3.md, ... until the name is free. Never overwrites an
+    # existing done/ file on a same-minute same-sender same-slug collision.
+    def self.unique_destination(dir, basename)
+      candidate = File.join(dir, basename)
+      return candidate unless File.exist?(candidate)
+
+      ext = File.extname(basename)
+      stem = basename[0, basename.length - ext.length]
+      suffix = 2
+      loop do
+        candidate = File.join(dir, "#{stem}-#{suffix}#{ext}")
+        return candidate unless File.exist?(candidate)
+
+        suffix += 1
+      end
     end
 
     def self.done(positional, opts, out)
@@ -233,34 +439,52 @@ module InboxStore
       target = path
       unless blocked
         FileUtils.mkdir_p(InboxStore.done_dir)
-        target = File.join(InboxStore.done_dir, File.basename(path))
+        target = unique_destination(InboxStore.done_dir, File.basename(path))
         FileUtils.mv(path, target)
       end
-      clause = blocked || opts['note'] || 'completed'
+      clause = opts['clause'] || opts['note'] || (blocked ? 'blocked' : 'completed')
       line = InboxStore.append_ledger(InboxStore.ledger_line(meta['to'], meta['from'], final,
                                                              InboxStore.slugify(meta['subject']), clause))
-      out.puts(JSON.generate('path' => target, 'status' => final, 'ledger' => line))
+      emit(out, 'path' => target, 'status' => final, 'ledger' => line)
+    end
+
+    def self.unblock(positional, out)
+      path = positional[0].to_s
+      return fail(out, 'no_such_item', 'path' => path) unless File.exist?(path)
+
+      meta = InboxStore.frontmatter(File.read(path))
+      return fail(out, 'not_blocked', 'status' => meta['status']) unless meta['status'] == 'blocked'
+
+      InboxStore.set_status(path, 'pending')
+      line = InboxStore.append_ledger(InboxStore.ledger_line(meta['to'], meta['from'], 'pending',
+                                                             InboxStore.slugify(meta['subject']),
+                                                             'unblocked'))
+      emit(out, 'path' => path, 'status' => 'pending', 'ledger' => line)
     end
 
     def self.ledger(positional, out)
       from, to, status, slug, *clause = positional
-      from = from.to_s.upcase == 'ALL' ? 'all' : from.to_s.upcase
-      to = to.to_s.upcase == 'ALL' ? 'all' : to.to_s.upcase
-      return fail(out, 'bad_actor', 'actors' => InboxStore::ACTORS) unless InboxStore::ACTORS.include?(from) && InboxStore::ACTORS.include?(to)
+      return fail(out, 'no_roster') if InboxStore.no_roster?
+
+      from = InboxStore.normalize_actor(from)
+      to = InboxStore.normalize_actor(to)
+      return fail(out, 'bad_actor', 'actors' => InboxStore.actors) unless InboxStore.actors.include?(from) && InboxStore.actors.include?(to)
       return fail(out, 'bad_status', 'statuses' => InboxStore::STATUSES) unless InboxStore::STATUSES.include?(status.to_s)
       return fail(out, 'missing_clause', 'usage' => USAGE) if clause.empty?
 
       line = InboxStore.append_ledger(InboxStore.ledger_line(from, to, status, slug.to_s, clause.join(' ')))
-      out.puts(JSON.generate('ledger' => line))
+      emit(out, 'ledger' => line)
     end
 
     def self.status(opts, out)
-      roles = opts['role'] ? [ opts['role'].to_s.upcase ] : InboxStore::ROLES
+      return fail(out, 'no_roster') if InboxStore.no_roster?
+
+      roles = opts['role'] ? [ opts['role'].to_s.upcase ] : InboxStore.roles
       bodies = roles.each_with_object({}) do |role, memo|
         path = InboxStore.status_path(role)
         memo[role] = File.exist?(path) ? File.read(path) : ''
       end
-      out.puts(JSON.generate('status' => bodies))
+      emit(out, 'status' => bodies)
     end
 
     # Rewrites only the Updated line, so a role's freeform Notes survive. The
@@ -275,13 +499,16 @@ module InboxStore
       text = File.read(path)
       text = text.match?(/^Updated .*$/) ? text.sub(/^Updated .*$/, stamped) : text.sub(/\n/, "\n\n#{stamped}\n")
       InboxStore.write_atomically(path, text)
-      out.puts(JSON.generate('role' => role, 'updated' => stamped))
+      emit(out, 'role' => role, 'updated' => stamped)
     end
 
     def self.commit(opts, out)
-      out.puts(JSON.generate(InboxStore.commit(opts['role'])))
+      emit(out, InboxStore.commit(opts['role']))
     end
   end
 end
 
-InboxStore::CLI.run(ARGV) if __FILE__ == $PROGRAM_NAME
+if __FILE__ == $PROGRAM_NAME
+  response = InboxStore::CLI.run(ARGV)
+  exit(response.is_a?(Hash) && response.key?('error') ? 1 : 0)
+end
