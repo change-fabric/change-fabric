@@ -48,6 +48,8 @@ module InboxStore
 
   def self.actors = InboxRoster.actors(root)
 
+  def self.normalize_actor(value) = InboxRoster.normalize_actor(root, value)
+
   def self.sessions = InboxRoster.sessions(root)
 
   def self.session_name(role) = InboxRoster.session_name(root, role)
@@ -259,7 +261,7 @@ module InboxStore
       return fail(out, 'no_roster') if InboxStore.no_roster?
 
       to = positional[0].to_s.upcase
-      from = opts['from'].to_s.upcase
+      from = InboxStore.normalize_actor(opts['from'])
       subject = opts['subject'].to_s
       return fail(out, 'bad_role', 'to' => to, 'roles' => InboxStore.roles) unless InboxStore.roles.include?(to)
       return fail(out, 'bad_actor', 'from' => from, 'actors' => InboxStore.actors) unless InboxStore.actors.include?(from)
@@ -288,7 +290,7 @@ module InboxStore
     def self.announce(opts, out)
       return fail(out, 'no_roster') if InboxStore.no_roster?
 
-      from = opts['from'].to_s.upcase
+      from = InboxStore.normalize_actor(opts['from'])
       subject = opts['subject'].to_s
       return fail(out, 'bad_actor', 'from' => from, 'actors' => InboxStore.actors) unless InboxStore.actors.include?(from)
       return fail(out, 'missing_subject', 'usage' => USAGE) if subject.empty?
@@ -419,8 +421,8 @@ module InboxStore
       from, to, status, slug, *clause = positional
       return fail(out, 'no_roster') if InboxStore.no_roster?
 
-      from = from.to_s.upcase == 'ALL' ? 'all' : from.to_s.upcase
-      to = to.to_s.upcase == 'ALL' ? 'all' : to.to_s.upcase
+      from = InboxStore.normalize_actor(from)
+      to = InboxStore.normalize_actor(to)
       return fail(out, 'bad_actor', 'actors' => InboxStore.actors) unless InboxStore.actors.include?(from) && InboxStore.actors.include?(to)
       return fail(out, 'bad_status', 'statuses' => InboxStore::STATUSES) unless InboxStore::STATUSES.include?(status.to_s)
       return fail(out, 'missing_clause', 'usage' => USAGE) if clause.empty?

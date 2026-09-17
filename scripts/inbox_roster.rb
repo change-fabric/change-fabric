@@ -49,6 +49,17 @@ module InboxRoster
 
   def self.actors(root) = roles(root) + %w[all] + humans(root)
 
+  # Case-insensitive lookup of an actor input against the actual roster.
+  # Roles and "all" are conventionally upper/lowercase already; humans are
+  # retained exactly as roster.json spells them (e.g. "operator"), so a
+  # human match returns that stored spelling rather than whatever case the
+  # caller typed. No match returns the input unchanged, so callers still see
+  # the value they passed when reporting a bad_actor error.
+  def self.normalize_actor(root, value)
+    value = value.to_s
+    actors(root).find { |actor| actor.casecmp?(value) } || value
+  end
+
   def self.sessions(root)
     data = load(root)['sessions']
     data.is_a?(Hash) ? data : {}
