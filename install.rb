@@ -405,8 +405,8 @@ module Install
   class Installer
     HOOKS = {
       'SessionStart' => %w[session_start.rb skill_detect.rb ctx_session_start.rb doctrine_digest.rb secret_alert_poll.rb],
-      'PreToolUse' => %w[merge_mode_guard.rb away_guard.rb glyph_guard.rb client_name_guard.rb slop_remind.rb review_gate.rb noreply_guard.rb docker_doctrine_guard.rb change_merge_guard.rb change_tag_guard.rb presence_probe.rb],
-      'PostToolUse' => %w[merge_mode_record.rb skill_inject.rb secret_ack.rb],
+      'PreToolUse' => %w[merge_mode_guard.rb away_guard.rb glyph_guard.rb client_name_guard.rb slop_remind.rb review_gate.rb noreply_guard.rb docker_doctrine_guard.rb change_merge_guard.rb change_tag_guard.rb change_stale_remind.rb presence_probe.rb],
+      'PostToolUse' => %w[merge_mode_record.rb skill_inject.rb secret_ack.rb change_post_merge_check.rb],
       'UserPromptSubmit' => %w[merge_mode_restate.rb away_restate.rb prune_remind.rb mode_command.rb],
       'SessionEnd' => %w[telemetry_emit.rb],
       'Stop' => %w[skill_review.rb]
