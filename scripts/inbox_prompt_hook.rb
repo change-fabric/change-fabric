@@ -6,26 +6,32 @@ require 'digest'
 require 'fileutils'
 require_relative 'hook_event'
 require_relative 'inbox_store'
+require_relative 'inbox_paths'
+require_relative 'inbox_roster'
 
-# UserPromptSubmit hook: shows an AMFM role session its own pending inbox and
-# the tail of the shared ledger, once per change. Role comes from the
-# session's /rename title, which lands mid-transcript as a custom-title
+# UserPromptSubmit hook: shows a role session its own pending inbox and the
+# tail of the shared ledger, once per change. It self-gates on the resolved
+# inbox root actually existing and carrying a roster.json, so it prints
+# nothing in every project that has not opted into the inbox capability.
+#
+# Role comes from ~/.claude/cf/sessions/<session_id>/inbox-role first (written
+# by `inbox_store.rb bind`); only when that is absent does it fall back to
+# sniffing the session's last /rename title against a pattern built from the
+# roster's own configured roles, never a hardcoded list. That fallback exists
+# because a role session's title lands mid-transcript as a custom-title
 # record, so this is a prompt hook rather than a SessionStart hook: at cold
-# start the title is not in the file yet. The hook is registered globally
-# because settings.json is the only settings file on this machine, so it
-# self-gates on cwd and prints nothing everywhere else.
+# start the title is not in the file yet.
 class InboxPromptHook
   EVENT = 'UserPromptSubmit'
-  PROJECT = File.join(Dir.home, 'code', 'servant-io', 'AMFM')
-  ROLE_PATTERN = /\b(PLAN|BUILD|PULLS|DEPLOY|QA|LOCAL)\b/
 
   def self.run(event, io = $stdout)
-    return unless in_project?(event['cwd'])
+    root = configured_root
+    return unless root
 
-    role = role_for(event)
+    role = role_for(event, root)
     return if role.nil?
 
-    body = render(role)
+    body = render(role, event['session_id'].to_s)
     return if body.nil?
 
     io.puts(JSON.generate(hookSpecificOutput: { hookEventName: EVENT, additionalContext: body }))
@@ -33,16 +39,27 @@ class InboxPromptHook
     nil
   end
 
-  # Worktrees live under the project path too, so a prefix match on the
-  # realpath is the gate. Anything outside it prints nothing at all.
-  def self.in_project?(cwd)
-    return false if cwd.to_s.empty?
+  # The inbox is "configured" only when its resolved root exists on disk and
+  # carries a roster.json. Returns the root path, or nil.
+  def self.configured_root
+    root = InboxPaths.root
+    return nil unless File.directory?(root)
+    return nil unless File.exist?(InboxRoster.path(root))
 
-    real = File.realpath(cwd.to_s)
-    project = File.realpath(PROJECT)
-    real == project || real.start_with?("#{project}/")
+    root
   rescue StandardError
-    false
+    nil
+  end
+
+  def self.role_pattern(root)
+    roles = InboxRoster.roles(root)
+    return nil if roles.empty?
+
+    /\b(#{roles.map { |role| Regexp.escape(role) }.join('|')})\b/
+  end
+
+  def self.session_role_path(session_id)
+    File.join(Dir.home, '.claude', 'cf', 'sessions', session_id, 'inbox-role')
   end
 
   def self.transcript_path(event)
@@ -53,9 +70,34 @@ class InboxPromptHook
     File.join(Dir.home, '.claude', 'projects', slug, "#{event['session_id']}.jsonl")
   end
 
+  # Primary: the session's bound role, written by `bind`. Fallback: the last
+  # custom-title record in the transcript, matched against a pattern built
+  # from the roster's configured roles. Neither present: nil, print nothing.
+  def self.role_for(event, root)
+    bound = bound_role(event['session_id'].to_s)
+    return bound if bound
+
+    role_from_transcript(event, root)
+  end
+
+  def self.bound_role(session_id)
+    return nil if session_id.empty?
+
+    path = session_role_path(session_id)
+    return nil unless File.exist?(path)
+
+    role = File.read(path).strip
+    role.empty? ? nil : role
+  rescue StandardError
+    nil
+  end
+
   # The last custom-title record wins: a session that was renamed twice is
   # whatever it was renamed to last.
-  def self.role_for(event)
+  def self.role_from_transcript(event, root)
+    pattern = role_pattern(root)
+    return nil unless pattern
+
     path = transcript_path(event)
     return nil unless File.exist?(path)
 
@@ -66,13 +108,13 @@ class InboxPromptHook
       parsed = (JSON.parse(line) rescue nil)
       title = parsed['customTitle'] if parsed.is_a?(Hash) && parsed['type'] == 'custom-title'
     end
-    match = ROLE_PATTERN.match(title.to_s)
+    match = pattern.match(title.to_s)
     match && match[1]
   rescue StandardError
     nil
   end
 
-  def self.render(role)
+  def self.render(role, session_id)
     items = InboxStore.pending(role)
     tail = InboxStore.ledger_tail(8)
     lines = [ "[inbox] #{role}: #{items.length} pending" ]
@@ -81,17 +123,16 @@ class InboxPromptHook
     tail.each { |line| lines << "  #{line}" }
     lines << 'Pick one up with: ruby ~/.claude/cf/bin/inbox_store.rb pick <path>'
     body = lines.join("\n")
-    seen?(body) ? nil : body
+    seen?(body, session_id) ? nil : body
   end
 
   # Print-once-on-change, the same idiom as skills-announced and
   # slop-reminded: a session that is deep in a tool loop should not see the
   # same block on every prompt.
-  def self.seen?(body)
-    session = ENV['CLAUDE_INBOX_SESSION'].to_s
-    return false if session.empty?
+  def self.seen?(body, session_id)
+    return false if session_id.empty?
 
-    path = File.join(Dir.home, '.claude', 'cf', 'sessions', session, 'inbox-seen')
+    path = File.join(Dir.home, '.claude', 'cf', 'sessions', session_id, 'inbox-seen')
     digest = Digest::SHA256.hexdigest(body)
     return true if File.exist?(path) && File.read(path).strip == digest
 
@@ -105,6 +146,5 @@ end
 
 if __FILE__ == $PROGRAM_NAME
   event = HookEvent.read
-  ENV['CLAUDE_INBOX_SESSION'] = event['session_id'].to_s
   InboxPromptHook.run(event)
 end

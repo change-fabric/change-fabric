@@ -3,21 +3,35 @@
 
 require_relative 'hook_event'
 require_relative 'inbox_store'
+require_relative 'inbox_paths'
+require_relative 'inbox_roster'
 
-# SessionEnd hook: commits whatever the team wrote to the inbox directory
-# during this session. The repo has no remote and gets none; this is a local
-# history so a lost or duplicated handoff can be traced afterwards, not a
-# backup. It is silent by design, including on failure.
+# SessionEnd hook: commits whatever this session wrote to the resolved inbox
+# root, when a project has actually opted into the inbox capability. The
+# inbox root is local git history so a lost or duplicated handoff can be
+# traced afterwards, not a backup, and never a substitute for the ledger. It
+# is silent by design, including on failure.
 #
-# It commits regardless of which project the session was in. That is
-# deliberate and safe: it only ever touches the inbox directory, and it does
-# nothing when that directory is clean, which is the normal case for a session
-# that never went near it.
+# It self-gates on the resolved root existing and carrying a roster.json, the
+# same test inbox_prompt_hook.rb uses, so it does nothing at all for a
+# project that never ran `inbox_store.rb init`. Beyond that gate it commits
+# regardless of which project the session was in: it only ever touches the
+# inbox root, and does nothing when that root is clean, which is the normal
+# case for a session that never went near it.
 class InboxSessionEnd
   def self.run(_event)
+    return unless configured?
+
     InboxStore.commit(nil)
   rescue StandardError
     nil
+  end
+
+  def self.configured?
+    root = InboxPaths.root
+    File.directory?(root) && File.exist?(InboxRoster.path(root))
+  rescue StandardError
+    false
   end
 end
 

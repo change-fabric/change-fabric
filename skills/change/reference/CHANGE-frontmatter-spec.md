@@ -1,6 +1,6 @@
 # CHANGE.md frontmatter specification
 
-Schema version: 0.11.0
+Schema version: 0.12.0
 
 Status: stable. This is the golden reference for authoring a repo's
 `CHANGE.md` frontmatter. A maintainer or an AI agent creating a new repo's
@@ -63,6 +63,12 @@ is the field-by-field authority behind it.
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `spec_version` | string | no | The schema version (this document's "Schema version" line) `CHANGE.md` was authored against. Compared against the installed toolkit's `ChangeSchema::VERSION` at every config load; a mismatch never blocks a run, but surfaces a named warning (`doctor`, and at the top of a real sweep) rather than letting a field the installed toolkit does not understand yet (or no longer emits) fail silently. Omit it and nothing is checked. |
+
+### inbox_root (0.12.0): where cf:inbox's agent-handoff state lives
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `inbox_root` | string | no | Overrides where this repo's `cf:inbox` agent-handoff state (roster, per-role inboxes, `LEDGER.md`) lives, e.g. `~/notes/team-handoff` to share one inbox across several repos on one team. A leading `~/` expands against the home directory; a relative path resolves against the repo root. Read directly from `CHANGE.md`'s frontmatter by `InboxPaths`, never through the `ChangeConfig` validator, so a malformed `change_config:` or `change_policy:` block never affects it and a repo with no `CHANGE.md` at all still resolves a default. `ENV["INBOX_ROOT"]` overrides this field in turn. Omit it and `cf:inbox` falls back to a zero-config default keyed off this repo's working directory. See `skills/inbox/SKILL.md`. |
 
 ## Conventions in the field tables
 
@@ -1167,3 +1173,11 @@ root `RELEASING.md`.
   rendering does not depend on whichever machine ran the sweep). Fully
   additive: a `CHANGE.md` with no `testcases:` lane parses, runs, reports and
   gates exactly as it did under 0.9.0.
+- 0.12.0: `inbox_root`, the second top-level field outside both
+  `change_config:` and `change_policy:` (after `spec_version`), letting a repo
+  point `cf:inbox`'s agent-handoff state (roster, per-role inboxes, the
+  ledger) at a shared directory instead of its own zero-config default. Read
+  directly from the frontmatter by `InboxPaths`, never through `ChangeConfig`,
+  so it neither validates against nor affects either governed block; a repo
+  with no `CHANGE.md` at all still resolves a default root. See
+  `skills/inbox/SKILL.md`.
