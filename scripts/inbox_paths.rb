@@ -18,7 +18,11 @@ require_relative 'change_frontmatter'
 #
 # The HOME_PIN invariant (copied from CtxPaths) applies only to case 3: an
 # explicitly configured root (cases 1 and 2) is a deliberate human choice and
-# may live anywhere, which is exactly how the live instance works.
+# may live anywhere, which is exactly how the live instance works. Every home
+# default is the pinned expected_home, not the running Dir.home, so a session
+# launched with a divergent HOME still validates the cwd against, and keys the
+# default root under, the home the install was pinned to. The kwarg stays
+# injectable for tests.
 module InboxPaths
   HOME_PIN = File.join(__dir__, '.expected-home')
 
@@ -40,7 +44,7 @@ module InboxPaths
     raise NotAProject, "inbox refuses a cwd outside #{home}: #{cwd}"
   end
 
-  def self.default_root(cwd, home: Dir.home)
+  def self.default_root(cwd, home: expected_home)
     assert_project!(cwd, home: home)
     File.join(home, '.claude', 'cf', 'inbox', dashed(cwd))
   end
@@ -67,7 +71,7 @@ module InboxPaths
   # root as the repo root itself. A relative path expands against that same
   # root. Fail-soft: any read or parse trouble, or an absent / blank key,
   # yields nil so the caller falls through to the default.
-  def self.change_md_root(cwd, home: Dir.home)
+  def self.change_md_root(cwd, home: expected_home)
     root = find_change_md_root(cwd) or return nil
     front = ChangeFrontmatter.parse_file(File.join(root, 'CHANGE.md'))
     raw = front['inbox_root']
@@ -95,7 +99,7 @@ module InboxPaths
   # CHANGE.md, then the shim default. root and root_source both read it
   # rather than re-running the precedence chain independently, so the two
   # can never disagree about which rule fired.
-  def self.resolve(cwd: Dir.pwd, home: Dir.home)
+  def self.resolve(cwd: Dir.pwd, home: expected_home)
     return [ env_root, 'env' ] if env_root
 
     from_change_md = change_md_root(cwd, home: home)
@@ -104,9 +108,9 @@ module InboxPaths
     [ default_root(cwd, home: home), 'default' ]
   end
 
-  def self.root(cwd: Dir.pwd, home: Dir.home) = resolve(cwd: cwd, home: home).first
+  def self.root(cwd: Dir.pwd, home: expected_home) = resolve(cwd: cwd, home: home).first
 
-  def self.root_source(cwd: Dir.pwd, home: Dir.home) = resolve(cwd: cwd, home: home).last
+  def self.root_source(cwd: Dir.pwd, home: expected_home) = resolve(cwd: cwd, home: home).last
 
   # Shared by InboxStore and InboxRoster, both of which require this file
   # already. Write-then-rename so a reader never observes a half-written file.

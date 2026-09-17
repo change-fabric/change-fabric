@@ -80,6 +80,40 @@ class InboxPathsTest < Minitest::Test
     FileUtils.remove_entry(outside) if outside
   end
 
+  # Swaps InboxPaths.expected_home for a pinned home that differs from the
+  # running Dir.home, without minitest/mock (absent from this bundle). The
+  # redefine is wrapped to keep the warning-enabled test run quiet.
+  def with_pinned_home(home)
+    original = InboxPaths.method(:expected_home)
+    swap_expected_home { home }
+    yield
+  ensure
+    swap_expected_home(&original)
+  end
+
+  def swap_expected_home(&body)
+    verbose = $VERBOSE
+    $VERBOSE = nil
+    InboxPaths.singleton_class.send(:define_method, :expected_home, &body)
+  ensure
+    $VERBOSE = verbose
+  end
+
+  def test_default_root_uses_pinned_home_when_runtime_home_diverges
+    with_pinned_home(@home) do
+      expected = File.join(@home, ".claude", "cf", "inbox", InboxPaths.dashed(@cwd))
+      assert_equal expected, InboxPaths.root(cwd: @cwd)
+      assert_equal "default", InboxPaths.root_source(cwd: @cwd)
+    end
+  end
+
+  def test_project_check_uses_pinned_home_when_runtime_home_diverges
+    with_pinned_home(@home) do
+      assert InboxPaths.project_cwd?(@cwd)
+      assert_raises(InboxPaths::NotAProject) { InboxPaths.root(cwd: File.join(Dir.home, "elsewhere")) }
+    end
+  end
+
   def test_default_root_not_minted_outside_pinned_home
     outside = Dir.mktmpdir
     assert_raises(InboxPaths::NotAProject) { InboxPaths.default_root(outside, home: @home) }
