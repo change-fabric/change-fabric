@@ -134,20 +134,44 @@ module InboxStore
     []
   end
 
+  # The only paths the inbox capability ever writes. A shared root -- the
+  # project root itself, or a directory inside another worktree -- can carry
+  # unrelated tracked or staged changes; scoping every git call to exactly
+  # these paths keeps a session-end commit from ever picking those up, no
+  # matter what else lives alongside the inbox tree.
+  OWNED_PATHS = [ 'inbox', 'done', 'status', 'LEDGER.md', 'roster.json' ].freeze
+
+  def self.owned_paths
+    OWNED_PATHS.select { |rel| File.exist?(File.join(root, rel)) }
+  end
+
+  # Every owned top-level entry that git status --porcelain reports as
+  # changed, restricted to OWNED_PATHS so a shared root's unrelated tracked
+  # or staged changes never surface here. A directory with no changes under
+  # it is left out entirely rather than passed through as an empty pathspec,
+  # which `git commit -- <path>` treats as "nothing matched" and fails.
+  def self.dirty_paths
+    paths = owned_paths
+    return [] if paths.empty?
+
+    out = IO.popen([ 'git', '-C', root, 'status', '--porcelain', '--', *paths ], err: File::NULL, &:read)
+    out.to_s.each_line.filter_map { |line| line[3..]&.strip }.reject(&:empty?)
+  rescue StandardError
+    []
+  end
+
   # No shell, so no quoting question about the root path at all.
   def self.dirty?
-    out = IO.popen([ 'git', '-C', root, 'status', '--porcelain' ], err: File::NULL, &:read)
-    !out.to_s.strip.empty?
-  rescue StandardError
-    false
+    !dirty_paths.empty?
   end
 
   def self.commit(role)
-    return { 'committed' => false, 'reason' => 'clean' } unless dirty?
+    paths = dirty_paths
+    return { 'committed' => false, 'reason' => 'clean' } if paths.empty?
 
     message = "#{role || 'auto'}: #{now.strftime('%Y-%m-%d %H:%M:%S')} UTC"
-    system('git', '-C', root, 'add', '-A', out: File::NULL, err: File::NULL)
-    ok = system('git', '-C', root, 'commit', '-q', '-m', message, out: File::NULL, err: File::NULL)
+    system('git', '-C', root, 'add', '--', *paths, out: File::NULL, err: File::NULL)
+    ok = system('git', '-C', root, 'commit', '-q', '-m', message, '--', *paths, out: File::NULL, err: File::NULL)
     { 'committed' => !!ok, 'message' => message }
   rescue StandardError => e
     { 'committed' => false, 'reason' => e.class.name }
