@@ -156,12 +156,29 @@ module InboxStore
   # or staged changes never surface here. A directory with no changes under
   # it is left out entirely rather than passed through as an empty pathspec,
   # which `git commit -- <path>` treats as "nothing matched" and fails.
+  #
+  # -z gives NUL-terminated, unquoted records instead of the default
+  # human-readable format, which wraps a path containing whitespace or other
+  # special characters in double quotes; slicing those quote characters into
+  # the pathspec makes the subsequent add/commit match nothing. A rename
+  # record carries two NUL-separated paths (old, then new); both are real
+  # paths worth including.
   def self.dirty_paths
     paths = owned_paths
     return [] if paths.empty?
 
-    out = IO.popen([ 'git', '-C', root, 'status', '--porcelain', '--', *paths ], err: File::NULL, &:read)
-    out.to_s.each_line.filter_map { |line| line[3..]&.strip }.reject(&:empty?)
+    out = IO.popen([ 'git', '-C', root, 'status', '--porcelain', '-z', '--', *paths ], err: File::NULL, &:read)
+    records = out.to_s.split("\0")
+    result = []
+    until records.empty?
+      entry = records.shift
+      next unless entry && entry.length > 3
+
+      status = entry[0, 2]
+      result << entry[3..]
+      result << records.shift if status.include?('R') || status.include?('C')
+    end
+    result.compact.reject(&:empty?)
   rescue StandardError
     []
   end
