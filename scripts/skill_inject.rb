@@ -77,16 +77,16 @@ class SkillInject
     skills.each { |skill| queue.add(skill.name, path, hash) }
   end
 
-  # Trackable means inside a git work tree, in that repo's main work tree, and
+  # Trackable means inside a git work tree, not in a disposable worktree, and
   # not ignored. All checks run git from the file's own directory, so a path in
-  # another repo is judged by that repo. A linked worktree (git worktree add) is
-  # excluded: cf:resolve-threads and cf:code-review create one throwaway
-  # worktree per finding, and a file edited there is deleted with the worktree
-  # and never published, so it must not arm a gate whose job is to review what a
-  # push or PR will publish.
+  # another repo is judged by that repo. A detached linked worktree is excluded:
+  # cf:resolve-threads and cf:code-review create one throwaway worktree per
+  # finding, and a file edited there is deleted with the worktree and never
+  # published, so it must not arm a gate whose job is to review what a push or
+  # PR will publish.
   def trackable?(path)
     dir = File.dirname(path)
-    inside_work_tree?(dir) && !linked_worktree?(dir) && !ignored?(dir, path)
+    inside_work_tree?(dir) && !disposable_worktree?(dir) && !ignored?(dir, path)
   end
 
   def inside_work_tree?(dir)
@@ -94,15 +94,35 @@ class SkillInject
     status&.success? && out.strip == 'true'
   end
 
+  # A linked worktree whose HEAD is detached. Both halves are required: linked
+  # alone would also catch a developer's persistent worktree on a feature
+  # branch, which does get pushed and so must stay reviewed. The tools this
+  # exists for check out a bare sha (git worktree add <dir> <sha>), which is
+  # always detached, while a publishable worktree is checked out on a branch.
+  # Any git failure reads as false, so uncertainty tracks the file rather than
+  # silently dropping it.
+  def disposable_worktree?(dir)
+    linked_worktree?(dir) && detached_head?(dir)
+  end
+
   # True only when git positively reports a git dir distinct from the common
-  # dir, which is exactly the linked-worktree case. Any git failure reads as
-  # false, so uncertainty tracks the file rather than silently dropping it.
+  # dir, which is exactly the linked-worktree case.
   def linked_worktree?(dir)
     git_dir, git_status = capture_git(dir, 'rev-parse', '--absolute-git-dir')
     common, common_status = capture_git(dir, 'rev-parse', '--git-common-dir')
     return false unless git_status&.success? && common_status&.success?
 
     File.expand_path(git_dir.strip) != File.expand_path(common.strip, dir)
+  end
+
+  # --abbrev-ref prints the literal "HEAD" when HEAD is detached and the branch
+  # name otherwise, succeeding either way, so a real git failure stays
+  # distinguishable from a detached HEAD (symbolic-ref cannot: it exits
+  # non-zero for both). A failure reads as not-detached, so uncertainty tracks
+  # the file rather than silently dropping it.
+  def detached_head?(dir)
+    out, status = capture_git(dir, 'rev-parse', '--abbrev-ref', 'HEAD')
+    status&.success? && out.strip == 'HEAD'
   end
 
   def ignored?(dir, path)

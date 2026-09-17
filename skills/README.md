@@ -68,7 +68,9 @@ The cf shim then surfaces it without anyone invoking it:
   that merely look like code), while `all_files` skills (`cf:ai-slop`) review
   every changed file, prose and documentation included. As you edit,
   `skill_inject.rb` queues every changed file each matching skill covers, except
-  files in linked worktrees, which are never published. `skill_review.rb` (Stop)
+  files in a detached-HEAD linked worktree, the disposable kind cf:resolve-threads
+  and cf:code-review create per finding, which are never published. A linked
+  worktree on a branch is publishable and stays reviewed. `skill_review.rb` (Stop)
   and `review_gate.rb` (PreToolUse on push or PR create) both read the queue
   without draining it and block or deny while it is non-empty and not capped for
   the current batch fingerprint, handing the agent a fixed prompt - the skill's
