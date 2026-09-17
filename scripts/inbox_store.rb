@@ -348,7 +348,14 @@ module InboxStore
     def self.list(opts, out)
       return fail(out, 'no_roster') if InboxStore.no_roster?
 
-      roles = opts['role'] ? [ opts['role'].to_s.upcase ] : InboxStore.roles
+      if opts['role']
+        role = opts['role'].to_s.upcase
+        return fail(out, 'bad_role', 'to' => role, 'roles' => InboxStore.roles) unless InboxStore.roles.include?(role)
+
+        roles = [ role ]
+      else
+        roles = InboxStore.roles
+      end
       items = roles.flat_map { |role| InboxStore.pending(role) }
       emit(out, 'items' => items, 'count' => items.length,
                 'ledger_tail' => InboxStore.ledger_tail)
