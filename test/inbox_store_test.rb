@@ -168,6 +168,32 @@ class InboxStoreTest < Minitest::Test
     assert_equal "plan-session", roster["sessions"]["PLAN"]
   end
 
+  def unsafe_roster!
+    roster = JSON.parse(File.read(File.join(@root, "roster.json")))
+    roster["roles"] = [ "BUILD", "../../ESCAPED" ]
+    File.write(File.join(@root, "roster.json"), JSON.generate(roster))
+  end
+
+  def test_append_to_a_hand_edited_traversal_role_is_rejected
+    run_cli([ "init", "--roles", "BUILD" ])
+    unsafe_roster!
+
+    result = run_cli([ "append", "../../ESCAPED", "--from", "BUILD", "--subject", "pwn" ])
+    assert_equal "bad_role", result["error"]
+    assert_equal %w[BUILD], result["roles"]
+    refute File.exist?(File.expand_path(File.join(@root, "..", "..", "ESCAPED")))
+  end
+
+  def test_announce_skips_a_hand_edited_traversal_role
+    run_cli([ "init", "--roles", "BUILD" ])
+    unsafe_roster!
+
+    result = run_cli([ "announce", "--from", "BUILD", "--subject", "heads up" ])
+    assert_equal %w[BUILD], result["roles"]
+    assert_equal 1, result["paths"].length
+    refute File.exist?(File.expand_path(File.join(@root, "..", "..", "ESCAPED")))
+  end
+
   def test_bind_with_no_resolvable_session_errors
     run_cli([ "init", "--roles", "PLAN,BUILD" ])
     prev = ENV.delete("CLAUDE_CODE_SESSION_ID")

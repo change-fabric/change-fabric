@@ -44,9 +44,23 @@ module InboxRoster
     data.merge('roles' => legacy.keys.map(&:to_s), 'sessions' => data['sessions'] || legacy)
   end
 
-  def self.roles(root) = Array(load(root)['roles']).map(&:to_s)
+  # A role or human name must be a single, plain path component: no
+  # separators, no leading dot (so it can never be "." or ".."), and no other
+  # filesystem-meaningful character. Every role becomes a directory name and
+  # every actor becomes part of an item filename, so this is what keeps
+  # inbox_dir/status_path from escaping the configured root.
+  #
+  # roster.json is explicitly hand-editable, and a legacy roster is adopted
+  # verbatim, so validating only `init --roles` would leave the persisted
+  # source of truth unguarded. Filtering here means no caller can ever see,
+  # and therefore accept, an unsafe name.
+  def self.safe_name?(value)
+    value.to_s.match?(/\A[A-Za-z0-9_-]+\z/)
+  end
 
-  def self.humans(root) = Array(load(root)['humans']).map(&:to_s)
+  def self.roles(root) = Array(load(root)['roles']).map(&:to_s).select { |role| safe_name?(role) }
+
+  def self.humans(root) = Array(load(root)['humans']).map(&:to_s).select { |human| safe_name?(human) }
 
   def self.actors(root) = roles(root) + %w[all] + humans(root)
 

@@ -257,13 +257,10 @@ module InboxStore
       emit(out, 'root' => root, 'source' => InboxStore.root_source, 'roles' => roles)
     end
 
-    # A role must be a single, plain path component: no separators, no
-    # leading dot (so it can never be "." or ".." or a hidden dir), and no
-    # other filesystem-meaningful character. Rejecting anything else keeps
-    # inbox_dir/status_path from ever escaping the configured root.
-    def self.safe_role?(role)
-      role.match?(/\A[A-Za-z0-9_-]+\z/)
-    end
+    # One definition of a safe name, shared with the roster loader so a
+    # hand-edited or legacy roster.json is held to exactly the rule `init`
+    # enforces here.
+    def self.safe_role?(role) = InboxRoster.safe_name?(role)
 
     def self.root_verb(out)
       emit(out, 'root' => InboxStore.root, 'source' => InboxStore.root_source)

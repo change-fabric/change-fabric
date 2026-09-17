@@ -48,6 +48,21 @@ class InboxRosterTest < Minitest::Test
     assert_equal({ "PLAN" => "plan-session", "BUILD" => "" }, InboxRoster.sessions(@root))
   end
 
+  def test_hand_edited_unsafe_role_and_human_names_are_dropped
+    data = { "roles" => %w[BUILD ../../ESCAPED], "sessions" => {},
+             "humans" => [ "operator", "../root" ], "chain" => "BUILD" }
+    File.write(InboxRoster.path(@root), JSON.generate(data))
+    assert_equal %w[BUILD], InboxRoster.roles(@root)
+    assert_equal %w[operator], InboxRoster.humans(@root)
+    assert_equal %w[BUILD all operator], InboxRoster.actors(@root)
+  end
+
+  def test_legacy_hash_shaped_roster_drops_unsafe_role_keys
+    legacy = { "roles" => { "BUILD" => "", "../../ESCAPED" => "" } }
+    File.write(InboxRoster.path(@root), JSON.generate(legacy))
+    assert_equal %w[BUILD], InboxRoster.roles(@root)
+  end
+
   def test_malformed_roster_json_is_fail_soft
     File.write(InboxRoster.path(@root), "{not json")
     assert_equal({}, InboxRoster.load(@root))
