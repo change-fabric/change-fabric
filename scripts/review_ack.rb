@@ -11,5 +11,13 @@ require_relative 'review_queue'
 # not. The session id is an argument because the agent runs this, not a hook, so
 # there is no event on stdin to read it from.
 session = ARGV[0].to_s
-rows = ReviewQueue.new(session).ack
-puts "[cf review] Recorded #{rows.size} file(s) as reviewed; gate released."
+if session.empty?
+  puts "[cf review] No session id given; nothing recorded, gate unchanged."
+else
+  rows = ReviewQueue.new(session).ack
+  if rows.empty?
+    puts "[cf review] Nothing queued for session #{session}; gate already clear."
+  else
+    puts "[cf review] Recorded #{rows.size} file(s) as reviewed; gate released."
+  end
+end

@@ -94,6 +94,13 @@ class ReviewGateTest < Minitest::Test
     assert_includes out["systemMessage"], "Round cap"
   end
 
+  def test_a_new_file_after_the_cap_denies_again
+    enqueue
+    ReviewQueue::CAP.times { gate("git push") }
+    enqueue(path: "/p/other.rb")
+    assert_equal "deny", decision(gate("git push")), "a new file resumes the gate"
+  end
+
   def test_ack_clears_both_gate_and_stop
     enqueue
     assert_equal "deny", decision(gate("git push")), "gate blocks"

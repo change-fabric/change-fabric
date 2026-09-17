@@ -77,17 +77,32 @@ class SkillInject
     skills.each { |skill| queue.add(skill.name, path, hash) }
   end
 
-  # Trackable means inside a git work tree and not ignored. Both checks run git
-  # from the file's own directory, so a path in another repo is judged by that
-  # repo.
+  # Trackable means inside a git work tree, in that repo's main work tree, and
+  # not ignored. All checks run git from the file's own directory, so a path in
+  # another repo is judged by that repo. A linked worktree (git worktree add) is
+  # excluded: cf:resolve-threads and cf:code-review create one throwaway
+  # worktree per finding, and a file edited there is deleted with the worktree
+  # and never published, so it must not arm a gate whose job is to review what a
+  # push or PR will publish.
   def trackable?(path)
     dir = File.dirname(path)
-    inside_work_tree?(dir) && !ignored?(dir, path)
+    inside_work_tree?(dir) && !linked_worktree?(dir) && !ignored?(dir, path)
   end
 
   def inside_work_tree?(dir)
     out, status = capture_git(dir, 'rev-parse', '--is-inside-work-tree')
     status&.success? && out.strip == 'true'
+  end
+
+  # True only when git positively reports a git dir distinct from the common
+  # dir, which is exactly the linked-worktree case. Any git failure reads as
+  # false, so uncertainty tracks the file rather than silently dropping it.
+  def linked_worktree?(dir)
+    git_dir, git_status = capture_git(dir, 'rev-parse', '--absolute-git-dir')
+    common, common_status = capture_git(dir, 'rev-parse', '--git-common-dir')
+    return false unless git_status&.success? && common_status&.success?
+
+    File.expand_path(git_dir.strip) != File.expand_path(common.strip, dir)
   end
 
   def ignored?(dir, path)

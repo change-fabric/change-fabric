@@ -165,6 +165,28 @@ class SkillInjectTest < Minitest::Test
     FileUtils.remove_entry(outside) if outside
   end
 
+  def test_edit_in_a_linked_worktree_does_not_enqueue
+    GitFixture.git(@proj, "-c", "user.email=t@example.com", "-c", "user.name=T",
+                    "commit", "--allow-empty", "-m", "init")
+    wt_dir = File.join(Dir.mktmpdir, "wt")
+    GitFixture.git(@proj, "worktree", "add", wt_dir, "HEAD")
+    path = File.join(wt_dir, "a.rb")
+    File.write(path, "x")
+    context(tool: "Edit", path: path)
+    assert_empty ReviewQueue.new("s1").pending, "a linked worktree edit must not arm the gate"
+  ensure
+    GitFixture.git(@proj, "worktree", "remove", "--force", wt_dir) if wt_dir && File.exist?(wt_dir)
+  end
+
+  # The existing positive path, asserted explicitly (see
+  # test_every_matching_skill_is_queued_with_a_content_hash) so the new
+  # linked-worktree predicate cannot silently suppress everything: this edit is
+  # in the main work tree, not a linked worktree, and must still enqueue.
+  def test_edit_in_the_main_work_tree_still_enqueues
+    edit("foo.rb")
+    assert_equal %w[ai-slop refactoring ruby], ReviewQueue.new("s1").pending.map { |q| q[:skill] }.uniq.sort
+  end
+
   def test_reads_notebook_path
     io = StringIO.new
     event = { "session_id" => "s1", "tool_name" => "NotebookEdit",

@@ -92,4 +92,19 @@ class SkillReviewTest < Minitest::Test
     assert_nil out["decision"], "must not block once capped"
     assert_includes out["systemMessage"], "Round cap"
   end
+
+  def test_review_resumes_after_the_batch_changes
+    enqueue("ruby", "/p/user.rb", "h1")
+    ReviewQueue::CAP.times { review }
+    enqueue("ruby", "/p/user.rb", "h2")
+    assert_equal "block", review["decision"], "a changed batch resumes blocking"
+  end
+
+  def test_alternating_real_batches_never_reach_the_cap
+    (ReviewQueue::CAP + 3).times do |i|
+      enqueue("ruby", "/p/user#{i}.rb", "h1")
+      assert_equal "block", review["decision"], "iteration #{i + 1} should block"
+      ReviewQueue.new("s1").ack
+    end
+  end
 end
