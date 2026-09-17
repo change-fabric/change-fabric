@@ -66,27 +66,27 @@ module InboxPaths
     File.expand_path(raw, cwd)
   end
 
-  # Returns the rule that fired: "env" | "change_md" | "default".
-  def self.root_source(cwd: Dir.pwd, home: Dir.home)
-    return 'env' if env_root
-    return 'change_md' unless change_md_root(cwd, home: home).nil?
-
-    'default'
-  end
-
   def self.env_root
     value = ENV['INBOX_ROOT']
     value && !value.strip.empty? ? value : nil
   end
 
-  def self.root(cwd: Dir.pwd, home: Dir.home)
-    return env_root if env_root
+  # The single three-step precedence check, first hit wins: env, then
+  # CHANGE.md, then the shim default. root and root_source both read it
+  # rather than re-running the precedence chain independently, so the two
+  # can never disagree about which rule fired.
+  def self.resolve(cwd: Dir.pwd, home: Dir.home)
+    return [ env_root, 'env' ] if env_root
 
     from_change_md = change_md_root(cwd, home: home)
-    return from_change_md if from_change_md
+    return [ from_change_md, 'change_md' ] if from_change_md
 
-    default_root(cwd, home: home)
+    [ default_root(cwd, home: home), 'default' ]
   end
+
+  def self.root(cwd: Dir.pwd, home: Dir.home) = resolve(cwd: cwd, home: home).first
+
+  def self.root_source(cwd: Dir.pwd, home: Dir.home) = resolve(cwd: cwd, home: home).last
 
   # Shared by InboxStore and InboxRoster, both of which require this file
   # already. Write-then-rename so a reader never observes a half-written file.

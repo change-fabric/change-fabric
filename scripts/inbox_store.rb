@@ -252,6 +252,10 @@ module InboxStore
       emit(out, { 'error' => error }.merge(extra))
     end
 
+    def self.read_body_file(opts)
+      opts['body-file'] && File.exist?(opts['body-file']) ? File.read(opts['body-file']) : ''
+    end
+
     def self.append(positional, opts, out)
       return fail(out, 'no_roster') if InboxStore.no_roster?
 
@@ -262,7 +266,7 @@ module InboxStore
       return fail(out, 'bad_actor', 'from' => from, 'actors' => InboxStore.actors) unless InboxStore.actors.include?(from)
       return fail(out, 'missing_subject', 'usage' => USAGE) if subject.empty?
 
-      body = opts['body-file'] && File.exist?(opts['body-file']) ? File.read(opts['body-file']) : ''
+      body = read_body_file(opts)
       slug = InboxStore.slugify(opts['slug'] || subject)
       name = "#{InboxStore.file_stamp}-#{from}-#{slug}.md"
       path = File.join(InboxStore.inbox_dir(to), name)
@@ -290,7 +294,7 @@ module InboxStore
       return fail(out, 'bad_actor', 'from' => from, 'actors' => InboxStore.actors) unless InboxStore.actors.include?(from)
       return fail(out, 'missing_subject', 'usage' => USAGE) if subject.empty?
 
-      body = opts['body-file'] && File.exist?(opts['body-file']) ? File.read(opts['body-file']) : ''
+      body = read_body_file(opts)
       slug = InboxStore.slugify(opts['slug'] || subject)
       refs = opts['refs'].to_s
       roles = InboxStore.roles
