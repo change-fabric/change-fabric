@@ -226,6 +226,25 @@ class InstallerTest < Minitest::Test
     assert File.exist?("#{paths.settings}.bak"), "second install should back up settings"
   end
 
+  def test_reinstall_leaves_an_unmanaged_file_in_bin_alone
+    paths = install
+    foreign = File.join(paths.bin, "inbox_store.rb")
+    File.write(foreign, "# not part of this repo\n")
+
+    install
+    assert File.exist?(foreign), "a file bin/ never installed should survive a reinstall"
+  end
+
+  def test_reinstall_removes_a_script_this_installer_previously_placed_but_no_longer_ships
+    paths = install
+    ghost = paths.script_dest("ghost_script.rb")
+    File.write(ghost, "# stands in for a script removed from scripts/\n")
+    File.write(paths.manifest, "#{File.read(paths.manifest)}ghost_script.rb\n")
+
+    install
+    refute File.exist?(ghost), "a script this installer's own manifest names, but scripts/ no longer has, should be pruned"
+  end
+
   def test_adds_claude_skills_to_pi_settings
     paths = install
     settings = JSON.parse(File.read(paths.pi_settings))

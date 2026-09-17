@@ -25,11 +25,22 @@ module ChangeStaleContentCheck
   # `base_ref` is the version being checked for completeness (a PR head
   # pre-merge, the new trunk tip post-merge). `other_ref` is the version it
   # should already reflect (trunk pre-merge, the PR head post-merge).
-  def missing_from(base_ref, other_ref, dir: Dir.pwd)
+  #
+  # `require_base_changed` narrows the finding to files `base_ref` itself
+  # also changed. Without it, any file `other_ref` touched that `base_ref`
+  # never went near would be reported "missing" -- true by construction (a
+  # branch cut before another merge lacks that content) but never actually at
+  # risk: a squash merge applies only `base_ref`'s own diff, so a file it
+  # never touches cannot be reverted by merging it. The pre-merge staleness
+  # check wants the narrowed form for exactly that reason; the post-merge
+  # drop check does not, because there `other_ref` (the merged PR head) is
+  # already the only side whose changes matter.
+  def missing_from(base_ref, other_ref, dir: Dir.pwd, require_base_changed: false)
     tree_oid, conflicted = merge_tree(base_ref, other_ref, dir)
     return Result.new(missing_files: [], conflicted_files: conflicted) if tree_oid.nil?
 
     changed = other_ref_changes(base_ref, other_ref, dir)
+    changed &= other_ref_changes(other_ref, base_ref, dir) if require_base_changed
     missing = changed.reject { |path| conflicted.include?(path) }
                       .select { |path| differs_from_base?(dir, tree_oid, base_ref, path) }
     Result.new(missing_files: missing, conflicted_files: conflicted)

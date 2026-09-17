@@ -8,14 +8,18 @@ require_relative 'change_pr_facts'
 require_relative 'change_stale_content_check'
 
 # PreToolUse hook: on `gh pr merge`, warns when the PR head is missing a fix
-# its base branch already has, the shape a stacked branch hits when its
-# parent takes a review fix after the child was cut and the parent is squash
-# merged (the child's commits never land on trunk, so ancestry checks see
-# nothing wrong). Advisory only -- this is an `additionalContext` note, not a
-# deny, because this hook is shared across concurrent sessions and a false
-# positive (the PR legitimately rewrites the same lines, which merge-tree
-# reports as a conflict, not staleness, and is excluded) must not block
-# anyone's merge.
+# its base branch already has *in a file the PR itself also changes* -- the
+# shape a stacked branch hits when its parent takes a review fix after the
+# child was cut and the parent is squash merged (the child's commits never
+# land on trunk, so ancestry checks see nothing wrong). Narrowed to files
+# both sides touch (`require_base_changed`) because a squash merge only ever
+# applies the PR's own diff: a file the PR never goes near cannot be reverted
+# by merging it, so flagging every trunk change the PR happens not to touch
+# is just noise that fires on nearly every PR under normal merge cadence.
+# Advisory only -- this is an `additionalContext` note, not a deny, because
+# this hook is shared across concurrent sessions and a false positive (the
+# PR legitimately rewrites the same lines, which merge-tree reports as a
+# conflict, not staleness, and is excluded) must not block anyone's merge.
 class ChangeStaleRemind
   EVENT = 'PreToolUse'
 
@@ -32,7 +36,7 @@ class ChangeStaleRemind
     base, head_sha = pr
     ChangePrFacts.fetch(root, base)
 
-    result = ChangeStaleContentCheck.missing_from(head_sha, "origin/#{base}", dir: root)
+    result = ChangeStaleContentCheck.missing_from(head_sha, "origin/#{base}", dir: root, require_base_changed: true)
     io.puts(JSON.generate(context(base, result))) unless result.missing_files.empty?
   rescue StandardError
     nil
@@ -50,10 +54,11 @@ class ChangeStaleRemind
     {
       hookSpecificOutput: {
         hookEventName: EVENT,
-        additionalContext: "[cf:change] This PR head is missing content that '#{base}' already has and " \
-          "the PR does not itself change, in: #{files}. This is the stacked-branch staleness shape (a " \
-          "parent PR's review fix landed on '#{base}' after this branch was cut). Confirm this is stale " \
-          "and not intentional before merging; rebase or merge '#{base}' in first if it is."
+        additionalContext: "[cf:change] This PR and '#{base}' both changed the same file(s) since this " \
+          "branch was cut, and the two sides merge cleanly without a conflict: #{files}. A clean merge " \
+          "here can still be semantically wrong even though nothing looks broken -- for example, this PR " \
+          "calling a helper against a signature '#{base}' has since changed. Check these files against " \
+          "'#{base}' before merging."
       }
     }
   end
