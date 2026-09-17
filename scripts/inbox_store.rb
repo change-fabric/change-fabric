@@ -188,7 +188,7 @@ module InboxStore
             'append <TO> --from <FROM> --subject S [--refs R] [--body-file F] | ' \
             'announce --from <ROLE> --subject S [--body-file F] [--refs R] | ' \
             'bind <ROLE> [--session-name NAME] [--session ID] | ' \
-            'list [--role R] [--json] | pick <path> | done <path> [--clause C] [--note N] [--blocked W] | ' \
+            'list [--role R] [--json] | pick <path> | done <path> [--clause C] [--note N] [--blocked] | ' \
             'unblock <path> | ' \
             'ledger <FROM> <TO> <status> <slug> <clause> | status [--role R] | stamp <ROLE> | ' \
             'commit [--role R]'
@@ -241,6 +241,8 @@ module InboxStore
       emit(out, 'root' => InboxStore.root, 'source' => InboxStore.root_source)
     end
 
+    BOOLEAN_FLAGS = %w[blocked json].freeze
+
     def self.parse(argv)
       positional = []
       opts = {}
@@ -248,7 +250,12 @@ module InboxStore
       while index < argv.length
         token = argv[index]
         if token.start_with?('--')
-          opts[token.sub(/\A--/, '')] = argv[index += 1]
+          key = token.sub(/\A--/, '')
+          if BOOLEAN_FLAGS.include?(key)
+            opts[key] = true
+          else
+            opts[key] = argv[index += 1]
+          end
         else
           positional << token
         end
@@ -406,7 +413,7 @@ module InboxStore
         target = unique_destination(InboxStore.done_dir, File.basename(path))
         FileUtils.mv(path, target)
       end
-      clause = blocked || opts['clause'] || opts['note'] || 'completed'
+      clause = opts['clause'] || opts['note'] || (blocked ? 'blocked' : 'completed')
       line = InboxStore.append_ledger(InboxStore.ledger_line(meta['to'], meta['from'], final,
                                                              InboxStore.slugify(meta['subject']), clause))
       emit(out, 'path' => target, 'status' => final, 'ledger' => line)

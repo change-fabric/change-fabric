@@ -114,6 +114,17 @@ class InboxStoreTest < Minitest::Test
     assert listed["items"].any? { |i| i["path"] == item }
   end
 
+  def test_done_with_trailing_blocked_flag_blocks_instead_of_completing
+    run_cli([ "init", "--roles", "PLAN,BUILD" ])
+    run_cli([ "append", "BUILD", "--from", "PLAN", "--subject", "blocked thing" ])
+    item = Dir.glob(File.join(@root, "inbox", "BUILD", "*.md")).first
+
+    result = run_cli([ "done", item, "--blocked" ])
+
+    assert_equal "blocked", result["status"]
+    assert File.exist?(item)
+  end
+
   def test_unblock_on_a_pending_item_errors
     run_cli([ "init", "--roles", "PLAN,BUILD" ])
     run_cli([ "append", "BUILD", "--from", "PLAN", "--subject", "pending thing" ])
