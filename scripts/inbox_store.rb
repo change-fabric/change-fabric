@@ -91,6 +91,15 @@ module InboxStore
 
   def self.write_atomically(path, content) = InboxPaths.write_atomically(path, content)
 
+  # Writes one item file: frontmatter plus body, atomically. Shared by
+  # append (one recipient) and announce (one call per configured role).
+  def self.write_item(path, from:, to:, subject:, refs:, status:, body:)
+    text = +"---\nfrom: #{from}\nto: #{to}\nsubject: #{subject}\nrefs: #{refs}\nstatus: #{status}\n---\n\n"
+    text << body
+    text << "\n" unless text.end_with?("\n")
+    write_atomically(path, text)
+  end
+
   def self.frontmatter(text)
     match = text.match(/\A---\n(.*?)\n---\n/m)
     return {} unless match
@@ -179,7 +188,7 @@ module InboxStore
             'append <TO> --from <FROM> --subject S [--refs R] [--body-file F] | ' \
             'announce --from <ROLE> --subject S [--body-file F] [--refs R] | ' \
             'bind <ROLE> [--session-name NAME] [--session ID] | ' \
-            'list [--role R] [--json] | pick <path> | done <path> [--note N] [--blocked W] | ' \
+            'list [--role R] [--json] | pick <path> | done <path> [--clause C] [--note N] [--blocked W] | ' \
             'unblock <path> | ' \
             'ledger <FROM> <TO> <status> <slug> <clause> | status [--role R] | stamp <ROLE> | ' \
             'commit [--role R]'
@@ -271,10 +280,7 @@ module InboxStore
       name = "#{InboxStore.file_stamp}-#{from}-#{slug}.md"
       path = File.join(InboxStore.inbox_dir(to), name)
       refs = opts['refs'].to_s
-      text = +"---\nfrom: #{from}\nto: #{to}\nsubject: #{subject}\nrefs: #{refs}\nstatus: pending\n---\n\n"
-      text << body
-      text << "\n" unless text.end_with?("\n")
-      InboxStore.write_atomically(path, text)
+      InboxStore.write_item(path, from: from, to: to, subject: subject, refs: refs, status: 'pending', body: body)
       line = InboxStore.append_ledger(InboxStore.ledger_line(from, to, 'pending', slug, subject))
       recipient = InboxStore.session_name(to)
       emit(out, 'path' => path, 'to' => to, 'from' => from, 'slug' => slug,
@@ -301,10 +307,7 @@ module InboxStore
       paths = roles.map do |role|
         name = "#{InboxStore.file_stamp}-#{from}-#{slug}.md"
         path = File.join(InboxStore.inbox_dir(role), name)
-        text = +"---\nfrom: #{from}\nto: #{role}\nsubject: #{subject}\nrefs: #{refs}\nstatus: fyi\n---\n\n"
-        text << body
-        text << "\n" unless text.end_with?("\n")
-        InboxStore.write_atomically(path, text)
+        InboxStore.write_item(path, from: from, to: role, subject: subject, refs: refs, status: 'fyi', body: body)
         path
       end
       line = InboxStore.append_ledger(InboxStore.ledger_line(from, 'all', 'note', slug, subject))
