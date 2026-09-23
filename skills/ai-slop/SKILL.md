@@ -29,8 +29,9 @@ Remove:
 - marketing language
 - agent attribution footers (the "Generated with" / "Claude Code" line some harnesses append to commits and PRs)
 
-Punctuation (no AI-slop glyphs; en-dash is fine):
-- no em-dash: use a spaced hyphen ' - ' or restructure
+Punctuation in your own prose (no AI-slop glyphs; en-dash is fine). Product copy
+inside a downstream repo follows that repo's own punctuation rules instead:
+- no em-dash: restructure the sentence
 - no bullet glyph: use '*' or '-' for lists
 - no ellipsis glyph: use '...'
 - no smart quotes: use straight ' and "
