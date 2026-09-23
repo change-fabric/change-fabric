@@ -355,7 +355,7 @@ module CtxSurface
   end
 
   # Renders a Surface to the markdown additionalContext block. Plain hyphens only,
-  # no slop glyphs (glyph_guard.rb would deny otherwise). Emits "" when there is
+  # no slop glyphs. Emits "" when there is
   # nothing to surface so the hook can stay silent on an empty store.
   class Renderer
     HEADER = '## Project context (cf:ctx)'

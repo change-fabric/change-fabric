@@ -1,7 +1,6 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 
-require_relative 'glyph_guard'
 require_relative 'ctx_paths'
 
 # Mechanically verifies a landed cf:plan triple: plan.md, goal.md, and the
@@ -11,11 +10,11 @@ require_relative 'ctx_paths'
 # must satisfy the Workflow tool's authoring contract as far as a text check
 # can reach it. Every check runs and reports (not fail-fast), so a single
 # invocation names everything wrong at once rather than making the writing
-# agent fix one thing and re-run to discover the next. The glyph check reuses
-# GlyphGuard::PATTERN directly so the checker can never drift from the hook
-# that already guards Write/Edit.
+# agent fix one thing and re-run to discover the next. The glyph check owns its
+# pattern: em-dash, bullet, ellipsis, and smart quotes.
 module PlanCheck
   GOAL_CAP = 4000
+  GLYPHS = /[\u2014\u2022\u2026\u201C\u201D\u2018\u2019]/
   THIN_PLAN_LINES = 60
 
   # The Workflow tool re-executes a script's prelude on resume, so a value that
@@ -125,7 +124,7 @@ module PlanCheck
     return false unless File.exist?(path)
 
     text = File.read(path)
-    if text.match?(GlyphGuard::PATTERN)
+    if text.match?(GLYPHS)
       lines << "#{label}: contains a banned AI-slop glyph"
       false
     else
