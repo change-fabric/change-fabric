@@ -29,7 +29,7 @@ fingerprint at session start, or as a review when a turn ends. `cf:ruby` on
 Ruby, `cf:react` on components, `cf:ai-slop` on every file you author.
 
 The hooks are the enforcement half. They ask for a merge mode at session start,
-deny AI-slop glyphs and host-daemon commands before the tool call runs, and gate
+deny host-daemon commands before the tool call runs, and gate
 a push or a protected-branch merge on a completed review.
 
 [`skills/README.md`](skills/README.md) is the full inventory and explains the
