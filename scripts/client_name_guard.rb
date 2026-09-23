@@ -32,7 +32,7 @@ class ClientNameGuard
   # identity, same as it citing its own repo name elsewhere in its docs.
   CF_REPO_REMOTE = %r{[/:]change-fabric/change-fabric(?:\.git)?\b}i
 
-  # Bash commands that author outbound text (mirrors glyph_guard's categories).
+  # Bash commands that author outbound text (mirrors slop_remind categories).
   AUTHORING_BASH = [
     /\bgit\b[^&|;]*\bcommit\b/,
     /\bgit\s+(?:checkout\s+-b|switch\s+-c|branch\s+(?:-[mM]\b|[^-\s]))/,

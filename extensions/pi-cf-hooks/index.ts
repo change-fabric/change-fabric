@@ -67,7 +67,7 @@ export default function cfHooks(pi: ExtensionAPI) {
 
 	pi.on("tool_call", async (event, ctx) => {
 		const payload = toolEvent(ctx, event.toolName, event.input);
-		for (const script of ["merge_mode_guard.rb", "glyph_guard.rb", "slop_remind.rb"]) {
+		for (const script of ["merge_mode_guard.rb", "slop_remind.rb"]) {
 			const output = await runHook(script, payload, ctx.cwd);
 			const decision = output.hookSpecificOutput?.permissionDecision;
 			if (decision === "deny") {

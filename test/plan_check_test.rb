@@ -6,7 +6,7 @@ require_relative "#{File.expand_path('../scripts', __dir__)}/plan_check"
 class PlanCheckTest < Minitest::Test
   include SkillTempHome
   # Built from a codepoint, not a literal, so this file never carries the
-  # glyph it exists to test for (glyph_guard.rb would otherwise deny writing it).
+  # glyph it exists to test for.
   EM = [ 0x2014 ].pack("U")
 
   # The smallest script that satisfies every workflow.js check, so a test that
@@ -146,12 +146,6 @@ class PlanCheckTest < Minitest::Test
     ok, lines = workflow_lines("#{GOOD_WORKFLOW}\nconst REPO_PATH = \"#{Dir.home}/code/repo\"\n")
     refute ok
     assert_includes lines, "workflow.js: contains a literal absolute home path (#{Dir.home}); use ~ instead"
-  end
-
-  def test_checker_uses_glyph_guards_own_pattern_constant
-    source = File.read(File.expand_path("../scripts/plan_check.rb", __dir__))
-    assert_match(/GlyphGuard::PATTERN/, source)
-    refute_match(/BANNED\s*=/, source)
   end
 
   def test_thin_plan_warns_but_still_exits_zero
