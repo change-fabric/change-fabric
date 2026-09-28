@@ -11,14 +11,14 @@ require_relative 'merge_mode_slug'
 # (/cf:away, /cf:active, /cf:local-only, /cf:merge-ready, /cf:admin-bypass,
 # /cf:yolo) in one place, since they all key off the same single field
 # (prompt) on the same single event. Writes AwayStore or MergeModeStore,
-# injects a one-line confirmation, and separately injects the cf:plan
-# refuse-to-start directive when away mode is active and the prompt begins
-# with /cf:plan.
+# injects a one-line confirmation, and separately injects a refuse-to-start
+# directive when away mode is active and the prompt begins with /cf:plan or
+# /cf:readiness, the two skills whose point is the interview.
 class ModeCommand
   EVENT = 'UserPromptSubmit'
 
   COMMAND_PATTERN = %r{\A\s*/cf:(away|active|local-only|merge-ready|admin-bypass|yolo)\b}
-  PLAN_PATTERN = %r{\A\s*/cf:plan\b}
+  PLAN_PATTERN = %r{\A\s*/cf:(plan|readiness)\b}
 
   AWAY_COMMANDS = %w[away active].freeze
 
@@ -79,8 +79,9 @@ class ModeCommand
   end
 
   def plan_refusal
-    '[cf] Away mode is active: refuse to start the cf:plan interview. Guessing its judgment calls ' \
-      'defeats the point of running it. Tell the user to run /cf:active first, then re-run /cf:plan.'
+    skill = prompt[PLAN_PATTERN, 1]
+    "[cf] Away mode is active: refuse to start the cf:#{skill} interview. Guessing its judgment calls " \
+      "defeats the point of running it. Tell the user to run /cf:active first, then re-run /cf:#{skill}."
   end
 
   def payload(context)

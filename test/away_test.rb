@@ -133,6 +133,15 @@ class ModeCommandTest < Minitest::Test
     assert_match(%r{/cf:active}, context)
   end
 
+  def test_cf_readiness_refusal_fires_only_while_away
+    assert_empty run_prompt("/cf:readiness 123"), "cf:readiness should not be touched while active"
+
+    AwayStore.new("s1").write("away")
+    context = JSON.parse(run_prompt("/cf:readiness 123")).dig("hookSpecificOutput", "additionalContext")
+    assert_match(/cf:readiness interview/, context)
+    assert_match(%r{re-run /cf:readiness}, context)
+  end
+
   def test_blank_session_id_is_a_no_op
     output = run_prompt("/cf:away", session_id: "")
     refute AwayStore.new("").away?
