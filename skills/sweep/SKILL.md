@@ -186,7 +186,8 @@ of trunk after the last merge of a tick.
    640 characters, one go/no-go for the whole queue. Under `auto`, skip it.
 7. **(SKILL.md, `land` and `auto`)** Walk `autoMergeQueue` in order. For each
    PR: post any `warnAuthor` comment first (a warning after the rebase is
-   wasted), then invoke `cf:drive` against the PR, instructing it inline to run
+   wasted), then invoke `/cf:drive quick` against the PR (the bare form is
+   thorough, which plans instead of landing), instructing it inline to run
    in its own Full auto mode. For a `low` trust PR (`requiresStrictReview`),
    additionally require the `cf:change` comprehensive run to have passed for
    the head SHA before merging, not just CI green. Merge, then re-fetch trunk
