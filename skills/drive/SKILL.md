@@ -1,6 +1,6 @@
 ---
 name: cf:drive
-description: "Drive a PR to an approved, green state end to end, in one of two modes. quick (default): sweeps existing review threads, runs a relevance-gated local quality loop (code review, QA, refactor, slop) fixing what it finds, predicts CI locally, then pushes, waits for real CI green, and posts an approval, with explicit checkpoints or full auto sign-off. thorough: for a risky PR or a release range, interviews the owner, writes a review-and-QA planning set (plan.md, a capped goal.md, a segmented workflow.js, single-writer run templates), and prints a handoff prompt for a fresh session; it never runs the Workflow itself."
+description: "Drive a PR to an approved, green state end to end, in one of two modes. thorough (default): for a risky PR or a release range, interviews the owner, writes a review-and-QA planning set (plan.md, a capped goal.md, a segmented workflow.js, single-writer run templates), and prints a handoff prompt for a fresh session; it never runs the Workflow itself. quick: sweeps existing review threads, runs a relevance-gated local quality loop (code review, QA, refactor, slop) fixing what it finds, predicts CI locally, then pushes, waits for real CI green, and posts an approval, with explicit checkpoints or full auto sign-off."
 ---
 
 # CF Drive
@@ -8,14 +8,14 @@ description: "Drive a PR to an approved, green state end to end, in one of two m
 Drive a pull request, branch, or change set through review, fixes, CI, and
 approval in one run.
 
-Trigger: `/cf:drive [quick|thorough] <PR url or change set> [--area <name>]`.
-Mode defaults to `quick`.
+Trigger: `/cf:drive [thorough|quick] <PR url or change set> [--area <name>]`.
+Mode defaults to `thorough`.
 
 ## Parameters
 
 | Name | Form | Default | Mode | Fills |
 |---|---|---|---|---|
-| mode | leading word `quick` or `thorough` | `quick` | both | selects the section below |
+| mode | leading word `thorough` or `quick` | `thorough` | both | selects the section below |
 | target | PR url, `owner/repo#n`, `#n`, branch, or change set (thorough also takes `base..head`) | required | both | quick: workflow args `files`, `isPR`, `headSha`; thorough: `{{target}}` |
 | area | `--area <name>` | repo basename | thorough | plans subdirectory |
 | signoff | step-0 answer: Explicit sign-off or Full auto | asked (Full auto under away) | quick | whether checkpoints pause |
@@ -35,16 +35,17 @@ writing agent from the plan, not from these params.
 
 ## Modes
 
-Parse the first word of the args. If it is `quick` or `thorough`, consume it;
-otherwise the mode is `quick` and the whole args string is the target.
-`cf:sweep` calls drive without a mode word, so it always runs quick.
+Parse the first word of the args. If it is `thorough` or `quick`, consume it;
+otherwise the mode is `thorough` and the whole args string is the target.
+`cf:sweep` always passes `quick` explicitly, since thorough stops for an
+interview and refuses under away mode.
 
 `quick` is the single-PR driver: it fixes, pushes, waits for CI, and approves.
 `thorough` is a planner for a change too risky for one pass (money, auth, PII,
 schema, a release range): it writes a planning set and hands off to a fresh
 session, and never edits the target repo, commits, pushes, or calls `Workflow`.
 
-## Quick mode (default)
+## Quick mode
 
 Question: would this change earn a real approval on GitHub, and is CI
 actually green, not just plausibly so?
@@ -232,7 +233,7 @@ would-be-approved local state, and since nothing landed, also skips step
 - The `Workflow` call errors or returns no result: say so explicitly and
   stop; do not silently hand-apply fixes or push.
 
-## Thorough mode
+## Thorough mode (default)
 
 Question: can a separate session, with none of this one's context, take this
 change from review to a ship or no-ship call without guessing a judgment the

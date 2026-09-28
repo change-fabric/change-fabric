@@ -13,12 +13,12 @@ require_relative 'merge_mode_slug'
 # (prompt) on the same single event. Writes AwayStore or MergeModeStore,
 # injects a one-line confirmation, and separately injects the interview
 # refuse-to-start directive when away mode is active and the prompt begins
-# with /cf:plan or /cf:drive thorough.
+# with /cf:plan or /cf:drive (thorough, its default).
 class ModeCommand
   EVENT = 'UserPromptSubmit'
 
   COMMAND_PATTERN = %r{\A\s*/cf:(away|active|local-only|merge-ready|admin-bypass|yolo)\b}
-  PLAN_PATTERN = %r{\A\s*/cf:(plan|drive\s+thorough)\b}
+  PLAN_PATTERN = %r{\A\s*/cf:(plan|drive(?:\s+thorough)?\b(?!\s+quick\b))\b}
 
   AWAY_COMMANDS = %w[away active].freeze
 

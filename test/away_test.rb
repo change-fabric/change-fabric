@@ -143,11 +143,16 @@ class ModeCommandTest < Minitest::Test
     refute_match(/cf:plan/, context)
   end
 
-  def test_cf_drive_quick_and_default_do_not_refuse_while_away
+  def test_cf_drive_default_refuses_while_away
     AwayStore.new("s1").write("away")
-    [ "/cf:drive 123", "/cf:drive quick 123" ].each do |prompt|
-      assert_empty run_prompt(prompt), "#{prompt} should not be refused"
-    end
+    context = JSON.parse(run_prompt("/cf:drive 123")).dig("hookSpecificOutput", "additionalContext")
+    assert_match(/refuse/i, context)
+    assert_match(%r{/cf:drive\b}, context)
+  end
+
+  def test_cf_drive_quick_does_not_refuse_while_away
+    AwayStore.new("s1").write("away")
+    assert_empty run_prompt("/cf:drive quick 123")
   end
 
   def test_blank_session_id_is_a_no_op

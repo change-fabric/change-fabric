@@ -86,10 +86,10 @@ class DriveThoroughTemplateTest < Minitest::Test
 
   def skill_md = File.read(File.join(SKILL, "SKILL.md"))
 
-  def test_trigger_line_defaults_to_quick
+  def test_trigger_line_defaults_to_thorough
     trigger = skill_md[/^Trigger: .*\n.*$/]
-    assert_includes trigger, "`/cf:drive [quick|thorough] <PR url or change set> [--area <name>]`"
-    assert_match(/Mode defaults to `quick`/, trigger)
+    assert_includes trigger, "`/cf:drive [thorough|quick] <PR url or change set> [--area <name>]`"
+    assert_match(/Mode defaults to `thorough`/, trigger)
   end
 
   def test_description_names_both_modes
