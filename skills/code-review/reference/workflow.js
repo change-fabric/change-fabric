@@ -154,7 +154,7 @@ const shardResults = await pipeline(
       const found = await agent(
         "Review these files for correctness bugs, security issues, missing or wrong test " +
         "coverage, and refactor opportunities. Apply the matched skill rubrics from " +
-        "`ruby ~/.claude/pst/bin/skill_route.rb <files>` where they cover a file, plus general " +
+        "`ruby ~/.claude/cf/bin/skill_route.rb <files>` where they cover a file, plus general " +
         "judgment where they do not. Every candidate needs a concrete failure scenario, not a " +
         "vague quality note.\n\nFiles:\n" + shard.files.join("\n"),
         { phase: "Find", label: shard.name, schema: CANDIDATES_SCHEMA }
@@ -163,7 +163,7 @@ const shardResults = await pipeline(
     }
     const lensResults = await parallel([
       () => agent(
-        "Route these files with `ruby ~/.claude/pst/bin/skill_route.rb <files>` and apply " +
+        "Route these files with `ruby ~/.claude/cf/bin/skill_route.rb <files>` and apply " +
         "each matched skill principles verbatim. Files:\n" + shard.files.join("\n"),
         { model: "haiku", phase: "Find", label: shard.name + ":rubric", schema: CANDIDATES_SCHEMA }
       ),
