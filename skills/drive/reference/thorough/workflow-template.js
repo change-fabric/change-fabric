@@ -799,7 +799,11 @@ if (segment === "gate") {
     "flake's single retry.",
     { phase: "Gate", schema: GATE_SCHEMA }
   )
-  const written = gate ? await ledger("Gate", "Append this run to gate-log.md as an integration-tip gate.", gate) : null
+  const written = gate ? await ledger("Gate",
+    "Append this run to gate-log.md as an integration-tip gate. If green is true, move each finding " +
+    "whose status is 'fixing <ref>' and that carries 'verified at' to 'fixed <ref>' when the fix's " +
+    "head commit is an ancestor of " + PLAN.head + " (git -C " + PLAN.repoPath + " merge-base " +
+    "--is-ancestor); leave every other 'fixing' row as it is.", gate) : null
   return {
     plan: PLAN_MD,
     segment,
