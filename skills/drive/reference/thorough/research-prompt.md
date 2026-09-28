@@ -46,7 +46,7 @@ Return two things.
 2. CANDIDATE QUESTIONS, in cf:plan's shape (Decision, why it is open, options
    with consequences, your recommendation, what changes otherwise), for
    anything evidence cannot settle, especially the eight decisions in
-   {{skill_dir}}/reference/interview.md.
+   {{skill_dir}}/reference/thorough/interview.md.
 ```
 
 ## Writing agent (step 7, lands the planning set)
@@ -92,7 +92,7 @@ Write these files, using the tilde form for every path you write as text.
 2. goal.md: what done looks like and why, no implementation detail. HARD CAP
    4000 characters; count before and after trimming.
 
-3. workflow.js: copy {{skill_dir}}/reference/workflow-template.js, then fill
+3. workflow.js: copy {{skill_dir}}/reference/thorough/workflow-template.js, then fill
    `meta.name`, `meta.description` and the PLAN block only, from the plan. Do
    not change one character from the `// ===== ENGINE` line to the end of the
    file; the check at step 8 diffs it against the template. Replace every
@@ -101,7 +101,7 @@ Write these files, using the tilde form for every path you write as text.
    (a sweep against a named target carries --target-url, --health-url under
    it, and --no-publish). Lists, never totals.
 
-4. The six run files, copied from {{skill_dir}}/reference/templates/ with
+4. The six run files, copied from {{skill_dir}}/reference/thorough/templates/ with
    every `{{...}}` in them filled: review-findings.md, qa-report.md,
    gate-log.md, followups.md (seed "From the plan" with the plan's follow-ups),
    owner-handoff.md, run-log.md (seed "Tips" with the range ends).

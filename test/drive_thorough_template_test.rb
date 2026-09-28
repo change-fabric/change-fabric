@@ -83,4 +83,30 @@ class DriveThoroughTemplateTest < Minitest::Test
       refute_match PlanCheck::GLYPHS, File.read(path), path
     end
   end
+
+  def skill_md = File.read(File.join(SKILL, "SKILL.md"))
+
+  def test_trigger_line_defaults_to_quick
+    trigger = skill_md[/^Trigger: .*\n.*$/]
+    assert_includes trigger, "`/cf:drive [quick|thorough] <PR url or change set> [--area <name>]`"
+    assert_match(/Mode defaults to `quick`/, trigger)
+  end
+
+  def test_description_names_both_modes
+    desc = skill_md[/^description: (.*)$/, 1]
+    assert desc.length <= 1026, "description too long"
+    assert_match(/\bquick\b/, desc)
+    assert_match(/\bthorough\b/, desc)
+  end
+
+  META_PLACEHOLDERS = %w[{{placeholder}} {{...}}].freeze
+
+  def test_parameter_table_covers_every_thorough_placeholder
+    table = skill_md[/^## Parameters\n(.*?)^## /m, 1]
+    refute_nil table, "missing ## Parameters section"
+    used = Dir.glob(File.join(SKILL, "reference", "thorough", "*.md"))
+              .flat_map { |f| File.read(f).scan(/\{\{[a-z_.]+\}\}/) }.uniq - META_PLACEHOLDERS
+    refute_empty used
+    assert_empty used.reject { |ph| table.include?(ph) }, "placeholders missing from the parameter table"
+  end
 end
