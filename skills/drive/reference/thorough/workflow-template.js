@@ -819,7 +819,7 @@ if (segment === "qa") {
   phase("QA")
   const selected = listOf(input.lanes)
   const setup = listOf(PLAN.qa.setup).length > 0 ? [ SETUP_LANE ] : []
-  const lanes = setup.concat(PLAN.qa.lanes).filter((l) => selected.length === 0 || selected.includes(l.id))
+  const lanes = setup.concat(PLAN.qa.lanes.filter((l) => selected.length === 0 || selected.includes(l.id)))
   const carryForward = listOf(input.carryForward)
   if (carryForward.length > 0 && PLAN.tier !== "release") {
     return { plan: PLAN_MD, segment, error: "carry-forward is a release-tier option; rerun the lanes instead" }
