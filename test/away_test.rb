@@ -145,7 +145,7 @@ class ModeCommandTest < Minitest::Test
 
   def test_cf_drive_quick_and_default_do_not_refuse_while_away
     AwayStore.new("s1").write("away")
-    ["/cf:drive 123", "/cf:drive quick 123"].each do |prompt|
+    [ "/cf:drive 123", "/cf:drive quick 123" ].each do |prompt|
       assert_empty run_prompt(prompt), "#{prompt} should not be refused"
     end
   end
