@@ -771,7 +771,10 @@ if (segment === "fix" && mode === "verify") {
     ledger: written,
     ownerQuestions: qa ? qa.blockedFlows.filter((b) => b.needsOwner).map((b) => b.flow + ": " + b.reason) : [],
     nextStep: written && written.openBlockingIds.length === 0
-      ? (FIX_MODE === "fix-prs"
+      ? (FIX_MODE === "fix-prs" && mergeMode === "local-only"
+          ? "Local-only: the verified fixes stay on their local branches, no PRs exist and nothing is merged. " +
+            "Report the verified local branches to " + PLAN.fix.mergeAuthorizer + ", then run segment 'gate' at the local tip."
+          : FIX_MODE === "fix-prs"
           ? "Main thread: for each verified PR, get " + PLAN.fix.mergeAuthorizer + "'s explicit " +
             "authorization and run " + PLAN.fix.mergeCommand + " as its own call. Then run segment 'gate' at the new tip."
           : "Run segment 'gate' with the PR branch tip as expectedTip.")
