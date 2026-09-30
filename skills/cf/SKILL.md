@@ -14,6 +14,15 @@ and restated every turn by a `UserPromptSubmit` hook, so it survives
 compaction. This file is the manual `/cf` picker path plus the rules for
 applying the chosen mode.
 
+Pi's `cf-hooks` extension (`extensions/pi-cf-hooks/index.ts`) matches this:
+on `session_start` it never prompts either, and picks up the session's
+merge mode the same way, falling back to `merge-ready` when nothing is
+persisted. Since Pi's non-UI (`rpc`) mode has no `AskUserQuestion` parity to
+prompt with in the first place, the `CF_MERGE_MODE` environment variable
+lets a caller set the starting mode without a prompt: set it to one of
+`local-only`, `merge-ready`, `admin-bypass`, or `yolo` before starting Pi.
+The `/cf` command still works mid-session to change the mode.
+
 ## /cf
 
 Call `AskUserQuestion` once with two questions, to re-set both the session's
