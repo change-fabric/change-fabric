@@ -102,13 +102,21 @@ export default function cfHooks(pi: ExtensionAPI) {
 // Never asks: matches the Claude Code SessionStart hook, which states the
 // merge mode instead of prompting for it. A session with no persisted mode
 // picks up CF_MERGE_MODE when it names a valid mode, else falls back to
-// merge-ready, the same fallback session_start.rb uses.
+// merge-ready, the same fallback session_start.rb uses. A sessionless run
+// (RPC) shares one cwd-derived id with every other sessionless run in that
+// directory, so there a valid CF_MERGE_MODE always replaces the stored mode;
+// otherwise one caller's default would silently override another's request.
 function ensureMergeMode(ctx: HookContext) {
 	const id = sessionId(ctx);
+	const fromEnv = mergeModeSlug(process.env.CF_MERGE_MODE);
+	const sharedId = !ctx.sessionManager.getSessionFile?.();
+	if (sharedId && fromEnv) {
+		writeMergeMode(id, fromEnv);
+		return;
+	}
 	if (readMergeMode(id)) return;
 
-	const slug = mergeModeSlug(process.env.CF_MERGE_MODE) ?? DEFAULT_MERGE_MODE_SLUG;
-	writeMergeMode(id, slug);
+	writeMergeMode(id, fromEnv ?? DEFAULT_MERGE_MODE_SLUG);
 }
 
 // Normalizes a raw mode name (env var or otherwise) to one of the canonical
