@@ -25,9 +25,9 @@ type Selector = (message: string, options: string[]) => Promise<string | undefin
 const HOOK_BIN = join(process.env.HOME ?? "", ".claude", "cf", "bin");
 const RUBY = process.env.CF_RUBY ?? "ruby";
 const MERGE_MODES = ["Local only", "Merge ready", "Admin bypass"] as const;
+const MERGE_MODE_SLUGS = ["local-only", "merge-ready", "admin-bypass", "yolo"] as const;
+const DEFAULT_MERGE_MODE_SLUG = "merge-ready";
 const PI_SESSION_PREFIX = "pi-";
-const UNSET_MERGE_MODE_CONTEXT =
-	"[cf pi] No merge mode is set for this Pi session. Pi does not have Claude Code AskUserQuestion parity in non-UI modes, so run /cf before pushing, opening PRs, or merging.";
 const STOP_BEST_EFFORT_CONTEXT =
 	"[cf pi] Pi has no blocking Stop hook. Treat this follow-up as a required review gate before declaring the work complete.";
 const HOOK_TIMEOUT_MS = 5_000;
@@ -47,12 +47,8 @@ export default function cfHooks(pi: ExtensionAPI) {
 	});
 
 	pi.on("session_start", async (_event, ctx) => {
-		await ensureMergeMode(ctx);
-		if (readMergeMode(sessionId(ctx))) {
-			await runAndQueue(pi, pendingContext, "session_start.rb", baseEvent(ctx));
-		} else {
-			pendingContext.push(UNSET_MERGE_MODE_CONTEXT);
-		}
+		ensureMergeMode(ctx);
+		await runAndQueue(pi, pendingContext, "session_start.rb", baseEvent(ctx));
 		await runAndQueue(pi, pendingContext, "skill_detect.rb", baseEvent(ctx));
 	});
 
@@ -103,13 +99,36 @@ export default function cfHooks(pi: ExtensionAPI) {
 	});
 }
 
-async function ensureMergeMode(ctx: HookContext & { hasUI?: boolean; ui?: { select?: Selector } }) {
+// Never asks: matches the Claude Code SessionStart hook, which states the
+// merge mode instead of prompting for it. A session with no persisted mode
+// picks up CF_MERGE_MODE when it names a valid mode, else falls back to
+// merge-ready, the same fallback session_start.rb uses. A sessionless run
+// (RPC) shares one cwd-derived id with every other sessionless run in that
+// directory, so there a valid CF_MERGE_MODE always replaces the stored mode;
+// otherwise one caller's default would silently override another's request.
+function ensureMergeMode(ctx: HookContext) {
 	const id = sessionId(ctx);
+	const fromEnv = mergeModeSlug(process.env.CF_MERGE_MODE);
+	const sharedId = !ctx.sessionManager.getSessionFile?.();
+	if (sharedId && fromEnv) {
+		writeMergeMode(id, fromEnv);
+		return;
+	}
 	if (readMergeMode(id)) return;
-	if (!ctx.hasUI || !ctx.ui?.select) return;
 
-	const mode = await ctx.ui.select("Merge mode for this cf session", [...MERGE_MODES]);
-	if (isMergeMode(mode)) writeMergeMode(id, mode);
+	writeMergeMode(id, fromEnv ?? DEFAULT_MERGE_MODE_SLUG);
+}
+
+// Normalizes a raw mode name (env var or otherwise) to one of the canonical
+// slugs the /cf:* commands use, mirroring scripts/merge_mode_slug.rb.
+function mergeModeSlug(raw: string | undefined): (typeof MERGE_MODE_SLUGS)[number] | undefined {
+	const slug = (raw ?? "")
+		.trim()
+		.toLowerCase()
+		.replace(/\s*\(.*\)\s*$/, "")
+		.replace(/[^a-z0-9]+/g, "-")
+		.replace(/^-|-$/g, "");
+	return MERGE_MODE_SLUGS.find((known) => known === slug);
 }
 
 async function resolveMode(args: string, ctx: HookContext & { hasUI?: boolean; ui: { select: Selector } }) {
