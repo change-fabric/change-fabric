@@ -103,7 +103,7 @@ class ThreadHistory
       'pr' => @pr['number'],
       'headSha' => @head,
       'truncated' => truncated?,
-      'threads' => open_threads.map { |t| thread_entry(t) },
+      'threads' => open_entries,
       'deferred' => deferred,
       'priorThreads' => prior_threads,
       'rounds' => rounds,
@@ -145,6 +145,10 @@ class ThreadHistory
 
   def open_threads
     unresolved.reject { |t| deferred_slug(t) }
+  end
+
+  def open_entries
+    @open_entries ||= open_threads.map { |t| thread_entry(t) }
   end
 
   def thread_entry(thread)
@@ -194,7 +198,7 @@ class ThreadHistory
 
   def recurrence
     prior_paths = prior_threads.map { |p| p['path'] }
-    hits = open_threads.map { |t| thread_entry(t) }.select do |t|
+    hits = open_entries.select do |t|
       rounds.fetch(t['reviewer'], 0) >= ROUND_THRESHOLD && prior_paths.include?(t['path'])
     end
     {
@@ -242,13 +246,20 @@ class ThreadHistory
   end
 
   # The command-line entry point: resolves the PR ref, runs the one GraphQL
-  # call through an injectable runner (Open3.capture2e in production), and
-  # prints the history as pretty JSON. A gh failure goes to stderr with exit 1;
-  # this is a CLI the skills call, not a hook, so it does not fail silent.
+  # call through an injectable runner, and prints the history as pretty JSON.
+  # A gh failure goes to stderr with exit 1; this is a CLI the skills call,
+  # not a hook, so it does not fail silent.
   module CLI
     module_function
 
-    def run(argv, out: $stdout, err: $stderr, runner: Open3.method(:capture2e))
+    # gh writes notices (an available update, say) to stderr even on success,
+    # so stdout is kept apart for JSON.parse and stderr only explains a failure.
+    GH = lambda do |*cmd|
+      stdout, stderr, status = Open3.capture3(*cmd)
+      [ status.success? ? stdout : stderr, status ]
+    end
+
+    def run(argv, out: $stdout, err: $stderr, runner: GH)
       owner, name, number = resolve(argv.first, runner)
       output, status = runner.call('gh', 'api', 'graphql', '-f', "owner=#{owner}", '-f', "name=#{name}",
                                    '-F', "number=#{number}", '-f', "query=#{QUERY}")
