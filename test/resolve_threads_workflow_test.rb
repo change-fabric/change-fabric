@@ -5,6 +5,7 @@ require "minitest/autorun"
 require "open3"
 require "json"
 require_relative "../scripts/plan_check"
+require_relative "../scripts/thread_history"
 
 # Guards the cf:resolve-threads Workflow against losing the root-cause pass.
 # Fixing only the reported line is how a PR ends up with four review rounds;
@@ -89,38 +90,77 @@ class ResolveThreadsWorkflowTest < Minitest::Test
   end
 
   # A recurrenceOf claim from Evaluate counts only for a prior thread the same
-  # reviewer opened on the same path, matching thread_history.rb's rule.
+  # reviewer opened on the same path, at an earlier time and a different
+  # reviewed commit: thread_history.rb#returned_to?. Each fixture varies one
+  # field of that predicate, and both copies are checked against it.
+  OPEN_AT = "2026-01-02T00:00:00Z"
+  OPEN = { path: "a.rb", reviewer: "codex", reviewedCommit: "c2", openedAt: OPEN_AT }.freeze
+  def self.prior(id, path: "a.rb", reviewer: "codex", commit: "c1", at: "2026-01-01T00:00:00Z")
+    { threadId: id, path: path, reviewer: reviewer, reviewedCommit: commit, openedAt: at, fixSha: "1111111" }.compact
+  end
   PRIOR = [
-    { threadId: "P_own", path: "a.rb", reviewer: "codex", fixSha: "1111111" },
-    { threadId: "P_other", path: "a.rb", reviewer: "human", fixSha: "2222222" },
-    { threadId: "P_elsewhere", path: "b.rb", reviewer: "codex", fixSha: "3333333" }
+    prior("P_own"),
+    prior("P_other", reviewer: "human"),
+    prior("P_elsewhere", path: "b.rb"),
+    prior("P_newer", at: "2026-01-03T00:00:00Z"),
+    prior("P_same_time", at: OPEN_AT),
+    prior("P_same_commit", commit: "c2"),
+    prior("P_no_time", at: nil),
+    prior("P_no_commit", commit: nil),
+    prior("P_no_path", path: nil),
+    prior("P_no_reviewer", reviewer: nil)
   ].freeze
 
   RECURRENCE_CLAIMS = {
     "own prior on the same path" => [ %w[P_own], %w[P_own] ],
     "another reviewer's prior on the same path" => [ %w[P_other], [] ],
     "own prior on another path" => [ %w[P_elsewhere], [] ],
+    "own prior opened after the open thread" => [ %w[P_newer], [] ],
+    "own prior opened at the same time" => [ %w[P_same_time], [] ],
+    "own prior on the same reviewed commit" => [ %w[P_same_commit], [] ],
+    "own prior missing openedAt" => [ %w[P_no_time], [] ],
+    "own prior missing reviewedCommit" => [ %w[P_no_commit], [] ],
+    "prior missing path" => [ %w[P_no_path], [] ],
+    "prior missing reviewer" => [ %w[P_no_reviewer], [] ],
     "unknown id" => [ %w[P_missing], [] ],
-    "mixed claims keep only the own one" => [ %w[P_other P_own P_elsewhere], %w[P_own] ],
+    "mixed claims keep only the own one" => [ %w[P_other P_newer P_own P_elsewhere], %w[P_own] ],
     "no claim" => [ nil, [] ]
   }.freeze
 
-  def test_recurrence_claims_are_scoped_to_the_same_reviewer
+  def recurrence_helpers
+    %w[returnedTo priorFor ownRecurrence].map do |name|
+      workflow[/^const #{name} = .*(?:\n  .*)*$/] or flunk("workflow lost #{name}")
+    end
+  end
+
+  def test_recurrence_claims_follow_returned_to
     skip "node not installed" unless system("node", "--version", out: File::NULL)
-    helpers = %w[priorFor ownRecurrence].map do |name|
-      workflow[/^const #{name} = .*$/] or flunk("workflow lost #{name}")
-    end
-    verdicts = RECURRENCE_CLAIMS.transform_values do |(claim, _)|
-      { path: "a.rb", reviewer: "codex", recurrenceOf: claim }.compact
-    end
-    js = "const priorThreads = #{JSON.generate(PRIOR)}\n#{helpers.join("\n")}\n" \
+    verdicts = RECURRENCE_CLAIMS.transform_values { |(claim, _)| OPEN.merge(recurrenceOf: claim).compact }
+    js = "const priorThreads = #{JSON.generate(PRIOR)}\n#{recurrence_helpers.join("\n")}\n" \
          "const c = #{JSON.generate(verdicts)}\n" \
          "console.log(JSON.stringify(Object.fromEntries(Object.entries(c).map(([k, v]) => [k, ownRecurrence(v)]))))"
     out, status = Open3.capture2("node", "-e", js)
     assert status.success?, "node failed to evaluate the helpers"
     assert_equal RECURRENCE_CLAIMS.transform_values(&:last), JSON.parse(out)
+    # Every consumer goes through priorFor; no inline copy of the predicate.
     assert_includes workflow, "const prior = priorFor(t)"
-    refute_includes workflow, "priorThreads.filter((p) => p.path === t.path)\n"
+    assert_includes workflow, "priorFor(byId.get(t.threadId))"
+    assert_equal 1, workflow.scan("p.reviewer === t.reviewer").size, "recurrence predicate copied outside returnedTo"
+  end
+
+  # The JS copy and the Ruby original agree on every fixture, so a field added
+  # to one and not the other fails here instead of in review.
+  def test_returned_to_matches_thread_history
+    skip "node not installed" unless system("node", "--version", out: File::NULL)
+    js = "#{recurrence_helpers.first}\nconst open = #{JSON.generate(OPEN)}\n" \
+         "console.log(JSON.stringify(#{JSON.generate(PRIOR)}.map((p) => returnedTo(open, p))))"
+    out, status = Open3.capture2("node", "-e", js)
+    assert status.success?, "node failed to evaluate returnedTo"
+    history = ThreadHistory.allocate
+    ruby = PRIOR.map do |p|
+      history.send(:returned_to?, JSON.parse(JSON.generate(OPEN)), JSON.parse(JSON.generate(p)))
+    end
+    assert_equal ruby, JSON.parse(out)
   end
 
   def test_replying_states_the_reply_contracts

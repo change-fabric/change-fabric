@@ -114,11 +114,13 @@ const prTitle = scope.prTitle
 const prBody = scope.prBody
 
 // A prior fixed thread bears on an open one only when the same reviewer
-// opened both on the same path, the rule thread_history.rb applies to
-// recurrence.threadIds. Another reviewer's fix on that path is not this
-// reviewer returning, so it is neither shown to Evaluate nor accepted as a
-// recurrenceOf claim.
-const priorFor = (t) => priorThreads.filter((p) => p.path === t.path && p.reviewer === t.reviewer)
+// returned to the same path: a different reviewed commit and a later
+// openedAt. This is the one JS copy of thread_history.rb#returned_to?, and
+// resolve_threads_workflow_test.rb runs both against the same fixtures so
+// they cannot drift. A missing field never matches.
+const returnedTo = (t, p) => ["path", "reviewer", "reviewedCommit", "openedAt"].every((k) => t[k] && p[k]) &&
+  p.path === t.path && p.reviewer === t.reviewer && p.reviewedCommit !== t.reviewedCommit && t.openedAt > p.openedAt
+const priorFor = (t) => priorThreads.filter((p) => returnedTo(t, p))
 const ownRecurrence = (v) => (v.recurrenceOf ?? []).filter((id) => priorFor(v).some((p) => p.threadId === id))
 
 function threadContext(t) {
