@@ -159,15 +159,18 @@ module ColorCheck
   def compute_contrast(token_file)
     text = safe_read(token_file) || ''
     results = []
-    base_decls = nil
-
+    # Accumulate every block per theme first, so declarations split across
+    # repeated :root rules are combined and only final states are evaluated.
+    by_theme = {}
     text.scan(THEME_BLOCK) do |(body)|
-      theme_label = theme_label_for(text, body)
-      own = {}
+      own = (by_theme[theme_label_for(text, body)] ||= {})
       body.scan(TOKEN_DECL) { |name, value| own[name] = value.strip }
-      # Theme blocks inherit the base :root declarations, then override.
-      decls = base_decls ? base_decls.merge(own) : own
-      base_decls ||= own if theme_label == 'light'
+    end
+
+    base = by_theme['light'] || {}
+    by_theme.each do |theme_label, own|
+      # Dark inherits the light :root declarations, then overrides.
+      decls = theme_label == 'light' ? own : base.merge(own)
 
       bg_name = BG_EXACT.find { |n| decls.key?(n) } || decls.keys.find { |n| n.match?(BG_NAME) }
       bg_color = bg_name && resolve_color(decls[bg_name], decls, bg_color: '#ffffff')

@@ -252,6 +252,21 @@ class ColorCheckTest < Minitest::Test
     end
   end
 
+  def test_contrast_accumulates_split_root_rules
+    with_dir do |dir|
+      write(dir, "tokens.css", <<~CSS)
+        :root { --cream: #ffffff; --plum: #000000; }
+        :root { --bg: var(--cream); }
+        :root { --text: var(--plum); }
+      CSS
+      report = ColorCheck.run(dir)
+      pairs = report.contrast.select { |c| c.text_token == "--text" }
+      assert_equal 1, pairs.size
+      assert pairs.first.resolved
+      assert_in_delta 21.0, pairs.first.ratio, 0.01
+    end
+  end
+
   def test_contrast_unresolvable_pair_listed_as_unresolved
     with_dir do |dir|
       write(dir, "tokens.css", <<~CSS)
