@@ -77,7 +77,7 @@ class RenderRoundReviewTest < Minitest::Test
     "read /tmp/review/goal.md", "read /var/folders/ab/T/x", "read /private/tmp/x/y",
     "read /opt/build/repo/plan.md", "read `/srv/app/plan.md`", "read (/mnt/c/x)", "read \"/data/x/y\"",
     "cd /repo", "cd /workspace", "cd /tmp", "cd /tmp.", "cd `/repo`", "cd /", "run /cf:plan in /repo",
-    "edit scripts\\x.rb", "See [plan](/workspace/x.md)", "see </tmp>", "set path=/repo", "open (C:/x)",
+    "edit scripts\\x.rb", "See [plan](/workspace/x.md)", "see </tmp>", "set path=/repo", "open (C:/x)", "see */tmp*", "see _/repo_", "a | /workspace | b", "use {/tmp}",
     "read \"~/x\"", "see [a](~/x)", "see <C:\\x>", "use key=$HOME/x", "a,/tmp/x", "a;/repo", "'/srv/x'"
   ].freeze
 

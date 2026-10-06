@@ -20,7 +20,7 @@ class RenderRoundReview
                  'with its author; the remaining lower-tier findings are held for it.'
   # An allowlist, not a denylist of local shapes: each whitespace token is
   # split on markup delimiters (Markdown link brackets, angle brackets,
-  # quotes, backticks, key=value, commas, semicolons) so a path embedded in
+  # quotes, backticks, emphasis, tables, key=value, commas, semicolons) so a path embedded in
   # markup is judged on its own, and every component that names a path
   # (holds a slash or backslash, or starts with ~ or $) must be an http(s)
   # URL, a namespaced slash command (/cf:plan), or a repo-relative path.
@@ -30,7 +30,7 @@ class RenderRoundReview
   URL = %r{\Ahttps?://[^\s/]+(?:/\S*)?\z}
   SLASH_COMMAND = /\A\/[a-z][\w-]*:[\w-]+\z/
   RELATIVE_PATH = %r{\A(?![/~$]|[A-Za-z]:)(?!.*(?:\\|//|://|\$\{?HOME|(?:\A|/)\.claude/))\S+\z}
-  COMPONENT_SPLIT = /[\[\]()<>"'`=,;]+/
+  COMPONENT_SPLIT = /[\[\](){}<>"'`=,;*_|]+/
   TOKEN_WRAP = /\A[`"'(\[<{]+|[`"')\]>},.;:!?]+\z/
   FOLDED_LEAD = 'Also found this round: '
 
