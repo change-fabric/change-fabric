@@ -11,7 +11,8 @@ require 'find'
 # fast. Exits 0 by default; --strict is the only way to get a non-zero exit,
 # so the checker can be run freely without blocking anything.
 module ColorCheck
-  LITERAL = /#\h{3,8}\b|\b(?:rgba?|hsla?|oklch|oklab|lab|lch)\(/.freeze
+  COLOR_FN = /\b(?:rgba?|hsla?|oklch|oklab|lab|lch)\(/.freeze
+  LITERAL = /#\h{3,8}\b|#{COLOR_FN}/.freeze
   TAILWIND = /\b(?:bg|text|border|ring|from|to|via|fill|stroke|outline|divide|shadow)-(?:slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-\d{2,3}\b/.freeze
   GRADIENT = /\b(?:linear|radial|conic|repeating-linear|repeating-radial)-gradient\(/.freeze
   SKIP_DIRS = %w[node_modules dist build vendor .git coverage .next out].freeze
@@ -96,7 +97,7 @@ module ColorCheck
 
   def color_like?(value)
     v = value.strip
-    v.match?(HEX) || v.match?(/\b(?:rgba?|hsla?|oklch|oklab|lab|lch)\(/) || v.start_with?('color-mix(') || v.match?(/^var\(--[\w-]+\)$/)
+    v.match?(HEX) || v.match?(COLOR_FN) || v.start_with?('color-mix(') || v.match?(/^var\(--[\w-]+\)$/)
   end
 
   # Authored = literal color value. Derived = color-mix(, var() reference, or
@@ -116,7 +117,7 @@ module ColorCheck
         next
       end
 
-      if value.match?(HEX) || value.match?(/\b(?:rgba?|hsla?|oklch|oklab|lab|lch)\(/)
+      if value.match?(HEX) || value.match?(COLOR_FN)
         authored_values[value] ||= []
         authored_values[value] << name unless authored_values[value].include?(name)
       elsif value.start_with?('color-mix(') || value.match?(/^var\(--[\w-]+\)$/)
