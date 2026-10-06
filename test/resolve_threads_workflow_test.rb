@@ -20,7 +20,7 @@ class ResolveThreadsWorkflowTest < Minitest::Test
     "evaluate reads earlier per-instance fixes" => "already fixed per instance",
     "evaluate fixes sibling instances" => "fix every instance of the class you found",
     "regression test covers the class" => "enumerate the class's variants",
-    "root cause only on recurrence" => "recurrence.fired ? (recurrence.paths",
+    "root cause only on recurrence" => "recurrence.fired ? (recurrence.threadIds",
     "root cause sizes the fix" => '[ "in_run", "plan" ]',
     "cluster lands as one commit" => "Create exactly one commit for the whole cluster",
     "plan clusters seed cf:plan" => "seededGoal",

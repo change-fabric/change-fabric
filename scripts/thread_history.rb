@@ -25,6 +25,7 @@ class ThreadHistory
   FIXED = /\AFixed in ([0-9a-f]{7,40})\b/
   DEFERRED = /\ADeferred to plan ([a-z0-9][a-z0-9-]*)\./
   FINDING_HEADER = /\A\*\*(#{RenderFindingComment::BADGES.values.join('|')}) P[123] - /
+  FINDING_TITLE = /#{FINDING_HEADER}(.+?)\*\*\s*\z/
   CONSOLIDATED_HEADER = /\A#{Regexp.escape(RenderRoundReview::HEADER_PREFIX)}/
   TITLE_CAP = 120
   IMAGE_LINK = /!\[[^\]]*\]\([^)]*\)/
@@ -46,6 +47,7 @@ class ThreadHistory
             pageInfo { hasNextPage endCursor }
             nodes {
               id
+              databaseId
               author { login }
               commit { oid }
               submittedAt
@@ -140,6 +142,16 @@ class ThreadHistory
     @threads = @pr.dig('reviewThreads', 'nodes') || []
   end
 
+  # The whole identity of each GitHub entity this history emits. Every
+  # review entry carries REVIEW_IDENTITY and every thread entry (open,
+  # deferred or prior) carries THREAD_IDENTITY, built in one place each, so
+  # no consumer improvises a key from whichever field happens to be present.
+  # Node ids (`id`, `threadId`, `reviewId`) are GraphQL ids for GraphQL
+  # matches and mutations; database ids (`databaseId`, `commentId`) are the
+  # integers a REST route takes. `commentId` is the thread opener's.
+  REVIEW_IDENTITY = %w[id databaseId reviewer commit submittedAt].freeze
+  THREAD_IDENTITY = %w[threadId commentId path reviewer reviewId reviewedCommit openedAt].freeze
+
   def to_h
     {
       'viewer' => @viewer,
@@ -198,23 +210,42 @@ class ThreadHistory
     @open_entries ||= open_threads.map { |t| thread_entry(t) }
   end
 
-  # commentId is the opener's databaseId: the REST replies endpoint
-  # (pulls/<n>/comments/<id>/replies) accepts only a top-level review
-  # comment, never a reply, so a later comment's id would make every reply
-  # fail on a thread that already has one.
-  def thread_entry(thread)
+  # A thread's identity is its opening comment's: commentId is the opener's
+  # databaseId because the REST replies endpoint
+  # (pulls/<n>/comments/<commentId>/replies) accepts only a top-level review
+  # comment, never a reply; reviewer, reviewId, reviewedCommit and openedAt
+  # say who opened it, in which review, on which commit, and when.
+  def thread_identity(thread)
     first = comments(thread).first
+    review = first&.dig('pullRequestReview')
     {
       'threadId' => thread['id'],
+      'commentId' => first&.dig('databaseId'),
       'path' => thread['path'],
+      'reviewer' => login(first),
+      'reviewId' => review&.dig('id'),
+      'reviewedCommit' => review&.dig('commit', 'oid'),
+      'openedAt' => first&.dig('createdAt')
+    }
+  end
+
+  def review_identity(review)
+    {
+      'id' => review['id'],
+      'databaseId' => review['databaseId'],
+      'reviewer' => login(review),
+      'commit' => review.dig('commit', 'oid'),
+      'submittedAt' => review['submittedAt']
+    }
+  end
+
+  def thread_entry(thread)
+    thread_identity(thread).merge(
       'line' => thread['line'] || thread['originalLine'],
       'isOutdated' => thread['isOutdated'] == true,
-      'commentId' => first&.dig('databaseId'),
-      'title' => title(first),
-      'reviewer' => login(first),
-      'reviewedCommit' => first&.dig('pullRequestReview', 'commit', 'oid'),
+      'title' => title(comments(thread).first),
       'comments' => comments(thread).map { |c| { 'author' => login(c), 'body' => c['body'] } }
-    }
+    )
   end
 
   # The first non-empty line of the opening comment, with badge images,
@@ -228,16 +259,14 @@ class ThreadHistory
   def deferred
     unresolved.filter_map do |t|
       slug = deferred_slug(t) or next
-      { 'threadId' => t['id'], 'path' => t['path'], 'title' => title(comments(t).first), 'slug' => slug }
+      thread_identity(t).merge('title' => title(comments(t).first), 'slug' => slug)
     end
   end
 
   def prior_threads
     @prior_threads ||= @threads.select { |t| t['isResolved'] }.filter_map do |t|
       fix = comments(t).select { |c| viewer?(c) }.filter_map { |c| c['body'].to_s.match(FIXED) }.last or next
-      first = comments(t).first
-      { 'threadId' => t['id'], 'path' => t['path'], 'title' => title(first), 'reviewer' => login(first),
-        'fixSha' => fix[1] }
+      thread_identity(t).merge('title' => title(comments(t).first), 'fixSha' => fix[1])
     end
   end
 
@@ -247,17 +276,31 @@ class ThreadHistory
                         .transform_values { |rs| rs.filter_map { |r| r.dig('commit', 'oid') }.uniq.size }
   end
 
+  # An open thread recurs when its reviewer has run ROUND_THRESHOLD rounds
+  # and came back to a thread of theirs we already fixed. threadIds is the
+  # key a consumer selects recurring threads by; paths and reviewers are
+  # summaries, never a selector, since another reviewer's thread can share
+  # a recurrent path.
   def recurrence
-    prior_paths = prior_threads.map { |p| p['path'] }
     hits = open_entries.select do |t|
-      rounds.fetch(t['reviewer'], 0) >= ROUND_THRESHOLD && prior_paths.include?(t['path'])
+      rounds.fetch(t['reviewer'], 0) >= ROUND_THRESHOLD && prior_threads.any? { |p| returned_to?(t, p) }
     end
     {
       'fired' => hits.any?,
       'threshold' => ROUND_THRESHOLD,
+      'threadIds' => hits.map { |t| t['threadId'] },
       'paths' => hits.map { |t| t['path'] }.uniq.sort,
       'reviewers' => hits.map { |t| t['reviewer'] }.uniq.sort
     }
+  end
+
+  # Matched on the two threads' identities: same path, same reviewer, a
+  # later reviewed commit, opened after the prior thread. A missing identity
+  # field never matches.
+  def returned_to?(open, prior)
+    %w[path reviewer reviewedCommit openedAt].all? { |k| open[k] && prior[k] } &&
+      open['path'] == prior['path'] && open['reviewer'] == prior['reviewer'] &&
+      open['reviewedCommit'] != prior['reviewedCommit'] && open['openedAt'] > prior['openedAt']
   end
 
   def review_round
@@ -273,9 +316,17 @@ class ThreadHistory
     }
   end
 
+  # titles are the round's finding titles, read from the comments this
+  # query already fetched, so a consumer needs no REST call for them.
   def prior_reviews
     @reviews.select { |r| viewer?(r) && review_comments(r).any? { |c| c['body'].to_s.match?(FINDING_HEADER) } }
-            .map { |r| { 'id' => r['id'], 'commit' => r.dig('commit', 'oid') } }
+            .map { |r| review_identity(r).merge('titles' => finding_titles(r)) }
+  end
+
+  def finding_titles(review)
+    review_comments(review).filter_map do |c|
+      c['body'].to_s.lines.first.to_s.strip.match(FINDING_TITLE)&.[](2)&.strip
+    end
   end
 
   def review_comments(review)
@@ -286,7 +337,7 @@ class ThreadHistory
     return false if prior.empty?
 
     ids = prior.map { |r| r['id'] }
-    @threads.select { |t| ids.include?(comments(t).first&.dig('pullRequestReview', 'id')) }
+    @threads.select { |t| ids.include?(thread_identity(t)['reviewId']) }
             .all? { |t| t['isResolved'] || t['isOutdated'] }
   end
 

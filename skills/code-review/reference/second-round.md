@@ -22,10 +22,12 @@ no findings posts nothing and reports that.
    naming the prior review commit.
 3. **Plan.** Under away mode, skip to "Away" below. Otherwise invoke the
    `cf:plan` skill with the Skill tool, args: a seeded goal plus
-   `--area <repo basename>`. `reviewRound.priorReviews` only carries
-   `{id, commit}`, not titles: read the first round's finding titles from
-   that prior review's own comments (the `**<badge> P<n> - <title>**`
-   header line) via `gh api repos/<owner>/<repo>/pulls/<n>/reviews/<id>/comments`.
+   `--area <repo basename>`. Each `reviewRound.priorReviews` entry
+   carries `{id, databaseId, reviewer, commit, submittedAt, titles}`:
+   take the first round's finding titles from `titles`, with no further
+   API call. `id` is the GraphQL node id; a REST route under
+   `pulls/<n>/reviews/<review_id>` takes the integer `databaseId`, never
+   `id`.
    The seeded goal is plain prose:
    "Second-round review of PR #<n> (<title>) in <owner>/<repo>. The first
    round's findings (<titles>) were addressed, and this round found

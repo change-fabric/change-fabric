@@ -41,15 +41,18 @@ run reports that it assumed the default.
 1. **Resolve the PR and its history.** `gh pr view <n> --json
    number,title,body,headRefName,url` for the PR itself. Then run
    `ruby ~/.claude/cf/bin/thread_history.rb <owner>/<repo>#<n>` and keep its
-   stdout: `threads` (unresolved, with `threadId`, `commentId` (the
-   opening comment's id, the reply target), `path`,
-   `line`, `title`, `comments`), `deferred` (threads already handed to a
+   stdout: `threads` (unresolved), `deferred` (threads already handed to a
    plan, skipped until a reviewer comments again), `priorThreads` (earlier
    threads we fixed, with their `Fixed in` sha), `rounds`, and
-   `recurrence`. GitHub is the source of truth for history; do not keep a
-   local count. The script follows every page; `truncated` is true only
-   when some history is still unread (past its page cap, or a thread or
-   review with more than 100 comments). Then the thread list and the
+   `recurrence`. Every thread entry carries the same identity:
+   `threadId` (GraphQL node id, for the resolve mutation), `commentId` (the
+   opening comment's integer id, the REST reply target), `path`,
+   `reviewer`, `reviewId`, `reviewedCommit` and `openedAt`; open threads
+   add `line`, `title` and `comments`. Select recurring threads by
+   `recurrence.threadIds`, never by path. GitHub is the source of truth
+   for history; do not keep a local count. The script follows every page;
+   `truncated` is true only when some history is still unread (past its
+   page cap, or a thread or review with more than 100 comments). Then the thread list and the
    recurrence are not the whole story: report `truncated` and stop without
    replying or resolving. If `threads` is empty, report that (and any
    `deferred`) and stop.

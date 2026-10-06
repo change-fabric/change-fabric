@@ -37,9 +37,16 @@ class ThreadHistoryTest < Minitest::Test
 
   # -- fixture helpers, in the GraphQL `data` shape --------------------------
 
-  def review(login, oid, comments: [], body: "", id: "PRR_#{login}_#{oid}")
-    { "id" => id, "author" => { "login" => login }, "commit" => { "oid" => oid },
-      "submittedAt" => "2026-10-01T00:00:00Z", "body" => body,
+  # When each fixture commit was reviewed, in PR order, so a comment's
+  # createdAt and a review's submittedAt follow the commit they were made on.
+  REVIEWED_AT = { "567bce1" => "2026-10-01", "bc6a1ef" => "2026-10-01", "e24f742" => "2026-10-02",
+                  "c921dc8" => "2026-10-02", "a58def4" => "2026-10-03", "e068235" => "2026-10-04" }.freeze
+
+  def at(oid) = "#{REVIEWED_AT.fetch(oid, '2026-10-01')}T00:00:00Z"
+
+  def review(login, oid, comments: [], body: "", id: "PRR_#{login}_#{oid}", db: @db += 1)
+    { "id" => id, "databaseId" => db, "author" => { "login" => login }, "commit" => { "oid" => oid },
+      "submittedAt" => at(oid), "body" => body,
       "comments" => { "nodes" => comments.map { |b| { "body" => b, "path" => COLOR } } } }
   end
 
@@ -50,7 +57,7 @@ class ThreadHistoryTest < Minitest::Test
 
   def comment(login, body, review_id:, oid:, db: @db += 1)
     { "id" => "PRRC_#{db}", "databaseId" => db, "author" => { "login" => login }, "body" => body,
-      "createdAt" => "2026-10-01T00:00:00Z",
+      "createdAt" => at(oid),
       "pullRequestReview" => { "id" => review_id, "commit" => { "oid" => oid } } }
   end
 
@@ -125,6 +132,46 @@ class ThreadHistoryTest < Minitest::Test
     assert_equal ROUND2.map(&:first), h["threads"].map { |t| t["threadId"] }
     assert_equal %w[4a0c408 a55862c 9345400 e24f742], h["priorThreads"].map { |p| p["fixSha"] }
     assert_equal [ CODEX ], h["priorThreads"].map { |p| p["reviewer"] }.uniq
+  end
+
+  # -- 2b. recurrence is the same reviewer returning ----------------------------
+
+  # One fixed thread and one open thread, varied along every identity field
+  # recurrence must match on: path, reviewer, reviewed commit and order.
+  # Only the same reviewer, back on a later commit to the same path, fires.
+  def recurrence_case(prior_by: CODEX, prior_oid: "567bce1", prior_path: COLOR, open_by: CODEX, open_oid: "e24f742")
+    prior = thread(id: "PRRT_prior", path: prior_path, resolved: true, line: 10,
+                   comments: [ comment(prior_by, "#{P2_BADGE}Prior**", review_id: "PRR_#{prior_by}_#{prior_oid}", oid: prior_oid),
+                               comment(VIEWER, "Fixed in abc1234. Done.", review_id: "PRR_v", oid: prior_oid) ])
+    open = thread(id: "PRRT_open", path: COLOR, resolved: false, line: 20,
+                  comments: [ comment(open_by, "#{P2_BADGE}Open**", review_id: "PRR_#{open_by}_#{open_oid}", oid: open_oid) ])
+    reviews = %w[567bce1 e24f742].flat_map { |oid| [ review(CODEX, oid), review("other-bot", oid) ] }
+    history(reviews: reviews, threads: [ prior, open ], head: "e24f742")["recurrence"]
+  end
+
+  def test_recurrence_requires_the_same_reviewer_on_a_later_commit
+    variants = {
+      "same reviewer, later commit, same path" => [ {}, true ],
+      "different reviewer fixed the prior thread" => [ { prior_by: "other-bot" }, false ],
+      "open thread is another reviewer's" => [ { open_by: "other-bot" }, false ],
+      "prior fix on a different path" => [ { prior_path: "scripts/other.rb" }, false ],
+      "same reviewed commit as the prior thread" => [ { open_oid: "567bce1" }, false ],
+      "open thread predates the prior thread" => [ { prior_oid: "e24f742", open_oid: "567bce1" }, false ]
+    }
+    variants.each do |name, (kwargs, fires)|
+      r = recurrence_case(**kwargs)
+      assert_equal fires, r["fired"], name
+      assert_equal(fires ? [ "PRRT_open" ] : [], r["threadIds"], name)
+    end
+  end
+
+  def test_recurrence_lists_only_the_returning_reviewers_threads
+    other = thread(id: "PRRT_other", path: COLOR, resolved: false, line: 30,
+                   comments: [ comment("other-bot", "x", review_id: "PRR_other-bot_e24f742", oid: "e24f742") ])
+    reviews = round2_reviews + [ review("other-bot", "567bce1"), review("other-bot", "e24f742") ]
+    h = history(reviews: reviews, head: "e24f742", threads: round1_threads(fixed: true) + round2_threads + [ other ])
+    assert_equal ROUND2.map(&:first), h["recurrence"]["threadIds"]
+    assert_equal [ CODEX ], h["recurrence"]["reviewers"]
   end
 
   # -- 3. different path ------------------------------------------------------
@@ -206,7 +253,8 @@ class ThreadHistoryTest < Minitest::Test
     assert_empty h["threads"]
     assert_equal [ { "threadId" => "PRRT_pdXZT", "path" => COLOR,
                      "title" => "Keep base declarations separate from light overrides",
-                     "slug" => "pr-237-css-declaration-parsing" } ], h["deferred"]
+                     "slug" => "pr-237-css-declaration-parsing" } ],
+                 h["deferred"].map { |d| d.slice("threadId", "path", "title", "slug") }
   end
 
   def test_reviewer_comment_after_the_deferral_reopens_the_thread
@@ -282,7 +330,7 @@ class ThreadHistoryTest < Minitest::Test
   # -- 11. reviewRound ----------------------------------------------------------
 
   def code_review_round(head:, resolved: true, outdated: false, header: "**🟠 P2 - Missing row**")
-    reviews = [ review(VIEWER, "aaaaaaa", id: "PRR_cr", comments: [ header ]) ]
+    reviews = [ review(VIEWER, "aaaaaaa", id: "PRR_cr", db: 3_310_000_001, comments: [ header ]) ]
     t = thread(id: "PRRT_cr", path: COLOR, resolved: resolved, outdated: outdated, line: 10,
                comments: [ comment(VIEWER, header, review_id: "PRR_cr", oid: "aaaaaaa") ])
     history(reviews: reviews, threads: [ t ], head: head)["reviewRound"]
@@ -290,7 +338,8 @@ class ThreadHistoryTest < Minitest::Test
 
   def test_second_round_when_head_moved_and_prior_thread_resolved
     r = code_review_round(head: "bbbbbbb")
-    assert_equal [ { "id" => "PRR_cr", "commit" => "aaaaaaa" } ], r["priorReviews"]
+    assert_equal [ { "id" => "PRR_cr", "databaseId" => 3_310_000_001, "reviewer" => VIEWER, "commit" => "aaaaaaa",
+                     "submittedAt" => at("aaaaaaa"), "titles" => [ "Missing row" ] } ], r["priorReviews"]
     assert r["headMoved"]
     assert r["priorThreadsSettled"]
     assert r["secondRound"]
@@ -327,6 +376,60 @@ class ThreadHistoryTest < Minitest::Test
     r = history(reviews: reviews, threads: [], head: "bbbbbbb")["reviewRound"]
     assert r["priorThreadsSettled"]
     assert r["secondRound"]
+  end
+
+  # Titles come from the round's own finding headers, every tier, so the
+  # second round never needs a REST call to read them.
+  def test_prior_review_titles_cover_every_tier_and_skip_non_findings
+    comments = [ "**🔴 P1 - Crash on nil**\n\nScenario.", "**🟠 P2 - Missing row**",
+                 "**🟢 P3 - Rename helper**  \nMore.", "Fixed in 4a0c408. Not a finding.",
+                 "**Root cause review - Not a finding header**" ]
+    reviews = [ review(VIEWER, "aaaaaaa", id: "PRR_t", comments: comments) ]
+    prior = history(reviews: reviews, threads: [], head: "bbbbbbb")["reviewRound"]["priorReviews"].first
+    assert_equal [ "Crash on nil", "Missing row", "Rename helper" ], prior["titles"]
+  end
+
+  # -- 11b. entity identity contract --------------------------------------------
+
+  # Every entity kind the history emits, with the identity it must carry.
+  # A consumer keys on these fields, so none may be dropped from any kind:
+  # node ids feed GraphQL, database ids feed REST, and reviewer, commit and
+  # time say whose entity it is and when.
+  def identity_history
+    reviews = [ review(VIEWER, "aaaaaaa", id: "PRR_cr", comments: [ "**🔴 P1 - Crash**" ]), *round2_reviews ]
+    history(reviews: reviews, head: "e068235",
+            threads: round1_threads(fixed: true) + round2_threads + [ deferred_thread ])
+  end
+
+  ENTITY_KINDS = {
+    "threads" => [ ->(h) { h["threads"] }, ThreadHistory::THREAD_IDENTITY, %w[threadId reviewId], %w[commentId] ],
+    "deferred" => [ ->(h) { h["deferred"] }, ThreadHistory::THREAD_IDENTITY, %w[threadId reviewId], %w[commentId] ],
+    "priorThreads" => [ ->(h) { h["priorThreads"] }, ThreadHistory::THREAD_IDENTITY, %w[threadId reviewId], %w[commentId] ],
+    "reviewRound.priorReviews" => [ ->(h) { h["reviewRound"]["priorReviews"] }, ThreadHistory::REVIEW_IDENTITY, %w[id], %w[databaseId] ]
+  }.freeze
+
+  def test_every_entity_kind_carries_its_whole_identity
+    h = identity_history
+    ENTITY_KINDS.each do |kind, (pick, keys, node_ids, db_ids)|
+      entries = pick.call(h)
+      refute_empty entries, kind
+      entries.each do |e|
+        keys.each { |k| refute_nil e[k], "#{kind} #{e['threadId'] || e['id']} dropped #{k}" }
+        node_ids.each { |k| assert_kind_of String, e[k], "#{kind}.#{k} is a node id" }
+        db_ids.each { |k| assert_kind_of Integer, e[k], "#{kind}.#{k} is a REST database id" }
+      end
+    end
+  end
+
+  # Each identity field is selected by the query on the node it comes from.
+  def test_query_selects_every_identity_source_field
+    review_nodes = ThreadHistory::QUERY[/reviews\(first: 100.*?nodes \{(.*?)comments/m, 1]
+    %w[id databaseId author commit submittedAt].each { |f| assert_match(/^\s*#{f}\b/, review_nodes, "review #{f}") }
+    thread_comments = ThreadHistory::QUERY[/reviewThreads.*?comments\(first: 100\).*?nodes \{(.*?pullRequestReview[^\n]*)/m, 1]
+    %w[id databaseId author createdAt pullRequestReview].each do |f|
+      assert_match(/^\s*#{f}\b/, thread_comments, "thread comment #{f}")
+    end
+    assert_match(/pullRequestReview \{ id commit \{ oid \} \}/, thread_comments)
   end
 
   # -- 12. consolidatedAtHead ---------------------------------------------------

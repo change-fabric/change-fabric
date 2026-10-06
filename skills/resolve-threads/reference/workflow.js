@@ -106,7 +106,7 @@ const scope = typeof args === "string" ? JSON.parse(args) : args
 
 const threads = scope.threads
 const priorThreads = scope.priorThreads ?? []
-const recurrence = scope.recurrence ?? { fired: false, paths: [] }
+const recurrence = scope.recurrence ?? { fired: false, threadIds: [], paths: [] }
 const repoPath = scope.repoPath
 const headSha = scope.headSha
 const prNumber = scope.prNumber
@@ -178,9 +178,11 @@ const verdicts = await parallel(threads.map((t) => () =>
 ))
 
 phase("Root cause")
-const recurrentPaths = new Set(recurrence.fired ? (recurrence.paths ?? []) : [])
+// Keyed by thread identity, never by path: another reviewer's thread on a
+// recurrent path is not that reviewer returning, so it keeps its own verdict.
+const recurrentIds = new Set(recurrence.fired ? (recurrence.threadIds ?? []) : [])
 const candidates = verdicts.filter((v) => v.action !== "wont_fix" &&
-  (recurrentPaths.has(v.path) || (v.recurrenceOf ?? []).length > 0))
+  (recurrentIds.has(v.threadId) || (v.recurrenceOf ?? []).length > 0))
 const byId = new Map(verdicts.map((v) => [ v.threadId, v ]))
 let clusters = []
 if (candidates.length > 0) {

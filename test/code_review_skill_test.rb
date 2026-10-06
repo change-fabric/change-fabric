@@ -75,6 +75,28 @@ class CodeReviewSkillTest < Minitest::Test
       "--raw-field event=COMMENT" ].each { |variant| assert_match flag, variant }
   end
 
+  # A GitHub REST route under pulls/<n>/reviews/<x> or pulls/<n>/comments/<x>
+  # takes an integer database id; thread_history.rb's `id`, `threadId` and
+  # `reviewId` are GraphQL node ids, which those routes reject. Every
+  # placeholder a doc hands such a route must name a database id field.
+  REST_ID_ROUTE = %r{pulls/<n>/(?:reviews|comments)/\s*<([^>]+)>}
+  REST_ID_OK = %w[databaseId review_id commentId].freeze
+
+  def test_rest_review_routes_take_a_database_id_never_a_node_id
+    docs = Dir.glob(File.expand_path("../skills/{code-review,resolve-threads,drive}/**/*.md", __dir__))
+    docs.each do |path|
+      File.read(path).scan(REST_ID_ROUTE).flatten.each do |placeholder|
+        assert_includes REST_ID_OK, placeholder, "#{path}: REST route fed <#{placeholder}>"
+      end
+    end
+    assert_includes second_round, "databaseId"
+    { "pulls/<n>/reviews/<id>/comments" => "id", "pulls/<n>/reviews/<threadId>" => "threadId",
+      "pulls/<n>/comments/\n   <reviewId>/replies" => "reviewId",
+      "pulls/<n>/reviews/<review_id>/comments" => "review_id" }.each do |route, expected|
+      assert_equal expected, route[REST_ID_ROUTE, 1], route
+    end
+  end
+
   def test_reference_prose_is_free_of_slop_glyphs
     Dir.glob(File.join(SKILL, "**", "*.md")).each do |path|
       refute_match PlanCheck::GLYPHS, File.read(path), path
