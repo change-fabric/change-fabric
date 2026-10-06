@@ -192,6 +192,22 @@ class ColorCssTest < Minitest::Test
     assert_equal "bg-red-500", stmt.prelude
   end
 
+  def test_blockless_at_rule_without_semicolon_before_closing_brace
+    sheet = ColorCss.parse(".a { @apply text-red-500 }")
+    stmt = sheet.at_rule_stmts.first
+    refute_nil stmt
+    assert_equal "@apply", stmt.name
+    assert_equal "text-red-500", stmt.prelude
+  end
+
+  def test_blockless_at_rule_without_semicolon_at_eof
+    sheet = ColorCss.parse("@apply text-red-500")
+    stmt = sheet.at_rule_stmts.first
+    refute_nil stmt
+    assert_equal "@apply", stmt.name
+    assert_equal "text-red-500", stmt.prelude
+  end
+
   def test_blockless_at_rule_records_enclosing_at_rules
     sheet = ColorCss.parse("@media (min-width: 40em) { @import \"foo.css\"; }")
     stmt = sheet.at_rule_stmts.first

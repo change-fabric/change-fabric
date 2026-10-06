@@ -253,7 +253,7 @@ module ColorCss
         open_block
         start_new_segment
       when '}'
-        flush_segment_as_decl
+        flush_segment_as_decl_or_at_rule
         close_block
         start_new_segment
       end
@@ -269,13 +269,6 @@ module ColorCss
       return if body.strip.empty?
 
       emit_declaration(body) || emit_at_rule_stmt(body)
-    end
-
-    def flush_segment_as_decl
-      body = @segment
-      return if body.strip.empty?
-
-      emit_declaration(body)
     end
 
     def open_block
@@ -369,8 +362,7 @@ module ColorCss
     end
 
     def flush_at_eof
-      body = @segment
-      emit_declaration(body) unless body.strip.empty?
+      flush_segment_as_decl_or_at_rule
       @errors << "unexpected end of input with #{@frames.size} open block(s)" if @frames.any?
     end
 
