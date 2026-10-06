@@ -166,11 +166,21 @@ of trunk after the last merge of a tick.
    protected chain, and trunk, per Scope above. `git fetch origin` so
    behind-trunk counts and trial-merge checks are against the real trunk
    [SW-3].
-1. **(SKILL.md)** List open PRs:
-   `gh pr list --state open --limit 100 --json number,title,url,author,headRefName,baseRefName,headRefOid,isDraft,mergeable,mergeStateStatus,updatedAt`.
-   Partition into release PRs (dropped), feature PRs (the sweep set), and
-   stacked PRs (constraints only). If the sweep set is empty, report that and
-   stop; do not call the Workflow.
+1. **(SKILL.md)** [SW-6] List open PRs: `gh pr list --state open --limit 101
+   --json number,title,url,author,headRefName,baseRefName,headRefOid,isDraft,mergeable,mergeStateStatus,updatedAt`,
+   one above the 100-PR cap `gh pr list` otherwise silently truncates to, so a
+   full page is detectable instead of looking identical to a complete list.
+   101 results back means the repo has more open PRs than fit in one page and
+   the set in hand is truncated; a truncated set can only ever yield a wrong
+   landing order, since the Workflow would be sequencing against PRs it never
+   saw. Drop mode to `report` regardless of the requested mode, say the cap
+   was hit and by how many (count open PRs with `gh pr list --state open
+   --json number | jq length` do not re-run the fields query a second time),
+   and hold every PR gathered rather than computing any order from the
+   partial set [SW-6]. Fewer than 101 results is the complete list; proceed
+   as normal. Partition into release PRs (dropped), feature PRs (the sweep
+   set), and stacked PRs (constraints only). If the sweep set is empty,
+   report that and stop; do not call the Workflow.
 2. **(SKILL.md)** [SW-1] Trust, per Contributor trust above: run `unknown`, ask only
    about what it returns, `set` each answer, then `show` for the full map.
    Skip only when every in-scope author is the primary contributor; a sole
@@ -254,6 +264,7 @@ depend on it until a human reports it done.
 | SW-3 | Add a PR to `autoMergeQueue` | No conflict, `mergeable: MERGEABLE`, `mergeStateStatus` present and one of CLEAN/HAS_HOOKS/UNSTABLE (missing fails closed), not stacked, infra/migration gated, present in the computed order | Hold |
 | SW-4 | Merge a `low` trust PR | A passing comprehensive `cf:change` run recorded for the head SHA | Hold even with green CI; a missing record never substitutes |
 | SW-5 | Push a fix or rebase commit to another contributor's branch | Allowed unattended (drive performs the push, never sweep itself) | N/A |
+| SW-6 | Run `auto` or `land` mode, or compute any landing order at all | `gh pr list --limit 101` returns fewer than 101 PRs (the full open set fit in one page) | Force `report` mode, hold every gathered PR, and say the cap was hit and by how many |
 
 ## Failure modes
 
@@ -262,6 +273,10 @@ depend on it until a human reports it done.
   applied in the report; do not present the heuristic's scope as authoritative.
 - Empty sweep set (no open feature PRs): report and stop at step 1. Under loop
   mode this is the normal steady state and should be one line, not a report.
+- More open PRs than the 101-PR page fetched in step 1: fail closed [SW-6].
+  A bare sweep (the default `auto`) never silently computes a landing order
+  from a truncated set; it drops to `report` and holds every PR it gathered
+  rather than guessing an order that is missing PRs it never saw.
 - One author only, and that author is the primary contributor: no trust
   question fires [SW-1], and the order is decided on dependency, conflict,
   and risk alone. A sole author who is not the primary contributor still
