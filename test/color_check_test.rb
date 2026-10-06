@@ -303,4 +303,16 @@ class ColorCheckTest < Minitest::Test
       assert_includes ColorCheck.render(report), "no palette found"
     end
   end
+
+  def test_ordinary_rules_in_token_file_still_scanned
+    with_dir do |dir|
+      write(dir, "tokens.css", FOUR_COLOR_TOKENS + ".hero { background: linear-gradient(#fff, #000); color: #123456; }\n")
+      report = ColorCheck.run(dir, strict: true)
+      kinds = report.findings.map(&:kind)
+      assert_includes kinds, "gradient"
+      assert_includes kinds, "literal"
+      assert report.findings.none? { |f| f.text.include?("--cream") }
+      assert_equal 1, report.exit_code
+    end
+  end
 end

@@ -132,12 +132,13 @@ module ColorCheck
   def collect_findings(files, token_file)
     findings = []
     files.each do |file|
-      next if file == token_file
-
       text = safe_read(file)
       next unless text
 
       text.each_line.with_index(1) do |line, lineno|
+        # In the token file, only custom-property declarations are exempt;
+        # ordinary rules there are scanned like any other file.
+        line = line.gsub(TOKEN_DECL, '') if file == token_file
         line.scan(LITERAL).each { findings << Finding.new(file:, line: lineno, kind: 'literal', text: line.strip) }
         line.scan(TAILWIND).each { findings << Finding.new(file:, line: lineno, kind: 'tailwind', text: line.strip) }
         line.scan(GRADIENT).each { findings << Finding.new(file:, line: lineno, kind: 'gradient', text: line.strip) }
