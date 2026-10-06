@@ -52,7 +52,7 @@ reports that it assumed the default.
 
 ## Workflow
 
-1. **Resolve scope to files, a repo, and a head commit.** PR: prefer the `gh`
+1. **Determine scope as files, a repo, and a head commit.** PR: prefer the `gh`
    CLI via Bash as the default method, since no GitHub MCP server is assumed
    to be configured: `gh pr view <n> --json files` for `get_files`, `gh pr
    diff <n>` for `get_diff`, and `gh api repos/<owner>/<repo>/pulls/<n>/
@@ -62,14 +62,14 @@ reports that it assumed the default.
    does, fall back to fetching the PR head locally (`git fetch origin
    pull/<N>/head:pr-<N>`) and diffing locally against the base branch with
    plain `git diff`/`git show`. If the PR's head is not already fetched
-   locally, fetch it the same way so it resolves to a real local commit.
+   locally, fetch it the same way so it points at a real local commit.
    An MCP-style `pull_request_read` tool (`get_diff`/`get_files`/
    `get_comments`/`get_review_comments`) is an acceptable alternative when
    one happens to be configured, but `gh` is the default. Everything else:
    `git diff`, `git show`, or plain reads. Record
    `repoPath` (the local clone's absolute path) and `headSha` (the commit
    whose code is under review, i.e. the PR's head or the branch tip, never
-   the merge-base) alongside the file list; step 2 needs a real commit
+   the common ancestor commit) alongside the file list; step 2 needs a real commit
    worktrees can check out, not a moving branch name.
 
    For PR scope, also run `ruby ~/.claude/cf/bin/thread_history.rb
@@ -120,7 +120,7 @@ reports that it assumed the default.
    report.
 4. **Post.** Before this step, read `reference/posting.md` for the tier
    bars and comment-rendering rules.
-   - PR scope: use the `gh` CLI via Bash by default, submitting the review
+   - [CR-3] PR scope: use the `gh` CLI via Bash by default, submitting the review
      and its comments in one call, e.g. `gh api
      repos/<owner>/<repo>/pulls/<n>/reviews --method POST --input
      review.json`, with a JSON payload carrying `"event": "COMMENT"` and
@@ -140,3 +140,24 @@ reports that it assumed the default.
      commentary on a PR that already exists.
    - Non-PR scope: there is nothing to post to. The curated report to the
      user is the deliverable.
+
+## Unattended gates
+
+| ID | Action | Requires | When unmet |
+|---|---|---|---|
+| CR-1 | Post a review claiming completeness | Every shard complete, or `incomplete` named per shard; not `truncated` | Report-only; any post states which shards are incomplete |
+| CR-2 | Run a consolidated second-round review | cf:plan has already landed for the prior round's root cause | Fall back to the Away path and ask |
+| CR-3 | Post review comments to a PR | None; comment-class, not landing code, so cf merge mode never gates it | N/A, posts in every mode |
+
+## Failure modes
+
+- A shard, or a lens inside a shard, comes back null: the shard is marked
+  `incomplete: true` and reported as such; no post claims a complete pass
+  [CR-1].
+- `truncated` is true (more files than the review covered): report-only,
+  plus the consolidated body; never post an ordinary first round as if it
+  were complete [CR-1].
+- The second round's `cf:plan` never lands: fall back to the Away path
+  instead of posting more inline findings [CR-2].
+- The `Workflow` call errors or returns no `posted` list: say so explicitly
+  and stop; do not silently fall back to hand-applying fixes.

@@ -117,7 +117,7 @@ would-be-approved local state, and since nothing landed, also skips step
 
 ### Workflow
 
-1. **(SKILL.md)** Resolve scope to `files`, `repoPath`, `headSha`. PR: use
+1. **(SKILL.md)** Determine scope as `files`, `repoPath`, `headSha`. PR: use
    PR-reading tools, fetch the head if not local. Else: `git diff`/`git
    show`/plain reads. Also run `ruby ~/.claude/cf/bin/skill_route.rb
    <files>` here in SKILL.md (the sandboxed Workflow script cannot shell
@@ -163,8 +163,8 @@ would-be-approved local state, and since nothing landed, also skips step
    invoke `cf:resolve-threads` again the same way, to catch anything that
    landed on the PR while the loop was iterating. Fold its outcome into
    checkpoint 1 alongside step 2's sweep. A missing, unparseable, or
-   `error: true` block, or a `truncated` block, stops the run as in step 2.
-   If its `plan` is not null, take step 2b.
+   `error: true` block, or a `truncated` block, stops the run as in step 2
+   [DR-1]. If its `plan` is not null, take step 2b.
 8. **(SKILL.md)** Checkpoint 1. One push gate, all of it required
    [DR-1]: `converged` is true, `ciPrediction.green` is true, neither
    sweep (step 2 or 6b) left a `needsHuman` or `conflicts` thread
@@ -184,7 +184,7 @@ would-be-approved local state, and since nothing landed, also skips step
    pushes here, never opens a new PR; the PR already exists by definition
    since this whole flow is PR-scoped from step 1 onward). Push the
    branch.
-9. **(SKILL.md)** Poll GitHub check-runs on the pushed commit until they
+9. **(SKILL.md)** [DR-1][DR-3] Poll GitHub check-runs on the pushed commit until they
    resolve, counting only completed check runs: a repo with CI configured
    but zero completed runs for the SHA is not green, it is still pending.
    Give the poll a 30 minute deadline from the push; if check runs have
@@ -220,62 +220,72 @@ would-be-approved local state, and since nothing landed, also skips step
    stoppedReason, noCi }`, `approved` and `ciGreen` both real-outcome
    booleans (never assumed true), `stoppedReason` null only when the run
    reached a terminal success state.
-12. **(SKILL.md)** Immediately after the approval posts, in both modes,
+12. **(SKILL.md)** [DR-3] Immediately after the approval posts, in both modes,
    unconditionally: try to open the PR URL with the macOS `open` CLI
    (`open <url>`). If `open` is not available (check with `command -v
    open` first), skip silently and note it in the final report; never fail
    the run over this.
+
+### Unattended gates
+
+| ID | Action | Requires | When unmet |
+|---|---|---|---|
+| DR-1 | Push (step 8, and each re-push at step 9) | `converged && ciPrediction.green && needsHuman empty && conflicts empty`, both nested resolve-threads blocks present, parseable, and carrying no `error: true` | No push; stop and report |
+| DR-2 | Push at the step-2b recurrence stop | Never; commits stay local | No push, regardless of merge mode |
+| DR-3 | Approve | Real CI green on the pushed `headSha`, the PR is not the session's own, `commit_id` set to that `headSha` | Skip the approval and report it; never treat an attempted call as an approval |
+| DR-4 | Emit the `drive-result` block when nested | Always, with real-outcome `approved`/`ciGreen` (never assumed true) | N/A, always emitted |
+| DR-5 | Push a rebase commit to another contributor's branch (`rebase_then_merge`) | Allowed; drive performs the rebase and the push | N/A |
 
 ### Failure modes
 
 - No PR resolvable (non-PR scope: branch/file-list/semantic description):
   steps 2, 6b, 9's poll, 11, and 12 have no target and are all skipped. The
   run is just the local loop (steps 1, 3-7) plus a final report describing
-  the would-be-approve verdict and the local CI prediction. State this
-  plainly.
+  the verdict it would have reached and the local CI prediction [DR-1][DR-3].
+  State this plainly.
 - Iteration cap reached without `converged` (the loop's would-approve check
-  never passed): stop the loop, do not push or approve, report the still-
-  blocking findings per lane from the last iteration. Under `--signoff`
-  this surfaces as a no-go recommendation at what would have been
-  checkpoint 1; under the default, stop and report without ever reaching
-  checkpoint 1 or pushing.
+  never passed): stop the loop, do not push or approve [DR-1], report the
+  still-blocking findings per lane from the last iteration. Under
+  `--signoff` this surfaces as a no-go recommendation at what would have
+  been checkpoint 1; under the default, stop and report without ever
+  reaching checkpoint 1 or pushing.
 - CI never green after 3 re-push attempts (step 9): stop re-pushing, leave
   the last pushed commit as-is, report the persistent failing jobs and
-  logs, do not proceed to checkpoint 2 or the approval.
+  logs, do not proceed to checkpoint 2 or the approval [DR-1][DR-3].
 - The step-9 poll hits its 30 minute deadline with checks still pending:
   stop, report the pending jobs, do not proceed to checkpoint 2 or the
-  approval; a repo with CI configured but zero completed runs for the SHA
-  is pending, never read as green.
+  approval [DR-1][DR-3]; a repo with CI configured but zero completed runs
+  for the SHA is pending, never read as green.
 - The step-2 or step-6b nested resolve-threads block is missing,
   unparseable, or carries `error: true`: stop, no push, no approval [DR-1].
 - The PR author is the session's own GitHub login: skip the approval and
   report it [DR-3]; this is not a failure, sweep's merge gate reads the
   `drive-result` block's `approved: false` and `stoppedReason` instead of
   waiting on a review that will never post.
-- The approval API call fails: report that the PR was not approved; never
-  report success on the strength of having attempted the call.
+- The approval API call fails: report that the PR was not approved [DR-3];
+  never report success on the strength of having attempted the call.
 - `open` CLI missing: handled inline in step 12 above, never fails the run.
 - Haiku relevance call in the Workflow selects zero of the three gated skills
   (`cf:qa`, `cf:refactor`, `cf:change`): expected and fine for small/docs-only
   changes, and `cf:change` also self-skips in a repo with no `CHANGE.md`.
-  `cf:code-review` and `cf:ai-slop` are floors and the two resolve-threads
-  sweeps are floors; all four still run regardless of the Haiku call's outcome.
+  `cf:code-review` and `cf:ai-slop` are floors and the two thread-sweep calls
+  are floors; all four still run regardless of the Haiku call's outcome.
   Only `cf:qa`, `cf:refactor`, and `cf:change` are ever skipped.
 - User answers "no" at either checkpoint under `--signoff`: do
   not abort destructively, do not auto-revert. Leave all local
   commits/fixes on disk as-is and stop the run, reporting the current
-  state. At checkpoint 1 "no": stop before pushing, local work is
+  state. At checkpoint 1 "no": stop before pushing [DR-1], local work is
   preserved for inspection or a future re-run. At checkpoint 2 "no": the
   commit is already pushed and CI is already green, so stop before
-  approving and report that the PR is pushed and green but not approved.
-  Neither "no" silently re-enters the iterate loop; re-invoking
+  approving [DR-3] and report that the PR is pushed and green but not
+  approved. Neither "no" silently re-enters the iterate loop; re-invoking
   `/cf:drive` is how the user resumes.
 - Recurrence stop (step 2b): not a failure. No push [DR-2]: the sweep's
   fix commits stay local. The run starts cf:plan (only reports the nested
   sweep's pending pointer under away or under cf:sweep), and reports the
   plan slug, the local commits, and the deferred threads.
 - The `Workflow` call errors or returns no result: say so explicitly and
-  stop; do not silently hand-apply fixes or push.
+  stop; do not silently hand-apply fixes or push [DR-1].
 
 ## Thorough mode (default)
 
@@ -323,7 +333,7 @@ user only, a fenced handoff prompt for a fresh session.
 
 ### Steps
 
-1. **Resolve the change.** A PR: `gh pr view <n> --json
+1. **Identify the change.** A PR: `gh pr view <n> --json
    number,baseRefName,headRefName,title` for the refs only. A range: the two
    refs as given. Then `git -C <repo> fetch origin` and `git -C <repo>
    rev-parse origin/<base> origin/<head>` to pin both ends. Never `gh pr
@@ -332,7 +342,7 @@ user only, a fenced handoff prompt for a fresh session.
    check". If it looks low, say so and recommend `/cf:drive quick` in one
    `AskUserQuestion`; continue only if the owner says to plan it anyway.
    Carry the proposed tier and matched files per area into step 5.
-3. **Resolve the destination.** Slug `pr-<n>-thorough` for a PR,
+3. **Pick the destination.** Slug `pr-<n>-thorough` for a PR,
    `release-<head>-thorough` for a range, suffixed on collision. Run
    `ruby ~/.claude/cf/bin/plan_paths.rb resolve --slug <slug> [--area
    <area>]`, handle `area_exists` and `plan_dir_exists` as `cf:plan` steps 2

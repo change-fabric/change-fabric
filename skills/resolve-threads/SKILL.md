@@ -54,12 +54,12 @@ run reports that it assumed the default.
    `truncated` is true only when some history is still unread (past its
    page cap, or a thread or review with more than 100 comments). Then the thread list and the
    recurrence are not the whole story: report `truncated` and stop without
-   replying or resolving. If `threads` is empty, report that (and any
+   replying or resolving [RT-5]. If `threads` is empty, report that (and any
    `deferred`) and stop.
 2. **Get a real local checkout.** Fetch and check out the PR's head branch
    (not a detached `pull/<N>/head`, since fixes need to be committed and
-   pushed on it) so `repoPath` is this checkout's absolute path and `headSha`
-   is its current tip.
+   pushed on it [RT-1]) so `repoPath` is this checkout's absolute path and
+   `headSha` is its current tip.
 3. **Run the resolution workflow.** Read `reference/workflow.js` and call
    `Workflow` with its full contents as `script` and `args: { threads,
    priorThreads, recurrence, repoPath, headSha, prNumber, prTitle, prBody }`.
@@ -79,13 +79,13 @@ run reports that it assumed the default.
    `fixed`) which commit. For every cluster: its `concernClass`,
    `rootCause`, size, and commit or plan slug. Say whether
    `recurrence.fired`. Continue without asking, unless `--signoff` was
-   passed; then ask before replying, resolving, or pushing.
+   passed; then ask before replying, resolving, or pushing [RT-1][RT-2][RT-3].
 5. **Commit.** The Workflow's Apply phase has already committed: one commit
    per in-run cluster and one per unclustered `fixed` thread. `clusters`
    holds only clusters whose commit landed; a cluster that did not land
    returns its threads in `conflicts`, and every `conflicts` entry folds
    into `needsHuman` for reporting and replies.
-6. **Settle the plan, then reply and resolve.** When the Workflow
+6. **Settle the plan, then reply and resolve [RT-2][RT-3][RT-4].** When the Workflow
    returned a non-null `plan`, settle it before any reply names it: run
    `ruby ~/.claude/cf/bin/plan_paths.rb resolve --slug <plan.slug> --area
    <repo basename>`, and when `plan_dir_exists` is true take its
@@ -114,7 +114,7 @@ run reports that it assumed the default.
    resolve each. For `planClusters`, reply on every thread with `Deferred to
    plan <plan.slug>. <rootCause>` and leave them unresolved. Reply text
    follows `reference/replying.md`'s reply contracts exactly.
-7. **Test, then push.** Standalone (not nested), after the Apply phase has
+7. **Test, then push [RT-1].** Standalone (not nested), after the Apply phase has
    committed, run the repo's own test command against `repoPath`: the
    command CLAUDE.md states, else `rake test` when a Rakefile is present,
    else `package.json`'s `scripts.test`, in that order; if none is found,
@@ -159,17 +159,27 @@ counts are all zero.
 `threadIds`) or `null`; its pending pointer is already recorded.
 Replies and resolutions still happen in a nested run.
 
+## Unattended gates
+
+| ID | Action | Requires | When unmet |
+|---|---|---|---|
+| RT-1 | Push (standalone) | Repo test command green on `repoPath` after Apply | No push; report the failure, leave commits local |
+| RT-2 | Resolve a `fixed` thread | The thread's fix landed in a commit SHA | Do not resolve; fold into `needsHuman` |
+| RT-3 | Resolve a `wont_fix` thread | None; always allowed, all authors | N/A, always resolves |
+| RT-4 | Route recurring candidates to a plan cluster | Root-cause map is non-null and accounts for every candidate | Null map, an unaccounted candidate, or a dissolved/failed systemic fix all route to a plan cluster with a generic seeded goal |
+| RT-5 | Any reply, resolution, or push | `Workflow` returned a usable result, and `thread_history.rb`, `plan_paths.rb`, and `ctx_store.rb` all succeeded | Stop; no reply, resolution, or push |
+
 ## Failure modes
 
-- The Workflow call errors, or returns nothing usable: stop. Make no reply,
-  no resolution, and no push. Nested, emit the fenced json block with
+- The Workflow call errors, or returns nothing usable: stop [RT-5]. Make no
+  reply, no resolution, and no push. Nested, emit the fenced json block with
   `"error": true` added so the caller (cf:drive) also stops instead of
   reading zero counts as a clean run.
 - `thread_history.rb` exits non-zero, or its stdout does not parse as the
-  expected JSON: stop before step 2. Report the raw output; make no reply,
-  resolution, or push.
+  expected JSON: stop before step 2 [RT-5]. Report the raw output; make no
+  reply, resolution, or push.
 - `plan_paths.rb resolve` or `ctx_store.rb capture` fails: stop before any
-  `Deferred to plan` reply. A reply that names a plan slug must never be
-  sent while the slug is unsettled or the pending record unwritten.
+  `Deferred to plan` reply [RT-4][RT-5]. A reply that names a plan slug must
+  never be sent while the slug is unsettled or the pending record unwritten.
 - A `wont_fix` verdict is resolved unattended for every author, reviewer or
-  bot alike; this is the accepted default, not a gap (see step 6).
+  bot alike; this is the accepted default, not a gap [RT-3] (see step 6).

@@ -52,7 +52,7 @@ Use it to find out what to test; use `--suite` to check it still works.
 
 Spawn a background Agent (`model: "opus"`) with the raw target description.
 Task it to:
-- Resolve the target: a PR (read the diff and description with the GitHub
+- Identify the target: a PR (read the diff and description with the GitHub
   tools), a semantic feature description (locate the relevant routes,
   components, and existing tests in the repo), or a live app/URL.
 - Produce a test plan, returned as structured data, not prose: `flows` (each
@@ -148,7 +148,7 @@ to:
    screenshot from any `screenshot` step).
 
 Never paste a credential into a flow file or a finding. A value that is a
-secret comes from `env:`, which resolves on the host and reaches only the
+secret comes from `env:`, which is read on the host and reaches only the
 container; the compiler's own redacted view is what may be reported.
 
 ## Phase 5: Before/after screenshots (deterministic)
@@ -163,16 +163,16 @@ cases:
    which already self-skips the same way.
 2. `screenshot.ui_surface` from phase 1 is false. Two full app boots are not
    worth spending on a backend-only diff.
-3. No second git state is resolvable: a live-app-only target, or a bare
+3. No second git state is available: a live-app-only target, or a bare
    description with no diff. A plain skip, not an error, and not a run failure.
 
-Otherwise follow `~/.claude/skills/cf:screenshot/SKILL.md` in full: resolve the
+Otherwise follow `~/.claude/skills/cf:screenshot/SKILL.md` in full: determine the
 base ref, capture both sides, diff every route/viewport pair, keep only the
 pairs that actually differ, upload the survivors, and write the `## Demo` PR
 body edit (under `--signoff`, ask first). This phase inherits cf:screenshot's
-own upload-failure rule as-is: any pair that failed to upload means no Demo
-edit at all, reported with the local file paths instead, same as a standalone
-cf:screenshot run. Use `screenshot.pr_number` and
+own upload-failure rule as-is [QA-1]: any pair that failed to upload means no
+Demo edit at all, reported with the local file paths instead, same as a
+standalone cf:screenshot run. Use `screenshot.pr_number` and
 `screenshot.base_ref` from phase 1 rather than re-deriving them. Zero differing
 pairs is a successful outcome: report it and skip the upload and the edit.
 
@@ -227,13 +227,20 @@ For each passing flow:
 5. If the file is new, say that `CHANGE.md` needs `lanes.testcases.suites` to
    name a glob covering it, or the case is committed and never runs.
 
+## Unattended gates
+
+| ID | Action | Requires | When unmet |
+|---|---|---|---|
+| QA-1 | Edit the PR body's `## Demo` section (phase 5) | Inherits SS-1: every upload succeeded | No edit; report the local file paths instead, same as cf:screenshot |
+
 ## Failure modes
 
 - Docker unavailable, or the browserless image cannot be pulled: report this
   and stop. Do not silently fall back to an unmanaged host browser.
-- The target resolves to nothing testable (no PR, no reachable app, no
-  identifiable feature): ask, do not guess.
+- The target cannot be determined as anything testable (no PR, no reachable
+  app, no identifiable feature): ask, do not guess.
 - The app under test never becomes ready: report the timeout as a finding,
   not a crash.
-- The before/after phase cannot resolve a second git state, or the repo has no
-  `CHANGE.md`: the phase skips and says so; it is not a run failure.
+- The before/after phase cannot determine a second git state, or the repo has
+  no `CHANGE.md`: the phase skips and says so; it is not a run failure.
+- Any screenshot pair fails to upload: no Demo edit follows [QA-1].

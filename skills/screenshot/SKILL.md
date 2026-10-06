@@ -225,7 +225,7 @@ uploaded and which did not; the Demo section below reads that record.
 
 ## The `## Demo` section
 
-If any pair failed to upload, do not edit the pull request body at all: a
+[SS-1] If any pair failed to upload, do not edit the pull request body at all: a
 partial Demo section (some pairs embedded, some silently missing) reads as a
 complete set of before/afters when it is not, and `--signoff`'s ask-first gate
 cannot save an unattended run from a half-finished edit. Report the local file
@@ -254,13 +254,19 @@ paths, its `diffPercent`, and whether it was kept as changed, alongside a
 human-readable summary on stdout. The upload step and the Demo composer both
 read the manifest, so a run can be re-uploaded without being re-captured.
 
+## Unattended gates
+
+| ID | Action | Requires | When unmet |
+|---|---|---|---|
+| SS-1 | Edit the PR body's `## Demo` section | Every pair's upload succeeded | No edit at all; report the local file paths instead |
+
 ## Failure modes
 
 - **Docker unavailable, or the browserless image cannot be pulled.** Report and
   stop. No unmanaged host-browser fallback.
 - **The upload fails** (non-201, no `gh auth token`, a network error). Degrade
-  to reporting the local screenshot paths from the manifest and stop uploading.
-  Not a run failure.
+  to reporting the local screenshot paths from the manifest and stop
+  uploading; no Demo edit follows a partial set [SS-1]. Not a run failure.
 - **The old server is still responding after teardown.** Fail loudly, naming
   the health URL, the port, and the listening process. Do not capture the
   second ref.
@@ -272,7 +278,7 @@ read the manifest, so a run can be re-uploaded without being re-captured.
   contract). Skip boot, teardown, and the verify-gone check for that side. The
   base side is then reachable only via `--base-url`; without it, abort with a
   named reason.
-- **No resolvable second git state** (a live-app-only target, a bare
+- **No second git state available** (a live-app-only target, a bare
   description with no diff). Nothing to compare; report plainly.
 - **No root `CHANGE.md`.** A direct invocation aborts with a clear message:
   there is no route or viewport list to work from.

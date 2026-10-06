@@ -163,6 +163,12 @@ checked criterion. Under full auto, the default, that finding fails the gate,
 the same as an `unclear` verdict; pass `--signoff` to run this interactively
 and have it warn instead.
 
+## Unattended gates
+
+| ID | Action | Requires | When unmet |
+|---|---|---|---|
+| TC-1 | Pass the testcases lane gate | A grader is reachable and every `acceptance` verdict is decided (not `unclear`) | Fails the gate under full auto, the default; stays a `warn` under `--signoff` |
+
 ## Failure modes
 
 - Docker unavailable, or an image cannot be pulled: exits 2 and names the cause;
@@ -174,3 +180,5 @@ and have it warn instead.
   green for the same reason one that checks everything does.
 - browserless never becomes ready: the lane records a failing finding rather
   than crashing the run.
+- Grader missing, or a verdict comes back `unclear`: fails the gate under full
+  auto, the default; stays a `warn` under `--signoff` [TC-1].
