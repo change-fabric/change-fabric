@@ -502,6 +502,17 @@ class ThreadHistoryTest < Minitest::Test
     assert_match ThreadHistory::CONSOLIDATED_HEADER, body
   end
 
+  # Every body a second round can post at the head stops a rerun: the
+  # rendered consolidated review and the away-mode pending body alike.
+  def test_every_second_round_body_marks_the_head
+    rendered = RenderRoundReview.new("title" => "T", "summary" => "s", "handoff" => "h").render
+    [ rendered, RenderRoundReview::PENDING_BODY ].each do |body|
+      assert_match ThreadHistory::CONSOLIDATED_HEADER, body
+      at_head = history(reviews: [ review(VIEWER, "bbbbbbb", body: body) ], threads: [], head: "bbbbbbb")
+      assert at_head["reviewRound"]["consolidatedAtHead"]
+    end
+  end
+
   # -- 14. truncated ------------------------------------------------------------
 
   def test_truncated_when_either_connection_has_a_next_page

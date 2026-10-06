@@ -65,11 +65,16 @@ no findings posts nothing and reports that.
 
 ## Away
 
-No interview under away mode. Skip the post entirely when `posted` has no
-P1 finding: GitHub rejects a `"event": "COMMENT"` review with no body and
-no comments. Otherwise post the P1 findings inline (one review whose
-`review.json` carries `"event": "COMMENT"` and no body), hold the P2 and
-P3 findings, pipe the seeded goal plus the held findings to `ruby ~/.claude/cf/bin/ctx_store.rb
-capture --name plan-pending-pr-<n>-review-round --class active --desc
-"Second-round review plan pending for PR #<n>"`, and report that the user
-should run `/cf:active` then `/cf:plan <seeded goal>`.
+No interview under away mode. Always post exactly one review at the
+current head, even with no P1 finding, so a rerun at this head sees
+`consolidatedAtHead` and stops instead of falling back to a first round
+that would publish the held findings inline. Its `review.json` carries
+`"event": "COMMENT"`, `body` set to the `RenderRoundReview::PENDING_BODY`
+text verbatim (`ruby -r ~/.claude/cf/bin/render_round_review.rb -e 'print
+RenderRoundReview::PENDING_BODY'`), and `comments` holding only the P1
+entries of `posted` (empty when there are none; the body alone is a valid
+review). Hold the P2 and P3 findings, pipe the seeded goal plus the held
+findings to `ruby ~/.claude/cf/bin/ctx_store.rb capture --name
+plan-pending-pr-<n>-review-round --class active --desc "Second-round review
+plan pending for PR #<n>"`, and report that the user should run
+`/cf:active` then `/cf:plan <seeded goal>`.

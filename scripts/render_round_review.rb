@@ -14,6 +14,10 @@ require_relative 'render_finding_comment'
 class RenderRoundReview
   CORE_CAP = 640
   HEADER_PREFIX = '**Root cause review - '
+  # The body an away-mode second round posts at the head: it carries the
+  # header so thread_history's consolidatedAtHead stops a rerun at that head.
+  PENDING_BODY = "#{HEADER_PREFIX}plan pending**\n\nA root-cause plan for this PR is pending " \
+                 'with its author; the remaining lower-tier findings are held for it.'
   # Every machine-local path shape, one named entry each, so a new form is
   # one added line plus its test example rather than a regex rewrite. The
   # POSIX lookbehind keeps URL paths (https://host/a/b), repo-relative paths
