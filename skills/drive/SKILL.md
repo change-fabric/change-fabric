@@ -138,11 +138,13 @@ would-be-approved local state, and since nothing landed, also skips step
    allows a push (Local only: skip the push and say so). Skip steps 3
    through 12: no quality loop, no CI poll, no approval, no browser-open.
    Then invoke the `cf:plan` skill with the Skill tool, args
-   `<plan.seededGoal> --area <repo basename>`. Under away mode, or when
-   invoked with `nested under cf:sweep`, do not start it: pipe the seeded
-   goal to `ruby ~/.claude/cf/bin/ctx_store.rb capture --name
-   plan-pending-<plan.slug> --class active --desc "Root-cause plan pending
-   for PR #<n>"` and report `/cf:active` then `/cf:plan <seeded goal>`.
+   `<plan.seededGoal> --area <repo basename>`, and once it has written its
+   handoff, run `ruby ~/.claude/cf/bin/ctx_store.rb archive
+   plan-pending-<plan.slug>`. The block's `plan` is already settled and its
+   pending pointer recorded by the nested sweep. Under away mode, or when
+   invoked with `nested under cf:sweep`, do not start it: report the
+   `plan-pending-<plan.slug>` pointer and `/cf:active` then `/cf:plan
+   <seeded goal>`.
    The same stop applies when the step-6b sweep or a pre-re-push sweep in
    step 9 returns a plan, except that the push there also requires
    `ciPrediction.green`.
@@ -229,8 +231,9 @@ would-be-approved local state, and since nothing landed, also skips step
   Neither "no" silently re-enters the iterate loop; re-invoking
   `/cf:drive` is how the user resumes.
 - Recurrence stop (step 2b): not a failure. The run pushes what the sweep
-  fixed, starts cf:plan (or records the pointer under away or under
-  cf:sweep), and reports the plan slug and the deferred threads.
+  fixed, starts cf:plan (only reports the nested sweep's pending pointer
+  under away or under cf:sweep), and reports the plan slug and the
+  deferred threads.
 - The `Workflow` call errors or returns no result: say so explicitly and
   stop; do not silently hand-apply fixes or push.
 

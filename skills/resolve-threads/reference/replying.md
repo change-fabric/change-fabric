@@ -29,8 +29,9 @@ the next run, so they are exact, not stylistic:
   `<sha>` is at least 7 hex characters of the commit. An in-run cluster
   reply continues with the Root cause phase's one-sentence `reply`.
 - A plan cluster reply starts with `Deferred to plan <slug>.` using the
-  Workflow's `plan.slug`, then one sentence of root cause. A later run
-  skips a thread carrying this reply until the thread's own reviewer (its
-  opener) comments after it; any other comment after it, ours included,
-  leaves the thread deferred.
+  settled `plan.slug` (SKILL.md step 6), never the Workflow's raw one,
+  then one sentence of root cause. A later run skips a thread carrying
+  this reply until the thread's own reviewer (its opener) comments after
+  it; any other comment after it, ours included, leaves the thread
+  deferred.
 - A dismissal never starts with either phrase.

@@ -85,8 +85,20 @@ run reports that it assumed the default.
    holds only clusters whose commit landed; a cluster that did not land
    returns its threads in `conflicts`, and every `conflicts` entry folds
    into `needsHuman` for reporting and replies.
-6. **Reply and resolve.** Before this step, read `reference/replying.md`
-   for the verdict bars and reply-style rules. Use the `gh` CLI via Bash by
+6. **Settle the plan, then reply and resolve.** When the Workflow
+   returned a non-null `plan`, settle it before any reply names it: run
+   `ruby ~/.claude/cf/bin/plan_paths.rb resolve --slug <plan.slug> --area
+   <repo basename>`, and when `plan_dir_exists` is true take its
+   `suggested_slug` as `plan.slug` and rewrite the seeded goal's closing
+   `Use slug <old>.` to match, so cf:plan finds a free directory and never
+   picks a different name than the replies carry. Then, in every mode, pipe
+   `plan.seededGoal` to `ruby ~/.claude/cf/bin/ctx_store.rb capture --name
+   plan-pending-<plan.slug> --class active --desc "Root-cause plan pending
+   for PR #<n>"`, so a deferral is never left without a record when the
+   interview is abandoned or never starts. Every later use (the deferral
+   replies, step 8, the nested block) reads this settled `plan`. Before
+   replying, read `reference/replying.md` for the verdict bars and
+   reply-style rules. Use the `gh` CLI via Bash by
    default. For `fixed` and `wontFix`: reply to the thread's opening
    comment (`commentId`; GitHub accepts only a top-level comment here, never
    a reply) with `gh api repos/<owner>/<repo>/pulls/<n>/comments/
@@ -107,12 +119,13 @@ run reports that it assumed the default.
    actually happens versus staying local. Skipped when nested (see Nested
    runs).
 8. **Start the plan.** Only when the Workflow returned a non-null `plan`
-   and the run is not nested. Under away mode, do not start it: pipe
-   `plan.seededGoal` to `ruby ~/.claude/cf/bin/ctx_store.rb capture --name
-   plan-pending-<plan.slug> --class active --desc "Root-cause plan pending
-   for PR #<n>"` and report that the user should run `/cf:active` then
-   `/cf:plan <seeded goal>`. Otherwise invoke the `cf:plan` skill with the
-   Skill tool, args `<plan.seededGoal> --area <repo basename>`. This is
+   and the run is not nested. Under away mode, do not start it: step 6's
+   `plan-pending-<plan.slug>` pointer already holds the seeded goal, so
+   report that the user should run `/cf:active` then `/cf:plan <seeded
+   goal>`. Otherwise invoke the `cf:plan` skill with the Skill tool, args
+   `<plan.seededGoal> --area <repo basename>`, and once it has written its
+   handoff, run `ruby ~/.claude/cf/bin/ctx_store.rb archive
+   plan-pending-<plan.slug>`. This is
    the one point where the default run brings questions to the user: the
    interview is the response to feedback that keeps recurring, not a
    sign-off. cf:plan ends at its own handoff prompt.
@@ -135,5 +148,6 @@ counts are all zero.
 `Deferred to plan <slug>.` (see step 1's `deferred` field and
 `reference/replying.md`).
 
-`plan` is the Workflow's `plan` object (`slug`, `seededGoal`, `threadIds`)
-or `null`. Replies and resolutions still happen in a nested run.
+`plan` is step 6's settled `plan` object (`slug`, `seededGoal`,
+`threadIds`) or `null`; its pending pointer is already recorded.
+Replies and resolutions still happen in a nested run.

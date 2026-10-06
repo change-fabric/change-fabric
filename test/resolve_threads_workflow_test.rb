@@ -129,6 +129,30 @@ class ResolveThreadsWorkflowTest < Minitest::Test
     assert_includes text, "`Deferred to plan <slug>.`"
   end
 
+  # Every way a deferral can name a plan other than the one that lands, keyed
+  # by the text that closes it. The slug and the pending pointer are settled
+  # in step 6 before any `Deferred to plan` reply is written.
+  PLAN_SETTLED = {
+    "slug collides with an existing plan" => "plan_paths.rb resolve --slug <plan.slug>",
+    "collision takes the free suffix" => "`suggested_slug` as `plan.slug`",
+    "seeded goal carries the settled slug" => "`Use slug <old>.` to match",
+    "abandoned or unstarted interview keeps a record" => "in every mode, pipe",
+    "nested caller reads the settled plan" => "step 6's settled `plan` object",
+    "completed plan clears the pending pointer" => "ctx_store.rb archive"
+  }.freeze
+
+  def test_plan_slug_is_settled_before_any_deferral_reply
+    text = skill_md
+    PLAN_SETTLED.each { |failure, guard| assert_includes text, guard, failure }
+    settle = text.index("plan_paths.rb resolve --slug")
+    assert settle < text.index("Deferred to") && settle < text.index("plan-pending-<plan.slug>"),
+           "the slug must be settled before a reply or pointer names it"
+    assert_includes File.read(REPLYING), "settled `plan.slug`"
+    drive = File.read(File.expand_path("../skills/drive/SKILL.md", __dir__))
+    assert_includes drive, "The block's `plan` is already settled"
+    refute_includes drive, "do not start it: pipe the seeded"
+  end
+
   def test_skill_defaults_to_full_auto_and_reads_history
     assert_includes skill_md, "--signoff"
     assert_includes skill_md, "thread_history.rb"
