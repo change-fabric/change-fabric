@@ -113,6 +113,14 @@ const prNumber = scope.prNumber
 const prTitle = scope.prTitle
 const prBody = scope.prBody
 
+// A prior fixed thread bears on an open one only when the same reviewer
+// opened both on the same path, the rule thread_history.rb applies to
+// recurrence.threadIds. Another reviewer's fix on that path is not this
+// reviewer returning, so it is neither shown to Evaluate nor accepted as a
+// recurrenceOf claim.
+const priorFor = (t) => priorThreads.filter((p) => p.path === t.path && p.reviewer === t.reviewer)
+const ownRecurrence = (v) => (v.recurrenceOf ?? []).filter((id) => priorFor(v).some((p) => p.threadId === id))
+
 function threadContext(t) {
   const convo = t.comments.map((c) => c.author + ": " + c.body).join("\n")
   const staleness = t.isOutdated
@@ -127,10 +135,10 @@ function threadContext(t) {
 function runContext(t) {
   const others = threads.filter((o) => o.threadId !== t.threadId)
     .map((o) => "- " + o.path + ":" + o.line + " " + o.title).join("\n")
-  const prior = priorThreads.filter((p) => p.path === t.path)
+  const prior = priorFor(t)
     .map((p) => "- " + p.threadId + " (fixed in " + p.fixSha + "): " + p.title).join("\n")
   return "\n\nOther unresolved threads in this run:\n" + (others || "(none)") +
-    "\n\nEarlier threads on " + t.path + " already fixed per instance; read each fix with " +
+    "\n\nEarlier threads by " + t.reviewer + " on " + t.path + " already fixed per instance; read each fix with " +
     "`git show <sha>` in your worktree:\n" + (prior || "(none)")
 }
 
@@ -182,14 +190,14 @@ phase("Root cause")
 // recurrent path is not that reviewer returning, so it keeps its own verdict.
 const recurrentIds = new Set(recurrence.fired ? (recurrence.threadIds ?? []) : [])
 const candidates = verdicts.filter((v) => v.action !== "wont_fix" &&
-  (recurrentIds.has(v.threadId) || (v.recurrenceOf ?? []).length > 0))
+  (recurrentIds.has(v.threadId) || ownRecurrence(v).length > 0))
 const byId = new Map(verdicts.map((v) => [ v.threadId, v ]))
 let clusters = []
 if (candidates.length > 0) {
   const summary = candidates.map((v) => ({
     threadId: v.threadId, path: v.path, line: v.line, title: v.title,
     concernClass: v.concernClass, rationale: v.rationale,
-    siblings: v.siblings ?? [], recurrenceOf: v.recurrenceOf ?? []
+    siblings: v.siblings ?? [], recurrenceOf: ownRecurrence(v)
   }))
   const map = await agent(
     "Review feedback on this pull request is recurring: the same reviewer came back on a new " +
@@ -314,7 +322,7 @@ if (planClusters.length > 0) {
   const sections = planClusters.map((c) =>
     "Class " + c.concernClass + ": " + c.rootCause.replace(/[.\s]*$/, ".") + " Threads: " +
     c.threads.map((t) => t.path + ":" + t.line + " " + t.title).join("; ") + ".").join(" ")
-  const shas = priorThreads.filter((p) => planClusters.some((c) => c.threads.some((t) => t.path === p.path)))
+  const shas = priorThreads.filter((p) => planClusters.some((c) => c.threads.some((t) => priorFor(byId.get(t.threadId)).includes(p))))
     .map((p) => p.fixSha)
   const seededGoal = "Root-cause fix for recurring review feedback on PR #" + prNumber + " (" +
     prTitle + "). The same reviewer keeps returning to the same files after per-instance fixes. " +

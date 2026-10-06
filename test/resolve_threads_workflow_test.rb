@@ -88,6 +88,41 @@ class ResolveThreadsWorkflowTest < Minitest::Test
     assert_equal APPLY_RESULTS.transform_values(&:last), JSON.parse(out)
   end
 
+  # A recurrenceOf claim from Evaluate counts only for a prior thread the same
+  # reviewer opened on the same path, matching thread_history.rb's rule.
+  PRIOR = [
+    { threadId: "P_own", path: "a.rb", reviewer: "codex", fixSha: "1111111" },
+    { threadId: "P_other", path: "a.rb", reviewer: "human", fixSha: "2222222" },
+    { threadId: "P_elsewhere", path: "b.rb", reviewer: "codex", fixSha: "3333333" }
+  ].freeze
+
+  RECURRENCE_CLAIMS = {
+    "own prior on the same path" => [ %w[P_own], %w[P_own] ],
+    "another reviewer's prior on the same path" => [ %w[P_other], [] ],
+    "own prior on another path" => [ %w[P_elsewhere], [] ],
+    "unknown id" => [ %w[P_missing], [] ],
+    "mixed claims keep only the own one" => [ %w[P_other P_own P_elsewhere], %w[P_own] ],
+    "no claim" => [ nil, [] ]
+  }.freeze
+
+  def test_recurrence_claims_are_scoped_to_the_same_reviewer
+    skip "node not installed" unless system("node", "--version", out: File::NULL)
+    helpers = %w[priorFor ownRecurrence].map do |name|
+      workflow[/^const #{name} = .*$/] or flunk("workflow lost #{name}")
+    end
+    verdicts = RECURRENCE_CLAIMS.transform_values do |(claim, _)|
+      { path: "a.rb", reviewer: "codex", recurrenceOf: claim }.compact
+    end
+    js = "const priorThreads = #{JSON.generate(PRIOR)}\n#{helpers.join("\n")}\n" \
+         "const c = #{JSON.generate(verdicts)}\n" \
+         "console.log(JSON.stringify(Object.fromEntries(Object.entries(c).map(([k, v]) => [k, ownRecurrence(v)]))))"
+    out, status = Open3.capture2("node", "-e", js)
+    assert status.success?, "node failed to evaluate the helpers"
+    assert_equal RECURRENCE_CLAIMS.transform_values(&:last), JSON.parse(out)
+    assert_includes workflow, "const prior = priorFor(t)"
+    refute_includes workflow, "priorThreads.filter((p) => p.path === t.path)\n"
+  end
+
   def test_replying_states_the_reply_contracts
     text = File.read(REPLYING)
     assert_includes text, "`Fixed in <sha>.`"
