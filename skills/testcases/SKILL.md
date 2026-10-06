@@ -8,7 +8,11 @@ description: Runs just the deterministic regression lane of the change-fabric pl
 The standalone regression lane of the change-fabric platform. Runs only the
 committed test cases; for the full five-lane release sweep use `cf:change`.
 
-Trigger: `/cf:testcases [<target>]`.
+Trigger: `/cf:testcases [<target>] [--signoff]`.
+
+A literal `full auto` or `auto` as the first or last word of the args is
+stripped before parsing, with a one-line note that full auto is already the
+default.
 
 Question: do this repo's committed test cases still pass?
 
@@ -134,13 +138,14 @@ already has, not a new one:
 ruby ~/.claude/cf/bin/change_override.rb <head sha> --reason '<why>'
 ```
 
-In an interactive session, offer that as an `AskUserQuestion` at the moment of
-failure. In CI it fails closed and stays failed: `change_override.rb` refuses
-without a real terminal by design, so no agent can record it for a human.
+By default, print that command with the head SHA filled in at the end of the
+report, for the user to run from their own terminal; no question. Under
+`--signoff`, offer it as an `AskUserQuestion` at the moment of failure instead.
+In CI it fails closed and stays failed: `change_override.rb` refuses without a
+real terminal by design, so no agent can record it for a human.
 
-Under away mode, skip the offer, fail closed the same way CI does, and report
-that the override was not offered. An away session could not act on an answer
-regardless: `change_override.rb` refuses without a real terminal by design.
+Under away mode the default applies: the command is reported, never run,
+because `change_override.rb` refuses without a real terminal.
 
 Grading is the one part of this lane that is not deterministic, and it is kept
 in one named place for that reason. It uses the `claude` CLI by default,

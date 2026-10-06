@@ -1,6 +1,6 @@
 ---
 name: cf:screenshot
-description: Captures before/after screenshots of every configured route and viewport at two git refs, keeps only the pairs that pixel-differ, uploads them to GitHub, and offers to splice them into the pull request body's Demo section. Boots the base ref in an ephemeral git worktree inside the existing ephemeral browserless Chromium container tooling; invocable directly.
+description: Captures before/after screenshots of every configured route and viewport at two git refs, keeps only the pairs that pixel-differ, uploads them to GitHub, and splices them into the pull request body's Demo section. Boots the base ref in an ephemeral git worktree inside the existing ephemeral browserless Chromium container tooling; invocable directly.
 ---
 
 # CF screenshot
@@ -25,7 +25,7 @@ Docker unavailable is a stop, not a fallback.
 ## Trigger and flags
 
 ```
-/cf:screenshot [<target>] [--base <ref>] [--base-url <url>] [--pr <number>] [--no-upload]
+/cf:screenshot [<target>] [--base <ref>] [--base-url <url>] [--pr <number>] [--no-upload] [--signoff]
 ```
 
 The work is done by the script, run from the target repo root (a repo carrying
@@ -43,6 +43,11 @@ ruby ~/.claude/cf/bin/change_screenshot.rb \
 - `--out <dir>` is where the PNGs and `manifest.json` land (default
   `cf-screenshots/`).
 - `--no-upload` captures and diffs without touching GitHub.
+- `--signoff` asks before the `## Demo` body edit; by default it is written.
+
+A literal `full auto` or `auto` as the first or last word of the args is
+stripped before parsing, with a one-line note that full auto is already the
+default.
 
 ## Ref resolution
 
@@ -223,18 +228,17 @@ Compose a `## Demo` markdown section pairing each surviving before/after image
 by route and viewport, appending to an existing Demo section rather than
 replacing the body if the pull request already has one.
 
-Then call `AskUserQuestion` showing the composed section and asking whether to
-write it, edit it first, or skip. Write via `gh pr edit --body` only on explicit
-approval, preserving the rest of the existing body.
+Write it via `gh pr edit --body`, preserving the rest of the existing body.
+Under `--signoff`, first show the composed section and ask whether to write it,
+edit it first, or skip.
 
 A pull request body edit is comment-class, not landing code. cf merge mode does
-not gate it: post in every mode (Local only included) whenever the user
-approves, mirroring the carve-out already in `skills/code-review/SKILL.md`.
-Merge mode restricts only landing code, never commentary on a pull request that
-already exists.
+not gate it: post in every mode (Local only included), mirroring the carve-out
+already in `skills/code-review/SKILL.md`. Merge mode restricts only landing
+code, never commentary on a pull request that already exists.
 
-Under away mode, skip the question, do not edit, and report that the edit was
-skipped, mirroring `cf:qa`'s report phase.
+Away mode changes nothing here: the default asks nothing. Under away mode
+`--signoff` is ignored and the run reports that it assumed the default.
 
 ## Output
 
@@ -267,7 +271,7 @@ read the manifest, so a run can be re-uploaded without being re-captured.
   there is no route or viewport list to work from.
 - **Zero pairs differ.** A valid, successful outcome, not a failure. Report "no
   visible change across N routes at M viewports" and skip the upload and the
-  Demo offer entirely. Never post an empty Demo section.
+  Demo edit entirely. Never post an empty Demo section.
 - **An orphaned attachment.** An upload that succeeds for some pairs and then
   fails, or a run abandoned before the `gh pr edit`, leaves attachments that
   404 publicly and cannot be deleted. Note the uploaded URLs in the run's report

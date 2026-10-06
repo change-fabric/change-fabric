@@ -1,6 +1,6 @@
 ---
 name: cf:qa
-description: Ad hoc QA smoke-test runner. Scopes a browser test plan from a natural-language target (a pull request, a described feature, a flow), clarifies ambiguity, then executes the plan against an ephemeral browserless Chromium container and reports findings, optionally as GitHub PR comments, and offers to promote a passing flow into a committed test case. `--suite <suite-or-tag>` instead replays committed cases deterministically, with no scoping model in the loop; invocable directly.
+description: Ad hoc QA smoke-test runner. Scopes a browser test plan from a natural-language target (a pull request, a described feature, a flow), clarifies ambiguity, then executes the plan against an ephemeral browserless Chromium container and reports findings, posting them as GitHub PR comments by default, and writes a passing flow out as a test-case suite file. `--suite <suite-or-tag>` instead replays committed cases deterministically, with no scoping model in the loop; invocable directly.
 ---
 
 # CF QA Runner
@@ -20,6 +20,15 @@ release-affecting merge. Reach for `cf:qa` to investigate; reach for
 Doctrine: `cf:docker` applies. The browser runs in one dedicated, ephemeral
 container per run (`docker run --rm ...`, digest-pinned image), never a host
 daemon, never a reused long-lived container.
+
+## Sign-off
+
+Acts by default: posts findings comments, edits the `## Demo` section, and
+writes promoted flows without asking. `--signoff` asks before each. A literal
+`full auto` or `auto` as the first or last word of the args is stripped before
+parsing, with a one-line note that full auto is already the default. Under
+away mode `--signoff` is ignored and the run reports that it assumed the
+default. Phase 2's clarifying questions are scoping, not sign-off, and stay.
 
 ## Two modes
 
@@ -159,34 +168,30 @@ cases:
 
 Otherwise follow `~/.claude/skills/cf:screenshot/SKILL.md` in full: resolve the
 base ref, capture both sides, diff every route/viewport pair, keep only the
-pairs that actually differ, upload the survivors, and offer the `## Demo` PR
-body edit behind an `AskUserQuestion`. Use `screenshot.pr_number` and
+pairs that actually differ, upload the survivors, and write the `## Demo` PR
+body edit (under `--signoff`, ask first). Use `screenshot.pr_number` and
 `screenshot.base_ref` from phase 1 rather than re-deriving them. Zero differing
-pairs is a successful outcome: report it and skip the upload and the offer.
+pairs is a successful outcome: report it and skip the upload and the edit.
 
-Under away mode, capture and report, but skip the `AskUserQuestion` and make no
-PR body edit; report that the edit was skipped.
+Away mode changes nothing here: the default asks nothing.
 
 ## Phase 6: Report
 
 Summarize findings in the chat response first.
 
-If the target correlates to a real GitHub pull request, findings may also
-land as a PR validation comment, through whichever GitHub interface (`gh` CLI
+If the target correlates to a real GitHub pull request, findings also land
+as a PR validation comment, through whichever GitHub interface (`gh` CLI
 or GitHub MCP tools) is available:
 - Group findings into at most 3 comments of at most 640 characters each,
   split by semantic area (e.g. auth flow, checkout flow) or by giving each
   comment its own focused re-run's subset. Findings only: no preamble, no
   closing remarks, no restating the plan.
-- Call `AskUserQuestion` with an executive summary of each comment (the full
-  text, if the question format allows it) and ask whether to post, edit, or
-  skip. Never post without an explicit go-ahead from this call.
-- Only after approval, post the comment(s).
+- Post the comment(s). Under `--signoff`, first call `AskUserQuestion` with
+  an executive summary of each comment and ask whether to post, edit, or skip.
 
-Under away mode, skip this question, do not post, and report that posting was
-skipped.
+Away mode changes nothing here: the default asks nothing.
 
-## Phase 7: Offer to promote the flow (foreground)
+## Phase 7: Promote the flow (foreground)
 
 Exploratory QA used to end as a transcript: the flow worked out by hand
 evaporated with the session, and the next regression in it went uncaught. This
@@ -212,18 +217,17 @@ For each passing flow:
    not a restatement of the steps. It is graded against the run by `cf:change`,
    and that verdict can fail the gate, so write what actually matters and
    nothing you would not want enforced.
-3. Call `AskUserQuestion` showing the rendered YAML and the path it would be
-   written to (conventionally `qa/<suite>.cf-testcases.yml`, next to the code it
-   tests), and ask whether to write it, edit it first, or skip. Where the file
-   already exists, show the case as a diff against it.
-4. Write the file only on an explicit answer. Never commit it, never open a PR
-   for it, and never write without the answer: a test case nobody chose is a
-   check nobody owns.
-
-Under away mode, skip this offer entirely and report that the promotion was
-skipped.
+3. Write the rendered YAML to the path (conventionally
+   `qa/<suite>.cf-testcases.yml`, next to the code it tests). If the file
+   exists and already has this case id, do not overwrite it: skip and report
+   the rendered YAML. Under `--signoff`, show the YAML and path and ask whether
+   to write, edit, or skip.
+4. Never commit it, never open a PR for it. Report every written path so the
+   user can drop a case they do not want.
 5. If the file is new, say that `CHANGE.md` needs `lanes.testcases.suites` to
    name a glob covering it, or the case is committed and never runs.
+
+Away mode changes nothing here: the default asks nothing.
 
 ## Failure modes
 
