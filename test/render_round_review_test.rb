@@ -78,7 +78,8 @@ class RenderRoundReviewTest < Minitest::Test
     "read /opt/build/repo/plan.md", "read `/srv/app/plan.md`", "read (/mnt/c/x)", "read \"/data/x/y\"",
     "cd /repo", "cd /workspace", "cd /tmp", "cd /tmp.", "cd `/repo`", "cd /", "run /cf:plan in /repo",
     "edit scripts\\x.rb", "See [plan](/workspace/x.md)", "see </tmp>", "set path=/repo", "open (C:/x)", "see */tmp*", "see _/repo_", "a | /workspace | b", "use {/tmp}",
-    "read \"~/x\"", "see [a](~/x)", "see <C:\\x>", "use key=$HOME/x", "a,/tmp/x", "a;/repo", "'/srv/x'"
+    "read \"~/x\"", "see [a](~/x)", "see <C:\\x>", "use key=$HOME/x", "a,/tmp/x", "a;/repo", "'/srv/x'",
+    "See path:/tmp/plan.md", "path:/workspace/change-fabric/plan.md", "file:/x", "at:~/x", "env:$HOME/x", "a/b:/tmp/x"
   ].freeze
 
   PORTABLE_TEXT = [
@@ -88,7 +89,7 @@ class RenderRoundReviewTest < Minitest::Test
     "Use ./scripts/x.rb and ../y/z.rb", "Ratio 1/2/3 holds",
     "Run /cf:plan, then /cf:drive.", "See (https://example.com/a/b).",
     "See [plan](https://host/x)", "See [doc](docs/x.md)", "Run </cf:plan>", "path=docs/x.md",
-    "See <https://host/x?a=b>"
+    "See <https://host/x?a=b>", "path:docs/x.md", "Note: see docs/x.md"
   ].freeze
 
   def test_raises_on_handoff_naming_a_local_path

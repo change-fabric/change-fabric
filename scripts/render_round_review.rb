@@ -29,7 +29,7 @@ class RenderRoundReview
   PATHLIKE = %r{[/\\]|\A[~$]}
   URL = %r{\Ahttps?://[^\s/]+(?:/\S*)?\z}
   SLASH_COMMAND = /\A\/[a-z][\w-]*:[\w-]+\z/
-  RELATIVE_PATH = %r{\A(?![/~$]|[A-Za-z]:)(?!.*(?:\\|//|://|\$\{?HOME|(?:\A|/)\.claude/))\S+\z}
+  RELATIVE_PATH = %r{\A(?![/~$]|[A-Za-z]:)(?!.*(?:\\|//|:[/~$]|\$\{?HOME|(?:\A|/)\.claude/))\S+\z}
   COMPONENT_SPLIT = /[\[\](){}<>"'`=,;*_|]+/
   TOKEN_WRAP = /\A[`"'(\[<{]+|[`"')\]>},.;:!?]+\z/
   FOLDED_LEAD = 'Also found this round: '
