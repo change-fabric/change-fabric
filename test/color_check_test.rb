@@ -354,4 +354,12 @@ class ColorCheckTest < Minitest::Test
       assert_equal 1, report.exit_code
     end
   end
+
+  def test_var_cycle_resolves_to_nil_instead_of_crashing
+    with_dir do |dir|
+      write(dir, "tokens.css", ":root { --bg: #fff; --text: var(--text); --a: var(--b); --b: var(--a); }\n")
+      report = ColorCheck.run(dir)
+      assert_equal 0, report.exit_code
+    end
+  end
 end

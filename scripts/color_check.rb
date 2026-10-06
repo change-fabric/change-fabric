@@ -3,6 +3,7 @@
 
 require 'json'
 require 'find'
+require 'set'
 
 # Advisory checker for the cf:color minimal color system. Reports a repo's
 # authored palette, stray color literals, Tailwind palette classes and
@@ -209,17 +210,17 @@ module ColorCheck
     end
   end
 
-  def resolve_color(raw, decls, bg_color:)
+  def resolve_color(raw, decls, bg_color:, seen: Set.new)
     v = raw.strip
     return flatten_alpha(v, bg_color) if v.match?(HEX)
 
     if (m = v.match(COLOR_MIX_SRGB))
       a_raw, pct, b_raw = m[1].strip, m[2].to_f, m[3].strip
-      a = resolve_token_or_literal(a_raw, decls, bg_color:)
+      a = resolve_token_or_literal(a_raw, decls, bg_color:, seen:)
       b = if b_raw == 'transparent'
             bg_color
       else
-            resolve_token_or_literal(b_raw, decls, bg_color:)
+            resolve_token_or_literal(b_raw, decls, bg_color:, seen:)
       end
       return nil unless a && b
 
@@ -227,18 +228,22 @@ module ColorCheck
     end
 
     if (m = v.match(/^var\((--[\w-]+)\)$/))
+      return nil if seen.include?(m[1])
+
       ref = decls[m[1]]
-      return ref ? resolve_color(ref, decls, bg_color:) : nil
+      return ref ? resolve_color(ref, decls, bg_color:, seen: seen | [ m[1] ]) : nil
     end
 
     nil
   end
 
-  def resolve_token_or_literal(token_text, decls, bg_color:)
+  def resolve_token_or_literal(token_text, decls, bg_color:, seen: Set.new)
     t = token_text.strip
     if (m = t.match(/^var\((--[\w-]+)\)$/))
+      return nil if seen.include?(m[1])
+
       inner = decls[m[1]]
-      inner ? resolve_color(inner, decls, bg_color:) : nil
+      inner ? resolve_color(inner, decls, bg_color:, seen: seen | [ m[1] ]) : nil
     elsif t.match?(HEX)
       flatten_alpha(t, bg_color)
     else
