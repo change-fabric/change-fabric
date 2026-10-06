@@ -140,8 +140,8 @@ module ColorThemes
     end
 
     theme_names = ([ 'light' ] + selector_origin_names.to_a + media_entries.keys).uniq
-    variants = theme_names.filter_map do |theme|
-      build_variant(theme, base_entries, theme_entries, media_entries, selector_origin_names)
+    variants = theme_names.flat_map do |theme|
+      build_variants(theme, base_entries, theme_entries, media_entries, selector_origin_names)
     end
 
     Model.new(variants:, unsupported: finalize_unsupported(unsupported))
@@ -357,6 +357,29 @@ module ColorThemes
   # unconditional "@media (prefers-color-scheme: dark)" block with no
   # attribute or class of its own) stays its own variant instead of
   # contaminating light.
+  #
+  # A selector-origin theme is live under every OS color scheme, and each
+  # media block only applies under its own scheme, so such a theme is
+  # resolved once per OS state (each media name, plus no media match) and
+  # every distinct result is kept as its own variant: merging the states
+  # into one map would let one scheme's override hide a failure in another.
+  def build_variants(theme, base_entries, theme_entries, media_entries, selector_origin_names)
+    unless selector_origin_names.include?(theme) && !media_entries.empty?
+      return [ build_variant(theme, base_entries, theme_entries, media_entries, selector_origin_names) ].compact
+    end
+
+    seen = {}
+    ([ nil ] + media_entries.keys).each do |os|
+      scoped = media_entries.select { |name, _| name == os }
+      variant = build_variant(theme, base_entries, theme_entries, scoped, selector_origin_names)
+      next unless variant
+
+      variant = variant.with(contexts: variant.contexts + [ "os #{os || 'none'}" ])
+      seen[variant.decls] ||= variant
+    end
+    seen.values
+  end
+
   def build_variant(theme, base_entries, theme_entries, media_entries, selector_origin_names)
     candidates = Hash.new { |h, k| h[k] = [] }
 

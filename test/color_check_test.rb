@@ -231,7 +231,7 @@ class ColorCheckTest < Minitest::Test
       pending: false },
     { id: "adv1-media-theme-not-combined-with-attr-variant", cls: :theme_contexts,
       files: { "tokens.css" => ":root{--bg:#fff;--text:#000}\n@media (prefers-color-scheme: dark){:root{--bg:#000;--text:#fff}}\n:root[data-theme=\"light\"]{--bg:#fff}\n" },
-      contrast: [ [ "light", "--text", "--bg", 1.0 ], [ "dark", "--text", "--bg", 21.0 ] ],
+      contrast: [ [ "light", "--text", "--bg", 1.0 ], [ "light", "--text", "--bg", 21.0 ], [ "dark", "--text", "--bg", 21.0 ] ],
       pending: false },
     { id: "adv1-style-media-attribute-ignored", cls: :theme_contexts,
       files: { "index.html" => "<html><head>\n<style>:root{--bg:#fff;--text:#000}</style>\n<style media=\"(prefers-color-scheme: dark)\">:root{--bg:#000;--text:#777}</style>\n</head></html>\n" },

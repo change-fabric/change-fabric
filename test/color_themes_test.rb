@@ -172,4 +172,17 @@ class ColorThemesTest < Minitest::Test
     assert_equal :theme, kind
     assert_equal "dark", name
   end
+
+  def test_selector_theme_resolved_per_os_state
+    css = ':root { --bg: #fff; --text: #000; } ' \
+          '@media (prefers-color-scheme: dark) { :root { --bg: #000; --text: #fff; } } ' \
+          '@media (prefers-color-scheme: light) { :root { --text: #111; } } ' \
+          '[data-theme="light"] { --bg: #000; }'
+    lights = build(css).variants.select { |v| v.theme == "light" }
+    texts = lights.map { |v| [ v.decls["--bg"], v.decls["--text"] ] }.sort
+    assert_includes texts, [ "#000", "#000" ], "no-media state keeps base text"
+    assert_includes texts, [ "#000", "#111" ], "OS light state"
+    assert_includes texts, [ "#000", "#fff" ], "OS dark state"
+    assert_equal lights.size, lights.map(&:contexts).uniq.size, "each state labelled distinctly"
+  end
 end
