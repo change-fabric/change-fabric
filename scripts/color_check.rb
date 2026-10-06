@@ -136,10 +136,12 @@ module ColorCheck
       text = safe_read(file)
       next unless text
 
+      # In the token file, only custom-property declarations are exempt;
+      # ordinary rules there are scanned like any other file. Declarations
+      # are blanked over the whole text (keeping newlines) so multiline
+      # values are exempt and line numbers stay correct.
+      text = text.gsub(TOKEN_DECL) { |decl| decl.gsub(/[^\n]/, '') } if file == token_file
       text.each_line.with_index(1) do |line, lineno|
-        # In the token file, only custom-property declarations are exempt;
-        # ordinary rules there are scanned like any other file.
-        line = line.gsub(TOKEN_DECL, '') if file == token_file
         line.scan(LITERAL).each { findings << Finding.new(file:, line: lineno, kind: 'literal', text: line.strip) }
         line.scan(TAILWIND).each { findings << Finding.new(file:, line: lineno, kind: 'tailwind', text: line.strip) }
         line.scan(GRADIENT).each { findings << Finding.new(file:, line: lineno, kind: 'gradient', text: line.strip) }

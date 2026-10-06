@@ -138,6 +138,18 @@ class ColorCheckTest < Minitest::Test
     end
   end
 
+  def test_multiline_token_declaration_is_exempt_and_lines_stay_correct
+    with_dir do |dir|
+      css = FOUR_COLOR_TOKENS + ":root {\n  --brand:\n    #123456;\n}\n.x { color: #abcdef; }\n"
+      write(dir, "tokens.css", css)
+      report = ColorCheck.run(dir, tokens_override: File.join(dir, "tokens.css"))
+      literals = report.findings.select { |f| f.kind == "literal" }
+      assert_equal 1, literals.size
+      assert_includes literals.first.text, "#abcdef"
+      assert_equal css.lines.index { |l| l.include?("#abcdef") } + 1, literals.first.line
+    end
+  end
+
   def test_strict_exits_one_with_findings_and_zero_without
     with_dir do |dir|
       write(dir, "tokens.css", FOUR_COLOR_TOKENS)
