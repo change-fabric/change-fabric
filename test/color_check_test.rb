@@ -185,6 +185,29 @@ class ColorCheckTest < Minitest::Test
     end
   end
 
+  def test_dark_theme_override_resolves_against_root_palette_tokens
+    with_dir do |dir|
+      write(dir, "tokens.css", <<~CSS)
+        :root {
+          --cream: #ffffff;
+          --plum: #000000;
+          --bg: var(--cream);
+          --text: var(--plum);
+        }
+
+        :root[data-theme="dark"] {
+          --bg: var(--plum);
+          --text: var(--cream);
+        }
+      CSS
+      report = ColorCheck.run(dir)
+      pair = report.contrast.find { |c| c.theme == "dark" && c.text_token == "--text" }
+      refute_nil pair
+      assert pair.resolved
+      assert_in_delta 21.0, pair.ratio, 0.01
+    end
+  end
+
   def test_contrast_unresolvable_pair_listed_as_unresolved
     with_dir do |dir|
       write(dir, "tokens.css", <<~CSS)

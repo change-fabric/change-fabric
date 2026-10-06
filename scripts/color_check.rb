@@ -154,11 +154,15 @@ module ColorCheck
   def compute_contrast(token_file)
     text = safe_read(token_file) || ''
     results = []
+    base_decls = nil
 
     text.scan(THEME_BLOCK) do |(body)|
       theme_label = theme_label_for(text, body)
-      decls = {}
-      body.scan(TOKEN_DECL) { |name, value| decls[name] = value.strip }
+      own = {}
+      body.scan(TOKEN_DECL) { |name, value| own[name] = value.strip }
+      # Theme blocks inherit the base :root declarations, then override.
+      decls = base_decls ? base_decls.merge(own) : own
+      base_decls ||= own if theme_label == 'light'
 
       bg_name = decls.keys.find { |n| n.match?(BG_NAME) }
       bg_color = bg_name && resolve_color(decls[bg_name], decls, bg_color: '#ffffff')
