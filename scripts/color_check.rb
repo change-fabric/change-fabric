@@ -68,6 +68,7 @@ module ColorCheck
   BG_EXACT = %w[--bg --background --surface].freeze
   BG_NAME = /(?:^--|-)(?:bg|background|surface)(?:-|$)/i.freeze
   STYLE_BLOCK = /<style(?:\s+[^>]*)?>(.*?)<\/style>/mi.freeze
+  HTML_COMMENT = /<!--.*?-->/m.freeze
 
   Finding = Data.define(:file, :line, :kind, :text)
   Palette = Data.define(:file, :authored, :derived, :error_token)
@@ -132,19 +133,37 @@ module ColorCheck
     nil
   end
 
+  # A <style> block inside an HTML comment is inert (repro "comments never
+  # count", in markup form), so comments are blanked out (replaced with
+  # spaces, newlines kept so reported lines stay true) before scanning for
+  # STYLE_BLOCK; a style tag that only ever existed inside the comment
+  # disappears along with it. A style tag's own media= attribute is honored
+  # by wrapping that block's declarations in a synthetic "@media <value>"
+  # context, the same shape ColorThemes already reads off a real @media
+  # frame, so a dark-only <style media="(prefers-color-scheme: dark)">
+  # block is scoped to dark instead of merging into the unconditional base.
   def style_block_sheet(text)
     decls = []
     at_rule_stmts = []
     errors = []
-    text.scan(STYLE_BLOCK) do
+    scan_text = text.gsub(HTML_COMMENT) { |m| m.gsub(/[^\n]/, ' ') }
+    scan_text.scan(STYLE_BLOCK) do
       m = Regexp.last_match
       tag = m[0][/\A<style[^>]*>/mi] || '<style>'
       lang = tag[/lang\s*=\s*["']?(scss|less)["']?/i, 1]
       dialect = lang ? lang.downcase.to_sym : :css
-      line_offset = text[0...m.begin(1)].count("\n")
+      media = tag[/\bmedia\s*=\s*["']([^"']*)["']/i, 1]
+      line_offset = scan_text[0...m.begin(1)].count("\n")
       sub = ColorCss.parse(m[1], dialect:, line_offset:)
-      decls.concat(sub.decls)
-      at_rule_stmts.concat(sub.at_rule_stmts)
+      sub_decls = sub.decls
+      sub_stmts = sub.at_rule_stmts
+      if media && !media.strip.empty?
+        frame = "@media #{media.strip}".gsub(/\s+/, ' ')
+        sub_decls = sub_decls.map { |d| d.with(at_rules: [ frame ] + d.at_rules) }
+        sub_stmts = sub_stmts.map { |a| a.with(at_rules: [ frame ] + a.at_rules) }
+      end
+      decls.concat(sub_decls)
+      at_rule_stmts.concat(sub_stmts)
       errors.concat(sub.errors)
     end
     return nil if decls.empty? && at_rule_stmts.empty? && errors.empty?

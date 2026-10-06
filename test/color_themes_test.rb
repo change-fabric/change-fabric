@@ -162,7 +162,7 @@ class ColorThemesTest < Minitest::Test
   def test_classify_root_bare_is_base
     sheet = ColorCss.parse(":root { --bg: #fff; }")
     decl = sheet.decls.first
-    assert_equal [ :base ], ColorThemes.classify(":root", decl)
+    assert_equal [ :base, [] ], ColorThemes.classify(":root", decl)
   end
 
   def test_classify_data_theme_root_is_theme

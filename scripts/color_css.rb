@@ -101,6 +101,7 @@ module ColorCss
       @line = 1
       @segment = +''
       @segment_start_line = 1
+      @interp_depth = 0
     end
 
     def parse
@@ -130,7 +131,18 @@ module ColorCss
         scan_close_paren
       when ';', '{', '}'
         @scanner.getch
-        if @paren_depth.positive?
+        if @interp_depth.positive?
+          @interp_depth += 1 if ch == '{'
+          @interp_depth -= 1 if ch == '}'
+          @segment << ch
+        elsif ch == '{' && scss_like? && @segment.end_with?('#')
+          # SCSS interpolation ("#{...}"), the form Sass requires for a
+          # custom property value built from a variable. It is not a block
+          # opener: track it as an opaque, balanced span of literal text so
+          # the declaration keeps going, the same way a paren group does.
+          @interp_depth = 1
+          @segment << ch
+        elsif @paren_depth.positive?
           @segment << ch
         else
           dispatch_terminator(ch)
