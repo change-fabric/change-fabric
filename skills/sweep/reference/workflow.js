@@ -383,11 +383,13 @@ function eligibilityReasons(pr, entry) {
   if (pr.ciState === "green" && !pr.noCi && (pr.completedChecks ?? 0) < 1) {
     reasons.push("no completed check runs for this head SHA")
   }
-  if (pr.mergeable === "CONFLICTING" || pr.mergeable === "UNKNOWN") {
-    reasons.push("gh reports mergeable " + pr.mergeable)
+  // Fail closed: require positive mergeability evidence, not merely the
+  // absence of a known-bad value (both fields are optional in FACTS_SCHEMA).
+  if (pr.mergeable !== "MERGEABLE") {
+    reasons.push("gh reports mergeable " + (pr.mergeable || "missing"))
   }
-  if (pr.mergeStateStatus === "DIRTY" || pr.mergeStateStatus === "BLOCKED") {
-    reasons.push("gh reports mergeStateStatus " + pr.mergeStateStatus)
+  if (!["CLEAN", "HAS_HOOKS", "UNSTABLE"].includes(pr.mergeStateStatus)) {
+    reasons.push("gh reports mergeStateStatus " + (pr.mergeStateStatus || "missing"))
   }
   if (pr.stackedOn) reasons.push("stacked on PR #" + pr.stackedOn)
   if (conflictedNumbers.has(pr.number)) reasons.push("verified conflict with another in-scope PR")
