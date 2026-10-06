@@ -29,6 +29,8 @@ class UnattendedGatesTest < Minitest::Test
   # citing those would be noise, not signal.
   SCANNED_HEADING = Regexp.new(%q{^#{1,3}\s*(.*\b(Failure modes|Workflow|Steps|Phase \d+)\b.*)$}, Regexp::IGNORECASE)
 
+  GATES_HEADING = Regexp.new(%q(^#{1,3} Unattended gates\s*$))
+  ANY_HEADING = Regexp.new(%q(^#{1,3}\s))
   CITE_RE = /\[([A-Z]{2,3}-\d+)\]/
   GATE_WORD_RE = /\b(push|approv|merg|resolv|trust)\w*/i
 
@@ -39,7 +41,7 @@ class UnattendedGatesTest < Minitest::Test
   def test_every_skill_has_exactly_one_gates_table
     SKILLS.each_key do |name|
       text = skill_md(name)
-      headings = text.scan(Regexp.new(%q(^#{1,3} Unattended gates\s*$)))
+      headings = text.scan(GATES_HEADING)
       assert_equal 1, headings.size, "#{name}/SKILL.md must have exactly one '## Unattended gates' heading"
     end
   end
@@ -136,7 +138,7 @@ class UnattendedGatesTest < Minitest::Test
         next
       end
 
-      if !in_fence && line =~ Regexp.new(%q(^#{1,3}\s))
+      if !in_fence && line =~ ANY_HEADING
         bodies << current if current
         current = (line =~ SCANNED_HEADING) ? +"" : nil
         in_table = false
@@ -166,7 +168,7 @@ class UnattendedGatesTest < Minitest::Test
         buf = +""
       elsif line =~ /^\s*(-|\d+[a-z]?\.)\s/ && !buf.strip.empty?
         items << buf
-        buf = +"".dup
+        buf = +""
         buf << line
       else
         buf << line
