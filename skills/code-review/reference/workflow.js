@@ -217,7 +217,10 @@ const shardResults = await pipeline(
       ).then((v) => (v ? { ...c, ...v } : null))
     ))
     const survivors = verified.filter(Boolean).filter((f) => f.reproduced)
-    return { shard: found.shard, findings: survivors, incomplete: found.incomplete }
+    // A null Verify result is an unchecked candidate, not a refuted one: the
+    // shard must not claim full coverage when any verdict is missing.
+    const verifyMissing = verified.some((v) => !v)
+    return { shard: found.shard, findings: survivors, incomplete: found.incomplete || verifyMissing }
   },
   async (verified) => {
     const p1s = verified.findings.filter((f) => f.tier === "P1")

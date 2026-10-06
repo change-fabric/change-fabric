@@ -157,4 +157,15 @@ class WorkflowNullHarnessTest < Minitest::Test
       assert result.key?("incomplete"), "#{key}: result does not carry an incomplete flag at all"
     end
   end
+
+  # Every Find lens and every Verify verdict on the shard actually reviewed
+  # gates coverage: a null at any of them must surface as incomplete.
+  def test_code_review_null_find_or_verify_marks_shard_incomplete
+    %w[core:rubric#1 core:general#1 a.js:10#1 b.js:20#1].each do |key|
+      result = run_harness("code-review", null: key).fetch("result")
+      assert_equal true, result["incomplete"], "#{key}: null result still reported full coverage"
+      assert_includes result["incompleteShards"], "core", "#{key}: core shard not named incomplete"
+    end
+    assert_equal false, run_harness("code-review").fetch("result")["incomplete"], "happy path reported incomplete"
+  end
 end
