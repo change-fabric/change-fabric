@@ -362,4 +362,13 @@ class ColorCheckTest < Minitest::Test
       assert_equal 0, report.exit_code
     end
   end
+
+  def test_final_declaration_without_semicolon_stops_at_brace
+    with_dir do |dir|
+      write(dir, "tokens.css", ":root { --bg: #fff; --last: #555 }\n.hero { color: #abcdef; }\n")
+      report = ColorCheck.run(dir, tokens_override: File.join(dir, "tokens.css"))
+      assert report.findings.any? { |f| f.text.include?("#abcdef") }
+      assert(report.palette.authored.any? { |a| a[:names].include?("--last") })
+    end
+  end
 end

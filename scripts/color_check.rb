@@ -21,7 +21,7 @@ module ColorCheck
   ERROR_TOKEN = '--error'
   TARGET = 4
 
-  TOKEN_DECL = /(--[\w-]+)\s*:\s*([^;]+);/.freeze
+  TOKEN_DECL = /(--[\w-]+)\s*:\s*([^;}]+)(?:;|(?=\}))/.freeze
   THEME_BLOCK = /:root(?:\[data-theme=["'][\w-]+["']\]|:not\([^)]*\))?\s*\{([^}]*)\}/m.freeze
   COLOR_MIX_SRGB = /color-mix\(\s*in\s+srgb\s*,\s*([^,]+?)\s+(\d+(?:\.\d+)?)%\s*,\s*([^)]+?)\s*\)/.freeze
   HEX = /^#(\h{3,4}|\h{6}|\h{8})$/.freeze
