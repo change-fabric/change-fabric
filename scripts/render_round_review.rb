@@ -14,11 +14,21 @@ require_relative 'render_finding_comment'
 class RenderRoundReview
   CORE_CAP = 640
   HEADER_PREFIX = '**Root cause review - '
-  # Any machine-local reference: a home shorthand, the .claude tree, a
-  # file:// URL, a Windows drive path, or an absolute POSIX path of two or
-  # more segments. The lookbehind keeps URL paths (https://host/a/b),
-  # repo-relative paths (scripts/x.rb) and slash commands (/cf:plan) legal.
-  LOCAL_PATH = %r{~/|\$\{?HOME\b|\.claude/|file://|\b[A-Za-z]:\\|(?<![\w.:/~-])/[\w.@+-]+/}
+  # Every machine-local path shape, one named entry each, so a new form is
+  # one added line plus its test example rather than a regex rewrite. The
+  # POSIX lookbehind keeps URL paths (https://host/a/b), repo-relative paths
+  # (scripts/x.rb) and slash commands (/cf:plan) legal; \b before a drive
+  # letter keeps https:// from reading as a drive.
+  LOCAL_PATH_SHAPES = {
+    home_shorthand: %r{~/},
+    home_variable: /\$\{?HOME\b/,
+    claude_tree: %r{\.claude/},
+    file_url: %r{file://},
+    drive_path: %r{\b[A-Za-z]:[\\/]},
+    unc_share: %r{(?:\\\\|(?<![\w:/])//)[\w.$-]+[\\/][\w.$-]+},
+    posix_absolute: %r{(?<![\w.:/~-])/[\w.@+-]+/}
+  }.freeze
+  LOCAL_PATH = Regexp.union(LOCAL_PATH_SHAPES.values)
   FOLDED_LEAD = 'Also found this round: '
 
   def initialize(input)
