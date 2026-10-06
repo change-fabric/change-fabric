@@ -43,9 +43,9 @@ module ColorCheck
     over_target = palette && (palette.authored.size > TARGET)
     exit_code = if strict && (over_target || !findings.empty?)
                   1
-                else
+    else
                   0
-                end
+    end
 
     Report.new(palette:, findings:, contrast:, exit_code:)
   end
@@ -202,9 +202,9 @@ module ColorCheck
       a = resolve_token_or_literal(a_raw, decls, bg_color:)
       b = if b_raw == 'transparent'
             bg_color
-          else
+      else
             resolve_token_or_literal(b_raw, decls, bg_color:)
-          end
+      end
       return nil unless a && b
 
       return mix_hex(a, b, pct)
@@ -243,20 +243,20 @@ module ColorCheck
   def hex_rgb(hex)
     h = hex.delete_prefix('#')
     h = h.chars.each_slice(1).map { |c| c.first * 2 }.join if h.length == 3
-    [h[0, 2].to_i(16), h[2, 2].to_i(16), h[4, 2].to_i(16)]
+    [ h[0, 2].to_i(16), h[2, 2].to_i(16), h[4, 2].to_i(16) ]
   end
 
   def contrast_ratio(hex_a, hex_b)
     la = relative_luminance(hex_a)
     lb = relative_luminance(hex_b)
-    lighter = [la, lb].max
-    darker = [la, lb].min
+    lighter = [ la, lb ].max
+    darker = [ la, lb ].min
     (lighter + 0.05) / (darker + 0.05)
   end
 
   def relative_luminance(hex)
     r, g, b = hex_rgb(hex).map { |c| c / 255.0 }
-    rl, gl, bl = [r, g, b].map { |c| c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055)**2.4 }
+    rl, gl, bl = [ r, g, b ].map { |c| c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055)**2.4 }
     0.2126 * rl + 0.7152 * gl + 0.0722 * bl
   end
 
@@ -278,9 +278,9 @@ module ColorCheck
       diff = n - TARGET
       distance = if diff <= 0
                    "#{n} authored colors; target is #{TARGET} plus optional --error (at or under target)"
-                 else
+      else
                    "#{n} authored colors; target is #{TARGET} plus optional --error (#{diff} above target)"
-                 end
+      end
       lines << ''
       lines << 'Distance from target:'
       lines << "  #{distance}"
