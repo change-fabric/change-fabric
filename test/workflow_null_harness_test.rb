@@ -66,7 +66,7 @@ class WorkflowNullHarnessTest < Minitest::Test
   NO_THROW_TODO = {
     "resolve-threads" => [], # already null-safe at every reachable call site
     "drive" => [], # relevance is null-checked at every lane now
-    "sweep" => %w[Infra#1 Order#1], # fixed in Phase 4: infra.gates / plan.order throw when null
+    "sweep" => [], # infra and order agent nulls are handled now (Phase 4)
     "code-review" => %w[Shard#1] # fixed in Phase 5: map.shards throws when null
   }.freeze
 
@@ -131,7 +131,6 @@ class WorkflowNullHarnessTest < Minitest::Test
   end
 
   def test_sweep_merge_queue_holds_only_safe_prs
-    skip "fixed in Phase 4"
     happy_keys("sweep").each do |key|
       result = run_harness("sweep", null: key).fetch("result")
       queue = result.fetch("autoMergeQueue")

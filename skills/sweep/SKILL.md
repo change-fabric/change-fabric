@@ -72,7 +72,10 @@ Whenever the in-scope set has any PR author other than the primary
 contributor, the sweep needs a trust policy per non-primary contributor, even
 when that author is the only one in the set. The primary contributor is
 the current git user (`git config user.email`, matched against PR authors via
-`gh api user --jq .login`); everyone else needs a recorded level.
+`gh api user --jq .login`); everyone else needs a recorded level. When either
+lookup fails (no `git config user.email`, or `gh api user` errors), there is
+no primary contributor to exempt: every in-scope author is treated as
+non-primary and needs a recorded level before auto mode runs.
 
 The decision is durable, not session-scoped. Unlike the cf merge mode, which
 `~/.claude/cf/sessions/<session_id>/merge-mode` deliberately scopes to one
@@ -192,12 +195,24 @@ of trunk after the last merge of a tick.
    thorough, which plans instead of landing), with the inline instruction
    `nested under cf:sweep` (cf:drive runs straight through by default; the
    instruction makes a recurrence stop record a pointer instead of starting
-   cf:plan). For a `low` trust PR (`requiresStrictReview`), additionally
-   require the `cf:change` comprehensive run to have passed for the head SHA
-   before merging, not just CI green. Merge, then re-fetch trunk before the
+   cf:plan). When the plan's action is `rebase_then_merge`, that instruction
+   also tells drive to rebase the branch (on trunk or on the earlier PR the
+   order names) before driving it, and drive pushes the rebase to the
+   contributor's own branch; sweep never rebases or pushes by itself. Read
+   drive's emitted `drive-result` block (`ciGreen`, `headSha`, `stoppedReason`)
+   rather than inferring state from its prose; merge only when `ciGreen` is
+   true, `headSha` matches the PR's current head, and `stoppedReason` is
+   absent, regardless of whether drive approved (drive may skip approval on
+   its own PR, which is not a reason to withhold the merge). For a `low`
+   trust PR (`requiresStrictReview`), the nested instruction forces drive's
+   `cf:change` lane on regardless of drive's own relevance call, and merging
+   additionally requires a passing comprehensive `cf:change` run recorded for
+   the head SHA; a missing record holds the PR rather than merging on CI
+   green alone. Merge, then re-fetch trunk before the
    next PR: the next PR's mergeability changed the moment this one landed. If
-   a merge fails, `cf:drive` cannot reach green, or it stops on recurrence,
-   stop the queue, report, and leave the rest for the next sweep; do not skip
+   a merge fails, `cf:drive`'s `drive-result` reports `stoppedReason`, or it
+   stops on recurrence, stop the queue, report, and leave the rest for the next
+   sweep; do not skip
    ahead, because the order was computed as a sequence.
 8. **(SKILL.md)** After the last merge, report what landed, what is left, and
    any gate (a `terraform apply`, a breaking migration) still waiting on a
@@ -236,8 +251,11 @@ depend on it until a human reports it done.
   applied in the report; do not present the heuristic's scope as authoritative.
 - Empty sweep set (no open feature PRs): report and stop at step 1. Under loop
   mode this is the normal steady state and should be one line, not a report.
-- One author only: no trust question fires at all, and the order is decided on
-  dependency, conflict, and risk alone.
+- One author only, and that author is the primary contributor: no trust
+  question fires, and the order is decided on dependency, conflict, and risk
+  alone. A sole author who is not the primary contributor still gets a
+  recorded level first, per step 2; this is not a contradiction of the
+  single-author case above, only a restriction of it.
 - An author recorded as `blocked`: their PRs are always gathered and always
   ordered, so the report stays honest about what is open, but they never enter
   `autoMergeQueue` and the report says why.

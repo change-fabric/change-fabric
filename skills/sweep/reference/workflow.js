@@ -60,7 +60,11 @@ const FACTS_SCHEMA = {
     migrationPaths: { type: "array", items: { type: "string" } },
     migrationCompatibility: { type: "string", enum: [ "additive", "breaking", "unknown", "none" ] },
     risk: { type: "string", enum: [ "low", "medium", "high" ] },
-    summary: { type: "string" }
+    summary: { type: "string" },
+    mergeable: { type: "string" },
+    mergeStateStatus: { type: "string" },
+    completedChecks: { type: "number" },
+    noCi: { type: "boolean" }
   },
   required: [
     "number", "author", "changedFiles", "ciState", "behindTrunk",
@@ -140,12 +144,21 @@ const changeConfigSummary = scope.changeConfigSummary ?? null
 // Trust is ordinal and drives two separate things: where a PR sorts in the
 // order, and whether it may enter the auto-merge path at all. Kept here rather
 // than left to the Order agent's prose reading of the levels so both uses read
-// the same scale.
-const TRUST_RANK = { high: 0, standard: 1, low: 2, blocked: 3 }
-const DEFAULT_TRUST = "standard"
+// the same scale. There is no default trust level: an author this sweep has
+// no recorded level for is unknown, not standard, and unknown is blocked
+// (Decision 13). SKILL.md step 2 is responsible for asking about every
+// unknown contributor before auto mode runs; this script never guesses.
+const TRUST_RANK = { high: 0, standard: 1, low: 2, blocked: 3, unknown: 4 }
 
 function trustOf(author) {
-  return trust[author] ?? DEFAULT_TRUST
+  return trust[author] ?? "unknown"
+}
+
+// gh's own identity fields for a PR always win over whatever the gather
+// agent reports back, so a hallucinated author or head ref can never steer
+// trust lookup or the merge queue (Decision 14).
+function identity(pr) {
+  return { number: pr.number, author: pr.author, headRef: pr.headRef, headRefOid: pr.headRefOid }
 }
 
 const INFRA_CONVENTIONS =
@@ -171,7 +184,10 @@ const gathered = await parallel(prs.map((pr) => () =>
     "author " + pr.author + ".\n\n" +
     "Run the real commands, do not infer: `gh pr view " + pr.number + " --json files,additions," +
     "deletions,author,isDraft,mergeable,mergeStateStatus`, `gh pr checks " + pr.number + "` for the " +
-    "check state and the names of any failing check, and `git -C " + repoPath + " rev-list --count " +
+    "check state, the names of any failing check, and completedChecks (how many checks have finished, " +
+    "not pending); set noCi true only when the repo has zero CI workflow files under " +
+    ".github/workflows, and if so leave completedChecks at 0 and ciState \"none\" rather than treating " +
+    "an absent check run as green. Also run `git -C " + repoPath + " rev-list --count " +
     pr.headRef + "..origin/" + trunk + "` for how far behind trunk the head is (fetch first). " +
     "Set stackedOn to the number of another open PR in this set whose head branch this branch is " +
     "built on (its merge-base with that head is ahead of trunk), or omit it when the branch comes " +
@@ -181,7 +197,9 @@ const gathered = await parallel(prs.map((pr) => () =>
     "read in a merge queue, not a restatement of the title.\n\n" +
     "Open PRs in this sweep: " + prs.map((p) => "#" + p.number + " " + p.headRef).join(", "),
     { phase: "Gather", label: "#" + pr.number, schema: FACTS_SCHEMA }
-  ).then((f) => (f ? { ...pr, ...f } : { ...pr, gatherFailed: true, changedFiles: [], ciState: "none", risk: "high", summary: "gather agent returned no result" }))
+  ).then((f) => (f
+    ? { ...pr, ...f, ...identity(pr) }
+    : { ...pr, gatherFailed: true, changedFiles: [], ciState: "none", risk: "high", summary: "gather agent returned no result", ...identity(pr) }))
 ))
 
 const facts = gathered.filter(Boolean)
@@ -238,7 +256,7 @@ phase("Infra")
 // module that three PRs consume has to be applied before them, and that is not
 // visible from any one PR.
 const infraCandidates = facts.filter((f) => f.touchesInfra || f.touchesMigrations)
-const infra = infraCandidates.length === 0
+const infraResult = infraCandidates.length === 0
   ? { gates: [], notes: "No PR in this sweep touches infrastructure-as-code or a migration." }
   : await agent(
       "Decide the infrastructure and schema sequencing constraints across this whole set of open " +
@@ -268,11 +286,23 @@ const infra = infraCandidates.length === 0
       { model: "opus", phase: "Infra", schema: INFRA_SCHEMA }
     )
 
+// A null infra agent result must never read as "no gates": every candidate
+// that touches infra or a migration is gated until checked by hand (row 27).
+const infra = infraResult || {
+  gates: infraCandidates.map((f) => ({
+    kind: f.touchesMigrations ? "migration" : "terraform",
+    description: "infra/migration sequencing agent returned no result; gated until checked by hand",
+    appliesTo: [ f.number ],
+    severity: "blocking"
+  })),
+  notes: "Infra/migration sequencing agent returned no result; every touching PR is gated."
+}
+
 phase("Order")
 // The second barrier and the point of the whole sweep: one order for the set,
 // weighing conflicts, infra gates, CI state, staleness, size, and trust
 // together. No per-PR call can produce this.
-const plan = await agent(
+const planResult = await agent(
   "Produce the landing order for this set of open feature pull requests targeting " + trunk +
   " in " + repoPath + ". Order the whole set; do not evaluate them one at a time.\n\n" +
   "Weigh, in this priority: (1) hard dependencies, a stacked branch cannot land before its base " +
@@ -284,7 +314,9 @@ const plan = await agent(
   "high means priority in the order and the benefit of the doubt in a conflict; standard means " +
   "normal review and no priority; low means deprioritized and a stricter verification bar " +
   "(cf:code-review plus a cf:change run) before it may land; blocked means it never enters the " +
-  "auto-merge path and waits for a human. An author with no recorded level is treated as standard.\n\n" +
+  "auto-merge path and waits for a human. An author with no recorded level is unknown, not " +
+  "standard; treat unknown exactly like blocked, never entering the auto-merge path, and say in " +
+  "the rationale that the level was never recorded.\n\n" +
   "Actions: merge means it is ready as-is; rebase_then_merge means it needs to be rebased on " +
   trunk + " or on an earlier PR in this order first, and say which in the rationale; hold means it " +
   "should not land in this sweep, say what would unblock it; needs_human means the call is not " +
@@ -312,37 +344,98 @@ const plan = await agent(
   { model: "opus", phase: "Order", schema: ORDER_SCHEMA }
 )
 
+// A null order agent result must never fall through to an empty order read
+// as "nothing to hold": every gathered PR is held until a real order exists.
+const plan = planResult || {
+  order: [],
+  strategy: "order agent returned no result; every PR held for a human",
+  warnings: [ "order agent returned no result" ]
+}
+
 // Auto-merge eligibility is decided here, not in the Order agent's prose. A
-// blocked author, a red or pending CI, a draft, or a blocking infra gate are
-// hard exclusions the synthesis must not be able to argue past, the same way
-// cf:drive's blocking lanes override its recheck agent.
+// blocked or unknown author, a red or pending CI, a draft, a conflict, a
+// stacked dependency, an unmergeable PR, or any infra/migration gate
+// (blocking or advisory, since an advisory gate the agent raised is still a
+// real sequencing risk it chose not to escalate) are hard exclusions the
+// synthesis must not be able to argue past, the same way cf:drive's blocking
+// lanes override its recheck agent.
 const gatedNumbers = new Set(
-  (infra.gates || [])
-    .filter((g) => g.severity === "blocking")
-    .flatMap((g) => g.appliesTo || [])
+  (infra.gates || []).flatMap((g) => g.appliesTo || [])
+)
+
+const conflictedNumbers = new Set(
+  conflicts.filter((c) => c.conflicts).flatMap((c) => [ c.a, c.b ])
 )
 
 const byNumber = new Map(facts.map((f) => [ f.number, f ]))
-const ordered = (plan.order || []).map((entry, index) => {
-  const pr = byNumber.get(entry.number) || {}
-  const level = trustOf(pr.author)
+
+function eligibilityReasons(pr, entry) {
   const reasons = []
+  if (!pr || pr.gatherFailed) {
+    reasons.push("fact gathering failed")
+    return reasons
+  }
+  const level = trustOf(pr.author)
   if (level === "blocked") reasons.push("author trust is blocked")
+  if (level === "unknown") reasons.push("author trust was never recorded")
   if (pr.isDraft) reasons.push("PR is a draft")
   if (pr.ciState !== "green") reasons.push("CI is " + (pr.ciState || "unknown"))
-  if (pr.gatherFailed) reasons.push("fact gathering failed")
-  if (gatedNumbers.has(entry.number)) reasons.push("blocked by an infra or migration gate")
-  if (entry.action === "hold" || entry.action === "needs_human") reasons.push("plan action is " + entry.action)
+  if (pr.ciState === "green" && !pr.noCi && (pr.completedChecks ?? 0) < 1) {
+    reasons.push("no completed check runs for this head SHA")
+  }
+  if (pr.mergeable === "CONFLICTING" || pr.mergeable === "UNKNOWN") {
+    reasons.push("gh reports mergeable " + pr.mergeable)
+  }
+  if (pr.mergeStateStatus === "DIRTY" || pr.mergeStateStatus === "BLOCKED") {
+    reasons.push("gh reports mergeStateStatus " + pr.mergeStateStatus)
+  }
+  if (pr.stackedOn) reasons.push("stacked on PR #" + pr.stackedOn)
+  if (conflictedNumbers.has(pr.number)) reasons.push("verified conflict with another in-scope PR")
+  if (pr.touchesMigrations && (pr.migrationCompatibility === "unknown" || pr.migrationCompatibility === "breaking")) {
+    reasons.push("migration compatibility is " + pr.migrationCompatibility)
+  }
+  if (gatedNumbers.has(pr.number)) reasons.push("blocked by an infra or migration gate")
+  if (entry && (entry.action === "hold" || entry.action === "needs_human")) {
+    reasons.push("plan action is " + entry.action)
+  }
+  return reasons
+}
+
+const orderedNumbers = new Set((plan.order || []).map((entry) => entry.number))
+const omitted = facts.filter((f) => !orderedNumbers.has(f.number))
+
+const fromPlan = (plan.order || []).map((entry, index) => {
+  const pr = byNumber.get(entry.number)
+  const level = pr ? trustOf(pr.author) : "unknown"
+  const reasons = eligibilityReasons(pr, entry)
   return {
     ...entry,
     position: index + 1,
-    author: pr.author,
+    author: pr && pr.author,
     trust: level,
     requiresStrictReview: level === "low",
     autoMergeEligible: reasons.length === 0,
     blockedReasons: reasons
   }
 })
+
+// Row 28: a PR the Order agent left out of `order` entirely is neither queued
+// nor silently dropped; it is appended as its own hold.
+const fromOmitted = omitted.map((f, index) => ({
+  number: f.number,
+  action: "hold",
+  rationale: "order agent omitted this PR from the landing order",
+  blockedBy: [],
+  warnAuthor: "",
+  position: fromPlan.length + index + 1,
+  author: f.author,
+  trust: trustOf(f.author),
+  requiresStrictReview: trustOf(f.author) === "low",
+  autoMergeEligible: false,
+  blockedReasons: [ "order omitted" ]
+}))
+
+const ordered = fromPlan.concat(fromOmitted)
 
 const queue = ordered.filter((e) => e.autoMergeEligible)
 const holds = ordered.filter((e) => !e.autoMergeEligible)
