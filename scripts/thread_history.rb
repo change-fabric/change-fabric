@@ -30,26 +30,31 @@ class ThreadHistory
   IMAGE_LINK = /!\[[^\]]*\]\([^)]*\)/
   SUB_TAG = %r{</?sub>}
 
+  # Both top-level connections page by cursor. A connection already
+  # exhausted is left out of later pages by its @include flag, so a long
+  # thread list never refetches the reviews it already has.
   QUERY = <<~GRAPHQL
-    query($owner: String!, $name: String!, $number: Int!) {
+    query($owner: String!, $name: String!, $number: Int!,
+          $reviewsAfter: String, $threadsAfter: String,
+          $withReviews: Boolean = true, $withThreads: Boolean = true) {
       viewer { login }
       repository(owner: $owner, name: $name) {
         pullRequest(number: $number) {
           number
           headRefOid
-          reviews(first: 100) {
-            pageInfo { hasNextPage }
+          reviews(first: 100, after: $reviewsAfter) @include(if: $withReviews) {
+            pageInfo { hasNextPage endCursor }
             nodes {
               id
               author { login }
               commit { oid }
               submittedAt
               body
-              comments(first: 100) { nodes { body path } }
+              comments(first: 100) { pageInfo { hasNextPage } nodes { body path } }
             }
           }
-          reviewThreads(first: 100) {
-            pageInfo { hasNextPage }
+          reviewThreads(first: 100, after: $threadsAfter) @include(if: $withThreads) {
+            pageInfo { hasNextPage endCursor }
             nodes {
               id
               isResolved
@@ -58,6 +63,7 @@ class ThreadHistory
               line
               originalLine
               comments(first: 100) {
+                pageInfo { hasNextPage }
                 nodes {
                   id
                   databaseId
@@ -73,6 +79,43 @@ class ThreadHistory
       }
     }
   GRAPHQL
+
+  # connection key => [cursor variable, include variable]
+  CONNECTIONS = {
+    'reviews' => %w[reviewsAfter withReviews],
+    'reviewThreads' => %w[threadsAfter withThreads]
+  }.freeze
+  MAX_PAGES = 20
+
+  # Appends one GraphQL page's connection nodes onto the pages gathered so
+  # far; each connection keeps the latest page's pageInfo, so a connection
+  # cut off by MAX_PAGES still reads hasNextPage and the result is truncated.
+  def self.merge_page(acc, page)
+    return page if acc.nil?
+
+    pr = acc.dig('repository', 'pullRequest')
+    page.dig('repository', 'pullRequest').slice(*CONNECTIONS.keys).each do |key, conn|
+      pr[key]['nodes'] += conn['nodes'] || []
+      pr[key]['pageInfo'] = conn['pageInfo']
+    end
+    acc
+  end
+
+  # The variables for the next page: the cursor of every connection with a
+  # next page, and the include flag off for every exhausted one. nil when
+  # every connection is exhausted.
+  def self.next_page_vars(page)
+    pr = page.dig('repository', 'pullRequest') || {}
+    vars = CONNECTIONS.each_with_object({}) do |(key, (after, include)), out|
+      info = pr.dig(key, 'pageInfo') || {}
+      if info['hasNextPage'] == true && info['endCursor']
+        out[after] = info['endCursor']
+      else
+        out[include] = false
+      end
+    end
+    vars if CONNECTIONS.values.any? { |(_, include)| vars[include] != false }
+  end
 
   URL_REF = %r{\Ahttps?://github\.com/([\w.-]+)/([\w.-]+)/pull/(\d+)(?:[/?#].*)?\z}
   SLUG_REF = %r{\A([\w.-]+)/([\w.-]+)#(\d+)\z}
@@ -114,8 +157,12 @@ class ThreadHistory
 
   private
 
+  # True when any connection, top-level or a review's or thread's comments,
+  # still has a page this history never read. Consumers must not treat an
+  # incomplete history as the whole story.
   def truncated?
-    [ @pr['reviews'], @pr['reviewThreads'] ].any? { |conn| conn&.dig('pageInfo', 'hasNextPage') == true }
+    nested = @reviews.map { |r| r['comments'] } + @threads.map { |t| t['comments'] }
+    ([ @pr['reviews'], @pr['reviewThreads'] ] + nested).any? { |conn| conn&.dig('pageInfo', 'hasNextPage') == true }
   end
 
   def comments(thread)
@@ -261,15 +308,34 @@ class ThreadHistory
 
     def run(argv, out: $stdout, err: $stderr, runner: GH)
       owner, name, number = resolve(argv.first, runner)
-      output, status = runner.call('gh', 'api', 'graphql', '-f', "owner=#{owner}", '-f', "name=#{name}",
-                                   '-F', "number=#{number}", '-f', "query=#{QUERY}")
-      raise output unless status.success?
-
-      out.puts JSON.pretty_generate(ThreadHistory.new(JSON.parse(output).fetch('data')).to_h)
+      out.puts JSON.pretty_generate(ThreadHistory.new(fetch(runner, owner, name, number)).to_h)
       0
     rescue StandardError => e
       err.puts "thread_history: #{e.message.strip}"
       1
+    end
+
+    # Follows both connections' cursors until each is exhausted, up to
+    # MAX_PAGES calls; past that the merged pageInfo keeps hasNextPage and
+    # the history reports itself truncated.
+    def fetch(runner, owner, name, number)
+      merged = nil
+      vars = {}
+      MAX_PAGES.times do
+        page = graphql(runner, owner, name, number, vars)
+        merged = ThreadHistory.merge_page(merged, page)
+        vars = ThreadHistory.next_page_vars(page) or break
+      end
+      merged
+    end
+
+    def graphql(runner, owner, name, number, vars)
+      args = [ '-f', "owner=#{owner}", '-f', "name=#{name}", '-F', "number=#{number}" ]
+      vars.each { |k, v| args += v.is_a?(String) ? [ '-f', "#{k}=#{v}" ] : [ '-F', "#{k}=#{v}" ] }
+      output, status = runner.call('gh', 'api', 'graphql', *args, '-f', "query=#{QUERY}")
+      raise output unless status.success?
+
+      JSON.parse(output).fetch('data')
     end
 
     def resolve(ref, runner)

@@ -46,8 +46,12 @@ run reports that it assumed the default.
    plan, skipped until a reviewer comments again), `priorThreads` (earlier
    threads we fixed, with their `Fixed in` sha), `rounds`, and
    `recurrence`. GitHub is the source of truth for history; do not keep a
-   local count. If `truncated` is true, say so in the report. If `threads`
-   is empty, report that (and any `deferred`) and stop.
+   local count. The script follows every page; `truncated` is true only
+   when some history is still unread (past its page cap, or a thread or
+   review with more than 100 comments). Then the thread list and the
+   recurrence are not the whole story: report `truncated` and stop without
+   replying or resolving. If `threads` is empty, report that (and any
+   `deferred`) and stop.
 2. **Get a real local checkout.** Fetch and check out the PR's head branch
    (not a detached `pull/<N>/head`, since fixes need to be committed and
    pushed on it) so `repoPath` is this checkout's absolute path and `headSha`
@@ -115,7 +119,11 @@ start cf:plan, and end the final message with one fenced `json` block the
 caller reads:
 
     {"fixed": 0, "wontFix": 0, "needsHuman": 0, "conflicts": 0,
-     "deferred": 0, "clusters": 0, "recurrence": false, "plan": null}
+     "deferred": 0, "clusters": 0, "recurrence": false, "plan": null,
+     "truncated": false}
+
+`truncated` is step 1's flag; when true the run stopped there and the
+counts are all zero.
 
 `deferred` counts threads this run deferred to a plan, i.e. replied
 `Deferred to plan <slug>.` (see step 1's `deferred` field and

@@ -349,6 +349,23 @@ class ThreadHistoryTest < Minitest::Test
     assert history(reviews: [], threads: [], head: "a", thread_next: true)["truncated"]
   end
 
+  # Every connection the query reads is a member of the class: the two
+  # top-level ones and the comments nested under a review or a thread.
+  def test_truncated_when_a_nested_comments_connection_has_a_next_page
+    more = { "hasNextPage" => true }
+    long_review = review(CODEX, "567bce1", comments: [ "x" ])
+    long_review["comments"]["pageInfo"] = more
+    assert history(reviews: [ long_review ], threads: [], head: "a")["truncated"]
+
+    long_thread = round1_threads(fixed: false).first
+    long_thread["comments"]["pageInfo"] = more
+    assert history(reviews: [], threads: [ long_thread ], head: "a")["truncated"]
+
+    review_done = review(CODEX, "567bce1", comments: [ "x" ])
+    review_done["comments"]["pageInfo"] = { "hasNextPage" => false }
+    refute history(reviews: [ review_done ], threads: round1_threads(fixed: false), head: "a")["truncated"]
+  end
+
   # -- 15. parse_ref ------------------------------------------------------------
 
   def test_parse_ref
@@ -410,6 +427,94 @@ class ThreadHistoryTest < Minitest::Test
     assert_equal 0, code
     assert_equal [ "gh", "pr", "view", "--json", "number,url" ], calls.first
     refute(calls.any? { |c| c[1] == "repo" })
+  end
+
+  # -- 17. pagination -----------------------------------------------------------
+
+  def page(reviews:, threads:, review_cursor: nil, thread_cursor: nil)
+    d = data(reviews: reviews || [], threads: threads || [], head: "e24f742",
+             review_next: !review_cursor.nil?, thread_next: !thread_cursor.nil?)
+    pr = d["repository"]["pullRequest"]
+    pr["reviews"]["pageInfo"]["endCursor"] = review_cursor
+    pr["reviewThreads"]["pageInfo"]["endCursor"] = thread_cursor
+    pr.delete("reviews") if reviews.nil?
+    pr.delete("reviewThreads") if threads.nil?
+    JSON.generate("data" => d)
+  end
+
+  def run_paged(pages)
+    queue = pages.dup
+    calls = []
+    runner = lambda do |*argv|
+      calls << argv
+      raise "unexpected extra graphql call" if queue.empty?
+
+      [ queue.shift, Status.new(true) ]
+    end
+    out = StringIO.new
+    code = ThreadHistory::CLI.run([ "o/r#237" ], out: out, err: StringIO.new, runner: runner)
+    [ code, JSON.parse(out.string), calls ]
+  end
+
+  def vars(call)
+    call.each_cons(2).filter_map { |flag, kv| kv if %w[-f -F].include?(flag) && !kv.start_with?("query=") }
+  end
+
+  # Each variant of a connection outrunning one page: threads only, reviews
+  # only, both at once, and both with different page counts.
+  def test_cli_follows_thread_cursors_and_drops_the_exhausted_reviews
+    t1, t2 = round2_threads.each_slice(2).to_a
+    code, h, calls = run_paged([ page(reviews: round2_reviews, threads: t1, thread_cursor: "T1"),
+                                 page(reviews: nil, threads: t2) ])
+    assert_equal 0, code
+    assert_equal 2, calls.size
+    assert_includes vars(calls[1]), "threadsAfter=T1"
+    assert_includes vars(calls[1]), "withReviews=false"
+    assert_equal 4, h["threads"].size
+    refute h["truncated"]
+  end
+
+  def test_cli_follows_review_cursors_and_drops_the_exhausted_threads
+    r1, r2 = round2_reviews.each_slice(3).to_a
+    threads = round1_threads(fixed: true) + round2_threads
+    code, h, calls = run_paged([ page(reviews: r1, threads: threads, review_cursor: "R1"),
+                                 page(reviews: r2, threads: nil) ])
+    assert_equal 0, code
+    assert_includes vars(calls[1]), "reviewsAfter=R1"
+    assert_includes vars(calls[1]), "withThreads=false"
+    assert_equal({ CODEX => 2 }, h["rounds"])
+    assert h["recurrence"]["fired"]
+    refute h["truncated"]
+  end
+
+  def test_cli_follows_both_cursors_until_each_is_exhausted
+    r1, r2, r3 = round2_reviews.each_slice(2).to_a
+    t1, t2 = (round1_threads(fixed: true) + round2_threads).each_slice(4).to_a
+    code, h, calls = run_paged([ page(reviews: r1, threads: t1, review_cursor: "R1", thread_cursor: "T1"),
+                                 page(reviews: r2, threads: t2, review_cursor: "R2"),
+                                 page(reviews: r3, threads: nil) ])
+    assert_equal 0, code
+    assert_equal 3, calls.size
+    assert_includes vars(calls[1]), "reviewsAfter=R1"
+    assert_includes vars(calls[1]), "threadsAfter=T1"
+    assert_includes vars(calls[2]), "reviewsAfter=R2"
+    assert_includes vars(calls[2]), "withThreads=false"
+    refute(vars(calls[2]).any? { |v| v.start_with?("threadsAfter=") })
+    assert_equal 4, h["threads"].size
+    assert_equal 4, h["priorThreads"].size
+    assert_equal({ CODEX => 2 }, h["rounds"])
+    refute h["truncated"]
+  end
+
+  def test_cli_stops_at_the_page_cap_and_reports_truncated
+    pages = Array.new(ThreadHistory::MAX_PAGES) do |i|
+      page(reviews: nil, threads: [ round2_threads.first.merge("id" => "PRRT_#{i}") ], thread_cursor: "T#{i}")
+    end
+    pages[0] = page(reviews: [], threads: [ round2_threads.first ], thread_cursor: "T0")
+    code, h, calls = run_paged(pages)
+    assert_equal 0, code
+    assert_equal ThreadHistory::MAX_PAGES, calls.size
+    assert h["truncated"]
   end
 
   def test_cli_returns_one_and_writes_stderr_when_gh_fails

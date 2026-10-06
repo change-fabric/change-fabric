@@ -73,7 +73,9 @@ reports that it assumed the default.
    worktrees can check out, not a moving branch name.
 
    For PR scope, also run `ruby ~/.claude/cf/bin/thread_history.rb
-   <owner>/<repo>#<n>` and keep its `reviewRound`. Check
+   <owner>/<repo>#<n>` and keep its `reviewRound`. If its `truncated` is
+   true, the round state is unknown: say so and run an ordinary first
+   round (skip the two checks below). Otherwise check
    `reviewRound.consolidatedAtHead` first: if true, a consolidated review
    already covers this head: report it and stop. Otherwise, if
    `reviewRound.secondRound` is true, this is a second round: follow

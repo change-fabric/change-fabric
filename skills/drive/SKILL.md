@@ -128,8 +128,9 @@ would-be-approved local state, and since nothing landed, also skips step
    `nested under cf:drive`: it runs straight through, replies and
    resolves, does not push (`cf:drive` owns the push), does not start
    cf:plan, and ends with its nested summary block. Capture the counts and
-   rationales for checkpoint 1. If the block's `plan` is not null, go to
-   step 2b.
+   rationales for checkpoint 1. If the block's `truncated` is true, the
+   review history is incomplete: stop and report it (no push, no
+   approval). If its `plan` is not null, go to step 2b.
 2b. **(SKILL.md) Recurrence stop.** The thread sweep found a plan-sized
    root cause behind recurring feedback; another fix loop would only add a
    round. Under `--signoff`, first ask a checkpoint-1 question summarizing
@@ -158,8 +159,8 @@ would-be-approved local state, and since nothing landed, also skips step
    2)** Post-loop thread sweep: once the Workflow call above returns,
    invoke `cf:resolve-threads` again the same way, to catch anything that
    landed on the PR while the loop was iterating. Fold its outcome into
-   checkpoint 1 alongside step 2's sweep. If its block's `plan` is not
-   null, take step 2b.
+   checkpoint 1 alongside step 2's sweep. A `truncated` block stops the
+   run as in step 2. If its `plan` is not null, take step 2b.
 8. **(SKILL.md)** Checkpoint 1. Only proceed once `ciPrediction.green` is
    true. Under `--signoff`: compose a summary, at most 640
    characters, combining `execSummaryDraft` with both thread-sweep
