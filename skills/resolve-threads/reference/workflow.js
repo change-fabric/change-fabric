@@ -285,20 +285,23 @@ const threadRef = (id) => {
   const v = byId.get(id)
   return { threadId: id, path: v.path, line: v.line, commentId: v.commentId, title: v.title }
 }
-// A cluster reported applied with no commit sha cannot produce the exact
-// `Fixed in <sha>.` reply the cluster branch promises, so it is routed to
-// conflicts (per thread) instead of left in clusters as if it had landed.
+// Only an apply result that is both applied and carries a commit sha has
+// landed: the caller replies `Fixed in <sha>.` and resolves every thread it
+// returns as fixed or as an in-run cluster. Every other result (applied
+// false, a missing result, or applied with no sha) is a conflict, so one
+// predicate routes both the per-thread and the cluster results.
+const landed = (r) => Boolean(r && r.applied && r.commitSha)
 const inRunClusters = clusterApplied
-  .filter((c) => !(c.applied && !c.commitSha))
+  .filter(landed)
   .map((c) => ({
     concernClass: c.concernClass, rootCause: c.rootCause, reply: c.reply,
     applied: c.applied, commitSha: c.commitSha, note: c.note, threads: c.threadIds.map(threadRef)
   }))
 const clusterConflicts = clusterApplied
-  .filter((c) => c.applied && !c.commitSha)
+  .filter((c) => !landed(c))
   .flatMap((c) => c.threadIds.map((id) => ({
     ...threadRef(id), applied: false,
-    note: c.note || "cluster reported applied with no commit sha"
+    note: c.note || (c.applied ? "cluster reported applied with no commit sha" : "cluster fix did not land")
   })))
 const planClusters = clusters.filter((c) => c.size === "plan").map((c) => ({
   concernClass: c.concernClass, rootCause: c.rootCause, threads: c.threadIds.map(threadRef)
@@ -320,10 +323,8 @@ if (planClusters.length > 0) {
   plan = { slug: slug, seededGoal: seededGoal, threadIds: planClusters.flatMap((c) => c.threads.map((t) => t.threadId)) }
 }
 
-// An entry reported applied with no commit sha cannot produce the exact
-// `Fixed in <sha>.` reply either, so it is a conflict, not a fix.
-const fixed = applied.filter((a) => a.applied && a.commitSha)
-const conflicts = applied.filter((a) => !a.applied || !a.commitSha).concat(clusterConflicts)
+const fixed = applied.filter(landed)
+const conflicts = applied.filter((a) => !landed(a)).concat(clusterConflicts)
 const wontFix = verdicts.filter((v) => v.action === "wont_fix" && !clustered.has(v.threadId))
 const needsHuman = verdicts.filter((v) => v.action === "needs_human" && !clustered.has(v.threadId))
 

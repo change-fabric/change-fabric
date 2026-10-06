@@ -81,9 +81,10 @@ run reports that it assumed the default.
    `recurrence.fired`. Continue without asking, unless `--signoff` was
    passed; then ask before replying, resolving, or pushing.
 5. **Commit.** The Workflow's Apply phase has already committed: one commit
-   per in-run cluster and one per unclustered `fixed` thread. An in-run
-   cluster with `applied: false` and every `conflicts` entry fold into
-   `needsHuman` for reporting and replies.
+   per in-run cluster and one per unclustered `fixed` thread. `clusters`
+   holds only clusters whose commit landed; a cluster that did not land
+   returns its threads in `conflicts`, and every `conflicts` entry folds
+   into `needsHuman` for reporting and replies.
 6. **Reply and resolve.** Before this step, read `reference/replying.md`
    for the verdict bars and reply-style rules. Use the `gh` CLI via Bash by
    default. For `fixed` and `wontFix`: reply to the thread's opening

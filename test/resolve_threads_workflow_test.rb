@@ -2,6 +2,8 @@
 # frozen_string_literal: true
 
 require "minitest/autorun"
+require "open3"
+require "json"
 require_relative "../scripts/plan_check"
 
 # Guards the cf:resolve-threads Workflow against losing the root-cause pass.
@@ -53,6 +55,36 @@ class ResolveThreadsWorkflowTest < Minitest::Test
   def test_workflow_carries_the_cf_name
     refute_match(/pst:|pst-/, workflow)
     assert_equal "cf-resolve-threads-scope", workflow[/^\s*name: "([^"]+)"/, 1]
+  end
+
+  # Every apply result shape the Apply phase can produce, and whether it may
+  # be replied to as `Fixed in <sha>.` and resolved. Anything short of an
+  # applied commit with a sha must route to conflicts.
+  APPLY_RESULTS = {
+    "applied with sha" => [ { applied: true, commitSha: "abc1234", note: "ok" }, true ],
+    "applied with no sha" => [ { applied: true, note: "committed?" }, false ],
+    "applied with empty sha" => [ { applied: true, commitSha: "", note: "x" }, false ],
+    "apply failed" => [ { applied: false, note: "patch conflict" }, false ],
+    "apply failed with a stray sha" => [ { applied: false, commitSha: "abc1234", note: "x" }, false ],
+    "agent returned nothing" => [ { applied: false, note: "apply agent did not return a result" }, false ]
+  }.freeze
+
+  def test_one_landed_predicate_routes_threads_and_clusters
+    assert_includes workflow, "const fixed = applied.filter(landed)"
+    assert_includes workflow, "const conflicts = applied.filter((a) => !landed(a))"
+    assert_includes workflow, "const inRunClusters = clusterApplied\n  .filter(landed)"
+    assert_includes workflow, ".filter((c) => !landed(c))"
+  end
+
+  def test_landed_predicate_accepts_only_a_committed_fix
+    skip "node not installed" unless system("node", "--version", out: File::NULL)
+    definition = workflow[/^const landed = .*$/] or flunk("workflow lost the landed predicate")
+    cases = APPLY_RESULTS.transform_values(&:first)
+    js = "#{definition}\nconst c = #{JSON.generate(cases)}\n" \
+         "console.log(JSON.stringify(Object.fromEntries(Object.entries(c).map(([k, v]) => [k, landed(v)]))))"
+    out, status = Open3.capture2("node", "-e", js)
+    assert status.success?, "node failed to evaluate the predicate"
+    assert_equal APPLY_RESULTS.transform_values(&:last), JSON.parse(out)
   end
 
   def test_replying_states_the_reply_contracts
