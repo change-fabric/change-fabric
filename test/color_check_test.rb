@@ -200,6 +200,40 @@ class ColorCheckTest < Minitest::Test
     end
   end
 
+  def test_html_entity_hex_is_not_a_literal_finding
+    with_dir do |dir|
+      write(dir, "tokens.css", FOUR_COLOR_TOKENS)
+      write(dir, "src/Arrow.tsx", <<~TSX)
+        const Arrow = () => <span>&#8599;</span>;
+        const style = { color: "#abc" };
+      TSX
+      report = ColorCheck.run(dir)
+      literal_findings = report.findings.select { |f| f.kind == "literal" }
+      assert_equal 1, literal_findings.size
+      refute literal_findings.any? { |f| f.text.include?("&#8599;") }
+      assert literal_findings.any? { |f| f.text.include?("#abc") }
+    end
+  end
+
+  def test_contrast_text_token_paired_with_matching_base_token
+    with_dir do |dir|
+      write(dir, "tokens.css", <<~CSS)
+        :root {
+          --btn: #000000;
+          --btn-text: #ffffff;
+          --bg: #000000;
+        }
+      CSS
+      report = ColorCheck.run(dir)
+      pair = report.contrast.find { |c| c.text_token == "--btn-text" }
+      refute_nil pair
+      assert_equal "--btn", pair.bg_token
+      assert pair.resolved
+      assert_in_delta 21.0, pair.ratio, 0.01
+      assert pair.passes_body
+    end
+  end
+
   def test_json_output_parses
     with_dir do |dir|
       write(dir, "tokens.css", FOUR_COLOR_TOKENS)

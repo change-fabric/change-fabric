@@ -12,7 +12,7 @@ require 'find'
 # so the checker can be run freely without blocking anything.
 module ColorCheck
   COLOR_FN = /\b(?:rgba?|hsla?|oklch|oklab|lab|lch)\(/.freeze
-  LITERAL = /#\h{3,8}\b|#{COLOR_FN}/.freeze
+  LITERAL = /(?<!&)#\h{3,8}\b|#{COLOR_FN}/.freeze
   TAILWIND = /\b(?:bg|text|border|ring|from|to|via|fill|stroke|outline|divide|shadow)-(?:slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-\d{2,3}\b/.freeze
   GRADIENT = /\b(?:linear|radial|conic|repeating-linear|repeating-radial)-gradient\(/.freeze
   SKIP_DIRS = %w[node_modules dist build vendor .git coverage .next out].freeze
@@ -166,14 +166,21 @@ module ColorCheck
       decls.each do |name, raw|
         next unless name.match?(TEXT_NAME)
 
-        resolved = resolve_color(raw, decls, bg_color: bg_color || '#ffffff')
-        if resolved && bg_color
-          ratio = contrast_ratio(resolved, bg_color)
-          results << ContrastPair.new(theme: theme_label, text_token: name, bg_token: bg_name,
+        pair_bg_name = bg_name
+        pair_bg_color = bg_color
+        if (m = name.match(/^(--[\w-]+)-text$/)) && decls.key?(m[1])
+          pair_bg_name = m[1]
+          pair_bg_color = resolve_color(decls[m[1]], decls, bg_color: bg_color || '#ffffff')
+        end
+
+        resolved = resolve_color(raw, decls, bg_color: pair_bg_color || '#ffffff')
+        if resolved && pair_bg_color
+          ratio = contrast_ratio(resolved, pair_bg_color)
+          results << ContrastPair.new(theme: theme_label, text_token: name, bg_token: pair_bg_name,
                                        ratio: ratio.round(2), passes_body: ratio >= 4.5,
                                        passes_large: ratio >= 3.0, resolved: true)
         else
-          results << ContrastPair.new(theme: theme_label, text_token: name, bg_token: bg_name,
+          results << ContrastPair.new(theme: theme_label, text_token: name, bg_token: pair_bg_name,
                                        ratio: nil, passes_body: false, passes_large: false, resolved: false)
         end
       end
