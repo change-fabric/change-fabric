@@ -18,6 +18,7 @@ class ResolveThreadsWorkflowTest < Minitest::Test
   # Each guard is text the workflow must keep, keyed by the failure it prevents.
   GUARDS = {
     "evaluate names the bug class" => "concernClass",
+    "each agent can find and remove its own worktree" => 'worktree add \\"$d\\" " + headSha +',
     "evaluate sees the rest of the run" => "Other unresolved threads in this run",
     "evaluate reads earlier per-instance fixes" => "already fixed per instance",
     "evaluate fixes sibling instances" => "fix every instance of the class you found",

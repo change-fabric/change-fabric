@@ -136,10 +136,10 @@ function runContext(t) {
 
 function worktreeSetup() {
   return "Before doing anything else, create your own throwaway checkout: run " +
-    "`git -C " + repoPath + " worktree add $(mktemp -d) " + headSha + "` and note the " +
-    "path it prints, then do every read and every trial edit inside that path only, " +
+    "`d=$(mktemp -d) && git -C " + repoPath + " worktree add \"$d\" " + headSha +
+    " && echo \"$d\"`, then do every read and every trial edit inside that echoed path only, " +
     "never in " + repoPath + " itself. Remove it when finished with `git -C " + repoPath +
-    " worktree remove <path> --force`, whether or not the change was applied there. "
+    " worktree remove \"<path>\" --force`, whether or not the change was applied there. "
 }
 
 function slugFor(concernClass) {
