@@ -7,6 +7,7 @@ require 'set'
 require_relative 'color_css'
 require_relative 'color_value'
 require_relative 'color_themes'
+require_relative 'color_scan'
 
 # Advisory checker for the cf:color minimal color system. Reports a repo's
 # authored palette, stray color literals, Tailwind palette classes and
@@ -24,7 +25,6 @@ require_relative 'color_themes'
 # is reported as an unsupported context with a reason, never guessed.
 module ColorCheck
   COLOR_FN = /\b(?:rgba?|hsla?|oklch|oklab|lab|lch)\(/.freeze
-  LITERAL = /(?<!&)#\h{3,8}\b|#{COLOR_FN}/.freeze
   TAILWIND = /\b(?:bg|text|border|ring|from|to|via|fill|stroke|outline|divide|shadow)-(?:slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-\d{2,3}\b/.freeze
   GRADIENT = /\b(?:linear|radial|conic|repeating-linear|repeating-radial)-gradient\(/.freeze
   SKIP_DIRS = %w[node_modules dist build vendor .git coverage .next out].freeze
@@ -37,16 +37,11 @@ module ColorCheck
   BG_EXACT = %w[--bg --background --surface].freeze
   BG_NAME = /(?:^--|-)(?:bg|background|surface)(?:-|$)/i.freeze
   STYLE_BLOCK = /<style(?:\s+[^>]*)?>(.*?)<\/style>/mi.freeze
-  # Whole-word match for a named color inside a (already string/url-blanked)
-  # declaration value: not glued to -, ., #, @, $ or a word char on the left
-  # (so --red, .red and $red never match) and not immediately followed by a
-  # word char or ( or - (so function names and red-500 never match).
-  NAMED_COLOR_WORD = /(?<![\w$@#.-])[A-Za-z]+(?![\w(-])/.freeze
 
   Finding = Data.define(:file, :line, :kind, :text)
   Palette = Data.define(:file, :authored, :derived, :error_token)
   ContrastPair = Data.define(:theme, :text_token, :bg_token, :ratio, :passes_body, :passes_large, :resolved, :context, :reason)
-  Report = Data.define(:palette, :findings, :contrast, :exit_code)
+  Report = Data.define(:palette, :findings, :contrast, :exit_code, :parse_errors)
 
   module_function
 
@@ -54,7 +49,7 @@ module ColorCheck
     files = scan_files(root)
     token_file = tokens_override || detect_token_file(files)
     palette = token_file ? build_palette(token_file) : nil
-    findings = collect_findings(files, token_file)
+    findings, parse_errors = collect_findings(files, token_file)
     contrast = token_file ? compute_contrast(token_file) : []
 
     over_target = palette && (palette.authored.size > TARGET)
@@ -64,7 +59,7 @@ module ColorCheck
                   0
     end
 
-    Report.new(palette:, findings:, contrast:, exit_code:)
+    Report.new(palette:, findings:, contrast:, exit_code:, parse_errors:)
   end
 
   def scan_files(root)
@@ -199,70 +194,27 @@ module ColorCheck
     Palette.new(file: token_file, authored: authored_values.values, derived: derived_count, error_token:)
   end
 
+  # Delegates to ColorScan per file, inside a per-file rescue so a file that
+  # cannot be scanned (a parse failure, a surprise encoding error) never
+  # aborts the run: it yields one "unparsed" finding instead and the scan
+  # continues. CSS source diagnostics (ColorCss::Sheet#errors) are collected
+  # alongside as parse_errors; they are not findings themselves.
   def collect_findings(files, token_file)
     findings = []
+    parse_errors = []
     files.each do |file|
       text = safe_read(file)
       next unless text
 
-      ext = File.extname(file).delete_prefix('.')
-      if CSS_EXTS.include?(ext)
+      begin
+        findings.concat(ColorScan.findings_for(file, text, token_file:))
         sheet = css_source_sheet(file, text)
-        findings.concat(css_findings(file, token_file, sheet)) if sheet
-      else
-        findings.concat(text_line_findings(file, text))
+        sheet&.errors&.each { |e| parse_errors << { file:, message: e } }
+      rescue StandardError => e
+        findings << Finding.new(file:, line: 1, kind: 'unparsed', text: e.class.to_s)
       end
     end
-    findings
-  end
-
-  def text_line_findings(file, text)
-    findings = []
-    text.each_line.with_index(1) do |line, lineno|
-      line.scan(LITERAL).each { findings << Finding.new(file:, line: lineno, kind: 'literal', text: line.strip) }
-      line.scan(TAILWIND).each { findings << Finding.new(file:, line: lineno, kind: 'tailwind', text: line.strip) }
-      line.scan(GRADIENT).each { findings << Finding.new(file:, line: lineno, kind: 'gradient', text: line.strip) }
-    end
-    findings
-  end
-
-  # Scans a parsed CSS source declaration by declaration, so a custom
-  # property's value never collides with an ordinary declaration sharing its
-  # source line. In the token file, only custom-property declarations are
-  # exempt; ordinary rules there are scanned like any other file. Block-less
-  # @apply statements are scanned for Tailwind palette classes.
-  def css_findings(file, token_file, sheet)
-    findings = []
-    sheet.decls.each do |decl|
-      next if file == token_file && decl.name.start_with?('--')
-
-      findings.concat(value_findings(file, decl.value, decl.value_line))
-    end
-    sheet.at_rule_stmts.each do |stmt|
-      stmt.prelude.scan(TAILWIND).each do
-        findings << Finding.new(file:, line: stmt.line, kind: 'tailwind', text: stmt.prelude.strip)
-      end
-    end
-    findings
-  end
-
-  def value_findings(file, value, value_line)
-    findings = []
-    value.each_line.with_index do |line, idx|
-      lineno = value_line + idx
-      line.scan(LITERAL).each { findings << Finding.new(file:, line: lineno, kind: 'literal', text: line.strip) }
-      line.scan(GRADIENT).each { findings << Finding.new(file:, line: lineno, kind: 'gradient', text: line.strip) }
-      named_color_matches(line).each { findings << Finding.new(file:, line: lineno, kind: 'literal', text: line.strip) }
-    end
-    findings
-  end
-
-  # Named colors inside a declaration value count as stray literals too, but
-  # never inside a quoted string or a url(...) fragment.
-  def named_color_matches(line)
-    blanked = line.gsub(/"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'/) { |m| ' ' * m.length }
-                  .gsub(/url\([^)]*\)/i) { |m| ' ' * m.length }
-    blanked.scan(NAMED_COLOR_WORD).select { |w| ColorValue::NAMED.key?(w.downcase) }
+    [ findings, parse_errors ]
   end
 
   # Resolves every custom property in the token file's theme model (base
@@ -420,7 +372,8 @@ module ColorCheck
           passes_body: c.passes_body, passes_large: c.passes_large, resolved: c.resolved,
           context: c.context, reason: c.reason }
       end,
-      exit_code: report.exit_code
+      exit_code: report.exit_code,
+      parse_errors: report.parse_errors
     )
   end
 
