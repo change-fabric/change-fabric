@@ -25,7 +25,8 @@ module ColorCheck
   COLOR_MIX_SRGB = /color-mix\(\s*in\s+srgb\s*,\s*([^,]+?)\s+(\d+(?:\.\d+)?)%\s*,\s*([^)]+?)\s*\)/.freeze
   HEX = /^#(\h{3}|\h{6}|\h{8})$/.freeze
   TEXT_NAME = /(?:^--|-)(?:text|fg|ink|title|link)(?:-|$)/i.freeze
-  BG_NAME = /^--bg$|^--background$|^--surface$|bg|background/i.freeze
+  BG_EXACT = %w[--bg --background --surface].freeze
+  BG_NAME = /(?:^--|-)(?:bg|background|surface)(?:-|$)/i.freeze
 
   Finding = Data.define(:file, :line, :kind, :text)
   Palette = Data.define(:file, :authored, :derived, :error_token)
@@ -165,7 +166,7 @@ module ColorCheck
       decls = base_decls ? base_decls.merge(own) : own
       base_decls ||= own if theme_label == 'light'
 
-      bg_name = decls.keys.find { |n| n.match?(BG_NAME) }
+      bg_name = BG_EXACT.find { |n| decls.key?(n) } || decls.keys.find { |n| n.match?(BG_NAME) }
       bg_color = bg_name && resolve_color(decls[bg_name], decls, bg_color: '#ffffff')
 
       decls.each do |name, raw|

@@ -283,6 +283,17 @@ class ColorCheckTest < Minitest::Test
     end
   end
 
+  def test_contrast_prefers_exact_background_role_name
+    with_dir do |dir|
+      write(dir, "tokens.css", ":root {\n  --background-accent: #000000;\n  --bg: #ffffff;\n  --ink: #000000;\n}\n")
+      report = ColorCheck.run(dir)
+      pair = report.contrast.find { |c| c.text_token == "--ink" }
+      refute_nil pair
+      assert_equal "--bg", pair.bg_token
+      assert_in_delta 21.0, pair.ratio, 0.01
+    end
+  end
+
   def test_json_output_parses
     with_dir do |dir|
       write(dir, "tokens.css", FOUR_COLOR_TOKENS)
