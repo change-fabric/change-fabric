@@ -83,6 +83,7 @@ const CI_SCHEMA = {
   type: "object",
   properties: {
     green: { type: "boolean" },
+    noCi: { type: "boolean" },
     jobs: {
       type: "array",
       items: {
@@ -97,7 +98,7 @@ const CI_SCHEMA = {
       }
     }
   },
-  required: [ "green", "jobs" ]
+  required: [ "green", "noCi", "jobs" ]
 }
 
 // Some hosts hand this script a JSON-encoded string instead of the parsed
@@ -126,7 +127,7 @@ function worktreeSetup() {
 }
 
 phase("Relevance")
-const relevance = await agent(
+const relevanceResult = await agent(
   "Three cf quality lanes, cf:qa, cf:refactor, and cf:change, are gated on relevance to " +
   "this change; decide each independently. cf:code-review and cf:ai-slop are not part of " +
   "this decision, they run unconditionally regardless of what you say here.\n\n" +
@@ -146,6 +147,17 @@ const relevance = await agent(
   { model: "haiku", phase: "Relevance", schema: RELEVANCE_SCHEMA }
 )
 
+// A null relevance call, or a result missing a lane key, must never read as
+// "not relevant": that would silently skip a quality lane with no agent
+// ever having said so. Fail closed means the opposite default: a missing or
+// null lane selects that lane rather than skipping it.
+const relevanceFailed = relevanceResult === null
+const relevance = relevanceResult || {}
+function laneSelected(lane) {
+  const entry = relevance[lane]
+  return !entry || entry.relevant !== false
+}
+
 // cf:ai-slop's own frontmatter is `auto: all_files: true`, matching every
 // file unconditionally; gating it on a relevance call would just replay
 // that same always-true answer through an extra agent call. cf:code-review
@@ -153,9 +165,9 @@ const relevance = await agent(
 // change of any size should get, not something a relevance guess should be
 // allowed to skip.
 const selectedSkills = [ "cf:code-review", "cf:ai-slop" ]
-if (relevance.qa.relevant) selectedSkills.push("cf:qa")
-if (relevance.refactor.relevant) selectedSkills.push("cf:refactor")
-if (relevance.change.relevant) selectedSkills.push("cf:change")
+if (laneSelected("qa")) selectedSkills.push("cf:qa")
+if (laneSelected("refactor")) selectedSkills.push("cf:refactor")
+if (laneSelected("change")) selectedSkills.push("cf:change")
 log("Selected lanes: " + selectedSkills.join(", "))
 
 // Every lane prompt is the same envelope around a body: an optional worktree
@@ -267,6 +279,19 @@ for (let n = 1; n <= cap; n++) {
   // same reason (its Evaluate phase parallelizes because worktrees isolate
   // it; its Apply phase, which touches the shared repoPath, does not).
   const lanesRun = []
+  // A relevance agent that returned null entirely (not just a missing lane
+  // key) leaves this run with no reliable signal for what even needs
+  // checking; selecting every lane defensively is not enough on its own to
+  // call the run converged, so it is also carried as a blocking finding.
+  if (relevanceFailed) {
+    lanesRun.push({
+      skill: "relevance",
+      fixed: 0,
+      deferred: 0,
+      blocking: true,
+      notes: "relevance agent returned no result; ran every lane defensively"
+    })
+  }
   for (const skill of selectedSkills) {
     const result = await agent(
       lanePrompts[skill](),
@@ -317,27 +342,44 @@ phase("Predict CI")
 async function predictCI() {
   return agent(
     "In the repository at " + repoPath + ", read every workflow file under " +
-    ".github/workflows/*.yml. For each job, extract its real setup steps (dependency install, " +
-    "toolchain setup) and its real test/lint/typecheck/build commands, exactly as written, " +
-    "not assumed from convention. Run each job's setup then its commands locally in " +
-    repoPath + " and report per-job pass or fail with concrete evidence (the actual output or " +
-    "exit code), not a guess. This repository's own CI shape is not special-cased; read " +
-    "whatever workflow files are actually present and run whatever they actually say.",
+    ".github/workflows/*.yml. Report noCi: true only when that directory has zero workflow " +
+    "files; otherwise noCi: false, even if every job happens to pass. For each job, extract " +
+    "its real setup steps (dependency install, toolchain setup) and its real " +
+    "test/lint/typecheck/build commands, exactly as written, not assumed from convention. Run " +
+    "each job's setup then its commands locally in " + repoPath + " and report per-job pass or " +
+    "fail with concrete evidence (the actual output or exit code), not a guess. This " +
+    "repository's own CI shape is not special-cased; read whatever workflow files are actually " +
+    "present and run whatever they actually say.",
     { phase: "Predict CI", schema: CI_SCHEMA }
   )
 }
 
+// A CI-fix agent that returns null must never be treated as "nothing to
+// fix, so the original prediction still stands"; it means the fix was not
+// actually verified applied, so green is forced false regardless of what
+// the follow-up prediction reports.
+let ciFixApplied = true
 if (ciFixContext) {
-  await agent(
+  const ciFixResult = await agent(
     "CI failed on the pushed commit for these jobs:\n" +
     JSON.stringify(ciFixContext.failingJobs, null, 2) +
     "\n\nLogs:\n" + ciFixContext.logs +
     "\n\nFix exactly these failures in " + repoPath + ". Do not touch unrelated code.",
     { phase: "Predict CI", label: "ci-fix" }
   )
+  ciFixApplied = Boolean(ciFixResult)
 }
 
-const ciPrediction = await predictCI()
+const ciAgentResult = await predictCI()
+// Fail closed on a null predict-CI result, and never trust the agent's own
+// `green` field directly: recompute it from the facts it reported. `noCi`
+// is only true when the agent says there are zero workflow files; a repo
+// that has CI configured but reports zero completed jobs is not green.
+const ciJobs = (ciAgentResult && ciAgentResult.jobs) || []
+const ciNoCi = Boolean(ciAgentResult && ciAgentResult.noCi)
+const ciGreen = Boolean(ciAgentResult) && ciFixApplied &&
+  (ciNoCi || (ciJobs.length > 0 && ciJobs.every((j) => j.passed)))
+const ciPrediction = { green: ciGreen, noCi: ciNoCi, jobs: ciJobs, ciFixApplied }
 
 const fixesSummary = "Across " + iterations.length + " iteration(s): " +
   iterations.map((it) => "iteration " + it.n + " (" + it.lanesRun.map((l) => l.skill).join(", ") +

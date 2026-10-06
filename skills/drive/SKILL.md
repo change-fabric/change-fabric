@@ -128,14 +128,16 @@ would-be-approved local state, and since nothing landed, also skips step
    `nested under cf:drive`: it runs straight through, replies and
    resolves, does not push (`cf:drive` owns the push), does not start
    cf:plan, and ends with its nested summary block. Capture the counts and
-   rationales for checkpoint 1. If the block's `truncated` is true, the
-   review history is incomplete: stop and report it (no push, no
-   approval). If its `plan` is not null, go to step 2b.
+   rationales for checkpoint 1. If the block is missing, unparseable, or
+   carries `error: true`, stop here: no push, no approval [DR-1]. If the
+   block's `truncated` is true, the review history is incomplete: stop and
+   report it (no push, no approval). If its `plan` is not null, go to step
+   2b.
 2b. **(SKILL.md) Recurrence stop.** The thread sweep found a plan-sized
    root cause behind recurring feedback; another fix loop would only add a
    round. Under `--signoff`, first ask a checkpoint-1 question summarizing
-   the sweep and the recurrence. Push the step-2 commits if the merge mode
-   allows a push (Local only: skip the push and say so). Skip steps 3
+   the sweep and the recurrence. The step-2 commits stay local; this stop
+   never pushes, regardless of merge mode [DR-2]. Skip steps 3
    through 12: no quality loop, no CI poll, no approval, no browser-open.
    Then invoke the `cf:plan` skill with the Skill tool, args
    `<plan.seededGoal> --area <repo basename>`, and once it has written its
@@ -145,9 +147,8 @@ would-be-approved local state, and since nothing landed, also skips step
    invoked with `nested under cf:sweep`, do not start it: report the
    `plan-pending-<plan.slug>` pointer and `/cf:active` then `/cf:plan
    <seeded goal>`.
-   The same stop applies when the step-6b sweep or a pre-re-push sweep in
-   step 9 returns a plan, except that the push there also requires
-   `ciPrediction.green`.
+   The same no-push stop applies when the step-6b sweep or a pre-re-push
+   sweep in step 9 returns a plan [DR-2].
 3-7. **(One `Workflow` call)** Read `reference/workflow.js` and pass its
    contents verbatim as `script`, with `args: { files, repoPath, headSha,
    routeOutput, isPR, cap: 4, ciFixContext: null }`. This call does
@@ -161,18 +162,22 @@ would-be-approved local state, and since nothing landed, also skips step
    2)** Post-loop thread sweep: once the Workflow call above returns,
    invoke `cf:resolve-threads` again the same way, to catch anything that
    landed on the PR while the loop was iterating. Fold its outcome into
-   checkpoint 1 alongside step 2's sweep. A `truncated` block stops the
-   run as in step 2. If its `plan` is not null, take step 2b.
-8. **(SKILL.md)** Checkpoint 1. Only proceed once `ciPrediction.green` is
-   true. Under `--signoff`: compose a summary, at most 640
-   characters, combining `execSummaryDraft` with both thread-sweep
-   outcomes (per `reference/summaries.md`'s checkpoint-1 format), and ask
-   for an explicit go/no-go; a yes there is the explicit acceptance that
-   lets any `needsHuman` or `conflicts` thread stand as an exception. By
-   default: skip both, but if either sweep (step 2, 6b, or a step-9
-   re-sweep) left a `needsHuman` or `conflicts` thread, stop and report
-   those threads instead: no push, no approval, since nobody accepted
-   them. Either way, this push is
+   checkpoint 1 alongside step 2's sweep. A missing, unparseable, or
+   `error: true` block, or a `truncated` block, stops the run as in step 2.
+   If its `plan` is not null, take step 2b.
+8. **(SKILL.md)** Checkpoint 1. One push gate, all of it required
+   [DR-1]: `converged` is true, `ciPrediction.green` is true, neither
+   sweep (step 2 or 6b) left a `needsHuman` or `conflicts` thread
+   unaccepted, and both nested resolve-threads blocks were present and
+   parseable with no `error: true` (the steps 2 and 6b stops apply first).
+   Under
+   `--signoff`: compose a summary, at most 640 characters, combining
+   `execSummaryDraft` with both thread-sweep outcomes (per
+   `reference/summaries.md`'s checkpoint-1 format), and ask for an explicit
+   go/no-go; a yes there is the explicit acceptance that lets any
+   `needsHuman` or `conflicts` thread stand as an exception. By default:
+   skip the question, but if the gate above is unmet for any reason, stop
+   and report it: no push, no approval. Either way, the push is
    additionally gated by the active cf merge mode: Local only means stop
    here and report (see Merge mode above); Merge ready/Admin bypass/Yolo
    proceed per their own normal push semantics (`cf:drive` only ever
@@ -180,7 +185,12 @@ would-be-approved local state, and since nothing landed, also skips step
    since this whole flow is PR-scoped from step 1 onward). Push the
    branch.
 9. **(SKILL.md)** Poll GitHub check-runs on the pushed commit until they
-   resolve. On a real CI failure: re-invoke the same `Workflow` (pass back
+   resolve, counting only completed check runs: a repo with CI configured
+   but zero completed runs for the SHA is not green, it is still pending.
+   Give the poll a 30 minute deadline from the push; if check runs have
+   not resolved by then, stop and report the still-pending jobs, do not
+   proceed to checkpoint 2 or the approval. On a real CI failure: re-invoke
+   the same `Workflow` (pass back
    the `scriptPath` the first call returned, plus `ciFixContext: {
    failingJobs: [...], logs: "..." }`) to fix locally, then re-enter step
    8's full gate (a fresh summary and question under `--signoff`; nothing
@@ -194,9 +204,22 @@ would-be-approved local state, and since nothing landed, also skips step
    `reference/summaries.md`'s checkpoint-2 format: final diff state, CI
    result) and call `AskUserQuestion` for go/no-go. By default: skip
    both.
-11. **(SKILL.md)** Post an actual GitHub PR approval review (`event:
-   "APPROVE"`), body per `reference/summaries.md`'s approval-body format:
-   plain prose, no praise, no AI-slop glyphs.
+11. **(SKILL.md)** Resolve the PR author's login (`gh pr view --json
+   author`) and the session's own login (`gh api user -q .login`). If they
+   match, this is the user's own PR: skip the approval, do not call the
+   review API at all, and report plainly that approval was skipped because
+   the PR is the user's own [DR-3]. Otherwise post an actual GitHub PR
+   approval review (`event: "APPROVE"`), `commit_id` set to the green SHA
+   (the head commit that was just polled green, not whatever HEAD moved to
+   meanwhile), body per `reference/summaries.md`'s approval-body format:
+   plain prose, no praise, no AI-slop glyphs. If the approval call itself
+   fails (permissions, a stale SHA), report plainly that the PR was not
+   approved; never treat the call attempt as equivalent to approval.
+   When nested under `cf:sweep`, always emit a fenced `drive-result` JSON
+   block [DR-4] before returning: `{ approved, ciGreen, headSha,
+   stoppedReason, noCi }`, `approved` and `ciGreen` both real-outcome
+   booleans (never assumed true), `stoppedReason` null only when the run
+   reached a terminal success state.
 12. **(SKILL.md)** Immediately after the approval posts, in both modes,
    unconditionally: try to open the PR URL with the macOS `open` CLI
    (`open <url>`). If `open` is not available (check with `command -v
@@ -219,6 +242,18 @@ would-be-approved local state, and since nothing landed, also skips step
 - CI never green after 3 re-push attempts (step 9): stop re-pushing, leave
   the last pushed commit as-is, report the persistent failing jobs and
   logs, do not proceed to checkpoint 2 or the approval.
+- The step-9 poll hits its 30 minute deadline with checks still pending:
+  stop, report the pending jobs, do not proceed to checkpoint 2 or the
+  approval; a repo with CI configured but zero completed runs for the SHA
+  is pending, never read as green.
+- The step-2 or step-6b nested resolve-threads block is missing,
+  unparseable, or carries `error: true`: stop, no push, no approval [DR-1].
+- The PR author is the session's own GitHub login: skip the approval and
+  report it [DR-3]; this is not a failure, sweep's merge gate reads the
+  `drive-result` block's `approved: false` and `stoppedReason` instead of
+  waiting on a review that will never post.
+- The approval API call fails: report that the PR was not approved; never
+  report success on the strength of having attempted the call.
 - `open` CLI missing: handled inline in step 12 above, never fails the run.
 - Haiku relevance call in the Workflow selects zero of the three gated skills
   (`cf:qa`, `cf:refactor`, `cf:change`): expected and fine for small/docs-only
@@ -235,10 +270,10 @@ would-be-approved local state, and since nothing landed, also skips step
   approving and report that the PR is pushed and green but not approved.
   Neither "no" silently re-enters the iterate loop; re-invoking
   `/cf:drive` is how the user resumes.
-- Recurrence stop (step 2b): not a failure. The run pushes what the sweep
-  fixed, starts cf:plan (only reports the nested sweep's pending pointer
-  under away or under cf:sweep), and reports the plan slug and the
-  deferred threads.
+- Recurrence stop (step 2b): not a failure. No push [DR-2]: the sweep's
+  fix commits stay local. The run starts cf:plan (only reports the nested
+  sweep's pending pointer under away or under cf:sweep), and reports the
+  plan slug, the local commits, and the deferred threads.
 - The `Workflow` call errors or returns no result: say so explicitly and
   stop; do not silently hand-apply fixes or push.
 

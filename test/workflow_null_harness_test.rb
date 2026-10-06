@@ -65,7 +65,7 @@ class WorkflowNullHarnessTest < Minitest::Test
   # line plan.md's later phase must fix; it is never loosened here.
   NO_THROW_TODO = {
     "resolve-threads" => [], # already null-safe at every reachable call site
-    "drive" => %w[Relevance#1], # fixed in Phase 3: relevance.qa.relevant throws when null
+    "drive" => [], # relevance is null-checked at every lane now
     "sweep" => %w[Infra#1 Order#1], # fixed in Phase 4: infra.gates / plan.order throw when null
     "code-review" => %w[Shard#1] # fixed in Phase 5: map.shards throws when null
   }.freeze
@@ -121,7 +121,6 @@ class WorkflowNullHarnessTest < Minitest::Test
   end
 
   def test_drive_fails_closed_on_any_null_input
-    skip "fixed in Phase 3"
     happy_keys("drive").each do |key|
       result = run_harness("drive", null: key).fetch("result")
       converged = result["converged"]
