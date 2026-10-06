@@ -53,7 +53,7 @@ introducing separate dark-only literals.
 
 Muted text, borders, dividers, panels, cards, code blocks, bubbles, hover
 states, disabled states, scrims and subtle backgrounds all derive from the
-four authored tokens via alpha or mixing, never a fifth design color:
+four authored tokens via alpha or mixing, rather than a fifth design color:
 
 ```css
 --muted: color-mix(in srgb, var(--a) 60%, var(--b));

@@ -20,7 +20,7 @@ primary actions, pink for titles. Same four tokens, roles reassigned.
 ## Derived tokens
 
 Every other color in the system derives from these four by mixing or alpha,
-never a fifth literal:
+rather than a fifth literal:
 
 ```css
 :root {
