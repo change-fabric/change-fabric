@@ -16,45 +16,11 @@ require_relative 'color_scan'
 # fast. Exits 0 by default; --strict is the only way to get a non-zero exit,
 # so the checker can be run freely without blocking anything.
 #
-# Supported / reported-as-unsupported (full table in skills/color/SKILL.md):
-#
-# Area: Theme contexts.
-#   Supported: bare :root/html (base); [data-theme=X] or .X on :root/html,
-#     with optional :not(...); bare .X or [data-theme=X] whose block is
-#     custom-property-only; @media (prefers-color-scheme: light or dark);
-#     @layer.
-#   Unsupported: any other selector carrying a text role; other @media,
-#     @supports, @container, @scope; SCSS nesting; conflicting theme markers.
-# Area: Color values.
-#   Supported: hex 3/4/6/8; rgb/rgba, hsl/hsla in comma or space syntax; the
-#     148 named colors; transparent; !important.
-#   Unsupported: oklch, oklab, lab, lch, hwb, color(); relative color syntax;
-#     calc() in channels; CSS-wide keywords.
-# Area: Value functions.
-#   Supported: var() with or without fallback; color-mix(in srgb, ...) with
-#     either or both percentages.
-#   Unsupported: color-mix in any other space; light-dark(); currentColor.
-# Area: Stray scan, CSS.
-#   Supported: declaration values (hex, color functions, named colors),
-#     @apply.
-#   Unsupported: selectors, url() fragments, strings inside values, the
-#     keywords transparent, currentColor, inherit, initial, unset, revert,
-#     none.
-# Area: Stray scan, markup and script.
-#   Supported: style=, fill=, stroke=, class=/className= attribute values;
-#     quoted strings that are exactly one color: any hex length when the
-#     value of a color-bearing key (color, backgroundColor, borderColor,
-#     fill, stroke, shadow and the like), otherwise only 6- or 8-digit hex,
-#     a color function or a named color.
-#   Unsupported: 3- or 4-digit hex strings outside a color-bearing key
-#     (querySelector('#cafe')), hex inside longer strings ('/page#feed'),
-#     ID selectors, <style> and <script> blocks, prose, text nodes, MDX
-#     code blocks, CSS-in-JS template literals as CSS, SCSS variables and
-#     mixins as tokens, standalone .svg files.
+# Supported / reported-as-unsupported: full table in skills/color/SKILL.md.
 module ColorCheck
   # CSS function names are ASCII case-insensitive (RGB(...) and rgb(...) are
   # the same function), so both are matched with /i. hwb( and color( are
-  # color functions too, per the Supported table below.
+  # color functions too, per the Supported table above.
   COLOR_FN = /\b(?:rgba?|hsla?|hwb|oklch|oklab|lab|lch|color)\(/i.freeze
   TAILWIND = /\b(?:bg|text|border|ring|from|to|via|fill|stroke|outline|divide|shadow)-(?:slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-\d{2,3}\b/.freeze
   GRADIENT = /\b(?:linear|radial|conic|repeating-linear|repeating-radial)-gradient\(/i.freeze
@@ -79,7 +45,7 @@ module ColorCheck
 
   def run(root, tokens_override: nil, strict: false)
     files = scan_files(root)
-    token_file = tokens_override || detect_token_file(files)
+    token_file = tokens_override ? File.expand_path(tokens_override) : detect_token_file(files)
     palette = token_file ? build_palette(token_file) : nil
     findings, parse_errors = collect_findings(files, token_file)
     contrast = token_file ? compute_contrast(token_file) : []
@@ -133,8 +99,8 @@ module ColorCheck
     nil
   end
 
-  # A <style> block inside an HTML comment is inert (repro "comments never
-  # count", in markup form), so comments are blanked out (replaced with
+  # A <style> block inside an HTML comment is inert: comments never count as
+  # live markup, so they are blanked out (replaced with
   # spaces, newlines kept so reported lines stay true) before scanning for
   # STYLE_BLOCK; a style tag that only ever existed inside the comment
   # disappears along with it. A style tag's own media= attribute is honored
@@ -397,8 +363,7 @@ module ColorCheck
       report.contrast.each do |c|
         label = contexts_per_theme[c.theme].size > 1 ? "#{c.theme} #{c.context}" : c.theme
         if c.resolved
-          status = c.passes_body ? 'pass 4.5:1' : (c.passes_large ? 'pass 3:1 only' : 'fail')
-          lines << "  [#{label}] #{c.text_token} on #{c.bg_token}: #{c.ratio}:1 (#{status})"
+          lines << "  [#{label}] #{c.text_token} on #{c.bg_token}: #{c.ratio}:1 (#{status_for(c)})"
         else
           lines << "  [#{label}] #{c.text_token} on #{c.bg_token}: unresolved (#{c.reason}), state manually"
         end
@@ -406,6 +371,13 @@ module ColorCheck
     end
 
     lines.join("\n")
+  end
+
+  def status_for(c)
+    return 'pass 4.5:1' if c.passes_body
+    return 'pass 3:1 only' if c.passes_large
+
+    'fail'
   end
 
   def to_json_report(report)

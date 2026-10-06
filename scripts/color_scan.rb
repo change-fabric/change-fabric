@@ -5,14 +5,13 @@ require_relative 'color_css'
 require_relative 'color_value'
 
 # Stray color literal, Tailwind and gradient findings for the cf:color
-# checker, scoped per the project's decision 2 ("values and attributes
-# only"): CSS declaration values, markup style=/fill=/stroke=/class=
-# attributes, and script string literals that are the whole value of a
-# color-bearing key or attribute. Never selectors, never url() fragments,
-# never prose. References ColorCheck::COLOR_FN, ColorCheck::TAILWIND and
-# ColorCheck::GRADIENT lazily (inside method bodies only), so this file does
-# not require 'color_check' and stays free of the require cycle that would
-# create.
+# checker, scoped to values and attributes only: CSS declaration values,
+# markup style=/fill=/stroke=/class= attributes, and script string literals
+# that are the whole value of a color-bearing key or attribute. Never
+# selectors, never url() fragments, never prose. References
+# ColorCheck::COLOR_FN, ColorCheck::TAILWIND and ColorCheck::GRADIENT lazily
+# (inside method bodies only), so this file does not require 'color_check'
+# and stays free of the require cycle that would create.
 module ColorScan
   # A hex literal glued to a preceding word is still rejected for "&" (HTML
   # entities such as &#8599;, never real CSS) but not for a preceding word
@@ -20,12 +19,7 @@ module ColorScan
   # ident "solid" followed by the hash token "#123456", two separate tokens,
   # so HEX_CSS (used wherever the scanned text is itself a CSS value: CSS/
   # Sass/Less declarations, and a style= attribute split into declarations)
-  # only guards against "&". HEX keeps the stricter guard (also "-" and any
-  # word character) for contexts that are not tokenized CSS: a raw fill=/
-  # stroke= attribute value and prose-adjacent text, where a hash glued to a
-  # word is far more likely to be a url() fragment or similar than a real
-  # hex color.
-  HEX = /(?<![&\w-])#(?:\h{8}|\h{6}|\h{4}|\h{3})\b/.freeze
+  # only guards against "&".
   HEX_CSS = /(?<!&)#(?:\h{8}|\h{6}|\h{4}|\h{3})\b/.freeze
   HEX_FULL = /\A#(?:\h{8}|\h{6}|\h{4}|\h{3})\z/.freeze
   NAMED_WORD = /(?<![\w$@#.-])[A-Za-z]+(?![\w(-])/.freeze
@@ -48,9 +42,9 @@ module ColorScan
   TAG_NAME = /[a-zA-Z][\w:-]*/.freeze
   ATTR_NAME_TOKEN = /[:@]?[\w.:-]+/.freeze
   # script and style hold raw text (never nested tags); textarea and title
-  # hold RCDATA (text only, scanned as nothing: decision 2 is attributes and
-  # values, never a text node). Content runs to the matching case-insensitive
-  # end tag, or end of file when there is none.
+  # hold RCDATA (text only, scanned as nothing: this scan is scoped to
+  # attributes and values, never a text node). Content runs to the matching
+  # case-insensitive end tag, or end of file when there is none.
   RAW_TEXT_ELEMENTS = %w[script style].freeze
   RCDATA_ELEMENTS = %w[textarea title].freeze
   MDX_ATTR = /\b(?:style|fill|stroke|className|class)\s*=\s*(?:"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')/mi.freeze
@@ -91,7 +85,7 @@ module ColorScan
   def css_sheet_findings(path, token_file, sheet)
     findings = []
     sheet.decls.each do |decl|
-      next if path == token_file && decl.name.start_with?('--')
+      next if token_file?(path, token_file) && decl.name.start_with?('--')
 
       findings.concat(value_findings(path, decl.value, decl.value_line, decl.name))
     end
@@ -101,6 +95,16 @@ module ColorScan
       end
     end
     findings
+  end
+
+  # path and token_file can arrive in different but equivalent spellings (a
+  # --tokens CLI argument versus Find's "./"-prefixed scan path), so the
+  # token-file exemption compares their File.expand_path forms, not the raw
+  # strings.
+  def token_file?(path, token_file)
+    return false unless token_file
+
+    File.expand_path(path) == File.expand_path(token_file)
   end
 
   def color_bearing_property?(name)
@@ -147,7 +151,7 @@ module ColorScan
       code = line.chomp.sub(%r{//.*\z}, '')
       m = code.match(/\A\s*(\$?[\w-]+)\s*:\s*(.+)\z/)
       next unless m
-      next if path == token_file && m[1].start_with?('--')
+      next if token_file?(path, token_file) && m[1].start_with?('--')
 
       findings.concat(value_findings(path, m[2], lineno, m[1]))
     end

@@ -907,6 +907,19 @@ class ColorCheckTest < Minitest::Test
     end
   end
 
+  def test_tokens_flag_relative_path_is_exempt_despite_different_spelling
+    with_dir do |dir|
+      write(dir, "tokens.css", FOUR_COLOR_TOKENS)
+      Dir.chdir(dir) do
+        # root "." makes Find yield "./tokens.css" while tokens_override is
+        # given as the bare relative "tokens.css": different spellings of the
+        # same file, which must still be recognized as the token file.
+        report = ColorCheck.run(".", tokens_override: "tokens.css")
+        assert_empty report.findings
+      end
+    end
+  end
+
   def test_default_exit_is_zero_even_with_findings
     with_dir do |dir|
       write(dir, "tokens.css", FOUR_COLOR_TOKENS)
