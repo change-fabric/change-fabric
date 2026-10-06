@@ -244,8 +244,7 @@ module ColorValue
     NAMED.key?(name)
   end
 
-  # Composites a possibly translucent color over an opaque background,
-  # rounding channels exactly like today's mix_hex(color, bg, alpha * 100).
+  # Composites a possibly translucent color over an opaque background.
   def flatten(rgba, over:)
     f = rgba.a
     r = (rgba.r * f + over.r * (1 - f)).round.clamp(0, 255)
@@ -285,21 +284,33 @@ module ColorValue
     Result.new(color: Rgba.new(r:, g:, b:, a:), reason: nil)
   end
 
-  # A custom property that is part of a var() dependency cycle is
-  # guaranteed-invalid at computed-value time per CSS Variables, regardless
-  # of any fallback written on a var() reference inside that cycle. The
-  # fallback only rescues an undefined name, never a cyclic one, so the
-  # cycle check below runs before the fallback is ever consulted.
-  def resolve_var(v, decls, seen)
-    m = v.match(/\Avar\(\s*(.*)\)\z/im)
-    return Result.new(color: nil, reason: "unrecognized color value: #{v[0, 40]}") unless m
+  # Parses the inside of a var(...) call into [name, fallback], or nil when
+  # text is not a well-formed var() reference. fallback is nil when absent or
+  # blank.
+  def parse_var_ref(text)
+    m = text.match(/\Avar\(\s*(.*)\)\z/im)
+    return nil unless m
 
     parts = ColorCss.split_top_level(m[1])
     name = parts[0]&.strip
     fallback = parts.size > 1 ? parts[1..].join(',').strip : nil
     fallback = nil if fallback && fallback.empty?
 
-    return Result.new(color: nil, reason: "unrecognized color value: #{v[0, 40]}") if name.nil? || name.empty?
+    return nil if name.nil? || name.empty?
+
+    [ name, fallback ]
+  end
+
+  # A custom property that is part of a var() dependency cycle is
+  # guaranteed-invalid at computed-value time per CSS Variables, regardless
+  # of any fallback written on a var() reference inside that cycle. The
+  # fallback only rescues an undefined name, never a cyclic one, so the
+  # cycle check below runs before the fallback is ever consulted.
+  def resolve_var(v, decls, seen)
+    ref = parse_var_ref(v)
+    return Result.new(color: nil, reason: "unrecognized color value: #{v[0, 40]}") unless ref
+
+    name, fallback = ref
     return Result.new(color: nil, reason: "var() cycle through #{name}") if seen.include?(name)
     return resolve(decls[name], decls, seen: seen + [ name ]) if decls.key?(name)
 
@@ -317,15 +328,10 @@ module ColorValue
     t = token.to_s.strip
     return [ t, nil ] unless t.match?(/\Avar\(/i)
 
-    m = t.match(/\Avar\(\s*(.*)\)\z/im)
-    return [ nil, "unrecognized color value: #{t[0, 40]}" ] unless m
+    ref = parse_var_ref(t)
+    return [ nil, "unrecognized color value: #{t[0, 40]}" ] unless ref
 
-    parts = ColorCss.split_top_level(m[1])
-    name = parts[0]&.strip
-    fallback = parts.size > 1 ? parts[1..].join(',').strip : nil
-    fallback = nil if fallback && fallback.empty?
-
-    return [ nil, "unrecognized color value: #{t[0, 40]}" ] if name.nil? || name.empty?
+    name, fallback = ref
     return [ nil, "var() cycle through #{name}" ] if seen.include?(name)
     return substitute_var_token(decls[name], decls, seen + [ name ]) if decls.key?(name)
 
@@ -443,9 +449,9 @@ module ColorValue
 
   # Legacy comma syntax (rgb(1, 2, 3)) requires all three channels to be the
   # same kind, number or percentage; a modern space-separated channel list
-  # has no such restriction in this checker. Returns an array of parsed
-  # channels (0..255) and their kinds (:num/:pct), or nil if any channel is
-  # not a valid number or percentage.
+  # has no such restriction in this checker. Returns [raw_parts, alpha_text,
+  # legacy]: the unparsed channel tokens, the raw alpha token text (or nil),
+  # and whether legacy comma syntax was used.
   def extract_channels_and_alpha(args)
     main, slash, alpha_part = args.partition('/')
     if slash.empty?
@@ -484,8 +490,18 @@ module ColorValue
 
   # Substitutes var() in a raw channel/alpha token (before parsing it as a
   # number), returning [substituted_text, error_reason].
-  def resolve_channel_text(token, decls, seen)
-    substitute_var_token(token, decls, seen)
+  # A var() reference can stand for an entire channel/hue/alpha triplet at
+  # once (hsl(var(--p)) where --p: 222.2 47.4% 11.2%), not just one channel
+  # token: extract_channels_and_alpha never sees a comma or extra whitespace
+  # to split on in that case, so it reports the wrong channel count. When
+  # that happens, substitute the var() covering the whole channel group (and
+  # the whole alpha token, when present) before re-splitting into channels.
+  def substitute_var_whole_args(args, decls, seen)
+    main, slash, alpha_part = args.partition('/')
+    main_text, err = substitute_var_token(main.strip, decls, seen)
+    return [ nil, err ] if err
+
+    [ slash.empty? ? main_text : "#{main_text} / #{alpha_part.strip}", nil ]
   end
 
   def parse_rgb_function(args, decls, seen)
@@ -493,12 +509,18 @@ module ColorValue
     return unsupported if unsupported
 
     channels, alpha_tok, legacy = extract_channels_and_alpha(args)
+    if channels.size != 3
+      new_args, err = substitute_var_whole_args(args, decls, seen)
+      return Result.new(color: nil, reason: err) if err
+
+      channels, alpha_tok, legacy = extract_channels_and_alpha(new_args)
+    end
     return invalid_value(args) unless channels.size == 3
     return Result.new(color: nil, reason: 'none channel is not supported') if none_token?(channels + [ alpha_tok ])
 
     texts = []
     channels.each do |ch|
-      text, err = resolve_channel_text(ch, decls, seen)
+      text, err = substitute_var_token(ch, decls, seen)
       return Result.new(color: nil, reason: err) if err
 
       texts << text
@@ -515,7 +537,7 @@ module ColorValue
 
     a = 1.0
     if alpha_tok
-      alpha_text, err = resolve_channel_text(alpha_tok, decls, seen)
+      alpha_text, err = substitute_var_token(alpha_tok, decls, seen)
       return Result.new(color: nil, reason: err) if err
 
       a = parse_alpha(alpha_text)
@@ -530,22 +552,28 @@ module ColorValue
     return unsupported if unsupported
 
     channels, alpha_tok, = extract_channels_and_alpha(args)
+    if channels.size != 3
+      new_args, err = substitute_var_whole_args(args, decls, seen)
+      return Result.new(color: nil, reason: err) if err
+
+      channels, alpha_tok, = extract_channels_and_alpha(new_args)
+    end
     return invalid_value(args) unless channels.size == 3
     return Result.new(color: nil, reason: 'none channel is not supported') if none_token?(channels + [ alpha_tok ])
 
-    hue_text, err = resolve_channel_text(channels[0], decls, seen)
+    hue_text, err = substitute_var_token(channels[0], decls, seen)
     return Result.new(color: nil, reason: err) if err
 
     h = parse_hue(hue_text)
     return Result.new(color: nil, reason: "invalid hue: #{hue_text.strip[0, 40]}") unless h
 
-    s_text, err = resolve_channel_text(channels[1], decls, seen)
+    s_text, err = substitute_var_token(channels[1], decls, seen)
     return Result.new(color: nil, reason: err) if err
 
     s = parse_percent_fraction(s_text)
     return invalid_value(args) unless s
 
-    l_text, err = resolve_channel_text(channels[2], decls, seen)
+    l_text, err = substitute_var_token(channels[2], decls, seen)
     return Result.new(color: nil, reason: err) if err
 
     l = parse_percent_fraction(l_text)
@@ -553,7 +581,7 @@ module ColorValue
 
     a = 1.0
     if alpha_tok
-      alpha_text, err = resolve_channel_text(alpha_tok, decls, seen)
+      alpha_text, err = substitute_var_token(alpha_tok, decls, seen)
       return Result.new(color: nil, reason: err) if err
 
       a = parse_alpha(alpha_text)

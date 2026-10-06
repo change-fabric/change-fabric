@@ -191,6 +191,20 @@ class ColorValueTest < Minitest::Test
     assert_includes reason, "--a"
   end
 
+  def test_var_whole_channel_triplet_resolves_in_hsl
+    decls = { "--p" => "222.2 47.4% 11.2%" }
+    color = resolved("hsl(var(--p))", decls)
+    expected = CV.send(:hsl_to_rgb, 222.2, 0.474, 0.112)
+    assert_equal expected, [ color.r, color.g, color.b ]
+    assert_in_delta 1.0, color.a, 0.001
+  end
+
+  def test_var_whole_channel_triplet_resolves_in_rgb_with_alpha
+    decls = { "--q" => "10 20 30" }
+    color = resolved("rgb(var(--q) / 0.5)", decls)
+    assert_rgba 10, 20, 30, color, expected_a: 0.5
+  end
+
   def test_var_cycle_never_raises
     decls = { "--a" => "var(--b)", "--b" => "var(--c)", "--c" => "var(--a)" }
     result = CV.resolve("var(--a)", decls)
