@@ -189,13 +189,17 @@ class ThreadHistory
     !@viewer.nil? && login(node) == @viewer
   end
 
-  # The slug of the viewer's `Deferred to plan <slug>.` reply when it is the
-  # thread's last comment; a reviewer comment after it reopens the thread.
+  # The slug of the viewer's latest `Deferred to plan <slug>.` reply, unless
+  # the thread's own reviewer (its opener) commented after it. Matched by
+  # author, never by position: another viewer note, a third party or a bot
+  # replying after the deferral leaves the thread deferred.
   def deferred_slug(thread)
-    last = comments(thread).last
-    return nil unless last && viewer?(last)
+    cs = comments(thread)
+    at = cs.rindex { |c| viewer?(c) && c['body'].to_s.match?(DEFERRED) } or return nil
+    reviewer = login(cs.first)
+    return nil if reviewer && reviewer != @viewer && cs.drop(at + 1).any? { |c| login(c) == reviewer }
 
-    last['body'].to_s.match(DEFERRED)&.[](1)
+    cs[at]['body'].to_s.match(DEFERRED)[1]
   end
 
   def unresolved

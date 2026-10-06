@@ -264,6 +264,44 @@ class ThreadHistoryTest < Minitest::Test
     assert_equal [ "PRRT_pdXZT" ], h["threads"].map { |t| t["threadId"] }
   end
 
+  # A deferral is read by author, never by position: only the thread's own
+  # reviewer commenting after the latest viewer deferral reopens it.
+  def test_deferral_holds_until_the_threads_reviewer_comments_after_it
+    after = ->(login, body, oid = "f00ba47") { comment(login, body, review_id: "PRR_#{login}_#{oid}", oid: oid) }
+    redefer = "Deferred to plan pr-237-redesign. Root cause: still regex scanning."
+    variants = {
+      "deferral last" => [ [], "pr-237-css-declaration-parsing" ],
+      "viewer plan link after" => [ [ after.call(VIEWER, "Plan: https://example.invalid/plan") ],
+                                    "pr-237-css-declaration-parsing" ],
+      "bot status after" => [ [ after.call("github-actions", "CI passed.") ], "pr-237-css-declaration-parsing" ],
+      "other human after" => [ [ after.call("someone", "+1") ], "pr-237-css-declaration-parsing" ],
+      "reviewer after" => [ [ after.call(CODEX, "Still reproduces.") ], nil ],
+      "reviewer then viewer note" => [ [ after.call(CODEX, "Still reproduces."), after.call(VIEWER, "Looking.") ], nil ],
+      "reviewer then re-deferral" => [ [ after.call(CODEX, "Still reproduces."), after.call(VIEWER, redefer) ],
+                                       "pr-237-redesign" ],
+      "re-deferral then reviewer" => [ [ after.call(VIEWER, redefer), after.call(CODEX, "No.", "f00ba48") ], nil ]
+    }
+    variants.each do |name, (extra, slug)|
+      h = history(reviews: [], threads: [ deferred_thread(*extra) ], head: "f00ba47")
+      if slug
+        assert_empty h["threads"], name
+        assert_equal [ slug ], h["deferred"].map { |d| d["slug"] }, name
+      else
+        assert_empty h["deferred"], name
+        assert_equal [ "PRRT_pdXZT" ], h["threads"].map { |t| t["threadId"] }, name
+      end
+    end
+  end
+
+  def test_a_deferral_phrase_from_someone_else_is_not_a_deferral
+    t = thread(id: "PRRT_x", path: COLOR, resolved: false, line: 1,
+               comments: [ comment(CODEX, "x", review_id: "r", oid: "o"),
+                           comment("someone", "Deferred to plan fake-slug. Cause.", review_id: "s", oid: "o") ])
+    h = history(reviews: [], threads: [ t ], head: "o")
+    assert_empty h["deferred"]
+    assert_equal [ "PRRT_x" ], h["threads"].map { |e| e["threadId"] }
+  end
+
   # -- 8-10. thread fields ------------------------------------------------------
 
   def test_title_strips_codex_badge_markup_and_bold

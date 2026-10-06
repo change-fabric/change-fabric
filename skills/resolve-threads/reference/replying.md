@@ -30,6 +30,7 @@ the next run, so they are exact, not stylistic:
   reply continues with the Root cause phase's one-sentence `reply`.
 - A plan cluster reply starts with `Deferred to plan <slug>.` using the
   Workflow's `plan.slug`, then one sentence of root cause. A later run
-  skips a thread whose last comment is this reply until a reviewer
-  comments after it.
+  skips a thread carrying this reply until the thread's own reviewer (its
+  opener) comments after it; any other comment after it, ours included,
+  leaves the thread deferred.
 - A dismissal never starts with either phrase.

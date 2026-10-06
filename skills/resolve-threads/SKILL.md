@@ -42,9 +42,9 @@ run reports that it assumed the default.
    number,title,body,headRefName,url` for the PR itself. Then run
    `ruby ~/.claude/cf/bin/thread_history.rb <owner>/<repo>#<n>` and keep its
    stdout: `threads` (unresolved), `deferred` (threads already handed to a
-   plan, skipped until a reviewer comments again), `priorThreads` (earlier
-   threads we fixed, with their `Fixed in` sha), `rounds`, and
-   `recurrence`. Every thread entry carries the same identity:
+   plan, skipped until the thread's reviewer comments after the deferral),
+   `priorThreads` (earlier threads we fixed, with their `Fixed in` sha),
+   `rounds`, and `recurrence`. Every thread entry carries the same identity:
    `threadId` (GraphQL node id, for the resolve mutation), `commentId` (the
    opening comment's integer id, the REST reply target), `path`,
    `reviewer`, `reviewId`, `reviewedCommit` and `openedAt`; open threads
