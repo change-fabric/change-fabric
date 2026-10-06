@@ -37,7 +37,16 @@ module ColorThemes
   BARE_CLASS = /\A\.([\w-]+)\z/.freeze
   BARE_ATTR = /\A\[data-theme\s*=\s*["']?([\w-]+)["']?\]\z/.freeze
   MEDIA_SCHEME = /\A@media\s+(?:(?:only\s+)?(?:screen|all)\s+and\s+)?\(\s*prefers-color-scheme\s*:\s*(light|dark)\s*\)\s*\z/i.freeze
-  LAYER_FRAME = /\A@layer\s+([\w-]+)\s*\z/.freeze
+  # Matches a named or anonymous "@layer" block frame. A name may be a
+  # dotted path written as a single statement ("@layer a.b"), which is
+  # equivalent to nesting ("@layer a { @layer b { ... } }"); an anonymous
+  # block frame carries no name here (the parser has already rewritten it
+  # to a synthetic "%anon-N" name unique to its occurrence).
+  LAYER_FRAME = /\A@layer\s+([\w%-]+(?:\.[\w%-]+)*)\s*\z/.freeze
+  # A layer name inside "@layer a, b;" or "@import ... layer(x)", which may
+  # itself be a dotted path.
+  LAYER_NAME = /\A[\w%-]+(?:\.[\w%-]+)*\z/.freeze
+  IMPORT_LAYER = /\blayer\(\s*([\w%-]+(?:\.[\w%-]+)*)\s*\)/i.freeze
 
   module_function
 
@@ -84,7 +93,7 @@ module ColorThemes
   # that carry a text-role token.
   def build(sheet)
     rule_custom_only = rule_custom_only_map(sheet.decls)
-    layer_rank_by_name = compute_layer_order(sheet)
+    sibling_index = compute_layer_order(sheet)
 
     base_entries = [] # [excluded_names, Entry]
     theme_entries = Hash.new { |h, k| h[k] = [] } # name => [Entry] (selector-origin)
@@ -96,7 +105,7 @@ module ColorThemes
     sheet.decls.each do |decl|
       next unless decl.name.start_with?('--')
 
-      layer_rank = layer_rank_for(decl, layer_rank_by_name)
+      layer_rank = layer_rank_for(decl, sibling_index)
 
       decl.selectors.each do |selector|
         order_idx += 1
@@ -242,50 +251,93 @@ module ColorThemes
     by_rule.transform_values { |ds| ds.all? { |d| d.name.start_with?('--') || d.name == 'color-scheme' } }
   end
 
-  # Orders cascade layer names by first declaration, whether that first
-  # mention is a block-less "@layer a, b;" statement (which fixes order even
-  # before any of those layers' blocks appear) or a named "@layer x { }"
-  # block. Unlayered beats every layer regardless of this order; see
-  # layer_rank_for.
+  # The dotted path of @layer frames a declaration (or block-less at-rule
+  # statement) is nested in, as an array of segments, outermost first. A
+  # single frame's own name may already be dotted ("@layer a.b"), which is
+  # equivalent to nesting, so its segments are split out and flattened in
+  # with any real nesting.
+  def layer_path_for(at_rules)
+    at_rules.each_with_object([]) do |ar, path|
+      next unless ar.start_with?('@layer')
+
+      m = LAYER_FRAME.match(ar)
+      next unless m
+
+      path.concat(m[1].split('.'))
+    end
+  end
+
+  # Orders cascade layers by first declaration, whether that first mention
+  # is a block-less "@layer a, b;" statement (which fixes order even before
+  # any of those layers' blocks appear), an "@import ... layer(x)" (which
+  # fixes order at the import's position, before the layer's own block),
+  # or a named/anonymous "@layer x { }" block. Builds, for every distinct
+  # layer path seen, its sibling index among paths sharing the same parent
+  # path (so "a" and "a.b" are ordered independently of "b"), which is what
+  # layer_rank_for needs to rank a parent's own direct declarations above
+  # its sublayers while still ranking sibling layers by first declaration.
   def compute_layer_order(sheet)
-    events = []
+    events = [] # [line, idx, path]
+
     sheet.at_rule_stmts.each do |stmt|
-      next unless stmt.name == '@layer'
+      parent = layer_path_for(stmt.at_rules)
+      case stmt.name
+      when '@layer'
+        ColorCss.split_top_level(stmt.prelude).each_with_index do |nm, i|
+          name = nm.strip
+          next if name.empty? || !LAYER_NAME.match?(name)
 
-      ColorCss.split_top_level(stmt.prelude).each_with_index do |nm, i|
-        name = nm.strip
-        events << [ stmt.line, i, name ] unless name.empty?
+          events << [ stmt.line, i, parent + name.split('.') ]
+        end
+      when '@import'
+        m = IMPORT_LAYER.match(stmt.prelude)
+        events << [ stmt.line, 0, parent + m[1].split('.') ] if m
       end
     end
 
-    seen = {}
     sheet.decls.each do |decl|
-      decl.at_rules.each do |ar|
-        m = LAYER_FRAME.match(ar)
-        next unless m
-
-        seen[m[1]] ||= decl.line
+      path = layer_path_for(decl.at_rules)
+      (1..path.size).each do |len|
+        events << [ decl.line, Float::INFINITY, path.first(len) ]
       end
     end
-    seen.each { |name, line| events << [ line, Float::INFINITY, name ] }
 
-    order = []
-    events.sort_by { |line, idx, _| [ line, idx ] }.each do |(_, _, name)|
-      order << name unless order.include?(name)
+    first_seen = {}
+    events.sort_by { |line, idx, _| [ line, idx ] }.each do |(_, _, path)|
+      key = path.join('.')
+      first_seen[key] ||= path
     end
-    order.each_with_index.to_h
+
+    # Group every distinct path by its immediate parent path, in first-seen
+    # order, and number each group's children 0, 1, 2... by that order: a
+    # path's rank is only ever compared against its own siblings.
+    by_parent = Hash.new { |h, k| h[k] = [] }
+    first_seen.each_value { |path| by_parent[path[0...-1].join('.')] << path.join('.') }
+
+    sibling_index = {}
+    by_parent.each_value do |children|
+      children.each_with_index { |key, i| sibling_index[key] = i }
+    end
+    sibling_index
   end
 
   # Unlayered declarations always win over any layered one, whatever their
-  # specificity or source order, so they get a rank past every named layer.
-  def layer_rank_for(decl, layer_rank_by_name)
-    layer_ar = decl.at_rules.find { |a| a.start_with?('@layer') }
-    return Float::INFINITY unless layer_ar
+  # specificity or source order. Among layered declarations, a parent
+  # layer's own direct declarations win over anything in its sublayers
+  # (modelled by appending Infinity once the declaration's own path is
+  # exhausted, which outranks a deeper path's next, finite sibling index),
+  # and sibling layers are ranked by first declaration. Returns an array
+  # key, comparable with <=>, where a greater key wins.
+  def layer_rank_for(decl, sibling_index)
+    path = layer_path_for(decl.at_rules)
+    return [ Float::INFINITY ] if path.empty?
 
-    m = LAYER_FRAME.match(layer_ar)
-    return Float::INFINITY unless m
-
-    layer_rank_by_name[m[1]] || Float::INFINITY
+    key = []
+    (1..path.size).each do |len|
+      key << (sibling_index[path.first(len).join('.')] || 0)
+    end
+    key << Float::INFINITY
+    key
   end
 
   # Resolves one theme's effective declaration map and contexts.
@@ -325,8 +377,14 @@ module ColorThemes
     Variant.new(theme:, contexts: contexts_for(theme, base_entries, theme_entries, media_entries), decls:)
   end
 
+  # For !important declarations, the whole cascade-layer order is reversed
+  # (an earlier layer beats a later one, and layered beats unlayered), so
+  # every component of the layer_rank key is negated before comparison.
   def winning_value(entries)
-    entries.max_by { |e| [ e.important ? 1 : 0, e.layer_rank, e.b, e.c, e.order ] }.value
+    entries.max_by do |e|
+      rank = e.important ? e.layer_rank.map { |v| -v } : e.layer_rank
+      [ e.important ? 1 : 0, rank, e.b, e.c, e.order ]
+    end.value
   end
 
   def contexts_for(theme, base_entries, theme_entries, media_entries)

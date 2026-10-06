@@ -98,6 +98,7 @@ module ColorCss
       @paren_depth = 0
       @paren_is_url = []
       @next_rule_id = 1
+      @next_anon_layer_id = 1
       @line = 1
       @segment = +''
       @segment_start_line = 1
@@ -281,7 +282,18 @@ module ColorCss
       prelude = @segment
       stripped = prelude.strip
       if stripped.start_with?('@')
-        @frames << Frame.new(kind: :at_rule, selectors: nil, rule_id: nil, text: collapse_ws(stripped))
+        text = collapse_ws(stripped)
+        if text.match?(/\A@layer\z/i)
+          # An anonymous "@layer { }" block is still its own distinct layer
+          # (lower than any named layer it happens to share source position
+          # with), so it gets a synthetic name unique to this occurrence
+          # rather than being merged with other anonymous layers or treated
+          # as unlayered.
+          id = @next_anon_layer_id
+          @next_anon_layer_id += 1
+          text = "@layer %anon-#{id}"
+        end
+        @frames << Frame.new(kind: :at_rule, selectors: nil, rule_id: nil, text:)
       else
         rule_id = @next_rule_id
         @next_rule_id += 1
