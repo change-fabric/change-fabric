@@ -4,7 +4,7 @@ description: Laravel convention-first rubric for validation, authorization, Eloq
 auto:
   extensions: [php]
   require: ["**/artisan"]
-  detect: [artisan]
+  detect: ["**/artisan"]
 ---
 
 # Laravel Cheat Sheet

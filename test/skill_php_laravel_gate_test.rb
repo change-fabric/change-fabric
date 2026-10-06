@@ -29,8 +29,20 @@ class SkillPhpLaravelGateTest < Minitest::Test
     laravel = shipped("cf:laravel")
     mono = project_with("apps/api/artisan", "apps/api/app/Models/User.php")
     assert laravel.matches?(File.join(mono, "apps/api/app/Models/User.php"), root: mono)
+    assert laravel.detected?(mono), "SessionStart detection must agree with the recursive require gate"
   ensure
     FileUtils.remove_entry(mono) if mono
+  end
+
+  # detect and require must agree for every artisan depth, or SessionStart and
+  # per-edit routing disagree about whether the project is Laravel.
+  def test_shipped_laravel_detect_agrees_with_require_at_every_depth
+    laravel = shipped("cf:laravel")
+    [ "artisan", "api/artisan", "apps/api/artisan", "services/apps/api/artisan" ].each do |marker|
+      dir = project_with(marker, "x.php")
+      assert laravel.detected?(dir), "detect missed #{marker}"
+      FileUtils.remove_entry(dir)
+    end
   end
 
   def test_shipped_php_fires_on_php_and_composer_json
