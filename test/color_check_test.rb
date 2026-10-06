@@ -41,13 +41,9 @@ class ColorCheckTest < Minitest::Test
     }
   CSS
 
-  # Table-driven edge-case corpus for scripts/color_check.rb. Each row
-  # describes CSS-correct behavior, not necessarily today's behavior.
-  # pending: true means the row is not expected to pass under the current,
-  # unfixed implementation; a later phase flips it to false once the fix
-  # lands. Expected ratios are computed independently of the checker (a
-  # one-off WCAG luminance calculation), never by running the code under
-  # test. See plan.md "Corpus format" for the full specification.
+  # Each row states what CSS itself computes, not what the checker does
+  # today; pending: true marks a row the current code still fails. Expected
+  # ratios come from an independent WCAG calculation, never from the checker.
   CORPUS = [
     # :comments
     { id: "comments-block-comment-not-mid-value", cls: :comments,
@@ -324,17 +320,10 @@ class ColorCheckTest < Minitest::Test
       findings: [ [ "extra.css", 1, "literal" ], [ "extra.css", 1, "literal" ], [ "extra.css", 1, "gradient" ] ],
       pending: false },
 
-    # :past_findings -- one row per Codex finding already fixed on this
-    # branch. Derived from `git log --format='%h %s%n%b' main..HEAD` plus
-    # PR 237's review threads (gh api graphql reviewThreads query): ten
-    # threads carry a "Fixed in <hash>" reply, each matching one of the
-    # commits below one-to-one; commit 567bce1 fixes two distinct bugs
-    # (the HTML-entity false positive and the <base>-text pairing) that
-    # predate the Codex review and so have no matching thread, found only
-    # via git log. One thread is a declined wontfix (standalone .svg scan,
-    # not a fix, no row here) and two are still open (tracked elsewhere in
-    # this corpus as round4-root-defaults-not-light-only and
-    # round4-color-mix-var-arguments, not "already fixed"). Twelve rows.
+    # :past_findings, one row per review finding already fixed on this
+    # branch (the id carries the fixing commit), so a rewrite cannot
+    # reintroduce one. The two open round-4 findings live under their own
+    # classes as round4- rows.
     { id: "past-4a0c408-inherit-base-root-tokens", cls: :past_findings,
       files: { "tokens.css" => ":root {\n  --cream: #ffffff;\n  --plum: #000000;\n  --bg: var(--cream);\n  --text: var(--plum);\n}\n\n:root[data-theme=\"dark\"] {\n  --bg: var(--plum);\n  --text: var(--cream);\n}\n" },
       contrast: [ [ "light", "--text", "--bg", 21.0 ], [ "dark", "--text", "--bg", 21.0 ] ],
@@ -394,35 +383,41 @@ class ColorCheckTest < Minitest::Test
     pair.respond_to?(:reason) ? pair.reason : nil
   end
 
+  def contrast_match?(pair, expected_row)
+    theme, text_token, bg_token, *rest = expected_row
+    return false unless pair.theme == theme && pair.text_token == text_token && pair.bg_token == bg_token
+
+    if rest.first == :unresolved
+      !pair.resolved && (rest[1].nil? || contrast_reason(pair).to_s.include?(rest[1]))
+    else
+      pair.resolved && (rest.first.nil? || (pair.ratio - rest.first).abs < 0.01)
+    end
+  end
+
+  def describe_pairs(pairs)
+    pairs.map { |p| [ p.theme, p.text_token, p.bg_token, p.ratio, p.resolved ] }.inspect
+  end
+
+  # Each expected row consumes one matching pair, so duplicates must appear
+  # as many times as expected and nothing may be left over.
+  def assert_contrast_rows(row, pairs)
+    remaining = pairs.dup
+    row[:contrast].each do |expected_row|
+      found_index = remaining.find_index { |pair| contrast_match?(pair, expected_row) }
+      assert found_index, "expected contrast row #{expected_row.inspect} not found for #{row[:id]} " \
+                          "(actual: #{describe_pairs(remaining)})"
+      remaining.delete_at(found_index)
+    end
+    assert_empty remaining, "unexpected extra contrast rows for #{row[:id]}: #{describe_pairs(remaining)}"
+  end
+
   def assert_corpus_row(row, report, dir)
     if row[:palette]
       actual = report.palette ? report.palette.authored.map { |a| a[:value] }.sort : []
       assert_equal row[:palette].sort, actual, "palette mismatch for #{row[:id]}"
     end
 
-    if row[:contrast]
-      remaining = report.contrast.dup
-      row[:contrast].each do |expected_row|
-        theme, text_token, bg_token, *rest = expected_row
-        found_index = remaining.find_index do |pair|
-          next false unless pair.theme == theme && pair.text_token == text_token && pair.bg_token == bg_token
-
-          if rest.first == :unresolved
-            reason_substring = rest[1]
-            !pair.resolved && (reason_substring.nil? || contrast_reason(pair).to_s.include?(reason_substring))
-          else
-            expected_ratio = rest.first
-            pair.resolved && (expected_ratio.nil? || (pair.ratio - expected_ratio).abs < 0.01)
-          end
-        end
-        assert found_index, "expected contrast row #{expected_row.inspect} not found for #{row[:id]} " \
-                             "(actual: #{remaining.map { |p| [ p.theme, p.text_token, p.bg_token, p.ratio, p.resolved ] }.inspect})"
-        remaining.delete_at(found_index)
-      end
-      assert_empty remaining, "unexpected extra contrast rows for #{row[:id]}: " \
-                               "#{remaining.map { |p| [ p.theme, p.text_token, p.bg_token, p.ratio, p.resolved ] }.inspect}"
-    end
-
+    assert_contrast_rows(row, report.contrast) if row[:contrast]
     return unless row[:findings]
 
     actual = report.findings.map { |f| [ relative_path(f.file, dir), f.line, f.kind ] }.sort
