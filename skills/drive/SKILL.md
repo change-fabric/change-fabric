@@ -126,8 +126,10 @@ would-be-approved local state, and since nothing landed, also skips step
    `--signoff` or Haiku relevance results)** Pre-loop thread sweep:
    invoke `cf:resolve-threads` against the PR with the inline instruction
    `nested under cf:drive`: it runs straight through, replies and
-   resolves, does not push (`cf:drive` owns the push), does not start
-   cf:plan, and ends with its nested summary block. Capture the counts and
+   resolves what cites no commit, does not push (`cf:drive` owns the
+   push), does not start cf:plan, and ends with its nested summary block,
+   whose `pendingReplies` holds every `Fixed in <sha>` reply and
+   resolution until that push lands (see step 8). Capture the counts and
    rationales for checkpoint 1. If the block is missing, unparseable, or
    carries `error: true`, stop here: no push, no approval [DR-1]. If the
    block's `truncated` is true, the review history is incomplete: stop and
@@ -183,7 +185,12 @@ would-be-approved local state, and since nothing landed, also skips step
    proceed per their own normal push semantics (`cf:drive` only ever
    pushes here, never opens a new PR; the PR already exists by definition
    since this whole flow is PR-scoped from step 1 onward). Push the
-   branch.
+   branch. Once the push lands, post every held `pendingReplies` entry
+   from both sweeps (and from any pre-re-push sweep in step 9) and resolve
+   its thread. Whenever the run stops without pushing (step 2b, an unmet
+   gate, Local only), reply on those threads that the fix is committed
+   locally but unpushed and leave them unresolved; never post a
+   `Fixed in <sha>` reply for a commit GitHub cannot reach.
 9. **(SKILL.md)** [DR-1][DR-3] Poll GitHub check-runs on the pushed commit until they
    resolve, counting only completed check runs: a repo with CI configured
    but zero completed runs for the SHA is not green, it is still pending.

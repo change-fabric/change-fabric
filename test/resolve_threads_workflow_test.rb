@@ -225,4 +225,25 @@ class ResolveThreadsWorkflowTest < Minitest::Test
     assert_includes skill_md, "nested under cf:drive"
     refute_includes skill_md, "proceed automatically"
   end
+  # Every path that could post `Fixed in <sha>` or resolve a fixed thread
+  # must hold it until the commit is pushed, or fall back to an unpushed
+  # reply that leaves the thread open.
+  PUSH_GATED_MUTATIONS = {
+    "standalone holds fixes for step 7" => [:skill, "Standalone, step 7 posts them once\n   its push lands"],
+    "standalone posts only after push" => [:skill, "once the push lands, post step 6's held `fixed` and cluster"],
+    "standalone withheld push leaves threads open" => [:skill, "reply on those threads instead that the fix is committed locally but\n   unpushed, and leave them unresolved"],
+    "nested returns held mutations" => [:skill, "\"truncated\": false, \"pendingReplies\": []}"],
+    "nested posts no commit-citing reply" => [:skill, "commit-citing ones are only returned in `pendingReplies`"],
+    "gate row exists" => [:skill, "| RT-6 | Post a `Fixed in <sha>` reply"],
+    "drive posts held replies after push" => [:drive, "Once the push lands, post every held `pendingReplies` entry"],
+    "drive no-push paths leave threads open" => [:drive, "reply on those threads that the fix is committed\n   locally but unpushed and leave them unresolved"]
+  }.freeze
+
+  def test_fixed_thread_mutations_wait_for_the_push
+    drive = File.read(File.expand_path("../skills/drive/SKILL.md", __dir__))
+    docs = { skill: skill_md, drive: drive }
+    missing = PUSH_GATED_MUTATIONS.reject { |_, (doc, text)| docs[doc].include?(text) }
+    assert_empty missing.keys, "a fixed-thread reply can reach GitHub before its push"
+    refute_match(/Replies and resolutions still happen in a nested run\./, skill_md)
+  end
 end

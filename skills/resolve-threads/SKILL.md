@@ -99,7 +99,14 @@ run reports that it assumed the default.
    replies, step 8, the nested block) reads this settled `plan`. Before
    replying, read `reference/replying.md` for the verdict bars and
    reply-style rules. Use the `gh` CLI via Bash by
-   default. For `fixed` and `wontFix`: reply to the thread's opening
+   default. Commit-citing mutations wait for the push [RT-6]: every
+   `Fixed in <sha>` reply and resolution, per thread or cluster, is held
+   until the commit it cites is pushed, so no thread is marked settled
+   against a commit GitHub cannot reach. Standalone, step 7 posts them once
+   its push lands; nested, they go into the summary block's
+   `pendingReplies` for the caller to post after its own push. Replies that
+   cite no commit (`wontFix`, `needsHuman`, `conflicts`, deferrals) post
+   here as usual. For `fixed` and `wontFix`: reply to the thread's opening
    comment (`commentId`; GitHub accepts only a top-level comment here, never
    a reply) with `gh api repos/<owner>/<repo>/pulls/<n>/comments/
    <commentId>/replies -f body=...` stating what happened (the commit, or
@@ -119,9 +126,13 @@ run reports that it assumed the default.
    command CLAUDE.md states, else `rake test` when a Rakefile is present,
    else `package.json`'s `scripts.test`, in that order; if none is found,
    do not push and report that no test command could be found. Red means no
-   push; report the failure and stop before step 7's push, leaving the
+   push; report the failure and stop before the push, leaving the
    commits local. Only on green does the branch carrying the new commits
-   get pushed. The session's active cf merge mode (see `cf`) governs whether
+   get pushed; once the push lands, post step 6's held `fixed` and cluster
+   replies and resolutions [RT-6]. When the push is withheld for any
+   reason (red, no test command, or a merge mode that keeps work local),
+   reply on those threads instead that the fix is committed locally but
+   unpushed, and leave them unresolved. The session's active cf merge mode (see `cf`) governs whether
    that push, and any PR update, actually happens versus staying local.
    Skipped when nested (see Nested runs); the caller owns the push and its
    own test gate.
@@ -146,7 +157,14 @@ caller reads:
 
     {"fixed": 0, "wontFix": 0, "needsHuman": 0, "conflicts": 0,
      "deferred": 0, "clusters": 0, "recurrence": false, "plan": null,
-     "truncated": false}
+     "truncated": false, "pendingReplies": []}
+
+`pendingReplies` lists the held commit-citing mutations [RT-6], one
+`{"threadId", "commentId", "sha", "body", "resolve": true}` per `fixed` or
+cluster thread. The caller posts each reply and resolves the thread only
+after the push carrying `sha` lands; when it does not push, it replies that
+the fix is committed locally but unpushed and leaves the thread
+unresolved.
 
 `truncated` is step 1's flag; when true the run stopped there and the
 counts are all zero.
@@ -157,7 +175,8 @@ counts are all zero.
 
 `plan` is step 6's settled `plan` object (`slug`, `seededGoal`,
 `threadIds`) or `null`; its pending pointer is already recorded.
-Replies and resolutions still happen in a nested run.
+Replies and resolutions that cite no commit still happen in a nested
+run; commit-citing ones are only returned in `pendingReplies`.
 
 ## Unattended gates
 
@@ -167,6 +186,7 @@ Replies and resolutions still happen in a nested run.
 | RT-2 | Resolve a `fixed` thread | The thread's fix landed in a commit SHA | Do not resolve; fold into `needsHuman` |
 | RT-3 | Resolve a `wont_fix` thread | None; always allowed, all authors | N/A, always resolves |
 | RT-4 | Route recurring candidates to a plan cluster | Root-cause map is non-null and accounts for every candidate | Null map, an unaccounted candidate, or a dissolved/failed systemic fix all route to a plan cluster with a generic seeded goal |
+| RT-6 | Post a `Fixed in <sha>` reply or resolve a `fixed`/cluster thread | The commit it cites was pushed (standalone: step 7's push; nested: the caller's push) | Hold it; if no push happens, reply that the fix is committed locally but unpushed and leave the thread unresolved |
 | RT-5 | Any reply, resolution, or push | `Workflow` returned a usable result, and `thread_history.rb`, `plan_paths.rb`, and `ctx_store.rb` all succeeded | Stop; no reply, resolution, or push |
 
 ## Failure modes
