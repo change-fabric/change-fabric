@@ -96,3 +96,66 @@ The cf shim then surfaces it without anyone invoking it:
 | `detect` | Glob markers, relative to project root, that mark the skill active at SessionStart |
 | `all_code` | `true` = matches every code file via the central extension list (used by `cf:refactoring`) |
 | `all_files` | `true` = matches every edited file, code or prose (used by `cf:ai-slop`) |
+
+## CI diff-grep checks
+
+Most skills' "CI enforcement" section ships a one-line idiom a downstream repo
+pastes into its own CI: diff the PR's changed files down to a pathspec, then
+grep the result for a forbidden pattern. The old form piped `git diff` into
+`xargs -I{} git grep`, which is fail-open: `xargs` runs zero times on an empty
+input, so the check exits 0 (pass) instead of reporting that it never grepped
+anything, and a bare `git grep` with no file arguments silently scans the
+whole repository rather than the diff. The canonical form below is fail-closed
+instead: every step that cannot produce a trustworthy answer fails the check
+rather than passing it.
+
+<!-- CI-DIFF-GREP-IDIOM-START -->
+```bash
+# CI diff-grep idiom: fails closed. One copy here; each skill's one-liner is
+# this same shape, inlined and specialized with its own pathspecs and pattern.
+#
+# Resolve the base ref explicitly and fail if it cannot be resolved (an
+# absent origin/HEAD, a missing BASE_REF override, or a shallow clone without
+# the commit) instead of letting an unresolved ref silently diff against
+# nothing.
+base=$(git rev-parse --verify --quiet "${BASE_REF:-origin/HEAD}^{commit}") &&
+# Collect the changed-file list into a temp file so git diff's own exit
+# status survives (a process substitution would need bash 4.4's `wait -n`,
+# and macOS still ships bash 3.2).
+l=$(mktemp) &&
+trap 'rm -f "$l"' EXIT &&
+# -z plus a NUL-delimited read handles any filename, including ones with
+# spaces or newlines, on bash 3.2. --no-renames keeps a rename-plus-edit from
+# hiding a changed line under its old name. --diff-filter=AM scopes to
+# added/modified files. --merge-base scopes the diff to the PR's actual
+# changes (not everything that happened on the base branch since) and errors
+# on a shallow clone instead of silently under- or over-matching, so CI needs
+# actions/checkout with fetch-depth: 0.
+git diff -z --name-only --no-renames --diff-filter=AM --merge-base "$base" -- __PATHSPECS__ >"$l" &&
+# Read the NUL-delimited list into an array (requires bash, not POSIX sh).
+f=() && while IFS= read -r -d "" p; do f+=("$p"); done <"$l" &&
+# An empty file list is a pass (nothing in scope to flag), but git grep with
+# no path arguments scans the whole repo, so the empty case must be handled
+# explicitly rather than falling through to a bare git grep.
+{ [ ${#f[@]} -eq 0 ] || {
+    # GIT_LITERAL_PATHSPECS=1 makes every array entry a literal filename, not
+    # a pathspec pattern, so a filename that happens to look like a glob
+    # cannot change what gets grepped.
+    GIT_LITERAL_PATHSPECS=1 git grep -nP "__PAT__" -- "${f[@]}"
+    # git grep's exit status: 0 = match found, 1 = no match, 2+ = error (bad
+    # pattern, I/O failure). Only 1 is a pass; 0 and 2+ both fail the check.
+    [ $? -eq 1 ]
+  };
+}
+```
+<!-- CI-DIFF-GREP-IDIOM-END -->
+
+`BASE_REF` overrides the default `origin/HEAD` (set it, or run
+`git remote set-head origin -a`, when CI has no symbolic HEAD for origin).
+
+Site 7 (`skills/pdf-rendering/SKILL.md`) chains two `git grep` passes over the
+same file list instead of one: stage one narrows to files matching one
+pattern (`-l`, exit 0 or 1 both acceptable, 2+ fails), stage two re-greps only
+that narrowed list for a second pattern (`-L`, lists files *lacking* a match,
+which exits 0 whenever it lists anything, so the check judges the list's
+emptiness, not just the exit status).
