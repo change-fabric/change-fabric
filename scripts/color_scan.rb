@@ -23,7 +23,7 @@ module ColorScan
   HEX_CSS = /(?<!&)#(?:\h{8}|\h{6}|\h{4}|\h{3})\b/.freeze
   HEX_FULL = /\A#(?:\h{8}|\h{6}|\h{4}|\h{3})\z/.freeze
   NAMED_WORD = /(?<![\w$@#.-])[A-Za-z]+(?![\w(-])/.freeze
-  QUOTED_OR_URL = /"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|url\([^)]*\)/i.freeze
+  QUOTED_OR_URL = /"(?:[^"\\]|\\[\s\S])*"|'(?:[^'\\]|\\[\s\S])*'|url\([^)]*\)/i.freeze
   COLOR_KEY = /(^|[a-z])(color|colour|background|bg|fill|stroke|border|outline|shadow)/i.freeze
   # A CSS property name is color-bearing (a bare named-color word in its
   # value is in scope) when the property itself is about color: "color",
@@ -115,15 +115,17 @@ module ColorScan
 
   # Scans one declaration value line by line (so a multiline value keeps
   # correct line numbers): url() spans and quoted strings are blanked out
-  # first, then the blanked text is scanned for hex, color functions,
+  # over the whole value first (a string continued by an escaped newline
+  # stays blanked on its later lines), then the blanked text is scanned for hex, color functions,
   # gradients and, only when property_name is color-bearing, bare
   # named-color words.
   def value_findings(file, value, value_line, property_name)
     findings = []
     color_bearing = color_bearing_property?(property_name)
-    value.each_line.with_index do |line, idx|
+    raw_lines = value.lines
+    blank_quoted_and_urls(value).each_line.with_index do |blanked, idx|
       lineno = value_line + idx
-      blanked = blank_quoted_and_urls(line)
+      line = raw_lines[idx]
       blanked.scan(HEX_CSS) { findings << finding(file, lineno, 'literal', line) }
       blanked.scan(ColorCheck::COLOR_FN) { findings << finding(file, lineno, 'literal', line) }
       blanked.scan(ColorCheck::GRADIENT) { findings << finding(file, lineno, 'gradient', line) }

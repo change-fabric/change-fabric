@@ -12,6 +12,20 @@ class ColorScanTest < Minitest::Test
     findings(path, text, token_file:).map { |f| [ f.line, f.kind ] }.sort
   end
 
+  # --- CSS: strings continued across lines --------------------------------
+
+  def test_escaped_newline_keeps_css_string_blanked_on_later_lines
+    [
+      %(.x { content: "foo\\\n#abcdef"; }\n),
+      %(.x { content: 'foo\\\n#abcdef'; }\n),
+      %(.x { content: "a\\\nb\\\nrgb(1 2 3)"; }\n),
+      %(.x { color: "foo\\\nred"; }\n)
+    ].each do |css|
+      assert_equal [], kinds("a.css", css), css.inspect
+    end
+    assert_equal [ [ 2, "literal" ] ], kinds("a.css", %(.x { content: "a\\\nb" #abcdef; }\n))
+  end
+
   # --- JS: escapes and templates ------------------------------------------
 
   def test_escaped_quote_does_not_end_string_early
