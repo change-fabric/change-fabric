@@ -167,7 +167,12 @@ would-be-approved local state, and since nothing landed, also skips step
    true. Under `--signoff`: compose a summary, at most 640
    characters, combining `execSummaryDraft` with both thread-sweep
    outcomes (per `reference/summaries.md`'s checkpoint-1 format), and ask
-   for an explicit go/no-go. By default: skip both. Either way, this push is
+   for an explicit go/no-go; a yes there is the explicit acceptance that
+   lets any `needsHuman` or `conflicts` thread stand as an exception. By
+   default: skip both, but if either sweep (step 2, 6b, or a step-9
+   re-sweep) left a `needsHuman` or `conflicts` thread, stop and report
+   those threads instead: no push, no approval, since nobody accepted
+   them. Either way, this push is
    additionally gated by the active cf merge mode: Local only means stop
    here and report (see Merge mode above); Merge ready/Admin bypass/Yolo
    proceed per their own normal push semantics (`cf:drive` only ever
