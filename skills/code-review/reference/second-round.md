@@ -22,7 +22,11 @@ no findings posts nothing and reports that.
    naming the prior review commit.
 3. **Plan.** Under away mode, skip to "Away" below. Otherwise invoke the
    `cf:plan` skill with the Skill tool, args: a seeded goal plus
-   `--area <repo basename>`. The seeded goal is plain prose:
+   `--area <repo basename>`. `reviewRound.priorReviews` only carries
+   `{id, commit}`, not titles: read the first round's finding titles from
+   that prior review's own comments (the `**<badge> P<n> - <title>**`
+   header line) via `gh api repos/<owner>/<repo>/pulls/<n>/reviews/<id>/comments`.
+   The seeded goal is plain prose:
    "Second-round review of PR #<n> (<title>) in <owner>/<repo>. The first
    round's findings (<titles>) were addressed, and this round found
    <tier title path:line, ...>. Findings keep landing on <paths>. Plan a
@@ -55,8 +59,10 @@ no findings posts nothing and reports that.
 
 ## Away
 
-No interview under away mode. Post the P1 findings inline (one
-`event=COMMENT` review, no body), hold the P2 and P3 findings, pipe the
+No interview under away mode. Skip the post entirely when `posted` has no
+P1 finding: GitHub rejects an `event=COMMENT` review with no body and no
+comments. Otherwise post the P1 findings inline (one `event=COMMENT`
+review, no body), hold the P2 and P3 findings, pipe the
 seeded goal plus the held findings to `ruby ~/.claude/cf/bin/ctx_store.rb
 capture --name plan-pending-pr-<n>-review-round --class active --desc
 "Second-round review plan pending for PR #<n>"`, and report that the user

@@ -130,9 +130,9 @@ Orthogonal to trust: trust is "do I believe this person's code", run mode is
   loop mode.
 
 `auto` is the default whenever no mode word is given, interactive or not, away
-or not. Merge mode still gates every merge: under Merge ready nothing merges
-and the sweep reports what it would have merged (see Merge mode and the change
-gate below).
+or not. Merge mode still gates every merge: under Merge ready step 7 still
+drives and pushes each queued PR but stops before merging, and the report
+names what it would have merged (see Merge mode and the change gate below).
 
 `--signoff` with no mode word calls `AskUserQuestion` once: header `Sweep
 mode`, options **Report only** (first, recommended), **Land with sign-off**,

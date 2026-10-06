@@ -80,7 +80,7 @@ resolve-threads sweeps, the CI poll, the approval, the browser-open) only
 apply when the target resolves to a real PR. A non-PR scope runs the local
 loop and CI prediction only; see Failure modes.
 
-### Merge mode vs sign-off mode
+### Merge mode vs `--signoff`
 
 Three independent axes:
 

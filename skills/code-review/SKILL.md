@@ -73,11 +73,11 @@ reports that it assumed the default.
    worktrees can check out, not a moving branch name.
 
    For PR scope, also run `ruby ~/.claude/cf/bin/thread_history.rb
-   <owner>/<repo>#<n>` and keep its `reviewRound`. If
+   <owner>/<repo>#<n>` and keep its `reviewRound`. Check
+   `reviewRound.consolidatedAtHead` first: if true, a consolidated review
+   already covers this head: report it and stop. Otherwise, if
    `reviewRound.secondRound` is true, this is a second round: follow
-   `reference/second-round.md` from step 3 on. If
-   `reviewRound.consolidatedAtHead` is true, a consolidated review already
-   covers this head: report it and stop.
+   `reference/second-round.md` from step 3 on.
 2. **Run the review workflow.** Read `reference/workflow.js` and call
    `Workflow` with its full contents as `script` and `args: { files,
    repoPath, headSha, cap }` (`cap` optional, defaults to 15). Invoking this

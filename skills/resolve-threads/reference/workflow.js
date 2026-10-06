@@ -161,7 +161,7 @@ const verdicts = await parallel(threads.map((t) => () =>
     "declaration-boundary-scan, not a restatement of the line. Then probe for the same class " +
     "elsewhere: search this file and its subsystem for the same pattern, and read each earlier " +
     "fix listed above. A reviewer who finds one instance will find the next one in the next " +
-    "round; fixing only the reported line is how a PR ends up with four rounds.\n\n" +
+    "round; fixing only the reported line is how a PR ends up with another round.\n\n" +
     "If the concern is real and worth fixing, fix every instance of the class you found, not " +
     "only the reported one, list each extra instance in siblings (path, line, one-line note), " +
     "and make the regression test enumerate the class's variants rather than only the reported " +
@@ -283,10 +283,21 @@ const threadRef = (id) => {
   const v = byId.get(id)
   return { threadId: id, path: v.path, line: v.line, commentId: v.commentId, title: v.title }
 }
-const inRunClusters = clusterApplied.map((c) => ({
-  concernClass: c.concernClass, rootCause: c.rootCause, reply: c.reply,
-  applied: c.applied, commitSha: c.commitSha, note: c.note, threads: c.threadIds.map(threadRef)
-}))
+// A cluster reported applied with no commit sha cannot produce the exact
+// `Fixed in <sha>.` reply the cluster branch promises, so it is routed to
+// conflicts (per thread) instead of left in clusters as if it had landed.
+const inRunClusters = clusterApplied
+  .filter((c) => !(c.applied && !c.commitSha))
+  .map((c) => ({
+    concernClass: c.concernClass, rootCause: c.rootCause, reply: c.reply,
+    applied: c.applied, commitSha: c.commitSha, note: c.note, threads: c.threadIds.map(threadRef)
+  }))
+const clusterConflicts = clusterApplied
+  .filter((c) => c.applied && !c.commitSha)
+  .flatMap((c) => c.threadIds.map((id) => ({
+    ...threadRef(id), applied: false,
+    note: c.note || "cluster reported applied with no commit sha"
+  })))
 const planClusters = clusters.filter((c) => c.size === "plan").map((c) => ({
   concernClass: c.concernClass, rootCause: c.rootCause, threads: c.threadIds.map(threadRef)
 }))
@@ -307,8 +318,10 @@ if (planClusters.length > 0) {
   plan = { slug: slug, seededGoal: seededGoal, threadIds: planClusters.flatMap((c) => c.threads.map((t) => t.threadId)) }
 }
 
-const fixed = applied.filter((a) => a.applied)
-const conflicts = applied.filter((a) => !a.applied)
+// An entry reported applied with no commit sha cannot produce the exact
+// `Fixed in <sha>.` reply either, so it is a conflict, not a fix.
+const fixed = applied.filter((a) => a.applied && a.commitSha)
+const conflicts = applied.filter((a) => !a.applied || !a.commitSha).concat(clusterConflicts)
 const wontFix = verdicts.filter((v) => v.action === "wont_fix" && !clustered.has(v.threadId))
 const needsHuman = verdicts.filter((v) => v.action === "needs_human" && !clustered.has(v.threadId))
 

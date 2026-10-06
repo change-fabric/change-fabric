@@ -173,8 +173,6 @@ body edit (under `--signoff`, ask first). Use `screenshot.pr_number` and
 `screenshot.base_ref` from phase 1 rather than re-deriving them. Zero differing
 pairs is a successful outcome: report it and skip the upload and the edit.
 
-Away mode changes nothing here: the default asks nothing.
-
 ## Phase 6: Report
 
 Summarize findings in the chat response first.
@@ -188,8 +186,6 @@ or GitHub MCP tools) is available:
   closing remarks, no restating the plan.
 - Post the comment(s). Under `--signoff`, first call `AskUserQuestion` with
   an executive summary of each comment and ask whether to post, edit, or skip.
-
-Away mode changes nothing here: the default asks nothing.
 
 ## Phase 7: Promote the flow (foreground)
 
@@ -217,17 +213,16 @@ For each passing flow:
    not a restatement of the steps. It is graded against the run by `cf:change`,
    and that verdict can fail the gate, so write what actually matters and
    nothing you would not want enforced.
-3. Write the rendered YAML to the path (conventionally
-   `qa/<suite>.cf-testcases.yml`, next to the code it tests). If the file
-   exists and already has this case id, do not overwrite it: skip and report
-   the rendered YAML. Under `--signoff`, show the YAML and path and ask whether
-   to write, edit, or skip.
+3. Create the file if it does not exist yet (conventionally
+   `qa/<suite>.cf-testcases.yml`, next to the code it tests). If it already
+   exists, append the case to its `cases:` list instead of overwriting the
+   file. Never overwrite an existing case id without `--signoff`: on a
+   collision, skip and report the rendered YAML. Under `--signoff`, show the
+   YAML and path and ask whether to write, edit, or skip.
 4. Never commit it, never open a PR for it. Report every written path so the
    user can drop a case they do not want.
 5. If the file is new, say that `CHANGE.md` needs `lanes.testcases.suites` to
    name a glob covering it, or the case is committed and never runs.
-
-Away mode changes nothing here: the default asks nothing.
 
 ## Failure modes
 

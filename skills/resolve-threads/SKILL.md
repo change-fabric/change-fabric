@@ -117,5 +117,9 @@ caller reads:
     {"fixed": 0, "wontFix": 0, "needsHuman": 0, "conflicts": 0,
      "deferred": 0, "clusters": 0, "recurrence": false, "plan": null}
 
+`deferred` counts threads this run deferred to a plan, i.e. replied
+`Deferred to plan <slug>.` (see step 1's `deferred` field and
+`reference/replying.md`).
+
 `plan` is the Workflow's `plan` object (`slug`, `seededGoal`, `threadIds`)
 or `null`. Replies and resolutions still happen in a nested run.

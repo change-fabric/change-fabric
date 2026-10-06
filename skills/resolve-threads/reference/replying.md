@@ -11,7 +11,7 @@ bearing on steps 1-5.
 | `wont_fix` | The concern does not hold up, is already covered, or costs more than it is worth | No code change; thread replied to with the rationale and resolved |
 | `needs_human` | The right call depends on judgment this skill cannot make, or a `fix` diff conflicted once applied | No code change; thread replied to with the open question, left unresolved |
 | in-run cluster | Recurring feedback whose root cause the Root cause phase fixed in one systemic commit | Every cluster thread replied to citing that one commit, and resolved |
-| plan cluster | Recurring feedback whose honest fix is a redesign | Every cluster thread replied to with the deferral, left unresolved; cf:plan starts after the push |
+| plan cluster | Recurring feedback whose honest fix is a redesign | Every cluster thread replied to with the deferral, left unresolved; cf:plan starts after the push, or a pointer is recorded instead when the run is nested or away mode is on |
 
 ## Reply style
 
