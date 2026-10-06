@@ -4,6 +4,7 @@
 require "minitest/autorun"
 require "open3"
 require "json"
+require "tmpdir"
 
 # Guards the four Workflow scripts cf:resolve-threads, cf:drive, cf:sweep and
 # cf:code-review against the class of bug plan.md's audit table names: an
@@ -167,5 +168,35 @@ class WorkflowNullHarnessTest < Minitest::Test
       assert_includes result["incompleteShards"], "core", "#{key}: core shard not named incomplete"
     end
     assert_equal false, run_harness("code-review").fetch("result")["incomplete"], "happy path reported incomplete"
+  end
+  # The Order agent may repeat a PR number (the schema permits it), adjacent,
+  # separated, or with a conflicting action. Each variant must leave every PR
+  # in the plan and the queue at most once.
+  def test_sweep_duplicate_order_entries_are_coalesced
+    skip "node not installed" unless node_available?
+    base = JSON.parse(File.read(fixture_path("sweep")))
+    entry = ->(n, action = "merge") { { "number" => n, "action" => action, "rationale" => "r", "blockedBy" => [], "warnAuthor" => "" } }
+    variants = {
+      "adjacent" => [ entry.(1), entry.(1), entry.(2), entry.(3) ],
+      "separated" => [ entry.(1), entry.(2), entry.(1), entry.(3) ],
+      "conflicting action" => [ entry.(1), entry.(2), entry.(3), entry.(1, "hold") ],
+      "all repeated" => [ entry.(1), entry.(2), entry.(3), entry.(3), entry.(2), entry.(1) ]
+    }
+    variants.each do |name, order|
+      fixture = Marshal.load(Marshal.dump(base))
+      fixture["results"]["Order#1"]["order"] = order
+      Dir.mktmpdir do |dir|
+        path = File.join(dir, "sweep.json")
+        File.write(path, JSON.generate(fixture))
+        out, status = Open3.capture2("node", HARNESS, WORKFLOWS.fetch("sweep"), "--fixture", path)
+        assert status.success?, "#{name}: harness failed: #{out}"
+        result = JSON.parse(out).fetch("result")
+        queue = result.fetch("autoMergeQueue")
+        plan_numbers = result.fetch("plan").map { |e| e["number"] }
+        assert_equal queue.uniq, queue, "#{name}: queue lists a PR twice"
+        assert_equal plan_numbers.uniq, plan_numbers, "#{name}: plan lists a PR twice"
+        assert_equal [ 1, 2, 3 ], plan_numbers.sort, "#{name}: plan lost a PR"
+      end
+    end
   end
 end

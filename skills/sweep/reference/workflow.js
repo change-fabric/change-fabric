@@ -403,10 +403,19 @@ function eligibilityReasons(pr, entry) {
   return reasons
 }
 
-const orderedNumbers = new Set((plan.order || []).map((entry) => entry.number))
+// The order schema permits a PR number to repeat. Keep only the first entry
+// per number so the queue never lists a PR twice (a second merge attempt on
+// an already-closed PR would fail and stall every PR behind it).
+const seenOrder = new Set()
+const planOrder = (plan.order || []).filter((entry) => {
+  if (!entry || seenOrder.has(entry.number)) return false
+  seenOrder.add(entry.number)
+  return true
+})
+const orderedNumbers = new Set(planOrder.map((entry) => entry.number))
 const omitted = facts.filter((f) => !orderedNumbers.has(f.number))
 
-const fromPlan = (plan.order || []).map((entry, index) => {
+const fromPlan = planOrder.map((entry, index) => {
   const pr = byNumber.get(entry.number)
   const level = pr ? trustOf(pr.author) : "unknown"
   const reasons = eligibilityReasons(pr, entry)
