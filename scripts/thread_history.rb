@@ -119,18 +119,22 @@ class ThreadHistory
     vars if CONNECTIONS.values.any? { |(_, include)| vars[include] != false }
   end
 
-  URL_REF = %r{\Ahttps?://github\.com/([\w.-]+)/([\w.-]+)/pull/(\d+)(?:[/?#].*)?\z}
+  # Any host, not just github.com, so a GitHub Enterprise URL resolves too.
+  URL_REF = %r{\Ahttps?://([\w.-]+)/([\w.-]+)/([\w.-]+)/pull/(\d+)(?:[/?#].*)?\z}
   SLUG_REF = %r{\A([\w.-]+)/([\w.-]+)#(\d+)\z}
   NUMBER_REF = /\A#?(\d+)\z/
 
-  # [owner, name, number] for a PR URL, `o/r#12`, `#12` or `12` (owner and
-  # name nil for the last two), or nil when the ref is none of those.
+  # [host, owner, name, number] for a PR URL, `o/r#12`, `#12` or `12` (host
+  # nil when the ref carries none, owner/name nil for the last two), or nil
+  # when the ref is none of those.
   def self.parse_ref(str)
     ref = str.to_s.strip
-    if (m = ref.match(URL_REF) || ref.match(SLUG_REF))
-      [ m[1], m[2], m[3].to_i ]
+    if (m = ref.match(URL_REF))
+      [ m[1], m[2], m[3], m[4].to_i ]
+    elsif (m = ref.match(SLUG_REF))
+      [ nil, m[1], m[2], m[3].to_i ]
     elsif (m = ref.match(NUMBER_REF))
-      [ nil, nil, m[1].to_i ]
+      [ nil, nil, nil, m[1].to_i ]
     end
   end
 
@@ -366,8 +370,8 @@ class ThreadHistory
     end
 
     def run(argv, out: $stdout, err: $stderr, runner: GH)
-      owner, name, number = resolve(argv.first, runner)
-      out.puts JSON.pretty_generate(ThreadHistory.new(fetch(runner, owner, name, number)).to_h)
+      host, owner, name, number = resolve(argv.first, runner)
+      out.puts JSON.pretty_generate(ThreadHistory.new(fetch(runner, host, owner, name, number)).to_h)
       0
     rescue StandardError => e
       err.puts "thread_history: #{e.message.strip}"
@@ -377,31 +381,42 @@ class ThreadHistory
     # Follows both connections' cursors until each is exhausted, up to
     # MAX_PAGES calls; past that the merged pageInfo keeps hasNextPage and
     # the history reports itself truncated.
-    def fetch(runner, owner, name, number)
+    def fetch(runner, host, owner, name, number)
       merged = nil
       vars = {}
       MAX_PAGES.times do
-        page = graphql(runner, owner, name, number, vars)
+        page = graphql(runner, host, owner, name, number, vars)
         merged = ThreadHistory.merge_page(merged, page)
         vars = ThreadHistory.next_page_vars(page) or break
       end
       merged
     end
 
-    def graphql(runner, owner, name, number, vars)
+    # --hostname is only passed for a non-github.com host; github.com (or an
+    # unknown host, nil) is gh's own default and needs no flag.
+    def graphql(runner, host, owner, name, number, vars)
       args = [ '-f', "owner=#{owner}", '-f', "name=#{name}", '-F', "number=#{number}" ]
       vars.each { |k, v| args += v.is_a?(String) ? [ '-f', "#{k}=#{v}" ] : [ '-F', "#{k}=#{v}" ] }
+      args += [ '--hostname', host ] if host && host != 'github.com'
       output, status = runner.call('gh', 'api', 'graphql', *args, '-f', "query=#{QUERY}")
       raise output unless status.success?
 
       JSON.parse(output).fetch('data')
     end
 
+    # [host, owner, name, number]. A bare number or `o/r#12` ref carries no
+    # host, so the current repo's own host and nameWithOwner fill the gap via
+    # one `gh repo view` call; `gh repo view` already targets whatever host
+    # the local checkout is configured for, enterprise included.
     def resolve(ref, runner)
       ref = JSON.parse(gh(runner, 'pr', 'view', '--json', 'number,url')).fetch('url') if ref.nil? || ref.strip.empty?
-      owner, name, number = ThreadHistory.parse_ref(ref) || raise("unrecognized PR ref: #{ref}")
-      owner, name = gh(runner, 'repo', 'view', '--json', 'nameWithOwner', '-q', '.nameWithOwner').split('/', 2) if owner.nil?
-      [ owner, name, number ]
+      host, owner, name, number = ThreadHistory.parse_ref(ref) || raise("unrecognized PR ref: #{ref}")
+      if owner.nil?
+        repo = JSON.parse(gh(runner, 'repo', 'view', '--json', 'nameWithOwner,url'))
+        owner, name = repo.fetch('nameWithOwner').split('/', 2)
+        host ||= repo.fetch('url')[%r{\Ahttps?://([\w.-]+)/}, 1]
+      end
+      [ host, owner, name, number ]
     end
 
     def gh(runner, *args)

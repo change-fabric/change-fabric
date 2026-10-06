@@ -541,13 +541,68 @@ class ThreadHistoryTest < Minitest::Test
   # -- 15. parse_ref ------------------------------------------------------------
 
   def test_parse_ref
-    assert_equal [ "o", "r", 12 ], ThreadHistory.parse_ref("https://github.com/o/r/pull/12")
-    assert_equal [ "o", "r", 12 ], ThreadHistory.parse_ref("https://github.com/o/r/pull/12/files")
-    assert_equal [ "o", "r", 12 ], ThreadHistory.parse_ref("o/r#12")
-    assert_equal [ nil, nil, 12 ], ThreadHistory.parse_ref("#12")
-    assert_equal [ nil, nil, 12 ], ThreadHistory.parse_ref("12")
+    assert_equal [ "github.com", "o", "r", 12 ], ThreadHistory.parse_ref("https://github.com/o/r/pull/12")
+    assert_equal [ "github.com", "o", "r", 12 ], ThreadHistory.parse_ref("https://github.com/o/r/pull/12/files")
+    assert_equal [ nil, "o", "r", 12 ], ThreadHistory.parse_ref("o/r#12")
+    assert_equal [ nil, nil, nil, 12 ], ThreadHistory.parse_ref("#12")
+    assert_equal [ nil, nil, nil, 12 ], ThreadHistory.parse_ref("12")
     assert_nil ThreadHistory.parse_ref("not a pr")
-    assert_nil ThreadHistory.parse_ref("https://example.com/o/r/pull/12")
+  end
+
+  # -- 18. GitHub Enterprise host ------------------------------------------------
+
+  def test_parse_ref_accepts_any_host
+    assert_equal [ "github.example.com", "o", "r", 12 ],
+                 ThreadHistory.parse_ref("https://github.example.com/o/r/pull/12")
+  end
+
+  def test_cli_pastes_an_enterprise_url_and_passes_hostname_to_graphql
+    code, out, _err, calls = run_cli(
+      [ "https://github.example.com/o/r/pull/237" ],
+      "api" => [ canned_graphql, Status.new(true) ]
+    )
+    assert_equal 0, code
+    parsed = JSON.parse(out)
+    assert_equal 237, parsed["pr"]
+    graphql = calls.find { |c| c[1] == "api" }
+    assert_includes graphql, "--hostname"
+    assert_includes graphql, "github.example.com"
+    refute(calls.any? { |c| c[1] == "repo" })
+  end
+
+  def test_cli_no_ref_on_an_enterprise_host_carries_the_host_through
+    pr = JSON.generate("number" => 237, "url" => "https://github.example.com/o/r/pull/237")
+    code, _out, _err, calls = run_cli([], "pr" => [ pr, Status.new(true) ],
+                                           "api" => [ canned_graphql, Status.new(true) ])
+    assert_equal 0, code
+    graphql = calls.find { |c| c[1] == "api" }
+    assert_includes graphql, "--hostname"
+    assert_includes graphql, "github.example.com"
+  end
+
+  def test_cli_bare_number_on_the_current_repo_resolves_the_host_from_repo_view
+    code, _out, _err, calls = run_cli(
+      [ "#237" ],
+      "repo" => [ JSON.generate("nameWithOwner" => "change-fabric/change-fabric",
+                                 "url" => "https://github.example.com/change-fabric/change-fabric"), Status.new(true) ],
+      "api" => [ canned_graphql, Status.new(true) ]
+    )
+    assert_equal 0, code
+    graphql = calls.find { |c| c[1] == "api" }
+    assert_includes graphql, "--hostname"
+    assert_includes graphql, "github.example.com"
+  end
+
+  def test_cli_bare_number_on_github_com_passes_no_hostname_flag
+    code, _out, _err, calls = run_cli(
+      [ "#237" ],
+      "repo" => [ JSON.generate("nameWithOwner" => "change-fabric/change-fabric",
+                                 "url" => "https://github.com/change-fabric/change-fabric"), Status.new(true) ],
+      "api" => [ canned_graphql, Status.new(true) ]
+    )
+    assert_equal 0, code
+    graphql = calls.find { |c| c[1] == "api" }
+    refute_includes graphql, "--hostname"
   end
 
   # -- 16. CLI ------------------------------------------------------------------
@@ -579,7 +634,9 @@ class ThreadHistoryTest < Minitest::Test
   end
 
   def test_cli_prints_json_and_returns_zero
-    code, out, err, calls = run_cli([ "#237" ], "repo" => [ "change-fabric/change-fabric\n", Status.new(true) ],
+    repo = JSON.generate("nameWithOwner" => "change-fabric/change-fabric",
+                          "url" => "https://github.com/change-fabric/change-fabric")
+    code, out, err, calls = run_cli([ "#237" ], "repo" => [ repo, Status.new(true) ],
                                                 "api" => [ canned_graphql, Status.new(true) ])
     assert_equal 0, code
     assert_equal "", err
