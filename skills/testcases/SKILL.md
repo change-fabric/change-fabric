@@ -11,8 +11,8 @@ committed test cases; for the full five-lane release sweep use `cf:change`.
 Trigger: `/cf:testcases [<target>] [--signoff]`.
 
 A literal `full auto` or `auto` as the first or last word of the args is
-stripped before parsing, with a one-line note that full auto is already the
-default.
+stripped before parsing, with a one-line note that full auto is
+already the default.
 
 Question: do this repo's committed test cases still pass?
 

@@ -46,8 +46,8 @@ ruby ~/.claude/cf/bin/change_screenshot.rb \
 - `--signoff` asks before the `## Demo` body edit; by default it is written.
 
 A literal `full auto` or `auto` as the first or last word of the args is
-stripped before parsing, with a one-line note that full auto is already the
-default.
+stripped before parsing, with a one-line note that full auto is
+already the default.
 
 ## Ref resolution
 

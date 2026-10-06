@@ -29,19 +29,19 @@ the hooks never surface it. These are verbs the agent performs on demand.
 | `cf:away` | Direct command: sets away mode on. Stops asking questions, takes the recommended or safe default, and reports what was assumed. |
 | `cf:active` | Direct command: sets away mode off, so the agent asks normally again. |
 | `cf:refactor` | Refactors a scope you name (PR, branch, repo, file, or glob), routing each file through the auto-firing skills that cover it. |
-| `cf:code-review` | Reviews a scope you name (PR, branch, files, or a feature description), verifies each candidate finding in an isolated worktree, and posts only what survives. |
+| `cf:code-review` | Reviews a scope you name (PR, branch, files, or a feature description), verifies each candidate finding in an isolated worktree, and posts only what survives. Posts by default (`--signoff` asks first); on a second round it posts one consolidated root-cause review instead of more inline comments. |
 | `cf:ctx` | Captures, recalls, and lists durable project context in the shim-owned .ctx store. |
 | `cf:prune` | Post-merge cleanup: fast-forwards the trunk and prunes merged branches and worktrees, local and remote, asking before it discards unmerged work or deletes any remote branch. |
-| `cf:resolve-threads` | Resolves every unresolved review thread on a PR by evaluating each in its own isolated worktree, then implements the fix, dismisses it, or defers to a human, replying and resolving on GitHub accordingly. |
-| `cf:qa` | Scopes and runs an ad hoc Playwright QA pass against a natural-language target (a PR, a feature, a flow) in an ephemeral browserless Chromium container, and optionally posts findings as PR comments. |
-| `cf:screenshot` | Captures before/after screenshots of every configured route and viewport at two git refs, keeps only the pairs that pixel-differ, uploads them to GitHub, and offers to splice them into the pull request body's Demo section. |
+| `cf:resolve-threads` | Resolves every unresolved review thread on a PR, each evaluated in its own isolated worktree with the run's other threads and earlier fixes in view; fixes every instance of the bug class, dismisses, or defers to a human, then replies, resolves and pushes by default (`--signoff` asks first). Recurring feedback triggers a root-cause pass: a small cause is fixed in one commit, a large one starts cf:plan. |
+| `cf:qa` | Scopes and runs an ad hoc Playwright QA pass against a natural-language target (a PR, a feature, a flow) in an ephemeral browserless Chromium container, and posts findings as PR comments by default (`--signoff` asks first). |
+| `cf:screenshot` | Captures before/after screenshots of every configured route and viewport at two git refs, keeps only the pairs that pixel-differ, uploads them to GitHub, and splices them into the pull request body's Demo section. |
 | `cf:change` | Runs the deterministic, config-driven release-gate sweep (all five dockerized audit lanes: k6 load, axe-core a11y, OWASP ZAP pentest, browserless responsive UX, committed test cases) against a project's root `CHANGE.md` (its `change_config:` frontmatter), aggregates a CSV+Markdown report on the Desktop, and records a pass/fail gate for the head commit. |
-| `cf:drive` | Drives a PR to an approved, green state end to end. `thorough` (default) interviews the owner, writes a review-and-QA planning set, and prints a handoff prompt for a fresh session. `quick` sweeps review threads, runs a relevance-gated local quality loop, predicts CI locally, then pushes, waits for real CI, and posts an approval. |
+| `cf:drive` | Drives a PR to an approved, green state end to end. `thorough` (default) interviews the owner, writes a review-and-QA planning set, and prints a handoff prompt for a fresh session. `quick` sweeps review threads, runs a relevance-gated local quality loop, predicts CI locally, then pushes, waits for real CI, and posts an approval; it runs straight through by default (`--signoff` adds checkpoints), and stops to start cf:plan when review feedback recurs. |
 | `cf:k6` | Runs just the k6 load/burst lane of the change-fabric platform against a project's config. |
 | `cf:a11y` | Runs just the axe-core accessibility lane of the change-fabric platform against a project's config. |
 | `cf:zap` | Runs just the OWASP ZAP penetration-test lane of the change-fabric platform against a project's config. |
-| `cf:testcases` | Runs just the deterministic regression lane of the change-fabric platform: replays the test cases committed in the repo's suite files and grades each one. |
-| `cf:sweep` | Sweeps a repo's open feature PRs and plans how to land them as a group, covering merge order, conflict mitigations, migration sequencing, and a per-contributor trust policy persisted across runs. |
+| `cf:testcases` | Runs just the deterministic regression lane of the change-fabric platform: replays the test cases committed in the repo's suite files and grades each one. On a failed grade it reports the override command instead of asking (`--signoff` asks). |
+| `cf:sweep` | Sweeps a repo's open feature PRs and plans how to land them as a group, covering merge order, conflict mitigations, migration sequencing, and a per-contributor trust policy persisted across runs. Runs in `auto` mode by default; merge mode still gates every merge. |
 | `cf:plan` | Researches a goal with background Opus agents, grills the user with AskUserQuestion until the judgment calls are settled, then lands a plan.md, a 4000-character-capped goal.md, and a runnable workflow.js under `$CF_PLANS_ROOT` (default `~/.claude/cf/plans`), plus a handoff prompt for a separate session to execute. |
 | `cf:status` | Arms a recurring self-status ping on a real cron loop (`/cf:status [<minutes>]`) and prints a red/yellow/green progress line per active work item on each `/cf:status tick`, only when something changed, stopping itself once every item is green. |
 
@@ -49,6 +49,10 @@ the hooks never surface it. These are verbs the agent performs on demand.
 (`scripts/skill_route.rb`, copied to the shim bin but not wired as a hook): it
 maps a changeset's files to the skills that match, so a one-shot refactor
 applies the same rubrics the per-edit hooks would.
+
+`scripts/thread_history.rb` reads a PR's review history from
+GitHub (rounds per reviewer, earlier fixes, a prior cf:code-review round)
+for cf:resolve-threads and cf:code-review.
 
 ## Auto-firing skills
 
