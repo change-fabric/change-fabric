@@ -273,6 +273,16 @@ class ColorCheckTest < Minitest::Test
     end
   end
 
+  def test_contrast_ignores_palette_names_containing_role_substrings
+    with_dir do |dir|
+      write(dir, "tokens.css", ":root {\n  --bg: #ffffff;\n  --pink: #f2c4c4;\n  --ink: #000000;\n}\n")
+      report = ColorCheck.run(dir)
+      tokens = report.contrast.map(&:text_token)
+      refute_includes tokens, "--pink"
+      assert_includes tokens, "--ink"
+    end
+  end
+
   def test_json_output_parses
     with_dir do |dir|
       write(dir, "tokens.css", FOUR_COLOR_TOKENS)

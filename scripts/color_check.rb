@@ -24,7 +24,7 @@ module ColorCheck
   THEME_BLOCK = /:root(?:\[data-theme=["'][\w-]+["']\]|:not\([^)]*\))?\s*\{([^}]*)\}/m.freeze
   COLOR_MIX_SRGB = /color-mix\(\s*in\s+srgb\s*,\s*([^,]+?)\s+(\d+(?:\.\d+)?)%\s*,\s*([^)]+?)\s*\)/.freeze
   HEX = /^#(\h{3}|\h{6}|\h{8})$/.freeze
-  TEXT_NAME = /text|fg|ink|title|link/i.freeze
+  TEXT_NAME = /(?:^--|-)(?:text|fg|ink|title|link)(?:-|$)/i.freeze
   BG_NAME = /^--bg$|^--background$|^--surface$|bg|background/i.freeze
 
   Finding = Data.define(:file, :line, :kind, :text)
