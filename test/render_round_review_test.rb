@@ -69,39 +69,27 @@ class RenderRoundReviewTest < Minitest::Test
     assert body.end_with?("```text\n#{handoff}\n```")
   end
 
-  LOCAL_PATHS = {
-    home_shorthand: [ "see ~/x" ],
-    home_variable: [ "see $HOME/x", "see ${HOME}/x" ],
-    claude_tree: [ "see .claude/plans" ],
-    file_url: [ "open file:///x" ],
-    drive_path: [ "open C:\\Users\\x", "open d:\\work\\x", "open C:/Users/x", "open d:/work/x" ],
-    unc_share: [ "open \\\\server\\share\\x", "open \\\\srv.corp\\c$", "open //server/share/x" ],
-    posix_absolute: [
-      "see /home/x", "see /Users/x", "see /root/plans/x", "read /workspace/change-fabric/plan.md",
-      "read /tmp/review/goal.md", "read /var/folders/ab/T/x", "read /private/tmp/x/y",
-      "read /opt/build/repo/plan.md", "read `/srv/app/plan.md`", "read (/mnt/c/x)", "read \"/data/x/y\""
-    ]
-  }.freeze
-
-  def test_every_local_path_shape_has_examples
-    assert_equal RenderRoundReview::LOCAL_PATH_SHAPES.keys.sort, LOCAL_PATHS.keys.sort
-  end
-
-  def test_each_shape_matches_its_own_examples
-    LOCAL_PATHS.each do |shape, examples|
-      examples.each { |e| assert_match RenderRoundReview::LOCAL_PATH_SHAPES.fetch(shape), e, "#{shape}: #{e}" }
-    end
-  end
+  LOCAL_PATHS = [
+    "see ~/x", "see ~", "see $HOME/x", "see ${HOME}/x", "see .claude/plans", "see x/.claude/plans",
+    "open file:///x", "open C:\\Users\\x", "open d:\\work\\x", "open C:/Users/x", "open C:/x", "open d:/work/x",
+    "open \\\\server\\share\\x", "open \\\\srv.corp\\c$", "open //server/share/x",
+    "see /home/x", "see /Users/x", "see /root/plans/x", "read /workspace/change-fabric/plan.md",
+    "read /tmp/review/goal.md", "read /var/folders/ab/T/x", "read /private/tmp/x/y",
+    "read /opt/build/repo/plan.md", "read `/srv/app/plan.md`", "read (/mnt/c/x)", "read \"/data/x/y\"",
+    "cd /repo", "cd /workspace", "cd /tmp", "cd /tmp.", "cd `/repo`", "cd /", "run /cf:plan in /repo",
+    "edit scripts\\x.rb"
+  ].freeze
 
   PORTABLE_TEXT = [
     "Rework PR #1 in owner/repo.", "See https://github.com/owner/repo/pull/1/files",
     "Edit scripts/render_round_review.rb and test/x_test.rb", "Run /cf:plan first",
     "Fold P2/P3 and/or drop them", "Call gh api repos/owner/repo/pulls/1/reviews",
-    "Use ./scripts/x.rb and ../y/z.rb", "Ratio 1/2/3 holds"
+    "Use ./scripts/x.rb and ../y/z.rb", "Ratio 1/2/3 holds",
+    "Run /cf:plan, then /cf:drive.", "See (https://example.com/a/b)."
   ].freeze
 
   def test_raises_on_handoff_naming_a_local_path
-    LOCAL_PATHS.values.flatten.each do |handoff|
+    LOCAL_PATHS.each do |handoff|
       assert_raises(RuntimeError, handoff) { build("handoff" => handoff) }
     end
   end

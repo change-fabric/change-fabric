@@ -18,22 +18,26 @@ class RenderRoundReview
   # header so thread_history's consolidatedAtHead stops a rerun at that head.
   PENDING_BODY = "#{HEADER_PREFIX}plan pending**\n\nA root-cause plan for this PR is pending " \
                  'with its author; the remaining lower-tier findings are held for it.'
-  # Every machine-local path shape, one named entry each, so a new form is
-  # one added line plus its test example rather than a regex rewrite. The
-  # POSIX lookbehind keeps URL paths (https://host/a/b), repo-relative paths
-  # (scripts/x.rb) and slash commands (/cf:plan) legal; \b before a drive
-  # letter keeps https:// from reading as a drive.
-  LOCAL_PATH_SHAPES = {
-    home_shorthand: %r{~/},
-    home_variable: /\$\{?HOME\b/,
-    claude_tree: %r{\.claude/},
-    file_url: %r{file://},
-    drive_path: %r{\b[A-Za-z]:[\\/]},
-    unc_share: %r{(?:\\\\|(?<![\w:/])//)[\w.$-]+[\\/][\w.$-]+},
-    posix_absolute: %r{(?<![\w.:/~-])/[\w.@+-]+/}
-  }.freeze
-  LOCAL_PATH = Regexp.union(LOCAL_PATH_SHAPES.values)
+  # An allowlist, not a denylist of local shapes: every whitespace token that
+  # names a path (holds a slash or backslash, or starts with ~ or $) must be
+  # an http(s) URL, a namespaced slash command (/cf:plan), or a repo-relative
+  # path. Anything else, including a bare root-level /repo or /tmp, a drive
+  # path, a UNC share or ~/x, is machine-local and refused.
+  PATHLIKE = %r{[/\\]|\A[~$]}
+  URL = %r{\Ahttps?://[^\s/]+(?:/\S*)?\z}
+  SLASH_COMMAND = /\A\/[a-z][\w-]*:[\w-]+\z/
+  RELATIVE_PATH = %r{\A(?![/~$]|[A-Za-z]:)(?!.*(?:\\|//|://|\$\{?HOME|(?:\A|/)\.claude/))\S+\z}
+  TOKEN_WRAP = /\A[`"'(\[<{]+|[`"')\]>},.;:!?]+\z/
   FOLDED_LEAD = 'Also found this round: '
+
+  def self.local_path?(text)
+    text.split.any? do |raw|
+      token = raw.gsub(TOKEN_WRAP, '')
+      next false unless token.match?(PATHLIKE)
+
+      !(token.match?(URL) || token.match?(SLASH_COMMAND) || token.match?(RELATIVE_PATH))
+    end
+  end
 
   def initialize(input)
     @title = input.fetch('title').strip
@@ -60,7 +64,7 @@ class RenderRoundReview
 
   def validate!
     raise 'title, summary and handoff must be non-empty' if [ @title, @summary, @handoff ].any?(&:empty?)
-    raise 'handoff names a local path' if @handoff.match?(LOCAL_PATH)
+    raise 'handoff names a local path' if self.class.local_path?(@handoff)
     raise 'handoff must not contain a code fence' if @handoff.include?('```')
 
     @folded.each do |item|

@@ -48,7 +48,9 @@ no findings posts nothing and reports that.
      phases as numbered steps, and "do not patch the individual findings;
      restructure per this direction". It must name no local path (no
      plans tree, no home directory, no absolute path such as a checkout
-     or temp directory); the renderer refuses one.
+     or temp directory, even a bare /repo or /tmp); the renderer accepts
+     only http(s) URLs, namespaced slash commands such as /cf:plan, and
+     repo-relative paths.
    Pipe it as JSON to `ruby ~/.claude/cf/bin/render_round_review.rb` and
    use its stdout verbatim as the review body. Apply `cf:ai-slop`'s rules
    to every field first.
