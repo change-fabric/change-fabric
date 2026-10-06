@@ -68,8 +68,9 @@ eligibility gate excludes them.
 
 ## Contributor trust
 
-Whenever the in-scope set has more than one distinct PR author, the sweep
-needs a trust policy per non-primary contributor. The primary contributor is
+Whenever the in-scope set has any PR author other than the primary
+contributor, the sweep needs a trust policy per non-primary contributor, even
+when that author is the only one in the set. The primary contributor is
 the current git user (`git config user.email`, matched against PR authors via
 `gh api user --jq .login`); everyone else needs a recorded level.
 
@@ -168,7 +169,8 @@ of trunk after the last merge of a tick.
    stop; do not call the Workflow.
 2. **(SKILL.md)** Trust, per Contributor trust above: run `unknown`, ask only
    about what it returns, `set` each answer, then `show` for the full map.
-   Skip entirely when the set has one distinct author.
+   Skip only when every in-scope author is the primary contributor; a sole
+   external author still gets a recorded level before auto mode runs.
 3. **(SKILL.md)** Run mode, per Run mode above.
 4. **(One `Workflow` call)** Read `reference/workflow.js` and pass its
    contents verbatim as `script`, with
