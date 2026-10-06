@@ -18,20 +18,24 @@ class RenderRoundReview
   # header so thread_history's consolidatedAtHead stops a rerun at that head.
   PENDING_BODY = "#{HEADER_PREFIX}plan pending**\n\nA root-cause plan for this PR is pending " \
                  'with its author; the remaining lower-tier findings are held for it.'
-  # An allowlist, not a denylist of local shapes: every whitespace token that
-  # names a path (holds a slash or backslash, or starts with ~ or $) must be
-  # an http(s) URL, a namespaced slash command (/cf:plan), or a repo-relative
-  # path. Anything else, including a bare root-level /repo or /tmp, a drive
+  # An allowlist, not a denylist of local shapes: each whitespace token is
+  # split on markup delimiters (Markdown link brackets, angle brackets,
+  # quotes, backticks, key=value, commas, semicolons) so a path embedded in
+  # markup is judged on its own, and every component that names a path
+  # (holds a slash or backslash, or starts with ~ or $) must be an http(s)
+  # URL, a namespaced slash command (/cf:plan), or a repo-relative path.
+  # Anything else, including a bare root-level /repo or /tmp, a drive
   # path, a UNC share or ~/x, is machine-local and refused.
   PATHLIKE = %r{[/\\]|\A[~$]}
   URL = %r{\Ahttps?://[^\s/]+(?:/\S*)?\z}
   SLASH_COMMAND = /\A\/[a-z][\w-]*:[\w-]+\z/
   RELATIVE_PATH = %r{\A(?![/~$]|[A-Za-z]:)(?!.*(?:\\|//|://|\$\{?HOME|(?:\A|/)\.claude/))\S+\z}
+  COMPONENT_SPLIT = /[\[\]()<>"'`=,;]+/
   TOKEN_WRAP = /\A[`"'(\[<{]+|[`"')\]>},.;:!?]+\z/
   FOLDED_LEAD = 'Also found this round: '
 
   def self.local_path?(text)
-    text.split.any? do |raw|
+    text.split.flat_map { |raw| raw.split(COMPONENT_SPLIT) }.any? do |raw|
       token = raw.gsub(TOKEN_WRAP, '')
       next false unless token.match?(PATHLIKE)
 
