@@ -3,7 +3,7 @@
 Read this before composing any of the three bodies below. It has no bearing
 on the rest of the workflow.
 
-## Checkpoint 1 (step 8, before pushing)
+## Checkpoint 1 (step 8, before pushing; only under `--signoff`)
 
 At most 640 characters, plain prose. Cover, in order:
 
@@ -19,7 +19,10 @@ At most 640 characters, plain prose. Cover, in order:
 No filler, no praise, no restating the diff line by line, no AI-slop
 glyphs. State the verdict, not an argument for it.
 
-## Checkpoint 2 (step 10, before approving)
+Under `--signoff`, the step-2b recurrence stop uses this format too, with
+the recurrence (plan slug, cluster threads) in place of the loop results.
+
+## Checkpoint 2 (step 10, before approving; only under `--signoff`)
 
 At most 640 characters, plain prose. Cover, in order:
 

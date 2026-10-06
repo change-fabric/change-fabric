@@ -1,6 +1,6 @@
 ---
 name: cf:drive
-description: "Drive a PR to an approved, green state end to end, in one of two modes. thorough (default): for a risky PR or a release range, interviews the owner, writes a review-and-QA planning set (plan.md, a capped goal.md, a segmented workflow.js, single-writer run templates), and prints a handoff prompt for a fresh session; it never runs the Workflow itself. quick: sweeps existing review threads, runs a relevance-gated local quality loop (code review, QA, refactor, slop) fixing what it finds, predicts CI locally, then pushes, waits for real CI green, and posts an approval, with explicit checkpoints or full auto sign-off."
+description: "Drive a PR to an approved, green state end to end, in one of two modes. thorough (default): for a risky PR or a release range, interviews the owner, writes a review-and-QA planning set (plan.md, a capped goal.md, a segmented workflow.js, single-writer run templates), and prints a handoff prompt for a fresh session; it never runs the Workflow itself. quick: sweeps existing review threads, runs a relevance-gated local quality loop (code review, QA, refactor, slop) fixing what it finds, predicts CI locally, then pushes, waits for real CI green, and posts an approval, running straight through by default, with --signoff adding checkpoints before pushing and approving. Recurring review feedback stops the run and starts cf:plan."
 ---
 
 # CF Drive
@@ -8,7 +8,7 @@ description: "Drive a PR to an approved, green state end to end, in one of two m
 Drive a pull request, branch, or change set through review, fixes, CI, and
 approval in one run.
 
-Trigger: `/cf:drive [thorough|quick] <PR url or change set> [--area <name>]`.
+Trigger: `/cf:drive [thorough|quick] <PR url or change set> [--area <name>] [--signoff]`.
 Mode defaults to `thorough`.
 
 ## Parameters
@@ -18,7 +18,7 @@ Mode defaults to `thorough`.
 | mode | leading word `thorough` or `quick` | `thorough` | both | selects the section below |
 | target | PR url, `owner/repo#n`, `#n`, branch, or change set (thorough also takes `base..head`) | required | both | quick: workflow args `files`, `isPR`, `headSha`; thorough: `{{target}}` |
 | area | `--area <name>` | repo basename | thorough | plans subdirectory |
-| signoff | step-0 answer: Explicit sign-off or Full auto | asked (Full auto under away) | quick | whether checkpoints pause |
+| signoff | `--signoff` flag | off: runs straight through | quick | whether checkpoints 1 and 2 pause |
 | cap | internal | 4 | quick | workflow args `cap` |
 | repo | resolved local checkout | current repo | both | quick: workflow args `repoPath`; thorough: `{{repo_path}}`, `{{repo_path_tilde}}` |
 | base, head | resolved and pinned refs | from the PR or range | thorough | `{{base}}`, `{{head}}` |
@@ -59,29 +59,16 @@ actually green, not just plausibly so?
   and the approval-review body format (steps 8, 10, 11). Read before
   composing any of them.
 
-### Sign-off mode
+### Sign-off
 
-Step 0, before resolving scope or doing any other work: call
-`AskUserQuestion` exactly once.
-
-- Question: "How should /cf:drive handle sign-off before pushing and
-  before approving?"
-- Header: "Sign-off"
-- Option 1 (listed first, default/recommended): **Explicit sign-off** -
-  "Pause at two checkpoints, before pushing and before approving, for your
-  explicit go-ahead."
-- Option 2: **Full auto** - "No pauses or questions of any kind after this.
-  Run straight through to the approval non-interactively."
-
-This is the only unconditional `AskUserQuestion` call in the entire skill.
-Under Full auto, no further `AskUserQuestion` fires for the rest of the run,
-including inside the two resolve-threads sweeps below. Store the answer for
-the rest of the run.
-
-Under away mode, skip this question and assume Full auto, reporting that the
-assumption was made. This is the toolkit's own precedent for exactly the
-behavior away mode should have elsewhere. The two later checkpoints (steps
-below) are already dead under Full auto, so they need no separate handling.
+Quick mode runs straight through by default: no question from scope to
+approval. `--signoff` adds two checkpoints, before pushing (step 8) and
+before approving (step 10). A literal `full auto` or `auto` as the first or
+last word of the args is stripped before parsing, with a one-line note that
+full auto is already the default. Under away mode `--signoff` is ignored
+and the run reports that it assumed the default. The one question the
+default run can still bring is cf:plan's interview after a recurrence stop
+(step 2b): it answers feedback that keeps recurring, not a sign-off.
 
 ### Scope
 
@@ -112,11 +99,10 @@ actually happens versus staying local. Steps 1 through 7 are local-only
 regardless of merge mode; step 8's push is the first action merge mode
 gates.
 
-(c) The sign-off mode from step 0 governs only whether the two
-`AskUserQuestion` checkpoints interrupt the flow. It is fully orthogonal to
-merge mode.
+(c) `--signoff` governs only whether the two checkpoints interrupt the
+flow. It is fully orthogonal to merge mode.
 
-Under Full auto plus Local only: `cf:drive` runs the entire local pipeline
+By default under Local only: `cf:drive` runs the entire local pipeline
 (steps 1-7, both thread sweeps, the quality loop, local CI prediction) all
 the way to a would-be-approved, would-be-green state, then stops cleanly at
 the step-8 boundary and reports that it did not push or approve because the
@@ -131,23 +117,34 @@ would-be-approved local state, and since nothing landed, also skips step
 
 ### Workflow
 
-0. **(SKILL.md)** Sign-off mode question, as above. Store the answer for
-   the rest of the run.
 1. **(SKILL.md)** Resolve scope to `files`, `repoPath`, `headSha`. PR: use
    PR-reading tools, fetch the head if not local. Else: `git diff`/`git
    show`/plain reads. Also run `ruby ~/.claude/cf/bin/skill_route.rb
    <files>` here in SKILL.md (the sandboxed Workflow script cannot shell
    out) and capture its stdout as `routeOutput` to pass in as an arg.
 2. **(SKILL.md, PR scope only, hard floor, always runs regardless of
-   sign-off mode or Haiku relevance results)** Pre-loop thread sweep:
-   invoke `cf:resolve-threads` against the PR, but explicitly instruct it
-   inline to proceed automatically through its own report/reply/resolve
-   steps with no `AskUserQuestion` of its own, and to not push (`cf:drive`
-   owns the single push at step 8; resolve-threads' commits stay local and
-   ride out with that push). Capture its `{ fixed, wontFix, needsHuman,
-   conflicts }` counts and one-line rationales for use in step 8's
-   checkpoint summary. This sweep's outcome never opens its own gate; it
-   only contributes content to checkpoint 1.
+   `--signoff` or Haiku relevance results)** Pre-loop thread sweep:
+   invoke `cf:resolve-threads` against the PR with the inline instruction
+   `nested under cf:drive`: it runs straight through, replies and
+   resolves, does not push (`cf:drive` owns the push), does not start
+   cf:plan, and ends with its nested summary block. Capture the counts and
+   rationales for checkpoint 1. If the block's `plan` is not null, go to
+   step 2b.
+2b. **(SKILL.md) Recurrence stop.** The thread sweep found a plan-sized
+   root cause behind recurring feedback; another fix loop would only add a
+   round. Under `--signoff`, first ask a checkpoint-1 question summarizing
+   the sweep and the recurrence. Push the step-2 commits if the merge mode
+   allows a push (Local only: skip the push and say so). Skip steps 3
+   through 12: no quality loop, no CI poll, no approval, no browser-open.
+   Then invoke the `cf:plan` skill with the Skill tool, args
+   `<plan.seededGoal> --area <repo basename>`. Under away mode, or when
+   invoked with `nested under cf:sweep`, do not start it: pipe the seeded
+   goal to `ruby ~/.claude/cf/bin/ctx_store.rb capture --name
+   plan-pending-<plan.slug> --class active --desc "Root-cause plan pending
+   for PR #<n>"` and report `/cf:active` then `/cf:plan <seeded goal>`.
+   The same stop applies when the step-6b sweep or a pre-re-push sweep in
+   step 9 returns a plan, except that the push there also requires
+   `ciPrediction.green`.
 3-7. **(One `Workflow` call)** Read `reference/workflow.js` and pass its
    contents verbatim as `script`, with `args: { files, repoPath, headSha,
    routeOutput, isPR, cap: 4, ciFixContext: null }`. This call does
@@ -161,13 +158,13 @@ would-be-approved local state, and since nothing landed, also skips step
    2)** Post-loop thread sweep: once the Workflow call above returns,
    invoke `cf:resolve-threads` again the same way, to catch anything that
    landed on the PR while the loop was iterating. Fold its outcome into
-   checkpoint 1 alongside step 2's sweep.
+   checkpoint 1 alongside step 2's sweep. If its block's `plan` is not
+   null, take step 2b.
 8. **(SKILL.md)** Checkpoint 1. Only proceed once `ciPrediction.green` is
-   true. Under Explicit sign-off: compose a summary, at most 640
+   true. Under `--signoff`: compose a summary, at most 640
    characters, combining `execSummaryDraft` with both thread-sweep
-   outcomes (per `reference/summaries.md`'s checkpoint-1 format), call
-   `AskUserQuestion` for an explicit go/no-go. Under Full auto: skip the
-   summary and the question entirely. Either way, this push is
+   outcomes (per `reference/summaries.md`'s checkpoint-1 format), and ask
+   for an explicit go/no-go. By default: skip both. Either way, this push is
    additionally gated by the active cf merge mode: Local only means stop
    here and report (see Merge mode above); Merge ready/Admin bypass/Yolo
    proceed per their own normal push semantics (`cf:drive` only ever
@@ -178,16 +175,16 @@ would-be-approved local state, and since nothing landed, also skips step
    resolve. On a real CI failure: re-invoke the same `Workflow` (pass back
    the `scriptPath` the first call returned, plus `ciFixContext: {
    failingJobs: [...], logs: "..." }`) to fix locally, then re-enter step
-   8's full gate (a fresh summary + question under Explicit; nothing under
-   Full auto) before re-pushing. Also re-run both resolve-threads sweeps
+   8's full gate (a fresh summary and question under `--signoff`; nothing
+   by default) before re-pushing. Also re-run both resolve-threads sweeps
    (steps 2 and 6b) before each re-push, since a maintainer or bot may have
    commented in reaction to the push. Cap re-push attempts at 3; if CI
    still is not green after that, stop and report the persistent failing
    jobs, do not proceed to checkpoint 2.
-10. **(SKILL.md)** Checkpoint 2. Once real CI is green: under Explicit
-   sign-off, compose a second summary (at most 640 characters, per
+10. **(SKILL.md)** Checkpoint 2. Once real CI is green: under
+   `--signoff`, compose a second summary (at most 640 characters, per
    `reference/summaries.md`'s checkpoint-2 format: final diff state, CI
-   result) and call `AskUserQuestion` for go/no-go. Under Full auto: skip
+   result) and call `AskUserQuestion` for go/no-go. By default: skip
    both.
 11. **(SKILL.md)** Post an actual GitHub PR approval review (`event:
    "APPROVE"`), body per `reference/summaries.md`'s approval-body format:
@@ -207,10 +204,10 @@ would-be-approved local state, and since nothing landed, also skips step
   plainly.
 - Iteration cap reached without `converged` (the loop's would-approve check
   never passed): stop the loop, do not push or approve, report the still-
-  blocking findings per lane from the last iteration. Under Explicit this
-  surfaces as a no-go recommendation at what would have been checkpoint 1;
-  under Full auto, stop and report without ever reaching checkpoint 1 or
-  pushing.
+  blocking findings per lane from the last iteration. Under `--signoff`
+  this surfaces as a no-go recommendation at what would have been
+  checkpoint 1; under the default, stop and report without ever reaching
+  checkpoint 1 or pushing.
 - CI never green after 3 re-push attempts (step 9): stop re-pushing, leave
   the last pushed commit as-is, report the persistent failing jobs and
   logs, do not proceed to checkpoint 2 or the approval.
@@ -221,7 +218,7 @@ would-be-approved local state, and since nothing landed, also skips step
   `cf:code-review` and `cf:ai-slop` are floors and the two resolve-threads
   sweeps are floors; all four still run regardless of the Haiku call's outcome.
   Only `cf:qa`, `cf:refactor`, and `cf:change` are ever skipped.
-- User answers "no" at either checkpoint under Explicit sign-off mode: do
+- User answers "no" at either checkpoint under `--signoff`: do
   not abort destructively, do not auto-revert. Leave all local
   commits/fixes on disk as-is and stop the run, reporting the current
   state. At checkpoint 1 "no": stop before pushing, local work is
@@ -230,6 +227,9 @@ would-be-approved local state, and since nothing landed, also skips step
   approving and report that the PR is pushed and green but not approved.
   Neither "no" silently re-enters the iterate loop; re-invoking
   `/cf:drive` is how the user resumes.
+- Recurrence stop (step 2b): not a failure. The run pushes what the sweep
+  fixed, starts cf:plan (or records the pointer under away or under
+  cf:sweep), and reports the plan slug and the deferred threads.
 - The `Workflow` call errors or returns no result: say so explicitly and
   stop; do not silently hand-apply fixes or push.
 
