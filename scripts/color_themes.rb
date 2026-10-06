@@ -54,7 +54,8 @@ module ColorThemes
   # declaration's at-rule stack and SCSS parents.
   # rule_custom_only maps rule_id => true when every declaration in that rule
   # block is a custom property or color-scheme (needed for the bare .X /
-  # [data-theme=X] form, decision 6).
+  # [data-theme=X] form, whose block is only trusted as a theme when nothing
+  # in it carries non-color semantics).
   # => [:base, excluded_names]
   #  | [:theme, name, label]
   #  | [:media_base, media_name, excluded_names, label]
@@ -63,8 +64,8 @@ module ColorThemes
   # excluded_names (from :not(...) qualifiers on a zero-positive-name root
   # form) names a theme this declaration does not apply to; it still applies,
   # unconditionally, to every other variant (base inheritance).
-  def classify(selector, decl, rule_custom_only: {})
-    at_rules = decl.at_rules.reject { |a| a.start_with?('@layer') }
+  def classify(selector, decl, rule_custom_only: {}, at_rules: nil)
+    at_rules ||= decl.at_rules.reject { |a| a.start_with?('@layer') }
 
     media_name, bad = split_media_frames(at_rules)
     return [ :unsupported, context_label(at_rules, selector), "inside #{bad}" ] if bad
@@ -106,14 +107,15 @@ module ColorThemes
       next unless decl.name.start_with?('--')
 
       layer_rank = layer_rank_for(decl, sibling_index)
+      at_rules = decl.at_rules.reject { |a| a.start_with?('@layer') }
 
       decl.selectors.each do |selector|
         order_idx += 1
-        kind, *rest = classify(selector, decl, rule_custom_only:)
+        kind, *rest = classify(selector, decl, rule_custom_only:, at_rules:)
         entry = Entry.new(
           name: decl.name, value: decl.value, important: decl.important,
           b: 0, c: 0, layer_rank:, order: order_idx,
-          label: context_label(decl.at_rules.reject { |a| a.start_with?('@layer') }, selector)
+          label: context_label(at_rules, selector)
         )
         entry.b, entry.c = selector_specificity(selector)
 
@@ -351,8 +353,10 @@ module ColorThemes
   # sheet (an attribute or class override is still live under an OS color
   # scheme the author never excluded it from); it never leaks into the
   # implicit base ("light" with no selector occurrence) or into another
-  # pure-media theme, which is how repro1's plain OS-dark override stays its
-  # own variant instead of contaminating light.
+  # pure-media theme, which is how a plain OS-dark override (an
+  # unconditional "@media (prefers-color-scheme: dark)" block with no
+  # attribute or class of its own) stays its own variant instead of
+  # contaminating light.
   def build_variant(theme, base_entries, theme_entries, media_entries, selector_origin_names)
     candidates = Hash.new { |h, k| h[k] = [] }
 
@@ -417,7 +421,7 @@ module ColorThemes
   # (leading, middle or trailing), so Primer-style names such as
   # "--color-fg-default" and "--color-text-muted" are recognized, except
   # "ink" never counts as a leading segment on its own ("--ink-like" stays a
-  # plain token; a bare "--ink" or a trailing "--link-hover" still match).
+  # plain token; a bare "--ink" or a trailing "--color-ink" still match).
   TEXT_ROLE_WORDS = %w[text fg ink title link].freeze
 
   def text_role_name?(name)
