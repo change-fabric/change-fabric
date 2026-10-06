@@ -207,7 +207,7 @@ module ColorCheck
 
   def resolve_color(raw, decls, bg_color:)
     v = raw.strip
-    return v if v.match?(HEX)
+    return flatten_alpha(v, bg_color) if v.match?(HEX)
 
     if (m = v.match(COLOR_MIX_SRGB))
       a_raw, pct, b_raw = m[1].strip, m[2].to_f, m[3].strip
@@ -236,7 +236,7 @@ module ColorCheck
       inner = decls[m[1]]
       inner ? resolve_color(inner, decls, bg_color:) : nil
     elsif t.match?(HEX)
-      t
+      flatten_alpha(t, bg_color)
     else
       nil
     end
@@ -250,6 +250,15 @@ module ColorCheck
     g = (ga * f + gb * (1 - f)).round
     b = (ba * f + bb * (1 - f)).round
     format('#%02x%02x%02x', r, g, b)
+  end
+
+  # Composites an eight-digit #RRGGBBAA over the background so a translucent
+  # token is not graded as if it were opaque.
+  def flatten_alpha(hex, bg_color)
+    h = hex.delete_prefix('#')
+    return hex unless h.length == 8
+
+    mix_hex("##{h[0, 6]}", bg_color, h[6, 2].to_i(16) * 100.0 / 255)
   end
 
   def hex_rgb(hex)

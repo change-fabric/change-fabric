@@ -169,6 +169,22 @@ class ColorCheckTest < Minitest::Test
     end
   end
 
+  def test_contrast_composites_eight_digit_alpha_hex
+    with_dir do |dir|
+      write(dir, "tokens.css", <<~CSS)
+        :root {
+          --bg: #ffffff;
+          --text: #00000000;
+        }
+      CSS
+      report = ColorCheck.run(dir)
+      pair = report.contrast.find { |c| c.text_token == "--text" }
+      refute_nil pair
+      assert_in_delta 1.0, pair.ratio, 0.01
+      refute pair.passes_body
+    end
+  end
+
   def test_contrast_color_mix_pair_resolves
     with_dir do |dir|
       write(dir, "tokens.css", <<~CSS)
