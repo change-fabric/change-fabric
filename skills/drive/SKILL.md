@@ -187,7 +187,11 @@ would-be-approved local state, and since nothing landed, also skips step
    since this whole flow is PR-scoped from step 1 onward). Push the
    branch. Once the push lands, post every held `pendingReplies` entry
    from both sweeps (and from any pre-re-push sweep in step 9) and resolve
-   its thread. Whenever the run stops without pushing (step 2b, an unmet
+   its thread, but only after `git merge-base --is-ancestor <sha> HEAD`
+   against the pushed branch confirms each entry's cited `commitSha`
+   landed (resolve-threads RT-6); an entry whose sha fails that check gets
+   no `Fixed in <sha>` reply, its thread stays open, and it is reported as
+   a `conflicts` thread. Whenever the run stops without pushing (step 2b, an unmet
    gate, Local only), reply on those threads that the fix is committed
    locally but unpushed and leave them unresolved; never post a
    `Fixed in <sha>` reply for a commit GitHub cannot reach.
