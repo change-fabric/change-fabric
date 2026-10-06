@@ -229,14 +229,14 @@ class ResolveThreadsWorkflowTest < Minitest::Test
   # must hold it until the commit is pushed, or fall back to an unpushed
   # reply that leaves the thread open.
   PUSH_GATED_MUTATIONS = {
-    "standalone holds fixes for step 7" => [:skill, "Standalone, step 7 posts them once\n   its push lands"],
-    "standalone posts only after push" => [:skill, "once the push lands, post step 6's held `fixed` and cluster"],
-    "standalone withheld push leaves threads open" => [:skill, "reply on those threads instead that the fix is committed locally but\n   unpushed, and leave them unresolved"],
-    "nested returns held mutations" => [:skill, "\"truncated\": false, \"pendingReplies\": []}"],
-    "nested posts no commit-citing reply" => [:skill, "commit-citing ones are only returned in `pendingReplies`"],
-    "gate row exists" => [:skill, "| RT-6 | Post a `Fixed in <sha>` reply"],
-    "drive posts held replies after push" => [:drive, "Once the push lands, post every held `pendingReplies` entry"],
-    "drive no-push paths leave threads open" => [:drive, "reply on those threads that the fix is committed\n   locally but unpushed and leave them unresolved"]
+    "standalone holds fixes for step 7" => [ :skill, "Standalone, step 7 posts them once\n   its push lands" ],
+    "standalone posts only after push" => [ :skill, "once the push lands, post step 6's held `fixed` and cluster" ],
+    "standalone withheld push leaves threads open" => [ :skill, "reply on those threads instead that the fix is committed locally but\n   unpushed, and leave them unresolved" ],
+    "nested returns held mutations" => [ :skill, "\"truncated\": false, \"pendingReplies\": []}" ],
+    "nested posts no commit-citing reply" => [ :skill, "commit-citing ones are only returned in `pendingReplies`" ],
+    "gate row exists" => [ :skill, "| RT-6 | Post a `Fixed in <sha>` reply" ],
+    "drive posts held replies after push" => [ :drive, "Once the push lands, post every held `pendingReplies` entry" ],
+    "drive no-push paths leave threads open" => [ :drive, "reply on those threads that the fix is committed\n   locally but unpushed and leave them unresolved" ]
   }.freeze
 
   def test_fixed_thread_mutations_wait_for_the_push
