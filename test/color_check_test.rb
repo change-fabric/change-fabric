@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require "pathname"
 require_relative "test_helpers"
 require_relative "#{File.expand_path('../scripts', __dir__)}/color_check"
 
@@ -39,6 +40,406 @@ class ColorCheckTest < Minitest::Test
       --text: var(--cream);
     }
   CSS
+
+  # Table-driven edge-case corpus for scripts/color_check.rb. Each row
+  # describes CSS-correct behavior, not necessarily today's behavior.
+  # pending: true means the row is not expected to pass under the current,
+  # unfixed implementation; a later phase flips it to false once the fix
+  # lands. Expected ratios are computed independently of the checker (a
+  # one-off WCAG luminance calculation), never by running the code under
+  # test. See plan.md "Corpus format" for the full specification.
+  CORPUS = [
+    # :comments
+    { id: "comments-block-comment-not-mid-value", cls: :comments,
+      files: { "tokens.css" => ":root{--bg:#fff;/* --text: #fff; */--text:#000;}" },
+      palette: [ "#fff", "#000" ],
+      contrast: [ [ "light", "--text", "--bg", 21.0 ] ],
+      pending: false },
+    { id: "comments-scss-line-comment", cls: :comments,
+      files: { "tokens.scss" => ":root {\n  --bg: #fff; // --text: #333;\n  --text: #000;\n}\n" },
+      palette: [ "#fff", "#000" ],
+      contrast: [ [ "light", "--text", "--bg", 21.0 ] ],
+      pending: true },
+    { id: "comments-block-comment-with-brace", cls: :comments,
+      files: { "tokens.css" => ":root{--bg:#fff; /* } */ --text:#777;}" },
+      contrast: [ [ "light", "--text", "--bg", 4.48 ] ],
+      pending: true },
+
+    # :strings
+    { id: "strings-semicolon-and-brace-in-value-string", cls: :strings,
+      files: { "tokens.css" => ":root {\n  --bg: #fff;\n  --label: \"a;b}c\";\n  --text: #000;\n}\n" },
+      palette: [ "#fff", "#000" ],
+      contrast: [ [ "light", "--text", "--bg", 21.0 ] ],
+      pending: true },
+
+    # :block_nesting
+    { id: "block-nesting-media-min-width-unsupported", cls: :block_nesting,
+      files: { "tokens.css" => "@media (min-width: 40em) { :root { --text: #777 } }" },
+      contrast: [ [ "unsupported", "--text", nil, :unresolved, "unsupported theme context" ] ],
+      pending: true },
+    { id: "block-nesting-layer-base-light", cls: :block_nesting,
+      files: { "tokens.css" => "@layer base { :root { --bg:#fff; --text:#000 } }" },
+      contrast: [ [ "light", "--text", "--bg", 21.0 ] ],
+      pending: true },
+
+    # :theme_contexts
+    { id: "round4-root-defaults-not-light-only", cls: :theme_contexts,
+      files: { "tokens.css" => ':root{--bg:#000} :root[data-theme="light"]{--bg:#fff;--text:#000} :root[data-theme="dark"]{--text:#fff}' },
+      contrast: [ [ "light", "--text", "--bg", 21.0 ], [ "dark", "--text", "--bg", 21.0 ] ],
+      pending: true },
+    { id: "repro1-media-dark-override", cls: :theme_contexts,
+      files: { "tokens.css" => ":root{--bg:#fff;--text:#000;--a:#123;} @media (prefers-color-scheme: dark){:root{--bg:#000;--text:#777;}}" },
+      contrast: [ [ "light", "--text", "--bg", 21.0 ], [ "dark", "--text", "--bg", 4.69 ] ],
+      pending: true },
+    { id: "repro2-separate-theme-names-not-collapsed", cls: :theme_contexts,
+      files: { "tokens.css" => ':root{--bg:#fff;--text:#777;} :root[data-theme="dark"]{--bg:#fff;--text:#777;}' },
+      contrast: [ [ "light", "--text", "--bg", 4.48 ], [ "dark", "--text", "--bg", 4.48 ] ],
+      pending: true },
+    { id: "repro3-dim-theme-not-inherited-from-light", cls: :theme_contexts,
+      files: { "tokens.css" => ':root{--bg:#fff;--text:#000} :root[data-theme="dim"]{--bg:#333;--text:#000}' },
+      contrast: [ [ "light", "--text", "--bg", 21.0 ], [ "dim", "--text", "--bg", 1.66 ] ],
+      pending: true },
+    { id: "repro8-shadcn-bare-dark-class", cls: :theme_contexts,
+      files: { "tokens.css" => ":root{--bg:#fff;--text:#000} .dark{--bg:#000;--text:#fff}" },
+      contrast: [ [ "light", "--text", "--bg", 21.0 ], [ "dark", "--text", "--bg", 21.0 ] ],
+      pending: true },
+    { id: "theme-bare-data-theme-attr-with-base", cls: :theme_contexts,
+      files: { "tokens.css" => ':root{--bg:#000;--text:#000} [data-theme="dark"]{--text:#fff}' },
+      contrast: [ [ "light", "--text", "--bg", 1.0 ], [ "dark", "--text", "--bg", 21.0 ] ],
+      pending: true },
+    { id: "theme-html-dark-class", cls: :theme_contexts,
+      files: { "tokens.css" => "html{--bg:#fff;--text:#000} html.dark{--bg:#000;--text:#fff}" },
+      contrast: [ [ "light", "--text", "--bg", 21.0 ], [ "dark", "--text", "--bg", 21.0 ] ],
+      pending: true },
+    { id: "theme-root-dark-class", cls: :theme_contexts,
+      files: { "tokens.css" => ":root{--bg:#fff;--text:#000} :root.dark{--bg:#000;--text:#fff}" },
+      contrast: [ [ "light", "--text", "--bg", 21.0 ], [ "dark", "--text", "--bg", 21.0 ] ],
+      pending: true },
+    { id: "theme-bare-dark-with-color-scheme-decl", cls: :theme_contexts,
+      files: { "tokens.css" => ":root{--bg:#000;--text:#000} .dark{--text:#fff; color-scheme: dark}" },
+      contrast: [ [ "light", "--text", "--bg", 1.0 ], [ "dark", "--text", "--bg", 21.0 ] ],
+      pending: true },
+    { id: "theme-card-block-not-custom-property-only-unsupported", cls: :theme_contexts,
+      files: { "tokens.css" => ":root{--bg:#fff} .card{color:red; --text:#000}" },
+      contrast: [ [ "unsupported", "--text", nil, :unresolved, "not a recognized theme context" ] ],
+      findings: [ [ "tokens.css", 1, "literal" ] ],
+      pending: true },
+    { id: "repro9-html-data-theme-dark-root-form", cls: :theme_contexts,
+      files: { "tokens.css" => 'html[data-theme="dark"]{--bg:#000;--text:#fff}' },
+      contrast: [ [ "dark", "--text", "--bg", 21.0 ] ],
+      pending: true },
+    { id: "theme-site-pattern-media-dark-not-plus-explicit-dark-collapse", cls: :theme_contexts,
+      files: { "tokens.css" => "@media (prefers-color-scheme: dark) { :root:not([data-theme=\"light\"]) { --bg: #000; --text: #fff; } }\n:root[data-theme=\"dark\"] { --bg: #000; --text: #fff; }\n" },
+      contrast: [ [ "dark", "--text", "--bg", 21.0 ] ],
+      pending: false },
+    { id: "theme-split-root-rules-combine", cls: :theme_contexts,
+      files: { "tokens.css" => ":root { --cream: #ffffff; --plum: #000000; } :root { --bg: var(--cream); } :root { --text: var(--plum); }" },
+      contrast: [ [ "light", "--text", "--bg", 21.0 ] ],
+      pending: false },
+    { id: "theme-four-color-tokens-fixture", cls: :theme_contexts,
+      files: { "tokens.css" => FOUR_COLOR_TOKENS },
+      palette: [ "#f6efe0", "#24122a", "#a070c8", "#f2c4c4" ],
+      pending: false },
+
+    # :termination
+    { id: "termination-repro5-no-mid-semicolons", cls: :termination,
+      files: { "tokens.css" => ":root{--a:#123;--bg:#fff;--text:#000}" },
+      contrast: [ [ "light", "--text", "--bg", 21.0 ] ],
+      pending: true },
+    { id: "termination-last-declaration-keeps-authored", cls: :termination,
+      files: { "tokens.css" => ":root { --bg: #fff; --last: #555 }\n.hero { color: #abcdef; }\n" },
+      palette: [ "#fff", "#555" ],
+      findings: [ [ "tokens.css", 2, "literal" ] ],
+      pending: false },
+    { id: "termination-multiline-exempt-correct-lines", cls: :termination,
+      files: { "tokens.css" => ":root {\n  --cream: #f6efe0;\n  --plum: #24122a;\n}\n:root {\n  --brand:\n    #123456;\n}\n.x { color: #abcdef; }\n" },
+      palette: [ "#f6efe0", "#24122a", "#123456" ],
+      findings: [ [ "tokens.css", 9, "literal" ] ],
+      pending: false },
+
+    # :color_syntax
+    { id: "color-syntax-named-white-black", cls: :color_syntax,
+      files: { "tokens.css" => ":root{--bg:white;--text:black}" },
+      palette: [ "white", "black" ],
+      contrast: [ [ "light", "--text", "--bg", 21.0 ] ],
+      pending: true },
+    { id: "color-syntax-rgb-space-and-comma", cls: :color_syntax,
+      files: { "tokens.css" => ":root{--bg:rgb(255 255 255);--text:rgb(0,0,0)}" },
+      contrast: [ [ "light", "--text", "--bg", 21.0 ] ],
+      pending: true },
+    { id: "color-syntax-hsl-space-percent", cls: :color_syntax,
+      files: { "tokens.css" => ":root{--bg:hsl(0 0% 100%);--text:#000000}" },
+      contrast: [ [ "light", "--text", "--bg", 21.0 ] ],
+      pending: true },
+    { id: "color-syntax-important-resolves", cls: :color_syntax,
+      files: { "tokens.css" => ":root{--bg:#fff !important;--text:#000}" },
+      contrast: [ [ "light", "--text", "--bg", 21.0 ] ],
+      pending: true },
+    { id: "color-syntax-oklch-unresolved-reason", cls: :color_syntax,
+      files: { "tokens.css" => ":root{--bg:#fff;--text:oklch(0.5 0.1 90)}" },
+      contrast: [ [ "light", "--text", "--bg", :unresolved, "oklch" ] ],
+      pending: true },
+
+    # :value_functions
+    { id: "round4-color-mix-var-arguments", cls: :value_functions,
+      files: { "tokens.css" => ":root{--bg:#fff;--text:#000;--text-muted:color-mix(in srgb, var(--text) 60%, var(--bg))}" },
+      contrast: [ [ "light", "--text", "--bg", 21.0 ], [ "light", "--text-muted", "--bg", 5.74 ] ],
+      pending: true },
+    { id: "repro16-color-mix-var-second-stop", cls: :value_functions,
+      files: { "tokens.css" => ":root{--bg:#fff;--text:#000;--text-muted:color-mix(in srgb, var(--text), var(--bg) 40%)}" },
+      contrast: [ [ "light", "--text", "--bg", 21.0 ], [ "light", "--text-muted", "--bg", 5.74 ] ],
+      pending: true },
+    { id: "repro15-var-fallback-missing-token", cls: :value_functions,
+      files: { "tokens.css" => ":root{--bg:#fff;--text: var(--missing, #000)}" },
+      contrast: [ [ "light", "--text", "--bg", 21.0 ] ],
+      pending: true },
+    { id: "value-functions-var-cycle-no-raise", cls: :value_functions,
+      files: { "tokens.css" => ":root { --bg: #fff; --text: var(--text); --a: var(--b); --b: var(--a); }" },
+      contrast: [ [ "light", "--text", "--bg", :unresolved, "cycle" ] ],
+      pending: true },
+    { id: "value-functions-color-mix-oklch-unresolved", cls: :value_functions,
+      files: { "tokens.css" => ":root{--bg:#fff;--text:color-mix(in oklch, white 50%, black 50%)}" },
+      contrast: [ [ "light", "--text", "--bg", :unresolved, "oklch" ] ],
+      pending: true },
+    { id: "value-functions-color-mix-transparent-matches-today", cls: :value_functions,
+      files: { "tokens.css" => ":root{--bg:#fff;--x:#000000;--text:color-mix(in srgb, var(--x) 12%, transparent)}" },
+      contrast: [ [ "light", "--text", "--bg", 1.32 ] ],
+      pending: true },
+
+    # :pairing
+    { id: "pairing-base-text-pairs-with-base", cls: :pairing,
+      files: { "tokens.css" => ":root{--gold-btn:#000000;--gold-btn-text:#ffffff;--bg:#000000}" },
+      contrast: [ [ "light", "--gold-btn-text", "--gold-btn", 21.0 ] ],
+      pending: false },
+    { id: "pairing-exact-bg-preferred-over-surface-bg-segment", cls: :pairing,
+      files: { "tokens.css" => ":root {\n  --surface-bg: #000000;\n  --bg: #ffffff;\n  --ink: #000000;\n}\n" },
+      contrast: [ [ "light", "--ink", "--bg", 21.0 ] ],
+      pending: false },
+    { id: "pairing-context-and-ink-like-not-text-roles", cls: :pairing,
+      files: { "tokens.css" => ":root {\n  --bg: #ffffff;\n  --context: #112233;\n  --ink-like: #445566;\n  --ink: #000000;\n}\n" },
+      contrast: [ [ "light", "--ink", "--bg", 21.0 ] ],
+      pending: true },
+
+    # :false_positives
+    { id: "fp-id-selector-var-text", cls: :false_positives,
+      files: { "tokens.css" => ":root{--bg:#fff;--text:#000}", "extra.css" => "#feed{color:var(--text)}" },
+      findings: [],
+      pending: true },
+    { id: "fp-id-selector-cafe-empty-block", cls: :false_positives,
+      files: { "extra.css" => "#cafe .x{}" },
+      findings: [],
+      pending: true },
+    { id: "fp-exempt-keywords", cls: :false_positives,
+      files: { "extra.css" => ".x{color:transparent; fill:currentColor; border-color:inherit; outline:none}" },
+      findings: [],
+      pending: false },
+    { id: "fp-content-string-red-and-var-red", cls: :false_positives,
+      files: { "extra.css" => '.x{content:"red"; color:var(--red)}' },
+      findings: [],
+      pending: false },
+    { id: "fp-red-selector-empty", cls: :false_positives,
+      files: { "extra.css" => ".red{}" },
+      findings: [],
+      pending: false },
+    { id: "fp-js-identifier-and-red-alert-string", cls: :false_positives,
+      files: { "extra.js" => "const red = getColor();\nconst msg = \"Red alert\";\n" },
+      findings: [],
+      pending: false },
+    { id: "fp-mdx-prose-red-button", cls: :false_positives,
+      files: { "extra.mdx" => "the red button\n" },
+      findings: [],
+      pending: false },
+    { id: "repro10-query-selector-cafe", cls: :false_positives,
+      files: { "extra.js" => "document.querySelector('#cafe');\n" },
+      findings: [],
+      pending: true },
+    { id: "fp-link-with-hex-fragment", cls: :false_positives,
+      files: { "extra.js" => "const link = '/page#feed';\n" },
+      findings: [],
+      pending: true },
+    { id: "fp-bare-three-digit-hex-in-string", cls: :false_positives,
+      files: { "extra.js" => "const a = '#add';\n" },
+      findings: [],
+      pending: true },
+    { id: "repro11-url-svg-fragment", cls: :false_positives,
+      files: { "extra.css" => ".x { background: url(img.svg#a1b2c3); }\n" },
+      findings: [],
+      pending: true },
+    { id: "repro12-mdx-issue-numbers", cls: :false_positives,
+      files: { "extra.mdx" => "See issue #123 and #add\n" },
+      findings: [],
+      pending: true },
+    { id: "fp-html-entity-not-literal", cls: :false_positives,
+      files: { "extra.tsx" => "const Arrow = () => <span>&#8599;</span>;\n" },
+      findings: [],
+      pending: false },
+    { id: "fp-href-fragment", cls: :false_positives,
+      files: { "extra.html" => '<a href="#fade">x</a>' },
+      findings: [],
+      pending: true },
+
+    # :stray_scope
+    { id: "stray-button-jsx-four-literals", cls: :stray_scope,
+      files: { "src/Button.jsx" => "const a = \"#ff0000\";\nconst b = \"rgb(1,2,3)\";\nconst c = \"hsl(0, 0%, 0%)\";\nconst d = \"oklch(0.5 0.1 90)\";\n" },
+      findings: [ [ "src/Button.jsx", 1, "literal" ], [ "src/Button.jsx", 2, "literal" ], [ "src/Button.jsx", 3, "literal" ], [ "src/Button.jsx", 4, "literal" ] ],
+      pending: false },
+    { id: "stray-html-style-fill-stroke-attrs", cls: :stray_scope,
+      files: { "extra.html" => '<div style="color:#123456"></div><svg><path fill="#abc"/><path stroke="rgb(1,2,3)"/></svg>' },
+      findings: [ [ "extra.html", 1, "literal" ], [ "extra.html", 1, "literal" ], [ "extra.html", 1, "literal" ] ],
+      pending: false },
+    { id: "stray-css-named-color-literals", cls: :stray_scope,
+      files: { "extra.css" => ".x{color:red}\n.y{background:Navy}\n" },
+      findings: [ [ "extra.css", 1, "literal" ], [ "extra.css", 2, "literal" ] ],
+      pending: true },
+    { id: "stray-fill-red-style-white-js-teal", cls: :stray_scope,
+      files: { "extra.html" => '<svg><path fill="red"/></svg><div style="color: white"></div>', "extra.js" => "const c = \"teal\";\n" },
+      findings: [ [ "extra.html", 1, "literal" ], [ "extra.html", 1, "literal" ], [ "extra.js", 1, "literal" ] ],
+      pending: true },
+    { id: "stray-fill-none-gives-none", cls: :stray_scope,
+      files: { "extra.html" => '<svg><path fill="none"/></svg>' },
+      findings: [],
+      pending: false },
+    { id: "stray-js-object-color-hex3", cls: :stray_scope,
+      files: { "extra.js" => "const s = { color: '#fff' };\n" },
+      findings: [ [ "extra.js", 1, "literal" ] ],
+      pending: false },
+    { id: "stray-jsx-style-object-bg-color-hex4", cls: :stray_scope,
+      files: { "extra.jsx" => "const x = <div style={{ backgroundColor: '#cafe' }}/>;\n" },
+      findings: [ [ "extra.jsx", 1, "literal" ] ],
+      pending: false },
+    { id: "stray-js-const-hex6-string", cls: :stray_scope,
+      files: { "extra.js" => "const x = '#123456';\n" },
+      findings: [ [ "extra.js", 1, "literal" ] ],
+      pending: false },
+    { id: "stray-vue-style-block-true-line", cls: :stray_scope,
+      files: { "extra.vue" => "<template><div/></template>\n<style>\n.x { color: #abcdef; }\n</style>\n" },
+      findings: [ [ "extra.vue", 3, "literal" ] ],
+      pending: false },
+    { id: "stray-tailwind-classname-and-apply", cls: :stray_scope,
+      files: { "extra.jsx" => "const x = <div className=\"bg-slate-100\"/>;\n", "extra.css" => "@apply text-blue-600;\n" },
+      findings: [ [ "extra.jsx", 1, "tailwind" ], [ "extra.css", 1, "tailwind" ] ],
+      pending: false },
+    { id: "stray-gradient-in-css-value", cls: :stray_scope,
+      files: { "extra.css" => ".hero { background: linear-gradient(to right, #ff0000, #0000ff); }\n" },
+      findings: [ [ "extra.css", 1, "literal" ], [ "extra.css", 1, "literal" ], [ "extra.css", 1, "gradient" ] ],
+      pending: false },
+
+    # :past_findings -- one row per Codex finding already fixed on this
+    # branch. Derived from `git log --format='%h %s%n%b' main..HEAD` plus
+    # PR 237's review threads (gh api graphql reviewThreads query): ten
+    # threads carry a "Fixed in <hash>" reply, each matching one of the
+    # commits below one-to-one; commit 567bce1 fixes two distinct bugs
+    # (the HTML-entity false positive and the <base>-text pairing) that
+    # predate the Codex review and so have no matching thread, found only
+    # via git log. One thread is a declined wontfix (standalone .svg scan,
+    # not a fix, no row here) and two are still open (tracked elsewhere in
+    # this corpus as round4-root-defaults-not-light-only and
+    # round4-color-mix-var-arguments, not "already fixed"). Twelve rows.
+    { id: "past-4a0c408-inherit-base-root-tokens", cls: :past_findings,
+      files: { "tokens.css" => ":root {\n  --cream: #ffffff;\n  --plum: #000000;\n  --bg: var(--cream);\n  --text: var(--plum);\n}\n\n:root[data-theme=\"dark\"] {\n  --bg: var(--plum);\n  --text: var(--cream);\n}\n" },
+      contrast: [ [ "light", "--text", "--bg", 21.0 ], [ "dark", "--text", "--bg", 21.0 ] ],
+      pending: false },
+    { id: "past-a55862c-composite-eight-digit-alpha-hex", cls: :past_findings,
+      files: { "tokens.css" => ":root {\n  --bg: #ffffff;\n  --text: #00000000;\n}\n" },
+      contrast: [ [ "light", "--text", "--bg", 1.0 ] ],
+      pending: false },
+    { id: "past-9345400-anchor-text-name-to-segments", cls: :past_findings,
+      files: { "tokens.css" => ":root {\n  --bg: #ffffff;\n  --pink: #f2c4c4;\n  --ink: #000000;\n}\n" },
+      contrast: [ [ "light", "--ink", "--bg", 21.0 ] ],
+      pending: false },
+    { id: "past-e24f742-scan-ordinary-rules-in-token-file", cls: :past_findings,
+      files: { "tokens.css" => ":root {\n  --bg: #ffffff;\n  --text: #000000;\n}\n.hero { background: linear-gradient(#fff, #000); color: #123456; }\n" },
+      findings: [ [ "tokens.css", 5, "gradient" ], [ "tokens.css", 5, "literal" ], [ "tokens.css", 5, "literal" ], [ "tokens.css", 5, "literal" ] ],
+      pending: false },
+    { id: "past-a9e8434-prefer-exact-background-role-name", cls: :past_findings,
+      files: { "tokens.css" => ":root {\n  --background-accent: #000000;\n  --bg: #ffffff;\n  --ink: #000000;\n}\n" },
+      contrast: [ [ "light", "--ink", "--bg", 21.0 ] ],
+      pending: false },
+    { id: "past-016f07d-recognize-four-digit-hex", cls: :past_findings,
+      files: { "tokens.css" => ":root {\n  --bg: #ffff;\n  --text: #000f;\n}\n" },
+      contrast: [ [ "light", "--text", "--bg", 21.0 ] ],
+      pending: false },
+    { id: "past-b80c932-exempt-multiline-token-declarations", cls: :past_findings,
+      files: { "tokens.css" => ":root {\n  --cream: #f6efe0;\n  --plum: #24122a;\n}\n:root {\n  --brand:\n    #123456;\n}\n.x { color: #abcdef; }\n" },
+      findings: [ [ "tokens.css", 9, "literal" ] ],
+      pending: false },
+    { id: "past-a58def4-stop-variable-cycles", cls: :past_findings,
+      files: { "tokens.css" => ":root { --bg: #fff; --text: var(--text); --a: var(--b); --b: var(--a); }\n" },
+      contrast: [ [ "light", "--text", "--bg", :unresolved ] ],
+      pending: false },
+    { id: "past-1f3cac0-declaration-boundaries-without-semicolon", cls: :past_findings,
+      files: { "tokens.css" => ":root { --bg: #fff; --last: #555 }\n.hero { color: #abcdef; }\n" },
+      palette: [ "#fff", "#555" ],
+      findings: [ [ "tokens.css", 2, "literal" ] ],
+      pending: false },
+    { id: "past-e068235-accumulate-repeated-root-rules", cls: :past_findings,
+      files: { "tokens.css" => ":root { --cream: #ffffff; --plum: #000000; }\n:root { --bg: var(--cream); }\n:root { --text: var(--plum); }\n" },
+      contrast: [ [ "light", "--text", "--bg", 21.0 ] ],
+      pending: false },
+    { id: "past-567bce1-html-entity-hex-not-literal", cls: :past_findings,
+      files: { "extra.tsx" => "const Arrow = () => <span>&#8599;</span>;\nconst style = { color: \"#abc\" };\n" },
+      findings: [ [ "extra.tsx", 2, "literal" ] ],
+      pending: false },
+    { id: "past-567bce1-base-text-pairs-with-matching-base-token", cls: :past_findings,
+      files: { "tokens.css" => ":root {\n  --btn: #000000;\n  --btn-text: #ffffff;\n  --bg: #000000;\n}\n" },
+      contrast: [ [ "light", "--btn-text", "--btn", 21.0 ] ],
+      pending: false }
+  ].freeze
+
+  def relative_path(path, dir)
+    Pathname.new(path).relative_path_from(Pathname.new(dir)).to_s
+  end
+
+  def contrast_reason(pair)
+    pair.respond_to?(:reason) ? pair.reason : nil
+  end
+
+  def assert_corpus_row(row, report, dir)
+    if row[:palette]
+      actual = report.palette ? report.palette.authored.map { |a| a[:value] }.sort : []
+      assert_equal row[:palette].sort, actual, "palette mismatch for #{row[:id]}"
+    end
+
+    if row[:contrast]
+      remaining = report.contrast.dup
+      row[:contrast].each do |expected_row|
+        theme, text_token, bg_token, *rest = expected_row
+        found_index = remaining.find_index do |pair|
+          next false unless pair.theme == theme && pair.text_token == text_token && pair.bg_token == bg_token
+
+          if rest.first == :unresolved
+            reason_substring = rest[1]
+            !pair.resolved && (reason_substring.nil? || contrast_reason(pair).to_s.include?(reason_substring))
+          else
+            expected_ratio = rest.first
+            pair.resolved && (expected_ratio.nil? || (pair.ratio - expected_ratio).abs < 0.01)
+          end
+        end
+        assert found_index, "expected contrast row #{expected_row.inspect} not found for #{row[:id]} " \
+                             "(actual: #{remaining.map { |p| [ p.theme, p.text_token, p.bg_token, p.ratio, p.resolved ] }.inspect})"
+        remaining.delete_at(found_index)
+      end
+      assert_empty remaining, "unexpected extra contrast rows for #{row[:id]}: " \
+                               "#{remaining.map { |p| [ p.theme, p.text_token, p.bg_token, p.ratio, p.resolved ] }.inspect}"
+    end
+
+    return unless row[:findings]
+
+    actual = report.findings.map { |f| [ relative_path(f.file, dir), f.line, f.kind ] }.sort
+    assert_equal row[:findings].sort, actual, "findings mismatch for #{row[:id]}"
+  end
+
+  CORPUS.each do |row|
+    define_method("test_corpus_#{row[:id].tr('-', '_')}") do
+      skip "pending: #{row[:cls]}" if row[:pending]
+
+      with_dir do |dir|
+        row[:files].each { |rel, content| write(dir, rel, content) }
+        report = ColorCheck.run(dir)
+        assert_corpus_row(row, report, dir)
+      end
+    end
+  end
 
   def test_four_authored_colors_reassigned_across_themes_count_as_four
     with_dir do |dir|
