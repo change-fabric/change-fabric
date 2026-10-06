@@ -194,6 +194,9 @@ const recurrentIds = new Set(recurrence.fired ? (recurrence.threadIds ?? []) : [
 const candidates = verdicts.filter((v) => v.action !== "wont_fix" &&
   (recurrentIds.has(v.threadId) || ownRecurrence(v).length > 0))
 const byId = new Map(verdicts.map((v) => [ v.threadId, v ]))
+// Only fix verdicts may land unattended: a cluster holding any needs_human
+// (or missing) verdict goes to the interactive plan path, never in_run.
+const clusterSize = (size, members) => (size === "in_run" && members.length > 0 && members.every((v) => Boolean(v) && v.action === "fix") ? "in_run" : "plan")
 let clusters = []
 if (candidates.length > 0) {
   const summary = candidates.map((v) => ({
@@ -225,7 +228,7 @@ if (candidates.length > 0) {
     const ids = c.threadIds.filter((id) => known.has(id) && !taken.has(id))
     if (!c.sameClass || ids.length === 0) continue
     ids.forEach((id) => taken.add(id))
-    clusters.push({ ...c, threadIds: ids })
+    clusters.push({ ...c, threadIds: ids, size: clusterSize(c.size, ids.map((id) => byId.get(id))) })
   }
   const inRun = clusters.filter((c) => c.size === "in_run")
   const systemic = await parallel(inRun.map((c) => () =>

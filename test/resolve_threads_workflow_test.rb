@@ -89,6 +89,31 @@ class ResolveThreadsWorkflowTest < Minitest::Test
     assert_equal APPLY_RESULTS.transform_values(&:last), JSON.parse(out)
   end
 
+  # Every member mix a clustered thread can carry, and the size the cluster
+  # must end up with: only an all-fix in_run cluster may land unattended.
+  CLUSTER_SIZES = {
+    "in_run, all fix" => [ "in_run", %w[fix fix], "in_run" ],
+    "in_run, one needs_human" => [ "in_run", %w[fix needs_human], "plan" ],
+    "in_run, only needs_human" => [ "in_run", %w[needs_human], "plan" ],
+    "in_run, a wont_fix" => [ "in_run", %w[fix wont_fix], "plan" ],
+    "in_run, a missing verdict" => [ "in_run", [ "fix", nil ], "plan" ],
+    "in_run, no members" => [ "in_run", [], "plan" ],
+    "plan, all fix" => [ "plan", %w[fix], "plan" ],
+    "plan, needs_human" => [ "plan", %w[needs_human], "plan" ]
+  }.freeze
+
+  def test_only_all_fix_clusters_run_unattended
+    skip "node not installed" unless system("node", "--version", out: File::NULL)
+    assert_includes workflow, "size: clusterSize(c.size, ids.map((id) => byId.get(id)))"
+    definition = workflow[/^const clusterSize = .*$/] or flunk("workflow lost clusterSize")
+    cases = CLUSTER_SIZES.transform_values { |size, actions, _| [ size, actions.map { |a| a && { action: a } } ] }
+    js = "#{definition}\nconst c = #{JSON.generate(cases)}\n" \
+         "console.log(JSON.stringify(Object.fromEntries(Object.entries(c).map(([k, [s, m]]) => [k, clusterSize(s, m)]))))"
+    out, status = Open3.capture2("node", "-e", js)
+    assert status.success?, "node failed to evaluate clusterSize"
+    assert_equal CLUSTER_SIZES.transform_values(&:last), JSON.parse(out)
+  end
+
   # A recurrenceOf claim from Evaluate counts only for a prior thread the same
   # reviewer opened on the same path, at an earlier time and a different
   # reviewed commit: thread_history.rb#returned_to?. Each fixture varies one
