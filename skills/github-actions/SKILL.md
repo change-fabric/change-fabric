@@ -34,7 +34,7 @@ Forbid by default:
 CI:
 - `actionlint`
 - `yamllint .github/workflows`
-- `out=$(git diff --name-only --diff-filter=AM origin/HEAD -- '.github/workflows/*' | xargs -I{} git grep -nP "uses:\\s+[^@]+@(main|master|v?[0-9]+(\\.[0-9]+){0,2})\\b|pull_request_target|permissions:\\s*write-all|:latest\\b" -- {}); [ -z "$out" ]`
+- `base=$(git rev-parse --verify --quiet "${BASE_REF:-origin/HEAD}^{commit}") && l=$(mktemp) && trap 'rm -f "$l"' EXIT && git diff -z --name-only --no-renames --diff-filter=AM --merge-base "$base" -- '.github/workflows/*' >"$l" && f=() && while IFS= read -r -d "" p; do f+=("$p"); done <"$l" && { [ ${#f[@]} -eq 0 ] || { GIT_LITERAL_PATHSPECS=1 git grep -nP "uses:\\s+[^@]+@(main|master|v?[0-9]+(\\.[0-9]+){0,2})\\b|pull_request_target|permissions:\\s*write-all|:latest\\b" -- "${f[@]}"; [ $? -eq 1 ]; }; }` (see skills/README.md, CI diff-grep checks)
 
 Agent protocol:
 1. Pin and scope every trust boundary.

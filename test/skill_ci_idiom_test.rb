@@ -151,3 +151,34 @@ class SkillCiIdiomTest < Minitest::Test
     refute ok, "a changed file containing the forbidden pattern must fail the check"
   end
 end
+
+# Static lint: no skills/*/SKILL.md may still use the old fail-open idiom,
+# which piped git diff into xargs -I{} git grep (fail-open on an empty diff)
+# or paired git diff with [ -z "$out" ] (same fail-open shape by its exit
+# check). Scans only skills/*/SKILL.md so README prose describing the old
+# form by name never trips it.
+class SkillCiIdiomLintTest < Minitest::Test
+  SKILLS_DIR = File.expand_path("../skills", __dir__)
+
+  def skill_files
+    Dir.glob(File.join(SKILLS_DIR, "*", "SKILL.md")).sort
+  end
+
+  def test_no_site_pipes_xargs_into_git_grep
+    offenders = skill_files.each_with_object([]) do |path, acc|
+      File.readlines(path).each_with_index do |line, idx|
+        acc << "#{path}:#{idx + 1}" if line.include?("xargs -I{} git grep")
+      end
+    end
+    assert_empty offenders, "fail-open xargs-into-git-grep idiom still present"
+  end
+
+  def test_no_site_uses_old_git_diff_dash_z_empty_check
+    offenders = skill_files.each_with_object([]) do |path, acc|
+      File.readlines(path).each_with_index do |line, idx|
+        acc << "#{path}:#{idx + 1}" if line.include?("git diff") && line.include?('[ -z "$out" ]')
+      end
+    end
+    assert_empty offenders, "fail-open git diff / [ -z \"$out\" ] idiom still present"
+  end
+end

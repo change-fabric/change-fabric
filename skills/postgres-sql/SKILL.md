@@ -33,7 +33,7 @@ Forbid by default:
 
 CI:
 - `sqlfluff lint --dialect postgres`
-- `out=$(git diff --name-only --diff-filter=AM origin/HEAD -- '*.sql' | xargs -I{} git grep -niP "SELECT \\*|\\b(BIG|SMALL)?SERIAL\\b|\\bDROP TABLE\\b|\\bTRUNCATE\\b" -- {}); [ -z "$out" ]`
+- `base=$(git rev-parse --verify --quiet "${BASE_REF:-origin/HEAD}^{commit}") && l=$(mktemp) && trap 'rm -f "$l"' EXIT && git diff -z --name-only --no-renames --diff-filter=AM --merge-base "$base" -- '*.sql' >"$l" && f=() && while IFS= read -r -d "" p; do f+=("$p"); done <"$l" && { [ ${#f[@]} -eq 0 ] || { GIT_LITERAL_PATHSPECS=1 git grep -niP "SELECT \\*|\\b(BIG|SMALL)?SERIAL\\b|\\bDROP TABLE\\b|\\bTRUNCATE\\b" -- "${f[@]}"; [ $? -eq 1 ]; }; }` (see skills/README.md, CI diff-grep checks)
 
 Agent protocol:
 1. Encode invariants in DDL, not app code.

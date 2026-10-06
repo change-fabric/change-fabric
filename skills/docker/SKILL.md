@@ -38,8 +38,8 @@ Forbid by default:
 - Writing durable data to the container's ephemeral layer.
 
 CI:
-- `out=$(git diff --name-only --diff-filter=AM origin/HEAD -- '*.md' Makefile '*.mk' '*.sh' justfile Brewfile package.json | xargs -I{} git grep -niP "brew (install|services).*(postgres|redis|mysql|mongo|caddy|nginx|httpd|rabbitmq|memcached)|\\b(initdb|pg_ctl|redis-server|mysqld|mongod|memcached)\\b|caddy (run|start)|postgresql@\\d" -- {}); [ -z "$out" ]`
-- `out=$(git diff --name-only --diff-filter=AM origin/HEAD -- '*Dockerfile*' 'docker-compose*.y*ml' 'compose*.y*ml' | xargs -I{} git grep -nP ":latest\\b" -- {}); [ -z "$out" ]`
+- `base=$(git rev-parse --verify --quiet "${BASE_REF:-origin/HEAD}^{commit}") && l=$(mktemp) && trap 'rm -f "$l"' EXIT && git diff -z --name-only --no-renames --diff-filter=AM --merge-base "$base" -- '*.md' Makefile '*.mk' '*.sh' justfile Brewfile package.json >"$l" && f=() && while IFS= read -r -d "" p; do f+=("$p"); done <"$l" && { [ ${#f[@]} -eq 0 ] || { GIT_LITERAL_PATHSPECS=1 git grep -niP "brew (install|services).*(postgres|redis|mysql|mongo|caddy|nginx|httpd|rabbitmq|memcached)|\\b(initdb|pg_ctl|redis-server|mysqld|mongod|memcached)\\b|caddy (run|start)|postgresql@\\d" -- "${f[@]}"; [ $? -eq 1 ]; }; }` (see skills/README.md, CI diff-grep checks)
+- `base=$(git rev-parse --verify --quiet "${BASE_REF:-origin/HEAD}^{commit}") && l=$(mktemp) && trap 'rm -f "$l"' EXIT && git diff -z --name-only --no-renames --diff-filter=AM --merge-base "$base" -- '*Dockerfile*' 'docker-compose*.y*ml' 'compose*.y*ml' >"$l" && f=() && while IFS= read -r -d "" p; do f+=("$p"); done <"$l" && { [ ${#f[@]} -eq 0 ] || { GIT_LITERAL_PATHSPECS=1 git grep -nP ":latest\\b" -- "${f[@]}"; [ $? -eq 1 ]; }; }` (see skills/README.md, CI diff-grep checks)
 
 Agent protocol:
 1. Provision each service as a dedicated container, one per use case.

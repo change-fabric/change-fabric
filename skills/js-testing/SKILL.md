@@ -38,7 +38,7 @@ CI:
 - `vitest run --coverage`
 - `jest --ci --coverage`
 - `cypress run`
-- `out=$(git diff --name-only --diff-filter=AM origin/HEAD -- '*.test.js' '*.spec.js' '*.cy.js' 'cypress/**' | xargs -I{} git grep -nE "\\.(only|skip)\\(|cy\\.wait\\([0-9]+" -- {}); [ -z "$out" ]`
+- `base=$(git rev-parse --verify --quiet "${BASE_REF:-origin/HEAD}^{commit}") && l=$(mktemp) && trap 'rm -f "$l"' EXIT && git diff -z --name-only --no-renames --diff-filter=AM --merge-base "$base" -- '*.test.js' '*.spec.js' '*.cy.js' 'cypress/**' >"$l" && f=() && while IFS= read -r -d "" p; do f+=("$p"); done <"$l" && { [ ${#f[@]} -eq 0 ] || { GIT_LITERAL_PATHSPECS=1 git grep -nE "\\.(only|skip)\\(|cy\\.wait\\([0-9]+" -- "${f[@]}"; [ $? -eq 1 ]; }; }` (see skills/README.md, CI diff-grep checks)
 
 Agent protocol:
 1. Pick the smallest runner that matches the behavior.

@@ -34,7 +34,7 @@ Forbid by default:
 CI:
 - `npx --no-install eslint . --max-warnings 0`
 - `npm audit --omit=dev`
-- `out=$(git diff --name-only --diff-filter=AM origin/HEAD -- '*.js' '*.jsx' '*.mjs' '*.ts' '*.tsx' | xargs -I{} git grep -niP "jwt\\.decode\\(|(local|session)Storage\\.\\w*(token|jwt)|(local|session)Storage\\.\\w+\\([^)]*(token|jwt|auth)|[?&](access_token|id_token)=|response_type=token|grant_type=password" -- {}); [ -z "$out" ]`
+- `base=$(git rev-parse --verify --quiet "${BASE_REF:-origin/HEAD}^{commit}") && l=$(mktemp) && trap 'rm -f "$l"' EXIT && git diff -z --name-only --no-renames --diff-filter=AM --merge-base "$base" -- '*.js' '*.jsx' '*.mjs' '*.ts' '*.tsx' >"$l" && f=() && while IFS= read -r -d "" p; do f+=("$p"); done <"$l" && { [ ${#f[@]} -eq 0 ] || { GIT_LITERAL_PATHSPECS=1 git grep -niP "jwt\\.decode\\(|(local|session)Storage\\.\\w*(token|jwt)|(local|session)Storage\\.\\w+\\([^)]*(token|jwt|auth)|[?&](access_token|id_token)=|response_type=token|grant_type=password" -- "${f[@]}"; [ $? -eq 1 ]; }; }` (see skills/README.md, CI diff-grep checks)
 
 Agent protocol:
 1. Choose the safest supported flow first.
