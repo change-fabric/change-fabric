@@ -174,9 +174,9 @@ class ColorThemesTest < Minitest::Test
   end
 
   def test_selector_theme_resolved_per_os_state
-    css = ':root { --bg: #fff; --text: #000; } ' \
-          '@media (prefers-color-scheme: dark) { :root { --bg: #000; --text: #fff; } } ' \
-          '@media (prefers-color-scheme: light) { :root { --text: #111; } } ' \
+    css = ":root { --bg: #fff; --text: #000; } " \
+          "@media (prefers-color-scheme: dark) { :root { --bg: #000; --text: #fff; } } " \
+          "@media (prefers-color-scheme: light) { :root { --text: #111; } } " \
           '[data-theme="light"] { --bg: #000; }'
     lights = build(css).variants.select { |v| v.theme == "light" }
     texts = lights.map { |v| [ v.decls["--bg"], v.decls["--text"] ] }.sort
