@@ -23,7 +23,7 @@ module ColorCheck
   TOKEN_DECL = /(--[\w-]+)\s*:\s*([^;]+);/.freeze
   THEME_BLOCK = /:root(?:\[data-theme=["'][\w-]+["']\]|:not\([^)]*\))?\s*\{([^}]*)\}/m.freeze
   COLOR_MIX_SRGB = /color-mix\(\s*in\s+srgb\s*,\s*([^,]+?)\s+(\d+(?:\.\d+)?)%\s*,\s*([^)]+?)\s*\)/.freeze
-  HEX = /^#(\h{3}|\h{6}|\h{8})$/.freeze
+  HEX = /^#(\h{3,4}|\h{6}|\h{8})$/.freeze
   TEXT_NAME = /(?:^--|-)(?:text|fg|ink|title|link)(?:-|$)/i.freeze
   BG_EXACT = %w[--bg --background --surface].freeze
   BG_NAME = /(?:^--|-)(?:bg|background|surface)(?:-|$)/i.freeze
@@ -254,10 +254,11 @@ module ColorCheck
     format('#%02x%02x%02x', r, g, b)
   end
 
-  # Composites an eight-digit #RRGGBBAA over the background so a translucent
+  # Composites a four- or eight-digit #RGBA/#RRGGBBAA over the background so a translucent
   # token is not graded as if it were opaque.
   def flatten_alpha(hex, bg_color)
     h = hex.delete_prefix('#')
+    h = h.chars.map { |c| c * 2 }.join if h.length == 4
     return hex unless h.length == 8
 
     mix_hex("##{h[0, 6]}", bg_color, h[6, 2].to_i(16) * 100.0 / 255)
