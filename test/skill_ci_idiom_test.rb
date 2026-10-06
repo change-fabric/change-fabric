@@ -160,25 +160,21 @@ end
 class SkillCiIdiomLintTest < Minitest::Test
   SKILLS_DIR = File.expand_path("../skills", __dir__)
 
-  def skill_files
-    Dir.glob(File.join(SKILLS_DIR, "*", "SKILL.md")).sort
+  def offending_lines
+    Dir.glob(File.join(SKILLS_DIR, "*", "SKILL.md")).sort.flat_map do |path|
+      File.readlines(path).each_with_index.filter_map do |line, idx|
+        "#{path}:#{idx + 1}" if yield(line)
+      end
+    end
   end
 
   def test_no_site_pipes_xargs_into_git_grep
-    offenders = skill_files.each_with_object([]) do |path, acc|
-      File.readlines(path).each_with_index do |line, idx|
-        acc << "#{path}:#{idx + 1}" if line.include?("xargs -I{} git grep")
-      end
-    end
+    offenders = offending_lines { |line| line.include?("xargs -I{} git grep") }
     assert_empty offenders, "fail-open xargs-into-git-grep idiom still present"
   end
 
   def test_no_site_uses_old_git_diff_dash_z_empty_check
-    offenders = skill_files.each_with_object([]) do |path, acc|
-      File.readlines(path).each_with_index do |line, idx|
-        acc << "#{path}:#{idx + 1}" if line.include?("git diff") && line.include?('[ -z "$out" ]')
-      end
-    end
+    offenders = offending_lines { |line| line.include?("git diff") && line.include?('[ -z "$out" ]') }
     assert_empty offenders, "fail-open git diff / [ -z \"$out\" ] idiom still present"
   end
 end
