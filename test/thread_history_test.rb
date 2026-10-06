@@ -241,16 +241,36 @@ class ThreadHistoryTest < Minitest::Test
     assert entry["isOutdated"]
   end
 
-  def test_thread_fields_come_from_first_and_last_comments
+  def test_thread_fields_come_from_the_opening_comment
     opener = comment(CODEX, "#{P2_BADGE}Parse a variable as the second color-mix stop**",
                      review_id: codex_review_id("e068235"), oid: "e068235", db: 4_195_176_618)
     reply = comment(VIEWER, "Looking.", review_id: "PRR_v", oid: "e068235", db: 4_195_200_000)
     t = thread(id: "PRRT_pdXZm", path: COLOR, resolved: false, line: 26, comments: [ opener, reply ])
     entry = history(reviews: [], threads: [ t ], head: "e068235")["threads"].first
-    assert_equal 4_195_200_000, entry["commentId"]
+    assert_equal 4_195_176_618, entry["commentId"]
     assert_equal CODEX, entry["reviewer"]
     assert_equal "e068235", entry["reviewedCommit"]
     assert_equal [ CODEX, VIEWER ], entry["comments"].map { |c| c["author"] }
+  end
+
+  # The REST replies endpoint accepts only a top-level review comment, so
+  # commentId is the opener's id whatever follows it in the thread.
+  def test_comment_id_is_always_the_opener
+    opener = -> { comment(CODEX, "x", review_id: "r", oid: "o", db: 100) }
+    variants = {
+      "opener only" => [ opener.call ],
+      "viewer reply" => [ opener.call, comment(VIEWER, "Looking.", review_id: "v", oid: "o", db: 101) ],
+      "reviewer follow-up" => [ opener.call, comment(CODEX, "Still wrong.", review_id: "r2", oid: "p", db: 102) ],
+      "reopened deferral" => [ opener.call, comment(VIEWER, "Deferred to plan fix-x. Cause.", review_id: "v", oid: "o", db: 103),
+                               comment(CODEX, "Not fixed.", review_id: "r3", oid: "q", db: 104) ],
+      "other user last" => [ opener.call, comment(VIEWER, "Hm.", review_id: "v", oid: "o", db: 105),
+                             comment("someone", "+1", review_id: "s", oid: "o", db: 106) ]
+    }
+    variants.each do |name, cs|
+      t = thread(id: "PRRT_#{name.tr(' ', '_')}", path: COLOR, resolved: false, line: 1, comments: cs)
+      entry = history(reviews: [], threads: [ t ], head: "o")["threads"].first
+      assert_equal 100, entry["commentId"], name
+    end
   end
 
   def test_reviewed_commit_is_nil_when_the_review_is_absent

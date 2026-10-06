@@ -198,6 +198,10 @@ class ThreadHistory
     @open_entries ||= open_threads.map { |t| thread_entry(t) }
   end
 
+  # commentId is the opener's databaseId: the REST replies endpoint
+  # (pulls/<n>/comments/<id>/replies) accepts only a top-level review
+  # comment, never a reply, so a later comment's id would make every reply
+  # fail on a thread that already has one.
   def thread_entry(thread)
     first = comments(thread).first
     {
@@ -205,7 +209,7 @@ class ThreadHistory
       'path' => thread['path'],
       'line' => thread['line'] || thread['originalLine'],
       'isOutdated' => thread['isOutdated'] == true,
-      'commentId' => comments(thread).last&.dig('databaseId'),
+      'commentId' => first&.dig('databaseId'),
       'title' => title(first),
       'reviewer' => login(first),
       'reviewedCommit' => first&.dig('pullRequestReview', 'commit', 'oid'),

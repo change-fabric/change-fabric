@@ -41,7 +41,8 @@ run reports that it assumed the default.
 1. **Resolve the PR and its history.** `gh pr view <n> --json
    number,title,body,headRefName,url` for the PR itself. Then run
    `ruby ~/.claude/cf/bin/thread_history.rb <owner>/<repo>#<n>` and keep its
-   stdout: `threads` (unresolved, with `threadId`, `commentId`, `path`,
+   stdout: `threads` (unresolved, with `threadId`, `commentId` (the
+   opening comment's id, the reply target), `path`,
    `line`, `title`, `comments`), `deferred` (threads already handed to a
    plan, skipped until a reviewer comments again), `priorThreads` (earlier
    threads we fixed, with their `Fixed in` sha), `rounds`, and
@@ -82,9 +83,10 @@ run reports that it assumed the default.
    `needsHuman` for reporting and replies.
 6. **Reply and resolve.** Before this step, read `reference/replying.md`
    for the verdict bars and reply-style rules. Use the `gh` CLI via Bash by
-   default. For `fixed` and `wontFix`: reply on the thread's
-   last comment with `gh api repos/<owner>/<repo>/pulls/<n>/comments/
-   <comment_id>/replies -f body=...` stating what happened (the commit, or
+   default. For `fixed` and `wontFix`: reply to the thread's opening
+   comment (`commentId`; GitHub accepts only a top-level comment here, never
+   a reply) with `gh api repos/<owner>/<repo>/pulls/<n>/comments/
+   <commentId>/replies -f body=...` stating what happened (the commit, or
    the dismissal rationale), then resolve the thread with `gh api graphql
    -f query='mutation { resolveReviewThread(input: {threadId: "<threadId>"})
    { thread { id } } }'`. An MCP-style `add_reply_to_pull_request_comment`
