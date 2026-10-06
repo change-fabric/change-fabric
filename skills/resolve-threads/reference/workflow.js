@@ -286,8 +286,9 @@ for (const c of clusters.filter((k) => k.size === "in_run")) {
     "applies cleanly because an earlier fix in this same run touched overlapping code, re-read " +
     "the current files and re-implement the equivalent change by hand instead of forcing the " +
     "patch. Create exactly one commit for the whole cluster, its message naming the root cause " +
-    "and every file it touches, and report the commit sha. If the change cannot be reconciled " +
-    "with what is already on disk, make no commit and report why.",
+    "and every file it touches, then report the commit sha by running `git rev-parse HEAD` and " +
+    "copying its output verbatim; never guess or recall a sha from memory. If the change cannot " +
+    "be reconciled with what is already on disk, make no commit and report why.",
     { phase: "Apply", label: c.concernClass, schema: APPLY_SCHEMA }
   )
   clusterApplied.push({ ...c, ...(result || { applied: false, note: "apply agent did not return a result" }) })
@@ -303,7 +304,8 @@ for (const v of toApply) {
     "applies cleanly because an earlier fix in this same run touched overlapping code, re-read " +
     "the current file and re-implement the equivalent change by hand instead of forcing the " +
     "patch. Once the working tree has the change, create exactly one commit for it referencing " +
-    v.path + " and the concern it addresses, and report the commit sha. If the change cannot be " +
+    v.path + " and the concern it addresses, then report the commit sha by running `git rev-parse HEAD` " +
+    "and copying its output verbatim; never guess or recall a sha from memory. If the change cannot be " +
     "reconciled with what is already on disk, make no commit and report why.",
     { phase: "Apply", label: v.path + ":" + v.line, schema: APPLY_SCHEMA }
   )
@@ -314,12 +316,17 @@ const threadRef = (id) => {
   const v = byId.get(id)
   return { threadId: id, path: v.path, line: v.line, commentId: v.commentId, title: v.title }
 }
-// Only an apply result that is both applied and carries a commit sha has
-// landed: the caller replies `Fixed in <sha>.` and resolves every thread it
-// returns as fixed or as an in-run cluster. Every other result (applied
-// false, a missing result, or applied with no sha) is a conflict, so one
-// predicate routes both the per-thread and the cluster results.
-const landed = (r) => Boolean(r && r.applied && r.commitSha)
+// Only an apply result that is both applied and carries a well-formed commit
+// sha has landed: the caller replies `Fixed in <sha>.` and resolves every
+// thread it returns as fixed or as an in-run cluster. Every other result
+// (applied false, a missing result, or applied with no sha, or a sha that is
+// not 7-40 hex characters) is a conflict, so one predicate routes both the
+// per-thread and the cluster results. The Apply agent cannot run git itself
+// to verify a commit, so this script trusts nothing past syntactic shape;
+// the caller's own `git merge-base --is-ancestor` check after push is what
+// actually confirms the commit landed (see SKILL.md).
+const COMMIT_SHA_RE = /^[0-9a-f]{7,40}$/
+const landed = (r) => Boolean(r && r.applied && r.commitSha && COMMIT_SHA_RE.test(r.commitSha))
 const inRunClusters = clusterApplied
   .filter(landed)
   .map((c) => ({

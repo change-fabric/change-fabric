@@ -65,8 +65,13 @@ class ResolveThreadsWorkflowTest < Minitest::Test
   # applied commit with a sha must route to conflicts.
   APPLY_RESULTS = {
     "applied with sha" => [ { applied: true, commitSha: "abc1234", note: "ok" }, true ],
+    "applied with full sha" => [ { applied: true, commitSha: "a" * 40, note: "ok" }, true ],
     "applied with no sha" => [ { applied: true, note: "committed?" }, false ],
     "applied with empty sha" => [ { applied: true, commitSha: "", note: "x" }, false ],
+    "applied with a too-short sha" => [ { applied: true, commitSha: "abc12", note: "x" }, false ],
+    "applied with a too-long sha" => [ { applied: true, commitSha: "a" * 41, note: "x" }, false ],
+    "applied with non-hex characters" => [ { applied: true, commitSha: "not-a-sha", note: "x" }, false ],
+    "applied with an uppercase sha" => [ { applied: true, commitSha: "ABC1234", note: "x" }, false ],
     "apply failed" => [ { applied: false, note: "patch conflict" }, false ],
     "apply failed with a stray sha" => [ { applied: false, commitSha: "abc1234", note: "x" }, false ],
     "agent returned nothing" => [ { applied: false, note: "apply agent did not return a result" }, false ]
@@ -81,9 +86,11 @@ class ResolveThreadsWorkflowTest < Minitest::Test
 
   def test_landed_predicate_accepts_only_a_committed_fix
     skip "node not installed" unless system("node", "--version", out: File::NULL)
+    sha_re = workflow[/^const COMMIT_SHA_RE = .*$/] or flunk("workflow lost the commit sha pattern")
     definition = workflow[/^const landed = .*$/] or flunk("workflow lost the landed predicate")
+    assert_includes definition, "COMMIT_SHA_RE", "landed must check the sha against COMMIT_SHA_RE"
     cases = APPLY_RESULTS.transform_values(&:first)
-    js = "#{definition}\nconst c = #{JSON.generate(cases)}\n" \
+    js = "#{sha_re}\n#{definition}\nconst c = #{JSON.generate(cases)}\n" \
          "console.log(JSON.stringify(Object.fromEntries(Object.entries(c).map(([k, v]) => [k, landed(v)]))))"
     out, status = Open3.capture2("node", "-e", js)
     assert status.success?, "node failed to evaluate the predicate"
@@ -230,7 +237,8 @@ class ResolveThreadsWorkflowTest < Minitest::Test
   # reply that leaves the thread open.
   PUSH_GATED_MUTATIONS = {
     "standalone holds fixes for step 7" => [ :skill, "Standalone, step 7 posts them once\n   its push lands" ],
-    "standalone posts only after push" => [ :skill, "once the push lands, post step 6's held `fixed` and cluster" ],
+    "standalone posts only after push" => [ :skill, "once the push lands, verify each `fixed` and\n   cluster thread's `commitSha` with `git merge-base --is-ancestor <sha>\n   HEAD`" ],
+    "standalone failed ancestor check stays open" => [ :skill, "is routed to\n   `conflicts` instead, reported, and left open rather than resolved." ],
     "standalone withheld push leaves threads open" => [ :skill, "reply on those threads instead that the fix is committed locally but\n   unpushed, and leave them unresolved" ],
     "nested returns held mutations" => [ :skill, "\"truncated\": false, \"pendingReplies\": []}" ],
     "nested posts no commit-citing reply" => [ :skill, "commit-citing ones are only returned in `pendingReplies`" ],

@@ -128,8 +128,16 @@ run reports that it assumed the default.
    do not push and report that no test command could be found. Red means no
    push; report the failure and stop before the push, leaving the
    commits local. Only on green does the branch carrying the new commits
-   get pushed; once the push lands, post step 6's held `fixed` and cluster
-   replies and resolutions [RT-6]. When the push is withheld for any
+   get pushed. The Workflow script has no tool access and cannot run git
+   itself, so the Apply agent's reported `commitSha` is unverified prose
+   until checked here: once the push lands, verify each `fixed` and
+   cluster thread's `commitSha` with `git merge-base --is-ancestor <sha>
+   HEAD` against the pushed branch before posting anything [RT-6]. Only a
+   thread whose sha passes that check gets its `Fixed in <sha>` reply and
+   resolution; a thread whose sha fails it (not an ancestor, or the
+   command errors, for example a malformed or unknown sha) is routed to
+   `conflicts` instead, reported, and left open rather than resolved.
+   When the push is withheld for any
    reason (red, no test command, or a merge mode that keeps work local),
    reply on those threads instead that the fix is committed locally but
    unpushed, and leave them unresolved. The session's active cf merge mode (see `cf`) governs whether
@@ -183,10 +191,10 @@ run; commit-citing ones are only returned in `pendingReplies`.
 | ID | Action | Requires | When unmet |
 |---|---|---|---|
 | RT-1 | Push (standalone) | Repo test command green on `repoPath` after Apply | No push; report the failure, leave commits local |
-| RT-2 | Resolve a `fixed` thread | The thread's fix landed in a commit SHA | Do not resolve; fold into `needsHuman` |
+| RT-2 | Resolve a `fixed` thread | The thread's fix landed in a commit SHA matching 7-40 hex characters | Do not resolve; a missing or malformed sha folds into `conflicts`, not `fixed` |
 | RT-3 | Resolve a `wont_fix` thread | None; always allowed, all authors | N/A, always resolves |
 | RT-4 | Route recurring candidates to a plan cluster | Root-cause map is non-null and accounts for every candidate | Null map, an unaccounted candidate, or a dissolved/failed systemic fix all route to a plan cluster with a generic seeded goal |
-| RT-6 | Post a `Fixed in <sha>` reply or resolve a `fixed`/cluster thread | The commit it cites was pushed (standalone: step 7's push; nested: the caller's push) | Hold it; if no push happens, reply that the fix is committed locally but unpushed and leave the thread unresolved |
+| RT-6 | Post a `Fixed in <sha>` reply or resolve a `fixed`/cluster thread | The commit it cites was pushed (standalone: step 7's push; nested: the caller's push), and `git merge-base --is-ancestor <sha> HEAD` against the pushed branch confirms the sha actually landed | Hold it; if no push happens, reply that the fix is committed locally but unpushed and leave the thread unresolved; if the push happened but the ancestor check fails, route to `conflicts` and leave the thread open |
 | RT-5 | Any reply, resolution, or push | `Workflow` returned a usable result, and `thread_history.rb`, `plan_paths.rb`, and `ctx_store.rb` all succeeded | Stop; no reply, resolution, or push |
 
 ## Failure modes
