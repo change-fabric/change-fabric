@@ -67,18 +67,13 @@ class WorkflowNullHarnessTest < Minitest::Test
     "resolve-threads" => [], # already null-safe at every reachable call site
     "drive" => [], # relevance is null-checked at every lane now
     "sweep" => [], # infra and order agent nulls are handled now (Phase 4)
-    "code-review" => %w[Shard#1] # fixed in Phase 5: map.shards throws when null
+    "code-review" => []
   }.freeze
 
   # Same idea as NO_THROW_TODO, but for a result that comes back non-null
   # with one field missing (the Root cause map present but empty of
   # clusters): `{ skill => { key => [field, ...] } }`.
-  NO_THROW_PARTIAL_TODO = {
-    "code-review" => {
-      "core:rubric#1" => %w[candidates], # fixed in Phase 5: a lens result missing candidates
-      "core:general#1" => %w[candidates]
-    }
-  }.freeze
+  NO_THROW_PARTIAL_TODO = {}.freeze
 
   def test_no_case_throws
     skip "node not installed" unless node_available?
@@ -157,7 +152,6 @@ class WorkflowNullHarnessTest < Minitest::Test
   end
 
   def test_code_review_marks_incomplete_shards_instead_of_posting_silently
-    skip "fixed in Phase 5"
     happy_keys("code-review").each do |key|
       result = run_harness("code-review", null: key).fetch("result")
       assert result.key?("incomplete"), "#{key}: result does not carry an incomplete flag at all"

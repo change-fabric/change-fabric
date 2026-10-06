@@ -220,11 +220,18 @@ Documented risks, accepted rather than designed around:
 Anything other than 201, a missing or unauthenticated `gh`, or a network error:
 stop uploading, report every local file path from the manifest, and say the run
 degraded. Do not retry against a different mechanism, and do not fail the whole
-run. The captures are useful without the inline embed.
+run. The captures are useful without the inline embed. Record which pairs
+uploaded and which did not; the Demo section below reads that record.
 
 ## The `## Demo` section
 
-Compose a `## Demo` markdown section pairing each surviving before/after image
+If any pair failed to upload, do not edit the pull request body at all: a
+partial Demo section (some pairs embedded, some silently missing) reads as a
+complete set of before/afters when it is not, and `--signoff`'s ask-first gate
+cannot save an unattended run from a half-finished edit. Report the local file
+paths and stop here instead.
+
+Otherwise, compose a `## Demo` markdown section pairing each surviving before/after image
 by route and viewport, appending to an existing Demo section rather than
 replacing the body if the pull request already has one.
 

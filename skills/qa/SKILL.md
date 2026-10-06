@@ -169,7 +169,10 @@ cases:
 Otherwise follow `~/.claude/skills/cf:screenshot/SKILL.md` in full: resolve the
 base ref, capture both sides, diff every route/viewport pair, keep only the
 pairs that actually differ, upload the survivors, and write the `## Demo` PR
-body edit (under `--signoff`, ask first). Use `screenshot.pr_number` and
+body edit (under `--signoff`, ask first). This phase inherits cf:screenshot's
+own upload-failure rule as-is: any pair that failed to upload means no Demo
+edit at all, reported with the local file paths instead, same as a standalone
+cf:screenshot run. Use `screenshot.pr_number` and
 `screenshot.base_ref` from phase 1 rather than re-deriving them. Zero differing
 pairs is a successful outcome: report it and skip the upload and the edit.
 

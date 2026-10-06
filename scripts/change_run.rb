@@ -99,13 +99,19 @@ class ChangeRun
   # Spelled with the prefix because a Struct is Enumerable: a member named
   # `select` would be shadowed by Enumerable#select, and a lane probing for it
   # would get a filtered member list rather than the flag.
-  Context = Struct.new(:network, :target_url, :health_url, :browserless, :media, :suite_select, :logger,
-                       keyword_init: true) do
+  # `signoff` rides the context the same way `suite_select` does: a property of
+  # this invocation, not of the repo. It softens the testcases lane's grader
+  # gate (row 39, Decision 8: missing grader or an `unclear` verdict fails
+  # under full auto, warns under `--signoff`) without changing anything a lane
+  # grades deterministically.
+  Context = Struct.new(:network, :target_url, :health_url, :browserless, :media, :suite_select, :signoff,
+                       :logger, keyword_init: true) do
     def log(message) = logger.call(message)
+    def signoff? = signoff == true
   end
 
   Args = Struct.new(:scope, :config_path, :profile, :apps, :target_url, :health_url, :publish, :suites,
-                    :for_tag, :ref, keyword_init: true)
+                    :for_tag, :ref, :signoff, keyword_init: true)
 
   def self.main(argv)
     new(argv).run
@@ -265,6 +271,7 @@ class ChangeRun
     suites = []
     for_tag = nil
     ref = nil
+    signoff = false
     OptionParser.new do |o|
       o.on('--config PATH') { |value| path = value }
       o.on('--profile NAME') { |value| profile = value }
@@ -275,6 +282,7 @@ class ChangeRun
       o.on('--no-publish') { publish = false }
       o.on('--for-tag NAME') { |value| for_tag = value }
       o.on('--ref REF') { |value| ref = value }
+      o.on('--signoff') { signoff = true }
     end.parse(argv.drop(1))
     valid = %w[all sweep gate-status] + ChangeConfig::LANES
     abort_and_exit("scope must be one of: #{valid.join(', ')}") unless valid.include?(scope)
@@ -285,7 +293,8 @@ class ChangeRun
     abort_and_exit('--suite narrows the testcases lane; run scope testcases or all') if
       !suites.empty? && !%w[testcases all].include?(scope)
     Args.new(scope: scope, config_path: path, profile: profile, apps: apps, target_url: target_url,
-             health_url: health_url, publish: publish, suites: suites, for_tag: for_tag, ref: ref)
+             health_url: health_url, publish: publish, suites: suites, for_tag: for_tag, ref: ref,
+             signoff: signoff)
   end
 
   def overrides
@@ -356,7 +365,7 @@ class ChangeRun
     ctx_args = {
       network: network.name, target_url: config.boot.target_url,
       health_url: config.boot.health_url, media: artifact&.media, suite_select: @args.suites,
-      logger: method(:log)
+      signoff: @args.signoff, logger: method(:log)
     }
     if browser_needed?(config)
       ChangeDocker.with_browserless(network: network.name) do |session|

@@ -28,6 +28,10 @@ no findings posts nothing and reports that.
    API call. `id` is the GraphQL node id; a REST route under
    `pulls/<n>/reviews/<review_id>` takes the integer `databaseId`, never
    `id`.
+   If `cf:plan` does not land a plan set (it errors, is declined, or the
+   session ends before it lands), do not leave this round uncovered: follow
+   "Away" below instead, so a rerun at this head still sees
+   `consolidatedAtHead` and nothing is posted inline.
    The seeded goal is plain prose:
    "Second-round review of PR #<n> (<title>) in <owner>/<repo>. The first
    round's findings (<titles>) were addressed, and this round found

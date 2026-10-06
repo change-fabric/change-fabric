@@ -19,8 +19,9 @@ class ChangeLaneTestcasesTest < Minitest::Test
   # `--suite` reaches the lane. Named with the prefix for the same reason the
   # real one is: a Struct member called `select` would be shadowed by
   # Enumerable#select and the lane would read the member list as a filter.
-  Ctx = Struct.new(:network, :target_url, :browserless, :suite_select) do
+  Ctx = Struct.new(:network, :target_url, :browserless, :suite_select, :signoff) do
     def log(_message) = nil
+    def signoff? = signoff == true
   end
 
   # A grader whose verdicts the test dictates. Every lane in this file gets one,
@@ -84,9 +85,9 @@ class ChangeLaneTestcasesTest < Minitest::Test
     end
   end
 
-  def lane(dir, raw = {}, session: nil, select: [], grader: FakeGrader.new, today: nil)
+  def lane(dir, raw = {}, session: nil, select: [], grader: FakeGrader.new, today: nil, signoff: false)
     config = ChangeConfig::LaneConfig.new("testcases", { "suites" => [ "*.cf-testcases.yml" ] }.merge(raw), dir)
-    ChangeLaneTestcases.new(config, Ctx.new("net", "https://app.example.org", session, select),
+    ChangeLaneTestcases.new(config, Ctx.new("net", "https://app.example.org", session, select, signoff),
                             grader: grader, today: today)
   end
 
@@ -372,14 +373,42 @@ class ChangeLaneTestcasesTest < Minitest::Test
     end
   end
 
-  # A grader that declined to decide has not found a defect; warn is the honest
-  # reading, and it is the same reading a malformed verdict token gets.
-  def test_an_unclear_verdict_warns_rather_than_failing
+  # Decision 8: a grader that declined to decide has not found a defect, but an
+  # unattended run cannot treat that as a free pass either, so full auto
+  # (the default) fails the gate on it.
+  def test_an_unclear_verdict_fails_under_full_auto
     with_suite do |dir|
       grader = FakeGrader.new(verdicts: { "checkout/happy-path" => [ "unclear", "no confirmation text visible" ] })
       findings = acceptance_findings(lane(dir, {}, session: FakeSession.new(ok_result(2)), grader: grader).run)
 
+      assert_equal "fail", findings.first.status
+    end
+  end
+
+  # Under --signoff a human is present to read the report and judge for
+  # themselves, so an unclear verdict only warns.
+  def test_an_unclear_verdict_warns_under_signoff
+    with_suite do |dir|
+      grader = FakeGrader.new(verdicts: { "checkout/happy-path" => [ "unclear", "no confirmation text visible" ] })
+      findings = acceptance_findings(
+        lane(dir, {}, session: FakeSession.new(ok_result(2)), grader: grader, signoff: true).run
+      )
+
       assert_equal "warn", findings.first.status
+    end
+  end
+
+  # gate_tags staged adoption softens an unclear verdict to warn even under
+  # full auto, exactly as it softens a real `fail`.
+  def test_an_unclear_verdict_is_softened_by_gate_tags_under_full_auto
+    with_suite do |dir|
+      grader = FakeGrader.new(verdicts: { "checkout/empty-cart" => [ "unclear", "no confirmation text visible" ] })
+      findings = acceptance_findings(
+        lane(dir, { "gate_tags" => [ "smoke" ] }, session: FakeSession.new(ok_result(2)), grader: grader).run
+      )
+
+      softened = findings.find { |finding| finding.check == "checkout/empty-cart acceptance" }
+      assert_equal "warn", softened.status
     end
   end
 
@@ -422,18 +451,29 @@ class ChangeLaneTestcasesTest < Minitest::Test
     end
   end
 
-  # Grading that could not run is a warn, never a pass. A pass would launder
-  # unjudged prose into a checked criterion; a fail would break every run on a
-  # machine that simply has no grader installed.
-  def test_an_unreachable_grader_warns_and_grades_nothing
+  # Grading that could not run is never a pass: a pass would launder unjudged
+  # prose into a checked criterion. Decision 8: full auto (the default) fails
+  # the gate on it instead, since nobody is watching to read the warn.
+  def test_an_unreachable_grader_fails_under_full_auto
     with_suite do |dir|
       grader = FakeGrader.new(reason: "acceptance grading did not run: no grader is reachable")
       findings = lane(dir, {}, session: FakeSession.new(ok_result(2)), grader: grader).run
       grading = findings.find { |finding| finding.check == "acceptance grading" }
 
-      assert_equal "warn", grading.status
+      assert_equal "fail", grading.status
       assert_includes grading.detail, "no grader is reachable"
       assert_nil grader.observations
+    end
+  end
+
+  # Under --signoff a human reads the report, so a missing grader only warns.
+  def test_an_unreachable_grader_warns_under_signoff
+    with_suite do |dir|
+      grader = FakeGrader.new(reason: "acceptance grading did not run: no grader is reachable")
+      findings = lane(dir, {}, session: FakeSession.new(ok_result(2)), grader: grader, signoff: true).run
+      grading = findings.find { |finding| finding.check == "acceptance grading" }
+
+      assert_equal "warn", grading.status
     end
   end
 

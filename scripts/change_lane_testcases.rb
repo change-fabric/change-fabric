@@ -284,15 +284,17 @@ class ChangeLaneTestcases < ChangeLane
     gradable.map { |result| acceptance_finding(result) }
   end
 
-  # Grading that did not happen is reported as a warn, never as a pass and never
-  # as a fail. A pass would launder unjudged prose into a checked criterion; a
-  # fail would break every run on a machine that simply has no grader installed.
-  # A warn is the honest reading: the criteria in this run are unjudged, and the
-  # report says so.
+  # Grading that did not happen is reported as a pass only never: it is either
+  # a warn (an interactive `--signoff` run, where a human is present to decide
+  # what an unjudged criterion means) or a fail (full auto, Decision 8: an
+  # unattended run cannot launder unjudged prose into a passed gate by simply
+  # having no grader installed).
   def grading_unavailable(reason)
     @grading_note = reason
-    finding(check: 'acceptance grading', status: 'warn', severity: 'medium', detail: reason)
+    finding(check: 'acceptance grading', status: signoff? ? 'warn' : 'fail', severity: 'medium', detail: reason)
   end
+
+  def signoff? = @context.respond_to?(:signoff?) && @context.signoff?
 
   def grading_note = @grading_note
 
@@ -320,10 +322,20 @@ class ChangeLaneTestcases < ChangeLane
   end
 
   def acceptance_status(item, verdict)
-    return 'warn' unless verdict&.fail? || verdict&.pass?
+    return unclear_status(item) unless verdict&.fail? || verdict&.pass?
     return 'pass' if verdict.pass?
 
     gated?(item) ? 'fail' : 'warn'
+  end
+
+  # Decision 8: an `unclear` verdict (the grader could not decide) fails the
+  # gate under full auto and only warns under `--signoff`, same as a lapsed
+  # quarantine would otherwise be read as a pass. `gate_tags` staged adoption
+  # still softens it to warn either way, exactly as it softens a real `fail`.
+  def unclear_status(item)
+    return 'warn' if signoff? || !gated?(item)
+
+    'fail'
   end
 
   def acceptance_detail(item, verdict, status)

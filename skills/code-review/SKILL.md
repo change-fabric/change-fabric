@@ -74,8 +74,11 @@ reports that it assumed the default.
 
    For PR scope, also run `ruby ~/.claude/cf/bin/thread_history.rb
    <owner>/<repo>#<n>` and keep its `reviewRound`. If its `truncated` is
-   true, the round state is unknown: say so and run an ordinary first
-   round (skip the two checks below). Otherwise check
+   true, the round state is unknown: a prior consolidated review may exist
+   and be unseen, so never post inline comments blind. Say so, run step 2's
+   Workflow, and report `posted` as in step 3, then stop: no post. Do not
+   fall back to `reference/second-round.md` either, since it needs
+   `reviewRound` state this run does not have. Otherwise check
    `reviewRound.consolidatedAtHead` first: if true, a consolidated review
    already covers this head: report it and stop. Otherwise, if
    `reviewRound.secondRound` is true, this is a second round: follow
@@ -107,7 +110,10 @@ reports that it assumed the default.
    a finding was already fixed locally: applying a fix in the working tree
    never substitutes for the post-to-PR decision. Always show `posted`
    (`path:line`, tier, one line each) plus the shard summary and
-   `droppedForVolume` count. Then post without asking, unless `--signoff`
+   `droppedForVolume` count. If `incomplete` is true, name every shard in
+   `incompleteShards` and say the review does not cover them fully; the
+   post this step makes next is partial, never reported as a complete
+   pass. Then post without asking, unless `--signoff`
    was passed, in which case ask whether to post. If the `Workflow` call
    errored or returned no `posted` list, say so explicitly and stop here; do
    not silently fall back to hand-applying fixes without surfacing this

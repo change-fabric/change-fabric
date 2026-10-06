@@ -143,7 +143,16 @@ if (files.length <= shardThreshold) {
     "name, a one-line rationale, and its file list.\n\nFiles:\n" + files.join("\n"),
     { model: "opus", phase: "Shard", schema: SHARD_SCHEMA }
   )
-  shards = map.shards
+  // Row 34: a null Shard result must not throw. One shard holding every
+  // file is always a safe, if coarse, fallback.
+  shards = (map && map.shards) ? map.shards : [ { name: "scope", files: files, rationale: "shard agent returned null or incomplete" } ]
+}
+// Row 36: a non-null map that drops files from every shard must not lose
+// those files from review. Leftover files become their own shard.
+const shardedFiles = new Set(shards.flatMap((s) => s.files))
+const leftover = files.filter((f) => !shardedFiles.has(f))
+if (leftover.length > 0) {
+  shards = shards.concat([ { name: "leftover", files: leftover, rationale: "omitted by the shard map" } ])
 }
 log(shards.length + " shard(s): " + shards.map((s) => s.name + " (" + s.files.length + ")").join(", "))
 
@@ -159,7 +168,12 @@ const shardResults = await pipeline(
         "vague quality note.\n\nFiles:\n" + shard.files.join("\n"),
         { phase: "Find", label: shard.name, schema: CANDIDATES_SCHEMA }
       )
-      return { shard: shard, candidates: found.candidates }
+      // Row 34/35: a null Find result must not throw, and must never pass
+      // for a complete review of this shard.
+      if (!found || !found.candidates) {
+        return { shard: shard, candidates: [], incomplete: true }
+      }
+      return { shard: shard, candidates: found.candidates, incomplete: false }
     }
     const lensResults = await parallel([
       () => agent(
@@ -174,8 +188,12 @@ const shardResults = await pipeline(
         { phase: "Find", label: shard.name + ":general", schema: CANDIDATES_SCHEMA }
       )
     ])
-    const candidates = lensResults.filter(Boolean).flatMap((r) => r.candidates)
-    return { shard: shard, candidates: candidates }
+    // Row 35: one lens coming back null, or with no `candidates`, must mark
+    // the shard incomplete instead of silently reviewing it with just the
+    // surviving lens.
+    const incomplete = lensResults.some((r) => !r || !r.candidates)
+    const candidates = lensResults.filter((r) => r && r.candidates).flatMap((r) => r.candidates)
+    return { shard: shard, candidates: candidates, incomplete: incomplete }
   },
   async (found) => {
     const seenKeys = new Set()
@@ -199,7 +217,7 @@ const shardResults = await pipeline(
       ).then((v) => (v ? { ...c, ...v } : null))
     ))
     const survivors = verified.filter(Boolean).filter((f) => f.reproduced)
-    return { shard: found.shard, findings: survivors }
+    return { shard: found.shard, findings: survivors, incomplete: found.incomplete }
   },
   async (verified) => {
     const p1s = verified.findings.filter((f) => f.tier === "P1")
@@ -217,7 +235,7 @@ const shardResults = await pipeline(
       const key = locKey(f)
       return confirmedKeys.has(key) ? f : { ...f, tier: "P2", suggestion: undefined }
     })
-    return { shard: verified.shard, findings: findings }
+    return { shard: verified.shard, findings: findings, incomplete: verified.incomplete }
   }
 )
 
@@ -231,8 +249,14 @@ const rank = { P1: 0, P2: 1, P3: 2 }
 const eligible = [ ...byKey.values() ].filter((f) => f.tier !== "P3" || f.suggestion)
 const ranked = eligible.sort((a, b) => rank[a.tier] - rank[b.tier])
 
+// Row 35: the result always states whether every shard was fully covered,
+// so a caller never posts findings while silently claiming completeness.
+const incompleteShards = shardResults.filter(Boolean).filter((r) => r.incomplete).map((r) => r.shard.name)
+
 return {
   shards: shards.map((s) => ({ name: s.name, files: s.files.length })),
   posted: ranked.slice(0, cap),
-  droppedForVolume: Math.max(0, ranked.length - cap)
+  droppedForVolume: Math.max(0, ranked.length - cap),
+  incomplete: incompleteShards.length > 0,
+  incompleteShards: incompleteShards
 }
