@@ -114,10 +114,17 @@ run reports that it assumed the default.
    resolve each. For `planClusters`, reply on every thread with `Deferred to
    plan <plan.slug>. <rootCause>` and leave them unresolved. Reply text
    follows `reference/replying.md`'s reply contracts exactly.
-7. **Push.** Push the branch carrying the new commits. The session's active
-   cf merge mode (see `cf`) governs whether that push, and any PR update,
-   actually happens versus staying local. Skipped when nested (see Nested
-   runs).
+7. **Test, then push.** Standalone (not nested), after the Apply phase has
+   committed, run the repo's own test command against `repoPath`: the
+   command CLAUDE.md states, else `rake test` when a Rakefile is present,
+   else `package.json`'s `scripts.test`, in that order; if none is found,
+   do not push and report that no test command could be found. Red means no
+   push; report the failure and stop before step 7's push, leaving the
+   commits local. Only on green does the branch carrying the new commits
+   get pushed. The session's active cf merge mode (see `cf`) governs whether
+   that push, and any PR update, actually happens versus staying local.
+   Skipped when nested (see Nested runs); the caller owns the push and its
+   own test gate.
 8. **Start the plan.** Only when the Workflow returned a non-null `plan`
    and the run is not nested. Under away mode, do not start it: step 6's
    `plan-pending-<plan.slug>` pointer already holds the seeded goal, so
@@ -151,3 +158,18 @@ counts are all zero.
 `plan` is step 6's settled `plan` object (`slug`, `seededGoal`,
 `threadIds`) or `null`; its pending pointer is already recorded.
 Replies and resolutions still happen in a nested run.
+
+## Failure modes
+
+- The Workflow call errors, or returns nothing usable: stop. Make no reply,
+  no resolution, and no push. Nested, emit the fenced json block with
+  `"error": true` added so the caller (cf:drive) also stops instead of
+  reading zero counts as a clean run.
+- `thread_history.rb` exits non-zero, or its stdout does not parse as the
+  expected JSON: stop before step 2. Report the raw output; make no reply,
+  resolution, or push.
+- `plan_paths.rb resolve` or `ctx_store.rb capture` fails: stop before any
+  `Deferred to plan` reply. A reply that names a plan slug must never be
+  sent while the slug is unsettled or the pending record unwritten.
+- A `wont_fix` verdict is resolved unattended for every author, reviewer or
+  bot alike; this is the accepted default, not a gap (see step 6).

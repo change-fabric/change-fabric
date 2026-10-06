@@ -74,7 +74,6 @@ class WorkflowNullHarnessTest < Minitest::Test
   # with one field missing (the Root cause map present but empty of
   # clusters): `{ skill => { key => [field, ...] } }`.
   NO_THROW_PARTIAL_TODO = {
-    "resolve-threads" => { "Root cause#1" => %w[clusters] }, # fixed in Phase 2: `map.clusters` with no `?? []`
     "code-review" => {
       "core:rubric#1" => %w[candidates], # fixed in Phase 5: a lens result missing candidates
       "core:general#1" => %w[candidates]
@@ -105,7 +104,6 @@ class WorkflowNullHarnessTest < Minitest::Test
   end
 
   def test_resolve_threads_recurrence_fails_closed
-    skip "fixed in Phase 2"
     happy_keys("resolve-threads").each do |key|
       result = run_harness("resolve-threads", null: key).fetch("result")
       fixed_ids = result.fetch("fixed").map { |t| t["threadId"] }

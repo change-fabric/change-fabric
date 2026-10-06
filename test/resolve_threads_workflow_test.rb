@@ -28,7 +28,8 @@ class ResolveThreadsWorkflowTest < Minitest::Test
     "root cause sizes the fix" => '[ "in_run", "plan" ]',
     "cluster lands as one commit" => "Create exactly one commit for the whole cluster",
     "plan clusters seed cf:plan" => "seededGoal",
-    "empty systemic diff dissolves the cluster" => "dissolved"
+    "empty systemic diff converts the cluster to plan" => 'c.size = "plan"',
+    "unaccounted candidates join a generic plan cluster" => "unidentified root cause"
   }.freeze
 
   def workflow = File.read(WORKFLOW)

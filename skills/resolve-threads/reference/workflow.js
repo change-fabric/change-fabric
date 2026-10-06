@@ -224,11 +224,27 @@ if (candidates.length > 0) {
   )
   const known = new Set(candidates.map((v) => v.threadId))
   const taken = new Set()
-  for (const c of (map ? map.clusters : [])) {
-    const ids = c.threadIds.filter((id) => known.has(id) && !taken.has(id))
+  for (const c of (map?.clusters ?? [])) {
+    const ids = (c.threadIds ?? []).filter((id) => known.has(id) && !taken.has(id))
     if (!c.sameClass || ids.length === 0) continue
     ids.forEach((id) => taken.add(id))
     clusters.push({ ...c, threadIds: ids, size: clusterSize(c.size, ids.map((id) => byId.get(id))) })
+  }
+  // A null root-cause map, and any candidate the map left out (a cluster
+  // marked sameClass false, or simply omitted), never falls back to a
+  // per-instance fix: it becomes (or joins) one generic plan cluster so the
+  // recurrence still reaches cf:plan instead of landing unattended.
+  const unaccounted = candidates.filter((v) => !taken.has(v.threadId))
+  if (unaccounted.length > 0) {
+    const files = [ ...new Set(unaccounted.map((v) => v.path)) ].join(", ")
+    clusters.push({
+      threadIds: unaccounted.map((v) => v.threadId),
+      concernClass: "unidentified",
+      sameClass: true,
+      rootCause: "Recurring review findings on " + files + " share an unidentified root cause; " +
+        "find it and fix the class, not the instances.",
+      size: "plan"
+    })
   }
   const inRun = clusters.filter((c) => c.size === "in_run")
   const systemic = await parallel(inRun.map((c) => () =>
@@ -244,19 +260,19 @@ if (candidates.length > 0) {
       { model: "opus", phase: "Root cause", label: c.concernClass, schema: SYSTEMIC_SCHEMA }
     )
   ))
-  // An in-run cluster with no systemic diff dissolves: its threads fall back
-  // to their own per-thread verdicts rather than silently losing their fixes.
-  const dissolved = new Set()
+  // An in-run cluster with no systemic diff (agent null, or empty diff)
+  // converts to a plan cluster instead of dissolving: its threads keep the
+  // root cause they were grouped under and still reach cf:plan, rather than
+  // falling back to a per-instance fix that was already rejected once.
   inRun.forEach((c, i) => {
     const s = systemic[i]
     if (s && s.diff) {
       c.diff = s.diff
       c.reply = s.reply
     } else {
-      dissolved.add(c)
+      c.size = "plan"
     }
   })
-  clusters = clusters.filter((c) => !dissolved.has(c))
 }
 
 phase("Apply")
@@ -339,6 +355,11 @@ if (planClusters.length > 0) {
 const fixed = applied.filter(landed)
 const conflicts = applied.filter((a) => !landed(a)).concat(clusterConflicts)
 const wontFix = verdicts.filter((v) => v.action === "wont_fix" && !clustered.has(v.threadId))
+// A fix verdict with no diff never had a trial change to apply; it is not
+// in no bucket, it needs a human, same as an explicit needs_human verdict.
+const fixNoDiff = verdicts.filter((v) => v.action === "fix" && !v.diff && !clustered.has(v.threadId))
+  .map((v) => ({ ...v, rationale: "fix verdict carried no diff" }))
 const needsHuman = verdicts.filter((v) => v.action === "needs_human" && !clustered.has(v.threadId))
+  .concat(fixNoDiff)
 
 return { fixed, wontFix, needsHuman, conflicts, clusters: inRunClusters, planClusters, plan, recurrence }
