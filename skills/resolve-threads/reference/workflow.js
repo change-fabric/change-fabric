@@ -67,7 +67,7 @@ const CLUSTER_SCHEMA = {
       items: {
         type: "object",
         properties: {
-          threadIds: { type: "array", items: { type: "string" } },
+          threadIds: { type: "array", items: { type: "string" }, uniqueItems: true },
           concernClass: { type: "string" },
           sameClass: { type: "boolean" },
           rootCause: { type: "string" },
@@ -225,7 +225,7 @@ if (candidates.length > 0) {
   const known = new Set(candidates.map((v) => v.threadId))
   const taken = new Set()
   for (const c of (map?.clusters ?? [])) {
-    const ids = (c.threadIds ?? []).filter((id) => known.has(id) && !taken.has(id))
+    const ids = [ ...new Set(c.threadIds ?? []) ].filter((id) => known.has(id) && !taken.has(id))
     if (!c.sameClass || ids.length === 0) continue
     ids.forEach((id) => taken.add(id))
     clusters.push({ ...c, threadIds: ids, size: clusterSize(c.size, ids.map((id) => byId.get(id))) })
