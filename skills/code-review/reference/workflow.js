@@ -1,10 +1,10 @@
-// pst:code-review Workflow script. Pass this file's contents verbatim as
+// cf:code-review Workflow script. Pass this file's contents verbatim as
 // Workflow's `script` argument; do not paraphrase, summarize, or edit it in
 // transit. It owns everything the old per-step Agent instructions used to
 // describe by hand: sharding, model tiers, background/parallel dispatch, the
 // P1 double-check, and the dedupe/rank/cap that turns raw candidates into
 // `posted`. Comment text and the actual PR post stay outside it (SKILL.md's
-// step 3 and 4), since posting needs a human ask this script has no tool to
+// steps 3 and 4), since posting is a GitHub call this script has no tool to
 // make.
 //
 // For maintainers: this script's own logic is documented inline below. For
@@ -35,7 +35,7 @@
 //                                     red, auto-apply-diff finding.
 
 export const meta = {
-  name: "pst-code-review-scope",
+  name: "cf-code-review-scope",
   description: "Shard, find, worktree-verify, and rank code review findings for one scope",
   phases: [
     { title: "Shard" },
@@ -192,7 +192,7 @@ const shardResults = await pipeline(
         " - " + c.scenario + ". Reproduce with a failing test, an actual invocation, " +
         "or by applying a refactor and confirming behavior holds; do not just re-read the code " +
         "and agree. If it survives, also write a title: an imperative one-line headline under " +
-        "60 characters naming what is wrong (e.g. 'Missing pst:ctx row in Command skills table'). " +
+        "60 characters naming what is wrong (e.g. 'Missing cf:ctx row in Command skills table'). " +
         "The title states what is wrong; it must not restate the scenario's detail or repeat its " +
         "wording, since both are posted together under one character budget.",
         { phase: "Verify", label: locKey(c), schema: VERDICT_SCHEMA }
