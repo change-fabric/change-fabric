@@ -436,6 +436,63 @@ class ColorCheckTest < Minitest::Test
     end
   end
 
+  def test_corpus_has_no_pending_rows
+    pending = CORPUS.select { |row| row[:pending] }
+    assert_empty pending.map { |row| row[:id] }, "pending corpus rows remain"
+  end
+
+  # Builds the same theme model compute_contrast builds internally (from the
+  # same detected token file), and checks that the contrast report matches
+  # it one row per text-role key: every variant's effective map yields
+  # exactly one row per text role for that theme and context, every
+  # unsupported context yields exactly one row per text-role token it
+  # declares, and every unresolved row carries a non-empty reason. A row
+  # whose files raise during ColorCheck.run fails this test with that error.
+  def test_corpus_invariant_one_row_per_text_role
+    CORPUS.each do |row|
+      with_dir do |dir|
+        row[:files].each { |rel, content| write(dir, rel, content) }
+        report = ColorCheck.run(dir)
+
+        token_file = ColorCheck.detect_token_file(ColorCheck.scan_files(dir))
+        if token_file
+          sheet = ColorCheck.parse_token_sheet(token_file)
+          model = sheet ? ColorThemes.build(sheet) : nil
+
+          model&.variants&.each do |variant|
+            context = variant.contexts.join(" | ")
+            variant.decls.each_key.select { |name| ColorThemes.text_role_name?(name) }.each do |role|
+              matches = report.contrast.select do |c|
+                c.theme == variant.theme && c.context == context && c.text_token == role
+              end
+              assert_equal 1, matches.size,
+                           "#{row[:id]}: expected one row for theme=#{variant.theme} " \
+                           "context=#{context} role=#{role}, got #{matches.size}"
+            end
+          end
+
+          model&.unsupported&.each do |uns|
+            uns.decls.each_key.select { |name| ColorThemes.text_role_name?(name) }.each do |role|
+              matches = report.contrast.select do |c|
+                c.theme == "unsupported" && c.context == uns.label && c.text_token == role
+              end
+              assert_equal 1, matches.size,
+                           "#{row[:id]}: expected one unsupported row for label=#{uns.label} " \
+                           "role=#{role}, got #{matches.size}"
+            end
+          end
+        end
+
+        report.contrast.each do |pair|
+          next if pair.resolved
+
+          refute_nil pair.reason, "#{row[:id]}: unresolved row for #{pair.text_token} has no reason"
+          refute_empty pair.reason.to_s, "#{row[:id]}: unresolved row for #{pair.text_token} has an empty reason"
+        end
+      end
+    end
+  end
+
   def test_four_authored_colors_reassigned_across_themes_count_as_four
     with_dir do |dir|
       write(dir, "tokens.css", FOUR_COLOR_TOKENS)

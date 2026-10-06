@@ -76,9 +76,19 @@ needs a stated reason.
 
 Every derived text role states its contrast pair in both themes: 4.5:1 for
 body text, 3:1 for large text and UI components, per WCAG 2.2 SC 1.4.3.
-`ruby ~/.claude/cf/bin/color_check.rb` computes this for resolvable pairs
-(hex, and `color-mix(in srgb, ...)` over resolvable colors) and lists anything
-it cannot resolve as unresolved, to be stated manually.
+`ruby ~/.claude/cf/bin/color_check.rb` parses the stylesheet with a CSS
+tokenizer, builds a theme model and resolves each pair against it. A pair it
+cannot resolve, or a context it will not merge, is listed as unresolved with
+a reason, to be stated manually; `--strict` is unchanged by this (it exits 1
+only for palette over target or any finding, never for contrast).
+
+| Area | Supported | Reported as unsupported (with a reason, never guessed) |
+|------|-----------|-------------------------------------------------------|
+| Theme contexts | bare `:root`/`html` (base); `[data-theme=X]` or `.X` on `:root`/`html`, with optional `:not(...)`; bare `.X` or `[data-theme=X]` whose block is custom-property-only; `@media (prefers-color-scheme: light or dark)`; `@layer` | any other selector carrying a text role; other `@media`, `@supports`, `@container`, `@scope`; SCSS nesting; conflicting theme markers |
+| Color values | hex 3/4/6/8; `rgb`/`rgba`, `hsl`/`hsla` in comma or space syntax; the 148 named colors; `transparent`; `!important` | `oklch`, `oklab`, `lab`, `lch`, `hwb`, `color()`; relative color syntax; `calc()` in channels; CSS-wide keywords |
+| Value functions | `var()` with or without fallback; `color-mix(in srgb, ...)` with either or both percentages | `color-mix` in any other space; `light-dark()`; `currentColor` |
+| Stray scan, CSS | declaration values (hex, color functions, named colors), `@apply` | selectors, `url()` fragments, strings inside values, the keywords `transparent`, `currentColor`, `inherit`, `initial`, `unset`, `revert`, `none` |
+| Stray scan, markup and script | `style=`, `fill=`, `stroke=`, `class=`/`className=` attribute values; quoted strings that are exactly one color: any hex length when the value of a color-bearing key (`color`, `backgroundColor`, `borderColor`, `fill`, `stroke`, `shadow` and the like), otherwise only 6- or 8-digit hex, a color function or a named color | 3- or 4-digit hex strings outside a color-bearing key (`querySelector('#cafe')`), hex inside longer strings (`'/page#feed'`), ID selectors, `<style>` and `<script>` blocks, prose, text nodes, MDX code blocks, CSS-in-JS template literals as CSS, SCSS variables and mixins as tokens, standalone `.svg` files |
 
 ## Decision heuristic
 

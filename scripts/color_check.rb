@@ -17,12 +17,40 @@ require_relative 'color_scan'
 # so the checker can be run freely without blocking anything.
 #
 # Supported / reported-as-unsupported (full table in skills/color/SKILL.md):
-# theme contexts recognized: :root/html base, [data-theme=X] or .X on
-# :root/html (with optional :not(...)), a bare .X or [data-theme=X] whose
-# block is custom-property-only, @media (prefers-color-scheme: light|dark),
-# @layer. Anything else (other @media/@supports/@container/@scope, SCSS
-# nesting, conflicting markers, an ordinary rule carrying a text-role token)
-# is reported as an unsupported context with a reason, never guessed.
+#
+# Area: Theme contexts.
+#   Supported: bare :root/html (base); [data-theme=X] or .X on :root/html,
+#     with optional :not(...); bare .X or [data-theme=X] whose block is
+#     custom-property-only; @media (prefers-color-scheme: light or dark);
+#     @layer.
+#   Unsupported: any other selector carrying a text role; other @media,
+#     @supports, @container, @scope; SCSS nesting; conflicting theme markers.
+# Area: Color values.
+#   Supported: hex 3/4/6/8; rgb/rgba, hsl/hsla in comma or space syntax; the
+#     148 named colors; transparent; !important.
+#   Unsupported: oklch, oklab, lab, lch, hwb, color(); relative color syntax;
+#     calc() in channels; CSS-wide keywords.
+# Area: Value functions.
+#   Supported: var() with or without fallback; color-mix(in srgb, ...) with
+#     either or both percentages.
+#   Unsupported: color-mix in any other space; light-dark(); currentColor.
+# Area: Stray scan, CSS.
+#   Supported: declaration values (hex, color functions, named colors),
+#     @apply.
+#   Unsupported: selectors, url() fragments, strings inside values, the
+#     keywords transparent, currentColor, inherit, initial, unset, revert,
+#     none.
+# Area: Stray scan, markup and script.
+#   Supported: style=, fill=, stroke=, class=/className= attribute values;
+#     quoted strings that are exactly one color: any hex length when the
+#     value of a color-bearing key (color, backgroundColor, borderColor,
+#     fill, stroke, shadow and the like), otherwise only 6- or 8-digit hex,
+#     a color function or a named color.
+#   Unsupported: 3- or 4-digit hex strings outside a color-bearing key
+#     (querySelector('#cafe')), hex inside longer strings ('/page#feed'),
+#     ID selectors, <style> and <script> blocks, prose, text nodes, MDX
+#     code blocks, CSS-in-JS template literals as CSS, SCSS variables and
+#     mixins as tokens, standalone .svg files.
 module ColorCheck
   COLOR_FN = /\b(?:rgba?|hsla?|oklch|oklab|lab|lch)\(/.freeze
   TAILWIND = /\b(?:bg|text|border|ring|from|to|via|fill|stroke|outline|divide|shadow)-(?:slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-\d{2,3}\b/.freeze
