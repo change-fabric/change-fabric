@@ -69,9 +69,30 @@ class RenderRoundReviewTest < Minitest::Test
     assert body.end_with?("```text\n#{handoff}\n```")
   end
 
+  LOCAL_PATHS = [
+    "see ~/x", "see /home/x", "see /Users/x", "see /root/plans/x", "see .claude/plans",
+    "see $HOME/x", "see ${HOME}/x", "read /workspace/change-fabric/plan.md",
+    "read /tmp/review/goal.md", "read /var/folders/ab/T/x", "read /private/tmp/x/y",
+    "read /opt/build/repo/plan.md", "read `/srv/app/plan.md`", "read (/mnt/c/x)",
+    "read \"/data/x/y\"", "open file:///x", "open C:\\Users\\x", "open d:\\work\\x"
+  ].freeze
+
+  PORTABLE_TEXT = [
+    "Rework PR #1 in owner/repo.", "See https://github.com/owner/repo/pull/1/files",
+    "Edit scripts/render_round_review.rb and test/x_test.rb", "Run /cf:plan first",
+    "Fold P2/P3 and/or drop them", "Call gh api repos/owner/repo/pulls/1/reviews",
+    "Use ./scripts/x.rb and ../y/z.rb", "Ratio 1/2/3 holds"
+  ].freeze
+
   def test_raises_on_handoff_naming_a_local_path
-    [ "see ~/x", "see /home/x", "see /Users/x", "see .claude/plans" ].each do |handoff|
+    LOCAL_PATHS.each do |handoff|
       assert_raises(RuntimeError, handoff) { build("handoff" => handoff) }
+    end
+  end
+
+  def test_accepts_portable_handoff_text
+    PORTABLE_TEXT.each do |handoff|
+      assert build("handoff" => handoff).render.end_with?("#{handoff}\n```"), handoff
     end
   end
 

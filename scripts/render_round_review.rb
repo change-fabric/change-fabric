@@ -9,12 +9,16 @@ require_relative 'render_finding_comment'
 # on stdin ({title, summary, folded?, handoff}) and prints the review body.
 # The core (header, summary, folded findings) is capped at CORE_CAP; the
 # fenced agent handoff prompt below it is not, since it is meant to be pasted
-# whole. The handoff must name no local path: it is read by whoever opens the
-# PR, on a machine that has none of this one's files.
+# whole. The handoff must name no local or absolute filesystem path: it is
+# read by whoever opens the PR, on a machine that has none of this one's files.
 class RenderRoundReview
   CORE_CAP = 640
   HEADER_PREFIX = '**Root cause review - '
-  LOCAL_PATH = %r{~/|/home/|/Users/|\.claude/}
+  # Any machine-local reference: a home shorthand, the .claude tree, a
+  # file:// URL, a Windows drive path, or an absolute POSIX path of two or
+  # more segments. The lookbehind keeps URL paths (https://host/a/b),
+  # repo-relative paths (scripts/x.rb) and slash commands (/cf:plan) legal.
+  LOCAL_PATH = %r{~/|\$\{?HOME\b|\.claude/|file://|\b[A-Za-z]:\\|(?<![\w.:/~-])/[\w.@+-]+/}
   FOLDED_LEAD = 'Also found this round: '
 
   def initialize(input)
