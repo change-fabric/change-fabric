@@ -1,0 +1,23 @@
+{
+  "args": {
+    "threads": [
+      { "threadId": "t1", "path": "t1.md", "line": 1, "title": "Null check missing", "reviewer": "bot", "reviewedCommit": "aaa", "openedAt": "2026-01-02T00:00:00Z", "isOutdated": false, "commentId": "c1", "comments": [ { "author": "bot", "body": "This can be null." } ] },
+      { "threadId": "t2", "path": "t2.md", "line": 5, "title": "Style nit", "reviewer": "bot", "reviewedCommit": "aaa", "openedAt": "2026-01-02T00:00:00Z", "isOutdated": false, "commentId": "c2", "comments": [ { "author": "bot", "body": "Nit." } ] }
+    ],
+    "priorThreads": [],
+    "recurrence": { "fired": true, "threadIds": [ "t1" ], "paths": [ "t1.md" ] },
+    "repoPath": "/tmp/repo",
+    "headSha": "deadbeef",
+    "prNumber": 239,
+    "prTitle": "Example PR",
+    "prBody": "Example body"
+  },
+  "results": {
+    "t1.md:1#1": { "action": "fix", "rationale": "real bug", "concernClass": "missing-null-check", "diff": "diff --git a/t1.md b/t1.md\n", "reply": "Fixed.", "siblings": [], "recurrenceOf": [] },
+    "t2.md:5#1": { "action": "wont_fix", "rationale": "not worth it", "concernClass": "style" },
+    "Root cause#1": { "clusters": [ { "threadIds": [ "t1" ], "concernClass": "missing-null-check", "sameClass": true, "rootCause": "Several call sites skip null checks.", "size": "in_run" } ] },
+    "missing-null-check#1": { "diff": "diff --git a/t1.md b/t1.md\n+fixed\n", "reply": "Root cause fixed.", "note": "" },
+    "missing-null-check#2": { "applied": true, "commitSha": "abc1234", "note": "" },
+    "t1.md:1#2": { "applied": true, "commitSha": "abc9999", "note": "" }
+  }
+}

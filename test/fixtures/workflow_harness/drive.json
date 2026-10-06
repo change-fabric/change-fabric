@@ -1,0 +1,26 @@
+{
+  "args": {
+    "files": [ "app.js" ],
+    "repoPath": "/tmp/repo",
+    "headSha": "deadbeef",
+    "routeOutput": "cf:javascript",
+    "isPR": true,
+    "cap": 1,
+    "ciFixContext": null
+  },
+  "results": {
+    "Relevance#1": {
+      "qa": { "relevant": false, "rationale": "no UI surface" },
+      "refactor": { "relevant": true, "rationale": "js change" },
+      "change": { "relevant": false, "rationale": "no CHANGE.md" }
+    },
+    "iteration 1:cf:code-review#1": { "fixed": 0, "deferred": 0, "notes": "clean", "blocking": false },
+    "iteration 1:cf:ai-slop#1": { "fixed": 0, "deferred": 0, "notes": "clean", "blocking": false },
+    "iteration 1:cf:refactor#1": { "fixed": 0, "deferred": 0, "notes": "clean", "blocking": false },
+    "iteration 1#1": { "wouldApprove": true, "rationale": "looks good" },
+    "Predict CI#1": {
+      "green": true,
+      "jobs": [ { "name": "test", "command": "rake test", "passed": true, "evidence": "0 failures" } ]
+    }
+  }
+}

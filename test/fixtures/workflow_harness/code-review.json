@@ -1,0 +1,18 @@
+{
+  "args": {
+    "files": [ "a.js", "b.js" ],
+    "repoPath": "/tmp/repo",
+    "headSha": "deadbeef",
+    "shardThreshold": 1,
+    "rubricThreshold": 1,
+    "cap": 15
+  },
+  "results": {
+    "Shard#1": { "shards": [ { "name": "core", "rationale": "single area", "files": [ "a.js", "b.js" ] } ] },
+    "core:rubric#1": { "candidates": [ { "file": "a.js", "line": 10, "scenario": "null deref on a missing field", "source": "cf:javascript" } ] },
+    "core:general#1": { "candidates": [ { "file": "b.js", "line": 20, "scenario": "off-by-one skips the last loop element" } ] },
+    "a.js:10#1": { "reproduced": true, "evidence": "test fails without the guard", "tier": "P1", "title": "Null deref on missing field", "suggestion": "guard with optional chaining" },
+    "b.js:20#1": { "reproduced": true, "evidence": "loop drops the last item", "tier": "P2", "title": "Off-by-one skips last item" },
+    "a.js:10#2": { "reproduced": true, "evidence": "opus independently reproduces the crash" }
+  }
+}
