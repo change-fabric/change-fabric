@@ -48,4 +48,14 @@ class FullAutoDefaultTest < Minitest::Test
       end
     end
   end
+
+  # Every workflow-file glob in a skill workflow must cover both extensions,
+  # or a .yaml-only repo reads as noCi and passes CI prediction unchecked.
+  def test_workflow_globs_cover_yml_and_yaml
+    Dir[File.join(SKILLS, "*", "reference", "*.js")].each do |path|
+      text = File.read(path)
+      next unless text.match?(%r{\.github/workflows/\S*\*\.ya?ml})
+      %w[*.yml *.yaml].each { |ext| assert_includes text, ext, path }
+    end
+  end
 end

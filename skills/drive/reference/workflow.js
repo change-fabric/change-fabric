@@ -342,8 +342,9 @@ phase("Predict CI")
 async function predictCI() {
   return agent(
     "In the repository at " + repoPath + ", read every workflow file under " +
-    ".github/workflows/*.yml. Report noCi: true only when that directory has zero workflow " +
-    "files; otherwise noCi: false, even if every job happens to pass. For each job, extract " +
+    ".github/workflows/ with either extension, both *.yml and *.yaml. Report noCi: true only " +
+    "when that directory has zero .yml and zero .yaml workflow files; otherwise noCi: false, " +
+    "even if every job happens to pass. For each job, extract " +
     "its real setup steps (dependency install, toolchain setup) and its real " +
     "test/lint/typecheck/build commands, exactly as written, not assumed from convention. Run " +
     "each job's setup then its commands locally in " + repoPath + " and report per-job pass or " +
