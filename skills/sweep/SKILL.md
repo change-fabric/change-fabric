@@ -1,6 +1,6 @@
 ---
 name: cf:sweep
-description: Sweeps a repo's open feature pull requests and plans how to land them as a group, covering merge order, trial-merged conflict mitigations, terraform and migration sequencing, and a per-contributor trust policy persisted across runs. Reports only, lands with sign-off, or runs unattended under /loop to keep a development environment current.
+description: Sweeps a repo's open feature pull requests and plans how to land them as a group, covering merge order, trial-merged conflict mitigations, terraform and migration sequencing, and a per-contributor trust policy persisted across runs. Runs unattended by default, landing only what the trust policy and the merge mode allow; report and land modes and --signoff make it more conservative, and it suits /loop for keeping a development environment current.
 ---
 
 # CF Sweep
@@ -8,7 +8,7 @@ description: Sweeps a repo's open feature pull requests and plans how to land th
 Analyze every open feature pull request in the current repo as one set, then
 land them in an order that holds up.
 
-Trigger: `/cf:sweep [report|land|auto]`.
+Trigger: `/cf:sweep [report|land|auto] [--signoff]`.
 
 Question: if these PRs merge today, in what order do they land without
 breaking trunk, stranding an author in a doomed rebase, or applying a
@@ -120,27 +120,27 @@ non-away sweep re-asks that contributor as still unknown.
 ## Run mode
 
 Orthogonal to trust: trust is "do I believe this person's code", run mode is
-"how interactive is this run". Taken from the invocation argument when given,
-so an unattended loop never blocks on a question:
+"how interactive is this run". Taken from the invocation argument when given:
 
-- `report` (the default when a bare `/cf:sweep` runs non-interactively):
-  analyze and report, merge nothing.
+- `report`: analyze and report, merge nothing.
 - `land`: report, then drive and merge the eligible queue with one sign-off
   checkpoint before the first merge.
-- `auto`: no questions at all after any trust question; drive and merge
-  whatever the trust policy and the quality bar allow. This is the loop mode.
+- `auto` (the default): no questions at all after any trust question; drive
+  and merge whatever the trust policy and the quality bar allow. This is the
+  loop mode.
 
-With no argument on an interactive run, call `AskUserQuestion` once: header
-`Sweep mode`, options **Report only** (first, recommended), **Land with
-sign-off**, **Full auto**. This mirrors `cf:drive`'s step-0 sign-off question
-and is separate from it: `cf:drive` still runs under its own Full auto when
-invoked from here, because a sweep that stopped at two checkpoints per PR
-would not be a sweep.
+`auto` is the default whenever no mode word is given, interactive or not, away
+or not. Merge mode still gates every merge: under Merge ready nothing merges
+and the sweep reports what it would have merged (see Merge mode and the change
+gate below).
 
-This interactivity check reads the away store: a session with away mode on is
-treated as non-interactive, so the question above is skipped and the run
-falls back to `report` automatically, the same as any other unattended
-invocation. No separate away-mode logic is needed here.
+`--signoff` with no mode word calls `AskUserQuestion` once: header `Sweep
+mode`, options **Report only** (first, recommended), **Land with sign-off**,
+**Full auto**. A mode word always wins over `--signoff`. A literal `full auto`
+maps to `auto`, with a one-line note that it is already the default. Under
+away mode `--signoff` is ignored and the run reports that it assumed `auto`.
+`cf:drive` still runs straight through when invoked from here, because a sweep
+that stopped at two checkpoints per PR would not be a sweep.
 
 ## Loop mode
 
@@ -187,17 +187,20 @@ of trunk after the last merge of a tick.
 7. **(SKILL.md, `land` and `auto`)** Walk `autoMergeQueue` in order. For each
    PR: post any `warnAuthor` comment first (a warning after the rebase is
    wasted), then invoke `/cf:drive quick` against the PR (the bare form is
-   thorough, which plans instead of landing), instructing it inline to run
-   in its own Full auto mode. For a `low` trust PR (`requiresStrictReview`),
-   additionally require the `cf:change` comprehensive run to have passed for
-   the head SHA before merging, not just CI green. Merge, then re-fetch trunk
-   before the next PR: the next PR's mergeability changed the moment this one
-   landed. If a merge fails or `cf:drive` cannot reach green, stop the queue,
-   report, and leave the rest for the next sweep; do not skip ahead, because
-   the order was computed as a sequence.
+   thorough, which plans instead of landing), with the inline instruction
+   `nested under cf:sweep` (cf:drive runs straight through by default; the
+   instruction makes a recurrence stop record a pointer instead of starting
+   cf:plan). For a `low` trust PR (`requiresStrictReview`), additionally
+   require the `cf:change` comprehensive run to have passed for the head SHA
+   before merging, not just CI green. Merge, then re-fetch trunk before the
+   next PR: the next PR's mergeability changed the moment this one landed. If
+   a merge fails, `cf:drive` cannot reach green, or it stops on recurrence,
+   stop the queue, report, and leave the rest for the next sweep; do not skip
+   ahead, because the order was computed as a sequence.
 8. **(SKILL.md)** After the last merge, report what landed, what is left, and
    any gate (a `terraform apply`, a breaking migration) still waiting on a
-   human.
+   human. Name any pending root-cause plan (its ctx pointer and `/cf:plan`
+   command) first in the report.
 
 ## Merge mode and the change gate
 
