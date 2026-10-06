@@ -176,7 +176,7 @@ of trunk after the last merge of a tick.
    landing order, since the Workflow would be sequencing against PRs it never
    saw. Drop mode to `report` regardless of the requested mode, say the cap
    was hit and by how many (count open PRs with `gh pr list --state open
-   --limit 100000 --json number --jq length`, since without a high `--limit`
+   --limit 9999 --json number --jq length`, since without a high `--limit`
    it stops at 30; do not re-run the fields query a second time),
    and hold every PR gathered rather than computing any order from the
    partial set [SW-6]. Fewer than 101 results is the complete list; proceed
