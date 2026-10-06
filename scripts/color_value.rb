@@ -303,20 +303,38 @@ module ColorValue
 
   # A custom property that is part of a var() dependency cycle is
   # guaranteed-invalid at computed-value time per CSS Variables, regardless
-  # of any fallback written on a var() reference inside that cycle. The
-  # fallback only rescues an undefined name, never a cyclic one, so the
-  # cycle check below runs before the fallback is ever consulted.
+  # of any fallback written on a var() reference inside that cycle, so the
+  # cycle check below runs before the fallback is ever consulted. A fallback
+  # does rescue an undefined name, and a defined name whose value computes to
+  # the guaranteed-invalid value (see guaranteed_invalid?).
   def resolve_var(v, decls, seen)
     ref = parse_var_ref(v)
     return Result.new(color: nil, reason: "unrecognized color value: #{v[0, 40]}") unless ref
 
     name, fallback = ref
     return Result.new(color: nil, reason: "var() cycle through #{name}") if seen.include?(name)
-    return resolve(decls[name], decls, seen: seen + [ name ]) if decls.key?(name)
+    if decls.key?(name)
+      result = resolve(decls[name], decls, seen: seen + [ name ])
+      return result unless fallback && result.color.nil? && guaranteed_invalid?(result.reason, seen)
+
+      return resolve(fallback, decls, seen:)
+    end
 
     return Result.new(color: nil, reason: "#{name} is not defined in this theme") unless fallback
 
     resolve(fallback, decls, seen: seen + [ name ])
+  end
+
+  # True when a failed substitution left the referenced property with the
+  # guaranteed-invalid value (an undefined name with no fallback, or a cycle
+  # the current reference is not itself part of), so the referencing var()'s
+  # own fallback applies. A cycle through a name already in seen means the
+  # referencing property is inside the cycle and stays invalid.
+  def guaranteed_invalid?(reason, seen)
+    return true if reason.to_s.end_with?(' is not defined in this theme')
+
+    m = reason.to_s.match(/\Avar\(\) cycle through (\S+)\z/)
+    !m.nil? && !seen.include?(m[1])
   end
 
   # Resolves a var() reference used as one channel/hue/alpha token inside a
@@ -333,7 +351,12 @@ module ColorValue
 
     name, fallback = ref
     return [ nil, "var() cycle through #{name}" ] if seen.include?(name)
-    return substitute_var_token(decls[name], decls, seen + [ name ]) if decls.key?(name)
+    if decls.key?(name)
+      text, reason = substitute_var_token(decls[name], decls, seen + [ name ])
+      return [ text, reason ] unless fallback && text.nil? && guaranteed_invalid?(reason, seen)
+
+      return substitute_var_token(fallback, decls, seen)
+    end
 
     return [ nil, "#{name} is not defined in this theme" ] unless fallback
 

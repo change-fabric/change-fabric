@@ -191,6 +191,37 @@ class ColorValueTest < Minitest::Test
     assert_includes reason, "--a"
   end
 
+  # A referenced property that computes to the guaranteed-invalid value lets
+  # the referencing var()'s own fallback apply, unless the referencing
+  # property is itself inside the cycle.
+  def test_var_fallback_rescues_guaranteed_invalid_reference
+    cases = {
+      "undefined" => { "--bad" => "var(--missing)" },
+      "undefined chain" => { "--bad" => "var(--worse)", "--worse" => "var(--missing)" },
+      "cycle" => { "--bad" => "var(--c2)", "--c2" => "var(--bad)" },
+      "self cycle" => { "--bad" => "var(--bad)" }
+    }
+    cases.each do |label, decls|
+      color = CV.resolve("var(--bad, #000)", decls.merge("--text" => "var(--bad, #000)"), seen: Set["--text"]).color
+      refute_nil color, label
+      assert_rgba 0, 0, 0, color
+    end
+  end
+
+  def test_var_fallback_rescues_guaranteed_invalid_channel_token
+    decls = { "--h" => "var(--missing)" }
+    assert_rgba 0, 0, 0, resolved("rgb(var(--h, 0) 0 0)", decls)
+  end
+
+  def test_var_fallback_does_not_rescue_a_non_color_value
+    assert_nil CV.resolve("var(--bad, #000)", { "--bad" => "notacolor" }).color
+  end
+
+  def test_var_inside_cycle_ignores_fallback
+    decls = { "--a" => "var(--b, #000)", "--b" => "var(--a)" }
+    assert_nil CV.resolve(decls["--a"], decls, seen: Set["--a"]).color
+  end
+
   def test_var_whole_channel_triplet_resolves_in_hsl
     decls = { "--p" => "222.2 47.4% 11.2%" }
     color = resolved("hsl(var(--p))", decls)
