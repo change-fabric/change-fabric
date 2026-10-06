@@ -24,7 +24,7 @@ module ColorCss
   AtRule = Data.define(:name, :prelude, :line, :at_rules) # block-less: @apply, @import
   Sheet = Data.define(:decls, :at_rule_stmts, :errors) # errors: [String] diagnostics, never raised
 
-  DECL_NAME = /\A(\s*)(--[\w-]+|\$[\w-]+|-?[A-Za-z][\w-]*)(\s*):(.*)\z/m.freeze
+  DECL_NAME = /\A(\s*)(--[\w-]+|\$[\w-]+|@[\w-]+|-?[A-Za-z][\w-]*)(\s*):(.*)\z/m.freeze
   AT_RULE_STMT = /\A(\s*)(@[\w-]+)(\s*)(.*)\z/m.freeze
   IMPORTANT = /\A(.*?)\s*!\s*important\s*\z/mi.freeze
 
@@ -291,6 +291,10 @@ module ColorCss
       return false unless m
 
       leading_ws, name, mid_ws, rest = m[1], m[2], m[3], m[4]
+      # "@name: value;" is only a Less variable declaration in a Less file; in
+      # plain CSS or SCSS it is the start of a block-less at-rule (@apply,
+      # @import and the like), so fall through to emit_at_rule_stmt instead.
+      return false if name.start_with?('@') && @dialect != :less
       name_line = @segment_start_line + leading_ws.count("\n")
       colon_line = name_line + mid_ws.count("\n")
       value_leading_ws = rest[/\A\s*/]

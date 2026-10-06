@@ -14,21 +14,46 @@ require_relative 'color_value'
 # not require 'color_check' and stays free of the require cycle that would
 # create.
 module ColorScan
-  # A hex literal, guarded on the left against "&" (HTML entities), a word
-  # character or "-" (so --red, &#8599; and url fragments glued to a word
-  # never match), and restricted to the four valid CSS hex lengths.
+  # A hex literal glued to a preceding word is still rejected for "&" (HTML
+  # entities such as &#8599;, never real CSS) but not for a preceding word
+  # character: in a tokenized CSS declaration value "solid#123456" is the
+  # ident "solid" followed by the hash token "#123456", two separate tokens,
+  # so HEX_CSS (used wherever the scanned text is itself a CSS value: CSS/
+  # Sass/Less declarations, and a style= attribute split into declarations)
+  # only guards against "&". HEX keeps the stricter guard (also "-" and any
+  # word character) for contexts that are not tokenized CSS: a raw fill=/
+  # stroke= attribute value and prose-adjacent text, where a hash glued to a
+  # word is far more likely to be a url() fragment or similar than a real
+  # hex color.
   HEX = /(?<![&\w-])#(?:\h{8}|\h{6}|\h{4}|\h{3})\b/.freeze
+  HEX_CSS = /(?<!&)#(?:\h{8}|\h{6}|\h{4}|\h{3})\b/.freeze
   HEX_FULL = /\A#(?:\h{8}|\h{6}|\h{4}|\h{3})\z/.freeze
   NAMED_WORD = /(?<![\w$@#.-])[A-Za-z]+(?![\w(-])/.freeze
   QUOTED_OR_URL = /"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|url\([^)]*\)/i.freeze
   COLOR_KEY = /(^|[a-z])(color|colour|background|bg|fill|stroke|border|outline|shadow)/i.freeze
+  # A CSS property name is color-bearing (a bare named-color word in its
+  # value is in scope) when the property itself is about color: "color",
+  # "background(-color)", "border(-color)", "outline(-color)", "box-shadow"/
+  # "text-shadow", "fill", "stroke", "caret-color", "accent-color" and the
+  # like. A custom property or preprocessor variable ("--x", "$x", "@x" in
+  # Less) is always in scope: it carries no non-color CSS semantics of its
+  # own. Everything else, including animation-name, grid-area, font-family
+  # and container-name (custom idents that happen to collide with a named
+  # color, such as "snow", "navy" or "Red"), is out of scope: those bare
+  # words are not color literals in that property.
+  COLOR_BEARING_PROPERTY = /(?:\A|-)(?:color|colour|background|bg|fill|stroke|border|outline|shadow)(?:\z|-)/i.freeze
   SCRIPT_COLOR_FN_FULL = /\A(?:#{ColorValue::COLOR_FN_NAMES.join('|')})\(.*\)\z/im.freeze
-  ATTR_KEYS = %w[style fill stroke].freeze
+  ATTR_NAMES = %w[style fill stroke class classname].freeze
+  BOUND_ATTR_PREFIX = /\A(?::|v-bind:)/i.freeze
   STYLE_BLOCK = /<style(?:\s+[^>]*)?>(.*?)<\/style>/mi.freeze
   SCRIPT_BLOCK = /<script(?:\s+[^>]*)?>(.*?)<\/script>/mi.freeze
-  MARKUP_ATTR = /\b(style|fill|stroke|class|className)\s*=\s*(?:"((?:[^"\\]|\\.)*)"|'((?:[^'\\]|\\.)*)')/mi.freeze
+  HTML_COMMENT = /<!--.*?-->/m.freeze
+  TAG_NAME = /[a-zA-Z][\w:-]*/.freeze
+  ATTR_NAME_TOKEN = /[:@]?[\w.:-]+/.freeze
   MDX_ATTR = /\b(?:style|fill|stroke|className|class)\s*=\s*(?:"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')/mi.freeze
   IMPORT_EXPORT_LINE = /\A[ \t]*(?:import|export)\b/.freeze
+  EXPR_CONTEXT_CHARS = /[(\[{,;:=!&|?+\-*%^~<>]/.freeze
+  EXPR_CONTEXT_KEYWORDS = %w[return typeof instanceof in of new delete void throw else do yield case].freeze
 
   module_function
 
@@ -65,7 +90,7 @@ module ColorScan
     sheet.decls.each do |decl|
       next if path == token_file && decl.name.start_with?('--')
 
-      findings.concat(value_findings(path, decl.value, decl.value_line))
+      findings.concat(value_findings(path, decl.value, decl.value_line, decl.name))
     end
     sheet.at_rule_stmts.each do |stmt|
       stmt.prelude.scan(ColorCheck::TAILWIND) do
@@ -75,18 +100,28 @@ module ColorScan
     findings
   end
 
+  def color_bearing_property?(name)
+    return true if name.start_with?('--', '$', '@')
+
+    name.match?(COLOR_BEARING_PROPERTY)
+  end
+
   # Scans one declaration value line by line (so a multiline value keeps
   # correct line numbers): url() spans and quoted strings are blanked out
   # first, then the blanked text is scanned for hex, color functions,
-  # gradients and bare named-color words.
-  def value_findings(file, value, value_line)
+  # gradients and, only when property_name is color-bearing, bare
+  # named-color words.
+  def value_findings(file, value, value_line, property_name)
     findings = []
+    color_bearing = color_bearing_property?(property_name)
     value.each_line.with_index do |line, idx|
       lineno = value_line + idx
       blanked = blank_quoted_and_urls(line)
-      blanked.scan(HEX) { findings << finding(file, lineno, 'literal', line) }
+      blanked.scan(HEX_CSS) { findings << finding(file, lineno, 'literal', line) }
       blanked.scan(ColorCheck::COLOR_FN) { findings << finding(file, lineno, 'literal', line) }
       blanked.scan(ColorCheck::GRADIENT) { findings << finding(file, lineno, 'gradient', line) }
+      next unless color_bearing
+
       named_color_words(blanked).each { findings << finding(file, lineno, 'literal', line) }
     end
     findings
@@ -111,7 +146,7 @@ module ColorScan
       next unless m
       next if path == token_file && m[1].start_with?('--')
 
-      findings.concat(value_findings(path, m[2], lineno))
+      findings.concat(value_findings(path, m[2], lineno, m[1]))
     end
     findings
   end
@@ -120,17 +155,21 @@ module ColorScan
 
   def markup_file_findings(path, text, token_file)
     findings = []
-    remainder = +text.dup
+    # HTML comments are blanked first (newlines kept), so commented-out
+    # markup is never mistaken for a live tag: this is the markup
+    # counterpart of CSS comments never counting.
+    working = text.gsub(HTML_COMMENT) { |m| m.gsub(/[^\n]/, ' ') }
+    remainder = +working.dup
 
-    text.to_enum(:scan, STYLE_BLOCK).each do
+    working.to_enum(:scan, STYLE_BLOCK).each do
       m = Regexp.last_match
-      findings.concat(style_block_findings(path, text, token_file, m))
+      findings.concat(style_block_findings(path, working, token_file, m))
       blank_range!(remainder, m.begin(0), m.end(0))
     end
 
-    text.to_enum(:scan, SCRIPT_BLOCK).each do
+    working.to_enum(:scan, SCRIPT_BLOCK).each do
       m = Regexp.last_match
-      line_offset = text[0...m.begin(1)].count("\n")
+      line_offset = working[0...m.begin(1)].count("\n")
       findings.concat(script_findings(path, m[1], line_offset: line_offset))
       blank_range!(remainder, m.begin(0), m.end(0))
     end
@@ -152,38 +191,150 @@ module ColorScan
     str[from...to] = str[from...to].gsub(/[^\n]/, ' ')
   end
 
+  # A small tag/attribute lexer: scans only real tag attributes, never text
+  # nodes (decision 2). Walks literal "<" characters, skips closing tags
+  # ("</..."), doctypes and processing instructions ("<!...", "<?..."), and
+  # for every other tag reads its attribute list up to the tag's own
+  # closing ">", honoring quoted values, unquoted values (valid HTML) and
+  # Svelte's "{expr}" value form.
   def markup_attr_findings(path, text)
     findings = []
-    text.to_enum(:scan, MARKUP_ATTR).each do
-      m = Regexp.last_match
-      attr = m[1].downcase
-      value = m[2] || m[3]
-      line = text[0...m.begin(0)].count("\n") + 1
-      findings.concat(markup_attr_value_findings(path, line, attr, value))
+    each_tag_attr(text) do |raw_name, value, value_start, curly|
+      next if value.nil?
+
+      bound = curly || BOUND_ATTR_PREFIX.match?(raw_name)
+      base_name = raw_name.sub(BOUND_ATTR_PREFIX, '')
+      attr = base_name.downcase
+      next unless ATTR_NAMES.include?(attr)
+
+      line_offset = text[0...value_start].count("\n")
+      if bound
+        # A Vue/Svelte bound attribute's value is a JS expression, not a
+        # literal: scan it with the script lexer so a bare identifier
+        # ("red") is never a finding but a real quoted color string still is.
+        findings.concat(script_findings(path, value, line_offset: line_offset))
+      else
+        findings.concat(markup_attr_value_findings(path, value, line_offset, attr))
+      end
     end
     findings
   end
 
-  def markup_attr_value_findings(path, line, attr, value)
+  def each_tag_attr(text)
+    i = 0
+    len = text.length
+    while i < len
+      lt = text.index('<', i)
+      break unless lt
+
+      nxt = text[lt + 1]
+      if nxt.nil? || nxt == '/' || nxt == '!' || nxt == '?'
+        i = lt + 1
+        next
+      end
+
+      name_match = TAG_NAME.match(text, lt + 1)
+      unless name_match && name_match.begin(0) == lt + 1
+        i = lt + 1
+        next
+      end
+
+      i = scan_tag_attrs(text, name_match.end(0), len) { |n, v, vs, curly| yield(n, v, vs, curly) }
+    end
+  end
+
+  # Scans one tag's attribute list starting just after its name, up to the
+  # tag's own closing ">" (respecting quotes and Svelte-style "{...}"
+  # values), yielding [name, raw_value, value_start_index, curly] for each
+  # attribute that has a value (curly is true for a Svelte-style "{...}"
+  # value, which is always a JS expression). Returns the index just past the
+  # ">".
+  def scan_tag_attrs(text, idx, len)
+    i = idx
+    while i < len
+      c = text[i]
+      if c == '>'
+        return i + 1
+      elsif c =~ /\s/ || c == '/'
+        i += 1
+      else
+        i = scan_one_tag_attr(text, i, len) { |n, v, vs, curly| yield(n, v, vs, curly) }
+      end
+    end
+    i
+  end
+
+  def scan_one_tag_attr(text, i, len)
+    name_match = ATTR_NAME_TOKEN.match(text, i)
+    return i + 1 unless name_match && name_match.begin(0) == i
+
+    name = name_match[0]
+    j = name_match.end(0)
+    j += 1 while j < len && text[j] =~ /[ \t\r\n]/
+    unless j < len && text[j] == '='
+      yield(name, nil, nil, false)
+      return name_match.end(0)
+    end
+
+    j += 1
+    j += 1 while j < len && text[j] =~ /[ \t\r\n]/
+    scan_tag_attr_value(text, name, j, len) { |n, v, vs, curly| yield(n, v, vs, curly) }
+  end
+
+  def scan_tag_attr_value(text, name, j, len)
+    if j < len && (text[j] == '"' || text[j] == "'")
+      quote = text[j]
+      vstart = j + 1
+      close = text.index(quote, vstart) || len
+      yield(name, text[vstart...close], vstart, false)
+      close + 1
+    elsif j < len && text[j] == '{'
+      depth = 1
+      k = j + 1
+      while k < len && depth.positive?
+        depth += 1 if text[k] == '{'
+        depth -= 1 if text[k] == '}'
+        k += 1
+      end
+      vstart = j + 1
+      yield(name, text[vstart...(k - 1)], vstart, true)
+      k
+    else
+      vstart = j
+      k = j
+      k += 1 while k < len && text[k] !~ %r{[\s>/]}
+      yield(name, text[vstart...k], vstart, false)
+      k
+    end
+  end
+
+  def markup_attr_value_findings(path, value, line_offset, attr)
     case attr
     when 'style'
-      value.split(';').flat_map do |decl|
-        _prop, _sep, val = decl.partition(':')
-        val.empty? ? [] : attr_value_findings(path, line, val, named_whole_only: false)
-      end
+      style_attr_findings(path, value, line_offset)
     when 'fill', 'stroke'
-      attr_value_findings(path, line, value, named_whole_only: true)
+      attr_value_findings(path, line_offset + 1, value, named_whole_only: true)
     when 'class', 'classname'
-      value.scan(ColorCheck::TAILWIND).map { finding(path, line, 'tailwind', value) }
+      value.scan(ColorCheck::TAILWIND).map { finding(path, line_offset + 1, 'tailwind', value) }
     else
       []
     end
   end
 
+  # A style= attribute's value is itself CSS: parse it with ColorCss (which
+  # keeps correct line numbers across a multiline value) and scan each
+  # declaration exactly like a stylesheet value.
+  def style_attr_findings(path, value, line_offset)
+    sheet = ColorCss.parse(value, dialect: :css, line_offset: line_offset)
+    findings = []
+    sheet.decls.each { |decl| findings.concat(value_findings(path, decl.value, decl.value_line, decl.name)) }
+    findings
+  end
+
   def attr_value_findings(path, line, value, named_whole_only:)
     findings = []
     blanked = blank_quoted_and_urls(value)
-    blanked.scan(HEX) { findings << finding(path, line, 'literal', value) }
+    blanked.scan(HEX_CSS) { findings << finding(path, line, 'literal', value) }
     blanked.scan(ColorCheck::COLOR_FN) { findings << finding(path, line, 'literal', value) }
     blanked.scan(ColorCheck::GRADIENT) { findings << finding(path, line, 'gradient', value) }
     if named_whole_only
@@ -199,32 +350,100 @@ module ColorScan
 
   # --- Script: .js .jsx .ts .tsx -------------------------------------------
 
-  # Walks text, skipping comments, collecting single/double-quoted strings
-  # and backtick templates (${...} spans skipped), and classifies each one.
-  # allowed_ranges, when given, restricts which string start positions are
-  # eligible to produce a finding at all (used by MDX to keep prose out of
-  # scope); nil scans every string (plain JS/TS/JSX/TSX files).
+  # Walks text, skipping comments and regex literals, collecting single/
+  # double-quoted strings and backtick templates (${...} spans scanned as
+  # ordinary JS, so a string literal inside an interpolation counts like any
+  # other), and recognizing JSX: a tag's attribute list is scanned like any
+  # other JS (quotes and {expr} both work as usual), but its children are
+  # JSX text, not JS, so quotes and apostrophes there are prose, never a
+  # string. allowed_ranges, when given, restricts which string start
+  # positions are eligible to produce a finding at all (used by MDX to keep
+  # prose out of scope); nil scans every string (plain JS/TS/JSX/TSX files).
   def script_findings(path, text, line_offset: 0, allowed_ranges: nil)
     findings = []
-    i = 0
-    len = text.length
+    scan_js(path, text, 0, text.length, line_offset, allowed_ranges, findings)
+    findings
+  end
+
+  # The core JS scanner. When stop_at_brace is true, it is scanning a "{...}"
+  # (or a template "${...}") whose opening brace the caller already
+  # consumed: it tracks brace depth from 1 and returns the index just past
+  # the matching close brace instead of running to the end of text.
+  def scan_js(path, text, i, len, line_offset, allowed_ranges, findings, stop_at_brace: false)
+    depth = stop_at_brace ? 1 : 0
     while i < len
-      case text[i]
+      c = text[i]
+      case c
+      when '{'
+        depth += 1 if stop_at_brace
+        i += 1
+      when '}'
+        if stop_at_brace
+          depth -= 1
+          i += 1
+          return i if depth.zero?
+        else
+          i += 1
+        end
       when '/'
-        i = skip_script_comment(text, i, len)
+        i = if text[i + 1] == '/' || text[i + 1] == '*'
+              skip_script_comment(text, i, len)
+        elsif expression_context?(text, i)
+              skip_script_regex(text, i, len)
+        else
+              i + 1
+        end
       when '"', "'"
         start = i
         content, i = scan_script_string(text, i, len)
         findings.concat(classified_string(path, text, start, content, line_offset, allowed_ranges))
       when '`'
         start = i
-        content, i = scan_script_template(text, i, len)
+        content, i = scan_script_template(path, text, i, len, line_offset, allowed_ranges, findings)
         findings.concat(classified_string(path, text, start, content, line_offset, allowed_ranges))
+      when '<'
+        i = if jsx_tag_start?(text, i)
+              scan_jsx(path, text, i, len, line_offset, allowed_ranges, findings)
+        else
+              i + 1
+        end
       else
         i += 1
       end
     end
-    findings
+    i
+  end
+
+  # True when the character context right before index i is one where a new
+  # expression (a regex literal, or a JSX element) is expected rather than a
+  # division operator or a comparison continuing a value: after an operator,
+  # punctuation that opens a new expression, or an expression keyword, or at
+  # the very start of the text.
+  def expression_context?(text, i)
+    j = i - 1
+    j -= 1 while j >= 0 && text[j] =~ /[ \t\n]/
+    return true if j.negative?
+
+    ch = text[j]
+    return true if EXPR_CONTEXT_CHARS.match?(ch)
+    return false if ch == ')' || ch == ']'
+    return false if ch == '"' || ch == "'" || ch == '`'
+
+    if ch =~ /[\w$]/
+      k = j
+      k -= 1 while k >= 0 && text[k] =~ /[\w$]/
+      word = text[(k + 1)..j]
+      return EXPR_CONTEXT_KEYWORDS.include?(word)
+    end
+
+    true
+  end
+
+  def jsx_tag_start?(text, i)
+    nxt = text[i + 1]
+    return false if nxt.nil? || !nxt.match?(/[A-Za-z>]/)
+
+    expression_context?(text, i)
   end
 
   def skip_script_comment(text, i, len)
@@ -237,6 +456,35 @@ module ColorScan
     else
       i + 1
     end
+  end
+
+  # A "/" starts a regex literal, rather than a division operator, in
+  # expression context (see expression_context?). Character classes "[...]"
+  # may contain an unescaped "/" that does not end the regex.
+  def skip_script_regex(text, i, len)
+    j = i + 1
+    in_class = false
+    while j < len
+      c = text[j]
+      if c == '\\' && j + 1 < len
+        j += 2
+      elsif c == '['
+        in_class = true
+        j += 1
+      elsif c == ']'
+        in_class = false
+        j += 1
+      elsif c == '/' && !in_class
+        j += 1
+        break
+      elsif c == "\n"
+        return j # unterminated regex; bail without consuming the newline
+      else
+        j += 1
+      end
+    end
+    j += 1 while j < len && text[j] =~ /[a-zA-Z]/
+    j
   end
 
   def scan_script_string(text, i, len)
@@ -261,7 +509,10 @@ module ColorScan
     [ content, i ]
   end
 
-  def scan_script_template(text, i, len)
+  # A "${...}" interpolation is ordinary JS, not template text: a string
+  # literal inside it is scanned (and reported) exactly like any other JS
+  # string, via the shared scan_js, rather than skipped wholesale.
+  def scan_script_template(path, text, i, len, line_offset, allowed_ranges, findings)
     content = +''
     i += 1
     while i < len
@@ -273,7 +524,7 @@ module ColorScan
         i += 1
         break
       elsif c == '$' && text[i + 1] == '{'
-        i = skip_script_interpolation(text, i + 2, len)
+        i = scan_js(path, text, i + 2, len, line_offset, allowed_ranges, findings, stop_at_brace: true)
       else
         content << c
         i += 1
@@ -282,34 +533,88 @@ module ColorScan
     [ content, i ]
   end
 
-  def skip_script_interpolation(text, i, len)
-    depth = 1
-    while i < len && depth.positive?
-      c = text[i]
+  # --- JSX ------------------------------------------------------------------
+
+  # i points to a "<" already judged to start a JSX element. Scans its
+  # opening tag (attributes behave like any other JS: quotes and {expr}
+  # values are both scanned normally), then, unless self-closing, its
+  # children as JSX text until the matching closing tag. Returns the index
+  # just past the whole element.
+  def scan_jsx(path, text, i, len, line_offset, allowed_ranges, findings)
+    self_closing, j = scan_jsx_open_tag(path, text, i, len, line_offset, allowed_ranges, findings)
+    return j if self_closing
+
+    scan_jsx_children(path, text, j, len, line_offset, allowed_ranges, findings)
+  end
+
+  def scan_jsx_open_tag(path, text, i, len, line_offset, allowed_ranges, findings)
+    j = i + 1
+    depth = 0
+    while j < len
+      c = text[j]
       case c
+      when '"', "'"
+        start = j
+        content, j = scan_script_string(text, j, len)
+        findings.concat(classified_string(path, text, start, content, line_offset, allowed_ranges))
+      when '`'
+        start = j
+        content, j = scan_script_template(path, text, j, len, line_offset, allowed_ranges, findings)
+        findings.concat(classified_string(path, text, start, content, line_offset, allowed_ranges))
       when '{'
         depth += 1
-        i += 1
+        j += 1
       when '}'
-        depth -= 1
-        i += 1
-      when '"', "'", '`'
-        i += 1
-        i += 1 while i < len && text[i] != c
-        i += 1
+        depth -= 1 if depth.positive?
+        j += 1
+      when '/'
+        return [ true, j + 2 ] if depth.zero? && text[j + 1] == '>'
+
+        j += 1
+      when '>'
+        return [ false, j + 1 ] if depth.zero?
+
+        j += 1
       else
-        i += 1
+        j += 1
       end
     end
-    i
+    [ true, j ]
   end
+
+  # JSX children: text is prose (never a string start) until "<" (a nested
+  # element, or this element's own closing tag) or "{" (an embedded JS
+  # expression, scanned like any other JS).
+  def scan_jsx_children(path, text, i, len, line_offset, allowed_ranges, findings)
+    j = i
+    while j < len
+      case text[j]
+      when '<'
+        if text[j + 1] == '/'
+          close = text.index('>', j)
+          return close ? close + 1 : len
+        elsif text[j + 1]&.match?(/[A-Za-z]/)
+          j = scan_jsx(path, text, j, len, line_offset, allowed_ranges, findings)
+        else
+          j += 1
+        end
+      when '{'
+        j = scan_js(path, text, j + 1, len, line_offset, allowed_ranges, findings, stop_at_brace: true)
+      else
+        j += 1
+      end
+    end
+    j
+  end
+
+  # --- shared string classification -----------------------------------------
 
   def classified_string(path, text, start, content, line_offset, allowed_ranges)
     return [] if allowed_ranges && allowed_ranges.none? { |r| r.cover?(start) }
 
     line = text[0...start].count("\n") + 1 + line_offset
     key = lookback_key(text, start)
-    position_a = !key.nil? && (ATTR_KEYS.include?(key) || key.match?(COLOR_KEY))
+    position_a = !key.nil? && (%w[style fill stroke].include?(key) || key.match?(COLOR_KEY))
     classify_string(path, line, content, position_a)
   end
 

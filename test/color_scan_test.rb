@@ -24,11 +24,12 @@ class ColorScanTest < Minitest::Test
     assert_equal [], findings("a.js", text)
   end
 
-  def test_template_literal_interpolation_with_nested_object_and_string
+  def test_template_literal_interpolation_nested_string_is_scanned
     text = 'const d = `${ { a: "#123456" } }`;'
-    # the interpolation is skipped wholesale, so the hex inside it is never
-    # scanned and the walk still terminates correctly (no raise, no hang).
-    assert_equal [], findings("a.js", text)
+    # a "${...}" interpolation is ordinary JS, not template text: the
+    # six-digit hex string inside it is a plain JS string and counts like
+    # any other, and the walk still terminates correctly (no raise, no hang).
+    assert_equal [ [ 1, "literal" ] ], kinds("a.js", text)
   end
 
   def test_unterminated_string_ends_at_newline_and_scan_continues

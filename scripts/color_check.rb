@@ -52,9 +52,12 @@ require_relative 'color_scan'
 #     code blocks, CSS-in-JS template literals as CSS, SCSS variables and
 #     mixins as tokens, standalone .svg files.
 module ColorCheck
-  COLOR_FN = /\b(?:rgba?|hsla?|oklch|oklab|lab|lch)\(/.freeze
+  # CSS function names are ASCII case-insensitive (RGB(...) and rgb(...) are
+  # the same function), so both are matched with /i. hwb( and color( are
+  # color functions too, per the Supported table below.
+  COLOR_FN = /\b(?:rgba?|hsla?|hwb|oklch|oklab|lab|lch|color)\(/i.freeze
   TAILWIND = /\b(?:bg|text|border|ring|from|to|via|fill|stroke|outline|divide|shadow)-(?:slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-\d{2,3}\b/.freeze
-  GRADIENT = /\b(?:linear|radial|conic|repeating-linear|repeating-radial)-gradient\(/.freeze
+  GRADIENT = /\b(?:linear|radial|conic|repeating-linear|repeating-radial)-gradient\(/i.freeze
   SKIP_DIRS = %w[node_modules dist build vendor .git coverage .next out].freeze
   SCAN_EXTS = %w[css scss sass less html js jsx ts tsx vue svelte astro mdx].freeze
   CSS_EXTS = %w[css scss less].freeze
