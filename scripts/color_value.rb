@@ -1,0 +1,524 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+require 'set'
+require_relative 'color_css'
+
+# Parses and resolves a single CSS declaration value to an opaque or
+# translucent sRGB color, or a reason the checker declined to resolve it.
+# Stdlib only; no CSS parser dependency beyond ColorCss.
+module ColorValue
+  # r, g, b integers 0..255. a float 0..1.
+  Rgba = Data.define(:r, :g, :b, :a)
+  # Exactly one of color/reason is non-nil.
+  Result = Data.define(:color, :reason)
+
+  WHITE = Rgba.new(r: 255, g: 255, b: 255, a: 1.0)
+
+  # The 148 CSS named colors (CSS Color Module Level 4), lowercase keys.
+  # `transparent` is a separate keyword, handled outside this table.
+  NAMED = {
+    'aliceblue' => [ 240, 248, 255 ],
+    'antiquewhite' => [ 250, 235, 215 ],
+    'aqua' => [ 0, 255, 255 ],
+    'aquamarine' => [ 127, 255, 212 ],
+    'azure' => [ 240, 255, 255 ],
+    'beige' => [ 245, 245, 220 ],
+    'bisque' => [ 255, 228, 196 ],
+    'black' => [ 0, 0, 0 ],
+    'blanchedalmond' => [ 255, 235, 205 ],
+    'blue' => [ 0, 0, 255 ],
+    'blueviolet' => [ 138, 43, 226 ],
+    'brown' => [ 165, 42, 42 ],
+    'burlywood' => [ 222, 184, 135 ],
+    'cadetblue' => [ 95, 158, 160 ],
+    'chartreuse' => [ 127, 255, 0 ],
+    'chocolate' => [ 210, 105, 30 ],
+    'coral' => [ 255, 127, 80 ],
+    'cornflowerblue' => [ 100, 149, 237 ],
+    'cornsilk' => [ 255, 248, 220 ],
+    'crimson' => [ 220, 20, 60 ],
+    'cyan' => [ 0, 255, 255 ],
+    'darkblue' => [ 0, 0, 139 ],
+    'darkcyan' => [ 0, 139, 139 ],
+    'darkgoldenrod' => [ 184, 134, 11 ],
+    'darkgray' => [ 169, 169, 169 ],
+    'darkgreen' => [ 0, 100, 0 ],
+    'darkgrey' => [ 169, 169, 169 ],
+    'darkkhaki' => [ 189, 183, 107 ],
+    'darkmagenta' => [ 139, 0, 139 ],
+    'darkolivegreen' => [ 85, 107, 47 ],
+    'darkorange' => [ 255, 140, 0 ],
+    'darkorchid' => [ 153, 50, 204 ],
+    'darkred' => [ 139, 0, 0 ],
+    'darksalmon' => [ 233, 150, 122 ],
+    'darkseagreen' => [ 143, 188, 143 ],
+    'darkslateblue' => [ 72, 61, 139 ],
+    'darkslategray' => [ 47, 79, 79 ],
+    'darkslategrey' => [ 47, 79, 79 ],
+    'darkturquoise' => [ 0, 206, 209 ],
+    'darkviolet' => [ 148, 0, 211 ],
+    'deeppink' => [ 255, 20, 147 ],
+    'deepskyblue' => [ 0, 191, 255 ],
+    'dimgray' => [ 105, 105, 105 ],
+    'dimgrey' => [ 105, 105, 105 ],
+    'dodgerblue' => [ 30, 144, 255 ],
+    'firebrick' => [ 178, 34, 34 ],
+    'floralwhite' => [ 255, 250, 240 ],
+    'forestgreen' => [ 34, 139, 34 ],
+    'fuchsia' => [ 255, 0, 255 ],
+    'gainsboro' => [ 220, 220, 220 ],
+    'ghostwhite' => [ 248, 248, 255 ],
+    'gold' => [ 255, 215, 0 ],
+    'goldenrod' => [ 218, 165, 32 ],
+    'gray' => [ 128, 128, 128 ],
+    'grey' => [ 128, 128, 128 ],
+    'green' => [ 0, 128, 0 ],
+    'greenyellow' => [ 173, 255, 47 ],
+    'honeydew' => [ 240, 255, 240 ],
+    'hotpink' => [ 255, 105, 180 ],
+    'indianred' => [ 205, 92, 92 ],
+    'indigo' => [ 75, 0, 130 ],
+    'ivory' => [ 255, 255, 240 ],
+    'khaki' => [ 240, 230, 140 ],
+    'lavender' => [ 230, 230, 250 ],
+    'lavenderblush' => [ 255, 240, 245 ],
+    'lawngreen' => [ 124, 252, 0 ],
+    'lemonchiffon' => [ 255, 250, 205 ],
+    'lightblue' => [ 173, 216, 230 ],
+    'lightcoral' => [ 240, 128, 128 ],
+    'lightcyan' => [ 224, 255, 255 ],
+    'lightgoldenrodyellow' => [ 250, 250, 210 ],
+    'lightgray' => [ 211, 211, 211 ],
+    'lightgreen' => [ 144, 238, 144 ],
+    'lightgrey' => [ 211, 211, 211 ],
+    'lightpink' => [ 255, 182, 193 ],
+    'lightsalmon' => [ 255, 160, 122 ],
+    'lightseagreen' => [ 32, 178, 170 ],
+    'lightskyblue' => [ 135, 206, 250 ],
+    'lightslategray' => [ 119, 136, 153 ],
+    'lightslategrey' => [ 119, 136, 153 ],
+    'lightsteelblue' => [ 176, 196, 222 ],
+    'lightyellow' => [ 255, 255, 224 ],
+    'lime' => [ 0, 255, 0 ],
+    'limegreen' => [ 50, 205, 50 ],
+    'linen' => [ 250, 240, 230 ],
+    'magenta' => [ 255, 0, 255 ],
+    'maroon' => [ 128, 0, 0 ],
+    'mediumaquamarine' => [ 102, 205, 170 ],
+    'mediumblue' => [ 0, 0, 205 ],
+    'mediumorchid' => [ 186, 85, 211 ],
+    'mediumpurple' => [ 147, 112, 219 ],
+    'mediumseagreen' => [ 60, 179, 113 ],
+    'mediumslateblue' => [ 123, 104, 238 ],
+    'mediumspringgreen' => [ 0, 250, 154 ],
+    'mediumturquoise' => [ 72, 209, 204 ],
+    'mediumvioletred' => [ 199, 21, 133 ],
+    'midnightblue' => [ 25, 25, 112 ],
+    'mintcream' => [ 245, 255, 250 ],
+    'mistyrose' => [ 255, 228, 225 ],
+    'moccasin' => [ 255, 228, 181 ],
+    'navajowhite' => [ 255, 222, 173 ],
+    'navy' => [ 0, 0, 128 ],
+    'oldlace' => [ 253, 245, 230 ],
+    'olive' => [ 128, 128, 0 ],
+    'olivedrab' => [ 107, 142, 35 ],
+    'orange' => [ 255, 165, 0 ],
+    'orangered' => [ 255, 69, 0 ],
+    'orchid' => [ 218, 112, 214 ],
+    'palegoldenrod' => [ 238, 232, 170 ],
+    'palegreen' => [ 152, 251, 152 ],
+    'paleturquoise' => [ 175, 238, 238 ],
+    'palevioletred' => [ 219, 112, 147 ],
+    'papayawhip' => [ 255, 239, 213 ],
+    'peachpuff' => [ 255, 218, 185 ],
+    'peru' => [ 205, 133, 63 ],
+    'pink' => [ 255, 192, 203 ],
+    'plum' => [ 221, 160, 221 ],
+    'powderblue' => [ 176, 224, 230 ],
+    'purple' => [ 128, 0, 128 ],
+    'rebeccapurple' => [ 102, 51, 153 ],
+    'red' => [ 255, 0, 0 ],
+    'rosybrown' => [ 188, 143, 143 ],
+    'royalblue' => [ 65, 105, 225 ],
+    'saddlebrown' => [ 139, 69, 19 ],
+    'salmon' => [ 250, 128, 114 ],
+    'sandybrown' => [ 244, 164, 96 ],
+    'seagreen' => [ 46, 139, 87 ],
+    'seashell' => [ 255, 245, 238 ],
+    'sienna' => [ 160, 82, 45 ],
+    'silver' => [ 192, 192, 192 ],
+    'skyblue' => [ 135, 206, 235 ],
+    'slateblue' => [ 106, 90, 205 ],
+    'slategray' => [ 112, 128, 144 ],
+    'slategrey' => [ 112, 128, 144 ],
+    'snow' => [ 255, 250, 250 ],
+    'springgreen' => [ 0, 255, 127 ],
+    'steelblue' => [ 70, 130, 180 ],
+    'tan' => [ 210, 180, 140 ],
+    'teal' => [ 0, 128, 128 ],
+    'thistle' => [ 216, 191, 216 ],
+    'tomato' => [ 255, 99, 71 ],
+    'turquoise' => [ 64, 224, 208 ],
+    'violet' => [ 238, 130, 238 ],
+    'wheat' => [ 245, 222, 179 ],
+    'white' => [ 255, 255, 255 ],
+    'whitesmoke' => [ 245, 245, 245 ],
+    'yellow' => [ 255, 255, 0 ],
+    'yellowgreen' => [ 154, 205, 50 ]
+  }.freeze
+
+  COLOR_FN_NAMES = %w[rgb rgba hsl hsla hwb oklch oklab lab lch color].freeze
+  UNRESOLVED_FN_NAMES = %w[oklch oklab lab lch hwb color].freeze
+  CASCADE_KEYWORDS = %w[inherit initial unset revert revert-layer].freeze
+
+  module_function
+
+  # Resolves one declaration value to a Result. decls is a Hash of
+  # name => raw value text (custom properties visible in this context).
+  # seen tracks custom property names already being resolved, to catch
+  # var() cycles.
+  def resolve(value, decls, seen: Set.new)
+    v = value.to_s.strip
+    return Result.new(color: nil, reason: 'unrecognized color value: ') if v.empty?
+
+    return hex_result(v) if v.match?(/\A#(?:\h{8}|\h{6}|\h{4}|\h{3})\z/)
+
+    if (m = v.match(/\Argba?\((.*)\)\z/im))
+      return parse_rgb_function(m[1])
+    end
+
+    if (m = v.match(/\Ahsla?\((.*)\)\z/im))
+      return parse_hsl_function(m[1])
+    end
+
+    return Result.new(color: Rgba.new(r: 0, g: 0, b: 0, a: 0.0), reason: nil) if v.match?(/\Atransparent\z/i)
+
+    if v.match?(/\A[A-Za-z]+\z/) && NAMED.key?(v.downcase)
+      rgb = NAMED[v.downcase]
+      return Result.new(color: Rgba.new(r: rgb[0], g: rgb[1], b: rgb[2], a: 1.0), reason: nil)
+    end
+
+    return resolve_var(v, decls, seen) if v.match?(/\Avar\(/i)
+
+    if (m = v.match(/\Acolor-mix\(\s*in\s+([\w-]+)\s*,\s*(.*)\)\z/im))
+      return resolve_color_mix(m[1], m[2], decls, seen)
+    end
+
+    return Result.new(color: nil, reason: 'currentColor depends on the element') if v.match?(/\AcurrentColor\z/i)
+    return Result.new(color: nil, reason: 'light-dark() is not supported') if v.match?(/\Alight-dark\(/i)
+
+    if (m = v.match(/\A(#{UNRESOLVED_FN_NAMES.join('|')})\(/i))
+      fn = m[1].downcase
+      return Result.new(color: nil, reason: "#{fn}() is not resolved by this checker")
+    end
+
+    if (m = v.match(/\A(#{CASCADE_KEYWORDS.join('|')})\z/i))
+      kw = m[1].downcase
+      return Result.new(color: nil, reason: "#{kw} depends on the cascade")
+    end
+
+    Result.new(color: nil, reason: "unrecognized color value: #{v[0, 40]}")
+  end
+
+  # True when value is one hex color, one named color other than
+  # transparent and currentcolor, or one color function call whose
+  # arguments contain no var(.
+  def literal?(value)
+    v = value.to_s.strip
+    return false if v.empty?
+    return true if v.match?(/\A#(?:\h{8}|\h{6}|\h{4}|\h{3})\z/)
+
+    if (m = v.match(/\A([A-Za-z]+)\((.*)\)\z/m))
+      fn = m[1].downcase
+      return false unless COLOR_FN_NAMES.include?(fn)
+
+      return !m[2].downcase.include?('var(')
+    end
+
+    return false unless v.match?(/\A[A-Za-z]+\z/)
+
+    name = v.downcase
+    return false if name == 'transparent' || name == 'currentcolor'
+
+    NAMED.key?(name)
+  end
+
+  # Composites a possibly translucent color over an opaque background,
+  # rounding channels exactly like today's mix_hex(color, bg, alpha * 100).
+  def flatten(rgba, over:)
+    f = rgba.a
+    r = (rgba.r * f + over.r * (1 - f)).round.clamp(0, 255)
+    g = (rgba.g * f + over.g * (1 - f)).round.clamp(0, 255)
+    b = (rgba.b * f + over.b * (1 - f)).round.clamp(0, 255)
+    Rgba.new(r:, g:, b:, a: 1.0)
+  end
+
+  def to_hex(rgba)
+    format('#%02x%02x%02x', rgba.r, rgba.g, rgba.b)
+  end
+
+  def contrast_ratio(a, b)
+    la = relative_luminance(a)
+    lb = relative_luminance(b)
+    lighter = [ la, lb ].max
+    darker = [ la, lb ].min
+    (lighter + 0.05) / (darker + 0.05)
+  end
+
+  def relative_luminance(rgba)
+    r, g, b = [ rgba.r, rgba.g, rgba.b ].map { |c| c / 255.0 }
+    rl, gl, bl = [ r, g, b ].map { |c| c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055)**2.4 }
+    (0.2126 * rl) + (0.7152 * gl) + (0.0722 * bl)
+  end
+
+  # --- internal helpers below; still module_function so they are testable
+  # as ColorValue.foo, but not part of the documented public API. ---
+
+  def hex_result(v)
+    h = v.delete_prefix('#')
+    h = h.chars.map { |c| c * 2 }.join if h.length == 3 || h.length == 4
+    r = h[0, 2].to_i(16)
+    g = h[2, 2].to_i(16)
+    b = h[4, 2].to_i(16)
+    a = h.length == 8 ? (h[6, 2].to_i(16) / 255.0) : 1.0
+    Result.new(color: Rgba.new(r:, g:, b:, a:), reason: nil)
+  end
+
+  def resolve_var(v, decls, seen)
+    m = v.match(/\Avar\(\s*(.*)\)\z/im)
+    return Result.new(color: nil, reason: "unrecognized color value: #{v[0, 40]}") unless m
+
+    parts = ColorCss.split_top_level(m[1])
+    name = parts[0]&.strip
+    fallback = parts.size > 1 ? parts[1..].join(',').strip : nil
+    fallback = nil if fallback && fallback.empty?
+
+    return Result.new(color: nil, reason: "unrecognized color value: #{v[0, 40]}") if name.nil? || name.empty?
+
+    if decls.key?(name)
+      if seen.include?(name)
+        return fallback ? resolve(fallback, decls, seen:) : Result.new(color: nil, reason: "var() cycle through #{name}")
+      end
+      return resolve(decls[name], decls, seen: seen + [ name ])
+    end
+
+    return Result.new(color: nil, reason: "#{name} is not defined in this theme") unless fallback
+
+    resolve(fallback, decls, seen: seen + [ name ])
+  end
+
+  def resolve_color_mix(space, args, decls, seen)
+    return Result.new(color: nil, reason: "color-mix in #{space.downcase} is not supported") unless space.downcase == 'srgb'
+
+    parts = ColorCss.split_top_level(args)
+    return Result.new(color: nil, reason: "unrecognized color value: #{args.to_s[0, 40]}") unless parts.size == 2
+
+    comp_a = parse_mix_component(parts[0])
+    comp_b = parse_mix_component(parts[1])
+
+    result_a = resolve(comp_a[:color], decls, seen:)
+    return result_a if result_a.color.nil?
+
+    result_b = resolve(comp_b[:color], decls, seen:)
+    return result_b if result_b.color.nil?
+
+    pa, pb = normalize_mix_percentages(comp_a[:pct], comp_b[:pct])
+    return Result.new(color: nil, reason: 'color-mix percentages sum to zero') unless pa
+
+    sum = pa + pb
+    scale = 100.0 / sum
+    pa_scaled = pa * scale
+    pb_scaled = pb * scale
+    alpha_mult = sum < 100 ? sum / 100.0 : 1.0
+
+    Result.new(color: mix_colors(result_a.color, pa_scaled, result_b.color, pb_scaled, alpha_mult), reason: nil)
+  end
+
+  def normalize_mix_percentages(pa, pb)
+    if pa.nil? && pb.nil?
+      pa = 50.0
+      pb = 50.0
+    elsif pa.nil?
+      pa = 100.0 - pb
+    elsif pb.nil?
+      pb = 100.0 - pa
+    end
+
+    return [ nil, nil ] if (pa + pb).abs < 1e-9
+
+    [ pa, pb ]
+  end
+
+  def mix_colors(ca, pa, cb, pb, alpha_mult)
+    fa = pa / 100.0
+    fb = pb / 100.0
+    a = (ca.a * fa) + (cb.a * fb)
+    if a > 0
+      r = ((ca.r * ca.a * fa) + (cb.r * cb.a * fb)) / a
+      g = ((ca.g * ca.a * fa) + (cb.g * cb.a * fb)) / a
+      b = ((ca.b * ca.a * fa) + (cb.b * cb.a * fb)) / a
+    else
+      r = g = b = 0.0
+    end
+    Rgba.new(
+      r: r.round.clamp(0, 255), g: g.round.clamp(0, 255), b: b.round.clamp(0, 255),
+      a: (a * alpha_mult).clamp(0.0, 1.0)
+    )
+  end
+
+  def parse_mix_component(str)
+    tokens = split_ws_top_level(str.strip)
+    pct_idx = tokens.index { |t| t.match?(/\A[\d.]+%\z/) }
+    if pct_idx
+      pct = tokens[pct_idx][0..-2].to_f
+      color_tokens = tokens.each_with_index.reject { |_, i| i == pct_idx }.map(&:first)
+    else
+      pct = nil
+      color_tokens = tokens
+    end
+    { color: color_tokens.join(' '), pct: }
+  end
+
+  def unsupported_form(args)
+    return Result.new(color: nil, reason: 'relative color syntax is not supported') if args.lstrip.match?(/\Afrom\s/i)
+    return Result.new(color: nil, reason: 'calc() is not supported') if args.match?(/calc\(/i)
+
+    nil
+  end
+
+  def extract_channels_and_alpha(args)
+    main, slash, alpha_part = args.partition('/')
+    if slash.empty?
+      parts = ColorCss.split_top_level(args)
+      parts = parts.size > 1 ? parts : args.strip.split(/\s+/)
+      parts = parts.map(&:strip).reject(&:empty?)
+      return [ parts[0, 3], parts[3] ] if parts.size == 4
+
+      [ parts, nil ]
+    else
+      channel_str = main.strip
+      parts = ColorCss.split_top_level(channel_str)
+      parts = parts.size > 1 ? parts : channel_str.split(/\s+/)
+      parts = parts.map(&:strip).reject(&:empty?)
+      [ parts, alpha_part.strip ]
+    end
+  end
+
+  def none_token?(tokens)
+    tokens.compact.any? { |t| t.match?(/\Anone\z/i) }
+  end
+
+  def parse_rgb_function(args)
+    unsupported = unsupported_form(args)
+    return unsupported if unsupported
+
+    channels, alpha_tok = extract_channels_and_alpha(args)
+    return Result.new(color: nil, reason: "unrecognized color value: #{args[0, 40]}") unless channels.size == 3
+    return Result.new(color: nil, reason: 'none channel is not supported') if none_token?(channels + [ alpha_tok ])
+
+    r = parse_channel(channels[0])
+    g = parse_channel(channels[1])
+    b = parse_channel(channels[2])
+    a = alpha_tok ? parse_alpha(alpha_tok) : 1.0
+    Result.new(color: Rgba.new(r:, g:, b:, a:), reason: nil)
+  end
+
+  def parse_hsl_function(args)
+    unsupported = unsupported_form(args)
+    return unsupported if unsupported
+
+    channels, alpha_tok = extract_channels_and_alpha(args)
+    return Result.new(color: nil, reason: "unrecognized color value: #{args[0, 40]}") unless channels.size == 3
+    return Result.new(color: nil, reason: 'none channel is not supported') if none_token?(channels + [ alpha_tok ])
+
+    h = parse_hue(channels[0])
+    s = parse_percent_fraction(channels[1])
+    l = parse_percent_fraction(channels[2])
+    a = alpha_tok ? parse_alpha(alpha_tok) : 1.0
+
+    r, g, b = hsl_to_rgb(h, s, l)
+    Result.new(color: Rgba.new(r:, g:, b:, a:), reason: nil)
+  end
+
+  def parse_hue(token)
+    t = token.strip
+    if (m = t.match(/\A([+-]?[\d.]+)deg\z/i))
+      m[1].to_f
+    else
+      t.to_f
+    end
+  end
+
+  def parse_percent_fraction(token)
+    t = token.strip
+    n = t.end_with?('%') ? t[0..-2].to_f : t.to_f
+    (n / 100.0).clamp(0.0, 1.0)
+  end
+
+  def parse_channel(token)
+    t = token.strip
+    n = t.end_with?('%') ? (t[0..-2].to_f / 100.0 * 255.0) : t.to_f
+    n.round.clamp(0, 255)
+  end
+
+  def parse_alpha(token)
+    t = token.strip
+    n = t.end_with?('%') ? (t[0..-2].to_f / 100.0) : t.to_f
+    n.clamp(0.0, 1.0)
+  end
+
+  def hsl_to_rgb(h, s, l)
+    hue = h % 360
+    sat = s.clamp(0.0, 1.0)
+    lum = l.clamp(0.0, 1.0)
+    c = (1 - ((2 * lum) - 1).abs) * sat
+    x = c * (1 - (((hue / 60.0) % 2) - 1).abs)
+    m = lum - (c / 2)
+    r1, g1, b1 =
+      case hue
+      when 0...60 then [ c, x, 0 ]
+      when 60...120 then [ x, c, 0 ]
+      when 120...180 then [ 0, c, x ]
+      when 180...240 then [ 0, x, c ]
+      when 240...300 then [ x, 0, c ]
+      else [ c, 0, x ]
+      end
+    [ ((r1 + m) * 255).round.clamp(0, 255), ((g1 + m) * 255).round.clamp(0, 255), ((b1 + m) * 255).round.clamp(0, 255) ]
+  end
+
+  # Splits str on top-level whitespace, respecting nested parentheses and
+  # quoted strings (used for color-mix component parsing: "<color> <pct>").
+  def split_ws_top_level(str)
+    out = []
+    cur = +''
+    depth = 0
+    in_string = nil
+    prev = nil
+    str.each_char do |c|
+      if in_string
+        cur << c
+        in_string = nil if c == in_string && prev != '\\'
+      elsif c == '"' || c == "'"
+        in_string = c
+        cur << c
+      elsif c == '('
+        depth += 1
+        cur << c
+      elsif c == ')'
+        depth -= 1
+        cur << c
+      elsif c.match?(/\s/) && depth.zero?
+        unless cur.empty?
+          out << cur
+          cur = +''
+        end
+      else
+        cur << c
+      end
+      prev = c
+    end
+    out << cur unless cur.empty?
+    out
+  end
+end
