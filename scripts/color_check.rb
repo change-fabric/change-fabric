@@ -4,6 +4,9 @@
 require 'json'
 require 'find'
 require 'set'
+require_relative 'color_css'
+require_relative 'color_value'
+require_relative 'color_themes'
 
 # Advisory checker for the cf:color minimal color system. Reports a repo's
 # authored palette, stray color literals, Tailwind palette classes and
@@ -11,6 +14,14 @@ require 'set'
 # raises on a bad file; every check runs and reports rather than failing
 # fast. Exits 0 by default; --strict is the only way to get a non-zero exit,
 # so the checker can be run freely without blocking anything.
+#
+# Supported / reported-as-unsupported (full table in skills/color/SKILL.md):
+# theme contexts recognized: :root/html base, [data-theme=X] or .X on
+# :root/html (with optional :not(...)), a bare .X or [data-theme=X] whose
+# block is custom-property-only, @media (prefers-color-scheme: light|dark),
+# @layer. Anything else (other @media/@supports/@container/@scope, SCSS
+# nesting, conflicting markers, an ordinary rule carrying a text-role token)
+# is reported as an unsupported context with a reason, never guessed.
 module ColorCheck
   COLOR_FN = /\b(?:rgba?|hsla?|oklch|oklab|lab|lch)\(/.freeze
   LITERAL = /(?<!&)#\h{3,8}\b|#{COLOR_FN}/.freeze
@@ -18,20 +29,23 @@ module ColorCheck
   GRADIENT = /\b(?:linear|radial|conic|repeating-linear|repeating-radial)-gradient\(/.freeze
   SKIP_DIRS = %w[node_modules dist build vendor .git coverage .next out].freeze
   SCAN_EXTS = %w[css scss sass less html js jsx ts tsx vue svelte astro mdx].freeze
+  CSS_EXTS = %w[css scss less].freeze
+  MARKUP_STYLE_EXTS = %w[html vue svelte astro].freeze
   ERROR_TOKEN = '--error'
   TARGET = 4
 
-  TOKEN_DECL = /(--[\w-]+)\s*:\s*([^;}]+)(?:;|(?=\}))/.freeze
-  THEME_BLOCK = /:root(?:\[data-theme=["'][\w-]+["']\]|:not\([^)]*\))?\s*\{([^}]*)\}/m.freeze
-  COLOR_MIX_SRGB = /color-mix\(\s*in\s+srgb\s*,\s*([^,]+?)\s+(\d+(?:\.\d+)?)%\s*,\s*([^)]+?)\s*\)/.freeze
-  HEX = /^#(\h{3,4}|\h{6}|\h{8})$/.freeze
-  TEXT_NAME = /(?:^--|-)(?:text|fg|ink|title|link)(?:-|$)/i.freeze
   BG_EXACT = %w[--bg --background --surface].freeze
   BG_NAME = /(?:^--|-)(?:bg|background|surface)(?:-|$)/i.freeze
+  STYLE_BLOCK = /<style(?:\s+[^>]*)?>(.*?)<\/style>/mi.freeze
+  # Whole-word match for a named color inside a (already string/url-blanked)
+  # declaration value: not glued to -, ., #, @, $ or a word char on the left
+  # (so --red, .red and $red never match) and not immediately followed by a
+  # word char or ( or - (so function names and red-500 never match).
+  NAMED_COLOR_WORD = /(?<![\w$@#.-])[A-Za-z]+(?![\w(-])/.freeze
 
   Finding = Data.define(:file, :line, :kind, :text)
   Palette = Data.define(:file, :authored, :derived, :error_token)
-  ContrastPair = Data.define(:theme, :text_token, :bg_token, :ratio, :passes_body, :passes_large, :resolved)
+  ContrastPair = Data.define(:theme, :text_token, :bg_token, :ratio, :passes_body, :passes_large, :resolved, :context, :reason)
   Report = Data.define(:palette, :findings, :contrast, :exit_code)
 
   module_function
@@ -76,17 +90,65 @@ module ColorCheck
     out || []
   end
 
-  # The token file is the scanned file defining the most --name: <color>
-  # declarations whose value looks like a color (literal, color-mix(, or a
-  # var() reference).
+  # Parses a scanned CSS source candidate into a Sheet: a whole .css/.scss/
+  # .less file as itself, or the <style> blocks of a markup file (dialect
+  # from lang="scss|less", else css; each block's own line_offset keeps
+  # reported lines true to the original file). Any other extension (JS, TS,
+  # MDX) is never a token-file candidate and yields nil.
+  def css_source_sheet(file, text)
+    ext = File.extname(file).delete_prefix('.')
+    if CSS_EXTS.include?(ext)
+      ColorCss.parse(text, dialect: ext.to_sym)
+    elsif MARKUP_STYLE_EXTS.include?(ext)
+      style_block_sheet(text)
+    end
+  rescue StandardError
+    nil
+  end
+
+  def style_block_sheet(text)
+    decls = []
+    at_rule_stmts = []
+    errors = []
+    text.scan(STYLE_BLOCK) do
+      m = Regexp.last_match
+      tag = m[0][/\A<style[^>]*>/mi] || '<style>'
+      lang = tag[/lang\s*=\s*["']?(scss|less)["']?/i, 1]
+      dialect = lang ? lang.downcase.to_sym : :css
+      line_offset = text[0...m.begin(1)].count("\n")
+      sub = ColorCss.parse(m[1], dialect:, line_offset:)
+      decls.concat(sub.decls)
+      at_rule_stmts.concat(sub.at_rule_stmts)
+      errors.concat(sub.errors)
+    end
+    return nil if decls.empty? && at_rule_stmts.empty? && errors.empty?
+
+    ColorCss::Sheet.new(decls:, at_rule_stmts:, errors:)
+  end
+
+  def token_like?(value)
+    v = value.strip
+    ColorValue.literal?(v) || v.start_with?('color-mix(') || v.start_with?('var(')
+  end
+
+  # The token file is the scanned CSS source (whole file, or a markup file's
+  # <style> blocks) defining the most --name: <color> declarations whose
+  # value looks like a color (literal, color-mix(, or a var() reference).
+  # Ties keep the first file found in scan order.
   def detect_token_file(files)
     best = nil
     best_count = 0
     files.each do |file|
+      ext = File.extname(file).delete_prefix('.')
+      next unless CSS_EXTS.include?(ext) || MARKUP_STYLE_EXTS.include?(ext)
+
       text = safe_read(file)
       next unless text
 
-      count = text.scan(TOKEN_DECL).count { |_, value| color_like?(value) }
+      sheet = css_source_sheet(file, text)
+      next unless sheet
+
+      count = sheet.decls.count { |d| d.name.start_with?('--') && token_like?(d.value) }
       next if count.zero?
 
       if count > best_count
@@ -97,38 +159,44 @@ module ColorCheck
     best
   end
 
-  def color_like?(value)
-    v = value.strip
-    v.match?(HEX) || v.match?(COLOR_FN) || v.start_with?('color-mix(') || v.match?(/^var\(--[\w-]+\)$/)
+  def parse_token_sheet(token_file)
+    text = safe_read(token_file)
+    return nil unless text
+
+    css_source_sheet(token_file, text) || ColorCss.parse(text)
   end
 
-  # Authored = literal color value. Derived = color-mix(, var() reference, or
-  # alpha over a token. De-duplicated by value across theme blocks so the
-  # same token reassigned in light/dark counts once. --error is reported
-  # separately and excluded from the authored count.
+  # Authored = literal color value. Derived = a value containing color-mix(
+  # or var(. De-duplicated by normalized (downcased, whitespace-collapsed)
+  # value across theme blocks so the same token reassigned in light/dark
+  # counts once; the first-seen spelling is kept for display. --error is
+  # reported separately and excluded from the authored count.
   def build_palette(token_file)
-    text = safe_read(token_file) || ''
+    sheet = parse_token_sheet(token_file)
+    return Palette.new(file: token_file, authored: [], derived: 0, error_token: false) unless sheet
+
     authored_values = {}
     derived_count = 0
     error_token = false
 
-    text.scan(TOKEN_DECL) do |name, raw_value|
-      value = raw_value.strip
-      if name == ERROR_TOKEN
+    sheet.decls.each do |decl|
+      next unless decl.name.start_with?('--')
+
+      if decl.name == ERROR_TOKEN
         error_token = true
         next
       end
 
-      if value.match?(HEX) || value.match?(COLOR_FN)
-        authored_values[value] ||= []
-        authored_values[value] << name unless authored_values[value].include?(name)
-      elsif value.start_with?('color-mix(') || value.match?(/^var\(--[\w-]+\)$/)
+      if ColorValue.literal?(decl.value)
+        key = decl.value.strip.downcase.gsub(/\s+/, ' ')
+        entry = (authored_values[key] ||= { value: decl.value.strip, names: [] })
+        entry[:names] << decl.name unless entry[:names].include?(decl.name)
+      elsif decl.value.include?('color-mix(') || decl.value.include?('var(')
         derived_count += 1
       end
     end
 
-    authored = authored_values.map { |value, names| { value:, names: } }
-    Palette.new(file: token_file, authored:, derived: derived_count, error_token:)
+    Palette.new(file: token_file, authored: authored_values.values, derived: derived_count, error_token:)
   end
 
   def collect_findings(files, token_file)
@@ -137,161 +205,146 @@ module ColorCheck
       text = safe_read(file)
       next unless text
 
-      # In the token file, only custom-property declarations are exempt;
-      # ordinary rules there are scanned like any other file. Declarations
-      # are blanked over the whole text (keeping newlines) so multiline
-      # values are exempt and line numbers stay correct.
-      text = text.gsub(TOKEN_DECL) { |decl| decl.gsub(/[^\n]/, '') } if file == token_file
-      text.each_line.with_index(1) do |line, lineno|
-        line.scan(LITERAL).each { findings << Finding.new(file:, line: lineno, kind: 'literal', text: line.strip) }
-        line.scan(TAILWIND).each { findings << Finding.new(file:, line: lineno, kind: 'tailwind', text: line.strip) }
-        line.scan(GRADIENT).each { findings << Finding.new(file:, line: lineno, kind: 'gradient', text: line.strip) }
+      ext = File.extname(file).delete_prefix('.')
+      if CSS_EXTS.include?(ext)
+        sheet = css_source_sheet(file, text)
+        findings.concat(css_findings(file, token_file, sheet)) if sheet
+      else
+        findings.concat(text_line_findings(file, text))
       end
     end
     findings
   end
 
-  # Resolves hex tokens and color-mix(in srgb, A p%, B) pairs (alpha over
-  # transparent composites onto the theme background) per theme block, then
-  # pairs text-like tokens against background-like tokens and computes WCAG
-  # 2.x contrast. Unresolvable pairs are not emitted as ContrastPair entries;
-  # callers list text-like tokens with no resolved color as unresolved.
+  def text_line_findings(file, text)
+    findings = []
+    text.each_line.with_index(1) do |line, lineno|
+      line.scan(LITERAL).each { findings << Finding.new(file:, line: lineno, kind: 'literal', text: line.strip) }
+      line.scan(TAILWIND).each { findings << Finding.new(file:, line: lineno, kind: 'tailwind', text: line.strip) }
+      line.scan(GRADIENT).each { findings << Finding.new(file:, line: lineno, kind: 'gradient', text: line.strip) }
+    end
+    findings
+  end
+
+  # Scans a parsed CSS source declaration by declaration, so a custom
+  # property's value never collides with an ordinary declaration sharing its
+  # source line. In the token file, only custom-property declarations are
+  # exempt; ordinary rules there are scanned like any other file. Block-less
+  # @apply statements are scanned for Tailwind palette classes.
+  def css_findings(file, token_file, sheet)
+    findings = []
+    sheet.decls.each do |decl|
+      next if file == token_file && decl.name.start_with?('--')
+
+      findings.concat(value_findings(file, decl.value, decl.value_line))
+    end
+    sheet.at_rule_stmts.each do |stmt|
+      stmt.prelude.scan(TAILWIND).each do
+        findings << Finding.new(file:, line: stmt.line, kind: 'tailwind', text: stmt.prelude.strip)
+      end
+    end
+    findings
+  end
+
+  def value_findings(file, value, value_line)
+    findings = []
+    value.each_line.with_index do |line, idx|
+      lineno = value_line + idx
+      line.scan(LITERAL).each { findings << Finding.new(file:, line: lineno, kind: 'literal', text: line.strip) }
+      line.scan(GRADIENT).each { findings << Finding.new(file:, line: lineno, kind: 'gradient', text: line.strip) }
+      named_color_matches(line).each { findings << Finding.new(file:, line: lineno, kind: 'literal', text: line.strip) }
+    end
+    findings
+  end
+
+  # Named colors inside a declaration value count as stray literals too, but
+  # never inside a quoted string or a url(...) fragment.
+  def named_color_matches(line)
+    blanked = line.gsub(/"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'/) { |m| ' ' * m.length }
+                  .gsub(/url\([^)]*\)/i) { |m| ' ' * m.length }
+    blanked.scan(NAMED_COLOR_WORD).select { |w| ColorValue::NAMED.key?(w.downcase) }
+  end
+
+  # Resolves every custom property in the token file's theme model (base
+  # "light" plus named variants) via ColorValue, pairs text-role tokens
+  # against the theme's background (or its own <base> token for a
+  # "<base>-text" name), and computes WCAG 2.x contrast. Unsupported
+  # contexts that carry a text-role token are reported unresolved with their
+  # reason rather than guessed at.
   def compute_contrast(token_file)
-    text = safe_read(token_file) || ''
+    sheet = parse_token_sheet(token_file)
+    return [] unless sheet
+
+    model = ColorThemes.build(sheet)
     results = []
-    # Accumulate every block per theme first, so declarations split across
-    # repeated :root rules are combined and only final states are evaluated.
-    by_theme = {}
-    text.scan(THEME_BLOCK) do |(body)|
-      own = (by_theme[theme_label_for(text, body)] ||= {})
-      body.scan(TOKEN_DECL) { |name, value| own[name] = value.strip }
-    end
+    model.variants.each { |v| results.concat(contrast_rows_for_variant(v)) }
+    model.unsupported.each do |uns|
+      uns.decls.each_key do |name|
+        next unless ColorThemes.text_role_name?(name)
 
-    base = by_theme['light'] || {}
-    by_theme.each do |theme_label, own|
-      # Dark inherits the light :root declarations, then overrides.
-      decls = theme_label == 'light' ? own : base.merge(own)
-
-      bg_name = BG_EXACT.find { |n| decls.key?(n) } || decls.keys.find { |n| n.match?(BG_NAME) }
-      bg_color = bg_name && resolve_color(decls[bg_name], decls, bg_color: '#ffffff')
-
-      decls.each do |name, raw|
-        next unless name.match?(TEXT_NAME)
-
-        pair_bg_name = bg_name
-        pair_bg_color = bg_color
-        if (m = name.match(/^(--[\w-]+)-text$/)) && decls.key?(m[1])
-          pair_bg_name = m[1]
-          pair_bg_color = resolve_color(decls[m[1]], decls, bg_color: bg_color || '#ffffff')
-        end
-
-        resolved = resolve_color(raw, decls, bg_color: pair_bg_color || '#ffffff')
-        if resolved && pair_bg_color
-          ratio = contrast_ratio(resolved, pair_bg_color)
-          results << ContrastPair.new(theme: theme_label, text_token: name, bg_token: pair_bg_name,
-                                       ratio: ratio.round(2), passes_body: ratio >= 4.5,
-                                       passes_large: ratio >= 3.0, resolved: true)
-        else
-          results << ContrastPair.new(theme: theme_label, text_token: name, bg_token: pair_bg_name,
-                                       ratio: nil, passes_body: false, passes_large: false, resolved: false)
-        end
+        results << ContrastPair.new(theme: 'unsupported', text_token: name, bg_token: nil, ratio: nil,
+                                     passes_body: false, passes_large: false, resolved: false,
+                                     context: uns.label, reason: "unsupported theme context: #{uns.label} (#{uns.why})")
       end
     end
-
     results
+  rescue StandardError
+    []
   end
 
-  def theme_label_for(full_text, block_body)
-    idx = full_text.index(block_body) || 0
-    preceding = full_text[0...idx]
-    if preceding.match?(/data-theme=["']dark["']\]\s*\{\s*\z/m) || preceding =~ /:root\[data-theme=["']dark["']\]\s*\{[^{}]*\z/m
-      'dark'
-    elsif preceding =~ /prefers-color-scheme:\s*dark[\s\S]*:root:not[^{]*\{[^{}]*\z/m
-      'dark'
-    else
-      'light'
+  def contrast_rows_for_variant(variant)
+    decls = variant.decls
+    context = variant.contexts.join(' | ')
+    bg_name = BG_EXACT.find { |n| decls.key?(n) } || decls.keys.find { |n| n.match?(BG_NAME) }
+    bg_result = bg_name ? ColorValue.resolve(decls[bg_name], decls) : nil
+    bg_color = bg_result&.color ? ColorValue.flatten(bg_result.color, over: ColorValue::WHITE) : nil
+
+    decls.each_key.select { |n| ColorThemes.text_role_name?(n) }.map do |name|
+      contrast_row_for(variant.theme, context, name, decls, bg_name, bg_result, bg_color)
     end
   end
 
-  def resolve_color(raw, decls, bg_color:, seen: Set.new)
-    v = raw.strip
-    return flatten_alpha(v, bg_color) if v.match?(HEX)
+  def contrast_row_for(theme, context, name, decls, bg_name, bg_result, bg_color)
+    pair_bg_name = bg_name
+    pair_bg_color = bg_color
+    pair_bg_reason = pair_bg_reason_for(bg_name, bg_result)
 
-    if (m = v.match(COLOR_MIX_SRGB))
-      a_raw, pct, b_raw = m[1].strip, m[2].to_f, m[3].strip
-      a = resolve_token_or_literal(a_raw, decls, bg_color:, seen:)
-      b = if b_raw == 'transparent'
-            bg_color
+    base_match = name.match(/\A(--[\w-]+)-text\z/)
+    if base_match && decls.key?(base_match[1])
+      pair_bg_name = base_match[1]
+      base_result = ColorValue.resolve(decls[pair_bg_name], decls)
+      if base_result.color
+        pair_bg_color = ColorValue.flatten(base_result.color, over: bg_color || ColorValue::WHITE)
+        pair_bg_reason = nil
       else
-            resolve_token_or_literal(b_raw, decls, bg_color:, seen:)
+        pair_bg_color = nil
+        pair_bg_reason = "background #{pair_bg_name}: #{base_result.reason}"
       end
-      return nil unless a && b
-
-      return mix_hex(a, b, pct)
     end
 
-    if (m = v.match(/^var\((--[\w-]+)\)$/))
-      return nil if seen.include?(m[1])
+    build_contrast_pair(theme, context, name, decls[name], decls, pair_bg_name, pair_bg_color, pair_bg_reason)
+  end
 
-      ref = decls[m[1]]
-      return ref ? resolve_color(ref, decls, bg_color:, seen: seen | [ m[1] ]) : nil
-    end
+  def pair_bg_reason_for(bg_name, bg_result)
+    return 'no background token in this theme' unless bg_name
+    return "background #{bg_name}: #{bg_result.reason}" unless bg_result.color
 
     nil
   end
 
-  def resolve_token_or_literal(token_text, decls, bg_color:, seen: Set.new)
-    t = token_text.strip
-    if (m = t.match(/^var\((--[\w-]+)\)$/))
-      return nil if seen.include?(m[1])
-
-      inner = decls[m[1]]
-      inner ? resolve_color(inner, decls, bg_color:, seen: seen | [ m[1] ]) : nil
-    elsif t.match?(HEX)
-      flatten_alpha(t, bg_color)
+  def build_contrast_pair(theme, context, name, raw_value, decls, bg_name, bg_color, bg_reason)
+    text_result = ColorValue.resolve(raw_value, decls)
+    if text_result.color && bg_color
+      text_color = ColorValue.flatten(text_result.color, over: bg_color)
+      ratio = ColorValue.contrast_ratio(text_color, bg_color)
+      ContrastPair.new(theme:, text_token: name, bg_token: bg_name, ratio: ratio.round(2),
+                        passes_body: ratio >= 4.5, passes_large: ratio >= 3.0, resolved: true,
+                        context:, reason: nil)
     else
-      nil
+      reason = text_result.color.nil? ? text_result.reason : bg_reason
+      ContrastPair.new(theme:, text_token: name, bg_token: bg_name, ratio: nil, passes_body: false,
+                        passes_large: false, resolved: false, context:, reason:)
     end
-  end
-
-  def mix_hex(hex_a, hex_b, pct_a)
-    ra, ga, ba = hex_rgb(hex_a)
-    rb, gb, bb = hex_rgb(hex_b)
-    f = pct_a / 100.0
-    r = (ra * f + rb * (1 - f)).round
-    g = (ga * f + gb * (1 - f)).round
-    b = (ba * f + bb * (1 - f)).round
-    format('#%02x%02x%02x', r, g, b)
-  end
-
-  # Composites a four- or eight-digit #RGBA/#RRGGBBAA over the background so a translucent
-  # token is not graded as if it were opaque.
-  def flatten_alpha(hex, bg_color)
-    h = hex.delete_prefix('#')
-    h = h.chars.map { |c| c * 2 }.join if h.length == 4
-    return hex unless h.length == 8
-
-    mix_hex("##{h[0, 6]}", bg_color, h[6, 2].to_i(16) * 100.0 / 255)
-  end
-
-  def hex_rgb(hex)
-    h = hex.delete_prefix('#')
-    h = h.chars.each_slice(1).map { |c| c.first * 2 }.join if h.length == 3
-    [ h[0, 2].to_i(16), h[2, 2].to_i(16), h[4, 2].to_i(16) ]
-  end
-
-  def contrast_ratio(hex_a, hex_b)
-    la = relative_luminance(hex_a)
-    lb = relative_luminance(hex_b)
-    lighter = [ la, lb ].max
-    darker = [ la, lb ].min
-    (lighter + 0.05) / (darker + 0.05)
-  end
-
-  def relative_luminance(hex)
-    r, g, b = hex_rgb(hex).map { |c| c / 255.0 }
-    rl, gl, bl = [ r, g, b ].map { |c| c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055)**2.4 }
-    0.2126 * rl + 0.7152 * gl + 0.0722 * bl
   end
 
   def safe_read(path)
@@ -338,12 +391,14 @@ module ColorCheck
     if report.contrast.empty?
       lines << '  none resolvable'
     else
+      contexts_per_theme = report.contrast.group_by(&:theme).transform_values { |rows| rows.map(&:context).uniq }
       report.contrast.each do |c|
+        label = contexts_per_theme[c.theme].size > 1 ? "#{c.theme} #{c.context}" : c.theme
         if c.resolved
           status = c.passes_body ? 'pass 4.5:1' : (c.passes_large ? 'pass 3:1 only' : 'fail')
-          lines << "  [#{c.theme}] #{c.text_token} on #{c.bg_token}: #{c.ratio}:1 (#{status})"
+          lines << "  [#{label}] #{c.text_token} on #{c.bg_token}: #{c.ratio}:1 (#{status})"
         else
-          lines << "  [#{c.theme}] #{c.text_token} on #{c.bg_token}: unresolved, state manually"
+          lines << "  [#{label}] #{c.text_token} on #{c.bg_token}: unresolved (#{c.reason}), state manually"
         end
       end
     end
@@ -362,7 +417,8 @@ module ColorCheck
       findings: report.findings.map { |f| { file: f.file, line: f.line, kind: f.kind, text: f.text } },
       contrast: report.contrast.map do |c|
         { theme: c.theme, text_token: c.text_token, bg_token: c.bg_token, ratio: c.ratio,
-          passes_body: c.passes_body, passes_large: c.passes_large, resolved: c.resolved }
+          passes_body: c.passes_body, passes_large: c.passes_large, resolved: c.resolved,
+          context: c.context, reason: c.reason }
       end,
       exit_code: report.exit_code
     )
