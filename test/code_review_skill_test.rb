@@ -54,11 +54,25 @@ class CodeReviewSkillTest < Minitest::Test
   def test_second_round_posts_one_consolidated_comment
     text = second_round
     assert_includes text, "render_round_review.rb"
-    assert_includes text, "event=COMMENT"
+    assert_includes text, '"event": "COMMENT"'
     assert_includes text, "viewer.login"
     assert_includes text, "P1"
     assert_includes text, "Never `REQUEST_CHANGES`"
     assert_equal 1, text.scan("REQUEST_CHANGES").size, "REQUEST_CHANGES only in the Never sentence"
+  end
+
+  # `gh api --input` turns every -f/-F field into a URL query parameter, so
+  # a review event passed that way never reaches the JSON body and the
+  # review stays pending. Every review-posting doc must keep event in JSON.
+  def test_review_event_never_rides_a_field_flag_beside_input
+    docs = [ skill_md, second_round ]
+    flag = /(?:-f|-F|--field|--raw-field)\s+event=/
+    docs.each do |text|
+      refute_match flag, text
+      assert_includes text, '"event": "COMMENT"'
+    end
+    [ "-f event=COMMENT", "-F event=COMMENT", "--field event=COMMENT",
+      "--raw-field event=COMMENT" ].each { |variant| assert_match flag, variant }
   end
 
   def test_reference_prose_is_free_of_slop_glyphs

@@ -116,11 +116,14 @@ reports that it assumed the default.
    bars and comment-rendering rules.
    - PR scope: use the `gh` CLI via Bash by default, submitting the review
      and its comments in one call, e.g. `gh api
-     repos/<owner>/<repo>/pulls/<n>/reviews --method POST -f event=COMMENT
-     --input review.json`, with a JSON payload built from `posted` (each
-     entry anchored to `path`/`line`, body rendered per
-     `reference/posting.md`). An MCP-style `pull_request_review_write` with
-     `create` (no `event`, so it stays pending), then
+     repos/<owner>/<repo>/pulls/<n>/reviews --method POST --input
+     review.json`, with a JSON payload carrying `"event": "COMMENT"` and
+     `comments` built from `posted` (each entry anchored to `path`/`line`,
+     body rendered per `reference/posting.md`). Keep `event` inside the
+     JSON: with `--input`, `gh api` sends any `-f` field as a URL query
+     parameter, and a review with no `event` in its body stays pending.
+     An MCP-style `pull_request_review_write` with `create` (no `event`,
+     so it stays pending), then
      `add_comment_to_pending_review` per finding, then `submit_pending` with
      `event: "COMMENT"`, is an acceptable alternative when such a tool
      happens to be configured. Never `REQUEST_CHANGES` or `APPROVE` unless

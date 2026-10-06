@@ -50,9 +50,12 @@ no findings posts nothing and reports that.
    use its stdout verbatim as the review body. Apply `cf:ai-slop`'s rules
    to every field first.
 5. **Post** one review: `gh api repos/<owner>/<repo>/pulls/<n>/reviews
-   --method POST -f event=COMMENT --input review.json` where the payload's
-   `body` is the rendered text and `comments` holds only the P1 entries of
-   `posted`, each rendered by `render_finding_comment.rb` as usual.
+   --method POST --input review.json`, where `review.json` carries
+   `"event": "COMMENT"`, `body` is the rendered text, and `comments` holds
+   only the P1 entries of `posted`, each rendered by
+   `render_finding_comment.rb` as usual. Keep `event` inside the JSON: with
+   `--input`, `gh api` sends any `-f` field as a URL query parameter, and a
+   review with no `event` in its body stays pending.
    Never `REQUEST_CHANGES` or `APPROVE`. Under `--signoff`, show the body
    and the P1 list and ask before posting. Merge mode does not gate it.
 6. **Report** the review URL, the plan directory, and cf:plan's handoff.
@@ -60,10 +63,10 @@ no findings posts nothing and reports that.
 ## Away
 
 No interview under away mode. Skip the post entirely when `posted` has no
-P1 finding: GitHub rejects an `event=COMMENT` review with no body and no
-comments. Otherwise post the P1 findings inline (one `event=COMMENT`
-review, no body), hold the P2 and P3 findings, pipe the
-seeded goal plus the held findings to `ruby ~/.claude/cf/bin/ctx_store.rb
+P1 finding: GitHub rejects a `"event": "COMMENT"` review with no body and
+no comments. Otherwise post the P1 findings inline (one review whose
+`review.json` carries `"event": "COMMENT"` and no body), hold the P2 and
+P3 findings, pipe the seeded goal plus the held findings to `ruby ~/.claude/cf/bin/ctx_store.rb
 capture --name plan-pending-pr-<n>-review-round --class active --desc
 "Second-round review plan pending for PR #<n>"`, and report that the user
 should run `/cf:active` then `/cf:plan <seeded goal>`.
