@@ -45,11 +45,14 @@ module ColorScan
   SCRIPT_COLOR_FN_FULL = /\A(?:#{ColorValue::COLOR_FN_NAMES.join('|')})\(.*\)\z/im.freeze
   ATTR_NAMES = %w[style fill stroke class classname].freeze
   BOUND_ATTR_PREFIX = /\A(?::|v-bind:)/i.freeze
-  STYLE_BLOCK = /<style(?:\s+[^>]*)?>(.*?)<\/style>/mi.freeze
-  SCRIPT_BLOCK = /<script(?:\s+[^>]*)?>(.*?)<\/script>/mi.freeze
-  HTML_COMMENT = /<!--.*?-->/m.freeze
   TAG_NAME = /[a-zA-Z][\w:-]*/.freeze
   ATTR_NAME_TOKEN = /[:@]?[\w.:-]+/.freeze
+  # script and style hold raw text (never nested tags); textarea and title
+  # hold RCDATA (text only, scanned as nothing: decision 2 is attributes and
+  # values, never a text node). Content runs to the matching case-insensitive
+  # end tag, or end of file when there is none.
+  RAW_TEXT_ELEMENTS = %w[script style].freeze
+  RCDATA_ELEMENTS = %w[textarea title].freeze
   MDX_ATTR = /\b(?:style|fill|stroke|className|class)\s*=\s*(?:"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')/mi.freeze
   IMPORT_EXPORT_LINE = /\A[ \t]*(?:import|export)\b/.freeze
   EXPR_CONTEXT_CHARS = /[(\[{,;:=!&|?+\-*%^~<>]/.freeze
@@ -153,79 +156,37 @@ module ColorScan
 
   # --- Markup: .html .vue .svelte .astro ---------------------------------
 
+  # A single forward pass over the markup text: one tokenizer, not a stack of
+  # regex pre-passes. It walks literal "<" characters and, in order, strips
+  # an HTML comment ("<!--...-->") or a CDATA section ("<![CDATA[...]]>") as
+  # text with no further interpretation; skips closing tags, doctypes and
+  # processing instructions; and for every other start tag reads its
+  # attribute list up to the tag's own closing ">" (honoring quoted values,
+  # unquoted values and Svelte's "{expr}" form), then, for script/style (raw
+  # text) and textarea/title (RCDATA), consumes the element's content up to
+  # its matching case-insensitive end tag without lexing any "<" inside it
+  # as a tag. Because this runs before anything is blanked or cut out, a
+  # "<!--" or "<style>" that appears only inside a script string, or inside
+  # a quoted attribute value, is just data and never swallows real markup.
   def markup_file_findings(path, text, token_file)
     findings = []
-    # HTML comments are blanked first (newlines kept), so commented-out
-    # markup is never mistaken for a live tag: this is the markup
-    # counterpart of CSS comments never counting.
-    working = text.gsub(HTML_COMMENT) { |m| m.gsub(/[^\n]/, ' ') }
-    remainder = +working.dup
-
-    working.to_enum(:scan, STYLE_BLOCK).each do
-      m = Regexp.last_match
-      findings.concat(style_block_findings(path, working, token_file, m))
-      blank_range!(remainder, m.begin(0), m.end(0))
-    end
-
-    working.to_enum(:scan, SCRIPT_BLOCK).each do
-      m = Regexp.last_match
-      line_offset = working[0...m.begin(1)].count("\n")
-      findings.concat(script_findings(path, m[1], line_offset: line_offset))
-      blank_range!(remainder, m.begin(0), m.end(0))
-    end
-
-    findings.concat(markup_attr_findings(path, remainder))
-    findings
-  end
-
-  def style_block_findings(path, text, token_file, match)
-    tag = match[0][/\A<style[^>]*>/mi] || '<style>'
-    lang = tag[/lang\s*=\s*["']?(scss|less)["']?/i, 1]
-    dialect = lang ? lang.downcase.to_sym : :css
-    line_offset = text[0...match.begin(1)].count("\n")
-    sheet = ColorCss.parse(match[1], dialect: dialect, line_offset: line_offset)
-    css_sheet_findings(path, token_file, sheet)
-  end
-
-  def blank_range!(str, from, to)
-    str[from...to] = str[from...to].gsub(/[^\n]/, ' ')
-  end
-
-  # A small tag/attribute lexer: scans only real tag attributes, never text
-  # nodes (decision 2). Walks literal "<" characters, skips closing tags
-  # ("</..."), doctypes and processing instructions ("<!...", "<?..."), and
-  # for every other tag reads its attribute list up to the tag's own
-  # closing ">", honoring quoted values, unquoted values (valid HTML) and
-  # Svelte's "{expr}" value form.
-  def markup_attr_findings(path, text)
-    findings = []
-    each_tag_attr(text) do |raw_name, value, value_start, curly|
-      next if value.nil?
-
-      bound = curly || BOUND_ATTR_PREFIX.match?(raw_name)
-      base_name = raw_name.sub(BOUND_ATTR_PREFIX, '')
-      attr = base_name.downcase
-      next unless ATTR_NAMES.include?(attr)
-
-      line_offset = text[0...value_start].count("\n")
-      if bound
-        # A Vue/Svelte bound attribute's value is a JS expression, not a
-        # literal: scan it with the script lexer so a bare identifier
-        # ("red") is never a finding but a real quoted color string still is.
-        findings.concat(script_findings(path, value, line_offset: line_offset))
-      else
-        findings.concat(markup_attr_value_findings(path, value, line_offset, attr))
-      end
-    end
-    findings
-  end
-
-  def each_tag_attr(text)
     i = 0
     len = text.length
     while i < len
       lt = text.index('<', i)
       break unless lt
+
+      if text[lt, 4] == '<!--'
+        close = text.index('-->', lt + 4)
+        i = close ? close + 3 : len
+        next
+      end
+
+      if text[lt, 9].casecmp?('<![cdata[')
+        close = text.index(']]>', lt + 9)
+        i = close ? close + 3 : len
+        next
+      end
 
       nxt = text[lt + 1]
       if nxt.nil? || nxt == '/' || nxt == '!' || nxt == '?'
@@ -239,8 +200,48 @@ module ColorScan
         next
       end
 
-      i = scan_tag_attrs(text, name_match.end(0), len) { |n, v, vs, curly| yield(n, v, vs, curly) }
+      tag_name = name_match[0].downcase
+      lang_value = nil
+      tag_end = scan_tag_attrs(text, name_match.end(0), len) do |n, v, vs, curly|
+        base_name = n.sub(BOUND_ATTR_PREFIX, '')
+        attr = base_name.downcase
+        lang_value = v if attr == 'lang' && !v.nil?
+        next if v.nil?
+        next unless ATTR_NAMES.include?(attr)
+
+        bound = curly || BOUND_ATTR_PREFIX.match?(n)
+        line_offset = text[0...vs].count("\n")
+        if bound
+          # A Vue/Svelte bound attribute's value is a JS expression, not a
+          # literal: scan it with the script lexer so a bare identifier
+          # ("red") is never a finding but a real quoted color string
+          # still is.
+          findings.concat(script_findings(path, v, line_offset: line_offset))
+        else
+          findings.concat(markup_attr_value_findings(path, v, line_offset, attr))
+        end
+      end
+
+      if RAW_TEXT_ELEMENTS.include?(tag_name) || RCDATA_ELEMENTS.include?(tag_name)
+        content_start = tag_end
+        end_match = /<\/#{tag_name}\s*>/i.match(text, content_start)
+        content_end = end_match ? end_match.begin(0) : len
+        if tag_name == 'script'
+          line_offset = text[0...content_start].count("\n")
+          findings.concat(script_findings(path, text[content_start...content_end], line_offset: line_offset))
+        elsif tag_name == 'style'
+          line_offset = text[0...content_start].count("\n")
+          dialect = lang_value && %w[scss less].include?(lang_value.downcase) ? lang_value.downcase.to_sym : :css
+          sheet = ColorCss.parse(text[content_start...content_end], dialect: dialect, line_offset: line_offset)
+          findings.concat(css_sheet_findings(path, token_file, sheet))
+        end
+        # RCDATA (textarea, title): content is a text node, out of scope.
+        i = end_match ? end_match.end(0) : len
+      else
+        i = tag_end
+      end
     end
+    findings
   end
 
   # Scans one tag's attribute list starting just after its name, up to the
@@ -425,18 +426,76 @@ module ColorScan
     return true if j.negative?
 
     ch = text[j]
+
+    # A postfix "++"/"--" (an identifier, ")" or "]" right before it) ends a
+    # value, so the next "/" is division; the same pair with nothing but an
+    # operator before it is prefix, which still expects an expression.
+    if (ch == '+' || ch == '-') && j.positive? && text[j - 1] == ch
+      k = j - 2
+      k -= 1 while k >= 0 && text[k] =~ /[ \t\n]/
+      postfix = k >= 0 && (text[k] =~ /[\w$]/ || text[k] == ')' || text[k] == ']')
+      return !postfix
+    end
+
     return true if EXPR_CONTEXT_CHARS.match?(ch)
-    return false if ch == ')' || ch == ']'
+
+    # A ")" ends a value (a call or a parenthesized expression), except when
+    # it closes the head of an if/while/for/with/switch/catch, which is
+    # followed by an expression (its body), never a division.
+    if ch == ')'
+      open = matching_open_paren(text, j)
+      return open ? keyword_before_paren?(text, open) : false
+    end
+
+    return false if ch == ']'
     return false if ch == '"' || ch == "'" || ch == '`'
 
     if ch =~ /[\w$]/
       k = j
       k -= 1 while k >= 0 && text[k] =~ /[\w$]/
       word = text[(k + 1)..j]
+      # A keyword right after "." or "?." is a property name ("a.return"),
+      # not the keyword itself, so it is a value: the next "/" is division.
+      before = k
+      before -= 1 while before >= 0 && text[before] =~ /[ \t\n]/
+      return false if before >= 0 && text[before] == '.'
+
       return EXPR_CONTEXT_KEYWORDS.include?(word)
     end
 
     true
+  end
+
+  KEYWORD_PAREN_HEADS = %w[if while for with switch catch].freeze
+
+  # Finds the "(" matching a ")" at close_idx by counting nested parens
+  # backward. Good enough for this heuristic lexer; it does not skip over
+  # strings or comments, so a literal unbalanced paren inside one could
+  # mislead it, same tradeoff as the rest of this scanner.
+  def matching_open_paren(text, close_idx)
+    depth = 0
+    j = close_idx
+    while j >= 0
+      if text[j] == ')'
+        depth += 1
+      elsif text[j] == '('
+        depth -= 1
+        return j if depth.zero?
+      end
+      j -= 1
+    end
+    nil
+  end
+
+  def keyword_before_paren?(text, open_idx)
+    k = open_idx - 1
+    k -= 1 while k >= 0 && text[k] =~ /[ \t\n]/
+    return false if k.negative? || text[k] !~ /[\w$]/
+
+    e = k
+    k -= 1 while k >= 0 && text[k] =~ /[\w$]/
+    word = text[(k + 1)..e]
+    KEYWORD_PAREN_HEADS.include?(word)
   end
 
   def jsx_tag_start?(text, i)
