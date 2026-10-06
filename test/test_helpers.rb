@@ -12,7 +12,7 @@ require_relative "git_fixture"
 
 SKILL_SCRIPTS = File.expand_path("../scripts", __dir__)
 %w[skill_registry skill_store review_queue skill_inject skill_detect skill_review skill_route slop_remind
-   render_finding_comment]
+   render_finding_comment render_round_review]
   .each { |name| require_relative "#{SKILL_SCRIPTS}/#{name}" }
 
 REPO_SKILLS = File.expand_path("../skills", __dir__)
