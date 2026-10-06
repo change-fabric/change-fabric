@@ -168,14 +168,16 @@ of trunk after the last merge of a tick.
    [SW-3].
 1. **(SKILL.md)** [SW-6] List open PRs: `gh pr list --state open --limit 101
    --json number,title,url,author,headRefName,baseRefName,headRefOid,isDraft,mergeable,mergeStateStatus,updatedAt`,
-   one above the 100-PR cap `gh pr list` otherwise silently truncates to, so a
-   full page is detectable instead of looking identical to a complete list.
+   one above the 100-PR cap this sweep plans against (`--limit` is a hard
+   ceiling on what `gh pr list` returns, default 30), so a full page is
+   detectable instead of looking identical to a complete list.
    101 results back means the repo has more open PRs than fit in one page and
    the set in hand is truncated; a truncated set can only ever yield a wrong
    landing order, since the Workflow would be sequencing against PRs it never
    saw. Drop mode to `report` regardless of the requested mode, say the cap
    was hit and by how many (count open PRs with `gh pr list --state open
-   --json number | jq length` do not re-run the fields query a second time),
+   --limit 100000 --json number --jq length`, since without a high `--limit`
+   it stops at 30; do not re-run the fields query a second time),
    and hold every PR gathered rather than computing any order from the
    partial set [SW-6]. Fewer than 101 results is the complete list; proceed
    as normal. Partition into release PRs (dropped), feature PRs (the sweep
