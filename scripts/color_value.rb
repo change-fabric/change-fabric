@@ -185,11 +185,11 @@ module ColorValue
     return hex_result(v) if v.match?(/\A#(?:\h{8}|\h{6}|\h{4}|\h{3})\z/)
 
     if (m = v.match(/\Argba?\((.*)\)\z/im))
-      return parse_rgb_function(m[1])
+      return parse_rgb_function(m[1], decls, seen)
     end
 
     if (m = v.match(/\Ahsla?\((.*)\)\z/im))
-      return parse_hsl_function(m[1])
+      return parse_hsl_function(m[1], decls, seen)
     end
 
     return Result.new(color: Rgba.new(r: 0, g: 0, b: 0, a: 0.0), reason: nil) if v.match?(/\Atransparent\z/i)
@@ -285,6 +285,11 @@ module ColorValue
     Result.new(color: Rgba.new(r:, g:, b:, a:), reason: nil)
   end
 
+  # A custom property that is part of a var() dependency cycle is
+  # guaranteed-invalid at computed-value time per CSS Variables, regardless
+  # of any fallback written on a var() reference inside that cycle. The
+  # fallback only rescues an undefined name, never a cyclic one, so the
+  # cycle check below runs before the fallback is ever consulted.
   def resolve_var(v, decls, seen)
     m = v.match(/\Avar\(\s*(.*)\)\z/im)
     return Result.new(color: nil, reason: "unrecognized color value: #{v[0, 40]}") unless m
@@ -295,17 +300,38 @@ module ColorValue
     fallback = nil if fallback && fallback.empty?
 
     return Result.new(color: nil, reason: "unrecognized color value: #{v[0, 40]}") if name.nil? || name.empty?
-
-    if decls.key?(name)
-      if seen.include?(name)
-        return fallback ? resolve(fallback, decls, seen:) : Result.new(color: nil, reason: "var() cycle through #{name}")
-      end
-      return resolve(decls[name], decls, seen: seen + [ name ])
-    end
+    return Result.new(color: nil, reason: "var() cycle through #{name}") if seen.include?(name)
+    return resolve(decls[name], decls, seen: seen + [ name ]) if decls.key?(name)
 
     return Result.new(color: nil, reason: "#{name} is not defined in this theme") unless fallback
 
     resolve(fallback, decls, seen: seen + [ name ])
+  end
+
+  # Resolves a var() reference used as one channel/hue/alpha token inside a
+  # color function (not a whole color value), substituting text rather than
+  # parsing a color, since the referenced custom property typically holds a
+  # bare number, percentage or angle. Follows the same cycle-before-fallback
+  # rule as resolve_var. Returns [substituted_text, nil] or [nil, reason].
+  def substitute_var_token(token, decls, seen)
+    t = token.to_s.strip
+    return [ t, nil ] unless t.match?(/\Avar\(/i)
+
+    m = t.match(/\Avar\(\s*(.*)\)\z/im)
+    return [ nil, "unrecognized color value: #{t[0, 40]}" ] unless m
+
+    parts = ColorCss.split_top_level(m[1])
+    name = parts[0]&.strip
+    fallback = parts.size > 1 ? parts[1..].join(',').strip : nil
+    fallback = nil if fallback && fallback.empty?
+
+    return [ nil, "unrecognized color value: #{t[0, 40]}" ] if name.nil? || name.empty?
+    return [ nil, "var() cycle through #{name}" ] if seen.include?(name)
+    return substitute_var_token(decls[name], decls, seen + [ name ]) if decls.key?(name)
+
+    return [ nil, "#{name} is not defined in this theme" ] unless fallback
+
+    substitute_var_token(fallback, decls, seen + [ name ])
   end
 
   def resolve_color_mix(space, args, decls, seen)
@@ -315,7 +341,10 @@ module ColorValue
     return Result.new(color: nil, reason: "unrecognized color value: #{args.to_s[0, 40]}") unless parts.size == 2
 
     comp_a = parse_mix_component(parts[0])
+    return Result.new(color: nil, reason: comp_a[:error]) if comp_a[:error]
+
     comp_b = parse_mix_component(parts[1])
+    return Result.new(color: nil, reason: comp_b[:error]) if comp_b[:error]
 
     result_a = resolve(comp_a[:color], decls, seen:)
     return result_a if result_a.color.nil?
@@ -369,15 +398,19 @@ module ColorValue
 
   def parse_mix_component(str)
     tokens = split_ws_top_level(str.strip)
-    pct_idx = tokens.index { |t| t.match?(/\A[\d.]+%\z/) }
+    pct_idx = tokens.index { |t| t.end_with?('%') }
     if pct_idx
-      pct = tokens[pct_idx][0..-2].to_f
+      pct_text = tokens[pct_idx]
+      pct = parse_percentage(pct_text)
+      return { color: nil, pct: nil, error: "invalid color-mix percentage: #{pct_text[0, 40]}" } unless pct
+      return { color: nil, pct: nil, error: 'color-mix percentage must be between 0% and 100%' } if pct.negative? || pct > 100
+
       color_tokens = tokens.each_with_index.reject { |_, i| i == pct_idx }.map(&:first)
     else
       pct = nil
       color_tokens = tokens
     end
-    { color: color_tokens.join(' '), pct: }
+    { color: color_tokens.join(' '), pct:, error: nil }
   end
 
   def unsupported_form(args)
@@ -387,21 +420,57 @@ module ColorValue
     nil
   end
 
+  # Strict CSS <number> and <percentage> grammar: a bare numeric literal,
+  # optionally signed and fractional, with an optional exponent. Anything
+  # else (a var() left unsubstituted, a stray identifier, empty text) is not
+  # a number, and must never silently become 0 via String#to_f.
+  NUMBER_RE = /[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?/
+
+  def parse_number(token)
+    t = token.to_s.strip
+    return nil unless t.match?(/\A#{NUMBER_RE}\z/)
+
+    t.to_f
+  end
+
+  def parse_percentage(token)
+    t = token.to_s.strip
+    m = t.match(/\A(#{NUMBER_RE})%\z/)
+    return nil unless m
+
+    m[1].to_f
+  end
+
+  # Legacy comma syntax (rgb(1, 2, 3)) requires all three channels to be the
+  # same kind, number or percentage; a modern space-separated channel list
+  # has no such restriction in this checker. Returns an array of parsed
+  # channels (0..255) and their kinds (:num/:pct), or nil if any channel is
+  # not a valid number or percentage.
   def extract_channels_and_alpha(args)
     main, slash, alpha_part = args.partition('/')
     if slash.empty?
-      parts = ColorCss.split_top_level(args)
-      parts = parts.size > 1 ? parts : args.strip.split(/\s+/)
-      parts = parts.map(&:strip).reject(&:empty?)
-      return [ parts[0, 3], parts[3] ] if parts.size == 4
+      comma_parts = ColorCss.split_top_level(args)
+      if comma_parts.size > 1
+        parts = comma_parts.map(&:strip).reject(&:empty?)
+        return [ parts[0, 3], parts[3], true ] if parts.size == 4
 
-      [ parts, nil ]
+        [ parts, nil, true ]
+      else
+        # Modern space syntax has no comma-based 4th-argument alpha: alpha
+        # must be introduced with '/'. A bare 4th space-separated token is
+        # invalid syntax, not a guessed alpha, so it is left in place for the
+        # channel-count check in the caller to reject. Split on top-level
+        # whitespace only, so a space inside a var() fallback
+        # (var(--x, 1 2)) is not mistaken for a channel boundary.
+        parts = split_ws_top_level(args.strip).map(&:strip).reject(&:empty?)
+        [ parts, nil, false ]
+      end
     else
       channel_str = main.strip
-      parts = ColorCss.split_top_level(channel_str)
-      parts = parts.size > 1 ? parts : channel_str.split(/\s+/)
+      comma_parts = ColorCss.split_top_level(channel_str)
+      parts = comma_parts.size > 1 ? comma_parts : split_ws_top_level(channel_str)
       parts = parts.map(&:strip).reject(&:empty?)
-      [ parts, alpha_part.strip ]
+      [ parts, alpha_part.strip, comma_parts.size > 1 ]
     end
   end
 
@@ -409,63 +478,135 @@ module ColorValue
     tokens.compact.any? { |t| t.match?(/\Anone\z/i) }
   end
 
-  def parse_rgb_function(args)
+  def invalid_value(args)
+    Result.new(color: nil, reason: "unrecognized color value: #{args.to_s.strip[0, 40]}")
+  end
+
+  # Substitutes var() in a raw channel/alpha token (before parsing it as a
+  # number), returning [substituted_text, error_reason].
+  def resolve_channel_text(token, decls, seen)
+    substitute_var_token(token, decls, seen)
+  end
+
+  def parse_rgb_function(args, decls, seen)
     unsupported = unsupported_form(args)
     return unsupported if unsupported
 
-    channels, alpha_tok = extract_channels_and_alpha(args)
-    return Result.new(color: nil, reason: "unrecognized color value: #{args[0, 40]}") unless channels.size == 3
+    channels, alpha_tok, legacy = extract_channels_and_alpha(args)
+    return invalid_value(args) unless channels.size == 3
     return Result.new(color: nil, reason: 'none channel is not supported') if none_token?(channels + [ alpha_tok ])
 
-    r = parse_channel(channels[0])
-    g = parse_channel(channels[1])
-    b = parse_channel(channels[2])
-    a = alpha_tok ? parse_alpha(alpha_tok) : 1.0
+    texts = []
+    channels.each do |ch|
+      text, err = resolve_channel_text(ch, decls, seen)
+      return Result.new(color: nil, reason: err) if err
+
+      texts << text
+    end
+
+    parsed = texts.map { |t| parse_channel(t) }
+    return invalid_value(args) if parsed.any?(&:nil?)
+
+    if legacy && parsed.map(&:last).uniq.size > 1
+      return Result.new(color: nil, reason: 'rgb() channels must be all numbers or all percentages')
+    end
+
+    r, g, b = parsed.map(&:first)
+
+    a = 1.0
+    if alpha_tok
+      alpha_text, err = resolve_channel_text(alpha_tok, decls, seen)
+      return Result.new(color: nil, reason: err) if err
+
+      a = parse_alpha(alpha_text)
+      return invalid_value(args) unless a
+    end
+
     Result.new(color: Rgba.new(r:, g:, b:, a:), reason: nil)
   end
 
-  def parse_hsl_function(args)
+  def parse_hsl_function(args, decls, seen)
     unsupported = unsupported_form(args)
     return unsupported if unsupported
 
-    channels, alpha_tok = extract_channels_and_alpha(args)
-    return Result.new(color: nil, reason: "unrecognized color value: #{args[0, 40]}") unless channels.size == 3
+    channels, alpha_tok, = extract_channels_and_alpha(args)
+    return invalid_value(args) unless channels.size == 3
     return Result.new(color: nil, reason: 'none channel is not supported') if none_token?(channels + [ alpha_tok ])
 
-    h = parse_hue(channels[0])
-    s = parse_percent_fraction(channels[1])
-    l = parse_percent_fraction(channels[2])
-    a = alpha_tok ? parse_alpha(alpha_tok) : 1.0
+    hue_text, err = resolve_channel_text(channels[0], decls, seen)
+    return Result.new(color: nil, reason: err) if err
+
+    h = parse_hue(hue_text)
+    return Result.new(color: nil, reason: "invalid hue: #{hue_text.strip[0, 40]}") unless h
+
+    s_text, err = resolve_channel_text(channels[1], decls, seen)
+    return Result.new(color: nil, reason: err) if err
+
+    s = parse_percent_fraction(s_text)
+    return invalid_value(args) unless s
+
+    l_text, err = resolve_channel_text(channels[2], decls, seen)
+    return Result.new(color: nil, reason: err) if err
+
+    l = parse_percent_fraction(l_text)
+    return invalid_value(args) unless l
+
+    a = 1.0
+    if alpha_tok
+      alpha_text, err = resolve_channel_text(alpha_tok, decls, seen)
+      return Result.new(color: nil, reason: err) if err
+
+      a = parse_alpha(alpha_text)
+      return invalid_value(args) unless a
+    end
 
     r, g, b = hsl_to_rgb(h, s, l)
     Result.new(color: Rgba.new(r:, g:, b:, a:), reason: nil)
   end
 
-  def parse_hue(token)
-    t = token.strip
-    if (m = t.match(/\A([+-]?[\d.]+)deg\z/i))
-      m[1].to_f
-    else
-      t.to_f
+  # Hue accepts a bare number (treated as deg) or an explicit angle unit;
+  # anything else is not a valid hue and must not silently become 0.
+  def parse_hue(text)
+    t = text.to_s.strip
+    m = t.match(/\A(#{NUMBER_RE})(deg|grad|rad|turn)?\z/i)
+    return nil unless m
+
+    num = m[1].to_f
+    case m[2]&.downcase
+    when 'grad' then num * 0.9
+    when 'rad' then (num * 180.0) / Math::PI
+    when 'turn' then num * 360.0
+    else num
     end
   end
 
-  def parse_percent_fraction(token)
-    t = token.strip
-    n = t.end_with?('%') ? t[0..-2].to_f : t.to_f
-    (n / 100.0).clamp(0.0, 1.0)
+  # Saturation and lightness must be percentages; a bare number here is
+  # invalid CSS, not a 0..1 fraction to guess at.
+  def parse_percent_fraction(text)
+    pct = parse_percentage(text.to_s.strip)
+    return nil unless pct
+
+    (pct / 100.0).clamp(0.0, 1.0)
   end
 
-  def parse_channel(token)
-    t = token.strip
-    n = t.end_with?('%') ? (t[0..-2].to_f / 100.0 * 255.0) : t.to_f
-    n.round.clamp(0, 255)
+  # Returns [value 0..255, :num|:pct], or nil if text is not a valid number
+  # or percentage.
+  def parse_channel(text)
+    t = text.to_s.strip
+    if (pct = parse_percentage(t))
+      [ (pct / 100.0 * 255.0).round.clamp(0, 255), :pct ]
+    elsif (n = parse_number(t))
+      [ n.round.clamp(0, 255), :num ]
+    end
   end
 
-  def parse_alpha(token)
-    t = token.strip
-    n = t.end_with?('%') ? (t[0..-2].to_f / 100.0) : t.to_f
-    n.clamp(0.0, 1.0)
+  def parse_alpha(text)
+    t = text.to_s.strip
+    if (pct = parse_percentage(t))
+      (pct / 100.0).clamp(0.0, 1.0)
+    elsif (n = parse_number(t))
+      n.clamp(0.0, 1.0)
+    end
   end
 
   def hsl_to_rgb(h, s, l)

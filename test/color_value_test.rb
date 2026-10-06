@@ -180,9 +180,15 @@ class ColorValueTest < Minitest::Test
     assert_includes reason, "--a"
   end
 
-  def test_var_cycle_with_fallback_uses_fallback
+  # Per CSS Variables, a custom property that is part of a var() cycle is
+  # guaranteed-invalid at computed-value time regardless of any fallback
+  # written on a var() reference inside that cycle: the fallback rescues an
+  # undefined name, never a cyclic one. A self-reference is a one-node cycle.
+  def test_var_self_reference_with_fallback_is_still_a_cycle
     decls = { "--a" => "var(--a, #123456)" }
-    assert_rgba 0x12, 0x34, 0x56, resolved("var(--a)", decls)
+    reason = unresolved("var(--a)", decls)
+    assert_includes reason, "cycle"
+    assert_includes reason, "--a"
   end
 
   def test_var_cycle_never_raises

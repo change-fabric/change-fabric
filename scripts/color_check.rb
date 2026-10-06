@@ -276,7 +276,7 @@ module ColorCheck
     decls = variant.decls
     context = variant.contexts.join(' | ')
     bg_name = BG_EXACT.find { |n| decls.key?(n) } || decls.keys.find { |n| n.match?(BG_NAME) }
-    bg_result = bg_name ? ColorValue.resolve(decls[bg_name], decls) : nil
+    bg_result = bg_name ? ColorValue.resolve(decls[bg_name], decls, seen: Set[bg_name]) : nil
     bg_color = bg_result&.color ? ColorValue.flatten(bg_result.color, over: ColorValue::WHITE) : nil
 
     decls.each_key.select { |n| ColorThemes.text_role_name?(n) }.map do |name|
@@ -292,7 +292,7 @@ module ColorCheck
     base_match = name.match(/\A(--[\w-]+)-text\z/)
     if base_match && decls.key?(base_match[1])
       pair_bg_name = base_match[1]
-      base_result = ColorValue.resolve(decls[pair_bg_name], decls)
+      base_result = ColorValue.resolve(decls[pair_bg_name], decls, seen: Set[pair_bg_name])
       if base_result.color
         pair_bg_color = ColorValue.flatten(base_result.color, over: bg_color || ColorValue::WHITE)
         pair_bg_reason = nil
@@ -313,7 +313,7 @@ module ColorCheck
   end
 
   def build_contrast_pair(theme, context, name, raw_value, decls, bg_name, bg_color, bg_reason)
-    text_result = ColorValue.resolve(raw_value, decls)
+    text_result = ColorValue.resolve(raw_value, decls, seen: Set[name])
     if text_result.color && bg_color
       text_color = ColorValue.flatten(text_result.color, over: bg_color)
       ratio = ColorValue.contrast_ratio(text_color, bg_color)
