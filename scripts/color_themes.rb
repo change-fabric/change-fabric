@@ -310,6 +310,12 @@ module ColorThemes
       end
     end
 
+    # A layer block's opening is its first mention even when the block is
+    # empty ("@layer a {}"), so it is registered at its "@layer" position.
+    sheet.layer_blocks.each do |blk|
+      register_path(events, blk.pos, 0, layer_path_for(blk.at_rules))
+    end
+
     sheet.decls.each do |decl|
       register_path(events, decl.pos, Float::INFINITY, layer_path_for(decl.at_rules))
     end

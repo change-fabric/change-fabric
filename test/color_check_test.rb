@@ -952,6 +952,38 @@ class ColorCheckTest < Minitest::Test
     assert_equal [ [ "--a", 1 ], [ "--c", 8 ] ], sheet.decls.map { |d| [ d.name, d.line ] }
   end
 
+  # style_block_sheet parses every <style> block through one parser, so no
+  # per-parse identity or ordering field is lost or collides when blocks
+  # join: rule ids, layer block openings (empty ones included), anonymous
+  # layers, and a media= frame all hold across every block shape.
+  def test_style_blocks_share_one_parse_across_every_per_parse_field
+    blocks = [
+      "<style>.dark{--a:#000}</style>",
+      "<style>.x{color:red}</style>",
+      "<style media=\"(prefers-color-scheme: dark)\">.y{--b:#111}.z{color:blue}@layer m {}</style>",
+      "<style></style>",
+      "<style lang=\"scss\">.p{.q{--c:#222}}</style>",
+      "<style>@layer a {} @layer {} @layer {}</style>",
+      "<style>@layer b { :root{--text:#000} } @layer a { :root{--text:#fff} }</style>",
+      "<style>.open{--u:#333</style>",
+      "<style>.after{--v:#444}</style>"
+    ]
+    sheet = ColorCheck.style_block_sheet(blocks.join("\n"))
+    by_rule = sheet.decls.group_by(&:rule_id)
+    by_rule.each_value { |ds| assert_equal 1, ds.map(&:selectors).uniq.size, ds.map(&:name).inspect }
+    assert_equal 9, by_rule.size
+    dark_id = sheet.decls.find { |d| d.name == "--a" }.rule_id
+    assert ColorThemes.rule_custom_only_map(sheet.decls)[dark_id]
+
+    layers = sheet.layer_blocks
+    assert_equal 2, layers.count { |l| l.prelude.start_with?("%anon-") }
+    assert_equal 2, layers.map(&:prelude).grep(/%anon-/).uniq.size
+    assert_equal [ "@media (prefers-color-scheme: dark)", "@layer m" ], layers.find { |l| l.prelude == "m" }.at_rules
+    assert_equal [], sheet.decls.find { |d| d.name == "--v" }.at_rules
+    assert_equal [ ".after" ], sheet.decls.find { |d| d.name == "--v" }.selectors
+    assert_equal 1, sheet.errors.size
+  end
+
   def test_multiline_token_declaration_is_exempt_and_lines_stay_correct
     with_dir do |dir|
       css = FOUR_COLOR_TOKENS + ":root {\n  --brand:\n    #123456;\n}\n.x { color: #abcdef; }\n"

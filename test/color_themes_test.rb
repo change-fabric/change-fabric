@@ -263,7 +263,14 @@ class ColorThemesTest < Minitest::Test
       "@layer a { :root {--text:#000} } @import url(x.css) layer(b); @layer b { :root {--text:#fff} }" => "#fff",
       "@layer p { @layer a { :root {--text:#000} } @layer b { :root {--text:#fff} } @layer b, a; }" => "#fff",
       "@layer p { @layer b, a; @layer a { :root {--text:#000} } @layer b { :root {--text:#fff} } }" => "#000",
-      "@layer a.b; @layer c { :root {--text:#fff} } @layer a { :root {--text:#000} }" => "#fff"
+      "@layer a.b; @layer c { :root {--text:#fff} } @layer a { :root {--text:#000} }" => "#fff",
+      # An empty first block still fixes order, in every block shape.
+      "@layer a {} @layer b { :root {--text:#000} } @layer a { :root {--text:#fff} }" => "#000",
+      "@layer a { } @layer b { :root {--text:#000} } @layer a { :root {--text:#fff} }" => "#000",
+      "@layer a.x {} @layer b { :root {--text:#000} } @layer a { :root {--text:#fff} }" => "#000",
+      "@layer a { @layer x {} } @layer b { :root {--text:#000} } @layer a { :root {--text:#fff} }" => "#000",
+      "@layer a { .n { } } @layer b { :root {--text:#000} } @layer a { :root {--text:#fff} }" => "#000",
+      "@layer p { @layer a {} @layer b { :root {--text:#000} } @layer a { :root {--text:#fff} } }" => "#000"
     }
     cases.each do |css, want|
       assert_equal want, variant_for(build(css), "default").decls["--text"], css

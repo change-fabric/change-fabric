@@ -119,29 +119,17 @@ module ColorCheck
   # <style media="(prefers-color-scheme: dark)"> block is scoped to dark
   # instead of merging into the unconditional base.
   def style_block_sheet(text)
-    decls = []
-    at_rule_stmts = []
-    errors = []
-    ColorMarkup.each_node(text).grep(ColorMarkup::Style).each do |style|
+    blocks = ColorMarkup.each_node(text).grep(ColorMarkup::Style).map do |style|
       lang = style.lang&.[](/\A(scss|less)/i, 1)
-      dialect = lang ? lang.downcase.to_sym : :css
       media = style.media
-      line_offset = text[0...style.pos].count("\n")
-      sub = ColorCss.parse(style.body, dialect:, line_offset:, pos_offset: style.pos)
-      sub_decls = sub.decls
-      sub_stmts = sub.at_rule_stmts
-      if media && !media.strip.empty?
-        frame = "@media #{media.strip}".gsub(/\s+/, ' ')
-        sub_decls = sub_decls.map { |d| d.with(at_rules: [ frame ] + d.at_rules) }
-        sub_stmts = sub_stmts.map { |a| a.with(at_rules: [ frame ] + a.at_rules) }
-      end
-      decls.concat(sub_decls)
-      at_rule_stmts.concat(sub_stmts)
-      errors.concat(sub.errors)
+      at_rules = media && !media.strip.empty? ? [ "@media #{media.strip}".gsub(/\s+/, ' ') ] : []
+      ColorCss::Block.new(text: style.body, dialect: lang ? lang.downcase.to_sym : :css,
+                          line_offset: text[0...style.pos].count("\n"), pos_offset: style.pos, at_rules:)
     end
-    return nil if decls.empty? && at_rule_stmts.empty? && errors.empty?
+    sheet = ColorCss.parse_blocks(blocks)
+    return nil if sheet.decls.empty? && sheet.at_rule_stmts.empty? && sheet.errors.empty?
 
-    ColorCss::Sheet.new(decls:, at_rule_stmts:, errors:)
+    sheet
   end
 
   def token_like?(value)

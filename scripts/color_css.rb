@@ -27,7 +27,22 @@ module ColorCss
   Decl = Data.define(:name, :value, :important, :line, :value_line, :selectors, :parents, :at_rules, :rule_id, :pos,
                      :scan_value)
   AtRule = Data.define(:name, :prelude, :line, :at_rules, :pos) # block-less: @apply, @import
-  Sheet = Data.define(:decls, :at_rule_stmts, :errors) # errors: [String] diagnostics, never raised
+  # layer_blocks: one AtRule per "@layer" block opening (empty or not), whose
+  # at_rules include that block's own frame, so a consumer can order cascade
+  # layers by first mention even when a layer's first block declares nothing.
+  Sheet = Data.define(:decls, :at_rule_stmts, :errors, :layer_blocks) do # errors: [String] diagnostics, never raised
+    def initialize(decls:, at_rule_stmts:, errors:, layer_blocks: [])
+      super
+    end
+  end
+  # One separately located chunk of CSS (a <style> body inside markup).
+  # at_rules: synthetic enclosing at-rule frames, such as a style tag's
+  # media= as "@media <value>", seeded under everything the chunk opens.
+  Block = Data.define(:text, :dialect, :line_offset, :pos_offset, :at_rules) do
+    def initialize(text:, dialect: :css, line_offset: 0, pos_offset: 0, at_rules: [])
+      super
+    end
+  end
 
   DECL_NAME = /\A(\s*)(--[\w-]+|\$[\w-]+|@[\w-]+|-?[A-Za-z][\w-]*)(\s*):(.*)\z/m.freeze
   AT_RULE_STMT = /\A(\s*)(@[\w-]+)(\s*)(.*)\z/m.freeze
@@ -38,7 +53,18 @@ module ColorCss
   # Tokenizes text into a Sheet. dialect is :css, :scss or :less; line_offset
   # is added to every reported line (used for <style> blocks inside markup).
   def parse(text, dialect: :css, line_offset: 0, pos_offset: 0)
-    Parser.new(text, dialect: dialect, line_offset: line_offset, pos_offset: pos_offset).parse
+    parse_blocks([ Block.new(text:, dialect:, line_offset:, pos_offset:) ])
+  end
+
+  # Parses several Blocks into one Sheet through a single Parser, so every
+  # per-parse identity (rule ids, layer block records, frame contexts) is
+  # assigned once across the whole document instead of being stitched
+  # together after the fact. Lexical state resets between blocks; an
+  # unclosed block in one chunk never leaks into the next.
+  def parse_blocks(blocks)
+    parser = Parser.new('', dialect: :css, line_offset: 0)
+    blocks.each { |b| parser.feed(b.text, dialect: b.dialect, line_offset: b.line_offset, pos_offset: b.pos_offset, at_rules: b.at_rules) }
+    parser.sheet
   end
 
   # The scan mask of a bare value outside any declaration (an attribute such
@@ -100,29 +126,29 @@ module ColorCss
     Frame = Struct.new(:kind, :selectors, :rule_id, :text, keyword_init: true)
 
     def initialize(text, dialect:, line_offset:, pos_offset: 0, value_mode: false)
-      @scanner = StringScanner.new(text)
-      @dialect = dialect
-      @line_offset = line_offset
-      @pos_offset = pos_offset
       @decls = []
       @at_rule_stmts = []
+      @layer_blocks = []
       @errors = []
-      @frames = []
-      @paren_depth = 0
-      @paren_is_url = []
       @next_rule_id = 1
-      @line = 1
-      @segment = +''
-      @mask = +''
       @value_mode = value_mode
-      @segment_start_line = 1
-      @interp_depth = 0
+      reset_lexical(text, dialect:, line_offset:, pos_offset:)
     end
 
-    def parse
+    # Scans one chunk into this parser's shared output. Document-wide state
+    # (rule id counter, decls, statements, layer blocks, errors) carries
+    # over; lexical state starts fresh, under the given enclosing frames.
+    def feed(text, dialect:, line_offset:, pos_offset:, at_rules: [])
+      reset_lexical(text, dialect:, line_offset:, pos_offset:)
+      at_rules.each { |t| @frames << Frame.new(kind: :at_rule, selectors: nil, rule_id: nil, text: t) }
+      @seeded_frames = at_rules.size
       scan_one until @scanner.eos?
       flush_at_eof
-      ColorCss::Sheet.new(decls: @decls, at_rule_stmts: @at_rule_stmts, errors: @errors)
+      self
+    end
+
+    def sheet
+      ColorCss::Sheet.new(decls: @decls, at_rule_stmts: @at_rule_stmts, errors: @errors, layer_blocks: @layer_blocks)
     end
 
     def value_mask
@@ -131,6 +157,22 @@ module ColorCss
     end
 
     private
+
+    def reset_lexical(text, dialect:, line_offset:, pos_offset:)
+      @scanner = StringScanner.new(text)
+      @dialect = dialect
+      @line_offset = line_offset
+      @pos_offset = pos_offset
+      @frames = []
+      @seeded_frames = 0
+      @paren_depth = 0
+      @paren_is_url = []
+      @line = 1
+      @segment = +''
+      @mask = +''
+      @segment_start_line = 1
+      @interp_depth = 0
+    end
 
     def scan_one
       if (text = @scanner.scan(/[^\/'"();{}]+/))
@@ -324,6 +366,7 @@ module ColorCss
           text = "@layer %anon-#{prelude_pos(prelude)}"
         end
         @frames << Frame.new(kind: :at_rule, selectors: nil, rule_id: nil, text:)
+        record_layer_block(prelude) if text.match?(/\A@layer\b/i)
       else
         rule_id = @next_rule_id
         @next_rule_id += 1
@@ -332,8 +375,13 @@ module ColorCss
       end
     end
 
+    def record_layer_block(prelude)
+      @layer_blocks << AtRule.new(name: '@layer', prelude: @frames.last.text.sub(/\A@layer\s*/i, ''),
+                                  line: @line + @line_offset, at_rules: current_context[2], pos: prelude_pos(prelude))
+    end
+
     def close_block
-      if @frames.empty?
+      if @frames.size <= @seeded_frames
         @errors << "unmatched } (line #{@line + @line_offset})"
       else
         @frames.pop
@@ -403,7 +451,8 @@ module ColorCss
 
     def flush_at_eof
       flush_segment_as_decl_or_at_rule
-      @errors << "unexpected end of input with #{@frames.size} open block(s)" if @frames.any?
+      open = @frames.size - @seeded_frames
+      @errors << "unexpected end of input with #{open} open block(s)" if open.positive?
     end
 
     def collapse_ws(str)
