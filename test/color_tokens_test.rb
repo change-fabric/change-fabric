@@ -216,6 +216,13 @@ class ColorTokensTest < Minitest::Test
     assert_equal "0.5rem", result.variants[:light]["--radius"]
   end
 
+  def test_unresolved_literal_forms_are_not_authored
+    %w[rgb(calc(1+2),0,0) rgba(none,0,0) hsl(calc(10deg),50%,50%) hsla(0,50%,50%,calc(1)) rgb(1,2) hsl(foo) rgb()].each do |v|
+      result = ok(":root{--a:#000;--b:#111;--c:#222;--d:#333;--e:#{v}}")
+      assert_equal 4, result.authored.size, v
+    end
+  end
+
   def test_same_authored_color_counts_once
     result = ok(":root{--a:#000;--b:#000}\n.dark{--a:#000}")
     assert_equal [ { value: "#000", names: %w[--a --b], line: 1 } ], result.authored

@@ -296,11 +296,12 @@ module ColorTokens
       error(authored[TARGET][:line], "palette has #{authored.size} authored colors; target is #{TARGET} plus optional #{ERROR_TOKEN}")
     end
 
-    # Hex, rgb()/rgba(), hsl()/hsla() and named colors. Other color functions
-    # (oklch() and the like) are left to contrast, which reports them
-    # unresolved.
+    # Hex, rgb()/rgba(), hsl()/hsla() and named colors that the resolver
+    # actually turns into a color. Anything it reports unresolved (oklch(),
+    # calc() or `none` channels, malformed arguments) is left to contrast,
+    # so it never counts toward the palette.
     def authored?(value)
-      ColorValue.literal?(value) && !value.strip.match?(/\A(?!rgba?\(|hsla?\()[\w-]+\(/i)
+      ColorValue.literal?(value) && !ColorValue.resolve(value, {}).color.nil?
     end
 
     def normalize(value)
