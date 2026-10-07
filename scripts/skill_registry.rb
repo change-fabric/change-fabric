@@ -116,9 +116,7 @@ module SkillRegistry
       return false unless required?(dir)
       return true if all_files? || all_code?
 
-      detect.any? do |pattern|
-        Dir.glob(File.join(dir, pattern)).any? { |path| !dependency_path?(dir, path) }
-      end
+      marker?(dir, detect)
     end
 
     private
@@ -145,7 +143,7 @@ module SkillRegistry
     # `exclude` (every skill today) is always false, preserving behavior.
     # Installed dependency trees ship their own manifests (a bootstrap package's
     # composer.json under node_modules, a Laravel package's artisan under vendor),
-    # so a recursive detect glob must not count a match inside one.
+    # so a recursive detect, require, or exclude glob must not count a match inside one.
     DEPENDENCY_DIRS = %w[node_modules vendor].freeze
 
     def dependency_path?(dir, path)
@@ -180,7 +178,9 @@ module SkillRegistry
 
     # True when any glob in `patterns` matches a file present under `dir`.
     def marker?(dir, patterns)
-      patterns.any? { |pattern| Dir.glob(File.join(dir, pattern)).any? }
+      patterns.any? do |pattern|
+        Dir.glob(File.join(dir, pattern)).any? { |path| !dependency_path?(dir, path) }
+      end
     end
 
     def extensions = Array(@auto['extensions']).map { |e| e.to_s.downcase }

@@ -86,4 +86,12 @@ class SkillPhpLaravelGateTest < Minitest::Test
       end
     end
   end
+
+  def test_laravel_require_gate_ignores_artisan_inside_vendor
+    dir = project_with("vendor/acme/pkg/artisan")
+    File.write(File.join(dir, "composer.json"), "{}")
+    refute shipped("cf:laravel").send(:required?, dir), "a vendored artisan satisfied the require gate"
+  ensure
+    FileUtils.remove_entry(dir) if dir
+  end
 end
