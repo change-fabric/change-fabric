@@ -41,3 +41,7 @@ a dead branch, the exact rubric move a matched skill names) and touches
 only the lines already in the diff. Never suggest a diff for anything
 needing a judgment call, multiple files, or unclear intent; omit
 `suggestion` from the finding instead.
+
+A second round (see `second-round.md`) posts one consolidated review body
+rendered by `render_round_review.rb` plus inline comments for P1 findings
+only. P2 and P3 findings fold into that body.

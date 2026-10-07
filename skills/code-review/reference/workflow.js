@@ -1,10 +1,10 @@
-// pst:code-review Workflow script. Pass this file's contents verbatim as
+// cf:code-review Workflow script. Pass this file's contents verbatim as
 // Workflow's `script` argument; do not paraphrase, summarize, or edit it in
 // transit. It owns everything the old per-step Agent instructions used to
 // describe by hand: sharding, model tiers, background/parallel dispatch, the
 // P1 double-check, and the dedupe/rank/cap that turns raw candidates into
 // `posted`. Comment text and the actual PR post stay outside it (SKILL.md's
-// step 3 and 4), since posting needs a human ask this script has no tool to
+// steps 3 and 4), since posting is a GitHub call this script has no tool to
 // make.
 //
 // For maintainers: this script's own logic is documented inline below. For
@@ -35,7 +35,7 @@
 //                                     red, auto-apply-diff finding.
 
 export const meta = {
-  name: "pst-code-review-scope",
+  name: "cf-code-review-scope",
   description: "Shard, find, worktree-verify, and rank code review findings for one scope",
   phases: [
     { title: "Shard" },
@@ -143,7 +143,16 @@ if (files.length <= shardThreshold) {
     "name, a one-line rationale, and its file list.\n\nFiles:\n" + files.join("\n"),
     { model: "opus", phase: "Shard", schema: SHARD_SCHEMA }
   )
-  shards = map.shards
+  // Row 34: a null Shard result must not throw. One shard holding every
+  // file is always a safe, if coarse, fallback.
+  shards = (map && map.shards) ? map.shards : [ { name: "scope", files: files, rationale: "shard agent returned null or incomplete" } ]
+}
+// Row 36: a non-null map that drops files from every shard must not lose
+// those files from review. Leftover files become their own shard.
+const shardedFiles = new Set(shards.flatMap((s) => s.files))
+const leftover = files.filter((f) => !shardedFiles.has(f))
+if (leftover.length > 0) {
+  shards = shards.concat([ { name: "leftover", files: leftover, rationale: "omitted by the shard map" } ])
 }
 log(shards.length + " shard(s): " + shards.map((s) => s.name + " (" + s.files.length + ")").join(", "))
 
@@ -159,7 +168,12 @@ const shardResults = await pipeline(
         "vague quality note.\n\nFiles:\n" + shard.files.join("\n"),
         { phase: "Find", label: shard.name, schema: CANDIDATES_SCHEMA }
       )
-      return { shard: shard, candidates: found.candidates }
+      // Row 34/35: a null Find result must not throw, and must never pass
+      // for a complete review of this shard.
+      if (!found || !found.candidates) {
+        return { shard: shard, candidates: [], incomplete: true }
+      }
+      return { shard: shard, candidates: found.candidates, incomplete: false }
     }
     const lensResults = await parallel([
       () => agent(
@@ -174,8 +188,12 @@ const shardResults = await pipeline(
         { phase: "Find", label: shard.name + ":general", schema: CANDIDATES_SCHEMA }
       )
     ])
-    const candidates = lensResults.filter(Boolean).flatMap((r) => r.candidates)
-    return { shard: shard, candidates: candidates }
+    // Row 35: one lens coming back null, or with no `candidates`, must mark
+    // the shard incomplete instead of silently reviewing it with just the
+    // surviving lens.
+    const incomplete = lensResults.some((r) => !r || !r.candidates)
+    const candidates = lensResults.filter((r) => r && r.candidates).flatMap((r) => r.candidates)
+    return { shard: shard, candidates: candidates, incomplete: incomplete }
   },
   async (found) => {
     const seenKeys = new Set()
@@ -192,14 +210,17 @@ const shardResults = await pipeline(
         " - " + c.scenario + ". Reproduce with a failing test, an actual invocation, " +
         "or by applying a refactor and confirming behavior holds; do not just re-read the code " +
         "and agree. If it survives, also write a title: an imperative one-line headline under " +
-        "60 characters naming what is wrong (e.g. 'Missing pst:ctx row in Command skills table'). " +
+        "60 characters naming what is wrong (e.g. 'Missing cf:ctx row in Command skills table'). " +
         "The title states what is wrong; it must not restate the scenario's detail or repeat its " +
         "wording, since both are posted together under one character budget.",
         { phase: "Verify", label: locKey(c), schema: VERDICT_SCHEMA }
       ).then((v) => (v ? { ...c, ...v } : null))
     ))
     const survivors = verified.filter(Boolean).filter((f) => f.reproduced)
-    return { shard: found.shard, findings: survivors }
+    // A null Verify result is an unchecked candidate, not a refuted one: the
+    // shard must not claim full coverage when any verdict is missing.
+    const verifyMissing = verified.some((v) => !v)
+    return { shard: found.shard, findings: survivors, incomplete: found.incomplete || verifyMissing }
   },
   async (verified) => {
     const p1s = verified.findings.filter((f) => f.tier === "P1")
@@ -217,7 +238,7 @@ const shardResults = await pipeline(
       const key = locKey(f)
       return confirmedKeys.has(key) ? f : { ...f, tier: "P2", suggestion: undefined }
     })
-    return { shard: verified.shard, findings: findings }
+    return { shard: verified.shard, findings: findings, incomplete: verified.incomplete }
   }
 )
 
@@ -231,8 +252,14 @@ const rank = { P1: 0, P2: 1, P3: 2 }
 const eligible = [ ...byKey.values() ].filter((f) => f.tier !== "P3" || f.suggestion)
 const ranked = eligible.sort((a, b) => rank[a.tier] - rank[b.tier])
 
+// Row 35: the result always states whether every shard was fully covered,
+// so a caller never posts findings while silently claiming completeness.
+const incompleteShards = shardResults.filter(Boolean).filter((r) => r.incomplete).map((r) => r.shard.name)
+
 return {
   shards: shards.map((s) => ({ name: s.name, files: s.files.length })),
   posted: ranked.slice(0, cap),
-  droppedForVolume: Math.max(0, ranked.length - cap)
+  droppedForVolume: Math.max(0, ranked.length - cap),
+  incomplete: incompleteShards.length > 0,
+  incompleteShards: incompleteShards
 }

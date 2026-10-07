@@ -88,7 +88,7 @@ class DriveThoroughTemplateTest < Minitest::Test
 
   def test_trigger_line_defaults_to_thorough
     trigger = skill_md[/^Trigger: .*\n.*$/]
-    assert_includes trigger, "`/cf:drive [thorough|quick] <PR url or change set> [--area <name>]`"
+    assert_includes trigger, "`/cf:drive [thorough|quick] <PR url or change set> [--area <name>] [--signoff]`"
     assert_match(/Mode defaults to `thorough`/, trigger)
   end
 

@@ -1,6 +1,6 @@
 ---
 name: cf:sweep
-description: Sweeps a repo's open feature pull requests and plans how to land them as a group, covering merge order, trial-merged conflict mitigations, terraform and migration sequencing, and a per-contributor trust policy persisted across runs. Reports only, lands with sign-off, or runs unattended under /loop to keep a development environment current.
+description: Sweeps a repo's open feature pull requests and plans how to land them as a group, covering merge order, trial-merged conflict mitigations, terraform and migration sequencing, and a per-contributor trust policy persisted across runs. Runs unattended by default, landing only what the trust policy and the merge mode allow; report and land modes and --signoff make it more conservative, and it suits /loop for keeping a development environment current.
 ---
 
 # CF Sweep
@@ -8,7 +8,7 @@ description: Sweeps a repo's open feature pull requests and plans how to land th
 Analyze every open feature pull request in the current repo as one set, then
 land them in an order that holds up.
 
-Trigger: `/cf:sweep [report|land|auto]`.
+Trigger: `/cf:sweep [report|land|auto] [--signoff]`.
 
 Question: if these PRs merge today, in what order do they land without
 breaking trunk, stranding an author in a doomed rebase, or applying a
@@ -68,10 +68,14 @@ eligibility gate excludes them.
 
 ## Contributor trust
 
-Whenever the in-scope set has more than one distinct PR author, the sweep
-needs a trust policy per non-primary contributor. The primary contributor is
+Whenever the in-scope set has any PR author other than the primary
+contributor, the sweep needs a trust policy per non-primary contributor, even
+when that author is the only one in the set. The primary contributor is
 the current git user (`git config user.email`, matched against PR authors via
-`gh api user --jq .login`); everyone else needs a recorded level.
+`gh api user --jq .login`); everyone else needs a recorded level. When either
+lookup fails (no `git config user.email`, or `gh api user` errors), there is
+no primary contributor to exempt: every in-scope author is treated as
+non-primary and needs a recorded level before auto mode runs.
 
 The decision is durable, not session-scoped. Unlike the cf merge mode, which
 `~/.claude/cf/sessions/<session_id>/merge-mode` deliberately scopes to one
@@ -120,27 +124,27 @@ non-away sweep re-asks that contributor as still unknown.
 ## Run mode
 
 Orthogonal to trust: trust is "do I believe this person's code", run mode is
-"how interactive is this run". Taken from the invocation argument when given,
-so an unattended loop never blocks on a question:
+"how interactive is this run". Taken from the invocation argument when given:
 
-- `report` (the default when a bare `/cf:sweep` runs non-interactively):
-  analyze and report, merge nothing.
+- `report`: analyze and report, merge nothing.
 - `land`: report, then drive and merge the eligible queue with one sign-off
   checkpoint before the first merge.
-- `auto`: no questions at all after any trust question; drive and merge
-  whatever the trust policy and the quality bar allow. This is the loop mode.
+- `auto` (the default): no questions at all after any trust question; drive
+  and merge whatever the trust policy and the quality bar allow. This is the
+  loop mode.
 
-With no argument on an interactive run, call `AskUserQuestion` once: header
-`Sweep mode`, options **Report only** (first, recommended), **Land with
-sign-off**, **Full auto**. This mirrors `cf:drive`'s step-0 sign-off question
-and is separate from it: `cf:drive` still runs under its own Full auto when
-invoked from here, because a sweep that stopped at two checkpoints per PR
-would not be a sweep.
+`auto` is the default whenever no mode word is given, interactive or not, away
+or not. Merge mode still gates every merge: under Merge ready step 7 still
+drives and pushes each queued PR but stops before merging, and the report
+names what it would have merged (see Merge mode and the change gate below).
 
-This interactivity check reads the away store: a session with away mode on is
-treated as non-interactive, so the question above is skipped and the run
-falls back to `report` automatically, the same as any other unattended
-invocation. No separate away-mode logic is needed here.
+`--signoff` with no mode word calls `AskUserQuestion` once: header `Sweep
+mode`, options **Report only** (first, recommended), **Land with sign-off**,
+**Full auto**. A mode word always wins over `--signoff`. A literal `full auto`
+maps to `auto`, with a one-line note that it is already the default. Under
+away mode `--signoff` is ignored and the run reports that it assumed `auto`.
+`cf:drive` still runs straight through when invoked from here, because a sweep
+that stopped at two checkpoints per PR would not be a sweep.
 
 ## Loop mode
 
@@ -158,19 +162,33 @@ of trunk after the last merge of a tick.
 
 ## Workflow
 
-0. **(SKILL.md)** Resolve the repo (`git rev-parse --show-toplevel`), the
+0. **(SKILL.md)** Identify the repo (`git rev-parse --show-toplevel`), the
    protected chain, and trunk, per Scope above. `git fetch origin` so
-   behind-trunk counts and trial merges are against the real trunk.
-1. **(SKILL.md)** List open PRs:
-   `gh pr list --state open --limit 100 --json number,title,url,author,headRefName,baseRefName,headRefOid,isDraft,mergeable,mergeStateStatus,updatedAt`.
-   Partition into release PRs (dropped), feature PRs (the sweep set), and
-   stacked PRs (constraints only). If the sweep set is empty, report that and
-   stop; do not call the Workflow.
-2. **(SKILL.md)** Trust, per Contributor trust above: run `unknown`, ask only
+   behind-trunk counts and trial-merge checks are against the real trunk
+   [SW-3].
+1. **(SKILL.md)** [SW-6] List open PRs: `gh pr list --state open --limit 101
+   --json number,title,url,author,headRefName,baseRefName,headRefOid,isDraft,mergeable,mergeStateStatus,updatedAt`,
+   one above the 100-PR cap this sweep plans against (`--limit` is a hard
+   ceiling on what `gh pr list` returns, default 30), so a full page is
+   detectable instead of looking identical to a complete list.
+   101 results back means the repo has more open PRs than fit in one page and
+   the set in hand is truncated; a truncated set can only ever yield a wrong
+   landing order, since the Workflow would be sequencing against PRs it never
+   saw. Drop mode to `report` regardless of the requested mode, say the cap
+   was hit and by how many (count open PRs with `gh pr list --state open
+   --limit 9999 --json number --jq length`, since without a high `--limit`
+   it stops at 30; do not re-run the fields query a second time),
+   and hold every PR gathered rather than computing any order from the
+   partial set [SW-6]. Fewer than 101 results is the complete list; proceed
+   as normal. Partition into release PRs (dropped), feature PRs (the sweep
+   set), and stacked PRs (constraints only). If the sweep set is empty,
+   report that and stop; do not call the Workflow.
+2. **(SKILL.md)** [SW-1] Trust, per Contributor trust above: run `unknown`, ask only
    about what it returns, `set` each answer, then `show` for the full map.
-   Skip entirely when the set has one distinct author.
+   Skip only when every in-scope author is the primary contributor; a sole
+   external author still gets a recorded level before auto mode runs.
 3. **(SKILL.md)** Run mode, per Run mode above.
-4. **(One `Workflow` call)** Read `reference/workflow.js` and pass its
+4. **(One `Workflow` call)** [SW-1][SW-3] Read `reference/workflow.js` and pass its
    contents verbatim as `script`, with
    `args: { repoPath, trunk, protectedBranches, prs, trust, mode, changeConfigSummary }`.
    It gathers each PR's facts in parallel, computes the overlapping file sets
@@ -184,20 +202,35 @@ of trunk after the last merge of a tick.
    Under `report` mode this is the end of the run.
 6. **(SKILL.md, `land` mode only)** Landing checkpoint: one summary, at most
    640 characters, one go/no-go for the whole queue. Under `auto`, skip it.
-7. **(SKILL.md, `land` and `auto`)** Walk `autoMergeQueue` in order. For each
+7. **(SKILL.md, `land` and `auto`)** [SW-2][SW-4][SW-5] Walk `autoMergeQueue` in order. For each
    PR: post any `warnAuthor` comment first (a warning after the rebase is
    wasted), then invoke `/cf:drive quick` against the PR (the bare form is
-   thorough, which plans instead of landing), instructing it inline to run
-   in its own Full auto mode. For a `low` trust PR (`requiresStrictReview`),
-   additionally require the `cf:change` comprehensive run to have passed for
-   the head SHA before merging, not just CI green. Merge, then re-fetch trunk
-   before the next PR: the next PR's mergeability changed the moment this one
-   landed. If a merge fails or `cf:drive` cannot reach green, stop the queue,
-   report, and leave the rest for the next sweep; do not skip ahead, because
-   the order was computed as a sequence.
-8. **(SKILL.md)** After the last merge, report what landed, what is left, and
+   thorough, which plans instead of landing), with the inline instruction
+   `nested under cf:sweep` (cf:drive runs straight through by default; the
+   instruction makes a recurrence stop record a pointer instead of starting
+   cf:plan). When the plan's action is `rebase_then_merge`, that instruction
+   also tells drive to rebase the branch (on trunk or on the earlier PR the
+   order names) before driving it, and drive pushes the rebase to the
+   contributor's own branch; sweep never rebases or pushes by itself. Read
+   drive's emitted `drive-result` block (`ciGreen`, `headSha`, `stoppedReason`)
+   rather than inferring state from its prose; merge only when `ciGreen` is
+   true, `headSha` matches the PR's current head, and `stoppedReason` is
+   absent, regardless of whether drive approved (drive may skip approval on
+   its own PR, which is not a reason to withhold the merge). For a `low`
+   trust PR (`requiresStrictReview`), the nested instruction forces drive's
+   `cf:change` lane on regardless of drive's own relevance call, and merging
+   additionally requires a passing comprehensive `cf:change` run recorded for
+   the head SHA; a missing record holds the PR rather than merging on CI
+   green alone. Merge, then re-fetch trunk before the
+   next PR: the next PR's mergeability changed the moment this one landed. If
+   a merge fails, `cf:drive`'s `drive-result` reports `stoppedReason`, or it
+   stops on recurrence, stop the queue, report, and leave the rest for the next
+   sweep; do not skip
+   ahead, because the order was computed as a sequence.
+8. **(SKILL.md)** [SW-2] After the last merge, report what landed, what is left, and
    any gate (a `terraform apply`, a breaking migration) still waiting on a
-   human.
+   human. Name any pending root-cause plan (its ctx pointer and `/cf:plan`
+   command) first in the report.
 
 ## Merge mode and the change gate
 
@@ -224,6 +257,17 @@ This skill never runs `terraform plan` or `terraform apply`, and never runs a
 migration. It names the step, orders the PRs around it, and holds the PRs that
 depend on it until a human reports it done.
 
+## Unattended gates
+
+| ID | Action | Requires | When unmet |
+|---|---|---|---|
+| SW-1 | Ask, or silently apply, a trust level | Author known by gh login; one primary-contributor-only set skips the question | Unknown author is blocked, never standard |
+| SW-2 | Merge a queued PR | Drive's `drive-result` block: `ciGreen && headSha` matches the PR's current head `&& !stoppedReason` | Hold; never merge on approval or prose alone |
+| SW-3 | Add a PR to `autoMergeQueue` | No conflict, `mergeable: MERGEABLE`, `mergeStateStatus` present and one of CLEAN/HAS_HOOKS/UNSTABLE (missing fails closed), base is trunk per gh (not the agent), not stacked, infra/migration gated, present in the computed order | Hold |
+| SW-4 | Merge a `low` trust PR | A passing comprehensive `cf:change` run recorded for the head SHA | Hold even with green CI; a missing record never substitutes |
+| SW-5 | Push a fix or rebase commit to another contributor's branch | Allowed unattended (drive performs the push, never sweep itself) | N/A |
+| SW-6 | Run `auto` or `land` mode, or compute any landing order at all | `gh pr list --limit 101` returns fewer than 101 PRs (the full open set fit in one page) | Force `report` mode, hold every gathered PR, and say the cap was hit and by how many |
+
 ## Failure modes
 
 - No `CHANGE.md`, or no `change_policy`: fall back to the default branch plus
@@ -231,22 +275,29 @@ depend on it until a human reports it done.
   applied in the report; do not present the heuristic's scope as authoritative.
 - Empty sweep set (no open feature PRs): report and stop at step 1. Under loop
   mode this is the normal steady state and should be one line, not a report.
-- One author only: no trust question fires at all, and the order is decided on
-  dependency, conflict, and risk alone.
+- More open PRs than the 101-PR page fetched in step 1: fail closed [SW-6].
+  A bare sweep (the default `auto`) never silently computes a landing order
+  from a truncated set; it drops to `report` and holds every PR it gathered
+  rather than guessing an order that is missing PRs it never saw.
+- One author only, and that author is the primary contributor: no trust
+  question fires [SW-1], and the order is decided on dependency, conflict,
+  and risk alone. A sole author who is not the primary contributor still
+  gets a recorded level first, per step 2; this is not a contradiction of
+  the single-author case above, only a restriction of it.
 - An author recorded as `blocked`: their PRs are always gathered and always
   ordered, so the report stays honest about what is open, but they never enter
-  `autoMergeQueue` and the report says why.
+  `autoMergeQueue` and the report says why [SW-1].
 - `gh` not authenticated or rate-limited: stop before the Workflow call and
   report it. A partial PR list would silently produce a wrong order, which is
   worse than no order.
 - A trial merge in the Conflict phase cannot run (a shallow clone, a missing
-  head ref): that pair is reported as conflicting until checked by hand. Fail
-  closed; an unverified clean merge is not a clean merge.
+  head ref): that pair is reported as conflicting until checked by hand [SW-3].
+  Fail closed; an unverified clean merge is not a clean merge.
 - A PR's fact gathering returns nothing: it stays in the report, is never
-  auto-merge eligible, and is flagged for a human.
+  auto-merge eligible [SW-3], and is flagged for a human.
 - The `Workflow` call errors or returns no result: say so and stop. Do not
   hand-assemble an order from the raw PR list; the order is the deliverable and
   a guessed one is worse than none.
-- A merge in step 7 fails: stop the queue at that PR, per step 7. The remaining
-  PRs are re-analyzed from scratch on the next sweep, which is exactly what
-  loop mode does 30 minutes later.
+- A merge in step 7 fails: stop the queue at that PR, per step 7 [SW-2]. The
+  remaining PRs are re-analyzed from scratch on the next sweep, which is
+  exactly what loop mode does 30 minutes later.

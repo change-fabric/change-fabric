@@ -8,7 +8,11 @@ description: Runs just the deterministic regression lane of the change-fabric pl
 The standalone regression lane of the change-fabric platform. Runs only the
 committed test cases; for the full five-lane release sweep use `cf:change`.
 
-Trigger: `/cf:testcases [<target>]`.
+Trigger: `/cf:testcases [<target>] [--signoff]`.
+
+A literal `full auto` or `auto` as the first or last word of the args is
+stripped before parsing, with a one-line note that full auto is
+already the default.
 
 Question: do this repo's committed test cases still pass?
 
@@ -19,7 +23,12 @@ From the target repo root (a repo carrying `CHANGE.md`):
 ```
 ruby ~/.claude/cf/bin/change_run.rb testcases
 ruby ~/.claude/cf/bin/change_run.rb testcases --suite checkout   # one suite or tag
+ruby ~/.claude/cf/bin/change_run.rb testcases --signoff          # pass this skill's --signoff through
 ```
+
+Pass `--signoff` to `change_run.rb` exactly when the skill invocation carried
+it, so the grader gate (see Graded acceptance below) reads the run as
+interactive.
 
 This boots the app per `boot`, waits for its health signal, stands up one
 ephemeral browserless Chromium container (digest-pinned, `--rm`, per cf:docker;
@@ -124,8 +133,10 @@ thing, which is the failure a selector cannot see.
 
 That verdict can fail the gate. It is deliberately not capped at warn: a
 criterion whose failure cannot fail anything is a comment. `gate_tags` softens
-it exactly as it softens a step failure. An `unclear` verdict is a warn, because
-a grader that declined to decide has not found a defect.
+it exactly as it softens a step failure. An `unclear` verdict (the grader
+declined to decide) fails the gate under full auto, the default, since an
+unattended run cannot read a warn and nobody else will; under `--signoff` it
+stays a warn, for the human reading the report to judge.
 
 If a verdict is wrong, the escape hatch is the sha-scoped override this repo
 already has, not a new one:
@@ -134,20 +145,29 @@ already has, not a new one:
 ruby ~/.claude/cf/bin/change_override.rb <head sha> --reason '<why>'
 ```
 
-In an interactive session, offer that as an `AskUserQuestion` at the moment of
-failure. In CI it fails closed and stays failed: `change_override.rb` refuses
-without a real terminal by design, so no agent can record it for a human.
+By default, print that command with the head SHA filled in at the end of the
+report, for the user to run from their own terminal; no question. Under
+`--signoff`, offer it as an `AskUserQuestion` at the moment of failure instead.
+In CI it fails closed and stays failed: `change_override.rb` refuses without a
+real terminal by design, so no agent can record it for a human.
 
-Under away mode, skip the offer, fail closed the same way CI does, and report
-that the override was not offered. An away session could not act on an answer
-regardless: `change_override.rb` refuses without a real terminal by design.
+Under away mode the default applies: the command is reported, never run,
+because `change_override.rb` refuses without a real terminal.
 
 Grading is the one part of this lane that is not deterministic, and it is kept
 in one named place for that reason. It uses the `claude` CLI by default,
 `CF_ACCEPTANCE_GRADER` to point at something else, and `CF_SKIP_ACCEPTANCE_GRADING=1`
-to turn it off. With no grader reachable, the lane reports one `warn` naming
-what did not run: unjudged prose is never laundered into a checked criterion,
-and a machine with no grader installed is not a failed run.
+to turn it off. With no grader reachable, the lane reports one finding naming
+what did not run, never a pass: unjudged prose is never laundered into a
+checked criterion. Under full auto, the default, that finding fails the gate,
+the same as an `unclear` verdict; pass `--signoff` to run this interactively
+and have it warn instead.
+
+## Unattended gates
+
+| ID | Action | Requires | When unmet |
+|---|---|---|---|
+| TC-1 | Pass the testcases lane gate | A grader is reachable and every `acceptance` verdict is decided (not `unclear`) | Fails the gate under full auto, the default; stays a `warn` under `--signoff` |
 
 ## Failure modes
 
@@ -160,3 +180,5 @@ and a machine with no grader installed is not a failed run.
   green for the same reason one that checks everything does.
 - browserless never becomes ready: the lane records a failing finding rather
   than crashing the run.
+- Grader missing, or a verdict comes back `unclear`: fails the gate under full
+  auto, the default; stays a `warn` under `--signoff` [TC-1].

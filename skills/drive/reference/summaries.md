@@ -3,7 +3,7 @@
 Read this before composing any of the three bodies below. It has no bearing
 on the rest of the workflow.
 
-## Checkpoint 1 (step 8, before pushing)
+## Checkpoint 1 (step 8, before pushing; only under `--signoff`)
 
 At most 640 characters, plain prose. Cover, in order:
 
@@ -19,7 +19,10 @@ At most 640 characters, plain prose. Cover, in order:
 No filler, no praise, no restating the diff line by line, no AI-slop
 glyphs. State the verdict, not an argument for it.
 
-## Checkpoint 2 (step 10, before approving)
+Under `--signoff`, the step-2b recurrence stop uses this format too, with
+the recurrence (plan slug, cluster threads) in place of the loop results.
+
+## Checkpoint 2 (step 10, before approving; only under `--signoff`)
 
 At most 640 characters, plain prose. Cover, in order:
 
@@ -33,18 +36,18 @@ point. Same rules: no filler, no praise, no AI-slop glyphs.
 
 ## Approval review body (step 11)
 
-Plain prose GitHub PR review body for the `event: "APPROVE"` call. State
+This body is only ever composed once the step-8 gate [DR-1] has already
+passed, so a `needsHuman` or `conflicts` thread cannot still be open at
+this point; never word the body as if it might be overriding one. Plain
+prose GitHub PR review body for the `event: "APPROVE"` call. State
 concretely what was verified, not how good the change is:
 
 - Which quality lanes ran (`selectedSkills`) and that the iterate loop
   reached a would-approve state (`converged`).
 - That real CI is green, naming the check-runs if the review body has
-  room.
-- That both thread sweeps left no open threads (or, if `needsHuman`
-  entries remain, say so plainly rather than approving over them silently;
-  a `needsHuman` thread from either sweep is only compatible with an
-  approval when the checkpoint summaries already surfaced it as a known,
-  accepted gap).
+  room. When `ciPrediction.noCi` is true, state plainly: "No CI configured
+  for this repo."
+- That both thread sweeps left no open threads.
 
 No praise, no generic enthusiasm, no AI-slop glyphs, no agent attribution
 footer.
