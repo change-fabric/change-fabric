@@ -294,7 +294,9 @@ class ColorSupportTableTest < Minitest::Test
       <path fill={'#f00'} stroke="#0f0" />;
     JSX
     "a.html" => '<p style="color: #abc" fill="red">x</p><script>const z = { color: "#fff" };</script>',
-    "a.mdx" => "import x from 'y'\n\n<Box color={'#abc'} />\n"
+    "a.mdx" => "import x from 'y'\n\n<Box color={'#abc'} />\n",
+    "a.vue" => %q(<path :fill="ok ? '#abc' : '#def'" v-bind:stroke="'#123'" :data-color="'#456'" :data-x="'#789'"/>),
+    "a.svelte" => "<path fill={'#abc'} stroke={a ?? '#def'} title={'#123'}/>"
   }.freeze
 
   def test_every_color_literal_lands_in_exactly_one_class
@@ -321,5 +323,12 @@ class ColorSupportTableTest < Minitest::Test
       [ "#cafe", [ :exempt, :call_arg ] ], [ "#def", [ :exempt, :non_color_key ] ], [ "#f00", :finding ]
     ].sort_by { |l, k| [ l, k.to_s ] }
     assert_equal expected, got
+  end
+
+  def test_bound_markup_fixture_classes
+    assert_equal [ [ "#abc", :finding ], [ "#def", :finding ], [ "#123", :finding ], [ "#456", :finding ],
+                   [ "#789", :unresolved ] ], classes("a.vue", SCAN_FIXTURES["a.vue"])
+    assert_equal [ [ "#abc", :finding ], [ "#def", :finding ], [ "#123", :unresolved ] ],
+                 classes("a.svelte", SCAN_FIXTURES["a.svelte"])
   end
 end

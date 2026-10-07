@@ -51,6 +51,16 @@ module ColorScan
   IMPORT_EXPORT_LINE = /\A[ \t]*(?:import|export)\b/.freeze
   EXPR_CONTEXT_CHARS = /[(\[{,;:=!&|?+\-*%^~<>]/.freeze
   EXPR_CONTEXT_KEYWORDS = %w[return typeof instanceof in of new delete void throw else do yield case].freeze
+  # The attribute enclosing a bound value: name without its binding prefix,
+  # binding one of :static, :vue_bind, :svelte_brace, :jsx_brace, and start,
+  # the index in the scanned text where the attribute's expression begins.
+  AttrCtx = Data.define(:name, :binding, :start) do
+    def color_bearing?
+      # A kebab-case name is read as its camelCase form (data-color as
+      # dataColor), so COLOR_KEY sees the same word boundary either way.
+      ATTR_NAMES.include?(name.downcase) || name.delete('-').match?(COLOR_KEY)
+    end
+  end
 
   module_function
 
@@ -246,18 +256,19 @@ module ColorScan
         attr = base_name.downcase
         lang_value = v if attr == 'lang' && !v.nil?
         next if v.nil?
-        next unless ATTR_NAMES.include?(attr)
 
-        bound = curly || BOUND_ATTR_PREFIX.match?(n)
+        binding = attr_binding(n, curly)
+        next unless binding != :static || ATTR_NAMES.include?(attr)
+
         line_offset = text[0...vs].count("\n")
-        if bound
-          # A Vue/Svelte bound attribute's value is a JS expression, not a
-          # literal: scan it with the script lexer so a bare identifier
-          # ("red") is never a finding but a real quoted color string
-          # still is.
-          findings.concat(script_findings(path, v, line_offset: line_offset))
-        else
+        if binding == :static
           findings.concat(markup_attr_value_findings(path, v, line_offset, attr))
+        else
+          # A Vue/Svelte bound attribute's value is a JS expression, not a
+          # literal: scan it with the script lexer, carrying the attribute
+          # so a string that is the whole value keeps the attribute as key.
+          ctx = AttrCtx.new(name: base_name, binding: binding, start: 0)
+          findings.concat(script_findings(path, v, line_offset: line_offset, attr_ctx: ctx))
         end
       end
 
@@ -281,6 +292,13 @@ module ColorScan
       end
     end
     findings
+  end
+
+  def attr_binding(name, curly)
+    return :svelte_brace if curly
+    return :vue_bind if BOUND_ATTR_PREFIX.match?(name)
+
+    :static
   end
 
   # Scans one tag's attribute list starting just after its name, up to the
@@ -399,9 +417,9 @@ module ColorScan
   # string. allowed_ranges, when given, restricts which string start
   # positions are eligible to produce a finding at all (used by MDX to keep
   # prose out of scope); nil scans every string (plain JS/TS/JSX/TSX files).
-  def script_findings(path, text, line_offset: 0, allowed_ranges: nil, jsx: true)
+  def script_findings(path, text, line_offset: 0, allowed_ranges: nil, jsx: true, attr_ctx: nil)
     findings = []
-    scan_js(path, text, 0, text.length, line_offset, allowed_ranges, findings, jsx: jsx)
+    scan_js(path, text, 0, text.length, line_offset, allowed_ranges, findings, jsx: jsx, attr_ctx: attr_ctx)
     findings
   end
 
@@ -409,7 +427,7 @@ module ColorScan
   # (or a template "${...}") whose opening brace the caller already
   # consumed: it tracks brace depth from 1 and returns the index just past
   # the matching close brace instead of running to the end of text.
-  def scan_js(path, text, i, len, line_offset, allowed_ranges, findings, stop_at_brace: false, jsx: true)
+  def scan_js(path, text, i, len, line_offset, allowed_ranges, findings, stop_at_brace: false, jsx: true, attr_ctx: nil)
     depth = stop_at_brace ? 1 : 0
     while i < len
       c = text[i]
@@ -436,11 +454,11 @@ module ColorScan
       when '"', "'"
         start = i
         content, i = scan_script_string(text, i, len)
-        findings.concat(classified_string(path, text, start, content, line_offset, allowed_ranges))
+        findings.concat(classified_string(path, text, start, content, line_offset, allowed_ranges, attr_ctx:, end_idx: i))
       when '`'
         start = i
         content, i = scan_script_template(path, text, i, len, line_offset, allowed_ranges, findings, jsx: jsx)
-        findings.concat(classified_string(path, text, start, content, line_offset, allowed_ranges))
+        findings.concat(classified_string(path, text, start, content, line_offset, allowed_ranges, attr_ctx:, end_idx: i))
       when '<'
         i = jsx && jsx_tag_start?(text, i) ? scan_jsx_or_skip(path, text, i, len, line_offset, allowed_ranges, findings) : i + 1
       else
@@ -676,8 +694,14 @@ module ColorScan
         content, j = scan_script_template(path, text, j, len, line_offset, allowed_ranges, findings)
         findings.concat(classified_string(path, text, start, content, line_offset, allowed_ranges))
       when '{'
-        depth += 1
-        j += 1
+        name = depth.zero? && jsx_attr_name_before(text, j)
+        if name
+          ctx = AttrCtx.new(name: name, binding: :jsx_brace, start: j + 1)
+          j = scan_js(path, text, j + 1, len, line_offset, allowed_ranges, findings, stop_at_brace: true, attr_ctx: ctx)
+        else
+          depth += 1
+          j += 1
+        end
       when '}'
         depth -= 1 if depth.positive?
         j += 1
@@ -694,6 +718,18 @@ module ColorScan
       end
     end
     [ true, nil ]
+  end
+
+  # The attribute name right before a JSX "name={" expression brace, or nil
+  # when the brace is not an attribute value (a spread "{...props}").
+  def jsx_attr_name_before(text, brace_idx)
+    eq = skip_ws_back(text, brace_idx - 1)
+    return nil unless eq >= 0 && text[eq] == '='
+
+    k = skip_ws_back(text, eq - 1)
+    e = k
+    k -= 1 while k >= 0 && text[k].match?(/[\w:-]/)
+    k == e ? nil : text[(k + 1)..e]
   end
 
   # JSX children: text is prose (never a string start) until "<" (a nested
@@ -724,12 +760,13 @@ module ColorScan
 
   # --- shared string classification -----------------------------------------
 
-  def classified_string(path, text, start, content, line_offset, allowed_ranges)
+  def classified_string(path, text, start, content, line_offset, allowed_ranges, attr_ctx: nil, end_idx: nil)
     return [] if allowed_ranges && allowed_ranges.none? { |r| r.cover?(start) }
 
     line = text[0...start].count("\n") + 1 + line_offset
-    key = lookback_key(text, start)
-    position_a = key.is_a?(String) && (%w[style fill stroke].include?(key) || key.match?(COLOR_KEY))
+    attr_key = attr_value_key(text, start, end_idx, attr_ctx)
+    key = attr_key || lookback_key(text, start)
+    position_a = !attr_key.nil? || (key.is_a?(String) && (%w[style fill stroke].include?(key) || key.match?(COLOR_KEY)))
     entries = classify_string(path, line, content, position_a, unknown_context: key == :unknown)
     record_exempt(content, key, entries)
     entries
@@ -770,6 +807,53 @@ module ColorScan
     findings
   end
 
+  # The enclosing attribute's name when the string at start...end_idx is in
+  # position A of a color-bearing attribute: the whole expression value, or
+  # a depth-0 branch of a top-level ternary, "??" or "||". nil otherwise, so
+  # the caller falls back to lookback_key (object keys, exempt rules).
+  def attr_value_key(text, start, end_idx, attr_ctx)
+    return nil unless attr_ctx&.color_bearing? && end_idx
+    return nil unless depth_zero?(text, attr_ctx.start, start)
+    return nil unless branch_open?(text, attr_ctx.start, start) && branch_close?(text, end_idx)
+
+    attr_ctx.name
+  end
+
+  # True when no bracket opened since expr_start is still open at idx.
+  # Quoted strings are skipped so brackets inside them do not count.
+  def depth_zero?(text, expr_start, idx)
+    depth = 0
+    j = expr_start
+    while j < idx
+      c = text[j]
+      if c == '"' || c == "'" || c == '`'
+        close = text.index(c, j + 1)
+        j = close ? close + 1 : idx
+        next
+      end
+      depth += 1 if '([{'.include?(c)
+      depth -= 1 if ')]}'.include?(c)
+      j += 1
+    end
+    depth.zero?
+  end
+
+  def branch_open?(text, expr_start, start)
+    p = skip_ws_back(text, start - 1)
+    return true if p < expr_start
+
+    c = text[p]
+    c == '?' || c == ':' || (c == '|' && p.positive? && text[p - 1] == '|')
+  end
+
+  def branch_close?(text, end_idx)
+    k = end_idx
+    k += 1 while k < text.length && text[k].match?(/\s/)
+    return true if k >= text.length || text[k] == '}' || text[k] == ':'
+
+    %w[?? ||].include?(text[k, 2])
+  end
+
   UNKNOWN_CONTEXT_REASON = 'key context could not be determined'
   # Named, positive exempt contexts for a string with no key: the
   # character(s) right before it (after whitespace) identify it as a call
@@ -779,19 +863,12 @@ module ColorScan
 
   # Key context of the string starting at start_idx. Returns a key String
   # when ":" (object or style-object key) or "=" (attribute or assignment)
-  # precedes it, with a JSX "={" expression brace looked through so
-  # fill={'#f00'} resolves to "fill"; one of EXEMPT_RULES when a positive
-  # exempt rule matches; :unknown otherwise.
+  # precedes it; one of EXEMPT_RULES when a positive exempt rule matches;
+  # :unknown otherwise. A bound attribute's own value is keyed by the
+  # carried AttrCtx (attr_value_key), not by looking back.
   def lookback_key(text, start_idx)
     i = skip_ws_back(text, start_idx - 1)
     return :unknown if i.negative?
-
-    if text[i] == '{'
-      eq = skip_ws_back(text, i - 1)
-      return :unknown unless eq >= 0 && text[eq] == '='
-
-      i = eq
-    end
     return key_before(text, i) if text[i] == ':' || text[i] == '='
 
     exempt_rule(text, i)

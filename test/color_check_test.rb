@@ -140,7 +140,7 @@ class ColorCheckTest < Minitest::Test
       files: { "tokens.css" => ":root{--bg:#fff;--text:#000;--a:#123;} @media (prefers-color-scheme: dark){:root{--bg:#000;--text:#777;}}" },
       contrast: [ [ "default", "--text", "--bg", 21.0 ], [ "default", "--text", "--bg", 4.69 ] ],
       pending: false },
-    { id: "repro2-separate-theme-names-not-collapsed", cls: :theme_contexts,
+    { id: "repro2-identical-default-and-dark-merged", cls: :theme_contexts,
       files: { "tokens.css" => ':root{--bg:#fff;--text:#777;} :root[data-theme="dark"]{--bg:#fff;--text:#777;}' },
       contrast: [ [ "default | dark", "--text", "--bg", 4.48 ] ],
       pending: false },

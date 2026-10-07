@@ -163,9 +163,44 @@ class ColorScanTest < Minitest::Test
     assert_equal [ [ 1, "literal" ] ], kinds("a.tsx", "const x = <path fill={'#f00'} />;\n")
   end
 
-  def test_jsx_expression_brace_resolves_to_attribute_key
-    assert_equal "fill", ColorScan.lookback_key("<path fill={'#f00'} />", 12)
+  def test_jsx_expression_brace_carries_attribute_not_lookback
+    assert_equal :unknown, ColorScan.lookback_key("<path fill={'#f00'} />", 12)
     assert_equal [ [ 1, "literal" ] ], kinds("a.jsx", "const x = <path fill={'#f00'} />;\n")
+  end
+
+  def scan_classes(path, text)
+    ColorScan.classify_all(path, text).map(&:last)
+  end
+
+  def test_bound_attribute_whole_value_is_a_finding
+    { "a.vue" => [ %q(<path :fill="'#abc'"/>), %q(<path v-bind:fill="'#abc'"/>) ],
+      "a.svelte" => [ "<path fill={'#abc'}/>" ],
+      "a.tsx" => [ "x = <path fill={'#abc'}/>;" ] }.each do |path, texts|
+      texts.each { |text| assert_equal [ :finding ], scan_classes(path, text), "#{path}: #{text}" }
+    end
+  end
+
+  def test_bound_attribute_top_level_branches_are_findings
+    { "a.vue" => [ %q(<path :fill="ok ? '#abc' : '#def'"/>) ],
+      "a.tsx" => [ "x = <path fill={ok ? '#abc' : '#def'}/>;" ] }.each do |path, texts|
+      texts.each { |text| assert_equal [ :finding, :finding ], scan_classes(path, text), "#{path}: #{text}" }
+    end
+    [ "x = <path fill={a ?? '#abc'}/>;", "x = <path fill={a || '#abc'}/>;" ].each do |text|
+      assert_equal [ :finding ], scan_classes("a.tsx", text), text
+    end
+  end
+
+  def test_bound_style_object_keeps_object_key
+    assert_equal [ :finding ], scan_classes("a.vue", %q(<p :style="{color:'#abc'}"/>))
+  end
+
+  def test_bound_attribute_scope_follows_color_key
+    assert_equal [ :finding ], scan_classes("a.vue", %q(<p :data-color="'#abc'"/>))
+    assert_equal [ :unresolved ], scan_classes("a.vue", %q(<p :data-x="'#abc'"/>))
+  end
+
+  def test_nested_branch_in_bound_attribute_stays_unresolved
+    assert_equal [ :unresolved ], scan_classes("a.tsx", "x = <path fill={f(ok ? x : '#abc')}/>;")
   end
 
   def test_short_hex_call_argument_is_exempt_by_named_rule
