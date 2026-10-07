@@ -12,6 +12,12 @@ class ColorThemesTest < Minitest::Test
     model.variants.find { |v| v.theme == theme }
   end
 
+  def test_foreground_is_a_text_role_in_any_position
+    assert ColorThemes.text_role_name?("--foreground")
+    assert ColorThemes.text_role_name?("--color-foreground-muted")
+    assert ColorThemes.text_role_name?("--card-foreground")
+  end
+
   def test_bare_root_is_base
     model = build(":root { --bg: #fff; --text: #000; }")
     v = variant_for(model, "light")

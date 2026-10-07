@@ -241,7 +241,7 @@ module ColorCheck
   # reason rather than guessed at.
   def compute_contrast(token_file)
     sheet = parse_token_sheet(token_file)
-    return [] unless sheet
+    return [ unresolved_sheet_row(token_file, 'token file could not be parsed') ] unless sheet
 
     model = ColorThemes.build(sheet)
     results = []
@@ -255,9 +255,17 @@ module ColorCheck
                                      context: uns.label, reason: "unsupported theme context: #{uns.label} (#{uns.why})")
       end
     end
+    results << unresolved_sheet_row(token_file, "no text-role tokens recognized in #{token_file}") if results.empty?
     results
-  rescue StandardError
-    []
+  rescue StandardError => e
+    [ unresolved_sheet_row(token_file, "contrast check failed: #{e.class}") ]
+  end
+
+  # One file-level unresolved contrast row: no text token, no background.
+  def unresolved_sheet_row(token_file, reason)
+    ContrastPair.new(theme: 'unresolved', text_token: nil, bg_token: nil, ratio: nil,
+                     passes_body: false, passes_large: false, resolved: false,
+                     context: token_file, reason:)
   end
 
   def contrast_rows_for_variant(variant)
@@ -362,7 +370,9 @@ module ColorCheck
       contexts_per_theme = report.contrast.group_by(&:theme).transform_values { |rows| rows.map(&:context).uniq }
       report.contrast.each do |c|
         label = contexts_per_theme[c.theme].size > 1 ? "#{c.theme} #{c.context}" : c.theme
-        if c.resolved
+        if c.text_token.nil?
+          lines << "  [#{c.theme}] #{c.reason}, state manually"
+        elsif c.resolved
           lines << "  [#{label}] #{c.text_token} on #{c.bg_token}: #{c.ratio}:1 (#{status_for(c)})"
         else
           lines << "  [#{label}] #{c.text_token} on #{c.bg_token}: unresolved (#{c.reason}), state manually"

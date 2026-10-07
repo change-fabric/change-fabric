@@ -1128,6 +1128,37 @@ class ColorCheckTest < Minitest::Test
     end
   end
 
+  def test_foreground_pairs_with_background_and_resolves
+    with_dir do |dir|
+      write(dir, "tokens.css", ":root {\n  --background: #ffffff;\n  --foreground: #000000;\n}\n")
+      report = ColorCheck.run(dir)
+      pair = report.contrast.find { |c| c.text_token == "--foreground" }
+      refute_nil pair
+      assert pair.resolved
+      assert_equal "--background", pair.bg_token
+      assert_in_delta 21.0, pair.ratio, 0.01
+    end
+  end
+
+  def test_sheet_without_text_roles_reports_one_unresolved_row
+    with_dir do |dir|
+      write(dir, "tokens.css", ":root {\n  --brand: #123456;\n  --surface: #ffffff;\n}\n")
+      report = ColorCheck.run(dir, strict: true)
+      assert_equal 1, report.contrast.size
+      row = report.contrast.first
+      refute row.resolved
+      assert_nil row.text_token
+      assert_includes row.reason, "no text-role tokens recognized"
+      text = ColorCheck.render(report)
+      assert_includes text, "[unresolved] no text-role tokens recognized in"
+      refute_includes text, " on :"
+      json = JSON.parse(ColorCheck.to_json_report(report))
+      assert_equal 1, json["contrast"].size
+      assert_includes json["contrast"].first["reason"], "no text-role tokens recognized"
+      assert_equal 0, report.exit_code
+    end
+  end
+
   def test_json_output_parses
     with_dir do |dir|
       write(dir, "tokens.css", FOUR_COLOR_TOKENS)

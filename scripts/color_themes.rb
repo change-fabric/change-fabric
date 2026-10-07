@@ -448,13 +448,13 @@ module ColorThemes
     end
   end
 
-  # Whole-hyphen-segment match for the pairing text roles: text, fg, ink,
-  # title and link each count as a text role in any segment position
+  # Whole-hyphen-segment match for the pairing text roles: text, fg,
+  # foreground, ink, title and link each count as a text role in any segment position
   # (leading, middle or trailing), so Primer-style names such as
   # "--color-fg-default" and "--color-text-muted" are recognized, except
   # "ink" never counts as a leading segment on its own ("--ink-like" stays a
   # plain token; a bare "--ink" or a trailing "--color-ink" still match).
-  TEXT_ROLE_WORDS = %w[text fg ink title link].freeze
+  TEXT_ROLE_WORDS = %w[text fg foreground ink title link].freeze
 
   def text_role_name?(name)
     segments = name.sub(/\A--/, '').split('-')
