@@ -257,14 +257,12 @@ class ColorSupportTableTest < Minitest::Test
   end
 
   def test_markup_rule_style_inside_script_string_is_not_a_style_element
-    skip "lands in Phase 2: Tokenize live style elements before parsing them"
     html = '<script>var a="<style>:root{--text:#000;--bg:#fff}</style>";</script>'
     sheet = ColorCheck.style_block_sheet(html)
     assert(sheet.nil? || sheet.decls.empty?, "tokens parsed from a fake style: #{sheet&.decls.inspect}")
   end
 
   def test_css_values_rule_url_body_is_not_scanned
-    skip "lands in Phase 2: Blank complete quoted url() values"
     assert_equal [], classes("a.css", 'a{background:url("a)#abc")}')
   end
 

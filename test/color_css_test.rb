@@ -142,6 +142,33 @@ class ColorCssTest < Minitest::Test
     assert_equal "url(http://example.com/a.png)", decl(sheet, "background").value
   end
 
+  def test_scan_value_masks_a_quoted_url_body_holding_a_close_paren
+    d = decl(ColorCss.parse('a{background:url("a)#abc")}'), "background")
+    assert_equal 'url("a)#abc")', d.value
+    assert_equal "url(        )", d.scan_value
+    assert_equal d.value.length, d.scan_value.length
+  end
+
+  def test_scan_value_masks_a_single_quoted_url_body
+    d = decl(ColorCss.parse("a{background:url('x#fff') #000}"), "background")
+    assert_equal "url(       ) #000", d.scan_value
+    assert_equal d.value.length, d.scan_value.length
+  end
+
+  def test_scan_value_masks_strings_and_keeps_newlines
+    d = decl(ColorCss.parse(%(a{content:"#fff";--x:"a\\\n#abc" red !important}
+)), "--x")
+    assert_equal d.value.length, d.scan_value.length
+    assert_equal d.value.count("\n"), d.scan_value.count("\n")
+    refute_includes d.scan_value, "#abc"
+    assert d.scan_value.end_with?(" red")
+  end
+
+  def test_scan_value_of_a_bare_value
+    assert_equal "url(    ) #000 {} ;", ColorCss.scan_value("url(#fff) #000 {} ;")
+    assert_equal "     #000", ColorCss.scan_value("'#a' #000")
+  end
+
   def test_scss_line_comment_never_inside_string
     sheet = ColorCss.parse(%(.x { content: "a // not a comment"; color: red; }\n), dialect: :scss)
     assert_equal '"a // not a comment"', decl(sheet, "content").value

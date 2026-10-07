@@ -2,6 +2,7 @@
 # frozen_string_literal: true
 
 require_relative 'color_css'
+require_relative 'color_markup'
 require_relative 'color_value'
 
 # Stray color literal, Tailwind and gradient findings for the cf:color
@@ -23,7 +24,6 @@ module ColorScan
   HEX_CSS = /(?<!&)#(?:\h{8}|\h{6}|\h{4}|\h{3})\b/.freeze
   HEX_FULL = /\A#(?:\h{8}|\h{6}|\h{4}|\h{3})\z/.freeze
   NAMED_WORD = /(?<![\w$@#.-])[A-Za-z]+(?![\w(-])/.freeze
-  QUOTED_OR_URL = /"(?:[^"\\]|\\[\s\S])*"|'(?:[^'\\]|\\[\s\S])*'|url\([^)]*\)/i.freeze
   COLOR_KEY = /(^|[a-z])(color|colour|background|bg|fill|stroke|border|outline|shadow)/i.freeze
   # A CSS property name is color-bearing (a bare named-color word in its
   # value is in scope) when the property itself is about color: "color",
@@ -38,15 +38,6 @@ module ColorScan
   COLOR_BEARING_PROPERTY = /(?:\A|-)(?:color|colour|background|bg|fill|stroke|border|outline|shadow)(?:\z|-)/i.freeze
   SCRIPT_COLOR_FN_FULL = /\A(?:#{ColorValue::COLOR_FN_NAMES.join('|')})\(.*\)\z/im.freeze
   ATTR_NAMES = %w[style fill stroke class classname].freeze
-  BOUND_ATTR_PREFIX = /\A(?::|v-bind:)/i.freeze
-  TAG_NAME = /[a-zA-Z][\w:-]*/.freeze
-  ATTR_NAME_TOKEN = /[:@]?[\w.:-]+/.freeze
-  # script and style hold raw text (never nested tags); textarea and title
-  # hold RCDATA (text only, scanned as nothing: this scan is scoped to
-  # attributes and values, never a text node). Content runs to the matching
-  # case-insensitive end tag, or end of file when there is none.
-  RAW_TEXT_ELEMENTS = %w[script style].freeze
-  RCDATA_ELEMENTS = %w[textarea title].freeze
   MDX_ATTR = /\b(?:style|fill|stroke|className|class)\s*=\s*(?:"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')/mi.freeze
   IMPORT_EXPORT_LINE = /\A[ \t]*(?:import|export)\b/.freeze
   EXPR_CONTEXT_CHARS = /[(\[{,;:=!&|?+\-*%^~<>]/.freeze
@@ -130,7 +121,7 @@ module ColorScan
     sheet.decls.each do |decl|
       next if token_file?(path, token_file) && decl.name.start_with?('--')
 
-      findings.concat(value_findings(path, decl.value, decl.value_line, decl.name))
+      findings.concat(value_findings(path, decl.value, decl.value_line, decl.name, scan_value: decl.scan_value))
     end
     sheet.at_rule_stmts.each do |stmt|
       stmt.prelude.scan(ColorCheck::TAILWIND) do
@@ -157,16 +148,17 @@ module ColorScan
   end
 
   # Scans one declaration value line by line (so a multiline value keeps
-  # correct line numbers): url() spans and quoted strings are blanked out
-  # over the whole value first (a string continued by an escaped newline
-  # stays blanked on its later lines), then the blanked text is scanned for hex, color functions,
-  # gradients and, only when property_name is color-bearing, bare
-  # named-color words.
-  def value_findings(file, value, value_line, property_name)
+  # correct line numbers). The scanned text is the CSS parser's mask of the
+  # value (scan_value: a Decl's own, else ColorCss.scan_value): every string
+  # and url() body is spaces of equal length, so a string continued by an
+  # escaped newline stays masked on its later lines. That text is scanned
+  # for hex, color functions, gradients and, only when property_name is
+  # color-bearing, bare named-color words.
+  def value_findings(file, value, value_line, property_name, scan_value: nil)
     findings = []
     color_bearing = color_bearing_property?(property_name)
     raw_lines = value.lines
-    blank_quoted_and_urls(value).each_line.with_index do |blanked, idx|
+    (scan_value || ColorCss.scan_value(value)).each_line.with_index do |blanked, idx|
       lineno = value_line + idx
       line = raw_lines[idx]
       blanked.scan(HEX_CSS) { findings << finding(file, lineno, 'literal', line) }
@@ -177,10 +169,6 @@ module ColorScan
       named_color_words(blanked).each { findings << finding(file, lineno, 'literal', line) }
     end
     findings
-  end
-
-  def blank_quoted_and_urls(text)
-    text.gsub(QUOTED_OR_URL) { |m| m.gsub(/[^\n]/, ' ') }
   end
 
   def named_color_words(blanked)
@@ -205,165 +193,57 @@ module ColorScan
 
   # --- Markup: .html .vue .svelte .astro ---------------------------------
 
-  # A single forward pass over the markup text: one tokenizer, not a stack of
-  # regex pre-passes. It walks literal "<" characters and, in order, strips
-  # an HTML comment ("<!--...-->") or a CDATA section ("<![CDATA[...]]>") as
-  # text with no further interpretation; skips closing tags, doctypes and
-  # processing instructions; and for every other start tag reads its
-  # attribute list up to the tag's own closing ">" (honoring quoted values,
-  # unquoted values and Svelte's "{expr}" form), then, for script/style (raw
-  # text) and textarea/title (RCDATA), consumes the element's content up to
-  # its matching case-insensitive end tag without lexing any "<" inside it
-  # as a tag. Because this runs before anything is blanked or cut out, a
-  # "<!--" or "<style>" that appears only inside a script string, or inside
-  # a quoted attribute value, is just data and never swallows real markup.
+  # Consumes the shared ColorMarkup walker (one tokenizer, not a stack of
+  # regex pre-passes): attribute values, script bodies and style bodies are
+  # scanned in source order; textarea and title content is a text node and
+  # out of scope. A "<!--" or "<style>" that appears only inside a script
+  # string, or inside a quoted attribute value, is just data to the walker
+  # and never swallows real markup.
   def markup_file_findings(path, text, token_file)
     findings = []
-    i = 0
-    len = text.length
-    while i < len
-      lt = text.index('<', i)
-      break unless lt
+    ColorMarkup.each_node(text) do |node|
+      case node
+      when ColorMarkup::Attr
+        findings.concat(markup_attr_node_findings(path, text, node))
+      when ColorMarkup::Raw
+        next unless node.tag == 'script'
 
-      if text[lt, 4] == '<!--'
-        close = text.index('-->', lt + 4)
-        i = close ? close + 3 : len
-        next
-      end
-
-      if text[lt, 9].casecmp?('<![cdata[')
-        close = text.index(']]>', lt + 9)
-        i = close ? close + 3 : len
-        next
-      end
-
-      nxt = text[lt + 1]
-      if nxt.nil? || nxt == '/' || nxt == '!' || nxt == '?'
-        i = lt + 1
-        next
-      end
-
-      name_match = TAG_NAME.match(text, lt + 1)
-      unless name_match && name_match.begin(0) == lt + 1
-        i = lt + 1
-        next
-      end
-
-      tag_name = name_match[0].downcase
-      lang_value = nil
-      tag_end = scan_tag_attrs(text, name_match.end(0), len) do |n, v, vs, curly|
-        base_name = n.sub(BOUND_ATTR_PREFIX, '')
-        attr = base_name.downcase
-        lang_value = v if attr == 'lang' && !v.nil?
-        next if v.nil?
-
-        binding = attr_binding(n, curly)
-        next unless binding != :static || ATTR_NAMES.include?(attr)
-
-        line_offset = text[0...vs].count("\n")
-        if binding == :static
-          findings.concat(markup_attr_value_findings(path, v, line_offset, attr))
-        else
-          # A Vue/Svelte bound attribute's value is a JS expression, not a
-          # literal: scan it with the script lexer, carrying the attribute
-          # so a string that is the whole value keeps the attribute as key.
-          ctx = AttrCtx.new(name: base_name, binding: binding, start: 0)
-          findings.concat(script_findings(path, v, line_offset: line_offset, attr_ctx: ctx))
-        end
-      end
-
-      if RAW_TEXT_ELEMENTS.include?(tag_name) || RCDATA_ELEMENTS.include?(tag_name)
-        content_start = tag_end
-        end_match = /<\/#{tag_name}\s*>/i.match(text, content_start)
-        content_end = end_match ? end_match.begin(0) : len
-        if tag_name == 'script'
-          line_offset = text[0...content_start].count("\n")
-          findings.concat(script_findings(path, text[content_start...content_end], line_offset: line_offset))
-        elsif tag_name == 'style'
-          line_offset = text[0...content_start].count("\n")
-          dialect = lang_value && %w[scss less].include?(lang_value.downcase) ? lang_value.downcase.to_sym : :css
-          sheet = ColorCss.parse(text[content_start...content_end], dialect: dialect, line_offset: line_offset)
-          findings.concat(css_sheet_findings(path, token_file, sheet))
-        end
-        # RCDATA (textarea, title): content is a text node, out of scope.
-        i = end_match ? end_match.end(0) : len
-      else
-        i = tag_end
+        line_offset = text[0...node.pos].count("\n")
+        findings.concat(script_findings(path, node.body, line_offset: line_offset))
+      when ColorMarkup::Style
+        line_offset = text[0...node.pos].count("\n")
+        lang = node.lang
+        dialect = lang && %w[scss less].include?(lang.downcase) ? lang.downcase.to_sym : :css
+        sheet = ColorCss.parse(node.body, dialect: dialect, line_offset: line_offset)
+        findings.concat(css_sheet_findings(path, token_file, sheet))
       end
     end
     findings
   end
 
+  def markup_attr_node_findings(path, text, node)
+    base_name = node.name.sub(ColorMarkup::BOUND_ATTR_PREFIX, '')
+    attr = base_name.downcase
+    binding = attr_binding(node.name, node.curly)
+    return [] unless binding != :static || ATTR_NAMES.include?(attr)
+
+    line_offset = text[0...node.pos].count("\n")
+    if binding == :static
+      markup_attr_value_findings(path, node.value, line_offset, attr)
+    else
+      # A Vue/Svelte bound attribute's value is a JS expression, not a
+      # literal: scan it with the script lexer, carrying the attribute
+      # so a string that is the whole value keeps the attribute as key.
+      ctx = AttrCtx.new(name: base_name, binding: binding, start: 0)
+      script_findings(path, node.value, line_offset: line_offset, attr_ctx: ctx)
+    end
+  end
+
   def attr_binding(name, curly)
     return :svelte_brace if curly
-    return :vue_bind if BOUND_ATTR_PREFIX.match?(name)
+    return :vue_bind if ColorMarkup::BOUND_ATTR_PREFIX.match?(name)
 
     :static
-  end
-
-  # Scans one tag's attribute list starting just after its name, up to the
-  # tag's own closing ">" (respecting quotes and Svelte-style "{...}"
-  # values), yielding [name, raw_value, value_start_index, curly] for each
-  # attribute that has a value (curly is true for a Svelte-style "{...}"
-  # value, which is always a JS expression). Returns the index just past the
-  # ">".
-  def scan_tag_attrs(text, idx, len)
-    i = idx
-    while i < len
-      c = text[i]
-      if c == '>'
-        return i + 1
-      elsif c =~ /\s/ || c == '/'
-        i += 1
-      else
-        i = scan_one_tag_attr(text, i, len) { |n, v, vs, curly| yield(n, v, vs, curly) }
-      end
-    end
-    i
-  end
-
-  def scan_one_tag_attr(text, i, len)
-    name_match = ATTR_NAME_TOKEN.match(text, i)
-    return i + 1 unless name_match && name_match.begin(0) == i
-
-    name = name_match[0]
-    j = name_match.end(0)
-    j += 1 while j < len && text[j] =~ /[ \t\r\n]/
-    unless j < len && text[j] == '='
-      yield(name, nil, nil, false)
-      return name_match.end(0)
-    end
-
-    j += 1
-    j += 1 while j < len && text[j] =~ /[ \t\r\n]/
-    scan_tag_attr_value(text, name, j, len) { |n, v, vs, curly| yield(n, v, vs, curly) }
-  end
-
-  def scan_tag_attr_value(text, name, j, len)
-    if j < len && (text[j] == '"' || text[j] == "'")
-      quote = text[j]
-      vstart = j + 1
-      close = text.index(quote, vstart) || len
-      yield(name, text[vstart...close], vstart, false)
-      close + 1
-    elsif j < len && text[j] == '{'
-      depth = 1
-      k = j + 1
-      while k < len && depth.positive?
-        depth += 1 if text[k] == '{'
-        depth -= 1 if text[k] == '}'
-        k += 1
-      end
-      vstart = j + 1
-      yield(name, text[vstart...(k - 1)], vstart, true)
-      k
-    else
-      vstart = j
-      k = j
-      k += 1 while k < len && text[k] !~ %r{[\s>/]}
-      yield(name, text[vstart...k], vstart, false)
-      k
-    end
   end
 
   def markup_attr_value_findings(path, value, line_offset, attr)
@@ -385,13 +265,13 @@ module ColorScan
   def style_attr_findings(path, value, line_offset)
     sheet = ColorCss.parse(value, dialect: :css, line_offset: line_offset)
     findings = []
-    sheet.decls.each { |decl| findings.concat(value_findings(path, decl.value, decl.value_line, decl.name)) }
+    sheet.decls.each { |decl| findings.concat(value_findings(path, decl.value, decl.value_line, decl.name, scan_value: decl.scan_value)) }
     findings
   end
 
   def attr_value_findings(path, line, value, named_whole_only:)
     findings = []
-    blanked = blank_quoted_and_urls(value)
+    blanked = ColorCss.scan_value(value)
     blanked.scan(HEX_CSS) { findings << finding(path, line, 'literal', value) }
     blanked.scan(ColorCheck::COLOR_FN) { findings << finding(path, line, 'literal', value) }
     blanked.scan(ColorCheck::GRADIENT) { findings << finding(path, line, 'gradient', value) }

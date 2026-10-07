@@ -20,7 +20,12 @@ module ColorCss
   # ["@media (prefers-color-scheme: dark)"].
   # rule_id: integer identity of the enclosing rule block (nil at top level),
   # so a consumer can ask whether a whole block is custom-property-only.
-  Decl = Data.define(:name, :value, :important, :line, :value_line, :selectors, :parents, :at_rules, :rule_id, :pos)
+  # scan_value: value with every string (quotes included) and every url()
+  # body replaced by spaces of equal length (newlines kept), recorded while
+  # tokenizing, so offsets into it are offsets into value. Color scans read
+  # this, never value, so string and url() bodies are never scanned.
+  Decl = Data.define(:name, :value, :important, :line, :value_line, :selectors, :parents, :at_rules, :rule_id, :pos,
+                     :scan_value)
   AtRule = Data.define(:name, :prelude, :line, :at_rules, :pos) # block-less: @apply, @import
   Sheet = Data.define(:decls, :at_rule_stmts, :errors) # errors: [String] diagnostics, never raised
 
@@ -34,6 +39,13 @@ module ColorCss
   # is added to every reported line (used for <style> blocks inside markup).
   def parse(text, dialect: :css, line_offset: 0, pos_offset: 0)
     Parser.new(text, dialect: dialect, line_offset: line_offset, pos_offset: pos_offset).parse
+  end
+
+  # The scan mask of a bare value outside any declaration (an attribute such
+  # as fill=, or a Sass line): the same tokenizer Decl#scan_value comes from,
+  # with ";", "{" and "}" kept as plain text.
+  def scan_value(text)
+    Parser.new(text, dialect: :css, line_offset: 0, value_mode: true).value_mask
   end
 
   # Splits text at top-level occurrences of sep, respecting parentheses and
@@ -87,7 +99,7 @@ module ColorCss
   class Parser
     Frame = Struct.new(:kind, :selectors, :rule_id, :text, keyword_init: true)
 
-    def initialize(text, dialect:, line_offset:, pos_offset: 0)
+    def initialize(text, dialect:, line_offset:, pos_offset: 0, value_mode: false)
       @scanner = StringScanner.new(text)
       @dialect = dialect
       @line_offset = line_offset
@@ -102,6 +114,8 @@ module ColorCss
       @next_anon_layer_id = 1
       @line = 1
       @segment = +''
+      @mask = +''
+      @value_mode = value_mode
       @segment_start_line = 1
       @interp_depth = 0
     end
@@ -110,6 +124,11 @@ module ColorCss
       scan_one until @scanner.eos?
       flush_at_eof
       ColorCss::Sheet.new(decls: @decls, at_rule_stmts: @at_rule_stmts, errors: @errors)
+    end
+
+    def value_mask
+      scan_one until @scanner.eos?
+      @mask
     end
 
     private
@@ -133,19 +152,21 @@ module ColorCss
         scan_close_paren
       when ';', '{', '}'
         @scanner.getch
-        if @interp_depth.positive?
+        if @value_mode
+          append(ch)
+        elsif @interp_depth.positive?
           @interp_depth += 1 if ch == '{'
           @interp_depth -= 1 if ch == '}'
-          @segment << ch
+          append(ch)
         elsif ch == '{' && scss_like? && @segment.end_with?('#')
           # SCSS interpolation ("#{...}"), the form Sass requires for a
           # custom property value built from a variable. It is not a block
           # opener: track it as an opaque, balanced span of literal text so
           # the declaration keeps going, the same way a paren group does.
           @interp_depth = 1
-          @segment << ch
+          append(ch)
         elsif @paren_depth.positive?
-          @segment << ch
+          append(ch)
         else
           dispatch_terminator(ch)
         end
@@ -157,13 +178,25 @@ module ColorCss
     end
 
     def consume_text(text)
-      @segment << text
+      append(text)
       @line += text.count("\n")
     end
 
     def consume_blanked(text)
-      @segment << text.gsub(/[^\n]/, ' ')
+      append(blank(text), masked: false)
       @line += text.count("\n")
+    end
+
+    # Adds text to the current segment and its scan mask in step: masked
+    # text goes into the mask as spaces of equal length (newlines kept).
+    # Text inside a url() body is masked by default.
+    def append(text, masked: inside_url?)
+      @segment << text
+      @mask << (masked ? blank(text) : text)
+    end
+
+    def blank(text)
+      text.gsub(/[^\n]/, ' ')
     end
 
     def scss_like?
@@ -205,18 +238,18 @@ module ColorCss
 
     def scan_string(quote)
       start_line = @line + @line_offset
-      @segment << @scanner.getch # opening quote
+      append(@scanner.getch, masked: true) # opening quote
       loop do
         found = @scanner.scan_until(/\\.|\\\z|\n|#{Regexp.escape(quote)}/m)
         if found.nil?
           rest = @scanner.rest
           @scanner.terminate
-          @segment << rest
+          append(rest, masked: true)
           @errors << "unterminated string (line #{start_line})"
           return
         end
 
-        @segment << found
+        append(found, masked: true)
         matched = @scanner.matched
         @line += found.count("\n")
         case matched
@@ -234,15 +267,15 @@ module ColorCss
     def scan_open_paren
       before = @segment.sub(/\s+\z/, '')
       is_url = before[-3, 3]&.downcase == 'url'
+      append(@scanner.getch)
       @paren_is_url << is_url
       @paren_depth += 1
-      @segment << @scanner.getch
     end
 
     def scan_close_paren
       @paren_depth -= 1 if @paren_depth.positive?
       @paren_is_url.pop
-      @segment << @scanner.getch
+      append(@scanner.getch)
     end
 
     def dispatch_terminator(ch)
@@ -262,6 +295,7 @@ module ColorCss
 
     def start_new_segment
       @segment = +''
+      @mask = +''
       @segment_start_line = @line
     end
 
@@ -319,6 +353,7 @@ module ColorCss
       value_line = colon_line + value_leading_ws.count("\n")
 
       raw_value = rest.strip
+      value_start = m.begin(4) + rest[/\A\s*/].length
       important = false
       if (im = IMPORTANT.match(raw_value))
         raw_value = im[1].strip
@@ -329,7 +364,8 @@ module ColorCss
       @decls << Decl.new(
         name:, value: raw_value, important:,
         line: name_line + @line_offset, value_line: value_line + @line_offset,
-        selectors:, parents:, at_rules:, rule_id:, pos: @scanner.pos + @pos_offset
+        selectors:, parents:, at_rules:, rule_id:, pos: @scanner.pos + @pos_offset,
+        scan_value: @mask[value_start, raw_value.length]
       )
       true
     end

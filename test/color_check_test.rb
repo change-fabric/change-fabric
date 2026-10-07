@@ -618,11 +618,13 @@ class ColorCheckTest < Minitest::Test
     { id: "adv2-style-tag-in-script-string", cls: :stray_scope,
       files: { "a.html" => "<script>var a='<style>';</script>\n<p style=\"color:#abcdef\"></p><style>p{}</style>" },
       findings: [ [ "a.html", 2, "literal" ] ],
+      tokens: [],
       pending: false },
     { id: "adv2-rcdata-textarea", cls: :stray_scope,
       files: { "a.html" => "<textarea><b style=\"color:#abcdef\"></b></textarea>",
                "b.html" => "<title><i fill=\"#abcdef\"></i></title>" },
       findings: [],
+      tokens: [],
       pending: false },
     { id: "adv2-cdata-in-svg", cls: :stray_scope,
       files: { "a.html" => "<svg><![CDATA[ <rect fill=\"#abcdef\"/> ]]></svg>",
@@ -736,6 +738,16 @@ class ColorCheckTest < Minitest::Test
     assert_empty remaining, "unexpected extra contrast rows for #{row[:id]}: #{describe_pairs(remaining)}"
   end
 
+  # The token side of a row: the declarations each file contributes as a
+  # token-file candidate, so a fake style element yields no tokens at all.
+  def assert_corpus_tokens(row)
+    row[:files].each do |rel, content|
+      sheet = ColorCheck.css_source_sheet(rel, content)
+      actual = sheet ? sheet.decls.map(&:name) : []
+      assert_equal row[:tokens], actual, "tokens mismatch for #{row[:id]} #{rel}"
+    end
+  end
+
   def assert_corpus_row(row, report, dir)
     if row[:palette]
       actual = report.palette ? report.palette.authored.map { |a| a[:value] }.sort : []
@@ -743,6 +755,7 @@ class ColorCheckTest < Minitest::Test
     end
 
     assert_contrast_rows(row, report.contrast) if row[:contrast]
+    assert_corpus_tokens(row) if row.key?(:tokens)
     return unless row[:findings]
 
     actual = report.findings.map { |f| [ relative_path(f.file, dir), f.line, f.kind ] }.sort
@@ -926,6 +939,13 @@ class ColorCheckTest < Minitest::Test
       report = ColorCheck.run(dir, strict: false)
       assert_equal 0, report.exit_code
     end
+  end
+
+  def test_second_style_block_after_a_comment_reports_its_own_line
+    html = "<style>:root{--a:#fff}</style>\n<!-- <style>\n:root{--b:#000}\n</style> -->\n" \
+           "<p>x</p>\n<style>\n:root{\n--c:#111}</style>\n"
+    sheet = ColorCheck.style_block_sheet(html)
+    assert_equal [ [ "--a", 1 ], [ "--c", 8 ] ], sheet.decls.map { |d| [ d.name, d.line ] }
   end
 
   def test_multiline_token_declaration_is_exempt_and_lines_stay_correct

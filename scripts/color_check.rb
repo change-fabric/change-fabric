@@ -8,6 +8,7 @@ require_relative 'color_css'
 require_relative 'color_value'
 require_relative 'color_themes'
 require_relative 'color_scan'
+require_relative 'color_markup'
 
 # Advisory checker for the cf:color minimal color system. Reports a repo's
 # authored palette, stray color literals, Tailwind palette classes and
@@ -33,8 +34,6 @@ module ColorCheck
 
   BG_EXACT = %w[--bg --background --surface].freeze
   BG_NAME = /(?:^--|-)(?:bg|background|surface)(?:-|$)/i.freeze
-  STYLE_BLOCK = /<style(?:\s+[^>]*)?>(.*?)<\/style>/mi.freeze
-  HTML_COMMENT = /<!--.*?-->/m.freeze
 
   Finding = Data.define(:file, :line, :kind, :text)
   # A color-shaped string the scan could not classify (its key context was
@@ -109,28 +108,26 @@ module ColorCheck
     nil
   end
 
-  # A <style> block inside an HTML comment is inert: comments never count as
-  # live markup, so they are blanked out (replaced with
-  # spaces, newlines kept so reported lines stay true) before scanning for
-  # STYLE_BLOCK; a style tag that only ever existed inside the comment
-  # disappears along with it. A style tag's own media= attribute is honored
-  # by wrapping that block's declarations in a synthetic "@media <value>"
-  # context, the same shape ColorThemes already reads off a real @media
-  # frame, so a dark-only <style media="(prefers-color-scheme: dark)">
-  # block is scoped to dark instead of merging into the unconditional base.
+  # Only what the shared markup walker (ColorMarkup) sees as a real style
+  # element is parsed: a "<style>" inside a comment, a script string, an
+  # attribute value, a textarea or a title is text, never CSS. Each block's
+  # line_offset and pos_offset come from its body's offset in the raw text,
+  # so reported lines stay true to the original file. A style tag's own
+  # media= attribute is honored by wrapping that block's declarations in a
+  # synthetic "@media <value>" context, the same shape ColorThemes already
+  # reads off a real @media frame, so a dark-only
+  # <style media="(prefers-color-scheme: dark)"> block is scoped to dark
+  # instead of merging into the unconditional base.
   def style_block_sheet(text)
     decls = []
     at_rule_stmts = []
     errors = []
-    scan_text = text.gsub(HTML_COMMENT) { |m| m.gsub(/[^\n]/, ' ') }
-    scan_text.scan(STYLE_BLOCK) do
-      m = Regexp.last_match
-      tag = m[0][/\A<style[^>]*>/mi] || '<style>'
-      lang = tag[/lang\s*=\s*["']?(scss|less)["']?/i, 1]
+    ColorMarkup.each_node(text).grep(ColorMarkup::Style).each do |style|
+      lang = style.lang&.[](/\A(scss|less)/i, 1)
       dialect = lang ? lang.downcase.to_sym : :css
-      media = tag[/\bmedia\s*=\s*["']([^"']*)["']/i, 1]
-      line_offset = scan_text[0...m.begin(1)].count("\n")
-      sub = ColorCss.parse(m[1], dialect:, line_offset:, pos_offset: m.begin(1))
+      media = style.media
+      line_offset = text[0...style.pos].count("\n")
+      sub = ColorCss.parse(style.body, dialect:, line_offset:, pos_offset: style.pos)
       sub_decls = sub.decls
       sub_stmts = sub.at_rule_stmts
       if media && !media.strip.empty?
