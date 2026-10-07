@@ -92,6 +92,16 @@ class ColorValueTest < Minitest::Test
     assert_rgba 255, 0, 0, rgba, expected_a: 0.5
   end
 
+  def test_rgb_comma_syntax_with_slash_alpha_is_invalid
+    result = CV.resolve("rgb(255, 0, 0 / 50%)", {})
+    assert_nil result.color
+  end
+
+  def test_hsl_comma_syntax_with_slash_alpha_is_invalid
+    result = CV.resolve("hsl(0, 100%, 50% / 50%)", {})
+    assert_nil result.color
+  end
+
   def test_rgb_percentage_channels
     assert_rgba 255, 0, 0, resolved("rgb(100% 0% 0%)")
   end

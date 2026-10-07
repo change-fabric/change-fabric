@@ -500,9 +500,12 @@ module ColorValue
     else
       channel_str = main.strip
       comma_parts = ColorCss.split_top_level(channel_str)
-      parts = comma_parts.size > 1 ? comma_parts : split_ws_top_level(channel_str)
-      parts = parts.map(&:strip).reject(&:empty?)
-      [ parts, alpha_part.strip, comma_parts.size > 1 ]
+      # Slash alpha is modern space syntax only; legacy comma channels with a
+      # slash alpha (rgb(255, 0, 0 / 50%)) are invalid, not a mixed form.
+      return [ [], nil, false ] if comma_parts.size > 1
+
+      parts = split_ws_top_level(channel_str).map(&:strip).reject(&:empty?)
+      [ parts, alpha_part.strip, false ]
     end
   end
 

@@ -64,6 +64,7 @@ module ColorScan
   REGEX_CONTEXT_CHAR = /[(\[{,;:=!&|?+\-*%^~<>]/.freeze
   ATTR_NAMES = %w[style fill stroke class classname].freeze
   MDX_ATTR = /\b(?:style|fill|stroke|className|class)\s*=\s*(?:"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')/mi.freeze
+  MDX_CLASS_ATTR = /\b(?:className|class)\s*=\s*(?:"((?:[^"\\]|\\.)*)"|'((?:[^'\\]|\\.)*)')/mi.freeze
   IMPORT_EXPORT_LINE = /\A[ \t]*(?:import|export)\b/.freeze
 
   module_function
@@ -107,7 +108,7 @@ module ColorScan
     when 'js', 'jsx', 'ts', 'tsx'
       script_findings(path, text)
     when 'mdx'
-      mdx_findings(path, text)
+      mdx_findings(path, text, token_names)
     else
       []
     end
@@ -419,10 +420,21 @@ module ColorScan
   # String literals are only eligible inside import/export lines, {...}
   # expressions, and style=/fill=/stroke=/className=/class= attribute
   # values; everything else (prose) is never scanned.
-  def mdx_findings(path, text)
+  def mdx_findings(path, text, token_names)
     blanked = blank_mdx_code(text)
     ranges = import_export_ranges(blanked) + brace_ranges(blanked) + mdx_attr_ranges(blanked)
-    script_findings(path, blanked, allowed_ranges: ranges)
+    script_findings(path, blanked, allowed_ranges: ranges) + mdx_class_findings(path, blanked, token_names)
+  end
+
+  def mdx_class_findings(path, text, token_names)
+    findings = []
+    text.to_enum(:scan, MDX_CLASS_ATTR).each do
+      m = Regexp.last_match
+      value = m[1] || m[2]
+      line = text[0...m.begin(0)].count("\n") + 1
+      findings.concat(tailwind_entries(path, line, value, token_names))
+    end
+    findings
   end
 
   def blank_mdx_code(text)

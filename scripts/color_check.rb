@@ -23,7 +23,7 @@ module ColorCheck
   # the same function), so both are matched with /i. hwb( and color( are
   # color functions too, per the Supported table above.
   COLOR_FN = /\b(?:rgba?|hsla?|hwb|oklch|oklab|lab|lch|color)\(/i.freeze
-  GRADIENT = /\b(?:linear|radial|conic|repeating-linear|repeating-radial)-gradient\(/i.freeze
+  GRADIENT = /\b(?:linear|radial|conic|repeating-linear|repeating-radial|repeating-conic)-gradient\(/i.freeze
   SKIP_DIRS = %w[node_modules dist build vendor .git coverage .next out].freeze
   SCAN_EXTS = %w[css scss sass less html js jsx ts tsx vue svelte astro mdx].freeze
   CSS_EXTS = %w[css scss less].freeze

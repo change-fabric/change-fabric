@@ -105,6 +105,11 @@ class ColorScanTest < Minitest::Test
     end
   end
 
+  def test_mdx_class_attribute_is_tailwind_scanned
+    text = "<p className=\"bg-red-500\">hi</p>\n"
+    assert_equal [ [ 1, "tailwind" ] ], kinds("a.mdx", text)
+  end
+
   def test_mdx_import_line_is_scanned
     text = "import { x } from 'x';\nconst y = '#123456';\n"
     # only the import line is in scope; the following plain statement is

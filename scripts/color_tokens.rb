@@ -265,10 +265,16 @@ module ColorTokens
       authored = {}
       derived = 0
       error_token = false
+      first_error_value = nil
       (@light.to_a + @dark.to_a).each do |name, entry|
-        next error_token = true if name == ERROR_TOKEN
-
         value = entry[:value]
+        if name == ERROR_TOKEN
+          error_token = true
+          norm = normalize(value)
+          first_error_value ||= norm
+          next if norm == first_error_value
+        end
+
         if authored?(value)
           slot = (authored[normalize(value)] ||= { value: value.strip, names: [], line: entry[:line] })
           slot[:names] << name unless slot[:names].include?(name)

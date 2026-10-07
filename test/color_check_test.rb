@@ -766,6 +766,20 @@ class ColorCheckTest < Minitest::Test
     end
   end
 
+  def test_second_distinct_error_color_counts_toward_palette
+    with_dir do |dir|
+      css = FOUR_COLOR_TOKENS.sub("--pink: #f2c4c4;", "--pink: #f2c4c4;\n  --error: red;") \
+                             .sub(':root[data-theme="dark"] {', ':root[data-theme="dark"] {' \
+                                  "\n      --error: orange;")
+      write(dir, "tokens.css", css)
+      report = ColorCheck.run(dir, strict: true)
+      assert report.palette.error_token
+      assert_equal 5, report.palette.authored.size
+      assert(report.token_errors.any? { |e| e.message.include?("palette has 5 authored colors") })
+      assert_equal 1, report.exit_code
+    end
+  end
+
   def test_color_mix_and_var_values_count_as_derived
     with_dir do |dir|
       write(dir, "tokens.css", FOUR_COLOR_TOKENS)
@@ -810,6 +824,15 @@ class ColorCheckTest < Minitest::Test
     with_dir do |dir|
       write(dir, "tokens.css", FOUR_COLOR_TOKENS)
       write(dir, "src/hero.css", ".hero { background: linear-gradient(to right, red, blue); }")
+      report = ColorCheck.run(dir)
+      assert report.findings.any? { |f| f.kind == "gradient" }
+    end
+  end
+
+  def test_repeating_conic_gradient_reported
+    with_dir do |dir|
+      write(dir, "tokens.css", FOUR_COLOR_TOKENS)
+      write(dir, "src/hero.css", ".hero { background: repeating-conic-gradient(red, blue 10%); }")
       report = ColorCheck.run(dir)
       assert report.findings.any? { |f| f.kind == "gradient" }
     end
