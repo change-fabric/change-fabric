@@ -27,7 +27,7 @@ Favor:
 - `afterCommit()` (or `ShouldQueueAfterCommit`) when a job depends on a transaction's writes
 - Passing model ids or models (`SerializesModels`) to jobs, not large object graphs
 - API Resources and pagination for public responses
-- `config()` in application code; `env()` only inside `config/*.php`
+- `config()` in application code; `env()` only inside a `config/*.php` file (the root app's or a nested app's)
 - Migrations for every schema change, with constraints, foreign keys, and indexes from real access patterns
 - Feature tests for HTTP and workflows; factories over hand-built fixtures
 
@@ -49,7 +49,7 @@ CI (mechanically enforced; run through `./vendor/bin/sail` or the project's Comp
 - `php artisan test` passes
 - `vendor/bin/pint --test` passes
 - `vendor/bin/phpstan analyse` (Larastan) passes where configured
-- `out=$(git diff --name-only --diff-filter=AM origin/HEAD -- '*.php' ':!config/**' | xargs -I{} git grep -nP "(?<![\\w>$:])env\\(" -- {}); [ -z "$out" ]`
+- `out=$(git diff --name-only --diff-filter=AM origin/HEAD -- '*.php' ':!config/**' ':!**/config/**' | xargs -I{} git grep -nP "(?<![\\w>$:])env\\(" -- {}); [ -z "$out" ]`
 
 Review-time (no tool checks these):
 - Every mutation validated and authorized; authorization boundaries tested

@@ -56,4 +56,30 @@ class SkillPhpLaravelGateTest < Minitest::Test
   ensure
     FileUtils.remove_entry(proj) if proj
   end
+
+  # The env() check must exclude every Laravel app's config/ dir, root or
+  # nested, since detection is recursive; anything else is still scanned.
+  def test_shipped_laravel_env_check_excludes_config_at_every_depth
+    line = File.read(File.join(REPO_SKILLS, "laravel/SKILL.md"))[/^- `(out=\$\(git diff .*env.*)`$/, 1]
+    refute_nil line, "env() check line not found"
+    allowed = [ "config/app.php", "api/config/app.php", "apps/api/config/app.php", "services/apps/api/config/db.php" ]
+    flagged = [ "app/Foo.php", "apps/api/app/Foo.php", "apps/api/src/config.php" ]
+    (allowed + flagged).each do |path|
+      Dir.mktmpdir do |dir|
+        git = ->(*a) { system("git", "-C", dir, *a, out: File::NULL, err: File::NULL) or raise "git #{a.join(' ')}" }
+        git.call("init", "-q")
+        git.call("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "base")
+        git.call("update-ref", "refs/remotes/origin/HEAD", "HEAD")
+        FileUtils.mkdir_p(File.dirname(File.join(dir, path)))
+        File.write(File.join(dir, path), "<?php return ['k' => env('K')];\n")
+        git.call("add", "-A")
+        ok = system("bash", "-c", line, chdir: dir, out: File::NULL, err: File::NULL)
+        if allowed.include?(path)
+          assert ok, "env() check flagged #{path}, a config file"
+        else
+          refute ok, "env() check missed #{path}"
+        end
+      end
+    end
+  end
 end
