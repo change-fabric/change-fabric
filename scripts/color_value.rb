@@ -327,7 +327,7 @@ module ColorValue
 
     return Result.new(color: nil, reason: "#{name} is not defined in this theme") unless fallback
 
-    resolve(fallback, decls, seen: seen + [ name ])
+    resolve(fallback, decls, seen:)
   end
 
   # True when a failed substitution left the referenced property with the

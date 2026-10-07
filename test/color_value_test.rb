@@ -132,6 +132,16 @@ class ColorValueTest < Minitest::Test
     assert_rgba 0, 255, 0, resolved("var(--missing, var(--b))", { "--b" => "#00ff00" })
   end
 
+  # An undefined name is never traversed, so it cannot be part of a cycle:
+  # repeating it inside its own fallback chain is not a cycle.
+  def test_var_undefined_name_repeated_in_fallback_is_not_a_cycle
+    assert_rgba 0, 0, 0, resolved("var(--missing, var(--missing, #000))")
+    assert_rgba 0, 0, 0, resolved("var(--missing, var(--missing, var(--missing, #000)))")
+    assert_rgba 0, 0, 0, resolved("var(--m1, var(--m2, var(--m1, #000)))")
+    assert_rgba 0, 0, 0, resolved("var(--a)", { "--a" => "var(--missing, var(--missing, #000))" })
+    assert_includes unresolved("var(--missing, var(--missing))"), "--missing is not defined in this theme"
+  end
+
   def test_var_cycle_with_no_fallback_is_unresolved
     decls = { "--a" => "var(--b)", "--b" => "var(--a)" }
     reason = unresolved("var(--a)", decls)
