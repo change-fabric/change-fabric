@@ -96,8 +96,12 @@ module ColorScan
       sass_file_findings(path, text, token_file)
     when 'html', 'vue', 'svelte', 'astro'
       markup_file_findings(path, text, token_file)
-    when 'js', 'jsx', 'ts', 'tsx'
+    when 'js', 'jsx', 'tsx'
       script_findings(path, text)
+    when 'ts'
+      # TypeScript proper has no JSX: "<T>x" there is an angle-bracket
+      # assertion, so "<" never opens an element.
+      script_findings(path, text, jsx: false)
     when 'mdx'
       mdx_findings(path, text)
     else
@@ -395,9 +399,9 @@ module ColorScan
   # string. allowed_ranges, when given, restricts which string start
   # positions are eligible to produce a finding at all (used by MDX to keep
   # prose out of scope); nil scans every string (plain JS/TS/JSX/TSX files).
-  def script_findings(path, text, line_offset: 0, allowed_ranges: nil)
+  def script_findings(path, text, line_offset: 0, allowed_ranges: nil, jsx: true)
     findings = []
-    scan_js(path, text, 0, text.length, line_offset, allowed_ranges, findings)
+    scan_js(path, text, 0, text.length, line_offset, allowed_ranges, findings, jsx: jsx)
     findings
   end
 
@@ -405,7 +409,7 @@ module ColorScan
   # (or a template "${...}") whose opening brace the caller already
   # consumed: it tracks brace depth from 1 and returns the index just past
   # the matching close brace instead of running to the end of text.
-  def scan_js(path, text, i, len, line_offset, allowed_ranges, findings, stop_at_brace: false)
+  def scan_js(path, text, i, len, line_offset, allowed_ranges, findings, stop_at_brace: false, jsx: true)
     depth = stop_at_brace ? 1 : 0
     while i < len
       c = text[i]
@@ -435,14 +439,10 @@ module ColorScan
         findings.concat(classified_string(path, text, start, content, line_offset, allowed_ranges))
       when '`'
         start = i
-        content, i = scan_script_template(path, text, i, len, line_offset, allowed_ranges, findings)
+        content, i = scan_script_template(path, text, i, len, line_offset, allowed_ranges, findings, jsx: jsx)
         findings.concat(classified_string(path, text, start, content, line_offset, allowed_ranges))
       when '<'
-        i = if jsx_tag_start?(text, i)
-              scan_jsx(path, text, i, len, line_offset, allowed_ranges, findings)
-        else
-              i + 1
-        end
+        i = jsx && jsx_tag_start?(text, i) ? scan_jsx_or_skip(path, text, i, len, line_offset, allowed_ranges, findings) : i + 1
       else
         i += 1
       end
@@ -533,9 +533,14 @@ module ColorScan
     KEYWORD_PAREN_HEADS.include?(word)
   end
 
+  # A TSX generic arrow head ("<T,>(", "<T extends U>(") is a type
+  # parameter list, never an element.
+  TS_GENERIC_HEAD = /\G<\s*[A-Za-z_$][\w$]*\s*(?:,|extends\b)/.freeze
+
   def jsx_tag_start?(text, i)
     nxt = text[i + 1]
     return false if nxt.nil? || !nxt.match?(/[A-Za-z>]/)
+    return false if text.match?(TS_GENERIC_HEAD, i)
 
     expression_context?(text, i)
   end
@@ -606,7 +611,7 @@ module ColorScan
   # A "${...}" interpolation is ordinary JS, not template text: a string
   # literal inside it is scanned (and reported) exactly like any other JS
   # string, via the shared scan_js, rather than skipped wholesale.
-  def scan_script_template(path, text, i, len, line_offset, allowed_ranges, findings)
+  def scan_script_template(path, text, i, len, line_offset, allowed_ranges, findings, jsx: true)
     content = +''
     i += 1
     while i < len
@@ -618,7 +623,7 @@ module ColorScan
         i += 1
         break
       elsif c == '$' && text[i + 1] == '{'
-        i = scan_js(path, text, i + 2, len, line_offset, allowed_ranges, findings, stop_at_brace: true)
+        i = scan_js(path, text, i + 2, len, line_offset, allowed_ranges, findings, stop_at_brace: true, jsx: jsx)
       else
         content << c
         i += 1
@@ -634,8 +639,23 @@ module ColorScan
   # values are both scanned normally), then, unless self-closing, its
   # children as JSX text until the matching closing tag. Returns the index
   # just past the whole element.
+  # A "<" judged to start JSX that never closes (a TS assertion or generic
+  # the heuristics missed, or a stray comparison) is not JSX after all: its
+  # findings are dropped and scanning resumes as JS just past the "<", so no
+  # file suffix is ever swallowed as JSX text.
+  def scan_jsx_or_skip(path, text, i, len, line_offset, allowed_ranges, findings)
+    mark = findings.length
+    j = scan_jsx(path, text, i, len, line_offset, allowed_ranges, findings)
+    return j if j
+
+    findings.slice!(mark..)
+    i + 1
+  end
+
+  # Returns the index just past the element, or nil when it never closes.
   def scan_jsx(path, text, i, len, line_offset, allowed_ranges, findings)
     self_closing, j = scan_jsx_open_tag(path, text, i, len, line_offset, allowed_ranges, findings)
+    return nil if j.nil?
     return j if self_closing
 
     scan_jsx_children(path, text, j, len, line_offset, allowed_ranges, findings)
@@ -673,7 +693,7 @@ module ColorScan
         j += 1
       end
     end
-    [ true, j ]
+    [ true, nil ]
   end
 
   # JSX children: text is prose (never a string start) until "<" (a nested
@@ -686,9 +706,10 @@ module ColorScan
       when '<'
         if text[j + 1] == '/'
           close = text.index('>', j)
-          return close ? close + 1 : len
+          return close && close + 1
         elsif text[j + 1]&.match?(/[A-Za-z]/)
           j = scan_jsx(path, text, j, len, line_offset, allowed_ranges, findings)
+          return nil if j.nil?
         else
           j += 1
         end
@@ -698,7 +719,7 @@ module ColorScan
         j += 1
       end
     end
-    j
+    nil
   end
 
   # --- shared string classification -----------------------------------------

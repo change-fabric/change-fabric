@@ -142,6 +142,27 @@ class ColorScanTest < Minitest::Test
 
   # --- key context: tri-state lookback --------------------------------------
 
+  # TypeScript syntax starting with "<" is never JSX, and a "<" misjudged as
+  # JSX that never closes must not swallow the rest of the file.
+  def test_typescript_angle_syntax_never_swallows_file_suffix
+    color = %(\nconst color = "#ff0000";\n)
+    {
+      "a.tsx" => [ "const id = <T,>(x: T) => x;", "const id = <T extends object>(x: T) => x;",
+                   "const id = < T ,>(x: T) => x;" ],
+      "a.ts" => [ "const n = <number>value;", "const id = <T,>(x: T) => x;",
+                  "const s = <Array<string>>list;" ],
+      "a.jsx" => [ "const ok = x =>\n<b", "const ok = x => <b>text</b" ],
+    }.each do |path, heads|
+      heads.each do |head|
+        assert_equal [ [ head.count("\n") + 2, "literal" ] ], kinds(path, head + color), "#{path}: #{head}"
+      end
+    end
+  end
+
+  def test_tsx_element_still_scanned_after_generic_fix
+    assert_equal [ [ 1, "literal" ] ], kinds("a.tsx", "const x = <path fill={'#f00'} />;\n")
+  end
+
   def test_jsx_expression_brace_resolves_to_attribute_key
     assert_equal "fill", ColorScan.lookback_key("<path fill={'#f00'} />", 12)
     assert_equal [ [ 1, "literal" ] ], kinds("a.jsx", "const x = <path fill={'#f00'} />;\n")
