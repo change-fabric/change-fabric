@@ -8,8 +8,8 @@ require_relative 'color_value'
 
 # Stray color literal, Tailwind and gradient findings for the cf:color
 # checker, scoped to values and attributes only: CSS declaration values,
-# markup style=/fill=/stroke=/class= attributes, and script string literals
-# that are the whole value of a color-bearing key or attribute. Never
+# markup style=/fill=/stroke=/class= attributes, and script strings whose
+# whole trimmed text is a hex or rgb/hsl color literal. Never
 # selectors, never url() fragments, never prose. References
 # ColorCheck::COLOR_FN and ColorCheck::GRADIENT lazily
 # (inside method bodies only), so this file does not require 'color_check'
@@ -25,7 +25,6 @@ module ColorScan
   HEX_CSS = /(?<!&)#(?:\h{8}|\h{6}|\h{4}|\h{3})\b/.freeze
   HEX_FULL = /\A#(?:\h{8}|\h{6}|\h{4}|\h{3})\z/.freeze
   NAMED_WORD = /(?<![\w$@#.-])[A-Za-z]+(?![\w(-])/.freeze
-  COLOR_KEY = /(^|[a-z])(color|colour|background|bg|fill|stroke|border|outline|shadow)/i.freeze
   # Named-color classification of a CSS property, three-way. A bare
   # named-color word ("red", "navy") in the value of a property that accepts
   # a <color> per the CSS specs (Color 4, Backgrounds 3, Borders, Text 4,
@@ -61,22 +60,11 @@ module ColorScan
     scroll-timeline-name view-timeline-name page
   ]).freeze
   UNCLASSIFIED_PROPERTY_REASON = 'named color in unclassified property %s'
-  SCRIPT_COLOR_FN_FULL = /\A(?:#{ColorValue::COLOR_FN_NAMES.join('|')})\(.*\)\z/im.freeze
+  SCRIPT_COLOR_FN_FULL = /\A(?:rgba?|hsla?)\(.*\)\z/im.freeze
+  REGEX_CONTEXT_CHAR = /[(\[{,;:=!&|?+\-*%^~<>]/.freeze
   ATTR_NAMES = %w[style fill stroke class classname].freeze
   MDX_ATTR = /\b(?:style|fill|stroke|className|class)\s*=\s*(?:"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')/mi.freeze
   IMPORT_EXPORT_LINE = /\A[ \t]*(?:import|export)\b/.freeze
-  EXPR_CONTEXT_CHARS = /[(\[{,;:=!&|?+\-*%^~<>]/.freeze
-  EXPR_CONTEXT_KEYWORDS = %w[return typeof instanceof in of new delete void throw else do yield case].freeze
-  # The attribute enclosing a bound value: name without its binding prefix,
-  # binding one of :static, :vue_bind, :svelte_brace, :jsx_brace, and start,
-  # the index in the scanned text where the attribute's expression begins.
-  AttrCtx = Data.define(:name, :binding, :start) do
-    def color_bearing?
-      # A kebab-case name is read as its camelCase form (data-color as
-      # dataColor), so COLOR_KEY sees the same word boundary either way.
-      ATTR_NAMES.include?(name.downcase) || name.delete('-').match?(COLOR_KEY)
-    end
-  end
 
   module_function
 
@@ -89,7 +77,8 @@ module ColorScan
   end
 
   # Like findings_for, but returns [findings, unresolved]: color-shaped
-  # strings whose key context could not be determined are kept apart as
+  # entries the scanner could not classify (a named color in an unknown
+  # property, an unknown Tailwind word) are kept apart as
   # ColorCheck::Unresolved entries instead of being dropped.
   def scan(path, text, token_file:, token_names: Set.new)
     all_entries(path, text, token_file, token_names).partition { |e| e.is_a?(ColorCheck::Finding) }
@@ -97,20 +86,13 @@ module ColorScan
 
   # Debug accessor for the no-silent-drop invariant: every color-shaped
   # literal the scanner sees, each in exactly one class. Returns
-  # [[text, :finding | [:exempt, rule] | :unresolved], ...] in scan order,
-  # where rule is one of EXEMPT_RULES or :non_color_key.
+  # [[text, :finding | :unresolved], ...] in scan order.
   def classify_all(path, text, token_file: nil)
-    exempt = []
-    Thread.current[:color_scan_exempt] = exempt
-    entries = all_entries(path, text, token_file)
-    classified = entries.filter_map do |e|
+    all_entries(path, text, token_file).filter_map do |e|
       next [ e.text, :unresolved ] if e.is_a?(ColorCheck::Unresolved)
 
       [ e.text, :finding ] if e.kind == 'literal'
     end
-    classified + exempt
-  ensure
-    Thread.current[:color_scan_exempt] = nil
   end
 
   def all_entries(path, text, token_file, token_names = Set.new)
@@ -122,12 +104,8 @@ module ColorScan
       sass_file_findings(path, text, token_file)
     when 'html', 'vue', 'svelte', 'astro'
       markup_file_findings(path, text, token_file, token_names)
-    when 'js', 'jsx', 'tsx'
+    when 'js', 'jsx', 'ts', 'tsx'
       script_findings(path, text)
-    when 'ts'
-      # TypeScript proper has no JSX: "<T>x" there is an angle-bracket
-      # assertion, so "<" never opens an element.
-      script_findings(path, text, jsx: false)
     when 'mdx'
       mdx_findings(path, text)
     else
@@ -265,26 +243,15 @@ module ColorScan
   def markup_attr_node_findings(path, text, node, token_names)
     base_name = node.name.sub(ColorMarkup::BOUND_ATTR_PREFIX, '')
     attr = base_name.downcase
-    binding = attr_binding(node.name, node.curly)
-    return [] unless binding != :static || ATTR_NAMES.include?(attr)
+    bound = node.curly || ColorMarkup::BOUND_ATTR_PREFIX.match?(node.name)
+    return [] unless bound || ATTR_NAMES.include?(attr)
 
     line_offset = text[0...node.pos].count("\n")
-    if binding == :static
-      markup_attr_value_findings(path, node.value, line_offset, attr, token_names)
-    else
-      # A Vue/Svelte bound attribute's value is a JS expression, not a
-      # literal: scan it with the script lexer, carrying the attribute
-      # so a string that is the whole value keeps the attribute as key.
-      ctx = AttrCtx.new(name: base_name, binding: binding, start: 0)
-      script_findings(path, node.value, line_offset: line_offset, attr_ctx: ctx)
-    end
-  end
+    # A Vue/Svelte bound attribute's value is a JS expression: the same
+    # obvious-literal lexer as a script body.
+    return script_findings(path, node.value, line_offset: line_offset) if bound
 
-  def attr_binding(name, curly)
-    return :svelte_brace if curly
-    return :vue_bind if ColorMarkup::BOUND_ATTR_PREFIX.match?(name)
-
-    :static
+    markup_attr_value_findings(path, node.value, line_offset, attr, token_names)
   end
 
   def markup_attr_value_findings(path, value, line_offset, attr, token_names)
@@ -329,200 +296,101 @@ module ColorScan
 
   # --- Script: .js .jsx .ts .tsx -------------------------------------------
 
-  # Walks text, skipping comments and regex literals, collecting single/
-  # double-quoted strings and backtick templates (${...} spans scanned as
-  # ordinary JS, so a string literal inside an interpolation counts like any
-  # other), and recognizing JSX: a tag's attribute list is scanned like any
-  # other JS (quotes and {expr} both work as usual), but its children are
-  # JSX text, not JS, so quotes and apostrophes there are prose, never a
-  # string. allowed_ranges, when given, restricts which string start
-  # positions are eligible to produce a finding at all (used by MDX to keep
-  # prose out of scope); nil scans every string (plain JS/TS/JSX/TSX files).
-  def script_findings(path, text, line_offset: 0, allowed_ranges: nil, jsx: true, attr_ctx: nil)
+  # A small lexer: skips comments, regex literals and template literals,
+  # reads single- and double-quoted strings, and reports a string only when
+  # the whole trimmed string is a hex color or an rgb()/rgba()/hsl()/hsla()
+  # call. No key context, no JSX, no Tailwind. allowed_ranges, when given,
+  # restricts which string start positions count (MDX keeps prose out).
+  def script_findings(path, text, line_offset: 0, allowed_ranges: nil)
     findings = []
-    scan_js(path, text, 0, text.length, line_offset, allowed_ranges, findings, jsx: jsx, attr_ctx: attr_ctx)
+    each_script_string(text) do |start, content|
+      next if allowed_ranges&.none? { |r| r.cover?(start) }
+      next unless script_literal?(content.strip)
+
+      line = text[0...start].count("\n") + 1 + line_offset
+      findings << finding(path, line, 'literal', content)
+    end
     findings
   end
 
-  # The core JS scanner. When stop_at_brace is true, it is scanning a "{...}"
-  # (or a template "${...}") whose opening brace the caller already
-  # consumed: it tracks brace depth from 1 and returns the index just past
-  # the matching close brace instead of running to the end of text.
-  def scan_js(path, text, i, len, line_offset, allowed_ranges, findings, stop_at_brace: false, jsx: true, attr_ctx: nil)
-    depth = stop_at_brace ? 1 : 0
+  def script_literal?(stripped)
+    HEX_FULL.match?(stripped) || SCRIPT_COLOR_FN_FULL.match?(stripped)
+  end
+
+  def each_script_string(text)
+    i = 0
+    len = text.length
     while i < len
       c = text[i]
-      case c
-      when '{'
-        depth += 1 if stop_at_brace
-        i += 1
-      when '}'
-        if stop_at_brace
-          depth -= 1
-          i += 1
-          return i if depth.zero?
-        else
-          i += 1
-        end
-      when '/'
-        i = if text[i + 1] == '/' || text[i + 1] == '*'
-              skip_script_comment(text, i, len)
-        elsif expression_context?(text, i)
-              skip_script_regex(text, i, len)
-        else
-              i + 1
-        end
-      when '"', "'"
-        start = i
-        content, i = scan_script_string(text, i, len)
-        findings.concat(classified_string(path, text, start, content, line_offset, allowed_ranges, attr_ctx:, end_idx: i))
-      when '`'
-        start = i
-        content, i = scan_script_template(path, text, i, len, line_offset, allowed_ranges, findings, jsx: jsx)
-        findings.concat(classified_string(path, text, start, content, line_offset, allowed_ranges, attr_ctx:, end_idx: i))
-      when '<'
-        i = jsx && jsx_tag_start?(text, i) ? scan_jsx_or_skip(path, text, i, len, line_offset, allowed_ranges, findings) : i + 1
+      if c == '"' || c == "'"
+        content, j = scan_script_string(text, i, len)
+        yield i, content
+        i = j
       else
-        i += 1
+        i = skip_script_token(text, i, len)
       end
     end
-    i
   end
 
-  # True when the character context right before index i is one where a new
-  # expression (a regex literal, or a JSX element) is expected rather than a
-  # division operator or a comparison continuing a value: after an operator,
-  # punctuation that opens a new expression, or an expression keyword, or at
-  # the very start of the text.
-  def expression_context?(text, i)
+  def skip_script_token(text, i, len)
+    case text[i]
+    when '`' then skip_script_template(text, i, len)
+    when '/'
+      if %w[/ *].include?(text[i + 1]) then skip_script_comment(text, i, len)
+      elsif regex_context?(text, i) then skip_script_regex(text, i, len)
+      else i + 1
+      end
+    else i + 1
+    end
+  end
+
+  # A "/" opens a regex literal when the previous significant character
+  # cannot end an operand (or there is none). "if (x) /re/" is read as
+  # division; the rare miss only drops a finding on that line.
+  def regex_context?(text, i)
     j = i - 1
-    j -= 1 while j >= 0 && text[j] =~ /[ \t\n]/
+    j -= 1 while j >= 0 && text[j].match?(/\s/)
     return true if j.negative?
+    # "x++ / 2": a postfix ++ or -- ends an operand.
+    return false if %w[+ -].include?(text[j]) && text[j - 1] == text[j]
 
-    ch = text[j]
-
-    # A postfix "++"/"--" (an identifier, ")" or "]" right before it) ends a
-    # value, so the next "/" is division; the same pair with nothing but an
-    # operator before it is prefix, which still expects an expression.
-    if (ch == '+' || ch == '-') && j.positive? && text[j - 1] == ch
-      k = j - 2
-      k -= 1 while k >= 0 && text[k] =~ /[ \t\n]/
-      postfix = k >= 0 && (text[k] =~ /[\w$]/ || text[k] == ')' || text[k] == ']')
-      return !postfix
-    end
-
-    return true if EXPR_CONTEXT_CHARS.match?(ch)
-
-    # A ")" ends a value (a call or a parenthesized expression), except when
-    # it closes the head of an if/while/for/with/switch/catch, which is
-    # followed by an expression (its body), never a division.
-    if ch == ')'
-      open = matching_open_paren(text, j)
-      return open ? keyword_before_paren?(text, open) : false
-    end
-
-    return false if ch == ']'
-    return false if ch == '"' || ch == "'" || ch == '`'
-
-    if ch =~ /[\w$]/
-      k = j
-      k -= 1 while k >= 0 && text[k] =~ /[\w$]/
-      word = text[(k + 1)..j]
-      # A keyword right after "." or "?." is a property name ("a.return"),
-      # not the keyword itself, so it is a value: the next "/" is division.
-      before = k
-      before -= 1 while before >= 0 && text[before] =~ /[ \t\n]/
-      return false if before >= 0 && text[before] == '.'
-
-      return EXPR_CONTEXT_KEYWORDS.include?(word)
-    end
-
-    true
-  end
-
-  KEYWORD_PAREN_HEADS = %w[if while for with switch catch].freeze
-
-  # Finds the "(" matching a ")" at close_idx by counting nested parens
-  # backward. Good enough for this heuristic lexer; it does not skip over
-  # strings or comments, so a literal unbalanced paren inside one could
-  # mislead it, same tradeoff as the rest of this scanner.
-  def matching_open_paren(text, close_idx)
-    depth = 0
-    j = close_idx
-    while j >= 0
-      if text[j] == ')'
-        depth += 1
-      elsif text[j] == '('
-        depth -= 1
-        return j if depth.zero?
-      end
-      j -= 1
-    end
-    nil
-  end
-
-  def keyword_before_paren?(text, open_idx)
-    k = open_idx - 1
-    k -= 1 while k >= 0 && text[k] =~ /[ \t\n]/
-    return false if k.negative? || text[k] !~ /[\w$]/
-
-    e = k
-    k -= 1 while k >= 0 && text[k] =~ /[\w$]/
-    word = text[(k + 1)..e]
-    KEYWORD_PAREN_HEADS.include?(word)
-  end
-
-  # A TSX generic arrow head ("<T,>(", "<T extends U>(") is a type
-  # parameter list, never an element.
-  TS_GENERIC_HEAD = /\G<\s*[A-Za-z_$][\w$]*\s*(?:,|extends\b)/.freeze
-
-  def jsx_tag_start?(text, i)
-    nxt = text[i + 1]
-    return false if nxt.nil? || !nxt.match?(/[A-Za-z>]/)
-    return false if text.match?(TS_GENERIC_HEAD, i)
-
-    expression_context?(text, i)
+    text[j].match?(REGEX_CONTEXT_CHAR)
   end
 
   def skip_script_comment(text, i, len)
     if text[i + 1] == '/'
-      nl = text.index("\n", i)
-      nl || len
-    elsif text[i + 1] == '*'
+      text.index("\n", i) || len
+    else
       close = text.index('*/', i + 2)
       close ? close + 2 : len
-    else
-      i + 1
     end
   end
 
-  # A "/" starts a regex literal, rather than a division operator, in
-  # expression context (see expression_context?). Character classes "[...]"
-  # may contain an unescaped "/" that does not end the regex.
   def skip_script_regex(text, i, len)
     j = i + 1
     in_class = false
     while j < len
       c = text[j]
-      if c == '\\' && j + 1 < len
-        j += 2
-      elsif c == '['
-        in_class = true
-        j += 1
-      elsif c == ']'
-        in_class = false
-        j += 1
-      elsif c == '/' && !in_class
-        j += 1
-        break
-      elsif c == "\n"
-        return j # unterminated regex; bail without consuming the newline
-      else
-        j += 1
+      return j if c == "\n"
+
+      if c == '\\' then j += 1
+      elsif c == '[' then in_class = true
+      elsif c == ']' then in_class = false
+      elsif c == '/' && !in_class then return j + 1
       end
+      j += 1
     end
-    j += 1 while j < len && text[j] =~ /[a-zA-Z]/
     j
+  end
+
+  def skip_script_template(text, i, len)
+    j = i + 1
+    while j < len
+      return j + 1 if text[j] == '`'
+
+      j += text[j] == '\\' ? 2 : 1
+    end
+    len
   end
 
   def scan_script_string(text, i, len)
@@ -531,342 +399,18 @@ module ColorScan
     i += 1
     while i < len
       c = text[i]
+      return [ content, i + 1 ] if c == quote
+      return [ content, i ] if c == "\n"
+
       if c == '\\' && i + 1 < len
         content << c << text[i + 1]
         i += 2
-      elsif c == quote
-        i += 1
-        break
-      elsif c == "\n"
-        break
       else
         content << c
         i += 1
       end
     end
     [ content, i ]
-  end
-
-  # A "${...}" interpolation is ordinary JS, not template text: a string
-  # literal inside it is scanned (and reported) exactly like any other JS
-  # string, via the shared scan_js, rather than skipped wholesale.
-  def scan_script_template(path, text, i, len, line_offset, allowed_ranges, findings, jsx: true)
-    content = +''
-    i += 1
-    while i < len
-      c = text[i]
-      if c == '\\' && i + 1 < len
-        content << c << text[i + 1]
-        i += 2
-      elsif c == '`'
-        i += 1
-        break
-      elsif c == '$' && text[i + 1] == '{'
-        i = scan_js(path, text, i + 2, len, line_offset, allowed_ranges, findings, stop_at_brace: true, jsx: jsx)
-      else
-        content << c
-        i += 1
-      end
-    end
-    [ content, i ]
-  end
-
-  # --- JSX ------------------------------------------------------------------
-
-  # i points to a "<" already judged to start a JSX element. Scans its
-  # opening tag (attributes behave like any other JS: quotes and {expr}
-  # values are both scanned normally), then, unless self-closing, its
-  # children as JSX text until the matching closing tag. Returns the index
-  # just past the whole element.
-  # A "<" judged to start JSX that never closes (a TS assertion or generic
-  # the heuristics missed, or a stray comparison) is not JSX after all: its
-  # findings are dropped and scanning resumes as JS just past the "<", so no
-  # file suffix is ever swallowed as JSX text.
-  def scan_jsx_or_skip(path, text, i, len, line_offset, allowed_ranges, findings)
-    mark = findings.length
-    j = scan_jsx(path, text, i, len, line_offset, allowed_ranges, findings)
-    return j if j
-
-    findings.slice!(mark..)
-    i + 1
-  end
-
-  # Returns the index just past the element, or nil when it never closes.
-  def scan_jsx(path, text, i, len, line_offset, allowed_ranges, findings)
-    self_closing, j = scan_jsx_open_tag(path, text, i, len, line_offset, allowed_ranges, findings)
-    return nil if j.nil?
-    return j if self_closing
-
-    scan_jsx_children(path, text, j, len, line_offset, allowed_ranges, findings)
-  end
-
-  def scan_jsx_open_tag(path, text, i, len, line_offset, allowed_ranges, findings)
-    j = i + 1
-    depth = 0
-    while j < len
-      c = text[j]
-      case c
-      when '"', "'"
-        start = j
-        content, j = scan_script_string(text, j, len)
-        findings.concat(classified_string(path, text, start, content, line_offset, allowed_ranges))
-      when '`'
-        start = j
-        content, j = scan_script_template(path, text, j, len, line_offset, allowed_ranges, findings)
-        findings.concat(classified_string(path, text, start, content, line_offset, allowed_ranges))
-      when '{'
-        name = depth.zero? && jsx_attr_name_before(text, j)
-        if name
-          ctx = AttrCtx.new(name: name, binding: :jsx_brace, start: j + 1)
-          j = scan_js(path, text, j + 1, len, line_offset, allowed_ranges, findings, stop_at_brace: true, attr_ctx: ctx)
-        else
-          depth += 1
-          j += 1
-        end
-      when '}'
-        depth -= 1 if depth.positive?
-        j += 1
-      when '/'
-        return [ true, j + 2 ] if depth.zero? && text[j + 1] == '>'
-
-        j += 1
-      when '>'
-        return [ false, j + 1 ] if depth.zero?
-
-        j += 1
-      else
-        j += 1
-      end
-    end
-    [ true, nil ]
-  end
-
-  # The attribute name right before a JSX "name={" expression brace, or nil
-  # when the brace is not an attribute value (a spread "{...props}").
-  def jsx_attr_name_before(text, brace_idx)
-    eq = skip_ws_back(text, brace_idx - 1)
-    return nil unless eq >= 0 && text[eq] == '='
-
-    k = skip_ws_back(text, eq - 1)
-    e = k
-    k -= 1 while k >= 0 && text[k].match?(/[\w:-]/)
-    k == e ? nil : text[(k + 1)..e]
-  end
-
-  # JSX children: text is prose (never a string start) until "<" (a nested
-  # element, or this element's own closing tag) or "{" (an embedded JS
-  # expression, scanned like any other JS).
-  def scan_jsx_children(path, text, i, len, line_offset, allowed_ranges, findings)
-    j = i
-    while j < len
-      case text[j]
-      when '<'
-        if text[j + 1] == '/'
-          close = text.index('>', j)
-          return close && close + 1
-        elsif text[j + 1]&.match?(/[A-Za-z]/)
-          j = scan_jsx(path, text, j, len, line_offset, allowed_ranges, findings)
-          return nil if j.nil?
-        else
-          j += 1
-        end
-      when '{'
-        j = scan_js(path, text, j + 1, len, line_offset, allowed_ranges, findings, stop_at_brace: true)
-      else
-        j += 1
-      end
-    end
-    nil
-  end
-
-  # --- shared string classification -----------------------------------------
-
-  def classified_string(path, text, start, content, line_offset, allowed_ranges, attr_ctx: nil, end_idx: nil)
-    return [] if allowed_ranges && allowed_ranges.none? { |r| r.cover?(start) }
-
-    line = text[0...start].count("\n") + 1 + line_offset
-    attr_key = attr_value_key(text, start, end_idx, attr_ctx)
-    key = attr_key || lookback_key(text, start)
-    position_a = !attr_key.nil? || (key.is_a?(String) && (%w[style fill stroke].include?(key) || key.match?(COLOR_KEY)))
-    entries = classify_string(path, line, content, position_a, unknown_context: key == :unknown)
-    record_exempt(content, key, entries)
-    entries
-  end
-
-  # Under classify_all, a short hex string that produced neither a literal
-  # finding nor an unresolved entry is recorded with the rule that exempted
-  # it, so the accounting test can see it was classified, not dropped.
-  def record_exempt(content, key, entries)
-    sink = Thread.current[:color_scan_exempt]
-    return unless sink && HEX_FULL.match?(content.strip)
-    return if entries.any? { |e| e.is_a?(ColorCheck::Unresolved) || e.kind == 'literal' }
-
-    sink << [ content.strip, [ :exempt, key.is_a?(String) ? :non_color_key : key ] ]
-  end
-
-  # A short (3/4-digit) hex string is only a color when its key says so: in
-  # a positively exempt context (a non-color key, or a named EXEMPT_RULES
-  # context) it is not a finding, and in a context the lookback could not
-  # determine it is reported as unresolved rather than silently exempt.
-  def classify_string(path, line, content, position_a, unknown_context: false)
-    findings = []
-    stripped = content.strip
-    if HEX_FULL.match?(stripped)
-      short = [ 3, 4 ].include?(stripped.length - 1)
-      if !short || position_a
-        findings << finding(path, line, 'literal', content)
-      elsif unknown_context
-        findings << unresolved(path, line, 'literal', content, UNKNOWN_CONTEXT_REASON)
-      end
-    elsif SCRIPT_COLOR_FN_FULL.match?(stripped)
-      findings << finding(path, line, 'literal', content)
-    elsif stripped.match?(/\A[A-Za-z]+\z/) && ColorValue::NAMED.key?(stripped.downcase)
-      findings << finding(path, line, 'literal', content)
-    end
-    findings << finding(path, line, 'gradient', content) if ColorCheck::GRADIENT.match?(content)
-    # Interim until script strings are cut to whole-string literals: a JSX
-    # className string still reports its palette utilities, one per utility.
-    ColorTailwind.findings(content).each do |e|
-      findings << finding(path, line, 'tailwind', e.text) if e.status == :finding
-    end
-    findings
-  end
-
-  # The enclosing attribute's name when the string at start...end_idx is in
-  # position A of a color-bearing attribute: the whole expression value, or
-  # a depth-0 branch of a top-level ternary, "??" or "||". nil otherwise, so
-  # the caller falls back to lookback_key (object keys, exempt rules).
-  def attr_value_key(text, start, end_idx, attr_ctx)
-    return nil unless attr_ctx&.color_bearing? && end_idx
-    return nil unless depth_zero?(text, attr_ctx.start, start)
-    return nil unless branch_open?(text, attr_ctx.start, start) && branch_close?(text, end_idx)
-
-    attr_ctx.name
-  end
-
-  # True when no bracket opened since expr_start is still open at idx.
-  # Quoted strings are skipped so brackets inside them do not count.
-  def depth_zero?(text, expr_start, idx)
-    depth = 0
-    j = expr_start
-    while j < idx
-      c = text[j]
-      if c == '"' || c == "'" || c == '`'
-        close = text.index(c, j + 1)
-        j = close ? close + 1 : idx
-        next
-      end
-      depth += 1 if '([{'.include?(c)
-      depth -= 1 if ')]}'.include?(c)
-      j += 1
-    end
-    depth.zero?
-  end
-
-  def branch_open?(text, expr_start, start)
-    p = skip_ws_back(text, start - 1)
-    return true if p < expr_start
-
-    c = text[p]
-    c == '?' || c == ':' || (c == '|' && p.positive? && text[p - 1] == '|')
-  end
-
-  def branch_close?(text, end_idx)
-    k = end_idx
-    k += 1 while k < text.length && text[k].match?(/\s/)
-    return true if k >= text.length || text[k] == '}' || text[k] == ':'
-
-    %w[?? ||].include?(text[k, 2])
-  end
-
-  UNKNOWN_CONTEXT_REASON = 'key context could not be determined'
-  # Named, positive exempt contexts for a string with no key: the
-  # character(s) right before it (after whitespace) identify it as a call
-  # argument, an array element, the right side of a keyless return, or a
-  # concatenation operand. Anything else is :unknown, never exempt.
-  EXEMPT_RULES = %i[call_arg array_elem assign concat].freeze
-
-  # Key context of the string starting at start_idx. Returns a key String
-  # when ":" (object or style-object key) or "=" (attribute or assignment)
-  # precedes it; one of EXEMPT_RULES when a positive exempt rule matches;
-  # :unknown otherwise. A bound attribute's own value is keyed by the
-  # carried AttrCtx (attr_value_key), not by looking back.
-  def lookback_key(text, start_idx)
-    i = skip_ws_back(text, start_idx - 1)
-    return :unknown if i.negative?
-    return key_before(text, i) if text[i] == ':' || text[i] == '='
-
-    exempt_rule(text, i)
-  end
-
-  def key_before(text, sep_idx)
-    i = skip_ws_back(text, sep_idx - 1)
-    return :unknown if i.negative?
-
-    key = text[i] == '"' || text[i] == "'" ? quoted_key_before(text, i) : identifier_before(text, i)
-    return :unknown if key.nil? || ternary_branch?(text, sep_idx, i, key)
-
-    key
-  end
-
-  # "ok ? a : '#123'" is a ternary's else branch, not an object key: the
-  # token before ":" is itself preceded by "?", so the key is unknown.
-  def ternary_branch?(text, sep_idx, key_end, key)
-    return false unless text[sep_idx] == ':'
-
-    key_start = key_end - key.length - (text[key_end] == '"' || text[key_end] == "'" ? 2 : 0)
-    before = skip_ws_back(text, key_start)
-    before >= 0 && text[before] == '?'
-  end
-
-  def exempt_rule(text, i)
-    case text[i]
-    when '(' then :call_arg
-    when '[' then :array_elem
-    when '+' then :concat
-    when ',' then enclosing_rule(text, i)
-    else
-      identifier_before(text, i) == 'return' ? :assign : :unknown
-    end
-  end
-
-  # For a "," separator, the innermost unclosed bracket decides: "(" is a
-  # call argument list, "[" an array literal. A "{" (object literal) or no
-  # bracket at all is :unknown.
-  def enclosing_rule(text, comma_idx)
-    depth = 0
-    (comma_idx - 1).downto(0) do |j|
-      c = text[j]
-      if ')]}'.include?(c)
-        depth += 1
-      elsif '([{'.include?(c)
-        return { '(' => :call_arg, '[' => :array_elem }.fetch(c, :unknown) if depth.zero?
-
-        depth -= 1
-      end
-    end
-    :unknown
-  end
-
-  def skip_ws_back(text, i)
-    i -= 1 while i >= 0 && text[i].match?(/\s/)
-    i
-  end
-
-  def quoted_key_before(text, close_idx)
-    quote = text[close_idx]
-    j = close_idx - 1
-    j -= 1 while j >= 0 && text[j] != quote
-    return nil if j.negative?
-
-    text[(j + 1)...close_idx]
-  end
-
-  def identifier_before(text, end_idx)
-    j = end_idx
-    j -= 1 while j >= 0 && text[j].match?(/[\w$]/)
-    key = text[(j + 1)..end_idx]
-    key.nil? || key.empty? ? nil : key
   end
 
   # --- MDX -----------------------------------------------------------------

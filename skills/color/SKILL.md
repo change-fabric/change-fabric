@@ -157,7 +157,8 @@ Unresolved stray entries print and never fail `--strict`.
 
 Not scanned: JS strings that are not whole-string literals, template
 literals, CSS-in-JS, Tailwind classes outside `class`/`className`/`@apply`
-(`clsx` or `cva` arguments), SCSS variables, standalone `.svg` files, text
+(`clsx` or `cva` arguments, and `className` strings inside .jsx/.tsx
+files, which are script), SCSS variables, standalone `.svg` files, text
 nodes.
 
 `test/color_support_table_test.rb` holds one fixture per bullet in these two

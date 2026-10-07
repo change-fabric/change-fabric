@@ -5,11 +5,8 @@ require_relative "test_helpers"
 require_relative "#{File.expand_path('../scripts', __dir__)}/color_check"
 
 # Executable form of the "Token file" and "Stray scan" contract in
-# skills/color/SKILL.md: one fixture per grammar bullet. A fixture whose
-# behavior lands in a later phase is skipped with the phase that lands it.
+# skills/color/SKILL.md: one fixture per grammar bullet.
 class ColorSupportTableTest < Minitest::Test
-  PHASE4 = "lands in Phase 4: Obvious JS literals and dead code"
-
   def read_tokens(css)
     Dir.mktmpdir do |dir|
       path = File.join(dir, "tokens.css")
@@ -140,7 +137,7 @@ class ColorSupportTableTest < Minitest::Test
     assert_equal [ "literal" ], kinds("a.html", '<path fill="#abcdef"/>')
     assert_equal [ "literal" ], kinds("a.html", '<path stroke="red"/>')
     assert_equal [ "tailwind" ], kinds("a.html", '<p class="text-red-500">x</p>')
-    assert_equal [ "tailwind" ], kinds("a.jsx", '<p className="bg-red-500" />')
+    assert_equal [], kinds("a.jsx", '<p className="bg-red-500" />')
   end
 
   def test_stray_script_whole_string_literals
@@ -151,7 +148,6 @@ class ColorSupportTableTest < Minitest::Test
   end
 
   def test_stray_script_short_hex_whole_string_is_a_finding
-    skip PHASE4
     assert_equal [ [ "#cafe", :finding ] ], classes("a.js", "document.querySelector('#cafe');")
   end
 
@@ -195,7 +191,6 @@ class ColorSupportTableTest < Minitest::Test
   end
 
   def test_stray_clsx_arguments_not_scanned
-    skip PHASE4
     assert_equal [], classes("a.jsx", "clsx('bg-red-500', ok && 'text-white')")
   end
 

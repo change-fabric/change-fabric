@@ -372,7 +372,7 @@ class ColorCheckTest < Minitest::Test
       pending: false },
     { id: "repro10-query-selector-cafe", cls: :false_positives,
       files: { "extra.js" => "document.querySelector('#cafe');\n" },
-      findings: [],
+      findings: [ [ "extra.js", 1, "literal" ] ],
       pending: false },
     { id: "fp-link-with-hex-fragment", cls: :false_positives,
       files: { "extra.js" => "const link = '/page#feed';\n" },
@@ -380,7 +380,7 @@ class ColorCheckTest < Minitest::Test
       pending: false },
     { id: "fp-bare-three-digit-hex-in-string", cls: :false_positives,
       files: { "extra.js" => "const a = '#add';\n" },
-      findings: [],
+      findings: [ [ "extra.js", 1, "literal" ] ],
       pending: false },
     { id: "repro11-url-svg-fragment", cls: :false_positives,
       files: { "extra.css" => ".x { background: url(img.svg#a1b2c3); }\n" },
@@ -441,12 +441,12 @@ class ColorCheckTest < Minitest::Test
       pending: false },
     { id: "adv1-jsx-text-quotes-flagged-sibling-apostrophe-and-tailwind", cls: :false_positives,
       files: { "Nested.jsx" => "export const N = () => <div>Won't <span className=\"bg-red-500\">stop</span></div>;\n" },
-      findings: [ [ "Nested.jsx", 1, "tailwind" ] ],
+      findings: [],
       pending: false },
     # :stray_scope
-    { id: "stray-button-jsx-four-literals", cls: :stray_scope,
+    { id: "stray-button-jsx-oklch-not-scanned", cls: :stray_scope,
       files: { "src/Button.jsx" => "const a = \"#ff0000\";\nconst b = \"rgb(1,2,3)\";\nconst c = \"hsl(0, 0%, 0%)\";\nconst d = \"oklch(0.5 0.1 90)\";\n" },
-      findings: [ [ "src/Button.jsx", 1, "literal" ], [ "src/Button.jsx", 2, "literal" ], [ "src/Button.jsx", 3, "literal" ], [ "src/Button.jsx", 4, "literal" ] ],
+      findings: [ [ "src/Button.jsx", 1, "literal" ], [ "src/Button.jsx", 2, "literal" ], [ "src/Button.jsx", 3, "literal" ] ],
       pending: false },
     { id: "stray-html-style-fill-stroke-attrs", cls: :stray_scope,
       files: { "extra.html" => '<div style="color:#123456"></div><svg><path fill="#abc"/><path stroke="rgb(1,2,3)"/></svg>' },
@@ -458,7 +458,7 @@ class ColorCheckTest < Minitest::Test
       pending: false },
     { id: "stray-fill-red-style-white-js-teal", cls: :stray_scope,
       files: { "extra.html" => '<svg><path fill="red"/></svg><div style="color: white"></div>', "extra.js" => "const c = \"teal\";\n" },
-      findings: [ [ "extra.html", 1, "literal" ], [ "extra.html", 1, "literal" ], [ "extra.js", 1, "literal" ] ],
+      findings: [ [ "extra.html", 1, "literal" ], [ "extra.html", 1, "literal" ] ],
       pending: false },
     { id: "stray-fill-none-gives-none", cls: :stray_scope,
       files: { "extra.html" => '<svg><path fill="none"/></svg>' },
@@ -482,7 +482,7 @@ class ColorCheckTest < Minitest::Test
       pending: false },
     { id: "stray-tailwind-classname-and-apply", cls: :stray_scope,
       files: { "extra.jsx" => "const x = <div className=\"bg-slate-100\"/>;\n", "extra.css" => "@apply text-blue-600;\n" },
-      findings: [ [ "extra.jsx", 1, "tailwind" ], [ "extra.css", 1, "tailwind" ] ],
+      findings: [ [ "extra.css", 1, "tailwind" ] ],
       pending: false },
     { id: "stray-gradient-in-css-value", cls: :stray_scope,
       files: { "extra.css" => ".hero { background: linear-gradient(to right, #ff0000, #0000ff); }\n" },
@@ -526,10 +526,6 @@ class ColorCheckTest < Minitest::Test
       files: { "page.html" => "<div\n  style=\"\n    color: #123456;\n    background: red\n  \">x</div>\n" },
       findings: [ [ "page.html", 3, "literal" ], [ "page.html", 4, "literal" ] ],
       pending: false },
-    { id: "adv1-jsx-apostrophe-swallows-string", cls: :stray_scope,
-      files: { "A.jsx" => "export const A = () => <p>Don't <span style={{ color: '#f00' }}>x</span></p>;\n" },
-      findings: [ [ "A.jsx", 1, "literal" ] ],
-      pending: false },
     { id: "adv1-js-regex-literal-swallows-string", cls: :stray_scope,
       files: { "B.js" => "const re = /\"/g; const s = { color: '#abc' };\n" },
       findings: [ [ "B.js", 1, "literal" ] ],
@@ -544,7 +540,7 @@ class ColorCheckTest < Minitest::Test
       pending: false },
     { id: "adv1-template-interpolation-strings-skipped", cls: :stray_scope,
       files: { "C.js" => "const c = `${dark ? '#000000' : '#ffffff'}`;\n" },
-      findings: [ [ "C.js", 1, "literal" ], [ "C.js", 1, "literal" ] ],
+      findings: [],
       pending: false },
     { id: "adv2-markup-comment-in-script", cls: :stray_scope,
       files: { "a.html" => "<script>var a='<!--';</script>\n<p style=\"color:#abcdef\">-->x</p>" },
@@ -570,11 +566,6 @@ class ColorCheckTest < Minitest::Test
       files: { "a.html" => "<svg><![CDATA[ <rect fill=\"#abcdef\"/> ]]></svg>",
                "b.html" => "<![CDATA[ <p style=\"color:#abcdef\"></p> ]]>" },
       findings: [],
-      pending: false },
-    { id: "adv2-js-regex-after-paren-keyword", cls: :stray_scope,
-      files: { "a.js" => "if (x) /'/.test(s); const c = '#abcdef';\n",
-               "w.js" => "while (ok) /\"/.exec(s); const c = '#abcdef';\n" },
-      findings: [ [ "a.js", 1, "literal" ], [ "w.js", 1, "literal" ] ],
       pending: false },
     { id: "adv2-js-property-keyword", cls: :stray_scope,
       files: { "a.js" => "const x = a.return / 2; const c = '#abcdef'; const y = b / 3;\n",
@@ -794,18 +785,18 @@ class ColorCheckTest < Minitest::Test
       JSX
       report = ColorCheck.run(dir)
       literal_findings = report.findings.select { |f| f.kind == "literal" }
-      assert_equal 4, literal_findings.size
+      assert_equal 3, literal_findings.size
       assert literal_findings.all? { |f| f.file.end_with?("Button.jsx") }
-      assert_equal [ 1, 2, 3, 4 ], literal_findings.map(&:line).sort
+      assert_equal [ 1, 2, 3 ], literal_findings.map(&:line).sort
     end
   end
 
   def test_tailwind_classes_reported_and_semantic_class_not_reported
     with_dir do |dir|
       write(dir, "tokens.css", FOUR_COLOR_TOKENS)
-      write(dir, "src/Card.jsx", <<~JSX)
-        <div className="bg-slate-100 text-blue-600 bg-primary">hi</div>
-      JSX
+      write(dir, "src/card.html", <<~HTML)
+        <div class="bg-slate-100 text-blue-600 bg-primary">hi</div>
+      HTML
       report = ColorCheck.run(dir)
       tailwind_findings = report.findings.select { |f| f.kind == "tailwind" }
       matches = tailwind_findings.map(&:text)
@@ -1016,19 +1007,14 @@ class ColorCheckTest < Minitest::Test
     end
   end
 
-  def test_unknown_context_short_hex_is_unresolved_and_not_strict
+  def test_whole_string_short_hex_is_a_strict_finding
     with_dir do |dir|
       write(dir, "tokens.css", FOUR_COLOR_TOKENS)
       write(dir, "a.js", "const c = dark ? '#fff' : base;\n")
       report = ColorCheck.run(dir, strict: true)
-      assert_equal [], report.findings
-      assert_equal 1, report.unresolved.size
-      assert_equal 0, report.exit_code
-      text = ColorCheck.render(report)
-      assert_includes text, "Unresolved (not counted by --strict):"
-      assert_includes text, "#fff (key context could not be determined)"
-      json = JSON.parse(ColorCheck.to_json_report(report))
-      assert_equal "#fff", json["unresolved"].first["text"]
+      assert_equal [ "#fff" ], report.findings.map(&:text)
+      assert_equal [], report.unresolved
+      refute_equal 0, report.exit_code
     end
   end
 

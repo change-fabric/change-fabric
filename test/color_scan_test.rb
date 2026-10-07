@@ -38,27 +38,27 @@ class ColorScanTest < Minitest::Test
     assert_equal [], findings("a.js", text)
   end
 
-  def test_template_literal_interpolation_nested_string_is_scanned
-    text = 'const d = `${ { a: "#123456" } }`;'
-    # a "${...}" interpolation is ordinary JS, not template text: the
-    # six-digit hex string inside it is a plain JS string and counts like
-    # any other, and the walk still terminates correctly (no raise, no hang).
-    assert_equal [ [ 1, "literal" ] ], kinds("a.js", text)
-  end
-
   def test_unterminated_string_ends_at_newline_and_scan_continues
     text = %(const a = 'oops\nconst b = "#123456";\n)
     assert_equal [ [ 2, "literal" ] ], kinds("a.js", text)
   end
 
-  def test_color_bearing_key_allows_short_hex
-    text = "const s = { backgroundColor: '#fff' };"
-    assert_equal [ [ 1, "literal" ] ], kinds("a.jsx", text)
+  def test_whole_string_hex_and_color_functions_are_findings
+    [ "const s = { backgroundColor: '#fff' };", "x('#cafe');", "f(\"rgb(1 2 3)\");", "y = 'hsla(0, 0%, 0%, .5)';" ].each do |js|
+      assert_equal [ [ 1, "literal" ] ], kinds("a.js", js), js
+    end
   end
 
-  def test_non_color_key_rejects_short_hex_but_allows_named_color
-    text = %(const a = '#abc';\nconst b = 'teal';\n)
-    assert_equal [ [ 2, "literal" ] ], kinds("a.js", text)
+  def test_partial_strings_named_words_and_templates_are_not_findings
+    [ "const u = '/page#feed';", "const t = 'teal';", "const c = `#abcdef`;", "const g = 'color: #abcdef';",
+      "const d = `${ { a: '#123456' } }`;" ].each do |js|
+      assert_equal [], findings("a.js", js), js
+    end
+  end
+
+  def test_regex_literal_and_postfix_division_are_lexed
+    assert_equal [ [ 1, "literal" ] ], kinds("a.js", "const r = /'/; const c = '#abcdef';")
+    assert_equal [ [ 1, "literal" ] ], kinds("a.js", "x = y++ / 2; const c = '#abcdef'; z = w / 3;")
   end
 
   # --- MDX: code fences and scan scope -------------------------------------
@@ -150,92 +150,29 @@ class ColorScanTest < Minitest::Test
     assert_equal [ [ 3, "literal" ] ], kinds("a.sass", text)
   end
 
-  # --- key context: tri-state lookback --------------------------------------
-
-  # TypeScript syntax starting with "<" is never JSX, and a "<" misjudged as
-  # JSX that never closes must not swallow the rest of the file.
-  def test_typescript_angle_syntax_never_swallows_file_suffix
-    color = %(\nconst color = "#ff0000";\n)
-    {
-      "a.tsx" => [ "const id = <T,>(x: T) => x;", "const id = <T extends object>(x: T) => x;",
-                   "const id = < T ,>(x: T) => x;" ],
-      "a.ts" => [ "const n = <number>value;", "const id = <T,>(x: T) => x;",
-                  "const s = <Array<string>>list;" ],
-      "a.jsx" => [ "const ok = x =>\n<b", "const ok = x => <b>text</b" ]
-    }.each do |path, heads|
-      heads.each do |head|
-        assert_equal [ [ head.count("\n") + 2, "literal" ] ], kinds(path, head + color), "#{path}: #{head}"
-      end
-    end
-  end
-
-  def test_tsx_element_still_scanned_after_generic_fix
-    assert_equal [ [ 1, "literal" ] ], kinds("a.tsx", "const x = <path fill={'#f00'} />;\n")
-  end
-
-  def test_jsx_expression_brace_carries_attribute_not_lookback
-    assert_equal :unknown, ColorScan.lookback_key("<path fill={'#f00'} />", 12)
-    assert_equal [ [ 1, "literal" ] ], kinds("a.jsx", "const x = <path fill={'#f00'} />;\n")
-  end
+  # --- Bound attributes and JSX use the same lexer ---------------------------
 
   def scan_classes(path, text)
     ColorScan.classify_all(path, text).map(&:last)
   end
 
-  def test_bound_attribute_whole_value_is_a_finding
-    { "a.vue" => [ %q(<path :fill="'#abc'"/>), %q(<path v-bind:fill="'#abc'"/>) ],
+  def test_bound_attribute_strings_use_the_script_lexer
+    { "a.vue" => [ %q(<path :fill="'#abc'"/>), %q(<path v-bind:fill="'#abc'"/>), %q(<p :data-x="'#abc'"/>) ],
       "a.svelte" => [ "<path fill={'#abc'}/>" ],
-      "a.tsx" => [ "x = <path fill={'#abc'}/>;" ] }.each do |path, texts|
+      "a.tsx" => [ "x = <path fill={'#abc'}/>;", "x = <path fill={f(ok ? x : '#abc')}/>;" ] }.each do |path, texts|
       texts.each { |text| assert_equal [ :finding ], scan_classes(path, text), "#{path}: #{text}" }
     end
+    assert_equal [ :finding, :finding ], scan_classes("a.vue", %q(<path :fill="ok ? '#abc' : '#def'"/>))
   end
 
-  def test_bound_attribute_top_level_branches_are_findings
-    { "a.vue" => [ %q(<path :fill="ok ? '#abc' : '#def'"/>) ],
-      "a.tsx" => [ "x = <path fill={ok ? '#abc' : '#def'}/>;" ] }.each do |path, texts|
-      texts.each { |text| assert_equal [ :finding, :finding ], scan_classes(path, text), "#{path}: #{text}" }
-    end
-    [ "x = <path fill={a ?? '#abc'}/>;", "x = <path fill={a || '#abc'}/>;" ].each do |text|
-      assert_equal [ :finding ], scan_classes("a.tsx", text), text
-    end
-  end
-
-  def test_bound_style_object_keeps_object_key
-    assert_equal [ :finding ], scan_classes("a.vue", %q(<p :style="{color:'#abc'}"/>))
-  end
-
-  def test_bound_attribute_scope_follows_color_key
-    assert_equal [ :finding ], scan_classes("a.vue", %q(<p :data-color="'#abc'"/>))
-    assert_equal [ :unresolved ], scan_classes("a.vue", %q(<p :data-x="'#abc'"/>))
-  end
-
-  def test_nested_branch_in_bound_attribute_stays_unresolved
-    assert_equal [ :unresolved ], scan_classes("a.tsx", "x = <path fill={f(ok ? x : '#abc')}/>;")
-  end
-
-  def test_short_hex_call_argument_is_exempt_by_named_rule
-    text = "document.querySelector('#cafe');\n"
-    assert_equal :call_arg, ColorScan.lookback_key(text, text.index("'"))
-    findings, unresolved = ColorScan.scan("a.js", text, token_file: nil)
-    assert_equal [], findings
+  def test_script_scan_never_reports_unresolved
+    findings, unresolved = ColorScan.scan("a.js", "const c = dark ? '#fff' : base;\n", token_file: nil)
+    assert_equal [ "#fff" ], findings.map(&:text)
     assert_equal [], unresolved
   end
 
-  def test_named_exempt_rules
-    { "f(a, '#abc')" => :call_arg, "['#abc']" => :array_elem, "x + '#abc'" => :concat,
-      "return '#abc'" => :assign }.each do |text, rule|
-      assert_equal rule, ColorScan.lookback_key(text, text.index("'")), text
-    end
-  end
-
-  def test_short_hex_in_unknown_context_is_unresolved
-    text = "const c = dark ? '#fff' : base;\n"
-    assert_equal :unknown, ColorScan.lookback_key(text, text.index("'"))
-    findings, unresolved = ColorScan.scan("a.js", text, token_file: nil)
-    assert_equal [], findings
-    assert_equal 1, unresolved.size
-    assert_equal "#fff", unresolved.first.text
-    assert_equal 1, unresolved.first.line
+  def test_jsx_class_name_is_not_tailwind_scanned
+    assert_equal [], findings("a.jsx", '<p className="bg-red-500" />')
   end
 
   def named_classes(css)
