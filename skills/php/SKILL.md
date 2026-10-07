@@ -4,7 +4,7 @@ description: Modern PHP rubric for native types, explicit boundaries, safe defau
 auto:
   extensions: [php]
   basenames: [composer.json]
-  detect: [composer.json, .php-version]
+  detect: ["**/composer.json", "**/.php-version"]
 ---
 
 # PHP Cheat Sheet

@@ -82,4 +82,15 @@ class SkillPhpLaravelGateTest < Minitest::Test
       end
     end
   end
+
+  # cf:php detection must agree with per-edit routing for nested PHP apps:
+  # every marker kind at every depth.
+  def test_shipped_php_detect_finds_markers_at_every_depth
+    php = shipped("cf:php")
+    %w[composer.json .php-version].product([ "", "api/", "apps/api/", "services/apps/api/" ]).each do |name, dir_prefix|
+      dir = project_with("#{dir_prefix}#{name}")
+      assert php.detected?(dir), "detect missed #{dir_prefix}#{name}"
+      FileUtils.remove_entry(dir)
+    end
+  end
 end
