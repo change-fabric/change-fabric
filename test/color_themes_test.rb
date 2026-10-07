@@ -185,4 +185,48 @@ class ColorThemesTest < Minitest::Test
     assert_includes texts, [ "#000", "#fff" ], "OS dark state"
     assert_equal lights.size, lights.map(&:contexts).uniq.size, "each state labelled distinctly"
   end
+
+  def test_same_name_media_on_theme_selector_unsupported
+    css = '@media (prefers-color-scheme: dark) { :root[data-theme="dark"] { --text: #fff; } }'
+    model = build(css)
+    unsupported = model.unsupported.find { |u| u.decls.key?("--text") }
+    refute_nil unsupported
+    assert_equal "media condition on a theme selector", unsupported.why
+    assert_nil variant_for(model, "dark")
+  end
+
+  def test_same_name_media_on_bare_theme_selector_unsupported
+    model = build("@media (prefers-color-scheme: dark) { .dark { --text: #fff; } }")
+    unsupported = model.unsupported.find { |u| u.decls.key?("--text") }
+    refute_nil unsupported
+    assert_equal "media condition on a theme selector", unsupported.why
+  end
+
+  def test_same_name_media_on_theme_selector_reported_by_color_check
+    require_relative "#{File.expand_path('../scripts', __dir__)}/color_check"
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "tokens.css")
+      File.write(path, ":root { --bg: #fff; --text: #000; } " \
+                       '@media (prefers-color-scheme: dark) { :root[data-theme="dark"] { --text: #fff; } }')
+      rows = ColorCheck.compute_contrast(path).select { |r| r.theme == "unsupported" }
+      assert_equal 1, rows.size
+      assert_equal "--text", rows.first.text_token
+      refute rows.first.resolved
+      assert_includes rows.first.reason, "media condition on a theme selector"
+    end
+  end
+
+  def test_unrecognized_context_without_text_role_is_still_recorded
+    model = build(".card .title { --surface: #eee; }")
+    unsupported = model.unsupported.find { |u| u.decls.key?("--surface") }
+    refute_nil unsupported
+    assert_equal "not a recognized theme context", unsupported.why
+  end
+
+  def test_malformed_layer_frame_is_unsupported
+    model = build("@layer a b { :root { --text: #000; } }")
+    unsupported = model.unsupported.find { |u| u.decls.key?("--text") }
+    refute_nil unsupported, model.inspect
+    assert_includes unsupported.why, "inside @layer"
+  end
 end

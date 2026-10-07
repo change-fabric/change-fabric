@@ -65,7 +65,7 @@ module ColorThemes
   # form) names a theme this declaration does not apply to; it still applies,
   # unconditionally, to every other variant (base inheritance).
   def classify(selector, decl, rule_custom_only: {}, at_rules: nil)
-    at_rules ||= decl.at_rules.reject { |a| a.start_with?('@layer') }
+    at_rules ||= non_layer_frames(decl.at_rules)
 
     media_name, bad = split_media_frames(at_rules)
     return [ :unsupported, context_label(at_rules, selector), "inside #{bad}" ] if bad
@@ -99,7 +99,7 @@ module ColorThemes
     base_entries = [] # [excluded_names, Entry]
     theme_entries = Hash.new { |h, k| h[k] = [] } # name => [Entry] (selector-origin)
     media_entries = Hash.new { |h, k| h[k] = [] } # media_name => [[excluded_names, Entry]]
-    unsupported = {} # label => {decls:, why:, other:}
+    unsupported = {} # label => {decls:, why:}
     selector_origin_names = Set.new
     order_idx = 0
 
@@ -107,7 +107,7 @@ module ColorThemes
       next unless decl.name.start_with?('--')
 
       layer_rank = layer_rank_for(decl, sibling_index)
-      at_rules = decl.at_rules.reject { |a| a.start_with?('@layer') }
+      at_rules = non_layer_frames(decl.at_rules)
 
       decl.selectors.each do |selector|
         order_idx += 1
@@ -129,11 +129,11 @@ module ColorThemes
           media_entries[rest[0]] << [ rest[1], entry ]
         when :unsupported
           label, why = rest
-          u = (unsupported[label] ||= { decls: {}, why:, other: false })
+          u = (unsupported[label] ||= { decls: {}, why: })
           u[:decls][decl.name] = decl.value
-        when :other
+        else
           label = rest[0]
-          u = (unsupported[label] ||= { decls: {}, why: 'not a recognized theme context', other: true })
+          u = (unsupported[label] ||= { decls: {}, why: 'not a recognized theme context' })
           u[:decls][decl.name] = decl.value
         end
       end
@@ -163,21 +163,29 @@ module ColorThemes
     [ media_name, nil ]
   end
 
+  # Drops only well-formed @layer frames (they rank the cascade, they do not
+  # condition it). A malformed @layer frame stays in the stack, so
+  # split_media_frames reports the declaration unsupported instead of
+  # silently treating it as unlayered.
+  def non_layer_frames(at_rules)
+    at_rules.reject { |a| LAYER_FRAME.match?(a) }
+  end
+
   def context_label(at_rules, selector)
     at_rules.empty? ? selector : "#{at_rules.join(' ')} #{selector}"
   end
 
+  # Exact lookup over the Supported column for theme contexts: a context
+  # either matches one supported shape or is reported unsupported with a
+  # reason. Nothing is folded into the nearest shape.
   def combine(media_name, selector_name, excluded, at_rules, selector)
     label = context_label(at_rules, selector)
-    if selector_name
-      return [ :unsupported, label, 'conflicting theme markers' ] if media_name && media_name != selector_name
+    return [ :base, excluded ] if media_name.nil? && selector_name.nil?
+    return [ :media_base, media_name, excluded, label ] if selector_name.nil?
+    return [ :theme, selector_name, label ] if media_name.nil?
 
-      [ :theme, selector_name, label ]
-    elsif media_name
-      [ :media_base, media_name, excluded, label ]
-    else
-      [ :base, excluded ]
-    end
+    why = media_name == selector_name ? 'media condition on a theme selector' : 'conflicting theme markers'
+    [ :unsupported, label, why ]
   end
 
   # Walks :root/html qualifiers (data-theme attrs, classes, :not(...)) and
@@ -431,10 +439,11 @@ module ColorThemes
     pool.sort_by(&:order).map(&:label).uniq
   end
 
+  # Every unsupported context is kept, whether or not it carries a text
+  # role, so no custom-property declaration silently leaves the model.
+  # Rendering decides which of them produce contrast rows.
   def finalize_unsupported(unsupported)
-    unsupported.filter_map do |label, entry|
-      next if entry[:other] && entry[:decls].keys.none? { |n| ColorThemes.text_role_name?(n) }
-
+    unsupported.map do |label, entry|
       Unsupported.new(label: label, decls: entry[:decls], why: entry[:why])
     end
   end
