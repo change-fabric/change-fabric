@@ -81,6 +81,10 @@ tokenizer, builds a theme model and resolves each pair against it. A pair it
 cannot resolve, or a context it will not merge, is listed as unresolved with
 a reason, to be stated manually; `--strict` is unchanged by this (it exits 1
 only for palette over target or any finding, never for contrast).
+A text role is a custom property with a whole hyphen segment `text`, `fg`,
+`foreground`, `ink`, `title` or `link` (for example `--foreground`,
+`--color-fg-default`). A sheet with no recognized text role gets one
+"no text-role tokens recognized" unresolved row instead of an empty table.
 
 | Area | Supported | Reported as unsupported (with a reason, never guessed) |
 |------|-----------|-------------------------------------------------------|
@@ -89,6 +93,13 @@ only for palette over target or any finding, never for contrast).
 | Value functions | `var()` with or without fallback; `color-mix(in srgb, ...)` with either or both percentages | `color-mix` in any other space; `light-dark()`; `currentColor` |
 | Stray scan, CSS | declaration values (hex, color functions, named colors), `@apply` | selectors, `url()` fragments, strings inside values, the keywords `transparent`, `currentColor`, `inherit`, `initial`, `unset`, `revert`, `none` |
 | Stray scan, markup and script | `style=`, `fill=`, `stroke=`, `class=`/`className=` attribute values; quoted strings that are exactly one color: any hex length when the value of a color-bearing key (`color`, `backgroundColor`, `borderColor`, `fill`, `stroke`, `shadow` and the like), otherwise only 6- or 8-digit hex, a color function or a named color | 3- or 4-digit hex strings outside a color-bearing key (`querySelector('#cafe')`), hex inside longer strings (`'/page#feed'`), ID selectors, `<style>` and `<script>` blocks, prose, text nodes, MDX code blocks, CSS-in-JS template literals as CSS, SCSS variables and mixins as tokens, standalone `.svg` files |
+
+In both stray scan rows, a quoted string whose key context cannot be
+determined (a short hex after a ternary `?`, for example) is listed as
+unresolved, not exempt, and does not affect `--strict`. Any form named in
+neither column is reported unresolved, never guessed.
+`test/color_support_table_test.rb` holds one fixture per form in this table,
+so the table and the checker cannot drift apart.
 
 ## Decision heuristic
 

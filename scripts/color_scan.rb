@@ -69,6 +69,24 @@ module ColorScan
     all_entries(path, text, token_file).partition { |e| e.is_a?(ColorCheck::Finding) }
   end
 
+  # Debug accessor for the no-silent-drop invariant: every color-shaped
+  # literal the scanner sees, each in exactly one class. Returns
+  # [[text, :finding | [:exempt, rule] | :unresolved], ...] in scan order,
+  # where rule is one of EXEMPT_RULES or :non_color_key.
+  def classify_all(path, text, token_file: nil)
+    exempt = []
+    Thread.current[:color_scan_exempt] = exempt
+    entries = all_entries(path, text, token_file)
+    classified = entries.filter_map do |e|
+      next [ e.text, :unresolved ] if e.is_a?(ColorCheck::Unresolved)
+
+      [ e.text, :finding ] if e.kind == 'literal'
+    end
+    classified + exempt
+  ensure
+    Thread.current[:color_scan_exempt] = nil
+  end
+
   def all_entries(path, text, token_file)
     ext = File.extname(path).delete_prefix('.').downcase
     case ext
@@ -691,7 +709,20 @@ module ColorScan
     line = text[0...start].count("\n") + 1 + line_offset
     key = lookback_key(text, start)
     position_a = key.is_a?(String) && (%w[style fill stroke].include?(key) || key.match?(COLOR_KEY))
-    classify_string(path, line, content, position_a, unknown_context: key == :unknown)
+    entries = classify_string(path, line, content, position_a, unknown_context: key == :unknown)
+    record_exempt(content, key, entries)
+    entries
+  end
+
+  # Under classify_all, a short hex string that produced neither a literal
+  # finding nor an unresolved entry is recorded with the rule that exempted
+  # it, so the accounting test can see it was classified, not dropped.
+  def record_exempt(content, key, entries)
+    sink = Thread.current[:color_scan_exempt]
+    return unless sink && HEX_FULL.match?(content.strip)
+    return if entries.any? { |e| e.is_a?(ColorCheck::Unresolved) || e.kind == 'literal' }
+
+    sink << [ content.strip, [ :exempt, key.is_a?(String) ? :non_color_key : key ] ]
   end
 
   # A short (3/4-digit) hex string is only a color when its key says so: in
@@ -750,7 +781,19 @@ module ColorScan
     return :unknown if i.negative?
 
     key = text[i] == '"' || text[i] == "'" ? quoted_key_before(text, i) : identifier_before(text, i)
-    key || :unknown
+    return :unknown if key.nil? || ternary_branch?(text, sep_idx, i, key)
+
+    key
+  end
+
+  # "ok ? a : '#123'" is a ternary's else branch, not an object key: the
+  # token before ":" is itself preceded by "?", so the key is unknown.
+  def ternary_branch?(text, sep_idx, key_end, key)
+    return false unless text[sep_idx] == ':'
+
+    key_start = key_end - key.length - (text[key_end] == '"' || text[key_end] == "'" ? 2 : 0)
+    before = skip_ws_back(text, key_start)
+    before >= 0 && text[before] == '?'
   end
 
   def exempt_rule(text, i)
