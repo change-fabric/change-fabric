@@ -247,8 +247,9 @@ module ColorCheck
 
   # Resolves every custom property in the token file's theme model (one
   # variant per distinct page state, the unmarked page labelled "default") via ColorValue, pairs text-role tokens
-  # against the theme's background (or its own <base> token for a
-  # "<base>-text" name), and computes WCAG 2.x contrast. Unsupported
+  # against the theme's background (or the surface ColorThemes.surface_for
+  # names for a "<surface>-text", -fg, -foreground or -ink role), and
+  # computes WCAG 2.x contrast. Unsupported
   # contexts that carry a text-role token are reported unresolved with their
   # reason rather than guessed at.
   def compute_contrast(token_file)
@@ -296,9 +297,9 @@ module ColorCheck
     pair_bg_color = bg_color
     pair_bg_reason = pair_bg_reason_for(bg_name, bg_result)
 
-    base_match = name.match(/\A(--[\w-]+)-text\z/)
-    if base_match && decls.key?(base_match[1])
-      pair_bg_name = base_match[1]
+    surface = ColorThemes.surface_for(name, decls)
+    if surface
+      pair_bg_name = surface
       base_result = ColorValue.resolve(decls[pair_bg_name], decls, seen: Set[pair_bg_name])
       if base_result.color
         pair_bg_color = ColorValue.flatten(base_result.color, over: bg_color || ColorValue::WHITE)

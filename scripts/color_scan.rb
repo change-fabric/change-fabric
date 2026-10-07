@@ -25,17 +25,41 @@ module ColorScan
   HEX_FULL = /\A#(?:\h{8}|\h{6}|\h{4}|\h{3})\z/.freeze
   NAMED_WORD = /(?<![\w$@#.-])[A-Za-z]+(?![\w(-])/.freeze
   COLOR_KEY = /(^|[a-z])(color|colour|background|bg|fill|stroke|border|outline|shadow)/i.freeze
-  # A CSS property name is color-bearing (a bare named-color word in its
-  # value is in scope) when the property itself is about color: "color",
-  # "background(-color)", "border(-color)", "outline(-color)", "box-shadow"/
-  # "text-shadow", "fill", "stroke", "caret-color", "accent-color" and the
-  # like. A custom property or preprocessor variable ("--x", "$x", "@x" in
-  # Less) is always in scope: it carries no non-color CSS semantics of its
-  # own. Everything else, including animation-name, grid-area, font-family
-  # and container-name (custom idents that happen to collide with a named
-  # color, such as "snow", "navy" or "Red"), is out of scope: those bare
-  # words are not color literals in that property.
-  COLOR_BEARING_PROPERTY = /(?:\A|-)(?:color|colour|background|bg|fill|stroke|border|outline|shadow)(?:\z|-)/i.freeze
+  # Named-color classification of a CSS property, three-way. A bare
+  # named-color word ("red", "navy") in the value of a property that accepts
+  # a <color> per the CSS specs (Color 4, Backgrounds 3, Borders, Text 4,
+  # Text Decoration 4, UI 4, Scrollbars, Multicol, Fill and Stroke, SVG 2,
+  # Filter Effects, Masking) is a finding. In a property whose idents are
+  # names, never colors (animation-name, font-family, grid-area and the
+  # like), it is exempt. Any other property reports the word unresolved: an
+  # unknown property is loud, never silently exempt. When unsure whether a
+  # property accepts a color, it belongs in neither set.
+  COLOR_PROPERTIES = Set.new(%w[
+    color background background-color background-image
+    outline outline-color
+    text-decoration text-decoration-color text-emphasis text-emphasis-color
+    text-shadow box-shadow column-rule column-rule-color
+    caret-color accent-color scrollbar-color
+    fill stroke stop-color flood-color lighting-color
+    -webkit-text-stroke -webkit-text-stroke-color -webkit-text-fill-color
+    -webkit-tap-highlight-color
+    filter backdrop-filter mask mask-border border-image
+  ]).freeze
+  # border, border-color, every physical and logical side shorthand and its
+  # -color longhand (also -webkit- prefixed). Not border-radius or -width.
+  BORDER_COLOR_PROPERTY = /\A(?:-webkit-)?border(?:-(?:top|right|bottom|left|block|inline|block-start|block-end|inline-start|inline-end))?(?:-color)?\z/.freeze
+  NAME_VALUED_PROPERTIES = Set.new(%w[
+    animation animation-name
+    grid-area grid-row grid-column grid-row-start grid-row-end
+    grid-column-start grid-column-end grid-template-areas
+    font font-family font-palette container container-name
+    counter-reset counter-increment counter-set
+    view-transition-name view-transition-class
+    list-style list-style-type transition-property will-change
+    anchor-name position-anchor timeline-scope
+    scroll-timeline-name view-timeline-name page
+  ]).freeze
+  UNCLASSIFIED_PROPERTY_REASON = 'named color in unclassified property %s'
   SCRIPT_COLOR_FN_FULL = /\A(?:#{ColorValue::COLOR_FN_NAMES.join('|')})\(.*\)\z/im.freeze
   ATTR_NAMES = %w[style fill stroke class classname].freeze
   MDX_ATTR = /\b(?:style|fill|stroke|className|class)\s*=\s*(?:"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')/mi.freeze
@@ -141,10 +165,18 @@ module ColorScan
     File.expand_path(path) == File.expand_path(token_file)
   end
 
-  def color_bearing_property?(name)
-    return true if name.start_with?('--', '$', '@')
+  # :finding, :exempt or :unresolved for a bare named-color word in the
+  # value of property name. A custom property or preprocessor variable
+  # ("--x", "$x", "@x" in Less) carries no CSS semantics of its own and is
+  # always in scope.
+  def named_color_class(name)
+    return :finding if name.start_with?('--', '$', '@')
 
-    name.match?(COLOR_BEARING_PROPERTY)
+    prop = name.downcase
+    return :finding if COLOR_PROPERTIES.include?(prop) || prop.match?(BORDER_COLOR_PROPERTY)
+    return :exempt if NAME_VALUED_PROPERTIES.include?(prop)
+
+    :unresolved
   end
 
   # Scans one declaration value line by line (so a multiline value keeps
@@ -156,7 +188,7 @@ module ColorScan
   # color-bearing, bare named-color words.
   def value_findings(file, value, value_line, property_name, scan_value: nil)
     findings = []
-    color_bearing = color_bearing_property?(property_name)
+    named_class = named_color_class(property_name)
     raw_lines = value.lines
     (scan_value || ColorCss.scan_value(value)).each_line.with_index do |blanked, idx|
       lineno = value_line + idx
@@ -164,11 +196,19 @@ module ColorScan
       blanked.scan(HEX_CSS) { findings << finding(file, lineno, 'literal', line) }
       blanked.scan(ColorCheck::COLOR_FN) { findings << finding(file, lineno, 'literal', line) }
       blanked.scan(ColorCheck::GRADIENT) { findings << finding(file, lineno, 'gradient', line) }
-      next unless color_bearing
-
-      named_color_words(blanked).each { findings << finding(file, lineno, 'literal', line) }
+      named_color_words(blanked).each do
+        entry = named_entry(named_class, file, lineno, line, property_name)
+        findings << entry if entry
+      end
     end
     findings
+  end
+
+  def named_entry(named_class, file, lineno, line, property_name)
+    case named_class
+    when :finding then finding(file, lineno, 'literal', line)
+    when :unresolved then unresolved(file, lineno, 'literal', line, format(UNCLASSIFIED_PROPERTY_REASON, property_name))
+    end
   end
 
   def named_color_words(blanked)

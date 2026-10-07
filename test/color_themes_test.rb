@@ -307,4 +307,18 @@ class ColorThemesTest < Minitest::Test
       refute_equal "#fff", v.decls["--bg"], css
     end
   end
+
+  def test_surface_for_strips_each_foreground_suffix
+    tokens = { "--card" => "#fff", "--primary" => "#000", "--muted" => "#eee", "--background" => "#fff" }
+    assert_equal "--card", ColorThemes.surface_for("--card-foreground", tokens)
+    assert_equal "--primary", ColorThemes.surface_for("--primary-fg", tokens)
+    assert_equal "--muted", ColorThemes.surface_for("--muted-ink", tokens)
+  end
+
+  def test_surface_for_falls_back_to_page_background
+    assert_nil ColorThemes.surface_for("--card-foreground", { "--background" => "#fff" })
+    assert_nil ColorThemes.surface_for("--foreground", { "--background" => "#fff" })
+    assert_nil ColorThemes.surface_for("--text", { "--background" => "#fff" })
+    assert_nil ColorThemes.surface_for("--link", { "--background" => "#fff" })
+  end
 end

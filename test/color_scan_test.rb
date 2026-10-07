@@ -227,4 +227,35 @@ class ColorScanTest < Minitest::Test
     assert_equal "#fff", unresolved.first.text
     assert_equal 1, unresolved.first.line
   end
+
+  def named_classes(css)
+    ColorScan.classify_all("a.css", css).map(&:last)
+  end
+
+  def test_named_color_in_color_shorthands_is_a_finding
+    [ "a{text-decoration:underline red}", "a{column-rule:1px solid red}", "a{scrollbar-color:red blue}",
+      "a{-webkit-text-stroke:1px red}", "a{border-inline-start:1px solid red}" ].each do |css|
+      refute_empty named_classes(css), css
+      assert(named_classes(css).all?(:finding), css)
+    end
+  end
+
+  def test_named_color_in_name_valued_property_is_exempt
+    [ "a{animation-name:red}", "a{font-family:red}", "a{grid-area:red}" ].each do |css|
+      assert_equal [], named_classes(css), css
+    end
+  end
+
+  def test_named_color_in_unclassified_property_is_unresolved
+    findings, unresolved = ColorScan.scan("a.css", "a{foo-bar:red}", token_file: nil)
+    assert_equal [], findings
+    assert_equal [ "named color in unclassified property foo-bar" ], unresolved.map(&:reason)
+  end
+
+  def test_named_color_class_table
+    { "color" => :finding, "border-top-color" => :finding, "--x" => :finding, "font" => :exempt,
+      "border-radius" => :unresolved, "foo-bar" => :unresolved }.each do |prop, want|
+      assert_equal want, ColorScan.named_color_class(prop), prop
+    end
+  end
 end

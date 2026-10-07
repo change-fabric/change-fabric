@@ -436,7 +436,25 @@ module ColorThemes
   # "--color-fg-default" and "--color-text-muted" are recognized, except
   # "ink" never counts as a leading segment on its own ("--ink-like" stays a
   # plain token; a bare "--ink" or a trailing "--color-ink" still match).
-  TEXT_ROLE_WORDS = %w[text fg foreground ink title link].freeze
+  # The foreground suffixes that name their own surface: "--card-foreground"
+  # sits on "--card". One table drives both role detection and pairing.
+  FG_SUFFIXES = %w[text fg foreground ink].freeze
+  TEXT_ROLE_WORDS = (FG_SUFFIXES + %w[title link]).freeze
+
+  # The surface token a foreground role pairs with: the name left after
+  # stripping a trailing FG_SUFFIXES segment, when tokens declares it. nil
+  # means the page background (no suffix, nothing left to strip, or no such
+  # token). The caller resolves the surface; one that exists but does not
+  # resolve is unresolved, never silently swapped for the page background.
+  def surface_for(role, tokens)
+    suffix = FG_SUFFIXES.find { |s| role.end_with?("-#{s}") }
+    return nil unless suffix
+
+    surface = role.delete_suffix("-#{suffix}")
+    return nil if surface == '-' || !tokens.key?(surface)
+
+    surface
+  end
 
   def text_role_name?(name)
     segments = name.sub(/\A--/, '').split('-')

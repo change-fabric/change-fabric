@@ -267,7 +267,6 @@ class ColorSupportTableTest < Minitest::Test
   end
 
   def test_properties_rule_three_way
-    skip "lands in Phase 4: Scan named colors in every color-capable shorthand"
     assert_equal [ :finding ], classes("a.css", "a{text-decoration:underline red}").map(&:last)
     assert_equal [], classes("a.css", "a{animation-name:red}")
     assert_equal [ [ "red", :unresolved ] ], classes("a.css", "a{foo-bar:red}")
@@ -296,7 +295,6 @@ class ColorSupportTableTest < Minitest::Test
   end
 
   def test_foreground_pairing_rule
-    skip "lands in Phase 4: Pair compound foreground roles with their matching surface"
     present = rows_for(":root{--background:#fff;--card:#000;--card-foreground:#fff}", "--card-foreground")
     assert_equal [ "--card" ], present.map(&:bg_token)
     absent = rows_for(":root{--background:#fff;--card-foreground:#000}", "--card-foreground")
