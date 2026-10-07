@@ -8,7 +8,6 @@ require_relative "#{File.expand_path('../scripts', __dir__)}/color_check"
 # skills/color/SKILL.md: one fixture per grammar bullet. A fixture whose
 # behavior lands in a later phase is skipped with the phase that lands it.
 class ColorSupportTableTest < Minitest::Test
-  PHASE3 = "lands in Phase 3: Tailwind utility tokenizer"
   PHASE4 = "lands in Phase 4: Obvious JS literals and dead code"
 
   def read_tokens(css)
@@ -171,7 +170,6 @@ class ColorSupportTableTest < Minitest::Test
   # --- Stray scan: Tailwind rule ----------------------------------------------
 
   def test_stray_tailwind_rule
-    skip PHASE3
     tokens = Set["--brand"]
     { "hover:bg-red-500/50" => :finding, "!bg-black" => :finding, "md:dark:text-white" => :finding,
       "bg-[#abc]" => :finding, "text-[rgb(1,2,3)]" => :finding, "border-[color:#fff]" => :finding,

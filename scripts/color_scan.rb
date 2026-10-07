@@ -3,6 +3,7 @@
 
 require_relative 'color_css'
 require_relative 'color_markup'
+require_relative 'color_tailwind'
 require_relative 'color_value'
 
 # Stray color literal, Tailwind and gradient findings for the cf:color
@@ -10,7 +11,7 @@ require_relative 'color_value'
 # markup style=/fill=/stroke=/class= attributes, and script string literals
 # that are the whole value of a color-bearing key or attribute. Never
 # selectors, never url() fragments, never prose. References
-# ColorCheck::COLOR_FN, ColorCheck::TAILWIND and ColorCheck::GRADIENT lazily
+# ColorCheck::COLOR_FN and ColorCheck::GRADIENT lazily
 # (inside method bodies only), so this file does not require 'color_check'
 # and stays free of the require cycle that would create.
 module ColorScan
@@ -83,15 +84,15 @@ module ColorScan
   # findings. token_file is the detected token source's path (or nil); its
   # own custom-property declarations are exempt, ordinary rules in it are
   # still scanned.
-  def findings_for(path, text, token_file:)
-    scan(path, text, token_file:).first
+  def findings_for(path, text, token_file:, token_names: Set.new)
+    scan(path, text, token_file:, token_names:).first
   end
 
   # Like findings_for, but returns [findings, unresolved]: color-shaped
   # strings whose key context could not be determined are kept apart as
   # ColorCheck::Unresolved entries instead of being dropped.
-  def scan(path, text, token_file:)
-    all_entries(path, text, token_file).partition { |e| e.is_a?(ColorCheck::Finding) }
+  def scan(path, text, token_file:, token_names: Set.new)
+    all_entries(path, text, token_file, token_names).partition { |e| e.is_a?(ColorCheck::Finding) }
   end
 
   # Debug accessor for the no-silent-drop invariant: every color-shaped
@@ -112,15 +113,15 @@ module ColorScan
     Thread.current[:color_scan_exempt] = nil
   end
 
-  def all_entries(path, text, token_file)
+  def all_entries(path, text, token_file, token_names = Set.new)
     ext = File.extname(path).delete_prefix('.').downcase
     case ext
     when 'css', 'scss', 'less'
-      css_file_findings(path, text, token_file, ext.to_sym)
+      css_file_findings(path, text, token_file, ext.to_sym, token_names)
     when 'sass'
       sass_file_findings(path, text, token_file)
     when 'html', 'vue', 'svelte', 'astro'
-      markup_file_findings(path, text, token_file)
+      markup_file_findings(path, text, token_file, token_names)
     when 'js', 'jsx', 'tsx'
       script_findings(path, text)
     when 'ts'
@@ -136,11 +137,11 @@ module ColorScan
 
   # --- CSS / SCSS / Less -----------------------------------------------
 
-  def css_file_findings(path, text, token_file, dialect)
-    css_sheet_findings(path, token_file, ColorCss.parse(text, dialect: dialect))
+  def css_file_findings(path, text, token_file, dialect, token_names)
+    css_sheet_findings(path, token_file, ColorCss.parse(text, dialect: dialect), token_names)
   end
 
-  def css_sheet_findings(path, token_file, sheet)
+  def css_sheet_findings(path, token_file, sheet, token_names = Set.new)
     findings = []
     sheet.decls.each do |decl|
       next if token_file?(path, token_file) && decl.name.start_with?('--')
@@ -148,9 +149,9 @@ module ColorScan
       findings.concat(value_findings(path, decl.value, decl.value_line, decl.name, scan_value: decl.scan_value))
     end
     sheet.at_rule_stmts.each do |stmt|
-      stmt.prelude.scan(ColorCheck::TAILWIND) do
-        findings << finding(path, stmt.line, 'tailwind', stmt.prelude)
-      end
+      next unless stmt.name.casecmp?('@apply')
+
+      findings.concat(tailwind_entries(path, stmt.line, stmt.prelude, token_names))
     end
     findings
   end
@@ -239,12 +240,12 @@ module ColorScan
   # out of scope. A "<!--" or "<style>" that appears only inside a script
   # string, or inside a quoted attribute value, is just data to the walker
   # and never swallows real markup.
-  def markup_file_findings(path, text, token_file)
+  def markup_file_findings(path, text, token_file, token_names)
     findings = []
     ColorMarkup.each_node(text) do |node|
       case node
       when ColorMarkup::Attr
-        findings.concat(markup_attr_node_findings(path, text, node))
+        findings.concat(markup_attr_node_findings(path, text, node, token_names))
       when ColorMarkup::Raw
         next unless node.tag == 'script'
 
@@ -255,13 +256,13 @@ module ColorScan
         lang = node.lang
         dialect = lang && %w[scss less].include?(lang.downcase) ? lang.downcase.to_sym : :css
         sheet = ColorCss.parse(node.body, dialect: dialect, line_offset: line_offset)
-        findings.concat(css_sheet_findings(path, token_file, sheet))
+        findings.concat(css_sheet_findings(path, token_file, sheet, token_names))
       end
     end
     findings
   end
 
-  def markup_attr_node_findings(path, text, node)
+  def markup_attr_node_findings(path, text, node, token_names)
     base_name = node.name.sub(ColorMarkup::BOUND_ATTR_PREFIX, '')
     attr = base_name.downcase
     binding = attr_binding(node.name, node.curly)
@@ -269,7 +270,7 @@ module ColorScan
 
     line_offset = text[0...node.pos].count("\n")
     if binding == :static
-      markup_attr_value_findings(path, node.value, line_offset, attr)
+      markup_attr_value_findings(path, node.value, line_offset, attr, token_names)
     else
       # A Vue/Svelte bound attribute's value is a JS expression, not a
       # literal: scan it with the script lexer, carrying the attribute
@@ -286,14 +287,14 @@ module ColorScan
     :static
   end
 
-  def markup_attr_value_findings(path, value, line_offset, attr)
+  def markup_attr_value_findings(path, value, line_offset, attr, token_names)
     case attr
     when 'style'
       style_attr_findings(path, value, line_offset)
     when 'fill', 'stroke'
       attr_value_findings(path, line_offset + 1, value, named_whole_only: true)
     when 'class', 'classname'
-      value.scan(ColorCheck::TAILWIND).map { finding(path, line_offset + 1, 'tailwind', value) }
+      tailwind_entries(path, line_offset + 1, value, token_names)
     else
       []
     end
@@ -723,7 +724,11 @@ module ColorScan
       findings << finding(path, line, 'literal', content)
     end
     findings << finding(path, line, 'gradient', content) if ColorCheck::GRADIENT.match?(content)
-    content.scan(ColorCheck::TAILWIND) { findings << finding(path, line, 'tailwind', content) }
+    # Interim until script strings are cut to whole-string literals: a JSX
+    # className string still reports its palette utilities, one per utility.
+    ColorTailwind.findings(content).each do |e|
+      findings << finding(path, line, 'tailwind', e.text) if e.status == :finding
+    end
     findings
   end
 
@@ -921,6 +926,17 @@ module ColorScan
   end
 
   # --- shared --------------------------------------------------------------
+
+  # One entry per color utility in a class/className value or @apply
+  # prelude: findings and unresolved words are reported, exempt ones dropped.
+  def tailwind_entries(path, line, value, token_names)
+    ColorTailwind.findings(value, tokens: token_names).filter_map do |e|
+      case e.status
+      when :finding then finding(path, line, 'tailwind', e.text)
+      when :unresolved then unresolved(path, line, 'tailwind', e.text, e.reason)
+      end
+    end
+  end
 
   def finding(file, line, kind, text)
     ColorCheck::Finding.new(file: file, line: line, kind: kind, text: text.to_s.strip)

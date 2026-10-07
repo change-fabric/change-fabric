@@ -808,7 +808,7 @@ class ColorCheckTest < Minitest::Test
       JSX
       report = ColorCheck.run(dir)
       tailwind_findings = report.findings.select { |f| f.kind == "tailwind" }
-      matches = tailwind_findings.flat_map { |f| f.text.scan(ColorCheck::TAILWIND) }
+      matches = tailwind_findings.map(&:text)
       assert_includes matches, "bg-slate-100"
       assert_includes matches, "text-blue-600"
       refute_includes matches, "bg-primary"

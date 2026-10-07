@@ -23,7 +23,6 @@ module ColorCheck
   # the same function), so both are matched with /i. hwb( and color( are
   # color functions too, per the Supported table above.
   COLOR_FN = /\b(?:rgba?|hsla?|hwb|oklch|oklab|lab|lch|color)\(/i.freeze
-  TAILWIND = /\b(?:bg|text|border|ring|from|to|via|fill|stroke|outline|divide|shadow)-(?:slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-\d{2,3}\b/.freeze
   GRADIENT = /\b(?:linear|radial|conic|repeating-linear|repeating-radial)-gradient\(/i.freeze
   SKIP_DIRS = %w[node_modules dist build vendor .git coverage .next out].freeze
   SCAN_EXTS = %w[css scss sass less html js jsx ts tsx vue svelte astro mdx].freeze
@@ -49,10 +48,17 @@ module ColorCheck
     located = ColorTokens.locate(root, tokens_override)
     tokens = located.is_a?(ColorTokens::Error) ? nil : ColorTokens.read(File.expand_path(located))
     token_errors = tokens ? tokens.errors : [ located ]
-    findings, unresolved, parse_errors = collect_findings(files, tokens&.path)
+    findings, unresolved, parse_errors = collect_findings(files, tokens&.path, token_names(tokens))
     exit_code = strict && !(token_errors.empty? && findings.empty?) ? 1 : 0
     Report.new(tokens: tokens&.path, token_errors:, palette: tokens && palette_of(tokens), findings:, unresolved:,
                contrast: tokens ? compute_contrast(tokens) : [], exit_code:, parse_errors:)
+  end
+
+  # Names declared in a clean token file; an errored one exempts nothing.
+  def token_names(tokens)
+    return Set.new unless tokens && tokens.errors.empty?
+
+    Set.new(tokens.variants[:light].keys)
   end
 
   def palette_of(tokens)
@@ -120,7 +126,7 @@ module ColorCheck
   # alongside as parse_errors; they are not findings themselves. Strings
   # with an undeterminable key context come back as a separate unresolved
   # list.
-  def collect_findings(files, token_file)
+  def collect_findings(files, token_file, token_names = Set.new)
     findings = []
     unresolved = []
     parse_errors = []
@@ -129,7 +135,7 @@ module ColorCheck
       next unless text
 
       begin
-        file_findings, file_unresolved = ColorScan.scan(file, text, token_file:)
+        file_findings, file_unresolved = ColorScan.scan(file, text, token_file:, token_names:)
         findings.concat(file_findings)
         unresolved.concat(file_unresolved)
         sheet = css_source_sheet(file, text)

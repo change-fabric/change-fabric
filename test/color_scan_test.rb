@@ -108,6 +108,16 @@ class ColorScanTest < Minitest::Test
     assert_equal [ [ 1, "tailwind" ] ], kinds("a.html", text)
   end
 
+  def test_markup_class_arbitrary_color_is_one_finding_per_utility
+    text = '<div class="p-2 bg-[#abcdef] hover:text-white"></div>'
+    assert_equal %w[bg-[#abcdef] hover:text-white], findings("a.html", text).map(&:text)
+  end
+
+  def test_apply_prelude_is_tokenized_per_utility
+    text = ".a { @apply p-2 bg-red-500 border-[color:#fff]; }"
+    assert_equal %w[bg-red-500 border-[color:#fff]], findings("a.css", text).map(&:text)
+  end
+
   def test_markup_href_attribute_is_never_scanned
     text = '<a href="#123456">x</a>'
     assert_equal [], findings("a.html", text)
