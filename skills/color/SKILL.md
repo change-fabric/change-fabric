@@ -44,10 +44,9 @@ color in dark mode; a dark color may be text in light mode and background in
 dark mode; a subtle variant may become the primary accent in dark mode. All
 four tokens may appear in either mode, just in different roles.
 
-A repo that guards a `@media (prefers-color-scheme: dark)` block with
-`:root:not([data-theme="light"])` alongside a `:root[data-theme="dark"])`
-block may keep both, as long as both reassign the same four tokens rather than
-introducing separate dark-only literals.
+A token file may spell dark several ways (`.dark`, `[data-theme=dark]`, an
+`@media (prefers-color-scheme: dark)` block around `:root`), as long as every
+dark block reassigns names light already declares, with identical values.
 
 ## Derived colors
 
@@ -74,58 +73,103 @@ needs a stated reason.
 
 ## Contrast
 
-Every derived text role states its contrast pair in both themes: 4.5:1 for
-body text, 3:1 for large text and UI components, per WCAG 2.2 SC 1.4.3.
-`ruby ~/.claude/cf/bin/color_check.rb` parses the stylesheet with a CSS
-tokenizer, builds a theme model and resolves each pair against it. A pair it
-cannot resolve, or a context it will not merge, is listed as unresolved with
-a reason, to be stated manually; `--strict` is unchanged by this (it exits 1
-only for palette over target or any finding, never for contrast).
-A text role is a custom property with a whole hyphen segment `text`, `fg`,
-`foreground`, `ink`, `title` or `link` (for example `--foreground`,
-`--color-fg-default`). A sheet with no recognized text role gets one
-"no text-role tokens recognized" unresolved row instead of an empty table.
+Pairs come from a fixed naming rule, with no new syntax: a token
+`--x-<suffix>` with suffix in `text`, `fg`, `foreground`, `ink` pairs with
+`--x` when `--x` is declared, else with `--background`. Every pair is checked
+in light and in dark, against 4.5:1 for body text and 3:1 for large text and
+UI components, per WCAG 2.2 SC 1.4.3. `ruby ~/.claude/cf/bin/color_check.rb`
+reads the pairs from the token file and resolves `var()` and
+`color-mix(in srgb, ...)` per variant. A pair whose value it cannot resolve
+(`oklch(...)`, for example) is listed as unresolved with a reason, to be
+stated manually; contrast never fails `--strict`.
 
-Contrast is audited per page state, not per theme name. A state is the root's
-theme marker (none, or one name from a `[data-theme=X]`, `.X` or `:not(...)`
-qualifier) crossed with the OS color scheme. The unmarked page is reported as
-`default`; `light` means only an explicit light marker. OS states (`os light`,
-`os dark`) are audited when the sheet has a `prefers-color-scheme` block.
-States that resolve to identical declarations share one row, labelled with
-every state they cover (for example `default | light`), and `--json` carries
-each row's `state` (`{marker, os}`, or an array of them for a merged row)
-beside `theme`.
+### Token file
 
-| Area | Supported | Reported as unsupported (with a reason, never guessed) |
-|------|-----------|-------------------------------------------------------|
-| Theme contexts | bare `:root`/`html` (base); `[data-theme=X]` or `.X` on `:root`/`html`, with optional `:not(...)`; bare `.X` or `[data-theme=X]` whose block is custom-property-only; `@media (prefers-color-scheme: light or dark)`; `@layer` | any other selector carrying a text role; other `@media`, `@supports`, `@container`, `@scope`; SCSS nesting; conflicting theme markers |
-| Color values | hex 3/4/6/8; `rgb`/`rgba`, `hsl`/`hsla` in comma or space syntax; the 148 named colors; `transparent`; `!important` | `oklch`, `oklab`, `lab`, `lch`, `hwb`, `color()`; relative color syntax; `calc()` in channels; CSS-wide keywords |
-| Value functions | `var()` with or without fallback; `color-mix(in srgb, ...)` with either or both percentages | `color-mix` in any other space; `light-dark()`; `currentColor` |
-| Stray scan, CSS | declaration values (hex, color functions, named colors), `@apply` | selectors, `url()` fragments, strings inside values, the keywords `transparent`, `currentColor`, `inherit`, `initial`, `unset`, `revert`, `none` |
-| Stray scan, markup and script | `style=`, `fill=`, `stroke=`, `class=`/`className=` attribute values; bound attributes (Vue `:x` and `v-bind:x`, Svelte `x={}`, JSX `x={}`) whose name is one of those or matches a color-bearing key (`:data-color`), including each branch of a top-level ternary, `??` or `\|\|` in such a value (`fill={ok ? '#abc' : '#def'}`); quoted strings that are exactly one color: any hex length when the value of a color-bearing key (`color`, `backgroundColor`, `borderColor`, `fill`, `stroke`, `shadow` and the like), otherwise only 6- or 8-digit hex, a color function or a named color; the contents of `<style>` blocks (scanned as CSS) and `<script>` blocks (scanned as script) | 3- or 4-digit hex strings outside a color-bearing key (`querySelector('#cafe')`), hex inside longer strings (`'/page#feed'`), ID selectors, prose, text nodes, MDX code blocks, CSS-in-JS template literals as CSS, SCSS variables and mixins as tokens, standalone `.svg` files |
-| Markup | Only what the HTML tokenizer sees as a real `<style>` element is parsed as CSS. Text inside comments, scripts, strings, textarea and title is not a style element. | a `<style>` tag inside a comment, script, string, textarea or title |
-| CSS values | String and `url()` bodies are never scanned for colors. | any color-shaped text inside a string or `url()` body |
-| Properties | Named colors are findings only in spec color-accepting properties; known name-valued properties (animation-name, font-family, grid-area and similar) are exempt; any other property reports the word unresolved. | a named color in a property in neither list (reported unresolved) |
-| Cascade | One document per file: all style blocks share one layer order; layers, dotted layer statements and anonymous layers follow the CSS Cascade 5 spec. | cascade features not named here (reported unresolved) |
-| Foreground pairing | A role token ending in text, fg, foreground or ink pairs with the token named by stripping that suffix; if that token does not exist, with page --background; if it exists but does not resolve, unresolved. | a stripped surface token that does not resolve (reported unresolved) |
+The palette is declared in one token file of a fixed shape. The checker reads
+only that file, strictly; anything else in it is an error, printed with the
+line number and the construct named. Token-file errors always print and fail
+`--strict`. There is no cascade, layer or selector modelling.
 
-Any form not listed in a row above is unsupported: the checker reports it
-unresolved with a reason and does not guess.
+The file is found by this path list, relative to the scan root, in order:
+`app/globals.css`, `src/app/globals.css`, `app/styles/tokens.css`,
+`src/styles/tokens.css`, `styles/tokens.css`, `src/styles/globals.css`,
+`styles/globals.css`, `src/index.css`, `app/assets/stylesheets/tokens.css`,
+`tokens.css`. `--tokens <path>` overrides it. Zero matches or several matches
+is an error naming the candidates.
 
-In both stray scan rows, a quoted string whose key context cannot be
-determined (a short hex after a ternary `?`, for example) is listed as
-unresolved, not exempt, and does not affect `--strict`. Any form named in
-neither column is reported unresolved, never guessed.
-`test/color_support_table_test.rb` holds one fixture per form in this table,
-so the table and the checker cannot drift apart.
+Accepted shape:
+
+- Top level: rule blocks; `@media (prefers-color-scheme: dark)` and
+  `@media (prefers-color-scheme: light)` blocks holding only rule blocks; at
+  most one transparent `@layer` wrapper (named or anonymous) around any of
+  these. A nested `@layer` is an error. The statements `@import`, `@charset`,
+  `@tailwind`, `@source`, `@plugin`, `@custom-variant` and `@config` are
+  skipped. `@theme` blocks follow the `:root` light rules. Any other at-rule
+  is an error.
+- Selectors: `:root` (light); `.dark`, `:root.dark`, `[data-theme=dark]` in
+  any quote style, and `:root[data-theme=dark]` (dark). A selector list is
+  accepted only when every member is in the same variant. `html` is not
+  accepted. Any descendant, child or sibling combinator (`:root .dark`,
+  `.dark .card`) is an error.
+- Inside `@media (prefers-color-scheme: dark)` only `:root` is accepted, and
+  it means dark. Inside `@media (prefers-color-scheme: light)` only `:root`,
+  merged with light; a conflicting value is an error.
+- Declarations: only `--name: value`. A normal property or `@apply` is an
+  error.
+- Values: hex, `rgb`/`rgba`, `hsl`/`hsla` and named colors are authored
+  colors and count toward the palette size. `var(--x)` and
+  `color-mix(in srgb, ...)` are derived and resolved. A non-color value
+  (`--radius: 0.5rem`) is ignored. A color-shaped value the resolver does not
+  support (`oklch(...)`) is unresolved for contrast, not an error.
+- Dark may only redefine names light declares; a new name in dark is an
+  error. Two dark blocks giving one name different values is an error.
+
+### Stray scan
+
+Every color literal or palette class outside the token file is a stray.
+
+Surfaces: every CSS file except the token file (declaration values and
+`@apply` preludes); in markup, `<style>` blocks (as CSS), `style=` attributes
+(as declarations), `fill=` and `stroke=` values (whole value a color literal),
+`class=` and `className=` values (Tailwind rule below); `<script>` blocks and
+JS/TS files, where a quoted string is a finding only when the whole string is
+a hex color or an `rgb()`, `rgba()`, `hsl()` or `hsla()` call.
+
+Literal forms: hex, the `rgb()`/`hsl()` family, and named colors in
+color-accepting properties (a named color in an unknown property is
+unresolved). Exempt: `transparent`, `currentColor`, `inherit`, `initial`,
+`unset`, `revert`, `none`.
+
+Tailwind rule, for `class`/`className` values and `@apply` preludes only:
+split on whitespace; strip `!`, variant prefixes (`hover:`, `md:dark:`) and a
+trailing `/<opacity>`; match the longest color prefix (`bg`, `text`,
+`border` and its sides, `ring`, `ring-offset`, `outline`, `divide`,
+`shadow`, `inset-shadow`, `inset-ring`, `drop-shadow`, `from`, `via`, `to`,
+`fill`, `stroke`, `decoration`, `accent`, `caret`, `placeholder`). The rest
+is a finding when it is a palette `<hue>-<shade>`, `black`, `white`, or a
+bracketed color literal (`bg-[#abc]`); `[var(--x)]` is exempt when `--x` is a
+token, else unresolved; `current`, `transparent` and `inherit` are exempt;
+known non-color words (`text-sm`, `border-2`) are skipped; any other word `w`
+is exempt when `--w` is a token, else unresolved as an unknown Tailwind color
+word. One finding per utility, its text the utility as written.
+
+Unresolved stray entries print and never fail `--strict`.
+
+Not scanned: JS strings that are not whole-string literals, template
+literals, CSS-in-JS, Tailwind classes outside `class`/`className`/`@apply`
+(`clsx` or `cva` arguments), SCSS variables, standalone `.svg` files, text
+nodes.
+
+`test/color_support_table_test.rb` holds one fixture per bullet in these two
+sections, so the contract and the checker cannot drift apart.
 
 ### Review triage
 
-A review finding that shows the checker violating a row is a bug and is
-fixed. A finding that only exercises a form covered by the catch-all is
-dismissed as wont-fix with a link to the row; the reply confirms the checker
-reports that input unresolved. If it does not report unresolved, that is a
-bug against the catch-all and is fixed.
+A token-file construct outside the grammar is an error by design: the reply
+cites the grammar and no code changes. Stray-scan input outside the listed
+surfaces and forms is out of scope: dismiss as wont-fix with a link to the
+section. A finding that shows the checker violating a stated rule is a bug
+and is fixed.
 
 ## Decision heuristic
 
@@ -135,7 +179,7 @@ many ways beats twenty tasteful ones.
 ## Procedure: audit, then fix
 
 1. Run `ruby ~/.claude/cf/bin/color_check.rb <repo root> --json` (add
-   `--tokens <path>` if detection picks the wrong file).
+   `--tokens <path>` when the token file is not on the path list).
 2. Report neutrally: the current palette and its distance from the
    four-color target, stray literals, Tailwind palette classes, gradients,
    and the contrast table. Never call a larger palette a failure; the
