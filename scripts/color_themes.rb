@@ -287,7 +287,7 @@ module ColorThemes
   # layer_rank_for needs to rank a parent's own direct declarations above
   # its sublayers while still ranking sibling layers by first declaration.
   def compute_layer_order(sheet)
-    events = [] # [line, idx, path]
+    events = [] # [pos, idx, path]
 
     sheet.at_rule_stmts.each do |stmt|
       parent = layer_path_for(stmt.at_rules)
@@ -297,23 +297,23 @@ module ColorThemes
           name = nm.strip
           next if name.empty? || !LAYER_NAME.match?(name)
 
-          events << [ stmt.line, i, parent + name.split('.') ]
+          events << [ stmt.pos, i, parent + name.split('.') ]
         end
       when '@import'
         m = IMPORT_LAYER.match(stmt.prelude)
-        events << [ stmt.line, 0, parent + m[1].split('.') ] if m
+        events << [ stmt.pos, 0, parent + m[1].split('.') ] if m
       end
     end
 
     sheet.decls.each do |decl|
       path = layer_path_for(decl.at_rules)
       (1..path.size).each do |len|
-        events << [ decl.line, Float::INFINITY, path.first(len) ]
+        events << [ decl.pos, Float::INFINITY, path.first(len) ]
       end
     end
 
     first_seen = {}
-    events.sort_by { |line, idx, _| [ line, idx ] }.each do |(_, _, path)|
+    events.sort_by { |pos, idx, _| [ pos, idx ] }.each do |(_, _, path)|
       key = path.join('.')
       first_seen[key] ||= path
     end

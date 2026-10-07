@@ -20,8 +20,8 @@ module ColorCss
   # ["@media (prefers-color-scheme: dark)"].
   # rule_id: integer identity of the enclosing rule block (nil at top level),
   # so a consumer can ask whether a whole block is custom-property-only.
-  Decl = Data.define(:name, :value, :important, :line, :value_line, :selectors, :parents, :at_rules, :rule_id)
-  AtRule = Data.define(:name, :prelude, :line, :at_rules) # block-less: @apply, @import
+  Decl = Data.define(:name, :value, :important, :line, :value_line, :selectors, :parents, :at_rules, :rule_id, :pos)
+  AtRule = Data.define(:name, :prelude, :line, :at_rules, :pos) # block-less: @apply, @import
   Sheet = Data.define(:decls, :at_rule_stmts, :errors) # errors: [String] diagnostics, never raised
 
   DECL_NAME = /\A(\s*)(--[\w-]+|\$[\w-]+|@[\w-]+|-?[A-Za-z][\w-]*)(\s*):(.*)\z/m.freeze
@@ -32,8 +32,8 @@ module ColorCss
 
   # Tokenizes text into a Sheet. dialect is :css, :scss or :less; line_offset
   # is added to every reported line (used for <style> blocks inside markup).
-  def parse(text, dialect: :css, line_offset: 0)
-    Parser.new(text, dialect: dialect, line_offset: line_offset).parse
+  def parse(text, dialect: :css, line_offset: 0, pos_offset: 0)
+    Parser.new(text, dialect: dialect, line_offset: line_offset, pos_offset: pos_offset).parse
   end
 
   # Splits text at top-level occurrences of sep, respecting parentheses and
@@ -87,10 +87,11 @@ module ColorCss
   class Parser
     Frame = Struct.new(:kind, :selectors, :rule_id, :text, keyword_init: true)
 
-    def initialize(text, dialect:, line_offset:)
+    def initialize(text, dialect:, line_offset:, pos_offset: 0)
       @scanner = StringScanner.new(text)
       @dialect = dialect
       @line_offset = line_offset
+      @pos_offset = pos_offset
       @decls = []
       @at_rule_stmts = []
       @errors = []
@@ -328,7 +329,7 @@ module ColorCss
       @decls << Decl.new(
         name:, value: raw_value, important:,
         line: name_line + @line_offset, value_line: value_line + @line_offset,
-        selectors:, parents:, at_rules:, rule_id:
+        selectors:, parents:, at_rules:, rule_id:, pos: @scanner.pos + @pos_offset
       )
       true
     end
@@ -340,7 +341,8 @@ module ColorCss
       leading_ws, name, _mid_ws, rest = m[1], m[2], m[3], m[4]
       at_line = @segment_start_line + leading_ws.count("\n")
       at_rules = current_context[2]
-      @at_rule_stmts << AtRule.new(name:, prelude: rest.strip, line: at_line + @line_offset, at_rules:)
+      @at_rule_stmts << AtRule.new(name:, prelude: rest.strip, line: at_line + @line_offset, at_rules:,
+                                    pos: @scanner.pos + @pos_offset)
       true
     end
 

@@ -123,7 +123,7 @@ module ColorCheck
       dialect = lang ? lang.downcase.to_sym : :css
       media = tag[/\bmedia\s*=\s*["']([^"']*)["']/i, 1]
       line_offset = scan_text[0...m.begin(1)].count("\n")
-      sub = ColorCss.parse(m[1], dialect:, line_offset:)
+      sub = ColorCss.parse(m[1], dialect:, line_offset:, pos_offset: m.begin(1))
       sub_decls = sub.decls
       sub_stmts = sub.at_rule_stmts
       if media && !media.strip.empty?

@@ -235,4 +235,20 @@ class ColorThemesTest < Minitest::Test
     refute_nil unsupported, model.inspect
     assert_includes unsupported.why, "inside @layer"
   end
+
+  # Layer order is fixed by source position, not line: every variant puts
+  # blocks and ordering statements on one line, so a line-only sort would
+  # misplace each statement.
+  def test_layer_order_uses_source_position_on_one_line
+    cases = {
+      "@layer a { :root {--bg:#fff;--text:#000} } @layer b { :root {--text:#fff} } @layer b,a;" => "#fff",
+      "@layer b,a; @layer a { :root {--bg:#fff;--text:#000} } @layer b { :root {--text:#fff} }" => "#000",
+      "@layer a { :root {--text:#000} } @import url(x.css) layer(b); @layer b { :root {--text:#fff} }" => "#fff",
+      "@layer p { @layer a { :root {--text:#000} } @layer b { :root {--text:#fff} } @layer b, a; }" => "#fff",
+      "@layer p { @layer b, a; @layer a { :root {--text:#000} } @layer b { :root {--text:#fff} } }" => "#000"
+    }
+    cases.each do |css, want|
+      assert_equal want, variant_for(build(css), "light").decls["--text"], css
+    end
+  end
 end
