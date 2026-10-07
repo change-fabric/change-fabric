@@ -147,7 +147,7 @@ module SkillRegistry
     DEPENDENCY_DIRS = %w[node_modules vendor].freeze
 
     def dependency_path?(dir, path)
-      path.delete_prefix(dir).split(File::SEPARATOR).intersect?(DEPENDENCY_DIRS)
+      path.delete_prefix(dir).split(File::SEPARATOR).any? { |segment| DEPENDENCY_DIRS.include?(segment) }
     end
 
     def excluded?(dir)
