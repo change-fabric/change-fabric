@@ -469,4 +469,33 @@ class ColorValueTest < Minitest::Test
     gray = CV::Rgba.new(r: 128, g: 128, b: 128, a: 1.0)
     assert_in_delta 1.0, CV.contrast_ratio(gray, gray), 0.001
   end
+
+  # var() substitution walks every reference in the token stream, so each
+  # shape of compound value resolves: space-separated channel lists, comma
+  # lists, chains, compound fallbacks, partly literal values, alpha suffixes.
+  def test_var_substitution_variants
+    base = { "--r" => "255", "--g" => "0", "--b" => "128" }
+    cases = {
+      "rgb(var(--rgb))" => { "--rgb" => "var(--r) var(--g) var(--b)" },
+      "rgb(var(--outer))" => { "--outer" => "var(--rgb)", "--rgb" => "var(--r) var(--g) var(--b)" },
+      "rgb(var(--nope, var(--r) var(--g) var(--b)))" => {},
+      "rgb(var(--mixed))" => { "--mixed" => "var(--r) 0 var(--b)" },
+      "rgb(var(--rgb) / 1)" => { "--rgb" => "var(--r) var(--g) var(--b)" },
+      "rgba(var(--csv), 1)" => { "--csv" => "var(--r), var(--g), var(--b)" },
+      "rgb(var(--csv))" => { "--csv" => "var(--r), var(--g), var(--b)" }
+    }
+    cases.each do |value, extra|
+      assert_rgba 255, 0, 128, resolved(value, base.merge(extra))
+    end
+  end
+
+  def test_compound_var_value_reports_the_real_missing_name
+    reason = unresolved("rgb(var(--rgb))", { "--rgb" => "var(--r) var(--g) var(--b)", "--r" => "1", "--b" => "2" })
+    assert_includes reason, "--g is not defined"
+  end
+
+  def test_back_to_back_var_refs_are_not_one_reference
+    assert_nil CV.send(:parse_var_ref, "var(--r) var(--g)")
+    assert_equal [ "--r", nil ], CV.send(:parse_var_ref, "var(--r)")
+  end
 end

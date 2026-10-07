@@ -290,6 +290,9 @@ module ColorValue
   def parse_var_ref(text)
     m = text.match(/\Avar\(\s*(.*)\)\z/im)
     return nil unless m
+    # The closing paren must belong to this var( itself, so a value that is
+    # several references in a row (var(--r) var(--g)) is not one reference.
+    return nil unless matching_paren(text, 3) == text.length - 1
 
     parts = ColorCss.split_top_level(m[1])
     name = parts[0]&.strip
@@ -352,15 +355,15 @@ module ColorValue
     name, fallback = ref
     return [ nil, "var() cycle through #{name}" ] if seen.include?(name)
     if decls.key?(name)
-      text, reason = substitute_var_token(decls[name], decls, seen + [ name ])
+      text, reason = substitute_vars_in_text(decls[name].to_s.strip, decls, seen + [ name ])
       return [ text, reason ] unless fallback && text.nil? && guaranteed_invalid?(reason, seen)
 
-      return substitute_var_token(fallback, decls, seen)
+      return substitute_vars_in_text(fallback, decls, seen)
     end
 
     return [ nil, "#{name} is not defined in this theme" ] unless fallback
 
-    substitute_var_token(fallback, decls, seen + [ name ])
+    substitute_vars_in_text(fallback, decls, seen + [ name ])
   end
 
   def resolve_color_mix(space, args, decls, seen)
