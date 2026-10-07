@@ -48,8 +48,7 @@ Exception: Facades are fine; prefer constructor injection where an explicit depe
 CI (mechanically enforced; run through `./vendor/bin/sail` or the project's Compose PHP service):
 - `php artisan test` passes
 - `vendor/bin/pint --test` passes
-- `vendor/bin/phpstan analyse` (Larastan) passes where configured
-- `b=$(git merge-base origin/HEAD HEAD) && ex=$(git ls-files ':(glob)**/artisan' | sed 's#artisan$#config/**#; s#^#:(glob,exclude)#') && f=$(git diff --name-only --no-renames --diff-filter=AM "$b" -- '*.php' $ex) && { [ -z "$f" ] || { git grep -nP '(?<![\w$])(?<!->)(?<!::)(?i:env)\s*\(' -- $f; [ $? -eq 1 ]; }; }` (no `env(` in any added or changed PHP file outside a config/ dir beside an artisan file; renames count as added, any casing or spacing of the call counts)
+- `vendor/bin/phpstan analyse` (Larastan) passes, with `noEnvCallsOutsideOfConfig: true` under `parameters:` in `phpstan.neon` (off by default; it flags `env()` outside `config/`)
 
 Review-time (no tool checks these):
 - Every mutation validated and authorized; authorization boundaries tested
