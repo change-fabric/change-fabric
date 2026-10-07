@@ -58,8 +58,8 @@ module ColorCheck
     return ContrastPair.new(variant: variant.to_s, fg:, bg:, ratio: nil, status: 'unresolved', reason:) if reason
 
     bg_color = ColorValue.flatten(bg_result.color, over: ColorValue::WHITE)
-    ratio = ColorValue.contrast_ratio(ColorValue.flatten(fg_result.color, over: bg_color), bg_color).round(2)
-    ContrastPair.new(variant: variant.to_s, fg:, bg:, ratio:, status: status_for(ratio), reason: nil)
+    ratio = ColorValue.contrast_ratio(ColorValue.flatten(fg_result.color, over: bg_color), bg_color)
+    ContrastPair.new(variant: variant.to_s, fg:, bg:, ratio: ratio.round(2), status: status_for(ratio), reason: nil)
   end
 
   def resolve_token(name, decls)

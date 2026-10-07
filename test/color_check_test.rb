@@ -427,4 +427,18 @@ class ColorCheckTest < Minitest::Test
     pair = contrast_for(":root { --background: #fff; --page-text: var(--page-text); --a: var(--b); --b: var(--a); }\n")
     assert_includes pair.reason, "cycle"
   end
+
+  # Thresholds compare the unrounded ratio; only the displayed value rounds.
+  # Each case sits just under a threshold where round(2) would cross it.
+  def test_status_uses_unrounded_ratio_at_each_threshold
+    decls = { "--bg" => "#ffffff" }
+    [
+      [ "rgb(0 153 255)", 3.0, "fail" ],
+      [ "rgb(0 138 41)", 4.5, "large-only" ]
+    ].each do |fg, shown, status|
+      row = ColorCheck.contrast_row(:light, "--fg", "--bg", decls.merge("--fg" => fg))
+      assert_equal shown, row.ratio, fg
+      assert_equal status, row.status, fg
+    end
+  end
 end
