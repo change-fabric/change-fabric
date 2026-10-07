@@ -139,6 +139,11 @@ module ColorThemes
       end
     end
 
+    # A name seen only inside :not(...) is still a reachable selector state
+    # (the root carrying that class/attr), so it is audited like any other.
+    excluded_names = base_entries.flat_map(&:first) +
+                     media_entries.values.flatten(1).flat_map(&:first)
+    selector_origin_names.merge(excluded_names)
     theme_names = ([ 'light' ] + selector_origin_names.to_a + media_entries.keys).uniq
     variants = theme_names.flat_map do |theme|
       build_variants(theme, base_entries, theme_entries, media_entries, selector_origin_names)

@@ -211,7 +211,7 @@ class ColorCheckTest < Minitest::Test
       pending: false },
     { id: "adv1-specificity-ignored-root-vs-html-sibling-not-qualifier", cls: :theme_contexts,
       files: { "tokens.css" => ":root:not(.x){--text:#000} :root{--text:#777}\n:root{--bg:#fff}\n" },
-      contrast: [ [ "light", "--text", "--bg", 21.0 ] ],
+      contrast: [ [ "light", "--text", "--bg", 21.0 ], [ "x", "--text", "--bg", 4.48 ] ],
       pending: false },
     { id: "adv1-not-qualifier-base-leaks-into-theme-a", cls: :theme_contexts,
       files: { "tokens.css" => ":root{--bg:#fff}\n:root:not(.dark){--text:#000}\n.dark{--bg:#000}\n" },
