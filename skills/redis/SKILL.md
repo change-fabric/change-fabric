@@ -35,7 +35,7 @@ Forbid by default:
 
 CI:
 - `npx --no-install eslint . --max-warnings 0`
-- `out=$(git diff --name-only --diff-filter=AM origin/HEAD -- '*.js' '*.mjs' '*.cjs' '*.ts' ':!*.test.*' ':!*.spec.*' ':!**/__tests__/**' | xargs -I{} git grep -nP "\\bKEYS\\b|(?i)\\b(flushall|flushdb|monitor|setex|setnx)\\b" -- {}); [ -z "$out" ]`
+- `base=$(git rev-parse --verify --quiet "${BASE_REF:-origin/HEAD}^{commit}") && l=$(mktemp) && trap 'rm -f "$l"' EXIT && git diff -z --name-only --no-renames --diff-filter=AM --merge-base "$base" -- '*.js' '*.mjs' '*.cjs' '*.ts' ':!*.test.*' ':!*.spec.*' ':!**/__tests__/**' >"$l" && f=() && while IFS= read -r -d "" p; do f+=("$p"); done <"$l" && { [ ${#f[@]} -eq 0 ] || { s=0; GIT_LITERAL_PATHSPECS=1 git grep -nP "\\bKEYS\\b|(?i)\\b(flushall|flushdb|monitor|setex|setnx)\\b" -- "${f[@]}" || s=$?; [ $s -eq 1 ]; }; }` (see skills/README.md, CI diff-grep checks)
 
 Agent protocol:
 1. Decide whether the key is cache, session, or coordination.

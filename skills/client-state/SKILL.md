@@ -33,7 +33,7 @@ Forbid by default:
 CI:
 - `npx --no-install eslint . --max-warnings 0`
 - `vitest run`
-- `out=$(git diff --name-only --diff-filter=AM origin/HEAD -- '*.js' '*.jsx' | xargs -I{} git grep -nP "queryKey:\\s*['\\\"]|queryKey:.*\\bnew (Map|Set|Date)\\(|useEffect\\(.*dispatch\\(" -- {}); [ -z "$out" ]`
+- `base=$(git rev-parse --verify --quiet "${BASE_REF:-origin/HEAD}^{commit}") && l=$(mktemp) && trap 'rm -f "$l"' EXIT && git diff -z --name-only --no-renames --diff-filter=AM --merge-base "$base" -- '*.js' '*.jsx' >"$l" && f=() && while IFS= read -r -d "" p; do f+=("$p"); done <"$l" && { [ ${#f[@]} -eq 0 ] || { s=0; GIT_LITERAL_PATHSPECS=1 git grep -nP "queryKey:\\s*['\\\"]|queryKey:.*\\bnew (Map|Set|Date)\\(|useEffect\\(.*dispatch\\(" -- "${f[@]}" || s=$?; [ $s -eq 1 ]; }; }` (see skills/README.md, CI diff-grep checks)
 
 Agent protocol:
 1. Decide whether each datum is server or client state.
