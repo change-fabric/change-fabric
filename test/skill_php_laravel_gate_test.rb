@@ -94,4 +94,30 @@ class SkillPhpLaravelGateTest < Minitest::Test
   ensure
     FileUtils.remove_entry(dir) if dir
   end
+
+  # Records every Dir.glob pattern while a block runs; inert otherwise.
+  module GlobTrace
+    class << self
+      attr_accessor :log
+    end
+
+    def glob(*args, **kwargs)
+      GlobTrace.log&.push(args.first.to_s)
+      super
+    end
+  end
+  Dir.singleton_class.prepend(GlobTrace)
+
+  def test_recursive_gate_never_descends_into_dependency_trees
+    dir = project_with("app/artisan")
+    FileUtils.mkdir_p(File.join(dir, "vendor/acme/deep"))
+    laravel = shipped("cf:laravel")
+    GlobTrace.log = []
+    assert laravel.send(:required?, dir)
+    refute(GlobTrace.log.any? { |g| g.include?("**") }, "a recursive Dir.glob walks vendor: #{GlobTrace.log}")
+    assert(GlobTrace.log.none? { |g| g.include?("/vendor/") }, "the gate walked into vendor: #{GlobTrace.log}")
+  ensure
+    GlobTrace.log = nil
+    FileUtils.remove_entry(dir) if dir
+  end
 end

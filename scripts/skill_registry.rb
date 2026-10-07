@@ -179,8 +179,29 @@ module SkillRegistry
     # True when any glob in `patterns` matches a file present under `dir`.
     def marker?(dir, patterns)
       patterns.any? do |pattern|
-        Dir.glob(File.join(dir, pattern)).any? { |path| !dependency_path?(dir, path) }
+        if pattern.start_with?('**/')
+          leading_glob?(dir, dir, pattern.delete_prefix('**/'))
+        else
+          Dir.glob(File.join(dir, pattern)).any? { |path| !dependency_path?(dir, path) }
+        end
       end
+    end
+
+    # A leading `**/` walked by hand, so dependency trees are pruned rather than
+    # traversed and the walk stops at the first match: the gate runs once per
+    # changed file, and Dir.glob would descend all of vendor/ each time. Like
+    # Dir.glob, `**/` spans zero or more directories and never enters a dotdir.
+    def leading_glob?(root, here, rest)
+      return true if Dir.glob(File.join(here, rest)).any? { |path| !dependency_path?(root, path) }
+
+      Dir.children(here).sort.any? do |name|
+        next false if name.start_with?('.') || DEPENDENCY_DIRS.include?(name)
+
+        sub = File.join(here, name)
+        File.directory?(sub) && !File.symlink?(sub) && leading_glob?(root, sub, rest)
+      end
+    rescue SystemCallError
+      false
     end
 
     def extensions = Array(@auto['extensions']).map { |e| e.to_s.downcase }
