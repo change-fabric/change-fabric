@@ -183,4 +183,18 @@ class ColorCssTest < Minitest::Test
   def test_split_top_level_custom_sep
     assert_equal [ "a", "b" ], ColorCss.split_top_level("a:b", ":")
   end
+
+  def test_nonempty_segment_matching_no_grammar_records_error
+    [
+      ":root { --background: #fff; --page-text #000; }",
+      ":root { --a: #fff; color red }",
+      ":root { 123; }",
+      "garbage;",
+      ":root { --a: #fff }\n:root{ : #000; }"
+    ].each do |css|
+      sheet = ColorCss.parse(css)
+      assert(sheet.errors.any? { |e| e.include?("unparsed segment") }, css)
+    end
+    assert_empty ColorCss.parse(":root { --a: #fff; @apply x; }").errors
+  end
 end

@@ -242,7 +242,10 @@ module ColorCss
       body = @segment
       return if body.strip.empty?
 
-      emit_declaration(body) || emit_at_rule_stmt(body)
+      return if emit_declaration(body) || emit_at_rule_stmt(body)
+
+      line = @segment_start_line + body[/\A\s*/].count("\n")
+      @errors << "unparsed segment #{collapse_ws(body).inspect} (line #{line})"
     end
 
     def open_block
