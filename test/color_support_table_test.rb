@@ -8,7 +8,6 @@ require_relative "#{File.expand_path('../scripts', __dir__)}/color_check"
 # skills/color/SKILL.md: one fixture per grammar bullet. A fixture whose
 # behavior lands in a later phase is skipped with the phase that lands it.
 class ColorSupportTableTest < Minitest::Test
-  PHASE2 = "lands in Phase 2: Strict token-file reader"
   PHASE3 = "lands in Phase 3: Tailwind utility tokenizer"
   PHASE4 = "lands in Phase 4: Obvious JS literals and dead code"
 
@@ -43,7 +42,6 @@ class ColorSupportTableTest < Minitest::Test
   # --- Token file: location ---------------------------------------------------
 
   def test_token_file_path_list_and_override
-    skip PHASE2
     Dir.mktmpdir do |root|
       assert_kind_of ColorTokens::Error, ColorTokens.locate(root, nil)
       FileUtils.mkdir_p(File.join(root, "src/app"))
@@ -58,7 +56,6 @@ class ColorSupportTableTest < Minitest::Test
   # --- Token file: top level --------------------------------------------------
 
   def test_token_file_top_level
-    skip PHASE2
     assert_token_ok("@import 'tailwindcss';\n@custom-variant dark (&:is(.dark *));\n:root{--a:#000}")
     assert_token_ok("@layer base { :root{--a:#000} .dark{--a:#fff} }")
     assert_token_ok("@layer { :root{--a:#000} }")
@@ -71,7 +68,6 @@ class ColorSupportTableTest < Minitest::Test
   # --- Token file: selectors --------------------------------------------------
 
   def test_token_file_selectors
-    skip PHASE2
     [ ".dark", ":root.dark", "[data-theme=dark]", "[data-theme=\"dark\"]", "[data-theme='dark']",
       ":root[data-theme=\"dark\"]" ].each do |sel|
       result = assert_token_ok(":root{--a:#000}\n#{sel}{--a:#fff}")
@@ -88,7 +84,6 @@ class ColorSupportTableTest < Minitest::Test
   # --- Token file: prefers-color-scheme ---------------------------------------
 
   def test_token_file_prefers_color_scheme
-    skip PHASE2
     dark = assert_token_ok(":root{--a:#000}\n@media (prefers-color-scheme: dark){:root{--a:#fff}}")
     assert_equal "#fff", dark.variants[:dark]["--a"]
     assert_token_ok(":root{--a:#000}\n@media (prefers-color-scheme: light){:root{--b:#111}}")
@@ -99,7 +94,6 @@ class ColorSupportTableTest < Minitest::Test
   # --- Token file: declarations -----------------------------------------------
 
   def test_token_file_declarations
-    skip PHASE2
     assert_token_error(":root{--a:#000; color: red}", "color")
     assert_token_error(":root{--a:#000; @apply bg-black}", "@apply")
   end
@@ -107,18 +101,17 @@ class ColorSupportTableTest < Minitest::Test
   # --- Token file: values -----------------------------------------------------
 
   def test_token_file_values
-    skip PHASE2
     result = assert_token_ok(":root{--a:#000;--b:rgb(1 2 3);--c:hsl(0 0% 0%);--d:red;" \
                              "--e:var(--a);--f:color-mix(in srgb, var(--a) 50%, #fff);" \
                              "--radius:0.5rem;--g:oklch(0.2 0 0)}")
     assert_equal "0.5rem", result.variants[:light]["--radius"]
-    assert_token_error(":root{--a:#000;--b:#111;--c:#222;--d:#333}", "palette")
+    assert_token_ok(":root{--a:#000;--b:#111;--c:#222;--d:#333;--error:#f00}")
+    assert_token_error(":root{--a:#000;--b:#111;--c:#222;--d:#333;--e:#444}", "palette")
   end
 
   # --- Token file: dark redefinition ------------------------------------------
 
   def test_token_file_dark_redefinition
-    skip PHASE2
     assert_token_error(":root{--a:#000}\n.dark{--b:#fff}", "--b")
     assert_token_error(":root{--a:#000}\n.dark{--a:#fff}\n[data-theme=dark]{--a:#eee}", "--a")
     assert_token_ok(":root{--a:#000}\n.dark{--a:#fff}\n[data-theme=dark]{--a:#fff}")
@@ -127,7 +120,6 @@ class ColorSupportTableTest < Minitest::Test
   # --- Contrast: the fixed pair rule ------------------------------------------
 
   def test_contrast_pair_rule
-    skip PHASE2
     pairs = ColorTokens.pairs("--background" => "#fff", "--card" => "#000", "--card-foreground" => "#fff",
                               "--muted-ink" => "#000", "--fg" => "#000")
     assert_includes pairs, %w[--card-foreground --card]

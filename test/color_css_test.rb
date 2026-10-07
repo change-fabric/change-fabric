@@ -14,9 +14,8 @@ class ColorCssTest < Minitest::Test
     refute_nil d
     assert_equal "#fff", d.value
     assert_equal [ ":root" ], d.selectors
-    assert_empty d.parents
     assert_empty d.at_rules
-    refute_nil d.rule_id
+    refute_nil d.block_id
     refute d.important
     assert_empty sheet.errors
   end
@@ -112,15 +111,16 @@ class ColorCssTest < Minitest::Test
     d = decl(sheet, "--bg")
     assert_equal [ "@layer base", "@media (prefers-color-scheme: dark)" ], d.at_rules
     assert_equal [ ":root" ], d.selectors
-    assert_empty d.parents
   end
 
-  def test_nested_rule_fills_parents
-    css = ".parent { .child { --x: #123; } }"
-    sheet = ColorCss.parse(css)
-    d = decl(sheet, "--x")
-    assert_equal [ ".child" ], d.selectors
-    assert_equal [ [ ".parent" ] ], d.parents
+  def test_blocks_record_parent_line_and_comment_free_prelude
+    sheet = ColorCss.parse("@layer base {\n  :root/* c */.dark { --x: #123; }\n  :root .dark {}\n}")
+    layer, compound, descendant = sheet.blocks
+    assert_nil layer.parent
+    assert_equal "@layer base", layer.prelude
+    assert_equal [ layer.id, ":root.dark", 2 ], [ compound.parent, compound.prelude, compound.line ]
+    assert_equal ":root .dark", descendant.prelude
+    assert_equal compound.id, decl(sheet, "--x").block_id
   end
 
   def test_scss_line_comment_only_in_scss_dialect
@@ -194,21 +194,21 @@ class ColorCssTest < Minitest::Test
     assert_equal 12, d.value_line
   end
 
-  def test_rule_id_distinct_per_block_and_shared_within_block
+  def test_block_id_distinct_per_block_and_shared_within_block
     sheet = ColorCss.parse(":root { --a: #111; --b: #222; } .x { --c: #333; }")
     a = decl(sheet, "--a")
     b = decl(sheet, "--b")
     c = decl(sheet, "--c")
-    refute_nil a.rule_id
-    assert_equal a.rule_id, b.rule_id
-    refute_equal a.rule_id, c.rule_id
+    refute_nil a.block_id
+    assert_equal a.block_id, b.block_id
+    refute_equal a.block_id, c.block_id
   end
 
-  def test_top_level_declaration_has_no_selectors_and_nil_rule_id
+  def test_top_level_declaration_has_no_selectors_and_nil_block_id
     sheet = ColorCss.parse("$brand: #123;")
     d = decl(sheet, "$brand")
     assert_empty d.selectors
-    assert_nil d.rule_id
+    assert_nil d.block_id
   end
 
   def test_blockless_at_rule_statement

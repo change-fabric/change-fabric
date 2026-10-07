@@ -21,389 +21,326 @@ class ColorCheckTest < Minitest::Test
   end
 
   FOUR_COLOR_TOKENS = <<~CSS
-    :root,
-    :root[data-theme="light"] {
+    :root {
       --cream: #f6efe0;
       --plum: #24122a;
       --lilac: #a070c8;
       --pink: #f2c4c4;
-      --bg: var(--cream);
-      --text: var(--plum);
+      --background: var(--cream);
+      --page-text: var(--plum);
     }
 
     :root[data-theme="dark"] {
-      --cream: #f6efe0;
-      --plum: #24122a;
-      --lilac: #a070c8;
-      --pink: #f2c4c4;
-      --bg: var(--plum);
-      --text: var(--cream);
+      --background: var(--plum);
+      --page-text: var(--cream);
     }
   CSS
 
-  # Each row states what CSS itself computes, not what the checker does
-  # today; pending: true marks a row the current code still fails. Expected
-  # ratios come from an independent WCAG calculation, never from the checker.
+  # Each row states what the token-file grammar and the stray scan define,
+  # not what the checker does today; pending: true marks a row the current
+  # code still fails. Expected ratios come from an independent WCAG
+  # calculation, never from the checker. token_errors lists one message
+  # fragment per expected token-file error; a row with palette or contrast
+  # and no token_errors expects none.
   CORPUS = [
     # :comments
     { id: "comments-block-comment-not-mid-value", cls: :comments,
-      files: { "tokens.css" => ":root{--bg:#fff;/* --text: #fff; */--text:#000;}" },
+      files: { "tokens.css" => ":root{--background:#fff;/* --page-text: #fff; */--page-text:#000;}" },
       palette: [ "#fff", "#000" ],
-      contrast: [ [ "default", "--text", "--bg", 21.0 ] ],
-      pending: false },
-    { id: "comments-scss-line-comment", cls: :comments,
-      files: { "tokens.scss" => ":root {\n  --bg: #fff; // --text: #333;\n  --text: #000;\n}\n" },
-      palette: [ "#fff", "#000" ],
-      contrast: [ [ "default", "--text", "--bg", 21.0 ] ],
+      contrast: [ [ "light", "--page-text", "--background", 21.0 ] ],
       pending: false },
     { id: "comments-block-comment-with-brace", cls: :comments,
-      files: { "tokens.css" => ":root{--bg:#fff; /* } */ --text:#777;}" },
-      contrast: [ [ "default", "--text", "--bg", 4.48 ] ],
+      files: { "tokens.css" => ":root{--background:#fff; /* } */ --page-text:#777;}" },
+      contrast: [ [ "light", "--page-text", "--background", 4.48 ] ],
       pending: false },
-    { id: "adv1-commented-style-block-parsed", cls: :comments,
-      files: { "index.html" => "<style>:root{--bg:#fff;--text:#000}</style>\n<!--\n<style>:root{--bg:#000;--text:#111}</style>\n-->\n" },
-      palette: [ "#fff", "#000" ],
-      contrast: [ [ "default", "--text", "--bg", 21.0 ] ],
-      pending: false },
-
     # :strings
     { id: "strings-semicolon-and-brace-in-value-string", cls: :strings,
-      files: { "tokens.css" => ":root {\n  --bg: #fff;\n  --label: \"a;b}c\";\n  --text: #000;\n}\n" },
+      files: { "tokens.css" => ":root {\n  --background: #fff;\n  --label: \"a;b}c\";\n  --page-text: #000;\n}\n" },
       palette: [ "#fff", "#000" ],
-      contrast: [ [ "default", "--text", "--bg", 21.0 ] ],
+      contrast: [ [ "light", "--page-text", "--background", 21.0 ] ],
+      pending: false },
+    # :token_grammar, one row per construct the token-file grammar rejects
+    # or accepts, checked through the whole run
+    { id: "grammar-media-min-width-is-an-error", cls: :token_grammar,
+      files: { "tokens.css" => "@media (min-width: 40em) { :root { --page-text: #777 } }" },
+      token_errors: [ "@media (min-width: 40em)" ],
+      contrast: [],
+      pending: false },
+    { id: "grammar-layer-base-wrapper-accepted", cls: :token_grammar,
+      files: { "tokens.css" => "@layer base { :root { --background:#fff; --page-text:#000 } }" },
+      contrast: [ [ "light", "--page-text", "--background", 21.0 ] ],
+      pending: false },
+    { id: "grammar-nested-layer-is-an-error", cls: :token_grammar,
+      files: { "tokens.css" => "@layer a{:root{--page-text:#000000} @layer b{:root{--page-text:#777777}}}\n:root{--background:#ffffff}\n" },
+      token_errors: [ "@layer b" ],
+      contrast: [ [ "light", "--page-text", "--background", 21.0 ] ],
+      pending: false },
+    { id: "grammar-redeclared-light-value-is-an-error", cls: :token_grammar,
+      files: { "tokens.css" => ":root{--background:#fff;--page-text:#000}\n@layer base{:root{--page-text:#777}}\n" },
+      token_errors: [ "--page-text` is declared twice in light" ],
+      pending: false },
+    { id: "grammar-supports-and-container-are-errors", cls: :token_grammar,
+      files: { "tokens.css" => ":root{--background:#fff;--page-text:#000}\n@supports (color: red){:root{--page-text:#777}}\n@container (min-width: 1px){:root{--page-text:#111}}\n" },
+      token_errors: [ "@supports", "@container" ],
+      contrast: [ [ "light", "--page-text", "--background", 21.0 ] ],
+      pending: false },
+    { id: "grammar-descendant-and-print-media-are-errors", cls: :token_grammar,
+      files: { "tokens.css" => ":root{--background:#fff;--page-text:#000}\n.card p{--page-text:#777}\n@media print{.card p{--link-text:#00f}}\n" },
+      token_errors: [ ".card p", "@media print" ],
+      contrast: [ [ "light", "--page-text", "--background", 21.0 ] ],
+      pending: false },
+    { id: "grammar-root-descendant-dark-is-an-error", cls: :token_grammar,
+      files: { "tokens.css" => ":root{--background:#fff;--page-text:#000}\n:root .dark{--page-text:#fff}\n" },
+      token_errors: [ "selector `:root .dark` is not a token block" ],
+      contrast: [ [ "light", "--page-text", "--background", 21.0 ] ],
+      pending: false },
+    { id: "grammar-html-selector-is-an-error", cls: :token_grammar,
+      files: { "tokens.css" => "html{--background:#fff;--page-text:#000} html.dark{--background:#000;--page-text:#fff}" },
+      token_errors: [ "`html`", "`html.dark`" ],
+      contrast: [],
+      pending: false },
+    { id: "grammar-light-data-theme-is-an-error", cls: :token_grammar,
+      files: { "tokens.css" => ':root{--background:#000} :root[data-theme="light"]{--background:#fff;--page-text:#000}' },
+      token_errors: [ ':root[data-theme="light"]' ],
+      contrast: [],
+      pending: false },
+    { id: "grammar-other-theme-name-is-an-error", cls: :token_grammar,
+      files: { "tokens.css" => ':root{--background:#fff;--page-text:#000} :root[data-theme="dim"]{--background:#333}' },
+      token_errors: [ '[data-theme="dim"]' ],
+      contrast: [ [ "light", "--page-text", "--background", 21.0 ] ],
+      pending: false },
+    { id: "grammar-normal-property-in-dark-is-an-error", cls: :token_grammar,
+      files: { "tokens.css" => ":root{--background:#000;--page-text:#000} .dark{--page-text:#fff; color-scheme: dark}" },
+      token_errors: [ "color-scheme" ],
+      contrast: [ [ "light", "--page-text", "--background", 1.0 ], [ "dark", "--page-text", "--background", 21.0 ] ],
+      pending: false },
+    { id: "grammar-not-qualifier-is-an-error", cls: :token_grammar,
+      files: { "tokens.css" => ":root{--background:#fff}\n:root:not(.dark){--page-text:#000}\n" },
+      token_errors: [ ":root:not(.dark)" ],
+      contrast: [],
+      pending: false },
+    { id: "grammar-media-dark-only-takes-root", cls: :token_grammar,
+      files: { "tokens.css" => ":root{--background:#fff;--page-text:#000}\n@media (prefers-color-scheme: dark) { .dark { --background: #000; } }\n" },
+      token_errors: [ "inside prefers-color-scheme media" ],
+      contrast: [ [ "light", "--page-text", "--background", 21.0 ] ],
+      pending: false },
+    { id: "grammar-new-name-in-dark-is-an-error", cls: :token_grammar,
+      files: { "tokens.css" => ":root{--background:#fff}\n.dark{--page-text:#fff}\n" },
+      token_errors: [ "--page-text` is declared in dark but not in light" ],
+      contrast: [],
+      pending: false },
+    { id: "grammar-two-dark-blocks-disagree-is-an-error", cls: :token_grammar,
+      files: { "tokens.css" => ":root{--background:#fff;--page-text:#000}\n.dark{--page-text:#fff}\n[data-theme=dark]{--page-text:#eee}\n" },
+      token_errors: [ "declared twice in dark" ],
+      contrast: [ [ "light", "--page-text", "--background", 21.0 ], [ "dark", "--page-text", "--background", 1.0 ] ],
       pending: false },
 
-    # :block_nesting
-    { id: "block-nesting-media-min-width-unsupported", cls: :block_nesting,
-      files: { "tokens.css" => "@media (min-width: 40em) { :root { --text: #777 } }" },
-      contrast: [ [ "unsupported", "--text", nil, :unresolved, "unsupported theme context" ] ],
+    # :variants, light and dark from every accepted spelling
+    { id: "variants-media-dark-override", cls: :variants,
+      files: { "tokens.css" => ":root{--background:#fff;--page-text:#000;--a:#123;} @media (prefers-color-scheme: dark){:root{--background:#000;--page-text:#777;}}" },
+      contrast: [ [ "light", "--page-text", "--background", 21.0 ], [ "dark", "--page-text", "--background", 4.69 ] ],
       pending: false },
-    { id: "block-nesting-layer-base-light", cls: :block_nesting,
-      files: { "tokens.css" => "@layer base { :root { --bg:#fff; --text:#000 } }" },
-      contrast: [ [ "default", "--text", "--bg", 21.0 ] ],
+    { id: "variants-identical-light-and-dark-both-checked", cls: :variants,
+      files: { "tokens.css" => ':root{--background:#fff;--page-text:#777;} :root[data-theme="dark"]{--background:#fff;--page-text:#777;}' },
+      contrast: [ [ "light", "--page-text", "--background", 4.48 ], [ "dark", "--page-text", "--background", 4.48 ] ],
       pending: false },
-    { id: "adv1-layer-precedence-ignored-a", cls: :block_nesting,
-      files: { "tokens.css" => ":root{--bg:#fff;--text:#000}\n@layer base{:root{--text:#777}}\n" },
-      contrast: [ [ "default", "--text", "--bg", 21.0 ] ],
+    { id: "variants-shadcn-bare-dark-class", cls: :variants,
+      files: { "tokens.css" => ":root{--background:#fff;--page-text:#000} .dark{--background:#000;--page-text:#fff}" },
+      contrast: [ [ "light", "--page-text", "--background", 21.0 ], [ "dark", "--page-text", "--background", 21.0 ] ],
       pending: false },
-    { id: "adv1-layer-precedence-ignored-b", cls: :block_nesting,
-      files: { "tokens.css" => ":root{--bg:#000;--text:#000}\n@layer theme{.dark{--text:#fff}}\n" },
-      contrast: [ [ "default | dark", "--text", "--bg", 1.0 ] ],
+    { id: "variants-bare-data-theme-attr-inherits-light", cls: :variants,
+      files: { "tokens.css" => ':root{--background:#000;--page-text:#000} [data-theme="dark"]{--page-text:#fff}' },
+      contrast: [ [ "light", "--page-text", "--background", 1.0 ], [ "dark", "--page-text", "--background", 21.0 ] ],
       pending: false },
-    { id: "adv1-layer-precedence-ignored-c", cls: :block_nesting,
-      files: { "tokens.css" => "@layer a, b;\n@layer b{:root{--bg:#fff;--text:#000}}\n@layer a{:root{--text:#777}}\n" },
-      contrast: [ [ "default", "--text", "--bg", 21.0 ] ],
+    { id: "variants-root-dark-class", cls: :variants,
+      files: { "tokens.css" => ":root{--background:#fff;--page-text:#000} :root.dark{--background:#000;--page-text:#fff}" },
+      contrast: [ [ "light", "--page-text", "--background", 21.0 ], [ "dark", "--page-text", "--background", 21.0 ] ],
       pending: false },
-    { id: "adv1-unsupported-context-label-collision-a", cls: :block_nesting,
-      files: { "tokens.css" => ":root{--bg:#fff;--text:#000}\n@supports (color: red){:root{--text:#777}}\n@container (min-width: 1px){:root{--text:#111}}\n" },
-      contrast: [ [ "default", "--text", "--bg", 21.0 ],
-                  [ "unsupported", "--text", nil, :unresolved, "inside @supports (color: red)" ],
-                  [ "unsupported", "--text", nil, :unresolved, "inside @container (min-width: 1px)" ] ],
+    { id: "variants-split-root-rules-combine", cls: :variants,
+      files: { "tokens.css" => ":root { --cream: #ffffff; --plum: #000000; } :root { --background: var(--cream); } :root { --page-text: var(--plum); }" },
+      contrast: [ [ "light", "--page-text", "--background", 21.0 ] ],
       pending: false },
-    { id: "adv1-unsupported-context-label-collision-b", cls: :block_nesting,
-      files: { "tokens.css" => ":root{--bg:#fff;--text:#000}\n.card p{--text:#777}\n@media print{.card p{--link:#00f}}\n" },
-      contrast: [ [ "default", "--text", "--bg", 21.0 ],
-                  [ "unsupported", "--text", nil, :unresolved, "not a recognized theme context" ],
-                  [ "unsupported", "--link", nil, :unresolved, "inside @media print" ] ],
-      pending: false },
-    { id: "adv2-imp-layer-reversal", cls: :block_nesting,
-      files: { "tokens.css" => ":root{--bg:#ffffff}\n@layer base{:root{--text:#777777 !important}}\n:root{--text:#000000 !important}\n" },
-      contrast: [ [ "default", "--text", "--bg", 4.48 ] ],
-      pending: false },
-    { id: "adv2-imp-two-layers", cls: :block_nesting,
-      files: { "tokens.css" => "@layer a, b;\n@layer a{:root{--text:#000000 !important}}\n@layer b{:root{--text:#777777 !important}}\n:root{--bg:#ffffff}\n" },
-      contrast: [ [ "default", "--text", "--bg", 21.0 ] ],
-      pending: false },
-    { id: "adv2-anon-layer", cls: :block_nesting,
-      files: { "tokens.css" => ":root{--text:#000000}\n@layer{:root{--text:#777777}}\n:root{--bg:#ffffff}\n" },
-      contrast: [ [ "default", "--text", "--bg", 21.0 ] ],
-      pending: false },
-    { id: "adv2-anon-layer-two-blocks-no-merge", cls: :block_nesting,
-      files: { "page.html" => "<style>:root{--bg:#ffffff}@layer{:root{--text:#000000 !important}}</style>\n<style>@layer{:root{--text:#777777 !important}}</style>\n" },
-      contrast: [ [ "default", "--text", "--bg", 21.0 ] ],
-      pending: false },
-    { id: "adv2-dotted-layer", cls: :block_nesting,
-      files: { "tokens.css" => ":root{--text:#000000}\n@layer a.b{:root{--text:#777777}}\n:root{--bg:#ffffff}\n" },
-      contrast: [ [ "default", "--text", "--bg", 21.0 ] ],
-      pending: false },
-    { id: "adv2-nested-layer", cls: :block_nesting,
-      files: { "tokens.css" => "@layer a{:root{--text:#000000} @layer b{:root{--text:#777777}}}\n:root{--bg:#ffffff}\n" },
-      contrast: [ [ "default", "--text", "--bg", 21.0 ] ],
-      pending: false },
-    { id: "adv2-import-layer-order", cls: :block_nesting,
-      files: { "tokens.css" => "@import url(other.css) layer(b);\n:root{--bg:#ffffff}\n@layer a{:root{--text:#777777}}\n@layer b{:root{--text:#000000}}\n" },
-      contrast: [ [ "default", "--text", "--bg", 4.48 ] ],
-      pending: false },
-
-    # :theme_contexts
-    { id: "round4-root-defaults-not-light-only", cls: :theme_contexts,
-      files: { "tokens.css" => ':root{--bg:#000} :root[data-theme="light"]{--bg:#fff;--text:#000} :root[data-theme="dark"]{--text:#fff}' },
-      contrast: [ [ "light", "--text", "--bg", 21.0 ], [ "dark", "--text", "--bg", 21.0 ] ],
-      pending: false },
-    { id: "repro1-media-dark-override", cls: :theme_contexts,
-      files: { "tokens.css" => ":root{--bg:#fff;--text:#000;--a:#123;} @media (prefers-color-scheme: dark){:root{--bg:#000;--text:#777;}}" },
-      contrast: [ [ "default", "--text", "--bg", 21.0 ], [ "default", "--text", "--bg", 4.69 ] ],
-      pending: false },
-    { id: "repro2-identical-default-and-dark-merged", cls: :theme_contexts,
-      files: { "tokens.css" => ':root{--bg:#fff;--text:#777;} :root[data-theme="dark"]{--bg:#fff;--text:#777;}' },
-      contrast: [ [ "default | dark", "--text", "--bg", 4.48 ] ],
-      pending: false },
-    { id: "repro3-dim-theme-not-inherited-from-light", cls: :theme_contexts,
-      files: { "tokens.css" => ':root{--bg:#fff;--text:#000} :root[data-theme="dim"]{--bg:#333;--text:#000}' },
-      contrast: [ [ "default", "--text", "--bg", 21.0 ], [ "dim", "--text", "--bg", 1.66 ] ],
-      pending: false },
-    { id: "repro8-shadcn-bare-dark-class", cls: :theme_contexts,
-      files: { "tokens.css" => ":root{--bg:#fff;--text:#000} .dark{--bg:#000;--text:#fff}" },
-      contrast: [ [ "default", "--text", "--bg", 21.0 ], [ "dark", "--text", "--bg", 21.0 ] ],
-      pending: false },
-    { id: "theme-bare-data-theme-attr-with-base", cls: :theme_contexts,
-      files: { "tokens.css" => ':root{--bg:#000;--text:#000} [data-theme="dark"]{--text:#fff}' },
-      contrast: [ [ "default", "--text", "--bg", 1.0 ], [ "dark", "--text", "--bg", 21.0 ] ],
-      pending: false },
-    { id: "theme-html-dark-class", cls: :theme_contexts,
-      files: { "tokens.css" => "html{--bg:#fff;--text:#000} html.dark{--bg:#000;--text:#fff}" },
-      contrast: [ [ "default", "--text", "--bg", 21.0 ], [ "dark", "--text", "--bg", 21.0 ] ],
-      pending: false },
-    { id: "theme-root-dark-class", cls: :theme_contexts,
-      files: { "tokens.css" => ":root{--bg:#fff;--text:#000} :root.dark{--bg:#000;--text:#fff}" },
-      contrast: [ [ "default", "--text", "--bg", 21.0 ], [ "dark", "--text", "--bg", 21.0 ] ],
-      pending: false },
-    { id: "theme-bare-dark-with-color-scheme-decl", cls: :theme_contexts,
-      files: { "tokens.css" => ":root{--bg:#000;--text:#000} .dark{--text:#fff; color-scheme: dark}" },
-      contrast: [ [ "default", "--text", "--bg", 1.0 ], [ "dark", "--text", "--bg", 21.0 ] ],
-      pending: false },
-    { id: "theme-card-block-not-custom-property-only-unsupported", cls: :theme_contexts,
-      files: { "tokens.css" => ":root{--bg:#fff} .card{color:red; --text:#000}" },
-      contrast: [ [ "unsupported", "--text", nil, :unresolved, "not a recognized theme context" ] ],
-      findings: [ [ "tokens.css", 1, "literal" ] ],
-      pending: false },
-    { id: "repro9-html-data-theme-dark-root-form", cls: :theme_contexts,
-      files: { "tokens.css" => 'html[data-theme="dark"]{--bg:#000;--text:#fff}' },
-      contrast: [ [ "dark", "--text", "--bg", 21.0 ] ],
-      pending: false },
-    { id: "theme-site-pattern-media-dark-not-plus-explicit-dark-collapse", cls: :theme_contexts,
-      files: { "tokens.css" => "@media (prefers-color-scheme: dark) { :root:not([data-theme=\"light\"]) { --bg: #000; --text: #fff; } }\n:root[data-theme=\"dark\"] { --bg: #000; --text: #fff; }\n" },
-      contrast: [ [ "default | dark", "--text", "--bg", 21.0 ] ],
-      pending: false },
-    { id: "theme-split-root-rules-combine", cls: :theme_contexts,
-      files: { "tokens.css" => ":root { --cream: #ffffff; --plum: #000000; } :root { --bg: var(--cream); } :root { --text: var(--plum); }" },
-      contrast: [ [ "default", "--text", "--bg", 21.0 ] ],
-      pending: false },
-    { id: "theme-four-color-tokens-fixture", cls: :theme_contexts,
+    { id: "variants-four-color-tokens-fixture", cls: :variants,
       files: { "tokens.css" => FOUR_COLOR_TOKENS },
       palette: [ "#f6efe0", "#24122a", "#a070c8", "#f2c4c4" ],
       pending: false },
-    { id: "adv1-media-theme-before-base-source-order", cls: :theme_contexts,
-      files: { "tokens.css" => "@media (prefers-color-scheme: dark){:root{--text:#fff}}\n:root{--bg:#000;--text:#000}\n" },
-      contrast: [ [ "default", "--text", "--bg", 1.0 ] ],
+    { id: "variants-media-dark-before-root", cls: :variants,
+      files: { "tokens.css" => "@media (prefers-color-scheme: dark){:root{--page-text:#fff}}\n:root{--background:#000;--page-text:#000}\n" },
+      contrast: [ [ "light", "--page-text", "--background", 1.0 ], [ "dark", "--page-text", "--background", 21.0 ] ],
       pending: false },
-    { id: "adv1-media-theme-before-base-source-order-sibling-dark-before-root", cls: :theme_contexts,
-      files: { "tokens.css" => ".dark{--bg:#000;--text:#fff}\n:root{--bg:#fff;--text:#000}\n" },
-      contrast: [ [ "default | dark", "--text", "--bg", 21.0 ] ],
+    { id: "variants-dark-class-before-root", cls: :variants,
+      files: { "tokens.css" => ".dark{--background:#000;--page-text:#fff}\n:root{--background:#fff;--page-text:#000}\n" },
+      contrast: [ [ "light", "--page-text", "--background", 21.0 ], [ "dark", "--page-text", "--background", 21.0 ] ],
       pending: false },
-    { id: "adv1-important-ignored-in-cascade-a", cls: :theme_contexts,
-      files: { "tokens.css" => ":root{--bg:#fff;--text:#000 !important}\n:root{--text:#777}\n" },
-      contrast: [ [ "default", "--text", "--bg", 21.0 ] ],
+    { id: "variants-dark-split-across-spellings", cls: :variants,
+      files: { "tokens.css" => ":root{--background:#fff;--page-text:#000}\n:root[data-theme=\"dark\"]{--background:#000}\n:root[data-theme=dark]{--page-text:#fff}\n.dark{--page-text:#fff}\n" },
+      contrast: [ [ "light", "--page-text", "--background", 21.0 ], [ "dark", "--page-text", "--background", 21.0 ] ],
       pending: false },
-    { id: "adv1-important-ignored-in-cascade-b", cls: :theme_contexts,
-      files: { "tokens.css" => ":root{--bg:#fff;--text:#000 !important}\n:root[data-theme=\"dark\"]{--bg:#000;--text:#fff}\n" },
-      contrast: [ [ "default", "--text", "--bg", 21.0 ], [ "dark", "--text", "--bg", 1.0 ] ],
+    { id: "variants-root-selector-case", cls: :variants,
+      files: { "tokens.css" => ":ROOT{--background:WHITE;--page-text:BlAcK}" },
+      contrast: [ [ "light", "--page-text", "--background", 21.0 ] ],
       pending: false },
-    { id: "adv1-specificity-ignored-root-vs-html", cls: :theme_contexts,
-      files: { "tokens.css" => ":root{--bg:#fff;--text:#000}\nhtml{--text:#777}\n" },
-      contrast: [ [ "default", "--text", "--bg", 21.0 ] ],
+    { id: "variants-comment-inside-compound-selector", cls: :variants,
+      files: { "tokens.css" => ":root{--background:#fff;--page-text:#000}\n:root/* theme */[data-theme=\"dark\"]{--background:#000;--page-text:#fff}\n" },
+      contrast: [ [ "light", "--page-text", "--background", 21.0 ], [ "dark", "--page-text", "--background", 21.0 ] ],
       pending: false },
-    { id: "adv1-specificity-ignored-root-vs-html-sibling-not-qualifier", cls: :theme_contexts,
-      files: { "tokens.css" => ":root:not(.x){--text:#000} :root{--text:#777}\n:root{--bg:#fff}\n" },
-      contrast: [ [ "default", "--text", "--bg", 21.0 ], [ "x", "--text", "--bg", 4.48 ] ],
+    { id: "variants-ordinary-rule-in-token-file", cls: :variants,
+      files: { "tokens.css" => ":root{--background:#fff} .card{color:red; --page-text:#000}" },
+      token_errors: [ ".card" ],
+      findings: [ [ "tokens.css", 1, "literal" ] ],
+      contrast: [],
       pending: false },
-    { id: "adv1-not-qualifier-base-leaks-into-theme-a", cls: :theme_contexts,
-      files: { "tokens.css" => ":root{--bg:#fff}\n:root:not(.dark){--text:#000}\n.dark{--bg:#000}\n" },
-      contrast: [ [ "default", "--text", "--bg", 21.0 ] ],
-      pending: false },
-    { id: "adv1-not-qualifier-base-leaks-into-theme-b", cls: :theme_contexts,
-      files: { "tokens.css" => ":root:not([data-theme=\"dark\"]){--bg:#fff;--text:#000}\n:root[data-theme=\"dark\"]{--bg:#000}\n" },
-      contrast: [ [ "default", "--text", "--bg", 21.0 ] ],
-      pending: false },
-    { id: "adv1-same-theme-split-across-selector-spellings-a", cls: :theme_contexts,
-      files: { "tokens.css" => ":root{--bg:#fff;--text:#000}\n:root[data-theme=\"dark\"]{--bg:#000}\n:root[data-theme=dark]{--text:#fff}\n" },
-      contrast: [ [ "default", "--text", "--bg", 21.0 ], [ "dark", "--text", "--bg", 21.0 ] ],
-      pending: false },
-    { id: "adv1-same-theme-split-across-selector-spellings-b", cls: :theme_contexts,
-      files: { "tokens.css" => ":root{--bg:#fff;--text:#000}\n.dark{--bg:#000}\n:root.dark{--text:#fff}\n" },
-      contrast: [ [ "default", "--text", "--bg", 21.0 ], [ "dark", "--text", "--bg", 21.0 ] ],
-      pending: false },
-    { id: "adv1-media-theme-not-combined-with-attr-variant", cls: :theme_contexts,
-      files: { "tokens.css" => ":root{--bg:#fff;--text:#000}\n@media (prefers-color-scheme: dark){:root{--bg:#000;--text:#fff}}\n:root[data-theme=\"light\"]{--bg:#fff}\n" },
-      contrast: [ [ "light", "--text", "--bg", 1.0 ], [ "default | light", "--text", "--bg", 21.0 ], [ "default", "--text", "--bg", 21.0 ] ],
-      pending: false },
-    { id: "adv1-style-media-attribute-ignored", cls: :theme_contexts,
-      files: { "index.html" => "<html><head>\n<style>:root{--bg:#fff;--text:#000}</style>\n<style media=\"(prefers-color-scheme: dark)\">:root{--bg:#000;--text:#777}</style>\n</head></html>\n" },
-      contrast: [ [ "default", "--text", "--bg", 21.0 ], [ "default", "--text", "--bg", 4.69 ] ],
-      pending: false },
-    { id: "adv1-root-selector-case-and-comment-a", cls: :theme_contexts,
-      files: { "tokens.css" => ":ROOT{--bg:WHITE;--text:BlAcK}" },
-      contrast: [ [ "default", "--text", "--bg", 21.0 ] ],
-      pending: false },
-    { id: "adv1-root-selector-case-and-comment-b", cls: :theme_contexts,
-      files: { "tokens.css" => ":root{--bg:#fff;--text:#000}\n:root/* theme */[data-theme=\"dark\"]{--bg:#000;--text:#fff}\n" },
-      contrast: [ [ "default", "--text", "--bg", 21.0 ], [ "dark", "--text", "--bg", 21.0 ] ],
-      pending: false },
-
     # :termination
     { id: "termination-repro5-no-mid-semicolons", cls: :termination,
-      files: { "tokens.css" => ":root{--a:#123;--bg:#fff;--text:#000}" },
-      contrast: [ [ "default", "--text", "--bg", 21.0 ] ],
+      files: { "tokens.css" => ":root{--a:#123;--background:#fff;--page-text:#000}" },
+      contrast: [ [ "light", "--page-text", "--background", 21.0 ] ],
       pending: false },
     { id: "termination-last-declaration-keeps-authored", cls: :termination,
-      files: { "tokens.css" => ":root { --bg: #fff; --last: #555 }\n.hero { color: #abcdef; }\n" },
+      files: { "tokens.css" => ":root { --background: #fff; --last: #555 }\n.hero { color: #abcdef; }\n" },
       palette: [ "#fff", "#555" ],
       findings: [ [ "tokens.css", 2, "literal" ] ],
+      token_errors: [ ".hero" ],
       pending: false },
     { id: "termination-multiline-exempt-correct-lines", cls: :termination,
       files: { "tokens.css" => ":root {\n  --cream: #f6efe0;\n  --plum: #24122a;\n}\n:root {\n  --brand:\n    #123456;\n}\n.x { color: #abcdef; }\n" },
       palette: [ "#f6efe0", "#24122a", "#123456" ],
       findings: [ [ "tokens.css", 9, "literal" ] ],
+      token_errors: [ ".x" ],
       pending: false },
-    { id: "adv1-scss-interpolation-drops-declarations", cls: :termination,
-      files: { "tokens.scss" => ":root {\n  --bg: \#{$white};\n  --text: #000;\n  --text-muted: \#{$gray};\n}\n" },
-      contrast: [ [ "default", "--text", "--bg", :unresolved, "unrecognized color value" ],
-                  [ "default", "--text-muted", "--bg", :unresolved, "unrecognized color value" ] ],
-      pending: false },
-
     # :color_syntax
     { id: "color-syntax-named-white-black", cls: :color_syntax,
-      files: { "tokens.css" => ":root{--bg:white;--text:black}" },
+      files: { "tokens.css" => ":root{--background:white;--page-text:black}" },
       palette: [ "white", "black" ],
-      contrast: [ [ "default", "--text", "--bg", 21.0 ] ],
+      contrast: [ [ "light", "--page-text", "--background", 21.0 ] ],
       pending: false },
     { id: "color-syntax-rgb-space-and-comma", cls: :color_syntax,
-      files: { "tokens.css" => ":root{--bg:rgb(255 255 255);--text:rgb(0,0,0)}" },
-      contrast: [ [ "default", "--text", "--bg", 21.0 ] ],
+      files: { "tokens.css" => ":root{--background:rgb(255 255 255);--page-text:rgb(0,0,0)}" },
+      contrast: [ [ "light", "--page-text", "--background", 21.0 ] ],
       pending: false },
     { id: "color-syntax-hsl-space-percent", cls: :color_syntax,
-      files: { "tokens.css" => ":root{--bg:hsl(0 0% 100%);--text:#000000}" },
-      contrast: [ [ "default", "--text", "--bg", 21.0 ] ],
+      files: { "tokens.css" => ":root{--background:hsl(0 0% 100%);--page-text:#000000}" },
+      contrast: [ [ "light", "--page-text", "--background", 21.0 ] ],
       pending: false },
     { id: "color-syntax-important-resolves", cls: :color_syntax,
-      files: { "tokens.css" => ":root{--bg:#fff !important;--text:#000}" },
-      contrast: [ [ "default", "--text", "--bg", 21.0 ] ],
+      files: { "tokens.css" => ":root{--background:#fff !important;--page-text:#000}" },
+      contrast: [ [ "light", "--page-text", "--background", 21.0 ] ],
       pending: false },
     { id: "color-syntax-oklch-unresolved-reason", cls: :color_syntax,
-      files: { "tokens.css" => ":root{--bg:#fff;--text:oklch(0.5 0.1 90)}" },
-      contrast: [ [ "default", "--text", "--bg", :unresolved, "oklch" ] ],
+      files: { "tokens.css" => ":root{--background:#fff;--page-text:oklch(0.5 0.1 90)}" },
+      contrast: [ [ "light", "--page-text", "--background", :unresolved, "oklch" ] ],
       pending: false },
     { id: "adv1-hsl-hue-units-a", cls: :color_syntax,
-      files: { "tokens.css" => ":root{--bg:#fff;--text:hsl(0.5turn 100% 25%)}" },
-      contrast: [ [ "default", "--text", "--bg", 4.77 ] ],
+      files: { "tokens.css" => ":root{--background:#fff;--page-text:hsl(0.5turn 100% 25%)}" },
+      contrast: [ [ "light", "--page-text", "--background", 4.77 ] ],
       pending: false },
     { id: "adv1-hsl-hue-units-b", cls: :color_syntax,
-      files: { "tokens.css" => ":root{--bg:#fff;--text:hsl(3.14159rad 100% 25%)}" },
-      contrast: [ [ "default", "--text", "--bg", 4.78 ] ],
+      files: { "tokens.css" => ":root{--background:#fff;--page-text:hsl(3.14159rad 100% 25%)}" },
+      contrast: [ [ "light", "--page-text", "--background", 4.78 ] ],
       pending: false },
     { id: "hsl-hue-grad-unit", cls: :color_syntax,
-      files: { "tokens.css" => ":root{--bg:#fff;--text:hsl(200grad 100% 25%)}" },
-      contrast: [ [ "default", "--text", "--bg", 4.77 ] ],
+      files: { "tokens.css" => ":root{--background:#fff;--page-text:hsl(200grad 100% 25%)}" },
+      contrast: [ [ "light", "--page-text", "--background", 4.77 ] ],
       pending: false },
     { id: "hsl-hue-invalid-unit-unresolved", cls: :color_syntax,
-      files: { "tokens.css" => ":root{--bg:#fff;--text:hsl(0.5foo 100% 25%)}" },
-      contrast: [ [ "default", "--text", "--bg", :unresolved, "invalid hue" ] ],
+      files: { "tokens.css" => ":root{--background:#fff;--page-text:hsl(0.5foo 100% 25%)}" },
+      contrast: [ [ "light", "--page-text", "--background", :unresolved, "invalid hue" ] ],
       pending: false },
     { id: "adv1-invalid-color-syntax-resolved-a", cls: :color_syntax,
-      files: { "tokens.css" => ":root{--bg:#fff;--text:color-mix(in srgb, #000 150%, #fff)}" },
-      contrast: [ [ "default", "--text", "--bg", :unresolved, "0% and 100%" ] ],
+      files: { "tokens.css" => ":root{--background:#fff;--page-text:color-mix(in srgb, #000 150%, #fff)}" },
+      contrast: [ [ "light", "--page-text", "--background", :unresolved, "0% and 100%" ] ],
       pending: false },
     { id: "adv1-invalid-color-syntax-resolved-b", cls: :color_syntax,
-      files: { "tokens.css" => ":root{--bg:#fff;--text:rgb(100%, 0, 0)}" },
-      contrast: [ [ "default", "--text", "--bg", :unresolved, "numbers or all percentages" ] ],
+      files: { "tokens.css" => ":root{--background:#fff;--page-text:rgb(100%, 0, 0)}" },
+      contrast: [ [ "light", "--page-text", "--background", :unresolved, "numbers or all percentages" ] ],
       pending: false },
     { id: "adv1-invalid-color-syntax-resolved-c", cls: :color_syntax,
-      files: { "tokens.css" => ":root{--bg:#fff;--text:rgb(0 0 0 0.2)}" },
-      contrast: [ [ "default", "--text", "--bg", :unresolved, "unrecognized color value" ] ],
+      files: { "tokens.css" => ":root{--background:#fff;--page-text:rgb(0 0 0 0.2)}" },
+      contrast: [ [ "light", "--page-text", "--background", :unresolved, "unrecognized color value" ] ],
       pending: false },
     { id: "color-mix-negative-percentage-unresolved", cls: :color_syntax,
-      files: { "tokens.css" => ":root{--bg:#fff;--text:color-mix(in srgb, #000 -10%, #fff)}" },
-      contrast: [ [ "default", "--text", "--bg", :unresolved, "0% and 100%" ] ],
+      files: { "tokens.css" => ":root{--background:#fff;--page-text:color-mix(in srgb, #000 -10%, #fff)}" },
+      contrast: [ [ "light", "--page-text", "--background", :unresolved, "0% and 100%" ] ],
       pending: false },
-
     # :value_functions
     { id: "round4-color-mix-var-arguments", cls: :value_functions,
-      files: { "tokens.css" => ":root{--bg:#fff;--text:#000;--text-muted:color-mix(in srgb, var(--text) 60%, var(--bg))}" },
-      contrast: [ [ "default", "--text", "--bg", 21.0 ], [ "default", "--text-muted", "--bg", 5.74 ] ],
+      files: { "tokens.css" => ":root{--background:#fff;--page-text:#000;--muted-text:color-mix(in srgb, var(--page-text) 60%, var(--background))}" },
+      contrast: [ [ "light", "--page-text", "--background", 21.0 ], [ "light", "--muted-text", "--background", 5.74 ] ],
       pending: false },
     { id: "repro16-color-mix-var-second-stop", cls: :value_functions,
-      files: { "tokens.css" => ":root{--bg:#fff;--text:#000;--text-muted:color-mix(in srgb, var(--text), var(--bg) 40%)}" },
-      contrast: [ [ "default", "--text", "--bg", 21.0 ], [ "default", "--text-muted", "--bg", 5.74 ] ],
+      files: { "tokens.css" => ":root{--background:#fff;--page-text:#000;--muted-text:color-mix(in srgb, var(--page-text), var(--background) 40%)}" },
+      contrast: [ [ "light", "--page-text", "--background", 21.0 ], [ "light", "--muted-text", "--background", 5.74 ] ],
       pending: false },
     { id: "repro15-var-fallback-missing-token", cls: :value_functions,
-      files: { "tokens.css" => ":root{--bg:#fff;--text: var(--missing, #000)}" },
-      contrast: [ [ "default", "--text", "--bg", 21.0 ] ],
+      files: { "tokens.css" => ":root{--background:#fff;--page-text: var(--missing, #000)}" },
+      contrast: [ [ "light", "--page-text", "--background", 21.0 ] ],
       pending: false },
     { id: "value-functions-var-cycle-no-raise", cls: :value_functions,
-      files: { "tokens.css" => ":root { --bg: #fff; --text: var(--text); --a: var(--b); --b: var(--a); }" },
-      contrast: [ [ "default", "--text", "--bg", :unresolved, "cycle" ] ],
+      files: { "tokens.css" => ":root { --background: #fff; --page-text: var(--page-text); --a: var(--b); --b: var(--a); }" },
+      contrast: [ [ "light", "--page-text", "--background", :unresolved, "cycle" ] ],
       pending: false },
     { id: "value-functions-color-mix-oklch-unresolved", cls: :value_functions,
-      files: { "tokens.css" => ":root{--bg:#fff;--text:color-mix(in oklch, white 50%, black 50%)}" },
-      contrast: [ [ "default", "--text", "--bg", :unresolved, "oklch" ] ],
+      files: { "tokens.css" => ":root{--background:#fff;--page-text:color-mix(in oklch, white 50%, black 50%)}" },
+      contrast: [ [ "light", "--page-text", "--background", :unresolved, "oklch" ] ],
       pending: false },
     { id: "value-functions-color-mix-transparent-matches-today", cls: :value_functions,
-      files: { "tokens.css" => ":root{--bg:#fff;--x:#000000;--text:color-mix(in srgb, var(--x) 12%, transparent)}" },
-      contrast: [ [ "default", "--text", "--bg", 1.32 ] ],
+      files: { "tokens.css" => ":root{--background:#fff;--x:#000000;--page-text:color-mix(in srgb, var(--x) 12%, transparent)}" },
+      contrast: [ [ "light", "--page-text", "--background", 1.32 ] ],
       pending: false },
     { id: "adv1-var-in-color-function-channels-a", cls: :value_functions,
-      files: { "tokens.css" => ":root{--bg:#000;--r:255;--text:rgb(var(--r) var(--r) var(--r))}" },
-      contrast: [ [ "default", "--text", "--bg", 21.0 ] ],
+      files: { "tokens.css" => ":root{--background:#000;--r:255;--page-text:rgb(var(--r) var(--r) var(--r))}" },
+      contrast: [ [ "light", "--page-text", "--background", 21.0 ] ],
       pending: false },
     { id: "adv1-var-in-color-function-channels-b", cls: :value_functions,
-      files: { "tokens.css" => ":root{--bg:#fff;--h:240;--text:hsl(var(--h) 100% 30%)}" },
-      contrast: [ [ "default", "--text", "--bg", 14.38 ] ],
+      files: { "tokens.css" => ":root{--background:#fff;--h:240;--page-text:hsl(var(--h) 100% 30%)}" },
+      contrast: [ [ "light", "--page-text", "--background", 14.38 ] ],
       pending: false },
     { id: "var-channel-undefined-no-fallback-unresolved", cls: :value_functions,
-      files: { "tokens.css" => ":root{--bg:#000;--text:rgb(var(--missing) 0 0)}" },
-      contrast: [ [ "default", "--text", "--bg", :unresolved, "is not defined in this theme" ] ],
+      files: { "tokens.css" => ":root{--background:#000;--page-text:rgb(var(--missing) 0 0)}" },
+      contrast: [ [ "light", "--page-text", "--background", :unresolved, "is not defined in this theme" ] ],
       pending: false },
     { id: "var-channel-with-fallback-resolves", cls: :value_functions,
-      files: { "tokens.css" => ":root{--bg:#000;--text:rgb(var(--missing, 255) 255 255)}" },
-      contrast: [ [ "default", "--text", "--bg", 21.0 ] ],
+      files: { "tokens.css" => ":root{--background:#000;--page-text:rgb(var(--missing, 255) 255 255)}" },
+      contrast: [ [ "light", "--page-text", "--background", 21.0 ] ],
       pending: false },
     { id: "var-hue-channel-with-fallback-resolves", cls: :value_functions,
-      files: { "tokens.css" => ":root{--bg:#fff;--text:hsl(var(--missing-hue, 240) 100% 30%)}" },
-      contrast: [ [ "default", "--text", "--bg", 14.38 ] ],
+      files: { "tokens.css" => ":root{--background:#fff;--page-text:hsl(var(--missing-hue, 240) 100% 30%)}" },
+      contrast: [ [ "light", "--page-text", "--background", 14.38 ] ],
       pending: false },
     { id: "adv1-var-cycle-with-fallback-resolves-a", cls: :value_functions,
-      files: { "tokens.css" => ":root{--bg:#000;--a:var(--b, #000);--b:var(--a, #fff);--text:var(--a)}" },
-      contrast: [ [ "default", "--text", "--bg", :unresolved, "cycle" ] ],
+      files: { "tokens.css" => ":root{--background:#000;--a:var(--b, #000);--b:var(--a, #fff);--page-text:var(--a)}" },
+      contrast: [ [ "light", "--page-text", "--background", :unresolved, "cycle" ] ],
       pending: false },
     { id: "adv1-var-cycle-with-fallback-resolves-b", cls: :value_functions,
-      files: { "tokens.css" => ":root{--bg:#000;--text:var(--text, #fff)}" },
-      contrast: [ [ "default", "--text", "--bg", :unresolved, "cycle" ] ],
+      files: { "tokens.css" => ":root{--background:#000;--page-text:var(--page-text, #fff)}" },
+      contrast: [ [ "light", "--page-text", "--background", :unresolved, "cycle" ] ],
       pending: false },
     { id: "var-cycle-with-fallback-in-channel-unresolved", cls: :value_functions,
-      files: { "tokens.css" => ":root{--bg:#000;--r:var(--g, 1);--g:var(--r, 2);--text:rgb(var(--r) 0 0)}" },
-      contrast: [ [ "default", "--text", "--bg", :unresolved, "cycle" ] ],
+      files: { "tokens.css" => ":root{--background:#000;--r:var(--g, 1);--g:var(--r, 2);--page-text:rgb(var(--r) 0 0)}" },
+      contrast: [ [ "light", "--page-text", "--background", :unresolved, "cycle" ] ],
       pending: false },
-
-    # :pairing
+    # :pairing, the fixed rule: "--x-<suffix>" pairs with "--x" when
+    # declared, else with "--background"; no other name pairs
     { id: "pairing-base-text-pairs-with-base", cls: :pairing,
-      files: { "tokens.css" => ":root{--gold-btn:#000000;--gold-btn-text:#ffffff;--bg:#000000}" },
-      contrast: [ [ "default", "--gold-btn-text", "--gold-btn", 21.0 ] ],
+      files: { "tokens.css" => ":root{--gold-btn:#000000;--gold-btn-text:#ffffff;--background:#000000}" },
+      contrast: [ [ "light", "--gold-btn-text", "--gold-btn", 21.0 ] ],
       pending: false },
-    { id: "pairing-exact-bg-preferred-over-surface-bg-segment", cls: :pairing,
-      files: { "tokens.css" => ":root {\n  --surface-bg: #000000;\n  --bg: #ffffff;\n  --ink: #000000;\n}\n" },
-      contrast: [ [ "default", "--ink", "--bg", 21.0 ] ],
+    { id: "pairing-every-suffix-without-surface-pairs-with-background", cls: :pairing,
+      files: { "tokens.css" => ":root{--background:#fff;--a-text:#000;--b-fg:#000;--c-foreground:#777;--d-ink:#000}" },
+      contrast: [ [ "light", "--a-text", "--background", 21.0 ], [ "light", "--b-fg", "--background", 21.0 ],
+                  [ "light", "--c-foreground", "--background", 4.48 ], [ "light", "--d-ink", "--background", 21.0 ] ],
       pending: false },
-    { id: "pairing-context-and-ink-like-not-text-roles", cls: :pairing,
-      files: { "tokens.css" => ":root {\n  --bg: #ffffff;\n  --context: #112233;\n  --ink-like: #445566;\n  --ink: #000000;\n}\n" },
-      contrast: [ [ "default", "--ink", "--bg", 21.0 ] ],
+    { id: "pairing-names-without-a-suffix-do-not-pair", cls: :pairing,
+      files: { "tokens.css" => ":root {\n  --background: #ffffff;\n  --context: #112233;\n  --ink-like: #445566;\n  --ink: #000000;\n}\n" },
+      contrast: [],
       pending: false },
-    { id: "adv1-text-role-middle-segment-zero-rows", cls: :pairing,
-      files: { "tokens.css" => ":root{--color-bg:#fff;--color-text-muted:#777;--color-fg-default:#000;--brand-link-hover:#00f}" },
-      contrast: [ [ "default", "--color-text-muted", "--color-bg", 4.48 ],
-                  [ "default", "--color-fg-default", "--color-bg", 21.0 ],
-                  [ "default", "--brand-link-hover", "--color-bg", 8.59 ] ],
+    { id: "pairing-middle-segment-roles-do-not-pair", cls: :pairing,
+      files: { "tokens.css" => ":root{--background:#fff;--color-text-muted:#777;--color-fg-default:#000;--brand-link-hover:#00f}" },
+      contrast: [],
       pending: false },
-
+    { id: "pairing-missing-background-is-unresolved", cls: :pairing,
+      files: { "tokens.css" => ":root{--page-text:#000}" },
+      contrast: [ [ "light", "--page-text", "--background", :unresolved, "--background: is not declared" ] ],
+      pending: false },
     # :false_positives
     { id: "fp-id-selector-var-text", cls: :false_positives,
       files: { "tokens.css" => ":root{--bg:#fff;--text:#000}", "extra.css" => "#feed{color:var(--text)}" },
@@ -506,7 +443,6 @@ class ColorCheckTest < Minitest::Test
       files: { "Nested.jsx" => "export const N = () => <div>Won't <span className=\"bg-red-500\">stop</span></div>;\n" },
       findings: [ [ "Nested.jsx", 1, "tailwind" ] ],
       pending: false },
-
     # :stray_scope
     { id: "stray-button-jsx-four-literals", cls: :stray_scope,
       files: { "src/Button.jsx" => "const a = \"#ff0000\";\nconst b = \"rgb(1,2,3)\";\nconst c = \"hsl(0, 0%, 0%)\";\nconst d = \"oklch(0.5 0.1 90)\";\n" },
@@ -650,59 +586,57 @@ class ColorCheckTest < Minitest::Test
                "b.js" => "x = y-- / 2; const d = '#fedcba'; z = w / 3;\n" },
       findings: [ [ "a.js", 1, "literal" ], [ "b.js", 1, "literal" ] ],
       pending: false },
-
     # :past_findings, one row per review finding already fixed on this
     # branch (the id carries the fixing commit), so a rewrite cannot
     # reintroduce one. The two open round-4 findings live under their own
     # classes as round4- rows.
     { id: "past-4a0c408-inherit-base-root-tokens", cls: :past_findings,
-      files: { "tokens.css" => ":root {\n  --cream: #ffffff;\n  --plum: #000000;\n  --bg: var(--cream);\n  --text: var(--plum);\n}\n\n:root[data-theme=\"dark\"] {\n  --bg: var(--plum);\n  --text: var(--cream);\n}\n" },
-      contrast: [ [ "default", "--text", "--bg", 21.0 ], [ "dark", "--text", "--bg", 21.0 ] ],
+      files: { "tokens.css" => ":root {\n  --cream: #ffffff;\n  --plum: #000000;\n  --background: var(--cream);\n  --page-text: var(--plum);\n}\n\n:root[data-theme=\"dark\"] {\n  --background: var(--plum);\n  --page-text: var(--cream);\n}\n" },
+      contrast: [ [ "light", "--page-text", "--background", 21.0 ], [ "dark", "--page-text", "--background", 21.0 ] ],
       pending: false },
     { id: "past-a55862c-composite-eight-digit-alpha-hex", cls: :past_findings,
-      files: { "tokens.css" => ":root {\n  --bg: #ffffff;\n  --text: #00000000;\n}\n" },
-      contrast: [ [ "default", "--text", "--bg", 1.0 ] ],
+      files: { "tokens.css" => ":root {\n  --background: #ffffff;\n  --page-text: #00000000;\n}\n" },
+      contrast: [ [ "light", "--page-text", "--background", 1.0 ] ],
       pending: false },
     { id: "past-9345400-anchor-text-name-to-segments", cls: :past_findings,
-      files: { "tokens.css" => ":root {\n  --bg: #ffffff;\n  --pink: #f2c4c4;\n  --ink: #000000;\n}\n" },
-      contrast: [ [ "default", "--ink", "--bg", 21.0 ] ],
+      files: { "tokens.css" => ":root {\n  --background: #ffffff;\n  --pink: #f2c4c4;\n  --ink: #000000;\n}\n" },
+      contrast: [],
       pending: false },
     { id: "past-e24f742-scan-ordinary-rules-in-token-file", cls: :past_findings,
-      files: { "tokens.css" => ":root {\n  --bg: #ffffff;\n  --text: #000000;\n}\n.hero { background: linear-gradient(#fff, #000); color: #123456; }\n" },
+      files: { "tokens.css" => ":root {\n  --background: #ffffff;\n  --page-text: #000000;\n}\n.hero { background: linear-gradient(#fff, #000); color: #123456; }\n" },
       findings: [ [ "tokens.css", 5, "gradient" ], [ "tokens.css", 5, "literal" ], [ "tokens.css", 5, "literal" ], [ "tokens.css", 5, "literal" ] ],
-      pending: false },
-    { id: "past-a9e8434-prefer-exact-background-role-name", cls: :past_findings,
-      files: { "tokens.css" => ":root {\n  --background-accent: #000000;\n  --bg: #ffffff;\n  --ink: #000000;\n}\n" },
-      contrast: [ [ "default", "--ink", "--bg", 21.0 ] ],
+      token_errors: [ ".hero" ],
       pending: false },
     { id: "past-016f07d-recognize-four-digit-hex", cls: :past_findings,
-      files: { "tokens.css" => ":root {\n  --bg: #ffff;\n  --text: #000f;\n}\n" },
-      contrast: [ [ "default", "--text", "--bg", 21.0 ] ],
+      files: { "tokens.css" => ":root {\n  --background: #ffff;\n  --page-text: #000f;\n}\n" },
+      contrast: [ [ "light", "--page-text", "--background", 21.0 ] ],
       pending: false },
     { id: "past-b80c932-exempt-multiline-token-declarations", cls: :past_findings,
       files: { "tokens.css" => ":root {\n  --cream: #f6efe0;\n  --plum: #24122a;\n}\n:root {\n  --brand:\n    #123456;\n}\n.x { color: #abcdef; }\n" },
       findings: [ [ "tokens.css", 9, "literal" ] ],
+      token_errors: [ ".x" ],
       pending: false },
     { id: "past-a58def4-stop-variable-cycles", cls: :past_findings,
-      files: { "tokens.css" => ":root { --bg: #fff; --text: var(--text); --a: var(--b); --b: var(--a); }\n" },
-      contrast: [ [ "default", "--text", "--bg", :unresolved ] ],
+      files: { "tokens.css" => ":root { --background: #fff; --page-text: var(--page-text); --a: var(--b); --b: var(--a); }\n" },
+      contrast: [ [ "light", "--page-text", "--background", :unresolved ] ],
       pending: false },
     { id: "past-1f3cac0-declaration-boundaries-without-semicolon", cls: :past_findings,
-      files: { "tokens.css" => ":root { --bg: #fff; --last: #555 }\n.hero { color: #abcdef; }\n" },
+      files: { "tokens.css" => ":root { --background: #fff; --last: #555 }\n.hero { color: #abcdef; }\n" },
       palette: [ "#fff", "#555" ],
       findings: [ [ "tokens.css", 2, "literal" ] ],
+      token_errors: [ ".hero" ],
       pending: false },
     { id: "past-e068235-accumulate-repeated-root-rules", cls: :past_findings,
-      files: { "tokens.css" => ":root { --cream: #ffffff; --plum: #000000; }\n:root { --bg: var(--cream); }\n:root { --text: var(--plum); }\n" },
-      contrast: [ [ "default", "--text", "--bg", 21.0 ] ],
+      files: { "tokens.css" => ":root { --cream: #ffffff; --plum: #000000; }\n:root { --background: var(--cream); }\n:root { --page-text: var(--plum); }\n" },
+      contrast: [ [ "light", "--page-text", "--background", 21.0 ] ],
       pending: false },
     { id: "past-567bce1-html-entity-hex-not-literal", cls: :past_findings,
       files: { "extra.tsx" => "const Arrow = () => <span>&#8599;</span>;\nconst style = { color: \"#abc\" };\n" },
       findings: [ [ "extra.tsx", 2, "literal" ] ],
       pending: false },
     { id: "past-567bce1-base-text-pairs-with-matching-base-token", cls: :past_findings,
-      files: { "tokens.css" => ":root {\n  --btn: #000000;\n  --btn-text: #ffffff;\n  --bg: #000000;\n}\n" },
-      contrast: [ [ "default", "--btn-text", "--btn", 21.0 ] ],
+      files: { "tokens.css" => ":root {\n  --btn: #000000;\n  --btn-text: #ffffff;\n  --background: #000000;\n}\n" },
+      contrast: [ [ "light", "--btn-text", "--btn", 21.0 ] ],
       pending: false }
   ].freeze
 
@@ -710,23 +644,19 @@ class ColorCheckTest < Minitest::Test
     Pathname.new(path).relative_path_from(Pathname.new(dir)).to_s
   end
 
-  def contrast_reason(pair)
-    pair.respond_to?(:reason) ? pair.reason : nil
-  end
-
   def contrast_match?(pair, expected_row)
-    theme, text_token, bg_token, *rest = expected_row
-    return false unless pair.theme == theme && pair.text_token == text_token && pair.bg_token == bg_token
+    variant, fg, bg, *rest = expected_row
+    return false unless pair.variant == variant && pair.fg == fg && pair.bg == bg
 
     if rest.first == :unresolved
-      !pair.resolved && (rest[1].nil? || contrast_reason(pair).to_s.include?(rest[1]))
+      !pair.resolved? && (rest[1].nil? || pair.reason.to_s.include?(rest[1]))
     else
-      pair.resolved && (rest.first.nil? || (pair.ratio - rest.first).abs < 0.01)
+      pair.resolved? && (rest.first.nil? || (pair.ratio - rest.first).abs < 0.01)
     end
   end
 
   def describe_pairs(pairs)
-    pairs.map { |p| [ p.theme, p.text_token, p.bg_token, p.ratio, p.resolved ] }.inspect
+    pairs.map { |p| [ p.variant, p.fg, p.bg, p.ratio, p.status ] }.inspect
   end
 
   # Each expected row consumes one matching pair, so duplicates must appear
@@ -743,12 +673,24 @@ class ColorCheckTest < Minitest::Test
   end
 
   # The token side of a row: the declarations each file contributes as a
-  # token-file candidate, so a fake style element yields no tokens at all.
+  # parsed CSS source, so a fake style element yields no declarations.
   def assert_corpus_tokens(row)
     row[:files].each do |rel, content|
       sheet = ColorCheck.css_source_sheet(rel, content)
       actual = sheet ? sheet.decls.map(&:name) : []
       assert_equal row[:tokens], actual, "tokens mismatch for #{row[:id]} #{rel}"
+    end
+  end
+
+  def assert_token_errors(row, report)
+    expected = row[:token_errors]
+    expected ||= [] if row[:palette] || row[:contrast]
+    return unless expected
+
+    messages = report.token_errors.map(&:message)
+    assert_equal expected.size, messages.size, "token errors for #{row[:id]}: #{messages.inspect}"
+    expected.each do |fragment|
+      assert(messages.any? { |m| m.include?(fragment) }, "#{row[:id]}: no token error mentions #{fragment}: #{messages.inspect}")
     end
   end
 
@@ -758,6 +700,7 @@ class ColorCheckTest < Minitest::Test
       assert_equal row[:palette].sort, actual, "palette mismatch for #{row[:id]}"
     end
 
+    assert_token_errors(row, report)
     assert_contrast_rows(row, report.contrast) if row[:contrast]
     assert_corpus_tokens(row) if row.key?(:tokens)
     return unless row[:findings]
@@ -783,52 +726,28 @@ class ColorCheckTest < Minitest::Test
     assert_empty pending.map { |row| row[:id] }, "pending corpus rows remain"
   end
 
-  # Builds the same theme model compute_contrast builds internally (from the
-  # same detected token file), and checks that the contrast report matches
-  # it one row per text-role key: every variant's effective map yields
-  # exactly one row per text role for that theme and context, every
-  # unsupported context yields exactly one row per text-role token it
-  # declares, and every unresolved row carries a non-empty reason. A row
-  # whose files raise during ColorCheck.run fails this test with that error.
-  def test_corpus_invariant_one_row_per_text_role
+  # For every corpus row, the contrast report holds exactly one row per
+  # declared pair (ColorTokens.pairs) per checked variant, light always and
+  # dark only when the token file declares a dark block, nothing else, and
+  # every unresolved row carries a reason. A row whose files raise during
+  # ColorCheck.run fails this test with that error.
+  def test_corpus_invariant_one_row_per_pair_per_variant
     CORPUS.each do |row|
       with_dir do |dir|
         row[:files].each { |rel, content| write(dir, rel, content) }
         report = ColorCheck.run(dir)
-
-        token_file = ColorCheck.detect_token_file(ColorCheck.scan_files(dir))
-        if token_file
-          sheet = ColorCheck.parse_token_sheet(token_file)
-          model = sheet ? ColorThemes.build(sheet) : nil
-
-          model&.variants&.each do |variant|
-            variant.decls.each_key.select { |name| ColorThemes.text_role_name?(name) }.each do |role|
-              matches = report.contrast.select do |c|
-                c.theme == variant.theme && c.states == variant.states && c.text_token == role
-              end
-              assert_equal 1, matches.size,
-                           "#{row[:id]}: expected one row for theme=#{variant.theme} " \
-                           "states=#{variant.contexts.join(' | ')} role=#{role}, got #{matches.size}"
-            end
-          end
-
-          model&.unsupported&.each do |uns|
-            uns.decls.each_key.select { |name| ColorThemes.text_role_name?(name) }.each do |role|
-              matches = report.contrast.select do |c|
-                c.theme == "unsupported" && c.context == uns.label && c.text_token == role
-              end
-              assert_equal 1, matches.size,
-                           "#{row[:id]}: expected one unsupported row for label=#{uns.label} " \
-                           "role=#{role}, got #{matches.size}"
-            end
+        expected = []
+        if report.tokens
+          tokens = ColorTokens.read(report.tokens)
+          variants = tokens.dark? ? %i[light dark] : %i[light]
+          variants.each do |v|
+            ColorTokens.pairs(tokens.variants[v]).each { |fg, bg| expected << [ v.to_s, fg, bg ] }
           end
         end
+        assert_equal expected.sort, report.contrast.map { |c| [ c.variant, c.fg, c.bg ] }.sort, row[:id]
 
-        report.contrast.each do |pair|
-          next if pair.resolved
-
-          refute_nil pair.reason, "#{row[:id]}: unresolved row for #{pair.text_token} has no reason"
-          refute_empty pair.reason.to_s, "#{row[:id]}: unresolved row for #{pair.text_token} has an empty reason"
+        report.contrast.reject(&:resolved?).each do |pair|
+          refute_empty pair.reason.to_s, "#{row[:id]}: unresolved row for #{pair.fg} has no reason"
         end
       end
     end
@@ -839,17 +758,20 @@ class ColorCheckTest < Minitest::Test
       write(dir, "tokens.css", FOUR_COLOR_TOKENS)
       report = ColorCheck.run(dir)
       assert_equal 4, report.palette.authored.size
+      assert_empty report.token_errors
     end
   end
 
-  def test_error_token_recognised_and_excluded_sixth_color_reported_above_target
+  def test_error_token_excluded_and_fifth_color_is_a_token_error
     with_dir do |dir|
       css = FOUR_COLOR_TOKENS.sub("--pink: #f2c4c4;", "--pink: #f2c4c4;\n  --error: #ff0000;\n  --extra: #123456;")
       write(dir, "tokens.css", css)
-      report = ColorCheck.run(dir)
+      report = ColorCheck.run(dir, strict: true)
       assert report.palette.error_token
       assert_equal 5, report.palette.authored.size
       refute report.palette.authored.any? { |a| a[:names].include?("--error") }
+      assert(report.token_errors.any? { |e| e.message.include?("palette has 5 authored colors") })
+      assert_equal 1, report.exit_code
     end
   end
 
@@ -913,13 +835,14 @@ class ColorCheckTest < Minitest::Test
     end
   end
 
-  def test_tokens_flag_overrides_detection
+  def test_tokens_flag_overrides_the_path_list
     with_dir do |dir|
-      write(dir, "decoy.css", ":root { --a: #111111; --b: #222222; --c: #333333; --d: #444444; --e: #555555; }")
+      write(dir, "tokens.css", ":root { --a: #111111; --b: #222222; --c: #333333; --d: #444444; --e: #555555; }")
       override_path = write(dir, "real-tokens.css", FOUR_COLOR_TOKENS)
       report = ColorCheck.run(dir, tokens_override: override_path)
       assert_equal override_path, report.palette.file
       assert_equal 4, report.palette.authored.size
+      assert_empty report.token_errors
     end
   end
 
@@ -932,15 +855,29 @@ class ColorCheckTest < Minitest::Test
         # same file, which must still be recognized as the token file.
         report = ColorCheck.run(".", tokens_override: "tokens.css")
         assert_empty report.findings
+        assert_empty report.token_errors
       end
     end
   end
 
-  def test_default_exit_is_zero_even_with_findings
+  def test_several_conventional_token_files_is_a_token_error
     with_dir do |dir|
       write(dir, "tokens.css", FOUR_COLOR_TOKENS)
+      write(dir, "src/index.css", FOUR_COLOR_TOKENS)
+      report = ColorCheck.run(dir, strict: true)
+      assert_nil report.palette
+      assert_includes report.token_errors.first.message, "several token files found"
+      assert_equal 1, report.exit_code
+      assert_includes ColorCheck.render(report), "error: several token files found"
+    end
+  end
+
+  def test_default_exit_is_zero_even_with_findings_and_token_errors
+    with_dir do |dir|
+      write(dir, "tokens.css", "html{--a:#000}")
       write(dir, "src/Button.jsx", 'const a = "#ff0000";')
       report = ColorCheck.run(dir, strict: false)
+      refute_empty report.token_errors
       assert_equal 0, report.exit_code
     end
   end
@@ -952,34 +889,22 @@ class ColorCheckTest < Minitest::Test
     assert_equal [ [ "--a", 1 ], [ "--c", 8 ] ], sheet.decls.map { |d| [ d.name, d.line ] }
   end
 
-  # style_block_sheet parses every <style> block through one parser, so no
-  # per-parse identity or ordering field is lost or collides when blocks
-  # join: rule ids, layer block openings (empty ones included), anonymous
-  # layers, and a media= frame all hold across every block shape.
-  def test_style_blocks_share_one_parse_across_every_per_parse_field
+  # style_block_sheet parses every <style> block through one parser, so
+  # block ids never collide across blocks and an unclosed block in one
+  # chunk never leaks into the next.
+  def test_style_blocks_share_one_parse
     blocks = [
       "<style>.dark{--a:#000}</style>",
       "<style>.x{color:red}</style>",
-      "<style media=\"(prefers-color-scheme: dark)\">.y{--b:#111}.z{color:blue}@layer m {}</style>",
       "<style></style>",
       "<style lang=\"scss\">.p{.q{--c:#222}}</style>",
-      "<style>@layer a {} @layer {} @layer {}</style>",
-      "<style>@layer b { :root{--text:#000} } @layer a { :root{--text:#fff} }</style>",
       "<style>.open{--u:#333</style>",
       "<style>.after{--v:#444}</style>"
     ]
     sheet = ColorCheck.style_block_sheet(blocks.join("\n"))
-    by_rule = sheet.decls.group_by(&:rule_id)
-    by_rule.each_value { |ds| assert_equal 1, ds.map(&:selectors).uniq.size, ds.map(&:name).inspect }
-    assert_equal 9, by_rule.size
-    dark_id = sheet.decls.find { |d| d.name == "--a" }.rule_id
-    assert ColorThemes.rule_custom_only_map(sheet.decls)[dark_id]
-
-    layers = sheet.layer_blocks
-    assert_equal 2, layers.count { |l| l.prelude.start_with?("%anon-") }
-    assert_equal 2, layers.map(&:prelude).grep(/%anon-/).uniq.size
-    assert_equal [ "@media (prefers-color-scheme: dark)", "@layer m" ], layers.find { |l| l.prelude == "m" }.at_rules
-    assert_equal [], sheet.decls.find { |d| d.name == "--v" }.at_rules
+    assert_equal sheet.blocks.size, sheet.blocks.map(&:id).uniq.size
+    assert_equal 5, sheet.decls.map(&:block_id).uniq.size
+    assert_nil sheet.blocks.find { |b| b.prelude == ".after" }.parent
     assert_equal [ ".after" ], sheet.decls.find { |d| d.name == "--v" }.selectors
     assert_equal 1, sheet.errors.size
   end
@@ -996,136 +921,68 @@ class ColorCheckTest < Minitest::Test
     end
   end
 
-  def test_strict_exits_one_with_findings_and_zero_without
+  def test_strict_exits_one_with_findings_or_token_errors_and_zero_without
     with_dir do |dir|
       write(dir, "tokens.css", FOUR_COLOR_TOKENS)
       write(dir, "src/Button.jsx", 'const a = "#ff0000";')
-      with_findings = ColorCheck.run(dir, strict: true)
-      assert_equal 1, with_findings.exit_code
+      assert_equal 1, ColorCheck.run(dir, strict: true).exit_code
+    end
+
+    with_dir do |dir|
+      write(dir, "tokens.css", FOUR_COLOR_TOKENS + ":root .dark { --page-text: #fff; }\n")
+      report = ColorCheck.run(dir, strict: true)
+      assert_empty report.findings
+      assert_equal 1, report.exit_code
     end
 
     with_dir do |dir|
       write(dir, "tokens.css", FOUR_COLOR_TOKENS)
-      without_findings = ColorCheck.run(dir, strict: true)
-      assert_equal 0, without_findings.exit_code
+      assert_equal 0, ColorCheck.run(dir, strict: true).exit_code
+    end
+  end
+
+  def contrast_for(css, fg = "--page-text", variant: "light")
+    with_dir do |dir|
+      write(dir, "tokens.css", css)
+      ColorCheck.run(dir).contrast.find { |c| c.fg == fg && c.variant == variant }
     end
   end
 
   def test_contrast_black_on_white_is_21
-    with_dir do |dir|
-      write(dir, "tokens.css", <<~CSS)
-        :root {
-          --bg: #ffffff;
-          --text: #000000;
-        }
-      CSS
-      report = ColorCheck.run(dir)
-      pair = report.contrast.find { |c| c.text_token == "--text" }
-      refute_nil pair
-      assert pair.resolved
-      assert_in_delta 21.0, pair.ratio, 0.01
-    end
+    pair = contrast_for(":root {\n  --background: #ffffff;\n  --page-text: #000000;\n}\n")
+    assert pair.resolved?
+    assert_in_delta 21.0, pair.ratio, 0.01
+    assert_equal "pass", pair.status
   end
 
   def test_contrast_composites_eight_digit_alpha_hex
-    with_dir do |dir|
-      write(dir, "tokens.css", <<~CSS)
-        :root {
-          --bg: #ffffff;
-          --text: #00000000;
-        }
-      CSS
-      report = ColorCheck.run(dir)
-      pair = report.contrast.find { |c| c.text_token == "--text" }
-      refute_nil pair
-      assert_in_delta 1.0, pair.ratio, 0.01
-      refute pair.passes_body
-    end
+    pair = contrast_for(":root {\n  --background: #ffffff;\n  --page-text: #00000000;\n}\n")
+    assert_in_delta 1.0, pair.ratio, 0.01
+    assert_equal "fail", pair.status
   end
 
   def test_contrast_composites_four_digit_alpha_hex
-    with_dir do |dir|
-      write(dir, "tokens.css", <<~CSS)
-        :root {
-          --bg: #ffff;
-          --text: #000f;
-        }
-      CSS
-      report = ColorCheck.run(dir)
-      pair = report.contrast.find { |c| c.text_token == "--text" }
-      refute_nil pair
-      assert pair.resolved
-      assert_in_delta 21.0, pair.ratio, 0.01
-    end
+    pair = contrast_for(":root {\n  --background: #ffff;\n  --page-text: #000f;\n}\n")
+    assert_in_delta 21.0, pair.ratio, 0.01
   end
 
   def test_contrast_color_mix_pair_resolves
-    with_dir do |dir|
-      write(dir, "tokens.css", <<~CSS)
-        :root {
-          --bg: #ffffff;
-          --plum: #24122a;
-          --text: color-mix(in srgb, var(--plum) 100%, transparent);
-        }
-      CSS
-      report = ColorCheck.run(dir)
-      pair = report.contrast.find { |c| c.text_token == "--text" }
-      refute_nil pair
-      assert pair.resolved
-    end
+    pair = contrast_for(":root {\n  --background: #ffffff;\n  --plum: #24122a;\n" \
+                        "  --page-text: color-mix(in srgb, var(--plum) 100%, transparent);\n}\n")
+    assert pair.resolved?
   end
 
-  def test_dark_theme_override_resolves_against_root_palette_tokens
-    with_dir do |dir|
-      write(dir, "tokens.css", <<~CSS)
-        :root {
-          --cream: #ffffff;
-          --plum: #000000;
-          --bg: var(--cream);
-          --text: var(--plum);
-        }
-
-        :root[data-theme="dark"] {
-          --bg: var(--plum);
-          --text: var(--cream);
-        }
-      CSS
-      report = ColorCheck.run(dir)
-      pair = report.contrast.find { |c| c.theme == "dark" && c.text_token == "--text" }
-      refute_nil pair
-      assert pair.resolved
-      assert_in_delta 21.0, pair.ratio, 0.01
-    end
-  end
-
-  def test_contrast_accumulates_split_root_rules
-    with_dir do |dir|
-      write(dir, "tokens.css", <<~CSS)
-        :root { --cream: #ffffff; --plum: #000000; }
-        :root { --bg: var(--cream); }
-        :root { --text: var(--plum); }
-      CSS
-      report = ColorCheck.run(dir)
-      pairs = report.contrast.select { |c| c.text_token == "--text" }
-      assert_equal 1, pairs.size
-      assert pairs.first.resolved
-      assert_in_delta 21.0, pairs.first.ratio, 0.01
-    end
+  def test_dark_override_resolves_against_light_palette_tokens
+    pair = contrast_for(FOUR_COLOR_TOKENS, variant: "dark")
+    assert pair.resolved?
+    assert_equal "--background", pair.bg
   end
 
   def test_contrast_unresolvable_pair_listed_as_unresolved
-    with_dir do |dir|
-      write(dir, "tokens.css", <<~CSS)
-        :root {
-          --bg: #ffffff;
-          --text: oklch(0.5 0.1 90);
-        }
-      CSS
-      report = ColorCheck.run(dir)
-      pair = report.contrast.find { |c| c.text_token == "--text" }
-      refute_nil pair
-      refute pair.resolved
-    end
+    pair = contrast_for(":root {\n  --background: #ffffff;\n  --page-text: oklch(0.5 0.1 90);\n}\n")
+    refute pair.resolved?
+    assert_equal "unresolved", pair.status
+    assert_includes pair.reason, "oklch"
   end
 
   def test_html_entity_hex_is_not_a_literal_finding
@@ -1143,79 +1000,25 @@ class ColorCheckTest < Minitest::Test
     end
   end
 
-  def test_contrast_text_token_paired_with_matching_base_token
-    with_dir do |dir|
-      write(dir, "tokens.css", <<~CSS)
-        :root {
-          --btn: #000000;
-          --btn-text: #ffffff;
-          --bg: #000000;
-        }
-      CSS
-      report = ColorCheck.run(dir)
-      pair = report.contrast.find { |c| c.text_token == "--btn-text" }
-      refute_nil pair
-      assert_equal "--btn", pair.bg_token
-      assert pair.resolved
-      assert_in_delta 21.0, pair.ratio, 0.01
-      assert pair.passes_body
-    end
+  def test_contrast_suffix_token_paired_with_its_surface
+    pair = contrast_for(":root {\n  --btn: #000000;\n  --btn-text: #ffffff;\n  --background: #000000;\n}\n", "--btn-text")
+    assert_equal "--btn", pair.bg
+    assert_in_delta 21.0, pair.ratio, 0.01
   end
 
-  def test_contrast_ignores_palette_names_containing_role_substrings
+  def test_token_file_without_pairs_reports_no_contrast_rows
     with_dir do |dir|
-      write(dir, "tokens.css", ":root {\n  --bg: #ffffff;\n  --pink: #f2c4c4;\n  --ink: #000000;\n}\n")
-      report = ColorCheck.run(dir)
-      tokens = report.contrast.map(&:text_token)
-      refute_includes tokens, "--pink"
-      assert_includes tokens, "--ink"
-    end
-  end
-
-  def test_contrast_prefers_exact_background_role_name
-    with_dir do |dir|
-      write(dir, "tokens.css", ":root {\n  --background-accent: #000000;\n  --bg: #ffffff;\n  --ink: #000000;\n}\n")
-      report = ColorCheck.run(dir)
-      pair = report.contrast.find { |c| c.text_token == "--ink" }
-      refute_nil pair
-      assert_equal "--bg", pair.bg_token
-      assert_in_delta 21.0, pair.ratio, 0.01
-    end
-  end
-
-  def test_foreground_pairs_with_background_and_resolves
-    with_dir do |dir|
-      write(dir, "tokens.css", ":root {\n  --background: #ffffff;\n  --foreground: #000000;\n}\n")
-      report = ColorCheck.run(dir)
-      pair = report.contrast.find { |c| c.text_token == "--foreground" }
-      refute_nil pair
-      assert pair.resolved
-      assert_equal "--background", pair.bg_token
-      assert_in_delta 21.0, pair.ratio, 0.01
-    end
-  end
-
-  def test_sheet_without_text_roles_reports_one_unresolved_row
-    with_dir do |dir|
-      write(dir, "tokens.css", ":root {\n  --brand: #123456;\n  --surface: #ffffff;\n}\n")
+      write(dir, "tokens.css", ":root {\n  --brand: #123456;\n  --background: #ffffff;\n}\n")
       report = ColorCheck.run(dir, strict: true)
-      assert_equal 1, report.contrast.size
-      row = report.contrast.first
-      refute row.resolved
-      assert_nil row.text_token
-      assert_includes row.reason, "no text-role tokens recognized"
-      text = ColorCheck.render(report)
-      assert_includes text, "[unresolved] no text-role tokens recognized in"
-      refute_includes text, " on :"
-      json = JSON.parse(ColorCheck.to_json_report(report))
-      assert_equal 1, json["contrast"].size
-      assert_includes json["contrast"].first["reason"], "no text-role tokens recognized"
+      assert_empty report.contrast
+      assert_includes ColorCheck.render(report), "none declared"
       assert_equal 0, report.exit_code
     end
   end
 
   def test_unknown_context_short_hex_is_unresolved_and_not_strict
     with_dir do |dir|
+      write(dir, "tokens.css", FOUR_COLOR_TOKENS)
       write(dir, "a.js", "const c = dark ? '#fff' : base;\n")
       report = ColorCheck.run(dir, strict: true)
       assert_equal [], report.findings
@@ -1231,6 +1034,7 @@ class ColorCheckTest < Minitest::Test
 
   def test_jsx_fill_expression_is_a_strict_finding
     with_dir do |dir|
+      write(dir, "tokens.css", FOUR_COLOR_TOKENS)
       write(dir, "a.jsx", "export const I = () => <path fill={'#f00'} />;\n")
       report = ColorCheck.run(dir, strict: true)
       assert_equal 1, report.findings.size
@@ -1238,28 +1042,31 @@ class ColorCheckTest < Minitest::Test
     end
   end
 
-  def test_json_output_parses
+  def test_json_output_shape
     with_dir do |dir|
-      write(dir, "tokens.css", FOUR_COLOR_TOKENS)
+      write(dir, "tokens.css", FOUR_COLOR_TOKENS + ".x{color:red}\n")
       report = ColorCheck.run(dir)
       parsed = JSON.parse(ColorCheck.to_json_report(report))
-      assert parsed.key?("palette")
-      assert parsed.key?("findings")
-      assert parsed.key?("contrast")
-      assert parsed.key?("exit_code")
+      assert_equal %w[tokens token_errors palette contrast findings unresolved exit_code parse_errors], parsed.keys
+      assert_equal File.join(dir, "tokens.css"), parsed["tokens"]
+      assert_includes parsed["token_errors"].first["message"], ".x"
+      assert_equal 4, parsed["palette"].size
+      assert_equal %w[variant fg bg ratio status reason], parsed["contrast"].first.keys
+      assert_equal %w[light dark], parsed["contrast"].map { |c| c["variant"] }
     end
   end
 
-  def test_empty_directory_reports_no_palette_found_and_exits_zero
+  def test_empty_directory_reports_no_palette_found
     with_dir do |dir|
       report = ColorCheck.run(dir)
       assert_nil report.palette
       assert_equal 0, report.exit_code
+      assert_includes report.token_errors.first.message, "no token file found"
       assert_includes ColorCheck.render(report), "no palette found"
     end
   end
 
-  def test_ordinary_rules_in_token_file_still_scanned
+  def test_ordinary_rules_in_token_file_are_errors_and_still_scanned
     with_dir do |dir|
       write(dir, "tokens.css", FOUR_COLOR_TOKENS + ".hero { background: linear-gradient(#fff, #000); color: #123456; }\n")
       report = ColorCheck.run(dir, strict: true)
@@ -1267,21 +1074,19 @@ class ColorCheckTest < Minitest::Test
       assert_includes kinds, "gradient"
       assert_includes kinds, "literal"
       assert report.findings.none? { |f| f.text.include?("--cream") }
+      assert(report.token_errors.any? { |e| e.message.include?(".hero") })
       assert_equal 1, report.exit_code
     end
   end
 
   def test_var_cycle_resolves_to_nil_instead_of_crashing
-    with_dir do |dir|
-      write(dir, "tokens.css", ":root { --bg: #fff; --text: var(--text); --a: var(--b); --b: var(--a); }\n")
-      report = ColorCheck.run(dir)
-      assert_equal 0, report.exit_code
-    end
+    pair = contrast_for(":root { --background: #fff; --page-text: var(--page-text); --a: var(--b); --b: var(--a); }\n")
+    assert_includes pair.reason, "cycle"
   end
 
   def test_final_declaration_without_semicolon_stops_at_brace
     with_dir do |dir|
-      write(dir, "tokens.css", ":root { --bg: #fff; --last: #555 }\n.hero { color: #abcdef; }\n")
+      write(dir, "tokens.css", ":root { --background: #fff; --last: #555 }\n.hero { color: #abcdef; }\n")
       report = ColorCheck.run(dir, tokens_override: File.join(dir, "tokens.css"))
       assert report.findings.any? { |f| f.text.include?("#abcdef") }
       assert(report.palette.authored.any? { |a| a[:names].include?("--last") })
