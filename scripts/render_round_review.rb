@@ -24,12 +24,13 @@ class RenderRoundReview
   # markup is judged on its own, and every component that names a path
   # (holds a slash or backslash, or starts with ~ or $) must be an http(s)
   # URL, a namespaced slash command (/cf:plan), or a repo-relative path.
+  # A .. segment escapes the repo, so it is refused like an absolute path.
   # Anything else, including a bare root-level /repo or /tmp, a drive
   # path, a UNC share or ~/x, is machine-local and refused.
   PATHLIKE = %r{[/\\]|\A[~$]}
   URL = %r{\Ahttps?://[^\s/]+(?:/\S*)?\z}
   SLASH_COMMAND = /\A\/[a-z][\w-]*:[\w-]+\z/
-  RELATIVE_PATH = %r{\A(?![/~$]|[A-Za-z]:)(?!.*(?:\\|//|:[/~$]|\$\{?HOME|(?:\A|/)\.claude/))\S+\z}
+  RELATIVE_PATH = %r{\A(?![/~$]|[A-Za-z]:)(?!.*(?:\\|//|:[/~$]|\$\{?HOME|(?:\A|/)\.claude/|(?:\A|[/:])\.\.(?:/|\z)))\S+\z}
   COMPONENT_SPLIT = /[\[\](){}<>"'`=,;*_|]+/
   TOKEN_WRAP = /\A[`"'(\[<{]+|[`"')\]>},.;:!?]+\z/
   FOLDED_LEAD = 'Also found this round: '

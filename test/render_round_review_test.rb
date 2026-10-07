@@ -82,11 +82,16 @@ class RenderRoundReviewTest < Minitest::Test
     "See path:/tmp/plan.md", "path:/workspace/change-fabric/plan.md", "file:/x", "at:~/x", "env:$HOME/x", "a/b:/tmp/x"
   ].freeze
 
+  PARENT_PATHS = [
+    "Read ../private/plan.md", "See ../../tmp/plan.md", "See [plan](../plan.md)",
+    "path:../x.md", "Open docs/../../x.md"
+  ].freeze
+
   PORTABLE_TEXT = [
     "Rework PR #1 in owner/repo.", "See https://github.com/owner/repo/pull/1/files",
     "Edit scripts/render_round_review.rb and test/x_test.rb", "Run /cf:plan first",
     "Fold P2/P3 and/or drop them", "Call gh api repos/owner/repo/pulls/1/reviews",
-    "Use ./scripts/x.rb and ../y/z.rb", "Ratio 1/2/3 holds",
+    "Use ./scripts/x.rb", "Ratio 1/2/3 holds",
     "Run /cf:plan, then /cf:drive.", "See (https://example.com/a/b).",
     "See [plan](https://host/x)", "See [doc](docs/x.md)", "Run </cf:plan>", "path=docs/x.md",
     "See <https://host/x?a=b>", "path:docs/x.md", "Note: see docs/x.md"
@@ -94,6 +99,12 @@ class RenderRoundReviewTest < Minitest::Test
 
   def test_raises_on_handoff_naming_a_local_path
     LOCAL_PATHS.each do |handoff|
+      assert_raises(RuntimeError, handoff) { build("handoff" => handoff) }
+    end
+  end
+
+  def test_raises_on_handoff_naming_a_parent_directory_path
+    PARENT_PATHS.each do |handoff|
       assert_raises(RuntimeError, handoff) { build("handoff" => handoff) }
     end
   end
