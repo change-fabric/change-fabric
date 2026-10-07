@@ -75,4 +75,15 @@ class SkillPhpLaravelGateTest < Minitest::Test
       FileUtils.remove_entry(dir)
     end
   end
+
+  def test_shipped_detect_ignores_markers_inside_dependency_trees
+    { "cf:php" => "composer.json", "cf:laravel" => "artisan" }.each do |name, marker|
+      skill = shipped(name)
+      %w[node_modules/bootstrap-select/ vendor/acme/pkg/ apps/web/node_modules/x/].each do |dep|
+        dir = project_with("#{dep}#{marker}")
+        refute skill.detected?(dir), "#{name} detected a dependency's #{dep}#{marker}"
+        FileUtils.remove_entry(dir)
+      end
+    end
+  end
 end

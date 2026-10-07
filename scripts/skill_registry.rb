@@ -116,7 +116,9 @@ module SkillRegistry
       return false unless required?(dir)
       return true if all_files? || all_code?
 
-      detect.any? { |pattern| Dir.glob(File.join(dir, pattern)).any? }
+      detect.any? do |pattern|
+        Dir.glob(File.join(dir, pattern)).any? { |path| !dependency_path?(dir, path) }
+      end
     end
 
     private
@@ -141,6 +143,15 @@ module SkillRegistry
     # Suppression signal: any project file matching an `exclude` glob means a
     # conflicting stack is present, so this skill does not apply. An empty
     # `exclude` (every skill today) is always false, preserving behavior.
+    # Installed dependency trees ship their own manifests (a bootstrap package's
+    # composer.json under node_modules, a Laravel package's artisan under vendor),
+    # so a recursive detect glob must not count a match inside one.
+    DEPENDENCY_DIRS = %w[node_modules vendor].freeze
+
+    def dependency_path?(dir, path)
+      path.delete_prefix(dir).split(File::SEPARATOR).intersect?(DEPENDENCY_DIRS)
+    end
+
     def excluded?(dir)
       marker?(dir, exclude)
     end
