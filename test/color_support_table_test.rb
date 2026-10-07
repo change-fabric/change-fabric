@@ -239,6 +239,109 @@ class ColorSupportTableTest < Minitest::Test
     assert_equal [], classes("icon.svg", '<svg><path fill="#abcdef"/></svg>')
   end
 
+  def test_markup_style_and_script_blocks_are_scanned
+    assert_equal [ "literal" ],
+                 ColorScan.findings_for("a.html", "<style>.a { color: #abcdef; }</style>", token_file: nil).map(&:kind)
+    assert_equal [ "literal" ],
+                 ColorScan.findings_for("a.html", "<script>x('#abcdef');</script>", token_file: nil).map(&:kind)
+  end
+
+  # --- Rule rows: Markup, CSS values, Properties, Cascade, Foreground pairing --
+
+  def contrast_file(name, text)
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, name)
+      File.write(path, text)
+      ColorCheck.compute_contrast(path)
+    end
+  end
+
+  def test_markup_rule_style_inside_script_string_is_not_a_style_element
+    skip "lands in Phase 2: Tokenize live style elements before parsing them"
+    html = '<script>var a="<style>:root{--text:#000;--bg:#fff}</style>";</script>'
+    sheet = ColorCheck.style_block_sheet(html)
+    assert(sheet.nil? || sheet.decls.empty?, "tokens parsed from a fake style: #{sheet&.decls.inspect}")
+  end
+
+  def test_css_values_rule_url_body_is_not_scanned
+    skip "lands in Phase 2: Blank complete quoted url() values"
+    assert_equal [], classes("a.css", 'a{background:url("a)#abc")}')
+  end
+
+  def test_properties_rule_three_way
+    skip "lands in Phase 4: Scan named colors in every color-capable shorthand"
+    assert_equal [ :finding ], classes("a.css", "a{text-decoration:underline red}").map(&:last)
+    assert_equal [], classes("a.css", "a{animation-name:red}")
+    assert_equal [ [ "red", :unresolved ] ], classes("a.css", "a{foo-bar:red}")
+  end
+
+  # --text sits unlayered (it always wins), so the ratio reveals which layered
+  # --bg won: 1.0 against #000, 21.0 against #fff.
+  def bg_ratio(name, text)
+    rows = contrast_file(name, text).select { |r| r.text_token == "--text" && r.theme == "default" }
+    refute_empty rows, text
+    rows.first.ratio.round(1)
+  end
+
+  def test_cascade_rule_one_layer_order_per_document
+    skip "lands in Phase 3: Keep anonymous layer IDs unique across style blocks"
+    # Two anonymous layers stay two layers: the later one wins despite the
+    # earlier block's higher specificity. Merged into one, specificity would
+    # pick #fff.
+    html = "<style>:root{--text:#000}@layer{html:root{--bg:#fff}}</style>" \
+           "<style>@layer{:root{--bg:#000}}</style>"
+    assert_in_delta 1.0, bg_ratio("a.html", html)
+  end
+
+  def test_cascade_rule_dotted_statement_registers_prefixes
+    skip "lands in Phase 3: Register every prefix of dotted layer statements"
+    css = ":root{--text:#000}@layer a.b;@layer c{:root{--bg:#000}}@layer a{:root{--bg:#fff}}"
+    assert_in_delta 1.0, bg_ratio("tokens.css", css)
+  end
+
+  def test_foreground_pairing_rule
+    skip "lands in Phase 4: Pair compound foreground roles with their matching surface"
+    present = rows_for(":root{--background:#fff;--card:#000;--card-foreground:#fff}", "--card-foreground")
+    assert_equal [ "--card" ], present.map(&:bg_token)
+    absent = rows_for(":root{--background:#fff;--card-foreground:#000}", "--card-foreground")
+    assert_equal [ "--background" ], absent.map(&:bg_token)
+    assert_not_resolved(":root{--background:#fff;--card:var(--missing);--card-foreground:#000}", "--card-foreground")
+  end
+
+  def test_catch_all_unlisted_form_is_unresolved
+    assert_unsupported_context("#{BASE}@container (min-width: 1px) { :root { --text: #000; } }")
+  end
+
+  # Every row of the SKILL.md support table names at least one fixture here,
+  # so a new row without a fixture fails.
+  ROW_FIXTURES = {
+    "Theme contexts" => %i[test_supported_theme_contexts_resolve test_unsupported_theme_contexts_are_reported],
+    "Color values" => %i[test_supported_color_values_resolve test_unsupported_color_values_are_unresolved],
+    "Value functions" => %i[test_supported_value_functions_resolve test_unsupported_value_functions_are_unresolved],
+    "Stray scan, CSS" => %i[test_css_declaration_values_are_findings test_css_unsupported_column_is_not_a_finding],
+    "Stray scan, markup and script" => %i[test_markup_attributes_are_findings test_markup_style_and_script_blocks_are_scanned],
+    "Markup" => %i[test_markup_rule_style_inside_script_string_is_not_a_style_element],
+    "CSS values" => %i[test_css_values_rule_url_body_is_not_scanned],
+    "Properties" => %i[test_properties_rule_three_way],
+    "Cascade" => %i[test_cascade_rule_one_layer_order_per_document test_cascade_rule_dotted_statement_registers_prefixes],
+    "Foreground pairing" => %i[test_foreground_pairing_rule]
+  }.freeze
+
+  def support_table_areas
+    skill = File.read(File.expand_path("../skills/color/SKILL.md", __dir__))
+    header = skill.index("| Area | Supported |")
+    skill[header..].lines.drop(2).take_while { |l| l.start_with?("|") }.map { |l| l.split(" | ").first.delete_prefix("| ").strip }
+  end
+
+  def test_every_support_table_row_has_a_fixture
+    areas = support_table_areas
+    refute_empty areas
+    areas.each do |area|
+      fixtures = ROW_FIXTURES.fetch(area) { flunk "support table row #{area.inspect} has no fixture" }
+      fixtures.each { |m| assert respond_to?(m), "#{area}: fixture #{m} is not defined" }
+    end
+  end
+
   # --- Accounting invariant: custom properties --------------------------------
 
   def all_token_fixtures

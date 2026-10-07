@@ -102,7 +102,15 @@ beside `theme`.
 | Color values | hex 3/4/6/8; `rgb`/`rgba`, `hsl`/`hsla` in comma or space syntax; the 148 named colors; `transparent`; `!important` | `oklch`, `oklab`, `lab`, `lch`, `hwb`, `color()`; relative color syntax; `calc()` in channels; CSS-wide keywords |
 | Value functions | `var()` with or without fallback; `color-mix(in srgb, ...)` with either or both percentages | `color-mix` in any other space; `light-dark()`; `currentColor` |
 | Stray scan, CSS | declaration values (hex, color functions, named colors), `@apply` | selectors, `url()` fragments, strings inside values, the keywords `transparent`, `currentColor`, `inherit`, `initial`, `unset`, `revert`, `none` |
-| Stray scan, markup and script | `style=`, `fill=`, `stroke=`, `class=`/`className=` attribute values; bound attributes (Vue `:x` and `v-bind:x`, Svelte `x={}`, JSX `x={}`) whose name is one of those or matches a color-bearing key (`:data-color`), including each branch of a top-level ternary, `??` or `\|\|` in such a value (`fill={ok ? '#abc' : '#def'}`); quoted strings that are exactly one color: any hex length when the value of a color-bearing key (`color`, `backgroundColor`, `borderColor`, `fill`, `stroke`, `shadow` and the like), otherwise only 6- or 8-digit hex, a color function or a named color | 3- or 4-digit hex strings outside a color-bearing key (`querySelector('#cafe')`), hex inside longer strings (`'/page#feed'`), ID selectors, `<style>` and `<script>` blocks, prose, text nodes, MDX code blocks, CSS-in-JS template literals as CSS, SCSS variables and mixins as tokens, standalone `.svg` files |
+| Stray scan, markup and script | `style=`, `fill=`, `stroke=`, `class=`/`className=` attribute values; bound attributes (Vue `:x` and `v-bind:x`, Svelte `x={}`, JSX `x={}`) whose name is one of those or matches a color-bearing key (`:data-color`), including each branch of a top-level ternary, `??` or `\|\|` in such a value (`fill={ok ? '#abc' : '#def'}`); quoted strings that are exactly one color: any hex length when the value of a color-bearing key (`color`, `backgroundColor`, `borderColor`, `fill`, `stroke`, `shadow` and the like), otherwise only 6- or 8-digit hex, a color function or a named color; the contents of `<style>` blocks (scanned as CSS) and `<script>` blocks (scanned as script) | 3- or 4-digit hex strings outside a color-bearing key (`querySelector('#cafe')`), hex inside longer strings (`'/page#feed'`), ID selectors, prose, text nodes, MDX code blocks, CSS-in-JS template literals as CSS, SCSS variables and mixins as tokens, standalone `.svg` files |
+| Markup | Only what the HTML tokenizer sees as a real `<style>` element is parsed as CSS. Text inside comments, scripts, strings, textarea and title is not a style element. | a `<style>` tag inside a comment, script, string, textarea or title |
+| CSS values | String and `url()` bodies are never scanned for colors. | any color-shaped text inside a string or `url()` body |
+| Properties | Named colors are findings only in spec color-accepting properties; known name-valued properties (animation-name, font-family, grid-area and similar) are exempt; any other property reports the word unresolved. | a named color in a property in neither list (reported unresolved) |
+| Cascade | One document per file: all style blocks share one layer order; layers, dotted layer statements and anonymous layers follow the CSS Cascade 5 spec. | cascade features not named here (reported unresolved) |
+| Foreground pairing | A role token ending in text, fg, foreground or ink pairs with the token named by stripping that suffix; if that token does not exist, with page --background; if it exists but does not resolve, unresolved. | a stripped surface token that does not resolve (reported unresolved) |
+
+Any form not listed in a row above is unsupported: the checker reports it
+unresolved with a reason and does not guess.
 
 In both stray scan rows, a quoted string whose key context cannot be
 determined (a short hex after a ternary `?`, for example) is listed as
@@ -110,6 +118,14 @@ unresolved, not exempt, and does not affect `--strict`. Any form named in
 neither column is reported unresolved, never guessed.
 `test/color_support_table_test.rb` holds one fixture per form in this table,
 so the table and the checker cannot drift apart.
+
+### Review triage
+
+A review finding that shows the checker violating a row is a bug and is
+fixed. A finding that only exercises a form covered by the catch-all is
+dismissed as wont-fix with a link to the row; the reply confirms the checker
+reports that input unresolved. If it does not report unresolved, that is a
+bug against the catch-all and is fixed.
 
 ## Decision heuristic
 
