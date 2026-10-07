@@ -190,6 +190,17 @@ class ColorTokensTest < Minitest::Test
     assert_error(":root{--a:#000}\n@media (prefers-color-scheme: light){:root{--a:#111}}", "`--a` is declared twice in light")
   end
 
+  def test_redeclaration_compares_custom_property_names_case_sensitively
+    [
+      ":root{--a:var(--Ink)}\n:root{--a:var(--ink)}",
+      ":root{--a:var(--ink, #000)}\n:root{--a:var(--INK, #000)}",
+      ":root{--a:color-mix(in srgb, var(--Ink) 50%, #fff)}\n:root{--a:color-mix(in srgb, var(--ink) 50%, #fff)}",
+      ".dark{--a:var(--Ink)}\n.dark{--a:var(--ink)}"
+    ].each { |css| assert_error(css, "`--a` is declared twice") }
+    ok(":root{--a:VAR(--Ink)}\n:root{--a:var(--Ink)}")
+    ok(":root{--a:#ABC}\n:root{--a:#abc}")
+  end
+
   def test_media_takes_only_root
     assert_error(":root{--a:#000}\n@media (prefers-color-scheme: dark){.dark{--a:#fff}}", "only :root is allowed")
   end

@@ -304,8 +304,10 @@ module ColorTokens
       ColorValue.literal?(value) && !ColorValue.resolve(value, {}).color.nil?
     end
 
+    # Case-folds everything but custom-property names, which CSS treats as
+    # case-sensitive: var(--Ink) and var(--ink) are different references.
     def normalize(value)
-      value.strip.downcase.gsub(/\s+/, ' ')
+      value.strip.gsub(/\s+/, ' ').gsub(/--[\w-]+|[^-]+|-/) { |t| t.start_with?('--') ? t : t.downcase }
     end
   end
 end
