@@ -159,8 +159,13 @@ module ColorTokens
       end
     end
 
+    TOP_LAYER_PRELUDE = /\A@layer(?:\s+([\w-]+(?:\.[\w-]+)*))?\s*\z/.freeze
+
     def top_layer(block, prelude)
       return error(block.line, "second `#{prelude}`; only one @layer wrapper is allowed") if @layer_seen
+      unless TOP_LAYER_PRELUDE.match?(prelude)
+        return error(block.line, "`#{prelude}` is not a valid @layer wrapper; use `@layer` or a single layer name")
+      end
 
       @layer_seen = true
       :layer

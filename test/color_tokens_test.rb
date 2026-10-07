@@ -97,6 +97,19 @@ class ColorTokensTest < Minitest::Test
     assert_error("@layer a { :root{--a:#000} } @layer a { .dark{--a:#fff} }", "second `@layer a`")
   end
 
+  def test_layer_wrapper_dotted_name_is_transparent
+    named = ok("@layer theme.base { :root{--a:#000} .dark{--a:#fff} }")
+    assert_equal({ "--a" => "#fff" }, named.variants[:dark])
+  end
+
+  def test_layer_wrapper_with_multiple_names_is_an_error
+    assert_error("@layer a, b { :root{--a:#000} }", "not a valid @layer wrapper")
+  end
+
+  def test_layer_wrapper_with_garbage_prelude_is_an_error
+    assert_error("@layer name ??? { :root{--a:#000} }", "not a valid @layer wrapper")
+  end
+
   def test_nested_layer_is_an_error
     assert_error("@layer a { @layer b { :root{--a:#000} } }", "nested `@layer b`")
   end
