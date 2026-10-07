@@ -98,6 +98,7 @@ module ColorTokens
       @light = {}
       @dark = {}
       @dark_seen = false
+      @layer_seen = false
     end
 
     def result
@@ -139,7 +140,7 @@ module ColorTokens
       name = prelude[/\A@[\w-]+/].to_s.downcase
       case name
       when '@layer'
-        return :layer if parent.nil?
+        return top_layer(block, prelude) if parent.nil?
 
         error(block.line, "nested `#{prelude}`; only one @layer wrapper is allowed")
       when '@media'
@@ -156,6 +157,13 @@ module ColorTokens
       else
         error(block.line, "`#{name}` is not allowed in a token file")
       end
+    end
+
+    def top_layer(block, prelude)
+      return error(block.line, "second `#{prelude}`; only one @layer wrapper is allowed") if @layer_seen
+
+      @layer_seen = true
+      :layer
     end
 
     def classify_rule(block, prelude, parent)

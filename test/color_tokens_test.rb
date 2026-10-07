@@ -91,6 +91,12 @@ class ColorTokensTest < Minitest::Test
     ok("@layer { :root{--a:#000} @media (prefers-color-scheme: dark){ :root{--a:#fff} } }")
   end
 
+  def test_second_top_level_layer_is_an_error
+    assert_error("@layer a { :root{--a:#000} } @layer b { :root{--b:#111} }", "second `@layer b`")
+    assert_error("@layer { :root{--a:#000} } @layer { .dark{--a:#fff} }", "second `@layer`")
+    assert_error("@layer a { :root{--a:#000} } @layer a { .dark{--a:#fff} }", "second `@layer a`")
+  end
+
   def test_nested_layer_is_an_error
     assert_error("@layer a { @layer b { :root{--a:#000} } }", "nested `@layer b`")
   end
