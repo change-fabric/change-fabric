@@ -61,6 +61,15 @@ class ColorScanTest < Minitest::Test
     assert_equal [ [ 1, "literal" ] ], kinds("a.js", "x = y++ / 2; const c = '#abcdef'; z = w / 3;")
   end
 
+  def test_regex_after_control_condition_paren_is_not_a_finding
+    assert_empty kinds("a.js", "if (x) /'#fff'/.test(v);")
+    assert_equal [ [ 1, "literal" ] ], kinds("a.js", "if (x) /'/.test(v); const c = '#abcdef';")
+  end
+
+  def test_regex_after_return_is_not_a_finding
+    assert_empty kinds("a.js", "function f(v) { return /'#fff'/.test(v); }")
+  end
+
   # --- MDX: code fences and scan scope -------------------------------------
 
   def test_mdx_fenced_code_block_is_never_scanned

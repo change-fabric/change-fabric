@@ -189,12 +189,12 @@ module ColorJs
       end
     end
 
+    # A keyword after "." or "?." is a property name ("a.return / 2"), so it
+    # never puts the lexer in regex position.
     def significant(kind, start)
+      member = @prev&.kind == :punct && %w[. ?.].include?(@prev.text)
       @prev = emit(kind, start, @source[start...@s.charpos])
-      @regex_ok = case kind
-      when :name then REGEX_KEYWORDS.include?(@prev.text)
-      else false
-      end
+      @regex_ok = kind == :name && !member && REGEX_KEYWORDS.include?(@prev.text)
     end
 
     def emit(kind, start, text)

@@ -2,6 +2,7 @@
 # frozen_string_literal: true
 
 require_relative 'color_css'
+require_relative 'color_js'
 require_relative 'color_markup'
 require_relative 'color_tailwind'
 require_relative 'color_value'
@@ -61,7 +62,6 @@ module ColorScan
   ]).freeze
   UNCLASSIFIED_PROPERTY_REASON = 'named color in unclassified property %s'
   SCRIPT_COLOR_FN_FULL = /\A(?:rgba?|hsla?)\(.*\)\z/im.freeze
-  REGEX_CONTEXT_CHAR = /[(\[{,;:=!&|?+\-*%^~<>]/.freeze
   ATTR_NAMES = %w[style fill stroke class classname].freeze
   MDX_ATTR = /\b(?:style|fill|stroke|className|class)\s*=\s*(?:"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')/mi.freeze
   MDX_CLASS_ATTR = /\b(?:className|class)\s*=\s*(?:"((?:[^"\\]|\\.)*)"|'((?:[^'\\]|\\.)*)')/mi.freeze
@@ -318,100 +318,19 @@ module ColorScan
     HEX_FULL.match?(stripped) || SCRIPT_COLOR_FN_FULL.match?(stripped)
   end
 
+  # Yields each quoted string's start offset and raw content (escapes kept,
+  # closing quote dropped). ColorJs keeps comments, regexes and templates out.
   def each_script_string(text)
-    i = 0
-    len = text.length
-    while i < len
-      c = text[i]
-      if c == '"' || c == "'"
-        content, j = scan_script_string(text, i, len)
-        yield i, content
-        i = j
-      else
-        i = skip_script_token(text, i, len)
-      end
+    ColorJs.tokens(text) do |token|
+      next unless token.kind == :string
+
+      yield token.start, script_string_content(token.text)
     end
   end
 
-  def skip_script_token(text, i, len)
-    case text[i]
-    when '`' then skip_script_template(text, i, len)
-    when '/'
-      if %w[/ *].include?(text[i + 1]) then skip_script_comment(text, i, len)
-      elsif regex_context?(text, i) then skip_script_regex(text, i, len)
-      else i + 1
-      end
-    else i + 1
-    end
-  end
-
-  # A "/" opens a regex literal when the previous significant character
-  # cannot end an operand (or there is none). "if (x) /re/" is read as
-  # division; the rare miss only drops a finding on that line.
-  def regex_context?(text, i)
-    j = i - 1
-    j -= 1 while j >= 0 && text[j].match?(/\s/)
-    return true if j.negative?
-    # "x++ / 2": a postfix ++ or -- ends an operand.
-    return false if %w[+ -].include?(text[j]) && text[j - 1] == text[j]
-
-    text[j].match?(REGEX_CONTEXT_CHAR)
-  end
-
-  def skip_script_comment(text, i, len)
-    if text[i + 1] == '/'
-      text.index("\n", i) || len
-    else
-      close = text.index('*/', i + 2)
-      close ? close + 2 : len
-    end
-  end
-
-  def skip_script_regex(text, i, len)
-    j = i + 1
-    in_class = false
-    while j < len
-      c = text[j]
-      return j if c == "\n"
-
-      if c == '\\' then j += 1
-      elsif c == '[' then in_class = true
-      elsif c == ']' then in_class = false
-      elsif c == '/' && !in_class then return j + 1
-      end
-      j += 1
-    end
-    j
-  end
-
-  def skip_script_template(text, i, len)
-    j = i + 1
-    while j < len
-      return j + 1 if text[j] == '`'
-
-      j += text[j] == '\\' ? 2 : 1
-    end
-    len
-  end
-
-  def scan_script_string(text, i, len)
-    quote = text[i]
-    content = +''
-    i += 1
-    while i < len
-      c = text[i]
-      return [ content, i + 1 ] if c == quote
-      return [ content, i ] if c == "\n"
-
-      if c == '\\' && i + 1 < len
-        content << c << text[i + 1]
-        i += 2
-      else
-        content << c
-        i += 1
-      end
-    end
-    [ content, i ]
+  def script_string_content(raw)
+    quote = Regexp.escape(raw[0])
+    raw.match(/\A.((?:\\.|[^\\])*?)(?:#{quote})?\z/m)[1]
   end
 
   # --- MDX -----------------------------------------------------------------
