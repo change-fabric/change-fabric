@@ -256,13 +256,13 @@ class ColorThemesTest < Minitest::Test
   # exclusion form: class, data-theme attr, and inside a scheme media block.
   def test_excluded_only_theme_names_are_audited
     {
-      ':root { --bg:#000; --text:#000 } :root:not(.dark) { --bg:#fff }' => 'dark',
-      ':root { --bg:#000; --text:#000 } :root:not([data-theme="dim"]) { --bg:#fff }' => 'dim',
-      ':root { --text:#000 } @media (prefers-color-scheme: dark) { :root:not(.hc) { --bg:#fff } }' => 'hc'
+      ":root { --bg:#000; --text:#000 } :root:not(.dark) { --bg:#fff }" => "dark",
+      ':root { --bg:#000; --text:#000 } :root:not([data-theme="dim"]) { --bg:#fff }' => "dim",
+      ":root { --text:#000 } @media (prefers-color-scheme: dark) { :root:not(.hc) { --bg:#fff } }" => "hc"
     }.each do |css, name|
       v = variant_for(build(css), name)
       refute_nil v, "#{name} state missing for #{css}"
-      refute_equal '#fff', v.decls['--bg'], css
+      refute_equal "#fff", v.decls["--bg"], css
     end
   end
 end

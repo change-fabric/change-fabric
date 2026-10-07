@@ -151,7 +151,7 @@ class ColorScanTest < Minitest::Test
                    "const id = < T ,>(x: T) => x;" ],
       "a.ts" => [ "const n = <number>value;", "const id = <T,>(x: T) => x;",
                   "const s = <Array<string>>list;" ],
-      "a.jsx" => [ "const ok = x =>\n<b", "const ok = x => <b>text</b" ],
+      "a.jsx" => [ "const ok = x =>\n<b", "const ok = x => <b>text</b" ]
     }.each do |path, heads|
       heads.each do |head|
         assert_equal [ [ head.count("\n") + 2, "literal" ] ], kinds(path, head + color), "#{path}: #{head}"
