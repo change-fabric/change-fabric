@@ -10,7 +10,7 @@ require_relative "test_helpers"
 # silently drifting out of sync with them.
 #
 # The lint half (no site still uses the old xargs-into-git-grep form) lands in
-# the next phase's commit, alongside the 13 rewritten sites.
+# the next phase's commit, alongside the 12 rewritten sites.
 class SkillCiIdiomTest < Minitest::Test
   README_PATH = File.expand_path("../skills/README.md", __dir__)
   START_MARKER = "<!-- CI-DIFF-GREP-IDIOM-START -->"
