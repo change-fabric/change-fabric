@@ -57,30 +57,59 @@ class SkillPhpLaravelGateTest < Minitest::Test
     FileUtils.remove_entry(proj) if proj
   end
 
-  # The env() check must exclude every Laravel app's config/ dir, root or
-  # nested, since detection is recursive; anything else is still scanned.
-  def test_shipped_laravel_env_check_excludes_config_at_every_depth
-    line = File.read(File.join(REPO_SKILLS, "laravel/SKILL.md"))[/^- `(out=\$\(git diff .*env.*)`$/, 1]
-    refute_nil line, "env() check line not found"
-    allowed = [ "config/app.php", "api/config/app.php", "apps/api/config/app.php", "services/apps/api/config/db.php" ]
-    flagged = [ "app/Foo.php", "apps/api/app/Foo.php", "apps/api/src/config.php" ]
-    (allowed + flagged).each do |path|
-      Dir.mktmpdir do |dir|
-        git = ->(*a) { system("git", "-C", dir, *a, out: File::NULL, err: File::NULL) or raise "git #{a.join(' ')}" }
-        git.call("init", "-q")
-        git.call("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "base")
-        git.call("update-ref", "refs/remotes/origin/HEAD", "HEAD")
-        FileUtils.mkdir_p(File.dirname(File.join(dir, path)))
-        File.write(File.join(dir, path), "<?php return ['k' => env('K')];\n")
-        git.call("add", "-A")
-        ok = system("bash", "-c", line, chdir: dir, out: File::NULL, err: File::NULL)
-        if allowed.include?(path)
-          assert ok, "env() check flagged #{path}, a config file"
-        else
-          refute ok, "env() check missed #{path}"
-        end
-      end
+  ENV_CHECK = File.read(File.join(REPO_SKILLS, "laravel/SKILL.md"))[/^- `(b=\$\(git merge-base [^`]*)`/, 1]
+  ENV_MARKERS = [ "artisan", "api/artisan", "apps/api/artisan", "services/apps/api/artisan" ].freeze
+  ENV_CALL = "<?php return ['k' => env('K')];\n"
+
+  # Runs the shipped env() check on a repo whose base commit holds the artisan
+  # markers plus `base` files, after `change` mutates the work tree.
+  def env_check_passes?(base: {}, &change)
+    Dir.mktmpdir do |dir|
+      git = ->(*a) { system("git", "-C", dir, *a, out: File::NULL, err: File::NULL) or raise "git #{a.join(' ')}" }
+      put = ->(path, body) { FileUtils.mkdir_p(File.dirname(File.join(dir, path))); File.write(File.join(dir, path), body) }
+      git.call("init", "-q")
+      ENV_MARKERS.each { |m| put.call(m, "") }
+      base.each { |path, body| put.call(path, body) }
+      git.call("add", "-A")
+      git.call("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "base")
+      git.call("update-ref", "refs/remotes/origin/HEAD", "HEAD")
+      change.call(put, git)
+      git.call("add", "-A")
+      system("bash", "-c", ENV_CHECK, chdir: dir, out: File::NULL, err: File::NULL)
     end
+  end
+
+  def test_env_check_line_present = refute_nil(ENV_CHECK, "env() check line not found")
+
+  # Scope: exactly the config/ dir beside each artisan file is exempt; every
+  # other config/ dir in the monorepo is scanned.
+  def test_env_check_scope_variants
+    allowed = [ "config/app.php", "api/config/app.php", "apps/api/config/app.php", "services/apps/api/config/db.php" ]
+    flagged = [ "app/Foo.php", "apps/api/app/Foo.php", "apps/api/src/config.php", "packages/sdk/config/Client.php",
+                "apps/api/app/config/Foo.php", "apps/web/config/app.php" ]
+    allowed.each { |p| assert env_check_passes? { |put, _| put.call(p, ENV_CALL) }, "flagged #{p}, a config file" }
+    flagged.each { |p| refute env_check_passes? { |put, _| put.call(p, ENV_CALL) }, "missed #{p}" }
+  end
+
+  # Call shape: any casing or spacing of the helper is flagged; methods,
+  # static calls, and other functions are not.
+  def test_env_check_call_variants
+    flagged = [ "env('K')", "ENV('K')", "Env('K')", "\\eNv('K')", "env ('K')" ]
+    allowed = [ "$app->env('K')", "Foo::env('K')", "getenv('K')", "$env('K')", "my_env('K')" ]
+    flagged.each { |c| refute env_check_passes? { |put, _| put.call("app/Foo.php", "<?php #{c};\n") }, "missed #{c}" }
+    allowed.each { |c| assert env_check_passes? { |put, _| put.call("app/Foo.php", "<?php #{c};\n") }, "flagged #{c}" }
+  end
+
+  # Change kind: added, modified, and renamed-and-edited files are scanned; a
+  # clean change and a deleted file pass.
+  def test_env_check_change_kind_variants
+    body = "<?php\n" + (1..40).map { |i| "$a#{i} = #{i};\n" }.join
+    refute env_check_passes?(base: { "app/Old.php" => body }) { |put, _| put.call("app/Old.php", body + ENV_CALL) }, "missed modified"
+    refute env_check_passes?(base: { "app/Old.php" => body }) { |put, git|
+      git.call("mv", "app/Old.php", "app/New.php"); put.call("app/New.php", body + ENV_CALL)
+    }, "missed renamed and edited"
+    assert env_check_passes?(base: { "app/Old.php" => body }) { |_, git| git.call("rm", "-q", "app/Old.php") }, "flagged a deletion"
+    assert env_check_passes? { |put, _| put.call("app/Foo.php", "<?php config('k');\n") }, "flagged a clean change"
   end
 
   # cf:php detection must agree with per-edit routing for nested PHP apps:

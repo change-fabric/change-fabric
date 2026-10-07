@@ -49,7 +49,7 @@ CI (mechanically enforced; run through `./vendor/bin/sail` or the project's Comp
 - `php artisan test` passes
 - `vendor/bin/pint --test` passes
 - `vendor/bin/phpstan analyse` (Larastan) passes where configured
-- `out=$(git diff --name-only --diff-filter=AM origin/HEAD -- '*.php' ':!config/**' ':!**/config/**' | xargs -I{} git grep -nP "(?<![\\w>$:])env\\(" -- {}); [ -z "$out" ]`
+- `b=$(git merge-base origin/HEAD HEAD) && ex=$(git ls-files ':(glob)**/artisan' | sed 's#artisan$#config/**#; s#^#:(glob,exclude)#') && f=$(git diff --name-only --no-renames --diff-filter=AM "$b" -- '*.php' $ex) && { [ -z "$f" ] || { git grep -nP '(?<![\w>$:])(?i:env)\s*\(' -- $f; [ $? -eq 1 ]; }; }` (no `env(` in any added or changed PHP file outside a config/ dir beside an artisan file; renames count as added, any casing or spacing of the call counts)
 
 Review-time (no tool checks these):
 - Every mutation validated and authorized; authorization boundaries tested
