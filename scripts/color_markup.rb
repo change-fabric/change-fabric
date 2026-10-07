@@ -16,6 +16,8 @@
 # (raw text) and textarea/title (RCDATA), consumes the element's content up
 # to its matching case-insensitive end tag without lexing any "<" inside it
 # as a tag. Every pos is an offset into the raw text as given.
+require_relative 'color_js'
+
 module ColorMarkup
   # One attribute that has a value. name is as written (":fill", "v-bind:x");
   # curly is true for a Svelte-style "{...}" value; bound is true for a
@@ -108,32 +110,11 @@ module ColorMarkup
   end
 
   # Given the index just past an opening '{', returns the index just past
-  # its matching '}' (nil when unbalanced). Braces inside JS string and
-  # template literals ('...', "...", `...`) do not count toward the depth.
+  # its matching '}' (nil when unbalanced). Strings, templates, comments and
+  # regexes are skipped by ColorJs, so a brace inside them never counts.
   def self.expression_end(text, k, len = text.length)
-    depth = 1
-    while k < len && depth.positive?
-      c = text[k]
-      if c == '"' || c == "'" || c == '`'
-        k = string_end(text, k, len)
-        next
-      end
-      depth += 1 if c == '{'
-      depth -= 1 if c == '}'
-      k += 1
-    end
-    depth.zero? ? k : nil
-  end
-
-  # Index just past the closing quote of the string starting at k.
-  def self.string_end(text, k, len)
-    quote = text[k]
-    k += 1
-    while k < len
-      return k + 1 if text[k] == quote
-      k += text[k] == '\\' ? 2 : 1
-    end
-    len
+    close = ColorJs.expression_end(text, k, len)
+    close && (close + 1)
   end
 
   # Scans one tag's attribute list starting just after its name, up to the

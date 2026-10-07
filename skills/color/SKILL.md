@@ -159,7 +159,8 @@ Not scanned: JS strings that are not whole-string literals, template
 literals, CSS-in-JS, Tailwind classes outside `class`/`className`/`@apply`
 (`clsx` or `cva` arguments, and `className` strings inside .jsx/.tsx
 files, which are script), SCSS variables, standalone `.svg` files, text
-nodes.
+nodes, Astro `---` frontmatter. JSX is never modeled: an apostrophe in JSX
+text reads as a string opener, so it can hide later literals on that line.
 
 `test/color_support_table_test.rb` holds one fixture per bullet in these two
 sections, so the contract and the checker cannot drift apart.

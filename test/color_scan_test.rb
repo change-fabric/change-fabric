@@ -92,6 +92,21 @@ class ColorScanTest < Minitest::Test
     assert_equal [ [ 3, "literal" ] ], kinds("a.mdx", text)
   end
 
+  def test_svelte_bound_attr_ignores_brace_inside_comment
+    found = findings("a.svelte", %(<rect fill={ok /* } */ ? "#abc" : x}/>))
+    assert_equal 1, found.size
+  end
+
+  def test_mdx_brace_expression_ignores_brace_inside_comment
+    text = %(Prose.\n\n{a /* { */} text {"#abcdef"}\n)
+    assert_equal [ [ 3, "literal" ] ], kinds("a.mdx", text)
+  end
+
+  def test_mdx_unbalanced_brace_does_not_stop_later_expressions
+    text = %(Prose { never closed\n\n{"#abcdef"}\n)
+    assert_equal [ [ 3, "literal" ] ], kinds("a.mdx", text)
+  end
+
   BRACE_IN_STRING_VARIANTS = [
     %({ok ? "}" : "#abc"}),
     %({ok ? '}' : "#abc"}),

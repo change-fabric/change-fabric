@@ -378,7 +378,10 @@ module ColorScan
     len = text.length
     while (open = text.index('{', idx))
       close = ColorMarkup.expression_end(text, open + 1, len)
-      break unless close
+      unless close
+        idx = open + 1
+        next
+      end
 
       ranges << (open...close)
       idx = close

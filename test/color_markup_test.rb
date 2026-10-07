@@ -57,4 +57,14 @@ class ColorMarkupTest < Minitest::Test
     assert_equal [ [ ":fill", true, false ], [ "stroke", false, true ] ],
                  attrs.map { |a| [ a.name, a.bound, a.curly ] }
   end
+
+  def test_curly_value_skips_brace_inside_comment
+    attr = ColorMarkup.each_node(%(<rect fill={ok /* } */ ? "#abc" : x}/>)).grep(ColorMarkup::Attr).first
+    assert_equal %(ok /* } */ ? "#abc" : x), attr.value
+  end
+
+  def test_expression_end_returns_index_past_balancing_brace
+    assert_equal 4, ColorMarkup.expression_end("{ab}", 1)
+    assert_nil ColorMarkup.expression_end("{a /* } */", 1)
+  end
 end
