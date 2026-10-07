@@ -263,7 +263,7 @@ depend on it until a human reports it done.
 |---|---|---|---|
 | SW-1 | Ask, or silently apply, a trust level | Author known by gh login; one primary-contributor-only set skips the question | Unknown author is blocked, never standard |
 | SW-2 | Merge a queued PR | Drive's `drive-result` block: `ciGreen && headSha` matches the PR's current head `&& !stoppedReason` | Hold; never merge on approval or prose alone |
-| SW-3 | Add a PR to `autoMergeQueue` | No conflict, `mergeable: MERGEABLE`, `mergeStateStatus` present and one of CLEAN/HAS_HOOKS/UNSTABLE (missing fails closed), not stacked, infra/migration gated, present in the computed order | Hold |
+| SW-3 | Add a PR to `autoMergeQueue` | No conflict, `mergeable: MERGEABLE`, `mergeStateStatus` present and one of CLEAN/HAS_HOOKS/UNSTABLE (missing fails closed), base is trunk per gh (not the agent), not stacked, infra/migration gated, present in the computed order | Hold |
 | SW-4 | Merge a `low` trust PR | A passing comprehensive `cf:change` run recorded for the head SHA | Hold even with green CI; a missing record never substitutes |
 | SW-5 | Push a fix or rebase commit to another contributor's branch | Allowed unattended (drive performs the push, never sweep itself) | N/A |
 | SW-6 | Run `auto` or `land` mode, or compute any landing order at all | `gh pr list --limit 101` returns fewer than 101 PRs (the full open set fit in one page) | Force `report` mode, hold every gathered PR, and say the cap was hit and by how many |

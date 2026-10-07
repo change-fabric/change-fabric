@@ -199,4 +199,30 @@ class WorkflowNullHarnessTest < Minitest::Test
       end
     end
   end
+
+  # gh's baseRef is the stacked-PR gate, not the agent's optional stackedOn:
+  # a PR based on another branch is held even when the gather agent omits
+  # stackedOn and claims a trunk base.
+  def test_sweep_holds_a_non_trunk_base_without_stacked_on
+    skip "node not installed" unless node_available?
+    base = JSON.parse(File.read(fixture_path("sweep")))
+    base["results"]["#1#1"].merge!("completedChecks" => 1, "mergeable" => "MERGEABLE", "mergeStateStatus" => "CLEAN")
+    run = lambda do |pr_base|
+      fixture = Marshal.load(Marshal.dump(base))
+      fixture["args"]["prs"][0]["baseRef"] = pr_base
+      fixture["results"]["#1#1"]["baseRef"] = "main"
+      Dir.mktmpdir do |dir|
+        path = File.join(dir, "sweep.json")
+        File.write(path, JSON.generate(fixture))
+        out, status = Open3.capture2("node", HARNESS, WORKFLOWS.fetch("sweep"), "--fixture", path)
+        assert status.success?, "harness failed: #{out}"
+        JSON.parse(out).fetch("result")
+      end
+    end
+    assert_equal [ 1 ], run.("main").fetch("autoMergeQueue"), "eligible trunk-based PR was not queued"
+    held = run.("pr-9")
+    assert_empty held.fetch("autoMergeQueue")
+    reasons = held.fetch("holds").find { |h| h["number"] == 1 }.fetch("blockedReasons")
+    assert_includes reasons, "base is pr-9, not main"
+  end
 end

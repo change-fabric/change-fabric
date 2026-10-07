@@ -158,7 +158,7 @@ function trustOf(author) {
 // agent reports back, so a hallucinated author or head ref can never steer
 // trust lookup or the merge queue (Decision 14).
 function identity(pr) {
-  return { number: pr.number, author: pr.author, headRef: pr.headRef, headRefOid: pr.headRefOid }
+  return { number: pr.number, author: pr.author, headRef: pr.headRef, baseRef: pr.baseRef, headRefOid: pr.headRefOid }
 }
 
 const INFRA_CONVENTIONS =
@@ -391,6 +391,10 @@ function eligibilityReasons(pr, entry) {
   if (!["CLEAN", "HAS_HOOKS", "UNSTABLE"].includes(pr.mergeStateStatus)) {
     reasons.push("gh reports mergeStateStatus " + (pr.mergeStateStatus || "missing"))
   }
+  // baseRef comes from gh in step 1, not the agent: a PR whose base is not
+  // trunk merges into that base, so it is stacked whether or not the agent
+  // reported stackedOn.
+  if (pr.baseRef !== trunk) reasons.push("base is " + (pr.baseRef || "missing") + ", not " + trunk)
   if (pr.stackedOn) reasons.push("stacked on PR #" + pr.stackedOn)
   if (conflictedNumbers.has(pr.number)) reasons.push("verified conflict with another in-scope PR")
   if (pr.touchesMigrations && (pr.migrationCompatibility === "unknown" || pr.migrationCompatibility === "breaking")) {
