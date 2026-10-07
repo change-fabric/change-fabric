@@ -15,11 +15,15 @@ require_relative 'color_css'
 # recognized theme form simply yields a base variant and whatever unsupported
 # contexts its text-role tokens fall into.
 module ColorThemes
-  # theme: "light" for the base context, else the theme name. contexts: the
-  # display labels of every context that fed this variant. decls: the
-  # effective Hash of custom properties, resolved by the cascade (not a
-  # last-write merge).
-  Variant = Data.define(:theme, :contexts, :decls)
+  # One page state: marker is nil for the unmarked page or a theme name;
+  # os is nil (no OS axis in the sheet), "light" or "dark".
+  State = Data.define(:marker, :os)
+  # theme: "default" for the unmarked page, else the marker name, joined
+  # with " | " when several markers share identical declarations. states:
+  # every page State that resolves to decls. contexts: one display label per
+  # state. decls: the effective Hash of custom properties, resolved by the
+  # cascade (not a last-write merge).
+  Variant = Data.define(:theme, :contexts, :decls, :states)
   # A context the model will not merge, with the custom properties declared
   # in it, so text roles there still get one row each.
   Unsupported = Data.define(:label, :decls, :why)
@@ -88,19 +92,36 @@ module ColorThemes
     [ :other, context_label(at_rules, selector) ]
   end
 
-  # Builds the theme model from a parsed Sheet: a base (light) variant, one
-  # variant per other recognized theme name, each resolved by the cascade
-  # over every declaration that applies to it, and the unsupported contexts
-  # that carry a text-role token.
+  # Builds the theme model from a parsed Sheet: one variant per distinct
+  # resolved page state (unmarked default, each marker, each OS scheme),
+  # each resolved by the cascade over every declaration live in that state,
+  # and the unsupported contexts.
   def build(sheet)
+    candidates, unsupported = classify_sheet(sheet)
+    variants = evaluate(candidates, page_states(candidates))
+    Model.new(variants:, unsupported: finalize_unsupported(unsupported))
+  end
+
+  # Every page state the sheet enumerates, mapped to the custom-property
+  # names live in it (independent of the cascade winner). Lets a caller
+  # check that each state's text roles are all reported.
+  def state_names(sheet)
+    candidates, = classify_sheet(sheet)
+    page_states(candidates).to_h do |state|
+      live = candidates.select { |kind, rest, _| applies?(kind, rest, state) }
+      [ state, live.map { |_, _, entry| entry.name }.uniq ]
+    end
+  end
+
+  # => [candidates, unsupported]: candidates are [kind, payload, Entry] for
+  # every :base, :theme and :media_base classification; unsupported maps a
+  # context label to {decls:, why:}.
+  def classify_sheet(sheet)
     rule_custom_only = rule_custom_only_map(sheet.decls)
     sibling_index = compute_layer_order(sheet)
 
-    base_entries = [] # [excluded_names, Entry]
-    theme_entries = Hash.new { |h, k| h[k] = [] } # name => [Entry] (selector-origin)
-    media_entries = Hash.new { |h, k| h[k] = [] } # media_name => [[excluded_names, Entry]]
+    candidates = [] # [kind, payload, Entry]
     unsupported = {} # label => {decls:, why:}
-    selector_origin_names = Set.new
     order_idx = 0
 
     sheet.decls.each do |decl|
@@ -120,36 +141,15 @@ module ColorThemes
         entry.b, entry.c = selector_specificity(selector)
 
         case kind
-        when :base
-          base_entries << [ rest[0], entry ]
-        when :theme
-          selector_origin_names << rest[0]
-          theme_entries[rest[0]] << entry
-        when :media_base
-          media_entries[rest[0]] << [ rest[1], entry ]
-        when :unsupported
-          label, why = rest
-          u = (unsupported[label] ||= { decls: {}, why: })
-          u[:decls][decl.name] = decl.value
+        when :base, :theme, :media_base
+          candidates << [ kind, rest, entry ]
         else
-          label = rest[0]
-          u = (unsupported[label] ||= { decls: {}, why: 'not a recognized theme context' })
-          u[:decls][decl.name] = decl.value
+          record_unsupported(unsupported, decl, kind, rest)
         end
       end
     end
 
-    # A name seen only inside :not(...) is still a reachable selector state
-    # (the root carrying that class/attr), so it is audited like any other.
-    excluded_names = base_entries.flat_map(&:first) +
-                     media_entries.values.flatten(1).flat_map(&:first)
-    selector_origin_names.merge(excluded_names)
-    theme_names = ([ 'light' ] + selector_origin_names.to_a + media_entries.keys).uniq
-    variants = theme_names.flat_map do |theme|
-      build_variants(theme, base_entries, theme_entries, media_entries, selector_origin_names)
-    end
-
-    Model.new(variants:, unsupported: finalize_unsupported(unsupported))
+    [ candidates, unsupported ]
   end
 
   # --- internal helpers; module_function for testability, not public API ---
@@ -355,66 +355,57 @@ module ColorThemes
     key
   end
 
-  # Resolves one theme's effective declaration map and contexts.
-  #
-  # An unconditional base entry (excluded_names from :not(...)) applies to
-  # every theme not named in its excluded_names, including named themes
-  # (ordinary inheritance). A selector-origin theme entry (an attribute,
-  # class or bare form naming this theme) applies only to that theme. A
-  # media-scheme base entry applies to its own media name, and also to any
-  # OTHER theme that has a selector-origin occurrence somewhere in the
-  # sheet (an attribute or class override is still live under an OS color
-  # scheme the author never excluded it from); it never leaks into the
-  # implicit base ("light" with no selector occurrence) or into another
-  # pure-media theme, which is how a plain OS-dark override (an
-  # unconditional "@media (prefers-color-scheme: dark)" block with no
-  # attribute or class of its own) stays its own variant instead of
-  # contaminating light.
-  #
-  # A selector-origin theme is live under every OS color scheme, and each
-  # media block only applies under its own scheme, so such a theme is
-  # resolved once per OS state (each media name, plus no media match) and
-  # every distinct result is kept as its own variant: merging the states
-  # into one map would let one scheme's override hide a failure in another.
-  def build_variants(theme, base_entries, theme_entries, media_entries, selector_origin_names)
-    unless selector_origin_names.include?(theme) && !media_entries.empty?
-      return [ build_variant(theme, base_entries, theme_entries, media_entries, selector_origin_names) ].compact
-    end
-
-    seen = {}
-    ([ nil ] + media_entries.keys).each do |os|
-      scoped = media_entries.select { |name, _| name == os }
-      variant = build_variant(theme, base_entries, theme_entries, scoped, selector_origin_names)
-      next unless variant
-
-      variant = variant.with(contexts: variant.contexts + [ "os #{os || 'none'}" ])
-      seen[variant.decls] ||= variant
-    end
-    seen.values
+  def record_unsupported(unsupported, decl, kind, rest)
+    label, why = kind == :unsupported ? rest : [ rest[0], 'not a recognized theme context' ]
+    u = (unsupported[label] ||= { decls: {}, why: })
+    u[:decls][decl.name] = decl.value
   end
 
-  def build_variant(theme, base_entries, theme_entries, media_entries, selector_origin_names)
-    candidates = Hash.new { |h, k| h[k] = [] }
-
-    base_entries.each do |excluded, entry|
-      candidates[entry.name] << entry unless excluded.include?(theme)
-    end
-
-    theme_entries[theme].each { |entry| candidates[entry.name] << entry }
-
-    media_entries.each do |media_name, list|
-      list.each do |excluded, entry|
-        next if excluded.include?(theme)
-        next unless media_name == theme || selector_origin_names.include?(theme)
-
-        candidates[entry.name] << entry
+  # Every page state the sheet can put the root in: the unmarked page plus
+  # each marker (a positive selector name or a :not() excluded name), crossed
+  # with the OS color schemes when a prefers-color-scheme block exists.
+  def page_states(candidates)
+    markers = candidates.flat_map do |kind, rest, _|
+      case kind
+      when :base then rest[0]
+      when :theme then [ rest[0] ]
+      else rest[1]
       end
     end
+    os_states = candidates.any? { |kind, _, _| kind == :media_base } ? %w[light dark] : [ nil ]
+    ([ nil ] + markers.uniq).product(os_states).map { |marker, os| State.new(marker:, os:) }
+  end
 
-    return nil if candidates.empty?
+  def applies?(kind, rest, state)
+    case kind
+    when :base then !rest[0].include?(state.marker)
+    when :theme then state.marker == rest[0]
+    else state.os == rest[0] && !rest[1].include?(state.marker)
+    end
+  end
 
-    decls = candidates.transform_values { |entries| winning_value(entries) }
-    Variant.new(theme:, contexts: contexts_for(theme, base_entries, theme_entries, media_entries), decls:)
+  # Resolves each page state by the cascade over the declarations live in
+  # it, and merges states whose effective declarations are identical.
+  def evaluate(candidates, states)
+    seen = {}
+    states.each do |state|
+      live = candidates.select { |kind, rest, _| applies?(kind, rest, state) }.map(&:last)
+      next if live.empty?
+
+      decls = live.group_by(&:name).transform_values { |entries| winning_value(entries) }
+      (seen[decls] ||= []) << state
+    end
+    seen.map { |decls, merged| variant_for(decls, merged) }
+  end
+
+  def variant_for(decls, states)
+    theme = states.map { |s| s.marker || 'default' }.uniq.join(' | ')
+    Variant.new(theme:, contexts: states.map { |s| state_label(s) }, decls:, states:)
+  end
+
+  def state_label(state)
+    label = "marker #{state.marker || 'default'}"
+    state.os ? "#{label}, os #{state.os}" : label
   end
 
   # For !important declarations, the whole cascade-layer order is reversed
@@ -425,23 +416,6 @@ module ColorThemes
       rank = e.important ? e.layer_rank.map { |v| -v } : e.layer_rank
       [ e.important ? 1 : 0, rank, e.b, e.c, e.order ]
     end.value
-  end
-
-  def contexts_for(theme, base_entries, theme_entries, media_entries)
-    pool = []
-    if theme == 'light'
-      base_entries.each { |excluded, entry| pool << entry unless excluded.include?(theme) }
-    end
-    pool.concat(theme_entries[theme])
-    media_entries.each do |media_name, list|
-      list.each do |excluded, entry|
-        next if excluded.include?(theme)
-        next unless media_name == theme
-
-        pool << entry
-      end
-    end
-    pool.sort_by(&:order).map(&:label).uniq
   end
 
   # Every unsupported context is kept, whether or not it carries a text

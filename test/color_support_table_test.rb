@@ -51,16 +51,17 @@ class ColorSupportTableTest < Minitest::Test
   # --- Theme contexts: Supported -------------------------------------------
 
   SUPPORTED_THEME_CONTEXTS = {
-    "bare :root" => [ BASE, "light" ],
-    "bare html" => [ "html { --bg: #fff; --text: #111; }", "light" ],
+    "bare :root" => [ BASE, "default" ],
+    "bare html" => [ "html { --bg: #fff; --text: #111; }", "default" ],
     ":root[data-theme=X]" => [ "#{BASE}:root[data-theme=\"dark\"] { --bg: #000; --text: #eee; }", "dark" ],
     "html.X" => [ "#{BASE}html.dark { --bg: #000; --text: #eee; }", "dark" ],
-    ":root:not(.X)" => [ ":root:not(.dark) { --bg: #fff; --text: #111; }", "light" ],
+    ":root:not(.X)" => [ ":root:not(.dark) { --bg: #fff; --text: #111; }", "default" ],
     "bare .X custom-property-only" => [ "#{BASE}.dark { --bg: #000; --text: #eee; }", "dark" ],
     "bare [data-theme=X] custom-property-only" => [ "#{BASE}[data-theme=dark] { --bg: #000; --text: #eee; }", "dark" ],
-    "@media prefers-color-scheme dark" => [ "#{BASE}@media (prefers-color-scheme: dark) { :root { --bg: #000; --text: #eee; } }", "dark" ],
-    "@media prefers-color-scheme light" => [ "@media (prefers-color-scheme: light) { :root { --bg: #fff; --text: #111; } }", "light" ],
-    "@layer" => [ "@layer base { :root { --bg: #fff; --text: #111; } }", "light" ]
+    "@media prefers-color-scheme dark" => [ "#{BASE}@media (prefers-color-scheme: dark) { :root { --bg: #000; --text: #eee; } }", "default" ],
+    "@media prefers-color-scheme light" => [ "@media (prefers-color-scheme: light) { :root { --bg: #fff; --text: #111; } }", "default" ],
+    ":root[data-theme=light]" => [ "#{BASE}:root[data-theme=\"light\"] { --bg: #fff; --text: #000; }", "light" ],
+    "@layer" => [ "@layer base { :root { --bg: #fff; --text: #111; } }", "default" ]
   }.freeze
 
   def test_supported_theme_contexts_resolve
@@ -69,6 +70,35 @@ class ColorSupportTableTest < Minitest::Test
       refute_empty rows, "#{form}: no #{theme} row"
       assert rows.all?(&:resolved), "#{form}: #{rows.map(&:reason).inspect}"
     end
+  end
+
+  # Every page state (unmarked default, each marker, each OS scheme) times
+  # every text-role token live in it is covered by exactly one contrast row,
+  # and every unsupported context's text role by exactly one unsupported row.
+  STATE_REPRO = ":root{--text:#000;--bg:#fff}\n[data-theme=light]{--bg:#eee}\n" \
+                "[data-theme=dark]{--text:#fff;--bg:#000}\n" \
+                "@media (prefers-color-scheme: dark){:root:not([data-theme=light]){--text:#ccc;--bg:#111}}\n"
+
+  def assert_state_coverage(css)
+    sheet = ColorCss.parse(css)
+    rows = contrast(css)
+    ColorThemes.state_names(sheet).each do |state, names|
+      names.select { |n| ColorThemes.text_role_name?(n) }.each do |role|
+        hits = rows.select { |r| r.text_token == role && r.states.include?(state) }
+        assert_equal 1, hits.size, "#{state.inspect} #{role}: #{hits.size} rows for #{css.inspect}"
+      end
+    end
+    ColorThemes.build(sheet).unsupported.each do |uns|
+      uns.decls.each_key.select { |n| ColorThemes.text_role_name?(n) }.each do |role|
+        hits = rows.select { |r| r.theme == "unsupported" && r.context == uns.label && r.text_token == role }
+        assert_equal 1, hits.size, "unsupported #{uns.label} #{role} in #{css.inspect}"
+      end
+    end
+  end
+
+  def test_every_page_state_and_text_role_yields_exactly_one_row
+    fixtures = SUPPORTED_THEME_CONTEXTS.values.map(&:first) + UNSUPPORTED_THEME_CONTEXTS.values + [ STATE_REPRO ]
+    fixtures.each { |css| assert_state_coverage(css) }
   end
 
   # --- Theme contexts: Reported as unsupported ------------------------------

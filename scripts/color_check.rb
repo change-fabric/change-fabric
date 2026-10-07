@@ -41,7 +41,14 @@ module ColorCheck
   # undeterminable). Listed in the report, never counted by --strict.
   Unresolved = Data.define(:file, :line, :kind, :text, :reason)
   Palette = Data.define(:file, :authored, :derived, :error_token)
-  ContrastPair = Data.define(:theme, :text_token, :bg_token, :ratio, :passes_body, :passes_large, :resolved, :context, :reason)
+  ContrastPair = Data.define(:theme, :text_token, :bg_token, :ratio, :passes_body, :passes_large, :resolved, :context, :reason,
+                             :states) do
+    # states: the ColorThemes::State list of the variant this row audits;
+    # empty for unsupported and file-level rows.
+    def initialize(states: [], **rest)
+      super
+    end
+  end
   Report = Data.define(:palette, :findings, :unresolved, :contrast, :exit_code, :parse_errors)
 
   module_function
@@ -241,8 +248,8 @@ module ColorCheck
     [ findings, unresolved, parse_errors ]
   end
 
-  # Resolves every custom property in the token file's theme model (base
-  # "light" plus named variants) via ColorValue, pairs text-role tokens
+  # Resolves every custom property in the token file's theme model (one
+  # variant per distinct page state, the unmarked page labelled "default") via ColorValue, pairs text-role tokens
   # against the theme's background (or its own <base> token for a
   # "<base>-text" name), and computes WCAG 2.x contrast. Unsupported
   # contexts that carry a text-role token are reported unresolved with their
@@ -278,17 +285,16 @@ module ColorCheck
 
   def contrast_rows_for_variant(variant)
     decls = variant.decls
-    context = variant.contexts.join(' | ')
     bg_name = BG_EXACT.find { |n| decls.key?(n) } || decls.keys.find { |n| n.match?(BG_NAME) }
     bg_result = bg_name ? ColorValue.resolve(decls[bg_name], decls, seen: Set[bg_name]) : nil
     bg_color = bg_result&.color ? ColorValue.flatten(bg_result.color, over: ColorValue::WHITE) : nil
 
     decls.each_key.select { |n| ColorThemes.text_role_name?(n) }.map do |name|
-      contrast_row_for(variant.theme, context, name, decls, bg_name, bg_result, bg_color)
+      contrast_row_for(variant, name, decls, bg_name, bg_result, bg_color)
     end
   end
 
-  def contrast_row_for(theme, context, name, decls, bg_name, bg_result, bg_color)
+  def contrast_row_for(variant, name, decls, bg_name, bg_result, bg_color)
     pair_bg_name = bg_name
     pair_bg_color = bg_color
     pair_bg_reason = pair_bg_reason_for(bg_name, bg_result)
@@ -306,7 +312,7 @@ module ColorCheck
       end
     end
 
-    build_contrast_pair(theme, context, name, decls[name], decls, pair_bg_name, pair_bg_color, pair_bg_reason)
+    build_contrast_pair(variant, name, decls[name], decls, pair_bg_name, pair_bg_color, pair_bg_reason)
   end
 
   def pair_bg_reason_for(bg_name, bg_result)
@@ -316,18 +322,21 @@ module ColorCheck
     nil
   end
 
-  def build_contrast_pair(theme, context, name, raw_value, decls, bg_name, bg_color, bg_reason)
+  def build_contrast_pair(variant, name, raw_value, decls, bg_name, bg_color, bg_reason)
+    theme = variant.theme
+    context = variant.contexts.join(' | ')
+    states = variant.states
     text_result = ColorValue.resolve(raw_value, decls, seen: Set[name])
     if text_result.color && bg_color
       text_color = ColorValue.flatten(text_result.color, over: bg_color)
       ratio = ColorValue.contrast_ratio(text_color, bg_color)
       ContrastPair.new(theme:, text_token: name, bg_token: bg_name, ratio: ratio.round(2),
                         passes_body: ratio >= 4.5, passes_large: ratio >= 3.0, resolved: true,
-                        context:, reason: nil)
+                        context:, reason: nil, states:)
     else
       reason = text_result.color.nil? ? text_result.reason : bg_reason
       ContrastPair.new(theme:, text_token: name, bg_token: bg_name, ratio: nil, passes_body: false,
-                        passes_large: false, resolved: false, context:, reason:)
+                        passes_large: false, resolved: false, context:, reason:, states:)
     end
   end
 
@@ -383,7 +392,7 @@ module ColorCheck
     else
       contexts_per_theme = report.contrast.group_by(&:theme).transform_values { |rows| rows.map(&:context).uniq }
       report.contrast.each do |c|
-        label = contexts_per_theme[c.theme].size > 1 ? "#{c.theme} #{c.context}" : c.theme
+        label = state_detail?(c, contexts_per_theme) ? "#{c.theme} #{c.context}" : c.theme
         if c.text_token.nil?
           lines << "  [#{c.theme}] #{c.reason}, state manually"
         elsif c.resolved
@@ -397,11 +406,25 @@ module ColorCheck
     lines.join("\n")
   end
 
+  # The state list is printed when the label alone does not say which page
+  # state a row audits: several states merged, an OS scheme, or a theme
+  # label shared by several rows.
+  def state_detail?(row, contexts_per_theme)
+    contexts_per_theme[row.theme].size > 1 || row.states.size > 1 || row.states.any?(&:os)
+  end
+
   def status_for(c)
     return 'pass 4.5:1' if c.passes_body
     return 'pass 3:1 only' if c.passes_large
 
     'fail'
+  end
+
+  # One {marker, os} object for a single-state row, an array of them (the
+  # first canonical) for a merged variant, nil for a row with no state.
+  def json_state(states)
+    objs = states.map { |s| { marker: s.marker, os: s.os } }
+    objs.size > 1 ? objs : objs.first
   end
 
   def to_json_report(report)
@@ -417,7 +440,7 @@ module ColorCheck
       contrast: report.contrast.map do |c|
         { theme: c.theme, text_token: c.text_token, bg_token: c.bg_token, ratio: c.ratio,
           passes_body: c.passes_body, passes_large: c.passes_large, resolved: c.resolved,
-          context: c.context, reason: c.reason }
+          state: json_state(c.states), context: c.context, reason: c.reason }
       end,
       exit_code: report.exit_code,
       parse_errors: report.parse_errors

@@ -12,6 +12,12 @@ class ColorThemesTest < Minitest::Test
     model.variants.find { |v| v.theme == theme }
   end
 
+  # The variant that audits one page state (marker nil is the unmarked page).
+  def variant_at(model, marker, os = nil)
+    state = ColorThemes::State.new(marker:, os:)
+    model.variants.find { |v| v.states.include?(state) }
+  end
+
   def test_foreground_is_a_text_role_in_any_position
     assert ColorThemes.text_role_name?("--foreground")
     assert ColorThemes.text_role_name?("--color-foreground-muted")
@@ -20,17 +26,17 @@ class ColorThemesTest < Minitest::Test
 
   def test_bare_root_is_base
     model = build(":root { --bg: #fff; --text: #000; }")
-    v = variant_for(model, "light")
+    v = variant_for(model, "default")
     refute_nil v
     assert_equal({ "--bg" => "#fff", "--text" => "#000" }, v.decls)
-    assert_includes v.contexts, ":root"
+    assert_equal [ "marker default" ], v.contexts
   end
 
   def test_html_is_also_base
     model = build("html { --bg: #fff; }")
-    v = variant_for(model, "light")
+    v = variant_for(model, "default")
     refute_nil v
-    assert_includes v.contexts, "html"
+    assert_equal({ "--bg" => "#fff" }, v.decls)
   end
 
   def test_root_data_theme_attribute_names_theme
@@ -56,8 +62,10 @@ class ColorThemesTest < Minitest::Test
 
   def test_media_prefers_color_scheme_names_theme
     model = build(":root { --bg: #fff; --text: #000; } @media (prefers-color-scheme: dark) { :root { --bg: #000; } }")
-    dark = variant_for(model, "dark")
+    dark = variant_at(model, nil, "dark")
     refute_nil dark
+    assert_equal "default", dark.theme
+    assert_equal "#fff", variant_at(model, nil, "light").decls["--bg"]
     assert_equal "#000", dark.decls["--bg"]
     assert_equal "#000", dark.decls["--text"], "dark inherits base --text"
   end
@@ -67,8 +75,9 @@ class ColorThemesTest < Minitest::Test
       '@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg: #000; --text: #fff; } } ' \
       ':root[data-theme="dark"] { --bg: #000; --text: #fff; }'
     )
-    dark = variant_for(model, "dark")
+    dark = variant_at(model, "dark", "light")
     refute_nil dark
+    assert_nil variant_at(model, "light", "dark"), "the explicit light marker opts out of the OS dark block"
     assert_equal({ "--bg" => "#000", "--text" => "#fff" }, dark.decls)
   end
 
@@ -110,7 +119,7 @@ class ColorThemesTest < Minitest::Test
 
   def test_layer_is_transparent
     model = build("@layer base { :root { --bg: #fff; --text: #000; } }")
-    v = variant_for(model, "light")
+    v = variant_for(model, "default")
     refute_nil v
     assert_equal({ "--bg" => "#fff", "--text" => "#000" }, v.decls)
   end
@@ -141,10 +150,10 @@ class ColorThemesTest < Minitest::Test
 
   def test_selector_list_feeds_both_base_and_theme
     model = build(':root, :root[data-theme="light"] { --bg: #fff; --text: #000; }')
-    v = variant_for(model, "light")
-    refute_nil v
+    assert_equal 1, model.variants.size, "identical default and light states collapse"
+    v = model.variants.first
+    assert_equal "default | light", v.theme
     assert_equal({ "--bg" => "#fff", "--text" => "#000" }, v.decls)
-    assert_equal 1, model.variants.count { |x| x.theme == "light" }, "identical light variants collapse"
   end
 
   def test_identical_dark_variants_collapse_into_one
@@ -152,9 +161,12 @@ class ColorThemesTest < Minitest::Test
       '@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg: #000; --text: #fff; } } ' \
       ':root[data-theme="dark"] { --bg: #000; --text: #fff; }'
     )
-    dark_variants = model.variants.select { |v| v.theme == "dark" }
+    dark_variants = model.variants.select { |v| v.states.any? { |st| st.marker == "dark" } }
     assert_equal 1, dark_variants.size
-    assert_equal 2, dark_variants.first.contexts.size
+    states = dark_variants.first.states
+    assert_includes states, ColorThemes::State.new(marker: "dark", os: "light")
+    assert_includes states, ColorThemes::State.new(marker: "dark", os: "dark")
+    assert_equal states.size, dark_variants.first.contexts.uniq.size, "one label per state"
   end
 
   def test_base_inherited_by_named_theme
@@ -184,12 +196,17 @@ class ColorThemesTest < Minitest::Test
           "@media (prefers-color-scheme: dark) { :root { --bg: #000; --text: #fff; } } " \
           "@media (prefers-color-scheme: light) { :root { --text: #111; } } " \
           '[data-theme="light"] { --bg: #000; }'
-    lights = build(css).variants.select { |v| v.theme == "light" }
-    texts = lights.map { |v| [ v.decls["--bg"], v.decls["--text"] ] }.sort
-    assert_includes texts, [ "#000", "#000" ], "no-media state keeps base text"
-    assert_includes texts, [ "#000", "#111" ], "OS light state"
-    assert_includes texts, [ "#000", "#fff" ], "OS dark state"
-    assert_equal lights.size, lights.map(&:contexts).uniq.size, "each state labelled distinctly"
+    model = build(css)
+    pairs = lambda do |marker, os|
+      v = variant_at(model, marker, os)
+      [ v.decls["--bg"], v.decls["--text"] ]
+    end
+    assert_equal [ "#fff", "#111" ], pairs.call(nil, "light"), "default page under OS light"
+    assert_equal [ "#000", "#fff" ], pairs.call(nil, "dark"), "default page under OS dark"
+    assert_equal [ "#000", "#111" ], pairs.call("light", "light"), "light marker under OS light"
+    assert_equal [ "#000", "#fff" ], pairs.call("light", "dark"), "light marker under OS dark"
+    labels = model.variants.flat_map(&:contexts)
+    assert_equal labels.size, labels.uniq.size, "each state labelled distinctly"
   end
 
   def test_same_name_media_on_theme_selector_unsupported
@@ -248,8 +265,31 @@ class ColorThemesTest < Minitest::Test
       "@layer p { @layer b, a; @layer a { :root {--text:#000} } @layer b { :root {--text:#fff} } }" => "#000"
     }
     cases.each do |css, want|
-      assert_equal want, variant_for(build(css), "light").decls["--text"], css
+      assert_equal want, variant_for(build(css), "default").decls["--text"], css
     end
+  end
+
+  # The reproduction from the theme-state-model plan: the unmarked page under
+  # OS light (#000 on #fff) used to be hidden behind the explicit light
+  # marker. Every page state is now audited on its own. Under OS dark the
+  # :root:not([data-theme=light]) block (specificity 0,2,0) outranks the
+  # bare [data-theme=dark] rule (0,1,0), so dark/dark shares default/dark.
+  def test_every_page_state_audited_for_marker_and_os_sheet
+    model = build(
+      ":root{--text:#000;--bg:#fff}\n[data-theme=light]{--bg:#eee}\n" \
+      "[data-theme=dark]{--text:#fff;--bg:#000}\n" \
+      "@media (prefers-color-scheme: dark){:root:not([data-theme=light]){--text:#ccc;--bg:#111}}\n"
+    )
+    got = model.variants.map { |v| [ v.states.map { |st| [ st.marker, st.os ] }, v.decls["--text"], v.decls["--bg"] ] }
+    expected = [
+      [ [ [ nil, "light" ] ], "#000", "#fff" ],
+      [ [ [ nil, "dark" ], [ "dark", "dark" ] ], "#ccc", "#111" ],
+      [ [ [ "light", "light" ], [ "light", "dark" ] ], "#000", "#eee" ],
+      [ [ [ "dark", "light" ] ], "#fff", "#000" ]
+    ]
+    assert_equal expected.sort_by(&:inspect), got.sort_by(&:inspect)
+    assert_equal "default", variant_at(model, nil, "light").theme
+    assert_equal "light", variant_at(model, "light", "dark").theme
   end
 
   # A theme named only inside :not(...) must still be audited, for every
@@ -260,7 +300,8 @@ class ColorThemesTest < Minitest::Test
       ':root { --bg:#000; --text:#000 } :root:not([data-theme="dim"]) { --bg:#fff }' => "dim",
       ":root { --text:#000 } @media (prefers-color-scheme: dark) { :root:not(.hc) { --bg:#fff } }" => "hc"
     }.each do |css, name|
-      v = variant_for(build(css), name)
+      model = build(css)
+      v = variant_at(model, name) || variant_at(model, name, "dark")
       refute_nil v, "#{name} state missing for #{css}"
       refute_equal "#fff", v.decls["--bg"], css
     end

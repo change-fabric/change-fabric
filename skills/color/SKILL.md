@@ -86,6 +86,16 @@ A text role is a custom property with a whole hyphen segment `text`, `fg`,
 `--color-fg-default`). A sheet with no recognized text role gets one
 "no text-role tokens recognized" unresolved row instead of an empty table.
 
+Contrast is audited per page state, not per theme name. A state is the root's
+theme marker (none, or one name from a `[data-theme=X]`, `.X` or `:not(...)`
+qualifier) crossed with the OS color scheme. The unmarked page is reported as
+`default`; `light` means only an explicit light marker. OS states (`os light`,
+`os dark`) are audited when the sheet has a `prefers-color-scheme` block.
+States that resolve to identical declarations share one row, labelled with
+every state they cover (for example `default | light`), and `--json` carries
+each row's `state` (`{marker, os}`, or an array of them for a merged row)
+beside `theme`.
+
 | Area | Supported | Reported as unsupported (with a reason, never guessed) |
 |------|-----------|-------------------------------------------------------|
 | Theme contexts | bare `:root`/`html` (base); `[data-theme=X]` or `.X` on `:root`/`html`, with optional `:not(...)`; bare `.X` or `[data-theme=X]` whose block is custom-property-only; `@media (prefers-color-scheme: light or dark)`; `@layer` | any other selector carrying a text role; other `@media`, `@supports`, `@container`, `@scope`; SCSS nesting; conflicting theme markers |
