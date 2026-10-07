@@ -111,7 +111,6 @@ module ColorCss
       @paren_depth = 0
       @paren_is_url = []
       @next_rule_id = 1
-      @next_anon_layer_id = 1
       @line = 1
       @segment = +''
       @mask = +''
@@ -306,20 +305,23 @@ module ColorCss
       emit_declaration(body) || emit_at_rule_stmt(body)
     end
 
+    # Global source offset of the first non-blank character of a block
+    # prelude, while the scanner sits just past that block's "{".
+    def prelude_pos(prelude)
+      @scanner.pos - 1 - prelude.length + (prelude.length - prelude.lstrip.length) + @pos_offset
+    end
+
     def open_block
       prelude = @segment
       stripped = prelude.strip
       if stripped.start_with?('@')
         text = collapse_ws(stripped)
         if text.match?(/\A@layer\z/i)
-          # An anonymous "@layer { }" block is still its own distinct layer
-          # (lower than any named layer it happens to share source position
-          # with), so it gets a synthetic name unique to this occurrence
-          # rather than being merged with other anonymous layers or treated
-          # as unlayered.
-          id = @next_anon_layer_id
-          @next_anon_layer_id += 1
-          text = "@layer %anon-#{id}"
+          # An anonymous "@layer { }" block is still its own distinct layer,
+          # so it gets a synthetic name from the global source position of
+          # its "@layer" token. That stays unique across every style block
+          # in a document, where a per-parser counter would collide.
+          text = "@layer %anon-#{prelude_pos(prelude)}"
         end
         @frames << Frame.new(kind: :at_rule, selectors: nil, rule_id: nil, text:)
       else

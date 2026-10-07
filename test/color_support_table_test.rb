@@ -282,17 +282,15 @@ class ColorSupportTableTest < Minitest::Test
   end
 
   def test_cascade_rule_one_layer_order_per_document
-    skip "lands in Phase 3: Keep anonymous layer IDs unique across style blocks"
-    # Two anonymous layers stay two layers: the later one wins despite the
-    # earlier block's higher specificity. Merged into one, specificity would
-    # pick #fff.
-    html = "<style>:root{--text:#000}@layer{html:root{--bg:#fff}}</style>" \
-           "<style>@layer{:root{--bg:#000}}</style>"
-    assert_in_delta 1.0, bg_ratio("a.html", html)
+    # Two anonymous layers in two style blocks stay two layers. With
+    # !important the layer order reverses, so the earlier layer wins (#fff,
+    # ratio 21). Merged into one layer, source order would pick #000.
+    html = "<style>:root{--text:#000}@layer{:root{--bg:#fff !important}}</style>" \
+           "<style>@layer{:root{--bg:#000 !important}}</style>"
+    assert_in_delta 21.0, bg_ratio("a.html", html)
   end
 
   def test_cascade_rule_dotted_statement_registers_prefixes
-    skip "lands in Phase 3: Register every prefix of dotted layer statements"
     css = ":root{--text:#000}@layer a.b;@layer c{:root{--bg:#000}}@layer a{:root{--bg:#fff}}"
     assert_in_delta 1.0, bg_ratio("tokens.css", css)
   end

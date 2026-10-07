@@ -45,7 +45,7 @@ module ColorThemes
   # dotted path written as a single statement ("@layer a.b"), which is
   # equivalent to nesting ("@layer a { @layer b { ... } }"); an anonymous
   # block frame carries no name here (the parser has already rewritten it
-  # to a synthetic "%anon-N" name unique to its occurrence).
+  # to a synthetic "%anon-<pos>" name from its global source position).
   LAYER_FRAME = /\A@layer\s+([\w%-]+(?:\.[\w%-]+)*)\s*\z/.freeze
   # A layer name inside "@layer a, b;" or "@import ... layer(x)", which may
   # itself be a dotted path.
@@ -302,7 +302,7 @@ module ColorThemes
           name = nm.strip
           next if name.empty? || !LAYER_NAME.match?(name)
 
-          events << [ stmt.pos, i, parent + name.split('.') ]
+          register_path(events, stmt.pos, i, parent + name.split('.'))
         end
       when '@import'
         m = IMPORT_LAYER.match(stmt.prelude)
@@ -311,10 +311,7 @@ module ColorThemes
     end
 
     sheet.decls.each do |decl|
-      path = layer_path_for(decl.at_rules)
-      (1..path.size).each do |len|
-        events << [ decl.pos, Float::INFINITY, path.first(len) ]
-      end
+      register_path(events, decl.pos, Float::INFINITY, layer_path_for(decl.at_rules))
     end
 
     first_seen = {}
@@ -334,6 +331,12 @@ module ColorThemes
       children.each_with_index { |key, i| sibling_index[key] = i }
     end
     sibling_index
+  end
+
+  # Registers every prefix of a layer path, so "@layer a.b;" declares "a"
+  # at that position just as a declaration inside "a.b" would.
+  def register_path(events, pos, idx, path)
+    (1..path.size).each { |n| events << [ pos, idx, path.first(n) ] }
   end
 
   # Unlayered declarations always win over any layered one, whatever their

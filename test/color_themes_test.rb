@@ -262,7 +262,8 @@ class ColorThemesTest < Minitest::Test
       "@layer b,a; @layer a { :root {--bg:#fff;--text:#000} } @layer b { :root {--text:#fff} }" => "#000",
       "@layer a { :root {--text:#000} } @import url(x.css) layer(b); @layer b { :root {--text:#fff} }" => "#fff",
       "@layer p { @layer a { :root {--text:#000} } @layer b { :root {--text:#fff} } @layer b, a; }" => "#fff",
-      "@layer p { @layer b, a; @layer a { :root {--text:#000} } @layer b { :root {--text:#fff} } }" => "#000"
+      "@layer p { @layer b, a; @layer a { :root {--text:#000} } @layer b { :root {--text:#fff} } }" => "#000",
+      "@layer a.b; @layer c { :root {--text:#fff} } @layer a { :root {--text:#000} }" => "#fff"
     }
     cases.each do |css, want|
       assert_equal want, variant_for(build(css), "default").decls["--text"], css
