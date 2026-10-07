@@ -177,4 +177,12 @@ class SkillCiIdiomLintTest < Minitest::Test
     offenders = offending_lines { |line| line.include?("git diff") && line.include?('[ -z "$out" ]') }
     assert_empty offenders, "fail-open git diff / [ -z \"$out\" ] idiom still present"
   end
+
+  # A git grep whose output is redirected to a file and read back later must
+  # have its status checked right away: an I/O or repo error (exit 2+) leaves
+  # the file empty, which the later read would treat as a pass.
+  def test_every_redirected_git_grep_checks_its_status
+    offenders = offending_lines { |line| line.match?(/git grep [^;]*>"\$\w+"; (?!s=\$\?)/) }
+    assert_empty offenders, "a redirected git grep ignores its exit status"
+  end
 end
