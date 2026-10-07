@@ -37,9 +37,12 @@ module ColorCheck
   HTML_COMMENT = /<!--.*?-->/m.freeze
 
   Finding = Data.define(:file, :line, :kind, :text)
+  # A color-shaped string the scan could not classify (its key context was
+  # undeterminable). Listed in the report, never counted by --strict.
+  Unresolved = Data.define(:file, :line, :kind, :text, :reason)
   Palette = Data.define(:file, :authored, :derived, :error_token)
   ContrastPair = Data.define(:theme, :text_token, :bg_token, :ratio, :passes_body, :passes_large, :resolved, :context, :reason)
-  Report = Data.define(:palette, :findings, :contrast, :exit_code, :parse_errors)
+  Report = Data.define(:palette, :findings, :unresolved, :contrast, :exit_code, :parse_errors)
 
   module_function
 
@@ -47,7 +50,7 @@ module ColorCheck
     files = scan_files(root)
     token_file = tokens_override ? File.expand_path(tokens_override) : detect_token_file(files)
     palette = token_file ? build_palette(token_file) : nil
-    findings, parse_errors = collect_findings(files, token_file)
+    findings, unresolved, parse_errors = collect_findings(files, token_file)
     contrast = token_file ? compute_contrast(token_file) : []
 
     over_target = palette && (palette.authored.size > TARGET)
@@ -57,7 +60,7 @@ module ColorCheck
                   0
     end
 
-    Report.new(palette:, findings:, contrast:, exit_code:, parse_errors:)
+    Report.new(palette:, findings:, unresolved:, contrast:, exit_code:, parse_errors:)
   end
 
   def scan_files(root)
@@ -214,23 +217,28 @@ module ColorCheck
   # cannot be scanned (a parse failure, a surprise encoding error) never
   # aborts the run: it yields one "unparsed" finding instead and the scan
   # continues. CSS source diagnostics (ColorCss::Sheet#errors) are collected
-  # alongside as parse_errors; they are not findings themselves.
+  # alongside as parse_errors; they are not findings themselves. Strings
+  # with an undeterminable key context come back as a separate unresolved
+  # list.
   def collect_findings(files, token_file)
     findings = []
+    unresolved = []
     parse_errors = []
     files.each do |file|
       text = safe_read(file)
       next unless text
 
       begin
-        findings.concat(ColorScan.findings_for(file, text, token_file:))
+        file_findings, file_unresolved = ColorScan.scan(file, text, token_file:)
+        findings.concat(file_findings)
+        unresolved.concat(file_unresolved)
         sheet = css_source_sheet(file, text)
         sheet&.errors&.each { |e| parse_errors << { file:, message: e } }
       rescue StandardError => e
         findings << Finding.new(file:, line: 1, kind: 'unparsed', text: e.class.to_s)
       end
     end
-    [ findings, parse_errors ]
+    [ findings, unresolved, parse_errors ]
   end
 
   # Resolves every custom property in the token file's theme model (base
@@ -362,6 +370,12 @@ module ColorCheck
       end
     end
 
+    unless report.unresolved.empty?
+      lines << ''
+      lines << 'Unresolved (not counted by --strict):'
+      report.unresolved.each { |u| lines << "  #{u.file}:#{u.line} #{u.text} (#{u.reason})" }
+    end
+
     lines << ''
     lines << 'Contrast:'
     if report.contrast.empty?
@@ -399,6 +413,7 @@ module ColorCheck
         error_token: report.palette.error_token
       },
       findings: report.findings.map { |f| { file: f.file, line: f.line, kind: f.kind, text: f.text } },
+      unresolved: report.unresolved.map { |u| { file: u.file, line: u.line, kind: u.kind, text: u.text, reason: u.reason } },
       contrast: report.contrast.map do |c|
         { theme: c.theme, text_token: c.text_token, bg_token: c.bg_token, ratio: c.ratio,
           passes_body: c.passes_body, passes_large: c.passes_large, resolved: c.resolved,

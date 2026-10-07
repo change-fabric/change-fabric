@@ -1159,6 +1159,30 @@ class ColorCheckTest < Minitest::Test
     end
   end
 
+  def test_unknown_context_short_hex_is_unresolved_and_not_strict
+    with_dir do |dir|
+      write(dir, "a.js", "const c = dark ? '#fff' : base;\n")
+      report = ColorCheck.run(dir, strict: true)
+      assert_equal [], report.findings
+      assert_equal 1, report.unresolved.size
+      assert_equal 0, report.exit_code
+      text = ColorCheck.render(report)
+      assert_includes text, "Unresolved (not counted by --strict):"
+      assert_includes text, "#fff (key context could not be determined)"
+      json = JSON.parse(ColorCheck.to_json_report(report))
+      assert_equal "#fff", json["unresolved"].first["text"]
+    end
+  end
+
+  def test_jsx_fill_expression_is_a_strict_finding
+    with_dir do |dir|
+      write(dir, "a.jsx", "export const I = () => <path fill={'#f00'} />;\n")
+      report = ColorCheck.run(dir, strict: true)
+      assert_equal 1, report.findings.size
+      assert_equal 1, report.exit_code
+    end
+  end
+
   def test_json_output_parses
     with_dir do |dir|
       write(dir, "tokens.css", FOUR_COLOR_TOKENS)

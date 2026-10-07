@@ -139,4 +139,36 @@ class ColorScanTest < Minitest::Test
     text = "// --bg: #000000\n.x\n  color: red\n"
     assert_equal [ [ 3, "literal" ] ], kinds("a.sass", text)
   end
+
+  # --- key context: tri-state lookback --------------------------------------
+
+  def test_jsx_expression_brace_resolves_to_attribute_key
+    assert_equal "fill", ColorScan.lookback_key("<path fill={'#f00'} />", 12)
+    assert_equal [ [ 1, "literal" ] ], kinds("a.jsx", "const x = <path fill={'#f00'} />;\n")
+  end
+
+  def test_short_hex_call_argument_is_exempt_by_named_rule
+    text = "document.querySelector('#cafe');\n"
+    assert_equal :call_arg, ColorScan.lookback_key(text, text.index("'"))
+    findings, unresolved = ColorScan.scan("a.js", text, token_file: nil)
+    assert_equal [], findings
+    assert_equal [], unresolved
+  end
+
+  def test_named_exempt_rules
+    { "f(a, '#abc')" => :call_arg, "['#abc']" => :array_elem, "x + '#abc'" => :concat,
+      "return '#abc'" => :assign }.each do |text, rule|
+      assert_equal rule, ColorScan.lookback_key(text, text.index("'")), text
+    end
+  end
+
+  def test_short_hex_in_unknown_context_is_unresolved
+    text = "const c = dark ? '#fff' : base;\n"
+    assert_equal :unknown, ColorScan.lookback_key(text, text.index("'"))
+    findings, unresolved = ColorScan.scan("a.js", text, token_file: nil)
+    assert_equal [], findings
+    assert_equal 1, unresolved.size
+    assert_equal "#fff", unresolved.first.text
+    assert_equal 1, unresolved.first.line
+  end
 end

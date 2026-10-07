@@ -59,6 +59,17 @@ module ColorScan
   # own custom-property declarations are exempt, ordinary rules in it are
   # still scanned.
   def findings_for(path, text, token_file:)
+    scan(path, text, token_file:).first
+  end
+
+  # Like findings_for, but returns [findings, unresolved]: color-shaped
+  # strings whose key context could not be determined are kept apart as
+  # ColorCheck::Unresolved entries instead of being dropped.
+  def scan(path, text, token_file:)
+    all_entries(path, text, token_file).partition { |e| e.is_a?(ColorCheck::Finding) }
+  end
+
+  def all_entries(path, text, token_file)
     ext = File.extname(path).delete_prefix('.').downcase
     case ext
     when 'css', 'scss', 'less'
@@ -679,16 +690,24 @@ module ColorScan
 
     line = text[0...start].count("\n") + 1 + line_offset
     key = lookback_key(text, start)
-    position_a = !key.nil? && (%w[style fill stroke].include?(key) || key.match?(COLOR_KEY))
-    classify_string(path, line, content, position_a)
+    position_a = key.is_a?(String) && (%w[style fill stroke].include?(key) || key.match?(COLOR_KEY))
+    classify_string(path, line, content, position_a, unknown_context: key == :unknown)
   end
 
-  def classify_string(path, line, content, position_a)
+  # A short (3/4-digit) hex string is only a color when its key says so: in
+  # a positively exempt context (a non-color key, or a named EXEMPT_RULES
+  # context) it is not a finding, and in a context the lookback could not
+  # determine it is reported as unresolved rather than silently exempt.
+  def classify_string(path, line, content, position_a, unknown_context: false)
     findings = []
     stripped = content.strip
     if HEX_FULL.match?(stripped)
       short = [ 3, 4 ].include?(stripped.length - 1)
-      findings << finding(path, line, 'literal', content) if !short || position_a
+      if !short || position_a
+        findings << finding(path, line, 'literal', content)
+      elsif unknown_context
+        findings << unresolved(path, line, 'literal', content, UNKNOWN_CONTEXT_REASON)
+      end
     elsif SCRIPT_COLOR_FN_FULL.match?(stripped)
       findings << finding(path, line, 'literal', content)
     elsif stripped.match?(/\A[A-Za-z]+\z/) && ColorValue::NAMED.key?(stripped.downcase)
@@ -699,26 +718,72 @@ module ColorScan
     findings
   end
 
-  # Looks back past whitespace from a string's start index for ":" (object
-  # or style-object key) or "=" (JSX attribute), then past more whitespace
-  # for the key itself (an identifier, or a quoted key, unquoted). Returns
-  # nil when no such key is found.
+  UNKNOWN_CONTEXT_REASON = 'key context could not be determined'
+  # Named, positive exempt contexts for a string with no key: the
+  # character(s) right before it (after whitespace) identify it as a call
+  # argument, an array element, the right side of a keyless return, or a
+  # concatenation operand. Anything else is :unknown, never exempt.
+  EXEMPT_RULES = %i[call_arg array_elem assign concat].freeze
+
+  # Key context of the string starting at start_idx. Returns a key String
+  # when ":" (object or style-object key) or "=" (attribute or assignment)
+  # precedes it, with a JSX "={" expression brace looked through so
+  # fill={'#f00'} resolves to "fill"; one of EXEMPT_RULES when a positive
+  # exempt rule matches; :unknown otherwise.
   def lookback_key(text, start_idx)
     i = skip_ws_back(text, start_idx - 1)
-    return nil unless i >= 0 && (text[i] == ':' || text[i] == '=')
+    return :unknown if i.negative?
 
-    i = skip_ws_back(text, i - 1)
-    return nil if i.negative?
+    if text[i] == '{'
+      eq = skip_ws_back(text, i - 1)
+      return :unknown unless eq >= 0 && text[eq] == '='
 
-    if text[i] == '"' || text[i] == "'"
-      quoted_key_before(text, i)
+      i = eq
+    end
+    return key_before(text, i) if text[i] == ':' || text[i] == '='
+
+    exempt_rule(text, i)
+  end
+
+  def key_before(text, sep_idx)
+    i = skip_ws_back(text, sep_idx - 1)
+    return :unknown if i.negative?
+
+    key = text[i] == '"' || text[i] == "'" ? quoted_key_before(text, i) : identifier_before(text, i)
+    key || :unknown
+  end
+
+  def exempt_rule(text, i)
+    case text[i]
+    when '(' then :call_arg
+    when '[' then :array_elem
+    when '+' then :concat
+    when ',' then enclosing_rule(text, i)
     else
-      identifier_before(text, i)
+      identifier_before(text, i) == 'return' ? :assign : :unknown
     end
   end
 
+  # For a "," separator, the innermost unclosed bracket decides: "(" is a
+  # call argument list, "[" an array literal. A "{" (object literal) or no
+  # bracket at all is :unknown.
+  def enclosing_rule(text, comma_idx)
+    depth = 0
+    (comma_idx - 1).downto(0) do |j|
+      c = text[j]
+      if ')]}'.include?(c)
+        depth += 1
+      elsif '([{'.include?(c)
+        return { '(' => :call_arg, '[' => :array_elem }.fetch(c, :unknown) if depth.zero?
+
+        depth -= 1
+      end
+    end
+    :unknown
+  end
+
   def skip_ws_back(text, i)
-    i -= 1 while i >= 0 && text[i].match?(/[ \t]/)
+    i -= 1 while i >= 0 && text[i].match?(/\s/)
     i
   end
 
@@ -798,5 +863,9 @@ module ColorScan
 
   def finding(file, line, kind, text)
     ColorCheck::Finding.new(file: file, line: line, kind: kind, text: text.to_s.strip)
+  end
+
+  def unresolved(file, line, kind, text, reason)
+    ColorCheck::Unresolved.new(file: file, line: line, kind: kind, text: text.to_s.strip, reason: reason)
   end
 end
