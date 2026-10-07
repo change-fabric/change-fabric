@@ -160,6 +160,11 @@ end
 class SkillCiIdiomLintTest < Minitest::Test
   SKILLS_DIR = File.expand_path("../skills", __dir__)
 
+  SAFE_GREP = /git grep [^;\n]* \|\| s=\$\?;/
+
+  # How many git grep calls on the line do not hand their status to `|| s=$?;`.
+  def unguarded_greps(line) = line.scan("git grep").size - line.scan(SAFE_GREP).size
+
   def offending_lines
     Dir.glob(File.join(SKILLS_DIR, "*", "SKILL.md")).sort.flat_map do |path|
       File.readlines(path).each_with_index.filter_map do |line, idx|
@@ -183,8 +188,16 @@ class SkillCiIdiomLintTest < Minitest::Test
   # that enables errexit (GitHub Actions runs bash -e) on a clean exit 1.
   def test_every_git_grep_captures_its_status_errexit_safe
     offenders = offending_lines do |line|
-      line.include?("git grep") && line.scan(/git grep [^;]*;/).any? { |g| !g.end_with?("|| s=$?;") }
+      unguarded_greps(line).positive?
     end
     assert_empty offenders, "a git grep status is ignored or not errexit-safe"
+  end
+
+  def test_status_lint_flags_a_bare_trailing_git_grep
+    safe = 's=0; git grep -nP "x" -- "${f[@]}" || s=$?; [ $s -eq 1 ]'
+    bare = 'git grep -nP "x" -- "${f[@]}"'
+    assert_equal 0, unguarded_greps(safe)
+    assert_equal 1, unguarded_greps(bare)
+    assert_equal 1, unguarded_greps("#{safe} && #{bare}")
   end
 end
