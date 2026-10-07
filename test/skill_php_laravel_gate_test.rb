@@ -94,8 +94,8 @@ class SkillPhpLaravelGateTest < Minitest::Test
   # Call shape: any casing or spacing of the helper is flagged; methods,
   # static calls, and other functions are not.
   def test_env_check_call_variants
-    flagged = [ "env('K')", "ENV('K')", "Env('K')", "\\eNv('K')", "env ('K')" ]
-    allowed = [ "$app->env('K')", "Foo::env('K')", "getenv('K')", "$env('K')", "my_env('K')" ]
+    flagged = [ "env('K')", "ENV('K')", "Env('K')", "\\eNv('K')", "env ('K')", "['k'=>env('K')]", "match ($x) { default=>env('K') }", "$c ? 1:env('K')" ]
+    allowed = [ "$app->env('K')", "$app?->env('K')", "Foo::env('K')", "getenv('K')", "$env('K')", "my_env('K')" ]
     flagged.each { |c| refute env_check_passes? { |put, _| put.call("app/Foo.php", "<?php #{c};\n") }, "missed #{c}" }
     allowed.each { |c| assert env_check_passes? { |put, _| put.call("app/Foo.php", "<?php #{c};\n") }, "flagged #{c}" }
   end
