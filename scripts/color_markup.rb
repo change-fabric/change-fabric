@@ -107,6 +107,35 @@ module ColorMarkup
     nil
   end
 
+  # Given the index just past an opening '{', returns the index just past
+  # its matching '}' (nil when unbalanced). Braces inside JS string and
+  # template literals ('...', "...", `...`) do not count toward the depth.
+  def self.expression_end(text, k, len = text.length)
+    depth = 1
+    while k < len && depth.positive?
+      c = text[k]
+      if c == '"' || c == "'" || c == '`'
+        k = string_end(text, k, len)
+        next
+      end
+      depth += 1 if c == '{'
+      depth -= 1 if c == '}'
+      k += 1
+    end
+    depth.zero? ? k : nil
+  end
+
+  # Index just past the closing quote of the string starting at k.
+  def self.string_end(text, k, len)
+    quote = text[k]
+    k += 1
+    while k < len
+      return k + 1 if text[k] == quote
+      k += text[k] == '\\' ? 2 : 1
+    end
+    len
+  end
+
   # Scans one tag's attribute list starting just after its name, up to the
   # tag's own closing ">" (respecting quotes and Svelte-style "{...}"
   # values), yielding [name, raw_value, value_start_index, curly] for each
@@ -152,13 +181,7 @@ module ColorMarkup
       yield(name, text[vstart...close], vstart, false)
       close + 1
     elsif j < len && text[j] == '{'
-      depth = 1
-      k = j + 1
-      while k < len && depth.positive?
-        depth += 1 if text[k] == '{'
-        depth -= 1 if text[k] == '}'
-        k += 1
-      end
+      k = ColorMarkup.expression_end(text, j + 1, len) || len
       vstart = j + 1
       yield(name, text[vstart...(k - 1)], vstart, true)
       k

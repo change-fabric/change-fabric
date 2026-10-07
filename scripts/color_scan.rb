@@ -443,19 +443,14 @@ module ColorScan
 
   def brace_ranges(text)
     ranges = []
-    depth = 0
-    start = nil
-    text.each_char.with_index do |c, idx|
-      if c == '{'
-        start = idx if depth.zero?
-        depth += 1
-      elsif c == '}' && depth.positive?
-        depth -= 1
-        if depth.zero? && start
-          ranges << (start...(idx + 1))
-          start = nil
-        end
-      end
+    idx = 0
+    len = text.length
+    while (open = text.index('{', idx))
+      close = ColorMarkup.expression_end(text, open + 1, len)
+      break unless close
+
+      ranges << (open...close)
+      idx = close
     end
     ranges
   end

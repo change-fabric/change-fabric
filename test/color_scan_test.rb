@@ -83,6 +83,28 @@ class ColorScanTest < Minitest::Test
     assert_equal [ [ 3, "literal" ] ], kinds("a.mdx", text)
   end
 
+  BRACE_IN_STRING_VARIANTS = [
+    %({ok ? "}" : "#abc"}),
+    %({ok ? '}' : "#abc"}),
+    %({ok ? `}` : "#abc"}),
+    %({ok ? "\\"}" : "#abc"}),
+    %({ok ? "{" : "#abc"})
+  ].freeze
+
+  def test_svelte_bound_attr_ignores_braces_inside_strings
+    BRACE_IN_STRING_VARIANTS.each do |expr|
+      found = findings("a.svelte", "<rect fill=#{expr} />")
+      assert_equal 1, found.size, "missed #abc after #{expr}"
+    end
+  end
+
+  def test_mdx_brace_expression_ignores_braces_inside_strings
+    BRACE_IN_STRING_VARIANTS.each do |expr|
+      found = findings("a.mdx", "Text #{expr} more\n")
+      assert_equal 1, found.size, "missed #abc after #{expr}"
+    end
+  end
+
   def test_mdx_import_line_is_scanned
     text = "import { x } from 'x';\nconst y = '#123456';\n"
     # only the import line is in scope; the following plain statement is
