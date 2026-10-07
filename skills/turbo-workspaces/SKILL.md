@@ -33,7 +33,7 @@ Forbid by default:
 CI:
 - `turbo run lint build test`
 - `npm ls --workspaces`
-- `base=$(git rev-parse --verify --quiet "${BASE_REF:-origin/HEAD}^{commit}") && l=$(mktemp) && trap 'rm -f "$l"' EXIT && git diff -z --name-only --no-renames --diff-filter=AM --merge-base "$base" -- 'apps/**' 'packages/**' >"$l" && f=() && while IFS= read -r -d "" p; do f+=("$p"); done <"$l" && { [ ${#f[@]} -eq 0 ] || { GIT_LITERAL_PATHSPECS=1 git grep -nP "(\\.\\./){2,}(apps|packages)/" -- "${f[@]}"; [ $? -eq 1 ]; }; }` (see skills/README.md, CI diff-grep checks)
+- `base=$(git rev-parse --verify --quiet "${BASE_REF:-origin/HEAD}^{commit}") && l=$(mktemp) && trap 'rm -f "$l"' EXIT && git diff -z --name-only --no-renames --diff-filter=AM --merge-base "$base" -- 'apps/**' 'packages/**' >"$l" && f=() && while IFS= read -r -d "" p; do f+=("$p"); done <"$l" && { [ ${#f[@]} -eq 0 ] || { s=0; GIT_LITERAL_PATHSPECS=1 git grep -nP "(\\.\\./){2,}(apps|packages)/" -- "${f[@]}" || s=$?; [ $s -eq 1 ]; }; }` (see skills/README.md, CI diff-grep checks)
 
 Agent protocol:
 1. Keep package boundaries explicit.

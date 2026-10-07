@@ -71,7 +71,7 @@ class SkillCiIdiomTest < Minitest::Test
   def run_idiom(base_ref:, pathspecs: PATHSPEC, pattern: PATTERN)
     env = GitFixture::CLEAN_ENV.dup
     env["BASE_REF"] = base_ref if base_ref
-    out, status = Open3.capture2e(env, "bash", "-c", script(pathspecs: pathspecs, pattern: pattern),
+    out, status = Open3.capture2e(env, "bash", "-e", "-c", script(pathspecs: pathspecs, pattern: pattern),
                                    chdir: @repo)
     [ status.success?, out ]
   end
@@ -178,11 +178,13 @@ class SkillCiIdiomLintTest < Minitest::Test
     assert_empty offenders, "fail-open git diff / [ -z \"$out\" ] idiom still present"
   end
 
-  # A git grep whose output is redirected to a file and read back later must
-  # have its status checked right away: an I/O or repo error (exit 2+) leaves
-  # the file empty, which the later read would treat as a pass.
-  def test_every_redirected_git_grep_checks_its_status
-    offenders = offending_lines { |line| line.match?(/git grep [^;]*>"\$\w+"; (?!s=\$\?)/) }
-    assert_empty offenders, "a redirected git grep ignores its exit status"
+  # Every git grep must hand its status to `|| s=$?`: an I/O or repo error
+  # (exit 2+) must be checked, and a bare `git grep ...;` aborts a runner
+  # that enables errexit (GitHub Actions runs bash -e) on a clean exit 1.
+  def test_every_git_grep_captures_its_status_errexit_safe
+    offenders = offending_lines do |line|
+      line.include?("git grep") && line.scan(/git grep [^;]*;/).any? { |g| !g.end_with?("|| s=$?;") }
+    end
+    assert_empty offenders, "a git grep status is ignored or not errexit-safe"
   end
 end

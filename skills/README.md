@@ -141,10 +141,13 @@ f=() && while IFS= read -r -d "" p; do f+=("$p"); done <"$l" &&
     # GIT_LITERAL_PATHSPECS=1 makes every array entry a literal filename, not
     # a pathspec pattern, so a filename that happens to look like a glob
     # cannot change what gets grepped.
-    GIT_LITERAL_PATHSPECS=1 git grep -nP "__PAT__" -- "${f[@]}"
     # git grep's exit status: 0 = match found, 1 = no match, 2+ = error (bad
     # pattern, I/O failure). Only 1 is a pass; 0 and 2+ both fail the check.
-    [ $? -eq 1 ]
+    # The status is captured through `|| s=$?` so a clean grep's exit 1 does
+    # not abort a runner that enables errexit (GitHub Actions runs bash -e).
+    s=0
+    GIT_LITERAL_PATHSPECS=1 git grep -nP "__PAT__" -- "${f[@]}" || s=$?
+    [ $s -eq 1 ]
   };
 }
 ```
