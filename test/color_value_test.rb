@@ -230,6 +230,23 @@ class ColorValueTest < Minitest::Test
     assert_in_delta 1.0, color.a, 0.001
   end
 
+  def test_var_partial_channel_groups_substitute_before_splitting
+    decls = {
+      "--rgb" => "0, 0, 0", "--gb" => "0, 0", "--sp" => "0 0 0",
+      "--nested" => "var(--gb)", "--hs" => "0, 0%", "--a" => ".5"
+    }
+    [
+      "rgba(var(--rgb), .5)", "rgb(var(--rgb), var(--a))", "rgba(0, var(--gb), .5)",
+      "rgba(0, var(--nested), .5)", "rgb(var(--sp) / .5)", "rgb(var(--sp) / var(--a))",
+      "hsla(var(--hs), 0%, .5)"
+    ].each do |value|
+      color = resolved(value, decls)
+      assert_equal [ 0, 0, 0 ], [ color.r, color.g, color.b ], value
+      assert_in_delta 0.5, color.a, 0.001, value
+    end
+    assert_nil CV.resolve("rgba(var(--missing), .5)", decls).color
+  end
+
   def test_var_whole_channel_triplet_resolves_in_rgb_with_alpha
     decls = { "--q" => "10 20 30" }
     color = resolved("rgb(var(--q) / 0.5)", decls)

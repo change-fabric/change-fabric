@@ -519,12 +519,54 @@ module ColorValue
   # to split on in that case, so it reports the wrong channel count. When
   # that happens, substitute the var() covering the whole channel group (and
   # the whole alpha token, when present) before re-splitting into channels.
+  # Every var() in the argument text is substituted in place, so a var()
+  # that supplies several comma-separated legacy channels next to a literal
+  # (rgba(var(--rgb), .5) where --rgb: 0, 0, 0) splits correctly afterwards.
   def substitute_var_whole_args(args, decls, seen)
-    main, slash, alpha_part = args.partition('/')
-    main_text, err = substitute_var_token(main.strip, decls, seen)
-    return [ nil, err ] if err
+    substitute_vars_in_text(args.to_s, decls, seen)
+  end
 
-    [ slash.empty? ? main_text : "#{main_text} / #{alpha_part.strip}", nil ]
+  VAR_SUBSTITUTION_DEPTH = 16
+
+  # Replaces each var(...) occurrence in text with its substituted value,
+  # re-scanning the result so a value that itself contains var() expands
+  # too (bounded by VAR_SUBSTITUTION_DEPTH; cycles are caught per reference
+  # by substitute_var_token). Returns [text, nil] or [nil, reason].
+  def substitute_vars_in_text(text, decls, seen, depth = 0)
+    return [ nil, "unrecognized color value: #{text[0, 40]}" ] if depth > VAR_SUBSTITUTION_DEPTH
+
+    out = +''
+    i = 0
+    changed = false
+    while (start = text.index(/var\(/i, i))
+      out << text[i...start]
+      close = matching_paren(text, start + 3)
+      return [ nil, "unrecognized color value: #{text[start, 40]}" ] unless close
+
+      sub, err = substitute_var_token(text[start..close], decls, seen)
+      return [ nil, err ] if err
+
+      out << sub.to_s
+      changed = true
+      i = close + 1
+    end
+    out << text[i..].to_s
+    return [ out, nil ] unless changed && out.match?(/var\(/i)
+
+    substitute_vars_in_text(out, decls, seen, depth + 1)
+  end
+
+  def matching_paren(text, open_idx)
+    level = 0
+    (open_idx...text.length).each do |j|
+      case text[j]
+      when '(' then level += 1
+      when ')'
+        level -= 1
+        return j if level.zero?
+      end
+    end
+    nil
   end
 
   def parse_rgb_function(args, decls, seen)
@@ -532,7 +574,7 @@ module ColorValue
     return unsupported if unsupported
 
     channels, alpha_tok, legacy = extract_channels_and_alpha(args)
-    if channels.size != 3
+    if channels.size != 3 || args.match?(/var\(/i)
       new_args, err = substitute_var_whole_args(args, decls, seen)
       return Result.new(color: nil, reason: err) if err
 
@@ -575,7 +617,7 @@ module ColorValue
     return unsupported if unsupported
 
     channels, alpha_tok, = extract_channels_and_alpha(args)
-    if channels.size != 3
+    if channels.size != 3 || args.match?(/var\(/i)
       new_args, err = substitute_var_whole_args(args, decls, seen)
       return Result.new(color: nil, reason: err) if err
 
