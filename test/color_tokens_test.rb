@@ -271,6 +271,32 @@ class ColorTokensTest < Minitest::Test
     ok(":root{--a:url(/A.png)}\n:root{--a:url(/A.png)  }")
   end
 
+  # Whitespace that is its own insignificant token (inside parens, around a
+  # comma or slash) never makes two spellings of one value conflict.
+  def test_redeclaration_ignores_insignificant_whitespace
+    [
+      [ "var( --ink )", "var(--ink)" ],
+      [ "var(\t--ink\n)", "var(--ink)" ],
+      [ "var( --ink , #000 )", "var(--ink,#000)" ],
+      [ "VAR( --ink )", "var(--ink)" ],
+      [ "rgb( var(--r) var(--g) var(--b) )", "rgb(var(--r) var(--g) var(--b))" ],
+      [ "rgb(var(--c) / 50%)", "rgb(var(--c)/50%)" ],
+      [ "color-mix( in srgb , var( --x ) 50% , #fff )", "color-mix(in srgb,var(--x) 50%,#fff)" ],
+      [ "var(--x, \"a\" )", "var(--x,\"a\")" ],
+      [ "url( /A.png )", "url(/A.png)" ]
+    ].each do |a, b|
+      ok(":root{--a:#{a}}\n:root{--a:#{b}}")
+      ok(":root{--a:#000}\n.dark{--a:#{a}}\n.dark{--a:#{b}}")
+    end
+    [
+      [ "var(--x) var(--y)", "var(--x)var(--y)" ],
+      [ "var(--x, \" a \")", "var(--x, \"a\")" ],
+      [ "var(--x, ' , ')", "var(--x, ',')" ],
+      [ "url( /A.png )", "url(/a.png)" ],
+      [ "foo (x)", "foo(x)" ]
+    ].each { |a, b| assert_error(":root{--a:#{a}}\n:root{--a:#{b}}", "`--a` is declared twice") }
+  end
+
   def test_redeclaration_keeps_quoted_strings_verbatim
     [
       %(:root{--a:"A  B"}\n:root{--a:"a b"}),

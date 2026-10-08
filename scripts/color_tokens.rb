@@ -338,16 +338,24 @@ module ColorTokens
       channel.to_r
     end
 
-    # Collapses whitespace outside quoted strings (whose whitespace is
-    # content) and ASCII-lowercases function names, which CSS defines as
-    # case-insensitive, so VAR(--x) and var(--x) agree. Nothing else is
-    # folded: url(/A.png) contents, var(--Ink) names, strings and unknown
-    # idents are case-sensitive. Colors already compare by resolved RGBA in
-    # color_key, so #FFF and #fff still agree.
+    # Canonicalizes whitespace outside quoted strings (whose whitespace is
+    # content) by CSS token semantics and ASCII-lowercases function names,
+    # which CSS defines as case-insensitive, so VAR(--x) and var(--x) agree.
+    # Nothing else is folded: url(/A.png) contents, var(--Ink) names, strings
+    # and unknown idents are case-sensitive. Colors already compare by
+    # resolved RGBA in color_key, so #FFF and #fff still agree.
     def normalize(value)
       ColorCss.downcase_function_names(value.strip).split(QUOTED).each_with_index.map do |part, i|
-        i.odd? ? part : part.gsub(/\s+/, " ")
+        i.odd? ? part : insignificant_space_dropped(part)
       end.join
+    end
+
+    # Whitespace directly inside ( and ), and around a comma or slash, is a
+    # separate whitespace token no value grammar reads, so var( --ink ) and
+    # var(--ink), or rgb(0 , 0) and rgb(0,0), agree. Any other run of
+    # whitespace separates tokens, so it collapses to one space but stays.
+    def insignificant_space_dropped(text)
+      text.gsub(/\s+/, " ").gsub(/\( /, "(").gsub(/ \)/, ")").gsub(%r{ ?([,/]) ?}, "\\1")
     end
   end
 end
