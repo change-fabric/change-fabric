@@ -336,4 +336,11 @@ class ColorValueTest < Minitest::Test
     assert_in_delta 1.0, CV.resolve("rgb(0 0 0 / 150%)", {}).color.a, 0.0
     assert_in_delta 0.0, CV.resolve("rgb(0 0 0 / -1e400)", {}).color.a, 0.0
   end
+
+  def test_non_finite_numbers_are_unresolved_at_every_parse_site
+    [
+      "rgb(1e999 0 0)", "rgb(0 -1e999 0)", "rgb(1e999% 0% 0%)",
+      "hsl(1e999 50% 50%)", "hsl(1e999turn 50% 50%)", "hsl(0 1e999% 50%)", "hsl(0 50% 1e999%)"
+    ].each { |value| unresolved(value) }
+  end
 end

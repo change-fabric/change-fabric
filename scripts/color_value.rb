@@ -374,7 +374,13 @@ module ColorValue
     t = token.to_s.strip
     return nil unless t.match?(/\A#{NUMBER_RE}\z/)
 
-    t.to_f
+    finite_or_nil(t.to_f)
+  end
+
+  # An exponent such as 1e999 overflows to Infinity; a non-finite value is
+  # not a usable number and must not reach rounding or arithmetic.
+  def finite_or_nil(value)
+    value.finite? ? value : nil
   end
 
   def parse_percentage(token)
@@ -382,7 +388,7 @@ module ColorValue
     m = t.match(/\A(#{NUMBER_RE})%\z/)
     return nil unless m
 
-    m[1].to_f
+    finite_or_nil(m[1].to_f)
   end
 
   # Legacy comma syntax (rgb(1, 2, 3)) requires all three channels to be the
@@ -471,7 +477,9 @@ module ColorValue
     m = t.match(/\A(#{NUMBER_RE})(deg|grad|rad|turn)?\z/i)
     return nil unless m
 
-    num = m[1].to_f
+    num = finite_or_nil(m[1].to_f)
+    return nil unless num
+
     case m[2]&.downcase
     when 'grad' then num * 0.9
     when 'rad' then (num * 180.0) / Math::PI
