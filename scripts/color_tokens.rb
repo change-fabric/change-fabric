@@ -233,7 +233,7 @@ module ColorTokens
 
     # CSS-wide keywords are reserved in every segment of a layer name; a
     # rule naming one is invalid at parse time.
-    CSS_WIDE_KEYWORDS = %w[initial inherit unset revert revert-layer].freeze
+    CSS_WIDE_KEYWORDS = %w[initial inherit unset revert revert-layer revert-rule].freeze
 
     # The dot-separated segments of a wrapper's layer name, escapes resolved.
     def layer_segments(canonical)

@@ -151,7 +151,7 @@ class ColorTokensTest < Minitest::Test
   # CSS-wide keywords are reserved in every layer-name segment, ASCII case
   # and escapes aside; browsers drop the whole rule.
   def test_layer_wrapper_rejects_css_wide_keywords
-    [ "initial", "INHERIT", "a.unset", "revert.b", "Revert-Layer", "\\69nitial" ].each do |name|
+    [ "initial", "INHERIT", "a.unset", "revert.b", "Revert-Layer", "revert-rule", "a.REVERT-RULE", "\\69nitial" ].each do |name|
       assert_error("@layer #{name} { :root{--a:#000} }", "a CSS-wide keyword")
     end
     [ "initials", "revert-layers", "a.default" ].each do |name|
