@@ -271,7 +271,7 @@ module ColorValue
 
   def relative_luminance(rgba)
     r, g, b = [ rgba.r, rgba.g, rgba.b ].map { |c| c / 255.0 }
-    rl, gl, bl = [ r, g, b ].map { |c| c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055)**2.4 }
+    rl, gl, bl = [ r, g, b ].map { |c| c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055)**2.4 }
     (0.2126 * rl) + (0.7152 * gl) + (0.0722 * bl)
   end
 

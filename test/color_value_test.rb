@@ -356,6 +356,17 @@ class ColorValueTest < Minitest::Test
     assert_in_delta CV.contrast_ratio(black, CV::WHITE), CV.contrast_ratio(CV::WHITE, black), 0.001
   end
 
+  # WCAG 2.2 linearizes with the 0.04045 knee; channels in the band between
+  # the obsolete 0.03928 and 0.04045 must take the linear branch.
+  def test_relative_luminance_uses_wcag22_knee
+    [ 10.1, 10.2, 10.3, 0.04045 * 255 ].each do |channel|
+      color = CV::Rgba.new(r: channel, g: channel, b: channel, a: 1.0)
+      assert_in_delta (channel / 255.0) / 12.92, CV.relative_luminance(color), 1e-15, channel.to_s
+    end
+    edge = CV.resolve("rgb(10.1 132.33333 132.33333)", {}).color
+    assert_operator CV.contrast_ratio(edge, CV::WHITE), :<, 4.5
+  end
+
   def test_contrast_ratio_same_color_is_1
     gray = CV::Rgba.new(r: 128, g: 128, b: 128, a: 1.0)
     assert_in_delta 1.0, CV.contrast_ratio(gray, gray), 0.001
