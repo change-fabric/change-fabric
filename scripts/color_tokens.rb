@@ -204,7 +204,9 @@ module ColorTokens
       :dark if rest == '.dark' || rest.match?(DARK_ATTR)
     end
 
-    QUOTED = /("(?:\\.|[^"\\])*"?|'(?:\\.|[^'\\])*'?)/
+    # A quoted string or an escape outside one: spans whose whitespace and
+    # quotes are content, so compact_selector and normalize leave them alone.
+    QUOTED = /(#{ColorCss::ESCAPE}|"(?:\\.|[^"\\])*"?|'(?:\\.|[^'\\])*'?)/m
 
     # Drops only syntactic spacing around [ ] = outside quoted strings, so
     # `[ data-theme = "dark" ]` compacts but `"d a r k"` and `da rk` keep theirs.
@@ -214,20 +216,22 @@ module ColorTokens
       end.join
     end
 
+    # An escape (\ , \>, \[, \") is part of a compound, never a combinator,
+    # bracket or quote.
     def combinator?(selector)
       depth = 0
-      quote = nil
-      selector.each_char do |ch|
-        if quote
-          quote = nil if ch == quote
+      i = 0
+      while i < selector.length
+        case selector[i]
+        when "\\" then i = ColorCss.skip_escape(selector, i)
           next
-        end
-        case ch
-        when '"', "'" then quote = ch
-        when '[', '(' then depth += 1
-        when ']', ')' then depth -= 1
+        when '"', "'" then i = ColorCss.skip_string(selector, i)
+          next
+        when "[", "(" then depth += 1
+        when "]", ")" then depth -= 1
         when /[\s>+~]/ then return true if depth.zero?
         end
+        i += 1
       end
       false
     end

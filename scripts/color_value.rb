@@ -357,7 +357,8 @@ module ColorValue
 
   # The custom-property names named first in each real var( function token
   # in text (ColorCss.function_tokens), in order. Strings, longer idents such
-  # as évar( or my-var(, and escaped names are not var() calls.
+  # as évar( or my-var( are not var() calls; an escaped spelling such as
+  # \var( or v\61 r( is one, since CSS decodes escapes before matching.
   def var_dependencies(text)
     text = text.to_s
     ColorCss.function_tokens(text).filter_map do |t|
@@ -378,27 +379,22 @@ module ColorValue
   end
 
   # Finds the paren closing the one at open_idx, skipping any paren inside a
-  # CSS string.
+  # CSS string or written as an escape (\)).
   def matching_paren(text, open_idx)
     level = 0
-    in_string = nil
-    escaped = false
-    (open_idx...text.length).each do |j|
-      ch = text[j]
-      if in_string
-        if escaped then escaped = false
-        elsif ch == "\\" then escaped = true
-        elsif ch == in_string then in_string = nil
-        end
+    j = open_idx
+    while j < text.length
+      case text[j]
+      when "\\" then j = ColorCss.skip_escape(text, j)
         next
-      end
-      case ch
-      when '"', "'" then in_string = ch
-      when '(' then level += 1
-      when ')'
+      when '"', "'" then j = ColorCss.skip_string(text, j)
+        next
+      when "(" then level += 1
+      when ")"
         level -= 1
         return j if level.zero?
       end
+      j += 1
     end
     nil
   end

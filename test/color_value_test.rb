@@ -209,18 +209,31 @@ class ColorValueTest < Minitest::Test
   end
 
   # Only a real var( function token is a dependency: a name merely ending
-  # in var, or an escaped \\var(, is not, while VAR( (case-insensitive) is.
+  # in var, is not, while VAR( (case-insensitive) and every escaped spelling
+  # of var( (CSS decodes escapes before matching a name) are.
   def test_var_scan_requires_function_name_boundary
-    %w[xvar my-var _var 2var \\var évar varé ÉVAR -2var].each do |fn|
+    %w[xvar my-var _var 2var évar varé ÉVAR -2var].each do |fn|
       decls = { "--white" => "#fff", "--page-text" => "var(--white, #{fn}(--page-text))" }
       assert_rgba 255, 255, 255, resolved("var(--page-text)", decls), delta: 0.001
       assert CV.literal?("rgb(#{fn}(--x) 0 0)"), fn
     end
-    decls = { "--white" => "#fff", "--page-text" => "var(--white, VAR(--page-text))" }
-    assert_includes unresolved("var(--page-text)", decls), "cycle"
-    refute CV.literal?("rgb(VAR(--x) 0 0)")
+    [ "VAR", "\\var", "v\\61r", "v\\61 r", "\\76 \\61 \\72", "\\000056AR", "V\\41R" ].each do |fn|
+      decls = { "--white" => "#fff", "--page-text" => "var(--white, #{fn}(--page-text))" }
+      assert_includes unresolved("var(--page-text)", decls), "cycle", fn
+      refute CV.literal?("rgb(#{fn}(--x) 0 0)"), fn
+    end
+    assert CV.literal?("rgb(\\75 rl(var(--x)) 0 0)")
     refute CV.literal?("rgb(0 calc(var(--x)) 0)")
     assert CV.literal?(%(rgb(0 0 0 / "var(--x)")))
+  end
+
+  # An escaped paren never closes the var( it sits in.
+  def test_matching_paren_skips_escapes
+    assert_equal 5, CV.matching_paren("a(\\)b)", 1)
+    assert_equal 7, CV.matching_paren("a(\\29 b)", 1)
+    assert_equal 5, CV.matching_paren("a(\\(b))", 1)
+    assert_equal 7, CV.matching_paren("a(\")\\\"\")", 1)
+    assert_includes unresolved("var(--a\\) var(--b)", { "--a" => "#fff", "--b" => "#000" }), "unrecognized"
   end
 
   def test_var_cycle_with_no_fallback_is_unresolved

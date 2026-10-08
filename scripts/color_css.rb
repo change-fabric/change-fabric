@@ -28,6 +28,11 @@ module ColorCss
   DECL_NAME = /\A(\s*)(--[\w-]+|\$[\w-]+|@[\w-]+|-?[A-Za-z][\w-]*)(\s*):(.*)\z/m.freeze
   AT_RULE_STMT = /\A(\s*)(@[\w-]+)(\s*)(.*)\z/m.freeze
   IMPORTANT = /\A(.*?)\s*!\s*important\s*\z/mi.freeze
+  # One escape per CSS Syntax 3 4.3.7: a backslash then 1-6 hex digits and
+  # one optional whitespace, or any code point but a newline, or end of
+  # input. A backslash before a newline matches nothing: it is no escape.
+  ESCAPE = /\\(?:\h{1,6}(?:\r\n|[ \t\n\r\f])?|[^\n\r\f]|\z)/.freeze
+  ESCAPE_AT = /\G#{ESCAPE}/.freeze
 
   module_function
 
@@ -36,55 +41,64 @@ module ColorCss
     Parser.new(text).sheet
   end
 
-  # Splits text at top-level occurrences of sep, respecting parentheses and
-  # quoted strings, so ":is(a, b)" stays one entry and a comma inside a
-  # string is never a split point. Entries are not whitespace-collapsed here;
-  # callers do that themselves.
-  def split_top_level(text, sep = ',')
-    out = []
-    current = +''
-    depth = 0
-    in_string = nil
-    escaped = false
-    text.each_char do |ch|
-      if in_string
-        current << ch
-        if escaped
-          escaped = false
-        elsif ch == '\\'
-          escaped = true
-        elsif ch == in_string
-          in_string = nil
-        end
-        next
-      end
+  # The escape whose backslash is at text[i], decoded per CSS Syntax 3
+  # 4.3.7: [code point, index just past the escape]. Hex digits name a code
+  # point (zero, a surrogate or one past U+10FFFF becomes U+FFFD) and eat one
+  # following whitespace; any other code point stands for itself; a
+  # backslash at end of input is U+FFFD. nil when text[i] is not a backslash
+  # or the backslash precedes a newline, which is no escape at all.
+  def decode_escape(text, i)
+    m = text[i] == "\\" && text.match(ESCAPE_AT, i)
+    return nil unless m
 
-      case ch
-      when "'", '"'
-        in_string = ch
-        current << ch
-      when '('
-        depth += 1
-        current << ch
-      when ')'
-        depth -= 1 if depth.positive?
-        current << ch
-      else
-        if ch == sep && depth.zero?
-          out << current
-          current = +''
-        else
-          current << ch
+    hex = m[0][/\A\\(\h+)/, 1]
+    return [ m[0][1] || "\uFFFD", m.end(0) ] unless hex
+
+    cp = hex.to_i(16)
+    cp = 0xFFFD if cp.zero? || cp > 0x10FFFF || (0xD800..0xDFFF).cover?(cp)
+    [ cp.chr(Encoding::UTF_8), m.end(0) ]
+  end
+
+  # Index past the backslash at i and the code point it escapes, so no
+  # scanner ever reads an escaped ; { } ( ) , or quote as a delimiter. A
+  # backslash before a newline is a lone delimiter: just past it.
+  def skip_escape(text, i)
+    decode_escape(text, i)&.last || i + 1
+  end
+
+  # Splits text at top-level occurrences of sep, respecting parentheses,
+  # quoted strings and escapes, so ":is(a, b)" stays one entry and a comma
+  # inside a string or written as \, is never a split point. Entries are not
+  # whitespace-collapsed here; callers do that themselves.
+  def split_top_level(text, sep = ",")
+    out = []
+    start = 0
+    depth = 0
+    i = 0
+    while i < text.length
+      case text[i]
+      when "\\" then i = skip_escape(text, i)
+        next
+      when '"', "'" then i = skip_string(text, i)
+        next
+      when "(" then depth += 1
+      when ")" then depth -= 1 if depth.positive?
+      when sep
+        if depth.zero?
+          out << text[start...i]
+          start = i + 1
         end
       end
+      i += 1
     end
-    out << current
+    out << text[start..]
     out
   end
 
-  # One function token in a value: name is the source spelling ASCII
-  # downcased (non-ASCII and escapes kept as written), start the index of
-  # its first character, open the index of its "(".
+  # One function token in a value: name is its value with escapes decoded,
+  # then ASCII downcased (non-ASCII kept as written), so \var(, v\61 r( and
+  # VAR( are all "var". start is the index of its first character, open the
+  # index of its "(".
   FunctionToken = Data.define(:name, :start, :open)
 
   # Every real function token in text, per CSS Syntax 3: a maximal run of
@@ -92,8 +106,8 @@ module ColorCss
   # backslash escape) that is a valid identifier and is followed directly by
   # "(". Quoted strings and comments are skipped, as are the contents of an
   # unquoted url(...) token, a #hash or @at-keyword name, and a run that
-  # starts like a number (2var). Escapes are not decoded, so \var( never
-  # equals var(.
+  # starts like a number (2var). Escapes are decoded before the name is
+  # compared, as CSS does, so \var( is var( and \75 rl( is url(.
   def function_tokens(text)
     text = text.to_s
     tokens = []
@@ -111,7 +125,7 @@ module ColorCss
         prev = start.positive? ? text[start - 1] : nil
         next unless text[i] == "(" && prev != "#" && prev != "@" && ident_start?(text[start...i])
 
-        tok = FunctionToken.new(name: text[start...i].downcase(:ascii), start:, open: i)
+        tok = FunctionToken.new(name: decode_ident(text[start...i]).downcase(:ascii), start:, open: i)
         tokens << tok
         i = tok.name == "url" ? skip_unquoted_url(text, i) : i + 1
       else
@@ -122,23 +136,42 @@ module ColorCss
   end
 
   # text with every function name ASCII-lowercased and nothing else touched:
-  # custom-property names, url() contents and strings stay exact.
+  # custom-property names, url() contents and strings stay exact. A name
+  # spelled with escapes becomes its decoded value when that value needs no
+  # escaping (\56 AR( becomes var(), else it is only ASCII-lowercased.
   def downcase_function_names(text)
     out = text.to_s.dup
-    function_tokens(text).each { |t| out[t.start...t.open] = t.name }
+    function_tokens(text).reverse_each do |t|
+      plain = t.name.match?(/\A[-_a-z0-9\u0080-\u{10FFFF}]+\z/) && ident_start?(t.name)
+      out[t.start...t.open] = plain ? t.name : out[t.start...t.open].downcase(:ascii)
+    end
     out
   end
 
-  # Index just past the string opening at i (or end of text if unterminated).
+  # An identifier run's value: each escape replaced by its code point.
+  def decode_ident(run)
+    out = +""
+    i = 0
+    while i < run.length
+      ch, i = decode_escape(run, i) || [ run[i], i + 1 ]
+      out << ch
+    end
+    out
+  end
+
+  # Index just past the string opening at i, or of the raw newline that
+  # leaves it unterminated, or end of text. Inside a string a backslash
+  # before a newline continues the line; any other escape is consumed whole.
   def skip_string(text, i)
     quote = text[i]
     j = i + 1
     while j < text.length
       case text[j]
-      when "\\" then j += 2
+      when "\\"
+        j = text[j + 1, 2] == "\r\n" ? j + 3 : (decode_escape(text, j)&.last || j + 2)
         next
       when quote then return j + 1
-      when "\n" then return j
+      when "\n", "\r", "\f" then return j
       end
       j += 1
     end
@@ -147,11 +180,11 @@ module ColorCss
 
   def ident_char_at?(text, i)
     ch = text[i]
-    ch.match?(/[-_a-zA-Z0-9]/) || ch.ord >= 0x80 || (ch == "\\" && i + 1 < text.length && text[i + 1] != "\n")
+    ch.match?(/[-_a-zA-Z0-9]/) || ch.ord >= 0x80 || !decode_escape(text, i).nil?
   end
 
   def skip_ident_run(text, i)
-    i += text[i] == "\\" ? 2 : 1 while i < text.length && ident_char_at?(text, i)
+    i = text[i] == "\\" ? skip_escape(text, i) : i + 1 while i < text.length && ident_char_at?(text, i)
     i
   end
 
@@ -175,7 +208,7 @@ module ColorCss
     while j < text.length
       return j + 1 if text[j] == ")"
 
-      j += text[j] == "\\" ? 2 : 1
+      j = text[j] == "\\" ? skip_escape(text, j) : j + 1
     end
     text.length
   end
@@ -209,7 +242,7 @@ module ColorCss
     private
 
     def scan_one
-      if (text = @scanner.scan(/[^\/'"();{}]+/))
+      if (text = @scanner.scan(/[^\/'"();{}\\]+/))
         consume_text(text)
         return
       end
@@ -217,6 +250,11 @@ module ColorCss
 
       ch = @scanner.peek(1)
       case ch
+      when "\\"
+        # An escape is ordinary value text, so an escaped ; { } ( ) or quote
+        # never ends a declaration or moves the block or paren depth. A
+        # backslash before a newline escapes nothing and is taken alone.
+        consume_text(@scanner.scan(ESCAPE) || @scanner.getch)
       when '/'
         scan_slash
       when "'", '"'
@@ -281,7 +319,7 @@ module ColorCss
       start_line = @line
       append(@scanner.getch) # opening quote
       loop do
-        found = @scanner.scan_until(/\\.|\\\z|\n|#{Regexp.escape(quote)}/m)
+        found = @scanner.scan_until(/\\\r\n|\\.|\\\z|\n|#{Regexp.escape(quote)}/m)
         if found.nil?
           rest = @scanner.rest
           @scanner.terminate

@@ -214,7 +214,8 @@ class ColorCssTest < Minitest::Test
       "xvar(--x) my-var(--x) _var(--x) -var(--x) --var(--x)" => %w[xvar my-var _var -var --var],
       "2var(--x) -2var(--x) 1e5var(--x) .5var(--x)" => [],
       "#var(--x) @var(--x)" => [],
-      "\\var(--x)" => [ "\\var" ],
+      "\\var(--x) v\\61 r(--x) v\\61r(--x) \\56 AR(--x) \\000076ar(--x)" => %w[var var var var var],
+      "\\75 rl(\\29 var(--x)) u\\72 l(a)" => %w[url url],
       %("var(--x)" 'var(--x)' "a\\" var(--x)") => [],
       "/* var(--x) */ rgb(0 0 0)" => %w[rgb],
       "url(var(--x)) URL(\"var(--y)\")" => %w[url url],
@@ -230,5 +231,49 @@ class ColorCssTest < Minitest::Test
   def test_downcase_function_names_touches_only_names
     assert_equal %(var(--Ink, url(/A.png) "VAR(x)") color-mix(in srgb, RED, Blue)),
                  ColorCss.downcase_function_names(%(VAR(--Ink, URL(/A.png) "VAR(x)") Color-Mix(in srgb, RED, Blue)))
+    assert_equal "var(--x) var(--x) \\31 x(--x)", ColorCss.downcase_function_names("\\56 AR(--x) v\\61r(--x) \\31 X(--x)")
+  end
+
+  # CSS Syntax 3 4.3.7: 1-6 hex digits plus one optional whitespace; zero,
+  # a surrogate or anything past U+10FFFF is U+FFFD; any other code point
+  # but a newline is itself; a backslash before a newline is no escape.
+  def test_decode_escape_follows_css_syntax
+    {
+      "\\61" => [ "a", 3 ], "\\61 x" => [ "a", 4 ], "\\61\r\nx" => [ "a", 5 ], "\\61\tx" => [ "a", 4 ],
+      "\\61  x" => [ "a", 4 ], "\\0000611" => [ "a", 7 ], "\\0" => [ "\uFFFD", 2 ],
+      "\\d800" => [ "\uFFFD", 5 ], "\\110000" => [ "\uFFFD", 7 ], "\\10ffff" => [ [ 0x10FFFF ].pack("U"), 7 ],
+      "\\;" => [ ";", 2 ], "\\g" => [ "g", 2 ], "\\ " => [ " ", 2 ], "\\" => [ "\uFFFD", 1 ]
+    }.each { |text, expected| assert_equal expected, ColorCss.decode_escape(text, 0), text.inspect }
+    [ "\\\n", "\\\r\n", "\\\f", "a" ].each { |text| assert_nil ColorCss.decode_escape(text, 0), text.inspect }
+  end
+
+  # An escaped delimiter is value text to the declaration scanner: it never
+  # ends a declaration, opens or closes a block, or moves paren depth.
+  def test_escaped_delimiters_are_value_text
+    sheet = ColorCss.parse(":root { --a: foo\\;bar; --b: x\\{y; --c: x\\}y; --d: f\\(x; --e: \\\"q; --f: #fff; }")
+    assert_empty sheet.errors
+    assert_equal %w[--a --b --c --d --e --f], sheet.decls.map(&:name)
+    assert_equal [ "foo\\;bar", "x\\{y", "x\\}y", "f\\(x", "\\\"q", "#fff" ], sheet.decls.map(&:value)
+    assert_equal 1, sheet.blocks.size
+    assert_equal [ 1 ], sheet.decls.map(&:block_id).uniq
+
+    sheet = ColorCss.parse(":root { --a: f(\\)); --b: #000; }")
+    assert_empty sheet.errors
+    assert_equal [ "f(\\))", "#000" ], sheet.decls.map(&:value)
+
+    # An escaped ; inside a name keeps the segment whole: one unparsed
+    # segment, never a stray "bar: red" declaration.
+    sheet = ColorCss.parse(":root { --foo\\;bar: red; }")
+    assert_empty sheet.decls
+    assert_equal 1, sheet.errors.size
+  end
+
+  def test_split_top_level_skips_escapes
+    assert_equal [ "a\\,b", " c" ], ColorCss.split_top_level("a\\,b, c")
+    assert_equal [ "f(\\), c)" ], ColorCss.split_top_level("f(\\), c)")
+    assert_equal [ "f(\\29 , c)" ], ColorCss.split_top_level("f(\\29 , c)")
+    assert_equal [ "\\(a", " b" ], ColorCss.split_top_level("\\(a, b")
+    assert_equal [ "\\\"a", " b" ], ColorCss.split_top_level("\\\"a, b")
+    assert_equal [ "\"a\\\", b\"", " c" ], ColorCss.split_top_level("\"a\\\", b\", c")
   end
 end

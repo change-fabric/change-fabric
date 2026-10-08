@@ -268,10 +268,28 @@ class ColorTokensTest < Minitest::Test
   def test_derived_count_needs_a_function_token_boundary
     result = ok(":root{--a:VAR(--x);--b:Color-Mix(in srgb, red, blue);--c:my-var(--x);--d:x-color-mix(red);--e:_var(--x)}")
     assert_equal 2, result.derived
-    [ "\u00e9var(--x)", "var\u00e9(--x)", "\\var(--x)", "2var(--x)", %("var(--x)"), %('color-mix(in srgb, red, blue)'),
-      %(url(var(--x))), %(url("var(--x)")) ].each do |v|
+    [ "\u00e9var(--x)", "var\u00e9(--x)", "2var(--x)", %("var(--x)"), %('color-mix(in srgb, red, blue)'),
+      %(url(var(--x))), %(url("var(--x)")), "\\75 rl(var(--x))" ].each do |v|
       assert_equal 0, ok(":root{--a:#{v}}").derived, v
     end
+    [ "\\var(--x)", "v\\61r(--x)", "\\63 olor-mix(in srgb, red, blue)" ].each do |v|
+      assert_equal 1, ok(":root{--a:#{v}}").derived, v
+    end
+  end
+
+  # An escape is part of a compound: an escaped space, >, + or ~ is never a
+  # combinator, so the selector is one compound (and not a token block).
+  def test_escaped_selector_characters_are_not_combinators
+    [ ".dark\\ x", ".dark\\>x", ".dark\\+x", ".dark\\~x", ".d\\61 rk" ].each do |sel|
+      messages = error_messages(":root{--a:#000}\n#{sel}{--a:#fff}")
+      assert_equal 1, messages.size, sel
+      assert_includes messages.first, "selector `#{sel}` is not a token block", sel
+    end
+  end
+
+  def test_escaped_function_names_redeclare_alike
+    ok(":root{--a:\\56 AR(--x)}\n:root{--a:var(--x)}")
+    ok(":root{--a:v\\61r(--x)}\n:root{--a:var(--x)}")
   end
 
   def test_unresolved_literal_forms_are_not_authored
