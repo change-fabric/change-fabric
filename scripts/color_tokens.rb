@@ -47,6 +47,9 @@ module ColorTokens
   SELECTOR_HINT = 'only :root and the dark spellings are allowed'
   # An @theme block compiles to `:root, :host`: one pseudo-class.
   THEME_SPECIFICITY = [ 0, 1, 0 ].freeze
+  # The independent ways a dark block activates, as the error names them.
+  MECHANISMS = { media: "prefers-color-scheme media", class: ".dark class",
+                 attribute: "data-theme attribute" }.freeze
 
   # line is nil for an error about locating the file rather than its contents.
   Error = Data.define(:line, :message)
@@ -113,6 +116,8 @@ module ColorTokens
       @layers = {}
       @layer_of = {}
       @specificity = {}
+      @mechanisms = {}
+      @dark_by = Hash.new { |h, k| h[k] = {} }
     end
 
     def result
@@ -120,10 +125,10 @@ module ColorTokens
       sheet.at_rule_stmts.each { |s| check_statement(s) }
       sheet.decls.each_with_index { |d, order| record(d, order) }
       check_dark_names
+      dark = dark_tokens
       authored, derived, error_token = palette
       check_palette_size(authored)
-      Result.new(path: @path, variants: { light: @light.transform_values { |v| v[:value] },
-                                          dark: dark_tokens },
+      Result.new(path: @path, variants: { light: @light.transform_values { |v| v[:value] }, dark: },
                  errors: @errors.sort_by { |e| e.line || 0 }, dark: @dark_seen, authored:, derived:, error_token:)
     end
 
@@ -222,7 +227,8 @@ module ColorTokens
 
     def classify_rule(block, prelude, parent)
       members = ColorCss.split_top_level(block.prelude).map { |m| ColorCss.strip_ws(m) }
-      variants = members.map { |sel| selector_variant(sel) }
+      mechanisms = members.map { |sel| selector_mechanism(sel) }
+      variants = mechanisms.map { |m| m && (m == :light ? :light : :dark) }
       if (bad = members.zip(variants).find { |_, v| v.nil? })
         return error(block.line, "selector `#{bad[0].gsub(ColorCss::WS_RUN, ' ')}` is not a token block; #{SELECTOR_HINT}")
       end
@@ -233,7 +239,9 @@ module ColorTokens
       # Every member matches the root element, so the block applies with
       # the most specific one.
       @specificity[block.id] = members.map { |sel| specificity(sel) }.max
-      in_media(block, prelude, parent, variants.first)
+      kind = in_media(block, prelude, parent, variants.first)
+      @mechanisms[block.id] = parent == :media_dark ? [ :media ] : mechanisms.uniq if kind == :dark
+      kind
     end
 
     def in_media(block, prelude, parent, variant)
@@ -243,9 +251,12 @@ module ColorTokens
       error(block.line, "selector `#{prelude}` inside prefers-color-scheme media; only :root is allowed there")
     end
 
-    # :light, :dark or nil for one selector-list member, read off its token
-    # stream: a whitespace or >+~ combinator at top level is never accepted.
-    def selector_variant(selector)
+    # :light, or the dark activation mechanism (:class for .dark and
+    # :root.dark, :attribute for [data-theme=dark] and its :root form), or
+    # nil, for one selector-list member, read off its token stream: a
+    # whitespace or >+~ combinator at top level is never accepted. A :root
+    # inside dark media is the third mechanism, :media (classify_rule).
+    def selector_mechanism(selector)
       return nil if combinator?(selector)
 
       compound = canonical_selector(selector)
@@ -253,7 +264,9 @@ module ColorTokens
       return :light if folded == ":root"
 
       rest = folded.start_with?(":root") ? compound[5..] : compound
-      :dark if rest == '.dark' || rest.match?(DARK_ATTR)
+      return :class if rest == ".dark"
+
+      :attribute if rest.match?(DARK_ATTR)
     end
 
     # A quoted string or an escape outside one: spans whose whitespace and
@@ -364,6 +377,11 @@ module ColorTokens
 
       origin = { important: decl.important, layer: decl.block_id && @layer_of[decl.block_id],
                  specificity: @specificity.fetch(decl.block_id), order: }
+      keep(table, decl, origin)
+      @mechanisms.fetch(decl.block_id).each { |m| keep(@dark_by[m], decl, origin) } if kind == :dark
+    end
+
+    def keep(table, decl, origin)
       entry = (table[decl.name] ||= { value: decl.value, line: decl.line, **origin })
       entry.merge!(origin) if (cascade_key(origin) <=> cascade_key(entry)).positive?
     end
@@ -376,8 +394,29 @@ module ColorTokens
       end
     end
 
+    # The dark variant. Each activation mechanism applies on its own, so
+    # when a file uses several, each one's dark table is built alone and
+    # they must agree; otherwise there is no single dark palette to grade.
     def dark_tokens
-      @light.merge(@dark.slice(*@light.keys)) { |_, light, dark| applied(light, dark) }.transform_values { |v| v[:value] }
+      tables = @dark_by.transform_values { |overrides| over_light(overrides) }
+      check_mechanisms_agree(tables)
+      tables.values.first || over_light(@dark)
+    end
+
+    def over_light(overrides)
+      @light.merge(overrides.slice(*@light.keys)) { |_, light, dark| applied(light, dark) }.transform_values { |v| v[:value] }
+    end
+
+    def check_mechanisms_agree(tables)
+      (first, base), *rest = tables.to_a
+      rest.each do |mechanism, table|
+        name = base.keys.find { |n| color_key(base[n]) != color_key(table[n]) }
+        next unless name
+
+        line = [ first, mechanism ].filter_map { |m| @dark_by[m][name]&.dig(:line) }.min
+        return error(line, "dark under #{MECHANISMS[first]} and under #{MECHANISMS[mechanism]} differ at " \
+                           "`#{name}`; each activates alone, so dark must give the same palette under every mechanism")
+      end
     end
 
     # The entry the cascade applies on the dark root element when a dark

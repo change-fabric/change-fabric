@@ -436,6 +436,20 @@ class ColorCheckTest < Minitest::Test
     end
   end
 
+  # Dark media and the .dark class activate independently, so splitting the
+  # dark overrides across them leaves no single dark palette: a token error
+  # that fails --strict, rather than a merged white-on-black variant no
+  # browser renders.
+  def test_strict_fails_dark_overrides_split_across_mechanisms
+    with_dir do |dir|
+      write(dir, "tokens.css", ":root{--background:#fff;--page-text:#000}\n" \
+                               "@media (prefers-color-scheme:dark){:root{--background:#000}}\n.dark{--page-text:#fff}")
+      report = ColorCheck.run(dir, strict: true)
+      assert(report.token_errors.any? { |e| e.message.include?("differ at `--background`") }, report.token_errors.inspect)
+      assert_equal 1, report.exit_code
+    end
+  end
+
   # Specificity and source order decide between equally ranked light and
   # dark declarations: a later :root beats the earlier, equally specific
   # .dark background, while the more specific :root.dark text still wins,

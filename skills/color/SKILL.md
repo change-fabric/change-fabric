@@ -47,6 +47,10 @@ four tokens may appear in either mode, just in different roles.
 A token file may spell dark several ways (`.dark`, `[data-theme=dark]`, an
 `@media (prefers-color-scheme: dark)` block around `:root`), as long as every
 dark block reassigns names light already declares, with identical values.
+The media query, the `.dark` class and the `data-theme` attribute are three
+independent activation mechanisms, so a file may use several only when each
+one alone produces the same dark palette: repeat the same overrides under
+each, never split them across mechanisms.
 
 ## Derived colors
 
@@ -130,6 +134,11 @@ Accepted shape:
   CSS ignore the whole declaration: it is an error and is never resolved.
 - Dark may only redefine names light declares; a new name in dark is an
   error. Two dark blocks giving one name different values is an error.
+  The dark palette is built once per activation mechanism in use
+  (prefers-color-scheme media, the `.dark` class, the `data-theme`
+  attribute), each alone over light through the cascade below; when those
+  palettes differ it is an error naming both mechanisms and the first
+  differing name.
   A normal dark value does not override an `!important` light one, so the
   light value stays in dark; an `!important` dark value overrides a normal
   light one. At equal priority layer origin decides: for normal declarations

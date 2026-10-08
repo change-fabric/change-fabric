@@ -644,6 +644,45 @@ class ColorTokensTest < Minitest::Test
     assert_equal({ "--a" => "#fff", "--b" => "#111" }, result.variants[:dark])
   end
 
+  # The three dark activation mechanisms apply independently, so each one's
+  # dark table is built alone and every pair must agree. Enumerates each
+  # pair of mechanisms, in each spelling, splitting the overrides (an
+  # error naming both and the first differing name) and repeating them
+  # (accepted, one dark variant), plus each mechanism alone and a selector
+  # list that is both class and attribute at once.
+  def test_dark_mechanisms_must_give_one_dark_palette
+    spellings = {
+      media: [ "@media (prefers-color-scheme: dark){:root{BODY}}" ],
+      class: [ ".dark{BODY}", ":root.dark{BODY}" ],
+      attribute: [ "[data-theme=dark]{BODY}", ":root[data-theme=\"dark\"]{BODY}" ]
+    }
+    light = ":root{--background:#fff;--page-text:#000}\n"
+    spellings.keys.combination(2).each do |one, two|
+      spellings[one].product(spellings[two]).each do |x, y|
+        split = "#{light}#{x.sub('BODY', '--background:#000')}\n#{y.sub('BODY', '--page-text:#fff')}"
+        assert_error(split, "dark under #{ColorTokens::MECHANISMS[one]} and under #{ColorTokens::MECHANISMS[two]} differ at `--background`")
+        body = "--background:#000;--page-text:#fff"
+        same = ok("#{light}#{x.sub('BODY', body)}\n#{y.sub('BODY', body)}")
+        assert_equal({ "--background" => "#000", "--page-text" => "#fff" }, same.variants[:dark], same)
+      end
+    end
+    spellings.values.flatten.each do |x|
+      result = ok("#{light}#{x.sub('BODY', '--background:#000')}")
+      assert_equal({ "--background" => "#000", "--page-text" => "#000" }, result.variants[:dark], x)
+    end
+    assert_error("#{light}.dark, [data-theme=dark]{--background:#000}\n.dark{--page-text:#fff}",
+                 "dark under .dark class and under data-theme attribute differ at `--page-text`")
+    ok("#{light}.dark, [data-theme=dark]{--background:#000;--page-text:#fff}")
+  end
+
+  # The mechanisms are compared after the cascade, so an override that
+  # loses to light under one mechanism (an earlier, equally specific
+  # .dark) differs from one that wins under another (a later media :root).
+  def test_dark_mechanisms_compare_after_the_cascade
+    assert_error(".dark{--a:#000}\n:root{--a:#fff}\n@media (prefers-color-scheme: dark){:root{--a:#000}}",
+                 "differ at `--a`")
+  end
+
   # Past importance and layer, CSS Cascade 5 sorts by selector specificity
   # and then source order, so dark has no default win: an equally specific
   # dark block before :root loses to it, a more specific one wins from
