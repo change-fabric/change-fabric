@@ -181,6 +181,23 @@ class ColorValueTest < Minitest::Test
     assert_includes reason, "cycle"
   end
 
+  # A var() inside an unused fallback still counts as a dependency, so a
+  # defined, resolvable primary reference does not hide a cycle closed
+  # through its fallback, directly, through another property, or nested.
+  def test_var_cycle_through_unused_fallback_is_unresolved
+    [
+      { "--a" => "var(--b, var(--a))", "--b" => "#000" },
+      { "--a" => "var(--b, var(--c))", "--b" => "#000", "--c" => "var(--a)" },
+      { "--a" => "var(--b, var(--m, var(--a)))", "--b" => "#000" },
+      { "--a" => "var(--b)", "--b" => "var(--c, var(--a))", "--c" => "#000" },
+      { "--a" => "var(--b, var(--c))", "--b" => "#000", "--c" => "var(--d, #fff)", "--d" => "var(--a)" }
+    ].each do |decls|
+      assert_includes unresolved("var(--a)", decls), "cycle", decls.inspect
+    end
+    assert_rgba 0, 0, 0, resolved("var(--a)", { "--a" => "var(--b, var(--c))", "--b" => "#000", "--c" => "#fff" })
+    assert_rgba 0, 0, 0, resolved("var(--a)", { "--a" => "var(--b, var(--missing))", "--b" => "#000" })
+  end
+
   # A referenced property that computes to the guaranteed-invalid value lets
   # the referencing var()'s own fallback apply, unless the referencing
   # property is itself inside the cycle.

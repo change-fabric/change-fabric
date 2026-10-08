@@ -325,6 +325,9 @@ module ColorValue
     return Result.new(color: nil, reason: "var() cycle through #{name}") if seen.include?(name)
     if decls.key?(name)
       result = resolve(decls[name], decls, seen: seen + [ name ])
+      if result.color && fallback && (hit = fallback_cycle(fallback, decls, seen))
+        return Result.new(color: nil, reason: "var() cycle through #{hit}")
+      end
       return result unless fallback && result.color.nil? && guaranteed_invalid?(result.reason, seen)
 
       return resolve(fallback, decls, seen:)
@@ -333,6 +336,23 @@ module ColorValue
     return Result.new(color: nil, reason: "#{name} is not defined in this theme") unless fallback
 
     resolve(fallback, decls, seen:)
+  end
+
+  # A var() inside a fallback is a dependency even when the fallback goes
+  # unused (CSS Variables cycle rules), so a defined reference that resolved
+  # still closes a cycle when any name in its fallback, followed through the
+  # declarations, reaches a property already being resolved. Returns that
+  # name, or nil.
+  def fallback_cycle(text, decls, seen, visited = Set.new)
+    text.to_s.scan(/var\(\s*(--[^\s,()]+)/i).flatten.each do |dep|
+      return dep if seen.include?(dep)
+      next if visited.include?(dep) || !decls.key?(dep)
+
+      visited << dep
+      hit = fallback_cycle(decls[dep], decls, seen, visited)
+      return hit if hit
+    end
+    nil
   end
 
   # True when a failed substitution left the referenced property with the
