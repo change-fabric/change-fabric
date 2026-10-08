@@ -140,6 +140,15 @@ class ColorTokensTest < Minitest::Test
     end
   end
 
+  def test_whitespace_inside_attribute_values_is_not_stripped
+    [ "[data-theme=\"d a r k\"]", "[data-theme=' dark']", "[data-theme=\"dark \"]",
+      "[data-theme=da rk]", ":root[data-theme=\"da\trk\"]" ].each do |sel|
+      result = read(":root{--a:#000}\n#{sel}{--a:#fff}")
+      refute result.dark?, sel
+      refute_empty result.errors, sel
+    end
+  end
+
   def test_root_descendant_dark_is_an_error_not_a_dark_block
     result = read(":root{--a:#000}\n:root .dark{--a:#fff}")
     assert_equal [ "selector `:root .dark` is not a token block; only :root and the dark spellings are allowed" ],

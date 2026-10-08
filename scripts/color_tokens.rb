@@ -196,11 +196,21 @@ module ColorTokens
     def selector_variant(selector)
       return nil if combinator?(selector)
 
-      compound = selector.gsub(/\s+/, '')
+      compound = compact_selector(selector)
       return :light if compound.casecmp?(':root')
 
       rest = compound.sub(/\A:root/i, '')
       :dark if rest == '.dark' || rest.match?(DARK_ATTR)
+    end
+
+    QUOTED = /("(?:\\.|[^"\\])*"?|'(?:\\.|[^'\\])*'?)/
+
+    # Drops only syntactic spacing around [ ] = outside quoted strings, so
+    # `[ data-theme = "dark" ]` compacts but `"d a r k"` and `da rk` keep theirs.
+    def compact_selector(selector)
+      selector.strip.split(QUOTED).each_with_index.map do |part, i|
+        i.odd? ? part : part.gsub(/\s*([\[\]=])\s*/, "\\1")
+      end.join
     end
 
     def combinator?(selector)
