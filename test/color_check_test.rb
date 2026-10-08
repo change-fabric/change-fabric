@@ -742,13 +742,15 @@ class ColorCheckTest < Minitest::Test
     assert_equal walks.first, walks.last
   end
 
-  # Thresholds compare the unrounded ratio; only the displayed value rounds.
-  # Each case sits just under a threshold where round(2) would cross it.
+  # Thresholds compare the unrounded ratio, and the displayed value never
+  # rounds up across one: each case sits just under a threshold where
+  # round(2) would cross it, so it is floored and agrees with its status.
   def test_status_uses_unrounded_ratio_at_each_threshold
     decls = { "--bg" => "#ffffff" }
     [
-      [ "rgb(0 153 255)", 3.0, "fail" ],
-      [ "rgb(0 138 41)", 4.5, "large-only" ]
+      [ "rgb(0 153 255)", 2.99, "fail" ],
+      [ "rgb(0 138 41)", 4.49, "large-only" ],
+      [ "rgb(148.9 148.9 148.9)", 2.99, "fail" ]
     ].each do |fg, shown, status|
       row = ColorCheck.contrast_row(:light, "--fg", "--bg", decls.merge("--fg" => fg))
       assert_equal shown, row.ratio, fg

@@ -65,7 +65,15 @@ module ColorCheck
 
     bg_color = ColorValue.flatten(bg_result.color, over: backdrop)
     ratio = ColorValue.contrast_ratio(ColorValue.flatten(fg_result.color, over: bg_color), bg_color)
-    ContrastPair.new(variant: variant.to_s, fg:, bg:, ratio: ratio.round(2), status: status_for(ratio), reason: nil)
+    ContrastPair.new(variant: variant.to_s, fg:, bg:, ratio: shown_ratio(ratio), status: status_for(ratio), reason: nil)
+  end
+
+  # The ratio rounded to two places, floored instead when rounding would
+  # carry it across a threshold it misses (2.999 reads 2.99, never 3.0), so
+  # the shown value and its status always agree.
+  def shown_ratio(ratio)
+    rounded = ratio.round(2)
+    status_for(rounded) == status_for(ratio) ? rounded : ratio.floor(2)
   end
 
   # The opaque color a surface is painted over: white for the page
