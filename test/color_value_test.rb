@@ -283,6 +283,47 @@ class ColorValueTest < Minitest::Test
     end
   end
 
+  # A cycle hidden anywhere in the referenced declaration's value (inside
+  # color-mix(), another unsupported function, a channel argument, or a
+  # nested fallback) makes that property invalid at computed-value time, so
+  # the outer var() fallback applies before any unresolved reason is
+  # returned. When the referencing property is itself in the cycle, it stays
+  # invalid whatever its fallback.
+  def test_cycle_hidden_in_unsupported_function_uses_outer_fallback
+    [
+      "color-mix(in srgb, red, var(--a))",
+      "color-mix(in srgb, red, var(--b))",
+      "oklch(var(--a) 0.1 120)",
+      "hwb(var(--a) 0% 0%)",
+      "lab(50 var(--b, 0) 0)",
+      "color(srgb var(--a) 0 0)",
+      "rgb(var(--a) 0 0)",
+      "light-dark(red, var(--a))",
+      "color-mix(in srgb, red, var(--m, oklch(var(--a) 0 0)))",
+      "var(--m, color-mix(in srgb, red, var(--a)))",
+      "\\63 olor-mix(in srgb, red, v\\61r(--a))"
+    ].each do |value|
+      decls = { "--a" => value, "--b" => "var(--a)", "--page-text" => "var(--a, white)" }
+      color = CV.resolve(decls["--page-text"], decls, seen: Set["--page-text"]).color
+      refute_nil color, value
+      assert_rgba 255, 255, 255, color
+      assert_equal "var() cycle through --a", unresolved("var(--a)", decls), value
+      inside = decls.merge("--a" => value.gsub(/--[ab](?=[,)])/, "--page-text"))
+      reason = CV.resolve(inside["--page-text"], inside, seen: Set["--page-text"]).reason
+      assert_equal "var() cycle through --page-text", reason, value
+    end
+    acyclic = { "--a" => "color-mix(in srgb, red, var(--c))", "--c" => "#000", "--page-text" => "var(--a, white)" }
+    assert_includes CV.resolve(acyclic["--page-text"], acyclic, seen: Set["--page-text"]).reason, "color-mix()"
+  end
+
+  # A var() in the referencing property's own fallback is a dependency even
+  # when the primary reference is unresolved for another reason.
+  def test_cycle_through_fallback_beats_unresolved_primary
+    decls = { "--x" => "oklch(0.5 0.1 120)", "--page-text" => "var(--x, color-mix(in srgb, red, var(--page-text)))" }
+    reason = CV.resolve(decls["--page-text"], decls, seen: Set["--page-text"]).reason
+    assert_equal "var() cycle through --page-text", reason
+  end
+
   def test_var_fallback_does_not_rescue_a_non_color_value
     assert_nil CV.resolve("var(--bad, #000)", { "--bad" => "notacolor" }).color
   end

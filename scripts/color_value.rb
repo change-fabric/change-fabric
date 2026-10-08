@@ -192,7 +192,15 @@ module ColorValue
   # anchored match below sees the name CSS sees: \76 ar(--x) is a var()
   # reference and \72 ed is red. A value whose escape has no plain spelling
   # is unresolved with that reason rather than guessed at.
+  #
+  # The cycle check runs first, before any unsupported or unresolved early
+  # return: a value whose var() dependency graph reaches a property already
+  # being resolved puts that property in a cycle, whatever else the value
+  # holds (color-mix(), oklch(), a nested fallback).
   def resolve(value, decls, seen: Set.new)
+    hit = dependency_closure(value, decls).find { |dep| seen.include?(dep) }
+    return cycle_result(hit) if hit
+
     v, escape_reason = ColorCss.decode_value_escapes(value.to_s.strip)
     return Result.new(color: nil, reason: escape_reason) if escape_reason
 
@@ -322,22 +330,26 @@ module ColorValue
   end
 
   # A custom property that is part of a var() dependency cycle is
-  # guaranteed-invalid at computed-value time per CSS Variables, regardless
-  # of any fallback written on a var() reference inside that cycle, so the
-  # cycle check below runs before the fallback is ever consulted. A fallback
-  # does rescue an undefined name, and a defined name whose value computes to
-  # the guaranteed-invalid value (see guaranteed_invalid?).
+  # guaranteed-invalid at computed-value time per CSS Variables. resolve has
+  # already ruled out a cycle through the referencing property (its own
+  # fallback included), so a cycle reached here contains only the referenced
+  # property: that property is invalid, and the referencing var()'s fallback
+  # applies. The check reads the referenced declaration's whole dependency
+  # graph, so a cycle hidden inside color-mix() or another unsupported
+  # function is found before that function's unresolved reason is returned.
+  # A fallback also rescues an undefined name, and a defined name whose value
+  # computes to the guaranteed-invalid value (see guaranteed_invalid?).
   def resolve_var(v, decls, seen)
     ref = parse_var_ref(v)
     return Result.new(color: nil, reason: "unrecognized color value: #{v[0, 40]}") unless ref
 
     name, fallback = ref
-    return Result.new(color: nil, reason: "var() cycle through #{name}") if seen.include?(name)
     if decls.key?(name)
-      result = resolve(decls[name], decls, seen: seen + [ name ])
-      if result.color && fallback && (hit = fallback_cycle(fallback, decls, seen))
-        return Result.new(color: nil, reason: "var() cycle through #{hit}")
+      if dependency_closure(decls[name], decls).include?(name)
+        return fallback ? resolve(fallback, decls, seen:) : cycle_result(name)
       end
+
+      result = resolve(decls[name], decls, seen: seen + [ name ])
       return result unless fallback && result.color.nil? && guaranteed_invalid?(result.reason, seen)
 
       return resolve(fallback, decls, seen:)
@@ -348,21 +360,22 @@ module ColorValue
     resolve(fallback, decls, seen:)
   end
 
-  # A var() inside a fallback is a dependency even when the fallback goes
-  # unused (CSS Variables cycle rules), so a defined reference that resolved
-  # still closes a cycle when any name in its fallback, followed through the
-  # declarations, reaches a property already being resolved. Returns that
-  # name, or nil.
-  def fallback_cycle(text, decls, seen, visited = Set.new)
-    var_dependencies(text).each do |dep|
-      return dep if seen.include?(dep)
-      next if visited.include?(dep) || !decls.key?(dep)
+  def cycle_result(name)
+    Result.new(color: nil, reason: "var() cycle through #{name}")
+  end
 
-      visited << dep
-      hit = fallback_cycle(decls[dep], decls, seen, visited)
-      return hit if hit
+  # Every custom-property name text depends on, directly or through the
+  # declarations, in depth-first order. A var() anywhere counts (inside an
+  # unused fallback, color-mix(), oklch() or any other function), per the
+  # CSS Variables cycle rules. An undefined name is listed but not followed.
+  def dependency_closure(text, decls, found = [])
+    var_dependencies(text).each do |dep|
+      next if found.include?(dep)
+
+      found << dep
+      dependency_closure(decls[dep], decls, found) if decls.key?(dep)
     end
-    nil
+    found
   end
 
   # The custom-property names named first in each real var( function token
