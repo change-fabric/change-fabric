@@ -538,10 +538,11 @@ module ColorTokens
     # (ColorCss.canonical_strings), so "Inter", 'Inter' and "\49 nter"
     # agree. Then identifiers are ASCII-lowercased under
     # ColorValue.case_folds: function names and numeric tokens always (VAR(,
-    # 10DEG, 1E3), every color and CSS-wide keyword when the whole value is
-    # one color (currentColor, INHERIT, Light-Dark(RED, Blue)), and
-    # otherwise a bare identifier only as a color function's argument. So
-    # `1s RED` and `1s red` stay distinct (RED may name keyframes), as do
+    # 10DEG, 1E3), a color or CSS-wide keyword when it is the whole value
+    # (currentColor, INHERIT), and otherwise a bare identifier only as a
+    # color function's own argument (Light-Dark(RED, Blue), oklch(from RED
+    # l c NONE)). So `1s RED` and `1s red` stay distinct (RED may name
+    # keyframes), as does Foo(RED) nested in color-mix(), and so do
     # FadeIn, url(/A.png) contents, var(--Ink) names, string contents and
     # non-ASCII code points. Comments are already blanked to whitespace by
     # the parser, and whitespace outside strings is canonicalized by CSS

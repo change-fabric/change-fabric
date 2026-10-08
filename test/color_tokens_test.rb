@@ -412,6 +412,7 @@ class ColorTokensTest < Minitest::Test
       [ "rgb(0 0 0) RED", "rgb(0 0 0) red" ],
       [ "var(--x, RED)", "var(--x, red)" ],
       [ "foo(RED)", "foo(red)" ],
+      [ "color-mix(in srgb, Foo(RED) 50%, red)", "color-mix(in srgb, Foo(red) 50%, red)" ],
       [ "\\52 ED 1s", "red 1s" ],
       [ "\"Inter\"", "\"inter\"" ]
     ].each do |a, b|
@@ -428,6 +429,8 @@ class ColorTokensTest < Minitest::Test
       [ "Light-Dark(RED, Blue) 1s", "light-dark(red, blue) 1s" ],
       [ "1s color-mix(IN SRGB, (RED) 50%, Blue)", "1s color-mix(in srgb, (red) 50%, blue)" ],
       [ "rgb(FROM RED r g b) 1s", "rgb(from red r g b) 1s" ],
+      [ "oklch(from RED l c NONE)", "oklch(from red l c none)" ],
+      [ "color-mix(in srgb, RED 50%, CurrentColor)", "color-mix(in srgb, red 50%, currentcolor)" ],
       [ "INHERIT", "inherit" ],
       [ "\\52 ED", "red" ]
     ].each { |a, b| ok(":root{--a:#{a}}\n:root{--a:#{b}}") }

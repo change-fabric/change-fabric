@@ -314,44 +314,22 @@ module ColorValue
   end
 
   # The CaseFolds a whole value is compared under: CASE_FOLDS when the
-  # value is one color on its own (color_syntax?), so RED and red or RGB()
-  # and rgb() agree, else TOKEN_FOLDS, which never folds a bare identifier
-  # outside a color function's arguments.
+  # value is one color or CSS-wide keyword alone (sole_keyword?), so RED
+  # and red or INHERIT and inherit agree, else TOKEN_FOLDS, which folds a
+  # bare identifier only as a color function's own argument. A whole color
+  # call such as oklch(from RED l c NONE) takes TOKEN_FOLDS too, so its
+  # `from` and `none` fold while Foo(RED) nested in color-mix() keeps its
+  # case: Foo may hand RED to a case-sensitive <custom-ident>.
   def case_folds(value)
-    color_syntax?(value) ? CASE_FOLDS : TOKEN_FOLDS
+    sole_keyword?(value) ? CASE_FOLDS : TOKEN_FOLDS
   end
 
   # True when value is one identifier CASE_FOLDS folds (a color or CSS-wide
-  # keyword) or one call, spanning the whole value, to a function in
-  # COLOR_ARG_FNS. Escapes are read as CSS reads them.
-  def color_syntax?(value)
+  # keyword). Escapes are read as CSS reads them.
+  def sole_keyword?(value)
     text = ColorCss.strip_ws(value)
-    return false if text.empty?
-    return CASE_FOLDS.keywords.include?(ColorCss.decode_ident(text).downcase(:ascii)) if lone_ident?(text)
-
-    whole_call_name(text).then { |fn| fn && COLOR_ARG_FNS.include?(fn) }
-  end
-
-  def lone_ident?(text)
-    ColorCss.ident_char_at?(text, 0) && ColorCss.skip_ident_run(text, 0) == text.length && ColorCss.ident_start?(text)
-  end
-
-  # The decoded name of the function call that is all of text, or nil.
-  def whole_call_name(text)
-    first = nil
-    closers = []
-    ColorCss.scan_value(text) do |tok, i|
-      if tok.is_a?(ColorCss::FunctionToken)
-        return nil unless first || tok.start.zero?
-
-        first ||= tok
-        closers << ")" if i
-      elsif tok != ","
-        ColorCss.track_block(closers, tok)
-      end
-      return nil if first && closers.empty? && i != text.length - 1
-    end
-    first&.name if first && closers.empty?
+    ColorCss.ident_char_at?(text, 0) && ColorCss.skip_ident_run(text, 0) == text.length && ColorCss.ident_start?(text) &&
+      CASE_FOLDS.keywords.include?(ColorCss.decode_ident(text).downcase(:ascii))
   end
 
   # Composites a possibly translucent color over an opaque background.
