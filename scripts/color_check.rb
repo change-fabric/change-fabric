@@ -41,8 +41,10 @@ module ColorCheck
   end
 
   # One row per declared pair (ColorTokens.pairs) in light, and again in
-  # dark when the token file declares a dark block. A background is
-  # composited over white, a foreground over its background.
+  # dark when the token file declares a dark block. The page background is
+  # composited over white; any other translucent surface over the resolved
+  # page background (unresolved when that backdrop cannot be determined); a
+  # foreground over its background.
   def compute_contrast(tokens)
     variants = tokens.dark? ? %i[light dark] : %i[light]
     variants.flat_map do |variant|
@@ -55,11 +57,26 @@ module ColorCheck
     bg_result = resolve_token(bg, decls)
     fg_result = resolve_token(fg, decls)
     reason = (fg_result.color.nil? && "#{fg}: #{fg_result.reason}") || (bg_result.color.nil? && "#{bg}: #{bg_result.reason}")
+    backdrop = reason ? nil : backdrop_for(bg, bg_result.color, decls)
+    reason ||= backdrop if backdrop.is_a?(String)
     return ContrastPair.new(variant: variant.to_s, fg:, bg:, ratio: nil, status: 'unresolved', reason:) if reason
 
-    bg_color = ColorValue.flatten(bg_result.color, over: ColorValue::WHITE)
+    bg_color = ColorValue.flatten(bg_result.color, over: backdrop)
     ratio = ColorValue.contrast_ratio(ColorValue.flatten(fg_result.color, over: bg_color), bg_color)
     ContrastPair.new(variant: variant.to_s, fg:, bg:, ratio: ratio.round(2), status: status_for(ratio), reason: nil)
+  end
+
+  # The opaque color a surface is painted over: white for the page
+  # background or any opaque surface, else the page background flattened
+  # over white. Returns a reason String when a translucent surface's
+  # backdrop cannot be resolved.
+  def backdrop_for(bg, bg_color, decls)
+    return ColorValue::WHITE if bg == ColorTokens::PAGE_BACKGROUND || bg_color.a >= 1.0
+
+    page = resolve_token(ColorTokens::PAGE_BACKGROUND, decls)
+    return "#{bg}: translucent over #{ColorTokens::PAGE_BACKGROUND}, which #{page.reason}" if page.color.nil?
+
+    ColorValue.flatten(page.color, over: ColorValue::WHITE)
   end
 
   def resolve_token(name, decls)

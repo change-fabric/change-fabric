@@ -383,6 +383,30 @@ class ColorCheckTest < Minitest::Test
     assert_equal "--background", pair.bg
   end
 
+  # A translucent non-page surface composites over the page background, not
+  # white; an opaque one or the page itself is unaffected by the backdrop.
+  def test_translucent_surface_composites_over_page_background
+    {
+      "rgba(0,0,0,.5)" => 1.0,
+      "#00000080" => 1.0,
+      "hsl(0 0% 0% / 50%)" => 1.0,
+      "transparent" => 1.0,
+      "#ffffff" => 21.0
+    }.each do |card, expected|
+      pair = contrast_for(":root {\n  --background: #000;\n  --card: #{card};\n  --card-text: #000;\n}\n", "--card-text")
+      assert pair.resolved?, card
+      assert_in_delta expected, pair.ratio, 0.01, card
+    end
+  end
+
+  def test_translucent_surface_with_unresolvable_page_background_is_unresolved
+    [ "", "  --background: oklch(0.5 0.1 90);\n" ].each do |page|
+      pair = contrast_for(":root {\n#{page}  --card: rgba(0,0,0,.5);\n  --card-text: #000;\n}\n", "--card-text")
+      refute pair.resolved?, page
+      assert_includes pair.reason, "--background"
+    end
+  end
+
   def test_contrast_unresolvable_pair_listed_as_unresolved
     pair = contrast_for(":root {\n  --background: #ffffff;\n  --page-text: oklch(0.5 0.1 90);\n}\n")
     refute pair.resolved?
