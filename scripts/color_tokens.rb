@@ -256,7 +256,7 @@ module ColorTokens
     def store(table, kind, decl)
       @dark_seen = true if kind == :dark
       prior = table[decl.name]
-      if prior && normalize(prior[:value]) != normalize(decl.value)
+      if prior && color_key(prior[:value]) != color_key(decl.value)
         return error(decl.line, "`#{decl.name}` is declared twice in #{kind} with different values " \
                                 "(line #{prior[:line]}: #{prior[:value]}; here: #{decl.value})")
       end
@@ -330,16 +330,15 @@ module ColorTokens
       channel.to_r
     end
 
-    # Case-sensitive spans CSS keeps verbatim: quoted strings (whose case and
-    # whitespace are content) and custom-property names (var(--Ink) and
-    # var(--ink) are different references). An unterminated string runs to
-    # the end of the value, as CSS reads it.
-    VERBATIM = /"(?:\\.|[^"\\])*"?|'(?:\\.|[^'\\])*'?|--[\w-]+/
-
-    # Collapses whitespace and case-folds everything outside VERBATIM spans.
+    # Collapses whitespace outside quoted strings (whose whitespace is
+    # content) and never case-folds.
+    # Folding is only safe for spans CSS defines as ASCII case-insensitive,
+    # and url(/A.png), var(--Ink) and unknown idents are not. Colors already
+    # compare by resolved RGBA in color_key, so #FFF and #fff, or RGB(0 0 0)
+    # and rgb(0 0 0), still agree.
     def normalize(value)
-      value.strip.split(/(#{VERBATIM})/o).each_with_index.map do |part, i|
-        i.odd? ? part : part.gsub(/\s+/, " ").downcase
+      value.strip.split(QUOTED).each_with_index.map do |part, i|
+        i.odd? ? part : part.gsub(/\s+/, " ")
       end.join
     end
   end

@@ -206,8 +206,20 @@ class ColorTokensTest < Minitest::Test
       ":root{--a:color-mix(in srgb, var(--Ink) 50%, #fff)}\n:root{--a:color-mix(in srgb, var(--ink) 50%, #fff)}",
       ".dark{--a:var(--Ink)}\n.dark{--a:var(--ink)}"
     ].each { |css| assert_error(css, "`--a` is declared twice") }
-    ok(":root{--a:VAR(--Ink)}\n:root{--a:var(--Ink)}")
     ok(":root{--a:#ABC}\n:root{--a:#abc}")
+  end
+
+  # Non-color values compare with no case folding; colors compare resolved.
+  def test_redeclaration_case_folds_only_resolved_colors
+    [
+      ":root{--a:url(/A.png)}\n:root{--a:url(/a.png)}",
+      ":root{--a:url('/A.png')}\n:root{--a:url('/a.png')}",
+      ":root{--a:Foo}\n:root{--a:foo}",
+      ":root{--a:VAR(--Ink)}\n:root{--a:var(--Ink)}"
+    ].each { |css| assert_error(css, "`--a` is declared twice") }
+    ok(":root{--a:#FFF}\n:root{--a:#fff}")
+    ok(":root{--a:RGB(0 0 0)}\n:root{--a:rgb(0 0 0)}")
+    ok(":root{--a:url(/A.png)}\n:root{--a:url(/A.png)  }")
   end
 
   def test_redeclaration_keeps_quoted_strings_verbatim
@@ -219,7 +231,7 @@ class ColorTokensTest < Minitest::Test
       %(:root{--a:"it's  A"}\n:root{--a:"it's a"}),
       %(:root{--a:"esc\\"  A"}\n:root{--a:"esc\\" a"})
     ].each { |css| assert_error(css, "`--a` is declared twice") }
-    ok(%(:root{--a:FOO  "A  B"}\n:root{--a:foo "A  B"}))
+    ok(%(:root{--a:foo  "A  B"}\n:root{--a:foo "A  B"}))
   end
 
   def test_media_takes_only_root
