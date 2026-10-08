@@ -388,6 +388,19 @@ class ColorCheckTest < Minitest::Test
     end
   end
 
+  # An escaped hex color is that color, so its low-contrast pair is graded
+  # and --strict fails on it instead of listing it as unresolved.
+  def test_strict_fails_an_escaped_hex_color_pair
+    [ "#\\66 ff", "#f\\66 f", "#\\46\\46\\46" ].each do |value|
+      with_dir do |dir|
+        write(dir, "tokens.css", ":root{--background:#fff;--page-text:#{value}}")
+        report = ColorCheck.run(dir, strict: true)
+        assert(report.contrast.any? { |c| c.fg == "--page-text" && c.status == "fail" }, value)
+        assert_equal 1, report.exit_code, value
+      end
+    end
+  end
+
   def contrast_for(css, fg = "--page-text", variant: "light")
     with_dir do |dir|
       write(dir, "tokens.css", css)

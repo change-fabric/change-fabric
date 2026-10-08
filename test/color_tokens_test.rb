@@ -377,7 +377,11 @@ class ColorTokensTest < Minitest::Test
       [ "r\\67 b(0 0 0)", "rgb(0 0 0)" ],
       [ "R\\47 B(var(--x) 0 0)", "rgb(var(--x) 0 0)" ],
       [ "color-mix(in srgb, var(--\\78) 50%, #fff)", "color-mix(in srgb, var(--x) 50%, #fff)" ],
-      [ "f\\6f o", "foo" ]
+      [ "f\\6f o", "foo" ],
+      [ "#\\66 ff", "#fff" ],
+      [ "#f\\66 f", "#fff" ],
+      [ "#\\46\\46\\46", "#FFF" ],
+      [ "var(--x, #\\66 ff)", "var(--x, #fff)" ]
     ].each { |a, b| ok(":root{--a:#{a}}\n:root{--a:#{b}}") }
     [
       [ "var(--\\49 nk)", "var(--ink)" ],
@@ -406,7 +410,7 @@ class ColorTokensTest < Minitest::Test
   end
 
   def test_equivalent_spellings_count_as_one_color
-    spellings = [ "#fff", "#ffffff", "#FFFFFFFF", "white", "WHITE", "rgb(255 255 255)", "rgba(255, 255, 255, 1)",
+    spellings = [ "#fff", "#ffffff", "#FFFFFFFF", "#\\66 ff", "#\\46\\46\\46", "white", "WHITE", "rgb(255 255 255)", "rgba(255, 255, 255, 1)",
                   "rgb(100% 100% 100%)", "hsl(0 0% 100%)", "hsla(120, 50%, 100%, 1)" ]
     css = ":root{#{spellings.each_with_index.map { |v, i| "--c#{i}:#{v}" }.join(";")}}"
     result = ok(css)

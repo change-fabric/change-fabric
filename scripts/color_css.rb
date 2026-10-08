@@ -29,6 +29,9 @@ module ColorCss
   BlockOpen = Data.define(:id, :parent, :prelude, :line, :glued)
   Sheet = Data.define(:decls, :at_rule_stmts, :errors, :blocks) # errors: [String] diagnostics, never raised
 
+  # The digits of a hex color's #hash name: 3, 4, 6 or 8 hex digits.
+  HEX_HASH_NAME = /\A(?:\h{8}|\h{6}|\h{4}|\h{3})\z/.freeze
+
   # One escape per CSS Syntax 3 4.3.7: a backslash then 1-6 hex digits and
   # one optional whitespace, or any code point but a newline, or end of
   # input. A backslash before a newline matches nothing: it is no escape.
@@ -196,10 +199,11 @@ module ColorCss
   # [decoded, nil], so anchored matching (var(, rgb(, red, #hex) sees the
   # name CSS sees: \76 ar( is var( and \72 ed is red. An escape is decoded
   # only inside an identifier run that stays a plain identifier once
-  # decoded; an escape that would become a delimiter (\( \; \, a quote or
-  # whitespace), part of a #hash or @name, or part of a number (1\65 3 is a
-  # dimension, not 1e3) has no plain spelling, so [nil, reason] is returned
-  # instead of a guess.
+  # decoded, or inside a #hash name that decodes to a hex color's digits
+  # (#\66 ff is #fff); an escape that would become a delimiter (\( \; \, a
+  # quote or whitespace), part of any other #hash or an @name, or part of a
+  # number (1\65 3 is a dimension, not 1e3) has no plain spelling, so
+  # [nil, reason] is returned instead of a guess.
   def decode_value_escapes(text)
     text = text.to_s
     return [ text, nil ] unless text.include?("\\")
@@ -234,13 +238,24 @@ module ColorCss
   end
 
   # The decoded value of an escaped identifier run, or nil when the run is
-  # not an identifier (a number or dimension, a #hash or @name) or decodes to
-  # anything but identifier code points.
+  # not an identifier (a number or dimension, an @name, a #hash whose name
+  # is not a hex color's digits) or decodes to anything but identifier code
+  # points.
   def plain_ident(run, prev)
-    return nil if prev == "#" || prev == "@" || !ident_start?(run)
+    return hex_hash_name(run) if prev == "#"
+    return nil if prev == "@" || !ident_start?(run)
 
     decoded = decode_ident(run)
     decoded if decoded.match?(/\A[-_a-zA-Z0-9\u0080-\u{10FFFF}]+\z/) && ident_start?(decoded)
+  end
+
+  # A #hash name's decoded value when it is 3, 4, 6 or 8 hex digits, the
+  # only hash a color reads, else nil. CSS decodes escapes in a hash name
+  # before the color parser sees it, so #\66 ff, #f\66 f and #\46\46\46
+  # are #fff and #FFF.
+  def hex_hash_name(run)
+    decoded = decode_ident(run)
+    decoded if decoded.match?(HEX_HASH_NAME)
   end
 
   # A custom-property name's value, the one thing every name comparison

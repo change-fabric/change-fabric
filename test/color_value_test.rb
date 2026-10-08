@@ -700,7 +700,7 @@ class ColorValueTest < Minitest::Test
       "rgb\\28 1 2 3)", "rgb\\(1 2 3)", "var\\(--white)", "\\76 ar\\28 --white)",
       "rgb(1\\2c 2, 3)", "rgb(1 2 3\\29", "re\\;d", "\\22 red", "\\20 red",
       "rgb(\\32 55 0 0)", "rgb(1\\65 3 0 0)", "rgb(50\\% 0 0)", "rgb(\\2d 1 0 0)",
-      "#\\66 ff", "#f\\66 f", "rgb(0 0 0 / \\31)"
+      "#\\67 ff", "#\\66 f", "#\\66 ffff", "#\\20 fff", "#f\\2c ff", "rgb(0 0 0 / \\31)"
     ].each do |value|
       reason = unresolved(value, { "--white" => "#fff" })
       assert_includes reason, "escape", value
@@ -708,6 +708,30 @@ class ColorValueTest < Minitest::Test
     end
     # An escape inside a quoted string is string content, not a name.
     assert_rgba 255, 255, 255, resolved("var(--w, \"\\(\")", { "--w" => "#fff" })
+  end
+
+  # A #hash name is decoded before the color parser reads it, so an escape
+  # anywhere in a hex color's digits, in any case, of any supported length,
+  # resolves like its plain spelling, alone or behind a var() reference.
+  def test_escaped_hex_hash_names_resolve_like_their_decoded_spelling
+    decls = { "--esc" => "#\\66 ff" }
+    {
+      "#\\66 ff" => "#fff",
+      "#f\\66 f" => "#fff",
+      "#ff\\66" => "#fff",
+      "#\\46\\46\\46" => "#FFF",
+      "#\\000066ff" => "#fff",
+      "#0\\66 0" => "#0f0",
+      "#\\30 \\30 0" => "#000",
+      "#\\66 ff8" => "#fff8",
+      "#\\61 bcdef" => "#abcdef",
+      "#abcde\\66 80" => "#abcdef80",
+      "var(--esc)" => "#fff",
+      "var(--missing, #\\66 ff)" => "#fff"
+    }.each do |escaped, plain|
+      assert_equal resolved(plain).to_h, resolved(escaped, decls).to_h, escaped
+      assert CV.literal?(escaped), escaped unless escaped.start_with?("var(")
+    end
   end
 
   # Only the var() branch CSS substitutes is decoded: an escape with no
