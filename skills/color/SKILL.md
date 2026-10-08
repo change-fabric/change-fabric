@@ -128,9 +128,10 @@ Accepted shape:
   error.
 - Values: hex, `rgb`/`rgba`, `hsl`/`hsla` and named colors are authored
   colors and count toward the palette size. `var(--x)` and
-  `color-mix(in srgb, ...)` are derived and resolved. A non-color value
-  (`--radius: 0.5rem`) is ignored. A color-shaped value the resolver does not
-  support (`oklch(...)`) is unresolved for contrast, not an error. A
+  `color-mix(in srgb, ...)` are derived; `var()` is resolved, `color-mix()`
+  is not. A non-color value (`--radius: 0.5rem`) is ignored. A color-shaped
+  value the resolver does not support (`color-mix()`, `oklch(...)`) is
+  unresolved for contrast, not an error, so state its contrast manually. A
   `var()` whose first argument is not exactly one `--name` (whitespace and
   comments aside), such as `var(--b junk)`, even nested in a fallback, makes
   CSS ignore the whole declaration: it is an error and is never resolved.
