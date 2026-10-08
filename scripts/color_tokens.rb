@@ -30,6 +30,7 @@ module ColorTokens
   PAGE_BACKGROUND = '--background'
   ERROR_TOKEN = '--error'
   TARGET = 4
+  DERIVED_FUNCTIONS = %w[var color-mix].freeze
 
   # Block-less statements a Tailwind entry file needs; skipped silently.
   SKIPPED_STATEMENTS = %w[@import @charset @tailwind @source @plugin @custom-variant @config].freeze
@@ -293,7 +294,7 @@ module ColorTokens
         if authored?(value)
           slot = (authored[color_key(value)] ||= { value: value.strip, names: [], line: entry[:line] })
           slot[:names] << name unless slot[:names].include?(name)
-        elsif value.match?(/(?<![-_a-zA-Z0-9\\])(?:color-mix|var)\(/i)
+        elsif ColorCss.function_tokens(value).any? { |t| DERIVED_FUNCTIONS.include?(t.name) }
           derived += 1
         end
       end
@@ -331,13 +332,13 @@ module ColorTokens
     end
 
     # Collapses whitespace outside quoted strings (whose whitespace is
-    # content) and never case-folds.
-    # Folding is only safe for spans CSS defines as ASCII case-insensitive,
-    # and url(/A.png), var(--Ink) and unknown idents are not. Colors already
-    # compare by resolved RGBA in color_key, so #FFF and #fff, or RGB(0 0 0)
-    # and rgb(0 0 0), still agree.
+    # content) and ASCII-lowercases function names, which CSS defines as
+    # case-insensitive, so VAR(--x) and var(--x) agree. Nothing else is
+    # folded: url(/A.png) contents, var(--Ink) names, strings and unknown
+    # idents are case-sensitive. Colors already compare by resolved RGBA in
+    # color_key, so #FFF and #fff still agree.
     def normalize(value)
-      value.strip.split(QUOTED).each_with_index.map do |part, i|
+      ColorCss.downcase_function_names(value.strip).split(QUOTED).each_with_index.map do |part, i|
         i.odd? ? part : part.gsub(/\s+/, " ")
       end.join
     end

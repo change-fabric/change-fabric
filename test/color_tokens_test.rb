@@ -215,8 +215,13 @@ class ColorTokensTest < Minitest::Test
       ":root{--a:url(/A.png)}\n:root{--a:url(/a.png)}",
       ":root{--a:url('/A.png')}\n:root{--a:url('/a.png')}",
       ":root{--a:Foo}\n:root{--a:foo}",
-      ":root{--a:VAR(--Ink)}\n:root{--a:var(--Ink)}"
+      ":root{--a:var(--x, url(/A.png))}\n:root{--a:VAR(--x, url(/a.png))}",
+      ":root{--a:var(--x, \"VAR\")}\n:root{--a:var(--x, \"var\")}",
+      ":root{--a:\u00e9var(--x)}\n:root{--a:\u00c9var(--x)}"
     ].each { |css| assert_error(css, "`--a` is declared twice") }
+    ok(":root{--a:VAR(--Ink)}\n:root{--a:var(--Ink)}")
+    ok(":root{--a:Color-Mix(in srgb, var(--x) 50%, #fff)}\n:root{--a:color-mix(in srgb, VAR(--x) 50%, #fff)}")
+    ok(":root{--a:URL(/A.png)}\n:root{--a:url(/A.png)}")
     ok(":root{--a:#FFF}\n:root{--a:#fff}")
     ok(":root{--a:RGB(0 0 0)}\n:root{--a:rgb(0 0 0)}")
     ok(":root{--a:url(/A.png)}\n:root{--a:url(/A.png)  }")
@@ -263,6 +268,10 @@ class ColorTokensTest < Minitest::Test
   def test_derived_count_needs_a_function_token_boundary
     result = ok(":root{--a:VAR(--x);--b:Color-Mix(in srgb, red, blue);--c:my-var(--x);--d:x-color-mix(red);--e:_var(--x)}")
     assert_equal 2, result.derived
+    [ "\u00e9var(--x)", "var\u00e9(--x)", "\\var(--x)", "2var(--x)", %("var(--x)"), %('color-mix(in srgb, red, blue)'),
+      %(url(var(--x))), %(url("var(--x)")) ].each do |v|
+      assert_equal 0, ok(":root{--a:#{v}}").derived, v
+    end
   end
 
   def test_unresolved_literal_forms_are_not_authored

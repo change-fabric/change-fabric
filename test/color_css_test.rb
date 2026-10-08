@@ -197,4 +197,38 @@ class ColorCssTest < Minitest::Test
     end
     assert_empty ColorCss.parse(":root { --a: #fff; @apply x; }").errors
   end
+
+  def names(text)
+    ColorCss.function_tokens(text).map(&:name)
+  end
+
+  # Only real function tokens count: the full ident run before "(" is the
+  # name (ASCII lowercased), and strings, comments, url() contents, hashes,
+  # at-keywords and numbers never yield one.
+  def test_function_tokens_follow_css_syntax
+    {
+      "var(--x)" => %w[var],
+      "VAR(--x) Color-Mix(in srgb, red, blue)" => %w[var color-mix],
+      "a(b(c()))" => %w[a b c],
+      "\u00e9var(--x) var\u00e9(--x) \u00c9VAR(--x)" => [ "\u00e9var", "var\u00e9", "\u00c9var" ],
+      "xvar(--x) my-var(--x) _var(--x) -var(--x) --var(--x)" => %w[xvar my-var _var -var --var],
+      "2var(--x) -2var(--x) 1e5var(--x) .5var(--x)" => [],
+      "#var(--x) @var(--x)" => [],
+      "\\var(--x)" => [ "\\var" ],
+      %("var(--x)" 'var(--x)' "a\\" var(--x)") => [],
+      "/* var(--x) */ rgb(0 0 0)" => %w[rgb],
+      "url(var(--x)) URL(\"var(--y)\")" => %w[url url],
+      "var (--x) - (1)" => []
+    }.each { |text, expected| assert_equal expected, names(text), text }
+  end
+
+  def test_function_tokens_report_positions
+    tok = ColorCss.function_tokens("a VAR(--x)").first
+    assert_equal [ "var", 2, 5 ], [ tok.name, tok.start, tok.open ]
+  end
+
+  def test_downcase_function_names_touches_only_names
+    assert_equal %(var(--Ink, url(/A.png) "VAR(x)") color-mix(in srgb, RED, Blue)),
+                 ColorCss.downcase_function_names(%(VAR(--Ink, URL(/A.png) "VAR(x)") Color-Mix(in srgb, RED, Blue)))
+  end
 end

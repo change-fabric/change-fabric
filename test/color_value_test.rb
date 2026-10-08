@@ -211,7 +211,7 @@ class ColorValueTest < Minitest::Test
   # Only a real var( function token is a dependency: a name merely ending
   # in var, or an escaped \\var(, is not, while VAR( (case-insensitive) is.
   def test_var_scan_requires_function_name_boundary
-    %w[xvar my-var _var 2var \\var].each do |fn|
+    %w[xvar my-var _var 2var \\var évar varé ÉVAR -2var].each do |fn|
       decls = { "--white" => "#fff", "--page-text" => "var(--white, #{fn}(--page-text))" }
       assert_rgba 255, 255, 255, resolved("var(--page-text)", decls), delta: 0.001
       assert CV.literal?("rgb(#{fn}(--x) 0 0)"), fn
@@ -220,6 +220,7 @@ class ColorValueTest < Minitest::Test
     assert_includes unresolved("var(--page-text)", decls), "cycle"
     refute CV.literal?("rgb(VAR(--x) 0 0)")
     refute CV.literal?("rgb(0 calc(var(--x)) 0)")
+    assert CV.literal?(%(rgb(0 0 0 / "var(--x)")))
   end
 
   def test_var_cycle_with_no_fallback_is_unresolved

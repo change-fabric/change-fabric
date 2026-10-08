@@ -82,6 +82,104 @@ module ColorCss
     out
   end
 
+  # One function token in a value: name is the source spelling ASCII
+  # downcased (non-ASCII and escapes kept as written), start the index of
+  # its first character, open the index of its "(".
+  FunctionToken = Data.define(:name, :start, :open)
+
+  # Every real function token in text, per CSS Syntax 3: a maximal run of
+  # ident code points ([-_a-zA-Z0-9], any code point >= U+0080, or a
+  # backslash escape) that is a valid identifier and is followed directly by
+  # "(". Quoted strings and comments are skipped, as are the contents of an
+  # unquoted url(...) token, a #hash or @at-keyword name, and a run that
+  # starts like a number (2var). Escapes are not decoded, so \var( never
+  # equals var(.
+  def function_tokens(text)
+    text = text.to_s
+    tokens = []
+    i = 0
+    while i < text.length
+      ch = text[i]
+      if ch == '"' || ch == "'"
+        i = skip_string(text, i)
+      elsif text[i, 2] == "/*"
+        close = text.index("*/", i + 2)
+        i = close ? close + 2 : text.length
+      elsif ident_char_at?(text, i)
+        start = i
+        i = skip_ident_run(text, i)
+        prev = start.positive? ? text[start - 1] : nil
+        next unless text[i] == "(" && prev != "#" && prev != "@" && ident_start?(text[start...i])
+
+        tok = FunctionToken.new(name: text[start...i].downcase(:ascii), start:, open: i)
+        tokens << tok
+        i = tok.name == "url" ? skip_unquoted_url(text, i) : i + 1
+      else
+        i += 1
+      end
+    end
+    tokens
+  end
+
+  # text with every function name ASCII-lowercased and nothing else touched:
+  # custom-property names, url() contents and strings stay exact.
+  def downcase_function_names(text)
+    out = text.to_s.dup
+    function_tokens(text).each { |t| out[t.start...t.open] = t.name }
+    out
+  end
+
+  # Index just past the string opening at i (or end of text if unterminated).
+  def skip_string(text, i)
+    quote = text[i]
+    j = i + 1
+    while j < text.length
+      case text[j]
+      when "\\" then j += 2
+        next
+      when quote then return j + 1
+      when "\n" then return j
+      end
+      j += 1
+    end
+    text.length
+  end
+
+  def ident_char_at?(text, i)
+    ch = text[i]
+    ch.match?(/[-_a-zA-Z0-9]/) || ch.ord >= 0x80 || (ch == "\\" && i + 1 < text.length && text[i + 1] != "\n")
+  end
+
+  def skip_ident_run(text, i)
+    i += text[i] == "\\" ? 2 : 1 while i < text.length && ident_char_at?(text, i)
+    i
+  end
+
+  # A run is an identifier when it starts with "--", "-" plus a name-start
+  # code point or escape, or a name-start code point or escape. A leading
+  # digit (or "-" then digit) makes it a number or dimension instead.
+  def ident_start?(run)
+    rest = run.start_with?("--") ? "" : run.delete_prefix("-")
+    return run.start_with?("--") if rest.empty?
+
+    rest.match?(/\A(?:[_a-zA-Z]|\\|[^\x00-\x7f])/)
+  end
+
+  # Past the ")" closing an unquoted url( token at open, or just past "(" when
+  # the url is quoted (then its contents are an ordinary string argument).
+  def skip_unquoted_url(text, open)
+    j = open + 1
+    j += 1 while j < text.length && text[j].match?(/\s/)
+    return open + 1 if text[j] == '"' || text[j] == "'"
+
+    while j < text.length
+      return j + 1 if text[j] == ")"
+
+      j += text[j] == "\\" ? 2 : 1
+    end
+    text.length
+  end
+
   # Internal stateful scan. Not part of the public API; callers only ever
   # reach this through ColorCss.parse.
   class Parser

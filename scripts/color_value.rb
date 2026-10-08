@@ -178,10 +178,6 @@ module ColorValue
   COLOR_FN_NAMES = %w[rgb rgba hsl hsla hwb oklch oklab lab lch color].freeze
   UNRESOLVED_FN_NAMES = %w[oklch oklab lab lch hwb color color-mix].freeze
   CASCADE_KEYWORDS = %w[inherit initial unset revert revert-layer].freeze
-  # A real var( function token: not the tail of a longer ident (xvar(, my-var(,
-  # _var(, 2var() and not an escaped name (\var(). CSS names are ASCII
-  # case-insensitive, so VAR( counts.
-  VAR_CALL = /(?<![-\w\\])var\(/i.freeze
 
   module_function
 
@@ -240,7 +236,7 @@ module ColorValue
       fn = m[1].downcase
       return false unless COLOR_FN_NAMES.include?(fn)
 
-      return !strip_css_strings(m[2]).match?(VAR_CALL)
+      return ColorCss.function_tokens(m[2]).none? { |t| t.name == "var" }
     end
 
     return false unless v.match?(/\A[A-Za-z]+\z/)
@@ -348,7 +344,7 @@ module ColorValue
   # declarations, reaches a property already being resolved. Returns that
   # name, or nil.
   def fallback_cycle(text, decls, seen, visited = Set.new)
-    strip_css_strings(text).scan(/#{VAR_CALL}\s*(--[^\s,()]+)/).flatten.each do |dep|
+    var_dependencies(text).each do |dep|
       return dep if seen.include?(dep)
       next if visited.include?(dep) || !decls.key?(dep)
 
@@ -357,6 +353,16 @@ module ColorValue
       return hit if hit
     end
     nil
+  end
+
+  # The custom-property names named first in each real var( function token
+  # in text (ColorCss.function_tokens), in order. Strings, longer idents such
+  # as évar( or my-var(, and escaped names are not var() calls.
+  def var_dependencies(text)
+    text = text.to_s
+    ColorCss.function_tokens(text).filter_map do |t|
+      text[(t.open + 1)..][/\A\s*(--[^\s,()]+)/, 1] if t.name == "var"
+    end
   end
 
   # True when a failed substitution left the referenced property with the
@@ -369,14 +375,6 @@ module ColorValue
 
     m = reason.to_s.match(/\Avar\(\) cycle through (\S+)\z/)
     !m.nil? && !seen.include?(m[1])
-  end
-
-  # Replaces the contents of every CSS string (single or double quoted,
-  # backslash escapes honored) with nothing, keeping the quotes, so a scan
-  # for var( or parentheses never matches text inside a string. Strings do
-  # not create custom-property dependencies.
-  def strip_css_strings(text)
-    text.to_s.gsub(/"(?:[^"\\]|\\.)*"?|'(?:[^'\\]|\\.)*'?/m) { |str| str[0] * 2 }
   end
 
   # Finds the paren closing the one at open_idx, skipping any paren inside a
