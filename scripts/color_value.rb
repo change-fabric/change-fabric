@@ -236,7 +236,7 @@ module ColorValue
       fn = m[1].downcase
       return false unless COLOR_FN_NAMES.include?(fn)
 
-      return !m[2].downcase.include?('var(')
+      return !strip_css_strings(m[2]).downcase.include?('var(')
     end
 
     return false unless v.match?(/\A[A-Za-z]+\z/)
@@ -344,7 +344,7 @@ module ColorValue
   # declarations, reaches a property already being resolved. Returns that
   # name, or nil.
   def fallback_cycle(text, decls, seen, visited = Set.new)
-    text.to_s.scan(/var\(\s*(--[^\s,()]+)/i).flatten.each do |dep|
+    strip_css_strings(text).scan(/var\(\s*(--[^\s,()]+)/i).flatten.each do |dep|
       return dep if seen.include?(dep)
       next if visited.include?(dep) || !decls.key?(dep)
 
@@ -367,10 +367,31 @@ module ColorValue
     !m.nil? && !seen.include?(m[1])
   end
 
+  # Replaces the contents of every CSS string (single or double quoted,
+  # backslash escapes honored) with nothing, keeping the quotes, so a scan
+  # for var( or parentheses never matches text inside a string. Strings do
+  # not create custom-property dependencies.
+  def strip_css_strings(text)
+    text.to_s.gsub(/"(?:[^"\\]|\\.)*"?|'(?:[^'\\]|\\.)*'?/m) { |str| str[0] * 2 }
+  end
+
+  # Finds the paren closing the one at open_idx, skipping any paren inside a
+  # CSS string.
   def matching_paren(text, open_idx)
     level = 0
+    in_string = nil
+    escaped = false
     (open_idx...text.length).each do |j|
-      case text[j]
+      ch = text[j]
+      if in_string
+        if escaped then escaped = false
+        elsif ch == "\\" then escaped = true
+        elsif ch == in_string then in_string = nil
+        end
+        next
+      end
+      case ch
+      when '"', "'" then in_string = ch
       when '(' then level += 1
       when ')'
         level -= 1

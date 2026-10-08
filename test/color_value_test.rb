@@ -168,6 +168,23 @@ class ColorValueTest < Minitest::Test
     assert_rgba 0, 0, 0, resolved("var(--a_1-b, #000)")
   end
 
+  # Text inside a CSS string is not a var() function, so it never forms a
+  # cycle edge, never closes the reference early, and never makes a color
+  # function non-literal.
+  def test_quoted_var_text_is_not_a_dependency
+    [
+      { "--white" => "#fff", "--page-text" => "var(--white, \"var(--page-text)\")" },
+      { "--white" => "#fff", "--page-text" => "var(--white, 'var(--page-text)')" },
+      { "--white" => "#fff", "--page-text" => "var(--white, \"a\\\" var(--page-text)\")" }
+    ].each do |decls|
+      assert_rgba 255, 255, 255, resolved("var(--page-text)", decls), delta: 0.001
+    end
+    assert_rgba 255, 255, 255, resolved("var(--w, \")\")", { "--w" => "#fff" })
+    assert_includes unresolved("var(--a)", { "--a" => "var(--b, \"x\" var(--a))", "--b" => "#000" }), "cycle"
+    assert CV.literal?("rgb(0 0 0)")
+    refute CV.literal?("rgb(var(--x) 0 0)")
+  end
+
   def test_var_cycle_with_no_fallback_is_unresolved
     decls = { "--a" => "var(--b)", "--b" => "var(--a)" }
     reason = unresolved("var(--a)", decls)
