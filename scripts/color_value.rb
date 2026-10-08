@@ -394,7 +394,7 @@ module ColorValue
     if slash.empty?
       comma_parts = ColorCss.split_top_level(args)
       if comma_parts.size > 1
-        parts = comma_parts.map(&:strip).reject(&:empty?)
+        parts = comma_parts.map(&:strip)
         return [ parts[0, 3], parts[3], true ] if parts.size == 4
 
         [ parts, nil, true ]

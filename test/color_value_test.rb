@@ -72,6 +72,22 @@ class ColorValueTest < Minitest::Test
     assert_nil CV.resolve("rgb(255, 0, 0 / 50%)", {}).color
   end
 
+  def test_legacy_comma_syntax_with_an_empty_field_is_unresolved
+    %w[rgb rgba hsl hsla].each do |fn|
+      ch = fn.start_with?("hsl") ? %w[0 0% 0%] : %w[0 0 0]
+      [
+        "#{fn}(#{ch.join(",")},)",
+        "#{fn}(#{ch.join(",")},0.5,)",
+        "#{fn}(,#{ch.join(",")})",
+        "#{fn}(#{ch[0]},,#{ch[1]},#{ch[2]})",
+        "#{fn}(#{ch[0]},,#{ch[2]})",
+        "#{fn}(#{ch.join(",")}, )"
+      ].each do |value|
+        assert_nil CV.resolve(value, {}).color, value
+      end
+    end
+  end
+
   def test_rgb_percentage_channels
     assert_rgba 255, 0, 0, resolved("rgb(100% 0% 0%)")
   end
