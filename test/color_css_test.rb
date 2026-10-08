@@ -396,6 +396,15 @@ class ColorCssTest < Minitest::Test
     assert_equal [ "@tailw\u00efnd" ], sheet.at_rule_stmts.map(&:name)
   end
 
+  # Every identifier slot reads non-ASCII ident code points, never \w alone.
+  def test_non_ascii_identifiers_in_every_name_slot
+    sheet = ColorCss.parse(".x { --caf\u00e9: red; $caf\u00e9: blue; c\u00f6lor: green; @caf\u00e9-rule a; }")
+    assert_empty sheet.errors
+    assert_equal [ "--caf\u00e9", "$caf\u00e9", "c\u00f6lor" ], sheet.decls.map(&:name)
+    assert_equal [ "@caf\u00e9-rule" ], sheet.at_rule_stmts.map(&:name)
+    assert_equal "@layer caf\u00e9", ColorCss.canonical_idents("@layer caf\\e9")
+  end
+
   # CSS Syntax 3 4.3.7: 1-6 hex digits plus one optional whitespace; zero,
   # a surrogate or anything past U+10FFFF is U+FFFD; any other code point
   # but a newline is itself; a backslash before a newline is no escape.

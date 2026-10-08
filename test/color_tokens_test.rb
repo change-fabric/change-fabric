@@ -131,6 +131,23 @@ class ColorTokensTest < Minitest::Test
     end
   end
 
+  # Layer names are CSS identifiers: "--" names, escaped starts, and any
+  # ident code point; never \w alone.
+  def test_layer_wrapper_name_takes_every_ident_code_point
+    [ "\u65e5\u672c", "--base", "base-2.caf\u00e9_x", "caf\\e9 .x", "\\31 base", "\\@x" ].each do |name|
+      named = ok("@layer #{name} { :root{--a:#000} .dark{--a:#fff} }")
+      assert_equal({ "--a" => "#fff" }, named.variants[:dark], name)
+    end
+    [ "base.", "caf\u00e9 x", "-1x" ].each do |name|
+      assert_error("@layer #{name} { :root{--a:#000} }", "not a valid @layer wrapper")
+    end
+  end
+
+  def test_non_ascii_at_rule_name_is_reported_whole
+    assert_error("@l\u0430yer x { :root{--a:#000} }", "`@l\u0430yer` is not allowed")
+    assert_error("@caf\u00e9 { :root{--a:#000} }", "`@caf\u00e9` is not allowed")
+  end
+
   def test_layer_wrapper_with_multiple_names_is_an_error
     assert_error("@layer a, b { :root{--a:#000} }", "not a valid @layer wrapper")
   end
