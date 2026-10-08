@@ -7,8 +7,9 @@ require_relative 'color_value'
 # Reads the one token file that declares a repo's palette, strictly, per the
 # "Token file" grammar in skills/color/SKILL.md. Anything outside the
 # grammar is an Error with a line number and the construct named; nothing is
-# guessed. The only cascade modelled is the rank (!important, then layer
-# origin) between a light and a dark declaration of one name. Never raises.
+# guessed. The only cascade modelled is the CSS Cascade 5 sort between a
+# light and a dark declaration of one name: !important, then layer origin,
+# then selector specificity, then source order. Never raises.
 module ColorTokens
   # Conventional token-file locations, relative to the scan root, in order.
   PATHS = %w[
@@ -44,6 +45,8 @@ module ColorTokens
   # per letter, never (?i:), which folds U+212A and U+017F as well.
   DARK_ATTR = /\A\[[dD][aA][tT][aA]-[tT][hH][eE][mM][eE]=(?:dark|"dark")\]\z/.freeze
   SELECTOR_HINT = 'only :root and the dark spellings are allowed'
+  # An @theme block compiles to `:root, :host`: one pseudo-class.
+  THEME_SPECIFICITY = [ 0, 1, 0 ].freeze
 
   # line is nil for an error about locating the file rather than its contents.
   Error = Data.define(:line, :message)
@@ -109,12 +112,13 @@ module ColorTokens
       @layer_seen = false
       @layers = {}
       @layer_of = {}
+      @specificity = {}
     end
 
     def result
       sheet.blocks.each { |b| @kinds[b.id] = classify(b) }
       sheet.at_rule_stmts.each { |s| check_statement(s) }
-      sheet.decls.each { |d| record(d) }
+      sheet.decls.each_with_index { |d, order| record(d, order) }
       check_dark_names
       authored, derived, error_token = palette
       check_palette_size(authored)
@@ -181,7 +185,10 @@ module ColorTokens
 
         m[1] == "dark" ? :media_dark : :media_light
       when '@theme'
-        return :light if parent.nil? || parent == :layer
+        if parent.nil? || parent == :layer
+          @specificity[block.id] = THEME_SPECIFICITY
+          return :light
+        end
 
         error(block.line, "`#{prelude}` is only allowed at top level")
       else
@@ -223,6 +230,9 @@ module ColorTokens
         return error(block.line, "selector list `#{prelude}` mixes light and dark; one variant per block")
       end
 
+      # Every member matches the root element, so the block applies with
+      # the most specific one.
+      @specificity[block.id] = members.map { |sel| specificity(sel) }.max
       in_media(block, prelude, parent, variants.first)
     end
 
@@ -271,24 +281,46 @@ module ColorTokens
       end.join
     end
 
-    # An escape (\ , \>, \[, \") is part of a compound, never a combinator,
-    # bracket or quote.
     def combinator?(selector)
+      top_level_chars(selector).any? { |ch| ch.match?(/[ \t\n\r\f>+~]/) }
+    end
+
+    # Selector specificity (ids, classes/attributes/pseudo-classes, types)
+    # of one accepted compound, read off its canonical token stream: each
+    # top-level `#` is an id, each `.`, `:` and `[` a class-level simple
+    # selector. :root, .dark and [data-theme=dark] are (0,1,0); :root.dark
+    # and :root[data-theme=dark] are (0,2,0).
+    def specificity(selector)
+      top_level_chars(canonical_selector(selector)).each_with_object([ 0, 0, 0 ]) do |ch, counts|
+        case ch
+        when "#" then counts[0] += 1
+        when ".", ":", "[" then counts[1] += 1
+        end
+      end
+    end
+
+    # The selector's characters outside brackets, parentheses, quoted
+    # strings and escapes; an opening bracket is yielded at the depth it
+    # opens from. An escape (\ , \>, \[, \") is part of a compound, never
+    # a combinator, bracket or quote.
+    def top_level_chars(selector)
+      return enum_for(__method__, selector) unless block_given?
+
       depth = 0
       i = 0
       while i < selector.length
-        case selector[i]
+        ch = selector[i]
+        case ch
         when "\\" then i = ColorCss.skip_escape(selector, i)
           next
         when '"', "'" then i = ColorCss.skip_string(selector, i)
           next
-        when "[", "(" then depth += 1
-        when "]", ")" then depth -= 1
-        when /[ \t\n\r\f>+~]/ then return true if depth.zero?
         end
+        depth -= 1 if ch == "]" || ch == ")"
+        yield ch if depth.zero?
+        depth += 1 if ch == "[" || ch == "("
         i += 1
       end
-      false
     end
 
     def check_statement(stmt)
@@ -300,7 +332,7 @@ module ColorTokens
       error(stmt.line, "`#{text}` is not allowed in a token file; only --name: value")
     end
 
-    def record(decl)
+    def record(decl, order)
       kind = decl.block_id && @kinds[decl.block_id]
       return if %i[error skip].include?(kind)
       unless %i[light dark].include?(kind)
@@ -310,13 +342,15 @@ module ColorTokens
         return error(decl.line, "property `#{decl.name}` is not allowed in a token block; only --name: value")
       end
 
-      store(kind == :light ? @light : @dark, kind, decl)
+      store(kind == :light ? @light : @dark, kind, decl, order)
     end
 
     # A value holding a malformed var() (ColorValue.malformed_var) is
     # invalid at parse time, so the browser ignores the declaration: it is
-    # an error and never enters the table.
-    def store(table, kind, decl)
+    # an error and never enters the table. An equal-valued redeclaration
+    # keeps whichever declaration sorts highest, since that one is what
+    # competes with the other variant.
+    def store(table, kind, decl, order)
       @dark_seen = true if kind == :dark
       if (bad = ColorValue.malformed_var(decl.value))
         return error(decl.line, "`#{decl.name}` has a malformed `#{bad}`; CSS ignores the whole declaration")
@@ -328,9 +362,10 @@ module ColorTokens
                                 "(line #{prior[:line]}: #{prior[:value]}; here: #{decl.value})")
       end
 
-      origin = { important: decl.important, layer: decl.block_id && @layer_of[decl.block_id] }
+      origin = { important: decl.important, layer: decl.block_id && @layer_of[decl.block_id],
+                 specificity: @specificity.fetch(decl.block_id), order: }
       entry = (table[decl.name] ||= { value: decl.value, line: decl.line, **origin })
-      entry.merge!(origin) if (cascade_rank(origin) <=> cascade_rank(entry)).positive?
+      entry.merge!(origin) if (cascade_key(origin) <=> cascade_key(entry)).positive?
     end
 
     def check_dark_names
@@ -345,12 +380,19 @@ module ColorTokens
       @light.merge(@dark.slice(*@light.keys)) { |_, light, dark| applied(light, dark) }.transform_values { |v| v[:value] }
     end
 
-    # The entry the cascade applies on the root element when a dark
+    # The entry the cascade applies on the dark root element when a dark
     # declaration competes with a light one for the same name: the higher
-    # cascade_rank wins, and on an equal rank dark does (it is the more
-    # specific selector, or the later rule, on the dark root).
+    # cascade_key wins. Source order breaks every tie, so there is no
+    # default winner.
     def applied(light, dark)
-      (cascade_rank(light) <=> cascade_rank(dark)).positive? ? light : dark
+      (cascade_key(light) <=> cascade_key(dark)).positive? ? light : dark
+    end
+
+    # The full CSS Cascade 5 sort of an entry, as a comparable array:
+    # importance and layer (cascade_rank), then selector specificity, then
+    # source order, later winning.
+    def cascade_key(entry)
+      [ *cascade_rank(entry), entry[:specificity], entry[:order] ]
     end
 
     # CSS Cascade 5 order of an entry's origin, as a comparable pair. Priority

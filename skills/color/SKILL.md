@@ -87,9 +87,12 @@ pair that fails contrast does.
 The palette is declared in one token file of a fixed shape. The checker reads
 only that file, strictly; anything else in it is an error, printed with the
 line number and the construct named. Token-file errors always print and fail
-`--strict`. The only cascade modelled is the rank between a light and a dark
-declaration of one name: `!important` priority, then layer origin per CSS
-Cascade 5; there is no selector-specificity modelling.
+`--strict`. The only cascade modelled is the CSS Cascade 5 sort between a
+light and a dark declaration of one name: `!important` priority, then layer
+origin, then selector specificity (`:root`, `.dark`, `[data-theme=dark]` and
+the media `:root` are (0,1,0); `:root.dark` and `:root[data-theme=dark]` are
+(0,2,0)), then source order, later winning. A dark block placed before an
+equally specific `:root` loses to it.
 
 The file is found by this path list, relative to the scan root, in order:
 `app/globals.css`, `src/app/globals.css`, `app/styles/tokens.css`,

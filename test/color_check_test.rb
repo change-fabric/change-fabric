@@ -436,6 +436,22 @@ class ColorCheckTest < Minitest::Test
     end
   end
 
+  # Specificity and source order decide between equally ranked light and
+  # dark declarations: a later :root beats the earlier, equally specific
+  # .dark background, while the more specific :root.dark text still wins,
+  # so the dark page is white on white, graded 1:1 and failing --strict.
+  def test_strict_fails_a_dark_override_beaten_by_a_later_root
+    with_dir do |dir|
+      write(dir, "tokens.css", ".dark{--background:#000}\n:root.dark{--page-text:#fff}\n" \
+                               ":root{--background:#fff;--page-text:#000}")
+      report = ColorCheck.run(dir, strict: true)
+      pair = report.contrast.find { |c| c.variant.to_s == "dark" && c.fg == "--page-text" }
+      assert_equal "fail", pair.status
+      assert_in_delta 1.0, pair.ratio, 0.01
+      assert_equal 1, report.exit_code
+    end
+  end
+
   # A token set to initial, inherit or unset is guaranteed-invalid on the
   # root element, so a var() to it takes its fallback: a white fallback on
   # a white background is graded 1:1 and fails --strict, in both themes.

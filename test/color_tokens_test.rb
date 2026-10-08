@@ -638,17 +638,50 @@ class ColorTokensTest < Minitest::Test
     ok(":root{--a:#000}\n.dark{--a:#fff}\n@media (prefers-color-scheme: dark){:root{--a:#FFF}}")
   end
 
-  def test_dark_is_light_merged_with_overrides_in_any_source_order
-    result = ok(".dark{--a:#fff}\n:root{--a:#000;--b:#111}")
+  def test_dark_is_light_merged_with_overrides
+    result = ok(":root{--a:#000;--b:#111}\n.dark{--a:#fff}")
     assert_equal({ "--a" => "#000", "--b" => "#111" }, result.variants[:light])
     assert_equal({ "--a" => "#fff", "--b" => "#111" }, result.variants[:dark])
   end
 
+  # Past importance and layer, CSS Cascade 5 sorts by selector specificity
+  # and then source order, so dark has no default win: an equally specific
+  # dark block before :root loses to it, a more specific one wins from
+  # anywhere, and a later dark block beats an earlier :root. Covers every
+  # accepted dark spelling on both sides of a :root declaration.
+  def test_dark_override_follows_specificity_then_source_order
+    darks = {
+      ".dark{BODY}" => false, "[data-theme=dark]{BODY}" => false,
+      "[data-theme=\"dark\"]{BODY}" => false, "@media (prefers-color-scheme: dark){:root{BODY}}" => false,
+      ":root.dark{BODY}" => true, ":root[data-theme=dark]{BODY}" => true, ".dark, :root.dark{BODY}" => true
+    }
+    darks.each do |dark, more_specific|
+      block = dark.sub("BODY", "--a:#000")
+      after = ":root{--a:#fff}\n#{block}"
+      before = "#{block}\n:root{--a:#fff}"
+      assert_equal "#000", ok(after).variants[:dark]["--a"], after
+      assert_equal more_specific ? "#000" : "#fff", ok(before).variants[:dark]["--a"], before
+    end
+    [ "@theme{--a:#fff}\n.dark{--a:#000}", ".dark{--a:#000}\n@theme{--a:#fff}" ].each_with_index do |css, i|
+      assert_equal i.zero? ? "#000" : "#fff", ok(css).variants[:dark]["--a"], css
+    end
+  end
+
+  # An equal-valued redeclaration keeps its latest, most specific copy: a
+  # later :root{--a:white} beats an earlier .dark, and a later equal-valued
+  # dark copy wins back.
+  def test_equal_valued_redeclaration_keeps_latest_source_order
+    assert_equal "#fff", ok(":root{--a:#fff}\n.dark{--a:#000}\n:root{--a:white}").variants[:dark]["--a"]
+    assert_equal "#000", ok(":root{--a:#fff}\n.dark{--a:#000}\n:root{--a:white}\n.dark{--a:black}").variants[:dark]["--a"]
+    assert_equal "#000", ok(":root.dark{--a:#000}\n:root{--a:#fff}\n.dark{--a:black}").variants[:dark]["--a"]
+  end
+
   # A dark declaration replaces light only where the cascade lets it: a
   # normal dark value never beats an !important light one, an !important
-  # dark value always does, and with both important dark still wins. Every
-  # dark spelling (class, attribute, prefers-color-scheme media) and an
-  # !important on any equal-valued redeclaration counts.
+  # dark value always does, and with both important the later dark one
+  # wins on source order. Every dark spelling (class, attribute,
+  # prefers-color-scheme media) and an !important on any equal-valued
+  # redeclaration counts.
   def test_dark_override_respects_important_priority
     darks = [ ".dark{BODY}", ":root.dark{BODY}", "[data-theme=dark]{BODY}",
               "@media (prefers-color-scheme: dark){:root{BODY}}" ]
@@ -673,8 +706,9 @@ class ColorTokensTest < Minitest::Test
   # Layer origin is ranked with priority, per CSS Cascade 5: among normal
   # declarations an unlayered one beats a layered one, among !important ones
   # a layered one beats an unlayered one, and on an equal rank (same layer,
-  # or both unlayered) dark wins. Covers every split of light and dark
-  # across the one @layer wrapper, named and anonymous, with each priority.
+  # or both unlayered) the later, equally specific dark block wins. Covers
+  # every split of light and dark across the one @layer wrapper, named and
+  # anonymous, with each priority.
   def test_dark_override_respects_layer_origin
     wrap = ->(layer, rule) { layer ? "#{layer}{#{rule}}" : rule }
     [ "@layer base", "@layer" ].each do |layer|
