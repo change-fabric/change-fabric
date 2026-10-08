@@ -391,6 +391,23 @@ class ColorValueTest < Minitest::Test
     assert_equal (0..n).map { |i| "--c#{i}" }, CV.dependency_closure("var(--c0)", decls)
   end
 
+  # Resolution stays linear on graphs wider than a chain: a lattice where
+  # each hop reaches the rest twice (once through its fallback), closed into
+  # one long cycle or into a cycle hidden behind color-mix(), resolves
+  # correctly in well under a second without overflowing the stack.
+  def test_long_var_lattice_resolves_quickly
+    n = 2000
+    decls = (0...n).to_h { |i| [ "--t#{i}", "var(--t#{i + 1}, var(--t#{[ i + 2, n ].min}))" ] }.merge("--t#{n}" => "#000")
+    started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+    assert_rgba 0, 0, 0, CV.resolve(decls["--t0"], decls, seen: Set["--t0"]).color
+    ring = decls.merge("--t#{n}" => "var(--t0)")
+    assert_equal "var() cycle through --t0", CV.resolve(ring["--t0"], ring, seen: Set["--t0"]).reason
+    assert_rgba 0, 0, 255, resolved("var(--t#{n / 2}, blue)", ring)
+    mixed = decls.merge("--t#{n}" => "color-mix(in srgb, red, var(--t0))")
+    assert_rgba 0, 0, 255, resolved("var(--t#{n / 2}, blue)", mixed)
+    assert_operator Process.clock_gettime(Process::CLOCK_MONOTONIC) - started, :<, 1.0
+  end
+
   def test_var_fallback_does_not_rescue_a_non_color_value
     assert_nil CV.resolve("var(--bad, #000)", { "--bad" => "notacolor" }).color
   end

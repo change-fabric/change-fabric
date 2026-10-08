@@ -170,6 +170,14 @@ class ColorCheckTest < Minitest::Test
       files: { "tokens.css" => ":root { --background: #fff; --page-text: var(--page-text); --a: var(--b); --b: var(--a); }" },
       contrast: [ [ "light", "--page-text", "--background", :unresolved, "cycle" ] ],
       pending: false },
+    { id: "value-functions-empty-declaration-is-defined-not-invalid", cls: :value_functions,
+      files: { "tokens.css" => ":root{--background:#fff;--a:;--page-text:var(--a, #000)}" },
+      contrast: [ [ "light", "--page-text", "--background", :unresolved, "empty value is not a color" ] ],
+      pending: false },
+    { id: "value-functions-empty-fallback-is-a-fallback", cls: :value_functions,
+      files: { "tokens.css" => ":root{--background:#fff;--b:var(--missing,);--page-text:var(--b, #000)}" },
+      contrast: [ [ "light", "--page-text", "--background", :unresolved, "empty value is not a color" ] ],
+      pending: false },
     # :pairing, the fixed rule: "--x-<suffix>" pairs with "--x" when
     # declared, else with "--background"; no other name pairs
     { id: "pairing-base-text-pairs-with-base", cls: :pairing,
