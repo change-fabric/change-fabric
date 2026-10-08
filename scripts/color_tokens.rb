@@ -531,19 +531,24 @@ module ColorTokens
       channel.to_r
     end
 
-    # Decodes escapes in every identifier outside strings and writes each
-    # back in one canonical spelling (ColorCss.canonical_idents), so
-    # var(--\69 nk) and var(--ink) agree. Then ASCII-lowercases each
-    # identifier a color value reads case-insensitively
-    # (ColorValue::CASE_FOLDS), so VAR(--x), currentColor, `in SRGB`, 10DEG
-    # and INHERIT agree with their lowercase spelling, and canonicalizes
-    # whitespace outside quoted strings (whose whitespace is content) by CSS
-    # token semantics. Nothing else is folded: any other identifier
-    # (FadeIn may become a case-sensitive <custom-ident>), url(/A.png)
-    # contents, var(--Ink) names, strings and non-ASCII code points keep
-    # their case.
+    # The value as a canonical token sequence. Escapes in every identifier
+    # outside strings are decoded and written back in one canonical spelling
+    # (ColorCss.canonical_idents), so var(--\69 nk) and var(--ink) agree,
+    # and every quoted string is decoded and re-quoted one way
+    # (ColorCss.canonical_strings), so "Inter", 'Inter' and "\49 nter"
+    # agree. Then identifiers are ASCII-lowercased under
+    # ColorValue.case_folds: function names and numeric tokens always (VAR(,
+    # 10DEG, 1E3), every color and CSS-wide keyword when the whole value is
+    # one color (currentColor, INHERIT, Light-Dark(RED, Blue)), and
+    # otherwise a bare identifier only as a color function's argument. So
+    # `1s RED` and `1s red` stay distinct (RED may name keyframes), as do
+    # FadeIn, url(/A.png) contents, var(--Ink) names, string contents and
+    # non-ASCII code points. Comments are already blanked to whitespace by
+    # the parser, and whitespace outside strings is canonicalized by CSS
+    # token semantics.
     def normalize(value)
-      ColorCss.downcase_keywords(ColorCss.canonical_idents(ColorCss.strip_ws(value)), ColorValue::CASE_FOLDS).split(QUOTED).each_with_index.map do |part, i|
+      text = ColorCss.canonical_strings(ColorCss.canonical_idents(ColorCss.strip_ws(value)))
+      ColorCss.downcase_keywords(text, ColorValue.case_folds(text)).split(QUOTED).each_with_index.map do |part, i|
         i.odd? ? part : insignificant_space_dropped(part)
       end.join
     end

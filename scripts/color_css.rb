@@ -319,7 +319,7 @@ module_function
         i = j
         next
       else
-        enclosing << nil if ch == "("
+        enclosing << enclosing.last if ch == "("
         enclosing.pop if ch == ")"
         j = i + 1
       end
@@ -332,7 +332,8 @@ module_function
   # Whether downcase_keywords folds one identifier or numeric run: a
   # numeric token always; a function name (fn, decoded) when folds lists
   # it; a bare identifier when folds lists it as a keyword or within the
-  # innermost enclosing function. Custom-property names never fold.
+  # innermost enclosing function (a plain "(" block counts as part of the
+  # function it sits in). Custom-property names never fold.
   def folds_run?(run, fn, enclosing, folds)
     return true unless ident_start?(run)
     return folds.functions.include?(fn) if fn

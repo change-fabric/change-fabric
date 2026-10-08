@@ -192,6 +192,21 @@ module ColorValue
     keywords: (NAMED.keys + %w[transparent currentcolor] + CSS_WIDE_KEYWORDS).to_set.freeze,
     within: { "color" => COLOR_SPACE_KEYWORDS, "color-mix" => COLOR_SPACE_KEYWORDS }.freeze
   )
+  # The functions whose arguments a color value reads as colors.
+  COLOR_ARG_FNS = (COLOR_FN_NAMES + UNRESOLVED_FN_NAMES + %w[light-dark]).uniq.freeze
+  # Identifiers read case-insensitively as a color function's argument: a
+  # color keyword, relative-color `from`, a `none` channel, and in color()
+  # and color-mix() a color-space keyword.
+  COLOR_ARG_KEYWORDS = (NAMED.keys + %w[transparent currentcolor from none]).to_set.freeze
+  # The folds for a value that is not one color on its own: function names
+  # and numeric tokens fold, and a bare identifier folds only as a color
+  # function's argument. Anywhere else it may reach a case-sensitive
+  # <custom-ident> after substitution (`1s RED` names keyframes, not a color).
+  TOKEN_FOLDS = ColorCss::CaseFolds.new(
+    functions: CASE_FOLDS.functions,
+    keywords: ColorCss::EMPTY_SET,
+    within: COLOR_ARG_FNS.to_h { |fn| [ fn, COLOR_ARG_KEYWORDS | CASE_FOLDS.within.fetch(fn, ColorCss::EMPTY_SET) ] }.freeze
+  )
 
   module_function
 
@@ -296,6 +311,47 @@ module ColorValue
     return false if name == 'transparent' || name == 'currentcolor'
 
     NAMED.key?(name)
+  end
+
+  # The CaseFolds a whole value is compared under: CASE_FOLDS when the
+  # value is one color on its own (color_syntax?), so RED and red or RGB()
+  # and rgb() agree, else TOKEN_FOLDS, which never folds a bare identifier
+  # outside a color function's arguments.
+  def case_folds(value)
+    color_syntax?(value) ? CASE_FOLDS : TOKEN_FOLDS
+  end
+
+  # True when value is one identifier CASE_FOLDS folds (a color or CSS-wide
+  # keyword) or one call, spanning the whole value, to a function in
+  # COLOR_ARG_FNS. Escapes are read as CSS reads them.
+  def color_syntax?(value)
+    text = ColorCss.strip_ws(value)
+    return false if text.empty?
+    return CASE_FOLDS.keywords.include?(ColorCss.decode_ident(text).downcase(:ascii)) if lone_ident?(text)
+
+    whole_call_name(text).then { |fn| fn && COLOR_ARG_FNS.include?(fn) }
+  end
+
+  def lone_ident?(text)
+    ColorCss.ident_char_at?(text, 0) && ColorCss.skip_ident_run(text, 0) == text.length && ColorCss.ident_start?(text)
+  end
+
+  # The decoded name of the function call that is all of text, or nil.
+  def whole_call_name(text)
+    first = nil
+    closers = []
+    ColorCss.scan_value(text) do |tok, i|
+      if tok.is_a?(ColorCss::FunctionToken)
+        return nil unless first || tok.start.zero?
+
+        first ||= tok
+        closers << ")" if i
+      elsif tok != ","
+        ColorCss.track_block(closers, tok)
+      end
+      return nil if first && closers.empty? && i != text.length - 1
+    end
+    first&.name if first && closers.empty?
   end
 
   # Composites a possibly translucent color over an opaque background.

@@ -347,7 +347,6 @@ class ColorTokensTest < Minitest::Test
       [ "oklch(0.5 0.1 120d\\65 g)", "oklch(0.5 0.1 120deg)" ],
       [ "oklch(0.5 0.1 120\\44 EG)", "oklch(0.5 0.1 120deg)" ],
       [ "1\\70 x solid", "1px solid" ],
-      [ "var(--x, TRANSPARENT)", "var(--x, transparent)" ],
       [ "1PX solid", "1px solid" ]
     ].each do |a, b|
       ok(":root{--a:#{a}}\n:root{--a:#{b}}")
@@ -357,6 +356,7 @@ class ColorTokensTest < Minitest::Test
       [ "var(--Ink)", "var(--ink)" ],
       [ "var(--x, red)", "red" ],
       [ "var(--x, transparent)", "transparent" ],
+      [ "var(--x, TRANSPARENT)", "var(--x, transparent)" ],
       [ "\"INHERIT\"", "\"inherit\"" ],
       [ "url(/A.png)", "url(/a.png)" ],
       [ "oklch(0.5 0.1 1\\65 3)", "oklch(0.5 0.1 1e3)" ],
@@ -394,6 +394,42 @@ class ColorTokensTest < Minitest::Test
       [ "Light-Dark(RED, Blue)", "light-dark(red, blue)" ],
       [ "COLOR(Display-P3 1 0 0)", "color(display-p3 1 0 0)" ],
       [ "color-mix(IN OKLCH LONGER HUE, var(--x) 50%, red)", "color-mix(in oklch longer hue, var(--x) 50%, red)" ]
+    ].each { |a, b| ok(":root{--a:#{a}}\n:root{--a:#{b}}") }
+  end
+
+  # A redeclaration compares token by token. A bare identifier folds only
+  # when the whole value is one color (or one CSS-wide keyword) or the
+  # identifier is a color function's argument: anywhere else a color name
+  # may reach a case-sensitive <custom-ident> (`1s RED` names keyframes).
+  # Strings compare by their decoded value, whatever the quoting.
+  def test_redeclaration_compares_canonical_tokens
+    [
+      [ "1s RED", "1s red" ],
+      [ "1s Transparent", "1s transparent" ],
+      [ "1s CurrentColor", "1s currentcolor" ],
+      [ "RED 1s", "red 1s" ],
+      [ "Inherit 1s", "inherit 1s" ],
+      [ "rgb(0 0 0) RED", "rgb(0 0 0) red" ],
+      [ "var(--x, RED)", "var(--x, red)" ],
+      [ "foo(RED)", "foo(red)" ],
+      [ "\\52 ED 1s", "red 1s" ],
+      [ "\"Inter\"", "\"inter\"" ]
+    ].each do |a, b|
+      assert_error(":root{--animation:#{a}}\n:root{--animation:#{b}}", "`--animation` is declared twice in light")
+    end
+    [
+      [ "\"Inter\"", "'Inter'" ],
+      [ "\"\\49 nter\"", "\"Inter\"" ],
+      [ "'\\49 nter' 1s", "\"Inter\" 1s" ],
+      [ "url('/a.png')", "url(\"/a.png\")" ],
+      [ "var(--x, 'a')", "var(--x, \"a\")" ],
+      [ "1s 10MS", "1s 10ms" ],
+      [ "1E3 x", "1e3 x" ],
+      [ "Light-Dark(RED, Blue) 1s", "light-dark(red, blue) 1s" ],
+      [ "1s color-mix(IN SRGB, (RED) 50%, Blue)", "1s color-mix(in srgb, (red) 50%, blue)" ],
+      [ "rgb(FROM RED r g b) 1s", "rgb(from red r g b) 1s" ],
+      [ "INHERIT", "inherit" ],
+      [ "\\52 ED", "red" ]
     ].each { |a, b| ok(":root{--a:#{a}}\n:root{--a:#{b}}") }
   end
 
@@ -569,12 +605,13 @@ class ColorTokensTest < Minitest::Test
       [ "#\\66 ff", "#fff" ],
       [ "#f\\66 f", "#fff" ],
       [ "#\\46\\46\\46", "#FFF" ],
-      [ "var(--x, #\\66 ff)", "var(--x, #fff)" ]
+      [ "var(--x, #\\66 ff)", "var(--x, #fff)" ],
+      [ "var(--x, \"\\69\")", "var(--x, \"i\")" ]
     ].each { |a, b| ok(":root{--a:#{a}}\n:root{--a:#{b}}") }
     [
       [ "var(--\\49 nk)", "var(--ink)" ],
       [ "var(--Ink)", "var(--\\69 nk)" ],
-      [ "var(--x, \"\\69\")", "var(--x, \"i\")" ]
+      [ "var(--x, \"\\49\")", "var(--x, \"i\")" ]
     ].each { |a, b| assert_error(":root{--a:#{a}}\n:root{--a:#{b}}", "`--a` is declared twice") }
   end
 

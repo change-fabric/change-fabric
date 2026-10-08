@@ -367,13 +367,26 @@ class ColorCheckTest < Minitest::Test
   end
 
   # Two light spellings of one non-color identifier may name different
-  # keyframes once substituted, so --strict fails on them.
+  # keyframes once substituted, so --strict fails on them, a color name in a
+  # value that is not one color included (`1s RED`).
   def test_strict_fails_on_case_differing_custom_ident_redeclaration
-    with_dir do |dir|
-      write(dir, "tokens.css", FOUR_COLOR_TOKENS.sub("--pink: #f2c4c4;", "--pink: #f2c4c4;\n  --animation: FadeIn;\n  --animation: fadein;"))
-      report = ColorCheck.run(dir, strict: true)
-      assert(report.token_errors.any? { |e| e.message.include?("`--animation` is declared twice in light") })
-      assert_equal 1, report.exit_code
+    [ %w[FadeIn fadein], [ "1s RED", "1s red" ], [ "RED 1s", "red 1s" ] ].each do |a, b|
+      with_dir do |dir|
+        write(dir, "tokens.css", FOUR_COLOR_TOKENS.sub("--pink: #f2c4c4;", "--pink: #f2c4c4;\n  --animation: #{a};\n  --animation: #{b};"))
+        report = ColorCheck.run(dir, strict: true)
+        assert(report.token_errors.any? { |e| e.message.include?("`--animation` is declared twice in light") }, a)
+        assert_equal 1, report.exit_code, a
+      end
+    end
+  end
+
+  # Equivalent string spellings are one value, so --strict passes them.
+  def test_strict_passes_equivalent_string_redeclaration
+    [ [ %("Inter"), %('Inter') ], [ %("\\49 nter"), %("Inter") ] ].each do |a, b|
+      with_dir do |dir|
+        write(dir, "tokens.css", FOUR_COLOR_TOKENS.sub("--pink: #f2c4c4;") { "--pink: #f2c4c4;\n  --font: #{a};\n  --font: #{b};" })
+        assert_equal 0, ColorCheck.run(dir, strict: true).exit_code, a
+      end
     end
   end
 
