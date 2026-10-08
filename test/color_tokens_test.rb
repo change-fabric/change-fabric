@@ -172,23 +172,28 @@ class ColorTokensTest < Minitest::Test
   end
 
   def test_theme_block_is_light
-    assert_equal({ "--a" => "#000" }, ok("@theme { --a: #000; }").variants[:light])
-    assert_equal({ "--a" => "#fff", "--m" => "{x:y}" }, ok("@theme { --a:#fff; --m:{x:y}; }").variants[:light])
-    ok("@theme { --metadata: {a:b}; --a: #000; }")
+    assert_equal({ "--a" => "#000" }, ok("@theme static { --a: #000; }").variants[:light])
+    assert_equal({ "--a" => "#fff", "--m" => "{x:y}" }, ok("@theme static { --a:#fff; --m:{x:y}; }").variants[:light])
+    ok("@theme static { --metadata: {a:b}; --a: #000; }")
   end
 
   # Tailwind emits every @theme block's variables at the first block's
-  # position, and @theme reference emits none, so a second block or any
-  # option but static, inline and default is an error.
+  # position, @theme reference emits none, and without static only the
+  # variables Tailwind detects in use are emitted, so a second block, a
+  # block without static, or any option but static, inline and default is
+  # an error.
   def test_theme_block_is_single_and_emitting
-    [ "@theme static", "@theme inline", "@theme INLINE static", "@theme default", "@theme Default inline",
-      "@layer x { @theme" ].each do |open|
+    [ "@theme static", "@theme STATIC", "@theme INLINE static", "@theme default static",
+      "@theme Default inline static", "@layer x { @theme static" ].each do |open|
       css = "#{open} { --a: #000; }#{open.include?('{') ? ' }' : ''}"
       assert_equal({ "--a" => "#000" }, ok(css).variants[:light], open)
     end
     assert_error("@theme static{--background:white}.dark{--background:white;--page-text:white}" \
                  "@theme static{--page-text:black}", "second `@theme static`")
-    assert_error("@theme{--a:#000}@theme{--b:#fff}", "only one @theme block")
+    assert_error("@theme static{--a:#000}@theme static{--b:#fff}", "only one @theme block")
+    [ "@theme", "@theme inline", "@theme default", "@theme default inline" ].each do |open|
+      assert_error("#{open}{--background:white;--page-text:black}", "write `@theme static`")
+    end
     assert_error("@theme reference{--background:white;--page-text:black}", "option `reference`")
     assert_error("@theme bogus{--a:#000}", "option `bogus`")
   end
@@ -879,7 +884,7 @@ class ColorTokensTest < Minitest::Test
       assert_equal "#000", ok(after).variants[:dark]["--a"], after
       assert_equal more_specific ? "#000" : "#fff", ok(before).variants[:dark]["--a"], before
     end
-    [ "@theme{--a:#fff}\n.dark{--a:#000}", ".dark{--a:#000}\n@theme{--a:#fff}" ].each_with_index do |css, i|
+    [ "@theme static{--a:#fff}\n.dark{--a:#000}", ".dark{--a:#000}\n@theme static{--a:#fff}" ].each_with_index do |css, i|
       assert_equal i.zero? ? "#000" : "#fff", ok(css).variants[:dark]["--a"], css
     end
   end

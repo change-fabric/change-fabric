@@ -112,11 +112,12 @@ Accepted shape:
   most one transparent `@layer` wrapper (named or anonymous) around any of
   these. A nested `@layer` is an error. The statements `@import`, `@charset`,
   `@tailwind`, `@source`, `@plugin`, `@custom-variant` and `@config` are
-  skipped. One `@theme` block (bare, or with `static`, `inline` or
-  `default`) follows the `:root` light rules; a second `@theme` is an
-  error, since Tailwind emits every one at the first one's position, and
-  so is `@theme reference`, which emits no variables. Any other at-rule is
-  an error.
+  skipped. One `@theme static` block (optionally also `inline` or
+  `default`) follows the `:root` light rules. `static` is required, since
+  without it Tailwind emits only the variables it detects in use; a second
+  `@theme` is an error, since Tailwind emits every one at the first one's
+  position, and so is `@theme reference`, which emits no variables. Any
+  other at-rule is an error.
 - Selectors: `:root` (light); `.dark`, `:root.dark`, `[data-theme=dark]` in
   any quote style, and `:root[data-theme=dark]` (dark). A selector list is
   accepted only when every member is in the same variant. `html` is not

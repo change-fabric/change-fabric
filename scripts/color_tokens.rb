@@ -202,15 +202,17 @@ module ColorTokens
       end
     end
 
-    # @theme options that still emit every variable. default only lets a
-    # later theme value replace its own, and one block has no other.
-    # reference emits none, so its values never reach the page.
+    # @theme options that may join static. Without static Tailwind emits
+    # only the variables it detects in use, which this checker cannot see,
+    # so static is required. default only lets a later theme value replace
+    # its own, and one block has no other. reference emits none.
     THEME_OPTIONS = %w[static inline default].freeze
 
-    # One @theme block, light. Tailwind emits every @theme block's variables
-    # together at the first block's position, so a second block would sit
-    # in the cascade somewhere other than where it is written: an error, as
-    # is an option other than static, inline or default.
+    # One @theme static block, light. Tailwind emits every @theme block's
+    # variables together at the first block's position, so a second block
+    # would sit in the cascade somewhere other than where it is written: an
+    # error, as is a block without static or with any option besides
+    # static, inline and default.
     def theme(block, prelude, canonical)
       return error(block.line, "second `#{prelude}`; only one @theme block is allowed, since Tailwind " \
                                "emits every @theme at the first one's position") if @theme_seen
@@ -219,6 +221,10 @@ module ColorTokens
       if (bad = options.find { |o| !THEME_OPTIONS.include?(o.downcase(:ascii)) })
         return error(block.line, "`#{prelude}` has option `#{bad}`; only static, inline and default emit the " \
                                  "variables (reference emits none)")
+      end
+      unless options.any? { |o| o.casecmp?('static') }
+        return error(block.line, "`#{prelude}` may omit variables Tailwind does not detect in use; " \
+                                 "write `@theme static` so every audited variable is emitted")
       end
 
       @theme_seen = true
