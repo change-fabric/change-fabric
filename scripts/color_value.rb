@@ -206,13 +206,15 @@ module ColorValue
     Resolver.new(decls).resolve(value, seen)
   end
 
-  # The body of resolve once the cycle check has passed: value is parsed as
-  # a color, and a whole-value var() is handed back to resolver.
+  # The body of resolve once the cycle check has passed: resolver picks the
+  # branch a whole-value var() substitutes (Resolver#resolve_value), and the
+  # text it lands on is parsed as a color.
   def resolve_with(value, resolver)
-    if (ref = parse_var_ref(value))
-      return resolver.resolve_var(*ref)
-    end
+    resolver.resolve_value(value)
+  end
 
+  # A value that is not a whole-value var() parsed as a color.
+  def resolve_text(value)
     v, escape_reason = ColorCss.decode_value_escapes(value.to_s.strip)
     return Result.new(color: nil, reason: escape_reason) if escape_reason
 
@@ -318,8 +320,8 @@ module ColorValue
   end
 
   # Parses a whole-value var(...) call into [name, fallback], or nil when
-  # text is not one well-formed var() reference. Read off the tokens
-  # (ColorCss.function_tokens), not decoded text, so an escaped spelling
+  # text is not one well-formed var() reference. Read off one var_calls
+  # scan of the tokens, not decoded text, so an escaped spelling
   # such as \76 ar( is still var( while the fallback stays exactly as
   # written: it is decoded only if CSS substitutes it. fallback is nil only
   # when there is no comma at all; a comma followed by nothing (or
@@ -327,13 +329,71 @@ module ColorValue
   # token sequence, not as an absent fallback.
   def parse_var_ref(text)
     text = text.to_s.strip
-    t = ColorCss.function_tokens(text).first
-    return nil unless t && t.start.zero? && t.name == "var"
-    # The closing paren must belong to this var( itself, so a value that is
-    # several references in a row (var(--r) var(--g)) is not one reference.
-    return nil unless matching_paren(text, t.open) == text.length - 1
+    call = whole_var_call(text, var_calls(text).to_h { |c| [ c.start, c ] }, 0...text.length)
+    name, fallback = call && var_arguments(text, call, call.close)
+    [ name, fallback && text[fallback] ] if name
+  end
 
-    var_arguments(text[(t.open + 1)...-1])
+  # One var( call in a value, as offsets into the text it was scanned from:
+  # its name token's start, its "(", its first top-level "," (nil when it
+  # has none), its matching ")" (nil while unclosed), and the nearest var()
+  # call it is nested in (nil at top level).
+  VarCall = Struct.new(:start, :open, :comma, :close, :parent, keyword_init: true)
+
+  # The var() call that is all of text[range], or nil. Its closing paren
+  # must be the range's last character, so a value that is several
+  # references in a row (var(--r) var(--g)) is not one reference.
+  def whole_var_call(text, by_start, range)
+    call = by_start[range.begin]
+    call if call && call.close == range.end - 1
+  end
+
+  # Every var( call in text, from one ColorCss.scan_value pass, in source
+  # order (an enclosing call before the calls nested in it).
+  def var_calls(text)
+    calls = []
+    parens = [] # each open paren: its VarCall, or nil for any other
+    open_vars = [] # the open VarCalls, innermost last
+    ColorCss.scan_value(text) do |tok, i|
+      case tok
+      when ColorCss::FunctionToken
+        next unless i
+
+        call = VarCall.new(start: tok.start, open: i, parent: open_vars.last) if tok.name == "var"
+        calls << call if call
+        open_vars << call if call
+        parens << call
+      when "(" then parens << nil
+      when ")"
+        next unless (call = parens.pop)
+
+        call.close = i
+        open_vars.pop
+      when "," then parens.last&.comma ||= i
+      end
+    end
+    calls
+  end
+
+  # The whole-value var() chain of text, walked once, without rescanning:
+  # each var(name, fallback) whose fallback is itself one whole var() call
+  # is one link. Yields [name, has_fallback] per link, outermost first, and
+  # returns the text the chain ends on (the value itself when it is not a
+  # var(), else the innermost fallback that is not one), or nil when the
+  # last link has no fallback. Each link is found by its offsets into the
+  # one scan of text, so a deeply nested fallback costs linear time and no
+  # Ruby recursion.
+  def var_chain(text)
+    text = text.to_s.strip
+    by_start = var_calls(text).to_h { |c| [ c.start, c ] }
+    range = 0...text.length
+    while (call = whole_var_call(text, by_start, range)) && (ref = var_arguments(text, call, call.close))
+      yield ref[0], !ref[1].nil?
+      return nil unless ref[1]
+
+      range = ref[1]
+    end
+    text[range]
   end
 
   # The CSS-wide keyword a whole value is, ASCII case-insensitive and with
@@ -355,23 +415,33 @@ module ColorValue
     "#{keyword} depends on the cascade"
   end
 
-  # The [name, fallback] of one var() call's argument text, or nil when the
-  # first argument is not a custom-property name. The one place that splits
-  # name from fallback, so parse_var_ref and Resolver#substitution_fails?
-  # agree on what an empty fallback is (see parse_var_ref).
-  def var_arguments(args)
-    parts = ColorCss.split_top_level(args)
-    name = parts[0] && ColorCss.custom_property_ref(parts[0].strip)
-    fallback = parts.size > 1 ? parts[1..].join(",").strip : nil
-
-    # Only one identifier that decodes to a custom-property name
-    # (ColorCss.custom_property_ref, the test declarations use too) is a
-    # reference; var(foo), var(), var(-x) and var(--a b) are malformed and
-    # stay unresolved, fallback or not.
+  # The [name, fallback] of one var() call in text, ending at close (its
+  # ")", or the end of text while unclosed), or nil when the first argument
+  # is not a custom-property name. fallback is the stripped Range of text
+  # after the first top-level comma, nil only when there is no comma at
+  # all. The one place that splits name from fallback, so parse_var_ref,
+  # var_chain and Resolver#substitution_fails? agree on what an empty
+  # fallback is (see parse_var_ref).
+  #
+  # Only one identifier that decodes to a custom-property name
+  # (ColorCss.custom_property_ref, the test declarations use too) is a
+  # reference; var(foo), var(), var(-x) and var(--a b) are malformed and
+  # stay unresolved, fallback or not.
+  def var_arguments(text, call, close)
+    name = ColorCss.custom_property_ref(text[(call.open + 1)...(call.comma || close)].strip)
     return nil unless name
 
-    [ name, fallback ]
+    [ name, call.comma && strip_range(text, call.comma + 1, close) ]
   end
+
+  # The Range of text[s...e] that String#strip would keep.
+  def strip_range(text, s, e)
+    s += 1 while s < e && STRIP_CHARS.include?(text[s])
+    e -= 1 while e > s && STRIP_CHARS.include?(text[e - 1])
+    s...e
+  end
+
+  STRIP_CHARS = "\0\t\n\v\f\r "
 
   EMPTY_REASON = "empty value is not a color"
 
@@ -439,6 +509,7 @@ module ColorValue
       @decls = decls
       @deps = {}
       @results = {}
+      @branches = {}
       @fails = {}
       @index = {}
       @low = {}
@@ -460,18 +531,44 @@ module ColorValue
       ColorValue.resolve_with(value, self)
     end
 
+    # value resolved: the branch CSS substitutes for its whole-value var()
+    # chain (see branch), or the value itself parsed as a color.
+    def resolve_value(value)
+      resolve_branch(*branch(value))
+    end
+
+    # The Result of one branch (see branch).
+    def resolve_branch(kind, target)
+      case kind
+      when :property then property(target)
+      when :failed then failed_reference(target)
+      else ColorValue.resolve_text(target)
+      end
+    end
+
+    # Which branch of value's whole-value var() chain (ColorValue.var_chain)
+    # CSS substitutes, picked by one loop over the chain's links:
+    # [:property, name] for the first referenced property that is defined
+    # and does not fail, [:failed, name] for a failing reference with no
+    # fallback, or [:text, text] for the text the chain ends on.
+    #
     # A cyclic referenced property is invalid and the var()'s fallback
     # applies (resolve has already ruled out a cycle through the referencing
     # property). An undefined name, or a defined one that computes to the
     # guaranteed-invalid value, is rescued by a fallback too, even an empty
     # one; any other defined property is substituted as it is, empty value
-    # included, and the fallback is ignored.
-    #
-    # fallback is the raw text as written; only this method decides whether
-    # it is substituted, so only then is it decoded (by resolve_with).
-    def resolve_var(name, fallback)
-      return property(name) if @decls.key?(name) && !fails?(name)
-      return ColorValue.resolve_with(fallback, self) if fallback
+    # included, and the fallback is ignored. A fallback stays raw text until
+    # it is the branch chosen, so only then is it decoded (resolve_text).
+    def branch(value)
+      tail = ColorValue.var_chain(value) do |name, has_fallback|
+        return [ :property, name ] if @decls.key?(name) && !fails?(name)
+        return [ :failed, name ] unless has_fallback
+      end
+      [ :text, tail ]
+    end
+
+    # The Result of var(name) with no fallback when name fails.
+    def failed_reference(name)
       return Result.new(color: nil, reason: "#{name} is not defined in this theme") unless @decls.key?(name)
       return ColorValue.cycle_result(name) if cyclic?(name)
       if ColorValue.css_wide_keyword(@decls[name]) == "initial"
@@ -518,39 +615,52 @@ module ColorValue
 
     private
 
-    # A defined, non-cyclic property's Result, memoized. A run of whole-value
-    # references (--a: var(--b); --b: var(--c); ...) is resolved from its far
-    # end first, so each step finds the next one already memoized and the
-    # Ruby stack stays shallow however long the chain is.
+    # A defined property's Result, memoized. A run of properties each
+    # substituting the next (--a: var(--b); --b: var(--x, var(--c)); ...,
+    # whichever branch is chosen) is resolved from its far end first, so
+    # each step finds the next one already memoized and the Ruby stack
+    # stays shallow however long the chain is.
     def property(name)
+      return @results[name] if @results.key?(name)
+
       chain = [ name ]
-      while (nxt = whole_value_ref(chain.last)) && !@results.key?(nxt) && @decls.key?(nxt) && !fails?(nxt)
+      loop do
+        kind, nxt = decl_branch(chain.last)
+        break unless kind == :property && !@results.key?(nxt)
+
         chain << nxt
       end
-      chain.reverse_each { |n| @results[n] ||= ColorValue.resolve_with(@decls[n], self) }
+      chain.reverse_each { |n| @results[n] ||= resolve_branch(*decl_branch(n)) }
       @results[name]
     end
 
-    def whole_value_ref(name)
-      ColorValue.parse_var_ref(@decls[name])&.first
+    def decl_branch(name)
+      @branches[name] ||= branch(@decls[name])
     end
 
     # True when substituting every var() in text fails: a var() whose name
     # fails (see fails?) with no fallback, or with a fallback that itself
     # fails. A var() nested in another's fallback is only reached through
     # that fallback. An empty fallback substitutes nothing and never fails.
+    #
+    # One scan (ColorValue.var_calls) finds every call; they are settled
+    # innermost first in reverse source order, so each call's fallback
+    # verdict is known before the call itself, with no recursion per
+    # nesting level. Every name is a dependency fails? has already settled.
     def substitution_fails?(text)
-      covered = -1
-      ColorCss.function_tokens(text).each do |t|
-        next unless t.name == "var" && t.start > covered
-
-        covered = ColorValue.matching_paren(text, t.open) || text.length
-        ref = ColorValue.var_arguments(text[(t.open + 1)...covered])
-        return true unless ref
-        next unless fails?(ref[0])
-        return true if ref[1].nil? || substitution_fails?(ref[1])
+      fallback_fails = {}
+      failing = false
+      ColorValue.var_calls(text).reverse_each do |call|
+        ref = ColorValue.var_arguments(text, call, call.close || text.length)
+        fails = ref.nil? || (fails?(ref[0]) && (ref[1].nil? || fallback_fails.fetch(call.start, false)))
+        parent = call.parent
+        if parent.nil?
+          failing ||= fails
+        elsif parent.comma && call.start > parent.comma
+          fallback_fails[parent.start] ||= fails
+        end
       end
-      false
+      failing
     end
 
     # Iterative Tarjan strongly-connected-components pass from root over
@@ -596,27 +706,6 @@ module ColorValue
         @cyclic.merge(component) if component.size > 1 || edges.include?(node)
       end
     end
-  end
-
-  # Finds the paren closing the one at open_idx, skipping any paren inside a
-  # CSS string or written as an escape (\)).
-  def matching_paren(text, open_idx)
-    level = 0
-    j = open_idx
-    while j < text.length
-      case text[j]
-      when "\\" then j = ColorCss.skip_escape(text, j)
-        next
-      when '"', "'" then j = ColorCss.skip_string(text, j)
-        next
-      when "(" then level += 1
-      when ")"
-        level -= 1
-        return j if level.zero?
-      end
-      j += 1
-    end
-    nil
   end
 
   def invalid_value(args)

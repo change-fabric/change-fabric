@@ -156,8 +156,18 @@ module ColorCss
   # starts like a number (2var). Escapes are decoded before the name is
   # compared, as CSS does, so \var( is var( and \75 rl( is url(.
   def function_tokens(text)
-    text = text.to_s
     tokens = []
+    scan_value(text) { |tok, _i| tokens << tok if tok.is_a?(FunctionToken) }
+    tokens
+  end
+
+  # The one value lexer function_tokens and ColorValue.var_calls share, in a
+  # single pass: yields each FunctionToken with the index of the
+  # "(" it opens (nil for an unquoted url(...), whose token closes itself),
+  # and each other "(", ")" and "," as the character and its index. Nothing
+  # inside a string, comment, escape or unquoted url() is yielded.
+  def scan_value(text)
+    text = text.to_s
     i = 0
     while i < text.length
       ch = text[i]
@@ -173,13 +183,14 @@ module ColorCss
         next unless text[i] == "(" && prev != "#" && prev != "@" && ident_start?(text[start...i])
 
         tok = FunctionToken.new(name: decode_ident(text[start...i]).downcase(:ascii), start:, open: i)
-        tokens << tok
-        i = tok.name == "url" ? skip_unquoted_url(text, i) : i + 1
+        after = tok.name == "url" ? skip_unquoted_url(text, i) : i + 1
+        yield tok, (after == i + 1 ? i : nil)
+        i = after
       else
+        yield ch, i if ch == "(" || ch == ")" || ch == ","
         i += 1
       end
     end
-    tokens
   end
 
   # text with every function name ASCII-lowercased and nothing else touched:

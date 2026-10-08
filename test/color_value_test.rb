@@ -227,12 +227,17 @@ class ColorValueTest < Minitest::Test
     assert CV.literal?(%(rgb(0 0 0 / "var(--x)")))
   end
 
-  # An escaped paren never closes the var( it sits in.
-  def test_matching_paren_skips_escapes
-    assert_equal 5, CV.matching_paren("a(\\)b)", 1)
-    assert_equal 7, CV.matching_paren("a(\\29 b)", 1)
-    assert_equal 5, CV.matching_paren("a(\\(b))", 1)
-    assert_equal 7, CV.matching_paren("a(\")\\\"\")", 1)
+  # An escaped paren, or one in a string or comment, never closes the var(
+  # it sits in, and a comma there never splits its fallback off.
+  def test_var_calls_skip_escapes_strings_and_comments
+    assert_equal 7, CV.var_calls("var(\\)b)").first.close
+    assert_equal 9, CV.var_calls("var(\\29 b)").first.close
+    assert_equal 7, CV.var_calls("var(\\(b))").first.close
+    assert_equal 9, CV.var_calls("var(\")\\\"\")").first.close
+    assert_equal [ 20, nil ], CV.var_calls("var(--a /* ), */ red)").first.to_h.values_at(:close, :comma)
+    outer, inner = CV.var_calls("var(--a, rgb(1, var(--b, 2)))")
+    assert_equal [ 7, 28, nil ], [ outer.comma, outer.close, outer.parent ]
+    assert_equal [ 23, 26, outer ], [ inner.comma, inner.close, inner.parent ]
     assert_includes unresolved("var(--a\\) var(--b)", { "--a" => "#fff", "--b" => "#000" }), "unrecognized"
   end
 
@@ -406,6 +411,42 @@ class ColorValueTest < Minitest::Test
     mixed = decls.merge("--t#{n}" => "color-mix(in srgb, red, var(--t0))")
     assert_rgba 0, 0, 255, resolved("var(--t#{n / 2}, blue)", mixed)
     assert_operator Process.clock_gettime(Process::CLOCK_MONOTONIC) - started, :<, 1.0
+  end
+
+  # A deeply nested fallback is walked from one scan of the value, with no
+  # rescan and no Ruby recursion per level, however it is reached: as the
+  # value itself, through a property, through a failing property's fallback
+  # verdict, with defined and undefined names mixed, down a run of
+  # properties each substituting the next through a fallback, and behind a
+  # cycle. Each 2000-level resolution finishes in well under a second.
+  def test_deep_nested_fallback_resolves_quickly
+    n = 2000
+    nest = ->(inner) { (0...n).reduce(inner) { |v, i| "var(--m#{i}, #{v})" } }
+    quickly = lambda do |value, decls = {}, seen: Set.new|
+      started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+      result = CV.resolve(value, decls, seen:)
+      assert_operator Process.clock_gettime(Process::CLOCK_MONOTONIC) - started, :<, 1.0
+      result
+    end
+    assert_rgba 255, 0, 0, quickly.call(nest.call("red")).color
+    assert_rgba 255, 0, 0, quickly.call("var(--top)", { "--top" => nest.call("red") }).color
+    assert_equal "--none is not defined in this theme", quickly.call(nest.call("var(--none)")).reason
+    assert_rgba 0, 0, 255, quickly.call("var(--top, blue)", { "--top" => nest.call("var(--none)") }).color
+    assert_rgba 255, 0, 0, quickly.call("var(--top, blue)", { "--top" => nest.call("var(--none, red)") }).color
+    assert_equal CV::EMPTY_REASON, quickly.call("var(--top, blue)", { "--top" => nest.call("var(--none,)") }).reason
+
+    mixed = (0...n).step(2).to_h { |i| [ "--m#{i}", "initial" ] }.merge("--m#{n / 2 + 1}" => "#123456")
+    assert_rgba 0x12, 0x34, 0x56, quickly.call(nest.call("red"), mixed).color
+    assert_rgba 0, 128, 0, quickly.call(nest.call("green"), mixed.except("--m#{n / 2 + 1}")).color
+
+    run = (0...n).to_h { |i| [ "--p#{i}", "var(--u#{i}, var(--p#{i + 1}))" ] }.merge("--p#{n}" => "#abcdef")
+    assert_rgba 0xab, 0xcd, 0xef, quickly.call("var(--p0)", run).color
+
+    cycle = { "--a" => nest.call("var(--b)"), "--b" => "var(--a)" }
+    assert_equal "var() cycle through --a", quickly.call(cycle["--a"], cycle, seen: Set["--a"]).reason
+    assert_rgba 0, 128, 0, quickly.call("var(--a, green)", cycle).color
+    assert_equal "var() cycle through --a", quickly.call(nest.call("var(--a)"), cycle).reason
+    assert_rgba 0, 128, 0, quickly.call(nest.call("var(--a, green)"), cycle).color
   end
 
   def test_var_fallback_does_not_rescue_a_non_color_value
