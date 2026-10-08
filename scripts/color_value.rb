@@ -544,15 +544,18 @@ module ColorValue
 
   # Returns [value 0..255, :num|:pct], or nil if text is not a valid number
   # or percentage. The value stays fractional so contrast sees the exact
-  # channel; rounding is for display and palette keys only.
+  # channel; rounding is for display only.
+  # Like alpha, a channel is scaled exactly (Rational) and converted to Float
+  # once, so 33.3% and 84.915 land on the same Float and share a palette key.
   def parse_channel(text)
     t = text.to_s.strip
     if (pct = parse_percentage(t))
       # 1e308% overflows when scaled to 0..255; recheck after conversion.
-      value = finite_or_nil(pct / 100.0 * 255.0)
-      [ value.clamp(0.0, 255.0), :pct ] if value
-    elsif (n = parse_number(t))
-      [ n.to_f.clamp(0.0, 255.0), :num ]
+      return unless finite_or_nil(pct / 100.0 * 255.0)
+
+      [ (bounded_rational(t.chomp("%")) * 255 / 100).clamp(0, 255).to_f, :pct ]
+    elsif parse_number(t)
+      [ bounded_rational(t).clamp(0, 255).to_f, :num ]
     end
   end
 
@@ -600,7 +603,7 @@ module ColorValue
       when 240...300 then [ x, 0, c ]
       else [ c, 0, x ]
       end
-    # Channels stay fractional; only display (to_hex) and palette keys round.
+    # Channels stay fractional; only display (to_hex) rounds.
     [ r1, g1, b1 ].map { |c| ((c + m) * 255.0).clamp(0.0, 255.0) }
   end
 end

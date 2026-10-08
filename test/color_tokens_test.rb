@@ -282,6 +282,9 @@ class ColorTokensTest < Minitest::Test
     [ [ "rgb(0.1 0 0)", "rgb(0.2 0 0)" ],
       [ "rgb(0 0.4 0)", "rgb(0 0.6 0)" ],
       [ "rgb(0 0 0.1%)", "rgb(0 0 0.2%)" ],
+      [ "rgb(0.0000001 0 0)", "rgb(0.0000002 0 0)" ],
+      [ "rgb(0 0.0000001 0)", "rgb(0 0.0000002 0)" ],
+      [ "rgba(0 0 0 / 0.0000001)", "rgba(0 0 0 / 0.0000002)" ],
       [ "hsl(0 100% 0.1%)", "hsl(0 100% 0.2%)" ] ].each do |a, b|
       result = ok(":root{--a:#{a};--b:#{b}}")
       assert_equal 2, result.authored.size, "#{a} vs #{b}"
@@ -290,6 +293,11 @@ class ColorTokensTest < Minitest::Test
 
   def test_equal_fractional_channel_spellings_share_one_color
     [ [ "rgb(50% 0 0)", "rgb(127.5 0 0)" ],
+      [ "#ff0000", "rgb(255 0 0)" ],
+      [ "#ff0000", "rgb(100% 0 0)" ],
+      [ "rgb(255 0 0)", "rgb(100% 0 0)" ],
+      [ "rgb(-0 0 0)", "rgb(0 0 0)" ],
+      [ "rgb(-0.0 0 0)", "#000" ],
       [ "#800000", "rgb(128 0 0)" ],
       [ "#800000", "rgb(128.0, 0, 0)" ],
       [ "rgb(33.3% 0 0)", "rgb(84.915 0 0)" ],
