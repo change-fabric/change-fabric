@@ -393,6 +393,32 @@ class ColorCheckTest < Minitest::Test
     end
   end
 
+  # A token set to initial, inherit or unset is guaranteed-invalid on the
+  # root element, so a var() to it takes its fallback: a white fallback on
+  # a white background is graded 1:1 and fails --strict, in both themes.
+  # Without a fallback the pair is unresolved, naming the keyword.
+  def test_strict_fails_a_fallback_taken_for_a_guaranteed_invalid_token
+    %w[initial inherit unset].each do |kw|
+      with_dir do |dir|
+        write(dir, "tokens.css", ":root{--a:#{kw};--background:#fff;--page-text:var(--a,#fff)}")
+        report = ColorCheck.run(dir, strict: true)
+        assert(report.contrast.any? { |c| c.fg == "--page-text" && c.status == "fail" }, kw)
+        assert_equal 1, report.exit_code, kw
+      end
+      with_dir do |dir|
+        write(dir, "tokens.css", ":root{--a:#000;--background:#fff;--page-text:var(--a,#000)}\n.dark{--a:#{kw};--background:#000;--page-text:var(--a,#000)}")
+        report = ColorCheck.run(dir, strict: true)
+        assert(report.contrast.any? { |c| c.fg == "--page-text" && c.status == "fail" }, kw)
+        assert_equal 1, report.exit_code, kw
+      end
+      with_dir do |dir|
+        write(dir, "tokens.css", ":root{--a:#{kw};--background:#fff;--page-text:var(--a)}")
+        report = ColorCheck.run(dir, strict: true)
+        assert_equal 0, report.exit_code, kw
+      end
+    end
+  end
+
   # An escaped var( is still a var() reference, so the low-contrast pair it
   # names is graded and --strict fails on it instead of skipping it.
   def test_strict_fails_an_escaped_var_reference_pair

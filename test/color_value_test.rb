@@ -484,7 +484,7 @@ class ColorValueTest < Minitest::Test
   def test_currentcolor_light_dark_and_cascade_keywords_are_unresolved
     assert_includes unresolved("currentColor"), "currentColor"
     assert_includes unresolved("light-dark(#000, #fff)"), "light-dark"
-    assert_includes unresolved("inherit"), "depends on the cascade"
+    assert_includes unresolved("revert"), "depends on the cascade"
   end
 
   def test_color_mix_is_unresolved
@@ -737,7 +737,8 @@ class ColorValueTest < Minitest::Test
     assert CV.literal?("\\72 gb(1 2 3)")
     refute CV.literal?("\\72 gb(\\76 ar(--x) 0 0)")
     assert_includes unresolved("\\6f klch(0.5 0.1 120)"), "oklch()"
-    assert_includes unresolved("\\69 nherit"), "cascade"
+    assert_includes unresolved("\\69 nherit"), "inherit is the guaranteed-invalid value"
+    assert_includes unresolved("\\72 evert"), "cascade"
     assert_includes unresolved("\\76 ar(--page-text)", { "--page-text" => "\\76 ar(--page-text)" }), "cycle"
   end
 
@@ -810,23 +811,29 @@ class ColorValueTest < Minitest::Test
   end
 
   # initial on a custom property is the guaranteed-invalid value, however
-  # it is spelled: a var() referencing it (directly or through a chain)
-  # takes its fallback, and with none is unresolved naming initial. Without
-  # a declaration's scope, inherit and unset, like revert and revert-layer,
-  # stay cascade-dependent and are reported by name, fallback or not.
+  # it is spelled, and so are inherit and unset on a token declared on the
+  # root element (every token in the file), which has no parent to inherit
+  # from: a var() referencing one (directly or through a chain) takes its
+  # fallback, and with none is unresolved naming the keyword. revert and
+  # revert-layer depend on the cascade and are reported by name, fallback
+  # or not.
   def test_css_wide_keywords_on_referenced_custom_properties
-    [ "initial", "INITIAL", "Initial", "\\69nitial", "\\69 nitial", " initial " ].each do |kw|
-      assert_equal "initial", CV.css_wide_keyword(kw), kw
-      [ { "--x" => kw }, { "--x" => "var(--y)", "--y" => kw } ].each do |decls|
-        assert_equal resolved("red").to_h, resolved("var(--x, red)", decls).to_h, kw
-        assert_equal "--x is initial, the guaranteed-invalid value", unresolved("var(--x)", decls), kw if decls["--x"] == kw
-        assert_includes unresolved("var(--x)", decls), "initial", kw
+    %w[initial inherit unset].each do |kw|
+      [ kw, kw.upcase, kw.capitalize, "\\#{kw[0].ord.to_s(16)}#{kw[1..]}", "\\#{kw[0].ord.to_s(16)} #{kw[1..]}", " #{kw} " ].each do |spelling|
+        assert_equal kw, CV.css_wide_keyword(spelling), spelling
+        assert_equal kw, CV.guaranteed_invalid_keyword(spelling), spelling
+        [ { "--x" => spelling }, { "--x" => "var(--y)", "--y" => spelling } ].each do |decls|
+          assert_equal resolved("red").to_h, resolved("var(--x, red)", decls).to_h, spelling
+          assert_equal "--x is #{kw}, the guaranteed-invalid value", unresolved("var(--x)", decls), spelling if decls["--x"] == spelling
+          assert_includes unresolved("var(--x)", decls), kw, spelling
+        end
+        assert_equal "#{kw} is the guaranteed-invalid value", unresolved(spelling), spelling
       end
-      assert_equal "initial is the guaranteed-invalid value", unresolved(kw), kw
     end
-    %w[inherit unset revert revert-layer].each do |kw|
+    %w[revert revert-layer].each do |kw|
       [ kw, kw.upcase, "\\#{kw[0].ord.to_s(16)} #{kw[1..]}" ].each do |spelling|
         assert_equal kw, CV.css_wide_keyword(spelling), spelling
+        assert_nil CV.guaranteed_invalid_keyword(spelling), spelling
         decls = { "--x" => spelling }
         assert_equal "#{kw} depends on the cascade", unresolved("var(--x, red)", decls), spelling
         assert_equal "#{kw} depends on the cascade", unresolved("var(--x)", decls), spelling

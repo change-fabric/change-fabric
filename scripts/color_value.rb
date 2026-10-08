@@ -177,6 +177,7 @@ module ColorValue
   COLOR_FN_NAMES = %w[rgb rgba hsl hsla hwb oklch oklab lab lch color].freeze
   UNRESOLVED_FN_NAMES = %w[oklch oklab lab lch hwb color color-mix].freeze
   CSS_WIDE_KEYWORDS = %w[initial inherit unset revert revert-layer].freeze
+  GUARANTEED_INVALID_KEYWORDS = %w[initial inherit unset].freeze
 
   module_function
 
@@ -412,12 +413,24 @@ module ColorValue
     v if CSS_WIDE_KEYWORDS.include?(v)
   end
 
-  # initial on a custom property is the guaranteed-invalid value. The
-  # resolver has no scope for a declaration, so inherit and unset (initial
-  # only on the root element) and revert and revert-layer stay
-  # cascade-dependent.
+  # The CSS-wide keyword a whole value is when that keyword makes a token
+  # the guaranteed-invalid value, or nil. The token file declares every
+  # custom property on the root element (:root and the dark block), and an
+  # unregistered custom property there has no parent to inherit from, so
+  # inherit and unset compute to its initial value, the guaranteed-invalid
+  # value, exactly as initial does. revert and revert-layer depend on the
+  # cascade the checker does not model, so they are not among them. The
+  # one test resolve and Resolver#fails? use for a guaranteed-invalid
+  # keyword.
+  def guaranteed_invalid_keyword(value)
+    kw = css_wide_keyword(value)
+    kw if GUARANTEED_INVALID_KEYWORDS.include?(kw)
+  end
+
+  # Why a whole-value CSS-wide keyword is unresolved (see
+  # guaranteed_invalid_keyword).
   def css_wide_reason(keyword)
-    return "initial is the guaranteed-invalid value" if keyword == "initial"
+    return "#{keyword} is the guaranteed-invalid value" if GUARANTEED_INVALID_KEYWORDS.include?(keyword)
 
     "#{keyword} depends on the cascade"
   end
@@ -578,16 +591,16 @@ module ColorValue
     def failed_reference(name)
       return Result.new(color: nil, reason: "#{name} is not defined in this theme") unless @decls.key?(name)
       return ColorValue.cycle_result(name) if cyclic?(name)
-      if ColorValue.css_wide_keyword(@decls[name]) == "initial"
-        return Result.new(color: nil, reason: "#{name} is initial, the guaranteed-invalid value")
+      if (kw = ColorValue.guaranteed_invalid_keyword(@decls[name]))
+        return Result.new(color: nil, reason: "#{name} is #{kw}, the guaranteed-invalid value")
       end
 
       property(name)
     end
 
     # True when var(name) with no fallback fails: name is undefined, cyclic,
-    # its whole value is initial (the guaranteed-invalid value; see
-    # ColorValue.css_wide_keyword), or its value substitutes a failing
+    # its whole value is initial, inherit or unset (the guaranteed-invalid
+    # value; see ColorValue.guaranteed_invalid_keyword), or its value substitutes a failing
     # var(). Computed in dependency post-order with an explicit stack; the
     # non-cyclic part of the graph is acyclic, so every dependency is
     # settled before its dependent.
@@ -597,7 +610,7 @@ module ColorValue
         n, expanded = stack.pop
         next if @fails.key?(n)
 
-        if !@decls.key?(n) || cyclic?(n) || ColorValue.css_wide_keyword(@decls[n]) == "initial"
+        if !@decls.key?(n) || cyclic?(n) || ColorValue.guaranteed_invalid_keyword(@decls[n])
           @fails[n] = true
         elsif expanded
           @fails[n] = substitution_fails?(@decls[n].to_s)
