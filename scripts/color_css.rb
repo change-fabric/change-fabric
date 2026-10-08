@@ -37,7 +37,11 @@ module ColorCss
   # word characters, "-", anything >= U+0080) or escapes, so --\61 and
   # --caf\e9 are declarations. Its value is decoded by custom_property_name.
   CUSTOM_NAME_SRC = /--(?:[\w\u0080-\u{10FFFF}-]|#{ESCAPE})+/.freeze
-  DECL_NAME = /\A(\s*)(#{CUSTOM_NAME_SRC}|\$[\w-]+|@[\w-]+|-?[A-Za-z][\w-]*)(\s*):(.*)\z/m.freeze
+  # Any identifier spelled with at least one escape (\2d \2d x, -\2d x). It
+  # is a declaration name only when it decodes to a custom-property name
+  # (ColorCss.custom_property_ref); emit_declaration checks that.
+  ESCAPED_NAME_SRC = /(?:[\w\u0080-\u{10FFFF}-])*#{ESCAPE}(?:[\w\u0080-\u{10FFFF}-]|#{ESCAPE})*/.freeze
+  DECL_NAME = /\A(\s*)(#{CUSTOM_NAME_SRC}|\$[\w-]+|@[\w-]+|-?[A-Za-z][\w-]*|#{ESCAPED_NAME_SRC})(\s*):(.*)\z/m.freeze
   AT_RULE_STMT = /\A(\s*)(@[\w-]+)(\s*)(.*)\z/m.freeze
   ESCAPE_AT = /\G#{ESCAPE}/.freeze
   # A code point that continues an ident, number or at-keyword token; a
@@ -247,15 +251,29 @@ module ColorCss
     decode_ident(raw.to_s)
   end
 
+  # The one test for "is this a custom-property name": run must be exactly
+  # one identifier token (any mix of literal code points and escapes, so
+  # \2d \2d a, -\2d a and \-\-a all count) whose decoded value starts with
+  # "--" and has at least one more code point. Returns that decoded name,
+  # or nil. Never test raw text for a literal "--": CSS decodes escapes
+  # before it asks whether an identifier is a custom property.
+  def custom_property_ref(run)
+    run = run.to_s
+    return nil if run.empty? || !ident_char_at?(run, 0) || skip_ident_run(run, 0) != run.length
+
+    name = custom_property_name(run)
+    name if name.length > 2 && name.start_with?("--")
+  end
+
   # The decoded custom-property name opening text (after optional leading
-  # whitespace), as the first argument of a var() would, or nil when text
-  # does not start with one.
+  # whitespace), as the first argument of a var() would, or nil when the
+  # complete identifier token there is not one (custom_property_ref).
   def leading_custom_property_name(text)
     text = text.to_s
     start = text.index(/\S/)
-    return nil unless start && text[start, 2] == "--"
+    return nil unless start && ident_char_at?(text, start)
 
-    custom_property_name(text[start...skip_ident_run(text, start)])
+    custom_property_ref(text[start...skip_ident_run(text, start)])
   end
 
   # A declaration value split from its priority suffix, as [value,
@@ -305,6 +323,63 @@ module ColorCss
     return [ text.strip, false ] unless ident_start?(run) && decode_ident(run).downcase(:ascii) == "important"
 
     [ text[0...bang].strip, true ]
+  end
+
+  # text with every escaped identifier (and #hash name) outside strings,
+  # comments and unquoted url() contents decoded (decode_ident) and written
+  # back in one canonical spelling (serialize_ident), so two spellings CSS
+  # reads as one token compare equal: --\69 nk is --ink, r\67 b( is rgb(.
+  # Case is kept and a number or dimension is left as written.
+  def canonical_idents(text)
+    text = text.to_s
+    return text unless text.include?("\\")
+
+    out = +""
+    i = 0
+    while i < text.length
+      ch = text[i]
+      if ch == '"' || ch == "'"
+        j = skip_string(text, i)
+      elsif text[i, 2] == "/*"
+        close = text.index("*/", i + 2)
+        j = close ? close + 2 : text.length
+      elsif ident_char_at?(text, i)
+        j = skip_ident_run(text, i)
+        run = text[i...j]
+        hash = i.positive? && text[i - 1] == "#"
+        if hash || ident_start?(run)
+          decoded = decode_ident(run)
+          out << (run.include?("\\") ? serialize_ident(decoded, name_only: hash) : run)
+          if text[j] == "(" && !hash && decoded.downcase(:ascii) == "url"
+            k = skip_unquoted_url(text, j)
+            out << text[j...k]
+            j = k
+          end
+          i = j
+          next
+        end
+      else
+        j = i + 1
+      end
+      out << text[i...j]
+      i = j
+    end
+    out
+  end
+
+  # A decoded identifier written back with escapes only where CSS needs one
+  # (CSSOM serialize an identifier): a non-ident code point, a leading digit
+  # or "-" then digit, and a lone "-". name_only (a #hash name) has no start
+  # rules. Each escape is hex plus one space, so the spelling is unique.
+  def serialize_ident(value, name_only: false)
+    return "\\2d " if value == "-" && !name_only
+
+    out = +""
+    value.each_char.with_index do |c, k|
+      leading_digit = !name_only && c.match?(/[0-9]/) && (k.zero? || (k == 1 && value[0] == "-"))
+      out << (c.match?(/[-_a-zA-Z0-9\u0080-\u{10FFFF}]/) && !leading_digit ? c : "\\#{c.ord.to_s(16)} ")
+    end
+    out
   end
 
   # An identifier run's value: each escape replaced by its code point.
@@ -589,7 +664,10 @@ module ColorCss
       return false if name.start_with?('@')
 
       name_line = @segment_start_line + leading_ws.count("\n")
-      name = ColorCss.custom_property_name(name) if name.start_with?("--")
+      if name.include?("\\")
+        name = ColorCss.custom_property_ref(name)
+        return false unless name
+      end
 
       raw_value, important = ColorCss.split_priority(rest)
 

@@ -174,9 +174,6 @@ module ColorValue
     'yellowgreen' => [ 154, 205, 50 ]
   }.freeze
 
-  # A decoded custom-property name (ColorCss.custom_property_name): "--"
-  # then ident code points, ASCII or not.
-  CUSTOM_PROPERTY_NAME = /\A--[\w\u0080-\u{10FFFF}-]+\z/.freeze
   COLOR_FN_NAMES = %w[rgb rgba hsl hsla hwb oklch oklab lab lch color].freeze
   UNRESOLVED_FN_NAMES = %w[oklch oklab lab lch hwb color color-mix].freeze
   CASCADE_KEYWORDS = %w[inherit initial unset revert revert-layer].freeze
@@ -335,13 +332,14 @@ module ColorValue
   # agree on what an empty fallback is (see parse_var_ref).
   def var_arguments(args)
     parts = ColorCss.split_top_level(args)
-    name = parts[0] && ColorCss.custom_property_name(parts[0].strip)
+    name = parts[0] && ColorCss.custom_property_ref(parts[0].strip)
     fallback = parts.size > 1 ? parts[1..].join(",").strip : nil
 
-    # Only a custom-property name (the same --name grammar ColorCss parses
-    # declarations with) is a reference; var(foo), var(), var(-x) and
-    # var(--a b) are malformed and stay unresolved, fallback or not.
-    return nil unless name&.match?(CUSTOM_PROPERTY_NAME)
+    # Only one identifier that decodes to a custom-property name
+    # (ColorCss.custom_property_ref, the test declarations use too) is a
+    # reference; var(foo), var(), var(-x) and var(--a b) are malformed and
+    # stay unresolved, fallback or not.
+    return nil unless name
 
     [ name, fallback ]
   end

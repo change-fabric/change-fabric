@@ -366,6 +366,33 @@ class ColorTokensTest < Minitest::Test
     ok(":root{--a:v\\61r(--x)}\n:root{--a:var(--x)}")
   end
 
+  # Redeclaration compares every identifier by its decoded value: escaped
+  # custom-property names, function names and keywords agree with their
+  # plain spelling, but decoding never folds case or touches a string.
+  def test_escaped_identifiers_redeclare_alike
+    [
+      [ "var(--\\69 nk)", "var(--ink)" ],
+      [ "var(\\2d \\2d ink)", "var(--ink)" ],
+      [ "var(-\\2d ink, #000)", "var(--ink, #000)" ],
+      [ "r\\67 b(0 0 0)", "rgb(0 0 0)" ],
+      [ "R\\47 B(var(--x) 0 0)", "rgb(var(--x) 0 0)" ],
+      [ "color-mix(in srgb, var(--\\78) 50%, #fff)", "color-mix(in srgb, var(--x) 50%, #fff)" ],
+      [ "f\\6f o", "foo" ]
+    ].each { |a, b| ok(":root{--a:#{a}}\n:root{--a:#{b}}") }
+    [
+      [ "var(--\\49 nk)", "var(--ink)" ],
+      [ "var(--Ink)", "var(--\\69 nk)" ],
+      [ "var(--x, \"\\69\")", "var(--x, \"i\")" ]
+    ].each { |a, b| assert_error(":root{--a:#{a}}\n:root{--a:#{b}}", "`--a` is declared twice") }
+  end
+
+  # A custom property declared with escaped hyphens is the decoded name.
+  def test_escaped_hyphen_declared_names_are_custom_properties
+    result = ok(":root { --background: #fff; \\2d \\2d x: #000; -\\2d x-text: var(\\2d -x); }")
+    assert_equal "#000", result.variants[:light]["--x"]
+    assert_equal [ %w[--x-text --x] ], ColorTokens.pairs(result.variants[:light])
+  end
+
   def test_unresolved_literal_forms_are_not_authored
     %w[rgb(calc(1+2),0,0) rgba(none,0,0) hsl(calc(10deg),50%,50%) hsla(0,50%,50%,calc(1)) rgb(1,2) hsl(foo) rgb()].each do |v|
       result = ok(":root{--a:#000;--b:#111;--c:#222;--d:#333;--e:#{v}}")

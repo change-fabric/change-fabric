@@ -371,12 +371,58 @@ class ColorCssTest < Minitest::Test
       "--b\\2d c: red;" => "--b-c",
       "--caf\\e9: red;" => "--caf\u00e9",
       "--caf\u00e9: red;" => "--caf\u00e9",
-      "--a\\:b: red;" => "--a:b"
+      "--a\\:b: red;" => "--a:b",
+      "\\2d \\2d x: red;" => "--x",
+      "\\2d -x: red;" => "--x",
+      "-\\2d x: red;" => "--x",
+      "\\-\\-x: red;" => "--x"
     }.each do |css, name|
       sheet = ColorCss.parse(":root { #{css} }")
       assert_empty sheet.errors, css
       assert_equal [ name ], sheet.decls.map(&:name), css
       assert_equal "red", sheet.decls.first.value, css
     end
+  end
+
+  # An escaped name that does not decode to a custom property is no
+  # declaration the token grammar accepts; nor is a bare "--".
+  def test_escaped_names_that_are_not_custom_properties_are_unparsed
+    [ "\\63 olor: red;", "-\\2d : red;", "\\2d x: red;" ].each do |css|
+      sheet = ColorCss.parse(":root { #{css} }")
+      assert_empty sheet.decls, css
+      refute_empty sheet.errors, css
+    end
+  end
+
+  # The one custom-property test: a complete identifier token, decoded, then
+  # checked for "--". Every escaped spelling of the two hyphens counts; a
+  # raw "--" followed by more than one token, or a lone "--", does not.
+  def test_custom_property_ref_decodes_before_checking_hyphens
+    {
+      "--a" => "--a", "\\2d \\2d a" => "--a", "\\2d -a" => "--a", "-\\2d a" => "--a",
+      "\\-\\-a" => "--a", "--\\61" => "--a", "\\00002d\\00002d a" => "--a",
+      "--a b" => nil, "--" => nil, "-\\2d " => nil, "-a" => nil, "a" => nil, "" => nil, "\\2d a" => nil
+    }.each do |run, name|
+      name ? assert_equal(name, ColorCss.custom_property_ref(run), run) : assert_nil(ColorCss.custom_property_ref(run), run)
+    end
+    assert_equal "--a", ColorCss.leading_custom_property_name("  \\2d \\2d a, x")
+    assert_nil ColorCss.leading_custom_property_name("\\2d a")
+  end
+
+  # Escaped identifiers get one canonical spelling; case, strings, numbers
+  # and unquoted url() contents are left as written.
+  def test_canonical_idents
+    {
+      "var(--\\69 nk)" => "var(--ink)",
+      "var(\\2d \\2d ink)" => "var(--ink)",
+      "r\\67 b(0 0 0)" => "rgb(0 0 0)",
+      "var(--\\49 nk)" => "var(--Ink)",
+      "\\31 a" => "\\31 a",
+      "\\31\\61" => "\\31 a",
+      "a\\ b" => "a\\20 b",
+      "\"\\69\" x" => "\"\\69\" x",
+      "url(\\41)" => "url(\\41)",
+      "#\\66 ff" => "#fff"
+    }.each { |text, canon| assert_equal canon, ColorCss.canonical_idents(text), text }
   end
 end

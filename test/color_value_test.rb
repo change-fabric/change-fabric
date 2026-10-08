@@ -730,4 +730,25 @@ class ColorValueTest < Minitest::Test
     assert_equal [ "--a", nil ], CV.send(:parse_var_ref, "var(--\\61)")
     assert_rgba 0, 0, 0, resolved("var(--\\61)", { "--a" => "#000" })
   end
+
+  # A var() first argument is a custom-property name when its whole
+  # identifier token decodes to one, however the two hyphens are spelled.
+  # Each spelling of --a is a self-reference, in the dependency scan, the
+  # cycle check, the substitution-failure check and the resolved value.
+  def test_escaped_leading_hyphens_name_a_custom_property
+    [ "\\2d \\2d a", "\\2d -a", "-\\2d a", "\\-\\-a", "\\2d\\2d a", "\\00002d \\2d \\61" ].each do |ref|
+      assert_equal [ "--b", "--a" ], CV.var_dependencies("var(--b, var(#{ref}))"), ref
+      assert_equal [ "--a" ], CV.var_dependencies("var( #{ref} )"), ref
+      assert_equal [ "--a", nil ], CV.send(:parse_var_ref, "var(#{ref})"), ref
+      decls = { "--a" => "var(--b, var(#{ref}))", "--b" => "#000" }
+      assert_equal "var() cycle through --a", CV.resolve(decls["--a"], decls, seen: Set["--a"]).reason, ref
+      # --a is cyclic, so var(--a, white) takes its fallback rather than black.
+      assert_rgba 255, 255, 255, resolved("var(--a, white)", decls)
+      assert_rgba 255, 255, 255, resolved("var(--c, white)", decls.merge("--c" => "var(#{ref})"))
+    end
+    [ "\\2d a", "-\\2d ", "\\2d " ].each do |ref|
+      assert_empty CV.var_dependencies("var(#{ref})"), ref
+      assert_nil CV.send(:parse_var_ref, "var(#{ref})"), ref
+    end
+  end
 end

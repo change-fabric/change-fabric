@@ -338,14 +338,17 @@ module ColorTokens
       channel.to_r
     end
 
-    # Canonicalizes whitespace outside quoted strings (whose whitespace is
-    # content) by CSS token semantics and ASCII-lowercases function names,
-    # which CSS defines as case-insensitive, so VAR(--x) and var(--x) agree.
-    # Nothing else is folded: url(/A.png) contents, var(--Ink) names, strings
-    # and unknown idents are case-sensitive. Colors already compare by
-    # resolved RGBA in color_key, so #FFF and #fff still agree.
+    # Decodes escapes in every identifier outside strings and writes each
+    # back in one canonical spelling (ColorCss.canonical_idents), so
+    # var(--\69 nk) and var(--ink) agree. Then canonicalizes whitespace
+    # outside quoted strings (whose whitespace is content) by CSS token
+    # semantics and ASCII-lowercases function names, which CSS defines as
+    # case-insensitive, so VAR(--x) and var(--x) agree. Nothing else is
+    # folded: url(/A.png) contents, var(--Ink) names, strings and unknown
+    # idents are case-sensitive. Colors already compare by resolved RGBA in
+    # color_key, so #FFF and #fff still agree.
     def normalize(value)
-      ColorCss.downcase_function_names(value.strip).split(QUOTED).each_with_index.map do |part, i|
+      ColorCss.downcase_function_names(ColorCss.canonical_idents(value.strip)).split(QUOTED).each_with_index.map do |part, i|
         i.odd? ? part : insignificant_space_dropped(part)
       end.join
     end
