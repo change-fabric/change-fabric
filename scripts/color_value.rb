@@ -178,6 +178,20 @@ module ColorValue
   UNRESOLVED_FN_NAMES = %w[oklch oklab lab lch hwb color color-mix].freeze
   CSS_WIDE_KEYWORDS = %w[initial inherit unset revert revert-layer].freeze
   GUARANTEED_INVALID_KEYWORDS = %w[initial inherit unset].freeze
+  # A color space or hue-interpolation keyword, read only inside color()
+  # and color-mix() (`in`, srgb, display-p3, shorter hue).
+  COLOR_SPACE_KEYWORDS = %w[in srgb srgb-linear display-p3 a98-rgb prophoto-rgb rec2020
+                            xyz xyz-d50 xyz-d65 hsl hwb lab lch oklab oklch
+                            shorter longer increasing decreasing hue].to_set.freeze
+  # The one list of identifiers a color value reads ASCII case-insensitively
+  # (ColorCss.downcase_keywords): every function name this module knows,
+  # every color keyword and CSS-wide keyword, and color-space keywords
+  # inside the functions that take one. Any other identifier keeps its case.
+  CASE_FOLDS = ColorCss::CaseFolds.new(
+    functions: (COLOR_FN_NAMES + UNRESOLVED_FN_NAMES + %w[var light-dark url]).to_set.freeze,
+    keywords: (NAMED.keys + %w[transparent currentcolor] + CSS_WIDE_KEYWORDS).to_set.freeze,
+    within: { "color" => COLOR_SPACE_KEYWORDS, "color-mix" => COLOR_SPACE_KEYWORDS }.freeze
+  )
 
   module_function
 

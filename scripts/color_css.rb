@@ -1,6 +1,7 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 
+require 'set'
 require 'strscan'
 
 # Hand-written CSS tokenizer behind the cf:color token-file reader. Finds
@@ -92,6 +93,12 @@ module ColorCss
   # type: :number, :percentage or :dimension. unit: a dimension's unit with
   # its escapes decoded (case kept), else nil.
   NumericToken = Data.define(:number, :type, :unit)
+  # The identifiers downcase_keywords may ASCII-fold, as decoded lowercase
+  # Sets. functions: names directly before "(". keywords: bare identifiers
+  # anywhere. within: per enclosing function name, bare identifiers folded
+  # only inside that function's own parentheses (`in srgb` in color-mix()).
+  CaseFolds = Data.define(:functions, :keywords, :within)
+  EMPTY_SET = Set.new.freeze
 
 module_function
 
@@ -275,16 +282,19 @@ module_function
     end
   end
 
-  # text with every identifier CSS reads ASCII case-insensitively written
-  # ASCII-lowercased: keywords (INHERIT, currentColor, SRGB), function names
-  # (VAR(), Color-Mix()) and number units (10PX). Left exact: custom-property
-  # names (--Ink, case-sensitive), #hash names, quoted strings, comments and
-  # unquoted url() contents. Non-ASCII code points are never folded. Escapes
-  # are kept as written; pass the text through canonical_idents first to
-  # compare escaped and plain spellings.
-  def downcase_keywords(text)
+  # text with every identifier listed in folds (CaseFolds) written
+  # ASCII-lowercased, and every numeric token (10PX, 1E3) too: number
+  # exponents and dimension units are ASCII case-insensitive. Any other
+  # identifier keeps its case, since a custom property may hand it to a
+  # case-sensitive <custom-ident> (--animation: FadeIn is not fadein).
+  # Left exact as well: custom-property names (--Ink), #hash and @names,
+  # quoted strings, comments and unquoted url() contents. Non-ASCII code
+  # points are never folded. Escapes are kept as written; pass the text
+  # through canonical_idents first to compare escaped and plain spellings.
+  def downcase_keywords(text, folds)
     text = text.to_s
     out = +""
+    enclosing = []
     i = 0
     while i < text.length
       ch = text[i]
@@ -296,25 +306,40 @@ module_function
       elsif ident_char_at?(text, i)
         j = skip_ident_run(text, i)
         run = text[i...j]
-        if (i.positive? && text[i - 1] == "#") || custom_property_ref(run)
-          out << run
-        else
-          out << run.downcase(:ascii)
-          if text[j] == "(" && ident_start?(run) && decode_ident(run).downcase(:ascii) == "url"
-            k = skip_unquoted_url(text, j)
-            out << text[j...k]
-            j = k
-          end
+        prev = i.positive? ? text[i - 1] : nil
+        named = prev == "#" || prev == "@"
+        fn = !named && text[j] == "(" && ident_start?(run) ? decode_ident(run).downcase(:ascii) : nil
+        out << (!named && folds_run?(run, fn, enclosing.last, folds) ? run.downcase(:ascii) : run)
+        if fn
+          k = fn == "url" ? skip_unquoted_url(text, j) : j + 1
+          enclosing << fn if k == j + 1
+          out << text[j...k]
+          j = k
         end
         i = j
         next
       else
+        enclosing << nil if ch == "("
+        enclosing.pop if ch == ")"
         j = i + 1
       end
       out << text[i...j]
       i = j
     end
     out
+  end
+
+  # Whether downcase_keywords folds one identifier or numeric run: a
+  # numeric token always; a function name (fn, decoded) when folds lists
+  # it; a bare identifier when folds lists it as a keyword or within the
+  # innermost enclosing function. Custom-property names never fold.
+  def folds_run?(run, fn, enclosing, folds)
+    return true unless ident_start?(run)
+    return folds.functions.include?(fn) if fn
+    return false if custom_property_ref(run)
+
+    name = decode_ident(run).downcase(:ascii)
+    folds.keywords.include?(name) || folds.within.fetch(enclosing, EMPTY_SET).include?(name)
   end
 
   # text with every escape outside quoted strings and comments decoded, as

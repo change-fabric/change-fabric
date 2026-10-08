@@ -533,15 +533,17 @@ module ColorTokens
 
     # Decodes escapes in every identifier outside strings and writes each
     # back in one canonical spelling (ColorCss.canonical_idents), so
-    # var(--\69 nk) and var(--ink) agree. Then ASCII-lowercases every
-    # identifier CSS reads case-insensitively (ColorCss.downcase_keywords),
-    # so VAR(--x), currentColor, `in SRGB` and INHERIT agree with their
-    # lowercase spelling, and canonicalizes whitespace outside quoted strings
-    # (whose whitespace is content) by CSS token semantics. Nothing else is
-    # folded: url(/A.png) contents, var(--Ink) names, strings and non-ASCII
-    # code points are case-sensitive.
+    # var(--\69 nk) and var(--ink) agree. Then ASCII-lowercases each
+    # identifier a color value reads case-insensitively
+    # (ColorValue::CASE_FOLDS), so VAR(--x), currentColor, `in SRGB`, 10DEG
+    # and INHERIT agree with their lowercase spelling, and canonicalizes
+    # whitespace outside quoted strings (whose whitespace is content) by CSS
+    # token semantics. Nothing else is folded: any other identifier
+    # (FadeIn may become a case-sensitive <custom-ident>), url(/A.png)
+    # contents, var(--Ink) names, strings and non-ASCII code points keep
+    # their case.
     def normalize(value)
-      ColorCss.downcase_keywords(ColorCss.canonical_idents(ColorCss.strip_ws(value))).split(QUOTED).each_with_index.map do |part, i|
+      ColorCss.downcase_keywords(ColorCss.canonical_idents(ColorCss.strip_ws(value)), ColorValue::CASE_FOLDS).split(QUOTED).each_with_index.map do |part, i|
         i.odd? ? part : insignificant_space_dropped(part)
       end.join
     end

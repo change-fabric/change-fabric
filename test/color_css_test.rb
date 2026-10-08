@@ -2,6 +2,7 @@
 
 require_relative "test_helpers"
 require_relative "#{SKILL_SCRIPTS}/color_css"
+require_relative "#{SKILL_SCRIPTS}/color_value"
 
 class ColorCssTest < Minitest::Test
   def decl(sheet, name)
@@ -383,18 +384,40 @@ class ColorCssTest < Minitest::Test
     assert_equal [ "var", 2, 5 ], [ tok.name, tok.start, tok.open ]
   end
 
-  # Every identifier CSS reads ASCII case-insensitively folds; custom-property
-  # names, #hash names, strings, url() contents and non-ASCII stay exact.
+  # Only identifiers a color value reads ASCII case-insensitively fold
+  # (ColorValue::CASE_FOLDS): known function names, color and CSS-wide
+  # keywords, color-space keywords inside color()/color-mix(), and numeric
+  # tokens. Any other identifier, custom-property names, #hash names,
+  # strings, url() contents and non-ASCII stay exact.
   def test_downcase_keywords_folds_only_case_insensitive_identifiers
     {
       %(VAR(--Ink, URL(/A.png) "VAR(x)") Color-Mix(in SRGB, RED, Blue)) =>
         %(var(--Ink, url(/A.png) "VAR(x)") color-mix(in srgb, red, blue)),
-      "currentColor CURRENTCOLOR INHERIT TRANSPARENT" => "currentcolor currentcolor inherit transparent",
-      "10PX 1E3 #ABC #Foo" => "10px 1e3 #ABC #Foo",
-      "var(-\\2d Ink) \\56 AR(--x) \\31 X(--x)" => "var(-\\2d Ink) \\56 ar(--x) \\31 x(--x)",
+      "currentColor CURRENTCOLOR INHERIT TRANSPARENT Revert-Layer" =>
+        "currentcolor currentcolor inherit transparent revert-layer",
+      "10PX 1E3 10DEG #ABC #Foo" => "10px 1e3 10deg #ABC #Foo",
+      "var(-\\2d Ink) \\56 AR(--x) \\31 X(--x)" => "var(-\\2d Ink) \\56 ar(--x) \\31 X(--x)",
       "url( /A.png ) URL('/A.png') /* KEEP */" => "url( /A.png ) url('/A.png') /* KEEP */",
-      "\u00c9VAR(--x) \u00c9" => "\u00c9var(--x) \u00c9"
-    }.each { |text, expected| assert_equal expected, ColorCss.downcase_keywords(text), text }
+      "\u00c9VAR(--x) \u00c9" => "\u00c9VAR(--x) \u00c9",
+      "COLOR(Display-P3 1 0 0) Light-Dark(RED, Blue) HSL(10DEG 50% 50%)" =>
+        "color(display-p3 1 0 0) light-dark(red, blue) hsl(10deg 50% 50%)",
+      "color-mix(IN OKLCH LONGER HUE, (RED) 50%, Blue)" => "color-mix(in oklch longer hue, (red) 50%, blue)"
+    }.each { |text, expected| assert_equal expected, ColorCss.downcase_keywords(text, ColorValue::CASE_FOLDS), text }
+  end
+
+  # Identifiers outside the fold set keep their case: a custom property may
+  # hand them to a case-sensitive <custom-ident>. Color-space keywords fold
+  # only inside the function that reads them; unknown functions keep case.
+  def test_downcase_keywords_keeps_unknown_identifiers
+    {
+      "FadeIn" => "FadeIn",
+      "1PX SOLID" => "1px SOLID",
+      "In SRGB Hue" => "In SRGB Hue",
+      "Foo(RED) Ease-In" => "Foo(red) Ease-In",
+      "color-mix(in srgb, Foo(SRGB) 50%, red) SRGB" => "color-mix(in srgb, Foo(SRGB) 50%, red) SRGB",
+      "RGB(0 0 0) Display-P3" => "rgb(0 0 0) Display-P3",
+      "#Red @Red" => "#Red @Red"
+    }.each { |text, expected| assert_equal expected, ColorCss.downcase_keywords(text, ColorValue::CASE_FOLDS), text }
   end
 
   # One identifier code point set everywhere: ASCII letters, digits, _ and -,

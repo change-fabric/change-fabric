@@ -316,9 +316,9 @@ class ColorTokensTest < Minitest::Test
       ":root{--a:url('/A.png')}\n:root{--a:url('/a.png')}",
       ":root{--a:var(--x, url(/A.png))}\n:root{--a:VAR(--x, url(/a.png))}",
       ":root{--a:var(--x, \"VAR\")}\n:root{--a:var(--x, \"var\")}",
-      ":root{--a:\u00e9var(--x)}\n:root{--a:\u00c9var(--x)}"
+      ":root{--a:\u00e9var(--x)}\n:root{--a:\u00c9var(--x)}",
+      ":root{--a:Foo}\n:root{--a:foo}"
     ].each { |css| assert_error(css, "`--a` is declared twice") }
-    ok(":root{--a:Foo}\n:root{--a:foo}")
     ok(":root{--a:VAR(--Ink)}\n:root{--a:var(--Ink)}")
     ok(":root{--a:Color-Mix(in srgb, var(--x) 50%, #fff)}\n:root{--a:color-mix(in srgb, VAR(--x) 50%, #fff)}")
     ok(":root{--a:URL(/A.png)}\n:root{--a:url(/A.png)}")
@@ -348,7 +348,7 @@ class ColorTokensTest < Minitest::Test
       [ "oklch(0.5 0.1 120\\44 EG)", "oklch(0.5 0.1 120deg)" ],
       [ "1\\70 x solid", "1px solid" ],
       [ "var(--x, TRANSPARENT)", "var(--x, transparent)" ],
-      [ "1PX SOLID", "1px solid" ]
+      [ "1PX solid", "1px solid" ]
     ].each do |a, b|
       ok(":root{--a:#{a}}\n:root{--a:#{b}}")
       ok(":root{--a:#000}\n.dark{--a:#{a}}\n@media (prefers-color-scheme: dark){:root{--a:#{b}}}")
@@ -365,6 +365,36 @@ class ColorTokensTest < Minitest::Test
     ].each { |a, b| assert_error(":root{--a:#{a}}\n:root{--a:#{b}}", "`--a` is declared twice") }
     result = ok(":root{--error:transparent}\n@media (prefers-color-scheme: dark){:root{--error:TRANSPARENT}}")
     assert result.error_token
+  end
+
+  # Only identifiers a color value reads case-insensitively fold
+  # (ColorValue::CASE_FOLDS). Any other identifier may reach a
+  # case-sensitive <custom-ident> after substitution (an animation or
+  # keyframes name), so two spellings of it are a conflicting redeclaration.
+  def test_redeclaration_keeps_case_of_unknown_identifiers
+    [
+      [ "FadeIn", "fadein" ],
+      [ "Slide-Up 1s", "slide-up 1s" ],
+      [ "1px SOLID", "1px solid" ],
+      [ "In srgb", "in srgb" ],
+      [ "Foo(1px)", "foo(1px)" ],
+      [ "color-mix(in srgb, Foo(SRGB) 50%, red)", "color-mix(in srgb, Foo(srgb) 50%, red)" ],
+      [ "var(--x, FadeIn)", "var(--x, fadein)" ]
+    ].each do |a, b|
+      assert_error(":root{--animation:#{a}}\n:root{--animation:#{b}}", "`--animation` is declared twice in light")
+      assert_error(":root{--a:#000}\n@media (prefers-color-scheme: light){:root{--a:#{a}}}\n" \
+                   "@media (prefers-color-scheme: light){:root{--a:#{b}}}", "`--a` is declared twice in light")
+    end
+    [
+      [ "RED", "red" ],
+      [ "RGB(0 0 0)", "rgb(0 0 0)" ],
+      [ "10DEG", "10deg" ],
+      [ "1E3PX", "1e3px" ],
+      [ "Revert-Layer", "revert-layer" ],
+      [ "Light-Dark(RED, Blue)", "light-dark(red, blue)" ],
+      [ "COLOR(Display-P3 1 0 0)", "color(display-p3 1 0 0)" ],
+      [ "color-mix(IN OKLCH LONGER HUE, var(--x) 50%, red)", "color-mix(in oklch longer hue, var(--x) 50%, red)" ]
+    ].each { |a, b| ok(":root{--a:#{a}}\n:root{--a:#{b}}") }
   end
 
   # Whitespace that is its own insignificant token (inside parens, around a

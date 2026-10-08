@@ -366,6 +366,17 @@ class ColorCheckTest < Minitest::Test
     end
   end
 
+  # Two light spellings of one non-color identifier may name different
+  # keyframes once substituted, so --strict fails on them.
+  def test_strict_fails_on_case_differing_custom_ident_redeclaration
+    with_dir do |dir|
+      write(dir, "tokens.css", FOUR_COLOR_TOKENS.sub("--pink: #f2c4c4;", "--pink: #f2c4c4;\n  --animation: FadeIn;\n  --animation: fadein;"))
+      report = ColorCheck.run(dir, strict: true)
+      assert(report.token_errors.any? { |e| e.message.include?("`--animation` is declared twice in light") })
+      assert_equal 1, report.exit_code
+    end
+  end
+
   # :root.dark, [data-theme=dark] ranks each mechanism by its own member:
   # under the attribute the early black background loses to the later
   # :root, so white text lands on white; under the class it holds. The
