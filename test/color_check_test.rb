@@ -485,4 +485,24 @@ class ColorCheckTest < Minitest::Test
       assert(report.contrast.all?(&:resolved?))
     end
   end
+
+  # Every full token file (a css block with a :root rule) in the color
+  # skill's docs is one a reader may copy, so each must pass the checker it
+  # demonstrates under --strict. Declaration-only fragments are skipped.
+  def test_skill_doc_css_blocks_pass_strict
+    docs = Dir[File.expand_path("../skills/color/**/*.md", __dir__)]
+    blocks = docs.flat_map do |doc|
+      File.read(doc).scan(/^```css\n(.*?)^```/m).map { |(css)| [ doc, css ] }
+    end
+    blocks.select! { |_doc, css| css.include?(":root") }
+    refute_empty blocks
+    blocks.each do |doc, css|
+      with_dir do |dir|
+        write(dir, "tokens.css", css)
+        report = ColorCheck.run(dir, strict: true)
+        assert_empty report.token_errors.map(&:message), doc
+        assert_equal 0, report.exit_code, doc
+      end
+    end
+  end
 end
