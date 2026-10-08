@@ -49,9 +49,20 @@ module ColorCss
 
   # Tokenizes text into a Sheet. One leading U+FEFF byte-order mark is
   # dropped first, as CSS Syntax 3 decoding does, so every reader sees the
-  # same first token whether or not the file was saved with a BOM.
+  # same first token whether or not the file was saved with a BOM. The rest
+  # is then preprocessed (ColorCss.preprocess), so the scanner only ever
+  # meets LF as a newline.
   def parse(text)
-    Parser.new(text.to_s.delete_prefix("\uFEFF")).sheet
+    Parser.new(preprocess(text.to_s.delete_prefix("\uFEFF"))).sheet
+  end
+
+  # CSS Syntax 3 3.3 input preprocessing: CRLF, a lone CR and FF each become
+  # one LF, and NUL or a surrogate (invalid UTF-8 in a Ruby string) becomes
+  # U+FFFD. Without it a CR or FF inside a quoted value would not end the
+  # string as CSS does, and line numbers would skip CR-only line breaks.
+  def preprocess(text)
+    text.to_s.encode(Encoding::UTF_8, invalid: :replace, undef: :replace, replace: "\uFFFD")
+        .scrub("\uFFFD").gsub(/\r\n?|\f/, "\n").tr("\0", "\uFFFD")
   end
 
   # Whether deleting a comment between left and right would merge the text

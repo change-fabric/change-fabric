@@ -206,6 +206,34 @@ class ColorCssTest < Minitest::Test
     assert_equal "red", decl(sheet, "color").value
   end
 
+  def test_every_css_newline_ends_a_quoted_value
+    [ "\n", "\r", "\r\n", "\f" ].each do |nl|
+      sheet = ColorCss.parse(%(.x { content: "a#{nl}; } :root { --bg: #fff; }))
+      assert(sheet.errors.any? { |e| e.include?("unterminated string (line 1)") }, nl.inspect)
+      assert_equal "#fff", decl(sheet, "--bg")&.value, nl.inspect
+      assert_equal 2, decl(sheet, "--bg").line, nl.inspect
+      assert_equal [ ".x", ":root" ], sheet.blocks.map(&:prelude), nl.inspect
+      assert_empty sheet.errors.grep(/open block/), nl.inspect
+    end
+  end
+
+  def test_every_css_newline_counts_as_one_line
+    [ "\n", "\r", "\r\n", "\f" ].each do |nl|
+      sheet = ColorCss.parse(":root {#{nl}  --bg: #fff;#{nl}/* a#{nl}b */ --text: #000;#{nl}}")
+      assert_equal 2, decl(sheet, "--bg").line, nl.inspect
+      assert_equal 4, decl(sheet, "--text").line, nl.inspect
+      assert_empty sheet.errors, nl.inspect
+    end
+  end
+
+  def test_preprocess_follows_css_syntax
+    assert_equal "a\nb\nc\n\nd\ne", ColorCss.preprocess("a\r\nb\rc\n\rd\fe")
+    assert_equal "a\uFFFDb", ColorCss.preprocess("a\0b")
+    surrogate = "a\xED\xA0\x80b".dup.force_encoding(Encoding::UTF_8)
+    assert_equal "a\uFFFD\uFFFD\uFFFDb", ColorCss.preprocess(surrogate)
+    assert_equal "#\uFFFD", decl(ColorCss.parse(":root { --bg: #\0; }"), "--bg").value
+  end
+
   def test_split_top_level_respects_parens
     assert_equal [ ":is(a, b)", " c" ], ColorCss.split_top_level(":is(a, b), c")
   end
