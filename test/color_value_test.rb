@@ -312,4 +312,16 @@ class ColorValueTest < Minitest::Test
     gray = CV::Rgba.new(r: 128, g: 128, b: 128, a: 1.0)
     assert_in_delta 1.0, CV.contrast_ratio(gray, gray), 0.001
   end
+
+  def test_equivalent_alpha_spellings_resolve_to_one_float
+    spellings = [ "rgba(0 0 0 / .333)", "rgba(0 0 0 / 0.333)", "rgba(0 0 0 / 33.3%)",
+                  "rgba(0 0 0 / 3.33e1%)", "rgba(0 0 0 / 333e-3)", "hsl(0 0% 0% / 33.3%)" ]
+    alphas = spellings.map { |v| CV.resolve(v, {}).color.a }
+    assert_equal [ 0.333 ], alphas.uniq
+  end
+
+  def test_alpha_clamps_exactly_at_bounds
+    assert_in_delta 1.0, CV.resolve("rgb(0 0 0 / 150%)", {}).color.a, 0.0
+    assert_in_delta 0.0, CV.resolve("rgb(0 0 0 / -1e400)", {}).color.a, 0.0
+  end
 end

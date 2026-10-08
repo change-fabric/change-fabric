@@ -499,13 +499,18 @@ module ColorValue
     end
   end
 
+  # Alpha is parsed exactly (Rational) and converted to Float once, so every
+  # spelling of the same value (.333, 0.333, 33.3%, 3.33e1%) lands on the
+  # same Float and shares one palette key.
   def parse_alpha(text)
     t = text.to_s.strip
-    if (pct = parse_percentage(t))
-      (pct / 100.0).clamp(0.0, 1.0)
-    elsif (n = parse_number(t))
-      n.clamp(0.0, 1.0)
-    end
+    exact =
+      if (m = t.match(/\A(#{NUMBER_RE})%\z/))
+        Rational(m[1]) / 100
+      elsif t.match?(/\A#{NUMBER_RE}\z/)
+        Rational(t)
+      end
+    exact&.clamp(0, 1)&.to_f
   end
 
   def hsl_to_rgb(h, s, l)
