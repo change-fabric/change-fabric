@@ -683,6 +683,33 @@ class ColorTokensTest < Minitest::Test
                  "differ at `--a`")
   end
 
+  # A browser activating one mechanism matches only that mechanism's
+  # members of a selector list, so each mechanism's dark table ranks the
+  # block at the most specific of its own members. Enumerates each pair of
+  # mechanism spellings in one list, in both orders: when the members'
+  # specificities differ the less specific mechanism loses to a later
+  # :root, so the palettes differ; when they match, the list keeps one
+  # palette.
+  def test_dark_selector_list_ranks_each_mechanism_by_its_own_members
+    light = ":root{--background:#fff;--page-text:#000}\n"
+    tail = ":root{--background:#fff}\n.dark, [data-theme=dark]{--page-text:#fff}"
+    [ [ ":root.dark", "[data-theme=dark]" ], [ ".dark", ":root[data-theme=dark]" ] ].each do |members|
+      [ members, members.reverse ].each do |list|
+        css = "#{light}#{list.join(', ')}{--background:#000}\n#{tail}"
+        messages = error_messages(css)
+        assert(messages.any? { |m| m.include?("differ at `--background`") && m.include?(".dark class") && m.include?("data-theme attribute") },
+               "#{css}: #{messages.inspect}")
+      end
+    end
+    [ [ ".dark", "[data-theme=dark]" ], [ ":root.dark", ":root[data-theme=dark]" ] ].each do |members|
+      [ members, members.reverse ].each do |list|
+        css = "#{light}#{list.join(', ')}{--background:#000}\n#{tail}"
+        winner = list.first.start_with?(":root") ? "#000" : "#fff"
+        assert_equal winner, ok(css).variants[:dark]["--background"], css
+      end
+    end
+  end
+
   # Past importance and layer, CSS Cascade 5 sorts by selector specificity
   # and then source order, so dark has no default win: an equally specific
   # dark block before :root loses to it, a more specific one wins from

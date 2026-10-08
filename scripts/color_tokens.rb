@@ -191,7 +191,7 @@ module ColorTokens
         m[1] == "dark" ? :media_dark : :media_light
       when '@theme'
         if parent.nil? || parent == :layer
-          @specificity[block.id] = THEME_SPECIFICITY
+          note_specificity(block.id, light: THEME_SPECIFICITY)
           return :light
         end
 
@@ -236,12 +236,30 @@ module ColorTokens
         return error(block.line, "selector list `#{prelude}` mixes light and dark; one variant per block")
       end
 
-      # Every member matches the root element, so the block applies with
-      # the most specific one.
-      @specificity[block.id] = members.map { |sel| specificity(sel) }.max
+      note_specificity(block.id, members.zip(mechanisms).each_with_object({}) do |(sel, m), by|
+        by[m] = [ by[m], specificity(sel) ].compact.max
+      end)
       kind = in_media(block, prelude, parent, variants.first)
       @mechanisms[block.id] = parent == :media_dark ? [ :media ] : mechanisms.uniq if kind == :dark
       kind
+    end
+
+    # A block's specificity, kept per activation mechanism: a browser that
+    # activates one mechanism matches only that mechanism's members of a
+    # selector list, so :root.dark, [data-theme=dark] applies at (0,2,0)
+    # under the class and (0,1,0) under the attribute. With every mechanism
+    # active at once (:all, the merged dark table) every member matches,
+    # so the block applies with the most specific one.
+    def note_specificity(block_id, by_mechanism)
+      @specificity[block_id] = by_mechanism.merge(all: by_mechanism.values.max)
+    end
+
+    # The specificity block_id applies with under mechanism; a mechanism
+    # none of its members names (a :root inside dark media is :media) falls
+    # back to the whole list.
+    def specificity_of(block_id, mechanism = :all)
+      by = @specificity.fetch(block_id)
+      by.fetch(mechanism) { by.fetch(:all) }
     end
 
     def in_media(block, prelude, parent, variant)
@@ -376,9 +394,13 @@ module ColorTokens
       end
 
       origin = { important: decl.important, layer: decl.block_id && @layer_of[decl.block_id],
-                 specificity: @specificity.fetch(decl.block_id), order: }
+                 specificity: specificity_of(decl.block_id), order: }
       keep(table, decl, origin)
-      @mechanisms.fetch(decl.block_id).each { |m| keep(@dark_by[m], decl, origin) } if kind == :dark
+      return unless kind == :dark
+
+      @mechanisms.fetch(decl.block_id).each do |m|
+        keep(@dark_by[m], decl, origin.merge(specificity: specificity_of(decl.block_id, m)))
+      end
     end
 
     def keep(table, decl, origin)

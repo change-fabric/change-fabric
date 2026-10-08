@@ -366,6 +366,21 @@ class ColorCheckTest < Minitest::Test
     end
   end
 
+  # :root.dark, [data-theme=dark] ranks each mechanism by its own member:
+  # under the attribute the early black background loses to the later
+  # :root, so white text lands on white; under the class it holds. The
+  # mechanisms disagree, a token error, so --strict fails.
+  def test_strict_fails_when_a_selector_list_splits_mechanisms_by_specificity
+    css = ":root{--background:#fff;--page-text:#000}\n:root.dark, [data-theme=dark]{--background:#000}\n" \
+          ":root{--background:#fff}\n:root.dark, [data-theme=dark]{--page-text:#fff}"
+    with_dir do |dir|
+      write(dir, "tokens.css", css)
+      report = ColorCheck.run(dir, strict: true)
+      assert(report.token_errors.any? { |e| e.message.include?("differ at `--background`") }, report.token_errors.inspect)
+      assert_equal 1, report.exit_code
+    end
+  end
+
   # An escaped spelling of an accepted selector is that selector, so its
   # declarations are read and --strict passes on a clean palette.
   def test_strict_passes_escaped_selector_spellings
