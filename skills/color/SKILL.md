@@ -80,7 +80,7 @@ Pairs come from a fixed naming rule, with no new syntax: a token
 `--x` when `--x` is declared, else with `--background`. Every pair is checked
 in light and in dark, against 4.5:1 for body text and 3:1 for large text and
 UI components, per WCAG 2.2 SC 1.4.3. `ruby ~/.claude/cf/bin/color_check.rb`
-reads the pairs from the token file and resolves `var()` references per
+(Ruby 3.2 or newer) reads the pairs from the token file and resolves `var()` references per
 variant. A pair whose value it cannot resolve (`color-mix()` or `oklch(...)`,
 for example) is listed as unresolved with a reason, to be
 stated manually; an unresolved pair never fails `--strict`, but a resolved
