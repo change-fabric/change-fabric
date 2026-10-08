@@ -106,7 +106,9 @@ class ColorValueTest < Minitest::Test
   end
 
   def test_hsl_green_120_degrees
-    assert_rgba 0, 128, 0, resolved("hsl(120 100% 25%)")
+    color = resolved("hsl(120 100% 25%)")
+    assert_rgba 0, 127.5, 0, color
+    assert_equal "#008000", ColorValue.to_hex(color)
   end
 
   def test_hsl_hue_units
@@ -359,5 +361,22 @@ class ColorValueTest < Minitest::Test
       "rgb(1e999 0 0)", "rgb(0 -1e999 0)", "rgb(1e999% 0% 0%)",
       "hsl(1e999 50% 50%)", "hsl(1e999turn 50% 50%)", "hsl(0 1e999% 50%)", "hsl(0 50% 1e999%)"
     ].each { |value| unresolved(value) }
+  end
+
+  def test_fractional_channels_survive_to_luminance_for_every_channel_form
+    white = ColorValue.resolve("#fff", {}).color
+    {
+      "rgb(148.7 148.7 148.7)" => 148.7,
+      "rgb(148.7, 148.7, 148.7)" => 148.7,
+      "rgb(58.3% 58.3% 58.3%)" => 0.583 * 255,
+      "hsl(0 0% 58.3%)" => 0.583 * 255
+    }.each do |value, expected|
+      color = ColorValue.resolve(value, {}).color
+      [ color.r, color.g, color.b ].each { |c| assert_in_delta expected, c, 1e-9, value }
+      exact = Struct.new(:r, :g, :b, :a).new(expected, expected, expected, 1.0)
+      assert_in_delta ColorValue.contrast_ratio(exact, white), ColorValue.contrast_ratio(color, white), 1e-12, value
+    end
+    assert_operator ColorValue.contrast_ratio(ColorValue.resolve("rgb(148.7 148.7 148.7)", {}).color, white), :>=, 3.0
+    assert_equal "#959595", ColorValue.to_hex(ColorValue.resolve("rgb(148.7 148.7 148.7)", {}).color)
   end
 end
