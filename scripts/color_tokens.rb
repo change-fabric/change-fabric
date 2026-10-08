@@ -313,10 +313,17 @@ module ColorTokens
       [ color.r.round, color.g.round, color.b.round, color.a ]
     end
 
-    # Case-folds everything but custom-property names, which CSS treats as
-    # case-sensitive: var(--Ink) and var(--ink) are different references.
+    # Case-sensitive spans CSS keeps verbatim: quoted strings (whose case and
+    # whitespace are content) and custom-property names (var(--Ink) and
+    # var(--ink) are different references). An unterminated string runs to
+    # the end of the value, as CSS reads it.
+    VERBATIM = /"(?:\\.|[^"\\])*"?|'(?:\\.|[^'\\])*'?|--[\w-]+/
+
+    # Collapses whitespace and case-folds everything outside VERBATIM spans.
     def normalize(value)
-      value.strip.gsub(/\s+/, ' ').gsub(/--[\w-]+|[^-]+|-/) { |t| t.start_with?('--') ? t : t.downcase }
+      value.strip.split(/(#{VERBATIM})/o).each_with_index.map do |part, i|
+        i.odd? ? part : part.gsub(/\s+/, " ").downcase
+      end.join
     end
   end
 end

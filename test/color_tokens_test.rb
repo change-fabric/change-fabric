@@ -201,6 +201,18 @@ class ColorTokensTest < Minitest::Test
     ok(":root{--a:#ABC}\n:root{--a:#abc}")
   end
 
+  def test_redeclaration_keeps_quoted_strings_verbatim
+    [
+      %(:root{--a:"A  B"}\n:root{--a:"a b"}),
+      %(:root{--a:"A"}\n:root{--a:"a"}),
+      %(:root{--a:'x  y'}\n:root{--a:'x y'}),
+      %(:root{--a:url("A.png")}\n:root{--a:url("a.png")}),
+      %(:root{--a:"it's  A"}\n:root{--a:"it's a"}),
+      %(:root{--a:"esc\\"  A"}\n:root{--a:"esc\\" a"})
+    ].each { |css| assert_error(css, "`--a` is declared twice") }
+    ok(%(:root{--a:FOO  "A  B"}\n:root{--a:foo "A  B"}))
+  end
+
   def test_media_takes_only_root
     assert_error(":root{--a:#000}\n@media (prefers-color-scheme: dark){.dark{--a:#fff}}", "only :root is allowed")
   end
