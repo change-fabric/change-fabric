@@ -32,6 +32,16 @@ class ColorTokensTest < Minitest::Test
     assert(messages.any? { |m| m.include?(fragment) }, "#{fragment} not in #{messages.inspect}")
   end
 
+  # --- encoding ---------------------------------------------------------------
+
+  def test_bom_prefixed_file_reads_like_plain
+    css = ":root { --bg: #fff; --text: #111; }\n.dark { --bg: #000; --text: #eee; }\n"
+    plain = ok(css)
+    bom = ok("﻿#{css}")
+    assert_equal plain.variants, bom.variants
+    assert bom.dark
+  end
+
   # --- location ---------------------------------------------------------------
 
   def test_locate_zero_matches_names_every_candidate

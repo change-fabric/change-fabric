@@ -18,6 +18,14 @@ class ColorCssTest < Minitest::Test
     assert_empty sheet.errors
   end
 
+  def test_one_leading_bom_is_dropped
+    sheet = ColorCss.parse("﻿:root { --bg: #fff; }")
+    assert_equal ":root", sheet.blocks.first.prelude.strip
+    assert_equal 1, decl(sheet, "--bg").line
+    doubled = ColorCss.parse("﻿﻿:root { --bg: #fff; }")
+    assert_equal "﻿:root", doubled.blocks.first.prelude.strip
+  end
+
   def test_comment_replacement_keeps_line_numbers
     css = ":root {\n  --bg: #fff; /* a\n   multi\n   line */ --text: #000;\n}\n"
     sheet = ColorCss.parse(css)
