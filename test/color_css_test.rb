@@ -362,10 +362,38 @@ class ColorCssTest < Minitest::Test
     assert_equal [ "var", 2, 5 ], [ tok.name, tok.start, tok.open ]
   end
 
-  def test_downcase_function_names_touches_only_names
-    assert_equal %(var(--Ink, url(/A.png) "VAR(x)") color-mix(in srgb, RED, Blue)),
-                 ColorCss.downcase_function_names(%(VAR(--Ink, URL(/A.png) "VAR(x)") Color-Mix(in srgb, RED, Blue)))
-    assert_equal "var(--x) var(--x) \\31 x(--x)", ColorCss.downcase_function_names("\\56 AR(--x) v\\61r(--x) \\31 X(--x)")
+  # Every identifier CSS reads ASCII case-insensitively folds; custom-property
+  # names, #hash names, strings, url() contents and non-ASCII stay exact.
+  def test_downcase_keywords_folds_only_case_insensitive_identifiers
+    {
+      %(VAR(--Ink, URL(/A.png) "VAR(x)") Color-Mix(in SRGB, RED, Blue)) =>
+        %(var(--Ink, url(/A.png) "VAR(x)") color-mix(in srgb, red, blue)),
+      "currentColor CURRENTCOLOR INHERIT TRANSPARENT" => "currentcolor currentcolor inherit transparent",
+      "10PX 1E3 #ABC #Foo" => "10px 1e3 #ABC #Foo",
+      "var(-\\2d Ink) \\56 AR(--x) \\31 X(--x)" => "var(-\\2d Ink) \\56 ar(--x) \\31 x(--x)",
+      "url( /A.png ) URL('/A.png') /* KEEP */" => "url( /A.png ) url('/A.png') /* KEEP */",
+      "\u00c9VAR(--x) \u00c9" => "\u00c9var(--x) \u00c9"
+    }.each { |text, expected| assert_equal expected, ColorCss.downcase_keywords(text), text }
+  end
+
+  # One identifier code point set everywhere: ASCII letters, digits, _ and -,
+  # anything >= U+0080, never Ruby's ASCII-only \w.
+  def test_ident_code_points_include_non_ascii
+    [ "a", "Z", "0", "_", "-", "\u00e9", "\u4e2d", "\u{1F600}" ].each { |c| assert_match ColorCss::IDENT_CP, c }
+    [ " ", ".", "(", "\\", "@", "#" ].each { |c| refute_match ColorCss::IDENT_CP, c }
+    [ "caf\u00e9", "_x", "-x", "--", "--x", "\u00e9t\u00e9", "\\31 x" ].each do |ident|
+      assert_match(/\A#{ColorCss::IDENT_SRC}\z/, ident)
+    end
+    [ "1x", "-1x", "" ].each { |ident| refute_match(/\A#{ColorCss::IDENT_SRC}\z/, ident) }
+  end
+
+  # A non-ASCII property or at-rule name is a declaration or statement, not
+  # an unparsed segment.
+  def test_non_ascii_declaration_and_statement_names_parse
+    sheet = ColorCss.parse(":root { caf\u00e9: red; _x: blue; }\n@tailw\u00efnd base;")
+    assert_empty sheet.errors
+    assert_equal [ "caf\u00e9", "_x" ], sheet.decls.map(&:name)
+    assert_equal [ "@tailw\u00efnd" ], sheet.at_rule_stmts.map(&:name)
   end
 
   # CSS Syntax 3 4.3.7: 1-6 hex digits plus one optional whitespace; zero,

@@ -34,7 +34,10 @@ module ColorTokens
 
   # Block-less statements a Tailwind entry file needs; skipped silently.
   SKIPPED_STATEMENTS = %w[@import @charset @tailwind @source @plugin @custom-variant @config].freeze
-  MEDIA_SCHEME = /\A@media\s*\(\s*prefers-color-scheme\s*:\s*(light|dark)\s*\)\z/i.freeze
+  # Matched against an ASCII-lowercased prelude, never with /i: Ruby's /i
+  # folds Unicode (U+212A KELVIN SIGN to k, U+017F LONG S to s), while CSS
+  # keywords are ASCII case-insensitive only.
+  MEDIA_SCHEME = /\A@media\s*\(\s*prefers-color-scheme\s*:\s*(light|dark)\s*\)\z/.freeze
   # Matched against canonical_selector's output: the attribute name is ASCII
   # case-insensitive, the value (a class name or string) is not.
   DARK_ATTR = /\A\[(?i:data-theme)=(?:dark|"dark")\]\z/.freeze
@@ -146,19 +149,19 @@ module ColorTokens
     # d\61rk is dark); messages quote the prelude as written.
     def classify_at_rule(block, prelude, parent)
       canonical = ColorCss.canonical_idents(prelude)
-      name = canonical[/\A@[\w-]+/].to_s.downcase
+      name = canonical[AT_NAME].to_s.downcase(:ascii)
       case name
       when '@layer'
         return top_layer(block, prelude, canonical) if parent.nil?
 
         error(block.line, "nested `#{prelude}`; only one @layer wrapper is allowed")
       when '@media'
-        m = MEDIA_SCHEME.match(canonical)
+        m = MEDIA_SCHEME.match(canonical.downcase(:ascii))
         unless m && !%i[media_light media_dark].include?(parent)
           return error(block.line, "`#{prelude}` is not a token block; only prefers-color-scheme media is allowed")
         end
 
-        m[1].downcase == 'dark' ? :media_dark : :media_light
+        m[1] == "dark" ? :media_dark : :media_light
       when '@theme'
         return :light if parent.nil? || parent == :layer
 
@@ -168,11 +171,15 @@ module ColorTokens
       end
     end
 
-    TOP_LAYER_PRELUDE = /\A@layer(?:\s+([\w-]+(?:\.[\w-]+)*))?\s*\z/.freeze
+    # An at-rule's name as written, escapes and non-ASCII included.
+    AT_NAME = /\A@#{ColorCss::IDENT_UNIT}+/.freeze
+    # What follows "@layer" in a wrapper: nothing, or one layer name, a
+    # dot-separated run of identifiers (base, theme.base, café).
+    TOP_LAYER_PRELUDE = /\A(?:\s+#{ColorCss::IDENT_SRC}(?:\.#{ColorCss::IDENT_SRC})*)?\s*\z/.freeze
 
     def top_layer(block, prelude, canonical)
       return error(block.line, "second `#{prelude}`; only one @layer wrapper is allowed") if @layer_seen
-      unless TOP_LAYER_PRELUDE.match?(canonical)
+      unless TOP_LAYER_PRELUDE.match?(canonical.sub(AT_NAME, ""))
         return error(block.line, "`#{prelude}` is not a valid @layer wrapper; use `@layer` or a single layer name")
       end
 
@@ -206,9 +213,10 @@ module ColorTokens
       return nil if combinator?(selector)
 
       compound = canonical_selector(selector)
-      return :light if compound.casecmp?(':root')
+      folded = compound.downcase(:ascii)
+      return :light if folded == ":root"
 
-      rest = compound.sub(/\A:root/i, '')
+      rest = folded.start_with?(":root") ? compound[5..] : compound
       :dark if rest == '.dark' || rest.match?(DARK_ATTR)
     end
 
@@ -258,7 +266,7 @@ module ColorTokens
     def check_statement(stmt)
       kind = stmt.block_id && @kinds[stmt.block_id]
       return if %i[error skip].include?(kind)
-      return if (kind.nil? || kind == :layer) && SKIPPED_STATEMENTS.include?(ColorCss.canonical_idents(stmt.name).downcase)
+      return if (kind.nil? || kind == :layer) && SKIPPED_STATEMENTS.include?(ColorCss.canonical_idents(stmt.name).downcase(:ascii))
 
       text = [ stmt.name, stmt.prelude ].reject(&:empty?).join(' ')
       error(stmt.line, "`#{text}` is not allowed in a token file; only --name: value")
@@ -338,13 +346,24 @@ module ColorTokens
       ColorValue.literal?(value) && !ColorValue.resolve(value, {}).color.nil?
     end
 
-    # Equivalent spellings (#fff, white, rgb(255 255 255)) share one key:
-    # the resolved RGBA when the value is a literal, else its normalized text.
+    # Equivalent spellings (#fff, white, rgb(255 255 255), transparent and
+    # TRANSPARENT) share one key: the resolved RGBA whenever the value names
+    # a supported color on its own, whether or not it counts toward the
+    # palette (authored?), else its normalized text.
     def color_key(value)
-      color = authored?(value) && ColorValue.resolve(value, {}).color
+      color = standalone_color(value)
       return normalize(value) unless color
 
       [ color.r, color.g, color.b, color.a ].map { |c| channel_key(c) }
+    end
+
+    # The color a value names with nothing substituted, or nil. A value with
+    # any var() is never keyed by color: var(--x, red) is not red once --x
+    # is declared.
+    def standalone_color(value)
+      return nil if ColorCss.function_tokens(value).any? { |t| t.name == "var" }
+
+      ColorValue.resolve(value, {}).color
     end
 
     # Keys on the exact channel value with no rounding, so any two colors the
@@ -356,15 +375,15 @@ module ColorTokens
 
     # Decodes escapes in every identifier outside strings and writes each
     # back in one canonical spelling (ColorCss.canonical_idents), so
-    # var(--\69 nk) and var(--ink) agree. Then canonicalizes whitespace
-    # outside quoted strings (whose whitespace is content) by CSS token
-    # semantics and ASCII-lowercases function names, which CSS defines as
-    # case-insensitive, so VAR(--x) and var(--x) agree. Nothing else is
-    # folded: url(/A.png) contents, var(--Ink) names, strings and unknown
-    # idents are case-sensitive. Colors already compare by resolved RGBA in
-    # color_key, so #FFF and #fff still agree.
+    # var(--\69 nk) and var(--ink) agree. Then ASCII-lowercases every
+    # identifier CSS reads case-insensitively (ColorCss.downcase_keywords),
+    # so VAR(--x), currentColor, `in SRGB` and INHERIT agree with their
+    # lowercase spelling, and canonicalizes whitespace outside quoted strings
+    # (whose whitespace is content) by CSS token semantics. Nothing else is
+    # folded: url(/A.png) contents, var(--Ink) names, strings and non-ASCII
+    # code points are case-sensitive.
     def normalize(value)
-      ColorCss.downcase_function_names(ColorCss.canonical_idents(value.strip)).split(QUOTED).each_with_index.map do |part, i|
+      ColorCss.downcase_keywords(ColorCss.canonical_idents(value.strip)).split(QUOTED).each_with_index.map do |part, i|
         i.odd? ? part : insignificant_space_dropped(part)
       end.join
     end

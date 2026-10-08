@@ -36,25 +36,36 @@ module ColorCss
   # one optional whitespace, or any code point but a newline, or end of
   # input. A backslash before a newline matches nothing: it is no escape.
   ESCAPE = /\\(?:\h{1,6}(?:\r\n|[ \t\n\r\f])?|[^\n\r\f]|\z)/.freeze
-  # A custom-property name as written: "--" then ident code points (ASCII
-  # word characters, "-", anything >= U+0080) or escapes, so --\61 and
+  # The one definition of an identifier code point (CSS Syntax 3 4.2): an
+  # ASCII letter, digit, "_" or "-", or any code point >= U+0080. Spelled
+  # out rather than \w, which in Ruby is ASCII-only, so every identifier
+  # pattern below agrees on non-ASCII names (@layer café, --caf\e9).
+  IDENT_CP = /[-_a-zA-Z0-9\u0080-\u{10FFFF}]/.freeze
+  # A code point that may start an identifier (after an optional "-").
+  NAME_START_CP = /[_a-zA-Z\u0080-\u{10FFFF}]/.freeze
+  # One identifier unit as written: an ident code point or an escape.
+  IDENT_UNIT = /(?:#{IDENT_CP}|#{ESCAPE})/.freeze
+  # One whole identifier as written: "--" then any units, or an optional
+  # "-", a name-start code point or escape, then any units.
+  IDENT_SRC = /(?:--#{IDENT_UNIT}*|-?(?:#{NAME_START_CP}|#{ESCAPE})#{IDENT_UNIT}*)/.freeze
+  # A custom-property name as written: "--" then ident units, so --\61 and
   # --caf\e9 are declarations. Its value is decoded by custom_property_name.
-  CUSTOM_NAME_SRC = /--(?:[\w\u0080-\u{10FFFF}-]|#{ESCAPE})+/.freeze
+  CUSTOM_NAME_SRC = /--#{IDENT_UNIT}+/.freeze
   # Any identifier spelled with at least one escape (\2d \2d x, -\2d x). It
   # is a declaration name only when it decodes to a custom-property name
   # (ColorCss.custom_property_ref); emit_declaration checks that.
-  ESCAPED_NAME_SRC = /(?:[\w\u0080-\u{10FFFF}-])*#{ESCAPE}(?:[\w\u0080-\u{10FFFF}-]|#{ESCAPE})*/.freeze
-  DECL_NAME = /\A(\s*)(#{CUSTOM_NAME_SRC}|\$[\w-]+|@[\w-]+|-?[A-Za-z][\w-]*|#{ESCAPED_NAME_SRC})(\s*):(.*)\z/m.freeze
+  ESCAPED_NAME_SRC = /#{IDENT_CP}*#{ESCAPE}#{IDENT_UNIT}*/.freeze
+  DECL_NAME = /\A(\s*)(#{CUSTOM_NAME_SRC}|\$#{IDENT_CP}+|@#{IDENT_UNIT}+|-?#{NAME_START_CP}#{IDENT_CP}*|#{ESCAPED_NAME_SRC})(\s*):(.*)\z/m.freeze
   # A segment that has begun a custom-property declaration: its name (literal
   # or escaped, checked by custom_property_ref) and the colon.
   CUSTOM_VALUE_START = /\A\s*(#{CUSTOM_NAME_SRC}|#{ESCAPED_NAME_SRC})\s*:/.freeze
   # A block-less at-rule; its name may be spelled with escapes (@t\61ilwind),
   # which ColorTokens decodes before comparing.
-  AT_RULE_STMT = /\A(\s*)(@(?:[\w-]|#{ESCAPE})+)(\s*)(.*)\z/m.freeze
+  AT_RULE_STMT = /\A(\s*)(@#{IDENT_UNIT}+)(\s*)(.*)\z/m.freeze
   ESCAPE_AT = /\G#{ESCAPE}/.freeze
   # A code point that continues an ident, number or at-keyword token; a
   # backslash starts an escape, which does too.
-  TOKEN_CP = /[-_a-zA-Z0-9\\\u0080-\u{10FFFF}]/.freeze
+  TOKEN_CP = /(?:#{IDENT_CP}|\\)/.freeze
 
   module_function
 
@@ -215,15 +226,44 @@ module ColorCss
     end
   end
 
-  # text with every function name ASCII-lowercased and nothing else touched:
-  # custom-property names, url() contents and strings stay exact. A name
-  # spelled with escapes becomes its decoded value when that value needs no
-  # escaping (\56 AR( becomes var(), else it is only ASCII-lowercased.
-  def downcase_function_names(text)
-    out = text.to_s.dup
-    function_tokens(text).reverse_each do |t|
-      plain = t.name.match?(/\A[-_a-z0-9\u0080-\u{10FFFF}]+\z/) && ident_start?(t.name)
-      out[t.start...t.open] = plain ? t.name : out[t.start...t.open].downcase(:ascii)
+  # text with every identifier CSS reads ASCII case-insensitively written
+  # ASCII-lowercased: keywords (INHERIT, currentColor, SRGB), function names
+  # (VAR(), Color-Mix()) and number units (10PX). Left exact: custom-property
+  # names (--Ink, case-sensitive), #hash names, quoted strings, comments and
+  # unquoted url() contents. Non-ASCII code points are never folded. Escapes
+  # are kept as written; pass the text through canonical_idents first to
+  # compare escaped and plain spellings.
+  def downcase_keywords(text)
+    text = text.to_s
+    out = +""
+    i = 0
+    while i < text.length
+      ch = text[i]
+      if ch == '"' || ch == "'"
+        j = skip_string(text, i)
+      elsif text[i, 2] == "/*"
+        close = text.index("*/", i + 2)
+        j = close ? close + 2 : text.length
+      elsif ident_char_at?(text, i)
+        j = skip_ident_run(text, i)
+        run = text[i...j]
+        if (i.positive? && text[i - 1] == "#") || custom_property_ref(run)
+          out << run
+        else
+          out << run.downcase(:ascii)
+          if text[j] == "(" && ident_start?(run) && decode_ident(run).downcase(:ascii) == "url"
+            k = skip_unquoted_url(text, j)
+            out << text[j...k]
+            j = k
+          end
+        end
+        i = j
+        next
+      else
+        j = i + 1
+      end
+      out << text[i...j]
+      i = j
     end
     out
   end
@@ -279,7 +319,7 @@ module ColorCss
     return nil if prev == "@" || !ident_start?(run)
 
     decoded = decode_ident(run)
-    decoded if decoded.match?(/\A[-_a-zA-Z0-9\u0080-\u{10FFFF}]+\z/) && ident_start?(decoded)
+    decoded if decoded.match?(/\A#{IDENT_CP}+\z/) && ident_start?(decoded)
   end
 
   # A #hash name's decoded value when it is 3, 4, 6 or 8 hex digits, the
@@ -475,7 +515,7 @@ module ColorCss
     out = +""
     value.each_char.with_index do |c, k|
       leading_digit = !name_only && c.match?(/[0-9]/) && (k.zero? || (k == 1 && value[0] == "-"))
-      out << (c.match?(/[-_a-zA-Z0-9\u0080-\u{10FFFF}]/) && !leading_digit ? c : "\\#{c.ord.to_s(16)} ")
+      out << (c.match?(IDENT_CP) && !leading_digit ? c : "\\#{c.ord.to_s(16)} ")
     end
     out
   end
@@ -512,7 +552,7 @@ module ColorCss
 
   def ident_char_at?(text, i)
     ch = text[i]
-    ch.match?(/[-_a-zA-Z0-9]/) || ch.ord >= 0x80 || !decode_escape(text, i).nil?
+    ch.match?(IDENT_CP) || !decode_escape(text, i).nil?
   end
 
   def skip_ident_run(text, i)
@@ -527,7 +567,7 @@ module ColorCss
     rest = run.start_with?("--") ? "" : run.delete_prefix("-")
     return run.start_with?("--") if rest.empty?
 
-    rest.match?(/\A(?:[_a-zA-Z]|\\|[^\x00-\x7f])/)
+    rest.match?(/\A(?:#{NAME_START_CP}|\\)/)
   end
 
   # Past the ")" closing an unquoted url( token at open, or just past "(" when

@@ -118,6 +118,19 @@ class ColorTokensTest < Minitest::Test
     assert_equal({ "--a" => "#fff" }, named.variants[:dark])
   end
 
+  # A layer name is any CSS identifier, non-ASCII and dotted included; the
+  # @layer keyword itself is ASCII case-insensitive.
+  def test_layer_wrapper_accepts_any_identifier_name
+    [ "caf\u00e9", "base.caf\u00e9", "caf\u00e9.th\u00e8me", "_x", "-x", "a.b.c", "caf\\e9", "\u4e2d" ].each do |name|
+      result = ok("@layer #{name} { :root{--a:#000} .dark{--a:#fff} }")
+      assert_equal "#fff", result.variants[:dark]["--a"], name
+    end
+    assert_equal "#000", ok("@LAYER base { :root{--a:#000} }").variants[:light]["--a"]
+    [ "1x", "a.", ".a", "a..b", "caf\u00e9, b", "a.1b" ].each do |name|
+      assert_error("@layer #{name} { :root{--a:#000} }", "not a valid @layer wrapper")
+    end
+  end
+
   def test_layer_wrapper_with_multiple_names_is_an_error
     assert_error("@layer a, b { :root{--a:#000} }", "not a valid @layer wrapper")
   end
@@ -259,22 +272,58 @@ class ColorTokensTest < Minitest::Test
     ok(":root{--a:#ABC}\n:root{--a:#abc}")
   end
 
-  # Non-color values compare with no case folding; colors compare resolved.
+  # Non-color values fold only ASCII case-insensitive identifiers; colors
+  # compare resolved.
   def test_redeclaration_case_folds_only_resolved_colors
     [
       ":root{--a:url(/A.png)}\n:root{--a:url(/a.png)}",
       ":root{--a:url('/A.png')}\n:root{--a:url('/a.png')}",
-      ":root{--a:Foo}\n:root{--a:foo}",
       ":root{--a:var(--x, url(/A.png))}\n:root{--a:VAR(--x, url(/a.png))}",
       ":root{--a:var(--x, \"VAR\")}\n:root{--a:var(--x, \"var\")}",
       ":root{--a:\u00e9var(--x)}\n:root{--a:\u00c9var(--x)}"
     ].each { |css| assert_error(css, "`--a` is declared twice") }
+    ok(":root{--a:Foo}\n:root{--a:foo}")
     ok(":root{--a:VAR(--Ink)}\n:root{--a:var(--Ink)}")
     ok(":root{--a:Color-Mix(in srgb, var(--x) 50%, #fff)}\n:root{--a:color-mix(in srgb, VAR(--x) 50%, #fff)}")
     ok(":root{--a:URL(/A.png)}\n:root{--a:url(/A.png)}")
     ok(":root{--a:#FFF}\n:root{--a:#fff}")
     ok(":root{--a:RGB(0 0 0)}\n:root{--a:rgb(0 0 0)}")
     ok(":root{--a:url(/A.png)}\n:root{--a:url(/A.png)  }")
+  end
+
+  # A value that names a color on its own compares by that color whether or
+  # not it is authored (transparent is not), and every keyword, function name
+  # and unit compares ASCII case-insensitively. Custom-property names,
+  # strings, non-ASCII and a var() that may substitute something else stay
+  # distinct.
+  def test_redeclaration_folds_keyword_and_color_spellings
+    [
+      [ "transparent", "TRANSPARENT" ],
+      [ "Transparent", "rgb(0 0 0 / 0)" ],
+      [ "red", "RED" ],
+      [ "BLUE", "#00f" ],
+      [ "currentColor", "CURRENTCOLOR" ],
+      [ "INHERIT", "inherit" ],
+      [ "Unset", "unset" ],
+      [ "color-mix(in SRGB, var(--x) 50%, #fff)", "color-mix(in srgb, var(--x) 50%, #fff)" ],
+      [ "color-mix(IN srgb, red 50%, BLUE)", "color-mix(in srgb, red 50%, blue)" ],
+      [ "oklch(0.5 0.1 120DEG)", "oklch(0.5 0.1 120deg)" ],
+      [ "var(--x, TRANSPARENT)", "var(--x, transparent)" ],
+      [ "1PX SOLID", "1px solid" ]
+    ].each do |a, b|
+      ok(":root{--a:#{a}}\n:root{--a:#{b}}")
+      ok(":root{--a:#000}\n.dark{--a:#{a}}\n@media (prefers-color-scheme: dark){:root{--a:#{b}}}")
+    end
+    [
+      [ "var(--Ink)", "var(--ink)" ],
+      [ "var(--x, red)", "red" ],
+      [ "var(--x, transparent)", "transparent" ],
+      [ "\"INHERIT\"", "\"inherit\"" ],
+      [ "url(/A.png)", "url(/a.png)" ],
+      [ "\u00c9t\u00e9", "\u00e9t\u00e9" ]
+    ].each { |a, b| assert_error(":root{--a:#{a}}\n:root{--a:#{b}}", "`--a` is declared twice") }
+    result = ok(":root{--error:transparent}\n@media (prefers-color-scheme: dark){:root{--error:TRANSPARENT}}")
+    assert result.error_token
   end
 
   # Whitespace that is its own insignificant token (inside parens, around a
@@ -410,6 +459,23 @@ class ColorTokensTest < Minitest::Test
     assert_error("@t\\61ilwind\\2e x;\n:root{--a:#000}", "is not allowed in a token file")
     assert_error(":root{--a:#000}\n@media (prefers-color-scheme: d\\61rk){ .d\\61rk{--a:#fff} }",
                  "only :root is allowed there")
+  end
+
+  # Keywords match ASCII case-insensitively only: Ruby's /i and casecmp?
+  # fold U+212A KELVIN SIGN to k and U+017F LONG S to s, CSS does not.
+  def test_keywords_fold_ascii_case_only
+    result = ok(":root{--a:#000}\n@MEDIA (PREFERS-COLOR-SCHEME: DARK){ :ROOT{--a:#fff} }\n:ROOT.dark{--a:#fff}")
+    assert_equal({ "--a" => "#fff" }, result.variants[:dark])
+    [ "dar\u212a", "d\\61r\\212a", "dar\u212A" ].each do |scheme|
+      assert_error(":root{--a:#000}\n@media (prefers-color-scheme: #{scheme}){ :root{--a:#fff} }",
+                   "only prefers-color-scheme media is allowed")
+    end
+    assert_error(":root{--a:#000}\n@media (prefers-color-\u017fcheme: dark){ :root{--a:#fff} }",
+                 "only prefers-color-scheme media is allowed")
+    [ ".d\u00e2rk", ".dar\u212a", ":root.caf\u00e9" ].each do |sel|
+      assert_error(":root{--a:#000}\n#{sel}{--a:#fff}", "is not a token block")
+    end
+    assert_error("@tailw\u00efnd base;\n:root{--a:#000}", "is not allowed in a token file")
   end
 
   def test_escaped_function_names_redeclare_alike
