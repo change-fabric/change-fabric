@@ -177,6 +177,21 @@ class ColorTokensTest < Minitest::Test
     ok("@theme { --metadata: {a:b}; --a: #000; }")
   end
 
+  # Tailwind emits every @theme block's variables at the first block's
+  # position, and @theme reference emits none, so a second block or any
+  # option but static and inline is an error.
+  def test_theme_block_is_single_and_emitting
+    [ "@theme static", "@theme inline", "@theme INLINE static", "@layer x { @theme" ].each do |open|
+      css = "#{open} { --a: #000; }#{open.include?('{') ? ' }' : ''}"
+      assert_equal({ "--a" => "#000" }, ok(css).variants[:light], open)
+    end
+    assert_error("@theme static{--background:white}.dark{--background:white;--page-text:white}" \
+                 "@theme static{--page-text:black}", "second `@theme static`")
+    assert_error("@theme{--a:#000}@theme{--b:#fff}", "only one @theme block")
+    assert_error("@theme reference{--background:white;--page-text:black}", "option `reference`")
+    assert_error("@theme bogus{--a:#000}", "option `bogus`")
+  end
+
   def test_other_block_at_rules_are_errors
     assert_error("@supports (color: red) { :root{--a:#000} }", "@supports")
     assert_error("@media print { :root{--a:#000} }", "@media print")
