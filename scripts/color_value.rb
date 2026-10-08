@@ -543,7 +543,7 @@ module ColorValue
   # full power of ten, so 1e33deg and its expanded integer give one hue.
   # The value is mantissa * 10**exp * scale; with scale = p/q, the
   # numerator is reduced mod 360 * q and divided by q. A negative exponent
-  # leaves a value the existing bounded path already handles.
+  # leaves a value bounded_rational keeps exact.
   def exact_hue(number, scale)
     m = number.match(/\A([+-]?)(\d*)\.?(\d*)(?:[eE]([+-]?\d+))?\z/)
     return nil if m[4] && m[4].delete("+-").length > MAX_EXPONENT_DIGITS

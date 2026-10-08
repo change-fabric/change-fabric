@@ -519,7 +519,13 @@ class ColorValueTest < Minitest::Test
       "rgb(1e-33 0 0)" => "rgb(#{tiny} 0 0)",
       "rgb(1e-33% 0 0)" => "rgb(#{tiny}% 0 0)",
       "rgb(0 0 0 / 1e-33)" => "rgb(0 0 0 / #{tiny})",
-      "hsl(0 1e-33% 50%)" => "hsl(0 #{tiny}% 50%)"
+      "hsl(0 1e-33% 50%)" => "hsl(0 #{tiny}% 50%)",
+      "hsl(120 100% 1e-33%)" => "hsl(120 100% #{tiny}%)",
+      "rgb(0 0 0 / 1e-33%)" => "rgb(0 0 0 / #{tiny}%)",
+      "hsl(1e-40grad 100% 50%)" => "hsl(0.#{"0" * 39}1grad 100% 50%)",
+      "hsl(1e-50turn 100% 50%)" => "hsl(0.#{"0" * 49}1turn 100% 50%)",
+      "hsl(1e-300deg 100% 50%)" => "hsl(0.#{"0" * 299}1deg 100% 50%)",
+      "rgb(5e-320 0 0)" => "rgb(0.#{"0" * 319}5 0 0)"
     }.each do |short, long|
       assert_equal resolved(long).to_h, resolved(short).to_h, short
     end
