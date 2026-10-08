@@ -505,4 +505,77 @@ class ColorValueTest < Minitest::Test
     assert_equal resolved("hsl(280deg 100% 50%)").to_h, resolved("hsl(1e33deg 100% 50%)").to_h
     unresolved("hsl(1e0000000000000000001deg 100% 50%)")
   end
+
+  # A small negative exponent stays exact like its expanded decimal, in
+  # every unit and in every exact caller (hue, channel, percent, alpha).
+  def test_small_exponent_matches_expanded_decimal
+    tiny = "0.#{"0" * 32}1"
+    {
+      "hsl(1e-33deg 100% 50%)" => "hsl(#{tiny}deg 100% 50%)",
+      "hsl(1e-33 100% 50%)" => "hsl(#{tiny} 100% 50%)",
+      "hsl(-1e-33grad 100% 50%)" => "hsl(-#{tiny}grad 100% 50%)",
+      "hsl(1e-33turn 100% 50%)" => "hsl(#{tiny}turn 100% 50%)",
+      "hsl(359.5e-33turn 100% 50%)" => "hsl(0.#{"0" * 30}3595turn 100% 50%)",
+      "rgb(1e-33 0 0)" => "rgb(#{tiny} 0 0)",
+      "rgb(1e-33% 0 0)" => "rgb(#{tiny}% 0 0)",
+      "rgb(0 0 0 / 1e-33)" => "rgb(0 0 0 / #{tiny})",
+      "hsl(0 1e-33% 50%)" => "hsl(0 #{tiny}% 50%)"
+    }.each do |short, long|
+      assert_equal resolved(long).to_h, resolved(short).to_h, short
+    end
+    assert_equal Rational(1, 10**33), CV.bounded_rational("1e-33")
+    assert_equal Rational(1, 10**400), CV.bounded_rational("1e-400")
+    assert_equal Rational(10**400), CV.bounded_rational("1e401")
+    assert_equal 0, CV.bounded_rational("1e-401")
+  end
+
+  # Escapes are decoded once, before any dispatch, so every escaped
+  # spelling of a var() reference, a named color, a keyword or a color
+  # function resolves the way the browser reads it.
+  def test_escaped_values_resolve_like_their_decoded_spelling
+    decls = { "--white" => "#fff", "--ink" => "#000" }
+    {
+      "\\76 ar(--white)" => "var(--white)",
+      "\\76 \\61 r(--white)" => "var(--white)",
+      "\\000076ar(--white)" => "var(--white)",
+      "v\\61 r(--white)" => "var(--white)",
+      "\\56 AR(--white)" => "var(--white)",
+      "var(--wh\\69 te)" => "var(--white)",
+      "var(\\2d \\2d ink)" => "var(--ink)",
+      "var(--nope, \\72 ed)" => "red",
+      "\\72 ed" => "red",
+      "r\\65 d" => "red",
+      "\\52 ED" => "red",
+      "\\74 ransparent" => "transparent",
+      "\\72 gb(1 2 3)" => "rgb(1 2 3)",
+      "rgb\\61 (1 2 3 / 50%)" => "rgba(1 2 3 / 50%)",
+      "\\68 sl(120 100% 50%)" => "hsl(120 100% 50%)"
+    }.each do |escaped, plain|
+      assert_equal resolved(plain, decls).to_h, resolved(escaped, decls).to_h, escaped
+    end
+    assert CV.literal?("\\72 ed")
+    assert CV.literal?("\\72 gb(1 2 3)")
+    refute CV.literal?("\\72 gb(\\76 ar(--x) 0 0)")
+    assert_includes unresolved("\\6f klch(0.5 0.1 120)"), "oklch()"
+    assert_includes unresolved("\\69 nherit"), "cascade"
+    assert_includes unresolved("\\76 ar(--page-text)", { "--page-text" => "\\76 ar(--page-text)" }), "cycle"
+  end
+
+  # An escape whose decoded code point would be a delimiter, whitespace, a
+  # digit or sign starting a number, or part of a #hash or a number's unit
+  # has no plain spelling: unresolved with a reason, never guessed at.
+  def test_escapes_without_plain_spelling_are_unresolved
+    [
+      "rgb\\28 1 2 3)", "rgb\\(1 2 3)", "var\\(--white)", "\\76 ar\\28 --white)",
+      "rgb(1\\2c 2, 3)", "rgb(1 2 3\\29", "re\\;d", "\\22 red", "\\20 red",
+      "rgb(\\32 55 0 0)", "rgb(1\\65 3 0 0)", "rgb(50\\% 0 0)", "rgb(\\2d 1 0 0)",
+      "#\\66 ff", "#f\\66 f", "rgb(0 0 0 / \\31)"
+    ].each do |value|
+      reason = unresolved(value, { "--white" => "#fff" })
+      assert_includes reason, "escape", value
+      refute CV.literal?(value), value
+    end
+    # An escape inside a quoted string is string content, not a name.
+    assert_rgba 255, 255, 255, resolved("var(--w, \"\\(\")", { "--w" => "#fff" })
+  end
 end

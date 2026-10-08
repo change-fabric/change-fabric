@@ -363,6 +363,19 @@ class ColorCheckTest < Minitest::Test
     end
   end
 
+  # An escaped var( is still a var() reference, so the low-contrast pair it
+  # names is graded and --strict fails on it instead of skipping it.
+  def test_strict_fails_an_escaped_var_reference_pair
+    [ "\\76 ar(--white)", "v\\61 r(--white)", "\\56 AR(--white)" ].each do |ref|
+      with_dir do |dir|
+        write(dir, "tokens.css", ":root{--white:#fff;--background:#fff;--page-text:#{ref}}")
+        report = ColorCheck.run(dir, strict: true)
+        assert(report.contrast.any? { |c| c.fg == "--page-text" && c.status == "fail" }, ref)
+        assert_equal 1, report.exit_code, ref
+      end
+    end
+  end
+
   def contrast_for(css, fg = "--page-text", variant: "light")
     with_dir do |dir|
       write(dir, "tokens.css", css)

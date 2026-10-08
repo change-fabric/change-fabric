@@ -148,6 +148,57 @@ module ColorCss
     out
   end
 
+  # text with every escape outside quoted strings and comments decoded, as
+  # [decoded, nil], so anchored matching (var(, rgb(, red, #hex) sees the
+  # name CSS sees: \76 ar( is var( and \72 ed is red. An escape is decoded
+  # only inside an identifier run that stays a plain identifier once
+  # decoded; an escape that would become a delimiter (\( \; \, a quote or
+  # whitespace), part of a #hash or @name, or part of a number (1\65 3 is a
+  # dimension, not 1e3) has no plain spelling, so [nil, reason] is returned
+  # instead of a guess.
+  def decode_value_escapes(text)
+    text = text.to_s
+    return [ text, nil ] unless text.include?("\\")
+
+    out = +""
+    i = 0
+    while i < text.length
+      ch = text[i]
+      if ch == '"' || ch == "'"
+        j = skip_string(text, i)
+      elsif text[i, 2] == "/*"
+        close = text.index("*/", i + 2)
+        j = close ? close + 2 : text.length
+      elsif ident_char_at?(text, i)
+        j = skip_ident_run(text, i)
+        run = text[i...j]
+        if run.include?("\\")
+          decoded = plain_ident(run, i.positive? ? text[i - 1] : nil)
+          return [ nil, "unrecognized color value: #{text.strip[0, 40]} (escape has no plain spelling)" ] unless decoded
+
+          out << decoded
+          i = j
+          next
+        end
+      else
+        j = i + 1
+      end
+      out << text[i...j]
+      i = j
+    end
+    [ out, nil ]
+  end
+
+  # The decoded value of an escaped identifier run, or nil when the run is
+  # not an identifier (a number or dimension, a #hash or @name) or decodes to
+  # anything but identifier code points.
+  def plain_ident(run, prev)
+    return nil if prev == "#" || prev == "@" || !ident_start?(run)
+
+    decoded = decode_ident(run)
+    decoded if decoded.match?(/\A[-_a-zA-Z0-9\u0080-\u{10FFFF}]+\z/) && ident_start?(decoded)
+  end
+
   # An identifier run's value: each escape replaced by its code point.
   def decode_ident(run)
     out = +""

@@ -185,8 +185,16 @@ module ColorValue
   # name => raw value text (custom properties visible in this context), used
   # only to follow a whole-value var() reference. seen tracks custom
   # property names already being resolved, to catch var() cycles.
+  #
+  # Escapes are decoded once here (ColorCss.decode_value_escapes), so every
+  # anchored match below sees the name CSS sees: \76 ar(--x) is a var()
+  # reference and \72 ed is red. A value whose escape has no plain spelling
+  # is unresolved with that reason rather than guessed at.
   def resolve(value, decls, seen: Set.new)
-    v = value.to_s.strip
+    v, escape_reason = ColorCss.decode_value_escapes(value.to_s.strip)
+    return Result.new(color: nil, reason: escape_reason) if escape_reason
+
+    v = v.strip
     return Result.new(color: nil, reason: 'unrecognized color value: ') if v.empty?
 
     return hex_result(v) if v.match?(/\A#(?:\h{8}|\h{6}|\h{4}|\h{3})\z/)
@@ -226,10 +234,10 @@ module ColorValue
 
   # True when value is one hex color, one named color other than
   # transparent and currentcolor, or one color function call whose
-  # arguments contain no var(.
+  # arguments contain no var(. Escapes are decoded first, as in resolve.
   def literal?(value)
-    v = value.to_s.strip
-    return false if v.empty?
+    v = ColorCss.decode_value_escapes(value.to_s.strip).first&.strip
+    return false if v.nil? || v.empty?
     return true if v.match?(/\A#(?:\h{8}|\h{6}|\h{4}|\h{3})\z/)
 
     if (m = v.match(/\A([A-Za-z]+)\((.*)\)\z/m))
@@ -593,10 +601,14 @@ module ColorValue
   end
 
   # Rational("1e999999999") builds a giant integer before any clamp, so an
-  # exponent past this bound is parsed via Float instead. Such a value
-  # clamps to 0 or 1, so exactness is not needed there; an infinite Float
-  # keeps its sign so it still clamps the way the exact value would.
-  MAX_EXACT_EXPONENT = 32
+  # exponent past this bound is parsed via Float instead. The bound sits
+  # past Float range in both directions (10**400 is still cheap to build),
+  # so every exponent a Float could carry stays exact and 1e-33deg equals
+  # its expanded decimal. Past it a value clamps to 0 or 1 (or is a hue
+  # step far below any channel's resolution), so exactness is not needed;
+  # an infinite Float keeps its sign so it still clamps the way the exact
+  # value would.
+  MAX_EXACT_EXPONENT = 400
 
   def bounded_rational(number)
     exp = number[/[eE]([+-]?\d+)\z/, 1].to_i
