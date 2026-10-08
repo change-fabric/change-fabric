@@ -41,17 +41,21 @@ module ColorCheck
   end
 
   # One row per declared pair (ColorTokens.pairs) in light, and again in
-  # dark when the token file declares a dark block. The page background is
+  # dark when the token file declares a dark block. Pairs come from the
+  # names declared in any variant, so a pair one variant lacks a name of
+  # (a foreground only inside prefers-color-scheme: light) is reported
+  # unresolved there rather than skipped. The page background is
   # composited over white; any other translucent surface over the resolved
   # page background (unresolved when that backdrop cannot be determined); a
   # foreground over its background. One Resolver per variant serves every
   # row, so a var() chain shared by many pairs is analyzed once.
   def compute_contrast(tokens)
     variants = tokens.dark? ? %i[light dark] : %i[light]
+    pairs = ColorTokens.pairs(variants.map { |v| tokens.variants[v] }.reduce(:merge))
     variants.flat_map do |variant|
       decls = tokens.variants[variant]
       resolver = ColorValue::Resolver.new(decls)
-      ColorTokens.pairs(decls).map { |fg, bg| contrast_row(variant, fg, bg, decls, resolver) }
+      pairs.map { |fg, bg| contrast_row(variant, fg, bg, decls, resolver) }
     end
   end
 

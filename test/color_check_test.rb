@@ -587,6 +587,18 @@ class ColorCheckTest < Minitest::Test
     assert_equal "pass", pair.status
   end
 
+  # A foreground declared only under prefers-color-scheme: light is
+  # undefined under a dark preference; its dark row is unresolved, not
+  # missing.
+  def test_pair_missing_from_one_variant_is_reported_unresolved
+    css = ":root{--background:#fff}\n@media (prefers-color-scheme: light){:root{--page-text:#000}}\n" \
+          "@media (prefers-color-scheme: dark){:root{--background:#000}}\n"
+    dark = contrast_for(css, variant: "dark")
+    refute_nil dark
+    assert_equal [ "unresolved", "--page-text: is not declared" ], [ dark.status, dark.reason ]
+    assert_equal "pass", contrast_for(css).status
+  end
+
   def test_dark_override_resolves_against_light_palette_tokens
     pair = contrast_for(FOUR_COLOR_TOKENS, variant: "dark")
     assert pair.resolved?
