@@ -219,9 +219,9 @@ class ColorTokensTest < Minitest::Test
   # --- values -------------------------------------------------------------------
 
   def test_authored_derived_and_non_color_values
-    result = ok(":root{--a:#000;--b:rgb(1 2 3);--c:hsl(0 0% 0%);--d:red;--e:var(--a);" \
+    result = ok(":root{--a:#000;--b:rgb(1 2 3);--c:hsl(0 0% 50%);--d:red;--e:var(--a);" \
                 "--f:color-mix(in srgb, var(--a) 50%, #fff);--radius:0.5rem;--g:oklch(0.2 0 0);--error:#f00}")
-    assert_equal [ "#000", "rgb(1 2 3)", "hsl(0 0% 0%)", "red" ], result.authored.map { |a| a[:value] }
+    assert_equal [ "#000", "rgb(1 2 3)", "hsl(0 0% 50%)", "red" ], result.authored.map { |a| a[:value] }
     assert_equal 2, result.derived
     assert result.error_token
     assert_equal "0.5rem", result.variants[:light]["--radius"]
@@ -237,6 +237,21 @@ class ColorTokensTest < Minitest::Test
   def test_same_authored_color_counts_once
     result = ok(":root{--a:#000;--b:#000}\n.dark{--a:#000}")
     assert_equal [ { value: "#000", names: %w[--a --b], line: 1 } ], result.authored
+  end
+
+  def test_equivalent_spellings_count_as_one_color
+    spellings = [ "#fff", "#ffffff", "#FFFFFFFF", "white", "WHITE", "rgb(255 255 255)", "rgba(255, 255, 255, 1)",
+                  "rgb(100% 100% 100%)", "hsl(0 0% 100%)", "hsla(120, 50%, 100%, 1)" ]
+    css = ":root{#{spellings.each_with_index.map { |v, i| "--c#{i}:#{v}" }.join(";")}}"
+    result = ok(css)
+    assert_equal 1, result.authored.size
+    assert_equal spellings.size, result.authored.first[:names].size
+  end
+
+  def test_equivalent_error_token_spellings_do_not_conflict
+    result = ok(":root{--error:#f00}\n@media (prefers-color-scheme: dark){:root{--error:red}}")
+    assert_empty result.authored
+    assert result.error_token
   end
 
   def test_palette_over_target_is_an_error

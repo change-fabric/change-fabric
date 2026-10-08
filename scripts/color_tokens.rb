@@ -275,13 +275,13 @@ module ColorTokens
         value = entry[:value]
         if name == ERROR_TOKEN
           error_token = true
-          norm = normalize(value)
+          norm = color_key(value)
           first_error_value ||= norm
           next if norm == first_error_value
         end
 
         if authored?(value)
-          slot = (authored[normalize(value)] ||= { value: value.strip, names: [], line: entry[:line] })
+          slot = (authored[color_key(value)] ||= { value: value.strip, names: [], line: entry[:line] })
           slot[:names] << name unless slot[:names].include?(name)
         elsif value.match?(/\b(?:color-mix|var)\(/i)
           derived += 1
@@ -302,6 +302,15 @@ module ColorTokens
     # so it never counts toward the palette.
     def authored?(value)
       ColorValue.literal?(value) && !ColorValue.resolve(value, {}).color.nil?
+    end
+
+    # Equivalent spellings (#fff, white, rgb(255 255 255)) share one key:
+    # the resolved RGBA when the value is a literal, else its normalized text.
+    def color_key(value)
+      color = authored?(value) && ColorValue.resolve(value, {}).color
+      return normalize(value) unless color
+
+      [ color.r.round, color.g.round, color.b.round, color.a.round(3) ]
     end
 
     # Case-folds everything but custom-property names, which CSS treats as
