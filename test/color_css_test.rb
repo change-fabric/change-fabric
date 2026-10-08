@@ -111,6 +111,36 @@ class ColorCssTest < Minitest::Test
     assert_equal compound.id, decl(sheet, "--x").block_id
   end
 
+  # CSS Syntax 3: a comment is a token boundary, so deleting one must never
+  # merge the text on either side into one token.
+  def test_comment_that_would_merge_tokens_marks_the_prelude_glued
+    glued = [ "@me/**/dia (prefers-color-scheme: dark)", "@/**/media x", ":ro/**/ot", ".da/**/rk",
+              "[data-theme=da/**/rk]", "@media (prefers-color/**/-scheme: dark)", "#a/**/b", ".a\\61/**/b",
+              "a:nth-child(1/**/.5)", "a:nth-child(1/**/%)", "a:nth-child(+/**/1)", "a //**/* b" ]
+    glued.each do |prelude|
+      block = ColorCss.parse("#{prelude} { }").blocks.first
+      assert block.glued, prelude
+    end
+    apart = [ ":root/**/.dark", ":root/**/[data-theme=dark]", "@media/**/(prefers-color-scheme: dark)",
+              ":root /**/ .dark", "/**/:root", ":root/**/" ]
+    apart.each do |prelude|
+      block = ColorCss.parse("#{prelude} { }").blocks.first
+      refute block.glued, prelude
+    end
+    assert_equal ":root.dark", ColorCss.parse(":root/**/.dark { }").blocks.first.prelude
+  end
+
+  def test_glued_flag_resets_for_each_prelude
+    blocks = ColorCss.parse(":ro/**/ot { } :root { }").blocks
+    assert_equal [ true, false ], blocks.map(&:glued)
+  end
+
+  def test_leading_byte_order_mark_is_dropped
+    sheet = ColorCss.parse("﻿:root { --bg: #fff; }")
+    assert_equal ":root", sheet.blocks.first.prelude
+    assert_equal "#fff", decl(sheet, "--bg").value
+  end
+
   def test_unmatched_closing_brace_recorded_without_raising
     sheet = ColorCss.parse(":root { --bg: #fff; } }")
     assert_equal "#fff", decl(sheet, "--bg").value

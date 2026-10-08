@@ -182,6 +182,40 @@ class ColorTokensTest < Minitest::Test
     assert_error(":root{--a:#000; .card{--b:#fff}}", "nested block `.card`")
   end
 
+  # --- comments are token boundaries ------------------------------------------
+
+  def test_comment_that_merges_tokens_fails_closed
+    preludes = [ "@me/**/dia (prefers-color-scheme: dark){:root{--a:#fff}}",
+                 "@media (prefers-color/**/-scheme: dark){:root{--a:#fff}}",
+                 "@media (prefers-color-scheme: da/**/rk){:root{--a:#fff}}",
+                 ":ro/**/ot.dark{--a:#fff}", ".da/**/rk{--a:#fff}", "[data-theme=da/**/rk]{--a:#fff}" ]
+    preludes.each do |css|
+      result = read(":root{--a:#000}\n#{css}")
+      assert(result.errors.any? { |e| e.message.include?("joins two tokens across a comment") }, css)
+      refute result.dark?, css
+      assert_equal "#000", result.variants[:dark]["--a"], css
+    end
+  end
+
+  def test_comment_inside_a_declaration_name_fails_closed
+    [ ":root{--a:#000;--a/**/b:#fff}", ":root{--a:#000;col/**/or:#fff}", ":root{--a:#000}\n@imp/**/ort url(x);" ].each do |css|
+      result = read(css)
+      refute_empty result.errors, css
+      assert_equal({ "--a" => "#000" }, result.variants[:light], css)
+    end
+  end
+
+  def test_comment_between_tokens_of_a_compound_still_reads
+    ok(":root{--a:#000}\n:root/**/.dark{--a:#fff}")
+    ok(":root{--a:#000}\n@media/**/(prefers-color-scheme:/**/dark){:root{--a:#fff}}")
+  end
+
+  def test_byte_order_mark_is_ignored
+    result = ok("﻿:root{--background:#fff;--a:#000}\n.dark{--a:#fff}")
+    assert_equal "#000", result.variants[:light]["--a"]
+    assert result.dark?
+  end
+
   # --- prefers-color-scheme -----------------------------------------------------
 
   def test_media_dark_root_means_dark

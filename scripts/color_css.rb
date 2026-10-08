@@ -22,7 +22,11 @@ module ColorCss
   # brace with comments removed outright (not replaced by spaces), so
   # ":root/**/.dark" stays one compound selector while ":root .dark" keeps
   # its whitespace combinator. parent: the enclosing block's id or nil.
-  BlockOpen = Data.define(:id, :parent, :prelude, :line)
+  # glued: a removed comment sat where CSS sees a token boundary but the
+  # comment-free prelude would read one token (@me/**/dia as @media,
+  # :ro/**/ot as :root), so the prelude is not what CSS parses and callers
+  # must reject it rather than classify it.
+  BlockOpen = Data.define(:id, :parent, :prelude, :line, :glued)
   Sheet = Data.define(:decls, :at_rule_stmts, :errors, :blocks) # errors: [String] diagnostics, never raised
 
   DECL_NAME = /\A(\s*)(--[\w-]+|\$[\w-]+|@[\w-]+|-?[A-Za-z][\w-]*)(\s*):(.*)\z/m.freeze
@@ -33,12 +37,34 @@ module ColorCss
   # input. A backslash before a newline matches nothing: it is no escape.
   ESCAPE = /\\(?:\h{1,6}(?:\r\n|[ \t\n\r\f])?|[^\n\r\f]|\z)/.freeze
   ESCAPE_AT = /\G#{ESCAPE}/.freeze
+  # A code point that continues an ident, number or at-keyword token; a
+  # backslash starts an escape, which does too.
+  TOKEN_CP = /[-_a-zA-Z0-9\\\u0080-\u{10FFFF}]/.freeze
 
   module_function
 
-  # Tokenizes text into a Sheet.
+  # Tokenizes text into a Sheet. One leading U+FEFF byte-order mark is
+  # dropped first, as CSS Syntax 3 decoding does, so every reader sees the
+  # same first token whether or not the file was saved with a BOM.
   def parse(text)
-    Parser.new(text).sheet
+    Parser.new(text.to_s.delete_prefix("\uFEFF")).sheet
+  end
+
+  # Whether deleting a comment between left and right would merge the text
+  # on both sides into one token CSS keeps apart (CSS Syntax 3: a comment is
+  # a token boundary). True between two ident code points (col/**/or), after
+  # @ or # (@/**/media), inside a number (1/**/.5, 1/**/%, +/**/1), and
+  # between / and * (which would open a new comment). False elsewhere, so
+  # :root/**/.dark stays one compound.
+  def comment_glues?(left, right)
+    l = left.to_s[-1]
+    r = right.to_s[0]
+    return false if l.nil? || r.nil?
+    return true if l == "/" && r == "*"
+    return true if (l.match?(TOKEN_CP) || l == "@" || l == "#") && r.match?(TOKEN_CP)
+    return true if l.match?(/[0-9]/) && (r == "%" || (r == "." && right.to_s[1].to_s.match?(/[0-9]/)))
+
+    l.match?(/[+.]/) && r.match?(/[0-9]/)
   end
 
   # The escape whose backslash is at text[i], decoded per CSS Syntax 3
@@ -281,6 +307,8 @@ module ColorCss
       @line = 1
       @segment = +''
       @raw = +''
+      @comment_pending = false
+      @glued = false
       @segment_start_line = 1
       scan_one until @scanner.eos?
       flush_at_eof
@@ -333,13 +361,22 @@ module ColorCss
       @line += text.count("\n")
     end
 
-    # A comment: blanked in the segment, absent from the raw text.
+    # A comment: blanked in the segment, absent from the raw text. The only
+    # place comments are stripped. Blanking to spaces keeps the token
+    # boundary (so col/**/or: never reads as a color: declaration); removal
+    # does not, so the next append checks whether the raw text just glued
+    # two tokens together.
     def consume_blanked(text)
       @segment << text.gsub(/[^\n]/, ' ')
       @line += text.count("\n")
+      @comment_pending = true
     end
 
     def append(text)
+      if @comment_pending && !text.empty?
+        @glued ||= ColorCss.comment_glues?(@raw, text)
+        @comment_pending = false
+      end
       @segment << text
       @raw << text
     end
@@ -422,6 +459,8 @@ module ColorCss
     def start_new_segment
       @segment = +''
       @raw = +''
+      @comment_pending = false
+      @glued = false
       @segment_start_line = @line
     end
 
@@ -440,7 +479,7 @@ module ColorCss
       id = @next_id
       @next_id += 1
       line = @segment_start_line + prelude[/\A\s*/].count("\n")
-      @blocks << BlockOpen.new(id:, parent: @frames.last&.id, prelude: @raw.strip, line:)
+      @blocks << BlockOpen.new(id:, parent: @frames.last&.id, prelude: @raw.strip, line:, glued: @glued)
       stripped = @raw.strip
       @frames << if stripped.start_with?('@')
                    Frame.new(kind: :at_rule, selectors: nil, id:, text: collapse_ws(stripped))

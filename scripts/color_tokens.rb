@@ -130,6 +130,9 @@ module ColorTokens
       return :skip if %i[error skip].include?(parent)
 
       prelude = block.prelude.gsub(/\s+/, ' ')
+      if block.glued
+        return error(block.line, "`#{prelude}` joins two tokens across a comment; CSS reads them apart")
+      end
       if %i[light dark].include?(parent)
         return error(block.line, "nested block `#{prelude}` inside a token block; only --name: value is allowed")
       end
