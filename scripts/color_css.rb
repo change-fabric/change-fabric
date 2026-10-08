@@ -45,6 +45,9 @@ module ColorCss
   # (ColorCss.custom_property_ref); emit_declaration checks that.
   ESCAPED_NAME_SRC = /(?:[\w\u0080-\u{10FFFF}-])*#{ESCAPE}(?:[\w\u0080-\u{10FFFF}-]|#{ESCAPE})*/.freeze
   DECL_NAME = /\A(\s*)(#{CUSTOM_NAME_SRC}|\$[\w-]+|@[\w-]+|-?[A-Za-z][\w-]*|#{ESCAPED_NAME_SRC})(\s*):(.*)\z/m.freeze
+  # A segment that has begun a custom-property declaration: its name (literal
+  # or escaped, checked by custom_property_ref) and the colon.
+  CUSTOM_VALUE_START = /\A\s*(#{CUSTOM_NAME_SRC}|#{ESCAPED_NAME_SRC})\s*:/.freeze
   AT_RULE_STMT = /\A(\s*)(@[\w-]+)(\s*)(.*)\z/m.freeze
   ESCAPE_AT = /\G#{ESCAPE}/.freeze
   # A code point that continues an ident, number or at-keyword token; a
@@ -113,14 +116,31 @@ module ColorCss
     decode_escape(text, i)&.last || i + 1
   end
 
-  # Splits text at top-level occurrences of sep, respecting parentheses,
-  # quoted strings and escapes, so ":is(a, b)" stays one entry and a comma
+  # The closer of each CSS simple block opener: (), [] and {}.
+  BLOCK_CLOSER = { "(" => ")", "[" => "]", "{" => "}" }.freeze
+
+  # Moves the open-block stack past one character, per CSS Syntax 3
+  # "consume a simple block": an opener pushes its closer, the closer on top
+  # pops it, and any other closer (a "]" inside "(", a ")" at top level) is
+  # an ordinary token that moves nothing. The one bracket rule every scanner
+  # here uses, so ";", "," or "!" inside [a;b] or {a:b} is never top level.
+  def track_block(stack, ch)
+    if (closer = BLOCK_CLOSER[ch])
+      stack << closer
+    elsif !stack.empty? && ch == stack.last
+      stack.pop
+    end
+    stack
+  end
+
+  # Splits text at top-level occurrences of sep, respecting (), [] and {}
+  # blocks, quoted strings and escapes, so ":is(a, b)" stays one entry and a comma
   # inside a string or written as \, is never a split point. Entries are not
   # whitespace-collapsed here; callers do that themselves.
   def split_top_level(text, sep = ",")
     out = []
     start = 0
-    depth = 0
+    stack = []
     i = 0
     while i < text.length
       case text[i]
@@ -128,13 +148,12 @@ module ColorCss
         next
       when '"', "'" then i = skip_string(text, i)
         next
-      when "(" then depth += 1
-      when ")" then depth -= 1 if depth.positive?
       when sep
-        if depth.zero?
+        if stack.empty?
           out << text[start...i]
           start = i + 1
         end
+      else track_block(stack, text[i])
       end
       i += 1
     end
@@ -164,8 +183,9 @@ module ColorCss
   # The one value lexer function_tokens and ColorValue.var_calls share, in a
   # single pass: yields each FunctionToken with the index of the
   # "(" it opens (nil for an unquoted url(...), whose token closes itself),
-  # and each other "(", ")" and "," as the character and its index. Nothing
-  # inside a string, comment, escape or unquoted url() is yielded.
+  # and each other simple-block character ("(", ")", "[", "]", "{", "}")
+  # and "," as the character and its index. Nothing inside a string,
+  # comment, escape or unquoted url() is yielded.
   def scan_value(text)
     text = text.to_s
     i = 0
@@ -187,7 +207,7 @@ module ColorCss
         yield tok, (after == i + 1 ? i : nil)
         i = after
       else
-        yield ch, i if ch == "(" || ch == ")" || ch == ","
+        yield ch, i if ch == "," || BLOCK_CLOSER.key?(ch) || BLOCK_CLOSER.value?(ch)
         i += 1
       end
     end
@@ -304,7 +324,7 @@ module ColorCss
 
   # A declaration value split from its priority suffix, as [value,
   # important]. The suffix is found by tokens, as CSS Syntax 3 5.4.6 does:
-  # at top level (no unclosed parenthesis), the last two significant tokens
+  # at top level (inside no (), [] or {} block), the last two significant tokens
   # outside strings and comments are a "!" delim and an ident whose decoded value is
   # "important", ASCII case-insensitive, so !\69mportant, !IMPORTANT and
   # ! /* note */ important all count, while an escaped \! (part of an
@@ -314,7 +334,7 @@ module ColorCss
     text = text.to_s
     bang = nil
     last = nil
-    depth = 0
+    stack = []
     i = 0
     while i < text.length
       ch = text[i]
@@ -336,14 +356,13 @@ module ColorCss
         last = [ :ident, i, j ]
       else
         j = i + 1
-        depth += 1 if ch == "("
-        depth -= 1 if ch == ")" && depth.positive?
+        track_block(stack, ch)
         last = [ ch == "!" ? :bang : :other, i ]
       end
       bang = prev && prev[0] == :bang ? prev[1] : nil
       i = j
     end
-    return [ text.strip, false ] unless bang && depth.zero? && last[0] == :ident
+    return [ text.strip, false ] unless bang && stack.empty? && last[0] == :ident
 
     run = text[last[1]...last[2]]
     return [ text.strip, false ] unless ident_start?(run) && decode_ident(run).downcase(:ascii) == "important"
@@ -486,7 +505,7 @@ module ColorCss
       @next_id = 1
       @scanner = StringScanner.new(text)
       @frames = []
-      @paren_depth = 0
+      @brackets = []
       @line = 1
       @segment = +''
       @raw = +''
@@ -504,7 +523,7 @@ module ColorCss
     private
 
     def scan_one
-      if (text = @scanner.scan(/[^\/'"();{}\\]+/))
+      if (text = @scanner.scan(/[^\/'"()\[\];{}\\]+/))
         consume_text(text)
         return
       end
@@ -514,23 +533,28 @@ module ColorCss
       case ch
       when "\\"
         # An escape is ordinary value text, so an escaped ; { } ( ) or quote
-        # never ends a declaration or moves the block or paren depth. A
+        # never ends a declaration or moves the block stack. A
         # backslash before a newline escapes nothing and is taken alone.
         consume_text(@scanner.scan(ESCAPE) || @scanner.getch)
       when '/'
         scan_slash
       when "'", '"'
         scan_string(ch)
-      when '('
-        scan_open_paren
-      when ')'
-        scan_close_paren
-      when ';', '{', '}'
+      when '(', '[', ')', ']'
+        scan_block_char(@scanner.getch)
+      when ';', '}'
         @scanner.getch
-        if @paren_depth.positive?
-          append(ch)
-        else
+        if @brackets.empty?
           dispatch_terminator(ch)
+        else
+          scan_block_char(ch)
+        end
+      when '{'
+        @scanner.getch
+        if @brackets.empty? && !custom_property_value?
+          dispatch_terminator(ch)
+        else
+          scan_block_char(ch)
         end
       else
         # Unreachable given the char classes above; advance defensively so a
@@ -614,14 +638,23 @@ module ColorCss
       end
     end
 
-    def scan_open_paren
-      append(@scanner.getch)
-      @paren_depth += 1
+    # A bracket, or a ; { } inside an open block: value text that moves the
+    # block stack (ColorCss.track_block), so ; and } inside (), [] or a
+    # value-level {} never end the declaration.
+    def scan_block_char(ch)
+      ColorCss.track_block(@brackets, ch)
+      append(ch)
     end
 
-    def scan_close_paren
-      @paren_depth -= 1 if @paren_depth.positive?
-      append(@scanner.getch)
+    # Whether the segment so far is "--name:" inside a style rule, so a "{"
+    # here opens a {} block in a custom property's value rather than a
+    # nested rule (CSS Syntax 3 consume a declaration; CSS Nesting). At top
+    # level a stylesheet holds rules only, so "--x: {" there stays a rule.
+    def custom_property_value?
+      return false unless @frames.any? { |f| f.kind == :rule }
+
+      m = CUSTOM_VALUE_START.match(@segment)
+      m && !ColorCss.custom_property_ref(m[1]).nil?
     end
 
     def dispatch_terminator(ch)

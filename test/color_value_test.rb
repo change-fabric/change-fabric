@@ -241,6 +241,14 @@ class ColorValueTest < Minitest::Test
     assert_includes unresolved("var(--a\\) var(--b)", { "--a" => "#fff", "--b" => "#000" }), "unrecognized"
   end
 
+  def test_var_calls_skip_parens_and_commas_inside_other_blocks
+    assert_equal [ 7, nil ], CV.var_calls("var([)])").first.to_h.values_at(:close, :comma)
+    assert_equal [ 8, nil ], CV.var_calls("var({,)})").first.to_h.values_at(:close, :comma)
+    assert_equal [ 6, nil ], CV.var_calls("var(]})").first.to_h.values_at(:close, :comma)
+    assert_equal [ nil, nil ], CV.var_calls("var([)").first.to_h.values_at(:close, :comma)
+    assert_equal [ 13, 7 ], CV.var_calls("var(--a, [,)])").first.to_h.values_at(:close, :comma)
+  end
+
   def test_var_cycle_with_no_fallback_is_unresolved
     decls = { "--a" => "var(--b)", "--b" => "var(--a)" }
     reason = unresolved("var(--a)", decls)

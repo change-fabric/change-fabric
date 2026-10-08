@@ -253,6 +253,55 @@ class ColorCssTest < Minitest::Test
     assert_equal "#\uFFFD", decl(ColorCss.parse(":root { --bg: #\0; }"), "--bg").value
   end
 
+  # CSS Syntax 3 simple blocks: ; } and ! inside (), [] or a custom
+  # property's value-level {} are value text, never a terminator.
+  def test_semicolon_and_brace_inside_simple_blocks_are_data
+    {
+      "--syntax: [a;b]" => [ "--syntax", "[a;b]" ],
+      "--map: {a:b}" => [ "--map", "{a:b}" ],
+      "--x: [ {;} ]" => [ "--x", "[ {;} ]" ],
+      "--x: {a;b}" => [ "--x", "{a;b}" ],
+      "--x: ([;)]; x)" => [ "--x", "([;)]; x)" ],
+      "--x: [ } ]" => [ "--x", "[ } ]" ],
+      "--x: { ] ; }" => [ "--x", "{ ] ; }" ],
+      "--\\2d x: {a;b}" => [ "---x", "{a;b}" ],
+      "--x :\n{\n a;\n}" => [ "--x", "{\n a;\n}" ]
+    }.each do |decl_src, (name, value)|
+      css = ":root {\n  #{decl_src};\n  --y: #000;\n}\n"
+      sheet = ColorCss.parse(css)
+      assert_empty sheet.errors, css
+      assert_equal value, decl(sheet, name)&.value, css
+      assert_equal 2, decl(sheet, name).line, css
+      assert_equal 3 + decl_src.count("\n"), decl(sheet, "--y").line, css
+      assert_equal [ ":root" ], sheet.blocks.map(&:prelude), css
+    end
+  end
+
+  def test_braces_outside_a_custom_property_value_still_open_rules
+    sheet = ColorCss.parse("a { color: red; &:hover { color: blue } }\n--x: {b:c}")
+    assert_equal [ "a", "&:hover", "--x:" ], sheet.blocks.map(&:prelude)
+    assert_equal [ "red", "blue", "c" ], sheet.decls.map(&:value)
+    assert_empty sheet.errors
+  end
+
+  def test_mismatched_block_closers_do_not_raise
+    sheet = ColorCss.parse("a { color: red ] ; --c: x } }")
+    assert_equal [ "red ]", "x" ], sheet.decls.map(&:value)
+    assert_equal [ "unmatched } (line 1)" ], sheet.errors
+    open = ColorCss.parse("a { --x: [ ;\n}\nb { --c: red }")
+    assert_equal [ "unexpected end of input with 1 open block(s)" ], open.errors
+  end
+
+  def test_priority_inside_a_simple_block_stays_in_the_value
+    sheet = ColorCss.parse(":root { --x: [a] !important; --y: [!important]; --z: {!important} }")
+    assert_equal [ [ "[a]", true ], [ "[!important]", false ], [ "{!important}", false ] ],
+                 sheet.decls.map { |d| [ d.value, d.important ] }
+  end
+
+  def test_split_top_level_respects_every_simple_block
+    assert_equal [ "[a, b]", " {c, d}", " (e, [)], f)", " g" ], ColorCss.split_top_level("[a, b], {c, d}, (e, [)], f), g")
+  end
+
   def test_split_top_level_respects_parens
     assert_equal [ ":is(a, b)", " c" ], ColorCss.split_top_level(":is(a, b), c")
   end

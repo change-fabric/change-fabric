@@ -32,6 +32,12 @@ class ColorTokensTest < Minitest::Test
     assert(messages.any? { |m| m.include?(fragment) }, "#{fragment} not in #{messages.inspect}")
   end
 
+  # A custom property whose value holds a [] or {} block with ; or } inside
+  # is one declaration, not an unparsed segment or a nested rule.
+  def test_custom_property_simple_block_values_are_one_declaration
+    ok(":root {\n  --syntax: [a;b];\n  --map: {a:b};\n  --x: [ {;} ];\n  --bg: #fff;\n  --text: #000;\n}\n")
+  end
+
   # --- encoding ---------------------------------------------------------------
 
   def test_bom_prefixed_file_reads_like_plain

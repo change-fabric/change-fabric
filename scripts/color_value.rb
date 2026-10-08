@@ -349,27 +349,34 @@ module ColorValue
   end
 
   # Every var( call in text, from one ColorCss.scan_value pass, in source
-  # order (an enclosing call before the calls nested in it).
+  # order (an enclosing call before the calls nested in it). Open blocks
+  # follow ColorCss.track_block, so a ")" or "," inside a nested [] or {}
+  # block is an ordinary token that neither closes a call nor splits it.
   def var_calls(text)
     calls = []
-    parens = [] # each open paren: its VarCall, or nil for any other
+    closers = [] # each open block's closer, as ColorCss.track_block keeps it
+    owners = [] # each open block's VarCall, or nil for any other block
     open_vars = [] # the open VarCalls, innermost last
     ColorCss.scan_value(text) do |tok, i|
-      case tok
-      when ColorCss::FunctionToken
+      if tok.is_a?(ColorCss::FunctionToken)
         next unless i
 
         call = VarCall.new(start: tok.start, open: i, parent: open_vars.last) if tok.name == "var"
         calls << call if call
         open_vars << call if call
-        parens << call
-      when "(" then parens << nil
-      when ")"
-        next unless (call = parens.pop)
-
-        call.close = i
-        open_vars.pop
-      when "," then parens.last&.comma ||= i
+        closers << ")"
+        owners << call
+      elsif tok == ","
+        owners.last.comma ||= i if closers.last == ")" && owners.last
+      else
+        depth = closers.length
+        ColorCss.track_block(closers, tok)
+        if closers.length > depth
+          owners << nil
+        elsif closers.length < depth && (call = owners.pop)
+          call.close = i
+          open_vars.pop
+        end
       end
     end
     calls
