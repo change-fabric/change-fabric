@@ -75,6 +75,16 @@ module ColorCss
   # A code point that continues an ident, number or at-keyword token; a
   # backslash starts an escape, which does too.
   TOKEN_CP = /(?:#{IDENT_CP}|\\)/.freeze
+  # A <number> as CSS Syntax 3 4.3.12 consumes one: an optional sign,
+  # digits with an optional fraction (a "." only with a digit after it) or a
+  # fraction alone, and an exponent only when "e" is followed by a digit, or
+  # a sign and a digit, written literally. An escape is never part of one.
+  NUMBER_SRC = /[+-]?(?:\d+(?:\.\d+)?|\.\d+)(?:[eE][+-]?\d+)?/.freeze
+  NUMBER_AT = /\G#{NUMBER_SRC}/.freeze
+  # One numeric token (CSS Syntax 3 4.3.3). number: the number as written.
+  # type: :number, :percentage or :dimension. unit: a dimension's unit with
+  # its escapes decoded (case kept), else nil.
+  NumericToken = Data.define(:number, :type, :unit)
 
 module_function
 
@@ -304,10 +314,12 @@ module_function
   # [decoded, nil], so anchored matching (var(, rgb(, red, #hex) sees the
   # name CSS sees: \76 ar( is var( and \72 ed is red. An escape is decoded
   # only inside an identifier run that stays a plain identifier once
-  # decoded, or inside a #hash name that decodes to a hex color's digits
-  # (#\66 ff is #fff); an escape that would become a delimiter (\( \; \, a
-  # quote or whitespace), part of any other #hash or an @name, or part of a
-  # number (1\65 3 is a dimension, not 1e3) has no plain spelling, so
+  # decoded, inside a dimension's unit whose decoded spelling lexes as the
+  # same token (0d\65 g is 0deg, plain_dimension), or inside a #hash name
+  # that decodes to a hex color's digits (#\66 ff is #fff); an escape that
+  # would become a delimiter (\( \; \, a quote or whitespace), part of any
+  # other #hash or an @name, or a unit whose decoded spelling lexes
+  # differently (1\65 3 is unit e3, not 1e3) has no plain spelling, so
   # [nil, reason] is returned instead of a guess.
   def decode_value_escapes(text)
     text = text.to_s
@@ -343,15 +355,62 @@ module_function
   end
 
   # The decoded value of an escaped identifier run, or nil when the run is
-  # not an identifier (a number or dimension, an @name, a #hash whose name
-  # is not a hex color's digits) or decodes to anything but identifier code
-  # points.
+  # not an identifier (an @name, a #hash whose name is not a hex color's
+  # digits) or decodes to anything but identifier code points. A run that
+  # starts a number is a dimension, decoded by plain_dimension.
   def plain_ident(run, prev)
     return hex_hash_name(run) if prev == "#"
-    return nil if prev == "@" || !ident_start?(run)
+    return nil if prev == "@"
+    return plain_dimension(run) unless ident_start?(run)
 
     decoded = decode_ident(run)
     decoded if decoded.match?(/\A#{IDENT_CP}+\z/) && ident_start?(decoded)
+  end
+
+  # An escaped dimension run with its unit decoded (0d\65 g is 0deg,
+  # 0\44 EG is 0DEG), or nil when the decoded spelling would lex as a
+  # different token: 1\65 3 is 1 with unit e3, not the number 1e3, and
+  # 50\25 is 50 with unit %, not a percentage. Neither has a plain spelling.
+  def plain_dimension(run)
+    tok = numeric_token(run)
+    return nil unless tok&.type == :dimension
+
+    plain = "#{tok.number}#{tok.unit}"
+    plain if numeric_token(plain) == tok
+  end
+
+  # text read as exactly one numeric token, per CSS Syntax 3 4.3.3 consume
+  # a numeric token: a number (NUMBER_SRC), then a "%" (a percentage), or
+  # an identifier sequence when the next code points would start one, an
+  # escape included (a dimension, its unit decoded), or nothing (a number).
+  # nil when text holds anything more or is not a number at all. The one
+  # numeric lexer: every number, percentage, hue and alpha reader uses it,
+  # so an escaped unit reads the same everywhere.
+  def numeric_token(text)
+    text = text.to_s
+    m = text.match(NUMBER_AT, 0)
+    return nil unless m
+
+    number = m[0]
+    k = m.end(0)
+    return NumericToken.new(number:, type: :number, unit: nil) if k == text.length
+    return (k + 1 == text.length ? NumericToken.new(number:, type: :percentage, unit: nil) : nil) if text[k] == "%"
+    return nil unless starts_ident_at?(text, k) && skip_ident_run(text, k) == text.length
+
+    NumericToken.new(number:, type: :dimension, unit: decode_ident(text[k..]))
+  end
+
+  # Whether the code points at text[k] would start an identifier sequence
+  # (CSS Syntax 3 4.3.9): "--", or an optional "-" then a name-start code
+  # point or a valid escape (a backslash not before a newline).
+  def starts_ident_at?(text, k)
+    j = text[k] == "-" ? k + 1 : k
+    return true if j > k && text[j] == "-"
+
+    ch = text[j]
+    return false if ch.nil?
+
+    ch.match?(NAME_START_CP) || !decode_escape(text, j).nil?
   end
 
   # A #hash name's decoded value when it is 3, 4, 6 or 8 hex digits, the
@@ -447,8 +506,9 @@ module_function
   # text with every escaped identifier (and #hash name) outside strings,
   # comments and unquoted url() contents decoded (decode_ident) and written
   # back in one canonical spelling (serialize_ident), so two spellings CSS
-  # reads as one token compare equal: --\69 nk is --ink, r\67 b( is rgb(.
-  # Case is kept and a number or dimension is left as written.
+  # reads as one token compare equal: --\69 nk is --ink, r\67 b( is rgb(,
+  # 120d\65 g is 120deg (canonical_dimension). Case is kept and a number is
+  # left as written.
   def canonical_idents(text)
     text = text.to_s
     return text unless text.include?("\\")
@@ -477,6 +537,11 @@ module_function
           i = j
           next
         end
+        if run.include?("\\") && (dim = canonical_dimension(run))
+          out << dim
+          i = j
+          next
+        end
       else
         j = i + 1
       end
@@ -484,6 +549,21 @@ module_function
       i = j
     end
     out
+  end
+
+  # An escaped dimension run written back in one canonical spelling, so
+  # 120d\65 g and 120deg compare equal: the number as written, then the
+  # decoded unit serialized (serialize_ident), with its first code point
+  # escaped too when the plain spelling would lex as another token (unit e3
+  # is 1\65 3, never 1e3). nil when run is not a dimension.
+  def canonical_dimension(run)
+    tok = numeric_token(run)
+    return nil unless tok&.type == :dimension
+
+    spelled = "#{tok.number}#{serialize_ident(tok.unit)}"
+    return spelled if numeric_token(spelled) == tok
+
+    "#{tok.number}\\#{tok.unit[0].ord.to_s(16)} #{serialize_ident(tok.unit[1..], name_only: true)}"
   end
 
   # text with every terminated quoted string outside comments decoded (CSS

@@ -342,6 +342,9 @@ class ColorTokensTest < Minitest::Test
       [ "color-mix(in SRGB, var(--x) 50%, #fff)", "color-mix(in srgb, var(--x) 50%, #fff)" ],
       [ "color-mix(IN srgb, red 50%, BLUE)", "color-mix(in srgb, red 50%, blue)" ],
       [ "oklch(0.5 0.1 120DEG)", "oklch(0.5 0.1 120deg)" ],
+      [ "oklch(0.5 0.1 120d\\65 g)", "oklch(0.5 0.1 120deg)" ],
+      [ "oklch(0.5 0.1 120\\44 EG)", "oklch(0.5 0.1 120deg)" ],
+      [ "1\\70 x solid", "1px solid" ],
       [ "var(--x, TRANSPARENT)", "var(--x, transparent)" ],
       [ "1PX SOLID", "1px solid" ]
     ].each do |a, b|
@@ -354,6 +357,8 @@ class ColorTokensTest < Minitest::Test
       [ "var(--x, transparent)", "transparent" ],
       [ "\"INHERIT\"", "\"inherit\"" ],
       [ "url(/A.png)", "url(/a.png)" ],
+      [ "oklch(0.5 0.1 1\\65 3)", "oklch(0.5 0.1 1e3)" ],
+      [ "calc(50\\25)", "calc(50%)" ],
       [ "\u00c9t\u00e9", "\u00e9t\u00e9" ]
     ].each { |a, b| assert_error(":root{--a:#{a}}\n:root{--a:#{b}}", "`--a` is declared twice") }
     result = ok(":root{--error:transparent}\n@media (prefers-color-scheme: dark){:root{--error:TRANSPARENT}}")

@@ -760,6 +760,59 @@ class ColorValueTest < Minitest::Test
     assert_rgba 255, 255, 255, resolved("var(--w, \"\\(\")", { "--w" => "#fff" })
   end
 
+  # A numeric token is read as CSS Syntax 3 consumes one: the number, then
+  # a "%" or, when the next code points start an identifier (an escape
+  # included), the unit with its escapes decoded. So an escaped angle unit
+  # in any case is that unit, in a hue alone or behind var(), while an
+  # escape never extends the number (1\65 3 is unit e3, not 1e3) and an
+  # escaped % is a dimension's unit, never a percentage, wherever a number,
+  # percentage, hue or alpha is read.
+  def test_escaped_dimension_units_decode_without_changing_the_token
+    {
+      "hsl(0d\\65 g 0% 100%)" => "hsl(0deg 0% 100%)",
+      "hsl(120d\\65 g 100% 50%)" => "hsl(120deg 100% 50%)",
+      "hsl(120\\64 \\65 \\67  100% 50%)" => "hsl(120deg 100% 50%)",
+      "hsl(120\\000064eg 100% 50%)" => "hsl(120deg 100% 50%)",
+      "hsl(120D\\45 G 100% 50%)" => "hsl(120deg 100% 50%)",
+      "hsl(120\\44 EG 100% 50%)" => "hsl(120deg 100% 50%)",
+      "hsl(.5t\\75 rn 100% 50%)" => "hsl(180deg 100% 50%)",
+      "hsl(-1.5e2gr\\61 d 100% 50%)" => "hsl(-135deg 100% 50%)",
+      "hsl(1\\72 ad 100% 50%)" => "hsl(1rad 100% 50%)",
+      "hsla(0\\64 eg, 0%, 100%, 1)" => "hsl(0 0% 100%)"
+    }.each do |escaped, plain|
+      assert_equal resolved(plain).to_h, resolved(escaped).to_h, escaped
+      assert CV.literal?(escaped), escaped
+    end
+    assert_rgba 255, 255, 255, resolved("hsl(0d\\65 g 0% 100%)")
+    assert_rgba 255, 255, 255, resolved("var(--white)", { "--white" => "hsl(0d\\65 g 0% 100%)" })
+    [
+      "hsl(1\\65 3 0% 100%)", "hsl(1\\45 3 0% 100%)", "hsl(1e\\33 deg 0% 100%)",
+      "rgb(1\\65 3 0 0)", "rgb(255 50\\25 0)", "rgb(50\\25 0% 0%)",
+      "hsl(0 50\\25 50%)", "hsl(0 50% 50\\25)", "rgb(0 0 0 / 50\\25)", "rgb(0 0 0 / 1\\65 0)",
+      "hsl(0\\2d 0% 100%)", "hsl(0\\28 0% 100%)"
+    ].each do |value|
+      assert_includes unresolved(value), "escape", value
+      refute CV.literal?(value), value
+    end
+    # A decoded unit that is not an angle is not a hue, escaped or not.
+    assert_includes unresolved("hsl(0p\\78  0% 100%)"), "invalid hue"
+  end
+
+  # The one numeric lexer: a number, a percentage, or a dimension whose
+  # unit is decoded, and never more than one token.
+  def test_numeric_token_follows_consume_a_numeric_token
+    nt = ->(text) { ColorCss.numeric_token(text)&.then { |t| [ t.number, t.type, t.unit ] } }
+    assert_equal [ "0", :dimension, "deg" ], nt.("0d\\65 g")
+    assert_equal [ "1", :dimension, "e3" ], nt.("1\\65 3")
+    assert_equal [ "1e3", :number, nil ], nt.("1e3")
+    assert_equal [ "50", :dimension, "%" ], nt.("50\\25")
+    assert_equal [ "50", :percentage, nil ], nt.("50%")
+    assert_equal [ "1", :dimension, "e" ], nt.("1e")
+    assert_equal [ "1", :dimension, "--" ], nt.("1--")
+    assert_equal [ "-.5", :dimension, "DEG" ], nt.("-.5\\44 EG")
+    [ "1-", "1.", "1%%", "1\\\n", "e3", "1 deg", "", "1deg)" ].each { |t| assert_nil nt.(t), t }
+  end
+
   # A #hash name is decoded before the color parser reads it, so an escape
   # anywhere in a hex color's digits, in any case, of any supported length,
   # resolves like its plain spelling, alone or behind a var() reference.

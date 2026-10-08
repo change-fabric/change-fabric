@@ -393,6 +393,19 @@ class ColorCheckTest < Minitest::Test
     end
   end
 
+  # An escaped angle unit decodes, so hsl(0d\65 g 0% 100%) is white and a
+  # white-on-white pair is graded 1:1 and fails --strict, in any unit case.
+  def test_strict_fails_white_on_white_spelled_with_an_escaped_hue_unit
+    [ "0d\\65 g", "0D\\45 G", "0\\64 \\65 \\67 " ].each do |hue|
+      with_dir do |dir|
+        write(dir, "tokens.css", ":root{--background:#fff;--page-text:hsl(#{hue} 0% 100%)}")
+        report = ColorCheck.run(dir, strict: true)
+        assert(report.contrast.any? { |c| c.fg == "--page-text" && c.status == "fail" }, hue)
+        assert_equal 1, report.exit_code, hue
+      end
+    end
+  end
+
   # A token set to initial, inherit or unset is guaranteed-invalid on the
   # root element, so a var() to it takes its fallback: a white fallback on
   # a white background is graded 1:1 and fails --strict, in both themes.

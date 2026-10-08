@@ -729,17 +729,21 @@ module ColorValue
     Result.new(color: nil, reason: "unrecognized color value: #{ColorCss.strip_ws(args)[0, 40]}")
   end
 
-  # Strict CSS <number> and <percentage> grammar: a bare numeric literal,
-  # optionally signed and fractional, with an optional exponent. Anything
-  # else (a stray identifier, empty text) is not a number, and must never
+  # Strict CSS <number> and <percentage> grammar, read by the one numeric
+  # lexer (ColorCss.numeric_token): a bare numeric literal, optionally signed
+  # and fractional, with an optional exponent. Anything else (a stray
+  # identifier, a dimension, empty text) is not a number, and must never
   # silently become 0 via String#to_f.
-  NUMBER_RE = /[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?/
-
   def parse_number(token)
-    t = ColorCss.strip_ws(token)
-    return nil unless t.match?(/\A#{NUMBER_RE}\z/)
+    tok = numeric_token(token, :number)
+    tok && finite_or_nil(tok.number.to_f)
+  end
 
-    finite_or_nil(t.to_f)
+  # text's one numeric token (ColorCss.numeric_token) when it has one of
+  # types, else nil.
+  def numeric_token(text, *types)
+    tok = ColorCss.numeric_token(ColorCss.strip_ws(text))
+    tok if tok && types.include?(tok.type)
   end
 
   # An exponent such as 1e999 overflows to Infinity; a non-finite value is
@@ -748,12 +752,11 @@ module ColorValue
     value.finite? ? value : nil
   end
 
+  # A percentage's number, or nil. 50\25 is a dimension with unit %, never
+  # a percentage.
   def parse_percentage(token)
-    t = ColorCss.strip_ws(token)
-    m = t.match(/\A(#{NUMBER_RE})%\z/)
-    return nil unless m
-
-    finite_or_nil(m[1].to_f)
+    tok = numeric_token(token, :percentage)
+    tok && finite_or_nil(tok.number.to_f)
   end
 
   # Legacy comma syntax (rgb(1, 2, 3)) requires all three channels to be the
@@ -835,26 +838,29 @@ module ColorValue
     Result.new(color: Rgba.new(r:, g:, b:, a:), reason: nil)
   end
 
-  # Hue accepts a bare number (treated as deg) or an explicit angle unit;
-  # anything else is not a valid hue and must not silently become 0.
+  # Hue accepts a bare number (treated as deg) or a dimension whose unit,
+  # escapes decoded and ASCII case folded, is an angle unit (0d\65 g and
+  # 0\44 EG are 0deg); anything else is not a valid hue and must not
+  # silently become 0.
   def parse_hue(text)
-    t = ColorCss.strip_ws(text).downcase(:ascii)
-    m = t.match(/\A(#{NUMBER_RE})(deg|grad|rad|turn)?\z/)
-    return nil unless m
+    tok = numeric_token(text, :number, :dimension)
+    return nil unless tok
 
-    num = finite_or_nil(m[1].to_f)
+    unit = tok.unit&.downcase(:ascii)
+    return nil unless unit.nil? || HUE_UNITS.include?(unit)
+
+    num = finite_or_nil(tok.number.to_f)
     return nil unless num
 
     # Unit conversion can overflow a finite literal (1e308turn), so the
     # converted angle is checked again before it reaches % 360.
-    unit = m[2]
     return nil unless finite_or_nil(num * HUE_SCALE.fetch(unit, 1))
 
     # Like rgb() channels, the angle stays exact (Rational) so equal colors
     # spelled in deg, grad or turn share a key; rad involves pi and is inexact.
     return finite_or_nil(num * 180.0 / Math::PI)&.to_r if unit == "rad"
 
-    exact_hue(m[1], HUE_SCALE.fetch(unit, 1))
+    exact_hue(tok.number, HUE_SCALE.fetch(unit, 1))
   end
 
   # Reduces a hue literal modulo a full turn exactly, without building the
@@ -877,14 +883,15 @@ module ColorValue
   MAX_EXPONENT_DIGITS = 18
 
   HUE_SCALE = { "grad" => Rational(9, 10), "turn" => Rational(360) }.freeze
+  HUE_UNITS = %w[deg grad rad turn].freeze
 
   # Saturation and lightness must be percentages; a bare number here is
   # invalid CSS, not a 0..1 fraction to guess at.
   def parse_percent_fraction(text)
-    pct = parse_percentage(ColorCss.strip_ws(text))
-    return nil unless pct
+    tok = numeric_token(text, :percentage)
+    return nil unless tok && finite_or_nil(tok.number.to_f)
 
-    (bounded_rational(ColorCss.strip_ws(text).chomp("%")) / 100).clamp(0, 1)
+    (bounded_rational(tok.number) / 100).clamp(0, 1)
   end
 
   # Returns [value 0..255, :num|:pct], or nil if text is not a valid number
@@ -893,14 +900,16 @@ module ColorValue
   # Like alpha, a channel is scaled exactly (Rational) and converted to Float
   # once, so 33.3% and 84.915 land on the same Float and share a palette key.
   def parse_channel(text)
-    t = ColorCss.strip_ws(text)
-    if (pct = parse_percentage(t))
-      # 1e308% overflows when scaled to 0..255; recheck after conversion.
-      return unless finite_or_nil(pct / 100.0 * 255.0)
+    tok = numeric_token(text, :number, :percentage)
+    return nil unless tok && finite_or_nil(tok.number.to_f)
 
-      [ (bounded_rational(t.chomp("%")) * 255 / 100).clamp(0, 255).to_f, :pct ]
-    elsif parse_number(t)
-      [ bounded_rational(t).clamp(0, 255).to_f, :num ]
+    if tok.type == :percentage
+      # 1e308% overflows when scaled to 0..255; recheck after conversion.
+      return unless finite_or_nil(tok.number.to_f / 100.0 * 255.0)
+
+      [ (bounded_rational(tok.number) * 255 / 100).clamp(0, 255).to_f, :pct ]
+    else
+      [ bounded_rational(tok.number).clamp(0, 255).to_f, :num ]
     end
   end
 
@@ -908,14 +917,12 @@ module ColorValue
   # spelling of the same value (.333, 0.333, 33.3%, 3.33e1%) lands on the
   # same Float and shares one palette key.
   def parse_alpha(text)
-    t = ColorCss.strip_ws(text)
-    exact =
-      if (m = t.match(/\A(#{NUMBER_RE})%\z/))
-        bounded_rational(m[1])&./(100)
-      elsif t.match?(/\A#{NUMBER_RE}\z/)
-        bounded_rational(t)
-      end
-    exact&.clamp(0, 1)&.to_f
+    tok = numeric_token(text, :number, :percentage)
+    return nil unless tok
+
+    exact = bounded_rational(tok.number)
+    exact /= 100 if tok.type == :percentage
+    exact.clamp(0, 1).to_f
   end
 
   # Rational("1e999999999") builds a giant integer before any clamp, so an
