@@ -730,6 +730,21 @@ class ColorTokensTest < Minitest::Test
     assert_error(":root { --a: #000; --\\61: #fff; }", "`--a` is declared twice")
   end
 
+  # A declaration holding a malformed var(), nested fallbacks included, is a
+  # token-file error naming the call, and is ignored as the browser ignores
+  # it; whitespace, comments and an empty fallback are well formed.
+  def test_malformed_var_is_a_token_error_and_the_declaration_is_dropped
+    [ "var(--b junk)", "var(--b --c)", "var(--x, var(--b junk))", "var()" ].each do |v|
+      assert_error(":root { --b: #000; --x: #fff; --a: #{v}; }", "`--a` has a malformed `var(")
+      assert_error(":root { --b: #000; --x: #fff; --a: #{v}; }", v.include?("--x") ? "var(--b junk)" : v)
+      result = read(":root { --b: #000; --x: #fff; --a: #fff; }\n.dark { --a: #{v}; }")
+      assert_equal "#fff", result.variants[:dark]["--a"], v
+    end
+    [ "var( --b )", "var(--b,)", "var(--b/**/)", "var(--b /* x */, red)" ].each do |v|
+      assert_equal "#000000", ColorValue.resolve("var(--a)", ok(":root { --b: #000; --a: #{v}; }").variants[:light]).color&.then { |c| ColorValue.to_hex(c) }, v
+    end
+  end
+
   # U+000B is not CSS whitespace: it neither separates the media query nor
   # pads a bracketed attribute selector.
   def test_vertical_tab_is_not_css_whitespace

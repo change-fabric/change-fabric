@@ -444,15 +444,33 @@ module_function
     name if name.length > 2 && name.start_with?("--")
   end
 
-  # The decoded custom-property name opening text (after optional leading
-  # whitespace), as the first argument of a var() would, or nil when the
-  # complete identifier token there is not one (custom_property_ref).
-  def leading_custom_property_name(text)
+  # The decoded custom-property name text is, as the whole first argument
+  # of a var() (css-variables-1): exactly one identifier token that is a
+  # custom-property name (custom_property_ref), with only whitespace and
+  # comments around it. Anything else (var(--b junk), var(--b --c),
+  # var(--b/**/--c), var()) is nil: a malformed var() that makes its whole
+  # declaration invalid at parse time.
+  def sole_custom_property_ref(text)
     text = text.to_s
-    start = text.index(/[^ \t\n\r\f]/)
-    return nil unless start && ident_char_at?(text, start)
+    name = nil
+    i = 0
+    while i < text.length
+      if WS_CHARS.include?(text[i])
+        i += 1
+      elsif text[i, 2] == "/*"
+        close = text.index("*/", i + 2)
+        i = close ? close + 2 : text.length
+      elsif name.nil? && ident_char_at?(text, i)
+        stop = skip_ident_run(text, i)
+        name = custom_property_ref(text[i...stop])
+        return nil unless name
 
-    custom_property_ref(text[start...skip_ident_run(text, start)])
+        i = stop
+      else
+        return nil
+      end
+    end
+    name
   end
 
   # A declaration value split from its priority suffix, as [value,

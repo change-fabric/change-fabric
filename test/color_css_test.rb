@@ -493,8 +493,18 @@ class ColorCssTest < Minitest::Test
     }.each do |run, name|
       name ? assert_equal(name, ColorCss.custom_property_ref(run), run) : assert_nil(ColorCss.custom_property_ref(run), run)
     end
-    assert_equal "--a", ColorCss.leading_custom_property_name("  \\2d \\2d a, x")
-    assert_nil ColorCss.leading_custom_property_name("\\2d a")
+  end
+
+  # The whole first argument of a var(): one custom-property identifier with
+  # only whitespace and comments around it, else nil (malformed).
+  def test_sole_custom_property_ref_takes_the_whole_argument
+    {
+      "--b" => "--b", " --b " => "--b", "--b/**/" => "--b", "/* x */ \\2d \\2d b\n" => "--b",
+      "--b junk" => nil, "--b --c" => nil, "--b/**/--c" => nil, "--b(" => nil, "--b 1" => nil,
+      "" => nil, " " => nil, "/**/" => nil, "\\2d b" => nil, "--b \"x\"" => nil
+    }.each do |arg, name|
+      name ? assert_equal(name, ColorCss.sole_custom_property_ref(arg), arg) : assert_nil(ColorCss.sole_custom_property_ref(arg), arg)
+    end
   end
 
   # Escaped identifiers get one canonical spelling; case, strings, numbers

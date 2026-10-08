@@ -313,8 +313,15 @@ module ColorTokens
       store(kind == :light ? @light : @dark, kind, decl)
     end
 
+    # A value holding a malformed var() (ColorValue.malformed_var) is
+    # invalid at parse time, so the browser ignores the declaration: it is
+    # an error and never enters the table.
     def store(table, kind, decl)
       @dark_seen = true if kind == :dark
+      if (bad = ColorValue.malformed_var(decl.value))
+        return error(decl.line, "`#{decl.name}` has a malformed `#{bad}`; CSS ignores the whole declaration")
+      end
+
       prior = table[decl.name]
       if prior && color_key(prior[:value]) != color_key(decl.value)
         return error(decl.line, "`#{decl.name}` is declared twice in #{kind} with different values " \

@@ -186,9 +186,44 @@ class ColorValueTest < Minitest::Test
   def test_var_with_malformed_name_stays_unresolved_despite_fallback
     [ "var(foo, #000)", "var(-x, #000)", "var(, #000)", "var(--, #000)", "var(--a b, #000)",
       "var(#000, #000)", "var(--a(), #000)" ].each do |v|
-      assert_includes unresolved(v, { "foo" => "#000" }), "unrecognized color value", v
+      assert_includes unresolved(v, { "foo" => "#000" }), "malformed var(", v
     end
     assert_rgba 0, 0, 0, resolved("var(--a_1-b, #000)")
+  end
+
+  # Per css-variables-1 a var() whose first argument is not exactly one
+  # custom-property name makes the whole declaration invalid at parse time,
+  # nested fallbacks included: it has no dependency edges, a declaration
+  # holding one is ignored, and a value holding one never resolves.
+  MALFORMED_VARS = [ "var(--b junk)", "var(--b --c)", "var(--b/**/--c)", "var()", "var(--b junk, red)",
+                     "var(--x, var(--b junk))", "var(--x, var(--b --c, red))",
+                     "color-mix(in srgb, var(--b junk) 50%, red)" ].freeze
+  WELL_FORMED_VARS = { "var( --b )" => [ "--b" ], "var(--b,)" => [ "--b" ], "var(--b/**/)" => [ "--b" ],
+                       "var(/* x */--b/**/, red)" => [ "--b" ], "var(--x, var(--b))" => [ "--x", "--b" ] }.freeze
+
+  def test_malformed_var_anywhere_has_no_dependencies_and_never_resolves
+    MALFORMED_VARS.each do |v|
+      assert_equal [], CV.var_dependencies(v), v
+      refute_nil CV.malformed_var(v), v
+      assert_includes unresolved(v, { "--b" => "#000", "--x" => "#000" }), "malformed var(", v
+    end
+    WELL_FORMED_VARS.each do |v, deps|
+      assert_equal deps, CV.var_dependencies(v), v
+      assert_nil CV.malformed_var(v), v
+    end
+    assert_rgba 0, 0, 0, resolved("var( --b )", { "--b" => "#000" })
+    assert_rgba 0, 0, 0, resolved("var(--b/**/)", { "--b" => "#000" })
+  end
+
+  # The browser ignores --a, so --b takes its red fallback; no --a/--b cycle
+  # is invented and black is never chosen.
+  def test_declaration_with_malformed_var_is_ignored_not_a_cycle_edge
+    MALFORMED_VARS.each do |v|
+      decls = { "--a" => v, "--b" => "var(--a, red)", "--page-text" => "var(--b, black)" }
+      result = CV.resolve(decls["--page-text"], decls, seen: Set["--page-text"])
+      assert_equal [ 255, 0, 0 ], [ result.color.r, result.color.g, result.color.b ], v
+      assert_includes unresolved("var(--a)", decls), "--a is ignored", v
+    end
   end
 
   # Text inside a CSS string is not a var() function, so it never forms a
@@ -238,7 +273,7 @@ class ColorValueTest < Minitest::Test
     outer, inner = CV.var_calls("var(--a, rgb(1, var(--b, 2)))")
     assert_equal [ 7, 28, nil ], [ outer.comma, outer.close, outer.parent ]
     assert_equal [ 23, 26, outer ], [ inner.comma, inner.close, inner.parent ]
-    assert_includes unresolved("var(--a\\) var(--b)", { "--a" => "#fff", "--b" => "#000" }), "unrecognized"
+    assert_includes unresolved("var(--a\\) var(--b)", { "--a" => "#fff", "--b" => "#000" }), "malformed var("
   end
 
   def test_var_calls_skip_parens_and_commas_inside_other_blocks

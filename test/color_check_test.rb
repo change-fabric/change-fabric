@@ -384,6 +384,21 @@ class ColorCheckTest < Minitest::Test
     end
   end
 
+  # --a is malformed, so the browser ignores it and --b takes red: a 4:1
+  # red on white pair, never an invented --a/--b cycle that picks black for
+  # 21:1. The malformed var() is a token error, so --strict fails.
+  def test_strict_fails_on_malformed_var_and_grades_the_real_fallback
+    with_dir do |dir|
+      write(dir, "tokens.css", ":root{--a:var(--b junk);--b:var(--a,red);--background:white;--page-text:var(--b,black)}")
+      report = ColorCheck.run(dir, strict: true)
+      assert_equal 1, report.exit_code
+      assert(report.token_errors.any? { |e| e.message.include?("var(--b junk)") })
+      row = report.contrast.find { |c| c.fg == "--page-text" }
+      assert_equal "large-only", row.status
+      assert_in_delta 4.0, row.ratio, 0.01
+    end
+  end
+
   def test_strict_exits_one_on_a_failing_contrast_pair
     with_dir do |dir|
       write(dir, "tokens.css", ":root{--background:#fff;--page-text:#eee}")

@@ -449,15 +449,38 @@ module ColorValue
   # var_chain and Resolver#substitution_fails? agree on what an empty
   # fallback is (see parse_var_ref).
   #
-  # Only one identifier that decodes to a custom-property name
-  # (ColorCss.custom_property_ref, the test declarations use too) is a
-  # reference; var(foo), var(), var(-x) and var(--a b) are malformed and
-  # stay unresolved, fallback or not.
+  # Only one identifier that decodes to a custom-property name, alone in
+  # the first argument but for whitespace and comments
+  # (ColorCss.sole_custom_property_ref), is a reference; var(foo), var(),
+  # var(-x), var(--a b) and var(--a --b) are malformed, fallback or not,
+  # and make the whole value invalid (see malformed_var).
   def var_arguments(text, call, close)
-    name = ColorCss.custom_property_ref(ColorCss.strip_ws(text[(call.open + 1)...(call.comma || close)]))
+    name = ColorCss.sole_custom_property_ref(text[(call.open + 1)...(call.comma || close)])
     return nil unless name
 
     [ name, call.comma && ColorCss.ws_range(text, call.comma + 1, close) ]
+  end
+
+  # The source text of the first malformed var() call in text (see
+  # var_arguments), nested fallbacks included, or nil when every var() is
+  # well formed. Per css-variables-1 such a value is invalid at parse time:
+  # the browser ignores the whole declaration, so it is never a dependency
+  # source and never substitutes anything.
+  def malformed_var(text)
+    text = text.to_s
+    call, = var_refs(text).find { |_, ref| ref.nil? }
+    call && text[call.start..(call.close || (text.length - 1))]
+  end
+
+  # [call, var_arguments] for every var() call in text (var_calls), in
+  # source order: the one structural read malformed_var and
+  # var_dependencies share.
+  def var_refs(text)
+    var_calls(text).map { |call| [ call, var_arguments(text, call, call.close || text.length) ] }
+  end
+
+  def malformed_result(call_text)
+    Result.new(color: nil, reason: "malformed #{call_text[0, 40]} makes the declaration invalid")
   end
 
   EMPTY_REASON = "empty value is not a color"
@@ -496,17 +519,17 @@ module ColorValue
     found
   end
 
-  # The custom-property names named first in each real var( function token
-  # in text (ColorCss.function_tokens), in order. Strings, longer idents such
-  # as évar( or my-var( are not var() calls; an escaped spelling such as
-  # \var( or v\61 r( is one, since CSS decodes escapes before matching.
-  # Each name is decoded the same way (ColorCss.custom_property_name), so
-  # var(--\61) depends on --a and is compared against seen and decls as such.
+  # The custom-property names each real var() call in text references
+  # (var_refs), in order, or none at all when any var() in text is
+  # malformed (malformed_var): the browser ignores that whole declaration,
+  # so it has no dependency edges. Strings, longer idents such as évar( or
+  # my-var( are not var() calls; an escaped spelling such as \var( or
+  # v\61 r( is one, since CSS decodes escapes before matching. Each name is
+  # decoded the same way (ColorCss.custom_property_name), so var(--\61)
+  # depends on --a and is compared against seen and decls as such.
   def var_dependencies(text)
-    text = text.to_s
-    ColorCss.function_tokens(text).filter_map do |t|
-      ColorCss.leading_custom_property_name(text[(t.open + 1)..]) if t.name == "var"
-    end
+    refs = var_refs(text.to_s).map(&:last)
+    refs.any?(&:nil?) ? [] : refs.map(&:first)
   end
 
   # One resolution context over a decls Hash: the var() dependency graph,
@@ -524,6 +547,7 @@ module ColorValue
   class Resolver
     def initialize(decls)
       @decls = decls
+      @refs = {}
       @deps = {}
       @results = {}
       @branches = {}
@@ -541,6 +565,10 @@ module ColorValue
     # value and is not cyclic, so it can never reach a seen name, and its
     # result does not depend on seen, which is what makes it memoizable.
     def resolve(value, seen)
+      if (bad = ColorValue.malformed_var(value))
+        return ColorValue.malformed_result(bad)
+      end
+
       roots = ColorValue.var_dependencies(value)
       hit = ColorValue.walk_dependencies(roots) { |dep| deps(dep) }.find { |dep| seen.include?(dep) }
       return ColorValue.cycle_result(hit) if hit
@@ -578,7 +606,7 @@ module ColorValue
     # it is the branch chosen, so only then is it decoded (resolve_text).
     def branch(value)
       tail = ColorValue.var_chain(value) do |name, has_fallback|
-        return [ :property, name ] if @decls.key?(name) && !fails?(name)
+        return [ :property, name ] if declared?(name) && !fails?(name)
         return [ :failed, name ] unless has_fallback
       end
       [ :text, tail ]
@@ -586,7 +614,8 @@ module ColorValue
 
     # The Result of var(name) with no fallback when name fails.
     def failed_reference(name)
-      return Result.new(color: nil, reason: "#{name} is not defined in this theme") unless @decls.key?(name)
+      return Result.new(color: nil, reason: "#{name} is ignored: its value holds a malformed var()") if @decls.key?(name) && !declared?(name)
+      return Result.new(color: nil, reason: "#{name} is not defined in this theme") unless declared?(name)
       return ColorValue.cycle_result(name) if cyclic?(name)
       if (kw = ColorValue.guaranteed_invalid_keyword(@decls[name]))
         return Result.new(color: nil, reason: "#{name} is #{kw}, the guaranteed-invalid value")
@@ -607,7 +636,7 @@ module ColorValue
         n, expanded = stack.pop
         next if @fails.key?(n)
 
-        if !@decls.key?(n) || cyclic?(n) || ColorValue.guaranteed_invalid_keyword(@decls[n])
+        if !declared?(n) || cyclic?(n) || ColorValue.guaranteed_invalid_keyword(@decls[n])
           @fails[n] = true
         elsif expanded
           @fails[n] = substitution_fails?(@decls[n].to_s)
@@ -620,14 +649,21 @@ module ColorValue
     end
 
     def cyclic?(name)
-      tarjan(name) if @decls.key?(name) && !@index.key?(name)
+      tarjan(name) if declared?(name) && !@index.key?(name)
       @cyclic.include?(name)
     end
 
     # The var() dependencies of a defined property, or none for an undefined
     # one.
     def deps(name)
-      @deps[name] ||= @decls.key?(name) ? ColorValue.var_dependencies(@decls[name]) : []
+      @deps[name] ||= declared?(name) ? refs(name).map { |_, ref| ref[0] } : []
+    end
+
+    # True when name has a declaration the browser keeps: one whose value
+    # holds a malformed var() (ColorValue.malformed_var) is ignored at parse
+    # time, as if it were never written, so it is undefined here too.
+    def declared?(name)
+      @decls.key?(name) && refs(name).none? { |_, ref| ref.nil? }
     end
 
     private
@@ -649,6 +685,11 @@ module ColorValue
       end
       chain.reverse_each { |n| @results[n] ||= resolve_branch(*decl_branch(n)) }
       @results[name]
+    end
+
+    # ColorValue.var_refs of a declared name's value, scanned once.
+    def refs(name)
+      @refs[name] ||= ColorValue.var_refs(@decls[name].to_s)
     end
 
     def decl_branch(name)
@@ -697,7 +738,7 @@ module ColorValue
       until work.empty?
         frame = work.last
         node = frame[0]
-        edges = (@edges[node] ||= deps(node).select { |d| @decls.key?(d) })
+        edges = (@edges[node] ||= deps(node).select { |d| declared?(d) })
         if frame[1] < edges.size
           nxt = edges[frame[1]]
           frame[1] += 1

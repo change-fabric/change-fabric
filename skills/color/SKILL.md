@@ -121,7 +121,10 @@ Accepted shape:
   colors and count toward the palette size. `var(--x)` and
   `color-mix(in srgb, ...)` are derived and resolved. A non-color value
   (`--radius: 0.5rem`) is ignored. A color-shaped value the resolver does not
-  support (`oklch(...)`) is unresolved for contrast, not an error.
+  support (`oklch(...)`) is unresolved for contrast, not an error. A
+  `var()` whose first argument is not exactly one `--name` (whitespace and
+  comments aside), such as `var(--b junk)`, even nested in a fallback, makes
+  CSS ignore the whole declaration: it is an error and is never resolved.
 - Dark may only redefine names light declares; a new name in dark is an
   error. Two dark blocks giving one name different values is an error.
   A normal dark value does not override an `!important` light one, so the
