@@ -617,11 +617,26 @@ module ColorValue
         return ColorValue.malformed_result(bad)
       end
 
-      roots = ColorValue.var_dependencies(value)
-      hit = ColorValue.walk_dependencies(roots) { |dep| deps(dep) }.find { |dep| seen.include?(dep) }
+      hit = cycle_hit(value, seen)
       return ColorValue.cycle_result(hit) if hit
 
       ColorValue.resolve_with(value, self)
+    end
+
+    # The seen property value's var() dependency graph reaches, or nil. The
+    # usual root check, a property's own value with seen holding just that
+    # property, asks whether the property reaches itself, which is whether
+    # it is cyclic; the memoized Tarjan pass answers that without walking
+    # the graph again for every property resolved over the same chain. Any
+    # other seen set walks the graph.
+    def cycle_hit(value, seen)
+      return nil if seen.empty?
+
+      name = seen.first
+      return (cyclic?(name) ? name : nil) if seen.size == 1 && @decls[name] == value
+
+      roots = ColorValue.var_dependencies(value)
+      ColorValue.walk_dependencies(roots) { |dep| deps(dep) }.find { |dep| seen.include?(dep) }
     end
 
     # value resolved: the branch CSS substitutes for its whole-value var()
