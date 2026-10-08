@@ -293,7 +293,8 @@ module ColorTokens
                                 "(line #{prior[:line]}: #{prior[:value]}; here: #{decl.value})")
       end
 
-      table[decl.name] ||= { value: decl.value, line: decl.line }
+      entry = (table[decl.name] ||= { value: decl.value, line: decl.line, important: false })
+      entry[:important] ||= decl.important
     end
 
     def check_dark_names
@@ -305,7 +306,16 @@ module ColorTokens
     end
 
     def dark_tokens
-      @light.merge(@dark.slice(*@light.keys)).transform_values { |v| v[:value] }
+      @light.merge(@dark.slice(*@light.keys)) { |_, light, dark| applied(light, dark) }.transform_values { |v| v[:value] }
+    end
+
+    # The entry the cascade applies on the root element when a dark
+    # declaration competes with a light one for the same name. Priority is
+    # compared first: a normal dark declaration never beats an !important
+    # light one, so the light value stays. Otherwise (both normal, both
+    # important, or only dark important) dark wins on the dark root.
+    def applied(light, dark)
+      light[:important] && !dark[:important] ? light : dark
     end
 
     def palette

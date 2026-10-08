@@ -419,6 +419,21 @@ class ColorCheckTest < Minitest::Test
     end
   end
 
+  # A normal dark override of an !important light declaration does not
+  # apply on the dark root, so the light value stays and the pair it leaves
+  # behind (white on white) fails --strict in dark.
+  def test_strict_fails_dark_pair_left_by_important_light_value
+    with_dir do |dir|
+      write(dir, "tokens.css",
+            ":root { --background:#fff !important; --page-text:#000 } .dark { --background:#000; --page-text:#fff }")
+      report = ColorCheck.run(dir, strict: true)
+      pair = report.contrast.find { |c| c.fg == "--page-text" && c.variant == "dark" }
+      assert_in_delta 1.0, pair.ratio, 0.01
+      assert_equal "fail", pair.status
+      assert_equal 1, report.exit_code
+    end
+  end
+
   def contrast_for(css, fg = "--page-text", variant: "light")
     with_dir do |dir|
       write(dir, "tokens.css", css)

@@ -622,6 +622,32 @@ class ColorTokensTest < Minitest::Test
     assert_equal({ "--a" => "#fff", "--b" => "#111" }, result.variants[:dark])
   end
 
+  # A dark declaration replaces light only where the cascade lets it: a
+  # normal dark value never beats an !important light one, an !important
+  # dark value always does, and with both important dark still wins. Every
+  # dark spelling (class, attribute, prefers-color-scheme media) and an
+  # !important on any equal-valued redeclaration counts.
+  def test_dark_override_respects_important_priority
+    darks = [ ".dark{BODY}", ":root.dark{BODY}", "[data-theme=dark]{BODY}",
+              "@media (prefers-color-scheme: dark){:root{BODY}}" ]
+    cases = {
+      [ "#fff !important", "#000" ] => "#fff",
+      [ "#fff !IMPORTANT", "#000" ] => "#fff",
+      [ "#fff ! important", "#000" ] => "#fff",
+      [ "#fff", "#000 !important" ] => "#000",
+      [ "#fff !important", "#000 !important" ] => "#000",
+      [ "#fff", "#000" ] => "#000"
+    }
+    darks.each do |dark|
+      cases.each do |(light_value, dark_value), expected|
+        css = ":root{--a:#{light_value}}\n#{dark.sub('BODY', "--a:#{dark_value}")}"
+        assert_equal expected, ok(css).variants[:dark]["--a"], css
+      end
+    end
+    css = ":root{--a:#fff;--a:white !important}\n.dark{--a:#000}"
+    assert_equal "#fff", ok(css).variants[:dark]["--a"], css
+  end
+
   # --- pairs --------------------------------------------------------------------
 
   def test_pairs_follow_the_fixed_rule

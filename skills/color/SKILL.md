@@ -87,7 +87,8 @@ pair that fails contrast does.
 The palette is declared in one token file of a fixed shape. The checker reads
 only that file, strictly; anything else in it is an error, printed with the
 line number and the construct named. Token-file errors always print and fail
-`--strict`. There is no cascade, layer or selector modelling.
+`--strict`. The only cascade modelled is `!important` priority between
+light and dark; there is no layer or selector-specificity modelling.
 
 The file is found by this path list, relative to the scan root, in order:
 `app/globals.css`, `src/app/globals.css`, `app/styles/tokens.css`,
@@ -122,6 +123,8 @@ Accepted shape:
   support (`oklch(...)`) is unresolved for contrast, not an error.
 - Dark may only redefine names light declares; a new name in dark is an
   error. Two dark blocks giving one name different values is an error.
+  A normal dark value does not override an `!important` light one, so the
+  light value stays in dark; an `!important` dark value always overrides.
 
 ### Supported values
 
