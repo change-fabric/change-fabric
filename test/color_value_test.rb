@@ -392,4 +392,24 @@ class ColorValueTest < Minitest::Test
       refute_nil ColorValue.resolve(value, {}).color, value
     end
   end
+
+  def test_extreme_alpha_exponents_resolve_quickly
+    cases = {
+      "rgb(0 0 0 / 1e999999999)" => 1.0,
+      "rgb(0 0 0 / 1e999999999%)" => 1.0,
+      "rgb(0 0 0 / -1e999999999)" => 0.0,
+      "rgb(0 0 0 / -1e999999999%)" => 0.0,
+      "rgb(0 0 0 / 1e-999999999)" => 0.0,
+      "rgb(0 0 0 / 1e-999999999%)" => 0.0,
+      "rgb(0 0 0 / 5e300)" => 1.0,
+      "rgb(0 0 0 / 5e-300%)" => 0.0,
+      "rgb(0 0 0 / 3.33e1%)" => 0.333
+    }
+    started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+    cases.each do |value, alpha|
+      color = CV.resolve(value, {}).color
+      assert_in_delta alpha, color.a, 1e-12, value
+    end
+    assert_operator Process.clock_gettime(Process::CLOCK_MONOTONIC) - started, :<, 1.0
+  end
 end

@@ -542,11 +542,25 @@ module ColorValue
     t = text.to_s.strip
     exact =
       if (m = t.match(/\A(#{NUMBER_RE})%\z/))
-        Rational(m[1]) / 100
+        bounded_rational(m[1])&./(100)
       elsif t.match?(/\A#{NUMBER_RE}\z/)
-        Rational(t)
+        bounded_rational(t)
       end
     exact&.clamp(0, 1)&.to_f
+  end
+
+  # Rational("1e999999999") builds a giant integer before any clamp, so an
+  # exponent past this bound is parsed via Float instead. Such a value
+  # clamps to 0 or 1, so exactness is not needed there; an infinite Float
+  # keeps its sign so it still clamps the way the exact value would.
+  MAX_EXACT_EXPONENT = 32
+
+  def bounded_rational(number)
+    exp = number[/[eE]([+-]?\d+)\z/, 1].to_i
+    return Rational(number) if exp.abs <= MAX_EXACT_EXPONENT
+
+    float = number.to_f
+    float.finite? ? float.to_r : Rational(float.positive? ? 10**MAX_EXACT_EXPONENT : -(10**MAX_EXACT_EXPONENT))
   end
 
   def hsl_to_rgb(h, s, l)
