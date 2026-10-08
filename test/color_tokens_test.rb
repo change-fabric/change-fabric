@@ -256,6 +256,23 @@ class ColorTokensTest < Minitest::Test
     ok(":root{--a:#000}\n@media/**/(prefers-color-scheme:/**/dark){:root{--a:#fff}}")
   end
 
+  # A comment between two whole tokens reads as whitespace, so the token
+  # sequence CSS sees is classified; only a comment splitting one token fails.
+  def test_comment_separating_whole_tokens_reads_as_whitespace
+    [ "@layer/**/base{:root{--a:#000}}", "@layer/* x */theme.base{:root{--a:#000}}",
+      "@layer/**/base/**/{:root{--a:#000}}", "@layer/**/base{:root{--a:#000}}\n.dark{--a:#fff}",
+      "@layer/**/base{:root{--a:#000}\n@media/**/(prefers-color-scheme:/**/dark){:root{--a:#fff}}}" ].each do |css|
+      assert_equal "#000", ok(css).variants[:light]["--a"], css
+    end
+  end
+
+  def test_comment_splitting_one_token_fails_closed
+    [ "@la/**/yer{:root{--a:#000}}", "@la/**/yer base{:root{--a:#000}}", "@layer ba/**/se{:root{--a:#000}}",
+      "@/**/layer{:root{--a:#000}}", "@th/**/eme{--a:#000}", "@layer/**/base/**/x{:root{--a:#000}}" ].each do |css|
+      assert_error(css, "joins two tokens across a comment")
+    end
+  end
+
   def test_byte_order_mark_is_ignored
     result = ok("﻿:root{--background:#fff;--a:#000}\n.dark{--a:#fff}")
     assert_equal "#000", result.variants[:light]["--a"]

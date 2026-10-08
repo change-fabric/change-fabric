@@ -155,6 +155,8 @@ class ColorCssTest < Minitest::Test
       refute block.glued, prelude
     end
     assert_equal ":root.dark", ColorCss.parse(":root/**/.dark { }").blocks.first.prelude
+    assert_equal "@layer base", ColorCss.parse("@layer/**/base { }").blocks.first.prelude
+    assert_equal "@la yer", ColorCss.parse("@la/**/yer { }").blocks.first.prelude
   end
 
   def test_glued_flag_resets_for_each_prelude

@@ -135,14 +135,27 @@ module ColorTokens
       return :skip if %i[error skip].include?(parent)
 
       prelude = block.prelude.gsub(/\s+/, ' ')
-      if block.glued
-        return error(block.line, "`#{prelude}` joins two tokens across a comment; CSS reads them apart")
-      end
       if %i[light dark].include?(parent)
         return error(block.line, "nested block `#{prelude}` inside a token block; only --name: value is allowed")
       end
 
-      prelude.start_with?('@') ? classify_at_rule(block, prelude, parent) : classify_rule(block, prelude, parent)
+      unglued(block, prelude) do
+        prelude.start_with?('@') ? classify_at_rule(block, prelude, parent) : classify_rule(block, prelude, parent)
+      end
+    end
+
+    # A comment between two tokens is a boundary that reads as whitespace,
+    # and the prelude already carries that space (@layer/**/base is
+    # "@layer base"). When that reading is not a token block either, the
+    # comment split one token (@la/**/yer, :ro/**/ot), so the error says so
+    # instead of naming the split halves.
+    def unglued(block, prelude)
+      mark = @errors.size
+      kind = yield
+      return kind unless block.glued && kind == :error
+
+      @errors.slice!(mark..)
+      error(block.line, "`#{prelude}` joins two tokens across a comment; CSS reads them apart")
     end
 
     # Matches on the prelude's canonical identifiers (@m\65 dia is @media,

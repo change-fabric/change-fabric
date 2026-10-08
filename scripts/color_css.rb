@@ -19,13 +19,13 @@ module ColorCss
   Decl = Data.define(:name, :value, :important, :line, :block_id)
   AtRule = Data.define(:name, :prelude, :line, :block_id) # block-less: @import, @tailwind
   # One "{" opening, rule or at-rule. prelude: the source text before the
-  # brace with comments removed outright (not replaced by spaces), so
-  # ":root/**/.dark" stays one compound selector while ":root .dark" keeps
-  # its whitespace combinator. parent: the enclosing block's id or nil.
-  # glued: a removed comment sat where CSS sees a token boundary but the
-  # comment-free prelude would read one token (@me/**/dia as @media,
-  # :ro/**/ot as :root), so the prelude is not what CSS parses and callers
-  # must reject it rather than classify it.
+  # brace with comments removed, so ":root/**/.dark" stays one compound
+  # selector while ":root .dark" keeps its whitespace combinator; a comment
+  # whose removal would merge two tokens (comment_glues?) leaves one space
+  # instead, so "@layer/**/base" reads "@layer base" and "@la/**/yer" reads
+  # "@la yer", the token sequence CSS sees. parent: the enclosing block's id
+  # or nil. glued: at least one comment left such a space, so callers that
+  # cannot read the spaced prelude can say a comment split a token.
   BlockOpen = Data.define(:id, :parent, :prelude, :line, :glued)
   Sheet = Data.define(:decls, :at_rule_stmts, :errors, :blocks) # errors: [String] diagnostics, never raised
 
@@ -664,8 +664,8 @@ module ColorCss
     # A comment: blanked in the segment, absent from the raw text. The only
     # place comments are stripped. Blanking to spaces keeps the token
     # boundary (so col/**/or: never reads as a color: declaration); removal
-    # does not, so the next append checks whether the raw text just glued
-    # two tokens together.
+    # does not, so the next append puts one space in the raw text where it
+    # would otherwise glue two tokens together.
     def consume_blanked(text)
       @segment << text.gsub(/[^\n]/, ' ')
       @line += text.count("\n")
@@ -674,7 +674,10 @@ module ColorCss
 
     def append(text)
       if @comment_pending && !text.empty?
-        @glued ||= ColorCss.comment_glues?(@raw, text)
+        if ColorCss.comment_glues?(@raw, text)
+          @raw << " "
+          @glued = true
+        end
         @comment_pending = false
       end
       @segment << text
