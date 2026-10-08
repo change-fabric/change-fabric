@@ -465,4 +465,24 @@ class ColorCheckTest < Minitest::Test
       assert_equal status, row.status, fg
     end
   end
+
+  EXAMPLE_PALETTE = File.expand_path("../skills/color/reference/example-palette.md", __dir__)
+
+  # The reference example must pass the checker it demonstrates: every pair
+  # its prose names is discovered, in both themes, with no token errors.
+  def test_reference_example_palette_passes_the_checker
+    css = File.read(EXAMPLE_PALETTE)[/```css\n(.*?)```/m, 1]
+    refute_nil css, "example-palette.md has no css block"
+    with_dir do |dir|
+      write(dir, "tokens.css", css)
+      report = ColorCheck.run(dir, strict: true)
+      assert_empty report.token_errors
+      assert_equal 0, report.exit_code
+      rows = report.contrast.map { |c| [ c.variant, c.fg, c.bg ] }
+      %w[light dark].product(%w[--page-text --accent-ink --title-text]).each do |variant, fg|
+        assert_includes rows, [ variant, fg, "--background" ]
+      end
+      assert(report.contrast.all?(&:resolved?))
+    end
+  end
 end

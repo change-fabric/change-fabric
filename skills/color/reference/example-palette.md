@@ -29,44 +29,48 @@ rather than a fifth literal:
   --lilac: #a070c8;
   --pink: #f2c4c4;
 
-  --bg: var(--cream);
-  --text: var(--plum);
-  --accent: var(--lilac);
+  --background: var(--cream);
+  --page-text: var(--plum);
+  --accent-ink: var(--lilac);
+  --title-text: var(--plum);
 
-  --muted: color-mix(in srgb, var(--text) 60%, var(--bg));
-  --border: color-mix(in srgb, var(--text) 18%, transparent);
-  --divider: color-mix(in srgb, var(--text) 10%, transparent);
-  --panel: color-mix(in srgb, var(--text) 4%, var(--bg));
-  --hover: color-mix(in srgb, var(--accent) 12%, transparent);
-  --disabled: color-mix(in srgb, var(--text) 35%, var(--bg));
+  --muted: color-mix(in srgb, var(--page-text) 60%, var(--background));
+  --border: color-mix(in srgb, var(--page-text) 18%, transparent);
+  --divider: color-mix(in srgb, var(--page-text) 10%, transparent);
+  --panel: color-mix(in srgb, var(--page-text) 4%, var(--background));
+  --hover: color-mix(in srgb, var(--accent-ink) 12%, transparent);
+  --disabled: color-mix(in srgb, var(--page-text) 35%, var(--background));
   --scrim: color-mix(in srgb, var(--plum) 60%, transparent);
 }
 
 :root[data-theme="dark"] {
-  --bg: var(--plum);
-  --text: var(--cream);
-  --accent: var(--lilac);
-  --title: var(--pink);
+  --background: var(--plum);
+  --page-text: var(--cream);
+  --accent-ink: var(--lilac);
+  --title-text: var(--pink);
 
-  --muted: color-mix(in srgb, var(--text) 55%, var(--bg));
-  --border: color-mix(in srgb, var(--text) 18%, transparent);
-  --divider: color-mix(in srgb, var(--text) 10%, transparent);
-  --panel: color-mix(in srgb, var(--text) 6%, var(--bg));
-  --hover: color-mix(in srgb, var(--accent) 16%, transparent);
-  --disabled: color-mix(in srgb, var(--text) 30%, var(--bg));
+  --muted: color-mix(in srgb, var(--page-text) 55%, var(--background));
+  --border: color-mix(in srgb, var(--page-text) 18%, transparent);
+  --divider: color-mix(in srgb, var(--page-text) 10%, transparent);
+  --panel: color-mix(in srgb, var(--page-text) 6%, var(--background));
+  --hover: color-mix(in srgb, var(--accent-ink) 16%, transparent);
+  --disabled: color-mix(in srgb, var(--page-text) 30%, var(--background));
   --scrim: color-mix(in srgb, var(--cream) 50%, transparent);
 }
 ```
 
 ## Contrast pairs
 
-Light theme: `--text` (`#24122a`) on `--bg` (`#f6efe0`) resolves well above
-4.5:1 for body text. `--accent` (`#a070c8`) on `--bg` is checked against 3:1
-for focus rings and large text.
+Each foreground is named `--<x>-text` or `--<x>-ink` with no `--<x>` token
+declared, so the checker pairs it with `--background` in both themes.
 
-Dark theme: `--text` (`#f6efe0`) on `--bg` (`#24122a`) resolves well above
-4.5:1. `--title` (`#f2c4c4`) on `--bg` is checked against 3:1 for large
-titles, since it is not used for body text.
+Light theme: `--page-text` (`#24122a`) on `--background` (`#f6efe0`) resolves
+well above 4.5:1 for body text. `--accent-ink` (`#a070c8`) on `--background`
+is checked against 3:1 for focus rings and large text.
+
+Dark theme: `--page-text` (`#f6efe0`) on `--background` (`#24122a`) resolves
+well above 4.5:1. `--title-text` (`#f2c4c4`) on `--background` is checked
+against 3:1 for large titles, since it is not used for body text.
 
 Run `ruby ~/.claude/cf/bin/color_check.rb <path> --json` to compute actual
 ratios for a real token file; the numbers above are illustrative only.
