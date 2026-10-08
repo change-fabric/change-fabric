@@ -135,7 +135,7 @@ module ColorCheck
     JSON.generate(
       tokens: report.tokens,
       token_errors: report.token_errors.map { |e| { line: e.line, message: e.message } },
-      palette: report.palette&.authored,
+      palette: report.palette&.then { |p| { authored: p.authored, derived: p.derived, error_token: p.error_token } },
       contrast: report.contrast.map do |c|
         { variant: c.variant, fg: c.fg, bg: c.bg, ratio: c.ratio, status: c.status, reason: c.reason }
       end,

@@ -640,10 +640,22 @@ class ColorCheckTest < Minitest::Test
       parsed = JSON.parse(ColorCheck.to_json_report(report))
       assert_equal %w[tokens token_errors palette contrast exit_code], parsed.keys
       assert_equal File.join(dir, "tokens.css"), parsed["tokens"]
-      assert_equal 4, parsed["palette"].size
+      assert_equal %w[authored derived error_token], parsed["palette"].keys
+      assert_equal 4, parsed["palette"]["authored"].size
       assert_equal %w[variant fg bg ratio status reason], parsed["contrast"].first.keys
       assert_equal %w[light dark], parsed["contrast"].map { |c| c["variant"] }
     end
+  end
+
+  # JSON carries the whole palette, as the text report does: derived
+  # declarations and --error, even with no authored color.
+  def test_json_palette_carries_derived_and_error_token
+    with_dir do |dir|
+      write(dir, "tokens.css", ":root { --error: red; --tint: color-mix(in srgb, var(--error) 50%, white); }\n")
+      palette = JSON.parse(ColorCheck.to_json_report(ColorCheck.run(dir)))["palette"]
+      assert_equal({ "authored" => [], "derived" => 1, "error_token" => true }, palette)
+    end
+    with_dir { |dir| assert_nil JSON.parse(ColorCheck.to_json_report(ColorCheck.run(dir)))["palette"] }
   end
 
   def test_empty_directory_reports_no_palette_found
