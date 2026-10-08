@@ -174,7 +174,9 @@ module ColorValue
     'yellowgreen' => [ 154, 205, 50 ]
   }.freeze
 
-  CUSTOM_PROPERTY_NAME = /\A--[\w-]+\z/.freeze
+  # A decoded custom-property name (ColorCss.custom_property_name): "--"
+  # then ident code points, ASCII or not.
+  CUSTOM_PROPERTY_NAME = /\A--[\w\u0080-\u{10FFFF}-]+\z/.freeze
   COLOR_FN_NAMES = %w[rgb rgba hsl hsla hwb oklch oklab lab lch color].freeze
   UNRESOLVED_FN_NAMES = %w[oklch oklab lab lch hwb color color-mix].freeze
   CASCADE_KEYWORDS = %w[inherit initial unset revert revert-layer].freeze
@@ -307,7 +309,7 @@ module ColorValue
     return nil unless matching_paren(text, 3) == text.length - 1
 
     parts = ColorCss.split_top_level(m[1])
-    name = parts[0]&.strip
+    name = parts[0] && ColorCss.custom_property_name(parts[0].strip)
     fallback = parts.size > 1 ? parts[1..].join(',').strip : nil
     fallback = nil if fallback && fallback.empty?
 
@@ -367,10 +369,12 @@ module ColorValue
   # in text (ColorCss.function_tokens), in order. Strings, longer idents such
   # as évar( or my-var( are not var() calls; an escaped spelling such as
   # \var( or v\61 r( is one, since CSS decodes escapes before matching.
+  # Each name is decoded the same way (ColorCss.custom_property_name), so
+  # var(--\61) depends on --a and is compared against seen and decls as such.
   def var_dependencies(text)
     text = text.to_s
     ColorCss.function_tokens(text).filter_map do |t|
-      text[(t.open + 1)..][/\A\s*(--[^\s,()]+)/, 1] if t.name == "var"
+      ColorCss.leading_custom_property_name(text[(t.open + 1)..]) if t.name == "var"
     end
   end
 

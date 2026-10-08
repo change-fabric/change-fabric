@@ -29,13 +29,17 @@ module ColorCss
   BlockOpen = Data.define(:id, :parent, :prelude, :line, :glued)
   Sheet = Data.define(:decls, :at_rule_stmts, :errors, :blocks) # errors: [String] diagnostics, never raised
 
-  DECL_NAME = /\A(\s*)(--[\w-]+|\$[\w-]+|@[\w-]+|-?[A-Za-z][\w-]*)(\s*):(.*)\z/m.freeze
-  AT_RULE_STMT = /\A(\s*)(@[\w-]+)(\s*)(.*)\z/m.freeze
-  IMPORTANT = /\A(.*?)\s*!\s*important\s*\z/mi.freeze
   # One escape per CSS Syntax 3 4.3.7: a backslash then 1-6 hex digits and
   # one optional whitespace, or any code point but a newline, or end of
   # input. A backslash before a newline matches nothing: it is no escape.
   ESCAPE = /\\(?:\h{1,6}(?:\r\n|[ \t\n\r\f])?|[^\n\r\f]|\z)/.freeze
+  # A custom-property name as written: "--" then ident code points (ASCII
+  # word characters, "-", anything >= U+0080) or escapes, so --\61 and
+  # --caf\e9 are declarations. Its value is decoded by custom_property_name.
+  CUSTOM_NAME_SRC = /--(?:[\w\u0080-\u{10FFFF}-]|#{ESCAPE})+/.freeze
+  DECL_NAME = /\A(\s*)(#{CUSTOM_NAME_SRC}|\$[\w-]+|@[\w-]+|-?[A-Za-z][\w-]*)(\s*):(.*)\z/m.freeze
+  AT_RULE_STMT = /\A(\s*)(@[\w-]+)(\s*)(.*)\z/m.freeze
+  IMPORTANT = /\A(.*?)\s*!\s*important\s*\z/mi.freeze
   ESCAPE_AT = /\G#{ESCAPE}/.freeze
   # A code point that continues an ident, number or at-keyword token; a
   # backslash starts an escape, which does too.
@@ -223,6 +227,25 @@ module ColorCss
 
     decoded = decode_ident(run)
     decoded if decoded.match?(/\A[-_a-zA-Z0-9\u0080-\u{10FFFF}]+\z/) && ident_start?(decoded)
+  end
+
+  # A custom-property name's value, the one thing every name comparison
+  # uses: escapes decoded per CSS Syntax 3, so --\61 and --a name one
+  # property whether declared or referenced. Case is kept: names are
+  # case-sensitive.
+  def custom_property_name(raw)
+    decode_ident(raw.to_s)
+  end
+
+  # The decoded custom-property name opening text (after optional leading
+  # whitespace), as the first argument of a var() would, or nil when text
+  # does not start with one.
+  def leading_custom_property_name(text)
+    text = text.to_s
+    start = text.index(/\S/)
+    return nil unless start && text[start, 2] == "--"
+
+    custom_property_name(text[start...skip_ident_run(text, start)])
   end
 
   # An identifier run's value: each escape replaced by its code point.
@@ -507,6 +530,7 @@ module ColorCss
       return false if name.start_with?('@')
 
       name_line = @segment_start_line + leading_ws.count("\n")
+      name = ColorCss.custom_property_name(name) if name.start_with?("--")
 
       raw_value = rest.strip
       important = false

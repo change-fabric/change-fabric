@@ -436,4 +436,13 @@ class ColorTokensTest < Minitest::Test
     assert_equal [ %w[--card-foreground --card], %w[--muted-ink --background], %w[--btn-fg --background] ],
                  ColorTokens.pairs(tokens)
   end
+
+  # Escaped declared names are the decoded property: --\61-text pairs with
+  # --a, and redeclaring --a as --\61 with another value is caught.
+  def test_escaped_declared_names_resolve_and_pair_decoded
+    result = ok(":root { --background: #fff; --\\61: #000; --\\61-text: var(--\\61); }")
+    assert_equal "#000", result.variants[:light]["--a"]
+    assert_equal [ %w[--a-text --a] ], ColorTokens.pairs(result.variants[:light])
+    assert_error(":root { --a: #000; --\\61: #fff; }", "`--a` is declared twice")
+  end
 end

@@ -584,4 +584,25 @@ class ColorValueTest < Minitest::Test
     # An escape inside a quoted string is string content, not a name.
     assert_rgba 255, 255, 255, resolved("var(--w, \"\\(\")", { "--w" => "#fff" })
   end
+
+  # Every custom-property name is compared by its decoded value, wherever it
+  # is read: the whole-value reference, a nested fallback dependency, or a
+  # deeper fallback chain. --\61, --\000061 and --\61 (with its one eaten
+  # space) all name --a, so each of these closes a cycle through --a.
+  def test_escaped_custom_property_names_compare_decoded
+    [ "--\\61", "--\\000061", "--\\61 ", "--\\61\t" ].each do |ref|
+      [
+        { "--a" => "var(--b, var(--c))", "--b" => "#000", "--c" => "var(#{ref})" },
+        { "--a" => "var(--b, var(#{ref}))", "--b" => "#000" },
+        { "--a" => "var(--b, var(--c))", "--b" => "#000", "--c" => "var(--d, var(#{ref}))", "--d" => "#fff" },
+        { "--a" => "var(#{ref})" }
+      ].each do |decls|
+        reason = CV.resolve(decls["--a"], decls, seen: Set["--a"]).reason
+        assert_equal "var() cycle through --a", reason, decls.inspect
+      end
+    end
+    assert_equal [ "--a", "--b-c", "--\u00e9" ], CV.var_dependencies("var(--\\61) var( --b\\2d c ) var(--\\e9)")
+    assert_equal [ "--a", nil ], CV.send(:parse_var_ref, "var(--\\61)")
+    assert_rgba 0, 0, 0, resolved("var(--\\61)", { "--a" => "#000" })
+  end
 end

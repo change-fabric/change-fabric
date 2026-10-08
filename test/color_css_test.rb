@@ -299,11 +299,11 @@ class ColorCssTest < Minitest::Test
     assert_empty sheet.errors
     assert_equal [ "f(\\))", "#000" ], sheet.decls.map(&:value)
 
-    # An escaped ; inside a name keeps the segment whole: one unparsed
-    # segment, never a stray "bar: red" declaration.
+    # An escaped ; inside a name keeps the segment whole: one declaration of
+    # the property CSS names --foo;bar, never a stray "bar: red" declaration.
     sheet = ColorCss.parse(":root { --foo\\;bar: red; }")
-    assert_empty sheet.decls
-    assert_equal 1, sheet.errors.size
+    assert_equal [ "--foo;bar" ], sheet.decls.map(&:name)
+    assert_empty sheet.errors
   end
 
   def test_split_top_level_skips_escapes
@@ -313,5 +313,23 @@ class ColorCssTest < Minitest::Test
     assert_equal [ "\\(a", " b" ], ColorCss.split_top_level("\\(a, b")
     assert_equal [ "\\\"a", " b" ], ColorCss.split_top_level("\\\"a, b")
     assert_equal [ "\"a\\\", b\"", " c" ], ColorCss.split_top_level("\"a\\\", b\", c")
+  end
+
+  # A declared custom-property name is stored decoded, so --\61 declares --a
+  # and every lookup by name sees the property CSS sees.
+  def test_escaped_declared_custom_property_names_are_decoded
+    {
+      "--\\61: red;" => "--a",
+      "--\\000061 : red;" => "--a",
+      "--b\\2d c: red;" => "--b-c",
+      "--caf\\e9: red;" => "--caf\u00e9",
+      "--caf\u00e9: red;" => "--caf\u00e9",
+      "--a\\:b: red;" => "--a:b"
+    }.each do |css, name|
+      sheet = ColorCss.parse(":root { #{css} }")
+      assert_empty sheet.errors, css
+      assert_equal [ name ], sheet.decls.map(&:name), css
+      assert_equal "red", sheet.decls.first.value, css
+    end
   end
 end
