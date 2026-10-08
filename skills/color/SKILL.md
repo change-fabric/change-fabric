@@ -121,7 +121,9 @@ Accepted shape:
   `.dark .card`) is an error.
 - Inside `@media (prefers-color-scheme: dark)` only `:root` is accepted, and
   it means dark. Inside `@media (prefers-color-scheme: light)` only `:root`,
-  merged with light; a conflicting value is an error.
+  merged with light; a conflicting value is an error, and so is a name only
+  light media declares unless dark media also exists (otherwise light shows
+  under a dark preference too, with that query inactive).
 - Declarations: only `--name: value`. A normal property or `@apply` is an
   error.
 - Values: hex, `rgb`/`rgba`, `hsl`/`hsla` and named colors are authored

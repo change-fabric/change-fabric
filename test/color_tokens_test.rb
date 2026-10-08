@@ -289,9 +289,23 @@ class ColorTokensTest < Minitest::Test
   end
 
   def test_media_light_root_merges_with_light
-    result = ok(":root{--a:#000}\n@media (prefers-color-scheme: light){:root{--b:#111;--a:#000}}")
+    result = ok(":root{--a:#000;--b:#111}\n@media (prefers-color-scheme: light){:root{--b:#111;--a:#000}}")
     assert_equal({ "--a" => "#000", "--b" => "#111" }, result.variants[:light])
     refute result.dark?
+  end
+
+  # Unless dark media takes over under a dark system preference, light shows
+  # there too with light media inactive, so a name only light media declares
+  # is an error. With dark media, light media only ever applies in light.
+  def test_name_only_in_light_media_needs_dark_media
+    only = "@media (prefers-color-scheme: light){:root{--light-bg:white}}"
+    base = ":root{--background:var(--light-bg,black);--page-text:black}"
+    message = "`--light-bg` is declared only inside prefers-color-scheme: light"
+    assert_error("#{base}\n#{only}", message)
+    assert_error("#{base}\n.dark{--page-text:white}\n#{only}", message)
+    result = ok("#{base}\n@media (prefers-color-scheme: dark){:root{--page-text:white}}\n#{only}")
+    assert_equal "white", result.variants[:light]["--light-bg"]
+    refute result.variants[:dark].key?("--light-bg")
   end
 
   # Light media is inactive whenever dark media applies, so it never

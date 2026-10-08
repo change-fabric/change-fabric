@@ -127,6 +127,7 @@ module ColorTokens
       sheet.at_rule_stmts.each { |s| check_statement(s) }
       sheet.decls.each_with_index { |d, order| record(d, order) }
       check_dark_names
+      check_light_media_names
       dark = dark_tokens
       authored, derived, error_token = palette
       check_palette_size(authored)
@@ -421,6 +422,20 @@ module ColorTokens
         next if @light.key?(name)
 
         error(entry[:line], "`#{name}` is declared in dark but not in light; dark may only redefine light names")
+      end
+    end
+
+    # Light is graded with light media active. Unless dark media takes over
+    # whenever the system prefers dark, light also shows under a dark
+    # preference, where light media is inactive, so a name declared only
+    # there would be missing from light. (Light media cannot otherwise
+    # change light: a redeclaration with another value is already an error.)
+    def check_light_media_names
+      return if @dark_by.key?(:media)
+
+      (@light.keys - @light_plain.keys).each do |name|
+        error(@light[name][:line], "`#{name}` is declared only inside prefers-color-scheme: light, so light " \
+                                   "under a dark system preference lacks it; declare it on :root as well")
       end
     end
 
