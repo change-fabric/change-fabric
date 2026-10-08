@@ -142,6 +142,14 @@ class ColorValueTest < Minitest::Test
     assert_includes unresolved("var(--missing, var(--missing))"), "--missing is not defined in this theme"
   end
 
+  def test_var_with_malformed_name_stays_unresolved_despite_fallback
+    [ "var(foo, #000)", "var(-x, #000)", "var(, #000)", "var(--, #000)", "var(--a b, #000)",
+      "var(#000, #000)", "var(--a(), #000)" ].each do |v|
+      assert_includes unresolved(v, { "foo" => "#000" }), "unrecognized color value", v
+    end
+    assert_rgba 0, 0, 0, resolved("var(--a_1-b, #000)")
+  end
+
   def test_var_cycle_with_no_fallback_is_unresolved
     decls = { "--a" => "var(--b)", "--b" => "var(--a)" }
     reason = unresolved("var(--a)", decls)

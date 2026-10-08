@@ -174,6 +174,7 @@ module ColorValue
     'yellowgreen' => [ 154, 205, 50 ]
   }.freeze
 
+  CUSTOM_PROPERTY_NAME = /\A--[\w-]+\z/.freeze
   COLOR_FN_NAMES = %w[rgb rgba hsl hsla hwb oklch oklab lab lch color].freeze
   UNRESOLVED_FN_NAMES = %w[oklch oklab lab lch hwb color color-mix].freeze
   CASCADE_KEYWORDS = %w[inherit initial unset revert revert-layer].freeze
@@ -301,7 +302,10 @@ module ColorValue
     fallback = parts.size > 1 ? parts[1..].join(',').strip : nil
     fallback = nil if fallback && fallback.empty?
 
-    return nil if name.nil? || name.empty?
+    # Only a custom-property name (the same --name grammar ColorCss parses
+    # declarations with) is a reference; var(foo), var(), var(-x) and
+    # var(--a b) are malformed and stay unresolved, fallback or not.
+    return nil unless name&.match?(CUSTOM_PROPERTY_NAME)
 
     [ name, fallback ]
   end
