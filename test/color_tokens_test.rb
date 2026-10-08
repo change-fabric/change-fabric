@@ -162,6 +162,8 @@ class ColorTokensTest < Minitest::Test
 
   def test_theme_block_is_light
     assert_equal({ "--a" => "#000" }, ok("@theme { --a: #000; }").variants[:light])
+    assert_equal({ "--a" => "#fff", "--m" => "{x:y}" }, ok("@theme { --a:#fff; --m:{x:y}; }").variants[:light])
+    ok("@theme { --metadata: {a:b}; --a: #000; }")
   end
 
   def test_other_block_at_rules_are_errors

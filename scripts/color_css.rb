@@ -71,6 +71,13 @@ module ColorCss
   # A block-less at-rule; its name may be spelled with escapes (@t\61ilwind),
   # which ColorTokens decodes before comparing.
   AT_RULE_STMT = /\A(#{WS_SRC}*)(@#{IDENT_UNIT}+)(#{WS_SRC}*)(.*)\z/m.freeze
+  # An at-rule block's name as written, escapes included (@t\68 eme).
+  AT_BLOCK_NAME = /\A@#{IDENT_UNIT}+/.freeze
+  # At-rules whose block holds declarations rather than rules: Tailwind's
+  # @theme and the CSS descriptor at-rules. Inside one, as inside a style
+  # rule, "--name: {" opens a {} block in the value, not a nested rule.
+  DECLARATION_AT_RULES = %w[@theme @font-face @page @property @counter-style
+                            @font-palette-values @position-try @view-transition].freeze
   ESCAPE_AT = /\G#{ESCAPE}/.freeze
   # A code point that continues an ident, number or at-keyword token; a
   # backslash starts an escape, which does too.
@@ -718,7 +725,7 @@ module_function
   # Internal stateful scan. Not part of the public API; callers only ever
   # reach this through ColorCss.parse.
   class Parser
-    Frame = Struct.new(:kind, :selectors, :id, :text, keyword_init: true)
+    Frame = Struct.new(:kind, :selectors, :id, :text, :declarations, keyword_init: true)
 
     def initialize(text)
       @decls = []
@@ -872,12 +879,14 @@ module_function
       append(ch)
     end
 
-    # Whether the segment so far is "--name:" inside a style rule, so a "{"
-    # here opens a {} block in a custom property's value rather than a
-    # nested rule (CSS Syntax 3 consume a declaration; CSS Nesting). At top
-    # level a stylesheet holds rules only, so "--x: {" there stays a rule.
+    # Whether the segment so far is "--name:" inside a declaration context
+    # (a style rule or a DECLARATION_AT_RULES block), so a "{" here opens a
+    # {} block in a custom property's value rather than a nested rule (CSS
+    # Syntax 3 consume a declaration; CSS Nesting). At top level, or inside
+    # a rule-holding at-rule such as @media or @layer alone, the block holds
+    # rules only, so "--x: {" there stays a rule.
     def custom_property_value?
-      return false unless @frames.any? { |f| f.kind == :rule }
+      return false unless @frames.any?(&:declarations)
 
       m = CUSTOM_VALUE_START.match(@segment)
       m && !ColorCss.custom_property_ref(m[1]).nil?
@@ -924,11 +933,19 @@ module_function
       @blocks << BlockOpen.new(id:, parent: @frames.last&.id, prelude: ColorCss.strip_ws(@raw), line:, glued: @glued)
       stripped = ColorCss.strip_ws(@raw)
       @frames << if stripped.start_with?('@')
-                   Frame.new(kind: :at_rule, selectors: nil, id:, text: collapse_ws(stripped))
+                   Frame.new(kind: :at_rule, selectors: nil, id:, text: collapse_ws(stripped),
+                             declarations: declaration_at_rule?(stripped))
       else
                    selectors = ColorCss.split_top_level(prelude).map { |s| collapse_ws(s) }.reject(&:empty?)
-                   Frame.new(kind: :rule, selectors:, id:, text: nil)
+                   Frame.new(kind: :rule, selectors:, id:, text: nil, declarations: true)
       end
+    end
+
+    # Whether an at-rule block (by its prelude, escapes decoded so @t\68 eme
+    # is @theme) holds declarations rather than rules.
+    def declaration_at_rule?(prelude)
+      name = ColorCss.canonical_idents(prelude)[AT_BLOCK_NAME].to_s.downcase(:ascii)
+      DECLARATION_AT_RULES.include?(name)
     end
 
     def close_block

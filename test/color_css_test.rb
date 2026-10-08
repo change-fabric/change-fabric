@@ -286,6 +286,25 @@ class ColorCssTest < Minitest::Test
     assert_empty sheet.errors
   end
 
+  # A declaration-holding at-rule (@theme and the descriptor at-rules) is a
+  # declaration context like a style rule; @media and @layer alone hold
+  # rules, so "--x: {" directly inside them opens a nested rule.
+  def test_custom_property_simple_block_in_every_declaration_context
+    [ ":root", "@theme", "@t\\68 eme", "@THEME", "@font-face", "@property --p", "@media x { a",
+      "@layer base { .b" ].each do |opener|
+      closers = "}" * (opener.count("{") + 1)
+      css = "#{opener} { --a: #fff; --m: {x:y}; --z: #000; #{closers}"
+      sheet = ColorCss.parse(css)
+      assert_empty sheet.errors, css
+      assert_equal [ [ "--a", "#fff" ], [ "--m", "{x:y}" ], [ "--z", "#000" ] ],
+                   sheet.decls.map { |d| [ d.name, d.value ] }, css
+    end
+    [ "@media x", "@layer base", "@supports (x: y)" ].each do |opener|
+      sheet = ColorCss.parse("#{opener} { --m: {x:y} }")
+      assert_equal [ opener, "--m:" ], sheet.blocks.map(&:prelude), opener
+    end
+  end
+
   def test_mismatched_block_closers_do_not_raise
     sheet = ColorCss.parse("a { color: red ] ; --c: x } }")
     assert_equal [ "red ]", "x" ], sheet.decls.map(&:value)
