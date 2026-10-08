@@ -176,7 +176,7 @@ module ColorValue
 
   COLOR_FN_NAMES = %w[rgb rgba hsl hsla hwb oklch oklab lab lch color].freeze
   UNRESOLVED_FN_NAMES = %w[oklch oklab lab lch hwb color color-mix].freeze
-  CASCADE_KEYWORDS = %w[inherit initial unset revert revert-layer].freeze
+  CSS_WIDE_KEYWORDS = %w[initial inherit unset revert revert-layer].freeze
 
   module_function
 
@@ -188,7 +188,10 @@ module ColorValue
   # Escapes are decoded once here (ColorCss.decode_value_escapes), so every
   # anchored match below sees the name CSS sees: \76 ar(--x) is a var()
   # reference and \72 ed is red. A value whose escape has no plain spelling
-  # is unresolved with that reason rather than guessed at.
+  # is unresolved with that reason rather than guessed at. A whole-value
+  # var() is recognized by its tokens before that decoding, and only the
+  # branch CSS substitutes is decoded, so an escape in an unused fallback
+  # never rejects the reference.
   #
   # The cycle check runs first, before any unsupported or unresolved early
   # return: a value whose var() dependency graph reaches a property already
@@ -206,6 +209,10 @@ module ColorValue
   # The body of resolve once the cycle check has passed: value is parsed as
   # a color, and a whole-value var() is handed back to resolver.
   def resolve_with(value, resolver)
+    if (ref = parse_var_ref(value))
+      return resolver.resolve_var(*ref)
+    end
+
     v, escape_reason = ColorCss.decode_value_escapes(value.to_s.strip)
     return Result.new(color: nil, reason: escape_reason) if escape_reason
 
@@ -229,7 +236,7 @@ module ColorValue
       return Result.new(color: Rgba.new(r: rgb[0], g: rgb[1], b: rgb[2], a: 1.0), reason: nil)
     end
 
-    return resolver.resolve_var(v) if v.match?(/\Avar\(/i)
+    return Result.new(color: nil, reason: "unrecognized color value: #{v[0, 40]}") if v.match?(/\Avar\(/i)
 
     return Result.new(color: nil, reason: 'currentColor depends on the element') if v.match?(/\AcurrentColor\z/i)
     return Result.new(color: nil, reason: 'light-dark() is not supported') if v.match?(/\Alight-dark\(/i)
@@ -239,9 +246,8 @@ module ColorValue
       return Result.new(color: nil, reason: "#{fn}() is not resolved by this checker")
     end
 
-    if (m = v.match(/\A(#{CASCADE_KEYWORDS.join('|')})\z/i))
-      kw = m[1].downcase
-      return Result.new(color: nil, reason: "#{kw} depends on the cascade")
+    if (kw = css_wide_keyword(v))
+      return Result.new(color: nil, reason: css_wide_reason(kw))
     end
 
     Result.new(color: nil, reason: "unrecognized color value: #{v[0, 40]}")
@@ -311,19 +317,42 @@ module ColorValue
     Result.new(color: Rgba.new(r:, g:, b:, a:), reason: nil)
   end
 
-  # Parses the inside of a var(...) call into [name, fallback], or nil when
-  # text is not a well-formed var() reference. fallback is nil only when
-  # there is no comma at all; a comma followed by nothing (or whitespace) is
-  # an empty fallback, "", which CSS treats as a valid empty token sequence,
-  # not as an absent fallback.
+  # Parses a whole-value var(...) call into [name, fallback], or nil when
+  # text is not one well-formed var() reference. Read off the tokens
+  # (ColorCss.function_tokens), not decoded text, so an escaped spelling
+  # such as \76 ar( is still var( while the fallback stays exactly as
+  # written: it is decoded only if CSS substitutes it. fallback is nil only
+  # when there is no comma at all; a comma followed by nothing (or
+  # whitespace) is an empty fallback, "", which CSS treats as a valid empty
+  # token sequence, not as an absent fallback.
   def parse_var_ref(text)
-    m = text.match(/\Avar\(\s*(.*)\)\z/im)
-    return nil unless m
+    text = text.to_s.strip
+    t = ColorCss.function_tokens(text).first
+    return nil unless t && t.start.zero? && t.name == "var"
     # The closing paren must belong to this var( itself, so a value that is
     # several references in a row (var(--r) var(--g)) is not one reference.
-    return nil unless matching_paren(text, 3) == text.length - 1
+    return nil unless matching_paren(text, t.open) == text.length - 1
 
-    var_arguments(m[1])
+    var_arguments(text[(t.open + 1)...-1])
+  end
+
+  # The CSS-wide keyword a whole value is, ASCII case-insensitive and with
+  # escapes decoded (INITIAL and \69 nitial are initial), or nil. The one
+  # test both resolve and Resolver#fails? use, so a value the checker
+  # reports as a keyword is the value it treats as one during substitution.
+  def css_wide_keyword(value)
+    v = ColorCss.decode_value_escapes(value.to_s.strip).first&.strip&.downcase(:ascii)
+    v if CSS_WIDE_KEYWORDS.include?(v)
+  end
+
+  # initial on a custom property is the guaranteed-invalid value. The
+  # resolver has no scope for a declaration, so inherit and unset (initial
+  # only on the root element) and revert and revert-layer stay
+  # cascade-dependent.
+  def css_wide_reason(keyword)
+    return "initial is the guaranteed-invalid value" if keyword == "initial"
+
+    "#{keyword} depends on the cascade"
   end
 
   # The [name, fallback] of one var() call's argument text, or nil when the
@@ -437,30 +466,34 @@ module ColorValue
     # guaranteed-invalid value, is rescued by a fallback too, even an empty
     # one; any other defined property is substituted as it is, empty value
     # included, and the fallback is ignored.
-    def resolve_var(v)
-      ref = ColorValue.parse_var_ref(v)
-      return Result.new(color: nil, reason: "unrecognized color value: #{v[0, 40]}") unless ref
-
-      name, fallback = ref
+    #
+    # fallback is the raw text as written; only this method decides whether
+    # it is substituted, so only then is it decoded (by resolve_with).
+    def resolve_var(name, fallback)
       return property(name) if @decls.key?(name) && !fails?(name)
       return ColorValue.resolve_with(fallback, self) if fallback
       return Result.new(color: nil, reason: "#{name} is not defined in this theme") unless @decls.key?(name)
       return ColorValue.cycle_result(name) if cyclic?(name)
+      if ColorValue.css_wide_keyword(@decls[name]) == "initial"
+        return Result.new(color: nil, reason: "#{name} is initial, the guaranteed-invalid value")
+      end
 
       property(name)
     end
 
     # True when var(name) with no fallback fails: name is undefined, cyclic,
-    # or its value substitutes a failing var(). Computed in dependency
-    # post-order with an explicit stack; the non-cyclic part of the graph is
-    # acyclic, so every dependency is settled before its dependent.
+    # its whole value is initial (the guaranteed-invalid value; see
+    # ColorValue.css_wide_keyword), or its value substitutes a failing
+    # var(). Computed in dependency post-order with an explicit stack; the
+    # non-cyclic part of the graph is acyclic, so every dependency is
+    # settled before its dependent.
     def fails?(name)
       stack = [ [ name, false ] ]
       until stack.empty?
         n, expanded = stack.pop
         next if @fails.key?(n)
 
-        if !@decls.key?(n) || cyclic?(n)
+        if !@decls.key?(n) || cyclic?(n) || ColorValue.css_wide_keyword(@decls[n]) == "initial"
           @fails[n] = true
         elsif expanded
           @fails[n] = substitution_fails?(@decls[n].to_s)
@@ -499,8 +532,7 @@ module ColorValue
     end
 
     def whole_value_ref(name)
-      v = ColorCss.decode_value_escapes(@decls[name].to_s.strip).first&.strip
-      v&.match?(/\Avar\(/i) && ColorValue.parse_var_ref(v)&.first
+      ColorValue.parse_var_ref(@decls[name])&.first
     end
 
     # True when substituting every var() in text fails: a var() whose name

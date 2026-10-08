@@ -710,6 +710,59 @@ class ColorValueTest < Minitest::Test
     assert_rgba 255, 255, 255, resolved("var(--w, \"\\(\")", { "--w" => "#fff" })
   end
 
+  # Only the var() branch CSS substitutes is decoded: an escape with no
+  # plain spelling in an unused fallback never rejects a defined reference,
+  # however the var( is spelled or however deep the fallback nests, while
+  # a used branch stays strict. The cycle scan still reads every branch.
+  def test_escape_in_unused_var_fallback_is_not_decoded
+    decls = { "--white" => "#fff", "--page-text" => "var(--white, foo\\ bar)" }
+    assert_rgba 255, 255, 255, CV.resolve(decls["--page-text"], decls, seen: Set["--page-text"]).color
+    [
+      "var(--white, foo\\ bar)", "\\76 ar(--white, foo\\ bar)", "var(--wh\\69 te, rgb\\28 1 2 3)",
+      "var(--white, re\\;d)", "var(--white, var(--x, foo\\ bar))", "var(--missing, var(--white, foo\\ bar))",
+      "var(--missing, var(--white, var(--nope, \\20 red)))", "var(--alias, foo\\ bar)"
+    ].each do |value|
+      assert_equal CV::WHITE.to_h, resolved(value, decls.merge("--alias" => "var(--white, #\\66 ff)")).to_h, value
+    end
+    [
+      "var(--missing, foo\\ bar)", "var(--missing, var(--nope, foo\\ bar))",
+      "var(--missing, var(--white, red) foo\\ bar)", "var(--bad, foo\\ bar)"
+    ].each do |value|
+      assert_includes unresolved(value, decls.merge("--bad" => "var(--missing)")), "escape", value
+    end
+    assert_includes unresolved("var(--esc, red)", { "--esc" => "re\\;d" }), "escape"
+    cyclic = { "--white" => "#fff", "--page-text" => "var(--white, foo\\ bar var(--page-text))" }
+    reason = CV.resolve(cyclic["--page-text"], cyclic, seen: Set["--page-text"]).reason
+    assert_equal "var() cycle through --page-text", reason
+  end
+
+  # initial on a custom property is the guaranteed-invalid value, however
+  # it is spelled: a var() referencing it (directly or through a chain)
+  # takes its fallback, and with none is unresolved naming initial. Without
+  # a declaration's scope, inherit and unset, like revert and revert-layer,
+  # stay cascade-dependent and are reported by name, fallback or not.
+  def test_css_wide_keywords_on_referenced_custom_properties
+    [ "initial", "INITIAL", "Initial", "\\69nitial", "\\69 nitial", " initial " ].each do |kw|
+      assert_equal "initial", CV.css_wide_keyword(kw), kw
+      [ { "--x" => kw }, { "--x" => "var(--y)", "--y" => kw } ].each do |decls|
+        assert_equal resolved("red").to_h, resolved("var(--x, red)", decls).to_h, kw
+        assert_equal "--x is initial, the guaranteed-invalid value", unresolved("var(--x)", decls), kw if decls["--x"] == kw
+        assert_includes unresolved("var(--x)", decls), "initial", kw
+      end
+      assert_equal "initial is the guaranteed-invalid value", unresolved(kw), kw
+    end
+    %w[inherit unset revert revert-layer].each do |kw|
+      [ kw, kw.upcase, "\\#{kw[0].ord.to_s(16)} #{kw[1..]}" ].each do |spelling|
+        assert_equal kw, CV.css_wide_keyword(spelling), spelling
+        decls = { "--x" => spelling }
+        assert_equal "#{kw} depends on the cascade", unresolved("var(--x, red)", decls), spelling
+        assert_equal "#{kw} depends on the cascade", unresolved("var(--x)", decls), spelling
+      end
+    end
+    assert_nil CV.css_wide_keyword("initially")
+    assert_nil CV.css_wide_keyword("var(--initial)")
+  end
+
   # Every custom-property name is compared by its decoded value, wherever it
   # is read: the whole-value reference, a nested fallback dependency, or a
   # deeper fallback chain. --\61, --\000061 and --\61 (with its one eaten
