@@ -48,7 +48,9 @@ module ColorCss
   # A segment that has begun a custom-property declaration: its name (literal
   # or escaped, checked by custom_property_ref) and the colon.
   CUSTOM_VALUE_START = /\A\s*(#{CUSTOM_NAME_SRC}|#{ESCAPED_NAME_SRC})\s*:/.freeze
-  AT_RULE_STMT = /\A(\s*)(@[\w-]+)(\s*)(.*)\z/m.freeze
+  # A block-less at-rule; its name may be spelled with escapes (@t\61ilwind),
+  # which ColorTokens decodes before comparing.
+  AT_RULE_STMT = /\A(\s*)(@(?:[\w-]|#{ESCAPE})+)(\s*)(.*)\z/m.freeze
   ESCAPE_AT = /\G#{ESCAPE}/.freeze
   # A code point that continues an ident, number or at-keyword token; a
   # backslash starts an escape, which does too.
@@ -410,6 +412,57 @@ module ColorCss
       i = j
     end
     out
+  end
+
+  # text with every terminated quoted string outside comments decoded (CSS
+  # Syntax 3 4.3.5: an escape is its code point, a backslash before a newline
+  # is dropped) and written back double-quoted with only " and \ escaped, so
+  # "d\61rk", 'dark' and "dark" compare equal. An unterminated string and
+  # every escape outside a string are left as written.
+  def canonical_strings(text)
+    text = text.to_s
+    out = +""
+    i = 0
+    while i < text.length
+      ch = text[i]
+      if ch == '"' || ch == "'"
+        value, j = string_value(text, i)
+        out << (value ? %("#{value.gsub(/["\\]/) { "\\#{_1}" }}") : text[i...j])
+      elsif ch == "\\"
+        j = skip_escape(text, i)
+        out << text[i...j]
+      elsif text[i, 2] == "/*"
+        close = text.index("*/", i + 2)
+        j = close ? close + 2 : text.length
+        out << text[i...j]
+      else
+        j = i + 1
+        out << ch
+      end
+      i = j
+    end
+    out
+  end
+
+  # The string opening at text[i]: [decoded value, index just past it], the
+  # value nil when a raw newline or end of input leaves it unterminated.
+  def string_value(text, i)
+    quote = text[i]
+    out = +""
+    j = i + 1
+    while j < text.length
+      ch = text[j]
+      return [ out, j + 1 ] if ch == quote
+      return [ nil, j ] if ch == "\n"
+
+      if ch == "\\" && text[j + 1] == "\n"
+        j += 2
+        next
+      end
+      ch, j = decode_escape(text, j) || [ ch, j + 1 ]
+      out << ch
+    end
+    [ nil, text.length ]
   end
 
   # A decoded identifier written back with escapes only where CSS needs one

@@ -360,11 +360,56 @@ class ColorTokensTest < Minitest::Test
   # An escape is part of a compound: an escaped space, >, + or ~ is never a
   # combinator, so the selector is one compound (and not a token block).
   def test_escaped_selector_characters_are_not_combinators
-    [ ".dark\\ x", ".dark\\>x", ".dark\\+x", ".dark\\~x", ".d\\61 rk" ].each do |sel|
+    [ ".dark\\ x", ".dark\\>x", ".dark\\+x", ".dark\\~x", ".d\\61 rk\\ x" ].each do |sel|
       messages = error_messages(":root{--a:#000}\n#{sel}{--a:#fff}")
       assert_equal 1, messages.size, sel
       assert_includes messages.first, "selector `#{sel}` is not a token block", sel
     end
+  end
+
+  # CSS decodes escapes in every selector identifier and quoted value, so an
+  # escaped spelling of an accepted selector is that selector.
+  def test_escaped_selector_spellings_are_accepted
+    [ ":r\\6f ot", ":R\\4f OT", ":\\72oot", ":roo\\74" ].each do |sel|
+      assert_equal({ "--a" => "#000" }, ok("#{sel}{--a:#000}").variants[:light], sel)
+    end
+    [ ".d\\61rk", ".d\\61 rk", ".\\64 ark", ":root.\\64 ark", ":r\\6f ot.dark",
+      "[data-theme=\"d\\61rk\"]", "[data-theme='d\\61 rk']", "[data-theme=\"dar\\\nk\"]",
+      "[data-theme=d\\61rk]", "[d\\61ta-theme=dark]", "[DATA-THEME=dark]", "[Data-Theme=\"dark\"]",
+      ":root[d\\61ta-theme=\"d\\61rk\"]" ].each do |sel|
+      result = ok(":root{--a:#000}\n#{sel}{--a:#fff}")
+      assert_equal({ "--a" => "#fff" }, result.variants[:dark], sel)
+    end
+  end
+
+  # An escape that decodes to a delimiter is ident content, never structure:
+  # .\2e dark is the class ".dark", :root\ x is one pseudo-class. Class names
+  # and attribute values stay case-sensitive.
+  def test_escaped_delimiters_and_case_sensitive_parts_are_not_accepted
+    [ ".\\2e dark", ":r\\6f ot\\ x", ":root\\2e dark", ":root\\.dark", "\\3a root.dark", ".dark\\5b x",
+      "[data-theme\\3d dark]", "[data-theme=dark\\5d ]", "[data-theme=\"da\\\"rk\"]",
+      "[data-theme=\"dark\\\"]\"]", "[data-theme=\"dark", ".DARK", ".D\\41RK", "[data-theme=DARK]",
+      "[data-theme=\"D\\41RK\"]" ].each do |sel|
+      result = read(":root{--a:#000}\n#{sel}{--a:#fff}")
+      refute result.dark?, sel
+      refute_empty result.errors, sel
+    end
+  end
+
+  def test_escaped_media_query_and_at_rule_spellings_are_accepted
+    [ "@m\\65 dia (prefers-color-scheme: d\\61rk)", "@media (prefers-c\\6flor-scheme: dark)" ].each do |media|
+      result = ok(":root{--a:#000}\n#{media}{ :r\\6f ot{--a:#fff} }")
+      assert_equal({ "--a" => "#fff" }, result.variants[:dark], media)
+    end
+    result = ok(":root{--a:#000}\n@media (prefers-color-scheme: dark){ :ROOT{--a:#fff} }")
+    assert_equal({ "--a" => "#fff" }, result.variants[:dark])
+    assert_equal "#000", ok("@layer b\\61se { :root{--a:#000} }").variants[:light]["--a"]
+    [ "@t\\61ilwind base;", "@\\69mport \"x.css\";", "@IMPORT \"x.css\";" ].each do |stmt|
+      assert_equal "#000", ok("#{stmt}\n:root{--a:#000}").variants[:light]["--a"], stmt
+    end
+    assert_error("@t\\61ilwind\\2e x;\n:root{--a:#000}", "is not allowed in a token file")
+    assert_error(":root{--a:#000}\n@media (prefers-color-scheme: d\\61rk){ .d\\61rk{--a:#fff} }",
+                 "only :root is allowed there")
   end
 
   def test_escaped_function_names_redeclare_alike

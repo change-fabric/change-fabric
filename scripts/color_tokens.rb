@@ -35,7 +35,9 @@ module ColorTokens
   # Block-less statements a Tailwind entry file needs; skipped silently.
   SKIPPED_STATEMENTS = %w[@import @charset @tailwind @source @plugin @custom-variant @config].freeze
   MEDIA_SCHEME = /\A@media\s*\(\s*prefers-color-scheme\s*:\s*(light|dark)\s*\)\z/i.freeze
-  DARK_ATTR = /\A\[data-theme=(?:dark|"dark"|'dark')\]\z/.freeze
+  # Matched against canonical_selector's output: the attribute name is ASCII
+  # case-insensitive, the value (a class name or string) is not.
+  DARK_ATTR = /\A\[(?i:data-theme)=(?:dark|"dark")\]\z/.freeze
   SELECTOR_HINT = 'only :root and the dark spellings are allowed'
 
   # line is nil for an error about locating the file rather than its contents.
@@ -140,15 +142,18 @@ module ColorTokens
       prelude.start_with?('@') ? classify_at_rule(block, prelude, parent) : classify_rule(block, prelude, parent)
     end
 
+    # Matches on the prelude's canonical identifiers (@m\65 dia is @media,
+    # d\61rk is dark); messages quote the prelude as written.
     def classify_at_rule(block, prelude, parent)
-      name = prelude[/\A@[\w-]+/].to_s.downcase
+      canonical = ColorCss.canonical_idents(prelude)
+      name = canonical[/\A@[\w-]+/].to_s.downcase
       case name
       when '@layer'
-        return top_layer(block, prelude) if parent.nil?
+        return top_layer(block, prelude, canonical) if parent.nil?
 
         error(block.line, "nested `#{prelude}`; only one @layer wrapper is allowed")
       when '@media'
-        m = MEDIA_SCHEME.match(prelude)
+        m = MEDIA_SCHEME.match(canonical)
         unless m && !%i[media_light media_dark].include?(parent)
           return error(block.line, "`#{prelude}` is not a token block; only prefers-color-scheme media is allowed")
         end
@@ -165,9 +170,9 @@ module ColorTokens
 
     TOP_LAYER_PRELUDE = /\A@layer(?:\s+([\w-]+(?:\.[\w-]+)*))?\s*\z/.freeze
 
-    def top_layer(block, prelude)
+    def top_layer(block, prelude, canonical)
       return error(block.line, "second `#{prelude}`; only one @layer wrapper is allowed") if @layer_seen
-      unless TOP_LAYER_PRELUDE.match?(prelude)
+      unless TOP_LAYER_PRELUDE.match?(canonical)
         return error(block.line, "`#{prelude}` is not a valid @layer wrapper; use `@layer` or a single layer name")
       end
 
@@ -190,7 +195,7 @@ module ColorTokens
 
     def in_media(block, prelude, parent, variant)
       return variant unless %i[media_light media_dark].include?(parent)
-      return parent == :media_dark ? :dark : :light if prelude == ':root'
+      return parent == :media_dark ? :dark : :light if variant == :light
 
       error(block.line, "selector `#{prelude}` inside prefers-color-scheme media; only :root is allowed there")
     end
@@ -200,7 +205,7 @@ module ColorTokens
     def selector_variant(selector)
       return nil if combinator?(selector)
 
-      compound = compact_selector(selector)
+      compound = canonical_selector(selector)
       return :light if compound.casecmp?(':root')
 
       rest = compound.sub(/\A:root/i, '')
@@ -210,6 +215,17 @@ module ColorTokens
     # A quoted string or an escape outside one: spans whose whitespace and
     # quotes are content, so compact_selector and normalize leave them alone.
     QUOTED = /(#{ColorCss::ESCAPE}|"(?:\\.|[^"\\])*"?|'(?:\\.|[^'\\])*'?)/m
+
+    # The selector as CSS reads it, for comparison only: escaped identifiers
+    # decoded to one canonical spelling (ColorCss.canonical_idents, so
+    # :r\6f ot is :root and [d\61ta-theme] is [data-theme]), quoted strings
+    # to one canonical spelling (ColorCss.canonical_strings, so "d\61rk" and
+    # 'dark' are "dark"), then compacted. An escape that decodes to a
+    # delimiter stays escaped (.\2e dark is the class ".dark"), so it never
+    # reads as selector structure.
+    def canonical_selector(selector)
+      compact_selector(ColorCss.canonical_strings(ColorCss.canonical_idents(selector)))
+    end
 
     # Drops only syntactic spacing around [ ] = outside quoted strings, so
     # `[ data-theme = "dark" ]` compacts but `"d a r k"` and `da rk` keep theirs.
@@ -242,7 +258,7 @@ module ColorTokens
     def check_statement(stmt)
       kind = stmt.block_id && @kinds[stmt.block_id]
       return if %i[error skip].include?(kind)
-      return if (kind.nil? || kind == :layer) && SKIPPED_STATEMENTS.include?(stmt.name.downcase)
+      return if (kind.nil? || kind == :layer) && SKIPPED_STATEMENTS.include?(ColorCss.canonical_idents(stmt.name).downcase)
 
       text = [ stmt.name, stmt.prelude ].reject(&:empty?).join(' ')
       error(stmt.line, "`#{text}` is not allowed in a token file; only --name: value")

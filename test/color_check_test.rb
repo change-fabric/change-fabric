@@ -366,6 +366,24 @@ class ColorCheckTest < Minitest::Test
     end
   end
 
+  # An escaped spelling of an accepted selector is that selector, so its
+  # declarations are read and --strict passes on a clean palette.
+  def test_strict_passes_escaped_selector_spellings
+    [ ":r\\6f ot{--background:#fff;--page-text:#000}",
+      ":root{--background:#fff;--page-text:#000}\n.d\\61rk{--background:#000;--page-text:#fff}",
+      ":root{--background:#fff;--page-text:#000}\n[d\\61ta-theme=\"d\\61rk\"]{--background:#000;--page-text:#fff}" ].each do |css|
+      with_dir do |dir|
+        write(dir, "tokens.css", css)
+        report = ColorCheck.run(dir, strict: true)
+        assert_equal 0, report.exit_code, css
+      end
+    end
+    with_dir do |dir|
+      write(dir, "tokens.css", ":root{--background:#fff;--page-text:#000}\n.\\2e dark{--background:#000;--page-text:#fff}")
+      assert_equal 1, ColorCheck.run(dir, strict: true).exit_code
+    end
+  end
+
   def test_strict_exits_one_on_a_failing_contrast_pair
     with_dir do |dir|
       write(dir, "tokens.css", ":root{--background:#fff;--page-text:#eee}")
