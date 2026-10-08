@@ -658,6 +658,25 @@ class ColorCheckTest < Minitest::Test
     with_dir { |dir| assert_nil JSON.parse(ColorCheck.to_json_report(ColorCheck.run(dir)))["palette"] }
   end
 
+  # A malformed command line exits 2 before any audit: a flag after
+  # --tokens is never read as its path, and an unknown option (a misspelled
+  # --strict) is never read as the root and passed as exit 0.
+  def test_cli_rejects_malformed_command_lines
+    [
+      [ %w[--tokens --strict], "--tokens needs a path" ],
+      [ %w[--tokens], "--tokens needs a path" ],
+      [ %w[. --strcit], "unknown option --strcit" ]
+    ].each do |argv, message|
+      out = StringIO.new
+      _, err = capture_io do
+        error = assert_raises(SystemExit) { ColorCheck::CLI.run(argv, out:) }
+        assert_equal 2, error.status, argv.inspect
+      end
+      assert_includes err, message, argv.inspect
+      assert_empty out.string, argv.inspect
+    end
+  end
+
   def test_empty_directory_reports_no_palette_found
     with_dir do |dir|
       report = ColorCheck.run(dir)

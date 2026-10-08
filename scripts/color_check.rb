@@ -158,11 +158,13 @@ module ColorCheck
         case token
         when '--tokens'
           tokens = args.shift
+          usage_error('--tokens needs a path') if tokens.nil? || tokens.start_with?('-')
         when '--json'
           json = true
         when '--strict'
           strict = true
         else
+          usage_error("unknown option #{token}") if token.start_with?('-')
           root = token
         end
       end
@@ -170,6 +172,14 @@ module ColorCheck
       report = ColorCheck.run(root, tokens_override: tokens, strict:)
       out.puts(json ? ColorCheck.to_json_report(report) : ColorCheck.render(report))
       exit(report.exit_code)
+    end
+
+    # A malformed command line exits 2 before any audit, so a flag is never
+    # read as a path and a misspelled --strict never passes as exit 0.
+    def usage_error(message)
+      warn "color_check: #{message}"
+      warn 'usage: color_check.rb [<repo root>] [--tokens <path>] [--json] [--strict]'
+      exit(2)
     end
   end
 end
