@@ -713,8 +713,11 @@ module_function
     text.length
   end
 
+  # False past the end of text, so an empty value holds no identifier.
   def ident_char_at?(text, i)
     ch = text[i]
+    return false if ch.nil?
+
     ch.match?(IDENT_CP) || !decode_escape(text, i).nil?
   end
 
