@@ -665,7 +665,9 @@ class ColorCheckTest < Minitest::Test
     [
       [ %w[--tokens --strict], "--tokens needs a path" ],
       [ %w[--tokens], "--tokens needs a path" ],
-      [ %w[. --strcit], "unknown option --strcit" ]
+      [ %w[. --strcit], "unknown option --strcit" ],
+      [ %w[repo-a repo-b --strict], "second repo root repo-b" ],
+      [ %w[--tokens a.css --tokens b.css], "--tokens given twice" ]
     ].each do |argv, message|
       out = StringIO.new
       _, err = capture_io do

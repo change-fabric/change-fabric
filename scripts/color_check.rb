@@ -155,7 +155,7 @@ module ColorCheck
     module_function
 
     def run(argv, out: $stdout)
-      root = '.'
+      root = nil
       tokens = nil
       json = false
       strict = false
@@ -165,6 +165,7 @@ module ColorCheck
         token = args.shift
         case token
         when '--tokens'
+          usage_error('--tokens given twice') if tokens
           tokens = args.shift
           usage_error('--tokens needs a path') if tokens.nil? || tokens.start_with?('-')
         when '--json'
@@ -173,17 +174,19 @@ module ColorCheck
           strict = true
         else
           usage_error("unknown option #{token}") if token.start_with?('-')
+          usage_error("second repo root #{token}; quote a path with spaces") if root
           root = token
         end
       end
 
-      report = ColorCheck.run(root, tokens_override: tokens, strict:)
+      report = ColorCheck.run(root || '.', tokens_override: tokens, strict:)
       out.puts(json ? ColorCheck.to_json_report(report) : ColorCheck.render(report))
       exit(report.exit_code)
     end
 
     # A malformed command line exits 2 before any audit, so a flag is never
-    # read as a path and a misspelled --strict never passes as exit 0.
+    # read as a path, a misspelled --strict never passes as exit 0, and a
+    # second root or --tokens never silently replaces the first.
     def usage_error(message)
       warn "color_check: #{message}"
       warn 'usage: color_check.rb [<repo root>] [--tokens <path>] [--json] [--strict]'
