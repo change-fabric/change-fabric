@@ -683,4 +683,20 @@ class ColorTokensTest < Minitest::Test
     assert_equal [ %w[--a-text --a] ], ColorTokens.pairs(result.variants[:light])
     assert_error(":root { --a: #000; --\\61: #fff; }", "`--a` is declared twice")
   end
+
+  # U+000B is not CSS whitespace: it neither separates the media query nor
+  # pads a bracketed attribute selector.
+  def test_vertical_tab_is_not_css_whitespace
+    assert_error(":root{--a:#fff}\n@media\v(prefers-color-scheme: dark){:root{--a:#000}}", "is not a token block")
+    assert_error(":root{--a:#fff}\n[ data-theme\v= dark]{--a:#000}", "is not a token block")
+    assert_equal "#000", ok(":root{--a:#fff}\n@media\f(prefers-color-scheme:\tdark){:root{--a:#000}}").variants[:dark]["--a"]
+    assert_equal "#000", ok(":root{--a:#fff}\n[\tdata-theme\n=\fdark ]{--a:#000}").variants[:dark]["--a"]
+  end
+
+  # The data-theme attribute name is ASCII case-insensitive; its value is not.
+  def test_dark_attribute_name_folds_ascii_case_only
+    assert_equal "#000", ok(":root{--a:#fff}\n:root[DATA-Theme=dark]{--a:#000}").variants[:dark]["--a"]
+    assert_error(":root{--a:#fff}\n[data-theme=DARK]{--a:#000}", "is not a token block")
+    refute_match ColorTokens::DARK_ATTR, "[data-theme\u017F=dark]"
+  end
 end

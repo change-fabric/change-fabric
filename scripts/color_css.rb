@@ -29,6 +29,15 @@ module ColorCss
   BlockOpen = Data.define(:id, :parent, :prelude, :line, :glued)
   Sheet = Data.define(:decls, :at_rule_stmts, :errors, :blocks) # errors: [String] diagnostics, never raised
 
+  # CSS whitespace (CSS Syntax 3 4.2): space, tab and a newline, which is
+  # LF, or CR or FF before preprocessing. The one definition every lexing
+  # step here uses, never Ruby's \s or String#strip: both also take U+000B
+  # (and strip takes U+0000), which CSS reads as an ordinary delim, so
+  # rgb(0\v0\v0) is not three channels and "--a\v" is not the name --a.
+  WS_CHARS = " \t\n\r\f"
+  WS_SRC = "[ \\t\\n\\r\\f]"
+  WS_RUN = /#{WS_SRC}+/.freeze
+
   # The digits of a hex color's #hash name: 3, 4, 6 or 8 hex digits.
   HEX_HASH_NAME = /\A(?:\h{8}|\h{6}|\h{4}|\h{3})\z/.freeze
 
@@ -55,19 +64,42 @@ module ColorCss
   # is a declaration name only when it decodes to a custom-property name
   # (ColorCss.custom_property_ref); emit_declaration checks that.
   ESCAPED_NAME_SRC = /#{IDENT_CP}*#{ESCAPE}#{IDENT_UNIT}*/.freeze
-  DECL_NAME = /\A(\s*)(#{CUSTOM_NAME_SRC}|\$#{IDENT_CP}+|@#{IDENT_UNIT}+|-?#{NAME_START_CP}#{IDENT_CP}*|#{ESCAPED_NAME_SRC})(\s*):(.*)\z/m.freeze
+  DECL_NAME = /\A(#{WS_SRC}*)(#{CUSTOM_NAME_SRC}|\$#{IDENT_CP}+|@#{IDENT_UNIT}+|-?#{NAME_START_CP}#{IDENT_CP}*|#{ESCAPED_NAME_SRC})(#{WS_SRC}*):(.*)\z/m.freeze
   # A segment that has begun a custom-property declaration: its name (literal
   # or escaped, checked by custom_property_ref) and the colon.
-  CUSTOM_VALUE_START = /\A\s*(#{CUSTOM_NAME_SRC}|#{ESCAPED_NAME_SRC})\s*:/.freeze
+  CUSTOM_VALUE_START = /\A#{WS_SRC}*(#{CUSTOM_NAME_SRC}|#{ESCAPED_NAME_SRC})#{WS_SRC}*:/.freeze
   # A block-less at-rule; its name may be spelled with escapes (@t\61ilwind),
   # which ColorTokens decodes before comparing.
-  AT_RULE_STMT = /\A(\s*)(@#{IDENT_UNIT}+)(\s*)(.*)\z/m.freeze
+  AT_RULE_STMT = /\A(#{WS_SRC}*)(@#{IDENT_UNIT}+)(#{WS_SRC}*)(.*)\z/m.freeze
   ESCAPE_AT = /\G#{ESCAPE}/.freeze
   # A code point that continues an ident, number or at-keyword token; a
   # backslash starts an escape, which does too.
   TOKEN_CP = /(?:#{IDENT_CP}|\\)/.freeze
 
-  module_function
+module_function
+
+  # text with leading and trailing CSS whitespace removed (WS_CHARS).
+  def strip_ws(text)
+    text = text.to_s
+    text[ws_range(text, 0, text.length)]
+  end
+
+  # The Range of text[s...e] that strip_ws would keep.
+  def ws_range(text, s, e)
+    s += 1 while s < e && WS_CHARS.include?(text[s])
+    e -= 1 while e > s && WS_CHARS.include?(text[e - 1])
+    s...e
+  end
+
+  # text split on runs of CSS whitespace, empty pieces dropped.
+  def split_ws(text)
+    text.to_s.split(WS_RUN).reject(&:empty?)
+  end
+
+  # text stripped, each inner run of CSS whitespace collapsed to one space.
+  def collapse_ws(text)
+    strip_ws(text).gsub(WS_RUN, " ")
+  end
 
   # Tokenizes text into a Sheet. One leading U+FEFF byte-order mark is
   # dropped first, as CSS Syntax 3 decoding does, so every reader sees the
@@ -295,7 +327,7 @@ module ColorCss
         run = text[i...j]
         if run.include?("\\")
           decoded = plain_ident(run, i.positive? ? text[i - 1] : nil)
-          return [ nil, "unrecognized color value: #{text.strip[0, 40]} (escape has no plain spelling)" ] unless decoded
+          return [ nil, "unrecognized color value: #{strip_ws(text)[0, 40]} (escape has no plain spelling)" ] unless decoded
 
           out << decoded
           i = j
@@ -358,7 +390,7 @@ module ColorCss
   # complete identifier token there is not one (custom_property_ref).
   def leading_custom_property_name(text)
     text = text.to_s
-    start = text.index(/\S/)
+    start = text.index(/[^ \t\n\r\f]/)
     return nil unless start && ident_char_at?(text, start)
 
     custom_property_ref(text[start...skip_ident_run(text, start)])
@@ -384,7 +416,7 @@ module ColorCss
         close = text.index("*/", i + 2)
         i = close ? close + 2 : text.length
         next
-      elsif ch.match?(/\s/)
+      elsif WS_CHARS.include?(ch)
         i += 1
         next
       end
@@ -404,12 +436,12 @@ module ColorCss
       bang = prev && prev[0] == :bang ? prev[1] : nil
       i = j
     end
-    return [ text.strip, false ] unless bang && stack.empty? && last[0] == :ident
+    return [ strip_ws(text), false ] unless bang && stack.empty? && last[0] == :ident
 
     run = text[last[1]...last[2]]
-    return [ text.strip, false ] unless ident_start?(run) && decode_ident(run).downcase(:ascii) == "important"
+    return [ strip_ws(text), false ] unless ident_start?(run) && decode_ident(run).downcase(:ascii) == "important"
 
-    [ text[0...bang].strip, true ]
+    [ strip_ws(text[0...bang]), true ]
   end
 
   # text with every escaped identifier (and #hash name) outside strings,
@@ -574,7 +606,7 @@ module ColorCss
   # the url is quoted (then its contents are an ordinary string argument).
   def skip_unquoted_url(text, open)
     j = open + 1
-    j += 1 while j < text.length && text[j].match?(/\s/)
+    j += 1 while j < text.length && WS_CHARS.include?(text[j])
     return open + 1 if text[j] == '"' || text[j] == "'"
 
     while j < text.length
@@ -778,11 +810,11 @@ module ColorCss
 
     def flush_segment_as_decl_or_at_rule
       body = @segment
-      return if body.strip.empty?
+      return if ColorCss.strip_ws(body).empty?
 
       return if emit_declaration(body) || emit_at_rule_stmt(body)
 
-      line = @segment_start_line + body[/\A\s*/].count("\n")
+      line = @segment_start_line + body[/\A#{WS_SRC}*/].count("\n")
       @errors << "unparsed segment #{collapse_ws(body).inspect} (line #{line})"
     end
 
@@ -790,9 +822,9 @@ module ColorCss
       prelude = @segment
       id = @next_id
       @next_id += 1
-      line = @segment_start_line + prelude[/\A\s*/].count("\n")
-      @blocks << BlockOpen.new(id:, parent: @frames.last&.id, prelude: @raw.strip, line:, glued: @glued)
-      stripped = @raw.strip
+      line = @segment_start_line + prelude[/\A#{WS_SRC}*/].count("\n")
+      @blocks << BlockOpen.new(id:, parent: @frames.last&.id, prelude: ColorCss.strip_ws(@raw), line:, glued: @glued)
+      stripped = ColorCss.strip_ws(@raw)
       @frames << if stripped.start_with?('@')
                    Frame.new(kind: :at_rule, selectors: nil, id:, text: collapse_ws(stripped))
       else
@@ -838,7 +870,7 @@ module ColorCss
       leading_ws, name, _mid_ws, rest = m[1], m[2], m[3], m[4]
       at_line = @segment_start_line + leading_ws.count("\n")
       _selectors, block_id = current_context
-      @at_rule_stmts << AtRule.new(name:, prelude: rest.strip, line: at_line, block_id:)
+      @at_rule_stmts << AtRule.new(name:, prelude: ColorCss.strip_ws(rest), line: at_line, block_id:)
       true
     end
 
@@ -854,7 +886,7 @@ module ColorCss
     end
 
     def collapse_ws(str)
-      str.strip.gsub(/\s+/, ' ')
+      ColorCss.collapse_ws(str)
     end
   end
 end

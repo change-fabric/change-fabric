@@ -216,36 +216,40 @@ module ColorValue
 
   # A value that is not a whole-value var() parsed as a color.
   def resolve_text(value)
-    v, escape_reason = ColorCss.decode_value_escapes(value.to_s.strip)
+    v, escape_reason = ColorCss.decode_value_escapes(ColorCss.strip_ws(value))
     return Result.new(color: nil, reason: escape_reason) if escape_reason
 
-    v = v.strip
+    v = ColorCss.strip_ws(v)
     return Result.new(color: nil, reason: EMPTY_REASON) if v.empty?
 
     return hex_result(v) if v.match?(/\A#(?:\h{8}|\h{6}|\h{4}|\h{3})\z/)
 
-    if (m = v.match(/\Argba?\((.*)\)\z/im))
-      return parse_rgb_function(m[1])
+    # Keywords and function names are ASCII case-insensitive (CSS Syntax 3),
+    # never Unicode-folded as Ruby /i and String#downcase are, so a name
+    # spelled with the Kelvin sign U+212A is not "black". key is v
+    # ASCII-lowercased, the same length, so its offsets index v too.
+    key = v.downcase(:ascii)
+    if (m = key.match(/\Argba?\((.*)\)\z/m))
+      return parse_rgb_function(v[m.begin(1)...m.end(1)])
     end
 
-    if (m = v.match(/\Ahsla?\((.*)\)\z/im))
-      return parse_hsl_function(m[1])
+    if (m = key.match(/\Ahsla?\((.*)\)\z/m))
+      return parse_hsl_function(v[m.begin(1)...m.end(1)])
     end
 
-    return Result.new(color: Rgba.new(r: 0, g: 0, b: 0, a: 0.0), reason: nil) if v.match?(/\Atransparent\z/i)
+    return Result.new(color: Rgba.new(r: 0, g: 0, b: 0, a: 0.0), reason: nil) if key == "transparent"
 
-    if v.match?(/\A[A-Za-z]+\z/) && NAMED.key?(v.downcase)
-      rgb = NAMED[v.downcase]
+    if (rgb = NAMED[key])
       return Result.new(color: Rgba.new(r: rgb[0], g: rgb[1], b: rgb[2], a: 1.0), reason: nil)
     end
 
-    return Result.new(color: nil, reason: "unrecognized color value: #{v[0, 40]}") if v.match?(/\Avar\(/i)
+    return Result.new(color: nil, reason: "unrecognized color value: #{v[0, 40]}") if key.start_with?("var(")
 
-    return Result.new(color: nil, reason: 'currentColor depends on the element') if v.match?(/\AcurrentColor\z/i)
-    return Result.new(color: nil, reason: 'light-dark() is not supported') if v.match?(/\Alight-dark\(/i)
+    return Result.new(color: nil, reason: 'currentColor depends on the element') if key == "currentcolor"
+    return Result.new(color: nil, reason: 'light-dark() is not supported') if key.start_with?("light-dark(")
 
-    if (m = v.match(/\A(#{UNRESOLVED_FN_NAMES.join('|')})\(/i))
-      fn = m[1].downcase
+    if (m = key.match(/\A(#{UNRESOLVED_FN_NAMES.join('|')})\(/))
+      fn = m[1]
       return Result.new(color: nil, reason: "#{fn}() is not resolved by this checker")
     end
 
@@ -260,12 +264,13 @@ module ColorValue
   # transparent and currentcolor, or one color function call whose
   # arguments contain no var(. Escapes are decoded first, as in resolve.
   def literal?(value)
-    v = ColorCss.decode_value_escapes(value.to_s.strip).first&.strip
+    v = ColorCss.decode_value_escapes(ColorCss.strip_ws(value)).first
+    v = v && ColorCss.strip_ws(v)
     return false if v.nil? || v.empty?
     return true if v.match?(/\A#(?:\h{8}|\h{6}|\h{4}|\h{3})\z/)
 
     if (m = v.match(/\A([A-Za-z]+)\((.*)\)\z/m))
-      fn = m[1].downcase
+      fn = m[1].downcase(:ascii)
       return false unless COLOR_FN_NAMES.include?(fn)
 
       return ColorCss.function_tokens(m[2]).none? { |t| t.name == "var" }
@@ -273,7 +278,7 @@ module ColorValue
 
     return false unless v.match?(/\A[A-Za-z]+\z/)
 
-    name = v.downcase
+    name = v.downcase(:ascii)
     return false if name == 'transparent' || name == 'currentcolor'
 
     NAMED.key?(name)
@@ -329,7 +334,7 @@ module ColorValue
   # whitespace) is an empty fallback, "", which CSS treats as a valid empty
   # token sequence, not as an absent fallback.
   def parse_var_ref(text)
-    text = text.to_s.strip
+    text = ColorCss.strip_ws(text)
     call = whole_var_call(text, var_calls(text).to_h { |c| [ c.start, c ] }, 0...text.length)
     name, fallback = call && var_arguments(text, call, call.close)
     [ name, fallback && text[fallback] ] if name
@@ -392,7 +397,7 @@ module ColorValue
   # one scan of text, so a deeply nested fallback costs linear time and no
   # Ruby recursion.
   def var_chain(text)
-    text = text.to_s.strip
+    text = ColorCss.strip_ws(text)
     by_start = var_calls(text).to_h { |c| [ c.start, c ] }
     range = 0...text.length
     while (call = whole_var_call(text, by_start, range)) && (ref = var_arguments(text, call, call.close))
@@ -409,7 +414,8 @@ module ColorValue
   # test both resolve and Resolver#fails? use, so a value the checker
   # reports as a keyword is the value it treats as one during substitution.
   def css_wide_keyword(value)
-    v = ColorCss.decode_value_escapes(value.to_s.strip).first&.strip&.downcase(:ascii)
+    v = ColorCss.decode_value_escapes(ColorCss.strip_ws(value)).first
+    v = v && ColorCss.strip_ws(v).downcase(:ascii)
     v if CSS_WIDE_KEYWORDS.include?(v)
   end
 
@@ -448,20 +454,11 @@ module ColorValue
   # reference; var(foo), var(), var(-x) and var(--a b) are malformed and
   # stay unresolved, fallback or not.
   def var_arguments(text, call, close)
-    name = ColorCss.custom_property_ref(text[(call.open + 1)...(call.comma || close)].strip)
+    name = ColorCss.custom_property_ref(ColorCss.strip_ws(text[(call.open + 1)...(call.comma || close)]))
     return nil unless name
 
-    [ name, call.comma && strip_range(text, call.comma + 1, close) ]
+    [ name, call.comma && ColorCss.ws_range(text, call.comma + 1, close) ]
   end
-
-  # The Range of text[s...e] that String#strip would keep.
-  def strip_range(text, s, e)
-    s += 1 while s < e && STRIP_CHARS.include?(text[s])
-    e -= 1 while e > s && STRIP_CHARS.include?(text[e - 1])
-    s...e
-  end
-
-  STRIP_CHARS = "\0\t\n\v\f\r "
 
   EMPTY_REASON = "empty value is not a color"
 
@@ -729,7 +726,7 @@ module ColorValue
   end
 
   def invalid_value(args)
-    Result.new(color: nil, reason: "unrecognized color value: #{args.to_s.strip[0, 40]}")
+    Result.new(color: nil, reason: "unrecognized color value: #{ColorCss.strip_ws(args)[0, 40]}")
   end
 
   # Strict CSS <number> and <percentage> grammar: a bare numeric literal,
@@ -739,7 +736,7 @@ module ColorValue
   NUMBER_RE = /[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?/
 
   def parse_number(token)
-    t = token.to_s.strip
+    t = ColorCss.strip_ws(token)
     return nil unless t.match?(/\A#{NUMBER_RE}\z/)
 
     finite_or_nil(t.to_f)
@@ -752,7 +749,7 @@ module ColorValue
   end
 
   def parse_percentage(token)
-    t = token.to_s.strip
+    t = ColorCss.strip_ws(token)
     m = t.match(/\A(#{NUMBER_RE})%\z/)
     return nil unless m
 
@@ -769,7 +766,7 @@ module ColorValue
     if slash.empty?
       comma_parts = ColorCss.split_top_level(args)
       if comma_parts.size > 1
-        parts = comma_parts.map(&:strip)
+        parts = comma_parts.map { |p| ColorCss.strip_ws(p) }
         return [ parts[0, 3], parts[3], true ] if parts.size == 4
 
         [ parts, nil, true ]
@@ -778,18 +775,18 @@ module ColorValue
         # must be introduced with '/'. A bare 4th space-separated token is
         # invalid syntax, not a guessed alpha, so it is left in place for the
         # channel-count check in the caller to reject.
-        parts = args.strip.split(/\s+/).reject(&:empty?)
+        parts = ColorCss.split_ws(args)
         [ parts, nil, false ]
       end
     else
-      channel_str = main.strip
+      channel_str = ColorCss.strip_ws(main)
       comma_parts = ColorCss.split_top_level(channel_str)
       # Slash alpha is modern space syntax only; legacy comma channels with a
       # slash alpha (rgb(255, 0, 0 / 50%)) are invalid, not a mixed form.
       return [ [], nil, false ] if comma_parts.size > 1
 
-      parts = channel_str.split(/\s+/).reject(&:empty?)
-      [ parts, alpha_part.strip, false ]
+      parts = ColorCss.split_ws(channel_str)
+      [ parts, ColorCss.strip_ws(alpha_part), false ]
     end
   end
 
@@ -820,7 +817,7 @@ module ColorValue
     return invalid_value(args) unless channels.size == 3
 
     h = parse_hue(channels[0])
-    return Result.new(color: nil, reason: "invalid hue: #{channels[0].strip[0, 40]}") unless h
+    return Result.new(color: nil, reason: "invalid hue: #{ColorCss.strip_ws(channels[0])[0, 40]}") unless h
 
     s = parse_percent_fraction(channels[1])
     return invalid_value(args) unless s
@@ -841,8 +838,8 @@ module ColorValue
   # Hue accepts a bare number (treated as deg) or an explicit angle unit;
   # anything else is not a valid hue and must not silently become 0.
   def parse_hue(text)
-    t = text.to_s.strip
-    m = t.match(/\A(#{NUMBER_RE})(deg|grad|rad|turn)?\z/i)
+    t = ColorCss.strip_ws(text).downcase(:ascii)
+    m = t.match(/\A(#{NUMBER_RE})(deg|grad|rad|turn)?\z/)
     return nil unless m
 
     num = finite_or_nil(m[1].to_f)
@@ -850,7 +847,7 @@ module ColorValue
 
     # Unit conversion can overflow a finite literal (1e308turn), so the
     # converted angle is checked again before it reaches % 360.
-    unit = m[2]&.downcase
+    unit = m[2]
     return nil unless finite_or_nil(num * HUE_SCALE.fetch(unit, 1))
 
     # Like rgb() channels, the angle stays exact (Rational) so equal colors
@@ -884,10 +881,10 @@ module ColorValue
   # Saturation and lightness must be percentages; a bare number here is
   # invalid CSS, not a 0..1 fraction to guess at.
   def parse_percent_fraction(text)
-    pct = parse_percentage(text.to_s.strip)
+    pct = parse_percentage(ColorCss.strip_ws(text))
     return nil unless pct
 
-    (bounded_rational(text.to_s.strip.chomp("%")) / 100).clamp(0, 1)
+    (bounded_rational(ColorCss.strip_ws(text).chomp("%")) / 100).clamp(0, 1)
   end
 
   # Returns [value 0..255, :num|:pct], or nil if text is not a valid number
@@ -896,7 +893,7 @@ module ColorValue
   # Like alpha, a channel is scaled exactly (Rational) and converted to Float
   # once, so 33.3% and 84.915 land on the same Float and share a palette key.
   def parse_channel(text)
-    t = text.to_s.strip
+    t = ColorCss.strip_ws(text)
     if (pct = parse_percentage(t))
       # 1e308% overflows when scaled to 0..255; recheck after conversion.
       return unless finite_or_nil(pct / 100.0 * 255.0)
@@ -911,7 +908,7 @@ module ColorValue
   # spelling of the same value (.333, 0.333, 33.3%, 3.33e1%) lands on the
   # same Float and shares one palette key.
   def parse_alpha(text)
-    t = text.to_s.strip
+    t = ColorCss.strip_ws(text)
     exact =
       if (m = t.match(/\A(#{NUMBER_RE})%\z/))
         bounded_rational(m[1])&./(100)

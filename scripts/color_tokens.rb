@@ -37,10 +37,11 @@ module ColorTokens
   # Matched against an ASCII-lowercased prelude, never with /i: Ruby's /i
   # folds Unicode (U+212A KELVIN SIGN to k, U+017F LONG S to s), while CSS
   # keywords are ASCII case-insensitive only.
-  MEDIA_SCHEME = /\A@media\s*\(\s*prefers-color-scheme\s*:\s*(light|dark)\s*\)\z/.freeze
+  MEDIA_SCHEME = /\A@media#{ColorCss::WS_SRC}*\(#{ColorCss::WS_SRC}*prefers-color-scheme#{ColorCss::WS_SRC}*:#{ColorCss::WS_SRC}*(light|dark)#{ColorCss::WS_SRC}*\)\z/.freeze
   # Matched against canonical_selector's output: the attribute name is ASCII
-  # case-insensitive, the value (a class name or string) is not.
-  DARK_ATTR = /\A\[(?i:data-theme)=(?:dark|"dark")\]\z/.freeze
+  # case-insensitive, the value (a class name or string) is not. Spelled
+  # per letter, never (?i:), which folds U+212A and U+017F as well.
+  DARK_ATTR = /\A\[[dD][aA][tT][aA]-[tT][hH][eE][mM][eE]=(?:dark|"dark")\]\z/.freeze
   SELECTOR_HINT = 'only :root and the dark spellings are allowed'
 
   # line is nil for an error about locating the file rather than its contents.
@@ -134,7 +135,7 @@ module ColorTokens
       parent = block.parent && @kinds[block.parent]
       return :skip if %i[error skip].include?(parent)
 
-      prelude = block.prelude.gsub(/\s+/, ' ')
+      prelude = block.prelude.gsub(ColorCss::WS_RUN, ' ')
       if %i[light dark].include?(parent)
         return error(block.line, "nested block `#{prelude}` inside a token block; only --name: value is allowed")
       end
@@ -188,7 +189,7 @@ module ColorTokens
     AT_NAME = /\A@#{ColorCss::IDENT_UNIT}+/.freeze
     # What follows "@layer" in a wrapper: nothing, or one layer name, a
     # dot-separated run of identifiers (base, theme.base, café).
-    TOP_LAYER_PRELUDE = /\A(?:\s+#{ColorCss::IDENT_SRC}(?:\.#{ColorCss::IDENT_SRC})*)?\s*\z/.freeze
+    TOP_LAYER_PRELUDE = /\A(?:#{ColorCss::WS_SRC}+#{ColorCss::IDENT_SRC}(?:\.#{ColorCss::IDENT_SRC})*)?#{ColorCss::WS_SRC}*\z/.freeze
 
     def top_layer(block, prelude, canonical)
       return error(block.line, "second `#{prelude}`; only one @layer wrapper is allowed") if @layer_seen
@@ -201,10 +202,10 @@ module ColorTokens
     end
 
     def classify_rule(block, prelude, parent)
-      members = ColorCss.split_top_level(block.prelude).map(&:strip)
+      members = ColorCss.split_top_level(block.prelude).map { |m| ColorCss.strip_ws(m) }
       variants = members.map { |sel| selector_variant(sel) }
       if (bad = members.zip(variants).find { |_, v| v.nil? })
-        return error(block.line, "selector `#{bad[0].gsub(/\s+/, ' ')}` is not a token block; #{SELECTOR_HINT}")
+        return error(block.line, "selector `#{bad[0].gsub(ColorCss::WS_RUN, ' ')}` is not a token block; #{SELECTOR_HINT}")
       end
       if variants.uniq.size > 1
         return error(block.line, "selector list `#{prelude}` mixes light and dark; one variant per block")
@@ -250,9 +251,11 @@ module ColorTokens
 
     # Drops only syntactic spacing around [ ] = outside quoted strings, so
     # `[ data-theme = "dark" ]` compacts but `"d a r k"` and `da rk` keep theirs.
+    BRACKET_SPACE = /#{ColorCss::WS_SRC}*([\[\]=])#{ColorCss::WS_SRC}*/.freeze
+
     def compact_selector(selector)
-      selector.strip.split(QUOTED).each_with_index.map do |part, i|
-        i.odd? ? part : part.gsub(/\s*([\[\]=])\s*/, "\\1")
+      ColorCss.strip_ws(selector).split(QUOTED).each_with_index.map do |part, i|
+        i.odd? ? part : part.gsub(BRACKET_SPACE, "\\1")
       end.join
     end
 
@@ -269,7 +272,7 @@ module ColorTokens
           next
         when "[", "(" then depth += 1
         when "]", ")" then depth -= 1
-        when /[\s>+~]/ then return true if depth.zero?
+        when /[ \t\n\r\f>+~]/ then return true if depth.zero?
         end
         i += 1
       end
@@ -346,7 +349,7 @@ module ColorTokens
         end
 
         if authored?(value)
-          slot = (authored[color_key(value)] ||= { value: value.strip, names: [], line: entry[:line] })
+          slot = (authored[color_key(value)] ||= { value: ColorCss.strip_ws(value), names: [], line: entry[:line] })
           slot[:names] << name unless slot[:names].include?(name)
         elsif ColorCss.function_tokens(value).any? { |t| DERIVED_FUNCTIONS.include?(t.name) }
           derived += 1
@@ -406,7 +409,7 @@ module ColorTokens
     # folded: url(/A.png) contents, var(--Ink) names, strings and non-ASCII
     # code points are case-sensitive.
     def normalize(value)
-      ColorCss.downcase_keywords(ColorCss.canonical_idents(value.strip)).split(QUOTED).each_with_index.map do |part, i|
+      ColorCss.downcase_keywords(ColorCss.canonical_idents(ColorCss.strip_ws(value))).split(QUOTED).each_with_index.map do |part, i|
         i.odd? ? part : insignificant_space_dropped(part)
       end.join
     end
@@ -416,7 +419,7 @@ module ColorTokens
     # var(--ink), or rgb(0 , 0) and rgb(0,0), agree. Any other run of
     # whitespace separates tokens, so it collapses to one space but stays.
     def insignificant_space_dropped(text)
-      text.gsub(/\s+/, " ").gsub(/\( /, "(").gsub(/ \)/, ")").gsub(%r{ ?([,/]) ?}, "\\1")
+      text.gsub(ColorCss::WS_RUN, " ").gsub(/\( /, "(").gsub(/ \)/, ")").gsub(%r{ ?([,/]) ?}, "\\1")
     end
   end
 end

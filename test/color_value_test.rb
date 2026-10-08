@@ -884,4 +884,34 @@ class ColorValueTest < Minitest::Test
       assert_nil CV.send(:parse_var_ref, "var(#{ref})"), ref
     end
   end
+
+  # Keywords and function names fold ASCII case only: U+212A KELVIN SIGN and
+  # U+017F LONG S, which Ruby /i and String#downcase fold to k and s, leave
+  # a name CSS does not recognize.
+  def test_keywords_and_function_names_fold_ascii_case_only
+    assert_equal [ 0, 0, 0, 1.0 ], resolved("BLACK").to_h.values_at(:r, :g, :b, :a)
+    resolved("RGB(0 0 0)")
+    resolved("HSL(0 0% 0%)")
+    resolved("hsl(1TURN 0% 0%)")
+    assert_equal 0.0, resolved("TRANSPARENT").a
+    assert_equal "currentColor depends on the element", unresolved("CURRENTCOLOR")
+    unresolved("blac\u212A")
+    unresolved("h\u017Fl(0 0% 0%)")
+    unresolved("hsla(0 0% 0% / 1)".sub("s", "\u017F"))
+    refute CV.literal?("blac\u212A")
+    assert CV.literal?("BLACK")
+  end
+
+  # Only CSS whitespace (space, tab, LF, CR, FF) separates channels or is
+  # trimmed; U+000B is an ordinary delim, so it neither splits nor strips.
+  def test_only_css_whitespace_separates_and_trims
+    resolved("rgb(0\t0\n0)")
+    resolved("\f\r\n red \t")
+    unresolved("rgb(0\v0\v0)")
+    unresolved("rgb(0,\v0,0)")
+    unresolved("\vred")
+    unresolved("red\v")
+    unresolved("hsl(0\v0%\v0%)")
+    refute CV.literal?("\vred")
+  end
 end

@@ -513,4 +513,16 @@ class ColorCssTest < Minitest::Test
       "#\\66 ff" => "#fff"
     }.each { |text, canon| assert_equal canon, ColorCss.canonical_idents(text), text }
   end
+
+  # CSS whitespace is space, tab, LF, CR and FF only; U+000B is a delim, so
+  # "--a\v" is not the name --a and a trailing \v stays part of the value.
+  def test_whitespace_is_css_whitespace_only
+    assert_equal "red", decl(ColorCss.parse(":root{ \f--a\t:\r\nred\f }"), "--a").value
+    assert_nil decl(ColorCss.parse(":root{ --a\v: red }"), "--a")
+    assert_equal "red\v", decl(ColorCss.parse(":root{ --a: red\v }"), "--a").value
+    assert_equal "a\vb", ColorCss.strip_ws(" \t\na\vb\r\f")
+    assert_equal %W[a\vb c], ColorCss.split_ws(" a\vb \t c ")
+    assert_equal "a b\vc", ColorCss.collapse_ws(" a \n\t b\vc ")
+    assert_equal [ "x", true ], ColorCss.split_priority(" x !important\f")
+  end
 end
