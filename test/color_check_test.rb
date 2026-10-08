@@ -661,6 +661,33 @@ class ColorCheckTest < Minitest::Test
     assert_includes pair.reason, "cycle"
   end
 
+  # Every row of a variant shares one Resolver, so a var() chain many pairs
+  # reference is analyzed once per variant rather than once per pair. Only
+  # resolvers over the token declarations count; a literal check builds one
+  # over no declarations.
+  def test_contrast_builds_one_resolver_per_variant
+    chain = (1...50).map { |i| "--p#{i}: var(--p#{i - 1});" }.join(" ")
+    texts = (0...20).map { |i| "--c#{i}-text: var(--p49);" }.join(" ")
+    css = ":root { --background: #fff; --p0: #000; #{chain} #{texts} }\n" \
+          ".dark { --background: #000; --p0: #fff; }\n"
+    with_dir do |dir|
+      write(dir, "tokens.css", css)
+      built = 0
+      real_new = ColorValue::Resolver.method(:new)
+      ColorValue::Resolver.define_singleton_method(:new) do |*args|
+        built += 1 unless args.first.empty?
+        real_new.call(*args)
+      end
+      begin
+        report = ColorCheck.run(dir)
+      ensure
+        ColorValue::Resolver.singleton_class.remove_method(:new)
+      end
+      assert_equal 40, report.contrast.count { |c| c.ratio == 21.0 }
+      assert_equal 2, built
+    end
+  end
+
   # Thresholds compare the unrounded ratio; only the displayed value rounds.
   # Each case sits just under a threshold where round(2) would cross it.
   def test_status_uses_unrounded_ratio_at_each_threshold
