@@ -534,10 +534,29 @@ module ColorValue
     # spelled in deg, grad or turn share a key; rad involves pi and is inexact.
     return finite_or_nil(num * 180.0 / Math::PI)&.to_r if unit == "rad"
 
-    bounded_rational(m[1]) * HUE_SCALE.fetch(unit, 1)
+    exact_hue(m[1], HUE_SCALE.fetch(unit, 1))
   end
 
-  HUE_SCALE = { "grad" => Rational(9, 10), "turn" => 360 }.freeze
+  # Reduces a hue literal modulo a full turn exactly, without building the
+  # full power of ten, so 1e33deg and its expanded integer give one hue.
+  # The value is mantissa * 10**exp * scale; with scale = p/q, the
+  # numerator is reduced mod 360 * q and divided by q. A negative exponent
+  # leaves a value the existing bounded path already handles.
+  def exact_hue(number, scale)
+    m = number.match(/\A([+-]?)(\d*)\.?(\d*)(?:[eE]([+-]?\d+))?\z/)
+    return nil if m[4] && m[4].delete("+-").length > MAX_EXPONENT_DIGITS
+
+    exp = m[4].to_i - m[3].length
+    return bounded_rational(number) * scale if exp.negative?
+
+    mantissa = "#{m[1]}#{m[2]}#{m[3]}".to_i * scale.numerator
+    modulus = 360 * scale.denominator
+    Rational((mantissa % modulus) * 10.pow(exp, modulus) % modulus, scale.denominator)
+  end
+
+  MAX_EXPONENT_DIGITS = 18
+
+  HUE_SCALE = { "grad" => Rational(9, 10), "turn" => Rational(360) }.freeze
 
   # Saturation and lightness must be percentages; a bare number here is
   # invalid CSS, not a 0..1 fraction to guess at.

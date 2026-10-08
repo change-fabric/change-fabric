@@ -477,4 +477,18 @@ class ColorValueTest < Minitest::Test
     end
     assert_operator Process.clock_gettime(Process::CLOCK_MONOTONIC) - started, :<, 1.0
   end
+
+  def test_huge_hue_exponent_matches_expanded_integer_in_every_exact_unit
+    big = "1#{"0" * 33}"
+    {
+      "1e33deg" => "#{big}deg", "1e33" => big, "-1e33deg" => "-#{big}deg",
+      "1.5e33deg" => "15#{"0" * 32}deg", "-2.5e40deg" => "-25#{"0" * 39}deg",
+      "1e33grad" => "#{big}grad", "-3e35grad" => "-3#{"0" * 35}grad",
+      "1e33turn" => "#{big}turn", "7e40turn" => "7#{"0" * 40}turn"
+    }.each do |short, long|
+      assert_equal resolved("hsl(#{long} 100% 50%)").to_h, resolved("hsl(#{short} 100% 50%)").to_h, short
+    end
+    assert_equal resolved("hsl(280deg 100% 50%)").to_h, resolved("hsl(1e33deg 100% 50%)").to_h
+    unresolved("hsl(1e0000000000000000001deg 100% 50%)")
+  end
 end

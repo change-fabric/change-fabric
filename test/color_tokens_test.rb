@@ -248,6 +248,11 @@ class ColorTokensTest < Minitest::Test
     assert_equal "0.5rem", result.variants[:light]["--radius"]
   end
 
+  def test_derived_count_needs_a_function_token_boundary
+    result = ok(":root{--a:VAR(--x);--b:Color-Mix(in srgb, red, blue);--c:my-var(--x);--d:x-color-mix(red);--e:_var(--x)}")
+    assert_equal 2, result.derived
+  end
+
   def test_unresolved_literal_forms_are_not_authored
     %w[rgb(calc(1+2),0,0) rgba(none,0,0) hsl(calc(10deg),50%,50%) hsla(0,50%,50%,calc(1)) rgb(1,2) hsl(foo) rgb()].each do |v|
       result = ok(":root{--a:#000;--b:#111;--c:#222;--d:#333;--e:#{v}}")

@@ -293,7 +293,7 @@ module ColorTokens
         if authored?(value)
           slot = (authored[color_key(value)] ||= { value: value.strip, names: [], line: entry[:line] })
           slot[:names] << name unless slot[:names].include?(name)
-        elsif value.match?(/\b(?:color-mix|var)\(/i)
+        elsif value.match?(/(?<![-_a-zA-Z0-9\\])(?:color-mix|var)\(/i)
           derived += 1
         end
       end
