@@ -248,16 +248,17 @@ module ColorValue
   end
 
   # Composites a possibly translucent color over an opaque background.
+  # Channels stay fractional so contrast grading sees the exact composite.
   def flatten(rgba, over:)
     f = rgba.a
-    r = (rgba.r * f + over.r * (1 - f)).round.clamp(0, 255)
-    g = (rgba.g * f + over.g * (1 - f)).round.clamp(0, 255)
-    b = (rgba.b * f + over.b * (1 - f)).round.clamp(0, 255)
+    r = (rgba.r * f + over.r * (1 - f)).clamp(0, 255)
+    g = (rgba.g * f + over.g * (1 - f)).clamp(0, 255)
+    b = (rgba.b * f + over.b * (1 - f)).clamp(0, 255)
     Rgba.new(r:, g:, b:, a: 1.0)
   end
 
   def to_hex(rgba)
-    format('#%02x%02x%02x', rgba.r, rgba.g, rgba.b)
+    format('#%02x%02x%02x', *[ rgba.r, rgba.g, rgba.b ].map { |c| c.round.clamp(0, 255) })
   end
 
   def contrast_ratio(a, b)

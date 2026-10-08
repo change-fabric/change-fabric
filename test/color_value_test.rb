@@ -296,6 +296,18 @@ class ColorValueTest < Minitest::Test
     assert_rgba 255, 255, 255, CV.flatten(CV::Rgba.new(r: 10, g: 20, b: 30, a: 0.0), over: CV::WHITE)
   end
 
+  def test_flatten_keeps_fractional_channels_for_contrast
+    # Each translucent variant composites to a non-integer channel; rounding
+    # it would move the ratio across a grading threshold.
+    [ [ 0.4172, 148.614 ], [ 0.5, 127.5 ], [ 0.333, 170.085 ] ].each do |alpha, channel|
+      flat = CV.flatten(CV::Rgba.new(r: 0, g: 0, b: 0, a: alpha), over: CV::WHITE)
+      [ flat.r, flat.g, flat.b ].each { |c| assert_in_delta channel, c, 1e-9 }
+    end
+    flat = CV.flatten(CV::Rgba.new(r: 0, g: 0, b: 0, a: 0.4172), over: CV::WHITE)
+    assert_operator CV.contrast_ratio(flat, CV::WHITE), :>=, 3.0
+    assert_equal "#959595", CV.to_hex(flat)
+  end
+
   def test_to_hex_is_lowercase_opaque_hex
     assert_equal "#ff0000", CV.to_hex(CV::Rgba.new(r: 255, g: 0, b: 0, a: 1.0))
   end
