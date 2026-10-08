@@ -324,6 +324,10 @@ class ColorTokensTest < Minitest::Test
     assert_equal "#000", ok(":root{--a:#000 !important}").variants[:light]["--a"]
   end
 
+  def test_escaped_important_is_dropped_from_the_value
+    assert_equal "#000", ok(":root{--a:#000 !\\69mportant}").variants[:light]["--a"]
+  end
+
   # --- values -------------------------------------------------------------------
 
   def test_authored_derived_and_non_color_values

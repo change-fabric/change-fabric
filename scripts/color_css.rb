@@ -39,7 +39,6 @@ module ColorCss
   CUSTOM_NAME_SRC = /--(?:[\w\u0080-\u{10FFFF}-]|#{ESCAPE})+/.freeze
   DECL_NAME = /\A(\s*)(#{CUSTOM_NAME_SRC}|\$[\w-]+|@[\w-]+|-?[A-Za-z][\w-]*)(\s*):(.*)\z/m.freeze
   AT_RULE_STMT = /\A(\s*)(@[\w-]+)(\s*)(.*)\z/m.freeze
-  IMPORTANT = /\A(.*?)\s*!\s*important\s*\z/mi.freeze
   ESCAPE_AT = /\G#{ESCAPE}/.freeze
   # A code point that continues an ident, number or at-keyword token; a
   # backslash starts an escape, which does too.
@@ -257,6 +256,55 @@ module ColorCss
     return nil unless start && text[start, 2] == "--"
 
     custom_property_name(text[start...skip_ident_run(text, start)])
+  end
+
+  # A declaration value split from its priority suffix, as [value,
+  # important]. The suffix is found by tokens, as CSS Syntax 3 5.4.6 does:
+  # at top level (no unclosed parenthesis), the last two significant tokens
+  # outside strings and comments are a "!" delim and an ident whose decoded value is
+  # "important", ASCII case-insensitive, so !\69mportant, !IMPORTANT and
+  # ! /* note */ important all count, while an escaped \! (part of an
+  # ident), a quoted "!important" or one inside a function does not. value
+  # is the text before the "!", stripped.
+  def split_priority(text)
+    text = text.to_s
+    bang = nil
+    last = nil
+    depth = 0
+    i = 0
+    while i < text.length
+      ch = text[i]
+      if text[i, 2] == "/*"
+        close = text.index("*/", i + 2)
+        i = close ? close + 2 : text.length
+        next
+      elsif ch.match?(/\s/)
+        i += 1
+        next
+      end
+
+      prev = last
+      if ch == '"' || ch == "'"
+        j = skip_string(text, i)
+        last = [ :other, i ]
+      elsif ident_char_at?(text, i)
+        j = skip_ident_run(text, i)
+        last = [ :ident, i, j ]
+      else
+        j = i + 1
+        depth += 1 if ch == "("
+        depth -= 1 if ch == ")" && depth.positive?
+        last = [ ch == "!" ? :bang : :other, i ]
+      end
+      bang = prev && prev[0] == :bang ? prev[1] : nil
+      i = j
+    end
+    return [ text.strip, false ] unless bang && depth.zero? && last[0] == :ident
+
+    run = text[last[1]...last[2]]
+    return [ text.strip, false ] unless ident_start?(run) && decode_ident(run).downcase(:ascii) == "important"
+
+    [ text[0...bang].strip, true ]
   end
 
   # An identifier run's value: each escape replaced by its code point.
@@ -543,12 +591,7 @@ module ColorCss
       name_line = @segment_start_line + leading_ws.count("\n")
       name = ColorCss.custom_property_name(name) if name.start_with?("--")
 
-      raw_value = rest.strip
-      important = false
-      if (im = IMPORTANT.match(raw_value))
-        raw_value = im[1].strip
-        important = true
-      end
+      raw_value, important = ColorCss.split_priority(rest)
 
       _selectors, block_id = current_context
       @decls << Decl.new(name:, value: raw_value, important:, line: name_line, block_id:)

@@ -99,6 +99,25 @@ class ColorCssTest < Minitest::Test
     assert d.important
   end
 
+  def test_important_is_found_by_its_decoded_token
+    [ "#fff !\\69mportant", "#fff !IMPORTANT", "#fff !\\49 MPORTANT", "#fff!important",
+      "#fff ! /* note */ important", "#fff !/**/\\69 mportant" ].each do |value|
+      d = decl(ColorCss.parse(":root { --bg: #{value}; }"), "--bg")
+      assert_equal "#fff", d.value, value
+      assert d.important, value
+    end
+  end
+
+  def test_priority_lookalikes_stay_in_the_value
+    [ "\"a !important\"", "'!important'", "a \\!important", "f(a !important)",
+      "#fff !importantx", "#fff !-important", "#fff important", "#fff !important x" ].each do |value|
+      d = decl(ColorCss.parse(":root { --bg: #{value}; }"), "--bg")
+      refute d.important, value
+      assert_equal value, d.value, value
+    end
+    assert_equal [ "f(!important", false ], ColorCss.split_priority("f(!important")
+  end
+
   def test_selector_list_splits_only_at_top_level_for_blocks
     sheet = ColorCss.parse(":is(a, b), c { color: red; }")
     assert_equal ":is(a, b), c", sheet.blocks.first.prelude
