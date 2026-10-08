@@ -202,21 +202,22 @@ module ColorTokens
       end
     end
 
-    # @theme options that still emit every variable. reference emits none,
-    # so its values never reach the page.
-    THEME_OPTIONS = %w[static inline].freeze
+    # @theme options that still emit every variable. default only lets a
+    # later theme value replace its own, and one block has no other.
+    # reference emits none, so its values never reach the page.
+    THEME_OPTIONS = %w[static inline default].freeze
 
     # One @theme block, light. Tailwind emits every @theme block's variables
     # together at the first block's position, so a second block would sit
     # in the cascade somewhere other than where it is written: an error, as
-    # is an option other than static or inline.
+    # is an option other than static, inline or default.
     def theme(block, prelude, canonical)
       return error(block.line, "second `#{prelude}`; only one @theme block is allowed, since Tailwind " \
                                "emits every @theme at the first one's position") if @theme_seen
 
       options = ColorCss.strip_ws(canonical.sub(AT_NAME, "")).split(ColorCss::WS_RUN)
       if (bad = options.find { |o| !THEME_OPTIONS.include?(o.downcase(:ascii)) })
-        return error(block.line, "`#{prelude}` has option `#{bad}`; only static and inline emit the " \
+        return error(block.line, "`#{prelude}` has option `#{bad}`; only static, inline and default emit the " \
                                  "variables (reference emits none)")
       end
 

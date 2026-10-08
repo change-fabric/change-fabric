@@ -179,9 +179,10 @@ class ColorTokensTest < Minitest::Test
 
   # Tailwind emits every @theme block's variables at the first block's
   # position, and @theme reference emits none, so a second block or any
-  # option but static and inline is an error.
+  # option but static, inline and default is an error.
   def test_theme_block_is_single_and_emitting
-    [ "@theme static", "@theme inline", "@theme INLINE static", "@layer x { @theme" ].each do |open|
+    [ "@theme static", "@theme inline", "@theme INLINE static", "@theme default", "@theme Default inline",
+      "@layer x { @theme" ].each do |open|
       css = "#{open} { --a: #000; }#{open.include?('{') ? ' }' : ''}"
       assert_equal({ "--a" => "#000" }, ok(css).variants[:light], open)
     end
