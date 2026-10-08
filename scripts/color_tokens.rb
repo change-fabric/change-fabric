@@ -310,7 +310,15 @@ module ColorTokens
       color = authored?(value) && ColorValue.resolve(value, {}).color
       return normalize(value) unless color
 
-      [ color.r.round, color.g.round, color.b.round, color.a ]
+      [ color.r, color.g, color.b ].map { |c| channel_key(c) } << color.a
+    end
+
+    # Channels stay fractional (rgb(0.1 0 0) and rgb(0.2 0 0) are distinct
+    # colors), but integer hex channels and float noise from percentage or
+    # hsl() math must not split equal spellings: key on a Float rounded far
+    # below any authorable difference, with -0.0 folded into 0.0.
+    def channel_key(channel)
+      channel.to_f.round(6) + 0.0
     end
 
     # Case-sensitive spans CSS keeps verbatim: quoted strings (whose case and
