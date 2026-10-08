@@ -406,7 +406,7 @@ module ColorTokens
       end
 
       prior = table[decl.name]
-      if prior && color_key(prior[:value]) != color_key(decl.value)
+      if prior && !same_value?(prior[:value], decl.value)
         return error(decl.line, "`#{decl.name}` is declared twice in #{kind} with different values " \
                                 "(line #{prior[:line]}: #{prior[:value]}; here: #{decl.value})")
       end
@@ -559,22 +559,46 @@ module ColorTokens
       ColorValue.literal?(value) && !ColorValue.resolve(value, {}).color.nil?
     end
 
-    # Equivalent spellings (#fff, white, rgb(255 255 255), transparent and
-    # TRANSPARENT) share one key: the resolved RGBA whenever the value names
-    # a supported color on its own, whether or not it counts toward the
-    # palette (authored?), else its normalized text.
     # Whether two table values (nil when the name is absent) are the same
-    # value under color_key.
+    # CSS value in every grammar a token may be substituted into. A value
+    # that is one identifier compares exactly (a CSS-wide keyword ASCII
+    # case-insensitively): blue, BLUE and #00f are one color but distinct
+    # animation-name values. Any other value matches on its canonical token
+    # sequence (normalize), or on the color it names, since a hash or color
+    # function is only valid where a color is (#FFF, #fff, rgb(255 255 255)).
     def same_value?(one, other)
       return one.nil? && other.nil? if one.nil? || other.nil?
 
-      color_key(one) == color_key(other)
+      exact = [ one, other ].map { |v| whole_ident(v) }
+      return exact.first == exact.last if exact.any?
+      return true if normalize(one) == normalize(other)
+
+      colors = [ one, other ].map { |v| standalone_color(v) }
+      colors.none?(&:nil?) && colors.map { |c| color_key_of(c) }.uniq.size == 1
     end
+
+    WHOLE_IDENT = /\A#{ColorCss::IDENT_SRC}\z/.freeze
+
+    # The identifier a whole value is, escapes canonicalized, or nil; a
+    # CSS-wide keyword is ASCII-lowercased.
+    def whole_ident(value)
+      text = ColorCss.canonical_idents(ColorCss.strip_ws(value))
+      return nil unless WHOLE_IDENT.match?(text)
+
+      ColorValue::CSS_WIDE_KEYWORDS.include?(text.downcase(:ascii)) ? text.downcase(:ascii) : text
+    end
+
+    # Equivalent color spellings (#fff, white, rgb(255 255 255), transparent
+    # and TRANSPARENT) share one palette key: the resolved RGBA whenever the
+    # value names a supported color on its own, whether or not it counts
+    # toward the palette (authored?), else its normalized text.
 
     def color_key(value)
       color = standalone_color(value)
-      return normalize(value) unless color
+      color ? color_key_of(color) : normalize(value)
+    end
 
+    def color_key_of(color)
       [ color.r, color.g, color.b, color.a ].map { |c| channel_key(c) }
     end
 

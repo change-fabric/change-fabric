@@ -148,7 +148,11 @@ Accepted shape:
   an unlayered value beats one inside the `@layer` wrapper, so a layered dark
   override does not replace an unlayered light value; for `!important` ones
   the order reverses. At equal rank dark wins. An equal-valued redeclaration
-  keeps its highest-ranked origin.
+  keeps its highest-ranked origin. Values are equal when their tokens are,
+  or when both are hex or color-function spellings of one color (`#FFF`,
+  `#fff`, `rgb(255 255 255)`); a bare identifier such as `white` or `RED`
+  compares exactly, since it may also be read as a name (an animation
+  name), so `--a: white` then `--a: #fff` is a conflicting redeclaration.
 
 ### Supported values
 

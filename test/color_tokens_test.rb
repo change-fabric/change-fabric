@@ -386,13 +386,15 @@ class ColorTokensTest < Minitest::Test
     assert_error(":root{--a:;--a:red}", "`--a` is declared twice")
   end
 
+  # Hex and color-function spellings of one color fold, since either is
+  # valid only where a color is. CSS-wide keywords fold case. A color
+  # keyword is an identifier that may also reach a case-sensitive
+  # <custom-ident> (animation-name: var(--a)), so it compares exactly.
   def test_redeclaration_folds_keyword_and_color_spellings
     [
-      [ "transparent", "TRANSPARENT" ],
-      [ "Transparent", "rgb(0 0 0 / 0)" ],
-      [ "red", "RED" ],
-      [ "BLUE", "#00f" ],
-      [ "currentColor", "CURRENTCOLOR" ],
+      [ "#FFF", "#fff" ],
+      [ "#00f", "rgb(0 0 255)" ],
+      [ "rgb(0 0 0 / 0)", "#0000" ],
       [ "INHERIT", "inherit" ],
       [ "Unset", "unset" ],
       [ "color-mix(in SRGB, var(--x) 50%, #fff)", "color-mix(in srgb, var(--x) 50%, #fff)" ],
@@ -407,6 +409,12 @@ class ColorTokensTest < Minitest::Test
       ok(":root{--a:#000}\n.dark{--a:#{a}}\n@media (prefers-color-scheme: dark){:root{--a:#{b}}}")
     end
     [
+      [ "transparent", "TRANSPARENT" ],
+      [ "Transparent", "rgb(0 0 0 / 0)" ],
+      [ "red", "RED" ],
+      [ "BLUE", "#00f" ],
+      [ "blue", "#00f" ],
+      [ "currentColor", "CURRENTCOLOR" ],
       [ "var(--Ink)", "var(--ink)" ],
       [ "var(--x, red)", "red" ],
       [ "var(--x, transparent)", "transparent" ],
@@ -439,8 +447,8 @@ class ColorTokensTest < Minitest::Test
       assert_error(":root{--a:#000}\n@media (prefers-color-scheme: light){:root{--a:#{a}}}\n" \
                    "@media (prefers-color-scheme: light){:root{--a:#{b}}}", "`--a` is declared twice in light")
     end
+    assert_error(":root{--animation:RED}\n:root{--animation:red}", "`--animation` is declared twice in light")
     [
-      [ "RED", "red" ],
       [ "RGB(0 0 0)", "rgb(0 0 0)" ],
       [ "10DEG", "10deg" ],
       [ "1E3PX", "1e3px" ],
@@ -452,9 +460,10 @@ class ColorTokensTest < Minitest::Test
   end
 
   # A redeclaration compares token by token. A bare identifier folds only
-  # when the whole value is one color (or one CSS-wide keyword) or the
-  # identifier is a color function's argument: anywhere else a color name
-  # may reach a case-sensitive <custom-ident> (`1s RED` names keyframes).
+  # when the whole value is one CSS-wide keyword or the identifier is a
+  # color function's argument: anywhere else, a whole-value color name
+  # included, it may reach a case-sensitive <custom-ident> (`1s RED` and
+  # `RED` name keyframes).
   # Strings compare by their decoded value, whatever the quoting.
   def test_redeclaration_compares_canonical_tokens
     [
@@ -486,7 +495,7 @@ class ColorTokensTest < Minitest::Test
       [ "oklch(from RED l c NONE)", "oklch(from red l c none)" ],
       [ "color-mix(in srgb, RED 50%, CurrentColor)", "color-mix(in srgb, red 50%, currentcolor)" ],
       [ "INHERIT", "inherit" ],
-      [ "\\52 ED", "red" ]
+      [ "\\72 ed", "red" ]
     ].each { |a, b| ok(":root{--a:#{a}}\n:root{--a:#{b}}") }
   end
 
@@ -860,12 +869,12 @@ class ColorTokensTest < Minitest::Test
   end
 
   # An equal-valued redeclaration keeps its latest, most specific copy: a
-  # later :root{--a:white} beats an earlier .dark, and a later equal-valued
+  # later :root{--a:rgb(255 255 255)} beats an earlier .dark, and a later equal-valued
   # dark copy wins back.
   def test_equal_valued_redeclaration_keeps_latest_source_order
-    assert_equal "#fff", ok(":root{--a:#fff}\n.dark{--a:#000}\n:root{--a:white}").variants[:dark]["--a"]
-    assert_equal "#000", ok(":root{--a:#fff}\n.dark{--a:#000}\n:root{--a:white}\n.dark{--a:black}").variants[:dark]["--a"]
-    assert_equal "#000", ok(":root.dark{--a:#000}\n:root{--a:#fff}\n.dark{--a:black}").variants[:dark]["--a"]
+    assert_equal "#fff", ok(":root{--a:#fff}\n.dark{--a:#000}\n:root{--a:rgb(255 255 255)}").variants[:dark]["--a"]
+    assert_equal "#000", ok(":root{--a:#fff}\n.dark{--a:#000}\n:root{--a:rgb(255 255 255)}\n.dark{--a:rgb(0 0 0)}").variants[:dark]["--a"]
+    assert_equal "#000", ok(":root.dark{--a:#000}\n:root{--a:#fff}\n.dark{--a:rgb(0 0 0)}").variants[:dark]["--a"]
   end
 
   # A dark declaration replaces light only where the cascade lets it: a
@@ -891,7 +900,7 @@ class ColorTokensTest < Minitest::Test
         assert_equal expected, ok(css).variants[:dark]["--a"], css
       end
     end
-    css = ":root{--a:#fff;--a:white !important}\n.dark{--a:#000}"
+    css = ":root{--a:#fff;--a:rgb(255 255 255) !important}\n.dark{--a:#000}"
     assert_equal "#fff", ok(css).variants[:dark]["--a"], css
   end
 
@@ -931,9 +940,9 @@ class ColorTokensTest < Minitest::Test
   # ranked one: an unlayered normal light redeclaration of a layered light
   # value outranks a layered dark override.
   def test_equal_valued_redeclaration_keeps_highest_layer_origin
-    css = "@layer base{:root{--a:#fff}\n.dark{--a:#000}}\n:root{--a:white}"
+    css = "@layer base{:root{--a:#fff}\n.dark{--a:#000}}\n:root{--a:rgb(255 255 255)}"
     assert_equal "#fff", ok(css).variants[:dark]["--a"], css
-    css = "@layer base{:root{--a:#fff}\n.dark{--a:#000}}\n.dark{--a:black}"
+    css = "@layer base{:root{--a:#fff}\n.dark{--a:#000}}\n.dark{--a:rgb(0 0 0)}"
     assert_equal "#000", ok(css).variants[:dark]["--a"], css
   end
 
