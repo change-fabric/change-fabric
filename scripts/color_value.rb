@@ -197,15 +197,23 @@ module ColorValue
   # return: a value whose var() dependency graph reaches a property already
   # being resolved puts that property in a cycle, whatever else the value
   # holds (color-mix(), oklch(), a nested fallback).
+  #
+  # One Resolver serves the whole call: it builds the var() dependency graph
+  # lazily, finds cyclic properties with one Tarjan pass, and memoizes each
+  # property's result, so a long chain of references costs linear time and
+  # no deep Ruby recursion.
   def resolve(value, decls, seen: Set.new)
-    hit = dependency_closure(value, decls).find { |dep| seen.include?(dep) }
-    return cycle_result(hit) if hit
+    Resolver.new(decls).resolve(value, seen)
+  end
 
+  # The body of resolve once the cycle check has passed: value is parsed as
+  # a color, and a whole-value var() is handed back to resolver.
+  def resolve_with(value, resolver)
     v, escape_reason = ColorCss.decode_value_escapes(value.to_s.strip)
     return Result.new(color: nil, reason: escape_reason) if escape_reason
 
     v = v.strip
-    return Result.new(color: nil, reason: 'unrecognized color value: ') if v.empty?
+    return Result.new(color: nil, reason: EMPTY_REASON) if v.empty?
 
     return hex_result(v) if v.match?(/\A#(?:\h{8}|\h{6}|\h{4}|\h{3})\z/)
 
@@ -224,7 +232,7 @@ module ColorValue
       return Result.new(color: Rgba.new(r: rgb[0], g: rgb[1], b: rgb[2], a: 1.0), reason: nil)
     end
 
-    return resolve_var(v, decls, seen) if v.match?(/\Avar\(/i)
+    return resolver.resolve_var(v) if v.match?(/\Avar\(/i)
 
     return Result.new(color: nil, reason: 'currentColor depends on the element') if v.match?(/\AcurrentColor\z/i)
     return Result.new(color: nil, reason: 'light-dark() is not supported') if v.match?(/\Alight-dark\(/i)
@@ -307,8 +315,10 @@ module ColorValue
   end
 
   # Parses the inside of a var(...) call into [name, fallback], or nil when
-  # text is not a well-formed var() reference. fallback is nil when absent or
-  # blank.
+  # text is not a well-formed var() reference. fallback is nil only when
+  # there is no comma at all; a comma followed by nothing (or whitespace) is
+  # an empty fallback, "", which CSS treats as a valid empty token sequence,
+  # not as an absent fallback.
   def parse_var_ref(text)
     m = text.match(/\Avar\(\s*(.*)\)\z/im)
     return nil unless m
@@ -316,10 +326,17 @@ module ColorValue
     # several references in a row (var(--r) var(--g)) is not one reference.
     return nil unless matching_paren(text, 3) == text.length - 1
 
-    parts = ColorCss.split_top_level(m[1])
+    var_arguments(m[1])
+  end
+
+  # The [name, fallback] of one var() call's argument text, or nil when the
+  # first argument is not a custom-property name. The one place that splits
+  # name from fallback, so parse_var_ref and Resolver#substitution_fails?
+  # agree on what an empty fallback is (see parse_var_ref).
+  def var_arguments(args)
+    parts = ColorCss.split_top_level(args)
     name = parts[0] && ColorCss.custom_property_name(parts[0].strip)
-    fallback = parts.size > 1 ? parts[1..].join(',').strip : nil
-    fallback = nil if fallback && fallback.empty?
+    fallback = parts.size > 1 ? parts[1..].join(",").strip : nil
 
     # Only a custom-property name (the same --name grammar ColorCss parses
     # declarations with) is a reference; var(foo), var(), var(-x) and
@@ -329,36 +346,7 @@ module ColorValue
     [ name, fallback ]
   end
 
-  # A custom property that is part of a var() dependency cycle is
-  # guaranteed-invalid at computed-value time per CSS Variables. resolve has
-  # already ruled out a cycle through the referencing property (its own
-  # fallback included), so a cycle reached here contains only the referenced
-  # property: that property is invalid, and the referencing var()'s fallback
-  # applies. The check reads the referenced declaration's whole dependency
-  # graph, so a cycle hidden inside color-mix() or another unsupported
-  # function is found before that function's unresolved reason is returned.
-  # A fallback also rescues an undefined name, and a defined name whose value
-  # computes to the guaranteed-invalid value (see guaranteed_invalid?).
-  def resolve_var(v, decls, seen)
-    ref = parse_var_ref(v)
-    return Result.new(color: nil, reason: "unrecognized color value: #{v[0, 40]}") unless ref
-
-    name, fallback = ref
-    if decls.key?(name)
-      if dependency_closure(decls[name], decls).include?(name)
-        return fallback ? resolve(fallback, decls, seen:) : cycle_result(name)
-      end
-
-      result = resolve(decls[name], decls, seen: seen + [ name ])
-      return result unless fallback && result.color.nil? && guaranteed_invalid?(result.reason, seen)
-
-      return resolve(fallback, decls, seen:)
-    end
-
-    return Result.new(color: nil, reason: "#{name} is not defined in this theme") unless fallback
-
-    resolve(fallback, decls, seen:)
-  end
+  EMPTY_REASON = "empty value is not a color"
 
   def cycle_result(name)
     Result.new(color: nil, reason: "var() cycle through #{name}")
@@ -368,12 +356,28 @@ module ColorValue
   # declarations, in depth-first order. A var() anywhere counts (inside an
   # unused fallback, color-mix(), oklch() or any other function), per the
   # CSS Variables cycle rules. An undefined name is listed but not followed.
+  # Iterative, so a long chain of references cannot overflow the stack.
   def dependency_closure(text, decls, found = [])
-    var_dependencies(text).each do |dep|
-      next if found.include?(dep)
+    walk_dependencies(var_dependencies(text), found) { |dep| decls.key?(dep) ? var_dependencies(decls[dep]) : [] }
+  end
+
+  # Depth-first preorder walk from roots, appending each newly reached name
+  # to found; the block returns a name's own dependencies.
+  def walk_dependencies(roots, found = [])
+    listed = found.to_set
+    stack = [ [ roots, 0 ] ]
+    until stack.empty?
+      frame = stack.last
+      if frame[1] >= frame[0].size
+        stack.pop
+        next
+      end
+      dep = frame[0][frame[1]]
+      frame[1] += 1
+      next unless listed.add?(dep)
 
       found << dep
-      dependency_closure(decls[dep], decls, found) if decls.key?(dep)
+      stack << [ yield(dep), 0 ]
     end
     found
   end
@@ -391,16 +395,177 @@ module ColorValue
     end
   end
 
-  # True when a failed substitution left the referenced property with the
-  # guaranteed-invalid value (an undefined name with no fallback, or a cycle
-  # the current reference is not itself part of), so the referencing var()'s
-  # own fallback applies. A cycle through a name already in seen means the
-  # referencing property is inside the cycle and stays invalid.
-  def guaranteed_invalid?(reason, seen)
-    return true if reason.to_s.end_with?(' is not defined in this theme')
+  # One resolution context over a decls Hash: the var() dependency graph,
+  # the set of cyclic properties, which properties compute to the
+  # guaranteed-invalid value, and each property's resolved Result, all
+  # computed at most once and only for properties the resolution reaches.
+  #
+  # Per CSS Variables, a custom property is guaranteed-invalid at
+  # computed-value time when it is part of a var() cycle, or when its value
+  # substitutes a var() whose property is undefined or guaranteed-invalid
+  # and that var() has no fallback (or a fallback that itself fails). A
+  # property whose value is empty, or substitutes an empty fallback, is
+  # defined: its value is the empty token sequence, so a var() referencing
+  # it takes that empty value and never its own fallback.
+  class Resolver
+    def initialize(decls)
+      @decls = decls
+      @deps = {}
+      @results = {}
+      @fails = {}
+      @index = {}
+      @low = {}
+      @edges = {}
+      @cyclic = Set.new
+    end
 
-    m = reason.to_s.match(/\Avar\(\) cycle through (\S+)\z/)
-    !m.nil? && !seen.include?(m[1])
+    # A value whose var() dependency graph reaches a property already being
+    # resolved (seen) puts that property in a cycle, whatever else the
+    # value holds (color-mix(), oklch(), a nested fallback). Only this root
+    # check needs seen: every property resolved below it is reached from
+    # value and is not cyclic, so it can never reach a seen name, and its
+    # result does not depend on seen, which is what makes it memoizable.
+    def resolve(value, seen)
+      roots = ColorValue.var_dependencies(value)
+      hit = ColorValue.walk_dependencies(roots) { |dep| deps(dep) }.find { |dep| seen.include?(dep) }
+      return ColorValue.cycle_result(hit) if hit
+
+      ColorValue.resolve_with(value, self)
+    end
+
+    # A cyclic referenced property is invalid and the var()'s fallback
+    # applies (resolve has already ruled out a cycle through the referencing
+    # property). An undefined name, or a defined one that computes to the
+    # guaranteed-invalid value, is rescued by a fallback too, even an empty
+    # one; any other defined property is substituted as it is, empty value
+    # included, and the fallback is ignored.
+    def resolve_var(v)
+      ref = ColorValue.parse_var_ref(v)
+      return Result.new(color: nil, reason: "unrecognized color value: #{v[0, 40]}") unless ref
+
+      name, fallback = ref
+      return property(name) if @decls.key?(name) && !fails?(name)
+      return ColorValue.resolve_with(fallback, self) if fallback
+      return Result.new(color: nil, reason: "#{name} is not defined in this theme") unless @decls.key?(name)
+      return ColorValue.cycle_result(name) if cyclic?(name)
+
+      property(name)
+    end
+
+    # True when var(name) with no fallback fails: name is undefined, cyclic,
+    # or its value substitutes a failing var(). Computed in dependency
+    # post-order with an explicit stack; the non-cyclic part of the graph is
+    # acyclic, so every dependency is settled before its dependent.
+    def fails?(name)
+      stack = [ [ name, false ] ]
+      until stack.empty?
+        n, expanded = stack.pop
+        next if @fails.key?(n)
+
+        if !@decls.key?(n) || cyclic?(n)
+          @fails[n] = true
+        elsif expanded
+          @fails[n] = substitution_fails?(@decls[n].to_s)
+        else
+          stack << [ n, true ]
+          deps(n).each { |d| stack << [ d, false ] unless @fails.key?(d) }
+        end
+      end
+      @fails[name]
+    end
+
+    def cyclic?(name)
+      tarjan(name) if @decls.key?(name) && !@index.key?(name)
+      @cyclic.include?(name)
+    end
+
+    # The var() dependencies of a defined property, or none for an undefined
+    # one.
+    def deps(name)
+      @deps[name] ||= @decls.key?(name) ? ColorValue.var_dependencies(@decls[name]) : []
+    end
+
+    private
+
+    # A defined, non-cyclic property's Result, memoized. A run of whole-value
+    # references (--a: var(--b); --b: var(--c); ...) is resolved from its far
+    # end first, so each step finds the next one already memoized and the
+    # Ruby stack stays shallow however long the chain is.
+    def property(name)
+      chain = [ name ]
+      while (nxt = whole_value_ref(chain.last)) && !@results.key?(nxt) && @decls.key?(nxt) && !fails?(nxt)
+        chain << nxt
+      end
+      chain.reverse_each { |n| @results[n] ||= ColorValue.resolve_with(@decls[n], self) }
+      @results[name]
+    end
+
+    def whole_value_ref(name)
+      v = ColorCss.decode_value_escapes(@decls[name].to_s.strip).first&.strip
+      v&.match?(/\Avar\(/i) && ColorValue.parse_var_ref(v)&.first
+    end
+
+    # True when substituting every var() in text fails: a var() whose name
+    # fails (see fails?) with no fallback, or with a fallback that itself
+    # fails. A var() nested in another's fallback is only reached through
+    # that fallback. An empty fallback substitutes nothing and never fails.
+    def substitution_fails?(text)
+      covered = -1
+      ColorCss.function_tokens(text).each do |t|
+        next unless t.name == "var" && t.start > covered
+
+        covered = ColorValue.matching_paren(text, t.open) || text.length
+        ref = ColorValue.var_arguments(text[(t.open + 1)...covered])
+        return true unless ref
+        next unless fails?(ref[0])
+        return true if ref[1].nil? || substitution_fails?(ref[1])
+      end
+      false
+    end
+
+    # Iterative Tarjan strongly-connected-components pass from root over
+    # defined properties; a component of two or more, or one property that
+    # references itself, is a cycle. Every property it visits is settled.
+    def tarjan(root)
+      open = []
+      on_open = Set.new
+      work = []
+      enter = lambda do |n|
+        @index[n] = @low[n] = @index.size
+        open << n
+        on_open << n
+        work << [ n, 0 ]
+      end
+      enter.call(root)
+      until work.empty?
+        frame = work.last
+        node = frame[0]
+        edges = (@edges[node] ||= deps(node).select { |d| @decls.key?(d) })
+        if frame[1] < edges.size
+          nxt = edges[frame[1]]
+          frame[1] += 1
+          if !@index.key?(nxt)
+            enter.call(nxt)
+          elsif on_open.include?(nxt)
+            @low[node] = [ @low[node], @index[nxt] ].min
+          end
+          next
+        end
+
+        work.pop
+        @low[work.last[0]] = [ @low[work.last[0]], @low[node] ].min unless work.empty?
+        next unless @low[node] == @index[node]
+
+        component = []
+        loop do
+          n = open.pop
+          on_open.delete(n)
+          component << n
+          break if n == node
+        end
+        @cyclic.merge(component) if component.size > 1 || edges.include?(node)
+      end
+    end
   end
 
   # Finds the paren closing the one at open_idx, skipping any paren inside a

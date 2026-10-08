@@ -324,6 +324,73 @@ class ColorValueTest < Minitest::Test
     assert_equal "var() cycle through --page-text", reason
   end
 
+  # A comma with nothing (or only whitespace) after it is an empty
+  # fallback, not an absent one: the empty token sequence is a valid value,
+  # so a property that is empty or substitutes an empty fallback is
+  # defined, and a var() referencing it takes the empty value (not a
+  # color), never its own fallback.
+  def test_empty_fallback_is_defined_not_guaranteed_invalid
+    assert_equal [ "--x", nil ], CV.parse_var_ref("var(--x)")
+    [ "var(--x,)", "var(--x, )", "var(--x,\n\t )" ].each do |v|
+      assert_equal [ "--x", "" ], CV.parse_var_ref(v), v
+    end
+    empty_values = [ "", "   ", "var(--missing,)", "var(--missing, )", "var(--m1, var(--m2,))",
+                     "var(--mid)", "var(--empty-fb, #000)" ]
+    empty_values.each do |value|
+      decls = { "--a" => value, "--mid" => "var(--missing,)", "--empty-fb" => "var(--missing,)",
+                "--page-text" => "var(--a, white)" }
+      reason = CV.resolve(decls["--page-text"], decls, seen: Set["--page-text"]).reason
+      assert_equal CV::EMPTY_REASON, reason, value
+      assert_equal CV::EMPTY_REASON, unresolved("var(--a, white)", decls), value
+    end
+    assert_equal CV::EMPTY_REASON, unresolved("var(--missing,)")
+    assert_equal CV::EMPTY_REASON, unresolved("var(--missing, var(--also-missing, ))")
+    assert_rgba 0, 0, 0, resolved("var(--x,)", { "--x" => "#000" })
+    assert_rgba 0, 0, 0, resolved("var(--x, )", { "--x" => "var(--y,)", "--y" => "#000" })
+    # No comma at all is still no fallback: the property is guaranteed-invalid
+    # and the outer fallback applies.
+    assert_rgba 255, 255, 255, resolved("var(--a, white)", { "--a" => "var(--missing)" })
+  end
+
+  # Whether a referenced property is guaranteed-invalid is decided by the
+  # var() substitutions in its value, wherever they sit, not by the reason
+  # its value fails to be a color: a failing var() inside a function makes
+  # the property invalid (so the outer fallback applies), and one rescued by
+  # a fallback, empty or not, leaves it valid (so it does not).
+  def test_guaranteed_invalid_is_decided_by_substitution_not_reason
+    { "rgb(var(--missing) 0 0)" => true, "color-mix(in srgb, red, var(--m, var(--n)))" => true,
+      "var(foo)" => true, "rgb(var(--missing,) 0 0)" => false, "rgb(var(--missing, 1) 0 0)" => false,
+      "notacolor" => false }.each do |value, invalid|
+      result = CV.resolve("var(--bad, #000)", { "--bad" => value })
+      if invalid
+        assert_rgba 0, 0, 0, result.color
+      else
+        assert_nil result.color, value
+      end
+    end
+  end
+
+  # One resolution builds the dependency graph and finds cycles once, and
+  # walks a long chain without deep recursion: 2000 links resolve in well
+  # under a second, and closing the chain into a cycle is still found.
+  def test_long_reference_chain_resolves_quickly
+    n = 2000
+    decls = (0...n).to_h { |i| [ "--c#{i}", "var(--c#{i + 1})" ] }
+    decls["--c#{n}"] = "#123456"
+    with_fallbacks = decls.transform_values { |v| v.sub(")", ", #fff)") }
+    started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+    assert_rgba 0x12, 0x34, 0x56, resolved("var(--c0)", decls)
+    assert_operator Process.clock_gettime(Process::CLOCK_MONOTONIC) - started, :<, 1.0
+    assert_rgba 0x12, 0x34, 0x56, CV.resolve(decls["--c0"], decls, seen: Set["--c0"]).color
+    assert_rgba 0x12, 0x34, 0x56, resolved("var(--c0)", with_fallbacks)
+    assert_rgba 255, 255, 255, resolved("var(--c0)", with_fallbacks.merge("--c#{n}" => "var(--missing)"))
+    assert_equal CV::EMPTY_REASON, unresolved("var(--c0, red)", decls.merge("--c#{n}" => "var(--missing,)"))
+    cyclic = decls.merge("--c#{n}" => "var(--c0)")
+    assert_equal "var() cycle through --c0", CV.resolve(cyclic["--c0"], cyclic, seen: Set["--c0"]).reason
+    assert_includes unresolved("var(--c0)", cyclic), "cycle"
+    assert_equal (0..n).map { |i| "--c#{i}" }, CV.dependency_closure("var(--c0)", decls)
+  end
+
   def test_var_fallback_does_not_rescue_a_non_color_value
     assert_nil CV.resolve("var(--bad, #000)", { "--bad" => "notacolor" }).color
   end
