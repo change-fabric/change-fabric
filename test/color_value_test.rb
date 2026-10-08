@@ -118,6 +118,29 @@ class ColorValueTest < Minitest::Test
     assert_equal expected, [ color.r, color.g, color.b ]
   end
 
+  def test_hsl_and_rgb_spellings_of_one_color_share_a_key
+    {
+      "hsl(0 100% 33.3%)" => "rgb(169.83 0 0)",
+      "hsl(120 100% 25%)" => "rgb(0 127.5 0)",
+      "hsl(0.5turn 100% 25%)" => "hsl(180deg 100% 25%)",
+      "hsl(200grad 100% 25%)" => "hsl(180 100% 25%)",
+      "hsl(0 100% 33.3% / 33.3%)" => "rgb(169.83 0 0 / 0.333)"
+    }.each do |hsl, other|
+      assert_equal resolved(other).to_h, resolved(hsl).to_h, "#{hsl} vs #{other}"
+    end
+    assert_equal Rational("169.83").to_f, resolved("hsl(0 100% 33.3%)").r
+  end
+
+  def test_extreme_hue_and_percent_exponents_resolve_quickly
+    [ "hsl(1e-999999999 50% 50%)", "hsl(1e-999999999turn 50% 50%)",
+      "hsl(0 1e-999999999% 50%)", "hsl(0 50% 1e-999999999%)" ].each do |value|
+      started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+      resolved(value)
+      assert_operator Process.clock_gettime(Process::CLOCK_MONOTONIC) - started, :<, 1.0, value
+    end
+    [ "hsl(1e999999999 50% 50%)", "hsl(0 1e999999999% 50%)", "hsl(0 50% 1e999999999%)" ].each { |v| unresolved(v) }
+  end
+
   def test_hsl_invalid_hue_unit_is_unresolved
     reason = unresolved("hsl(0.5foo 100% 25%)")
     assert_includes reason, "invalid hue"

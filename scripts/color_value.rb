@@ -523,15 +523,17 @@ module ColorValue
 
     # Unit conversion can overflow a finite literal (1e308turn), so the
     # converted angle is checked again before it reaches % 360.
-    deg =
-      case m[2]&.downcase
-      when 'grad' then num * 0.9
-      when 'rad' then (num * 180.0) / Math::PI
-      when 'turn' then num * 360.0
-      else num
-      end
-    finite_or_nil(deg)
+    unit = m[2]&.downcase
+    return nil unless finite_or_nil(num * HUE_SCALE.fetch(unit, 1))
+
+    # Like rgb() channels, the angle stays exact (Rational) so equal colors
+    # spelled in deg, grad or turn share a key; rad involves pi and is inexact.
+    return finite_or_nil(num * 180.0 / Math::PI)&.to_r if unit == "rad"
+
+    bounded_rational(m[1]) * HUE_SCALE.fetch(unit, 1)
   end
+
+  HUE_SCALE = { "grad" => Rational(9, 10), "turn" => 360 }.freeze
 
   # Saturation and lightness must be percentages; a bare number here is
   # invalid CSS, not a 0..1 fraction to guess at.
@@ -539,7 +541,7 @@ module ColorValue
     pct = parse_percentage(text.to_s.strip)
     return nil unless pct
 
-    (pct / 100.0).clamp(0.0, 1.0)
+    (bounded_rational(text.to_s.strip.chomp("%")) / 100).clamp(0, 1)
   end
 
   # Returns [value 0..255, :num|:pct], or nil if text is not a valid number
@@ -588,11 +590,14 @@ module ColorValue
   end
 
   def hsl_to_rgb(h, s, l)
-    hue = h % 360
-    sat = s.clamp(0.0, 1.0)
-    lum = l.clamp(0.0, 1.0)
+    # h, s and l are Rational; the arithmetic stays exact and converts to
+    # Float once at the end, like parse_channel, so hsl() and rgb() spellings
+    # of one color land on the same Float.
+    hue = h.to_r % 360
+    sat = s.to_r.clamp(0, 1)
+    lum = l.to_r.clamp(0, 1)
     c = (1 - ((2 * lum) - 1).abs) * sat
-    x = c * (1 - (((hue / 60.0) % 2) - 1).abs)
+    x = c * (1 - (((hue / 60) % 2) - 1).abs)
     m = lum - (c / 2)
     r1, g1, b1 =
       case hue
@@ -604,6 +609,6 @@ module ColorValue
       else [ c, 0, x ]
       end
     # Channels stay fractional; only display (to_hex) rounds.
-    [ r1, g1, b1 ].map { |c| ((c + m) * 255.0).clamp(0.0, 255.0) }
+    [ r1, g1, b1 ].map { |ch| ((ch + m) * 255).clamp(0, 255).to_f }
   end
 end
