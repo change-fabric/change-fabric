@@ -500,12 +500,16 @@ module ColorValue
     num = finite_or_nil(m[1].to_f)
     return nil unless num
 
-    case m[2]&.downcase
-    when 'grad' then num * 0.9
-    when 'rad' then (num * 180.0) / Math::PI
-    when 'turn' then num * 360.0
-    else num
-    end
+    # Unit conversion can overflow a finite literal (1e308turn), so the
+    # converted angle is checked again before it reaches % 360.
+    deg =
+      case m[2]&.downcase
+      when 'grad' then num * 0.9
+      when 'rad' then (num * 180.0) / Math::PI
+      when 'turn' then num * 360.0
+      else num
+      end
+    finite_or_nil(deg)
   end
 
   # Saturation and lightness must be percentages; a bare number here is
@@ -523,7 +527,9 @@ module ColorValue
   def parse_channel(text)
     t = text.to_s.strip
     if (pct = parse_percentage(t))
-      [ (pct / 100.0 * 255.0).clamp(0.0, 255.0), :pct ]
+      # 1e308% overflows when scaled to 0..255; recheck after conversion.
+      value = finite_or_nil(pct / 100.0 * 255.0)
+      [ value.clamp(0.0, 255.0), :pct ] if value
     elsif (n = parse_number(t))
       [ n.to_f.clamp(0.0, 255.0), :num ]
     end

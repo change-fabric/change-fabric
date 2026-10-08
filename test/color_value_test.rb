@@ -379,4 +379,17 @@ class ColorValueTest < Minitest::Test
     assert_operator ColorValue.contrast_ratio(ColorValue.resolve("rgb(148.7 148.7 148.7)", {}).color, white), :>=, 3.0
     assert_equal "#959595", ColorValue.to_hex(ColorValue.resolve("rgb(148.7 148.7 148.7)", {}).color)
   end
+
+  def test_finite_literals_that_overflow_after_unit_conversion_are_unresolved
+    [
+      "hsl(1e308turn 50% 50%)", "hsl(-1e308turn 50% 50%)", "hsl(1e308rad 50% 50%)",
+      "rgb(1e308% 0% 0%)", "rgb(0% -1e308% 0%)"
+    ].each { |value| unresolved(value) }
+  end
+
+  def test_large_finite_angles_that_do_not_overflow_still_resolve
+    [ "hsl(1e308 50% 50%)", "hsl(1e308deg 50% 50%)", "hsl(1e308grad 50% 50%)" ].each do |value|
+      refute_nil ColorValue.resolve(value, {}).color, value
+    end
+  end
 end
