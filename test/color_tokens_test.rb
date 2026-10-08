@@ -148,6 +148,17 @@ class ColorTokensTest < Minitest::Test
     assert_error("@caf\u00e9 { :root{--a:#000} }", "`@caf\u00e9` is not allowed")
   end
 
+  # CSS-wide keywords are reserved in every layer-name segment, ASCII case
+  # and escapes aside; browsers drop the whole rule.
+  def test_layer_wrapper_rejects_css_wide_keywords
+    [ "initial", "INHERIT", "a.unset", "revert.b", "Revert-Layer", "\\69nitial" ].each do |name|
+      assert_error("@layer #{name} { :root{--a:#000} }", "a CSS-wide keyword")
+    end
+    [ "initials", "revert-layers", "a.default" ].each do |name|
+      assert_equal "#000", ok("@layer #{name} { :root{--a:#000} }").variants[:light]["--a"], name
+    end
+  end
+
   def test_layer_wrapper_with_multiple_names_is_an_error
     assert_error("@layer a, b { :root{--a:#000} }", "not a valid @layer wrapper")
   end
