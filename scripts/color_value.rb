@@ -178,6 +178,10 @@ module ColorValue
   COLOR_FN_NAMES = %w[rgb rgba hsl hsla hwb oklch oklab lab lch color].freeze
   UNRESOLVED_FN_NAMES = %w[oklch oklab lab lch hwb color color-mix].freeze
   CASCADE_KEYWORDS = %w[inherit initial unset revert revert-layer].freeze
+  # A real var( function token: not the tail of a longer ident (xvar(, my-var(,
+  # _var(, 2var() and not an escaped name (\var(). CSS names are ASCII
+  # case-insensitive, so VAR( counts.
+  VAR_CALL = /(?<![-\w\\])var\(/i.freeze
 
   module_function
 
@@ -236,7 +240,7 @@ module ColorValue
       fn = m[1].downcase
       return false unless COLOR_FN_NAMES.include?(fn)
 
-      return !strip_css_strings(m[2]).downcase.include?('var(')
+      return !strip_css_strings(m[2]).match?(VAR_CALL)
     end
 
     return false unless v.match?(/\A[A-Za-z]+\z/)
@@ -344,7 +348,7 @@ module ColorValue
   # declarations, reaches a property already being resolved. Returns that
   # name, or nil.
   def fallback_cycle(text, decls, seen, visited = Set.new)
-    strip_css_strings(text).scan(/var\(\s*(--[^\s,()]+)/i).flatten.each do |dep|
+    strip_css_strings(text).scan(/#{VAR_CALL}\s*(--[^\s,()]+)/).flatten.each do |dep|
       return dep if seen.include?(dep)
       next if visited.include?(dep) || !decls.key?(dep)
 
