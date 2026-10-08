@@ -310,7 +310,7 @@ module ColorTokens
       color = authored?(value) && ColorValue.resolve(value, {}).color
       return normalize(value) unless color
 
-      [ color.r.round, color.g.round, color.b.round, color.a.round(3) ]
+      [ color.r.round, color.g.round, color.b.round, color.a ]
     end
 
     # Case-folds everything but custom-property names, which CSS treats as

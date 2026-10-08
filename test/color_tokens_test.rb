@@ -248,6 +248,20 @@ class ColorTokensTest < Minitest::Test
     assert_equal spellings.size, result.authored.first[:names].size
   end
 
+  def test_distinct_alpha_values_stay_distinct
+    [ [ "rgba(0 0 0 / .5001)", "rgba(0 0 0 / .5002)" ],
+      [ "rgb(0 0 0 / 50.01%)", "rgb(0 0 0 / 50.02%)" ],
+      [ "hsl(0 0% 0% / .1234)", "hsl(0 0% 0% / .1235)" ] ].each do |a, b|
+      result = ok(":root{--a:#{a};--b:#{b}}")
+      assert_equal 2, result.authored.size, "#{a} vs #{b}"
+    end
+  end
+
+  def test_equal_alpha_spellings_share_one_color
+    result = ok(":root{--a:rgba(0 0 0 / .5);--b:rgb(0 0 0 / 50%);--c:rgba(0, 0, 0, 0.50)}")
+    assert_equal 1, result.authored.size
+  end
+
   def test_equivalent_error_token_spellings_do_not_conflict
     result = ok(":root{--error:#f00}\n@media (prefers-color-scheme: dark){:root{--error:red}}")
     assert_empty result.authored
