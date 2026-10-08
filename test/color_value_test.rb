@@ -27,6 +27,21 @@ class ColorValueTest < Minitest::Test
     assert_in_delta expected_a, rgba.a, delta
   end
 
+  # The wall-clock allowance of a "resolves quickly" test. These guard
+  # against quadratic or exponential work and deep recursion, which take
+  # minutes or overflow the stack, not against a slow or contended runner,
+  # so the allowance is several times the normal runtime.
+  TIME_BUDGET = 5.0
+
+  # Yields, asserts the block finished within TIME_BUDGET, and returns its
+  # result.
+  def assert_quick(message = nil)
+    started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+    result = yield
+    assert_operator Process.clock_gettime(Process::CLOCK_MONOTONIC) - started, :<, TIME_BUDGET, message
+    result
+  end
+
   # --- NAMED table ---
 
   def test_named_table_has_148_entries
@@ -134,9 +149,7 @@ class ColorValueTest < Minitest::Test
   def test_extreme_hue_and_percent_exponents_resolve_quickly
     [ "hsl(1e-999999999 50% 50%)", "hsl(1e-999999999turn 50% 50%)",
       "hsl(0 1e-999999999% 50%)", "hsl(0 50% 1e-999999999%)" ].each do |value|
-      started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
-      resolved(value)
-      assert_operator Process.clock_gettime(Process::CLOCK_MONOTONIC) - started, :<, 1.0, value
+      assert_quick(value) { resolved(value) }
     end
     [ "hsl(1e999999999 50% 50%)", "hsl(0 1e999999999% 50%)", "hsl(0 50% 1e999999999%)" ].each { |v| unresolved(v) }
   end
@@ -419,16 +432,14 @@ class ColorValueTest < Minitest::Test
   end
 
   # One resolution builds the dependency graph and finds cycles once, and
-  # walks a long chain without deep recursion: 2000 links resolve in well
-  # under a second, and closing the chain into a cycle is still found.
+  # walks a long chain without deep recursion: 2000 links resolve within
+  # TIME_BUDGET, and closing the chain into a cycle is still found.
   def test_long_reference_chain_resolves_quickly
     n = 2000
     decls = (0...n).to_h { |i| [ "--c#{i}", "var(--c#{i + 1})" ] }
     decls["--c#{n}"] = "#123456"
     with_fallbacks = decls.transform_values { |v| v.sub(")", ", #fff)") }
-    started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
-    assert_rgba 0x12, 0x34, 0x56, resolved("var(--c0)", decls)
-    assert_operator Process.clock_gettime(Process::CLOCK_MONOTONIC) - started, :<, 1.0
+    assert_rgba 0x12, 0x34, 0x56, assert_quick { resolved("var(--c0)", decls) }
     assert_rgba 0x12, 0x34, 0x56, CV.resolve(decls["--c0"], decls, seen: Set["--c0"]).color
     assert_rgba 0x12, 0x34, 0x56, resolved("var(--c0)", with_fallbacks)
     assert_rgba 255, 255, 255, resolved("var(--c0)", with_fallbacks.merge("--c#{n}" => "var(--missing)"))
@@ -442,18 +453,18 @@ class ColorValueTest < Minitest::Test
   # Resolution stays linear on graphs wider than a chain: a lattice where
   # each hop reaches the rest twice (once through its fallback), closed into
   # one long cycle or into a cycle hidden behind color-mix(), resolves
-  # correctly in well under a second without overflowing the stack.
+  # correctly within TIME_BUDGET without overflowing the stack.
   def test_long_var_lattice_resolves_quickly
     n = 2000
     decls = (0...n).to_h { |i| [ "--t#{i}", "var(--t#{i + 1}, var(--t#{[ i + 2, n ].min}))" ] }.merge("--t#{n}" => "#000")
-    started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
-    assert_rgba 0, 0, 0, CV.resolve(decls["--t0"], decls, seen: Set["--t0"]).color
-    ring = decls.merge("--t#{n}" => "var(--t0)")
-    assert_equal "var() cycle through --t0", CV.resolve(ring["--t0"], ring, seen: Set["--t0"]).reason
-    assert_rgba 0, 0, 255, resolved("var(--t#{n / 2}, blue)", ring)
-    mixed = decls.merge("--t#{n}" => "color-mix(in srgb, red, var(--t0))")
-    assert_rgba 0, 0, 255, resolved("var(--t#{n / 2}, blue)", mixed)
-    assert_operator Process.clock_gettime(Process::CLOCK_MONOTONIC) - started, :<, 1.0
+    assert_quick do
+      assert_rgba 0, 0, 0, CV.resolve(decls["--t0"], decls, seen: Set["--t0"]).color
+      ring = decls.merge("--t#{n}" => "var(--t0)")
+      assert_equal "var() cycle through --t0", CV.resolve(ring["--t0"], ring, seen: Set["--t0"]).reason
+      assert_rgba 0, 0, 255, resolved("var(--t#{n / 2}, blue)", ring)
+      mixed = decls.merge("--t#{n}" => "color-mix(in srgb, red, var(--t0))")
+      assert_rgba 0, 0, 255, resolved("var(--t#{n / 2}, blue)", mixed)
+    end
   end
 
   # A deeply nested fallback is walked from one scan of the value, with no
@@ -461,16 +472,11 @@ class ColorValueTest < Minitest::Test
   # value itself, through a property, through a failing property's fallback
   # verdict, with defined and undefined names mixed, down a run of
   # properties each substituting the next through a fallback, and behind a
-  # cycle. Each 2000-level resolution finishes in well under a second.
+  # cycle. Each 2000-level resolution finishes within TIME_BUDGET.
   def test_deep_nested_fallback_resolves_quickly
     n = 2000
     nest = ->(inner) { (0...n).reduce(inner) { |v, i| "var(--m#{i}, #{v})" } }
-    quickly = lambda do |value, decls = {}, seen: Set.new|
-      started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
-      result = CV.resolve(value, decls, seen:)
-      assert_operator Process.clock_gettime(Process::CLOCK_MONOTONIC) - started, :<, 1.0
-      result
-    end
+    quickly = ->(value, decls = {}, seen: Set.new) { assert_quick { CV.resolve(value, decls, seen:) } }
     assert_rgba 255, 0, 0, quickly.call(nest.call("red")).color
     assert_rgba 255, 0, 0, quickly.call("var(--top)", { "--top" => nest.call("red") }).color
     assert_equal "--none is not defined in this theme", quickly.call(nest.call("var(--none)")).reason
@@ -693,12 +699,12 @@ class ColorValueTest < Minitest::Test
       "rgb(0 0 0 / 5e-300%)" => 0.0,
       "rgb(0 0 0 / 3.33e1%)" => 0.333
     }
-    started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
-    cases.each do |value, alpha|
-      color = CV.resolve(value, {}).color
-      assert_in_delta alpha, color.a, 1e-12, value
+    assert_quick do
+      cases.each do |value, alpha|
+        color = CV.resolve(value, {}).color
+        assert_in_delta alpha, color.a, 1e-12, value
+      end
     end
-    assert_operator Process.clock_gettime(Process::CLOCK_MONOTONIC) - started, :<, 1.0
   end
 
   def test_huge_hue_exponent_matches_expanded_integer_in_every_exact_unit
