@@ -7,7 +7,8 @@ require_relative 'color_value'
 # Reads the one token file that declares a repo's palette, strictly, per the
 # "Token file" grammar in skills/color/SKILL.md. Anything outside the
 # grammar is an Error with a line number and the construct named; nothing is
-# guessed and no cascade is modelled. Never raises.
+# guessed. The only cascade modelled is the rank (!important, then layer
+# origin) between a light and a dark declaration of one name. Never raises.
 module ColorTokens
   # Conventional token-file locations, relative to the scan root, in order.
   PATHS = %w[
@@ -106,6 +107,8 @@ module ColorTokens
       @dark = {}
       @dark_seen = false
       @layer_seen = false
+      @layers = {}
+      @layer_of = {}
     end
 
     def result
@@ -132,6 +135,7 @@ module ColorTokens
     # A block's kind: :layer, :media_light, :media_dark (containers), :light,
     # :dark (token blocks), :error, or :skip (inside an errored block).
     def classify(block)
+      @layer_of[block.id] = @layer_of[block.parent] if block.parent
       parent = block.parent && @kinds[block.parent]
       return :skip if %i[error skip].include?(parent)
 
@@ -198,7 +202,15 @@ module ColorTokens
       end
 
       @layer_seen = true
+      @layer_of[block.id] = (@layers[layer_key(block, canonical)] ||= @layers.size)
       :layer
+    end
+
+    # A named layer is one layer wherever it is opened; each anonymous
+    # @layer block is its own.
+    def layer_key(block, canonical)
+      name = ColorCss.strip_ws(canonical.sub(AT_NAME, ""))
+      name.empty? ? [ :anonymous, block.id ] : name
     end
 
     def classify_rule(block, prelude, parent)
@@ -309,8 +321,9 @@ module ColorTokens
                                 "(line #{prior[:line]}: #{prior[:value]}; here: #{decl.value})")
       end
 
-      entry = (table[decl.name] ||= { value: decl.value, line: decl.line, important: false })
-      entry[:important] ||= decl.important
+      origin = { important: decl.important, layer: decl.block_id && @layer_of[decl.block_id] }
+      entry = (table[decl.name] ||= { value: decl.value, line: decl.line, **origin })
+      entry.merge!(origin) if (cascade_rank(origin) <=> cascade_rank(entry)).positive?
     end
 
     def check_dark_names
@@ -326,12 +339,21 @@ module ColorTokens
     end
 
     # The entry the cascade applies on the root element when a dark
-    # declaration competes with a light one for the same name. Priority is
-    # compared first: a normal dark declaration never beats an !important
-    # light one, so the light value stays. Otherwise (both normal, both
-    # important, or only dark important) dark wins on the dark root.
+    # declaration competes with a light one for the same name: the higher
+    # cascade_rank wins, and on an equal rank dark does (it is the more
+    # specific selector, or the later rule, on the dark root).
     def applied(light, dark)
-      light[:important] && !dark[:important] ? light : dark
+      (cascade_rank(light) <=> cascade_rank(dark)).positive? ? light : dark
+    end
+
+    # CSS Cascade 5 order of an entry's origin, as a comparable pair. Priority
+    # first: !important beats normal. Then layer (an index by first
+    # appearance, nil when unlayered): for normal declarations unlayered
+    # beats layered and a later layer beats an earlier one; for !important
+    # ones the order reverses, layered beats unlayered and earlier beats later.
+    def cascade_rank(entry)
+      position = entry[:layer] || Float::INFINITY
+      entry[:important] ? [ 1, -position ] : [ 0, position ]
     end
 
     def palette

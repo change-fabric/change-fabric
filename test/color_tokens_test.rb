@@ -670,6 +670,47 @@ class ColorTokensTest < Minitest::Test
     assert_equal "#fff", ok(css).variants[:dark]["--a"], css
   end
 
+  # Layer origin is ranked with priority, per CSS Cascade 5: among normal
+  # declarations an unlayered one beats a layered one, among !important ones
+  # a layered one beats an unlayered one, and on an equal rank (same layer,
+  # or both unlayered) dark wins. Covers every split of light and dark
+  # across the one @layer wrapper, named and anonymous, with each priority.
+  def test_dark_override_respects_layer_origin
+    wrap = ->(layer, rule) { layer ? "#{layer}{#{rule}}" : rule }
+    [ "@layer base", "@layer" ].each do |layer|
+      cases = {
+        # [light layered?, light value, dark layered?, dark value] => dark result
+        [ false, "#fff", true, "#000" ] => "#fff",
+        [ true, "#fff", false, "#000" ] => "#000",
+        [ true, "#fff", true, "#000" ] => "#000",
+        [ false, "#fff", false, "#000" ] => "#000",
+        [ true, "#fff !important", false, "#000 !important" ] => "#fff",
+        [ false, "#fff !important", true, "#000 !important" ] => "#000",
+        [ true, "#fff !important", true, "#000 !important" ] => "#000",
+        [ false, "#fff", true, "#000 !important" ] => "#000",
+        [ true, "#fff !important", false, "#000" ] => "#fff"
+      }
+      cases.each do |(light_in, light_value, dark_in, dark_value), expected|
+        light = ":root{--a:#{light_value}}"
+        dark = ".dark{--a:#{dark_value}}"
+        both = "#{layer}{#{light}\n#{dark}}"
+        split = "#{wrap.call(light_in && layer, light)}\n#{wrap.call(dark_in && layer, dark)}"
+        css = light_in && dark_in ? both : split
+        assert_equal expected, ok(css).variants[:dark]["--a"], css
+      end
+    end
+  end
+
+  # An equal-valued redeclaration in another layer origin keeps the highest
+  # ranked one: an unlayered normal light redeclaration of a layered light
+  # value outranks a layered dark override.
+  def test_equal_valued_redeclaration_keeps_highest_layer_origin
+    css = "@layer base{:root{--a:#fff}\n.dark{--a:#000}}\n:root{--a:white}"
+    assert_equal "#fff", ok(css).variants[:dark]["--a"], css
+    css = "@layer base{:root{--a:#fff}\n.dark{--a:#000}}\n.dark{--a:black}"
+    assert_equal "#000", ok(css).variants[:dark]["--a"], css
+  end
+
   # --- pairs --------------------------------------------------------------------
 
   def test_pairs_follow_the_fixed_rule
