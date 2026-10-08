@@ -294,6 +294,25 @@ class ColorTokensTest < Minitest::Test
     refute result.dark?
   end
 
+  # Light media is inactive whenever dark media applies, so it never
+  # outranks a dark media override. Under a class or attribute it may be
+  # active or not; a later light media :root that outranks the dark block
+  # makes dark depend on the system preference, which is an error, while
+  # one the dark block outranks either way is fine.
+  def test_light_media_stays_out_of_dark_variants
+    light = "@media (prefers-color-scheme: light){:root{--background:white}}"
+    base = ":root{--background:white;--page-text:black}"
+    result = ok("#{base}\n@media (prefers-color-scheme: dark){:root{--background:black}}\n#{light}")
+    assert_equal "black", result.variants[:dark]["--background"]
+    [ ".dark{--background:black}", "[data-theme=dark]{--background:black}" ].each do |dark|
+      assert_error("#{base}\n#{dark}\n#{light}", "differs at `--background` with prefers-color-scheme: light active or not")
+      assert_equal "black", ok("#{base}\n#{light}\n#{dark}").variants[:dark]["--background"]
+    end
+    named = ":root{--a:#000}\n@media (prefers-color-scheme: light){:root{--b:#111}}\n"
+    assert_error("#{named}.dark{--a:#fff}", "differs at `--b`")
+    assert_equal({ "--a" => "#fff" }, ok("#{named}@media (prefers-color-scheme: dark){:root{--a:#fff}}").variants[:dark])
+  end
+
   def test_media_light_conflict_is_an_error
     assert_error(":root{--a:#000}\n@media (prefers-color-scheme: light){:root{--a:#111}}", "`--a` is declared twice in light")
   end

@@ -110,6 +110,8 @@ module ColorTokens
       @errors = sheet.errors.map { |e| Error.new(line: e[/line (\d+)/, 1]&.to_i, message: e) }
       @kinds = {}
       @light = {}
+      @light_plain = {}
+      @light_media = Set.new
       @dark = {}
       @dark_seen = false
       @layer_seen = false
@@ -262,8 +264,13 @@ module ColorTokens
       by.fetch(mechanism) { by.fetch(:all) }
     end
 
+    # A :root inside light media is noted in @light_media: it applies only
+    # while the system prefers light, which a dark mechanism other than
+    # media does not control (see dark_table).
     def in_media(block, prelude, parent, variant)
       return variant unless %i[media_light media_dark].include?(parent)
+
+      @light_media << block.id if variant == :light && parent == :media_light
       return parent == :media_dark ? :dark : :light if variant == :light
 
       error(block.line, "selector `#{prelude}` inside prefers-color-scheme media; only :root is allowed there")
@@ -396,6 +403,7 @@ module ColorTokens
       origin = { important: decl.important, layer: decl.block_id && @layer_of[decl.block_id],
                  specificity: specificity_of(decl.block_id), order: }
       keep(table, decl, origin)
+      keep(@light_plain, decl, origin) if kind == :light && !@light_media.include?(decl.block_id)
       return unless kind == :dark
 
       @mechanisms.fetch(decl.block_id).each do |m|
@@ -420,19 +428,41 @@ module ColorTokens
     # when a file uses several, each one's dark table is built alone and
     # they must agree; otherwise there is no single dark palette to grade.
     def dark_tokens
-      tables = @dark_by.transform_values { |overrides| over_light(overrides) }
+      tables = @dark_by.to_h { |mechanism, overrides| [ mechanism, dark_table(mechanism, overrides) ] }
       check_mechanisms_agree(tables)
-      tables.values.first || over_light(@dark)
+      tables.values.first || over_light(@dark, @light)
     end
 
-    def over_light(overrides)
-      @light.merge(overrides.slice(*@light.keys)) { |_, light, dark| applied(light, dark) }.transform_values { |v| v[:value] }
+    # One mechanism's dark table. Dark media activates only under a dark
+    # system preference, where light media is inactive, so it builds on
+    # @light_plain. A class or attribute activates under either preference:
+    # light media may then be active or not, so both tables are built and
+    # must agree, else the dark palette depends on the system preference.
+    def dark_table(mechanism, overrides)
+      plain = over_light(overrides, @light_plain)
+      return plain if mechanism == :media
+
+      active = over_light(overrides, @light)
+      name = (active.keys | plain.keys).find { |n| !same_value?(active[n], plain[n]) }
+      if name
+        error(@light[name][:line], "dark under #{MECHANISMS[mechanism]} differs at `#{name}` with " \
+                                   "prefers-color-scheme: light active or not; a light media declaration " \
+                                   "outranks the dark one only while the system prefers light")
+      end
+      active
+    end
+
+    # base (a light table) with overrides applied per the cascade. A dark
+    # override of a name base lacks, but light declares elsewhere, still
+    # applies.
+    def over_light(overrides, base)
+      base.merge(overrides.slice(*@light.keys)) { |_, light, dark| applied(light, dark) }.transform_values { |v| v[:value] }
     end
 
     def check_mechanisms_agree(tables)
       (first, base), *rest = tables.to_a
       rest.each do |mechanism, table|
-        name = base.keys.find { |n| color_key(base[n]) != color_key(table[n]) }
+        name = (base.keys | table.keys).find { |n| !same_value?(base[n], table[n]) }
         next unless name
 
         line = [ first, mechanism ].filter_map { |m| @dark_by[m][name]&.dig(:line) }.min
@@ -508,6 +538,14 @@ module ColorTokens
     # TRANSPARENT) share one key: the resolved RGBA whenever the value names
     # a supported color on its own, whether or not it counts toward the
     # palette (authored?), else its normalized text.
+    # Whether two table values (nil when the name is absent) are the same
+    # value under color_key.
+    def same_value?(one, other)
+      return one.nil? && other.nil? if one.nil? || other.nil?
+
+      color_key(one) == color_key(other)
+    end
+
     def color_key(value)
       color = standalone_color(value)
       return normalize(value) unless color
