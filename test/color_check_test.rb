@@ -380,9 +380,10 @@ class ColorCheckTest < Minitest::Test
     end
   end
 
-  # Equivalent string spellings are one value, so --strict passes them.
+  # Equivalent string spellings, and CSS-wide keywords in any ASCII case,
+  # are one value, so --strict passes them.
   def test_strict_passes_equivalent_string_redeclaration
-    [ [ %("Inter"), %('Inter') ], [ %("\\49 nter"), %("Inter") ] ].each do |a, b|
+    [ [ %("Inter"), %('Inter') ], [ %("\\49 nter"), %("Inter") ], %w[revert-rule REVERT-RULE] ].each do |a, b|
       with_dir do |dir|
         write(dir, "tokens.css", FOUR_COLOR_TOKENS.sub("--pink: #f2c4c4;") { "--pink: #f2c4c4;\n  --font: #{a};\n  --font: #{b};" })
         assert_equal 0, ColorCheck.run(dir, strict: true).exit_code, a

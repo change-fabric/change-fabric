@@ -215,7 +215,7 @@ module ColorTokens
       unless TOP_LAYER_PRELUDE.match?(canonical.sub(AT_NAME, ""))
         return error(block.line, "`#{prelude}` is not a valid @layer wrapper; use `@layer` or a single layer name")
       end
-      if (reserved = layer_segments(canonical).find { |s| CSS_WIDE_KEYWORDS.include?(s.downcase(:ascii)) })
+      if (reserved = layer_segments(canonical).find { |s| ColorValue::CSS_WIDE_KEYWORDS.include?(s.downcase(:ascii)) })
         return error(block.line, "`#{prelude}` names a layer `#{reserved}`, a CSS-wide keyword; browsers drop the whole rule")
       end
 
@@ -231,11 +231,9 @@ module ColorTokens
       name.empty? ? [ :anonymous, block.id ] : name
     end
 
-    # CSS-wide keywords are reserved in every segment of a layer name; a
-    # rule naming one is invalid at parse time.
-    CSS_WIDE_KEYWORDS = %w[initial inherit unset revert revert-layer revert-rule].freeze
-
     # The dot-separated segments of a wrapper's layer name, escapes resolved.
+    # CSS-wide keywords are reserved in every segment; a rule naming one is
+    # invalid at parse time.
     def layer_segments(canonical)
       ColorCss.strip_ws(canonical.sub(AT_NAME, "")).split('.')
     end

@@ -165,8 +165,8 @@ whole value, a `none` channel, `calc()`, relative color syntax, and
 `currentColor`/`light-dark()`/CSS-wide keywords. Every token is declared on
 the root element, so a token set to `initial`, `inherit` or `unset` is the
 guaranteed-invalid value: a `var()` to it takes its fallback, which is
-graded, and with no fallback the pair is unresolved; `revert` and
-`revert-layer` depend on the cascade and stay unresolved. An unresolved pair is
+graded, and with no fallback the pair is unresolved; `revert`,
+`revert-layer` and `revert-rule` depend on the cascade and stay unresolved. An unresolved pair is
 listed for the user to state manually; it never fails `--strict`, and
 `--strict` only fails on a token-file error or an actually-resolved pair
 that fails contrast.

@@ -908,9 +908,9 @@ class ColorValueTest < Minitest::Test
   # it is spelled, and so are inherit and unset on a token declared on the
   # root element (every token in the file), which has no parent to inherit
   # from: a var() referencing one (directly or through a chain) takes its
-  # fallback, and with none is unresolved naming the keyword. revert and
-  # revert-layer depend on the cascade and are reported by name, fallback
-  # or not.
+  # fallback, and with none is unresolved naming the keyword. revert,
+  # revert-layer and revert-rule depend on the cascade and are reported by
+  # name, fallback or not.
   def test_css_wide_keywords_on_referenced_custom_properties
     %w[initial inherit unset].each do |kw|
       [ kw, kw.upcase, kw.capitalize, "\\#{kw[0].ord.to_s(16)}#{kw[1..]}", "\\#{kw[0].ord.to_s(16)} #{kw[1..]}", " #{kw} " ].each do |spelling|
@@ -924,7 +924,7 @@ class ColorValueTest < Minitest::Test
         assert_equal "#{kw} is the guaranteed-invalid value", unresolved(spelling), spelling
       end
     end
-    %w[revert revert-layer].each do |kw|
+    %w[revert revert-layer revert-rule].each do |kw|
       [ kw, kw.upcase, "\\#{kw[0].ord.to_s(16)} #{kw[1..]}" ].each do |spelling|
         assert_equal kw, CV.css_wide_keyword(spelling), spelling
         assert_nil CV.guaranteed_invalid_keyword(spelling), spelling

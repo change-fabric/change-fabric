@@ -176,7 +176,9 @@ module ColorValue
 
   COLOR_FN_NAMES = %w[rgb rgba hsl hsla hwb oklch oklab lab lch color].freeze
   UNRESOLVED_FN_NAMES = %w[oklch oklab lab lch hwb color color-mix].freeze
-  CSS_WIDE_KEYWORDS = %w[initial inherit unset revert revert-layer].freeze
+  # The CSS-wide keywords, the one list both value classification and the
+  # token file's reserved layer names read.
+  CSS_WIDE_KEYWORDS = %w[initial inherit unset revert revert-layer revert-rule].freeze
   GUARANTEED_INVALID_KEYWORDS = %w[initial inherit unset].freeze
   # A color space or hue-interpolation keyword, read only inside color()
   # and color-mix() (`in`, srgb, display-p3, shorter hue).
@@ -472,8 +474,8 @@ module ColorValue
   # custom property on the root element (:root and the dark block), and an
   # unregistered custom property there has no parent to inherit from, so
   # inherit and unset compute to its initial value, the guaranteed-invalid
-  # value, exactly as initial does. revert and revert-layer depend on the
-  # cascade the checker does not model, so they are not among them. The
+  # value, exactly as initial does. revert, revert-layer and revert-rule
+  # depend on the cascade the checker does not model, so they are not among them. The
   # one test resolve and Resolver#fails? use for a guaranteed-invalid
   # keyword.
   def guaranteed_invalid_keyword(value)
