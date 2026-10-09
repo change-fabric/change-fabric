@@ -98,18 +98,22 @@ The file is found by this path list, relative to the scan root, in order:
 `app/globals.css`, `src/app/globals.css`, `app/styles/tokens.css`,
 `src/styles/tokens.css`, `styles/tokens.css`, `src/styles/globals.css`,
 `styles/globals.css`, `src/index.css`, `app/assets/stylesheets/tokens.css`,
-`tokens.css`. `--tokens <path>` overrides it. Zero matches or several matches
-is an error naming the candidates.
+`tokens.css`. `--tokens <path>` overrides it; a relative `--tokens` path
+resolves against the current directory, not the scan root. Zero matches or
+several matches is an error naming the candidates.
 
 When the file's text mentions `@import`, `@theme`, `@tailwind`, `@apply`,
 `@source`, `@plugin`, `@config`, `@custom-variant`, `@utility`, `@variant` or
 `@reference`, the checker first compiles it with the repo's own installed
 Tailwind (reading the version from `node_modules/tailwindcss`), inside the
 same kind of pinned, throwaway container the browser runs in, mounting the
-repo read-only and an empty directory as the build's working directory so
-Tailwind's automatic source scanning finds nothing and only the token file's
-own `@theme` rules take effect. The compiled CSS, not the source file, is
-what the browser then reads.
+repo read-only and an empty directory as the build's working directory, so
+Tailwind's automatic source scanning finds nothing. `@theme static`
+variables are always emitted; a variable in a non-static `@theme` that no
+utility uses is tree-shaken by the compile and never audited (see Known
+limits). The compiled CSS, not the source file, is what the browser then
+reads. That directive list is an advisory text heuristic for routing only:
+the browser, not the list, decides what the CSS means.
 
 What still errors:
 
@@ -126,6 +130,9 @@ What still errors:
   tested alone; the error names the two mechanisms and the first name they
   differ on
 - Docker is not available at all
+- `node_modules/tailwindcss/package.json` carries a version that is not a
+  plain semver version
+- a `--tokens` file outside the scan root needs a Tailwind compile
 - any unexpected checker or browser failure (reported as `could not audit: ...`,
   never raised)
 
@@ -145,6 +152,31 @@ A declaration the browser rejects (an invalid value, a malformed `var()`)
 does not exist for the checker and is never reported as an error: a pair
 that needs it reports "is not declared", and a rejected `--x-text` forms no
 pair at all.
+
+## Known limits
+
+These are by design. A review finding that matches one is answered with a
+pointer here, not a fix.
+
+- A literal mixed with a relative color built from a token
+  (`color-mix(in srgb, rgb(from var(--a) r g b / .5), blue)`) is counted as
+  derived.
+- Several literals in one mix count as one blended color.
+- `rgb(from var(--a) 0 0 0)` is derived, though every channel is fixed.
+- `@property` `initial-value` literals are never read (the CSSOM rule has no
+  style to walk).
+- A literal inside a mix counts at full opacity; a fully transparent literal
+  is not a color; a tint toward white or black is authored.
+- A declaration the browser rejects does not exist for the checker; it is
+  never reported as an error.
+- Tailwind routing is a text heuristic; a directive inside a string can
+  route a file to a compile, or to the "install dependencies" error when
+  Tailwind is absent.
+- A non-UTF-8 `@charset` is unsupported; the file is decoded as UTF-8.
+- Unused non-static Tailwind `@theme` colors are not audited
+  ([#247](https://github.com/change-fabric/change-fabric/issues/247)).
+- A `--tokens` file outside the scan root cannot be compiled; pass a root
+  that contains it.
 
 ## Decision heuristic
 
