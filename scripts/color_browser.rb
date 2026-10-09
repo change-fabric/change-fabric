@@ -10,7 +10,8 @@ require_relative 'color_math'
 # reads the custom-property names the CSSOM actually kept, resolves each
 # name's color in four states (light, the .dark class, the data-theme
 # attribute, and prefers-color-scheme: dark media), and classifies every
-# declared value as an authored literal or a derived (var()-based) one.
+# declared value by the literal colors it carries (alone, as a var()
+# fallback, or mixed with a var()) or as derived when it only tracks tokens.
 # Whatever the browser accepts is the answer; this module does no CSS
 # parsing of its own, and a declaration the browser rejects simply does not
 # exist for the checker.
@@ -40,7 +41,8 @@ module ColorBrowser
     names = raw.fetch('names')
     declared_values = raw.fetch('declaredValues')
     classified = raw.fetch('classified').to_h do |value, entry|
-      [ value, { kind: entry['kind'], color: ColorMath.parse(entry['color']) } ]
+      literals = entry.fetch('literals').map { |l| { color: ColorMath.parse(l.fetch('color')), mixed: l.fetch('mixed') } }
+      [ value, { kind: entry['kind'], color: ColorMath.parse(entry['color']), literals: } ]
     end
     states = raw.fetch('states').to_h do |variant, map|
       [ variant.to_sym, map.transform_values { |c| ColorMath.parse(c) } ]
@@ -125,59 +127,111 @@ module ColorBrowser
             return out;
           };
 
+          // Classifies every distinct declared value in the current state,
+          // for color-scheme light and dark (light-dark() picks one side).
+          // Each declared name the cascade gave a value here, plus the body
+          // color that currentColor inherits, is overridden with a fully
+          // transparent black and then a fully transparent white. A value
+          // that still reads the same nonzero-alpha color both times holds
+          // a literal (a mix of a var() and a literal keeps the literal at
+          // reduced alpha); one that tracks the overrides is derived. Only
+          // names valid in this state are overridden, so a var() fallback
+          // behind an initial or undeclared name still shows its literal.
+          const alphaOf = (s) => {
+            const m = s.match(/\\/\\s*([\\d.e+-]+)\\s*\\)$/);
+            return m ? parseFloat(m[1]) : 1;
+          };
+          window.__cfColorClassifyState = (values) => {
+            probe.style.color = '';
+            const computed = getComputedStyle(probe);
+            const valid = window.__cfColorNames.filter((n) => computed.getPropertyValue(n) !== '');
+            const readWith = (v, s) => {
+              for (const n of valid) probe.style.setProperty(n, s);
+              document.body.style.color = s;
+              probe.style.color = '';
+              probe.style.color = `color-mix(in srgb, ${v} 100%, transparent 0%)`;
+              const c = getComputedStyle(probe).color;
+              for (const n of valid) probe.style.removeProperty(n);
+              document.body.style.color = '';
+              return c;
+            };
+            const out = {};
+            for (const v of values) {
+              const entry = { literals: [], derived: false, normal: null };
+              for (const scheme of [ 'light', 'dark' ]) {
+                probe.style.colorScheme = scheme;
+                const normal = window.__cfColorResolve(v);
+                if (scheme === 'light') entry.normal = normal;
+                const lit0 = readWith(v, 'rgb(0 0 0 / 0)');
+                const lit1 = readWith(v, 'rgb(255 255 255 / 0)');
+                if (lit0 === lit1 && alphaOf(lit0) > 0) {
+                  entry.literals.push({ color: lit0, mixed: lit0 !== normal });
+                } else if (normal !== null && !(lit0 === lit1 && lit0 === normal)) {
+                  entry.derived = true;
+                }
+              }
+              probe.style.colorScheme = '';
+              probe.style.color = '';
+              out[v] = entry;
+            }
+            return out;
+          };
+
           return { importError: false, names: [...names], declaredValues };
         }, b64);
 
         if (setup.importError) return { importError: true };
 
-        await page.emulateMediaFeatures([ { name: 'prefers-color-scheme', value: 'light' } ]);
-        const light = await page.evaluate(() => window.__cfColorReadState());
+        const values = [ ...new Set(Object.values(setup.declaredValues).flat()) ];
+        const read = (vals) => ({ state: window.__cfColorReadState(), cls: window.__cfColorClassifyState(vals) });
 
-        const cls = await page.evaluate(() => {
+        await page.emulateMediaFeatures([ { name: 'prefers-color-scheme', value: 'light' } ]);
+        const light = await page.evaluate(read, values);
+
+        const cls = await page.evaluate((vals) => {
           document.documentElement.classList.add('dark');
-          const r = window.__cfColorReadState();
+          const r = { state: window.__cfColorReadState(), cls: window.__cfColorClassifyState(vals) };
           document.documentElement.classList.remove('dark');
           return r;
-        });
+        }, values);
 
-        const attr = await page.evaluate(() => {
+        const attr = await page.evaluate((vals) => {
           document.documentElement.setAttribute('data-theme', 'dark');
-          const r = window.__cfColorReadState();
+          const r = { state: window.__cfColorReadState(), cls: window.__cfColorClassifyState(vals) };
           document.documentElement.removeAttribute('data-theme');
           return r;
-        });
+        }, values);
 
         await page.emulateMediaFeatures([ { name: 'prefers-color-scheme', value: 'dark' } ]);
-        const media = await page.evaluate(() => window.__cfColorReadState());
+        const media = await page.evaluate(read, values);
 
-        const classified = await page.evaluate((declaredValues) => {
-          const out = {};
-          for (const name in declaredValues) {
-            for (const v of declaredValues[name]) {
-              if (Object.prototype.hasOwnProperty.call(out, v)) continue;
-
-              const hasVar = /var\\(/i.test(v);
-              let kind = null;
-              let color = null;
-              if (!hasVar && CSS.supports('color', v)) {
-                color = window.__cfColorResolve(v);
-                if (color) kind = 'authored';
-              } else if (hasVar) {
-                color = window.__cfColorResolve(v);
-                if (color) kind = 'derived';
-              }
-              out[v] = { kind, color };
+        // Union across the four states: authored when any state found a
+        // literal, else derived when any state tracked a token.
+        const classified = {};
+        for (const v of values) {
+          const seen = new Set();
+          const literals = [];
+          let derived = false;
+          for (const r of [ light, cls, attr, media ]) {
+            const e = r.cls[v];
+            if (e.derived) derived = true;
+            for (const l of e.literals) {
+              const key = `${l.color}|${l.mixed}`;
+              if (seen.has(key)) continue;
+              seen.add(key);
+              literals.push(l);
             }
           }
-          return out;
-        }, setup.declaredValues);
+          const kind = literals.length > 0 ? 'authored' : (derived ? 'derived' : null);
+          classified[v] = { kind, color: light.cls[v].normal, literals };
+        }
 
         return {
           importError: false,
           names: setup.names,
           declaredValues: setup.declaredValues,
           classified,
-          states: { light, class: cls, attr, media }
+          states: { light: light.state, class: cls.state, attr: attr.state, media: media.state }
         };
       };
     JS

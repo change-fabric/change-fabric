@@ -44,6 +44,11 @@ class ColorCheckTest < Minitest::Test
     ColorBrowser::Result.new(names:, declared_values:, classified:, states:, import_error:)
   end
 
+  # A classified entry for a value whose one literal is the color itself.
+  def authored(color, mixed: false)
+    { kind: "authored", color:, literals: [ { color:, mixed: } ] }
+  end
+
   # Every variant the same, i.e. no dark mechanism in use.
   def light_only(map)
     { light: map, class: map, attr: map, media: map }
@@ -334,8 +339,8 @@ class ColorCheckTest < Minitest::Test
     with_dir do |dir|
       declared_values = { "--cream" => [ "#f6efe0" ], "--same-color" => [ "rgb(246, 239, 224)" ] }
       classified = {
-        "#f6efe0" => { kind: "authored", color: rgba(0.9647, 0.9373, 0.8784) },
-        "rgb(246, 239, 224)" => { kind: "authored", color: rgba(0.9647, 0.9373, 0.8784) }
+        "#f6efe0" => authored(rgba(0.9647, 0.9373, 0.8784)),
+        "rgb(246, 239, 224)" => authored(rgba(0.9647, 0.9373, 0.8784))
       }
       report = run_with(dir, browser_result(names: %w[--cream --same-color], states: light_only({}),
                                              declared_values:, classified:))
@@ -348,7 +353,7 @@ class ColorCheckTest < Minitest::Test
     with_dir do |dir|
       write(dir, "tokens.css", ":root{--error:red}")
       declared_values = { "--error" => [ "red" ] }
-      classified = { "red" => { kind: "authored", color: rgba(1, 0, 0) } }
+      classified = { "red" => authored(rgba(1, 0, 0)) }
       report = run_with(dir, browser_result(names: %w[--error], states: light_only({}),
                                              declared_values:, classified:))
       assert_empty report.palette.authored
@@ -359,11 +364,40 @@ class ColorCheckTest < Minitest::Test
   def test_derived_declarations_are_counted_not_listed_as_authored
     with_dir do |dir|
       declared_values = { "--muted" => [ "color-mix(in srgb, var(--a) 60%, var(--b))" ] }
-      classified = { "color-mix(in srgb, var(--a) 60%, var(--b))" => { kind: "derived", color: rgba(0.5, 0.5, 0.5) } }
+      classified = { "color-mix(in srgb, var(--a) 60%, var(--b))" => { kind: "derived", color: rgba(0.5, 0.5, 0.5), literals: [] } }
       report = run_with(dir, browser_result(names: %w[--muted], states: light_only({}),
                                              declared_values:, classified:))
       assert_empty report.palette.authored
       assert_equal 1, report.palette.derived
+    end
+  end
+
+  # D3: a literal found inside a mix counts at full opacity and merges with
+  # the same literal declared on its own.
+  def test_mixed_literal_counts_opaque_and_merges
+    with_dir do |dir|
+      mix = "color-mix(in srgb, var(--background), #ff0000)"
+      declared_values = { "--red" => [ "#ff0000" ], "--x" => [ mix ] }
+      classified = {
+        "#ff0000" => authored(rgba(1, 0, 0)),
+        mix => { kind: "authored", color: rgba(1, 0.5, 0.5),
+                 literals: [ { color: rgba(1, 0, 0, 0.5), mixed: true } ] }
+      }
+      report = run_with(dir, browser_result(names: %w[--red --x], states: light_only({}),
+                                             declared_values:, classified:))
+      assert_equal 1, report.palette.authored.size
+      assert_equal %w[--red --x], report.palette.authored.first[:names]
+    end
+  end
+
+  # P2: a fully transparent literal is not a color.
+  def test_transparent_literal_is_not_counted
+    with_dir do |dir|
+      declared_values = { "--clear" => [ "#ff000000" ] }
+      classified = { "#ff000000" => authored(rgba(1, 0, 0, 0)) }
+      report = run_with(dir, browser_result(names: %w[--clear], states: light_only({}),
+                                             declared_values:, classified:))
+      assert_empty report.palette.authored
     end
   end
 
@@ -374,7 +408,7 @@ class ColorCheckTest < Minitest::Test
       # Five distinct colors, one declared value each so each groups alone.
       names = (1..5).map { |i| "--c#{i}" }
       declared_values = names.each_with_index.to_h { |n, i| [ n, [ "#color#{i}" ] ] }
-      classified = names.each_with_index.to_h { |n, i| [ "#color#{i}", { kind: "authored", color: rgba(i / 10.0, 0, 0) } ] }
+      classified = names.each_with_index.to_h { |n, i| [ "#color#{i}", authored(rgba(i / 10.0, 0, 0)) ] }
       write(dir, "tokens.css", names.map { |n| ":root{#{n}:#000}" }.join)
       report = ColorCheck.run(dir, strict: true,
                                    probe: FakeProbe.new(browser_result(names:, states: light_only({}),
@@ -594,6 +628,64 @@ class ColorCheckIntegrationTest < Minitest::Test
     assert_empty report.contrast
   end
 
+  # Each row: declared value of --x, extra declarations, expected kind, and
+  # the expected literals as [r, g, b, a, mixed].
+  RED = [ 1, 0, 0, 1, false ].freeze
+  CLASSIFY_CORPUS = [
+    [ "color-mix(in srgb, var(--brand), #ff0000)", "", "authored", [ [ 1, 0, 0, 0.5, true ] ] ],
+    [ "var(--missing, #f00)", "", "authored", [ RED ] ],
+    [ "var(--missing, var(--missing2, #f00))", "", "authored", [ RED ] ],
+    [ "var(--a, #f00)", "", "derived", [] ],
+    [ "var(--a, var(--b, #f00))", "", "derived", [] ],
+    [ "color-mix(in srgb, var(--a) 100%, #f00 0%)", "", "derived", [] ],
+    [ "color-mix(in srgb, var(--a) 12%, transparent)", "", "derived", [] ],
+    [ "color-mix(in srgb, var(--a) 60%, var(--b))", "", "derived", [] ],
+    [ "color-mix(in srgb, var(--a), #ff000080)", "", "authored", [ [ 1, 0, 0, 0.25, true ] ] ],
+    [ "rgb(from var(--a) r g b / 0.5)", "", "derived", [] ],
+    [ "light-dark(var(--a), #fff)", "", "authored", [ [ 1, 1, 1, 1, false ] ] ],
+    [ "light-dark(#000, #fff)", "", "authored", [ [ 0, 0, 0, 1, false ], [ 1, 1, 1, 1, false ] ] ],
+    [ "color-mix(in srgb, currentColor, #f00)", "", "authored", [ [ 1, 0, 0, 0.5, true ] ] ],
+    [ "transparent", "", nil, [] ],
+    [ "#ff000000", "", nil, [] ],
+    [ "v\\61r(--a)", "", "derived", [] ],
+    [ "var(--kw, red)", ":root{--kw:initial}", "authored", [ RED ] ],
+    [ "var(--accent, #0ff)", ".dark{--accent:#123}", "authored", [ [ 0, 1, 1, 1, false ] ] ]
+  ].freeze
+
+  def test_classification_corpus
+    css = ":root{--brand:#123456;--a:#0000ff;--b:#00ff00;" +
+          CLASSIFY_CORPUS.each_with_index.map { |(value, _), i| "--x#{i}:#{value}" }.join(";") + "}\n" +
+          CLASSIFY_CORPUS.map { |row| row[1] }.uniq.join("\n")
+    probed = ColorBrowser.probe(css)
+    CLASSIFY_CORPUS.each_with_index do |(_, _, kind, literals), i|
+      value = probed.declared_values.fetch("--x#{i}").first
+      entry = probed.classified.fetch(value)
+      label = "#{value}: #{entry.inspect}"
+      kind.nil? ? assert_nil(entry[:kind], label) : assert_equal(kind, entry[:kind], label)
+      assert_equal literals.size, entry[:literals].size, label
+      literals.zip(entry[:literals]).each do |(r, g, b, a, mixed), got|
+        [ r, g, b, a ].zip([ got[:color].r, got[:color].g, got[:color].b, got[:color].a ]).each do |want, have|
+          assert_in_delta want, have, 0.01, label
+        end
+        assert_equal mixed, got[:mixed], label
+      end
+    end
+  end
+
+  # D3 through the real browser: the red inside the mix merges with --red.
+  def test_mixed_literal_merges_with_the_same_literal
+    report = run_css(":root{--background:#fff;--red:#ff0000;--x:color-mix(in srgb, var(--background), #ff0000)}")
+    assert_equal 2, report.palette.authored.size, report.palette.authored.inspect
+    red = report.palette.authored.find { |a| a[:names].include?("--red") }
+    assert_equal %w[--red --x], red[:names]
+  end
+
+  # P2 through the real browser: transparent is not an authored color.
+  def test_transparent_is_not_an_authored_color
+    report = run_css(":root{--background:#fff;--page-text:#000;--clear:transparent}")
+    assert_equal 2, report.palette.authored.size, report.palette.authored.inspect
+  end
+
   def test_reference_example_palette_passes_the_checker
     css = File.read(File.expand_path("../skills/color/reference/example-palette.md", __dir__))[/```css\n(.*?)```/m, 1]
     refute_nil css, "example-palette.md has no css block"
@@ -607,6 +699,7 @@ class ColorCheckIntegrationTest < Minitest::Test
         assert_includes rows, [ variant, fg, "--background" ]
       end
       assert(report.contrast.all?(&:resolved?))
+      assert_equal 4, report.palette.authored.size, report.palette.authored.inspect
     end
   end
 end

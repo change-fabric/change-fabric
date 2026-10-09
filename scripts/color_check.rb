@@ -112,8 +112,9 @@ module ColorCheck
     [ nil, base ]
   end
 
-  # Authored colors grouped by resolved color (channels and alpha rounded to
-  # 4 places, so two spellings of one color share a group), with every name
+  # Authored colors grouped by resolved literal color (channels and alpha
+  # rounded to 4 places, so two spellings of one color share a group; a
+  # literal mixed with a var() counts at full opacity), with every name
   # that declares that color; --error is excluded from the count (it is the
   # one sanctioned exception beyond the four-color target). derived is a
   # count of declarations the browser resolved to a color through a var().
@@ -129,8 +130,13 @@ module ColorCheck
         when 'authored'
           next if name == ColorTokens::ERROR_TOKEN
 
-          slot = (authored[color_key(entry[:color])] ||= { value: value.strip, names: [] })
-          slot[:names] << name unless slot[:names].include?(name)
+          entry[:literals].each do |literal|
+            key = literal_key(literal)
+            next unless key
+
+            slot = (authored[key] ||= { value: value.strip, names: [] })
+            slot[:names] << name unless slot[:names].include?(name)
+          end
         when 'derived'
           derived += 1
         end
@@ -138,6 +144,16 @@ module ColorCheck
     end
     error_token = probed.names.include?(ColorTokens::ERROR_TOKEN)
     Palette.new(file: path, authored: authored.values, derived:, error_token:)
+  end
+
+  # A fully transparent literal is not a color (nil, skipped). A literal
+  # found inside a mix counts at full opacity, so it merges with the same
+  # literal declared on its own.
+  def literal_key(literal)
+    color = literal[:color]
+    return nil if color.nil? || color.a.zero?
+
+    color_key(literal[:mixed] ? color.with(a: 1.0) : color)
   end
 
   def color_key(color)
