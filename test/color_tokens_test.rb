@@ -208,6 +208,12 @@ class ColorTokensTest < Minitest::Test
     assert_equal({ "--a" => "#000" }, ok("@import \"tailwindcss\";\n@theme static{--a:#000}").variants[:light])
     assert_error("@import \"tailwindcss\";\n@theme default static{--a:#000}", "drop default")
     assert_error("@theme default static{--a:#000}\n@import \"x.css\";", "drop default")
+    # A leading global reset clears the imported values default would yield to.
+    assert_equal({ "--a" => "#000" },
+                 ok("@import \"tailwindcss\";\n@theme default static{--*: initial; --a:#000}").variants[:light])
+    assert_error("@import \"tailwindcss\";\n@theme default static{--color-*: initial; --a:#000}", "drop default")
+    assert_error("@theme default static{--*: initial; --a:#000}\n@import \"x.css\";", "drop default")
+    assert_error("@import \"x.css\"; @theme default static{--*: initial; --a:#000}", "drop default")
   end
 
   def test_theme_namespace_resets

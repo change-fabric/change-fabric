@@ -119,7 +119,8 @@ Accepted shape:
   position, and so is `@theme reference`, which emits no variables.
   Options are spelled lowercase and unescaped, as Tailwind compares them.
   `default` is an error alongside any `@import`, whose own theme values it
-  would yield to. Inside `@theme`, a namespace reset (`--*: initial`,
+  would yield to, unless the block opens with `--*: initial` and every
+  `@import` sits on a line above it. Inside `@theme`, a namespace reset (`--*: initial`,
   `--color-*: initial`) declares no token; its value is exactly `initial`,
   and it must come before any name it clears. Any other at-rule is an
   error.

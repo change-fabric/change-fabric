@@ -119,7 +119,8 @@ module ColorTokens
       @theme_id = nil
       @theme_default_line = nil
       @theme_names = []
-      @imported = false
+      @import_lines = []
+      @theme_reset_all = false
       @layers = {}
       @layer_of = {}
       @specificity = {}
@@ -130,8 +131,8 @@ module ColorTokens
     def result
       sheet.blocks.each { |b| @kinds[b.id] = classify(b) }
       sheet.at_rule_stmts.each { |s| check_statement(s) }
-      check_theme_default
       sheet.decls.each_with_index { |d, order| record(d, order) }
+      check_theme_default
       check_dark_names
       check_light_media_names
       dark = dark_tokens
@@ -414,7 +415,7 @@ module ColorTokens
       return if %i[error skip].include?(kind)
 
       name = ColorCss.canonical_idents(stmt.name).downcase(:ascii)
-      @imported = true if name == '@import'
+      @import_lines << stmt.line if name == '@import'
       return if (kind.nil? || kind == :layer) && SKIPPED_STATEMENTS.include?(name)
 
       text = [ stmt.name, stmt.prelude ].reject(&:empty?).join(' ')
@@ -422,12 +423,17 @@ module ColorTokens
     end
 
     # An imported stylesheet may declare its own @theme values, which an
-    # @theme default block yields to, and the checker cannot see them.
+    # @theme default block yields to, and the checker cannot see them. A
+    # global reset (--*: initial) in the block clears every theme value
+    # before it, so default is safe when every @import sits on a line above
+    # the block (a shared line cannot be ordered, so it does not count).
     def check_theme_default
-      return unless @theme_default_line && @imported
+      return unless @theme_default_line && @import_lines.any?
+      return if @theme_reset_all && @import_lines.all? { |l| l < @theme_default_line }
 
       error(@theme_default_line, "`@theme default` yields to any theme value an @import declares, which this " \
-                                 "checker cannot see; drop default")
+                                 "checker cannot see; drop default, or start the block with `--*: initial` " \
+                                 "below every @import")
     end
 
     def record(decl, order)
@@ -459,7 +465,9 @@ module ColorTokens
 
       prefix = decl.name.delete_suffix('*')
       cleared = @theme_names.find { |n| n.start_with?(prefix) }
-      error(decl.line, "`#{decl.name}: initial` clears `#{cleared}` declared above it; put resets first") if cleared
+      return error(decl.line, "`#{decl.name}: initial` clears `#{cleared}` declared above it; put resets first") if cleared
+
+      @theme_reset_all = true if decl.name == '--*'
     end
 
     # A value holding a malformed var() (ColorValue.malformed_var) is
