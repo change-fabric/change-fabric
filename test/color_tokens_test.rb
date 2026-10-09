@@ -207,13 +207,33 @@ class ColorTokensTest < Minitest::Test
     assert_equal({ "--a" => "#000" }, ok("@theme default static{--a:#000}").variants[:light])
     assert_equal({ "--a" => "#000" }, ok("@import \"tailwindcss\";\n@theme static{--a:#000}").variants[:light])
     assert_error("@import \"tailwindcss\";\n@theme default static{--a:#000}", "drop default")
-    assert_error("@theme default static{--a:#000}\n@import \"x.css\";", "drop default")
+    assert_error("@theme default static{--a:#000}\n@import \"tailwindcss\";", "drop default")
     # A leading global reset clears the imported values default would yield to.
     assert_equal({ "--a" => "#000" },
                  ok("@import \"tailwindcss\";\n@theme default static{--*: initial; --a:#000}").variants[:light])
     assert_error("@import \"tailwindcss\";\n@theme default static{--color-*: initial; --a:#000}", "drop default")
-    assert_error("@theme default static{--*: initial; --a:#000}\n@import \"x.css\";", "drop default")
-    assert_error("@import \"x.css\"; @theme default static{--*: initial; --a:#000}", "drop default")
+    assert_error("@theme default static{--*: initial; --a:#000}\n@import \"tailwindcss\";", "drop default")
+    assert_error("@import \"tailwindcss\"; @theme default static{--*: initial; --a:#000}", "drop default")
+  end
+
+  def test_only_the_tailwind_import_is_accepted
+    [ "@import \"tailwindcss\";", "@import 'tailwindcss';", "@import  \"tailwindcss\" ;" ].each do |imp|
+      assert_equal({ "--a" => "#000" }, ok("#{imp}\n:root{--a:#000}").variants[:light], imp)
+    end
+    [ "@import \"theme.css\";", "@import url(theme.css);", "@import \"tailwindcss\" layer(x);",
+      "@import \"tailwindcss/theme.css\";", "@import \"tailwind\\63ss\";" ].each do |imp|
+      assert_error("#{imp}\n:root{--a:#000}", "cannot see")
+    end
+  end
+
+  def test_invalid_custom_property_values_are_errors
+    { "black ! foo" => "top-level `!`", "a)" => "unmatched `)`", "[a)]" => "unmatched `)`",
+      "a]" => "unmatched `]`", "a}" => "unmatched }" }.each do |value, why|
+      assert_error(":root{--a:#000;--b:#{value}}", why)
+    end
+    [ "f(a!b)", "[!]", "\"!\"", "a\\!b", "/* ! */ #000", "{ a: b }" ].each do |value|
+      refute ok(":root{--b:#{value}}").variants[:light].empty?, value
+    end
   end
 
   def test_theme_namespace_resets
@@ -680,7 +700,7 @@ class ColorTokensTest < Minitest::Test
     result = ok(":root{--a:#000}\n@media (prefers-color-scheme: dark){ :ROOT{--a:#fff} }")
     assert_equal({ "--a" => "#fff" }, result.variants[:dark])
     assert_equal "#000", ok("@layer b\\61se { :root{--a:#000} }").variants[:light]["--a"]
-    [ "@t\\61ilwind base;", "@\\69mport \"x.css\";", "@IMPORT \"x.css\";" ].each do |stmt|
+    [ "@t\\61ilwind base;", "@\\69mport \"tailwindcss\";", "@IMPORT \"tailwindcss\";" ].each do |stmt|
       assert_equal "#000", ok("#{stmt}\n:root{--a:#000}").variants[:light]["--a"], stmt
     end
     assert_error("@t\\61ilwind\\2e x;\n:root{--a:#000}", "is not allowed in a token file")

@@ -112,7 +112,9 @@ Accepted shape:
   most one transparent `@layer` wrapper (named or anonymous) around any of
   these. A nested `@layer` is an error. The statements `@import`, `@charset`,
   `@tailwind`, `@source`, `@plugin`, `@custom-variant` and `@config` are
-  skipped. One `@theme static` block (optionally also `inline` or
+  skipped, except that `@import` accepts only `"tailwindcss"`: any other
+  imported stylesheet joins the cascade with declarations the checker never
+  reads, so audit that file instead. One `@theme static` block (optionally also `inline` or
   `default`) follows the `:root` light rules. `static` is required, since
   without it Tailwind emits only the variables it detects in use; a second
   `@theme` is an error, since Tailwind emits every one at the first one's
@@ -135,7 +137,8 @@ Accepted shape:
   light media declares unless dark media also exists (otherwise light shows
   under a dark preference too, with that query inactive).
 - Declarations: only `--name: value`. A normal property or `@apply` is an
-  error.
+  error, and so is a value CSS drops: a top-level `!` other than
+  `!important`, or a `)`, `]` or `}` that closes no open block.
 - Values: hex, `rgb`/`rgba`, `hsl`/`hsla` and named colors are authored
   colors and count toward the palette size. `var(--x)` and
   `color-mix(in srgb, ...)` are derived; `var()` is resolved, `color-mix()`

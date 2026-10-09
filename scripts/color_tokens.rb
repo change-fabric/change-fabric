@@ -415,11 +415,25 @@ module ColorTokens
       return if %i[error skip].include?(kind)
 
       name = ColorCss.canonical_idents(stmt.name).downcase(:ascii)
-      @import_lines << stmt.line if name == '@import'
+      return import(stmt) if name == '@import'
       return if (kind.nil? || kind == :layer) && SKIPPED_STATEMENTS.include?(name)
 
       text = [ stmt.name, stmt.prelude ].reject(&:empty?).join(' ')
       error(stmt.line, "`#{text}` is not allowed in a token file; only --name: value")
+    end
+
+    # The one import accepted: Tailwind itself, whose theme variables are
+    # all @theme default and so yield to the file's own. Any other
+    # stylesheet joins the cascade at the import point with declarations
+    # (an !important :root token, say) this checker never reads.
+    TAILWIND_IMPORTS = [ '"tailwindcss"', "'tailwindcss'" ].freeze
+
+    def import(stmt)
+      @import_lines << stmt.line
+      return if TAILWIND_IMPORTS.include?(ColorCss.strip_ws(stmt.prelude))
+
+      error(stmt.line, "`@import #{ColorCss.strip_ws(stmt.prelude)}` brings in declarations this checker cannot " \
+                       "see; audit that file instead, or import only \"tailwindcss\"")
     end
 
     # An imported stylesheet may declare its own @theme values, which an
@@ -445,6 +459,10 @@ module ColorTokens
       return namespace_reset(decl) if decl.name.end_with?('*')
       unless decl.name.start_with?('--')
         return error(decl.line, "property `#{decl.name}` is not allowed in a token block; only --name: value")
+      end
+
+      if (why = ColorCss.invalid_declaration_value(decl.value))
+        return error(decl.line, "`#{decl.name}` has #{why}, so CSS drops the declaration")
       end
 
       @theme_names << decl.name if decl.block_id == @theme_id

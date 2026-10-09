@@ -557,6 +557,35 @@ module_function
     [ strip_ws(text[0...bang]), true ]
   end
 
+  # Why a custom property's value (priority already split off) is not a
+  # <declaration-value>, or nil when it is. CSS Variables 1 2 makes such a
+  # declaration invalid: a "!" delim at top level, a ")", "]" or "}" that
+  # closes no open block (at any depth), or a string a raw newline ends.
+  def invalid_declaration_value(text)
+    text = text.to_s
+    stack = []
+    i = 0
+    while i < text.length
+      ch = text[i]
+      if text[i, 2] == "/*"
+        close = text.index("*/", i + 2)
+        i = close ? close + 2 : text.length
+      elsif ch == '"' || ch == "'"
+        i = skip_string(text, i)
+        return "an unterminated string" if i < text.length && "\n\r\f".include?(text[i])
+      elsif ident_char_at?(text, i)
+        i = skip_ident_run(text, i)
+      else
+        return "a top-level `!`" if ch == "!" && stack.empty?
+        return "an unmatched `#{ch}`" if BLOCK_CLOSER.value?(ch) && stack.last != ch
+
+        track_block(stack, ch)
+        i += 1
+      end
+    end
+    nil
+  end
+
   # text with every escaped identifier (and #hash name) outside strings,
   # comments and unquoted url() contents decoded (decode_ident) and written
   # back in one canonical spelling (serialize_ident), so two spellings CSS
