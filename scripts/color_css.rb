@@ -560,7 +560,8 @@ module_function
   # Why a custom property's value (priority already split off) is not a
   # <declaration-value>, or nil when it is. CSS Variables 1 2 makes such a
   # declaration invalid: a "!" delim at top level, a ")", "]" or "}" that
-  # closes no open block (at any depth), or a string a raw newline ends.
+  # closes no open block (at any depth), a string a raw newline ends, or an
+  # unquoted url( that tokenizes as a bad-url (bad_url?).
   def invalid_declaration_value(text)
     text = text.to_s
     stack = []
@@ -574,7 +575,14 @@ module_function
         i = skip_string(text, i)
         return "an unterminated string" if i < text.length && "\n\r\f".include?(text[i])
       elsif ident_char_at?(text, i)
-        i = skip_ident_run(text, i)
+        j = skip_ident_run(text, i)
+        if text[j] == "(" && decode_ident(text[i...j]).downcase(:ascii) == "url"
+          return "a bad `url(` token" if bad_url?(text, j)
+
+          j = skip_unquoted_url(text, j)
+          track_block(stack, "(") if text[j - 1] == "("
+        end
+        i = j
       else
         return "a top-level `!`" if ch == "!" && stack.empty?
         return "an unmatched `#{ch}`" if BLOCK_CLOSER.value?(ch) && stack.last != ch
@@ -766,6 +774,36 @@ module_function
     return run.start_with?("--") if rest.empty?
 
     rest.match?(/\A(?:#{NAME_START_CP}|\\)/)
+  end
+
+  # True when the url( at open is unquoted and CSS Syntax 3 4.3.6 makes it
+  # a bad-url token: a quote, "(" or non-printable code point inside it,
+  # whitespace followed by anything but ")", or an invalid escape (a
+  # backslash before a newline). A quoted url( is a function, never bad.
+  def bad_url?(text, open)
+    j = open + 1
+    j += 1 while j < text.length && WS_CHARS.include?(text[j])
+    return false if text[j] == '"' || text[j] == "'"
+
+    while j < text.length
+      ch = text[j]
+      return false if ch == ")"
+
+      if WS_CHARS.include?(ch)
+        j += 1 while j < text.length && WS_CHARS.include?(text[j])
+        return j < text.length && text[j] != ")"
+      end
+      return true if "\"'(".include?(ch) || ch.match?(/[\u0000-\u0008\u000B\u000E-\u001F\u007F]/)
+
+      if ch == "\\"
+        return true if "\n\r\f".include?(text[j + 1].to_s) && j + 1 < text.length
+
+        j = skip_escape(text, j)
+      else
+        j += 1
+      end
+    end
+    false
   end
 
   # Past the ")" closing an unquoted url( token at open, or just past "(" when

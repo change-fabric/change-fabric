@@ -138,7 +138,8 @@ Accepted shape:
   under a dark preference too, with that query inactive).
 - Declarations: only `--name: value`. A normal property or `@apply` is an
   error, and so is a value CSS drops: a top-level `!` other than
-  `!important`, or a `)`, `]` or `}` that closes no open block.
+  `!important`, a `)`, `]` or `}` that closes no open block, or an
+  unquoted `url(` holding a quote, `(`, inner whitespace or a bad escape.
 - Values: hex, `rgb`/`rgba`, `hsl`/`hsla` and named colors are authored
   colors and count toward the palette size. `var(--x)` and
   `color-mix(in srgb, ...)` are derived; `var()` is resolved, `color-mix()`

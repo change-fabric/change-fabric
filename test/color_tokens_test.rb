@@ -231,6 +231,15 @@ class ColorTokensTest < Minitest::Test
       "a]" => "unmatched `]`", "a}" => "unmatched }" }.each do |value, why|
       assert_error(":root{--a:#000;--b:#{value}}", why)
     end
+    [ "url(foo\"bar\")", "url(a b)", "URL(a\u0001b)", "u\\72l(a\"b\")", "url(var(--x))" ].each do |value|
+      assert_error(":root{--a:#000;--b:#{value}}", "bad `url(` token")
+    end
+    [ "url(a'b)", "url(a(b)", "f(url(a'b))" ].each do |value|
+      assert(read(":root{--a:#000;--b:#{value}}").errors.any? { |e| e.message.include?("bad `url(` token") }, value)
+    end
+    [ "url(a.png)", "url( a.png )", "url(\"a'b(\")", "url( 'a\"b' )", "url(a\\(b)", "url(a\\ b)" ].each do |value|
+      refute ok(":root{--b:#{value}}").variants[:light].empty?, value
+    end
     [ "f(a!b)", "[!]", "\"!\"", "a\\!b", "/* ! */ #000", "{ a: b }" ].each do |value|
       refute ok(":root{--b:#{value}}").variants[:light].empty?, value
     end
@@ -645,7 +654,7 @@ class ColorTokensTest < Minitest::Test
     result = ok(":root{--a:VAR(--x);--b:Color-Mix(in srgb, red, blue);--c:my-var(--x);--d:x-color-mix(red);--e:_var(--x)}")
     assert_equal 2, result.derived
     [ "\u00e9var(--x)", "var\u00e9(--x)", "2var(--x)", %("var(--x)"), %('color-mix(in srgb, red, blue)'),
-      %(url(var(--x))), %(url("var(--x)")), "\\75 rl(var(--x))" ].each do |v|
+      %(url(var\\(--x\\))), %(url("var(--x)")), "\\75 rl(var\\(--x\\))" ].each do |v|
       assert_equal 0, ok(":root{--a:#{v}}").derived, v
     end
     [ "\\var(--x)", "v\\61r(--x)", "\\63 olor-mix(in srgb, red, blue)" ].each do |v|
