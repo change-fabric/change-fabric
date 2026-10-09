@@ -8,10 +8,13 @@ require_relative 'change_docker'
 
 # Decides whether a token file needs a Tailwind build before a browser can
 # read it, and runs that build in the project's own pinned Node image when it
-# does. This is a routing heuristic, not a CSS parser: a false positive (a
-# file that mentions "@theme" in a comment, say) only costs an unnecessary
-# compile, never a wrong answer, since Tailwind's own CLI is what actually
-# reads the file afterward.
+# does. The directive scan is an advisory routing heuristic, not a CSS
+# parser. A false negative falls through to the browser, whose CSSImportRule
+# check reports an unbundled @import. A false positive (a directive inside a
+# string, say) costs an unnecessary compile when Tailwind is installed, and
+# is a hard "uses Tailwind directives" error when it is not. The file's raw
+# bytes, not this scan's view of them, are what reach Tailwind or the
+# browser, which does its own decoding.
 module ColorCompile
   # Any of these in the file's text routes it through a Tailwind build first.
   # @import is included because an unbundled @import is something only a
@@ -55,9 +58,14 @@ module ColorCompile
   # (found under `root_abs`) first when it needs one. A file outside the root
   # that needs a compile is an error: the compile mounts only the root, so
   # the container could not see it. Returns a Result.
+  #
+  # Result.css carries the file's raw bytes so the browser decodes them (a
+  # BOM is stripped and an invalid byte becomes U+FFFD there); the routing
+  # scan works on a scrubbed UTF-8 copy so an invalid byte cannot raise.
   def read(root_abs, path_abs)
-    text = File.read(path_abs, encoding: 'UTF-8')
-    return Result.new(css: text, error: nil) unless needs_compile?(text)
+    bytes = File.binread(path_abs)
+    text = bytes.dup.force_encoding(Encoding::UTF_8).scrub
+    return Result.new(css: bytes, error: nil) unless needs_compile?(text)
 
     prefix = root_abs.end_with?(File::SEPARATOR) ? root_abs : root_abs + File::SEPARATOR
     unless path_abs.start_with?(prefix)
@@ -149,7 +157,7 @@ module ColorCompile
         return Result.new(css: nil, error: "#{relative_path}: tailwind build produced no output:\n#{out.lines.last(STDERR_TAIL_LINES).join}")
       end
 
-      Result.new(css: File.read(out_file, encoding: 'UTF-8'), error: nil)
+      Result.new(css: File.binread(out_file), error: nil)
     end
   end
 end

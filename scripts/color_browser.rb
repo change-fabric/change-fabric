@@ -48,17 +48,21 @@ module ColorBrowser
     Result.new(names:, declared_values:, classified:, states:, import_error: false)
   end
 
-  # The JS module string posted to browserless's /function endpoint. CSS is
-  # passed as a JSON string literal so no quoting of the token file's own
-  # content is needed.
-  def js_module(css)
+  # The JS module string posted to browserless's /function endpoint. The
+  # token file's raw bytes travel as strict base64 (pack('m0'), no base64
+  # gem), so no quoting or encoding of its content happens in Ruby; the page
+  # decodes them with TextDecoder, which strips a leading BOM and maps an
+  # invalid byte to U+FFFD, as a browser reading the file would.
+  def js_module(css_bytes)
     <<~JS
       export default async ({ page }) => {
-        const css = #{JSON.generate(css)};
+        const b64 = #{JSON.generate([ css_bytes.to_s.b ].pack('m0'))};
         await page.setContent('<!doctype html><html><head></head><body></body></html>',
           { waitUntil: 'domcontentloaded', timeout: 60000 });
 
-        const setup = await page.evaluate((css) => {
+        const setup = await page.evaluate((b64) => {
+          const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+          const css = new TextDecoder('utf-8').decode(bytes);
           const style = document.createElement('style');
           style.textContent = css;
           document.head.append(style);
@@ -122,7 +126,7 @@ module ColorBrowser
           };
 
           return { importError: false, names: [...names], declaredValues };
-        }, css);
+        }, b64);
 
         if (setup.importError) return { importError: true };
 

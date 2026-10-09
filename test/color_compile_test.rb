@@ -29,6 +29,12 @@ class ColorCompileTest < Minitest::Test
     end
   end
 
+  def test_needs_compile_on_a_scrubbed_invalid_byte_does_not_raise
+    text = "\xff:root{--a:#fff}".b.force_encoding(Encoding::UTF_8).scrub
+    refute ColorCompile.needs_compile?(text)
+    assert ColorCompile.needs_compile?("\xff@theme{}".b.force_encoding(Encoding::UTF_8).scrub)
+  end
+
   def test_needs_compile_ignores_a_directive_mentioned_only_in_a_comment
     refute ColorCompile.needs_compile?(":root{--a:#fff} /* uses @theme here one day */")
   end

@@ -166,6 +166,18 @@ class ColorCheckTest < Minitest::Test
     end
   end
 
+  # An invalid UTF-8 byte reaches the probe as raw bytes and never raises in
+  # the routing scan or the JSON report.
+  def test_run_never_raises_on_an_invalid_byte
+    with_dir do |dir|
+      File.binwrite(File.join(dir, "tokens.css"), "\xff:root{}".b)
+      result = browser_result(names: [], states: light_only({}))
+      report = ColorCheck.run(dir, probe: FakeProbe.new(result))
+      assert_instance_of ColorCheck::Report, report
+      JSON.parse(ColorCheck.to_json_report(report))
+    end
+  end
+
   # --- probe-stage conditions ---
 
   def test_docker_unavailable_is_a_token_error
@@ -479,6 +491,27 @@ class ColorCheckIntegrationTest < Minitest::Test
     pair = report.contrast.find { |c| c.fg == "--page-text" }
     assert pair.resolved?
     assert_in_delta 4.0, pair.ratio, 0.05
+  end
+
+  def test_invalid_byte_never_raises_through_the_browser
+    with_dir do |dir|
+      File.binwrite(File.join(dir, "tokens.css"), "\xff:root{}".b)
+      report = ColorCheck.run(dir)
+      assert_instance_of ColorCheck::Report, report
+      JSON.parse(ColorCheck.to_json_report(report))
+    end
+  end
+
+  # The browser's TextDecoder strips a UTF-8 BOM, so it never becomes part
+  # of the first selector and every pair still resolves.
+  def test_utf8_bom_is_stripped_by_the_browser
+    with_dir do |dir|
+      File.binwrite(File.join(dir, "tokens.css"), "\xEF\xBB\xBF:root{--background:#fff;--page-text:#000}".b)
+      report = ColorCheck.run(dir)
+      pair = report.contrast.find { |c| c.fg == "--page-text" }
+      assert pair&.resolved?, report.contrast.inspect
+      assert_in_delta 21.0, pair.ratio, 0.01
+    end
   end
 
   def test_bad_bang_token_is_dropped_by_the_browser
