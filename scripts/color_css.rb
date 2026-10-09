@@ -61,11 +61,14 @@ module ColorCss
   # A custom-property name as written: "--" then ident units, so --\61 and
   # --caf\e9 are declarations. Its value is decoded by custom_property_name.
   CUSTOM_NAME_SRC = /--#{IDENT_UNIT}+/.freeze
+  # A Tailwind @theme namespace reset as written: --* or --<prefix>-*
+  # (--color-*). ColorTokens accepts it only inside @theme.
+  NAMESPACE_RESET_SRC = /--(?:#{IDENT_UNIT}*-)?\*/.freeze
   # Any identifier spelled with at least one escape (\2d \2d x, -\2d x). It
   # is a declaration name only when it decodes to a custom-property name
   # (ColorCss.custom_property_ref); emit_declaration checks that.
   ESCAPED_NAME_SRC = /#{IDENT_CP}*#{ESCAPE}#{IDENT_UNIT}*/.freeze
-  DECL_NAME = /\A(#{WS_SRC}*)(#{CUSTOM_NAME_SRC}|\$#{IDENT_CP}+|@#{IDENT_UNIT}+|-?#{NAME_START_CP}#{IDENT_CP}*|#{ESCAPED_NAME_SRC})(#{WS_SRC}*):(.*)\z/m.freeze
+  DECL_NAME = /\A(#{WS_SRC}*)(#{NAMESPACE_RESET_SRC}|#{CUSTOM_NAME_SRC}|\$#{IDENT_CP}+|@#{IDENT_UNIT}+|-?#{NAME_START_CP}#{IDENT_CP}*|#{ESCAPED_NAME_SRC})(#{WS_SRC}*):(.*)\z/m.freeze
   # A segment that has begun a custom-property declaration: its name (literal
   # or escaped, checked by custom_property_ref) and the colon.
   CUSTOM_VALUE_START = /\A#{WS_SRC}*(#{CUSTOM_NAME_SRC}|#{ESCAPED_NAME_SRC})#{WS_SRC}*:/.freeze

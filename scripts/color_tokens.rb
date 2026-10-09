@@ -116,6 +116,10 @@ module ColorTokens
       @dark_seen = false
       @layer_seen = false
       @theme_seen = false
+      @theme_id = nil
+      @theme_default_line = nil
+      @theme_names = []
+      @imported = false
       @layers = {}
       @layer_of = {}
       @specificity = {}
@@ -126,6 +130,7 @@ module ColorTokens
     def result
       sheet.blocks.each { |b| @kinds[b.id] = classify(b) }
       sheet.at_rule_stmts.each { |s| check_statement(s) }
+      check_theme_default
       sheet.decls.each_with_index { |d, order| record(d, order) }
       check_dark_names
       check_light_media_names
@@ -202,10 +207,12 @@ module ColorTokens
       end
     end
 
-    # @theme options that may join static. Without static Tailwind emits
+    # @theme options that may join static, spelled exactly as Tailwind
+    # compares them (lowercase, no escapes). Without static Tailwind emits
     # only the variables it detects in use, which this checker cannot see,
-    # so static is required. default only lets a later theme value replace
-    # its own, and one block has no other. reference emits none.
+    # so static is required. default yields to any other theme value, and
+    # with no @import the one block has no other (check_theme_default).
+    # reference emits none.
     THEME_OPTIONS = %w[static inline default].freeze
 
     # One @theme static block, light. Tailwind emits every @theme block's
@@ -217,17 +224,19 @@ module ColorTokens
       return error(block.line, "second `#{prelude}`; only one @theme block is allowed, since Tailwind " \
                                "emits every @theme at the first one's position") if @theme_seen
 
-      options = ColorCss.strip_ws(canonical.sub(AT_NAME, "")).split(ColorCss::WS_RUN)
-      if (bad = options.find { |o| !THEME_OPTIONS.include?(o.downcase(:ascii)) })
-        return error(block.line, "`#{prelude}` has option `#{bad}`; only static, inline and default emit the " \
-                                 "variables (reference emits none)")
+      options = ColorCss.strip_ws(prelude.sub(AT_NAME, "")).split(ColorCss::WS_RUN)
+      if (bad = options.find { |o| !THEME_OPTIONS.include?(o) })
+        return error(block.line, "`#{prelude}` has option `#{bad}`; Tailwind reads only static, inline and " \
+                                 "default, spelled exactly so (reference emits no variables)")
       end
-      unless options.any? { |o| o.casecmp?('static') }
+      unless options.include?('static')
         return error(block.line, "`#{prelude}` may omit variables Tailwind does not detect in use; " \
                                  "write `@theme static` so every audited variable is emitted")
       end
 
       @theme_seen = true
+      @theme_id = block.id
+      @theme_default_line = block.line if options.include?('default')
       note_specificity(block.id, light: THEME_SPECIFICITY)
       :light
     end
@@ -403,10 +412,22 @@ module ColorTokens
     def check_statement(stmt)
       kind = stmt.block_id && @kinds[stmt.block_id]
       return if %i[error skip].include?(kind)
-      return if (kind.nil? || kind == :layer) && SKIPPED_STATEMENTS.include?(ColorCss.canonical_idents(stmt.name).downcase(:ascii))
+
+      name = ColorCss.canonical_idents(stmt.name).downcase(:ascii)
+      @imported = true if name == '@import'
+      return if (kind.nil? || kind == :layer) && SKIPPED_STATEMENTS.include?(name)
 
       text = [ stmt.name, stmt.prelude ].reject(&:empty?).join(' ')
       error(stmt.line, "`#{text}` is not allowed in a token file; only --name: value")
+    end
+
+    # An imported stylesheet may declare its own @theme values, which an
+    # @theme default block yields to, and the checker cannot see them.
+    def check_theme_default
+      return unless @theme_default_line && @imported
+
+      error(@theme_default_line, "`@theme default` yields to any theme value an @import declares, which this " \
+                                 "checker cannot see; drop default")
     end
 
     def record(decl, order)
@@ -415,11 +436,30 @@ module ColorTokens
       unless %i[light dark].include?(kind)
         return error(decl.line, "declaration `#{decl.name}` outside a token block")
       end
+      return namespace_reset(decl) if decl.name.end_with?('*')
       unless decl.name.start_with?('--')
         return error(decl.line, "property `#{decl.name}` is not allowed in a token block; only --name: value")
       end
 
+      @theme_names << decl.name if decl.block_id == @theme_id
       store(kind == :light ? @light : @dark, kind, decl, order)
+    end
+
+    # A Tailwind namespace reset (--*: initial, --color-*: initial) inside
+    # @theme drops Tailwind's own defaults and declares no token. It also
+    # drops any theme name above it in its namespace, so one after such a
+    # name is an error rather than a cascade the checker would have to model.
+    def namespace_reset(decl)
+      unless decl.block_id == @theme_id
+        return error(decl.line, "`#{decl.name}` is a Tailwind namespace reset, only allowed inside @theme")
+      end
+      unless ColorCss.strip_ws(decl.value) == 'initial' && !decl.important
+        return error(decl.line, "`#{decl.name}` must be exactly `initial`; it resets a Tailwind namespace")
+      end
+
+      prefix = decl.name.delete_suffix('*')
+      cleared = @theme_names.find { |n| n.start_with?(prefix) }
+      error(decl.line, "`#{decl.name}: initial` clears `#{cleared}` declared above it; put resets first") if cleared
     end
 
     # A value holding a malformed var() (ColorValue.malformed_var) is

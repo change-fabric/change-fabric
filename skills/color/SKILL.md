@@ -116,8 +116,13 @@ Accepted shape:
   `default`) follows the `:root` light rules. `static` is required, since
   without it Tailwind emits only the variables it detects in use; a second
   `@theme` is an error, since Tailwind emits every one at the first one's
-  position, and so is `@theme reference`, which emits no variables. Any
-  other at-rule is an error.
+  position, and so is `@theme reference`, which emits no variables.
+  Options are spelled lowercase and unescaped, as Tailwind compares them.
+  `default` is an error alongside any `@import`, whose own theme values it
+  would yield to. Inside `@theme`, a namespace reset (`--*: initial`,
+  `--color-*: initial`) declares no token; its value is exactly `initial`,
+  and it must come before any name it clears. Any other at-rule is an
+  error.
 - Selectors: `:root` (light); `.dark`, `:root.dark`, `[data-theme=dark]` in
   any quote style, and `:root[data-theme=dark]` (dark). A selector list is
   accepted only when every member is in the same variant. `html` is not

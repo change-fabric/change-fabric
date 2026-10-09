@@ -183,8 +183,8 @@ class ColorTokensTest < Minitest::Test
   # block without static, or any option but static, inline and default is
   # an error.
   def test_theme_block_is_single_and_emitting
-    [ "@theme static", "@theme STATIC", "@theme INLINE static", "@theme default static",
-      "@theme Default inline static", "@layer x { @theme static" ].each do |open|
+    [ "@theme static", "@theme inline static", "@theme default static",
+      "@theme default inline static", "@layer x { @theme static" ].each do |open|
       css = "#{open} { --a: #000; }#{open.include?('{') ? ' }' : ''}"
       assert_equal({ "--a" => "#000" }, ok(css).variants[:light], open)
     end
@@ -196,6 +196,33 @@ class ColorTokensTest < Minitest::Test
     end
     assert_error("@theme reference{--background:white;--page-text:black}", "option `reference`")
     assert_error("@theme bogus{--a:#000}", "option `bogus`")
+    # Tailwind compares options case-sensitively and unescaped.
+    [ [ "@theme STATIC", "STATIC" ], [ "@theme INLINE static", "INLINE" ],
+      [ "@theme Default static", "Default" ], [ "@theme st\\61tic", "st\\61tic" ] ].each do |open, bad|
+      assert_error("#{open}{--a:#000}", "option `#{bad}`")
+    end
+  end
+
+  def test_theme_default_with_an_import_is_an_error
+    assert_equal({ "--a" => "#000" }, ok("@theme default static{--a:#000}").variants[:light])
+    assert_equal({ "--a" => "#000" }, ok("@import \"tailwindcss\";\n@theme static{--a:#000}").variants[:light])
+    assert_error("@import \"tailwindcss\";\n@theme default static{--a:#000}", "drop default")
+    assert_error("@theme default static{--a:#000}\n@import \"x.css\";", "drop default")
+  end
+
+  def test_theme_namespace_resets
+    [ "--*: initial;", "--color-*: initial;", "--color-*:initial; --font-*: initial;" ].each do |reset|
+      result = ok("@theme static{#{reset} --color-a:#000}")
+      assert_equal({ "--color-a" => "#000" }, result.variants[:light], reset)
+    end
+    assert_error("@theme static{--color-a:#000; --color-*: initial}", "clears `--color-a`")
+    assert_error("@theme static{--color-a:#000; --*: initial}", "put resets first")
+    assert_equal({ "--font-a" => "x", "--color-a" => "#000" },
+                 ok("@theme static{--color-a:#000; --font-*: initial; --font-a: x}").variants[:light])
+    assert_error(":root{--color-*: initial}", "only allowed inside @theme")
+    [ "--color-*: INITIAL", "--color-*: inherit", "--color-*: initial !important", "--color-*: #000" ].each do |d|
+      assert_error("@theme static{#{d}}", "exactly `initial`")
+    end
   end
 
   def test_other_block_at_rules_are_errors
