@@ -2,7 +2,6 @@
 # frozen_string_literal: true
 
 require 'json'
-require 'set'
 require_relative 'change_docker'
 require_relative 'color_math'
 
@@ -13,8 +12,8 @@ require_relative 'color_math'
 # attribute, and prefers-color-scheme: dark media), and classifies every
 # declared value as an authored literal or a derived (var()-based) one.
 # Whatever the browser accepts is the answer; this module does no CSS
-# parsing of its own beyond the lightest text scan (see
-# dropped_declarations).
+# parsing of its own, and a declaration the browser rejects simply does not
+# exist for the checker.
 module ColorBrowser
   # Either import_error is true, or (names, ...) carry the browser's answer.
   Result = Data.define(:names, :declared_values, :classified, :states, :import_error)
@@ -47,24 +46,6 @@ module ColorBrowser
       [ variant.to_sym, map.transform_values { |c| ColorMath.parse(c) } ]
     end
     Result.new(names:, declared_values:, classified:, states:, import_error: false)
-  end
-
-  # Every "--name:" this is fed, scanned out of the raw CSS text (comments
-  # blanked first) rather than parsed. A name the browser's CSSOM never
-  # reports is one CSS itself dropped (an invalid value, a malformed var()),
-  # which is a token-file error; a name the browser DID keep but this scan
-  # misses (inside a string, say) only under-reports a heuristic check, never
-  # a wrong answer about what the browser actually computed.
-  DECL_NAME = /--[A-Za-z0-9_-]+(?=\s*:)/.freeze
-
-  def declared_names(css)
-    stripped = css.gsub(%r{/\*.*?\*/}m, ' ')
-    stripped.scan(DECL_NAME).uniq
-  end
-
-  def dropped_declarations(css, kept_names)
-    kept = kept_names.to_set
-    declared_names(css).reject { |n| kept.include?(n) }
   end
 
   # The JS module string posted to browserless's /function endpoint. CSS is

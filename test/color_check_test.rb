@@ -185,15 +185,6 @@ class ColorCheckTest < Minitest::Test
     end
   end
 
-  def test_dropped_declaration_is_a_token_error
-    with_dir do |dir|
-      write(dir, "tokens.css", ":root{--background:#fff;--bad: black ! foo;}")
-      report = run_with(dir, browser_result(names: %w[--background],
-                                             states: light_only({ "--background" => WHITE })))
-      assert(report.token_errors.any? { |e| e.message.include?("`--bad` was dropped by the browser") })
-    end
-  end
-
   def test_mechanisms_disagreeing_is_a_token_error_and_no_contrast
     with_dir do |dir|
       write(dir, "tokens.css", ":root{--background:#fff;--page-text:#000}")
@@ -491,13 +482,37 @@ class ColorCheckIntegrationTest < Minitest::Test
   end
 
   def test_bad_bang_token_is_dropped_by_the_browser
-    report = run_css(":root{--background:#fff;--bad: black ! foo}")
-    assert(report.token_errors.any? { |e| e.message.include?("`--bad` was dropped") })
+    report = run_css(":root{--background:#fff;--page-text: black ! foo}")
+    assert_empty report.token_errors
+    refute(report.contrast.any? { |c| c.fg == "--page-text" })
   end
 
   def test_unquoted_url_with_a_quote_is_dropped
-    report = run_css(%(:root{--background:#fff;--bad:url(foo"bar)}))
-    assert(report.token_errors.any? { |e| e.message.include?("`--bad` was dropped") })
+    report = run_css(%(:root{--background:#fff;--page-text:url(foo"bar)}))
+    assert_empty report.token_errors
+    refute(report.contrast.any? { |c| c.fg == "--page-text" })
+  end
+
+  # A "--name:" inside a string or a style query is not a declaration; with
+  # no Ruby text scan it can never read as a dropped one.
+  def test_names_in_strings_and_style_queries_are_not_errors
+    with_dir do |dir|
+      write(dir, "tokens.css", %(:root{--background:#fff;--page-text:#000;--note:"--ghost: 1"}\n) +
+                               "@container style(--theme: dark){:root{--page-text:#000}}")
+      report = ColorCheck.run(dir, strict: true)
+      assert_empty report.token_errors
+      assert_equal 0, report.exit_code
+    end
+  end
+
+  def test_error_token_inside_a_string_is_not_present
+    report = run_css(%(:root{--background:#fff;--note:"--error: x"}))
+    assert_equal false, report.palette.error_token
+  end
+
+  def test_declared_error_token_is_present
+    report = run_css(":root{--error:#c00}")
+    assert_equal true, report.palette.error_token
   end
 
   def test_escaped_name_is_the_plain_name

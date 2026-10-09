@@ -121,10 +121,6 @@ What still errors:
   message)
 - the browser's CSSOM still contains an unresolved `@import` after compiling
   (an import nothing could bundle); audit that file directly instead
-- a declaration this checker fed the browser is absent from what the
-  browser kept (a heuristic text scan against the browser's own parsed
-  names, so it can only say "dropped", never claim CSS kept something it
-  did not)
 - the three dark mechanisms (the `.dark` class, the `data-theme` attribute,
   `prefers-color-scheme: dark` media) disagree with each other once each is
   tested alone; the error names the two mechanisms and the first name they
@@ -144,6 +140,11 @@ computed no color for one of its names in that variant ("is not a color in
 dark"), or when the name was never declared at all anywhere in the file
 ("is not declared"). An unresolved pair is listed for the user to state
 manually; it never fails `--strict`.
+
+A declaration the browser rejects (an invalid value, a malformed `var()`)
+does not exist for the checker and is never reported as an error: a pair
+that needs it reports "is not declared", and a rejected `--x-text` forms no
+pair at all.
 
 ## Decision heuristic
 

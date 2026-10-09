@@ -52,7 +52,7 @@ module ColorCheck
     return compile_error_report(path, compiled.error, strict) if compiled.error
 
     probed = probe.probe(compiled.css)
-    build_report(path, compiled.css, probed, strict)
+    build_report(path, probed, strict)
   rescue StandardError => e
     error_report(path, "could not audit: #{e.message.to_s.scrub}", strict)
   end
@@ -66,16 +66,15 @@ module ColorCheck
     error_report(path, message, strict)
   end
 
-  def build_report(path, css, probed, strict)
+  def build_report(path, probed, strict)
     if probed.import_error
       return error_report(path, 'the browser found an @import it could not load; bundle it first (Tailwind ' \
                                  'directives route through the compile step) or audit that file directly', strict)
     end
 
-    errors = dropped_declaration_errors(css, probed.names)
     mechanism_error, dark_map = resolve_mechanisms(probed.states)
-    errors << mechanism_error if mechanism_error
-    palette = build_palette(path, css, probed)
+    errors = [ mechanism_error ].compact
+    palette = build_palette(path, probed)
 
     contrast = mechanism_error ? [] : compute_contrast(probed, dark_map)
     exit_code = strict && (!errors.empty? || contrast.any? { |c| c.status == 'fail' }) ? 1 : 0
@@ -85,17 +84,6 @@ module ColorCheck
   def error_report(path, message, strict)
     Report.new(tokens: path, token_errors: [ ColorTokens::Error.new(line: nil, message: message.to_s.scrub) ],
                palette: nil, contrast: [], exit_code: strict ? 1 : 0)
-  end
-
-  # A name CSS fed to the browser but whose declaration the CSSOM never
-  # kept (an invalid value, a malformed var()) is a token-file error. A
-  # heuristic text scan, documented as such: it can under-report (a name
-  # only inside a string) but never claims the browser dropped something it
-  # actually kept.
-  def dropped_declaration_errors(css, names)
-    ColorBrowser.dropped_declarations(css, names).map do |name|
-      ColorTokens::Error.new(line: nil, message: "`#{name}` was dropped by the browser (invalid value)")
-    end
   end
 
   # Each of .dark, [data-theme=dark] and prefers-color-scheme: dark is
@@ -129,7 +117,7 @@ module ColorCheck
   # that declares that color; --error is excluded from the count (it is the
   # one sanctioned exception beyond the four-color target). derived is a
   # count of declarations the browser resolved to a color through a var().
-  def build_palette(path, css, probed)
+  def build_palette(path, probed)
     authored = {}
     derived = 0
     probed.declared_values.each do |name, values|
@@ -148,7 +136,7 @@ module ColorCheck
         end
       end
     end
-    error_token = ColorBrowser.declared_names(css).include?(ColorTokens::ERROR_TOKEN)
+    error_token = probed.names.include?(ColorTokens::ERROR_TOKEN)
     Palette.new(file: path, authored: authored.values, derived:, error_token:)
   end
 
