@@ -293,15 +293,21 @@ class ColorCheckTest < Minitest::Test
     end
   end
 
-  def test_palette_size_error_when_above_target
+  # A larger palette is reported as distance from target, never as an
+  # error: the skill is advisory and --strict must not fail on it.
+  def test_palette_above_target_is_not_an_error
     with_dir do |dir|
       # Five distinct colors, one declared value each so each groups alone.
       names = (1..5).map { |i| "--c#{i}" }
       declared_values = names.each_with_index.to_h { |n, i| [ n, [ "#color#{i}" ] ] }
       classified = names.each_with_index.to_h { |n, i| [ "#color#{i}", { kind: "authored", color: rgba(i / 10.0, 0, 0) } ] }
-      report = run_with(dir, browser_result(names:, states: light_only({}), declared_values:, classified:))
+      write(dir, "tokens.css", names.map { |n| ":root{#{n}:#000}" }.join)
+      report = ColorCheck.run(dir, strict: true,
+                                   probe: FakeProbe.new(browser_result(names:, states: light_only({}),
+                                                                       declared_values:, classified:)))
       assert_equal 5, report.palette.authored.size
-      assert(report.token_errors.any? { |e| e.message.include?("palette has 5 authored colors") })
+      assert_empty report.token_errors
+      assert_equal 0, report.exit_code
     end
   end
 

@@ -71,7 +71,8 @@ module ColorBrowser
     <<~JS
       export default async ({ page }) => {
         const css = #{JSON.generate(css)};
-        await page.setContent('<!doctype html><html><head></head><body></body></html>');
+        await page.setContent('<!doctype html><html><head></head><body></body></html>',
+          { waitUntil: 'domcontentloaded', timeout: 60000 });
 
         const setup = await page.evaluate((css) => {
           const style = document.createElement('style');

@@ -88,14 +88,11 @@ but a resolved pair that fails contrast does.
 
 ## How it reads the file
 
-The checker no longer parses CSS itself. It locates the token file by the
-same path list as before, hands it to a pinned headless Chromium (Docker
-required; there is no non-Docker path), and reports whatever the browser
-computes. Whatever CSS the browser accepts is accepted: custom media,
-nesting, nearly every color function, nearly every selector shape. The
-grammar this skill used to document (which at-rules, which selectors, which
-functions resolve) is gone along with the hand-written parser; a real
-browser is both more permissive and more correct than that parser ever was.
+The checker does not parse CSS itself. It hands the token file to a pinned
+headless Chromium (Docker required; there is no non-Docker path) and reports
+whatever the browser computes, so any CSS the browser accepts is accepted:
+cascade layers, `!important`, specificity, escapes, nesting and every color
+function the browser supports all resolve exactly as they do on a real page.
 
 The file is found by this path list, relative to the scan root, in order:
 `app/globals.css`, `src/app/globals.css`, `app/styles/tokens.css`,
@@ -112,10 +109,7 @@ same kind of pinned, throwaway container the browser runs in, mounting the
 repo read-only and an empty directory as the build's working directory so
 Tailwind's automatic source scanning finds nothing and only the token file's
 own `@theme` rules take effect. The compiled CSS, not the source file, is
-what the browser then reads. Everything the checker still models by
-grammar (a dark-only token, a redeclaration dispute, an invalid value) is
-decided by what the browser computes from that compiled CSS, not by reading
-the source text.
+what the browser then reads.
 
 What still errors:
 

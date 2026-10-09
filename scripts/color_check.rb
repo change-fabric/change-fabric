@@ -78,7 +78,6 @@ module ColorCheck
     mechanism_error, dark_map = resolve_mechanisms(probed.states)
     errors << mechanism_error if mechanism_error
     palette = build_palette(path, css, probed)
-    errors << palette_size_error(palette) if palette.authored.size > TARGET
 
     contrast = mechanism_error ? [] : compute_contrast(probed, dark_map)
     exit_code = strict && (!errors.empty? || contrast.any? { |c| c.status == 'fail' }) ? 1 : 0
@@ -125,11 +124,6 @@ module ColorCheck
       return [ ColorTokens::Error.new(line: nil, message:), base ]
     end
     [ nil, base ]
-  end
-
-  def palette_size_error(palette)
-    ColorTokens::Error.new(line: nil, message: "palette has #{palette.authored.size} authored colors; target " \
-                                              "is #{TARGET} plus optional #{ColorTokens::ERROR_TOKEN}")
   end
 
   # Authored colors grouped by resolved color (channels and alpha rounded to
