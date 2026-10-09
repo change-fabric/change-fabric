@@ -90,6 +90,47 @@ class ColorCompileTest < Minitest::Test
     end
   end
 
+  # A version that is plain semver passes validation and reaches the build
+  # (stubbed here, so no docker runs); anything else, including a String
+  # carrying shell text or an npm spec, is refused before any command is
+  # built.
+  def read_with_version(version)
+    with_dir do |dir|
+      write_fake_tailwind(dir, version)
+      write(dir, "tokens.css", "@tailwind base;\n")
+      with_stubbed_build { ColorCompile.read(dir, "tokens.css") }
+    end
+  end
+
+  def with_stubbed_build
+    original = ColorCompile.method(:run_build)
+    eigen = ColorCompile.singleton_class
+    eigen.send(:remove_method, :run_build)
+    eigen.send(:define_method, :run_build) { |*| ColorCompile::Result.new(css: ":root{}", error: nil) }
+    begin
+      yield
+    ensure
+      eigen.send(:remove_method, :run_build)
+      eigen.send(:define_method, :run_build, original)
+    end
+  end
+
+  [ "4.1.14", "4.1.14-beta.1", "3.4.17" ].each do |version|
+    define_method("test_version_#{version.tr('.-', '__')}_passes_semver_validation") do
+      result = read_with_version(version)
+      refute_includes result.error.to_s, "not a plain semver version"
+    end
+  end
+
+  [ "4.1.14; touch x #", 4, "file:../x", "^4.1.0" ].each_with_index do |version, i|
+    define_method("test_version_rejected_#{i}_#{version.to_s.gsub(/\W/, '_')}") do
+      result = read_with_version(version)
+      assert_nil result.css
+      assert_includes result.error, "not a plain semver version"
+      assert_includes result.error, version.inspect
+    end
+  end
+
   # The docker argv itself, asserted without running docker: the repo is
   # read-only, the empty temp dir is /out (so Tailwind's own source
   # detection scans nothing), and the input path is under /repo.

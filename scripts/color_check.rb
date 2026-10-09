@@ -35,11 +35,20 @@ module ColorCheck
 
   module_function
 
+  # The report boundary: every failure, expected or not, comes back as a
+  # Report. Expected cases (a bad --tokens, no docker, a failed compile) get
+  # their own message; anything else (a browser start failure, a timeout, a
+  # malformed browser reply) becomes "could not audit: <message>".
   def run(root, tokens_override: nil, strict: false, probe: ColorBrowser)
+    path = nil
     located = ColorTokens.locate(root, tokens_override)
     return located_error_report(located, strict) if located.is_a?(ColorTokens::Error)
 
     path = File.expand_path(located)
+    unless probe.available?
+      return error_report(path, 'Docker is required: cf:color asks a pinned Chromium container to read the CSS', strict)
+    end
+
     root_abs = File.expand_path(root)
     relative = relative_path(root_abs, path)
     compiled = ColorCompile.read(root_abs, relative)
@@ -47,12 +56,12 @@ module ColorCheck
 
     probed = probe.probe(compiled.css)
     build_report(path, compiled.css, probed, strict)
+  rescue StandardError => e
+    error_report(path, "could not audit: #{e.message.to_s.scrub}", strict)
   end
 
   def relative_path(root_abs, path)
     Pathname.new(path).relative_path_from(Pathname.new(root_abs)).to_s
-  rescue ArgumentError
-    path
   end
 
   def located_error_report(located, strict)
@@ -61,14 +70,10 @@ module ColorCheck
   end
 
   def compile_error_report(path, message, strict)
-    Report.new(tokens: path, token_errors: [ ColorTokens::Error.new(line: nil, message: message) ],
-               palette: nil, contrast: [], exit_code: strict ? 1 : 0)
+    error_report(path, message, strict)
   end
 
   def build_report(path, css, probed, strict)
-    if probed.docker_unavailable
-      return error_report(path, 'Docker is required: cf:color asks a pinned Chromium container to read the CSS', strict)
-    end
     if probed.import_error
       return error_report(path, 'the browser found an @import it could not load; bundle it first (Tailwind ' \
                                  'directives route through the compile step) or audit that file directly', strict)
@@ -85,7 +90,7 @@ module ColorCheck
   end
 
   def error_report(path, message, strict)
-    Report.new(tokens: path, token_errors: [ ColorTokens::Error.new(line: nil, message:) ],
+    Report.new(tokens: path, token_errors: [ ColorTokens::Error.new(line: nil, message: message.to_s.scrub) ],
                palette: nil, contrast: [], exit_code: strict ? 1 : 0)
   end
 

@@ -54,10 +54,40 @@ class ColorTokensTest < Minitest::Test
     end
   end
 
-  def test_locate_returns_the_override_verbatim_even_if_absent
+  def test_locate_errors_on_a_missing_override
     with_dir do |dir|
-      write(dir, "tokens.css")
-      assert_equal "custom.css", ColorTokens.locate(dir, "custom.css")
+      error = ColorTokens.locate(dir, File.join(dir, "custom.css"))
+      assert_instance_of ColorTokens::Error, error
+      assert_includes error.message, "no such file"
+    end
+  end
+
+  def test_locate_errors_on_a_directory_override
+    with_dir do |dir|
+      FileUtils.mkdir_p(File.join(dir, "styles"))
+      error = ColorTokens.locate(dir, File.join(dir, "styles"))
+      assert_instance_of ColorTokens::Error, error
+      assert_includes error.message, "is a directory, not a file"
+    end
+  end
+
+  def test_locate_errors_on_an_unreadable_override
+    skip "root reads every file" if Process.uid.zero?
+    with_dir do |dir|
+      path = write(dir, "custom.css", ":root{}")
+      File.chmod(0o000, path)
+      error = ColorTokens.locate(dir, path)
+      assert_instance_of ColorTokens::Error, error
+      assert_includes error.message, "is not readable"
+    end
+  end
+
+  def test_locate_resolves_a_relative_override_against_the_current_directory
+    with_dir do |dir|
+      path = write(dir, "sub/custom.css", ":root{}")
+      Dir.chdir(File.join(dir, "sub")) do
+        assert_equal File.realpath(path), File.realpath(ColorTokens.locate("/nonexistent-root", "custom.css"))
+      end
     end
   end
 

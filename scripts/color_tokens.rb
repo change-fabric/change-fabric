@@ -36,9 +36,10 @@ module ColorTokens
   module_function
 
   # The token file path, or an Error naming every candidate when zero or
-  # several conventional paths exist. An override is returned as given.
+  # several conventional paths exist. An override is expanded against the
+  # current directory (normal CLI convention) and must be a readable file.
   def locate(root, override)
-    return override if override
+    return locate_override(override) if override
 
     found = PATHS.map { |rel| File.join(root, rel) }.select { |p| File.file?(p) }
     return found.first if found.size == 1
@@ -48,6 +49,15 @@ module ColorTokens
     else
       Error.new(line: nil, message: "several token files found: #{found.join(', ')}; pass --tokens to pick one")
     end
+  end
+
+  def locate_override(override)
+    path = File.expand_path(override)
+    return Error.new(line: nil, message: "--tokens #{override}: no such file") unless File.exist?(path)
+    return Error.new(line: nil, message: "--tokens #{override}: is a directory, not a file") if File.directory?(path)
+    return Error.new(line: nil, message: "--tokens #{override}: is not readable") unless File.readable?(path)
+
+    path
   end
 
   # [[fg, bg]] for every "--x-<suffix>" name in the given name collection

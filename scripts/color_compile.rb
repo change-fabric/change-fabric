@@ -25,6 +25,11 @@ module ColorCompile
   # Tailwind's CLI standing in for one.
   TAILWIND_DIRECTIVES = (ROUTING_DIRECTIVES - %w[@import]).freeze
 
+  # A plain semver version, the only shape interpolated into the npm package
+  # spec, so a package.json version can never smuggle in a file: spec, a
+  # range, a tag or shell text.
+  SEMVER = /\A\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?\z/.freeze
+
   # Exactly one of css/error is non-nil.
   Result = Data.define(:css, :error)
 
@@ -58,7 +63,11 @@ module ColorCompile
 
   def compile(root, relative_path, text)
     version = tailwindcss_version(root)
-    return Result.new(css: nil, error: missing_tailwind_message(root, relative_path, text)) unless version
+    return Result.new(css: nil, error: missing_tailwind_message(root, relative_path, text)) if version.nil?
+    unless version.is_a?(String) && SEMVER.match?(version)
+      return Result.new(css: nil, error: "#{relative_path}: node_modules/tailwindcss/package.json has version " \
+                                         "#{version.inspect}, which is not a plain semver version; reinstall dependencies")
+    end
 
     major = version.split('.').first.to_i
     cli = tailwind_cli_package(major, version)
@@ -78,6 +87,8 @@ module ColorCompile
     end
   end
 
+  # The raw package.json version value (any JSON type), or nil only when the
+  # package file is missing or unparseable.
   def tailwindcss_version(root)
     pkg = File.join(root, 'node_modules/tailwindcss/package.json')
     return nil unless File.file?(pkg)

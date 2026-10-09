@@ -114,6 +114,7 @@ what the browser then reads.
 What still errors:
 
 - the file is not found, or several candidate files are found
+- the token file cannot be read (missing, a directory, or unreadable)
 - the file needs Tailwind but the repo has no `node_modules/tailwindcss` to
   compile it with
 - the Tailwind build itself fails (the error carries the build tool's own
@@ -129,6 +130,8 @@ What still errors:
   tested alone; the error names the two mechanisms and the first name they
   differ on
 - Docker is not available at all
+- any unexpected checker or browser failure (reported as `could not audit: ...`,
+  never raised)
 
 A mechanism counts as "in use" only when its resulting palette differs from
 light's. With one or none in use there is no disagreement to check. With

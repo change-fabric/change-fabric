@@ -16,15 +16,18 @@ require_relative 'color_math'
 # parsing of its own beyond the lightest text scan (see
 # dropped_declarations).
 module ColorBrowser
-  # Exactly one of docker_unavailable/import_error/(names, ...) applies.
-  Result = Data.define(:names, :declared_values, :classified, :states, :import_error, :docker_unavailable)
+  # Either import_error is true, or (names, ...) carry the browser's answer.
+  Result = Data.define(:names, :declared_values, :classified, :states, :import_error)
 
   module_function
 
-  def probe(css)
-    return Result.new(names: [], declared_values: {}, classified: {}, states: {},
-                       import_error: false, docker_unavailable: true) unless ChangeDocker.available?
+  # Whether docker can run the browser at all; ColorCheck asks before any
+  # compile so a missing docker reads as "Docker is required".
+  def available?
+    ChangeDocker.available?
+  end
 
+  def probe(css)
     raw = ChangeDocker.with_browserless(network: nil) { |session| session.run_function(js_module(css)) }
     build_result(raw)
   end
@@ -32,7 +35,7 @@ module ColorBrowser
   def build_result(raw)
     if raw['importError']
       return Result.new(names: [], declared_values: {}, classified: {}, states: {},
-                         import_error: true, docker_unavailable: false)
+                         import_error: true)
     end
 
     names = raw.fetch('names')
@@ -43,7 +46,7 @@ module ColorBrowser
     states = raw.fetch('states').to_h do |variant, map|
       [ variant.to_sym, map.transform_values { |c| ColorMath.parse(c) } ]
     end
-    Result.new(names:, declared_values:, classified:, states:, import_error: false, docker_unavailable: false)
+    Result.new(names:, declared_values:, classified:, states:, import_error: false)
   end
 
   # Every "--name:" this is fed, scanned out of the raw CSS text (comments

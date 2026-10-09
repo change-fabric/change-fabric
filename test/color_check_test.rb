@@ -11,9 +11,12 @@ require_relative "../scripts/change_docker"
 # mechanism agreement, contrast, palette, rendering) can be tested without
 # docker. Integration tests below exercise the real browser.
 class FakeProbe
-  def initialize(result)
+  def initialize(result, available: true)
     @result = result
+    @available = available
   end
+
+  def available? = @available
 
   def probe(_css)
     @result
@@ -37,8 +40,8 @@ class ColorCheckTest < Minitest::Test
   WHITE = ColorMath::WHITE
   BLACK = ColorMath::Rgba.new(r: 0, g: 0, b: 0, a: 1.0)
 
-  def browser_result(names:, states:, declared_values: {}, classified: {}, import_error: false, docker_unavailable: false)
-    ColorBrowser::Result.new(names:, declared_values:, classified:, states:, import_error:, docker_unavailable:)
+  def browser_result(names:, states:, declared_values: {}, classified: {}, import_error: false)
+    ColorBrowser::Result.new(names:, declared_values:, classified:, states:, import_error:)
   end
 
   # Every variant the same, i.e. no dark mechanism in use.
@@ -89,9 +92,48 @@ class ColorCheckTest < Minitest::Test
   def test_missing_tailwind_install_is_a_token_error
     with_dir do |dir|
       write(dir, "tokens.css", "@theme static { --color-ink: #222; }\n:root{--a:#fff}")
-      report = ColorCheck.run(dir, strict: true)
+      report = ColorCheck.run(dir, strict: true, probe: FakeProbe.new(nil))
       assert(report.token_errors.any? { |e| e.message.include?("install dependencies first") })
       assert_equal 1, report.exit_code
+    end
+  end
+
+  # --- the report boundary never raises ---
+
+  # A probe whose probe step raises, standing in for a browser start
+  # failure, a timeout or a malformed browser reply.
+  class RaisingProbe
+    def initialize(error) = @error = error
+    def available? = true
+    def probe(_css) = raise(@error)
+  end
+
+  def test_run_never_raises
+    rows = [
+      [ "a missing --tokens file", "no such file",
+        ->(dir) { { tokens_override: File.join(dir, "missing.css"), probe: FakeProbe.new(nil) } } ],
+      [ "a directory as --tokens", "is a directory",
+        ->(dir) { FileUtils.mkdir_p(File.join(dir, "styles")); { tokens_override: File.join(dir, "styles"), probe: FakeProbe.new(nil) } } ],
+      [ "a probe raising RuntimeError", "could not audit: boom",
+        ->(_dir) { { probe: RaisingProbe.new(RuntimeError.new("boom")) } } ],
+      [ "a probe raising KeyError", "could not audit:",
+        ->(_dir) { { probe: RaisingProbe.new(KeyError.new("key not found: \"names\"")) } } ],
+      [ "no docker with a file that needs a compile", "Docker is required",
+        lambda do |dir|
+          File.write(File.join(dir, "tokens.css"), "@theme { --color-ink: #222; }\n:root{--a:#fff}")
+          { probe: FakeProbe.new(nil, available: false) }
+        end ]
+    ]
+    rows.each do |label, expected, setup|
+      with_dir do |dir|
+        write(dir, "tokens.css", ":root{--background:#fff}")
+        report = ColorCheck.run(dir, strict: true, **setup.call(dir))
+        assert_instance_of ColorCheck::Report, report, label
+        assert(report.token_errors.any? { |e| e.message.include?(expected) }, "#{label}: #{report.token_errors.inspect}")
+        refute(report.token_errors.any? { |e| e.message.include?("install dependencies") }, label)
+        assert_equal 1, report.exit_code, label
+        JSON.parse(ColorCheck.to_json_report(report))
+      end
     end
   end
 
@@ -100,7 +142,7 @@ class ColorCheckTest < Minitest::Test
   def test_docker_unavailable_is_a_token_error
     with_dir do |dir|
       write(dir, "tokens.css", ":root{--a:#fff}")
-      report = run_with(dir, browser_result(names: [], states: light_only({}), docker_unavailable: true))
+      report = ColorCheck.run(dir, probe: FakeProbe.new(nil, available: false))
       assert(report.token_errors.any? { |e| e.message.include?("Docker is required") })
       assert_nil report.palette
     end
@@ -316,8 +358,8 @@ class ColorCheckTest < Minitest::Test
   def test_strict_exits_one_on_token_error_and_zero_without
     with_dir do |dir|
       write(dir, "tokens.css", "@theme static { --x: #fff; }")
-      assert_equal 1, ColorCheck.run(dir, strict: true).exit_code
-      assert_equal 0, ColorCheck.run(dir, strict: false).exit_code
+      assert_equal 1, ColorCheck.run(dir, strict: true, probe: FakeProbe.new(nil)).exit_code
+      assert_equal 0, ColorCheck.run(dir, strict: false, probe: FakeProbe.new(nil)).exit_code
     end
   end
 
