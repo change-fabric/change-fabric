@@ -19,6 +19,11 @@ module ChangeDocker
   K6_IMAGE = 'grafana/k6:1.4.0@sha256:6a3ee54ac0e9ff5527923f6295257453dd88012f32f40dadf0eb1b638cbb21c7'
   ZAP_IMAGE = 'ghcr.io/zaproxy/zaproxy:stable@sha256:8d387b1a63e3425beef4846e39719f5af2a787753af2d8b6558c6257d7a577a2'
   BROWSERLESS_IMAGE = 'ghcr.io/browserless/chromium:v2.38.1@sha256:78afaada9f7b049783bfed624e6b5e9a2d3438fc04bb46801ed777e82ae1501f'
+  # The one Node image cf:color's Tailwind compile step runs under (and any
+  # future lane that needs a throwaway Node CLI): Alpine keeps the pull
+  # small, and the digest pins it the same way every other runner image here
+  # is pinned.
+  NODE_IMAGE = 'node:22-alpine@sha256:0a7108bf6c7bf5de370ffb1a3ed6be93d405b43ff159f681a8d18c0e2bc2e402'
 
   # The hostname a runner container addresses the host by, and the docker
   # magic value that makes it resolve. The spec has always told authors to
