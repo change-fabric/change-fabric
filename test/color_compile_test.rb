@@ -36,7 +36,7 @@ class ColorCompileTest < Minitest::Test
   def test_read_returns_the_file_unchanged_when_no_compile_is_needed
     with_dir do |dir|
       write(dir, "tokens.css", ":root{--a:#fff}")
-      result = ColorCompile.read(dir, "tokens.css")
+      result = ColorCompile.read(dir, File.join(dir, "tokens.css"))
       assert_equal ":root{--a:#fff}", result.css
       assert_nil result.error
     end
@@ -45,7 +45,7 @@ class ColorCompileTest < Minitest::Test
   def test_missing_tailwind_install_errors_for_a_tailwind_directive
     with_dir do |dir|
       write(dir, "tokens.css", "@theme static { --color-ink: #222; }\n:root{--a:#fff}")
-      result = ColorCompile.read(dir, "tokens.css")
+      result = ColorCompile.read(dir, File.join(dir, "tokens.css"))
       assert_nil result.css
       assert_includes result.error, "uses Tailwind directives"
       assert_includes result.error, "node_modules/tailwindcss"
@@ -56,7 +56,7 @@ class ColorCompileTest < Minitest::Test
   def test_missing_tailwind_install_errors_differently_for_a_plain_import
     with_dir do |dir|
       write(dir, "tokens.css", "@import \"./extra.css\";\n:root{--a:#fff}")
-      result = ColorCompile.read(dir, "tokens.css")
+      result = ColorCompile.read(dir, File.join(dir, "tokens.css"))
       assert_nil result.css
       assert_includes result.error, "bundler"
       refute_includes result.error, "uses Tailwind directives"
@@ -84,7 +84,7 @@ class ColorCompileTest < Minitest::Test
     with_dir do |dir|
       write_fake_tailwind(dir, "5.0.0")
       write(dir, "tokens.css", "@tailwind base;\n")
-      result = ColorCompile.read(dir, "tokens.css")
+      result = ColorCompile.read(dir, File.join(dir, "tokens.css"))
       assert_nil result.css
       assert_includes result.error, "major 5"
     end
@@ -98,7 +98,7 @@ class ColorCompileTest < Minitest::Test
     with_dir do |dir|
       write_fake_tailwind(dir, version)
       write(dir, "tokens.css", "@tailwind base;\n")
-      with_stubbed_build { ColorCompile.read(dir, "tokens.css") }
+      with_stubbed_build { ColorCompile.read(dir, File.join(dir, "tokens.css")) }
     end
   end
 
@@ -131,22 +131,40 @@ class ColorCompileTest < Minitest::Test
     end
   end
 
-  # The docker argv itself, asserted without running docker: the repo is
-  # read-only, the empty temp dir is /out (so Tailwind's own source
-  # detection scans nothing), and the input path is under /repo.
-  def test_build_command_shape
-    with_dir do |dir|
-      argv = ColorCompile.build_command(dir, "styles/tokens.css", "@tailwindcss/cli@4.1.14", "/tmp/out-dir")
-      assert_equal ChangeDocker::NODE_IMAGE, argv[argv.index("-w") + 2]
-      assert_includes argv, "--rm"
-      assert_includes argv.each_cons(2).to_a, [ "-v", "#{File.expand_path(dir)}:/repo:ro" ]
-      assert_includes argv.each_cons(2).to_a, [ "-v", "/tmp/out-dir:/out" ]
-      assert_includes argv.each_cons(2).to_a, [ "-w", "/out" ]
-      assert_equal "sh", argv.last(3).first
-      script = argv.last
-      assert_includes script, "@tailwindcss/cli@4.1.14"
-      assert_includes script, "-i /repo/styles/tokens.css"
-      assert_includes script, "-o /out/out.css"
+  # The docker argv itself, asserted without running docker, over relative
+  # paths a shell would split or expand. Each must reach the container as one
+  # argument, with no shell in between.
+  [ "a b.css", "$(x).css", "x;y.css", "x\"y.css" ].each_with_index do |rel, i|
+    define_method("test_build_command_keeps_adversarial_path_#{i}_as_one_argument") do
+      with_dir do |dir|
+        argv = ColorCompile.build_command(dir, rel, "@tailwindcss/cli@4.1.14", "/tmp/out-dir")
+        input = "/repo/#{rel}"
+        assert_equal 1, argv.count(input), argv.inspect
+        assert_equal input, argv[argv.index("-i") + 1]
+        refute_includes argv, "sh"
+        refute_includes argv, "-c"
+        assert_includes argv, "--rm"
+        assert_equal "npx", argv[argv.index(ChangeDocker::NODE_IMAGE) + 1]
+        assert_includes argv.each_cons(2).to_a, [ "--user", "#{Process.uid}:#{Process.gid}" ]
+        assert_includes argv.each_cons(2).to_a, [ "-w", "/out" ]
+        assert_includes argv.each_cons(2).to_a, [ "-e", "HOME=/tmp" ]
+        assert_includes argv.each_cons(2).to_a, [ "-e", "npm_config_update_notifier=false" ]
+        assert_includes argv.each_cons(2).to_a,
+                        [ "--mount", %(type=bind,"source=#{File.expand_path(dir)}",target=/repo,readonly) ]
+        assert_includes argv.each_cons(2).to_a, [ "--mount", %(type=bind,"source=/tmp/out-dir",target=/out) ]
+        assert_equal [ "npx", "--yes", "@tailwindcss/cli@4.1.14", "-i", input, "-o", "/out/out.css" ], argv.last(7)
+      end
     end
+  end
+
+  # No command in the color scripts or their tests is a shell string. The
+  # needles are built by concatenation so this file does not match itself.
+  def test_no_color_script_or_test_runs_a_shell_string
+    needles = [ '"', "'" ].map { |q| %w[sh -c].map { |w| "#{q}#{w}#{q}" }.join(", ") }
+    root = File.expand_path("..", __dir__)
+    files = Dir[File.join(root, "scripts/*.rb")] + Dir[File.join(root, "test/color_*_test.rb")]
+    refute_empty files
+    offenders = files.select { |f| needles.any? { |n| File.read(f).include?(n) } }
+    assert_empty offenders
   end
 end

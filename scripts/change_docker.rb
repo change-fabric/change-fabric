@@ -59,21 +59,36 @@ module ChangeDocker
   # gets the `cf-change-` prefix every resource this platform creates carries,
   # so a container orphaned by a crashed run (`--rm` never ran) is identifiable
   # and reachable by `sweep`. Extra args are the image plus its command.
-  def run(network:, image:, args:, env: {}, mounts: {}, name: nil)
-    Open3.capture2e(*run_command(network: network, image: image, args: args, env: env, mounts: mounts, name: name))
+  def run(network:, image:, args:, env: {}, mounts: {}, name: nil, user: nil, workdir: nil)
+    Open3.capture2e(*run_command(network: network, image: image, args: args, env: env, mounts: mounts,
+                                 name: name, user: user, workdir: workdir))
   end
 
   # The argv `run` executes, split out so a test can assert the flags without
-  # a docker daemon.
-  def run_command(network:, image:, args:, env: {}, mounts: {}, name: nil)
+  # a docker daemon. The container command is always an argument list handed
+  # to the image's entrypoint, never a shell string, so a path or value with
+  # spaces or shell metacharacters stays one argument. A `mounts` value is a
+  # String target or a Hash `{ target:, readonly: }`.
+  def run_command(network:, image:, args:, env: {}, mounts: {}, name: nil, user: nil, workdir: nil)
     cmd = [ 'docker', 'run', '--rm' ]
     cmd += [ '--name', name ] if name
     cmd += [ '--network', network ] if network
     cmd += host_gateway_args
+    cmd += [ '--user', user ] if user
+    cmd += [ '-w', workdir ] if workdir
     env.each { |key, value| cmd += [ '-e', "#{key}=#{value}" ] }
-    mounts.each { |host, container| cmd += [ '-v', "#{host}:#{container}" ] }
+    mounts.each { |host, spec| cmd += mount_arg(host, spec) }
     cmd << image
     cmd + Array(args)
+  end
+
+  # One bind mount as `--mount` with its source CSV-quoted, so a host path
+  # holding `:` or `,` survives (the `-v host:container` form splits on `:`).
+  # A double quote inside the path is doubled, the CSV escape.
+  def mount_arg(host, spec)
+    target, readonly = spec.is_a?(Hash) ? [ spec.fetch(:target), spec[:readonly] ] : [ spec, false ]
+    source = %("source=#{host.to_s.gsub('"', '""')}")
+    [ '--mount', [ 'type=bind', source, "target=#{target}", (readonly ? 'readonly' : nil) ].compact.join(',') ]
   end
 
   # Yields a Network the caller uses for the whole run: the app's own network

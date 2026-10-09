@@ -3,7 +3,6 @@
 
 require 'json'
 require 'set'
-require 'pathname'
 require_relative 'color_math'
 require_relative 'color_tokens'
 require_relative 'color_compile'
@@ -49,19 +48,13 @@ module ColorCheck
       return error_report(path, 'Docker is required: cf:color asks a pinned Chromium container to read the CSS', strict)
     end
 
-    root_abs = File.expand_path(root)
-    relative = relative_path(root_abs, path)
-    compiled = ColorCompile.read(root_abs, relative)
+    compiled = ColorCompile.read(File.expand_path(root), path)
     return compile_error_report(path, compiled.error, strict) if compiled.error
 
     probed = probe.probe(compiled.css)
     build_report(path, compiled.css, probed, strict)
   rescue StandardError => e
     error_report(path, "could not audit: #{e.message.to_s.scrub}", strict)
-  end
-
-  def relative_path(root_abs, path)
-    Pathname.new(path).relative_path_from(Pathname.new(root_abs)).to_s
   end
 
   def located_error_report(located, strict)

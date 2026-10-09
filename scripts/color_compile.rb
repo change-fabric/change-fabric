@@ -51,14 +51,21 @@ module ColorCompile
     text.match?(/(?<![\w-])#{Regexp.escape(directive)}(?![\w-])/)
   end
 
-  # Reads `relative_path` under `root`, compiling it through the repo's own
-  # installed Tailwind first when it needs one. Returns a Result.
-  def read(root, relative_path)
-    abs = File.join(root, relative_path)
-    text = File.read(abs, encoding: 'UTF-8')
+  # Reads `path_abs`, compiling it through the repo's own installed Tailwind
+  # (found under `root_abs`) first when it needs one. A file outside the root
+  # that needs a compile is an error: the compile mounts only the root, so
+  # the container could not see it. Returns a Result.
+  def read(root_abs, path_abs)
+    text = File.read(path_abs, encoding: 'UTF-8')
     return Result.new(css: text, error: nil) unless needs_compile?(text)
 
-    compile(root, relative_path, text)
+    prefix = root_abs.end_with?(File::SEPARATOR) ? root_abs : root_abs + File::SEPARATOR
+    unless path_abs.start_with?(prefix)
+      return Result.new(css: nil, error: "#{path_abs} is outside the scan root #{root_abs}; the Tailwind compile " \
+                                         'mounts only the root, so pass a root that contains it')
+    end
+
+    compile(root_abs, path_abs.delete_prefix(prefix), text)
   end
 
   def compile(root, relative_path, text)
@@ -109,20 +116,18 @@ module ColorCompile
   end
 
   # The argv `run_build` executes, split out so a test can assert it without
-  # running docker.
+  # running docker. The command is an argument list, never a shell string, so
+  # a path with spaces or shell metacharacters stays one argument. The repo is
+  # mounted read-only and the empty temp dir is the working directory, so
+  # Tailwind's own source detection scans nothing.
   def build_command(root, relative_path, cli, out_dir)
-    uid = Process.uid
-    gid = Process.gid
-    input = "/repo/#{relative_path}"
-    script = "npx --yes #{cli} -i #{input} -o /out/out.css"
-    [
-      'docker', 'run', '--rm', '--user', "#{uid}:#{gid}",
-      '-e', 'HOME=/tmp', '-e', 'npm_config_update_notifier=false',
-      '-v', "#{File.expand_path(root)}:/repo:ro",
-      '-v', "#{out_dir}:/out",
-      '-w', '/out',
-      ChangeDocker::NODE_IMAGE, 'sh', '-c', script
-    ]
+    ChangeDocker.run_command(
+      network: nil, image: ChangeDocker::NODE_IMAGE,
+      args: [ 'npx', '--yes', cli, '-i', "/repo/#{relative_path}", '-o', '/out/out.css' ],
+      env: { 'HOME' => '/tmp', 'npm_config_update_notifier' => 'false' },
+      mounts: { File.expand_path(root) => { target: '/repo', readonly: true }, out_dir => '/out' },
+      user: "#{Process.uid}:#{Process.gid}", workdir: '/out'
+    )
   end
 
   # The number of trailing stderr/stdout lines kept in a compile-failure

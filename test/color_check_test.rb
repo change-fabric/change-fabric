@@ -98,6 +98,35 @@ class ColorCheckTest < Minitest::Test
     end
   end
 
+  # The Tailwind compile mounts only the scan root, so a --tokens file
+  # outside it that needs a compile is refused with a clear message.
+  def test_tokens_outside_the_root_that_needs_a_compile_is_a_token_error
+    with_dir do |outside|
+      override = write(outside, "tokens.css", "@theme static { --color-ink: #222; }\n:root{--a:#fff}")
+      with_dir do |dir|
+        write(dir, "node_modules/tailwindcss/package.json", JSON.generate({ "version" => "4.1.14" }))
+        report = ColorCheck.run(dir, tokens_override: override, strict: true, probe: FakeProbe.new(nil))
+        assert(report.token_errors.any? { |e| e.message.include?("outside the scan root") }, report.token_errors.inspect)
+        assert_equal 1, report.exit_code
+      end
+    end
+  end
+
+  def test_tokens_outside_the_root_with_plain_css_reaches_the_probe
+    with_dir do |outside|
+      override = write(outside, "tokens.css", ":root{--background:#fff;--page-text:#000}")
+      with_dir do |dir|
+        report = ColorCheck.run(dir, tokens_override: override, probe: FakeProbe.new(
+          browser_result(names: %w[--background --page-text],
+                          states: light_only({ "--background" => WHITE, "--page-text" => BLACK }))
+        ))
+        assert_equal override, report.tokens
+        refute(report.token_errors.any? { |e| e.message.include?("outside the scan root") })
+        assert report.palette
+      end
+    end
+  end
+
   # --- the report boundary never raises ---
 
   # A probe whose probe step raises, standing in for a browser start
@@ -556,11 +585,12 @@ class ColorCheckTailwindIntegrationTest < Minitest::Test
   end
 
   def npm_install(dir)
-    uid = Process.uid
-    gid = Process.gid
-    argv = [ "docker", "run", "--rm", "--user", "#{uid}:#{gid}", "-e", "HOME=/tmp",
-             "-e", "npm_config_update_notifier=false", "-v", "#{dir}:/repo", "-w", "/repo",
-             ChangeDocker::NODE_IMAGE, "sh", "-c", "npm i --no-save tailwindcss@#{TAILWIND_VERSION} 2>&1" ]
+    argv = ChangeDocker.run_command(
+      network: nil, image: ChangeDocker::NODE_IMAGE,
+      args: [ "npm", "i", "--no-save", "tailwindcss@#{TAILWIND_VERSION}" ],
+      env: { "HOME" => "/tmp", "npm_config_update_notifier" => "false" },
+      mounts: { dir => "/repo" }, user: "#{Process.uid}:#{Process.gid}", workdir: "/repo"
+    )
     Open3.capture2e(*argv)
   end
 
