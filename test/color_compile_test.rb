@@ -163,6 +163,67 @@ class ColorCompileTest < Minitest::Test
     end
   end
 
+  # The build runs in the empty /out, so every default the Tailwind CLI
+  # finds relative to its working directory must be handed over explicitly.
+  # These enumerate the class: each major's defaults, each candidate name,
+  # lookup precedence, and the absent case, all through the real argv.
+  def build_args_for(version, root_files)
+    with_dir do |dir|
+      write_fake_tailwind(dir, version)
+      write(dir, "tokens.css", "@tailwind base;\n")
+      root_files.each { |name| write(dir, name, "module.exports = {}\n") }
+      seen = nil
+      original = ColorCompile.method(:run_build)
+      eigen = ColorCompile.singleton_class
+      eigen.send(:remove_method, :run_build)
+      eigen.send(:define_method, :run_build) do |root, rel, cli, extra = []|
+        seen = ColorCompile.build_command(root, rel, cli, "/tmp/out-dir", extra)
+        ColorCompile::Result.new(css: ":root{}", error: nil)
+      end
+      begin
+        ColorCompile.read(dir, File.join(dir, "tokens.css"))
+      ensure
+        eigen.send(:remove_method, :run_build)
+        eigen.send(:define_method, :run_build, original)
+      end
+      seen
+    end
+  end
+
+  def test_every_supported_major_declares_its_cwd_defaults
+    [ 3, 4 ].each { |major| assert ColorCompile::CWD_DEFAULTS.key?(major), major.to_s }
+  end
+
+  ColorCompile::CWD_DEFAULTS.each do |major, defaults|
+    version = "#{major}.0.0"
+    defaults.each do |flag, candidates|
+      candidates.each do |name|
+        define_method("test_v#{major}_passes_root_#{name.tr('.', '_')}_with_#{flag.delete('-')}") do
+          argv = build_args_for(version, [ name ])
+          assert_equal [ flag, "/repo/#{name}" ], argv.last(2)
+          assert_includes argv.each_cons(2).to_a, [ "-w", "/out" ]
+        end
+      end
+
+      define_method("test_v#{major}_#{flag.delete('-')}_follows_the_cli_lookup_order") do
+        argv = build_args_for(version, candidates.reverse)
+        assert_equal [ flag, "/repo/#{candidates.first}" ], argv.last(2)
+      end
+
+      define_method("test_v#{major}_without_a_root_default_passes_no_#{flag.delete('-')}") do
+        argv = build_args_for(version, [])
+        refute_includes argv, flag
+        assert_equal "/out/out.css", argv.last
+      end
+    end
+  end
+
+  def test_v4_ignores_every_root_v3_config
+    argv = build_args_for("4.1.14", ColorCompile::TAILWIND_V3_CONFIG_FILES)
+    refute_includes argv, "-c"
+    assert_equal "/out/out.css", argv.last
+  end
+
   # No command in the color scripts or their tests is a shell string. The
   # needles are built by concatenation so this file does not match itself.
   def test_no_color_script_or_test_runs_a_shell_string

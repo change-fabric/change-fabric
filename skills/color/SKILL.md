@@ -108,7 +108,11 @@ When the file's text mentions `@import`, `@theme`, `@tailwind`, `@apply`,
 Tailwind (reading the version from `node_modules/tailwindcss`), inside the
 same kind of pinned, throwaway container the browser runs in, mounting the
 repo read-only and an empty directory as the build's working directory, so
-Tailwind's automatic source scanning finds nothing. `@theme static`
+Tailwind's automatic source scanning finds nothing. Anything the CLI would
+otherwise find by default in that empty directory is passed explicitly: for
+Tailwind 3, the first `tailwind.config.{js,cjs,mjs,ts,cts,mts}` at the scan
+root goes in with `-c`, and an `@config` in the CSS still wins. Tailwind 4
+reads a config only through `@config`, so it gets nothing extra. `@theme static`
 variables are always emitted; a variable in a non-static `@theme` that no
 utility uses is tree-shaken by the compile and never audited (see Known
 limits). The compiled CSS, not the source file, is what the browser then

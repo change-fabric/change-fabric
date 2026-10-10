@@ -89,7 +89,34 @@ module ColorCompile
     return Result.new(css: nil, error: "#{relative_path}: tailwindcss #{version} is major #{major}, which this " \
                                        "checker does not know how to drive (only 3.x and 4.x are supported)") unless cli
 
-    run_build(root, relative_path, cli)
+    run_build(root, relative_path, cli, cwd_default_args(root, major))
+  end
+
+  # The build runs in the empty /out, so anything the Tailwind CLI would find
+  # by default relative to its working directory is never found there. Each
+  # such default is listed here per major: the flag that names it explicitly
+  # and the root-relative candidates in the CLI's own lookup order.
+  #   3: tailwind.config.* (the CLI looks only in its cwd without -c). A
+  #      postcss config is read only with --postcss, which is never passed.
+  #   4: none. tailwind.config.* is read only through @config, which resolves
+  #      next to the CSS under /repo, and source detection scanning nothing
+  #      is intended.
+  TAILWIND_V3_CONFIG_FILES = %w[tailwind.config.js tailwind.config.cjs tailwind.config.mjs
+                                tailwind.config.ts tailwind.config.cts tailwind.config.mts].freeze
+  CWD_DEFAULTS = {
+    3 => [ [ '-c', TAILWIND_V3_CONFIG_FILES ] ].freeze,
+    4 => [].freeze
+  }.freeze
+
+  # The extra CLI args that hand each cwd-relative default found at the root
+  # over explicitly, as /repo paths. The working directory stays /out, so a
+  # v3 config's cwd-relative content globs still match nothing, and an
+  # @config in the CSS still takes precedence over -c as it does in v3.
+  def cwd_default_args(root, major)
+    CWD_DEFAULTS.fetch(major, []).flat_map do |flag, candidates|
+      found = candidates.find { |name| File.file?(File.join(root, name)) }
+      found ? [ flag, "/repo/#{found}" ] : []
+    end
   end
 
   def missing_tailwind_message(root, relative_path, text)
@@ -127,11 +154,13 @@ module ColorCompile
   # running docker. The command is an argument list, never a shell string, so
   # a path with spaces or shell metacharacters stays one argument. The repo is
   # mounted read-only and the empty temp dir is the working directory, so
-  # Tailwind's own source detection scans nothing.
-  def build_command(root, relative_path, cli, out_dir)
+  # Tailwind's own source detection scans nothing. `extra_args` come from
+  # `cwd_default_args`: the defaults the CLI would otherwise look for only in
+  # that empty working directory, passed explicitly.
+  def build_command(root, relative_path, cli, out_dir, extra_args = [])
     ChangeDocker.run_command(
       network: nil, image: ChangeDocker::NODE_IMAGE,
-      args: [ 'npx', '--yes', cli, '-i', "/repo/#{relative_path}", '-o', '/out/out.css' ],
+      args: [ 'npx', '--yes', cli, '-i', "/repo/#{relative_path}", '-o', '/out/out.css', *extra_args ],
       env: { 'HOME' => '/tmp', 'npm_config_update_notifier' => 'false' },
       mounts: { File.expand_path(root) => { target: '/repo', readonly: true }, out_dir => '/out' },
       user: "#{Process.uid}:#{Process.gid}", workdir: '/out'
@@ -143,9 +172,9 @@ module ColorCompile
   # dumping a whole failed build log.
   STDERR_TAIL_LINES = 20
 
-  def run_build(root, relative_path, cli)
+  def run_build(root, relative_path, cli, extra_args = [])
     Dir.mktmpdir('cf-color-tw-out') do |out_dir|
-      argv = build_command(root, relative_path, cli, out_dir)
+      argv = build_command(root, relative_path, cli, out_dir, extra_args)
       out, status = Open3.capture2e(*argv)
       unless status.success?
         tail = out.lines.last(STDERR_TAIL_LINES).join
