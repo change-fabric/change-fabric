@@ -361,6 +361,47 @@ class ColorCheckTest < Minitest::Test
     end
   end
 
+  # At most one color is exempt for --error, whichever way extra literals
+  # arrive: a second declaration (light and dark reds), a mix of two
+  # literals, or a color shared with another name (counted for that name,
+  # so the exemption falls on the --error-only color).
+  def test_error_exemption_covers_one_distinct_color_only
+    red = rgba(1, 0, 0)
+    dark_red = rgba(0.5, 0, 0)
+    blue = rgba(0, 0, 1)
+    cases = {
+      "light and dark reds" => [
+        { "--error" => [ "red", "darkred" ] },
+        { "red" => authored(red), "darkred" => authored(dark_red) },
+        [ [ "--error" ] ]
+      ],
+      "same red twice" => [
+        { "--error" => [ "red", "#f00" ] },
+        { "red" => authored(red), "#f00" => authored(red) },
+        []
+      ],
+      "mix of two literals" => [
+        { "--error" => [ "color-mix(in srgb, red, darkred)" ] },
+        { "color-mix(in srgb, red, darkred)" =>
+            { kind: "authored", color: rgba(0.75, 0, 0),
+              literals: [ { color: red, mixed: true }, { color: dark_red, mixed: true } ] } },
+        [ [ "--error" ] ]
+      ],
+      "shared with another name" => [
+        { "--primary" => [ "blue" ], "--error" => [ "blue", "red" ] },
+        { "blue" => authored(blue), "red" => authored(red) },
+        [ %w[--primary --error] ]
+      ]
+    }
+    cases.each do |label, (declared_values, classified, expected_names)|
+      with_dir do |dir|
+        report = run_with(dir, browser_result(names: declared_values.keys, states: light_only({}),
+                                               declared_values:, classified:))
+        assert_equal expected_names, report.palette.authored.map { |a| a[:names] }, label
+      end
+    end
+  end
+
   def test_derived_declarations_are_counted_not_listed_as_authored
     with_dir do |dir|
       declared_values = { "--muted" => [ "color-mix(in srgb, var(--a) 60%, var(--b))" ] }

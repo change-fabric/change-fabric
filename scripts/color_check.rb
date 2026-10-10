@@ -115,8 +115,10 @@ module ColorCheck
   # Authored colors grouped by resolved literal color (channels and alpha
   # rounded to 4 places, so two spellings of one color share a group; a
   # literal mixed with a var() counts at full opacity), with every name
-  # that declares that color; --error is excluded from the count (it is the
-  # one sanctioned exception beyond the four-color target). derived is a
+  # that declares that color. --error is the one sanctioned exception beyond
+  # the four-color target, so exactly one color only --error declares is
+  # left out of the count; any further distinct --error literal (a separate
+  # dark red, a second literal in a mix) counts like any other. derived is a
   # count of declarations the browser resolved to a color through a var().
   def build_palette(path, probed)
     authored = {}
@@ -128,8 +130,6 @@ module ColorCheck
 
         case entry[:kind]
         when 'authored'
-          next if name == ColorTokens::ERROR_TOKEN
-
           entry[:literals].each do |literal|
             key = literal_key(literal)
             next unless key
@@ -142,8 +142,17 @@ module ColorCheck
         end
       end
     end
+    exempt_one_error_color(authored)
     error_token = probed.names.include?(ColorTokens::ERROR_TOKEN)
     Palette.new(file: path, authored: authored.values, derived:, error_token:)
+  end
+
+  # Drops the first color declared by --error alone. A color --error shares
+  # with another name is already counted for that name, so it is not the
+  # extra color the exception covers.
+  def exempt_one_error_color(authored)
+    key, = authored.find { |_, slot| slot[:names] == [ ColorTokens::ERROR_TOKEN ] }
+    authored.delete(key) if key
   end
 
   # A fully transparent literal is not a color (nil, skipped). A literal
