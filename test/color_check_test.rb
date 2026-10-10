@@ -649,11 +649,20 @@ class ColorCheckIntegrationTest < Minitest::Test
     [ "#ff000000", "", nil, [] ],
     [ "v\\61r(--a)", "", "derived", [] ],
     [ "var(--kw, red)", ":root{--kw:initial}", "authored", [ RED ] ],
-    [ "var(--accent, #0ff)", ".dark{--accent:#123}", "authored", [ [ 0, 1, 1, 1, false ] ] ]
+    [ "var(--accent, #0ff)", ".dark{--accent:#123}", "authored", [ [ 0, 1, 1, 1, false ] ] ],
+    # A non-color custom property is a component of the literal, not a
+    # token: alpha, percentage, channel, hue, and whole channel-list forms.
+    [ "rgb(255 0 0 / var(--op))", "", "authored", [ [ 1, 0, 0, 0.5, false ] ] ],
+    [ "rgb(255 0 0 / var(--pct))", "", "authored", [ [ 1, 0, 0, 0.5, false ] ] ],
+    [ "rgb(var(--r) 0 0)", "", "authored", [ RED ] ],
+    [ "hsl(var(--h) 100% 50%)", "", "authored", [ RED ] ],
+    [ "hsl(var(--hsl))", "", "authored", [ RED ] ],
+    [ "color-mix(in srgb, var(--a) var(--pct), #f00)", "", "authored", [ [ 1, 0, 0, 0.5, true ] ] ],
+    [ "rgb(from var(--a) r g b / var(--op))", "", "derived", [] ]
   ].freeze
 
   def test_classification_corpus
-    css = ":root{--brand:#123456;--a:#0000ff;--b:#00ff00;" +
+    css = ":root{--brand:#123456;--a:#0000ff;--b:#00ff00;--op:.5;--pct:50%;--r:255;--h:0;--hsl:0 100% 50%;" +
           CLASSIFY_CORPUS.each_with_index.map { |(value, _), i| "--x#{i}:#{value}" }.join(";") + "}\n" +
           CLASSIFY_CORPUS.map { |row| row[1] }.uniq.join("\n")
     probed = ColorBrowser.probe(css)

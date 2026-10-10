@@ -136,7 +136,11 @@ module ColorBrowser
           // a literal (a mix of a var() and a literal keeps the literal at
           // reduced alpha); one that tracks the overrides is derived. Only
           // names valid in this state are overridden, so a var() fallback
-          // behind an initial or undeclared name still shows its literal.
+          // behind an initial or undeclared name still shows its literal,
+          // and only names that resolve to a color: a number, percentage,
+          // or channel list (`--op: .5`, `--h: 0 100% 50%`) is a component
+          // of a literal, not a token, so `rgb(255 0 0 / var(--op))` keeps
+          // its literal instead of turning invalid under a color override.
           const alphaOf = (s) => {
             const m = s.match(/\\/\\s*([\\d.e+-]+)\\s*\\)$/);
             return m ? parseFloat(m[1]) : 1;
@@ -144,7 +148,8 @@ module ColorBrowser
           window.__cfColorClassifyState = (values) => {
             probe.style.color = '';
             const computed = getComputedStyle(probe);
-            const valid = window.__cfColorNames.filter((n) => computed.getPropertyValue(n) !== '');
+            const valid = window.__cfColorNames.filter((n) =>
+              computed.getPropertyValue(n) !== '' && window.__cfColorResolve(`var(${n})`) !== null);
             const readWith = (v, s) => {
               for (const n of valid) probe.style.setProperty(n, s);
               document.body.style.color = s;
