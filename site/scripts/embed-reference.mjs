@@ -25,19 +25,17 @@ function splitFrontmatter(raw) {
 // full YAML dependency in a build script for three fields.
 const SKILL_GROUPS = ["lanes", "rubrics", "modes", "workflow"];
 
-// First sentence of a description, for the one-line index. A sentence longer
-// than MAX is cut back to its last comma or semicolon clause break, else to a
-// word boundary. The full text stays available as the title attribute.
-const SUMMARY_MAX = 100;
+// First sentence of a description, for the one-line index. The whole
+// sentence is kept and the row clamps it to two lines in CSS, so the data never
+// ends mid-phrase. Markdown emphasis and code ticks are stripped because the
+// summary renders as plain text. The full text stays available as the title.
 export function firstClause(text) {
-  const flat = text.replace(/\s+/g, " ").trim();
-  const end = flat.search(/\.(\s|$)/);
-  let head = end > 0 ? flat.slice(0, end) : flat.replace(/\.$/, "");
-  if (head.length > SUMMARY_MAX) {
-    const window = head.slice(0, SUMMARY_MAX);
-    const clause = Math.max(window.lastIndexOf(","), window.lastIndexOf(";"));
-    head = clause > 30 ? window.slice(0, clause) : window.replace(/\s+\S*$/, "");
-  }
+  const flat = text.replace(/[`*]/g, "").replace(/\s+/g, " ").trim();
+  // A sentence ends at . ! or ? before a space or the end, except after an
+  // abbreviation like e.g. or i.e.
+  // A closing quote after ? or ! stays with its sentence; a final period drops.
+  const stop = flat.match(/(?<!\b(?:e\.g|i\.e|vs|etc))([.!?])(["')]?)(?=\s|$)/);
+  const head = !stop ? flat : flat.slice(0, stop.index + (stop[1] === "." ? 0 : stop[0].length));
   return head.charAt(0).toUpperCase() + head.slice(1);
 }
 

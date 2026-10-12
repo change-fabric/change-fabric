@@ -83,12 +83,12 @@ export function Reference() {
 
   const needle = query.trim().toLowerCase();
   const filtering = needle !== "" || group !== "all";
-  const matches = (item: Item) =>
-    (group === "all" || item.group === group) &&
-    (needle === "" ||
-      item.name.toLowerCase().includes(needle) ||
-      item.description.toLowerCase().includes(needle));
-  const visible = ITEMS.filter(matches);
+  const matchesQuery = (item: Item) =>
+    needle === "" ||
+    item.name.toLowerCase().includes(needle) ||
+    item.description.toLowerCase().includes(needle);
+  const searched = ITEMS.filter(matchesQuery);
+  const visible = searched.filter((item) => group === "all" || item.group === group);
 
   const row = (item: Item) => {
     const Icon = GROUPS.find((entry) => entry.id === item.group)!.icon;
@@ -134,7 +134,7 @@ export function Reference() {
         <div className="ref-chips" role="group" aria-label="Filter by group">
           {[{ id: "all" as const, label: "All" }, ...GROUPS].map((chip) => {
             const count =
-              chip.id === "all" ? ITEMS.length : ITEMS.filter((i) => i.group === chip.id).length;
+              chip.id === "all" ? searched.length : searched.filter((i) => i.group === chip.id).length;
             return (
               <button
                 key={chip.id}
