@@ -74,7 +74,7 @@ This table is checker output, not hand-written: it is regenerated from
 it, because the checker needs Chromium in Docker; run it locally after any
 token change and paste the new ratios here.
 
-The `--page-*`, `--body-text`, `--code-bg-text`, and `--tag-bg-text` tokens are
+The `--page-*`, `--body-text`, `--code-bg-text`, `--tag-bg-text`, and `--surface*-text` tokens are
 measurement aliases (`var()` references to the role tokens in parentheses)
 that expose each pair to the checker; components never use them.
 
@@ -89,6 +89,8 @@ that expose each pair to the checker; components never use them.
 | `--page-muted-text` (`--muted`) on `--background` | 4.92:1 | 8.49:1 |
 | `--code-bg-text` (`--muted`) on `--code-bg` | 4.83:1 | 8.22:1 |
 | `--tag-bg-text` (`--muted`) on `--tag-bg` | 4.56:1 | 5.97:1 |
+| `--surface-text` (`--muted`) on `--surface` | 5.2:1 | 6.81:1 |
+| `--surface-hover-text` (`--muted`) on `--surface-hover` | 4.74:1 | 5.58:1 |
 
 ## Themes
 
