@@ -30,7 +30,7 @@ class DesignContrastTableTest < Minitest::Test
     define_method("test_#{token.delete('-').tr('-', '_')}_has_own_row") do
       row = rows.find { |m| m[:pair] == token }
       refute_nil row, "#{token} has no contrast row of its own"
-      assert_equal [light, dark], [row[:light], row[:dark]]
+      assert_equal [ light, dark ], [ row[:light], row[:dark] ]
     end
   end
 end
