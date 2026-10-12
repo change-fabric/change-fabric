@@ -64,7 +64,7 @@
     --border-strong: color-mix(in srgb, var(--sage) 50%, var(--plum));
     --text: var(--cream);
     --heading: var(--cream);
-    --muted: color-mix(in srgb, var(--sage) 80%, var(--cream));
+    --muted: color-mix(in srgb, var(--sage) 70%, var(--cream));
     --accent: color-mix(in srgb, var(--lilac) 75%, var(--cream));
     --link: var(--accent);
     --link-hover: var(--cream);
@@ -100,7 +100,7 @@
   --border-strong: color-mix(in srgb, var(--sage) 50%, var(--plum));
   --text: var(--cream);
   --heading: var(--cream);
-  --muted: color-mix(in srgb, var(--sage) 80%, var(--cream));
+  --muted: color-mix(in srgb, var(--sage) 70%, var(--cream));
   --accent: color-mix(in srgb, var(--lilac) 75%, var(--cream));
   --link: var(--accent);
   --link-hover: var(--cream);
@@ -351,8 +351,11 @@ code {
   background: var(--surface-hover);
 }
 
+/* The current page: lilac ink and a heavier weight, so it reads apart from
+   a hovered link without any new fill. */
 .nav-link[aria-current="page"] {
-  color: var(--text);
+  color: var(--accent);
+  font-weight: 600;
   background: var(--surface-hover);
 }
 
@@ -506,20 +509,20 @@ code {
 
 :root {
   --hero-texture: url("/brand/fabric-texture-light.webp");
-  --hero-texture-opacity: 0.4;
+  --hero-texture-opacity: 0.33;
   --hero-texture-width: 58%;
   --hero-texture-height: 620px;
 }
 
 :root[data-theme="dark"] {
   --hero-texture: url("/brand/fabric-texture-dark.webp");
-  --hero-texture-opacity: 0.22;
+  --hero-texture-opacity: 0.17;
 }
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     --hero-texture: url("/brand/fabric-texture-dark.webp");
-    --hero-texture-opacity: 0.22;
+    --hero-texture-opacity: 0.17;
   }
 }
 
@@ -602,6 +605,10 @@ code {
   margin-top: 80px;
 }
 
+.hero + .home-section {
+  margin-top: 60px;
+}
+
 .home-section h2 {
   font-family: var(--font-serif);
   font-size: 1.9rem;
@@ -639,9 +646,13 @@ code {
   border-bottom: 1px solid var(--border);
 }
 
+/* Number in its own narrow column, so the category, tool and description
+   share one left edge. Number and tool are set alike in small mono. */
 .lane {
   display: grid;
-  gap: var(--s1);
+  grid-template-columns: 2rem minmax(0, 1fr);
+  column-gap: 0;
+  row-gap: var(--s1);
   padding: var(--s5) 0;
   color: var(--text);
   text-decoration: none;
@@ -658,24 +669,31 @@ code {
 }
 
 .lane-role {
+  grid-row: 1;
+  align-self: baseline;
   font-size: 1.15rem;
   font-weight: 600;
   color: var(--heading);
 }
 
-.lane-n {
-  font-family: var(--font-mono);
-  font-size: 0.75rem;
-  font-weight: 400;
-  color: var(--accent);
-  margin-right: var(--s3);
-  vertical-align: 0.15em;
-}
-
+.lane-n,
 .lane-name {
   font-family: var(--font-mono);
-  font-size: 0.82rem;
+  font-size: 0.8rem;
+  letter-spacing: 0.02em;
   color: var(--accent);
+}
+
+.lane-n {
+  grid-row: 1;
+  grid-column: 1;
+  align-self: baseline;
+}
+
+.lane-role,
+.lane-name,
+.lane-detail {
+  grid-column: 2;
 }
 
 .lane:hover .lane-name {
@@ -1352,6 +1370,9 @@ code {
   }
   .home-section {
     margin-top: var(--s8);
+  }
+  .hero + .home-section {
+    margin-top: var(--s7);
   }
   .home-section h2 {
     font-size: 1.5rem;

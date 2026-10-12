@@ -44,10 +44,8 @@ function Lane({ n, role, name, detail, url }: (typeof LANES)[number]) {
   return (
     <li>
       <a className="lane" href={url} target="_blank" rel="noopener noreferrer">
-        <span className="lane-role">
-          <span className="lane-n" aria-hidden="true">{n}</span>
-          {role}
-        </span>
+        <span className="lane-n" aria-hidden="true">{n}</span>
+        <span className="lane-role">{role}</span>
         <span className="lane-name">
           {name}
           <span className="sr-only"> (opens in a new tab)</span>
