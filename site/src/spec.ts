@@ -117,8 +117,18 @@ function focusableScrollRegions(html: string): string {
   );
 }
 
+// A link that leaves the site opens in a new tab, as every hand-written
+// external link on the site does. Only marked's own <a href="..."> output
+// reaches this, so the attribute order is fixed.
+function externalLinksInNewTab(html: string): string {
+  return html.replace(
+    /<a href="(https?:\/\/[^"]*)"/g,
+    '<a href="$1" target="_blank" rel="noopener noreferrer"',
+  );
+}
+
 export function specHtml(markdown: string): string {
-  return focusableScrollRegions(marked.parse(markdown, { async: false }));
+  return externalLinksInNewTab(focusableScrollRegions(marked.parse(markdown, { async: false })));
 }
 
 export function specPath(version: string): string {

@@ -31,8 +31,14 @@ export function ReferenceHookPage({ id }: { id: string }) {
               </h1>
             </div>
             <div className="page-actions">
-              <a className="btn" href={`${REPO_URL}/blob/main/scripts/${hook.script}`}>
-                Source
+              <a
+                className="btn"
+                href={`${REPO_URL}/blob/main/scripts/${hook.script}`}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Source <span aria-hidden="true">&#8599;</span>
+                <span className="sr-only"> (opens in a new tab)</span>
               </a>
               <a className="btn btn-quiet" href="/reference">
                 All skills and hooks
