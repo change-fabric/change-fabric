@@ -178,7 +178,13 @@ export function Reference() {
             ))}
         </div>
 
-        <div aria-live="polite">
+        <p className="sr-only" role="status" aria-live="polite" aria-atomic="true">
+          {visible.length === 0
+            ? "Nothing matches that search."
+            : `${visible.length} ${visible.length === 1 ? "result" : "results"}`}
+        </p>
+
+        <div>
           {visible.length === 0 ? (
             <p className="ref-empty">Nothing matches that search.</p>
           ) : filtering ? (
