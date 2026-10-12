@@ -23,7 +23,9 @@
   --surface-hover: color-mix(in srgb, var(--navy) 6%, var(--paper));
   --border: color-mix(in srgb, var(--navy) 14%, var(--paper));
   --text: var(--navy);
-  --muted: color-mix(in srgb, var(--navy) 55%, var(--paper));
+  /* 70% navy keeps small muted text at WCAG AA 4.5:1 on --bg, --code-bg,
+     --surface-hover, and --tag-bg (lowest: 4.56:1 on --tag-bg). */
+  --muted: color-mix(in srgb, var(--navy) 70%, var(--paper));
   --heading: var(--navy);
   --link: var(--navy);
   /* --gold-deep clears WCAG AA 4.5:1 as small text against every light
