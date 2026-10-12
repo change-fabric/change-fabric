@@ -1,57 +1,51 @@
 /*
- * Navy + gold brand. Navy conveys trust; gold evokes a gold-plated quality bar.
- *   Dark theme:  navy background, gold accents and links.
- *   Light theme: light neutral background, navy for headings/nav/links, gold as
- *                the accent for hovers, badges, arrows, and CTAs.
- * Both read as one brand. The default follows prefers-color-scheme; a manual
- * data-theme on <html> (set by the toggle) overrides it.
+ * Cream, plum, lilac, sage. Four authored colors; every other color on the
+ * site is a color-mix of two of them (or of one against transparent).
+ *   Light: cream ground, plum ink, lilac (deepened with plum) for links and
+ *          the one accent, sage (deepened with plum) for muted text.
+ *   Dark:  the roles swap: plum ground, cream ink, lilac (lifted with cream).
+ * The default follows prefers-color-scheme; a manual data-theme on <html>
+ * (set by the toggle) overrides it. See site/DESIGN.md.
  */
 
 :root,
 :root[data-theme="light"] {
-  /* The four authored colors. Everything else on this page is one of
-     these four, mixed with each other or with transparent. See
-     site/DESIGN.md for the role tables and derivation recipes. */
-  --navy: #123049;
-  --navy-deep: #0d1b2a;
-  --gold: #e6b84a;
-  --paper: #ffffff;
-  --gold-deep: color-mix(in srgb, var(--gold) 50%, var(--navy-deep));
+  /* The four authored colors. */
+  --cream: #f6efe0;
+  --plum: #24122a;
+  --lilac: #a070c8;
+  --sage: #9ea39b;
 
-  --bg: color-mix(in srgb, var(--navy) 4%, var(--paper));
-  --surface: color-mix(in srgb, var(--navy) 1%, var(--paper));
-  --surface-hover: color-mix(in srgb, var(--navy) 6%, var(--paper));
-  --border: color-mix(in srgb, var(--navy) 14%, var(--paper));
-  --text: var(--navy);
-  /* 70% navy keeps small muted text at WCAG AA 4.5:1 on --bg, --code-bg,
-     --surface, --surface-hover, and --tag-bg (lowest: 4.56:1 on --tag-bg). */
-  --muted: color-mix(in srgb, var(--navy) 70%, var(--paper));
-  --heading: var(--navy);
-  --link: var(--navy);
-  /* --gold-deep clears WCAG AA 4.5:1 as small text against every light
-     surface here (--bg, --surface, --code-bg); see DESIGN.md contrast. */
-  --link-hover: var(--gold-deep);
-  --accent: var(--gold-deep);
-  --accent-soft: color-mix(in srgb, var(--gold-deep) 12%, transparent);
-  --gold-btn: var(--gold);
-  --gold-btn-text: var(--navy-deep);
-  --code-bg: color-mix(in srgb, var(--navy) 5%, var(--paper));
-  /* Timeline rail hairline on the changelog, and the fill behind a
-     change-type tag: both mixes of --navy, not a new color. */
-  --rail: color-mix(in srgb, var(--navy) 10%, var(--paper));
-  --tag-bg: color-mix(in srgb, var(--navy) 8%, var(--paper));
+  --bg: var(--cream);
+  --surface: color-mix(in srgb, var(--plum) 3%, var(--cream));
+  --surface-hover: color-mix(in srgb, var(--plum) 7%, var(--cream));
+  --code-bg: color-mix(in srgb, var(--plum) 5%, var(--cream));
+  --border: color-mix(in srgb, var(--sage) 45%, var(--cream));
+  --border-strong: color-mix(in srgb, var(--sage) 85%, var(--cream));
+  --text: var(--plum);
+  --heading: var(--plum);
+  /* Sage alone is 2.2:1 on cream; half plum lifts it past 4.5:1 on every
+     light surface (lowest: 5.0:1 on --surface-hover). */
+  --muted: color-mix(in srgb, var(--sage) 50%, var(--plum));
+  /* Lilac alone is 3.5:1 on cream; 38% plum takes it past 4.5:1. */
+  --accent: color-mix(in srgb, var(--lilac) 62%, var(--plum));
+  --link: var(--accent);
+  --link-hover: var(--plum);
+  --btn: var(--accent);
+  --btn-text: var(--cream);
+  --btn-hover: var(--plum);
   /* Measurement aliases for scripts/color_check.rb. Components never use
      these; they only expose each text-on-surface pair to the checker's
      pair rule. All are var() references, so the palette stays at four. */
   --background: var(--bg);
   --body-text: var(--text);
   --page-heading-text: var(--heading);
+  --btn-hover-text: var(--btn-text);
   --page-link-text: var(--link);
   --page-link-hover-text: var(--link-hover);
   --page-accent-text: var(--accent);
   --page-muted-text: var(--muted);
   --code-bg-text: var(--muted);
-  --tag-bg-text: var(--muted);
   --surface-text: var(--muted);
   --surface-hover-text: var(--muted);
   color-scheme: light;
@@ -59,39 +53,37 @@
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --navy: #123049;
-    --navy-deep: #0d1b2a;
-    --gold: #e6b84a;
-    --paper: #ffffff;
-    --gold-deep: color-mix(in srgb, var(--gold) 50%, var(--navy-deep));
-    --bg: var(--navy-deep);
-    --surface: color-mix(in srgb, var(--navy-deep) 92%, var(--paper));
-    --surface-hover: color-mix(in srgb, var(--navy-deep) 86%, var(--paper));
-    --border: color-mix(in srgb, var(--navy-deep) 78%, var(--paper));
-    --text: color-mix(in srgb, var(--navy) 15%, var(--paper));
-    --muted: color-mix(in srgb, var(--navy) 35%, var(--paper));
-    --heading: color-mix(in srgb, var(--navy) 5%, var(--paper));
-    --link: var(--gold);
-    --link-hover: color-mix(in srgb, var(--gold) 90%, var(--paper));
-    --accent: var(--gold);
-    --accent-soft: color-mix(in srgb, var(--gold) 14%, transparent);
-    --gold-btn: var(--gold);
-    --gold-btn-text: var(--navy-deep);
-    --code-bg: color-mix(in srgb, var(--navy-deep) 85%, var(--navy));
-    --rail: color-mix(in srgb, var(--navy-deep) 82%, var(--paper));
-    --tag-bg: color-mix(in srgb, var(--navy-deep) 88%, var(--paper));
+    --cream: #f6efe0;
+    --plum: #24122a;
+    --lilac: #a070c8;
+    --sage: #9ea39b;
+    --bg: var(--plum);
+    --surface: color-mix(in srgb, var(--cream) 4%, var(--plum));
+    --surface-hover: color-mix(in srgb, var(--cream) 8%, var(--plum));
+    --code-bg: color-mix(in srgb, var(--cream) 6%, var(--plum));
+    --border: color-mix(in srgb, var(--sage) 22%, var(--plum));
+    --border-strong: color-mix(in srgb, var(--sage) 50%, var(--plum));
+    --text: var(--cream);
+    --heading: var(--cream);
+    --muted: var(--sage);
+    --accent: color-mix(in srgb, var(--lilac) 75%, var(--cream));
+    --link: var(--accent);
+    --link-hover: var(--cream);
+    --btn: var(--accent);
+    --btn-text: var(--plum);
+    --btn-hover: var(--cream);
     /* Measurement aliases for scripts/color_check.rb. Components never use
        these; they only expose each text-on-surface pair to the checker's
        pair rule. All are var() references, so the palette stays at four. */
     --background: var(--bg);
     --body-text: var(--text);
     --page-heading-text: var(--heading);
+    --btn-hover-text: var(--btn-text);
     --page-link-text: var(--link);
     --page-link-hover-text: var(--link-hover);
     --page-accent-text: var(--accent);
     --page-muted-text: var(--muted);
     --code-bg-text: var(--muted);
-    --tag-bg-text: var(--muted);
     --surface-text: var(--muted);
     --surface-hover-text: var(--muted);
     color-scheme: dark;
@@ -99,42 +91,59 @@
 }
 
 :root[data-theme="dark"] {
-  --navy: #123049;
-  --navy-deep: #0d1b2a;
-  --gold: #e6b84a;
-  --paper: #ffffff;
-  --gold-deep: color-mix(in srgb, var(--gold) 50%, var(--navy-deep));
-  --bg: var(--navy-deep);
-  --surface: color-mix(in srgb, var(--navy-deep) 92%, var(--paper));
-  --surface-hover: color-mix(in srgb, var(--navy-deep) 86%, var(--paper));
-  --border: color-mix(in srgb, var(--navy-deep) 78%, var(--paper));
-  --text: color-mix(in srgb, var(--navy) 15%, var(--paper));
-  --muted: color-mix(in srgb, var(--navy) 35%, var(--paper));
-  --heading: color-mix(in srgb, var(--navy) 5%, var(--paper));
-  --link: var(--gold);
-  --link-hover: color-mix(in srgb, var(--gold) 90%, var(--paper));
-  --accent: var(--gold);
-  --accent-soft: color-mix(in srgb, var(--gold) 14%, transparent);
-  --gold-btn: var(--gold);
-  --gold-btn-text: var(--navy-deep);
-  --code-bg: color-mix(in srgb, var(--navy-deep) 85%, var(--navy));
-  --rail: color-mix(in srgb, var(--navy-deep) 82%, var(--paper));
-  --tag-bg: color-mix(in srgb, var(--navy-deep) 88%, var(--paper));
+  --cream: #f6efe0;
+  --plum: #24122a;
+  --lilac: #a070c8;
+  --sage: #9ea39b;
+  --bg: var(--plum);
+  --surface: color-mix(in srgb, var(--cream) 4%, var(--plum));
+  --surface-hover: color-mix(in srgb, var(--cream) 8%, var(--plum));
+  --code-bg: color-mix(in srgb, var(--cream) 6%, var(--plum));
+  --border: color-mix(in srgb, var(--sage) 22%, var(--plum));
+  --border-strong: color-mix(in srgb, var(--sage) 50%, var(--plum));
+  --text: var(--cream);
+  --heading: var(--cream);
+  --muted: var(--sage);
+  --accent: color-mix(in srgb, var(--lilac) 75%, var(--cream));
+  --link: var(--accent);
+  --link-hover: var(--cream);
+  --btn: var(--accent);
+  --btn-text: var(--plum);
+  --btn-hover: var(--cream);
   /* Measurement aliases for scripts/color_check.rb. Components never use
      these; they only expose each text-on-surface pair to the checker's
      pair rule. All are var() references, so the palette stays at four. */
   --background: var(--bg);
   --body-text: var(--text);
   --page-heading-text: var(--heading);
+  --btn-hover-text: var(--btn-text);
   --page-link-text: var(--link);
   --page-link-hover-text: var(--link-hover);
   --page-accent-text: var(--accent);
   --page-muted-text: var(--muted);
   --code-bg-text: var(--muted);
-  --tag-bg-text: var(--muted);
   --surface-text: var(--muted);
   --surface-hover-text: var(--muted);
   color-scheme: dark;
+}
+
+/* Type and spacing. One 4px-based spacing scale; every margin, padding, and
+   gap below is one of these steps. */
+:root {
+  --font-sans: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-serif: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
+  --font-mono: ui-monospace, SFMono-Regular, "JetBrains Mono", Menlo, Consolas, monospace;
+  --s1: 4px;
+  --s2: 8px;
+  --s3: 12px;
+  --s4: 16px;
+  --s5: 24px;
+  --s6: 32px;
+  --s7: 48px;
+  --s8: 64px;
+  --radius: 6px;
+  --measure: 760px;
+  --ease: 120ms ease;
 }
 
 * {
@@ -145,148 +154,279 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-family: var(--font-sans);
+  font-size: 15px;
   line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+h3 {
+  color: var(--heading);
+  letter-spacing: -0.015em;
+}
+
+h1 {
+  font-size: 1.9rem;
+  line-height: 1.2;
+  font-weight: 700;
+  margin: 0;
+}
+
+h2 {
+  font-size: 1.2rem;
+  line-height: 1.3;
+  font-weight: 650;
 }
 
 a {
   color: var(--link);
+  text-underline-offset: 0.18em;
+  text-decoration-thickness: 1px;
 }
 
 a:hover {
   color: var(--link-hover);
 }
 
-.page {
-  max-width: 820px;
-  margin: 0 auto;
-  padding: 0 24px 96px;
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 2px;
 }
 
-/* Header */
+code {
+  background: var(--code-bg);
+  border-radius: 3px;
+  padding: 1px 5px;
+  font-family: var(--font-mono);
+  font-size: 0.88em;
+  overflow-wrap: anywhere;
+}
+
+/* Shell: a left sidebar on desktop, a top bar below 960px. */
+.shell {
+  min-height: 100vh;
+}
+
 .site-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 22px 0;
+  gap: var(--s5);
+  padding: var(--s4) var(--s5);
   border-bottom: 1px solid var(--border);
 }
 
 .wordmark {
-  font-weight: 700;
-  font-size: 1.1rem;
-  letter-spacing: 0.02em;
+  font-family: var(--font-serif);
+  font-size: 1.4rem;
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: -0.01em;
   color: var(--heading);
   text-decoration: none;
+  white-space: nowrap;
+}
+
+.wordmark:hover {
+  color: var(--heading);
 }
 
 .site-nav {
   display: flex;
   align-items: center;
-  gap: 18px;
+  gap: var(--s1);
+  margin-left: auto;
 }
 
 .nav-link {
   color: var(--muted);
   text-decoration: none;
-  font-size: 0.92rem;
-  display: inline-flex;
-  align-items: center;
+  font-size: 0.9rem;
+  font-weight: 500;
+  padding: var(--s1) var(--s2);
+  border-radius: var(--radius);
+  transition: color var(--ease), background var(--ease);
 }
 
 .nav-link:hover {
-  color: var(--accent);
+  color: var(--text);
+  background: var(--surface-hover);
 }
 
-.theme-toggle {
+.nav-link[aria-current="page"] {
+  color: var(--text);
+  background: var(--surface-hover);
+}
+
+.site-utils {
+  display: flex;
+  align-items: center;
+  gap: var(--s1);
+}
+
+.icon-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 34px;
-  height: 34px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--surface);
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
   color: var(--muted);
   cursor: pointer;
-  transition: color 0.15s ease, border-color 0.15s ease;
+  transition: color var(--ease), background var(--ease);
 }
 
-.theme-toggle:hover {
-  color: var(--accent);
-  border-color: var(--accent);
+.icon-btn:hover {
+  color: var(--text);
+  background: var(--surface-hover);
 }
 
-/* Hero */
+.page {
+  max-width: calc(var(--measure) + 2 * var(--s5));
+  margin: 0 auto;
+  padding: 0 var(--s5) var(--s8);
+}
+
+@media (min-width: 960px) {
+  .shell {
+    display: grid;
+    grid-template-columns: 224px minmax(0, 1fr);
+  }
+  .site-header {
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--s6);
+    padding: var(--s6) var(--s4) var(--s5);
+    background: var(--surface);
+    border-bottom: 0;
+    border-right: 1px solid var(--border);
+  }
+  .wordmark {
+    padding: 0 var(--s2);
+  }
+  .site-nav {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 2px;
+    margin-left: 0;
+  }
+  .nav-link {
+    padding: 6px var(--s2);
+  }
+  .site-utils {
+    margin-top: auto;
+  }
+  .page {
+    margin: 0;
+    padding: 0 var(--s7) var(--s8);
+    max-width: calc(var(--measure) + 2 * var(--s7));
+  }
+}
+
+/* Page heads: one pattern for every page. A quiet eyebrow, the title, an
+   optional lede, then content after a fixed gap. */
+.page-head {
+  padding: var(--s7) 0 var(--s5);
+}
+
+.eyebrow {
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: var(--muted);
+  margin: 0 0 var(--s2);
+}
+
+.section-lede {
+  color: var(--muted);
+  margin: var(--s2) 0 0;
+  max-width: 62ch;
+}
+
+.page-head-row {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--s4);
+  flex-wrap: wrap;
+}
+
+.page-head h1 {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s3);
+  flex-wrap: wrap;
+}
+
+.page-head h1 code {
+  background: none;
+  padding: 0;
+  font-size: 0.9em;
+  letter-spacing: -0.02em;
+}
+
+.page-actions {
+  display: flex;
+  gap: var(--s2);
+}
+
+/* Home */
 .hero {
-  padding: 80px 0 24px;
+  padding: var(--s8) 0 var(--s6);
 }
 
 .hero h1 {
   font-size: 2.4rem;
-  line-height: 1.15;
-  margin: 0 0 16px;
-  max-width: 15ch;
-  color: var(--heading);
+  line-height: 1.12;
+  letter-spacing: -0.025em;
+  max-width: 18ch;
 }
 
 .hero p {
-  font-size: 1.2rem;
+  font-size: 1.1rem;
   color: var(--muted);
-  max-width: 52ch;
-  margin: 0;
+  max-width: 54ch;
+  margin: var(--s4) 0 0;
 }
 
-/* Lane cards */
+/* The four lanes as a dense list, not cards. */
 .lanes {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 14px;
-  margin: 48px 0 88px;
+  list-style: none;
+  margin: 0 0 var(--s8);
+  padding: 0;
+  border-top: 1px solid var(--border);
 }
 
 .lane {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 20px 22px;
-  text-decoration: none;
+  display: grid;
+  grid-template-columns: 9rem minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: var(--s4);
+  padding: var(--s3) 0;
+  border-bottom: 1px solid var(--border);
   color: var(--text);
-  transition: border-color 0.15s ease, transform 0.15s ease, background 0.15s ease;
+  text-decoration: none;
+  transition: background var(--ease), box-shadow var(--ease);
 }
 
-.lane:hover {
-  border-color: var(--accent);
+/* Hover fills bleed past the text column by box-shadow, so the hairlines
+   stay aligned with everything else on the page. */
+.lane:hover,
+.ref-row:hover {
+  color: var(--text);
   background: var(--surface-hover);
-  transform: translateY(-2px);
-}
-
-.lane-role {
-  color: var(--accent);
-  font-size: 0.75rem;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
+  box-shadow: calc(-1 * var(--s2)) 0 0 var(--surface-hover), var(--s2) 0 0 var(--surface-hover);
 }
 
 .lane-name {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  font-size: 1.15rem;
   font-weight: 600;
   color: var(--heading);
-}
-
-.lane-arrow {
-  color: var(--muted);
-  font-size: 1rem;
-}
-
-.lane:hover .lane-arrow {
-  color: var(--accent);
 }
 
 .lane-detail {
@@ -294,27 +434,28 @@ a:hover {
   font-size: 0.92rem;
 }
 
-/* Contract + example */
+.lane-role {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
 .contract {
-  margin: 0 0 88px;
+  margin: 0 0 var(--s8);
 }
 
 .contract h2 {
-  font-size: 1.6rem;
-  margin: 0 0 8px;
-  color: var(--heading);
+  margin: 0;
 }
 
-.section-lede {
-  color: var(--muted);
-  margin: 0 0 24px;
-  max-width: 62ch;
+.contract .section-lede {
+  margin-bottom: var(--s4);
 }
 
 .contract-footnote {
   color: var(--muted);
-  font-size: 0.92rem;
-  margin: 16px 0 0;
+  font-size: 0.9rem;
+  margin: var(--s3) 0 0;
 }
 
 /* Any box whose content is allowed to be wider than the page: a code sample, a
@@ -326,206 +467,169 @@ a:hover {
   max-width: 100%;
 }
 
-.scroll-region:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
-
 /* Code block with copy control */
 .code-block {
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--radius);
   overflow: hidden;
-  background: var(--surface);
+  background: var(--code-bg);
 }
 
 .code-block-bar {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 8px 14px;
+  padding: var(--s1) var(--s1) var(--s1) var(--s3);
   border-bottom: 1px solid var(--border);
-  background: var(--code-bg);
 }
 
 .code-block-label {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 0.8rem;
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
   color: var(--muted);
 }
 
 .code-copy {
-  border: 1px solid var(--border);
-  border-radius: 6px;
+  border: 0;
+  border-radius: var(--radius);
   background: transparent;
-  color: var(--accent);
-  font-size: 0.78rem;
-  padding: 3px 10px;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 500;
+  padding: 2px var(--s2);
   cursor: pointer;
+  transition: color var(--ease), background var(--ease);
 }
 
 .code-copy:hover {
-  border-color: var(--accent);
+  color: var(--text);
+  background: var(--surface-hover);
 }
 
 .code-block pre {
   margin: 0;
-  padding: 16px 18px;
+  padding: var(--s3) var(--s4);
   overflow-x: auto;
 }
 
 .code-block code {
   background: none;
   padding: 0;
-  font-size: 0.85rem;
-  line-height: 1.55;
+  font-size: 0.84rem;
+  line-height: 1.6;
 }
 
-code {
-  background: var(--code-bg);
-  border-radius: 4px;
-  padding: 1px 5px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 0.88em;
-  overflow-wrap: anywhere;
-}
-
-/* Buttons */
+/* Buttons: one filled, one quiet. */
 .btn {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 7px 14px;
-  border-radius: 8px;
-  font-size: 0.9rem;
-  font-weight: 600;
+  gap: var(--s1);
+  padding: 6px var(--s3);
+  border-radius: var(--radius);
+  font-size: 0.875rem;
+  font-weight: 500;
   text-decoration: none;
-  background: var(--gold-btn);
-  color: var(--gold-btn-text);
-  border: 1px solid transparent;
+  background: var(--btn);
+  color: var(--btn-text);
+  border: 1px solid var(--btn);
+  transition: background var(--ease), border-color var(--ease), color var(--ease);
 }
 
 .btn:hover {
-  color: var(--gold-btn-text);
-  filter: brightness(1.05);
+  color: var(--btn-text);
+  background: var(--btn-hover);
+  border-color: var(--btn-hover);
 }
 
 .btn-quiet {
   background: transparent;
-  color: var(--link);
-  border-color: var(--border);
+  color: var(--text);
+  border-color: var(--border-strong);
 }
 
 .btn-quiet:hover {
-  border-color: var(--accent);
-  color: var(--accent);
-  filter: none;
+  background: var(--surface-hover);
+  color: var(--text);
+  border-color: var(--border-strong);
 }
 
-/* Spec page + versions */
-.eyebrow {
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  font-size: 0.72rem;
-  color: var(--accent);
-  margin: 40px 0 4px;
-}
-
-.spec-page-head {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 16px;
-  flex-wrap: wrap;
-  border-bottom: 1px solid var(--border);
-  padding-bottom: 20px;
-  margin-bottom: 8px;
-}
-
-.spec-page-head h1,
-.versions h1 {
-  font-size: 1.9rem;
-  margin: 0;
-  color: var(--heading);
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.spec-page-actions {
-  display: flex;
-  gap: 10px;
-}
-
+/* Status: text with a hairline, never a fill. */
 .status-tag {
-  font-size: 0.68rem;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  padding: 2px 8px;
-  border-radius: 999px;
-  border: 1px solid var(--border);
+  font-size: 0.75rem;
+  font-weight: 500;
+  letter-spacing: 0;
+  padding: 0 var(--s2);
+  border-radius: 3px;
+  border: 1px solid var(--border-strong);
   color: var(--muted);
-  font-weight: 600;
+  white-space: nowrap;
 }
 
 .status-current {
-  color: var(--gold-btn-text);
-  background: var(--gold-btn);
-  border-color: transparent;
+  color: var(--accent);
+  border-color: currentColor;
 }
 
+/* Versions */
 .versions-table {
   width: 100%;
   border-collapse: collapse;
-  margin-top: 24px;
-  font-size: 0.95rem;
+  font-size: 0.92rem;
 }
 
 .versions-table th,
 .versions-table td {
   text-align: left;
-  padding: 10px 12px;
+  padding: var(--s2) var(--s3) var(--s2) 0;
   border-bottom: 1px solid var(--border);
 }
 
 .versions-table th {
   color: var(--muted);
   font-size: 0.8rem;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+  font-weight: 500;
+}
+
+.versions-table td:first-child a {
+  font-family: var(--font-mono);
 }
 
 .versions-table .sep {
   color: var(--muted);
-  margin: 0 6px;
+  margin: 0 var(--s1);
 }
 
-/* Release notes panel above a version's own spec text */
+.reference-events {
+  display: flex;
+  gap: var(--s2);
+  flex-wrap: wrap;
+  margin: 0 0 var(--s4);
+}
+
+/* Release notes above a version's own spec text: a ruled section, no box. */
 .release-notes {
-  margin-top: 28px;
-  padding: 20px 22px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--code-bg);
+  padding: var(--s5) 0;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
 }
 
 .release-notes h2 {
-  font-size: 1.15rem;
   margin: 0;
-  color: var(--heading);
+  font-size: 1rem;
 }
 
 .release-notes-headline {
-  margin: 8px 0 0;
+  margin: var(--s1) 0 0;
   color: var(--muted);
 }
 
 .release-notes-list {
-  margin: 18px 0 0;
+  margin: var(--s4) 0 0;
 }
 
 .release-note + .release-note {
-  margin-top: 14px;
+  margin-top: var(--s3);
 }
 
 .release-note dt {
@@ -534,175 +638,147 @@ code {
 }
 
 .release-note dd {
-  margin: 4px 0 0;
-  font-size: 0.94rem;
+  margin: 2px 0 0;
+  font-size: 0.92rem;
 }
 
-.release-notes-upgrade {
-  margin: 18px 0 0;
-  padding-top: 14px;
-  border-top: 1px solid var(--border);
-  font-size: 0.94rem;
-}
-
+.release-notes-upgrade,
 .release-notes-more {
-  margin: 12px 0 0;
-  font-size: 0.94rem;
+  margin: var(--s4) 0 0;
+  font-size: 0.92rem;
 }
 
-.release-notes-more a {
-  color: var(--accent);
-}
-
-/* Changelog: the full spec release history as a timeline. Each entry is a
-   two-column row: a left rail carrying a sticky date marker, and the entry
-   card. The rail sits inside the site-wide 820px measure, so the prose column
-   narrows rather than the page widening. */
+/* Changelog: a date rail and an entry per row, separated by hairlines. */
 .changelog-list {
   list-style: none;
-  margin: 28px 0 0;
+  margin: 0;
   padding: 0;
 }
 
 .changelog-entry {
   display: grid;
-  grid-template-columns: 128px minmax(0, 1fr);
-  gap: 20px;
-  padding: 0;
-  border: 0;
-  background: none;
-  border-radius: 0;
-}
-
-.changelog-entry + .changelog-entry {
-  margin-top: 28px;
-}
-
-/* The rail column: a hairline down its right edge, and a date that sticks to
-   the top of the viewport while its own entry is being read. */
-.changelog-rail {
-  position: relative;
-  border-right: 1px solid var(--rail);
-  padding-right: 16px;
+  grid-template-columns: 7rem minmax(0, 1fr);
+  gap: var(--s5);
+  padding: var(--s5) 0;
+  border-top: 1px solid var(--border);
 }
 
 .changelog-date {
   position: sticky;
-  top: 16px;
+  top: var(--s4);
   display: block;
-  font-size: 0.85rem;
-  font-weight: 600;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
   color: var(--muted);
-  text-align: right;
   font-variant-numeric: tabular-nums;
 }
 
 .changelog-card {
-  padding: 20px 22px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--code-bg);
   min-width: 0;
 }
 
-/* Quiet metadata row: version, status, change-type tags, copy link. */
 .changelog-meta {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: var(--s2);
 }
 
 .changelog-version {
   font-size: 0.95rem;
   margin: 0;
-  color: var(--heading);
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-}
-
-.changelog-version a {
-  color: var(--link);
+  font-family: var(--font-mono);
 }
 
 .changelog-tag {
-  font-size: 0.68rem;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  padding: 2px 8px;
-  border-radius: 999px;
-  border: 1px solid var(--border);
-  background: var(--tag-bg);
+  font-size: 0.75rem;
   color: var(--muted);
-  font-weight: 600;
 }
 
-/* The promoted headline: the one line that says what the release did. */
+/* Several change types read as one comma list, not separate badges. */
+.changelog-tag + .changelog-tag {
+  margin-left: calc(-1 * var(--s2));
+}
+
+.changelog-tag + .changelog-tag::before {
+  content: ", ";
+}
+
 .changelog-headline {
-  margin: 14px 0 0;
-  font-size: 1.35rem;
-  line-height: 1.3;
-  font-weight: 700;
+  margin: var(--s2) 0 0;
+  font-size: 1.15rem;
+  line-height: 1.35;
+  font-weight: 650;
   color: var(--heading);
+  letter-spacing: -0.01em;
 }
 
 .changelog-body {
-  margin-top: 16px;
+  margin-top: var(--s3);
 }
 
-/* Reuses .code-copy's look; only its placement in the metadata row differs. */
+.changelog-body > :first-child {
+  margin-top: 0;
+}
+
 .changelog-copy {
   margin-left: auto;
 }
 
-/* Rendered spec markdown */
+/* Rendered markdown */
 .spec-body {
-  margin-top: 28px;
+  margin-top: var(--s5);
 }
 
 .spec-body h1 {
-  font-size: 1.5rem;
-  color: var(--heading);
+  font-size: 1.45rem;
+  margin: var(--s6) 0 var(--s3);
 }
 
 .spec-body h2 {
-  font-size: 1.2rem;
-  margin-top: 32px;
+  font-size: 1.15rem;
+  margin: var(--s6) 0 var(--s3);
+  padding-bottom: var(--s2);
   border-bottom: 1px solid var(--border);
-  padding-bottom: 6px;
-  color: var(--heading);
 }
 
 .spec-body h3 {
-  font-size: 1.02rem;
-  color: var(--heading);
+  font-size: 1rem;
+  margin: var(--s5) 0 var(--s2);
 }
 
-/* The scrolling is the wrapping .scroll-region's job, not the table's, so the
-   table keeps its own semantics and its own layout. */
+.spec-body p,
+.spec-body ul,
+.spec-body ol {
+  margin: 0 0 var(--s3);
+}
+
 .spec-body table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.88rem;
+  font-size: 0.875rem;
 }
 
 .spec-body th,
 .spec-body td {
-  border: 1px solid var(--border);
-  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  padding: var(--s2) var(--s3) var(--s2) 0;
   text-align: left;
   vertical-align: top;
 }
 
 .spec-body th {
-  background: var(--code-bg);
+  color: var(--muted);
+  font-weight: 500;
 }
 
 .spec-body pre {
   background: var(--code-bg);
   border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 14px 16px;
+  border-radius: var(--radius);
+  padding: var(--s3) var(--s4);
   overflow-x: auto;
+  margin: 0 0 var(--s4);
 }
 
 .spec-body pre code {
@@ -712,76 +788,32 @@ code {
 
 /* Footer */
 .site-footer {
-  margin-top: 64px;
-  padding-top: 24px;
+  margin-top: var(--s8);
+  padding-top: var(--s4);
   border-top: 1px solid var(--border);
 }
 
 .footer-nav {
   display: flex;
-  gap: 20px;
+  gap: var(--s2) var(--s5);
   flex-wrap: wrap;
-  justify-content: center;
 }
 
 .footer-nav a {
   color: var(--muted);
   text-decoration: none;
-  font-size: 0.9rem;
+  font-size: 0.85rem;
 }
 
 .footer-nav a:hover {
-  color: var(--accent);
+  color: var(--text);
 }
 
-@media (max-width: 640px) {
-  .lanes {
-    grid-template-columns: 1fr;
-  }
-  .hero {
-    padding: 56px 0 16px;
-  }
-  .hero h1 {
-    font-size: 1.9rem;
-  }
-  .hero p {
-    font-size: 1.05rem;
-  }
-  .spec-page-head {
-    flex-direction: column;
-    align-items: flex-start;
-  }
-  /* The rail has no room on a phone: the row collapses to one column, the
-     hairline moves to a bottom rule under the date, and the date stops
-     sticking (a sticky element inside a one-column stack just covers the
-     content it labels). */
-  .changelog-entry {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 10px;
-  }
-  .changelog-rail {
-    border-right: 0;
-    padding-right: 0;
-  }
-  .changelog-date {
-    position: static;
-    text-align: left;
-  }
-  .changelog-card {
-    padding: 16px 16px;
-  }
-  .changelog-headline {
-    font-size: 1.15rem;
-  }
-  .changelog-copy {
-    margin-left: 0;
-  }
-}
-
-/* Reference index: a quiet one-line-per-item list. No cards, no fills; gold
-   appears only on focus and the active chip underline. */
-.reference-index h1 {
-  margin-bottom: 40px;
+/* Reference index */
+.ref-search {
+  position: relative;
+  display: flex;
+  align-items: center;
 }
 
 .ref-search-label {
@@ -793,45 +825,91 @@ code {
   white-space: nowrap;
 }
 
+.ref-search-icon {
+  position: absolute;
+  left: var(--s3);
+  display: inline-flex;
+  color: var(--muted);
+  pointer-events: none;
+}
+
 .ref-search-input {
   width: 100%;
-  box-sizing: border-box;
-  padding: 10px 0;
+  height: 40px;
+  padding: 0 var(--s7) 0 36px;
   font: inherit;
   color: var(--text);
-  background: transparent;
-  border: 0;
-  border-bottom: 1px solid var(--border);
-  border-radius: 0;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  transition: border-color var(--ease);
+  appearance: none;
+}
+
+.ref-search-input::-webkit-search-cancel-button {
+  appearance: none;
 }
 
 .ref-search-input::placeholder {
   color: var(--muted);
 }
 
+.ref-search-input:hover {
+  border-color: var(--muted);
+}
+
 .ref-search-input:focus-visible {
-  outline: none;
-  border-bottom-color: var(--accent);
-  box-shadow: 0 1px 0 var(--accent);
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+  border-color: var(--accent);
+}
+
+.ref-search-end {
+  position: absolute;
+  right: var(--s2);
+  display: inline-flex;
+}
+
+.ref-kbd {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  line-height: 1;
+  color: var(--muted);
+  padding: 3px 6px;
+  border: 1px solid var(--border-strong);
+  border-radius: 3px;
+  pointer-events: none;
+}
+
+.ref-clear {
+  width: 26px;
+  height: 26px;
 }
 
 .ref-chips {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px 24px;
-  margin: 24px 0 56px;
+  gap: 0 var(--s5);
+  margin: var(--s4) 0 var(--s5);
+  border-bottom: 1px solid var(--border);
 }
 
 .ref-chip {
-  padding: 4px 0;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: var(--s2) 0;
+  margin-bottom: -1px;
   font: inherit;
-  font-size: 0.92rem;
+  font-size: 0.9rem;
+  font-weight: 500;
   color: var(--muted);
   background: none;
   border: 0;
   border-bottom: 2px solid transparent;
   border-radius: 0;
   cursor: pointer;
+  transition: color var(--ease), border-color var(--ease);
 }
 
 .ref-chip:hover {
@@ -840,29 +918,25 @@ code {
 
 .ref-chip[aria-pressed="true"] {
   color: var(--text);
-  border-bottom-color: var(--accent);
-}
-
-.ref-chip:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
+  border-bottom-color: var(--text);
 }
 
 .ref-count {
-  font-size: 0.8rem;
+  font-size: 0.78rem;
+  font-weight: 400;
   color: var(--muted);
+  font-variant-numeric: tabular-nums;
 }
 
-.ref-group {
-  margin-bottom: 56px;
+.ref-group + .ref-group {
+  margin-top: var(--s6);
 }
 
 .reference-index .ref-group h2 {
-  margin: 0 0 16px;
+  margin: 0 0 var(--s2);
   font-size: 0.8rem;
   font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  letter-spacing: 0;
   color: var(--muted);
 }
 
@@ -872,55 +946,170 @@ code {
   padding: 0;
 }
 
+/* One row per item: identifier, description, quiet group label. The whole
+   row is the link's hit area (the anchor's ::after stretches over it). */
 .ref-row {
+  position: relative;
   display: grid;
-  grid-template-columns: 16px minmax(0, 16rem) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 13rem) minmax(0, 1fr);
   align-items: baseline;
-  gap: 0 16px;
+  gap: 0 var(--s5);
   padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+  transition: background var(--ease), box-shadow var(--ease);
 }
 
-.ref-icon {
-  color: var(--muted);
-  display: inline-flex;
-  align-self: center;
+.ref-list-flat .ref-row {
+  grid-template-columns: minmax(0, 13rem) minmax(0, 1fr) 4.5rem;
 }
 
 .ref-name {
+  font-family: var(--font-mono);
+  font-size: 0.86rem;
+  font-weight: 500;
+  color: var(--heading);
   text-decoration: none;
-  color: var(--text);
   overflow-wrap: anywhere;
 }
 
 .ref-name:hover {
-  color: var(--link-hover);
+  color: var(--heading);
+}
+
+.ref-name::after {
+  content: "";
+  position: absolute;
+  inset: 0;
 }
 
 .ref-name:focus-visible {
+  outline: none;
+}
+
+.ref-name:focus-visible::after {
   outline: 2px solid var(--accent);
-  outline-offset: 2px;
+  outline-offset: -2px;
+  border-radius: 2px;
 }
 
 .ref-summary {
   color: var(--muted);
-  font-size: 0.92rem;
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  line-clamp: 2;
-  overflow: hidden;
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.ref-kind {
+  color: var(--muted);
+  font-size: 0.78rem;
+  text-align: right;
 }
 
 .ref-empty {
   color: var(--muted);
+  padding: var(--s4) 0;
+  margin: 0;
 }
 
 @media (max-width: 640px) {
-  .ref-row {
-    grid-template-columns: 16px minmax(0, 1fr);
+  /* Two rows on a phone: wordmark and utilities, then the section links. */
+  .site-header {
+    flex-wrap: wrap;
+    padding: var(--s3) var(--s4) var(--s2);
+    gap: var(--s2);
+  }
+  .site-utils {
+    margin-left: auto;
+  }
+  .site-nav {
+    order: 3;
+    width: 100%;
+    margin: 0 0 0 calc(-1 * var(--s2));
+  }
+  /* The group filters scroll sideways instead of wrapping into a second
+     row that would break the underline. */
+  .ref-chips {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+    gap: 0 var(--s4);
+  }
+  .ref-chip {
+    white-space: nowrap;
+  }
+  .wordmark {
+    font-size: 1.2rem;
+  }
+  .page {
+    padding: 0 var(--s4) var(--s7);
+  }
+  .page-head {
+    padding: var(--s6) 0 var(--s4);
+  }
+  h1 {
+    font-size: 1.6rem;
+  }
+  .hero {
+    padding: var(--s7) 0 var(--s5);
+  }
+  .hero h1 {
+    font-size: 1.85rem;
+  }
+  .hero p {
+    font-size: 1rem;
+  }
+  .lane {
+    grid-template-columns: minmax(0, 1fr) auto;
+    row-gap: 2px;
+  }
+  .lane-detail {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+  .ref-row,
+  .ref-list-flat .ref-row {
+    grid-template-columns: minmax(0, 1fr) auto;
     row-gap: 2px;
   }
   .ref-summary {
-    grid-column: 2;
+    grid-column: 1 / -1;
+    grid-row: 2;
   }
+  .ref-kind {
+    grid-column: 2;
+    grid-row: 1;
+  }
+  .changelog-entry {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--s2);
+  }
+  .changelog-date {
+    position: static;
+  }
+  .changelog-copy {
+    margin-left: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+  }
+}
+
+.reference-events {
+  align-items: baseline;
+}
+
+.reference-events .eyebrow {
+  margin: 0;
+}
+
+/* On a skill or hook page the description is the content, not a subtitle,
+   so it reads at body color. */
+.detail-lede {
+  color: var(--text);
+}
+
+.spec-body > :first-child {
+  margin-top: 0;
 }

@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { ComponentType } from "react";
 import { Layout } from "../components/Layout";
-import { FlaskIcon, GitBranchIcon, ScalesIcon, SlidersIcon, WebhooksIcon } from "../icons";
+import { MagnifyingGlassIcon, XIcon } from "../icons";
 import { HOOKS, SKILLS, hookPath, skillPath } from "../reference";
 import type { Group } from "../reference";
 
@@ -14,12 +13,14 @@ interface Item {
   href: string;
 }
 
-const GROUPS: { id: Group; label: string; icon: ComponentType<{ size?: number }> }[] = [
-  { id: "lanes", label: "Lanes", icon: FlaskIcon },
-  { id: "rubrics", label: "Rubrics", icon: ScalesIcon },
-  { id: "workflow", label: "Workflow", icon: GitBranchIcon },
-  { id: "modes", label: "Modes", icon: SlidersIcon },
-  { id: "hooks", label: "Hooks", icon: WebhooksIcon },
+// `kind` is the singular label a row carries in the flat (filtered) list,
+// where no group heading says what each row is.
+const GROUPS: { id: Group; label: string; kind: string }[] = [
+  { id: "lanes", label: "Lanes", kind: "Lane" },
+  { id: "rubrics", label: "Rubrics", kind: "Rubric" },
+  { id: "workflow", label: "Workflow", kind: "Workflow" },
+  { id: "modes", label: "Modes", kind: "Mode" },
+  { id: "hooks", label: "Hooks", kind: "Hook" },
 ];
 
 const ITEMS: Item[] = [
@@ -90,29 +91,40 @@ export function Reference() {
   const searched = ITEMS.filter(matchesQuery);
   const visible = searched.filter((item) => group === "all" || item.group === group);
 
-  const row = (item: Item) => {
-    const Icon = GROUPS.find((entry) => entry.id === item.group)!.icon;
-    return (
-      <li key={item.key} className="ref-row">
-        <span className="ref-icon">
-          <Icon />
-        </span>
-        <a href={item.href} title={item.description} className="ref-name">
-          <code>{item.name}</code>
-        </a>
-        <span className="ref-summary" title={item.description}>
-          {item.summary}
-        </span>
-      </li>
-    );
+  const row = (item: Item) => (
+    <li key={item.key} className="ref-row">
+      <a href={item.href} className="ref-name">
+        {item.name}
+      </a>
+      <span className="ref-summary">{item.summary}</span>
+      {filtering && (
+        <span className="ref-kind">{GROUPS.find((entry) => entry.id === item.group)!.kind}</span>
+      )}
+    </li>
+  );
+
+  const clear = () => {
+    setQuery("");
+    inputRef.current?.focus();
   };
+
+  const chips = [{ id: "all" as const, label: "All" }, ...GROUPS].map((chip) => ({
+    ...chip,
+    count: chip.id === "all" ? searched.length : searched.filter((i) => i.group === chip.id).length,
+  }));
 
   return (
     <Layout>
       <section className="reference-index">
-        <h1>Reference</h1>
+        <header className="page-head">
+          <h1>Reference</h1>
+          <p className="section-lede">Every skill and hook the toolkit installs.</p>
+        </header>
 
         <div className="ref-search">
+          <span className="ref-search-icon">
+            <MagnifyingGlassIcon />
+          </span>
           <label htmlFor="ref-search-input" className="ref-search-label">
             Search skills and hooks
           </label>
@@ -121,7 +133,7 @@ export function Reference() {
             ref={inputRef}
             type="search"
             className="ref-search-input"
-            placeholder="Search (press / to focus)"
+            placeholder="Search skills and hooks"
             autoComplete="off"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
@@ -129,13 +141,31 @@ export function Reference() {
               if (event.key === "Escape") setQuery("");
             }}
           />
+          <span className="ref-search-end">
+            {query ? (
+              <button
+                type="button"
+                className="icon-btn ref-clear"
+                onClick={clear}
+                aria-label="Clear search"
+                title="Clear search (Esc)"
+              >
+                <XIcon size={14} />
+              </button>
+            ) : (
+              <kbd className="ref-kbd" aria-hidden="true">
+                /
+              </kbd>
+            )}
+          </span>
         </div>
 
         <div className="ref-chips" role="group" aria-label="Filter by group">
-          {[{ id: "all" as const, label: "All" }, ...GROUPS].map((chip) => {
-            const count =
-              chip.id === "all" ? searched.length : searched.filter((i) => i.group === chip.id).length;
-            return (
+          {/* An empty group is hidden, unless it is the one selected: hiding
+              the active chip would strand the user in an invisible filter. */}
+          {chips
+            .filter((chip) => chip.count > 0 || chip.id === "all" || chip.id === group)
+            .map((chip) => (
               <button
                 key={chip.id}
                 type="button"
@@ -143,17 +173,16 @@ export function Reference() {
                 aria-pressed={group === chip.id}
                 onClick={() => setGroup(chip.id)}
               >
-                {chip.label} <span className="ref-count">{count}</span>
+                {chip.label} <span className="ref-count">{chip.count}</span>
               </button>
-            );
-          })}
+            ))}
         </div>
 
         <div aria-live="polite">
           {visible.length === 0 ? (
             <p className="ref-empty">Nothing matches that search.</p>
           ) : filtering ? (
-            <ul className="ref-list">{visible.map(row)}</ul>
+            <ul className="ref-list ref-list-flat">{visible.map(row)}</ul>
           ) : (
             GROUPS.map((entry) => (
               <section key={entry.id} className="ref-group" aria-labelledby={`ref-h-${entry.id}`}>

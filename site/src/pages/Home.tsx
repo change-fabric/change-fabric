@@ -66,18 +66,15 @@ change_policy:
       apps: [portal]   # omit to require every registered app
 `;
 
-function LaneCard({ name, role, detail, url }: (typeof LANES)[number]) {
+function LaneRow({ name, role, detail, url }: (typeof LANES)[number]) {
   return (
-    <a className="lane" href={url} target="_blank" rel="noopener noreferrer">
-      <span className="lane-role">{role}</span>
-      <span className="lane-name">
-        {name}
-        <span className="lane-arrow" aria-hidden="true">
-          &#8599;
-        </span>
-      </span>
-      <span className="lane-detail">{detail}</span>
-    </a>
+    <li>
+      <a className="lane" href={url} target="_blank" rel="noopener noreferrer">
+        <span className="lane-name">{name}</span>
+        <span className="lane-detail">{detail}</span>
+        <span className="lane-role">{role}</span>
+      </a>
+    </li>
   );
 }
 
@@ -92,11 +89,11 @@ export function Home() {
         </p>
       </section>
 
-      <section className="lanes" aria-label="Audit lanes">
+      <ul className="lanes" aria-label="Audit lanes">
         {LANES.map((lane) => (
-          <LaneCard key={lane.name} {...lane} />
+          <LaneRow key={lane.name} {...lane} />
         ))}
-      </section>
+      </ul>
 
       <section className="contract">
         <h2>One file per repo</h2>
