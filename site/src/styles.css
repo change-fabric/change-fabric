@@ -19,13 +19,13 @@
   --surface: color-mix(in srgb, var(--plum) 3%, var(--cream));
   --surface-hover: color-mix(in srgb, var(--plum) 7%, var(--cream));
   --code-bg: color-mix(in srgb, var(--plum) 5%, var(--cream));
-  --border: color-mix(in srgb, var(--sage) 45%, var(--cream));
+  --border: color-mix(in srgb, var(--sage) 60%, var(--cream));
   --border-strong: color-mix(in srgb, var(--sage) 85%, var(--cream));
   --text: var(--plum);
   --heading: var(--plum);
   /* Sage alone is 2.2:1 on cream; half plum lifts it past 4.5:1 on every
      light surface (lowest: 5.0:1 on --surface-hover). */
-  --muted: color-mix(in srgb, var(--sage) 50%, var(--plum));
+  --muted: color-mix(in srgb, var(--sage) 42%, var(--plum));
   /* Lilac alone is 3.5:1 on cream; 38% plum takes it past 4.5:1. */
   --accent: color-mix(in srgb, var(--lilac) 62%, var(--plum));
   --link: var(--accent);
@@ -60,11 +60,11 @@
     --surface: color-mix(in srgb, var(--cream) 4%, var(--plum));
     --surface-hover: color-mix(in srgb, var(--cream) 8%, var(--plum));
     --code-bg: color-mix(in srgb, var(--cream) 6%, var(--plum));
-    --border: color-mix(in srgb, var(--sage) 22%, var(--plum));
+    --border: color-mix(in srgb, var(--sage) 30%, var(--plum));
     --border-strong: color-mix(in srgb, var(--sage) 50%, var(--plum));
     --text: var(--cream);
     --heading: var(--cream);
-    --muted: var(--sage);
+    --muted: color-mix(in srgb, var(--sage) 80%, var(--cream));
     --accent: color-mix(in srgb, var(--lilac) 75%, var(--cream));
     --link: var(--accent);
     --link-hover: var(--cream);
@@ -96,11 +96,11 @@
   --surface: color-mix(in srgb, var(--cream) 4%, var(--plum));
   --surface-hover: color-mix(in srgb, var(--cream) 8%, var(--plum));
   --code-bg: color-mix(in srgb, var(--cream) 6%, var(--plum));
-  --border: color-mix(in srgb, var(--sage) 22%, var(--plum));
+  --border: color-mix(in srgb, var(--sage) 30%, var(--plum));
   --border-strong: color-mix(in srgb, var(--sage) 50%, var(--plum));
   --text: var(--cream);
   --heading: var(--cream);
-  --muted: var(--sage);
+  --muted: color-mix(in srgb, var(--sage) 80%, var(--cream));
   --accent: color-mix(in srgb, var(--lilac) 75%, var(--cream));
   --link: var(--accent);
   --link-hover: var(--cream);
@@ -472,45 +472,110 @@ code {
   gap: var(--s2);
 }
 
-/* Home */
-.hero {
-  padding: var(--s7) 0 var(--s6);
+/* Home: an editorial front page, not a stretched docs template. The page
+   column widens for it so the lanes can sit two by two, while prose keeps a
+   reading measure of its own. */
+.page:has(.home) {
+  max-width: calc(1040px + 2 * var(--s7));
 }
 
-/* The subtitle is the page's one heading; the brand already sits in the
-   sidebar or top bar, so the hero leads with the claim, not the name. */
+.hero {
+  padding: var(--s8) 0 0;
+  max-width: 40rem;
+}
+
+.hero-eyebrow {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin: 0 0 var(--s4);
+}
+
 .hero h1 {
   font-family: var(--font-serif);
-  font-size: 3rem;
+  font-size: 3.4rem;
   font-weight: 500;
-  line-height: 1.08;
-  letter-spacing: -0.015em;
-  max-width: 20ch;
-  text-wrap: balance;
+  line-height: 1.02;
+  letter-spacing: -0.02em;
+  margin: 0;
 }
 
-.hero p {
-  font-size: 1.1rem;
+.hero-subtitle {
+  font-family: var(--font-serif);
+  font-size: 1.35rem;
+  line-height: 1.35;
+  color: var(--heading);
+  margin: var(--s4) 0 0;
+  max-width: 32ch;
+}
+
+.hero-copy {
   color: var(--muted);
-  max-width: 54ch;
+  font-size: 1rem;
+  max-width: 50ch;
+  margin: var(--s3) 0 0;
+}
+
+.hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s3);
+  margin-top: var(--s6);
+}
+
+.hero-actions .btn {
+  min-height: 44px;
+  padding: 0 var(--s4);
+  font-size: 0.95rem;
+}
+
+.home-section {
+  margin-top: 80px;
+}
+
+.home-section h2 {
+  font-family: var(--font-serif);
+  font-size: 1.9rem;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  line-height: 1.15;
+  margin: 0;
+}
+
+.home-lede {
+  color: var(--muted);
+  max-width: 56ch;
+  margin: var(--s3) 0 var(--s6);
+}
+
+.home-note {
+  color: var(--muted);
+  font-size: 0.9rem;
   margin: var(--s4) 0 0;
 }
 
-/* The four lanes as a dense list, not cards. */
+/* The four lanes: a two by two grid ruled by hairlines, no boxes. Category
+   leads, the tool is its identifier, the line says what it checks. */
 .lanes {
   list-style: none;
-  margin: 0 0 var(--s8);
+  margin: 0;
   padding: 0;
-  border-top: 1px solid var(--border);
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: var(--s7);
+  border-top: 1px solid var(--border-strong);
+}
+
+.lanes li {
+  border-bottom: 1px solid var(--border);
 }
 
 .lane {
   display: grid;
-  grid-template-columns: 9rem minmax(0, 1fr) auto;
-  align-items: baseline;
-  gap: var(--s4);
-  padding: var(--s3) 0;
-  border-bottom: 1px solid var(--border);
+  gap: var(--s1);
+  padding: var(--s5) 0;
   color: var(--text);
   text-decoration: none;
   transition: background var(--ease), box-shadow var(--ease);
@@ -525,38 +590,64 @@ code {
   box-shadow: calc(-1 * var(--s2)) 0 0 var(--surface-hover), var(--s2) 0 0 var(--surface-hover);
 }
 
-.lane-name {
+.lane-role {
+  font-size: 1.15rem;
   font-weight: 600;
   color: var(--heading);
 }
 
+.lane-n {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-weight: 400;
+  color: var(--accent);
+  margin-right: var(--s3);
+  vertical-align: 0.15em;
+}
+
+.lane-name {
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  color: var(--accent);
+}
+
+.lane:hover .lane-name {
+  text-decoration: underline;
+}
+
 .lane-detail {
   color: var(--muted);
-  font-size: 0.92rem;
+  font-size: 0.95rem;
+  margin-top: var(--s1);
 }
 
-.lane-role {
-  font-family: var(--font-mono);
-  font-size: 0.78rem;
+#get-started {
+  scroll-margin-top: var(--s5);
+}
+
+#get-started .code-block {
+  max-width: 46rem;
+}
+
+.further ul {
+  list-style: none;
+  margin: var(--s5) 0 0;
+  padding: 0;
+  border-top: 1px solid var(--border);
+}
+
+.further li {
+  display: grid;
+  grid-template-columns: 12rem minmax(0, 1fr);
+  gap: var(--s4);
+  align-items: baseline;
+  padding: var(--s3) 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.further span {
   color: var(--muted);
-}
-
-.contract {
-  margin: 0 0 var(--s8);
-}
-
-.contract h2 {
-  margin: 0;
-}
-
-.contract .section-lede {
-  margin-bottom: var(--s4);
-}
-
-.contract-footnote {
-  color: var(--muted);
-  font-size: 0.9rem;
-  margin: var(--s3) 0 0;
+  font-size: 0.95rem;
 }
 
 /* Any box whose content is allowed to be wider than the page: a code sample, a
@@ -1178,21 +1269,45 @@ code {
     font-size: 1.6rem;
   }
   .hero {
-    padding: var(--s6) 0 var(--s5);
+    padding-top: var(--s6);
   }
   .hero h1 {
-    font-size: 2.1rem;
+    font-size: 2.4rem;
   }
-  .hero p {
-    font-size: 1rem;
+  .hero-subtitle {
+    font-size: 1.12rem;
+  }
+  .hero-copy {
+    font-size: 0.95rem;
+  }
+  .hero-actions {
+    margin-top: var(--s5);
+  }
+  .home-section {
+    margin-top: var(--s8);
+  }
+  .home-section h2 {
+    font-size: 1.5rem;
+  }
+  .home-lede {
+    margin-bottom: var(--s5);
+  }
+  .lanes {
+    grid-template-columns: minmax(0, 1fr);
   }
   .lane {
-    grid-template-columns: minmax(0, 1fr) auto;
-    row-gap: 2px;
+    padding: var(--s4) 0;
+    gap: 2px;
+  }
+  .lane-role {
+    font-size: 1.05rem;
   }
   .lane-detail {
-    grid-column: 1 / -1;
-    grid-row: 2;
+    font-size: 0.92rem;
+  }
+  .further li {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2px;
   }
   .ref-row,
   .ref-list-flat .ref-row {
