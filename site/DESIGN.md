@@ -68,20 +68,27 @@ or `--gold` with `--paper`, never a separate neutral value.
 
 ### Contrast pairs
 
-Measured with `ruby ~/.claude/cf/bin/color_check.rb site --tokens site/src/styles.css`, WCAG 2.2 SC 1.4.3
-(4.5:1 body text, 3:1 large text and UI):
+This table is checker output, not hand-written: it is regenerated from
+`ruby scripts/color_check.rb site --tokens site/src/styles.css --json`
+(WCAG 2.2 SC 1.4.3: 4.5:1 body text, 3:1 large text and UI). CI does not run
+it, because the checker needs Chromium in Docker; run it locally after any
+token change and paste the new ratios here.
+
+The `--page-*`, `--body-text`, `--code-bg-text`, and `--tag-bg-text` tokens are
+measurement aliases (`var()` references to the role tokens in parentheses)
+that expose each pair to the checker; components never use them.
 
 | Pair | Light | Dark |
 |---|---|---|
-| `--text` on `--bg` | 12.67:1 | 13.08:1 |
-| `--heading` on `--bg` | 12.67:1 | 15.87:1 |
-| `--link` on `--bg` | 12.67:1 | 9.38:1 |
-| `--link-hover` on `--bg` | 4.96:1 | 10.0:1 |
-| `--accent` on `--bg` | 4.96:1 | 9.38:1 |
-
-`--gold-btn-text` on `--gold-btn` is dark navy on gold and is not a
-page-background pair; it is checked visually, not by the automated
-background check.
+| `--gold-btn-text` on `--gold-btn` | 9.38:1 | 9.38:1 |
+| `--body-text` (`--text`) on `--background` (`--bg`) | 12.64:1 | 13.09:1 |
+| `--page-heading-text` (`--heading`) on `--background` | 12.64:1 | 15.87:1 |
+| `--page-link-text` (`--link`) on `--background` | 12.64:1 | 9.38:1 |
+| `--page-link-hover-text` (`--link-hover`) on `--background` | 4.98:1 | 9.99:1 |
+| `--page-accent-text` (`--accent`) on `--background` | 4.98:1 | 9.38:1 |
+| `--page-muted-text` (`--muted`) on `--background` | 4.92:1 | 8.49:1 |
+| `--code-bg-text` (`--muted`) on `--code-bg` | 4.83:1 | 8.22:1 |
+| `--tag-bg-text` (`--muted`) on `--tag-bg` | 4.56:1 | 5.97:1 |
 
 ## Themes
 
