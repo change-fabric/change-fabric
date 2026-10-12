@@ -3,6 +3,7 @@ import { Layout } from "../components/Layout";
 import { MagnifyingGlassIcon, XIcon } from "../icons";
 import { HOOKS, SKILLS, hookPath, skillPath } from "../reference";
 import type { Group } from "../reference";
+import { createSearch } from "../search";
 
 interface Item {
   key: string;
@@ -41,6 +42,8 @@ const ITEMS: Item[] = [
     href: hookPath(hook.id),
   })),
 ];
+
+const score = createSearch(ITEMS);
 
 function readUrl(): { query: string; group: Group | "all" } {
   const params = new URLSearchParams(window.location.search);
@@ -84,11 +87,12 @@ export function Reference() {
 
   const needle = query.trim().toLowerCase();
   const filtering = needle !== "" || group !== "all";
-  const matchesQuery = (item: Item) =>
-    needle === "" ||
-    item.name.toLowerCase().includes(needle) ||
-    item.description.toLowerCase().includes(needle);
-  const searched = ITEMS.filter(matchesQuery);
+  // Ranked best first while a query is typed; with no query every score is
+  // equal and the stable sort keeps the alphabetical order.
+  const searched = ITEMS.map((item) => ({ item, score: score(needle, item) }))
+    .filter((hit) => hit.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .map((hit) => hit.item);
   const visible = searched.filter((item) => group === "all" || item.group === group);
 
   const row = (item: Item) => (
