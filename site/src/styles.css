@@ -847,6 +847,9 @@ code {
   height: 40px;
   padding: 0 var(--s7) 0 36px;
   font: inherit;
+  /* 16px, not the 15px body size: iOS Safari zooms the page into any
+     focused field set smaller than that. */
+  font-size: 16px;
   color: var(--text);
   background: var(--surface);
   border: 1px solid var(--border-strong);

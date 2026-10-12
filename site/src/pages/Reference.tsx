@@ -161,21 +161,19 @@ export function Reference() {
         </div>
 
         <div className="ref-chips" role="group" aria-label="Filter by group">
-          {/* An empty group is hidden, unless it is the one selected: hiding
-              the active chip would strand the user in an invisible filter. */}
-          {chips
-            .filter((chip) => chip.count > 0 || chip.id === "all" || chip.id === group)
-            .map((chip) => (
-              <button
-                key={chip.id}
-                type="button"
-                className="ref-chip"
-                aria-pressed={group === chip.id}
-                onClick={() => setGroup(chip.id)}
-              >
-                {chip.label} <span className="ref-count">{chip.count}</span>
-              </button>
-            ))}
+          {/* Every group stays listed with its live count, 0 included, so the
+              rail never reshuffles under the user while they type. */}
+          {chips.map((chip) => (
+            <button
+              key={chip.id}
+              type="button"
+              className="ref-chip"
+              aria-pressed={group === chip.id}
+              onClick={() => setGroup(chip.id)}
+            >
+              {chip.label} <span className="ref-count">{chip.count}</span>
+            </button>
+          ))}
         </div>
 
         <p className="sr-only" role="status" aria-live="polite" aria-atomic="true">
