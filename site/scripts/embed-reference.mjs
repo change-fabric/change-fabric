@@ -25,16 +25,15 @@ function splitFrontmatter(raw) {
 // full YAML dependency in a build script for three fields.
 const SKILL_GROUPS = ["lanes", "rubrics", "modes", "workflow"];
 
-// First sentence of a description, for the index row. The whole
-// sentence is kept and the row wraps it in full (no CSS clamp, by design), so the data never ends
-// mid-phrase. Markdown emphasis and code ticks are stripped because the
-// summary renders as plain text. The full text stays available as the title.
-export function firstClause(text) {
+// First sentence of a description, for the index row. The row wraps it in
+// full rather than clamping, so the data never ends mid-phrase. Markdown
+// emphasis and code ticks are stripped because the summary renders as plain
+// text; the full description stays available as the title.
+export function firstSentence(text) {
   const flat = text.replace(/[`*]/g, "").replace(/\s+/g, " ").trim();
-  // A sentence ends at . ! or ? before a space or the end, except after an
-  // abbreviation like e.g. or i.e.
-  // A closing quote after ? or ! stays with its sentence; a final period drops.
-  // A closing paren is not a quote: punctuation inside (...) never ends it.
+  // The sentence ends at . ! or ? before a space or the end, but not after e.g.
+  // or i.e. A closing quote after ? or ! stays with the sentence; a closing
+  // paren does not count, so punctuation inside (...) never ends it.
   const stop = flat.match(/(?<!\b(?:e\.g|i\.e|vs|etc))([.!?])(["']?)(?=\s|$)/);
   const head = !stop ? flat : flat.slice(0, stop.index + (stop[1] === "." ? 0 : stop[0].length));
   return head.charAt(0).toUpperCase() + head.slice(1);
@@ -87,7 +86,7 @@ function buildSkills() {
         name: meta.name,
         group: meta.group,
         description: meta.description,
-        summary: firstClause(meta.description),
+        summary: firstSentence(meta.description),
         autoBasenames: meta.autoBasenames,
         body: body.trim(),
       };
@@ -159,7 +158,7 @@ function buildHooks() {
         script,
         events,
         description: extractLeadingComment(source),
-        summary: firstClause(extractLeadingComment(source).replace(/^\w+ hook\s*(\([^)]*\))?:?\s*/, "")),
+        summary: firstSentence(extractLeadingComment(source).replace(/^\w+ hook\s*(\([^)]*\))?:?\s*/, "")),
       };
     })
     .sort((a, b) => a.script.localeCompare(b.script));
