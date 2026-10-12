@@ -100,7 +100,9 @@ export function Reference() {
       <a href={item.href} className="ref-name">
         {item.name}
       </a>
-      <span className="ref-summary">{item.summary}</span>
+      <span className="ref-summary" title={item.description}>
+        {item.summary}
+      </span>
       {filtering && (
         <span className="ref-kind">{GROUPS.find((entry) => entry.id === item.group)!.kind}</span>
       )}

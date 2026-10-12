@@ -432,7 +432,18 @@ code {
 /* Page heads: one pattern for every page. A quiet eyebrow, the title, an
    optional lede, then content after a fixed gap. */
 .page-head {
-  padding: var(--s7) 0 var(--s5);
+  padding: var(--s7) 0 var(--s6);
+}
+
+/* Every page title shares the homepage's serif, so the docs read as one
+   publication with it. */
+.page-head h1 {
+  font-family: var(--font-serif);
+  font-size: 2.4rem;
+  font-weight: 500;
+  line-height: 1.1;
+  letter-spacing: -0.015em;
+  margin: 0;
 }
 
 .eyebrow {
@@ -461,6 +472,12 @@ code {
   align-items: baseline;
   gap: var(--s3);
   flex-wrap: wrap;
+}
+
+.page-head h1 .status-tag {
+  font-family: var(--font-sans);
+  letter-spacing: 0;
+  align-self: center;
 }
 
 .page-head h1 code {
@@ -936,7 +953,7 @@ code {
   display: grid;
   grid-template-columns: 7rem minmax(0, 1fr);
   gap: var(--s5);
-  padding: var(--s5) 0;
+  padding: var(--s7) 0;
   border-top: 1px solid var(--border);
 }
 
@@ -962,9 +979,27 @@ code {
 }
 
 .changelog-version {
-  font-size: 0.95rem;
+  font-size: 0.85rem;
+  font-weight: 500;
   margin: 0;
   font-family: var(--font-mono);
+}
+
+/* In the changelog meta line, status is plain text, not an outlined tag. */
+.changelog-meta .status-tag {
+  border: 0;
+  padding: 0;
+}
+
+.changelog-meta .status-tag::before {
+  content: "\00b7";
+  margin-right: var(--s2);
+  color: var(--muted);
+}
+
+.changelog-meta .status-tag + .changelog-tag::before {
+  content: "\00b7";
+  margin-right: var(--s2);
 }
 
 .changelog-tag {
@@ -982,16 +1017,18 @@ code {
 }
 
 .changelog-headline {
-  margin: var(--s2) 0 0;
-  font-size: 1.15rem;
-  line-height: 1.35;
-  font-weight: 650;
+  margin: var(--s3) 0 0;
+  max-width: 48ch;
+  font-family: var(--font-serif);
+  font-size: 1.5rem;
+  line-height: 1.25;
+  font-weight: 500;
   color: var(--heading);
   letter-spacing: -0.01em;
 }
 
 .changelog-body {
-  margin-top: var(--s3);
+  margin-top: var(--s4);
 }
 
 .changelog-body > :first-child {
@@ -1000,6 +1037,8 @@ code {
 
 .changelog-copy {
   margin-left: auto;
+  width: 32px;
+  height: 32px;
 }
 
 /* Rendered markdown */
@@ -1007,27 +1046,44 @@ code {
   margin-top: var(--s5);
 }
 
+/* Prose keeps a reading measure; tables and code samples take the full
+   column. */
+.spec-body p,
+.spec-body ul,
+.spec-body ol,
+.spec-body blockquote,
+.spec-body h3,
+.spec-body h4 {
+  max-width: 70ch;
+}
+
+.spec-body li + li {
+  margin-top: var(--s1);
+}
+
 .spec-body h1 {
-  font-size: 1.45rem;
-  margin: var(--s6) 0 var(--s3);
+  font-family: var(--font-serif);
+  font-weight: 500;
+  font-size: 1.6rem;
+  margin: var(--s7) 0 var(--s3);
 }
 
 .spec-body h2 {
   font-size: 1.15rem;
-  margin: var(--s6) 0 var(--s3);
+  margin: var(--s7) 0 var(--s3);
   padding-bottom: var(--s2);
   border-bottom: 1px solid var(--border);
 }
 
 .spec-body h3 {
   font-size: 1rem;
-  margin: var(--s5) 0 var(--s2);
+  margin: var(--s6) 0 var(--s2);
 }
 
 .spec-body p,
 .spec-body ul,
 .spec-body ol {
-  margin: 0 0 var(--s3);
+  margin: 0 0 var(--s4);
 }
 
 .spec-body table {
@@ -1249,7 +1305,7 @@ code {
   grid-template-columns: minmax(0, 13rem) minmax(0, 1fr);
   align-items: baseline;
   gap: 0 var(--s5);
-  padding: 10px 0;
+  padding: var(--s2) 0;
   border-bottom: 1px solid var(--border);
   transition: background var(--ease), box-shadow var(--ease);
 }
@@ -1287,10 +1343,17 @@ code {
   border-radius: 2px;
 }
 
+/* Two lines at most; the full text stays in the DOM for assistive tech,
+   in the title on hover, and on the detail page the row links to. */
 .ref-summary {
   color: var(--muted);
   font-size: 0.9rem;
   line-height: 1.5;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
 }
 
 .ref-kind {
@@ -1352,6 +1415,15 @@ code {
   }
   h1 {
     font-size: 1.6rem;
+  }
+  .page-head h1 {
+    font-size: 1.9rem;
+  }
+  .changelog-entry {
+    padding: var(--s6) 0;
+  }
+  .changelog-headline {
+    font-size: 1.25rem;
   }
   .hero {
     padding-top: var(--s6);
