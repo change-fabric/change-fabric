@@ -25,8 +25,8 @@ function splitFrontmatter(raw) {
 // full YAML dependency in a build script for three fields.
 const SKILL_GROUPS = ["lanes", "rubrics", "modes", "workflow"];
 
-// First sentence of a description, for the one-line index. The whole
-// sentence is kept and the row wraps it in full, so the data never ends
+// First sentence of a description, for the index row. The whole
+// sentence is kept and the row wraps it in full (no CSS clamp, by design), so the data never ends
 // mid-phrase. Markdown emphasis and code ticks are stripped because the
 // summary renders as plain text. The full text stays available as the title.
 export function firstClause(text) {
