@@ -10,7 +10,6 @@
 
 :root,
 :root[data-theme="light"] {
-  /* The four authored colors. */
   --cream: #f6efe0;
   --plum: #24122a;
   --lilac: #a070c8;
@@ -72,9 +71,7 @@
     --btn: var(--accent);
     --btn-text: var(--plum);
     --btn-hover: var(--cream);
-    /* Measurement aliases for scripts/color_check.rb. Components never use
-       these; they only expose each text-on-surface pair to the checker's
-       pair rule. All are var() references, so the palette stays at four. */
+    /* Same aliases as the light block. */
     --background: var(--bg);
     --body-text: var(--text);
     --page-heading-text: var(--heading);
@@ -110,9 +107,6 @@
   --btn: var(--accent);
   --btn-text: var(--plum);
   --btn-hover: var(--cream);
-  /* Measurement aliases for scripts/color_check.rb. Components never use
-     these; they only expose each text-on-surface pair to the checker's
-     pair rule. All are var() references, so the palette stays at four. */
   --background: var(--bg);
   --body-text: var(--text);
   --page-heading-text: var(--heading);
@@ -127,8 +121,8 @@
   color-scheme: dark;
 }
 
-/* Type and spacing. One 4px-based spacing scale; every margin, padding, and
-   gap below is one of these steps. */
+/* Type and spacing. One 4px-based spacing scale; most margins, padding, and
+   gaps below use these steps. */
 :root {
   --font-sans: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   --font-serif: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
