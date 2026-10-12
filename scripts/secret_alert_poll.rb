@@ -8,10 +8,10 @@ require_relative 'contributors_team'
 require_relative 'ed25519_signing'
 require_relative 'hook_http'
 
-# SessionStart hook (Capability C delivery, plan section 9.6): a Lambda cannot
-# push into a live session, so at session start we sign a lightweight poll and
-# ask the backend whether a secret was found in one of this contributor's past
-# transcripts. On a finding, inject an AskUserQuestion directive and stash the
+# SessionStart hook (Capability C delivery, plan section 9.6): at session start,
+# sign a lightweight poll asking whether a secret was found in this
+# contributor's past transcripts. The poll asks the backend because a Lambda
+# cannot push into a live session. On a finding, inject an AskUserQuestion directive and stash the
 # finding so the PostToolUse ack hook (secret_ack.rb) can report the choice.
 # Fail silent: any error, timeout, missing key, or no-finding response injects
 # nothing. Off unless CF_SECRET_ALERTS=1.

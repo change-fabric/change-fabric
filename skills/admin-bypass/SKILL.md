@@ -1,7 +1,7 @@
 ---
 name: cf:admin-bypass
 group: modes
-description: Sets the session merge mode to admin bypass, so the agent pushes, opens a PR, and squash-merges it via admin bypass once CI is green.
+description: Sets the session merge mode to admin bypass. The agent pushes, opens a PR, and squash-merges it via admin bypass once CI is green.
 ---
 
 # CF Admin Bypass

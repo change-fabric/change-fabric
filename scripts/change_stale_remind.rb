@@ -7,11 +7,11 @@ require_relative 'guarded_command'
 require_relative 'change_pr_facts'
 require_relative 'change_stale_content_check'
 
-# PreToolUse hook: on `gh pr merge`, warns when the PR head is missing a fix
-# its base branch already has *in a file the PR itself also changes* -- the
-# shape a stacked branch hits when its parent takes a review fix after the
-# child was cut and the parent is squash merged (the child's commits never
-# land on trunk, so ancestry checks see nothing wrong). Narrowed to files
+# PreToolUse hook: on `gh pr merge`, warns when the PR head lacks a fix its base
+# already has in a file the PR also changes. This is the shape a stacked branch
+# hits when its parent takes a review fix after the child was cut and the parent
+# is squash merged (the child's commits never land on trunk, so ancestry checks
+# see nothing wrong). Narrowed to files
 # both sides touch (`require_base_changed`) because a squash merge only ever
 # applies the PR's own diff: a file the PR never goes near cannot be reverted
 # by merging it, so flagging every trunk change the PR happens not to touch

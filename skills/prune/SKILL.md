@@ -1,7 +1,7 @@
 ---
 name: cf:prune
 group: workflow
-description: After a PR merges, fast-forward the trunk and prune merged branches and worktrees (local and remote), and optionally clear untracked junk. Protects keepers like env files with secrets. Never deletes unmerged, uncommitted, or untracked work, or any remote branch, without an explicit AskUserQuestion yes.
+description: After a PR merges, fast-forward the trunk and prune merged branches and worktrees (local and remote). It can also clear untracked junk. Protects keepers like env files with secrets. Never deletes unmerged, uncommitted, or untracked work, or any remote branch, without an explicit AskUserQuestion yes.
 ---
 
 # CF Prune

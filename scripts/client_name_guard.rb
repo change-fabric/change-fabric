@@ -4,9 +4,9 @@
 require 'json'
 require_relative 'hook_event'
 
-# PreToolUse hook: denies a tool call whose authored text carries a client,
-# customer, or downstream-project name/domain the user has flagged as
-# sensitive. This exists to protect THIS toolkit, which is shared across
+# PreToolUse hook: denies a tool call whose authored text carries a name the
+# user flagged as sensitive. The name is a client, customer, or
+# downstream-project name/domain. This exists to protect THIS toolkit, which is shared across
 # projects: the banned-term list is never committed here (that would defeat
 # the point, and would itself leak whatever it names); each user maintains
 # their own list at ~/.claude/cf/sensitive_terms.txt (one term per line, '#'

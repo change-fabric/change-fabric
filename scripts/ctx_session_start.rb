@@ -6,9 +6,9 @@ require_relative 'hook_event'
 require_relative 'ctx_paths'
 require_relative 'ctx_surface'
 
-# SessionStart hook: injects the project's cf:ctx context (roadmap, the focused
-# plan in full, everything else as one-line index entries) as additionalContext,
-# reading the LOCAL cache only. The selection is deterministic and budgeted, so
+# SessionStart hook: injects the project's cf:ctx context as additionalContext,
+# reading the LOCAL cache only. The context is the roadmap, the focused plan in
+# full, and everything else as one-line index entries. The selection is deterministic and budgeted, so
 # this stays cheap enough to run on every start. It mirrors skill_detect.rb: a
 # library does the work, this entrypoint just reads, renders, and fails silent.
 #

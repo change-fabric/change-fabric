@@ -7,10 +7,11 @@ require_relative 'hook_event'
 require_relative 'ed25519_signing'
 require_relative 'hook_http'
 
-# PostToolUse hook (Capability C ack, plan section 9.7): when the user answers an
-# AskUserQuestion and a pending secret-alert stash exists for this session, match
-# their answer to one of the three verbatim secret-alert options, sign a 6-field
-# ack, POST it, and delete the stash. Fail silent: any error still deletes the
+# PostToolUse hook (Capability C ack, plan section 9.7): when the user answers
+# the secret-alert AskUserQuestion, sign and POST an ack, then delete the stash.
+# This applies when a pending secret-alert stash exists for this session: the
+# answer is matched to one of the three verbatim secret-alert options and signed
+# as a 6-field ack. Fail silent: any error still deletes the
 # stash so a failed ack never re-prompts on a later PostToolUse (an unreported
 # ack just leaves the finding delivered, still auditable, section 10). Does
 # nothing unless the answered question is the secret-alert one.

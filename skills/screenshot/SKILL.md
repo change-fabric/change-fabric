@@ -1,7 +1,7 @@
 ---
 name: cf:screenshot
 group: lanes
-description: Captures before/after screenshots of every configured route and viewport at two git refs, keeps only the pairs that pixel-differ, uploads them to GitHub, and splices them into the pull request body's Demo section. Boots the base ref in an ephemeral git worktree inside the existing ephemeral browserless Chromium container tooling; invocable directly.
+description: Captures before/after screenshots of every configured route and viewport at two git refs. It keeps only the pairs that pixel-differ, uploads them to GitHub, and splices them into the pull request body's Demo section. Boots the base ref in an ephemeral git worktree inside the existing ephemeral browserless Chromium container tooling; invocable directly.
 ---
 
 # CF screenshot

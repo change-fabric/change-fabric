@@ -9,9 +9,9 @@ require_relative 'review_prompt'
 require_relative 'review_scope'
 require_relative 'guarded_command'
 
-# PreToolUse hook: when the agent is about to push or open a PR and files changed
-# this session have no review verdict for their current content, deny the command
-# and hand back the review prompt. This makes design review precede PR creation;
+# PreToolUse hook: denies a push or PR when files changed this session lack a
+# review verdict, and hands back the review prompt. The verdict must be for
+# their current content. This makes design review precede PR creation;
 # the Stop hook (skill_review) fires too late, once the PR already exists.
 #
 # Fail-closed and deterministic: the gate never clears itself. It denies while

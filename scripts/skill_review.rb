@@ -8,8 +8,9 @@ require_relative 'review_queue'
 require_relative 'review_prompt'
 require_relative 'review_scope'
 
-# Stop hook: when the turn ends, if review-enabled files changed this session and
-# have no review verdict yet, block and hand the agent the review prompt. This is
+# Stop hook: when the turn ends, block with the review prompt if review-enabled
+# files changed without a review verdict. The check covers files changed this
+# session. This is
 # the catch-all that also covers Local-only sessions, which never push and so
 # never reach the review_gate. It reads the queue without draining; the queue is
 # cleared only by review_ack (run after a review returns), the same completion
