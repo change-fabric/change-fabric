@@ -227,6 +227,108 @@ code {
   color: var(--heading);
 }
 
+/* The woven mark and its lockups (components/Logo.tsx). Three roles: ink
+   (the heading color, plum on cream and cream on plum), lilac, and light
+   lilac (lilac mixed half with cream). Each path names its role in both
+   themes; on plum the two lilacs trade places so contrast holds. */
+.lockup {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4em;
+}
+
+.lockup-v {
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 0.3em;
+}
+
+.mark {
+  display: block;
+  flex: none;
+}
+
+.lockup .mark {
+  width: 1.15em;
+  height: 1.15em;
+}
+
+.lockup-v .mark {
+  width: 2.4em;
+  height: 2.4em;
+}
+
+/* Brand-sheet lockup: the mark spans from the wordmark's cap height to the
+   subtitle's last line. */
+.lockup-sub {
+  align-items: center;
+  gap: var(--s5);
+}
+
+.lockup-sub .mark {
+  width: 2.5em;
+  height: 2.5em;
+}
+
+.lockup-word {
+  font: inherit;
+  margin: 0;
+}
+
+.lockup-subtitle {
+  font-family: var(--font-sans);
+  font-size: 0.42em;
+  line-height: 1.35;
+  letter-spacing: 0;
+  color: var(--muted);
+  margin: 0.35em 0 0;
+  max-width: 34ch;
+}
+
+.lockup-h .mark {
+  /* Sit the mark on the serif x-height, not the full line box. */
+  transform: translateY(0.06em);
+}
+
+.mark-l-ink {
+  fill: var(--heading);
+}
+
+.mark-l-lilac {
+  fill: var(--lilac);
+}
+
+.mark-l-tint {
+  fill: color-mix(in srgb, var(--lilac) 50%, var(--cream));
+}
+
+:root[data-theme="dark"] .mark-d-ink {
+  fill: var(--heading);
+}
+
+:root[data-theme="dark"] .mark-d-lilac {
+  fill: var(--lilac);
+}
+
+:root[data-theme="dark"] .mark-d-tint {
+  fill: color-mix(in srgb, var(--lilac) 50%, var(--cream));
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .mark-d-ink {
+    fill: var(--heading);
+  }
+
+  :root:not([data-theme="light"]) .mark-d-lilac {
+    fill: var(--lilac);
+  }
+
+  :root:not([data-theme="light"]) .mark-d-tint {
+    fill: color-mix(in srgb, var(--lilac) 50%, var(--cream));
+  }
+}
+
 .site-nav {
   display: flex;
   align-items: center;
@@ -387,6 +489,29 @@ code {
   color: var(--muted);
   max-width: 54ch;
   margin: var(--s4) 0 0;
+}
+
+.hero .lockup-sub {
+  font-family: var(--font-serif);
+  font-size: 2.6rem;
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: -0.01em;
+  color: var(--heading);
+}
+
+.hero .lockup-sub .lockup-word {
+  font-size: 1em;
+  line-height: 1;
+  letter-spacing: inherit;
+  max-width: none;
+}
+
+.hero .lockup-sub .lockup-subtitle {
+  font-size: 0.42em;
+  margin: 0.4em 0 0;
+  max-width: 36ch;
+  color: var(--text);
 }
 
 /* The four lanes as a dense list, not cards. */
@@ -1075,6 +1200,13 @@ code {
   }
   .hero h1 {
     font-size: 1.85rem;
+  }
+  .hero .lockup-sub {
+    font-size: 2rem;
+    gap: var(--s4);
+  }
+  .hero .lockup-sub .lockup-subtitle {
+    font-size: 0.5em;
   }
   .hero p {
     font-size: 1rem;

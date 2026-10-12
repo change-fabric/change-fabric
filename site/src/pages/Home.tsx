@@ -1,6 +1,7 @@
 import { Layout } from "../components/Layout";
 import { CodeBlock } from "../components/CodeBlock";
 import { CURRENT_VERSION, specPath } from "../spec";
+import { LockupHorizontal, SUBTITLE } from "../components/Logo";
 
 const LANES = [
   { name: "k6", role: "load", detail: "Grades every threshold under load.", url: "https://github.com/grafana/k6" },
@@ -82,10 +83,10 @@ export function Home() {
   return (
     <Layout>
       <section className="hero">
-        <h1>A dockerized local release-quality gate.</h1>
+        <LockupHorizontal subtitle={SUBTITLE} wordAs="h1" />
         <p>
-          Four audit lanes run against a locally booted app, in ephemeral digest-pinned
-          containers, gating a release before it merges.
+          A dockerized release-quality gate: four audit lanes run against a locally booted
+          app, in ephemeral digest-pinned containers, before a change merges.
         </p>
       </section>
 

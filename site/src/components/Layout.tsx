@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { GithubLogo, MoonIcon, SunIcon } from "../icons";
 import { useTheme } from "../theme";
 import { CURRENT_VERSION, specPath } from "../spec";
+import { LockupHorizontal } from "./Logo";
 
 const REPO_URL = "https://github.com/change-fabric/change-fabric";
 
@@ -40,8 +41,8 @@ export function Layout({ children }: { children: ReactNode }) {
   return (
     <div className="shell">
       <header className="site-header">
-        <a className="wordmark" href="/">
-          change fabric
+        <a className="wordmark" href="/" aria-label="change fabric, home">
+          <LockupHorizontal />
         </a>
         <nav className="site-nav" aria-label="Primary">
           {PRIMARY.map((link) => (

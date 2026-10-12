@@ -14,5 +14,6 @@
     }
   ],
   "theme_color": "#24122a",
-  "background_color": "#24122a"
+  "background_color": "#24122a",
+  "description": "A local-first framework for software quality and release readiness."
 }
