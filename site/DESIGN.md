@@ -39,9 +39,9 @@ Light and dark swap roles among the same four colors; nothing is added.
 |---|---|---|
 | `--bg` | `--cream` | `--plum` |
 | `--surface` / `--surface-hover` / `--code-bg` | 3% / 7% / 5% `--plum` over `--cream` | 4% / 8% / 6% `--cream` over `--plum` |
-| `--border` / `--border-strong` | 45% / 85% `--sage` over `--cream` | 22% / 50% `--sage` over `--plum` |
+| `--border` / `--border-strong` | 60% / 85% `--sage` over `--cream` | 30% / 50% `--sage` over `--plum` |
 | `--text` / `--heading` | `--plum` | `--cream` |
-| `--muted` | 50% `--sage` in `--plum` | `--sage` |
+| `--muted` | 42% `--sage` in `--plum` | 70% `--sage` in `--cream` |
 | `--accent` / `--link` / `--btn` | 62% `--lilac` in `--plum` | 75% `--lilac` in `--cream` |
 | `--link-hover` | `--plum` | `--cream` |
 | `--btn-text` | `--cream` | `--plum` |
@@ -49,7 +49,7 @@ Light and dark swap roles among the same four colors; nothing is added.
 
 Lilac and sage are both too light to be text on cream as authored (3.5:1 and
 2.2:1), which is why the light theme deepens each with plum; on plum they are
-lifted with cream, or (sage) used as is.
+lifted with cream.
 
 ### Derivation recipes
 
@@ -57,7 +57,7 @@ Every non-authored token is a `color-mix(in srgb, A p%, B)` of two authored
 tokens, or a `var()` alias of one. For example:
 
 ```css
---muted: color-mix(in srgb, var(--sage) 50%, var(--plum));
+--muted: color-mix(in srgb, var(--sage) 42%, var(--plum));
 --accent: color-mix(in srgb, var(--lilac) 62%, var(--plum));
 --border: color-mix(in srgb, var(--sage) 45%, var(--cream));
 ```
