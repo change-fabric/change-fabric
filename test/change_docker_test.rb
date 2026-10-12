@@ -51,6 +51,32 @@ class ChangeDockerTest < Minitest::Test
     assert_includes argv.each_cons(2).to_a, [ "--network", "net" ]
   end
 
+  # A host path holding ":" or "," splits the old `-v host:container` form;
+  # the CSV-quoted --mount source keeps it whole.
+  def test_run_command_quotes_a_mount_source_with_a_colon_and_a_comma
+    argv = ChangeDocker.run_command(network: nil, image: "img", args: [],
+                                    mounts: { "/a:b,c" => { target: "/repo", readonly: true } })
+    assert_includes argv.each_cons(2).to_a, [ "--mount", 'type=bind,"source=/a:b,c",target=/repo,readonly' ]
+    refute_includes argv, "-v"
+  end
+
+  def test_run_command_string_mount_target_is_writable
+    argv = ChangeDocker.run_command(network: nil, image: "img", args: [], mounts: { "/work" => "/out" })
+    assert_includes argv.each_cons(2).to_a, [ "--mount", 'type=bind,"source=/work",target=/out' ]
+  end
+
+  def test_run_command_emits_user_and_workdir_before_the_image
+    argv = ChangeDocker.run_command(network: nil, image: "img", args: %w[cmd], user: "1:2", workdir: "/w")
+    image_at = argv.index("img")
+    user_at = argv.index("--user")
+    workdir_at = argv.index("-w")
+    assert_equal "1:2", argv[user_at + 1]
+    assert_equal "/w", argv[workdir_at + 1]
+    assert_operator user_at, :<, image_at
+    assert_operator workdir_at, :<, image_at
+    assert_equal %w[img cmd], argv.last(2)
+  end
+
   def test_browserless_command_maps_the_host_alias_to_the_host_gateway
     argv = ChangeDocker.browserless_command("cf-change-bl-x", "net", 1234, "tok")
     assert_includes argv.each_cons(2).to_a, [ "--add-host", "host.docker.internal:host-gateway" ]

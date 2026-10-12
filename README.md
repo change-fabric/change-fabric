@@ -62,7 +62,8 @@ ruby change-fabric/install.rb
 Either path symlinks the skills into `~/.claude/skills`, wires the hooks into
 `~/.claude/settings.json` (backed up alongside it as `settings.json.bak`), and
 mirrors into `~/.pi` and `~/.config/opencode` when present. The installer needs
-Ruby 3.0 or newer, takes no input, and is idempotent.
+Ruby 3.2 or newer (the bundled scripts use `Data`; CI runs 3.4), takes no
+input, and is idempotent.
 
 **Re-run the installer after every upgrade.** For a clone that is
 `ruby install.rb` after every `git pull`; for Homebrew it is
