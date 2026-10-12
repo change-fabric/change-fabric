@@ -474,14 +474,19 @@ code {
 
 /* Home */
 .hero {
-  padding: var(--s8) 0 var(--s6);
+  padding: var(--s7) 0 var(--s6);
 }
 
+/* The subtitle is the page's one heading; the brand already sits in the
+   sidebar or top bar, so the hero leads with the claim, not the name. */
 .hero h1 {
-  font-size: 2.4rem;
-  line-height: 1.12;
-  letter-spacing: -0.025em;
-  max-width: 18ch;
+  font-family: var(--font-serif);
+  font-size: 3rem;
+  font-weight: 500;
+  line-height: 1.08;
+  letter-spacing: -0.015em;
+  max-width: 20ch;
+  text-wrap: balance;
 }
 
 .hero p {
@@ -489,29 +494,6 @@ code {
   color: var(--muted);
   max-width: 54ch;
   margin: var(--s4) 0 0;
-}
-
-.hero .lockup-sub {
-  font-family: var(--font-serif);
-  font-size: 2.6rem;
-  font-weight: 500;
-  line-height: 1;
-  letter-spacing: -0.01em;
-  color: var(--heading);
-}
-
-.hero .lockup-sub .lockup-word {
-  font-size: 1em;
-  line-height: 1;
-  letter-spacing: inherit;
-  max-width: none;
-}
-
-.hero .lockup-sub .lockup-subtitle {
-  font-size: 0.42em;
-  margin: 0.4em 0 0;
-  max-width: 36ch;
-  color: var(--text);
 }
 
 /* The four lanes as a dense list, not cards. */
@@ -1196,17 +1178,10 @@ code {
     font-size: 1.6rem;
   }
   .hero {
-    padding: var(--s7) 0 var(--s5);
+    padding: var(--s6) 0 var(--s5);
   }
   .hero h1 {
-    font-size: 1.85rem;
-  }
-  .hero .lockup-sub {
-    font-size: 2rem;
-    gap: var(--s4);
-  }
-  .hero .lockup-sub .lockup-subtitle {
-    font-size: 0.5em;
+    font-size: 2.1rem;
   }
   .hero p {
     font-size: 1rem;
