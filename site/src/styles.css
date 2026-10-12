@@ -507,6 +507,19 @@ code {
   z-index: 1;
 }
 
+/* The tablet top bar sits in the texture's top-right corner; keep it above.
+   The desktop sidebar is already positioned (sticky), so it only needs the
+   z-index. */
+.shell:has(.home) .site-header {
+  z-index: 1;
+}
+
+@media (max-width: 959px) {
+  .shell:has(.home) .site-header {
+    position: relative;
+  }
+}
+
 .shell:has(.home)::after {
   content: "";
   position: absolute;
@@ -1390,14 +1403,14 @@ code {
      row that would break the underline. Sideways only: the chips' -1px
      overlap onto the border made the rail 1px taller than its box, so it
      also scrolled vertically under a finger. The hairline moves to an inset
-     shadow the chips paint over, nothing overflows vertically, and touch is
-     limited to horizontal panning. */
+     shadow the chips paint over, nothing overflows vertically, so a
+     vertical swipe still scrolls the page. */
   .ref-chips {
     flex-wrap: nowrap;
     overflow-x: auto;
     overflow-y: hidden;
     overscroll-behavior-x: contain;
-    touch-action: pan-x;
+    touch-action: pan-x pan-y;
     scrollbar-width: none;
     gap: 0 var(--s4);
     border-bottom: 0;
