@@ -26,15 +26,16 @@ function splitFrontmatter(raw) {
 const SKILL_GROUPS = ["lanes", "rubrics", "modes", "workflow"];
 
 // First sentence of a description, for the one-line index. The whole
-// sentence is kept and the row clamps it to two lines in CSS, so the data never
-// ends mid-phrase. Markdown emphasis and code ticks are stripped because the
+// sentence is kept and the row wraps it in full, so the data never ends
+// mid-phrase. Markdown emphasis and code ticks are stripped because the
 // summary renders as plain text. The full text stays available as the title.
 export function firstClause(text) {
   const flat = text.replace(/[`*]/g, "").replace(/\s+/g, " ").trim();
   // A sentence ends at . ! or ? before a space or the end, except after an
   // abbreviation like e.g. or i.e.
   // A closing quote after ? or ! stays with its sentence; a final period drops.
-  const stop = flat.match(/(?<!\b(?:e\.g|i\.e|vs|etc))([.!?])(["')]?)(?=\s|$)/);
+  // A closing paren is not a quote: punctuation inside (...) never ends it.
+  const stop = flat.match(/(?<!\b(?:e\.g|i\.e|vs|etc))([.!?])(["']?)(?=\s|$)/);
   const head = !stop ? flat : flat.slice(0, stop.index + (stop[1] === "." ? 0 : stop[0].length));
   return head.charAt(0).toUpperCase() + head.slice(1);
 }
