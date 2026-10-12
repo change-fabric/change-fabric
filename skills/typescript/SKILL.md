@@ -1,5 +1,6 @@
 ---
 name: cf:typescript
+group: rubrics
 description: TypeScript strict-safety rubric. Auto-applied by the cf shim on every TypeScript change; also invocable directly.
 auto:
   extensions: [ts, tsx, mts, cts]

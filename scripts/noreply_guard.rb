@@ -4,9 +4,9 @@
 require 'json'
 require_relative 'hook_event'
 
-# PreToolUse hook: denies a Bash `git push` to a GitHub remote when a commit being
-# pushed carries a non-noreply author or committer email, which would publish a
-# real address. GitHub's own email-privacy setting rejects this server-side; this
+# PreToolUse hook: denies a Bash `git push` to a GitHub remote carrying a commit
+# with a non-noreply author or committer email. Pushing it would publish a real
+# address. GitHub's own email-privacy setting rejects this server-side; this
 # guard catches it client-side so the push is never attempted with the wrong
 # identity. Like the merge-mode guard it is advisory, not a sandbox: it inspects
 # the command and the git state, and is trivially bypassable (git -c, env-var

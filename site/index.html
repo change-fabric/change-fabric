@@ -15,16 +15,43 @@
     <title>change fabric</title>
     <meta
       name="description"
-      content="change fabric is a dockerized local release-quality gate: k6 load, axe-core accessibility, OWASP ZAP, and browserless responsive UX, driven by one CHANGE.md per repo."
+      content="A local-first framework for software quality and release readiness. change fabric runs k6 load, axe-core accessibility, OWASP ZAP, and browserless responsive UX against a locally booted app, driven by one CHANGE.md per repo."
     />
+    <meta name="theme-color" content="#f6efe0" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#24122a" media="(prefers-color-scheme: dark)" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="change fabric" />
+    <meta property="og:title" content="change fabric" />
+    <meta
+      property="og:description"
+      content="A local-first framework for software quality and release readiness."
+    />
+    <meta property="og:image" content="https://www.changefabric.org/og-image.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta
+      property="og:image:alt"
+      content="The change fabric woven mark and wordmark, with the subtitle A local-first framework for software quality and release readiness."
+    />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="change fabric" />
+    <meta
+      name="twitter:description"
+      content="A local-first framework for software quality and release readiness."
+    />
+    <meta name="twitter:image" content="https://www.changefabric.org/og-image.png" />
     <script>
       // Apply a stored theme choice before first paint to avoid a flash of the
-      // wrong theme. No stored choice means follow prefers-color-scheme via CSS.
+      // wrong theme, browser chrome included. No stored choice means follow prefers-color-scheme via CSS.
       (function () {
         try {
           var t = localStorage.getItem("cf-theme");
           if (t === "light" || t === "dark") {
             document.documentElement.setAttribute("data-theme", t);
+            var c = t === "dark" ? "#24122a" : "#f6efe0";
+            document.querySelectorAll('meta[name="theme-color"]').forEach(function (m) {
+              m.setAttribute("content", c);
+            });
           }
         } catch (e) {}
       })();

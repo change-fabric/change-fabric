@@ -33,7 +33,7 @@ class SiteColorPairsTest < Minitest::Test
   end
 
   def test_surfaces_are_discovered_from_rules
-    %w[--bg --surface --surface-hover --code-bg --tag-bg --gold-btn].each do |s|
+    %w[--bg --surface --surface-hover --code-bg --btn].each do |s|
       assert_includes used_surfaces, s
     end
   end

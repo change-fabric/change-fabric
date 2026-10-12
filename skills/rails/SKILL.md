@@ -1,5 +1,6 @@
 ---
 name: cf:rails
+group: rubrics
 description: Rails convention-over-configuration rubric. Auto-applied by the cf shim in Rails projects; also invocable directly.
 auto:
   extensions: [erb, jbuilder]

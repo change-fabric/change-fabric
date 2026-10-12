@@ -29,3 +29,37 @@ export function MoonIcon({ size = 20 }: IconProps) {
     </svg>
   );
 }
+
+// Search-field glyphs (Phosphor regular, MIT).
+
+export function MagnifyingGlassIcon({ size = 16 }: IconProps) {
+  return (
+    <svg viewBox="0 0 256 256" width={size} height={size} fill="currentColor" aria-hidden="true">
+      <path d="M229.66,218.34l-50.07-50.06a88.11,88.11,0,1,0-11.31,11.31l50.06,50.07a8,8,0,0,0,11.32-11.32ZM40,112a72,72,0,1,1,72,72A72.08,72.08,0,0,1,40,112Z" />
+    </svg>
+  );
+}
+
+export function XIcon({ size = 16 }: IconProps) {
+  return (
+    <svg viewBox="0 0 256 256" width={size} height={size} fill="currentColor" aria-hidden="true">
+      <path d="M205.66,194.34a8,8,0,0,1-11.32,11.32L128,139.31,61.66,205.66a8,8,0,0,1-11.32-11.32L116.69,128,50.34,61.66A8,8,0,0,1,61.66,50.34L128,116.69l66.34-66.35a8,8,0,0,1,11.32,11.32L139.31,128Z" />
+    </svg>
+  );
+}
+
+export function LinkIcon({ size = 16 }: IconProps) {
+  return (
+    <svg viewBox="0 0 256 256" width={size} height={size} fill="currentColor" aria-hidden="true">
+      <path d="M165.66,90.34a8,8,0,0,1,0,11.32l-64,64a8,8,0,0,1-11.32-11.32l64-64A8,8,0,0,1,165.66,90.34ZM215.6,40.4a56,56,0,0,0-79.2,0L106.34,70.45a8,8,0,0,0,11.32,11.32l30.06-30a40,40,0,0,1,56.57,56.56l-30.07,30.06a8,8,0,0,0,11.31,11.32L215.6,119.6a56,56,0,0,0,0-79.2ZM138.34,174.22l-30.06,30.06a40,40,0,1,1-56.56-56.57l30.05-30.05a8,8,0,0,0-11.32-11.32L40.4,136.4a56,56,0,0,0,79.2,79.2l30.06-30.07a8,8,0,0,0-11.32-11.31Z" />
+    </svg>
+  );
+}
+
+export function CheckIcon({ size = 16 }: IconProps) {
+  return (
+    <svg viewBox="0 0 256 256" width={size} height={size} fill="currentColor" aria-hidden="true">
+      <path d="M229.66,77.66l-128,128a8,8,0,0,1-11.32,0l-56-56a8,8,0,0,1,11.32-11.32L96,188.69,218.34,66.34a8,8,0,0,1,11.32,11.32Z" />
+    </svg>
+  );
+}

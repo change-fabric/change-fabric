@@ -5,8 +5,8 @@ require 'json'
 require_relative 'hook_event'
 
 # PreToolUse hook: denies a Bash command that stands up a project service as a
-# host or system-level daemon (Homebrew or a bare daemon binary), the action the
-# cf:docker doctrine forbids. The doctrine ships as a file-gated skill, so it
+# host or system-level daemon. That means Homebrew or a bare daemon binary, the
+# action the cf:docker doctrine forbids. The doctrine ships as a file-gated skill, so it
 # only surfaced when a Dockerfile/compose/Brewfile was edited; the violation that
 # prompted this (a Homebrew Caddy running where a Docker Caddy already won) was a
 # `brew` command in a session that touched none of those files, so no skill fired.

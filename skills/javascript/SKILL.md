@@ -1,5 +1,6 @@
 ---
 name: cf:javascript
+group: rubrics
 description: Modern JavaScript (ESM/JSX) design and safety. Auto-applied by the cf shim on every JavaScript change; also invocable directly.
 auto:
   extensions: [js, mjs, cjs, jsx]

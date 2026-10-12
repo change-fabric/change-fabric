@@ -1,5 +1,6 @@
 ---
 name: cf:k6
+group: lanes
 description: Runs just the k6 load/burst lane of the change-fabric platform against a project's config. Boots the target app, runs the digest-pinned grafana/k6 image as an ephemeral container, grades each threshold, and writes a CSV and Markdown report (with the scenario-driven load narrative) to the Desktop. Invocable directly for a standalone load check.
 ---
 

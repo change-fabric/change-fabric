@@ -9,10 +9,10 @@ require_relative 'change_gate_check'
 require_relative 'change_override_store'
 require_relative 'guarded_command'
 
-# PreToolUse hook: gates a `gh pr merge` that lands into a repo's protected
-# branch (staging/production, or whatever CHANGE.md names) on a comprehensive
-# cf:change run having passed for the PR's head commit, and enforces the repo's
-# own admin-bypass policy from CHANGE.md. Same shape as merge_mode_guard: it
+# PreToolUse hook: gates a `gh pr merge` into a protected branch on a
+# comprehensive cf:change run. The branch is a repo's staging/production or
+# whatever CHANGE.md names, the run must have passed for the PR's head commit,
+# and the repo's own admin-bypass policy from CHANGE.md is enforced. Same shape as merge_mode_guard: it
 # reads the Bash command text and denies with a reason, a loud guardrail rather
 # than a sandbox, bypassable (CF_ALLOW_UNGATED_MERGE=1) for the genuine
 # exception.

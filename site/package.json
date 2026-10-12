@@ -12,7 +12,8 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "verify:spec-release": "node verify/spec-release.mjs"
+    "verify:spec-release": "node verify/spec-release.mjs",
+    "test": "node --test test/search.test.ts"
   },
   "dependencies": {
     "marked": "^14.1.4",

@@ -1,5 +1,6 @@
 ---
 name: cf:oauth-jwt
+group: rubrics
 description: OAuth 2.0 and JWT auth flows. Auto-applied by the cf shim on every auth-related change; also invocable directly.
 auto:
   extensions: [js, jsx, mjs]

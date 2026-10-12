@@ -1,6 +1,7 @@
 ---
 name: cf:merge-ready
-description: Sets the session merge mode to merge ready, so the agent pushes the branch, opens a PR, and ensures CI is green, then stops before merging.
+group: modes
+description: Sets the session merge mode to merge ready. The agent pushes the branch, opens a PR, and ensures CI is green, then stops before merging.
 ---
 
 # CF Merge Ready

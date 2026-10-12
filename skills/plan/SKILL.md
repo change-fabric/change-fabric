@@ -1,6 +1,7 @@
 ---
 name: cf:plan
-description: Turns a described goal into a landed planning set (plan.md, a goal.md capped at 4000 characters, and a runnable workflow.js) under the configured plans tree. Background Opus agents research and surface the open questions; this session grills the user with AskUserQuestion until the judgment calls are settled, then has the plan written against those answers. It plans only; it never implements the plan or runs the Workflow itself.
+group: workflow
+description: Turns a described goal into a landed planning set under the configured plans tree. The set is plan.md, a goal.md capped at 4000 characters, and a runnable workflow.js. Background Opus agents research and surface the open questions; this session grills the user with AskUserQuestion until the judgment calls are settled, then has the plan written against those answers. It plans only; it never implements the plan or runs the Workflow itself.
 ---
 
 # CF Plan

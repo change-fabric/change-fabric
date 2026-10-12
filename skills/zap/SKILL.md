@@ -1,5 +1,6 @@
 ---
 name: cf:zap
+group: lanes
 description: Runs just the OWASP ZAP penetration-test lane of the change-fabric platform against a project's config. Runs the digest-pinned ZAP baseline (passive spider and passive checks, no attack traffic) as an ephemeral container against each in-scope target, turns every alert into a finding, and writes a CSV and Markdown report to the Desktop. Invocable directly for a standalone security check.
 ---
 

@@ -7,10 +7,10 @@ require_relative 'away_store'
 require_relative 'merge_mode_store'
 require_relative 'merge_mode_slug'
 
-# UserPromptSubmit hook: handles the six direct mode commands
-# (/cf:away, /cf:active, /cf:local-only, /cf:merge-ready, /cf:admin-bypass,
-# /cf:yolo) in one place, since they all key off the same single field
-# (prompt) on the same single event. Writes AwayStore or MergeModeStore,
+# UserPromptSubmit hook: handles the six direct mode commands in one place. They
+# are /cf:away, /cf:active, /cf:local-only, /cf:merge-ready, /cf:admin-bypass,
+# and /cf:yolo, and they all key off the same single field (prompt) on the same
+# single event. Writes AwayStore or MergeModeStore,
 # injects a one-line confirmation, and separately injects the interview
 # refuse-to-start directive when away mode is active and the prompt begins
 # with /cf:plan or /cf:drive (thorough, its default).

@@ -11,19 +11,20 @@ const SITE_ORIGIN = "https://www.changefabric.org";
 // its fenced code blocks and tables pick up the same focusable-scroll-region
 // wrapping that satisfies axe-core's scrollable-region-focusable rule.
 //
-// Layout: a left timeline rail carries a sticky date marker per entry; the
-// entry card sits to its right. The rail lives inside the site-wide 820px
-// measure, so no other page's layout is affected.
+// Layout: a left date column carries a sticky date marker per entry; the
+// entry sits to its right, and entries are separated by hairlines.
 export function Changelog() {
   return (
     <Layout>
       <section className="changelog">
-        <p className="eyebrow">CHANGE.md frontmatter spec</p>
-        <h1>Changelog</h1>
-        <p className="section-lede">
-          Every released version of the schema, newest first. Also available as{" "}
-          <a href="/changelog.xml">an RSS feed</a>.
-        </p>
+        <header className="page-head">
+          <p className="eyebrow">CHANGE.md frontmatter spec</p>
+          <h1>Changelog</h1>
+          <p className="section-lede">
+            Every released version of the schema, newest first. Also available as{" "}
+            <a href="/changelog.xml">an RSS feed</a>.
+          </p>
+        </header>
         <ol className="changelog-list">
           {entries.map((entry) => (
             <li className="changelog-entry" id={`v${entry.version}`} key={entry.version}>

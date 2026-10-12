@@ -1,5 +1,6 @@
 ---
 name: cf:railway
+group: rubrics
 description: Railway deploy and service configuration. Auto-applied by the cf shim on every Railway deploy change; also invocable directly.
 auto:
   basenames: [railway.toml, railway.json, .railwayignore, Dockerfile]

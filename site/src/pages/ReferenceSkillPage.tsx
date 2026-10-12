@@ -8,7 +8,7 @@ export function ReferenceSkillPage({ id }: { id: string }) {
   if (!skill) {
     return (
       <Layout>
-        <section className="spec-page">
+        <section className="spec-page page-head">
           <h1>Unknown skill</h1>
           <p className="section-lede">
             No skill is published at <code>{id}</code>. See the <a href="/reference">reference index</a>.
@@ -21,20 +21,22 @@ export function ReferenceSkillPage({ id }: { id: string }) {
   return (
     <Layout>
       <section className="spec-page">
-        <div className="spec-page-head">
-          <div>
-            <p className="eyebrow">Skill reference</p>
-            <h1>
-              <code>{skill.name}</code>
-            </h1>
+        <header className="page-head">
+          <div className="page-head-row spec-page-head">
+            <div>
+              <p className="eyebrow">Skill reference</p>
+              <h1>
+                <code>{skill.name}</code>
+              </h1>
+            </div>
+            <div className="page-actions">
+              <a className="btn btn-quiet" href="/reference">
+                All skills and hooks
+              </a>
+            </div>
           </div>
-          <div className="spec-page-actions">
-            <a className="btn btn-quiet" href="/reference">
-              All skills and hooks
-            </a>
-          </div>
-        </div>
-        <p className="section-lede">{skill.description}</p>
+          <p className="section-lede detail-lede">{skill.description}</p>
+        </header>
         {skill.autoBasenames.length > 0 && (
           <p>
             Auto-applied on:{" "}

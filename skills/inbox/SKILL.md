@@ -1,6 +1,7 @@
 ---
 name: cf:inbox
-description: Runs the role-keyed agent-handoff inbox for multi-session work -- a human-edited roster, per-role inbox directories, an append-only ledger, and a bind/append/pick/done lifecycle -- so sessions in different roles can hand off work with a paper trail instead of a live message. Invoked directly to init a project's inbox, bind a session to a role, or drive any verb; the UserPromptSubmit and SessionEnd hooks surface a bound role's pending items and commit the inbox tree without being asked.
+group: workflow
+description: Runs the role-keyed agent-handoff inbox for multi-session work. It has a human-edited roster, per-role inbox directories, an append-only ledger, and a bind/append/pick/done lifecycle, so sessions in different roles can hand off work with a paper trail instead of a live message. Invoked directly to init a project's inbox, bind a session to a role, or drive any verb; the UserPromptSubmit and SessionEnd hooks surface a bound role's pending items and commit the inbox tree without being asked.
 ---
 
 # CF Inbox

@@ -1,5 +1,6 @@
 ---
 name: cf:active
+group: modes
 description: Ends away mode for this session, so the agent asks questions normally again instead of taking silent defaults.
 ---
 

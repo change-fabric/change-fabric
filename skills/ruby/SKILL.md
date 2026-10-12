@@ -1,5 +1,6 @@
 ---
 name: cf:ruby
+group: rubrics
 description: Sandi Metz POODR design principles. Auto-applied by the cf shim on every Ruby change; also invocable directly.
 auto:
   extensions: [rb, rake, gemspec, ru]

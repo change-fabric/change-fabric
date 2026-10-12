@@ -1,5 +1,6 @@
 ---
 name: cf:github-actions
+group: rubrics
 description: GitHub Actions CI/CD workflows. Auto-applied by the cf shim on every workflow change; also invocable directly.
 auto:
   paths:

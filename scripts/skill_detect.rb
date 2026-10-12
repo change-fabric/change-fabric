@@ -7,8 +7,8 @@ require_relative 'skill_registry'
 require_relative 'skill_store'
 
 # SessionStart hook: deterministically fingerprints the working directory by its
-# marker files (Gemfile, *.gemspec, ...) and announces which auto-skills apply
-# this session, once. This is the cheap, reliable counterpart to per-edit
+# marker files and announces which auto-skills apply, once. Marker files include
+# Gemfile and *.gemspec. This is the cheap, reliable counterpart to per-edit
 # routing: project type is a file-presence question, not one worth an LLM call.
 # Per-edit surfacing still fires on file type regardless, so a missed
 # fingerprint never suppresses a skill.

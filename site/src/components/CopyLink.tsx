@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { CheckIcon, LinkIcon } from "../icons";
 
 // Copies a permalink to the clipboard, with a transient confirmation. Same
 // interaction as CodeBlock's copy control: progressive, so where the clipboard
@@ -23,8 +24,14 @@ export function CopyLink({ url, label }: { url: string; label: string }) {
   }
 
   return (
-    <button type="button" className="code-copy changelog-copy" onClick={copy} aria-label={label}>
-      {copied ? "Copied" : "Copy link"}
+    <button
+      type="button"
+      className="icon-btn changelog-copy"
+      onClick={copy}
+      aria-label={copied ? "Link copied" : label}
+      title={copied ? "Link copied" : label}
+    >
+      {copied ? <CheckIcon size={15} /> : <LinkIcon size={15} />}
     </button>
   );
 }

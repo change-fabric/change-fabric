@@ -1,6 +1,7 @@
 ---
 name: cf:status
-description: Arms a recurring self-status ping on a real cron loop and prints a red/yellow/green progress line per active work item on each tick. Takes the interval as an argument or asks for it, refreshes a session-scoped status store every tick, prints only when something changed, and stops itself once every item reads green.
+group: workflow
+description: Arms a recurring self-status ping on a real cron loop. It prints a red/yellow/green progress line per active work item on each tick. Takes the interval as an argument or asks for it, refreshes a session-scoped status store every tick, prints only when something changed, and stops itself once every item reads green.
 ---
 
 # CF Status

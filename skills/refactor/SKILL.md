@@ -1,5 +1,6 @@
 ---
 name: cf:refactor
+group: workflow
 description: Run a behavior-preserving refactor over a PR, branch, repo, file, or glob using all applicable cf rubrics.
 ---
 

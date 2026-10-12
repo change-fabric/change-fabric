@@ -87,6 +87,17 @@ class SkillLengthTest < Minitest::Test
     end
   end
 
+  # The site's /reference page groups skills by this explicit key; its build
+  # script (site/scripts/embed-reference.mjs) fails on a missing or unknown one.
+  SKILL_GROUPS = %w[lanes rubrics modes workflow].freeze
+
+  def test_group_is_a_known_group
+    each_skill do |front, _, rel|
+      assert_includes SKILL_GROUPS, front["group"],
+                      "#{rel}: frontmatter 'group' must be one of #{SKILL_GROUPS.join(', ')}."
+    end
+  end
+
   def test_name_within_64_chars
     each_skill do |front, _, rel|
       name = front["name"].to_s

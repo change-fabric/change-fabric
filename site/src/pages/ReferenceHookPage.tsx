@@ -9,7 +9,7 @@ export function ReferenceHookPage({ id }: { id: string }) {
   if (!hook) {
     return (
       <Layout>
-        <section className="spec-page">
+        <section className="spec-page page-head">
           <h1>Unknown hook</h1>
           <p className="section-lede">
             No hook is published at <code>{id}</code>. See the <a href="/reference">reference index</a>.
@@ -22,30 +22,37 @@ export function ReferenceHookPage({ id }: { id: string }) {
   return (
     <Layout>
       <section className="spec-page">
-        <div className="spec-page-head">
-          <div>
-            <p className="eyebrow">Hook reference</p>
-            <h1>
-              <code>{hook.script}</code>
-            </h1>
+        <header className="page-head">
+          <div className="page-head-row spec-page-head">
+            <div>
+              <p className="eyebrow">Hook reference</p>
+              <h1>
+                <code>{hook.script}</code>
+              </h1>
+            </div>
+            <div className="page-actions">
+              <a
+                className="btn"
+                href={`${REPO_URL}/blob/main/scripts/${hook.script}`}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Source <span aria-hidden="true">&#8599;</span>
+                <span className="sr-only"> (opens in a new tab)</span>
+              </a>
+              <a className="btn btn-quiet" href="/reference">
+                All skills and hooks
+              </a>
+            </div>
           </div>
-          <div className="spec-page-actions">
-            <a className="btn" href={`${REPO_URL}/blob/main/scripts/${hook.script}`}>
-              Source
-            </a>
-            <a className="btn btn-quiet" href="/reference">
-              All skills and hooks
-            </a>
-          </div>
-        </div>
+          <p className="section-lede detail-lede">{hook.description}</p>
+        </header>
         <p className="reference-events">
+          <span className="eyebrow">Fires on</span>
           {hook.events.map((event) => (
-            <span key={event} className="status-tag status-current">
-              {event}
-            </span>
+            <code key={event}>{event}</code>
           ))}
         </p>
-        <p className="section-lede">{hook.description}</p>
       </section>
     </Layout>
   );

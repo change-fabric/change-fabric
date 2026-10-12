@@ -7,12 +7,14 @@ export function Versions() {
   return (
     <Layout>
       <section className="versions">
-        <p className="eyebrow">CHANGE.md frontmatter spec</p>
-        <h1>Versions</h1>
-        <p className="section-lede">
-          The schema is versioned independently of the platform. Each version has an HTML
-          rendering and a raw markdown counterpart.
-        </p>
+        <header className="page-head">
+          <p className="eyebrow">CHANGE.md frontmatter spec</p>
+          <h1>Versions</h1>
+          <p className="section-lede">
+            The schema is versioned independently of the platform. Each version has an HTML
+            rendering and a raw markdown counterpart.
+          </p>
+        </header>
         {/* The four columns do not fit a phone. The table scrolls inside this
             box rather than widening the whole page, which means the box itself
             has to be keyboard focusable. */}

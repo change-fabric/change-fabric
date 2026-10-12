@@ -21,6 +21,19 @@ function storedTheme(): Theme | null {
   }
 }
 
+// The browser chrome color. index.html declares one theme-color per OS scheme;
+// a manual choice points both at the chosen theme's background, and clearing it
+// restores each tag to its own scheme. The inline script there does the same
+// before first paint.
+const CHROME: Record<Theme, string> = { light: "#f6efe0", dark: "#24122a" };
+
+function syncChrome(theme: Theme | null) {
+  document.querySelectorAll<HTMLMetaElement>('meta[name="theme-color"]').forEach((meta) => {
+    const own: Theme = meta.media.includes("dark") ? "dark" : "light";
+    meta.content = CHROME[theme ?? own];
+  });
+}
+
 function systemTheme(): Theme {
   return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
 }
@@ -36,6 +49,7 @@ export function useTheme() {
     } else {
       root.removeAttribute("data-theme");
     }
+    syncChrome(explicit ? theme : null);
   }, [theme, explicit]);
 
   // Follow the OS live only while the user has made no explicit choice.

@@ -1,5 +1,6 @@
 ---
 name: cf:prisma
+group: rubrics
 description: Prisma ORM schema, migrations, and queries. Auto-applied by the cf shim on every Prisma change; also invocable directly.
 auto:
   extensions: [prisma]

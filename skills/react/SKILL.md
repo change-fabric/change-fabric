@@ -1,5 +1,6 @@
 ---
 name: cf:react
+group: rubrics
 description: React predictable-UI rubric. Auto-applied by the cf shim on every React component change; also invocable directly.
 auto:
   extensions: [jsx, tsx]

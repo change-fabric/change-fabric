@@ -9,11 +9,11 @@ require_relative 'change_gate_check'
 require_relative 'change_tag_refs'
 require_relative 'guarded_command'
 
-# PreToolUse hook: gates publishing a protected release tag - a `git push`
-# that would publish a matching tag, or `gh release create` - on a
-# comprehensive cf:change run having passed for the exact commit the tag
-# would point at, plus any `require_trunk_ancestor` / `require_prior_tag` rule
-# the repo's CHANGE.md states. Same shape as change_merge_guard.rb, and shares
+# PreToolUse hook: gates publishing a protected release tag on a passing
+# comprehensive cf:change run for its commit. Publishing is a `git push` that
+# would publish a matching tag, or `gh release create`; the run must have passed
+# for the exact commit the tag would point at, plus any `require_trunk_ancestor`
+# / `require_prior_tag` rule the repo's CHANGE.md states. Same shape as change_merge_guard.rb, and shares
 # its gate question via ChangeGateCheck: reads the Bash command text, denies
 # with a reason, fails open on anything it cannot determine, bypassable the
 # same way (CF_ALLOW_UNGATED_MERGE=1, or a change_override.rb record) - one

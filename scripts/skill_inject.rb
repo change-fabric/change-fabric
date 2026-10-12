@@ -10,8 +10,8 @@ require_relative 'skill_store'
 require_relative 'review_queue'
 
 # PostToolUse hook: after a file edit, surfaces every auto-skill whose match
-# rules cover the changed file (its cheat sheet, once per session), and queues
-# review-eligible files for the Stop hook to audit. Routing is deterministic
+# rules cover the changed file. Each cheat sheet surfaces once per session, and
+# review-eligible files are queued for the Stop hook to audit. Routing is deterministic
 # file-type matching; the haiku review itself is owned by skill_review.rb.
 class SkillInject
   EVENT = 'PostToolUse'

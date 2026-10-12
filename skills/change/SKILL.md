@@ -1,5 +1,6 @@
 ---
 name: cf:change
+group: lanes
 description: Deterministic, config-driven release-gate sweep. Runs all five dockerized audit lanes (k6 load, axe-core accessibility, OWASP ZAP pentest, browserless responsive UX, committed test cases) against a project's change-fabric config, aggregates every finding into one CSV and Markdown report on the Desktop, and records a pass/fail gate for the head commit. Invocable directly and gated into cf:drive.
 ---
 

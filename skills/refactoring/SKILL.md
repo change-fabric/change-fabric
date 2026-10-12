@@ -1,5 +1,6 @@
 ---
 name: cf:refactoring
+group: rubrics
 description: Fowler refactoring smells and moves. Auto-applied by the cf shim on every code change of any kind; also invocable directly.
 auto:
   all_code: true
