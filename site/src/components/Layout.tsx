@@ -73,15 +73,20 @@ export function Layout({ children }: { children: ReactNode }) {
       <div className="page">
         <main>{children}</main>
 
+        {/* Below 960px the header carries Spec, Changelog and Reference, the
+            wordmark is Home and the Spec page links Versions, so the footer
+            drops to one quiet row; the full list returns beside the sidebar. */}
         <footer className="site-footer">
+          <span className="footer-brand">&copy; Change Fabric</span>
           <nav className="footer-nav" aria-label="Footer">
-            <a href="/">Home</a>
-            <a href={specPath(CURRENT_VERSION)}>Spec</a>
-            <a href="/spec">Versions</a>
-            <a href="/changelog">Changelog</a>
+            <a className="footer-wide" href="/">Home</a>
+            <a className="footer-wide" href={specPath(CURRENT_VERSION)}>Spec</a>
+            <a className="footer-wide" href="/spec">Versions</a>
+            <a className="footer-wide" href="/changelog">Changelog</a>
             <a href="/reference">Reference</a>
             <a href={REPO_URL} target="_blank" rel="noopener noreferrer">
-              GitHub
+              GitHub<span aria-hidden="true"> &#8599;</span>
+              <span className="sr-only"> (opens in a new tab)</span>
             </a>
           </nav>
         </footer>

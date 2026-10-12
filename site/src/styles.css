@@ -782,25 +782,40 @@ code {
 
 /* Footer */
 .site-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s2) var(--s5);
   margin-top: var(--s8);
-  padding-top: var(--s4);
+  padding: var(--s4) 0 calc(var(--s4) + env(safe-area-inset-bottom, 0px));
   border-top: 1px solid var(--border);
+  font-size: 0.85rem;
+}
+
+.footer-brand {
+  color: var(--muted);
 }
 
 .footer-nav {
   display: flex;
-  gap: var(--s2) var(--s5);
   flex-wrap: wrap;
+  gap: var(--s2) var(--s5);
 }
 
 .footer-nav a {
   color: var(--muted);
   text-decoration: none;
-  font-size: 0.85rem;
 }
 
 .footer-nav a:hover {
   color: var(--text);
+}
+
+@media (max-width: 959px) {
+  .footer-wide {
+    display: none;
+  }
 }
 
 /* Reference index */
