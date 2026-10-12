@@ -59,8 +59,11 @@ tokens, or a `var()` alias of one. For example:
 ```css
 --muted: color-mix(in srgb, var(--sage) 42%, var(--plum));
 --accent: color-mix(in srgb, var(--lilac) 62%, var(--plum));
---border: color-mix(in srgb, var(--sage) 45%, var(--cream));
+--border: color-mix(in srgb, var(--sage) 60%, var(--cream));
 ```
+
+`test/site_design_doc_test.rb` fails if any line in the block above is not
+found verbatim in `site/src/styles.css`, so the examples cannot drift.
 
 A gray in this system is always sage mixed with the ground, never a separate
 neutral value, and there are only two border steps.
@@ -88,22 +91,26 @@ background token that has no alias.
 | `--page-link-text` (`--link`) on `--background` | 5.88:1 | 6.56:1 |
 | `--page-link-hover-text` (`--link-hover`) on `--background` | 15.35:1 | 15.35:1 |
 | `--page-accent-text` (`--accent`) on `--background` | 5.88:1 | 6.56:1 |
-| `--page-muted-text` (`--muted`) on `--background` | 5.79:1 | 6.83:1 |
-| `--code-bg-text` (`--muted`) on `--code-bg` | 5.25:1 | 5.92:1 |
-| `--surface-text` (`--muted`) on `--surface` | 5.46:1 | 6.24:1 |
-| `--surface-hover-text` (`--muted`) on `--surface-hover` | 5.04:1 | 5.6:1 |
+| `--page-muted-text` (`--muted`) on `--background` | 6.87:1 | 8.94:1 |
+| `--code-bg-text` (`--muted`) on `--code-bg` | 6.23:1 | 7.75:1 |
+| `--surface-text` (`--muted`) on `--surface` | 6.48:1 | 8.16:1 |
+| `--surface-hover-text` (`--muted`) on `--surface-hover` | 5.98:1 | 7.33:1 |
 
 ## Typography
 
 Three stacks, no web fonts:
 
 - `--font-sans` (Inter when installed, else the system UI face) for all text.
-- `--font-serif` (Iowan Old Style, Palatino, Georgia) for the wordmark only.
+- `--font-serif` (Iowan Old Style, Palatino, Georgia) at weight 500 for the
+  editorial headings: the wordmark, page titles (`.page-head h1`, 2.4rem),
+  the hero title (3.4rem) and subtitle, home section headings (1.9rem),
+  changelog release headlines (1.5rem), and `h1` inside the rendered spec.
 - `--font-mono` (the system monospace) for identifiers: skill and hook names,
   versions, dates, file names, code.
 
-Body is 15px at 1.6. Page titles are 1.9rem bold with slight negative
-tracking; section headings 1.2rem at weight 650; small labels (eyebrows, group
+Body is 15px at 1.6. The sans `h1` default is 1.9rem bold with slight negative
+tracking, used only where no serif role above applies; `h2` is 1.2rem at
+weight 650; small labels (eyebrows, group
 headings, counts) are 0.75 to 0.8rem in `--muted`, sentence case, no uppercase
 tracking. Muted text is never below the 4.5:1 floor above.
 
@@ -115,7 +122,8 @@ hairline nudges and the 10px reference-row padding that keeps rows dense.
 
 - Every page opens with the same `.page-head`: eyebrow, title, optional lede,
   then `--s5` before content. No giant heading followed by a huge gap.
-- Content sits in a 760px measure. From 960px up the site nav is a 224px left
+- Content sits in a 760px measure (the homepage widens to 1040px for its
+  two-column audit grid; spec prose is capped at 70ch). From 960px up the site nav is a 224px left
   sidebar (wordmark, section links, then GitHub and the theme toggle pinned to
   the bottom); below that it is a top bar, wrapping to two rows on a phone.
 - Lists are rows separated by `--border` hairlines. A row's hover fill bleeds
@@ -152,8 +160,11 @@ When adding a color, derive it from one of the four authored tokens with
 Phosphor Icons (phosphoricons.com, MIT), regular weight, inlined as SVG with
 `fill="currentColor"` so they inherit the theme. Icons appear only where they
 aid recognition: GitHub, the theme toggle, and the search field (magnifier
-and clear). No decorative row or nav icons. The favicon is the Phosphor
-crosshair: a cream glyph on a plum rounded tile.
+and clear). No decorative row or nav icons. The search field, the
+changelog's copy-link button (link, then check once copied) and external
+links (an arrow plus screen-reader text, opening in a new tab) are the other
+uses. The favicon is the woven change fabric mark, plum and lilac on light,
+cream and lilac on dark.
 
 ## Do and do not
 
