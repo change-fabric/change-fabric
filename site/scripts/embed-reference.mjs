@@ -30,7 +30,13 @@ const SKILL_GROUPS = ["lanes", "rubrics", "modes", "workflow"];
 // emphasis and code ticks are stripped because the summary renders as plain
 // text; the full description stays available as the title.
 export function firstSentence(text) {
-  const flat = text.replace(/[`*]/g, "").replace(/\s+/g, " ").trim();
+  // Only paired emphasis stars go; a lone glob star such as *.gemspec stays.
+  const flat = text
+    .replace(/`/g, "")
+    .replace(/\*\*(\S(?:.*?\S)?)\*\*/g, "$1")
+    .replace(/(^|[\s(])\*(\S(?:[^*]*?\S)?)\*(?=[\s).,;:!?]|$)/g, "$1$2")
+    .replace(/\s+/g, " ")
+    .trim();
   // The sentence ends at . ! or ? before a space or the end, but not after e.g.
   // or i.e. A closing quote after ? or ! stays with the sentence; a closing
   // paren does not count, so punctuation inside (...) never ends it.
