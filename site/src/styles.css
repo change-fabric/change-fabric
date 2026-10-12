@@ -710,6 +710,23 @@ code {
   padding: 0;
 }
 
+/* Recipes: the index reuses the reference list; a recipe page stacks its files
+   as code blocks under the prose. */
+.recipe-page h2 {
+  margin-top: 32px;
+  margin-bottom: 12px;
+  font-size: 1.15rem;
+}
+
+.recipe-files {
+  display: grid;
+  gap: 16px;
+}
+
+.recipe-run p {
+  color: var(--muted);
+}
+
 /* Footer */
 .site-footer {
   margin-top: 64px;

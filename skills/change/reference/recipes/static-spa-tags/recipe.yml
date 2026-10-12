@@ -1,0 +1,15 @@
+title: Static SPA with trunk and tag releases
+summary: A static single-page app on one main branch, released to staging and production by tags.
+order: 3
+files:
+  - CHANGE.md
+gitignore: "dist/"
+notes: |
+  Use this when your app builds to static files and you release by tagging
+  commits on `main` (`staging/v1.4.0`, then `production/v1.4.0`) instead of
+  merging into environment branches.
+
+  The `local` profile builds and serves `dist/` on the host. The `staging`
+  and `production` profiles boot nothing and audit the deployed site. Each
+  `tag:` rule blocks the tag push until `cf:change` has passed for that exact
+  commit, and production also requires a prior staging tag.

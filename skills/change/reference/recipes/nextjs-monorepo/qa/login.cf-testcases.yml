@@ -1,0 +1,11 @@
+suite: login
+cases:
+  - id: dashboard-after-login
+    tags: [smoke, auth]
+    acceptance: A signed-in QA user lands on the dashboard and sees its heading, not the login form.
+    steps:
+      - goto: /dashboard
+      - expect_status: 200
+      - expect_url: { contains: /dashboard }
+      - expect_visible: h1
+      - expect_hidden: "input[name=password]"

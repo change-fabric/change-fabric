@@ -1,0 +1,15 @@
+title: Next.js pnpm monorepo with login
+summary: One Next.js app in a pnpm workspace, booted on the host, audited with a QA login.
+order: 1
+files:
+  - CHANGE.md
+  - apps/web/CHANGE.app.yml
+  - .env.qa.example
+  - qa/login.cf-testcases.yml
+gitignore: ".env.qa"
+notes: |
+  A root `CHANGE.md` that registers one app, and the app's own
+  `CHANGE.app.yml` with the boot command and all five lanes. The dev server
+  runs on the host and the lane containers reach it at
+  `host.docker.internal:3000`. Every browser lane logs in with `QA_EMAIL` and
+  `QA_PASSWORD`, exported from `.env.qa` before the run.

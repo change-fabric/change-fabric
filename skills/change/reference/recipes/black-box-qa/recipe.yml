@@ -1,0 +1,15 @@
+title: Black-box QA of a deployed app
+summary: No source access, just a URL and a QA login. A QA-only repo audits staging and prod.
+order: 2
+files:
+  - CHANGE.md
+  - .env.qa.example
+  - qa/smoke.cf-testcases.yml
+gitignore: ".env.qa"
+notes: |
+  Use this when you can log in to an app but cannot read or run its code. The
+  repo holds nothing but this CHANGE.md and the suites under `qa/`. There is no
+  `boot.up`: the lanes point straight at the deployed host. The default
+  `staging` profile runs every browser lane plus a passive ZAP baseline; the
+  `prod` profile swaps in the production URL and its own credentials and turns
+  ZAP off. Run `cf:change --profile prod` to audit production.

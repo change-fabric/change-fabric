@@ -5,11 +5,13 @@ import { Changelog } from "./pages/Changelog";
 import { Reference } from "./pages/Reference";
 import { ReferenceSkillPage } from "./pages/ReferenceSkillPage";
 import { ReferenceHookPage } from "./pages/ReferenceHookPage";
+import { Recipes } from "./pages/Recipes";
+import { RecipePage } from "./pages/RecipePage";
 
 // A tiny path-based router. Navigation is plain full-page anchors, so each load
 // resolves the current path here. CloudFront serves index.html for unknown
 // paths (its 404 fallback), so /spec, /spec/<version>, /changelog, /reference,
-// and /reference/{skills,hooks}/<id> all reach this router. The raw
+// /reference/{skills,hooks}/<id>, /recipes, and /recipes/<slug> all reach this router. The raw
 // /spec/<version>.md and /changelog.xml are real static files and never load
 // the app.
 export function App() {
@@ -40,6 +42,15 @@ export function App() {
   const hookMatch = path.match(/^\/reference\/hooks\/([^/]+)$/);
   if (hookMatch) {
     return <ReferenceHookPage id={hookMatch[1]} />;
+  }
+
+  if (path === "/recipes") {
+    return <Recipes />;
+  }
+
+  const recipeMatch = path.match(/^\/recipes\/([a-z0-9-]+)$/);
+  if (recipeMatch) {
+    return <RecipePage slug={recipeMatch[1]} />;
   }
 
   return <Home />;

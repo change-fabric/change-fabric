@@ -35,6 +35,9 @@ export function Layout({ children }: { children: ReactNode }) {
           <a className="nav-link" href="/reference">
             Reference
           </a>
+          <a className="nav-link" href="/recipes">
+            Recipes
+          </a>
           <a
             className="nav-link nav-icon"
             href={REPO_URL}
@@ -57,6 +60,7 @@ export function Layout({ children }: { children: ReactNode }) {
           <a href="/spec">Versions</a>
           <a href="/changelog">Changelog</a>
           <a href="/reference">Reference</a>
+          <a href="/recipes">Recipes</a>
           <a href={REPO_URL} target="_blank" rel="noopener noreferrer">
             GitHub
           </a>

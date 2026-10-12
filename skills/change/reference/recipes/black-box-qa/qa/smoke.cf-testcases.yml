@@ -1,0 +1,22 @@
+suite: smoke
+cases:
+  - id: login-reaches-account
+    tags: [smoke, auth]
+    acceptance: >
+      A QA user can sign in with the profile's credentials and lands on an
+      account page that shows their own email address.
+    steps:
+      - goto: /login
+      - expect_status: 200
+      - goto: /account
+      - expect_url: { contains: "/account" }
+      - expect_visible: "h1"
+  - id: home-renders
+    tags: [smoke]
+    acceptance: >
+      The public home page answers 200 and renders its main landmark, so the
+      deployment is up and serving the app rather than an error page.
+    steps:
+      - goto: /
+      - expect_status: 200
+      - expect_visible: "main"

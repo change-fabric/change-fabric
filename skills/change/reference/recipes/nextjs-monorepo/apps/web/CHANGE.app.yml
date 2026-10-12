@@ -1,0 +1,58 @@
+# One app's change_config. Paths and boot commands resolve against the repo
+# root, not this directory. Governance lives in the root CHANGE.md.
+change_config:
+  project: acme-web
+  boot:
+    # `next dev` runs in the foreground, so boot.up detaches it with a pidfile.
+    up: "pnpm install --frozen-lockfile && (nohup pnpm --filter web dev -- --port 3000 --hostname 0.0.0.0 >/tmp/acme-web.log 2>&1 & echo $! >/tmp/acme-web.pid)"
+    down: "kill \"$(cat /tmp/acme-web.pid)\" 2>/dev/null; pkill -f '[n]ext dev' 2>/dev/null; rm -f /tmp/acme-web.pid"
+    env_file: apps/web/.env.local   # reaches boot.up only, never the lanes
+    target_url: http://host.docker.internal:3000
+    health:
+      url: http://localhost:3000/
+      expect_status: 200
+      timeout_seconds: 120
+  lanes:
+    k6:
+      enabled: false
+    a11y:
+      enabled: true
+      routes: ["/", "/login", "/dashboard"]
+      threshold: serious
+      auth:
+        login_url: /login
+        email_env: QA_EMAIL
+        password_env: QA_PASSWORD
+        email_selector: "input[name=email]"
+        password_selector: "input[name=password]"
+        submit_selector: "button[type=submit]"
+    zap:
+      enabled: true
+      targets: ["http://host.docker.internal:3000"]
+      strict: false
+    browserless:
+      enabled: true
+      routes:
+        - "/"
+        - "/login"
+        - { path: "/dashboard", auth: true }
+      viewports:
+        - { name: mobile, width: 390, height: 844 }
+        - { name: desktop, width: 1440, height: 900 }
+      auth:
+        login_url: /login
+        email_env: QA_EMAIL
+        password_env: QA_PASSWORD
+        email_selector: "input[name=email]"
+        password_selector: "input[name=password]"
+        submit_selector: "button[type=submit]"
+    testcases:
+      enabled: true
+      suites: ["qa/*.cf-testcases.yml"]
+      auth:
+        login_url: /login
+        email_env: QA_EMAIL
+        password_env: QA_PASSWORD
+        email_selector: "input[name=email]"
+        password_selector: "input[name=password]"
+        submit_selector: "button[type=submit]"
