@@ -6,10 +6,15 @@ import hooksJson from "./generated/reference/hooks.json";
 // the same source the installer itself reads, so this page can't describe a
 // skill or hook that doesn't actually exist.
 
+export type SkillGroup = "lanes" | "rubrics" | "modes" | "workflow";
+export type Group = SkillGroup | "hooks";
+
 export interface SkillReference {
   id: string;
   name: string;
+  group: SkillGroup;
   description: string;
+  summary: string;
   autoBasenames: string[];
   body: string;
 }
@@ -19,9 +24,10 @@ export interface HookReference {
   script: string;
   events: string[];
   description: string;
+  summary: string;
 }
 
-export const SKILLS: SkillReference[] = skillsJson;
+export const SKILLS = skillsJson as SkillReference[];
 export const HOOKS: HookReference[] = hooksJson;
 
 export function findSkill(id: string): SkillReference | undefined {

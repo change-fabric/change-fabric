@@ -1,5 +1,6 @@
 ---
 name: cf:redis
+group: rubrics
 description: Redis cache and session usage. Auto-applied by the cf shim on every Redis-related change; also invocable directly.
 auto:
   extensions: [js, mjs]

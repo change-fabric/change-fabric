@@ -1,5 +1,6 @@
 ---
 name: cf:postgres-sql
+group: rubrics
 description: PostgreSQL schema and SQL changes. Auto-applied by the cf shim on every SQL migration change; also invocable directly.
 auto:
   extensions: [sql]

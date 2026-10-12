@@ -1,5 +1,6 @@
 ---
 name: cf:a11y
+group: lanes
 description: Runs just the accessibility lane of the change-fabric platform against a project's config. Drives axe-core against each configured route inside an ephemeral browserless Chromium container, grades violations against an impact threshold, and writes a CSV and Markdown report to the Desktop. Invocable directly for a standalone accessibility check.
 ---
 

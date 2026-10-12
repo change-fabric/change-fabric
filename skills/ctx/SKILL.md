@@ -1,5 +1,6 @@
 ---
 name: cf:ctx
+group: workflow
 description: Capture, recall, and list durable project context in the shim-owned .ctx store, a git-backed set of classed markdown docs kept outside any project's own source control and keyed by working directory. Use to record contracts, plans, client notes, and decisions that must persist across sessions and devices, distinct from the harness auto-memory.
 ---
 

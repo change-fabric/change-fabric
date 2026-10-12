@@ -1,5 +1,6 @@
 ---
 name: cf:docker
+group: rubrics
 description: Containerize by default. Run project runtimes, datastores, and tools in dedicated per-use-case Docker containers, never a host or system-level daemon. Auto-applied by the cf shim on container and provisioning changes; also invocable directly.
 auto:
   basenames: [Dockerfile, .dockerignore, docker-compose.yml, docker-compose.yaml, compose.yml, compose.yaml, Brewfile, devcontainer.json]

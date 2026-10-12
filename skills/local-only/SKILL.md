@@ -1,5 +1,6 @@
 ---
 name: cf:local-only
+group: modes
 description: Sets the session's merge mode to local only, so changes stay on disk with no git push and no new PR. Re-invoke to keep it in effect; run cf:merge-ready, cf:admin-bypass, or cf:yolo to change it, or cf to pick both axes at once.
 ---
 

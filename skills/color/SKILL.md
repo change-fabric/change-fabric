@@ -1,5 +1,6 @@
 ---
 name: cf:color
+group: workflow
 description: Minimal color system command. Audits a repo's token file against a four-color target with role-reassigned light/dark themes and derived colors, then consolidates as far as the user approves. Opt-in, invoked only when deliberately driving a color outcome.
 ---
 

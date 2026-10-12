@@ -1,5 +1,6 @@
 ---
 name: cf:sweep
+group: workflow
 description: Sweeps a repo's open feature pull requests and plans how to land them as a group, covering merge order, trial-merged conflict mitigations, terraform and migration sequencing, and a per-contributor trust policy persisted across runs. Runs unattended by default, landing only what the trust policy and the merge mode allow; report and land modes and --signoff make it more conservative, and it suits /loop for keeping a development environment current.
 ---
 

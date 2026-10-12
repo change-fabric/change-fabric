@@ -1,5 +1,6 @@
 ---
 name: cf:resolve-threads
+group: workflow
 description: Resolves every unresolved review thread on a pull request. Each thread is evaluated by its own background agent inside an isolated git worktree, knowing the other threads in the run and the earlier fixes on its file, then fixed (with every sibling instance of the same bug class), dismissed with a recorded rationale, or deferred to a human. When a reviewer's feedback recurs on a file already fixed in an earlier round, a root-cause pass fixes a small cause in one commit or starts cf:plan for a large one. Runs straight through by default; --signoff pauses for approval before anything reaches GitHub.
 ---
 

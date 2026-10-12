@@ -1,5 +1,6 @@
 ---
 name: cf:client-state
+group: rubrics
 description: Redux Toolkit and TanStack Query state management. Auto-applied by the cf shim on every client-state change; also invocable directly.
 auto:
   extensions: [js, jsx]

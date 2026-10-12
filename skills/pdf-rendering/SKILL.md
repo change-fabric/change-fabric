@@ -1,5 +1,6 @@
 ---
 name: cf:pdf-rendering
+group: rubrics
 description: Server-side PDF generation with Puppeteer and Handlebars. Auto-applied by the cf shim on every PDF-rendering change; also invocable directly.
 auto:
   extensions: [js, mjs, hbs, handlebars, html]

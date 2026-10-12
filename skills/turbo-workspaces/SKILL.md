@@ -1,5 +1,6 @@
 ---
 name: cf:turbo-workspaces
+group: rubrics
 description: Turborepo and npm workspaces monorepo wiring. Auto-applied by the cf shim on every workspace or turbo change; also invocable directly.
 auto:
   basenames: [turbo.json, package.json]

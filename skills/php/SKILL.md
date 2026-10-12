@@ -1,5 +1,6 @@
 ---
 name: cf:php
+group: rubrics
 description: Modern PHP rubric for native types, explicit boundaries, safe defaults, and restraint in existing codebases. Auto-applied by the cf shim on every PHP change; also invocable directly.
 auto:
   extensions: [php]

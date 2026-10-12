@@ -1,5 +1,6 @@
 ---
 name: cf:away
+group: modes
 description: Sets the session to away mode, so the agent stops asking questions and takes the recommended or safe default instead, reporting what it assumed. Run cf:active to end it.
 ---
 

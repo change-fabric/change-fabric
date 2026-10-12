@@ -1,5 +1,6 @@
 ---
 name: cf:testcases
+group: lanes
 description: Runs just the deterministic regression lane of the change-fabric platform against a project's config. Compiles committed test-case suite files into browser steps, replays them inside an ephemeral browserless Chromium container, grades each case, and writes a CSV and Markdown report to the Desktop. Invocable directly for a standalone regression check.
 ---
 

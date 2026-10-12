@@ -1,5 +1,6 @@
 ---
 name: cf
+group: modes
 description: Set and enforce the session merge mode (local only, merge ready, admin bypass, or yolo). Re-invoke to change the mode mid-session.
 ---
 

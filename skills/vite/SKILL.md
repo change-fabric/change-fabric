@@ -1,5 +1,6 @@
 ---
 name: cf:vite
+group: rubrics
 description: Vite boring-build rubric. Auto-applied by the cf shim when the Vite config changes; also invocable directly.
 auto:
   basenames: [vite.config.ts, vite.config.js, vite.config.mjs, vite.config.mts, vite.config.cjs]

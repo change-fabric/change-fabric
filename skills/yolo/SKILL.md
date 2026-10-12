@@ -1,5 +1,6 @@
 ---
 name: cf:yolo
+group: modes
 description: Sets the session merge mode to yolo, committing and pushing straight to the target branch without opening a new pull request. Merging an existing pull request is still fine. Re-invoke another mode command to change it mid-session.
 ---
 

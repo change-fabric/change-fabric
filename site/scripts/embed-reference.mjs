@@ -23,13 +23,33 @@ function splitFrontmatter(raw) {
 // The frontmatter here is a small, known shape (name, description, and an
 // optional auto.basenames list) - a hand-rolled parser avoids taking on a
 // full YAML dependency in a build script for three fields.
+const SKILL_GROUPS = ["lanes", "rubrics", "modes", "workflow"];
+
+// First sentence of a description, for the one-line index. A sentence longer
+// than MAX is cut back to its last comma or semicolon clause break, else to a
+// word boundary. The full text stays available as the title attribute.
+const SUMMARY_MAX = 100;
+export function firstClause(text) {
+  const flat = text.replace(/\s+/g, " ").trim();
+  const end = flat.search(/\.(\s|$)/);
+  let head = end > 0 ? flat.slice(0, end) : flat.replace(/\.$/, "");
+  if (head.length > SUMMARY_MAX) {
+    const window = head.slice(0, SUMMARY_MAX);
+    const clause = Math.max(window.lastIndexOf(","), window.lastIndexOf(";"));
+    head = clause > 30 ? window.slice(0, clause) : window.replace(/\s+\S*$/, "");
+  }
+  return head.charAt(0).toUpperCase() + head.slice(1);
+}
+
 function parseSkillFrontmatter(frontmatter) {
   const nameMatch = frontmatter.match(/^name:\s*(.+)$/m);
   const descMatch = frontmatter.match(/^description:\s*(.+)$/m);
   const basenamesMatch = frontmatter.match(/^\s*basenames:\s*\[(.*)\]/m);
+  const groupMatch = frontmatter.match(/^group:\s*(.+)$/m);
   return {
+    group: groupMatch ? groupMatch[1].trim() : null,
     name: nameMatch ? nameMatch[1].trim() : null,
-    description: descMatch ? descMatch[1].trim() : "",
+    description: descMatch ? descMatch[1].trim().replace(/^"(.*)"$/, "$1") : "",
     autoBasenames: basenamesMatch
       ? basenamesMatch[1]
           .split(",")
@@ -58,10 +78,17 @@ function buildSkills() {
       const { frontmatter, body } = splitFrontmatter(raw);
       const meta = parseSkillFrontmatter(frontmatter);
       if (!meta.name) return null;
+      if (!SKILL_GROUPS.includes(meta.group)) {
+        throw new Error(
+          `skills/${dirName}/SKILL.md: frontmatter 'group' must be one of ${SKILL_GROUPS.join(", ")} (got ${meta.group ?? "none"})`,
+        );
+      }
       return {
         id: dirName,
         name: meta.name,
+        group: meta.group,
         description: meta.description,
+        summary: firstClause(meta.description),
         autoBasenames: meta.autoBasenames,
         body: body.trim(),
       };
@@ -126,13 +153,14 @@ function buildHooks() {
       try {
         source = readFileSync(scriptPath, "utf8");
       } catch {
-        return { id: script, script, events, description: "" };
+        return { id: script, script, events, description: "", summary: "" };
       }
       return {
         id: script,
         script,
         events,
         description: extractLeadingComment(source),
+        summary: firstClause(extractLeadingComment(source).replace(/^\w+ hook\s*(\([^)]*\))?:?\s*/, "")),
       };
     })
     .sort((a, b) => a.script.localeCompare(b.script));
