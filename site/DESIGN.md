@@ -110,15 +110,24 @@ Three stacks, no web fonts:
 
 Body is 15px at 1.6. The sans `h1` default is 1.9rem bold with slight negative
 tracking, used only where no serif role above applies; `h2` is 1.2rem at
-weight 650; small labels (eyebrows, group
-headings, counts) are 0.75 to 0.8rem in `--muted`, sentence case, no uppercase
-tracking. Muted text is never below the 4.5:1 floor above.
+weight 650; small labels (page eyebrows, group headings, counts) are 0.75
+to 0.8rem in `--muted`, sentence case, no uppercase tracking. The one
+exception is the homepage hero eyebrow: mono, uppercase, 0.08em tracking, in
+`--accent`. Muted text is never below the 4.5:1 floor above.
 
 ## Spacing and layout
 
 One 4px-based scale, `--s1` to `--s8` (4, 8, 12, 16, 24, 32, 48, 64px).
-Every margin, padding, and gap uses a step; the only exceptions are 1 to 2px
-hairline nudges and the 10px reference-row padding that keeps rows dense.
+Every margin, padding, and gap uses a step, except these, which
+`test/site_design_doc_test.rb` holds to exactly this list:
+
+- 1 to 2px hairline nudges;
+- 1px 5px around inline code;
+- 3px and 6px inside small controls (tags, nav links, buttons) and 6px gaps
+  between an icon and its label;
+- 36px left padding in the search field, making room for the magnifier;
+- 80px above each homepage section, and 60px between the hero and the first
+  one, larger than the scale on purpose to pace the landing page.
 
 - Every page opens with the same `.page-head`: eyebrow, title, optional lede,
   then `--s5` before content. No giant heading followed by a huge gap.

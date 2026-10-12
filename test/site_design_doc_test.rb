@@ -17,4 +17,14 @@ class SiteDesignDocTest < Minitest::Test
     missing = declarations.reject { |line| css.include?(line) }
     assert_empty missing, "DESIGN.md examples not in styles.css: #{missing.join(' | ')}"
   end
+  # The spacing exceptions DESIGN.md lists under "Spacing and layout". A new
+  # off-scale value fails here until it is documented there and added below.
+  OFF_SCALE_PX = [ 0, 1, 2, 3, 5, 6, 36, 60, 80 ].freeze
+
+  def test_off_scale_spacing_is_the_documented_list
+    css = File.read(File.join(ROOT, "site/src/styles.css"))
+    values = css.scan(/^\s*(?:margin|padding|gap)[\w-]*:([^;]*);/).flatten
+    used = values.flat_map { |value| value.scan(/(\d+)px/).flatten.map(&:to_i) }.uniq
+    assert_empty used - OFF_SCALE_PX, "undocumented px spacing; add it to DESIGN.md and OFF_SCALE_PX"
+  end
 end
