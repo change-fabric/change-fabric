@@ -43,7 +43,8 @@ Light and dark reassign roles among the same four colors; nothing is added.
 | `--bg` | near-white (4% `--navy` over `--paper`) | `--navy-deep` |
 | `--surface` / `--surface-hover` | near-white, lightly tinted `--navy` | `--navy-deep` lightened toward `--paper` |
 | `--border` / `--rail` / `--tag-bg` | light tints of `--navy` over `--paper` | darker tints of `--navy-deep` toward `--paper` |
-| `--text` / `--heading` / `--link` | `--navy` | light tint of `--navy` toward `--paper` |
+| `--text` / `--heading` | `--navy` | light tint of `--navy` toward `--paper` |
+| `--link` | `--navy` | `--gold` |
 | `--muted` | mid tint of `--navy` over `--paper` | lighter tint of `--navy` toward `--paper` |
 | `--link-hover` / `--accent` | `--gold-deep` (50% `--gold` in `--navy-deep`) | `--gold` lightened toward `--paper` |
 | `--gold-btn` | `--gold` | `--gold` |
@@ -72,7 +73,8 @@ Measured with `ruby ~/.claude/cf/bin/color_check.rb site --tokens site/src/style
 
 | Pair | Light | Dark |
 |---|---|---|
-| `--text` / `--heading` / `--link` on `--bg` | 12.67:1 | 13.08:1 |
+| `--text` / `--heading` on `--bg` | 12.67:1 | 13.08:1 |
+| `--link` on `--bg` | 12.67:1 | 9.38:1 |
 | `--link-hover` / `--accent` on `--bg` | 4.96:1 | 10.0:1 |
 
 `--gold-btn-text` on `--gold-btn` is dark navy on gold and is not a
