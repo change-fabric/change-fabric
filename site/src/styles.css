@@ -24,7 +24,7 @@
   --border: color-mix(in srgb, var(--navy) 14%, var(--paper));
   --text: var(--navy);
   /* 70% navy keeps small muted text at WCAG AA 4.5:1 on --bg, --code-bg,
-     --surface-hover, and --tag-bg (lowest: 4.56:1 on --tag-bg). */
+     --surface, --surface-hover, and --tag-bg (lowest: 4.56:1 on --tag-bg). */
   --muted: color-mix(in srgb, var(--navy) 70%, var(--paper));
   --heading: var(--navy);
   --link: var(--navy);
@@ -52,6 +52,8 @@
   --page-muted-text: var(--muted);
   --code-bg-text: var(--muted);
   --tag-bg-text: var(--muted);
+  --surface-text: var(--muted);
+  --surface-hover-text: var(--muted);
   color-scheme: light;
 }
 
@@ -90,6 +92,8 @@
     --page-muted-text: var(--muted);
     --code-bg-text: var(--muted);
     --tag-bg-text: var(--muted);
+    --surface-text: var(--muted);
+    --surface-hover-text: var(--muted);
     color-scheme: dark;
   }
 }
@@ -128,6 +132,8 @@
   --page-muted-text: var(--muted);
   --code-bg-text: var(--muted);
   --tag-bg-text: var(--muted);
+  --surface-text: var(--muted);
+  --surface-hover-text: var(--muted);
   color-scheme: dark;
 }
 
