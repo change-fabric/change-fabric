@@ -73,9 +73,11 @@ Measured with `ruby ~/.claude/cf/bin/color_check.rb site --tokens site/src/style
 
 | Pair | Light | Dark |
 |---|---|---|
-| `--text` / `--heading` on `--bg` | 12.67:1 | 13.08:1 |
+| `--text` on `--bg` | 12.67:1 | 13.08:1 |
+| `--heading` on `--bg` | 12.67:1 | 15.87:1 |
 | `--link` on `--bg` | 12.67:1 | 9.38:1 |
-| `--link-hover` / `--accent` on `--bg` | 4.96:1 | 10.0:1 |
+| `--link-hover` on `--bg` | 4.96:1 | 10.0:1 |
+| `--accent` on `--bg` | 4.96:1 | 9.38:1 |
 
 `--gold-btn-text` on `--gold-btn` is dark navy on gold and is not a
 page-background pair; it is checked visually, not by the automated
