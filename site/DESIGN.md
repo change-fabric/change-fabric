@@ -20,14 +20,16 @@ either trustworthy-navy or premium-gold, it is off-brand.
 
 Four authored colors, two conceptual pairs. The source of truth is the CSS
 custom properties in `src/styles.css`; every other variable there derives
-from these four by `color-mix`, never a fifth literal.
+from these four by `color-mix`, never a fifth literal. White and black
+count as authored colors too, so the light neutral is `--paper` and
+nothing mixes toward a literal.
 
 | Token | Value | Role |
 |---|---|---|
 | `--navy` | `#123049` | Navy, primary variant |
 | `--navy-deep` | `#0d1b2a` | Navy, deep variant |
 | `--gold` | `#e6b84a` | Gold, primary variant |
-| `--gold-deep` | `#8a6113` | Gold, deep variant |
+| `--paper` | `#ffffff` | Light neutral |
 
 Rule of thumb: gold is for the one thing you want the eye to go to in a given
 area, not for large fills. Navy anchors; gold points.
@@ -38,39 +40,40 @@ Light and dark reassign roles among the same four colors; nothing is added.
 
 | Semantic token | Light role | Dark role |
 |---|---|---|
-| `--bg` | near-white (4% `--navy` over white) | `--navy-deep` |
-| `--surface` / `--surface-hover` | near-white, lightly tinted `--navy` | `--navy-deep` lightened toward white |
-| `--border` / `--rail` / `--tag-bg` | light tints of `--navy` over white | darker tints of `--navy-deep` toward white |
-| `--text` / `--heading` / `--link` | `--navy` | light tint of `--navy` toward white |
-| `--muted` | mid tint of `--navy` over white | lighter tint of `--navy` toward white |
-| `--link-hover` / `--accent` | `--gold-deep` | `--gold` lightened toward white |
+| `--bg` | near-white (4% `--navy` over `--paper`) | `--navy-deep` |
+| `--surface` / `--surface-hover` | near-white, lightly tinted `--navy` | `--navy-deep` lightened toward `--paper` |
+| `--border` / `--rail` / `--tag-bg` | light tints of `--navy` over `--paper` | darker tints of `--navy-deep` toward `--paper` |
+| `--text` / `--heading` / `--link` | `--navy` | light tint of `--navy` toward `--paper` |
+| `--muted` | mid tint of `--navy` over `--paper` | lighter tint of `--navy` toward `--paper` |
+| `--link-hover` / `--accent` | `--gold-deep` (50% `--gold` in `--navy-deep`) | `--gold` lightened toward `--paper` |
 | `--gold-btn` | `--gold` | `--gold` |
 | `--gold-btn-text` | `--navy-deep` | `--navy-deep` |
-| `--code-bg` | faint tint of `--navy` over white | `--navy-deep` toward black |
+| `--code-bg` | faint tint of `--navy` over `--paper` | `--navy-deep` with 15% `--navy` |
 
 ### Derivation recipes
 
-Every non-authored token is a `color-mix(in srgb, A p%, B)` of an authored
-token against white, black, or `transparent` (alpha over the theme
+Every non-authored token is a `color-mix(in srgb, A p%, B)` of two authored
+tokens, or of one against `transparent` (alpha over the theme
 background). For example:
 
 ```css
---bg: color-mix(in srgb, var(--navy) 4%, #ffffff);
+--bg: color-mix(in srgb, var(--navy) 4%, var(--paper));
+--gold-deep: color-mix(in srgb, var(--gold) 50%, var(--navy-deep));
 --accent-soft: color-mix(in srgb, var(--gold-deep) 12%, transparent);
 ```
 
 A gray in this system is always a mix or translucent treatment of `--navy`
-or `--gold`, never a separate neutral value.
+or `--gold` with `--paper`, never a separate neutral value.
 
 ### Contrast pairs
 
-Measured with `ruby ~/.claude/cf/bin/color_check.rb site`, WCAG 2.2 SC 1.4.3
+Measured with `ruby ~/.claude/cf/bin/color_check.rb site --tokens site/src/styles.css`, WCAG 2.2 SC 1.4.3
 (4.5:1 body text, 3:1 large text and UI):
 
 | Pair | Light | Dark |
 |---|---|---|
 | `--text` / `--heading` / `--link` on `--bg` | 12.67:1 | 13.08:1 |
-| `--link-hover` / `--accent` on `--bg` | 5.15:1 | 10.0:1 |
+| `--link-hover` / `--accent` on `--bg` | 4.96:1 | 10.0:1 |
 
 `--gold-btn-text` on `--gold-btn` is dark navy on gold and is not a
 page-background pair; it is checked visually, not by the automated
@@ -113,9 +116,9 @@ crosshair (a precision/quality-gate motif): gold glyph on a navy rounded tile.
 
 - Do keep gold scarce and intentional; do keep navy as the anchor.
 - Do derive every new color from `--navy`, `--navy-deep`, `--gold`, or
-  `--gold-deep` with `color-mix`, checked in both themes.
+  `--paper` with `color-mix`, checked in both themes.
 - Do not introduce a fifth authored color without a stated reason (the
   sanctioned exception is a single `--error` token, if the site ever needs
   one).
-- Do not use pure black; the dark base is `--navy-deep`.
+- Do not use pure black or mix toward a white or black literal; the dark base is `--navy-deep`.
 - Do not hardcode a hex value in a component; use the variables.

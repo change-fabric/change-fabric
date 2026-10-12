@@ -10,19 +10,20 @@
 :root,
 :root[data-theme="light"] {
   /* The four authored colors. Everything else on this page is one of
-     these four, mixed with white, black or transparent. See
+     these four, mixed with each other or with transparent. See
      site/DESIGN.md for the role tables and derivation recipes. */
   --navy: #123049;
   --navy-deep: #0d1b2a;
   --gold: #e6b84a;
-  --gold-deep: #8a6113;
+  --paper: #ffffff;
+  --gold-deep: color-mix(in srgb, var(--gold) 50%, var(--navy-deep));
 
-  --bg: color-mix(in srgb, var(--navy) 4%, #ffffff);
-  --surface: color-mix(in srgb, var(--navy) 1%, #ffffff);
-  --surface-hover: color-mix(in srgb, var(--navy) 6%, #ffffff);
-  --border: color-mix(in srgb, var(--navy) 14%, #ffffff);
+  --bg: color-mix(in srgb, var(--navy) 4%, var(--paper));
+  --surface: color-mix(in srgb, var(--navy) 1%, var(--paper));
+  --surface-hover: color-mix(in srgb, var(--navy) 6%, var(--paper));
+  --border: color-mix(in srgb, var(--navy) 14%, var(--paper));
   --text: var(--navy);
-  --muted: color-mix(in srgb, var(--navy) 55%, #ffffff);
+  --muted: color-mix(in srgb, var(--navy) 55%, var(--paper));
   --heading: var(--navy);
   --link: var(--navy);
   /* --gold-deep clears WCAG AA 4.5:1 as small text against every light
@@ -32,11 +33,11 @@
   --accent-soft: color-mix(in srgb, var(--gold-deep) 12%, transparent);
   --gold-btn: var(--gold);
   --gold-btn-text: var(--navy-deep);
-  --code-bg: color-mix(in srgb, var(--navy) 5%, #ffffff);
+  --code-bg: color-mix(in srgb, var(--navy) 5%, var(--paper));
   /* Timeline rail hairline on the changelog, and the fill behind a
      change-type tag: both mixes of --navy, not a new color. */
-  --rail: color-mix(in srgb, var(--navy) 10%, #ffffff);
-  --tag-bg: color-mix(in srgb, var(--navy) 8%, #ffffff);
+  --rail: color-mix(in srgb, var(--navy) 10%, var(--paper));
+  --tag-bg: color-mix(in srgb, var(--navy) 8%, var(--paper));
   color-scheme: light;
 }
 
@@ -45,23 +46,24 @@
     --navy: #123049;
     --navy-deep: #0d1b2a;
     --gold: #e6b84a;
-    --gold-deep: #8a6113;
+    --paper: #ffffff;
+    --gold-deep: color-mix(in srgb, var(--gold) 50%, var(--navy-deep));
     --bg: var(--navy-deep);
-    --surface: color-mix(in srgb, var(--navy-deep) 92%, #ffffff);
-    --surface-hover: color-mix(in srgb, var(--navy-deep) 86%, #ffffff);
-    --border: color-mix(in srgb, var(--navy-deep) 78%, #ffffff);
-    --text: color-mix(in srgb, var(--navy) 15%, #ffffff);
-    --muted: color-mix(in srgb, var(--navy) 35%, #ffffff);
-    --heading: color-mix(in srgb, var(--navy) 5%, #ffffff);
+    --surface: color-mix(in srgb, var(--navy-deep) 92%, var(--paper));
+    --surface-hover: color-mix(in srgb, var(--navy-deep) 86%, var(--paper));
+    --border: color-mix(in srgb, var(--navy-deep) 78%, var(--paper));
+    --text: color-mix(in srgb, var(--navy) 15%, var(--paper));
+    --muted: color-mix(in srgb, var(--navy) 35%, var(--paper));
+    --heading: color-mix(in srgb, var(--navy) 5%, var(--paper));
     --link: var(--gold);
-    --link-hover: color-mix(in srgb, var(--gold) 90%, #ffffff);
+    --link-hover: color-mix(in srgb, var(--gold) 90%, var(--paper));
     --accent: var(--gold);
     --accent-soft: color-mix(in srgb, var(--gold) 14%, transparent);
     --gold-btn: var(--gold);
     --gold-btn-text: var(--navy-deep);
-    --code-bg: color-mix(in srgb, var(--navy-deep) 94%, #000000);
-    --rail: color-mix(in srgb, var(--navy-deep) 82%, #ffffff);
-    --tag-bg: color-mix(in srgb, var(--navy-deep) 88%, #ffffff);
+    --code-bg: color-mix(in srgb, var(--navy-deep) 85%, var(--navy));
+    --rail: color-mix(in srgb, var(--navy-deep) 82%, var(--paper));
+    --tag-bg: color-mix(in srgb, var(--navy-deep) 88%, var(--paper));
     color-scheme: dark;
   }
 }
@@ -70,23 +72,24 @@
   --navy: #123049;
   --navy-deep: #0d1b2a;
   --gold: #e6b84a;
-  --gold-deep: #8a6113;
+  --paper: #ffffff;
+  --gold-deep: color-mix(in srgb, var(--gold) 50%, var(--navy-deep));
   --bg: var(--navy-deep);
-  --surface: color-mix(in srgb, var(--navy-deep) 92%, #ffffff);
-  --surface-hover: color-mix(in srgb, var(--navy-deep) 86%, #ffffff);
-  --border: color-mix(in srgb, var(--navy-deep) 78%, #ffffff);
-  --text: color-mix(in srgb, var(--navy) 15%, #ffffff);
-  --muted: color-mix(in srgb, var(--navy) 35%, #ffffff);
-  --heading: color-mix(in srgb, var(--navy) 5%, #ffffff);
+  --surface: color-mix(in srgb, var(--navy-deep) 92%, var(--paper));
+  --surface-hover: color-mix(in srgb, var(--navy-deep) 86%, var(--paper));
+  --border: color-mix(in srgb, var(--navy-deep) 78%, var(--paper));
+  --text: color-mix(in srgb, var(--navy) 15%, var(--paper));
+  --muted: color-mix(in srgb, var(--navy) 35%, var(--paper));
+  --heading: color-mix(in srgb, var(--navy) 5%, var(--paper));
   --link: var(--gold);
-  --link-hover: color-mix(in srgb, var(--gold) 90%, #ffffff);
+  --link-hover: color-mix(in srgb, var(--gold) 90%, var(--paper));
   --accent: var(--gold);
   --accent-soft: color-mix(in srgb, var(--gold) 14%, transparent);
   --gold-btn: var(--gold);
   --gold-btn-text: var(--navy-deep);
-  --code-bg: color-mix(in srgb, var(--navy-deep) 94%, #000000);
-  --rail: color-mix(in srgb, var(--navy-deep) 82%, #ffffff);
-  --tag-bg: color-mix(in srgb, var(--navy-deep) 88%, #ffffff);
+  --code-bg: color-mix(in srgb, var(--navy-deep) 85%, var(--navy));
+  --rail: color-mix(in srgb, var(--navy-deep) 82%, var(--paper));
+  --tag-bg: color-mix(in srgb, var(--navy-deep) 88%, var(--paper));
   color-scheme: dark;
 }
 
