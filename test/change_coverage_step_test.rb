@@ -74,6 +74,19 @@ class ChangeCoverageStepTest < Minitest::Test
     assert(lines.any? { |line| line.include?("#{COPY_DIR}/report-data.js merge=union") })
   end
 
+  # The copy is committed, so the build must leave nothing else there: no
+  # .lock, no temp file.
+  def test_repo_copy_leaves_only_the_data_file_and_the_page_in_the_copy_dir
+    write_change_md("repo_copy" => { "dir" => COPY_DIR })
+    seed(store_dir, [ run_record("local-1", "2026-10-01T00:00:00Z") ])
+
+    code, lines = step.build(repo_copy: true)
+
+    assert_equal 0, code, lines.join("\n")
+    assert_equal %w[index.html report-data.js], Dir.children(File.join(@repo, COPY_DIR)).sort
+    assert_equal %w[local-1], runs_in(File.join(@repo, COPY_DIR)).map { |run| run["id"] }
+  end
+
   def test_repo_copy_without_a_configured_dir_is_a_usage_error
     write_change_md
     code, lines = step.build(repo_copy: true)
@@ -91,6 +104,24 @@ class ChangeCoverageStepTest < Minitest::Test
     assert_equal 0, code, lines.join("\n")
     assert_equal %w[ci-import], runs_in(store_dir).map { |run| run["id"] }
     assert File.file?(File.join(store_dir, "index.html"))
+  end
+
+  # A mistyped CI artifact path must not look like a successful merge; what
+  # did merge is still written.
+  def test_merge_of_a_missing_or_empty_path_exits_1_and_keeps_what_merged
+    write_change_md
+    artifact = File.join(@home, "ci-artifact")
+    seed(artifact, [ run_record("ci-import", "2026-10-03T00:00:00Z") ])
+    not_data = File.join(@home, "notes.txt")
+    File.write(not_data, "hello\n")
+
+    [ [ File.join(@home, "nonexistent"), "not found" ], [ not_data, "holds no coverage data" ] ].each do |bad, message|
+      code, lines = step.build(merges: [ artifact, bad ])
+
+      assert_equal 1, code, lines.join("\n")
+      assert(lines.any? { |line| line.include?(message) }, lines.join("\n"))
+      assert_equal %w[ci-import], runs_in(store_dir).map { |run| run["id"] }
+    end
   end
 
   def test_out_writes_both_files_to_the_directory_and_merges_what_is_there

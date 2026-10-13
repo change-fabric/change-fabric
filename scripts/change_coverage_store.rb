@@ -112,10 +112,14 @@ class ChangeCoverageStore
     json.gsub('</', '<\\/').gsub("\u2028", '\\u2028').gsub("\u2029", '\\u2029')
   end
 
-  attr_reader :dir
+  attr_reader :dir, :lock_path
 
-  def initialize(dir, max_runs:, origin:, project:, page_writer: NO_PAGE)
+  # `lock_path` defaults to `.lock` in `dir`. A directory that must hold only
+  # the data file and the page (the committed repo copy) borrows another
+  # store's lock instead.
+  def initialize(dir, max_runs:, origin:, project:, page_writer: NO_PAGE, lock_path: nil)
     @dir = dir
+    @lock_path = lock_path || File.join(dir, LOCK_FILE)
     @max_runs = Integer(max_runs)
     @origin = ChangeGitContext.sanitize_url(origin)
     @project = ChangeReport.slug_for(project)
@@ -176,7 +180,8 @@ class ChangeCoverageStore
   # disk and returns the runs to write. Returns warning lines.
   def update
     FileUtils.mkdir_p(@dir)
-    File.open(File.join(@dir, LOCK_FILE), File::RDWR | File::CREAT, 0o644) do |lock|
+    FileUtils.mkdir_p(File.dirname(@lock_path))
+    File.open(@lock_path, File::RDWR | File::CREAT, 0o644) do |lock|
       lock.flock(File::LOCK_EX)
       parsed, lines = read_for_update
       write(yield(parsed.runs), meta_from(parsed.meta))

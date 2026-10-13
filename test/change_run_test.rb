@@ -535,6 +535,8 @@ class ChangeRunCoverageArgsTest < Minitest::Test
     assert_includes refused(%w[coverage build --target-url http://app]), "does not take --target-url"
     assert_includes refused(%w[coverage build --no-publish]), "does not take --no-publish"
     assert_includes refused(%w[coverage build --profile=staging]), "does not take --profile"
+    assert_includes refused(%w[coverage build --prof prod]), "does not take --profile"
+    assert_includes refused(%w[coverage build --a web]), "does not take --app"
     assert_includes refused(%w[coverage import a.xml --format junit --app web --app api]), "pass --app once"
   end
 
@@ -695,5 +697,44 @@ class ChangeRunCoverageTest < Minitest::Test
     assert_equal "pass", gate["status"]
     assert_equal "all", gate["scope"]
     assert_equal({ "a11y" => "pass" }, gate["lanes"])
+  end
+
+  class StepRaising
+    def initialize(error) = @error = error
+    def record_sweep(**) = raise(@error)
+  end
+
+  def test_a_stack_overflow_in_the_coverage_step_changes_neither_the_exit_code_nor_the_gate
+    write_change_md(app_config("fixture-app"))
+    code, output = sweep(%w[all], step: StepRaising.new(SystemStackError.new("stack level too deep")))
+
+    assert_equal 0, code
+    assert_includes output, "[change] [coverage] skipped (SystemStackError: stack level too deep)"
+    gate = ChangeGateStore.new(head_sha).read
+    assert_equal "pass", gate["status"]
+    assert_equal({ "a11y" => "pass" }, gate["lanes"])
+  end
+
+  def test_an_interrupt_in_the_coverage_step_still_propagates
+    write_change_md(app_config("fixture-app"))
+    assert_raises(Interrupt) { sweep(%w[all], step: StepRaising.new(Interrupt.new)) }
+  end
+
+  # A suite file nested deep enough to overflow YAML.safe_load raises
+  # SystemStackError, which no StandardError rescue catches. The sweep must
+  # still finish with its own verdict.
+  def test_a_suite_yaml_that_overflows_the_parser_does_not_end_the_sweep
+    suites = File.join(@repo, "suites")
+    FileUtils.mkdir_p(suites)
+    File.write(File.join(suites, "deep.yml"), "suite: s\ncases: #{'[' * 20_000}#{']' * 20_000}\n")
+    config = app_config("fixture-app")
+    config["lanes"]["testcases"] = { "enabled" => false, "suites" => [ "suites/*.yml" ] }
+    write_change_md(config)
+    code, output = sweep(%w[a11y])
+
+    assert_equal 0, code, output
+    assert_includes output, "[change] [coverage] skipped (SystemStackError: "
+    assert_includes output, "[change] PASS"
+    assert_equal "pass", ChangeGateStore.new(head_sha).read["status"]
   end
 end

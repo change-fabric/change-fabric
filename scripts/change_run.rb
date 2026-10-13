@@ -303,8 +303,17 @@ class ChangeRun
     signoff = false
     parser = OptionParser.new do |o|
       o.on('--config PATH') { |value| path = value }
-      o.on('--profile NAME') { |value| profile = value }
-      o.on('--app NAME') { |value| apps << value }
+      # `given` records --profile and --app here, where OptionParser has
+      # already resolved an abbreviation such as `--prof`, so `coverage build`
+      # refuses them in any spelling.
+      o.on('--profile NAME') do |value|
+        given << '--profile'
+        profile = value
+      end
+      o.on('--app NAME') do |value|
+        given << '--app'
+        apps << value
+      end
       o.on('--target-url URL') { |value| target_url = value }
       o.on('--health-url URL') { |value| health_url = value }
       o.on('--suite NAME') { |value| suites << value }
@@ -315,7 +324,6 @@ class ChangeRun
       coverage_options(o, coverage, given)
     end
     positionals = parser.parse(argv.drop(1))
-    given.concat(argv.drop(1).filter_map { |arg| arg[/\A--(?:profile|app)(?==|\z)/] })
     given.concat(sweep_flags(target_url:, health_url:, for_tag:, ref:, signoff:, publish:)) if scope == 'coverage'
     valid = %w[all sweep gate-status coverage] + ChangeConfig::LANES
     abort_and_exit("scope must be one of: #{valid.join(', ')}") unless valid.include?(scope)
@@ -621,7 +629,13 @@ class ChangeRun
       toolkit: toolkit_version, selection: { suites: @args.suites, tags: [] }, scope: @args.scope
     )
     lines.each { |line| log("[change] [coverage] #{app ? "[#{app}] " : ''}#{line}") }
-  rescue StandardError => e
+  rescue SignalException, SystemExit, NoMemoryError
+    raise
+  # Wider than StandardError on purpose: a deeply nested suite YAML or JUnit
+  # file overflows the parser's stack (SystemStackError), and that must cost
+  # this app's coverage record, never its exit code or the apps after it.
+  # Interrupts, exits and memory exhaustion still propagate.
+  rescue Exception => e # rubocop:disable Lint/RescueException
     log("[change] [coverage] #{app ? "[#{app}] " : ''}skipped (#{e.class}: #{e.message})")
   end
 

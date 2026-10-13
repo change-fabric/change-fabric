@@ -74,7 +74,7 @@ class ChangeCoverageStep
       scope:, app:, warnings: context.warnings
     )
     store, lines = context.local_store
-    context.warning_lines + lines + store.record([ run ]) + context.page_lines + size_lines(store)
+    context.warning_lines + lines + store.record([ run ]) + closing_lines(context, store)
   rescue StandardError => e
     [ "skipped (#{e.class}: #{e.message})" ]
   end
@@ -82,18 +82,19 @@ class ChangeCoverageStep
   # `coverage build`: rewrites the local store and its page, after merging in
   # each `merges` path (a data file or a directory holding one). `repo_copy`
   # also merges the store with the copy under qa_report.repo_copy.dir, by id
-  # both ways. `out` writes to that directory instead of the store.
+  # both ways. `out` writes to that directory instead of the store. Exit 1
+  # when a `merges` path is missing or holds no coverage data, after writing
+  # whatever else merged, so a mistyped CI artifact path is not a success.
   def build(repo_copy: false, merges: [], out: nil)
     context = Context.new(self, @repo_root, @project)
-    settings = context.settings
-    return [ 2, [ 'set qa_report.repo_copy.dir in CHANGE.md' ] ] if repo_copy && settings.repo_copy_dir.nil?
+    return [ 2, [ 'set qa_report.repo_copy.dir in CHANGE.md' ] ] if repo_copy && context.repo_copy_dir.nil?
 
-    store, lines = out ? context.store_at(out) : context.local_store
+    store, lines = context.store_for(out)
     lines = context.no_change_md_lines + context.warning_lines + lines
-    merges.each { |path| lines.concat(store.merge_file(File.expand_path(path))) }
+    merged = merges.map { |path| merge_path(store, File.expand_path(path), lines) }
     lines.concat(rebuild(store))
     lines.concat(copy_to_repo(context, store)) if repo_copy
-    [ 0, lines + context.page_lines + size_lines(store) ]
+    [ merged.all? ? 0 : 1, lines + closing_lines(context, store) ]
   rescue StandardError => e
     [ 1, [ "build failed (#{e.class}: #{e.message})" ] ]
   end
@@ -112,16 +113,17 @@ class ChangeCoverageStep
     context.settings
     result = ChangeCoverageImport.read(paths: files.map { |file| context.import_path(file) }, format:, label:,
                                        repo_root: @repo_root, head_time: context.head_time)
-    lines = context.warning_lines + result.warnings.map { |line| "warning: #{line}" }
+    context.warnings.concat(result.warnings)
+    lines = context.warning_lines
     return [ 1, lines + [ "#{label}: no #{format} file could be read; nothing recorded" ] ] unless result.summary
 
     run = ChangeCoverage.import_run(
       summaries: [ result.summary ], git: context.git, ids: import_ids(context, format, label),
       toolkit: @toolkit, repo: context.repo, profile: identity[:profile], app: identity[:app],
-      warnings: context.warnings + result.warnings
+      warnings: context.warnings
     )
-    store, store_lines = out ? context.store_at(out) : context.local_store
-    [ 0, lines + store_lines + store.record([ run ]) + context.page_lines + size_lines(store) ]
+    store, store_lines = context.store_for(out)
+    [ 0, lines + store_lines + store.record([ run ]) + closing_lines(context, store) ]
   rescue StandardError => e
     [ 1, [ "import failed (#{e.class}: #{e.message})" ] ]
   end
@@ -157,18 +159,41 @@ class ChangeCoverageStep
     store.record([]).reject { |line| line.start_with?('recorded 0 run(s)') } + [ "rebuilt #{store.dir}" ]
   end
 
+  # Merges one `--merge` path into the store, appending its log lines to
+  # `lines`. False when the path is missing or holds no coverage data.
+  def merge_path(store, path, lines)
+    source = File.directory?(path) ? File.join(path, ChangeCoverageStore::DATA_FILE) : path
+    lines.concat(store.merge_file(source))
+    return false unless File.file?(source)
+    return true if coverage_data?(source)
+
+    lines << "merge: #{source} holds no coverage data"
+    false
+  end
+
+  def coverage_data?(path)
+    parsed = ChangeCoverageStore.parse(File.read(path, encoding: 'UTF-8'))
+    !parsed.meta.nil? || !parsed.runs.empty?
+  end
+
   # Merges the store and the repo copy by id, both ways, so each ends up with
   # every run either had (retention applies to both). The copy is written in
-  # place and never staged, committed, or given a .gitattributes entry.
+  # place and never staged, committed, or given a .gitattributes entry. It
+  # takes the store's lock rather than one of its own, so the directory holds
+  # only the data file and the page; the two merges run one after the other,
+  # never nested, so neither waits on a lock the other holds.
   def copy_to_repo(context, store)
-    dir = File.join(context.repo_root, context.settings.repo_copy_dir)
-    copy = context.store_in(dir)
+    dir = File.join(context.repo_root, context.repo_copy_dir)
+    copy = context.store_in(dir, lock_path: store.lock_path)
     lines = []
     lines.concat(store.merge_file(dir)) if File.file?(copy.data_path)
     lines.concat(copy.merge_file(store.data_path))
     lines + [ "repo copy: #{dir} (not staged; commit it yourself)" ] +
-      QaReportConfig.gitattributes_lines(context.repo_root, context.settings.repo_copy_dir)
+      QaReportConfig.gitattributes_lines(context.repo_root, context.repo_copy_dir)
   end
+
+  # The page and data-size lines every write ends with.
+  def closing_lines(context, store) = context.page_lines + size_lines(store)
 
   def size_lines(store)
     size = File.file?(store.data_path) ? File.size(store.data_path) : 0
@@ -194,7 +219,7 @@ class ChangeCoverageStep
 
     def change_md = File.join(@repo_root, 'CHANGE.md')
 
-    def warning_lines = @warnings.map { |line| "warning: #{line}" }
+    def warning_lines = warned(@warnings)
 
     def project = @declared_project || File.basename(@repo_root)
 
@@ -207,6 +232,8 @@ class ChangeCoverageStep
         @warnings.concat(loaded.warnings)
       end
     end
+
+    def repo_copy_dir = settings.repo_copy_dir
 
     def origin = @origin ||= ChangeGitContext.origin_url(@repo_root)
 
@@ -254,22 +281,28 @@ class ChangeCoverageStep
     # The local store under ~/.claude/cf/coverage, and any origin-mismatch line.
     def local_store
       dir, lines = ChangeCoverageStore.locate(project:, origin:, home: @step.home)
-      [ store_in(dir), lines.map { |line| "warning: #{line}" } ]
+      [ store_in(dir), warned(lines) ]
     end
 
     def store_at(dir) = [ store_in(File.expand_path(dir)), [] ]
 
-    def store_in(dir)
-      ChangeCoverageStore.new(dir, max_runs: settings.max_runs, origin:, project:, page_writer: page_writer)
+    # The `--out DIR` store when one was given, else the local store.
+    def store_for(out) = out ? store_at(out) : local_store
+
+    def store_in(dir, lock_path: nil)
+      ChangeCoverageStore.new(dir, max_runs: settings.max_runs, origin:, project:, page_writer: page_writer,
+                                   lock_path:)
     end
 
     # One line per page written, plus the brand's own warnings once.
     def page_lines
-      brand_warnings = @brand ? @brand.warnings.map { |line| "warning: #{line}" } : []
+      brand_warnings = @brand ? warned(@brand.warnings) : []
       brand_warnings + @page_lines.uniq
     end
 
     private
+
+    def warned(lines) = lines.map { |line| "warning: #{line}" }
 
     def brand = @brand ||= ChangeCoverageBrand.resolve(settings, repo_root: @repo_root)
 
