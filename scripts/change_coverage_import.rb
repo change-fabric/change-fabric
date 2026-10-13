@@ -79,6 +79,8 @@ module ChangeCoverageImport
       self
     end
 
+    def absorb(other) = add(other.covered, other.total)
+
     def to_h = { 'covered' => covered, 'total' => total }
 
     # Sort key: lowest coverage first, an empty tally last.
@@ -175,22 +177,28 @@ module ChangeCoverageImport
       branch = nil
       groups = Hash.new { |hash, name| hash[name] = [ Tally.new, Tally.new ] }
       parsed.each do |_, data|
-        line.add(data.line.covered, data.line.total)
-        branch = (branch || Tally.new).add(data.branch.covered, data.branch.total) if data.branch
+        line.absorb(data.line)
+        branch = (branch || Tally.new).absorb(data.branch) if data.branch
         data.groups.each do |name, (group_line, group_branch)|
-          groups[name][0].add(group_line.covered, group_line.total)
-          groups[name][1].add(group_branch.covered, group_branch.total)
+          groups[name][0].absorb(group_line)
+          groups[name][1].absorb(group_branch)
         end
       end
       file = parsed.size == 1 ? parsed.first[0] : @globs.join(', ')
-      ranked = groups.sort_by { |name, (group_line, _)| [ group_line.ratio, name ] }
-      kept = ranked.first(ChangeCoverageSchema::MAX_GROUPS).map do |name, (group_line, group_branch)|
-        { 'name' => name, 'line' => group_line.to_h, 'branch' => branch && group_branch.to_h }
-      end
       {
         'file' => file, 'line' => line.to_h, 'branch' => branch&.to_h,
-        'groups' => kept, 'groups_truncated' => ranked.size > ChangeCoverageSchema::MAX_GROUPS
+        'groups' => group_rows(groups, with_branch: !branch.nil?),
+        'groups_truncated' => groups.size > ChangeCoverageSchema::MAX_GROUPS
       }
+    end
+
+    # Lowest line coverage first, capped; a group's branch counts are null
+    # when the file reports no branch data at all.
+    def group_rows(groups, with_branch:)
+      ranked = groups.sort_by { |name, (group_line, _)| [ group_line.ratio, name ] }
+      ranked.first(ChangeCoverageSchema::MAX_GROUPS).map do |name, (group_line, group_branch)|
+        { 'name' => name, 'line' => group_line.to_h, 'branch' => with_branch ? group_branch.to_h : nil }
+      end
     end
 
     def test_summary(parsed)
@@ -452,10 +460,10 @@ module ChangeCoverageImport
       line = record.lf ? Tally.new(record.lh.to_i, record.lf) : record.da
       branch = record.brf ? Tally.new(record.brh.to_i, record.brf) : record.brda
       @branch_seen ||= branch.total.positive?
-      @line.add(line.covered, line.total)
-      @branch.add(branch.covered, branch.total)
-      @groups[record.dir][0].add(line.covered, line.total)
-      @groups[record.dir][1].add(branch.covered, branch.total)
+      @line.absorb(line)
+      @branch.absorb(branch)
+      @groups[record.dir][0].absorb(line)
+      @groups[record.dir][1].absorb(branch)
     end
   end
 

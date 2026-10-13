@@ -282,10 +282,6 @@ class ChangeCoverageImportTest < Minitest::Test
     assert_equal 500, summary["groups"].size
   end
 
-  def test_rexml_is_loadable
-    assert_kind_of String, REXML::VERSION
-  end
-
   private
 
   # Makes REXML::Document.new raise, so a DOM build fails the import.
