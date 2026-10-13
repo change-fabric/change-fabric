@@ -42,6 +42,10 @@ class ChangeCoverageStore
     [ suffixed, [ "#{base} belongs to origin #{existing.inspect}, not #{origin.inspect}; using #{suffixed}" ] ]
   end
 
+  # The data file a merge path names: the path itself, or DATA_FILE inside it
+  # when it is a directory (a downloaded CI artifact).
+  def self.source_for(path) = File.directory?(path) ? File.join(path, DATA_FILE) : path
+
   def self.dir_for(project:, origin:, home: Dir.home) = locate(project:, origin:, home:).first
 
   # The meta origin recorded in a directory's data file, or :none when there is
@@ -140,7 +144,7 @@ class ChangeCoverageStore
   # as a downloaded CI artifact) into this store. Its unreadable lines are
   # reported but never backed up; that file is not this store's.
   def merge_file(path)
-    source = File.directory?(path) ? File.join(path, DATA_FILE) : path
+    source = self.class.source_for(path)
     return [ "merge: #{source} not found" ] unless File.file?(source)
 
     parsed = self.class.parse(File.read(source, encoding: 'UTF-8'))

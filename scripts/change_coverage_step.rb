@@ -162,7 +162,7 @@ class ChangeCoverageStep
   # Merges one `--merge` path into the store, appending its log lines to
   # `lines`. False when the path is missing or holds no coverage data.
   def merge_path(store, path, lines)
-    source = File.directory?(path) ? File.join(path, ChangeCoverageStore::DATA_FILE) : path
+    source = ChangeCoverageStore.source_for(path)
     lines.concat(store.merge_file(source))
     return false unless File.file?(source)
     return true if coverage_data?(source)
@@ -179,9 +179,8 @@ class ChangeCoverageStep
   # Merges the store and the repo copy by id, both ways, so each ends up with
   # every run either had (retention applies to both). The copy is written in
   # place and never staged, committed, or given a .gitattributes entry. It
-  # takes the store's lock rather than one of its own, so the directory holds
-  # only the data file and the page; the two merges run one after the other,
-  # never nested, so neither waits on a lock the other holds.
+  # borrows the store's lock so the directory holds only the data file and
+  # the page; the two merges run in turn, never nested, so neither deadlocks.
   def copy_to_repo(context, store)
     dir = File.join(context.repo_root, context.repo_copy_dir)
     copy = context.store_in(dir, lock_path: store.lock_path)
