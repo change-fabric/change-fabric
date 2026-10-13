@@ -156,7 +156,9 @@ module ChangeCoverage
     RESULT_STATUSES = %w[pass warn fail].freeze
 
     # A url or path as a route key: no scheme or host (nil when the host is
-    # not the target's), no query or fragment, no trailing slash except on `/`.
+    # not the target's), no base path (an absolute url under a base with a
+    # path prefix like `https://host/app` keeps only the route below it), no
+    # query or fragment, no trailing slash except on `/`.
     def self.normalize(url, base_url: nil)
       text = url.to_s.strip
       return nil if text.empty?
@@ -174,7 +176,7 @@ module ChangeCoverage
       expected = host_of(base_url)
       return nil if expected && uri.host.to_s.downcase != expected
 
-      uri.path.to_s
+      below_base(uri.path.to_s, base_url)
     rescue URI::InvalidURIError
       nil
     end
@@ -188,15 +190,24 @@ module ChangeCoverage
       nil
     end
 
-    # `url` with the base url removed when it starts with it on a path
-    # boundary, so a base with a path prefix (`https://host/app`) leaves the
-    # route the suite author wrote.
-    def self.relative_to(url, base)
-      text = url.to_s
-      return text if base.to_s.empty? || !text.start_with?(base.to_s)
+    # `path` with the base url's own path removed when it starts with it on a
+    # path boundary, so `/app/claims` under `https://host/app` is `/claims`
+    # and `/app` itself is the root.
+    def self.below_base(path, base_url)
+      prefix = base_path(base_url)
+      return path if prefix.empty?
+      return '/' if path == prefix
 
-      rest = text.delete_prefix(base.to_s)
-      rest.empty? || rest.match?(%r{\A[/?#]}) ? rest : text
+      path.start_with?("#{prefix}/") ? path.delete_prefix(prefix) : path
+    end
+
+    def self.base_path(url)
+      text = url.to_s
+      return '' unless text.match?(ABSOLUTE)
+
+      URI.parse(text).path.to_s.sub(%r{/+\z}, '')
+    rescue URI::InvalidURIError
+      ''
     end
 
     def initialize(config:, lanes_ran:, findings:, case_records:, suite_set:, selection:)

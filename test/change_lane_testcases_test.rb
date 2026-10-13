@@ -731,6 +731,49 @@ class ChangeLaneTestcasesTest < Minitest::Test
     end
   end
 
+  # A goto to the base url or a landing on it is the root route, whether or
+  # not the base carries a path prefix.
+  def test_the_base_url_itself_is_the_root_route
+    [ BASE, "#{BASE}/app" ].each do |base|
+      with_suite do |dir|
+        result = ok_result(2)
+        result[0]["steps"] = [ goto_step(0, base), goto_step(1, "#{base}/cart") ]
+        result[0]["observation"]["url"] = base
+        instance = lane(dir, {}, session: FakeSession.new(result))
+        instance.run
+        record = instance.case_records(base_url: base).first
+
+        assert_equal %w[/ /cart], record["gotos_reached"], base
+        assert_equal "/", record["landed_url"], base
+      end
+    end
+  end
+
+  # With no grader under full auto the lane emits a failing grading finding,
+  # so a case whose steps passed is not recorded as a pass beside it.
+  def test_an_unreachable_grader_fails_the_case_record_under_full_auto
+    with_suite do |dir|
+      grader = FakeGrader.new(reason: "acceptance grading did not run: no grader is reachable")
+      instance = lane(dir, {}, session: FakeSession.new(ok_result(2)), grader: grader)
+      grading = instance.run.find { |finding| finding.check == "acceptance grading" }
+      record = instance.case_records(base_url: BASE).first
+
+      assert_equal grading.status, record["status"]
+      assert_equal [ "fail", nil, "acceptance grading did not run: no grader is reachable" ],
+                   record.values_at("status", "acceptance_verdict", "message")
+    end
+  end
+
+  def test_an_unreachable_grader_warns_the_case_record_under_signoff
+    with_suite do |dir|
+      grader = FakeGrader.new(reason: "acceptance grading did not run: no grader is reachable")
+      instance = lane(dir, {}, session: FakeSession.new(ok_result(2)), grader: grader, signoff: true)
+      instance.run
+
+      assert_equal "warn", instance.case_records(base_url: BASE).first["status"]
+    end
+  end
+
   def test_a_case_record_carries_a_live_quarantine_as_ungated
     with_suite(quarantined_suite("2026-09-30")) do |dir|
       instance = lane(dir, {}, session: FakeSession.new(ok_result(2)), today: TODAY)
