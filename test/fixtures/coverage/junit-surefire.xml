@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.example.fixture.ClaimsTest" time="1.75" tests="5" errors="1" skipped="1" failures="1" timestamp="2026-10-13T13:58:40">
+  <properties>
+    <property name="java.version" value="21"/>
+  </properties>
+  <testcase name="submitsAClaim" classname="com.example.fixture.ClaimsTest" time="0.25"/>
+  <testcase name="rejectsAnEmptyForm" classname="com.example.fixture.ClaimsTest" time="0.5">
+    <failure message="expected:&lt;400&gt; but was:&lt;200&gt;" type="org.opentest4j.AssertionFailedError">stack trace here</failure>
+  </testcase>
+  <testcase name="loadsTheList" classname="com.example.fixture.ClaimsTest" time="1,000.0">
+    <error message="Connection refused" type="java.net.ConnectException"/>
+  </testcase>
+  <testcase name="exportsAPdf" classname="com.example.fixture.ClaimsTest" time="0">
+    <skipped message="disabled until the export lands"/>
+  </testcase>
+  <testcase name="retriesTheUpload" classname="com.example.fixture.ClaimsTest" time="0.3">
+    <flakyFailure message="timed out after 5s" type="java.util.concurrent.TimeoutException">
+      <stackTrace>trace</stackTrace>
+    </flakyFailure>
+    <flakyFailure message="timed out after 5s" type="java.util.concurrent.TimeoutException"/>
+  </testcase>
+</testsuite>
