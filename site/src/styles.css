@@ -679,7 +679,7 @@ code {
 @media (forced-colors: none) {
   .harness-link:hover .harness-mark,
   .harness-link:focus-visible .harness-mark {
-    background: var(--lilac);
+    color: var(--lilac);
   }
 }
 
