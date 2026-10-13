@@ -92,6 +92,8 @@ class ChangeCoverageStore
     nil
   end
 
+  private_class_method :unwrap, :parse_json
+
   def self.valid_run?(run) = run.is_a?(Hash) && run['id'].is_a?(String) && !run['id'].empty?
 
   # JSON a classic script can carry: `</`, U+2028 and U+2029 escaped. A json
