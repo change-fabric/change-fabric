@@ -1,8 +1,9 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 
-# Locates the two ERB templates the artifact pipeline renders. They live with
-# the skill they belong to (`skills/change/reference/`) rather than beside the
+# Locates the ERB templates cf:change renders: the findings artifact page and
+# its PDF variant, and the QA coverage page. They live with the skill they
+# belong to (`skills/change/reference/`) rather than beside the
 # scripts, because they are part of what a reader of cf:change is pointed at:
 # the artifact page is as much a documented output shape as `CHANGE.template.md`
 # is a documented input shape.
@@ -11,18 +12,21 @@
 # into `~/.claude/cf/bin` and symlinks each skill directory into
 # `~/.claude/skills/<name>`, so an installed script and its templates end up in
 # two different trees, and the same script has to work when run straight out of
-# a clone. Both roots are checked, in that order, and a genuinely missing
+# a clone (a CI job running a pinned toolkit checkout relies on that). Every
+# root is checked, in order, and a genuinely missing
 # template raises by name rather than rendering an empty artifact.
 module ChangeArtifactTemplates
   class MissingTemplate < StandardError; end
 
   PAGE = 'artifact.html.erb'
   PDF = 'artifact-pdf.html.erb'
+  COVERAGE = 'qa-coverage.html.erb'
 
   module_function
 
   def page = path(PAGE)
   def pdf = path(PDF)
+  def coverage = path(COVERAGE)
 
   def path(name)
     found = roots.map { |root| File.join(root, name) }.find { |candidate| File.exist?(candidate) }
@@ -37,7 +41,8 @@ module ChangeArtifactTemplates
     [
       File.expand_path('../skills/change/reference', __dir__),
       File.join(Dir.home, '.claude', 'skills', 'cf:change', 'reference'),
-      File.join(Dir.home, '.config', 'opencode', 'skills', 'cf-change', 'reference')
+      File.join(Dir.home, '.config', 'opencode', 'skills', 'cf-change', 'reference'),
+      File.join(Dir.home, '.copilot', 'skills', 'cf-change', 'reference')
     ]
   end
 
