@@ -75,6 +75,18 @@ class ChangeCoverageImportTest < Minitest::Test
     assert_nil summary["groups"].first["branch"]
   end
 
+  def test_cobertura_zero_branches_valid_reports_null_branch
+    write("cov.xml", '<coverage lines-covered="1" lines-valid="2" branches-covered="0" branches-valid="0">' \
+                     '<packages><package name="p"><classes><class name="C"><lines>' \
+                     '<line number="1" hits="1"/><line number="2" hits="0"/></lines></class></classes>' \
+                     "</package></packages></coverage>")
+    summary = import("cov.xml", "cobertura", root: @tmp).summary
+
+    assert_equal [ 1, 2 ], counts(summary["line"])
+    assert_nil summary["branch"], "coverage.py without --branch is no branch data, not 0 of 0"
+    assert_nil group(summary, "p")["branch"]
+  end
+
   def test_jacoco_totals_are_report_level_counters_not_summed_packages
     summary = import("jacoco-basic.xml", "jacoco").summary
 
@@ -110,6 +122,14 @@ class ChangeCoverageImportTest < Minitest::Test
 
     assert_equal [ ".", "app/models" ], summary["groups"].map { |item| item["name"] }
     assert_nil summary["branch"], "no BRDA and BRF 0 means no branch data"
+  end
+
+  def test_lcov_invalid_utf8_byte_does_not_drop_the_file
+    write("lcov.info", "SF:src/a.js\nFN:1,caf\xE9\nDA:1,1\nLF:1\nLH:1\nend_of_record\n")
+    result = import("lcov.info", "lcov", root: @tmp)
+
+    assert_equal [ 1, 1 ], counts(result.summary["line"])
+    assert_empty result.warnings
   end
 
   def test_junit_status_mapping_and_flaky
@@ -164,6 +184,26 @@ class ChangeCoverageImportTest < Minitest::Test
         assert_nil item["quarantine"]
       end
     end
+  end
+
+  def test_junit_cases_keep_document_order_across_nested_suites
+    write("order.xml", '<testsuites><testsuite name="outer"><testcase classname="C" name="a"/>' \
+                       '<testsuite name="inner"><testcase classname="C" name="b"/></testsuite>' \
+                       '<testcase classname="C" name="c"/></testsuite></testsuites>')
+    items = import("order.xml", "junit", root: @tmp).summary["items"]
+
+    assert_equal %w[outer inner outer], items.map { |item| item["suite"] }
+    assert_equal 3, items.map { |item| item["id"] }.uniq.size
+  end
+
+  def test_deeply_nested_junit_suites_never_raise
+    opening = '<testsuite name="s">' * 6000
+    closing = "</testsuite>" * 6000
+    write("deep.xml", "<testsuites>#{opening}<testcase classname=\"C\" name=\"t\"/>#{closing}</testsuites>")
+    result = import("deep.xml", "junit", root: @tmp)
+
+    assert_empty result.warnings
+    assert_equal 1, result.summary["counts"]["pass"]
   end
 
   def test_staleness_against_head_time

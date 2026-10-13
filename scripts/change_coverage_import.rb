@@ -332,7 +332,12 @@ module ChangeCoverageImport
       covered && valid ? Tally.new(covered, valid) : nil
     end
 
-    def branch_totals = totals('branches') || (@branch_seen ? @branch : nil)
+    # A zero total (coverage.py without --branch writes `branches-valid="0"`)
+    # is no branch data, so it reads as null, as in the lcov parser.
+    def branch_totals
+      branch = totals('branches') || (@branch_seen ? @branch : nil)
+      branch if branch&.total&.positive?
+    end
   end
 
   # JaCoCo: `<counter type="LINE"|"BRANCH" missed covered>` elements that are
@@ -416,7 +421,7 @@ module ChangeCoverageImport
     def parse(path)
       record = nil
       File.foreach(path, chomp: true) do |raw|
-        text = raw.strip
+        text = raw.scrub.strip
         if text.start_with?('SF:')
           record = new_record(text.delete_prefix('SF:'))
         elsif text == 'end_of_record'
@@ -512,12 +517,27 @@ module ChangeCoverageImport
       TestFile.new(cases: @cases, timestamp: @stamps.compact.max)
     end
 
-    def walk(element, suite)
-      @stamps << Stamp.iso(element.attributes['timestamp']) if element.name == 'testsuite'
-      element.elements.each do |child|
+    # Depth-first in document order with an explicit stack, so deeply nested
+    # suites cannot exhaust the Ruby stack (SystemStackError is not a
+    # StandardError and would escape `read`).
+    def walk(root, suite)
+      stack = [ [ root, suite ] ]
+      until stack.empty?
+        element, owner = stack.pop
+        if element.name == 'testcase'
+          @cases << record(element, owner)
+        else
+          @stamps << Stamp.iso(element.attributes['timestamp']) if element.name == 'testsuite'
+          stack.concat(children_to_visit(element, owner).reverse)
+        end
+      end
+    end
+
+    def children_to_visit(element, suite)
+      element.elements.filter_map do |child|
         case child.name
-        when 'testsuite' then walk(child, child)
-        when 'testcase' then @cases << record(child, suite)
+        when 'testsuite' then [ child, child ]
+        when 'testcase' then [ child, suite ]
         end
       end
     end
