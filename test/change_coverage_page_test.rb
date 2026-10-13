@@ -353,7 +353,7 @@ class ChangeCoveragePageTest < Minitest::Test
 
   def test_template_contains_no_slop_glyphs
     text = File.read(TEMPLATE, encoding: "UTF-8")
-    %W[— • … ‘ ’ “ ”].each do |glyph|
+    [ 0x2014, 0x2022, 0x2026, 0x2018, 0x2019, 0x201C, 0x201D ].map { |code| code.chr(Encoding::UTF_8) }.each do |glyph|
       refute_includes text, glyph, "template contains U+#{glyph.ord.to_s(16).upcase}"
     end
   end
