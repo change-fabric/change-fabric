@@ -634,6 +634,107 @@ code {
   font-size: 0.95rem;
 }
 
+/* Harness strip: monochrome marks drawn as masks in the muted ink, so they
+   follow the theme without per-theme assets. Heights are set per mark for
+   optical balance, not to one intrinsic size. */
+.harnesses {
+  margin-top: var(--s7);
+}
+
+.harnesses-title {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 0 0 var(--s4);
+}
+
+.harness-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s4) var(--s6);
+}
+
+.harness-link {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  color: var(--muted);
+  text-decoration: none;
+  transition: color 160ms ease;
+}
+
+/* A hover tints the marks raw lilac. The text label (Pi's) takes the
+   contrast-adjusted accent instead, since raw lilac on cream is only 3.5:1. */
+.harness-link:hover,
+.harness-link:focus-visible {
+  color: var(--accent);
+}
+
+@media (forced-colors: none) {
+  .harness-link:hover .harness-mark,
+  .harness-link:focus-visible .harness-mark {
+    color: var(--lilac);
+  }
+}
+
+.harness-mark {
+  display: block;
+  flex: none;
+  background: currentColor;
+  mask: var(--mark) center / contain no-repeat;
+  -webkit-mask: var(--mark) center / contain no-repeat;
+}
+
+.harness-claude .harness-mark {
+  --mark: url("/brand/harness/anthropic.png");
+  width: 107px;
+  height: 12px;
+}
+
+.harness-openai .harness-mark {
+  --mark: url("/brand/harness/openai.png");
+  width: 74px;
+  height: 20px;
+}
+
+.harness-copilot .harness-mark {
+  --mark: url("/brand/harness/copilot.png");
+  width: 127px;
+  height: 16px;
+}
+
+.harness-opencode .harness-mark {
+  --mark: url("/brand/harness/opencode.svg");
+  width: 112px;
+  height: 20px;
+}
+
+.harness-pi .harness-mark {
+  --mark: url("/brand/harness/pi.svg");
+  width: 18px;
+  height: 18px;
+}
+
+/* Forced colors repaint backgrounds, which would blank a mask drawn with one;
+   paint the mark in the system link color instead. */
+@media (forced-colors: active) {
+  .harness-mark {
+    background: LinkText;
+    forced-color-adjust: none;
+  }
+}
+
+.harness-name {
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
 .home-section {
   margin-top: 80px;
 }
@@ -1455,6 +1556,12 @@ code {
   }
   .hero-actions {
     margin-top: var(--s5);
+  }
+  .harnesses {
+    margin-top: var(--s6);
+  }
+  .harness-list {
+    gap: var(--s3) var(--s5);
   }
   .home-section {
     margin-top: var(--s8);

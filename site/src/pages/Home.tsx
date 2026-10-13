@@ -40,6 +40,16 @@ change_policy:
 ---
 `;
 
+// Claude Code is native; OpenCode and Pi are wired by install.rb. Codex and
+// Copilot adapters are planned, shown here ahead of them for the prototype.
+const HARNESSES = [
+  { id: "claude", url: "https://claude.com/product/claude-code", name: "Claude Code", showName: false },
+  { id: "openai", url: "https://openai.com/codex/", name: "OpenAI Codex", showName: false },
+  { id: "copilot", url: "https://github.com/copilot", name: "GitHub Copilot", showName: false },
+  { id: "opencode", url: "https://opencode.ai/", name: "OpenCode", showName: false },
+  { id: "pi", url: "https://pi.dev/", name: "Pi", showName: true },
+] as const;
+
 function Lane({ n, role, name, detail, url }: (typeof LANES)[number]) {
   return (
     <li>
@@ -75,6 +85,26 @@ export function Home() {
             <a className="btn btn-quiet" href={specPath(CURRENT_VERSION)}>
               Read the spec
             </a>
+          </div>
+          <div className="harnesses" aria-labelledby="harnesses-title">
+            <p className="harnesses-title" id="harnesses-title">
+              Works with your coding agents
+            </p>
+            <ul className="harness-list">
+              {HARNESSES.map((h) => (
+                <li key={h.name} className={`harness harness-${h.id}`}>
+                  <a className="harness-link" href={h.url} target="_blank" rel="noopener noreferrer">
+                    <span className="harness-mark" aria-hidden="true" />
+                    {h.showName ? (
+                      <span className="harness-name">{h.name}</span>
+                    ) : (
+                      <span className="sr-only">{h.name}</span>
+                    )}
+                    <span className="sr-only"> (opens in a new tab)</span>
+                  </a>
+                </li>
+              ))}
+            </ul>
           </div>
         </section>
 
