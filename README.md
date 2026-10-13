@@ -61,7 +61,8 @@ ruby change-fabric/install.rb
 
 Either path symlinks the skills into `~/.claude/skills`, wires the hooks into
 `~/.claude/settings.json` (backed up alongside it as `settings.json.bak`), and
-mirrors into `~/.pi` and `~/.config/opencode` when present. The installer needs
+mirrors into `~/.pi` and `~/.config/opencode` when present. GitHub Copilot gets
+portable-named skill copies (`cf-x`) in `~/.copilot/skills`; skills only, no hooks. The installer needs
 Ruby 3.2 or newer (the bundled scripts use `Data`; CI runs 3.4), takes no
 input, and is idempotent.
 
