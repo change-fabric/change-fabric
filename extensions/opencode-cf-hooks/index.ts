@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 
 // Partial cf hooks for OpenCode, mirroring extensions/pi-cf-hooks: bash calls
 // are mapped to a PreToolUse event for merge_mode_guard.rb and slop_remind.rb,
@@ -21,9 +21,12 @@ export const CfHooks = async ({ directory }: { directory: string }) => ({
 	"tool.execute.before": async (input: { tool: string; sessionID?: string }, output: { args?: unknown }) => {
 		if (input.tool !== "bash") return;
 		const id = createHash("sha256").update(input.sessionID ?? directory).digest("hex").slice(0, 32);
-		const payload = { session_id: `opencode-${id}`, cwd: directory, tool_name: "Bash", tool_input: output.args ?? {} };
+		// The command runs in args.workdir when given, so the guards must too.
+		const workdir = (output.args as { workdir?: unknown } | undefined)?.workdir;
+		const cwd = typeof workdir === "string" && workdir ? resolve(directory, workdir) : directory;
+		const payload = { session_id: `opencode-${id}`, cwd, tool_name: "Bash", tool_input: output.args ?? {} };
 		for (const script of ["merge_mode_guard.rb", "slop_remind.rb"]) {
-			const hook = (await runHook(script, payload, directory)).hookSpecificOutput;
+			const hook = (await runHook(script, payload, cwd)).hookSpecificOutput;
 			if (hook?.permissionDecision === "deny") throw new Error(hook.permissionDecisionReason ?? "Blocked by cf hook");
 			if (hook?.additionalContext) throw new Error(`${hook.additionalContext}\n\nReview the command against this, then run it again.`);
 		}
@@ -31,17 +34,24 @@ export const CfHooks = async ({ directory }: { directory: string }) => ({
 });
 
 function runHook(script: string, event: Record<string, unknown>, cwd: string): Promise<HookOutput> {
-	return new Promise((resolve) => {
+	return new Promise((done) => {
 		const child = spawn(RUBY, [join(HOOK_BIN, script)], { cwd, stdio: ["pipe", "pipe", "ignore"] });
 		let stdout = "";
-		const timeout = setTimeout(() => child.kill(), HOOK_TIMEOUT_MS);
-		const finish = () => {
+		let settled = false;
+		const finish = (result: HookOutput) => {
+			if (settled) return;
+			settled = true;
 			clearTimeout(timeout);
-			resolve(parse(stdout));
+			done(result);
 		};
+		// Settle on the timer itself, so a hook that ignores the kill cannot hang the call.
+		const timeout = setTimeout(() => {
+			child.kill();
+			finish({});
+		}, HOOK_TIMEOUT_MS);
 		child.stdout.on("data", (chunk: Buffer) => (stdout += chunk.toString()));
-		child.on("error", finish);
-		child.on("close", finish);
+		child.on("error", () => finish(parse(stdout)));
+		child.on("close", () => finish(parse(stdout)));
 		child.stdin.on("error", () => {});
 		child.stdin.end(JSON.stringify(event));
 	});
