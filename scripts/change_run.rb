@@ -132,6 +132,7 @@ class ChangeRun
                            '--branch B' => :branch, '--pr N' => :pr }.freeze
   COVERAGE_BUILD_ONLY = %w[--repo-copy --merge].freeze
   COVERAGE_IMPORT_ONLY = %w[--format --label --sha --branch --pr --profile --app].freeze
+  COVERAGE_SWEEP_ONLY = %w[--target-url --health-url --for-tag --ref --signoff --no-publish].freeze
 
   def self.main(argv)
     new(argv).run
@@ -314,7 +315,8 @@ class ChangeRun
       coverage_options(o, coverage, given)
     end
     positionals = parser.parse(argv.drop(1))
-    given.concat(argv.drop(1).select { |arg| %w[--profile --app].include?(arg) })
+    given.concat(argv.drop(1).filter_map { |arg| arg[/\A--(?:profile|app)(?==|\z)/] })
+    given.concat(sweep_flags(target_url:, health_url:, for_tag:, ref:, signoff:, publish:)) if scope == 'coverage'
     valid = %w[all sweep gate-status coverage] + ChangeConfig::LANES
     abort_and_exit("scope must be one of: #{valid.join(', ')}") unless valid.include?(scope)
     # `--suite` narrows the testcases lane and nothing else reads it. Refusing
@@ -323,6 +325,7 @@ class ChangeRun
     # indistinguishable, from the outside, from a filter that matched.
     abort_and_exit('--suite narrows the testcases lane; run scope testcases or all') if
       !suites.empty? && !%w[testcases all].include?(scope)
+    abort_and_exit('coverage import records one app; pass --app once') if scope == 'coverage' && apps.size > 1
     coverage = scope == 'coverage' ? check_coverage_args(coverage, positionals, given) : reject_coverage_flags(given)
     Args.new(scope: scope, config_path: path, profile: profile, apps: apps, target_url: target_url,
              health_url: health_url, publish: publish, suites: suites, for_tag: for_tag, ref: ref,
@@ -348,6 +351,12 @@ class ChangeRun
     end
   end
 
+  # The sweep flags a coverage invocation was given; each is refused there.
+  def sweep_flags(target_url:, health_url:, for_tag:, ref:, signoff:, publish:)
+    { '--target-url' => target_url, '--health-url' => health_url, '--for-tag' => for_tag, '--ref' => ref,
+      '--signoff' => signoff || nil, '--no-publish' => (publish ? nil : true) }.compact.keys
+  end
+
   # The coverage flags are meaningless to a sweep, and a flag that is silently
   # ignored looks, from outside, exactly like one that worked.
   def reject_coverage_flags(given)
@@ -362,7 +371,7 @@ class ChangeRun
             'coverage import FILE... --format F [--label L] [--sha S] [--branch B] [--pr N] [--out DIR]'
     abort_and_exit("coverage: verb must be one of #{COVERAGE_VERBS.join(', ')}; #{usage}") unless
       COVERAGE_VERBS.include?(coverage.verb)
-    misplaced = given.uniq & (coverage.verb == 'build' ? COVERAGE_IMPORT_ONLY : COVERAGE_BUILD_ONLY)
+    misplaced = given.uniq & ((coverage.verb == 'build' ? COVERAGE_IMPORT_ONLY : COVERAGE_BUILD_ONLY) + COVERAGE_SWEEP_ONLY)
     abort_and_exit("coverage #{coverage.verb} does not take #{misplaced.join(', ')}; #{usage}") unless misplaced.empty?
     check_coverage_import(coverage, usage) if coverage.verb == 'import'
     abort_and_exit("coverage build takes no file arguments; #{usage}") if coverage.verb == 'build' && !coverage.files.empty?

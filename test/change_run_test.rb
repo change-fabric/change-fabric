@@ -531,6 +531,13 @@ class ChangeRunCoverageArgsTest < Minitest::Test
     assert_includes refused(%w[testcases --format junit --repo-copy]), "--format, --repo-copy only apply"
   end
 
+  def test_coverage_refuses_sweep_flags_and_equals_forms
+    assert_includes refused(%w[coverage build --target-url http://app]), "does not take --target-url"
+    assert_includes refused(%w[coverage build --no-publish]), "does not take --no-publish"
+    assert_includes refused(%w[coverage build --profile=staging]), "does not take --profile"
+    assert_includes refused(%w[coverage import a.xml --format junit --app web --app api]), "pass --app once"
+  end
+
   def test_suite_is_refused_with_coverage
     assert_includes refused(%w[coverage build --suite checkout]), "--suite narrows the testcases lane"
   end

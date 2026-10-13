@@ -212,7 +212,11 @@ class ChangeCoverageStep
 
     def repo = { root: @repo_root, origin: origin }
 
-    def head_time = ChangeGitContext.head_commit_time(@repo_root)
+    def head_time
+      return @head_time if defined?(@head_time)
+
+      @head_time = ChangeGitContext.head_commit_time(@repo_root)
+    end
 
     def trunk = settings.trunk || ChangeGitContext.trunk_default(@repo_root)
 
