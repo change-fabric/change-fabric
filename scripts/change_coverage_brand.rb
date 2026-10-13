@@ -17,9 +17,14 @@ require_relative 'color_math'
 # - An accent too light for text keeps its declared hex on non-text marks
 #   (bars, the header rule); text and focus use it stepped toward ink until
 #   4.5:1, with a warning naming the slot and both ratios.
+# - Ink is stepped away from ground until it reads at 4.5:1 on ground and on
+#   surface, so the text colors stepped toward it can always get there too.
+#   Every text ratio reported is the worse of ground and surface, and a step
+#   that never meets its target warns by slot.
 # - An undeclared dark theme swaps ground and ink and lifts the accent.
 # - No brand, or an unusable light theme, yields a fixed neutral set copied
-#   from artifact.html.erb, not derived.
+#   from artifact.html.erb, not derived. A dark-only brand keeps that neutral
+#   light set and warns.
 #
 # The font is a family name only, followed by the system stack; nothing is
 # embedded. A logo must sit inside the repo root, be at most 256 KB, and be a
@@ -80,12 +85,14 @@ module ChangeCoverageBrand
   def mix_hex(a, b, t) = ColorMath.to_hex(ColorMath.mix(ColorMath.hex(a), ColorMath.hex(b), t))
 
   # Steps `from` toward `toward` in STEP increments until the block accepts
-  # the candidate, returning [hex, steps taken]. Stops at `toward` itself.
+  # the candidate, returning [hex, steps taken, accepted]. Stops at `toward`
+  # itself, with accepted false when even that fails the block.
   def step_until(from, toward, start: 0.0)
     t = start
     loop do
       candidate = mix_hex(from, toward, t)
-      return [ candidate, ((t - start) / STEP).round ] if yield(candidate) || t >= 1.0
+      met = yield(candidate)
+      return [ candidate, ((t - start) / STEP).round, met ] if met || t >= 1.0
 
       t = [ t + STEP, 1.0 ].min
     end
@@ -118,8 +125,9 @@ module ChangeCoverageBrand
     def warn(message) = @warnings << message
 
     def themes
-      light_slots = slots(@brand&.light, 'light')
-      dark_slots = slots(@brand&.dark, 'dark')
+      light_slots = slots(@brand&.light, 'light', 'neutral')
+      dark_slots = slots(@brand&.dark, 'dark', light_slots ? 'derived' : 'neutral')
+      warn_light_missing if dark_slots && @brand.light.nil?
       light = light_slots ? derive(light_slots, 'light') : ChangeCoverageBrand::NEUTRAL_LIGHT.dup
       dark =
         if dark_slots then derive(dark_slots, 'dark')
@@ -129,9 +137,16 @@ module ChangeCoverageBrand
       [ light, dark ]
     end
 
+    # A brand dark theme beside the neutral light one would mix two
+    # identities on one page, so the user is asked to declare both.
+    def warn_light_missing
+      warn("#{PREFIX}.colors.light: not declared; the light theme uses the neutral set beside the brand " \
+           "dark theme; declare #{PREFIX}.colors.light to brand both")
+    end
+
     # Re-checks a declared theme even though QaReportConfig already did, so a
     # hand-built Brand cannot carry anything but hex into the page's CSS.
-    def slots(theme, name)
+    def slots(theme, name, fallback)
       return nil if theme.nil?
 
       values = SLOTS.to_h { |slot| [ slot, theme[slot.to_sym] || theme[slot] ] }
@@ -139,7 +154,7 @@ module ChangeCoverageBrand
       return values.transform_values { |v| ColorMath.to_hex(ColorMath.hex(v)) } if bad.empty?
 
       bad.each_key { |slot| warn("#{PREFIX}.colors.#{name}.#{slot}: expected #rgb or #rrggbb (got #{values[slot].inspect})") }
-      warn("#{PREFIX}.colors.#{name}: theme not used; falling back to the #{name == 'light' ? 'neutral' : 'derived'} #{name} theme")
+      warn("#{PREFIX}.colors.#{name}: theme not used; falling back to the #{fallback} #{name} theme")
       nil
     end
 
@@ -148,24 +163,31 @@ module ChangeCoverageBrand
     def swap(light)
       ground = light['ink']
       ink = light['ground']
-      accent, = ChangeCoverageBrand.step_until(light['accent'], ink) do |c|
+      accent, _, met = ChangeCoverageBrand.step_until(light['accent'], ink) do |c|
         ChangeCoverageBrand.contrast(c, ground) >= NON_TEXT
+      end
+      unless met
+        warn("#{slot_name('dark', 'accent', derived: true)} #{accent} is " \
+             "#{ChangeCoverageBrand.shown_ratio(ChangeCoverageBrand.contrast(accent, ground))}:1 on ground; below #{NON_TEXT}:1")
       end
       { 'ground' => ground, 'ink' => ink, 'accent' => accent }
     end
 
+    def slot_name(theme, slot, derived: false)
+      "#{PREFIX}.colors.#{theme}.#{slot}#{derived ? ' (derived from light)' : ''}"
+    end
+
     def derive(slots, theme, derived: false)
-      slot = "#{PREFIX}.colors.#{theme}"
-      label = derived ? ' (derived from light)' : ''
       ground = slots['ground']
-      ink = readable_ink(slots['ink'], ground, "#{slot}.ink#{label}")
+      ink = readable_ink(slots['ink'], ground, slot_name(theme, 'ink', derived: derived))
       accent = slots['accent']
       surface = ChangeCoverageBrand.mix_hex(ground, ink, SURFACE_MIX)
       border = ChangeCoverageBrand.mix_hex(ground, ink, BORDER_MIX)
-      text_ok = ->(c) { ChangeCoverageBrand.contrast(c, ground) >= TEXT && ChangeCoverageBrand.contrast(c, surface) >= TEXT }
-      muted, = ChangeCoverageBrand.step_until(ground, ink, start: MUTED_START, &text_ok)
-      accent_text = accent_for_text(accent, ink, ground, "#{slot}.accent#{label}", text_ok)
-      warn_status(theme, ground, slot)
+      backgrounds = [ ground, surface ]
+      muted, _, met = ChangeCoverageBrand.step_until(ground, ink, start: MUTED_START) { |c| worst(c, *backgrounds) >= TEXT }
+      warn("#{ratio_on(slot_name(theme, 'muted', derived: derived), muted, worst(muted, *backgrounds))}; below #{TEXT}:1") unless met
+      accent_text = accent_for_text(accent, ink, backgrounds, slot_name(theme, 'accent', derived: derived))
+      warn_status(theme, ground, "#{PREFIX}.colors.#{theme}")
       {
         'ground' => ground, 'ink' => ink, 'surface' => surface, 'border' => border, 'muted' => muted,
         'accent' => accent, 'accent-text' => accent_text, 'focus' => accent_text,
@@ -173,30 +195,38 @@ module ChangeCoverageBrand
       }
     end
 
-    # Ink under 4.5:1 on its ground is stepped away from the ground (toward
-    # black or white, whichever contrasts more) and reported.
+    # The lower of a color's ratios on ground and on surface: text sits on both.
+    def worst(color, ground, surface) = [ ground, surface ].map { |bg| ChangeCoverageBrand.contrast(color, bg) }.min
+
+    # Ink under 4.5:1 on its ground or on the surface it derives is stepped
+    # away from the ground (toward black or white, whichever contrasts more)
+    # and reported. Ink that holds on both lets muted and accent text, which
+    # step toward it, always reach 4.5:1 as well.
     def readable_ink(ink, ground, slot)
-      before = ChangeCoverageBrand.contrast(ink, ground)
+      ink_ratio = ->(c) { worst(c, ground, ChangeCoverageBrand.mix_hex(ground, c, SURFACE_MIX)) }
+      before = ink_ratio.call(ink)
       return ink if before >= TEXT
 
       extreme = ChangeCoverageBrand.contrast('#000000', ground) >= ChangeCoverageBrand.contrast('#ffffff', ground) ? '#000000' : '#ffffff'
-      fixed, = ChangeCoverageBrand.step_until(ink, extreme) { |c| ChangeCoverageBrand.contrast(c, ground) >= TEXT }
-      warn(ratio_message(slot, ink, before, 'text uses', fixed, ChangeCoverageBrand.contrast(fixed, ground)))
+      fixed, = ChangeCoverageBrand.step_until(ink, extreme) { |c| ink_ratio.call(c) >= TEXT }
+      warn(ratio_message(slot, ink, before, 'text uses', fixed, ink_ratio.call(fixed)))
       fixed
     end
 
-    def accent_for_text(accent, ink, ground, slot, text_ok)
-      fixed, steps = ChangeCoverageBrand.step_until(accent, ink, &text_ok)
+    def accent_for_text(accent, ink, backgrounds, slot)
+      fixed, steps = ChangeCoverageBrand.step_until(accent, ink) { |c| worst(c, *backgrounds) >= TEXT }
       return accent if steps.zero?
 
-      before = ChangeCoverageBrand.contrast(accent, ground)
-      warn(ratio_message(slot, accent, before, 'text and focus use', fixed, ChangeCoverageBrand.contrast(fixed, ground)))
+      warn(ratio_message(slot, accent, worst(accent, *backgrounds), 'text and focus use', fixed, worst(fixed, *backgrounds)))
       fixed
     end
 
+    # "<slot> <color> is <ratio>:1 on ground or surface", the ratio floored.
+    def ratio_on(slot, color, ratio) = "#{slot} #{color} is #{ChangeCoverageBrand.shown_ratio(ratio)}:1 on ground or surface"
+
     def ratio_message(slot, declared, before, uses, fixed, after)
-      "#{slot} #{declared} is #{ChangeCoverageBrand.shown_ratio(before)}:1 on ground; " \
-        "#{uses} #{fixed} (#{ChangeCoverageBrand.shown_ratio(after)}:1)"
+      short = after >= TEXT ? '' : ", still below #{TEXT}:1"
+      "#{ratio_on(slot, declared, before)}; #{uses} #{fixed} (#{ChangeCoverageBrand.shown_ratio(after)}:1#{short})"
     end
 
     def on_accent(accent, ground, ink)
@@ -224,7 +254,8 @@ module ChangeCoverageBrand
         warn("#{PREFIX}.font.family: expected letters, digits, spaces and , ' \" - only; using the system stack")
         return SYSTEM_STACK
       end
-      "#{quoted_families(family)}, #{SYSTEM_STACK}"
+      names = quoted_families(family)
+      names.empty? ? SYSTEM_STACK : "#{names}, #{SYSTEM_STACK}"
     end
 
     # Each declared family as a quoted CSS string: an unquoted name such as
@@ -281,7 +312,7 @@ module ChangeCoverageBrand
     text = bytes.dup.force_encoding(Encoding::UTF_8)
     return false unless text.valid_encoding?
 
-    text = text.delete_prefix("﻿")
+    text = text.delete_prefix("\uFEFF")
     loop do
       stripped = text.lstrip.sub(/\A<\?xml\b.*?\?>/m, '').lstrip.sub(/\A<!--.*?-->/m, '').lstrip.sub(/\A<!DOCTYPE\b[^>]*>/mi, '')
       break if stripped == text
