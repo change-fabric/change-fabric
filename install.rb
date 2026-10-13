@@ -55,8 +55,9 @@ module Install
     def pi_extension_source  = File.join(@repo, 'extensions', 'pi-cf-hooks')
     def pi_extension_link    = File.join(pi_extensions_root, 'cf-hooks')
     def opencode_plugins_root   = File.join(@home, '.config', 'opencode', 'plugins')
-    def opencode_plugin_source  = File.join(@repo, 'extensions', 'opencode-cf-hooks')
-    def opencode_plugin_link    = File.join(opencode_plugins_root, 'cf-hooks')
+    def opencode_plugin_source  = File.join(@repo, 'extensions', 'opencode-cf-hooks', 'index.ts')
+    # OpenCode loads only plugins/*.{ts,js}, never a nested directory.
+    def opencode_plugin_link    = File.join(opencode_plugins_root, 'cf-hooks.ts')
 
     def scripts_glob         = Dir.glob(File.join(scripts, '*.rb'))
     # Assets a script reads at run time rather than requires: today the pinned

@@ -25,7 +25,7 @@ lets a caller set the starting mode without a prompt: set it to one of
 The `/cf` command still works mid-session to change the mode.
 
 OpenCode gets a smaller plugin (`extensions/opencode-cf-hooks/index.ts`,
-linked into `~/.config/opencode/plugins/cf-hooks`). It runs only
+linked as `~/.config/opencode/plugins/cf-hooks.ts`). It runs only
 `merge_mode_guard.rb` and `slop_remind.rb` on bash calls and blocks on a
 deny; it does not set or prompt for the merge mode.
 

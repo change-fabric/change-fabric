@@ -268,17 +268,19 @@ class InstallerTest < Minitest::Test
   def test_links_opencode_hook_plugin
     paths = install
     assert File.symlink?(paths.opencode_plugin_link), "OpenCode hook plugin should be symlinked"
+    assert_equal ".ts", File.extname(paths.opencode_plugin_link), "OpenCode only loads top-level .ts/.js plugins"
     assert_equal paths.opencode_plugin_source, File.readlink(paths.opencode_plugin_link)
     install
     assert_equal paths.opencode_plugin_source, File.readlink(paths.opencode_plugin_link)
   end
 
-  def test_preserves_unmanaged_opencode_plugin_dir
+  def test_preserves_unmanaged_opencode_plugin_file
     paths = Install::Paths.new(repo: @repo, home: @home)
-    FileUtils.mkdir_p(paths.opencode_plugin_link)
+    FileUtils.mkdir_p(paths.opencode_plugins_root)
+    File.write(paths.opencode_plugin_link, "// user plugin\n")
     install
-    assert File.directory?(paths.opencode_plugin_link), "unmanaged OpenCode plugin dir should be preserved"
-    refute File.symlink?(paths.opencode_plugin_link), "unmanaged OpenCode plugin dir should not be replaced"
+    assert_equal "// user plugin\n", File.read(paths.opencode_plugin_link), "unmanaged OpenCode plugin should be preserved"
+    refute File.symlink?(paths.opencode_plugin_link), "unmanaged OpenCode plugin should not be replaced"
   end
 
   def test_mirrors_portable_skill_names_to_opencode
