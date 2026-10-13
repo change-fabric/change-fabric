@@ -145,7 +145,9 @@ class ChangeAppRegistry
     # qa_report: is root-level, so it is reported once per registry rather
     # than inside each app's block.
     lines << ''
-    lines.concat(QaReportConfig.doctor_lines(File.dirname(change_md_path), project: registry.project))
+    root = File.dirname(change_md_path)
+    lines.concat(QaReportConfig.doctor_lines(root, project: registry.project))
+    lines.concat(QaReportConfig.gitattributes_lines(root, QaReportConfig.load(root, project: registry.project).repo_copy_dir))
     lines.join("\n")
   end
 

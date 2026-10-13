@@ -19,6 +19,9 @@ require_relative 'change_frontmatter'
 module QaReportConfig
   KEY = 'qa_report'
   DEFAULT_MAX_RUNS = 200
+  # The coverage data file's name (ChangeCoverageStore::DATA_FILE), named here
+  # for the repo copy's .gitattributes check without loading the store.
+  DATA_FILE = 'report-data.js'
   MAX_RUNS_RANGE = (10..5000)
   THEMES = %w[light dark].freeze
   SLOTS = %w[ground ink accent].freeze
@@ -70,6 +73,22 @@ module QaReportConfig
   def doctor_lines(repo_root, project: nil)
     settings = load(repo_root, project: project)
     [ summary_line(settings) ] + settings.warnings.map { |w| "warning: #{w}" }
+  end
+
+  # The repo copy's data file is rewritten whole on each build, so two
+  # branches that both rebuilt it conflict on merge unless git union-merges it
+  # (the reader dedupes by id). When repo_copy.dir is set and .gitattributes
+  # lacks that rule, a warning and the line to add; else nothing. Never writes
+  # .gitattributes itself.
+  def gitattributes_lines(repo_root, dir)
+    return [] if dir.to_s.empty?
+
+    rule = "#{dir.to_s.delete_suffix('/')}/#{DATA_FILE} merge=union"
+    path = File.join(repo_root, '.gitattributes')
+    return [] if File.file?(path) && File.readlines(path, chomp: true).any? { |line| line.split.join(' ') == rule }
+
+    [ "warning: #{KEY}.repo_copy.dir: .gitattributes does not union-merge the repo copy; add this line:",
+      "  #{rule}" ]
   end
 
   def summary_line(settings)

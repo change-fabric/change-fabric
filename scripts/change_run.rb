@@ -7,6 +7,7 @@ require_relative 'change_apps'
 require_relative 'change_artifact'
 require_relative 'change_boot'
 require_relative 'change_config'
+require_relative 'change_coverage_step'
 require_relative 'change_docker'
 require_relative 'change_findings'
 require_relative 'change_gate_check'
@@ -31,6 +32,16 @@ require_relative 'change_lane_testcases'
 #        [--app NAME]... [--target-url URL] [--health-url URL] [--suite NAME]...
 #        [--no-publish] [--for-tag TAGNAME]
 #        change_run.rb gate-status [--ref REF] [--config PATH]
+#        change_run.rb coverage build [--config PATH] [--repo-copy] [--merge PATH]... [--out DIR]
+#        change_run.rb coverage import FILE... --format F [--label L] [--profile P] [--app A]
+#        [--sha S] [--branch B] [--pr N] [--config PATH] [--out DIR]
+#
+# coverage (QA coverage report) needs no docker: `build` rewrites the local
+# store under ~/.claude/cf/coverage/<project>/ (or --out DIR) and its page,
+# merging any --merge data file first, and with --repo-copy also merges it by
+# id with the copy under qa_report.repo_copy.dir; `import` records one run
+# from CI result files. Every sweep also records a coverage run after its
+# report, best-effort: it never changes the exit code, findings or gate.
 #
 # --for-tag TAGNAME (0.9.0, trunk + tag releases): resolves the tag against
 # change_policy.promotion's tag: rules, runs `all` once per distinct profile
@@ -111,7 +122,16 @@ class ChangeRun
   end
 
   Args = Struct.new(:scope, :config_path, :profile, :apps, :target_url, :health_url, :publish, :suites,
-                    :for_tag, :ref, :signoff, keyword_init: true)
+                    :for_tag, :ref, :signoff, :coverage, keyword_init: true)
+
+  # The `coverage` subcommand's verb, positionals and options; nil outside it.
+  CoverageArgs = Struct.new(:verb, :files, :repo_copy, :merges, :out, :format, :label, :sha, :branch, :pr,
+                            keyword_init: true)
+  COVERAGE_VERBS = %w[build import].freeze
+  COVERAGE_VALUE_FLAGS = { '--out DIR' => :out, '--format F' => :format, '--label L' => :label, '--sha S' => :sha,
+                           '--branch B' => :branch, '--pr N' => :pr }.freeze
+  COVERAGE_BUILD_ONLY = %w[--repo-copy --merge].freeze
+  COVERAGE_IMPORT_ONLY = %w[--format --label --sha --branch --pr --profile --app].freeze
 
   def self.main(argv)
     new(argv).run
@@ -123,6 +143,7 @@ class ChangeRun
 
   def run
     return gate_status if @args.scope == 'gate-status'
+    return coverage if @args.scope == 'coverage'
     return abort_setup('docker is not available') unless ChangeDocker.available?
     return sweep_stale_resources if @args.scope == 'sweep'
     return run_for_tag if @args.for_tag
@@ -134,10 +155,15 @@ class ChangeRun
 
   private
 
+  # One coverage sweep identity per invocation (one clock reading, the head
+  # sha), shared by every app this sweep records.
   def run_sweep
     registry = ChangeAppRegistry.load(@args.config_path)
     entries = @args.apps.empty? ? registry.enabled_entries : registry.fetch(@args.apps)
-    results = entries.map { |entry| run_entry(entry, multi: registry.multi_app?) }
+    sweep = ChangeCoverageStep.sweep_ids(Time.now.utc, head_sha)
+    results = entries.map do |entry|
+      run_entry(entry, multi: registry.multi_app?, sweep: sweep, registry_project: registry.project)
+    end
     write_rollup(registry, results) if registry.multi_app?
     results.all? { |result| result[:passed] } ? 0 : 1
   end
@@ -262,6 +288,8 @@ class ChangeRun
 
   def parse_args(argv)
     scope = argv.first
+    coverage = CoverageArgs.new(files: [], repo_copy: false, merges: [])
+    given = []
     path = ChangeConfig::DEFAULT_PATH
     profile = nil
     apps = []
@@ -272,7 +300,7 @@ class ChangeRun
     for_tag = nil
     ref = nil
     signoff = false
-    OptionParser.new do |o|
+    parser = OptionParser.new do |o|
       o.on('--config PATH') { |value| path = value }
       o.on('--profile NAME') { |value| profile = value }
       o.on('--app NAME') { |value| apps << value }
@@ -283,8 +311,11 @@ class ChangeRun
       o.on('--for-tag NAME') { |value| for_tag = value }
       o.on('--ref REF') { |value| ref = value }
       o.on('--signoff') { signoff = true }
-    end.parse(argv.drop(1))
-    valid = %w[all sweep gate-status] + ChangeConfig::LANES
+      coverage_options(o, coverage, given)
+    end
+    positionals = parser.parse(argv.drop(1))
+    given.concat(argv.drop(1).select { |arg| %w[--profile --app].include?(arg) })
+    valid = %w[all sweep gate-status coverage] + ChangeConfig::LANES
     abort_and_exit("scope must be one of: #{valid.join(', ')}") unless valid.include?(scope)
     # `--suite` narrows the testcases lane and nothing else reads it. Refusing
     # it outside a run that includes that lane keeps a mistyped invocation from
@@ -292,9 +323,57 @@ class ChangeRun
     # indistinguishable, from the outside, from a filter that matched.
     abort_and_exit('--suite narrows the testcases lane; run scope testcases or all') if
       !suites.empty? && !%w[testcases all].include?(scope)
+    coverage = scope == 'coverage' ? check_coverage_args(coverage, positionals, given) : reject_coverage_flags(given)
     Args.new(scope: scope, config_path: path, profile: profile, apps: apps, target_url: target_url,
              health_url: health_url, publish: publish, suites: suites, for_tag: for_tag, ref: ref,
-             signoff: signoff)
+             signoff: signoff, coverage: coverage)
+  end
+
+  # The coverage subcommand's options. `given` collects each flag seen, so a
+  # flag the chosen scope or verb cannot use is refused rather than ignored.
+  def coverage_options(opts, coverage, given)
+    COVERAGE_VALUE_FLAGS.each do |spec, field|
+      opts.on(spec) do |value|
+        given << spec.split.first
+        coverage[field] = value
+      end
+    end
+    opts.on('--repo-copy') do
+      given << '--repo-copy'
+      coverage.repo_copy = true
+    end
+    opts.on('--merge PATH') do |value|
+      given << '--merge'
+      coverage.merges << value
+    end
+  end
+
+  # The coverage flags are meaningless to a sweep, and a flag that is silently
+  # ignored looks, from outside, exactly like one that worked.
+  def reject_coverage_flags(given)
+    flags = given.uniq - %w[--profile --app]
+    abort_and_exit("#{flags.join(', ')} only apply to the coverage subcommand") unless flags.empty?
+    nil
+  end
+
+  def check_coverage_args(coverage, positionals, given)
+    coverage.verb, *coverage.files = positionals
+    usage = 'usage: coverage build [--repo-copy] [--merge PATH]... [--out DIR] | ' \
+            'coverage import FILE... --format F [--label L] [--sha S] [--branch B] [--pr N] [--out DIR]'
+    abort_and_exit("coverage: verb must be one of #{COVERAGE_VERBS.join(', ')}; #{usage}") unless
+      COVERAGE_VERBS.include?(coverage.verb)
+    misplaced = given.uniq & (coverage.verb == 'build' ? COVERAGE_IMPORT_ONLY : COVERAGE_BUILD_ONLY)
+    abort_and_exit("coverage #{coverage.verb} does not take #{misplaced.join(', ')}; #{usage}") unless misplaced.empty?
+    check_coverage_import(coverage, usage) if coverage.verb == 'import'
+    abort_and_exit("coverage build takes no file arguments; #{usage}") if coverage.verb == 'build' && !coverage.files.empty?
+    coverage
+  end
+
+  def check_coverage_import(coverage, usage)
+    abort_and_exit("coverage import needs at least one FILE; #{usage}") if coverage.files.empty?
+    abort_and_exit("coverage import needs --format; #{usage}") if coverage.format.to_s.empty?
+    abort_and_exit("coverage import: --pr must be a number, got #{coverage.pr.inspect}") if
+      coverage.pr && !coverage.pr.match?(/\A\d+\z/)
   end
 
   def overrides
@@ -320,7 +399,7 @@ class ChangeRun
   # One app's full boot -> lanes -> report -> gate-record cycle. `multi` names
   # the run in every log line and report filename only when this sweep covers
   # more than one app, so a single-app repo's output is unchanged.
-  def run_entry(entry, multi:)
+  def run_entry(entry, multi:, sweep: nil, registry_project: nil)
     config = entry.load(profile: @args.profile, overrides: overrides)
     log("[change] warning: #{config.spec_version_mismatch}") if config.spec_version_mismatch
     label = multi ? entry.name : nil
@@ -333,6 +412,8 @@ class ChangeRun
     record_gate(config, findings, report, app: label, manifest: manifest)
     summarize(findings, report, app: label)
     publish_artifact(artifact, config, findings, report, app: label)
+    record_coverage(config, lanes, findings, instances,
+                    app: label, sweep: sweep, registry_project: registry_project || entry.name)
     { app: entry.name, passed: findings.passed?, failing: findings.failures.size, report: File.basename(report[:markdown]) }
   end
 
@@ -515,6 +596,55 @@ class ChangeRun
     }
     artifact.finish(findings: findings, report: report, run: run)
             .each { |line| log("[change] #{app ? "[#{app}] " : ''}#{line}") }
+  end
+
+  # The QA coverage record for this app, after everything that decides the
+  # run. Best-effort like publish_artifact: it reads the findings and the lane
+  # instances, never writes either, and its return value is ignored, so a
+  # coverage problem is one log line and never a different verdict. Keyed on
+  # the registry project, so a profile that renames config.project does not
+  # split one repo's history.
+  def record_coverage(config, lanes, findings, instances, app:, sweep:, registry_project:)
+    sweep ||= ChangeCoverageStep.sweep_ids(Time.now.utc, head_sha)
+    lines = coverage_step.record_sweep(
+      registry_project: registry_project, repo_root: repo_root, config: config, app: app, lanes_ran: lanes,
+      findings: findings, instances: instances, ids: ChangeCoverageStep.run_ids(sweep, app: app),
+      toolkit: toolkit_version, selection: { suites: @args.suites, tags: [] }, scope: @args.scope
+    )
+    lines.each { |line| log("[change] [coverage] #{app ? "[#{app}] " : ''}#{line}") }
+  rescue StandardError => e
+    log("[change] [coverage] #{app ? "[#{app}] " : ''}skipped (#{e.class}: #{e.message})")
+  end
+
+  def coverage_step = ChangeCoverageStep.new
+
+  # `coverage build|import`: no docker, no boot, no lanes. The repo is the
+  # directory holding --config's CHANGE.md when there is one, else the git
+  # toplevel; the store is keyed on that CHANGE.md's registry project.
+  def coverage
+    args = @args.coverage
+    root = coverage_root
+    step = ChangeCoverageStep.new(
+      repo_root: root, project: ChangeCoverageStep.registry_project(File.join(root, 'CHANGE.md')),
+      toolkit: toolkit_version
+    )
+    code, lines = coverage_verb(step, args)
+    lines.each { |line| log("[change] [coverage] #{line}") }
+    code
+  end
+
+  def coverage_verb(step, args)
+    if args.verb == 'build'
+      step.build(repo_copy: args.repo_copy, merges: args.merges, out: args.out)
+    else
+      identity = { sha: args.sha, branch: args.branch, pr: args.pr, profile: @args.profile, app: @args.apps.first }
+      step.import(files: args.files, format: args.format, label: args.label, identity: identity, out: args.out)
+    end
+  end
+
+  def coverage_root
+    path = File.expand_path(@args.config_path)
+    File.file?(path) ? File.dirname(path) : repo_root
   end
 
   def summarize(findings, report, app:)

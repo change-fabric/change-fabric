@@ -116,7 +116,7 @@ class QaReportConfigTest < Minitest::Test
                  QaReportConfig.doctor_lines(@repo)
   end
 
-  def test_registry_doctor_reports_qa_report_once_at_the_end
+  def write_registry
     apps = "  project: fixture-app\n  apps:\n    web: { config: web/CHANGE.md }\n    api: { config: api/CHANGE.md }\n"
     write_change_md(FULL.sub("  project: fixture-app\n", apps))
     %w[web api].each do |app|
@@ -125,9 +125,23 @@ class QaReportConfigTest < Minitest::Test
                  "---\nchange_config:\n  project: #{app}\n  lanes:\n    a11y:\n      enabled: true\n" \
                  "      base_url: http://localhost:3000\n      routes: [\"/\"]\n---\n")
     end
+  end
+
+  def test_registry_doctor_reports_qa_report_once_at_the_end
+    write_registry
+    File.write(File.join(@repo, ".gitattributes"), "docs/qa-coverage/report-data.js merge=union\n")
     summary = ChangeAppRegistry.doctor(File.join(@repo, "CHANGE.md"))
     assert_equal 1, summary.scan(/^qa_report: /).size
     assert summary.rstrip.end_with?("repo copy docs/qa-coverage, max_runs 300")
+  end
+
+  # The repo copy is rewritten whole, so without a union merge rule two
+  # branches that each rebuilt it conflict; doctor prints the line to add.
+  def test_registry_doctor_warns_when_the_repo_copy_has_no_union_merge_rule
+    write_registry
+    summary = ChangeAppRegistry.doctor(File.join(@repo, "CHANGE.md"))
+    assert_includes summary, "qa_report.repo_copy.dir: .gitattributes does not union-merge the repo copy"
+    assert summary.rstrip.end_with?("docs/qa-coverage/report-data.js merge=union")
   end
 
   def test_title_defaults_to_the_brand_name
