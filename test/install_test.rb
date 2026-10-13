@@ -284,6 +284,28 @@ class InstallerTest < Minitest::Test
     assert File.directory?(custom), "unmanaged OpenCode skills should be left alone"
   end
 
+  def test_mirrors_portable_skill_names_to_copilot
+    paths = install
+    translated = File.join(paths.copilot_skills_root, "cf-typescript", "SKILL.md")
+    assert File.exist?(translated), "Copilot should get a translated skill copy"
+    assert_includes File.read(translated).match(/\A---\n(.*?)\n---/m)[1], "name: cf-typescript"
+  end
+
+  def test_copilot_mirror_is_idempotent_and_prunes_stale
+    paths = Install::Paths.new(repo: @repo, home: @home)
+    stale = File.join(paths.copilot_skills_root, "gone")
+    FileUtils.mkdir_p(stale)
+    File.write(File.join(stale, ".cf-generated-from-claude"), "source: old\n")
+    custom = File.join(paths.copilot_skills_root, "custom")
+    FileUtils.mkdir_p(custom)
+    install
+    before = Dir.glob(File.join(paths.copilot_skills_root, "*")).sort
+    install
+    assert_equal before, Dir.glob(File.join(paths.copilot_skills_root, "*")).sort
+    refute File.exist?(stale), "stale generated Copilot skill should be pruned"
+    assert File.directory?(custom), "unmanaged Copilot skills should be left alone"
+  end
+
   def test_prunes_stale_pi_copies_of_managed_skills
     paths = Install::Paths.new(repo: @repo, home: @home)
     stale = File.join(paths.legacy_pi_roots.first, "cf-typescript")

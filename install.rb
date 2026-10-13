@@ -49,6 +49,7 @@ module Install
     def pi_settings          = File.join(@home, '.pi', 'agent', 'settings.json')
     def opencode_config      = File.join(@home, '.config', 'opencode', 'opencode.jsonc')
     def opencode_skills_root = File.join(@home, '.config', 'opencode', 'skills')
+    def copilot_skills_root  = File.join(@home, '.copilot', 'skills')
     def legacy_pi_roots      = [ File.join(@home, '.pi', 'agent', 'skills'), File.join(@home, '.agents', 'skills') ]
     def pi_extensions_root   = File.join(@home, '.pi', 'agent', 'extensions')
     def pi_extension_source  = File.join(@repo, 'extensions', 'pi-cf-hooks')
@@ -67,6 +68,7 @@ module Install
     def manifest             = File.join(bin, '.installed-manifest')
     def skill_link(name)     = File.join(skills_root, name)
     def opencode_skill(name) = File.join(opencode_skills_root, SkillName.portable(name))
+    def copilot_skill(name)  = File.join(copilot_skills_root, SkillName.portable(name))
   end
 
   # Resolves the absolute path of the running Ruby interpreter for hook shebangs.
@@ -349,8 +351,9 @@ module Install
     end
   end
 
-  # OpenCode is stricter about skill names, so cf:foo becomes cf-foo there.
-  class OpenCodeSkillMirror
+  # OpenCode and Copilot are stricter about skill names, so cf:foo becomes
+  # cf-foo there. Subclasses name the destination root and per-skill path.
+  class PortableSkillMirror
     MARKER = '.cf-generated-from-claude'.freeze
     # Recognize the current marker plus the pre-rename markers so mirrors from a
     # prior pst-branded install are still spotted and pruned.
@@ -361,7 +364,7 @@ module Install
     end
 
     def mirror(sources)
-      links = sources.to_h { |source| [ @paths.opencode_skill(SkillName.of(source)), source ] }
+      links = sources.to_h { |source| [ skill_path(SkillName.of(source)), source ] }
       prune_stale(links.keys)
       links.each { |dest, source| write_skill(dest, source) }
     end
@@ -369,7 +372,7 @@ module Install
     private
 
     def prune_stale(keep)
-      Dir.glob(File.join(@paths.opencode_skills_root, '*')).each do |entry|
+      Dir.glob(File.join(skills_root, '*')).each do |entry|
         next unless generated?(entry) && !keep.include?(entry)
 
         FileUtils.rm_rf(entry)
@@ -402,6 +405,21 @@ module Install
     end
   end
 
+  class OpenCodeSkillMirror < PortableSkillMirror
+    private
+
+    def skills_root = @paths.opencode_skills_root
+    def skill_path(name) = @paths.opencode_skill(name)
+  end
+
+  # Copilot reads personal skills from ~/.copilot/skills (GitHub Docs, about agent skills).
+  class CopilotSkillMirror < PortableSkillMirror
+    private
+
+    def skills_root = @paths.copilot_skills_root
+    def skill_path(name) = @paths.copilot_skill(name)
+  end
+
   # Top-level orchestration: copies hooks, links skills, and wires settings.
   class Installer
     HOOKS = {
@@ -427,6 +445,7 @@ module Install
       link_pi_extension
       mirror_to_pi
       mirror_to_opencode
+      mirror_to_copilot
       report(wire_settings)
     end
 
@@ -594,6 +613,10 @@ module Install
       OpenCodeConfigFile.new(@paths.opencode_config).wire([ @paths.opencode_skills_root ])
     end
 
+    def mirror_to_copilot
+      CopilotSkillMirror.new(@paths).mirror(@paths.skill_sources)
+    end
+
     def report(settings)
       skills = @paths.skill_sources.map { |s| SkillName.of(s) }.join(', ')
       puts 'cf shim installed:'
@@ -602,6 +625,7 @@ module Install
       puts "  pi       -> #{@paths.pi_settings}"
       puts "  pi hooks -> #{@paths.pi_extension_link}"
       puts "  opencode -> #{@paths.opencode_skills_root}"
+      puts "  copilot  -> #{@paths.copilot_skills_root}"
       puts "  settings -> #{@paths.settings} (backup at #{settings.backup_path})"
     end
   end
