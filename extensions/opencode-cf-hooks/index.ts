@@ -18,28 +18,43 @@ const HOOK_BIN = join(process.env.HOME ?? "", ".claude", "cf", "bin");
 const RUBY = process.env.CF_RUBY ?? "ruby";
 const HOOK_TIMEOUT_MS = 5_000;
 
-export const CfHooks = async ({ directory }: { directory: string }) => ({
-	"tool.execute.before": async (input: { tool: string; sessionID?: string }, output: { args?: unknown }) => {
-		const id = createHash("sha256").update(input.sessionID ?? directory).digest("hex").slice(0, 32);
-		// Loading a mirrored mode skill (cf-local-only and friends) persists that
-		// mode, as mode_command.rb does for Claude Code, so the guard below reads it.
-		if (input.tool === "skill") {
-			const mode = /^cf[-:](local-only|merge-ready|admin-bypass|yolo)$/.exec(String((output.args as { name?: unknown })?.name ?? ""))?.[1];
-			if (mode) writeMergeMode(`opencode-${id}`, mode);
-			return;
-		}
-		if (input.tool !== "bash") return;
-		// The command runs in args.workdir when given, so the guards must too.
-		const workdir = (output.args as { workdir?: unknown } | undefined)?.workdir;
-		const cwd = typeof workdir === "string" && workdir ? resolve(directory, workdir) : directory;
-		const payload = { session_id: `opencode-${id}`, cwd, tool_name: "Bash", tool_input: output.args ?? {} };
-		for (const script of ["merge_mode_guard.rb", "slop_remind.rb"]) {
-			const hook = (await runHook(script, payload, cwd)).hookSpecificOutput;
-			if (hook?.permissionDecision === "deny") throw new Error(hook.permissionDecisionReason ?? "Blocked by cf hook");
-			if (hook?.additionalContext) throw new Error(`${hook.additionalContext}\n\nReview the command against this, then run it again.`);
-		}
-	},
-});
+type ToolInput = { tool: string; sessionID?: string; callID?: string };
+
+export const CfHooks = async ({ directory }: { directory: string }) => {
+	const sessionKey = (input: ToolInput) =>
+		`opencode-${createHash("sha256").update(input.sessionID ?? directory).digest("hex").slice(0, 32)}`;
+	// Loading a mirrored mode skill (cf-local-only and friends) persists that
+	// mode, as mode_command.rb does for Claude Code. The skill tool checks its
+	// permissions while executing, so the mode is noted here and written only
+	// from tool.execute.after, which runs once the load has succeeded.
+	const pendingModes = new Map<string, string>();
+	return {
+		"tool.execute.after": async (input: ToolInput) => {
+			const key = input.callID ?? sessionKey(input);
+			const mode = pendingModes.get(key);
+			pendingModes.delete(key);
+			if (input.tool === "skill" && mode) writeMergeMode(sessionKey(input), mode);
+		},
+		"tool.execute.before": async (input: ToolInput, output: { args?: unknown }) => {
+			const id = sessionKey(input);
+			if (input.tool === "skill") {
+				const mode = /^cf[-:](local-only|merge-ready|admin-bypass|yolo)$/.exec(String((output.args as { name?: unknown })?.name ?? ""))?.[1];
+				if (mode) pendingModes.set(input.callID ?? id, mode);
+				return;
+			}
+			if (input.tool !== "bash") return;
+			// The command runs in args.workdir when given, so the guards must too.
+			const workdir = (output.args as { workdir?: unknown } | undefined)?.workdir;
+			const cwd = typeof workdir === "string" && workdir ? resolve(directory, workdir) : directory;
+			const payload = { session_id: id, cwd, tool_name: "Bash", tool_input: output.args ?? {} };
+			for (const script of ["merge_mode_guard.rb", "slop_remind.rb"]) {
+				const hook = (await runHook(script, payload, cwd)).hookSpecificOutput;
+				if (hook?.permissionDecision === "deny") throw new Error(hook.permissionDecisionReason ?? "Blocked by cf hook");
+				if (hook?.additionalContext) throw new Error(`${hook.additionalContext}\n\nReview the command against this, then run it again.`);
+			}
+		},
+	};
+};
 
 function runHook(script: string, event: Record<string, unknown>, cwd: string): Promise<HookOutput> {
 	return new Promise((done) => {

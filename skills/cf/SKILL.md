@@ -28,7 +28,7 @@ OpenCode gets a smaller plugin (`extensions/opencode-cf-hooks/index.ts`,
 linked as `~/.config/opencode/plugins/cf-hooks.ts`). It runs only
 `merge_mode_guard.rb` and `slop_remind.rb` on bash calls and blocks on a
 deny. A reminder blocks the call once, carrying the reminder as the error, so
-the retry passes. Loading a mode skill (`cf-local-only`, `cf-merge-ready`,
+the retry passes. Successfully loading a mode skill (`cf-local-only`, `cf-merge-ready`,
 `cf-admin-bypass`, `cf-yolo`) persists that mode for the session; with none
 loaded the guard falls back to merge-ready.
 
