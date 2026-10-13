@@ -265,6 +265,22 @@ class InstallerTest < Minitest::Test
     refute File.symlink?(paths.pi_extension_link), "unmanaged Pi extension dir should not be replaced"
   end
 
+  def test_links_opencode_hook_plugin
+    paths = install
+    assert File.symlink?(paths.opencode_plugin_link), "OpenCode hook plugin should be symlinked"
+    assert_equal paths.opencode_plugin_source, File.readlink(paths.opencode_plugin_link)
+    install
+    assert_equal paths.opencode_plugin_source, File.readlink(paths.opencode_plugin_link)
+  end
+
+  def test_preserves_unmanaged_opencode_plugin_dir
+    paths = Install::Paths.new(repo: @repo, home: @home)
+    FileUtils.mkdir_p(paths.opencode_plugin_link)
+    install
+    assert File.directory?(paths.opencode_plugin_link), "unmanaged OpenCode plugin dir should be preserved"
+    refute File.symlink?(paths.opencode_plugin_link), "unmanaged OpenCode plugin dir should not be replaced"
+  end
+
   def test_mirrors_portable_skill_names_to_opencode
     paths = install
     translated = File.join(paths.opencode_skills_root, "cf-typescript", "SKILL.md")

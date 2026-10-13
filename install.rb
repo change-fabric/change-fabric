@@ -54,6 +54,9 @@ module Install
     def pi_extensions_root   = File.join(@home, '.pi', 'agent', 'extensions')
     def pi_extension_source  = File.join(@repo, 'extensions', 'pi-cf-hooks')
     def pi_extension_link    = File.join(pi_extensions_root, 'cf-hooks')
+    def opencode_plugins_root   = File.join(@home, '.config', 'opencode', 'plugins')
+    def opencode_plugin_source  = File.join(@repo, 'extensions', 'opencode-cf-hooks')
+    def opencode_plugin_link    = File.join(opencode_plugins_root, 'cf-hooks')
 
     def scripts_glob         = Dir.glob(File.join(scripts, '*.rb'))
     # Assets a script reads at run time rather than requires: today the pinned
@@ -443,6 +446,7 @@ module Install
       pin_expected_home
       link_skills
       link_pi_extension
+      link_opencode_plugin
       mirror_to_pi
       mirror_to_opencode
       mirror_to_copilot
@@ -572,6 +576,14 @@ module Install
       FileUtils.ln_sf(@paths.pi_extension_source, @paths.pi_extension_link)
     end
 
+    def link_opencode_plugin
+      return if File.exist?(@paths.opencode_plugin_link) && !File.symlink?(@paths.opencode_plugin_link)
+
+      FileUtils.mkdir_p(@paths.opencode_plugins_root)
+      FileUtils.rm_f(@paths.opencode_plugin_link)
+      FileUtils.ln_sf(@paths.opencode_plugin_source, @paths.opencode_plugin_link)
+    end
+
     # Removes skill symlinks this installer owns - those pointing into the repo's
     # skills dir - that no current source still claims, so a renamed or deleted
     # skill leaves no dangling link. Real dirs and links into other repos are not
@@ -625,6 +637,7 @@ module Install
       puts "  pi       -> #{@paths.pi_settings}"
       puts "  pi hooks -> #{@paths.pi_extension_link}"
       puts "  opencode -> #{@paths.opencode_skills_root}"
+      puts "  opencode hooks -> #{@paths.opencode_plugin_link}"
       puts "  copilot  -> #{@paths.copilot_skills_root}"
       puts "  settings -> #{@paths.settings} (backup at #{settings.backup_path})"
     end

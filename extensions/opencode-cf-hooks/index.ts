@@ -1,0 +1,51 @@
+import { createHash } from "node:crypto";
+import { spawn } from "node:child_process";
+import { join } from "node:path";
+
+// Partial cf hooks for OpenCode, mirroring extensions/pi-cf-hooks: bash calls
+// are mapped to a PreToolUse event for merge_mode_guard.rb and slop_remind.rb,
+// and a deny from either hook blocks the call by throwing.
+
+type HookOutput = { hookSpecificOutput?: { permissionDecision?: string; permissionDecisionReason?: string } };
+
+const HOOK_BIN = join(process.env.HOME ?? "", ".claude", "cf", "bin");
+const RUBY = process.env.CF_RUBY ?? "ruby";
+const HOOK_TIMEOUT_MS = 5_000;
+
+export const CfHooks = async ({ directory }: { directory: string }) => ({
+	"tool.execute.before": async (input: { tool: string; sessionID?: string }, output: { args?: unknown }) => {
+		if (input.tool !== "bash") return;
+		const id = createHash("sha256").update(input.sessionID ?? directory).digest("hex").slice(0, 32);
+		const payload = { session_id: `opencode-${id}`, cwd: directory, tool_name: "Bash", tool_input: output.args ?? {} };
+		for (const script of ["merge_mode_guard.rb", "slop_remind.rb"]) {
+			const hook = (await runHook(script, payload, directory)).hookSpecificOutput;
+			if (hook?.permissionDecision === "deny") throw new Error(hook.permissionDecisionReason ?? "Blocked by cf hook");
+		}
+	},
+});
+
+function runHook(script: string, event: Record<string, unknown>, cwd: string): Promise<HookOutput> {
+	return new Promise((resolve) => {
+		const child = spawn(RUBY, [join(HOOK_BIN, script)], { cwd, stdio: ["pipe", "pipe", "ignore"] });
+		let stdout = "";
+		const timeout = setTimeout(() => child.kill(), HOOK_TIMEOUT_MS);
+		const finish = () => {
+			clearTimeout(timeout);
+			resolve(parse(stdout));
+		};
+		child.stdout.on("data", (chunk: Buffer) => (stdout += chunk.toString()));
+		child.on("error", finish);
+		child.on("close", finish);
+		child.stdin.on("error", () => {});
+		child.stdin.end(JSON.stringify(event));
+	});
+}
+
+function parse(stdout: string): HookOutput {
+	const line = stdout.trim().split("\n").find((candidate) => candidate.trim().startsWith("{"));
+	try {
+		return line ? (JSON.parse(line) as HookOutput) : {};
+	} catch {
+		return {};
+	}
+}
