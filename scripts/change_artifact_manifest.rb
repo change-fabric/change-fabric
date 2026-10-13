@@ -1,11 +1,9 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 
-require 'json'
-require 'open3'
 require 'time'
 require_relative 'change_artifact_templates'
-require_relative 'shell_git'
+require_relative 'change_git_context'
 
 # The one record a published run is described by: who ran it, against which
 # commit and PR, what the lanes found, and where its media landed. The
@@ -83,11 +81,13 @@ class ChangeArtifactManifest
     }
   end
 
+  # The shared ChangeGitContext lookup, reshaped into the manifest's own keys,
+  # which the artifacts service and the page already read.
   def git_context
     pr = pull_request
     {
-      'branch' => git('rev-parse', '--abbrev-ref', 'HEAD'), 'head_sha' => head_sha,
-      'short_sha' => short_sha, 'subject' => git('log', '-1', '--pretty=%s'),
+      'branch' => git_lookup.branch, 'head_sha' => head_sha,
+      'short_sha' => short_sha, 'subject' => git_lookup.subject,
       'pr_number' => pr && pr['number'], 'pr_url' => pr && pr['url'], 'pr_title' => pr && pr['title']
     }
   end
@@ -157,21 +157,14 @@ class ChangeArtifactManifest
     { 'markdown' => File.basename(@report[:markdown].to_s), 'csv' => File.basename(@report[:csv].to_s) }
   end
 
-  def head_sha = @head_sha ||= git('rev-parse', 'HEAD').to_s
+  def head_sha = git_lookup.sha.to_s
   def short_sha = head_sha.empty? ? 'nosha' : head_sha[0, 7]
 
-  def git(*args) = ShellGit.run(@repo_root, *args)
+  def git_lookup = @git_lookup ||= ChangeGitContext.new(@repo_root)
 
-  # The PR the head commit belongs to, via the real `gh` CLI, or nil when there
-  # is none, `gh` is not installed, or it is not authenticated. A run outside a
-  # PR is ordinary (a branch sweep, a local check), so this is a nil field, not
-  # a warning.
-  def pull_request
-    return @pull_request if defined?(@pull_request)
-
-    out, status = Open3.capture2e('gh', 'pr', 'view', '--json', 'number,url,title')
-    @pull_request = status.success? ? JSON.parse(out) : nil
-  rescue StandardError
-    @pull_request = nil
-  end
+  # The PR the head commit belongs to: the full `gh` answer when there is one,
+  # else the number a CI pull ref carries, else nil. A run outside a PR is
+  # ordinary (a branch sweep, a local check), so this is a nil field, not a
+  # warning.
+  def pull_request = git_lookup.pull_request || git_lookup.pr
 end
