@@ -27,7 +27,8 @@ The `/cf` command still works mid-session to change the mode.
 OpenCode gets a smaller plugin (`extensions/opencode-cf-hooks/index.ts`,
 linked as `~/.config/opencode/plugins/cf-hooks.ts`). It runs only
 `merge_mode_guard.rb` and `slop_remind.rb` on bash calls and blocks on a
-deny; it does not set or prompt for the merge mode.
+deny. A reminder blocks the call once, carrying the reminder as the error, so
+the retry passes; it does not set or prompt for the merge mode.
 
 ## /cf
 

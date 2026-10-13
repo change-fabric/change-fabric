@@ -4,9 +4,14 @@ import { join } from "node:path";
 
 // Partial cf hooks for OpenCode, mirroring extensions/pi-cf-hooks: bash calls
 // are mapped to a PreToolUse event for merge_mode_guard.rb and slop_remind.rb,
-// and a deny from either hook blocks the call by throwing.
+// and a deny from either hook blocks the call by throwing. OpenCode has no way
+// to add context to a running call, so a reminder (additionalContext) also
+// blocks it once: the hook records the reminder as surfaced, so the agent reads
+// it in the error and the retry goes through.
 
-type HookOutput = { hookSpecificOutput?: { permissionDecision?: string; permissionDecisionReason?: string } };
+type HookOutput = {
+	hookSpecificOutput?: { permissionDecision?: string; permissionDecisionReason?: string; additionalContext?: string };
+};
 
 const HOOK_BIN = join(process.env.HOME ?? "", ".claude", "cf", "bin");
 const RUBY = process.env.CF_RUBY ?? "ruby";
@@ -20,6 +25,7 @@ export const CfHooks = async ({ directory }: { directory: string }) => ({
 		for (const script of ["merge_mode_guard.rb", "slop_remind.rb"]) {
 			const hook = (await runHook(script, payload, directory)).hookSpecificOutput;
 			if (hook?.permissionDecision === "deny") throw new Error(hook.permissionDecisionReason ?? "Blocked by cf hook");
+			if (hook?.additionalContext) throw new Error(`${hook.additionalContext}\n\nReview the command against this, then run it again.`);
 		}
 	},
 });
