@@ -9,6 +9,7 @@ require_relative 'change_findings'
 require_relative 'change_flow_compiler'
 require_relative 'change_suite'
 require_relative 'change_acceptance_grader'
+require_relative 'change_coverage'
 
 # The deterministic regression lane. Runs committed test cases (suite files
 # referenced from CHANGE.md by glob) inside the same browserless Chromium
@@ -98,7 +99,72 @@ class ChangeLaneTestcases < ChangeLane
     lines.join("\n")
   end
 
+  # One QA coverage per-case record (ChangeCoverageSchema::CASE_FIELDS) per
+  # graded case, for the coverage snapshot. It reads only what the run already
+  # decided: the step status, the acceptance verdict, the gate and the
+  # quarantine, so the record can never disagree with the findings beside it.
+  # `gotos_reached` is the path of every goto step that succeeded, and
+  # `landed_url` the page a passing case ended on, both relative to `base_url`.
+  def case_records(base_url:)
+    return [] if @results.nil?
+
+    @results.map { |result| case_record(result, base_url.to_s) }
+  end
+
   private
+
+  def case_record(result, base)
+    item = result[:case]
+    status = record_status(result)
+    { 'source' => 'testcases', 'suite' => item.suite, 'id' => item.qualified_id, 'status' => status,
+      'gated' => gated?(item), 'attempts' => result[:attempts],
+      'flaky' => status == 'pass' && result[:attempts] > 1, 'duration_ms' => nil, 'tags' => item.tags,
+      'message' => record_message(result, status), 'acceptance_verdict' => result[:verdict]&.verdict,
+      'quarantine' => record_quarantine(item), 'gotos_reached' => gotos_reached(result[:record], base),
+      'landed_url' => landed_url(result[:record], base) }
+  end
+
+  # The step outcome, then the acceptance verdict on top of a passing one,
+  # through the same mapping the acceptance finding uses.
+  def record_status(result)
+    verdict = result[:verdict]
+    return result[:status] unless result[:status] == 'pass' && verdict
+
+    acceptance_status(result[:case], verdict)
+  end
+
+  def record_message(result, status)
+    return nil if status == 'pass'
+
+    text = result[:status] == 'pass' ? flatten(result[:verdict]&.rationale) : flatten(detail_for(result))
+    text.empty? ? nil : text[0, ChangeCoverageSchema::MESSAGE_MAX]
+  end
+
+  def record_quarantine(item)
+    quarantine = item.quarantine
+    return nil unless quarantine
+
+    { 'reason' => flatten(quarantine.reason), 'until' => quarantine.until_on.iso8601,
+      'expired' => quarantine.expired?(today) }
+  end
+
+  # compile_goto labels every goto step `goto <absolute url>`, so the label is
+  # the url the browser was sent to.
+  def gotos_reached(record, base)
+    steps = Array(record && record['steps'])
+    reached = steps.select { |step| step['verb'] == 'goto' && step['ok'] == true }.filter_map do |step|
+      url = step['label'].to_s.delete_prefix('goto ')
+      ChangeCoverage::Routes.normalize(ChangeCoverage::Routes.relative_to(url, base), base_url: base)
+    end
+    reached.uniq
+  end
+
+  def landed_url(record, base)
+    return nil unless record && record['ok']
+
+    url = ChangeCoverage::Routes.relative_to(record.dig('observation', 'url').to_s, base)
+    ChangeCoverage::Routes.normalize(url, base_url: base)
+  end
 
   def acceptance_row(result)
     item = result[:case]

@@ -655,4 +655,104 @@ class ChangeLaneTestcasesTest < Minitest::Test
       assert_includes instance.acceptance_section, "change_override.rb"
     end
   end
+
+  # --- coverage case records ----------------------------------------------------
+
+  BASE = "https://app.example.org"
+
+  def goto_step(index, url, ok: true)
+    { "index" => index, "verb" => "goto", "label" => "goto #{url}", "ok" => ok, "error" => ok ? nil : "Error: timeout" }
+  end
+
+  def test_case_records_are_empty_before_a_run
+    with_suite { |dir| assert_equal [], lane(dir).case_records(base_url: BASE) }
+  end
+
+  def test_a_case_record_carries_exactly_the_case_fields
+    with_suite do |dir|
+      instance = lane(dir, {}, session: FakeSession.new(ok_result(2)))
+      instance.run
+      record = instance.case_records(base_url: BASE).first
+      keys = ChangeCoverageSchema::CASE_FIELDS.map { |field| field.split(".").first }.uniq
+
+      assert_equal keys, record.keys
+      assert_equal({ "source" => "testcases", "suite" => "checkout", "id" => "checkout/happy-path",
+                     "status" => "pass", "gated" => true, "attempts" => 1, "flaky" => false, "duration_ms" => nil,
+                     "tags" => %w[checkout smoke], "message" => nil, "acceptance_verdict" => "pass",
+                     "quarantine" => nil, "gotos_reached" => [], "landed_url" => "/confirmation" }, record)
+    end
+  end
+
+  # compile_goto labels a goto `goto <absolute url>`; the record keeps the path
+  # under the base url, only for steps that succeeded, and drops a foreign host.
+  def test_gotos_reached_strips_the_goto_label_and_the_base_url
+    with_suite do |dir|
+      result = ok_result(2)
+      result[0]["steps"] = [ goto_step(0, "#{BASE}/products/widget?ref=home#top"),
+                             { "index" => 1, "verb" => "click", "label" => "click #go", "ok" => true },
+                             goto_step(2, "#{BASE}/cart/"), goto_step(3, "https://elsewhere.example.net/x"),
+                             goto_step(4, "#{BASE}/products/widget"), goto_step(5, "#{BASE}/broken", ok: false) ]
+      instance = lane(dir, {}, session: FakeSession.new(result))
+      instance.run
+
+      assert_equal %w[/products/widget /cart], instance.case_records(base_url: BASE).first["gotos_reached"]
+    end
+  end
+
+  def test_a_failing_case_record_names_its_failure_and_no_landing
+    with_suite do |dir|
+      result = ok_result(2)
+      result[0] = failed_result(0, [ goto_step(0, "#{BASE}/products/widget"),
+                                     { "index" => 1, "verb" => "click", "label" => "click #buy", "ok" => false,
+                                       "error" => "Error: waiting   for selector failed" } ])
+      result[1] = { "index" => 1, "attempts" => 2, "ok" => true, "steps" => [],
+                    "observation" => { "url" => "#{BASE}/cart?empty=1" } }
+      instance = lane(dir, { "gate_tags" => [ "smoke" ] }, session: FakeSession.new(result))
+      instance.run
+      failed, flaky = instance.case_records(base_url: BASE)
+
+      assert_equal "fail", failed["status"]
+      assert_equal "Error: waiting for selector failed", failed["message"]
+      assert_nil failed["landed_url"]
+      assert_equal [ "/products/widget" ], failed["gotos_reached"]
+      assert_equal [ "pass", true, 2, false, "/cart" ],
+                   flaky.values_at("status", "flaky", "attempts", "gated", "landed_url")
+    end
+  end
+
+  def test_a_failed_acceptance_verdict_fails_the_case_record
+    with_suite do |dir|
+      grader = FakeGrader.new(verdicts: { "checkout/happy-path" => [ "fail", "wrong page" ] })
+      instance = lane(dir, {}, session: FakeSession.new(ok_result(2)), grader: grader)
+      instance.run
+      record = instance.case_records(base_url: BASE).first
+
+      assert_equal [ "fail", "fail", "wrong page" ], record.values_at("status", "acceptance_verdict", "message")
+    end
+  end
+
+  def test_a_case_record_carries_a_live_quarantine_as_ungated
+    with_suite(quarantined_suite("2026-09-30")) do |dir|
+      instance = lane(dir, {}, session: FakeSession.new(ok_result(2)), today: TODAY)
+      instance.run
+      record = instance.case_records(base_url: BASE).first
+
+      assert_equal false, record["gated"]
+      assert_equal({ "reason" => "the sandbox gateway drops a redirect", "until" => "2026-09-30", "expired" => false },
+                   record["quarantine"])
+    end
+  end
+
+  # The today seam decides expiry: a lapsed quarantine is recorded expired and
+  # the case gates again.
+  def test_a_case_record_marks_an_expired_quarantine
+    with_suite(quarantined_suite("2026-08-22")) do |dir|
+      instance = lane(dir, {}, session: FakeSession.new(ok_result(2)), today: TODAY)
+      instance.run
+      record = instance.case_records(base_url: BASE).first
+
+      assert_equal true, record["gated"]
+      assert_equal true, record["quarantine"]["expired"]
+    end
+  end
 end
