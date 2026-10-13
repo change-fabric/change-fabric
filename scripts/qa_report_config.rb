@@ -33,7 +33,7 @@ module QaReportConfig
   HEX = /\A#(\h{3}|\h{6})\z/
   FONT_FAMILY = /\A[A-Za-z0-9 ,'"-]+\z/
   CONTROL = /[[:cntrl:]]/
-  BRANCH_FORBIDDEN = %r{[[:cntrl:][:space:]~^:?*\[\\]|\.\.|@\{|//}
+  BRANCH_FORBIDDEN = %r{[[:cntrl:]]|[[:space:]]|[~^:?*\[\\]|\.\.|@\{|//}
 
   TOP_KEYS = %w[title trunk brand imports repo_copy history].freeze
   BRAND_KEYS = %w[name logo logo_dark font colors].freeze

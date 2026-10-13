@@ -311,9 +311,9 @@ class ChangeCoveragePageTest < Minitest::Test
     assert_operator ChangeCoverageBrand.contrast(light["accent-text"], light["ground"]), :>=, 4.5
     assert_operator ChangeCoverageBrand.contrast(light["accent-text"], light["surface"]), :>=, 4.5
     assert_equal light["accent-text"], light["focus"]
-    before = ChangeCoverageBrand.shown_ratio(ChangeCoverageBrand.contrast("#8fb3e0", "#ffffff"))
-    after = ChangeCoverageBrand.shown_ratio(ChangeCoverageBrand.contrast(light["accent-text"], "#ffffff"))
-    expected = "qa_report.brand.colors.light.accent #8fb3e0 is #{before}:1 on ground; " \
+    before = ChangeCoverageBrand.shown_ratio(worst_ratio("#8fb3e0", light))
+    after = ChangeCoverageBrand.shown_ratio(worst_ratio(light["accent-text"], light))
+    expected = "qa_report.brand.colors.light.accent #8fb3e0 is #{before}:1 on ground or surface; " \
                "text and focus use #{light['accent-text']} (#{after}:1)"
     assert_includes resolved.warnings, expected
     html = render(resolved)
@@ -327,6 +327,75 @@ class ChangeCoveragePageTest < Minitest::Test
     resolved = resolve(brand_settings(light: { ground: "#ffffff", ink: "#9a9a9a", accent: "#1a4fd6" }))
     assert_operator ChangeCoverageBrand.contrast(resolved.light["ink"], "#ffffff"), :>=, 4.5
     assert(resolved.warnings.any? { |w| w.start_with?("qa_report.brand.colors.light.ink #9a9a9a is") })
+  end
+
+  def worst_ratio(color, theme)
+    [ theme["ground"], theme["surface"] ].map { |bg| ChangeCoverageBrand.contrast(color, bg) }.min
+  end
+
+  def test_ink_that_misses_on_surface_is_stepped_so_muted_and_accent_text_reach_it
+    resolved = resolve(brand_settings(light: { ground: "#ffffff", ink: "#757575", accent: "#8fb3e0" }))
+    light = resolved.light
+    assert_equal "#f9f9f9", ChangeCoverageBrand.mix_hex("#ffffff", "#757575", 0.04)
+    assert_operator ChangeCoverageBrand.contrast("#757575", "#f9f9f9"), :<, 4.5
+    %w[ink muted accent-text focus].each do |token|
+      assert_operator worst_ratio(light[token], light), :>=, 4.5, token
+    end
+    assert(resolved.warnings.any? { |w| w.start_with?("qa_report.brand.colors.light.ink #757575 is 4.3:1 on ground or surface") })
+    refute(resolved.warnings.any? { |w| w.include?("(4.6:1)") })
+  end
+
+  TEXT_SLOTS = { "ink" => "ink", "muted" => "muted", "accent-text" => "accent", "focus" => "accent" }.freeze
+
+  def test_every_derived_text_token_reads_on_ground_and_surface_or_warns_by_slot
+    rng = Random.new(20_261_013)
+    color = -> { format("#%06x", rng.rand(0x1000000)) }
+    300.times do
+      theme = -> { { ground: color.call, ink: color.call, accent: color.call } }
+      dark = rng.rand(2).zero? ? nil : theme.call
+      resolved = resolve(brand_settings(light: theme.call, dark: dark))
+      { "light" => resolved.light, "dark" => resolved.dark }.each do |name, tokens|
+        TEXT_SLOTS.each do |token, slot|
+          next if worst_ratio(tokens[token], tokens) >= 4.5
+
+          prefix = "qa_report.brand.colors.#{name}.#{slot}"
+          assert(resolved.warnings.any? { |w| w.start_with?(prefix) && w.include?("below 4.5:1") },
+                 "#{name} #{token} #{tokens[token]} below 4.5:1 with no warning for #{prefix}: #{resolved.warnings.inspect}")
+        end
+      end
+    end
+  end
+
+  def test_punctuation_only_font_family_falls_back_to_the_system_stack
+    [ ",", "'\"", " , ' " ].each do |family|
+      assert_equal ChangeCoverageBrand::SYSTEM_STACK, resolve(brand_settings(font_family: family)).font_stack, family
+    end
+    assert_equal %("Arial", #{ChangeCoverageBrand::SYSTEM_STACK}), resolve(brand_settings(font_family: "Arial,")).font_stack
+  end
+
+  def test_dark_only_brand_keeps_neutral_light_and_asks_for_a_light_theme
+    resolved = resolve(brand_settings(dark: { ground: "#121417", ink: "#e9ecef", accent: "#7fb0e8" }))
+    assert_equal ChangeCoverageBrand::NEUTRAL_LIGHT, resolved.light
+    assert_equal "#121417", resolved.dark["ground"]
+    assert(resolved.warnings.any? do |w|
+      w.start_with?("qa_report.brand.colors.light: not declared") && w.include?("declare qa_report.brand.colors.light")
+    end)
+  end
+
+  def test_unusable_dark_theme_names_the_fallback_it_actually_takes
+    bad_dark = { ground: "#121417", ink: "nope", accent: "#7fb0e8" }
+    with_light = resolve(brand_settings(light: { ground: "#ffffff", ink: "#1b1f24", accent: "#2b6cb0" }, dark: bad_dark))
+    assert_includes with_light.warnings, "qa_report.brand.colors.dark: theme not used; falling back to the derived dark theme"
+    without_light = resolve(brand_settings(dark: bad_dark))
+    assert_includes without_light.warnings, "qa_report.brand.colors.dark: theme not used; falling back to the neutral dark theme"
+    assert_equal ChangeCoverageBrand::NEUTRAL_DARK, without_light.dark
+    refute(without_light.warnings.any? { |w| w.include?("not declared") })
+  end
+
+  def test_theme_toggle_is_named_by_its_visible_text
+    html = render
+    assert_match(%r{<button type="button" class="theme-toggle" id="theme-toggle">Theme: auto</button>}, html)
+    refute_includes html, "Color theme"
   end
 
   def test_undeclared_dark_swaps_ground_and_ink_and_lifts_the_accent
