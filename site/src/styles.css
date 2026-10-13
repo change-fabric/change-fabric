@@ -669,10 +669,18 @@ code {
   transition: color 160ms ease;
 }
 
-/* The marks are masks over currentColor, so a hover tints the whole logo. */
+/* A hover tints the marks raw lilac. The text label (Pi's) takes the
+   contrast-adjusted accent instead, since raw lilac on cream is only 3.5:1. */
 .harness-link:hover,
 .harness-link:focus-visible {
-  color: var(--lilac);
+  color: var(--accent);
+}
+
+@media (forced-colors: none) {
+  .harness-link:hover .harness-mark,
+  .harness-link:focus-visible .harness-mark {
+    background: var(--lilac);
+  }
 }
 
 .harness-mark {
