@@ -124,21 +124,24 @@ class ChangeLaneTestcases < ChangeLane
       'landed_url' => landed_url(result[:record], base) }
   end
 
-  # The step outcome, then the acceptance verdict on top of a passing one,
-  # through the same mapping the acceptance finding uses.
+  # The step outcome, then the acceptance outcome on top of a passing one,
+  # through the same mapping the acceptance finding uses: the verdict, or the
+  # grading-unavailable status when no grader ran.
   def record_status(result)
-    verdict = result[:verdict]
-    return result[:status] unless result[:status] == 'pass' && verdict
+    return result[:status] unless result[:status] == 'pass'
+    return unavailable_status if grading_note
 
-    acceptance_status(result[:case], verdict)
+    acceptance_status(result[:case], result[:verdict])
   end
 
   def record_message(result, status)
     return nil if status == 'pass'
 
-    text = result[:status] == 'pass' ? flatten(result[:verdict]&.rationale) : flatten(detail_for(result))
+    text = flatten(result[:status] == 'pass' ? acceptance_note(result) : detail_for(result))
     text.empty? ? nil : text[0, ChangeCoverageSchema::MESSAGE_MAX]
   end
+
+  def acceptance_note(result) = result[:verdict]&.rationale || grading_note
 
   def record_quarantine(item)
     quarantine = item.quarantine
@@ -153,8 +156,7 @@ class ChangeLaneTestcases < ChangeLane
   def gotos_reached(record, base)
     steps = Array(record && record['steps'])
     reached = steps.select { |step| step['verb'] == 'goto' && step['ok'] == true }.filter_map do |step|
-      url = step['label'].to_s.delete_prefix('goto ')
-      ChangeCoverage::Routes.normalize(ChangeCoverage::Routes.relative_to(url, base), base_url: base)
+      ChangeCoverage::Routes.normalize(step['label'].to_s.delete_prefix('goto '), base_url: base)
     end
     reached.uniq
   end
@@ -162,8 +164,7 @@ class ChangeLaneTestcases < ChangeLane
   def landed_url(record, base)
     return nil unless record && record['ok']
 
-    url = ChangeCoverage::Routes.relative_to(record.dig('observation', 'url').to_s, base)
-    ChangeCoverage::Routes.normalize(url, base_url: base)
+    ChangeCoverage::Routes.normalize(record.dig('observation', 'url').to_s, base_url: base)
   end
 
   def acceptance_row(result)
@@ -357,8 +358,10 @@ class ChangeLaneTestcases < ChangeLane
   # having no grader installed).
   def grading_unavailable(reason)
     @grading_note = reason
-    finding(check: 'acceptance grading', status: signoff? ? 'warn' : 'fail', severity: 'medium', detail: reason)
+    finding(check: 'acceptance grading', status: unavailable_status, severity: 'medium', detail: reason)
   end
+
+  def unavailable_status = signoff? ? 'warn' : 'fail'
 
   def signoff? = @context.respond_to?(:signoff?) && @context.signoff?
 

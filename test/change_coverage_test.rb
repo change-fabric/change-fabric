@@ -106,10 +106,43 @@ class ChangeCoverageTest < Minitest::Test
     assert_equal "/claims", ChangeCoverage::Routes.normalize("https://any.example.net/claims")
   end
 
-  def test_relative_to_strips_the_base_only_on_a_path_boundary
-    assert_equal "/claims", ChangeCoverage::Routes.relative_to("#{BASE}/claims", BASE)
-    assert_equal "", ChangeCoverage::Routes.relative_to(BASE, BASE)
-    assert_equal "#{BASE}.evil.example/x", ChangeCoverage::Routes.relative_to("#{BASE}.evil.example/x", BASE)
+  # A base with a path prefix: an absolute url keeps only the route below the
+  # base path, the base itself is `/`, and the prefix is stripped only on a
+  # path boundary.
+  def test_an_absolute_url_under_a_base_path_drops_the_base_path
+    base = "https://host.example/app"
+    table = {
+      "#{base}/claims" => "/claims", "#{base}/claims/?x=1" => "/claims", base => "/", "#{base}/" => "/",
+      "#{base}?next=1" => "/", "https://host.example/application/x" => "/application/x",
+      "https://host.example/other" => "/other", "claims" => "/claims"
+    }
+    table.each { |input, expected| assert_equal expected, ChangeCoverage::Routes.normalize(input, base_url: base), input }
+    assert_equal "/claims", ChangeCoverage::Routes.normalize("#{base}/claims", base_url: "#{base}/")
+    assert_nil ChangeCoverage::Routes.normalize("https://host.example.evil.example/app/x", base_url: base)
+  end
+
+  # One page reached through every lane under a base with a path prefix is one
+  # route: the zap target, its finding and the suite goto all land on /claims.
+  def test_a_base_path_prefix_keeps_one_route_across_lanes
+    base = "https://host.example/app"
+    File.write(File.join(@dir, "claims.cf-testcases.yml"), <<~YAML)
+      suite: claims
+      cases:
+        - id: open
+          acceptance: The claims list opens.
+          steps:
+            - goto: #{base}/claims
+    YAML
+    lanes = { "a11y" => { "routes" => [ "/claims" ] }, "zap" => { "targets" => [ "claims" ] },
+              "testcases" => { "suites" => [ "*.cf-testcases.yml" ] } }
+    cfg = ChangeConfig.new({ "project" => "fixture-app", "boot" => { "target_url" => base }, "lanes" => lanes }, @dir)
+    run = snapshot(lanes_ran: %w[a11y zap testcases], cfg: cfg,
+                   findings: [ finding("zap", "fail", target: "#{base}/claims") ])
+
+    assert_equal [ "/claims" ], run["routes"]["items"].map { |item| item["path"] }
+    assert_equal "fail", route(run, "/claims")["lane_status"]["zap"]
+    assert_equal [ "claims/open" ], route(run, "/claims")["cases_static"]
+    assert_equal 0, run["routes"]["undeclared_exercised"]
   end
 
   # --- declared and exercised ---------------------------------------------------------
