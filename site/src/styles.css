@@ -713,6 +713,15 @@ code {
   height: 18px;
 }
 
+/* Forced colors repaint backgrounds, which would blank a mask drawn with one;
+   paint the mark in the system link color instead. */
+@media (forced-colors: active) {
+  .harness-mark {
+    background: LinkText;
+    forced-color-adjust: none;
+  }
+}
+
 .harness-name {
   font-size: 0.9rem;
   font-weight: 500;

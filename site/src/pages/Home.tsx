@@ -100,6 +100,7 @@ export function Home() {
                     ) : (
                       <span className="sr-only">{h.name}</span>
                     )}
+                    <span className="sr-only"> (opens in a new tab)</span>
                   </a>
                 </li>
               ))}
