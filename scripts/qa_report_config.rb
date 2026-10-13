@@ -143,7 +143,7 @@ module QaReportConfig
     end
 
     def unknown_keys(hash, allowed, prefix)
-      (hash.keys.map(&:to_s) - allowed).each { |key| warn_field("#{prefix}.#{key}", 'unknown field; ignored') }
+      (hash.keys.map(&:to_s) - allowed).each { |key| warn_field(dotted("#{prefix}.#{key}"), 'unknown field; ignored') }
     end
 
     def text(value, field, max:)
@@ -169,11 +169,11 @@ module QaReportConfig
     end
 
     def read_brand(brand)
-      unknown_keys(brand, BRAND_KEYS, "#{KEY}.brand")
+      unknown_keys(brand, BRAND_KEYS, 'brand')
       font = section('font', brand, 'brand.font')
-      unknown_keys(font, %w[family], "#{KEY}.brand.font")
+      unknown_keys(font, %w[family], 'brand.font')
       colors = section('colors', brand, 'brand.colors')
-      unknown_keys(colors, THEMES, "#{KEY}.brand.colors")
+      unknown_keys(colors, THEMES, 'brand.colors')
       Brand.new(
         name: text(brand['name'], 'brand.name', max: 80) || @project,
         logo: repo_path(brand['logo'], 'brand.logo'),
@@ -202,7 +202,7 @@ module QaReportConfig
       slots = section(name, colors, prefix)
       return nil if slots.empty?
 
-      unknown_keys(slots, SLOTS, dotted(prefix))
+      unknown_keys(slots, SLOTS, prefix)
       bad = SLOTS.reject { |slot| slots[slot].is_a?(String) && slots[slot].match?(HEX) }
       if bad.empty?
         SLOTS.to_h { |slot| [ slot.to_sym, slots[slot].downcase ] }
@@ -247,7 +247,7 @@ module QaReportConfig
     end
 
     def read_imports(imports)
-      unknown_keys(imports, IMPORT_FORMATS.keys, "#{KEY}.imports")
+      unknown_keys(imports, IMPORT_FORMATS.keys, 'imports')
       Imports.new(coverage: import_list(imports['coverage'], 'coverage'),
                   test_results: import_list(imports['test_results'], 'test_results'))
     end
@@ -269,7 +269,7 @@ module QaReportConfig
         return nil
       end
 
-      unknown_keys(item, %w[path format label], dotted(field))
+      unknown_keys(item, %w[path format label], field)
       format = import_format(item['format'], kind, field)
       path = item['path'].nil? ? missing(field, 'path') : repo_path(item['path'], "#{field}.path", glob: true)
       return nil unless format && path
