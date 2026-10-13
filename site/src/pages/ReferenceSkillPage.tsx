@@ -1,6 +1,7 @@
 import { Layout } from "../components/Layout";
 import { specHtml } from "../spec";
-import { findSkill } from "../reference";
+import { SourceLink } from "../components/SourceLink";
+import { findSkill, skillSourceUrl } from "../reference";
 
 export function ReferenceSkillPage({ id }: { id: string }) {
   const skill = findSkill(id);
@@ -18,6 +19,8 @@ export function ReferenceSkillPage({ id }: { id: string }) {
     );
   }
 
+  const sourceUrl = skillSourceUrl(skill);
+
   return (
     <Layout>
       <section className="spec-page">
@@ -30,6 +33,9 @@ export function ReferenceSkillPage({ id }: { id: string }) {
               </h1>
             </div>
             <div className="page-actions">
+              {sourceUrl && (
+                <SourceLink href={sourceUrl} label="View source" title={`${skill.name} source on GitHub`} />
+              )}
               <a className="btn btn-quiet" href="/reference">
                 All skills and hooks
               </a>

@@ -492,6 +492,16 @@ code {
   gap: var(--s2);
 }
 
+/* The index heading shares its row with the source link; center them so the
+   link sits on the heading's midline, and let it drop below on narrow screens. */
+.reference-head-row {
+  align-items: center;
+}
+
+.source-link svg {
+  flex: none;
+}
+
 /* Hero texture: the woven fabric photograph, light or dark per theme, laid
    into the empty space right of the hero and masked to nothing toward the
    text and below the fold. Purely decorative, a CSS layer with no DOM node;

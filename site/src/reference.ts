@@ -11,6 +11,7 @@ export type Group = SkillGroup | "hooks";
 
 export interface SkillReference {
   id: string;
+  sourceDir?: string;
   name: string;
   group: SkillGroup;
   description: string;
@@ -29,6 +30,15 @@ export interface HookReference {
 
 export const SKILLS = skillsJson as SkillReference[];
 export const HOOKS: HookReference[] = hooksJson;
+
+export const REPO_URL = "https://github.com/change-fabric/change-fabric";
+export const SKILLS_SOURCE_URL = `${REPO_URL}/tree/main/skills`;
+
+// GitHub URL for a skill's source directory, or undefined when the embedded
+// data carries none, so a page never renders a guessed link.
+export function skillSourceUrl(skill: SkillReference): string | undefined {
+  return skill.sourceDir ? `${REPO_URL}/tree/main/${skill.sourceDir}` : undefined;
+}
 
 export function findSkill(id: string): SkillReference | undefined {
   return SKILLS.find((skill) => skill.id === id);
