@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
-import { join, resolve } from "node:path";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 
 // Partial cf hooks for OpenCode, mirroring extensions/pi-cf-hooks: bash calls
 // are mapped to a PreToolUse event for merge_mode_guard.rb and slop_remind.rb,
@@ -19,8 +20,15 @@ const HOOK_TIMEOUT_MS = 5_000;
 
 export const CfHooks = async ({ directory }: { directory: string }) => ({
 	"tool.execute.before": async (input: { tool: string; sessionID?: string }, output: { args?: unknown }) => {
-		if (input.tool !== "bash") return;
 		const id = createHash("sha256").update(input.sessionID ?? directory).digest("hex").slice(0, 32);
+		// Loading a mirrored mode skill (cf-local-only and friends) persists that
+		// mode, as mode_command.rb does for Claude Code, so the guard below reads it.
+		if (input.tool === "skill") {
+			const mode = /^cf[-:](local-only|merge-ready|admin-bypass|yolo)$/.exec(String((output.args as { name?: unknown })?.name ?? ""))?.[1];
+			if (mode) writeMergeMode(`opencode-${id}`, mode);
+			return;
+		}
+		if (input.tool !== "bash") return;
 		// The command runs in args.workdir when given, so the guards must too.
 		const workdir = (output.args as { workdir?: unknown } | undefined)?.workdir;
 		const cwd = typeof workdir === "string" && workdir ? resolve(directory, workdir) : directory;
@@ -64,4 +72,10 @@ function parse(stdout: string): HookOutput {
 	} catch {
 		return {};
 	}
+}
+
+function writeMergeMode(id: string, mode: string) {
+	const path = join(process.env.HOME ?? "", ".claude", "cf", "sessions", id, "merge-mode");
+	mkdirSync(dirname(path), { recursive: true });
+	writeFileSync(path, `${mode}\n`);
 }
