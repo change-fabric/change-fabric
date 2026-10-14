@@ -33,9 +33,12 @@ module Install
   end
   # Resolves every source and destination path the installer touches.
   class Paths
-    def initialize(repo:, home:)
+    def initialize(repo:, home:, xdg_config: nil)
       @repo = repo
       @home = home
+      # OpenCode derives its global config dir from XDG_CONFIG_HOME, falling
+      # back to ~/.config only when it is unset or empty.
+      @xdg_config = xdg_config.to_s.empty? ? File.join(home, '.config') : xdg_config
     end
 
     def scripts              = File.join(@repo, 'scripts')
@@ -47,14 +50,15 @@ module Install
     def skills_root          = File.join(@home, '.claude', 'skills')
     def settings             = File.join(@home, '.claude', 'settings.json')
     def pi_settings          = File.join(@home, '.pi', 'agent', 'settings.json')
-    def opencode_config      = File.join(@home, '.config', 'opencode', 'opencode.jsonc')
-    def opencode_skills_root = File.join(@home, '.config', 'opencode', 'skills')
+    def opencode_root        = File.join(@xdg_config, 'opencode')
+    def opencode_config      = File.join(opencode_root, 'opencode.jsonc')
+    def opencode_skills_root = File.join(opencode_root, 'skills')
     def copilot_skills_root  = File.join(@home, '.copilot', 'skills')
     def legacy_pi_roots      = [ File.join(@home, '.pi', 'agent', 'skills'), File.join(@home, '.agents', 'skills') ]
     def pi_extensions_root   = File.join(@home, '.pi', 'agent', 'extensions')
     def pi_extension_source  = File.join(@repo, 'extensions', 'pi-cf-hooks')
     def pi_extension_link    = File.join(pi_extensions_root, 'cf-hooks')
-    def opencode_plugins_root   = File.join(@home, '.config', 'opencode', 'plugins')
+    def opencode_plugins_root   = File.join(opencode_root, 'plugins')
     def opencode_plugin_source  = File.join(@repo, 'extensions', 'opencode-cf-hooks', 'index.ts')
     # OpenCode loads only plugins/*.{ts,js}, never a nested directory.
     def opencode_plugin_link    = File.join(opencode_plugins_root, 'cf-hooks.ts')
@@ -646,6 +650,6 @@ module Install
 end
 
 if __FILE__ == $PROGRAM_NAME
-  paths = Install::Paths.new(repo: __dir__, home: Dir.home)
+  paths = Install::Paths.new(repo: __dir__, home: Dir.home, xdg_config: ENV.fetch('XDG_CONFIG_HOME', nil))
   Install::Installer.new(paths: paths, ruby: Install::RubyInterpreter.path).install
 end

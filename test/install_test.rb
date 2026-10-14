@@ -274,6 +274,16 @@ class InstallerTest < Minitest::Test
     assert_equal paths.opencode_plugin_source, File.readlink(paths.opencode_plugin_link)
   end
 
+  def test_opencode_paths_follow_xdg_config_home
+    xdg = File.join(@home, "xdg")
+    paths = Install::Paths.new(repo: @repo, home: @home, xdg_config: xdg)
+    assert_equal File.join(xdg, "opencode", "plugins", "cf-hooks.ts"), paths.opencode_plugin_link
+    assert_equal File.join(xdg, "opencode", "skills"), paths.opencode_skills_root
+    assert_equal File.join(xdg, "opencode", "opencode.jsonc"), paths.opencode_config
+    assert_equal File.join(@home, ".config", "opencode", "plugins", "cf-hooks.ts"),
+                 Install::Paths.new(repo: @repo, home: @home, xdg_config: "").opencode_plugin_link
+  end
+
   def test_preserves_unmanaged_opencode_plugin_file
     paths = Install::Paths.new(repo: @repo, home: @home)
     FileUtils.mkdir_p(paths.opencode_plugins_root)

@@ -19,10 +19,32 @@ const RUBY = process.env.CF_RUBY ?? "ruby";
 const HOOK_TIMEOUT_MS = 5_000;
 
 type ToolInput = { tool: string; sessionID?: string; callID?: string };
+type SessionClient = { session?: { get?: (req: { path: { id: string } }) => Promise<{ data?: { parentID?: string } }> } };
 
-export const CfHooks = async ({ directory }: { directory: string }) => {
-	const sessionKey = (input: ToolInput) =>
-		`opencode-${createHash("sha256").update(input.sessionID ?? directory).digest("hex").slice(0, 32)}`;
+export const CfHooks = async ({ directory, client }: { directory: string; client?: SessionClient }) => {
+	// A task subagent runs in a child session with its own id, so the merge mode
+	// is keyed by the root of the parent chain: a child inherits the mode its
+	// primary session selected. A failed lookup keys by the session itself.
+	const roots = new Map<string, Promise<string>>();
+	const rootSession = (id: string): Promise<string> => {
+		let root = roots.get(id);
+		if (!root) {
+			root = (async () => {
+				const seen = new Set([id]);
+				let current = id;
+				for (;;) {
+					const parent = await client?.session?.get?.({ path: { id: current } }).then((res) => res?.data?.parentID).catch(() => undefined);
+					if (!parent || seen.has(parent)) return current;
+					seen.add(parent);
+					current = parent;
+				}
+			})();
+			roots.set(id, root);
+		}
+		return root;
+	};
+	const sessionKey = async (input: ToolInput) =>
+		`opencode-${createHash("sha256").update(input.sessionID ? await rootSession(input.sessionID) : directory).digest("hex").slice(0, 32)}`;
 	// Loading a mirrored mode skill (cf-local-only and friends) persists that
 	// mode, as mode_command.rb does for Claude Code. The skill tool checks its
 	// permissions while executing, so the mode is noted here and written only
@@ -30,13 +52,13 @@ export const CfHooks = async ({ directory }: { directory: string }) => {
 	const pendingModes = new Map<string, string>();
 	return {
 		"tool.execute.after": async (input: ToolInput) => {
-			const key = input.callID ?? sessionKey(input);
+			const key = input.callID ?? (await sessionKey(input));
 			const mode = pendingModes.get(key);
 			pendingModes.delete(key);
-			if (input.tool === "skill" && mode) writeMergeMode(sessionKey(input), mode);
+			if (input.tool === "skill" && mode) writeMergeMode(await sessionKey(input), mode);
 		},
 		"tool.execute.before": async (input: ToolInput, output: { args?: unknown }) => {
-			const id = sessionKey(input);
+			const id = await sessionKey(input);
 			if (input.tool === "skill") {
 				const mode = /^cf[-:](local-only|merge-ready|admin-bypass|yolo)$/.exec(String((output.args as { name?: unknown })?.name ?? ""))?.[1];
 				if (mode) pendingModes.set(input.callID ?? id, mode);
