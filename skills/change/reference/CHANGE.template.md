@@ -45,12 +45,8 @@ spec_version: "0.9.0"
 # repos on one team. Delete it to use the zero-config per-repo default instead.
 # inbox_root: ~/notes/team-handoff
 
-# Optional: brands the QA coverage report every deterministic run records to
-# ~/.claude/cf/coverage/<project>/, and names CI coverage and test-result files
-# to import on each run. Read directly from this file's frontmatter, never
-# through the ChangeConfig validator; a malformed value falls back with a
-# warning and never affects an audit lane. See the frontmatter spec's
-# qa_report section. Delete it for the neutral default.
+# Optional: brands the QA coverage report and names CI files to import. See
+# the frontmatter spec's qa_report section. Delete it for the neutral default.
 # qa_report:
 #   title: Example Co QA coverage
 #   trunk: main
