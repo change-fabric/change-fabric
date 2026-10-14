@@ -283,6 +283,9 @@ would-be-approved local state, and since nothing landed, also skips step
   `cf:code-review` and `cf:ai-slop` are floors and the two thread-sweep calls
   are floors; all four still run regardless of the Haiku call's outcome.
   Only `cf:qa`, `cf:refactor`, and `cf:change` are ever skipped.
+  A `cf:change` run also records a QA coverage run (see cf:change's "QA
+  coverage report"); that record is report-only and never changes the
+  drive's outcome.
 - User answers "no" at either checkpoint under `--signoff`: do
   not abort destructively, do not auto-revert. Leave all local
   commits/fixes on disk as-is and stop the run, reporting the current

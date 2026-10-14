@@ -44,7 +44,8 @@ No scoping model, no clarifying round, no generated script: phases 1 to 4 are
 skipped entirely. The selector matches a suite id or a case tag, and it is
 repeatable. A selector matching nothing is a failing finding, never an empty
 run. Report the lane's output and stop; there is nothing to promote, because
-these cases are already committed.
+these cases are already committed. A `--suite` run is recorded in the QA
+coverage report (see cf:change's "QA coverage report"); exploratory runs are not.
 
 Everything below is the exploratory mode, reached by a natural-language target.
 Use it to find out what to test; use `--suite` to check it still works.
