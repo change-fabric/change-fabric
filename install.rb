@@ -33,9 +33,12 @@ module Install
   end
   # Resolves every source and destination path the installer touches.
   class Paths
-    def initialize(repo:, home:)
+    def initialize(repo:, home:, xdg_config: nil)
       @repo = repo
       @home = home
+      # OpenCode derives its global config dir from XDG_CONFIG_HOME, falling
+      # back to ~/.config only when it is unset or empty.
+      @xdg_config = xdg_config.to_s.empty? ? File.join(home, '.config') : xdg_config
     end
 
     def scripts              = File.join(@repo, 'scripts')
@@ -47,13 +50,18 @@ module Install
     def skills_root          = File.join(@home, '.claude', 'skills')
     def settings             = File.join(@home, '.claude', 'settings.json')
     def pi_settings          = File.join(@home, '.pi', 'agent', 'settings.json')
-    def opencode_config      = File.join(@home, '.config', 'opencode', 'opencode.jsonc')
-    def opencode_skills_root = File.join(@home, '.config', 'opencode', 'skills')
+    def opencode_root        = File.join(@xdg_config, 'opencode')
+    def opencode_config      = File.join(opencode_root, 'opencode.jsonc')
+    def opencode_skills_root = File.join(opencode_root, 'skills')
     def copilot_skills_root  = File.join(@home, '.copilot', 'skills')
     def legacy_pi_roots      = [ File.join(@home, '.pi', 'agent', 'skills'), File.join(@home, '.agents', 'skills') ]
     def pi_extensions_root   = File.join(@home, '.pi', 'agent', 'extensions')
     def pi_extension_source  = File.join(@repo, 'extensions', 'pi-cf-hooks')
     def pi_extension_link    = File.join(pi_extensions_root, 'cf-hooks')
+    def opencode_plugins_root   = File.join(opencode_root, 'plugins')
+    def opencode_plugin_source  = File.join(@repo, 'extensions', 'opencode-cf-hooks', 'index.ts')
+    # OpenCode loads only plugins/*.{ts,js}, never a nested directory.
+    def opencode_plugin_link    = File.join(opencode_plugins_root, 'cf-hooks.ts')
 
     def scripts_glob         = Dir.glob(File.join(scripts, '*.rb'))
     # Assets a script reads at run time rather than requires: today the pinned
@@ -443,6 +451,7 @@ module Install
       pin_expected_home
       link_skills
       link_pi_extension
+      link_opencode_plugin
       mirror_to_pi
       mirror_to_opencode
       mirror_to_copilot
@@ -572,6 +581,14 @@ module Install
       FileUtils.ln_sf(@paths.pi_extension_source, @paths.pi_extension_link)
     end
 
+    def link_opencode_plugin
+      return if File.exist?(@paths.opencode_plugin_link) && !File.symlink?(@paths.opencode_plugin_link)
+
+      FileUtils.mkdir_p(@paths.opencode_plugins_root)
+      FileUtils.rm_f(@paths.opencode_plugin_link)
+      FileUtils.ln_sf(@paths.opencode_plugin_source, @paths.opencode_plugin_link)
+    end
+
     # Removes skill symlinks this installer owns - those pointing into the repo's
     # skills dir - that no current source still claims, so a renamed or deleted
     # skill leaves no dangling link. Real dirs and links into other repos are not
@@ -625,6 +642,7 @@ module Install
       puts "  pi       -> #{@paths.pi_settings}"
       puts "  pi hooks -> #{@paths.pi_extension_link}"
       puts "  opencode -> #{@paths.opencode_skills_root}"
+      puts "  opencode hooks -> #{@paths.opencode_plugin_link}"
       puts "  copilot  -> #{@paths.copilot_skills_root}"
       puts "  settings -> #{@paths.settings} (backup at #{settings.backup_path})"
     end
@@ -632,6 +650,6 @@ module Install
 end
 
 if __FILE__ == $PROGRAM_NAME
-  paths = Install::Paths.new(repo: __dir__, home: Dir.home)
+  paths = Install::Paths.new(repo: __dir__, home: Dir.home, xdg_config: ENV.fetch('XDG_CONFIG_HOME', nil))
   Install::Installer.new(paths: paths, ruby: Install::RubyInterpreter.path).install
 end

@@ -24,6 +24,14 @@ lets a caller set the starting mode without a prompt: set it to one of
 `local-only`, `merge-ready`, `admin-bypass`, or `yolo` before starting Pi.
 The `/cf` command still works mid-session to change the mode.
 
+OpenCode gets a smaller plugin (`extensions/opencode-cf-hooks/index.ts`,
+linked as `~/.config/opencode/plugins/cf-hooks.ts`). It runs only
+`merge_mode_guard.rb` and `slop_remind.rb` on bash calls and blocks on a
+deny. A reminder blocks the call once, carrying the reminder as the error, so
+the retry passes. Successfully loading a mode skill (`cf-local-only`, `cf-merge-ready`,
+`cf-admin-bypass`, `cf-yolo`) persists that mode for the session; with none
+loaded the guard falls back to merge-ready.
+
 ## /cf
 
 Call `AskUserQuestion` once with two questions, to re-set both the session's

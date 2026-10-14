@@ -265,6 +265,34 @@ class InstallerTest < Minitest::Test
     refute File.symlink?(paths.pi_extension_link), "unmanaged Pi extension dir should not be replaced"
   end
 
+  def test_links_opencode_hook_plugin
+    paths = install
+    assert File.symlink?(paths.opencode_plugin_link), "OpenCode hook plugin should be symlinked"
+    assert_equal ".ts", File.extname(paths.opencode_plugin_link), "OpenCode only loads top-level .ts/.js plugins"
+    assert_equal paths.opencode_plugin_source, File.readlink(paths.opencode_plugin_link)
+    install
+    assert_equal paths.opencode_plugin_source, File.readlink(paths.opencode_plugin_link)
+  end
+
+  def test_opencode_paths_follow_xdg_config_home
+    xdg = File.join(@home, "xdg")
+    paths = Install::Paths.new(repo: @repo, home: @home, xdg_config: xdg)
+    assert_equal File.join(xdg, "opencode", "plugins", "cf-hooks.ts"), paths.opencode_plugin_link
+    assert_equal File.join(xdg, "opencode", "skills"), paths.opencode_skills_root
+    assert_equal File.join(xdg, "opencode", "opencode.jsonc"), paths.opencode_config
+    assert_equal File.join(@home, ".config", "opencode", "plugins", "cf-hooks.ts"),
+                 Install::Paths.new(repo: @repo, home: @home, xdg_config: "").opencode_plugin_link
+  end
+
+  def test_preserves_unmanaged_opencode_plugin_file
+    paths = Install::Paths.new(repo: @repo, home: @home)
+    FileUtils.mkdir_p(paths.opencode_plugins_root)
+    File.write(paths.opencode_plugin_link, "// user plugin\n")
+    install
+    assert_equal "// user plugin\n", File.read(paths.opencode_plugin_link), "unmanaged OpenCode plugin should be preserved"
+    refute File.symlink?(paths.opencode_plugin_link), "unmanaged OpenCode plugin should not be replaced"
+  end
+
   def test_mirrors_portable_skill_names_to_opencode
     paths = install
     translated = File.join(paths.opencode_skills_root, "cf-typescript", "SKILL.md")
