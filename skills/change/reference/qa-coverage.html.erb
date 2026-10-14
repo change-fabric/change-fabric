@@ -388,7 +388,11 @@
       var l = run.lanes;
       if (!isObj(l) || !isObj(l.results)) return null;
       var ran = list(l.ran);
-      var passing = ran.filter(function (lane) { return isObj(l.results[lane]) && l.results[lane].status === "pass"; }).length;
+      // A lane with only warnings passes, as the gate grades it: only a fail
+      // finding fails a lane.
+      var passing = ran.filter(function (lane) {
+        return isObj(l.results[lane]) && (l.results[lane].status === "pass" || l.results[lane].status === "warn");
+      }).length;
       return ratio(passing, ran.length);
     },
     findings: function (run) {
