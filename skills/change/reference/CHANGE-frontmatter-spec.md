@@ -1,6 +1,6 @@
 # CHANGE.md frontmatter specification
 
-Schema version: 0.12.0
+Schema version: 0.13.0
 
 Status: stable. This is the golden reference for authoring a repo's
 `CHANGE.md` frontmatter. A maintainer or an AI agent creating a new repo's
@@ -33,7 +33,7 @@ frontmatter blocks this spec covers.
 ## Structure
 
 `CHANGE.md` opens with a single YAML frontmatter block fenced by `---`, carrying
-two required top-level keys plus two optional ones, followed by the prose
+two required top-level keys plus optional ones, followed by the prose
 governance FAQ:
 
 ```
@@ -45,6 +45,9 @@ change_policy:
   ...        # machine-checkable governance the merge gate enforces
 contributors_team:
   ...        # optional: the team this repo belongs to, and where its artifacts publish
+inbox_root: ...   # optional: where cf:inbox's handoff state lives
+qa_report:
+  ...        # optional: the QA coverage report's brand, imports and history
 ---
 
 # Change management for <repo>
@@ -69,6 +72,75 @@ is the field-by-field authority behind it.
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `inbox_root` | string | no | Overrides where this repo's `cf:inbox` agent-handoff state (roster, per-role inboxes, `LEDGER.md`) lives, e.g. `~/notes/team-handoff` to share one inbox across several repos on one team. A leading `~/` expands against the home directory; a relative path resolves against the repo root. Read directly from `CHANGE.md`'s frontmatter by `InboxPaths`, never through the `ChangeConfig` validator, so a malformed `change_config:` or `change_policy:` block never affects it and a repo with no `CHANGE.md` at all still resolves a default. `ENV["INBOX_ROOT"]` overrides this field in turn. Omit it and `cf:inbox` falls back to a zero-config default keyed off this repo's working directory. See `skills/inbox/SKILL.md`. |
+
+### qa_report (0.13.0): the QA coverage report's brand, imports and history
+
+Every deterministic `cf:change` run (and `cf:testcases`, `cf:qa --suite`)
+appends one run record to a standing QA coverage report kept outside the repo.
+`qa_report:` styles that report with this repo's own brand, names the coverage
+and test-result files this repo's CI already produces so each run imports them
+when they exist, and sets retention and an opt-in copy inside the repo. Every
+field is optional; omit the key and the report still records, with a neutral
+brand and no imports.
+
+It is read only by `QaReportConfig` (`scripts/qa_report_config.rb`), straight
+from the frontmatter and never through `ChangeConfig`, so a malformed
+`qa_report:` never affects an audit lane and a malformed `change_config:` never
+affects the report. A malformed value never fails a load: that one field
+falls back to its default with a warning naming its dotted path, shown by
+`doctor` and in the report's run log. It is root-only: an app config file
+(`change_config.apps.<app>.config`) still accepts only `change_config:`.
+
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `qa_report.title` | string | `<brand name> QA coverage` | The report heading. At most 120 characters, no control characters. |
+| `qa_report.trunk` | string | `origin/HEAD`'s branch, else `main` | The trunk branch. The report's headline and trend default to full-scope runs on this branch. |
+| `qa_report.brand.name` | string | `change_config.project` | The brand name in the report header. At most 80 characters. |
+| `qa_report.brand.logo` | path | none (text header) | A repo-relative PNG, JPEG, WebP or SVG of at most 256 KB, embedded as an image. Its real path must stay inside the repo; anything else is refused with a warning and the header falls back to text. |
+| `qa_report.brand.logo_dark` | path | none | The same rules as `brand.logo`, shown in its place under the dark theme. |
+| `qa_report.brand.font.family` | string | system stack | A font family name list, letters, digits, spaces and `, ' " -` only, at most 200 characters. The name only: no font file is embedded, so it applies where the viewer has the font installed. |
+| `qa_report.brand.colors.light.ground` | hex | neutral | Light theme page background, `#rgb` or `#rrggbb`. |
+| `qa_report.brand.colors.light.ink` | hex | neutral | Light theme text color. |
+| `qa_report.brand.colors.light.accent` | hex | neutral | Light theme accent. When it is under 4.5:1 on the ground, text and focus uses are deepened toward the ink until they pass, with a warning naming the slot and both ratios; non-text marks keep the declared color. |
+| `qa_report.brand.colors.dark.ground` | hex | derived | Dark theme page background. |
+| `qa_report.brand.colors.dark.ink` | hex | derived | Dark theme text color. |
+| `qa_report.brand.colors.dark.accent` | hex | derived | Dark theme accent, same contrast handling as the light one. |
+| `qa_report.imports.coverage[].path` | glob | required | A repo-relative glob for a line and branch coverage file. No absolute path, no `..` segment. A missing file is silent; a stale or unparseable one warns. |
+| `qa_report.imports.coverage[].format` | enum | required | `cobertura`, `jacoco` or `lcov`. |
+| `qa_report.imports.coverage[].label` | string | the format | A short name for the import (`unit`, `web`), at most 40 characters. |
+| `qa_report.imports.test_results[].path` | glob | required | A repo-relative glob for test result files. Every file one entry matches is aggregated into one summary. |
+| `qa_report.imports.test_results[].format` | enum | required | `junit` or `testng`. |
+| `qa_report.imports.test_results[].label` | string | the format | A short name for the import, at most 40 characters. |
+| `qa_report.repo_copy.dir` | path | none (no repo copy) | A repo-relative directory, not `.git`, where `coverage build --repo-copy` writes a copy of the report. Nothing is ever committed or staged for you. |
+| `qa_report.history.max_runs` | integer | `200` | How many runs the report keeps, newest first, from 10 to 5000. |
+
+Colors are hex only. A theme is used only when all three of its slots are
+valid: a light theme with a bad slot falls back wholesale to the neutral light
+theme, and a dark theme with a bad slot (or none declared) is derived from the
+light one. Imported coverage and test results are reported only: they never
+become findings and never gate.
+
+```yaml
+qa_report:
+  title: Example Co QA coverage
+  trunk: main
+  brand:
+    name: Example Co
+    logo: docs/brand/logo.svg
+    font:
+      family: "Source Sans 3, Arial"
+    colors:
+      light: { ground: "#ffffff", ink: "#1b1f24", accent: "#2b6cb0" }
+  imports:
+    coverage:
+      - { path: "target/site/jacoco/jacoco.xml", format: jacoco, label: unit }
+    test_results:
+      - { path: "target/surefire-reports/TEST-*.xml", format: junit, label: unit }
+  repo_copy:
+    dir: docs/qa-coverage
+  history:
+    max_runs: 200
+```
 
 ## Conventions in the field tables
 
@@ -1181,3 +1253,12 @@ root `RELEASING.md`.
   so it neither validates against nor affects either governed block; a repo
   with no `CHANGE.md` at all still resolves a default root. See
   `skills/inbox/SKILL.md`.
+- 0.13.0: `qa_report`, the third top-level key outside both
+  `change_config:` and `change_policy:`, configuring the standing QA coverage
+  report: its title and trunk branch, the brand it wears (name, logo, font
+  family, light and dark colors), the coverage (`cobertura`, `jacoco`,
+  `lcov`) and test-result (`junit`, `testng`) files each run imports, an
+  opt-in repo copy directory, and history retention. Read by `QaReportConfig`,
+  never through `ChangeConfig`; a malformed value falls back to its default
+  with a warning and never fails a load. Fully additive: a `CHANGE.md` without
+  `qa_report:` parses and runs exactly as under 0.12.0.

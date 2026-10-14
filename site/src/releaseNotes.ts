@@ -28,6 +28,36 @@ export interface ReleaseNote {
 }
 
 export const RELEASE_NOTES: Record<string, ReleaseNote> = {
+  "0.13.0": {
+    version: "0.13.0",
+    date: "2026-10-13",
+    headline:
+      "A qa_report key brands the standing QA coverage report and names the coverage and test-result files a repo's own CI already produces.",
+    highlights: [
+      {
+        title: "One report that every deterministic run adds to",
+        body:
+          "Each cf:change, cf:testcases and cf:qa --suite run appends a record to a QA coverage report kept outside the repo: routes declared and exercised, test cases, lanes and findings. qa_report: sets its title, the trunk branch its headline follows, and how many runs it keeps (history.max_runs, 200 by default).",
+      },
+      {
+        title: "The repo's own brand, not the toolkit's",
+        body:
+          "brand.name, a logo and a dark-theme logo from inside the repo, a font family name, and light and dark ground, ink and accent colors in hex. An accent too light to read as text is deepened for text and focus only, with a warning that names the slot and both contrast ratios.",
+      },
+      {
+        title: "Line, branch and test results from files CI already writes",
+        body:
+          "imports.coverage[] reads Cobertura, JaCoCo or lcov and imports.test_results[] reads JUnit or TestNG, each a repo-relative glob with a format and a label. A missing file is silent, a stale or unparseable one warns, and nothing imported ever becomes a finding or gates a merge.",
+      },
+      {
+        title: "Its own reader, so it cannot break a lane",
+        body:
+          "Like inbox_root, qa_report: is read straight from the frontmatter and never through the change_config validator. A malformed value falls back to its default with a warning naming the dotted field, shown by doctor, and never fails a load.",
+      },
+    ],
+    upgrade: "Additive: a CHANGE.md without qa_report: parses and runs exactly as under 0.12.0.",
+  },
+
   "0.11.0": {
     version: "0.11.0",
     date: "2026-09-15",
