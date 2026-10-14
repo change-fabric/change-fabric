@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Layout } from "../components/Layout";
 import { MagnifyingGlassIcon, XIcon } from "../icons";
-import { HOOKS, SKILLS, hookPath, skillPath } from "../reference";
+import { SourceLink } from "../components/SourceLink";
+import { HOOKS, SKILLS, SKILLS_SOURCE_URL, hookPath, skillPath } from "../reference";
 import type { Group } from "../reference";
 import { createSearch } from "../search";
 
@@ -123,7 +124,10 @@ export function Reference() {
     <Layout>
       <section className="reference-index">
         <header className="page-head">
-          <h1>Reference</h1>
+          <div className="page-head-row reference-head-row">
+            <h1>Reference</h1>
+            <SourceLink href={SKILLS_SOURCE_URL} label="View on GitHub" title="Skills directory on GitHub" />
+          </div>
           <p className="section-lede">Every skill and hook the toolkit installs.</p>
         </header>
 

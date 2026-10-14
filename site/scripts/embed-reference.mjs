@@ -89,6 +89,9 @@ function buildSkills() {
       }
       return {
         id: dirName,
+        // The directory the SKILL.md was read from, so source links point at
+        // what exists rather than at a path rebuilt from the name.
+        sourceDir: `skills/${dirName}`,
         name: meta.name,
         group: meta.group,
         description: meta.description,
