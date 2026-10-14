@@ -25,6 +25,11 @@ class ChangeCoverageStore
   LOCK_FILE = '.lock'
   ROOT = File.join('.claude', 'cf', 'coverage')
   NO_PAGE = ->(_dir) { }
+  LOCK_TIMEOUT = 30
+
+  # Raised when another process holds the lock for longer than the store will
+  # wait. The run's record is skipped; the caller's rescue makes it a log line.
+  class LockTimeout < StandardError; end
 
   Parsed = Data.define(:meta, :runs, :bad_lines)
 
@@ -58,12 +63,15 @@ class ChangeCoverageStore
 
   # Splits data file text per the ingest rule. `bad_lines` are 1-based line
   # numbers of lines that are none of header, meta or a parseable run; blank
-  # lines are not bad.
+  # lines are not bad. A line that is not valid UTF-8 is bad, so one stray byte
+  # goes through the backup and rewrite instead of raising out of `strip`.
   def self.parse(text)
     meta = nil
     runs = []
     bad = []
     text.to_s.each_line.with_index(1) do |raw, number|
+      next bad << number unless raw.valid_encoding?
+
       line = raw.chomp
       next if line.strip.empty? || line == ChangeCoverageSchema::HEADER
 
@@ -114,8 +122,9 @@ class ChangeCoverageStore
 
   attr_reader :dir
 
-  def initialize(dir, max_runs:, origin:, project:, page_writer: NO_PAGE)
+  def initialize(dir, max_runs:, origin:, project:, page_writer: NO_PAGE, lock_timeout: LOCK_TIMEOUT)
     @dir = dir
+    @lock_timeout = lock_timeout
     @max_runs = Integer(max_runs)
     @origin = ChangeGitContext.sanitize_url(origin)
     @project = ChangeReport.slug_for(project)
@@ -177,11 +186,25 @@ class ChangeCoverageStore
   def update
     FileUtils.mkdir_p(@dir)
     File.open(File.join(@dir, LOCK_FILE), File::RDWR | File::CREAT, 0o644) do |lock|
-      lock.flock(File::LOCK_EX)
+      acquire(lock)
       parsed, lines = read_for_update
       write(yield(parsed.runs), meta_from(parsed.meta))
       @page_writer.call(@dir)
       lines
+    end
+  end
+
+  # Waits up to lock_timeout seconds for the lock, so a stalled or suspended
+  # writer elsewhere costs this run its record instead of hanging the sweep
+  # after its verdict.
+  def acquire(lock)
+    deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + @lock_timeout
+    until lock.flock(File::LOCK_EX | File::LOCK_NB)
+      if Process.clock_gettime(Process::CLOCK_MONOTONIC) >= deadline
+        raise LockTimeout, "#{lock.path} is held by another process; gave up after #{@lock_timeout}s"
+      end
+
+      sleep 0.05
     end
   end
 

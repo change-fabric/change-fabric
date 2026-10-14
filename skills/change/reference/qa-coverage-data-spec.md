@@ -222,9 +222,11 @@ Shared by the testcases lane and imported JUnit and TestNG results.
 - Retention keeps the newest `qa_report.history.max_runs` runs (default 200) by
   `recorded_at`, then `id`.
 - Every write is a full rewrite under an exclusive lock on `.lock` in the same
-  directory, written to a temporary file and renamed into place.
-- A line that is neither the header, the meta record, nor a parseable run is
-  reported with its line number, and the original file is copied to
+  directory, written to a temporary file and renamed into place. A writer
+  that cannot take the lock within 30 seconds skips its record with a log
+  line rather than waiting.
+- A line that is neither the header, the meta record, nor a parseable run
+  (including one that is not valid UTF-8) is reported with its line number, and the original file is copied to
   `report-data.js.corrupt-<UTC stamp>` before the clean rewrite.
 
 ## Changing the format
