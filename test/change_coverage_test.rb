@@ -178,7 +178,8 @@ class ChangeCoverageTest < Minitest::Test
   end
 
   def test_static_and_runtime_case_routes_are_exercised_and_undeclared_ones_counted
-    records = [ case_record("claims/submit", "pass", gotos: %w[/claims /claims/new], landed: "/claims/done") ]
+    records = [ case_record("claims/submit", "pass", gotos: %w[/claims /claims/new], landed: "/claims/done"),
+                case_record("claims/history", "fail") ]
     run = snapshot(lanes_ran: %w[testcases], records: records)
     routes = run["routes"]
 
@@ -198,6 +199,19 @@ class ChangeCoverageTest < Minitest::Test
 
     assert_nil route(run, "/history")
     assert_equal 0, run["routes"]["undeclared_exercised"]
+  end
+
+  def test_static_gotos_count_only_for_cases_that_ran
+    run = snapshot(lanes_ran: %w[testcases], records: [])
+
+    assert_equal "no_result", route(run, "/history")["lane_status"]["testcases"]
+    assert_equal 0, run["routes"]["declared_exercised"]
+    assert_equal 0, run["routes"]["undeclared_exercised"]
+
+    # Only claims/submit ran: its /claims/new counts, history's /history does not.
+    run = snapshot(lanes_ran: %w[testcases], records: [ case_record("claims/submit", "fail") ])
+
+    assert_equal 1, run["routes"]["undeclared_exercised"]
   end
 
   def test_expect_url_fragments_are_not_routes
