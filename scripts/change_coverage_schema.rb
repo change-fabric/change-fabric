@@ -38,7 +38,10 @@ module ChangeCoverageSchema
   # bump.
   CASE_SOURCES = %w[testcases junit testng].freeze
   CASE_STATUSES = %w[pass fail error skip warn].freeze
-  ROUTE_CELL_STATUSES = %w[pass warn fail no_result not_declared lane_off n_a].freeze
+  # `not_scanned`: the lane ran but never loaded the route (its only findings
+  # for it are the lane's skip finding, as after a failed login), so it does
+  # not count as exercised.
+  ROUTE_CELL_STATUSES = %w[pass warn fail not_scanned no_result not_declared lane_off n_a].freeze
 
   # Dotted paths; `[]` marks a field on each item of a list, the same
   # convention ChangeSchema::FIELDS uses. `<lane>` and `<severity>` stand for a
@@ -166,7 +169,28 @@ module ChangeCoverageSchema
   ].freeze
 
   # Caps that keep one run line bounded; counts stay complete past them.
+  # Imported test results get the tighter cap: a client suite runs to tens of
+  # thousands of cases, and every run keeps its own list.
   MAX_CASE_ITEMS = 5000
+  MAX_IMPORT_CASE_ITEMS = 500
   MAX_GROUPS = 500
   MESSAGE_MAX = 300
+
+  # Which cases a cap keeps first: failures, then errors, flaky passes,
+  # warnings, skips, and plain passes last. Ties keep their input order.
+  CASE_KEEP_ORDER = %w[fail error flaky warn skip pass].freeze
+
+  # [kept items, truncated?] for one list of per-case records under `cap`,
+  # ranked by CASE_KEEP_ORDER so a failure is never cut while a pass is kept.
+  def self.cap_cases(items, cap)
+    ranked = items.each_with_index.sort_by { |item, index| [ keep_rank(item), index ] }.map(&:first)
+    [ ranked.first(cap), items.size > cap ]
+  end
+
+  def self.keep_rank(item)
+    status = item['status'].to_s
+    key = item['flaky'] && !%w[fail error].include?(status) ? 'flaky' : status
+    CASE_KEEP_ORDER.index(key) || CASE_KEEP_ORDER.size
+  end
+  private_class_method :keep_rank
 end

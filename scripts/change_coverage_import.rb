@@ -205,11 +205,8 @@ module ChangeCoverageImport
       cases = parsed.flat_map { |_, data| data.cases }
       counts = %w[pass fail error skip].to_h { |status| [ status, cases.count { |item| item['status'] == status } ] }
       counts['flaky'] = cases.count { |item| item['flaky'] }
-      {
-        'files' => parsed.map(&:first), 'counts' => counts,
-        'items' => cases.first(ChangeCoverageSchema::MAX_CASE_ITEMS),
-        'truncated' => cases.size > ChangeCoverageSchema::MAX_CASE_ITEMS
-      }
+      items, truncated = ChangeCoverageSchema.cap_cases(cases, ChangeCoverageSchema::MAX_IMPORT_CASE_ITEMS)
+      { 'files' => parsed.map(&:first), 'counts' => counts, 'items' => items, 'truncated' => truncated }
     end
   end
 
