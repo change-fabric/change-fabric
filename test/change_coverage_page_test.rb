@@ -516,7 +516,7 @@ class ChangeCoveragePageTest < Minitest::Test
       "d" => "M.defaultFilters(N.runs)",
       "hl" => "M.headline(N.runs, M.defaultFilters(N.runs).filters).routes"
     })
-    assert_equal({ "profile" => "", "branch" => "@trunk", "scope" => "all", "source" => "" }, r["d"]["filters"])
+    assert_equal({ "app" => "", "profile" => "", "branch" => "@trunk", "scope" => "all", "source" => "" }, r["d"]["filters"])
     assert_nil r["d"]["fallbackBranch"]
     assert_equal "t1", r["hl"]["runId"]
     assert_equal 25.0, r["hl"]["value"]["pct"]
@@ -536,6 +536,38 @@ class ChangeCoveragePageTest < Minitest::Test
     assert_equal "feature/b", r["d"]["fallbackBranch"]
     assert_equal "feature/b", r["d"]["filters"]["branch"]
     assert_equal "f2", r["hl"]
+  end
+
+  # Every app of a multi-app sweep records its own run at the same instant.
+  # The page shows one app at a time, so tiles, deltas and the trend compare an
+  # app only with itself, and a repo-wide import counts under every app.
+  def test_model_keeps_apps_of_a_multi_app_store_apart
+    node!
+    runs = %w[aaaaaaa bbbbbbb].each_with_index.flat_map do |sha, i|
+      at = "2026-10-0#{i + 1}T00:00:00Z"
+      [ run_record("#{sha}-run-api", at, app: "api", routes: routes(9, 10)),
+        run_record("#{sha}-run-web", at, app: "web", routes: routes(2, 10)) ]
+    end
+    runs << run_record("ccccccc-import", "2026-10-03T00:00:00Z", scope: "import", source: "import",
+                       imports: coverage(80, 100))
+    r = run_model({ "runs" => runs }, {
+      "d" => "M.defaultFilters(N.runs)",
+      "opts" => "M.options(N.runs).apps",
+      "web" => "M.headline(N.runs, M.defaultFilters(N.runs).filters)",
+      "api" => "M.headline(N.runs, Object.assign({}, M.defaultFilters(N.runs).filters, { app: 'api' }))",
+      "trend" => "M.trend(N.runs, M.defaultFilters(N.runs).filters).series[0].values.filter(function (v) { return v !== null; })",
+      "matrix" => "M.latestToolkit(N.runs, Object.assign({}, M.defaultFilters(N.runs).filters, { app: 'api' })).id",
+      "history" => "M.history(N).map(function (h) { return h.app; })"
+    })
+    assert_equal %w[api web], r["opts"]
+    assert_equal "web", r["d"]["filters"]["app"]
+    assert_equal [ 20.0, 0.0, "aaaaaaa" ], [ r["web"]["routes"]["value"]["pct"], r["web"]["routes"]["delta"], r["web"]["routes"]["prevSha"] ]
+    assert_equal [ 90.0, 0.0 ], [ r["api"]["routes"]["value"]["pct"], r["api"]["routes"]["delta"] ]
+    assert_equal 80.0, r["web"]["line"]["value"]["pct"]
+    assert_equal 80.0, r["api"]["line"]["value"]["pct"]
+    assert_equal [ 20.0, 20.0 ], r["trend"]
+    assert_equal "bbbbbbb-run-api", r["matrix"]
+    assert_equal [ "", "web", "api", "web", "api" ], r["history"]
   end
 
   def test_model_computes_per_family_deltas_against_the_previous_carrier
