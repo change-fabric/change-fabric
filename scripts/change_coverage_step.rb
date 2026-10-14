@@ -65,12 +65,15 @@ class ChangeCoverageStep
 
   # Records one app's sweep in the local store and rewrites its page. Returns
   # log lines; never raises.
+  # `imports: false` leaves the repo-wide imports off this run: a multi-app
+  # sweep records them once, on its first app, and the page finds them for
+  # the rest through the shared sweep_id.
   def record_sweep(registry_project:, repo_root:, config:, app:, lanes_ran:, findings:, instances:, ids:, toolkit:,
-                   selection:, scope:)
+                   selection:, scope:, imports: true)
     context = Context.new(self, repo_root, registry_project)
     run = ChangeCoverage.snapshot(
       config:, lanes_ran:, findings:, case_records: case_records(config, instances), suite_set: suite_set(config),
-      selection:, git: context.git, ids:, toolkit:, repo: context.repo, imports: context.configured_imports,
+      selection:, git: context.git, ids:, toolkit:, repo: context.repo, imports: imports ? context.configured_imports : [],
       scope:, app:, warnings: context.warnings
     )
     store, lines = context.local_store
@@ -100,25 +103,26 @@ class ChangeCoverageStep
   end
 
   # `coverage import`: records one import-only run from CI result files.
-  # `identity` (`sha`, `branch`, `pr`, `profile`, `app`) overrides what git
-  # reports, which is what a detached CI checkout needs. Exit 0 when the run
-  # was recorded, 1 when no file could be read, 2 on an unknown format.
-  def import(files:, format:, label: nil, identity: {}, out: nil)
-    format = format.to_s
-    return [ 2, [ "unknown format #{format.inspect}; one of #{ChangeCoverageImport::FORMATS.join(', ')}" ] ] unless
-      ChangeCoverageImport::FORMATS.include?(format)
+  # `files` with `format` and `label` is one import; each of `entries`
+  # (`{paths:, format:, label:}`, from repeated `--file PATH:FORMAT[:LABEL]`)
+  # is one more, and every import lands in the same run. `identity` (`sha`,
+  # `branch`, `pr`, `profile`, `app`) overrides what git reports, which is what
+  # a detached CI checkout needs. Exit 0 when the run was recorded, 1 when no
+  # file could be read, 2 on an unknown format.
+  def import(files: [], format: nil, label: nil, entries: [], identity: {}, out: nil)
+    entries = import_entries(files, format, label, entries)
+    unknown = entries.map { |entry| entry[:format] }.reject { |name| ChangeCoverageImport::FORMATS.include?(name) }
+    return [ 2, [ "unknown format #{unknown.first.inspect}; one of #{ChangeCoverageImport::FORMATS.join(', ')}" ] ] unless
+      unknown.empty?
 
-    label = label.to_s.empty? ? format : label.to_s
     context = Context.new(self, @repo_root, @project, identity:)
     context.settings
-    result = ChangeCoverageImport.read(paths: files.map { |file| context.import_path(file) }, format:, label:,
-                                       repo_root: @repo_root, head_time: context.head_time)
-    context.warnings.concat(result.warnings)
-    lines = context.warning_lines
-    return [ 1, lines + [ "#{label}: no #{format} file could be read; nothing recorded" ] ] unless result.summary
+    read, unread = entries.map { |entry| [ entry, read_import(context, entry) ] }.partition { |_, summary| summary }
+    lines = context.warning_lines + unread_lines(unread.map(&:first), recorded: !read.empty?)
+    return [ 1, lines ] if read.empty?
 
     run = ChangeCoverage.import_run(
-      summaries: [ result.summary ], git: context.git, ids: import_ids(context, format, label),
+      summaries: read.map(&:last), git: context.git, ids: import_ids(context, read.map(&:first)),
       toolkit: @toolkit, repo: context.repo, profile: identity[:profile], app: identity[:app],
       warnings: context.warnings
     )
@@ -148,9 +152,32 @@ class ChangeCoverageStep
     globs.empty? ? nil : ChangeSuiteSet.load(globs, lane.dir)
   end
 
-  def import_ids(context, format, label)
+  def import_entries(files, format, label, entries)
+    given = files.empty? ? [] : [ { paths: files, format: format.to_s, label: label } ]
+    (given + entries).map do |entry|
+      name = entry[:format].to_s
+      { paths: Array(entry[:paths]), format: name, label: entry[:label].to_s.empty? ? name : entry[:label].to_s }
+    end
+  end
+
+  def read_import(context, entry)
+    result = ChangeCoverageImport.read(paths: entry[:paths].map { |file| context.import_path(file) }, format: entry[:format],
+                                       label: entry[:label], repo_root: @repo_root, head_time: context.head_time)
+    context.warnings.concat(result.warnings)
+    result.summary
+  end
+
+  def unread_lines(entries, recorded:)
+    tail = recorded ? 'left out of the run' : 'nothing recorded'
+    entries.map { |entry| "#{entry[:label]}: no #{entry[:format]} file could be read; #{tail}" }
+  end
+
+  # `<sweep_id>-import-<format>-<label>` for each import the run holds, in
+  # order, so one import keeps the id it always had.
+  def import_ids(context, entries)
     sweep = self.class.sweep_ids(now, context.git['sha'])
-    sweep.merge(id: "#{sweep[:sweep_id]}-import-#{format}-#{ChangeReport.slug_for(label)}")
+    parts = entries.map { |entry| "#{entry[:format]}-#{ChangeReport.slug_for(entry[:label])}" }
+    sweep.merge(id: "#{sweep[:sweep_id]}-import-#{parts.join('-')}")
   end
 
   # Rewrites the data file and page with nothing new, so a build with no

@@ -33,8 +33,8 @@ require_relative 'change_lane_testcases'
 #        [--no-publish] [--for-tag TAGNAME]
 #        change_run.rb gate-status [--ref REF] [--config PATH]
 #        change_run.rb coverage build [--config PATH] [--repo-copy] [--merge PATH]... [--out DIR]
-#        change_run.rb coverage import FILE... --format F [--label L] [--profile P] [--app A]
-#        [--sha S] [--branch B] [--pr N] [--config PATH] [--out DIR]
+#        change_run.rb coverage import [FILE... --format F [--label L]] [--file PATH:FORMAT[:LABEL]]...
+#        [--profile P] [--app A] [--sha S] [--branch B] [--pr N] [--config PATH] [--out DIR]
 #
 # coverage (QA coverage report) needs no docker: `build` rewrites the local
 # store under ~/.claude/cf/coverage/<project>/ (or --out DIR) and its page,
@@ -125,13 +125,13 @@ class ChangeRun
                     :for_tag, :ref, :signoff, :coverage, keyword_init: true)
 
   # The `coverage` subcommand's verb, positionals and options; nil outside it.
-  CoverageArgs = Struct.new(:verb, :files, :repo_copy, :merges, :out, :format, :label, :sha, :branch, :pr,
+  CoverageArgs = Struct.new(:verb, :files, :entries, :repo_copy, :merges, :out, :format, :label, :sha, :branch, :pr,
                             keyword_init: true)
   COVERAGE_VERBS = %w[build import].freeze
   COVERAGE_VALUE_FLAGS = { '--out DIR' => :out, '--format F' => :format, '--label L' => :label, '--sha S' => :sha,
                            '--branch B' => :branch, '--pr N' => :pr }.freeze
   COVERAGE_BUILD_ONLY = %w[--repo-copy --merge].freeze
-  COVERAGE_IMPORT_ONLY = %w[--format --label --sha --branch --pr --profile --app].freeze
+  COVERAGE_IMPORT_ONLY = %w[--format --label --file --sha --branch --pr --profile --app].freeze
   COVERAGE_SWEEP_ONLY = %w[--target-url --health-url --for-tag --ref --signoff --no-publish].freeze
 
   def self.main(argv)
@@ -289,7 +289,7 @@ class ChangeRun
 
   def parse_args(argv)
     scope = argv.first
-    coverage = CoverageArgs.new(files: [], repo_copy: false, merges: [])
+    coverage = CoverageArgs.new(files: [], entries: [], repo_copy: false, merges: [])
     given = []
     path = ChangeConfig::DEFAULT_PATH
     profile = nil
@@ -357,6 +357,19 @@ class ChangeRun
       given << '--merge'
       coverage.merges << value
     end
+    opts.on('--file SPEC') do |value|
+      given << '--file'
+      coverage.entries << coverage_file(value)
+    end
+  end
+
+  # `PATH:FORMAT[:LABEL]`, read from the right so a path may hold a colon.
+  def coverage_file(spec)
+    formats = ChangeCoverageImport::FORMATS.join('|')
+    match = spec.match(/\A(?<path>.+):(?<format>#{formats})(?::(?<label>[^:]+))?\z/)
+    abort_and_exit("coverage import: --file takes PATH:FORMAT[:LABEL] with FORMAT one of " \
+                   "#{ChangeCoverageImport::FORMATS.join(', ')}; got #{spec.inspect}") unless match
+    { paths: [ match[:path] ], format: match[:format], label: match[:label] }
   end
 
   # The sweep flags a coverage invocation was given; each is refused there.
@@ -376,7 +389,8 @@ class ChangeRun
   def check_coverage_args(coverage, positionals, given)
     coverage.verb, *coverage.files = positionals
     usage = 'usage: coverage build [--repo-copy] [--merge PATH]... [--out DIR] | ' \
-            'coverage import FILE... --format F [--label L] [--sha S] [--branch B] [--pr N] [--out DIR]'
+            'coverage import [FILE... --format F [--label L]] [--file PATH:FORMAT[:LABEL]]... ' \
+            '[--sha S] [--branch B] [--pr N] [--out DIR]'
     abort_and_exit("coverage: verb must be one of #{COVERAGE_VERBS.join(', ')}; #{usage}") unless
       COVERAGE_VERBS.include?(coverage.verb)
     misplaced = given.uniq & ((coverage.verb == 'build' ? COVERAGE_IMPORT_ONLY : COVERAGE_BUILD_ONLY) + COVERAGE_SWEEP_ONLY)
@@ -387,8 +401,12 @@ class ChangeRun
   end
 
   def check_coverage_import(coverage, usage)
-    abort_and_exit("coverage import needs at least one FILE; #{usage}") if coverage.files.empty?
-    abort_and_exit("coverage import needs --format; #{usage}") if coverage.format.to_s.empty?
+    abort_and_exit("coverage import needs at least one FILE or --file; #{usage}") if
+      coverage.files.empty? && coverage.entries.empty?
+    abort_and_exit("coverage import needs --format for its FILE arguments; #{usage}") if
+      !coverage.files.empty? && coverage.format.to_s.empty?
+    abort_and_exit("coverage import: --format and --label name the FILE arguments; pass FILEs or use --file; #{usage}") if
+      coverage.files.empty? && !(coverage.format.to_s.empty? && coverage.label.to_s.empty?)
     abort_and_exit("coverage import: --pr must be a number, got #{coverage.pr.inspect}") if
       coverage.pr && !coverage.pr.match?(/\A\d+\z/)
   end
@@ -621,13 +639,18 @@ class ChangeRun
   # coverage problem is one log line and never a different verdict. Keyed on
   # the registry project, so a profile that renames config.project does not
   # split one repo's history.
+  #
+  # A sweep's repo-wide imports land once, on the first app whose record is
+  # written; the page resolves them for the other apps by sweep_id.
   def record_coverage(config, lanes, findings, instances, app:, sweep:, registry_project:)
     sweep ||= ChangeCoverageStep.sweep_ids(Time.now.utc, head_sha)
+    imports = @coverage_imports_sweep != sweep[:sweep_id]
     lines = coverage_step.record_sweep(
       registry_project: registry_project, repo_root: repo_root, config: config, app: app, lanes_ran: lanes,
       findings: findings, instances: instances, ids: ChangeCoverageStep.run_ids(sweep, app: app),
-      toolkit: toolkit_version, selection: { suites: @args.suites, tags: [] }, scope: @args.scope
+      toolkit: toolkit_version, selection: { suites: @args.suites, tags: [] }, scope: @args.scope, imports: imports
     )
+    @coverage_imports_sweep = sweep[:sweep_id] unless lines.any? { |line| line.start_with?('skipped') }
     lines.each { |line| log("[change] [coverage] #{app ? "[#{app}] " : ''}#{line}") }
   rescue SignalException, SystemExit, NoMemoryError
     raise
@@ -661,7 +684,8 @@ class ChangeRun
       step.build(repo_copy: args.repo_copy, merges: args.merges, out: args.out)
     else
       identity = { sha: args.sha, branch: args.branch, pr: args.pr, profile: @args.profile, app: @args.apps.first }
-      step.import(files: args.files, format: args.format, label: args.label, identity: identity, out: args.out)
+      step.import(files: args.files, format: args.format, label: args.label, entries: args.entries, identity: identity,
+                  out: args.out)
     end
   end
 

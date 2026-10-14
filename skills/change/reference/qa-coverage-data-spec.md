@@ -66,7 +66,7 @@ it understands.
 | Field | Type | Description |
 | --- | --- | --- |
 | `schema` | integer | The run record schema, 1. |
-| `id` | string | Unique run id: `<sweep_id>-run`, `<sweep_id>-run-<app>` in a multi-app sweep, or `<sweep_id>-import-<format>-<label>`. |
+| `id` | string | Unique run id: `<sweep_id>-run`, `<sweep_id>-run-<app>` in a multi-app sweep, or `<sweep_id>-import-<format>-<label>`, with one `-<format>-<label>` per import when one run holds several. |
 | `sweep_id` | string | `<%Y%m%dT%H%M%SZ>-<short sha or nosha>`, shared by every run of one sweep. |
 | `recorded_at` | string | ISO 8601 UTC time the run was recorded. |
 | `source` | string | `change_run` (a sweep) or `import` (CI result files alone). |
