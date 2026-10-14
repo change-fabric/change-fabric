@@ -28,8 +28,8 @@ different tools:
   explores. Its steps are compiled and run by the same shared flow compiler
   this platform's browser lanes use. Use it for exploratory UAT of a feature.
 - `cf:change` is deterministic and config-driven. It reads the repo-root
-  `CHANGE.md` and runs a fixed four-lane audit (load, a11y, security, responsive
-  UX) with no per-run scoping decisions, meant to run unattended before a
+  `CHANGE.md` and runs a fixed five-lane audit (load, a11y, security, responsive
+  UX, committed test cases) with no per-run scoping decisions, meant to run unattended before a
   release-affecting merge. It writes a reproducible report and records a
   pass/fail gate the merge hook enforces.
 
@@ -298,6 +298,83 @@ Provisioning is not a per-team step at all any more. The artifacts service is
 one shared, Terraform-managed deployment (`platform/infra`), and joining it is
 creating a team in the web app and minting that team's API key. Add
 `--no-publish` to `change_run.rb` to build the bundle without publishing it.
+
+## QA coverage report
+
+Every deterministic run through `change_run.rb` (`cf:change`, a single-lane
+skill, `cf:testcases`, `cf:qa --suite`, and `cf:drive` through those) records
+one run in a QA coverage history after its report and gate are written:
+routes declared vs exercised per lane, test cases and their statuses, lanes,
+findings, plus line and branch coverage and test results imported from the
+repo's own CI files (Cobertura, JaCoCo, lcov, JUnit, TestNG). The step is
+best-effort and report-only: a failure is one `[change] [coverage] skipped`
+log line, and nothing it does changes a finding, the exit code, or the gate.
+Exploratory `cf:qa` runs are never recorded.
+
+The history lives in `~/.claude/cf/coverage/<project>/`, keyed on the root
+`CHANGE.md`'s project (every profile of one repo shares it): `report-data.js`
+holds one run per line, and `index.html` beside it renders the history and
+opens straight from disk, no network. The data format and its ingest rule are
+`reference/qa-coverage-data-spec.md`.
+
+The optional top-level `qa_report:` key in `CHANGE.md` sets the page's title,
+trunk branch, brand (name, logo, font family, light and dark colors), the CI
+files to import on every run, the repo copy directory, and how many runs to
+keep. It is read by its own reader, so a malformed value falls back with a
+warning and never touches the audit lanes. See the frontmatter spec's
+`qa_report (0.13.0)` section; `change_config.rb doctor` prints its warnings.
+
+Rebuild or import without a sweep (no Docker needed):
+
+```
+ruby ~/.claude/cf/bin/change_run.rb coverage build [--repo-copy] [--merge PATH]... [--out DIR]
+ruby ~/.claude/cf/bin/change_run.rb coverage import [FILE... --format F [--label L]] \
+  [--file PATH:FORMAT[:LABEL]]... [--profile P] [--app A] [--sha S] [--branch B] [--pr N] [--out DIR]
+```
+
+FORMAT is one of `cobertura`, `jacoco`, `lcov`, `junit`, `testng`.
+
+- `--file PATH:FORMAT[:LABEL]` adds one more import. Repeatable; every
+  import of one invocation lands in the same run, so coverage and test
+  results for a commit are one history row. A file that cannot be read is
+  left out with a line and the rest still record.
+- `--merge PATH` merges a `report-data.js`, or a directory holding one, into
+  the store by run id. Repeatable.
+- `--out DIR` writes `report-data.js` and `index.html` to DIR instead of the
+  store, merging any data file already there.
+- `--repo-copy` merges the store with the copy under `qa_report.repo_copy.dir`
+  by run id, both ways, and writes both. It never stages or commits; commit
+  the copy yourself. Sweeps only ever update the local store.
+
+CI flow: from a toolkit checkout, run `ruby <toolkit>/scripts/change_run.rb
+coverage import --file ... --branch B --sha S --pr N --out qa-coverage` (plain
+Ruby, no Bundler; the identity flags cover a detached checkout) and upload the
+directory as a build artifact. Locally, download it and run `coverage build
+--merge <artifact dir>`. Some runners write no coverage when a test fails
+(Vitest needs `--coverage.reportOnFailure`), so set that or the failing run
+records test results without coverage.
+
+A multi-app sweep records the repo-wide imports once, on its first app; the
+page shows them under every app of that sweep. Imported test results list
+only the tests that did not plainly pass (failing, erroring, flaky, skipped),
+at most 500 per import with failures kept first; counts are always complete. A route a
+lane skipped because its login could not run reads "not scanned" and does not
+count as exercised.
+
+A committed repo copy needs its data file union-merged so two branches that
+each added runs do not conflict. Add this line to `.gitattributes` (doctor and
+`--repo-copy` print it when it is missing):
+
+```
+docs/qa-coverage/report-data.js merge=union
+```
+
+with your own `repo_copy.dir` in place of `docs/qa-coverage`. Every read
+dedupes by run id, so union-merge duplicates are harmless.
+
+Routes are matched literally: `/claims/123` and `/claims/:id` are different
+routes, and there is no framework route discovery. Declare the routes the
+lanes visit in the same form the test cases reach them.
 
 ## Lane subsets
 

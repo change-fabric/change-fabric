@@ -1,7 +1,7 @@
 ---
 # CHANGE.md is the single change-fabric file. Copy it to <repo-root>/CHANGE.md
 # and edit. Its frontmatter carries an optional spec_version plus three blocks,
-# plus one more optional top-level key unrelated to any of them:
+# plus two more optional top-level keys unrelated to any of them:
 #
 #   spec_version:       the schema version this file is authored against (optional;
 #                       compared to the installed toolkit at load, warns on drift).
@@ -16,6 +16,10 @@
 #                       frontmatter, never through the ChangeConfig validator.
 #                       See skills/inbox/SKILL.md. Omit it and cf:inbox falls
 #                       back to a zero-config per-repo default.
+#   qa_report:          optional; brands the QA coverage report and names CI
+#                       coverage and test-result files to import. Also read
+#                       directly from this file's frontmatter. See
+#                       skills/change/SKILL.md "QA coverage report".
 #
 # The prose body below both blocks is the human governance FAQ. There is no
 # separate config file: a repo can carry only this one file, with none of the
@@ -40,6 +44,28 @@ spec_version: "0.9.0"
 # inboxes, ledger) lives for this repo, e.g. to share one inbox across several
 # repos on one team. Delete it to use the zero-config per-repo default instead.
 # inbox_root: ~/notes/team-handoff
+
+# Optional: brands the QA coverage report and names CI files to import. See
+# the frontmatter spec's qa_report section. Delete it for the neutral default.
+# qa_report:
+#   title: Example Co QA coverage
+#   trunk: main
+#   brand:
+#     name: Example Co
+#     logo: docs/brand/logo.svg
+#     font:
+#       family: "Source Sans 3, Arial"
+#     colors:
+#       light: { ground: "#ffffff", ink: "#1b1f24", accent: "#2b6cb0" }
+#   imports:
+#     coverage:
+#       - { path: "target/site/jacoco/jacoco.xml", format: jacoco, label: unit }
+#     test_results:
+#       - { path: "target/surefire-reports/TEST-*.xml", format: junit, label: unit }
+#   repo_copy:
+#     dir: docs/qa-coverage
+#   history:
+#     max_runs: 200
 
 # Optional third block: which contributors team owns this repo, and where its
 # cf:change findings artifacts publish. Delete it entirely if this repo is not

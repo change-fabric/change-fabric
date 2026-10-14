@@ -98,6 +98,9 @@ in the repo rather than working around the gate: a case nobody trusts is worse
 than no case. `gate_tags` exists for the one legitimate version of that, staged
 adoption of a brand-new suite whose cases should report before they gate.
 
+Every run also records its per-case results in the QA coverage report, never
+affecting the verdict; see cf:change's "QA coverage report".
+
 ## Quarantine a flaky case
 
 A case that is genuinely flaky can be time-boxed out of the gate instead of

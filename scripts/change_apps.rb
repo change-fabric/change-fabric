@@ -5,6 +5,7 @@ require_relative 'change_config'
 require_relative 'change_frontmatter'
 require_relative 'change_policy'
 require_relative 'change_schema'
+require_relative 'qa_report_config'
 
 # Reads a root CHANGE.md's change_config.apps registry (schema 0.4.0), the
 # monorepo axis change_config.profiles deliberately does not cover: a profile
@@ -122,7 +123,7 @@ class ChangeAppRegistry
   # promotion-profile coverage check (a `change_policy.promotion.<ref>.profile`
   # that some required app cannot satisfy is a merge gate that is
   # unsatisfiable by construction, worth catching here rather than at merge
-  # time).
+  # time), and followed by the root-level qa_report: summary (0.13.0).
   def self.doctor(change_md_path, profile: nil, apps: [], overrides: {})
     registry = load(change_md_path)
     selected = apps.empty? ? registry.enabled_entries : registry.fetch(apps)
@@ -141,6 +142,12 @@ class ChangeAppRegistry
       lines.concat(ChangeConfig.doctor_lines(entry.config_path, entry.load(profile: profile, overrides: overrides)))
     end
 
+    # qa_report: is root-level, so it is reported once per registry rather
+    # than inside each app's block.
+    lines << ''
+    root = File.dirname(change_md_path)
+    lines.concat(QaReportConfig.doctor_lines(root, project: registry.project))
+    lines.concat(QaReportConfig.gitattributes_lines(root, QaReportConfig.load(root, project: registry.project).repo_copy_dir))
     lines.join("\n")
   end
 
