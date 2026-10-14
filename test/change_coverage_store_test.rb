@@ -22,8 +22,9 @@ class ChangeCoverageStoreTest < Minitest::Test
     FileUtils.remove_entry(@root)
   end
 
-  def store(max_runs: 200, origin: ORIGIN, page_writer: ChangeCoverageStore::NO_PAGE)
-    ChangeCoverageStore.new(@dir, max_runs:, origin:, project: "Example Co", page_writer:)
+  def store(max_runs: 200, origin: ORIGIN, page_writer: ChangeCoverageStore::NO_PAGE,
+            lock_timeout: ChangeCoverageStore::LOCK_TIMEOUT)
+    ChangeCoverageStore.new(@dir, max_runs:, origin:, project: "Example Co", page_writer:, lock_timeout:)
   end
 
   def run_record(id, at = "2026-10-13T14:15:00Z", **extra)
@@ -123,6 +124,37 @@ class ChangeCoverageStoreTest < Minitest::Test
 
     assert(statuses.all?(&:success?))
     assert_equal %w[one two], store.runs.map { |run| run["id"] }.sort
+  end
+
+  # A lock held past the timeout (a suspended sweep elsewhere) raises instead
+  # of blocking, and leaves the file as it was.
+  def test_a_held_lock_times_out_instead_of_blocking
+    store.record([ run_record("a") ])
+    File.open(File.join(@dir, ".lock"), File::RDWR) do |held|
+      held.flock(File::LOCK_EX)
+      started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+
+      error = assert_raises(ChangeCoverageStore::LockTimeout) { store(lock_timeout: 0.2).record([ run_record("b") ]) }
+
+      assert_operator Process.clock_gettime(Process::CLOCK_MONOTONIC) - started, :<, 5
+      assert_includes error.message, "held by another process"
+    end
+    assert_equal %w[a], store.runs.map { |run| run["id"] }
+  end
+
+  # One invalid byte is a corrupt line like any other: reported, backed up,
+  # and dropped by the rewrite, so later records keep landing.
+  def test_an_invalid_utf8_line_is_backed_up_and_rewritten
+    store.record([ run_record("a") ])
+    path = File.join(@dir, "report-data.js")
+    File.open(path, "ab") { |file| file.write("window.x = \xFF;\n".b) }
+
+    lines = store.record([ run_record("b", "2026-10-13T15:00:00Z") ])
+
+    assert(lines.any? { |line| line.include?("line 4 is not a coverage line") })
+    assert_equal 1, Dir.glob(File.join(@dir, "report-data.js.corrupt-*")).size
+    assert_equal %w[a b], store.runs.map { |run| run["id"] }
+    assert_empty ChangeCoverageStore.parse(File.read(path, encoding: "UTF-8")).bad_lines
   end
 
   def test_page_writer_is_called_with_the_directory
