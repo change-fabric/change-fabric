@@ -1,0 +1,1049 @@
+<%#
+  The QA coverage page: index.html beside a coverage store's report-data.js.
+
+  Rendered by scripts/change_coverage_page.rb from the resolved brand alone
+  (ChangeCoverageBrand::Resolved) and fixed constants. It carries no run data,
+  no timestamp and no path: the runs arrive at view time through a classic
+  <script src="report-data.js">, which works from file:// where a JSON fetch
+  cannot. Every color is a hex literal baked here by Ruby; the scripts never
+  compute a color.
+
+  Safety rules the tests enforce: no module scripts, no network calls, no
+  absolute URL literal anywhere, and every piece of run data reaches the DOM
+  through textContent or setAttribute, never as markup. Imported test names
+  and messages are untrusted text.
+-%>
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title><%= h title %></title>
+<style>
+  :root {
+    color-scheme: light;
+<%= css_tokens('light', '    ') %>
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+<%= css_tokens('dark', '      ') %>
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+<%= css_tokens('dark', '    ') %>
+  }
+  @media print {
+    :root:not([data-theme="print"]), :root[data-theme] {
+      color-scheme: light;
+<%= css_tokens('light', '      ') %>
+    }
+    .theme-toggle, .filters, .view-toggle { display: none; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; animation: none !important; scroll-behavior: auto !important; }
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body { margin: 0; background: var(--ground); color: var(--ink); font: 15px/1.55 <%= font_stack %>; }
+  :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+  a { color: var(--accent-text); }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
+  .note { color: var(--muted); font-size: 13px; margin: 6px 0; }
+  .masthead { border-bottom: 4px solid var(--accent); background: var(--ground); }
+  .masthead-inner { max-width: 1120px; margin: 0 auto; padding: 16px; display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+  .logo { height: 40px; width: auto; max-width: 180px; object-fit: contain; display: block; }
+  .logo-dark { display: none; }
+  :root[data-theme="dark"] .has-dark-logo .logo-light { display: none; }
+  :root[data-theme="dark"] .has-dark-logo .logo-dark { display: block; }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .has-dark-logo .logo-light { display: none; }
+    :root:not([data-theme="light"]) .has-dark-logo .logo-dark { display: block; }
+  }
+  .brand-name { margin: 0; font-size: 22px; line-height: 1.2; }
+  .brand-sub { margin: 0; color: var(--muted); font-size: 14px; }
+  .brand-text { flex: 1 1 200px; min-width: 0; }
+  button { font: inherit; color: var(--ink); background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 6px 12px; cursor: pointer; }
+  button:hover { border-color: var(--accent-text); }
+  main { max-width: 1120px; margin: 0 auto; padding: 8px 16px 64px; }
+  h2 { font-size: 18px; margin: 36px 0 10px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+  h3 { font-size: 13px; margin: 18px 0 8px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+  .filters { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; margin-top: 20px; }
+  .filters label { display: flex; flex-direction: column; font-size: 12px; color: var(--muted); gap: 3px; }
+  .filters select { font: inherit; font-size: 14px; color: var(--ink); background: var(--ground); border: 1px solid var(--border); border-radius: 8px; padding: 6px 8px; min-width: 130px; }
+  .banner { background: var(--surface); border: 1px solid var(--border); border-left: 4px solid var(--accent); border-radius: 8px; padding: 10px 12px; margin: 14px 0 0; }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
+  .tile { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
+  .tile-label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .06em; margin: 0; }
+  .tile-value { font-size: 28px; font-weight: 600; margin: 2px 0; font-variant-numeric: tabular-nums; }
+  .tile-value.missing { font-size: 16px; font-weight: 400; color: var(--muted); }
+  .tile-detail, .tile-delta { margin: 0; font-size: 13px; color: var(--muted); }
+  .panel { background: var(--chart-surface); color: var(--chart-ink); border: 1px solid var(--border); border-radius: 10px; padding: 12px; }
+  .panel .note { color: var(--chart-muted); }
+  .chart-wrap { position: relative; overflow-x: auto; }
+  .chart { display: block; width: 100%; min-width: 560px; height: auto; }
+  .chart text { fill: var(--chart-muted); font-size: 11px; }
+  .chart .end-label { fill: var(--chart-ink); font-size: 12px; }
+  .grid-line { stroke: var(--chart-grid); stroke-width: 1; }
+  .series { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+  .dot { stroke: var(--chart-surface); stroke-width: 2; }
+  .hover-col { fill: transparent; }
+  .hover-line { stroke: var(--chart-muted); stroke-width: 1; }
+  .s1 { stroke: var(--s1); } .s2 { stroke: var(--s2); } .s3 { stroke: var(--s3); } .s4 { stroke: var(--s4); }
+  .f1 { fill: var(--s1); } .f2 { fill: var(--s2); } .f3 { fill: var(--s3); } .f4 { fill: var(--s4); }
+  .legend { display: flex; flex-wrap: wrap; gap: 6px 16px; list-style: none; padding: 0; margin: 0 0 8px; font-size: 13px; }
+  .legend li { display: flex; align-items: center; gap: 6px; }
+  .key { display: inline-block; width: 16px; height: 0; border-top: 2px solid; border-radius: 1px; }
+  .key.s1 { border-color: var(--s1); } .key.s2 { border-color: var(--s2); } .key.s3 { border-color: var(--s3); } .key.s4 { border-color: var(--s4); }
+  .tooltip { position: absolute; pointer-events: none; background: var(--chart-surface); color: var(--chart-ink); border: 1px solid var(--chart-grid); border-radius: 8px; padding: 8px 10px; font-size: 12px; box-shadow: 0 2px 8px rgba(0, 0, 0, .12); min-width: 160px; z-index: 2; }
+  .tooltip p { margin: 0; }
+  .tooltip .tip-head { font-weight: 600; margin-bottom: 4px; }
+  .scroll { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { text-align: left; padding: 7px 9px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .06em; font-weight: 600; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .status { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+  .mark { display: inline-block; width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--muted); background: transparent; flex: none; }
+  .mark.st-pass { background: var(--pass); border-color: var(--pass); }
+  .mark.st-warn { background: var(--warn); border-color: var(--warn); border-radius: 2px; }
+  .mark.st-fail { background: var(--fail); border-color: var(--fail); border-radius: 0; }
+  .mark.st-off { border-style: dashed; }
+  .bar-track { position: relative; height: 10px; min-width: 90px; background: var(--surface); border: 1px solid var(--border); border-radius: 2px; }
+  .bar-fill { position: absolute; left: 0; top: 0; bottom: 0; background: var(--accent); border-radius: 0 4px 4px 0; }
+  .flag { color: var(--warn); font-weight: 600; }
+  .empty { color: var(--muted); font-style: italic; }
+  footer { max-width: 1120px; margin: 0 auto; padding: 16px 16px 40px; color: var(--muted); font-size: 13px; border-top: 1px solid var(--border); }
+  footer p { margin: 2px 0; }
+  .hidden { display: none; }
+  .ns-source { position: absolute; width: 0; height: 0; overflow: hidden; }
+</style>
+</head>
+<body>
+<header class="masthead">
+  <div class="masthead-inner<%= logo_dark_uri ? ' has-dark-logo' : '' %>">
+<% if logo_uri -%>
+    <img class="logo logo-light" src="<%= h logo_uri %>" alt="<%= h name %> logo">
+<% end -%>
+<% if logo_dark_uri -%>
+    <img class="logo logo-dark" src="<%= h logo_dark_uri %>" alt="<%= h name %> logo">
+<% end -%>
+    <div class="brand-text">
+      <p class="brand-name"><%= h name %></p>
+      <h1 class="brand-sub">QA coverage</h1>
+    </div>
+    <button type="button" class="theme-toggle" id="theme-toggle">Theme: auto</button>
+  </div>
+</header>
+<main>
+  <p class="banner hidden" id="load-status" role="status"></p>
+
+  <section aria-labelledby="filters-title">
+    <h2 id="filters-title" class="hidden">Filters</h2>
+    <div class="filters" id="filters">
+      <label id="f-app-label">App<select id="f-app"></select></label>
+      <label>Profile<select id="f-profile"></select></label>
+      <label>Branch<select id="f-branch"></select></label>
+      <label>Scope<select id="f-scope"></select></label>
+      <label>Source<select id="f-source"></select></label>
+    </div>
+    <p class="banner hidden" id="default-note"></p>
+  </section>
+
+  <section aria-labelledby="headline-title">
+    <h2 id="headline-title">Headline</h2>
+    <h3>Measured by Change Fabric</h3>
+    <div class="tiles" id="tiles-toolkit"></div>
+    <h3>Imported</h3>
+    <div class="tiles" id="tiles-imported"></div>
+  </section>
+
+  <section aria-labelledby="trend-title">
+    <h2 id="trend-title">Trend</h2>
+    <div class="panel">
+      <ul class="legend" id="trend-legend"></ul>
+      <div class="chart-wrap" id="trend-chart"></div>
+      <p class="note" id="trend-note">Each point is one run, in recorded order; the axis is 0 to 100%.</p>
+      <button type="button" class="view-toggle" id="trend-toggle" aria-expanded="false" aria-controls="trend-table-wrap">View as table</button>
+      <div class="scroll hidden" id="trend-table-wrap"></div>
+    </div>
+  </section>
+
+  <section aria-labelledby="routes-title">
+    <h2 id="routes-title">Routes by lane</h2>
+    <p class="note">Routes are matched literally; /claims/123 and /claims/:id are different routes.</p>
+    <p class="note" id="routes-run"></p>
+    <div class="scroll" id="routes-table"></div>
+    <p class="note" id="routes-undeclared"></p>
+  </section>
+
+  <section aria-labelledby="cases-title">
+    <h2 id="cases-title">Test cases</h2>
+    <p class="note" id="cases-run"></p>
+    <div class="scroll" id="cases-table"></div>
+  </section>
+
+  <section aria-labelledby="failing-title" class="hidden" id="failing-section">
+    <h2 id="failing-title">Failing imported tests</h2>
+    <p class="note" id="failing-run"></p>
+    <div class="scroll" id="failing-table"></div>
+  </section>
+
+  <section aria-labelledby="groups-title">
+    <h2 id="groups-title">Imported coverage by group</h2>
+    <p class="note" id="groups-run"></p>
+    <div class="scroll" id="groups-table"></div>
+  </section>
+
+  <section aria-labelledby="history-title">
+    <h2 id="history-title">Run history</h2>
+    <div class="scroll" id="history-table"></div>
+  </section>
+</main>
+<footer>
+  <p>Generated by Change Fabric</p>
+  <p>Percentages are rounded down to one decimal, so a figure never reads above a mark it has not reached.</p>
+  <p>Page template version <%= template_version %>; understands run schema 1 to <%= run_schema_max %>.</p>
+</footer>
+<svg class="ns-source" aria-hidden="true" focusable="false" width="0" height="0"></svg>
+<script src="report-data.js"></script>
+<script id="cf-coverage-model">
+(function (root) {
+  "use strict";
+
+  var RUN_SCHEMA_MAX = <%= run_schema_max %>;
+  var LANES = <%= lanes_json %>;
+  var TRUNK = "@trunk";
+  var CASE_STATUSES = ["pass", "fail", "error", "skip", "warn"];
+  var TEST_STATUSES = ["pass", "fail", "error", "skip"];
+
+  // One adapter per run schema this page understands. A newer schema is
+  // excluded and listed rather than read as if it were this one.
+  var ADAPTERS = { 1: function (run) { return run; } };
+
+  var SERIES = [
+    { key: "routes", label: "Route coverage", slot: 1 },
+    { key: "cases", label: "Case pass rate", slot: 2 },
+    { key: "line", label: "Line coverage", slot: 3 },
+    { key: "branch", label: "Branch coverage", slot: 4 }
+  ];
+
+  var CELL_LABELS = {
+    pass: "pass", warn: "warn", fail: "fail", not_scanned: "not scanned", no_result: "not exercised",
+    not_declared: "not declared", lane_off: "lane off", n_a: "n/a"
+  };
+
+  function isObj(v) { return v !== null && typeof v === "object" && !Array.isArray(v); }
+  function num(v) { return typeof v === "number" && isFinite(v) ? v : 0; }
+  function list(v) { return Array.isArray(v) ? v : []; }
+
+  // Mirrors ColorCheck#shown_ratio: floored, never rounded up past a mark.
+  function floorPct(covered, total) {
+    if (typeof covered !== "number" || typeof total !== "number" || !(total > 0)) return null;
+    return Math.floor(covered * 1000 / total) / 10;
+  }
+
+  function compareRuns(a, b) {
+    if (a.recorded_at < b.recorded_at) return -1;
+    if (a.recorded_at > b.recorded_at) return 1;
+    if (a.id < b.id) return -1;
+    if (a.id > b.id) return 1;
+    return 0;
+  }
+
+  // Dedupe by id (the last copy wins, as the store merges), sort, adapt, and
+  // set aside every record this page cannot read.
+  function normalize(data) {
+    var raw = isObj(data) ? list(data.runs) : [];
+    var byId = new Map();
+    var excluded = [];
+    raw.forEach(function (run) {
+      if (!isObj(run) || typeof run.id !== "string" || run.id === "") {
+        excluded.push({ id: null, schema: null, recorded_at: null, kind: "invalid", reason: "invalid record" });
+        return;
+      }
+      byId.set(run.id, run);
+    });
+    var runs = [];
+    byId.forEach(function (run) {
+      var schema = run.schema;
+      if (typeof schema !== "number" || Math.floor(schema) !== schema || schema < 1 || typeof run.recorded_at !== "string") {
+        excluded.push({ id: run.id, schema: typeof schema === "number" ? schema : null, recorded_at: typeof run.recorded_at === "string" ? run.recorded_at : null, kind: "invalid", reason: "invalid record" });
+      } else if (schema > RUN_SCHEMA_MAX || !ADAPTERS[schema]) {
+        excluded.push({ id: run.id, schema: schema, recorded_at: run.recorded_at, kind: "newer", reason: "written by a newer toolkit (schema " + schema + ")" });
+      } else {
+        runs.push(ADAPTERS[schema](run));
+      }
+    });
+    runs.sort(compareRuns);
+    return { meta: isObj(data) && isObj(data.meta) ? data.meta : null, runs: inheritImports(runs), excluded: excluded };
+  }
+
+  // A sweep's runs share sweep_id; a record without one is grouped by the
+  // instant every run of one sweep shares.
+  function sweepKey(run) { return typeof run.sweep_id === "string" ? "s:" + run.sweep_id : "t:" + run.recorded_at; }
+
+  // A sweep records repo-wide imports once, on its first run; every other
+  // run of that sweep shows them too, marked with `imports_from`.
+  function inheritImports(runs) {
+    var bySweep = {};
+    runs.forEach(function (r) {
+      if (typeof r.sweep_id === "string" && isObj(r.imports) && !bySweep[r.sweep_id]) bySweep[r.sweep_id] = r;
+    });
+    return runs.map(function (r) {
+      var src = typeof r.sweep_id === "string" ? bySweep[r.sweep_id] : null;
+      if (isObj(r.imports) || !src) return r;
+      return Object.assign({}, r, { imports: src.imports, imports_from: src.id });
+    });
+  }
+
+  function branchOf(run) { return isObj(run.git) && typeof run.git.branch === "string" ? run.git.branch : null; }
+  function onTrunk(run) { return isObj(run.git) && run.git.trunk === true; }
+
+  function appOf(run) { return typeof run.app === "string" && run.app !== "" ? run.app : null; }
+
+  // "app?" is the app filter for the imported family: a repo-wide import run
+  // (no app) counts under every app, since one CI import covers the repo.
+  function matches(run, f, keys) {
+    return keys.every(function (key) {
+      var field = key === "app?" ? "app" : key;
+      var want = f[field] || "";
+      if (want === "") return true;
+      if (key === "branch") return want === TRUNK ? onTrunk(run) : branchOf(run) === want;
+      if (key === "app?") return appOf(run) === null || appOf(run) === want;
+      return run[key] === want;
+    });
+  }
+  var ALL_KEYS = ["app", "profile", "branch", "scope", "source"];
+  var IMPORT_KEYS = ["app?", "profile", "branch"];
+
+  function options(runs) {
+    function uniq(fn) {
+      var seen = {};
+      runs.forEach(function (r) { var v = fn(r); if (typeof v === "string" && v !== "") seen[v] = true; });
+      return Object.keys(seen).sort();
+    }
+    return {
+      apps: uniq(appOf),
+      profiles: uniq(function (r) { return r.profile; }),
+      branches: uniq(branchOf),
+      scopes: uniq(function (r) { return r.scope; }),
+      sources: uniq(function (r) { return r.source; }),
+      hasTrunk: runs.some(onTrunk)
+    };
+  }
+
+  // Full-scope trunk runs by default; failing that, the latest full-scope run
+  // on any branch, named so the reader knows it is not trunk. A store holding
+  // more than one app shows one app at a time, so no number or delta ever
+  // mixes two apps: the first app of the latest sweep, which is the run that
+  // carries the sweep's imports, else the first app by name.
+  function defaultFilters(runs) {
+    var base = { app: "", profile: "", branch: "", scope: "", source: "" };
+    var all = runs.filter(function (r) { return r.scope === "all"; });
+    var apps = options(runs).apps;
+    function pickApp(pool) {
+      if (apps.length < 2) return "";
+      var withApp = pool.filter(function (r) { return appOf(r) !== null; });
+      if (withApp.length === 0) return apps[0];
+      var latest = withApp[withApp.length - 1];
+      var sweep = withApp.filter(function (r) { return sweepKey(r) === sweepKey(latest); });
+      var carrier = sweep.filter(function (r) { return isObj(r.imports) && !r.imports_from; })[0];
+      return carrier ? appOf(carrier) : sweep.map(appOf).sort()[0];
+    }
+    var trunkAll = all.filter(onTrunk);
+    if (trunkAll.length > 0) {
+      return { filters: Object.assign(base, { app: pickApp(trunkAll), branch: TRUNK, scope: "all" }), fallbackBranch: null };
+    }
+    if (all.length > 0) {
+      var latest = all[all.length - 1];
+      return {
+        filters: Object.assign(base, { app: pickApp([latest]), branch: branchOf(latest) || "", scope: "all" }),
+        fallbackBranch: branchOf(latest) || "(unknown)"
+      };
+    }
+    return { filters: Object.assign(base, { app: pickApp(runs) }), fallbackBranch: null };
+  }
+
+  // --- metric families: each returns null when the run did not measure it.
+  function ratio(covered, total, extra) {
+    var out = { covered: covered, total: total, pct: floorPct(covered, total) };
+    return extra ? Object.assign(out, extra) : out;
+  }
+
+  var METRICS = {
+    routes: function (run) {
+      var r = run.routes;
+      if (!isObj(r) || typeof r.declared_total !== "number") return null;
+      return ratio(num(r.declared_exercised), r.declared_total);
+    },
+    cases: function (run) {
+      var c = run.cases;
+      if (!isObj(c) || !isObj(c.counts)) return null;
+      var total = CASE_STATUSES.reduce(function (s, k) { return s + num(c.counts[k]); }, 0);
+      return ratio(num(c.counts.pass), total, { flaky: num(c.counts.flaky), quarantined: num(c.counts.quarantined) });
+    },
+    lanes: function (run) {
+      var l = run.lanes;
+      if (!isObj(l) || !isObj(l.results)) return null;
+      var ran = list(l.ran);
+      // A lane with only warnings passes, as the gate grades it: only a fail
+      // finding fails a lane.
+      var passing = ran.filter(function (lane) {
+        return isObj(l.results[lane]) && (l.results[lane].status === "pass" || l.results[lane].status === "warn");
+      }).length;
+      return ratio(passing, ran.length);
+    },
+    findings: function (run) {
+      if (!isObj(run.findings) || typeof run.findings.fail !== "number") return null;
+      return { count: run.findings.fail };
+    },
+    line: function (run) { return sumCoverage(run, "line"); },
+    branch: function (run) { return sumCoverage(run, "branch"); },
+    tests: function (run) {
+      var entries = isObj(run.imports) ? list(run.imports.test_results).filter(function (t) { return isObj(t) && isObj(t.counts); }) : [];
+      if (entries.length === 0) return null;
+      var pass = 0, total = 0, flaky = 0;
+      entries.forEach(function (t) {
+        pass += num(t.counts.pass);
+        total += TEST_STATUSES.reduce(function (s, k) { return s + num(t.counts[k]); }, 0);
+        flaky += num(t.counts.flaky);
+      });
+      return ratio(pass, total, { flaky: flaky });
+    }
+  };
+
+  function sumCoverage(run, kind) {
+    var entries = isObj(run.imports) ? list(run.imports.coverage).filter(function (c) { return isObj(c) && isObj(c[kind]); }) : [];
+    if (entries.length === 0) return null;
+    var covered = 0, total = 0;
+    entries.forEach(function (c) { covered += num(c[kind].covered); total += num(c[kind].total); });
+    return ratio(covered, total);
+  }
+
+  var TOOLKIT = ["routes", "cases", "lanes", "findings"];
+  var IMPORTED = ["line", "branch", "tests"];
+
+  function delta(cur, prev) {
+    if (!cur || !prev) return null;
+    if (typeof cur.count === "number" && typeof prev.count === "number") return cur.count - prev.count;
+    if (typeof cur.pct === "number" && typeof prev.pct === "number") return Math.round((cur.pct - prev.pct) * 10) / 10;
+    return null;
+  }
+
+  function shortSha(run) { return run && isObj(run.git) && typeof run.git.short_sha === "string" ? run.git.short_sha : null; }
+  function commitOf(run) { return run && isObj(run.git) && typeof run.git.sha === "string" && run.git.sha !== "" ? run.git.sha : shortSha(run); }
+
+  // The latest of `earlier` (oldest first) at a different commit than `cur`,
+  // so a delta never compares two runs of one commit. A run with no commit
+  // compares against the run before it.
+  function previousCommit(earlier, cur) {
+    var mine = commitOf(cur);
+    for (var i = earlier.length - 1; i >= 0; i--) {
+      if (mine === null || commitOf(earlier[i]) !== mine) return earlier[i];
+    }
+    return null;
+  }
+
+  // The toolkit family follows every filter; the imported family follows only
+  // branch and profile, so a CI import run (scope "import") still counts.
+  function candidates(runs, f, family) {
+    return runs.filter(function (r) { return matches(r, f, TOOLKIT.indexOf(family) >= 0 ? ALL_KEYS : IMPORT_KEYS); });
+  }
+
+  function tile(runs, f, family) {
+    var carriers = candidates(runs, f, family).filter(function (r) { return METRICS[family](r) !== null; });
+    var cur = carriers[carriers.length - 1] || null;
+    var prev = cur ? previousCommit(carriers.slice(0, -1), cur) : null;
+    var value = cur ? METRICS[family](cur) : null;
+    var prevValue = prev ? METRICS[family](prev) : null;
+    return {
+      family: family, value: value, runId: cur ? cur.id : null, sha: shortSha(cur),
+      branch: cur ? branchOf(cur) : null, delta: delta(value, prevValue), prevSha: shortSha(prev)
+    };
+  }
+
+  function headline(runs, f) {
+    var out = {};
+    TOOLKIT.concat(IMPORTED).forEach(function (family) { out[family] = tile(runs, f, family); });
+    return out;
+  }
+
+  // One x position per run that carries any plotted family under the
+  // filters; a series with no value at a run leaves a gap.
+  function trend(runs, f) {
+    var points = runs.filter(function (r) {
+      return SERIES.some(function (s) { return matches(r, f, TOOLKIT.indexOf(s.key) >= 0 ? ALL_KEYS : IMPORT_KEYS) && METRICS[s.key](r) !== null; });
+    });
+    return {
+      points: points.map(function (r) {
+        return {
+          id: r.id, date: typeof r.recorded_at === "string" ? r.recorded_at.slice(0, 10) : "",
+          sha: shortSha(r), pr: isObj(r.git) && isObj(r.git.pr) ? r.git.pr : null,
+          app: appOf(r), profile: typeof r.profile === "string" ? r.profile : null, branch: branchOf(r)
+        };
+      }),
+      series: SERIES.map(function (s) {
+        var keys = TOOLKIT.indexOf(s.key) >= 0 ? ALL_KEYS : IMPORT_KEYS;
+        return {
+          key: s.key, label: s.label, slot: s.slot,
+          values: points.map(function (r) {
+            if (!matches(r, f, keys)) return null;
+            var v = METRICS[s.key](r);
+            return v ? v.pct : null;
+          })
+        };
+      })
+    };
+  }
+
+  function latestToolkit(runs, f) {
+    var list_ = runs.filter(function (r) { return matches(r, f, ALL_KEYS) && (isObj(r.routes) || isObj(r.cases)); });
+    return list_[list_.length - 1] || null;
+  }
+
+  function cellOf(status) {
+    var label = CELL_LABELS[status] || "unknown";
+    return { status: typeof status === "string" ? status : "unknown", label: label };
+  }
+
+  // Declared routes for one run, unexercised first. Columns follow the run's
+  // configured lanes, so a lane added later shows up without a page change.
+  function routeMatrix(run) {
+    if (!run || !isObj(run.routes)) return null;
+    var lanes = isObj(run.lanes) && list(run.lanes.configured).length > 0 ? list(run.lanes.configured) : LANES;
+    var items = list(run.routes.items).filter(isObj);
+    var rows = items.filter(function (i) { return i.declared === true; }).map(function (i) {
+      var statuses = isObj(i.lane_status) ? i.lane_status : {};
+      var cells = lanes.map(function (lane) { return cellOf(statuses[lane]); });
+      var exercised = list(i.cases_static).length > 0 || list(i.cases_reached).length > 0 ||
+        cells.some(function (c) { return c.status === "pass" || c.status === "warn" || c.status === "fail"; });
+      return { path: String(i.path), exercised: exercised, cells: cells };
+    });
+    rows.sort(function (a, b) {
+      if (a.exercised !== b.exercised) return a.exercised ? 1 : -1;
+      return a.path < b.path ? -1 : a.path > b.path ? 1 : 0;
+    });
+    var undeclared = items.filter(function (i) { return i.declared !== true; }).map(function (i) { return String(i.path); });
+    return { runId: run.id, sha: shortSha(run), lanes: lanes, rows: rows, undeclared: undeclared };
+  }
+
+  function caseId(item) { return typeof item.id === "string" ? item.id : ""; }
+
+  // Latest toolkit run's cases, each with its last ten results across the
+  // filtered runs, oldest first.
+  function casesTable(runs, f) {
+    var carriers = runs.filter(function (r) { return matches(r, f, ALL_KEYS) && isObj(r.cases) && Array.isArray(r.cases.items); });
+    var latest = carriers[carriers.length - 1];
+    if (!latest) return null;
+    var recent = carriers.slice(-10);
+    var rows = latest.cases.items.filter(isObj).map(function (item) {
+      var id = caseId(item);
+      var history = recent.map(function (r) {
+        var hit = r.cases.items.filter(function (c) { return isObj(c) && caseId(c) === id; })[0];
+        return hit ? String(hit.status) : null;
+      }).filter(function (s) { return s !== null; });
+      var q = isObj(item.quarantine) ? item.quarantine : null;
+      return {
+        id: id, suite: typeof item.suite === "string" ? item.suite : "", tags: list(item.tags).map(String),
+        status: String(item.status), attempts: typeof item.attempts === "number" ? item.attempts : null,
+        flaky: item.flaky === true, source: typeof item.source === "string" ? item.source : "",
+        quarantine: q ? { reason: q.reason == null ? "" : String(q.reason), until: q.until == null ? "" : String(q.until), expired: q.expired === true } : null,
+        history: history.join(" ")
+      };
+    });
+    return { runId: latest.id, sha: shortSha(latest), truncated: latest.cases.truncated === true, rows: rows };
+  }
+
+  // Groups from the latest run carrying coverage imports, lowest line % first,
+  // each against the same group in the previous import of the same label.
+  function groupsTable(runs, f) {
+    var carriers = runs.filter(function (r) {
+      return matches(r, f, IMPORT_KEYS) && isObj(r.imports) && list(r.imports.coverage).length > 0;
+    });
+    var latest = carriers[carriers.length - 1];
+    if (!latest) return null;
+    var earlier = carriers.slice(0, -1);
+    var rows = [];
+    list(latest.imports.coverage).filter(isObj).forEach(function (entry) {
+      var prevRun = previousCommit(earlier.filter(function (r) {
+        return list(r.imports.coverage).some(function (c) { return isObj(c) && c.label === entry.label; });
+      }), latest);
+      var prevGroups = {};
+      if (prevRun) {
+        var prevEntry = list(prevRun.imports.coverage).filter(function (c) { return isObj(c) && c.label === entry.label; })[0];
+        list(prevEntry.groups).filter(isObj).forEach(function (g) { prevGroups[g.name] = g; });
+      }
+      list(entry.groups).filter(isObj).forEach(function (g) {
+        var line = isObj(g.line) ? ratio(num(g.line.covered), num(g.line.total)) : null;
+        var branch = isObj(g.branch) ? ratio(num(g.branch.covered), num(g.branch.total)) : null;
+        var prev = prevGroups[g.name];
+        var prevLine = prev && isObj(prev.line) ? ratio(num(prev.line.covered), num(prev.line.total)) : null;
+        rows.push({
+          label: String(entry.label), format: String(entry.format), name: String(g.name),
+          line: line, branch: branch, delta: delta(line, prevLine), prevSha: prevRun ? shortSha(prevRun) : null,
+          stale: entry.stale === true, truncated: entry.groups_truncated === true
+        });
+      });
+    });
+    rows.sort(function (a, b) {
+      var pa = a.line && a.line.pct !== null ? a.line.pct : Infinity;
+      var pb = b.line && b.line.pct !== null ? b.line.pct : Infinity;
+      if (pa !== pb) return pa - pb;
+      return a.name < b.name ? -1 : a.name > b.name ? 1 : 0;
+    });
+    return { runId: latest.id, sha: shortSha(latest), rows: rows };
+  }
+
+  // Failing, erroring and flaky tests from the latest run carrying imported
+  // test results, null when no run under the filters carries any.
+  function importedFailures(runs, f) {
+    var carriers = runs.filter(function (r) {
+      return matches(r, f, IMPORT_KEYS) && isObj(r.imports) && list(r.imports.test_results).length > 0;
+    });
+    var latest = carriers[carriers.length - 1];
+    if (!latest) return null;
+    var rows = [];
+    var truncated = false;
+    list(latest.imports.test_results).filter(isObj).forEach(function (entry) {
+      if (entry.truncated === true) truncated = true;
+      list(entry.items).filter(isObj).forEach(function (item) {
+        if (item.status !== "fail" && item.status !== "error" && item.flaky !== true) return;
+        rows.push({
+          label: String(entry.label), format: String(entry.format), suite: typeof item.suite === "string" ? item.suite : "",
+          id: caseId(item), status: String(item.status), flaky: item.flaky === true,
+          message: typeof item.message === "string" ? item.message : ""
+        });
+      });
+    });
+    return { runId: latest.id, sha: shortSha(latest), truncated: truncated, rows: rows };
+  }
+
+  function safePrUrl(pr) {
+    return isObj(pr) && typeof pr.url === "string" && /^https:\/\//.test(pr.url) ? pr.url : null;
+  }
+
+  // Newest first; records this page cannot read are listed with the reason.
+  function history(normalized) {
+    var rows = normalized.runs.slice().reverse().map(function (r) {
+      var pr = isObj(r.git) && isObj(r.git.pr) ? r.git.pr : null;
+      return {
+        id: r.id, recorded_at: r.recorded_at, schema: r.schema, toolkit: r.toolkit == null ? "" : String(r.toolkit),
+        source: r.source == null ? "" : String(r.source), scope: r.scope == null ? "" : String(r.scope),
+        app: appOf(r) || "", profile: r.profile == null ? "" : String(r.profile), branch: branchOf(r) || "", sha: shortSha(r) || "",
+        pr: pr && typeof pr.number === "number" ? { number: pr.number, url: safePrUrl(pr) } : null, note: ""
+      };
+    });
+    normalized.excluded.forEach(function (x) {
+      rows.push({
+        id: x.id || "", recorded_at: x.recorded_at || "", schema: x.schema, toolkit: "", source: "", scope: "",
+        app: "", profile: "", branch: "", sha: "", pr: null, note: x.reason
+      });
+    });
+    return rows;
+  }
+
+  root.CFCoverageModel = {
+    TRUNK: TRUNK, SERIES: SERIES, LANES: LANES, RUN_SCHEMA_MAX: RUN_SCHEMA_MAX,
+    floorPct: floorPct, normalize: normalize, matches: matches, options: options,
+    defaultFilters: defaultFilters, metrics: METRICS, headline: headline, trend: trend,
+    latestToolkit: latestToolkit, routeMatrix: routeMatrix, casesTable: casesTable,
+    groupsTable: groupsTable, importedFailures: importedFailures, history: history, safePrUrl: safePrUrl
+  };
+})(window);
+</script>
+<script id="cf-coverage-view">
+(function () {
+  "use strict";
+
+  var M = window.CFCoverageModel;
+  var doc = document;
+  var SVG_NS = doc.querySelector("svg").namespaceURI;
+  var THEME_KEY = "cf-coverage-theme";
+  var THEMES = ["auto", "light", "dark"];
+
+  function byId(id) { return doc.getElementById(id); }
+  function clear(node) { while (node.firstChild) node.removeChild(node.firstChild); }
+  function el(tag, cls, text) {
+    var node = doc.createElement(tag);
+    if (cls) node.className = cls;
+    if (text !== undefined && text !== null) node.textContent = String(text);
+    return node;
+  }
+  function svg(tag, attrs) {
+    var node = doc.createElementNS(SVG_NS, tag);
+    Object.keys(attrs || {}).forEach(function (k) { node.setAttribute(k, String(attrs[k])); });
+    return node;
+  }
+  function show(node, on) { node.classList.toggle("hidden", !on); }
+
+  // --- theme: data-theme on <html>; storage is a convenience only.
+  function readTheme() {
+    try { return window.localStorage.getItem(THEME_KEY) || "auto"; } catch (e) { return "auto"; }
+  }
+  function applyTheme(theme) {
+    if (theme === "light" || theme === "dark") doc.documentElement.setAttribute("data-theme", theme);
+    else doc.documentElement.removeAttribute("data-theme");
+    byId("theme-toggle").textContent = "Theme: " + theme;
+  }
+  var theme = readTheme();
+  if (THEMES.indexOf(theme) < 0) theme = "auto";
+  applyTheme(theme);
+  byId("theme-toggle").addEventListener("click", function () {
+    theme = THEMES[(THEMES.indexOf(theme) + 1) % THEMES.length];
+    applyTheme(theme);
+    try { window.localStorage.setItem(THEME_KEY, theme); } catch (e) { /* storage unavailable */ }
+  });
+
+  var data = window.CF_QA_COVERAGE;
+  if (!data || typeof data !== "object") {
+    var status = byId("load-status");
+    status.textContent = "report-data.js not found next to this page.";
+    show(status, true);
+    return;
+  }
+
+  var model = M.normalize(data);
+  var runs = model.runs;
+  var defaults = M.defaultFilters(runs);
+  var filters = Object.assign({}, defaults.filters);
+
+  // --- formatting
+  function pctText(v) { return v && v.pct !== null ? v.pct.toFixed(1) + "%" : "not reported"; }
+  function signed(n, unit) { return (n > 0 ? "+" : n < 0 ? "-" : "+") + Math.abs(n) + unit; }
+  function statusMark(status) {
+    var wrap = el("span", "status");
+    var cls = status === "pass" || status === "warn" || status === "fail" ? "st-" + status : (status === "lane_off" || status === "not_scanned" ? "st-off" : "");
+    var mark = el("span", "mark " + cls);
+    mark.setAttribute("aria-hidden", "true");
+    wrap.appendChild(mark);
+    return wrap;
+  }
+  function statusCell(status, label) {
+    var wrap = statusMark(status);
+    wrap.appendChild(el("span", null, label));
+    return wrap;
+  }
+  function table(headers, rows, numeric) {
+    var t = el("table");
+    var thead = el("thead");
+    var tr = el("tr");
+    headers.forEach(function (h, i) {
+      var th = el("th", numeric && numeric[i] ? "num" : null, h);
+      th.setAttribute("scope", "col");
+      tr.appendChild(th);
+    });
+    thead.appendChild(tr);
+    t.appendChild(thead);
+    var tbody = el("tbody");
+    rows.forEach(function (cells) {
+      var row = el("tr");
+      cells.forEach(function (c, i) {
+        var td = el("td", numeric && numeric[i] ? "num" : null);
+        if (c instanceof Node) td.appendChild(c); else td.textContent = c === null || c === undefined ? "" : String(c);
+        row.appendChild(td);
+      });
+      tbody.appendChild(row);
+    });
+    t.appendChild(tbody);
+    return t;
+  }
+  function empty(host, text) { clear(host); host.appendChild(el("p", "empty", text)); }
+
+  // --- filters
+  function fillSelect(id, key, values, extra) {
+    var select = byId(id);
+    clear(select);
+    var opts = [["", "All"]].concat(extra || []).concat(values.map(function (v) { return [v, v]; }));
+    opts.forEach(function (o) {
+      var option = el("option", null, o[1]);
+      option.value = o[0];
+      select.appendChild(option);
+    });
+    select.value = filters[key] || "";
+    select.addEventListener("change", function () { filters[key] = select.value; render(); });
+  }
+  var opts = M.options(runs);
+  fillSelect("f-app", "app", opts.apps);
+  show(byId("f-app-label"), opts.apps.length > 0);
+  fillSelect("f-profile", "profile", opts.profiles);
+  fillSelect("f-branch", "branch", opts.branches, opts.hasTrunk ? [[M.TRUNK, "Trunk"]] : []);
+  fillSelect("f-scope", "scope", opts.scopes);
+  fillSelect("f-source", "source", opts.sources);
+
+  // --- headline tiles
+  var TILE_LABELS = {
+    routes: "Routes exercised", cases: "Cases passing", lanes: "Lanes passing", findings: "Open failing findings",
+    line: "Line coverage", branch: "Branch coverage", tests: "Imported tests passing"
+  };
+  function renderTile(host, t) {
+    var card = el("div", "tile");
+    card.appendChild(el("p", "tile-label", TILE_LABELS[t.family]));
+    var v = t.value;
+    if (!v) {
+      card.appendChild(el("p", "tile-value missing", "not reported"));
+      host.appendChild(card);
+      return;
+    }
+    if (typeof v.count === "number") {
+      card.appendChild(el("p", "tile-value", v.count));
+    } else {
+      card.appendChild(el("p", "tile-value", pctText(v)));
+      var detail = v.covered + " of " + v.total;
+      if (t.family === "cases") detail += ", " + v.flaky + " flaky, " + v.quarantined + " quarantined";
+      if (t.family === "tests") detail += ", " + v.flaky + " flaky";
+      card.appendChild(el("p", "tile-detail", detail));
+    }
+    var deltaText = t.delta === null ? "no earlier commit to compare" :
+      signed(t.delta, typeof v.count === "number" ? "" : " pts") + " vs " + (t.prevSha || "previous run");
+    card.appendChild(el("p", "tile-delta", deltaText + (t.sha ? "; latest " + t.sha : "")));
+    host.appendChild(card);
+  }
+  function renderHeadline() {
+    var hl = M.headline(runs, filters);
+    var toolkit = byId("tiles-toolkit");
+    var imported = byId("tiles-imported");
+    clear(toolkit);
+    clear(imported);
+    ["routes", "cases", "lanes", "findings"].forEach(function (f) { renderTile(toolkit, hl[f]); });
+    ["line", "branch", "tests"].forEach(function (f) { renderTile(imported, hl[f]); });
+  }
+
+  // --- trend chart
+  var W = 760, H = 260, PAD = { top: 12, right: 170, bottom: 28, left: 40 };
+  function renderTrend() {
+    var tr = M.trend(runs, filters);
+    var host = byId("trend-chart");
+    var legend = byId("trend-legend");
+    clear(host);
+    clear(legend);
+    var live = tr.series.filter(function (s) { return s.values.some(function (v) { return v !== null; }); });
+    tr.series.forEach(function (s) {
+      var li = el("li");
+      var key = el("span", "key s" + s.slot);
+      key.setAttribute("aria-hidden", "true");
+      li.appendChild(key);
+      li.appendChild(el("span", null, s.label + (live.indexOf(s) < 0 ? " (not reported)" : "")));
+      legend.appendChild(li);
+    });
+    renderTrendTable(tr);
+    if (tr.points.length === 0 || live.length === 0) { empty(host, "No runs match these filters."); return; }
+
+    var n = tr.points.length;
+    var plotW = W - PAD.left - PAD.right, plotH = H - PAD.top - PAD.bottom;
+    function x(i) { return PAD.left + (n === 1 ? plotW / 2 : (i * plotW) / (n - 1)); }
+    function y(v) { return PAD.top + plotH - (v / 100) * plotH; }
+
+    var summary = live.map(function (s) {
+      var last = s.values.filter(function (v) { return v !== null; }).pop();
+      return s.label + " " + last.toFixed(1) + "%";
+    }).join(", ");
+    var chart = svg("svg", { viewBox: "0 0 " + W + " " + H, class: "chart", role: "img",
+      "aria-label": "Trend over " + n + " run(s), latest: " + summary + ". A table view follows." });
+
+    [0, 25, 50, 75, 100].forEach(function (v) {
+      chart.appendChild(svg("line", { x1: PAD.left, x2: W - PAD.right, y1: y(v), y2: y(v), class: "grid-line" }));
+      var t = svg("text", { x: PAD.left - 6, y: y(v) + 4, "text-anchor": "end" });
+      t.textContent = v + "%";
+      chart.appendChild(t);
+    });
+    var every = Math.max(1, Math.ceil(n / 7));
+    var lastTick = (n - 1) - ((n - 1) % every);
+    tr.points.forEach(function (p, i) {
+      var tick = i % every === 0 || (i === n - 1 && i - lastTick >= every * 0.6);
+      if (!tick) return;
+      var t = svg("text", { x: x(i), y: H - 8, "text-anchor": "middle" });
+      t.textContent = p.date;
+      chart.appendChild(t);
+    });
+
+    var ends = [];
+    // A run that did not measure a series is skipped, not a break: the line
+    // joins the runs that did.
+    live.forEach(function (s) {
+      var d = "", lastI = -1, count = 0;
+      s.values.forEach(function (v, i) {
+        if (v === null) return;
+        d += (count === 0 ? "M " : " L ") + x(i).toFixed(1) + " " + y(v).toFixed(1);
+        count += 1;
+        lastI = i;
+      });
+      chart.appendChild(svg("path", { d: d, class: "series s" + s.slot }));
+      chart.appendChild(svg("circle", { cx: x(lastI), cy: y(s.values[lastI]), r: 4, class: "dot f" + s.slot }));
+      ends.push({ label: s.label + " " + s.values[lastI].toFixed(1) + "%", x: x(lastI), y: y(s.values[lastI]) });
+    });
+    ends.sort(function (a, b) { return a.y - b.y; });
+    for (var k = 1; k < ends.length; k++) if (ends[k].y - ends[k - 1].y < 14) ends[k].y = ends[k - 1].y + 14;
+    ends.forEach(function (e) {
+      var t = svg("text", { x: W - PAD.right + 8, y: e.y + 4, class: "end-label" });
+      t.textContent = e.label;
+      chart.appendChild(t);
+    });
+
+    var cursor = svg("line", { x1: 0, x2: 0, y1: PAD.top, y2: PAD.top + plotH, class: "hover-line", visibility: "hidden" });
+    chart.appendChild(cursor);
+    var tip = el("div", "tooltip hidden");
+    tip.setAttribute("role", "presentation");
+    var colW = n === 1 ? plotW : plotW / (n - 1);
+    tr.points.forEach(function (p, i) {
+      var col = svg("rect", { x: x(i) - colW / 2, y: PAD.top, width: colW, height: plotH, class: "hover-col" });
+      function enter() {
+        cursor.setAttribute("x1", x(i));
+        cursor.setAttribute("x2", x(i));
+        cursor.setAttribute("visibility", "visible");
+        clear(tip);
+        tip.appendChild(el("p", "tip-head", p.date + (p.sha ? " " + p.sha : "")));
+        if (p.pr && typeof p.pr.number === "number") tip.appendChild(el("p", null, "PR #" + p.pr.number));
+        if (p.app) tip.appendChild(el("p", null, "App " + p.app));
+        if (p.profile) tip.appendChild(el("p", null, "Profile " + p.profile));
+        if (p.branch) tip.appendChild(el("p", null, "Branch " + p.branch));
+        tr.series.forEach(function (s) {
+          if (s.values[i] !== null) tip.appendChild(el("p", null, s.label + ": " + s.values[i].toFixed(1) + "%"));
+        });
+        var box = host.getBoundingClientRect();
+        var px = (x(i) / W) * box.width;
+        tip.style.left = Math.max(0, Math.min(px + 12, box.width - 180)) + "px";
+        tip.style.top = "8px";
+        show(tip, true);
+      }
+      function leave() { cursor.setAttribute("visibility", "hidden"); show(tip, false); }
+      col.addEventListener("mouseenter", enter);
+      col.addEventListener("mouseleave", leave);
+      chart.appendChild(col);
+    });
+    host.appendChild(chart);
+    host.appendChild(tip);
+  }
+  function renderTrendTable(tr) {
+    var wrap = byId("trend-table-wrap");
+    clear(wrap);
+    var rows = tr.points.map(function (p, i) {
+      return [p.date, p.sha || "", p.app || "", p.profile || "", p.branch || ""].concat(tr.series.map(function (s) {
+        return s.values[i] === null ? "not reported" : s.values[i].toFixed(1) + "%";
+      }));
+    });
+    var headers = ["Date", "SHA", "App", "Profile", "Branch"].concat(tr.series.map(function (s) { return s.label; }));
+    var numeric = [false, false, false, false, false].concat(tr.series.map(function () { return true; }));
+    wrap.appendChild(table(headers, rows, numeric));
+  }
+  byId("trend-toggle").addEventListener("click", function () {
+    var btn = byId("trend-toggle");
+    var open = btn.getAttribute("aria-expanded") !== "true";
+    btn.setAttribute("aria-expanded", String(open));
+    btn.textContent = open ? "Hide table" : "View as table";
+    show(byId("trend-table-wrap"), open);
+  });
+
+  // --- route x lane matrix
+  function renderRoutes() {
+    var run = M.latestToolkit(runs, filters);
+    var m = M.routeMatrix(run);
+    var host = byId("routes-table");
+    byId("routes-run").textContent = m ? "Run " + m.runId + (m.sha ? " at " + m.sha : "") : "";
+    byId("routes-undeclared").textContent = m && m.undeclared.length ? "Exercised but not declared: " + m.undeclared.join(", ") : "";
+    if (!m) { empty(host, "Routes not reported for these filters."); return; }
+    if (m.rows.length === 0) { empty(host, "No declared routes in this run."); return; }
+    var rows = m.rows.map(function (r) {
+      return [r.path + (r.exercised ? "" : " (not exercised)")].concat(r.cells.map(function (c) { return statusCell(c.status, c.label); }));
+    });
+    clear(host);
+    host.appendChild(table(["Route"].concat(m.lanes), rows));
+  }
+
+  // --- cases
+  function renderCases() {
+    var c = M.casesTable(runs, filters);
+    var host = byId("cases-table");
+    byId("cases-run").textContent = c ? "Run " + c.runId + (c.sha ? " at " + c.sha : "") + (c.truncated ? "; list truncated, counts complete" : "") : "";
+    if (!c) { empty(host, "Cases not reported for these filters."); return; }
+    if (c.rows.length === 0) { empty(host, "No cases in this run."); return; }
+    var rows = c.rows.map(function (r) {
+      var q = r.quarantine ? r.quarantine.reason + (r.quarantine.until ? " until " + r.quarantine.until : "") : "";
+      var qCell = el("span", r.quarantine && r.quarantine.expired ? "flag" : null, q + (r.quarantine && r.quarantine.expired ? " (expired)" : ""));
+      return [r.id, r.tags.join(", "), statusCell(r.status, r.status),
+        r.attempts === null ? "" : r.attempts + (r.flaky ? " (flaky)" : ""), qCell, r.history, r.source];
+    });
+    clear(host);
+    host.appendChild(table(["Case", "Tags", "Status", "Attempts", "Quarantine", "Last results", "Source"], rows,
+      [false, false, false, true, false, false, false]));
+  }
+
+  // --- failing imported tests: the section shows only when there are some
+  function renderFailing() {
+    var x = M.importedFailures(runs, filters);
+    var section = byId("failing-section");
+    var host = byId("failing-table");
+    clear(host);
+    if (!x || x.rows.length === 0) { show(section, false); return; }
+    show(section, true);
+    byId("failing-run").textContent = "Run " + x.runId + (x.sha ? " at " + x.sha : "") +
+      (x.truncated ? "; list capped, failures kept first, counts complete" : "");
+    var rows = x.rows.map(function (r) {
+      return [r.suite, r.id, statusCell(r.status, r.status + (r.flaky ? " (flaky)" : "")), r.label + " (" + r.format + ")", r.message];
+    });
+    host.appendChild(table(["Suite", "Test", "Status", "Import", "Message"], rows));
+  }
+
+  // --- imported groups
+  function renderGroups() {
+    var g = M.groupsTable(runs, filters);
+    var host = byId("groups-table");
+    byId("groups-run").textContent = g ? "Run " + g.runId + (g.sha ? " at " + g.sha : "") : "";
+    if (!g) { empty(host, "Imported coverage not reported for these filters."); return; }
+    if (g.rows.length === 0) { empty(host, "No groups in the latest import."); return; }
+    var rows = g.rows.map(function (r) {
+      var track = el("div", "bar-track");
+      track.setAttribute("aria-hidden", "true");
+      var fill = el("div", "bar-fill");
+      fill.style.width = (r.line && r.line.pct !== null ? r.line.pct : 0) + "%";
+      track.appendChild(fill);
+      return [r.name + (r.stale ? " (stale)" : ""), r.label + " (" + r.format + ")", pctText(r.line), track,
+        r.line ? r.line.covered + " / " + r.line.total : "not reported",
+        r.branch ? pctText(r.branch) + " (" + r.branch.covered + " / " + r.branch.total + ")" : "not reported",
+        r.delta === null ? "" : signed(r.delta, " pts") + (r.prevSha ? " vs " + r.prevSha : "")];
+    });
+    clear(host);
+    host.appendChild(table(["Group", "Import", "Line", "", "Lines", "Branches", "Change"], rows,
+      [false, false, true, false, true, false, true]));
+  }
+
+  // --- history
+  function renderHistory() {
+    var host = byId("history-table");
+    var rows = M.history(model).map(function (r) {
+      var pr = "";
+      if (r.pr) {
+        if (r.pr.url) { pr = el("a", null, "#" + r.pr.number); pr.setAttribute("href", r.pr.url); }
+        else pr = "#" + r.pr.number;
+      }
+      var id = r.note ? el("span", "flag", (r.id ? r.id + ": " : "") + r.note) : r.id;
+      return [id, r.recorded_at, r.schema === null ? "" : r.schema, r.toolkit, r.source, r.scope, r.app, r.profile, r.branch, r.sha, pr];
+    });
+    clear(host);
+    if (rows.length === 0) { empty(host, "No runs recorded yet."); return; }
+    host.appendChild(table(["Run", "Recorded", "Schema", "Toolkit", "Source", "Scope", "App", "Profile", "Branch", "SHA", "PR"], rows));
+  }
+
+  function renderNote() {
+    var note = byId("default-note");
+    var onFallback = defaults.fallbackBranch !== null && filters.branch === defaults.filters.branch && filters.scope === "all";
+    note.textContent = onFallback ? "No full-scope run on the trunk branch yet; showing the latest full-scope run, on branch " + defaults.fallbackBranch + "." : "";
+    show(note, onFallback);
+  }
+
+  function render() {
+    renderNote();
+    renderHeadline();
+    renderTrend();
+    renderRoutes();
+    renderCases();
+    renderFailing();
+    renderGroups();
+    renderHistory();
+  }
+  render();
+})();
+</script>
+</body>
+</html>

@@ -63,4 +63,35 @@ class ColorMathTest < Minitest::Test
     backdrop = ColorMath::Rgba.new(r: 0.9, g: 0.8, b: 0.7, a: 1)
     assert_equal backdrop.r, ColorMath.flatten(transparent, over: backdrop).r
   end
+
+  def test_hex_parses_six_digit_and_round_trips
+    rgba = ColorMath.hex("#2B6CB0")
+    assert_in_delta 0x2b / 255.0, rgba.r
+    assert_in_delta 1.0, rgba.a
+    assert_equal "#2b6cb0", ColorMath.to_hex(rgba)
+  end
+
+  def test_hex_expands_three_digit_shorthand
+    assert_equal "#aabbcc", ColorMath.to_hex(ColorMath.hex("#abc"))
+  end
+
+  def test_hex_returns_nil_for_invalid_input
+    [ nil, "", "abc", "#abcd", "#ggg", "#12345", "red", "#1234567", 42 ].each do |bad|
+      assert_nil ColorMath.hex(bad), "expected nil for #{bad.inspect}"
+    end
+  end
+
+  def test_to_hex_rounds_each_channel_to_the_nearest_step
+    assert_equal "#808080", ColorMath.to_hex(ColorMath::Rgba.new(r: 0.5, g: 0.5, b: 0.5, a: 1))
+    assert_equal "#ff0000", ColorMath.to_hex(ColorMath::Rgba.new(r: 1.2, g: -0.1, b: 0.0, a: 1))
+  end
+
+  def test_mix_endpoints_and_midpoint
+    black = ColorMath.hex("#000000")
+    white = ColorMath.hex("#ffffff")
+    assert_equal "#000000", ColorMath.to_hex(ColorMath.mix(black, white, 0))
+    assert_equal "#ffffff", ColorMath.to_hex(ColorMath.mix(black, white, 1))
+    assert_equal "#808080", ColorMath.to_hex(ColorMath.mix(black, white, 0.5))
+    assert_equal "#7f8081", ColorMath.to_hex(ColorMath.mix(ColorMath.hex("#7e7f80"), ColorMath.hex("#808182"), 0.5))
+  end
 end
