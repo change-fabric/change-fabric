@@ -254,8 +254,21 @@ module ChangeCoverage
       return true if entry['lane_status'].values.any? { |status| RESULT_STATUSES.include?(status) }
       return true unless entry['cases_reached'].empty?
 
-      ran?('testcases') && static.key?(entry['path'])
+      static_case_ran?(entry['path'])
     end
+
+    # A case's own steps count toward a route only once that case produced a
+    # result; a testcases lane that errored before any case ran exercised nothing.
+    # Every case behind the login passes through the login urls, so any result
+    # reached them.
+    def static_case_ran?(path)
+      return false unless ran?('testcases') && static.key?(path)
+      return !@records.empty? if login_urls.include?(path)
+
+      static[path].intersect?(recorded_ids)
+    end
+
+    def recorded_ids = @recorded_ids ||= @records.map { |record| record['id'] }
 
     def ran?(lane) = @ran.include?(lane)
 

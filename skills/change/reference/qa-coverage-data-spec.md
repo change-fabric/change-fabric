@@ -102,8 +102,9 @@ it understands.
 ## Routes
 
 Declared routes come from the enabled lanes in CHANGE.md; exercised routes from
-test-case `goto` steps and what the run reached. Matching is literal:
-`/claims/123` and `/claims/:id` are different routes.
+the `goto` steps of cases that produced a result and what the run reached. A
+testcases lane that errored before any case ran exercises nothing. Matching
+is literal: `/claims/123` and `/claims/:id` are different routes.
 
 | Field | Type | Description |
 | --- | --- | --- |
