@@ -355,9 +355,9 @@ directory as a build artifact. Locally, download it and run `coverage build
 records test results without coverage.
 
 A multi-app sweep records the repo-wide imports once, on its first app; the
-page shows them under every app of that sweep. Imported test results keep
-500 cases per import and every capped list keeps failures first, so a failure
-is never dropped while a pass is kept; counts are always complete. A route a
+page shows them under every app of that sweep. Imported test results list
+only the tests that did not plainly pass (failing, erroring, flaky, skipped),
+at most 500 per import with failures kept first; counts are always complete. A route a
 lane skipped because its login could not run reads "not scanned" and does not
 count as exercised.
 
