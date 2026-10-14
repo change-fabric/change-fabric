@@ -108,13 +108,13 @@ test-case `goto` steps and what the run reached. Matching is literal:
 | Field | Type | Description |
 | --- | --- | --- |
 | `routes.declared_total` | integer | Routes declared by any enabled lane. |
-| `routes.declared_exercised` | integer | Declared routes some lane or case exercised. |
+| `routes.declared_exercised` | integer | Declared routes some lane or case exercised. A route whose only lane results are `not_scanned` is not exercised. |
 | `routes.undeclared_exercised` | integer | Routes cases reached that no lane declares. |
 | `routes.items[].path` | string | The normalized path. |
 | `routes.items[].declared` | boolean | Whether any enabled lane declares it. |
 | `routes.items[].declared_by` | list of string | The lanes that declare it. |
 | `routes.items[].viewports` | list of string | Browserless viewports it is checked at. |
-| `routes.items[].lane_status.<lane>` | string | One of `pass`, `warn`, `fail`, `no_result`, `not_declared`, `lane_off`, `n_a`. |
+| `routes.items[].lane_status.<lane>` | string | One of `pass`, `warn`, `fail`, `not_scanned`, `no_result`, `not_declared`, `lane_off`, `n_a`. `not_scanned` means the lane ran but never reached the route: its only finding for it is `route not scanned`, as after a failed login. |
 | `routes.items[].cases_static` | list of string | Case ids whose steps name it. |
 | `routes.items[].cases_reached` | list of string | Case ids that reached it at run time. |
 
@@ -132,7 +132,7 @@ test-case `goto` steps and what the run reached. Matching is literal:
 | `cases.counts.flaky` | integer | Cases that passed only after a retry. |
 | `cases.counts.quarantined` | integer | Cases under quarantine. |
 | `cases.counts.ungated` | integer | Cases that cannot fail the gate. |
-| `cases.items[]` | per-case record | One record per selected case, at most 5000. |
+| `cases.items[]` | per-case record | One record per selected case, at most 5000, kept failures first (see Rules). |
 | `cases.truncated` | boolean | True when `cases.items` was capped. |
 | `suite_inventory[].suite` | string | A suite in the configured suite files. |
 | `suite_inventory[].id` | string | A case id, `suite/id`. |
@@ -177,7 +177,7 @@ produces. They never become findings and never gate.
 | `imports.test_results[].counts.error` | integer | Tests that errored. |
 | `imports.test_results[].counts.skip` | integer | Skipped tests. |
 | `imports.test_results[].counts.flaky` | integer | Tests that passed after a rerun. |
-| `imports.test_results[].items[]` | per-case record | One record per test, at most 5000. |
+| `imports.test_results[].items[]` | per-case record | One record per test, at most 500, kept failures first (see Rules). |
 | `imports.test_results[].truncated` | boolean | True when `items` was capped. |
 | `imports.test_results[].timestamp` | string or null | When the results were produced. |
 | `imports.test_results[].stale` | boolean | True when the results predate the head commit. |
@@ -213,6 +213,13 @@ Shared by the testcases lane and imported JUnit and TestNG results.
   no import was configured or found. A reader shows null as "not reported".
 - `repo.root` uses `~` for the home directory, so a committed copy carries no
   home path.
+- A capped case list keeps cases in this order: `fail`, `error`, flaky (a
+  pass that needed a rerun), `warn`, `skip`, `pass`, and file order within
+  each. A failure is never dropped while a pass is kept; `counts` stay exact.
+- A sweep records repo-wide imports once, on its first run (the first app in
+  registry order). Its other runs carry `imports: null`. A reader showing a
+  run's imports uses the run's own `imports` when present and otherwise the
+  first run with the same `sweep_id` that has them.
 
 ## Merge and retention
 
