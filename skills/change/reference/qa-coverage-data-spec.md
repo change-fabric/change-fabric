@@ -114,7 +114,7 @@ test-case `goto` steps and what the run reached. Matching is literal:
 | `routes.items[].declared` | boolean | Whether any enabled lane declares it. |
 | `routes.items[].declared_by` | list of string | The lanes that declare it. |
 | `routes.items[].viewports` | list of string | Browserless viewports it is checked at. |
-| `routes.items[].lane_status.<lane>` | string | One of `pass`, `warn`, `fail`, `not_scanned`, `no_result`, `not_declared`, `lane_off`, `n_a`. `not_scanned` means the lane ran but never reached the route: its only finding for it is `route not scanned`, as after a failed login. |
+| `routes.items[].lane_status.<lane>` | string | One of `pass`, `warn`, `fail`, `not_scanned`, `no_result`, `not_declared`, `lane_off`, `n_a`. `not_scanned` means the lane ran but never loaded the route: its only findings for it are the lane's skip finding (a11y `route not scanned`, browserless `auth-required route skipped`), as after a failed login. |
 | `routes.items[].cases_static` | list of string | Case ids whose steps name it. |
 | `routes.items[].cases_reached` | list of string | Case ids that reached it at run time. |
 
