@@ -1,4 +1,6 @@
 import { Layout } from "../components/Layout";
+import { Breadcrumbs } from "../components/Breadcrumbs";
+import { SourceLink } from "../components/SourceLink";
 import { findHook } from "../reference";
 
 const REPO_URL = "https://github.com/change-fabric/change-fabric";
@@ -25,24 +27,17 @@ export function ReferenceHookPage({ id }: { id: string }) {
         <header className="page-head">
           <div className="page-head-row spec-page-head">
             <div>
-              <p className="eyebrow">Hook reference</p>
+              <Breadcrumbs group="hooks" label="Hooks" />
               <h1>
                 <code>{hook.script}</code>
               </h1>
             </div>
             <div className="page-actions">
-              <a
-                className="btn"
+              <SourceLink
                 href={`${REPO_URL}/blob/main/scripts/${hook.script}`}
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                Source <span aria-hidden="true">&#8599;</span>
-                <span className="sr-only"> (opens in a new tab)</span>
-              </a>
-              <a className="btn btn-quiet" href="/reference">
-                All skills and hooks
-              </a>
+                label="View source"
+                title={`${hook.script} source on GitHub`}
+              />
             </div>
           </div>
           <p className="section-lede detail-lede">{hook.description}</p>

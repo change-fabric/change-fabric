@@ -1,7 +1,15 @@
 import { Layout } from "../components/Layout";
 import { specHtml } from "../spec";
 import { SourceLink } from "../components/SourceLink";
+import { Breadcrumbs } from "../components/Breadcrumbs";
 import { findSkill, skillSourceUrl } from "../reference";
+
+const GROUP_LABELS: Record<string, string> = {
+  lanes: "Lanes",
+  rubrics: "Rubrics",
+  workflow: "Workflow",
+  modes: "Modes",
+};
 
 export function ReferenceSkillPage({ id }: { id: string }) {
   const skill = findSkill(id);
@@ -27,7 +35,7 @@ export function ReferenceSkillPage({ id }: { id: string }) {
         <header className="page-head">
           <div className="page-head-row spec-page-head">
             <div>
-              <p className="eyebrow">Skill reference</p>
+              <Breadcrumbs group={skill.group} label={GROUP_LABELS[skill.group] ?? "Skills"} />
               <h1>
                 <code>{skill.name}</code>
               </h1>
@@ -36,9 +44,6 @@ export function ReferenceSkillPage({ id }: { id: string }) {
               {sourceUrl && (
                 <SourceLink href={sourceUrl} label="View source" title={`${skill.name} source on GitHub`} />
               )}
-              <a className="btn btn-quiet" href="/reference">
-                All skills and hooks
-              </a>
             </div>
           </div>
           <p className="section-lede detail-lede">{skill.description}</p>
