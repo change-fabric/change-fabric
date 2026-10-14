@@ -177,8 +177,8 @@ produces. They never become findings and never gate.
 | `imports.test_results[].counts.error` | integer | Tests that errored. |
 | `imports.test_results[].counts.skip` | integer | Skipped tests. |
 | `imports.test_results[].counts.flaky` | integer | Tests that passed after a rerun. |
-| `imports.test_results[].items[]` | per-case record | One record per test, at most 500, kept failures first (see Rules). |
-| `imports.test_results[].truncated` | boolean | True when `items` was capped. |
+| `imports.test_results[].items[]` | per-case record | One record per test that did not plainly pass (fail, error, flaky, skip), at most 500, kept failures first (see Rules). Plain passes are only counted. |
+| `imports.test_results[].truncated` | boolean | True when more than 500 tests did not plainly pass, so `items` was capped. |
 | `imports.test_results[].timestamp` | string or null | When the results were produced. |
 | `imports.test_results[].stale` | boolean | True when the results predate the head commit. |
 
