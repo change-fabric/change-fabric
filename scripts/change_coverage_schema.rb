@@ -38,9 +38,9 @@ module ChangeCoverageSchema
   # bump.
   CASE_SOURCES = %w[testcases junit testng].freeze
   CASE_STATUSES = %w[pass fail error skip warn].freeze
-  # `not_scanned`: the lane ran but never reached the route (its only finding
-  # for it is `route not scanned`, as after a failed login), so it does not
-  # count as exercised.
+  # `not_scanned`: the lane ran but never loaded the route (its only findings
+  # for it are the lane's skip finding, as after a failed login), so it does
+  # not count as exercised.
   ROUTE_CELL_STATUSES = %w[pass warn fail not_scanned no_result not_declared lane_off n_a].freeze
 
   # Dotted paths; `[]` marks a field on each item of a list, the same
