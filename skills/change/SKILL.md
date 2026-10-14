@@ -328,10 +328,16 @@ Rebuild or import without a sweep (no Docker needed):
 
 ```
 ruby ~/.claude/cf/bin/change_run.rb coverage build [--repo-copy] [--merge PATH]... [--out DIR]
-ruby ~/.claude/cf/bin/change_run.rb coverage import FILE... --format cobertura|jacoco|lcov|junit|testng \
-  [--label L] [--profile P] [--app A] [--sha S] [--branch B] [--pr N] [--out DIR]
+ruby ~/.claude/cf/bin/change_run.rb coverage import [FILE... --format F [--label L]] \
+  [--file PATH:FORMAT[:LABEL]]... [--profile P] [--app A] [--sha S] [--branch B] [--pr N] [--out DIR]
 ```
 
+FORMAT is one of `cobertura`, `jacoco`, `lcov`, `junit`, `testng`.
+
+- `--file PATH:FORMAT[:LABEL]` adds one more import. Repeatable; every
+  import of one invocation lands in the same run, so coverage and test
+  results for a commit are one history row. A file that cannot be read is
+  left out with a line and the rest still record.
 - `--merge PATH` merges a `report-data.js`, or a directory holding one, into
   the store by run id. Repeatable.
 - `--out DIR` writes `report-data.js` and `index.html` to DIR instead of the
@@ -341,10 +347,19 @@ ruby ~/.claude/cf/bin/change_run.rb coverage import FILE... --format cobertura|j
   the copy yourself. Sweeps only ever update the local store.
 
 CI flow: from a toolkit checkout, run `ruby <toolkit>/scripts/change_run.rb
-coverage import ... --branch B --sha S --pr N --out qa-coverage` (plain Ruby,
-no Bundler; the identity flags cover a detached checkout) and upload the
+coverage import --file ... --branch B --sha S --pr N --out qa-coverage` (plain
+Ruby, no Bundler; the identity flags cover a detached checkout) and upload the
 directory as a build artifact. Locally, download it and run `coverage build
---merge <artifact dir>`.
+--merge <artifact dir>`. Some runners write no coverage when a test fails
+(Vitest needs `--coverage.reportOnFailure`), so set that or the failing run
+records test results without coverage.
+
+A multi-app sweep records the repo-wide imports once, on its first app; the
+page shows them under every app of that sweep. Imported test results keep
+500 cases per import and every capped list keeps failures first, so a failure
+is never dropped while a pass is kept; counts are always complete. A route a
+lane skipped because its login could not run reads "not scanned" and does not
+count as exercised.
 
 A committed repo copy needs its data file union-merged so two branches that
 each added runs do not conflict. Add this line to `.gitattributes` (doctor and
