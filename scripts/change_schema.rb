@@ -16,7 +16,7 @@
 # spec doc's changelog. A field-set change without a matching version bump, or a
 # version bump the doc does not reflect, is exactly what the drift test catches.
 module ChangeSchema
-  VERSION = '0.12.0'
+  VERSION = '0.13.0'
 
   # The five audit lanes, the authoritative list the config validator enforces.
   LANES = %w[k6 a11y zap browserless testcases].freeze
@@ -57,6 +57,33 @@ module ChangeSchema
     # directly from the frontmatter by InboxPaths, never through ChangeConfig,
     # so a malformed change_config: or change_policy: block never affects it.
     'inbox_root',
+    # The third top-level key outside both governed blocks (0.13.0): the QA
+    # coverage report's title, trunk, brand, CI import globs, opt-in repo copy
+    # and history retention. Read only by QaReportConfig, straight from the
+    # frontmatter and never through ChangeConfig, so a malformed qa_report:
+    # never breaks an audit lane and a malformed change_config: never breaks
+    # the report. Each malformed field falls back to its default with a
+    # warning. Root-only: APP_FILE_TOP_KEYS is unchanged.
+    'qa_report.title',
+    'qa_report.trunk',
+    'qa_report.brand.name',
+    'qa_report.brand.logo',
+    'qa_report.brand.logo_dark',
+    'qa_report.brand.font.family',
+    'qa_report.brand.colors.light.ground',
+    'qa_report.brand.colors.light.ink',
+    'qa_report.brand.colors.light.accent',
+    'qa_report.brand.colors.dark.ground',
+    'qa_report.brand.colors.dark.ink',
+    'qa_report.brand.colors.dark.accent',
+    'qa_report.imports.coverage[].path',
+    'qa_report.imports.coverage[].format',
+    'qa_report.imports.coverage[].label',
+    'qa_report.imports.test_results[].path',
+    'qa_report.imports.test_results[].format',
+    'qa_report.imports.test_results[].label',
+    'qa_report.repo_copy.dir',
+    'qa_report.history.max_runs',
     # change_config: mechanical target-app details the audit lanes read.
     'change_config.project',
     'change_config.boot.up',

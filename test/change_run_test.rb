@@ -2,6 +2,7 @@
 
 require_relative "test_helpers"
 require "stringio"
+require "yaml"
 require_relative "../scripts/change_run"
 require_relative "../scripts/change_gate_store"
 
@@ -454,5 +455,320 @@ class ChangeRunForTagAndGateStatusTest < Minitest::Test
     result, output = capture_stderr { runner(%w[gate-status --ref no-such-ref]).send(:gate_status) }
     assert_equal 2, result
     assert_match(/could not resolve ref/, output)
+  end
+end
+
+# --- QA coverage: the coverage subcommand and the per-sweep record -------------
+
+class ChangeRunCoverageArgsTest < Minitest::Test
+  def runner = ChangeRun.new(%w[all])
+
+  def parse(argv) = runner.send(:parse_args, argv)
+
+  def refused(argv)
+    original = $stderr
+    $stderr = StringIO.new
+    error = assert_raises(SystemExit) { parse(argv) }
+    assert_equal 2, error.status
+    $stderr.string
+  ensure
+    $stderr = original
+  end
+
+  def test_coverage_build_parses_its_options
+    args = parse(%w[coverage build --repo-copy --merge ci-a --merge ci-b/report-data.js --out site-out])
+    assert_equal "coverage", args.scope
+    assert_equal "build", args.coverage.verb
+    assert args.coverage.repo_copy
+    assert_equal %w[ci-a ci-b/report-data.js], args.coverage.merges
+    assert_equal "site-out", args.coverage.out
+    assert_empty args.coverage.files
+  end
+
+  def test_coverage_import_parses_files_and_identity_flags
+    args = parse(%w[coverage import a.xml b.xml --format junit --label unit --sha abc1234 --branch main --pr 42
+                    --profile staging --app web --out out])
+    assert_equal "import", args.coverage.verb
+    assert_equal %w[a.xml b.xml], args.coverage.files
+    assert_equal [ "junit", "unit", "abc1234", "main", "42", "out" ],
+                 [ args.coverage.format, args.coverage.label, args.coverage.sha, args.coverage.branch,
+                   args.coverage.pr, args.coverage.out ]
+    assert_equal "staging", args.profile
+    assert_equal %w[web], args.apps
+  end
+
+  def test_coverage_import_parses_repeated_file_pairs
+    args = parse(%w[coverage import --file coverage/lcov.info:lcov --file c:/ci/junit.xml:junit:unit])
+    assert_empty args.coverage.files
+    assert_equal [ { paths: [ "coverage/lcov.info" ], format: "lcov", label: nil },
+                   { paths: [ "c:/ci/junit.xml" ], format: "junit", label: "unit" } ], args.coverage.entries
+  end
+
+  def test_coverage_import_refuses_a_bad_file_pair_and_a_stray_format
+    assert_includes refused(%w[coverage import --file junit.xml]), "--file takes PATH:FORMAT[:LABEL]"
+    assert_includes refused(%w[coverage import --file junit.xml:xunit]), "--file takes PATH:FORMAT[:LABEL]"
+    assert_includes refused(%w[coverage import --file a.info:lcov --format junit]), "--format and --label name the FILE arguments"
+    assert_includes refused(%w[coverage build --file a.info:lcov]), "does not take --file"
+  end
+
+  def test_a_sweep_scope_carries_no_coverage_args
+    assert_nil parse(%w[all]).coverage
+  end
+
+  def test_coverage_needs_a_known_verb
+    assert_includes refused(%w[coverage]), "verb must be one of build, import"
+    assert_includes refused(%w[coverage publish]), "verb must be one of build, import"
+  end
+
+  def test_coverage_import_needs_a_file_and_a_format
+    assert_includes refused(%w[coverage import --format junit]), "needs at least one FILE"
+    assert_includes refused(%w[coverage import a.xml]), "needs --format"
+  end
+
+  def test_coverage_import_refuses_a_non_numeric_pr
+    assert_includes refused(%w[coverage import a.xml --format junit --pr abc]), "--pr must be a number"
+  end
+
+  def test_coverage_build_refuses_files_and_import_flags
+    assert_includes refused(%w[coverage build a.xml]), "takes no file arguments"
+    assert_includes refused(%w[coverage build --format junit]), "does not take --format"
+    assert_includes refused(%w[coverage build --profile staging]), "does not take --profile"
+  end
+
+  def test_coverage_import_refuses_build_flags
+    assert_includes refused(%w[coverage import a.xml --format junit --repo-copy]), "does not take --repo-copy"
+    assert_includes refused(%w[coverage import a.xml --format junit --merge x]), "does not take --merge"
+  end
+
+  def test_coverage_flags_are_refused_outside_coverage
+    assert_includes refused(%w[all --out x]), "--out only apply to the coverage subcommand"
+    assert_includes refused(%w[testcases --format junit --repo-copy]), "--format, --repo-copy only apply"
+  end
+
+  def test_coverage_refuses_sweep_flags_and_equals_forms
+    assert_includes refused(%w[coverage build --target-url http://app]), "does not take --target-url"
+    assert_includes refused(%w[coverage build --no-publish]), "does not take --no-publish"
+    assert_includes refused(%w[coverage build --profile=staging]), "does not take --profile"
+    assert_includes refused(%w[coverage build --prof prod]), "does not take --profile"
+    assert_includes refused(%w[coverage build --a web]), "does not take --app"
+    assert_includes refused(%w[coverage import a.xml --format junit --app web --app api]), "pass --app once"
+  end
+
+  def test_suite_is_refused_with_coverage
+    assert_includes refused(%w[coverage build --suite checkout]), "--suite narrows the testcases lane"
+  end
+end
+
+# A sweep with every container step replaced: the app never boots, the lanes
+# hand back fixed findings, and the report is a path. Everything after the
+# lanes (the gate record, the artifact step, the coverage step) is real.
+class CoverageSweepRun < ChangeRun
+  def initialize(argv, root:, findings: [], step: nil)
+    @root = root
+    @fixture_findings = findings
+    @fixture_step = step
+    super(argv)
+  end
+
+  private
+
+  def repo_root = @root
+  def toolkit_version = "test-toolkit"
+  def with_app(_config, _artifact = nil) = yield(nil)
+
+  def execute(_config, _lanes, _ctx)
+    findings = Findings.new
+    @fixture_findings.each { |finding| findings.add(finding) }
+    [ findings, {} ]
+  end
+
+  def write_report(*, **) = { markdown: File.join(@root, "report.md"), csv: File.join(@root, "report.csv") }
+
+  def coverage_step = @fixture_step || super
+end
+
+class ChangeRunCoverageTest < Minitest::Test
+  include SkillTempHome
+
+  def setup
+    super
+    @repo = Dir.mktmpdir
+    GitFixture.git_init(@repo, "-b", "main")
+    GitFixture.git(@repo, "config", "user.email", "test@example.com")
+    GitFixture.git(@repo, "config", "user.name", "Test")
+    File.write(File.join(@repo, "app.txt"), "one")
+    GitFixture.git(@repo, "add", "app.txt")
+    GitFixture.git(@repo, "commit", "-q", "-m", "initial")
+  end
+
+  def teardown
+    FileUtils.remove_entry(@repo)
+    super
+  end
+
+  def change_md = File.join(@repo, "CHANGE.md")
+  def head_sha = GitFixture.git(@repo, "rev-parse", "HEAD").strip
+
+  def write_change_md(change_config)
+    File.write(change_md, "#{YAML.dump('change_config' => change_config)}---\n\nbody\n")
+  end
+
+  def app_config(project)
+    { "project" => project, "boot" => { "target_url" => "http://app:3000" },
+      "lanes" => { "a11y" => { "enabled" => true, "routes" => [ "/" ] } } }
+  end
+
+  def passing = [ Finding.new(lane: "a11y", check: "axe", status: "pass", location: "/") ]
+
+  def capture
+    original = $stderr
+    $stderr = StringIO.new
+    result = yield
+    [ result, $stderr.string ]
+  ensure
+    $stderr = original
+  end
+
+  def sweep(argv, step: nil)
+    capture { CoverageSweepRun.new(argv + [ "--config", change_md ], root: @repo, findings: passing, step: step).send(:run_sweep) }
+  end
+
+  def store_runs(project)
+    path = File.join(@home, ".claude", "cf", "coverage", project, "report-data.js")
+    assert File.file?(path), "expected a data file at #{path}"
+    ChangeCoverageStore.parse(File.read(path)).runs
+  end
+
+  def test_coverage_never_asks_whether_docker_is_available
+    original = ChangeDocker.method(:available?)
+    ChangeDocker.define_singleton_method(:available?) { raise "docker was probed" }
+    code, output = capture { StubChangeRun.new(%w[coverage build], root: @repo).run }
+    assert_equal 0, code
+    assert_includes output, "[change] [coverage] rebuilt"
+  ensure
+    ChangeDocker.define_singleton_method(:available?, original)
+  end
+
+  def test_a_passing_single_app_run_writes_one_run_line
+    write_change_md(app_config("fixture-app"))
+    code, output = sweep(%w[all])
+
+    assert_equal 0, code
+    assert_includes output, "[change] [coverage] recorded 1 run(s)"
+    runs = store_runs("fixture-app")
+    assert_equal 1, runs.size
+    assert_equal "change_run", runs.first["source"]
+    assert_equal "all", runs.first["scope"]
+    assert_equal "#{runs.first['sweep_id']}-run", runs.first["id"]
+    assert_equal head_sha, runs.first.dig("git", "sha")
+  end
+
+  def test_a_multi_app_sweep_writes_one_line_per_app_sharing_the_sweep_id
+    %w[web api].each do |name|
+      path = File.join(@repo, "apps", name, "CHANGE.app.yml")
+      FileUtils.mkdir_p(File.dirname(path))
+      File.write(path, YAML.dump("change_config" => app_config(name)))
+    end
+    write_change_md("project" => "fixture-repo", "apps" => {
+                      "web" => { "config" => "apps/web/CHANGE.app.yml" },
+                      "api" => { "config" => "apps/api/CHANGE.app.yml" }
+                    })
+    code, output = sweep(%w[all])
+
+    assert_equal 0, code
+    assert_includes output, "[change] [coverage] [web] recorded 1 run(s)"
+    runs = store_runs("fixture-repo")
+    assert_equal 2, runs.size
+    assert_equal 1, runs.map { |run| run["sweep_id"] }.uniq.size
+    assert_equal %w[api web], runs.map { |run| run["app"] }.sort
+    assert_equal [ "#{runs.first['sweep_id']}-run-api", "#{runs.first['sweep_id']}-run-web" ], runs.map { |run| run["id"] }.sort
+  end
+
+  def test_a_multi_app_sweep_records_its_imports_once_on_the_first_app
+    %w[web api].each do |name|
+      path = File.join(@repo, "apps", name, "CHANGE.app.yml")
+      FileUtils.mkdir_p(File.dirname(path))
+      File.write(path, YAML.dump("change_config" => app_config(name)))
+    end
+    FileUtils.cp(File.expand_path("fixtures/coverage/lcov-basic.info", __dir__), File.join(@repo, "lcov.info"))
+    front = { "change_config" => { "project" => "fixture-repo", "apps" => {
+                "web" => { "config" => "apps/web/CHANGE.app.yml" }, "api" => { "config" => "apps/api/CHANGE.app.yml" }
+              } },
+              "qa_report" => { "imports" => { "coverage" => [ { "path" => "lcov.info", "format" => "lcov" } ] } } }
+    File.write(change_md, "#{YAML.dump(front)}---\n\nbody\n")
+    code, = sweep(%w[all])
+
+    assert_equal 0, code
+    imports = store_runs("fixture-repo").to_h { |run| [ run["app"], run["imports"] ] }
+    assert_equal 1, imports["web"]["coverage"].size
+    assert_nil imports["api"]
+  end
+
+  # Profiles may rename config.project (gate records show `<name>-production`);
+  # the coverage store must not follow it or one repo's history splits in two.
+  def test_the_store_key_is_the_registry_project_when_a_profile_renames_the_project
+    config = app_config("fixture-app").merge("profiles" => { "production" => { "project" => "fixture-app-production" } })
+    write_change_md(config)
+    sweep(%w[all --profile production])
+
+    runs = store_runs("fixture-app")
+    assert_equal "production", runs.first["profile"]
+    refute File.exist?(File.join(@home, ".claude", "cf", "coverage", "fixture-app-production"))
+  end
+
+  class RaisingStep
+    def record_sweep(**) = raise("boom")
+  end
+
+  def test_a_raising_coverage_step_changes_neither_the_exit_code_nor_the_gate
+    write_change_md(app_config("fixture-app"))
+    code, output = sweep(%w[all], step: RaisingStep.new)
+
+    assert_equal 0, code
+    assert_includes output, "[change] [coverage] skipped (RuntimeError: boom)"
+    assert_includes output, "[change] PASS"
+    gate = ChangeGateStore.new(head_sha).read
+    assert_equal "pass", gate["status"]
+    assert_equal "all", gate["scope"]
+    assert_equal({ "a11y" => "pass" }, gate["lanes"])
+  end
+
+  class StepRaising
+    def initialize(error) = @error = error
+    def record_sweep(**) = raise(@error)
+  end
+
+  def test_a_stack_overflow_in_the_coverage_step_changes_neither_the_exit_code_nor_the_gate
+    write_change_md(app_config("fixture-app"))
+    code, output = sweep(%w[all], step: StepRaising.new(SystemStackError.new("stack level too deep")))
+
+    assert_equal 0, code
+    assert_includes output, "[change] [coverage] skipped (SystemStackError: stack level too deep)"
+    gate = ChangeGateStore.new(head_sha).read
+    assert_equal "pass", gate["status"]
+    assert_equal({ "a11y" => "pass" }, gate["lanes"])
+  end
+
+  def test_an_interrupt_in_the_coverage_step_still_propagates
+    write_change_md(app_config("fixture-app"))
+    assert_raises(Interrupt) { sweep(%w[all], step: StepRaising.new(Interrupt.new)) }
+  end
+
+  # A suite file nested deep enough to overflow YAML.safe_load raises
+  # SystemStackError, which no StandardError rescue catches. The sweep must
+  # still finish with its own verdict.
+  def test_a_suite_yaml_that_overflows_the_parser_does_not_end_the_sweep
+    suites = File.join(@repo, "suites")
+    FileUtils.mkdir_p(suites)
+    File.write(File.join(suites, "deep.yml"), "suite: s\ncases: #{'[' * 20_000}#{']' * 20_000}\n")
+    config = app_config("fixture-app")
+    config["lanes"]["testcases"] = { "enabled" => false, "suites" => [ "suites/*.yml" ] }
+    write_change_md(config)
+    code, output = sweep(%w[a11y])
+
+    assert_equal 0, code, output
+    assert_includes output, "[change] [coverage] skipped (SystemStackError: "
+    assert_includes output, "[change] PASS"
+    assert_equal "pass", ChangeGateStore.new(head_sha).read["status"]
   end
 end

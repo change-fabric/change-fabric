@@ -6,7 +6,8 @@
 # ("flatten") over a backdrop, and a parser for the one color string shape
 # the browser probe reports back, `color(srgb r g b)` or
 # `color(srgb r g b / a)`, as produced by Chromium's computed-style
-# serialization of a color-mix() result. Channels and alpha are floats in
+# serialization of a color-mix() result, plus the hex helpers the QA coverage
+# page's brand resolution uses (`hex`, `to_hex`, `mix`). Channels and alpha are floats in
 # 0..1, clipped to that range (a color some color space can reach outside
 # sRGB gamut is clipped rather than rejected, matching how a browser already
 # gamut-maps what it hands back here).
@@ -16,6 +17,7 @@ module ColorMath
   WHITE = Rgba.new(r: 1.0, g: 1.0, b: 1.0, a: 1.0)
 
   NUMBER = /[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?/.freeze
+  HEX = /\A#(\h{3}|\h{6})\z/.freeze
   COLOR_SRGB = /\Acolor\(srgb\s+(#{NUMBER})\s+(#{NUMBER})\s+(#{NUMBER})(?:\s*\/\s*(#{NUMBER}))?\s*\)\z/.freeze
 
   module_function
@@ -56,5 +58,31 @@ module ColorMath
     lighter = [ la, lb ].max
     darker = [ la, lb ].min
     (lighter + 0.05) / (darker + 0.05)
+  end
+
+  # Parses `#rgb` or `#rrggbb` (any case) into an opaque Rgba, nil otherwise.
+  def hex(str)
+    return nil unless str.is_a?(String)
+
+    m = HEX.match(str.strip)
+    return nil unless m
+
+    digits = m[1].length == 3 ? m[1].chars.map { |c| c * 2 }.join : m[1]
+    r, g, b = digits.scan(/../).map { |pair| pair.to_i(16) / 255.0 }
+    Rgba.new(r:, g:, b:, a: 1.0)
+  end
+
+  # `#rrggbb` (lowercase) for an Rgba, each channel rounded to the nearest of
+  # 0..255. Alpha is ignored; flatten first when it matters.
+  def to_hex(rgba)
+    format('#%02x%02x%02x', *[ rgba.r, rgba.g, rgba.b ].map { |c| (c.clamp(0.0, 1.0) * 255).round })
+  end
+
+  # Per-channel sRGB interpolation of two opaque colors, t of the way from a
+  # to b (0 is a, 1 is b): what `color-mix(in srgb, b t*100%, a)` computes.
+  def mix(a, b, t)
+    t = t.clamp(0.0, 1.0)
+    channel = ->(x, y) { (x + ((y - x) * t)).clamp(0.0, 1.0) }
+    Rgba.new(r: channel.(a.r, b.r), g: channel.(a.g, b.g), b: channel.(a.b, b.b), a: 1.0)
   end
 end

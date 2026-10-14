@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="fixture-app" tests="3" failures="1">
+  <testsuite name="claims form" timestamp="2026-10-13T13:50:00Z" tests="2">
+    <testcase classname="claims.form" name="renders the fields" time="0.012"/>
+    <testcase classname="claims.form" name="validates the date" time="0.020">
+      <failure>Expected   "2026-01-01"
+        to equal "2026-01-02"</failure>
+    </testcase>
+  </testsuite>
+  <testsuite name="claims list" timestamp="2026-10-13T13:51:00Z" tests="1">
+    <testcase classname="claims.list" name="paginates"/>
+  </testsuite>
+</testsuites>

@@ -1,0 +1,43 @@
+<?xml version="1.0" ?>
+<!DOCTYPE coverage SYSTEM "http://cobertura.sourceforge.net/xml/coverage-04.dtd">
+<coverage line-rate="0.6" branch-rate="0.5" lines-covered="6" lines-valid="10" branches-covered="2" branches-valid="4" complexity="0" version="2.1.1" timestamp="1791900000000">
+  <sources>
+    <source>src/main/java</source>
+  </sources>
+  <packages>
+    <package name="com.example.fixture" line-rate="0.8333" branch-rate="0.5" complexity="0">
+      <classes>
+        <class name="com.example.fixture.Claims" filename="com/example/fixture/Claims.java" line-rate="0.8333" branch-rate="0.5" complexity="0">
+          <methods>
+            <method name="submit" signature="()V" line-rate="1.0" branch-rate="1.0">
+              <lines>
+                <line number="10" hits="3" branch="false"/>
+              </lines>
+            </method>
+          </methods>
+          <lines>
+            <line number="10" hits="3" branch="false"/>
+            <line number="11" hits="3" branch="true" condition-coverage="50% (1/2)"/>
+            <line number="12" hits="1" branch="false"/>
+            <line number="13" hits="0" branch="false"/>
+            <line number="14" hits="2" branch="false"/>
+            <line number="15" hits="2" branch="true" condition-coverage="50% (1/2)"/>
+          </lines>
+        </class>
+      </classes>
+    </package>
+    <package name="com.example.fixture.util" line-rate="0.25" branch-rate="0.0" complexity="0">
+      <classes>
+        <class name="com.example.fixture.util.Dates" filename="com/example/fixture/util/Dates.java" line-rate="0.25" branch-rate="0.0" complexity="0">
+          <methods/>
+          <lines>
+            <line number="5" hits="1" branch="false"/>
+            <line number="6" hits="0" branch="false"/>
+            <line number="7" hits="0" branch="false"/>
+            <line number="8" hits="0" branch="false"/>
+          </lines>
+        </class>
+      </classes>
+    </package>
+  </packages>
+</coverage>

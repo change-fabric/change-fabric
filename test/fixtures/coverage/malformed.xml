@@ -1,0 +1,5 @@
+<?xml version="1.0"?>
+<coverage lines-covered="1" lines-valid="2">
+  <packages>
+    <package name="com.example.fixture">
+  </packages>
