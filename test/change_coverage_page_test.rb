@@ -699,6 +699,15 @@ class ChangeCoveragePageTest < Minitest::Test
     refute m["rows"][0]["exercised"]
   end
 
+  def test_model_counts_a_lane_with_only_warnings_as_passing
+    node!
+    lanes = { "ran" => %w[k6 a11y zap], "results" => { "k6" => { "status" => "pass" }, "a11y" => { "status" => "warn" },
+                                                        "zap" => { "status" => "fail" } } }
+    r = run_model({ "runs" => [ run_record("r1", "2026-10-01T00:00:00Z", lanes: lanes) ] },
+                  { "lanes" => "M.metrics.lanes(N.runs[0])" })
+    assert_equal [ 2, 3 ], r["lanes"].values_at("covered", "total")
+  end
+
   def test_model_only_links_https_pull_requests
     node!
     r = run_model({ "runs" => [] }, {

@@ -27,6 +27,13 @@ class ChangeCoverageImportTest < Minitest::Test
     ChangeCoverageImport.read(paths:, format:, label:, repo_root: root, head_time:)
   end
 
+  # Every case a test-result parser read, plain passes included; a summary
+  # lists only the cases that did not plainly pass.
+  def parsed_cases(file, format, root: FIXTURES)
+    parser = format == "junit" ? ChangeCoverageImport::JunitParser.new : ChangeCoverageImport::TestngParser.new
+    parser.parse(File.join(root, file)).cases
+  end
+
   def write(name, text)
     path = File.join(@tmp, name)
     FileUtils.mkdir_p(File.dirname(path))
@@ -134,7 +141,7 @@ class ChangeCoverageImportTest < Minitest::Test
 
   def test_junit_status_mapping_and_flaky
     summary = import("junit-surefire.xml", "junit").summary
-    by_name = summary["items"].to_h { |item| [ item["id"].split("#").last, item ] }
+    by_name = parsed_cases("junit-surefire.xml", "junit").to_h { |item| [ item["id"].split("#").last, item ] }
 
     assert_equal({ "pass" => 2, "fail" => 1, "error" => 1, "skip" => 1, "flaky" => 1 }, summary["counts"])
     assert_equal "pass", by_name["submitsAClaim"]["status"]
@@ -147,14 +154,16 @@ class ChangeCoverageImportTest < Minitest::Test
     assert_equal "com.example.fixture.ClaimsTest#submitsAClaim", by_name["submitsAClaim"]["id"]
     assert_equal 250, by_name["submitsAClaim"]["duration_ms"]
     assert_equal "2026-10-13T13:58:40Z", summary["timestamp"]
+    assert_equal %w[rejectsAnEmptyForm loadsTheList retriesTheUpload exportsAPdf],
+                 summary["items"].map { |item| item["id"].split("#").last }
   end
 
   def test_junit_files_under_one_entry_aggregate
     summary = import("junit-*.xml", "junit").summary
 
     assert_equal [ "junit-surefire.xml", "junit-testsuites.xml" ], summary["files"]
-    assert_equal 8, summary["items"].size
     assert_equal 4, summary["counts"]["pass"]
+    assert_equal 5, summary["items"].size, "the eight cases less the three plain passes"
     nested = summary["items"].find { |item| item["id"] == "claims.form#validates the date" }
     assert_equal "claims form", nested["suite"]
     assert_equal 'Expected "2026-01-01" to equal "2026-01-02"', nested["message"], "whitespace collapsed"
@@ -162,11 +171,12 @@ class ChangeCoverageImportTest < Minitest::Test
 
   def test_testng_maps_status_and_excludes_config_methods
     summary = import("testng-results.xml", "testng").summary
-    ids = summary["items"].map { |item| item["id"] }
+    cases = parsed_cases("testng-results.xml", "testng")
+    ids = cases.map { |item| item["id"] }
 
     assert_equal({ "pass" => 2, "fail" => 1, "error" => 0, "skip" => 1, "flaky" => 0 }, summary["counts"])
     refute(ids.any? { |id| id.end_with?("#setUp", "#tearDown") })
-    opens = summary["items"].find { |item| item["id"] == "com.example.fixture.ui.ClaimsUiTest#opensTheForm" }
+    opens = cases.find { |item| item["id"] == "com.example.fixture.ui.ClaimsUiTest#opensTheForm" }
     assert_equal [ "smoke" ], opens["tags"]
     assert_equal 1200, opens["duration_ms"]
     failed = summary["items"].find { |item| item["status"] == "fail" }
@@ -190,7 +200,7 @@ class ChangeCoverageImportTest < Minitest::Test
     write("order.xml", '<testsuites><testsuite name="outer"><testcase classname="C" name="a"/>' \
                        '<testsuite name="inner"><testcase classname="C" name="b"/></testsuite>' \
                        '<testcase classname="C" name="c"/></testsuite></testsuites>')
-    items = import("order.xml", "junit", root: @tmp).summary["items"]
+    items = parsed_cases("order.xml", "junit", root: @tmp)
 
     assert_equal %w[outer inner outer], items.map { |item| item["suite"] }
     assert_equal 3, items.map { |item| item["id"] }.uniq.size
@@ -273,26 +283,26 @@ class ChangeCoverageImportTest < Minitest::Test
     assert_equal "#{'x' * 200} #{'y' * 99}", message
   end
 
-  def test_case_items_cap_at_500_with_complete_counts
-    cases = Array.new(501) { |i| %(<testcase classname="c" name="n#{i}"/>) }.join
+  def test_plain_passes_are_counted_but_not_listed
+    cases = Array.new(600) { |i| %(<testcase classname="c" name="n#{i}"/>) }.join
     write("junit.xml", "<testsuite name=\"s\">#{cases}</testsuite>")
+    summary = import("junit.xml", "junit", root: @tmp).summary
+
+    assert_empty summary["items"]
+    refute summary["truncated"]
+    assert_equal 600, summary["counts"]["pass"]
+  end
+
+  def test_case_items_cap_at_500_failures_first_with_complete_counts
+    skips = Array.new(10) { |i| %(<testcase classname="c" name="s#{i}"><skipped/></testcase>) }.join
+    failures = Array.new(501) { |i| %(<testcase classname="c" name="f#{i}"><failure message="boom"/></testcase>) }.join
+    write("junit.xml", "<testsuite name=\"s\">#{skips}#{failures}</testsuite>")
     summary = import("junit.xml", "junit", root: @tmp).summary
 
     assert_equal 500, summary["items"].size
     assert summary["truncated"]
-    assert_equal 501, summary["counts"]["pass"]
-  end
-
-  def test_case_items_keep_a_failure_that_sits_past_the_cap
-    passes = Array.new(6000) { |i| %(<testcase classname="c" name="n#{i}"/>) }.join
-    failure = %(<testcase classname="c" name="late"><failure message="boom"/></testcase>)
-    write("junit.xml", "<testsuite name=\"s\">#{passes}#{failure}</testsuite>")
-    summary = import("junit.xml", "junit", root: @tmp).summary
-
-    assert_equal 500, summary["items"].size
-    assert_equal "fail", summary["items"].first["status"]
-    assert_equal 1, summary["counts"]["fail"]
-    assert_equal 6000, summary["counts"]["pass"]
+    assert_equal [ "fail" ], summary["items"].map { |item| item["status"] }.uniq
+    assert_equal [ 501, 10 ], summary["counts"].values_at("fail", "skip")
   end
 
   def test_groups_cap_at_500_lowest_line_percentage_first

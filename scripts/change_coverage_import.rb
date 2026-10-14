@@ -205,7 +205,10 @@ module ChangeCoverageImport
       cases = parsed.flat_map { |_, data| data.cases }
       counts = %w[pass fail error skip].to_h { |status| [ status, cases.count { |item| item['status'] == status } ] }
       counts['flaky'] = cases.count { |item| item['flaky'] }
-      items, truncated = ChangeCoverageSchema.cap_cases(cases, ChangeCoverageSchema::MAX_IMPORT_CASE_ITEMS)
+      # Plain passes are counted, never listed: a green client suite runs to
+      # tens of thousands of them, and the page lists only the rest.
+      listed = cases.reject { |item| item['status'] == 'pass' && !item['flaky'] }
+      items, truncated = ChangeCoverageSchema.cap_cases(listed, ChangeCoverageSchema::MAX_IMPORT_CASE_ITEMS)
       { 'files' => parsed.map(&:first), 'counts' => counts, 'items' => items, 'truncated' => truncated }
     end
   end
