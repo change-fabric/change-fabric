@@ -148,12 +148,15 @@ module ChangeCoverage
   # Exercised: any lane result for the route, the static `goto` steps and login
   # urls of the cases this run selected, and what the cases reached at run
   # time. Matching is literal on the normalized path; `/claims/123` and
-  # `/claims/:id` are different routes.
+  # `/claims/:id` are different routes. A route a lane skipped (its login could
+  # not run) is `not_scanned`, which is not exercised.
   class Routes
     DECLARING_LANES = %w[a11y browserless zap].freeze
     ROUTE_LANES = %w[a11y browserless zap testcases].freeze
     ABSOLUTE = %r{\A[a-z][a-z0-9+.\-]*://}i
     RESULT_STATUSES = %w[pass warn fail].freeze
+    # The finding each lane writes for a route it never loaded.
+    SKIP_CHECKS = { 'a11y' => 'route not scanned', 'browserless' => 'auth-required route skipped' }.freeze
 
     # A url or path as a route key: no scheme or host (nil when the host is
     # not the target's), no base path (an absolute url under a base with a
@@ -264,7 +267,11 @@ module ChangeCoverage
       return testcases_cell(path) if lane == 'testcases'
       return 'not_declared' unless declared.fetch(path, []).include?(lane)
 
-      ChangeCoverage.worst(lane_statuses.fetch(lane, {}).fetch(path, [])) || 'no_result'
+      statuses = lane_statuses.fetch(lane, {}).fetch(path, [])
+      result = ChangeCoverage.worst(statuses)
+      return result if result
+
+      statuses.include?('not_scanned') ? 'not_scanned' : 'no_result'
     end
 
     def testcases_cell(path)
@@ -316,9 +323,11 @@ module ChangeCoverage
         path = finding_route(finding)
         next unless path
 
-        ((out[finding.lane] ||= {})[path] ||= []) << finding.status
+        ((out[finding.lane] ||= {})[path] ||= []) << (skipped?(finding) ? 'not_scanned' : finding.status)
       end
     end
+
+    def skipped?(finding) = SKIP_CHECKS[finding.lane] == finding.check
 
     def finding_route(finding)
       case finding.lane
@@ -404,10 +413,10 @@ module ChangeCoverage
     def to_h
       return nil unless @ran.include?('testcases')
 
-      cap = ChangeCoverageSchema::MAX_CASE_ITEMS
+      items, truncated = ChangeCoverageSchema.cap_cases(@records, ChangeCoverageSchema::MAX_CASE_ITEMS)
       { 'defined_total' => @suite_set ? @suite_set.cases.size : @records.size,
         'selected_total' => @suite_set ? ChangeCoverage.selected_cases(@suite_set, @config, @selection).size : @records.size,
-        'counts' => counts, 'items' => @records.first(cap), 'truncated' => @records.size > cap }
+        'counts' => counts, 'items' => items, 'truncated' => truncated }
     end
 
     private
