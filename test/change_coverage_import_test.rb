@@ -273,14 +273,26 @@ class ChangeCoverageImportTest < Minitest::Test
     assert_equal "#{'x' * 200} #{'y' * 99}", message
   end
 
-  def test_case_items_cap_at_5000_with_complete_counts
-    cases = Array.new(5001) { |i| %(<testcase classname="c" name="n#{i}"/>) }.join
+  def test_case_items_cap_at_500_with_complete_counts
+    cases = Array.new(501) { |i| %(<testcase classname="c" name="n#{i}"/>) }.join
     write("junit.xml", "<testsuite name=\"s\">#{cases}</testsuite>")
     summary = import("junit.xml", "junit", root: @tmp).summary
 
-    assert_equal 5000, summary["items"].size
+    assert_equal 500, summary["items"].size
     assert summary["truncated"]
-    assert_equal 5001, summary["counts"]["pass"]
+    assert_equal 501, summary["counts"]["pass"]
+  end
+
+  def test_case_items_keep_a_failure_that_sits_past_the_cap
+    passes = Array.new(6000) { |i| %(<testcase classname="c" name="n#{i}"/>) }.join
+    failure = %(<testcase classname="c" name="late"><failure message="boom"/></testcase>)
+    write("junit.xml", "<testsuite name=\"s\">#{passes}#{failure}</testsuite>")
+    summary = import("junit.xml", "junit", root: @tmp).summary
+
+    assert_equal 500, summary["items"].size
+    assert_equal "fail", summary["items"].first["status"]
+    assert_equal 1, summary["counts"]["fail"]
+    assert_equal 6000, summary["counts"]["pass"]
   end
 
   def test_groups_cap_at_500_lowest_line_percentage_first

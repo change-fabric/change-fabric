@@ -497,6 +497,20 @@ class ChangeRunCoverageArgsTest < Minitest::Test
     assert_equal %w[web], args.apps
   end
 
+  def test_coverage_import_parses_repeated_file_pairs
+    args = parse(%w[coverage import --file coverage/lcov.info:lcov --file c:/ci/junit.xml:junit:unit])
+    assert_empty args.coverage.files
+    assert_equal [ { paths: [ "coverage/lcov.info" ], format: "lcov", label: nil },
+                   { paths: [ "c:/ci/junit.xml" ], format: "junit", label: "unit" } ], args.coverage.entries
+  end
+
+  def test_coverage_import_refuses_a_bad_file_pair_and_a_stray_format
+    assert_includes refused(%w[coverage import --file junit.xml]), "--file takes PATH:FORMAT[:LABEL]"
+    assert_includes refused(%w[coverage import --file junit.xml:xunit]), "--file takes PATH:FORMAT[:LABEL]"
+    assert_includes refused(%w[coverage import --file a.info:lcov --format junit]), "--format and --label name the FILE arguments"
+    assert_includes refused(%w[coverage build --file a.info:lcov]), "does not take --file"
+  end
+
   def test_a_sweep_scope_carries_no_coverage_args
     assert_nil parse(%w[all]).coverage
   end
@@ -668,6 +682,26 @@ class ChangeRunCoverageTest < Minitest::Test
     assert_equal 1, runs.map { |run| run["sweep_id"] }.uniq.size
     assert_equal %w[api web], runs.map { |run| run["app"] }.sort
     assert_equal [ "#{runs.first['sweep_id']}-run-api", "#{runs.first['sweep_id']}-run-web" ], runs.map { |run| run["id"] }.sort
+  end
+
+  def test_a_multi_app_sweep_records_its_imports_once_on_the_first_app
+    %w[web api].each do |name|
+      path = File.join(@repo, "apps", name, "CHANGE.app.yml")
+      FileUtils.mkdir_p(File.dirname(path))
+      File.write(path, YAML.dump("change_config" => app_config(name)))
+    end
+    FileUtils.cp(File.expand_path("fixtures/coverage/lcov-basic.info", __dir__), File.join(@repo, "lcov.info"))
+    front = { "change_config" => { "project" => "fixture-repo", "apps" => {
+                "web" => { "config" => "apps/web/CHANGE.app.yml" }, "api" => { "config" => "apps/api/CHANGE.app.yml" }
+              } },
+              "qa_report" => { "imports" => { "coverage" => [ { "path" => "lcov.info", "format" => "lcov" } ] } } }
+    File.write(change_md, "#{YAML.dump(front)}---\n\nbody\n")
+    code, = sweep(%w[all])
+
+    assert_equal 0, code
+    imports = store_runs("fixture-repo").to_h { |run| [ run["app"], run["imports"] ] }
+    assert_equal 1, imports["web"]["coverage"].size
+    assert_nil imports["api"]
   end
 
   # Profiles may rename config.project (gate records show `<name>-production`);

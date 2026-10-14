@@ -160,6 +160,32 @@ class ChangeCoverageStepTest < Minitest::Test
     assert_equal 1, run.dig("imports", "test_results").size
   end
 
+  def test_import_of_several_formats_records_one_run
+    write_change_md
+    entries = [ { paths: [ File.join(FIXTURES, "lcov-basic.info") ], format: "lcov", label: "web" },
+                { paths: [ File.join(FIXTURES, "junit-surefire.xml") ], format: "junit", label: nil } ]
+
+    code, lines = step.import(entries: entries)
+
+    assert_equal 0, code, lines.join("\n")
+    runs = runs_in(store_dir)
+    assert_equal 1, runs.size
+    assert_match(/-import-lcov-web-junit-junit\z/, runs.first["id"])
+    assert_equal [ 1, 1 ], [ runs.first.dig("imports", "coverage").size, runs.first.dig("imports", "test_results").size ]
+  end
+
+  def test_an_unreadable_import_is_left_out_of_a_run_the_others_still_make
+    write_change_md
+    entries = [ { paths: [ File.join(FIXTURES, "malformed.xml") ], format: "junit", label: "broken" },
+                { paths: [ File.join(FIXTURES, "lcov-basic.info") ], format: "lcov", label: "web" } ]
+
+    code, lines = step.import(entries: entries)
+
+    assert_equal 0, code, lines.join("\n")
+    assert_includes lines, "broken: no junit file could be read; left out of the run"
+    assert_match(/-import-lcov-web\z/, runs_in(store_dir).first["id"])
+  end
+
   def test_import_of_unreadable_files_records_nothing
     write_change_md
     code, lines = step.import(files: [ File.join(FIXTURES, "malformed.xml") ], format: "junit")

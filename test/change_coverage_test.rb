@@ -60,8 +60,8 @@ class ChangeCoverageTest < Minitest::Test
 
   def suite_set = ChangeSuiteSet.load([ "*.cf-testcases.yml" ], @dir)
 
-  def finding(lane, status, location: "", target: BASE, severity: "medium")
-    Finding.new(lane: lane, check: "check", status: status, location: location, target: target, severity: severity)
+  def finding(lane, status, location: "", target: BASE, severity: "medium", check: "check")
+    Finding.new(lane: lane, check: check, status: status, location: location, target: target, severity: severity)
   end
 
   def case_record(id, status, gotos: [], landed: nil, **extra)
@@ -230,6 +230,28 @@ class ChangeCoverageTest < Minitest::Test
     assert_equal "lane_off", route(run, "/")["lane_status"]["testcases"]
   end
 
+  def test_a_route_a_lane_skipped_is_not_scanned_and_not_exercised
+    findings = [ finding("a11y", "fail", location: "/", check: "route not scanned", severity: "high"),
+                 finding("a11y", "fail", location: "/claims", check: "route not scanned", severity: "high"),
+                 finding("browserless", "fail", location: "/claims", check: "auth-required route skipped", severity: "high") ]
+    run = snapshot(lanes_ran: %w[a11y browserless], findings: findings)
+
+    assert_equal "not_scanned", route(run, "/")["lane_status"]["a11y"]
+    assert_equal({ "a11y" => "not_scanned", "browserless" => "not_scanned" },
+                 route(run, "/claims")["lane_status"].slice("a11y", "browserless"))
+    assert_equal "no_result", route(run, "/profile")["lane_status"]["browserless"]
+    assert_equal 0, run["routes"]["declared_exercised"]
+  end
+
+  def test_a_real_result_beside_a_skip_still_counts
+    findings = [ finding("a11y", "fail", location: "/", check: "route not scanned", severity: "high"),
+                 finding("a11y", "warn", location: "/") ]
+    run = snapshot(lanes_ran: %w[a11y], findings: findings)
+
+    assert_equal "warn", route(run, "/")["lane_status"]["a11y"]
+    assert_equal 1, run["routes"]["declared_exercised"]
+  end
+
   # --- lanes, cases, findings ------------------------------------------------------------
 
   def test_lane_results_count_findings_per_lane
@@ -282,6 +304,14 @@ class ChangeCoverageTest < Minitest::Test
     assert_equal cap, cases["items"].size
     assert cases["truncated"]
     assert_equal cap + 2, cases["counts"]["pass"]
+  end
+
+  def test_capped_case_items_keep_failures_first
+    cap = ChangeCoverageSchema::MAX_CASE_ITEMS
+    records = Array.new(cap + 1) { |index| case_record("claims/c#{index}", "pass") } + [ case_record("claims/late", "fail") ]
+    items = snapshot(lanes_ran: %w[testcases], records: records)["cases"]["items"]
+
+    assert_equal "claims/late", items.first["id"]
   end
 
   def test_suite_inventory_lists_every_defined_case
