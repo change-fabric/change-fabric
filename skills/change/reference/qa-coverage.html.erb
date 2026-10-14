@@ -142,6 +142,7 @@
   <section aria-labelledby="filters-title">
     <h2 id="filters-title" class="hidden">Filters</h2>
     <div class="filters" id="filters">
+      <label id="f-app-label">App<select id="f-app"></select></label>
       <label>Profile<select id="f-profile"></select></label>
       <label>Branch<select id="f-branch"></select></label>
       <label>Scope<select id="f-scope"></select></label>
@@ -275,16 +276,22 @@
   function branchOf(run) { return isObj(run.git) && typeof run.git.branch === "string" ? run.git.branch : null; }
   function onTrunk(run) { return isObj(run.git) && run.git.trunk === true; }
 
+  function appOf(run) { return typeof run.app === "string" && run.app !== "" ? run.app : null; }
+
+  // "app?" is the app filter for the imported family: a repo-wide import run
+  // (no app) counts under every app, since one CI import covers the repo.
   function matches(run, f, keys) {
     return keys.every(function (key) {
-      var want = f[key] || "";
+      var field = key === "app?" ? "app" : key;
+      var want = f[field] || "";
       if (want === "") return true;
       if (key === "branch") return want === TRUNK ? onTrunk(run) : branchOf(run) === want;
+      if (key === "app?") return appOf(run) === null || appOf(run) === want;
       return run[key] === want;
     });
   }
-  var ALL_KEYS = ["profile", "branch", "scope", "source"];
-  var IMPORT_KEYS = ["profile", "branch"];
+  var ALL_KEYS = ["app", "profile", "branch", "scope", "source"];
+  var IMPORT_KEYS = ["app?", "profile", "branch"];
 
   function options(runs) {
     function uniq(fn) {
@@ -293,6 +300,7 @@
       return Object.keys(seen).sort();
     }
     return {
+      apps: uniq(appOf),
       profiles: uniq(function (r) { return r.profile; }),
       branches: uniq(branchOf),
       scopes: uniq(function (r) { return r.scope; }),
@@ -302,16 +310,30 @@
   }
 
   // Full-scope trunk runs by default; failing that, the latest full-scope run
-  // on any branch, named so the reader knows it is not trunk.
+  // on any branch, named so the reader knows it is not trunk. A store holding
+  // more than one app shows one app at a time (the app of that latest run),
+  // so no number or delta ever mixes two apps.
   function defaultFilters(runs) {
-    var base = { profile: "", branch: "", scope: "", source: "" };
+    var base = { app: "", profile: "", branch: "", scope: "", source: "" };
     var all = runs.filter(function (r) { return r.scope === "all"; });
-    if (all.some(onTrunk)) return { filters: Object.assign(base, { branch: TRUNK, scope: "all" }), fallbackBranch: null };
+    var apps = options(runs).apps;
+    function pickApp(pool) {
+      if (apps.length < 2) return "";
+      var withApp = pool.filter(function (r) { return appOf(r) !== null; });
+      return withApp.length > 0 ? appOf(withApp[withApp.length - 1]) : apps[0];
+    }
+    var trunkAll = all.filter(onTrunk);
+    if (trunkAll.length > 0) {
+      return { filters: Object.assign(base, { app: pickApp(trunkAll), branch: TRUNK, scope: "all" }), fallbackBranch: null };
+    }
     if (all.length > 0) {
       var latest = all[all.length - 1];
-      return { filters: Object.assign(base, { branch: branchOf(latest) || "", scope: "all" }), fallbackBranch: branchOf(latest) || "(unknown)" };
+      return {
+        filters: Object.assign(base, { app: pickApp([latest]), branch: branchOf(latest) || "", scope: "all" }),
+        fallbackBranch: branchOf(latest) || "(unknown)"
+      };
     }
-    return { filters: base, fallbackBranch: null };
+    return { filters: Object.assign(base, { app: pickApp(runs) }), fallbackBranch: null };
   }
 
   // --- metric families: each returns null when the run did not measure it.
@@ -413,7 +435,7 @@
         return {
           id: r.id, date: typeof r.recorded_at === "string" ? r.recorded_at.slice(0, 10) : "",
           sha: shortSha(r), pr: isObj(r.git) && isObj(r.git.pr) ? r.git.pr : null,
-          profile: typeof r.profile === "string" ? r.profile : null, branch: branchOf(r)
+          app: appOf(r), profile: typeof r.profile === "string" ? r.profile : null, branch: branchOf(r)
         };
       }),
       series: SERIES.map(function (s) {
@@ -539,14 +561,14 @@
       return {
         id: r.id, recorded_at: r.recorded_at, schema: r.schema, toolkit: r.toolkit == null ? "" : String(r.toolkit),
         source: r.source == null ? "" : String(r.source), scope: r.scope == null ? "" : String(r.scope),
-        profile: r.profile == null ? "" : String(r.profile), branch: branchOf(r) || "", sha: shortSha(r) || "",
+        app: appOf(r) || "", profile: r.profile == null ? "" : String(r.profile), branch: branchOf(r) || "", sha: shortSha(r) || "",
         pr: pr && typeof pr.number === "number" ? { number: pr.number, url: safePrUrl(pr) } : null, note: ""
       };
     });
     normalized.excluded.forEach(function (x) {
       rows.push({
         id: x.id || "", recorded_at: x.recorded_at || "", schema: x.schema, toolkit: "", source: "", scope: "",
-        profile: "", branch: "", sha: "", pr: null, note: x.reason
+        app: "", profile: "", branch: "", sha: "", pr: null, note: x.reason
       });
     });
     return rows;
@@ -673,6 +695,8 @@
     select.addEventListener("change", function () { filters[key] = select.value; render(); });
   }
   var opts = M.options(runs);
+  fillSelect("f-app", "app", opts.apps);
+  show(byId("f-app-label"), opts.apps.length > 0);
   fillSelect("f-profile", "profile", opts.profiles);
   fillSelect("f-branch", "branch", opts.branches, opts.hasTrunk ? [[M.TRUNK, "Trunk"]] : []);
   fillSelect("f-scope", "scope", opts.scopes);
@@ -801,6 +825,7 @@
         clear(tip);
         tip.appendChild(el("p", "tip-head", p.date + (p.sha ? " " + p.sha : "")));
         if (p.pr && typeof p.pr.number === "number") tip.appendChild(el("p", null, "PR #" + p.pr.number));
+        if (p.app) tip.appendChild(el("p", null, "App " + p.app));
         if (p.profile) tip.appendChild(el("p", null, "Profile " + p.profile));
         if (p.branch) tip.appendChild(el("p", null, "Branch " + p.branch));
         tr.series.forEach(function (s) {
@@ -824,12 +849,13 @@
     var wrap = byId("trend-table-wrap");
     clear(wrap);
     var rows = tr.points.map(function (p, i) {
-      return [p.date, p.sha || "", p.profile || "", p.branch || ""].concat(tr.series.map(function (s) {
+      return [p.date, p.sha || "", p.app || "", p.profile || "", p.branch || ""].concat(tr.series.map(function (s) {
         return s.values[i] === null ? "not reported" : s.values[i].toFixed(1) + "%";
       }));
     });
-    var headers = ["Date", "SHA", "Profile", "Branch"].concat(tr.series.map(function (s) { return s.label; }));
-    wrap.appendChild(table(headers, rows, [false, false, false, false, true, true, true, true]));
+    var headers = ["Date", "SHA", "App", "Profile", "Branch"].concat(tr.series.map(function (s) { return s.label; }));
+    var numeric = [false, false, false, false, false].concat(tr.series.map(function () { return true; }));
+    wrap.appendChild(table(headers, rows, numeric));
   }
   byId("trend-toggle").addEventListener("click", function () {
     var btn = byId("trend-toggle");
@@ -906,11 +932,11 @@
         else pr = "#" + r.pr.number;
       }
       var id = r.note ? el("span", "flag", (r.id ? r.id + ": " : "") + r.note) : r.id;
-      return [id, r.recorded_at, r.schema === null ? "" : r.schema, r.toolkit, r.source, r.scope, r.profile, r.branch, r.sha, pr];
+      return [id, r.recorded_at, r.schema === null ? "" : r.schema, r.toolkit, r.source, r.scope, r.app, r.profile, r.branch, r.sha, pr];
     });
     clear(host);
     if (rows.length === 0) { empty(host, "No runs recorded yet."); return; }
-    host.appendChild(table(["Run", "Recorded", "Schema", "Toolkit", "Source", "Scope", "Profile", "Branch", "SHA", "PR"], rows));
+    host.appendChild(table(["Run", "Recorded", "Schema", "Toolkit", "Source", "Scope", "App", "Profile", "Branch", "SHA", "PR"], rows));
   }
 
   function renderNote() {
