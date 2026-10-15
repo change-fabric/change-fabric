@@ -18,6 +18,27 @@ Every version below has a frozen, permanently addressable rendering at
 field set: major for a removed, renamed or newly required field, minor for a new
 optional field, patch for a documentation-only clarification.
 
+## [0.13.0] - 2026-10-13
+
+A repo can brand its standing QA coverage report and name the coverage and
+test-result files its own CI already produces.
+
+### Added
+
+- `qa_report`: an optional top-level key configuring the QA coverage report
+  every deterministic run appends to: `title`, `trunk`, `brand.*` (name,
+  logo, logo_dark, font.family, light and dark ground, ink and accent hex
+  colors), `imports.coverage[]` (`cobertura`, `jacoco`, `lcov`) and
+  `imports.test_results[]` (`junit`, `testng`) as repo-relative globs with a
+  format and label, `repo_copy.dir` for an opt-in copy inside the repo, and
+  `history.max_runs` (10 to 5000, default 200). Read via
+  `ChangeFrontmatter.parse_file` by its own reader, never through
+  `ChangeConfig`, so it neither validates against nor affects the governed
+  blocks; a malformed value falls back to its default with a warning naming
+  the field and never fails a load. Root-only: an app config file still
+  accepts only `change_config:`. Additive: a `CHANGE.md` without
+  `qa_report:` parses and runs exactly as under 0.12.0.
+
 ## [0.12.0] - 2026-09-17
 
 A project can point the agent-inbox handoff protocol at a shared root instead

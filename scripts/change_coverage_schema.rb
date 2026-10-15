@@ -1,0 +1,200 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# The canonical registry of the QA coverage run file (`runs/<id>.json`) and
+# the bundle built from the runs (`report-data.js`): the meta record, every field a run record may carry, and the
+# per-case record shared by the testcases lane and imported JUnit and TestNG
+# results.
+#
+# Independent of ChangeSchema::VERSION. The data file is not CHANGE.md: it is
+# written by the toolkit and read by the coverage page and by any dashboard
+# that ingests it, so it carries its own two version numbers. FORMAT_VERSION
+# names the store layout (run files plus the bundle); RUN_SCHEMA is stamped into
+# each run so a reader can skip a run written by a newer toolkit. An additive,
+# optional field keeps both; an incompatible change bumps RUN_SCHEMA and adds a
+# page adapter.
+#
+# It gets its own drift test (test/change_coverage_schema_spec_test.rb) against
+# SPEC_DOC, as ChangeSuiteSchema does.
+module ChangeCoverageSchema
+  SPEC_DOC = 'skills/change/reference/qa-coverage-data-spec.md'
+
+  FORMAT_VERSION = 2
+  RUN_SCHEMA = 1
+
+  # The bundle is one statement: BUNDLE_PREFIX, a JSON object with `meta` and
+  # `runs`, BUNDLE_SUFFIX.
+  BUNDLE_PREFIX = 'window.CF_QA_COVERAGE = '
+  BUNDLE_SUFFIX = ';'
+
+  # A run the store accepts: an object with a non-empty string id and an
+  # integer schema no newer than this toolkit understands.
+  def self.valid_run?(run)
+    run.is_a?(Hash) && run['id'].is_a?(String) && !run['id'].empty? &&
+      run['schema'].is_a?(Integer) && run['schema'] <= RUN_SCHEMA
+  end
+
+  # `change_run` is a deterministic sweep; `import` is a run recorded from CI
+  # result files alone.
+  SOURCES = %w[change_run import].freeze
+  # The selenium lane, when it lands, adds `selenium` here without a schema
+  # bump.
+  CASE_SOURCES = %w[testcases junit testng].freeze
+  CASE_STATUSES = %w[pass fail error skip warn].freeze
+  # `not_scanned`: the lane ran but never loaded the route (its only findings
+  # for it are the lane's skip finding, as after a failed login), so it does
+  # not count as exercised.
+  ROUTE_CELL_STATUSES = %w[pass warn fail not_scanned no_result not_declared lane_off n_a].freeze
+
+  # Dotted paths; `[]` marks a field on each item of a list, the same
+  # convention ChangeSchema::FIELDS uses. `<lane>` and `<severity>` stand for a
+  # key drawn from ChangeSchema::LANES and a finding severity. A list of
+  # per-case records is listed once as `...items[]`; its own keys are
+  # CASE_FIELDS.
+  FIELDS = [
+    'meta.format_version',
+    'meta.project',
+    'meta.origin',
+
+    'schema',
+    'id',
+    'sweep_id',
+    'recorded_at',
+    'source',
+    'scope',
+    'selection.suites',
+    'selection.tags',
+    'profile',
+    'app',
+    'toolkit',
+    'repo.root',
+    'repo.origin',
+    'git.branch',
+    'git.sha',
+    'git.short_sha',
+    'git.subject',
+    'git.pr.number',
+    'git.pr.url',
+    'git.trunk',
+
+    'lanes.configured',
+    'lanes.enabled',
+    'lanes.ran',
+    'lanes.results.<lane>.status',
+    'lanes.results.<lane>.findings.pass',
+    'lanes.results.<lane>.findings.warn',
+    'lanes.results.<lane>.findings.fail',
+    'lanes.results.<lane>.by_severity.<severity>',
+
+    'routes.declared_total',
+    'routes.declared_exercised',
+    'routes.undeclared_exercised',
+    'routes.items[].path',
+    'routes.items[].declared',
+    'routes.items[].declared_by',
+    'routes.items[].viewports',
+    'routes.items[].lane_status.<lane>',
+    'routes.items[].cases_static',
+    'routes.items[].cases_reached',
+
+    'cases.defined_total',
+    'cases.selected_total',
+    'cases.counts.pass',
+    'cases.counts.fail',
+    'cases.counts.error',
+    'cases.counts.skip',
+    'cases.counts.warn',
+    'cases.counts.flaky',
+    'cases.counts.quarantined',
+    'cases.counts.ungated',
+    'cases.items[]',
+    'cases.truncated',
+
+    'suite_inventory[].suite',
+    'suite_inventory[].id',
+    'suite_inventory[].tags',
+
+    'findings.pass',
+    'findings.warn',
+    'findings.fail',
+
+    'imports.coverage[].label',
+    'imports.coverage[].format',
+    'imports.coverage[].file',
+    'imports.coverage[].line.covered',
+    'imports.coverage[].line.total',
+    'imports.coverage[].branch.covered',
+    'imports.coverage[].branch.total',
+    'imports.coverage[].groups[].name',
+    'imports.coverage[].groups[].line.covered',
+    'imports.coverage[].groups[].line.total',
+    'imports.coverage[].groups[].branch.covered',
+    'imports.coverage[].groups[].branch.total',
+    'imports.coverage[].groups_truncated',
+    'imports.coverage[].timestamp',
+    'imports.coverage[].stale',
+    'imports.test_results[].label',
+    'imports.test_results[].format',
+    'imports.test_results[].files',
+    'imports.test_results[].counts.pass',
+    'imports.test_results[].counts.fail',
+    'imports.test_results[].counts.error',
+    'imports.test_results[].counts.skip',
+    'imports.test_results[].counts.flaky',
+    'imports.test_results[].items[]',
+    'imports.test_results[].truncated',
+    'imports.test_results[].timestamp',
+    'imports.test_results[].stale',
+
+    'warnings',
+    'summary'
+  ].freeze
+
+  # One per-case record, whichever runner produced it. The importers and the
+  # testcases lane build these through one helper each so every record carries
+  # exactly these keys.
+  CASE_FIELDS = [
+    'source',
+    'suite',
+    'id',
+    'status',
+    'gated',
+    'attempts',
+    'flaky',
+    'duration_ms',
+    'tags',
+    'message',
+    'acceptance_verdict',
+    'quarantine.reason',
+    'quarantine.until',
+    'quarantine.expired',
+    'gotos_reached',
+    'landed_url'
+  ].freeze
+
+  # Caps that keep one run file bounded; counts stay complete past them.
+  # Imported test results get the tighter cap: a client suite runs to tens of
+  # thousands of cases, and every run keeps its own list.
+  MAX_CASE_ITEMS = 5000
+  MAX_IMPORT_CASE_ITEMS = 500
+  MAX_GROUPS = 500
+  MESSAGE_MAX = 300
+
+  # Which cases a cap keeps first: failures, then errors, flaky passes,
+  # warnings, skips, and plain passes last. Ties keep their input order.
+  CASE_KEEP_ORDER = %w[fail error flaky warn skip pass].freeze
+
+  # [kept items, truncated?] for one list of per-case records under `cap`,
+  # ranked by CASE_KEEP_ORDER so a failure is never cut while a pass is kept.
+  def self.cap_cases(items, cap)
+    ranked = items.each_with_index.sort_by { |item, index| [ keep_rank(item), index ] }.map(&:first)
+    [ ranked.first(cap), items.size > cap ]
+  end
+
+  def self.keep_rank(item)
+    status = item['status'].to_s
+    key = item['flaky'] && !%w[fail error].include?(status) ? 'flaky' : status
+    CASE_KEEP_ORDER.index(key) || CASE_KEEP_ORDER.size
+  end
+  private_class_method :keep_rank
+end
