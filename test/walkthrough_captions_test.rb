@@ -32,6 +32,12 @@ class WalkthroughCaptionsTest < Minitest::Test
     assert_equal "1\n00:00:00,000 --> 00:00:00,800\nHi there\n", srt
   end
 
+  def test_vtt_header_and_dot_timestamps
+    srt = "1\n00:00:00,000 --> 00:00:00,800\nHi, there\n\n2\n01:02:03,004 --> 01:02:04,500\nBye\n"
+    assert_equal "WEBVTT\n\n1\n00:00:00.000 --> 00:00:00.800\nHi, there\n\n2\n01:02:03.004 --> 01:02:04.500\nBye\n",
+                 WalkthroughCaptions.vtt(srt)
+  end
+
   def test_timestamp
     assert_equal "01:02:03,004", WalkthroughCaptions.timestamp(3_723_004)
   end

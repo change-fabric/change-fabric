@@ -66,6 +66,9 @@ module WalkthroughCaptions
     end.join("\n")
   end
 
+  # WebVTT sidecar of the same cues: a WEBVTT header and dot milliseconds.
+  def vtt(srt_text) = "WEBVTT\n\n#{srt_text.gsub(/(\d{2}:\d{2}:\d{2}),(\d{3})/, '\\1.\\2')}"
+
   def timestamp(total_ms)
     h, rem = total_ms.divmod(3_600_000)
     m, rem = rem.divmod(60_000)

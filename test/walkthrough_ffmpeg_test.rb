@@ -44,7 +44,7 @@ class WalkthroughFfmpegTest < Minitest::Test
       "x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=1920x1080:fps=30,settb=1/30[v2]",
       "[v0][v1]xfade=transition=fade:duration=0.500:offset=1.500[j1]",
       "[j1][v2]concat=n=2:v=1:a=0,settb=1/30[j2]",
-      "[j2]subtitles=filename='/work/r/captions.srt',format=yuv420p[vout]",
+      "[j2]format=yuv420p[vout]",
       "[4:a]adelay=delays=0:all=1[n4]",
       "[5:a]adelay=delays=1500:all=1[n5]",
       "[6:a]atrim=duration=6.000,volume='if(between(t,0.100,1.500),0.2512,if(between(t,2.500,3.800),0.5012,1))':eval=frame," \
@@ -69,7 +69,16 @@ class WalkthroughFfmpegTest < Minitest::Test
     argv = WalkthroughFfmpeg.pass2(plan, MEASURED)
     flags = %w[-fflags +bitexact -flags:v +bitexact -flags:a +bitexact -r 30 -pix_fmt yuv420p -map_metadata -1
                -c:v libx264 -preset medium -crf 18 -threads 4 -c:a aac -b:a 192k]
-    assert_equal flags, argv[-(flags.size + 1)...-1]
+    assert_equal flags, argv[-(flags.size + 3)...-3]
+    assert_equal %w[-movflags +faststart /work/r/walkthrough.mp4], argv.last(3)
+  end
+
+  def test_subtitles_filter_only_when_burning
+    soft = graph(WalkthroughFfmpeg.pass2(plan, MEASURED))
+    assert_empty soft.grep(/subtitles=/)
+    assert_equal "[j2]format=yuv420p[vout]", soft.find { |p| p.include?("[vout]") }
+    burned = graph(WalkthroughFfmpeg.pass2(plan.merge(burn_captions: true), MEASURED))
+    assert_includes burned, "[j2]subtitles=filename='/work/r/captions.srt',format=yuv420p[vout]"
   end
 
   def test_pass1_is_audio_only_with_json_measurement

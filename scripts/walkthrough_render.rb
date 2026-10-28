@@ -41,10 +41,11 @@ module WalkthroughRender
   class Run
     attr_reader :root
 
-    def initialize(root, scene: nil, final: false, providers: {}, out: $stdout, board: nil, max_usd: BRoll::DEFAULT_CEILING_USD)
+    def initialize(root, scene: nil, final: false, providers: {}, out: $stdout, board: nil, max_usd: BRoll::DEFAULT_CEILING_USD, burn_captions: false)
       @root = File.expand_path(root)
       @only = scene
       @final = final
+      @burn_captions = burn_captions
       @p = DEFAULT_PROVIDERS.merge(providers)
       @out = out
       @cache = File.join(@root, '.cache')
@@ -294,7 +295,7 @@ module WalkthroughRender
       end
       { fps: fps, width: viewport['w'], height: viewport['h'], total_ms: total,
         cursor_png: container(File.join(dir, 'cursor.png')), srt: container(File.join(dir, 'captions.srt')),
-        output: container(File.join(dir, 'walkthrough.mp4')), music: music, duck_spans: duck_spans(inputs),
+        output: container(File.join(dir, 'walkthrough.mp4')), burn_captions: @burn_captions, music: music, duck_spans: duck_spans(inputs),
         scenes: inputs.map { |i| plan_scene(i) } }
     end
 
@@ -337,7 +338,9 @@ module WalkthroughRender
       plan = plan(manifest, inputs)
       FileUtils.mkdir_p(dir)
       FileUtils.cp(CURSOR_PNG, File.join(dir, 'cursor.png'))
-      File.write(File.join(dir, 'captions.srt'), captions(inputs))
+      srt = captions(inputs)
+      File.write(File.join(dir, 'captions.srt'), srt)
+      File.write(File.join(dir, 'walkthrough.vtt'), WalkthroughCaptions.vtt(srt))
       WalkthroughFfmpeg.sendcmd_files(plan).each { |path, body| File.write(host_path(path), body) }
       preflight!
       measured = WalkthroughFfmpeg.parse_loudnorm(ffmpeg!(WalkthroughFfmpeg.pass1(plan), 'pass 1'))
@@ -374,12 +377,13 @@ module WalkthroughRender
 end
 
 if __FILE__ == $PROGRAM_NAME
-  usage = 'usage: walkthrough_render.rb walkthrough/<slug> [--scene <id>] [--draft|--final] [--estimate-only] [--max-usd <n>]'
+  usage = 'usage: walkthrough_render.rb walkthrough/<slug> [--scene <id>] [--draft|--final] [--estimate-only] [--max-usd <n>] [--burn-captions]'
   dir = ARGV.first
   abort(usage) if dir.nil? || dir.start_with?('--')
   scene = ARGV.include?('--scene') ? (ARGV[ARGV.index('--scene') + 1] || abort(usage)) : nil
   abort('--draft and --final are exclusive') if ARGV.include?('--draft') && ARGV.include?('--final')
   max_usd = ARGV.include?('--max-usd') ? (ARGV[ARGV.index('--max-usd') + 1] || abort(usage)).to_f : BRoll::DEFAULT_CEILING_USD
-  WalkthroughRender::Run.new(dir, scene: scene, final: ARGV.include?('--final'), max_usd: max_usd)
+  WalkthroughRender::Run.new(dir, scene: scene, final: ARGV.include?('--final'), max_usd: max_usd,
+                             burn_captions: ARGV.include?('--burn-captions'))
                         .call(estimate_only: ARGV.include?('--estimate-only'))
 end

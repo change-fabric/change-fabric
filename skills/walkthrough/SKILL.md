@@ -71,7 +71,7 @@ Only that scene's stale keys regenerate (frames, audio, or images); everything e
 
 ## Determinism
 
-Same manifest hash and same image digests mean the same timeline, the same frame keys, and the same FFmpeg argv. A byte-identical MP4 is advisory, not guaranteed. Audio is normalized to -16 LUFS in two loudnorm passes; captions are both burned in and soft. The manual release check is `reference/release-check.md`.
+Same manifest hash and same image digests mean the same timeline, the same frame keys, and the same FFmpeg argv. A byte-identical MP4 is advisory, not guaranteed. Audio is normalized to -16 LUFS in two loudnorm passes; captions are soft only by default (a `mov_text` track in the MP4 plus a `walkthrough.vtt` sidecar beside it), and `--burn-captions` opts in to burning them into the frames. The manual release check is `reference/release-check.md`.
 
 ## Layout
 

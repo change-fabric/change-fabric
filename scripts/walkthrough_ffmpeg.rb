@@ -133,7 +133,9 @@ module WalkthroughFfmpeg
       end
       acc = "j#{i}"
     end
-    parts << "[#{acc}]subtitles=filename='#{plan[:srt]}',format=yuv420p[vout]"
+    # Captions are soft (a mov_text track) unless the plan asks to burn them in.
+    burn = plan[:burn_captions] ? "subtitles=filename='#{plan[:srt]}'," : ''
+    parts << "[#{acc}]#{burn}format=yuv420p[vout]"
     parts
   end
 
@@ -224,6 +226,6 @@ module WalkthroughFfmpeg
     graph = video_graph(plan) + audio_graph(plan, pass2_loudnorm(measured))
     head + inputs(plan, with_video: true) + [ '-i', plan[:srt], '-filter_complex', graph.join(';'),
                                                '-map', '[vout]', '-map', '[aout]', '-map', "#{io[:next]}:s",
-                                               '-c:s', 'mov_text' ] + DETERMINISM + [ plan[:output] ]
+                                               '-c:s', 'mov_text' ] + DETERMINISM + [ '-movflags', '+faststart', plan[:output] ]
   end
 end
