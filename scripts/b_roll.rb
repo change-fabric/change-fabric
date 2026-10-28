@@ -36,7 +36,6 @@ module BRoll
   RESOLUTION = '720p'
   ASPECT_RATIO = '16:9'
   FALLBACKS = %w[kenburns static].freeze
-  MODES = (%w[generated] + FALLBACKS).freeze
   MIME = { '.png' => 'image/png', '.jpg' => 'image/jpeg', '.jpeg' => 'image/jpeg', '.webp' => 'image/webp' }.freeze
   API = 'https://generativelanguage.googleapis.com/v1beta'
   INTERACTIONS_URL = "#{API}/interactions".freeze
@@ -54,16 +53,17 @@ module BRoll
     model
   end
 
-  # The content-hash key for one clip request.
   def asset_key(source_image:, prompt:, seconds:, model: MODEL, resolution: RESOLUTION, aspect_ratio: ASPECT_RATIO)
     WalkthroughCache.key({ source: Digest::SHA256.file(source_image).hexdigest, prompt: prompt, seconds: seconds,
                            model: model, resolution: resolution, aspect_ratio: aspect_ratio })
   end
 
+  def cost_usd(seconds) = seconds * PRICE_PER_SECOND
+
   # clips: [{ seconds: }]. Returns { count:, seconds:, usd:, line: }.
   def estimate(clips)
     seconds = clips.sum { |clip| clip[:seconds].to_i }
-    usd = (seconds * PRICE_PER_SECOND).round(2)
+    usd = cost_usd(seconds).round(2)
     { count: clips.size, seconds: seconds, usd: usd,
       line: "#{clips.size} b-roll clip(s), #{seconds}s at #{RESOLUTION}, about $#{format('%.2f', usd)}" }
   end
@@ -127,12 +127,14 @@ module BRoll
     end
   end
 
+  def cached_path(cache_root, key) = WalkthroughCache.path(cache_root, :broll, key, 'mp4')
+
   def pending_path(cache_root, key) = WalkthroughCache.path(cache_root, :broll, key, 'pending.json')
 
   # Posts the job. Inline data is written to tmp (returns nil); a uri is
   # persisted so an interrupted run resumes without a second paid call.
   def start_job(source_image, prompt, seconds, model, api_key, http, budget, tmp, pending)
-    budget.charge!(seconds.to_i * PRICE_PER_SECOND, File.basename(source_image))
+    budget.charge!(cost_usd(seconds.to_i), File.basename(source_image))
     request = build_request(source_image: source_image, prompt: prompt, seconds: seconds, model: model)
     body = JSON.parse(send_request(post(request[:url], JSON.generate(request[:body]), api_key), http).body)
     video = extract_video(body)
@@ -212,7 +214,7 @@ module BRoll
   # The mode a render would use right now: generated when the clip is cached.
   def mode_for(cache_root, fallback, source_image:, prompt:, seconds:, model: MODEL)
     key = asset_key(source_image: source_image, prompt: prompt, seconds: seconds, model: model)
-    File.file?(WalkthroughCache.path(cache_root, :broll, key, 'mp4')) ? 'generated' : fallback
+    File.file?(cached_path(cache_root, key)) ? 'generated' : fallback
   end
 
   def frames_key(mode:, source_sha:, viewport:, fps:, frames:, clip_key: nil, ffmpeg_image: ChangeDocker::FFMPEG_IMAGE)

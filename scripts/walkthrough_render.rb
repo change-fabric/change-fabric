@@ -39,7 +39,7 @@ module WalkthroughRender
   }.freeze
 
   class Run
-    attr_reader :root, :board, :log
+    attr_reader :root
 
     def initialize(root, scene: nil, final: false, providers: {}, out: $stdout, board: nil, max_usd: BRoll::DEFAULT_CEILING_USD)
       @root = File.expand_path(root)
@@ -50,12 +50,10 @@ module WalkthroughRender
       @cache = File.join(@root, '.cache')
       @board_path = File.join(@root, 'storyboard.json')
       @board = board || WalkthroughStoryboard.load(@board_path)
-      @log = []
       @budget = BRoll::Budget.new(max_usd)
     end
 
     def say(line)
-      @log << line
       @out.puts(line)
     end
 
@@ -113,7 +111,7 @@ module WalkthroughRender
       total = WalkthroughStoryboard.timeline(@board)['total_ms']
       music_ms = @board['music'] && !File.file?(music_path(total)) ? ElevenLabs.clamp_music_ms(total) : 0
       images = todo.flat_map { |s| image_requests(s) }.reject { |r| image_cached?(r) }
-      clips = todo.select { |s| broll?(s) && !broll_cached?(s) }.map { |s| { seconds: s['broll']['seconds'] } }
+      clips = todo.select { |s| broll?(s) && !broll_cached?(s) }.map { |s| { seconds: WalkthroughStoryboard.broll_spec(s)['seconds'] } }
       est = { audio: ElevenLabs.estimate(chars: chars, music_ms: music_ms, model: voice['model']),
               images: PrototypeImagegen.estimate(images) }
       say(ElevenLabs.format_estimate(est[:audio]))
@@ -161,7 +159,7 @@ module WalkthroughRender
       scenes.select { |s| targeted?(s) && broll?(s) }.each do |scene|
         spec = WalkthroughStoryboard.broll_spec(scene)
         res = if broll_cached?(scene)
-                { mode: 'generated', path: WalkthroughCache.path(@cache, :broll, BRoll.asset_key(**broll_args(scene)), 'mp4') }
+                { mode: 'generated', path: BRoll.cached_path(@cache, BRoll.asset_key(**broll_args(scene))) }
         else
                 @p[:broll].call(**broll_args(scene), fallback: spec['fallback'], cache_root: @cache, budget: @budget)
         end
@@ -175,8 +173,7 @@ module WalkthroughRender
       out_dir = File.join(@cache, 'frames', key)
       return if File.file?(File.join(out_dir, 'cursor.json'))
 
-      viewport = @board['viewport'] || PrototypeCapture::DEFAULT_VIEWPORT
-      frames = PrototypeCapture.frame_count(PrototypeCapture.scene_duration(scene), fps)
+      frames = scene_frames(scene)
       BRoll.make_frames(mode: res[:mode], input: res[:path] || broll_args(scene)[:source_image], out_dir: out_dir, work: @root,
                         width: viewport['w'], height: viewport['h'], fps: fps, frames: frames, docker: @p[:docker])
     end
@@ -215,7 +212,7 @@ module WalkthroughRender
         next if captured?(prep) || !targeted?(scene)
 
         duration = PrototypeCapture.scene_duration(scene)
-        say("#{scene['id']}: capturing #{PrototypeCapture.frame_count(duration, fps)} frames")
+        say("#{scene['id']}: capturing #{scene_frames(scene)} frames")
         @p[:capture].call(session: session, html: PrototypeCapture.inline_screen(prep[:html_path]),
                           interactions: scene['interactions'] || [], duration_ms: duration, out_dir: prep[:out_dir],
                           state: prep[:state], prng_seed: prep[:prng_seed], viewport: @board['viewport'], fps: fps,
@@ -224,6 +221,10 @@ module WalkthroughRender
     end
 
     def fps = WalkthroughStoryboard.fps(@board)
+
+    def viewport = @board['viewport'] || PrototypeCapture::DEFAULT_VIEWPORT
+
+    def scene_frames(scene) = PrototypeCapture.frame_count(PrototypeCapture.scene_duration(scene), fps)
 
     def generate_music(total_ms)
       return unless @board['music']
@@ -267,15 +268,17 @@ module WalkthroughRender
       end
     end
 
+    def aligned(inputs) = inputs.select { |i| i[:alignment] }
+
     def captions(inputs)
-      words = inputs.select { |i| i[:alignment] }.flat_map do |i|
+      words = aligned(inputs).flat_map do |i|
         WalkthroughCaptions.word_spans(i[:alignment], offset_ms: i[:offset_ms])
       end
       WalkthroughCaptions.srt(WalkthroughCaptions.cues(words))
     end
 
     def duck_spans(inputs)
-      WalkthroughCaptions.duck_spans(inputs.select { |i| i[:alignment] }.map do |i|
+      WalkthroughCaptions.duck_spans(aligned(inputs).map do |i|
         { offset_ms: i[:offset_ms], alignment: i[:alignment], duck_db: i[:scene].dig('timing', 'music_duck_db') || -12 }
       end)
     end
@@ -284,7 +287,6 @@ module WalkthroughRender
 
     def plan(manifest, inputs)
       dir = render_dir(manifest)
-      viewport = @board['viewport'] || PrototypeCapture::DEFAULT_VIEWPORT
       total = manifest.dig('timeline', 'total_ms')
       music = nil
       if @board['music']

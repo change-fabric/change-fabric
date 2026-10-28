@@ -17,7 +17,7 @@ A thin command over `ruby ~/.claude/cf/bin/b_roll.rb`, one small adapter (`scrip
 - No people, faces, or logos in the source still: Google may refuse recognizable people, and a likeness is a provenance risk.
 - Prompt for motion, not content: "slow push in, soft light, no text". The request already adds "no audio, no dialogue, no on-screen text".
 - The model returns an AAC track anyway. It is always dropped (`-an`); ElevenLabs supplies narration and music.
-- Every shot has a fallback. Authoring `fallback: "kenburns"` (default) or `"static"` is required thinking, not optional polish.
+- Every shot has a fallback. Authoring a `fallback` (default `kenburns`, or `static`) is required.
 
 ## Inputs
 

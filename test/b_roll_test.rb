@@ -7,6 +7,9 @@ require "tmpdir"
 require_relative "../scripts/b_roll"
 
 class BRollTest < Minitest::Test
+  FILE_URI = "https://generativelanguage.googleapis.com/v1beta/files/abc123"
+  Status = Struct.new(:success?)
+
   FakeResponse = Struct.new(:code, :body) do
     def is_a?(klass) = klass == Net::HTTPSuccess ? code.start_with?("2") : super
   end
@@ -130,7 +133,7 @@ class BRollTest < Minitest::Test
   end
 
   def test_uri_delivery_polls_then_downloads
-    http = FakeHttp.new(ok(video_body(uri: "https://generativelanguage.googleapis.com/v1beta/files/abc123")),
+    http = FakeHttp.new(ok(video_body(uri: FILE_URI)),
                         ok('{"state":"PROCESSING"}'), ok('{"state":"ACTIVE"}'), ok("DOWNLOADED"))
     path = gen(http)
     assert_equal "DOWNLOADED", File.binread(path)
@@ -141,7 +144,7 @@ class BRollTest < Minitest::Test
   end
 
   def test_interrupted_job_resumes_without_a_second_post
-    first = FakeHttp.new(ok(video_body(uri: "https://generativelanguage.googleapis.com/v1beta/files/abc123")),
+    first = FakeHttp.new(ok(video_body(uri: FILE_URI)),
                          FakeResponse.new("503", "{}"))
     assert_raises(BRoll::RequestError) { gen(first) }
     pending = Dir.glob(File.join(@cache, "broll", "*.pending.json"))
@@ -155,7 +158,7 @@ class BRollTest < Minitest::Test
   end
 
   def test_poll_timeout_and_failed_state_are_named
-    uri = "https://generativelanguage.googleapis.com/v1beta/files/abc123"
+    uri = FILE_URI
     stuck = FakeHttp.new(ok(video_body(uri: uri)), *Array.new(4) { ok('{"state":"PROCESSING"}') })
     assert_raises(BRoll::PollTimeoutError) { gen(stuck, poll_interval: 5, poll_timeout: 15) }
     failed = FakeHttp.new(ok('{"state":"FAILED"}'))
@@ -223,7 +226,7 @@ class BRollTest < Minitest::Test
     runner = lambda do |argv|
       @argv = argv
       [ JSON.generate("streams" => [ { "codec_type" => "video", "width" => 640, "height" => 360 } ], "format" => { "duration" => "4" }),
-        Struct.new(:success?).new(true) ]
+        Status.new(true) ]
     end
     probe = File.join(@dir, "clip.mp4")
     File.binwrite(probe, "x")
@@ -316,7 +319,7 @@ class BRollTest < Minitest::Test
       out = File.join(@dir, "out")
       FileUtils.mkdir_p(out)
       File.binwrite(File.join(out, "000001.png"), "png")
-      [ "", Struct.new(:success?).new(true) ]
+      [ "", Status.new(true) ]
     end
     out = File.join(@dir, "out")
     BRoll.make_frames(mode: "static", input: @still, out_dir: out, work: @dir, width: 640, height: 360, fps: 30, frames: 30, docker: docker)
@@ -326,7 +329,7 @@ class BRollTest < Minitest::Test
   end
 
   def test_make_frames_failure_is_named
-    docker = ->(_argv) { [ "boom", Struct.new(:success?).new(false) ] }
+    docker = ->(_argv) { [ "boom", Status.new(false) ] }
     assert_raises(BRoll::FfmpegError) do
       BRoll.make_frames(mode: "static", input: @still, out_dir: File.join(@dir, "o"), work: @dir, width: 64, height: 36, fps: 30, frames: 3, docker: docker)
     end
