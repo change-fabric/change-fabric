@@ -91,6 +91,9 @@ class WalkthroughRenderTest < Minitest::Test
           [ "--enable-libass --enable-libx264", Status.new(true) ]
         elsif argv.include?("null")
           [ LOUDNORM_OUT, Status.new(true) ]
+        elsif argv.last.end_with?("%06d.png")
+          File.binwrite(File.join(File.dirname(argv.last.sub(%r{\A/work/}, "#{@root}/")), "000001.png"), "png")
+          [ "", Status.new(true) ]
         else
           out = argv.last.sub(%r{\A/work/}, "#{@root}/")
           File.binwrite(out, "mp4")
@@ -187,6 +190,87 @@ class WalkthroughRenderTest < Minitest::Test
     assert_empty @calls
     assert_match(/ElevenLabs estimate: narration \$0\.00/, out.string)
     assert_match(/OpenAI estimate: 0 image/, out.string)
+  end
+
+  # -- ai-broll scenes -----------------------------------------------------
+
+  def write_broll_board
+    FileUtils.mkdir_p(File.join(@root, "screens", "assets"))
+    File.binwrite(File.join(@root, "screens", "assets", "shed.png"), "PNG")
+    b = board
+    b["scenes"] << { "id" => "shed", "order" => 4, "title" => "Shed", "kind" => "ai-broll",
+                     "broll" => { "source_image" => "screens/assets/shed.png", "prompt" => "slow push in", "seconds" => 4,
+                                  "model" => "gemini-omni-1.1-flash", "fallback" => "kenburns" },
+                     "narration" => { "text" => "Shed scene speaks.", "measured_ms" => 0 },
+                     "assumptions" => [ { "id" => "A-09", "text" => "generated" } ],
+                     "timing" => { "min_ms" => 1000, "pad_ms" => 200, "transition" => { "type" => "fade", "ms" => 300 } } }
+    File.write(File.join(@root, "storyboard.json"), JSON.pretty_generate(b))
+  end
+
+  def broll_provider(mode)
+    lambda do |**kw|
+      @calls[:broll] << kw.slice(:prompt, :seconds, :model, :fallback)
+      @budgets = (@budgets || []) << kw[:budget]
+      if mode == "generated"
+        key = BRoll.asset_key(**kw.slice(:source_image, :prompt, :seconds, :model))
+        { mode: "generated", path: WalkthroughCache.fetch(kw[:cache_root], :broll, key, "mp4") { |tmp| File.binwrite(tmp, "mp4") } }
+      else
+        { mode: kw[:fallback], path: nil, reason: "boom" }
+      end
+    end
+  end
+
+  def test_broll_clip_is_normalized_and_enters_the_timeline_without_capture
+    write_broll_board
+    result = run_render(providers: providers.merge(broll: broll_provider("generated")))
+    assert_equal %w[list detail hero], @calls[:capture], "an ai-broll scene is never captured"
+    assert_equal [ { prompt: "slow push in", seconds: 4, model: "gemini-omni-1.1-flash", fallback: "kenburns" } ], @calls[:broll]
+    shed = result[:manifest]["scenes"].last
+    assert File.file?(File.join(@root, ".cache", "frames", shed["frames_key"], "cursor.json"))
+    norm = @calls[:docker].find { |argv| argv.join(" ").include?("tpad=stop_mode=clone") }
+    assert norm, "the clip is normalized in the pinned FFmpeg container"
+    assert_includes norm, ChangeDocker::FFMPEG_IMAGE
+    assert_includes norm, "-an"
+    pass2 = @calls[:docker].last.join(" ")
+    assert_includes pass2, "/work/.cache/frames/#{shed['frames_key']}/%06d.png"
+    assert_includes pass2, "xfade", "its transition is honored like any other scene"
+    assert_equal 4, result[:manifest]["scenes"].size
+    assert_match(/\A\h{64}\z/, shed["broll_key"])
+  end
+
+  def test_failed_generation_falls_back_to_kenburns_and_still_renders
+    write_broll_board
+    result = run_render(providers: providers.merge(broll: broll_provider("fallback")))
+    assert @calls[:docker].any? { |argv| argv.join(" ").include?("zoompan") && argv.join(" ").include?("screens/assets/shed.png") }
+    assert File.file?(result[:mp4])
+    shed = result[:manifest]["scenes"].last
+    assert File.file?(File.join(@root, ".cache", "frames", shed["frames_key"], "000001.png"))
+  end
+
+  def test_cached_broll_rerun_calls_nothing
+    write_broll_board
+    first = run_render(providers: providers.merge(broll: broll_provider("generated")))
+    @calls.clear
+    second = run_render(providers: providers.merge(broll: broll_provider("generated")))
+    assert_empty @calls
+    assert_equal first[:manifest]["manifest_hash"], second[:manifest]["manifest_hash"]
+  end
+
+  def test_estimate_includes_uncached_broll_and_spends_nothing
+    write_broll_board
+    out = StringIO.new
+    WalkthroughRender::Run.new(@root, providers: providers.merge(broll: broll_provider("generated")), out: out).call(estimate_only: true)
+    assert_empty @calls
+    assert_includes out.string, "Google estimate: 1 b-roll clip(s), 4s at 720p, about $0.40"
+  end
+
+  def test_ceiling_is_shared_and_scene_flag_skips_other_scenes
+    write_broll_board
+    run_render(providers: providers.merge(broll: broll_provider("generated")), max_usd: 0.25)
+    assert_in_delta 0.25, @budgets.first.ceiling
+    @calls.clear
+    run_render(scene: "list", providers: providers.merge(broll: broll_provider("generated")))
+    assert_empty @calls[:broll]
   end
 
   def test_preflight_rejects_image_without_libass

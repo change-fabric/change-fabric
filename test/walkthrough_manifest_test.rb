@@ -68,4 +68,24 @@ class WalkthroughManifestTest < Minitest::Test
     assert_equal "manifest.json", File.basename(path)
     assert_equal 1, JSON.parse(File.read(path))["schema_version"]
   end
+
+  def broll_board(model)
+    FileUtils.mkdir_p(File.join(@root, "screens", "assets"))
+    File.binwrite(File.join(@root, "screens", "assets", "shed.png"), "PNG")
+    b = board
+    b["scenes"] << { "id" => "shed", "order" => 3, "title" => "Shed", "kind" => "ai-broll",
+                     "broll" => { "source_image" => "screens/assets/shed.png", "prompt" => "push in", "seconds" => 4, "model" => model },
+                     "assumptions" => [ { "id" => "A-03", "text" => "x" } ], "timing" => { "min_ms" => 1000, "pad_ms" => 0 } }
+    b
+  end
+
+  def test_broll_key_and_model_enter_the_manifest_and_its_hash
+    a = WalkthroughManifest.build(broll_board("gemini-omni-1.1-flash"), @root)
+    b = WalkthroughManifest.build(broll_board("gemini-omni-2"), @root)
+    assert_equal %w[gemini-omni-1.1-flash], a["models"]["broll"]
+    assert_match(/\A\h{64}\z/, a["scenes"].last["broll_key"])
+    refute a["scenes"].first.key?("broll_key")
+    refute_equal a["manifest_hash"], b["manifest_hash"]
+    refute WalkthroughManifest.build(board, @root)["models"].key?("broll")
+  end
 end

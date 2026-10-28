@@ -45,11 +45,25 @@ module WalkthroughAssumptions
       out.concat(items.empty? ? [ 'None recorded.' ] : items.map { |e| "- #{e['id']}: #{e['text']} (scenes: #{e['scenes'].join(', ')})" })
       out << ''
     end
-    out << '## Fictional data' << ''
+    out << '## Generated footage' << ''
+    out.concat(generated_footage(board))
+    out << '' << '## Fictional data' << ''
     out.concat(fictional_data(seed))
     out << '' << '## Brand logos' << ''
     out.concat(logos.empty? ? [ 'None used.' ] : logos.map { |logo| logo_line(logo) })
     "#{out.join("\n").rstrip}\n"
+  end
+
+  # Every ai-broll clip is AI-generated footage, animated from a still.
+  def generated_footage(board)
+    clips = WalkthroughStoryboard.scenes(board).select { |s| WalkthroughStoryboard.broll?(s) }
+    return [ 'None.' ] if clips.empty?
+
+    clips.map do |scene|
+      spec = WalkthroughStoryboard.broll_spec(scene)
+      "- #{scene['id']}: AI-generated video (#{spec['model']}, #{spec['seconds']}s, SynthID watermarked) animated from " \
+        "#{spec['source_image']}; prompt: #{spec['prompt']}; fallback: #{spec['fallback']}"
+    end
   end
 
   def fictional_data(seed)

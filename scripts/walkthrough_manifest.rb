@@ -29,7 +29,7 @@ module WalkthroughManifest
       deps = keys.fetch(entry['id'])
       entry.slice('id', 'start_frame', 'frames', 'duration_ms').merge(
         'frames_key' => deps['frames_key'], 'audio_key' => deps['audio_key'], 'asset_keys' => deps['asset_keys']
-      )
+      ).merge(deps.slice('broll_key'))
     end
     manifest = {
       'schema_version' => SCHEMA_VERSION,
@@ -46,8 +46,11 @@ module WalkthroughManifest
   end
 
   def models(board)
-    { 'voice' => board.dig('voice', 'model'), 'voice_id' => board.dig('voice', 'voice_id'),
-      'music' => board.dig('music', 'model'), 'image' => PrototypeImagegen::MODEL }
+    base = { 'voice' => board.dig('voice', 'model'), 'voice_id' => board.dig('voice', 'voice_id'),
+             'music' => board.dig('music', 'model'), 'image' => PrototypeImagegen::MODEL }
+    broll = WalkthroughStoryboard.scenes(board).select { |s| WalkthroughStoryboard.broll?(s) }
+                                 .map { |s| WalkthroughStoryboard.broll_spec(s)['model'] }.uniq.sort
+    broll.empty? ? base : base.merge('broll' => broll)
   end
 
   def pin(pkg) = { 'name' => pkg[:name], 'version' => pkg[:version], 'integrity' => pkg[:integrity] }

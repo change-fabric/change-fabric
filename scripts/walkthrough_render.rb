@@ -4,6 +4,7 @@ require 'digest'
 require 'fileutils'
 require 'json'
 require 'open3'
+require_relative 'b_roll'
 require_relative 'change_docker'
 require_relative 'prototype_capture'
 require_relative 'prototype_imagegen'
@@ -31,6 +32,7 @@ module WalkthroughRender
     tts: ->(**kw) { ElevenLabs.tts(**kw) },
     music: ->(**kw) { ElevenLabs.music(**kw) },
     image: ->(**kw) { PrototypeImagegen.generate(**kw) },
+    broll: ->(**kw) { BRoll.generate_or_fallback(**kw) },
     browser: ->(&blk) { ChangeDocker.with_browserless(network: nil, &blk) },
     capture: ->(**kw) { PrototypeCapture.capture(**kw) },
     docker: ->(argv) { Open3.capture2e(*argv) }
@@ -39,7 +41,7 @@ module WalkthroughRender
   class Run
     attr_reader :root, :board, :log
 
-    def initialize(root, scene: nil, final: false, providers: {}, out: $stdout, board: nil)
+    def initialize(root, scene: nil, final: false, providers: {}, out: $stdout, board: nil, max_usd: BRoll::DEFAULT_CEILING_USD)
       @root = File.expand_path(root)
       @only = scene
       @final = final
@@ -49,6 +51,7 @@ module WalkthroughRender
       @board_path = File.join(@root, 'storyboard.json')
       @board = board || WalkthroughStoryboard.load(@board_path)
       @log = []
+      @budget = BRoll::Budget.new(max_usd)
     end
 
     def say(line)
@@ -85,6 +88,17 @@ module WalkthroughRender
       File.file?(WalkthroughCache.path(@cache, :images, key, 'png'))
     end
 
+    def broll?(scene) = WalkthroughStoryboard.broll?(scene)
+
+    def broll_args(scene)
+      spec = WalkthroughStoryboard.broll_spec(scene)
+      { source_image: File.join(@root, spec['source_image']), prompt: spec['prompt'].to_s, seconds: spec['seconds'], model: spec['model'] }
+    end
+
+    def broll_cached?(scene)
+      BRoll.mode_for(@cache, 'static', **broll_args(scene)) == 'generated'
+    end
+
     def music_block = { prompt: @board.dig('music', 'prompt'), composition_plan: @board.dig('music', 'composition_plan'),
                         model: @board.dig('music', 'model') }
 
@@ -99,10 +113,15 @@ module WalkthroughRender
       total = WalkthroughStoryboard.timeline(@board)['total_ms']
       music_ms = @board['music'] && !File.file?(music_path(total)) ? ElevenLabs.clamp_music_ms(total) : 0
       images = todo.flat_map { |s| image_requests(s) }.reject { |r| image_cached?(r) }
+      clips = todo.select { |s| broll?(s) && !broll_cached?(s) }.map { |s| { seconds: s['broll']['seconds'] } }
       est = { audio: ElevenLabs.estimate(chars: chars, music_ms: music_ms, model: voice['model']),
               images: PrototypeImagegen.estimate(images) }
       say(ElevenLabs.format_estimate(est[:audio]))
       say("OpenAI estimate: #{est[:images][:line]}")
+      unless clips.empty?
+        est[:broll] = BRoll.estimate(clips)
+        say("Google estimate: #{est[:broll][:line]} (ceiling $#{format('%.2f', @budget.ceiling)})")
+      end
       est
     end
 
@@ -135,6 +154,33 @@ module WalkthroughRender
       end
     end
 
+    # Generates each targeted ai-broll clip (falling back to Ken Burns or the
+    # static still on any failure) and writes its frame sequence under the
+    # scene's frames key, like a captured scene.
+    def generate_broll
+      scenes.select { |s| targeted?(s) && broll?(s) }.each do |scene|
+        spec = WalkthroughStoryboard.broll_spec(scene)
+        res = if broll_cached?(scene)
+                { mode: 'generated', path: WalkthroughCache.path(@cache, :broll, BRoll.asset_key(**broll_args(scene)), 'mp4') }
+        else
+                @p[:broll].call(**broll_args(scene), fallback: spec['fallback'], cache_root: @cache, budget: @budget)
+        end
+        say(res[:mode] == 'generated' ? "#{scene['id']}: b-roll generated" : "#{scene['id']}: b-roll #{res[:mode]} fallback (#{res[:reason]})")
+        broll_frames(scene, res)
+      end
+    end
+
+    def broll_frames(scene, res)
+      key = WalkthroughStoryboard.broll_keys(@board, scene, @root)['frames_key']
+      out_dir = File.join(@cache, 'frames', key)
+      return if File.file?(File.join(out_dir, 'cursor.json'))
+
+      viewport = @board['viewport'] || PrototypeCapture::DEFAULT_VIEWPORT
+      frames = PrototypeCapture.frame_count(PrototypeCapture.scene_duration(scene), fps)
+      BRoll.make_frames(mode: res[:mode], input: res[:path] || broll_args(scene)[:source_image], out_dir: out_dir, work: @root,
+                        width: viewport['w'], height: viewport['h'], fps: fps, frames: frames, docker: @p[:docker])
+    end
+
     # Captures in storyboard order, so a from_scene dependency (always a
     # lower order) is captured before the scenes that start from it. The
     # browser container opens only when at least one scene needs frames.
@@ -147,7 +193,7 @@ module WalkthroughRender
     def capture_needed?
       memo = {}
       scenes.any? do |scene|
-        next false unless targeted?(scene)
+        next false unless targeted?(scene) && !broll?(scene)
 
         prep = PrototypeCapture.prepare(@board, scene, @root, memo)
         !captured?(prep)
@@ -163,6 +209,8 @@ module WalkthroughRender
     def capture_all(session)
       memo = {}
       scenes.each do |scene|
+        next if broll?(scene)
+
         prep = PrototypeCapture.prepare(@board, scene, @root, memo)
         next if captured?(prep) || !targeted?(scene)
 
@@ -304,6 +352,7 @@ module WalkthroughRender
 
       generate_audio
       generate_images
+      generate_broll
       capture_frames
       keys = WalkthroughStoryboard.recompute_keys(@board, @root)
       WalkthroughStoryboard.fix_keys(@board, @root, keys)
@@ -312,6 +361,7 @@ module WalkthroughRender
       File.write(@board_path, "#{JSON.pretty_generate(@board)}\n")
       WalkthroughManifest.write(manifest, @root)
       mp4 = assemble(manifest)
+      say("b-roll spend about $#{format('%.2f', @budget.spent)}") if @budget.spent.positive?
       say("manifest #{manifest['manifest_hash']}")
       say("mp4 #{Digest::SHA256.file(mp4).hexdigest} #{mp4}")
       { manifest: manifest, mp4: mp4 }
@@ -320,10 +370,12 @@ module WalkthroughRender
 end
 
 if __FILE__ == $PROGRAM_NAME
-  usage = 'usage: walkthrough_render.rb walkthrough/<slug> [--scene <id>] [--draft|--final] [--estimate-only]'
+  usage = 'usage: walkthrough_render.rb walkthrough/<slug> [--scene <id>] [--draft|--final] [--estimate-only] [--max-usd <n>]'
   dir = ARGV.first
   abort(usage) if dir.nil? || dir.start_with?('--')
   scene = ARGV.include?('--scene') ? (ARGV[ARGV.index('--scene') + 1] || abort(usage)) : nil
   abort('--draft and --final are exclusive') if ARGV.include?('--draft') && ARGV.include?('--final')
-  WalkthroughRender::Run.new(dir, scene: scene, final: ARGV.include?('--final')).call(estimate_only: ARGV.include?('--estimate-only'))
+  max_usd = ARGV.include?('--max-usd') ? (ARGV[ARGV.index('--max-usd') + 1] || abort(usage)).to_f : BRoll::DEFAULT_CEILING_USD
+  WalkthroughRender::Run.new(dir, scene: scene, final: ARGV.include?('--final'), max_usd: max_usd)
+                        .call(estimate_only: ARGV.include?('--estimate-only'))
 end

@@ -58,4 +58,17 @@ class WalkthroughAssumptionsTest < Minitest::Test
     assert_includes text, "Phosphor Icons"
     assert_includes text, "acmelogo"
   end
+
+  def test_generated_footage_section_lists_each_ai_clip
+    b = board
+    b["scenes"] << { "id" => "shed", "order" => 3, "kind" => "ai-broll",
+                     "broll" => { "source_image" => "screens/assets/shed.png", "prompt" => "slow push in", "seconds" => 4,
+                                  "model" => "gemini-omni-1.1-flash", "fallback" => "kenburns" } }
+    md = WalkthroughAssumptions.render(b)
+    assert_includes md, "## Generated footage"
+    assert_includes md, "- shed: AI-generated video (gemini-omni-1.1-flash, 4s, SynthID watermarked) animated from screens/assets/shed.png; " \
+                        "prompt: slow push in; fallback: kenburns"
+    assert_includes WalkthroughAssumptions.render(board), "## Generated footage\n\nNone."
+    refute_match(/[\u2014\u2022\u2026\u201c\u201d]/, md)
+  end
 end
