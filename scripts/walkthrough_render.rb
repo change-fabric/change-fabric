@@ -9,7 +9,7 @@ require_relative 'prototype_capture'
 require_relative 'prototype_imagegen'
 require_relative 'walkthrough_cache'
 require_relative 'walkthrough_captions'
-require_relative 'walkthrough_elevenlabs'
+require_relative 'elevenlabs'
 require_relative 'walkthrough_env'
 require_relative 'walkthrough_ffmpeg'
 require_relative 'walkthrough_manifest'
@@ -28,8 +28,8 @@ module WalkthroughRender
   class FfmpegError < StandardError; end
 
   DEFAULT_PROVIDERS = {
-    tts: ->(**kw) { WalkthroughElevenlabs.tts(**kw) },
-    music: ->(**kw) { WalkthroughElevenlabs.music(**kw) },
+    tts: ->(**kw) { ElevenLabs.tts(**kw) },
+    music: ->(**kw) { ElevenLabs.music(**kw) },
     image: ->(**kw) { PrototypeImagegen.generate(**kw) },
     browser: ->(&blk) { ChangeDocker.with_browserless(network: nil, &blk) },
     capture: ->(**kw) { PrototypeCapture.capture(**kw) },
@@ -89,19 +89,19 @@ module WalkthroughRender
                         model: @board.dig('music', 'model') }
 
     def music_path(total_ms)
-      len = WalkthroughElevenlabs.clamp_music_ms(total_ms)
-      WalkthroughCache.path(@cache, :music, WalkthroughElevenlabs.music_key(music_block, len), 'mp3')
+      len = ElevenLabs.clamp_music_ms(total_ms)
+      WalkthroughCache.path(@cache, :music, ElevenLabs.music_key(music_block, len), 'mp3')
     end
 
     def estimate
       todo = scenes.select { |s| targeted?(s) }
       chars = todo.select { |s| narrated?(s) && !audio_cached?(s) }.sum { |s| s.dig('narration', 'text').length }
       total = WalkthroughStoryboard.timeline(@board)['total_ms']
-      music_ms = @board['music'] && !File.file?(music_path(total)) ? WalkthroughElevenlabs.clamp_music_ms(total) : 0
+      music_ms = @board['music'] && !File.file?(music_path(total)) ? ElevenLabs.clamp_music_ms(total) : 0
       images = todo.flat_map { |s| image_requests(s) }.reject { |r| image_cached?(r) }
-      est = { audio: WalkthroughElevenlabs.estimate(chars: chars, music_ms: music_ms, model: voice['model']),
+      est = { audio: ElevenLabs.estimate(chars: chars, music_ms: music_ms, model: voice['model']),
               images: PrototypeImagegen.estimate(images) }
-      say(WalkthroughElevenlabs.format_estimate(est[:audio]))
+      say(ElevenLabs.format_estimate(est[:audio]))
       say("OpenAI estimate: #{est[:images][:line]}")
       est
     end
@@ -115,7 +115,7 @@ module WalkthroughRender
         key = WalkthroughStoryboard.audio_key(@board, scene)
         align = WalkthroughCache.path(@cache, :audio, key, 'alignment.json')
         if audio_cached?(scene) || !targeted?(scene)
-          scene['narration']['measured_ms'] = WalkthroughElevenlabs.measured_from(align) if File.file?(align)
+          scene['narration']['measured_ms'] = ElevenLabs.measured_from(align) if File.file?(align)
           next
         end
         say("#{scene['id']}: narrating")
@@ -182,7 +182,7 @@ module WalkthroughRender
       return if File.file?(music_path(total_ms))
 
       say('music: composing')
-      @p[:music].call(**music_block, length_ms: WalkthroughElevenlabs.clamp_music_ms(total_ms), cache_root: @cache)
+      @p[:music].call(**music_block, length_ms: ElevenLabs.clamp_music_ms(total_ms), cache_root: @cache)
     end
 
     # -- assembly (cache only) -----------------------------------------------

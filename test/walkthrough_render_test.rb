@@ -61,7 +61,7 @@ class WalkthroughRenderTest < Minitest::Test
     {
       tts: lambda do |**kw|
         @calls[:tts] << kw[:text]
-        key = WalkthroughElevenlabs.audio_key(**kw.slice(:text, :voice_id, :model, :output_format, :settings))
+        key = ElevenLabs.audio_key(**kw.slice(:text, :voice_id, :model, :output_format, :settings))
         path = WalkthroughCache.fetch(kw[:cache_root], :audio, key, "mp3") do |tmp|
           File.binwrite(tmp, "mp3")
           File.write(WalkthroughCache.path(kw[:cache_root], :audio, key, "alignment.json"), JSON.generate(alignment(kw[:text])))
@@ -70,7 +70,7 @@ class WalkthroughRenderTest < Minitest::Test
       end,
       music: lambda do |**kw|
         @calls[:music] << kw[:length_ms]
-        key = WalkthroughElevenlabs.music_key(kw.slice(:prompt, :composition_plan, :model), kw[:length_ms])
+        key = ElevenLabs.music_key(kw.slice(:prompt, :composition_plan, :model), kw[:length_ms])
         WalkthroughCache.fetch(kw[:cache_root], :music, key, "mp3") { |tmp| File.binwrite(tmp, "music") }
       end,
       image: ->(**kw) { @calls[:image] << kw[:prompt] },
