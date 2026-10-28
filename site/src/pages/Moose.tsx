@@ -6,40 +6,56 @@ import { Mark } from "../components/Logo";
 const MOOSE_REPO_URL = "https://github.com/change-fabric/moose";
 const README_URL = `${MOOSE_REPO_URL}#readme`;
 
-const META = ["MIT licensed", "Self-hosted", "MCP · REST · CLI", "Pre-alpha"];
-
-// The three surfaces over moose's one core, numbered like the homepage lanes.
+// The three surfaces over moose's one core, numbered like the homepage lanes,
+// each with the path or command it answers on.
 const INTERFACES = [
   {
     n: "01",
     name: "MCP",
-    detail: "A streamable HTTP endpoint at /mcp for agents that speak the Model Context Protocol.",
+    id: "/mcp",
+    detail: "A streamable HTTP endpoint for agents that speak the Model Context Protocol.",
   },
   {
     n: "02",
     name: "REST",
+    id: "/v1",
     detail:
-      "A /v1 API authenticated with personal access tokens, each cross-checked against the caller's tailnet identity.",
+      "An API authenticated with personal access tokens, each cross-checked against the caller's tailnet identity.",
   },
-  { n: "03", name: "CLI", detail: "The moose command line client, for direct access and scripting." },
+  { n: "03", name: "CLI", id: "moose", detail: "The command line client, for direct access and scripting." },
+];
+
+// Third-party marks are CC0 Simple Icons (public/brand/tech) or the homepage's
+// harness marks, painted in one muted ink as masks. The agents are the three
+// the moose README documents a setup for.
+const AGENTS = [
+  { id: "claude", name: "Claude Code" },
+  { id: "opencode", name: "OpenCode" },
+  { id: "pi", name: "Pi" },
 ];
 
 // Both deploy paths, each linked to its own section of the moose README.
 const DEPLOYS = [
   {
     name: "Docker Compose",
+    marks: [{ id: "docker", name: "Docker" }],
     detail: "Run moose on a machine you manage. No published ports; it joins your tailnet itself.",
     href: `${MOOSE_REPO_URL}#mac-mini`,
   },
   {
     name: "AWS via Terraform",
+    marks: [
+      { id: "aws", name: "AWS" },
+      { id: "terraform", name: "Terraform" },
+    ],
     detail: "Lambda behind a private API Gateway, DynamoDB, and a small EC2 Tailscale relay.",
     href: `${MOOSE_REPO_URL}#aws`,
   },
 ];
 
 // The README's own local dev hub: plain HTTP, a fixed identity, refused in
-// prod. Go runs in Docker through ./scripts/go, so nothing else is installed.
+// prod. ./scripts/go runs Go in the golang image with host networking, so the
+// credentials path is the repo as mounted inside that container.
 const QUICK_START = `git clone https://github.com/change-fabric/moose.git
 cd moose
 
@@ -47,7 +63,8 @@ cd moose
 MOOSE_ENV=dev MOOSE_LISTEN=127.0.0.1:8787 MOOSE_DEV_IDENTITY=me@example.com \\
   MOOSE_BOOTSTRAP_ADMIN=me@example.com ./scripts/go run ./cmd/moosed
 
-# In a second shell, mint a first token and check who you are
+# In a second shell: mint a first token, then check who you are.
+# The path is inside the Go container, where the repo is mounted at /src.
 export MOOSE_CREDENTIALS=/src/dist/dev-credentials.json
 ./scripts/go run ./cmd/moose token bootstrap --url http://127.0.0.1:8787 --name dev
 ./scripts/go run ./cmd/moose whoami
@@ -62,12 +79,20 @@ function External({ href, children, className }: { href: string; children: React
   );
 }
 
+function TechMark({ id, name }: { id: string; name: string }) {
+  return (
+    <span className={`tech-mark tech-${id}`} role="img" aria-label={name} />
+  );
+}
+
 export function Moose() {
   return (
     <Layout>
       <div className="home moose">
         <section className="hero moose-hero" aria-labelledby="moose-title">
-          <p className="hero-eyebrow">Related project / Open source</p>
+          <p className="hero-eyebrow">
+            Related project / Open source <span className="status-tag">Pre-alpha</span>
+          </p>
           <div className="moose-hero-head">
             <img className="moose-logo" src="/brand/moose.png" width="96" height="96" alt="moose logo" />
             <h1 id="moose-title">
@@ -78,11 +103,7 @@ export function Moose() {
             moose is a self-hosted framework for federated data access. It gives coding agents read
             access to your data where it already lives, through pluggable connectors.
           </p>
-          <ul className="moose-meta" aria-label="Project facts">
-            {META.map((m) => (
-              <li key={m}>{m}</li>
-            ))}
-          </ul>
+          <p className="moose-meta">MIT licensed · Self-hosted · MCP, REST and CLI</p>
           <div className="hero-actions">
             <a className="btn" href="#get-started">
               Get started <span aria-hidden="true">&rarr;</span>
@@ -99,25 +120,43 @@ export function Moose() {
             Connectors plug into the tools you already use. moose runs inside your Tailscale tailnet
             and fetches content on demand, so it never copies your data into a store of its own.
           </p>
-          <ol className="moose-arch" aria-label="How a request flows">
-            <li className="moose-node">
-              <span className="moose-node-title">Coding agents</span>
-              <span className="moose-node-sub">Claude Code, opencode, Pi</span>
-              <span className="moose-node-tag">MCP · REST · CLI</span>
-            </li>
-            <li className="moose-link" aria-hidden="true">&harr;</li>
-            <li className="moose-node moose-node-hub">
-              <img src="/brand/moose.png" width="40" height="40" alt="" />
-              <span className="moose-node-title">moose</span>
-              <span className="moose-node-sub">Inside your tailnet</span>
-            </li>
-            <li className="moose-link" aria-hidden="true">&harr;</li>
-            <li className="moose-node">
+          {/* Agents and moose share the tailnet; the source sits outside it and
+              is read only when an agent asks. */}
+          <div className="moose-arch" role="group" aria-label="How a request flows">
+            <div className="moose-tailnet">
+              <p className="moose-tailnet-label">
+                <TechMark id="tailscale" name="Tailscale" /> Your tailnet
+              </p>
+              <div className="moose-node">
+                <span className="moose-node-title">Coding agents</span>
+                <span className="moose-marks">
+                  {AGENTS.map((a) => (
+                    <TechMark key={a.id} {...a} />
+                  ))}
+                </span>
+              </div>
+              <p className="moose-link">
+                <span className="moose-link-label">MCP · REST · CLI</span>
+                <span className="moose-link-arrow" aria-hidden="true" />
+              </p>
+              <div className="moose-hub">
+                <img src="/brand/moose.png" width="56" height="56" alt="" />
+                <span className="moose-hub-title">moose</span>
+                <span className="moose-hub-sub">Gateway on your tailnet</span>
+              </div>
+            </div>
+            <p className="moose-link">
+              <span className="moose-link-label">Reads on demand</span>
+              <span className="moose-link-arrow" aria-hidden="true" />
+            </p>
+            <div className="moose-node">
               <span className="moose-node-title">Your data sources</span>
-              <span className="moose-node-sub">Google Drive, the first connector</span>
-              <span className="moose-node-tag">Pluggable connectors</span>
-            </li>
-          </ol>
+              <span className="moose-marks">
+                <TechMark id="googledrive" name="Google Drive" />
+              </span>
+              <span className="moose-node-sub">Google Drive is the first connector</span>
+            </div>
+          </div>
           <p className="home-note moose-arch-note">Private, on-demand access · No data replication</p>
         </section>
 
@@ -127,15 +166,13 @@ export function Moose() {
             {INTERFACES.map((i) => (
               <li key={i.name}>
                 <span className="lane-n" aria-hidden="true">{i.n}</span>
-                <h3>{i.name}</h3>
+                <h3>
+                  {i.name} <code>{i.id}</code>
+                </h3>
                 <p>{i.detail}</p>
               </li>
             ))}
           </ul>
-          <p className="home-note">
-            Opt-in semantic search is in progress. It stores only derived vectors and re-checks
-            every hit live against its source before returning it.
-          </p>
         </section>
 
         <section className="home-section" aria-labelledby="deploy-title">
@@ -143,6 +180,11 @@ export function Moose() {
           <ul className="moose-deploys">
             {DEPLOYS.map((d) => (
               <li key={d.name}>
+                <span className="moose-marks">
+                  {d.marks.map((m) => (
+                    <TechMark key={m.id} {...m} />
+                  ))}
+                </span>
                 <h3>{d.name}</h3>
                 <p>{d.detail}</p>
                 <External href={d.href}>
@@ -156,7 +198,9 @@ export function Moose() {
         <section className="home-section" id="get-started" aria-labelledby="start-title">
           <h2 id="start-title">Get up and running.</h2>
           <p className="home-lede">
-            Try it locally first. Go runs in Docker, so Docker and git are all you need.
+            You need git and Docker, not Go: <code>./scripts/go</code> runs the Go toolchain in the
+            official golang image with host networking. On Docker Desktop, turn host networking on
+            first.
           </p>
           <div className="moose-code">
             <CodeBlock code={QUICK_START} label="bash" />
@@ -167,15 +211,43 @@ export function Moose() {
           </p>
         </section>
 
+        <aside className="home-section moose-roadmap" aria-labelledby="roadmap-title">
+          <p className="hero-eyebrow">
+            <span className="status-tag">In development</span>
+          </p>
+          <h2 id="roadmap-title">Semantic search</h2>
+          <p className="home-lede">
+            Opt-in vector search is being built and is not in a release yet. When enabled, it will
+            store only derived vectors and re-check every hit live against its source before
+            returning it.
+          </p>
+        </aside>
+
         <section className="home-section" aria-labelledby="family-title">
           <h2 id="family-title">Independent projects. Shared philosophy.</h2>
           <div className="moose-family">
-            <p className="home-lede">
-              moose is a separate, MIT-licensed project, not part of the Change Fabric spec. It
-              focuses on private, federated data access for coding agents; Change Fabric focuses on
-              software quality and release readiness. Both favor local control and infrastructure
-              you own. <a href="/">Learn more about Change Fabric <span aria-hidden="true">&rarr;</span></a>
-            </p>
+            <div>
+              <p className="home-lede">
+                moose is a separate, MIT-licensed project, not part of the Change Fabric spec. It
+                focuses on private, federated data access for coding agents; Change Fabric focuses
+                on software quality and release readiness. Both favor local control and
+                infrastructure you own.
+              </p>
+              <ul className="moose-links" aria-label="moose resources">
+                <li>
+                  <External href={MOOSE_REPO_URL}>GitHub</External>
+                </li>
+                <li>
+                  <External href={README_URL}>Documentation</External>
+                </li>
+                <li>
+                  <External href={`${MOOSE_REPO_URL}/blob/main/LICENSE`}>License (MIT)</External>
+                </li>
+                <li>
+                  <a href="/">About Change Fabric <span aria-hidden="true">&rarr;</span></a>
+                </li>
+              </ul>
+            </div>
             <ul className="moose-pair">
               <li>
                 <img src="/brand/moose.png" width="48" height="48" alt="" />
@@ -190,12 +262,6 @@ export function Moose() {
             </ul>
           </div>
         </section>
-
-        <nav className="moose-foot" aria-label="moose resources">
-          <External href={MOOSE_REPO_URL}>GitHub</External>
-          <External href={README_URL}>Documentation</External>
-          <External href={`${MOOSE_REPO_URL}/blob/main/LICENSE`}>License (MIT)</External>
-        </nav>
       </div>
     </Layout>
   );

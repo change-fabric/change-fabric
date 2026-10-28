@@ -1685,14 +1685,27 @@ code {
 }
 
 /* moose: a related project page in the homepage's language. It reuses the
-   hero, section, lane-number and code-block styles; only the diagram, the
-   three columns, the deploy panels and the pairing are its own. */
+   hero, section, lane-number, status-tag and code-block styles; only the
+   diagram, the three columns, the deploy panels and the pairing are its own. */
 .moose .hero {
   max-width: 46rem;
+  padding-top: var(--s6);
+}
+
+.hero.moose-hero + .home-section {
+  margin-top: var(--s7);
 }
 
 .moose .hero h1 {
   font-size: 2.9rem;
+}
+
+.moose .hero-actions {
+  margin-top: var(--s5);
+}
+
+.moose .hero-eyebrow .status-tag {
+  margin-left: var(--s2);
 }
 
 .moose-hero-head {
@@ -1712,79 +1725,192 @@ code {
 }
 
 .moose-meta {
-  list-style: none;
+  font-size: 0.85rem;
+  color: var(--muted);
+  margin: var(--s2) 0 0;
+}
+
+/* Third-party marks: CC0 Simple Icons and the homepage harness marks, drawn
+   as masks in one muted ink so they follow the theme and never compete with
+   the moose logo. Sizes are set per mark for optical balance. */
+.tech-mark {
+  display: inline-block;
+  flex: none;
+  color: var(--muted);
+  background: currentColor;
+  mask: var(--mark) center / contain no-repeat;
+  -webkit-mask: var(--mark) center / contain no-repeat;
+  width: 20px;
+  height: 20px;
+}
+
+@media (forced-colors: active) {
+  .tech-mark {
+    background: CanvasText;
+    forced-color-adjust: none;
+  }
+}
+
+.tech-claude {
+  --mark: url("/brand/harness/anthropic.png");
+  width: 89px;
+  height: 10px;
+}
+
+.tech-opencode {
+  --mark: url("/brand/harness/opencode.svg");
+  width: 84px;
+  height: 15px;
+}
+
+.tech-pi {
+  --mark: url("/brand/harness/pi.svg");
+  width: 15px;
+  height: 15px;
+}
+
+.tech-googledrive { --mark: url("/brand/tech/googledrive.svg"); width: 24px; height: 24px; }
+.tech-tailscale { --mark: url("/brand/tech/tailscale.svg"); width: 14px; height: 14px; }
+.tech-docker { --mark: url("/brand/tech/docker.svg"); width: 32px; height: 32px; }
+.tech-aws { --mark: url("/brand/tech/aws.svg"); width: 32px; height: 32px; }
+.tech-terraform { --mark: url("/brand/tech/terraform.svg"); width: 24px; height: 24px; }
+
+.moose-marks {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--s2);
-  margin: var(--s5) 0 0;
-  padding: 0;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s3) var(--s4);
+  min-height: var(--s6);
 }
 
-.moose-meta li {
-  font-size: 0.8rem;
-  font-weight: 500;
-  color: var(--muted);
-  padding: 2px var(--s3);
-  border: 1px solid var(--border-strong);
-  border-radius: 999px;
-}
-
+/* The diagram: the tailnet is a dashed region holding the agents and moose;
+   the data source sits outside it. Outer nodes are hairline and quiet so the
+   filled moose hub carries the weight. */
 .moose-arch {
-  list-style: none;
-  margin: 0;
-  padding: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto minmax(0, 1fr);
+  grid-template-columns: minmax(0, 2.4fr) auto minmax(0, 1fr);
+  align-items: center;
   gap: var(--s3);
+}
+
+.moose-tailnet {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: var(--s3);
+  padding: var(--s6) var(--s4) var(--s4);
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius);
+}
+
+.moose-tailnet-label {
+  position: absolute;
+  top: var(--s2);
+  left: var(--s3);
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
 }
 
 .moose-node {
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
-  gap: var(--s1);
+  gap: var(--s2);
   text-align: center;
-  padding: var(--s5) var(--s4);
-  border: 1px solid var(--border-strong);
+  padding: var(--s4) var(--s3);
+  border: 1px solid var(--border);
   border-radius: var(--radius);
 }
 
 .moose-node-title {
+  font-size: 0.95rem;
   font-weight: 600;
   color: var(--heading);
 }
 
 .moose-node-sub {
-  font-size: 0.85rem;
+  font-size: 0.8rem;
   color: var(--muted);
 }
 
-.moose-node-tag {
-  font-family: var(--font-mono);
-  font-size: 0.75rem;
-  color: var(--accent);
-  margin-top: var(--s1);
-}
-
-/* The hub is the one filled shape in the diagram; the dashed ring marks the
-   tailnet boundary it lives inside. */
-.moose-node-hub {
+.moose-hub {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--s1);
+  text-align: center;
+  padding: var(--s5) var(--s4);
   background: var(--panel);
-  border-color: var(--panel);
-  outline: 1px dashed var(--accent);
-  outline-offset: var(--s1);
+  border-radius: var(--radius);
 }
 
-.moose-node-hub .moose-node-title,
-.moose-node-hub .moose-node-sub {
+.moose-hub img {
+  border-radius: var(--radius);
+}
+
+.moose-hub-title {
+  font-family: var(--font-serif);
+  font-size: 1.4rem;
   color: var(--panel-text);
 }
 
+.moose-hub-sub {
+  font-size: 0.8rem;
+  color: var(--panel-text);
+}
+
+/* A connection: what travels over it, above a two-headed hairline arrow. */
 .moose-link {
-  align-self: center;
-  font-size: 1.4rem;
-  color: var(--muted);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--s1);
+  margin: 0;
+  min-width: 6.5rem;
+}
+
+.moose-link-label {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+.moose-link-arrow {
+  position: relative;
+  width: 100%;
+  height: 1px;
+  color: var(--border-strong);
+  background: currentColor;
+}
+
+.moose-link-arrow::before,
+.moose-link-arrow::after {
+  content: "";
+  position: absolute;
+  top: -3px;
+  border: 3px solid transparent;
+}
+
+.moose-link-arrow::before {
+  left: 0;
+  border-right-color: var(--border-strong);
+  border-left: 0;
+}
+
+.moose-link-arrow::after {
+  right: 0;
+  border-left-color: var(--border-strong);
+  border-right: 0;
 }
 
 .moose-arch-note {
@@ -1793,7 +1919,7 @@ code {
 
 .moose-ifaces {
   list-style: none;
-  margin: var(--s6) 0 0;
+  margin: var(--s5) 0 0;
   padding: 0;
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1801,7 +1927,7 @@ code {
 }
 
 .moose-ifaces li {
-  padding: var(--s5) var(--s5) var(--s5) 0;
+  padding: var(--s4) var(--s5) var(--s4) 0;
 }
 
 .moose-ifaces li + li {
@@ -1811,9 +1937,18 @@ code {
 
 .moose-ifaces h3,
 .moose-deploys h3 {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s2);
   font-size: 1.15rem;
   font-weight: 600;
-  margin: var(--s2) 0 var(--s1);
+  margin: var(--s1) 0 var(--s1);
+}
+
+.moose-ifaces h3 code {
+  font-size: 0.8rem;
+  font-weight: 400;
+  color: var(--accent);
 }
 
 .moose-ifaces p,
@@ -1825,28 +1960,30 @@ code {
 
 .moose-deploys {
   list-style: none;
-  margin: var(--s6) 0 0;
+  margin: var(--s5) 0 0;
   padding: 0;
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--s5);
+  gap: var(--s4);
 }
 
 .moose-deploys li {
   display: flex;
   flex-direction: column;
-  gap: var(--s2);
-  padding: var(--s5);
+  gap: var(--s1);
+  padding: var(--s4);
   border: 1px solid var(--border);
   border-radius: var(--radius);
 }
 
-.moose-deploys h3 {
-  margin: 0;
+.moose-deploys .moose-marks {
+  justify-content: flex-start;
+  margin-bottom: var(--s1);
 }
 
 .moose-deploys a {
   margin-top: auto;
+  padding-top: var(--s2);
   font-size: 0.9rem;
   font-weight: 500;
 }
@@ -1869,10 +2006,33 @@ code {
   color: var(--panel-text);
 }
 
+.moose-code code {
+  line-height: 1.75;
+}
+
+.moose-code .code-copy {
+  border: 1px solid var(--border-strong);
+  padding: 2px var(--s3);
+}
+
 .moose-code .code-copy:hover {
   color: var(--panel-text);
   background: transparent;
-  text-decoration: underline;
+  border-color: var(--panel-text);
+}
+
+.moose-roadmap .hero-eyebrow {
+  margin-bottom: var(--s2);
+}
+
+.moose-roadmap .status-tag {
+  font-family: var(--font-sans);
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.moose-roadmap .home-lede {
+  margin-bottom: 0;
 }
 
 .moose-family {
@@ -1883,7 +2043,18 @@ code {
 }
 
 .moose-family .home-lede {
+  margin-bottom: var(--s4);
+}
+
+.moose-links {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2) var(--s5);
   margin: 0;
+  padding: 0;
+  font-size: 0.9rem;
+  font-weight: 500;
 }
 
 .moose-pair {
@@ -1918,14 +2089,8 @@ code {
   color: var(--muted);
 }
 
-.moose-foot {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--s2) var(--s6);
-  margin-top: 80px;
-  padding: var(--s5) 0 var(--s7);
-  border-top: 1px solid var(--border);
-  font-size: 0.9rem;
+.moose .home-section:last-child {
+  margin-bottom: var(--s7);
 }
 
 @media (max-width: 760px) {
@@ -1942,14 +2107,36 @@ code {
     height: 64px;
   }
   .moose-arch,
+  .moose-tailnet,
   .moose-ifaces,
   .moose-deploys,
   .moose-family {
     grid-template-columns: minmax(0, 1fr);
   }
   .moose-link {
-    justify-self: center;
-    transform: rotate(90deg);
+    flex-direction: row;
+    justify-content: center;
+  }
+  .moose-link-arrow {
+    width: 1px;
+    height: var(--s6);
+    order: -1;
+  }
+  .moose-link-arrow::before {
+    top: 0;
+    left: -3px;
+    border: 3px solid transparent;
+    border-bottom-color: var(--border-strong);
+    border-top: 0;
+  }
+  .moose-link-arrow::after {
+    top: auto;
+    bottom: 0;
+    right: auto;
+    left: -3px;
+    border: 3px solid transparent;
+    border-top-color: var(--border-strong);
+    border-bottom: 0;
   }
   .moose-ifaces li,
   .moose-ifaces li + li {
