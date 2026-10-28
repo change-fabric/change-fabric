@@ -40,6 +40,8 @@ The walkthrough is the launch video of the finished product, the press release s
 9. Flats (required output alongside the MP4): author `flats.json` from the PRD information architecture (every major screen plus empty, error, and success states, not only the screens in the video), then `ruby ~/.claude/cf/bin/prototype_flats.rb walkthrough/<slug>`. See the cf:prototype Flats section; it writes `flats/{light,dark}/`, the two overview boards, and `flats/index.md`.
 10. Publish (only when the user asked for it or approves the final; never auto-fire, since it uploads to GitHub): `ruby ~/.claude/cf/bin/walkthrough_publish.rb walkthrough/<slug> [--pr N | --issue N | --none] [--comment]` (or pass the MP4 path). See Publishing below.
 
+Optional: before the draft render, when the user wants an outside critique of the screens, load cf:roast by name (paid, never automatic) and apply its accepted fixes.
+
 ## Publishing
 
 Context rule: attach the final MP4 to whatever artifact the request is about, a pull request, an issue, or nothing. Target selection, in order: an explicit `--pr N`, `--issue N`, or `--none`; else the open PR of the current branch; else no target, no upload, and the file stays on disk (the path is printed).

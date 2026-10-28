@@ -51,6 +51,7 @@ All browser work runs in the pinned browserless container via `ChangeDocker.with
 2. Motion: the same command without `--still` (optionally `--scene <id>`) records each scene whose `frames_key` is not cached. 30 fps; the clock only advances per frame; CSS animations are paused and seeked to virtual time; `Math.random` and `crypto.randomUUID` come from a seeded PRNG; storage is cleared per scene; input is real `page.mouse` and `page.keyboard` events.
 3. Outputs per scene in `.cache/frames/<frames_key>/`: `NNNNNN.png`, `cursor.json` (`[{frame, x, y, down}]`, composited later by FFmpeg), and `end-state.json`.
 4. Evaluate each recorded scene with cf:usability and note findings against the scene.
+5. Optional: when the user wants a harsher outside read of the stills, load cf:roast by name (paid, never automatic).
 
 ## Flats (Figma-style stills)
 

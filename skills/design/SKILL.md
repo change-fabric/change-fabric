@@ -82,6 +82,10 @@ Headings, table header rows, fenced blocks, and blank lines are exempt.
 
 Only when the user wants look-and-feel exploration. Generate with cf:image (`image.rb`, gpt-image-2) at `medium` quality, cached by content hash, never committed. Print the cost estimate before any paid call. Render contact sheets of moodboard images and token swatches as inline HTML in browserless via `ChangeDocker.with_browserless` and `BrowserlessJs.inline_html_js`.
 
+## Roast (optional)
+
+Only when the user wants the draft's mock screens stress-tested. Load cf:roast by name: it is paid, runs a capped multi-round loop against an OpenAI vision critic, and logs each round to `roast/`. Never auto-run.
+
 ## Output and lint
 
 Write `DESIGN.md` and `tokens.css` at the target repo root, then:
