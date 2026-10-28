@@ -196,6 +196,27 @@ class WalkthroughRenderTest < Minitest::Test
     assert_equal %w[hero], @calls[:capture]
   end
 
+  def test_scene_flag_recaptures_invalidated_dependents
+    run_render
+    File.write(File.join(@root, "data", "list.json"), JSON.generate("items" => [ { "id" => 2 } ]))
+    data = JSON.parse(File.read(File.join(@root, "storyboard.json")))
+    data["scenes"][0]["store"]["seed"] = "data/list.json"
+    File.write(File.join(@root, "storyboard.json"), JSON.generate(data))
+    @calls.clear
+    run_render(scene: "list")
+    assert_equal %w[list detail], @calls[:capture], "from_scene dependent re-keyed by the new end state is recaptured"
+  end
+
+  def test_scene_flag_on_dependent_leaves_upstream_alone
+    run_render
+    data = JSON.parse(File.read(File.join(@root, "storyboard.json")))
+    data["scenes"][1]["store"]["patch"] = [ { "op" => "set", "path" => "/flag", "value" => true } ]
+    File.write(File.join(@root, "storyboard.json"), JSON.generate(data))
+    @calls.clear
+    run_render(scene: "detail")
+    assert_equal %w[detail], @calls[:capture]
+  end
+
   def test_missing_cache_at_assembly_is_hard_error
     run_render
     data = JSON.parse(File.read(File.join(@root, "storyboard.json")))

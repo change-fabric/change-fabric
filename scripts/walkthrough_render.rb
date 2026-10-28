@@ -191,13 +191,27 @@ module WalkthroughRender
     def capture_needed?
       memo = {}
       scenes.any? do |scene|
-        next false unless targeted?(scene) && !broll?(scene)
+        next false unless capture_target?(scene) && !broll?(scene)
 
         prep = PrototypeCapture.prepare(@board, scene, @root, memo)
         !captured?(prep)
       rescue ArgumentError
         true
       end
+    end
+
+    # A targeted scene, or any scene whose from_scene chain reaches one: a
+    # regenerated scene can change its end state, which re-keys every
+    # downstream dependent, so those must be captured too or assembly misses.
+    def capture_target?(scene, seen = {})
+      return true if targeted?(scene)
+
+      parent_id = scene.dig('store', 'from_scene')
+      return false if parent_id.nil? || seen[parent_id]
+
+      seen[parent_id] = true
+      parent = scenes.find { |s| s['id'] == parent_id }
+      !parent.nil? && capture_target?(parent, seen)
     end
 
     def captured?(prep) = File.file?(File.join(prep[:out_dir], 'end-state.json'))
@@ -210,7 +224,7 @@ module WalkthroughRender
         next if broll?(scene)
 
         prep = PrototypeCapture.prepare(@board, scene, @root, memo)
-        next if captured?(prep) || !targeted?(scene)
+        next if captured?(prep) || !capture_target?(scene)
 
         duration = PrototypeCapture.scene_duration(scene)
         say("#{scene['id']}: capturing #{scene_frames(scene)} frames")
