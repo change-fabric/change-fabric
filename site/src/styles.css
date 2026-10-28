@@ -1528,6 +1528,7 @@ code {
   .site-nav {
     order: 3;
     width: 100%;
+    flex-wrap: wrap;
     margin: 0 0 0 calc(-1 * var(--s2));
   }
   /* The group filters scroll sideways instead of wrapping into a second
@@ -2151,6 +2152,17 @@ code {
     width: 64px;
     height: 64px;
   }
+  /* The facts line repeats the labels below; the Pre-alpha tag carries the
+     status, so the CTAs come sooner. */
+  .moose-meta {
+    display: none;
+  }
+  .moose-arch .moose-marks {
+    gap: var(--s4) var(--s5);
+  }
+  .moose-arch .tech-claude { width: 26px; height: 26px; }
+  .moose-arch .tech-opencode { width: 100px; height: 18px; }
+  .moose-arch .tech-pi { width: 18px; height: 18px; }
   .moose-arch,
   .moose-tailnet,
   .moose-ifaces,
