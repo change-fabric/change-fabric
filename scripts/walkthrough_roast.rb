@@ -39,10 +39,12 @@ module WalkthroughRoast
     entries.flat_map do |e|
       n = e['frames'].to_i
       local = { 'start' => 0, 'middle' => n / 2, 'end' => n - 1 }
-      (overlays[e['id']] || {}).each { |key, f| local["overlay-#{key.gsub(/[^a-z0-9]+/i, '-').delete_prefix('-')}"] ||= f.to_i }
+      (overlays[e['id']] || {}).each { |key, f| local[overlay_label(key)] ||= f.to_i }
       local.select { |_, f| f.between?(0, n - 1) }.map { |label, f| { scene: e['id'], label: label, frame: e['start_frame'].to_i + f } }
     end.uniq { |k| k[:frame] }.sort_by { |k| k[:frame] }
   end
+
+  def overlay_label(key) = "overlay-#{key.gsub(/[^a-z0-9]+/i, '-').delete_prefix('-')}"
 
   def keyframe_name(index, key) = format('%03d-%s-%s.jpg', index + 1, key[:scene], key[:label])
 
@@ -59,20 +61,21 @@ module WalkthroughRoast
 
   # The latest round's P0 and P1 issues not rebutted in its response file.
   def open_blockers(history)
-    last = history.last or return []
+    return [] unless (last = history.last)
+
     responses = Array(last.dig(:response, 'responses'))
-    last[:critic]['issues'].each_with_index.reject do |issue, i|
+    last[:critic]['issues'].reject.with_index do |issue, i|
       !Roast::BLOCKING.include?(issue['priority']) || rebutted?(issue, responses, i)
-    end.map(&:first)
-  end
-
-  def rebutted?(issue, responses, index)
-    return true if responses[index] && responses[index]['verdict'] == 'rebut' && responses[index]['screen'] == issue['screen']
-
-    responses.any? do |r|
-      r['verdict'] == 'rebut' && r['screen'] == issue['screen'] && issue['problem'].to_s.include?(r['problem'].to_s.strip)
     end
   end
+
+  def rebuttal_for?(issue, response) = response && response['verdict'] == 'rebut' && response['screen'] == issue['screen']
+
+  def rebutted?(issue, responses, index)
+    rebuttal_for?(issue, responses[index]) ||
+      responses.any? { |r| rebuttal_for?(issue, r) && issue['problem'].to_s.include?(r['problem'].to_s.strip) }
+  end
+  private_class_method :rebuttal_for?, :rebutted?
 
   # Raises when the latest draft roast in `dir` has an open P0 or P1.
   def gate!(dir, allow: false)

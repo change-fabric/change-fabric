@@ -31,7 +31,6 @@ require 'fileutils'
 # `data-ux-allow="<rule> ..."` on an element or ancestor opts it out of a rule.
 module PrototypeUxLint
   VERSION = 1
-  RULES = %w[empty-control occlusion clipped-text cursor-over-label contradictory-state].freeze
   REPORT = 'ux-lint.json'
   SETTLE_FRAMES = 15 # also lint half a second after each click, once a toast has landed
 
@@ -64,7 +63,7 @@ module PrototypeUxLint
         }
         return true;
       };
-      const masked = (el) => { for (let n = el; n && n.nodeType === 1; n = n.parentElement) { const m = getComputedStyle(n).webkitMaskImage || getComputedStyle(n).maskImage; if (m && m !== 'none') return true; } return false; };
+      const masked = (el) => { for (let n = el; n && n.nodeType === 1; n = n.parentElement) { const cs = getComputedStyle(n); const m = cs.webkitMaskImage || cs.maskImage; if (m && m !== 'none') return true; } return false; };
       const sel = (el) => {
         if (el.id) return '#' + el.id;
         const parts = [];
