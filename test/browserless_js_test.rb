@@ -86,7 +86,7 @@ class BrowserlessJsTest < Minitest::Test
       __cfAdvance(160);
       console.log(JSON.stringify(counts));
     JS
-    out = IO.popen(["timeout", "10", "node", "-e", driver], &:read)
+    out = IO.popen([ "timeout", "10", "node", "-e", driver ], &:read)
     assert $?.success?, "clock driver hung or failed: #{out}"
     counts = JSON.parse(out)
     assert_equal 10, counts["raf"]
