@@ -174,6 +174,30 @@ class PrototypeCaptureTest < Minitest::Test
     end
   end
 
+  class FlakySession < FakeSession
+    def initialize(drops)
+      super()
+      @drops = drops
+    end
+
+    def run_function(code)
+      if @drops.positive?
+        @drops -= 1
+        raise EOFError, "end of file reached"
+      end
+      super
+    end
+  end
+
+  def test_capture_retries_a_dropped_batch
+    Dir.mktmpdir do |dir|
+      PrototypeCapture.capture(session: FlakySession.new(2), html: "<p/>", interactions: [], duration_ms: 1000, out_dir: dir,
+                               state: {}, prng_seed: 7)
+      assert_equal 30, Dir.glob(File.join(dir, "*.png")).size
+    end
+    assert_raises(EOFError) { PrototypeCapture.run_with_retry(FlakySession.new(3), "const first = 0; const last = 0;") }
+  end
+
   def test_scene_duration_is_derived
     assert_equal 3000, PrototypeCapture.scene_duration("timing" => { "min_ms" => 3000, "pad_ms" => 400 }, "narration" => { "measured_ms" => 1000 })
     assert_equal 5400, PrototypeCapture.scene_duration("timing" => { "min_ms" => 3000, "pad_ms" => 400 }, "narration" => { "measured_ms" => 5000 })

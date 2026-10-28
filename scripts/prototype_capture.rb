@@ -330,8 +330,8 @@ module PrototypeCapture
     # before its first frame, so the DOM, store, and clock it captures from are
     # exactly the ones the previous batch ended on.
     batches(frames, batch_size(viewport)).each do |range|
-      result = check_result!(session.run_function(function_module(html: html, plan: plan, range: range, viewport: viewport,
-                                                                   prng_seed: prng_seed, state: state, fps: fps)), label)
+      code = function_module(html: html, plan: plan, range: range, viewport: viewport, prng_seed: prng_seed, state: state, fps: fps)
+      result = check_result!(run_with_retry(session, code), label)
       result['frames'].each_with_index do |b64, k|
         File.binwrite(File.join(out_dir, format('%06d.png', range.first + k + 1)), Base64.decode64(b64))
       end
@@ -341,6 +341,24 @@ module PrototypeCapture
     File.write(File.join(out_dir, 'cursor.json'), JSON.pretty_generate(cursor_path(positions)))
     File.write(File.join(out_dir, 'end-state.json'), JSON.pretty_generate(end_state))
     out_dir
+  end
+
+  # browserless occasionally drops a long /function response mid-body
+  # (EOFError, ECONNRESET) on an otherwise healthy session. A batch is a pure
+  # replay from its seeded start, so re-running it is safe.
+  BATCH_RETRIES = 2
+  DROPPED = [ EOFError, Errno::ECONNRESET, Errno::EPIPE ].freeze
+
+  def run_with_retry(session, code, retries: BATCH_RETRIES)
+    attempt = 0
+    begin
+      session.run_function(code)
+    rescue *DROPPED
+      attempt += 1
+      raise if attempt > retries
+
+      retry
+    end
   end
 
   # -- storyboard driving --------------------------------------------------
