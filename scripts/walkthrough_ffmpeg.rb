@@ -91,12 +91,16 @@ module WalkthroughFfmpeg
 
   # A hero still slowly pushes in: upscale 4x with lanczos, then zoompan back
   # to the output size so the zoom does not shimmer. zoompan stamps its link
-  # with the board fps while overlay leaves 1/0, and xfade rejects a pair that
-  # differ, so every scene ends on an explicit fps.
+  # with the board fps while overlay leaves 1/0, and concat outputs a 1/1000000
+  # timebase; xfade rejects a pair whose rate or timebase differ, so every
+  # scene and every concat ends on an explicit fps and timebase.
   def scene_output(plan, scene, i)
     tail = scene[:hero_still] ? ",#{hero_filter(plan)}" : ",fps=#{plan[:fps]}"
-    "#{tail}[v#{i}]"
+    "#{tail},#{timebase(plan)}[v#{i}]"
   end
+
+  def timebase(plan) = "settb=1/#{plan[:fps]}"
+
 
   def hero_filter(plan)
     "scale=iw*4:ih*4:flags=lanczos,zoompan=z='min(zoom+0.0008,1.12)':d=1:" \
@@ -125,7 +129,7 @@ module WalkthroughFfmpeg
       parts << if fade
                  "[#{acc}][v#{i}]xfade=transition=fade:duration=#{fade[:duration]}:offset=#{fade[:offset]}[j#{i}]"
       else
-                 "[#{acc}][v#{i}]concat=n=2:v=1:a=0[j#{i}]"
+                 "[#{acc}][v#{i}]concat=n=2:v=1:a=0,#{timebase(plan)}[j#{i}]"
       end
       acc = "j#{i}"
     end

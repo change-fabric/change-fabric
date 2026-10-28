@@ -21,7 +21,7 @@
   "-i",
   "/work/.cache/render/fixture/captions.srt",
   "-filter_complex",
-  "[2:v]split=2[c0][c1];[0:v]setpts=PTS-STARTPTS[s0];[s0][c0]overlay=x='-200':y='-200':eval=frame,fps=30[v0];[1:v]setpts=PTS-STARTPTS[s1];[s1][c1]overlay=x='-200':y='-200':eval=frame,fps=30[v1];[v0][v1]xfade=transition=fade:duration=0.400:offset=5.600[j1];[j1]subtitles=filename='/work/.cache/render/fixture/captions.srt',format=yuv420p[vout];[3:a]adelay=delays=0:all=1[n3];[4:a]adelay=delays=5600:all=1[n4];[5:a]atrim=duration=9.600,volume='1':eval=frame,volume=-18.0dB[mus];[n3][n4][mus]amix=inputs=3:normalize=0:duration=longest,apad,atrim=duration=9.600,loudnorm=I=-16:TP=-1.5:LRA=11:measured_I=-20.00:measured_TP=-3.00:measured_LRA=5.00:measured_thresh=-30.00:offset=0.00:linear=true:print_format=summary[aout]",
+  "[2:v]split=2[c0][c1];[0:v]setpts=PTS-STARTPTS[s0];[s0][c0]overlay=x='-200':y='-200':eval=frame,fps=30,settb=1/30[v0];[1:v]setpts=PTS-STARTPTS[s1];[s1][c1]overlay=x='-200':y='-200':eval=frame,fps=30,settb=1/30[v1];[v0][v1]xfade=transition=fade:duration=0.400:offset=5.600[j1];[j1]subtitles=filename='/work/.cache/render/fixture/captions.srt',format=yuv420p[vout];[3:a]adelay=delays=0:all=1[n3];[4:a]adelay=delays=5600:all=1[n4];[5:a]atrim=duration=9.600,volume='1':eval=frame,volume=-18.0dB[mus];[n3][n4][mus]amix=inputs=3:normalize=0:duration=longest,apad,atrim=duration=9.600,loudnorm=I=-16:TP=-1.5:LRA=11:measured_I=-20.00:measured_TP=-3.00:measured_LRA=5.00:measured_thresh=-30.00:offset=0.00:linear=true:print_format=summary[aout]",
   "-map",
   "[vout]",
   "-map",
