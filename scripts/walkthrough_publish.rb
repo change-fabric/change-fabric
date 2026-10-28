@@ -26,9 +26,8 @@ module WalkthroughPublish
   HEADING = '## Walkthrough'
   WORK = '/work'
   # Progressively smaller PR copies; each rung is tried until one fits.
-  LADDER = [
-    { crf: 28, scale: nil }, { crf: 32, scale: nil }, { crf: 36, scale: 960 }
-  ].freeze
+  Rung = Struct.new(:crf, :scale)
+  LADDER = [ Rung.new(28, nil), Rung.new(32, nil), Rung.new(36, 960) ].freeze
 
   Target = Struct.new(:kind, :number, :comment, keyword_init: true)
   Outcome = Struct.new(:path, :url, :target, :message, keyword_init: true)
@@ -37,7 +36,9 @@ module WalkthroughPublish
 
   # The marker-delimited section. The bare url on its own line is what GitHub
   # renders as an inline player.
-  def section(url) = "#{START_MARK}\n#{HEADING}\n\n#{url}\n#{END_MARK}"
+  def section(url) = "#{START_MARK}\n#{block(url)}\n#{END_MARK}"
+
+  def block(url) = "#{HEADING}\n\n#{url}"
 
   # Idempotent: replaces an existing section in place, else appends one.
   def splice(body, url)
@@ -74,7 +75,12 @@ module WalkthroughPublish
 
   def flag_value(argv, flag)
     i = argv.index(flag)
-    i ? (argv[i + 1] || abort("#{flag} needs a number")) : nil
+    return nil unless i
+
+    value = argv[i + 1].to_s
+    raise ArgumentError, "#{flag} needs a number" unless value.match?(/\A\d+\z/)
+
+    value
   end
 
   # Returns [path, note]. Under the limit the original is the PR copy; over it,
@@ -83,11 +89,12 @@ module WalkthroughPublish
     return [ mp4, nil ] if File.size(mp4) <= max_bytes
 
     out = "#{mp4.delete_suffix('.mp4')}.pr.mp4"
-    LADDER.each do |rung|
+    fit = LADDER.find do |rung|
       _out, status = runner.call(transcode_argv(mp4, out, rung))
-      fits = status.success? && File.exist?(out) && File.size(out) <= max_bytes
-      return [ out, "transcoded a PR copy at crf #{rung[:crf]}" ] if fits
+      status.success? && File.exist?(out) && File.size(out) <= max_bytes
     end
+    return [ out, "transcoded a PR copy at crf #{fit.crf}" ] if fit
+
     FileUtils.rm_f(out)
     [ nil, "no transcode fit under #{max_bytes} bytes; left on disk" ]
   end
@@ -95,13 +102,15 @@ module WalkthroughPublish
   def docker_run(argv) = Open3.capture2e(*argv)
 
   def transcode_argv(mp4, out, rung)
-    vf = rung[:scale] ? [ '-vf', "scale=#{rung[:scale]}:-2" ] : []
-    args = [ '-y', '-i', "#{WORK}/#{File.basename(mp4)}" ] + vf +
-           [ '-c:v', 'libx264', '-preset', 'medium', '-crf', rung[:crf].to_s, '-pix_fmt', 'yuv420p',
-             '-c:a', 'aac', '-b:a', '96k', '-movflags', '+faststart', "#{WORK}/#{File.basename(out)}" ]
+    vf = rung.scale ? [ '-vf', "scale=#{rung.scale}:-2" ] : []
+    args = [ '-y', '-i', work_path(mp4) ] + vf +
+           [ '-c:v', 'libx264', '-preset', 'medium', '-crf', rung.crf.to_s, '-pix_fmt', 'yuv420p',
+             '-c:a', 'aac', '-b:a', '96k', '-movflags', '+faststart', work_path(out) ]
     ChangeDocker.run_command(network: 'none', image: ChangeDocker::FFMPEG_IMAGE, args: args,
                              mounts: { File.dirname(File.expand_path(mp4)) => WORK }, workdir: WORK)
   end
+
+  def work_path(path) = "#{WORK}/#{File.basename(path)}"
 
   # Runs a command, optionally feeding stdin. Returns [output, ok?].
   def default_gh
@@ -114,25 +123,29 @@ module WalkthroughPublish
   # Attaches the url to the target. Returns an error string or nil.
   def attach(target, url, gh:)
     sub = target.kind == :pr ? 'pr' : 'issue'
-    n = target.number
-    if target.comment
-      out, ok = gh.call('gh', sub, 'comment', n, '--body-file', '-', stdin: "#{HEADING}\n\n#{url}\n")
-      return ok ? nil : "gh #{sub} comment failed: #{out}"
-    end
+    return attach_comment(sub, target.number, url, gh) if target.comment
 
+    n = target.number
     body, ok = gh.call('gh', sub, 'view', n, '--json', 'body', '--jq', '.body')
-    return "gh #{sub} view failed: #{body}" unless ok
+    return failure(sub, 'view', body) unless ok
 
     out, ok = gh.call('gh', sub, 'edit', n, '--body-file', '-', stdin: splice(body, url))
-    ok ? nil : "gh #{sub} edit failed: #{out}"
+    ok ? nil : failure(sub, 'edit', out)
   end
 
+  def attach_comment(sub, number, url, gh)
+    out, ok = gh.call('gh', sub, 'comment', number, '--body-file', '-', stdin: "#{block(url)}\n")
+    ok ? nil : failure(sub, 'comment', out)
+  end
+
+  def failure(sub, verb, out) = "gh #{sub} #{verb} failed: #{out}"
+
   # The whole step. Never raises; the MP4 stays on disk whatever happens.
-  def publish(mp4, argv: [], gh: default_gh, uploader: nil, runner: nil, max_bytes: MAX_BYTES)
+  def publish(mp4, argv: [], gh: default_gh, uploader: nil, shrink: method(:shrink))
     target = resolve_target(argv, gh: gh)
     return Outcome.new(path: mp4, message: 'no GitHub target; left on disk') unless target
 
-    copy, note = shrink(mp4, runner: runner || method(:docker_run), max_bytes: max_bytes)
+    copy, note = shrink.call(mp4)
     return Outcome.new(path: mp4, target: target, message: note) unless copy
 
     result = (uploader || ChangeScreenshotUpload.new).upload(copy)
@@ -159,8 +172,9 @@ if __FILE__ == $PROGRAM_NAME
   abort(usage) if arg.nil? || arg.start_with?('--')
   mp4 = WalkthroughPublish.locate(arg) || abort("no rendered MP4 under #{arg}")
   out = WalkthroughPublish.publish(File.expand_path(mp4), argv: ARGV.drop(1))
+  target = out.target
   puts "mp4 #{out.path}"
   puts "url #{out.url}" if out.url
-  puts "target #{out.target.kind} ##{out.target.number}" if out.target && out.url
+  puts "target #{target.kind} ##{target.number}" if target && out.url
   puts out.message if out.message
 end

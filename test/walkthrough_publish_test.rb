@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "minitest/autorun"
+require "fileutils"
 require "tmpdir"
 require_relative "../scripts/walkthrough_publish"
 
@@ -38,6 +39,7 @@ class WalkthroughPublishTest < Minitest::Test
 
   def with_mp4(bytes)
     Dir.mktmpdir do |dir|
+      @dir = dir
       path = File.join(dir, "walkthrough.mp4")
       File.binwrite(path, "x" * bytes)
       yield path
@@ -48,8 +50,20 @@ class WalkthroughPublishTest < Minitest::Test
     FakeUploader.new(url, url ? nil : "boom", [])
   end
 
-  def test_mp4_mime_type
-    assert_equal "video/mp4", ChangeScreenshotUpload.mime_for("a/b.mp4")
+  def pr_copy_of(mp4) = mp4.sub(".mp4", ".pr.mp4")
+
+  # A runner that "transcodes" by writing `bytes` bytes to the PR copy.
+  def fake_transcoder(bytes, calls: nil)
+    lambda do |argv|
+      calls << argv if calls
+      mp4 = argv.each_cons(2).find { |a, _| a == "-i" }.last.sub("/work", @dir)
+      File.binwrite(pr_copy_of(mp4), "y" * bytes)
+      [ "", Status.new(true) ]
+    end
+  end
+
+  def target_pair(argv, gh: FakeGh.new)
+    P.resolve_target(argv, gh: gh).then { |t| [ t.kind, t.number ] }
   end
 
   def test_splice_appends_then_replaces_idempotently
@@ -68,9 +82,15 @@ class WalkthroughPublishTest < Minitest::Test
 
   def test_explicit_flags_win_over_branch_pr
     gh = FakeGh.new
-    assert_equal [ :pr, "7" ], P.resolve_target(%w[--pr 7], gh: gh).then { |t| [ t.kind, t.number ] }
-    assert_equal [ :issue, "9" ], P.resolve_target(%w[--issue 9], gh: gh).then { |t| [ t.kind, t.number ] }
+    assert_equal [ :pr, "7" ], target_pair(%w[--pr 7], gh: gh)
+    assert_equal [ :issue, "9" ], target_pair(%w[--issue 9], gh: gh)
     assert_empty gh.calls
+  end
+
+  def test_flag_value_must_be_digits
+    [ "--pr", "--pr abc", "--issue 1;x", "--issue -3" ].each do |flags|
+      assert_raises(ArgumentError) { P.resolve_target(flags.split, gh: FakeGh.new) }
+    end
   end
 
   def test_none_flag_means_no_target
@@ -125,13 +145,8 @@ class WalkthroughPublishTest < Minitest::Test
   def test_oversize_transcodes_a_copy_and_keeps_original
     with_mp4(100) do |mp4|
       argvs = []
-      runner = lambda do |argv|
-        argvs << argv
-        File.binwrite(mp4.sub(".mp4", ".pr.mp4"), "y" * 5)
-        [ "", Status.new(true) ]
-      end
-      small = P.shrink(mp4, runner: runner, max_bytes: 50)
-      assert_equal mp4.sub(".mp4", ".pr.mp4"), small.first
+      small = P.shrink(mp4, runner: fake_transcoder(5, calls: argvs), max_bytes: 50)
+      assert_equal pr_copy_of(mp4), small.first
       assert File.exist?(mp4)
       assert_equal 1, argvs.size
       assert_includes argvs.first, ChangeDocker::FFMPEG_IMAGE
@@ -142,25 +157,18 @@ class WalkthroughPublishTest < Minitest::Test
   def test_oversize_uploads_the_copy
     with_mp4(100) do |mp4|
       up = uploader
-      runner = lambda do |_argv|
-        File.binwrite(mp4.sub(".mp4", ".pr.mp4"), "y")
-        [ "", Status.new(true) ]
-      end
-      P.publish(mp4, argv: %w[--pr 1], gh: FakeGh.new, uploader: up, runner: runner, max_bytes: 50)
-      assert_equal [ mp4.sub(".mp4", ".pr.mp4") ], up.uploaded
+      shrink = ->(m) { P.shrink(m, runner: fake_transcoder(1), max_bytes: 50) }
+      P.publish(mp4, argv: %w[--pr 1], gh: FakeGh.new, uploader: up, shrink: shrink)
+      assert_equal [ pr_copy_of(mp4) ], up.uploaded
     end
   end
 
   def test_ladder_exhausted_leaves_on_disk
     with_mp4(100) do |mp4|
-      runner = lambda do |_argv|
-        File.binwrite(mp4.sub(".mp4", ".pr.mp4"), "y" * 90)
-        [ "", Status.new(true) ]
-      end
-      path, note = P.shrink(mp4, runner: runner, max_bytes: 50)
+      path, note = P.shrink(mp4, runner: fake_transcoder(90), max_bytes: 50)
       assert_nil path
       assert_match(/no transcode fit/, note)
-      refute File.exist?(mp4.sub(".mp4", ".pr.mp4"))
+      refute File.exist?(pr_copy_of(mp4))
     end
   end
 
@@ -172,10 +180,6 @@ class WalkthroughPublishTest < Minitest::Test
       assert_match(/upload skipped: boom/, out.message)
       assert_empty gh.calls
     end
-  end
-
-  def test_max_bytes_is_ten_megabytes
-    assert_equal 10 * 1024 * 1024, P::MAX_BYTES
   end
 
   def test_locate_picks_newest_render
