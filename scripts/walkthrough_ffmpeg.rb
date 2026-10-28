@@ -90,9 +90,11 @@ module WalkthroughFfmpeg
   end
 
   # A hero still slowly pushes in: upscale 4x with lanczos, then zoompan back
-  # to the output size so the zoom does not shimmer.
+  # to the output size so the zoom does not shimmer. zoompan stamps its link
+  # with the board fps while overlay leaves 1/0, and xfade rejects a pair that
+  # differ, so every scene ends on an explicit fps.
   def scene_output(plan, scene, i)
-    tail = scene[:hero_still] ? ",#{hero_filter(plan)}" : ''
+    tail = scene[:hero_still] ? ",#{hero_filter(plan)}" : ",fps=#{plan[:fps]}"
     "#{tail}[v#{i}]"
   end
 

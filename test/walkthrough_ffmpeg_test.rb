@@ -36,9 +36,9 @@ class WalkthroughFfmpegTest < Minitest::Test
     expected = [
       "[3:v]split=3[c0][c1][c2]",
       "[0:v]setpts=PTS-STARTPTS[s0]",
-      "[s0][c0]overlay=x='if(lt(n,2),10,15)':y='20':eval=frame[v0]",
+      "[s0][c0]overlay=x='if(lt(n,2),10,15)':y='20':eval=frame,fps=30[v0]",
       "[1:v]setpts=PTS-STARTPTS[s1]",
-      "[s1][c1]overlay=x='if(lt(n,2),50,55)':y='20':eval=frame[v1]",
+      "[s1][c1]overlay=x='if(lt(n,2),50,55)':y='20':eval=frame,fps=30[v1]",
       "[2:v]setpts=PTS-STARTPTS[s2]",
       "[s2][c2]overlay=x='-200':y='-200':eval=frame,scale=iw*4:ih*4:flags=lanczos,zoompan=z='min(zoom+0.0008,1.12)':d=1:" \
       "x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=1920x1080:fps=30[v2]",
@@ -57,6 +57,12 @@ class WalkthroughFfmpegTest < Minitest::Test
     tail = argv[argv.index("-map")..]
     assert_equal [ "-map", "[vout]", "-map", "[aout]", "-map", "7:s", "-c:s", "mov_text" ], tail.first(8)
     assert_equal "/work/r/walkthrough.mp4", argv.last
+  end
+
+  def test_every_scene_link_carries_the_board_fps
+    graph(WalkthroughFfmpeg.pass2(plan, MEASURED)).grep(/\[v\d\]\z/).each do |part|
+      assert_match(/fps=30\[v\d\]\z/, part)
+    end
   end
 
   def test_determinism_flags_present_in_order
@@ -109,7 +115,7 @@ class WalkthroughFfmpegTest < Minitest::Test
     assert body.start_with?("0.000 overlay@c0 x 1, overlay@c0 y 7;\n0.033 overlay@c0 x 2;\n")
     g = graph(WalkthroughFfmpeg.pass2(p, MEASURED))
     assert_includes g, "[0:v]setpts=PTS-STARTPTS,sendcmd=f='/work/r/cursor-one.cmd'[s0]"
-    assert_includes g, "[s0][c0]overlay@c0=x=1:y=7:eval=frame[v0]"
+    assert_includes g, "[s0][c0]overlay@c0=x=1:y=7:eval=frame,fps=30[v0]"
   end
 
   def test_silent_plan_uses_null_source
