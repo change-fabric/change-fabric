@@ -162,7 +162,7 @@ module ChangeDocker
   # The browser container's argv, split out for the same reason as
   # run_command: the host alias is asserted in a test, not in a docker run.
   def browserless_command(name, network, port, token)
-    cmd = [ 'docker', 'run', '-d', '--rm', '--name', name ]
+    cmd = [ 'docker', 'run', '-d', '--rm', '--name', name, '--label', "#{OWNER_LABEL}=#{Process.pid}" ]
     cmd += [ '--network', network ] if network
     cmd += host_gateway_args
     cmd + [ '-p', "127.0.0.1:#{port}:3000", '-e', "TOKEN=#{token}", BROWSERLESS_IMAGE ]
@@ -173,15 +173,34 @@ module ChangeDocker
   # teardown (a kill, an interrupted host) is identifiable and reclaimable.
   RESOURCE_PREFIX = 'cf-change-'
 
-  # Force-removes any running container or existing network carrying the
-  # `cf-change-` prefix. Meant to run standalone, between runs, so every match
-  # is by definition not part of a run in progress. Returns the names removed.
-  def sweep
-    containers = matching_names('docker', 'ps', '-a', '--filter', "name=#{RESOURCE_PREFIX}", '--format', '{{.Names}}')
+  # Label carrying the pid of the process that started a container, so a sweep
+  # can tell a live run's container from an orphan.
+  OWNER_LABEL = 'cf.owner_pid'
+
+  # Force-removes containers carrying `prefix` (default `cf-change-`) whose
+  # owner process is gone, and networks carrying it. A container labelled with a
+  # live owner pid belongs to a run in progress and is left alone; one with no
+  # label (an older run, a lane container) is reaped by prefix as before. Tests
+  # pass their own prefix so they never touch another run's resources.
+  # Returns the names removed.
+  def sweep(prefix: RESOURCE_PREFIX)
+    rows = matching_names('docker', 'ps', '-a', '--filter', "name=#{prefix}", '--format', "{{.Names}} {{.Label \"#{OWNER_LABEL}\"}}")
+    containers = rows.map(&:split).reject { |_name, pid| pid && pid_alive?(pid.to_i) }.map(&:first)
     containers.each { |name| Open3.capture2e('docker', 'rm', '-f', name) }
-    networks = matching_names('docker', 'network', 'ls', '--filter', "name=#{RESOURCE_PREFIX}", '--format', '{{.Name}}')
+    networks = matching_names('docker', 'network', 'ls', '--filter', "name=#{prefix}", '--format', '{{.Name}}')
     networks.each { |name| Open3.capture2e('docker', 'network', 'rm', name) }
     { containers: containers, networks: networks }
+  end
+
+  def pid_alive?(pid)
+    return false unless pid.positive?
+
+    Process.kill(0, pid)
+    true
+  rescue Errno::ESRCH
+    false
+  rescue Errno::EPERM
+    true
   end
 
   def matching_names(*cmd)
@@ -268,14 +287,15 @@ module ChangeDocker
       parsed.is_a?(Hash) && parsed.key?('data') ? parsed['data'] : parsed
     end
 
-    private
-
     def version_ok?
       uri = URI("http://127.0.0.1:#{@port}/json/version?token=#{@token}")
       Net::HTTP.get_response(uri).is_a?(Net::HTTPSuccess)
     rescue StandardError
       false
     end
+    alias alive? version_ok?
+
+    private
 
     def post(uri, body, content_type)
       http = Net::HTTP.new(uri.host, uri.port)
