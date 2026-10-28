@@ -113,10 +113,8 @@ module PrototypeFlats
         const theme = #{JSON.generate(theme)};
         const locale = #{JSON.generate(PrototypeCapture::LOCALE)};
         await page.setExtraHTTPHeaders(#{BrowserlessJs.locale_header_js});
-        #{BrowserlessJs.locale_js('locale', page_var: 'page')}
         await page.emulateMediaFeatures([ { name: "prefers-color-scheme", value: theme } ]);
-        await page.evaluateOnNewDocument(#{JSON.generate(PrototypeCapture.clock_script(prng_seed: prng_seed, state: state))});
-        #{BrowserlessJs.inline_html_js(html, page_var: 'page')}
+        #{BrowserlessJs.inline_html_js(PrototypeCapture.with_document_scripts(html, prng_seed: prng_seed, state: state), page_var: 'page')}
         await page.evaluate((theme) => {
           document.documentElement.setAttribute("data-theme", theme);
           document.documentElement.classList.toggle("dark", theme === "dark");

@@ -37,6 +37,14 @@ module BrowserlessJs
     JS
   end
 
+  # The same pin as plain document script source, for pages loaded with
+  # setContent, where an evaluateOnNewDocument script never runs.
+  def locale_script(locale)
+    lang = JSON.generate(locale)
+    "Object.defineProperty(navigator, \"language\", { get: () => #{lang} });" \
+      "Object.defineProperty(navigator, \"languages\", { get: () => [#{lang}] });"
+  end
+
   # An expression yielding a CDP session for the page.
   def cdp_session_js(page_var = 'page')
     "await #{page_var}.createCDPSession()"

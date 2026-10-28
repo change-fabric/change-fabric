@@ -237,6 +237,12 @@ module PrototypeCapture
     "#{tag}#{html}"
   end
 
+  # The locale pin, frozen clock, and seeded state, inlined ahead of every
+  # screen script so a setContent load actually runs them.
+  def with_document_scripts(html, prng_seed:, state:)
+    with_clock(html, BrowserlessJs.locale_script(LOCALE) + clock_script(prng_seed: prng_seed, state: state))
+  end
+
   def function_module(html:, plan:, range:, viewport:, prng_seed:, state:, fps: FPS)
     vp = DEFAULT_VIEWPORT.merge(viewport || {})
     <<~JS
@@ -254,8 +260,7 @@ module PrototypeCapture
         page.on("pageerror", (err) => pageErrors.push(String(err && err.message || err)));
         await page.setViewport({ width: #{vp['w']}, height: #{vp['h']}, deviceScaleFactor: #{vp['dpr']} });
         await page.setExtraHTTPHeaders(#{BrowserlessJs.locale_header_js});
-        #{BrowserlessJs.locale_js('locale', page_var: 'page')}
-        #{BrowserlessJs.inline_html_js(with_clock(html, clock_script(prng_seed: prng_seed, state: state)), page_var: 'page')}
+        #{BrowserlessJs.inline_html_js(with_document_scripts(html, prng_seed: prng_seed, state: state), page_var: 'page')}
         const client = #{BrowserlessJs.cdp_session_js('page')};
         await client.send("Animation.enable");
         await client.send("Animation.setPlaybackRate", { playbackRate: 0 });
