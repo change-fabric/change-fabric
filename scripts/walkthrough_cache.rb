@@ -9,7 +9,10 @@ require 'json'
 # inputs in any hash order map to the same file. Writes land in a temp file
 # and are renamed into place, so a crash never leaves a half-written entry.
 module WalkthroughCache
-  GITIGNORE_LINE = '.cache/'
+  # Everything generated and heavy stays out of version control: the cache
+  # (which holds every rendered MP4), the flats folder with its index and
+  # overview boards, and any stray MP4 or overview PNG.
+  GITIGNORE_LINES = [ '.cache/', 'flats/', '*.mp4', 'overview*.png' ].freeze
 
   module_function
 
@@ -54,12 +57,14 @@ module WalkthroughCache
   def ensure_gitignore(walkthrough_dir)
     FileUtils.mkdir_p(walkthrough_dir)
     file = File.join(walkthrough_dir, '.gitignore')
-    lines = File.exist?(file) ? File.read(file).lines.map(&:strip) : []
-    return file if lines.include?(GITIGNORE_LINE) || lines.include?('.cache')
-
     existing = File.exist?(file) ? File.read(file) : ''
+    have = existing.lines.map(&:strip)
+    have << '.cache/' if have.include?('.cache')
+    missing = GITIGNORE_LINES - have
+    return file if missing.empty?
+
     existing += "\n" unless existing.empty? || existing.end_with?("\n")
-    File.write(file, "#{existing}#{GITIGNORE_LINE}\n")
+    File.write(file, "#{existing}#{missing.join("\n")}\n")
     file
   end
 end
