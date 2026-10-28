@@ -184,9 +184,10 @@ module BRoll
 
   def send_request(req, http)
     response = (http || default_http).request(req)
-    raise RequestError, "b-roll request failed: HTTP #{response.code}" unless response.is_a?(Net::HTTPSuccess)
+    return response if response.is_a?(Net::HTTPSuccess)
 
-    response
+    # Google error bodies describe the request, never the key.
+    raise RequestError, "b-roll request failed: HTTP #{response.code} #{response.body.to_s[0, 300]}".strip
   end
 
   def default_http

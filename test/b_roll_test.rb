@@ -165,6 +165,7 @@ class BRollTest < Minitest::Test
   def test_http_error_names_status_and_leaks_no_key
     err = assert_raises(BRoll::RequestError) { gen(FakeHttp.new(FakeResponse.new("400", '{"error":"bad"}'))) }
     assert_includes err.message, "400"
+    assert_includes err.message, "bad"
     refute_includes err.message, "test-key-not-real"
   end
 
