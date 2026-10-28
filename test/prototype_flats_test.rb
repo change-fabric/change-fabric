@@ -22,7 +22,8 @@ class PrototypeFlatsTest < Minitest::Test
     def run_function(code)
       @modules << code
       if code.include?("const shots")
-        { "shots" => { "1x" => Base64.strict_encode64("one"), "2x" => Base64.strict_encode64("two") },
+        { "shots" => { "1x" => Base64.strict_encode64("one"), "2x" => Base64.strict_encode64("two"),
+                      "thumb" => Base64.strict_encode64("thumb") },
           "blockedRequests" => [], "pageErrors" => [] }
       else
         { "png" => Base64.strict_encode64("board"), "blockedRequests" => [], "pageErrors" => [] }
@@ -127,12 +128,29 @@ class PrototypeFlatsTest < Minitest::Test
   end
 
   def test_board_html_groups_by_section_in_order_with_data_uris
-    shots = F.entries(MANIFEST).map { |e| e.merge(png: "x") }
+    shots = F.entries(MANIFEST).map { |e| e.merge(thumb: "x") }
     html = F.board_html(shots, theme: "dark")
     assert_operator html.index("Loans"), :<, html.index("Settings")
-    assert_equal 3, html.scan("data:image/png;base64,").size
+    assert_equal 3, html.scan("data:image/jpeg;base64,").size
     assert_includes html, 'data-theme="dark"'
     assert_equal 1, html.scan(%r{<h2>Loans</h2>}).size
+  end
+
+  def test_board_embeds_small_jpeg_thumbnails_not_full_pngs
+    mod = F.function_module(html: "<p/>", theme: "light", viewport: { "w" => 1440, "h" => 900 }, state: {}, prng_seed: 1)
+    assert_includes mod, 'type: "jpeg"'
+    assert_includes mod, "deviceScaleFactor: #{F.thumb_scale(1440)}"
+    assert_in_delta 880, 1440 * F.thumb_scale(1440), 1
+    with_root do |root|
+      session = FakeSession.new
+      F.run(session: session, root: root)
+      boards = session.modules.reject { |m| m.include?("const shots") }
+      boards.each do |m|
+        assert_includes m, Base64.strict_encode64("thumb")
+        refute_includes m, Base64.strict_encode64("one")
+        assert_operator m.bytesize, :<, 10 * 1024 * 1024
+      end
+    end
   end
 
   def test_blocked_request_fails_loudly

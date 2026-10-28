@@ -29,6 +29,10 @@ module PrototypeFlats
   BOARD_BG = { 'light' => '#f2f2f2', 'dark' => '#151515' }.freeze
   BOARD_FG = { 'light' => '#1a1a1a', 'dark' => '#eeeeee' }.freeze
   THUMB_WIDTH = 440
+  # Board thumbnails are JPEG at twice their CSS width, so a board of dozens of
+  # screens stays far under browserless's 10 MiB request-body cap.
+  THUMB_SCALE = 2
+  THUMB_QUALITY = 70
 
   module_function
 
@@ -88,15 +92,18 @@ module PrototypeFlats
   end
 
   # One screenshot of the loaded page at a device scale factor, after two frames.
-  def capture_js(target, width:, height:, scale:)
+  def capture_js(target, width:, height:, scale:, options: '')
     <<~JS
       await page.setViewport({ width: #{width}, height: #{height}, deviceScaleFactor: #{scale} });
       await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
-      #{target} = await page.screenshot({ encoding: "base64" });
+      #{target} = await page.screenshot({ encoding: "base64"#{options} });
     JS
   end
 
-  # One flat in one theme: the 1x then the 2x screenshot of the same page.
+  # Device scale factor that renders a page of `width` at THUMB_SCALE x THUMB_WIDTH pixels.
+  def thumb_scale(width) = (THUMB_WIDTH * THUMB_SCALE / width.to_f).round(4)
+
+  # One flat in one theme: the 1x, the 2x, and a small JPEG thumbnail of the same page.
   def function_module(html:, theme:, viewport:, state:, prng_seed:)
     vp = DEFAULT_VIEWPORT.merge(viewport || {})
     size = { width: vp['w'], height: vp['h'] }
@@ -117,6 +124,7 @@ module PrototypeFlats
         const shots = {};
         #{capture_js('shots["1x"]', **size, scale: 1)}
         #{capture_js('shots["2x"]', **size, scale: 2)}
+        #{capture_js('shots["thumb"]', **size, scale: thumb_scale(size[:width]), options: ", type: \"jpeg\", quality: #{THUMB_QUALITY}")}
         if (context) await context.close();
         return { data: { shots, blockedRequests, pageErrors }, type: "application/json" };
       }
@@ -158,7 +166,7 @@ module PrototypeFlats
   end
 
   def board_cell(shot)
-    src = "data:image/png;base64,#{Base64.strict_encode64(shot[:png])}"
+    src = "data:image/jpeg;base64,#{Base64.strict_encode64(shot[:thumb])}"
     label = CGI.escapeHTML("#{shot[:screen]} (#{shot[:state]})")
     "<figure><img src=\"#{src}\" alt=\"#{label}\"><figcaption>#{label}</figcaption></figure>"
   end
@@ -228,7 +236,7 @@ module PrototypeFlats
     one = Base64.decode64(shots.fetch('1x'))
     File.binwrite(File.join(out, theme, "#{entry[:name]}.png"), one)
     File.binwrite(File.join(out, theme, "#{entry[:name]}@2x.png"), Base64.decode64(shots.fetch('2x')))
-    entry.merge(png: one)
+    entry.merge(thumb: Base64.decode64(shots.fetch('thumb')))
   end
 end
 
