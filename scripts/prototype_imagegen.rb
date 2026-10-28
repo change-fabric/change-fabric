@@ -20,17 +20,22 @@ module PrototypeImagegen
   QUALITY_DRAFT = 'medium'
   QUALITY_FINAL = 'high'
   ATTEMPT_CAP = 3
-  # Approximate USD per 1024x1024 image.
-  PRICE = { 'medium' => 0.05, 'high' => 0.21 }.freeze
+  # Approximate USD per 1024x1024 image. `low` is a rough figure: the docs
+  # list the tier but no price, so the estimate stays conservative.
+  PRICE = { 'low' => 0.02, 'medium' => 0.05, 'high' => 0.21 }.freeze
   GENERATIONS_URL = 'https://api.openai.com/v1/images/generations'
   EDITS_URL = 'https://api.openai.com/v1/images/edits'
 
   module_function
 
   # The content-hash key for one image request.
-  def asset_key(prompt:, size:, quality:, refs: [], model: MODEL)
+  def asset_key(prompt:, size:, quality:, refs: [], edit: nil, mask: nil, model: MODEL)
     ref_digests = refs.map { |ref| Digest::SHA256.file(ref).hexdigest }
-    WalkthroughCache.key({ prompt: prompt, model: model, size: size, quality: quality, refs: ref_digests })
+    inputs = { prompt: prompt, model: model, size: size, quality: quality, refs: ref_digests }
+    # Added only when present so every key minted before edits existed stays valid.
+    inputs[:edit] = Digest::SHA256.file(edit).hexdigest if edit
+    inputs[:mask] = Digest::SHA256.file(mask).hexdigest if mask
+    WalkthroughCache.key(inputs)
   end
 
   # Returns { count:, by_quality:, usd: } and the printable line for it.
@@ -42,13 +47,15 @@ module PrototypeImagegen
   end
 
   # The pure request description: url, headers (key redacted), and body.
-  def build_request(prompt:, size:, quality:, refs: [], model: MODEL)
-    if refs.empty?
+  # The edit image goes first: the API applies a mask to the first image only.
+  def build_request(prompt:, size:, quality:, refs: [], edit: nil, mask: nil, model: MODEL)
+    files = [ edit, *refs ].compact
+    if files.empty?
       { url: GENERATIONS_URL, content_type: 'application/json',
         body: { model: model, prompt: prompt, size: size, quality: quality, n: 1 } }
     else
       { url: EDITS_URL, content_type: 'multipart/form-data',
-        body: { model: model, prompt: prompt, size: size, quality: quality, n: 1 }, files: refs }
+        body: { model: model, prompt: prompt, size: size, quality: quality, n: 1 }, files: files, mask: mask }.compact
     end
   end
 
@@ -70,11 +77,11 @@ module PrototypeImagegen
 
   # Generates (or returns the cached) image path. The attempt is counted only
   # when a paid call actually runs.
-  def generate(prompt:, size:, quality:, cache_root:, refs: [], screen: 'default', attempts: Attempts.new, http: nil, model: MODEL)
-    key = asset_key(prompt: prompt, size: size, quality: quality, refs: refs, model: model)
+  def generate(prompt:, size:, quality:, cache_root:, refs: [], edit: nil, mask: nil, screen: 'default', attempts: Attempts.new, http: nil, model: MODEL)
+    key = asset_key(prompt: prompt, size: size, quality: quality, refs: refs, edit: edit, mask: mask, model: model)
     WalkthroughCache.fetch(cache_root, :images, key, 'png') do |tmp|
       attempts.record!(screen)
-      request = build_request(prompt: prompt, size: size, quality: quality, refs: refs, model: model)
+      request = build_request(prompt: prompt, size: size, quality: quality, refs: refs, edit: edit, mask: mask, model: model)
       File.binwrite(tmp, decode(post(request, http)))
     end
   end
@@ -91,7 +98,7 @@ module PrototypeImagegen
     if request[:files]
       boundary = "cf-#{SecureRandom.hex(8)}"
       req['Content-Type'] = "multipart/form-data; boundary=#{boundary}"
-      req.body = multipart(request[:body], request[:files], boundary)
+      req.body = multipart(request[:body], request[:files], boundary, request[:mask])
     else
       req['Content-Type'] = 'application/json'
       req.body = JSON.generate(request[:body])
@@ -102,15 +109,19 @@ module PrototypeImagegen
     JSON.parse(response.body)
   end
 
-  def multipart(fields, files, boundary)
+  def multipart(fields, files, boundary, mask = nil)
     parts = fields.map do |name, value|
       "--#{boundary}\r\nContent-Disposition: form-data; name=\"#{name}\"\r\n\r\n#{value}\r\n"
     end
-    files.each do |path|
-      parts << "--#{boundary}\r\nContent-Disposition: form-data; name=\"image[]\"; filename=\"#{File.basename(path)}\"\r\n" \
-               "Content-Type: image/png\r\n\r\n#{File.binread(path)}\r\n"
-    end
-    "#{parts.join}--#{boundary}--\r\n"
+    files.each { |path| parts << file_part('image[]', path, boundary) }
+    parts << file_part('mask', mask, boundary) if mask
+    # Binary join: a UTF-8 prompt next to raw PNG bytes would otherwise raise.
+    "#{parts.map(&:b).join}--#{boundary}--\r\n".b
+  end
+
+  def file_part(name, path, boundary)
+    "--#{boundary}\r\nContent-Disposition: form-data; name=\"#{name}\"; filename=\"#{File.basename(path)}\"\r\n" \
+      "Content-Type: image/png\r\n\r\n#{File.binread(path)}\r\n"
   end
 
   def default_http(uri)

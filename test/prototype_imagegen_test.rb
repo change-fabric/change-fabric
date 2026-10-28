@@ -79,6 +79,41 @@ class PrototypeImagegenTest < Minitest::Test
     ENV.delete("OPENAI_API_KEY")
   end
 
+  def test_edit_and_mask_ride_the_edits_endpoint_with_edit_first
+    Dir.mktmpdir do |dir|
+      edit, ref, mask = %w[e r m].map { |n| File.join(dir, "#{n}.png").tap { |f| File.binwrite(f, n) } }
+      req = PrototypeImagegen.build_request(prompt: "p", size: "1024x1024", quality: "low", refs: [ ref ], edit: edit, mask: mask)
+      assert_equal PrototypeImagegen::EDITS_URL, req[:url]
+      assert_equal [ edit, ref ], req[:files]
+      assert_equal mask, req[:mask]
+    end
+  end
+
+  def test_asset_key_covers_edit_and_mask_and_keeps_legacy_keys
+    Dir.mktmpdir do |dir|
+      a, b = %w[a b].map { |n| File.join(dir, "#{n}.png").tap { |f| File.binwrite(f, n) } }
+      base = { prompt: "p", size: "1024x1024", quality: "low" }
+      legacy = PrototypeImagegen.asset_key(**base)
+      assert_equal legacy, PrototypeImagegen.asset_key(**base, edit: nil, mask: nil)
+      refute_equal legacy, PrototypeImagegen.asset_key(**base, edit: a)
+      refute_equal PrototypeImagegen.asset_key(**base, edit: a), PrototypeImagegen.asset_key(**base, edit: a, mask: b)
+      refute_equal PrototypeImagegen.asset_key(**base, refs: [ a ]), PrototypeImagegen.asset_key(**base, edit: a)
+    end
+  end
+
+  def test_multipart_carries_image_parts_and_mask
+    Dir.mktmpdir do |dir|
+      edit, mask = %w[e m].map { |n| File.join(dir, "#{n}.png").tap { |f| File.binwrite(f, n) } }
+      body = PrototypeImagegen.multipart({ model: "m" }, [ edit ], "B", mask)
+      assert_includes body, 'name="image[]"; filename="e.png"'
+      assert_includes body, 'name="mask"; filename="m.png"'
+    end
+  end
+
+  def test_low_quality_is_priced
+    assert_operator PrototypeImagegen.estimate([ { quality: "low" } ])[:usd], :>, 0
+  end
+
   def test_failure_message_never_carries_key
     ENV["OPENAI_API_KEY"] = "sk-test-secret"
     Dir.mktmpdir do |dir|
