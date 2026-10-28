@@ -1,0 +1,271 @@
+# frozen_string_literal: true
+
+require 'digest'
+require 'json'
+require_relative 'prototype_capture'
+require_relative 'prototype_imagegen'
+require_relative 'walkthrough_cache'
+
+# storyboard.json (schema_version 1) is the source of truth for a
+# walkthrough. This module validates it, derives scene durations (never
+# authored), recomputes each scene's content keys, reports stale keys, and
+# renders the read-only storyboard.md.
+module WalkthroughStoryboard
+  class ValidationError < StandardError; end
+
+  SCHEMA_VERSION = 1
+  ID_RE = /\A[a-z0-9][a-z0-9-]*\z/
+  TRANSITIONS = %w[cut fade].freeze
+  FADE_MS = (100..1500)
+  OPS = %w[move click type hover wait].freeze
+  PATCH_OPS = %w[set push delete].freeze
+  MD_HEADER = 'Generated from storyboard.json; do not edit'
+  KEY_KINDS = { 'frames_key' => 'frames', 'audio_key' => 'audio', 'asset_keys' => 'images' }.freeze
+
+  module_function
+
+  def load(path) = JSON.parse(File.read(path))
+
+  def scenes(board) = Array(board['scenes']).sort_by { |s| s['order'].to_i }
+
+  # -- validation ----------------------------------------------------------
+
+  # Returns a list of error strings; empty means valid. `root` is the
+  # walkthrough directory, used to check that store seeds exist.
+  def validate(board, root: nil)
+    errors = []
+    errors << "schema_version must be #{SCHEMA_VERSION}" unless board['schema_version'] == SCHEMA_VERSION
+    errors << 'slug must match [a-z0-9][a-z0-9-]*' unless board['slug'].to_s.match?(ID_RE)
+    list = Array(board['scenes'])
+    errors << 'scenes must not be empty' if list.empty?
+    hyp_ids = Array(board['hypotheses']).map { |h| h['id'] }
+    errors.concat(id_and_order_errors(list))
+    orders = list.to_h { |s| [ s['id'], s['order'].to_i ] }
+    list.each do |scene|
+      label = "scene #{scene['id'].inspect}"
+      errors.concat(scene_errors(scene, hyp_ids, orders, root).map { |e| "#{label}: #{e}" })
+    end
+    errors
+  end
+
+  def validate!(board, root: nil)
+    errors = validate(board, root: root)
+    raise ValidationError, errors.join("\n") unless errors.empty?
+
+    board
+  end
+
+  def id_and_order_errors(list)
+    errors = []
+    ids = list.map { |s| s['id'] }
+    ids.each { |id| errors << "scene id #{id.inspect} must match [a-z0-9][a-z0-9-]*" unless id.to_s.match?(ID_RE) }
+    ids.tally.each { |id, n| errors << "scene id #{id.inspect} is not unique" if n > 1 }
+    orders = list.map { |s| s['order'] }
+    errors << 'scene order must be integers unique and contiguous from 1' unless orders.all?(Integer) && orders.sort == (1..list.size).to_a
+    errors
+  end
+
+  def scene_errors(scene, hyp_ids, orders, root)
+    errors = []
+    errors << 'duration_ms is derived and must not be authored' if scene.key?('duration_ms') || scene['timing'].is_a?(Hash) && scene['timing'].key?('duration_ms')
+    errors.concat(transition_errors(scene.dig('timing', 'transition')))
+    errors.concat(interaction_errors(Array(scene['interactions'])))
+    Array(scene['hypotheses']).each { |h| errors << "hypothesis #{h} is not in the top-level list" unless hyp_ids.include?(h) }
+    errors << 'needs at least one requirement or assumption' if Array(scene['requirements']).empty? && Array(scene['assumptions']).empty?
+    errors << 'screen.html is required' if scene.dig('screen', 'html').to_s.empty?
+    errors.concat(store_errors(scene, orders, root)) if scene['store']
+    errors
+  end
+
+  def transition_errors(transition)
+    return [] if transition.nil?
+
+    type = transition['type']
+    return [ "transition.type #{type.inspect} must be one of #{TRANSITIONS.join(', ')}" ] unless TRANSITIONS.include?(type)
+    return [ "fade transition ms must be in #{FADE_MS.min}..#{FADE_MS.max}" ] if type == 'fade' && !FADE_MS.cover?(transition['ms'].to_i)
+
+    []
+  end
+
+  def interaction_errors(interactions)
+    errors = []
+    last = -1
+    interactions.each_with_index do |op, i|
+      errors << "interaction #{i}: op #{op['op'].inspect} must be one of #{OPS.join(', ')}" unless OPS.include?(op['op'])
+      errors << "interaction #{i}: target is required for #{op['op']}" if op['op'] != 'wait' && op['target'].to_s.empty?
+      t = op['t_ms']
+      if !t.is_a?(Integer) || t.negative?
+        errors << "interaction #{i}: t_ms must be a non-negative integer"
+      elsif t < last
+        errors << "interaction #{i}: t_ms must be non-decreasing"
+      else
+        last = t
+      end
+    end
+    errors
+  end
+
+  def store_errors(scene, orders, root)
+    store = scene['store']
+    return [ 'store must be an object' ] unless store.is_a?(Hash)
+
+    errors = []
+    if (seed = store['seed'])
+      errors << "store.seed #{seed} must be under data/" unless seed.start_with?('data/') && !seed.include?('..')
+      errors << "store.seed #{seed} does not exist" if root && !File.file?(File.join(root, seed))
+    end
+    if (from = store['from_scene'])
+      if !orders.key?(from)
+        errors << "store.from_scene #{from} is not a scene"
+      elsif orders[from] >= scene['order'].to_i
+        errors << "store.from_scene #{from} must be an earlier scene"
+      end
+    end
+    Array(store['patch']).each_with_index do |op, i|
+      errors << "store.patch #{i}: op must be one of #{PATCH_OPS.join(', ')}" unless PATCH_OPS.include?(op['op'])
+      errors << "store.patch #{i}: path is required" if op['path'].to_s.empty?
+    end
+    errors << 'store.prng_seed must be an integer' if store.key?('prng_seed') && !store['prng_seed'].is_a?(Integer)
+    errors
+  end
+
+  # -- durations and timeline ----------------------------------------------
+
+  # duration_ms = max(min_ms, measured_ms + pad_ms), per scene id.
+  def derive_durations(board)
+    scenes(board).to_h { |s| [ s['id'], PrototypeCapture.scene_duration(s) ] }
+  end
+
+  # Scene start offsets in frames. A fade into a scene overlaps the previous
+  # scene by its ms; a cut starts at the previous scene's end.
+  def timeline(board)
+    fps = board['fps'] || PrototypeCapture::FPS
+    durations = derive_durations(board)
+    cursor = 0
+    entries = scenes(board).each_with_index.map do |scene, i|
+      frames = PrototypeCapture.frame_count(durations[scene['id']], fps)
+      transition = scene.dig('timing', 'transition') || { 'type' => 'cut', 'ms' => 0 }
+      overlap = i.positive? && transition['type'] == 'fade' ? PrototypeCapture.frame_at(transition['ms'].to_i, fps) : 0
+      start = [ cursor - overlap, 0 ].max
+      cursor = start + frames
+      { 'id' => scene['id'], 'start_frame' => start, 'frames' => frames, 'duration_ms' => durations[scene['id']],
+        'transition' => transition }
+    end
+    { 'fps' => fps, 'total_frames' => cursor, 'total_ms' => (cursor * 1000.0 / fps).round, 'scenes' => entries }
+  end
+
+  # -- keys ----------------------------------------------------------------
+
+  def audio_key(board, scene)
+    voice = board['voice'] || {}
+    WalkthroughCache.key({ text: scene.dig('narration', 'text').to_s, voice_id: voice['voice_id'], model: voice['model'],
+                           output_format: voice['output_format'], settings: voice['settings'] || {} })
+  end
+
+  def asset_keys(scene, root)
+    Array(scene['images']).map do |img|
+      refs = Array(img['refs']).map { |ref| File.join(root, ref) }
+      PrototypeImagegen.asset_key(prompt: img['prompt'].to_s, size: img['size'] || '1024x1024',
+                                  quality: img['quality'] || PrototypeImagegen::QUALITY_DRAFT, refs: refs,
+                                  model: img['model'] || PrototypeImagegen::MODEL)
+    end
+  end
+
+  # Recomputed deps per scene id. frames_key is nil when it cannot be
+  # computed yet (a from_scene dependency not captured, or a missing screen).
+  def recompute_keys(board, root)
+    memo = {}
+    scenes(board).to_h do |scene|
+      frames = begin
+        PrototypeCapture.prepare(board, scene, root, memo)[:key]
+      rescue ArgumentError, PrototypeCapture::UnsupportedContentError, Errno::ENOENT, TypeError
+        nil
+      end
+      [ scene['id'], { 'frames_key' => frames, 'audio_key' => audio_key(board, scene), 'asset_keys' => asset_keys(scene, root) } ]
+    end
+  end
+
+  # Scenes whose authored deps differ from the recomputed ones, with the
+  # asset kinds needing regeneration: [{ 'id' =>, 'kinds' => [...] }].
+  def stale(board, root, keys = recompute_keys(board, root))
+    scenes(board).filter_map do |scene|
+      authored = scene['deps'] || {}
+      fresh = keys[scene['id']]
+      kinds = KEY_KINDS.filter_map { |field, kind| kind if fresh[field].nil? || authored[field] != fresh[field] }
+      kinds.empty? ? nil : { 'id' => scene['id'], 'kinds' => kinds }
+    end
+  end
+
+  # Rewrites each scene's deps to the recomputed keys (validate --fix).
+  def fix_keys(board, root, keys = recompute_keys(board, root))
+    board['scenes'].each { |scene| scene['deps'] = keys[scene['id']] }
+    board
+  end
+
+  # -- storyboard.md -------------------------------------------------------
+
+  def render_md(board)
+    durations = derive_durations(board)
+    out = [ "<!-- #{MD_HEADER} -->", '', "# #{board['title']}", '' ]
+    unless Array(board['hypotheses']).empty?
+      out << '## Hypotheses' << ''
+      board['hypotheses'].each { |h| out << "- #{h['id']} (#{h['dimension']}): #{h['text']}" }
+      out << ''
+    end
+    scenes(board).each { |scene| out.concat(scene_md(scene, durations[scene['id']])) }
+    "#{out.join("\n").rstrip}\n"
+  end
+
+  def scene_md(scene, duration)
+    out = [ "## #{scene['order']}. #{scene['title']} (`#{scene['id']}`)", '' ]
+    out << "- Duration: #{duration} ms"
+    out << "- Screen: #{scene.dig('screen', 'html')}"
+    out << "- User goal: #{scene['user_goal']}" if scene['user_goal']
+    out << "- Action: #{scene['action']}" if scene['action']
+    out << "- Emphasis: #{scene['emphasis']}" if scene['emphasis']
+    out << "- Starts from: #{scene.dig('store', 'from_scene')}" if scene.dig('store', 'from_scene')
+    out << "- Hypotheses: #{scene['hypotheses'].join(', ')}" unless Array(scene['hypotheses']).empty?
+    out << "- Heuristics shown: #{scene['heuristics_shown'].join(', ')}" unless Array(scene['heuristics_shown']).empty?
+    Array(scene['requirements']).each { |r| out << "- Requirement: #{r['source']}#{r['anchor']}" }
+    Array(scene['assumptions']).each { |a| out << "- Assumption #{a['id']}: #{a['text']}" }
+    out << '' << "> #{scene.dig('narration', 'text')}" if scene.dig('narration', 'text')
+    out << ''
+  end
+end
+
+if __FILE__ == $PROGRAM_NAME
+  usage = 'usage: walkthrough_storyboard.rb validate <json> [--fix] | render-md <json> | stale <json>'
+  cmd, path = ARGV
+  abort(usage) unless cmd && path
+
+  board = WalkthroughStoryboard.load(path)
+  root = File.dirname(File.expand_path(path))
+  case cmd
+  when 'validate'
+    errors = WalkthroughStoryboard.validate(board, root: root)
+    unless errors.empty?
+      warn errors.join("\n")
+      exit 1
+    end
+    if ARGV.include?('--fix')
+      WalkthroughStoryboard.fix_keys(board, root)
+      File.write(path, "#{JSON.pretty_generate(board)}\n")
+      puts 'valid; deps rewritten'
+    else
+      stale = WalkthroughStoryboard.stale(board, root)
+      stale.each { |s| warn "stale #{s['id']}: #{s['kinds'].join(', ')}" }
+      puts stale.empty? ? 'valid' : 'valid; stale keys reported (run with --fix to rewrite)'
+    end
+  when 'render-md'
+    WalkthroughStoryboard.validate!(board, root: root)
+    out = File.join(root, 'storyboard.md')
+    File.write(out, WalkthroughStoryboard.render_md(board))
+    puts out
+  when 'stale'
+    stale = WalkthroughStoryboard.stale(board, root)
+    stale.each { |s| puts "#{s['id']}: #{s['kinds'].join(', ')}" }
+    puts 'nothing stale' if stale.empty?
+  else
+    abort(usage)
+  end
+end
