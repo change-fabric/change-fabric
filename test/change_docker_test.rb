@@ -147,7 +147,7 @@ class ChangeDockerTest < Minitest::Test
   def test_sweep_removes_an_orphaned_container_and_network
     skip "docker not available" unless ChangeDocker.available?
 
-    prefix = "cf-change-test-#{SecureRandom.hex(4)}-"
+    prefix = test_prefix
     network = "#{prefix}net"
     Open3.capture2e("docker", "network", "create", network)
     container = "#{prefix}zap"
@@ -164,7 +164,7 @@ class ChangeDockerTest < Minitest::Test
   def test_sweep_keeps_a_container_whose_owner_pid_is_alive
     skip "docker not available" unless ChangeDocker.available?
 
-    prefix = "cf-change-test-#{SecureRandom.hex(4)}-"
+    prefix = test_prefix
     live = "#{prefix}live"
     dead = "#{prefix}dead"
     Open3.capture2e("docker", "run", "-d", "--name", live, "--label", "cf.owner_pid=#{Process.pid}", "alpine", "sleep", "60")
@@ -201,4 +201,8 @@ class ChangeDockerTest < Minitest::Test
     refute_empty seen
     assert seen.all? { |cmd| cmd.include?("name=#{ChangeDocker::RESOURCE_PREFIX}") }
   end
+
+  private
+
+  def test_prefix = "cf-change-test-#{SecureRandom.hex(4)}-"
 end

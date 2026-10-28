@@ -184,12 +184,16 @@ module ChangeDocker
   # pass their own prefix so they never touch another run's resources.
   # Returns the names removed.
   def sweep(prefix: RESOURCE_PREFIX)
-    rows = matching_names('docker', 'ps', '-a', '--filter', "name=#{prefix}", '--format', "{{.Names}} {{.Label \"#{OWNER_LABEL}\"}}")
-    containers = rows.map(&:split).reject { |_name, pid| pid && pid_alive?(pid.to_i) }.map(&:first)
+    containers = orphaned_containers(prefix)
     containers.each { |name| Open3.capture2e('docker', 'rm', '-f', name) }
     networks = matching_names('docker', 'network', 'ls', '--filter', "name=#{prefix}", '--format', '{{.Name}}')
     networks.each { |name| Open3.capture2e('docker', 'network', 'rm', name) }
     { containers: containers, networks: networks }
+  end
+
+  def orphaned_containers(prefix)
+    rows = matching_names('docker', 'ps', '-a', '--filter', "name=#{prefix}", '--format', "{{.Names}} {{.Label \"#{OWNER_LABEL}\"}}")
+    rows.map(&:split).reject { |_name, pid| pid && pid_alive?(pid.to_i) }.map(&:first)
   end
 
   def pid_alive?(pid)
@@ -287,15 +291,16 @@ module ChangeDocker
       parsed.is_a?(Hash) && parsed.key?('data') ? parsed['data'] : parsed
     end
 
+    def alive? = version_ok?
+
+    private
+
     def version_ok?
       uri = URI("http://127.0.0.1:#{@port}/json/version?token=#{@token}")
       Net::HTTP.get_response(uri).is_a?(Net::HTTPSuccess)
     rescue StandardError
       false
     end
-    alias alive? version_ok?
-
-    private
 
     def post(uri, body, content_type)
       http = Net::HTTP.new(uri.host, uri.port)

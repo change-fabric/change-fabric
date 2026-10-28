@@ -57,7 +57,6 @@ class PrototypeCaptureTest < Minitest::Test
     assert_equal 31, PrototypeCapture.frame_count(1001)
     assert_equal 0, PrototypeCapture.frame_at(33)
     assert_equal 1, PrototypeCapture.frame_at(34)
-    assert_equal [ 0...90, 90...100 ], PrototypeCapture.batches(100)
   end
 
   def test_batch_size_shrinks_with_viewport_pixels
@@ -151,6 +150,8 @@ class PrototypeCaptureTest < Minitest::Test
 
     def initialize = @modules = []
 
+    def alive? = true
+
     def run_function(code)
       @modules << code
       first = code[/const first = (\d+);/, 1].to_i
@@ -224,15 +225,17 @@ class PrototypeCaptureTest < Minitest::Test
   def test_connection_refused_is_retried_when_the_container_is_alive
     session = Class.new(FlakySession) do
       def run_function(code)
-        @refused ||= false
-        raise Errno::ECONNREFUSED unless @refused.tap { @refused = true }
+        unless @refused
+          @refused = true
+          raise Errno::ECONNREFUSED
+        end
 
         super
       end
 
       def alive? = true
     end.new(0)
-    assert session.then { |s| PrototypeCapture.run_with_retry(s, "const first = 0; const last = 0;") }
+    assert PrototypeCapture.run_with_retry(session, "const first = 0; const last = 0;")
   end
 
   def test_batch_size_caps_by_measured_bytes

@@ -209,10 +209,6 @@ module PrototypeCapture
     [ size, BATCH_MAX_BYTES / bytes_per_frame ].min.clamp(1, BATCH_FRAMES)
   end
 
-  def batches(frames, size = BATCH_FRAMES)
-    (0...frames).step(size).map { |first| first...[ first + size, frames ].min }
-  end
-
   # -- keys ----------------------------------------------------------------
 
   def browserless_digest = ChangeDocker::BROWSERLESS_IMAGE.split('@').last
@@ -341,7 +337,7 @@ module PrototypeCapture
     size = batch_size(viewport)
     while first < frames
       range = first...[ first + size, frames ].min
-      first = range.last
+      first = range.end
       code = function_module(html: html, plan: plan, range: range, viewport: viewport, prng_seed: prng_seed, state: state, fps: fps)
       result = check_result!(run_with_retry(session, code), label)
       result['frames'].each_with_index do |b64, k|
@@ -376,7 +372,7 @@ module PrototypeCapture
       attempt += 1
       raise if attempt > retries
 
-      if session.respond_to?(:alive?) && !session.alive?
+      unless session.alive?
         raise BrowserlessGoneError, "browserless container gone (#{e.class}: #{e.message}); something removed it mid-render"
       end
 
