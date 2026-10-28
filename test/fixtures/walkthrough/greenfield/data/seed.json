@@ -1,0 +1,6 @@
+{
+  "loans": [
+    { "id": "loan-1", "borrower": "Juniper Hale", "title": "The Quiet Orchard", "due": "2026-11-04" },
+    { "id": "loan-2", "borrower": "Ostin Marrow", "title": "Lanterns of Brindle Bay", "due": "2026-11-09" }
+  ]
+}

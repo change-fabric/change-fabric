@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Shelfwise: record a loan</title>
+  <link rel="stylesheet" href="tokens.css">
+  <style>
+    body { margin: 0; background: var(--bg); color: var(--text); font: var(--size-body)/1.5 var(--font); }
+    main { max-width: 640px; margin: var(--space-4) auto; padding: var(--space-3); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
+    h1 { font-size: var(--size-title); margin: 0 0 var(--space-3); }
+    label { display: block; margin-top: var(--space-2); color: var(--muted); }
+    input { width: 100%; box-sizing: border-box; padding: var(--space-1); font: inherit; border: 1px solid var(--border); border-radius: var(--radius); }
+    input:focus { outline: 3px solid var(--focus); outline-offset: 2px; }
+    button { margin-top: var(--space-3); padding: var(--space-1) var(--space-3); font: inherit; background: var(--accent); color: var(--accent-text); border: 0; border-radius: var(--radius); }
+    #saved { margin-top: var(--space-2); color: var(--accent); }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Record a loan</h1>
+    <form data-cf-submit="loans" data-cf-prefix="loan" data-cf-toast="#saved">
+      <label for="borrower">Borrower</label>
+      <input id="borrower" name="borrower" autocomplete="off">
+      <label for="title">Book title</label>
+      <input id="title" name="title" autocomplete="off">
+      <label for="due">Due date</label>
+      <input id="due" name="due" value="2026-11-11">
+      <button id="submit" type="submit">Lend book</button>
+    </form>
+    <p id="saved" role="status" hidden>Loan recorded. <span data-cf-count="loans"></span> books are out.</p>
+  </main>
+  <script src="mock-store.js"></script>
+</body>
+</html>

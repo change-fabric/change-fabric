@@ -1,0 +1,227 @@
+{
+  "schema_version": 1,
+  "slug": "shelfwise",
+  "title": "Shelfwise: lending in ten seconds",
+  "source_docs": [
+    {
+      "path": "prd.md",
+      "sha256": "c53f5fb6d7e5b7b6f77ec75658468ded5a2347b79b7828bc15d08ae45d142692"
+    }
+  ],
+  "design_md_sha256": null,
+  "tokens_css_sha256": "69b4d421813df7bc1892066f6950eaa166a64b533482396a1aeb31eb44a81e81",
+  "viewport": {
+    "w": 1920,
+    "h": 1080,
+    "dpr": 1
+  },
+  "fps": 30,
+  "voice": {
+    "provider": "elevenlabs",
+    "voice_id": "21m00Tcm4TlvDq8ikWAM",
+    "model": "eleven_multilingual_v2",
+    "output_format": "mp3_44100_128"
+  },
+  "music": {
+    "provider": "elevenlabs",
+    "model": "music_v1",
+    "prompt": "warm acoustic guitar and soft piano, gentle and optimistic, no vocals",
+    "composition_plan": null,
+    "gain_db": -18
+  },
+  "cursor": {
+    "sprite": "default",
+    "scale": 1.0
+  },
+  "hypotheses": [
+    {
+      "id": "H-01",
+      "text": "A volunteer records a loan without help in under ten seconds.",
+      "dimension": "role"
+    },
+    {
+      "id": "H-02",
+      "text": "The new loan appearing at once in the list reassures the volunteer it was saved.",
+      "dimension": "look_and_feel"
+    }
+  ],
+  "scenes": [
+    {
+      "id": "lend-book",
+      "title": "Record a loan",
+      "order": 1,
+      "user_goal": "Lend a book to a neighbor",
+      "action": "Types the borrower and title, then lends the book",
+      "screen": {
+        "html": "screens/lend-book.html",
+        "state": "default"
+      },
+      "store": {
+        "seed": "data/seed.json",
+        "prng_seed": 7
+      },
+      "interactions": [
+        {
+          "t_ms": 0,
+          "op": "move",
+          "target": "#borrower",
+          "duration_ms": 600,
+          "easing": "easeInOutCubic"
+        },
+        {
+          "t_ms": 700,
+          "op": "click",
+          "target": "#borrower"
+        },
+        {
+          "t_ms": 900,
+          "op": "type",
+          "target": "#borrower",
+          "text": "Avery Quill",
+          "cps": 12
+        },
+        {
+          "t_ms": 2000,
+          "op": "move",
+          "target": "#title",
+          "duration_ms": 400,
+          "easing": "easeInOutCubic"
+        },
+        {
+          "t_ms": 2500,
+          "op": "click",
+          "target": "#title"
+        },
+        {
+          "t_ms": 2700,
+          "op": "type",
+          "target": "#title",
+          "text": "Maps of Wren Hollow",
+          "cps": 14
+        },
+        {
+          "t_ms": 4200,
+          "op": "move",
+          "target": "#submit",
+          "duration_ms": 500,
+          "easing": "easeInOutCubic"
+        },
+        {
+          "t_ms": 4800,
+          "op": "click",
+          "target": "#submit"
+        },
+        {
+          "t_ms": 5000,
+          "op": "wait",
+          "duration_ms": 800
+        }
+      ],
+      "narration": {
+        "text": "With Shelfwise, a volunteer records a loan in seconds. Type the borrower, type the title, and the due date is already set two weeks out.",
+        "measured_ms": 0
+      },
+      "requirements": [
+        {
+          "source": "prd.md",
+          "anchor": "#lending"
+        }
+      ],
+      "assumptions": [],
+      "hypotheses": [
+        "H-01"
+      ],
+      "heuristics_shown": [
+        "H1",
+        "H6"
+      ],
+      "emphasis": "The default due date saves a step",
+      "timing": {
+        "min_ms": 6000,
+        "pad_ms": 400,
+        "transition": {
+          "type": "cut",
+          "ms": 0
+        },
+        "music_duck_db": -12
+      },
+      "deps": {
+        "frames_key": "6acef18216b296337b6c6b4353da062642a0427bdf8d3163fcdc06ebe7b105ba",
+        "audio_key": "3b3fdb8bc96676bd72d2c6f576b8da409a1dd1ee078363c8498c0ce372a2512b",
+        "asset_keys": []
+      }
+    },
+    {
+      "id": "loans",
+      "title": "See every open loan",
+      "order": 2,
+      "user_goal": "Confirm the loan was saved",
+      "action": "Opens the loans list and finds the new loan",
+      "screen": {
+        "html": "screens/loans.html",
+        "state": "after-lend"
+      },
+      "store": {
+        "seed": "data/seed.json",
+        "from_scene": "lend-book",
+        "prng_seed": 11
+      },
+      "interactions": [
+        {
+          "t_ms": 300,
+          "op": "move",
+          "target": ".row:last-of-type",
+          "duration_ms": 700,
+          "easing": "easeInOutCubic"
+        },
+        {
+          "t_ms": 1100,
+          "op": "hover",
+          "target": ".row:last-of-type"
+        },
+        {
+          "t_ms": 1400,
+          "op": "wait",
+          "duration_ms": 1600
+        }
+      ],
+      "narration": {
+        "text": "Every open loan lives in one list. The new loan is already there, and the count is up to date.",
+        "measured_ms": 0
+      },
+      "requirements": [
+        {
+          "source": "prd.md",
+          "anchor": "#loans-list"
+        }
+      ],
+      "assumptions": [
+        {
+          "id": "A-01",
+          "text": "Borrowers and book titles are fictional seed records."
+        }
+      ],
+      "hypotheses": [
+        "H-02"
+      ],
+      "heuristics_shown": [
+        "H1"
+      ],
+      "emphasis": "The list reflects the loan just recorded",
+      "timing": {
+        "min_ms": 4000,
+        "pad_ms": 400,
+        "transition": {
+          "type": "fade",
+          "ms": 400
+        },
+        "music_duck_db": -12
+      },
+      "deps": {
+        "frames_key": null,
+        "audio_key": "52ad79e96d0b6408e934e36c0e1019e4ad7124b0bb9b8da31eed73e7d8a04683",
+        "asset_keys": []
+      }
+    }
+  ]
+}
