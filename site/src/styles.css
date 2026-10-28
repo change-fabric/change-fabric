@@ -47,6 +47,8 @@
   --code-bg-text: var(--muted);
   --surface-text: var(--muted);
   --surface-hover-text: var(--muted);
+  --panel: var(--plum);
+  --panel-text: var(--cream);
   color-scheme: light;
 }
 
@@ -83,6 +85,8 @@
     --code-bg-text: var(--muted);
     --surface-text: var(--muted);
     --surface-hover-text: var(--muted);
+    --panel: var(--code-bg);
+    --panel-text: var(--cream);
     color-scheme: dark;
   }
 }
@@ -118,6 +122,8 @@
   --code-bg-text: var(--muted);
   --surface-text: var(--muted);
   --surface-hover-text: var(--muted);
+  --panel: var(--code-bg);
+  --panel-text: var(--cream);
   color-scheme: dark;
 }
 
@@ -359,6 +365,12 @@ code {
   background: var(--surface-hover);
 }
 
+/* Heads the related-projects group in the sidebar. The top bar has no room
+   for a heading, so there the group's links simply follow the primary ones. */
+.nav-group-label {
+  display: none;
+}
+
 .site-utils {
   display: flex;
   align-items: center;
@@ -418,6 +430,14 @@ code {
   }
   .nav-link {
     padding: 6px var(--s2);
+  }
+  .nav-group-label {
+    display: block;
+    margin: var(--s4) 0 var(--s1);
+    padding: 0 var(--s2);
+    font-size: 0.78rem;
+    font-weight: 500;
+    color: var(--muted);
   }
   .site-utils {
     margin-top: auto;
@@ -1662,4 +1682,285 @@ code {
   clip: rect(0 0 0 0);
   white-space: nowrap;
   border: 0;
+}
+
+/* moose: a related project page in the homepage's language. It reuses the
+   hero, section, lane-number and code-block styles; only the diagram, the
+   three columns, the deploy panels and the pairing are its own. */
+.moose .hero {
+  max-width: 46rem;
+}
+
+.moose .hero h1 {
+  font-size: 2.9rem;
+}
+
+.moose-hero-head {
+  display: flex;
+  align-items: center;
+  gap: var(--s5);
+}
+
+.moose-logo,
+.moose-pair img {
+  flex: none;
+  border-radius: var(--radius);
+}
+
+.moose-h1-line {
+  display: block;
+}
+
+.moose-meta {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2);
+  margin: var(--s5) 0 0;
+  padding: 0;
+}
+
+.moose-meta li {
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--muted);
+  padding: 2px var(--s3);
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+}
+
+.moose-arch {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto minmax(0, 1fr);
+  gap: var(--s3);
+}
+
+.moose-node {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s1);
+  text-align: center;
+  padding: var(--s5) var(--s4);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+}
+
+.moose-node-title {
+  font-weight: 600;
+  color: var(--heading);
+}
+
+.moose-node-sub {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.moose-node-tag {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--accent);
+  margin-top: var(--s1);
+}
+
+/* The hub is the one filled shape in the diagram; the dashed ring marks the
+   tailnet boundary it lives inside. */
+.moose-node-hub {
+  background: var(--panel);
+  border-color: var(--panel);
+  outline: 1px dashed var(--accent);
+  outline-offset: var(--s1);
+}
+
+.moose-node-hub .moose-node-title,
+.moose-node-hub .moose-node-sub {
+  color: var(--panel-text);
+}
+
+.moose-link {
+  align-self: center;
+  font-size: 1.4rem;
+  color: var(--muted);
+}
+
+.moose-arch-note {
+  text-align: center;
+}
+
+.moose-ifaces {
+  list-style: none;
+  margin: var(--s6) 0 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border-top: 1px solid var(--border-strong);
+}
+
+.moose-ifaces li {
+  padding: var(--s5) var(--s5) var(--s5) 0;
+}
+
+.moose-ifaces li + li {
+  border-left: 1px solid var(--border);
+  padding-left: var(--s5);
+}
+
+.moose-ifaces h3,
+.moose-deploys h3 {
+  font-size: 1.15rem;
+  font-weight: 600;
+  margin: var(--s2) 0 var(--s1);
+}
+
+.moose-ifaces p,
+.moose-deploys p {
+  color: var(--muted);
+  font-size: 0.95rem;
+  margin: 0;
+}
+
+.moose-deploys {
+  list-style: none;
+  margin: var(--s6) 0 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--s5);
+}
+
+.moose-deploys li {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  padding: var(--s5);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.moose-deploys h3 {
+  margin: 0;
+}
+
+.moose-deploys a {
+  margin-top: auto;
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
+/* The quick start is the page's one dark panel, a deliberate contrast with
+   the warm page around it. */
+.moose-code .code-block {
+  max-width: 46rem;
+  background: var(--panel);
+  border-color: var(--panel);
+}
+
+.moose-code .code-block-bar {
+  border-bottom-color: var(--border-strong);
+}
+
+.moose-code .code-block-label,
+.moose-code .code-copy,
+.moose-code code {
+  color: var(--panel-text);
+}
+
+.moose-code .code-copy:hover {
+  color: var(--panel-text);
+  background: transparent;
+  text-decoration: underline;
+}
+
+.moose-family {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--s7);
+  align-items: center;
+}
+
+.moose-family .home-lede {
+  margin: 0;
+}
+
+.moose-pair {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+}
+
+.moose-pair li {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--s1);
+  text-align: center;
+  padding: 0 var(--s5);
+}
+
+.moose-pair li + li {
+  border-left: 1px solid var(--border);
+}
+
+.moose-pair-name {
+  font-family: var(--font-serif);
+  font-size: 1.15rem;
+  color: var(--heading);
+  margin-top: var(--s1);
+}
+
+.moose-pair-sub {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.moose-foot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2) var(--s6);
+  margin-top: 80px;
+  padding: var(--s5) 0 var(--s7);
+  border-top: 1px solid var(--border);
+  font-size: 0.9rem;
+}
+
+@media (max-width: 760px) {
+  .moose .hero h1 {
+    font-size: 2.1rem;
+  }
+  .moose-hero-head {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--s4);
+  }
+  .moose-logo {
+    width: 64px;
+    height: 64px;
+  }
+  .moose-arch,
+  .moose-ifaces,
+  .moose-deploys,
+  .moose-family {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .moose-link {
+    justify-self: center;
+    transform: rotate(90deg);
+  }
+  .moose-ifaces li,
+  .moose-ifaces li + li {
+    border-left: 0;
+    padding: var(--s4) 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .moose-family {
+    gap: var(--s5);
+  }
+  .moose-pair li:first-child {
+    padding-left: 0;
+  }
 }
