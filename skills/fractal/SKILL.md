@@ -1,7 +1,7 @@
 ---
 name: cf:fractal
 group: workflow
-description: Fractal design reference loaded by name by cf:design, cf:prototype, cf:walkthrough, and cf:roast. Self-similarity as an observable rubric: one small set of modules repeated at page, section, and component scale, structure that survives phone to desktop, one nesting pattern and one scale ratio at every level, and a repeated proportion that sets visual rhythm. Never overrides cf:usability or the WCAG subset.
+description: Fractal design reference loaded by name by cf:design, cf:prototype, cf:walkthrough, and cf:roast. Self-similarity as an observable rubric covering one small set of modules repeated at page, section, and component scale, structure that survives phone to desktop, one nesting pattern and one scale ratio at every level, and a repeated proportion that sets visual rhythm. Never overrides cf:usability or the WCAG subset.
 ---
 
 # Fractal design
