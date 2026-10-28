@@ -284,7 +284,9 @@ module WalkthroughRender
       end)
     end
 
-    def render_dir(manifest) = File.join(@cache, 'render', manifest['manifest_hash'])
+    # A burned-in render differs from a soft one but shares its manifest hash,
+    # so burn gets its own directory and the two never reuse each other's mp4.
+    def render_dir(manifest) = File.join(@cache, 'render', @burn_captions ? "#{manifest['manifest_hash']}-burn" : manifest['manifest_hash'])
 
     def plan(manifest, inputs)
       dir = render_dir(manifest)

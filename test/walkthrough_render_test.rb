@@ -139,6 +139,18 @@ class WalkthroughRenderTest < Minitest::Test
     assert_equal "mp4", File.read(second[:mp4])
   end
 
+  def test_burned_captions_never_reuse_a_soft_render
+    soft = run_render
+    @calls[:docker].clear
+    burned = run_render(burn_captions: true)
+    assert_equal 3, @calls[:docker].size, "burn re-runs ffmpeg instead of reusing the soft mp4"
+    refute_equal soft[:mp4], burned[:mp4]
+    assert_equal File.join(File.dirname(soft[:mp4]) + "-burn", "walkthrough.mp4"), burned[:mp4]
+    @calls[:docker].clear
+    run_render(burn_captions: true)
+    assert_empty @calls[:docker], "a cached burned render is reused"
+  end
+
   def test_image_model_is_part_of_the_cache_key
     b = board
     b["scenes"][0]["images"] = [ { "prompt" => "a hero", "model" => "custom-image-model" } ]
