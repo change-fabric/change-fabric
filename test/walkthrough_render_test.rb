@@ -130,6 +130,15 @@ class WalkthroughRenderTest < Minitest::Test
     assert_equal "Scene list speaks.".length * 50, saved["scenes"][0]["narration"]["measured_ms"]
   end
 
+  def test_empty_mp4_from_a_failed_pass_is_not_a_cached_render
+    first = run_render
+    File.write(first[:mp4], "")
+    @calls[:docker].clear
+    second = run_render
+    assert_equal 3, @calls[:docker].size
+    assert_equal "mp4", File.read(second[:mp4])
+  end
+
   def test_image_model_is_part_of_the_cache_key
     b = board
     b["scenes"][0]["images"] = [ { "prompt" => "a hero", "model" => "custom-image-model" } ]

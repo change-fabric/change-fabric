@@ -329,7 +329,9 @@ module WalkthroughRender
     def assemble(manifest)
       dir = render_dir(manifest)
       mp4 = File.join(dir, 'walkthrough.mp4')
-      return mp4 if File.file?(mp4)
+      # A failed pass 2 leaves a zero-byte mp4 behind; only a non-empty file
+      # is a cached render.
+      return mp4 if File.size?(mp4)
 
       inputs = assembly_inputs(manifest)
       plan = plan(manifest, inputs)
