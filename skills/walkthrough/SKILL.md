@@ -8,7 +8,7 @@ description: Flagship walkthrough command. Turns a PRD, SOW, brief, or an existi
 
 Source: Stephanie Houde and Charles Hill, "What do Prototypes Prototype?" (1997), via cf:prototyping; Jakob Nielsen, ten usability heuristics (1994), via cf:usability; the ElevenLabs docs index https://elevenlabs.io/docs/llms.txt.
 
-Load cf:prototyping and cf:usability by name before writing anything, and cf:narrate and cf:music by name before the estimate and render steps. Load cf:b-roll by name before authoring or rendering any `ai-broll` scene. Every scene cites the heuristic ids it shows in `heuristics_shown`, using the H1 to H10 labels from cf:usability. This skill carries no heuristic checklist of its own.
+Load cf:prototyping, cf:usability, and cf:fractal by name before writing anything, and cf:narrate and cf:music by name before the estimate and render steps. Load cf:b-roll by name before authoring or rendering any `ai-broll` scene. Every scene cites the heuristic ids it shows in `heuristics_shown`, using the H1 to H10 labels from cf:usability. This skill carries no heuristic checklist of its own.
 
 ## Inputs
 

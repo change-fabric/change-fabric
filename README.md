@@ -27,7 +27,7 @@ the PR lifecycle.
 app into a narrated MP4 walkthrough without building the app. It composes
 `cf:design` (an opinionated DESIGN.md), `cf:prototype` (static HTML/CSS mock
 screens with realistic client-side state, recorded in the pinned browserless
-container), and `cf:prototyping` plus `cf:usability` for method and rubric,
+container), and `cf:prototyping`, `cf:usability`, and `cf:fractal` for method and rubric,
 then adds ElevenLabs narration and music and composes deterministically with
 FFmpeg. Single scenes regenerate from cached content keys.
 

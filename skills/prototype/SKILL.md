@@ -8,7 +8,7 @@ description: Static HTML/CSS mock-screen command. Reads DESIGN.md and tokens.css
 
 Source: Stephanie Houde and Charles Hill, "What do Prototypes Prototype?" (1997), via cf:prototyping; Jakob Nielsen, ten usability heuristics (1994), via cf:usability.
 
-Load cf:prototyping and cf:usability by name before authoring anything. cf:prototyping says which design question each screen answers and at what fidelity; cf:usability is the rubric every recorded scene is evaluated against. This skill carries no heuristic checklist of its own.
+Load cf:prototyping, cf:usability, and cf:fractal by name before authoring anything. cf:prototyping says which design question each screen answers and at what fidelity; cf:usability is the rubric every recorded scene is evaluated against. cf:fractal says to build every screen from the same few modules on one grid unit and scale ratio. This skill carries no heuristic checklist of its own.
 
 ## Inputs
 
@@ -47,7 +47,7 @@ An action in one scene can change what a later scene shows: the later scene name
 
 All browser work runs in the pinned browserless container via `ChangeDocker.with_browserless` and `BrowserlessJs`. No host browser, no Playwright, no screencast.
 
-1. Stills first: `ruby ~/.claude/cf/bin/prototype_capture.rb walkthrough/<slug>/storyboard.json --still` writes `.cache/stills/<scene-id>/000001.png`. Review each still against cf:usability and the cf:prototyping WCAG subset, and fix screens before recording motion.
+1. Stills first: `ruby ~/.claude/cf/bin/prototype_capture.rb walkthrough/<slug>/storyboard.json --still` writes `.cache/stills/<scene-id>/000001.png`. Review each still against cf:usability, cf:fractal, and the cf:prototyping WCAG subset, and fix screens before recording motion.
 2. Motion: the same command without `--still` (optionally `--scene <id>`) records each scene whose `frames_key` is not cached. 30 fps; the clock only advances per frame; CSS animations are paused and seeked to virtual time; `Math.random` and `crypto.randomUUID` come from a seeded PRNG; storage is cleared per scene; input is real `page.mouse` and `page.keyboard` events.
 3. Outputs per scene in `.cache/frames/<frames_key>/`: `NNNNNN.png`, `cursor.json` (`[{frame, x, y, down}]`, composited later by FFmpeg), and `end-state.json`.
 4. Evaluate each recorded scene with cf:usability and note findings against the scene.

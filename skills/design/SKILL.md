@@ -8,7 +8,7 @@ description: Adversarial, opinionated design-system command. Reads a PRD, SOW, b
 
 Source: Jakob Nielsen, ten usability heuristics (1994), via cf:usability; W3C, WCAG 2.2 (2023), https://www.w3.org/TR/WCAG22/; the minimal color system notes, via cf:color.
 
-Load cf:prototyping and cf:usability by name before anything else. cf:prototyping supplies the design questions and `reference/wcag-design-time.md`; cf:usability supplies the heuristics. This skill carries no heuristic checklist of its own.
+Load cf:prototyping, cf:usability, and cf:fractal by name before anything else. cf:prototyping supplies the design questions and `reference/wcag-design-time.md`; cf:usability supplies the heuristics; cf:fractal supplies the self-similarity rubric (a short module list, one grid unit, one scale ratio) that DESIGN.md should state. This skill carries no heuristic checklist of its own.
 
 ## Stance
 
@@ -38,12 +38,12 @@ With none of these, ask the user for a brief before drafting.
 Each round runs the same five steps. At most three rounds.
 
 1. Read evidence. Record each source path and the anchor (heading or line) you will cite.
-2. Draft. Write an opinionated DESIGN.md in memory from `reference/design-md-template.md`, plus a draft tokens.css. On round two and later, draft from the previous round's revision.
+2. Draft. Write an opinionated DESIGN.md in memory from `reference/design-md-template.md`, plus a draft tokens.css. Name the module set, base unit, and scale ratio per cf:fractal. On round two and later, draft from the previous round's revision.
 3. Critique. Spawn four background critic agents in parallel, each given the existing system (if any), the draft, and the evidence paths:
    - usability: loads cf:usability by name and inspects the draft against each heuristic it names
    - accessibility: checks against cf:prototyping's `reference/wcag-design-time.md`; AA is required, AAA advisory
    - brand: does the system say what the product is, and does it honor the brand assets; also checks the draft against `reference/banned-defaults.md` (dated generic AI-look defaults)
-   - simplicity: what can be deleted; every token, font, and component must earn its place
+   - simplicity: what can be deleted; every token, font, and component must earn its place; also loads cf:fractal by name and checks the draft repeats one module set, grid unit, and scale ratio at every level, with each exception justified by cf:usability or WCAG
 
    Each critic attacks both the existing system and the draft and returns findings, each with a verdict (keep, change, cut) and a reason.
 4. Consolidate. Merge critic findings. Settle uncontested ones yourself. Collect the contested calls: critics disagree, or a call trades one value against another, or the evidence is silent.

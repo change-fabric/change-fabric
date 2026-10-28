@@ -45,7 +45,7 @@ Exit codes: 0 ok, 1 a named failure (ceiling, missing key, HTTP error, invalid r
 ```
 
    Accept what is right even when it stings. Rebut only with a reason grounded in the brief, DESIGN.md, or the user's stated constraints; a rebuttal with no such ground is an accept. The next round's critic sees these and may hold the line.
-4. Apply the accepted fixes to the artifact (screens, DESIGN.md, tokens), keeping to the tokens and the cf:usability and cf:prototyping rules. Do not touch what the roast did not raise.
+4. Apply the accepted fixes to the artifact (screens, DESIGN.md, tokens), keeping to the tokens and the cf:usability, cf:fractal, and cf:prototyping rules (load cf:fractal by name before applying a layout or spacing fix, so a fix reuses an existing module instead of inventing one). Do not touch what the roast did not raise.
 5. Re-capture the screenshots, then run `roast.rb decide`. On `continue`, go to step 2 for the next round; on `stop`, finish.
 
 ## Stop rule
