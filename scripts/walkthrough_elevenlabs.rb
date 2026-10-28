@@ -48,7 +48,7 @@ module WalkthroughElevenlabs
 
   def tts_request(text:, voice_id:, model:, output_format:, settings: nil)
     body = { 'text' => text, 'model_id' => model }
-    body['voice_settings'] = settings if settings
+    body['voice_settings'] = settings if settings && !settings.empty?
     Request.new(method: :post, path: "/v1/text-to-speech/#{URI.encode_www_form_component(voice_id)}/with-timestamps",
                 query: { 'output_format' => output_format }, body: body)
   end

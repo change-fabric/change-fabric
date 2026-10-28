@@ -39,6 +39,11 @@ class WalkthroughElevenlabsTest < Minitest::Test
     assert_equal({ "text" => "Hi", "model_id" => "eleven_multilingual_v2", "voice_settings" => { "stability" => 0.5 } }, r.body)
   end
 
+  def test_tts_request_omits_empty_voice_settings
+    r = WalkthroughElevenlabs.tts_request(text: "Hi", voice_id: "v1", model: "m", output_format: "mp3_44100_128", settings: {})
+    refute r.body.key?("voice_settings")
+  end
+
   def test_decode_prefers_normalized_alignment
     d = WalkthroughElevenlabs.decode_tts(tts_body)
     assert_equal "MP3DATA", d[:audio]
