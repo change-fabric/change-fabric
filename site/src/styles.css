@@ -2210,21 +2210,367 @@ code {
   }
 }
 
-/* porcupine: only what the shared project-* styles do not cover. Its diagram
-   keeps the browser outside the region and chains three boxes inside it. */
-.porcupine .project-arch {
-  grid-template-columns: minmax(0, 1fr) auto minmax(0, 3.6fr);
+.tech-nodedotjs { --mark: url("/brand/tech/nodedotjs.svg"); width: 22px; height: 22px; }
+.tech-tmux { --mark: url("/brand/tech/tmux.svg"); width: 20px; height: 20px; }
+.tech-ruby { --mark: url("/brand/tech/ruby.svg"); width: 20px; height: 20px; }
+.tech-openrouter { --mark: url("/brand/tech/openrouter.svg"); width: 22px; height: 22px; }
+.tech-wireguard { --mark: url("/brand/tech/wireguard.svg"); width: 20px; height: 20px; }
+.tech-caddy { --mark: url("/brand/tech/caddy.svg"); width: 22px; height: 22px; }
+
+/* porcupine: only what the shared project-* styles do not cover. The hero
+   leads with the product: copy on the left, a real phone capture on the
+   right, in a flat frame. */
+.porcupine .hero.porcupine-hero {
+  max-width: none;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--s7);
 }
-.porcupine .project-region {
+.porcupine-hero-text {
+  max-width: 36rem;
+}
+.porcupine-hero-logo {
+  display: block;
+  border-radius: var(--radius);
+  margin-bottom: var(--s4);
+}
+.porcupine-phone {
+  flex: none;
+  width: 300px;
+  padding: 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: 40px;
+  background: var(--surface);
+}
+.porcupine-phone img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 32px;
+  border: 1px solid var(--border);
+}
+.porcupine-phone-small {
+  width: 220px;
+  padding: 6px;
+  border-radius: 28px;
+}
+.porcupine-phone-small img {
+  border-radius: 22px;
+}
+
+/* The tool strip: grouped grayscale marks, labelled by role. */
+.porcupine-tools {
+  margin-top: var(--s7);
+  padding: var(--s5) 0;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+.porcupine-tools-title,
+.porcupine-tool-label {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  font-weight: 400;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 0 0 var(--s3);
+}
+.porcupine-tool-groups {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s5) var(--s7);
+}
+.porcupine-tool-group ul,
+.porcupine-prereqs ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s3) var(--s5);
+}
+.porcupine-tool-group li {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+.porcupine-tool-group .porcupine-tool-label {
+  font-size: 0.68rem;
+  margin-bottom: var(--s2);
+}
+
+/* Watch, steer, stop: three framed captures with numbered captions. */
+.porcupine-shots {
+  list-style: none;
+  margin: var(--s5) 0 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--s6);
+}
+.porcupine-shots li {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--s4);
+}
+.porcupine-shots .porcupine-phone {
+  width: 100%;
+  max-width: 260px;
+}
+.porcupine-shots li > div {
+  max-width: 260px;
+  width: 100%;
+}
+.porcupine-shots h3 {
+  font-size: 1.15rem;
+  font-weight: 600;
+  margin: var(--s1) 0;
+}
+.porcupine-shots p {
+  color: var(--muted);
+  font-size: 0.95rem;
+  margin: 0;
+}
+
+/* The diagram: the private network is the dashed outer region; the host is
+   a solid box inside it holding the proxy, hub and sessions. */
+.porcupine-net {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 4fr);
+  align-items: center;
+  gap: var(--s2);
+  margin-top: var(--s5);
+  padding: var(--s6) var(--s4) var(--s4);
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius);
+}
+.porcupine-host {
+  position: relative;
+  display: grid;
   grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: var(--s3);
+  padding: var(--s6) var(--s4) var(--s4);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+.porcupine-host-label {
+  position: absolute;
+  top: var(--s2);
+  left: var(--s3);
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
 }
 .porcupine .project-hub-title {
   font-size: 1.15rem;
   white-space: nowrap;
 }
-@media (max-width: 760px) {
-  .porcupine .project-arch,
-  .porcupine .project-region {
+.porcupine-net-note {
+  max-width: 46rem;
+}
+.porcupine-devices {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--s6);
+  margin-top: var(--s6);
+}
+.porcupine-devices figure {
+  margin: 0;
+}
+.porcupine-laptop {
+  flex: 1 1 0;
+  min-width: 0;
+}
+.porcupine-laptop img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  box-shadow: 0 0 0 8px var(--surface), 0 0 0 9px var(--border-strong);
+}
+.porcupine-devices figcaption {
+  margin-top: var(--s4);
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+.porcupine-iphone {
+  flex: none;
+}
+
+/* Features: one lead item, then three smaller ones. */
+.porcupine-lead {
+  margin-top: var(--s5);
+  padding: var(--s5) 0;
+  border-top: 1px solid var(--border-strong);
+  border-bottom: 1px solid var(--border);
+  max-width: 46rem;
+}
+.porcupine-lead h3 {
+  font-family: var(--font-serif);
+  font-size: 1.7rem;
+  font-weight: 500;
+  margin: var(--s2) 0;
+}
+.porcupine-lead p {
+  color: var(--muted);
+  margin: 0 0 var(--s3);
+}
+.porcupine-features {
+  list-style: none;
+  margin: var(--s5) 0 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.6fr) minmax(0, 1fr);
+  gap: var(--s6);
+  align-items: start;
+}
+.porcupine-features li {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+}
+.porcupine-features h3 {
+  font-size: 1.15rem;
+  font-weight: 600;
+  margin: 0;
+}
+.porcupine-features p {
+  color: var(--muted);
+  font-size: 0.95rem;
+  margin: 0;
+}
+.porcupine-features a,
+.porcupine-lead a {
+  padding-top: var(--s2);
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+.porcupine-feature-media {
+  position: relative;
+  margin-bottom: var(--s4);
+  padding-right: 64px;
+}
+.porcupine-feature-img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+}
+.porcupine-feature-media .porcupine-phone {
+  position: absolute;
+  right: 0;
+  bottom: -12px;
+  width: 120px;
+  padding: 4px;
+  border-radius: 18px;
+}
+.porcupine-feature-media .porcupine-phone img {
+  border-radius: 14px;
+}
+
+/* Install: prerequisites, the security note, then the steps. */
+.porcupine-prereqs {
+  margin-top: var(--s5);
+}
+.porcupine-prereqs li {
+  font-size: 0.9rem;
+  padding: var(--s1) var(--s3);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+}
+.porcupine-security {
+  margin: var(--s5) 0;
+  max-width: 46rem;
+  padding: var(--s3) var(--s4);
+  border-left: 2px solid var(--accent);
+  background: var(--surface);
+}
+.porcupine-security p {
+  margin: 0;
+  font-size: 0.95rem;
+}
+.porcupine-security .porcupine-security-label {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: var(--s1);
+}
+/* Long commands scroll inside the block with a visible bar, never the page. */
+.porcupine .project-code pre {
+  padding-bottom: var(--s3);
+}
+.porcupine .project-code pre::-webkit-scrollbar {
+  height: 6px;
+}
+.porcupine .project-code pre::-webkit-scrollbar-track {
+  background: transparent;
+}
+.porcupine .project-code pre::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 3px;
+}
+@supports not selector(::-webkit-scrollbar) {
+  .porcupine .project-code pre {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-strong) transparent;
+  }
+}
+.porcupine-trust {
+  max-width: 46rem;
+  margin-bottom: var(--s7);
+}
+
+@media (max-width: 960px) {
+  .porcupine .hero.porcupine-hero {
     grid-template-columns: minmax(0, 1fr);
+  }
+  .porcupine-hero .porcupine-phone {
+    width: 260px;
+    justify-self: center;
+  }
+  .porcupine-features {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .porcupine-feature-media {
+    max-width: 30rem;
+  }
+}
+@media (max-width: 760px) {
+  .porcupine-shots,
+  .porcupine-net,
+  .porcupine-host {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .porcupine-shots {
+    gap: var(--s7);
+  }
+  .porcupine-devices {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .porcupine-iphone {
+    align-self: center;
+  }
+  .porcupine .project-code code {
+    font-size: 0.78rem;
+  }
+  /* A fade at the right edge says the line continues. */
+  .porcupine .project-code pre {
+    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
+    mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
   }
 }
