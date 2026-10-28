@@ -24,6 +24,23 @@ module ChangeDocker
   # small, and the digest pins it the same way every other runner image here
   # is pinned.
   NODE_IMAGE = 'node:22-alpine@sha256:0a7108bf6c7bf5de370ffb1a3ed6be93d405b43ff159f681a8d18c0e2bc2e402'
+  # The FFmpeg image cf:walkthrough composes and renders with. It must carry
+  # libass (burned-in subtitles) and libx264 (H.264 output); verified with:
+  #   docker run --rm jrottenberg/ffmpeg:7.1.2-ubuntu2404 -hide_banner -buildconf | grep -E 'libass|libx264'
+  # and pinned from `docker buildx imagetools inspect`.
+  FFMPEG_IMAGE = 'jrottenberg/ffmpeg:7.1.2-ubuntu2404@sha256:292a972c60356abd651d9a4f9c808c13e7473f65ad400b7eb99215f4e571931d'
+  # Icon packages fetched by `npm pack` inside NODE_IMAGE and checked against
+  # these sha512 integrity values; a mismatch fails, never falls back.
+  PHOSPHOR_PKG = {
+    name: '@phosphor-icons/core',
+    version: '2.1.1',
+    integrity: 'sha512-v4ARvrip4qBCImOE5rmPUylOEK4iiED9ZyKjcvzuezqMaiRASCHKcRIuvvxL/twvLpkfnEODCOJp5dM4eZilxQ=='
+  }.freeze
+  SIMPLE_ICONS_PKG = {
+    name: 'simple-icons',
+    version: '16.36.0',
+    integrity: 'sha512-+VNPPkqSOLidFeSgBKUWX4n50WPpDC09hav+BgS26anIF1oQOlGBb8LvwGR+6fYRjo+B6CiKzNBceMPkSVXANQ=='
+  }.freeze
 
   # The hostname a runner container addresses the host by, and the docker
   # magic value that makes it resolve. The spec has always told authors to
