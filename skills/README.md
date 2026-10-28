@@ -93,6 +93,7 @@ The cf shim then surfaces it without anyone invoking it:
 | Key | Meaning |
 |---|---|
 | `extensions` | File extensions (no dot) that trigger per-edit surfacing |
+| `paths` | Globs matched against the path or any path suffix (e.g. `**/DESIGN.md`; used by `cf:usability`) |
 | `basenames` | Exact filenames that trigger surfacing (e.g. `Rakefile`) |
 | `detect` | Glob markers, relative to project root, that mark the skill active at SessionStart |
 | `all_code` | `true` = matches every code file via the central extension list (used by `cf:refactoring`) |

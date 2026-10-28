@@ -217,4 +217,10 @@ class SkillInjectTest < Minitest::Test
     SkillInject.new(event, skills: registry).emit(io)
     refute_empty io.string
   end
+
+  def test_shipped_usability_surfaces_on_html_not_ruby
+    shipped = SkillRegistry.load(REPO_SKILLS)
+    assert_includes context(tool: "Edit", path: "/p/index.html", skills: shipped), "usability"
+    refute_includes context(tool: "Edit", path: "/p/app.rb", skills: shipped).to_s, "cf:usability"
+  end
 end

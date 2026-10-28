@@ -178,6 +178,7 @@ class InstallerTest < Minitest::Test
     linked = paths.skill_sources.map { |s| Install::SkillName.of(s) }
     assert_includes linked, "cf:ruby"
     assert_includes linked, "cf:refactoring"
+    assert_includes linked, "cf:usability"
     assert_includes linked, "cf", "the namespace root stays unprefixed, not cf:cf"
   end
 
