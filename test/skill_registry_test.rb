@@ -84,4 +84,24 @@ class SkillRegistryTest < Minitest::Test
     assert by_name["cf:ai-slop"].matches?("docs/notes.md")
     assert by_name["cf:ai-slop"].matches?("app/models/user.rb")
   end
+
+  # Paid media skills spend real money: they must never auto-fire on a model
+  # guess. No auto block, and the description says they run only when invoked.
+  def test_paid_media_skills_are_user_invoked_only
+    skills = Dir[File.join(REPO_SKILLS, "{narrate,music,b-roll}", "SKILL.md")]
+    assert_operator skills.size, :>=, 2
+    registered = SkillRegistry.load(REPO_SKILLS).map(&:name)
+    skills.each do |path|
+      meta = YAML.safe_load(File.read(path)[/\A---\n(.*?)\n---/m, 1])
+      refute meta.key?("auto"), "#{meta['name']} must have no auto block"
+      refute_includes registered, meta["name"]
+      assert_match(/only when invoked by name/, meta["description"], meta["name"])
+    end
+  end
+
+  def test_walkthrough_publish_step_is_never_auto
+    body = File.read(File.join(REPO_SKILLS, "walkthrough", "SKILL.md"))
+    assert_match(/Publish \(only when the user asked/, body)
+    refute SkillRegistry.load(REPO_SKILLS).map(&:name).include?("cf:walkthrough")
+  end
 end

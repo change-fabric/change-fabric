@@ -1,7 +1,7 @@
 ---
 name: cf:music
 group: workflow
-description: Music command. Turns a prompt plus duration, a composition plan file, or a storyboard.json (sized to its timeline) into an ElevenLabs music track cached by content key, with a cost estimate printed before any paid call. Composition plans are unseedable, so the cache is authoritative. Usable alone, outside any walkthrough, and loaded by name by cf:walkthrough.
+description: Music command. Turns a prompt plus duration, a composition plan file, or a storyboard.json (sized to its timeline) into an ElevenLabs music track cached by content key, with a cost estimate printed before any paid call. Composition plans are unseedable, so the cache is authoritative. Paid, so it runs only when invoked by name or loaded by cf:walkthrough, never auto-applied or chosen on a model guess. Usable alone, outside any walkthrough.
 ---
 
 # CF music
