@@ -195,10 +195,18 @@ module PrototypeCapture
   # drops the connection mid-response.
   BATCH_PIXELS = 1280 * 720
 
-  def batch_size(viewport)
+  # Browserless's CDP websocket drops a response over 256 MiB (the call hangs
+  # to its timeout), so a batch's measured base64 bytes stay under half that.
+  BATCH_MAX_BYTES = 128 * 1024 * 1024
+
+  # `bytes_per_frame` (measured from a finished batch) further caps the size.
+  def batch_size(viewport, bytes_per_frame: nil)
     vp = DEFAULT_VIEWPORT.merge(viewport || {})
     pixels = vp['w'] * vp['h'] * (vp['dpr']**2)
-    (BATCH_FRAMES * BATCH_PIXELS / pixels.to_f).floor.clamp(10, BATCH_FRAMES)
+    size = (BATCH_FRAMES * BATCH_PIXELS / pixels.to_f).floor.clamp(10, BATCH_FRAMES)
+    return size unless bytes_per_frame&.positive?
+
+    [ size, BATCH_MAX_BYTES / bytes_per_frame ].min.clamp(1, BATCH_FRAMES)
   end
 
   def batches(frames, size = BATCH_FRAMES)
@@ -329,7 +337,11 @@ module PrototypeCapture
     # Each batch replays the scene from its seeded start, without screenshots
     # before its first frame, so the DOM, store, and clock it captures from are
     # exactly the ones the previous batch ended on.
-    batches(frames, batch_size(viewport)).each do |range|
+    first = 0
+    size = batch_size(viewport)
+    while first < frames
+      range = first...[ first + size, frames ].min
+      first = range.last
       code = function_module(html: html, plan: plan, range: range, viewport: viewport, prng_seed: prng_seed, state: state, fps: fps)
       result = check_result!(run_with_retry(session, code), label)
       result['frames'].each_with_index do |b64, k|
@@ -337,6 +349,8 @@ module PrototypeCapture
       end
       positions.concat(result['cursor'])
       end_state = result['endState']
+      measured = result['frames'].sum(&:bytesize) / [ result['frames'].size, 1 ].max
+      size = batch_size(viewport, bytes_per_frame: measured)
     end
     File.write(File.join(out_dir, 'cursor.json'), JSON.pretty_generate(cursor_path(positions)))
     File.write(File.join(out_dir, 'end-state.json'), JSON.pretty_generate(end_state))
@@ -347,15 +361,24 @@ module PrototypeCapture
   # (EOFError, ECONNRESET) on an otherwise healthy session. A batch is a pure
   # replay from its seeded start, so re-running it is safe.
   BATCH_RETRIES = 2
-  DROPPED = [ EOFError, Errno::ECONNRESET, Errno::EPIPE ].freeze
+  # ECONNREFUSED is a dropped response too: the container died mid-request.
+  DROPPED = [ EOFError, Errno::ECONNRESET, Errno::EPIPE, Errno::ECONNREFUSED ].freeze
 
+  class BrowserlessGoneError < StandardError; end
+
+  # Before each retry the container must still answer; if it does not, retrying
+  # only talks into a void, so fail with a clear error instead.
   def run_with_retry(session, code, retries: BATCH_RETRIES)
     attempt = 0
     begin
       session.run_function(code)
-    rescue *DROPPED
+    rescue *DROPPED => e
       attempt += 1
       raise if attempt > retries
+
+      if session.respond_to?(:alive?) && !session.alive?
+        raise BrowserlessGoneError, "browserless container gone (#{e.class}: #{e.message}); something removed it mid-render"
+      end
 
       retry
     end

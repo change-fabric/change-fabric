@@ -198,6 +198,51 @@ class PrototypeCaptureTest < Minitest::Test
     assert_raises(EOFError) { PrototypeCapture.run_with_retry(FlakySession.new(3), "const first = 0; const last = 0;") }
   end
 
+  class GoneSession < FakeSession
+    def initialize
+      super
+      @calls = 0
+    end
+
+    attr_reader :calls
+
+    def run_function(_code)
+      @calls += 1
+      raise(@calls == 1 ? EOFError : Errno::ECONNREFUSED, "gone")
+    end
+
+    def alive? = false
+  end
+
+  def test_retry_after_a_lost_container_raises_a_clear_error
+    session = GoneSession.new
+    error = assert_raises(PrototypeCapture::BrowserlessGoneError) { PrototypeCapture.run_with_retry(session, "x") }
+    assert_match(/container gone/, error.message)
+    assert_equal 1, session.calls
+  end
+
+  def test_connection_refused_is_retried_when_the_container_is_alive
+    session = Class.new(FlakySession) do
+      def run_function(code)
+        @refused ||= false
+        raise Errno::ECONNREFUSED unless @refused.tap { @refused = true }
+
+        super
+      end
+
+      def alive? = true
+    end.new(0)
+    assert session.then { |s| PrototypeCapture.run_with_retry(s, "const first = 0; const last = 0;") }
+  end
+
+  def test_batch_size_caps_by_measured_bytes
+    vp = { "w" => 1280, "h" => 720, "dpr" => 1 }
+    assert_equal 90, PrototypeCapture.batch_size(vp, bytes_per_frame: 1_000_000)
+    assert_equal 26, PrototypeCapture.batch_size(vp, bytes_per_frame: 5_000_000)
+    assert_operator PrototypeCapture.batch_size(vp, bytes_per_frame: 5_000_000) * 5_000_000, :<=, 128 * 1024 * 1024
+    assert_equal 1, PrototypeCapture.batch_size(vp, bytes_per_frame: 500_000_000)
+  end
+
   def test_scene_duration_is_derived
     assert_equal 3000, PrototypeCapture.scene_duration("timing" => { "min_ms" => 3000, "pad_ms" => 400 }, "narration" => { "measured_ms" => 1000 })
     assert_equal 5400, PrototypeCapture.scene_duration("timing" => { "min_ms" => 3000, "pad_ms" => 400 }, "narration" => { "measured_ms" => 5000 })
