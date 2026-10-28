@@ -36,11 +36,19 @@ The walkthrough is the launch video of the finished product, the press release s
    Optional B-roll: a scene may be `kind: "ai-broll"`, a short AI clip animated from an existing still (for example the hero still made with cf:image), never for UI. It carries a `broll` block and no screen; the rubric, ceiling, and fallbacks are in cf:b-roll. Every clip is listed under "Generated footage" in `ASSUMPTIONS.md`.
 6. Estimate: `ruby ~/.claude/cf/bin/walkthrough_render.rb walkthrough/<slug> --estimate-only` prints the ElevenLabs, OpenAI, and Google (b-roll) cost of everything not yet cached, with the b-roll ceiling (`--max-usd <n>`, default 1.00); `elevenlabs.rb narrate --storyboard <json> --estimate-only` and `elevenlabs.rb music --storyboard <json> --estimate-only` (cf:narrate, cf:music) price each part alone. Show it to the user before any paid call.
 7. Draft: `walkthrough_render.rb walkthrough/<slug> --draft` (medium image quality). It narrates (the cf:narrate flow over the same cache), generates images, generates b-roll clips (cf:b-roll; a failed or over-ceiling clip falls back to Ken Burns or the static still and the render continues), captures frames in the pinned browserless container, composes music for the total timeline (the cf:music flow), rebuilds `manifest.json`, and assembles with two FFmpeg passes. Review the stills, the captions, and the draft MP4 with the user, scene by scene, against cf:usability.
-8. Final: `walkthrough_render.rb walkthrough/<slug> --final` (high image quality). It prints the manifest hash and the MP4 sha256; the MP4 is under `.cache/render/<manifest_hash>/`.
+   Every draft then runs the two gates below and prints both results.
+8. Final: `walkthrough_render.rb walkthrough/<slug> --final` (high image quality). It refuses while the UX lint has any finding or the latest draft roast has an open P0 or P1 (see Gates). It prints the manifest hash and the MP4 sha256; the MP4 is under `.cache/render/<manifest_hash>/`.
 9. Flats (required output alongside the MP4): author `flats.json` from the PRD information architecture (every major screen plus empty, error, and success states, not only the screens in the video), then `ruby ~/.claude/cf/bin/prototype_flats.rb walkthrough/<slug>`. See the cf:prototype Flats section; it writes `flats/{light,dark}/`, the two overview boards, and `flats/index.md`.
 10. Publish (only when the user asked for it or approves the final; never auto-fire, since it uploads to GitHub): `ruby ~/.claude/cf/bin/walkthrough_publish.rb walkthrough/<slug> [--pr N | --issue N | --none] [--comment]` (or pass the MP4 path). See Publishing below.
 
-Optional: before the draft render, when the user wants an outside critique of the screens, load cf:roast by name (paid, never automatic) and apply its accepted fixes.
+## Gates
+
+Two gates stand between a draft and `--final`.
+
+1. UX lint (free, always on, draft and final). Every capture runs `PrototypeUxLint` in the page at scene start, middle, and end, at each scripted step, half a second after each click, and when a toast or sheet first appears. Rules: `empty-control`, `occlusion`, `clipped-text`, `cursor-over-label`, `contradictory-state` (defined in cf:prototype). Each scene's report sits in its frames dir; the merged report is `ux-lint.json` beside the MP4. Any finding blocks `--final`; `--allow-ux-findings` overrides. It only reads layout, so clean screens keep their frame keys and frames.
+2. Draft roast (paid, every draft). After assembly the render pulls keyframes from the draft MP4 (each scene's start, middle, and end, plus each toast or sheet's first frame), prints the estimate, and runs one cf:roast round against the walkthrough rubric in `WalkthroughRoast::RUBRIC` (blank or unlabeled controls, overlays hiding controls, cursor and label collisions, state contradictions, caption and safe-area collisions, readability at 1080p, cf:fractal and cf:usability consistency). Its ceiling is its own: `--roast-max-usd <n>`, default 0.50; an estimate past it, or a missing key, skips the round and the draft stands. Rounds land in `walkthrough/<slug>/roast/` (`round-N.json`, `round-N.md`, keyframes under `keyframes/round-N/`). `--no-roast` skips it for an offline draft.
+
+Between drafts, follow cf:roast: write `round-N.response.json`, apply the accepted fixes, render the next draft. `--final` refuses while the latest round has a P0 or P1 not rebutted in its response file; `--allow-roast-findings` overrides. The script only gates and reports; judgment stays here.
 
 ## Publishing
 
@@ -81,6 +89,7 @@ walkthrough/<slug>/
   screens/<scene-id>.html  screens/tokens.css  screens/mock-store.js  screens/assets/
   data/seed.json  flats.json  .gitignore (.cache/ flats/ *.mp4 overview*.png)
   flats/  index.md  light/  dark/  (generated, ignored)
+  roast/  round-N.json  round-N.md  round-N.response.json  keyframes/
   .cache/  frames/  audio/  music/  images/  broll/  icons/  render/<manifest_hash>/
 ```
 

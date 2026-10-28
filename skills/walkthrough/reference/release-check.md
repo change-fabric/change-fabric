@@ -21,6 +21,8 @@ Record, from the run output and the cache:
 3. Duration: `timeline.total_ms` from manifest.json.
 4. Integrated loudness: `input_i` from the pass 1 loudnorm JSON.
 
+Gates: the `--final` run must print `ux lint: 0 finding(s)`; a finding means a fixture screen regressed. The fixture has no draft roast on record, so the roast gate prints `roast gate: no draft roast on record` and passes. Do not pass `--allow-ux-findings` or `--allow-roast-findings` here. To exercise the roast gate, render `--draft` first (one paid round, estimate printed, $0.50 ceiling) and confirm `roast/round-1.json` and its keyframes exist.
+
 Then delete `.cache/render/` only and run the same command again. Compare:
 
 - the set of `.cache/frames/<frames_key>/` directories: must match;

@@ -12,7 +12,7 @@ A thin command over `ruby ~/.claude/cf/bin/roast.rb`, which makes one critic cal
 
 ## When
 
-Optional, after screens exist: cf:design may roast a draft's mock screens, cf:prototype and cf:walkthrough may roast the stills before recording motion. Never for a repo with no visual artifact, and never without the user knowing it spends money.
+Optional, after screens exist: cf:design may roast a draft's mock screens, cf:prototype and cf:walkthrough may roast the stills before recording motion. cf:walkthrough also runs one round automatically on every draft render (keyframes of the draft MP4, a walkthrough rubric, its own $0.50 ceiling via `--roast-max-usd`, rounds in `walkthrough/<slug>/roast/`), and its `--final` refuses while the latest round has a P0 or P1 not rebutted in `round-N.response.json` unless `--allow-roast-findings` is passed. The response, fix, and next-draft loop below is the same. Never for a repo with no visual artifact, and never without the user knowing it spends money.
 
 ## Inputs
 
