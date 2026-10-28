@@ -1693,7 +1693,48 @@ code {
 }
 
 .hero.moose-hero + .home-section {
-  margin-top: var(--s7);
+  margin-top: var(--s6);
+}
+
+/* The lower sections are short, so they sit closer than the homepage's. */
+.moose .home-section ~ .home-section {
+  margin-top: 60px;
+}
+
+.moose-steps {
+  list-style: none;
+  counter-reset: step;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--s5);
+  max-width: 46rem;
+}
+
+.moose-steps li {
+  counter-increment: step;
+}
+
+.moose-steps h3 {
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 0;
+}
+
+.moose-steps h3::before {
+  content: "0" counter(step);
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  font-weight: 400;
+  color: var(--accent);
+  margin-right: var(--s2);
+}
+
+.moose-steps p {
+  color: var(--muted);
+  font-size: 0.9rem;
+  margin: var(--s1) 0 var(--s2);
 }
 
 .moose .hero h1 {
@@ -1789,9 +1830,9 @@ code {
    filled moose hub carries the weight. */
 .moose-arch {
   display: grid;
-  grid-template-columns: minmax(0, 2.4fr) auto minmax(0, 1fr);
+  grid-template-columns: minmax(0, 2.6fr) auto minmax(0, 1fr);
   align-items: center;
-  gap: var(--s3);
+  gap: var(--s2);
 }
 
 .moose-tailnet {
@@ -1875,7 +1916,7 @@ code {
   align-items: center;
   gap: var(--s1);
   margin: 0;
-  min-width: 6.5rem;
+  min-width: 5.5rem;
 }
 
 .moose-link-label {

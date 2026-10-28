@@ -53,19 +53,16 @@ const DEPLOYS = [
   },
 ];
 
-// The README's own local dev hub: plain HTTP, a fixed identity, refused in
-// prod. ./scripts/go runs Go in the golang image with host networking, so the
-// credentials path is the repo as mounted inside that container.
-const QUICK_START = `git clone https://github.com/change-fabric/moose.git
+// The README's own local dev hub, split into its two shells. ./scripts/go runs
+// Go in the golang image with host networking, so the credentials path is the
+// repo as mounted inside that container.
+const START_HUB = `git clone https://github.com/change-fabric/moose.git
 cd moose
-
-# Start a local dev hub (plain HTTP, fixed identity, refused in prod)
 MOOSE_ENV=dev MOOSE_LISTEN=127.0.0.1:8787 MOOSE_DEV_IDENTITY=me@example.com \\
   MOOSE_BOOTSTRAP_ADMIN=me@example.com ./scripts/go run ./cmd/moosed
+`;
 
-# In a second shell: mint a first token, then check who you are.
-# The path is inside the Go container, where the repo is mounted at /src.
-export MOOSE_CREDENTIALS=/src/dist/dev-credentials.json
+const FIRST_TOKEN = `export MOOSE_CREDENTIALS=/src/dist/dev-credentials.json
 ./scripts/go run ./cmd/moose token bootstrap --url http://127.0.0.1:8787 --name dev
 ./scripts/go run ./cmd/moose whoami
 `;
@@ -202,9 +199,24 @@ export function Moose() {
             official golang image with host networking. On Docker Desktop, turn host networking on
             first.
           </p>
-          <div className="moose-code">
-            <CodeBlock code={QUICK_START} label="bash" />
-          </div>
+          <ol className="moose-steps">
+            <li>
+              <h3>Start a dev hub</h3>
+              <p>Plain HTTP and a fixed identity, for trying moose locally. It refuses to run in prod.</p>
+              <div className="moose-code">
+                <CodeBlock code={START_HUB} label="shell 1" />
+              </div>
+            </li>
+            <li>
+              <h3>Mint a token and check who you are</h3>
+              <p>
+                In a second shell. <code>/src</code> is the repo as mounted inside the Go container.
+              </p>
+              <div className="moose-code">
+                <CodeBlock code={FIRST_TOKEN} label="shell 2" />
+              </div>
+            </li>
+          </ol>
           <p className="home-note">
             Then follow the <External href={README_URL}>setup guide</External> to connect Google
             Drive and your agents.
