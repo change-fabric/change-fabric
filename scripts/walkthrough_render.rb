@@ -193,7 +193,7 @@ module WalkthroughRender
       scenes.any? do |scene|
         next false unless capture_target?(scene) && !broll?(scene)
 
-        prep = PrototypeCapture.prepare(@board, scene, @root, memo)
+        prep = PrototypeCapture.prepare(@board, scene, @root, memo, final: @final)
         !captured?(prep)
       rescue ArgumentError
         true
@@ -223,12 +223,12 @@ module WalkthroughRender
       scenes.each do |scene|
         next if broll?(scene)
 
-        prep = PrototypeCapture.prepare(@board, scene, @root, memo)
+        prep = PrototypeCapture.prepare(@board, scene, @root, memo, final: @final)
         next if captured?(prep) || !capture_target?(scene)
 
         duration = PrototypeCapture.scene_duration(scene)
         say("#{scene['id']}: capturing #{scene_frames(scene)} frames")
-        @p[:capture].call(session: session, html: PrototypeCapture.inline_screen(prep[:html_path]),
+        @p[:capture].call(session: session, html: PrototypeCapture.inline_screen(prep[:html_path], remap: prep[:remap]),
                           interactions: scene['interactions'] || [], duration_ms: duration, out_dir: prep[:out_dir],
                           state: prep[:state], prng_seed: prep[:prng_seed], viewport: @board['viewport'], fps: fps,
                           label: scene['id'])
@@ -377,8 +377,10 @@ module WalkthroughRender
       generate_images
       generate_broll
       capture_frames
-      keys = WalkthroughStoryboard.recompute_keys(@board, @root)
-      WalkthroughStoryboard.fix_keys(@board, @root, keys)
+      keys = WalkthroughStoryboard.recompute_keys(@board, @root, final: @final)
+      # Authored deps stay at the authored (draft) quality: a final render's
+      # keys live in the manifest only, so validate does not report stale.
+      WalkthroughStoryboard.fix_keys(@board, @root, keys) unless @final
       manifest = WalkthroughManifest.build(@board, @root, keys: keys)
       generate_music(manifest.dig('timeline', 'total_ms'))
       File.write(@board_path, "#{JSON.pretty_generate(@board)}\n")

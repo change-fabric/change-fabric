@@ -6,6 +6,7 @@ require 'fileutils'
 require 'json'
 require_relative 'browserless_js'
 require_relative 'change_docker'
+require_relative 'prototype_imagegen'
 require_relative 'walkthrough_cache'
 
 # Records a cf:prototype mock screen as a PNG frame sequence under a fixed,
@@ -60,25 +61,46 @@ module PrototypeCapture
   # scripts become inline elements, everything else a data URI. Only src and
   # href attribute values are discovered; CSS is never parsed, though a local
   # url() reference inside an inlined stylesheet is swapped for a data URI.
-  def inline_screen(path)
+  #
+  # `remap` swaps draft image keys for final-quality ones in each local ref
+  # before it is resolved, so a --final capture inlines the high-quality
+  # image the screen's content-keyed cache path would otherwise miss.
+  def inline_screen(path, remap: {})
     dir = File.dirname(File.expand_path(path))
     html = File.read(path)
     check_supported!(html, File.basename(path))
     html = html.gsub(%r{<link\b[^>]*\bhref\s*=\s*(["'])([^"']+\.css)\1[^>]*>}im) do
       href = Regexp.last_match(2)
-      local_ref?(href) ? "<style>#{inline_css(asset_path(dir, href))}</style>" : Regexp.last_match(0)
+      local_ref?(href) ? "<style>#{inline_css(asset_path(dir, swap_keys(href, remap)), remap)}</style>" : Regexp.last_match(0)
     end
     html = html.gsub(%r{<script\b([^>]*)\bsrc\s*=\s*(["'])([^"']+)\2([^>]*)>\s*</script>}im) do
       src = Regexp.last_match(3)
       next Regexp.last_match(0) unless local_ref?(src)
 
-      "<script#{(Regexp.last_match(1) + Regexp.last_match(4)).rstrip}>#{File.read(asset_path(dir, src)).gsub('</script', '<\/script')}</script>"
+      "<script#{(Regexp.last_match(1) + Regexp.last_match(4)).rstrip}>#{File.read(asset_path(dir, swap_keys(src, remap))).gsub('</script', '<\/script')}</script>"
     end
     html.gsub(ATTR_RE) do
       attr, quote, value = Regexp.last_match.captures
       next Regexp.last_match(0) unless local_ref?(value) && !value.end_with?('.html')
 
-      "#{attr}=#{quote}#{data_uri(asset_path(dir, value))}#{quote}"
+      "#{attr}=#{quote}#{data_uri(asset_path(dir, swap_keys(value, remap)))}#{quote}"
+    end
+  end
+
+  def swap_keys(ref, remap) = remap.reduce(ref) { |acc, (draft, final)| acc.gsub(draft, final) }
+
+  # Draft image key => final-quality key for one scene, used when rendering
+  # --final. Empty for a draft render and for images already at final
+  # quality, so draft hashes never change.
+  def final_remap(scene, root, final)
+    return {} unless final
+
+    Array(scene['images']).each_with_object({}) do |img, map|
+      args = { prompt: img['prompt'].to_s, size: img['size'] || '1024x1024', refs: Array(img['refs']).map { |r| File.join(root, r) },
+               model: img['model'] || PrototypeImagegen::MODEL }
+      draft = PrototypeImagegen.asset_key(**args, quality: img['quality'] || PrototypeImagegen::QUALITY_DRAFT)
+      high = PrototypeImagegen.asset_key(**args, quality: PrototypeImagegen::QUALITY_FINAL)
+      map[draft] = high unless draft == high
     end
   end
 
@@ -89,14 +111,14 @@ module PrototypeCapture
     path
   end
 
-  def inline_css(path)
+  def inline_css(path, remap = {})
     css = File.read(path)
     dir = File.dirname(path)
     css.gsub(/url\(\s*(["']?)([^"')]+)\1\s*\)/i) do
       ref = Regexp.last_match(2)
       raise UnsupportedContentError, "#{File.basename(path)}: remote url(#{ref}) is not supported" if remote?(ref)
 
-      local_ref?(ref) ? "url(\"#{data_uri(asset_path(dir, ref))}\")" : Regexp.last_match(0)
+      local_ref?(ref) ? "url(\"#{data_uri(asset_path(dir, swap_keys(ref, remap)))}\")" : Regexp.last_match(0)
     end
   end
 
@@ -397,7 +419,7 @@ module PrototypeCapture
 
   # Resolves a scene's starting state and frames_key, recursing through its
   # from_scene chain via that scene's cached end-state.json.
-  def prepare(board, scene, root, memo = {})
+  def prepare(board, scene, root, memo = {}, final: false)
     return memo[scene['id']] if memo[scene['id']]
 
     store = scene['store'] || {}
@@ -406,7 +428,7 @@ module PrototypeCapture
     from = nil
     if store['from_scene']
       parent = board['scenes'].find { |s| s['id'] == store['from_scene'] } || raise(ArgumentError, "unknown from_scene #{store['from_scene']}")
-      parent_end = File.join(prepare(board, parent, root, memo)[:out_dir], 'end-state.json')
+      parent_end = File.join(prepare(board, parent, root, memo, final: final)[:out_dir], 'end-state.json')
       raise ArgumentError, "capture #{parent['id']} before #{scene['id']}" unless File.file?(parent_end)
 
       from = JSON.parse(File.read(parent_end))
@@ -414,13 +436,14 @@ module PrototypeCapture
     state = resolve_state(seed, from_end_state: from, patch: store['patch'])
     html_path = File.join(root, scene.dig('screen', 'html'))
     prng = store['prng_seed'] || default_prng_seed(scene['id'])
-    key = frames_key(html: sha256_file(html_path), inlined: Digest::SHA256.hexdigest(inline_screen(html_path)),
+    remap = final_remap(scene, root, final)
+    key = frames_key(html: sha256_file(html_path), inlined: Digest::SHA256.hexdigest(inline_screen(html_path, remap: remap)),
                      tokens: board['tokens_css_sha256'], interactions: scene['interactions'] || [],
                      viewport: board['viewport'], fps: board['fps'] || FPS, duration_ms: scene_duration(scene),
                      seed: seed_path && sha256_file(seed_path),
                      mock_store: sha256_file(File.join(root, 'screens', 'mock-store.js')),
-                     state: WalkthroughCache.key(state), prng_seed: prng)
-    memo[scene['id']] = { key: key, state: state, prng_seed: prng, html_path: html_path,
+                     state: WalkthroughCache.key(state), prng_seed: prng, **(remap.empty? ? {} : { images: remap }))
+    memo[scene['id']] = { key: key, state: state, prng_seed: prng, html_path: html_path, remap: remap,
                           out_dir: File.join(root, '.cache', 'frames', key) }
   end
 end

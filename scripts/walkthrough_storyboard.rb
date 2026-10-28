@@ -211,26 +211,26 @@ module WalkthroughStoryboard
                            output_format: voice['output_format'], settings: voice['settings'] || {} })
   end
 
-  def asset_keys(scene, root)
+  def asset_keys(scene, root, final: false)
     Array(scene['images']).map do |img|
       refs = Array(img['refs']).map { |ref| File.join(root, ref) }
       PrototypeImagegen.asset_key(prompt: img['prompt'].to_s, size: img['size'] || DEFAULT_IMAGE_SIZE,
-                                  quality: img['quality'] || PrototypeImagegen::QUALITY_DRAFT, refs: refs,
+                                  quality: final ? PrototypeImagegen::QUALITY_FINAL : (img['quality'] || PrototypeImagegen::QUALITY_DRAFT), refs: refs,
                                   model: img['model'] || PrototypeImagegen::MODEL)
     end
   end
 
   # Recomputed deps per scene id. frames_key is nil when it cannot be
   # computed yet (a from_scene dependency not captured, or a missing screen).
-  def recompute_keys(board, root)
+  def recompute_keys(board, root, final: false)
     memo = {}
     scenes(board).to_h do |scene|
       frames = begin
-        PrototypeCapture.prepare(board, scene, root, memo)[:key]
+        PrototypeCapture.prepare(board, scene, root, memo, final: final)[:key]
       rescue ArgumentError, PrototypeCapture::UnsupportedContentError, Errno::ENOENT, TypeError
         nil
       end
-      keys = { 'frames_key' => frames, 'audio_key' => audio_key(board, scene), 'asset_keys' => asset_keys(scene, root) }
+      keys = { 'frames_key' => frames, 'audio_key' => audio_key(board, scene), 'asset_keys' => asset_keys(scene, root, final: final) }
       keys.merge!(broll_keys(board, scene, root)) if broll?(scene)
       [ scene['id'], keys ]
     end

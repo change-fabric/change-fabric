@@ -130,6 +130,41 @@ class WalkthroughRenderTest < Minitest::Test
     assert_equal "Scene list speaks.".length * 50, saved["scenes"][0]["narration"]["measured_ms"]
   end
 
+  def test_final_inlines_high_quality_images_with_new_keys_and_mp4
+    img = { "prompt" => "a hero", "size" => "1024x1024" }
+    b = board
+    b["scenes"][0]["images"] = [ img ]
+    keys = %w[medium high].to_h { |q| [ q, PrototypeImagegen.asset_key(prompt: "a hero", size: "1024x1024", quality: q) ] }
+    File.write(File.join(@root, "screens", "list.html"), "<html><body><img src=\"../.cache/images/#{keys['medium']}.png\"></body></html>")
+    File.write(File.join(@root, "storyboard.json"), JSON.pretty_generate(b))
+    htmls = []
+    image = lambda do |**kw|
+      WalkthroughCache.fetch(kw[:cache_root], :images, PrototypeImagegen.asset_key(**kw.slice(:prompt, :size, :quality)), "png") do |tmp|
+        File.binwrite(tmp, "png-#{kw[:quality]}")
+      end
+    end
+    capture = providers[:capture]
+    spy = lambda do |**kw|
+      htmls << [ kw[:label], kw[:html] ]
+      capture.call(**kw)
+    end
+    ps = providers.merge(image: image, capture: spy)
+    draft = run_render(providers: ps)
+    final = run_render(providers: ps, final: true)
+
+    refute_equal draft[:manifest]["manifest_hash"], final[:manifest]["manifest_hash"]
+    refute_equal draft[:mp4], final[:mp4]
+    assert_equal [ keys["medium"] ], draft[:manifest]["scenes"][0]["asset_keys"]
+    assert_equal [ keys["high"] ], final[:manifest]["scenes"][0]["asset_keys"]
+    refute_equal draft[:manifest]["scenes"][0]["frames_key"], final[:manifest]["scenes"][0]["frames_key"]
+    list_html = htmls.select { |label, _| label == "list" }.map(&:last)
+    assert_includes list_html.first, Base64.strict_encode64("png-medium")
+    assert_includes list_html.last, Base64.strict_encode64("png-high")
+    refute_includes list_html.last, Base64.strict_encode64("png-medium")
+    saved = JSON.parse(File.read(File.join(@root, "storyboard.json")))
+    assert_equal [ keys["medium"] ], saved["scenes"][0]["deps"]["asset_keys"], "final leaves authored deps at draft quality"
+  end
+
   def test_empty_mp4_from_a_failed_pass_is_not_a_cached_render
     first = run_render
     File.write(first[:mp4], "")
