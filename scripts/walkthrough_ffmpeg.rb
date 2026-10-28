@@ -82,16 +82,16 @@ module WalkthroughFfmpeg
     if long_path?(points)
       first = points.first
       [ "#{raw},sendcmd=f='#{sendcmd_path(plan, scene)}'[s#{i}]",
-        "[s#{i}][c#{i}]overlay@c#{i}=x=#{first['x'].round}:y=#{first['y'].round}:eval=frame#{hero(plan, scene, i)}" ]
+        "[s#{i}][c#{i}]overlay@c#{i}=x=#{first['x'].round}:y=#{first['y'].round}:eval=frame#{scene_output(plan, scene, i)}" ]
     else
       [ "#{raw}[s#{i}]",
-        "[s#{i}][c#{i}]overlay=x='#{chain(runs(points, 'x'))}':y='#{chain(runs(points, 'y'))}':eval=frame#{hero(plan, scene, i)}" ]
+        "[s#{i}][c#{i}]overlay=x='#{chain(runs(points, 'x'))}':y='#{chain(runs(points, 'y'))}':eval=frame#{scene_output(plan, scene, i)}" ]
     end
   end
 
   # A hero still slowly pushes in: upscale 4x with lanczos, then zoompan back
   # to the output size so the zoom does not shimmer.
-  def hero(plan, scene, i)
+  def scene_output(plan, scene, i)
     tail = scene[:hero_still] ? ",#{hero_filter(plan)}" : ''
     "#{tail}[v#{i}]"
   end
@@ -104,11 +104,10 @@ module WalkthroughFfmpeg
   # xfade offset (seconds into the accumulated stream) and duration for each
   # scene after the first; nil for a cut.
   def transitions(plan)
-    plan[:scenes].drop(1).map do |scene|
+    plan[:scenes].each_cons(2).map do |prev, scene|
       next nil unless scene.dig(:transition, 'type') == 'fade'
 
-      prev_end = plan[:scenes].take_while { |s| !s.equal?(scene) }.last
-      overlap = prev_end[:start_frame] + prev_end[:frames] - scene[:start_frame]
+      overlap = prev[:start_frame] + prev[:frames] - scene[:start_frame]
       { offset: frame_seconds(scene[:start_frame], plan[:fps]), duration: frame_seconds(overlap, plan[:fps]) }
     end
   end

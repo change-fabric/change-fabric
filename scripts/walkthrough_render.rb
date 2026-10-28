@@ -39,7 +39,7 @@ module WalkthroughRender
   class Run
     attr_reader :root, :board, :log
 
-    def initialize(root, scene: nil, final: false, providers: {}, out: $stdout)
+    def initialize(root, scene: nil, final: false, providers: {}, out: $stdout, board: nil)
       @root = File.expand_path(root)
       @only = scene
       @final = final
@@ -47,7 +47,7 @@ module WalkthroughRender
       @out = out
       @cache = File.join(@root, '.cache')
       @board_path = File.join(@root, 'storyboard.json')
-      @board = WalkthroughStoryboard.load(@board_path)
+      @board = board || WalkthroughStoryboard.load(@board_path)
       @log = []
     end
 
@@ -74,13 +74,14 @@ module WalkthroughRender
 
     def image_requests(scene)
       Array(scene['images']).map do |img|
-        { prompt: img['prompt'].to_s, size: img['size'] || '1024x1024', quality: image_quality(img),
+        { prompt: img['prompt'].to_s, size: img['size'] || WalkthroughStoryboard::DEFAULT_IMAGE_SIZE,
+          quality: image_quality(img), model: img['model'] || PrototypeImagegen::MODEL,
           refs: Array(img['refs']).map { |r| File.join(@root, r) } }
       end
     end
 
     def image_cached?(req)
-      key = PrototypeImagegen.asset_key(prompt: req[:prompt], size: req[:size], quality: req[:quality], refs: req[:refs])
+      key = PrototypeImagegen.asset_key(**req.slice(:prompt, :size, :quality, :refs, :model))
       File.file?(WalkthroughCache.path(@cache, :images, key, 'png'))
     end
 
@@ -149,11 +150,13 @@ module WalkthroughRender
         next false unless targeted?(scene)
 
         prep = PrototypeCapture.prepare(@board, scene, @root, memo)
-        !File.file?(File.join(prep[:out_dir], 'end-state.json'))
+        !captured?(prep)
       rescue ArgumentError
         true
       end
     end
+
+    def captured?(prep) = File.file?(File.join(prep[:out_dir], 'end-state.json'))
 
     def with_session(&blk) = @p[:browser].call(&blk)
 
@@ -161,7 +164,7 @@ module WalkthroughRender
       memo = {}
       scenes.each do |scene|
         prep = PrototypeCapture.prepare(@board, scene, @root, memo)
-        next if File.file?(File.join(prep[:out_dir], 'end-state.json')) || !targeted?(scene)
+        next if captured?(prep) || !targeted?(scene)
 
         duration = PrototypeCapture.scene_duration(scene)
         say("#{scene['id']}: capturing #{PrototypeCapture.frame_count(duration, fps)} frames")
@@ -172,7 +175,7 @@ module WalkthroughRender
       end
     end
 
-    def fps = @board['fps'] || PrototypeCapture::FPS
+    def fps = WalkthroughStoryboard.fps(@board)
 
     def generate_music(total_ms)
       return unless @board['music']
@@ -184,10 +187,14 @@ module WalkthroughRender
 
     # -- assembly (cache only) -----------------------------------------------
 
-    def container(path) = File.join(WORK, path.delete_prefix("#{@root}/"))
+    def relative(path) = path.delete_prefix("#{@root}/")
+
+    def container(path) = File.join(WORK, relative(path))
+
+    def host_path(container_path) = File.join(@root, container_path.delete_prefix("#{WORK}/"))
 
     def require_file!(path, what)
-      raise MissingCacheError, "#{what} missing from cache: #{path.delete_prefix("#{@root}/")}" unless File.file?(path)
+      raise MissingCacheError, "#{what} missing from cache: #{relative(path)}" unless File.file?(path)
 
       path
     end
@@ -238,12 +245,15 @@ module WalkthroughRender
       { fps: fps, width: viewport['w'], height: viewport['h'], total_ms: total,
         cursor_png: container(File.join(dir, 'cursor.png')), srt: container(File.join(dir, 'captions.srt')),
         output: container(File.join(dir, 'walkthrough.mp4')), music: music, duck_spans: duck_spans(inputs),
-        scenes: inputs.map do |i|
-          { id: i[:entry]['id'], frames_dir: container(i[:dir]), frames: i[:entry]['frames'],
-            start_frame: i[:entry]['start_frame'], transition: i[:scene].dig('timing', 'transition') || { 'type' => 'cut', 'ms' => 0 },
-            cursor: i[:cursor], hero_still: i[:scene]['hero_still'] == true, audio: i[:audio] && container(i[:audio]),
-            offset_ms: i[:offset_ms] }
-        end }
+        scenes: inputs.map { |i| plan_scene(i) } }
+    end
+
+    def plan_scene(input)
+      entry = input[:entry]
+      { id: entry['id'], frames_dir: container(input[:dir]), frames: entry['frames'], start_frame: entry['start_frame'],
+        transition: input[:scene].dig('timing', 'transition') || WalkthroughStoryboard::DEFAULT_TRANSITION,
+        cursor: input[:cursor], hero_still: input[:scene]['hero_still'] == true,
+        audio: input[:audio] && container(input[:audio]), offset_ms: input[:offset_ms] }
     end
 
     def docker_argv(args)
@@ -276,7 +286,7 @@ module WalkthroughRender
       FileUtils.mkdir_p(dir)
       FileUtils.cp(CURSOR_PNG, File.join(dir, 'cursor.png'))
       File.write(File.join(dir, 'captions.srt'), captions(inputs))
-      WalkthroughFfmpeg.sendcmd_files(plan).each { |path, body| File.write(File.join(@root, path.delete_prefix("#{WORK}/")), body) }
+      WalkthroughFfmpeg.sendcmd_files(plan).each { |path, body| File.write(host_path(path), body) }
       preflight!
       measured = WalkthroughFfmpeg.parse_loudnorm(ffmpeg!(WalkthroughFfmpeg.pass1(plan), 'pass 1'))
       ffmpeg!(WalkthroughFfmpeg.pass2(plan, measured), 'pass 2')

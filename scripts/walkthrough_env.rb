@@ -1,18 +1,19 @@
 # frozen_string_literal: true
 
 # Secrets loading for the walkthrough skills. Keys come from ENV, optionally
-# seeded from a dotenv-style file (CF_SECRETS_ENV, default below). A key is
+# seeded from a dotenv-style file named by CF_SECRETS_ENV (no default path). A key is
 # fetched only when its provider is actually called, and its value never
 # appears in an error message, a log line, or a file.
 module WalkthroughEnv
   SECRETS_ENV_VAR = 'CF_SECRETS_ENV'
-  DEFAULT_SECRETS_PATH = '~/1-areas/change-fabric/secrets/.env'
 
   class MissingKeyError < StandardError; end
 
   module_function
 
-  def load_secrets(path = ENV.fetch(SECRETS_ENV_VAR, DEFAULT_SECRETS_PATH))
+  def load_secrets(path = ENV.fetch(SECRETS_ENV_VAR, nil))
+    return if path.nil? || path.empty?
+
     full = File.expand_path(path)
     return unless File.file?(full)
 

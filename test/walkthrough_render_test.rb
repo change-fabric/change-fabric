@@ -101,7 +101,7 @@ class WalkthroughRenderTest < Minitest::Test
   end
 
   def run_render(**opts)
-    WalkthroughRender::Run.new(@root, providers: providers, out: StringIO.new, **opts).call
+    WalkthroughRender::Run.new(@root, **{ providers: providers, out: StringIO.new }.merge(opts)).call
   end
 
   def test_full_render_order_and_outputs
@@ -125,6 +125,22 @@ class WalkthroughRenderTest < Minitest::Test
     assert_equal "detail", detail_state["seen"]
     saved = JSON.parse(File.read(File.join(@root, "storyboard.json")))
     assert_equal "Scene list speaks.".length * 50, saved["scenes"][0]["narration"]["measured_ms"]
+  end
+
+  def test_image_model_is_part_of_the_cache_key
+    b = board
+    b["scenes"][0]["images"] = [ { "prompt" => "a hero", "model" => "custom-image-model" } ]
+    File.write(File.join(@root, "storyboard.json"), JSON.pretty_generate(b))
+    image = lambda do |**kw|
+      @calls[:image] << kw[:model]
+      key = PrototypeImagegen.asset_key(**kw.slice(:prompt, :size, :quality, :refs, :model))
+      WalkthroughCache.fetch(kw[:cache_root], :images, key, "png") { |tmp| File.binwrite(tmp, "png") }
+    end
+    run_render(providers: providers.merge(image: image))
+    assert_equal [ "custom-image-model" ], @calls[:image]
+    @calls.clear
+    run_render(providers: providers.merge(image: image))
+    assert_empty @calls[:image], "a cached model-keyed image is not regenerated"
   end
 
   def test_everything_cached_makes_no_provider_or_docker_call

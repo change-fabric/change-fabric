@@ -55,6 +55,11 @@ class WalkthroughEnvTest < Minitest::Test
     assert_equal "sk-file", WalkthroughEnv.openai_key!
   end
 
+  def test_unset_cf_secrets_env_loads_nothing
+    assert_nil WalkthroughEnv.load_secrets
+    refute_includes WalkthroughEnv.constants, :DEFAULT_SECRETS_PATH
+  end
+
   def test_elevenlabs_primary_name_wins
     ENV["ELEVEN_LABS_API_KEY"] = "primary"
     ENV["ELEVENLABS_API_KEY"] = "fallback"

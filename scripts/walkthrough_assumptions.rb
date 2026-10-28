@@ -65,15 +65,14 @@ module WalkthroughAssumptions
   end
 
   def logo_line(logo)
-    get = ->(k) { logo[k] || logo[k.to_s] }
-    license = get.call(:license)
+    license = logo[:license]
     license_text = if license.is_a?(Hash)
-                     "license: #{[ license['type'] || license[:type], license['url'] || license[:url] ].compact.join(' ')}"
+                     "license: #{license.values_at('type', 'url').compact.join(' ')}"
     else
                      'license: CC0-1.0 data (trademark rights remain with the owner)'
     end
-    guidelines = get.call(:guidelines) || 'no guidelines link in Simple Icons data; check the brand site before use'
-    "- #{get.call(:title) || get.call(:slug)} (#{get.call(:slug)}): guidelines: #{guidelines}; #{license_text}"
+    guidelines = logo[:guidelines] || 'no guidelines link in Simple Icons data; check the brand site before use'
+    "- #{logo[:title] || logo[:slug]} (#{logo[:slug]}): guidelines: #{guidelines}; #{license_text}"
   end
 
   # Icons recorded by PrototypeIcons.copy_used in screens/assets/icons.

@@ -70,11 +70,11 @@ module PrototypeImagegen
 
   # Generates (or returns the cached) image path. The attempt is counted only
   # when a paid call actually runs.
-  def generate(prompt:, size:, quality:, cache_root:, refs: [], screen: 'default', attempts: Attempts.new, http: nil)
-    key = asset_key(prompt: prompt, size: size, quality: quality, refs: refs)
+  def generate(prompt:, size:, quality:, cache_root:, refs: [], screen: 'default', attempts: Attempts.new, http: nil, model: MODEL)
+    key = asset_key(prompt: prompt, size: size, quality: quality, refs: refs, model: model)
     WalkthroughCache.fetch(cache_root, :images, key, 'png') do |tmp|
       attempts.record!(screen)
-      request = build_request(prompt: prompt, size: size, quality: quality, refs: refs)
+      request = build_request(prompt: prompt, size: size, quality: quality, refs: refs, model: model)
       File.binwrite(tmp, decode(post(request, http)))
     end
   end

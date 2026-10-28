@@ -26,7 +26,10 @@ module DesignTokens
   ].freeze
 
   # Sections whose every content line must carry a provenance tag.
-  PROVENANCE_SECTIONS = REQUIRED_SECTIONS[1..8].freeze
+  PROVENANCE_SECTIONS = [
+    "Principles", "Tokens", "Typography", "Spacing and layout", "Themes",
+    "Accessibility commitments", "Components", "Do and do not"
+  ].freeze
 
   PROVENANCE_TAG = /\[(?:evidence: [^\]\s#]+#[^\]\s]+|assumption|proposal)\]/
   DECLARATION = /\A--?[A-Za-z][\w-]*\s*:/
@@ -74,9 +77,11 @@ module DesignTokens
       in_fence = !in_fence if line.match?(FENCE)
       next if in_fence
 
-      line[/\A##\s+(.+?)\s*\z/, 1]
+      heading_name(line)
     end
   end
+
+  def heading_name(line) = line[/\A##\s+(.+?)\s*\z/, 1]
 
   def required_sections(design_md)
     present = sections(design_md)
@@ -96,7 +101,7 @@ module DesignTokens
       end
       next if in_fence
 
-      if (name = line[/\A##\s+(.+?)\s*\z/, 1])
+      if (name = heading_name(line))
         section = name
         next
       end

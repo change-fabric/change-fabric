@@ -17,6 +17,8 @@ module WalkthroughStoryboard
   ID_RE = /\A[a-z0-9][a-z0-9-]*\z/
   TRANSITIONS = %w[cut fade].freeze
   FADE_MS = (100..1500)
+  DEFAULT_TRANSITION = { 'type' => 'cut', 'ms' => 0 }.freeze
+  DEFAULT_IMAGE_SIZE = '1024x1024'
   OPS = %w[move click type hover wait].freeze
   PATCH_OPS = %w[set push delete].freeze
   MD_HEADER = 'Generated from storyboard.json; do not edit'
@@ -25,6 +27,8 @@ module WalkthroughStoryboard
   module_function
 
   def load(path) = JSON.parse(File.read(path))
+
+  def fps(board) = board['fps'] || PrototypeCapture::FPS
 
   def scenes(board) = Array(board['scenes']).sort_by { |s| s['order'].to_i }
 
@@ -139,12 +143,12 @@ module WalkthroughStoryboard
   # Scene start offsets in frames. A fade into a scene overlaps the previous
   # scene by its ms; a cut starts at the previous scene's end.
   def timeline(board)
-    fps = board['fps'] || PrototypeCapture::FPS
+    fps = fps(board)
     durations = derive_durations(board)
     cursor = 0
     entries = scenes(board).each_with_index.map do |scene, i|
       frames = PrototypeCapture.frame_count(durations[scene['id']], fps)
-      transition = scene.dig('timing', 'transition') || { 'type' => 'cut', 'ms' => 0 }
+      transition = scene.dig('timing', 'transition') || DEFAULT_TRANSITION
       overlap = i.positive? && transition['type'] == 'fade' ? PrototypeCapture.frame_at(transition['ms'].to_i, fps) : 0
       start = [ cursor - overlap, 0 ].max
       cursor = start + frames
@@ -165,7 +169,7 @@ module WalkthroughStoryboard
   def asset_keys(scene, root)
     Array(scene['images']).map do |img|
       refs = Array(img['refs']).map { |ref| File.join(root, ref) }
-      PrototypeImagegen.asset_key(prompt: img['prompt'].to_s, size: img['size'] || '1024x1024',
+      PrototypeImagegen.asset_key(prompt: img['prompt'].to_s, size: img['size'] || DEFAULT_IMAGE_SIZE,
                                   quality: img['quality'] || PrototypeImagegen::QUALITY_DRAFT, refs: refs,
                                   model: img['model'] || PrototypeImagegen::MODEL)
     end

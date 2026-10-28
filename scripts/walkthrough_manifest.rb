@@ -54,7 +54,7 @@ module WalkthroughManifest
 
   # sha256 of the manifest's canonical form, excluding the hash field itself.
   def manifest_hash(manifest)
-    WalkthroughCache.key(manifest.except('manifest_hash', :manifest_hash))
+    WalkthroughCache.key(manifest.except('manifest_hash'))
   end
 
   def write(manifest, root)
