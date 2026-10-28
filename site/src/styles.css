@@ -2661,6 +2661,10 @@ code {
     flex-direction: column;
     align-items: stretch;
   }
+  /* Stacked, the 520px basis would set the height, not the width. */
+  .porcupine-laptop {
+    flex-basis: auto;
+  }
   .porcupine-iphone {
     align-self: center;
   }
