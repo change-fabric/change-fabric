@@ -196,4 +196,84 @@ class WalkthroughStoryboardTest < Minitest::Test
     b["schema_version"] = 2
     assert_raises(WalkthroughStoryboard::ValidationError) { WalkthroughStoryboard.validate!(b, root: @root) }
   end
+
+  # -- ai-broll scenes -----------------------------------------------------
+
+  def broll_scene(extra = {})
+    { "id" => "shed", "title" => "Shed", "order" => 3, "kind" => "ai-broll",
+      "broll" => { "source_image" => "screens/assets/shed.png", "prompt" => "slow push in", "seconds" => 4,
+                   "model" => "gemini-omni-1.1-flash", "fallback" => "kenburns" },
+      "narration" => { "text" => "shed narration", "measured_ms" => 2000 },
+      "assumptions" => [ { "id" => "A-09", "text" => "generated footage" } ],
+      "timing" => { "min_ms" => 3000, "pad_ms" => 400, "transition" => { "type" => "fade", "ms" => 500 } } }.merge(extra)
+  end
+
+  def broll_board(extra = {})
+    FileUtils.mkdir_p(File.join(@root, "screens", "assets"))
+    File.binwrite(File.join(@root, "screens", "assets", "shed.png"), "PNG")
+    b = board
+    b["scenes"] << broll_scene(extra)
+    b
+  end
+
+  def test_valid_broll_scene_needs_no_screen
+    assert_equal [], errors_for(broll_board)
+  end
+
+  def test_broll_scene_rules
+    assert errors_for(broll_board("broll" => nil)).any? { |e| e.include?("broll is required") }
+    assert errors_for(broll_board("screen" => { "html" => "screens/list.html" })).any? { |e| e.include?("must not carry screen.html") }
+    assert errors_for(broll_board("kind" => "movie")).any? { |e| e.include?("kind") }
+    [ [ "source_image", "screens/assets/missing.png", "does not exist" ],
+      [ "source_image", "../outside.png", "inside the walkthrough" ],
+      [ "source_image", "screens/assets/shed.gif", "png, jpg, or webp" ],
+      [ "prompt", "", "prompt" ],
+      [ "seconds", 0, "seconds" ], [ "seconds", 11, "seconds" ], [ "seconds", "4", "seconds" ],
+      [ "model", "veo-3.1-generate-preview", "retired" ],
+      [ "fallback", "none", "fallback" ] ].each do |field, value, fragment|
+      b = broll_board
+      b["scenes"].last["broll"][field] = value
+      assert errors_for(b).any? { |e| e.include?(fragment) }, "#{field}=#{value.inspect} should mention #{fragment}"
+    end
+  end
+
+  def test_broll_keys_include_model_and_screen_scenes_carry_none
+    keys = WalkthroughStoryboard.recompute_keys(broll_board, @root)
+    assert_match(/\A\h{64}\z/, keys["shed"]["frames_key"])
+    assert_match(/\A\h{64}\z/, keys["shed"]["broll_key"])
+    refute keys["create"].key?("broll_key")
+    other = broll_board
+    other["scenes"].last["broll"]["model"] = "gemini-omni-2"
+    refute_equal keys["shed"]["broll_key"], WalkthroughStoryboard.recompute_keys(other, @root)["shed"]["broll_key"]
+  end
+
+  def test_broll_frames_key_changes_when_the_clip_is_cached
+    b = broll_board
+    before = WalkthroughStoryboard.recompute_keys(b, @root)["shed"]["frames_key"]
+    spec = b["scenes"].last["broll"]
+    key = BRoll.asset_key(source_image: File.join(@root, spec["source_image"]), prompt: spec["prompt"], seconds: 4, model: spec["model"])
+    path = WalkthroughCache.path(File.join(@root, ".cache"), :broll, key, "mp4")
+    FileUtils.mkdir_p(File.dirname(path))
+    File.binwrite(path, "mp4")
+    refute_equal before, WalkthroughStoryboard.recompute_keys(b, @root)["shed"]["frames_key"]
+  end
+
+  def test_stale_covers_broll_and_ignores_it_on_screen_scenes
+    b = broll_board
+    WalkthroughStoryboard.fix_keys(b, @root)
+    assert_nil WalkthroughStoryboard.stale(b, @root).find { |s| s["id"] == "shed" }
+    b["scenes"].last["broll"]["prompt"] = "pull out"
+    stale = WalkthroughStoryboard.stale(b, @root).find { |s| s["id"] == "shed" }
+    assert_includes stale["kinds"], "broll"
+  end
+
+  def test_timeline_and_md_include_the_broll_scene
+    b = broll_board
+    assert_equal 3, WalkthroughStoryboard.timeline(b)["scenes"].size
+    md = WalkthroughStoryboard.render_md(b)
+    assert_includes md, "## 3. Shed (`shed`)"
+    assert_includes md, "- B-roll: screens/assets/shed.png, 4s, gemini-omni-1.1-flash, fallback kenburns"
+    assert_includes md, "- B-roll prompt: slow push in"
+    refute_includes md.split("## 3.").last, "- Screen:"
+  end
 end

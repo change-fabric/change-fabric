@@ -2,6 +2,7 @@
 
 require 'digest'
 require 'json'
+require_relative 'b_roll'
 require_relative 'prototype_capture'
 require_relative 'prototype_imagegen'
 require_relative 'walkthrough_cache'
@@ -22,7 +23,11 @@ module WalkthroughStoryboard
   OPS = %w[move click type hover wait].freeze
   PATCH_OPS = %w[set push delete].freeze
   MD_HEADER = 'Generated from storyboard.json; do not edit'
-  KEY_KINDS = { 'frames_key' => 'frames', 'audio_key' => 'audio', 'asset_keys' => 'images' }.freeze
+  BROLL_KIND = 'ai-broll'
+  SCENE_KINDS = [ nil, 'screen', BROLL_KIND ].freeze
+  BROLL_IMAGE_EXTS = %w[.png .jpg .jpeg .webp].freeze
+  BROLL_SECONDS = (1..10)
+  KEY_KINDS = { 'frames_key' => 'frames', 'audio_key' => 'audio', 'asset_keys' => 'images', 'broll_key' => 'broll' }.freeze
 
   module_function
 
@@ -76,9 +81,49 @@ module WalkthroughStoryboard
     errors.concat(interaction_errors(Array(scene['interactions'])))
     Array(scene['hypotheses']).each { |h| errors << "hypothesis #{h} is not in the top-level list" unless hyp_ids.include?(h) }
     errors << 'needs at least one requirement or assumption' if Array(scene['requirements']).empty? && Array(scene['assumptions']).empty?
-    errors << 'screen.html is required' if scene.dig('screen', 'html').to_s.empty?
+    errors.concat(kind_errors(scene, root))
     errors.concat(store_errors(scene, orders, root)) if scene['store']
     errors
+  end
+
+  def broll?(scene) = scene['kind'] == BROLL_KIND
+
+  # A screen scene needs screen.html; an ai-broll scene needs a broll block and
+  # carries no screen.
+  def kind_errors(scene, root)
+    return [ "kind #{scene['kind'].inspect} must be one of screen, #{BROLL_KIND}" ] unless SCENE_KINDS.include?(scene['kind'])
+    return broll_errors(scene, root) if broll?(scene)
+
+    scene.dig('screen', 'html').to_s.empty? ? [ 'screen.html is required' ] : []
+  end
+
+  def broll_spec(scene)
+    { 'model' => BRoll::MODEL, 'fallback' => 'kenburns' }.merge(scene['broll'].is_a?(Hash) ? scene['broll'] : {})
+  end
+
+  def broll_errors(scene, root)
+    return [ 'broll is required for an ai-broll scene' ] unless scene['broll'].is_a?(Hash)
+
+    spec = broll_spec(scene)
+    errors = []
+    errors << 'an ai-broll scene must not carry screen.html' if scene.dig('screen', 'html')
+    errors.concat(broll_image_errors(spec['source_image'].to_s, root))
+    errors << 'broll.prompt is required' if spec['prompt'].to_s.strip.empty?
+    unless spec['seconds'].is_a?(Integer) && BROLL_SECONDS.cover?(spec['seconds'])
+      errors << "broll.seconds must be an integer in #{BROLL_SECONDS.min}..#{BROLL_SECONDS.max}"
+    end
+    errors << "broll.model #{spec['model']} is retired; use #{BRoll::MODEL}" if spec['model'].to_s.match?(BRoll::RETIRED_MODEL_RE)
+    errors << "broll.fallback must be one of #{BRoll::FALLBACKS.join(', ')}" unless BRoll::FALLBACKS.include?(spec['fallback'])
+    errors
+  end
+
+  def broll_image_errors(src, root)
+    return [ 'broll.source_image is required' ] if src.empty?
+    return [ 'broll.source_image must be inside the walkthrough directory' ] if src.start_with?('/') || src.split('/').include?('..')
+    return [ 'broll.source_image must be a png, jpg, or webp' ] unless BROLL_IMAGE_EXTS.include?(File.extname(src).downcase)
+    return [ "broll.source_image #{src} does not exist" ] if root && !File.file?(File.join(root, src))
+
+    []
   end
 
   def transition_errors(transition)
@@ -185,8 +230,29 @@ module WalkthroughStoryboard
       rescue ArgumentError, PrototypeCapture::UnsupportedContentError, Errno::ENOENT, TypeError
         nil
       end
-      [ scene['id'], { 'frames_key' => frames, 'audio_key' => audio_key(board, scene), 'asset_keys' => asset_keys(scene, root) } ]
+      keys = { 'frames_key' => frames, 'audio_key' => audio_key(board, scene), 'asset_keys' => asset_keys(scene, root) }
+      keys.merge!(broll_keys(board, scene, root)) if broll?(scene)
+      [ scene['id'], keys ]
     end
+  end
+
+  # An ai-broll scene's clip key (which includes the model) and its frames
+  # key. Frames come from the cached clip when present, else from the
+  # scene's fallback over the source still, so a failed generation is a
+  # different (stable) key rather than a stale one.
+  def broll_keys(board, scene, root)
+    spec = broll_spec(scene)
+    args = { source_image: File.join(root, spec['source_image'].to_s), prompt: spec['prompt'].to_s, seconds: spec['seconds'],
+             model: spec['model'] }
+    clip = BRoll.asset_key(**args)
+    mode = BRoll.mode_for(File.join(root, '.cache'), spec['fallback'], **args)
+    frames = PrototypeCapture.frame_count(PrototypeCapture.scene_duration(scene), fps(board))
+    { 'frames_key' => BRoll.frames_key(mode: mode, source_sha: PrototypeCapture.sha256_file(args[:source_image]),
+                                       viewport: board['viewport'] || PrototypeCapture::DEFAULT_VIEWPORT, fps: fps(board),
+                                       frames: frames, clip_key: mode == 'generated' ? clip : nil),
+      'broll_key' => clip }
+  rescue Errno::ENOENT, TypeError
+    { 'frames_key' => nil, 'broll_key' => nil }
   end
 
   # Scenes whose authored deps differ from the recomputed ones, with the
@@ -195,7 +261,7 @@ module WalkthroughStoryboard
     scenes(board).filter_map do |scene|
       authored = scene['deps'] || {}
       fresh = keys[scene['id']]
-      kinds = KEY_KINDS.filter_map { |field, kind| kind if fresh[field].nil? || authored[field] != fresh[field] }
+      kinds = KEY_KINDS.filter_map { |field, kind| kind if fresh.key?(field) && (fresh[field].nil? || authored[field] != fresh[field]) }
       kinds.empty? ? nil : { 'id' => scene['id'], 'kinds' => kinds }
     end
   end
@@ -220,10 +286,16 @@ module WalkthroughStoryboard
     "#{out.join("\n").rstrip}\n"
   end
 
+  def broll_md(scene)
+    spec = broll_spec(scene)
+    [ "- B-roll: #{spec['source_image']}, #{spec['seconds']}s, #{spec['model']}, fallback #{spec['fallback']}",
+      "- B-roll prompt: #{spec['prompt']}" ]
+  end
+
   def scene_md(scene, duration)
     out = [ "## #{scene['order']}. #{scene['title']} (`#{scene['id']}`)", '' ]
     out << "- Duration: #{duration} ms"
-    out << "- Screen: #{scene.dig('screen', 'html')}"
+    out.concat(broll?(scene) ? broll_md(scene) : [ "- Screen: #{scene.dig('screen', 'html')}" ])
     out << "- User goal: #{scene['user_goal']}" if scene['user_goal']
     out << "- Action: #{scene['action']}" if scene['action']
     out << "- Emphasis: #{scene['emphasis']}" if scene['emphasis']
