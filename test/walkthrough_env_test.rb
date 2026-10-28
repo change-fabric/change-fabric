@@ -5,7 +5,7 @@ require "tmpdir"
 require_relative "../scripts/walkthrough_env"
 
 class WalkthroughEnvTest < Minitest::Test
-  VARS = %w[ELEVEN_LABS_API_KEY ELEVENLABS_API_KEY OPENAI_API_KEY CF_SECRETS_ENV WT_PLAIN WT_QUOTED WT_SINGLE].freeze
+  VARS = %w[ELEVEN_LABS_API_KEY ELEVENLABS_API_KEY OPENAI_API_KEY GEMINI_API_KEY CF_SECRETS_ENV WT_PLAIN WT_QUOTED WT_SINGLE].freeze
 
   def setup
     @saved = VARS.to_h { |v| [ v, ENV.fetch(v, nil) ] }
@@ -86,5 +86,12 @@ class WalkthroughEnvTest < Minitest::Test
     err = assert_raises(WalkthroughEnv::MissingKeyError) { WalkthroughEnv.openai_key! }
     refute_includes err.message, secret
     refute_includes err.full_message, secret
+  end
+
+  def test_gemini_key_reads_env_and_names_the_variable_when_missing
+    err = assert_raises(WalkthroughEnv::MissingKeyError) { WalkthroughEnv.gemini_key! }
+    assert_match(/\AGEMINI_API_KEY not set/, err.message)
+    ENV["GEMINI_API_KEY"] = "g-file"
+    assert_equal "g-file", WalkthroughEnv.gemini_key!
   end
 end

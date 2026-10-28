@@ -59,6 +59,11 @@ module WalkthroughEnv
       raise(MissingKeyError, 'OPENAI_API_KEY not set; set it or point CF_SECRETS_ENV at an env file')
   end
 
+  def gemini_key!
+    present('GEMINI_API_KEY') ||
+      raise(MissingKeyError, 'GEMINI_API_KEY not set; set it or point CF_SECRETS_ENV at an env file')
+  end
+
   def present(name)
     value = ENV.fetch(name, nil)
     value unless value.nil? || value.empty?

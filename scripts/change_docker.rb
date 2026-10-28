@@ -76,9 +76,9 @@ module ChangeDocker
   # gets the `cf-change-` prefix every resource this platform creates carries,
   # so a container orphaned by a crashed run (`--rm` never ran) is identifiable
   # and reachable by `sweep`. Extra args are the image plus its command.
-  def run(network:, image:, args:, env: {}, mounts: {}, name: nil, user: nil, workdir: nil)
+  def run(network:, image:, args:, env: {}, mounts: {}, name: nil, user: nil, workdir: nil, entrypoint: nil)
     Open3.capture2e(*run_command(network: network, image: image, args: args, env: env, mounts: mounts,
-                                 name: name, user: user, workdir: workdir))
+                                 name: name, user: user, workdir: workdir, entrypoint: entrypoint))
   end
 
   # The argv `run` executes, split out so a test can assert the flags without
@@ -86,8 +86,9 @@ module ChangeDocker
   # to the image's entrypoint, never a shell string, so a path or value with
   # spaces or shell metacharacters stays one argument. A `mounts` value is a
   # String target or a Hash `{ target:, readonly: }`.
-  def run_command(network:, image:, args:, env: {}, mounts: {}, name: nil, user: nil, workdir: nil)
+  def run_command(network:, image:, args:, env: {}, mounts: {}, name: nil, user: nil, workdir: nil, entrypoint: nil)
     cmd = [ 'docker', 'run', '--rm' ]
+    cmd += [ '--entrypoint', entrypoint ] if entrypoint
     cmd += [ '--name', name ] if name
     cmd += [ '--network', network ] if network
     cmd += host_gateway_args

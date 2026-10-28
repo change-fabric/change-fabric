@@ -65,6 +65,14 @@ class ChangeDockerTest < Minitest::Test
     assert_includes argv.each_cons(2).to_a, [ "--mount", 'type=bind,"source=/work",target=/out' ]
   end
 
+  def test_run_command_emits_an_entrypoint_override_before_the_image
+    argv = ChangeDocker.run_command(network: nil, image: "img", args: %w[cmd], entrypoint: "ffprobe")
+    at = argv.index("--entrypoint")
+    assert_equal "ffprobe", argv[at + 1]
+    assert_operator at, :<, argv.index("img")
+    refute_includes ChangeDocker.run_command(network: nil, image: "img", args: %w[cmd]), "--entrypoint"
+  end
+
   def test_run_command_emits_user_and_workdir_before_the_image
     argv = ChangeDocker.run_command(network: nil, image: "img", args: %w[cmd], user: "1:2", workdir: "/w")
     image_at = argv.index("img")
