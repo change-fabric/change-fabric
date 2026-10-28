@@ -29,17 +29,17 @@ export function Moose() {
           <p className="eyebrow">Related project</p>
           <h1>moose</h1>
           <p className="section-lede">
-            moose is a self-hostable context hub that gives coding agents read access to Google
-            Drive content. It is a separate, MIT-licensed project, not part of the Change Fabric
-            spec.
+            moose is an open source, self-hostable framework for federated data access. It gives
+            coding agents read access to your data where it already lives, through pluggable
+            connectors. It is a separate, MIT-licensed project, not part of the Change Fabric spec.
           </p>
         </header>
 
         <h2>What it is</h2>
         <p>
-          moose runs inside your own Tailscale tailnet and is reachable only from it. It passes
-          Drive content through to the agent on request rather than copying it into a store of its
-          own.
+          moose runs inside your own Tailscale tailnet and is reachable only from it. Each data
+          source plugs in as a connector, and moose passes content through to the agent on request
+          rather than copying it into a store of its own. Google Drive is the first connector.
         </p>
 
         <h2>Surfaces</h2>
@@ -61,7 +61,7 @@ export function Moose() {
         <h2>Semantic search</h2>
         <p>
           Opt-in semantic (vector) search is in progress. When enabled, moose stores only derived
-          vectors, re-checks every hit live against Drive before returning it, and keeps no data
+          vectors, re-checks every hit live against its source before returning it, and keeps no data
           warehouse of your documents.
         </p>
 
