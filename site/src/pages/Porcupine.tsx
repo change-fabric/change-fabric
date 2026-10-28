@@ -9,7 +9,7 @@ const SECURITY_URL = `${PORCUPINE_REPO_URL}/blob/main/SECURITY.md`;
 const CADDYFILE_URL = `${PORCUPINE_REPO_URL}/blob/main/examples/Caddyfile`;
 
 // Real captures of the app: phone frames from a throwaway demo session, the
-// laptop and usage stills from a recording of the desktop layout.
+// desktop settings and usage stills from a recording of the desktop layout.
 const SHOTS = "/porcupine";
 
 // What you do with a running session, each beside a phone capture of it.
@@ -17,23 +17,23 @@ const CONTROLS = [
   {
     n: "01",
     name: "Watch",
-    detail: "Follow a session's output and tool calls as they stream, from anywhere on your network.",
+    detail: "Follow a session's tool calls and output as they stream, from anywhere on your network.",
     src: `${SHOTS}/watch.webp`,
-    alt: "A porcupine session on a phone: the prompt, then thinking, bash, read and edit steps streaming in.",
+    alt: "A porcupine session on a phone mid-run: an ask_user_question step, then bash and read tool calls, two still running.",
   },
   {
     n: "02",
     name: "Steer",
-    detail: "Send prompts, attach files, switch models and answer the agent's questions from the browser.",
+    detail: "Answer the agent's questions when it asks, send follow-ups, attach files and switch models.",
     src: `${SHOTS}/steer.webp`,
-    alt: "The porcupine composer on a phone with a prompt typed and ready to send.",
+    alt: "porcupine on a phone: the agent asks whether the new tests should use node:test or vitest, with node:test selected and Submit ready.",
   },
   {
     n: "03",
     name: "Stop",
-    detail: "Stop a run from the composer. The session sheet compacts context and sets thinking level and merge mode.",
+    detail: "The send button becomes a stop button while the agent works. Tap it and the run ends where it is.",
     src: `${SHOTS}/stop.webp`,
-    alt: "The porcupine session sheet on a phone: Compact now, a context meter, auto-compact, thinking level and the cf merge mode.",
+    alt: "porcupine on a phone right after stopping a run: the transcript ends in an aborted marker and the composer is ready again.",
   },
 ];
 
@@ -59,6 +59,7 @@ const TOOLS = [
   { group: "HTTPS proxy, or similar", marks: [{ id: "caddy", name: "Caddy" }] },
 ];
 
+// Usage and budgets is the featured item; the other two support it.
 const FEATURES = [
   {
     name: "Attachments",
@@ -66,13 +67,6 @@ const FEATURES = [
       "Images, PDFs, audio and video. Audio and video are transcribed on the host by whisper.cpp, and costly attachments ask before spending.",
     href: `${PORCUPINE_REPO_URL}#attachments`,
     cta: "Supported attachment types",
-  },
-  {
-    name: "Usage and budgets",
-    detail: "Monthly spend per provider and model, with budgets that warn at 80% and 100% and never block a prompt.",
-    href: `${PORCUPINE_REPO_URL}#usage-and-budgets`,
-    cta: "How usage is tracked",
-    img: { src: `${SHOTS}/usage.webp`, alt: "porcupine Settings, Usage tab: spend this month per provider with per-model rows and a daily chart." },
   },
   {
     name: "Loops, subagents and plan mode",
@@ -130,13 +124,25 @@ function TechMark({ id, name }: { id: string; name: string }) {
 }
 
 // Small frames hold the user's iPhone recording, which is only 296px wide.
-function Phone({ src, alt, eager, small }: { src: string; alt: string; eager?: boolean; small?: boolean }) {
+function Phone({
+  src,
+  alt,
+  eager,
+  small,
+  height,
+}: {
+  src: string;
+  alt: string;
+  eager?: boolean;
+  small?: boolean;
+  height?: number;
+}) {
   return (
     <div className={small ? "porcupine-phone porcupine-phone-small" : "porcupine-phone"}>
       <img
         src={src}
         width={small ? 296 : 390}
-        height={small ? 510 : 844}
+        height={height ?? (small ? 510 : 844)}
         alt={alt}
         loading={eager ? "eager" : "lazy"}
         decoding="async"
@@ -175,7 +181,8 @@ export function Porcupine() {
           </div>
           <Phone
             src={`${SHOTS}/hero-session.webp`}
-            alt="porcupine on a phone: a session named demo working through a refactor, with thinking, bash, read, edit and write steps and a stop button."
+            alt="porcupine on a phone in dark mode: the latest bash and read tool calls of a running session, above the composer and its stop button."
+            height={549}
             eager
           />
         </section>
@@ -232,7 +239,7 @@ export function Porcupine() {
             </div>
             <p className="project-link">
               <span className="project-link-label">HTTPS</span>
-              <span className="project-link-arrow" aria-hidden="true" />
+              <span className="project-link-arrow porcupine-req" aria-hidden="true" />
             </p>
             <div className="porcupine-host">
               <p className="porcupine-host-label">Your host</p>
@@ -242,7 +249,7 @@ export function Porcupine() {
               </div>
               <p className="project-link">
                 <span className="project-link-label">HTTP</span>
-                <span className="project-link-arrow" aria-hidden="true" />
+                <span className="project-link-arrow porcupine-req" aria-hidden="true" />
               </p>
               <div className="project-hub">
                 <img src="/brand/porcupine.png" width="56" height="56" alt="" />
@@ -251,7 +258,7 @@ export function Porcupine() {
               </div>
               <p className="project-link">
                 <span className="project-link-label">Unix socket</span>
-                <span className="project-link-arrow" aria-hidden="true" />
+                <span className="project-link-arrow porcupine-req" aria-hidden="true" />
               </p>
               <div className="project-node">
                 <span className="project-node-title">porcupine in tmux</span>
@@ -263,26 +270,26 @@ export function Porcupine() {
             </div>
           </div>
           <p className="home-note porcupine-net-note">
-            The hub is self-hosted. Two things leave the host: model calls to your providers (OpenRouter,
+            Arrows show the request path; responses and streamed output return the same way. The hub is self-hosted. Two things leave the host: model calls to your providers (OpenRouter,
             plus Anthropic and OpenAI if you add their keys) and Web Push notifications, which go through
             your browser's push service.
           </p>
           <div className="porcupine-devices">
-          <figure className="porcupine-laptop">
-            <img
-              src={`${SHOTS}/desktop-sheet.webp`}
-              width="1440"
-              height="799"
-              loading="lazy"
-              decoding="async"
-              alt="porcupine in a laptop browser: a sessions rail with porcupine, moose and demo, and the session settings panel with context, model filters and models."
-            />
-            <figcaption>The same app in a laptop browser, with the sessions rail docked.</figcaption>
-          </figure>
-          <figure className="porcupine-iphone porcupine-iphone-sessions">
-            <Phone small src={`${SHOTS}/iphone-sessions.webp`} alt="The porcupine sessions drawer on an iPhone, listing porcupine, moose and two demo sessions." />
-            <figcaption>The sessions drawer on an iPhone.</figcaption>
-          </figure>
+            <figure className="porcupine-laptop">
+              <img
+                src={`${SHOTS}/desktop-settings.webp`}
+                width="1040"
+                height="638"
+                loading="lazy"
+                decoding="async"
+                alt="porcupine session settings in a laptop browser: New conversation, Compact now, context, auto-compact and thinking level beside the model picker."
+              />
+              <figcaption>Session settings in a laptop browser.</figcaption>
+            </figure>
+            <figure className="porcupine-iphone">
+              <Phone small src={`${SHOTS}/iphone-sessions.webp`} alt="The porcupine sessions drawer on an iPhone, listing porcupine, moose and two demo sessions." />
+              <figcaption>The sessions drawer on an iPhone.</figcaption>
+            </figure>
           </div>
         </section>
 
@@ -301,15 +308,37 @@ export function Porcupine() {
               How notifications work <span aria-hidden="true">&rarr;</span>
             </External>
           </div>
+          <div className="porcupine-featured">
+            <div className="porcupine-featured-text">
+              <h3>Usage and budgets</h3>
+              <p>
+                Every model response is recorded with its tokens and cost. Settings shows this month's spend
+                per provider and model with a daily chart, and budgets warn at 80% and 100% without ever
+                blocking a prompt.
+              </p>
+              <External href={`${PORCUPINE_REPO_URL}#usage-and-budgets`}>
+                How usage is tracked <span aria-hidden="true">&rarr;</span>
+              </External>
+            </div>
+            <figure className="porcupine-featured-media">
+              <figcaption>Settings, Usage: a laptop in light mode and an iPhone in dark mode.</figcaption>
+              <div>
+                <img
+                  className="porcupine-feature-img"
+                  src={`${SHOTS}/usage.webp`}
+                  width="900"
+                  height="666"
+                  loading="lazy"
+                  decoding="async"
+                  alt="porcupine Settings, Usage tab: spend this month per provider with per-model rows and a daily chart."
+                />
+                <Phone small src={`${SHOTS}/iphone-usage-dark.webp`} alt="porcupine Settings in dark mode on an iPhone, with this month's usage." />
+              </div>
+            </figure>
+          </div>
           <ul className="porcupine-features">
             {FEATURES.map((f) => (
               <li key={f.name}>
-                {f.img && (
-                  <div className="porcupine-feature-media">
-                    <img className="porcupine-feature-img" src={f.img.src} width="900" height="666" loading="lazy" decoding="async" alt={f.img.alt} />
-                    <Phone small src={`${SHOTS}/iphone-usage-dark.webp`} alt="porcupine Settings in dark mode on an iPhone, with this month's usage." />
-                  </div>
-                )}
                 <h3>{f.name}</h3>
                 <p>{f.detail}</p>
                 <External href={f.href}>
@@ -326,7 +355,10 @@ export function Porcupine() {
             <p className="porcupine-tool-label">You need</p>
             <ul>
               {PREREQS.map((p) => (
-                <li key={p}>{p}</li>
+                <li key={p}>
+                  <span className="porcupine-check" aria-hidden="true">&#10003;</span>
+                  {p}
+                </li>
               ))}
             </ul>
           </div>
@@ -393,9 +425,9 @@ export function Porcupine() {
             ))}
           </ul>
           <p className="home-note porcupine-trust">
-            porcupine has no permission system of its own: the hooks decide what a tool call may do. A hook
-            that times out or fails lets the call through with a notice. Subagents and loops run under the
-            parent session's cf session id, so they inherit its merge mode. Change Fabric is not required.
+            porcupine has no permission system of its own, so your hooks decide what a tool call may do;
+            Change Fabric is not required.{" "}
+            <External href={`${PORCUPINE_REPO_URL}#change-fabric-cf-bridge`}>How the cf bridge works</External>
           </p>
           <div className="project-family">
             <div>

@@ -2235,20 +2235,37 @@ code {
   border-radius: var(--radius);
   margin-bottom: var(--s4);
 }
+/* A flat plum bezel with a soft shadow sets the screen apart from the warm
+   page; in dark mode the bezel lifts a step above the plum background. */
+.porcupine {
+  --porcupine-bezel: var(--plum);
+  --porcupine-shadow: 0 18px 36px -22px rgb(36 18 42 / 0.55);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .porcupine {
+    --porcupine-bezel: color-mix(in srgb, var(--cream) 16%, var(--plum));
+    --porcupine-shadow: 0 18px 36px -22px rgb(0 0 0 / 0.8);
+  }
+}
+:root[data-theme="dark"] .porcupine {
+  --porcupine-bezel: color-mix(in srgb, var(--cream) 16%, var(--plum));
+  --porcupine-shadow: 0 18px 36px -22px rgb(0 0 0 / 0.8);
+}
 .porcupine-phone {
   flex: none;
   width: 300px;
-  padding: 8px;
-  border: 1px solid var(--border-strong);
+  padding: 7px;
   border-radius: 40px;
-  background: var(--surface);
+  background: var(--porcupine-bezel);
+  box-shadow: var(--porcupine-shadow);
 }
 .porcupine-phone img {
   display: block;
   width: 100%;
   height: auto;
-  border-radius: 32px;
-  border: 1px solid var(--border);
+  border-radius: 33px;
+  outline: 1px solid rgb(255 255 255 / 0.12);
+  outline-offset: -1px;
 }
 .porcupine-phone-small {
   width: 220px;
@@ -2298,8 +2315,12 @@ code {
   color: var(--muted);
 }
 .porcupine-tool-group .porcupine-tool-label {
-  font-size: 0.68rem;
-  margin-bottom: var(--s2);
+  font-size: 0.62rem;
+  opacity: 0.75;
+  margin-bottom: var(--s3);
+}
+.porcupine-tool-group ul {
+  gap: var(--s3) var(--s6);
 }
 
 /* Watch, steer, stop: three framed captures with numbered captions. */
@@ -2345,7 +2366,7 @@ code {
   align-items: center;
   gap: var(--s2);
   margin-top: var(--s5);
-  padding: var(--s6) var(--s4) var(--s4);
+  padding: var(--s5) var(--s3) var(--s3);
   border: 1px dashed var(--border-strong);
   border-radius: var(--radius);
 }
@@ -2355,10 +2376,35 @@ code {
   grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: center;
   gap: var(--s3);
-  padding: var(--s6) var(--s4) var(--s4);
+  padding: var(--s5) var(--s3) var(--s3);
   border: 1px solid var(--border-strong);
   border-radius: var(--radius);
   background: var(--surface);
+}
+.porcupine-net .project-node {
+  padding: var(--s3);
+  gap: var(--s1);
+}
+.porcupine-net .project-hub {
+  padding: var(--s3);
+}
+.porcupine-net .project-hub img {
+  width: 44px;
+  height: 44px;
+}
+/* One arrowhead: the request runs left to right (top to bottom when stacked). */
+.porcupine-net .porcupine-req::before {
+  display: none;
+}
+.porcupine-net .porcupine-req,
+.porcupine-net .porcupine-req::after {
+  color: var(--accent);
+}
+.porcupine-net .porcupine-req {
+  background: var(--accent);
+}
+.porcupine-net .porcupine-req::after {
+  border-left-color: var(--accent);
 }
 .porcupine-host-label {
   position: absolute;
@@ -2380,6 +2426,7 @@ code {
 }
 .porcupine-devices {
   display: flex;
+  justify-content: center;
   align-items: flex-end;
   gap: var(--s6);
   margin-top: var(--s6);
@@ -2388,16 +2435,15 @@ code {
   margin: 0;
 }
 .porcupine-laptop {
-  flex: 1 1 0;
-  min-width: 0;
+  flex: 0 1 520px;
 }
 .porcupine-laptop img {
   display: block;
   width: 100%;
   height: auto;
-  border: 1px solid var(--border-strong);
   border-radius: var(--radius);
-  box-shadow: 0 0 0 8px var(--surface), 0 0 0 9px var(--border-strong);
+  border: 7px solid var(--porcupine-bezel);
+  box-shadow: var(--porcupine-shadow);
 }
 .porcupine-devices figcaption {
   margin-top: var(--s4);
@@ -2406,6 +2452,9 @@ code {
 }
 .porcupine-iphone {
   flex: none;
+}
+.porcupine-iphone .porcupine-phone-small {
+  width: 180px;
 }
 
 /* Features: one lead item, then three smaller ones. */
@@ -2426,14 +2475,70 @@ code {
   color: var(--muted);
   margin: 0 0 var(--s3);
 }
+.porcupine-featured {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr);
+  gap: var(--s6);
+  align-items: center;
+  margin-top: var(--s6);
+}
+.porcupine-featured h3 {
+  font-size: 1.35rem;
+  font-weight: 600;
+  margin: 0 0 var(--s2);
+}
+.porcupine-featured p {
+  color: var(--muted);
+  margin: 0;
+}
+.porcupine-featured a,
+.porcupine-features a,
+.porcupine-lead a {
+  display: inline-block;
+  padding-top: var(--s2);
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+.porcupine-featured-media {
+  margin: 0;
+}
+.porcupine-featured-media figcaption {
+  font-size: 0.85rem;
+  color: var(--muted);
+  margin-bottom: var(--s3);
+}
+.porcupine-featured-media > div {
+  position: relative;
+  padding-right: 112px;
+  padding-bottom: var(--s3);
+}
+.porcupine-feature-img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: var(--radius);
+  border: 6px solid var(--porcupine-bezel);
+  box-shadow: var(--porcupine-shadow);
+}
+.porcupine-featured-media .porcupine-phone {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 132px;
+  padding: 4px;
+  border-radius: 18px;
+}
+.porcupine-featured-media .porcupine-phone img {
+  border-radius: 14px;
+}
 .porcupine-features {
   list-style: none;
-  margin: var(--s5) 0 0;
-  padding: 0;
+  margin: var(--s6) 0 0;
+  padding: var(--s5) 0 0;
+  border-top: 1px solid var(--border);
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1.6fr) minmax(0, 1fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--s6);
-  align-items: start;
 }
 .porcupine-features li {
   display: flex;
@@ -2441,7 +2546,7 @@ code {
   gap: var(--s1);
 }
 .porcupine-features h3 {
-  font-size: 1.15rem;
+  font-size: 1.1rem;
   font-weight: 600;
   margin: 0;
 }
@@ -2450,45 +2555,17 @@ code {
   font-size: 0.95rem;
   margin: 0;
 }
-.porcupine-features a,
-.porcupine-lead a {
-  padding-top: var(--s2);
-  font-size: 0.9rem;
-  font-weight: 500;
-}
-.porcupine-feature-media {
-  position: relative;
-  margin-bottom: var(--s4);
-  padding-right: 64px;
-}
-.porcupine-feature-img {
-  display: block;
-  width: 100%;
-  height: auto;
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius);
-}
-.porcupine-feature-media .porcupine-phone {
-  position: absolute;
-  right: 0;
-  bottom: -12px;
-  width: 120px;
-  padding: 4px;
-  border-radius: 18px;
-}
-.porcupine-feature-media .porcupine-phone img {
-  border-radius: 14px;
-}
 
 /* Install: prerequisites, the security note, then the steps. */
 .porcupine-prereqs {
   margin-top: var(--s5);
 }
 .porcupine-prereqs li {
-  font-size: 0.9rem;
-  padding: var(--s1) var(--s3);
-  border: 1px solid var(--border);
-  border-radius: 999px;
+  font-size: 0.95rem;
+}
+.porcupine-check {
+  color: var(--accent);
+  margin-right: var(--s1);
 }
 .porcupine-security {
   margin: var(--s5) 0;
@@ -2542,14 +2619,17 @@ code {
     width: 260px;
     justify-self: center;
   }
-  .porcupine-features {
+  .porcupine-featured {
     grid-template-columns: minmax(0, 1fr);
   }
-  .porcupine-feature-media {
-    max-width: 30rem;
+  .porcupine-featured-media {
+    max-width: 34rem;
   }
 }
 @media (max-width: 760px) {
+  .porcupine-features {
+    grid-template-columns: minmax(0, 1fr);
+  }
   .porcupine-shots,
   .porcupine-net,
   .porcupine-host {
