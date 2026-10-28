@@ -13,7 +13,7 @@ const CADDYFILE_URL = `${PORCUPINE_REPO_URL}/blob/main/examples/Caddyfile`;
 const SHOTS = "/porcupine";
 
 // What you do with a running session, each beside a phone capture of it.
-const CONTROLS = [
+const CONTROLS: { n: string; name: string; detail: string; src: string; alt: string; height?: number }[] = [
   {
     n: "01",
     name: "Watch",
@@ -34,7 +34,6 @@ const CONTROLS = [
     detail: "The send button becomes a stop button while the agent works. Tap it and the run ends where it is, marked aborted.",
     src: `${SHOTS}/stop.webp`,
     alt: "porcupine on a phone right after stopping a run: the last tool calls, an aborted marker and the composer ready again.",
-    height: 354,
   },
 ];
 

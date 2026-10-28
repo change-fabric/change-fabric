@@ -2333,19 +2333,21 @@ code {
   gap: var(--s6);
 }
 .porcupine-shots li {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
+  display: grid;
+  grid-row: span 2;
+  grid-template-rows: subgrid;
+  justify-items: center;
   gap: var(--s4);
 }
 .porcupine-shots .porcupine-phone {
+  align-self: center;
   width: 100%;
   max-width: 260px;
 }
 .porcupine-shots li > div {
   max-width: 260px;
   width: 100%;
-  margin-top: auto;
+  align-self: start;
 }
 .porcupine-shots h3 {
   font-size: 1.15rem;
