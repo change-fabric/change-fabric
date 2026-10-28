@@ -129,10 +129,18 @@ function TechMark({ id, name }: { id: string; name: string }) {
   return <span className={`tech-mark tech-${id}`} role="img" aria-label={name} />;
 }
 
-function Phone({ src, alt, eager }: { src: string; alt: string; eager?: boolean }) {
+// Small frames hold the user's iPhone recording, which is only 296px wide.
+function Phone({ src, alt, eager, small }: { src: string; alt: string; eager?: boolean; small?: boolean }) {
   return (
-    <div className="porcupine-phone">
-      <img src={src} width="390" height="844" alt={alt} loading={eager ? "eager" : "lazy"} decoding="async" />
+    <div className={small ? "porcupine-phone porcupine-phone-small" : "porcupine-phone"}>
+      <img
+        src={src}
+        width={small ? 296 : 390}
+        height={small ? 510 : 844}
+        alt={alt}
+        loading={eager ? "eager" : "lazy"}
+        decoding="async"
+      />
     </div>
   );
 }
@@ -208,7 +216,7 @@ export function Porcupine() {
         </section>
 
         <section className="home-section" aria-labelledby="porcupine-arch-title">
-          <h2 id="porcupine-arch-title">Everything stays on your host.</h2>
+          <h2 id="porcupine-arch-title">Your sessions stay on your host.</h2>
           <p className="home-lede">
             Your browser reaches the host over HTTPS on a private network. A reverse proxy terminates TLS
             in front of porcupine-hub, which serves the app, checks the password and relays each browser
@@ -272,9 +280,7 @@ export function Porcupine() {
             <figcaption>The same app in a laptop browser, with the sessions rail docked.</figcaption>
           </figure>
           <figure className="porcupine-iphone porcupine-iphone-sessions">
-            <div className="porcupine-phone porcupine-phone-small">
-              <img src={`${SHOTS}/iphone-sessions.webp`} width="296" height="510" loading="lazy" decoding="async" alt="The porcupine sessions drawer on an iPhone, listing porcupine, moose and two demo sessions." />
-            </div>
+            <Phone small src={`${SHOTS}/iphone-sessions.webp`} alt="The porcupine sessions drawer on an iPhone, listing porcupine, moose and two demo sessions." />
             <figcaption>The sessions drawer on an iPhone.</figcaption>
           </figure>
           </div>
@@ -301,9 +307,7 @@ export function Porcupine() {
                 {f.img && (
                   <div className="porcupine-feature-media">
                     <img className="porcupine-feature-img" src={f.img.src} width="900" height="666" loading="lazy" decoding="async" alt={f.img.alt} />
-                    <div className="porcupine-phone porcupine-phone-small">
-                      <img src={`${SHOTS}/iphone-usage-dark.webp`} width="296" height="510" loading="lazy" decoding="async" alt="porcupine Settings in dark mode on an iPhone, with this month's usage." />
-                    </div>
+                    <Phone small src={`${SHOTS}/iphone-usage-dark.webp`} alt="porcupine Settings in dark mode on an iPhone, with this month's usage." />
                   </div>
                 )}
                 <h3>{f.name}</h3>
@@ -378,7 +382,7 @@ export function Porcupine() {
 
         <section className="home-section" aria-labelledby="porcupine-cf-title">
           <h2 id="porcupine-cf-title">Works with Change Fabric.</h2>
-          <p className="home-lede">If you use Change Fabric, every porcupine session picks up its pieces.</p>
+          <p className="home-lede">If you use Change Fabric, every porcupine session runs its hooks, merge mode and skills.</p>
           <ul className="project-cards">
             {BRIDGE.map((b) => (
               <li key={b.name}>
@@ -398,7 +402,7 @@ export function Porcupine() {
               <p className="home-lede">
                 porcupine is a separate, MIT-licensed project, not part of the Change Fabric spec. It focuses
                 on driving coding-agent sessions from your phone; Change Fabric focuses on software quality
-                and release readiness. Both favor local control and infrastructure you own.
+                and release readiness.
               </p>
               <ul className="project-links" aria-label="porcupine resources">
                 <li>
