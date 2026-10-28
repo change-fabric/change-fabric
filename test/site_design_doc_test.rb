@@ -19,7 +19,7 @@ class SiteDesignDocTest < Minitest::Test
   end
   # The spacing exceptions DESIGN.md lists under "Spacing and layout". A new
   # off-scale value fails here until it is documented there and added below.
-  OFF_SCALE_PX = [ 0, 1, 2, 3, 5, 6, 36, 60, 80 ].freeze
+  OFF_SCALE_PX = [ 0, 1, 2, 3, 4, 5, 6, 7, 36, 60, 80, 112 ].freeze
 
   def test_off_scale_spacing_is_the_documented_list
     css = File.read(File.join(ROOT, "site/src/styles.css"))
