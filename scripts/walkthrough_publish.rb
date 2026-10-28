@@ -5,6 +5,7 @@ require 'fileutils'
 require 'open3'
 require_relative 'change_docker'
 require_relative 'change_screenshot_upload'
+require_relative 'prototype_flats'
 
 # Publishes a rendered walkthrough MP4 to GitHub the way cf:screenshot publishes
 # images: through ChangeScreenshotUpload (the toolkit's one raw HTTPS call, so
@@ -54,16 +55,18 @@ module WalkthroughPublish
     body.strip.empty? ? "#{block}\n" : "#{body.rstrip}\n\n#{block}\n"
   end
 
+  def target(kind, number, comment) = Target.new(kind: kind, number: number, comment: comment)
+
   # `--pr`/`--issue` win, `--none` forces no target, else the branch's open PR.
   def resolve_target(argv, gh:)
     return nil if argv.include?('--none')
 
     comment = argv.include?('--comment')
     pr = flag_value(argv, '--pr')
-    return Target.new(kind: :pr, number: pr, comment: comment) if pr
+    return target(:pr, pr, comment) if pr
 
     issue = flag_value(argv, '--issue')
-    return Target.new(kind: :issue, number: issue, comment: comment) if issue
+    return target(:issue, issue, comment) if issue
 
     current_branch_pr(gh, comment)
   end
@@ -74,7 +77,7 @@ module WalkthroughPublish
 
     out, ok = gh.call('gh', 'pr', 'list', '--head', branch, '--state', 'open', '--json', 'number', '--jq',
                       '.[0].number')
-    ok && out.match?(/\A\d+\z/) ? Target.new(kind: :pr, number: out, comment: comment) : nil
+    ok && out.match?(/\A\d+\z/) ? target(:pr, out, comment) : nil
   end
 
   def flag_value(argv, flag)
@@ -177,8 +180,8 @@ module WalkthroughPublish
   # .cache/render/<hash>/. Only boards that exist are returned.
   def locate_boards(arg)
     root = File.directory?(arg) ? arg : File.expand_path("../../..", File.dirname(arg))
-    %w[light dark].to_h { |theme| [ theme, File.join(root, "flats", theme, "overview.png") ] }
-                  .select { |_theme, path| File.file?(path) }
+    PrototypeFlats::THEMES.to_h { |theme| [ theme, PrototypeFlats.overview_path(root, theme) ] }
+                          .select { |_theme, path| File.file?(path) }
   end
 
   # Accepts an MP4 or a walkthrough/<slug> dir (newest rendered MP4 in it).

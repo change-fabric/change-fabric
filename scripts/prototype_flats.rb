@@ -32,6 +32,8 @@ module PrototypeFlats
 
   module_function
 
+  def overview_path(root, theme) = File.join(root, 'flats', theme, 'overview.png')
+
   # -- manifest ------------------------------------------------------------
 
   def load_manifest(path)
@@ -71,20 +73,38 @@ module PrototypeFlats
 
   # -- browser modules -----------------------------------------------------
 
+  # Shared page setup for every browser module: a fresh context, a page that
+  # collects its own errors, and the starting viewport.
+  def page_prelude_js(width:, height:)
+    <<~JS
+      #{BrowserlessJs.fresh_context_js}
+      const browser = basePage.browser();
+      const context = await newBrowserContext(browser);
+      const page = context ? await context.newPage() : await browser.newPage();
+      const pageErrors = [];
+      page.on("pageerror", (err) => pageErrors.push(String(err && err.message || err)));
+      await page.setViewport({ width: #{width}, height: #{height}, deviceScaleFactor: 1 });
+    JS
+  end
+
+  # One screenshot of the loaded page at a device scale factor, after two frames.
+  def capture_js(target, width:, height:, scale:)
+    <<~JS
+      await page.setViewport({ width: #{width}, height: #{height}, deviceScaleFactor: #{scale} });
+      await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+      #{target} = await page.screenshot({ encoding: "base64" });
+    JS
+  end
+
   # One flat in one theme: the 1x then the 2x screenshot of the same page.
   def function_module(html:, theme:, viewport:, state:, prng_seed:)
     vp = DEFAULT_VIEWPORT.merge(viewport || {})
+    size = { width: vp['w'], height: vp['h'] }
     <<~JS
       export default async function ({ page: basePage }) {
-        #{BrowserlessJs.fresh_context_js}
-        const browser = basePage.browser();
-        const context = await newBrowserContext(browser);
-        const page = context ? await context.newPage() : await browser.newPage();
+        #{page_prelude_js(**size)}
         const theme = #{JSON.generate(theme)};
         const locale = #{JSON.generate(PrototypeCapture::LOCALE)};
-        const pageErrors = [];
-        page.on("pageerror", (err) => pageErrors.push(String(err && err.message || err)));
-        await page.setViewport({ width: #{vp['w']}, height: #{vp['h']}, deviceScaleFactor: 1 });
         await page.setExtraHTTPHeaders(#{BrowserlessJs.locale_header_js});
         #{BrowserlessJs.locale_js('locale', page_var: 'page')}
         await page.emulateMediaFeatures([ { name: "prefers-color-scheme", value: theme } ]);
@@ -94,13 +114,9 @@ module PrototypeFlats
           document.documentElement.setAttribute("data-theme", theme);
           document.documentElement.classList.toggle("dark", theme === "dark");
         }, theme);
-        const settle = () => page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
         const shots = {};
-        await settle();
-        shots["1x"] = await page.screenshot({ encoding: "base64" });
-        await page.setViewport({ width: #{vp['w']}, height: #{vp['h']}, deviceScaleFactor: 2 });
-        await settle();
-        shots["2x"] = await page.screenshot({ encoding: "base64" });
+        #{capture_js('shots["1x"]', **size, scale: 1)}
+        #{capture_js('shots["2x"]', **size, scale: 2)}
         if (context) await context.close();
         return { data: { shots, blockedRequests, pageErrors }, type: "application/json" };
       }
@@ -111,13 +127,7 @@ module PrototypeFlats
   def board_module(html)
     <<~JS
       export default async function ({ page: basePage }) {
-        #{BrowserlessJs.fresh_context_js}
-        const browser = basePage.browser();
-        const context = await newBrowserContext(browser);
-        const page = context ? await context.newPage() : await browser.newPage();
-        const pageErrors = [];
-        page.on("pageerror", (err) => pageErrors.push(String(err && err.message || err)));
-        await page.setViewport({ width: #{BOARD_WIDTH}, height: 1000, deviceScaleFactor: 1 });
+        #{page_prelude_js(width: BOARD_WIDTH, height: 1000)}
         #{BrowserlessJs.inline_html_js(html, page_var: 'page')}
         const png = await page.screenshot({ encoding: "base64", fullPage: true });
         if (context) await context.close();
@@ -126,11 +136,14 @@ module PrototypeFlats
     JS
   end
 
+  # Consecutive entries sharing a section, in flow order.
+  def by_section(entries) = entries.chunk_while { |a, b| a[:section] == b[:section] }
+
   # Sections are rows in flow order, screens run left to right within a row,
   # like frames on a Figma page. Images are data URIs so the board needs no
   # network and no file access.
   def board_html(shots, theme:)
-    rows = shots.chunk_while { |a, b| a[:section] == b[:section] }.map do |group|
+    rows = by_section(shots).map do |group|
       cells = group.map { |s| board_cell(s) }.join
       "<section><h2>#{CGI.escapeHTML(group.first[:section])}</h2><div class=\"row\">#{cells}</div></section>"
     end
@@ -157,7 +170,7 @@ module PrototypeFlats
                            'Generated by `prototype_flats.rb`; do not edit.', '' ]
     out << THEMES.map { |t| "[Overview, #{t}](#{t}/overview.png)" }.join(' | ')
     out << ''
-    entries.chunk_while { |a, b| a[:section] == b[:section] }.each do |group|
+    by_section(entries).each do |group|
       out << "## #{group.first[:section]}" << ''
       group.each { |e| out.concat(index_entry(e)) }
     end
@@ -190,22 +203,23 @@ module PrototypeFlats
   def run(session:, root:, manifest_path: File.join(root, 'flats.json'))
     manifest = load_manifest(manifest_path)
     out = File.join(root, 'flats')
-    seed = seed_for(root)
     WalkthroughCache.ensure_gitignore(root)
     list = entries(manifest)
     boards = THEMES.to_h { |t| [ t, [] ] }
     THEMES.each do |theme|
       FileUtils.mkdir_p(File.join(out, theme))
-      list.each { |e| boards[theme] << render_flat(session, e, theme, root, out, manifest, seed) }
+      list.each { |e| boards[theme] << render_flat(session, e, theme, root, manifest) }
       html = board_html(boards[theme], theme: theme)
       png = check!(session.run_function(board_module(html)), "overview #{theme}")['png']
-      File.binwrite(File.join(out, theme, 'overview.png'), Base64.decode64(png))
+      File.binwrite(overview_path(root, theme), Base64.decode64(png))
     end
     File.write(File.join(out, 'index.md'), index_md(list))
     out
   end
 
-  def render_flat(session, entry, theme, root, out, manifest, seed)
+  def render_flat(session, entry, theme, root, manifest)
+    out = File.join(root, 'flats')
+    seed = seed_for(root)
     html = PrototypeCapture.inline_screen(File.join(root, entry[:html]))
     state = PrototypeCapture.resolve_state(seed, patch: entry[:patch])
     mod = function_module(html: html, theme: theme, viewport: manifest['viewport'], state: state,

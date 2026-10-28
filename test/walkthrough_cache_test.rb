@@ -54,26 +54,18 @@ class WalkthroughCacheTest < Minitest::Test
   end
 
   def test_ensure_gitignore_is_idempotent_and_appends
+    expected = WalkthroughCache::GITIGNORE_LINES.join("\n")
     wt = File.join(@dir, "walkthrough", "demo")
     file = WalkthroughCache.ensure_gitignore(wt)
     WalkthroughCache.ensure_gitignore(wt)
-    assert_equal "#{WalkthroughCache::GITIGNORE_LINES.join("\n")}\n", File.read(file)
+    assert_equal "#{expected}\n", File.read(file)
+    assert_equal [ ".cache/", "flats/", "*.mp4", "overview*.png" ], expected.lines.map(&:strip)
 
     other = File.join(@dir, "other")
     FileUtils.mkdir_p(other)
     File.write(File.join(other, ".gitignore"), "tmp/")
     WalkthroughCache.ensure_gitignore(other)
-    assert_equal "tmp/\n#{WalkthroughCache::GITIGNORE_LINES.join("\n")}\n", File.read(File.join(other, ".gitignore"))
-  end
-
-  def test_ignore_file_covers_flats_media_and_boards
-    wt = File.join(@dir, "walkthrough", "demo")
-    WalkthroughCache.ensure_gitignore(wt)
-    lines = File.read(File.join(wt, ".gitignore")).lines.map(&:strip)
-    assert_includes lines, ".cache/"
-    assert_includes lines, "flats/"
-    assert_includes lines, "*.mp4"
-    assert_includes lines, "overview*.png"
+    assert_equal "tmp/\n#{expected}\n", File.read(File.join(other, ".gitignore"))
   end
 
   def test_ignore_file_adds_only_missing_lines

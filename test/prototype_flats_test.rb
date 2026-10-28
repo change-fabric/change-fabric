@@ -10,6 +10,7 @@ require_relative "../scripts/prototype_flats"
 # cf:prototype flats with browserless stubbed: no docker, no browser.
 class PrototypeFlatsTest < Minitest::Test
   F = PrototypeFlats
+  FLAT_NAMES = %w[01-loans-list-empty 02-loans-list 03-settings-profile-page].freeze
 
   # Answers a per-flat module with 1x and 2x shots, and the board module with
   # one image. Records every module posted.
@@ -53,7 +54,7 @@ class PrototypeFlatsTest < Minitest::Test
 
   def test_names_are_numbered_in_flow_order_and_slugged
     names = F.entries(MANIFEST).map { |e| e[:name] }
-    assert_equal %w[01-loans-list-empty 02-loans-list 03-settings-profile-page], names
+    assert_equal FLAT_NAMES, names
   end
 
   def test_load_rejects_bad_manifests
@@ -89,8 +90,8 @@ class PrototypeFlatsTest < Minitest::Test
       session = FakeSession.new
       out = F.run(session: session, root: root)
       assert_equal File.join(root, "flats"), out
-      %w[light dark].each do |theme|
-        %w[01-loans-list-empty 02-loans-list 03-settings-profile-page].each do |n|
+      F::THEMES.each do |theme|
+        FLAT_NAMES.each do |n|
           assert_equal "one", File.read(File.join(out, theme, "#{n}.png"))
           assert_equal "two", File.read(File.join(out, theme, "#{n}@2x.png"))
         end

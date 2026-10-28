@@ -89,7 +89,7 @@ class WalkthroughPublishTest < Minitest::Test
 
   def test_flag_value_must_be_digits
     [ "--pr", "--pr abc", "--issue 1;x", "--issue -3" ].each do |flags|
-      assert_raises(ArgumentError) { P.resolve_target(flags.split, gh: FakeGh.new) }
+      assert_raises(ArgumentError) { target_pair(flags.split) }
     end
   end
 
