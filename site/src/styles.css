@@ -2677,3 +2677,7 @@ code {
     mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
   }
 }
+/* Long ~/.claude paths in the cf cards would otherwise widen the page. */
+.porcupine .project-cards p {
+  overflow-wrap: anywhere;
+}
