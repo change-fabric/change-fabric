@@ -23,6 +23,8 @@ class WalkthroughRenderTest < Minitest::Test
     File.write(File.join(@root, "data", "seed.json"), JSON.generate("items" => [ { "id" => 1 } ]))
     File.write(File.join(@root, "storyboard.json"), JSON.pretty_generate(board))
     @calls = Hash.new { |h, k| h[k] = [] }
+    @lint_findings = {}
+    @critic = { "score" => 6, "summary" => "s", "issues" => [], "thirty_second_test" => { "verdict" => "pass", "reason" => "r" } }
   end
 
   def teardown
@@ -84,6 +86,15 @@ class WalkthroughRenderTest < Minitest::Test
         File.binwrite(File.join(kw[:out_dir], "000001.png"), "png")
         File.write(File.join(kw[:out_dir], "cursor.json"), JSON.generate([ { "frame" => 1, "x" => 3, "y" => 4, "down" => false } ]))
         File.write(File.join(kw[:out_dir], "end-state.json"), JSON.generate(kw[:state].merge("seen" => kw[:label])))
+        PrototypeUxLint.write(kw[:out_dir], PrototypeUxLint.scene_report(kw[:label], @lint_findings.fetch(kw[:label], [])))
+      end,
+      lint: lambda do |**kw|
+        @calls[:lint] << kw[:label]
+        PrototypeUxLint.scene_report(kw[:label], @lint_findings.fetch(kw[:label], [])).tap { |r| PrototypeUxLint.write(kw[:out_dir], r) }
+      end,
+      roast: lambda do |**kw|
+        @calls[:roast] << kw[:shots].map { |s| File.basename(s) }
+        @critic
       end,
       docker: lambda do |argv|
         @calls[:docker] << argv
@@ -91,6 +102,10 @@ class WalkthroughRenderTest < Minitest::Test
           [ "--enable-libass --enable-libx264", Status.new(true) ]
         elsif argv.include?("null")
           [ LOUDNORM_OUT, Status.new(true) ]
+        elsif argv.last.end_with?("%03d.jpg")
+          dir = File.dirname(argv.last.sub(%r{\A/work/}, "#{@root}/"))
+          argv.join(" ").scan("eq(n").size.times { |i| File.binwrite(File.join(dir, format("%03d.jpg", i + 1)), "jpg#{i}") }
+          [ "", Status.new(true) ]
         elsif argv.last.end_with?("%06d.png")
           File.binwrite(File.join(File.dirname(argv.last.sub(%r{\A/work/}, "#{@root}/")), "000001.png"), "png")
           [ "", Status.new(true) ]
@@ -104,7 +119,7 @@ class WalkthroughRenderTest < Minitest::Test
   end
 
   def run_render(**opts)
-    WalkthroughRender::Run.new(@root, **{ providers: providers, out: StringIO.new }.merge(opts)).call
+    WalkthroughRender::Run.new(@root, **{ providers: providers, out: StringIO.new, gates: { roast: false } }.merge(opts)).call
   end
 
   def test_full_render_order_and_outputs
@@ -356,5 +371,67 @@ class WalkthroughRenderTest < Minitest::Test
       WalkthroughRender::Run.new(@root, providers: bad, out: StringIO.new).call
     end
     assert_match(/lacks libass/, err.message)
+  end
+
+  # -- gates ----------------------------------------------------------------
+
+  def finding(rule = "empty-control")
+    { "frame" => 0, "rule" => rule, "target" => "#toast", "detail" => "overlay renders no visible text" }
+  end
+
+  def test_ux_lint_report_beside_render_and_final_refusal
+    @lint_findings = { "detail" => [ finding ] }
+    draft = run_render
+    report = JSON.parse(File.read(File.join(File.dirname(draft[:mp4]), "ux-lint.json")))
+    assert_equal [ "detail" ], report["scenes"].reject { |r| r["findings"].empty? }.map { |r| r["scene"] }
+    err = assert_raises(PrototypeUxLint::FindingsError) { run_render(final: true) }
+    assert_includes err.message, "detail: empty-control #toast"
+    assert_includes err.message, "--allow-ux-findings"
+    assert run_render(final: true, gates: { roast: false, allow_ux: true })[:mp4]
+  end
+
+  def test_clean_lint_lets_final_through
+    run_render
+    assert run_render(final: true)[:mp4]
+  end
+
+  def test_cached_frames_without_a_lint_report_get_a_lint_only_pass
+    run_render
+    Dir.glob(File.join(@root, ".cache", "frames", "*", "ux-lint.json")).each { |f| File.delete(f) }
+    @calls.clear
+    run_render
+    assert_empty @calls[:capture]
+    assert_equal %w[list detail hero], @calls[:lint]
+  end
+
+  def test_draft_roast_writes_round_with_keyframes_and_estimate
+    out = StringIO.new
+    WalkthroughRender::Run.new(@root, providers: providers, out: out).call
+    assert File.file?(File.join(@root, "roast", "round-1.json"))
+    shots = @calls[:roast].first
+    assert_equal 9, shots.size
+    assert_equal "001-list-start.jpg", shots.first
+    log = out.string
+    assert_operator log.index("roast estimate:"), :<, log.index("roast: roast/round-1.json")
+  end
+
+  def test_draft_roast_skips_over_its_ceiling_and_on_no_roast
+    out = StringIO.new
+    WalkthroughRender::Run.new(@root, providers: providers, out: out, gates: { roast_max_usd: 0.0 }).call
+    assert_empty @calls[:roast]
+    assert_includes out.string, "passes the ceiling"
+    refute File.exist?(File.join(@root, "roast", "round-1.json"))
+  end
+
+  def test_final_refuses_on_open_roast_blocker_until_rebutted_or_allowed
+    @critic = @critic.merge("issues" => [ { "priority" => "P1", "screen" => "002-list-middle.jpg", "problem" => "Toast covers the CTA", "fix" => "Move it" },
+                                          { "priority" => "P2", "screen" => "001-list-start.jpg", "problem" => "Tight", "fix" => "Pad" } ])
+    WalkthroughRender::Run.new(@root, providers: providers, out: StringIO.new).call
+    err = assert_raises(WalkthroughRoast::OpenFindingsError) { run_render(final: true) }
+    assert_includes err.message, "P1 (002-list-middle.jpg): Toast covers the CTA"
+    assert run_render(final: true, gates: { roast: false, allow_roast: true })[:mp4]
+    File.write(File.join(@root, "roast", "round-1.response.json"),
+               JSON.generate("responses" => [ { "screen" => "002-list-middle.jpg", "problem" => "Toast covers", "verdict" => "rebut", "reason" => "r" } ]))
+    assert run_render(final: true)[:mp4]
   end
 end

@@ -8,12 +8,14 @@ require_relative 'b_roll'
 require_relative 'change_docker'
 require_relative 'prototype_capture'
 require_relative 'prototype_imagegen'
+require_relative 'prototype_ux_lint'
 require_relative 'walkthrough_cache'
 require_relative 'walkthrough_captions'
 require_relative 'elevenlabs'
 require_relative 'walkthrough_env'
 require_relative 'walkthrough_ffmpeg'
 require_relative 'walkthrough_manifest'
+require_relative 'walkthrough_roast'
 require_relative 'walkthrough_storyboard'
 
 # Orchestrates one walkthrough render: validate, estimate, generate missing
@@ -35,14 +37,20 @@ module WalkthroughRender
     broll: ->(**kw) { BRoll.generate_or_fallback(**kw) },
     browser: ->(&blk) { ChangeDocker.with_browserless(network: nil, &blk) },
     capture: ->(**kw) { PrototypeCapture.capture(**kw) },
+    lint: ->(**kw) { PrototypeCapture.lint_only(**kw) },
+    roast: ->(**kw) { Roast.critique(**kw) },
     docker: ->(argv) { Open3.capture2e(*argv) }
   }.freeze
 
   class Run
     attr_reader :root
 
-    def initialize(root, scene: nil, final: false, providers: {}, out: $stdout, board: nil, max_usd: BRoll::DEFAULT_CEILING_USD, burn_captions: false)
+    # rubocop:disable Metrics/ParameterLists
+    def initialize(root, scene: nil, final: false, providers: {}, out: $stdout, board: nil, max_usd: BRoll::DEFAULT_CEILING_USD,
+                   burn_captions: false, gates: {})
+      # rubocop:enable Metrics/ParameterLists
       @root = File.expand_path(root)
+      @gates = { allow_ux: false, allow_roast: false, roast: true, roast_max_usd: WalkthroughRoast::DEFAULT_CEILING_USD }.merge(gates)
       @only = scene
       @final = final
       @burn_captions = burn_captions
@@ -364,6 +372,96 @@ module WalkthroughRender
       require_file!(mp4, 'rendered mp4')
     end
 
+    # -- gates --------------------------------------------------------------
+
+    # The free UX lint: every captured scene's ux-lint.json (a lint-only
+    # browser pass fills any scene captured before the lint existed), merged
+    # into ux-lint.json beside the render.
+    def ux_lint(manifest)
+      memo = {}
+      todo = []
+      reports = scenes.reject { |s| broll?(s) }.map do |scene|
+        prep = PrototypeCapture.prepare(@board, scene, @root, memo, final: @final)
+        PrototypeUxLint.read(prep[:out_dir]) || (todo << [ scene, prep ] && nil)
+      end.compact
+      with_session { |session| todo.each { |scene, prep| reports << lint_scene(session, scene, prep) } } unless todo.empty?
+      reports.sort_by! { |r| scenes.index { |s| s['id'] == r['scene'] } }
+      dir = render_dir(manifest)
+      FileUtils.mkdir_p(dir)
+      File.write(File.join(dir, PrototypeUxLint::REPORT), "#{JSON.pretty_generate({ 'scenes' => reports })}\n")
+      say("ux lint: #{PrototypeUxLint.total(reports)} finding(s), #{relative(File.join(dir, PrototypeUxLint::REPORT))}")
+      PrototypeUxLint.summary_lines(reports).each { |line| say("  #{line}") }
+      reports
+    end
+
+    def lint_scene(session, scene, prep)
+      say("#{scene['id']}: ux lint")
+      @p[:lint].call(session: session, html: PrototypeCapture.inline_screen(prep[:html_path], remap: prep[:remap]),
+                     interactions: scene['interactions'] || [], duration_ms: PrototypeCapture.scene_duration(scene),
+                     out_dir: prep[:out_dir], state: prep[:state], prng_seed: prep[:prng_seed], viewport: @board['viewport'],
+                     fps: fps, label: scene['id'])
+    end
+
+    def roast_dir = File.join(@root, WalkthroughRoast::DIR)
+
+    # --final refuses on any UX lint finding or open draft-roast P0/P1,
+    # each with its own override.
+    def gate_final!(reports)
+      return unless @final
+
+      PrototypeUxLint.gate!(reports, allow: @gates[:allow_ux])
+      if Roast.load_history(roast_dir).empty?
+        say('roast gate: no draft roast on record')
+      else
+        WalkthroughRoast.gate!(roast_dir, allow: @gates[:allow_roast])
+      end
+    end
+
+    # One cf:roast round over the draft's keyframes, under its own ceiling,
+    # with the estimate printed before any call. A missing key or an
+    # over-ceiling estimate skips the round; the draft itself stands.
+    def draft_roast(manifest, mp4, reports)
+      return say('roast: skipped (--no-roast)') unless @gates[:roast]
+
+      shots = extract_keyframes(manifest, mp4, reports)
+      inputs = { brief: WalkthroughRoast.brief(@board), shots: shots, history: Roast.load_history(roast_dir),
+                 round: Roast.next_round(roast_dir) }
+      return unless roast_affordable?(inputs)
+
+      critic = @p[:roast].call(**inputs, cache_root: @cache)
+      Roast.write_round(roast_dir, inputs[:round], critic)
+      blockers = WalkthroughRoast.open_blockers(Roast.load_history(roast_dir)).size
+      say("roast: #{relative(File.join(roast_dir, "round-#{inputs[:round]}.json"))} score #{critic['score']}/10, #{blockers} open P0/P1")
+    rescue WalkthroughEnv::MissingKeyError, Roast::RequestError => e
+      say("roast: skipped (#{e.message})")
+    end
+
+    def roast_affordable?(inputs)
+      cached = Roast.cached?(@cache, **inputs)
+      est = Roast.estimate(**inputs.slice(:brief, :shots, :history))
+      usd = cached ? 0.0 : est[:usd]
+      say("roast estimate: #{inputs[:shots].size} keyframe(s), $#{format('%.2f', usd)} (ceiling $#{format('%.2f', @gates[:roast_max_usd])})")
+      return true if usd <= @gates[:roast_max_usd] + 1e-9
+
+      say('roast: skipped, the estimate passes the ceiling (raise it with --roast-max-usd)')
+      false
+    end
+
+    def extract_keyframes(manifest, mp4, reports)
+      overlays = reports.to_h { |r| [ r['scene'], r['overlays'] || {} ] }
+      keys = WalkthroughRoast.keyframes(manifest['scenes'], overlays)
+      dir = File.join(roast_dir, 'keyframes', "round-#{Roast.next_round(roast_dir)}")
+      FileUtils.rm_rf(dir)
+      FileUtils.mkdir_p(dir)
+      ffmpeg!(WalkthroughRoast.extract_args(container(mp4), keys, container(File.join(dir, '%03d.jpg'))), 'keyframes')
+      keys.each_with_index.map do |key, i|
+        src = File.join(dir, format('%03d.jpg', i + 1))
+        dest = File.join(dir, WalkthroughRoast.keyframe_name(i, key))
+        FileUtils.mv(src, dest) if File.file?(src)
+        dest
+      end.select { |path| File.file?(path) }
+    end
+
     # -- driver -------------------------------------------------------------
 
     def call(estimate_only: false)
@@ -385,7 +483,10 @@ module WalkthroughRender
       generate_music(manifest.dig('timeline', 'total_ms'))
       File.write(@board_path, "#{JSON.pretty_generate(@board)}\n")
       WalkthroughManifest.write(manifest, @root)
+      ux = ux_lint(manifest)
+      gate_final!(ux)
       mp4 = assemble(manifest)
+      draft_roast(manifest, mp4, ux) unless @final
       say("b-roll spend about $#{format('%.2f', @budget.spent)}") if @budget.spent.positive?
       say("manifest #{manifest['manifest_hash']}")
       say("mp4 #{Digest::SHA256.file(mp4).hexdigest} #{mp4}")
@@ -395,13 +496,21 @@ module WalkthroughRender
 end
 
 if __FILE__ == $PROGRAM_NAME
-  usage = 'usage: walkthrough_render.rb walkthrough/<slug> [--scene <id>] [--draft|--final] [--estimate-only] [--max-usd <n>] [--burn-captions]'
+  usage = 'usage: walkthrough_render.rb walkthrough/<slug> [--scene <id>] [--draft|--final] [--estimate-only] [--max-usd <n>] [--burn-captions] ' \
+          '[--allow-ux-findings] [--allow-roast-findings] [--no-roast] [--roast-max-usd <n>]'
   dir = ARGV.first
   abort(usage) if dir.nil? || dir.start_with?('--')
   scene = ARGV.include?('--scene') ? (ARGV[ARGV.index('--scene') + 1] || abort(usage)) : nil
   abort('--draft and --final are exclusive') if ARGV.include?('--draft') && ARGV.include?('--final')
   max_usd = ARGV.include?('--max-usd') ? (ARGV[ARGV.index('--max-usd') + 1] || abort(usage)).to_f : BRoll::DEFAULT_CEILING_USD
-  WalkthroughRender::Run.new(dir, scene: scene, final: ARGV.include?('--final'), max_usd: max_usd,
-                             burn_captions: ARGV.include?('--burn-captions'))
-                        .call(estimate_only: ARGV.include?('--estimate-only'))
+  roast_usd = ARGV.include?('--roast-max-usd') ? (ARGV[ARGV.index('--roast-max-usd') + 1] || abort(usage)).to_f : WalkthroughRoast::DEFAULT_CEILING_USD
+  gates = { allow_ux: ARGV.include?('--allow-ux-findings'), allow_roast: ARGV.include?('--allow-roast-findings'),
+            roast: !ARGV.include?('--no-roast'), roast_max_usd: roast_usd }
+  begin
+    WalkthroughRender::Run.new(dir, scene: scene, final: ARGV.include?('--final'), max_usd: max_usd,
+                               burn_captions: ARGV.include?('--burn-captions'), gates: gates)
+                          .call(estimate_only: ARGV.include?('--estimate-only'))
+  rescue PrototypeUxLint::FindingsError, WalkthroughRoast::OpenFindingsError => e
+    abort("refused: #{e.message}")
+  end
 end
