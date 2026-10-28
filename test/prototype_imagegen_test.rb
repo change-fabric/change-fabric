@@ -5,25 +5,10 @@ require "base64"
 require "json"
 require "tmpdir"
 require_relative "../scripts/prototype_imagegen"
+require_relative "imagegen_helpers"
 
 class PrototypeImagegenTest < Minitest::Test
-  FakeResponse = Struct.new(:code, :body) do
-    def is_a?(klass) = klass == Net::HTTPSuccess ? code == "200" : super
-  end
-
-  class FakeHttp
-    attr_reader :requests
-
-    def initialize(code = "200")
-      @code = code
-      @requests = []
-    end
-
-    def request(req)
-      @requests << req
-      FakeResponse.new(@code, JSON.generate("data" => [ { "b64_json" => Base64.strict_encode64("PNG") } ]))
-    end
-  end
+  include ImagegenHelpers
 
   def test_defaults
     assert_equal "gpt-image-2", PrototypeImagegen::MODEL unless ENV["CF_IMAGE_MODEL"]
@@ -81,7 +66,7 @@ class PrototypeImagegenTest < Minitest::Test
 
   def test_edit_and_mask_ride_the_edits_endpoint_with_edit_first
     Dir.mktmpdir do |dir|
-      edit, ref, mask = %w[e r m].map { |n| File.join(dir, "#{n}.png").tap { |f| File.binwrite(f, n) } }
+      edit, ref, mask = %w[e r m].map { |n| write_fixture(dir, "#{n}.png") }
       req = PrototypeImagegen.build_request(prompt: "p", size: "1024x1024", quality: "low", refs: [ ref ], edit: edit, mask: mask)
       assert_equal PrototypeImagegen::EDITS_URL, req[:url]
       assert_equal [ edit, ref ], req[:files]
@@ -91,7 +76,7 @@ class PrototypeImagegenTest < Minitest::Test
 
   def test_asset_key_covers_edit_and_mask_and_keeps_legacy_keys
     Dir.mktmpdir do |dir|
-      a, b = %w[a b].map { |n| File.join(dir, "#{n}.png").tap { |f| File.binwrite(f, n) } }
+      a, b = %w[a b].map { |n| write_fixture(dir, "#{n}.png") }
       base = { prompt: "p", size: "1024x1024", quality: "low" }
       legacy = PrototypeImagegen.asset_key(**base)
       assert_equal legacy, PrototypeImagegen.asset_key(**base, edit: nil, mask: nil)
@@ -103,11 +88,23 @@ class PrototypeImagegenTest < Minitest::Test
 
   def test_multipart_carries_image_parts_and_mask
     Dir.mktmpdir do |dir|
-      edit, mask = %w[e m].map { |n| File.join(dir, "#{n}.png").tap { |f| File.binwrite(f, n) } }
+      edit, mask = %w[e m].map { |n| write_fixture(dir, "#{n}.png") }
       body = PrototypeImagegen.multipart({ model: "m" }, [ edit ], "B", mask)
       assert_includes body, 'name="image[]"; filename="e.png"'
       assert_includes body, 'name="mask"; filename="m.png"'
     end
+  end
+
+  def test_cached_reflects_the_cache_without_a_key
+    Dir.mktmpdir do |dir|
+      args = { prompt: "p", size: "1024x1024", quality: "low" }
+      refute PrototypeImagegen.cached?(dir, **args)
+      ENV["OPENAI_API_KEY"] = "k"
+      PrototypeImagegen.generate(**args, cache_root: dir, http: FakeHttp.new)
+      assert PrototypeImagegen.cached?(dir, **args)
+    end
+  ensure
+    ENV.delete("OPENAI_API_KEY")
   end
 
   def test_low_quality_is_priced

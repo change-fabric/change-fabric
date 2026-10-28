@@ -88,7 +88,7 @@ class SkillRegistryTest < Minitest::Test
   # Paid media skills spend real money: they must never auto-fire on a model
   # guess. No auto block, and the description says they run only when invoked.
   def test_paid_media_skills_are_user_invoked_only
-    skills = Dir[File.join(REPO_SKILLS, "{narrate,music,b-roll}", "SKILL.md")]
+    skills = Dir[File.join(REPO_SKILLS, "{narrate,music,b-roll,image}", "SKILL.md")]
     assert_operator skills.size, :>=, 2
     registered = SkillRegistry.load(REPO_SKILLS).map(&:name)
     skills.each do |path|

@@ -41,7 +41,7 @@ An action in one scene can change what a later scene shows: the later scene name
 - UI icons: Phosphor, `ruby ~/.claude/cf/bin/prototype_icons.rb walkthrough/<slug>/.cache/icons` fetches the pinned tarballs (sha512 checked, no fallback). Copy only used SVGs into `screens/assets/icons/` with `PrototypeIcons.copy_used`.
 - Brand logos: any Simple Icons logo, including plausible integrations. Record each in `ASSUMPTIONS.md` with its `guidelines` link and `license` field, and drop any logo whose guidelines forbid the use.
 - Write `THIRD_PARTY_NOTICES` from `PrototypeIcons.notices` (Phosphor MIT notice, Simple Icons CC0 plus trademark disclaimer).
-- Imagery (avatars, product photos, hero art): `prototype_imagegen.rb`, model `CF_IMAGE_MODEL` (default `gpt-image-2`), `medium` for drafts and `high` for finals, cap of 3 attempts per screen. Print the cost estimate before any paid call. Outputs are cached by content hash under `.cache/images/`; a cached run needs no key. `OPENAI_API_KEY` comes from env or `CF_SECRETS_ENV`; never print it.
+- Imagery (avatars, product photos, hero art): use cf:image by name.
 
 ## Render and record
 
@@ -72,7 +72,7 @@ flats/light/overview.png  flats/dark/overview.png   (board, sections as rows in 
 flats/index.md   (TOC: overview links, then each IA section in flow order; per screen its state, purpose, user goal, PRD requirement ids, source HTML, and relative light and dark image links)
 ```
 
-`flats/`, every MP4, and the overview PNGs are kept out of version control: the slug dir's ignore file holds `.cache/`, `flats/`, `*.mp4`, `overview*.png`, written by the toolkit. Nothing here is tracked.
+`flats/`, every MP4, and the overview PNGs are kept out of version control: the slug dir's ignore file holds `.cache/`, `flats/`, `*.mp4`, `overview*.png`, written by the toolkit.
 
 Without a storyboard, write a minimal one (one scene per screen, no interactions) to get stills.
 

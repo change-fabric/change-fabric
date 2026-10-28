@@ -80,7 +80,7 @@ Headings, table header rows, fenced blocks, and blank lines are exempt.
 
 ## Moodboards (optional)
 
-Only when the user wants look-and-feel exploration. Generate with gpt-image-2 via `prototype_imagegen.rb` at `medium` quality, cached by content hash, never committed. Print the cost estimate before any paid call. Render contact sheets of moodboard images and token swatches as inline HTML in browserless via `ChangeDocker.with_browserless` and `BrowserlessJs.inline_html_js`.
+Only when the user wants look-and-feel exploration. Generate with cf:image (`image.rb`, gpt-image-2) at `medium` quality, cached by content hash, never committed. Print the cost estimate before any paid call. Render contact sheets of moodboard images and token swatches as inline HTML in browserless via `ChangeDocker.with_browserless` and `BrowserlessJs.inline_html_js`.
 
 ## Output and lint
 

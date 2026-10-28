@@ -72,7 +72,7 @@ module Image
     def generate(opts, out, http)
       [ *opts[:refs], opts[:edit], opts[:mask] ].compact.each { |f| raise Errno::ENOENT, f unless File.file?(f) }
       args = opts.slice(:size, :quality, :refs, :edit, :mask).merge(prompt: opts[:prompt])
-      cached = File.file?(WalkthroughCache.path(opts[:cache], :images, PrototypeImagegen.asset_key(**args), 'png'))
+      cached = PrototypeImagegen.cached?(opts[:cache], **args)
       usd = announce(opts, out, cached)
       raise CeilingError, "$#{format('%.2f', usd)} would pass the $#{format('%.2f', opts[:max_usd])} ceiling" if usd > opts[:max_usd] + 1e-9
       return if opts[:estimate_only]

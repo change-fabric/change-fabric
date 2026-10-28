@@ -6,25 +6,10 @@ require "json"
 require "stringio"
 require "tmpdir"
 require_relative "../scripts/image"
+require_relative "imagegen_helpers"
 
 class ImageTest < Minitest::Test
-  FakeResponse = Struct.new(:code, :body) do
-    def is_a?(klass) = klass == Net::HTTPSuccess ? code == "200" : super
-  end
-
-  class FakeHttp
-    attr_reader :requests
-
-    def initialize(code = "200")
-      @code = code
-      @requests = []
-    end
-
-    def request(req)
-      @requests << req
-      FakeResponse.new(@code, JSON.generate("data" => [ { "b64_json" => Base64.strict_encode64("PNG") } ]))
-    end
-  end
+  include ImagegenHelpers
 
   def setup
     @dir = Dir.mktmpdir
@@ -39,14 +24,12 @@ class ImageTest < Minitest::Test
     FileUtils.remove_entry(@dir)
   end
 
-  def run_cli(*args, http: FakeHttp.new)
+  def run_cli(*args, http: ImagegenHelpers::FakeHttp.new)
     code = Image::Cli.run([ *args, "--cache", @cache ], out: @out, http: http)
     [ code, @out.string, http ]
   end
 
-  def png(name)
-    File.join(@dir, name).tap { |f| File.binwrite(f, name) }
-  end
+  def png(name) = write_fixture(@dir, name)
 
   def test_generates_prints_estimate_first_and_writes_out
     out_path = File.join(@dir, "shot.png")
@@ -129,7 +112,7 @@ class ImageTest < Minitest::Test
   end
 
   def test_http_failure_exits_1_and_never_prints_the_key
-    code, text = run_cli("x", http: FakeHttp.new("401"))
+    code, text = run_cli("x", http: ImagegenHelpers::FakeHttp.new("401"))
     assert_equal 1, code
     assert_includes text, "401"
     refute_includes text, "sk-test-secret"

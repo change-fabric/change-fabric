@@ -38,7 +38,7 @@ module PrototypeImagegen
     WalkthroughCache.key(inputs)
   end
 
-  # Returns { count:, by_quality:, usd: } and the printable line for it.
+  # Returns { count:, by_quality:, usd:, line: }: the totals and the printable line.
   def estimate(requests)
     by_quality = requests.group_by { |req| req[:quality] }.transform_values(&:size)
     usd = requests.sum { |req| PRICE.fetch(req[:quality]) }.round(2)
@@ -46,7 +46,8 @@ module PrototypeImagegen
       line: "#{requests.size} image(s) (#{by_quality.map { |q, n| "#{n} #{q}" }.join(', ')}), about $#{format('%.2f', usd)}" }
   end
 
-  # The pure request description: url, headers (key redacted), and body.
+  # The pure request description: url, content_type, body, and for edits the
+  # files (edit image first) and optional mask. The key is added at send time.
   # The edit image goes first: the API applies a mask to the first image only.
   def build_request(prompt:, size:, quality:, refs: [], edit: nil, mask: nil, model: MODEL)
     files = [ edit, *refs ].compact
@@ -73,6 +74,10 @@ module PrototypeImagegen
     end
 
     def count(screen) = @counts[screen]
+  end
+
+  def cached?(cache_root, **inputs)
+    File.file?(WalkthroughCache.path(cache_root, :images, asset_key(**inputs), 'png'))
   end
 
   # Generates (or returns the cached) image path. The attempt is counted only
@@ -110,9 +115,7 @@ module PrototypeImagegen
   end
 
   def multipart(fields, files, boundary, mask = nil)
-    parts = fields.map do |name, value|
-      "--#{boundary}\r\nContent-Disposition: form-data; name=\"#{name}\"\r\n\r\n#{value}\r\n"
-    end
+    parts = fields.map { |name, value| "#{part_header(boundary, name)}\r\n\r\n#{value}\r\n" }
     files.each { |path| parts << file_part('image[]', path, boundary) }
     parts << file_part('mask', mask, boundary) if mask
     # Binary join: a UTF-8 prompt next to raw PNG bytes would otherwise raise.
@@ -120,8 +123,12 @@ module PrototypeImagegen
   end
 
   def file_part(name, path, boundary)
-    "--#{boundary}\r\nContent-Disposition: form-data; name=\"#{name}\"; filename=\"#{File.basename(path)}\"\r\n" \
-      "Content-Type: image/png\r\n\r\n#{File.binread(path)}\r\n"
+    "#{part_header(boundary, name, File.basename(path))}\r\nContent-Type: image/png\r\n\r\n#{File.binread(path)}\r\n"
+  end
+
+  def part_header(boundary, name, filename = nil)
+    disposition = "form-data; name=\"#{name}\"#{"; filename=\"#{filename}\"" if filename}"
+    "--#{boundary}\r\nContent-Disposition: #{disposition}"
   end
 
   def default_http(uri)
@@ -130,13 +137,4 @@ module PrototypeImagegen
     http.read_timeout = 180
     http
   end
-end
-
-if __FILE__ == $PROGRAM_NAME
-  prompt, cache = ARGV
-  abort('usage: prototype_imagegen.rb <prompt> <cache-root> [--final]') unless prompt && cache
-  quality = ARGV.include?('--final') ? PrototypeImagegen::QUALITY_FINAL : PrototypeImagegen::QUALITY_DRAFT
-  puts PrototypeImagegen.estimate([ { quality: quality } ])[:line]
-  WalkthroughEnv.load_secrets
-  puts PrototypeImagegen.generate(prompt: prompt, size: '1024x1024', quality: quality, cache_root: cache)
 end
