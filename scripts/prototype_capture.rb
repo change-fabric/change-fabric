@@ -7,6 +7,7 @@ require 'json'
 require_relative 'browserless_js'
 require_relative 'change_docker'
 require_relative 'prototype_imagegen'
+require_relative 'prototype_ux_lint'
 require_relative 'walkthrough_cache'
 
 # Records a cf:prototype mock screen as a PNG frame sequence under a fixed,
@@ -265,7 +266,10 @@ module PrototypeCapture
     with_clock(html, BrowserlessJs.locale_script(LOCALE) + clock_script(prng_seed: prng_seed, state: state))
   end
 
-  def function_module(html:, plan:, range:, viewport:, prng_seed:, state:, fps: FPS)
+  # `lint` lists the frames PrototypeUxLint checks; `shots: false` replays
+  # without screenshots (a lint-only pass over a cached capture), and
+  # `aim: 'centre'` reproduces the pre-lint cursor targeting for such a pass.
+  def function_module(html:, plan:, range:, viewport:, prng_seed:, state:, fps: FPS, lint: [], shots: true, aim: 'safe')
     vp = DEFAULT_VIEWPORT.merge(viewport || {})
     <<~JS
       export default async function ({ page: basePage }) {
@@ -286,10 +290,17 @@ module PrototypeCapture
         const client = #{BrowserlessJs.cdp_session_js('page')};
         await client.send("Animation.enable");
         await client.send("Animation.setPlaybackRate", { playbackRate: 0 });
-        const center = async (sel) => {
-          const box = await page.$eval(sel, (el) => { const r = el.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; });
-          return box;
-        };
+        await page.evaluate(#{JSON.generate(PrototypeUxLint::BROWSER_JS)});
+        const lintAt = new Set(#{JSON.generate(lint)});
+        const aimMode = #{JSON.generate(aim)};
+        const center = async (sel) => page.evaluate((s, mode) => {
+          if (mode === "safe") return window.__cfUx.aim(s);
+          const r = document.querySelector(s).getBoundingClientRect();
+          return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+        }, sel, aimMode);
+        const lint = [];
+        const overlays = {};
+        let resting = null;
         let pos = { x: #{vp['w'] / 2.0}, y: #{vp['h'] / 2.0} };
         let from = pos;
         let down = false;
@@ -311,10 +322,12 @@ module PrototypeCapture
             const to = await center(step.move.target);
             pos = { x: from.x + (to.x - from.x) * step.move.p, y: from.y + (to.y - from.y) * step.move.p };
             await page.mouse.move(pos.x, pos.y);
+            resting = step.move.p >= 1 ? step.move.target : null;
           }
-          if (step.hover) { pos = await center(step.hover); await page.mouse.move(pos.x, pos.y); }
+          if (step.hover) { pos = await center(step.hover); await page.mouse.move(pos.x, pos.y); resting = step.hover; }
           if (step.click) {
             pos = await center(step.click);
+            resting = step.click;
             await page.mouse.move(pos.x, pos.y);
             await page.mouse.down(); down = true;
             await page.mouse.up();
@@ -324,15 +337,24 @@ module PrototypeCapture
             for (const ch of step.type.text) await page.keyboard.type(ch);
           }
           await page.evaluate(() => new Promise((r) => window.__cfRealRaf(() => window.__cfRealRaf(r))));
+          let fresh = false;
+          for (const key of await page.evaluate(() => window.__cfUx.overlays())) {
+            if (!(key in overlays)) { overlays[key] = i; fresh = true; }
+          }
           if (i >= first) {
-            frames.push(#{BrowserlessJs.screenshot_js('client')});
+            if (lintAt.has(i) || fresh) {
+              const targets = resting ? [{ selector: resting, x: pos.x, y: pos.y }] : [];
+              for (const f of await page.evaluate((t) => window.__cfUx.lint(t), targets)) lint.push(Object.assign({ frame: i }, f));
+            }
+            if (#{shots}) frames.push(#{BrowserlessJs.screenshot_js('client')});
             cursor.push({ x: pos.x, y: pos.y, down });
           }
           down = false;
         }
         const endState = await page.evaluate(() => (window.CFStore && typeof window.CFStore.dump === "function") ? window.CFStore.dump() : null);
         if (context) await context.close();
-        return { data: { frames, cursor, endState, blockedRequests, pageErrors }, type: "application/json" };
+        const firstSeen = Object.fromEntries(Object.entries(overlays).filter(([, f]) => f >= first));
+        return { data: { frames, cursor, endState, blockedRequests, pageErrors, lint, overlays: firstSeen }, type: "application/json" };
       }
     JS
   end
@@ -354,8 +376,11 @@ module PrototypeCapture
   def capture(session:, html:, interactions:, duration_ms:, out_dir:, state:, prng_seed:, viewport: nil, fps: FPS, label: 'scene')
     frames = frame_count(duration_ms, fps)
     plan = schedule(interactions, frames, fps)
+    lint_frames = PrototypeUxLint.lint_frames(plan, frames)
     FileUtils.mkdir_p(out_dir)
     positions = []
+    findings = []
+    overlays = {}
     end_state = nil
     # Each batch replays the scene from its seeded start, without screenshots
     # before its first frame, so the DOM, store, and clock it captures from are
@@ -365,8 +390,11 @@ module PrototypeCapture
     while first < frames
       range = first...[ first + size, frames ].min
       first = range.end
-      code = function_module(html: html, plan: plan, range: range, viewport: viewport, prng_seed: prng_seed, state: state, fps: fps)
+      code = function_module(html: html, plan: plan, range: range, viewport: viewport, prng_seed: prng_seed, state: state, fps: fps,
+                             lint: lint_frames)
       result = check_result!(run_with_retry(session, code), label)
+      findings.concat(Array(result['lint']))
+      overlays = Array(result['overlays']).to_h.merge(overlays)
       result['frames'].each_with_index do |b64, k|
         File.binwrite(File.join(out_dir, format('%06d.png', range.first + k + 1)), Base64.decode64(b64))
       end
@@ -376,8 +404,24 @@ module PrototypeCapture
       size = batch_size(viewport, bytes_per_frame: measured)
     end
     File.write(File.join(out_dir, 'cursor.json'), JSON.pretty_generate(cursor_path(positions)))
+    PrototypeUxLint.write(out_dir, PrototypeUxLint.scene_report(label, findings, overlays: overlays).merge('aim' => 'safe'))
     File.write(File.join(out_dir, 'end-state.json'), JSON.pretty_generate(end_state))
     out_dir
+  end
+
+  # Lints a scene whose frames are already cached, without screenshots: one
+  # replay of the whole scene. Frames captured before the lint existed were
+  # aimed at control centres, so the pass aims there too and reports what the
+  # cached video actually shows. Writes and returns the scene report.
+  def lint_only(session:, html:, interactions:, duration_ms:, out_dir:, state:, prng_seed:, viewport: nil, fps: FPS, label: 'scene')
+    frames = frame_count(duration_ms, fps)
+    plan = schedule(interactions, frames, fps)
+    code = function_module(html: html, plan: plan, range: 0...frames, viewport: viewport, prng_seed: prng_seed, state: state,
+                           fps: fps, lint: PrototypeUxLint.lint_frames(plan, frames), shots: false, aim: 'centre')
+    result = check_result!(run_with_retry(session, code), label)
+    report = PrototypeUxLint.scene_report(label, Array(result['lint']), overlays: result['overlays'] || {}).merge('aim' => 'centre')
+    PrototypeUxLint.write(out_dir, report)
+    report
   end
 
   # browserless occasionally drops a long /function response mid-body
