@@ -3,6 +3,7 @@
 
 require 'json'
 require_relative 'change_lane'
+require_relative 'browserless_js'
 require_relative 'change_findings'
 require_relative 'change_figma'
 require_relative 'change_flow_compiler'
@@ -570,11 +571,7 @@ class ChangeLaneBrowserless < ChangeLane
         // (createIncognitoBrowserContext -> createBrowserContext); both names
         // are probed so the lane is not pinned to one puppeteer major beyond
         // the browserless image pin itself.
-        async function newBrowserContext(browser) {
-          if (typeof browser.createBrowserContext === "function") return browser.createBrowserContext();
-          if (typeof browser.createIncognitoBrowserContext === "function") return browser.createIncognitoBrowserContext();
-          return null;
-        }
+        #{BrowserlessJs.fresh_context_js}
 
         // Everything that makes a page's rendering reproducible is applied
         // here, once, at the moment the page is created: the pinned locale
@@ -585,7 +582,7 @@ class ChangeLaneBrowserless < ChangeLane
           const browser = page.browser();
           const context = await newBrowserContext(browser);
           const cellPage = context ? await context.newPage() : await browser.newPage();
-          const headers = { "Accept-Language": locale };
+          const headers = #{BrowserlessJs.locale_header_js};
           if (basicAuth) {
             await cellPage.authenticate({ username: basicAuth.username, password: basicAuth.password });
             // page.authenticate() only fires on a WWW-Authenticate challenge,
@@ -598,10 +595,7 @@ class ChangeLaneBrowserless < ChangeLane
             headers.Authorization = "Basic " + btoa(`${basicAuth.username}:${basicAuth.password}`);
           }
           await cellPage.setExtraHTTPHeaders(headers);
-          await cellPage.evaluateOnNewDocument((lang) => {
-            Object.defineProperty(navigator, "language", { get: () => lang });
-            Object.defineProperty(navigator, "languages", { get: () => [lang] });
-          }, locale);
+          #{BrowserlessJs.locale_js}
           return { context, page: cellPage, authOk: null, authError: null, authDiagnostics: null, lastAuthResponse: null };
         }
 
@@ -787,7 +781,7 @@ class ChangeLaneBrowserless < ChangeLane
       async function attachCell(state, cellPage, vp) {
         if (!state || !state.page || state.stopped) return;
         try {
-          const client = await cellPage.createCDPSession();
+          const client = #{BrowserlessJs.cdp_session_js('cellPage')};
           state.client = client;
           client.on("Page.screencastFrame", async (frame) => {
             if (state.stopped || !state.page) return;
