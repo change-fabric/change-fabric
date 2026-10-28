@@ -126,6 +126,9 @@ Every margin, padding, and gap uses a step, except these, which
 - 3px and 6px inside small controls (tags, nav links, buttons) and 6px gaps
   between an icon and its label;
 - 36px left padding in the search field, making room for the magnifier;
+- 4px and 7px inside the Porcupine phone frames, matching their bezels;
+- 112px right padding on the Porcupine hero image, leaving room for the
+  phone that overlaps it;
 - 80px above each homepage section, and 60px between the hero and the first
   one, larger than the scale on purpose to pace the landing page.
 
