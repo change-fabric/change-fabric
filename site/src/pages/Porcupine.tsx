@@ -31,9 +31,10 @@ const CONTROLS = [
   {
     n: "03",
     name: "Stop",
-    detail: "The send button becomes a stop button while the agent works. Tap it and the run ends where it is.",
+    detail: "The send button becomes a stop button while the agent works. Tap it and the run ends where it is, marked aborted.",
     src: `${SHOTS}/stop.webp`,
-    alt: "porcupine on a phone right after stopping a run: the transcript ends in an aborted marker and the composer is ready again.",
+    alt: "porcupine on a phone right after stopping a run: the last tool calls, an aborted marker and the composer ready again.",
+    height: 354,
   },
 ];
 
@@ -181,7 +182,7 @@ export function Porcupine() {
           </div>
           <Phone
             src={`${SHOTS}/hero-session.webp`}
-            alt="porcupine on a phone in dark mode: the latest bash and read tool calls of a running session, above the composer and its stop button."
+            alt="porcupine on a phone in dark mode: the session header, the latest bash and read tool calls of a running session, and the composer with its stop button."
             height={549}
             eager
           />
@@ -211,7 +212,7 @@ export function Porcupine() {
           <ol className="porcupine-shots">
             {CONTROLS.map((c) => (
               <li key={c.name}>
-                <Phone src={c.src} alt={c.alt} />
+                <Phone src={c.src} alt={c.alt} height={c.height} />
                 <div>
                   <span className="lane-n" aria-hidden="true">{c.n}</span>
                   <h3>{c.name}</h3>
