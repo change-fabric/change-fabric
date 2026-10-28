@@ -66,6 +66,35 @@ class BrowserlessJsTest < Minitest::Test
     assert_raises(ArgumentError) { BrowserlessJs.fixed_clock_js(start_ms: "soon", prng_seed: 1) }
   end
 
+  def test_fixed_clock_self_rescheduling_callbacks_terminate
+    require "json"
+    skip "node not available" unless system("node", "-e", "0", out: File::NULL, err: File::NULL)
+    clock = BrowserlessJs.fixed_clock_js(start_ms: 1_000, prng_seed: 1)
+    driver = <<~JS
+      globalThis.window = globalThis;
+      globalThis.localStorage = { clear() {} };
+      globalThis.sessionStorage = { clear() {} };
+      #{clock}
+      const counts = { raf: 0, timeout0: 0, timeoutUndef: 0, interval0: 0 };
+      const raf = () => { counts.raf++; requestAnimationFrame(raf); };
+      requestAnimationFrame(raf);
+      const t0 = () => { counts.timeout0++; setTimeout(t0, 0); };
+      setTimeout(t0, 0);
+      const tu = () => { counts.timeoutUndef++; setTimeout(tu); };
+      setTimeout(tu);
+      setInterval(() => { counts.interval0++; }, 0);
+      __cfAdvance(160);
+      console.log(JSON.stringify(counts));
+    JS
+    out = IO.popen(["timeout", "10", "node", "-e", driver], &:read)
+    assert $?.success?, "clock driver hung or failed: #{out}"
+    counts = JSON.parse(out)
+    assert_equal 10, counts["raf"]
+    assert_equal 160, counts["timeout0"]
+    assert_equal 160, counts["timeoutUndef"]
+    assert_equal 160, counts["interval0"]
+  end
+
   def test_screenshot
     assert_equal '(await c.send("Page.captureScreenshot", { format: "png" })).data', BrowserlessJs.screenshot_js("c")
   end

@@ -93,11 +93,15 @@ module BrowserlessJs
         }
         window.Date = FixedDate;
         performance.now = () => nowMs - startMs;
+        // Every callback fires strictly after the moment it was scheduled (rAF on
+        // the next frame, timers at least 1ms out), so a self-rescheduling
+        // callback cannot spin forever inside one __cfAdvance.
+        const FRAME_MS = 16;
         let nextId = 1;
         const timers = new Map();
         const schedule = (fn, delay, args, repeat) => {
           const id = nextId++;
-          const ms = Math.max(0, Number(delay) || 0);
+          const ms = Math.max(1, Number(delay) || 0);
           timers.set(id, { at: nowMs + ms, ms, fn, args, repeat, raf: false });
           return id;
         };
@@ -106,7 +110,7 @@ module BrowserlessJs
         window.clearTimeout = window.clearInterval = (id) => { timers.delete(id); };
         window.requestAnimationFrame = (fn) => {
           const id = nextId++;
-          timers.set(id, { at: nowMs, ms: 0, fn, args: [], repeat: false, raf: true });
+          timers.set(id, { at: nowMs + FRAME_MS, ms: FRAME_MS, fn, args: [], repeat: false, raf: true });
           return id;
         };
         window.cancelAnimationFrame = (id) => { timers.delete(id); };
