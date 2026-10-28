@@ -60,6 +60,12 @@ class PrototypeCaptureTest < Minitest::Test
     assert_equal [ 0...90, 90...100 ], PrototypeCapture.batches(100)
   end
 
+  def test_batch_size_shrinks_with_viewport_pixels
+    assert_equal 90, PrototypeCapture.batch_size({ "w" => 1280, "h" => 720, "dpr" => 1 })
+    assert_equal 40, PrototypeCapture.batch_size(nil)
+    assert_equal 10, PrototypeCapture.batch_size({ "w" => 3840, "h" => 2160, "dpr" => 2 })
+  end
+
   def test_schedule_interpolates_move_to_frame_boundaries
     plan = PrototypeCapture.schedule([
       { "t_ms" => 0, "op" => "move", "target" => "#a", "duration_ms" => 100, "easing" => "linear" },
@@ -159,7 +165,7 @@ class PrototypeCaptureTest < Minitest::Test
     Dir.mktmpdir do |dir|
       session = FakeSession.new
       PrototypeCapture.capture(session: session, html: "<p/>", interactions: [], duration_ms: 4000, out_dir: dir,
-                               state: {}, prng_seed: 7)
+                               state: {}, prng_seed: 7, viewport: { "w" => 1280, "h" => 720, "dpr" => 1 })
       assert_equal 2, session.modules.size
       assert_equal 120, Dir.glob(File.join(dir, "*.png")).size
       assert File.exist?(File.join(dir, "000120.png"))

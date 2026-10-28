@@ -189,6 +189,18 @@ module PrototypeCapture
     end
   end
 
+  # Frames per /function call, scaled down from BATCH_FRAMES (sized for a
+  # 1280x720 page) by pixel count: a 1080p batch of 90 PNGs returns hundreds
+  # of megabytes of base64 and runs past FUNCTION_TIMEOUT_MS, so browserless
+  # drops the connection mid-response.
+  BATCH_PIXELS = 1280 * 720
+
+  def batch_size(viewport)
+    vp = DEFAULT_VIEWPORT.merge(viewport || {})
+    pixels = vp['w'] * vp['h'] * (vp['dpr']**2)
+    (BATCH_FRAMES * BATCH_PIXELS / pixels.to_f).floor.clamp(10, BATCH_FRAMES)
+  end
+
   def batches(frames, size = BATCH_FRAMES)
     (0...frames).step(size).map { |first| first...[ first + size, frames ].min }
   end
@@ -317,7 +329,7 @@ module PrototypeCapture
     # Each batch replays the scene from its seeded start, without screenshots
     # before its first frame, so the DOM, store, and clock it captures from are
     # exactly the ones the previous batch ended on.
-    batches(frames).each do |range|
+    batches(frames, batch_size(viewport)).each do |range|
       result = check_result!(session.run_function(function_module(html: html, plan: plan, range: range, viewport: viewport,
                                                                    prng_seed: prng_seed, state: state, fps: fps)), label)
       result['frames'].each_with_index do |b64, k|
