@@ -16,7 +16,10 @@ const PRIMARY = [
 
 // Sibling projects, listed under their own heading so they do not read as
 // parts of the spec.
-const RELATED = [{ label: "Moose", href: "/moose", match: "/moose" }];
+const RELATED = [
+  { label: "Moose", href: "/moose", match: "/moose" },
+  { label: "Porcupine", href: "/porcupine", match: "/porcupine" },
+];
 
 function NavLink({ link }: { link: (typeof PRIMARY)[number] }) {
   return (
@@ -87,7 +90,7 @@ export function Layout({ children }: { children: ReactNode }) {
       <div className="page">
         <main>{children}</main>
 
-        {/* Below 960px the header carries Spec, Changelog, Reference and Moose,
+        {/* Below 960px the header carries Spec, Changelog, Reference and the related projects,
             the wordmark is Home and the Spec page links Versions, so the footer
             drops to one quiet row; the full list returns beside the sidebar. */}
         <footer className="site-footer">
@@ -99,6 +102,7 @@ export function Layout({ children }: { children: ReactNode }) {
             <a className="footer-wide" href="/changelog">Changelog</a>
             <a href="/reference">Reference</a>
             <a className="footer-wide" href="/moose">Moose</a>
+            <a className="footer-wide" href="/porcupine">Porcupine</a>
             <a href={REPO_URL} target="_blank" rel="noopener noreferrer">
               GitHub<span aria-hidden="true"> &#8599;</span>
               <span className="sr-only"> (opens in a new tab)</span>

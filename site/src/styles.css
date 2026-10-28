@@ -2209,3 +2209,22 @@ code {
     padding-left: 0;
   }
 }
+
+/* porcupine: only what the shared project-* styles do not cover. Its diagram
+   keeps the browser outside the region and chains three boxes inside it. */
+.porcupine .project-arch {
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 3.6fr);
+}
+.porcupine .project-region {
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto minmax(0, 1fr);
+}
+.porcupine .project-hub-title {
+  font-size: 1.15rem;
+  white-space: nowrap;
+}
+@media (max-width: 760px) {
+  .porcupine .project-arch,
+  .porcupine .project-region {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
