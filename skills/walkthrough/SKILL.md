@@ -8,7 +8,7 @@ description: Flagship walkthrough command. Turns a PRD, SOW, brief, or an existi
 
 Source: Stephanie Houde and Charles Hill, "What do Prototypes Prototype?" (1997), via cf:prototyping; Jakob Nielsen, ten usability heuristics (1994), via cf:usability; the ElevenLabs docs index https://elevenlabs.io/docs/llms.txt.
 
-Load cf:prototyping and cf:usability by name before writing anything, and cf:narrate and cf:music by name before the estimate and render steps. Every scene cites the heuristic ids it shows in `heuristics_shown`, using the H1 to H10 labels from cf:usability. This skill carries no heuristic checklist of its own.
+Load cf:prototyping and cf:usability by name before writing anything, and cf:narrate and cf:music by name before the estimate and render steps. Load cf:b-roll by name before authoring or rendering any `ai-broll` scene. Every scene cites the heuristic ids it shows in `heuristics_shown`, using the H1 to H10 labels from cf:usability. This skill carries no heuristic checklist of its own.
 
 ## Inputs
 
@@ -33,8 +33,9 @@ The walkthrough is the launch video of the finished product, the press release s
 3. Validate and pin keys: `ruby ~/.claude/cf/bin/walkthrough_storyboard.rb validate walkthrough/<slug>/storyboard.json --fix`.
 4. Render the readable copy: `walkthrough_storyboard.rb render-md walkthrough/<slug>/storyboard.json`. storyboard.md is generated and never hand-edited.
 5. Write the sidecar: `ruby ~/.claude/cf/bin/walkthrough_assumptions.rb walkthrough/<slug>/storyboard.json` writes `ASSUMPTIONS.md` (invented features, fictional data including every seed collection, each Simple Icons logo with its guidelines link and license field, unsupported claims, and the Houde and Hill role plus look-and-feel statement) and `THIRD_PARTY_NOTICES`.
-6. Estimate: `ruby ~/.claude/cf/bin/walkthrough_render.rb walkthrough/<slug> --estimate-only` prints the ElevenLabs and OpenAI cost of everything not yet cached; `elevenlabs.rb narrate --storyboard <json> --estimate-only` and `elevenlabs.rb music --storyboard <json> --estimate-only` (cf:narrate, cf:music) price each part alone. Show it to the user before any paid call.
-7. Draft: `walkthrough_render.rb walkthrough/<slug> --draft` (medium image quality). It narrates (the cf:narrate flow over the same cache), generates images, captures frames in the pinned browserless container, composes music for the total timeline (the cf:music flow), rebuilds `manifest.json`, and assembles with two FFmpeg passes. Review the stills, the captions, and the draft MP4 with the user, scene by scene, against cf:usability.
+   Optional B-roll: a scene may be `kind: "ai-broll"`, a short AI clip animated from an existing still (for example the gpt-image-2 hero), never for UI. It carries a `broll` block and no screen; the rubric, ceiling, and fallbacks are in cf:b-roll. Every clip is listed under "Generated footage" in `ASSUMPTIONS.md`.
+6. Estimate: `ruby ~/.claude/cf/bin/walkthrough_render.rb walkthrough/<slug> --estimate-only` prints the ElevenLabs, OpenAI, and Google (b-roll) cost of everything not yet cached, with the b-roll ceiling (`--max-usd <n>`, default 1.00); `elevenlabs.rb narrate --storyboard <json> --estimate-only` and `elevenlabs.rb music --storyboard <json> --estimate-only` (cf:narrate, cf:music) price each part alone. Show it to the user before any paid call.
+7. Draft: `walkthrough_render.rb walkthrough/<slug> --draft` (medium image quality). It narrates (the cf:narrate flow over the same cache), generates images, generates b-roll clips (cf:b-roll; a failed or over-ceiling clip falls back to Ken Burns or the static still and the render continues), captures frames in the pinned browserless container, composes music for the total timeline (the cf:music flow), rebuilds `manifest.json`, and assembles with two FFmpeg passes. Review the stills, the captions, and the draft MP4 with the user, scene by scene, against cf:usability.
 8. Final: `walkthrough_render.rb walkthrough/<slug> --final` (high image quality). It prints the manifest hash and the MP4 sha256; the MP4 is under `.cache/render/<manifest_hash>/`.
 9. Flats (required output alongside the MP4): author `flats.json` from the PRD information architecture (every major screen plus empty, error, and success states, not only the screens in the video), then `ruby ~/.claude/cf/bin/prototype_flats.rb walkthrough/<slug>`. See the cf:prototype Flats section; it writes `flats/{light,dark}/`, the two overview boards, and `flats/index.md`.
 10. Publish (only when the user asked for it or approves the final; never auto-fire, since it uploads to GitHub): `ruby ~/.claude/cf/bin/walkthrough_publish.rb walkthrough/<slug> [--pr N | --issue N | --none] [--comment]` (or pass the MP4 path). See Publishing below.
@@ -62,7 +63,7 @@ Only that scene's stale keys regenerate (frames, audio, or images); everything e
 
 ## Keys and licensing
 
-- Keys come from the environment or the secrets env file named by `CF_SECRETS_ENV` (no default path; unset means the process environment only): `ELEVEN_LABS_API_KEY` (fallback `ELEVENLABS_API_KEY`) and `OPENAI_API_KEY`. A missing key fails with a named error only when that provider is needed; a fully cached run needs no keys. Never print or write a key.
+- Keys come from the environment or the secrets env file named by `CF_SECRETS_ENV` (no default path; unset means the process environment only): `ELEVEN_LABS_API_KEY` (fallback `ELEVENLABS_API_KEY`) `OPENAI_API_KEY`, and `GEMINI_API_KEY` (b-roll only; a missing one degrades b-roll scenes to their fallback). A missing key fails with a named error only when that provider is needed; a fully cached run needs no keys. Never print or write a key.
 - Optional key-setup note: `npx @elevenlabs/cli onboard init` exists for minting an ElevenLabs key. This skill does not use it and never runs it; the render calls the REST API directly.
 - ElevenLabs music for commercial use needs the Starter plan or above; film or broadcast use needs Enterprise. Check the current terms before publishing.
 
@@ -78,7 +79,7 @@ walkthrough/<slug>/
   screens/<scene-id>.html  screens/tokens.css  screens/mock-store.js  screens/assets/
   data/seed.json  flats.json  .gitignore (.cache/ flats/ *.mp4 overview*.png)
   flats/  index.md  light/  dark/  (generated, ignored)
-  .cache/  frames/  audio/  music/  images/  icons/  render/<manifest_hash>/
+  .cache/  frames/  audio/  music/  images/  broll/  icons/  render/<manifest_hash>/
 ```
 
 ## Done when
