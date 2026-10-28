@@ -1976,7 +1976,11 @@ code {
   border-radius: var(--radius);
 }
 
+/* A fixed row height keeps both titles on one line across the cards; the
+   AWS box is taller than the row, but its wordmark is not. */
 .moose-deploys .moose-marks {
+  height: var(--s6);
+  min-height: 0;
   justify-content: flex-start;
   margin-bottom: var(--s1);
 }
