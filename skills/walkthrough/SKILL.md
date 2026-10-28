@@ -36,6 +36,16 @@ The walkthrough is the launch video of the finished product, the press release s
 6. Estimate: `ruby ~/.claude/cf/bin/walkthrough_render.rb walkthrough/<slug> --estimate-only` prints the ElevenLabs and OpenAI cost of everything not yet cached; `elevenlabs.rb narrate --storyboard <json> --estimate-only` and `elevenlabs.rb music --storyboard <json> --estimate-only` (cf:narrate, cf:music) price each part alone. Show it to the user before any paid call.
 7. Draft: `walkthrough_render.rb walkthrough/<slug> --draft` (medium image quality). It narrates (the cf:narrate flow over the same cache), generates images, captures frames in the pinned browserless container, composes music for the total timeline (the cf:music flow), rebuilds `manifest.json`, and assembles with two FFmpeg passes. Review the stills, the captions, and the draft MP4 with the user, scene by scene, against cf:usability.
 8. Final: `walkthrough_render.rb walkthrough/<slug> --final` (high image quality). It prints the manifest hash and the MP4 sha256; the MP4 is under `.cache/render/<manifest_hash>/`.
+9. Publish: `ruby ~/.claude/cf/bin/walkthrough_publish.rb walkthrough/<slug> [--pr N | --issue N | --none] [--comment]` (or pass the MP4 path). See Publishing below.
+
+## Publishing
+
+Context rule: attach the final MP4 to whatever artifact the request is about, a pull request, an issue, or nothing. Target selection, in order: an explicit `--pr N`, `--issue N`, or `--none`; else the open PR of the current branch; else no target, no upload, and the file stays on disk (the path is printed).
+
+- Upload reuses `ChangeScreenshotUpload` (the same user-attachments endpoint, `gh auth token` auth, and never-raise degradation as cf:screenshot, see `skills/screenshot/SKILL.md`), sent as `video/mp4`. An orphaned attachment from a failed run is an accepted risk there too.
+- GitHub rejects attachments over `WalkthroughPublish::MAX_BYTES` (10 MB). A larger MP4 gets a smaller `walkthrough.pr.mp4` sibling transcoded in the pinned `ChangeDocker::FFMPEG_IMAGE` container (CRF ladder, last rung also scales down); the original is kept. If no rung fits, nothing uploads and the original stays on disk.
+- The returned `https://github.com/user-attachments/assets/<uuid>` url goes on its own line, which GitHub renders as an inline player, inside a `<!-- cf:walkthrough:start -->` ... `<!-- cf:walkthrough:end -->` `## Walkthrough` section. Re-running replaces that section instead of appending another. `--comment` posts it as a comment instead of editing the PR or issue body.
+- Any failure (no token, non-201, `gh` error) degrades to leaving the file on disk and reporting why. A PR body edit is comment-class and is not gated by merge mode.
 
 ## Per-scene regeneration
 
@@ -73,4 +83,4 @@ walkthrough/<slug>/
 - `validate` is clean with no stale keys, and storyboard.md is regenerated.
 - Every scene has a requirement or assumption, cites `heuristics_shown`, and its narration is present tense with no concept framing.
 - `ASSUMPTIONS.md` and `THIRD_PARTY_NOTICES` are current.
-- The user reviewed the draft, and the final MP4 path, manifest hash, and MP4 sha256 are reported.
+- The user reviewed the draft, and the final MP4 path, manifest hash, and MP4 sha256 are reported, and the MP4 is published to the request's PR or issue when there is one.

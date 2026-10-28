@@ -1,0 +1,190 @@
+# frozen_string_literal: true
+
+require "minitest/autorun"
+require "tmpdir"
+require_relative "../scripts/walkthrough_publish"
+
+# The walkthrough publish step with every collaborator stubbed: no HTTP, no gh,
+# no docker. Covers target choice, the size gate, and the idempotent splice.
+class WalkthroughPublishTest < Minitest::Test
+  P = WalkthroughPublish
+
+  # Records gh calls; answers from a table keyed by the argv prefix.
+  class FakeGh
+    attr_reader :calls
+
+    def initialize(answers = {})
+      @answers = answers
+      @calls = []
+    end
+
+    def call(*argv, stdin: nil)
+      @calls << [ argv.map(&:to_s), stdin ]
+      key = argv.map(&:to_s).first(3).join(" ")
+      @answers.fetch(key, [ "", true ])
+    end
+  end
+
+  FakeUploader = Struct.new(:url, :error, :uploaded) do
+    def upload(path)
+      uploaded << path
+      ChangeScreenshotUpload::Result.new(path: path, url: url, error: error)
+    end
+  end
+
+  Status = Struct.new(:ok) do
+    def success? = ok
+  end
+
+  def with_mp4(bytes)
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "walkthrough.mp4")
+      File.binwrite(path, "x" * bytes)
+      yield path
+    end
+  end
+
+  def uploader(url: "https://github.com/user-attachments/assets/abc")
+    FakeUploader.new(url, url ? nil : "boom", [])
+  end
+
+  def test_mp4_mime_type
+    assert_equal "video/mp4", ChangeScreenshotUpload.mime_for("a/b.mp4")
+  end
+
+  def test_splice_appends_then_replaces_idempotently
+    once = P.splice("Body text", "https://u/1")
+    assert_includes once, "Body text\n\n#{P::START_MARK}\n## Walkthrough\n\nhttps://u/1\n#{P::END_MARK}"
+    twice = P.splice(once, "https://u/2")
+    assert_equal 1, twice.scan(P::START_MARK).size
+    assert_includes twice, "https://u/2"
+    refute_includes twice, "https://u/1"
+    assert_equal twice, P.splice(twice, "https://u/2")
+  end
+
+  def test_splice_into_empty_body
+    assert_equal "#{P.section('https://u/1')}\n", P.splice(nil, "https://u/1")
+  end
+
+  def test_explicit_flags_win_over_branch_pr
+    gh = FakeGh.new
+    assert_equal [ :pr, "7" ], P.resolve_target(%w[--pr 7], gh: gh).then { |t| [ t.kind, t.number ] }
+    assert_equal [ :issue, "9" ], P.resolve_target(%w[--issue 9], gh: gh).then { |t| [ t.kind, t.number ] }
+    assert_empty gh.calls
+  end
+
+  def test_none_flag_means_no_target
+    assert_nil P.resolve_target(%w[--none --pr 7], gh: FakeGh.new)
+  end
+
+  def test_branch_pr_used_when_open
+    gh = FakeGh.new("git branch --show-current" => [ "feat", true ], "gh pr list" => [ "42", true ])
+    target = P.resolve_target([], gh: gh)
+    assert_equal [ :pr, "42" ], [ target.kind, target.number ]
+  end
+
+  def test_no_open_pr_means_no_target
+    gh = FakeGh.new("git branch --show-current" => [ "feat", true ], "gh pr list" => [ "", true ])
+    assert_nil P.resolve_target([], gh: gh)
+  end
+
+  def test_no_target_never_uploads
+    with_mp4(10) do |mp4|
+      up = uploader
+      out = P.publish(mp4, argv: %w[--none], gh: FakeGh.new, uploader: up)
+      assert_empty up.uploaded
+      assert_nil out.url
+      assert_equal mp4, out.path
+    end
+  end
+
+  def test_small_file_uploads_and_edits_pr_body
+    with_mp4(100) do |mp4|
+      up = uploader
+      gh = FakeGh.new("gh pr view" => [ "old body", true ])
+      out = P.publish(mp4, argv: %w[--pr 7], gh: gh, uploader: up)
+      assert_equal [ mp4 ], up.uploaded
+      assert_equal "https://github.com/user-attachments/assets/abc", out.url
+      edit, stdin = gh.calls.last
+      assert_equal %w[gh pr edit 7 --body-file -], edit
+      assert_includes stdin, "old body"
+      assert_includes stdin, "\nhttps://github.com/user-attachments/assets/abc\n"
+    end
+  end
+
+  def test_issue_comment
+    with_mp4(100) do |mp4|
+      gh = FakeGh.new
+      P.publish(mp4, argv: %w[--issue 3 --comment], gh: gh, uploader: uploader)
+      argv, stdin = gh.calls.last
+      assert_equal %w[gh issue comment 3 --body-file -], argv
+      assert_includes stdin, "user-attachments/assets/abc"
+    end
+  end
+
+  def test_oversize_transcodes_a_copy_and_keeps_original
+    with_mp4(100) do |mp4|
+      argvs = []
+      runner = lambda do |argv|
+        argvs << argv
+        File.binwrite(mp4.sub(".mp4", ".pr.mp4"), "y" * 5)
+        [ "", Status.new(true) ]
+      end
+      small = P.shrink(mp4, runner: runner, max_bytes: 50)
+      assert_equal mp4.sub(".mp4", ".pr.mp4"), small.first
+      assert File.exist?(mp4)
+      assert_equal 1, argvs.size
+      assert_includes argvs.first, ChangeDocker::FFMPEG_IMAGE
+      assert_includes argvs.first, "-crf"
+    end
+  end
+
+  def test_oversize_uploads_the_copy
+    with_mp4(100) do |mp4|
+      up = uploader
+      runner = lambda do |_argv|
+        File.binwrite(mp4.sub(".mp4", ".pr.mp4"), "y")
+        [ "", Status.new(true) ]
+      end
+      P.publish(mp4, argv: %w[--pr 1], gh: FakeGh.new, uploader: up, runner: runner, max_bytes: 50)
+      assert_equal [ mp4.sub(".mp4", ".pr.mp4") ], up.uploaded
+    end
+  end
+
+  def test_ladder_exhausted_leaves_on_disk
+    with_mp4(100) do |mp4|
+      runner = lambda do |_argv|
+        File.binwrite(mp4.sub(".mp4", ".pr.mp4"), "y" * 90)
+        [ "", Status.new(true) ]
+      end
+      path, note = P.shrink(mp4, runner: runner, max_bytes: 50)
+      assert_nil path
+      assert_match(/no transcode fit/, note)
+      refute File.exist?(mp4.sub(".mp4", ".pr.mp4"))
+    end
+  end
+
+  def test_upload_failure_degrades_without_editing
+    with_mp4(100) do |mp4|
+      gh = FakeGh.new
+      out = P.publish(mp4, argv: %w[--pr 7], gh: gh, uploader: uploader(url: nil))
+      assert_nil out.url
+      assert_match(/upload skipped: boom/, out.message)
+      assert_empty gh.calls
+    end
+  end
+
+  def test_max_bytes_is_ten_megabytes
+    assert_equal 10 * 1024 * 1024, P::MAX_BYTES
+  end
+
+  def test_locate_picks_newest_render
+    Dir.mktmpdir do |dir|
+      a = File.join(dir, ".cache", "render", "a")
+      b = File.join(dir, ".cache", "render", "b")
+      [ a, b ].each { |d| FileUtils.mkdir_p(d); File.write(File.join(d, "walkthrough.mp4"), "x") }
+      File.utime(Time.now - 100, Time.now - 100, File.join(a, "walkthrough.mp4"))
+      assert_equal File.join(b, "walkthrough.mp4"), P.locate(dir)
+    end
+  end
+end

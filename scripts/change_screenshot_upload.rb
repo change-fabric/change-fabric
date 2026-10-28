@@ -31,7 +31,8 @@ require 'uri'
 # else.
 class ChangeScreenshotUpload
   ENDPOINT = 'https://uploads.github.com/user-attachments/assets'
-  MIME_TYPES = { '.png' => 'image/png', '.jpg' => 'image/jpeg', '.jpeg' => 'image/jpeg' }.freeze
+  MIME_TYPES = { '.png' => 'image/png', '.jpg' => 'image/jpeg', '.jpeg' => 'image/jpeg',
+                 '.mp4' => 'video/mp4' }.freeze
   DEFAULT_MIME = 'application/octet-stream'
 
   # One upload attempt's outcome. `url` is set only on a real 201; otherwise
