@@ -25,6 +25,8 @@ module Roast
   DEFAULT_TARGET = 9
   DEFAULT_CAP = 4
   PRIORITIES = %w[P0 P1 P2].freeze
+  BLOCKING = %w[P0 P1].freeze
+  DEFAULT_OUT_DIR = 'roast'
   VERDICTS = %w[pass partial fail].freeze
   # Rough planning figures, not a quote: USD per million tokens (input, output),
   # tokens per image, and the output cap. The estimate stays conservative.
@@ -96,7 +98,6 @@ module Roast
     (load_history(dir).map { |h| h[:round] }.max || 0) + 1
   end
 
-  # The content-hash key for one critic request.
   def request_key(brief:, shots:, history:, round:)
     WalkthroughCache.key(model: MODEL, brief: brief, round: round, history: history,
                          shots: shots.map { |s| Digest::SHA256.file(s).hexdigest })
@@ -215,10 +216,12 @@ module Roast
 
   # The stop rule over the latest logged round: target, then no P0/P1, then cap.
   def decide(history, target: DEFAULT_TARGET, cap: DEFAULT_CAP)
-    last = history.last or return { stop: false, reason: 'no rounds yet' }
+    return { stop: false, reason: 'no rounds yet' } if history.empty?
+
+    last = history.last
     critic = last[:critic]
     score = critic['score']
-    blockers = critic['issues'].count { |i| %w[P0 P1].include?(i['priority']) }
+    blockers = critic['issues'].count { |i| BLOCKING.include?(i['priority']) }
     if score >= target then { stop: true, reason: "score #{score} reached target #{target}" }
     elsif blockers.zero? then { stop: true, reason: 'no P0 or P1 issues left' }
     elsif last[:round] >= cap then { stop: true, reason: "round cap #{cap} reached" }
@@ -232,7 +235,10 @@ module Roast
 
     def run(argv, out: $stdout, http: nil)
       args = argv.dup
-      return decide(parse_decide(args), out) if args.first == 'decide' && args.shift
+      if args.first == 'decide'
+        args.shift
+        return decide(parse_decide(args), out)
+      end
 
       opts = parse(args)
       WalkthroughEnv.load_secrets
@@ -247,7 +253,7 @@ module Roast
     end
 
     def parse(args)
-      opts = { shots: [], max_usd: DEFAULT_CEILING_USD, cache: '.cache', out_dir: 'roast' }
+      opts = { shots: [], max_usd: DEFAULT_CEILING_USD, cache: '.cache', out_dir: DEFAULT_OUT_DIR }
       OptionParser.new do |o|
         o.on('--brief FILE') { |v| opts[:brief_file] = v }
         o.on('--shot IMG') { |v| opts[:shots] << v }
@@ -266,7 +272,7 @@ module Roast
     end
 
     def parse_decide(args)
-      opts = { out_dir: 'roast', target: DEFAULT_TARGET, cap: DEFAULT_CAP }
+      opts = { out_dir: DEFAULT_OUT_DIR, target: DEFAULT_TARGET, cap: DEFAULT_CAP }
       OptionParser.new do |o|
         o.on('--out-dir DIR') { |v| opts[:out_dir] = v }
         o.on('--target N', Float) { |v| opts[:target] = v }
