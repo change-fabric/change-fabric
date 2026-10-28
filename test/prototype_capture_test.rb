@@ -97,10 +97,19 @@ class PrototypeCaptureTest < Minitest::Test
   def test_function_module_uses_shared_primitives_and_real_input
     mod = PrototypeCapture.function_module(html: "<p>hi</p>", plan: [ { "frame" => 0 } ], range: 0...1,
                                            viewport: nil, prng_seed: 1, state: {})
-    [ "newBrowserContext", "evaluateOnNewDocument", "setRequestInterception", "createCDPSession",
+    [ "newBrowserContext", "setRequestInterception", "createCDPSession",
       "Animation.setPlaybackRate", "getAnimations", "anim.pause()", "page.mouse.move", "page.keyboard.type",
       "Page.captureScreenshot", "CFStore.dump", "width: 1920" ].each { |needle| assert_includes mod, needle }
     refute_match(/puppeteer\.launch|chromium\.launch|playwright|screencast/i, mod)
+  end
+
+  def test_clock_is_injected_ahead_of_screen_scripts
+    mod = PrototypeCapture.function_module(html: "<html><head><script>app()</script></head><body></body></html>",
+                                           plan: [ { "frame" => 0 } ], range: 0...1, viewport: nil, prng_seed: 1, state: {})
+    refute_match(/evaluateOnNewDocument\([^\n]*__cfAdvance/, mod)
+    html = PrototypeCapture.with_clock("<html><head><script>app()</script></head></html>", "window.__cfAdvance = 1;")
+    assert_operator html.index("__cfAdvance"), :<, html.index("app()")
+    assert_equal "<script>x</script><p>hi</p>", PrototypeCapture.with_clock("<p>hi</p>", "x")
   end
 
   def test_check_result_rejects_network_and_indexeddb
