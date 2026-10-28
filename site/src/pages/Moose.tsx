@@ -25,6 +25,7 @@ export function Moose() {
     <Layout>
       <section className="moose">
         <header className="page-head">
+          <img src="/brand/moose.png" width="64" height="64" alt="moose logo" />
           <p className="eyebrow">Related project</p>
           <h1>moose</h1>
           <p className="section-lede">
