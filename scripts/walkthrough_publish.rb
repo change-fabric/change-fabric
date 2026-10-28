@@ -36,14 +36,18 @@ module WalkthroughPublish
 
   # The marker-delimited section. The bare url on its own line is what GitHub
   # renders as an inline player.
-  def section(url) = "#{START_MARK}\n#{block(url)}\n#{END_MARK}"
+  def section(url, boards: []) = "#{START_MARK}\n#{block(url, boards: boards)}\n#{END_MARK}"
 
-  def block(url) = "#{HEADING}\n\n#{url}"
+  # The overview boards (cf:prototype flats) sit under the video as images.
+  def block(url, boards: [])
+    images = boards.map { |label, board_url| "![Flats overview, #{label}](#{board_url})" }
+    [ "#{HEADING}\n\n#{url}", *images ].join("\n\n")
+  end
 
   # Idempotent: replaces an existing section in place, else appends one.
-  def splice(body, url)
+  def splice(body, url, boards: [])
     body = body.to_s
-    block = section(url)
+    block = section(url, boards: boards)
     pattern = /#{Regexp.escape(START_MARK)}.*?#{Regexp.escape(END_MARK)}/m
     return body.sub(pattern) { block } if body.match?(pattern)
 
@@ -121,40 +125,60 @@ module WalkthroughPublish
   end
 
   # Attaches the url to the target. Returns an error string or nil.
-  def attach(target, url, gh:)
+  def attach(target, url, gh:, boards: [])
     sub = target.kind == :pr ? 'pr' : 'issue'
-    return attach_comment(sub, target.number, url, gh) if target.comment
+    return attach_comment(sub, target.number, url, gh, boards) if target.comment
 
     n = target.number
     body, ok = gh.call('gh', sub, 'view', n, '--json', 'body', '--jq', '.body')
     return failure(sub, 'view', body) unless ok
 
-    out, ok = gh.call('gh', sub, 'edit', n, '--body-file', '-', stdin: splice(body, url))
+    out, ok = gh.call('gh', sub, 'edit', n, '--body-file', '-', stdin: splice(body, url, boards: boards))
     ok ? nil : failure(sub, 'edit', out)
   end
 
-  def attach_comment(sub, number, url, gh)
-    out, ok = gh.call('gh', sub, 'comment', number, '--body-file', '-', stdin: "#{block(url)}\n")
+  def attach_comment(sub, number, url, gh, boards = [])
+    out, ok = gh.call('gh', sub, 'comment', number, '--body-file', '-', stdin: "#{block(url, boards: boards)}\n")
     ok ? nil : failure(sub, 'comment', out)
   end
 
   def failure(sub, verb, out) = "gh #{sub} #{verb} failed: #{out}"
 
   # The whole step. Never raises; the MP4 stays on disk whatever happens.
-  def publish(mp4, argv: [], gh: default_gh, uploader: nil, shrink: method(:shrink))
+  def publish(mp4, argv: [], gh: default_gh, uploader: nil, shrink: method(:shrink), boards: {})
     target = resolve_target(argv, gh: gh)
     return Outcome.new(path: mp4, message: 'no GitHub target; left on disk') unless target
 
     copy, note = shrink.call(mp4)
     return Outcome.new(path: mp4, target: target, message: note) unless copy
 
-    result = (uploader || ChangeScreenshotUpload.new).upload(copy)
+    uploader ||= ChangeScreenshotUpload.new
+    result = uploader.upload(copy)
     return Outcome.new(path: mp4, target: target, message: "upload skipped: #{result.error}") unless result.uploaded?
 
-    error = attach(target, result.url, gh: gh)
+    error = attach(target, result.url, gh: gh, boards: upload_boards(uploader, boards))
     Outcome.new(path: mp4, url: result.url, target: target, message: error || note)
   rescue StandardError => e
     Outcome.new(path: mp4, message: "publish failed: #{e.class}: #{e.message}")
+  end
+
+  # Uploads each existing board PNG; one that fails to upload is skipped, never
+  # fatal. Returns [[label, url], ...] in the order given.
+  def upload_boards(uploader, boards)
+    boards.filter_map do |label, path|
+      next unless File.file?(path)
+
+      result = uploader.upload(path)
+      [ label, result.url ] if result.uploaded?
+    end
+  end
+
+  # The flats overview PNGs for a walkthrough dir or a rendered MP4 under its
+  # .cache/render/<hash>/. Only boards that exist are returned.
+  def locate_boards(arg)
+    root = File.directory?(arg) ? arg : File.expand_path("../../..", File.dirname(arg))
+    %w[light dark].to_h { |theme| [ theme, File.join(root, "flats", theme, "overview.png") ] }
+                  .select { |_theme, path| File.file?(path) }
   end
 
   # Accepts an MP4 or a walkthrough/<slug> dir (newest rendered MP4 in it).
@@ -171,7 +195,8 @@ if __FILE__ == $PROGRAM_NAME
   arg = ARGV.first
   abort(usage) if arg.nil? || arg.start_with?('--')
   mp4 = WalkthroughPublish.locate(arg) || abort("no rendered MP4 under #{arg}")
-  out = WalkthroughPublish.publish(File.expand_path(mp4), argv: ARGV.drop(1))
+  out = WalkthroughPublish.publish(File.expand_path(mp4), argv: ARGV.drop(1),
+                                 boards: WalkthroughPublish.locate_boards(File.expand_path(arg)))
   target = out.target
   puts "mp4 #{out.path}"
   puts "url #{out.url}" if out.url

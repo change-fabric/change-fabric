@@ -52,6 +52,28 @@ All browser work runs in the pinned browserless container via `ChangeDocker.with
 3. Outputs per scene in `.cache/frames/<frames_key>/`: `NNNNNN.png`, `cursor.json` (`[{frame, x, y, down}]`, composited later by FFmpeg), and `end-state.json`.
 4. Evaluate each recorded scene with cf:usability and note findings against the scene.
 
+## Flats (Figma-style stills)
+
+Beyond the scenes in the video, output a "flats" folder: a still of every major screen in the product information architecture (from the PRD), including key states (empty, error, success), even screens the video never shows. Author `walkthrough/<slug>/flats.json`, the manifest that drives it, in flow order:
+
+```json
+{ "viewport": { "w": 1440, "h": 900 },
+  "flats": [ { "section": "Loans", "screen": "List", "state": "empty", "html": "screens/loans-empty.html",
+               "purpose": "First-run shelf with nothing lent", "goal": "Know what is out on loan",
+               "requirements": ["TOOL-01"], "patch": [] } ] }
+```
+
+`purpose` and `goal` are required; `requirements` lists the PRD ids the screen covers; `patch` optionally reshapes the seeded mock state for that flat. Then run `ruby ~/.claude/cf/bin/prototype_flats.rb walkthrough/<slug>` (optionally `--manifest <path>`). Every flat renders in both themes (the `data-theme` attribute plus a `dark` class and `prefers-color-scheme` emulation, so whichever mechanism tokens.css uses applies), at device size and 2x:
+
+```
+flats/light/NN-section-screen[-state].png  and  @2x.png
+flats/dark/NN-section-screen[-state].png   and  @2x.png
+flats/light/overview.png  flats/dark/overview.png   (board, sections as rows in flow order)
+flats/index.md   (TOC: overview links, then each IA section in flow order; per screen its state, purpose, user goal, PRD requirement ids, source HTML, and relative light and dark image links)
+```
+
+`flats/`, every MP4, and the overview PNGs are kept out of version control: the slug dir's ignore file holds `.cache/`, `flats/`, `*.mp4`, `overview*.png`, written by the toolkit. Nothing here is tracked.
+
 Without a storyboard, write a minimal one (one scene per screen, no interactions) to get stills.
 
 ## Layout
@@ -59,7 +81,8 @@ Without a storyboard, write a minimal one (one scene per screen, no interactions
 ```
 walkthrough/<slug>/
   screens/<scene-id>.html  screens/tokens.css  screens/mock-store.js  screens/assets/
-  data/seed.json  ASSUMPTIONS.md  THIRD_PARTY_NOTICES  .gitignore (.cache/)
+  data/seed.json  flats.json  ASSUMPTIONS.md  THIRD_PARTY_NOTICES  .gitignore (.cache/ flats/ *.mp4 overview*.png)
+  flats/  index.md  light/  dark/  (generated, ignored)
   .cache/  icons/  images/  stills/  frames/<frames_key>/
 ```
 
@@ -67,4 +90,5 @@ walkthrough/<slug>/
 
 - Every screen uses tokens only, local assets only, and passes the stills review.
 - Every invented record, feature, and logo is in `ASSUMPTIONS.md`; `THIRD_PARTY_NOTICES` covers every icon set used.
+- `flats/` covers every IA screen and key state in both themes, with index.md and both overview boards.
 - Recorded scenes exist for every storyboard scene, and cross-scene state flows through `from_scene`.

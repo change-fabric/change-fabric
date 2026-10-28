@@ -191,4 +191,55 @@ class WalkthroughPublishTest < Minitest::Test
       assert_equal File.join(b, "walkthrough.mp4"), P.locate(dir)
     end
   end
+
+  def test_section_lists_boards_under_the_video
+    sec = P.section("https://u/1", boards: [ [ "light", "https://u/L" ], [ "dark", "https://u/D" ] ])
+    assert_includes sec, "https://u/1\n\n![Flats overview, light](https://u/L)\n\n![Flats overview, dark](https://u/D)\n#{P::END_MARK}"
+    twice = P.splice(P.splice("b", "https://u/1"), "https://u/2", boards: [ [ "light", "https://u/L" ] ])
+    assert_equal 1, twice.scan(P::START_MARK).size
+    refute_includes twice, "https://u/1"
+    assert_includes twice, "![Flats overview, light](https://u/L)"
+  end
+
+  def test_publish_uploads_boards_after_video_and_attaches_them
+    with_mp4(100) do |mp4|
+      light = File.join(@dir, "light.png")
+      dark = File.join(@dir, "dark.png")
+      [ light, dark ].each { |f| File.binwrite(f, "png") }
+      up = uploader
+      gh = FakeGh.new("gh pr view" => [ "old", true ])
+      P.publish(mp4, argv: %w[--pr 7], gh: gh, uploader: up, boards: { "light" => light, "dark" => dark })
+      assert_equal [ mp4, light, dark ], up.uploaded
+      assert_equal 2, gh.calls.last[1].scan("![Flats overview,").size
+    end
+  end
+
+  def test_failed_board_upload_is_skipped_not_fatal
+    with_mp4(100) do |mp4|
+      up = Object.new
+      up.define_singleton_method(:upload) do |path|
+        ok = path.end_with?(".mp4")
+        ChangeScreenshotUpload::Result.new(path: path, url: ok ? "https://u/v" : nil, error: ok ? nil : "nope")
+      end
+      gh = FakeGh.new
+      out = P.publish(mp4, argv: %w[--pr 7], gh: gh, uploader: up, boards: { "light" => "/x/light.png" })
+      assert_equal "https://u/v", out.url
+      refute_includes gh.calls.last[1], "Flats overview"
+    end
+  end
+
+  def test_locate_boards_finds_flats_for_a_slug_dir_and_a_render_path
+    Dir.mktmpdir do |dir|
+      %w[light dark].each do |t|
+        FileUtils.mkdir_p(File.join(dir, "flats", t))
+        File.write(File.join(dir, "flats", t, "overview.png"), "x")
+      end
+      want = { "light" => File.join(dir, "flats", "light", "overview.png"),
+               "dark" => File.join(dir, "flats", "dark", "overview.png") }
+      assert_equal want, P.locate_boards(dir)
+      mp4 = File.join(dir, ".cache", "render", "h", "walkthrough.mp4")
+      assert_equal want, P.locate_boards(mp4)
+      assert_empty P.locate_boards(File.join(dir, "nowhere"))
+    end
+  end
 end

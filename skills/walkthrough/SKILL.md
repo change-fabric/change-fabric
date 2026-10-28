@@ -28,7 +28,7 @@ The walkthrough is the launch video of the finished product, the press release s
 
 ## Steps
 
-1. Pick a slug (`[a-z0-9][a-z0-9-]*`). Everything lands in `walkthrough/<slug>/`; `.cache/` is gitignored.
+1. Pick a slug (`[a-z0-9][a-z0-9-]*`). Everything lands in `walkthrough/<slug>/`; `.cache/`, `flats/`, `*.mp4`, and `overview*.png` are ignored by the slug dir ignore file.
 2. Write `storyboard.json` (schema in `reference/storyboard-schema.md`): one scene per user goal, ordered as the story, each with a screen, scripted interactions, narration text, at least one requirement anchor or assumption, hypotheses from cf:prototyping, and `heuristics_shown`. A scene that shows a result of an earlier action names `store.from_scene`. Never author `duration_ms`; it is derived from measured narration.
 3. Validate and pin keys: `ruby ~/.claude/cf/bin/walkthrough_storyboard.rb validate walkthrough/<slug>/storyboard.json --fix`.
 4. Render the readable copy: `walkthrough_storyboard.rb render-md walkthrough/<slug>/storyboard.json`. storyboard.md is generated and never hand-edited.
@@ -36,7 +36,8 @@ The walkthrough is the launch video of the finished product, the press release s
 6. Estimate: `ruby ~/.claude/cf/bin/walkthrough_render.rb walkthrough/<slug> --estimate-only` prints the ElevenLabs and OpenAI cost of everything not yet cached; `elevenlabs.rb narrate --storyboard <json> --estimate-only` and `elevenlabs.rb music --storyboard <json> --estimate-only` (cf:narrate, cf:music) price each part alone. Show it to the user before any paid call.
 7. Draft: `walkthrough_render.rb walkthrough/<slug> --draft` (medium image quality). It narrates (the cf:narrate flow over the same cache), generates images, captures frames in the pinned browserless container, composes music for the total timeline (the cf:music flow), rebuilds `manifest.json`, and assembles with two FFmpeg passes. Review the stills, the captions, and the draft MP4 with the user, scene by scene, against cf:usability.
 8. Final: `walkthrough_render.rb walkthrough/<slug> --final` (high image quality). It prints the manifest hash and the MP4 sha256; the MP4 is under `.cache/render/<manifest_hash>/`.
-9. Publish (only when the user asked for it or approves the final; never auto-fire, since it uploads to GitHub): `ruby ~/.claude/cf/bin/walkthrough_publish.rb walkthrough/<slug> [--pr N | --issue N | --none] [--comment]` (or pass the MP4 path). See Publishing below.
+9. Flats (required output alongside the MP4): author `flats.json` from the PRD information architecture (every major screen plus empty, error, and success states, not only the screens in the video), then `ruby ~/.claude/cf/bin/prototype_flats.rb walkthrough/<slug>`. See the cf:prototype Flats section; it writes `flats/{light,dark}/`, the two overview boards, and `flats/index.md`.
+10. Publish (only when the user asked for it or approves the final; never auto-fire, since it uploads to GitHub): `ruby ~/.claude/cf/bin/walkthrough_publish.rb walkthrough/<slug> [--pr N | --issue N | --none] [--comment]` (or pass the MP4 path). See Publishing below.
 
 ## Publishing
 
@@ -44,6 +45,7 @@ Context rule: attach the final MP4 to whatever artifact the request is about, a 
 
 - Upload reuses `ChangeScreenshotUpload` (the same user-attachments endpoint, `gh auth token` auth, and never-raise degradation as cf:screenshot, see `skills/screenshot/SKILL.md`), sent as `video/mp4`. An orphaned attachment from a failed run is an accepted risk there too.
 - GitHub rejects attachments over `WalkthroughPublish::MAX_BYTES` (10 MB). A larger MP4 gets a smaller `walkthrough.pr.mp4` sibling transcoded in the pinned `ChangeDocker::FFMPEG_IMAGE` container (CRF ladder, last rung also scales down); the original is kept. If no rung fits, nothing uploads and the original stays on disk.
+- The two flats overview boards (`flats/light/overview.png`, `flats/dark/overview.png`) upload through the same uploader as PNGs and are attached as images under the video in the same section; a board that fails to upload is skipped. The individual flats stay on disk.
 - The returned `https://github.com/user-attachments/assets/<uuid>` url goes on its own line, which GitHub renders as an inline player, inside a `<!-- cf:walkthrough:start -->` ... `<!-- cf:walkthrough:end -->` `## Walkthrough` section. Re-running replaces that section instead of appending another. `--comment` posts it as a comment instead of editing the PR or issue body.
 - Any failure (no token, non-201, `gh` error) degrades to leaving the file on disk and reporting why. A PR body edit is comment-class and is not gated by merge mode.
 
@@ -74,7 +76,8 @@ Same manifest hash and same image digests mean the same timeline, the same frame
 walkthrough/<slug>/
   storyboard.json  storyboard.md  manifest.json  ASSUMPTIONS.md  THIRD_PARTY_NOTICES
   screens/<scene-id>.html  screens/tokens.css  screens/mock-store.js  screens/assets/
-  data/seed.json  .gitignore (.cache/)
+  data/seed.json  flats.json  .gitignore (.cache/ flats/ *.mp4 overview*.png)
+  flats/  index.md  light/  dark/  (generated, ignored)
   .cache/  frames/  audio/  music/  images/  icons/  render/<manifest_hash>/
 ```
 
@@ -82,5 +85,6 @@ walkthrough/<slug>/
 
 - `validate` is clean with no stale keys, and storyboard.md is regenerated.
 - Every scene has a requirement or assumption, cites `heuristics_shown`, and its narration is present tense with no concept framing.
+- `flats/` is rendered for every IA screen and key state in both themes, with `index.md` and both overview boards.
 - `ASSUMPTIONS.md` and `THIRD_PARTY_NOTICES` are current.
 - The user reviewed the draft, and the final MP4 path, manifest hash, and MP4 sha256 are reported, and the MP4 is published to the request's PR or issue when there is one.
