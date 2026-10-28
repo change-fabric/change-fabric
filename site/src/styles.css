@@ -1770,7 +1770,7 @@ code {
 }
 
 .tech-googledrive { --mark: url("/brand/tech/googledrive.svg"); width: 24px; height: 24px; }
-.tech-tailscale { --mark: url("/brand/tech/tailscale.svg"); width: 14px; height: 14px; }
+.tech-tailscale { --mark: url("/brand/tech/tailscale.svg"); width: 18px; height: 18px; }
 .tech-docker { --mark: url("/brand/tech/docker.svg"); width: 32px; height: 32px; }
 .tech-aws { --mark: url("/brand/tech/aws.svg"); width: 32px; height: 32px; }
 .tech-terraform { --mark: url("/brand/tech/terraform.svg"); width: 24px; height: 24px; }
