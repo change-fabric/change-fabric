@@ -154,7 +154,7 @@ class RoastTest < Minitest::Test
   def test_decide_stops_at_target_then_no_blockers_then_cap
     assert Roast.decide([ hist(1, 9, [ "P0" ]) ])[:stop]
     assert_match(/no P0 or P1/, Roast.decide([ hist(1, 6, [ "P2" ]) ])[:reason])
-    assert_match(/cap 4/, Roast.decide([ hist(4, 6, [ "P1" ]) ])[:reason])
+    assert_match(/cap #{Roast::DEFAULT_CAP}/, Roast.decide([ hist(4, 6, [ "P1" ]) ])[:reason])
     refute Roast.decide([ hist(2, 6, [ "P1" ]) ])[:stop]
     refute Roast.decide([])[:stop]
   end

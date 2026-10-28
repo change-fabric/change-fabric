@@ -26,7 +26,7 @@ Optional, after screens exist: cf:design may roast a draft's mock screens, cf:pr
 - `--history <dir>`: read prior rounds from another directory (default: the out dir).
 - `--round <n>`: default is the next number after the highest logged round.
 - `--max-usd <n>` (default 0.5): the ceiling. A call that would pass it is refused before any request.
-- `--cache <dir>` (default `.cache`), `--estimate-only`. `CF_ROAST_MODEL` overrides the model (default `gpt-5`, a vision-capable model; set it to a newer one when available).
+- `--cache <dir>` (default `.cache`), `--estimate-only`. `CF_ROAST_MODEL` overrides the model (default `gpt-6.1-sol`, a vision-capable model with strict JSON schema output; set it to another when wanted).
 
 `roast.rb decide --out-dir roast [--target 9] [--cap 4]` prints `roast decision: stop|continue: <reason>` from the latest logged round, so the stop rule is not re-derived by hand.
 

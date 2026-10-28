@@ -16,7 +16,9 @@ require_relative 'walkthrough_env'
 # script's. Rounds are logged to a roast/ directory (round-N.json, round-N.md),
 # keyed by content so a repeat of the same inputs costs nothing and needs no key.
 module Roast
-  DEFAULT_MODEL = 'gpt-5'
+  # gpt-6.1-sol: image input, Responses API, Structured Outputs, per
+  # https://developers.openai.com/api/docs/models/gpt-6.1-sol (checked 2026-10-28).
+  DEFAULT_MODEL = 'gpt-6.1-sol'
   MODEL = ENV.fetch('CF_ROAST_MODEL', DEFAULT_MODEL)
   RESPONSES_URL = 'https://api.openai.com/v1/responses'
   DEFAULT_CEILING_USD = 0.5
@@ -26,7 +28,8 @@ module Roast
   VERDICTS = %w[pass partial fail].freeze
   # Rough planning figures, not a quote: USD per million tokens (input, output),
   # tokens per image, and the output cap. The estimate stays conservative.
-  PRICE_PER_MTOK = { input: 1.25, output: 10.0 }.freeze
+  # Prices: standard tier, https://developers.openai.com/api/docs/pricing (checked 2026-10-28).
+  PRICE_PER_MTOK = { input: 2.0, output: 10.0 }.freeze
   IMAGE_TOKENS = 1500
   MAX_OUTPUT_TOKENS = 4000
   MIME = { '.png' => 'image/png', '.jpg' => 'image/jpeg', '.jpeg' => 'image/jpeg', '.webp' => 'image/webp' }.freeze
@@ -94,8 +97,8 @@ module Roast
   end
 
   # The content-hash key for one critic request.
-  def request_key(brief:, shots:, history:, round:, model: MODEL)
-    WalkthroughCache.key(model: model, brief: brief, round: round, history: history,
+  def request_key(brief:, shots:, history:, round:)
+    WalkthroughCache.key(model: MODEL, brief: brief, round: round, history: history,
                          shots: shots.map { |s| Digest::SHA256.file(s).hexdigest })
   end
 
@@ -103,8 +106,7 @@ module Roast
     chars = SYSTEM_PROMPT.size + brief.size + JSON.generate(history).size
     input = (chars / 4) + (shots.size * IMAGE_TOKENS)
     usd = ((input * PRICE_PER_MTOK[:input]) + (MAX_OUTPUT_TOKENS * PRICE_PER_MTOK[:output])) / 1_000_000.0
-    { usd: usd.round(2),
-      line: "1 call, #{shots.size} image(s), about #{input} tokens in, up to #{MAX_OUTPUT_TOKENS} out, about $#{format('%.2f', usd)}" }
+    { usd: usd.round(2), tokens: input }
   end
 
   def user_text(brief, history, round, shots)
@@ -116,7 +118,7 @@ module Roast
      (past.empty? ? 'No earlier rounds.' : "Earlier rounds:\n#{past.join("\n\n")}") ].join("\n\n")
   end
 
-  # The pure request description; the key is added at send time.
+  # The pure request description: the URL and the JSON body, no auth or cache key.
   def build_request(brief:, shots:, history:, round:, model: MODEL)
     images = shots.map do |s|
       { type: 'input_image', image_url: "data:#{mime_for(s)};base64,#{Base64.strict_encode64(File.binread(s))}" }
@@ -149,8 +151,7 @@ module Roast
 
   # Pulls the model's JSON out of a Responses body and validates its shape.
   def parse_critic(body)
-    text = Array(body['output']).flat_map { |item| Array(item['content']) }
-                                .find { |c| c['type'] == 'output_text' }&.fetch('text', nil)
+    text = output_text(body)
     raise RequestError, 'roast response carried no output_text' unless text
 
     critic = JSON.parse(text)
@@ -158,6 +159,11 @@ module Roast
     critic
   rescue JSON::ParserError
     raise RequestError, 'roast response was not valid JSON'
+  end
+
+  def output_text(body)
+    Array(body['output']).flat_map { |item| Array(item['content']) }
+                         .find { |c| c['type'] == 'output_text' }&.fetch('text', nil)
   end
 
   def validate_critic!(critic)
@@ -172,18 +178,22 @@ module Roast
   end
 
   # Returns the cached critic JSON, making the paid call only on a miss.
-  def critique(brief:, shots:, history:, round:, cache_root:, http: nil, model: MODEL)
-    key = request_key(brief: brief, shots: shots, history: history, round: round, model: model)
-    path = WalkthroughCache.fetch(cache_root, :roasts, key, 'json') do |tmp|
-      request = build_request(brief: brief, shots: shots, history: history, round: round, model: model)
+  def critique(brief:, shots:, history:, round:, cache_root:, http: nil)
+    key = request_key(brief: brief, shots: shots, history: history, round: round)
+    path = WalkthroughCache.fetch(*cache_args(cache_root, key)) do |tmp|
+      request = build_request(brief: brief, shots: shots, history: history, round: round)
       File.write(tmp, JSON.generate(parse_critic(post(request, http))))
     end
     JSON.parse(File.read(path))
   end
 
   def cached?(cache_root, **inputs)
-    File.file?(WalkthroughCache.path(cache_root, :roasts, request_key(**inputs), 'json'))
+    File.file?(WalkthroughCache.path(*cache_args(cache_root, request_key(**inputs))))
   end
+
+  # The WalkthroughCache coordinates (root, kind, key, ext) of one cached critic.
+  def cache_args(cache_root, key) = [ cache_root, :roasts, key, 'json' ]
+  private_class_method :cache_args
 
   def render_markdown(critic, round)
     lines = [ "# Roast round #{round}", '', "Score: #{critic['score']}/10", '', critic['summary'], '' ]
@@ -206,8 +216,9 @@ module Roast
   # The stop rule over the latest logged round: target, then no P0/P1, then cap.
   def decide(history, target: DEFAULT_TARGET, cap: DEFAULT_CAP)
     last = history.last or return { stop: false, reason: 'no rounds yet' }
-    score = last[:critic]['score']
-    blockers = last[:critic]['issues'].count { |i| %w[P0 P1].include?(i['priority']) }
+    critic = last[:critic]
+    score = critic['score']
+    blockers = critic['issues'].count { |i| %w[P0 P1].include?(i['priority']) }
     if score >= target then { stop: true, reason: "score #{score} reached target #{target}" }
     elsif blockers.zero? then { stop: true, reason: 'no P0 or P1 issues left' }
     elsif last[:round] >= cap then { stop: true, reason: "round cap #{cap} reached" }
@@ -294,8 +305,13 @@ module Roast
       cached = Roast.cached?(opts[:cache], **inputs)
       est = Roast.estimate(**inputs.slice(:brief, :shots, :history))
       usd = cached ? 0.0 : est[:usd]
-      out.puts("roast estimate: #{cached ? '1 call (cached)' : est[:line]}, $#{format('%.2f', usd)} to spend")
+      call = cached ? '1 call (cached)' : estimate_line(inputs[:shots].size, est)
+      out.puts("roast estimate: #{call}, $#{format('%.2f', usd)} to spend")
       usd
+    end
+
+    def estimate_line(image_count, est)
+      "1 call, #{image_count} image(s), about #{est[:tokens]} tokens in, up to #{MAX_OUTPUT_TOKENS} out, about $#{format('%.2f', est[:usd])}"
     end
   end
 end
