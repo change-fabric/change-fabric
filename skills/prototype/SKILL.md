@@ -37,6 +37,7 @@ An action in one scene can change what a later scene shows: the later scene name
 
 ## Icons and imagery
 
+- Avoid the generic AI-look defaults in cf:design's `reference/banned-defaults.md` (dated, reviewable) unless DESIGN.md chooses one on purpose.
 - UI icons: Phosphor, `ruby ~/.claude/cf/bin/prototype_icons.rb walkthrough/<slug>/.cache/icons` fetches the pinned tarballs (sha512 checked, no fallback). Copy only used SVGs into `screens/assets/icons/` with `PrototypeIcons.copy_used`.
 - Brand logos: any Simple Icons logo, including plausible integrations. Record each in `ASSUMPTIONS.md` with its `guidelines` link and `license` field, and drop any logo whose guidelines forbid the use.
 - Write `THIRD_PARTY_NOTICES` from `PrototypeIcons.notices` (Phosphor MIT notice, Simple Icons CC0 plus trademark disclaimer).

@@ -42,7 +42,7 @@ Each round runs the same five steps. At most three rounds.
 3. Critique. Spawn four background critic agents in parallel, each given the existing system (if any), the draft, and the evidence paths:
    - usability: loads cf:usability by name and inspects the draft against each heuristic it names
    - accessibility: checks against cf:prototyping's `reference/wcag-design-time.md`; AA is required, AAA advisory
-   - brand: does the system say what the product is, and does it honor the brand assets
+   - brand: does the system say what the product is, and does it honor the brand assets; also checks the draft against `reference/banned-defaults.md` (dated generic AI-look defaults)
    - simplicity: what can be deleted; every token, font, and component must earn its place
 
    Each critic attacks both the existing system and the draft and returns findings, each with a verdict (keep, change, cut) and a reason.
