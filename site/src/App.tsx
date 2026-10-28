@@ -5,11 +5,12 @@ import { Changelog } from "./pages/Changelog";
 import { Reference } from "./pages/Reference";
 import { ReferenceSkillPage } from "./pages/ReferenceSkillPage";
 import { ReferenceHookPage } from "./pages/ReferenceHookPage";
+import { Moose } from "./pages/Moose";
 
 // A tiny path-based router. Navigation is plain full-page anchors, so each load
 // resolves the current path here. CloudFront serves index.html for unknown
 // paths (its 404 fallback), so /spec, /spec/<version>, /changelog, /reference,
-// and /reference/{skills,hooks}/<id> all reach this router. The raw
+// /reference/{skills,hooks}/<id>, and /moose all reach this router. The raw
 // /spec/<version>.md and /changelog.xml are real static files and never load
 // the app.
 export function App() {
@@ -30,6 +31,10 @@ export function App() {
 
   if (path === "/reference") {
     return <Reference />;
+  }
+
+  if (path === "/moose") {
+    return <Moose />;
   }
 
   const skillMatch = path.match(/^\/reference\/skills\/([^/]+)$/);

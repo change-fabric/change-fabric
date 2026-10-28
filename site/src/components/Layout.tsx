@@ -14,6 +14,22 @@ const PRIMARY = [
   { label: "Reference", href: "/reference", match: "/reference" },
 ];
 
+// Sibling projects, listed under their own heading so they do not read as
+// parts of the spec.
+const RELATED = [{ label: "Moose", href: "/moose", match: "/moose" }];
+
+function NavLink({ link }: { link: (typeof PRIMARY)[number] }) {
+  return (
+    <a
+      className="nav-link"
+      href={link.href}
+      aria-current={isCurrent(link.match) ? "page" : undefined}
+    >
+      {link.label}
+    </a>
+  );
+}
+
 function isCurrent(match: string): boolean {
   const path = window.location.pathname;
   return path === match || path.startsWith(`${match}/`);
@@ -46,14 +62,11 @@ export function Layout({ children }: { children: ReactNode }) {
         </a>
         <nav className="site-nav" aria-label="Primary">
           {PRIMARY.map((link) => (
-            <a
-              key={link.label}
-              className="nav-link"
-              href={link.href}
-              aria-current={isCurrent(link.match) ? "page" : undefined}
-            >
-              {link.label}
-            </a>
+            <NavLink key={link.label} link={link} />
+          ))}
+          <span className="nav-group-label">Related projects</span>
+          {RELATED.map((link) => (
+            <NavLink key={link.label} link={link} />
           ))}
         </nav>
         <div className="site-utils">
@@ -74,8 +87,8 @@ export function Layout({ children }: { children: ReactNode }) {
       <div className="page">
         <main>{children}</main>
 
-        {/* Below 960px the header carries Spec, Changelog and Reference, the
-            wordmark is Home and the Spec page links Versions, so the footer
+        {/* Below 960px the header carries Spec, Changelog, Reference and Moose,
+            the wordmark is Home and the Spec page links Versions, so the footer
             drops to one quiet row; the full list returns beside the sidebar. */}
         <footer className="site-footer">
           <span className="footer-brand">&copy; Change Fabric</span>
@@ -85,6 +98,7 @@ export function Layout({ children }: { children: ReactNode }) {
             <a className="footer-wide" href="/spec">Versions</a>
             <a className="footer-wide" href="/changelog">Changelog</a>
             <a href="/reference">Reference</a>
+            <a className="footer-wide" href="/moose">Moose</a>
             <a href={REPO_URL} target="_blank" rel="noopener noreferrer">
               GitHub<span aria-hidden="true"> &#8599;</span>
               <span className="sr-only"> (opens in a new tab)</span>
