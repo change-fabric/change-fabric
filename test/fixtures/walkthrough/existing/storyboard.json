@@ -1,0 +1,164 @@
+{
+  "schema_version": 1,
+  "slug": "harborline-saved-trips",
+  "title": "Harborline saved trips",
+  "source_docs": [
+    {
+      "path": "prd.md",
+      "sha256": "6583138003cc1d0130457b8beab79ddca6223e87e38390b522c37f721c555b01"
+    }
+  ],
+  "design_md_sha256": "cdb5670b090561c156c0772590761537d9c33f93c9ebb13dcf2f6f1ff64f620a",
+  "tokens_css_sha256": "e20063e46b7730093669bb21f090086bec33a66f7dc3eeb75f45db1477a9d230",
+  "viewport": {
+    "w": 1920,
+    "h": 1080,
+    "dpr": 1
+  },
+  "fps": 30,
+  "voice": {
+    "provider": "elevenlabs",
+    "voice_id": "21m00Tcm4TlvDq8ikWAM",
+    "model": "eleven_multilingual_v2",
+    "output_format": "mp3_44100_128"
+  },
+  "music": null,
+  "cursor": {
+    "sprite": "default",
+    "scale": 1.0
+  },
+  "hypotheses": [
+    {
+      "id": "H-01",
+      "text": "A commuter rebooks a saved trip in one tap without reading instructions.",
+      "dimension": "role"
+    }
+  ],
+  "scenes": [
+    {
+      "id": "rebook",
+      "title": "Rebook in one tap",
+      "order": 1,
+      "user_goal": "Book the usual morning ferry",
+      "action": "Taps rebook on the saved trip",
+      "screen": {
+        "html": "screens/home.html",
+        "state": "default"
+      },
+      "store": {
+        "seed": "data/seed.json",
+        "prng_seed": 3
+      },
+      "interactions": [
+        {
+          "t_ms": 0,
+          "op": "move",
+          "target": "#rebook",
+          "duration_ms": 700,
+          "easing": "easeInOutCubic"
+        },
+        {
+          "t_ms": 900,
+          "op": "click",
+          "target": "#rebook"
+        },
+        {
+          "t_ms": 1100,
+          "op": "wait",
+          "duration_ms": 1500
+        }
+      ],
+      "narration": {
+        "text": "Your usual ferry is waiting on the home screen. One tap on rebook, and the 07:40 to Marrow Quay is booked.",
+        "measured_ms": 0
+      },
+      "requirements": [
+        {
+          "source": "prd.md",
+          "anchor": "#saved-trips"
+        }
+      ],
+      "assumptions": [],
+      "hypotheses": [
+        "H-01"
+      ],
+      "heuristics_shown": [
+        "H1",
+        "H7"
+      ],
+      "timing": {
+        "min_ms": 4000,
+        "pad_ms": 400,
+        "transition": {
+          "type": "cut",
+          "ms": 0
+        },
+        "music_duck_db": -12
+      },
+      "deps": {
+        "frames_key": "0bb35d0cbfdc1b3a482cf91d901feb5ee14ebaf1d5e23beebb8d34b2e0288221",
+        "audio_key": "895dc8e12d8e814935b44e58135a26dfa7dbb795f385ed9e8330c6a42ef3e70e",
+        "asset_keys": []
+      }
+    },
+    {
+      "id": "tickets",
+      "title": "The ticket is ready",
+      "order": 2,
+      "user_goal": "Check the ticket before boarding",
+      "action": "Opens tickets and sees the new booking",
+      "screen": {
+        "html": "screens/bookings.html",
+        "state": "after-rebook"
+      },
+      "store": {
+        "seed": "data/seed.json",
+        "from_scene": "rebook",
+        "prng_seed": 5
+      },
+      "interactions": [
+        {
+          "t_ms": 0,
+          "op": "wait",
+          "duration_ms": 2500
+        }
+      ],
+      "narration": {
+        "text": "The ticket is ready before you reach the pier.",
+        "measured_ms": 0
+      },
+      "requirements": [
+        {
+          "source": "prd.md",
+          "anchor": "#rebooking"
+        }
+      ],
+      "assumptions": [
+        {
+          "id": "A-01",
+          "text": "Routes, times, and prices are fictional seed records."
+        }
+      ],
+      "hypotheses": [
+        "H-01"
+      ],
+      "heuristics_shown": [
+        "H1"
+      ],
+      "timing": {
+        "min_ms": 3000,
+        "pad_ms": 400,
+        "transition": {
+          "type": "fade",
+          "ms": 300
+        },
+        "music_duck_db": -12
+      },
+      "deps": {
+        "frames_key": null,
+        "audio_key": "eaae8fac70435fc4d335fd85095547cc6da75aa5941a1afc3884ca548408a75f",
+        "asset_keys": []
+      }
+    }
+  ]
+}

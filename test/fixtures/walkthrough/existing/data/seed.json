@@ -1,0 +1,6 @@
+{
+  "trips": [
+    { "id": "trip-1", "route": "Gullpoint to Marrow Quay", "time": "07:40", "price": "$6.50" }
+  ],
+  "bookings": []
+}

@@ -293,6 +293,32 @@ change_config:
       # viewport: { name: desktop, width: 1440, height: 900 }  # optional, the default
       # auth: same shape as lanes.browserless.auth above, for cases behind a login
 
+  # Optional (0.13.0): design governance for cf:design, cf:prototype, cf:roast,
+  # and cf:walkthrough. tokens.css stays the one design source; Figma is read
+  # as evidence and drift-checked, never canon. Omit the block for all defaults.
+  # design:
+  #   tokens: design/tokens.css            # default
+  #   tailwind: true                       # default auto-detect
+  #   figma:
+  #     url: https://www.figma.com/design/AbCdEf123/Example-App?node-id=1-2
+  #     variables_snapshot: design/figma-variables.json   # default
+  #     code_connect: false                # default; built apps only
+  #   parity:
+  #     default: unreviewed                # must_match | intentional | unreviewed
+  #     areas:
+  #       - match: "/checkout"
+  #         status: must_match
+  #       - match: "Marketing*"
+  #         status: intentional
+  #         reason: "Marketing pages follow the campaign file"  # required for intentional
+  #   roast:
+  #     auto: true
+  #     target: 8.5                        # 0 to 10
+  #     rounds: 4                          # at least 1
+  #     max_usd: 2.00                      # spend ceiling, greater than 0
+  #     model: null                        # null keeps CF_ROAST_MODEL
+  #   critic_rounds: 3                     # 1 to 5
+
 # Machine-checkable policy the change-fabric merge gate enforces. The prose below
 # is the human source of truth; this block states the same rules in the form the
 # hook (change_merge_guard.rb) can act on. Keep the two in agreement.

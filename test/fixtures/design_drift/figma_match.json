@@ -1,0 +1,3 @@
+{ "figma_url": "https://www.figma.com/design/AbCdEf123/Example-App", "file_key": "AbCdEf123", "captured_by": "get_variable_defs",
+  "variables": [ { "name": "color/accent", "token": "--accent", "value": "#0A5CFF", "node": "1:2" },
+                 { "name": "color/unused", "value": "#123456", "node": "1:3" } ] }

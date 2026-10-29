@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Harborline: saved trips</title>
+  <link rel="stylesheet" href="tokens.css">
+  <style>
+    body { margin: 0; background: var(--bg); color: var(--text); font: var(--size-body)/1.5 var(--font); }
+    header { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-4); background: var(--accent); color: var(--accent-text); }
+    main { max-width: 720px; margin: var(--space-4) auto; }
+    h1 { font-size: var(--size-title); margin: 0 0 var(--space-3); }
+    .card { display: flex; justify-content: space-between; align-items: center; padding: var(--space-3); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
+    .meta { color: var(--muted); }
+    button { min-height: 44px; padding: var(--space-1) var(--space-3); font: inherit; background: var(--accent); color: var(--accent-text); border: 0; border-radius: var(--radius); }
+    button:focus { outline: 3px solid var(--focus); outline-offset: 2px; }
+    #booked { margin-top: var(--space-3); padding: var(--space-2); background: var(--surface); border: 1px solid var(--accent); border-radius: var(--radius); }
+  </style>
+</head>
+<body>
+  <header><img src="assets/harborline.svg" alt="" width="48" height="48"><strong>Harborline</strong></header>
+  <main>
+    <h1>Saved trips</h1>
+    <form class="card" data-cf-submit="bookings" data-cf-prefix="booking" data-cf-toast="#booked">
+      <input type="hidden" name="route" value="Gullpoint to Marrow Quay">
+      <input type="hidden" name="time" value="07:40">
+      <div><div>Gullpoint to Marrow Quay</div><div class="meta">Next departure 07:40, $6.50</div></div>
+      <button id="rebook" type="submit">Rebook</button>
+    </form>
+    <p id="booked" role="status" hidden>Booked: Gullpoint to Marrow Quay at 07:40.</p>
+  </main>
+  <script src="mock-store.js"></script>
+</body>
+</html>

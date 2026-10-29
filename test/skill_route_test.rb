@@ -59,4 +59,11 @@ class SkillRouteTest < Minitest::Test
     assert_equal %w[src/app.tsx], grouped["cf:react"]
     refute grouped.key?("cf:vite")
   end
+
+  def test_shipped_usability_routes_ui_files_and_design_md
+    skills = SkillRegistry.load(REPO_SKILLS)
+    files = %w[src/app.tsx DESIGN.md docs/DESIGN.md walkthrough/demo/storyboard.json app/user.rb]
+    grouped = SkillRoute.new(files, skills: skills).by_skill
+    assert_equal %w[DESIGN.md docs/DESIGN.md src/app.tsx walkthrough/demo/storyboard.json], grouped["cf:usability"].sort
+  end
 end

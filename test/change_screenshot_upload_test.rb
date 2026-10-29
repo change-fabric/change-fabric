@@ -172,6 +172,10 @@ class ChangeScreenshotUploadTest < Minitest::Test
     assert_includes result.error, "upload failed"
   end
 
+  def test_mp4_mime_type
+    assert_equal "video/mp4", ChangeScreenshotUpload.mime_for("a/b.mp4")
+  end
+
   # A 201 with no url is a contract change in an undocumented endpoint, which
   # is precisely what this class is built to survive.
   def test_a_201_with_no_url_degrades_rather_than_reporting_a_success

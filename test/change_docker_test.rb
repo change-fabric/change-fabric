@@ -45,6 +45,11 @@ class ChangeDockerTest < Minitest::Test
     assert_includes argv.each_cons(2).to_a, [ "--add-host", "host.docker.internal:host-gateway" ]
   end
 
+  def test_run_command_labels_every_container_with_the_owner_pid
+    argv = ChangeDocker.run_command(network: nil, image: "img", args: [], name: "cf-change-k6-x")
+    assert_includes argv.each_cons(2).to_a, [ "--label", "#{ChangeDocker::OWNER_LABEL}=#{Process.pid}" ]
+  end
+
   def test_run_command_keeps_the_image_and_its_command_last
     argv = ChangeDocker.run_command(network: "net", image: "img", args: %w[a b], name: "cf-change-x")
     assert_equal %w[img a b], argv.last(3)
@@ -63,6 +68,14 @@ class ChangeDockerTest < Minitest::Test
   def test_run_command_string_mount_target_is_writable
     argv = ChangeDocker.run_command(network: nil, image: "img", args: [], mounts: { "/work" => "/out" })
     assert_includes argv.each_cons(2).to_a, [ "--mount", 'type=bind,"source=/work",target=/out' ]
+  end
+
+  def test_run_command_emits_an_entrypoint_override_before_the_image
+    argv = ChangeDocker.run_command(network: nil, image: "img", args: %w[cmd], entrypoint: "ffprobe")
+    at = argv.index("--entrypoint")
+    assert_equal "ffprobe", argv[at + 1]
+    assert_operator at, :<, argv.index("img")
+    refute_includes ChangeDocker.run_command(network: nil, image: "img", args: %w[cmd]), "--entrypoint"
   end
 
   def test_run_command_emits_user_and_workdir_before_the_image
@@ -133,20 +146,68 @@ class ChangeDockerTest < Minitest::Test
   end
 
   # The dogfooding fix: a run that crashes before its own teardown leaves a
-  # `cf-change-*` container or network behind, with no way to reclaim it.
+  # prefixed container or network behind, with no way to reclaim it. Tests sweep
+  # only their own per-test prefix, never the global `cf-change-`, so a test run
+  # cannot remove a live render's browserless container.
   def test_sweep_removes_an_orphaned_container_and_network
     skip "docker not available" unless ChangeDocker.available?
 
-    network = "cf-change-#{SecureRandom.hex(4)}"
+    prefix = test_prefix
+    network = "#{prefix}net"
     Open3.capture2e("docker", "network", "create", network)
-    container = "cf-change-zap-#{SecureRandom.hex(4)}"
+    container = "#{prefix}zap"
     Open3.capture2e("docker", "run", "-d", "--name", container, "alpine", "sleep", "60")
 
-    removed = ChangeDocker.sweep
+    removed = ChangeDocker.sweep(prefix: prefix)
 
-    assert_includes removed[:containers], container
+    assert_equal [ container ], removed[:containers]
     assert_includes removed[:networks], network
     _out, status = Open3.capture2e("docker", "inspect", container)
     refute status.success?, "swept container should be gone"
   end
+
+  def test_sweep_keeps_a_container_whose_owner_pid_is_alive
+    skip "docker not available" unless ChangeDocker.available?
+
+    prefix = test_prefix
+    live = "#{prefix}live"
+    dead = "#{prefix}dead"
+    Open3.capture2e("docker", "run", "-d", "--name", live, "--label", "cf.owner_pid=#{Process.pid}", "alpine", "sleep", "60")
+    Open3.capture2e("docker", "run", "-d", "--name", dead, "--label", "cf.owner_pid=2147483646", "alpine", "sleep", "60")
+    begin
+      removed = ChangeDocker.sweep(prefix: prefix)
+
+      assert_equal [ dead ], removed[:containers]
+      _out, status = Open3.capture2e("docker", "inspect", live)
+      assert status.success?, "a container owned by a live pid must survive the sweep"
+    ensure
+      Open3.capture2e("docker", "rm", "-f", live)
+      Open3.capture2e("docker", "rm", "-f", dead)
+    end
+  end
+
+  def test_browserless_command_labels_the_owner_pid
+    cmd = ChangeDocker.browserless_command("cf-change-bl-x", nil, 1234, "tok")
+
+    assert_includes cmd.each_cons(2).to_a, [ "--label", "cf.owner_pid=#{Process.pid}" ]
+  end
+
+  def test_sweep_default_prefix_is_the_resource_prefix
+    # Stubbed (no minitest/mock in this bundle) so no real sweep touches docker.
+    seen = []
+    original = ChangeDocker.method(:matching_names)
+    ChangeDocker.define_singleton_method(:matching_names) { |*cmd| seen << cmd; [] }
+    begin
+      ChangeDocker.sweep
+    ensure
+      ChangeDocker.define_singleton_method(:matching_names, original)
+    end
+
+    refute_empty seen
+    assert seen.all? { |cmd| cmd.include?("name=#{ChangeDocker::RESOURCE_PREFIX}") }
+  end
+
+  private
+
+  def test_prefix = "cf-change-test-#{SecureRandom.hex(4)}-"
 end

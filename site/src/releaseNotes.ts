@@ -28,6 +28,31 @@ export interface ReleaseNote {
 }
 
 export const RELEASE_NOTES: Record<string, ReleaseNote> = {
+  "0.13.0": {
+    version: "0.13.0",
+    date: "2026-10-29",
+    headline:
+      "CHANGE.md can say where a project's design truth lives, which Figma file it answers to, and what the critics may spend.",
+    highlights: [
+      {
+        title: "change_config.design, one block for design governance",
+        body:
+          "Names the canonical tokens.css, whether Tailwind is compiled for drift, a Figma file URL with its variables snapshot and Code Connect opt-in, per-area parity, roast settings, and critic_rounds. tokens.css stays the one source; Figma is evidence, never canon.",
+      },
+      {
+        title: "Parity is stated, not guessed",
+        body:
+          "Each area is must_match, intentional, or unreviewed. An intentional divergence requires a reason, so a deliberate difference from Figma is recorded rather than silently accepted.",
+      },
+      {
+        title: "Validated at load",
+        body:
+          "A figma.url that does not parse as a Figma file URL, an out-of-range roast target, rounds, max_usd, or critic_rounds, and any unknown key under design are config errors naming the field.",
+      },
+    ],
+    upgrade:
+      "Nothing to do. The block is optional and additive; a CHANGE.md without it parses and runs exactly as it did under 0.12.0, with roast spend capped at 2.00 USD by default.",
+  },
   "0.11.0": {
     version: "0.11.0",
     date: "2026-09-15",

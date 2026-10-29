@@ -1,6 +1,6 @@
 # CHANGE.md frontmatter specification
 
-Schema version: 0.12.0
+Schema version: 0.13.0
 
 Status: stable. This is the golden reference for authoring a repo's
 `CHANGE.md` frontmatter. A maintainer or an AI agent creating a new repo's
@@ -233,6 +233,68 @@ lane; `gate_tags` is the staged-adoption valve for a suite still being trusted.
 `lanes.testcases.base_url`, `lanes.testcases.basic_auth.*`, `lanes.testcases.retries`
 and `lanes.testcases.wait_for.*` are the generic `lanes.<lane>.*` fields above,
 and mean here exactly what they mean everywhere else.
+
+### design (0.13.0): per-project design governance
+
+An optional `change_config.design` block. `tokens.css` stays the one design
+source; everything else derives from it and is drift-checked against it. A
+Figma file, named by URL, is read as evidence and written back to, never
+treated as canon. `parity` records which areas must match Figma, which diverge
+on purpose (with a reason), and which nobody has reviewed yet. `roast` and
+`critic_rounds` tune the paid vision critic and the four background critics.
+Precedence everywhere is an explicit CLI flag, then this block, then the
+script default. A missing block means every default below. Unknown keys
+anywhere under `design` are a config error, as is a `figma.url` that does not
+parse as a Figma file URL, an `intentional` area with no `reason`, or a value
+outside its range. Read by `scripts/design_config.rb` (`DesignConfig.load`).
+
+```yaml
+change_config:
+  design:
+    tokens: design/tokens.css
+    tailwind: true
+    figma:
+      url: https://www.figma.com/design/AbCdEf123/Example-App?node-id=1-2
+      variables_snapshot: design/figma-variables.json
+      code_connect: false
+    parity:
+      default: unreviewed
+      areas:
+        - match: "/checkout"
+          status: must_match
+        - match: "Marketing*"
+          status: intentional
+          reason: "Marketing pages follow the campaign file, not the app system"
+    roast:
+      auto: true
+      target: 8.5
+      rounds: 4
+      max_usd: 2.00
+      model: null
+      kind: explainer
+      audience: "Internal engineers new to the release process"
+    critic_rounds: 3
+```
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `change_config.design.tokens` | string | no (default `design/tokens.css`) | Repo-relative path of the canonical `tokens.css`, the single design source every drift check compares against. |
+| `change_config.design.tailwind` | boolean | no (default auto-detect) | Whether the drift check compiles the repo's Tailwind theme and compares its custom properties to the canonical tokens. Unset, the check runs when a Tailwind config is present. |
+| `change_config.design.figma.url` | string | no | A literal Figma file URL (`/design/`, `/file/`, `/make/`, `/board/`, `/slides/`, optionally with `/branch/<key>` and `?node-id=`). Parsed for file key, node id, and branch key; an unparseable URL is a config error naming this field. Unset, every Figma step is skipped with one line in the report. |
+| `change_config.design.figma.variables_snapshot` | string | no (default `design/figma-variables.json`) | Repo-relative path of the committed snapshot of the Figma file's variables, the Figma side of the token drift check. |
+| `change_config.design.figma.code_connect` | boolean | no (default false) | Whether Code Connect mappings are proposed for a built app. Never used for prototype screens. |
+| `change_config.design.parity.default` | string | no (default `unreviewed`) | The parity status of any area no `areas` entry matches: `must_match`, `intentional`, or `unreviewed`. |
+| `change_config.design.parity.areas[].match` | string | yes, on each area | A route, component name, or area label, glob allowed (`Marketing*`). The first matching entry wins. |
+| `change_config.design.parity.areas[].status` | string | yes, on each area | `must_match` (a Figma mismatch is a finding), `intentional` (a deliberate divergence, reported but not a finding), or `unreviewed`. |
+| `change_config.design.parity.areas[].reason` | string | yes, when `status` is `intentional` | Why the area diverges from Figma on purpose. An `intentional` area without one is a config error. |
+| `change_config.design.roast.auto` | boolean | no (default true) | Whether `cf:design`, `cf:prototype`, and `cf:walkthrough` run the paid vision roast without being asked by name, within `max_usd`. |
+| `change_config.design.roast.target` | number | no (default 8.5) | The score out of 10 that stops the roast loop. Must be 0 to 10. |
+| `change_config.design.roast.rounds` | integer | no (default 4) | The roast round cap. Must be at least 1. |
+| `change_config.design.roast.max_usd` | number | no (default 2.00) | The spend ceiling for one roast run, in US dollars. Must be greater than 0. |
+| `change_config.design.roast.model` | string or null | no (default null) | The critic model. Null keeps `CF_ROAST_MODEL` or the script default. |
+| `change_config.design.roast.kind` | `explainer`, `promo`, `demo`, `email`, `doc`, `pr`, `post`, or null | no (default null) | Default artifact kind the roast judges against. A storyboard `review.kind` (video kinds only) overrides it; `--kind` overrides both. |
+| `change_config.design.roast.audience` | string or null | no (default null) | Default audience the roast judges against, with the same precedence. The roast refuses to run when no source supplies an audience and a purpose. |
+| `change_config.design.critic_rounds` | integer | no (default 3) | How many grilling rounds `cf:design` runs with its four background critics. Must be 1 to 5. |
 
 ### change_config.profiles (0.2.0): multiple deploy targets, one audit shape
 
@@ -1181,3 +1243,10 @@ root `RELEASING.md`.
   so it neither validates against nor affects either governed block; a repo
   with no `CHANGE.md` at all still resolves a default root. See
   `skills/inbox/SKILL.md`.
+- 0.13.0: `change_config.design`, per-project design governance. Names the
+  canonical `tokens.css`, an optional Figma file URL (validated as one), the
+  committed Figma variables snapshot, Code Connect opt-in, per-area parity
+  (`must_match`, `intentional` with a required reason, `unreviewed`), roast
+  settings (auto, target, rounds, a `max_usd` ceiling defaulting to 2.00,
+  model), and `critic_rounds` (1 to 5). Fully additive: a `CHANGE.md` with no
+  `design:` block parses and runs exactly as it did under 0.12.0.

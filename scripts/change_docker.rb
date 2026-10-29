@@ -24,6 +24,23 @@ module ChangeDocker
   # small, and the digest pins it the same way every other runner image here
   # is pinned.
   NODE_IMAGE = 'node:22-alpine@sha256:0a7108bf6c7bf5de370ffb1a3ed6be93d405b43ff159f681a8d18c0e2bc2e402'
+  # The FFmpeg image cf:walkthrough composes and renders with. It must carry
+  # libass (burned-in subtitles) and libx264 (H.264 output); verified with:
+  #   docker run --rm jrottenberg/ffmpeg:7.1.2-ubuntu2404 -hide_banner -buildconf | grep -E 'libass|libx264'
+  # and pinned from `docker buildx imagetools inspect`.
+  FFMPEG_IMAGE = 'jrottenberg/ffmpeg:7.1.2-ubuntu2404@sha256:292a972c60356abd651d9a4f9c808c13e7473f65ad400b7eb99215f4e571931d'
+  # Icon packages fetched by `npm pack` inside NODE_IMAGE and checked against
+  # these sha512 integrity values; a mismatch fails, never falls back.
+  PHOSPHOR_PKG = {
+    name: '@phosphor-icons/core',
+    version: '2.1.1',
+    integrity: 'sha512-v4ARvrip4qBCImOE5rmPUylOEK4iiED9ZyKjcvzuezqMaiRASCHKcRIuvvxL/twvLpkfnEODCOJp5dM4eZilxQ=='
+  }.freeze
+  SIMPLE_ICONS_PKG = {
+    name: 'simple-icons',
+    version: '16.36.0',
+    integrity: 'sha512-+VNPPkqSOLidFeSgBKUWX4n50WPpDC09hav+BgS26anIF1oQOlGBb8LvwGR+6fYRjo+B6CiKzNBceMPkSVXANQ=='
+  }.freeze
 
   # The hostname a runner container addresses the host by, and the docker
   # magic value that makes it resolve. The spec has always told authors to
@@ -59,9 +76,9 @@ module ChangeDocker
   # gets the `cf-change-` prefix every resource this platform creates carries,
   # so a container orphaned by a crashed run (`--rm` never ran) is identifiable
   # and reachable by `sweep`. Extra args are the image plus its command.
-  def run(network:, image:, args:, env: {}, mounts: {}, name: nil, user: nil, workdir: nil)
+  def run(network:, image:, args:, env: {}, mounts: {}, name: nil, user: nil, workdir: nil, entrypoint: nil)
     Open3.capture2e(*run_command(network: network, image: image, args: args, env: env, mounts: mounts,
-                                 name: name, user: user, workdir: workdir))
+                                 name: name, user: user, workdir: workdir, entrypoint: entrypoint))
   end
 
   # The argv `run` executes, split out so a test can assert the flags without
@@ -69,9 +86,12 @@ module ChangeDocker
   # to the image's entrypoint, never a shell string, so a path or value with
   # spaces or shell metacharacters stays one argument. A `mounts` value is a
   # String target or a Hash `{ target:, readonly: }`.
-  def run_command(network:, image:, args:, env: {}, mounts: {}, name: nil, user: nil, workdir: nil)
+  def run_command(network:, image:, args:, env: {}, mounts: {}, name: nil, user: nil, workdir: nil, entrypoint: nil)
     cmd = [ 'docker', 'run', '--rm' ]
-    cmd += [ '--name', name ] if name
+    cmd += [ '--entrypoint', entrypoint ] if entrypoint
+    # Only a named container can match the sweep's prefix filter, so only it
+    # needs the owner label that tells a live run from an orphan.
+    cmd += [ '--name', name, '--label', "#{OWNER_LABEL}=#{Process.pid}" ] if name
     cmd += [ '--network', network ] if network
     cmd += host_gateway_args
     cmd += [ '--user', user ] if user
@@ -122,11 +142,14 @@ module ChangeDocker
   # target app by service name, and publishes 3000 on a loopback host port so the
   # host-side lane can POST scan scripts to its /function endpoint. Torn down on
   # exit whether the block succeeds or raises.
-  def with_browserless(network:)
+  #
+  # `add_hosts` ("host:ip" strings) become extra `--add-host` mappings, so a
+  # live walkthrough can reach an app by its own hostname.
+  def with_browserless(network:, add_hosts: [])
     token = SecureRandom.hex(8)
     name = "cf-change-bl-#{SecureRandom.hex(4)}"
     port = free_port
-    start_browserless(name, network, port, token)
+    start_browserless(name, network, port, token, add_hosts)
     begin
       session = Browserless.new(port: port, token: token)
       session.wait_ready or raise 'browserless did not become ready'
@@ -136,17 +159,18 @@ module ChangeDocker
     end
   end
 
-  def start_browserless(name, network, port, token)
-    out, status = Open3.capture2e(*browserless_command(name, network, port, token))
+  def start_browserless(name, network, port, token, add_hosts = [])
+    out, status = Open3.capture2e(*browserless_command(name, network, port, token, add_hosts))
     raise "failed to start browserless container: #{out.strip}" unless status.success?
   end
 
   # The browser container's argv, split out for the same reason as
   # run_command: the host alias is asserted in a test, not in a docker run.
-  def browserless_command(name, network, port, token)
-    cmd = [ 'docker', 'run', '-d', '--rm', '--name', name ]
+  def browserless_command(name, network, port, token, add_hosts = [])
+    cmd = [ 'docker', 'run', '-d', '--rm', '--name', name, '--label', "#{OWNER_LABEL}=#{Process.pid}" ]
     cmd += [ '--network', network ] if network
     cmd += host_gateway_args
+    Array(add_hosts).each { |entry| cmd += [ '--add-host', entry ] }
     cmd + [ '-p', "127.0.0.1:#{port}:3000", '-e', "TOKEN=#{token}", BROWSERLESS_IMAGE ]
   end
 
@@ -155,15 +179,38 @@ module ChangeDocker
   # teardown (a kill, an interrupted host) is identifiable and reclaimable.
   RESOURCE_PREFIX = 'cf-change-'
 
-  # Force-removes any running container or existing network carrying the
-  # `cf-change-` prefix. Meant to run standalone, between runs, so every match
-  # is by definition not part of a run in progress. Returns the names removed.
-  def sweep
-    containers = matching_names('docker', 'ps', '-a', '--filter', "name=#{RESOURCE_PREFIX}", '--format', '{{.Names}}')
+  # Label carrying the pid of the process that started a container, so a sweep
+  # can tell a live run's container from an orphan.
+  OWNER_LABEL = 'cf.owner_pid'
+
+  # Force-removes containers carrying `prefix` (default `cf-change-`) whose
+  # owner process is gone, and networks carrying it. A container labelled with a
+  # live owner pid belongs to a run in progress and is left alone; one with no
+  # label (an older run, a lane container) is reaped by prefix as before. Tests
+  # pass their own prefix so they never touch another run's resources.
+  # Returns the names removed.
+  def sweep(prefix: RESOURCE_PREFIX)
+    containers = orphaned_containers(prefix)
     containers.each { |name| Open3.capture2e('docker', 'rm', '-f', name) }
-    networks = matching_names('docker', 'network', 'ls', '--filter', "name=#{RESOURCE_PREFIX}", '--format', '{{.Name}}')
+    networks = matching_names('docker', 'network', 'ls', '--filter', "name=#{prefix}", '--format', '{{.Name}}')
     networks.each { |name| Open3.capture2e('docker', 'network', 'rm', name) }
     { containers: containers, networks: networks }
+  end
+
+  def orphaned_containers(prefix)
+    rows = matching_names('docker', 'ps', '-a', '--filter', "name=#{prefix}", '--format', "{{.Names}} {{.Label \"#{OWNER_LABEL}\"}}")
+    rows.map(&:split).reject { |_name, pid| pid && pid_alive?(pid.to_i) }.map(&:first)
+  end
+
+  def pid_alive?(pid)
+    return false unless pid.positive?
+
+    Process.kill(0, pid)
+    true
+  rescue Errno::ESRCH
+    false
+  rescue Errno::EPERM
+    true
   end
 
   def matching_names(*cmd)
@@ -249,6 +296,8 @@ module ChangeDocker
     def unwrap(parsed)
       parsed.is_a?(Hash) && parsed.key?('data') ? parsed['data'] : parsed
     end
+
+    def alive? = version_ok?
 
     private
 
