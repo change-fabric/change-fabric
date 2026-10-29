@@ -3,6 +3,7 @@
 require 'base64'
 require 'json'
 require 'net/http'
+require 'openssl'
 require 'securerandom'
 require 'uri'
 require_relative 'walkthrough_cache'
@@ -108,7 +109,11 @@ module PrototypeImagegen
       req['Content-Type'] = 'application/json'
       req.body = JSON.generate(request[:body])
     end
-    response = (http || default_http(uri)).request(req)
+    response = begin
+      (http || default_http(uri)).request(req)
+    rescue Timeout::Error, IOError, SocketError, SystemCallError, OpenSSL::SSL::SSLError, Net::ProtocolError => e
+      raise RequestError, "image request failed: #{e.class}: #{e.message}"
+    end
     raise RequestError, "image request failed: HTTP #{response.code}" unless response.is_a?(Net::HTTPSuccess)
 
     JSON.parse(response.body)

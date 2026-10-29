@@ -122,4 +122,20 @@ class PrototypeImagegenTest < Minitest::Test
   ensure
     ENV.delete("OPENAI_API_KEY")
   end
+
+  def test_transport_failures_are_request_errors
+    ENV["OPENAI_API_KEY"] = "sk-test-secret"
+    [Net::ReadTimeout.new, Errno::ECONNRESET.new, EOFError.new, SocketError.new("dns"), OpenSSL::SSL::SSLError.new("tls")].each do |error|
+      http = Object.new
+      http.define_singleton_method(:request) { |_req| raise error }
+      Dir.mktmpdir do |dir|
+        err = assert_raises(PrototypeImagegen::RequestError, error.class.name) do
+          PrototypeImagegen.generate(prompt: "x", size: "1024x1024", quality: "medium", cache_root: dir, http: http)
+        end
+        assert_includes err.message, error.class.name
+      end
+    end
+  ensure
+    ENV.delete("OPENAI_API_KEY")
+  end
 end

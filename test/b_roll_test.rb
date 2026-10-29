@@ -248,6 +248,28 @@ class BRollTest < Minitest::Test
     assert_includes res[:reason], "500"
   end
 
+  class RaisingHttp
+    def initialize(error) = @error = error
+    def request(_req) = raise(@error)
+  end
+
+  def test_transport_failures_fall_back_at_every_stage
+    errors = [Net::ReadTimeout.new, Net::OpenTimeout.new, Errno::ECONNRESET.new, Errno::ECONNREFUSED.new,
+              EOFError.new, SocketError.new("getaddrinfo"), OpenSSL::SSL::SSLError.new("handshake")]
+    errors.each do |error|
+      res = BRoll.generate_or_fallback(fallback: "kenburns", source_image: @still, prompt: "p", seconds: 4, cache_root: @cache,
+                                       http: RaisingHttp.new(error), validator: @ok_probe)
+      assert_equal "kenburns", res[:mode], error.class.name
+      assert_includes res[:reason], error.class.name
+    end
+  end
+
+  def test_transport_failure_while_polling_is_a_request_error
+    http = FakeHttp.new(ok(video_body(uri: FILE_URI)))
+    def http.request(req) = @responses.empty? ? raise(Net::ReadTimeout) : super
+    assert_raises(BRoll::RequestError) { gen(http, poll_interval: 5, poll_timeout: 15) }
+  end
+
   def test_fallback_when_key_missing_or_ceiling
     ENV.delete("GEMINI_API_KEY")
     res = BRoll.generate_or_fallback(fallback: "static", source_image: @still, prompt: "p", seconds: 4, cache_root: @cache,

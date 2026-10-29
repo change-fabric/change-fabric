@@ -6,6 +6,7 @@ require 'fileutils'
 require 'json'
 require 'net/http'
 require 'open3'
+require 'openssl'
 require 'uri'
 require_relative 'change_docker'
 require_relative 'walkthrough_cache'
@@ -26,6 +27,10 @@ module BRoll
   class GenerationFailedError < Error; end
   class ProbeError < Error; end
   class FfmpegError < Error; end
+
+  # Transport failures Net::HTTP raises instead of returning a response.
+  TRANSPORT_ERRORS = [Timeout::Error, IOError, SocketError, SystemCallError, OpenSSL::SSL::SSLError,
+                      Net::HTTPBadResponse, Net::ProtocolError].freeze
 
   MODEL = ENV.fetch('CF_BROLL_MODEL', 'gemini-omni-1.1-flash')
   # Ids Google has shut down (Veo previews and 3.x, the Omni preview).
@@ -185,7 +190,11 @@ module BRoll
   end
 
   def send_request(req, http)
-    response = (http || default_http).request(req)
+    response = begin
+      (http || default_http).request(req)
+    rescue *TRANSPORT_ERRORS => e
+      raise RequestError, "b-roll request failed: #{e.class}: #{e.message}"
+    end
     return response if response.is_a?(Net::HTTPSuccess)
 
     # Google error bodies describe the request, never the key.
