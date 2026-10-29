@@ -140,11 +140,14 @@ module ChangeDocker
   # target app by service name, and publishes 3000 on a loopback host port so the
   # host-side lane can POST scan scripts to its /function endpoint. Torn down on
   # exit whether the block succeeds or raises.
-  def with_browserless(network:)
+  #
+  # `add_hosts` ("host:ip" strings) become extra `--add-host` mappings, so a
+  # live walkthrough can reach an app by its own hostname.
+  def with_browserless(network:, add_hosts: [])
     token = SecureRandom.hex(8)
     name = "cf-change-bl-#{SecureRandom.hex(4)}"
     port = free_port
-    start_browserless(name, network, port, token)
+    start_browserless(name, network, port, token, add_hosts)
     begin
       session = Browserless.new(port: port, token: token)
       session.wait_ready or raise 'browserless did not become ready'
@@ -154,17 +157,18 @@ module ChangeDocker
     end
   end
 
-  def start_browserless(name, network, port, token)
-    out, status = Open3.capture2e(*browserless_command(name, network, port, token))
+  def start_browserless(name, network, port, token, add_hosts = [])
+    out, status = Open3.capture2e(*browserless_command(name, network, port, token, add_hosts))
     raise "failed to start browserless container: #{out.strip}" unless status.success?
   end
 
   # The browser container's argv, split out for the same reason as
   # run_command: the host alias is asserted in a test, not in a docker run.
-  def browserless_command(name, network, port, token)
+  def browserless_command(name, network, port, token, add_hosts = [])
     cmd = [ 'docker', 'run', '-d', '--rm', '--name', name, '--label', "#{OWNER_LABEL}=#{Process.pid}" ]
     cmd += [ '--network', network ] if network
     cmd += host_gateway_args
+    Array(add_hosts).each { |entry| cmd += [ '--add-host', entry ] }
     cmd + [ '-p', "127.0.0.1:#{port}:3000", '-e', "TOKEN=#{token}", BROWSERLESS_IMAGE ]
   end
 
