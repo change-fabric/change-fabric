@@ -88,6 +88,15 @@ module PrototypeCapture
     end
   end
 
+  # Draft => final image pairs the screen never references, so inlining them
+  # would swap nothing (the screen points at a stable path, not the keyed one).
+  def unmatched_remap(html_path, remap)
+    return [] if remap.empty?
+
+    base = inline_screen(html_path)
+    remap.select { |draft, high| inline_screen(html_path, remap: { draft => high }) == base }.keys
+  end
+
   def swap_keys(ref, remap) = remap.reduce(ref) { |acc, (draft, final)| acc.gsub(draft, final) }
 
   # Draft image key => final-quality key for one scene, used when rendering

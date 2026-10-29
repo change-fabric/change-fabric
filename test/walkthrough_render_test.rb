@@ -180,6 +180,20 @@ class WalkthroughRenderTest < Minitest::Test
     assert_equal [ keys["medium"] ], saved["scenes"][0]["deps"]["asset_keys"], "final leaves authored deps at draft quality"
   end
 
+  def test_final_warns_when_a_screen_never_references_the_keyed_image
+    b = board
+    b["scenes"][0]["images"] = [ { "prompt" => "a hero", "size" => "1024x1024" } ]
+    File.write(File.join(@root, "storyboard.json"), JSON.pretty_generate(b))
+    File.write(File.join(@root, "screens", "list.html"), "<html><body><p>stable path only</p></body></html>")
+    image = lambda do |**kw|
+      WalkthroughCache.fetch(kw[:cache_root], :images, PrototypeImagegen.asset_key(**kw.slice(:prompt, :size, :quality)), "png") { |tmp| File.binwrite(tmp, "png") }
+    end
+    out = StringIO.new
+    result = run_render(providers: providers.merge(image: image), final: true, out: out)
+    assert result[:mp4], "rendering continues after the warning"
+    assert_match(%r{warning: list: final image not inlined, screens/list\.html does not reference images/\h{64}\.png}, out.string)
+  end
+
   def test_empty_mp4_from_a_failed_pass_is_not_a_cached_render
     first = run_render
     File.write(first[:mp4], "")

@@ -29,6 +29,18 @@ class PrototypeCaptureTest < Minitest::Test
     assert PrototypeCapture.check_supported!("<a href='#top'>x</a><img src='data:image/png;base64,AA'>")
   end
 
+  def test_unmatched_remap_lists_only_pairs_the_screen_never_references
+    Dir.mktmpdir do |dir|
+      File.binwrite(File.join(dir, "aaa.png"), "x")
+      File.binwrite(File.join(dir, "bbb.png"), "y")
+      File.write(File.join(dir, "s.html"), '<img src="aaa.png"><img src="stable.png">')
+      File.binwrite(File.join(dir, "stable.png"), "z")
+      remap = { "aaa" => "bbb", "ccc" => "ddd" }
+      assert_equal [ "ccc" ], PrototypeCapture.unmatched_remap(File.join(dir, "s.html"), remap)
+      assert_empty PrototypeCapture.unmatched_remap(File.join(dir, "s.html"), {})
+    end
+  end
+
   def test_inline_screen_embeds_local_assets
     Dir.mktmpdir do |dir|
       write(dir, "tokens.css", ":root { --bg: #fff; } @font-face { src: url(fonts/a.woff2); }")

@@ -300,6 +300,15 @@ module WalkthroughRender
       end
     end
 
+    # --final swaps each draft image for its high-quality twin by content key;
+    # a screen that references a stable path never matches, so say so and go on.
+    def warn_unmatched_remap(scene, prep)
+      PrototypeCapture.unmatched_remap(prep[:html_path], prep[:remap]).each do |draft|
+        say("warning: #{scene['id']}: final image not inlined, #{scene.dig('screen', 'html')} does not reference images/#{draft}.png; " \
+            'the screen keeps whatever its own asset path holds')
+      end
+    end
+
     def capture_all(session)
       memo = {}
       scenes.each do |scene|
@@ -308,6 +317,7 @@ module WalkthroughRender
         prep = prep(scene, memo)
         next if captured?(prep) || !capture_target?(scene)
 
+        warn_unmatched_remap(scene, prep)
         duration = PrototypeCapture.scene_duration(scene)
         say("#{scene['id']}: capturing #{scene_frames(scene)} frames")
         @p[:capture].call(session: session, html: PrototypeCapture.inline_screen(prep[:html_path], remap: prep[:remap]),
