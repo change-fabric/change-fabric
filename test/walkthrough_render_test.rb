@@ -135,7 +135,7 @@ class WalkthroughRenderTest < Minitest::Test
     assert_includes pass2, ChangeDocker::FFMPEG_IMAGE
     assert_includes pass2.join(" "), "source=#{@root}\",target=/work"
     assert_includes pass2.join(" "), "linear=true"
-    dir = File.join(@root, ".cache", "render", result[:manifest]["manifest_hash"])
+    dir = File.join(@root, ".cache", "render", WalkthroughCache.key([ result[:manifest]["manifest_hash"], {} ]))
     assert_equal File.join(dir, "walkthrough.mp4"), result[:mp4]
     assert_match(/\A1\n00:00:00,000 --> /, File.read(File.join(dir, "captions.srt")))
     assert File.file?(File.join(dir, "cursor.png"))
@@ -477,6 +477,32 @@ class WalkthroughRenderTest < Minitest::Test
     WalkthroughRender::Run.new(@root, providers: providers, out: out).call
     assert_empty @calls[:roast]
     assert_includes out.string, "roast: loop finished"
+  end
+
+  # A converged roast holds only for the content it reviewed: each kind of
+  # authored edit reopens the loop for one more paid round and blocks --final.
+  def test_content_edits_after_convergence_reopen_the_roast_loop
+    edits = {
+      screen: -> { File.write(File.join(@root, "screens", "detail.html"), "<html><body>changed</body></html>") },
+      narration: lambda do
+        b = JSON.parse(File.read(File.join(@root, "storyboard.json")))
+        b["scenes"][0]["narration"]["text"] = "Scene list says something new."
+        File.write(File.join(@root, "storyboard.json"), JSON.pretty_generate(b))
+      end,
+      seed: -> { File.write(File.join(@root, "data", "seed.json"), JSON.generate("items" => [ { "id" => 2 } ])) }
+    }
+    edits.each do |name, edit|
+      FileUtils.rm_rf(File.join(@root, "roast"))
+      WalkthroughRender::Run.new(@root, providers: providers, out: StringIO.new).call
+      assert run_render(final: true, gates: { roast: true })[:mp4], "#{name}: unchanged content passes --final"
+      edit.call
+      err = assert_raises(WalkthroughRoast::OpenFindingsError, name.to_s) { run_render(final: true, gates: { roast: true }) }
+      assert_includes err.message, "content changed since round 1", name.to_s
+      @calls[:roast].clear
+      WalkthroughRender::Run.new(@root, providers: providers, out: StringIO.new).call
+      assert_equal 1, @calls[:roast].size, "#{name}: edit takes a new round"
+      assert run_render(final: true, gates: { roast: true })[:mp4], "#{name}: re-roasted content passes --final"
+    end
   end
 
   def test_final_refuses_on_open_roast_blocker_until_rebutted_or_allowed

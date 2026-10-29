@@ -394,7 +394,27 @@ module WalkthroughRender
 
     # A burned-in render differs from a soft one but shares its manifest hash,
     # so burn gets its own directory and the two never reuse each other's mp4.
-    def render_dir(manifest) = File.join(@cache, 'render', @burn_captions ? "#{manifest['manifest_hash']}-burn" : manifest['manifest_hash'])
+    # The directory is keyed on what is actually captured, not only on the
+    # declared keys: a live recapture keeps its key but changes its frames.
+    def render_dir(manifest)
+      hash = WalkthroughCache.key([ manifest['manifest_hash'], live_digest ])
+      File.join(@cache, 'render', @burn_captions ? "#{hash}-burn" : hash)
+    end
+
+    # A digest of every live scene's captured files. A live key cannot see the
+    # app change, so the bytes on disk are the only honest record of the capture.
+    def live_digest
+      memo = {}
+      scenes.select { |s| live?(s) }.to_h do |scene|
+        dir = prep(scene, memo)[:out_dir]
+        files = Dir.glob(File.join(dir, '**', '*')).select { |f| File.file?(f) }.sort
+        [ scene['id'], files.map { |f| [ f.delete_prefix(dir), Digest::SHA256.file(f).hexdigest ] } ]
+      end
+    end
+
+    # What a roast round reviews: the draft-quality keys (so a --final render of
+    # the same authored inputs matches the roasted draft) plus the live capture.
+    def content_key(draft_keys) = WalkthroughCache.key([ draft_keys, live_digest ])
 
     def plan(manifest, inputs)
       dir = render_dir(manifest)
@@ -510,7 +530,8 @@ module WalkthroughRender
 
       PrototypeUxLint.gate!(reports, allow: @gates[:allow_ux])
       # --no-roast is the explicit offline opt-out; otherwise a finished roast loop is required.
-      WalkthroughRoast.gate!(roast_dir, allow: @gates[:allow_roast], cap_usd: roast_cap, require_roast: @gates[:roast], **roast_stop)
+      WalkthroughRoast.gate!(roast_dir, allow: @gates[:allow_roast], cap_usd: roast_cap, require_roast: @gates[:roast],
+                                                  content: @content_key, **roast_stop)
       say("roast gate: #{roast_verdict[:reason]}") if @gates[:roast]
     end
 
@@ -518,7 +539,7 @@ module WalkthroughRender
 
     def roast_stop = { target: @gates[:roast_target], rounds: @gates[:roast_rounds] }.compact
 
-    def roast_verdict = WalkthroughRoast.decide(roast_dir, cap_usd: roast_cap, **roast_stop)
+    def roast_verdict = WalkthroughRoast.decide(roast_dir, cap_usd: roast_cap, content: @content_key, **roast_stop)
 
     # One cf:roast round over the draft's keyframes and narration transcript, with
     # the estimate printed before any call, under the run spend cap. A finished
@@ -537,6 +558,7 @@ module WalkthroughRender
       critic = @p[:roast].call(**inputs, cache_root: @cache)
       Roast.write_round(roast_dir, inputs[:round], critic)
       WalkthroughRoast.record_spend(roast_dir, inputs[:round], usd)
+      WalkthroughRoast.record_content(roast_dir, inputs[:round], @content_key)
       report_roast_round(inputs[:round], critic)
     rescue WalkthroughEnv::MissingKeyError, Roast::RequestError => e
       say("roast: skipped (#{e.message})")
@@ -619,6 +641,7 @@ module WalkthroughRender
       # Authored deps stay at the authored (draft) quality: a final render's
       # keys live in the manifest only, so validate does not report stale.
       WalkthroughStoryboard.fix_keys(@board, @root, keys) unless @final
+      @content_key = content_key(@final ? WalkthroughStoryboard.recompute_keys(@board, @root) : keys)
       manifest = WalkthroughManifest.build(@board, @root, keys: keys)
       generate_music(manifest.dig('timeline', 'total_ms'))
       File.write(@board_path, "#{JSON.pretty_generate(@board)}\n")

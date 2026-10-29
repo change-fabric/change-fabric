@@ -301,7 +301,7 @@ class WalkthroughLiveTest < Minitest::Test
         @calls[:compose] << kw[:compose] if kw[:compose]
         typed = WalkthroughLive.resolve_interactions(WalkthroughLive.all_interactions(kw[:scene]), kw[:secrets]).filter_map { |op| op["text"] }.join
         if kw[:out_dir]
-          result = { "frames" => [ Base64.strict_encode64("jpg") ], "ticks" => [ 0 ], "cursor" => [ { "x" => 1, "y" => 2, "down" => false } ],
+          result = { "frames" => [ Base64.strict_encode64("jpg#{@takes = @takes.to_i + 1}") ], "ticks" => [ 0 ], "cursor" => [ { "x" => 1, "y" => 2, "down" => false } ],
                      "lint" => [ { "rule" => "text-clipped", "target" => "#password", "detail" => "value #{typed}" } ],
                      "links" => kw[:scene]["id"] == "contact" ? [ MAILTO ] : [] }
           WalkthroughLive::SceneWriter.new(board: kw[:board], scene: kw[:scene], secrets: kw[:secrets], docker: kw[:docker], work: kw[:work])
@@ -314,7 +314,7 @@ class WalkthroughLiveTest < Minitest::Test
         if argv.include?("-buildconf") then [ "--enable-libass --enable-libx264", Status.new(true) ]
         elsif argv.include?("null") then [ LOUDNORM_OUT, Status.new(true) ]
         elsif argv.last.end_with?("%06d.png")
-          File.binwrite(File.join(File.dirname(argv.last.sub(%r{\A/work/}, "#{@root}/")), "000001.png"), "png")
+          File.binwrite(File.join(File.dirname(argv.last.sub(%r{\A/work/}, "#{@root}/")), "000001.png"), "png#{@takes}")
           [ "", Status.new(true) ]
         else
           File.binwrite(argv.last.sub(%r{\A/work/}, "#{@root}/"), "mp4")
@@ -328,6 +328,8 @@ class WalkthroughLiveTest < Minitest::Test
     @log = StringIO.new
     WalkthroughRender::Run.new(@root, **{ providers: providers, out: @log, gates: { roast: false, allow_ux: true } }.merge(opts)).call
   end
+
+  def pass2s = Array(@calls[:docker]).select { |a| a.any? { |x| x.to_s.end_with?("walkthrough.mp4") } }
 
   def shots = @calls[:capture].select { |c| c[1] == :shots }.map(&:first)
 
@@ -343,9 +345,11 @@ class WalkthroughLiveTest < Minitest::Test
     @calls.clear
     render
     assert_empty @calls[:capture], "live scenes are cached by key"
+    assert_empty pass2s, "an unchanged capture reuses the cached render"
 
     render(scene: "sign-in")
     assert_equal %w[sign-in dashboard], shots, "--scene recaptures the scene and its session dependents"
+    assert_equal 1, pass2s.size, "new captured frames reassemble despite an unchanged manifest"
 
     @calls.clear
     render(scene: "dashboard")
@@ -355,6 +359,7 @@ class WalkthroughLiveTest < Minitest::Test
     @calls.clear
     render(recapture: true)
     assert_equal 6, shots.size
+    assert_equal 1, pass2s.size, "--recapture reassembles despite an unchanged manifest"
   end
 
   def test_secret_never_reaches_a_written_artifact

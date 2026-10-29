@@ -149,9 +149,10 @@ module WalkthroughRoast
     data = File.file?(path) ? JSON.parse(File.read(path)) : {}
     raise JSON::ParserError, 'ledger is not an object' unless data.is_a?(Hash) && (data['rounds'] || {}).is_a?(Hash)
 
-    { 'rounds' => data['rounds'] || {}, 'capped' => data['capped'] == true }
+    content = data['content'].is_a?(Hash) ? data['content'] : {}
+    { 'rounds' => data['rounds'] || {}, 'capped' => data['capped'] == true, 'content' => content }
   rescue JSON::ParserError
-    { 'rounds' => {}, 'capped' => true, 'unreadable' => true }
+    { 'rounds' => {}, 'capped' => true, 'unreadable' => true, 'content' => {} }
   end
 
   def spent(dir) = ledger(dir)['rounds'].values.sum(&:to_f)
@@ -169,13 +170,20 @@ module WalkthroughRoast
     write_ledger(dir, ledger(dir).tap { |l| l['rounds'][round.to_s] = usd.to_f.round(4) })
   end
 
+  # The content key of what a round reviewed, so a later edit voids its pass.
+  def record_content(dir, round, key)
+    write_ledger(dir, ledger(dir).tap { |l| l['content'][round.to_s] = key })
+  end
+
   # A round skipped because it would pass the run cap: the loop is over.
   def mark_capped(dir) = write_ledger(dir, ledger(dir).merge('capped' => true))
 
   # The loop's stop rule over the latest round. Unlike Roast.decide (any one of
   # target, no blockers, or cap stops), converging here needs the 8.5 target AND
   # no open P0/P1, so the blocker check comes first and a cap stop is never a pass.
-  def decide(dir, cap_usd: DEFAULT_CEILING_USD, target: TARGET, rounds: ROUND_CAP)
+  # With `content`, a pass counts only for the content the last round reviewed:
+  # an edit or recapture since then reopens the loop; the caps still stop it.
+  def decide(dir, cap_usd: DEFAULT_CEILING_USD, target: TARGET, rounds: ROUND_CAP, content: nil)
     last = Roast.load_history(dir).last
     return { stop: false, converged: false, reason: 'no roast round yet' } unless last
 
@@ -184,7 +192,12 @@ module WalkthroughRoast
     state = "score #{score}, #{blockers.size} open P0/P1"
     total = spent(dir)
     cost = format('$%.2f of $%.2f', total, cap_usd)
-    if score >= target && blockers.empty?
+    passed = score >= target && blockers.empty?
+    if passed && content && ledger(dir)['content'][last[:round].to_s] != content
+      passed = false
+      state = "#{state}, content changed since round #{last[:round]} was reviewed"
+    end
+    if passed
       { stop: true, converged: true, reason: "#{state}, target #{target} reached" }
     elsif last[:round] >= rounds
       { stop: true, converged: false, reason: "round cap #{rounds} reached, #{state}" }
@@ -207,7 +220,7 @@ module WalkthroughRoast
   # Raises when --final has no finished roast loop behind it: no roast on
   # record (when one is required), an open P0 or P1 (also at a cap, which
   # reports them), or a loop that has neither converged nor hit a cap.
-  def gate!(dir, allow: false, cap_usd: DEFAULT_CEILING_USD, require_roast: false, target: TARGET, rounds: ROUND_CAP)
+  def gate!(dir, allow: false, cap_usd: DEFAULT_CEILING_USD, require_roast: false, target: TARGET, rounds: ROUND_CAP, content: nil)
     return if allow
 
     history = Roast.load_history(dir)
@@ -219,7 +232,7 @@ module WalkthroughRoast
     end
     blockers = open_blockers(history)
     raise_open_blockers(blockers) unless blockers.empty?
-    verdict = decide(dir, cap_usd: cap_usd, target: target, rounds: rounds)
+    verdict = decide(dir, cap_usd: cap_usd, target: target, rounds: rounds, content: content)
     return if verdict[:stop]
 
     raise OpenFindingsError, "the roast loop is unfinished (#{verdict[:reason]}): apply the accepted fixes, render the next draft, " \
