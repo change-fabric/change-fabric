@@ -424,4 +424,16 @@ class PrototypeCaptureTest < Minitest::Test
       assert_raises(PrototypeCapture::UnsupportedContentError) { PrototypeCapture.inline_screen(File.join(dir, "x.html")) }
     end
   end
+
+  def test_inline_screen_rejects_module_scripts_importing_local_modules
+    Dir.mktmpdir do |dir|
+      File.write(File.join(dir, "dep.js"), "export const a = 1")
+      File.write(File.join(dir, "app.js"), %[import { a } from "./dep.js";\nconsole.log(a)])
+      File.write(File.join(dir, "x.html"), %(<script type="module" src="app.js"></script>))
+      err = assert_raises(PrototypeCapture::UnsupportedContentError) { PrototypeCapture.inline_screen(File.join(dir, "x.html")) }
+      assert_includes err.message, "./dep.js"
+      File.write(File.join(dir, "app.js"), "console.log(1)")
+      assert_includes PrototypeCapture.inline_screen(File.join(dir, "x.html")), "console.log(1)"
+    end
+  end
 end

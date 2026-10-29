@@ -105,6 +105,7 @@ module PrototypeCapture
 
       attrs = (Regexp.last_match(1) + Regexp.last_match(4)).rstrip
       file = asset_path(dir, swap_keys(src, remap), root)
+      reject_local_module_imports!(file, src) if attrs.match?(/\btype\s*=\s*["']?module\b/i)
       # defer and async do nothing on an inline classic script, so a script
       # carrying either keeps a src (as a data URI) to keep its timing.
       next "<script#{attrs} src=\"#{data_uri(file)}\"></script>" if attrs.match?(/\b(?:defer|async)\b/i)
@@ -243,6 +244,18 @@ module PrototypeCapture
   def ref_uri(dir, ref, remap = {}, root = nil)
     swapped = swap_keys(ref, remap)
     "#{data_uri(asset_path(dir, swapped, root))}#{swapped[/#.*\z/]}"
+  end
+
+  # A module script is embedded as one inline element, so a relative import
+  # inside it would resolve against nothing under setContent, and the imported
+  # file would never reach the frames key. Reject it rather than cache a broken
+  # screen; bundle the module or use a classic script.
+  def reject_local_module_imports!(file, src)
+    File.read(file).scan(/(?:\bfrom\s*|\bimport\s*\(?\s*)(["'])([^"']+)\1/).each do |_q, spec|
+      next unless local_ref?(spec) && spec.match?(%r{\A\.{0,2}/})
+
+      raise UnsupportedContentError, "#{src}: module script imports local module #{spec}; bundle it into one file or use a classic script"
+    end
   end
 
   def data_uri(path)
