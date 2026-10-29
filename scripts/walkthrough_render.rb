@@ -14,6 +14,7 @@ require_relative 'walkthrough_captions'
 require_relative 'elevenlabs'
 require_relative 'walkthrough_env'
 require_relative 'walkthrough_ffmpeg'
+require_relative 'walkthrough_live'
 require_relative 'walkthrough_manifest'
 require_relative 'walkthrough_roast'
 require_relative 'walkthrough_storyboard'
@@ -38,6 +39,11 @@ module WalkthroughRender
     browser: ->(&blk) { ChangeDocker.with_browserless(network: nil, &blk) },
     capture: ->(**kw) { PrototypeCapture.capture(**kw) },
     lint: ->(**kw) { PrototypeCapture.lint_only(**kw) },
+    live_browser: lambda { |opts, &blk|
+      ChangeDocker.with_browserless(network: opts['network'], add_hosts: opts['add_hosts'] || [], &blk)
+    },
+    live_login: ->(**kw) { WalkthroughLive.login(**kw) },
+    live_capture: ->(**kw) { WalkthroughLive.capture(**kw) },
     roast: ->(**kw) { Roast.critique(**kw) },
     docker: ->(argv) { Open3.capture2e(*argv) }
   }.freeze
@@ -47,11 +53,13 @@ module WalkthroughRender
 
     # rubocop:disable Metrics/ParameterLists
     def initialize(root, scene: nil, final: false, providers: {}, out: $stdout, board: nil, max_usd: BRoll::DEFAULT_CEILING_USD,
-                   burn_captions: false, gates: {})
+                   burn_captions: false, gates: {}, recapture: false)
       # rubocop:enable Metrics/ParameterLists
       @root = File.expand_path(root)
       @gates = { allow_ux: false, allow_roast: false, roast: true, roast_max_usd: WalkthroughRoast::DEFAULT_CEILING_USD }.merge(gates)
       @only = scene
+      @recapture = recapture
+      @personas = {}
       @final = final
       @burn_captions = burn_captions
       @p = DEFAULT_PROVIDERS.merge(providers)
@@ -62,9 +70,12 @@ module WalkthroughRender
       @budget = BRoll::Budget.new(max_usd)
     end
 
+    # Every progress line passes through the env-value mask.
     def say(line)
-      @out.puts(line)
+      @out.puts(secrets.mask(line))
     end
+
+    def secrets = @secrets ||= WalkthroughLive::Secrets.new(WalkthroughLive.env_names(@board))
 
     def scenes = WalkthroughStoryboard.scenes(@board)
 
@@ -190,23 +201,32 @@ module WalkthroughRender
     # Captures in storyboard order, so a from_scene dependency (always a
     # lower order) is captured before the scenes that start from it. The
     # browser container opens only when at least one scene needs frames.
+    # Prototype scenes and live scenes run in separate browser containers:
+    # the prototype one stays offline, the live one gets the board's
+    # browser options (network, extra hosts).
     def capture_frames
-      return unless capture_needed?
-
-      with_session { |session| capture_all(session) }
+      with_session { |session| capture_all(session) } if capture_needed?(live: false)
+      with_live_session { |session| capture_live(session) } if capture_needed?(live: true)
     end
 
-    def capture_needed?
+    def capture_needed?(live: false)
       memo = {}
       scenes.any? do |scene|
-        next false unless capture_target?(scene) && !broll?(scene)
+        next false unless capture_target?(scene) && !broll?(scene) && live?(scene) == live
 
-        prep = PrototypeCapture.prepare(@board, scene, @root, memo, final: @final)
-        !captured?(prep)
+        recapture?(scene) || !captured?(prep(scene, memo))
       rescue ArgumentError
         true
       end
     end
+
+    def live?(scene) = WalkthroughLive.live?(scene)
+
+    def prep(scene, memo) = WalkthroughStoryboard.prepare_frames(@board, scene, @root, memo, final: @final)
+
+    # A live scene's key cannot see the app change, so it recaptures only on
+    # --recapture, or when --scene names it or a scene it takes its session from.
+    def recapture?(scene) = live?(scene) && (@recapture || (!@only.nil? && capture_target?(scene)))
 
     # A targeted scene, or any scene whose from_scene chain reaches one: a
     # regenerated scene can change its end state, which re-keys every
@@ -214,7 +234,7 @@ module WalkthroughRender
     def capture_target?(scene, seen = {})
       return true if targeted?(scene)
 
-      parent_id = scene.dig('store', 'from_scene')
+      parent_id = scene.dig('store', 'from_scene') || scene['session_from_scene']
       return false if parent_id.nil? || seen[parent_id]
 
       seen[parent_id] = true
@@ -226,12 +246,54 @@ module WalkthroughRender
 
     def with_session(&blk) = @p[:browser].call(&blk)
 
+    def with_live_session(&blk) = @p[:live_browser].call(WalkthroughLive.browser_opts(@board), &blk)
+
+    # Captures live scenes in order, so a session_from_scene parent recorded
+    # this run hands its end session straight to the scenes after it.
+    def capture_live(session)
+      memo = {}
+      sessions = {}
+      scenes.each do |scene|
+        next unless live?(scene) && capture_target?(scene)
+
+        pr = prep(scene, memo)
+        next if captured?(pr) && !recapture?(scene)
+
+        say("#{scene['id']}: capturing #{scene_frames(scene)} live frames")
+        start = start_session(session, scene, sessions)
+        sessions[scene['id']] = @p[:live_capture].call(**live_args(session, scene, pr[:out_dir], start))
+      end
+    end
+
+    def live_args(session, scene, out_dir, start)
+      { session: session, board: @board, scene: scene, out_dir: out_dir, secrets: secrets, browser_session: start,
+        docker: @p[:docker], work: @root }
+    end
+
+    # The session a live scene starts from: a persona's login (once per
+    # persona per run), an earlier scene's end session (replayed without
+    # frames when that scene is cached), or none, a fresh logged-out session.
+    def start_session(session, scene, sessions)
+      if (name = scene['persona'])
+        @personas[name] ||= begin
+          say("persona #{name}: logging in")
+          @p[:live_login].call(session: session, board: @board, persona: @board['personas'].fetch(name), secrets: secrets)
+        end
+      elsif (from = scene['session_from_scene'])
+        sessions[from] ||= begin
+          parent = scenes.find { |s| s['id'] == from }
+          say("#{from}: replaying for its session")
+          @p[:live_capture].call(**live_args(session, parent, nil, start_session(session, parent, sessions)), shots: false)
+        end
+      end
+    end
+
     def capture_all(session)
       memo = {}
       scenes.each do |scene|
-        next if broll?(scene)
+        next if broll?(scene) || live?(scene)
 
-        prep = PrototypeCapture.prepare(@board, scene, @root, memo, final: @final)
+        prep = prep(scene, memo)
         next if captured?(prep) || !capture_target?(scene)
 
         duration = PrototypeCapture.scene_duration(scene)
@@ -382,8 +444,8 @@ module WalkthroughRender
       memo = {}
       todo = []
       reports = scenes.reject { |s| broll?(s) }.map do |scene|
-        prep = PrototypeCapture.prepare(@board, scene, @root, memo, final: @final)
-        PrototypeUxLint.read(prep[:out_dir]) || (todo << [ scene, prep ] && nil)
+        prep = prep(scene, memo)
+        PrototypeUxLint.read(prep[:out_dir]) || live_lint_missing!(scene) || (todo << [ scene, prep ] && nil)
       end.compact
       with_session { |session| todo.each { |scene, prep| reports << lint_scene(session, scene, prep) } } unless todo.empty?
       reports.sort_by! { |r| scenes.index { |s| s['id'] == r['scene'] } }
@@ -394,6 +456,14 @@ module WalkthroughRender
       say("ux lint: #{PrototypeUxLint.total(reports)} finding(s), #{relative(File.join(dir, PrototypeUxLint::REPORT))}")
       PrototypeUxLint.summary_lines(reports).each { |line| say("  #{line}") }
       reports
+    end
+
+    # A live scene's lint runs during its capture; replaying it only to lint
+    # would repeat its actions against the real app.
+    def live_lint_missing!(scene)
+      return nil unless live?(scene)
+
+      raise MissingCacheError, "#{scene['id']}: no current ux lint for a live scene; rerun with --recapture --scene #{scene['id']}"
     end
 
     # Scenes that declare a camera zoom, which alone may resize the device frame.
@@ -502,7 +572,7 @@ end
 
 if __FILE__ == $PROGRAM_NAME
   usage = 'usage: walkthrough_render.rb walkthrough/<slug> [--scene <id>] [--draft|--final] [--estimate-only] [--max-usd <n>] [--burn-captions] ' \
-          '[--allow-ux-findings] [--allow-roast-findings] [--no-roast] [--roast-max-usd <n>]'
+          '[--allow-ux-findings] [--allow-roast-findings] [--no-roast] [--roast-max-usd <n>] [--recapture]'
   dir = ARGV.first
   abort(usage) if dir.nil? || dir.start_with?('--')
   scene = ARGV.include?('--scene') ? (ARGV[ARGV.index('--scene') + 1] || abort(usage)) : nil
@@ -513,7 +583,7 @@ if __FILE__ == $PROGRAM_NAME
             roast: !ARGV.include?('--no-roast'), roast_max_usd: roast_usd }
   begin
     WalkthroughRender::Run.new(dir, scene: scene, final: ARGV.include?('--final'), max_usd: max_usd,
-                               burn_captions: ARGV.include?('--burn-captions'), gates: gates)
+                               burn_captions: ARGV.include?('--burn-captions'), gates: gates, recapture: ARGV.include?('--recapture'))
                           .call(estimate_only: ARGV.include?('--estimate-only'))
   rescue PrototypeUxLint::FindingsError, WalkthroughRoast::OpenFindingsError => e
     abort("refused: #{e.message}")
