@@ -55,6 +55,17 @@ class RoastTest < Minitest::Test
     [ code, @out.string, http ]
   end
 
+  def test_transcript_reaches_the_critic_only_when_given
+    transcript = File.join(@dir, "transcript.txt")
+    File.write(transcript, "a [0.0s to 2.0s, 120 wpm]: One two")
+    code, _text, http = run_cli("--transcript", transcript)
+    assert_equal 0, code
+    assert_includes http.requests.first.body, "Narration transcript and captions"
+    assert_includes http.requests.first.body, "One two"
+    _code, _text, plain = run_cli("--round", "2")
+    refute_includes plain.requests.first.body, "Narration transcript"
+  end
+
   def test_round_one_logs_json_and_markdown_after_the_estimate
     code, text, http = run_cli
     assert_equal 0, code

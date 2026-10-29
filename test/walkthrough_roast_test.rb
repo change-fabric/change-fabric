@@ -22,12 +22,12 @@ class WalkthroughRoastTest < Minitest::Test
 
   def test_brief_carries_the_rubric
     brief = WalkthroughRoast.brief("title" => "Demo")
-    %w[Blank Overlays Cursor contradictions safe-area bottom\ 15% aspect\ ratio camera\ zoom cut\ off 1080p cf:fractal cf:usability].each { |w| assert_includes brief, w }
+    %w[Blank Overlays Cursor contradictions safe-area bottom\ 15% aspect\ ratio camera\ zoom cut\ off 1080p cf:fractal cf:usability Pacing jargon Narration\ against\ screen Caption-band].each { |w| assert_includes brief, w }
   end
 
-  def round(dir, n, issues, responses = nil)
+  def round(dir, n, issues, responses = nil, score: 5)
     File.write(File.join(dir, "round-#{n}.json"),
-               JSON.generate("score" => 5, "summary" => "", "issues" => issues, "thirty_second_test" => { "verdict" => "pass", "reason" => "" }))
+               JSON.generate("score" => score, "summary" => "", "issues" => issues, "thirty_second_test" => { "verdict" => "pass", "reason" => "" }))
     File.write(File.join(dir, "round-#{n}.response.json"), JSON.generate("responses" => responses)) if responses
   end
 
@@ -39,7 +39,7 @@ class WalkthroughRoastTest < Minitest::Test
       round(dir, 1, [ issue("P0") ])
       assert_raises(WalkthroughRoast::OpenFindingsError) { WalkthroughRoast.gate!(dir) }
       assert_nil WalkthroughRoast.gate!(dir, allow: true)
-      round(dir, 2, [ issue("P2") ])
+      round(dir, 2, [ issue("P2") ], score: 9)
       assert_nil WalkthroughRoast.gate!(dir)
     end
   end
@@ -50,6 +50,90 @@ class WalkthroughRoastTest < Minitest::Test
             [ { "screen" => "s", "problem" => "Toast hides", "verdict" => "accept" }, { "screen" => "s", "problem" => "Caption hides", "verdict" => "rebut" } ])
       open = WalkthroughRoast.open_blockers(Roast.load_history(dir))
       assert_equal [ "Toast hides CTA" ], open.map { |i| i["problem"] }
+    end
+  end
+
+  def test_transcript_lists_scene_timing_wpm_and_captions
+    board = { "scenes" => [ { "id" => "a", "narration" => { "text" => "One two three four" } }, { "id" => "b" } ] }
+    manifest = { "timeline" => { "fps" => 10 },
+                 "scenes" => [ { "id" => "a", "start_frame" => 0, "frames" => 20 }, { "id" => "b", "start_frame" => 20, "frames" => 5 } ] }
+    text = WalkthroughRoast.transcript(board, manifest, "1\n00:00:00,000 --> 00:00:01,000\nOne two\n")
+    assert_includes text, "a [0.0s to 2.0s, 120 wpm]: One two three four"
+    refute_includes text, "b ["
+    assert_includes text, "Caption cues:"
+  end
+
+  def test_decide_converges_only_with_target_and_no_blockers
+    Dir.mktmpdir do |dir|
+      refute WalkthroughRoast.decide(dir)[:stop]
+      round(dir, 1, [ issue("P1") ], score: 9)
+      refute WalkthroughRoast.decide(dir)[:stop]
+      round(dir, 2, [ issue("P2") ], score: 8.5)
+      verdict = WalkthroughRoast.decide(dir)
+      assert verdict[:stop] && verdict[:converged]
+      round(dir, 3, [ issue("P2") ], score: 8.4)
+      refute WalkthroughRoast.decide(dir)[:stop]
+    end
+  end
+
+  def test_decide_stops_at_spend_cap_and_round_cap_without_converging
+    Dir.mktmpdir do |dir|
+      round(dir, 1, [ issue("P1") ])
+      refute WalkthroughRoast.decide(dir, cap_usd: 1.0)[:stop]
+      WalkthroughRoast.record_spend(dir, 1, 1.0)
+      verdict = WalkthroughRoast.decide(dir, cap_usd: 1.0)
+      assert verdict[:stop]
+      refute verdict[:converged]
+      assert_includes verdict[:reason], "spend cap"
+    end
+  end
+
+  def test_decide_stops_at_the_round_cap
+    Dir.mktmpdir do |dir|
+      round(dir, 4, [ issue("P1") ])
+      assert_includes WalkthroughRoast.decide(dir, cap_usd: 99)[:reason], "round cap 4"
+    end
+  end
+
+  def test_capped_marker_ends_the_loop
+    Dir.mktmpdir do |dir|
+      round(dir, 1, [ issue("P2") ])
+      WalkthroughRoast.mark_capped(dir)
+      assert WalkthroughRoast.decide(dir)[:stop]
+    end
+  end
+
+  def test_spent_sums_recorded_rounds
+    Dir.mktmpdir do |dir|
+      assert_in_delta 0, WalkthroughRoast.spent(dir)
+      WalkthroughRoast.record_spend(dir, 1, 0.25)
+      WalkthroughRoast.record_spend(dir, 2, 0.5)
+      assert_in_delta 0.75, WalkthroughRoast.spent(dir)
+    end
+  end
+
+  def test_unreadable_ledger_fails_closed_as_cap_reached
+    Dir.mktmpdir do |dir|
+      round(dir, 1, [ issue("P2") ], score: 7)
+      ledger = File.join(dir, "spend.json")
+      File.write(ledger, "{not json")
+      verdict = WalkthroughRoast.decide(dir)
+      assert verdict[:stop]
+      refute verdict[:converged]
+      assert_includes verdict[:reason], "spend ledger unreadable"
+      File.write(ledger, "[1, 2]")
+      assert_includes WalkthroughRoast.decide(dir)[:reason], "spend ledger unreadable"
+      File.write(ledger, '{"rounds": 5}')
+      assert WalkthroughRoast.capped?(dir)
+    end
+  end
+
+  def test_gate_refuses_an_unfinished_loop_but_a_cap_releases_it
+    Dir.mktmpdir do |dir|
+      round(dir, 1, [ issue("P2") ], score: 7)
+      assert_raises(WalkthroughRoast::OpenFindingsError) { WalkthroughRoast.gate!(dir) }
+      WalkthroughRoast.mark_capped(dir)
+      assert_nil WalkthroughRoast.gate!(dir)
     end
   end
 end

@@ -2,6 +2,7 @@
 
 require 'fileutils'
 require_relative 'roast'
+require_relative 'walkthrough_storyboard'
 
 # The cf:roast gate on every walkthrough draft: which frames of the rendered
 # draft go to the critic, the walkthrough rubric it reads them against, and
@@ -9,8 +10,13 @@ require_relative 'roast'
 # render script only gates and reports; accepting, rebutting, and fixing stay
 # with the session, as cf:roast describes.
 module WalkthroughRoast
-  DEFAULT_CEILING_USD = 0.5
+  # The run-wide spend cap across every roast round of one walkthrough, not a
+  # per-round ceiling.
+  DEFAULT_CEILING_USD = 2.0
   DIR = 'roast'
+  LEDGER = 'spend.json'
+  TARGET = 8.5
+  ROUND_CAP = Roast::DEFAULT_CAP
 
   class OpenFindingsError < StandardError; end
 
@@ -36,6 +42,14 @@ module WalkthroughRoast
     10. Simulated notifications and messages: a lock screen banner, thread, inbox, or email that is hard to read,
        implausible for the moment, inconsistent with the app's look, or that does not lead visibly into the
        app screen its tap opens.
+    The narration transcript with caption cues is given beside the frames. Also judge it, naming the
+    scene id as the screen:
+    11. Pacing: a scene whose words per minute (listed per scene) is rushed or draggy, or a long silence.
+    12. Clarity and jargon: a sentence a first-time viewer cannot follow, or an unexplained term or acronym.
+    13. Narration against screen: narration describing something not visible in that scene's keyframes,
+       a visible key action the narration never mentions, or narration running ahead of or behind the action.
+    14. Caption-band clash: a caption cue that would sit over UI the narration points at, or a cue too long
+       to read in the time it is shown.
   TEXT
 
   module_function
@@ -61,6 +75,27 @@ module WalkthroughRoast
     [ '-hide_banner', '-y', '-i', mp4, '-vf', "select=#{select}", '-fps_mode', 'passthrough', '-q:v', '3', out_pattern ]
   end
 
+  # Narration and caption text with timing and per-scene words per minute, for
+  # the critic to read beside the frames. `srt` is the rendered captions.srt.
+  def transcript(board, manifest, srt = nil)
+    fps = manifest.dig('timeline', 'fps').to_f
+    by_id = WalkthroughStoryboard.scenes(board).to_h { |s| [ s['id'], s ] }
+    lines = manifest['scenes'].filter_map { |e| transcript_line(e, by_id.dig(e['id'], 'narration', 'text').to_s.strip, fps) }
+    out = [ 'Narration by scene:', *lines ]
+    out += [ '', 'Caption cues:', srt.strip ] if srt && !srt.strip.empty?
+    out.join("\n")
+  end
+
+  def transcript_line(entry, text, fps)
+    return if text.empty?
+
+    start = entry['start_frame'].to_i / fps
+    secs = entry['frames'].to_i / fps
+    wpm = secs.positive? ? (text.split.size * 60 / secs).round : 0
+    format('%<id>s [%<s>.1fs to %<e>.1fs, %<wpm>d wpm]: %<t>s', id: entry['id'], s: start, e: start + secs, wpm: wpm, t: text)
+  end
+  private_class_method :transcript_line
+
   def brief(board)
     goal = board['title'] || board['slug'] || 'the walkthrough'
     "Walkthrough: #{goal}.\n\n#{RUBRIC}"
@@ -84,13 +119,88 @@ module WalkthroughRoast
   end
   private_class_method :rebuttal_for?, :rebutted?
 
-  # Raises when the latest draft roast in `dir` has an open P0 or P1.
-  def gate!(dir, allow: false)
-    open = open_blockers(Roast.load_history(dir))
-    return if open.empty? || allow
+  # -- run spend ledger ---------------------------------------------------
 
-    lines = open.map { |i| "#{i['priority']} (#{i['screen']}): #{i['problem']}" }
-    raise OpenFindingsError, "#{open.size} open P0/P1 roast finding(s) block --final (pass --allow-roast-findings to override):\n" \
+  # An unreadable ledger fails closed: the cap reads as reached, never as zero spend.
+  def ledger(dir)
+    path = File.join(dir, LEDGER)
+    data = File.file?(path) ? JSON.parse(File.read(path)) : {}
+    raise JSON::ParserError, 'ledger is not an object' unless data.is_a?(Hash) && (data['rounds'] || {}).is_a?(Hash)
+
+    { 'rounds' => data['rounds'] || {}, 'capped' => data['capped'] == true }
+  rescue JSON::ParserError
+    { 'rounds' => {}, 'capped' => true, 'unreadable' => true }
+  end
+
+  def spent(dir) = ledger(dir)['rounds'].values.sum(&:to_f)
+
+  def capped?(dir) = ledger(dir)['capped']
+
+  def unreadable?(dir) = ledger(dir)['unreadable'] == true
+
+  def write_ledger(dir, data)
+    FileUtils.mkdir_p(dir)
+    File.write(File.join(dir, LEDGER), "#{JSON.pretty_generate(data)}\n")
+  end
+
+  def record_spend(dir, round, usd)
+    write_ledger(dir, ledger(dir).tap { |l| l['rounds'][round.to_s] = usd.to_f.round(4) })
+  end
+
+  # A round skipped because it would pass the run cap: the loop is over.
+  def mark_capped(dir) = write_ledger(dir, ledger(dir).merge('capped' => true))
+
+  # The loop's stop rule over the latest round. Unlike Roast.decide (any one of
+  # target, no blockers, or cap stops), converging here needs the 8.5 target AND
+  # no open P0/P1, so the blocker check comes first and a cap stop is never a pass.
+  def decide(dir, cap_usd: DEFAULT_CEILING_USD)
+    last = Roast.load_history(dir).last
+    return { stop: false, converged: false, reason: 'no roast round yet' } unless last
+
+    score = last[:critic]['score']
+    blockers = open_blockers([ last ])
+    state = "score #{score}, #{blockers.size} open P0/P1"
+    total = spent(dir)
+    cost = format('$%.2f of $%.2f', total, cap_usd)
+    if score >= TARGET && blockers.empty?
+      { stop: true, converged: true, reason: "#{state}, target #{TARGET} reached" }
+    elsif last[:round] >= ROUND_CAP
+      { stop: true, converged: false, reason: "round cap #{ROUND_CAP} reached, #{state}" }
+    elsif unreadable?(dir)
+      { stop: true, converged: false, reason: "spend ledger unreadable, treated as cap reached, #{state}" }
+    elsif capped?(dir) || total >= cap_usd - 1e-9
+      { stop: true, converged: false, reason: "spend cap reached (#{cost}), #{state}" }
+    else
+      { stop: false, converged: false, reason: "#{state}, round #{last[:round]} of #{ROUND_CAP}, #{cost} spent" }
+    end
+  end
+
+  def raise_open_blockers(blockers)
+    lines = blockers.map { |i| "#{i['priority']} (#{i['screen']}): #{i['problem']}" }
+    raise OpenFindingsError, "#{blockers.size} open P0/P1 roast finding(s) block --final (pass --allow-roast-findings to override):\n" \
                              "#{lines.join("\n")}"
+  end
+  private_class_method :raise_open_blockers
+
+  # Raises when --final has no finished roast loop behind it: no roast on
+  # record (when one is required), an open P0 or P1 (also at a cap, which
+  # reports them), or a loop that has neither converged nor hit a cap.
+  def gate!(dir, allow: false, cap_usd: DEFAULT_CEILING_USD, require_roast: false)
+    return if allow
+
+    history = Roast.load_history(dir)
+    if history.empty?
+      return unless require_roast
+
+      raise OpenFindingsError, 'no draft roast on record; the roast loop runs on every draft before --final ' \
+                               '(pass --allow-roast-findings to override)'
+    end
+    blockers = open_blockers(history)
+    raise_open_blockers(blockers) unless blockers.empty?
+    verdict = decide(dir, cap_usd: cap_usd)
+    return if verdict[:stop]
+
+    raise OpenFindingsError, "the roast loop is unfinished (#{verdict[:reason]}): apply the accepted fixes, render the next draft, " \
+                             "and repeat until score >= #{TARGET} with no P0/P1 or a cap (pass --allow-roast-findings to override)"
   end
 end

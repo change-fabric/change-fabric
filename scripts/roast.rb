@@ -36,7 +36,7 @@ module Roast
   MAX_OUTPUT_TOKENS = 4000
   MIME = { '.png' => 'image/png', '.jpg' => 'image/jpeg', '.jpeg' => 'image/jpeg', '.webp' => 'image/webp' }.freeze
   USAGE = 'usage: roast.rb --brief FILE --shot IMG... [--history DIR] [--out-dir DIR] [--round N] ' \
-          '[--max-usd N] [--cache DIR] [--estimate-only] | roast.rb decide --out-dir DIR [--target N] [--cap N]'
+          '[--max-usd N] [--cache DIR] [--transcript FILE] [--estimate-only] | roast.rb decide --out-dir DIR [--target N] [--cap N]'
 
   SYSTEM_PROMPT = <<~TEXT
     You are a harsh, specific UX critic. Roast the screens: no praise padding, no vague taste talk.
@@ -46,6 +46,8 @@ module Roast
     visitor say what this is, who it is for, and what to do next within 30 seconds?
     You are given earlier rounds. Do not repeat an issue that was fixed; hold the line on one the
     author rebutted weakly; accept a rebuttal that is sound and say so in the summary.
+    When a narration transcript with captions is given, critique it too: name an issue's screen
+    as the scene id or the cue it concerns.
   TEXT
 
   SCHEMA = {
@@ -98,33 +100,37 @@ module Roast
     (load_history(dir).map { |h| h[:round] }.max || 0) + 1
   end
 
-  def request_key(brief:, shots:, history:, round:)
-    WalkthroughCache.key(model: MODEL, brief: brief, round: round, history: history,
-                         shots: shots.map { |s| Digest::SHA256.file(s).hexdigest })
+  # `transcript` is optional narration and caption text the critic reads next to
+  # the frames; it joins the key only when present, so frame-only keys are stable.
+  def request_key(brief:, shots:, history:, round:, transcript: nil)
+    WalkthroughCache.key({ model: MODEL, brief: brief, round: round, history: history,
+                           shots: shots.map { |s| Digest::SHA256.file(s).hexdigest } }
+                           .merge(transcript ? { transcript: transcript } : {}))
   end
 
-  def estimate(brief:, shots:, history:)
-    chars = SYSTEM_PROMPT.size + brief.size + JSON.generate(history).size
+  def estimate(brief:, shots:, history:, transcript: nil)
+    chars = SYSTEM_PROMPT.size + brief.size + JSON.generate(history).size + transcript.to_s.size
     input = (chars / 4) + (shots.size * IMAGE_TOKENS)
     usd = ((input * PRICE_PER_MTOK[:input]) + (MAX_OUTPUT_TOKENS * PRICE_PER_MTOK[:output])) / 1_000_000.0
     { usd: usd.round(2), tokens: input }
   end
 
-  def user_text(brief, history, round, shots)
+  def user_text(brief, history, round, shots, transcript: nil)
     past = history.map do |h|
       "Round #{h[:round]} critic:\n#{JSON.pretty_generate(h[:critic])}\n" \
         "Round #{h[:round]} author response:\n#{h[:response] ? JSON.pretty_generate(h[:response]) : '(none recorded)'}"
     end
     [ "Round #{round}.", "Brief:\n#{brief}", "Screens, in order: #{shots.map { |s| File.basename(s) }.join(', ')}",
-     (past.empty? ? 'No earlier rounds.' : "Earlier rounds:\n#{past.join("\n\n")}") ].join("\n\n")
+     (transcript ? "Narration transcript and captions:\n#{transcript}" : nil),
+     (past.empty? ? 'No earlier rounds.' : "Earlier rounds:\n#{past.join("\n\n")}") ].compact.join("\n\n")
   end
 
   # The pure request description: the URL and the JSON body, no auth or cache key.
-  def build_request(brief:, shots:, history:, round:, model: MODEL)
+  def build_request(brief:, shots:, history:, round:, transcript: nil, model: MODEL)
     images = shots.map do |s|
       { type: 'input_image', image_url: "data:#{mime_for(s)};base64,#{Base64.strict_encode64(File.binread(s))}" }
     end
-    text = { type: 'input_text', text: user_text(brief, history, round, shots) }
+    text = { type: 'input_text', text: user_text(brief, history, round, shots, transcript: transcript) }
     { url: RESPONSES_URL,
       body: { model: model, max_output_tokens: MAX_OUTPUT_TOKENS,
               input: [ { role: 'system', content: SYSTEM_PROMPT }, { role: 'user', content: [ text, *images ] } ],
@@ -179,13 +185,18 @@ module Roast
   end
 
   # Returns the cached critic JSON, making the paid call only on a miss.
-  def critique(brief:, shots:, history:, round:, cache_root:, http: nil)
-    key = request_key(brief: brief, shots: shots, history: history, round: round)
+  def critique(brief:, shots:, history:, round:, cache_root:, transcript: nil, http: nil)
+    key = request_key(brief: brief, shots: shots, history: history, round: round, transcript: transcript)
     path = WalkthroughCache.fetch(*cache_args(cache_root, key)) do |tmp|
-      request = build_request(brief: brief, shots: shots, history: history, round: round)
+      request = build_request(brief: brief, shots: shots, history: history, round: round, transcript: transcript)
       File.write(tmp, JSON.generate(parse_critic(post(request, http))))
     end
     JSON.parse(File.read(path))
+  end
+
+  # USD one round will cost: nothing when cached, else the token estimate.
+  def round_usd(cache_root, **inputs)
+    cached?(cache_root, **inputs) ? 0.0 : estimate(**inputs.slice(:brief, :shots, :history, :transcript))[:usd]
   end
 
   def cached?(cache_root, **inputs)
@@ -262,6 +273,7 @@ module Roast
         o.on('--round N', Integer) { |v| opts[:round] = v }
         o.on('--max-usd N', Float) { |v| opts[:max_usd] = v }
         o.on('--cache DIR') { |v| opts[:cache] = v }
+        o.on('--transcript FILE') { |v| opts[:transcript_file] = v }
         o.on('--estimate-only') { opts[:estimate_only] = true }
       end.parse!(args)
       opts[:shots] += args
@@ -288,7 +300,7 @@ module Roast
     end
 
     def critique(opts, out, http)
-      [ opts[:brief_file], *opts[:shots] ].each { |f| raise Errno::ENOENT, f unless File.file?(f) }
+      [ opts[:brief_file], opts[:transcript_file], *opts[:shots] ].compact.each { |f| raise Errno::ENOENT, f unless File.file?(f) }
       opts[:shots].each { |s| Roast.mime_for(s) }
       inputs = inputs_for(opts)
       usd = announce(inputs, opts, out)
@@ -303,15 +315,14 @@ module Roast
     def inputs_for(opts)
       { brief: File.read(opts[:brief_file]).strip, shots: opts[:shots],
         history: Roast.load_history(opts[:history] || opts[:out_dir]),
-        round: opts[:round] || Roast.next_round(opts[:out_dir]) }
+        round: opts[:round] || Roast.next_round(opts[:out_dir]),
+        transcript: opts[:transcript_file] && File.read(opts[:transcript_file]).strip }
     end
 
     # Prints the estimate before any paid call and returns the USD it will cost.
     def announce(inputs, opts, out)
-      cached = Roast.cached?(opts[:cache], **inputs)
-      est = Roast.estimate(**inputs.slice(:brief, :shots, :history))
-      usd = cached ? 0.0 : est[:usd]
-      call = cached ? '1 call (cached)' : estimate_line(inputs[:shots].size, est)
+      usd = Roast.round_usd(opts[:cache], **inputs)
+      call = usd.zero? ? '1 call (cached)' : estimate_line(inputs[:shots].size, Roast.estimate(**inputs.slice(:brief, :shots, :history, :transcript)))
       out.puts("roast estimate: #{call}, $#{format('%.2f', usd)} to spend")
       usd
     end

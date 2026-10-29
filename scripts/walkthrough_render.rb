@@ -503,47 +503,86 @@ module WalkthroughRender
 
     def roast_dir = File.join(@root, WalkthroughRoast::DIR)
 
-    # --final refuses on any UX lint finding or open draft-roast P0/P1,
-    # each with its own override.
+    # --final refuses on any UX lint finding, or a roast loop that is missing,
+    # unfinished, or holds an open P0/P1, each with its own override.
     def gate_final!(reports)
       return unless @final
 
       PrototypeUxLint.gate!(reports, allow: @gates[:allow_ux])
-      if Roast.load_history(roast_dir).empty?
-        say('roast gate: no draft roast on record')
-      else
-        WalkthroughRoast.gate!(roast_dir, allow: @gates[:allow_roast])
-      end
+      # --no-roast is the explicit offline opt-out; otherwise a finished roast loop is required.
+      WalkthroughRoast.gate!(roast_dir, allow: @gates[:allow_roast], cap_usd: roast_cap, require_roast: @gates[:roast])
+      say("roast gate: #{roast_verdict[:reason]}") if @gates[:roast]
     end
 
-    # One cf:roast round over the draft's keyframes, under its own ceiling,
-    # with the estimate printed before any call. A missing key or an
-    # over-ceiling estimate skips the round; the draft itself stands.
+    def roast_cap = @gates[:roast_max_usd]
+
+    def roast_verdict = WalkthroughRoast.decide(roast_dir, cap_usd: roast_cap)
+
+    # One cf:roast round over the draft's keyframes and narration transcript, with
+    # the estimate printed before any call, under the run spend cap. A finished
+    # loop, a missing key, or an estimate past what is left skips the round (the
+    # last reports its open findings); the draft itself stands.
     def draft_roast(manifest, mp4, reports)
       return say('roast: skipped (--no-roast)') unless @gates[:roast]
 
-      shots = extract_keyframes(manifest, mp4, reports)
-      inputs = { brief: WalkthroughRoast.brief(@board), shots: shots, history: Roast.load_history(roast_dir),
-                 round: Roast.next_round(roast_dir) }
-      return unless roast_affordable?(inputs)
+      verdict = roast_verdict
+      return say("roast: loop finished (#{verdict[:reason]}); no further round") if verdict[:stop]
+
+      inputs = roast_inputs(manifest, mp4, reports)
+      usd = Roast.round_usd(@cache, **inputs)
+      return roast_capped unless say_roast_estimate(inputs, usd)
 
       critic = @p[:roast].call(**inputs, cache_root: @cache)
       Roast.write_round(roast_dir, inputs[:round], critic)
-      blockers = WalkthroughRoast.open_blockers(Roast.load_history(roast_dir)).size
-      say("roast: #{relative(File.join(roast_dir, "round-#{inputs[:round]}.json"))} score #{critic['score']}/10, #{blockers} open P0/P1")
+      WalkthroughRoast.record_spend(roast_dir, inputs[:round], usd)
+      report_roast_round(inputs[:round], critic)
     rescue WalkthroughEnv::MissingKeyError, Roast::RequestError => e
       say("roast: skipped (#{e.message})")
     end
 
-    def roast_affordable?(inputs)
-      cached = Roast.cached?(@cache, **inputs)
-      est = Roast.estimate(**inputs.slice(:brief, :shots, :history))
-      usd = cached ? 0.0 : est[:usd]
-      say("roast estimate: #{inputs[:shots].size} keyframe(s), $#{format('%.2f', usd)} (ceiling $#{format('%.2f', @gates[:roast_max_usd])})")
-      return true if usd <= @gates[:roast_max_usd] + 1e-9
+    def roast_inputs(manifest, mp4, reports)
+      { brief: WalkthroughRoast.brief(@board), shots: extract_keyframes(manifest, mp4, reports),
+        history: Roast.load_history(roast_dir), round: Roast.next_round(roast_dir),
+        transcript: roast_transcript(manifest, mp4) }
+    end
 
-      say('roast: skipped, the estimate passes the ceiling (raise it with --roast-max-usd)')
-      false
+    # Narration plus the rendered caption cues, so the critic judges what is said
+    # next to what is shown.
+    def roast_transcript(manifest, mp4)
+      srt = File.join(File.dirname(mp4), 'captions.srt')
+      WalkthroughRoast.transcript(@board, manifest, File.file?(srt) ? File.read(srt) : nil)
+    end
+
+    # Prints the estimate and returns whether it fits what the run cap has left.
+    def say_roast_estimate(inputs, usd)
+      left = [ roast_cap - WalkthroughRoast.spent(roast_dir), 0 ].max
+      say("roast estimate: #{inputs[:shots].size} keyframe(s) plus transcript, $#{format('%.2f', usd)} " \
+          "(run cap $#{format('%.2f', roast_cap)}, $#{format('%.2f', left)} left)")
+      usd <= left + 1e-9
+    end
+
+    # The estimate passes what is left: the loop ends and the open findings are
+    # reported; the cap is never raised silently.
+    def roast_capped
+      WalkthroughRoast.mark_capped(roast_dir)
+      say("roast: spend cap reached, the estimate passes what is left (raise it with --roast-max-usd); #{roast_open_summary}")
+    end
+
+    def report_roast_round(round, critic)
+      blockers = WalkthroughRoast.open_blockers(Roast.load_history(roast_dir)).size
+      say("roast: #{relative(File.join(roast_dir, "round-#{round}.json"))} score #{critic['score']}/10, #{blockers} open P0/P1")
+      verdict = roast_verdict
+      say("roast loop: #{verdict[:stop] ? 'stop' : 'continue'}: #{verdict[:reason]}")
+      return if verdict[:stop]
+
+      say('roast loop: respond to the round, apply the accepted fixes, and render the next draft (only changed scenes re-render)')
+    end
+
+    def roast_open_summary
+      history = Roast.load_history(roast_dir)
+      return 'no earlier round on record' if history.empty?
+
+      "#{WalkthroughRoast.open_blockers(history).size} open P0/P1 remain from the last round (see roast/round-#{history.last[:round]}.md)"
     end
 
     def extract_keyframes(manifest, mp4, reports)
@@ -596,7 +635,7 @@ end
 
 if __FILE__ == $PROGRAM_NAME
   usage = 'usage: walkthrough_render.rb walkthrough/<slug> [--scene <id>] [--draft|--final] [--estimate-only] [--max-usd <n>] [--burn-captions] ' \
-          '[--allow-ux-findings] [--allow-roast-findings] [--no-roast] [--roast-max-usd <n>] [--recapture]'
+          '[--allow-ux-findings] [--allow-roast-findings] [--no-roast] [--roast-max-usd <run cap>] [--recapture]'
   dir = ARGV.first
   abort(usage) if dir.nil? || dir.start_with?('--')
   scene = ARGV.include?('--scene') ? (ARGV[ARGV.index('--scene') + 1] || abort(usage)) : nil

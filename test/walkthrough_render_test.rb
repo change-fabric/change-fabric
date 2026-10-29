@@ -24,7 +24,7 @@ class WalkthroughRenderTest < Minitest::Test
     File.write(File.join(@root, "storyboard.json"), JSON.pretty_generate(board))
     @calls = Hash.new { |h, k| h[k] = [] }
     @lint_findings = {}
-    @critic = { "score" => 6, "summary" => "s", "issues" => [], "thirty_second_test" => { "verdict" => "pass", "reason" => "r" } }
+    @critic = { "score" => 9, "summary" => "s", "issues" => [], "thirty_second_test" => { "verdict" => "pass", "reason" => "r" } }
   end
 
   def teardown
@@ -433,8 +433,49 @@ class WalkthroughRenderTest < Minitest::Test
     out = StringIO.new
     WalkthroughRender::Run.new(@root, providers: providers, out: out, gates: { roast_max_usd: 0.0 }).call
     assert_empty @calls[:roast]
-    assert_includes out.string, "passes the ceiling"
+    assert_includes out.string, "spend cap reached"
+    assert_includes out.string, "no earlier round on record"
     refute File.exist?(File.join(@root, "roast", "round-1.json"))
+  end
+
+  def test_draft_roast_sends_the_narration_transcript_and_records_spend
+    seen = nil
+    prov = providers.merge(roast: lambda do |**kw|
+      seen = kw[:transcript]
+      @critic
+    end)
+    out = StringIO.new
+    WalkthroughRender::Run.new(@root, providers: prov, out: out).call
+    assert_includes seen, "Narration by scene:"
+    assert_includes seen, "wpm]"
+    assert_includes seen, "Caption cues:"
+    assert_operator WalkthroughRoast.spent(File.join(@root, "roast")), :>, 0
+    assert_includes out.string, "roast loop: stop: score 9, 0 open P0/P1, target 8.5 reached"
+  end
+
+  def test_unconverged_draft_says_continue_and_final_refuses_until_loop_finishes
+    @critic = @critic.merge("score" => 7)
+    out = StringIO.new
+    WalkthroughRender::Run.new(@root, providers: providers, out: out).call
+    assert_includes out.string, "roast loop: continue:"
+    err = assert_raises(WalkthroughRoast::OpenFindingsError) { run_render(final: true) }
+    assert_includes err.message, "roast loop is unfinished"
+    assert run_render(final: true, gates: { roast: false, allow_roast: true })[:mp4]
+  end
+
+  def test_final_requires_a_roast_on_record_unless_no_roast_or_allowed
+    err = assert_raises(WalkthroughRoast::OpenFindingsError) { run_render(final: true, gates: { roast: true }) }
+    assert_includes err.message, "no draft roast on record"
+    assert run_render(final: true, gates: { roast: true, allow_roast: true })[:mp4]
+  end
+
+  def test_finished_loop_takes_no_further_paid_round
+    WalkthroughRender::Run.new(@root, providers: providers, out: StringIO.new).call
+    @calls[:roast].clear
+    out = StringIO.new
+    WalkthroughRender::Run.new(@root, providers: providers, out: out).call
+    assert_empty @calls[:roast]
+    assert_includes out.string, "roast: loop finished"
   end
 
   def test_final_refuses_on_open_roast_blocker_until_rebutted_or_allowed

@@ -12,7 +12,7 @@ A thin command over `ruby ~/.claude/cf/bin/roast.rb`, which makes one critic cal
 
 ## When
 
-Optional, after screens exist: cf:design may roast a draft's mock screens, cf:prototype and cf:walkthrough may roast the stills before recording motion. cf:walkthrough also runs one round automatically on every draft render (keyframes of the draft MP4, a walkthrough rubric, its own $0.50 ceiling via `--roast-max-usd`, rounds in `walkthrough/<slug>/roast/`), and its `--final` refuses while the latest round has a P0 or P1 not rebutted in `round-N.response.json` unless `--allow-roast-findings` is passed. The response, fix, and next-draft loop below is the same. Never for a repo with no visual artifact, and never without the user knowing it spends money.
+Optional, after screens exist: cf:design may roast a draft's mock screens, cf:prototype and cf:walkthrough may roast the stills before recording motion. cf:walkthrough runs this loop by default on every draft render, before any human sees it: one round per draft over keyframes of the draft MP4 plus the narration transcript and captions, a walkthrough rubric, a stop rule of score 8.5 or more with no P0 or P1, 4 rounds, or its run spend cap (`--roast-max-usd`, across rounds, logged in `roast/spend.json`), and changed-scene-only re-renders between rounds. Its `--final` refuses with no roast on record, an open P0 or P1, or an unfinished loop unless `--allow-roast-findings` is passed. The response, fix, and next-draft loop below is the same. Never for a repo with no visual artifact, and never without the user knowing it spends money.
 
 ## Inputs
 
@@ -26,6 +26,7 @@ Optional, after screens exist: cf:design may roast a draft's mock screens, cf:pr
 - `--history <dir>`: read prior rounds from another directory (default: the out dir).
 - `--round <n>`: default is the next number after the highest logged round.
 - `--max-usd <n>` (default 0.5): the ceiling. A call that would pass it is refused before any request.
+- `--transcript <file>`: narration and caption text the critic reads next to the frames; it joins the cache key.
 - `--cache <dir>` (default `.cache`), `--estimate-only`. `CF_ROAST_MODEL` overrides the model (default `gpt-6.1-sol`, a vision-capable model with strict JSON schema output; set it to another when wanted).
 
 `roast.rb decide --out-dir roast [--target 9] [--cap 4]` prints `roast decision: stop|continue: <reason>` from the latest logged round, so the stop rule is not re-derived by hand.
