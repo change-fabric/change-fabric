@@ -45,6 +45,11 @@ class ChangeDockerTest < Minitest::Test
     assert_includes argv.each_cons(2).to_a, [ "--add-host", "host.docker.internal:host-gateway" ]
   end
 
+  def test_run_command_labels_every_container_with_the_owner_pid
+    argv = ChangeDocker.run_command(network: nil, image: "img", args: [], name: "cf-change-k6-x")
+    assert_includes argv.each_cons(2).to_a, [ "--label", "#{ChangeDocker::OWNER_LABEL}=#{Process.pid}" ]
+  end
+
   def test_run_command_keeps_the_image_and_its_command_last
     argv = ChangeDocker.run_command(network: "net", image: "img", args: %w[a b], name: "cf-change-x")
     assert_equal %w[img a b], argv.last(3)

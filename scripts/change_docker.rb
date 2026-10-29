@@ -89,7 +89,9 @@ module ChangeDocker
   def run_command(network:, image:, args:, env: {}, mounts: {}, name: nil, user: nil, workdir: nil, entrypoint: nil)
     cmd = [ 'docker', 'run', '--rm' ]
     cmd += [ '--entrypoint', entrypoint ] if entrypoint
-    cmd += [ '--name', name ] if name
+    # Only a named container can match the sweep's prefix filter, so only it
+    # needs the owner label that tells a live run from an orphan.
+    cmd += [ '--name', name, '--label', "#{OWNER_LABEL}=#{Process.pid}" ] if name
     cmd += [ '--network', network ] if network
     cmd += host_gateway_args
     cmd += [ '--user', user ] if user
