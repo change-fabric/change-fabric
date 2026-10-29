@@ -80,7 +80,7 @@ module WalkthroughFfmpeg
 
   def scene_chain(plan, scene, i)
     points = Array(scene[:cursor])
-    raw = "[#{i}:v]setpts=PTS-STARTPTS"
+    raw = "[#{i}:v]setpts=PTS-STARTPTS,scale=#{plan[:width]}:#{plan[:height]}:flags=lanczos"
     taps = Array(scene[:taps])
     out = taps.empty? ? scene_output(plan, scene, i) : "[a#{i}]"
     parts = if long_path?(points)

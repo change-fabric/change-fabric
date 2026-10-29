@@ -35,11 +35,11 @@ class WalkthroughFfmpegTest < Minitest::Test
     assert_equal [ "-framerate", "30", "-i", "/work/f/a/%06d.png" ], argv[3, 4]
     expected = [
       "[3:v]split=3[c0][c1][c2]",
-      "[0:v]setpts=PTS-STARTPTS[s0]",
+      "[0:v]setpts=PTS-STARTPTS,scale=1920:1080:flags=lanczos[s0]",
       "[s0][c0]overlay=x='if(lt(n,2),10,15)':y='20':eval=frame,fps=30,settb=1/30[v0]",
-      "[1:v]setpts=PTS-STARTPTS[s1]",
+      "[1:v]setpts=PTS-STARTPTS,scale=1920:1080:flags=lanczos[s1]",
       "[s1][c1]overlay=x='if(lt(n,2),50,55)':y='20':eval=frame,fps=30,settb=1/30[v1]",
-      "[2:v]setpts=PTS-STARTPTS[s2]",
+      "[2:v]setpts=PTS-STARTPTS,scale=1920:1080:flags=lanczos[s2]",
       "[s2][c2]overlay=x='-200':y='-200':eval=frame,scale=iw*4:ih*4:flags=lanczos,zoompan=z='min(zoom+0.0008,1.12)':d=1:" \
       "x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=1920x1080:fps=30,settb=1/30[v2]",
       "[v0][v1]xfade=transition=fade:duration=0.500:offset=1.500[j1]",
@@ -123,7 +123,7 @@ class WalkthroughFfmpegTest < Minitest::Test
     body = files.values.first
     assert body.start_with?("0.000 overlay@c0 x 1, overlay@c0 y 7;\n0.033 overlay@c0 x 2;\n")
     g = graph(WalkthroughFfmpeg.pass2(p, MEASURED))
-    assert_includes g, "[0:v]setpts=PTS-STARTPTS,sendcmd=f='/work/r/cursor-one.cmd'[s0]"
+    assert_includes g, "[0:v]setpts=PTS-STARTPTS,scale=1920:1080:flags=lanczos,sendcmd=f='/work/r/cursor-one.cmd'[s0]"
     assert_includes g, "[s0][c0]overlay@c0=x=1:y=7:eval=frame,fps=30,settb=1/30[v0]"
   end
 
@@ -137,5 +137,16 @@ class WalkthroughFfmpegTest < Minitest::Test
 
   def test_same_plan_same_argv
     assert_equal WalkthroughFfmpeg.pass2(plan, MEASURED), WalkthroughFfmpeg.pass2(plan, MEASURED)
+  end
+end
+
+# Captured frames may arrive at a device pixel ratio above 1; every scene is
+# scaled to the output canvas before the cursor overlay so all scenes agree.
+class WalkthroughFfmpegCanvasScaleTest < WalkthroughFfmpegTest
+  def test_every_scene_scales_to_canvas_before_overlay
+    g = graph(WalkthroughFfmpeg.pass2(plan.merge(width: 1280, height: 720), MEASURED))
+    [ 0, 1, 2 ].each do |i|
+      assert_includes g, "[#{i}:v]setpts=PTS-STARTPTS,scale=1280:720:flags=lanczos[s#{i}]"
+    end
   end
 end
