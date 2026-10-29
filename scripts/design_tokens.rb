@@ -144,11 +144,17 @@ module DesignTokens
     raise "color_check.rb produced no JSON report: #{stderr.to_s.strip[0, 200]}"
   end
 
-  # AA failures in a color_check report, as findings.
+  # AA failures and audit errors in a color_check report, as findings. A
+  # token error means the audit did not run (or rejected the tokens), so it
+  # must fail the lint rather than read as a clean contrast pass.
   def contrast_findings(report)
-    Array(report["contrast"]).select { |c| c["status"] == "fail" }.map do |c|
+    errors = Array(report["token_errors"]).map do |e|
+      Finding.new("contrast", e["line"], "contrast audit error: #{e['message']}")
+    end
+    fails = Array(report["contrast"]).select { |c| c["status"] == "fail" }.map do |c|
       Finding.new("contrast", nil, "#{c['variant']}: #{c['fg']} on #{c['bg']} is #{c['ratio']} (#{c['reason']})")
     end
+    errors + fails
   end
 
   def lint(design_md, tokens_css)

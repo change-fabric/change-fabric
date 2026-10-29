@@ -115,6 +115,17 @@ class DesignTokensTest < Minitest::Test
     assert_match(/dark: --muted on --bg is 2.1/, findings.first.message)
   end
 
+  def test_contrast_findings_surface_audit_errors
+    [ "Docker is required to run the contrast audit",
+      "conflicting dark-theme mechanisms",
+      "no token file found" ].each do |message|
+      report = JSON.parse(JSON.generate(token_errors: [ { line: 3, message: message } ], contrast: []))
+      findings = DesignTokens.contrast_findings(report)
+      assert_equal 1, findings.size, message
+      assert_includes findings.first.message, message
+    end
+  end
+
   def test_contrast_raises_named_message_on_non_json
     runner = ->(_argv) { [ "", "docker not found", nil ] }
     error = assert_raises(RuntimeError) { DesignTokens.contrast("t.css", runner: runner) }
