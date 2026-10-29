@@ -545,6 +545,8 @@ module PrototypeCapture
   def skip_reason(scene)
     return 'ai-broll scene, rendered by walkthrough_render.rb' if scene['kind'] == 'ai-broll'
     return 'live scene, captured by walkthrough_render.rb' if scene.dig('screen', 'url')
+    return 'compose scene, rendered in real time by walkthrough_compose.rb' if scene['kind'] == 'compose'
+    return 'no screen.html to capture' if scene.dig('screen', 'html').to_s.empty?
 
     nil
   end
