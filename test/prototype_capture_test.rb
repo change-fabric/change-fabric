@@ -388,4 +388,14 @@ class PrototypeCaptureTest < Minitest::Test
     assert_match(/screen\.html/, PrototypeCapture.skip_reason("id" => "m", "kind" => "message", "screen" => {}))
     assert_match(/screen\.html/, PrototypeCapture.skip_reason("id" => "m", "kind" => "message"))
   end
+
+  def test_inline_screen_keeps_svg_fragment_targets
+    Dir.mktmpdir do |dir|
+      File.write(File.join(dir, "sprite.svg"), "<svg><symbol id='save'/></svg>")
+      File.write(File.join(dir, "x.html"), %(<svg><use href="sprite.svg#save"></use></svg><img srcset="sprite.svg#a 1x">))
+      out = PrototypeCapture.inline_screen(File.join(dir, "x.html"))
+      assert_match(%r{<use href="data:image/svg\+xml;base64,[A-Za-z0-9+/=]+#save">}, out)
+      assert_match(/srcset="data:image\/svg\+xml;base64,[A-Za-z0-9+\/=]+#a 1x"/, out)
+    end
+  end
 end

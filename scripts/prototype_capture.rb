@@ -110,7 +110,7 @@ module PrototypeCapture
     html = html.gsub(SRCSET_RE) do
       attr, quote, value = Regexp.last_match.captures
       inlined = srcset_candidates(value).map do |url, desc|
-        "#{local_ref?(url) ? data_uri(asset_path(dir, swap_keys(url, remap))) : url}#{desc}"
+        "#{local_ref?(url) ? ref_uri(dir, url, remap) : url}#{desc}"
       end
       "#{attr}=#{quote}#{inlined.join(', ')}#{quote}"
     end
@@ -118,7 +118,7 @@ module PrototypeCapture
       attr, quote, value = Regexp.last_match.captures
       next Regexp.last_match(0) unless local_ref?(value) && !value.end_with?('.html')
 
-      "#{attr}=#{quote}#{data_uri(asset_path(dir, swap_keys(value, remap)))}#{quote}"
+      "#{attr}=#{quote}#{ref_uri(dir, value, remap)}#{quote}"
     end
   end
 
@@ -189,8 +189,15 @@ module PrototypeCapture
       ref = Regexp.last_match(2)
       raise UnsupportedContentError, "#{label}: remote url(#{ref}) is not supported" if remote?(ref)
 
-      local_ref?(ref) ? "url(\"#{data_uri(asset_path(dir, swap_keys(ref, remap)))}\")" : Regexp.last_match(0)
+      local_ref?(ref) ? "url(\"#{ref_uri(dir, ref, remap)}\")" : Regexp.last_match(0)
     end
+  end
+
+  # A data URI for a local ref, keeping its #fragment so an SVG sprite
+  # reference such as sprite.svg#save still selects its symbol.
+  def ref_uri(dir, ref, remap = {})
+    swapped = swap_keys(ref, remap)
+    "#{data_uri(asset_path(dir, swapped))}#{swapped[/#.*\z/]}"
   end
 
   def data_uri(path)
