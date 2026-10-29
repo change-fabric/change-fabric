@@ -3,6 +3,7 @@
 require 'digest'
 require 'json'
 require_relative 'b_roll'
+require_relative 'design_config'
 require_relative 'prototype_capture'
 require_relative 'prototype_imagegen'
 require_relative 'walkthrough_cache'
@@ -331,6 +332,52 @@ module WalkthroughStoryboard
     board
   end
 
+  # -- tokens.css hash ----------------------------------------------------
+
+  # The canonical tokens.css for a walkthrough at `root`: walking up from
+  # root, the first directory whose CHANGE.md-configured tokens path (default
+  # design/tokens.css) or bare tokens.css exists. The walk stops at the repo
+  # root (a directory holding .git or CHANGE.md). nil when none is found.
+  def canonical_tokens(root)
+    dir = File.expand_path(root)
+    loop do
+      configured = begin
+        DesignConfig.load(dir).tokens
+      rescue StandardError
+        DesignConfig::DEFAULT_TOKENS
+      end
+      found = [ configured, 'tokens.css' ].map { |rel| File.join(dir, rel) }.find { |f| File.file?(f) }
+      return found if found
+      return nil if %w[.git CHANGE.md].any? { |m| File.exist?(File.join(dir, m)) }
+
+      parent = File.dirname(dir)
+      return nil if parent == dir
+
+      dir = parent
+    end
+  end
+
+  def tokens_sha256(path) = Digest::SHA256.file(path).hexdigest
+
+  # tokens_css_sha256 is computed, never hand-written. Reports a missing or
+  # stale hash against the canonical tokens.css; silent when none exists.
+  def tokens_hash_errors(board, tokens_path)
+    return [] unless tokens_path && File.file?(tokens_path)
+
+    recorded = board['tokens_css_sha256']
+    return [ "tokens_css_sha256 missing; run validate --fix to compute it from #{tokens_path}" ] if recorded.nil?
+    return [] if recorded == tokens_sha256(tokens_path)
+
+    [ "tokens_css_sha256 stale against #{tokens_path}; run validate --fix to recompute it" ]
+  end
+
+  # Writes tokens_css_sha256 from the canonical tokens.css (validate --fix).
+  # Run before fix_keys so frames keys pick up the new hash.
+  def fix_tokens_hash(board, tokens_path)
+    board['tokens_css_sha256'] = tokens_sha256(tokens_path) if tokens_path && File.file?(tokens_path)
+    board
+  end
+
   # -- storyboard.md -------------------------------------------------------
 
   def render_md(board)
@@ -371,20 +418,26 @@ module WalkthroughStoryboard
 end
 
 if __FILE__ == $PROGRAM_NAME
-  usage = 'usage: walkthrough_storyboard.rb validate <json> [--fix] | render-md <json> | stale <json>'
+  usage = 'usage: walkthrough_storyboard.rb validate <json> [--fix] [--tokens PATH] | render-md <json> | stale <json>'
   cmd, path = ARGV
   abort(usage) unless cmd && path
+  tokens_flag = ARGV.index('--tokens')
 
   board = WalkthroughStoryboard.load(path)
   root = File.dirname(File.expand_path(path))
   case cmd
   when 'validate'
+    tokens = tokens_flag ? ARGV[tokens_flag + 1] : WalkthroughStoryboard.canonical_tokens(root)
+    abort("--tokens #{tokens.inspect} is not a file") if tokens_flag && !(tokens && File.file?(tokens))
+    fix = ARGV.include?('--fix')
     errors = WalkthroughStoryboard.validate(board, root: root)
+    errors += WalkthroughStoryboard.tokens_hash_errors(board, tokens) unless fix
     unless errors.empty?
       warn errors.join("\n")
       exit 1
     end
-    if ARGV.include?('--fix')
+    if fix
+      WalkthroughStoryboard.fix_tokens_hash(board, tokens)
       WalkthroughStoryboard.fix_keys(board, root)
       File.write(path, "#{JSON.pretty_generate(board)}\n")
       puts 'valid; deps rewritten'

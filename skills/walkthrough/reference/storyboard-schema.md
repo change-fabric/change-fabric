@@ -24,6 +24,8 @@
 
 `music` may be `null` for a narration-only walkthrough.
 
+`tokens_css_sha256` is computed, never hand-written. `validate --fix` writes the sha256 of the canonical `tokens.css` (found by walking up from the walkthrough directory to the repo root, trying the `change_config.design.tokens` path from CHANGE.md, default `design/tokens.css`, then a bare `tokens.css`; `--tokens PATH` overrides) before it rewrites the deps, so every `frames_key` that hashes it goes stale and recaptures when the tokens change. Plain `validate` fails on a missing or stale hash. With no canonical `tokens.css` found, the field is left alone and not checked.
+
 ## Per scene
 
 ```json

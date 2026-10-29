@@ -3,6 +3,8 @@
 require "minitest/autorun"
 require "json"
 require "tmpdir"
+require "open3"
+require "rbconfig"
 require_relative "../scripts/walkthrough_storyboard"
 
 class WalkthroughStoryboardTest < Minitest::Test
@@ -285,5 +287,74 @@ class WalkthroughStoryboardTest < Minitest::Test
     assert_includes md, "- B-roll: screens/assets/shed.png, 4s, gemini-omni-1.1-flash, fallback kenburns"
     assert_includes md, "- B-roll prompt: slow push in"
     refute_includes md.split("## 3.").last, "- Screen:"
+  end
+
+  # -- tokens_css_sha256 --------------------------------------------------
+
+  def tokens_repo
+    repo = File.join(@root, "repo")
+    walk = File.join(repo, "walkthrough", "demo")
+    FileUtils.mkdir_p(File.join(repo, "design"))
+    FileUtils.mkdir_p(File.join(repo, ".git"))
+    FileUtils.cp_r(Dir.glob(File.join(@root, "{screens,data}")), walk.tap { |w| FileUtils.mkdir_p(w) })
+    File.write(File.join(repo, "design", "tokens.css"), ":root { --bg: #fff; }\n")
+    [ repo, walk ]
+  end
+
+  def test_canonical_tokens_walks_up_to_design_tokens_and_stops_at_repo_root
+    repo, walk = tokens_repo
+    assert_equal File.join(repo, "design", "tokens.css"), WalkthroughStoryboard.canonical_tokens(walk)
+    File.delete(File.join(repo, "design", "tokens.css"))
+    assert_nil WalkthroughStoryboard.canonical_tokens(walk)
+  end
+
+  def test_tokens_hash_missing_stale_and_fixed
+    repo, = tokens_repo
+    tokens = File.join(repo, "design", "tokens.css")
+    b = board
+    assert_match(/tokens_css_sha256 missing/, WalkthroughStoryboard.tokens_hash_errors(b, tokens).join)
+    b["tokens_css_sha256"] = "0" * 64
+    assert_match(/tokens_css_sha256 stale/, WalkthroughStoryboard.tokens_hash_errors(b, tokens).join)
+    WalkthroughStoryboard.fix_tokens_hash(b, tokens)
+    assert_equal Digest::SHA256.file(tokens).hexdigest, b["tokens_css_sha256"]
+    assert_equal [], WalkthroughStoryboard.tokens_hash_errors(b, tokens)
+    assert_equal [], WalkthroughStoryboard.tokens_hash_errors({}, nil)
+  end
+
+  def run_cli(*args)
+    script = File.expand_path("../scripts/walkthrough_storyboard.rb", __dir__)
+    Open3.capture3(RbConfig.ruby, script, *args)
+  end
+
+  def test_cli_fix_writes_hash_and_plain_validate_reports_token_edit
+    repo, walk = tokens_repo
+    path = File.join(walk, "storyboard.json")
+    File.write(path, JSON.generate(board))
+    _, err, status = run_cli("validate", path)
+    refute status.success?
+    assert_match(/tokens_css_sha256 missing/, err)
+
+    out, err, status = run_cli("validate", path, "--fix")
+    assert status.success?, err
+    assert_match(/deps rewritten/, out)
+    fixed = JSON.parse(File.read(path))
+    assert_equal Digest::SHA256.file(File.join(repo, "design", "tokens.css")).hexdigest, fixed["tokens_css_sha256"]
+    _, err, status = run_cli("validate", path)
+    assert status.success?, err
+
+    File.write(File.join(repo, "design", "tokens.css"), ":root { --bg: #000; }\n")
+    _, err, status = run_cli("validate", path)
+    refute status.success?
+    assert_match(/tokens_css_sha256 stale/, err)
+  end
+
+  def test_token_change_changes_frames_key
+    b = board
+    b["tokens_css_sha256"] = "a" * 64
+    before = WalkthroughStoryboard.recompute_keys(b, @root)
+    b["tokens_css_sha256"] = "b" * 64
+    after = WalkthroughStoryboard.recompute_keys(b, @root)
+    refute_nil before["create"]["frames_key"]
+    refute_equal before["create"]["frames_key"], after["create"]["frames_key"]
   end
 end
