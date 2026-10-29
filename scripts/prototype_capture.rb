@@ -90,7 +90,7 @@ module PrototypeCapture
     root ||= default_root(dir)
     html = File.read(path)
     check_supported!(html, File.basename(path))
-    html = html.gsub(%r{<link\b[^>]*\bhref\s*=\s*(["'])([^"']+\.css)\1[^>]*>}im) do
+    html = html.gsub(%r{<link\b[^>]*\bhref\s*=\s*(["'])([^"']+?\.css(?:[?#][^"']*)?)\1[^>]*>}im) do
       href = Regexp.last_match(2)
       tag = Regexp.last_match(0)
       next tag unless local_ref?(href)

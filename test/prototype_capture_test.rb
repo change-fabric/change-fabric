@@ -446,4 +446,15 @@ class PrototypeCaptureTest < Minitest::Test
       assert_includes out, %(href="TEL:1")
     end
   end
+
+  def test_stylesheet_links_with_a_query_or_fragment_are_inlined
+    Dir.mktmpdir do |dir|
+      File.write(File.join(dir, "a.css"), "p{color:red}")
+      File.write(File.join(dir, "x.html"), %(<link rel="stylesheet" href="a.css?v=2"><link rel="stylesheet" href='a.css#x'>))
+      out = PrototypeCapture.inline_screen(File.join(dir, "x.html"))
+      refute_includes out, "<link"
+      assert_equal 2, out.scan("<style>p{color:red}</style>").size
+      assert_equal [ "a.css?v=2" ], PrototypeCapture.local_refs(File.join(dir, "x.html")).first(1)
+    end
+  end
 end
