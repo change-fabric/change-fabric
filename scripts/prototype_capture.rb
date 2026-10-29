@@ -507,6 +507,29 @@ module PrototypeCapture
     memo[scene['id']] = { key: key, state: state, prng_seed: prng, html_path: html_path, remap: remap,
                           out_dir: File.join(root, '.cache', 'frames', key) }
   end
+
+  # Records a scene's scripted motion into its frames cache, writing the
+  # end-state.json that from_scene dependents resolve against.
+  def capture_motion(board, scene, prep, session)
+    duration = scene_duration(scene)
+    puts "#{scene['id']}: capturing #{frame_count(duration, board['fps'] || FPS)} frames"
+    capture(session: session, html: inline_screen(prep[:html_path]), interactions: scene['interactions'] || [],
+            duration_ms: duration, out_dir: prep[:out_dir], state: prep[:state], prng_seed: prep[:prng_seed],
+            viewport: board['viewport'], fps: board['fps'] || FPS, label: scene['id'])
+  end
+
+  # A still of a from_scene dependent needs each ancestor's post-interaction
+  # end state, which only a motion capture writes; capture any that are
+  # missing, root first, so stills-first review works on a fresh cache.
+  def ensure_parents(board, scene, root, memo, session)
+    parent_id = (scene['store'] || {})['from_scene']
+    return unless parent_id
+
+    parent = board['scenes'].find { |s| s['id'] == parent_id } || raise(ArgumentError, "unknown from_scene #{parent_id}")
+    ensure_parents(board, parent, root, memo, session)
+    prep = prepare(board, parent, root, memo)
+    capture_motion(board, parent, prep, session) unless File.file?(File.join(prep[:out_dir], 'end-state.json'))
+  end
 end
 
 if __FILE__ == $PROGRAM_NAME
@@ -523,6 +546,7 @@ if __FILE__ == $PROGRAM_NAME
       next if only && scene['id'] != only
       next puts("#{scene['id']}: live scene, captured by walkthrough_render.rb") if scene.dig('screen', 'url')
 
+      PrototypeCapture.ensure_parents(board, scene, root, memo, session) if still
       prep = PrototypeCapture.prepare(board, scene, root, memo)
       if still
         dir = File.join(root, '.cache', 'stills', scene['id'])
@@ -536,12 +560,7 @@ if __FILE__ == $PROGRAM_NAME
         puts "#{scene['id']}: cached #{prep[:key][0, 12]}"
         next
       end
-      duration = PrototypeCapture.scene_duration(scene)
-      puts "#{scene['id']}: capturing #{PrototypeCapture.frame_count(duration, board['fps'] || PrototypeCapture::FPS)} frames"
-      PrototypeCapture.capture(session: session, html: PrototypeCapture.inline_screen(prep[:html_path]),
-                               interactions: scene['interactions'] || [], duration_ms: duration, out_dir: prep[:out_dir],
-                               state: prep[:state], prng_seed: prep[:prng_seed], viewport: board['viewport'],
-                               fps: board['fps'] || PrototypeCapture::FPS, label: scene['id'])
+      PrototypeCapture.capture_motion(board, scene, prep, session)
     end
   end
 end

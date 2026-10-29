@@ -258,6 +258,35 @@ class PrototypeCaptureTest < Minitest::Test
     assert_equal 1, PrototypeCapture.batch_size(vp, bytes_per_frame: 500_000_000)
   end
 
+  def test_ensure_parents_captures_missing_ancestors_root_first
+    Dir.mktmpdir do |root|
+      FileUtils.mkdir_p(File.join(root, 'screens'))
+      File.write(File.join(root, 'screens', 'mock-store.js'), '')
+      %w[a b c].each { |id| File.write(File.join(root, 'screens', "#{id}.html"), "<p>#{id}</p>") }
+      scene = ->(id, from) { { 'id' => id, 'screen' => { 'html' => "screens/#{id}.html" }, 'store' => (from ? { 'from_scene' => from } : {}) } }
+      board = { 'viewport' => { 'width' => 10, 'height' => 10 }, 'scenes' => [scene.('a', nil), scene.('b', 'a'), scene.('c', 'b')] }
+      captured = []
+      fake = lambda { |label:, out_dir:, **|
+        captured << label
+        FileUtils.mkdir_p(out_dir)
+        File.write(File.join(out_dir, 'end-state.json'), '{}')
+      }
+      original = PrototypeCapture.method(:capture)
+      PrototypeCapture.define_singleton_method(:capture, &fake)
+      begin
+        PrototypeCapture.ensure_parents(board, board['scenes'][0], root, {}, nil)
+        assert_empty captured, 'a root scene has no ancestors'
+        PrototypeCapture.ensure_parents(board, board['scenes'][2], root, {}, nil)
+        assert_equal %w[a b], captured
+        PrototypeCapture.ensure_parents(board, board['scenes'][2], root, {}, nil)
+        assert_equal %w[a b], captured, 'cached ancestors are not recaptured'
+        PrototypeCapture.prepare(board, board['scenes'][2], root, {})
+      ensure
+        PrototypeCapture.define_singleton_method(:capture, original)
+      end
+    end
+  end
+
   def test_scene_duration_is_derived
     assert_equal 3000, PrototypeCapture.scene_duration("timing" => { "min_ms" => 3000, "pad_ms" => 400 }, "narration" => { "measured_ms" => 1000 })
     assert_equal 5400, PrototypeCapture.scene_duration("timing" => { "min_ms" => 3000, "pad_ms" => 400 }, "narration" => { "measured_ms" => 5000 })
