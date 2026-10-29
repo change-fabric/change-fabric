@@ -436,4 +436,14 @@ class PrototypeCaptureTest < Minitest::Test
       assert_includes PrototypeCapture.inline_screen(File.join(dir, "x.html")), "console.log(1)"
     end
   end
+
+  def test_tel_and_sms_links_are_not_local_assets
+    Dir.mktmpdir do |dir|
+      File.write(File.join(dir, "x.html"), %(<a href="tel:+15550100">Call</a><a href="sms:+15550100">Text</a><a href="TEL:1">x</a>))
+      out = PrototypeCapture.inline_screen(File.join(dir, "x.html"))
+      assert_includes out, %(href="tel:+15550100")
+      assert_includes out, %(href="sms:+15550100")
+      assert_includes out, %(href="TEL:1")
+    end
+  end
 end
