@@ -150,10 +150,11 @@ module WalkthroughCompose
 
   # The compose page for one device ("desktop" or "phone").
   def html(spec, device)
-    channel = sms?(spec) ? 'sms' : 'email'
+    sms = sms?(spec)
+    channel = sms ? 'sms' : 'email'
     values = { 'css' => template("#{channel}.css"), 'script' => template('compose.js'), 'device' => esc(device),
                'body' => esc(spec['body']), 'send' => send_button, 'status' => status_line }
-    values.merge!(sms?(spec) ? { 'to' => esc(Array(spec['to']).join(', ')) } : { 'rows' => email_rows(spec) })
+    values.merge!(sms ? { 'to' => esc(Array(spec['to']).join(', ')) } : { 'rows' => email_rows(spec) })
     fill(template("#{channel}.html"), values)
   end
 
@@ -167,9 +168,11 @@ module WalkthroughCompose
 
   def email_rows(spec)
     rows = [ field('to', 'To', spec['to']) ]
-    rows << field('cc', 'Cc', spec['cc']) unless Array(spec['cc']).empty?
-    rows << field('bcc', 'Bcc', spec['bcc']) unless Array(spec['bcc']).empty?
+    [ %w[cc Cc], %w[bcc Bcc] ].each { |key, label| rows << field(key, label, spec[key]) unless Array(spec[key]).empty? }
     rows << field('subject', 'Subject', spec['subject'])
     rows.join("\n")
   end
+
+  private_class_method :query_params, :decode, :recipients, :sms?, :from_errors, :explicit_errors, :normalize,
+                       :template_roots, :template, :fill, :esc, :send_button, :status_line, :field, :email_rows
 end
