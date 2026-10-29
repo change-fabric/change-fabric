@@ -287,7 +287,7 @@ module Roast
 
   # Returns the cached critic JSON, making the paid call only on a miss.
   def critique(brief:, shots:, history:, round:, cache_root:, texts: [], transcript: nil, review: nil, http: nil, model: MODEL, allow_sensitive: false)
-    check_sensitive!(brief: brief, texts: texts, transcript: transcript, review: review, allow: allow_sensitive)
+    check_sensitive!(brief: brief, texts: texts, transcript: transcript, review: review, history: history, allow: allow_sensitive)
     key = request_key(brief: brief, shots: shots, history: history, round: round, texts: texts, transcript: transcript, review: review, model: model)
     path = WalkthroughCache.fetch(*cache_args(cache_root, key)) do |tmp|
       request = build_request(brief: brief, shots: shots, history: history, round: round, texts: texts, transcript: transcript, review: review, model: model)
@@ -297,16 +297,17 @@ module Roast
   end
 
   # Refuses before any paid call when the brief, text inputs, transcript, or the
-  # rendered review text matches the user's sensitive-terms list. Names only the
+  # rendered review text, or prior-round history matches the user's sensitive-terms list. Names only the
   # count, never a term. Shared by Cli.critique and every direct caller.
-  def check_sensitive!(brief:, texts: [], transcript: nil, review: nil, allow: false)
+  def check_sensitive!(brief:, texts: [], transcript: nil, review: nil, history: [], allow: false)
     return if allow
 
-    bodies = [ brief, *Array(texts).map { |f| File.read(f) }, transcript, review_text(review) ].compact
+    bodies = [ brief, *Array(texts).map { |f| File.read(f) }, transcript, review_text(review),
+               (history.empty? ? nil : JSON.generate(history)) ].compact
     hits = SensitiveTerms.matched(bodies, SensitiveTerms.load)
     return if hits.empty?
 
-    raise SensitiveError, "roast refused: #{hits.size} sensitive term(s) matched in the brief, text inputs, transcript, or review contract; pass --allow-sensitive to send anyway"
+    raise SensitiveError, "roast refused: #{hits.size} sensitive term(s) matched in the brief, text inputs, transcript, review contract, or prior rounds; pass --allow-sensitive to send anyway"
   end
 
   # USD one round will cost: nothing when cached, else the token estimate.
@@ -499,7 +500,7 @@ module Roast
       [ opts[:brief_file], opts[:transcript_file], opts[:storyboard_file], *opts[:shots], *opts[:texts] ].compact.each { |f| raise Errno::ENOENT, f unless File.file?(f) }
       opts[:shots].each { |s| Roast.mime_for(s) }
       inputs = inputs_for(opts, out)
-      Roast.check_sensitive!(**inputs.slice(:brief, :texts, :transcript, :review), allow: opts[:allow_sensitive])
+      Roast.check_sensitive!(**inputs.slice(:brief, :texts, :transcript, :review, :history), allow: opts[:allow_sensitive])
       usd = announce(inputs, opts, out)
       raise CeilingError, "$#{format('%.2f', usd)} would pass the $#{format('%.2f', opts[:max_usd])} ceiling" if usd > opts[:max_usd] + 1e-9
       return if opts[:estimate_only]

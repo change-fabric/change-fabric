@@ -220,6 +220,18 @@ class RoastTextTest < Minitest::Test
     assert_equal 1, http.requests.size
   end
 
+  def test_prior_round_history_is_scanned_and_override_reaches_it
+    File.write(@terms, "Acme Holdings")
+    history = [ { round: 1, critic: JSON.parse(WHERE_CRITIC.to_json), response: { "note" => "Acme Holdings asked for this" } } ]
+    args = { brief: "A brief", shots: [ @shot ], history: history, round: 2, cache_root: @cache }
+    http = RoastHttp.new(WHERE_CRITIC)
+    err = assert_raises(Roast::SensitiveError) { Roast.critique(**args, http: http) }
+    refute_match(/acme/i, err.message)
+    assert_empty http.requests
+    Roast.critique(**args, http: http, allow_sensitive: true)
+    assert_equal 1, http.requests.size
+  end
+
   def test_unreadable_terms_file_raises_but_missing_is_empty
     assert_equal [], SensitiveTerms.load(File.join(@dir, "absent.txt"))
     File.write(@terms, "")
