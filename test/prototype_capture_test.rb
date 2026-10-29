@@ -41,6 +41,18 @@ class PrototypeCaptureTest < Minitest::Test
     end
   end
 
+  def test_unmatched_remap_never_requires_draft_assets_to_exist
+    Dir.mktmpdir do |dir|
+      File.binwrite(File.join(dir, "bbb.png"), "y")
+      File.binwrite(File.join(dir, "fff.png"), "y")
+      File.write(File.join(dir, "s.css"), ".h{background:url('eee.png')}")
+      File.write(File.join(dir, "s.html"),
+        '<link rel="stylesheet" href="s.css"><img src="aaa.png"><script src="ggg.js"></script><a href="#x">x</a>')
+      remap = { "aaa" => "bbb", "eee" => "fff", "ggg" => "hhh", "ccc" => "ddd" }
+      assert_equal [ "ccc" ], PrototypeCapture.unmatched_remap(File.join(dir, "s.html"), remap)
+    end
+  end
+
   def test_inline_screen_embeds_local_assets
     Dir.mktmpdir do |dir|
       write(dir, "tokens.css", ":root { --bg: #fff; } @font-face { src: url(fonts/a.woff2); }")

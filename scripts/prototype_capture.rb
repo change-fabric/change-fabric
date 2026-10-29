@@ -111,11 +111,24 @@ module PrototypeCapture
 
   # Draft => final image pairs the screen never references, so inlining them
   # would swap nothing (the screen points at a stable path, not the keyed one).
+  # Matches on the raw refs (screen src/href values plus url() refs in its
+  # local stylesheets) without resolving them, so a --final render whose
+  # draft images were never generated is not aborted by a missing asset.
   def unmatched_remap(html_path, remap)
     return [] if remap.empty?
 
-    base = inline_screen(html_path)
-    remap.select { |draft, high| inline_screen(html_path, remap: { draft => high }) == base }.keys
+    refs = local_refs(html_path)
+    remap.keys.reject { |draft| refs.any? { |ref| ref.include?(draft) } }
+  end
+
+  def local_refs(html_path)
+    dir = File.dirname(File.expand_path(html_path))
+    refs = File.read(html_path).scan(ATTR_RE).map(&:last).select { |v| local_ref?(v) }
+    css = refs.select { |r| r.split(/[?#]/).first.end_with?('.css') }.filter_map do |r|
+      path = File.expand_path(r.split(/[?#]/).first, dir)
+      File.read(path) if File.file?(path)
+    end
+    refs + css.flat_map { |c| c.scan(/url\(\s*(["']?)([^"')]+)\1\s*\)/i).map(&:last) }
   end
 
   def swap_keys(ref, remap) = remap.reduce(ref) { |acc, (draft, final)| acc.gsub(draft, final) }
