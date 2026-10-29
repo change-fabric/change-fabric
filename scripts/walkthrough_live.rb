@@ -191,11 +191,17 @@ module WalkthroughLive
     end
   end
 
+  def viewport_for(board) = PrototypeCapture::DEFAULT_VIEWPORT.merge(board['viewport'] || {})
+
+  def fps_for(board) = board['fps'] || PrototypeCapture::FPS
+
+  def persona_env_names(persona) = Array(persona.dig('login', 'steps')).filter_map { |s| s['env'] }
+
   # -- secrets -------------------------------------------------------------
 
   # Every env var name the board types or fills.
   def env_names(board)
-    persona = (board['personas'] || {}).values.flat_map { |p| Array(p.dig('login', 'steps')).filter_map { |s| s['env'] } }
+    persona = (board['personas'] || {}).values.flat_map { |p| persona_env_names(p) }
     typed = Array(board['scenes']).flat_map { |s| Array(s['interactions']).filter_map { |op| op['env'] } }
     (persona + typed).uniq
   end
@@ -235,7 +241,7 @@ module WalkthroughLive
   def frames_key(board, scene, parent_key: nil)
     WalkthroughCache.key(live: url(scene), persona: persona_spec(board, scene['persona']), session_from: parent_key,
                          interactions: scene['interactions'] || [], wait: scene['wait'], storage: scene['storage'],
-                         viewport: board['viewport'], fps: board['fps'] || PrototypeCapture::FPS,
+                         viewport: board['viewport'], fps: fps_for(board),
                          duration_ms: PrototypeCapture.scene_duration(scene), browser: browser_opts(board),
                          browserless: PrototypeCapture.browserless_digest, capture_version: CAPTURE_VERSION)
   end
@@ -348,8 +354,8 @@ module WalkthroughLive
   # samples it. Unique frames travel once; `ticks` maps each frame to one.
   def capture_module(board, scene, plan:, session:, lint:, shots: true)
     wait = DEFAULT_WAIT.merge(scene['wait'] || {})
-    vp = PrototypeCapture::DEFAULT_VIEWPORT.merge(board['viewport'] || {})
-    fps = board['fps'] || PrototypeCapture::FPS
+    vp = viewport_for(board)
+    fps = fps_for(board)
     <<~JS
       export default async function ({ page: basePage }) {
         #{page_setup_js(board['viewport'], browser_opts(board)['ignore_https_errors'])}
@@ -452,7 +458,7 @@ module WalkthroughLive
   end
 
   def login(session:, board:, persona:, secrets:)
-    values = Array(persona.dig('login', 'steps')).filter_map { |s| s['env'] }.to_h { |n| [ n, secrets.fetch(n) ] }
+    values = persona_env_names(persona).to_h { |n| [ n, secrets.fetch(n) ] }
     guard(secrets) { PrototypeCapture.run_with_retry(session, login_module(board, persona, values)).fetch('session') }
   end
 
@@ -472,10 +478,10 @@ module WalkthroughLive
   # rubocop:disable Metrics/ParameterLists
   def capture(session:, board:, scene:, out_dir:, secrets:, browser_session: nil, docker: nil, work: nil, shots: true)
     # rubocop:enable Metrics/ParameterLists
-    fps = board['fps'] || PrototypeCapture::FPS
+    fps = fps_for(board)
     frames = PrototypeCapture.frame_count(PrototypeCapture.scene_duration(scene), fps)
     plan = PrototypeCapture.schedule(resolve_interactions(scene['interactions'], secrets).map { |op| op['op'] == 'scroll' ? op.merge('op' => 'wait') : op }, frames, fps)
-    Array(scene['interactions']).each { |op| plan.dig(PrototypeCapture.frame_at(op['t_ms'].to_i, fps))&.store('scroll', op['target']) if op['op'] == 'scroll' }
+    mark_scrolls(plan, scene['interactions'], fps)
     lint_frames = PrototypeUxLint.lint_frames(plan, frames)
     result = guard(secrets) do
       PrototypeCapture.run_with_retry(session, capture_module(board, scene, plan: plan, session: browser_session, lint: lint_frames, shots: shots))
@@ -485,6 +491,14 @@ module WalkthroughLive
   end
 
   # rubocop:disable Metrics/ParameterLists
+  # PrototypeCapture.schedule knows no scroll op (it is scheduled as a wait),
+  # so the scroll target is added to its frame here.
+  def mark_scrolls(plan, interactions, fps)
+    Array(interactions).each do |op|
+      plan.dig(PrototypeCapture.frame_at(op['t_ms'].to_i, fps))&.store('scroll', op['target']) if op['op'] == 'scroll'
+    end
+  end
+
   def write_scene(result, out_dir, label, secrets, docker:, work:, board:)
     # rubocop:enable Metrics/ParameterLists
     FileUtils.rm_rf(out_dir)
@@ -504,7 +518,7 @@ module WalkthroughLive
   end
 
   def to_png!(jpg_dir, out_dir, docker:, work:, board:)
-    vp = PrototypeCapture::DEFAULT_VIEWPORT.merge(board['viewport'] || {})
+    vp = viewport_for(board)
     rel = ->(p) { File.join('/work', p.delete_prefix("#{work}/")) }
     args = [ '-hide_banner', '-nostdin', '-y', '-start_number', '1', '-i', File.join(rel.call(jpg_dir), '%06d.jpg'),
              '-vf', "scale=#{vp['w']}:#{vp['h']}", '-start_number', '1', File.join(rel.call(out_dir), '%06d.png') ]
