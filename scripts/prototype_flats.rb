@@ -33,6 +33,8 @@ module PrototypeFlats
   # screens stays far under browserless's 10 MiB request-body cap.
   THUMB_SCALE = 2
   THUMB_QUALITY = 70
+  # browserless rejects a request body over 10 MiB with HTTP 400.
+  MAX_BODY_BYTES = 10 * 1024 * 1024
 
   module_function
 
@@ -133,6 +135,13 @@ module PrototypeFlats
 
   # The overview board: one full-page screenshot of an HTML grid.
   def board_module(html)
+    mod = board_source(html)
+    raise ArgumentError, "overview board request is #{mod.bytesize} bytes, over browserless's #{MAX_BODY_BYTES} byte body cap; split the board" if mod.bytesize > MAX_BODY_BYTES
+
+    mod
+  end
+
+  def board_source(html)
     <<~JS
       export default async function ({ page: basePage }) {
         #{page_prelude_js(width: BOARD_WIDTH, height: 1000)}

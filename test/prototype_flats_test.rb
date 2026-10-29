@@ -171,6 +171,11 @@ class PrototypeFlatsTest < Minitest::Test
     end
   end
 
+  def test_oversized_board_fails_clearly_before_posting
+    err = assert_raises(ArgumentError) { F.board_module("x" * F::MAX_BODY_BYTES) }
+    assert_match(/body cap/, err.message)
+  end
+
   def test_blocked_request_fails_loudly
     with_root do |root|
       bad = Object.new
