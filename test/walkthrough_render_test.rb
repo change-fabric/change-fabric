@@ -119,6 +119,30 @@ class WalkthroughRenderTest < Minitest::Test
     }
   end
 
+  def scene_input(text, offset_ms, step: 0.05)
+    chars = text.chars
+    align = { "characters" => chars, "character_start_times_seconds" => chars.each_index.map { |i| i * step },
+              "character_end_times_seconds" => chars.each_index.map { |i| (i + 1) * step } }
+    { alignment: align, offset_ms: offset_ms }
+  end
+
+  def parse_srt(srt)
+    srt.split("\n\n").map do |blk|
+      _, times, *lines = blk.split("\n")
+      a, b = times.split(" --> ").map { |t| h, m, s, ms = t.split(/[:,]/).map(&:to_i); (((h * 60) + m) * 60 + s) * 1000 + ms }
+      { start_ms: a, end_ms: b, text: lines.join(" ") }
+    end
+  end
+
+  def test_captions_never_straddle_a_scene_and_never_overlap
+    run = WalkthroughRender::Run.new(@root, providers: providers, out: StringIO.new, gates: { roast: false })
+    inputs = [ scene_input("First scene ends here", 0), scene_input("Second scene starts", 500) ]
+    cues = parse_srt(run.send(:captions, inputs))
+    texts = cues.map { |c| c[:text] }
+    assert_equal [ "First scene ends here", "Second scene starts" ], texts, "no cue mixes words from two scenes"
+    cues.each_cons(2) { |a, b| assert_operator b[:start_ms], :>=, a[:end_ms] }
+  end
+
   def run_render(**opts)
     WalkthroughRender::Run.new(@root, **{ providers: providers, out: StringIO.new, gates: { roast: false } }.merge(opts)).call
   end

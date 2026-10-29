@@ -380,10 +380,11 @@ module WalkthroughRender
     def aligned(inputs) = inputs.select { |i| i[:alignment] }
 
     def captions(inputs)
-      words = aligned(inputs).flat_map do |i|
-        WalkthroughCaptions.word_spans(i[:alignment], offset_ms: i[:offset_ms])
+      # Cues never straddle a scene change: each scene packs its own words.
+      cue_list = aligned(inputs).flat_map do |i|
+        WalkthroughCaptions.cues(WalkthroughCaptions.word_spans(i[:alignment], offset_ms: i[:offset_ms]))
       end
-      WalkthroughCaptions.srt(WalkthroughCaptions.cues(words))
+      WalkthroughCaptions.srt(WalkthroughCaptions.no_overlap(cue_list))
     end
 
     def duck_spans(inputs)

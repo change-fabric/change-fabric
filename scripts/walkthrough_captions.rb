@@ -51,7 +51,14 @@ module WalkthroughCaptions
         line = nil
         first = nil
       end
-      if line && "#{line} #{w[:text]}".length <= MAX_LINE
+      if line&.match?(/[.!?:]\z/)
+        # A finished sentence closes its cue, so the next one starts fresh.
+        lines << line
+        out << { start_ms: first, end_ms: last, lines: lines }
+        lines = []
+        first = nil
+        line = w[:text]
+      elsif line && "#{line} #{w[:text]}".length <= MAX_LINE
         line = "#{line} #{w[:text]}"
       else
         lines << line if line
@@ -67,7 +74,22 @@ module WalkthroughCaptions
     end
     lines << line if line
     out << { start_ms: first, end_ms: last, lines: lines } unless lines.empty?
-    out
+    no_overlap(out)
+  end
+
+  # Aligned word timings can overlap (a sentence's last word is stretched
+  # over its trailing punctuation while the next word starts on the real
+  # onset, and a scene's tail can run past the next scene's offset). Each
+  # cue starts no earlier than the previous one ends; a cue squeezed to
+  # nothing keeps a 1 ms span so it stays valid.
+  def no_overlap(cue_list)
+    prev_end = nil
+    cue_list.map do |c|
+      start = prev_end && c[:start_ms] < prev_end ? prev_end : c[:start_ms]
+      stop = [ c[:end_ms], start + 1 ].max
+      prev_end = stop
+      c.merge(start_ms: start, end_ms: stop)
+    end
   end
 
   def srt(cue_list)

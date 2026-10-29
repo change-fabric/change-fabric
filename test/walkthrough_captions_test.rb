@@ -27,6 +27,32 @@ class WalkthroughCaptionsTest < Minitest::Test
     assert_operator cues.length, :>, 1
   end
 
+  def test_sentence_end_closes_the_cue
+    cues = WalkthroughCaptions.cues(WalkthroughCaptions.word_spans(alignment("Hi there. Next one!")))
+    assert_equal [ [ "Hi there." ], [ "Next one!" ] ], cues.map { |c| c[:lines] }
+  end
+
+  def test_colon_and_question_mark_also_close_a_cue
+    cues = WalkthroughCaptions.cues(WalkthroughCaptions.word_spans(alignment("Why? Note: yes")))
+    assert_equal [ [ "Why?" ], [ "Note:" ], [ "yes" ] ], cues.map { |c| c[:lines] }
+  end
+
+  def test_overlapping_word_timings_never_overlap_cues
+    words = [ { text: "One.", start_ms: 0, end_ms: 900 }, { text: "Two", start_ms: 800, end_ms: 1200 } ]
+    cues = WalkthroughCaptions.cues(words)
+    assert_equal 2, cues.length
+    assert_operator cues[1][:start_ms], :>=, cues[0][:end_ms]
+    assert_operator cues[1][:end_ms], :>, cues[1][:start_ms]
+  end
+
+  def test_no_overlap_clamps_across_a_scene_boundary
+    list = [ { start_ms: 0, end_ms: 2000, lines: [ "a" ] }, { start_ms: 1500, end_ms: 1600, lines: [ "b" ] },
+             { start_ms: 1700, end_ms: 3000, lines: [ "c" ] } ]
+    out = WalkthroughCaptions.no_overlap(list)
+    out.each_cons(2) { |a, b| assert_operator b[:start_ms], :>=, a[:end_ms] }
+    assert_equal %w[a b c], out.map { |c| c[:lines].first }
+  end
+
   def test_srt_golden
     srt = WalkthroughCaptions.srt(WalkthroughCaptions.cues(WalkthroughCaptions.word_spans(alignment("Hi there"))))
     assert_equal "1\n00:00:00,000 --> 00:00:00,800\nHi there\n", srt
