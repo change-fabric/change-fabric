@@ -555,12 +555,12 @@ module WalkthroughRender
       usd = Roast.round_usd(@cache, **inputs)
       return roast_capped unless say_roast_estimate(inputs, usd)
 
-      critic = @p[:roast].call(**inputs, cache_root: @cache)
+      critic = @p[:roast].call(**inputs, cache_root: @cache, allow_sensitive: @gates[:allow_sensitive])
       Roast.write_round(roast_dir, inputs[:round], critic)
       WalkthroughRoast.record_spend(roast_dir, inputs[:round], usd)
       WalkthroughRoast.record_content(roast_dir, inputs[:round], @content_key)
       report_roast_round(inputs[:round], critic)
-    rescue WalkthroughEnv::MissingKeyError, Roast::RequestError => e
+    rescue WalkthroughEnv::MissingKeyError, Roast::RequestError, Roast::SensitiveError, SystemCallError => e
       say("roast: skipped (#{e.message})")
     end
 
@@ -660,7 +660,7 @@ end
 
 if __FILE__ == $PROGRAM_NAME
   usage = 'usage: walkthrough_render.rb walkthrough/<slug> [--scene <id>] [--draft|--final] [--estimate-only] [--max-usd <n>] [--burn-captions] ' \
-          '[--allow-ux-findings] [--allow-roast-findings] [--no-roast] [--roast-max-usd <run cap>] [--recapture]'
+          '[--allow-ux-findings] [--allow-roast-findings] [--no-roast] [--allow-sensitive] [--roast-max-usd <run cap>] [--recapture]'
   dir = ARGV.first
   abort(usage) if dir.nil? || dir.start_with?('--')
   scene = ARGV.include?('--scene') ? (ARGV[ARGV.index('--scene') + 1] || abort(usage)) : nil
@@ -672,7 +672,7 @@ if __FILE__ == $PROGRAM_NAME
   rescue DesignConfig::Error => e
     abort("CHANGE.md design block: #{e.message}")
   end
-  gates = { allow_ux: ARGV.include?('--allow-ux-findings'), allow_roast: ARGV.include?('--allow-roast-findings'),
+  gates = { allow_ux: ARGV.include?('--allow-ux-findings'), allow_roast: ARGV.include?('--allow-roast-findings'), allow_sensitive: ARGV.include?('--allow-sensitive'),
             roast: roast[:roast], roast_max_usd: roast[:max_usd], roast_target: roast[:target],
             roast_rounds: roast[:rounds], roast_model: roast[:model], roast_review: roast[:review] }
   begin

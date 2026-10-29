@@ -454,6 +454,29 @@ class WalkthroughRenderTest < Minitest::Test
     assert_includes out.string, "roast loop: stop: score 9, 0 open P0/P1, target 8.5 reached"
   end
 
+  def test_draft_roast_through_real_critique_is_scanned_for_sensitive_terms
+    terms = File.join(@root, "terms.txt")
+    File.write(terms, "narration by scene")
+    ENV["CF_SENSITIVE_TERMS_FILE"] = terms
+    out = StringIO.new
+    WalkthroughRender::Run.new(@root, providers: providers.merge(roast: ->(**kw) { Roast.critique(**kw) }), out: out).call
+    assert_includes out.string, "roast: skipped (roast refused: 1 sensitive term(s)"
+    refute_includes out.string, "narration by scene"
+    refute File.exist?(File.join(@root, "roast", "round-1.json"))
+  ensure
+    ENV.delete("CF_SENSITIVE_TERMS_FILE")
+  end
+
+  def test_allow_sensitive_gate_reaches_the_roast_provider
+    seen = nil
+    prov = providers.merge(roast: lambda do |**kw|
+      seen = kw[:allow_sensitive]
+      @critic
+    end)
+    WalkthroughRender::Run.new(@root, providers: prov, out: StringIO.new, gates: { allow_sensitive: true }).call
+    assert_equal true, seen
+  end
+
   def test_unconverged_draft_says_continue_and_final_refuses_until_loop_finishes
     @critic = @critic.merge("score" => 7)
     out = StringIO.new

@@ -55,13 +55,17 @@ module RoastKind
   # [candidates, confidence, reason] from a storyboard's narration.
   def board_verdict(board)
     scenes = board.is_a?(Hash) ? Array(board['scenes']) : []
-    spoken = scenes.map { |s| s.is_a?(Hash) ? (s.dig('narration', 'text') || s['narration']).to_s : '' }.join(' ')
+    spoken = scenes.map { |s| s.is_a?(Hash) ? narration_text(s['narration']) : '' }.join(' ')
     found = []
     found << 'promo' if spoken.match?(PROMO_CUES)
     found << 'demo' if spoken.match?(DEMO_CUES)
     return [ VIDEO_KINDS, 'low', 'storyboard has no promo or demo cue' ] if found.empty?
 
     [ found, 'medium', "storyboard narration reads as #{found.join(' and ')}" ]
+  end
+
+  def narration_text(narration)
+    (narration.is_a?(Hash) ? narration['text'] : narration).to_s
   end
 
   def text_verdict(path, body)

@@ -40,6 +40,12 @@ class ClientNameGuardTest < Minitest::Test
     guard(terms_path, tool_name, tool_input, remote_v: remote_v)&.dig("permissionDecision")
   end
 
+  def test_unreadable_terms_file_stays_fail_silent
+    Dir.mktmpdir do |dir|
+      assert_nil guard(dir, "Write", { "content" => "Fixed the Acme Corp login bug." })
+    end
+  end
+
   def test_denies_flagged_term_in_write_content
     with_terms_file("acme corp\n") do |path|
       assert_equal "deny", decision(path, "Write", { "content" => "Fixed the Acme Corp login bug." })

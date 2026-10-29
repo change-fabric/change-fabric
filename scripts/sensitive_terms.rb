@@ -3,7 +3,7 @@
 # The user-local, never-committed list of sensitive terms
 # (~/.claude/cf/sensitive_terms.txt, one per line, '#' comments and blanks
 # ignored). Shared by the client-name guard hook and cf:roast. The list may be
-# absent, in which case there is nothing to match.
+# absent, in which case there is nothing to match; any other read error raises.
 module SensitiveTerms
   DEFAULT_PATH = File.join(Dir.home, '.claude', 'cf', 'sensitive_terms.txt')
 
@@ -12,10 +12,8 @@ module SensitiveTerms
   def path = ENV['CF_SENSITIVE_TERMS_FILE'] || DEFAULT_PATH
 
   def load(terms_path = path)
-    return [] unless File.file?(terms_path)
-
     File.readlines(terms_path).map(&:strip).reject { |line| line.empty? || line.start_with?('#') }
-  rescue StandardError
+  rescue Errno::ENOENT
     []
   end
 

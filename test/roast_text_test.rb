@@ -197,6 +197,46 @@ class RoastTextTest < Minitest::Test
     assert_equal 0, code
   end
 
+  def test_sensitive_term_in_review_contract_refuses
+    File.write(@terms, "finance leads")
+    code, text, http = run_cli("--text", @draft, "--kind", "email")
+    assert_equal 1, code
+    assert_includes text, "1 sensitive term(s)"
+    refute_match(/finance leads/i, text)
+    assert_empty http.requests
+    code, = run_cli("--text", @draft, "--kind", "email", "--allow-sensitive")
+    assert_equal 0, code
+  end
+
+  def test_critique_called_directly_is_scanned_and_override_reaches_it
+    File.write(@terms, "finance leads")
+    args = { brief: "A brief", shots: [ @shot ], history: [], round: 1, cache_root: @cache,
+             review: { audience: "Finance leads", purpose: [ "Approve" ], kind: "explainer" } }
+    http = RoastHttp.new(WHERE_CRITIC)
+    err = assert_raises(Roast::SensitiveError) { Roast.critique(**args, http: http) }
+    refute_match(/finance leads/i, err.message)
+    assert_empty http.requests
+    Roast.critique(**args, http: http, allow_sensitive: true)
+    assert_equal 1, http.requests.size
+  end
+
+  def test_unreadable_terms_file_raises_but_missing_is_empty
+    assert_equal [], SensitiveTerms.load(File.join(@dir, "absent.txt"))
+    File.write(@terms, "")
+    FileUtils.rm_f(@terms)
+    Dir.mkdir(@terms)
+    assert_raises(SystemCallError) { SensitiveTerms.load(@terms) }
+    code, text, http = run_cli("--text", @draft, "--kind", "email")
+    assert_equal 1, code
+    assert_includes text, "error:"
+    assert_empty http.requests
+  end
+
+  def test_board_verdict_accepts_string_or_hash_narration
+    board = { "scenes" => [ { "narration" => "Sign up today." }, { "narration" => { "text" => "Sign up today." } }, { "id" => "x" } ] }
+    assert_equal "promo", RoastKind.infer(storyboard: board, texts: []).kind
+  end
+
   def test_storyboard_review_kind_is_video_only
     assert_equal %w[explainer promo demo], ChangeSchema::VIDEO_REVIEW_KINDS
     assert_empty WalkthroughStoryboard.review_errors({ "kind" => "promo" })

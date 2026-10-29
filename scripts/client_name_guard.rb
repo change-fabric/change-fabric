@@ -72,7 +72,11 @@ class ClientNameGuard
     @remote_v.call.to_s.lines.any? { |line| line.match?(CF_REPO_REMOTE) }
   end
 
-  def banned_terms = SensitiveTerms.load(@terms_path)
+  def banned_terms
+    SensitiveTerms.load(@terms_path)
+  rescue SystemCallError, IOError
+    []
+  end
 
   def offenders(terms)
     text = scannable.join(' ')
