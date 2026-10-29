@@ -499,6 +499,15 @@ module PrototypeCapture
 
   def sha256_file(path) = File.file?(path) ? Digest::SHA256.file(path).hexdigest : nil
 
+  # Why the capture driver skips a scene, or nil to capture it. Live scenes
+  # and ai-broll scenes carry no screen.html; walkthrough_render.rb owns both.
+  def skip_reason(scene)
+    return 'ai-broll scene, rendered by walkthrough_render.rb' if scene['kind'] == 'ai-broll'
+    return 'live scene, captured by walkthrough_render.rb' if scene.dig('screen', 'url')
+
+    nil
+  end
+
   # Resolves a scene's starting state and frames_key, recursing through its
   # from_scene chain via that scene's cached end-state.json.
   def prepare(board, scene, root, memo = {}, final: false)
@@ -565,7 +574,8 @@ if __FILE__ == $PROGRAM_NAME
     memo = {}
     scenes.each do |scene|
       next if only && scene['id'] != only
-      next puts("#{scene['id']}: live scene, captured by walkthrough_render.rb") if scene.dig('screen', 'url')
+      reason = PrototypeCapture.skip_reason(scene)
+      next puts("#{scene['id']}: #{reason}") if reason
 
       PrototypeCapture.ensure_parents(board, scene, root, memo, session) if still
       prep = PrototypeCapture.prepare(board, scene, root, memo)

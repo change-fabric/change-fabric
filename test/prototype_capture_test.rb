@@ -324,4 +324,11 @@ class PrototypeCaptureTest < Minitest::Test
       assert_includes PrototypeCapture.inline_screen(File.join(dir, "x.html")), "<script>go()</script>"
     end
   end
+
+  def test_skip_reason_covers_every_scene_without_a_screen_html
+    assert_match(/ai-broll/, PrototypeCapture.skip_reason("id" => "b", "kind" => "ai-broll", "broll" => {}))
+    assert_match(/ai-broll/, PrototypeCapture.skip_reason("id" => "b", "kind" => "ai-broll", "screen" => { "url" => "https://x" }))
+    assert_match(/live/, PrototypeCapture.skip_reason("id" => "l", "screen" => { "url" => "https://x" }))
+    assert_nil PrototypeCapture.skip_reason("id" => "p", "screen" => { "html" => "screens/a.html" })
+  end
 end
