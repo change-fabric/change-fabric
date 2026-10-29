@@ -113,10 +113,24 @@ module WalkthroughFfmpeg
   # scene and every concat ends on an explicit fps and timebase.
   def scene_output(plan, scene, i)
     tail = scene[:hero_still] ? ",#{hero_filter(plan)}" : ",fps=#{plan[:fps]}"
+    tail = ",#{camera_filter(plan, scene[:camera])}#{tail}" if scene[:camera]
     "#{tail},#{timebase(plan)}[v#{i}]"
   end
 
   def timebase(plan) = "settb=1/#{plan[:fps]}"
+
+  # A camera framing: the frame scales by `zoom` and is cropped back to the
+  # canvas around `focus`, clamped so the crop never leaves the frame. Cursor
+  # and taps are already drawn in, so they stay aligned.
+  def camera_filter(plan, camera)
+    w = plan[:width]
+    h = plan[:height]
+    zw = 2 * (w * camera['zoom'].to_f / 2).floor
+    zh = 2 * (h * camera['zoom'].to_f / 2).floor
+    x = (camera.dig('focus', 'x').to_f * zw - (w / 2.0)).clamp(0, zw - w).round
+    y = (camera.dig('focus', 'y').to_f * zh - (h / 2.0)).clamp(0, zh - h).round
+    "scale=#{zw}:#{zh}:flags=lanczos,crop=#{w}:#{h}:#{x}:#{y},setsar=1"
+  end
 
 
   def hero_filter(plan)

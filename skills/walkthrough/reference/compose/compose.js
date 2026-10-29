@@ -12,5 +12,5 @@ document.getElementById('send').addEventListener('click', () => {
   }
   document.querySelectorAll('input, textarea').forEach((el) => { el.readOnly = true; });
   const send = document.getElementById('send'); send.disabled = true; send.textContent = 'Sent';
-  document.getElementById('status').textContent = thread ? 'Delivered' : 'Message sent';
+  document.getElementById('status').textContent = document.getElementById('status').dataset.sent || (thread ? 'Delivered' : 'Message sent');
 });

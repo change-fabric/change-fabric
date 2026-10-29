@@ -274,6 +274,7 @@ module PrototypeCapture
       entry['type']['text'] << char
       entry['type']['focus'] ||= k.zero?
       entry['type']['after_line'] = op['after_line'] if k.zero? && op['after_line']
+      entry['type']['replace'] = true if k.zero? && op['replace']
     end
   end
 
