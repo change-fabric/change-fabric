@@ -50,4 +50,22 @@ class WalkthroughCaptionsTest < Minitest::Test
     ])
     assert_equal [ { start_ms: 0, end_ms: 200, db: -10 }, { start_ms: 9000, end_ms: 9200, db: -12 } ], spans
   end
+
+  def test_cues_split_at_silent_gaps_in_either_line_position
+    w = ->(text, a, b) { { text: text, start_ms: a, end_ms: b } }
+    # Gap while filling the first line, and gap after a completed first line.
+    [
+      [w['Hello', 0, 500], w['there', 600, 1000], w['Later', 10_000, 11_000]],
+      [w['a' * 40, 0, 1000], w['b' * 10, 1100, 2000], w['Later', 10_000, 11_000]]
+    ].each do |words|
+      cues = WalkthroughCaptions.cues(words)
+      assert_equal 2, cues.length
+      assert_operator cues.first[:end_ms], :<, 10_000
+      assert_equal 10_000, cues.last[:start_ms]
+      assert_equal ['Later'], cues.last[:lines]
+    end
+    # A short pause stays inside one cue.
+    one = WalkthroughCaptions.cues([w['Hi', 0, 400], w['you', 900, 1200]])
+    assert_equal 1, one.length
+  end
 end

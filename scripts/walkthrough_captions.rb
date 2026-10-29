@@ -6,6 +6,9 @@
 module WalkthroughCaptions
   MAX_LINE = 42
   MAX_LINES = 2
+  # A silence longer than this closes the open cue, so a cue never spans a
+  # pause or a silent scene and never shows later narration early.
+  MAX_GAP_MS = 1000
 
   module_function
 
@@ -41,6 +44,13 @@ module WalkthroughCaptions
     first = nil
     last = nil
     words.each do |w|
+      if line && w[:start_ms] - last > MAX_GAP_MS
+        lines << line
+        out << { start_ms: first, end_ms: last, lines: lines }
+        lines = []
+        line = nil
+        first = nil
+      end
       if line && "#{line} #{w[:text]}".length <= MAX_LINE
         line = "#{line} #{w[:text]}"
       else
