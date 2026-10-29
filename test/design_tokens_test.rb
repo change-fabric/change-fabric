@@ -64,6 +64,16 @@ class DesignTokensTest < Minitest::Test
     assert_empty DesignTokens.provenance_lint(md)
   end
 
+  def test_provenance_lint_accepts_figma_evidence_tag
+    md = doc.sub("[assumption]", "[evidence: figma:AbCdEf123#12:34]")
+    assert_empty DesignTokens.provenance_lint(md)
+  end
+
+  def test_provenance_lint_rejects_figma_evidence_without_node
+    md = doc.sub("A line about principles. [assumption]", "Calm. [evidence: figma:AbCdEf123]")
+    assert_equal 1, DesignTokens.provenance_lint(md).size
+  end
+
   def test_provenance_lint_rejects_evidence_without_anchor
     md = doc.sub("A line about principles. [assumption]", "Calm. [evidence: prd.md]")
     assert_equal 1, DesignTokens.provenance_lint(md).size

@@ -34,7 +34,7 @@ module DesignTokens
     "Accessibility commitments", "Components", "Do and do not"
   ].freeze
 
-  PROVENANCE_TAG = /\[(?:evidence: [^\]\s#]+#[^\]\s]+|assumption|proposal)\]/
+  PROVENANCE_TAG = /\[(?:evidence: (?:figma:[A-Za-z0-9]+#[0-9]+[:-][0-9]+|[^\]\s#]+#[^\]\s]+)|assumption|proposal)\]/
   DECLARATION = /\A--?[A-Za-z][\w-]*\s*:/
   FENCE = /\A\s*(```|~~~)/
   COLOR_CHECK = File.expand_path("color_check.rb", __dir__)

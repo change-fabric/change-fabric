@@ -12,3 +12,13 @@ module FigmaUrl
     Parsed.new(file_key: m[3] || m[2], node_id: node, branch_key: m[3], kind: m[1])
   end
 end
+
+if $PROGRAM_NAME == __FILE__
+  require 'json'
+  parsed = FigmaUrl.parse(ARGV.first)
+  unless parsed
+    warn 'usage: figma_url.rb <figma-url> (not a recognized Figma URL)'
+    exit 1
+  end
+  puts JSON.generate(parsed.to_h)
+end

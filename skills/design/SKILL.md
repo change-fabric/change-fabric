@@ -29,13 +29,14 @@ Any of, in priority order:
 1. PRD, SOW, or brief paths named by the user.
 2. An existing `DESIGN.md` and token files (`tokens.css`, a Tailwind theme, CSS custom properties).
 3. Brand assets: logos, brand guidelines, existing marketing pages.
-4. A running app URL. A screenshot via browserless is optional evidence, taken only through `ChangeDocker.with_browserless` and `BrowserlessJs`; never a host browser.
+4. Figma, read as evidence, when `change_config.design.figma.url` is set in the repo's root CHANGE.md or a Figma URL is passed directly. See Figma read below.
+5. A running app URL. A screenshot via browserless is optional evidence, taken only through `ChangeDocker.with_browserless` and `BrowserlessJs`; never a host browser.
 
 With none of these, ask the user for a brief before drafting.
 
 ## Process
 
-Each round runs the same five steps. At most three rounds.
+Each round runs the same five steps. At most `critic_rounds` rounds, read from `DesignConfig.load(repo_root).critic_rounds` (`change_config.design.critic_rounds`, default 3).
 
 1. Read evidence. Record each source path and the anchor (heading or line) you will cite.
 2. Draft. Write an opinionated DESIGN.md in memory from `reference/design-md-template.md`, plus a draft tokens.css. Name the module set, base unit, and scale ratio per cf:fractal. On round two and later, draft from the previous round's revision.
@@ -48,6 +49,8 @@ Each round runs the same five steps. At most three rounds.
    Each critic attacks both the existing system and the draft and returns findings, each with a verdict (keep, change, cut) and a reason.
 4. Consolidate. Merge critic findings. Settle uncontested ones yourself. Collect the contested calls: critics disagree, or a call trades one value against another, or the evidence is silent.
 5. Grill. Ask the user about each contested call with AskUserQuestion, offering concrete options with your recommendation first. Revise the draft from the answers.
+
+In away mode (cf:away), do not ask and do not silently apply a default: write each contested call into DESIGN.md under `## Open questions`, naming the options and the recommended default, and keep the draft on that default until the user answers.
 
 Stop early when a round produces no contested calls. After the last round, write.
 
@@ -73,10 +76,27 @@ AA failures block the write. AAA misses are advisory. Paste the contrast pairs i
 Every content line from Principles through Do and do not carries one inline tag:
 
 - `[evidence: <src>#<anchor>]` for a call drawn from an input
+- `[evidence: figma:<fileKey>#<node>]` for a call drawn from Figma, with the node id as `12:34`
 - `[assumption]` for a call the evidence does not settle
 - `[proposal]` for an opinion this run is bringing to bear
 
 Headings, table header rows, fenced blocks, and blank lines are exempt.
+
+## Figma read
+
+Runs when `change_config.design.figma.url` is set or a Figma URL is passed. MCP tools are agent steps only; no Ruby script or container calls Figma.
+
+1. Parse the URL: `ruby ~/.claude/cf/bin/figma_url.rb <url>` prints JSON with `file_key`, `node_id`, `branch_key`, and `kind`.
+2. Load the Figma MCP skill `/figma-use`.
+3. `create_session` with the file key and a short task description; reuse the session id below.
+4. `get_variable_defs` for the file (and node, when one is given).
+5. `search_design_system` for components, variables, and styles.
+6. Optional: load `/figma-design-to-code`, then `get_design_context` on the node. Its output is a reference, never code to paste.
+7. Write the variables to the snapshot path (`change_config.design.figma.variables_snapshot`, default `design/figma-variables.json`) in the schema in `reference/figma-snapshot.md`.
+
+tokens.css stays the canon. After writing tokens.css, run `ruby ~/.claude/cf/bin/design_tokens.rb drift`; each mismatch against the Figma snapshot becomes a DESIGN.md finding classified by parity, never a silent overwrite of either side.
+
+Fallback: with no URL, or with the Figma MCP tools absent, skip this step and say so in one line of the report. PNG flats remain the deliverable.
 
 ## Moodboards (optional)
 

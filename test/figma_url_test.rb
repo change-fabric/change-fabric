@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'minitest/autorun'
+require 'json'
 require_relative '../scripts/figma_url'
 
 class FigmaUrlTest < Minitest::Test
@@ -44,5 +45,18 @@ class FigmaUrlTest < Minitest::Test
     p = FigmaUrl.parse("  https://www.figma.com/make/Mk9/Thing  \n")
     assert_equal 'Mk9', p.file_key
     assert_equal 'make', p.kind
+  end
+
+  def test_cli_prints_json
+    script = File.expand_path('../scripts/figma_url.rb', __dir__)
+    out = IO.popen(['ruby', script, 'https://www.figma.com/design/AbC1/App?node-id=1-2'], &:read)
+    assert_equal({ 'file_key' => 'AbC1', 'node_id' => '1:2', 'branch_key' => nil, 'kind' => 'design' },
+                 JSON.parse(out))
+  end
+
+  def test_cli_rejects_non_figma_url
+    script = File.expand_path('../scripts/figma_url.rb', __dir__)
+    IO.popen(['ruby', script, 'https://example.com/x', err: File::NULL], &:read)
+    refute $?.success?
   end
 end
