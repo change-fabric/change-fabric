@@ -54,6 +54,16 @@ class WalkthroughStoryboardTest < Minitest::Test
     assert errors_for(b).any? { |e| e.include?("duration_ms is derived") }
   end
 
+  def test_camera_zoom_is_the_only_declared_resize
+    b = board
+    b["scenes"][1]["camera"] = { "zoom" => 1.3 }
+    assert_equal [], errors_for(b)
+    [ { "zoom" => 9 }, { "zoom" => "big" }, { "zoom" => 1.2, "pan" => 1 }, 2 ].each do |bad|
+      b["scenes"][1]["camera"] = bad
+      assert errors_for(b).any? { |e| e.include?("camera") }, bad.inspect
+    end
+  end
+
   def test_id_order_transition_and_op_rules
     b = board
     b["scenes"][0]["id"] = "Bad_Id"

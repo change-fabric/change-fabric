@@ -18,6 +18,7 @@ module WalkthroughStoryboard
   ID_RE = /\A[a-z0-9][a-z0-9-]*\z/
   TRANSITIONS = %w[cut fade].freeze
   FADE_MS = (100..1500)
+  CAMERA_ZOOM = (0.5..3.0)
   DEFAULT_TRANSITION = { 'type' => 'cut', 'ms' => 0 }.freeze
   DEFAULT_IMAGE_SIZE = '1024x1024'
   OPS = %w[move click type hover wait].freeze
@@ -78,6 +79,7 @@ module WalkthroughStoryboard
     errors = []
     errors << 'duration_ms is derived and must not be authored' if scene.key?('duration_ms') || scene['timing'].is_a?(Hash) && scene['timing'].key?('duration_ms')
     errors.concat(transition_errors(scene.dig('timing', 'transition')))
+    errors.concat(camera_errors(scene['camera']))
     errors.concat(interaction_errors(Array(scene['interactions'])))
     Array(scene['hypotheses']).each { |h| errors << "hypothesis #{h} is not in the top-level list" unless hyp_ids.include?(h) }
     errors << 'needs at least one requirement or assumption' if Array(scene['requirements']).empty? && Array(scene['assumptions']).empty?
@@ -134,6 +136,18 @@ module WalkthroughStoryboard
     return [ "fade transition ms must be in #{FADE_MS.min}..#{FADE_MS.max}" ] if type == 'fade' && !FADE_MS.cover?(transition['ms'].to_i)
 
     []
+  end
+
+  # A declared camera zoom is the only way a scene may resize the device
+  # frame (the UX lint's device-frame rule); the screen scales the whole frame
+  # uniformly, never reshapes it.
+  def camera_errors(camera)
+    return [] if camera.nil?
+    return [ 'camera must be an object' ] unless camera.is_a?(Hash)
+    return [ "camera has unknown keys: #{(camera.keys - %w[zoom]).join(', ')}" ] unless (camera.keys - %w[zoom]).empty?
+
+    zoom = camera['zoom']
+    zoom.is_a?(Numeric) && CAMERA_ZOOM.cover?(zoom) ? [] : [ "camera.zoom must be a number in #{CAMERA_ZOOM.min}..#{CAMERA_ZOOM.max}" ]
   end
 
   def interaction_errors(interactions)

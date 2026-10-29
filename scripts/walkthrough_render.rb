@@ -375,8 +375,9 @@ module WalkthroughRender
     # -- gates --------------------------------------------------------------
 
     # The free UX lint: every captured scene's ux-lint.json (a lint-only
-    # browser pass fills any scene captured before the lint existed), merged
-    # into ux-lint.json beside the render.
+    # browser pass fills any scene captured before this lint version), plus
+    # the cross-scene device-frame check, merged into ux-lint.json beside the
+    # render.
     def ux_lint(manifest)
       memo = {}
       todo = []
@@ -386,6 +387,7 @@ module WalkthroughRender
       end.compact
       with_session { |session| todo.each { |scene, prep| reports << lint_scene(session, scene, prep) } } unless todo.empty?
       reports.sort_by! { |r| scenes.index { |s| s['id'] == r['scene'] } }
+      reports = PrototypeUxLint.with_device_findings(reports, zoom: camera_zooms)
       dir = render_dir(manifest)
       FileUtils.mkdir_p(dir)
       File.write(File.join(dir, PrototypeUxLint::REPORT), "#{JSON.pretty_generate({ 'scenes' => reports })}\n")
@@ -393,6 +395,9 @@ module WalkthroughRender
       PrototypeUxLint.summary_lines(reports).each { |line| say("  #{line}") }
       reports
     end
+
+    # Scenes that declare a camera zoom, which alone may resize the device frame.
+    def camera_zooms = scenes.filter_map { |s| (z = s.dig('camera', 'zoom')) && [ s['id'], z.to_f ] }.to_h
 
     def lint_scene(session, scene, prep)
       say("#{scene['id']}: ux lint")
