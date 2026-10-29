@@ -78,7 +78,13 @@ module PrototypeCapture
       src = Regexp.last_match(3)
       next Regexp.last_match(0) unless local_ref?(src)
 
-      "<script#{(Regexp.last_match(1) + Regexp.last_match(4)).rstrip}>#{File.read(asset_path(dir, swap_keys(src, remap))).gsub('</script', '<\/script')}</script>"
+      attrs = (Regexp.last_match(1) + Regexp.last_match(4)).rstrip
+      file = asset_path(dir, swap_keys(src, remap))
+      # defer and async do nothing on an inline classic script, so a script
+      # carrying either keeps a src (as a data URI) to keep its timing.
+      next "<script#{attrs} src=\"#{data_uri(file)}\"></script>" if attrs.match?(/\b(?:defer|async)\b/i)
+
+      "<script#{attrs}>#{File.read(file).gsub('</script', '<\/script')}</script>"
     end
     html.gsub(ATTR_RE) do
       attr, quote, value = Regexp.last_match.captures

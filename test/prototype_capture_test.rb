@@ -291,4 +291,17 @@ class PrototypeCaptureTest < Minitest::Test
     assert_equal 3000, PrototypeCapture.scene_duration("timing" => { "min_ms" => 3000, "pad_ms" => 400 }, "narration" => { "measured_ms" => 1000 })
     assert_equal 5400, PrototypeCapture.scene_duration("timing" => { "min_ms" => 3000, "pad_ms" => 400 }, "narration" => { "measured_ms" => 5000 })
   end
+
+  def test_inline_screen_keeps_deferred_and_async_script_timing
+    Dir.mktmpdir do |dir|
+      File.write(File.join(dir, "s.js"), "go()")
+      %w[defer async].each do |attr|
+        File.write(File.join(dir, "x.html"), %(<script #{attr} src="s.js"></script>))
+        out = PrototypeCapture.inline_screen(File.join(dir, "x.html"))
+        assert_includes out, %(<script #{attr} src="data:text/javascript;base64,#{Base64.strict_encode64('go()')}"></script>)
+      end
+      File.write(File.join(dir, "x.html"), %(<script src="s.js"></script>))
+      assert_includes PrototypeCapture.inline_screen(File.join(dir, "x.html")), "<script>go()</script>"
+    end
+  end
 end
