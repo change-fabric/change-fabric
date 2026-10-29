@@ -18,6 +18,24 @@ Every version below has a frozen, permanently addressable rendering at
 field set: major for a removed, renamed or newly required field, minor for a new
 optional field, patch for a documentation-only clarification.
 
+## [0.13.0] - 2026-10-29
+
+A project can configure design governance in `CHANGE.md`: where its one
+`tokens.css` lives, which Figma file it bridges to, which areas must match
+that file, and what the design critics may spend.
+
+### Added
+
+- `change_config.design`: `tokens`, `tailwind`, `figma.url`,
+  `figma.variables_snapshot`, `figma.code_connect`, `parity.default`,
+  `parity.areas[].match`, `parity.areas[].status`, `parity.areas[].reason`,
+  `roast.auto`, `roast.target`, `roast.rounds`, `roast.max_usd`,
+  `roast.model`, and `critic_rounds`. Validated at config load: `figma.url`
+  must parse as a Figma file URL, an `intentional` area needs a `reason`,
+  `roast.target` is 0 to 10, `roast.rounds` at least 1, `roast.max_usd`
+  greater than 0, `critic_rounds` 1 to 5, and unknown keys are rejected.
+  Fully additive: a `CHANGE.md` with no `design:` block is unaffected.
+
 ## [0.12.0] - 2026-09-17
 
 A project can point the agent-inbox handoff protocol at a shared root instead

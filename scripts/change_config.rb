@@ -432,6 +432,8 @@ class ChangeConfig
     raise ConfigError, 'no lanes enabled' if enabled_lanes.empty?
 
     validate_basic_auth_lanes(lanes || {})
+    design_errors = ChangeSchema.design_errors(@raw['design'])
+    raise ConfigError, design_errors.join('; ') unless design_errors.empty?
   end
 
   # basic_auth only means anything on a lane that drives a real browser page

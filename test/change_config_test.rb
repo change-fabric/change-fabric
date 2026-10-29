@@ -648,4 +648,51 @@ class ChangeConfigTest < Minitest::Test
       refute_match(/not profile-scoped/, summary)
     end
   end
+
+  # --- change_config.design (0.13.0) -------------------------------------------
+
+  def design_config(design)
+    { "lanes" => { "k6" => { "enabled" => true } }, "design" => design }
+  end
+
+  def assert_design_rejected(design, pattern)
+    error = assert_raises(ChangeConfig::ConfigError) { with_config(design_config(design)) { |_c| } }
+    assert_match(pattern, error.message)
+  end
+
+  def test_a_valid_design_block_loads
+    design = {
+      "tokens" => "design/tokens.css", "tailwind" => true,
+      "figma" => { "url" => "https://www.figma.com/design/AbCdEf123/App?node-id=1-2", "code_connect" => false },
+      "parity" => { "default" => "unreviewed", "areas" => [
+        { "match" => "/checkout", "status" => "must_match" },
+        { "match" => "Marketing*", "status" => "intentional", "reason" => "campaign file" }
+      ] },
+      "roast" => { "auto" => true, "target" => 8.5, "rounds" => 4, "max_usd" => 2.0, "model" => nil },
+      "critic_rounds" => 3
+    }
+    with_config(design_config(design)) { |config, _root| assert_equal ["k6"], config.enabled_lanes }
+  end
+
+  def test_a_design_figma_url_that_does_not_parse_is_rejected
+    assert_design_rejected({ "figma" => { "url" => "https://example.com/x" } }, /design\.figma\.url/)
+  end
+
+  def test_an_intentional_area_without_a_reason_is_rejected
+    assert_design_rejected({ "parity" => { "areas" => [{ "match" => "Marketing*", "status" => "intentional" }] } },
+                           /areas\[0\]\.reason/)
+  end
+
+  def test_design_ranges_are_enforced
+    assert_design_rejected({ "roast" => { "target" => 11 } }, /roast\.target/)
+    assert_design_rejected({ "roast" => { "rounds" => 0 } }, /roast\.rounds/)
+    assert_design_rejected({ "roast" => { "max_usd" => 0 } }, /roast\.max_usd/)
+    assert_design_rejected({ "critic_rounds" => 6 }, /critic_rounds/)
+    assert_design_rejected({ "critic_rounds" => 0 }, /critic_rounds/)
+  end
+
+  def test_unknown_design_keys_are_rejected
+    assert_design_rejected({ "colour" => "red" }, /design sets unknown key\(s\): colour/)
+    assert_design_rejected({ "roast" => { "budget" => 1 } }, /roast sets unknown key/)
+  end
 end

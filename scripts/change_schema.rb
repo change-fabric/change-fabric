@@ -15,8 +15,10 @@
 # frontmatter field is added, removed, or renamed, and record the change in the
 # spec doc's changelog. A field-set change without a matching version bump, or a
 # version bump the doc does not reflect, is exactly what the drift test catches.
+require_relative 'figma_url'
+
 module ChangeSchema
-  VERSION = '0.12.0'
+  VERSION = '0.13.0'
 
   # The five audit lanes, the authoritative list the config validator enforces.
   LANES = %w[k6 a11y zap browserless testcases].freeze
@@ -207,6 +209,26 @@ module ChangeSchema
     'change_config.lanes.testcases.auth.steps[].submit_selector',
     'change_config.lanes.testcases.auth.steps[].wait_for_selector',
     'change_config.lanes.testcases.auth.steps[].timeout_ms',
+    # change_config.design (0.13.0): per-project design governance. tokens.css
+    # stays the one design source; Figma is an optional evidence bridge named
+    # by URL; parity says which areas must match Figma and which diverge on
+    # purpose; roast and critic_rounds tune the paid and unpaid critics.
+    # Validated by ChangeSchema.design_errors below, read by DesignConfig.
+    'change_config.design.tokens',
+    'change_config.design.tailwind',
+    'change_config.design.figma.url',
+    'change_config.design.figma.variables_snapshot',
+    'change_config.design.figma.code_connect',
+    'change_config.design.parity.default',
+    'change_config.design.parity.areas[].match',
+    'change_config.design.parity.areas[].status',
+    'change_config.design.parity.areas[].reason',
+    'change_config.design.roast.auto',
+    'change_config.design.roast.target',
+    'change_config.design.roast.rounds',
+    'change_config.design.roast.max_usd',
+    'change_config.design.roast.model',
+    'change_config.design.critic_rounds',
     # change_config.profiles (0.2.0): named deploy-target overrides sharing one
     # audit surface. A profile may only set project, boot.*, and a lane's
     # enabled/base_url, never its routes/thresholds/viewports, so one CHANGE.md
@@ -406,4 +428,96 @@ module ChangeSchema
     'contributors_team.artifacts.media.video',
     'contributors_team.artifacts.media.video_fps'
   ].freeze
+  # The design block's accepted keys and parity statuses (0.13.0).
+  DESIGN_KEYS = %w[tokens tailwind figma parity roast critic_rounds].freeze
+  DESIGN_FIGMA_KEYS = %w[url variables_snapshot code_connect].freeze
+  DESIGN_PARITY_KEYS = %w[default areas].freeze
+  DESIGN_AREA_KEYS = %w[match status reason].freeze
+  DESIGN_ROAST_KEYS = %w[auto target rounds max_usd model].freeze
+  PARITY_STATUSES = %w[must_match intentional unreviewed].freeze
+
+  # Every problem with a change_config.design block, as messages naming the
+  # field. Empty when the block is absent or valid. Shared by ChangeConfig's
+  # validator and DesignConfig so the rules live in one place.
+  def self.design_errors(design)
+    return [] if design.nil?
+    return ['change_config.design must be a mapping'] unless design.is_a?(Hash)
+
+    errors = unknown_keys(design, DESIGN_KEYS, 'change_config.design')
+    errors << 'change_config.design.tokens must be a string' if design.key?('tokens') && !design['tokens'].is_a?(String)
+    errors << 'change_config.design.tailwind must be a boolean' if design.key?('tailwind') && !boolean?(design['tailwind'])
+    errors.concat(figma_errors(design['figma'])) if design.key?('figma')
+    errors.concat(parity_errors(design['parity'])) if design.key?('parity')
+    errors.concat(roast_errors(design['roast'])) if design.key?('roast')
+    if design.key?('critic_rounds') && !int_in?(design['critic_rounds'], 1..5)
+      errors << 'change_config.design.critic_rounds must be an integer from 1 to 5'
+    end
+    errors
+  end
+
+  def self.figma_errors(figma)
+    field = 'change_config.design.figma'
+    return ["#{field} must be a mapping"] unless figma.is_a?(Hash)
+
+    errors = unknown_keys(figma, DESIGN_FIGMA_KEYS, field)
+    if figma.key?('url') && FigmaUrl.parse(figma['url']).nil?
+      errors << "#{field}.url is not a Figma file URL: #{figma['url'].inspect}"
+    end
+    errors << "#{field}.variables_snapshot must be a string" if figma.key?('variables_snapshot') && !figma['variables_snapshot'].is_a?(String)
+    errors << "#{field}.code_connect must be a boolean" if figma.key?('code_connect') && !boolean?(figma['code_connect'])
+    errors
+  end
+
+  def self.parity_errors(parity)
+    field = 'change_config.design.parity'
+    return ["#{field} must be a mapping"] unless parity.is_a?(Hash)
+
+    errors = unknown_keys(parity, DESIGN_PARITY_KEYS, field)
+    if parity.key?('default') && !PARITY_STATUSES.include?(parity['default'])
+      errors << "#{field}.default must be one of #{PARITY_STATUSES.join(', ')}"
+    end
+    areas = parity.fetch('areas', [])
+    return errors << "#{field}.areas must be a list" unless areas.is_a?(Array)
+
+    areas.each_with_index { |area, i| errors.concat(area_errors(area, "#{field}.areas[#{i}]")) }
+    errors
+  end
+
+  def self.area_errors(area, field)
+    return ["#{field} must be a mapping"] unless area.is_a?(Hash)
+
+    errors = unknown_keys(area, DESIGN_AREA_KEYS, field)
+    errors << "#{field}.match must be a non-empty string" unless present?(area['match'])
+    errors << "#{field}.status must be one of #{PARITY_STATUSES.join(', ')}" unless PARITY_STATUSES.include?(area['status'])
+    if area['status'] == 'intentional' && !present?(area['reason'])
+      errors << "#{field}.reason is required when status is intentional"
+    end
+    errors
+  end
+
+  def self.roast_errors(roast)
+    field = 'change_config.design.roast'
+    return ["#{field} must be a mapping"] unless roast.is_a?(Hash)
+
+    errors = unknown_keys(roast, DESIGN_ROAST_KEYS, field)
+    errors << "#{field}.auto must be a boolean" if roast.key?('auto') && !boolean?(roast['auto'])
+    if roast.key?('target') && !(roast['target'].is_a?(Numeric) && roast['target'].between?(0, 10))
+      errors << "#{field}.target must be a number from 0 to 10"
+    end
+    errors << "#{field}.rounds must be an integer of at least 1" if roast.key?('rounds') && !int_in?(roast['rounds'], 1..)
+    if roast.key?('max_usd') && !(roast['max_usd'].is_a?(Numeric) && roast['max_usd'].positive?)
+      errors << "#{field}.max_usd must be a number greater than 0"
+    end
+    errors << "#{field}.model must be a string or null" if roast.key?('model') && !(roast['model'].nil? || roast['model'].is_a?(String))
+    errors
+  end
+
+  def self.unknown_keys(hash, allowed, field)
+    unknown = hash.keys.map(&:to_s) - allowed
+    unknown.empty? ? [] : ["#{field} sets unknown key(s): #{unknown.join(', ')}"]
+  end
+
+  def self.boolean?(value) = [true, false].include?(value)
+  def self.int_in?(value, range) = value.is_a?(Integer) && range.cover?(value)
+  def self.present?(value) = value.is_a?(String) && !value.strip.empty?
 end
