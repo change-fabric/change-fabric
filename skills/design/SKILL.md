@@ -96,6 +96,16 @@ Runs when `change_config.design.figma.url` is set or a Figma URL is passed. MCP 
 
 tokens.css stays the canon. After writing tokens.css, run `ruby ~/.claude/cf/bin/design_tokens.rb drift`; each mismatch against the Figma snapshot becomes a DESIGN.md finding classified by parity, never a silent overwrite of either side.
 
+Parity is declared per area in `change_config.design.parity` (`scripts/design_parity.rb`). Each Figma finding's area is the snapshot variable's `area` field, else its Figma name, matched against `parity.areas[].match` globs in order (first match wins, else `parity.default`, which defaults to `unreviewed`). `must_match` is an error (exit 1), `intentional` is info carrying its required recorded reason, `unreviewed` is a warning that never fails. Order the specific rule first. Drift against copies of canon (screens copies, the storyboard hash, compiled Tailwind) is always `must_match`. `drift --json` carries `parity` and `reason` on every finding; record intentional divergence in DESIGN.md with its reason, and raise unreviewed areas as open questions.
+
+## Code Connect (optional, built apps only)
+
+Default off. Runs only when `change_config.design.figma.code_connect: true` and the repo has real code components; a prototype-only project skips it silently.
+
+1. Read mappings with `get_code_connect_map` on the configured file. Reading is the only automatic step.
+2. Classify each mapped component by its component name with the same parity area rules, and report the status beside the mapping.
+3. Call `add_code_connect_map` only on an explicit user request naming the component; never write mappings on inference.
+
 Fallback: with no URL, or with the Figma MCP tools absent, skip this step and say so in one line of the report. PNG flats remain the deliverable.
 
 ## Moodboards (optional)

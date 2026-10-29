@@ -170,11 +170,14 @@ class DesignTokensTest < Minitest::Test
   def test_drift_storyboard_stale_hash
     errs = drift_errors(drift_opts(storyboard: File.join(DRIFT, "storyboard_stale.json")))
     assert_equal [ "tokens_css_sha256" ], errs.map(&:token)
+    assert_equal [ "must_match" ], errs.map(&:parity)
   end
 
   def test_drift_figma_mismatch_and_unmapped_info
-    errs = drift_errors(drift_opts(figma_snapshot: File.join(DRIFT, "figma_drift.json")))
-    assert_equal [ [ "--accent", "#1a5fff" ] ], errs.map { |f| [ f.token, f.actual ] }
+    strict = DesignConfig.from_hash({ "parity" => { "default" => "must_match" } })
+    errs = drift_errors(drift_opts(figma_snapshot: File.join(DRIFT, "figma_drift.json"), parity: strict))
+    assert_equal [ [ "--accent", "#1a5fff", "must_match" ] ], errs.map { |f| [ f.token, f.actual, f.parity ] }
+    assert_empty drift_errors(drift_opts(figma_snapshot: File.join(DRIFT, "figma_drift.json")))
     infos = DesignTokens::Drift.run(drift_opts).select { |f| f.severity == "info" }
     assert(infos.any? { |f| f.message.include?("color/unused") })
   end
@@ -214,8 +217,9 @@ class DesignTokensTest < Minitest::Test
     assert_equal 0, code
     assert_match(/no drift/, out)
     code, out, = drift_cli(*base, "--json", "--figma-snapshot", File.join(DRIFT, "figma_drift.json"))
-    assert_equal 1, code
-    assert_equal "--accent", JSON.parse(out)["findings"].find { |f| f["severity"] == "error" }["token"]
+    assert_equal 0, code
+    warning = JSON.parse(out)["findings"].find { |f| f["severity"] == "warning" }
+    assert_equal [ "--accent", "unreviewed" ], warning.values_at("token", "parity")
     assert_equal 2, drift_cli("--bogus").first
     assert_equal 2, drift_cli("--root", DRIFT, "--tokens", "/missing.css").first
   end

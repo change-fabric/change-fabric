@@ -7,6 +7,7 @@ require "rbconfig"
 require "digest"
 require "optparse"
 require_relative "design_config"
+require_relative "design_parity"
 
 # Lints a DESIGN.md against its companion tokens.css for cf:design. Ruby never
 # parses CSS here: the css fences are found by a markdown fence scan, the
@@ -169,13 +170,17 @@ module DesignTokens
     DEFAULT_SCREENS = "screens"
     DEFAULT_STORYBOARD = "storyboard.json"
 
-    DriftFinding = Struct.new(:source, :token, :expected, :actual, :severity, :message) do
-      def to_h = { source: source, token: token, expected: expected, actual: actual, severity: severity, message: message }
+    DriftFinding = Struct.new(:source, :token, :expected, :actual, :severity, :message, :parity, :reason) do
+      def to_h
+        { source: source, token: token, expected: expected, actual: actual, severity: severity, message: message,
+          parity: parity, reason: reason }
+      end
       def mismatch? = severity == "error"
 
       def to_s
         detail = token ? "#{token}: expected #{expected.inspect}, got #{actual.inspect}" : message
-        "#{severity}: #{source}: #{detail}"
+        tag = parity ? " [#{parity}#{reason ? ": #{reason}" : ''}]" : ""
+        "#{severity}: #{source}: #{detail}#{tag}"
       end
     end
 
@@ -197,8 +202,20 @@ module DesignTokens
         actual = other[name]
         next if expected && actual && normalize(expected) == normalize(actual)
 
-        DriftFinding.new(source, name, expected, actual, "error", nil)
+        copy_mismatch(source, name, expected, actual)
       end
+    end
+
+    # A mismatch against a copy of canon: always must_match, always an error.
+    def copy_mismatch(source, token, expected, actual, message = nil)
+      c = DesignParity::CANON_COPY
+      DriftFinding.new(source, token, expected, actual, c.severity, message, c.status, c.reason)
+    end
+
+    # A Figma mismatch: severity follows the area's parity status.
+    def figma_mismatch(area, token, expected, actual, parity)
+      c = DesignParity.classify(area, parity)
+      DriftFinding.new("figma", token, expected, actual, c.severity, nil, c.status, c.reason)
     end
 
     def screens(canon_bytes, screens_dir)
@@ -211,7 +228,7 @@ module DesignTokens
         next [] if Digest::SHA256.hexdigest(bytes) == canon_sha
 
         props = compare_properties(copy, properties(canon_bytes), properties(bytes))
-        props.empty? ? [ DriftFinding.new(copy, nil, canon_sha, Digest::SHA256.hexdigest(bytes), "error", "bytes differ from tokens.css") ] : props
+        props.empty? ? [ copy_mismatch(copy, nil, canon_sha, Digest::SHA256.hexdigest(bytes), "bytes differ from tokens.css") ] : props
       end
     end
 
@@ -222,7 +239,7 @@ module DesignTokens
       return [ info("storyboard", "#{path} has no tokens_css_sha256; skipped") ] if recorded.nil?
 
       expected = Digest::SHA256.hexdigest(canon_bytes)
-      recorded == expected ? [] : [ DriftFinding.new(path, "tokens_css_sha256", expected, recorded, "error", nil) ]
+      recorded == expected ? [] : [ copy_mismatch(path, "tokens_css_sha256", expected, recorded) ]
     rescue JSON::ParserError => e
       [ info("storyboard", "#{path} is not JSON (#{e.message[0, 80]}); skipped") ]
     end
@@ -238,17 +255,18 @@ module DesignTokens
       compare_properties("tailwind", properties(canon_bytes), properties(result.css), only_shared: true)
     end
 
-    def figma(canon_bytes, path)
+    # parity responds to parity_default and parity_areas; nil means defaults.
+    # A variable's area is its "area" field, else its Figma name.
+    def figma(canon_bytes, path, parity = nil)
       return [ info("figma", "no Figma snapshot at #{path}; skipped") ] unless path && File.exist?(path)
 
       canon = properties(canon_bytes)
       Array(JSON.parse(File.read(path))["variables"]).flat_map do |var|
         token = var["token"]
         next [ info("figma", "variable #{var['name']} maps to no token") ] if token.to_s.empty?
-        next [ DriftFinding.new("figma", token, nil, var["value"], "error", nil) ] unless canon.key?(token)
-        next [] if normalize(canon[token]) == normalize(var["value"])
+        next [] if canon.key?(token) && normalize(canon[token]) == normalize(var["value"])
 
-        [ DriftFinding.new("figma", token, canon[token], var["value"], "error", nil) ]
+        [ figma_mismatch(var["area"] || var["name"], token, canon[token], var["value"], parity) ]
       end
     rescue JSON::ParserError => e
       [ info("figma", "#{path} is not JSON (#{e.message[0, 80]}); skipped") ]
@@ -262,7 +280,7 @@ module DesignTokens
     end
 
     # opts: tokens, screens, storyboard, figma_snapshot, tailwind (true/false/nil),
-    # tailwind_input, root.
+    # tailwind_input, root, parity (a DesignConfig::Config; nil means defaults).
     def run(opts, compiler: default_compiler)
       canon = File.binread(opts.fetch(:tokens))
       findings = screens(canon, opts[:screens]) + storyboard(canon, opts[:storyboard])
@@ -271,7 +289,7 @@ module DesignTokens
       else
         findings += tailwind(canon, opts[:root], opts[:tailwind_input] || opts[:tokens], compiler)
       end
-      findings + figma(canon, opts[:figma_snapshot])
+      findings + figma(canon, opts[:figma_snapshot], opts[:parity])
     end
   end
 
@@ -313,7 +331,9 @@ module DesignTokens
         out.puts JSON.generate(tokens: opts[:tokens], findings: findings.map(&:to_h))
       else
         findings.each { |f| out.puts f }
-        out.puts(findings.any?(&:mismatch?) ? "#{findings.count(&:mismatch?)} mismatch(es)" : "no drift")
+        warnings = findings.count { |f| f.severity == "warning" }
+        summary = findings.any?(&:mismatch?) ? "#{findings.count(&:mismatch?)} mismatch(es)" : "no drift"
+        out.puts(warnings.zero? ? summary : "#{summary}, #{warnings} unreviewed warning(s)")
       end
       findings.any?(&:mismatch?) ? 1 : 0
     rescue DesignConfig::Error => e
@@ -340,6 +360,7 @@ module DesignTokens
     def fill_drift_defaults(opts)
       root = opts[:root] ||= Dir.pwd
       config = DesignConfig.load(root)
+      opts[:parity] ||= config
       opts[:tailwind] = config.tailwind unless opts.key?(:tailwind)
       opts[:tokens] ||= File.join(root, config.tokens)
       opts[:screens] ||= File.join(root, Drift::DEFAULT_SCREENS)

@@ -17,5 +17,6 @@ Ruby scripts never call Figma. The agent reads Figma variables through the Figma
 | `variables[].token` | The `tokens.css` custom property it maps to. Omit when unmapped. |
 | `variables[].value` | The resolved value, compared after whitespace and case folding. |
 | `variables[].node` | Optional node id the variable was read on. |
+| `variables[].area` | Optional parity area (route, component, or label); defaults to `name`. |
 
-Drift results: a mapped variable whose value differs, or whose token is absent from `tokens.css`, is a mismatch (exit 1). An unmapped variable is an info line. A missing or unreadable snapshot is skipped with an info line. A stale snapshot is refreshed by re-running the cf:design Figma read step.
+Drift results: a mapped variable whose value differs, or whose token is absent from `tokens.css`, is a finding whose severity follows that area's parity: `must_match` is a mismatch (exit 1), `intentional` is info with its reason, `unreviewed` (the default) is a warning. An unmapped variable is an info line. A missing or unreadable snapshot is skipped with an info line. A stale snapshot is refreshed by re-running the cf:design Figma read step.
