@@ -135,9 +135,15 @@ module WalkthroughRoast
 
   def rebuttal_for?(issue, response) = response && response['verdict'] == 'rebut' && response['screen'] == issue['screen']
 
+  # A rebuttal names the issue by its problem text wherever it sits; one with
+  # no problem text can only mean the issue at its own position.
   def rebutted?(issue, responses, index)
-    rebuttal_for?(issue, responses[index]) ||
-      responses.any? { |r| rebuttal_for?(issue, r) && issue['problem'].to_s.include?(r['problem'].to_s.strip) }
+    responses.each_with_index.any? do |r, i|
+      next false unless rebuttal_for?(issue, r)
+
+      named = r['problem'].to_s.strip
+      named.empty? ? i == index : issue['problem'].to_s.include?(named)
+    end
   end
   private_class_method :rebuttal_for?, :rebutted?
 

@@ -68,6 +68,24 @@ class WalkthroughRoastTest < Minitest::Test
     end
   end
 
+  # A rebuttal clears only the issue its problem text names, whatever its position.
+  def test_rebuttal_matches_by_problem_not_position
+    swapped = [ { "screen" => "s", "problem" => "Caption hides", "verdict" => "rebut" },
+                { "screen" => "s", "problem" => "Toast hides", "verdict" => "accept" } ]
+    cases = {
+      "swapped order" => [ swapped, [ "Toast hides CTA" ] ],
+      "positional, no problem text" => [ [ { "screen" => "s", "verdict" => "rebut" }, { "screen" => "s", "verdict" => "accept" } ], [ "Caption hides nav" ] ],
+      "positional, wrong problem text" => [ [ { "screen" => "s", "problem" => "Something else", "verdict" => "rebut" } ], [ "Toast hides CTA", "Caption hides nav" ] ],
+      "wrong screen" => [ [ { "screen" => "t", "problem" => "Toast hides", "verdict" => "rebut" } ], [ "Toast hides CTA", "Caption hides nav" ] ]
+    }
+    cases.each do |name, (responses, expected)|
+      Dir.mktmpdir do |dir|
+        round(dir, 1, [ issue("P1"), issue("P1", "Caption hides nav") ], responses)
+        assert_equal expected, WalkthroughRoast.open_blockers(Roast.load_history(dir)).map { |i| i["problem"] }, name
+      end
+    end
+  end
+
   def test_transcript_lists_scene_timing_wpm_and_captions
     board = { "scenes" => [ { "id" => "a", "narration" => { "text" => "One two three four" } }, { "id" => "b" } ] }
     manifest = { "timeline" => { "fps" => 10 },
