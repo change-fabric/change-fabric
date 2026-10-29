@@ -141,6 +141,42 @@ A filmed login, with later scenes reusing its session:
 - Env-typed and filled values are masked as `[masked]` in logs, errors, and the lint report, and are not key material. An unset env var fails with its name only.
 - Live scenes record in real time (no controlled clock): a screencast is sampled at the board `fps`. Flats are prototype-only; `prototype_capture.rb` skips live scenes.
 
+## Devices and layouts
+
+A live or compose scene picks the devices it films and how they share the frame:
+
+```json
+{ "phone": { "w": 390, "h": 844, "dpr": 2, "ua": "optional mobile user agent" } }
+{ "id": "checkout", "screen": { "url": "https://app.localhost/checkout" }, "persona": "member",
+  "devices": ["desktop", "phone"], "layout": "side_by_side",
+  "interactions": { "desktop": [{ "t_ms": 0, "op": "click", "target": "#pay" }],
+                    "phone": [{ "t_ms": 0, "op": "click", "target": "#menu" }] } }
+```
+
+- `devices` is `["desktop"]`, `["phone"]`, or `["desktop", "phone"]`; `layout` is `single` (default) or `side_by_side`. Two devices need `side_by_side`, and `side_by_side` needs both. No `devices` means desktop single: the board viewport, full bleed, as before.
+- Top-level `phone` (optional) sets the phone viewport: `w` and `h` (integers in 100..4000), `dpr` (1..4), and `ua`. The default is 390 x 844 at dpr 2 with a generic mobile user agent. A phone scene runs under mobile emulation (`isMobile`, `hasTouch`, the mobile user agent).
+- A phone or side-by-side scene is composited onto the board canvas: each device sits in a plain bezel on a neutral background, scaled to fit above the caption band, so captions clear every frame. A phone shows tap ripples instead of the arrow; the desktop keeps the arrow.
+- Side-by-side devices are captured in parallel against the same URL and the same starting session. `interactions` is one list both devices play, or `{ "desktop": [...], "phone": [...] }`. A scene's end session (for `session_from_scene`) is its first device's. Cookies and storage are keyed by origin, so a session crosses between desktop and phone scenes.
+- The device-frame lint compares frames only within one group (device and layout, such as `phone side_by_side`).
+- The unreleased single `device` field is gone: validation rejects it in favor of `devices` and the board `phone` spec.
+
+## Compose scene
+
+`"kind": "compose"` films a simulated compose UI (a neutral mail window or text message composer, from the templates in `reference/compose/`). It never sends anything. A live scene's clicks on `mailto:`, `sms:`, and `tel:` links (and `window.open` of one) are caught instead of followed, parsed (to, cc, bcc, subject, body; sms recipients and body, percent decoded, line breaks kept), and written to the scene's `links.json`. A compose scene fills from the last email or sms link an earlier live scene caught, or from an explicit spec:
+
+```json
+{ "id": "inquiry", "order": 4, "kind": "compose", "compose": { "from_scene": "listing" },
+  "interactions": [{ "t_ms": 0, "op": "type", "target": "#body", "text": "Two seats, please" },
+                   { "t_ms": 2000, "op": "click", "target": "#send" }] }
+{ "id": "text", "order": 5, "kind": "compose", "devices": ["phone"],
+  "compose": { "channel": "sms", "to": "+15550100", "body": "On my way" } }
+```
+
+- `compose` is `{ "from_scene": "<earlier live scene>" }` alone, or explicit `channel` (`email` or `sms`), `to` (required), and for email `cc`, `bcc`, `subject`; `body` for both. Recipients are a string or a list.
+- Field ids are fixed: `#to`, `#cc`, `#bcc`, `#subject`, `#body`, `#send`, and `#status`. Clicking `#send` shows the sent state.
+- A compose scene has no `screen`, `store`, `persona`, `session_from_scene`, or `storage`; it takes `wait`, `devices`, and `layout`, and gets the UX lint. ASSUMPTIONS.md lists it under Simulated UI.
+- An app that sets `location.href` to a `mailto:` link directly is not caught; give it an explicit spec.
+
 ## Rules
 
 - `id` matches `\A[a-z0-9][a-z0-9-]*\z` and is unique; `order` is unique and contiguous from 1.
@@ -156,7 +192,8 @@ A filmed login, with later scenes reusing its session:
 
 All keys are sha256 hex over canonical JSON (sorted keys, no whitespace).
 
-- `frames_key` (live scene): URL, the persona name and login spec (env names, never values), the session parent's frames key, interactions, `wait`, `storage`, viewport, fps, the derived duration, `browser`, the browserless image digest, and the live capture version. It recaptures only with `--recapture` or `--scene` (which pulls in its `session_from_scene` dependents).
+- `frames_key` (compose scene): the compose spec, the template version, the source scene's frames key, and the same capture fields as a live scene.
+- `frames_key` (live scene): URL, devices with their specs, layout, the persona name and login spec (env names, never values), the session parent's frames key, interactions, `wait`, `storage`, viewport, fps, the derived duration, `browser`, the browserless image digest, and the live capture version. It recaptures only with `--recapture` or `--scene` (which pulls in its `session_from_scene` dependents).
 - `frames_key`: screen html sha256, the inlined screen with every local asset, `tokens_css_sha256`, interactions, viewport, fps, the browserless image digest, the capture script version, the derived duration, the seed sha256, the mock-store.js sha256, the resolved starting state, and `prng_seed`.
 - `audio_key`: narration text, voice id, model, output format, and voice settings.
 - `asset_key` (images): prompt, model id, size, quality, and reference image digests.
