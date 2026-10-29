@@ -671,7 +671,7 @@ class ChangeConfigTest < Minitest::Test
       "roast" => { "auto" => true, "target" => 8.5, "rounds" => 4, "max_usd" => 2.0, "model" => nil },
       "critic_rounds" => 3
     }
-    with_config(design_config(design)) { |config, _root| assert_equal ["k6"], config.enabled_lanes }
+    with_config(design_config(design)) { |config, _root| assert_equal [ "k6" ], config.enabled_lanes }
   end
 
   def test_a_design_figma_url_that_does_not_parse_is_rejected
@@ -679,7 +679,7 @@ class ChangeConfigTest < Minitest::Test
   end
 
   def test_an_intentional_area_without_a_reason_is_rejected
-    assert_design_rejected({ "parity" => { "areas" => [{ "match" => "Marketing*", "status" => "intentional" }] } },
+    assert_design_rejected({ "parity" => { "areas" => [ { "match" => "Marketing*", "status" => "intentional" } ] } },
                            /areas\[0\]\.reason/)
   end
 

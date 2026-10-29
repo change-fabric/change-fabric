@@ -43,7 +43,7 @@ class DesignConfigTest < Minitest::Test
     design = {
       "tokens" => "ui/tokens.css",
       "figma" => { "url" => "https://www.figma.com/design/AbCdEf123/App?node-id=1-2" },
-      "parity" => { "areas" => [{ "match" => "Marketing*", "status" => "intentional", "reason" => "campaign" }] },
+      "parity" => { "areas" => [ { "match" => "Marketing*", "status" => "intentional", "reason" => "campaign" } ] },
       "roast" => { "max_usd" => 0.5 },
       "critic_rounds" => 5
     }

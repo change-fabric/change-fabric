@@ -441,7 +441,7 @@ module ChangeSchema
   # validator and DesignConfig so the rules live in one place.
   def self.design_errors(design)
     return [] if design.nil?
-    return ['change_config.design must be a mapping'] unless design.is_a?(Hash)
+    return [ 'change_config.design must be a mapping' ] unless design.is_a?(Hash)
 
     errors = unknown_keys(design, DESIGN_KEYS, 'change_config.design')
     errors << 'change_config.design.tokens must be a string' if design.key?('tokens') && !design['tokens'].is_a?(String)
@@ -457,7 +457,7 @@ module ChangeSchema
 
   def self.figma_errors(figma)
     field = 'change_config.design.figma'
-    return ["#{field} must be a mapping"] unless figma.is_a?(Hash)
+    return [ "#{field} must be a mapping" ] unless figma.is_a?(Hash)
 
     errors = unknown_keys(figma, DESIGN_FIGMA_KEYS, field)
     if figma.key?('url') && FigmaUrl.parse(figma['url']).nil?
@@ -470,7 +470,7 @@ module ChangeSchema
 
   def self.parity_errors(parity)
     field = 'change_config.design.parity'
-    return ["#{field} must be a mapping"] unless parity.is_a?(Hash)
+    return [ "#{field} must be a mapping" ] unless parity.is_a?(Hash)
 
     errors = unknown_keys(parity, DESIGN_PARITY_KEYS, field)
     if parity.key?('default') && !PARITY_STATUSES.include?(parity['default'])
@@ -484,7 +484,7 @@ module ChangeSchema
   end
 
   def self.area_errors(area, field)
-    return ["#{field} must be a mapping"] unless area.is_a?(Hash)
+    return [ "#{field} must be a mapping" ] unless area.is_a?(Hash)
 
     errors = unknown_keys(area, DESIGN_AREA_KEYS, field)
     errors << "#{field}.match must be a non-empty string" unless present?(area['match'])
@@ -497,7 +497,7 @@ module ChangeSchema
 
   def self.roast_errors(roast)
     field = 'change_config.design.roast'
-    return ["#{field} must be a mapping"] unless roast.is_a?(Hash)
+    return [ "#{field} must be a mapping" ] unless roast.is_a?(Hash)
 
     errors = unknown_keys(roast, DESIGN_ROAST_KEYS, field)
     errors << "#{field}.auto must be a boolean" if roast.key?('auto') && !boolean?(roast['auto'])
@@ -514,10 +514,10 @@ module ChangeSchema
 
   def self.unknown_keys(hash, allowed, field)
     unknown = hash.keys.map(&:to_s) - allowed
-    unknown.empty? ? [] : ["#{field} sets unknown key(s): #{unknown.join(', ')}"]
+    unknown.empty? ? [] : [ "#{field} sets unknown key(s): #{unknown.join(', ')}" ]
   end
 
-  def self.boolean?(value) = [true, false].include?(value)
+  def self.boolean?(value) = [ true, false ].include?(value)
   def self.int_in?(value, range) = value.is_a?(Integer) && range.cover?(value)
   def self.present?(value) = value.is_a?(String) && !value.strip.empty?
 end
