@@ -491,8 +491,20 @@ module WalkthroughRender
       WalkthroughFfmpeg.sendcmd_files(plan).each { |path, body| File.write(host_path(path), body) }
       preflight!
       measured = WalkthroughFfmpeg.parse_loudnorm(ffmpeg!(WalkthroughFfmpeg.pass1(plan), 'pass 1'))
-      ffmpeg!(WalkthroughFfmpeg.pass2(plan, measured), 'pass 2')
-      require_file!(mp4, 'rendered mp4')
+      verify_mp4!(mp4) { ffmpeg!(WalkthroughFfmpeg.pass2(plan, measured), 'pass 2') }
+    end
+
+    # A render is a cache hit by the mere presence of its mp4, so the file must
+    # exist only once assembly succeeded and left real output. Any failure,
+    # including a zero-byte or missing result, removes the partial file.
+    def verify_mp4!(mp4)
+      yield
+      raise MissingCacheError, "rendered mp4 is empty: #{relative(mp4)}" unless File.size?(mp4)
+
+      mp4
+    rescue StandardError
+      FileUtils.rm_f(mp4)
+      raise
     end
 
     # -- gates --------------------------------------------------------------

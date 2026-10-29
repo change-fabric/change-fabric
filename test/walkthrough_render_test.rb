@@ -228,6 +228,32 @@ class WalkthroughRenderTest < Minitest::Test
     assert_equal "mp4", File.read(second[:mp4])
   end
 
+  def test_failed_pass_two_leaves_no_cached_mp4_and_the_next_run_reassembles
+    real = providers[:docker]
+    failing = providers.merge(docker: lambda do |argv|
+      next real.call(argv) unless argv.last.end_with?("walkthrough.mp4")
+
+      File.binwrite(argv.last.sub(%r{\A/work/}, "#{@root}/"), "partial")
+      [ "boom", Status.new(false) ]
+    end)
+    assert_raises(WalkthroughRender::FfmpegError) { run_render(providers: failing) }
+    assert_empty Dir.glob(File.join(@root, ".cache", "render", "*", "walkthrough.mp4")), "a failed assembly is never a cache hit"
+    result = run_render
+    assert_equal "mp4", File.read(result[:mp4])
+  end
+
+  def test_zero_byte_pass_two_output_is_not_kept
+    real = providers[:docker]
+    empty = providers.merge(docker: lambda do |argv|
+      next real.call(argv) unless argv.last.end_with?("walkthrough.mp4")
+
+      File.binwrite(argv.last.sub(%r{\A/work/}, "#{@root}/"), "")
+      [ "", Status.new(true) ]
+    end)
+    assert_raises(WalkthroughRender::MissingCacheError) { run_render(providers: empty) }
+    assert_empty Dir.glob(File.join(@root, ".cache", "render", "*", "walkthrough.mp4"))
+  end
+
   def test_burned_captions_never_reuse_a_soft_render
     soft = run_render
     @calls[:docker].clear
