@@ -203,6 +203,7 @@ module PrototypeCapture
       entry['type'] ||= { 'target' => op['target'], 'text' => +'', 'focus' => k.zero? }
       entry['type']['text'] << char
       entry['type']['focus'] ||= k.zero?
+      entry['type']['after_line'] = op['after_line'] if k.zero? && op['after_line']
     end
   end
 

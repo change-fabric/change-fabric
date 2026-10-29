@@ -213,8 +213,10 @@ module WalkthroughLive
       if op['op'] == 'type'
         errs << 'type takes exactly one of text or env' if op.key?('text') == op.key?('env')
         errs << 'env must be an env var name like APP_PASSWORD' if op.key?('env') && !op['env'].to_s.match?(ENV_RE)
-      elsif op.key?('env')
-        errs << 'env applies only to a type op'
+        errs << 'after_line must be a non-empty string' if op.key?('after_line') && op['after_line'].to_s.empty?
+        errs << 'after_line needs a live or compose scene' if !live && op.key?('after_line')
+      elsif op.key?('env') || op.key?('after_line')
+        errs << 'env and after_line apply only to a type op'
       end
       errs.map { |e| "interaction #{i}: #{e}" }
     end
@@ -500,6 +502,15 @@ module WalkthroughLive
           }
           if (step.type) {
             if (step.type.focus) await page.focus(step.type.target);
+            // after_line puts the caret at the end of the first line that
+            // starts with it, so typing fills in a prefilled template line.
+            if (step.type.after_line) await page.$eval(step.type.target, (el, prefix) => {
+              const lines = el.value.split("\\n");
+              const at = lines.findIndex((l) => l.startsWith(prefix));
+              if (at < 0) throw new Error(`no line starting with ${prefix}`);
+              const end = lines.slice(0, at + 1).join("\\n").length;
+              el.setSelectionRange(end, end);
+            }, step.type.after_line);
             for (const ch of step.type.text) await page.keyboard.type(ch);
           }
           await sleep(t0 + i * stepMs - Date.now());
@@ -519,9 +530,14 @@ module WalkthroughLive
           down = false;
         }
         if (job.shots) await client.send("Page.stopScreencast");
+        // The compose page's end fields, so a run can confirm what was sent.
+        const composed = job.html ? await safe(() => page.evaluate(() => ({
+          body: document.getElementById("body").value, send: document.getElementById("send").textContent,
+          status: document.getElementById("status").textContent,
+          bubbles: [...document.querySelectorAll(".bubble")].map((b) => b.textContent) })), null) : null;
         const out = await dumpSession(page, client);
         if (context) await context.close();
-        return { name: dev.name, frames: store, ticks, cursor, pageErrors, lint, devices, overlays, links, session: out };
+        return { name: dev.name, frames: store, ticks, cursor, pageErrors, lint, devices, overlays, links, composed, session: out };
       };
     JS
   end
