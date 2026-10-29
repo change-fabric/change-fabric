@@ -129,4 +129,84 @@ class DesignTokensTest < Minitest::Test
       assert_equal 2, DesignTokens::CLI.run([ "check" ], out: StringIO.new, err: StringIO.new)
     end
   end
+
+  DRIFT = File.expand_path("fixtures/design_drift", __dir__)
+  Compiled = Struct.new(:css, :error)
+
+  def drift_opts(**over)
+    { root: DRIFT, tokens: File.join(DRIFT, "tokens.css"), screens: File.join(DRIFT, "screens_match"),
+      storyboard: File.join(DRIFT, "storyboard_match.json"), figma_snapshot: File.join(DRIFT, "figma_match.json"),
+      tailwind: false }.merge(over)
+  end
+
+  def drift_errors(opts, compiler: ->(*) { flunk "no compile" })
+    DesignTokens::Drift.run(opts, compiler: compiler).select(&:mismatch?)
+  end
+
+  def test_drift_properties_scan
+    assert_equal({ "--a" => "#fff", "--b" => "1px  solid red" },
+                 DesignTokens::Drift.properties(":root{--a:#fff; /* --c: x; */ --b: 1px  solid red}"))
+  end
+
+  def test_drift_all_sources_match
+    assert_empty drift_errors(drift_opts)
+  end
+
+  def test_drift_screens_copy_mismatch_lists_property
+    errs = drift_errors(drift_opts(screens: File.join(DRIFT, "screens_drift")))
+    assert_equal [ [ "--accent", "#0a5cff", "#ff0000" ] ], errs.map { |f| [ f.token, f.expected, f.actual ] }
+  end
+
+  def test_drift_storyboard_stale_hash
+    errs = drift_errors(drift_opts(storyboard: File.join(DRIFT, "storyboard_stale.json")))
+    assert_equal [ "tokens_css_sha256" ], errs.map(&:token)
+  end
+
+  def test_drift_figma_mismatch_and_unmapped_info
+    errs = drift_errors(drift_opts(figma_snapshot: File.join(DRIFT, "figma_drift.json")))
+    assert_equal [ [ "--accent", "#1a5fff" ] ], errs.map { |f| [ f.token, f.actual ] }
+    infos = DesignTokens::Drift.run(drift_opts).select { |f| f.severity == "info" }
+    assert(infos.any? { |f| f.message.include?("color/unused") })
+  end
+
+  def test_drift_tailwind_stubbed_compile
+    stub = ->(_root, path) { Compiled.new(File.read(path), nil) }
+    assert_empty drift_errors(drift_opts(tailwind: true, tailwind_input: File.join(DRIFT, "tailwind_match.css")), compiler: stub)
+    errs = drift_errors(drift_opts(tailwind: true, tailwind_input: File.join(DRIFT, "tailwind_drift.css")), compiler: stub)
+    assert_equal [ "--accent" ], errs.map(&:token)
+  end
+
+  def test_drift_tailwind_compile_error_is_skipped
+    stub = ->(*) { Compiled.new(nil, "no node_modules") }
+    findings = DesignTokens::Drift.run(drift_opts(tailwind: nil), compiler: stub)
+    assert(findings.none?(&:mismatch?))
+    assert(findings.any? { |f| f.source == "tailwind" && f.message.include?("no node_modules") })
+  end
+
+  def test_drift_missing_sources_are_info
+    findings = DesignTokens::Drift.run(drift_opts(screens: "/nope", storyboard: "/nope.json", figma_snapshot: "/nope.json"),
+                                       compiler: ->(*) { flunk })
+    assert(findings.none?(&:mismatch?))
+    assert_equal %w[screens storyboard tailwind figma], findings.map(&:source)
+  end
+
+  def drift_cli(*args)
+    out = StringIO.new
+    err = StringIO.new
+    code = DesignTokens::CLI.run([ "drift", *args ], out: out, err: err, compiler: ->(*) { Compiled.new(nil, "stub") })
+    [ code, out.string, err.string ]
+  end
+
+  def test_drift_cli_exit_codes
+    base = [ "--root", DRIFT, "--tokens", File.join(DRIFT, "tokens.css"), "--screens", File.join(DRIFT, "screens_match"),
+             "--storyboard", File.join(DRIFT, "storyboard_match.json"), "--figma-snapshot", File.join(DRIFT, "figma_match.json") ]
+    code, out, = drift_cli(*base, "--no-tailwind")
+    assert_equal 0, code
+    assert_match(/no drift/, out)
+    code, out, = drift_cli(*base, "--json", "--figma-snapshot", File.join(DRIFT, "figma_drift.json"))
+    assert_equal 1, code
+    assert_equal "--accent", JSON.parse(out)["findings"].find { |f| f["severity"] == "error" }["token"]
+    assert_equal 2, drift_cli("--bogus").first
+    assert_equal 2, drift_cli("--root", DRIFT, "--tokens", "/missing.css").first
+  end
 end

@@ -4,6 +4,9 @@
 require "json"
 require "open3"
 require "rbconfig"
+require "digest"
+require "optparse"
+require_relative "design_config"
 
 # Lints a DESIGN.md against its companion tokens.css for cf:design. Ruby never
 # parses CSS here: the css fences are found by a markdown fence scan, the
@@ -154,12 +157,135 @@ module DesignTokens
     required_sections(design_md) + misses + provenance_lint(design_md)
   end
 
+  # Token drift: tokens.css is the only canon. Every other source (screens
+  # copies, the storyboard hash, compiled Tailwind properties, a Figma
+  # variables snapshot) is compared against it and never written back to.
+  # Custom properties are read by the same line-level declaration scan lint
+  # uses; any compile goes through color_compile.rb. No CSS parser here.
+  module Drift
+    module_function
+
+    PROPERTY = /(--[A-Za-z][\w-]*)\s*:\s*([^;{}]+?)\s*(?:;|(?=\}))/
+    DEFAULT_SCREENS = "screens"
+    DEFAULT_STORYBOARD = "storyboard.json"
+
+    DriftFinding = Struct.new(:source, :token, :expected, :actual, :severity, :message) do
+      def to_h = { source: source, token: token, expected: expected, actual: actual, severity: severity, message: message }
+      def mismatch? = severity == "error"
+
+      def to_s
+        detail = token ? "#{token}: expected #{expected.inspect}, got #{actual.inspect}" : message
+        "#{severity}: #{source}: #{detail}"
+      end
+    end
+
+    # Custom property name => value, last declaration wins, comments blanked.
+    def properties(css)
+      text = css.to_s.dup.force_encoding(Encoding::UTF_8).scrub.gsub(%r{/\*.*?\*/}m, " ")
+      text.scan(PROPERTY).to_h { |name, value| [ name, value.strip ] }
+    end
+
+    # Whitespace and case only; a value that differs beyond that is drift.
+    def normalize(value) = value.to_s.strip.gsub(/\s+/, " ").downcase
+
+    def info(source, message) = DriftFinding.new(source, nil, nil, nil, "info", message)
+
+    def compare_properties(source, canon, other, only_shared: false)
+      names = only_shared ? (canon.keys & other.keys) : (canon.keys | other.keys)
+      names.filter_map do |name|
+        expected = canon[name]
+        actual = other[name]
+        next if expected && actual && normalize(expected) == normalize(actual)
+
+        DriftFinding.new(source, name, expected, actual, "error", nil)
+      end
+    end
+
+    def screens(canon_bytes, screens_dir)
+      copies = screens_dir && Dir.exist?(screens_dir) ? Dir.glob(File.join(screens_dir, "**", "tokens.css")).sort : []
+      return [ info("screens", "no screens/tokens.css copies found; skipped") ] if copies.empty?
+
+      canon_sha = Digest::SHA256.hexdigest(canon_bytes)
+      copies.flat_map do |copy|
+        bytes = File.binread(copy)
+        next [] if Digest::SHA256.hexdigest(bytes) == canon_sha
+
+        props = compare_properties(copy, properties(canon_bytes), properties(bytes))
+        props.empty? ? [ DriftFinding.new(copy, nil, canon_sha, Digest::SHA256.hexdigest(bytes), "error", "bytes differ from tokens.css") ] : props
+      end
+    end
+
+    def storyboard(canon_bytes, path)
+      return [ info("storyboard", "no storyboard at #{path}; skipped") ] unless path && File.exist?(path)
+
+      recorded = JSON.parse(File.read(path))["tokens_css_sha256"]
+      return [ info("storyboard", "#{path} has no tokens_css_sha256; skipped") ] if recorded.nil?
+
+      expected = Digest::SHA256.hexdigest(canon_bytes)
+      recorded == expected ? [] : [ DriftFinding.new(path, "tokens_css_sha256", expected, recorded, "error", nil) ]
+    rescue JSON::ParserError => e
+      [ info("storyboard", "#{path} is not JSON (#{e.message[0, 80]}); skipped") ]
+    end
+
+    # compiler is ColorCompile.read(root, path) or a stub returning an object
+    # with css and error.
+    def tailwind(canon_bytes, root, input, compiler)
+      return [ info("tailwind", "no Tailwind input at #{input}; skipped") ] unless input && File.exist?(input)
+
+      result = compiler.call(root, input)
+      return [ info("tailwind", "compile failed, skipped: #{result.error}") ] if result.error
+
+      compare_properties("tailwind", properties(canon_bytes), properties(result.css), only_shared: true)
+    end
+
+    def figma(canon_bytes, path)
+      return [ info("figma", "no Figma snapshot at #{path}; skipped") ] unless path && File.exist?(path)
+
+      canon = properties(canon_bytes)
+      Array(JSON.parse(File.read(path))["variables"]).flat_map do |var|
+        token = var["token"]
+        next [ info("figma", "variable #{var['name']} maps to no token") ] if token.to_s.empty?
+        next [ DriftFinding.new("figma", token, nil, var["value"], "error", nil) ] unless canon.key?(token)
+        next [] if normalize(canon[token]) == normalize(var["value"])
+
+        [ DriftFinding.new("figma", token, canon[token], var["value"], "error", nil) ]
+      end
+    rescue JSON::ParserError => e
+      [ info("figma", "#{path} is not JSON (#{e.message[0, 80]}); skipped") ]
+    end
+
+    def default_compiler
+      lambda do |root, path|
+        require_relative "color_compile"
+        ColorCompile.read(File.expand_path(root), File.expand_path(path))
+      end
+    end
+
+    # opts: tokens, screens, storyboard, figma_snapshot, tailwind (true/false/nil),
+    # tailwind_input, root.
+    def run(opts, compiler: default_compiler)
+      canon = File.binread(opts.fetch(:tokens))
+      findings = screens(canon, opts[:screens]) + storyboard(canon, opts[:storyboard])
+      if opts[:tailwind] == false
+        findings << info("tailwind", "disabled; skipped")
+      else
+        findings += tailwind(canon, opts[:root], opts[:tailwind_input] || opts[:tokens], compiler)
+      end
+      findings + figma(canon, opts[:figma_snapshot])
+    end
+  end
+
   module CLI
     module_function
 
     USAGE = "usage: design_tokens.rb lint DESIGN.md tokens.css [--json] [--contrast]"
 
-    def run(argv, out: $stdout, err: $stderr)
+    DRIFT_USAGE = "usage: design_tokens.rb drift [--root DIR] [--tokens PATH] [--screens DIR] [--storyboard PATH] " \
+                  "[--figma-snapshot PATH] [--tailwind|--no-tailwind] [--json]"
+
+    def run(argv, out: $stdout, err: $stderr, compiler: nil)
+      return drift(argv.drop(1), out: out, err: err, compiler: compiler) if argv.first == "drift"
+
       command, design, tokens, *flags = argv
       unless command == "lint" && design && tokens && (flags - %w[--json --contrast]).empty?
         err.puts USAGE
@@ -174,6 +300,52 @@ module DesignTokens
         out.puts(findings.empty? ? "clean" : "#{findings.size} finding(s)")
       end
       findings.empty? ? 0 : 1
+    end
+
+    def drift(argv, out:, err:, compiler: nil)
+      opts = parse_drift(argv)
+      unless opts && File.exist?(opts[:tokens])
+        err.puts(opts ? "tokens.css not found: #{opts[:tokens]}" : DRIFT_USAGE)
+        return 2
+      end
+      findings = compiler ? Drift.run(opts, compiler: compiler) : Drift.run(opts)
+      if opts[:json]
+        out.puts JSON.generate(tokens: opts[:tokens], findings: findings.map(&:to_h))
+      else
+        findings.each { |f| out.puts f }
+        out.puts(findings.any?(&:mismatch?) ? "#{findings.count(&:mismatch?)} mismatch(es)" : "no drift")
+      end
+      findings.any?(&:mismatch?) ? 1 : 0
+    rescue DesignConfig::Error => e
+      err.puts "CHANGE.md design block: #{e.message}"
+      2
+    end
+
+    def parse_drift(argv)
+      opts = {}
+      OptionParser.new do |o|
+        o.on("--root DIR") { |v| opts[:root] = v }
+        o.on("--tokens PATH") { |v| opts[:tokens] = v }
+        o.on("--screens DIR") { |v| opts[:screens] = v }
+        o.on("--storyboard PATH") { |v| opts[:storyboard] = v }
+        o.on("--figma-snapshot PATH") { |v| opts[:figma_snapshot] = v }
+        o.on("--[no-]tailwind") { |v| opts[:tailwind] = v }
+        o.on("--json") { opts[:json] = true }
+      end.parse!(argv.dup).then { |rest| return nil unless rest.empty? }
+      fill_drift_defaults(opts)
+    rescue OptionParser::ParseError
+      nil
+    end
+
+    def fill_drift_defaults(opts)
+      root = opts[:root] ||= Dir.pwd
+      config = DesignConfig.load(root)
+      opts[:tailwind] = config.tailwind unless opts.key?(:tailwind)
+      opts[:tokens] ||= File.join(root, config.tokens)
+      opts[:screens] ||= File.join(root, Drift::DEFAULT_SCREENS)
+      opts[:storyboard] ||= File.join(root, Drift::DEFAULT_STORYBOARD)
+      opts[:figma_snapshot] ||= File.join(root, config.variables_snapshot)
+      opts
     end
   end
 end
