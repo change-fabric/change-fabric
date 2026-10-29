@@ -6,6 +6,7 @@ require 'json'
 require 'net/http'
 require 'optparse'
 require 'uri'
+require_relative 'design_config'
 require_relative 'walkthrough_cache'
 require_relative 'walkthrough_env'
 
@@ -36,7 +37,8 @@ module Roast
   MAX_OUTPUT_TOKENS = 4000
   MIME = { '.png' => 'image/png', '.jpg' => 'image/jpeg', '.jpeg' => 'image/jpeg', '.webp' => 'image/webp' }.freeze
   USAGE = 'usage: roast.rb --brief FILE --shot IMG... [--history DIR] [--out-dir DIR] [--round N] ' \
-          '[--max-usd N] [--cache DIR] [--transcript FILE] [--estimate-only] | roast.rb decide --out-dir DIR [--target N] [--cap N]'
+          '[--max-usd N] [--model NAME] [--cache DIR] [--transcript FILE] [--estimate-only] | roast.rb decide --out-dir DIR [--target N] [--cap N] | roast.rb settings [--repo DIR]; ' \
+          'flags win over change_config.design.roast in CHANGE.md (--repo DIR, default the working directory)'
 
   SYSTEM_PROMPT = <<~TEXT
     You are a harsh, specific UX critic. Roast the screens: no praise padding, no vague taste talk.
@@ -102,8 +104,8 @@ module Roast
 
   # `transcript` is optional narration and caption text the critic reads next to
   # the frames; it joins the key only when present, so frame-only keys are stable.
-  def request_key(brief:, shots:, history:, round:, transcript: nil)
-    WalkthroughCache.key({ model: MODEL, brief: brief, round: round, history: history,
+  def request_key(brief:, shots:, history:, round:, transcript: nil, model: MODEL)
+    WalkthroughCache.key({ model: model, brief: brief, round: round, history: history,
                            shots: shots.map { |s| Digest::SHA256.file(s).hexdigest } }
                            .merge(transcript ? { transcript: transcript } : {}))
   end
@@ -185,10 +187,10 @@ module Roast
   end
 
   # Returns the cached critic JSON, making the paid call only on a miss.
-  def critique(brief:, shots:, history:, round:, cache_root:, transcript: nil, http: nil)
-    key = request_key(brief: brief, shots: shots, history: history, round: round, transcript: transcript)
+  def critique(brief:, shots:, history:, round:, cache_root:, transcript: nil, http: nil, model: MODEL)
+    key = request_key(brief: brief, shots: shots, history: history, round: round, transcript: transcript, model: model)
     path = WalkthroughCache.fetch(*cache_args(cache_root, key)) do |tmp|
-      request = build_request(brief: brief, shots: shots, history: history, round: round, transcript: transcript)
+      request = build_request(brief: brief, shots: shots, history: history, round: round, transcript: transcript, model: model)
       File.write(tmp, JSON.generate(parse_critic(post(request, http))))
     end
     JSON.parse(File.read(path))
@@ -250,6 +252,10 @@ module Roast
         args.shift
         return decide(parse_decide(args), out)
       end
+      if args.first == 'settings'
+        args.shift
+        return settings(parse_settings(args), out)
+      end
 
       opts = parse(args)
       WalkthroughEnv.load_secrets
@@ -258,14 +264,40 @@ module Roast
     rescue UsageError, OptionParser::ParseError => e
       out.puts("error: #{e.message}", USAGE)
       2
-    rescue CeilingError, RequestError, WalkthroughEnv::MissingKeyError, SystemCallError => e
+    rescue CeilingError, RequestError, WalkthroughEnv::MissingKeyError, SystemCallError, DesignConfig::Error => e
       out.puts("error: #{e.message}")
       1
     end
 
+    # The change_config.design.roast keys a repo's CHANGE.md sets explicitly,
+    # validated, as option keys. Only set keys apply, so a repo with no block
+    # keeps this script's own defaults; a flag given on the command line wins.
+    def configured(repo)
+      path = File.join(repo.to_s, 'CHANGE.md')
+      front = File.exist?(path) ? ChangeFrontmatter.parse_file(path) : {}
+      block = front.is_a?(Hash) ? front.dig('change_config', 'design') : nil
+      roast = DesignConfig.from_hash(block).roast
+      set = (block.is_a?(Hash) && block['roast'].is_a?(Hash) ? block['roast'] : {}).keys
+      { auto: roast.auto, target: roast.target, cap: roast.rounds, max_usd: roast.max_usd, model: roast.model }
+        .select { |k, _| set.include?(CONFIG_KEYS.fetch(k)) }.compact
+    end
+
+    CONFIG_KEYS = { auto: 'auto', target: 'target', cap: 'rounds', max_usd: 'max_usd', model: 'model' }.freeze
+
+    def repo_arg(args)
+      i = args.index('--repo')
+      return Dir.pwd unless i
+
+      args.delete_at(i)
+      args.delete_at(i) || raise(UsageError, '--repo needs a directory')
+    end
+
     def parse(args)
-      opts = { shots: [], max_usd: DEFAULT_CEILING_USD, cache: '.cache', out_dir: DEFAULT_OUT_DIR }
+      repo = repo_arg(args)
+      opts = { shots: [], max_usd: DEFAULT_CEILING_USD, cache: '.cache', out_dir: DEFAULT_OUT_DIR, model: MODEL }
+             .merge(configured(repo).slice(:max_usd, :model))
       OptionParser.new do |o|
+        o.on('--model NAME') { |v| opts[:model] = v }
         o.on('--brief FILE') { |v| opts[:brief_file] = v }
         o.on('--shot IMG') { |v| opts[:shots] << v }
         o.on('--history DIR') { |v| opts[:history] = v }
@@ -284,13 +316,29 @@ module Roast
     end
 
     def parse_decide(args)
-      opts = { out_dir: DEFAULT_OUT_DIR, target: DEFAULT_TARGET, cap: DEFAULT_CAP }
+      repo = repo_arg(args)
+      opts = { out_dir: DEFAULT_OUT_DIR, target: DEFAULT_TARGET, cap: DEFAULT_CAP }.merge(configured(repo).slice(:target, :cap))
       OptionParser.new do |o|
         o.on('--out-dir DIR') { |v| opts[:out_dir] = v }
         o.on('--target N', Float) { |v| opts[:target] = v }
         o.on('--cap N', Integer) { |v| opts[:cap] = v }
       end.parse!(args)
       opts
+    end
+
+    def parse_settings(args)
+      repo = repo_arg(args)
+      raise UsageError, "unknown argument: #{args.first}" unless args.empty?
+
+      { auto: true, target: DEFAULT_TARGET, cap: DEFAULT_CAP, max_usd: DEFAULT_CEILING_USD, model: MODEL }.merge(configured(repo))
+    end
+
+    # Prints the resolved settings; auto: false tells a loading skill (cf:design,
+    # cf:prototype, cf:walkthrough) to skip the roast, as --no-roast does.
+    def settings(opts, out)
+      out.puts("roast settings: auto #{opts[:auto]}, target #{opts[:target]}, rounds #{opts[:cap]}, " \
+               "max_usd #{format('%.2f', opts[:max_usd])}, model #{opts[:model]}")
+      0
     end
 
     def decide(opts, out)
@@ -316,7 +364,7 @@ module Roast
       { brief: File.read(opts[:brief_file]).strip, shots: opts[:shots],
         history: Roast.load_history(opts[:history] || opts[:out_dir]),
         round: opts[:round] || Roast.next_round(opts[:out_dir]),
-        transcript: opts[:transcript_file] && File.read(opts[:transcript_file]).strip }
+        transcript: opts[:transcript_file] && File.read(opts[:transcript_file]).strip, model: opts[:model] }
     end
 
     # Prints the estimate before any paid call and returns the USD it will cost.

@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'fileutils'
+require_relative 'design_config'
 require_relative 'roast'
 require_relative 'walkthrough_storyboard'
 
@@ -53,6 +54,21 @@ module WalkthroughRoast
   TEXT
 
   module_function
+
+  # The loop's settings for one run: each flag given wins, else
+  # change_config.design.roast in the repo's CHANGE.md, else the defaults above.
+  # `flags` keys: :roast (false is --no-roast), :max_usd, :target, :rounds,
+  # :model. auto: false in the config reads as --no-roast. A malformed design
+  # block raises DesignConfig::Error naming the field.
+  def settings(repo_root, flags = {})
+    cfg = DesignConfig.load(repo_root).roast
+    given = flags.compact
+    { roast: given.fetch(:roast, cfg.auto != false),
+      max_usd: given.fetch(:max_usd, cfg.max_usd || DEFAULT_CEILING_USD).to_f,
+      target: given.fetch(:target, cfg.target || TARGET).to_f,
+      rounds: given.fetch(:rounds, cfg.rounds || ROUND_CAP).to_i,
+      model: given.fetch(:model, cfg.model || Roast::MODEL) }
+  end
 
   # Keyframes as [{ scene:, label:, frame: (0-based, whole video) }], in
   # video order. `overlays` maps scene id to { overlay => first local frame }.
@@ -153,7 +169,7 @@ module WalkthroughRoast
   # The loop's stop rule over the latest round. Unlike Roast.decide (any one of
   # target, no blockers, or cap stops), converging here needs the 8.5 target AND
   # no open P0/P1, so the blocker check comes first and a cap stop is never a pass.
-  def decide(dir, cap_usd: DEFAULT_CEILING_USD)
+  def decide(dir, cap_usd: DEFAULT_CEILING_USD, target: TARGET, rounds: ROUND_CAP)
     last = Roast.load_history(dir).last
     return { stop: false, converged: false, reason: 'no roast round yet' } unless last
 
@@ -162,16 +178,16 @@ module WalkthroughRoast
     state = "score #{score}, #{blockers.size} open P0/P1"
     total = spent(dir)
     cost = format('$%.2f of $%.2f', total, cap_usd)
-    if score >= TARGET && blockers.empty?
-      { stop: true, converged: true, reason: "#{state}, target #{TARGET} reached" }
-    elsif last[:round] >= ROUND_CAP
-      { stop: true, converged: false, reason: "round cap #{ROUND_CAP} reached, #{state}" }
+    if score >= target && blockers.empty?
+      { stop: true, converged: true, reason: "#{state}, target #{target} reached" }
+    elsif last[:round] >= rounds
+      { stop: true, converged: false, reason: "round cap #{rounds} reached, #{state}" }
     elsif unreadable?(dir)
       { stop: true, converged: false, reason: "spend ledger unreadable, treated as cap reached, #{state}" }
     elsif capped?(dir) || total >= cap_usd - 1e-9
       { stop: true, converged: false, reason: "spend cap reached (#{cost}), #{state}" }
     else
-      { stop: false, converged: false, reason: "#{state}, round #{last[:round]} of #{ROUND_CAP}, #{cost} spent" }
+      { stop: false, converged: false, reason: "#{state}, round #{last[:round]} of #{rounds}, #{cost} spent" }
     end
   end
 
@@ -185,7 +201,7 @@ module WalkthroughRoast
   # Raises when --final has no finished roast loop behind it: no roast on
   # record (when one is required), an open P0 or P1 (also at a cap, which
   # reports them), or a loop that has neither converged nor hit a cap.
-  def gate!(dir, allow: false, cap_usd: DEFAULT_CEILING_USD, require_roast: false)
+  def gate!(dir, allow: false, cap_usd: DEFAULT_CEILING_USD, require_roast: false, target: TARGET, rounds: ROUND_CAP)
     return if allow
 
     history = Roast.load_history(dir)
@@ -197,10 +213,10 @@ module WalkthroughRoast
     end
     blockers = open_blockers(history)
     raise_open_blockers(blockers) unless blockers.empty?
-    verdict = decide(dir, cap_usd: cap_usd)
+    verdict = decide(dir, cap_usd: cap_usd, target: target, rounds: rounds)
     return if verdict[:stop]
 
     raise OpenFindingsError, "the roast loop is unfinished (#{verdict[:reason]}): apply the accepted fixes, render the next draft, " \
-                             "and repeat until score >= #{TARGET} with no P0/P1 or a cap (pass --allow-roast-findings to override)"
+                             "and repeat until score >= #{target} with no P0/P1 or a cap (pass --allow-roast-findings to override)"
   end
 end

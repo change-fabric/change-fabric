@@ -27,9 +27,11 @@ Optional, after screens exist: cf:design may roast a draft's mock screens, cf:pr
 - `--round <n>`: default is the next number after the highest logged round.
 - `--max-usd <n>` (default 0.5): the ceiling. A call that would pass it is refused before any request.
 - `--transcript <file>`: narration and caption text the critic reads next to the frames; it joins the cache key.
-- `--cache <dir>` (default `.cache`), `--estimate-only`. `CF_ROAST_MODEL` overrides the model (default `gpt-6.1-sol`, a vision-capable model with strict JSON schema output; set it to another when wanted).
+- `--cache <dir>` (default `.cache`), `--estimate-only`, `--model <name>`. `CF_ROAST_MODEL` overrides the model (default `gpt-6.1-sol`, a vision-capable model with strict JSON schema output; set it to another when wanted).
 
 `roast.rb decide --out-dir roast [--target 9] [--cap 4]` prints `roast decision: stop|continue: <reason>` from the latest logged round, so the stop rule is not re-derived by hand.
+
+Settings from CHANGE.md: when the repo's root `CHANGE.md` sets `change_config.design.roast`, its keys fill in for absent flags: `target` and `rounds` for `decide` (`--target`, `--cap`), `max_usd` for the ceiling (`--max-usd`), `model` for the critic (`--model`, else `CF_ROAST_MODEL`). A flag given always wins; a key left unset keeps this script's default. `--repo <dir>` names the repo (default the working directory). `roast.rb settings [--repo <dir>]` prints the resolved `auto`, `target`, `rounds`, `max_usd`, and `model`; a loading skill (cf:design, cf:prototype, cf:walkthrough) skips the roast when `auto` is false, the same as `--no-roast`. A malformed block is a named failure (exit 1).
 
 Exit codes: 0 ok, 1 a named failure (ceiling, missing key, HTTP error, invalid reply, missing file), 2 usage.
 

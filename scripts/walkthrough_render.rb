@@ -510,13 +510,15 @@ module WalkthroughRender
 
       PrototypeUxLint.gate!(reports, allow: @gates[:allow_ux])
       # --no-roast is the explicit offline opt-out; otherwise a finished roast loop is required.
-      WalkthroughRoast.gate!(roast_dir, allow: @gates[:allow_roast], cap_usd: roast_cap, require_roast: @gates[:roast])
+      WalkthroughRoast.gate!(roast_dir, allow: @gates[:allow_roast], cap_usd: roast_cap, require_roast: @gates[:roast], **roast_stop)
       say("roast gate: #{roast_verdict[:reason]}") if @gates[:roast]
     end
 
     def roast_cap = @gates[:roast_max_usd]
 
-    def roast_verdict = WalkthroughRoast.decide(roast_dir, cap_usd: roast_cap)
+    def roast_stop = { target: @gates[:roast_target], rounds: @gates[:roast_rounds] }.compact
+
+    def roast_verdict = WalkthroughRoast.decide(roast_dir, cap_usd: roast_cap, **roast_stop)
 
     # One cf:roast round over the draft's keyframes and narration transcript, with
     # the estimate printed before any call, under the run spend cap. A finished
@@ -543,7 +545,7 @@ module WalkthroughRender
     def roast_inputs(manifest, mp4, reports)
       { brief: WalkthroughRoast.brief(@board), shots: extract_keyframes(manifest, mp4, reports),
         history: Roast.load_history(roast_dir), round: Roast.next_round(roast_dir),
-        transcript: roast_transcript(manifest, mp4) }
+        transcript: roast_transcript(manifest, mp4) }.merge({ model: @gates[:roast_model] }.compact)
     end
 
     # Narration plus the rendered caption cues, so the critic judges what is said
@@ -641,9 +643,15 @@ if __FILE__ == $PROGRAM_NAME
   scene = ARGV.include?('--scene') ? (ARGV[ARGV.index('--scene') + 1] || abort(usage)) : nil
   abort('--draft and --final are exclusive') if ARGV.include?('--draft') && ARGV.include?('--final')
   max_usd = ARGV.include?('--max-usd') ? (ARGV[ARGV.index('--max-usd') + 1] || abort(usage)).to_f : BRoll::DEFAULT_CEILING_USD
-  roast_usd = ARGV.include?('--roast-max-usd') ? (ARGV[ARGV.index('--roast-max-usd') + 1] || abort(usage)).to_f : WalkthroughRoast::DEFAULT_CEILING_USD
+  roast_usd = ARGV.include?('--roast-max-usd') ? (ARGV[ARGV.index('--roast-max-usd') + 1] || abort(usage)).to_f : nil
+  begin
+    roast = WalkthroughRoast.settings(Dir.pwd, roast: ARGV.include?('--no-roast') ? false : nil, max_usd: roast_usd)
+  rescue DesignConfig::Error => e
+    abort("CHANGE.md design block: #{e.message}")
+  end
   gates = { allow_ux: ARGV.include?('--allow-ux-findings'), allow_roast: ARGV.include?('--allow-roast-findings'),
-            roast: !ARGV.include?('--no-roast'), roast_max_usd: roast_usd }
+            roast: roast[:roast], roast_max_usd: roast[:max_usd], roast_target: roast[:target],
+            roast_rounds: roast[:rounds], roast_model: roast[:model] }
   begin
     WalkthroughRender::Run.new(dir, scene: scene, final: ARGV.include?('--final'), max_usd: max_usd,
                                burn_captions: ARGV.include?('--burn-captions'), gates: gates, recapture: ARGV.include?('--recapture'))

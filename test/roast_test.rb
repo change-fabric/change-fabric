@@ -176,4 +176,46 @@ class RoastTest < Minitest::Test
     assert_equal 0, Roast::Cli.run([ "decide", "--out-dir", @roast, "--target", "5" ], out: out)
     assert_includes out.string, "roast decision: stop: score 6 reached target 5"
   end
+
+  def write_change(roast)
+    File.write(File.join(@dir, "CHANGE.md"), "---\n#{JSON.generate({ "change_config" => { "design" => { "roast" => roast } } })}\n---\n")
+  end
+
+  def test_change_md_sets_model_and_ceiling_and_flags_win
+    write_change({ "model" => "m-cfg", "max_usd" => 0.0001 })
+    code, out, = run_cli("--repo", @dir)
+    assert_equal 1, code
+    assert_includes out, "ceiling"
+    code, _, http = run_cli("--repo", @dir, "--max-usd", "5", "--model", "m-flag")
+    assert_equal 0, code
+    assert_equal "m-flag", JSON.parse(http.requests.last.body)["model"]
+  end
+
+  def test_change_md_model_reaches_the_request
+    write_change({ "model" => "m-cfg" })
+    code, _, http = run_cli("--repo", @dir)
+    assert_equal 0, code
+    assert_equal "m-cfg", JSON.parse(http.requests.last.body)["model"]
+  end
+
+  def test_unset_keys_keep_script_defaults
+    write_change({ "model" => "m-cfg" })
+    out = StringIO.new
+    assert_equal 0, Roast::Cli.run([ "settings", "--repo", @dir ], out: out)
+    assert_includes out.string, "auto true, target #{Roast::DEFAULT_TARGET}, rounds #{Roast::DEFAULT_CAP}, max_usd 0.50, model m-cfg"
+  end
+
+  def test_decide_reads_target_and_rounds_from_change_md
+    run_cli
+    write_change({ "target" => 5, "auto" => false })
+    out = StringIO.new
+    assert_equal 0, Roast::Cli.run([ "decide", "--repo", @dir, "--out-dir", @roast ], out: out)
+    assert_includes out.string, "reached target 5"
+    out = StringIO.new
+    Roast::Cli.run([ "decide", "--repo", @dir, "--out-dir", @roast, "--target", "9.5" ], out: out)
+    assert_includes out.string, "continue"
+    out = StringIO.new
+    Roast::Cli.run([ "settings", "--repo", @dir ], out: out)
+    assert_includes out.string, "auto false"
+  end
 end

@@ -136,4 +136,52 @@ class WalkthroughRoastTest < Minitest::Test
       assert_nil WalkthroughRoast.gate!(dir)
     end
   end
+
+  def write_change(dir, roast)
+    File.write(File.join(dir, "CHANGE.md"), "---\n#{JSON.generate({ "change_config" => { "design" => { "roast" => roast } } })}\n---\n")
+  end
+
+  def test_settings_default_with_no_change_md
+    Dir.mktmpdir do |dir|
+      s = WalkthroughRoast.settings(dir)
+      assert_equal({ roast: true, max_usd: 2.0, target: 8.5, rounds: 4, model: Roast::MODEL }, s)
+    end
+  end
+
+  def test_settings_read_change_md_and_flags_win
+    Dir.mktmpdir do |dir|
+      write_change(dir, { "auto" => false, "target" => 7, "rounds" => 2, "max_usd" => 1.25, "model" => "m-cfg" })
+      s = WalkthroughRoast.settings(dir)
+      assert_equal({ roast: false, max_usd: 1.25, target: 7.0, rounds: 2, model: "m-cfg" }, s)
+      s = WalkthroughRoast.settings(dir, roast: true, max_usd: 3.0, target: 9.0, rounds: 5, model: "m-flag")
+      assert_equal({ roast: true, max_usd: 3.0, target: 9.0, rounds: 5, model: "m-flag" }, s)
+      s = WalkthroughRoast.settings(dir, roast: nil, max_usd: nil)
+      assert_equal 1.25, s[:max_usd]
+      refute s[:roast]
+    end
+  end
+
+  def test_no_roast_flag_wins_over_auto_true
+    Dir.mktmpdir do |dir|
+      write_change(dir, { "auto" => true })
+      refute WalkthroughRoast.settings(dir, roast: false)[:roast]
+    end
+  end
+
+  def test_settings_reject_a_malformed_block
+    Dir.mktmpdir do |dir|
+      write_change(dir, { "rounds" => "many" })
+      assert_raises(DesignConfig::Error) { WalkthroughRoast.settings(dir) }
+    end
+  end
+
+  def test_decide_honors_configured_target_and_rounds
+    Dir.mktmpdir do |dir|
+      round(dir, 1, [ issue("P2") ], score: 7)
+      refute WalkthroughRoast.decide(dir)[:stop]
+      assert WalkthroughRoast.decide(dir, target: 7)[:converged]
+      round(dir, 2, [ issue("P1") ], score: 6)
+      assert_includes WalkthroughRoast.decide(dir, rounds: 2)[:reason], "round cap 2"
+    end
+  end
 end
