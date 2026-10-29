@@ -32,6 +32,9 @@ module WalkthroughStoryboard
   BROLL_SECONDS = (1..10)
   KEY_KINDS = { 'frames_key' => 'frames', 'audio_key' => 'audio', 'asset_keys' => 'images', 'broll_key' => 'broll' }.freeze
 
+  VOICE_EQ_PRESETS = { 'warm' => { 'low_shelf_hz' => 150, 'low_shelf_db' => 3, 'cut_hz' => 3500, 'cut_db' => -2.5 } }.freeze
+  VOICE_EQ_BANDS = { 'low_shelf' => %w[low_shelf_hz low_shelf_db], 'cut' => %w[cut_hz cut_db] }.freeze
+
   module_function
 
   def load(path) = JSON.parse(File.read(path))
@@ -54,6 +57,7 @@ module WalkthroughStoryboard
     errors.concat(id_and_order_errors(list))
     errors.concat(WalkthroughLive.board_errors(board))
     errors.concat(review_errors(board['review']))
+    errors.concat(voice_eq_errors(board.dig('voice', 'eq')))
     orders = list.to_h { |s| [ s['id'], s['order'].to_i ] }
     by_id = list.to_h { |s| [ s['id'], s ] }
     list.each do |scene|
@@ -61,6 +65,32 @@ module WalkthroughStoryboard
       errors.concat(scene_errors(scene, hyp_ids, orders, root, board: board, by_id: by_id).map { |e| "#{label}: #{e}" })
     end
     errors
+  end
+
+  # The optional narration EQ: a preset name or an object of band pairs
+  # (`low_shelf_hz`/`low_shelf_db`, `cut_hz`/`cut_db`), each pair all or nothing.
+  def voice_eq_errors(eq)
+    return [] if eq.nil?
+    return [] if eq.is_a?(String) && VOICE_EQ_PRESETS.key?(eq)
+    return [ "voice.eq preset must be one of #{VOICE_EQ_PRESETS.keys.join(', ')}" ] if eq.is_a?(String)
+    return [ 'voice.eq must be a preset name or an object' ] unless eq.is_a?(Hash)
+
+    known = VOICE_EQ_BANDS.values.flatten
+    errors = (eq.keys - known).map { |k| "voice.eq.#{k} is not a known field (#{known.join(', ')})" }
+    errors << 'voice.eq must set at least one band' if eq.empty?
+    VOICE_EQ_BANDS.each_value do |hz, db|
+      errors << "voice.eq.#{hz} and voice.eq.#{db} must be set together" if eq.key?(hz) != eq.key?(db)
+      errors << "voice.eq.#{hz} must be a number from 20 to 20000" if eq.key?(hz) && !(eq[hz].is_a?(Numeric) && eq[hz].between?(20, 20_000))
+      errors << "voice.eq.#{db} must be a number from -24 to 24" if eq.key?(db) && !(eq[db].is_a?(Numeric) && eq[db].between?(-24, 24))
+    end
+    errors
+  end
+
+  # The EQ as an object (a preset expanded), or nil when absent or invalid.
+  def voice_eq(board)
+    eq = board.dig('voice', 'eq')
+    eq = VOICE_EQ_PRESETS[eq] if eq.is_a?(String)
+    eq.is_a?(Hash) && !eq.empty? && voice_eq_errors(eq).empty? ? eq : nil
   end
 
   # The review object roast reads: what the artifact is, who it is for, and the

@@ -176,12 +176,24 @@ module WalkthroughFfmpeg
     end
   end
 
+  # Narration EQ filters: a `bass` shelf and an `equalizer` peaking cut (this
+  # ffmpeg rejects equalizer t=l). Empty without an EQ, so the graph is unchanged.
+  def eq_filters(eq)
+    return '' if eq.nil? || eq.empty?
+
+    num = ->(v) { v.to_f == v.to_i ? v.to_i.to_s : v.to_f.to_s }
+    out = +''
+    out << ",bass=f=#{num.(eq['low_shelf_hz'])}:g=#{num.(eq['low_shelf_db'])}" if eq['low_shelf_hz']
+    out << ",equalizer=f=#{num.(eq['cut_hz'])}:t=q:w=1:g=#{num.(eq['cut_db'])}" if eq['cut_hz']
+    out
+  end
+
   def audio_graph(plan, loudnorm)
     io = audio_inputs(plan)
     parts = []
     labels = []
     io[:narration].each do |scene, idx|
-      parts << "[#{idx}:a]adelay=delays=#{scene[:offset_ms]}:all=1[n#{idx}]"
+      parts << "[#{idx}:a]adelay=delays=#{scene[:offset_ms]}:all=1#{eq_filters(plan[:voice_eq])}[n#{idx}]"
       labels << "[n#{idx}]"
     end
     if io[:music]

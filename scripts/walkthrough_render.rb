@@ -426,7 +426,7 @@ module WalkthroughRender
       { fps: fps, width: viewport['w'], height: viewport['h'], total_ms: total,
         cursor_png: container(File.join(dir, 'cursor.png')), srt: container(File.join(dir, 'captions.srt')),
         output: container(File.join(dir, 'walkthrough.mp4')), burn_captions: @burn_captions, music: music, duck_spans: duck_spans(inputs),
-        scenes: inputs.map { |i| plan_scene(i) } }
+        voice_eq: WalkthroughStoryboard.voice_eq(@board), scenes: inputs.map { |i| plan_scene(i) } }
     end
 
     def plan_scene(input)

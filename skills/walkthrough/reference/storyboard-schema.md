@@ -25,6 +25,8 @@
 
 `review` declares what the walkthrough is for; cf:roast judges against it (a purpose test over each outcome) and refuses to run without a non-empty `audience` and `purpose`. `kind` is `explainer` (no call to action required unless a purpose asks), `promo` (keeps the what, who, next-step test), or `demo` (must show the thing running). `validate` checks the shape when present and only warns when `review` is absent. CLI `--kind`, `--audience`, `--purpose` on roast.rb override it, and it overrides `change_config.design.roast.kind` and `.audience`.
 
+`voice.eq` is optional narration EQ applied to the narration bus before the music duck: `"warm"` or `{ "low_shelf_hz": 150, "low_shelf_db": 3, "cut_hz": 3500, "cut_db": -2.5 }` (each hz/db pair optional but all-or-nothing, 20-20000 Hz, +-24 dB); it changes the manifest hash and so re-assembles, never `audio_key`.
+
 `music` may be `null` for a narration-only walkthrough.
 
 `tokens_css_sha256` is computed, never hand-written. `validate --fix` writes the sha256 of the canonical `tokens.css` (found by walking up from the walkthrough directory to the repo root, trying the `change_config.design.tokens` path from CHANGE.md, default `design/tokens.css`, then a bare `tokens.css`; `--tokens PATH` overrides) before it rewrites the deps, so every `frames_key` that hashes it goes stale and recaptures when the tokens change. Plain `validate` fails on a missing or stale hash. With no canonical `tokens.css` found, the field is left alone and not checked.

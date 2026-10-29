@@ -53,6 +53,17 @@ class WalkthroughManifestTest < Minitest::Test
     assert_equal m["manifest_hash"], WalkthroughManifest.build(JSON.parse(JSON.generate(board)), @root)["manifest_hash"]
   end
 
+  def test_voice_eq_changes_manifest_hash_but_not_audio_key
+    plain = WalkthroughManifest.build(board, @root)
+    refute plain.key?("voice_eq")
+    warm = board.merge("voice" => board["voice"].merge("eq" => "warm"))
+    a = WalkthroughManifest.build(warm, @root)
+    refute_equal plain["manifest_hash"], a["manifest_hash"]
+    assert_equal plain["scenes"].map { |s| s["audio_key"] }, a["scenes"].map { |s| s["audio_key"] }
+    spelled = board.merge("voice" => board["voice"].merge("eq" => WalkthroughStoryboard::VOICE_EQ_PRESETS["warm"].merge("cut_db" => -3)))
+    refute_equal a["manifest_hash"], WalkthroughManifest.build(spelled, @root)["manifest_hash"]
+  end
+
   def test_timeline_change_changes_music_key_and_hash
     a = WalkthroughManifest.build(board, @root)
     b2 = board

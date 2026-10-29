@@ -42,6 +42,8 @@ module WalkthroughManifest
       'timeline' => { 'fps' => line['fps'], 'total_frames' => line['total_frames'], 'total_ms' => line['total_ms'] },
       'scenes' => scenes
     }
+    eq = WalkthroughStoryboard.voice_eq(board)
+    manifest['voice_eq'] = eq if eq
     manifest.merge('manifest_hash' => manifest_hash(manifest))
   end
 

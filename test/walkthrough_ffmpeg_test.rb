@@ -100,6 +100,26 @@ class WalkthroughFfmpegTest < Minitest::Test
     assert_raises(WalkthroughFfmpeg::LoudnormParseError) { WalkthroughFfmpeg.parse_loudnorm("nothing") }
   end
 
+  WARM = { "low_shelf_hz" => 150, "low_shelf_db" => 3, "cut_hz" => 3500, "cut_db" => -2.5 }.freeze
+
+  def test_voice_eq_filters_narration_only
+    g = WalkthroughFfmpeg.audio_graph(plan.merge(voice_eq: WARM), "LN")
+    shaped = "adelay=delays=0:all=1,bass=f=150:g=3,equalizer=f=3500:t=q:w=1:g=-2.5"
+    assert_equal "[4:a]#{shaped}[n4]", g[0]
+    assert_equal 1, g.grep(/\[6:a\]/).size
+    refute_match(/bass|equalizer/, g.grep(/\[6:a\]/).first)
+    assert_equal 2, g.grep(/bass=/).size
+  end
+
+  def test_voice_eq_partial_and_absent_graphs
+    only_cut = WalkthroughFfmpeg.audio_graph(plan.merge(voice_eq: { "cut_hz" => 3000, "cut_db" => -3 }), "LN")
+    assert_equal "[4:a]adelay=delays=0:all=1,equalizer=f=3000:t=q:w=1:g=-3[n4]", only_cut[0]
+    base = WalkthroughFfmpeg.audio_graph(plan, "LN")
+    assert_equal base, WalkthroughFfmpeg.audio_graph(plan.merge(voice_eq: nil), "LN")
+    assert_equal base, WalkthroughFfmpeg.audio_graph(plan.merge(voice_eq: {}), "LN")
+    assert_equal "[4:a]adelay=delays=0:all=1[n4]", base[0]
+  end
+
   def test_duck_expression
     assert_equal "1", WalkthroughFfmpeg.duck_expression([])
     assert_equal "if(between(t,1.000,2.000),0.2512,1)",

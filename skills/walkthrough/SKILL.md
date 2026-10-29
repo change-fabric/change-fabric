@@ -90,7 +90,7 @@ ruby ~/.claude/cf/bin/walkthrough_storyboard.rb validate walkthrough/<slug>/stor
 ruby ~/.claude/cf/bin/walkthrough_render.rb walkthrough/<slug> --scene <id>
 ```
 
-Only that scene's stale keys regenerate (frames, audio, or images); everything else is read from the cache and the video reassembles. `walkthrough_storyboard.rb stale <json>` lists what would regenerate. A changed narration shifts later scene offsets and, when the total length changes, the music key; a changed `from_scene` dependency recaptures its dependents. Restyling or retiming the cursor needs no recapture: FFmpeg composites it from `cursor.json`.
+Only that scene's stale keys regenerate (frames, audio, or images); everything else is read from the cache and the video reassembles. `walkthrough_storyboard.rb stale <json>` lists what would regenerate. A changed narration shifts later scene offsets and, when the total length changes, the music key; a changed `from_scene` dependency recaptures its dependents. Optional `voice.eq` (`"warm"` or `{low_shelf_hz, low_shelf_db, cut_hz, cut_db}`) EQs the narration bus only and re-assembles without re-narrating. Restyling or retiming the cursor needs no recapture: FFmpeg composites it from `cursor.json`.
 
 ## Keys and licensing
 

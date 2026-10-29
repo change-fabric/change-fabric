@@ -42,6 +42,26 @@ class WalkthroughStoryboardTest < Minitest::Test
     assert_equal 2, WalkthroughStoryboard.warnings(b).size
   end
 
+  def test_voice_eq_validation
+    b = board
+    assert_empty errors_for(b).grep(/voice\.eq/)
+    b["voice"]["eq"] = "warm"
+    assert_empty errors_for(b).grep(/voice\.eq/)
+    assert_equal 150, WalkthroughStoryboard.voice_eq(b)["low_shelf_hz"]
+    b["voice"]["eq"] = { "cut_hz" => 3500, "cut_db" => -2.5 }
+    assert_empty errors_for(b).grep(/voice\.eq/)
+    b["voice"]["eq"] = "tinny"
+    assert_match(/preset must be one of warm/, errors_for(b).grep(/voice\.eq/).first)
+    assert_nil WalkthroughStoryboard.voice_eq(b)
+    b["voice"]["eq"] = { "cut_hz" => 3500, "bogus" => 1, "low_shelf_hz" => 5, "low_shelf_db" => 40 }
+    errs = errors_for(b).grep(/voice\.eq/)
+    assert_equal 4, errs.size
+    b["voice"]["eq"] = []
+    assert_equal [ "voice.eq must be a preset name or an object" ], errors_for(b).grep(/voice\.eq/)
+    b["voice"]["eq"] = {}
+    assert_match(/at least one band/, errors_for(b).grep(/voice\.eq/).first)
+  end
+
   def board
     { "schema_version" => 1, "slug" => "demo", "title" => "Demo", "fps" => 30,
       "viewport" => { "w" => 1920, "h" => 1080, "dpr" => 1 },
