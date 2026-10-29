@@ -6,6 +6,7 @@ require_relative 'b_roll'
 require_relative 'prototype_capture'
 require_relative 'prototype_imagegen'
 require_relative 'walkthrough_cache'
+require_relative 'walkthrough_live'
 
 # storyboard.json (schema_version 1) is the source of truth for a
 # walkthrough. This module validates it, derives scene durations (never
@@ -50,10 +51,12 @@ module WalkthroughStoryboard
     errors << 'scenes must not be empty' if list.empty?
     hyp_ids = Array(board['hypotheses']).map { |h| h['id'] }
     errors.concat(id_and_order_errors(list))
+    errors.concat(WalkthroughLive.board_errors(board))
     orders = list.to_h { |s| [ s['id'], s['order'].to_i ] }
+    by_id = list.to_h { |s| [ s['id'], s ] }
     list.each do |scene|
       label = "scene #{scene['id'].inspect}"
-      errors.concat(scene_errors(scene, hyp_ids, orders, root).map { |e| "#{label}: #{e}" })
+      errors.concat(scene_errors(scene, hyp_ids, orders, root, board: board, by_id: by_id).map { |e| "#{label}: #{e}" })
     end
     errors
   end
@@ -75,20 +78,29 @@ module WalkthroughStoryboard
     errors
   end
 
-  def scene_errors(scene, hyp_ids, orders, root)
+  def scene_errors(scene, hyp_ids, orders, root, board: {}, by_id: {})
     errors = []
     errors << 'duration_ms is derived and must not be authored' if scene.key?('duration_ms') || scene['timing'].is_a?(Hash) && scene['timing'].key?('duration_ms')
     errors.concat(transition_errors(scene.dig('timing', 'transition')))
     errors.concat(camera_errors(scene['camera']))
-    errors.concat(interaction_errors(Array(scene['interactions'])))
+    errors.concat(interaction_errors(Array(scene['interactions']), live: live?(scene)))
     Array(scene['hypotheses']).each { |h| errors << "hypothesis #{h} is not in the top-level list" unless hyp_ids.include?(h) }
     errors << 'needs at least one requirement or assumption' if Array(scene['requirements']).empty? && Array(scene['assumptions']).empty?
     errors.concat(kind_errors(scene, root))
-    errors.concat(store_errors(scene, orders, root)) if scene['store']
+    if live?(scene)
+      errors.concat(WalkthroughLive.scene_errors(scene, board, orders, by_id))
+    else
+      errors.concat(store_errors(scene, orders, root)) if scene['store']
+      LIVE_ONLY.each { |key| errors << "#{key} needs a screen.url (a live scene)" if scene.key?(key) && !scene[key].nil? }
+    end
     errors
   end
 
+  LIVE_ONLY = %w[persona session_from_scene wait storage].freeze
+
   def broll?(scene) = scene['kind'] == BROLL_KIND
+
+  def live?(scene) = WalkthroughLive.live?(scene)
 
   # A screen scene needs screen.html; an ai-broll scene needs a broll block and
   # carries no screen.
@@ -96,7 +108,11 @@ module WalkthroughStoryboard
     return [ "kind #{scene['kind'].inspect} must be one of screen, #{BROLL_KIND}" ] unless SCENE_KINDS.include?(scene['kind'])
     return broll_errors(scene, root) if broll?(scene)
 
-    scene.dig('screen', 'html').to_s.empty? ? [ 'screen.html is required' ] : []
+    screen = scene['screen'].is_a?(Hash) ? scene['screen'] : {}
+    return [ 'screen takes exactly one of html or url' ] if screen.key?('html') && screen.key?('url')
+    return [] if screen.key?('url')
+
+    screen['html'].to_s.empty? ? [ 'screen.html or screen.url is required' ] : []
   end
 
   def broll_spec(scene)
@@ -150,11 +166,12 @@ module WalkthroughStoryboard
     zoom.is_a?(Numeric) && CAMERA_ZOOM.cover?(zoom) ? [] : [ "camera.zoom must be a number in #{CAMERA_ZOOM.min}..#{CAMERA_ZOOM.max}" ]
   end
 
-  def interaction_errors(interactions)
-    errors = []
+  def interaction_errors(interactions, live: false)
+    errors = WalkthroughLive.interaction_errors(interactions, live: live)
+    ops = live ? WalkthroughLive::OPS : OPS
     last = -1
     interactions.each_with_index do |op, i|
-      errors << "interaction #{i}: op #{op['op'].inspect} must be one of #{OPS.join(', ')}" unless OPS.include?(op['op'])
+      errors << "interaction #{i}: op #{op['op'].inspect} must be one of #{ops.join(', ')}" unless ops.include?(op['op'])
       errors << "interaction #{i}: target is required for #{op['op']}" if op['op'] != 'wait' && op['target'].to_s.empty?
       t = op['t_ms']
       if !t.is_a?(Integer) || t.negative?
@@ -240,7 +257,7 @@ module WalkthroughStoryboard
     memo = {}
     scenes(board).to_h do |scene|
       frames = begin
-        PrototypeCapture.prepare(board, scene, root, memo, final: final)[:key]
+        prepare_frames(board, scene, root, memo, final: final)[:key]
       rescue ArgumentError, PrototypeCapture::UnsupportedContentError, Errno::ENOENT, TypeError
         nil
       end
@@ -248,6 +265,14 @@ module WalkthroughStoryboard
       keys.merge!(broll_keys(board, scene, root)) if broll?(scene)
       [ scene['id'], keys ]
     end
+  end
+
+  # The frames prep for a screen scene: live scenes key by URL, persona,
+  # session parent, and steps; prototype scenes by their inlined screen.
+  def prepare_frames(board, scene, root, memo = {}, final: false)
+    return WalkthroughLive.prepare(board, scene, root, memo) if live?(scene)
+
+    PrototypeCapture.prepare(board, scene, root, memo, final: final)
   end
 
   # An ai-broll scene's clip key (which includes the model) and its frames
@@ -309,7 +334,9 @@ module WalkthroughStoryboard
   def scene_md(scene, duration)
     out = [ "## #{scene['order']}. #{scene['title']} (`#{scene['id']}`)", '' ]
     out << "- Duration: #{duration} ms"
-    out.concat(broll?(scene) ? broll_md(scene) : [ "- Screen: #{scene.dig('screen', 'html')}" ])
+    out.concat(broll?(scene) ? broll_md(scene) : [ "- Screen: #{scene.dig('screen', 'html') || scene.dig('screen', 'url')}" ])
+    out << "- Persona: #{scene['persona']}" if scene['persona']
+    out << "- Session from: #{scene['session_from_scene']}" if scene['session_from_scene']
     out << "- User goal: #{scene['user_goal']}" if scene['user_goal']
     out << "- Action: #{scene['action']}" if scene['action']
     out << "- Emphasis: #{scene['emphasis']}" if scene['emphasis']

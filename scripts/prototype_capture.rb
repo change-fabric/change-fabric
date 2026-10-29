@@ -511,6 +511,7 @@ if __FILE__ == $PROGRAM_NAME
     memo = {}
     scenes.each do |scene|
       next if only && scene['id'] != only
+      next puts("#{scene['id']}: live scene, captured by walkthrough_render.rb") if scene.dig('screen', 'url')
 
       prep = PrototypeCapture.prepare(board, scene, root, memo)
       if still
