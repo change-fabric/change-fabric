@@ -61,7 +61,7 @@ module PrototypeCapture
 
   def local_ref?(value)
     v = value.strip
-    !(v.empty? || v.start_with?('#', 'data:', 'about:', 'javascript:', 'mailto:') || remote?(v))
+    !(v.empty? || v.start_with?('#') || v.match?(/\A(?:data|about|javascript|mailto|tel|sms):/i) || remote?(v))
   end
 
   # Inlines a screen's local assets by string assembly: stylesheets and
