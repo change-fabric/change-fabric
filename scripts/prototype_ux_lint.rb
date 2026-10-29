@@ -18,7 +18,17 @@ require 'fileutils'
 #                      `inert` or `aria-hidden="true"` subtree is not checked,
 #                      so a modal sheet marks the page behind it inert.
 #   clipped-text       a text element that clips (overflow hidden, clip, auto,
-#                      scroll, or text-overflow) with scroll size past client size.
+#                      scroll, or text-overflow) with scroll size past client size,
+#                      or text or a control partly cut off by an ancestor's
+#                      non-visible overflow (a button sliced by the phone edge).
+#   caption-safe       a visible control or device frame reaching into the
+#                      bottom caption band (CAPTION_BAND of the viewport height),
+#                      where players draw cues.
+#   device-frame       a device frame ([data-cf-device], .phone, .device) whose
+#                      layout size, aspect ratio, or rendered size differs from
+#                      the first scene's. Only a scene declaring `camera.zoom`
+#                      may change the rendered size, and only up to that factor
+#                      (see device_findings). Shape and layout never change.
 #   cursor-over-label  the cursor sprite's footprint at its aimed point covers
 #                      the target's label text. `aim` picks the centre when it
 #                      is clear, else the label's end padding, the bottom
@@ -30,9 +40,13 @@ require 'fileutils'
 #
 # `data-ux-allow="<rule> ..."` on an element or ancestor opts it out of a rule.
 module PrototypeUxLint
-  VERSION = 1
+  VERSION = 2
   REPORT = 'ux-lint.json'
   SETTLE_FRAMES = 15 # also lint half a second after each click, once a toast has landed
+  # Players draw a two-line cue in roughly the bottom tenth of the frame; the
+  # band adds a margin above it.
+  CAPTION_BAND = 0.15
+  DEVICE_TOLERANCE = 0.01
 
   class FindingsError < StandardError; end
 
@@ -41,6 +55,7 @@ module PrototypeUxLint
       if (window.__cfUx) return;
       const CONTROL = 'button, a[href], input[type=submit], input[type=button], [role=button], [role=link], [role=tab], [role=menuitem], [role=switch], [role=checkbox]';
       const OVERLAY = '[role=status], [role=alert], [role=dialog], [aria-modal=true], [data-cf-overlay], [class~=toast], [class~=snackbar], [class~=sheet]';
+      const DEVICE = '[data-cf-device], [class~=phone], [class~=device]';
       const FOOT = { w: 12, h: 18 };
       const allowed = (el, rule) => { const a = el.closest('[data-ux-allow]'); return !!a && a.getAttribute('data-ux-allow').split(/\s+/).includes(rule); };
       const alpha = (c) => {
@@ -72,7 +87,7 @@ module PrototypeUxLint
           const sib = Array.prototype.filter.call(n.parentElement.children, (c) => c.tagName === n.tagName);
           parts.unshift(n.tagName.toLowerCase() + (sib.length > 1 ? ':nth-of-type(' + (sib.indexOf(n) + 1) + ')' : ''));
         }
-        return parts.join(' > ');
+        return parts.join(' > ') || el.tagName.toLowerCase();
       };
       const textRects = (el) => {
         const out = [];
@@ -136,6 +151,7 @@ module PrototypeUxLint
       };
       const clipped = () => {
         const out = [];
+        const flagged = new Set();
         document.querySelectorAll('body *').forEach((el) => {
           if (/^(INPUT|TEXTAREA|SELECT|SCRIPT|STYLE|TEMPLATE)$/.test(el.tagName)) return;
           if (!Array.prototype.some.call(el.childNodes, (n) => n.nodeType === 3 && n.textContent.trim())) return;
@@ -144,7 +160,55 @@ module PrototypeUxLint
           const clips = (v) => /hidden|clip|auto|scroll/.test(v);
           const x = el.scrollWidth > el.clientWidth + 1 && (clips(cs.overflowX) || cs.textOverflow !== 'clip');
           const y = el.scrollHeight > el.clientHeight + 1 && clips(cs.overflowY);
-          if (x || y) out.push({ rule: 'clipped-text', target: sel(el), detail: 'text clipped ' + (x ? 'horizontally' : 'vertically') + ' ("' + el.textContent.trim().slice(0, 40) + '")' });
+          if (x || y) { out.push({ rule: 'clipped-text', target: sel(el), detail: 'text clipped ' + (x ? 'horizontally' : 'vertically') + ' ("' + el.textContent.trim().slice(0, 40) + '")' }); flagged.add(el); }
+        });
+        // Text or a control partly outside an ancestor that clips its overflow.
+        // The padding box in viewport pixels: client sizes are layout pixels,
+        // so scale them by the rendered/layout ratio of a transformed box.
+        const clipBox = (n) => {
+          const r = n.getBoundingClientRect();
+          const sx = n.offsetWidth ? r.width / n.offsetWidth : 1;
+          const sy = n.offsetHeight ? r.height / n.offsetHeight : 1;
+          const left = r.left + n.clientLeft * sx;
+          const top = r.top + n.clientTop * sy;
+          return { left, top, right: left + n.clientWidth * sx, bottom: top + n.clientHeight * sy };
+        };
+        const partly = (r, b) => r.right > b.left && r.left < b.right && r.bottom > b.top && r.top < b.bottom && (r.left < b.left - 1 || r.top < b.top - 1 || r.right > b.right + 1 || r.bottom > b.bottom + 1);
+        const cutBy = (el, rects) => {
+          for (let a = el.parentElement; a && a !== document.documentElement; a = a.parentElement) {
+            const cs = getComputedStyle(a);
+            if (!/hidden|clip|auto|scroll/.test(cs.overflowX + ' ' + cs.overflowY)) continue;
+            const b = clipBox(a);
+            if (rects.some((r) => partly(r, b))) return a;
+            // Wholly clipped away here, so no outer ancestor shows any of it.
+            if (rects.every((r) => r.right <= b.left || r.left >= b.right || r.bottom <= b.top || r.top >= b.bottom)) return null;
+          }
+          return null;
+        };
+        document.querySelectorAll('body *').forEach((el) => {
+          if (flagged.has(el) || /^(SCRIPT|STYLE|TEMPLATE)$/.test(el.tagName) || !visible(el) || allowed(el, 'clipped-text')) return;
+          const control = el.matches(CONTROL);
+          const own = Array.prototype.some.call(el.childNodes, (n) => n.nodeType === 3 && n.textContent.trim());
+          if (!control && !own) return;
+          const rects = control ? [el.getBoundingClientRect()] : textRects(el).map((t) => t.r);
+          const a = rects.length && cutBy(el, rects);
+          if (a) out.push({ rule: 'clipped-text', target: sel(el), detail: (control ? 'control' : 'text') + ' cut off by ' + sel(a) + ' ("' + el.textContent.trim().slice(0, 40) + '")' });
+        });
+        return out;
+      };
+      const devices = () => Array.prototype.filter.call(document.querySelectorAll(DEVICE), visible).map((el) => {
+        const r = el.getBoundingClientRect();
+        return { target: sel(el), w: Math.round(r.width * 10) / 10, h: Math.round(r.height * 10) / 10, lw: el.offsetWidth, lh: el.offsetHeight };
+      });
+      const captionSafe = (band) => {
+        if (!band) return [];
+        const top = innerHeight * (1 - band);
+        const out = [];
+        document.querySelectorAll(CONTROL + ', ' + DEVICE).forEach((el) => {
+          if (!visible(el) || allowed(el, 'caption-safe')) return;
+          if (!el.matches(DEVICE) && !interactive(el)) return;
+          const r = el.getBoundingClientRect();
+          if (r.bottom > top + 1 && r.top < innerHeight) out.push({ rule: 'caption-safe', target: sel(el), detail: (el.matches(DEVICE) ? 'device frame' : 'control') + ' bottom ' + Math.round(r.bottom) + ' inside the caption band from ' + Math.round(top) });
         });
         return out;
       };
@@ -183,8 +247,8 @@ module PrototypeUxLint
         ].filter((p) => p && p.x > r.left && p.x < r.right && p.y > r.top && p.y < r.bottom);
         return candidates.find((p) => !overText(el, p.x, p.y)) || centre;
       };
-      const lint = (targets) => {
-        const found = [...emptyControls(), ...occlusion(), ...clipped(), ...contradictions()];
+      const lint = (targets, band) => {
+        const found = [...emptyControls(), ...occlusion(), ...clipped(), ...contradictions(), ...captionSafe(band)];
         (targets || []).forEach(({ selector, x, y }) => {
           const el = document.querySelector(selector);
           if (el && !allowed(el, 'cursor-over-label') && overText(el, x, y)) found.push({ rule: 'cursor-over-label', target: selector, detail: 'cursor at ' + Math.round(x) + ',' + Math.round(y) + ' covers the label' });
@@ -192,7 +256,7 @@ module PrototypeUxLint
         return found;
       };
       const overlays = () => Array.prototype.filter.call(document.querySelectorAll(OVERLAY), visible).map(sel);
-      window.__cfUx = { lint, aim, overlays };
+      window.__cfUx = { lint, aim, overlays, devices };
     })();
   JS
 
@@ -221,8 +285,63 @@ module PrototypeUxLint
     end.values.sort_by { |f| [ f['frame'].to_i, f['rule'], f['target'] ] }
   end
 
-  def scene_report(scene_id, raw, overlays: {})
-    { 'version' => VERSION, 'scene' => scene_id, 'findings' => merge(raw), 'overlays' => overlays }
+  def scene_report(scene_id, raw, overlays: {}, devices: [])
+    { 'version' => VERSION, 'scene' => scene_id, 'findings' => merge(raw), 'overlays' => overlays,
+      'devices' => device_samples(devices) }
+  end
+
+  # One sample per distinct device measurement, keeping its first frame.
+  def device_samples(raw)
+    raw.uniq { |d| d.values_at('target', 'w', 'h', 'lw', 'lh') }
+  end
+
+  # The aim an existing (possibly stale) report was captured with, so a
+  # lint-only pass over its frames aims the cursor the same way.
+  def prior_aim(dir)
+    path = File.join(dir, REPORT)
+    aim = File.file?(path) ? JSON.parse(File.read(path))['aim'] : nil
+    %w[safe centre].include?(aim) ? aim : 'centre'
+  rescue JSON::ParserError
+    'centre'
+  end
+
+  # device-frame findings across scene reports (in storyboard order). The
+  # first device sample is the baseline: every later one must keep its layout
+  # size and aspect ratio, and its rendered size, except that a scene whose
+  # `zoom` (from camera.zoom) is set may render anywhere between the baseline
+  # and baseline times that factor. Returns { scene_id => [finding] }.
+  def device_findings(reports, zoom: {})
+    base = nil
+    reports.to_h do |report|
+      found = Array(report['devices']).filter_map do |d|
+        base ||= d
+        device_problem(d, base, zoom.fetch(report['scene'], 1.0).to_f)&.then do |detail|
+          { 'frame' => d['frame'], 'rule' => 'device-frame', 'target' => d['target'], 'detail' => detail }
+        end
+      end
+      [ report['scene'], merge(found) ]
+    end
+  end
+
+  def device_problem(dev, base, zoom)
+    return "layout #{dev['lw']}x#{dev['lh']} differs from #{base['lw']}x#{base['lh']}" unless dev.values_at('lw', 'lh') == base.values_at('lw', 'lh')
+    return "aspect #{ratio(dev).round(3)} differs from #{ratio(base).round(3)}" unless near?(ratio(dev), ratio(base))
+
+    scale = dev['w'].to_f / base['w']
+    lo, hi = [ 1.0, zoom ].minmax
+    return nil if scale.between?(lo - DEVICE_TOLERANCE, hi + DEVICE_TOLERANCE)
+
+    detail = "rendered #{dev['w']}x#{dev['h']} is #{scale.round(3)}x the first scene's #{base['w']}x#{base['h']}"
+    zoom == 1.0 ? "#{detail}; declare camera.zoom for a size change" : "#{detail}, past camera.zoom #{zoom}"
+  end
+
+  def ratio(dev) = dev['w'].to_f / dev['h']
+  def near?(a, b) = (a - b).abs <= b * DEVICE_TOLERANCE
+
+  # Adds device-frame findings to each report (in place) and returns them.
+  def with_device_findings(reports, zoom: {})
+    found = device_findings(reports, zoom: zoom)
+    reports.map { |r| r.merge('findings' => r['findings'] + found.fetch(r['scene'], [])) }
   end
 
   def write(dir, report)

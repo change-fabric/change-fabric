@@ -299,6 +299,7 @@ module PrototypeCapture
           return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
         }, sel, aimMode);
         const lint = [];
+        const devices = [];
         const overlays = {};
         let resting = null;
         let pos = { x: #{vp['w'] / 2.0}, y: #{vp['h'] / 2.0} };
@@ -344,7 +345,8 @@ module PrototypeCapture
           if (i >= first) {
             if (lintAt.has(i) || fresh) {
               const targets = resting ? [{ selector: resting, x: pos.x, y: pos.y }] : [];
-              for (const f of await page.evaluate((t) => window.__cfUx.lint(t), targets)) lint.push(Object.assign({ frame: i }, f));
+              for (const f of await page.evaluate((t, b) => window.__cfUx.lint(t, b), targets, #{PrototypeUxLint::CAPTION_BAND})) lint.push(Object.assign({ frame: i }, f));
+              for (const d of await page.evaluate(() => window.__cfUx.devices())) devices.push(Object.assign({ frame: i }, d));
             }
             if (#{shots}) frames.push(#{BrowserlessJs.screenshot_js('client')});
             cursor.push({ x: pos.x, y: pos.y, down });
@@ -354,7 +356,7 @@ module PrototypeCapture
         const endState = await page.evaluate(() => (window.CFStore && typeof window.CFStore.dump === "function") ? window.CFStore.dump() : null);
         if (context) await context.close();
         const firstSeen = Object.fromEntries(Object.entries(overlays).filter(([, f]) => f >= first));
-        return { data: { frames, cursor, endState, blockedRequests, pageErrors, lint, overlays: firstSeen }, type: "application/json" };
+        return { data: { frames, cursor, endState, blockedRequests, pageErrors, lint, devices, overlays: firstSeen }, type: "application/json" };
       }
     JS
   end
@@ -380,6 +382,7 @@ module PrototypeCapture
     FileUtils.mkdir_p(out_dir)
     positions = []
     findings = []
+    devices = []
     overlays = {}
     end_state = nil
     # Each batch replays the scene from its seeded start, without screenshots
@@ -394,6 +397,7 @@ module PrototypeCapture
                              lint: lint_frames)
       result = check_result!(run_with_retry(session, code), label)
       findings.concat(Array(result['lint']))
+      devices.concat(Array(result['devices']))
       overlays = Array(result['overlays']).to_h.merge(overlays)
       result['frames'].each_with_index do |b64, k|
         File.binwrite(File.join(out_dir, format('%06d.png', range.first + k + 1)), Base64.decode64(b64))
@@ -404,22 +408,25 @@ module PrototypeCapture
       size = batch_size(viewport, bytes_per_frame: measured)
     end
     File.write(File.join(out_dir, 'cursor.json'), JSON.pretty_generate(cursor_path(positions)))
-    PrototypeUxLint.write(out_dir, PrototypeUxLint.scene_report(label, findings, overlays: overlays).merge('aim' => 'safe'))
+    PrototypeUxLint.write(out_dir, PrototypeUxLint.scene_report(label, findings, overlays: overlays, devices: devices).merge('aim' => 'safe'))
     File.write(File.join(out_dir, 'end-state.json'), JSON.pretty_generate(end_state))
     out_dir
   end
 
   # Lints a scene whose frames are already cached, without screenshots: one
-  # replay of the whole scene. Frames captured before the lint existed were
-  # aimed at control centres, so the pass aims there too and reports what the
-  # cached video actually shows. Writes and returns the scene report.
-  def lint_only(session:, html:, interactions:, duration_ms:, out_dir:, state:, prng_seed:, viewport: nil, fps: FPS, label: 'scene')
+  # replay of the whole scene. It aims the cursor the way the cached frames
+  # were aimed (an older report's `aim`, else control centres, as frames
+  # captured before the lint existed were), so it reports what the cached
+  # video actually shows. Writes and returns the scene report.
+  def lint_only(session:, html:, interactions:, duration_ms:, out_dir:, state:, prng_seed:, viewport: nil, fps: FPS, label: 'scene',
+                aim: PrototypeUxLint.prior_aim(out_dir))
     frames = frame_count(duration_ms, fps)
     plan = schedule(interactions, frames, fps)
     code = function_module(html: html, plan: plan, range: 0...frames, viewport: viewport, prng_seed: prng_seed, state: state,
-                           fps: fps, lint: PrototypeUxLint.lint_frames(plan, frames), shots: false, aim: 'centre')
+                           fps: fps, lint: PrototypeUxLint.lint_frames(plan, frames), shots: false, aim: aim)
     result = check_result!(run_with_retry(session, code), label)
-    report = PrototypeUxLint.scene_report(label, Array(result['lint']), overlays: result['overlays'] || {}).merge('aim' => 'centre')
+    report = PrototypeUxLint.scene_report(label, Array(result['lint']), overlays: result['overlays'] || {},
+                                                 devices: Array(result['devices'])).merge('aim' => aim)
     PrototypeUxLint.write(out_dir, report)
     report
   end

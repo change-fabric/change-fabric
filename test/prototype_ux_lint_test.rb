@@ -51,6 +51,32 @@ class PrototypeUxLintTest < Minitest::Test
     end
   end
 
+  def dev(frame, w, h, lw: 390, lh: 844) = { "frame" => frame, "target" => ".phone", "w" => w, "h" => h, "lw" => lw, "lh" => lh }
+
+  def device_rules(samples_by_scene, zoom: {})
+    reports = samples_by_scene.map { |id, d| PrototypeUxLint.scene_report(id, [], devices: d) }
+    PrototypeUxLint.device_findings(reports, zoom: zoom).transform_values { |f| f.map { |x| x["detail"][/\A\w+/] } }
+  end
+
+  def test_device_frame_keeps_shape_and_size_across_scenes
+    same = { "a" => [ dev(0, 405.6, 877.8) ], "b" => [ dev(0, 405.6, 877.8), dev(9, 405.6, 877.8) ] }
+    assert_equal({ "a" => [], "b" => [] }, device_rules(same))
+    assert_equal [ "layout" ], device_rules({ "a" => [ dev(0, 405.6, 877.8) ], "b" => [ dev(0, 643.5, 924, lw: 390, lh: 560) ] })["b"]
+    assert_equal [ "aspect" ], device_rules({ "a" => [ dev(0, 400, 866) ], "b" => [ dev(0, 600, 866) ] })["b"]
+    grown = { "a" => [ dev(0, 400, 866) ], "b" => [ dev(0, 480, 1039.2) ] }
+    assert_equal [ "rendered" ], device_rules(grown)["b"]
+    assert_equal [], device_rules(grown, zoom: { "b" => 1.2 })["b"], "a declared camera zoom may resize uniformly"
+    assert_equal [ "rendered" ], device_rules(grown, zoom: { "b" => 1.1 })["b"]
+  end
+
+  def test_prior_aim_follows_a_stale_report
+    Dir.mktmpdir do |dir|
+      assert_equal "centre", PrototypeUxLint.prior_aim(dir)
+      PrototypeUxLint.write(dir, PrototypeUxLint.scene_report("a", []).merge("version" => 1, "aim" => "safe"))
+      assert_equal "safe", PrototypeUxLint.prior_aim(dir)
+    end
+  end
+
   # -- browser rules ---------------------------------------------------------
 
   STYLE = "<style>body{margin:0;font:16px sans-serif} button{font:16px sans-serif;padding:12px 24px;display:inline-flex;gap:8px;align-items:center}" \
@@ -67,6 +93,16 @@ class PrototypeUxLintTest < Minitest::Test
     "inert-behind-sheet" => [ '<div inert><button style="position:absolute;left:20px;top:20px">Confirm</button></div>' \
                               '<div class="toast" role="dialog">Approve loan?</div>', [] ],
     "clipped" => [ '<div style="width:60px;overflow:hidden;white-space:nowrap">A very long label here</div>', %w[clipped-text] ],
+    "cut-by-ancestor" => [ '<div style="position:absolute;top:20px;width:200px;height:40px;overflow:hidden"><button style="margin-top:20px">Ask Dana</button></div>',
+                           %w[clipped-text] ],
+    "inside-scaled-ancestor" => [ '<div style="position:absolute;top:60px;left:60px;width:200px;height:80px;overflow:hidden;border:10px solid #000;transform:scale(1.2)">' \
+                                  '<button style="margin-top:10px">Ask Dana</button></div>', [] ],
+    "hidden-by-inner-clip" => [ '<div style="position:absolute;top:20px;width:300px;height:200px;overflow:hidden"><div style="height:40px;overflow:hidden">' \
+                                '<p style="margin-top:60px">Below the fold</p></div></div>', [] ],
+    "inside-ancestor" => [ '<div style="position:absolute;top:20px;width:200px;height:80px;overflow:hidden"><button>Ask Dana</button></div>', [] ],
+    "control-in-caption-band" => [ '<button style="position:absolute;left:20px;bottom:10px">Send</button>', %w[caption-safe] ],
+    "device-in-caption-band" => [ '<div class="phone" style="position:absolute;left:20px;top:20px;width:100px;height:330px"></div>', %w[caption-safe] ],
+    "device-clear-of-band" => [ '<div class="phone" style="position:absolute;left:20px;top:20px;width:100px;height:280px"></div>', [] ],
     "pending-success" => [ '<div data-cf-state="pending"><span data-cf-success>Approved</span></div>', %w[contradictory-state] ],
     "stale-actions" => [ '<div data-cf-state="approved"><span data-cf-success>Approved</span><button data-cf-when="pending">Approve</button></div>',
                          %w[contradictory-state] ],
@@ -101,6 +137,8 @@ class PrototypeUxLintTest < Minitest::Test
       end
       move = [ { "t_ms" => 0, "op" => "move", "target" => "#b", "duration_ms" => 33 } ]
       assert_equal %w[cursor-over-label], lint(session, LABEL_BUTTON, interactions: move)["findings"].map { |f| f["rule"] }
+      phone = lint(session, FIXTURES["device-clear-of-band"].first)["devices"].first
+      assert_equal [ 100, 280, 100.0, 280.0 ], phone.values_at("lw", "lh", "w", "h")
 
       point, report = capture(session, LABEL_BUTTON, "#b")
       assert_empty report["findings"], "safe aim clears the label"
