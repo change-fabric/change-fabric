@@ -26,7 +26,7 @@ module WalkthroughStoryboard
   PATCH_OPS = %w[set push delete].freeze
   MD_HEADER = 'Generated from storyboard.json; do not edit'
   BROLL_KIND = 'ai-broll'
-  SCENE_KINDS = [ nil, 'screen', BROLL_KIND, WalkthroughCompose::KIND ].freeze
+  SCENE_KINDS = [ nil, 'screen', BROLL_KIND, WalkthroughCompose::KIND, WalkthroughMessage::KIND ].freeze
   BROLL_IMAGE_EXTS = %w[.png .jpg .jpeg .webp].freeze
   BROLL_SECONDS = (1..10)
   KEY_KINDS = { 'frames_key' => 'frames', 'audio_key' => 'audio', 'asset_keys' => 'images', 'broll_key' => 'broll' }.freeze
@@ -87,8 +87,12 @@ module WalkthroughStoryboard
     Array(scene['hypotheses']).each { |h| errors << "hypothesis #{h} is not in the top-level list" unless hyp_ids.include?(h) }
     errors << 'needs at least one requirement or assumption' if Array(scene['requirements']).empty? && Array(scene['assumptions']).empty?
     errors.concat(kind_errors(scene, root))
-    if live?(scene)
-      errors.concat(WalkthroughLive.scene_errors(scene, board, orders, by_id))
+    if WalkthroughMessage.message?(scene) && !live?(scene)
+      errors.concat(WalkthroughMessage.errors(scene, { orders: orders, board: board, root: root }))
+      errors.concat(store_errors(scene, orders, root)) if scene['store']
+      LIVE_ONLY.each { |key| errors << "#{key} needs a live board (a message scene without screen.html)" if scene.key?(key) && !scene[key].nil? }
+    elsif live?(scene)
+      errors.concat(WalkthroughLive.scene_errors(scene, board, orders, by_id, root: root))
     else
       errors.concat(store_errors(scene, orders, root)) if scene['store']
       LIVE_ONLY.each { |key| errors << "#{key} needs a screen.url (a live scene)" if scene.key?(key) && !scene[key].nil? }
@@ -120,9 +124,9 @@ module WalkthroughStoryboard
   # A screen scene needs screen.html; an ai-broll scene needs a broll block and
   # carries no screen.
   def kind_errors(scene, root)
-    return [ "kind #{scene['kind'].inspect} must be one of screen, #{BROLL_KIND}, #{WalkthroughCompose::KIND}" ] unless SCENE_KINDS.include?(scene['kind'])
+    return [ "kind #{scene['kind'].inspect} must be one of screen, #{BROLL_KIND}, #{WalkthroughCompose::KIND}, #{WalkthroughMessage::KIND}" ] unless SCENE_KINDS.include?(scene['kind'])
     return broll_errors(scene, root) if broll?(scene)
-    return [] if WalkthroughLive.compose?(scene)
+    return [] if WalkthroughLive.builtin?(scene)
 
     screen = scene['screen'].is_a?(Hash) ? scene['screen'] : {}
     return [ 'screen takes exactly one of html or url' ] if screen.key?('html') && screen.key?('url')

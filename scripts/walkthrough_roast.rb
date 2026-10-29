@@ -33,6 +33,9 @@ module WalkthroughRoast
     8. Readability at 1080p: text too small, too low in contrast, or too brief on screen to read.
     9. Fractal and usability consistency: one module set repeated at every scale (cf:fractal), and
        Nielsen's ten heuristics (cf:usability), especially visibility of system status and consistency.
+    10. Simulated notifications and messages: a lock screen banner, thread, inbox, or email that is hard to read,
+       implausible for the moment, inconsistent with the app's look, or that does not lead visibly into the
+       app screen its tap opens.
   TEXT
 
   module_function

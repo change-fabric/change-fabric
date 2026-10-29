@@ -55,12 +55,17 @@ module WalkthroughAssumptions
     "#{out.join("\n").rstrip}\n"
   end
 
-  # Every compose scene is simulated UI that never sends anything.
+  # Every compose and message scene is simulated UI that never sends anything.
   def simulated_ui(board)
-    WalkthroughStoryboard.scenes(board).select { |s| WalkthroughLive.compose?(s) }.map do |scene|
-      from = scene.dig('compose', 'from_scene')
-      source = from ? "the app's real link (scene #{from})" : 'an explicit spec in the storyboard'
-      "- #{scene['id']}: simulated compose UI built from #{source}; nothing is sent"
+    WalkthroughStoryboard.scenes(board).filter_map do |scene|
+      if WalkthroughLive.compose?(scene)
+        from = scene.dig('compose', 'from_scene')
+        source = from ? "the app's real link (scene #{from})" : 'an explicit spec in the storyboard'
+        "- #{scene['id']}: simulated compose UI built from #{source}; nothing is sent"
+      elsif WalkthroughMessage.message?(scene)
+        spec = scene['message']
+        "- #{scene['id']}: simulated notification (#{spec['channel']} #{spec['view']} from #{spec['from']}); nothing is sent or received"
+      end
     end
   end
 

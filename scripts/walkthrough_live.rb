@@ -10,6 +10,7 @@ require_relative 'prototype_capture'
 require_relative 'prototype_ux_lint'
 require_relative 'walkthrough_compose'
 require_relative 'walkthrough_device'
+require_relative 'walkthrough_message'
 require_relative 'walkthrough_cache'
 
 # Live scenes: a cf:walkthrough scene whose screen is a running app's URL
@@ -50,7 +51,10 @@ module WalkthroughLive
 
   # Filmed in real time through the browser: a live scene, or a compose
   # scene (the built-in compose page, captured the same way).
-  def realtime?(scene) = live?(scene) || compose?(scene)
+  def realtime?(scene) = live?(scene) || compose?(scene) || WalkthroughMessage.realtime?(scene)
+
+  # Filmed from a built-in page (compose or message) rather than a URL.
+  def builtin?(scene) = compose?(scene) || WalkthroughMessage.realtime?(scene)
 
   def url(scene) = scene.dig('screen', 'url')
 
@@ -123,8 +127,11 @@ module WalkthroughLive
 
   # Errors for one live scene. `orders` maps scene id to order; `by_id` maps
   # scene id to scene, so session_from_scene can check the parent is live.
-  def scene_errors(scene, board, orders, by_id)
-    errors = compose?(scene) ? compose_scene_errors(scene, orders, by_id) : live_scene_errors(scene, board, orders, by_id)
+  def scene_errors(scene, board, orders, by_id, root: nil)
+    errors = if compose?(scene) then compose_scene_errors(scene, orders, by_id)
+    elsif WalkthroughMessage.message?(scene) then message_scene_errors(scene, board, orders, root)
+    else live_scene_errors(scene, board, orders, by_id)
+    end
     errors.concat(wait_errors(scene['wait']))
     errors.concat(WalkthroughDevice.scene_errors(scene))
     errors.concat(per_device_errors(scene))
@@ -144,6 +151,12 @@ module WalkthroughLive
   def compose_scene_errors(scene, orders, by_id)
     errors = WalkthroughCompose.errors(scene, { orders: orders, realtime: by_id.select { |_, s| live?(s) }.keys })
     %w[persona session_from_scene storage].each { |k| errors << "a compose scene takes no #{k}" if scene.key?(k) }
+    errors
+  end
+
+  def message_scene_errors(scene, board, orders, root)
+    errors = WalkthroughMessage.errors(scene, { orders: orders, board: board, root: root })
+    %w[persona session_from_scene storage store].each { |k| errors << "a message scene takes no #{k}" if scene.key?(k) }
     errors
   end
 
@@ -275,8 +288,9 @@ module WalkthroughLive
   # Live frames key: URL, persona login spec, parent session key, steps,
   # waits, storage, viewport, fps, duration, and browser options. No env
   # value is key material; changing a password does not re-key a scene.
-  def frames_key(board, scene, parent_key: nil)
-    WalkthroughCache.key(live: url(scene), compose: compose_material(scene), persona: persona_spec(board, scene['persona']),
+  def frames_key(board, scene, parent_key: nil, root: nil)
+    WalkthroughCache.key(live: url(scene), compose: compose_material(scene),
+                         message: WalkthroughMessage.realtime?(scene) ? WalkthroughMessage.material(scene, root) : nil, persona: persona_spec(board, scene['persona']),
                          session_from: parent_key, interactions: scene['interactions'] || [], wait: scene['wait'],
                          storage: scene['storage'], viewport: board['viewport'], fps: fps_for(board),
                          duration_ms: PrototypeCapture.scene_duration(scene), browser: browser_opts(board),
@@ -302,7 +316,7 @@ module WalkthroughLive
       found = board['scenes'].find { |s| s['id'] == from } || raise(ArgumentError, "unknown source scene #{from}")
       parent = prepare(board, found, root, memo)
     end
-    key = frames_key(board, scene, parent_key: parent && parent[:key])
+    key = frames_key(board, scene, parent_key: parent && parent[:key], root: root)
     memo[scene['id']] = { key: key, live: true, parent: from, compose: compose?(scene),
                           out_dir: File.join(root, '.cache', 'frames', key) }
   end
@@ -530,11 +544,15 @@ module WalkthroughLive
           down = false;
         }
         if (job.shots) await client.send("Page.stopScreencast");
-        // The compose page's end fields, so a run can confirm what was sent.
-        const composed = job.html ? await safe(() => page.evaluate(() => ({
-          body: document.getElementById("body").value, send: document.getElementById("send").textContent,
-          status: document.getElementById("status").textContent,
-          bubbles: [...document.querySelectorAll(".bubble")].map((b) => b.textContent) })), null) : null;
+        // The built-in page's end state, so a run can confirm what was sent
+        // or tapped.
+        const composed = job.html ? await safe(() => page.evaluate(() => {
+          const val = (id, prop) => { const el = document.getElementById(id); return el ? el[prop] : null; };
+          const view = document.querySelector(".cfm");
+          return { body: val("body", "value"), send: val("send", "textContent"), status: val("status", "textContent"),
+                   bubbles: [...document.querySelectorAll(".bubble, .cfm-out")].map((b) => b.textContent),
+                   view: view ? view.className : null, cta: val("cta", "className") };
+        }), null) : null;
         const out = await dumpSession(page, client);
         if (context) await context.close();
         return { name: dev.name, frames: store, ticks, cursor, pageErrors, lint, devices, overlays, links, composed, session: out };
@@ -587,7 +605,9 @@ module WalkthroughLive
 
   # One device's job: its spec, frame plan, lint frames, caption band, and
   # page source (the scene URL, or the compose page for that device).
-  def job(board, scene, spec, secrets, compose:, shots:)
+  # rubocop:disable Metrics/ParameterLists
+  def job(board, scene, spec, secrets, compose:, shots:, root: nil)
+    # rubocop:enable Metrics/ParameterLists
     fps = fps_for(board)
     frames = PrototypeCapture.frame_count(PrototypeCapture.scene_duration(scene), fps)
     ops = interactions_for(scene, spec['name'])
@@ -598,7 +618,15 @@ module WalkthroughLive
     band = WalkthroughDevice.default?(scene) ? PrototypeUxLint::CAPTION_BAND : 0
     { 'dev' => spec, 'plan' => plan, 'lint' => PrototypeUxLint.lint_frames(plan, frames), 'band' => band, 'shots' => shots,
       'group' => WalkthroughDevice.group(scene, spec['name']),
-      'url' => compose ? nil : url(scene), 'html' => compose && WalkthroughCompose.html(compose, spec['name']) }
+      'url' => url(scene), 'html' => page_html(scene, spec['name'], compose: compose, board: board, root: root) }
+  end
+
+  # The built-in page a compose or message scene films on one device.
+  def page_html(scene, device, compose:, board:, root:)
+    return WalkthroughCompose.html(compose, device) if compose
+    return WalkthroughMessage.page(scene['message'], device, board: board, root: root) if WalkthroughMessage.realtime?(scene)
+
+    nil
   end
 
   # Captures one live or compose scene into out_dir (NNNNNN.png composited
@@ -608,7 +636,7 @@ module WalkthroughLive
   # rubocop:disable Metrics/ParameterLists
   def capture(session:, board:, scene:, out_dir:, secrets:, browser_session: nil, docker: nil, work: nil, shots: true, compose: nil)
     # rubocop:enable Metrics/ParameterLists
-    jobs = WalkthroughDevice.specs(board, scene).map { |spec| job(board, scene, spec, secrets, compose: compose, shots: shots) }
+    jobs = WalkthroughDevice.specs(board, scene).map { |spec| job(board, scene, spec, secrets, compose: compose, shots: shots, root: work) }
     result = guard(secrets) do
       PrototypeCapture.run_with_retry(session, capture_module(board, scene, jobs: jobs, session: browser_session))
     end

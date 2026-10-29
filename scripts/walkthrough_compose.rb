@@ -174,5 +174,5 @@ module WalkthroughCompose
   end
 
   private_class_method :query_params, :decode, :recipients, :sms?, :from_errors, :explicit_errors, :normalize,
-                       :template_roots, :template, :fill, :esc, :send_button, :status_line, :field, :email_rows
+                       :template_roots, :esc, :send_button, :status_line, :field, :email_rows
 end
