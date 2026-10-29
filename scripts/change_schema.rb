@@ -436,8 +436,9 @@ module ChangeSchema
   DESIGN_PARITY_KEYS = %w[default areas].freeze
   DESIGN_AREA_KEYS = %w[match status reason].freeze
   DESIGN_ROAST_KEYS = %w[auto target rounds max_usd model kind audience].freeze
-  # The artifact kinds a roast judges against (also a storyboard review.kind).
-  REVIEW_KINDS = %w[explainer promo demo].freeze
+  # The artifact kinds a roast judges against: video (explainer, promo, demo) and
+  # text (email, doc, pr, post). Also a storyboard review.kind.
+  REVIEW_KINDS = %w[explainer promo demo email doc pr post].freeze
   PARITY_STATUSES = %w[must_match intentional unreviewed].freeze
 
   # Every problem with a change_config.design block, as messages naming the

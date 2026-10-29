@@ -292,7 +292,7 @@ change_config:
 | `change_config.design.roast.rounds` | integer | no (default 4) | The roast round cap. Must be at least 1. |
 | `change_config.design.roast.max_usd` | number | no (default 2.00) | The spend ceiling for one roast run, in US dollars. Must be greater than 0. |
 | `change_config.design.roast.model` | string or null | no (default null) | The critic model. Null keeps `CF_ROAST_MODEL` or the script default. |
-| `change_config.design.roast.kind` | `explainer`, `promo`, `demo`, or null | no (default null) | Default artifact kind the roast judges against. A storyboard `review.kind` overrides it; `--kind` overrides both. |
+| `change_config.design.roast.kind` | `explainer`, `promo`, `demo`, `email`, `doc`, `pr`, `post`, or null | no (default null) | Default artifact kind the roast judges against. A storyboard `review.kind` overrides it; `--kind` overrides both. |
 | `change_config.design.roast.audience` | string or null | no (default null) | Default audience the roast judges against, with the same precedence. The roast refuses to run when no source supplies an audience and a purpose. |
 | `change_config.design.critic_rounds` | integer | no (default 3) | How many grilling rounds `cf:design` runs with its four background critics. Must be 1 to 5. |
 

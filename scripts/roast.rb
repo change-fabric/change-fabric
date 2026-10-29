@@ -8,6 +8,8 @@ require 'openssl'
 require 'optparse'
 require 'uri'
 require_relative 'design_config'
+require_relative 'roast_kind'
+require_relative 'sensitive_terms'
 require_relative 'walkthrough_cache'
 require_relative 'walkthrough_env'
 
@@ -37,17 +39,18 @@ module Roast
   IMAGE_TOKENS = 1500
   MAX_OUTPUT_TOKENS = 4000
   MIME = { '.png' => 'image/png', '.jpg' => 'image/jpeg', '.jpeg' => 'image/jpeg', '.webp' => 'image/webp' }.freeze
-  USAGE = 'usage: roast.rb --brief FILE --shot IMG... [--history DIR] [--out-dir DIR] [--round N] ' \
+  USAGE = 'usage: roast.rb --brief FILE (--shot IMG... | --text FILE...) [--allow-sensitive] [--history DIR] [--out-dir DIR] [--round N] ' \
           '[--max-usd N] [--model NAME] [--cache DIR] [--transcript FILE] [--estimate-only] ' \
-          '[--storyboard FILE] [--kind explainer|promo|demo] [--audience TEXT] [--purpose OUTCOME]... | roast.rb decide --out-dir DIR [--target N] [--cap N] | roast.rb settings [--repo DIR]; ' \
+          '[--storyboard FILE] [--kind explainer|promo|demo|email|doc|pr|post] [--audience TEXT] [--purpose OUTCOME]... | roast.rb infer [--storyboard FILE] [--text FILE]... | roast.rb decide --out-dir DIR [--target N] [--cap N] | roast.rb settings [--repo DIR]; ' \
           'flags win over the storyboard review object, which wins over change_config.design.roast in CHANGE.md (--repo DIR, default the working directory)'
 
   KINDS = ChangeSchema::REVIEW_KINDS
 
   SYSTEM_PROMPT = <<~TEXT
-    You are a harsh, specific critic of a UX or a narrated walkthrough. Roast it: no praise padding,
-    no vague taste talk. Every issue names the screen, the concrete problem the stated audience would
-    hit, and a concrete fix the author can apply. Prioritize: P0 blocks the audience from the stated
+    You are a harsh, specific critic of a UX, a narrated walkthrough, or a piece of writing (an email,
+    a doc, a PR description, a post). Roast it: no praise padding, no vague taste talk. Every issue
+    names where it is (the screen or scene for visuals, a quoted phrase or paragraph number for text),
+    the concrete problem the stated audience would hit, and a concrete fix the author can apply. Prioritize: P0 blocks the audience from the stated
     purpose, P1 badly hurts clarity or trust, P2 is polish.
 
     The artifact declares what it is: a review contract gives its kind, its audience, and its purpose,
@@ -67,6 +70,13 @@ module Roast
     link, or product naming unless a purpose outcome asks for it. promo: keep the what, who, and
     next-step test in addition to the purpose outcomes; a missing call to action is a real flaw.
     demo: it must show the thing running; a described but unshown capability is a flaw.
+    email: is the ask clear, is the deadline stated, and is it clear why it matters to this reader;
+    judge length, tone, and anything that could land badly. doc: can the reader find what they need
+    from the headings alone, is the order the reader's rather than the author's, and is every claim
+    concrete and checkable. pr: does the title and opening say what changed and why, is the test plan
+    something a reviewer can run, and are risks and follow-ups named. post: does the first line earn the
+    read, is there one clear point and one next step, and is the tone right for the audience and venue.
+    For text, the purpose outcomes are what the reader must be able to state or do after reading.
 
     Production facts you cannot see. The frames are sampled keyframes, not the full video, so do not
     infer motion or timing gaps from them alone. Captions may ship as sidecar srt or vtt files rather
@@ -75,7 +85,7 @@ module Roast
 
     You are given earlier rounds. Do not repeat an issue that was fixed; hold the line on one the
     author rebutted weakly; accept a rebuttal that is sound and say so in the summary.
-    When a narration transcript with captions is given, critique it too: name an issue's screen
+    When a narration transcript with captions is given, critique it too: name an issue's where
     as the scene id or the cue it concerns.
   TEXT
 
@@ -88,10 +98,10 @@ module Roast
       issues: {
         type: 'array',
         items: {
-          type: 'object', additionalProperties: false, required: %w[priority screen problem fix],
+          type: 'object', additionalProperties: false, required: %w[priority where problem fix],
           properties: {
             priority: { type: 'string', enum: PRIORITIES },
-            screen: { type: 'string' }, problem: { type: 'string' }, fix: { type: 'string' }
+            where: { type: 'string' }, problem: { type: 'string' }, fix: { type: 'string' }
           }
         }
       },
@@ -115,8 +125,14 @@ module Roast
   # The review contract (audience, purpose) did not resolve; a RequestError so a
   # caller that already skips a failed round skips this one with the same message.
   class ReviewError < RequestError; end
+  # A text input matched the user's sensitive-terms list and was not allowed.
+  class SensitiveError < StandardError; end
 
   module_function
+
+  # Where an issue sits: `where` (screen, scene, quoted phrase, paragraph), or
+  # `screen`, the field earlier rounds and walkthrough response files carry.
+  def location(item) = (item['where'] || item['screen']).to_s
 
   def mime_for(path) = MIME.fetch(File.extname(path).downcase) { raise UsageError, "unsupported image type: #{path}" }
 
@@ -171,35 +187,38 @@ module Roast
 
   # `transcript` is optional narration and caption text the critic reads next to
   # the frames; it joins the key only when present, so frame-only keys are stable.
-  def request_key(brief:, shots:, history:, round:, transcript: nil, review: nil, model: MODEL)
+  def request_key(brief:, shots:, history:, round:, texts: [], transcript: nil, review: nil, model: MODEL)
     WalkthroughCache.key({ model: model, brief: brief, round: round, history: history,
                            shots: shots.map { |s| Digest::SHA256.file(s).hexdigest } }
+                           .merge(texts.empty? ? {} : { texts: texts.map { |t| Digest::SHA256.file(t).hexdigest } })
                            .merge(transcript ? { transcript: transcript } : {}).merge(review ? { review: review } : {}))
   end
 
-  def estimate(brief:, shots:, history:, transcript: nil, review: nil)
-    chars = SYSTEM_PROMPT.size + brief.size + JSON.generate(history).size + transcript.to_s.size + review_text(review).to_s.size
+  def estimate(brief:, shots:, history:, texts: [], transcript: nil, review: nil)
+    chars = SYSTEM_PROMPT.size + texts.sum { |t| File.size(t) } + brief.size + JSON.generate(history).size + transcript.to_s.size + review_text(review).to_s.size
     input = (chars / 4) + (shots.size * IMAGE_TOKENS)
     usd = ((input * PRICE_PER_MTOK[:input]) + (MAX_OUTPUT_TOKENS * PRICE_PER_MTOK[:output])) / 1_000_000.0
     { usd: usd.round(2), tokens: input }
   end
 
-  def user_text(brief, history, round, shots, transcript: nil, review: nil)
+  def user_text(brief, history, round, shots, texts: [], transcript: nil, review: nil)
     past = history.map do |h|
       "Round #{h[:round]} critic:\n#{JSON.pretty_generate(h[:critic])}\n" \
         "Round #{h[:round]} author response:\n#{h[:response] ? JSON.pretty_generate(h[:response]) : '(none recorded)'}"
     end
-    [ "Round #{round}.", review_text(review), "Brief:\n#{brief}", "Screens, in order: #{shots.map { |s| File.basename(s) }.join(', ')}",
+    [ "Round #{round}.", review_text(review), "Brief:\n#{brief}",
+     (shots.empty? ? nil : "Screens, in order: #{shots.map { |s| File.basename(s) }.join(', ')}"),
+     *texts.each_with_index.map { |t, i| "Text under review (#{i + 1} of #{texts.size}, #{File.basename(t)}):\n#{File.read(t).strip}" },
      (transcript ? "Narration transcript and captions:\n#{transcript}" : nil),
      (past.empty? ? 'No earlier rounds.' : "Earlier rounds:\n#{past.join("\n\n")}") ].compact.join("\n\n")
   end
 
   # The pure request description: the URL and the JSON body, no auth or cache key.
-  def build_request(brief:, shots:, history:, round:, transcript: nil, review: nil, model: MODEL)
+  def build_request(brief:, shots:, history:, round:, texts: [], transcript: nil, review: nil, model: MODEL)
     images = shots.map do |s|
       { type: 'input_image', image_url: "data:#{mime_for(s)};base64,#{Base64.strict_encode64(File.binread(s))}" }
     end
-    text = { type: 'input_text', text: user_text(brief, history, round, shots, transcript: transcript, review: review) }
+    text = { type: 'input_text', text: user_text(brief, history, round, shots, texts: texts, transcript: transcript, review: review) }
     { url: RESPONSES_URL,
       body: { model: model, max_output_tokens: MAX_OUTPUT_TOKENS,
               input: [ { role: 'system', content: SYSTEM_PROMPT }, { role: 'user', content: [ text, *images ] } ],
@@ -258,6 +277,7 @@ module Roast
 
     bad = critic['issues'].find { |i| !PRIORITIES.include?(i['priority']) }
     raise RequestError, "roast issue has an unknown priority: #{bad['priority'].inspect}" if bad
+    raise RequestError, 'roast issue has no where' if critic['issues'].any? { |i| location(i).strip.empty? }
     raise RequestError, 'roast thirty_second_test verdict is invalid' unless VERDICTS.include?(critic.dig('thirty_second_test', 'verdict'))
     raise RequestError, 'roast purpose_test must be a list' unless critic['purpose_test'].is_a?(Array)
 
@@ -266,10 +286,10 @@ module Roast
   end
 
   # Returns the cached critic JSON, making the paid call only on a miss.
-  def critique(brief:, shots:, history:, round:, cache_root:, transcript: nil, review: nil, http: nil, model: MODEL)
-    key = request_key(brief: brief, shots: shots, history: history, round: round, transcript: transcript, review: review, model: model)
+  def critique(brief:, shots:, history:, round:, cache_root:, texts: [], transcript: nil, review: nil, http: nil, model: MODEL)
+    key = request_key(brief: brief, shots: shots, history: history, round: round, texts: texts, transcript: transcript, review: review, model: model)
     path = WalkthroughCache.fetch(*cache_args(cache_root, key)) do |tmp|
-      request = build_request(brief: brief, shots: shots, history: history, round: round, transcript: transcript, review: review, model: model)
+      request = build_request(brief: brief, shots: shots, history: history, round: round, texts: texts, transcript: transcript, review: review, model: model)
       File.write(tmp, JSON.generate(parse_critic(post(request, http))))
     end
     JSON.parse(File.read(path))
@@ -277,7 +297,7 @@ module Roast
 
   # USD one round will cost: nothing when cached, else the token estimate.
   def round_usd(cache_root, **inputs)
-    cached?(cache_root, **inputs) ? 0.0 : estimate(**inputs.slice(:brief, :shots, :history, :transcript, :review))[:usd]
+    cached?(cache_root, **inputs) ? 0.0 : estimate(**inputs.slice(:brief, :shots, :history, :texts, :transcript, :review))[:usd]
   end
 
   def cached?(cache_root, **inputs)
@@ -292,7 +312,7 @@ module Roast
     lines = [ "# Roast round #{round}", '', "Score: #{critic['score']}/10", '', critic['summary'], '' ]
     PRIORITIES.each do |p|
       critic['issues'].select { |i| i['priority'] == p }.each do |i|
-        lines << "- #{p} (#{i['screen']}): #{i['problem']}" << "  Fix: #{i['fix']}"
+        lines << "- #{p} (#{location(i)}): #{i['problem']}" << "  Fix: #{i['fix']}"
       end
     end
     t = critic['thirty_second_test']
@@ -323,7 +343,7 @@ module Roast
     end
   end
 
-  # Run returns the exit code: 0 ok, 1 a named failure, 2 usage (as image.rb).
+  # Run returns the exit code: 0 ok, 1 a named failure, 2 usage (as image.rb), 3 kind ambiguous.
   module Cli
     module_function
 
@@ -332,6 +352,10 @@ module Roast
       if args.first == 'decide'
         args.shift
         return decide(parse_decide(args), out)
+      end
+      if args.first == 'infer'
+        args.shift
+        return infer(parse_infer(args), out)
       end
       if args.first == 'settings'
         args.shift
@@ -345,7 +369,10 @@ module Roast
     rescue UsageError, OptionParser::ParseError => e
       out.puts("error: #{e.message}", USAGE)
       2
-    rescue CeilingError, RequestError, WalkthroughEnv::MissingKeyError, SystemCallError, DesignConfig::Error => e
+    rescue RoastKind::Ambiguous => e
+      out.puts(e.message)
+      3
+    rescue CeilingError, SensitiveError, RequestError, WalkthroughEnv::MissingKeyError, SystemCallError, DesignConfig::Error => e
       out.puts("error: #{e.message}")
       1
     end
@@ -376,12 +403,14 @@ module Roast
 
     def parse(args)
       repo = repo_arg(args)
-      opts = { shots: [], max_usd: DEFAULT_CEILING_USD, cache: '.cache', out_dir: DEFAULT_OUT_DIR, model: MODEL, flags: { purpose: [] } }
+      opts = { shots: [], texts: [], max_usd: DEFAULT_CEILING_USD, cache: '.cache', out_dir: DEFAULT_OUT_DIR, model: MODEL, flags: { purpose: [] } }
              .merge(configured(repo).slice(:max_usd, :model).merge(config_review: configured(repo).slice(:kind, :audience)))
       OptionParser.new do |o|
         o.on('--model NAME') { |v| opts[:model] = v }
         o.on('--brief FILE') { |v| opts[:brief_file] = v }
         o.on('--shot IMG') { |v| opts[:shots] << v }
+        o.on('--text FILE') { |v| opts[:texts] << v }
+        o.on('--allow-sensitive') { opts[:allow_sensitive] = true }
         o.on('--history DIR') { |v| opts[:history] = v }
         o.on('--out-dir DIR') { |v| opts[:out_dir] = v }
         o.on('--round N', Integer) { |v| opts[:round] = v }
@@ -396,9 +425,28 @@ module Roast
       end.parse!(args)
       opts[:shots] += args
       raise UsageError, '--brief is required' unless opts[:brief_file]
-      raise UsageError, 'give at least one --shot' if opts[:shots].empty?
+      raise UsageError, 'give at least one --shot or --text' if opts[:shots].empty? && opts[:texts].empty?
 
       opts
+    end
+
+    def parse_infer(args)
+      opts = { texts: [] }
+      OptionParser.new do |o|
+        o.on('--storyboard FILE') { |v| opts[:storyboard_file] = v }
+        o.on('--text FILE') { |v| opts[:texts] << v }
+      end.parse!(args)
+      raise UsageError, 'give --storyboard or --text' unless opts[:storyboard_file] || opts[:texts].any?
+
+      opts
+    end
+
+    # Prints the inferred kind and confidence (exit 0), or raises Ambiguous (exit 3).
+    def infer(opts, out)
+      [ opts[:storyboard_file], *opts[:texts] ].compact.each { |f| raise Errno::ENOENT, f unless File.file?(f) }
+      found = RoastKind.infer(storyboard: board_for(opts), texts: opts[:texts].map { |t| [ t, File.read(t) ] })
+      out.puts("roast kind: #{found.kind} (confidence #{found.confidence}): #{found.reason}")
+      0
     end
 
     def parse_decide(args)
@@ -434,9 +482,10 @@ module Roast
     end
 
     def critique(opts, out, http)
-      [ opts[:brief_file], opts[:transcript_file], opts[:storyboard_file], *opts[:shots] ].compact.each { |f| raise Errno::ENOENT, f unless File.file?(f) }
+      [ opts[:brief_file], opts[:transcript_file], opts[:storyboard_file], *opts[:shots], *opts[:texts] ].compact.each { |f| raise Errno::ENOENT, f unless File.file?(f) }
       opts[:shots].each { |s| Roast.mime_for(s) }
-      inputs = inputs_for(opts)
+      check_sensitive!(opts)
+      inputs = inputs_for(opts, out)
       usd = announce(inputs, opts, out)
       raise CeilingError, "$#{format('%.2f', usd)} would pass the $#{format('%.2f', opts[:max_usd])} ceiling" if usd > opts[:max_usd] + 1e-9
       return if opts[:estimate_only]
@@ -446,17 +495,39 @@ module Roast
       out.puts("roast: #{File.join(opts[:out_dir], "round-#{inputs[:round]}.json")} score #{critic['score']}/10")
     end
 
-    def inputs_for(opts)
-      { brief: File.read(opts[:brief_file]).strip, shots: opts[:shots],
+    # Refuses before any paid call when a text input or the transcript matches the
+    # user's sensitive-terms list. Names only the count, never a term.
+    def check_sensitive!(opts)
+      return if opts[:allow_sensitive]
+
+      hits = SensitiveTerms.matched([ *opts[:texts], opts[:transcript_file] ].compact.map { |f| File.read(f) }, SensitiveTerms.load)
+      raise SensitiveError, "roast refused: #{hits.size} sensitive term(s) matched in the text inputs; pass --allow-sensitive to send anyway" if hits.any?
+    end
+
+    def inputs_for(opts, out)
+      { brief: File.read(opts[:brief_file]).strip, shots: opts[:shots], texts: opts[:texts],
         history: Roast.load_history(opts[:history] || opts[:out_dir]),
         round: opts[:round] || Roast.next_round(opts[:out_dir]),
-        transcript: opts[:transcript_file] && File.read(opts[:transcript_file]).strip, review: review_for(opts),
+        transcript: opts[:transcript_file] && File.read(opts[:transcript_file]).strip, review: review_for(opts, out),
         model: opts[:model] }
     end
 
-    def review_for(opts)
-      board = opts[:storyboard_file] ? JSON.parse(File.read(opts[:storyboard_file])) : {}
-      Roast.resolve_review(flags: opts[:flags], storyboard: board['review'], config: opts[:config_review])
+    # The review contract; when no source names a kind, infers one from the
+    # inputs and reports it, or raises RoastKind::Ambiguous (exit 3).
+    def review_for(opts, out)
+      board = board_for(opts) || {}
+      review = Roast.resolve_review(flags: opts[:flags], storyboard: board['review'], config: opts[:config_review])
+      return review if review[:kind]
+
+      found = RoastKind.infer(storyboard: board.empty? ? nil : board, texts: opts[:texts].map { |t| [ t, File.read(t) ] })
+      return review unless found
+
+      out.puts("roast kind: #{found.kind} (inferred, confidence #{found.confidence}): #{found.reason}")
+      review.merge(kind: found.kind)
+    end
+
+    def board_for(opts)
+      opts[:storyboard_file] ? JSON.parse(File.read(opts[:storyboard_file])) : nil
     rescue JSON::ParserError
       raise UsageError, "#{opts[:storyboard_file]} is not valid JSON"
     end
@@ -464,13 +535,13 @@ module Roast
     # Prints the estimate before any paid call and returns the USD it will cost.
     def announce(inputs, opts, out)
       usd = Roast.round_usd(opts[:cache], **inputs)
-      call = usd.zero? ? '1 call (cached)' : estimate_line(inputs[:shots].size, Roast.estimate(**inputs.slice(:brief, :shots, :history, :transcript, :review)))
+      call = usd.zero? ? '1 call (cached)' : estimate_line(inputs, Roast.estimate(**inputs.slice(:brief, :shots, :history, :texts, :transcript, :review)))
       out.puts("roast estimate: #{call}, $#{format('%.2f', usd)} to spend")
       usd
     end
 
-    def estimate_line(image_count, est)
-      "1 call, #{image_count} image(s), about #{est[:tokens]} tokens in, up to #{MAX_OUTPUT_TOKENS} out, about $#{format('%.2f', est[:usd])}"
+    def estimate_line(inputs, est)
+      "1 call, #{inputs[:shots].size} image(s), #{inputs[:texts].size} text(s), about #{est[:tokens]} tokens in, up to #{MAX_OUTPUT_TOKENS} out, about $#{format('%.2f', est[:usd])}"
     end
   end
 end

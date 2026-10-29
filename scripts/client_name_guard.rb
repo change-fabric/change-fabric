@@ -3,6 +3,7 @@
 
 require 'json'
 require_relative 'hook_event'
+require_relative 'sensitive_terms'
 
 # PreToolUse hook: denies a tool call whose authored text carries a name the
 # user flagged as sensitive. The name is a client, customer, or
@@ -25,7 +26,7 @@ require_relative 'hook_event'
 class ClientNameGuard
   EVENT = 'PreToolUse'
 
-  DEFAULT_TERMS_PATH = File.join(Dir.home, '.claude', 'cf', 'sensitive_terms.txt')
+  DEFAULT_TERMS_PATH = SensitiveTerms::DEFAULT_PATH
 
   # Matches this toolkit's own GitHub remote, however it is cloned (origin,
   # a fork remote, https or ssh). Not a client name: this is the tool's own
@@ -71,18 +72,11 @@ class ClientNameGuard
     @remote_v.call.to_s.lines.any? { |line| line.match?(CF_REPO_REMOTE) }
   end
 
-  def banned_terms
-    return [] unless File.file?(@terms_path)
-
-    File.readlines(@terms_path).map(&:strip)
-        .reject { |line| line.empty? || line.start_with?('#') }
-  rescue StandardError
-    []
-  end
+  def banned_terms = SensitiveTerms.load(@terms_path)
 
   def offenders(terms)
     text = scannable.join(' ')
-    terms.select { |term| text.match?(/#{Regexp.escape(term)}/i) }
+    SensitiveTerms.matched(text, terms)
   end
 
   def scannable

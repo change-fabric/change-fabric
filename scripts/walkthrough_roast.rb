@@ -133,7 +133,7 @@ module WalkthroughRoast
     end
   end
 
-  def rebuttal_for?(issue, response) = response && response['verdict'] == 'rebut' && response['screen'] == issue['screen']
+  def rebuttal_for?(issue, response) = response && response['verdict'] == 'rebut' && Roast.location(response) == Roast.location(issue)
 
   # A rebuttal names the issue by its problem text wherever it sits; one with
   # no problem text can only mean the issue at its own position.
@@ -217,7 +217,7 @@ module WalkthroughRoast
   end
 
   def raise_open_blockers(blockers)
-    lines = blockers.map { |i| "#{i['priority']} (#{i['screen']}): #{i['problem']}" }
+    lines = blockers.map { |i| "#{i['priority']} (#{Roast.location(i)}): #{i['problem']}" }
     raise OpenFindingsError, "#{blockers.size} open P0/P1 roast finding(s) block --final (pass --allow-roast-findings to override):\n" \
                              "#{lines.join("\n")}"
   end
