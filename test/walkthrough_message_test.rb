@@ -74,6 +74,14 @@ class WalkthroughMessageTest < Minitest::Test
     assert_includes icon, "data:image/svg+xml;base64,"
   end
 
+  # A bare `.cfm button` rule outranks `.cfm-cta` and `.cfm-banner` and
+  # wipes their colors, so the reset stays at zero specificity.
+  def test_reset_does_not_override_control_colors
+    css = WalkthroughCompose.template("message.css")
+    refute_match(/^\.cfm button/, css)
+    assert_includes css, ":where(.cfm) :where(button, textarea)"
+  end
+
   def test_live_page_inlines_root_tokens
     File.write(File.join(@root, "tokens.css"), ":root { --accent: #123456; }")
     page = WalkthroughMessage.page(sms, "phone", root: @root)
