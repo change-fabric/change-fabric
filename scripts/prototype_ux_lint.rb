@@ -107,10 +107,21 @@ module PrototypeUxLint
         }
         return out;
       };
+      // An input button paints its label natively, with no text node to walk.
+      const inputLabel = (el) => {
+        if (el.tagName !== 'INPUT') return '';
+        const t = (el.getAttribute('type') || '').toLowerCase();
+        if (!/^(submit|button|reset)$/.test(t)) return '';
+        return el.value.trim() || ({ submit: 'Submit', reset: 'Reset' }[t] || '');
+      };
+      const shownInputLabel = (el) => {
+        const cs = getComputedStyle(el);
+        return parseFloat(cs.fontSize) > 0 && alpha(cs.color) >= 0.05 && alpha(cs.webkitTextFillColor || cs.color) >= 0.05 && !masked(el) ? inputLabel(el) : '';
+      };
       const accName = (el) => {
         const by = el.getAttribute('aria-labelledby');
         if (by) { const t = by.split(/\s+/).map((id) => { const n = document.getElementById(id); return n ? n.textContent : ''; }).join(' ').trim(); if (t) return t; }
-        const direct = (el.getAttribute('aria-label') || el.getAttribute('title') || (el.tagName === 'INPUT' ? el.value : '') || '').trim();
+        const direct = (el.getAttribute('aria-label') || el.getAttribute('title') || inputLabel(el) || '').trim();
         if (direct) return direct;
         const alt = Array.prototype.map.call(el.querySelectorAll('img[alt]'), (i) => i.alt).join(' ').trim();
         return (el.textContent.trim() || alt);
@@ -124,7 +135,7 @@ module PrototypeUxLint
           seen.add(el);
           const overlay = el.matches(OVERLAY);
           const name = accName(el);
-          const shown = textRects(el).map((t) => t.text).join(' ');
+          const shown = shownInputLabel(el) || textRects(el).map((t) => t.text).join(' ');
           const r = el.getBoundingClientRect();
           const iconButton = !overlay && (el.hasAttribute('aria-label') || el.hasAttribute('title') || el.hasAttribute('aria-labelledby')) && r.width <= 64 && r.height <= 64;
           if (!name) out.push({ rule: 'empty-control', target: sel(el), detail: (overlay ? 'overlay' : 'control') + ' has no accessible name' });
