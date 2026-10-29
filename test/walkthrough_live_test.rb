@@ -391,6 +391,25 @@ class WalkthroughLiveTest < Minitest::Test
     refute_includes err.message, SECRET
     assert_raises(WalkthroughLive::MissingEnvError) { WalkthroughLive::Secrets.new(%w[UNSET_VAR_X]).fetch("UNSET_VAR_X") }
   end
+
+  def test_scene_writer_feeds_composite_inputs_in_layout_rect_order
+    secrets = Object.new.tap { |o| o.define_singleton_method(:mask_deep) { |v| v } }
+    [ %w[desktop phone], %w[phone desktop], %w[phone], %w[desktop] ].each do |devices|
+      Dir.mktmpdir do |work|
+        argvs = []
+        docker = ->(argv) { argvs << argv; [ "", Status.new(true) ] }
+        scene = { "id" => "s", "devices" => devices, "layout" => devices.size > 1 ? "side-by-side" : "single" }
+        runs = devices.map do |d|
+          { "name" => d, "frames" => [ Base64.strict_encode64("j") ], "ticks" => [ 0 ], "links" => [], "lint" => [],
+            "cursor" => [ { "x" => 1, "y" => 2, "down" => false } ] }
+        end
+        WalkthroughLive::SceneWriter.new(board: {}, scene: scene, secrets: secrets, docker: docker, work: work).write(runs, File.join(work, "out"))
+        inputs = argvs.first.each_cons(2).select { |a, _| a == "-i" }.map { |_, v| v.split("/")[-2] }
+        assert_equal WalkthroughDevice.layout({}, scene).rects.map(&:name), inputs, "order for #{devices.inspect}"
+      end
+    end
+  end
+
 end
 
 class WalkthroughLiveRetryTest < Minitest::Test

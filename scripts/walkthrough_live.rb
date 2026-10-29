@@ -686,8 +686,10 @@ module WalkthroughLive
     def write(runs, out_dir)
       FileUtils.rm_rf(out_dir)
       FileUtils.mkdir_p(out_dir)
-      dirs = runs.map { |run| write_jpgs(run, File.join(out_dir, 'jpg', run['name'])) }
-      composite!(dirs, out_dir)
+      dirs = runs.to_h { |run| [ run['name'], write_jpgs(run, File.join(out_dir, 'jpg', run['name'])) ] }
+      # The composite filter is positional over the layout's rects, so feed
+      # inputs in rect order, not the scene's authored device order.
+      composite!(@layout.rects.map { |r| dirs.fetch(r.name) }, out_dir)
       FileUtils.rm_rf(File.join(out_dir, 'jpg'))
       write_tracks(runs, out_dir)
       links = runs.flat_map { |r| Array(r['links']) }.uniq.map { |href| WalkthroughCompose.parse_link(href).merge('href' => href) }
