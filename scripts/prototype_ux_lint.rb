@@ -292,7 +292,7 @@ module PrototypeUxLint
 
   # One sample per distinct device measurement, keeping its first frame.
   def device_samples(raw)
-    raw.uniq { |d| d.values_at('target', 'w', 'h', 'lw', 'lh') }
+    raw.uniq { |d| d.values_at('group', 'target', 'w', 'h', 'lw', 'lh') }
   end
 
   # The aim an existing (possibly stale) report was captured with, so a
@@ -309,12 +309,14 @@ module PrototypeUxLint
   # first device sample is the baseline: every later one must keep its layout
   # size and aspect ratio, and its rendered size, except that a scene whose
   # `zoom` (from camera.zoom) is set may render anywhere between the baseline
-  # and baseline times that factor. Returns { scene_id => [finding] }.
+  # and baseline times that factor. Samples compare only within their group
+  # (device and layout, such as "phone side_by_side"); a sample with no
+  # group is "desktop single". Returns { scene_id => [finding] }.
   def device_findings(reports, zoom: {})
-    base = nil
+    bases = {}
     reports.to_h do |report|
       found = Array(report['devices']).filter_map do |d|
-        base ||= d
+        base = bases[d['group'] || DEFAULT_GROUP] ||= d
         device_problem(d, base, zoom.fetch(report['scene'], 1.0).to_f)&.then do |detail|
           { 'frame' => d['frame'], 'rule' => 'device-frame', 'target' => d['target'], 'detail' => detail }
         end
@@ -322,6 +324,8 @@ module PrototypeUxLint
       [ report['scene'], merge(found) ]
     end
   end
+
+  DEFAULT_GROUP = 'desktop single'
 
   def device_problem(dev, base, zoom)
     return "layout #{dev['lw']}x#{dev['lh']} differs from #{base['lw']}x#{base['lh']}" unless dev.values_at('lw', 'lh') == base.values_at('lw', 'lh')

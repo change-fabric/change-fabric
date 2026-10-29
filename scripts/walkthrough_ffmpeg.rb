@@ -9,7 +9,7 @@ require 'json'
 #   { fps:, width:, height:, total_ms:, cursor_png:, srt:, output:,
 #     music: { path:, gain_db: } | nil, duck_spans: [{ start_ms:, end_ms:, db: }],
 #     scenes: [{ id:, frames_dir:, frames:, start_frame:, transition: { 'type', 'ms' },
-#                cursor: [{ 'frame', 'x', 'y' }], hero_still:, audio:, offset_ms: }] }
+#                cursor: [{ 'frame', 'x', 'y' }], taps: [...] | nil, hero_still:, audio:, offset_ms: }] }
 #
 # Audio is normalized in two passes: pass 1 measures with loudnorm
 # print_format=json, pass 2 applies the measured values with linear=true.
@@ -19,6 +19,8 @@ module WalkthroughFfmpeg
   # sendcmd file instead of an inline if() chain, which FFmpeg parses slowly.
   CHAIN_MAX = 200
   OFFSCREEN = -200
+  # The tap ripple sprite's size in canvas px (matches WalkthroughDevice::RIPPLE).
+  RIPPLE = 44
   DETERMINISM = [ '-fflags', '+bitexact', '-flags:v', '+bitexact', '-flags:a', '+bitexact', '-r', '30',
                   '-pix_fmt', 'yuv420p', '-map_metadata', '-1', '-c:v', 'libx264', '-preset', 'medium',
                   '-crf', '18', '-threads', '4', '-c:a', 'aac', '-b:a', '192k' ].freeze
@@ -79,14 +81,29 @@ module WalkthroughFfmpeg
   def scene_chain(plan, scene, i)
     points = Array(scene[:cursor])
     raw = "[#{i}:v]setpts=PTS-STARTPTS"
-    if long_path?(points)
-      first = points.first
-      [ "#{raw},sendcmd=f='#{sendcmd_path(plan, scene)}'[s#{i}]",
-        "[s#{i}][c#{i}]overlay@c#{i}=x=#{first['x'].round}:y=#{first['y'].round}:eval=frame#{scene_output(plan, scene, i)}" ]
+    taps = Array(scene[:taps])
+    out = taps.empty? ? scene_output(plan, scene, i) : "[a#{i}]"
+    parts = if long_path?(points)
+              first = points.first
+              [ "#{raw},sendcmd=f='#{sendcmd_path(plan, scene)}'[s#{i}]",
+                "[s#{i}][c#{i}]overlay@c#{i}=x=#{first['x'].round}:y=#{first['y'].round}:eval=frame#{out}" ]
     else
-      [ "#{raw}[s#{i}]",
-        "[s#{i}][c#{i}]overlay=x='#{chain(runs(points, 'x'))}':y='#{chain(runs(points, 'y'))}':eval=frame#{scene_output(plan, scene, i)}" ]
+              [ "#{raw}[s#{i}]",
+                "[s#{i}][c#{i}]overlay=x='#{chain(runs(points, 'x'))}':y='#{chain(runs(points, 'y'))}':eval=frame#{out}" ]
     end
+    parts.concat(tap_chain(plan, scene, i, taps)) unless taps.empty?
+    parts
+  end
+
+  # A phone scene's tap ripples: a generated ring sprite (no extra input, so
+  # input indices stay put) overlaid along taps.json, parked off canvas
+  # between taps. Tap points are sparse, so the inline chain always fits.
+  def tap_chain(plan, scene, i, taps)
+    size = RIPPLE
+    half = size / 2
+    ring = "hypot(X-#{half},Y-#{half})"
+    [ "color=c=white@0:s=#{size}x#{size}:r=#{plan[:fps]},format=rgba,"       "geq=r=255:g=255:b=255:a='if(between(#{ring},#{half - 7},#{half - 2}),210,if(lt(#{ring},#{half - 7}),70,0))'[r#{i}]",
+      "[a#{i}][r#{i}]overlay=x='#{chain(runs(taps, 'x'))}':y='#{chain(runs(taps, 'y'))}':eval=frame:shortest=1"       "#{scene_output(plan, scene, i)}" ]
   end
 
   # A hero still slowly pushes in: upscale 4x with lanczos, then zoompan back
