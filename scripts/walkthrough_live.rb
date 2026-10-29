@@ -508,7 +508,10 @@ module WalkthroughLive
           if (step.hover) { const to = await aim(step.hover); if (to) { pos = to; if (!dev.mobile) await page.mouse.move(pos.x, pos.y); } resting = step.hover; }
           if (step.click) {
             const to = await aim(step.click);
-            if (to) pos = to;
+            // A click never falls back to the last cursor spot: that would
+            // press whatever control sits there in the real app.
+            if (!to) throw new Error(`click target not found: ${step.click}`);
+            pos = to;
             resting = step.click;
             if (dev.mobile) { await page.touchscreen.tap(pos.x, pos.y); }
             else { await page.mouse.move(pos.x, pos.y); await page.mouse.down(); await page.mouse.up(); }

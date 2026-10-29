@@ -264,6 +264,8 @@ class WalkthroughLiveTest < Minitest::Test
     assert_includes js, '"tour":"on"'
     assert_operator js.index("evaluateOnNewDocument"), :<, js.index("page.goto")
     refute_includes js, "networkidle"
+    assert_includes js, "if (!to) throw new Error(`click target not found: ${step.click}`);"
+    refute_includes js, "if (to) pos = to;"
     b["browser"]["ignore_https_errors"] = false
     refute_includes WalkthroughLive.capture_module(b, b["scenes"][1], jobs: [], session: nil), "setIgnoreCertificateErrors"
   end
