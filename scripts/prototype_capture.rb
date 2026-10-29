@@ -29,6 +29,7 @@ module PrototypeCapture
   UNSUPPORTED_TAGS = %w[video canvas iframe].freeze
   LOTTIE_MARKERS = [ /<lottie-player\b/i, /<dotlottie-player\b/i, /\blottie(?:\.min)?\.js\b/i, /\bbodymovin\b/i ].freeze
   ATTR_RE = /\b(src|href)\s*=\s*(["'])(.*?)\2/im
+  SRCSET_RE = /\b(srcset|imagesrcset)\s*=\s*(["'])(.*?)\2/im
   MIME = { '.css' => 'text/css', '.js' => 'text/javascript', '.svg' => 'image/svg+xml', '.png' => 'image/png',
            '.jpg' => 'image/jpeg', '.jpeg' => 'image/jpeg', '.gif' => 'image/gif', '.webp' => 'image/webp',
            '.woff2' => 'font/woff2', '.woff' => 'font/woff', '.ttf' => 'font/ttf', '.otf' => 'font/otf',
@@ -48,6 +49,11 @@ module PrototypeCapture
     html.scan(ATTR_RE).each do |attr, _q, value|
       raise UnsupportedContentError, "#{label}: remote #{attr}=#{value} is not supported" if remote?(value)
     end
+    html.scan(SRCSET_RE).each do |attr, _q, value|
+      srcset_candidates(value).each do |url, _desc|
+        raise UnsupportedContentError, "#{label}: remote #{attr} candidate #{url} is not supported" if remote?(url)
+      end
+    end
     true
   end
 
@@ -59,8 +65,8 @@ module PrototypeCapture
   end
 
   # Inlines a screen's local assets by string assembly: stylesheets and
-  # scripts become inline elements, everything else a data URI. Only src and
-  # href attribute values are discovered; CSS is never parsed, though a local
+  # scripts become inline elements, everything else a data URI. Only src, href,
+  # and srcset/imagesrcset values are discovered; CSS is never parsed, though a local
   # url() reference inside an inlined stylesheet is swapped for a data URI.
   #
   # `remap` swaps draft image keys for final-quality ones in each local ref
@@ -101,12 +107,26 @@ module PrototypeCapture
       inlined = inlined.gsub('"', "'") if quote == '"'
       "#{lead}#{quote}#{inlined}#{quote}"
     end
+    html = html.gsub(SRCSET_RE) do
+      attr, quote, value = Regexp.last_match.captures
+      inlined = srcset_candidates(value).map do |url, desc|
+        "#{local_ref?(url) ? data_uri(asset_path(dir, swap_keys(url, remap))) : url}#{desc}"
+      end
+      "#{attr}=#{quote}#{inlined.join(', ')}#{quote}"
+    end
     html.gsub(ATTR_RE) do
       attr, quote, value = Regexp.last_match.captures
       next Regexp.last_match(0) unless local_ref?(value) && !value.end_with?('.html')
 
       "#{attr}=#{quote}#{data_uri(asset_path(dir, swap_keys(value, remap)))}#{quote}"
     end
+  end
+
+  # [url, descriptor] pairs of a srcset value. A data: candidate may itself
+  # hold a comma, so a candidate starting with data: runs to the next
+  # whitespace rather than the next comma.
+  def srcset_candidates(value)
+    value.scan(/\s*(data:\S*[^\s,]|[^\s,]+)(\s+[^,]*?)?\s*(?:,|\z)/).map { |url, desc| [url, desc.to_s.rstrip] }
   end
 
   # Draft => final image pairs the screen never references, so inlining them
@@ -123,7 +143,9 @@ module PrototypeCapture
 
   def local_refs(html_path)
     dir = File.dirname(File.expand_path(html_path))
-    refs = File.read(html_path).scan(ATTR_RE).map(&:last).select { |v| local_ref?(v) }
+    html = File.read(html_path)
+    srcset = html.scan(SRCSET_RE).flat_map { |_attr, _q, value| srcset_candidates(value).map(&:first) }
+    refs = (html.scan(ATTR_RE).map(&:last) + srcset).select { |v| local_ref?(v) }
     css = refs.select { |r| r.split(/[?#]/).first.end_with?('.css') }.filter_map do |r|
       path = File.expand_path(r.split(/[?#]/).first, dir)
       File.read(path) if File.file?(path)

@@ -109,6 +109,29 @@ class PrototypeCaptureTest < Minitest::Test
     end
   end
 
+  def test_inline_screen_embeds_srcset_candidates
+    Dir.mktmpdir do |dir|
+      write(dir, "hero.png", "A")
+      write(dir, "hero2x.png", "B")
+      png = ->(b) { "data:image/png;base64,#{Base64.strict_encode64(b)}" }
+      variants = {
+        %(<picture><source srcset="hero.png"><img alt="Hero"></picture>) => %(srcset="#{png.('A')}"),
+        %(<img srcset='hero.png 1x, hero2x.png 2x' alt="h">) => %(srcset='#{png.('A')} 1x, #{png.('B')} 2x'),
+        %(<img srcset="hero.png 480w,hero2x.png 960w" alt="h">) => %(srcset="#{png.('A')} 480w, #{png.('B')} 960w"),
+        %(<link rel="preload" as="image" imagesrcset="hero2x.png 2x">) => %(imagesrcset="#{png.('B')} 2x"),
+        %(<img srcset="data:image/png;base64,QQ==, hero.png 2x" alt="h">) => %(srcset="data:image/png;base64,QQ==, #{png.('A')} 2x")
+      }
+      variants.each_with_index do |(markup, expected), i|
+        assert_includes PrototypeCapture.inline_screen(write(dir, "v#{i}.html", markup)), expected
+      end
+      first = PrototypeCapture.inline_screen(File.join(dir, "v0.html"))
+      write(dir, "hero.png", "C")
+      refute_equal first, PrototypeCapture.inline_screen(File.join(dir, "v0.html"))
+      remote = write(dir, "r.html", %(<img srcset="hero.png 1x, https://x.example.com/a.png 2x" alt="h">))
+      assert_raises(PrototypeCapture::UnsupportedContentError) { PrototypeCapture.inline_screen(remote) }
+    end
+  end
+
   def test_easing_and_frame_math
     assert_in_delta 0.5, PrototypeCapture.ease("easeInOutCubic", 0.5)
     assert_in_delta 1.0, PrototypeCapture.ease("easeInOutCubic", 1.0)
