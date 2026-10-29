@@ -382,4 +382,10 @@ class PrototypeCaptureTest < Minitest::Test
     assert_match(/live/, PrototypeCapture.skip_reason("id" => "l", "screen" => { "url" => "https://x" }))
     assert_nil PrototypeCapture.skip_reason("id" => "p", "screen" => { "html" => "screens/a.html" })
   end
+
+  def test_skip_reason_skips_compose_and_message_scenes_without_a_screen_html
+    assert_match(/compose/, PrototypeCapture.skip_reason("id" => "c", "kind" => "compose", "screen" => { "html" => "screens/c.html" }))
+    assert_match(/screen\.html/, PrototypeCapture.skip_reason("id" => "m", "kind" => "message", "screen" => {}))
+    assert_match(/screen\.html/, PrototypeCapture.skip_reason("id" => "m", "kind" => "message"))
+  end
 end
