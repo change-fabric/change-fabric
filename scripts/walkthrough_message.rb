@@ -100,7 +100,7 @@ module WalkthroughMessage
     icon = app['icon']
     return [] if icon.nil?
     return [ "message.app.icon must be one of #{ICON_TYPES.keys.join(', ')}" ] unless ICON_TYPES.key?(File.extname(icon.to_s).downcase)
-    return [ "message.app.icon #{icon} does not exist" ] if root && !File.file?(File.join(root, icon))
+    return [ "message.app.icon #{icon} does not exist" ] if root && !File.file?(File.join(root, icon.to_s))
 
     []
   end
@@ -139,6 +139,8 @@ module WalkthroughMessage
 
   def preview(spec) = spec['preview'] || spec['body'].to_s.lines.first.to_s.strip
 
+  # Earlier rows are read and not tappable, so they are not buttons like the
+  # new message in inbox.html.
   def others_html(spec)
     Array(spec['others']).map do |o|
       %(<li><div class="cfm-row"><span class="cfm-who">#{esc(o['from'])}</span><span class="cfm-muted">#{esc(o['time'])}</span>) +
@@ -163,7 +165,7 @@ module WalkthroughMessage
   # A full page for the live browser on one device. A project tokens.css at
   # the root is inlined so colors and type match the app.
   def page(spec, device, board: {}, root: nil)
-    tokens = root && File.file?(File.join(root, 'tokens.css')) ? "<style>#{File.read(File.join(root, 'tokens.css'))}</style>" : ''
+    tokens = tokens_path(root) ? "<style>#{File.read(tokens_path(root))}</style>" : ''
     page_html(spec, device, board: board, root: root, head: tokens)
   end
 
@@ -205,15 +207,19 @@ module WalkthroughMessage
   # Key material for a live message scene.
   def material(scene, root)
     spec = scene['message']
-    icon = spec.dig('app', 'icon')
-    tokens = root && File.join(root, 'tokens.css')
-    { spec: spec, template: TEMPLATE_VERSION,
-      icon: icon && root && File.file?(File.join(root, icon)) ? Digest::SHA256.file(File.join(root, icon)).hexdigest : nil,
-      tokens: tokens && File.file?(tokens) ? Digest::SHA256.file(tokens).hexdigest : nil }
+    icon = spec.dig('app', 'icon') && root && File.join(root, spec.dig('app', 'icon'))
+    { spec: spec, template: TEMPLATE_VERSION, icon: digest(icon), tokens: digest(tokens_path(root)) }
   end
 
+  def tokens_path(root)
+    path = root && File.join(root, 'tokens.css')
+    path if path && File.file?(path)
+  end
+
+  def digest(path) = path && File.file?(path) ? Digest::SHA256.file(path).hexdigest : nil
+
   private_class_method :text_errors, :view_errors, :others_errors, :cta_errors, :app_errors, :screen_errors, :esc, :initials,
-                       :app_name, :icon_html, :preview, :others_html, :cta_html, :page_html, :tokens_link
+                       :app_name, :icon_html, :preview, :others_html, :cta_html, :page_html, :tokens_link, :tokens_path, :digest
 end
 
 if __FILE__ == $PROGRAM_NAME
