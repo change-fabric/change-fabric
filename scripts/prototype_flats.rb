@@ -91,11 +91,13 @@ module PrototypeFlats
     JS
   end
 
-  # One screenshot of the loaded page at a device scale factor, after two frames.
+  # One screenshot of the loaded page at a device scale factor, after two
+  # real frames: the inlined fixed clock never advances its own rAF, so waiting
+  # on it would hang until the browserless timeout.
   def capture_js(target, width:, height:, scale:, options: '')
     <<~JS
       await page.setViewport({ width: #{width}, height: #{height}, deviceScaleFactor: #{scale} });
-      await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+      await page.evaluate(() => new Promise((r) => { const raf = window.__cfRealRaf || requestAnimationFrame; raf(() => raf(r)); }));
       #{target} = await page.screenshot({ encoding: "base64"#{options} });
     JS
   end

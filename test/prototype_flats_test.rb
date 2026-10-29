@@ -86,6 +86,12 @@ class PrototypeFlatsTest < Minitest::Test
     assert_includes mod, "width: 1440"
   end
 
+  def test_frame_wait_uses_the_real_raf_not_the_frozen_clock
+    mod = F.function_module(html: "<p/>", theme: "light", viewport: nil, state: {}, prng_seed: 1)
+    assert_includes mod, "window.__cfRealRaf || requestAnimationFrame"
+    assert_includes mod, "window.__cfRealRaf = window.requestAnimationFrame.bind(window)"
+  end
+
   def test_seed_locale_and_clock_are_inlined_ahead_of_screen_scripts
     html = "<html><head><script>app()</script></head><body></body></html>"
     [ F.function_module(html: html, theme: "light", viewport: nil, state: { "k" => "seeded" }, prng_seed: 1),
