@@ -86,6 +86,16 @@ module PrototypeCapture
 
       "<script#{attrs}>#{File.read(file).gsub('</script', '<\/script')}</script>"
     end
+    html = html.gsub(%r{(<style\b[^>]*>)(.*?)(</style>)}im) do
+      open_tag, body, close_tag = Regexp.last_match.captures
+      "#{open_tag}#{inline_css_urls(body, dir, 'style', remap)}#{close_tag}"
+    end
+    html = html.gsub(/(\sstyle\s*=\s*)(["'])(.*?)\2/im) do
+      lead, quote, body = Regexp.last_match.captures
+      inlined = inline_css_urls(body, dir, 'style', remap)
+      inlined = inlined.gsub('"', "'") if quote == '"'
+      "#{lead}#{quote}#{inlined}#{quote}"
+    end
     html.gsub(ATTR_RE) do
       attr, quote, value = Regexp.last_match.captures
       next Regexp.last_match(0) unless local_ref?(value) && !value.end_with?('.html')
@@ -128,11 +138,16 @@ module PrototypeCapture
   end
 
   def inline_css(path, remap = {})
-    css = File.read(path)
-    dir = File.dirname(path)
+    inline_css_urls(File.read(path), File.dirname(path), File.basename(path), remap)
+  end
+
+  # Swaps every local url() in a CSS fragment for a data URI resolved
+  # against `dir`; shared by linked stylesheets, <style> blocks, and style
+  # attributes so none of them leaves a file reference behind.
+  def inline_css_urls(css, dir, label, remap = {})
     css.gsub(/url\(\s*(["']?)([^"')]+)\1\s*\)/i) do
       ref = Regexp.last_match(2)
-      raise UnsupportedContentError, "#{File.basename(path)}: remote url(#{ref}) is not supported" if remote?(ref)
+      raise UnsupportedContentError, "#{label}: remote url(#{ref}) is not supported" if remote?(ref)
 
       local_ref?(ref) ? "url(\"#{data_uri(asset_path(dir, swap_keys(ref, remap)))}\")" : Regexp.last_match(0)
     end

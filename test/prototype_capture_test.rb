@@ -61,6 +61,26 @@ class PrototypeCaptureTest < Minitest::Test
     end
   end
 
+  def test_inline_screen_resolves_urls_in_every_css_source
+    Dir.mktmpdir do |dir|
+      write(dir, "art.png", "PNG")
+      b64 = Base64.strict_encode64("PNG")
+      {
+        "linked" => ["<link rel='stylesheet' href='l.css'>", "l.css"],
+        "style block" => ["<style>.hero { background-image: url(art.png) }</style>", nil],
+        "double-quoted style attr" => ['<div style="background: url(art.png)"></div>', nil],
+        "single-quoted style attr" => ["<div style='background: url(\"art.png\")'></div>", nil]
+      }.each do |name, (markup, css)|
+        write(dir, css, ".a { background: url('art.png') }") if css
+        out = PrototypeCapture.inline_screen(write(dir, "s.html", markup))
+        assert_includes out, "data:image/png;base64,#{b64}", name
+        refute_match(/url\(\s*["']?art\.png/, out, name)
+      end
+      bad = write(dir, "bad.html", "<style>a { background: url(https://x.example.com/a.png) }</style>")
+      assert_raises(PrototypeCapture::UnsupportedContentError) { PrototypeCapture.inline_screen(bad) }
+    end
+  end
+
   def test_easing_and_frame_math
     assert_in_delta 0.5, PrototypeCapture.ease("easeInOutCubic", 0.5)
     assert_in_delta 1.0, PrototypeCapture.ease("easeInOutCubic", 1.0)
