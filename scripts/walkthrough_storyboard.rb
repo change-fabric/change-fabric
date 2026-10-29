@@ -71,7 +71,7 @@ module WalkthroughStoryboard
     return [ 'review must be an object' ] unless review.is_a?(Hash)
 
     errors = []
-    kinds = ChangeSchema::REVIEW_KINDS
+    kinds = ChangeSchema::VIDEO_REVIEW_KINDS
     errors << "review.kind must be one of #{kinds.join(', ')}" if review.key?('kind') && !kinds.include?(review['kind'])
     errors << 'review.audience must be a non-empty string' if review.key?('audience') && review['audience'].to_s.strip.empty?
     if review.key?('purpose') && !(review['purpose'].is_a?(Array) && !review['purpose'].empty? && review['purpose'].all? { |p| p.is_a?(String) && !p.strip.empty? })

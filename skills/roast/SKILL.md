@@ -45,7 +45,7 @@ Exit codes: 0 ok, 1 a named failure (ceiling, missing key, HTTP error, invalid r
 
 Kind inference: when no flag, storyboard, or CHANGE.md names a kind, roast infers one from cheap cues (a storyboard's narration; a `.eml`, `Subject:`/`To:` headers, or a greeting for email; a test plan or `Closes #n` for pr; hashtags for post; several headings for doc), prints `roast kind: <kind> (inferred, confidence ...)`, and proceeds. `roast.rb infer --text FILE | --storyboard FILE` previews it. Image-only input with no cues stays kind-less. If the cues do not settle on one kind, it exits 3 with `roast: kind is ambiguous: candidates X, Y; pass --kind` and spends nothing. Resolve that with AskUserQuestion (the candidates as options), and ask for a missing audience or purpose the same way, then re-run with the answer as a flag. Under away mode take the top candidate and report the assumption.
 
-Privacy: before any call, `--text` files and the transcript are scanned against `~/.claude/cf/sensitive_terms.txt` (one term per line, case-insensitive, skipped when absent). A match refuses with exit 1 and the count of terms matched, never the term, unless `--allow-sensitive` is passed; do not pass it without the user's say-so.
+Privacy: before any call, the brief, `--text` files, and the transcript are scanned against `~/.claude/cf/sensitive_terms.txt` (one term per line, case-insensitive, skipped when absent). A match refuses with exit 1 and the count of terms matched, never the term, unless `--allow-sensitive` is passed; do not pass it without the user's say-so.
 
 ## The round
 

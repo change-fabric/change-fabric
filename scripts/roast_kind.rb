@@ -20,7 +20,7 @@ module RoastKind
     end
   end
 
-  VIDEO_KINDS = %w[explainer promo demo].freeze
+  VIDEO_KINDS = ChangeSchema::VIDEO_REVIEW_KINDS
   TEXT_KINDS = %w[email doc pr post].freeze
   PROMO_CUES = /\b(get started|sign up|start (?:your )?free|try it (?:free|today)|book a demo|download|install|buy|subscribe|pricing)\b/i
   DEMO_CUES = /\b(click|tap|type|press|drag|select|watch it|running|live)\b/i

@@ -35,8 +35,9 @@ that file, and what the design critics may spend.
   `roast.target` is 0 to 10, `roast.rounds` at least 1, `roast.max_usd`
   greater than 0, `critic_rounds` 1 to 5, and unknown keys are rejected.
   Fully additive: a `CHANGE.md` with no `design:` block is unaffected.
-- `roast.kind` (also a storyboard `review.kind`) accepts the text kinds
-  `email`, `doc`, `pr`, and `post` besides `explainer`, `promo`, and `demo`.
+- `roast.kind` accepts the text kinds `email`, `doc`, `pr`, and `post`
+  besides `explainer`, `promo`, and `demo`; a storyboard `review.kind` stays
+  video only.
 
 ## [0.12.0] - 2026-09-17
 

@@ -5,6 +5,7 @@ require "json"
 require "stringio"
 require "tmpdir"
 require_relative "../scripts/roast"
+require_relative "../scripts/walkthrough_storyboard"
 require_relative "imagegen_helpers"
 
 class RoastTextTest < Minitest::Test
@@ -184,6 +185,22 @@ class RoastTextTest < Minitest::Test
     code, _text, http = run_cli("--text", @draft, "--kind", "email", "--allow-sensitive")
     assert_equal 0, code
     assert_equal 1, http.requests.size
+  end
+
+  def test_sensitive_term_in_brief_refuses
+    File.write(@terms, "budget request")
+    code, text, http = run_cli("--text", @draft, "--kind", "email")
+    assert_equal 1, code
+    refute_match(/budget request/i, text)
+    assert_empty http.requests
+    code, = run_cli("--text", @draft, "--kind", "email", "--allow-sensitive")
+    assert_equal 0, code
+  end
+
+  def test_storyboard_review_kind_is_video_only
+    assert_equal %w[explainer promo demo], ChangeSchema::VIDEO_REVIEW_KINDS
+    assert_empty WalkthroughStoryboard.review_errors({ "kind" => "promo" })
+    assert_match(/review.kind must be one of explainer, promo, demo/, WalkthroughStoryboard.review_errors({ "kind" => "email" }).first)
   end
 
   def test_sensitive_term_in_transcript_refuses_and_absent_list_skips

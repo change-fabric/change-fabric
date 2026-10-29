@@ -500,8 +500,9 @@ module Roast
     def check_sensitive!(opts)
       return if opts[:allow_sensitive]
 
-      hits = SensitiveTerms.matched([ *opts[:texts], opts[:transcript_file] ].compact.map { |f| File.read(f) }, SensitiveTerms.load)
-      raise SensitiveError, "roast refused: #{hits.size} sensitive term(s) matched in the text inputs; pass --allow-sensitive to send anyway" if hits.any?
+      files = [ opts[:brief_file], *opts[:texts], opts[:transcript_file] ].compact
+      hits = SensitiveTerms.matched(files.map { |f| File.read(f) }, SensitiveTerms.load)
+      raise SensitiveError, "roast refused: #{hits.size} sensitive term(s) matched in the brief, text inputs, or transcript; pass --allow-sensitive to send anyway" if hits.any?
     end
 
     def inputs_for(opts, out)
