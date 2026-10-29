@@ -174,6 +174,8 @@ A live or compose scene picks the devices it films and how they share the frame:
 
 - `compose` is `{ "from_scene": "<earlier live scene>" }` alone, or explicit `channel` (`email` or `sms`), `to` (required), and for email `cc`, `bcc`, `subject`; `body` for both. Recipients are a string or a list.
 - Field ids are fixed: `#to`, `#cc`, `#bcc`, `#subject`, `#body`, `#send`, and `#status`. Clicking `#send` shows the sent state.
+- Line-anchored typing: a `type` op with `"after_line": "Name:"` puts the caret at the end of the first line of its target that starts with that text, then types there, so a prefilled template line is filled in on camera: `{ "t_ms": 0, "op": "type", "target": "#body", "after_line": "Name:", "text": " Sam Lee" }`. A missing line fails the capture. `after_line` works in any live or compose scene.
+- Devices: an email compose is a mail window on desktop and full screen on a phone; an sms compose is a phone composer, centered as a narrow window on desktop. `side_by_side` films both at once.
 - A compose scene has no `screen`, `store`, `persona`, `session_from_scene`, or `storage`; it takes `wait`, `devices`, and `layout`, and gets the UX lint. ASSUMPTIONS.md lists it under Simulated UI.
 - An app that sets `location.href` to a `mailto:` link directly is not caught; give it an explicit spec.
 

@@ -75,11 +75,15 @@ class WalkthroughLiveBrowserTest < Minitest::Test
       assert_equal [ "email", [ "sales@example.test" ], [ "ops@example.test" ], "Placement inquiry", "Name:\nNotes:\n" ],
                    link.values_at("channel", "to", "cc", "subject", "body")
 
-      mail = scene_by(board, "mail")
-      mail_dir = File.join(work, ".cache", "frames", "m")
-      WalkthroughLive.capture(session: session, board: board, scene: mail, out_dir: mail_dir, secrets: secrets, work: work,
-                              compose: WalkthroughCompose.resolve(mail, links: [ link ]))
-      assert_equal 15, Dir[File.join(mail_dir, "*.png")].size
+      mail = compose_run(session, board, secrets, work, "mail", WalkthroughCompose.resolve(scene_by(board, "mail"), links: [ link ]))
+      assert_equal %w[desktop phone], mail.map { |r| r["name"] }, "a side-by-side compose films the window and the phone"
+      mail.each do |run|
+        assert_equal "Name: Sam Lee\nNotes:\n", run["composed"]["body"], "after_line types at the end of that line"
+        assert_equal [ "Sent", "Message sent" ], run["composed"].values_at("send", "status")
+      end
+      text = compose_run(session, board, secrets, work, "text", WalkthroughCompose.resolve(scene_by(board, "text")))
+      assert_equal [ "phone" ], text.map { |r| r["name"] }
+      assert_equal [ [ "On my way, 5 min" ], "Delivered" ], text.first["composed"].values_at("bubbles", "status")
     end
   end
 
@@ -96,6 +100,18 @@ class WalkthroughLiveBrowserTest < Minitest::Test
         refute_includes File.binread(file), PASSWORD.b, "#{File.basename(file)} must not hold the typed secret"
       end
     end
+  end
+
+  # Runs a compose scene's capture and writes its frames, returning every
+  # device's run so the end state of the page can be checked.
+  def compose_run(session, board, secrets, work, id, spec)
+    scene = scene_by(board, id)
+    jobs = WalkthroughDevice.specs(board, scene).map { |d| WalkthroughLive.job(board, scene, d, secrets, compose: spec, shots: true) }
+    runs = PrototypeCapture.run_with_retry(session, WalkthroughLive.capture_module(board, scene, jobs: jobs, session: nil))["devices"]
+    out_dir = File.join(work, ".cache", "frames", id)
+    WalkthroughLive::SceneWriter.new(board: board, scene: scene, secrets: secrets, docker: nil, work: work).write(runs, out_dir)
+    assert_equal 15, Dir[File.join(out_dir, "*.png")].size
+    runs
   end
 
   def scene_by(board, id) = board["scenes"].find { |s| s["id"] == id }
@@ -128,8 +144,12 @@ class WalkthroughLiveBrowserTest < Minitest::Test
         live_scene("both", "/app", "devices" => %w[desktop phone], "layout" => "side_by_side",
                                    "interactions" => { "desktop" => [ { "t_ms" => 300, "op" => "click", "target" => "#contact" } ] }),
         { "id" => "mail", "order" => 2, "kind" => "compose", "compose" => { "from_scene" => "both" },
-          "timing" => { "min_ms" => 1500, "pad_ms" => 0 },
-          "interactions" => [ { "t_ms" => 0, "op" => "type", "target" => "#body", "text" => "Hi", "cps" => 60 },
+          "devices" => %w[desktop phone], "layout" => "side_by_side", "timing" => { "min_ms" => 1500, "pad_ms" => 0 },
+          "interactions" => [ { "t_ms" => 0, "op" => "type", "target" => "#body", "after_line" => "Name:", "text" => " Sam Lee", "cps" => 60 },
+                              { "t_ms" => 1000, "op" => "click", "target" => "#send" } ] },
+        { "id" => "text", "order" => 3, "kind" => "compose", "devices" => [ "phone" ],
+          "compose" => { "channel" => "sms", "to" => "+15550100", "body" => "On my way" }, "timing" => { "min_ms" => 1500, "pad_ms" => 0 },
+          "interactions" => [ { "t_ms" => 0, "op" => "type", "target" => "#body", "text" => ", 5 min", "cps" => 60 },
                               { "t_ms" => 800, "op" => "click", "target" => "#send" } ] }
       ] }
   end

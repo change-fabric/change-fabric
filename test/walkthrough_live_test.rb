@@ -106,6 +106,21 @@ class WalkthroughLiveTest < Minitest::Test
     assert(errors_for(board([ proto ])).any? { |e| e.include?("devices needs a screen.url") })
   end
 
+  def test_after_line_types_at_a_template_line
+    b = device_board
+    mail = b["scenes"][2]
+    mail["interactions"][0]["after_line"] = "Name:"
+    assert_empty errors_for(b)
+    step = jobs(b, mail).first["plan"].find { |st| st["type"] }
+    assert_equal "Name:", step["type"]["after_line"]
+    assert_includes WalkthroughLive.capture_module(b, mail, jobs: [], session: nil), "step.type.after_line"
+    mail["interactions"][1]["after_line"] = "x"
+    assert(errors_for(b).any? { |e| e.include?("after_line apply only to a type op") })
+    proto = live("proto", 1, "screen" => { "html" => "screens/a.html" },
+                             "interactions" => [ { "t_ms" => 0, "op" => "type", "target" => "#b", "text" => "x", "after_line" => "A" } ])
+    assert(errors_for(board([ proto ])).any? { |e| e.include?("after_line needs a live or compose scene") })
+  end
+
   def test_side_by_side_runs_both_devices_in_parallel
     b = device_board
     js = WalkthroughLive.capture_module(b, b["scenes"][0], jobs: jobs(b, b["scenes"][0]), session: nil)

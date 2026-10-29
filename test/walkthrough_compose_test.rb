@@ -22,6 +22,13 @@ class WalkthroughComposeTest < Minitest::Test
     assert_equal "one\ntwo", got["body"]
   end
 
+  def test_keeps_plus_literal_and_decodes_rfc3986_escapes
+    got = WalkthroughCompose.parse_link("mailto:a+tag@example.test?subject=Q%26A%20%2B%20more+notes&body=Line%201%0D%0ALine%202%0ALine%203")
+    assert_equal [ "a+tag@example.test" ], got["to"]
+    assert_equal "Q&A + more+notes", got["subject"]
+    assert_equal "Line 1\nLine 2\nLine 3", got["body"]
+  end
+
   def test_parses_sms_and_tel_links
     assert_equal({ "channel" => "sms", "to" => [ "+15550100", "+15550101" ], "body" => "Hi there" },
                  WalkthroughCompose.parse_link("sms:+15550100,+15550101?body=Hi%20there"))
