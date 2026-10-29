@@ -1,7 +1,7 @@
 ---
 name: cf:walkthrough
 group: workflow
-description: Flagship walkthrough command. Turns a PRD, SOW, brief, or an existing app into a cinematic narrated MP4 walkthrough without building the app, composing cf:design for DESIGN.md, cf:prototype for HTML/CSS mock screens and recorded motion, and cf:prototyping plus cf:usability for method and rubric. Writes storyboard.json as the source of truth, narrates in present tense as a shipped product, keeps the truth trail in an ASSUMPTIONS.md sidecar, generates ElevenLabs narration and music, and composes deterministically with Ruby and FFmpeg in pinned containers. Renders a draft first, then a final, and regenerates single scenes from cached content keys. Works from a PRD alone.
+description: Flagship walkthrough command. Turns a PRD, SOW, brief, or an existing app into a cinematic narrated MP4 walkthrough without building the app, or films an already-built app from its URL, composing cf:design for DESIGN.md, cf:prototype for HTML/CSS mock screens and recorded motion, and cf:prototyping plus cf:usability for method and rubric. Writes storyboard.json as the source of truth, narrates in present tense as a shipped product, keeps the truth trail in an ASSUMPTIONS.md sidecar, generates ElevenLabs narration and music, and composes deterministically with Ruby and FFmpeg in pinned containers. Renders a draft first, then a final, and regenerates single scenes from cached content keys. Works from a PRD alone.
 ---
 
 # CF walkthrough
@@ -40,6 +40,18 @@ The walkthrough is the launch video of the finished product, the press release s
 8. Final: `walkthrough_render.rb walkthrough/<slug> --final` (high image quality). It refuses while the UX lint has any finding or the latest draft roast has an open P0 or P1 (see Gates). It prints the manifest hash and the MP4 sha256; the MP4 is under `.cache/render/<manifest_hash>/`.
 9. Flats (required output alongside the MP4): author `flats.json` from the PRD information architecture (every major screen plus empty, error, and success states, not only the screens in the video), then `ruby ~/.claude/cf/bin/prototype_flats.rb walkthrough/<slug>`. See the cf:prototype Flats section; it writes `flats/{light,dark}/`, the two overview boards, and `flats/index.md`.
 10. Publish (only when the user asked for it or approves the final; never auto-fire, since it uploads to GitHub): `ruby ~/.claude/cf/bin/walkthrough_publish.rb walkthrough/<slug> [--pr N | --issue N | --none] [--comment]` (or pass the MP4 path). See Publishing below.
+
+## Built apps (live scenes)
+
+The same pipeline demos an app that already runs. A scene whose `screen` is `{ "url": "https://app.localhost/..." }` instead of `{ "html": ... }` is a live scene; a board may mix both. Fields are in `reference/storyboard-schema.md`.
+
+- Sessions: a live scene starts logged out with a fresh, empty session unless it names a `persona` (a top-level login recipe run once per render and reused by every scene with that persona) or `session_from_scene` (an earlier live scene's end cookies and storage). Login is never required; a scene may film the login itself with `type` ops, a password typed from `env`.
+- Credentials come only from env var names. Env-typed values reach the page alone: logs, captions, cache keys, the lint and roast reports, and errors carry `[masked]`, and the password field shows its normal dots. Sessions stay in memory and are never written.
+- Browser: top-level `browser.network`, `browser.add_hosts`, and `browser.ignore_https_errors` reach the pinned browserless container and the page. Live capture never runs on `--network none`; prototype capture stays offline.
+- Waits are per scene (`wait.until` of `domcontentloaded` or `load`, a `selector`, `settle_ms`), never networkidle, which hangs under dev servers with HMR sockets. `storage` clears and seeds session and local storage before navigation, so once-per-session UI shows on cue.
+- Time: the controlled clock cannot reach a real app, so a live scene records in real time. A CDP screencast runs while the scripted steps play, and each tick at the board fps samples the latest frame; the cursor is composited from `cursor.json` as usual. One scene must fit one browserless call (about 115 s with its login).
+- Cache: no screen sha, mock store, seed.json, or inline assets. A live scene is keyed by URL, persona, session parent, steps, waits, storage, viewport, fps, and duration, and recaptures only with `--recapture` or `--scene <id>` (which also recaptures the scenes that take their session from it). A cached session parent is replayed without frames, so its actions run again against the app.
+- Gates: the UX lint runs in the live page during capture and the draft roast reads the MP4, so both still gate `--final`. Flats are prototype-only.
 
 ## Gates
 
