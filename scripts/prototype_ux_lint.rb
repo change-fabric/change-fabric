@@ -126,12 +126,18 @@ module PrototypeUxLint
         const alt = Array.prototype.map.call(el.querySelectorAll('img[alt]'), (i) => i.alt).join(' ').trim();
         return (el.textContent.trim() || alt);
       };
+      // An empty live region (role=status/alert or aria-live) that is not also a
+      // toast, sheet, or dialog is the standard idle state of a status line, not a
+      // missing label: it is filled later and only linted once it has content.
+      const LIVE = '[role=status], [role=alert], [aria-live]';
+      const SURFACE = '[role=dialog], [aria-modal=true], [data-cf-overlay], [class~=toast], [class~=snackbar], [class~=sheet]';
+      const idleLive = (el) => el.matches(LIVE) && !el.matches(SURFACE) && !el.textContent.trim() && !el.querySelector('img, svg, video, canvas');
       const interactive = (el) => !el.closest('[inert], [aria-hidden="true"]');
       const emptyControls = () => {
         const out = [];
         const seen = new Set();
         document.querySelectorAll(CONTROL + ', ' + OVERLAY).forEach((el) => {
-          if (seen.has(el) || !visible(el) || allowed(el, 'empty-control')) return;
+          if (seen.has(el) || !visible(el) || idleLive(el) || allowed(el, 'empty-control')) return;
           seen.add(el);
           const overlay = el.matches(OVERLAY);
           const name = accName(el);

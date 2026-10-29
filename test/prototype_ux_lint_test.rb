@@ -85,6 +85,12 @@ class PrototypeUxLintTest < Minitest::Test
 
   FIXTURES = {
     "empty-toast" => [ '<div class="toast" role="status"><span class="i">Saved</span><span></span></div>', %w[empty-control] ],
+    "idle-status-line" => [ '<div class="cfm-status" role="status" style="padding:0 16px 8px"></div>', [] ],
+    "idle-inline-status" => [ '<span class="status" role="status" style="display:inline-block;padding:0 16px 10px"></span>', [] ],
+    "idle-alert" => [ '<div role="alert" style="padding:8px"></div>', [] ],
+    "idle-aria-live" => [ '<div aria-live="polite" role="status" style="padding:8px"></div>', [] ],
+    "empty-toast-surface" => [ '<div class="toast" role="status" style="padding:8px"></div>', %w[empty-control] ],
+    "filled-status-line" => [ '<div class="cfm-status" role="status" style="padding:0 16px 8px">Delivered</div>', [] ],
     "labelled-toast" => [ '<div class="toast" role="status"><span class="i"></span><span>Saved</span></div>', [] ],
     "unnamed-button" => [ '<button id="b" style="width:200px"><svg width="20" height="20"></svg></button>', %w[empty-control] ],
     "input-submit" => [ '<input type="submit" value="Save">', [] ],
