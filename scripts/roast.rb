@@ -4,6 +4,7 @@ require 'base64'
 require 'fileutils'
 require 'json'
 require 'net/http'
+require 'openssl'
 require 'optparse'
 require 'uri'
 require_relative 'design_config'
@@ -211,10 +212,20 @@ module Roast
     req['Authorization'] = "Bearer #{WalkthroughEnv.openai_key!}"
     req['Content-Type'] = 'application/json'
     req.body = JSON.generate(request[:body])
-    response = (http || default_http(uri)).request(req)
+    response = transport { (http || default_http(uri)).request(req) }
     raise RequestError, "roast request failed: HTTP #{response.code}" unless response.is_a?(Net::HTTPSuccess)
 
     JSON.parse(response.body)
+  end
+
+  # Network faults (timeouts, resets, TLS, DNS) surface as RequestError so
+  # optional-roast callers can skip the critique instead of aborting.
+  TRANSPORT_ERRORS = [ Timeout::Error, IOError, SystemCallError, SocketError, OpenSSL::SSL::SSLError, Net::HTTPBadResponse ].freeze
+
+  def transport
+    yield
+  rescue *TRANSPORT_ERRORS => e
+    raise RequestError, "roast request failed: #{e.class}"
   end
 
   def default_http(uri)

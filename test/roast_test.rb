@@ -212,6 +212,19 @@ class RoastTest < Minitest::Test
     assert_includes text, "OPENAI_API_KEY not set"
   end
 
+  class RaisingHttp
+    def initialize(error) = @error = error
+    def request(_req) = raise(@error)
+  end
+
+  def test_transport_failures_become_request_errors
+    [ Net::ReadTimeout.new, Net::OpenTimeout.new, Errno::ECONNRESET.new, EOFError.new, SocketError.new("dns"),
+      OpenSSL::SSL::SSLError.new("tls") ].each do |error|
+      raised = assert_raises(Roast::RequestError) { Roast.post({ url: Roast::RESPONSES_URL, body: {} }, RaisingHttp.new(error)) }
+      assert_includes raised.message, error.class.name
+    end
+  end
+
   def test_http_error_reports_status_only
     code, text, = run_cli(http: RoastHttp.new(CRITIC, "500"))
     assert_equal 1, code
