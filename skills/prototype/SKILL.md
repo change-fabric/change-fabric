@@ -78,6 +78,23 @@ flats/index.md   (TOC: overview links, then each IA section in flow order; per s
 
 Without a storyboard, write a minimal one (one scene per screen, no interactions) to get stills.
 
+## Push to Figma (only when asked)
+
+Never automatic. Push only on an explicit user request or `--push-figma`. If the Figma MCP is not connected or not authenticated, skip with one report line; never fail the run on it.
+
+1. Load `/figma-use` and `/figma-generate-design`.
+2. `create_session` for the target file (from the user's Figma URL, or `create_new_file` when they want a new one).
+3. `upload_assets` for the stills and the flats PNGs (`flats/{light,dark}/*.png`).
+4. `use_figma` to place each upload as a frame named after its flat (`NN-section-screen[-state]`).
+5. Record the frame ids: `ruby ~/.claude/cf/bin/prototype_flats.rb record-figma --flats walkthrough/<slug>/flats.json --url <figma-url> --node <screen>=<node-id> ...`. This writes the `figma` block into `flats.json` (committed; ids are not secrets):
+
+```json
+{ "figma": { "url": "https://www.figma.com/design/AbCdEf123/Example-App", "file_key": "AbCdEf123",
+  "frames": { "checkout-empty": "12:34" } } }
+```
+
+6. To diff a built app against those frames, `ruby ~/.claude/cf/bin/prototype_flats.rb routes-snippet --flats walkthrough/<slug>/flats.json [--route <screen>=/path ...] [--viewport desktop]` prints `routes[].figma` YAML for the browserless lane. A human pastes it into `CHANGE.md`; nothing writes it there automatically.
+
 ## Layout
 
 ```

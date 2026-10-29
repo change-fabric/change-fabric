@@ -6,6 +6,7 @@ require 'cgi'
 require 'fileutils'
 require 'json'
 require_relative 'browserless_js'
+require_relative 'figma_url'
 require_relative 'change_docker'
 require_relative 'prototype_capture'
 require_relative 'walkthrough_cache'
@@ -247,6 +248,77 @@ module PrototypeFlats
     File.binwrite(File.join(out, theme, "#{entry[:name]}@2x.png"), Base64.decode64(shots.fetch('2x')))
     entry.merge(thumb: Base64.decode64(shots.fetch('thumb')))
   end
+end
+
+# Records where the flats were pushed in Figma, and prints the matching
+# routes[].figma YAML for the browserless lane's pixel diff. Pure file and
+# string work: the push itself is an agent step through the Figma MCP, run only
+# on explicit request (skills/prototype/SKILL.md, Push to Figma).
+module PrototypeFlatsFigma
+  module_function
+
+  def parse_pairs(pairs, flag)
+    pairs.to_h do |pair|
+      key, value = pair.split('=', 2)
+      raise ArgumentError, "#{flag} expects SCREEN=VALUE, got #{pair.inspect}" if key.to_s.empty? || value.to_s.empty?
+
+      [ key, value ]
+    end
+  end
+
+  def record(flats_path:, url:, frames:)
+    parsed = FigmaUrl.parse(url) or raise ArgumentError, "not a Figma URL: #{url.inspect}"
+    raise ArgumentError, 'a FigJam board URL cannot hold flats frames' if parsed.kind == 'board'
+    raise ArgumentError, 'at least one --node SCREEN=NODE_ID is required' if frames.empty?
+
+    manifest = JSON.parse(File.read(flats_path))
+    existing = manifest.dig('figma', 'frames') || {}
+    manifest['figma'] = { 'url' => url, 'file_key' => parsed.file_key,
+                          'frames' => existing.merge(frames.transform_values { |id| id.tr('-', ':') }) }
+    File.write(flats_path, "#{JSON.pretty_generate(manifest)}\n")
+    manifest['figma']
+  end
+
+  # routes maps SCREEN to an app path; a screen without one gets a TODO path
+  # for a human to fill in before pasting into CHANGE.md.
+  def routes_snippet(flats_path:, routes: {}, viewport: 'desktop')
+    figma = JSON.parse(File.read(flats_path))['figma']
+    raise ArgumentError, "#{flats_path} has no figma block; run record-figma first" unless figma.is_a?(Hash)
+
+    lines = [ 'routes:' ]
+    figma.fetch('frames', {}).each do |screen, node_id|
+      lines << "  - path: #{routes.fetch(screen) { "/TODO-#{screen}" }}"
+      lines << '    figma:'
+      lines << "      file_key: #{figma['file_key']}"
+      lines << "      node_id: \"#{node_id}\""
+      lines << "      viewport: #{viewport}"
+    end
+    "#{lines.join("\n")}\n"
+  end
+
+  def values(argv, flag) = argv.each_index.select { |i| argv[i] == flag }.map { |i| argv[i + 1] }
+
+  def cli(argv)
+    command = argv.first
+    flats = values(argv, '--flats').first or raise ArgumentError, "#{command} needs --flats PATH"
+    case command
+    when 'record-figma'
+      url = values(argv, '--url').first or raise ArgumentError, 'record-figma needs --url FIGMA_URL'
+      JSON.pretty_generate(record(flats_path: flats, url: url, frames: parse_pairs(values(argv, '--node'), '--node')))
+    when 'routes-snippet'
+      routes_snippet(flats_path: flats, routes: parse_pairs(values(argv, '--route'), '--route'),
+                     viewport: values(argv, '--viewport').first || 'desktop')
+    end
+  end
+end
+
+if __FILE__ == $PROGRAM_NAME && %w[record-figma routes-snippet].include?(ARGV.first)
+  begin
+    puts PrototypeFlatsFigma.cli(ARGV)
+  rescue ArgumentError, JSON::ParserError, Errno::ENOENT => e
+    abort "prototype_flats.rb #{ARGV.first}: #{e.message}"
+  end
+  exit 0
 end
 
 if __FILE__ == $PROGRAM_NAME
