@@ -276,7 +276,7 @@ module PrototypeCapture
       when 'click', 'dblclick', 'hover' then plan.dig(start)&.store(op['op'], op['target'])
       when 'type' then schedule_type(plan, op, fps)
       when 'key' then plan.dig(start)&.then { |e| (e['key'] ||= []) << { 'keys' => key_chord(op['keys']), 'target' => op['target'] }.compact }
-      when 'scroll' then plan.dig(start)&.store('scroll', { 'target' => op['target'], 'dx' => op['dx'], 'dy' => op['dy'] }.compact)
+      when 'scroll' then plan.dig(start)&.store('scroll', { 'target' => op['target'], 'dx' => op['dx'], 'dy' => op['dy'], 'block' => op['block'] }.compact)
       end
     end
     plan
@@ -312,6 +312,7 @@ module PrototypeCapture
       entry['type']['text'] << char
       entry['type']['focus'] ||= k.zero?
       entry['type']['after_line'] = op['after_line'] if k.zero? && op['after_line']
+      entry['type']['replace'] = true if k.zero? && op['replace']
     end
   end
 
@@ -454,7 +455,7 @@ module PrototypeCapture
             await page.evaluate((s) => {
               const el = document.querySelector(s.target);
               if (!el) throw new Error(`scroll target not found: ${s.target}`);
-              if (s.dx === undefined && s.dy === undefined) el.scrollIntoView({ block: "center", behavior: "instant" });
+              if (s.dx === undefined && s.dy === undefined) el.scrollIntoView({ block: s.block || "center", behavior: "instant" });
               else el.scrollBy({ left: s.dx || 0, top: s.dy || 0, behavior: "instant" });
             }, step.scroll);
           }

@@ -194,10 +194,11 @@ module WalkthroughLive
     return [ 'wait must be an object' ] unless wait.is_a?(Hash)
 
     errors = []
-    unknown = wait.keys - %w[until selector settle_ms]
+    unknown = wait.keys - %w[until selector settle_ms zoom style]
     errors << "wait has unknown keys: #{unknown.join(', ')}" unless unknown.empty?
     errors << "wait.until must be one of #{WAIT_UNTIL.join(', ')} (networkidle hangs under dev servers)" if wait.key?('until') && !WAIT_UNTIL.include?(wait['until'])
     errors << 'wait.selector must be a non-empty string' if wait.key?('selector') && wait['selector'].to_s.strip.empty?
+    errors << 'wait.style must be a non-empty CSS string' if wait.key?('style') && wait['style'].to_s.strip.empty?
     errors << 'wait.settle_ms must be a non-negative integer' if wait.key?('settle_ms') && !(wait['settle_ms'].is_a?(Integer) && !wait['settle_ms'].negative?)
     errors
   end
@@ -229,7 +230,8 @@ module WalkthroughLive
         errs << 'env must be an env var name like APP_PASSWORD' if op.key?('env') && !op['env'].to_s.match?(ENV_RE)
         errs << 'after_line must be a non-empty string' if op.key?('after_line') && op['after_line'].to_s.empty?
         errs << 'after_line needs a live or compose scene' if !live && op.key?('after_line')
-      elsif op.key?('env') || op.key?('after_line')
+        errs << 'replace must be true' if op.key?('replace') && op['replace'] != true
+      elsif op.key?('env') || op.key?('after_line') || op.key?('replace')
         errs << 'env and after_line apply only to a type op'
       end
       errs.map { |e| "interaction #{i}: #{e}" }
@@ -477,6 +479,8 @@ module WalkthroughLive
           await page.goto(job.url, { waitUntil: #{JSON.generate(wait['until'])} });
         }
         #{wait['selector'] ? "await page.waitForSelector(#{JSON.generate(wait['selector'])});" : ''}
+        #{wait['zoom'] ? "await page.evaluate((z) => { document.documentElement.style.zoom = String(z); }, #{wait['zoom'].to_f});" : ''}
+        #{wait['style'] ? "await page.addStyleTag({ content: #{JSON.generate(wait['style'])} });" : ''}
         await sleep(#{wait['settle_ms'].to_i});
         await page.removeScriptToEvaluateOnNewDocument(seedId);
         const ensureUx = () => safe(() => page.evaluate(ux), null);
@@ -516,8 +520,8 @@ module WalkthroughLive
             resting = step.move.p >= 1 ? step.move.target : null;
           }
           // Same semantics as a prototype scene: dx/dy scroll by pixels,
-          // a bare target is scrolled into view.
-          if (step.scroll) await safe(() => page.evaluate((s) => { const el = document.querySelector(s.target); if (!el) return; if (s.dx === undefined && s.dy === undefined) el.scrollIntoView({ block: "center" }); else el.scrollBy({ left: s.dx || 0, top: s.dy || 0, behavior: "instant" }); }, step.scroll), null);
+          // a bare target is scrolled into view, at `block` (center by default).
+          if (step.scroll) await safe(() => page.evaluate((s) => { const el = document.querySelector(s.target); if (!el) return; if (s.dx === undefined && s.dy === undefined) el.scrollIntoView({ block: s.block || "center" }); else el.scrollBy({ left: s.dx || 0, top: s.dy || 0, behavior: "instant" }); }, step.scroll), null);
           if (step.hover) { const to = await aim(step.hover); if (to) { pos = to; if (!dev.mobile) await page.mouse.move(pos.x, pos.y); } resting = step.hover; }
           if (step.click) {
             const to = await aim(step.click);
@@ -541,6 +545,8 @@ module WalkthroughLive
               const end = lines.slice(0, at + 1).join("\\n").length;
               el.setSelectionRange(end, end);
             }, step.type.after_line);
+            // replace selects the field's value first, so typing swaps it out.
+            if (step.type.replace) await page.$eval(step.type.target, (el) => el.select());
             for (const ch of step.type.text) await page.keyboard.type(ch);
           }
           if (step.dblclick) {
