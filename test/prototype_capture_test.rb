@@ -78,10 +78,10 @@ class PrototypeCaptureTest < Minitest::Test
       write(dir, "art.png", "PNG")
       b64 = Base64.strict_encode64("PNG")
       {
-        "linked" => ["<link rel='stylesheet' href='l.css'>", "l.css"],
-        "style block" => ["<style>.hero { background-image: url(art.png) }</style>", nil],
-        "double-quoted style attr" => ['<div style="background: url(art.png)"></div>', nil],
-        "single-quoted style attr" => ["<div style='background: url(\"art.png\")'></div>", nil]
+        "linked" => [ "<link rel='stylesheet' href='l.css'>", "l.css" ],
+        "style block" => [ "<style>.hero { background-image: url(art.png) }</style>", nil ],
+        "double-quoted style attr" => [ '<div style="background: url(art.png)"></div>', nil ],
+        "single-quoted style attr" => [ "<div style='background: url(\"art.png\")'></div>", nil ]
       }.each do |name, (markup, css)|
         write(dir, css, ".a { background: url('art.png') }") if css
         out = PrototypeCapture.inline_screen(write(dir, "s.html", markup))
@@ -331,27 +331,27 @@ class PrototypeCaptureTest < Minitest::Test
 
   def test_ensure_parents_captures_missing_ancestors_root_first
     Dir.mktmpdir do |root|
-      FileUtils.mkdir_p(File.join(root, 'screens'))
-      File.write(File.join(root, 'screens', 'mock-store.js'), '')
-      %w[a b c].each { |id| File.write(File.join(root, 'screens', "#{id}.html"), "<p>#{id}</p>") }
-      scene = ->(id, from) { { 'id' => id, 'screen' => { 'html' => "screens/#{id}.html" }, 'store' => (from ? { 'from_scene' => from } : {}) } }
-      board = { 'viewport' => { 'width' => 10, 'height' => 10 }, 'scenes' => [scene.('a', nil), scene.('b', 'a'), scene.('c', 'b')] }
+      FileUtils.mkdir_p(File.join(root, "screens"))
+      File.write(File.join(root, "screens", "mock-store.js"), "")
+      %w[a b c].each { |id| File.write(File.join(root, "screens", "#{id}.html"), "<p>#{id}</p>") }
+      scene = ->(id, from) { { "id" => id, "screen" => { "html" => "screens/#{id}.html" }, "store" => (from ? { "from_scene" => from } : {}) } }
+      board = { "viewport" => { "width" => 10, "height" => 10 }, "scenes" => [ scene.("a", nil), scene.("b", "a"), scene.("c", "b") ] }
       captured = []
       fake = lambda { |label:, out_dir:, **|
         captured << label
         FileUtils.mkdir_p(out_dir)
-        File.write(File.join(out_dir, 'end-state.json'), '{}')
+        File.write(File.join(out_dir, "end-state.json"), "{}")
       }
       original = PrototypeCapture.method(:capture)
       PrototypeCapture.define_singleton_method(:capture, &fake)
       begin
-        PrototypeCapture.ensure_parents(board, board['scenes'][0], root, {}, nil)
-        assert_empty captured, 'a root scene has no ancestors'
-        PrototypeCapture.ensure_parents(board, board['scenes'][2], root, {}, nil)
+        PrototypeCapture.ensure_parents(board, board["scenes"][0], root, {}, nil)
+        assert_empty captured, "a root scene has no ancestors"
+        PrototypeCapture.ensure_parents(board, board["scenes"][2], root, {}, nil)
         assert_equal %w[a b], captured
-        PrototypeCapture.ensure_parents(board, board['scenes'][2], root, {}, nil)
-        assert_equal %w[a b], captured, 'cached ancestors are not recaptured'
-        PrototypeCapture.prepare(board, board['scenes'][2], root, {})
+        PrototypeCapture.ensure_parents(board, board["scenes"][2], root, {}, nil)
+        assert_equal %w[a b], captured, "cached ancestors are not recaptured"
+        PrototypeCapture.prepare(board, board["scenes"][2], root, {})
       ensure
         PrototypeCapture.define_singleton_method(:capture, original)
       end

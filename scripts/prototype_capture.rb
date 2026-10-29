@@ -126,7 +126,7 @@ module PrototypeCapture
   # hold a comma, so a candidate starting with data: runs to the next
   # whitespace rather than the next comma.
   def srcset_candidates(value)
-    value.scan(/\s*(data:\S*[^\s,]|[^\s,]+)(\s+[^,]*?)?\s*(?:,|\z)/).map { |url, desc| [url, desc.to_s.rstrip] }
+    value.scan(/\s*(data:\S*[^\s,]|[^\s,]+)(\s+[^,]*?)?\s*(?:,|\z)/).map { |url, desc| [ url, desc.to_s.rstrip ] }
   end
 
   # Draft => final image pairs the screen never references, so inlining them

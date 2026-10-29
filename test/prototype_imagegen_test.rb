@@ -125,7 +125,7 @@ class PrototypeImagegenTest < Minitest::Test
 
   def test_transport_failures_are_request_errors
     ENV["OPENAI_API_KEY"] = "sk-test-secret"
-    [Net::ReadTimeout.new, Errno::ECONNRESET.new, EOFError.new, SocketError.new("dns"), OpenSSL::SSL::SSLError.new("tls")].each do |error|
+    [ Net::ReadTimeout.new, Errno::ECONNRESET.new, EOFError.new, SocketError.new("dns"), OpenSSL::SSL::SSLError.new("tls") ].each do |error|
       http = Object.new
       http.define_singleton_method(:request) { |_req| raise error }
       Dir.mktmpdir do |dir|

@@ -254,8 +254,8 @@ class BRollTest < Minitest::Test
   end
 
   def test_transport_failures_fall_back_at_every_stage
-    errors = [Net::ReadTimeout.new, Net::OpenTimeout.new, Errno::ECONNRESET.new, Errno::ECONNREFUSED.new,
-              EOFError.new, SocketError.new("getaddrinfo"), OpenSSL::SSL::SSLError.new("handshake")]
+    errors = [ Net::ReadTimeout.new, Net::OpenTimeout.new, Errno::ECONNRESET.new, Errno::ECONNREFUSED.new,
+              EOFError.new, SocketError.new("getaddrinfo"), OpenSSL::SSL::SSLError.new("handshake") ]
     errors.each do |error|
       res = BRoll.generate_or_fallback(fallback: "kenburns", source_image: @still, prompt: "p", seconds: 4, cache_root: @cache,
                                        http: RaisingHttp.new(error), validator: @ok_probe)

@@ -29,8 +29,8 @@ module BRoll
   class FfmpegError < Error; end
 
   # Transport failures Net::HTTP raises instead of returning a response.
-  TRANSPORT_ERRORS = [Timeout::Error, IOError, SocketError, SystemCallError, OpenSSL::SSL::SSLError,
-                      Net::HTTPBadResponse, Net::ProtocolError].freeze
+  TRANSPORT_ERRORS = [ Timeout::Error, IOError, SocketError, SystemCallError, OpenSSL::SSL::SSLError,
+                      Net::HTTPBadResponse, Net::ProtocolError ].freeze
 
   MODEL = ENV.fetch('CF_BROLL_MODEL', 'gemini-omni-1.1-flash')
   # Ids Google has shut down (Veo previews and 3.x, the Omni preview).
