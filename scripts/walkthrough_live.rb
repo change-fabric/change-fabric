@@ -8,6 +8,8 @@ require_relative 'browserless_js'
 require_relative 'change_docker'
 require_relative 'prototype_capture'
 require_relative 'prototype_ux_lint'
+require_relative 'walkthrough_compose'
+require_relative 'walkthrough_device'
 require_relative 'walkthrough_cache'
 
 # Live scenes: a cf:walkthrough scene whose screen is a running app's URL
@@ -44,12 +46,18 @@ module WalkthroughLive
 
   def live?(scene) = scene['screen'].is_a?(Hash) && scene['screen'].key?('url')
 
+  def compose?(scene) = WalkthroughCompose.compose?(scene)
+
+  # Filmed in real time through the browser: a live scene, or a compose
+  # scene (the built-in compose page, captured the same way).
+  def realtime?(scene) = live?(scene) || compose?(scene)
+
   def url(scene) = scene.dig('screen', 'url')
 
   # -- validation ----------------------------------------------------------
 
   def board_errors(board)
-    browser_errors(board['browser']) + persona_errors(board['personas'])
+    browser_errors(board['browser']) + persona_errors(board['personas']) + WalkthroughDevice.board_errors(board)
   end
 
   def browser_errors(browser)
@@ -116,15 +124,36 @@ module WalkthroughLive
   # Errors for one live scene. `orders` maps scene id to order; `by_id` maps
   # scene id to scene, so session_from_scene can check the parent is live.
   def scene_errors(scene, board, orders, by_id)
+    errors = compose?(scene) ? compose_scene_errors(scene, orders, by_id) : live_scene_errors(scene, board, orders, by_id)
+    errors.concat(wait_errors(scene['wait']))
+    errors.concat(WalkthroughDevice.scene_errors(scene))
+    errors.concat(per_device_errors(scene))
+    errors
+  end
+
+  def live_scene_errors(scene, board, orders, by_id)
     errors = []
     errors << 'screen.url must be an http(s) URL' unless http_url?(url(scene))
     errors << 'a live scene has no store; it films the real app' if scene.key?('store')
     errors << 'a live scene has no images; it films the real app' unless Array(scene['images']).empty?
     errors.concat(persona_ref_errors(scene, board))
     errors.concat(session_from_errors(scene, orders, by_id))
-    errors.concat(wait_errors(scene['wait']))
     errors.concat(storage_errors(scene['storage']))
+  end
+
+  def compose_scene_errors(scene, orders, by_id)
+    errors = WalkthroughCompose.errors(scene, { orders: orders, realtime: by_id.select { |_, s| live?(s) }.keys })
+    %w[persona session_from_scene storage].each { |k| errors << "a compose scene takes no #{k}" if scene.key?(k) }
     errors
+  end
+
+  # Interactions given per device must name only the scene's devices.
+  def per_device_errors(scene)
+    list = scene['interactions']
+    return [] unless list.is_a?(Hash)
+
+    extra = list.keys - WalkthroughDevice.devices(scene)
+    extra.empty? ? [] : [ "interactions name devices the scene does not film: #{extra.join(', ')}" ]
   end
 
   def persona_ref_errors(scene, board)
@@ -191,6 +220,12 @@ module WalkthroughLive
     end
   end
 
+  # Every interaction of a scene, shared or per device.
+  def all_interactions(scene)
+    list = scene['interactions']
+    list.is_a?(Hash) ? list.values.flat_map { |v| Array(v) } : Array(list)
+  end
+
   def viewport_for(board) = PrototypeCapture::DEFAULT_VIEWPORT.merge(board['viewport'] || {})
 
   def fps_for(board) = board['fps'] || PrototypeCapture::FPS
@@ -202,7 +237,7 @@ module WalkthroughLive
   # Every env var name the board types or fills.
   def env_names(board)
     persona = (board['personas'] || {}).values.flat_map { |p| persona_env_names(p) }
-    typed = Array(board['scenes']).flat_map { |s| Array(s['interactions']).filter_map { |op| op['env'] } }
+    typed = Array(board['scenes']).flat_map { |s| all_interactions(s).filter_map { |op| op['env'] } }
     (persona + typed).uniq
   end
 
@@ -239,69 +274,109 @@ module WalkthroughLive
   # waits, storage, viewport, fps, duration, and browser options. No env
   # value is key material; changing a password does not re-key a scene.
   def frames_key(board, scene, parent_key: nil)
-    WalkthroughCache.key(live: url(scene), persona: persona_spec(board, scene['persona']), session_from: parent_key,
-                         interactions: scene['interactions'] || [], wait: scene['wait'], storage: scene['storage'],
-                         viewport: board['viewport'], fps: fps_for(board),
+    WalkthroughCache.key(live: url(scene), compose: compose_material(scene), persona: persona_spec(board, scene['persona']),
+                         session_from: parent_key, interactions: scene['interactions'] || [], wait: scene['wait'],
+                         storage: scene['storage'], viewport: board['viewport'], fps: fps_for(board),
                          duration_ms: PrototypeCapture.scene_duration(scene), browser: browser_opts(board),
+                         devices: WalkthroughDevice.specs(board, scene), layout: WalkthroughDevice.layout_name(scene),
                          browserless: PrototypeCapture.browserless_digest, capture_version: CAPTURE_VERSION)
   end
+
+  # A compose scene keys on its spec and the template version; a from_scene
+  # compose also keys on its source scene's key (via parent_key).
+  def compose_material(scene)
+    compose?(scene) ? { spec: scene['compose'], template: WalkthroughCompose::TEMPLATE_VERSION } : nil
+  end
+
+  # The scene whose capture this one depends on: the session parent of a
+  # live scene, or the link source of a from_scene compose scene.
+  def parent_id(scene) = compose?(scene) ? scene.dig('compose', 'from_scene') : scene['session_from_scene']
 
   def prepare(board, scene, root, memo = {})
     return memo[scene['id']] if memo[scene['id']]
 
     parent = nil
-    if (from = scene['session_from_scene'])
-      found = board['scenes'].find { |s| s['id'] == from } || raise(ArgumentError, "unknown session_from_scene #{from}")
+    if (from = parent_id(scene))
+      found = board['scenes'].find { |s| s['id'] == from } || raise(ArgumentError, "unknown source scene #{from}")
       parent = prepare(board, found, root, memo)
     end
     key = frames_key(board, scene, parent_key: parent && parent[:key])
-    memo[scene['id']] = { key: key, live: true, parent: from, out_dir: File.join(root, '.cache', 'frames', key) }
+    memo[scene['id']] = { key: key, live: true, parent: from, compose: compose?(scene),
+                          out_dir: File.join(root, '.cache', 'frames', key) }
   end
 
   # -- the /function modules -----------------------------------------------
 
-  def page_setup_js(viewport, ignore_https)
-    vp = PrototypeCapture::DEFAULT_VIEWPORT.merge(viewport || {})
+  # Opens a fresh context and page for one device spec (`dev` in JS: w, h,
+  # dpr, mobile, ua). A phone gets real mobile emulation: touch, isMobile,
+  # and a mobile user agent.
+  def page_setup_js(ignore_https)
     <<~JS.chomp
       #{BrowserlessJs.fresh_context_js}
       const browser = basePage.browser();
-      const context = await newBrowserContext(browser);
-      const page = context ? await context.newPage() : await browser.newPage();
-      page.setDefaultTimeout(#{TIMEOUT_MS});
-      await page.setViewport({ width: #{vp['w']}, height: #{vp['h']}, deviceScaleFactor: #{vp['dpr']} });
-      const client = #{BrowserlessJs.cdp_session_js('page')};
-      #{ignore_https ? 'await client.send("Security.setIgnoreCertificateErrors", { ignore: true });' : ''}
       const sleep = (ms) => new Promise((r) => setTimeout(r, Math.max(0, ms)));
+      const openPage = async (dev) => {
+        const context = await newBrowserContext(browser);
+        const page = context ? await context.newPage() : await browser.newPage();
+        page.setDefaultTimeout(#{TIMEOUT_MS});
+        await page.setViewport({ width: dev.w, height: dev.h, deviceScaleFactor: dev.dpr, isMobile: !!dev.mobile, hasTouch: !!dev.mobile });
+        if (dev.mobile) await page.setUserAgent(dev.ua);
+        const client = await page.createCDPSession();
+        #{ignore_https ? 'await client.send("Security.setIgnoreCertificateErrors", { ignore: true });' : ''}
+        return { context, page, client };
+      };
     JS
   end
 
   # Restores a session's cookies, then its storage for the matching origin,
-  # then the scene's storage seed, all before the first navigation. The
-  # document script is removed once the scene's page has loaded, so a later
-  # in-scene navigation keeps what the app wrote.
+  # then the scene's storage seed, all before the first navigation. Cookies
+  # and storage are keyed by origin, not device, so a session crosses
+  # between desktop and phone scenes unchanged. Returns the document script
+  # id, removed once the page has loaded so a later in-scene navigation
+  # keeps what the app wrote.
   def restore_js(session, storage)
     <<~JS.chomp
       const session = #{JSON.generate(session || { 'cookies' => [], 'origins' => {} })};
-      if (session.cookies.length) await client.send("Network.setCookies", { cookies: session.cookies });
-      const seed = await page.evaluateOnNewDocument((s, st) => {
-        if (window !== window.top) return;
-        const put = (area, entries) => { for (const [k, v] of Object.entries(entries || {})) { try { window[area].setItem(k, typeof v === "string" ? v : JSON.stringify(v)); } catch (e) { void e; } } };
-        const o = s.origins[location.origin];
-        if (o) { put("localStorage", o.localStorage); put("sessionStorage", o.sessionStorage); }
-        for (const c of (st.clear || [])) {
-          try {
-            if (c === "localStorage" || c === "sessionStorage") window[c].clear();
-            else { localStorage.removeItem(c); sessionStorage.removeItem(c); }
-          } catch (e) { void e; }
-        }
-        for (const [area, entries] of Object.entries(st.set || {})) put(area, entries);
-      }, session, #{JSON.generate(storage || {})});
+      const storageSeed = #{JSON.generate(storage || {})};
+      const restore = async (page, client) => {
+        if (session.cookies.length) await client.send("Network.setCookies", { cookies: session.cookies });
+        return (await page.evaluateOnNewDocument((s, st) => {
+          if (window !== window.top) return;
+          const put = (area, entries) => { for (const [k, v] of Object.entries(entries || {})) { try { window[area].setItem(k, typeof v === "string" ? v : JSON.stringify(v)); } catch (e) { void e; } } };
+          const o = s.origins[location.origin];
+          if (o) { put("localStorage", o.localStorage); put("sessionStorage", o.sessionStorage); }
+          for (const c of (st.clear || [])) {
+            try {
+              if (c === "localStorage" || c === "sessionStorage") window[c].clear();
+              else { localStorage.removeItem(c); sessionStorage.removeItem(c); }
+            } catch (e) { void e; }
+          }
+          for (const [area, entries] of Object.entries(st.set || {})) put(area, entries);
+        }, session, storageSeed)).identifier;
+      };
     JS
   end
 
+  # mailto:, sms:, and tel: links are caught on click (and window.open)
+  # instead of followed, and queued for the capture loop to collect. An app
+  # that assigns location.href to such a link directly is not caught.
+  LINK_HOOK = <<~JS
+    (() => {
+      if (window !== window.top) return;
+      window.__cfLinks = [];
+      const re = /^(mailto|sms|smsto|tel):/i;
+      document.addEventListener("click", (ev) => {
+        const a = ev.target && ev.target.closest && ev.target.closest("a[href]");
+        if (a && re.test(a.getAttribute("href"))) { ev.preventDefault(); window.__cfLinks.push(a.href); }
+      }, true);
+      const open = window.open;
+      window.open = function (u, ...rest) { if (re.test(String(u))) { window.__cfLinks.push(String(u)); return null; } return open.call(window, u, ...rest); };
+    })();
+  JS
+
   def dump_session_js
     <<~JS.chomp
-      const dumpSession = async () => {
+      const dumpSession = async (page, client) => {
         const all = (await client.send("Network.getAllCookies")).cookies;
         const cookies = all.map((c) => {
           const out = { name: c.name, value: c.value, domain: c.domain, path: c.path, secure: c.secure, httpOnly: c.httpOnly };
@@ -310,67 +385,73 @@ module WalkthroughLive
           return out;
         });
         let here = null;
-        try { here = await page.evaluate(() => ({ origin: location.origin, localStorage: { ...localStorage }, sessionStorage: { ...sessionStorage } })); } catch (e) { void e; }
+        try { here = await page.evaluate(() => ({ origin: location.origin, localStorage: { ...localStorage }, sessionStorage: { ...sessionStorage }, ua: navigator.userAgent })); } catch (e) { void e; }
         const origins = Object.assign({}, session.origins);
         if (here && here.origin && here.origin !== "null") origins[here.origin] = { localStorage: here.localStorage, sessionStorage: here.sessionStorage };
-        return { cookies, origins, url: page.url() };
+        return { cookies, origins, url: page.url(), ua: here && here.ua };
       };
     JS
   end
 
-  # A persona's pre-scene login: fill from env values, click, wait, then the
-  # success selector, returning the session. `values` maps env name to value.
+  def desktop_spec(board) = viewport_for(board).merge('name' => 'desktop', 'mobile' => false)
+
+  # A persona's pre-scene login on the board's desktop viewport: fill from
+  # env values, click, wait, then the success selector, returning the
+  # session. `values` maps env name to value.
   def login_module(board, persona, values)
     login = persona.fetch('login')
     steps = login['steps'].map { |s| s['env'] ? s.merge('value' => values.fetch(s['env'])) : s }
     <<~JS
       export default async function ({ page: basePage }) {
-        #{page_setup_js(board['viewport'], browser_opts(board)['ignore_https_errors'])}
+        #{page_setup_js(browser_opts(board)['ignore_https_errors'])}
         #{restore_js(nil, nil)}
         #{dump_session_js}
+        const { context, page, client } = await openPage(#{JSON.generate(desktop_spec(board))});
         await page.goto(#{JSON.generate(login['url'])}, { waitUntil: "domcontentloaded" });
         for (const step of #{JSON.generate(steps)}) {
+          await page.waitForSelector(step.selector);
           if (step.type === "fill") {
-            await page.waitForSelector(step.selector);
             await page.$eval(step.selector, (el) => { el.value = ""; });
             await page.type(step.selector, step.value);
           } else if (step.type === "click") {
-            await page.waitForSelector(step.selector);
             await page.click(step.selector);
-          } else {
-            await page.waitForSelector(step.selector);
           }
         }
         await page.waitForSelector(#{JSON.generate(login['success_selector'])});
-        const out = await dumpSession();
+        const out = await dumpSession(page, client);
         if (context) await context.close();
         return { data: { session: out }, type: "application/json" };
       }
     JS
   end
 
-  # The real-time capture of one live scene. A screencast keeps the latest
-  # frame; each tick, at a fixed fps from the moment the page is ready,
-  # samples it. Unique frames travel once; `ticks` maps each frame to one.
-  def capture_module(board, scene, plan:, session:, lint:, shots: true)
+  # One device's real-time run, as a JS function `runDevice(job)`. A
+  # screencast keeps the latest frame; each tick, at a fixed fps from the
+  # moment the page is ready, samples it. Unique frames travel once and
+  # `ticks` maps each frame to one.
+  def run_device_js(board, scene)
     wait = DEFAULT_WAIT.merge(scene['wait'] || {})
-    vp = viewport_for(board)
-    fps = fps_for(board)
-    <<~JS
-      export default async function ({ page: basePage }) {
-        #{page_setup_js(board['viewport'], browser_opts(board)['ignore_https_errors'])}
-        #{restore_js(session, scene['storage'])}
-        #{dump_session_js}
-        const plan = #{JSON.generate(plan)};
-        const lintAt = new Set(#{JSON.generate(lint)});
+    <<~JS.chomp
+      const ux = #{JSON.generate(PrototypeUxLint::BROWSER_JS)};
+      const linkHook = #{JSON.generate(LINK_HOOK)};
+      const stepMs = #{PrototypeCapture.frame_ms(fps_for(board))};
+      const runDevice = async (job) => {
+        const dev = job.dev;
+        const { context, page, client } = await openPage(dev);
         const pageErrors = [];
         page.on("pageerror", (err) => pageErrors.push(String(err && err.message || err)));
-        await page.goto(#{JSON.generate(url(scene))}, { waitUntil: #{JSON.generate(wait['until'])} });
+        const seedId = await restore(page, client);
+        await page.evaluateOnNewDocument(linkHook);
+        const safe = async (fn, fallback) => { try { return await fn(); } catch (e) { void e; return fallback; } };
+        if (job.html) {
+          await page.setContent(job.html, { waitUntil: "load" });
+          await page.evaluate(linkHook);
+        } else {
+          await page.goto(job.url, { waitUntil: #{JSON.generate(wait['until'])} });
+        }
         #{wait['selector'] ? "await page.waitForSelector(#{JSON.generate(wait['selector'])});" : ''}
         await sleep(#{wait['settle_ms'].to_i});
-        await page.removeScriptToEvaluateOnNewDocument(seed.identifier);
-        const ux = #{JSON.generate(PrototypeUxLint::BROWSER_JS)};
-        const safe = async (fn, fallback) => { try { return await fn(); } catch (e) { void e; return fallback; } };
+        await page.removeScriptToEvaluateOnNewDocument(seedId);
         const ensureUx = () => safe(() => page.evaluate(ux), null);
         const aim = async (sel) => {
           await ensureUx();
@@ -380,54 +461,49 @@ module WalkthroughLive
             return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
           }, sel), null);
         };
-        const shots = #{shots};
         const store = [];
         let latest = -1;
-        if (shots) {
+        if (job.shots) {
           store.push((await client.send("Page.captureScreenshot", { format: "jpeg", quality: #{JPEG_QUALITY} })).data);
           latest = 0;
           client.on("Page.screencastFrame", (f) => {
             store.push(f.data); latest = store.length - 1;
             client.send("Page.screencastFrameAck", { sessionId: f.sessionId }).catch(() => {});
           });
-          await client.send("Page.startScreencast", { format: "jpeg", quality: #{JPEG_QUALITY}, maxWidth: #{vp['w'] * vp['dpr']}, maxHeight: #{vp['h'] * vp['dpr']}, everyNthFrame: 1 });
+          await client.send("Page.startScreencast", { format: "jpeg", quality: #{JPEG_QUALITY}, maxWidth: dev.w * dev.dpr, maxHeight: dev.h * dev.dpr, everyNthFrame: 1 });
         }
-        const stepMs = #{PrototypeCapture.frame_ms(fps)};
-        const ticks = [];
-        const cursor = [];
-        const lint = [];
-        const devices = [];
+        const lintAt = new Set(job.lint);
+        const ticks = [], cursor = [], lint = [], devices = [], links = [];
         const overlays = {};
         let resting = null;
-        let pos = { x: #{vp['w'] / 2.0}, y: #{vp['h'] / 2.0} };
+        let pos = { x: dev.w / 2, y: dev.h / 2 };
         let from = pos;
         let down = false;
         const t0 = Date.now();
-        for (let i = 0; i < plan.length; i++) {
-          const step = plan[i] || {};
+        for (let i = 0; i < job.plan.length; i++) {
+          const step = job.plan[i] || {};
           if (step.move) {
             if (step.move.first) from = pos;
             const to = await aim(step.move.target);
-            if (to) { pos = { x: from.x + (to.x - from.x) * step.move.p, y: from.y + (to.y - from.y) * step.move.p }; await page.mouse.move(pos.x, pos.y); }
+            if (to) { pos = { x: from.x + (to.x - from.x) * step.move.p, y: from.y + (to.y - from.y) * step.move.p }; if (!dev.mobile) await page.mouse.move(pos.x, pos.y); }
             resting = step.move.p >= 1 ? step.move.target : null;
           }
-          if (step.scroll) {
-            await safe(() => page.evaluate((s) => { const el = document.querySelector(s); if (el) el.scrollIntoView({ block: "center" }); }, step.scroll), null);
-          }
-          if (step.hover) { const to = await aim(step.hover); if (to) { pos = to; await page.mouse.move(pos.x, pos.y); } resting = step.hover; }
+          if (step.scroll) await safe(() => page.evaluate((s) => { const el = document.querySelector(s); if (el) el.scrollIntoView({ block: "center" }); }, step.scroll), null);
+          if (step.hover) { const to = await aim(step.hover); if (to) { pos = to; if (!dev.mobile) await page.mouse.move(pos.x, pos.y); } resting = step.hover; }
           if (step.click) {
             const to = await aim(step.click);
             if (to) pos = to;
             resting = step.click;
-            await page.mouse.move(pos.x, pos.y);
-            await page.mouse.down(); down = true;
-            await page.mouse.up();
+            if (dev.mobile) { await page.touchscreen.tap(pos.x, pos.y); }
+            else { await page.mouse.move(pos.x, pos.y); await page.mouse.down(); await page.mouse.up(); }
+            down = true;
           }
           if (step.type) {
             if (step.type.focus) await page.focus(step.type.target);
             for (const ch of step.type.text) await page.keyboard.type(ch);
           }
           await sleep(t0 + i * stepMs - Date.now());
+          for (const href of await safe(() => page.evaluate(() => (window.__cfLinks || []).splice(0)), [])) links.push(href);
           let fresh = false;
           await ensureUx();
           for (const key of await safe(() => page.evaluate(() => window.__cfUx.overlays()), [])) {
@@ -435,17 +511,32 @@ module WalkthroughLive
           }
           if (lintAt.has(i) || fresh) {
             const targets = resting ? [{ selector: resting, x: pos.x, y: pos.y }] : [];
-            for (const f of await safe(() => page.evaluate((t, b) => window.__cfUx.lint(t, b), targets, #{PrototypeUxLint::CAPTION_BAND}), [])) lint.push(Object.assign({ frame: i }, f));
-            for (const d of await safe(() => page.evaluate(() => window.__cfUx.devices()), [])) devices.push(Object.assign({ frame: i }, d));
+            for (const f of await safe(() => page.evaluate((t, b) => window.__cfUx.lint(t, b), targets, job.band), [])) lint.push(Object.assign({ frame: i, device: dev.name }, f));
+            for (const d of await safe(() => page.evaluate(() => window.__cfUx.devices()), [])) devices.push(Object.assign({ frame: i, group: job.group }, d));
           }
           ticks.push(latest);
           cursor.push({ x: pos.x, y: pos.y, down });
           down = false;
         }
-        if (shots) await client.send("Page.stopScreencast");
-        const out = await dumpSession();
+        if (job.shots) await client.send("Page.stopScreencast");
+        const out = await dumpSession(page, client);
         if (context) await context.close();
-        return { data: { frames: store, ticks, cursor, pageErrors, lint, devices, overlays, session: out }, type: "application/json" };
+        return { name: dev.name, frames: store, ticks, cursor, pageErrors, lint, devices, overlays, links, session: out };
+      };
+    JS
+  end
+
+  # The capture module: every device of the scene runs in parallel against
+  # the same URL (or compose page) and the same starting session.
+  def capture_module(board, scene, jobs:, session:)
+    <<~JS
+      export default async function ({ page: basePage }) {
+        #{page_setup_js(browser_opts(board)['ignore_https_errors'])}
+        #{restore_js(session, scene['storage'])}
+        #{dump_session_js}
+        #{run_device_js(board, scene)}
+        const results = await Promise.all(#{JSON.generate(jobs)}.map(runDevice));
+        return { data: { devices: results }, type: "application/json" };
       }
     JS
   end
@@ -455,6 +546,13 @@ module WalkthroughLive
   # Interactions with env typing resolved to the real value, in memory only.
   def resolve_interactions(interactions, secrets)
     Array(interactions).map { |op| op['env'] ? op.merge('text' => secrets.fetch(op['env'])).except('env') : op }
+  end
+
+  # A scene's interactions for one device: shared as a list, or per device
+  # as { "desktop": [...], "phone": [...] }.
+  def interactions_for(scene, device)
+    list = scene['interactions']
+    list.is_a?(Hash) ? Array(list[device]) : Array(list)
   end
 
   def login(session:, board:, persona:, secrets:)
@@ -471,26 +569,38 @@ module WalkthroughLive
     raise CaptureError, secrets.mask("#{e.class}: #{e.message}")
   end
 
-  # Captures one live scene into out_dir (NNNNNN.png, cursor.json, a null
-  # end-state.json, ux-lint.json) and returns its end session. With
-  # `shots: false` it only replays to produce the session. JPEG screencast
-  # frames become PNGs in the pinned FFmpeg container, offline.
-  # rubocop:disable Metrics/ParameterLists
-  def capture(session:, board:, scene:, out_dir:, secrets:, browser_session: nil, docker: nil, work: nil, shots: true)
-    # rubocop:enable Metrics/ParameterLists
+  # One device's job: its spec, frame plan, lint frames, caption band, and
+  # page source (the scene URL, or the compose page for that device).
+  def job(board, scene, spec, secrets, compose:, shots:)
     fps = fps_for(board)
     frames = PrototypeCapture.frame_count(PrototypeCapture.scene_duration(scene), fps)
-    plan = PrototypeCapture.schedule(resolve_interactions(scene['interactions'], secrets).map { |op| op['op'] == 'scroll' ? op.merge('op' => 'wait') : op }, frames, fps)
-    mark_scrolls(plan, scene['interactions'], fps)
-    lint_frames = PrototypeUxLint.lint_frames(plan, frames)
-    result = guard(secrets) do
-      PrototypeCapture.run_with_retry(session, capture_module(board, scene, plan: plan, session: browser_session, lint: lint_frames, shots: shots))
-    end
-    write_scene(result, out_dir, scene['id'], secrets, docker: docker, work: work, board: board) if shots
-    result['session']
+    ops = interactions_for(scene, spec['name'])
+    plan = PrototypeCapture.schedule(resolve_interactions(ops, secrets).map { |op| op['op'] == 'scroll' ? op.merge('op' => 'wait') : op }, frames, fps)
+    mark_scrolls(plan, ops, fps)
+    # Only the full-bleed desktop frame meets the caption band in the page;
+    # a composited frame is checked on the canvas instead.
+    band = WalkthroughDevice.default?(scene) ? PrototypeUxLint::CAPTION_BAND : 0
+    { 'dev' => spec, 'plan' => plan, 'lint' => PrototypeUxLint.lint_frames(plan, frames), 'band' => band, 'shots' => shots,
+      'group' => WalkthroughDevice.group(scene, spec['name']),
+      'url' => compose ? nil : url(scene), 'html' => compose && WalkthroughCompose.html(compose, spec['name']) }
   end
 
+  # Captures one live or compose scene into out_dir (NNNNNN.png composited
+  # on the board canvas, cursor.json, taps.json for a phone, links.json, a
+  # null end-state.json, ux-lint.json) and returns its end session (the
+  # first device's). With `shots: false` it only replays for the session.
   # rubocop:disable Metrics/ParameterLists
+  def capture(session:, board:, scene:, out_dir:, secrets:, browser_session: nil, docker: nil, work: nil, shots: true, compose: nil)
+    # rubocop:enable Metrics/ParameterLists
+    jobs = WalkthroughDevice.specs(board, scene).map { |spec| job(board, scene, spec, secrets, compose: compose, shots: shots) }
+    result = guard(secrets) do
+      PrototypeCapture.run_with_retry(session, capture_module(board, scene, jobs: jobs, session: browser_session))
+    end
+    runs = result['devices']
+    SceneWriter.new(board: board, scene: scene, secrets: secrets, docker: docker, work: work).write(runs, out_dir) if shots
+    runs.first['session']
+  end
+
   # PrototypeCapture.schedule knows no scroll op (it is scheduled as a wait),
   # so the scroll target is added to its frame here.
   def mark_scrolls(plan, interactions, fps)
@@ -499,31 +609,74 @@ module WalkthroughLive
     end
   end
 
-  def write_scene(result, out_dir, label, secrets, docker:, work:, board:)
-    # rubocop:enable Metrics/ParameterLists
-    FileUtils.rm_rf(out_dir)
-    FileUtils.mkdir_p(out_dir)
-    jpg_dir = File.join(out_dir, 'jpg')
-    FileUtils.mkdir_p(jpg_dir)
-    result['ticks'].each_with_index do |idx, i|
-      File.binwrite(File.join(jpg_dir, format('%06d.jpg', i + 1)), Base64.decode64(result['frames'][[ idx, 0 ].max]))
+  # Writes one captured scene to disk: frames composited per the scene's
+  # device layout, cursor tracks mapped onto the canvas, caught links, and
+  # the masked lint report.
+  class SceneWriter
+    def initialize(board:, scene:, secrets:, docker:, work:)
+      @board = board
+      @scene = scene
+      @secrets = secrets
+      @docker = docker || ->(argv) { Open3.capture2e(*argv) }
+      @work = work
+      @layout = WalkthroughDevice.layout(board, scene)
     end
-    to_png!(jpg_dir, out_dir, docker: docker, work: work, board: board)
-    FileUtils.rm_rf(jpg_dir)
-    File.write(File.join(out_dir, 'cursor.json'), JSON.pretty_generate(PrototypeCapture.cursor_path(result['cursor'])))
-    report = PrototypeUxLint.scene_report(label, Array(result['lint']), overlays: result['overlays'] || {},
-                                                 devices: Array(result['devices'])).merge('aim' => 'safe', 'live' => true)
-    PrototypeUxLint.write(out_dir, secrets.mask_deep(report))
-    File.write(File.join(out_dir, 'end-state.json'), "null\n")
-  end
 
-  def to_png!(jpg_dir, out_dir, docker:, work:, board:)
-    vp = viewport_for(board)
-    rel = ->(p) { File.join('/work', p.delete_prefix("#{work}/")) }
-    args = [ '-hide_banner', '-nostdin', '-y', '-start_number', '1', '-i', File.join(rel.call(jpg_dir), '%06d.jpg'),
-             '-vf', "scale=#{vp['w']}:#{vp['h']}", '-start_number', '1', File.join(rel.call(out_dir), '%06d.png') ]
-    argv = ChangeDocker.run_command(network: 'none', image: ChangeDocker::FFMPEG_IMAGE, args: args, mounts: { work => '/work' }, workdir: '/work')
-    out, status = (docker || ->(a) { Open3.capture2e(*a) }).call(argv)
-    raise CaptureError, "ffmpeg jpeg to png failed:\n#{out.to_s.lines.last(10).join}" unless status.success?
+    def write(runs, out_dir)
+      FileUtils.rm_rf(out_dir)
+      FileUtils.mkdir_p(out_dir)
+      dirs = runs.map { |run| write_jpgs(run, File.join(out_dir, 'jpg', run['name'])) }
+      composite!(dirs, out_dir)
+      FileUtils.rm_rf(File.join(out_dir, 'jpg'))
+      write_tracks(runs, out_dir)
+      links = runs.flat_map { |r| Array(r['links']) }.uniq.map { |href| WalkthroughCompose.parse_link(href).merge('href' => href) }
+      File.write(File.join(out_dir, 'links.json'), JSON.pretty_generate(@secrets.mask_deep(links)))
+      PrototypeUxLint.write(out_dir, @secrets.mask_deep(report(runs)))
+      File.write(File.join(out_dir, 'end-state.json'), "null\n")
+    end
+
+    private
+
+    def write_jpgs(run, dir)
+      FileUtils.mkdir_p(dir)
+      run['ticks'].each_with_index do |idx, i|
+        File.binwrite(File.join(dir, format('%06d.jpg', i + 1)), Base64.decode64(run['frames'][[ idx, 0 ].max]))
+      end
+      dir
+    end
+
+    # The desktop arrow (hidden when there is no desktop) is cursor.json; a
+    # phone's tap ripples are taps.json.
+    def write_tracks(runs, out_dir)
+      by_name = runs.to_h { |r| [ r['name'], r ] }
+      frames = runs.first['cursor'].size
+      desk = @layout.rect('desktop')
+      arrow = desk ? WalkthroughDevice.arrow_path(desk, by_name['desktop']['cursor']) : WalkthroughDevice.hidden_path(frames)
+      File.write(File.join(out_dir, 'cursor.json'), JSON.pretty_generate(arrow))
+      phone = @layout.rect('phone')
+      return unless phone
+
+      File.write(File.join(out_dir, 'taps.json'), JSON.pretty_generate(WalkthroughDevice.ripple_path(phone, by_name['phone']['cursor'])))
+    end
+
+    def report(runs)
+      raw = runs.flat_map { |r| Array(r['lint']) } + WalkthroughDevice.frame_findings(@layout)
+      overlays = runs.map { |r| r['overlays'] || {} }.reduce({}) { |acc, o| o.merge(acc) }
+      PrototypeUxLint.scene_report(@scene['id'], raw, overlays: overlays, devices: runs.flat_map { |r| Array(r['devices']) })
+                     .merge('aim' => 'safe', 'live' => true)
+    end
+
+    def container(path) = File.join('/work', path.delete_prefix("#{@work}/"))
+
+    # JPEG screencast frames become PNGs on the board canvas in the pinned
+    # FFmpeg container, offline.
+    def composite!(dirs, out_dir)
+      inputs = dirs.flat_map { |d| [ '-start_number', '1', '-i', File.join(container(d), '%06d.jpg') ] }
+      args = [ '-hide_banner', '-nostdin', '-y', *inputs, '-filter_complex', WalkthroughDevice.filter(@layout), '-map', '[out]',
+               '-start_number', '1', File.join(container(out_dir), '%06d.png') ]
+      argv = ChangeDocker.run_command(network: 'none', image: ChangeDocker::FFMPEG_IMAGE, args: args, mounts: { @work => '/work' }, workdir: '/work')
+      out, status = @docker.call(argv)
+      raise CaptureError, "ffmpeg frame composite failed:\n#{out.to_s.lines.last(10).join}" unless status.success?
+    end
   end
 end

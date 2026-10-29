@@ -26,7 +26,7 @@ module WalkthroughStoryboard
   PATCH_OPS = %w[set push delete].freeze
   MD_HEADER = 'Generated from storyboard.json; do not edit'
   BROLL_KIND = 'ai-broll'
-  SCENE_KINDS = [ nil, 'screen', BROLL_KIND ].freeze
+  SCENE_KINDS = [ nil, 'screen', BROLL_KIND, WalkthroughCompose::KIND ].freeze
   BROLL_IMAGE_EXTS = %w[.png .jpg .jpeg .webp].freeze
   BROLL_SECONDS = (1..10)
   KEY_KINDS = { 'frames_key' => 'frames', 'audio_key' => 'audio', 'asset_keys' => 'images', 'broll_key' => 'broll' }.freeze
@@ -83,7 +83,7 @@ module WalkthroughStoryboard
     errors << 'duration_ms is derived and must not be authored' if scene.key?('duration_ms') || scene['timing'].is_a?(Hash) && scene['timing'].key?('duration_ms')
     errors.concat(transition_errors(scene.dig('timing', 'transition')))
     errors.concat(camera_errors(scene['camera']))
-    errors.concat(interaction_errors(Array(scene['interactions']), live: live?(scene)))
+    errors.concat(scene_interaction_errors(scene))
     Array(scene['hypotheses']).each { |h| errors << "hypothesis #{h} is not in the top-level list" unless hyp_ids.include?(h) }
     errors << 'needs at least one requirement or assumption' if Array(scene['requirements']).empty? && Array(scene['assumptions']).empty?
     errors.concat(kind_errors(scene, root))
@@ -96,17 +96,33 @@ module WalkthroughStoryboard
     errors
   end
 
-  LIVE_ONLY = %w[persona session_from_scene wait storage].freeze
+  LIVE_ONLY = %w[persona session_from_scene wait storage device devices layout].freeze
+
+  # Interactions are a list, or for a live or compose scene a list per
+  # device: { "desktop": [...], "phone": [...] }.
+  def scene_interaction_errors(scene)
+    list = scene['interactions']
+    return interaction_errors(Array(list), live: live?(scene)) unless list.is_a?(Hash)
+    return [ 'per-device interactions need a live or compose scene' ] unless live?(scene)
+
+    list.flat_map do |device, ops|
+      next [ "interactions.#{device} must be a list" ] unless ops.is_a?(Array)
+
+      interaction_errors(ops, live: true).map { |e| "#{device} #{e}" }
+    end
+  end
 
   def broll?(scene) = scene['kind'] == BROLL_KIND
 
-  def live?(scene) = WalkthroughLive.live?(scene)
+  # Captured in real time (a live or compose scene).
+  def live?(scene) = WalkthroughLive.realtime?(scene)
 
   # A screen scene needs screen.html; an ai-broll scene needs a broll block and
   # carries no screen.
   def kind_errors(scene, root)
-    return [ "kind #{scene['kind'].inspect} must be one of screen, #{BROLL_KIND}" ] unless SCENE_KINDS.include?(scene['kind'])
+    return [ "kind #{scene['kind'].inspect} must be one of screen, #{BROLL_KIND}, #{WalkthroughCompose::KIND}" ] unless SCENE_KINDS.include?(scene['kind'])
     return broll_errors(scene, root) if broll?(scene)
+    return [] if WalkthroughLive.compose?(scene)
 
     screen = scene['screen'].is_a?(Hash) ? scene['screen'] : {}
     return [ 'screen takes exactly one of html or url' ] if screen.key?('html') && screen.key?('url')

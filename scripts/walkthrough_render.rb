@@ -220,7 +220,8 @@ module WalkthroughRender
       end
     end
 
-    def live?(scene) = WalkthroughLive.live?(scene)
+    # Captured in real time in the live browser: a live or compose scene.
+    def live?(scene) = WalkthroughLive.realtime?(scene)
 
     def prep(scene, memo) = WalkthroughStoryboard.prepare_frames(@board, scene, @root, memo, final: @final)
 
@@ -234,7 +235,7 @@ module WalkthroughRender
     def capture_target?(scene, seen = {})
       return true if targeted?(scene)
 
-      parent_id = scene.dig('store', 'from_scene') || scene['session_from_scene']
+      parent_id = scene.dig('store', 'from_scene') || WalkthroughLive.parent_id(scene)
       return false if parent_id.nil? || seen[parent_id]
 
       seen[parent_id] = true
@@ -261,8 +262,19 @@ module WalkthroughRender
 
         say("#{scene['id']}: capturing #{scene_frames(scene)} live frames")
         start = start_session(session, scene, sessions)
-        sessions[scene['id']] = @p[:live_capture].call(**live_args(session, scene, pr[:out_dir], start))
+        sessions[scene['id']] = @p[:live_capture].call(**live_args(session, scene, pr[:out_dir], start), compose: compose_spec(scene, memo))
       end
+    end
+
+    # A compose scene's fields: explicit, or the link its source scene caught.
+    def compose_spec(scene, memo)
+      return nil unless WalkthroughLive.compose?(scene)
+
+      from = scene.dig('compose', 'from_scene')
+      path = from && File.join(prep(scenes.find { |s| s['id'] == from }, memo)[:out_dir], 'links.json')
+      WalkthroughCompose.resolve(scene, links: path && File.file?(path) ? JSON.parse(File.read(path)) : nil)
+    rescue ArgumentError => e
+      raise WalkthroughLive::CaptureError, e.message
     end
 
     def live_args(session, scene, out_dir, start)
@@ -342,13 +354,15 @@ module WalkthroughRender
         dir = File.join(@cache, 'frames', key)
         require_file!(File.join(dir, '000001.png'), "#{entry['id']} frames")
         cursor = JSON.parse(File.read(require_file!(File.join(dir, 'cursor.json'), "#{entry['id']} cursor path")))
+        taps_file = File.join(dir, 'taps.json')
+        taps = File.file?(taps_file) ? JSON.parse(File.read(taps_file)) : nil
         audio = align = nil
         if narrated?(scene)
           audio = require_file!(WalkthroughCache.path(@cache, :audio, entry['audio_key'], 'mp3'), "#{entry['id']} narration")
           align = JSON.parse(File.read(require_file!(WalkthroughCache.path(@cache, :audio, entry['audio_key'], 'alignment.json'),
                                                      "#{entry['id']} alignment")))
         end
-        { entry: entry, scene: scene, dir: dir, cursor: cursor, audio: audio, alignment: align,
+        { entry: entry, scene: scene, dir: dir, cursor: cursor, taps: taps, audio: audio, alignment: align,
           offset_ms: (entry['start_frame'] * 1000.0 / fps).round }
       end
     end
@@ -389,7 +403,7 @@ module WalkthroughRender
       entry = input[:entry]
       { id: entry['id'], frames_dir: container(input[:dir]), frames: entry['frames'], start_frame: entry['start_frame'],
         transition: input[:scene].dig('timing', 'transition') || WalkthroughStoryboard::DEFAULT_TRANSITION,
-        cursor: input[:cursor], hero_still: input[:scene]['hero_still'] == true,
+        cursor: input[:cursor], taps: input[:taps], hero_still: input[:scene]['hero_still'] == true,
         audio: input[:audio] && container(input[:audio]), offset_ms: input[:offset_ms] }
     end
 
