@@ -179,6 +179,29 @@ A live or compose scene picks the devices it films and how they share the frame:
 - A compose scene has no `screen`, `store`, `persona`, `session_from_scene`, or `storage`; it takes `wait`, `devices`, and `layout`, and gets the UX lint. ASSUMPTIONS.md lists it under Simulated UI.
 - An app that sets `location.href` to a `mailto:` link directly is not caught; give it an explicit spec.
 
+## Message scene
+
+`"kind": "message"` shows a simulated inbound notification or message: something that arrives, where a compose scene is something sent. It is its own kind rather than a compose `direction`, because its views, fields, and timing (a banner tapped into the next scene) share nothing with a composer. Nothing is sent or received.
+
+```json
+{ "id": "ask", "order": 4, "kind": "message", "devices": ["phone"],
+  "message": { "channel": "sms", "view": "lock_banner", "from": "Sam Lee", "body": "Is the 9am slot still open?",
+               "time": "now", "clock": "8:15", "date": "Saturday, November 21", "app": { "name": "Demo App", "icon": "screens/icon.svg" } },
+  "interactions": [{ "t_ms": 1800, "op": "click", "target": "#banner" }] }
+{ "id": "confirm", "order": 7, "kind": "message",
+  "message": { "channel": "email", "view": "open", "from": "Demo App", "to": "sam@example.test", "subject": "Your loan is confirmed",
+               "body": "Pick up Saturday at 9.", "cta": { "label": "View loan", "to_scene": "loan" } },
+  "interactions": [{ "t_ms": 3000, "op": "click", "target": "#cta" }] }
+```
+
+- `channel` and `view`: `sms` with `lock_banner` or `thread`; `email` with `inbox` or `open`. `from` and `body` are required, and `subject` for an email. Optional strings: `to`, `preview` (defaults to the first body line), `time` (a label such as `now` or `8:02`), and on `lock_banner` only `clock` and `date`.
+- `app` is `{ name, icon }`, the brand mark on the banner and the mail sender. The name defaults to the board title; the icon is an svg, png, jpg, or webp path under the project and defaults to the name's initial. Colors and type come from the project's `tokens.css` (`--bg`, `--surface`, `--text`, `--muted`, `--border`, `--btn`, `--accent`, `--font-sans`, `--radius`), with neutral fallbacks.
+- `inbox` takes `others`, a list of `{ from, subject, preview, time }` rows around the new message. `open` takes `cta` `{ label, to_scene }`; `to_scene` must be the next scene, so the tap and the screen it opens read as one motion. A `lock_banner` tap (`#banner`) plays an open animation; cut to the app scene right after it.
+- Fixed ids: `#banner`, `#message`, `#cta`, `#reply`, and `#send`. A `thread` takes a typed reply into `#reply`; clicking `#send` adds it as a delivered bubble.
+- Live board: with no `screen`, the scene is filmed in the live browser like a compose scene and takes `devices` and `layout`.
+- Prototype board: give it `screen.html` (a generated file) and run `ruby scripts/walkthrough_message.rb storyboard.json` to write it from the templates and the project's tokens. `shell` names a project screen holding `<div data-cf-message></div>`; the view is rendered into that slot, so the scene keeps the project's own stage and device frame. Validation flags a generated file that no longer matches its scene.
+- Both get the UX lint and roast rubric item 10. ASSUMPTIONS.md lists each one under Simulated UI as a simulated notification.
+
 ## Rules
 
 - `id` matches `\A[a-z0-9][a-z0-9-]*\z` and is unique; `order` is unique and contiguous from 1.

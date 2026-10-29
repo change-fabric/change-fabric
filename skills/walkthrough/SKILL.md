@@ -53,6 +53,7 @@ The same pipeline demos an app that already runs. A scene whose `screen` is `{ "
 - Cache: no screen sha, mock store, seed.json, or inline assets. A live scene is keyed by URL, persona, session parent, steps, waits, storage, viewport, fps, and duration, and recaptures only with `--recapture` or `--scene <id>` (which also recaptures the scenes that take their session from it). A cached session parent is replayed without frames, so its actions run again against the app.
 - Devices: `devices` (`desktop`, `phone`, or both) and `layout` (`single` or `side_by_side`) film a scene on a phone under mobile emulation, composited in a plain bezel above the caption band with tap ripples, or both devices at once against the same session.
 - Compose: a live scene's `mailto:`, `sms:`, and `tel:` clicks are caught and parsed, not followed. A `kind: "compose"` scene fills a neutral mail or text composer from that link (`compose.from_scene`) or an explicit spec, then types and sends. Compose scenes are simulated UI for walkthroughs and never send anything.
+- Message: a `kind: "message"` scene shows a simulated inbound sms (lock screen banner or thread) or email (inbox row or open message with a call to action into the next scene), styled from the project tokens. On a prototype board `walkthrough_message.rb` renders it into a screen file, optionally inside a project shell. Nothing is sent or received.
 - Gates: the UX lint runs in the live page during capture and the draft roast reads the MP4, so both still gate `--final`. Flats are prototype-only.
 
 ## Gates
