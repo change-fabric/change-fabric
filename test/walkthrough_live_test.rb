@@ -92,6 +92,14 @@ class WalkthroughLiveTest < Minitest::Test
     ]).merge("phone" => { "w" => 390, "h" => 844, "dpr" => 2 })
   end
 
+  def test_mask_deep_masks_strings_not_serialized_json
+    [ 's3cr"et', 'back\\slash', "new\nline", 'true', '1' ].each do |secret|
+      secrets = WalkthroughLive::Secrets.new([ 'S' ], env: { 'S' => secret })
+      out = secrets.mask_deep({ 'detail' => "x #{secret} y", 'live' => true, 'n' => 1, 'list' => [ secret ] })
+      assert_equal({ 'detail' => "x #{WalkthroughLive::MASK} y", 'live' => true, 'n' => 1, 'list' => [ WalkthroughLive::MASK ] }, out, secret)
+    end
+  end
+
   def test_devices_layouts_and_compose_validate
     assert_empty errors_for(device_board)
     b = device_board

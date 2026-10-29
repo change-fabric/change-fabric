@@ -274,7 +274,16 @@ module WalkthroughLive
     end
 
     # A JSON-shaped value with every string masked.
-    def mask_deep(value) = JSON.parse(mask(JSON.generate(value)))
+    # Masks each string (and hash key) in place, never the serialized JSON,
+    # so escaped secrets are caught and non-string primitives stay intact.
+    def mask_deep(value)
+      case value
+      when Hash then value.to_h { |k, v| [ k.is_a?(String) ? mask(k) : k, mask_deep(v) ] }
+      when Array then value.map { |v| mask_deep(v) }
+      when String then mask(value)
+      else value
+      end
+    end
   end
 
   # -- keys ----------------------------------------------------------------
