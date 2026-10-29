@@ -81,6 +81,22 @@ class PrototypeCaptureTest < Minitest::Test
     end
   end
 
+  def test_inline_screen_preserves_stylesheet_media_conditions
+    Dir.mktmpdir do |dir|
+      write(dir, "d.css", "body{}")
+      {
+        %(<link rel="stylesheet" href="d.css" media="(prefers-color-scheme: dark)">) => %(<style media="(prefers-color-scheme: dark)">),
+        %(<link media='print' rel='stylesheet' href='d.css'>) => %(<style media="print">),
+        %(<link rel="stylesheet" href="d.css" media="screen and (min-width: 600px)">) => %(<style media="screen and (min-width: 600px)">),
+        %(<link rel="stylesheet" href="d.css" media="all">) => "<style>",
+        %(<link rel="stylesheet" href="d.css">) => "<style>"
+      }.each do |link, expected|
+        out = PrototypeCapture.inline_screen(write(dir, "s.html", link))
+        assert_includes out, "#{expected}body{}</style>", link
+      end
+    end
+  end
+
   def test_easing_and_frame_math
     assert_in_delta 0.5, PrototypeCapture.ease("easeInOutCubic", 0.5)
     assert_in_delta 1.0, PrototypeCapture.ease("easeInOutCubic", 1.0)

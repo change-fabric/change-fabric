@@ -72,7 +72,12 @@ module PrototypeCapture
     check_supported!(html, File.basename(path))
     html = html.gsub(%r{<link\b[^>]*\bhref\s*=\s*(["'])([^"']+\.css)\1[^>]*>}im) do
       href = Regexp.last_match(2)
-      local_ref?(href) ? "<style>#{inline_css(asset_path(dir, swap_keys(href, remap)), remap)}</style>" : Regexp.last_match(0)
+      tag = Regexp.last_match(0)
+      next tag unless local_ref?(href)
+
+      media = tag[/\bmedia\s*=\s*(["'])([^"']*)\1/im, 2]
+      media_attr = media && !media.strip.empty? && media.strip.casecmp('all') != 0 ? %( media="#{media}") : ''
+      "<style#{media_attr}>#{inline_css(asset_path(dir, swap_keys(href, remap)), remap)}</style>"
     end
     html = html.gsub(%r{<script\b([^>]*)\bsrc\s*=\s*(["'])([^"']+)\2([^>]*)>\s*</script>}im) do
       src = Regexp.last_match(3)
