@@ -71,6 +71,77 @@ class WalkthroughLiveTest < Minitest::Test
 
   def errors_for(b) = WalkthroughStoryboard.validate(b)
 
+  MAILTO = "mailto:sales@example.test?cc=ops%40example.test&subject=Placement%20inquiry&body=Name%3A%0ANotes%3A%0A"
+
+  def compose_scene(id, order, spec, extra = {})
+    { "id" => id, "order" => order, "title" => id, "kind" => "compose", "compose" => spec,
+      "narration" => { "text" => "Scene #{id} speaks.", "measured_ms" => 0 },
+      "assumptions" => [ { "id" => "A-0#{order}", "text" => "x" } ], "timing" => { "min_ms" => 1000, "pad_ms" => 200 } }.merge(extra)
+  end
+
+  def device_board
+    board([
+      live("contact", 1, "persona" => "member", "devices" => %w[desktop phone], "layout" => "side_by_side",
+                         "interactions" => { "desktop" => [ { "t_ms" => 0, "op" => "click", "target" => "#email-us" } ],
+                                             "phone" => [ { "t_ms" => 0, "op" => "click", "target" => "#menu" } ] }),
+      live("mobile", 2, "session_from_scene" => "contact", "devices" => [ "phone" ]),
+      compose_scene("mail", 3, { "from_scene" => "contact" },
+                    "interactions" => [ { "t_ms" => 0, "op" => "type", "target" => "#body", "text" => "Hi" },
+                                        { "t_ms" => 600, "op" => "click", "target" => "#send" } ]),
+      compose_scene("text", 4, { "channel" => "sms", "to" => "+15550100", "body" => "On my way" }, "devices" => [ "phone" ])
+    ]).merge("phone" => { "w" => 390, "h" => 844, "dpr" => 2 })
+  end
+
+  def test_devices_layouts_and_compose_validate
+    assert_empty errors_for(device_board)
+    b = device_board
+    b["scenes"][0]["interactions"]["tablet"] = []
+    b["scenes"][1]["device"] = "phone"
+    b["scenes"][2]["compose"] = { "from_scene" => "text" }
+    b["scenes"][3]["layout"] = "side_by_side"
+    errs = errors_for(b)
+    [ "interactions name devices the scene does not film: tablet", "device is replaced by devices",
+      "compose.from_scene text must be an earlier", "side_by_side needs" ].each { |want| assert(errs.any? { |e| e.include?(want) }, "#{want}: #{errs}") }
+    proto = live("proto", 1, "screen" => { "html" => "screens/a.html" }, "devices" => [ "phone" ])
+    assert(errors_for(board([ proto ])).any? { |e| e.include?("devices needs a screen.url") })
+  end
+
+  def test_side_by_side_runs_both_devices_in_parallel
+    b = device_board
+    js = WalkthroughLive.capture_module(b, b["scenes"][0], jobs: jobs(b, b["scenes"][0]), session: nil)
+    assert_includes js, "Promise.all"
+    assert_includes js, '"name":"phone"'
+    assert_includes js, '"mobile":true'
+    assert_includes js, "touchscreen.tap"
+    assert_includes js, "isMobile: !!dev.mobile"
+    phone = jobs(b, b["scenes"][0]).last
+    assert_equal "#menu", phone["plan"].find { |st| st["click"] }["click"]
+    assert_equal "phone side_by_side", phone["group"]
+    mail = jobs(b, b["scenes"][3]).first
+    assert_nil mail["url"]
+  end
+
+  def test_compose_keys_on_its_source_scene
+    b = device_board
+    base = key(b, "mail")
+    b["scenes"][0]["screen"]["url"] = "https://app.localhost/other"
+    refute_equal base, key(b, "mail")
+    c = device_board
+    c["scenes"][3]["compose"]["body"] = "Late"
+    refute_equal key(device_board, "text"), key(c, "text")
+  end
+
+  def test_render_fills_compose_from_the_caught_link
+    File.write(File.join(@root, "storyboard.json"), JSON.pretty_generate(device_board))
+    render
+    assert_equal %w[contact mobile mail text], shots
+    mail, text = @calls[:compose]
+    assert_equal [ "email", [ "ops@example.test" ], "Placement inquiry", "Name:\nNotes:\n" ], mail.values_at("channel", "cc", "subject", "body")
+    assert_equal({ "channel" => "sms", "to" => [ "+15550100" ], "body" => "On my way" }, text)
+    links = JSON.parse(File.read(Dir[File.join(@root, ".cache", "frames", "*", "links.json")].find { |f| File.read(f).include?("mailto") }))
+    assert_equal MAILTO, links.first["href"]
+  end
+
   # -- schema ---------------------------------------------------------------
 
   def test_good_live_board_validates
@@ -170,7 +241,7 @@ class WalkthroughLiveTest < Minitest::Test
 
   def test_capture_module_waits_seeds_and_ignores_https_errors
     b = board
-    js = WalkthroughLive.capture_module(b, b["scenes"][1], plan: [ {} ], session: nil, lint: [ 0 ])
+    js = WalkthroughLive.capture_module(b, b["scenes"][1], jobs: jobs(b, b["scenes"][1]), session: nil)
     assert_includes js, "Security.setIgnoreCertificateErrors"
     assert_includes js, 'waitUntil: "domcontentloaded"'
     assert_includes js, 'waitForSelector("main")'
@@ -179,7 +250,12 @@ class WalkthroughLiveTest < Minitest::Test
     assert_operator js.index("evaluateOnNewDocument"), :<, js.index("page.goto")
     refute_includes js, "networkidle"
     b["browser"]["ignore_https_errors"] = false
-    refute_includes WalkthroughLive.capture_module(b, b["scenes"][1], plan: [ {} ], session: nil, lint: []), "setIgnoreCertificateErrors"
+    refute_includes WalkthroughLive.capture_module(b, b["scenes"][1], jobs: [], session: nil), "setIgnoreCertificateErrors"
+  end
+
+  def jobs(b, scene)
+    secrets = WalkthroughLive::Secrets.new([])
+    WalkthroughDevice.specs(b, scene).map { |spec| WalkthroughLive.job(b, scene, spec, secrets, compose: nil, shots: true) }
   end
 
   # -- render ---------------------------------------------------------------
@@ -207,11 +283,14 @@ class WalkthroughLiveTest < Minitest::Test
       end,
       live_capture: lambda do |**kw|
         @calls[:capture] << [ kw[:scene]["id"], kw[:out_dir] ? :shots : :replay, kw[:browser_session] && kw[:browser_session]["from"] ]
-        typed = WalkthroughLive.resolve_interactions(kw[:scene]["interactions"], kw[:secrets]).filter_map { |op| op["text"] }.join
+        @calls[:compose] << kw[:compose] if kw[:compose]
+        typed = WalkthroughLive.resolve_interactions(WalkthroughLive.all_interactions(kw[:scene]), kw[:secrets]).filter_map { |op| op["text"] }.join
         if kw[:out_dir]
           result = { "frames" => [ Base64.strict_encode64("jpg") ], "ticks" => [ 0 ], "cursor" => [ { "x" => 1, "y" => 2, "down" => false } ],
-                     "lint" => [ { "rule" => "text-clipped", "target" => "#password", "detail" => "value #{typed}" } ] }
-          WalkthroughLive.write_scene(result, kw[:out_dir], kw[:scene]["id"], kw[:secrets], docker: kw[:docker], work: kw[:work], board: kw[:board])
+                     "lint" => [ { "rule" => "text-clipped", "target" => "#password", "detail" => "value #{typed}" } ],
+                     "links" => kw[:scene]["id"] == "contact" ? [ MAILTO ] : [] }
+          WalkthroughLive::SceneWriter.new(board: kw[:board], scene: kw[:scene], secrets: kw[:secrets], docker: kw[:docker], work: kw[:work])
+                                      .write(WalkthroughDevice.devices(kw[:scene]).map { |d| result.merge("name" => d) }, kw[:out_dir])
         end
         { "cookies" => [], "origins" => {}, "from" => kw[:scene]["id"] }
       end,

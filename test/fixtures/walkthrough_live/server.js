@@ -2,7 +2,8 @@
 // serves a form; POST /login checks the password against FIXTURE_PASSWORD,
 // sets a session cookie, and redirects to /app. /app is gated on that
 // cookie, shows a once-per-session tour unless sessionStorage says it was
-// seen, and echoes a localStorage value the login page wrote.
+// seen, echoes a localStorage value the login page wrote, and offers a
+// mailto: link for the compose capture.
 const http = require("http");
 const password = process.env.FIXTURE_PASSWORD;
 const page = (body) => `<!doctype html><html><head><meta charset="utf-8"><title>fixture</title>
@@ -19,6 +20,7 @@ const app = page(`<h1 id="welcome">Welcome back</h1>
 <p>Member: <span id="member"></span></p>
 <div id="tour" role="dialog" hidden>Take the tour</div>
 <p id="flag"></p>
+<p><a id="contact" href="mailto:sales@example.test?cc=ops%40example.test&amp;subject=Placement%20inquiry&amp;body=Name%3A%0ANotes%3A%0A">Email sales</a></p>
 <script>
 document.getElementById("member").textContent = localStorage.getItem("member") || "none";
 if (!sessionStorage.getItem("tour_seen")) document.getElementById("tour").hidden = false;
