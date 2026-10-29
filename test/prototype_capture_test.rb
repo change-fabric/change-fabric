@@ -398,4 +398,30 @@ class PrototypeCaptureTest < Minitest::Test
       assert_match(/srcset="data:image\/svg\+xml;base64,[A-Za-z0-9+\/=]+#a 1x"/, out)
     end
   end
+
+  def test_inline_screen_inlines_local_css_imports_and_keys_on_their_content
+    Dir.mktmpdir do |dir|
+      File.write(File.join(dir, "palette.css"), ":root{--a:#111}")
+      File.write(File.join(dir, "print.css"), "p{color:red}")
+      File.write(File.join(dir, "main.css"), %(@import "palette.css";\n@import url(print.css) print;\nbody{color:var(--a)}))
+      File.write(File.join(dir, "x.html"), %(<link rel="stylesheet" href="main.css"><style>@import 'palette.css';</style>))
+      out = PrototypeCapture.inline_screen(File.join(dir, "x.html"))
+      refute_includes out, "@import"
+      assert_includes out, ":root{--a:#111}"
+      assert_includes out, "@media print {p{color:red}}"
+      File.write(File.join(dir, "palette.css"), ":root{--a:#222}")
+      refute_equal out, PrototypeCapture.inline_screen(File.join(dir, "x.html")), "an edit to the imported file changes the output"
+    end
+  end
+
+  def test_inline_screen_rejects_circular_and_remote_css_imports
+    Dir.mktmpdir do |dir|
+      File.write(File.join(dir, "a.css"), %(@import "b.css";))
+      File.write(File.join(dir, "b.css"), %(@import "a.css";))
+      File.write(File.join(dir, "x.html"), %(<link rel="stylesheet" href="a.css">))
+      assert_raises(PrototypeCapture::UnsupportedContentError) { PrototypeCapture.inline_screen(File.join(dir, "x.html")) }
+      File.write(File.join(dir, "x.html"), %(<style>@import url(https://cdn.example.test/a.css);</style>))
+      assert_raises(PrototypeCapture::UnsupportedContentError) { PrototypeCapture.inline_screen(File.join(dir, "x.html")) }
+    end
+  end
 end

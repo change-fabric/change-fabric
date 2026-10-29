@@ -199,14 +199,37 @@ module PrototypeCapture
     path
   end
 
-  def inline_css(path, remap = {}, root = nil)
-    inline_css_urls(File.read(path), File.dirname(path), File.basename(path), remap, root)
+  def inline_css(path, remap = {}, root = nil, seen = [])
+    inline_css_urls(File.read(path), File.dirname(path), File.basename(path), remap, root, seen + [ File.expand_path(path) ])
+  end
+
+  CSS_IMPORT_RE = /@import\s+(?:url\(\s*(["']?)([^"')]+)\1\s*\)|(["'])([^"']+)\3)\s*([^;]*);/i
+
+  # Replaces each local @import of a .css file with that file's inlined rules
+  # (a trailing media query becomes an @media wrapper), so the imported rules
+  # load under setContent and an edit to the imported file changes the output.
+  # Imports that are not local .css files are left as they were.
+  def inline_css_imports(css, dir, label, remap, root, seen)
+    css.gsub(CSS_IMPORT_RE) do
+      ref = Regexp.last_match(2) || Regexp.last_match(4)
+      cond = Regexp.last_match(5).to_s.strip
+      raise UnsupportedContentError, "#{label}: remote @import #{ref} is not supported" if remote?(ref)
+      next Regexp.last_match(0) unless local_ref?(ref) && ref.split(/[?#]/).first.end_with?('.css')
+
+      file = asset_path(dir, swap_keys(ref, remap), root)
+      raise UnsupportedContentError, "#{label}: circular @import #{ref}" if seen.include?(file)
+      raise UnsupportedContentError, "#{label}: @import #{ref} with #{cond} is not supported" if cond.match?(/\b(?:layer|supports)\b/i)
+
+      body = inline_css(file, remap, root, seen)
+      cond.empty? ? body : "@media #{cond} {#{body}}"
+    end
   end
 
   # Swaps every local url() in a CSS fragment for a data URI resolved
   # against `dir`; shared by linked stylesheets, <style> blocks, and style
   # attributes so none of them leaves a file reference behind.
-  def inline_css_urls(css, dir, label, remap = {}, root = nil)
+  def inline_css_urls(css, dir, label, remap = {}, root = nil, seen = [])
+    css = inline_css_imports(css, dir, label, remap, root, seen)
     css.gsub(/url\(\s*(["']?)([^"')]+)\1\s*\)/i) do
       ref = Regexp.last_match(2)
       raise UnsupportedContentError, "#{label}: remote url(#{ref}) is not supported" if remote?(ref)
