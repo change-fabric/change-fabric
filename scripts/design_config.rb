@@ -15,13 +15,14 @@ module DesignConfig
   class Error < StandardError; end
 
   Area = Data.define(:match, :status, :reason)
-  Roast = Data.define(:auto, :target, :rounds, :max_usd, :model)
+  Roast = Data.define(:auto, :target, :rounds, :max_usd, :model, :kind, :audience)
   Config = Data.define(:tokens, :tailwind, :figma_url, :figma, :variables_snapshot,
                        :code_connect, :parity_default, :parity_areas, :roast, :critic_rounds)
 
   DEFAULT_TOKENS = 'design/tokens.css'
   DEFAULT_SNAPSHOT = 'design/figma-variables.json'
-  DEFAULT_ROAST = { 'auto' => true, 'target' => 8.5, 'rounds' => 4, 'max_usd' => 2.00, 'model' => nil }.freeze
+  DEFAULT_ROAST = { 'auto' => true, 'target' => 8.5, 'rounds' => 4, 'max_usd' => 2.00, 'model' => nil,
+                     'kind' => nil, 'audience' => nil }.freeze
   DEFAULT_CRITIC_ROUNDS = 3
 
   module_function
@@ -52,7 +53,8 @@ module DesignConfig
       parity_default: parity.fetch('default', 'unreviewed'),
       parity_areas: Array(parity['areas']).map { |a| Area.new(match: a['match'], status: a['status'], reason: a['reason']) }.freeze,
       roast: Roast.new(auto: roast['auto'], target: roast['target'], rounds: roast['rounds'],
-                       max_usd: roast['max_usd'], model: roast['model']),
+                       max_usd: roast['max_usd'], model: roast['model'],
+                       kind: roast['kind'], audience: roast['audience']),
       critic_rounds: design.fetch('critic_rounds', DEFAULT_CRITIC_ROUNDS)
     )
   end

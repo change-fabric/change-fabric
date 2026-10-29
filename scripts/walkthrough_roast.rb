@@ -67,8 +67,14 @@ module WalkthroughRoast
       max_usd: given.fetch(:max_usd, cfg.max_usd || DEFAULT_CEILING_USD).to_f,
       target: given.fetch(:target, cfg.target || TARGET).to_f,
       rounds: given.fetch(:rounds, cfg.rounds || ROUND_CAP).to_i,
-      model: given.fetch(:model, cfg.model || Roast::MODEL) }
+      model: given.fetch(:model, cfg.model || Roast::MODEL),
+      review: { kind: cfg.kind, audience: cfg.audience }.compact }
   end
+
+  # The review contract for one roast round: the storyboard's review object over
+  # the CHANGE.md defaults in `config` ({ kind:, audience: }). Raises
+  # Roast::ReviewError (a RequestError) when audience or purpose is missing.
+  def review(board, config = {}) = Roast.resolve_review(storyboard: board['review'], config: config)
 
   # Keyframes as [{ scene:, label:, frame: (0-based, whole video) }], in
   # video order. `overlays` maps scene id to { overlay => first local frame }.

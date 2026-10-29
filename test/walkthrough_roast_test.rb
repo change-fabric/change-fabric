@@ -25,9 +25,24 @@ class WalkthroughRoastTest < Minitest::Test
     %w[Blank Overlays Cursor contradictions safe-area bottom\ 15% aspect\ ratio camera\ zoom cut\ off 1080p cf:fractal cf:usability Pacing jargon Narration\ against\ screen Caption-band].each { |w| assert_includes brief, w }
   end
 
+  def test_review_resolves_storyboard_over_change_md_and_refuses_when_empty
+    board = { "review" => { "audience" => "Board audience", "purpose" => [ "Outcome" ] } }
+    r = WalkthroughRoast.review(board, { kind: "explainer", audience: "Config audience" })
+    assert_equal({ kind: "explainer", audience: "Board audience", purpose: [ "Outcome" ] }, r)
+    assert_raises(Roast::ReviewError) { WalkthroughRoast.review({}, { audience: "x" }) }
+    assert_raises(Roast::ReviewError) { WalkthroughRoast.review({ "review" => { "purpose" => [ "o" ] } }) }
+  end
+
+  def test_settings_carry_change_md_review_defaults
+    Dir.mktmpdir do |dir|
+      write_change(dir, { "kind" => "demo", "audience" => "Ops" })
+      assert_equal({ kind: "demo", audience: "Ops" }, WalkthroughRoast.settings(dir)[:review])
+    end
+  end
+
   def round(dir, n, issues, responses = nil, score: 5)
     File.write(File.join(dir, "round-#{n}.json"),
-               JSON.generate("score" => score, "summary" => "", "issues" => issues, "thirty_second_test" => { "verdict" => "pass", "reason" => "" }))
+               JSON.generate("score" => score, "summary" => "", "issues" => issues, "thirty_second_test" => { "verdict" => "pass", "reason" => "" }, "purpose_test" => []))
     File.write(File.join(dir, "round-#{n}.response.json"), JSON.generate("responses" => responses)) if responses
   end
 
@@ -144,7 +159,7 @@ class WalkthroughRoastTest < Minitest::Test
   def test_settings_default_with_no_change_md
     Dir.mktmpdir do |dir|
       s = WalkthroughRoast.settings(dir)
-      assert_equal({ roast: true, max_usd: 2.0, target: 8.5, rounds: 4, model: Roast::MODEL }, s)
+      assert_equal({ roast: true, max_usd: 2.0, target: 8.5, rounds: 4, model: Roast::MODEL, review: {} }, s)
     end
   end
 
@@ -152,9 +167,9 @@ class WalkthroughRoastTest < Minitest::Test
     Dir.mktmpdir do |dir|
       write_change(dir, { "auto" => false, "target" => 7, "rounds" => 2, "max_usd" => 1.25, "model" => "m-cfg" })
       s = WalkthroughRoast.settings(dir)
-      assert_equal({ roast: false, max_usd: 1.25, target: 7.0, rounds: 2, model: "m-cfg" }, s)
+      assert_equal({ roast: false, max_usd: 1.25, target: 7.0, rounds: 2, model: "m-cfg", review: {} }, s)
       s = WalkthroughRoast.settings(dir, roast: true, max_usd: 3.0, target: 9.0, rounds: 5, model: "m-flag")
-      assert_equal({ roast: true, max_usd: 3.0, target: 9.0, rounds: 5, model: "m-flag" }, s)
+      assert_equal({ roast: true, max_usd: 3.0, target: 9.0, rounds: 5, model: "m-flag", review: {} }, s)
       s = WalkthroughRoast.settings(dir, roast: nil, max_usd: nil)
       assert_equal 1.25, s[:max_usd]
       refute s[:roast]

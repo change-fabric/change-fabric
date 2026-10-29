@@ -24,7 +24,7 @@ class WalkthroughRenderTest < Minitest::Test
     File.write(File.join(@root, "storyboard.json"), JSON.pretty_generate(board))
     @calls = Hash.new { |h, k| h[k] = [] }
     @lint_findings = {}
-    @critic = { "score" => 9, "summary" => "s", "issues" => [], "thirty_second_test" => { "verdict" => "pass", "reason" => "r" } }
+    @critic = { "score" => 9, "summary" => "s", "issues" => [], "thirty_second_test" => { "verdict" => "pass", "reason" => "r" }, "purpose_test" => [] }
   end
 
   def teardown
@@ -42,6 +42,7 @@ class WalkthroughRenderTest < Minitest::Test
 
   def board
     { "schema_version" => 1, "slug" => "demo", "title" => "Demo", "fps" => 30,
+      "review" => { "kind" => "explainer", "audience" => "Engineers", "purpose" => [ "State what the demo shows" ] },
       "viewport" => { "w" => 640, "h" => 360, "dpr" => 1 },
       "voice" => { "voice_id" => "v1", "model" => "eleven_multilingual_v2", "output_format" => "mp3_44100_128" },
       "music" => { "model" => "music_v1", "prompt" => "calm", "gain_db" => -18 },

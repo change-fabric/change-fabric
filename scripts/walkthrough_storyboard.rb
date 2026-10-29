@@ -53,6 +53,7 @@ module WalkthroughStoryboard
     hyp_ids = Array(board['hypotheses']).map { |h| h['id'] }
     errors.concat(id_and_order_errors(list))
     errors.concat(WalkthroughLive.board_errors(board))
+    errors.concat(review_errors(board['review']))
     orders = list.to_h { |s| [ s['id'], s['order'].to_i ] }
     by_id = list.to_h { |s| [ s['id'], s ] }
     list.each do |scene|
@@ -60,6 +61,33 @@ module WalkthroughStoryboard
       errors.concat(scene_errors(scene, hyp_ids, orders, root, board: board, by_id: by_id).map { |e| "#{label}: #{e}" })
     end
     errors
+  end
+
+  # The review object roast reads: what the artifact is, who it is for, and the
+  # outcomes a viewer must be able to state afterward. Optional here (see
+  # warnings); when present it must be well formed.
+  def review_errors(review)
+    return [] if review.nil?
+    return [ 'review must be an object' ] unless review.is_a?(Hash)
+
+    errors = []
+    kinds = ChangeSchema::REVIEW_KINDS
+    errors << "review.kind must be one of #{kinds.join(', ')}" if review.key?('kind') && !kinds.include?(review['kind'])
+    errors << 'review.audience must be a non-empty string' if review.key?('audience') && review['audience'].to_s.strip.empty?
+    if review.key?('purpose') && !(review['purpose'].is_a?(Array) && !review['purpose'].empty? && review['purpose'].all? { |p| p.is_a?(String) && !p.strip.empty? })
+      errors << 'review.purpose must be a non-empty array of strings'
+    end
+    errors
+  end
+
+  # Advisory findings that never fail validation. Roast refuses to run without a
+  # review audience and purpose, so their absence is worth saying early.
+  def warnings(board)
+    return [ 'review is absent: roast refuses to run without an audience and a purpose (add a review object with kind, audience, purpose)' ] unless board.key?('review')
+
+    review = board['review'].is_a?(Hash) ? board['review'] : {}
+    %w[audience purpose].reject { |k| review[k] && !Array(review[k]).empty? && !review[k].to_s.strip.empty? }
+                        .map { |k| "review.#{k} is missing: roast refuses to run without it" }
   end
 
   def validate!(board, root: nil)
@@ -436,6 +464,7 @@ if __FILE__ == $PROGRAM_NAME
       warn errors.join("\n")
       exit 1
     end
+    WalkthroughStoryboard.warnings(board).each { |w| warn "warning: #{w}" }
     if fix
       WalkthroughStoryboard.fix_tokens_hash(board, tokens)
       WalkthroughStoryboard.fix_keys(board, root)

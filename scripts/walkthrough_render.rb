@@ -545,7 +545,7 @@ module WalkthroughRender
     def roast_inputs(manifest, mp4, reports)
       { brief: WalkthroughRoast.brief(@board), shots: extract_keyframes(manifest, mp4, reports),
         history: Roast.load_history(roast_dir), round: Roast.next_round(roast_dir),
-        transcript: roast_transcript(manifest, mp4) }.merge({ model: @gates[:roast_model] }.compact)
+        transcript: roast_transcript(manifest, mp4), review: WalkthroughRoast.review(@board, @gates[:roast_review] || {}) }.merge({ model: @gates[:roast_model] }.compact)
     end
 
     # Narration plus the rendered caption cues, so the critic judges what is said
@@ -651,7 +651,7 @@ if __FILE__ == $PROGRAM_NAME
   end
   gates = { allow_ux: ARGV.include?('--allow-ux-findings'), allow_roast: ARGV.include?('--allow-roast-findings'),
             roast: roast[:roast], roast_max_usd: roast[:max_usd], roast_target: roast[:target],
-            roast_rounds: roast[:rounds], roast_model: roast[:model] }
+            roast_rounds: roast[:rounds], roast_model: roast[:model], roast_review: roast[:review] }
   begin
     WalkthroughRender::Run.new(dir, scene: scene, final: ARGV.include?('--final'), max_usd: max_usd,
                                burn_captions: ARGV.include?('--burn-captions'), gates: gates, recapture: ARGV.include?('--recapture'))

@@ -18,9 +18,12 @@
   "music": { "provider": "elevenlabs", "model": "music_v1", "prompt": "string", "composition_plan": null, "gain_db": -18 },
   "cursor": { "sprite": "default", "scale": 1.0 },
   "hypotheses": [{ "id": "H-01", "text": "string", "dimension": "role|look_and_feel" }],
+  "review": { "kind": "explainer|promo|demo", "audience": "string", "purpose": ["outcome a viewer must be able to state afterward"] },
   "scenes": []
 }
 ```
+
+`review` declares what the walkthrough is for; cf:roast judges against it (a purpose test over each outcome) and refuses to run without a non-empty `audience` and `purpose`. `kind` is `explainer` (no call to action required unless a purpose asks), `promo` (keeps the what, who, next-step test), or `demo` (must show the thing running). `validate` checks the shape when present and only warns when `review` is absent. CLI `--kind`, `--audience`, `--purpose` on roast.rb override it, and it overrides `change_config.design.roast.kind` and `.audience`.
 
 `music` may be `null` for a narration-only walkthrough.
 

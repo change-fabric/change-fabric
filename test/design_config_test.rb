@@ -65,4 +65,15 @@ class DesignConfigTest < Minitest::Test
       assert_match(/critic_rounds/, error.message)
     end
   end
+
+  def test_roast_kind_and_audience_default_to_nil_and_are_validated
+    with_repo("change_config" => { "design" => { "roast" => { "kind" => "demo", "audience" => "Ops" } } }) do |root|
+      config = DesignConfig.load(root)
+      assert_equal "demo", config.roast.kind
+      assert_equal "Ops", config.roast.audience
+    end
+    assert_nil DesignConfig.from_hash(nil).roast.kind
+    error = assert_raises(DesignConfig::Error) { DesignConfig.from_hash("roast" => { "kind" => "trailer" }) }
+    assert_match(/roast\.kind/, error.message)
+  end
 end

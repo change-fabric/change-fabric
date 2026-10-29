@@ -16,7 +16,8 @@ class RoastTest < Minitest::Test
       { "priority" => "P1", "screen" => "home", "problem" => "No clear action", "fix" => "One primary button" },
       { "priority" => "P2", "screen" => "home", "problem" => "Tight leading", "fix" => "Raise line height" }
     ],
-    "thirty_second_test" => { "verdict" => "partial", "reason" => "Purpose unclear" }
+    "thirty_second_test" => { "verdict" => "partial", "reason" => "Purpose unclear" },
+    "purpose_test" => [ { "outcome" => "Say what the groomer app does", "verdict" => "partial", "reason" => "Hero is vague" } ]
   }.freeze
 
   # A Responses-API reply wrapping the critic JSON.
@@ -51,7 +52,9 @@ class RoastTest < Minitest::Test
   end
 
   def run_cli(*args, cache: @cache, http: RoastHttp.new)
-    code = Roast::Cli.run([ "--brief", @brief, "--shot", @shot, "--cache", cache, "--out-dir", @roast, *args ], out: @out, http: http)
+    review = args.include?("--no-default-review") ? [] : [ "--audience", "Dog groomers", "--purpose", "Book a slot" ]
+    args -= [ "--no-default-review" ]
+    code = Roast::Cli.run([ "--brief", @brief, "--shot", @shot, "--cache", cache, "--out-dir", @roast, *review, *args ], out: @out, http: http)
     [ code, @out.string, http ]
   end
 
@@ -64,6 +67,79 @@ class RoastTest < Minitest::Test
     assert_includes http.requests.first.body, "One two"
     _code, _text, plain = run_cli("--round", "2")
     refute_includes plain.requests.first.body, "Narration transcript"
+  end
+
+  def test_review_contract_reaches_the_request_and_flags_win_over_storyboard_and_change_md
+    write_change({ "kind" => "promo", "audience" => "From CHANGE.md" })
+    board = File.join(@dir, "storyboard.json")
+    File.write(board, JSON.generate("review" => { "kind" => "demo", "audience" => "From storyboard", "purpose" => [ "Story outcome" ] }))
+    _code, _text, http = run_cli("--repo", @dir, "--storyboard", board, "--kind", "explainer", "--no-default-review",
+                                 "--purpose", "Flag outcome one", "--purpose", "Flag outcome two")
+    body = http.requests.first.body
+    assert_includes body, "Kind: explainer"
+    assert_includes body, "Audience: From storyboard"
+    assert_includes body, "1. Flag outcome one"
+    assert_includes body, "2. Flag outcome two"
+    refute_includes body, "Story outcome"
+    refute_includes body, "From CHANGE.md"
+  end
+
+  def test_storyboard_and_change_md_fill_in_when_no_flags
+    write_change({ "kind" => "explainer", "audience" => "From CHANGE.md" })
+    board = File.join(@dir, "storyboard.json")
+    File.write(board, JSON.generate("review" => { "purpose" => [ "Story outcome" ] }))
+    _code, _text, http = run_cli("--repo", @dir, "--storyboard", board, "--no-default-review")
+    assert_includes http.requests.first.body, "Kind: explainer"
+    assert_includes http.requests.first.body, "Audience: From CHANGE.md"
+    assert_includes http.requests.first.body, "1. Story outcome"
+  end
+
+  def test_refuses_without_audience_or_purpose_before_any_call
+    code, out, http = run_cli("--no-default-review", "--purpose", "Something")
+    assert_equal 1, code
+    assert_includes out, "no audience"
+    assert_empty http.requests
+    @out = StringIO.new
+    code, out, http = run_cli("--no-default-review", "--audience", "Somebody")
+    assert_equal 1, code
+    assert_includes out, "no purpose"
+    assert_empty http.requests
+  end
+
+  def test_unknown_kind_is_refused
+    code, out, = run_cli("--kind", "trailer")
+    assert_equal 1, code
+    assert_includes out, "kind must be one of"
+  end
+
+  def test_prompt_carries_anchors_purpose_test_and_production_facts
+    prompt = Roast::SYSTEM_PROMPT
+    assert_match(/3 means it fails its audience/, prompt)
+    assert_match(/5 means it has a\s+blocking flaw/, prompt)
+    assert_match(/9 means ship\s+it to this audience/, prompt)
+    assert_match(/sidecar srt or vtt/, prompt)
+    assert_match(/explainer:.*no call to action/m, prompt)
+    refute_match(/first-time\s+visitor/, prompt)
+  end
+
+  def test_schema_is_strict_and_requires_purpose_test
+    assert_equal false, Roast::SCHEMA[:additionalProperties]
+    assert_includes Roast::SCHEMA[:required], "purpose_test"
+    item = Roast::SCHEMA.dig(:properties, :purpose_test, :items)
+    assert_equal false, item[:additionalProperties]
+    assert_equal %w[outcome verdict reason], item[:required]
+  end
+
+  def test_critic_without_a_valid_purpose_test_is_rejected
+    bad = CRITIC.merge("purpose_test" => [ { "outcome" => "x", "verdict" => "maybe", "reason" => "r" } ])
+    code, = run_cli(http: RoastHttp.new(bad))
+    assert_equal 1, code
+  end
+
+  def test_markdown_lists_each_purpose_outcome
+    run_cli
+    md = File.read(File.join(@roast, "round-1.md"))
+    assert_includes md, "- partial: Say what the groomer app does (Hero is vague)"
   end
 
   def test_round_one_logs_json_and_markdown_after_the_estimate

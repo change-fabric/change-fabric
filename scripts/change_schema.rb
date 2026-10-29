@@ -228,6 +228,8 @@ module ChangeSchema
     'change_config.design.roast.rounds',
     'change_config.design.roast.max_usd',
     'change_config.design.roast.model',
+    'change_config.design.roast.kind',
+    'change_config.design.roast.audience',
     'change_config.design.critic_rounds',
     # change_config.profiles (0.2.0): named deploy-target overrides sharing one
     # audit surface. A profile may only set project, boot.*, and a lane's
@@ -433,7 +435,9 @@ module ChangeSchema
   DESIGN_FIGMA_KEYS = %w[url variables_snapshot code_connect].freeze
   DESIGN_PARITY_KEYS = %w[default areas].freeze
   DESIGN_AREA_KEYS = %w[match status reason].freeze
-  DESIGN_ROAST_KEYS = %w[auto target rounds max_usd model].freeze
+  DESIGN_ROAST_KEYS = %w[auto target rounds max_usd model kind audience].freeze
+  # The artifact kinds a roast judges against (also a storyboard review.kind).
+  REVIEW_KINDS = %w[explainer promo demo].freeze
   PARITY_STATUSES = %w[must_match intentional unreviewed].freeze
 
   # Every problem with a change_config.design block, as messages naming the
@@ -508,7 +512,14 @@ module ChangeSchema
     if roast.key?('max_usd') && !(roast['max_usd'].is_a?(Numeric) && roast['max_usd'].positive?)
       errors << "#{field}.max_usd must be a number greater than 0"
     end
-    errors << "#{field}.model must be a string or null" if roast.key?('model') && !(roast['model'].nil? || roast['model'].is_a?(String))
+    errors << "#{field}.model must be a string or null" if roast.key?('model') && !nullable_string?(roast['model'])
+    errors.concat(roast_review_errors(roast, field))
+  end
+
+  def self.roast_review_errors(roast, field)
+    errors = []
+    errors << "#{field}.kind must be one of #{REVIEW_KINDS.join(', ')} or null" if roast.key?('kind') && !(roast['kind'].nil? || REVIEW_KINDS.include?(roast['kind']))
+    errors << "#{field}.audience must be a string or null" if roast.key?('audience') && !nullable_string?(roast['audience'])
     errors
   end
 
@@ -517,6 +528,7 @@ module ChangeSchema
     unknown.empty? ? [] : [ "#{field} sets unknown key(s): #{unknown.join(', ')}" ]
   end
 
+  def self.nullable_string?(value) = value.nil? || value.is_a?(String)
   def self.boolean?(value) = [ true, false ].include?(value)
   def self.int_in?(value, range) = value.is_a?(Integer) && range.cover?(value)
   def self.present?(value) = value.is_a?(String) && !value.strip.empty?

@@ -28,6 +28,20 @@ class WalkthroughStoryboardTest < Minitest::Test
       "timing" => { "min_ms" => 3000, "pad_ms" => 400, "transition" => { "type" => "cut", "ms" => 0 } } }.merge(extra)
   end
 
+  def test_review_object_is_validated_and_absence_only_warns
+    b = board
+    assert_empty WalkthroughStoryboard.validate(b, root: @root).grep(/review/)
+    assert_match(/review is absent/, WalkthroughStoryboard.warnings(b).first)
+    b["review"] = { "kind" => "explainer", "audience" => "Engineers", "purpose" => [ "State the flow" ] }
+    assert_empty WalkthroughStoryboard.validate(b, root: @root).grep(/review/)
+    assert_empty WalkthroughStoryboard.warnings(b)
+    b["review"] = { "kind" => "trailer", "audience" => " ", "purpose" => [] }
+    errors = WalkthroughStoryboard.validate(b, root: @root).grep(/review/)
+    assert_equal 3, errors.size
+    b["review"] = { "kind" => "demo" }
+    assert_equal 2, WalkthroughStoryboard.warnings(b).size
+  end
+
   def board
     { "schema_version" => 1, "slug" => "demo", "title" => "Demo", "fps" => 30,
       "viewport" => { "w" => 1920, "h" => 1080, "dpr" => 1 },
