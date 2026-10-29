@@ -25,9 +25,13 @@ module WalkthroughRoast
     3. Cursor or label collisions: the cursor sprite covering a button's label text.
     4. State contradictions: a success badge or toast while the actions it reports are still live, or
        a confirmation shown before the action was taken.
-    5. Caption or safe-area collisions: captions over UI the narration points at, content in the outer 5% of the frame.
-    6. Readability at 1080p: text too small, too low in contrast, or too brief on screen to read.
-    7. Fractal and usability consistency: one module set repeated at every scale (cf:fractal), and
+    5. Caption or safe-area collisions: captions over UI the narration points at, content in the outer 5% of the frame,
+       or any control or device frame reaching into the bottom 15% of the frame, where players draw captions.
+    6. Device frame consistency: a phone or device frame that changes aspect ratio, bezel, or layout width
+       between scenes, or changes size other than by a smooth camera zoom.
+    7. Clipped content: text or a control cut off by its container or by the device edge.
+    8. Readability at 1080p: text too small, too low in contrast, or too brief on screen to read.
+    9. Fractal and usability consistency: one module set repeated at every scale (cf:fractal), and
        Nielsen's ten heuristics (cf:usability), especially visibility of system status and consistency.
   TEXT
 

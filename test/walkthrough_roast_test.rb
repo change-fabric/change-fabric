@@ -22,7 +22,7 @@ class WalkthroughRoastTest < Minitest::Test
 
   def test_brief_carries_the_rubric
     brief = WalkthroughRoast.brief("title" => "Demo")
-    %w[Blank Overlays Cursor contradictions safe-area 1080p cf:fractal cf:usability].each { |w| assert_includes brief, w }
+    %w[Blank Overlays Cursor contradictions safe-area bottom\ 15% aspect\ ratio camera\ zoom cut\ off 1080p cf:fractal cf:usability].each { |w| assert_includes brief, w }
   end
 
   def round(dir, n, issues, responses = nil)
