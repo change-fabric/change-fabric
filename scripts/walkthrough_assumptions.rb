@@ -47,11 +47,21 @@ module WalkthroughAssumptions
     end
     out << '## Generated footage' << ''
     out.concat(generated_footage(board))
+    out.concat([ '', '## Simulated UI', '' ] + simulated_ui(board)) unless simulated_ui(board).empty?
     out << '' << '## Fictional data' << ''
     out.concat(fictional_data(seed))
     out << '' << '## Brand logos' << ''
     out.concat(logos.empty? ? [ 'None used.' ] : logos.map { |logo| logo_line(logo) })
     "#{out.join("\n").rstrip}\n"
+  end
+
+  # Every compose scene is simulated UI that never sends anything.
+  def simulated_ui(board)
+    WalkthroughStoryboard.scenes(board).select { |s| WalkthroughLive.compose?(s) }.map do |scene|
+      from = scene.dig('compose', 'from_scene')
+      source = from ? "the app's real link (scene #{from})" : 'an explicit spec in the storyboard'
+      "- #{scene['id']}: simulated compose UI built from #{source}; nothing is sent"
+    end
   end
 
   # Every ai-broll clip is AI-generated footage, animated from a still.
