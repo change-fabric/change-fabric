@@ -594,8 +594,13 @@ module WalkthroughLive
 
   def login(session:, board:, persona:, secrets:)
     values = persona_env_names(persona).to_h { |n| [ n, secrets.fetch(n) ] }
-    guard(secrets) { PrototypeCapture.run_with_retry(session, login_module(board, persona, values)).fetch('session') }
+    guard(secrets) { PrototypeCapture.run_with_retry(session, login_module(board, persona, values), retries: 0).fetch('session') }
   end
+
+  # A dropped connection after a live page acted leaves its state unknown, so
+  # a job that drives the real app (no built-in html) is never replayed;
+  # built-in compose and message pages are local and safe to retry.
+  def retries_for(jobs) = jobs.any? { |j| j['html'].nil? } ? 0 : PrototypeCapture::BATCH_RETRIES
 
   # Re-raises any error with env values masked out of its message.
   def guard(secrets)
@@ -641,7 +646,7 @@ module WalkthroughLive
     # rubocop:enable Metrics/ParameterLists
     jobs = WalkthroughDevice.specs(board, scene).map { |spec| job(board, scene, spec, secrets, compose: compose, shots: shots, root: work) }
     result = guard(secrets) do
-      PrototypeCapture.run_with_retry(session, capture_module(board, scene, jobs: jobs, session: browser_session))
+      PrototypeCapture.run_with_retry(session, capture_module(board, scene, jobs: jobs, session: browser_session), retries: retries_for(jobs))
     end
     runs = result['devices']
     SceneWriter.new(board: board, scene: scene, secrets: secrets, docker: docker, work: work).write(runs, out_dir) if shots

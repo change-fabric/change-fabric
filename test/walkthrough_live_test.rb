@@ -384,3 +384,22 @@ class WalkthroughLiveTest < Minitest::Test
     assert_raises(WalkthroughLive::MissingEnvError) { WalkthroughLive::Secrets.new(%w[UNSET_VAR_X]).fetch("UNSET_VAR_X") }
   end
 end
+
+class WalkthroughLiveRetryTest < Minitest::Test
+  # Every variant: live login, live capture job, and mixed jobs never replay;
+  # only all-built-in jobs keep the batch retry.
+  def test_live_work_is_never_replayed
+    assert_equal 0, WalkthroughLive.retries_for([ { 'html' => nil } ])
+    assert_equal 0, WalkthroughLive.retries_for([ { 'html' => '<p>' }, { 'html' => nil } ])
+    assert_equal PrototypeCapture::BATCH_RETRIES, WalkthroughLive.retries_for([ { 'html' => '<p>' } ])
+  end
+
+  def test_dropped_live_call_surfaces_instead_of_retrying
+    calls = 0
+    session = Object.new
+    session.define_singleton_method(:run_function) { |_c| calls += 1; raise EOFError }
+    session.define_singleton_method(:alive?) { true }
+    assert_raises(EOFError) { PrototypeCapture.run_with_retry(session, 'x', retries: WalkthroughLive.retries_for([ { 'html' => nil } ])) }
+    assert_equal 1, calls
+  end
+end
