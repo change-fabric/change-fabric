@@ -196,6 +196,24 @@ module WalkthroughRender
       frames = scene_frames(scene)
       BRoll.make_frames(mode: res[:mode], input: res[:path] || broll_args(scene)[:source_image], out_dir: out_dir, work: @root,
                         width: viewport['w'], height: viewport['h'], fps: fps, frames: frames, docker: @p[:docker])
+      overlay_frames(out_dir, File.join(@root, scene.dig('broll', 'overlay'))) if scene.dig('broll', 'overlay')
+    rescue StandardError
+      # cursor.json is the completion marker: a failed overlay must not leave
+      # it behind, or the next render reuses the frames without their title.
+      FileUtils.rm_f(File.join(out_dir, 'cursor.json'))
+      raise
+    end
+
+    # A b-roll `overlay` (a transparent PNG at the viewport size, such as a
+    # title) is composited onto every frame, so the clip itself stays cached.
+    # The frames are root-owned, so the composite runs in the ffmpeg image.
+    def overlay_frames(out_dir, overlay)
+      dir = BRoll.container(out_dir, @root)
+      script = "mkdir -p #{dir}/ov && ffmpeg -loglevel error -i #{dir}/%06d.png -i #{BRoll.container(overlay, @root)} " \
+               "-filter_complex overlay -start_number 1 -y #{dir}/ov/%06d.png && mv #{dir}/ov/*.png #{dir}/ && rmdir #{dir}/ov"
+      output, status = @p[:docker].call(ChangeDocker.run_command(network: 'none', image: ChangeDocker::FFMPEG_IMAGE, entrypoint: 'sh',
+                                                                  args: [ '-c', script ], mounts: { @root => BRoll::WORK }))
+      raise FfmpegError, "b-roll overlay failed:\n#{output.to_s.lines.last(5).join}" unless status.success?
     end
 
     # Captures in storyboard order, so a from_scene dependency (always a
@@ -395,10 +413,12 @@ module WalkthroughRender
 
     # A burned-in render differs from a soft one but shares its manifest hash,
     # so burn gets its own directory and the two never reuse each other's mp4.
+    # Camera pushes happen at assembly, so they key the directory as well.
     # The directory is keyed on what is actually captured, not only on the
     # declared keys: a live recapture keeps its key but changes its frames.
     def render_dir(manifest)
-      hash = WalkthroughCache.key([ manifest['manifest_hash'], live_digest ])
+      cams = scenes.filter_map { |s| s['camera'] && [ s['id'], s['camera'] ] }
+      hash = WalkthroughCache.key([ manifest['manifest_hash'], live_digest, *(cams.empty? ? [] : [ cams ]) ])
       File.join(@cache, 'render', @burn_captions ? "#{hash}-burn" : hash)
     end
 
@@ -435,6 +455,7 @@ module WalkthroughRender
       { id: entry['id'], frames_dir: container(input[:dir]), frames: entry['frames'], start_frame: entry['start_frame'],
         transition: input[:scene].dig('timing', 'transition') || WalkthroughStoryboard::DEFAULT_TRANSITION,
         cursor: input[:cursor], taps: input[:taps], hero_still: input[:scene]['hero_still'] == true,
+        camera: input[:scene]['camera']&.key?('focus') ? input[:scene]['camera'] : nil,
         audio: input[:audio] && container(input[:audio]), offset_ms: input[:offset_ms] }
     end
 
@@ -475,8 +496,20 @@ module WalkthroughRender
       WalkthroughFfmpeg.sendcmd_files(plan).each { |path, body| File.write(host_path(path), body) }
       preflight!
       measured = WalkthroughFfmpeg.parse_loudnorm(ffmpeg!(WalkthroughFfmpeg.pass1(plan), 'pass 1'))
-      ffmpeg!(WalkthroughFfmpeg.pass2(plan, measured), 'pass 2')
-      require_file!(mp4, 'rendered mp4')
+      verify_mp4!(mp4) { ffmpeg!(WalkthroughFfmpeg.pass2(plan, measured), 'pass 2') }
+    end
+
+    # A render is a cache hit by the mere presence of its mp4, so the file must
+    # exist only once assembly succeeded and left real output. Any failure,
+    # including a zero-byte or missing result, removes the partial file.
+    def verify_mp4!(mp4)
+      yield
+      raise MissingCacheError, "rendered mp4 is empty: #{relative(mp4)}" unless File.size?(mp4)
+
+      mp4
+    rescue StandardError
+      FileUtils.rm_f(mp4)
+      raise
     end
 
     # -- gates --------------------------------------------------------------

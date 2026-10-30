@@ -61,7 +61,7 @@ module PrototypeCapture
 
   def local_ref?(value)
     v = value.strip
-    !(v.empty? || v.start_with?('#', 'data:', 'about:', 'javascript:', 'mailto:') || remote?(v))
+    !(v.empty? || v.start_with?('#') || v.match?(/\A(?:data|about|javascript|mailto|tel|sms):/i) || remote?(v))
   end
 
   # Inlines a screen's local assets by string assembly: stylesheets and
@@ -76,7 +76,7 @@ module PrototypeCapture
     dir = File.dirname(File.expand_path(path))
     html = File.read(path)
     check_supported!(html, File.basename(path))
-    html = html.gsub(%r{<link\b[^>]*\bhref\s*=\s*(["'])([^"']+\.css)\1[^>]*>}im) do
+    html = html.gsub(%r{<link\b[^>]*\bhref\s*=\s*(["'])([^"']+?\.css(?:[?#][^"']*)?)\1[^>]*>}im) do
       href = Regexp.last_match(2)
       tag = Regexp.last_match(0)
       next tag unless local_ref?(href)
@@ -91,6 +91,7 @@ module PrototypeCapture
 
       attrs = (Regexp.last_match(1) + Regexp.last_match(4)).rstrip
       file = asset_path(dir, swap_keys(src, remap))
+      reject_local_module_imports!(file, src) if attrs.match?(/\btype\s*=\s*["']?module\b/i)
       # defer and async do nothing on an inline classic script, so a script
       # carrying either keeps a src (as a data URI) to keep its timing.
       next "<script#{attrs} src=\"#{data_uri(file)}\"></script>" if attrs.match?(/\b(?:defer|async)\b/i)
@@ -110,7 +111,7 @@ module PrototypeCapture
     html = html.gsub(SRCSET_RE) do
       attr, quote, value = Regexp.last_match.captures
       inlined = srcset_candidates(value).map do |url, desc|
-        "#{local_ref?(url) ? data_uri(asset_path(dir, swap_keys(url, remap))) : url}#{desc}"
+        "#{local_ref?(url) ? ref_uri(dir, url, remap) : url}#{desc}"
       end
       "#{attr}=#{quote}#{inlined.join(', ')}#{quote}"
     end
@@ -118,7 +119,7 @@ module PrototypeCapture
       attr, quote, value = Regexp.last_match.captures
       next Regexp.last_match(0) unless local_ref?(value) && !value.end_with?('.html')
 
-      "#{attr}=#{quote}#{data_uri(asset_path(dir, swap_keys(value, remap)))}#{quote}"
+      "#{attr}=#{quote}#{ref_uri(dir, value, remap)}#{quote}"
     end
   end
 
@@ -177,19 +178,61 @@ module PrototypeCapture
     path
   end
 
-  def inline_css(path, remap = {})
-    inline_css_urls(File.read(path), File.dirname(path), File.basename(path), remap)
+  def inline_css(path, remap = {}, seen = [])
+    inline_css_urls(File.read(path), File.dirname(path), File.basename(path), remap, seen + [ File.expand_path(path) ])
+  end
+
+  CSS_IMPORT_RE = /@import\s+(?:url\(\s*(["']?)([^"')]+)\1\s*\)|(["'])([^"']+)\3)\s*([^;]*);/i
+
+  # Replaces each local @import of a .css file with that file's inlined rules
+  # (a trailing media query becomes an @media wrapper), so the imported rules
+  # load under setContent and an edit to the imported file changes the output.
+  # Imports that are not local .css files are left as they were.
+  def inline_css_imports(css, dir, label, remap, seen)
+    css.gsub(CSS_IMPORT_RE) do
+      ref = Regexp.last_match(2) || Regexp.last_match(4)
+      cond = Regexp.last_match(5).to_s.strip
+      raise UnsupportedContentError, "#{label}: remote @import #{ref} is not supported" if remote?(ref)
+      next Regexp.last_match(0) unless local_ref?(ref) && ref.split(/[?#]/).first.end_with?('.css')
+
+      file = asset_path(dir, swap_keys(ref, remap))
+      raise UnsupportedContentError, "#{label}: circular @import #{ref}" if seen.include?(file)
+      raise UnsupportedContentError, "#{label}: @import #{ref} with #{cond} is not supported" if cond.match?(/\b(?:layer|supports)\b/i)
+
+      body = inline_css(file, remap, seen)
+      cond.empty? ? body : "@media #{cond} {#{body}}"
+    end
   end
 
   # Swaps every local url() in a CSS fragment for a data URI resolved
   # against `dir`; shared by linked stylesheets, <style> blocks, and style
   # attributes so none of them leaves a file reference behind.
-  def inline_css_urls(css, dir, label, remap = {})
+  def inline_css_urls(css, dir, label, remap = {}, seen = [])
+    css = inline_css_imports(css, dir, label, remap, seen)
     css.gsub(/url\(\s*(["']?)([^"')]+)\1\s*\)/i) do
       ref = Regexp.last_match(2)
       raise UnsupportedContentError, "#{label}: remote url(#{ref}) is not supported" if remote?(ref)
 
-      local_ref?(ref) ? "url(\"#{data_uri(asset_path(dir, swap_keys(ref, remap)))}\")" : Regexp.last_match(0)
+      local_ref?(ref) ? "url(\"#{ref_uri(dir, ref, remap)}\")" : Regexp.last_match(0)
+    end
+  end
+
+  # A data URI for a local ref, keeping its #fragment so an SVG sprite
+  # reference such as sprite.svg#save still selects its symbol.
+  def ref_uri(dir, ref, remap = {})
+    swapped = swap_keys(ref, remap)
+    "#{data_uri(asset_path(dir, swapped))}#{swapped[/#.*\z/]}"
+  end
+
+  # A module script is embedded as one inline element, so a relative import
+  # inside it would resolve against nothing under setContent, and the imported
+  # file would never reach the frames key. Reject it rather than cache a broken
+  # screen; bundle the module or use a classic script.
+  def reject_local_module_imports!(file, src)
+    File.read(file).scan(/(?:\bfrom\s*|\bimport\s*\(?\s*)(["'])([^"']+)\1/).each do |_q, spec|
+      next unless local_ref?(spec) && spec.match?(%r{\A\.{0,2}/})
+
+      raise UnsupportedContentError, "#{src}: module script imports local module #{spec}; bundle it into one file or use a classic script"
     end
   end
 
@@ -274,6 +317,7 @@ module PrototypeCapture
       entry['type']['text'] << char
       entry['type']['focus'] ||= k.zero?
       entry['type']['after_line'] = op['after_line'] if k.zero? && op['after_line']
+      entry['type']['replace'] = true if k.zero? && op['replace']
     end
   end
 
@@ -406,6 +450,8 @@ module PrototypeCapture
           }
           if (step.type) {
             if (step.type.focus) await page.focus(step.type.target);
+            // replace selects the field's value first, so typing swaps it out.
+            if (step.type.replace) await page.$eval(step.type.target, (el) => el.select());
             for (const ch of step.type.text) await page.keyboard.type(ch);
           }
           await page.evaluate(() => new Promise((r) => window.__cfRealRaf(() => window.__cfRealRaf(r))));
@@ -544,6 +590,8 @@ module PrototypeCapture
   def skip_reason(scene)
     return 'ai-broll scene, rendered by walkthrough_render.rb' if scene['kind'] == 'ai-broll'
     return 'live scene, captured by walkthrough_render.rb' if scene.dig('screen', 'url')
+    return 'compose scene, rendered in real time by walkthrough_compose.rb' if scene['kind'] == 'compose'
+    return 'no screen.html to capture' if scene.dig('screen', 'html').to_s.empty?
 
     nil
   end

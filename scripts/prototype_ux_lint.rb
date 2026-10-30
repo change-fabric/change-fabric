@@ -71,6 +71,7 @@ module PrototypeUxLint
         if (!el || !el.isConnected) return false;
         const r = el.getBoundingClientRect();
         if (r.width < 1 || r.height < 1 || !inViewport(r)) return false;
+        if (r.width <= 1 && r.height <= 1) return false; /* sr-only: visually hidden on purpose */
         if (getComputedStyle(el).visibility !== 'visible') return false;
         for (let n = el; n && n.nodeType === 1; n = n.parentElement) {
           const cs = getComputedStyle(n);

@@ -239,7 +239,7 @@ module WalkthroughStoryboard
   def camera_errors(camera)
     return [] if camera.nil?
     return [ 'camera must be an object' ] unless camera.is_a?(Hash)
-    return [ "camera has unknown keys: #{(camera.keys - %w[zoom]).join(', ')}" ] unless (camera.keys - %w[zoom]).empty?
+    return [ "camera has unknown keys: #{(camera.keys - %w[zoom focus]).join(', ')}" ] unless (camera.keys - %w[zoom focus]).empty?
 
     zoom = camera['zoom']
     zoom.is_a?(Numeric) && CAMERA_ZOOM.cover?(zoom) ? [] : [ "camera.zoom must be a number in #{CAMERA_ZOOM.min}..#{CAMERA_ZOOM.max}" ]
@@ -365,7 +365,9 @@ module WalkthroughStoryboard
     clip = BRoll.asset_key(**args)
     mode = BRoll.mode_for(File.join(root, '.cache'), spec['fallback'], **args)
     frames = PrototypeCapture.frame_count(PrototypeCapture.scene_duration(scene), fps(board))
-    { 'frames_key' => BRoll.frames_key(mode: mode, source_sha: PrototypeCapture.sha256_file(args[:source_image]),
+    source_sha = PrototypeCapture.sha256_file(args[:source_image])
+    source_sha = Digest::SHA256.hexdigest(source_sha + PrototypeCapture.sha256_file(File.join(root, spec['overlay']))) if spec['overlay']
+    { 'frames_key' => BRoll.frames_key(mode: mode, source_sha: source_sha,
                                        viewport: board['viewport'] || PrototypeCapture::DEFAULT_VIEWPORT, fps: fps(board),
                                        frames: frames, clip_key: mode == 'generated' ? clip : nil),
       'broll_key' => clip }

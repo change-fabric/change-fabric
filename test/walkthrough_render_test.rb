@@ -228,6 +228,32 @@ class WalkthroughRenderTest < Minitest::Test
     assert_equal "mp4", File.read(second[:mp4])
   end
 
+  def test_failed_pass_two_leaves_no_cached_mp4_and_the_next_run_reassembles
+    real = providers[:docker]
+    failing = providers.merge(docker: lambda do |argv|
+      next real.call(argv) unless argv.last.end_with?("walkthrough.mp4")
+
+      File.binwrite(argv.last.sub(%r{\A/work/}, "#{@root}/"), "partial")
+      [ "boom", Status.new(false) ]
+    end)
+    assert_raises(WalkthroughRender::FfmpegError) { run_render(providers: failing) }
+    assert_empty Dir.glob(File.join(@root, ".cache", "render", "*", "walkthrough.mp4")), "a failed assembly is never a cache hit"
+    result = run_render
+    assert_equal "mp4", File.read(result[:mp4])
+  end
+
+  def test_zero_byte_pass_two_output_is_not_kept
+    real = providers[:docker]
+    empty = providers.merge(docker: lambda do |argv|
+      next real.call(argv) unless argv.last.end_with?("walkthrough.mp4")
+
+      File.binwrite(argv.last.sub(%r{\A/work/}, "#{@root}/"), "")
+      [ "", Status.new(true) ]
+    end)
+    assert_raises(WalkthroughRender::MissingCacheError) { run_render(providers: empty) }
+    assert_empty Dir.glob(File.join(@root, ".cache", "render", "*", "walkthrough.mp4"))
+  end
+
   def test_burned_captions_never_reuse_a_soft_render
     soft = run_render
     @calls[:docker].clear
@@ -376,6 +402,29 @@ class WalkthroughRenderTest < Minitest::Test
     assert File.file?(result[:mp4])
     shed = result[:manifest]["scenes"].last
     assert File.file?(File.join(@root, ".cache", "frames", shed["frames_key"], "000001.png"))
+  end
+
+  def test_failed_broll_overlay_leaves_no_completion_marker_and_retries
+    write_broll_board
+    File.binwrite(File.join(@root, "screens", "assets", "title.png"), "PNG")
+    b = JSON.parse(File.read(File.join(@root, "storyboard.json")))
+    b["scenes"].last["broll"]["overlay"] = "screens/assets/title.png"
+    File.write(File.join(@root, "storyboard.json"), JSON.pretty_generate(b))
+    base = providers
+    overlay = ->(ok) { base.merge(docker: lambda do |argv|
+      if argv.join(" ").include?("filter_complex overlay")
+        @calls[:overlay] << ok
+        next [ ok ? "" : "overlay boom", Status.new(ok) ]
+      end
+
+      base[:docker].call(argv)
+    end, broll: broll_provider("generated")) }
+    assert_raises(WalkthroughRender::FfmpegError) { run_render(providers: overlay.call(false)) }
+    markers = Dir.glob(File.join(@root, ".cache", "frames", "*", "cursor.json"))
+    assert(markers.none? { |m| File.read(m) == "[]" }, "a failed overlay leaves no b-roll completion marker")
+    @calls.clear
+    run_render(providers: overlay.call(true))
+    assert_equal [ true ], @calls[:overlay], "the next render retries the overlay instead of a cache hit"
   end
 
   def test_cached_broll_rerun_calls_nothing

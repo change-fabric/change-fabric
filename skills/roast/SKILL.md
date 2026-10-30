@@ -45,7 +45,15 @@ Exit codes: 0 ok, 1 a named failure (ceiling, missing key, HTTP error, invalid r
 
 Kind inference: when no flag, storyboard, or CHANGE.md names a kind, roast infers one from cheap cues (a storyboard's narration; a `.eml`, `Subject:`/`To:` headers, or a greeting for email; a test plan or `Closes #n` for pr; hashtags for post; several headings for doc), prints `roast kind: <kind> (inferred, confidence ...)`, and proceeds. `roast.rb infer --text FILE | --storyboard FILE` previews it. Image-only input with no cues stays kind-less. If the cues do not settle on one kind, it exits 3 with `roast: kind is ambiguous: candidates X, Y; pass --kind` and spends nothing. Resolve that with AskUserQuestion (the candidates as options), and ask for a missing audience or purpose the same way, then re-run with the answer as a flag. Under away mode take the top candidate and report the assumption.
 
-Privacy: before any call, the brief, `--text` files, and the transcript are scanned against `~/.claude/cf/sensitive_terms.txt` (one term per line, case-insensitive, skipped when absent). A match refuses with exit 1 and the count of terms matched, never the term, unless `--allow-sensitive` is passed; do not pass it without the user's say-so.
+Privacy: before any call, the brief, `--text` files, the transcript, and prior rounds (in `--video` mode too) are scanned against `~/.claude/cf/sensitive_terms.txt` (one term per line, case-insensitive, skipped when absent). A match refuses with exit 1 and the count of terms matched, never the term, unless `--allow-sensitive` is passed; do not pass it without the user's say-so.
+
+## Video mode
+
+`roast.rb --video walkthrough.mp4 --brief brief.md [--transcript walkthrough.vtt]` roasts a finished video as a whole. It pairs with the stills roast: stills check each screen up close, video mode checks what only plays in motion. It uses the same OpenAI model, pinned to `gpt-6.1-sol` (`CF_ROAST_VIDEO_MODEL` overrides it). The API takes no video, so ffmpeg samples the MP4 at about 1.5 fps, 1280px wide, and every frame goes in one request, in order, each labelled with its mm:ss time. The narration cues come from the .vtt next to the MP4 unless `--transcript` names another file.
+
+The rubric covers narration against the picture, pacing, abrupt cuts, cursor motion, voice and music balance (inferred from the cues, since the critic cannot hear), whether the story holds for the audience in the brief, and text readability as it plays. The reply is the stills JSON plus a `timestamp` (mm:ss) on every issue.
+
+It reads the same history (stills rounds and earlier video rounds with their responses), prints the estimate first, refuses past `--max-usd` (default 0.5), and caches by model, brief, transcript, history, and the MP4 sha256. It writes `roast/round-N.video.json` and `roast/round-N.video.md`, where N defaults to the latest stills round. Respond in `round-N.video.response.json`, same shape as the stills response. A 2-minute video is about 180 frames and roughly $0.40.
 
 ## The round
 
