@@ -47,6 +47,15 @@ class ChangeScreenshotCapture < ChangeLaneBrowserless
   SETTLE_TIMEOUT_MS = 5_000
   SETTLE_INTERVAL_MS = 150
 
+  # Child frames (a third-party video embed, a map) load on their own clock and
+  # a full-page shot never scrolls, so a lazy frame below the fold may never
+  # start. The settle forces loading="eager", then waits per frame for
+  # readyState complete, inside the same SETTLE_TIMEOUT_MS budget. Each frame
+  # wait is best effort: a cross-origin, detached, or failed frame is skipped.
+  # PAINT_WAIT_MS bounds the extra wait for a <video> or poster <img> to have
+  # pixels once its frame is complete.
+  FRAME_PAINT_WAIT_MS = 1_500
+
   # One captured cell: which route at which viewport, its base64 PNG, where it
   # landed on disk, and the navigation error if it never rendered.
   Cell = Struct.new(:viewport, :route, :path, :base64, :http_status, :error, keyword_init: true) do
@@ -131,6 +140,7 @@ class ChangeScreenshotCapture < ChangeLaneBrowserless
         const basicAuth = #{JSON.generate(basic_auth)};
         const settleTimeoutMs = #{JSON.generate(SETTLE_TIMEOUT_MS)};
         const settleIntervalMs = #{JSON.generate(SETTLE_INTERVAL_MS)};
+        const framePaintWaitMs = #{JSON.generate(FRAME_PAINT_WAIT_MS)};
 
         #{ChangeLane.wait_for_js}
 
@@ -141,9 +151,48 @@ class ChangeScreenshotCapture < ChangeLaneBrowserless
         // Web fonts are waited on for the same reason: a page rasterized in a
         // fallback face differs from the same page rasterized in its real one,
         // and which of the two a cell caught would otherwise be a race.
+        // Frames are settled first, inside the same budget: force every lazy
+        // iframe and img to load eagerly, wait for each child frame to reach
+        // readyState complete (each wait has its own try/catch and timeout so
+        // a cross-origin, detached, or failed frame never hangs the run), then
+        // let players paint with two animation frames and a short bounded wait
+        // for a video or poster image where the frame is accessible.
+        async function settleFrames(cellPage, deadline) {
+          try {
+            await cellPage.evaluate(() => {
+              document.querySelectorAll("iframe").forEach((el) => el.setAttribute("loading", "eager"));
+              document.querySelectorAll("img[loading=lazy]").forEach((el) => el.setAttribute("loading", "eager"));
+            });
+          } catch (err) { void err; }
+          const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+          const frames = cellPage.frames().filter((f) => f !== cellPage.mainFrame());
+          await Promise.all(frames.map(async (frame) => {
+            try {
+              while (Date.now() < deadline) {
+                if (frame.isDetached()) return;
+                const ready = await frame.evaluate(() => document.readyState).catch(() => "complete");
+                if (ready === "complete") break;
+                await sleep(settleIntervalMs);
+              }
+              await frame.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))).catch(() => null);
+              const paintDeadline = Math.min(deadline, Date.now() + framePaintWaitMs);
+              while (Date.now() < paintDeadline) {
+                const painted = await frame.evaluate(() => {
+                  const media = Array.from(document.querySelectorAll("video, img[poster], img"));
+                  if (media.length === 0) return true;
+                  return media.every((el) => (el.tagName === "VIDEO" ? el.readyState >= 2 || !!el.poster : el.complete));
+                }).catch(() => true);
+                if (painted) break;
+                await sleep(settleIntervalMs);
+              }
+            } catch (err) { void err; }
+          }));
+        }
+
         async function settle(cellPage) {
           try { await cellPage.evaluate(() => (document.fonts ? document.fonts.ready : null)); } catch (err) { void err; }
           const deadline = Date.now() + settleTimeoutMs;
+          try { await settleFrames(cellPage, deadline); } catch (err) { void err; }
           let last = -1;
           let stable = 0;
           while (Date.now() < deadline) {
