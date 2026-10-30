@@ -119,6 +119,15 @@ class ChangeScreenshotCaptureTest < Minitest::Test
     assert_operator ChangeScreenshotCapture::FRAME_PAINT_WAIT_MS, :<=, ChangeScreenshotCapture::SETTLE_TIMEOUT_MS
   end
 
+  def test_a_page_with_frames_is_shot_at_a_viewport_as_tall_as_the_page
+    js = capturer("routes" => [ "/" ]).capture_module("https://app.example.org")
+    resize = js.index("Math.min(cell.pageHeight, tallViewportMaxPx)")
+    refute_nil resize
+    assert_operator resize, :<, js.index("cellPage.screenshot(")
+    assert_operator js.index("cell.pageHeight = await settle(cellPage);", resize), :<, js.index("cellPage.screenshot(")
+    assert_includes js, 'document.querySelector("iframe") !== null'
+  end
+
   def test_the_capture_module_waits_on_the_inherited_readiness_contract
     js = capturer("routes" => [ "/" ]).capture_module("https://app.example.org")
     assert_includes js, "waitUntil: entry.waitFor.loadState"
