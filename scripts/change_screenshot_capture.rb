@@ -166,13 +166,10 @@ class ChangeScreenshotCapture < ChangeLaneBrowserless
         async function settleFrames(cellPage, deadline) {
           try {
             await cellPage.evaluate(() => {
-              document.querySelectorAll("iframe").forEach((el) => {
-                if (el.getAttribute("loading") !== "lazy") return;
-                // A deferred lazy frame ignores a late loading change, so
-                // reassigning src is what actually starts its navigation.
-                el.setAttribute("loading", "eager");
-                if (el.src) el.src = el.src;
-              });
+              // Only the attribute changes: reassigning src would renavigate a lazy
+              // frame that already loaded. One still deferred is loaded by the
+              // page-tall viewport below, which puts it on screen.
+              document.querySelectorAll("iframe[loading=lazy]").forEach((el) => el.setAttribute("loading", "eager"));
               document.querySelectorAll("img[loading=lazy]").forEach((el) => el.setAttribute("loading", "eager"));
             });
           } catch (err) { void err; }
