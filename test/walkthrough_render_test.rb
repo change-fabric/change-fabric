@@ -404,6 +404,29 @@ class WalkthroughRenderTest < Minitest::Test
     assert File.file?(File.join(@root, ".cache", "frames", shed["frames_key"], "000001.png"))
   end
 
+  def test_failed_broll_overlay_leaves_no_completion_marker_and_retries
+    write_broll_board
+    File.binwrite(File.join(@root, "screens", "assets", "title.png"), "PNG")
+    b = JSON.parse(File.read(File.join(@root, "storyboard.json")))
+    b["scenes"].last["broll"]["overlay"] = "screens/assets/title.png"
+    File.write(File.join(@root, "storyboard.json"), JSON.pretty_generate(b))
+    base = providers
+    overlay = ->(ok) { base.merge(docker: lambda do |argv|
+      if argv.join(" ").include?("filter_complex overlay")
+        @calls[:overlay] << ok
+        next [ ok ? "" : "overlay boom", Status.new(ok) ]
+      end
+
+      base[:docker].call(argv)
+    end, broll: broll_provider("generated")) }
+    assert_raises(WalkthroughRender::FfmpegError) { run_render(providers: overlay.call(false)) }
+    markers = Dir.glob(File.join(@root, ".cache", "frames", "*", "cursor.json"))
+    assert(markers.none? { |m| File.read(m) == "[]" }, "a failed overlay leaves no b-roll completion marker")
+    @calls.clear
+    run_render(providers: overlay.call(true))
+    assert_equal [ true ], @calls[:overlay], "the next render retries the overlay instead of a cache hit"
+  end
+
   def test_cached_broll_rerun_calls_nothing
     write_broll_board
     first = run_render(providers: providers.merge(broll: broll_provider("generated")))
