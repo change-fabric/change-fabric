@@ -56,6 +56,11 @@ class ChangeScreenshotCapture < ChangeLaneBrowserless
   # pixels once its frame is complete.
   FRAME_PAINT_WAIT_MS = 1_500
 
+  # Chromium does not paint a cross-origin iframe outside the viewport, so a
+  # page with frames is shot at a viewport as tall as the page, capped here
+  # to stay inside the browser's texture limits.
+  TALL_VIEWPORT_MAX_PX = 16_000
+
   # One captured cell: which route at which viewport, its base64 PNG, where it
   # landed on disk, and the navigation error if it never rendered.
   Cell = Struct.new(:viewport, :route, :path, :base64, :http_status, :error, keyword_init: true) do
@@ -141,6 +146,7 @@ class ChangeScreenshotCapture < ChangeLaneBrowserless
         const settleTimeoutMs = #{JSON.generate(SETTLE_TIMEOUT_MS)};
         const settleIntervalMs = #{JSON.generate(SETTLE_INTERVAL_MS)};
         const framePaintWaitMs = #{JSON.generate(FRAME_PAINT_WAIT_MS)};
+        const tallViewportMaxPx = #{JSON.generate(TALL_VIEWPORT_MAX_PX)};
 
         #{ChangeLane.wait_for_js}
 
@@ -242,6 +248,15 @@ class ChangeScreenshotCapture < ChangeLaneBrowserless
               // would read as a change the branch did not make.
               await cellPage.addStyleTag({ content: diffStabilityCss });
               cell.pageHeight = await settle(cellPage);
+              // Chromium never paints a cross-origin iframe outside the
+              // viewport, and a full-page shot does not make it, so a page
+              // with frames is re-laid out at its own height (capped) and
+              // settled again before the shot.
+              const hasFrames = await cellPage.evaluate(() => document.querySelector("iframe") !== null);
+              if (hasFrames && cell.pageHeight > vp.height) {
+                await cellPage.setViewport({ width: vp.width, height: Math.min(cell.pageHeight, tallViewportMaxPx), deviceScaleFactor: deviceScaleFactor });
+                cell.pageHeight = await settle(cellPage);
+              }
               cell.shot = await cellPage.screenshot({ encoding: "base64", type: "png", fullPage: true });
             } catch (err) {
               cell.error = String(err);
