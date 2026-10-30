@@ -108,6 +108,17 @@ The flow, in order:
    no second worktree is needed.
 6. Diff, then tear HEAD's app down the same way.
 
+Before each full-page shot, capture settles the page: web fonts, then child
+frames, then document height. Frame settle sets `loading="eager"` on every
+iframe (and lazy img), since a full-page shot never scrolls and a lazy embed
+below the fold would otherwise never load. It then waits for each child frame
+to reach `readyState` complete, runs two animation frames, and briefly waits
+for a `<video>` or image inside the frame where it is accessible. All of this
+shares the single settle time budget, and every frame wait is best effort: a
+cross-origin, detached, or failed frame is skipped, never fatal. The browser's
+user agent is left as is; whether a headless user agent makes an embed withhold
+its poster is unverified.
+
 Each shot is a full-page PNG, not the audit lane's quality-72 JPEG: these
 images are both the deliverable a human reads inline and the diff's own input,
 where a lossy encoder's ringing around text is indistinguishable from a real

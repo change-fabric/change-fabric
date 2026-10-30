@@ -97,6 +97,24 @@ class ChangeScreenshotCaptureTest < Minitest::Test
     refute_includes js, "await new Promise((resolve) => setTimeout(resolve, 2000))"
   end
 
+  def test_the_capture_module_settles_child_frames_before_shooting
+    js = capturer("routes" => [ "/" ]).capture_module("https://app.example.org")
+    assert_includes js, 'setAttribute("loading", "eager")'
+    assert_includes js, "cellPage.frames()"
+    assert_includes js, "frame.isDetached()"
+    assert_includes js, "document.readyState"
+    assert_includes js, "requestAnimationFrame"
+    assert_operator js.index("await settleFrames("), :<, js.index("scrollHeight);")
+  end
+
+  def test_frame_waits_are_best_effort_and_bounded_by_the_settle_budget
+    js = capturer("routes" => [ "/" ]).capture_module("https://app.example.org")
+    assert_includes js, "frame.evaluate(() => document.readyState).catch("
+    assert_includes js, "Date.now() < deadline"
+    assert_includes js, "framePaintWaitMs"
+    assert_operator ChangeScreenshotCapture::FRAME_PAINT_WAIT_MS, :<=, ChangeScreenshotCapture::SETTLE_TIMEOUT_MS
+  end
+
   def test_the_capture_module_waits_on_the_inherited_readiness_contract
     js = capturer("routes" => [ "/" ]).capture_module("https://app.example.org")
     assert_includes js, "waitUntil: entry.waitFor.loadState"
