@@ -160,28 +160,41 @@ class ChangeScreenshotCapture < ChangeLaneBrowserless
         async function settleFrames(cellPage, deadline) {
           try {
             await cellPage.evaluate(() => {
-              document.querySelectorAll("iframe").forEach((el) => el.setAttribute("loading", "eager"));
+              document.querySelectorAll("iframe").forEach((el) => {
+                if (el.getAttribute("loading") !== "lazy") return;
+                // A deferred lazy frame ignores a late loading change, so
+                // reassigning src is what actually starts its navigation.
+                el.setAttribute("loading", "eager");
+                if (el.src) el.src = el.src;
+              });
               document.querySelectorAll("img[loading=lazy]").forEach((el) => el.setAttribute("loading", "eager"));
             });
           } catch (err) { void err; }
           const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+          // A hidden frame can suspend its rAF callbacks and leave an evaluate
+          // pending forever, so every frame evaluate races the settle budget.
+          const bounded = (promise, fallback) => Promise.race([
+            promise.catch(() => fallback),
+            sleep(Math.max(0, deadline - Date.now())).then(() => fallback),
+          ]);
+          await sleep(Math.min(settleIntervalMs, Math.max(0, deadline - Date.now())));
           const frames = cellPage.frames().filter((f) => f !== cellPage.mainFrame());
           await Promise.all(frames.map(async (frame) => {
             try {
               while (Date.now() < deadline) {
                 if (frame.isDetached()) return;
-                const ready = await frame.evaluate(() => document.readyState).catch(() => "complete");
+                const ready = await bounded(frame.evaluate(() => document.readyState), "complete");
                 if (ready === "complete") break;
                 await sleep(settleIntervalMs);
               }
-              await frame.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))).catch(() => null);
+              await bounded(frame.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))), null);
               const paintDeadline = Math.min(deadline, Date.now() + framePaintWaitMs);
               while (Date.now() < paintDeadline) {
-                const painted = await frame.evaluate(() => {
+                const painted = await bounded(frame.evaluate(() => {
                   const media = Array.from(document.querySelectorAll("video, img[poster], img"));
                   if (media.length === 0) return true;
                   return media.every((el) => (el.tagName === "VIDEO" ? el.readyState >= 2 || !!el.poster : el.complete));
-                }).catch(() => true);
+                }), true);
                 if (painted) break;
                 await sleep(settleIntervalMs);
               }
@@ -192,7 +205,8 @@ class ChangeScreenshotCapture < ChangeLaneBrowserless
         async function settle(cellPage) {
           try { await cellPage.evaluate(() => (document.fonts ? document.fonts.ready : null)); } catch (err) { void err; }
           const deadline = Date.now() + settleTimeoutMs;
-          try { await settleFrames(cellPage, deadline); } catch (err) { void err; }
+          // Frames get half the budget so the height loop below always runs.
+          try { await settleFrames(cellPage, Date.now() + settleTimeoutMs / 2); } catch (err) { void err; }
           let last = -1;
           let stable = 0;
           while (Date.now() < deadline) {
