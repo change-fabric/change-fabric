@@ -121,19 +121,30 @@ module WalkthroughFfmpeg
 
   def timebase(plan) = "settb=1/#{plan[:fps]}"
 
-  # A camera framing: the frame scales by `zoom` and is cropped back to the
-  # canvas around `focus`, clamped so the crop never leaves the frame. Cursor
-  # and taps are already drawn in, so they stay aligned.
+  # A camera framing: the frame scales by `zoom` around `focus`. Zooming in
+  # crops back to the canvas, clamped so the crop never leaves the frame;
+  # zooming out pads back to the canvas, clamped so the frame stays whole.
+  # Cursor and taps are already drawn in, so they stay aligned.
   def camera_filter(plan, camera)
     w = plan[:width]
     h = plan[:height]
-    zw = 2 * (w * camera['zoom'].to_f / 2).floor
-    zh = 2 * (h * camera['zoom'].to_f / 2).floor
-    x = (camera.dig('focus', 'x').to_f * zw - (w / 2.0)).clamp(0, zw - w).round
-    y = (camera.dig('focus', 'y').to_f * zh - (h / 2.0)).clamp(0, zh - h).round
-    "scale=#{zw}:#{zh}:flags=lanczos,crop=#{w}:#{h}:#{x}:#{y},setsar=1"
+    zoom = camera['zoom'].to_f
+    zw = 2 * (w * zoom / 2).floor
+    zh = 2 * (h * zoom / 2).floor
+    fx = camera.dig('focus', 'x') || 0.5
+    fy = camera.dig('focus', 'y') || 0.5
+    x = camera_offset(fx, zw, w)
+    y = camera_offset(fy, zh, h)
+    fit = zoom >= 1 ? "crop=#{w}:#{h}:#{x}:#{y}" : "pad=#{w}:#{h}:#{x}:#{y}:color=black"
+    "scale=#{zw}:#{zh}:flags=lanczos,#{fit},setsar=1"
   end
 
+  # Offset along one axis: where the crop starts inside a larger scaled frame,
+  # or where a smaller scaled frame sits inside the canvas.
+  def camera_offset(focus, scaled, canvas)
+    off = (focus.to_f * scaled) - (canvas / 2.0)
+    scaled >= canvas ? off.clamp(0, scaled - canvas).round : (-off).clamp(0, canvas - scaled).round
+  end
 
   def hero_filter(plan)
     "scale=iw*4:ih*4:flags=lanczos,zoompan=z='min(zoom+0.0008,1.12)':d=1:" \
