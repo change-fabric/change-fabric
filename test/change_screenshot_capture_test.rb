@@ -125,7 +125,8 @@ class ChangeScreenshotCaptureTest < Minitest::Test
     refute_nil resize
     assert_operator resize, :<, js.index("cellPage.screenshot(")
     assert_operator js.index("cell.pageHeight = await settle(cellPage);", resize), :<, js.index("cellPage.screenshot(")
-    assert_includes js, 'document.querySelector("iframe") !== null'
+    assert_includes js, "rect.bottom + window.scrollY > viewportHeight"
+    assert_includes js, 'style.display !== "none"'
   end
 
   def test_the_capture_module_waits_on_the_inherited_readiness_contract

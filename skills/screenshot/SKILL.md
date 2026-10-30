@@ -119,10 +119,15 @@ of the settle time budget, so the height check always runs, and every frame
 frames and leave an evaluate pending forever. Every frame wait is best effort: a
 cross-origin, detached, or failed frame is skipped, never fatal. Chromium never
 paints a cross-origin iframe outside the viewport, and a full-page shot does
-not make it, so a page with any iframe is then re-laid out at a viewport as
-tall as the page (capped at `TALL_VIEWPORT_MAX_PX`) and settled again before
-the shot: every frame is on screen, not just loaded, which is also what loads
-a lazy frame that was still deferred. The browser's
+not make it, so a page with a visible iframe below the first screen is then
+re-laid out at a viewport as tall as the page (capped at
+`TALL_VIEWPORT_MAX_PX`) and settled again before the shot: every frame is on
+screen, not just loaded, which is also what loads a lazy frame that was still
+deferred. The cost is that viewport-relative layout (`vh` units, height media
+queries, fixed-bottom elements) is laid out at that taller height on such a
+page, at both refs, so a content change that moves the page height can also
+move those sections. A hidden frame, or one inside the first screen, never
+triggers the resize. The browser's
 user agent is left as is; whether a headless user agent makes an embed withhold
 its poster is unverified.
 
