@@ -33,7 +33,7 @@ module RoastVideo
   KIND_VIDEO = 'video'
   DEFAULT_DOCKER = ->(argv) { Open3.capture2e(*argv) }
   USAGE = 'usage: roast.rb --video MP4 --brief FILE [--transcript VTT] [--history DIR] [--out-dir DIR] ' \
-          '[--round N] [--max-usd N] [--cache DIR] [--fps N] [--width N] [--estimate-only]'
+          '[--round N] [--max-usd N] [--cache DIR] [--fps N] [--width N] [--estimate-only] [--allow-sensitive]'
 
   SYSTEM_PROMPT = <<~TEXT
     #{Roast::SYSTEM_PROMPT}
@@ -197,7 +197,7 @@ module RoastVideo
     rescue UsageError, OptionParser::ParseError => e
       out.puts("error: #{e.message}", USAGE)
       2
-    rescue Roast::CeilingError, Roast::RequestError, FfmpegError, WalkthroughEnv::MissingKeyError, SystemCallError => e
+    rescue Roast::CeilingError, Roast::SensitiveError, Roast::RequestError, FfmpegError, WalkthroughEnv::MissingKeyError, SystemCallError => e
       out.puts("error: #{e.message}")
       1
     end
@@ -216,6 +216,7 @@ module RoastVideo
         o.on('--fps N', Float) { |v| opts[:fps] = v }
         o.on('--width N', Integer) { |v| opts[:width] = v }
         o.on('--estimate-only') { opts[:estimate_only] = true }
+        o.on('--allow-sensitive') { opts[:allow_sensitive] = true }
       end.parse!(args)
       raise UsageError, '--video is required' unless opts[:video]
       raise UsageError, '--brief is required' unless opts[:brief_file]
@@ -235,6 +236,7 @@ module RoastVideo
       dir = opts[:history] || opts[:out_dir]
       history = RoastVideo.load_history(dir)
       round = opts[:round] || RoastVideo.default_round(opts[:out_dir])
+      Roast.check_sensitive!(brief: brief, transcript: transcript, history: history, allow: opts[:allow_sensitive])
       key = RoastVideo.request_key(brief: brief, video_sha: Digest::SHA256.file(opts[:video]).hexdigest, transcript: transcript,
                                    history: history, round: round, fps: opts[:fps], width: opts[:width])
       cache = [ opts[:cache], :roasts, key, 'json' ]
