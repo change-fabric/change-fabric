@@ -197,6 +197,11 @@ module WalkthroughRender
       BRoll.make_frames(mode: res[:mode], input: res[:path] || broll_args(scene)[:source_image], out_dir: out_dir, work: @root,
                         width: viewport['w'], height: viewport['h'], fps: fps, frames: frames, docker: @p[:docker])
       overlay_frames(out_dir, File.join(@root, scene.dig('broll', 'overlay'))) if scene.dig('broll', 'overlay')
+    rescue StandardError
+      # cursor.json is the completion marker: a failed overlay must not leave
+      # it behind, or the next render reuses the frames without their title.
+      FileUtils.rm_f(File.join(out_dir, 'cursor.json'))
+      raise
     end
 
     # A b-roll `overlay` (a transparent PNG at the viewport size, such as a
