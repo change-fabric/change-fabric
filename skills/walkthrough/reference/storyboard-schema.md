@@ -209,6 +209,23 @@ A live or compose scene picks the devices it films and how they share the frame:
 - Prototype board: give it `screen.html` (a generated file) and run `ruby scripts/walkthrough_message.rb storyboard.json` to write it from the templates and the project's tokens. `shell` names a project screen holding `<div data-cf-message></div>`; the view is rendered into that slot, so the scene keeps the project's own stage and device frame. Validation flags a generated file that no longer matches its scene.
 - Both get the UX lint and roast rubric item 10. ASSUMPTIONS.md lists each one under Simulated UI as a simulated notification.
 
+### Environment scenes
+
+`"kind": "environment"` shows a simulated, neutral desktop from the desktop kit in `skills/prototype/fixtures/desktop/` (its `CONTRACT.md` lists every window type and fixed id). Nothing on a real machine is touched. The kit owns the chrome; the project owns the content through the scene's seed.
+
+```json
+{ "id": "install", "order": 4, "kind": "environment", "screen": { "html": "screens/install.html" },
+  "store": { "seed": "data/install.json" },
+  "environment": { "open": ["explorer", "services"], "focus": "explorer", "slots": { "docs-content": "screens/partials/docs.html" } },
+  "interactions": [{ "t_ms": 0, "op": "dblclick", "target": "#explorer-file-install-agent-bat" },
+                   { "t_ms": 600, "op": "click", "target": "#elevate-yes" }] }
+```
+
+- `store.seed` is required and follows `desktop.schema.json`: `windows[]` (`id`, `type`, `title`, `x`, `y`, `w`, `h`, plus per-type fields), `files[]`, `downloads[]`, `services[]`, `terminal.transcript[]`, `editor.documents[]`, and `clock`. Window types: browser, file-explorer, text-editor, terminal, elevation-prompt, services-list.
+- `environment.open` lists the windows visible at the start (default all); the rest render hidden and can be opened in the scene (a file row double-click, an elevation Yes). `focus` must be an open window (default the last one). `slots` maps a browser window's `<id>-content` slot to a project HTML partial.
+- Run `ruby scripts/walkthrough_environment.rb storyboard.json` to write each `screen.html`. Validation fails on drift (the screen's ids differ from the kit's) and on a stale file. The kit `VERSION` is part of the scene's `frames_key`.
+- ASSUMPTIONS.md lists each one under Simulated UI as a simulated desktop environment.
+
 ## Rules
 
 - `id` matches `\A[a-z0-9][a-z0-9-]*\z` and is unique; `order` is unique and contiguous from 1.

@@ -1,0 +1,261 @@
+{
+  "schema_version": 1,
+  "slug": "desktop-kit",
+  "title": "Northwind Agent install",
+  "viewport": {
+    "w": 1920,
+    "h": 1080,
+    "dpr": 1
+  },
+  "fps": 30,
+  "voice": {
+    "provider": "elevenlabs",
+    "voice_id": "21m00Tcm4TlvDq8ikWAM",
+    "model": "eleven_multilingual_v2",
+    "output_format": "mp3_44100_128"
+  },
+  "music": null,
+  "cursor": {
+    "sprite": "default",
+    "scale": 1.0
+  },
+  "hypotheses": [
+    {
+      "id": "H-01",
+      "text": "An operator installs the agent by following the docs without help.",
+      "dimension": "role"
+    }
+  ],
+  "scenes": [
+    {
+      "id": "download",
+      "title": "Download the agent",
+      "order": 1,
+      "kind": "environment",
+      "screen": {
+        "html": "screens/download.html"
+      },
+      "store": {
+        "seed": "data/download.json",
+        "prng_seed": 1
+      },
+      "environment": {
+        "slots": {
+          "docs-content": "screens/partials/docs.html"
+        }
+      },
+      "interactions": [
+        {
+          "t_ms": 0,
+          "op": "scroll",
+          "target": "#docs-content",
+          "dy": 200
+        },
+        {
+          "t_ms": 400,
+          "op": "move",
+          "target": "#docs-download-link",
+          "duration_ms": 600
+        },
+        {
+          "t_ms": 1100,
+          "op": "click",
+          "target": "#docs-download-link"
+        },
+        {
+          "t_ms": 1300,
+          "op": "wait",
+          "duration_ms": 1400
+        }
+      ],
+      "narration": {
+        "text": "The docs link straight to the agent download.",
+        "measured_ms": 0
+      },
+      "assumptions": [
+        {
+          "id": "A-01",
+          "text": "Northwind Agent ships as a zip with a service install script."
+        }
+      ],
+      "timing": {
+        "min_ms": 3500,
+        "pad_ms": 400,
+        "transition": {
+          "type": "cut",
+          "ms": 0
+        }
+      }
+    },
+    {
+      "id": "extract",
+      "title": "Extract and view the files",
+      "order": 2,
+      "kind": "environment",
+      "screen": {
+        "html": "screens/extract.html"
+      },
+      "store": {
+        "seed": "data/explorer.json",
+        "prng_seed": 2
+      },
+      "environment": {
+        "open": [
+          "explorer"
+        ]
+      },
+      "interactions": [
+        {
+          "t_ms": 0,
+          "op": "click",
+          "target": "#explorer-file-northwind-agent-win-zip"
+        },
+        {
+          "t_ms": 400,
+          "op": "click",
+          "target": "#explorer-extract"
+        },
+        {
+          "t_ms": 2000,
+          "op": "dblclick",
+          "target": "#explorer-xfile-config-json"
+        },
+        {
+          "t_ms": 2300,
+          "op": "wait",
+          "duration_ms": 800
+        }
+      ],
+      "narration": {
+        "text": "Extract all unpacks the agent, and its files are right there.",
+        "measured_ms": 0
+      },
+      "assumptions": [
+        {
+          "id": "A-01",
+          "text": "Northwind Agent ships as a zip with a service install script."
+        }
+      ],
+      "timing": {
+        "min_ms": 3500,
+        "pad_ms": 400,
+        "transition": {
+          "type": "cut",
+          "ms": 0
+        }
+      }
+    },
+    {
+      "id": "edit-config",
+      "title": "Add the API key",
+      "order": 3,
+      "kind": "environment",
+      "screen": {
+        "html": "screens/edit-config.html"
+      },
+      "store": {
+        "seed": "data/editor.json",
+        "prng_seed": 3
+      },
+      "environment": {},
+      "interactions": [
+        {
+          "t_ms": 0,
+          "op": "click",
+          "target": "#editor-text"
+        },
+        {
+          "t_ms": 300,
+          "op": "type",
+          "target": "#editor-text",
+          "text": "nw_demo_0000",
+          "cps": 12
+        },
+        {
+          "t_ms": 1800,
+          "op": "key",
+          "target": "#editor-text",
+          "keys": "Control+S"
+        },
+        {
+          "t_ms": 2000,
+          "op": "wait",
+          "duration_ms": 800
+        }
+      ],
+      "narration": {
+        "text": "Paste the API key into config.json and save.",
+        "measured_ms": 0
+      },
+      "assumptions": [
+        {
+          "id": "A-01",
+          "text": "Northwind Agent ships as a zip with a service install script."
+        }
+      ],
+      "timing": {
+        "min_ms": 3500,
+        "pad_ms": 400,
+        "transition": {
+          "type": "cut",
+          "ms": 0
+        }
+      }
+    },
+    {
+      "id": "install",
+      "title": "Install the service",
+      "order": 4,
+      "kind": "environment",
+      "screen": {
+        "html": "screens/install.html"
+      },
+      "store": {
+        "seed": "data/install.json",
+        "prng_seed": 4
+      },
+      "environment": {
+        "open": [
+          "explorer",
+          "services"
+        ],
+        "focus": "explorer"
+      },
+      "interactions": [
+        {
+          "t_ms": 0,
+          "op": "dblclick",
+          "target": "#explorer-file-install-northwind-service-bat"
+        },
+        {
+          "t_ms": 600,
+          "op": "click",
+          "target": "#elevate-yes"
+        },
+        {
+          "t_ms": 800,
+          "op": "wait",
+          "duration_ms": 2400
+        }
+      ],
+      "narration": {
+        "text": "Run the install script, allow it, and the service is running.",
+        "measured_ms": 0
+      },
+      "assumptions": [
+        {
+          "id": "A-01",
+          "text": "Northwind Agent ships as a zip with a service install script."
+        }
+      ],
+      "timing": {
+        "min_ms": 3500,
+        "pad_ms": 400,
+        "transition": {
+          "type": "cut",
+          "ms": 0
+        }
+      }
+    }
+  ]
+}

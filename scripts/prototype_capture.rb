@@ -9,6 +9,7 @@ require_relative 'change_docker'
 require_relative 'prototype_imagegen'
 require_relative 'prototype_ux_lint'
 require_relative 'walkthrough_cache'
+require_relative 'walkthrough_environment'
 
 # Records a cf:prototype mock screen as a PNG frame sequence under a fixed,
 # controlled clock, in the pinned browserless container and nowhere else.
@@ -632,7 +633,8 @@ module PrototypeCapture
                      viewport: board['viewport'], fps: board['fps'] || FPS, duration_ms: scene_duration(scene),
                      seed: seed_path && sha256_file(seed_path),
                      mock_store: sha256_file(File.join(root, 'screens', 'mock-store.js')),
-                     state: WalkthroughCache.key(state), prng_seed: prng, **(remap.empty? ? {} : { images: remap }))
+                     state: WalkthroughCache.key(state), prng_seed: prng, **(remap.empty? ? {} : { images: remap }),
+                     **(WalkthroughEnvironment.environment?(scene) ? { desktop_kit: WalkthroughEnvironment.version } : {}))
     memo[scene['id']] = { key: key, state: state, prng_seed: prng, html_path: html_path, remap: remap, root: root,
                           out_dir: File.join(root, '.cache', 'frames', key) }
   end

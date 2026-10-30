@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cf-desktop-kit/desktop.schema.json",
+  "title": "cf desktop kit seed",
+  "description": "The seed an environment scene renders from. scripts/walkthrough_environment.rb enforces the same rules.",
+  "type": "object",
+  "required": ["windows"],
+  "additionalProperties": true,
+  "properties": {
+    "clock": { "type": "string", "description": "Taskbar clock text, shown as written." },
+    "windows": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "type", "title", "x", "y", "w", "h"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" },
+          "type": { "enum": ["browser", "file-explorer", "text-editor", "terminal", "elevation-prompt", "services-list"] },
+          "title": { "type": "string", "minLength": 1 },
+          "x": { "type": "integer", "minimum": 0 },
+          "y": { "type": "integer", "minimum": 0 },
+          "w": { "type": "integer", "minimum": 0 },
+          "h": { "type": "integer", "minimum": 0 },
+          "url": { "type": "string", "description": "browser: address bar text." },
+          "tab": { "type": "string", "description": "browser: tab title." },
+          "folder": { "type": "string", "description": "file-explorer: the folder listed." },
+          "extract_to": { "type": "string", "description": "file-explorer: enables Extract all into this folder." },
+          "opens": { "type": "object", "additionalProperties": { "type": "string" }, "description": "file-explorer: file name to the window a double-click opens." },
+          "document": { "type": "string", "description": "text-editor: a path in editor.documents." },
+          "app": { "type": "string", "description": "elevation-prompt: the app asking." },
+          "publisher": { "type": "string" },
+          "then": { "type": "string", "description": "elevation-prompt: the window Yes opens." }
+        }
+      }
+    },
+    "files": {
+      "type": "array",
+      "items": { "type": "object", "required": ["path"], "properties": { "path": { "type": "string" }, "size": { "type": "string" }, "kind": { "type": "string" } } }
+    },
+    "downloads": {
+      "type": "array",
+      "items": { "type": "object", "required": ["name"], "properties": { "name": { "type": "string" }, "size": { "type": "string" }, "state": { "enum": ["pending", "complete"] } } }
+    },
+    "services": {
+      "type": "array",
+      "items": { "type": "object", "required": ["name", "status", "startup"], "properties": { "name": { "type": "string" }, "status": { "type": "string" }, "startup": { "type": "string" } } }
+    },
+    "terminal": {
+      "type": "object",
+      "properties": {
+        "transcript": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["text"],
+            "properties": {
+              "text": { "type": "string" },
+              "after_ms": { "type": "integer", "minimum": 0, "description": "Delay after the previous line." },
+              "service": { "type": "string", "description": "A services row this line updates." },
+              "status": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "editor": {
+      "type": "object",
+      "properties": {
+        "documents": {
+          "type": "array",
+          "items": { "type": "object", "required": ["path", "text"], "properties": { "path": { "type": "string" }, "text": { "type": "string" }, "caret_after": { "type": "string", "description": "The caret starts right after the first match of this text." } } }
+        }
+      }
+    }
+  }
+}
