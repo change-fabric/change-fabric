@@ -97,6 +97,38 @@ class ChangeScreenshotCaptureTest < Minitest::Test
     refute_includes js, "await new Promise((resolve) => setTimeout(resolve, 2000))"
   end
 
+  def test_the_capture_module_settles_child_frames_before_shooting
+    js = capturer("routes" => [ "/" ]).capture_module("https://app.example.org")
+    assert_includes js, 'setAttribute("loading", "eager")'
+    refute_includes js, "el.src = el.src"
+    assert_includes js, "settleTimeoutMs / 2"
+    assert_includes js, "cellPage.frames()"
+    assert_includes js, "frame.isDetached()"
+    assert_includes js, "document.readyState"
+    assert_includes js, "requestAnimationFrame"
+    assert_operator js.index("await settleFrames("), :<, js.index("scrollHeight);")
+  end
+
+  def test_frame_waits_are_best_effort_and_bounded_by_the_settle_budget
+    js = capturer("routes" => [ "/" ]).capture_module("https://app.example.org")
+    assert_includes js, "bounded(frame.evaluate(() => document.readyState), \"complete\")"
+    assert_includes js, "Date.now() < deadline"
+    assert_includes js, "framePaintWaitMs"
+    assert_includes js, "Promise.race"
+    refute_match(/frame\.evaluate\([^\n]*\)\.catch/, js, "every frame evaluate races the settle deadline")
+    assert_operator ChangeScreenshotCapture::FRAME_PAINT_WAIT_MS, :<=, ChangeScreenshotCapture::SETTLE_TIMEOUT_MS
+  end
+
+  def test_a_page_with_frames_is_shot_at_a_viewport_as_tall_as_the_page
+    js = capturer("routes" => [ "/" ]).capture_module("https://app.example.org")
+    resize = js.index("Math.min(cell.pageHeight, tallViewportMaxPx)")
+    refute_nil resize
+    assert_operator resize, :<, js.index("cellPage.screenshot(")
+    assert_operator js.index("cell.pageHeight = await settle(cellPage);", resize), :<, js.index("cellPage.screenshot(")
+    assert_includes js, "rect.bottom + window.scrollY > viewportHeight"
+    assert_includes js, 'style.display !== "none"'
+  end
+
   def test_the_capture_module_waits_on_the_inherited_readiness_contract
     js = capturer("routes" => [ "/" ]).capture_module("https://app.example.org")
     assert_includes js, "waitUntil: entry.waitFor.loadState"
