@@ -100,7 +100,7 @@ class ChangeScreenshotCaptureTest < Minitest::Test
   def test_the_capture_module_settles_child_frames_before_shooting
     js = capturer("routes" => [ "/" ]).capture_module("https://app.example.org")
     assert_includes js, 'setAttribute("loading", "eager")'
-    assert_includes js, "el.src = el.src"
+    refute_includes js, "el.src = el.src"
     assert_includes js, "settleTimeoutMs / 2"
     assert_includes js, "cellPage.frames()"
     assert_includes js, "frame.isDetached()"

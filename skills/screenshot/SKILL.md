@@ -110,16 +110,19 @@ The flow, in order:
 
 Before each full-page shot, capture settles the page: web fonts, then child
 frames, then document height. Frame settle sets `loading="eager"` on every
-iframe (and lazy img), since a full-page shot never scrolls and a lazy embed
-below the fold would otherwise never load. It then waits for each child frame
+lazy iframe and img, never reassigning `src`, which would renavigate an embed
+that already loaded. It then waits for each child frame
 to reach `readyState` complete, runs two animation frames, and briefly waits
-for a `<video>` or image inside the frame where it is accessible. All of this
-shares the single settle time budget, and every frame wait is best effort: a
+for a `<video>` or image inside the frame where it is accessible. Frames get half
+of the settle time budget, so the height check always runs, and every frame
+`evaluate` races that deadline, since a hidden frame can suspend its animation
+frames and leave an evaluate pending forever. Every frame wait is best effort: a
 cross-origin, detached, or failed frame is skipped, never fatal. Chromium never
 paints a cross-origin iframe outside the viewport, and a full-page shot does
 not make it, so a page with any iframe is then re-laid out at a viewport as
 tall as the page (capped at `TALL_VIEWPORT_MAX_PX`) and settled again before
-the shot: every frame is on screen, not just loaded. The browser's
+the shot: every frame is on screen, not just loaded, which is also what loads
+a lazy frame that was still deferred. The browser's
 user agent is left as is; whether a headless user agent makes an embed withhold
 its poster is unverified.
 
