@@ -191,7 +191,7 @@ body { background: var(--cfd-bg); color: var(--cfd-text); font: 15px/1.4 var(--c
   };
 
   const runTranscript = (id) => {
-    const lines = Array.from(document.querySelectorAll(`#${id}-lines > div`));
+    const lines = Array.from(document.querySelectorAll(`#${CSS.escape(id + '-lines')} > div`));
     let at = 0;
     lines.forEach((line) => {
       at += Number(line.dataset.after || 0);
@@ -217,7 +217,7 @@ body { background: var(--cfd-bg); color: var(--cfd-text); font: 15px/1.4 var(--c
       $(`${id}-files`).hidden = true;
       $(`${id}-xfiles`).hidden = false;
       $(`${id}-path`).textContent = win.dataset.cfdExtractTo;
-      document.querySelectorAll(`#${id}-tree li`).forEach((li) => li.classList.toggle('cfd-here', li.dataset.path === win.dataset.cfdExtractTo));
+      document.querySelectorAll(`#${CSS.escape(id + '-tree')} li`).forEach((li) => li.classList.toggle('cfd-here', li.dataset.path === win.dataset.cfdExtractTo));
     });
   };
 
@@ -225,7 +225,7 @@ body { background: var(--cfd-bg); color: var(--cfd-text); font: 15px/1.4 var(--c
     const bar = $(`${winId}-download-bar`);
     if (!bar) return;
     bar.hidden = false;
-    document.querySelectorAll(`#${winId}-download-bar [data-cfd-dl]`).forEach((item) => {
+    document.querySelectorAll(`#${CSS.escape(winId + '-download-bar')} [data-cfd-dl]`).forEach((item) => {
       if (name && item.dataset.cfdDl !== name) return;
       item.hidden = false;
       const state = item.querySelector('.cfd-dl-state');
