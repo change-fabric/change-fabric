@@ -10,6 +10,7 @@ require_relative 'prototype_capture'
 require_relative 'prototype_ux_lint'
 require_relative 'walkthrough_compose'
 require_relative 'walkthrough_device'
+require_relative 'walkthrough_browser_frame'
 require_relative 'walkthrough_message'
 require_relative 'walkthrough_cache'
 
@@ -304,6 +305,7 @@ module WalkthroughLive
                          storage: scene['storage'], viewport: board['viewport'], fps: fps_for(board),
                          duration_ms: PrototypeCapture.scene_duration(scene), browser: browser_opts(board),
                          devices: WalkthroughDevice.specs(board, scene), layout: WalkthroughDevice.layout_name(scene),
+                         **(WalkthroughBrowserFrame.browser?(scene) ? { frame: WalkthroughBrowserFrame.material(scene) } : {}),
                          browserless: PrototypeCapture.browserless_digest, capture_version: CAPTURE_VERSION)
   end
 
@@ -697,7 +699,8 @@ module WalkthroughLive
       @secrets = secrets
       @docker = docker || ->(argv) { Open3.capture2e(*argv) }
       @work = work
-      @layout = WalkthroughDevice.layout(board, scene)
+      @framed = WalkthroughBrowserFrame.browser?(scene)
+      @layout = @framed ? WalkthroughBrowserFrame.layout(board) : WalkthroughDevice.layout(board, scene)
     end
 
     def write(runs, out_dir)
@@ -748,11 +751,21 @@ module WalkthroughLive
 
     def container(path) = File.join('/work', path.delete_prefix("#{@work}/"))
 
+    # A browser-framed scene draws its chrome text from files written
+    # beside the frames (removed with the jpg dir); others use the device
+    # layout filter.
+    def composite_filter(out_dir)
+      return WalkthroughDevice.filter(@layout) unless @framed
+
+      title, address = WalkthroughBrowserFrame.write_text(@layout, @scene, File.join(out_dir, 'jpg', 'chrome'))
+      WalkthroughBrowserFrame.filter(@layout, title_file: container(title), address_file: container(address))
+    end
+
     # JPEG screencast frames become PNGs on the board canvas in the pinned
     # FFmpeg container, offline.
     def composite!(dirs, out_dir)
       inputs = dirs.flat_map { |d| [ '-start_number', '1', '-i', File.join(container(d), '%06d.jpg') ] }
-      args = [ '-hide_banner', '-nostdin', '-y', *inputs, '-filter_complex', WalkthroughDevice.filter(@layout), '-map', '[out]',
+      args = [ '-hide_banner', '-nostdin', '-y', *inputs, '-filter_complex', composite_filter(out_dir), '-map', '[out]',
                '-start_number', '1', File.join(container(out_dir), '%06d.png') ]
       argv = ChangeDocker.run_command(network: 'none', image: ChangeDocker::FFMPEG_IMAGE, args: args, mounts: { @work => '/work' }, workdir: '/work')
       out, status = @docker.call(argv)

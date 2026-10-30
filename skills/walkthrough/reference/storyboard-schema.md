@@ -226,6 +226,19 @@ A live or compose scene picks the devices it films and how they share the frame:
 - Run `ruby scripts/walkthrough_environment.rb storyboard.json` to write each `screen.html`. Validation fails on drift (the screen's ids differ from the kit's) and on a stale file. The kit `VERSION` is part of the scene's `frames_key`.
 - ASSUMPTIONS.md lists each one under Simulated UI as a simulated desktop environment.
 
+### Browser frame
+
+`"screen": { "frame": "browser" }` on a live or environment scene films the captured viewport inside a neutral, unbranded browser window: a tab with `screen.title` and an address bar with `screen.address`, on a plain desktop canvas, scaled to fit above the caption band with the viewport's aspect ratio.
+
+```json
+{ "id": "docs", "order": 1, "screen": { "url": "https://docs.example.test/northwind-agent", "frame": "browser", "title": "Northwind Agent docs" } }
+```
+
+- `address` defaults to a live scene's `screen.url`; an environment scene must give it. `title` defaults to the address host. Both are single-line strings of at most 200 characters, clipped with three dots to fit the bar.
+- The frame films the desktop only: no `devices` other than desktop and no `layout`. `title` or `address` without `frame` is an error.
+- Compositing is offline in the pinned FFmpeg container (`scripts/walkthrough_browser_frame.rb`); the cursor track is mapped into the window. A live scene is framed while its screencast is composited; an environment scene is framed in place right after capture.
+- The frame (title, address, compositor version, FFmpeg digest) is part of the scene's `frames_key`, so changing any of them recaptures.
+
 ## Rules
 
 - `id` matches `\A[a-z0-9][a-z0-9-]*\z` and is unique; `order` is unique and contiguous from 1.
@@ -246,8 +259,8 @@ A live or compose scene picks the devices it films and how they share the frame:
 All keys are sha256 hex over canonical JSON (sorted keys, no whitespace).
 
 - `frames_key` (compose scene): the compose spec, the template version, the source scene's frames key, and the same capture fields as a live scene.
-- `frames_key` (live scene): URL, devices with their specs, layout, the persona name and login spec (env names, never values), the session parent's frames key, interactions, `wait`, `storage`, viewport, fps, the derived duration, `browser`, the browserless image digest, and the live capture version. It recaptures only with `--recapture` or `--scene` (which pulls in its `session_from_scene` dependents).
-- `frames_key`: screen html sha256, the inlined screen with every local asset, `tokens_css_sha256`, interactions, viewport, fps, the browserless image digest, the capture script version, the derived duration, the seed sha256, the mock-store.js sha256, the resolved starting state, and `prng_seed`.
+- `frames_key` (live scene): URL, devices with their specs, layout, the browser frame when set, the persona name and login spec (env names, never values), the session parent's frames key, interactions, `wait`, `storage`, viewport, fps, the derived duration, `browser`, the browserless image digest, and the live capture version. It recaptures only with `--recapture` or `--scene` (which pulls in its `session_from_scene` dependents).
+- `frames_key`: screen html sha256, the inlined screen with every local asset, `tokens_css_sha256`, interactions, viewport, fps, the browserless image digest, the capture script version, the derived duration, the seed sha256, the mock-store.js sha256, the resolved starting state, and `prng_seed`; an environment scene adds the desktop kit `VERSION` and the browser frame when set.
 - `audio_key`: narration text, voice id, model, output format, and voice settings.
 - `asset_key` (images): prompt, model id, size, quality, and reference image digests.
 - `broll_key` (ai-broll): source image digest, prompt, seconds, model id, resolution, and aspect ratio. An ai-broll scene's `frames_key` hashes the clip key (or, for a fallback, the source image digest and mode), the viewport, fps, frame count, and the FFmpeg image digest.

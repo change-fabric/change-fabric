@@ -147,6 +147,7 @@ module WalkthroughStoryboard
     Array(scene['hypotheses']).each { |h| errors << "hypothesis #{h} is not in the top-level list" unless hyp_ids.include?(h) }
     errors << 'needs at least one requirement or assumption' if Array(scene['requirements']).empty? && Array(scene['assumptions']).empty?
     errors.concat(kind_errors(scene, root))
+    errors.concat(WalkthroughBrowserFrame.errors(scene))
     if WalkthroughEnvironment.environment?(scene)
       errors.concat(WalkthroughEnvironment.errors(scene, root))
       errors.concat(store_errors(scene, orders, root)) if scene['store']

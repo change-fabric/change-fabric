@@ -10,6 +10,7 @@ require_relative 'prototype_imagegen'
 require_relative 'prototype_ux_lint'
 require_relative 'walkthrough_cache'
 require_relative 'walkthrough_environment'
+require_relative 'walkthrough_browser_frame'
 
 # Records a cf:prototype mock screen as a PNG frame sequence under a fixed,
 # controlled clock, in the pinned browserless container and nowhere else.
@@ -634,7 +635,8 @@ module PrototypeCapture
                      seed: seed_path && sha256_file(seed_path),
                      mock_store: sha256_file(File.join(root, 'screens', 'mock-store.js')),
                      state: WalkthroughCache.key(state), prng_seed: prng, **(remap.empty? ? {} : { images: remap }),
-                     **(WalkthroughEnvironment.environment?(scene) ? { desktop_kit: WalkthroughEnvironment.version } : {}))
+                     **(WalkthroughEnvironment.environment?(scene) ? { desktop_kit: WalkthroughEnvironment.version } : {}),
+                     **(WalkthroughBrowserFrame.browser?(scene) ? { frame: WalkthroughBrowserFrame.material(scene) } : {}))
     memo[scene['id']] = { key: key, state: state, prng_seed: prng, html_path: html_path, remap: remap, root: root,
                           out_dir: File.join(root, '.cache', 'frames', key) }
   end
@@ -647,6 +649,7 @@ module PrototypeCapture
     capture(session: session, html: inline_screen(prep[:html_path], root: prep[:root]), interactions: scene['interactions'] || [],
             duration_ms: duration, out_dir: prep[:out_dir], state: prep[:state], prng_seed: prep[:prng_seed],
             viewport: board['viewport'], fps: board['fps'] || FPS, label: scene['id'])
+    WalkthroughBrowserFrame.frame_dir!(board, scene, prep[:out_dir], work: prep[:root]) if WalkthroughBrowserFrame.browser?(scene)
   end
 
   # A still of a from_scene dependent needs each ancestor's post-interaction
