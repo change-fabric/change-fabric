@@ -100,6 +100,8 @@ class ChangeScreenshotCaptureTest < Minitest::Test
   def test_the_capture_module_settles_child_frames_before_shooting
     js = capturer("routes" => [ "/" ]).capture_module("https://app.example.org")
     assert_includes js, 'setAttribute("loading", "eager")'
+    assert_includes js, "el.src = el.src"
+    assert_includes js, "settleTimeoutMs / 2"
     assert_includes js, "cellPage.frames()"
     assert_includes js, "frame.isDetached()"
     assert_includes js, "document.readyState"
@@ -109,9 +111,11 @@ class ChangeScreenshotCaptureTest < Minitest::Test
 
   def test_frame_waits_are_best_effort_and_bounded_by_the_settle_budget
     js = capturer("routes" => [ "/" ]).capture_module("https://app.example.org")
-    assert_includes js, "frame.evaluate(() => document.readyState).catch("
+    assert_includes js, "bounded(frame.evaluate(() => document.readyState), \"complete\")"
     assert_includes js, "Date.now() < deadline"
     assert_includes js, "framePaintWaitMs"
+    assert_includes js, "Promise.race"
+    refute_match(/frame\.evaluate\([^\n]*\)\.catch/, js, "every frame evaluate races the settle deadline")
     assert_operator ChangeScreenshotCapture::FRAME_PAINT_WAIT_MS, :<=, ChangeScreenshotCapture::SETTLE_TIMEOUT_MS
   end
 
