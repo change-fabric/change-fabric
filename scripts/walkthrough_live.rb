@@ -515,7 +515,9 @@ module WalkthroughLive
             if (to) { pos = { x: from.x + (to.x - from.x) * step.move.p, y: from.y + (to.y - from.y) * step.move.p }; if (!dev.mobile) await page.mouse.move(pos.x, pos.y); }
             resting = step.move.p >= 1 ? step.move.target : null;
           }
-          if (step.scroll) await safe(() => page.evaluate((s) => { const el = document.querySelector(s); if (el) el.scrollIntoView({ block: "center" }); }, step.scroll), null);
+          // Same semantics as a prototype scene: dx/dy scroll by pixels,
+          // a bare target is scrolled into view.
+          if (step.scroll) await safe(() => page.evaluate((s) => { const el = document.querySelector(s.target); if (!el) return; if (s.dx === undefined && s.dy === undefined) el.scrollIntoView({ block: "center" }); else el.scrollBy({ left: s.dx || 0, top: s.dy || 0, behavior: "instant" }); }, step.scroll), null);
           if (step.hover) { const to = await aim(step.hover); if (to) { pos = to; if (!dev.mobile) await page.mouse.move(pos.x, pos.y); } resting = step.hover; }
           if (step.click) {
             const to = await aim(step.click);
@@ -647,8 +649,7 @@ module WalkthroughLive
     fps = fps_for(board)
     frames = PrototypeCapture.frame_count(PrototypeCapture.scene_duration(scene), fps)
     ops = interactions_for(scene, spec['name'])
-    plan = PrototypeCapture.schedule(resolve_interactions(ops, secrets).map { |op| op['op'] == 'scroll' ? op.merge('op' => 'wait') : op }, frames, fps)
-    mark_scrolls(plan, ops, fps)
+    plan = PrototypeCapture.schedule(resolve_interactions(ops, secrets), frames, fps)
     # Only the full-bleed desktop frame meets the caption band in the page;
     # a composited frame is checked on the canvas instead.
     band = WalkthroughDevice.default?(scene) ? PrototypeUxLint::CAPTION_BAND : 0
@@ -679,14 +680,6 @@ module WalkthroughLive
     runs = result['devices']
     SceneWriter.new(board: board, scene: scene, secrets: secrets, docker: docker, work: work).write(runs, out_dir) if shots
     runs.first['session']
-  end
-
-  # PrototypeCapture.schedule knows no scroll op (it is scheduled as a wait),
-  # so the scroll target is added to its frame here.
-  def mark_scrolls(plan, interactions, fps)
-    Array(interactions).each do |op|
-      plan.dig(PrototypeCapture.frame_at(op['t_ms'].to_i, fps))&.store('scroll', op['target']) if op['op'] == 'scroll'
-    end
   end
 
   # Writes one captured scene to disk: frames composited per the scene's
