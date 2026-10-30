@@ -131,6 +131,17 @@ class WalkthroughEnvironmentTest < Minitest::Test
     assert_includes WalkthroughEnvironment.simulated_line(scene("install"), @root), "file-explorer, elevation-prompt, terminal, services-list"
   end
 
+  # Any kit element can carry `hidden` (windows, tasks, download items,
+  # progress, file lists, terminal lines); a class rule that sets display
+  # must never resurrect one, so the kit hides [hidden] globally.
+  def test_hidden_beats_every_display_rule
+    css = File.read(File.join(KIT, "desktop.css"))
+    assert_match(/^\[hidden\] \{ display: none !important; \}$/, css)
+    %w[cfd-dl cfd-win cfd-task cfd-progress cfd-files cfd-download-bar].each do |cls|
+      assert_match(/\.#{cls}[ ,{]/, css, "#{cls} still styled")
+    end
+  end
+
   def test_kit_is_neutral_and_self_contained
     css = File.read(File.join(KIT, "desktop.css"))
     js = File.read(File.join(KIT, "wm.js"))
