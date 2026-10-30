@@ -161,7 +161,7 @@ module WalkthroughBrowserFrame
     dot = (bar.h * 0.34).round
     controls = (0..2).map { |i| box(Box.new(bar.x + (bar.h * 0.33).round + (i * bar.h * 0.9).round, bar.y + ((bar.h - dot) / 2), dot, dot), CONTROL) }
     chain = [
-      "[0:v]scale=#{c.w}:#{c.h}:flags=lanczos",
+      "[0:v]scale=#{c.w}:#{c.h}:flags=lanczos,setsar=1",
       "pad=#{lay.canvas_w}:#{lay.canvas_h}:#{c.x}:#{c.y}:color=#{CANVAS}",
       "drawbox=x=#{win.x}:y=#{win.y}:w=#{win.w}:h=#{win.h}:color=#{BORDER_COLOR}:t=#{BORDER}",
       box(Box.new(win.x + BORDER, win.y + BORDER, win.w - (2 * BORDER), tab.y + tab.h - win.y - BORDER), STRIP),

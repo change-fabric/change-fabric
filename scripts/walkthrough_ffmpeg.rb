@@ -110,9 +110,11 @@ module WalkthroughFfmpeg
   # to the output size so the zoom does not shimmer. zoompan stamps its link
   # with the board fps while overlay leaves 1/0, and concat outputs a 1/1000000
   # timebase; xfade rejects a pair whose rate or timebase differ, so every
-  # scene and every concat ends on an explicit fps and timebase.
+  # scene and every concat ends on an explicit fps and timebase. FFmpeg 7.1
+  # drops a scene's last frame when fps follows overlay on raw timestamps, so
+  # a plain scene renumbers its frames (setpts=N) before fps.
   def scene_output(plan, scene, i)
-    tail = scene[:hero_still] ? ",#{hero_filter(plan)}" : ",fps=#{plan[:fps]}"
+    tail = scene[:hero_still] ? ",#{hero_filter(plan)}" : ",#{timebase(plan)},setpts=N,fps=#{plan[:fps]}"
     "#{tail},#{timebase(plan)}[v#{i}]"
   end
 
