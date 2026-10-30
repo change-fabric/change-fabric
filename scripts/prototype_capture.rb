@@ -25,7 +25,14 @@ module PrototypeCapture
   START_MS = 1_767_225_600_000 # 2026-01-01T00:00:00Z
   LOCALE = 'en-US'
   DEFAULT_VIEWPORT = { 'w' => 1920, 'h' => 1080, 'dpr' => 1 }.freeze
-  OPS = %w[move click type hover wait].freeze
+  OPS = %w[move click dblclick type key hover scroll wait].freeze
+  # Key names a `key` op may press after any modifiers; a single printable
+  # character is also accepted. Aliases normalize to Puppeteer key names.
+  MODIFIERS = %w[Control Shift Alt Meta].freeze
+  KEY_ALIASES = { 'Ctrl' => 'Control', 'Cmd' => 'Meta', 'Option' => 'Alt', 'Esc' => 'Escape', 'Return' => 'Enter',
+                  'Del' => 'Delete', 'Space' => ' ' }.freeze
+  NAMED_KEYS = (%w[Enter Escape Tab Backspace Delete Insert Home End PageUp PageDown
+                   ArrowUp ArrowDown ArrowLeft ArrowRight] + (1..12).map { |n| "F#{n}" }).freeze
   UNSUPPORTED_TAGS = %w[video canvas iframe].freeze
   LOTTIE_MARKERS = [ /<lottie-player\b/i, /<dotlottie-player\b/i, /\blottie(?:\.min)?\.js\b/i, /\bbodymovin\b/i ].freeze
   ATTR_RE = /\b(src|href)\s*=\s*(["'])(.*?)\2/im
@@ -72,8 +79,13 @@ module PrototypeCapture
   # `remap` swaps draft image keys for final-quality ones in each local ref
   # before it is resolved, so a --final capture inlines the high-quality
   # image the screen's content-keyed cache path would otherwise miss.
-  def inline_screen(path, remap: {})
+  #
+  # Every local ref must resolve inside `root` (default: the walkthrough
+  # slug dir, the parent of a screens/ dir), so a screen cannot inline a
+  # file from elsewhere on disk.
+  def inline_screen(path, remap: {}, root: nil)
     dir = File.dirname(File.expand_path(path))
+    root ||= default_root(dir)
     html = File.read(path)
     check_supported!(html, File.basename(path))
     html = html.gsub(%r{<link\b[^>]*\bhref\s*=\s*(["'])([^"']+\.css)\1[^>]*>}im) do
@@ -83,14 +95,14 @@ module PrototypeCapture
 
       media = tag[/\bmedia\s*=\s*(["'])([^"']*)\1/im, 2]
       media_attr = media && !media.strip.empty? && media.strip.casecmp('all') != 0 ? %( media="#{media}") : ''
-      "<style#{media_attr}>#{inline_css(asset_path(dir, swap_keys(href, remap)), remap)}</style>"
+      "<style#{media_attr}>#{inline_css(asset_path(dir, swap_keys(href, remap), root), remap, root)}</style>"
     end
     html = html.gsub(%r{<script\b([^>]*)\bsrc\s*=\s*(["'])([^"']+)\2([^>]*)>\s*</script>}im) do
       src = Regexp.last_match(3)
       next Regexp.last_match(0) unless local_ref?(src)
 
       attrs = (Regexp.last_match(1) + Regexp.last_match(4)).rstrip
-      file = asset_path(dir, swap_keys(src, remap))
+      file = asset_path(dir, swap_keys(src, remap), root)
       # defer and async do nothing on an inline classic script, so a script
       # carrying either keeps a src (as a data URI) to keep its timing.
       next "<script#{attrs} src=\"#{data_uri(file)}\"></script>" if attrs.match?(/\b(?:defer|async)\b/i)
@@ -99,18 +111,18 @@ module PrototypeCapture
     end
     html = html.gsub(%r{(<style\b[^>]*>)(.*?)(</style>)}im) do
       open_tag, body, close_tag = Regexp.last_match.captures
-      "#{open_tag}#{inline_css_urls(body, dir, 'style', remap)}#{close_tag}"
+      "#{open_tag}#{inline_css_urls(body, dir, 'style', remap, root)}#{close_tag}"
     end
     html = html.gsub(/(\sstyle\s*=\s*)(["'])(.*?)\2/im) do
       lead, quote, body = Regexp.last_match.captures
-      inlined = inline_css_urls(body, dir, 'style', remap)
+      inlined = inline_css_urls(body, dir, 'style', remap, root)
       inlined = inlined.gsub('"', "'") if quote == '"'
       "#{lead}#{quote}#{inlined}#{quote}"
     end
     html = html.gsub(SRCSET_RE) do
       attr, quote, value = Regexp.last_match.captures
       inlined = srcset_candidates(value).map do |url, desc|
-        "#{local_ref?(url) ? data_uri(asset_path(dir, swap_keys(url, remap))) : url}#{desc}"
+        "#{local_ref?(url) ? data_uri(asset_path(dir, swap_keys(url, remap), root)) : url}#{desc}"
       end
       "#{attr}=#{quote}#{inlined.join(', ')}#{quote}"
     end
@@ -118,7 +130,7 @@ module PrototypeCapture
       attr, quote, value = Regexp.last_match.captures
       next Regexp.last_match(0) unless local_ref?(value) && !value.end_with?('.html')
 
-      "#{attr}=#{quote}#{data_uri(asset_path(dir, swap_keys(value, remap)))}#{quote}"
+      "#{attr}=#{quote}#{data_uri(asset_path(dir, swap_keys(value, remap), root))}#{quote}"
     end
   end
 
@@ -170,26 +182,34 @@ module PrototypeCapture
     end
   end
 
-  def asset_path(dir, ref)
+  def default_root(dir) = File.basename(dir) == 'screens' ? File.dirname(dir) : dir
+
+  # Resolves a local ref against `dir`, refusing one that lands outside
+  # `root` (after symlinks), so `../../etc/passwd` never reaches a frame.
+  def asset_path(dir, ref, root = nil)
     path = File.expand_path(ref.split(/[?#]/).first, dir)
     raise UnsupportedContentError, "missing local asset #{ref}" unless File.file?(path)
+
+    base = File.realpath(root || default_root(dir))
+    real = File.realpath(path)
+    raise UnsupportedContentError, "local asset #{ref} resolves outside #{base}" unless real.start_with?(base + File::SEPARATOR)
 
     path
   end
 
-  def inline_css(path, remap = {})
-    inline_css_urls(File.read(path), File.dirname(path), File.basename(path), remap)
+  def inline_css(path, remap = {}, root = nil)
+    inline_css_urls(File.read(path), File.dirname(path), File.basename(path), remap, root)
   end
 
   # Swaps every local url() in a CSS fragment for a data URI resolved
   # against `dir`; shared by linked stylesheets, <style> blocks, and style
   # attributes so none of them leaves a file reference behind.
-  def inline_css_urls(css, dir, label, remap = {})
+  def inline_css_urls(css, dir, label, remap = {}, root = nil)
     css.gsub(/url\(\s*(["']?)([^"')]+)\1\s*\)/i) do
       ref = Regexp.last_match(2)
       raise UnsupportedContentError, "#{label}: remote url(#{ref}) is not supported" if remote?(ref)
 
-      local_ref?(ref) ? "url(\"#{data_uri(asset_path(dir, swap_keys(ref, remap)))}\")" : Regexp.last_match(0)
+      local_ref?(ref) ? "url(\"#{data_uri(asset_path(dir, swap_keys(ref, remap), root))}\")" : Regexp.last_match(0)
     end
   end
 
@@ -251,11 +271,27 @@ module PrototypeCapture
       start = frame_at(op['t_ms'].to_i, fps)
       case op['op']
       when 'move' then schedule_move(plan, op, start, fps)
-      when 'click', 'hover' then plan.dig(start)&.store(op['op'], op['target'])
+      when 'click', 'dblclick', 'hover' then plan.dig(start)&.store(op['op'], op['target'])
       when 'type' then schedule_type(plan, op, fps)
+      when 'key' then plan.dig(start)&.then { |e| (e['key'] ||= []) << { 'keys' => key_chord(op['keys']), 'target' => op['target'] }.compact }
+      when 'scroll' then plan.dig(start)&.store('scroll', { 'target' => op['target'], 'dx' => op['dx'], 'dy' => op['dy'] }.compact)
       end
     end
     plan
+  end
+
+  # "Ctrl+Shift+Esc" -> ["Control", "Shift", "Escape"]: modifiers first, in
+  # authored order, then the one key they modify. Raises on anything else.
+  def key_chord(spec)
+    parts = spec.to_s == '+' ? [ '+' ] : spec.to_s.split(/\+(?=.)/)
+    names = parts.map { |p| KEY_ALIASES.fetch(p, p) }
+    *mods, last = names
+    raise ArgumentError, "key #{spec.inspect} is empty" if last.nil? || last.empty?
+    bad = mods.reject { |m| MODIFIERS.include?(m) }
+    raise ArgumentError, "key #{spec.inspect}: #{bad.join(', ')} is not a modifier (#{MODIFIERS.join(', ')})" unless bad.empty?
+    raise ArgumentError, "key #{spec.inspect}: unknown key #{last}" unless last.length == 1 || NAMED_KEYS.include?(last) || MODIFIERS.include?(last)
+
+    names
   end
 
   def schedule_move(plan, op, start, fps)
@@ -404,9 +440,32 @@ module PrototypeCapture
             await page.mouse.down(); down = true;
             await page.mouse.up();
           }
+          if (step.dblclick) {
+            pos = await center(step.dblclick);
+            resting = step.dblclick;
+            await page.mouse.move(pos.x, pos.y);
+            await page.mouse.click(pos.x, pos.y, { clickCount: 1 });
+            await page.mouse.click(pos.x, pos.y, { clickCount: 2 });
+            down = true;
+          }
+          if (step.scroll) {
+            await page.evaluate((s) => {
+              const el = document.querySelector(s.target);
+              if (!el) throw new Error(`scroll target not found: ${s.target}`);
+              if (s.dx === undefined && s.dy === undefined) el.scrollIntoView({ block: "center", behavior: "instant" });
+              else el.scrollBy({ left: s.dx || 0, top: s.dy || 0, behavior: "instant" });
+            }, step.scroll);
+          }
           if (step.type) {
             if (step.type.focus) await page.focus(step.type.target);
             for (const ch of step.type.text) await page.keyboard.type(ch);
+          }
+          for (const press of step.key || []) {
+            if (press.target) await page.focus(press.target);
+            const mods = press.keys.slice(0, -1);
+            for (const m of mods) await page.keyboard.down(m);
+            await page.keyboard.press(press.keys[press.keys.length - 1]);
+            for (const m of mods.reverse()) await page.keyboard.up(m);
           }
           await page.evaluate(() => new Promise((r) => window.__cfRealRaf(() => window.__cfRealRaf(r))));
           let fresh = false;
@@ -568,13 +627,13 @@ module PrototypeCapture
     html_path = File.join(root, scene.dig('screen', 'html'))
     prng = store['prng_seed'] || default_prng_seed(scene['id'])
     remap = final_remap(scene, root, final)
-    key = frames_key(html: sha256_file(html_path), inlined: Digest::SHA256.hexdigest(inline_screen(html_path, remap: remap)),
+    key = frames_key(html: sha256_file(html_path), inlined: Digest::SHA256.hexdigest(inline_screen(html_path, remap: remap, root: root)),
                      tokens: board['tokens_css_sha256'], interactions: scene['interactions'] || [],
                      viewport: board['viewport'], fps: board['fps'] || FPS, duration_ms: scene_duration(scene),
                      seed: seed_path && sha256_file(seed_path),
                      mock_store: sha256_file(File.join(root, 'screens', 'mock-store.js')),
                      state: WalkthroughCache.key(state), prng_seed: prng, **(remap.empty? ? {} : { images: remap }))
-    memo[scene['id']] = { key: key, state: state, prng_seed: prng, html_path: html_path, remap: remap,
+    memo[scene['id']] = { key: key, state: state, prng_seed: prng, html_path: html_path, remap: remap, root: root,
                           out_dir: File.join(root, '.cache', 'frames', key) }
   end
 
@@ -583,7 +642,7 @@ module PrototypeCapture
   def capture_motion(board, scene, prep, session)
     duration = scene_duration(scene)
     puts "#{scene['id']}: capturing #{frame_count(duration, board['fps'] || FPS)} frames"
-    capture(session: session, html: inline_screen(prep[:html_path]), interactions: scene['interactions'] || [],
+    capture(session: session, html: inline_screen(prep[:html_path], root: prep[:root]), interactions: scene['interactions'] || [],
             duration_ms: duration, out_dir: prep[:out_dir], state: prep[:state], prng_seed: prep[:prng_seed],
             viewport: board['viewport'], fps: board['fps'] || FPS, label: scene['id'])
   end
@@ -621,7 +680,7 @@ if __FILE__ == $PROGRAM_NAME
       prep = PrototypeCapture.prepare(board, scene, root, memo)
       if still
         dir = File.join(root, '.cache', 'stills', scene['id'])
-        PrototypeCapture.capture(session: session, html: PrototypeCapture.inline_screen(prep[:html_path]), interactions: [],
+        PrototypeCapture.capture(session: session, html: PrototypeCapture.inline_screen(prep[:html_path], root: prep[:root]), interactions: [],
                                  duration_ms: PrototypeCapture.frame_ms, out_dir: dir, state: prep[:state],
                                  prng_seed: prep[:prng_seed], viewport: board['viewport'], label: scene['id'])
         puts "#{scene['id']}: still #{File.join(dir, '000001.png')}"

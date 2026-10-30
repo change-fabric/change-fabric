@@ -32,7 +32,7 @@ module WalkthroughLive
   STORAGE_AREAS = %w[sessionStorage localStorage].freeze
   LOGIN_STEPS = %w[fill click wait].freeze
   BROWSER_KEYS = %w[add_hosts network ignore_https_errors].freeze
-  OPS = (PrototypeCapture::OPS + %w[scroll]).freeze
+  OPS = PrototypeCapture::OPS
   # Keys that would carry a literal credential; a value only ever comes from
   # an env var name.
   LITERAL_KEYS = %w[value password secret token text].freeze
@@ -217,12 +217,12 @@ module WalkthroughLive
     errors
   end
 
-  # Interaction checks a live scene adds: scroll needs a target, and a type
+  # Interaction checks a live scene adds: env typing needs a URL, and a type
   # op takes exactly one of text or env.
   def interaction_errors(interactions, live:)
     interactions.each_with_index.flat_map do |op, i|
       errs = []
-      errs << 'scroll and env typing need a screen.url' if !live && (op['op'] == 'scroll' || op.key?('env'))
+      errs << 'env typing needs a screen.url' if !live && op.key?('env')
       if op['op'] == 'type'
         errs << 'type takes exactly one of text or env' if op.key?('text') == op.key?('env')
         errs << 'env must be an env var name like APP_PASSWORD' if op.key?('env') && !op['env'].to_s.match?(ENV_RE)
@@ -538,6 +538,23 @@ module WalkthroughLive
               el.setSelectionRange(end, end);
             }, step.type.after_line);
             for (const ch of step.type.text) await page.keyboard.type(ch);
+          }
+          if (step.dblclick) {
+            const to = await aim(step.dblclick);
+            if (!to) throw new Error(`dblclick target not found: ${step.dblclick}`);
+            pos = to;
+            resting = step.dblclick;
+            await page.mouse.move(pos.x, pos.y);
+            await page.mouse.click(pos.x, pos.y, { clickCount: 1 });
+            await page.mouse.click(pos.x, pos.y, { clickCount: 2 });
+            down = true;
+          }
+          for (const press of step.key || []) {
+            if (press.target) await page.focus(press.target);
+            const mods = press.keys.slice(0, -1);
+            for (const m of mods) await page.keyboard.down(m);
+            await page.keyboard.press(press.keys[press.keys.length - 1]);
+            for (const m of mods.reverse()) await page.keyboard.up(m);
           }
           await sleep(t0 + i * stepMs - Date.now());
           for (const href of await safe(() => page.evaluate(() => (window.__cfLinks || []).splice(0)), [])) links.push(href);

@@ -320,7 +320,7 @@ module WalkthroughRender
         warn_unmatched_remap(scene, prep)
         duration = PrototypeCapture.scene_duration(scene)
         say("#{scene['id']}: capturing #{scene_frames(scene)} frames")
-        @p[:capture].call(session: session, html: PrototypeCapture.inline_screen(prep[:html_path], remap: prep[:remap]),
+        @p[:capture].call(session: session, html: PrototypeCapture.inline_screen(prep[:html_path], remap: prep[:remap], root: prep[:root]),
                           interactions: scene['interactions'] || [], duration_ms: duration, out_dir: prep[:out_dir],
                           state: prep[:state], prng_seed: prep[:prng_seed], viewport: @board['viewport'], fps: fps,
                           label: scene['id'])
@@ -516,7 +516,7 @@ module WalkthroughRender
 
     def lint_scene(session, scene, prep)
       say("#{scene['id']}: ux lint")
-      @p[:lint].call(session: session, html: PrototypeCapture.inline_screen(prep[:html_path], remap: prep[:remap]),
+      @p[:lint].call(session: session, html: PrototypeCapture.inline_screen(prep[:html_path], remap: prep[:remap], root: prep[:root]),
                      interactions: scene['interactions'] || [], duration_ms: PrototypeCapture.scene_duration(scene),
                      out_dir: prep[:out_dir], state: prep[:state], prng_seed: prep[:prng_seed], viewport: @board['viewport'],
                      fps: fps, label: scene['id'])

@@ -144,7 +144,7 @@ A filmed login, with later scenes reusing its session:
 - `persona` (optional, may be `null`) names a top-level persona: that login runs once per render and its cookies and storage seed every scene naming it; different personas get separate sessions. `session_from_scene` (optional) names an earlier live scene whose end session this scene starts from, like `store.from_scene`. The two are exclusive. With neither, the scene starts logged out with an empty session. Nothing requires a login.
 - `wait` (optional): `until` is `domcontentloaded` or `load` (default `load`; networkidle is refused, it hangs under dev servers with HMR sockets), `selector` is waited for after it, then `settle_ms` (non-negative integer) passes before the first frame.
 - `storage` (optional): `clear` lists `sessionStorage`, `localStorage`, or a single key (removed from both); `set` maps `sessionStorage` or `localStorage` to key-value pairs (non-string values are JSON encoded). It applies after the session is restored and before the page loads, and only to the first load of the scene.
-- Live `interactions` add `scroll` (`target`, scrolled into view) to move, click, type, hover, and wait. A `type` op takes exactly one of `text` or `env`. `scroll` and `env` typing need a live scene.
+- Live `interactions` use the same ops as a prototype scene. A `type` op takes exactly one of `text` or `env`. `env` typing needs a live scene.
 - Env-typed and filled values are masked as `[masked]` in logs, errors, and the lint report, and are not key material. An unset env var fails with its name only.
 - Live scenes record in real time (no controlled clock): a screencast is sampled at the board `fps`. Flats are prototype-only; `prototype_capture.rb` skips live scenes.
 
@@ -213,7 +213,11 @@ A live or compose scene picks the devices it films and how they share the frame:
 
 - `id` matches `\A[a-z0-9][a-z0-9-]*\z` and is unique; `order` is unique and contiguous from 1.
 - `transition.type` is `cut` or `fade`; a fade's `ms` is in 100..1500 and overlaps the previous scene.
-- `op` is one of move, click, type, hover, wait; `t_ms` is a non-negative integer and non-decreasing; `target` is required except for wait.
+- `op` is one of move, click, dblclick, type, key, hover, scroll, wait; `t_ms` is a non-negative integer and non-decreasing; `target` is required except for wait and key.
+- `dblclick` double-clicks `target` (a real two-press mouse sequence), for opening a file or a list row.
+- `key` presses `keys` on its frame through CDP key events under the virtual clock: one key (`"Enter"`, `"Escape"`, `"a"`) or a chord with modifiers first (`"Control+C"`, `"Control+Shift+Esc"`). Modifiers are Control, Shift, Alt, Meta; `Ctrl`, `Cmd`, `Option`, `Esc`, `Return`, `Del`, and `Space` are aliases. An optional `target` is focused first. An unknown key fails validation.
+- `scroll` takes a `target`. With integer `dx` and/or `dy` it scrolls that element by those pixels, instantly, so the same delta gives the same frame; with neither it scrolls the target into view (centred). A missing target fails the capture.
+- Every local asset a screen references (stylesheet, script, image, CSS `url()`) must resolve, after symlinks, inside the walkthrough slug dir (the parent of `screens/`); a ref that escapes it fails the capture.
 - Duration is derived, never authored: `duration_ms = max(min_ms, measured_ms + pad_ms)`. A `duration_ms` key on a scene or in `timing` is a validation error. `measured_ms` is written by the renderer from the narration alignment.
 - Every scene `hypotheses` id resolves to the top-level list; every scene has at least one requirement or one assumption.
 - `store` is optional. `seed` must exist under `data/`. `from_scene` names an earlier scene (lower `order`), so there are no cycles. The starting state is the seed, then the `from_scene` end state, then the `patch` ops (`set`, `push`, `delete`). `prng_seed` is an integer, derived from the scene id when absent.

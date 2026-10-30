@@ -221,7 +221,7 @@ class WalkthroughLiveTest < Minitest::Test
                              "interactions" => [ { "t_ms" => 0, "op" => "type", "target" => "#p", "env" => "APP_PASSWORD" } ])
     errs = errors_for(board([ proto ]))
     assert(errs.any? { |e| e.include?("persona needs a screen.url") })
-    assert(errs.any? { |e| e.include?("scroll and env typing need a screen.url") })
+    assert(errs.any? { |e| e.include?("env typing needs a screen.url") })
   end
 
   # -- keys -----------------------------------------------------------------

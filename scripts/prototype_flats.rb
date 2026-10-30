@@ -238,7 +238,7 @@ module PrototypeFlats
   def render_flat(session, entry, theme, root, manifest)
     out = File.join(root, 'flats')
     seed = seed_for(root)
-    html = PrototypeCapture.inline_screen(File.join(root, entry[:html]))
+    html = PrototypeCapture.inline_screen(File.join(root, entry[:html]), root: root)
     state = PrototypeCapture.resolve_state(seed, patch: entry[:patch])
     mod = function_module(html: html, theme: theme, viewport: manifest['viewport'], state: state,
                           prng_seed: PrototypeCapture.default_prng_seed(entry[:name]))
