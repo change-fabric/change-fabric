@@ -167,6 +167,20 @@ class PrototypeCaptureTest < Minitest::Test
     assert_raises(ArgumentError) { PrototypeCapture.schedule([ { "op" => "drag", "t_ms" => 0 } ], 1) }
   end
 
+  def test_type_replace_is_scheduled_once_and_played_back
+    [ [ true, true ], [ nil, false ] ].each do |flag, expected|
+      op = { "t_ms" => 0, "op" => "type", "target" => "#c", "text" => "ab", "cps" => 1000 }
+      op["replace"] = flag unless flag.nil?
+      typed = PrototypeCapture.schedule([ op ], 20).filter_map { |f| f["type"] }
+      assert_equal expected, typed.first.key?("replace")
+    end
+    mod = PrototypeCapture.function_module(html: "<p>hi</p>", plan: [ { "frame" => 0 } ], range: 0...1,
+                                           viewport: nil, prng_seed: 1, state: {})
+    assert_match(/if \(step\.type\.replace\) await page\.\$eval\(step\.type\.target, \(el\) => el\.select\(\)\)/, mod)
+    assert_operator mod.index("step.type.focus"), :<, mod.index("step.type.replace")
+    assert_operator mod.index("step.type.replace"), :<, mod.index("page.keyboard.type(ch)")
+  end
+
   def test_cursor_path_numbers_frames_from_one
     path = PrototypeCapture.cursor_path([ { "x" => 1.234, "y" => 2, "down" => false }, { "x" => 3, "y" => 4, "down" => true } ])
     assert_equal [ { "frame" => 1, "x" => 1.23, "y" => 2, "down" => false }, { "frame" => 2, "x" => 3, "y" => 4, "down" => true } ], path

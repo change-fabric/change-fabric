@@ -450,6 +450,8 @@ module PrototypeCapture
           }
           if (step.type) {
             if (step.type.focus) await page.focus(step.type.target);
+            // replace selects the field's value first, so typing swaps it out.
+            if (step.type.replace) await page.$eval(step.type.target, (el) => el.select());
             for (const ch of step.type.text) await page.keyboard.type(ch);
           }
           await page.evaluate(() => new Promise((r) => window.__cfRealRaf(() => window.__cfRealRaf(r))));
