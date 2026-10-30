@@ -1,11 +1,11 @@
 # frozen_string_literal: true
 
-require 'minitest/autorun'
+require "minitest/autorun"
 
 # Window ids may start with a digit (ID_RE in walkthrough_environment.rb), so
 # wm.js must never interpolate a raw id into an id selector.
 class DesktopWmSelectorTest < Minitest::Test
-  WM = File.expand_path('../skills/prototype/fixtures/desktop/wm.js', __dir__)
+  WM = File.expand_path("../skills/prototype/fixtures/desktop/wm.js", __dir__)
 
   def test_no_raw_id_interpolated_into_id_selector
     src = File.read(WM)
