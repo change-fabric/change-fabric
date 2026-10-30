@@ -48,10 +48,13 @@ class RoastVideoTest < Minitest::Test
     File.write(File.join(@roast, "round-2.json"), JSON.generate(CRITIC.merge("issues" => [])))
     ENV["OPENAI_API_KEY"] = "sk-test-secret"
     ENV.delete("CF_SECRETS_ENV")
+    @terms = File.join(@dir, "terms.txt").tap { |p| File.write(p, "zorblax\n") }
+    ENV["CF_SENSITIVE_TERMS_FILE"] = @terms
   end
 
   def teardown
     ENV.delete("OPENAI_API_KEY")
+    ENV.delete("CF_SENSITIVE_TERMS_FILE")
     FileUtils.remove_entry(@dir)
   end
 
@@ -92,6 +95,31 @@ class RoastVideoTest < Minitest::Test
     assert_equal 1, code
     assert_match(/ceiling/, out.string)
     assert_empty http.requests
+  end
+
+  def test_sensitive_term_in_any_input_refuses_before_request
+    cases = {
+      "brief" => -> { File.write(@brief, "Label zorblax buyer") },
+      "transcript" => -> { File.write(File.join(@dir, "walkthrough.vtt"), "WEBVTT\n\n00:00.000 --> 00:02.000\nzorblax") },
+      "stills history" => -> { File.write(File.join(@roast, "round-2.json"), JSON.generate(CRITIC.merge("summary" => "zorblax"))) },
+      "video history" => -> { File.write(File.join(@roast, "round-2.video.json"), JSON.generate(CRITIC.merge("summary" => "zorblax"))) }
+    }
+    cases.each do |name, plant|
+      teardown
+      setup
+      plant.call
+      args = [ "--video", @mp4, "--brief", @brief, "--out-dir", @roast, "--cache", File.join(@dir, ".cache") ]
+      http = Http.new
+      out = StringIO.new
+      assert_equal 1, RoastVideo::Cli.run(args, out: out, http: http, docker: fake_docker), name
+      assert_match(/sensitive term/, out.string, name)
+      refute_includes out.string, "zorblax", name
+      assert_empty http.requests, name
+      http = Http.new
+      out = StringIO.new
+      assert_equal 0, RoastVideo::Cli.run(args + [ "--allow-sensitive" ], out: out, http: http, docker: fake_docker), "#{name}: #{out.string}"
+      assert_equal 1, http.requests.size, name
+    end
   end
 
   def test_bad_timestamp_is_rejected
