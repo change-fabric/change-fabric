@@ -247,10 +247,18 @@ class ChangeScreenshotCapture < ChangeLaneBrowserless
               cell.pageHeight = await settle(cellPage);
               // Chromium never paints a cross-origin iframe outside the
               // viewport, and a full-page shot does not make it, so a page
-              // with frames is re-laid out at its own height (capped) and
-              // settled again before the shot.
-              const hasFrames = await cellPage.evaluate(() => document.querySelector("iframe") !== null);
-              if (hasFrames && cell.pageHeight > vp.height) {
+              // with a visible frame below the first screen is re-laid out at
+              // its own height (capped) and settled again before the shot.
+              // The resize also changes viewport-relative layout, so it is
+              // skipped whenever no visible frame needs it (a hidden
+              // analytics frame never triggers it).
+              const needsTall = await cellPage.evaluate((viewportHeight) => Array.from(document.querySelectorAll("iframe")).some((el) => {
+                const rect = el.getBoundingClientRect();
+                const style = getComputedStyle(el);
+                const visible = rect.width > 0 && rect.height > 0 && style.visibility !== "hidden" && style.display !== "none";
+                return visible && rect.bottom + window.scrollY > viewportHeight;
+              }), vp.height);
+              if (needsTall && cell.pageHeight > vp.height) {
                 await cellPage.setViewport({ width: vp.width, height: Math.min(cell.pageHeight, tallViewportMaxPx), deviceScaleFactor: deviceScaleFactor });
                 cell.pageHeight = await settle(cellPage);
               }
