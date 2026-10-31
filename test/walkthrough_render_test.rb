@@ -427,6 +427,23 @@ class WalkthroughRenderTest < Minitest::Test
     assert_equal [ true ], @calls[:overlay], "the next render retries the overlay instead of a cache hit"
   end
 
+  def test_broll_overlay_path_with_spaces_is_shell_escaped
+    write_broll_board
+    File.binwrite(File.join(@root, "screens", "assets", "title overlay.png"), "PNG")
+    b = JSON.parse(File.read(File.join(@root, "storyboard.json")))
+    b["scenes"].last["broll"]["overlay"] = "screens/assets/title overlay.png"
+    File.write(File.join(@root, "storyboard.json"), JSON.pretty_generate(b))
+    base = providers
+    scripts = []
+    docker = lambda do |argv|
+      next scripts.push(argv.last) && [ "", Status.new(true) ] if argv.join(" ").include?("filter_complex overlay")
+
+      base[:docker].call(argv)
+    end
+    run_render(providers: base.merge(docker: docker, broll: broll_provider("generated")))
+    assert_includes scripts.first, "title\\ overlay.png"
+  end
+
   def test_cached_broll_rerun_calls_nothing
     write_broll_board
     first = run_render(providers: providers.merge(broll: broll_provider("generated")))
@@ -585,7 +602,12 @@ class WalkthroughRenderTest < Minitest::Test
         b["scenes"][0]["narration"]["text"] = "Scene list says something new."
         File.write(File.join(@root, "storyboard.json"), JSON.pretty_generate(b))
       end,
-      seed: -> { File.write(File.join(@root, "data", "seed.json"), JSON.generate("items" => [ { "id" => 2 } ])) }
+      seed: -> { File.write(File.join(@root, "data", "seed.json"), JSON.generate("items" => [ { "id" => 2 } ])) },
+      camera: lambda do
+        b = JSON.parse(File.read(File.join(@root, "storyboard.json")))
+        b["scenes"][0]["camera"] = { "zoom" => 1.2 }
+        File.write(File.join(@root, "storyboard.json"), JSON.pretty_generate(b))
+      end
     }
     edits.each do |name, edit|
       FileUtils.rm_rf(File.join(@root, "roast"))

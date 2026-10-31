@@ -3,6 +3,7 @@
 require 'digest'
 require 'fileutils'
 require 'json'
+require 'shellwords'
 require 'open3'
 require_relative 'b_roll'
 require_relative 'change_docker'
@@ -209,8 +210,10 @@ module WalkthroughRender
     # The frames are root-owned, so the composite runs in the ffmpeg image.
     def overlay_frames(out_dir, overlay)
       dir = BRoll.container(out_dir, @root)
-      script = "mkdir -p #{dir}/ov && ffmpeg -loglevel error -i #{dir}/%06d.png -i #{BRoll.container(overlay, @root)} " \
-               "-filter_complex overlay -start_number 1 -y #{dir}/ov/%06d.png && mv #{dir}/ov/*.png #{dir}/ && rmdir #{dir}/ov"
+      d = Shellwords.escape(dir)
+      img = Shellwords.escape(BRoll.container(overlay, @root))
+      script = "mkdir -p #{d}/ov && ffmpeg -loglevel error -i #{d}/%06d.png -i #{img} " \
+               "-filter_complex overlay -start_number 1 -y #{d}/ov/%06d.png && mv #{d}/ov/*.png #{d}/ && rmdir #{d}/ov"
       output, status = @p[:docker].call(ChangeDocker.run_command(network: 'none', image: ChangeDocker::FFMPEG_IMAGE, entrypoint: 'sh',
                                                                   args: [ '-c', script ], mounts: { @root => BRoll::WORK }))
       raise FfmpegError, "b-roll overlay failed:\n#{output.to_s.lines.last(5).join}" unless status.success?
@@ -426,8 +429,7 @@ module WalkthroughRender
     # The directory is keyed on what is actually captured, not only on the
     # declared keys: a live recapture keeps its key but changes its frames.
     def render_dir(manifest)
-      cams = scenes.filter_map { |s| s['camera'] && [ s['id'], s['camera'] ] }
-      hash = WalkthroughCache.key([ manifest['manifest_hash'], live_digest, *(cams.empty? ? [] : [ cams ]) ])
+      hash = WalkthroughCache.key([ manifest['manifest_hash'], live_digest, *camera_material ])
       File.join(@cache, 'render', @burn_captions ? "#{hash}-burn" : hash)
     end
 
@@ -444,7 +446,16 @@ module WalkthroughRender
 
     # What a roast round reviews: the draft-quality keys (so a --final render of
     # the same authored inputs matches the roasted draft) plus the live capture.
-    def content_key(draft_keys) = WalkthroughCache.key([ draft_keys, live_digest ])
+    # Camera framing is applied at assembly, outside every capture key, so it
+    # is part of what the roast reviewed: a framing edit reopens the loop.
+    def content_key(draft_keys) = WalkthroughCache.key([ draft_keys, live_digest, *camera_material ])
+
+    # Empty when no scene has a camera, so keys for camera-less boards are
+    # unchanged.
+    def camera_material
+      cams = scenes.filter_map { |s| s['camera'] && [ s['id'], s['camera'] ] }
+      cams.empty? ? [] : [ cams ]
+    end
 
     def plan(manifest, inputs)
       dir = render_dir(manifest)
