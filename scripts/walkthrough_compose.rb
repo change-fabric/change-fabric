@@ -93,7 +93,7 @@ module WalkthroughCompose
 
   def explicit_errors(spec)
     errs = []
-    unknown = spec.keys - FIELDS
+    unknown = spec.keys - FIELDS - %w[bar sent]
     errs << "compose has unknown keys: #{unknown.join(', ')}" unless unknown.empty?
     errs << "compose.channel must be one of #{CHANNELS.join(', ')}" unless CHANNELS.include?(spec['channel'])
     %w[to cc bcc].each do |k|
