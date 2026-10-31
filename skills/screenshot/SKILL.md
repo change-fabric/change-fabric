@@ -111,7 +111,9 @@ The flow, in order:
 Before each full-page shot, capture settles the page: web fonts, then child
 frames, then document height. Frame settle sets `loading="eager"` on every
 lazy iframe and img, never reassigning `src`, which would renavigate an embed
-that already loaded. It then waits for each child frame
+that already loaded. It waits, inside the same deadline, for every image in
+the main document to finish loading, since a reserved box keeps the page
+height stable while a just-activated image is still blank. It then waits for each child frame
 to reach `readyState` complete, runs two animation frames, and briefly waits
 for a `<video>` or image inside the frame where it is accessible. Frames get half
 of the settle time budget, so the height check always runs, and every frame

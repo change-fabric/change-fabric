@@ -181,6 +181,14 @@ class ChangeScreenshotCapture < ChangeLaneBrowserless
             sleep(Math.max(0, deadline - Date.now())).then(() => fallback),
           ]);
           await sleep(Math.min(settleIntervalMs, Math.max(0, deadline - Date.now())));
+          // Images just switched to eager start loading now, and a reserved
+          // box keeps the height stable while they do, so wait for their
+          // pixels too, inside the same deadline.
+          while (Date.now() < deadline) {
+            const loaded = await bounded(cellPage.evaluate(() => Array.from(document.images).every((el) => el.complete)), true);
+            if (loaded) break;
+            await sleep(settleIntervalMs);
+          }
           const frames = cellPage.frames().filter((f) => f !== cellPage.mainFrame());
           await Promise.all(frames.map(async (frame) => {
             try {
