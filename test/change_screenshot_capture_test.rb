@@ -115,6 +115,7 @@ class ChangeScreenshotCaptureTest < Minitest::Test
     assert_includes js, "Date.now() < deadline"
     assert_includes js, "framePaintWaitMs"
     assert_includes js, "Array.from(document.images).every((el) => el.complete)"
+    assert_includes js, "!!el.poster && posterLoaded(el.poster)"
     assert_includes js, "Promise.race"
     refute_match(/frame\.evaluate\([^\n]*\)\.catch/, js, "every frame evaluate races the settle deadline")
     assert_operator ChangeScreenshotCapture::FRAME_PAINT_WAIT_MS, :<=, ChangeScreenshotCapture::SETTLE_TIMEOUT_MS

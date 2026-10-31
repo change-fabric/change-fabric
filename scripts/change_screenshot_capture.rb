@@ -202,9 +202,16 @@ class ChangeScreenshotCapture < ChangeLaneBrowserless
               const paintDeadline = Math.min(deadline, Date.now() + framePaintWaitMs);
               while (Date.now() < paintDeadline) {
                 const painted = await bounded(frame.evaluate(() => {
-                  const media = Array.from(document.querySelectorAll("video, img[poster], img"));
+                  // A poster URL is not pixels: each poster is loaded through
+                  // an Image kept across polls, and counts once it completes.
+                  const posters = (window.__cfPosters = window.__cfPosters || {});
+                  const posterLoaded = (url) => {
+                    if (!posters[url]) { posters[url] = new Image(); posters[url].src = url; }
+                    return posters[url].complete;
+                  };
+                  const media = Array.from(document.querySelectorAll("video, img"));
                   if (media.length === 0) return true;
-                  return media.every((el) => (el.tagName === "VIDEO" ? el.readyState >= 2 || !!el.poster : el.complete));
+                  return media.every((el) => (el.tagName === "VIDEO" ? el.readyState >= 2 || (!!el.poster && posterLoaded(el.poster)) : el.complete));
                 }), true);
                 if (painted) break;
                 await sleep(settleIntervalMs);
