@@ -10,11 +10,18 @@ require_relative "imagegen_helpers"
 class RoastVideoTest < Minitest::Test
   CRITIC = {
     "score" => 6, "summary" => "Narration runs ahead of the picture.",
-    "issues" => [ { "priority" => "P1", "timestamp" => "00:42", "screen" => "inquiry", "problem" => "Says sent before the click",
+    "issues" => [ { "priority" => "P1", "timestamp" => "00:42", "where" => "inquiry", "problem" => "Says sent before the click",
                     "fix" => "Move the cue after the click" } ],
     "thirty_second_test" => { "verdict" => "partial", "reason" => "Buyer path unclear" },
     "purpose_test" => [ { "outcome" => "Buyer can name the next step", "verdict" => "partial", "reason" => "Cue lands early" } ]
   }.freeze
+
+  def test_issue_schema_declares_every_required_field
+    item = RoastVideo::SCHEMA["properties"]["issues"]["items"]
+    assert_equal false, item["additionalProperties"]
+    assert_empty item["required"] - item["properties"].keys
+    assert_includes item["required"], "timestamp"
+  end
 
   class Http < ImagegenHelpers::FakeHttp
     def initialize(critic = CRITIC) = super("200").tap { @critic = critic }

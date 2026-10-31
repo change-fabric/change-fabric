@@ -48,14 +48,14 @@ module RoastVideo
       say so if an issue rests on it);
     - whether the story is coherent for the target audience in the brief, start to end;
     - readability of on-screen text for the time it is actually visible.
-    Every issue carries a timestamp (mm:ss, the moment it starts) and names the scene or cue as
-    its screen. Check the brief's must-show list against what the video actually shows.
+    Every issue carries a timestamp (mm:ss, the moment it starts) and names the scene or cue in
+    its where field. Check the brief's must-show list against what the video actually shows.
   TEXT
 
   SCHEMA = begin
     schema = JSON.parse(JSON.generate(Roast::SCHEMA))
     item = schema['properties']['issues']['items']
-    item['required'] = %w[priority timestamp screen problem fix]
+    item['required'] = %w[priority timestamp where problem fix]
     item['properties'] = { 'priority' => item['properties']['priority'], 'timestamp' => { 'type' => 'string' } }
                          .merge(item['properties'].except('priority'))
     schema.freeze
@@ -170,7 +170,7 @@ module RoastVideo
     lines = [ "# Video roast round #{round}", '', "Score: #{critic['score']}/10", '', critic['summary'], '' ]
     Roast::PRIORITIES.each do |p|
       critic['issues'].select { |i| i['priority'] == p }.each do |i|
-        lines << "- #{p} [#{i['timestamp']}] (#{i['screen']}): #{i['problem']}" << "  Fix: #{i['fix']}"
+        lines << "- #{p} [#{i['timestamp']}] (#{Roast.location(i)}): #{i['problem']}" << "  Fix: #{i['fix']}"
       end
     end
     t = critic['thirty_second_test']
