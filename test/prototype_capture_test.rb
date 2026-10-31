@@ -428,6 +428,16 @@ class PrototypeCaptureTest < Minitest::Test
     end
   end
 
+  def test_inline_screen_ignores_commented_out_imports_and_urls
+    Dir.mktmpdir do |dir|
+      File.write(File.join(dir, "main.css"), %(/* @import "optional-theme.css"; */\nbody{color:red}))
+      File.write(File.join(dir, "x.html"), %(<link rel="stylesheet" href="main.css"><style>/* a{background:url(gone.png)} */</style>))
+      out = PrototypeCapture.inline_screen(File.join(dir, "x.html"))
+      assert_includes out, "body{color:red}"
+      refute_includes out, "optional-theme.css"
+    end
+  end
+
   def test_inline_screen_rejects_circular_and_remote_css_imports
     Dir.mktmpdir do |dir|
       File.write(File.join(dir, "a.css"), %(@import "b.css";))

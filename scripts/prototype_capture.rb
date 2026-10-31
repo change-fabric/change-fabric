@@ -228,9 +228,10 @@ module PrototypeCapture
 
   # Swaps every local url() in a CSS fragment for a data URI resolved
   # against `dir`; shared by linked stylesheets, <style> blocks, and style
-  # attributes so none of them leaves a file reference behind.
+  # attributes so none of them leaves a file reference behind. Comments are
+  # dropped first, so a commented-out @import or url() is not resolved.
   def inline_css_urls(css, dir, label, remap = {}, root = nil, seen = [])
-    css = inline_css_imports(css, dir, label, remap, root, seen)
+    css = inline_css_imports(css.gsub(%r{/\*.*?\*/}m, ''), dir, label, remap, root, seen)
     css.gsub(/url\(\s*(["']?)([^"')]+)\1\s*\)/i) do
       ref = Regexp.last_match(2)
       raise UnsupportedContentError, "#{label}: remote url(#{ref}) is not supported" if remote?(ref)
