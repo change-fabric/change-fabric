@@ -47,6 +47,20 @@ class ChangeScreenshotCapture < ChangeLaneBrowserless
   SETTLE_TIMEOUT_MS = 5_000
   SETTLE_INTERVAL_MS = 150
 
+  # Child frames (a third-party video embed, a map) load on their own clock and
+  # a full-page shot never scrolls, so a lazy frame below the fold may never
+  # start. The settle forces loading="eager", then waits per frame for
+  # readyState complete, inside the same SETTLE_TIMEOUT_MS budget. Each frame
+  # wait is best effort: a cross-origin, detached, or failed frame is skipped.
+  # PAINT_WAIT_MS bounds the extra wait for a <video> or poster <img> to have
+  # pixels once its frame is complete.
+  FRAME_PAINT_WAIT_MS = 1_500
+
+  # Chromium does not paint a cross-origin iframe outside the viewport, so a
+  # page with frames is shot at a viewport as tall as the page, capped here
+  # to stay inside the browser's texture limits.
+  TALL_VIEWPORT_MAX_PX = 16_000
+
   # One captured cell: which route at which viewport, its base64 PNG, where it
   # landed on disk, and the navigation error if it never rendered.
   Cell = Struct.new(:viewport, :route, :path, :base64, :http_status, :error, keyword_init: true) do
@@ -131,6 +145,8 @@ class ChangeScreenshotCapture < ChangeLaneBrowserless
         const basicAuth = #{JSON.generate(basic_auth)};
         const settleTimeoutMs = #{JSON.generate(SETTLE_TIMEOUT_MS)};
         const settleIntervalMs = #{JSON.generate(SETTLE_INTERVAL_MS)};
+        const framePaintWaitMs = #{JSON.generate(FRAME_PAINT_WAIT_MS)};
+        const tallViewportMaxPx = #{JSON.generate(TALL_VIEWPORT_MAX_PX)};
 
         #{ChangeLane.wait_for_js}
 
@@ -141,9 +157,74 @@ class ChangeScreenshotCapture < ChangeLaneBrowserless
         // Web fonts are waited on for the same reason: a page rasterized in a
         // fallback face differs from the same page rasterized in its real one,
         // and which of the two a cell caught would otherwise be a race.
+        // Frames are settled first, inside the same budget: force every lazy
+        // iframe and img to load eagerly, wait for each child frame to reach
+        // readyState complete (each wait has its own try/catch and timeout so
+        // a cross-origin, detached, or failed frame never hangs the run), then
+        // let players paint with two animation frames and a short bounded wait
+        // for a video or poster image where the frame is accessible.
+        async function settleFrames(cellPage, deadline) {
+          try {
+            await cellPage.evaluate(() => {
+              // Only the attribute changes: reassigning src would renavigate a lazy
+              // frame that already loaded. One still deferred is loaded by the
+              // page-tall viewport below, which puts it on screen.
+              document.querySelectorAll("iframe[loading=lazy]").forEach((el) => el.setAttribute("loading", "eager"));
+              document.querySelectorAll("img[loading=lazy]").forEach((el) => el.setAttribute("loading", "eager"));
+            });
+          } catch (err) { void err; }
+          const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+          // A hidden frame can suspend its rAF callbacks and leave an evaluate
+          // pending forever, so every frame evaluate races the settle budget.
+          const bounded = (promise, fallback) => Promise.race([
+            promise.catch(() => fallback),
+            sleep(Math.max(0, deadline - Date.now())).then(() => fallback),
+          ]);
+          await sleep(Math.min(settleIntervalMs, Math.max(0, deadline - Date.now())));
+          // Images just switched to eager start loading now, and a reserved
+          // box keeps the height stable while they do, so wait for their
+          // pixels too, inside the same deadline.
+          while (Date.now() < deadline) {
+            const loaded = await bounded(cellPage.evaluate(() => Array.from(document.images).every((el) => el.complete)), true);
+            if (loaded) break;
+            await sleep(settleIntervalMs);
+          }
+          const frames = cellPage.frames().filter((f) => f !== cellPage.mainFrame());
+          await Promise.all(frames.map(async (frame) => {
+            try {
+              while (Date.now() < deadline) {
+                if (frame.isDetached()) return;
+                const ready = await bounded(frame.evaluate(() => document.readyState), "complete");
+                if (ready === "complete") break;
+                await sleep(settleIntervalMs);
+              }
+              await bounded(frame.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))), null);
+              const paintDeadline = Math.min(deadline, Date.now() + framePaintWaitMs);
+              while (Date.now() < paintDeadline) {
+                const painted = await bounded(frame.evaluate(() => {
+                  // A poster URL is not pixels: each poster is loaded through
+                  // an Image kept across polls, and counts once it completes.
+                  const posters = (window.__cfPosters = window.__cfPosters || {});
+                  const posterLoaded = (url) => {
+                    if (!posters[url]) { posters[url] = new Image(); posters[url].src = url; }
+                    return posters[url].complete;
+                  };
+                  const media = Array.from(document.querySelectorAll("video, img"));
+                  if (media.length === 0) return true;
+                  return media.every((el) => (el.tagName === "VIDEO" ? el.readyState >= 2 || (!!el.poster && posterLoaded(el.poster)) : el.complete));
+                }), true);
+                if (painted) break;
+                await sleep(settleIntervalMs);
+              }
+            } catch (err) { void err; }
+          }));
+        }
+
         async function settle(cellPage) {
           try { await cellPage.evaluate(() => (document.fonts ? document.fonts.ready : null)); } catch (err) { void err; }
           const deadline = Date.now() + settleTimeoutMs;
+          // Frames get half the budget so the height loop below always runs.
+          try { await settleFrames(cellPage, Date.now() + settleTimeoutMs / 2); } catch (err) { void err; }
           let last = -1;
           let stable = 0;
           while (Date.now() < deadline) {
@@ -179,6 +260,23 @@ class ChangeScreenshotCapture < ChangeLaneBrowserless
               // would read as a change the branch did not make.
               await cellPage.addStyleTag({ content: diffStabilityCss });
               cell.pageHeight = await settle(cellPage);
+              // Chromium never paints a cross-origin iframe outside the
+              // viewport, and a full-page shot does not make it, so a page
+              // with a visible frame below the first screen is re-laid out at
+              // its own height (capped) and settled again before the shot.
+              // The resize also changes viewport-relative layout, so it is
+              // skipped whenever no visible frame needs it (a hidden
+              // analytics frame never triggers it).
+              const needsTall = await cellPage.evaluate((viewportHeight) => Array.from(document.querySelectorAll("iframe")).some((el) => {
+                const rect = el.getBoundingClientRect();
+                const style = getComputedStyle(el);
+                const visible = rect.width > 0 && rect.height > 0 && style.visibility !== "hidden" && style.display !== "none";
+                return visible && rect.bottom + window.scrollY > viewportHeight;
+              }), vp.height);
+              if (needsTall && cell.pageHeight > vp.height) {
+                await cellPage.setViewport({ width: vp.width, height: Math.min(cell.pageHeight, tallViewportMaxPx), deviceScaleFactor: deviceScaleFactor });
+                cell.pageHeight = await settle(cellPage);
+              }
               cell.shot = await cellPage.screenshot({ encoding: "base64", type: "png", fullPage: true });
             } catch (err) {
               cell.error = String(err);

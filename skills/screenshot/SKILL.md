@@ -108,6 +108,33 @@ The flow, in order:
    no second worktree is needed.
 6. Diff, then tear HEAD's app down the same way.
 
+Before each full-page shot, capture settles the page: web fonts, then child
+frames, then document height. Frame settle sets `loading="eager"` on every
+lazy iframe and img, never reassigning `src`, which would renavigate an embed
+that already loaded. It waits, inside the same deadline, for every image in
+the main document to finish loading, since a reserved box keeps the page
+height stable while a just-activated image is still blank. It then waits for each child frame
+to reach `readyState` complete, runs two animation frames, and briefly waits
+for a `<video>` or image inside the frame where it is accessible (a video
+counts once it has a decoded frame or its poster image has actually loaded,
+not merely once a poster URL is set). Frames get half
+of the settle time budget, so the height check always runs, and every frame
+`evaluate` races that deadline, since a hidden frame can suspend its animation
+frames and leave an evaluate pending forever. Every frame wait is best effort: a
+cross-origin, detached, or failed frame is skipped, never fatal. Chromium never
+paints a cross-origin iframe outside the viewport, and a full-page shot does
+not make it, so a page with a visible iframe below the first screen is then
+re-laid out at a viewport as tall as the page (capped at
+`TALL_VIEWPORT_MAX_PX`) and settled again before the shot: every frame is on
+screen, not just loaded, which is also what loads a lazy frame that was still
+deferred. The cost is that viewport-relative layout (`vh` units, height media
+queries, fixed-bottom elements) is laid out at that taller height on such a
+page, at both refs, so a content change that moves the page height can also
+move those sections. A hidden frame, or one inside the first screen, never
+triggers the resize. The browser's
+user agent is left as is; whether a headless user agent makes an embed withhold
+its poster is unverified.
+
 Each shot is a full-page PNG, not the audit lane's quality-72 JPEG: these
 images are both the deliverable a human reads inline and the diff's own input,
 where a lossy encoder's ringing around text is indistinguishable from a real
