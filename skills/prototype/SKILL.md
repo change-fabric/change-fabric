@@ -24,6 +24,10 @@ Everything lands in `walkthrough/<slug>/` in the target repo (layout below).
 - Local assets only. A remote `http(s)` reference, `<video>`, `<canvas>`, `<iframe>`, or Lottie fails capture with `UnsupportedContentError`, by design. Fonts are local files.
 - Fictional data only, each invented record and feature recorded in `ASSUMPTIONS.md`. Nothing about the prototype status appears on screen.
 
+## Desktop kit
+
+A scene set on a computer (download an archive, extract it, edit a config file, install a service) uses the neutral desktop kit in `fixtures/desktop/` instead of a hand-built desktop: `"kind": "environment"` with a seed naming the windows (browser, file-explorer, text-editor, terminal, elevation-prompt, services-list) and their content. `ruby scripts/walkthrough_environment.rb storyboard.json` writes the screens; never edit them. The kit owns the chrome and fixed ids (`fixtures/desktop/CONTRACT.md`); the project owns names, file lists, config text, transcripts, and any vendor page shown in a browser window slot. The chrome stays generic: no lookalike of a real operating system. Scripted input covers `click`, `dblclick` (open a file or row), `type`, `key` (one key or a chord such as `Control+S`, sent through CDP under the virtual clock), `scroll` (by pixel delta or into view), `hover`, `move`, and `wait`. A docs page shown on its own goes in a browser frame instead: `screen.frame: "browser"` with `screen.title` and `screen.address` composites the captured viewport into a neutral browser window (see cf:walkthrough `reference/storyboard-schema.md`).
+
 ## Mock state (core tenet)
 
 Screens feel real because state is real. Copy `reference/mock-store.js` into `screens/mock-store.js` and seed it from `data/seed.json` (fictional records).

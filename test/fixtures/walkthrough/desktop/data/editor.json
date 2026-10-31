@@ -1,0 +1,24 @@
+{
+  "clock": "9:44 AM",
+  "editor": {
+    "documents": [
+      {
+        "path": "C:\\northwind-agent\\config.json",
+        "caret_after": "\"api_key\": \"",
+        "text": "{\n  \"api_key\": \"\",\n  \"playout\": { \"acme\": { \"enabled\": false } }\n}\n"
+      }
+    ]
+  },
+  "windows": [
+    {
+      "id": "editor",
+      "type": "text-editor",
+      "title": "config.json",
+      "document": "C:\\northwind-agent\\config.json",
+      "x": 360,
+      "y": 120,
+      "w": 1200,
+      "h": 760
+    }
+  ]
+}

@@ -144,7 +144,7 @@ A filmed login, with later scenes reusing its session:
 - `persona` (optional, may be `null`) names a top-level persona: that login runs once per render and its cookies and storage seed every scene naming it; different personas get separate sessions. `session_from_scene` (optional) names an earlier live scene whose end session this scene starts from, like `store.from_scene`. The two are exclusive. With neither, the scene starts logged out with an empty session. Nothing requires a login.
 - `wait` (optional): `until` is `domcontentloaded` or `load` (default `load`; networkidle is refused, it hangs under dev servers with HMR sockets), `selector` is waited for after it, then `settle_ms` (non-negative integer) passes before the first frame.
 - `storage` (optional): `clear` lists `sessionStorage`, `localStorage`, or a single key (removed from both); `set` maps `sessionStorage` or `localStorage` to key-value pairs (non-string values are JSON encoded). It applies after the session is restored and before the page loads, and only to the first load of the scene.
-- Live `interactions` add `scroll` (`target`, scrolled into view) to move, click, type, hover, and wait. A `type` op takes exactly one of `text` or `env`. `scroll` and `env` typing need a live scene.
+- Live `interactions` use the same ops as a prototype scene. A `type` op takes exactly one of `text` or `env`. `env` typing needs a live scene.
 - Env-typed and filled values are masked as `[masked]` in logs, errors, and the lint report, and are not key material. An unset env var fails with its name only.
 - Live scenes record in real time (no controlled clock): a screencast is sampled at the board `fps`. Flats are prototype-only; `prototype_capture.rb` skips live scenes.
 
@@ -209,11 +209,45 @@ A live or compose scene picks the devices it films and how they share the frame:
 - Prototype board: give it `screen.html` (a generated file) and run `ruby scripts/walkthrough_message.rb storyboard.json` to write it from the templates and the project's tokens. `shell` names a project screen holding `<div data-cf-message></div>`; the view is rendered into that slot, so the scene keeps the project's own stage and device frame. Validation flags a generated file that no longer matches its scene.
 - Both get the UX lint and roast rubric item 10. ASSUMPTIONS.md lists each one under Simulated UI as a simulated notification.
 
+### Environment scenes
+
+`"kind": "environment"` shows a simulated, neutral desktop from the desktop kit in `skills/prototype/fixtures/desktop/` (its `CONTRACT.md` lists every window type and fixed id). Nothing on a real machine is touched. The kit owns the chrome; the project owns the content through the scene's seed.
+
+```json
+{ "id": "install", "order": 4, "kind": "environment", "screen": { "html": "screens/install.html" },
+  "store": { "seed": "data/install.json" },
+  "environment": { "open": ["explorer", "services"], "focus": "explorer", "slots": { "docs-content": "screens/partials/docs.html" } },
+  "interactions": [{ "t_ms": 0, "op": "dblclick", "target": "#explorer-file-install-agent-bat" },
+                   { "t_ms": 600, "op": "click", "target": "#elevate-yes" }] }
+```
+
+- `store.seed` is required and follows `desktop.schema.json`: `windows[]` (`id`, `type`, `title`, `x`, `y`, `w`, `h`, plus per-type fields), `files[]`, `downloads[]`, `services[]`, `terminal.transcript[]`, `editor.documents[]`, and `clock`. Window types: browser, file-explorer, text-editor, terminal, elevation-prompt, services-list.
+- `environment.open` lists the windows visible at the start (default all); the rest render hidden and can be opened in the scene (a file row double-click, an elevation Yes). `focus` must be an open window (default the last one). `slots` maps a browser window's `<id>-content` slot to a project HTML partial.
+- Run `ruby scripts/walkthrough_environment.rb storyboard.json` to write each `screen.html`. Validation fails on drift (the screen's ids differ from the kit's) and on a stale file. The kit `VERSION` is part of the scene's `frames_key`.
+- ASSUMPTIONS.md lists each one under Simulated UI as a simulated desktop environment.
+
+### Browser frame
+
+`"screen": { "frame": "browser" }` on a live or environment scene films the captured viewport inside a neutral, unbranded browser window: a tab with `screen.title` and an address bar with `screen.address`, on a plain desktop canvas, scaled to fit above the caption band with the viewport's aspect ratio.
+
+```json
+{ "id": "docs", "order": 1, "screen": { "url": "https://docs.example.test/northwind-agent", "frame": "browser", "title": "Northwind Agent docs" } }
+```
+
+- `address` defaults to a live scene's `screen.url`; an environment scene must give it. `title` defaults to the address host. Both are single-line strings of at most 200 characters, clipped with three dots to fit the bar.
+- The frame films the desktop only: no `devices` other than desktop and no `layout`. `title` or `address` without `frame` is an error.
+- Compositing is offline in the pinned FFmpeg container (`scripts/walkthrough_browser_frame.rb`); the cursor track is mapped into the window. A live scene is framed while its screencast is composited; an environment scene is framed in place right after capture.
+- The frame (title, address, compositor version, FFmpeg digest) is part of the scene's `frames_key`, so changing any of them recaptures.
+
 ## Rules
 
 - `id` matches `\A[a-z0-9][a-z0-9-]*\z` and is unique; `order` is unique and contiguous from 1.
 - `transition.type` is `cut` or `fade`; a fade's `ms` is in 100..1500 and overlaps the previous scene.
-- `op` is one of move, click, type, hover, wait; `t_ms` is a non-negative integer and non-decreasing; `target` is required except for wait.
+- `op` is one of move, click, dblclick, type, key, hover, scroll, wait; `t_ms` is a non-negative integer and non-decreasing; `target` is required except for wait and key.
+- `dblclick` double-clicks `target` (a real two-press mouse sequence), for opening a file or a list row.
+- `key` presses `keys` on its frame through CDP key events under the virtual clock: one key (`"Enter"`, `"Escape"`, `"a"`) or a chord with modifiers first (`"Control+C"`, `"Control+Shift+Esc"`). Modifiers are Control, Shift, Alt, Meta; `Ctrl`, `Cmd`, `Option`, `Esc`, `Return`, `Del`, and `Space` are aliases. An optional `target` is focused first. An unknown key fails validation.
+- `scroll` takes a `target`. With integer `dx` and/or `dy` it scrolls that element by those pixels, instantly, so the same delta gives the same frame; with neither it scrolls the target into view (centred). A missing target fails the capture.
+- Every local asset a screen references (stylesheet, script, image, CSS `url()`) must resolve, after symlinks, inside the walkthrough slug dir (the parent of `screens/`); a ref that escapes it fails the capture.
 - Duration is derived, never authored: `duration_ms = max(min_ms, measured_ms + pad_ms)`. A `duration_ms` key on a scene or in `timing` is a validation error. `measured_ms` is written by the renderer from the narration alignment.
 - Every scene `hypotheses` id resolves to the top-level list; every scene has at least one requirement or one assumption.
 - `store` is optional. `seed` must exist under `data/`. `from_scene` names an earlier scene (lower `order`), so there are no cycles. The starting state is the seed, then the `from_scene` end state, then the `patch` ops (`set`, `push`, `delete`). `prng_seed` is an integer, derived from the scene id when absent.
@@ -225,8 +259,8 @@ A live or compose scene picks the devices it films and how they share the frame:
 All keys are sha256 hex over canonical JSON (sorted keys, no whitespace).
 
 - `frames_key` (compose scene): the compose spec, the template version, the source scene's frames key, and the same capture fields as a live scene.
-- `frames_key` (live scene): URL, devices with their specs, layout, the persona name and login spec (env names, never values), the session parent's frames key, interactions, `wait`, `storage`, viewport, fps, the derived duration, `browser`, the browserless image digest, and the live capture version. It recaptures only with `--recapture` or `--scene` (which pulls in its `session_from_scene` dependents).
-- `frames_key`: screen html sha256, the inlined screen with every local asset, `tokens_css_sha256`, interactions, viewport, fps, the browserless image digest, the capture script version, the derived duration, the seed sha256, the mock-store.js sha256, the resolved starting state, and `prng_seed`.
+- `frames_key` (live scene): URL, devices with their specs, layout, the browser frame when set, the persona name and login spec (env names, never values), the session parent's frames key, interactions, `wait`, `storage`, viewport, fps, the derived duration, `browser`, the browserless image digest, and the live capture version. It recaptures only with `--recapture` or `--scene` (which pulls in its `session_from_scene` dependents).
+- `frames_key`: screen html sha256, the inlined screen with every local asset, `tokens_css_sha256`, interactions, viewport, fps, the browserless image digest, the capture script version, the derived duration, the seed sha256, the mock-store.js sha256, the resolved starting state, and `prng_seed`; an environment scene adds the desktop kit `VERSION` and the browser frame when set.
 - `audio_key`: narration text, voice id, model, output format, and voice settings.
 - `asset_key` (images): prompt, model id, size, quality, and reference image digests.
 - `broll_key` (ai-broll): source image digest, prompt, seconds, model id, resolution, and aspect ratio. An ai-broll scene's `frames_key` hashes the clip key (or, for a fallback, the source image digest and mode), the viewport, fps, frame count, and the FFmpeg image digest.

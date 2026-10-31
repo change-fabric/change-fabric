@@ -1,0 +1,119 @@
+{
+  "clock": "9:46 AM",
+  "files": [
+    {
+      "path": "C:\\Users\\demo\\Downloads\\northwind-agent-win.zip",
+      "size": "12.4 MB",
+      "kind": "ZIP archive"
+    },
+    {
+      "path": "C:\\northwind-agent\\northwind-agent.exe",
+      "size": "9.8 MB",
+      "kind": "Application"
+    },
+    {
+      "path": "C:\\northwind-agent\\northwind-agent-service.exe",
+      "size": "1.2 MB",
+      "kind": "Application"
+    },
+    {
+      "path": "C:\\northwind-agent\\config.example.json",
+      "size": "1 KB"
+    },
+    {
+      "path": "C:\\northwind-agent\\config.json",
+      "size": "1 KB"
+    },
+    {
+      "path": "C:\\northwind-agent\\README.txt",
+      "size": "2 KB"
+    },
+    {
+      "path": "C:\\northwind-agent\\install-northwind-service.bat",
+      "size": "1 KB"
+    },
+    {
+      "path": "C:\\northwind-agent\\logs",
+      "kind": "Folder"
+    }
+  ],
+  "services": [
+    {
+      "name": "Northwind Agent",
+      "status": "Stopped",
+      "startup": "Automatic"
+    },
+    {
+      "name": "Print Queue",
+      "status": "Running",
+      "startup": "Automatic"
+    }
+  ],
+  "terminal": {
+    "transcript": [
+      {
+        "text": "Installing Northwind Agent service...",
+        "after_ms": 200
+      },
+      {
+        "text": "Service Northwind Agent installed.",
+        "after_ms": 500
+      },
+      {
+        "text": "Starting Northwind Agent...",
+        "after_ms": 300
+      },
+      {
+        "text": "Service Northwind Agent started.",
+        "after_ms": 600,
+        "service": "Northwind Agent",
+        "status": "Running"
+      }
+    ]
+  },
+  "windows": [
+    {
+      "id": "explorer",
+      "type": "file-explorer",
+      "title": "northwind-agent",
+      "folder": "C:\\northwind-agent",
+      "opens": {
+        "install-northwind-service.bat": "elevate"
+      },
+      "x": 120,
+      "y": 60,
+      "w": 1200,
+      "h": 760
+    },
+    {
+      "id": "elevate",
+      "type": "elevation-prompt",
+      "title": "Permission needed",
+      "app": "install-northwind-service.bat",
+      "publisher": "Northwind Example Co.",
+      "then": "term",
+      "x": 700,
+      "y": 320,
+      "w": 520,
+      "h": 300
+    },
+    {
+      "id": "term",
+      "type": "terminal",
+      "title": "install-northwind-service.bat",
+      "x": 820,
+      "y": 200,
+      "w": 900,
+      "h": 420
+    },
+    {
+      "id": "services",
+      "type": "services-list",
+      "title": "Services",
+      "x": 260,
+      "y": 520,
+      "w": 900,
+      "h": 360
+    }
+  ]
+}

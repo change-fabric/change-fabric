@@ -1,0 +1,75 @@
+{
+  "clock": "9:42 AM",
+  "files": [
+    {
+      "path": "C:\\Users\\demo\\Downloads\\northwind-agent-win.zip",
+      "size": "12.4 MB",
+      "kind": "ZIP archive"
+    },
+    {
+      "path": "C:\\northwind-agent\\northwind-agent.exe",
+      "size": "9.8 MB",
+      "kind": "Application"
+    },
+    {
+      "path": "C:\\northwind-agent\\northwind-agent-service.exe",
+      "size": "1.2 MB",
+      "kind": "Application"
+    },
+    {
+      "path": "C:\\northwind-agent\\config.example.json",
+      "size": "1 KB"
+    },
+    {
+      "path": "C:\\northwind-agent\\config.json",
+      "size": "1 KB"
+    },
+    {
+      "path": "C:\\northwind-agent\\README.txt",
+      "size": "2 KB"
+    },
+    {
+      "path": "C:\\northwind-agent\\install-northwind-service.bat",
+      "size": "1 KB"
+    },
+    {
+      "path": "C:\\northwind-agent\\logs",
+      "kind": "Folder"
+    }
+  ],
+  "windows": [
+    {
+      "id": "explorer",
+      "type": "file-explorer",
+      "title": "Downloads",
+      "folder": "C:\\Users\\demo\\Downloads",
+      "extract_to": "C:\\northwind-agent",
+      "opens": {
+        "config.json": "editor"
+      },
+      "x": 200,
+      "y": 80,
+      "w": 1400,
+      "h": 820
+    },
+    {
+      "id": "editor",
+      "type": "text-editor",
+      "title": "config.json",
+      "document": "C:\\northwind-agent\\config.json",
+      "x": 520,
+      "y": 160,
+      "w": 1100,
+      "h": 700
+    }
+  ],
+  "editor": {
+    "documents": [
+      {
+        "path": "C:\\northwind-agent\\config.json",
+        "caret_after": "\"api_key\": \"",
+        "text": "{\n  \"api_key\": \"\",\n  \"playout\": { \"acme\": { \"enabled\": false } }\n}\n"
+      }
+    ]
+  }
+}

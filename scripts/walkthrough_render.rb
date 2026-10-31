@@ -320,11 +320,20 @@ module WalkthroughRender
         warn_unmatched_remap(scene, prep)
         duration = PrototypeCapture.scene_duration(scene)
         say("#{scene['id']}: capturing #{scene_frames(scene)} frames")
-        @p[:capture].call(session: session, html: PrototypeCapture.inline_screen(prep[:html_path], remap: prep[:remap]),
+        @p[:capture].call(session: session, html: PrototypeCapture.inline_screen(prep[:html_path], remap: prep[:remap], root: prep[:root]),
                           interactions: scene['interactions'] || [], duration_ms: duration, out_dir: prep[:out_dir],
                           state: prep[:state], prng_seed: prep[:prng_seed], viewport: @board['viewport'], fps: fps,
                           label: scene['id'])
+        frame!(scene, prep)
       end
+    end
+
+    # A browser-framed environment scene is composited in place once
+    # captured, in the pinned FFmpeg container.
+    def frame!(scene, prep)
+      return unless WalkthroughBrowserFrame.browser?(scene)
+
+      WalkthroughBrowserFrame.frame_dir!(@board, scene, prep[:out_dir], work: @root, docker: @p[:docker])
     end
 
     def fps = WalkthroughStoryboard.fps(@board)
@@ -516,7 +525,7 @@ module WalkthroughRender
 
     def lint_scene(session, scene, prep)
       say("#{scene['id']}: ux lint")
-      @p[:lint].call(session: session, html: PrototypeCapture.inline_screen(prep[:html_path], remap: prep[:remap]),
+      @p[:lint].call(session: session, html: PrototypeCapture.inline_screen(prep[:html_path], remap: prep[:remap], root: prep[:root]),
                      interactions: scene['interactions'] || [], duration_ms: PrototypeCapture.scene_duration(scene),
                      out_dir: prep[:out_dir], state: prep[:state], prng_seed: prep[:prng_seed], viewport: @board['viewport'],
                      fps: fps, label: scene['id'])

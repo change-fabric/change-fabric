@@ -1,0 +1,98 @@
+/* cf desktop kit: neutral, unbranded desktop chrome. Colors and type come
+   from the project's tokens.css when it defines them; the fallbacks are a
+   plain gray system so the kit never reads as any real operating system. */
+:root {
+  --cfd-bg: var(--bg, #e9ebee);
+  --cfd-surface: var(--surface, #ffffff);
+  --cfd-chrome: var(--surface-muted, #f3f4f6);
+  --cfd-border: var(--border, #c9ced6);
+  --cfd-text: var(--text, #1f2329);
+  --cfd-muted: var(--muted, #5b6470);
+  --cfd-accent: var(--accent, #3b6ea8);
+  --cfd-accent-text: var(--on-accent, #ffffff);
+  --cfd-ok: var(--success, #2f7d4f);
+  --cfd-term-bg: #1d2024;
+  --cfd-term-text: #d7dbe0;
+  --cfd-radius: var(--radius, 8px);
+  --cfd-font: var(--font-sans, system-ui, sans-serif);
+  --cfd-mono: var(--font-mono, ui-monospace, monospace);
+  --cfd-taskbar-h: 48px;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+[hidden] { display: none !important; }
+body { background: var(--cfd-bg); color: var(--cfd-text); font: 15px/1.4 var(--cfd-font); overflow: hidden; }
+#desktop { position: absolute; inset: 0 0 var(--cfd-taskbar-h) 0; }
+.cfd-win { position: absolute; display: flex; flex-direction: column; background: var(--cfd-surface);
+  border: 1px solid var(--cfd-border); border-radius: var(--cfd-radius); box-shadow: 0 8px 28px rgb(0 0 0 / 0.18); overflow: hidden; }
+.cfd-win[hidden], .cfd-win.cfd-min { display: none; }
+.cfd-win.cfd-focus { box-shadow: 0 12px 40px rgb(0 0 0 / 0.28); }
+.cfd-bar { display: flex; align-items: center; gap: 8px; height: 38px; padding: 0 8px 0 14px; background: var(--cfd-chrome);
+  border-bottom: 1px solid var(--cfd-border); flex: none; }
+.cfd-title { flex: 1; font-weight: 600; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cfd-ctl { width: 28px; height: 24px; border: 0; border-radius: 4px; background: transparent; color: var(--cfd-muted); font: inherit; }
+.cfd-body { flex: 1; min-height: 0; overflow: auto; }
+/* browser */
+.cfd-tabs { display: flex; padding: 6px 8px 0; background: var(--cfd-chrome); }
+.cfd-tab { padding: 6px 14px; background: var(--cfd-surface); border: 1px solid var(--cfd-border); border-bottom: 0;
+  border-radius: 6px 6px 0 0; font-size: 13px; max-width: 280px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.cfd-address { margin: 6px 10px; padding: 6px 12px; border: 1px solid var(--cfd-border); border-radius: 999px; font-size: 13px;
+  color: var(--cfd-muted); background: var(--cfd-surface); }
+.cfd-content { flex: 1; min-height: 0; overflow: auto; border-top: 1px solid var(--cfd-border); }
+.cfd-download-bar { display: flex; gap: 12px; align-items: center; padding: 8px 14px; border-top: 1px solid var(--cfd-border);
+  background: var(--cfd-chrome); font-size: 13px; }
+.cfd-download-bar[hidden] { display: none; }
+.cfd-dl { display: flex; gap: 8px; align-items: center; padding: 4px 10px; border: 1px solid var(--cfd-border); border-radius: 6px;
+  background: var(--cfd-surface); }
+.cfd-dl-state { color: var(--cfd-muted); }
+.cfd-downloads { list-style: none; margin: 0; padding: 8px 14px; }
+.cfd-downloads li { padding: 4px 0; }
+/* file explorer */
+.cfd-split { display: flex; height: 100%; }
+.cfd-tree { width: 210px; flex: none; margin: 0; padding: 10px; list-style: none; border-right: 1px solid var(--cfd-border);
+  background: var(--cfd-chrome); font-size: 13px; }
+.cfd-tree li { padding: 4px 6px; border-radius: 4px; }
+.cfd-tree li.cfd-here { background: var(--cfd-surface); font-weight: 600; }
+.cfd-main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.cfd-path { display: flex; gap: 10px; align-items: center; padding: 8px 12px; border-bottom: 1px solid var(--cfd-border); font-size: 13px; }
+.cfd-path-text { flex: 1; font-family: var(--cfd-mono); }
+.cfd-btn { padding: 6px 14px; border: 1px solid var(--cfd-border); border-radius: 6px; background: var(--cfd-surface);
+  color: var(--cfd-text); font: inherit; font-size: 13px; }
+.cfd-btn.cfd-primary { background: var(--cfd-accent); border-color: var(--cfd-accent); color: var(--cfd-accent-text); }
+.cfd-files { list-style: none; margin: 0; padding: 6px; }
+.cfd-files[hidden] { display: none; }
+.cfd-file { display: grid; grid-template-columns: 1fr 120px 90px; gap: 10px; padding: 6px 8px; border-radius: 4px; font-size: 14px; }
+.cfd-file.cfd-picked { background: color-mix(in srgb, var(--cfd-accent) 16%, transparent); }
+.cfd-file .cfd-kind, .cfd-file .cfd-size { color: var(--cfd-muted); font-size: 13px; }
+.cfd-progress { margin: 8px 12px; height: 8px; border-radius: 4px; background: var(--cfd-chrome); overflow: hidden; }
+.cfd-progress[hidden] { display: none; }
+.cfd-progress > span { display: block; height: 100%; width: 0; background: var(--cfd-accent); }
+/* text editor */
+.cfd-text { display: block; width: 100%; height: 100%; margin: 0; padding: 12px 14px; border: 0; resize: none; outline: none;
+  font: 15px/1.5 var(--cfd-mono); color: var(--cfd-text); background: var(--cfd-surface); caret-color: var(--cfd-text); }
+.cfd-status { display: flex; justify-content: space-between; padding: 4px 12px; border-top: 1px solid var(--cfd-border);
+  background: var(--cfd-chrome); font-size: 12px; color: var(--cfd-muted); }
+/* terminal */
+.cfd-term { background: var(--cfd-term-bg); color: var(--cfd-term-text); }
+.cfd-lines { margin: 0; padding: 12px 14px; font: 14px/1.5 var(--cfd-mono); white-space: pre-wrap; }
+.cfd-lines > div[hidden] { display: none; }
+/* elevation prompt */
+.cfd-elev { padding: 22px 24px; display: flex; flex-direction: column; gap: 12px; }
+.cfd-elev h2 { margin: 0; font-size: 18px; }
+.cfd-elev dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; font-size: 14px; }
+.cfd-elev dt { color: var(--cfd-muted); }
+.cfd-elev dd { margin: 0; }
+.cfd-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 8px; }
+/* services list */
+.cfd-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.cfd-table th { text-align: left; padding: 8px 12px; color: var(--cfd-muted); font-weight: 600; border-bottom: 1px solid var(--cfd-border); }
+.cfd-table td { padding: 8px 12px; border-bottom: 1px solid var(--cfd-chrome); }
+.cfd-running { color: var(--cfd-ok); font-weight: 600; }
+/* taskbar */
+#taskbar { position: absolute; left: 0; right: 0; bottom: 0; height: var(--cfd-taskbar-h); display: flex; align-items: center; gap: 6px;
+  padding: 0 10px; background: var(--cfd-surface); border-top: 1px solid var(--cfd-border); }
+.cfd-task { padding: 6px 12px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--cfd-text);
+  font: inherit; font-size: 13px; max-width: 220px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.cfd-task[hidden] { display: none; }
+.cfd-task.cfd-focus { border-color: var(--cfd-border); background: var(--cfd-chrome); }
+#taskbar-clock { margin-left: auto; font-size: 13px; color: var(--cfd-muted); }

@@ -7,6 +7,7 @@ require_relative 'design_config'
 require_relative 'prototype_capture'
 require_relative 'prototype_imagegen'
 require_relative 'walkthrough_cache'
+require_relative 'walkthrough_environment'
 require_relative 'walkthrough_live'
 
 # storyboard.json (schema_version 1) is the source of truth for a
@@ -23,11 +24,11 @@ module WalkthroughStoryboard
   CAMERA_ZOOM = (0.5..3.0)
   DEFAULT_TRANSITION = { 'type' => 'cut', 'ms' => 0 }.freeze
   DEFAULT_IMAGE_SIZE = '1024x1024'
-  OPS = %w[move click type hover wait].freeze
+  OPS = PrototypeCapture::OPS
   PATCH_OPS = %w[set push delete].freeze
   MD_HEADER = 'Generated from storyboard.json; do not edit'
   BROLL_KIND = 'ai-broll'
-  SCENE_KINDS = [ nil, 'screen', BROLL_KIND, WalkthroughCompose::KIND, WalkthroughMessage::KIND ].freeze
+  SCENE_KINDS = [ nil, 'screen', BROLL_KIND, WalkthroughCompose::KIND, WalkthroughMessage::KIND, WalkthroughEnvironment::KIND ].freeze
   BROLL_IMAGE_EXTS = %w[.png .jpg .jpeg .webp].freeze
   BROLL_SECONDS = (1..10)
   KEY_KINDS = { 'frames_key' => 'frames', 'audio_key' => 'audio', 'asset_keys' => 'images', 'broll_key' => 'broll' }.freeze
@@ -146,7 +147,12 @@ module WalkthroughStoryboard
     Array(scene['hypotheses']).each { |h| errors << "hypothesis #{h} is not in the top-level list" unless hyp_ids.include?(h) }
     errors << 'needs at least one requirement or assumption' if Array(scene['requirements']).empty? && Array(scene['assumptions']).empty?
     errors.concat(kind_errors(scene, root))
-    if WalkthroughMessage.message?(scene) && !live?(scene)
+    errors.concat(WalkthroughBrowserFrame.errors(scene))
+    if WalkthroughEnvironment.environment?(scene)
+      errors.concat(WalkthroughEnvironment.errors(scene, root))
+      errors.concat(store_errors(scene, orders, root)) if scene['store']
+      LIVE_ONLY.each { |key| errors << "#{key} needs a live board (an environment scene is a prototype screen)" if scene.key?(key) && !scene[key].nil? }
+    elsif WalkthroughMessage.message?(scene) && !live?(scene)
       errors.concat(WalkthroughMessage.errors(scene, { orders: orders, board: board, root: root }))
       errors.concat(store_errors(scene, orders, root)) if scene['store']
       LIVE_ONLY.each { |key| errors << "#{key} needs a live board (a message scene without screen.html)" if scene.key?(key) && !scene[key].nil? }
@@ -183,7 +189,7 @@ module WalkthroughStoryboard
   # A screen scene needs screen.html; an ai-broll scene needs a broll block and
   # carries no screen.
   def kind_errors(scene, root)
-    return [ "kind #{scene['kind'].inspect} must be one of screen, #{BROLL_KIND}, #{WalkthroughCompose::KIND}, #{WalkthroughMessage::KIND}" ] unless SCENE_KINDS.include?(scene['kind'])
+    return [ "kind #{scene['kind'].inspect} must be one of screen, #{BROLL_KIND}, #{WalkthroughCompose::KIND}, #{WalkthroughMessage::KIND}, #{WalkthroughEnvironment::KIND}" ] unless SCENE_KINDS.include?(scene['kind'])
     return broll_errors(scene, root) if broll?(scene)
     return [] if WalkthroughLive.builtin?(scene)
 
@@ -245,13 +251,30 @@ module WalkthroughStoryboard
     zoom.is_a?(Numeric) && CAMERA_ZOOM.cover?(zoom) ? [] : [ "camera.zoom must be a number in #{CAMERA_ZOOM.min}..#{CAMERA_ZOOM.max}" ]
   end
 
+  # Per-op fields: key needs a valid chord, scroll deltas are integers.
+  def op_shape_errors(op)
+    case op['op']
+    when 'key'
+      begin
+        PrototypeCapture.key_chord(op['keys'])
+        []
+      rescue ArgumentError => e
+        [ e.message ]
+      end
+    when 'scroll'
+      %w[dx dy].filter_map { |k| "scroll #{k} must be an integer (pixels)" if op.key?(k) && !op[k].is_a?(Integer) }
+    else []
+    end
+  end
+
   def interaction_errors(interactions, live: false)
     errors = WalkthroughLive.interaction_errors(interactions, live: live)
     ops = live ? WalkthroughLive::OPS : OPS
     last = -1
     interactions.each_with_index do |op, i|
       errors << "interaction #{i}: op #{op['op'].inspect} must be one of #{ops.join(', ')}" unless ops.include?(op['op'])
-      errors << "interaction #{i}: target is required for #{op['op']}" if op['op'] != 'wait' && op['target'].to_s.empty?
+      errors << "interaction #{i}: target is required for #{op['op']}" if !%w[wait key].include?(op['op']) && op['target'].to_s.empty?
+      errors.concat(op_shape_errors(op).map { |e| "interaction #{i}: #{e}" })
       t = op['t_ms']
       if !t.is_a?(Integer) || t.negative?
         errors << "interaction #{i}: t_ms must be a non-negative integer"

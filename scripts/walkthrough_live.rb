@@ -10,6 +10,7 @@ require_relative 'prototype_capture'
 require_relative 'prototype_ux_lint'
 require_relative 'walkthrough_compose'
 require_relative 'walkthrough_device'
+require_relative 'walkthrough_browser_frame'
 require_relative 'walkthrough_message'
 require_relative 'walkthrough_cache'
 
@@ -32,7 +33,7 @@ module WalkthroughLive
   STORAGE_AREAS = %w[sessionStorage localStorage].freeze
   LOGIN_STEPS = %w[fill click wait].freeze
   BROWSER_KEYS = %w[add_hosts network ignore_https_errors].freeze
-  OPS = (PrototypeCapture::OPS + %w[scroll]).freeze
+  OPS = PrototypeCapture::OPS
   # Keys that would carry a literal credential; a value only ever comes from
   # an env var name.
   LITERAL_KEYS = %w[value password secret token text].freeze
@@ -217,12 +218,12 @@ module WalkthroughLive
     errors
   end
 
-  # Interaction checks a live scene adds: scroll needs a target, and a type
+  # Interaction checks a live scene adds: env typing needs a URL, and a type
   # op takes exactly one of text or env.
   def interaction_errors(interactions, live:)
     interactions.each_with_index.flat_map do |op, i|
       errs = []
-      errs << 'scroll and env typing need a screen.url' if !live && (op['op'] == 'scroll' || op.key?('env'))
+      errs << 'env typing needs a screen.url' if !live && op.key?('env')
       if op['op'] == 'type'
         errs << 'type takes exactly one of text or env' if op.key?('text') == op.key?('env')
         errs << 'env must be an env var name like APP_PASSWORD' if op.key?('env') && !op['env'].to_s.match?(ENV_RE)
@@ -304,6 +305,7 @@ module WalkthroughLive
                          storage: scene['storage'], viewport: board['viewport'], fps: fps_for(board),
                          duration_ms: PrototypeCapture.scene_duration(scene), browser: browser_opts(board),
                          devices: WalkthroughDevice.specs(board, scene), layout: WalkthroughDevice.layout_name(scene),
+                         **(WalkthroughBrowserFrame.browser?(scene) ? { frame: WalkthroughBrowserFrame.material(scene) } : {}),
                          browserless: PrototypeCapture.browserless_digest, capture_version: CAPTURE_VERSION)
   end
 
@@ -513,7 +515,9 @@ module WalkthroughLive
             if (to) { pos = { x: from.x + (to.x - from.x) * step.move.p, y: from.y + (to.y - from.y) * step.move.p }; if (!dev.mobile) await page.mouse.move(pos.x, pos.y); }
             resting = step.move.p >= 1 ? step.move.target : null;
           }
-          if (step.scroll) await safe(() => page.evaluate((s) => { const el = document.querySelector(s); if (el) el.scrollIntoView({ block: "center" }); }, step.scroll), null);
+          // Same semantics as a prototype scene: dx/dy scroll by pixels,
+          // a bare target is scrolled into view.
+          if (step.scroll) await safe(() => page.evaluate((s) => { const el = document.querySelector(s.target); if (!el) return; if (s.dx === undefined && s.dy === undefined) el.scrollIntoView({ block: "center" }); else el.scrollBy({ left: s.dx || 0, top: s.dy || 0, behavior: "instant" }); }, step.scroll), null);
           if (step.hover) { const to = await aim(step.hover); if (to) { pos = to; if (!dev.mobile) await page.mouse.move(pos.x, pos.y); } resting = step.hover; }
           if (step.click) {
             const to = await aim(step.click);
@@ -538,6 +542,23 @@ module WalkthroughLive
               el.setSelectionRange(end, end);
             }, step.type.after_line);
             for (const ch of step.type.text) await page.keyboard.type(ch);
+          }
+          if (step.dblclick) {
+            const to = await aim(step.dblclick);
+            if (!to) throw new Error(`dblclick target not found: ${step.dblclick}`);
+            pos = to;
+            resting = step.dblclick;
+            await page.mouse.move(pos.x, pos.y);
+            await page.mouse.click(pos.x, pos.y, { clickCount: 1 });
+            await page.mouse.click(pos.x, pos.y, { clickCount: 2 });
+            down = true;
+          }
+          for (const press of step.key || []) {
+            if (press.target) await page.focus(press.target);
+            const mods = press.keys.slice(0, -1);
+            for (const m of mods) await page.keyboard.down(m);
+            await page.keyboard.press(press.keys[press.keys.length - 1]);
+            for (const m of mods.reverse()) await page.keyboard.up(m);
           }
           await sleep(t0 + i * stepMs - Date.now());
           for (const href of await safe(() => page.evaluate(() => (window.__cfLinks || []).splice(0)), [])) links.push(href);
@@ -628,8 +649,7 @@ module WalkthroughLive
     fps = fps_for(board)
     frames = PrototypeCapture.frame_count(PrototypeCapture.scene_duration(scene), fps)
     ops = interactions_for(scene, spec['name'])
-    plan = PrototypeCapture.schedule(resolve_interactions(ops, secrets).map { |op| op['op'] == 'scroll' ? op.merge('op' => 'wait') : op }, frames, fps)
-    mark_scrolls(plan, ops, fps)
+    plan = PrototypeCapture.schedule(resolve_interactions(ops, secrets), frames, fps)
     # Only the full-bleed desktop frame meets the caption band in the page;
     # a composited frame is checked on the canvas instead.
     band = WalkthroughDevice.default?(scene) ? PrototypeUxLint::CAPTION_BAND : 0
@@ -662,14 +682,6 @@ module WalkthroughLive
     runs.first['session']
   end
 
-  # PrototypeCapture.schedule knows no scroll op (it is scheduled as a wait),
-  # so the scroll target is added to its frame here.
-  def mark_scrolls(plan, interactions, fps)
-    Array(interactions).each do |op|
-      plan.dig(PrototypeCapture.frame_at(op['t_ms'].to_i, fps))&.store('scroll', op['target']) if op['op'] == 'scroll'
-    end
-  end
-
   # Writes one captured scene to disk: frames composited per the scene's
   # device layout, cursor tracks mapped onto the canvas, caught links, and
   # the masked lint report.
@@ -680,7 +692,8 @@ module WalkthroughLive
       @secrets = secrets
       @docker = docker || ->(argv) { Open3.capture2e(*argv) }
       @work = work
-      @layout = WalkthroughDevice.layout(board, scene)
+      @framed = WalkthroughBrowserFrame.browser?(scene)
+      @layout = @framed ? WalkthroughBrowserFrame.layout(board) : WalkthroughDevice.layout(board, scene)
     end
 
     def write(runs, out_dir)
@@ -731,11 +744,21 @@ module WalkthroughLive
 
     def container(path) = File.join('/work', path.delete_prefix("#{@work}/"))
 
+    # A browser-framed scene draws its chrome text from files written
+    # beside the frames (removed with the jpg dir); others use the device
+    # layout filter.
+    def composite_filter(out_dir)
+      return WalkthroughDevice.filter(@layout) unless @framed
+
+      title, address = WalkthroughBrowserFrame.write_text(@layout, @scene, File.join(out_dir, 'jpg', 'chrome'))
+      WalkthroughBrowserFrame.filter(@layout, title_file: container(title), address_file: container(address))
+    end
+
     # JPEG screencast frames become PNGs on the board canvas in the pinned
     # FFmpeg container, offline.
     def composite!(dirs, out_dir)
       inputs = dirs.flat_map { |d| [ '-start_number', '1', '-i', File.join(container(d), '%06d.jpg') ] }
-      args = [ '-hide_banner', '-nostdin', '-y', *inputs, '-filter_complex', WalkthroughDevice.filter(@layout), '-map', '[out]',
+      args = [ '-hide_banner', '-nostdin', '-y', *inputs, '-filter_complex', composite_filter(out_dir), '-map', '[out]',
                '-start_number', '1', File.join(container(out_dir), '%06d.png') ]
       argv = ChangeDocker.run_command(network: 'none', image: ChangeDocker::FFMPEG_IMAGE, args: args, mounts: { @work => '/work' }, workdir: '/work')
       out, status = @docker.call(argv)

@@ -1,0 +1,23 @@
+{
+  "clock": "9:41 AM",
+  "downloads": [
+    {
+      "name": "northwind-agent-win.zip",
+      "size": "12.4 MB",
+      "state": "pending"
+    }
+  ],
+  "windows": [
+    {
+      "id": "docs",
+      "type": "browser",
+      "title": "Northwind Agent docs",
+      "tab": "Install Northwind Agent",
+      "url": "https://docs.example.test/northwind-agent",
+      "x": 160,
+      "y": 60,
+      "w": 1600,
+      "h": 900
+    }
+  ]
+}

@@ -3,6 +3,7 @@
 require 'json'
 require_relative 'change_docker'
 require_relative 'prototype_icons'
+require_relative 'walkthrough_environment'
 require_relative 'walkthrough_storyboard'
 
 # The walkthrough truth trail. The video speaks as a shipped product, so
@@ -55,7 +56,8 @@ module WalkthroughAssumptions
     "#{out.join("\n").rstrip}\n"
   end
 
-  # Every compose and message scene is simulated UI that never sends anything.
+  # Every compose, message, and environment scene is simulated UI that never
+  # sends anything or touches a real machine.
   def simulated_ui(board)
     WalkthroughStoryboard.scenes(board).filter_map do |scene|
       if WalkthroughLive.compose?(scene)
@@ -65,6 +67,8 @@ module WalkthroughAssumptions
       elsif WalkthroughMessage.message?(scene)
         spec = scene['message']
         "- #{scene['id']}: simulated notification (#{spec['channel']} #{spec['view']} from #{spec['from']}); nothing is sent or received"
+      elsif WalkthroughEnvironment.environment?(scene)
+        WalkthroughEnvironment.simulated_line(scene)
       end
     end
   end

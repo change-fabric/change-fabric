@@ -221,7 +221,7 @@ class WalkthroughLiveTest < Minitest::Test
                              "interactions" => [ { "t_ms" => 0, "op" => "type", "target" => "#p", "env" => "APP_PASSWORD" } ])
     errs = errors_for(board([ proto ]))
     assert(errs.any? { |e| e.include?("persona needs a screen.url") })
-    assert(errs.any? { |e| e.include?("scroll and env typing need a screen.url") })
+    assert(errs.any? { |e| e.include?("env typing needs a screen.url") })
   end
 
   # -- keys -----------------------------------------------------------------
@@ -276,6 +276,22 @@ class WalkthroughLiveTest < Minitest::Test
     refute_includes js, "if (to) pos = to;"
     b["browser"]["ignore_https_errors"] = false
     refute_includes WalkthroughLive.capture_module(b, b["scenes"][1], jobs: [], session: nil), "setIgnoreCertificateErrors"
+  end
+
+  def test_live_scroll_keeps_the_shared_scroll_semantics
+    variants = { { "target" => "#inbox" } => { "target" => "#inbox" },
+                 { "target" => "#inbox", "dy" => 240 } => { "target" => "#inbox", "dy" => 240 },
+                 { "target" => "#inbox", "dx" => -80 } => { "target" => "#inbox", "dx" => -80 },
+                 { "target" => "#inbox", "dx" => 10, "dy" => 20 } => { "target" => "#inbox", "dx" => 10, "dy" => 20 } }
+    variants.each do |op, want|
+      b = board
+      scene = b["scenes"][2]
+      scene["interactions"] = [ { "t_ms" => 0, "op" => "scroll" }.merge(op) ]
+      assert_empty errors_for(b)
+      assert_equal want, jobs(b, scene).first["plan"].first["scroll"], op.inspect
+    end
+    js = WalkthroughLive.capture_module(board, board["scenes"][2], jobs: [], session: nil)
+    assert_includes js, "el.scrollBy({ left: s.dx || 0, top: s.dy || 0"
   end
 
   def jobs(b, scene)
