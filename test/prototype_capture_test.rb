@@ -167,6 +167,20 @@ class PrototypeCaptureTest < Minitest::Test
     assert_raises(ArgumentError) { PrototypeCapture.schedule([ { "op" => "drag", "t_ms" => 0 } ], 1) }
   end
 
+  def test_type_replace_is_scheduled_once_and_played_back
+    [ [ true, true ], [ nil, false ] ].each do |flag, expected|
+      op = { "t_ms" => 0, "op" => "type", "target" => "#c", "text" => "ab", "cps" => 1000 }
+      op["replace"] = flag unless flag.nil?
+      typed = PrototypeCapture.schedule([ op ], 20).filter_map { |f| f["type"] }
+      assert_equal expected, typed.first.key?("replace")
+    end
+    mod = PrototypeCapture.function_module(html: "<p>hi</p>", plan: [ { "frame" => 0 } ], range: 0...1,
+                                           viewport: nil, prng_seed: 1, state: {})
+    assert_match(/if \(step\.type\.replace\) await page\.\$eval\(step\.type\.target, \(el\) => el\.select\(\)\)/, mod)
+    assert_operator mod.index("step.type.focus"), :<, mod.index("step.type.replace")
+    assert_operator mod.index("step.type.replace"), :<, mod.index("page.keyboard.type(ch)")
+  end
+
   def test_cursor_path_numbers_frames_from_one
     path = PrototypeCapture.cursor_path([ { "x" => 1.234, "y" => 2, "down" => false }, { "x" => 3, "y" => 4, "down" => true } ])
     assert_equal [ { "frame" => 1, "x" => 1.23, "y" => 2, "down" => false }, { "frame" => 2, "x" => 3, "y" => 4, "down" => true } ], path
@@ -381,5 +395,90 @@ class PrototypeCaptureTest < Minitest::Test
     assert_match(/ai-broll/, PrototypeCapture.skip_reason("id" => "b", "kind" => "ai-broll", "screen" => { "url" => "https://x" }))
     assert_match(/live/, PrototypeCapture.skip_reason("id" => "l", "screen" => { "url" => "https://x" }))
     assert_nil PrototypeCapture.skip_reason("id" => "p", "screen" => { "html" => "screens/a.html" })
+  end
+
+  def test_skip_reason_skips_compose_and_message_scenes_without_a_screen_html
+    assert_match(/compose/, PrototypeCapture.skip_reason("id" => "c", "kind" => "compose", "screen" => { "html" => "screens/c.html" }))
+    assert_match(/screen\.html/, PrototypeCapture.skip_reason("id" => "m", "kind" => "message", "screen" => {}))
+    assert_match(/screen\.html/, PrototypeCapture.skip_reason("id" => "m", "kind" => "message"))
+  end
+
+  def test_inline_screen_keeps_svg_fragment_targets
+    Dir.mktmpdir do |dir|
+      File.write(File.join(dir, "sprite.svg"), "<svg><symbol id='save'/></svg>")
+      File.write(File.join(dir, "x.html"), %(<svg><use href="sprite.svg#save"></use></svg><img srcset="sprite.svg#a 1x">))
+      out = PrototypeCapture.inline_screen(File.join(dir, "x.html"))
+      assert_match(%r{<use href="data:image/svg\+xml;base64,[A-Za-z0-9+/=]+#save">}, out)
+      assert_match(/srcset="data:image\/svg\+xml;base64,[A-Za-z0-9+\/=]+#a 1x"/, out)
+    end
+  end
+
+  def test_inline_screen_inlines_local_css_imports_and_keys_on_their_content
+    Dir.mktmpdir do |dir|
+      File.write(File.join(dir, "palette.css"), ":root{--a:#111}")
+      File.write(File.join(dir, "print.css"), "p{color:red}")
+      File.write(File.join(dir, "main.css"), %(@import "palette.css";\n@import url(print.css) print;\nbody{color:var(--a)}))
+      File.write(File.join(dir, "x.html"), %(<link rel="stylesheet" href="main.css"><style>@import 'palette.css';</style>))
+      out = PrototypeCapture.inline_screen(File.join(dir, "x.html"))
+      refute_includes out, "@import"
+      assert_includes out, ":root{--a:#111}"
+      assert_includes out, "@media print {p{color:red}}"
+      File.write(File.join(dir, "palette.css"), ":root{--a:#222}")
+      refute_equal out, PrototypeCapture.inline_screen(File.join(dir, "x.html")), "an edit to the imported file changes the output"
+    end
+  end
+
+  def test_inline_screen_ignores_commented_out_imports_and_urls
+    Dir.mktmpdir do |dir|
+      File.write(File.join(dir, "main.css"), %(/* @import "optional-theme.css"; */\nbody{color:red}))
+      File.write(File.join(dir, "x.html"), %(<link rel="stylesheet" href="main.css"><style>/* a{background:url(gone.png)} */</style>))
+      out = PrototypeCapture.inline_screen(File.join(dir, "x.html"))
+      assert_includes out, "body{color:red}"
+      refute_includes out, "optional-theme.css"
+    end
+  end
+
+  def test_inline_screen_rejects_circular_and_remote_css_imports
+    Dir.mktmpdir do |dir|
+      File.write(File.join(dir, "a.css"), %(@import "b.css";))
+      File.write(File.join(dir, "b.css"), %(@import "a.css";))
+      File.write(File.join(dir, "x.html"), %(<link rel="stylesheet" href="a.css">))
+      assert_raises(PrototypeCapture::UnsupportedContentError) { PrototypeCapture.inline_screen(File.join(dir, "x.html")) }
+      File.write(File.join(dir, "x.html"), %(<style>@import url(https://cdn.example.test/a.css);</style>))
+      assert_raises(PrototypeCapture::UnsupportedContentError) { PrototypeCapture.inline_screen(File.join(dir, "x.html")) }
+    end
+  end
+
+  def test_inline_screen_rejects_module_scripts_importing_local_modules
+    Dir.mktmpdir do |dir|
+      File.write(File.join(dir, "dep.js"), "export const a = 1")
+      File.write(File.join(dir, "app.js"), %[import { a } from "./dep.js";\nconsole.log(a)])
+      File.write(File.join(dir, "x.html"), %(<script type="module" src="app.js"></script>))
+      err = assert_raises(PrototypeCapture::UnsupportedContentError) { PrototypeCapture.inline_screen(File.join(dir, "x.html")) }
+      assert_includes err.message, "./dep.js"
+      File.write(File.join(dir, "app.js"), "console.log(1)")
+      assert_includes PrototypeCapture.inline_screen(File.join(dir, "x.html")), "console.log(1)"
+    end
+  end
+
+  def test_tel_and_sms_links_are_not_local_assets
+    Dir.mktmpdir do |dir|
+      File.write(File.join(dir, "x.html"), %(<a href="tel:+15550100">Call</a><a href="sms:+15550100">Text</a><a href="TEL:1">x</a>))
+      out = PrototypeCapture.inline_screen(File.join(dir, "x.html"))
+      assert_includes out, %(href="tel:+15550100")
+      assert_includes out, %(href="sms:+15550100")
+      assert_includes out, %(href="TEL:1")
+    end
+  end
+
+  def test_stylesheet_links_with_a_query_or_fragment_are_inlined
+    Dir.mktmpdir do |dir|
+      File.write(File.join(dir, "a.css"), "p{color:red}")
+      File.write(File.join(dir, "x.html"), %(<link rel="stylesheet" href="a.css?v=2"><link rel="stylesheet" href='a.css#x'>))
+      out = PrototypeCapture.inline_screen(File.join(dir, "x.html"))
+      refute_includes out, "<link"
+      assert_equal 2, out.scan("<style>p{color:red}</style>").size
+      assert_equal [ "a.css?v=2" ], PrototypeCapture.local_refs(File.join(dir, "x.html")).first(1)
+    end
   end
 end

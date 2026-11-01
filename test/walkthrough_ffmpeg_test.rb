@@ -169,4 +169,26 @@ class WalkthroughFfmpegCanvasScaleTest < WalkthroughFfmpegTest
       assert_includes g, "[#{i}:v]setpts=PTS-STARTPTS,scale=1280:720:flags=lanczos[s#{i}]"
     end
   end
+
+  # Every zoom in the storyboard's range, with and without focus, at every
+  # focus extreme, yields a crop or pad that fits its input and the canvas.
+  def test_camera_filter_fits_every_zoom_and_focus
+    p = plan
+    [ 0.5, 0.75, 1.0, 1.3, 3.0 ].each do |zoom|
+      [ nil, { "x" => 0, "y" => 0 }, { "x" => 0.5, "y" => 0.5 }, { "x" => 1, "y" => 1 } ].each do |focus|
+        cam = { "zoom" => zoom }
+        cam["focus"] = focus if focus
+        f = WalkthroughFfmpeg.camera_filter(p, cam)
+        zw, zh = f[/scale=(\d+:\d+)/, 1].split(":").map(&:to_i)
+        op, w, h, x, y = f.match(/(crop|pad)=(\d+):(\d+):(\d+):(\d+)/).captures
+        w, h, x, y = [ w, h, x, y ].map(&:to_i)
+        assert_equal [ 1920, 1080 ], [ w, h ], f
+        if op == "crop"
+          assert zoom >= 1 && x + w <= zw && y + h <= zh, f
+        else
+          assert zoom < 1 && x + zw <= w && y + zh <= h, f
+        end
+      end
+    end
+  end
 end

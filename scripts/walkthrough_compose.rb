@@ -74,7 +74,7 @@ module WalkthroughCompose
     errs << 'a compose scene has no store' if scene.key?('store')
     from = spec['from_scene']
     if from
-      errs << 'compose.from_scene excludes explicit fields' unless (spec.keys - %w[from_scene]).empty?
+      errs << 'compose.from_scene excludes explicit fields' unless (spec.keys - %w[from_scene bar sent]).empty?
       errs.concat(from_errors(from, scene, scenes))
     else
       errs.concat(explicit_errors(spec))
@@ -93,7 +93,7 @@ module WalkthroughCompose
 
   def explicit_errors(spec)
     errs = []
-    unknown = spec.keys - FIELDS
+    unknown = spec.keys - FIELDS - %w[bar sent]
     errs << "compose has unknown keys: #{unknown.join(', ')}" unless unknown.empty?
     errs << "compose.channel must be one of #{CHANNELS.join(', ')}" unless CHANNELS.include?(spec['channel'])
     %w[to cc bcc].each do |k|
@@ -112,14 +112,18 @@ module WalkthroughCompose
   def resolve(scene, links: nil)
     spec = scene['compose']
     from = spec['from_scene']
-    return normalize(spec) unless from
+    return labels(spec, normalize(spec)) unless from
     raise ArgumentError, "capture #{from} before #{scene['id']}" if links.nil?
 
     link = links.reverse.find { |l| CHANNELS.include?(l['channel']) }
     raise ArgumentError, "#{from} opened no mailto or sms link for #{scene['id']}" unless link
 
-    normalize(link)
+    labels(spec, normalize(link))
   end
+
+  # Optional storyboard wording: `bar` titles the window, `sent` replaces the
+  # status shown after Send (e.g. to mark the window as an illustration).
+  def labels(spec, out) = out.merge(spec.slice('bar', 'sent'))
 
   def normalize(spec)
     out = { 'channel' => spec['channel'], 'to' => Array(spec['to']), 'body' => spec['body'].to_s }
@@ -153,14 +157,18 @@ module WalkthroughCompose
     sms = sms?(spec)
     channel = sms ? 'sms' : 'email'
     values = { 'css' => template("#{channel}.css"), 'script' => template('compose.js'), 'device' => esc(device),
-               'body' => esc(spec['body']), 'send' => send_button, 'status' => status_line }
+               'body' => esc(spec['body']), 'send' => send_button, 'status' => status_line(spec['sent']),
+               'bar' => esc(spec['bar'] || 'New message') }
     values.merge!(sms ? { 'to' => esc(Array(spec['to']).join(', ')) } : { 'rows' => email_rows(spec) })
     fill(template("#{channel}.html"), values)
   end
 
   def send_button = '<button id="send" class="send" type="button">Send</button>'
 
-  def status_line = '<span id="status" class="status" role="status"></span>'
+  def status_line(sent = nil)
+    attr = sent ? %( data-sent="#{esc(sent)}") : ''
+    %(<span id="status" class="status" role="status"#{attr}></span>)
+  end
 
   def field(id, label, values)
     %(<div class="row"><label for="#{id}">#{label}</label><input id="#{id}" value="#{esc(Array(values).join(', '))}"></div>)
@@ -173,6 +181,6 @@ module WalkthroughCompose
     rows.join("\n")
   end
 
-  private_class_method :query_params, :decode, :recipients, :sms?, :from_errors, :explicit_errors, :normalize,
+  private_class_method :query_params, :decode, :recipients, :sms?, :from_errors, :explicit_errors, :normalize, :labels,
                        :template_roots, :esc, :send_button, :status_line, :field, :email_rows
 end

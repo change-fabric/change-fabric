@@ -44,6 +44,8 @@ class WalkthroughComposeTest < Minitest::Test
     assert_empty WalkthroughCompose.errors(from, scenes)
     explicit = { "order" => 2, "compose" => { "channel" => "sms", "to" => "+15550100", "body" => "hi" } }
     assert_empty WalkthroughCompose.errors(explicit, scenes)
+    labelled = { "order" => 2, "compose" => { "channel" => "sms", "to" => "+15550100", "body" => "hi", "bar" => "Text", "sent" => "Delivered" } }
+    assert_empty WalkthroughCompose.errors(labelled, scenes)
     assert_includes WalkthroughCompose.errors({ "order" => 2 }, scenes).join, "compose is required"
     assert_includes WalkthroughCompose.errors(from.merge("order" => 1), scenes).join, "earlier scene"
     assert_includes WalkthroughCompose.errors(from.merge("order" => 4, "compose" => { "from_scene" => "proto" }), scenes).join, "live scene"

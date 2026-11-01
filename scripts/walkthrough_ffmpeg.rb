@@ -115,11 +115,36 @@ module WalkthroughFfmpeg
   # a plain scene renumbers its frames (setpts=N) before fps.
   def scene_output(plan, scene, i)
     tail = scene[:hero_still] ? ",#{hero_filter(plan)}" : ",#{timebase(plan)},setpts=N,fps=#{plan[:fps]}"
+    tail = ",#{camera_filter(plan, scene[:camera])}#{tail}" if scene[:camera]
     "#{tail},#{timebase(plan)}[v#{i}]"
   end
 
   def timebase(plan) = "settb=1/#{plan[:fps]}"
 
+  # A camera framing: the frame scales by `zoom` around `focus`. Zooming in
+  # crops back to the canvas, clamped so the crop never leaves the frame;
+  # zooming out pads back to the canvas, clamped so the frame stays whole.
+  # Cursor and taps are already drawn in, so they stay aligned.
+  def camera_filter(plan, camera)
+    w = plan[:width]
+    h = plan[:height]
+    zoom = camera['zoom'].to_f
+    zw = 2 * (w * zoom / 2).floor
+    zh = 2 * (h * zoom / 2).floor
+    fx = camera.dig('focus', 'x') || 0.5
+    fy = camera.dig('focus', 'y') || 0.5
+    x = camera_offset(fx, zw, w)
+    y = camera_offset(fy, zh, h)
+    fit = zoom >= 1 ? "crop=#{w}:#{h}:#{x}:#{y}" : "pad=#{w}:#{h}:#{x}:#{y}:color=black"
+    "scale=#{zw}:#{zh}:flags=lanczos,#{fit},setsar=1"
+  end
+
+  # Offset along one axis: where the crop starts inside a larger scaled frame,
+  # or where a smaller scaled frame sits inside the canvas.
+  def camera_offset(focus, scaled, canvas)
+    off = (focus.to_f * scaled) - (canvas / 2.0)
+    scaled >= canvas ? off.clamp(0, scaled - canvas).round : (-off).clamp(0, canvas - scaled).round
+  end
 
   def hero_filter(plan)
     "scale=iw*4:ih*4:flags=lanczos,zoompan=z='min(zoom+0.0008,1.12)':d=1:" \

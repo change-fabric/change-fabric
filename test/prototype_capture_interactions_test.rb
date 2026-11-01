@@ -44,7 +44,7 @@ class PrototypeCaptureInteractionsTest < Minitest::Test
                                            viewport: nil, prng_seed: 1, state: {})
     [ "clickCount: 2", "page.keyboard.down(m)", "page.keyboard.press(", "page.keyboard.up(m)",
       "el.scrollBy({ left: s.dx || 0, top: s.dy || 0, behavior: \"instant\" })",
-      "scrollIntoView({ block: \"center\", behavior: \"instant\" })" ].each { |needle| assert_includes mod, needle }
+      "scrollIntoView({ block: s.block || \"center\", behavior: \"instant\" })" ].each { |needle| assert_includes mod, needle }
   end
 
   def test_storyboard_validates_new_op_shapes
