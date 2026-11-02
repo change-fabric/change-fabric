@@ -35,6 +35,16 @@ A layers diagram shows a system as a stack, where each band rests on the one ben
 
 Vertical stacking carries the meaning, so edges are optional. Any edge drawn is orthogonal (`M`, `H`, `V`, or axis-aligned `L`), never curved. An edge may skip the arrow marker, since stack order already implies direction; add `#arrow` only when the direction is not top-down. Each endpoint touches its band within 2px.
 
+## Multi-line labels
+
+When a label would push its box past the width the layout allows, wrap it onto two lines with one `<tspan>` per line, the `x` repeated on each, and `dy="16.8"` for 14px text. Grow the box to 64 tall and set the first baseline at box center minus 3.5:
+
+```xml
+<text class="label" x="128" y="76.5" font-size="14" text-anchor="middle"><tspan x="128">Reserve</tspan><tspan x="128" dy="16.8">inventory</tspan></text>
+```
+
+See "Multi-line labels" in `grammar.md` for the arithmetic.
+
 ## Lint allowances
 
 - `arrow-marker` does not require a marker here (`TYPE_RULES["layers"]` has `markers: :optional`). A marker that is present must still resolve.

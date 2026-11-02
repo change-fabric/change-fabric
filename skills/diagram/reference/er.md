@@ -40,7 +40,7 @@ From `DiagramChecks::TYPE_RULES`: connectors orthogonal, no curves, markers none
 
 - `arrow-marker` does not require markers on ER edges.
 - Entity boxes hold several texts, so `baseline` is not applied to them; center only the header label and keep its baseline at band center plus 0.35 times 14.
-- `text-overflow` still applies to every column row, so a long column name widens the box.
+- `text-overflow` still applies to every column row and checks the full padded text box, so a long column name widens the box and a row pushed below the entity's bottom edge fails too. Vertical fit is checked; grow the box by 20px per added row.
 
 ## Worked example
 

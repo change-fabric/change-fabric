@@ -94,13 +94,42 @@ Every text role clears AA (4.5:1) in both themes. `--line` is for strokes only a
 ## Geometry
 
 - Grid: node `x`, `y`, `width`, and `height` are multiples of 8 [grid]. Text baselines are exempt.
-- Box height: at least 3 times the label font size, so 48 for a 14px label [box-height].
-- Baseline: for text centered in a box, `y = box center + 0.35 * font size`, within 1px. A 48-tall box at `y=48` with 14px text puts the baseline at 72 + 4.9 = 76.9 [baseline].
-- Padding: at least 12px between the measured text and each side of its box [text-overflow].
+- Box height: at least 3 times the label font size, so 48 for a 14px label, plus 1.2 times the font size for each extra label line, and never less than the measured text height plus 24 [box-height].
+- Baseline: for text centered in a box, `y = box center + 0.35 * font size`, within 1px. A 48-tall box at `y=48` with 14px text puts the baseline at 72 + 4.9 = 76.9. For a multi-line label the first baseline moves up by half the distance between the first and last baselines [baseline].
+- Padding: the full measured text box sits at least 12px inside each side of its node's label box [text-overflow].
 - Spacing: at least 24px between sibling boxes, and at least 4px between a label and the edge it describes [spacing].
 - Margin: everything sits at least 24px inside the viewBox; content is centered within it [viewbox-clip].
 - Overlap: no two node boxes intersect, no two text boxes touch, and no text crosses an edge [overlap].
 - Caps: at most 12 nodes and 16 edges. Past that, split into `diagrams/<slug>/` [caps].
+
+## Text boxes
+
+- The linter measures each `<text>` in the pinned Chromium with `getBBox`, which returns a full box: x, y, width, and height, with the anchor, the baseline, and every tspan already resolved. With `--no-measure` it falls back to an estimate (0.6em per character, 1.2em per line, placed from `text-anchor`) and reports `text-overflow` as a warning.
+- Containment is one predicate: the text box must fit inside the node's label box inset by 12px on every side. It catches a label that is too wide, one placed off center so it runs past an edge, and one that is too tall or sits below the box, for every node type, ER entities included [text-overflow].
+- The label box is the shape's bounding box for a `<rect>`. For a round or polygon node it is the inscribed box: a square of side `r * sqrt(2)` for a circle, `rx * sqrt(2)` by `ry * sqrt(2)` for an ellipse, and the largest axis-aligned box centered on a polygon's centroid that stays inside it. Size a diamond or circle so the label fits that smaller box. Connector endpoints still touch the shape's bounding box.
+- Text crossing an edge, and the 4px clearance between a label and its edge, are exact segment to box tests; curves are flattened into chords first [overlap] [spacing].
+
+## Multi-line labels
+
+A label that would make its box too wide may wrap onto two or three lines. Write one `<tspan>` per line, repeat the `x` on every line, and step down with `dy` in px (1.2 times the font size):
+
+```xml
+<rect x="48" y="48" width="160" height="64"/>
+<text class="label" x="128" y="76.5" font-size="14" text-anchor="middle">
+  <tspan x="128">Reserve</tspan>
+  <tspan x="128" dy="16.8">inventory</tspan>
+</text>
+```
+
+The 64-tall box holds 42 + 16.8 = 58.8. The first baseline is 80 + 4.9 - 8.4 = 76.5, so the block centers on the box [box-height] [baseline].
+
+## Prohibited constructs
+
+The geometry model reads raw coordinates, so anything that moves glyphs or boxes away from them is an error:
+
+- No `transform`, as an attribute on any element or as a property in a style [transform].
+- No `dominant-baseline` or `alignment-baseline` other than `alphabetic`, set on the text or inherited from a group or style [text-baseline].
+- `font-size` is unitless or px only, such as `14` or `14px`. Never `em`, `rem`, `%`, or a keyword [font-unit].
 
 ## Connectors
 

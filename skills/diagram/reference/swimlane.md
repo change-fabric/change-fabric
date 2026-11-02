@@ -35,6 +35,16 @@ A swimlane diagram is a flow split into horizontal bands, one per owner. The rea
 
 Orthogonal only: `M`, `H`, `V`, and axis-aligned `L`. An edge that changes lanes crosses the lane border with a vertical segment, at a right angle, then turns horizontal into its target. Edges within a lane are straight horizontal runs. Every edge is directed and carries a marker, and each endpoint touches its step box within 2px. No curves.
 
+## Multi-line labels
+
+When a label would push its box past the width the layout allows, wrap it onto two lines with one `<tspan>` per line, the `x` repeated on each, and `dy="16.8"` for 14px text. Grow the box to 64 tall and set the first baseline at box center minus 3.5:
+
+```xml
+<text class="label" x="128" y="76.5" font-size="14" text-anchor="middle"><tspan x="128">Reserve</tspan><tspan x="128" dy="16.8">inventory</tspan></text>
+```
+
+See "Multi-line labels" in `grammar.md` for the arithmetic.
+
 ## Lint allowances
 
 - `connector-geometry` rejects `C`, `Q`, `S`, `T`, and `A` commands and diagonal `L` segments (`TYPE_RULES["swimlane"]` has `curves: false`).

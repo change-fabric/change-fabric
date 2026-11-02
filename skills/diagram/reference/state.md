@@ -35,6 +35,16 @@ A state diagram shows the conditions one thing can be in and the events that mov
 
 Orthogonal by default: `M`, `H`, `V`, and axis-aligned `L`. State is the one type where `C` and `Q` curves are allowed, and only for back-edges and self-loops. Every transition is directed and carries a marker. Each endpoint touches its state box within 2px.
 
+## Multi-line labels
+
+When a label would push its box past the width the layout allows, wrap it onto two lines with one `<tspan>` per line, the `x` repeated on each, and `dy="16.8"` for 14px text. Grow the box to 64 tall and set the first baseline at box center minus 3.5:
+
+```xml
+<text class="label" x="128" y="76.5" font-size="14" text-anchor="middle"><tspan x="128">Reserve</tspan><tspan x="128" dy="16.8">inventory</tspan></text>
+```
+
+See "Multi-line labels" in `grammar.md` for the arithmetic.
+
 ## Lint allowances
 
 - `connector-geometry` accepts cubic and quadratic commands here (`TYPE_RULES["state"]` has `curves: true`). Other types reject them.

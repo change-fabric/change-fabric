@@ -40,6 +40,14 @@ Do not use it for:
 
 Never loosen a check or edit the linter to make a diagram pass.
 
+## Checks
+
+Each finding carries one of these IDs; `reference/grammar.md` states the rule behind each:
+
+`a11y`, `xml-safety`, `viewbox-clip`, `overlap`, `text-overflow`, `baseline`, `box-height`, `spacing`, `grid`, `connector-geometry`, `arrow-marker`, `palette`, `font-stack`, `theme-fallback`, `caps`, `type-declared`, `transform`, `text-baseline`, `font-unit`.
+
+The last three reject constructs the geometry model does not follow: any `transform`, a baseline other than alphabetic, and a font size that is not unitless or px.
+
 ## Icons
 
 Icons are optional and rarely needed. When one helps, take it from PrototypeIcons (`scripts/prototype_icons.rb`, Phosphor for UI glyphs and Simple Icons for brand marks), inline it as a `<path>` inside the node group, color it with a palette role, and add the notice comment that PrototypeIcons supplies inside the SVG. No other icon source.

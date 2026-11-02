@@ -38,6 +38,16 @@ Use an architecture diagram to show which components a system is made of and whi
 - Prefer a straight edge between neighbors in the same row or column. When a bend is needed, use one or two, and route along the gap between columns rather than through a group label.
 - An edge may cross a group border; that is how traffic enters a boundary. It may not cross a node.
 
+## Multi-line labels
+
+When a label would push its box past the width the layout allows, wrap it onto two lines with one `<tspan>` per line, the `x` repeated on each, and `dy="16.8"` for 14px text. Grow the box to 64 tall and set the first baseline at box center minus 3.5:
+
+```xml
+<text class="label" x="128" y="76.5" font-size="14" text-anchor="middle"><tspan x="128">Reserve</tspan><tspan x="128" dy="16.8">inventory</tspan></text>
+```
+
+See "Multi-line labels" in `grammar.md` for the arithmetic.
+
 ## Lint allowances
 
 - `connector-geometry`: orthogonal policy, curves rejected.
