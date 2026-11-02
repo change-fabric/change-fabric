@@ -6,7 +6,7 @@ Written to `docs/creative/NNNN-<slug>.md` in the target repo. Self-contained: a 
 ---
 status: accepted            # proposed | accepted | superseded by NNNN
 date: YYYY-MM-DD
-applies_to: [ui, brand]     # consumers filter on this; ui gates usability rubrics
+applies_to: [ui, brand]     # consumers filter on this; without ui, cf:design touches only brand rules
 working_dir: ~/.claude/cf/imagine/<area>/<slug>   # tilde, informational
 options: 3
 rounds: 2
