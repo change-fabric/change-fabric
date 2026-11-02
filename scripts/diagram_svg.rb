@@ -102,13 +102,25 @@ module DiagramSvg
       a = el.attributes
       node = el.parent && el.parent.name == "g" && classes(el.parent).include?("node") ? el.parent : nil
       Text.new(key: a["id"] || "t#{index}", x: a["x"].to_f, y: a["y"].to_f, font_size: font_size(el),
-               anchor: a["text-anchor"] || "middle", content: el.texts.map(&:value).join,
+               anchor: inherited(el, "text-anchor") || "start", content: el.texts.map(&:value).join,
                node_id: node && (node.attributes["data-id"] || node.attributes["id"]), element: el)
     end
 
     def font_size(el)
-      raw = el.attributes["font-size"] || el.attributes["style"].to_s[/font-size:\s*([\d.]+)/, 1]
+      raw = inherited(el, "font-size").to_s[/\A\s*([\d.]+)/, 1]
       raw ? raw.to_f : DEFAULT_FONT_SIZE
+    end
+
+    # Presentation property as SVG resolves it: the element's own attribute or
+    # inline style, else the nearest ancestor's (both properties inherit).
+    def inherited(el, prop)
+      while el.is_a?(REXML::Element)
+        own = el.attributes["style"].to_s[/(?:\A|;)\s*#{Regexp.escape(prop)}\s*:\s*([^;]+)/, 1]&.strip
+        own ||= el.attributes[prop]
+        return own if own
+        el = el.parent
+      end
+      nil
     end
   end
 
