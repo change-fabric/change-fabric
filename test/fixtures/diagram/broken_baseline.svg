@@ -20,7 +20,7 @@
   <rect class="bg" x="0" y="0" width="672" height="144" fill="#FBFBFA"/>
 <g class="node" data-id="cart">
     <rect x="48" y="48" width="160" height="48" rx="6"/>
-    <text class="label" x="128.0" y="80" font-size="14" text-anchor="middle">Cart</text>
+    <text class="label" x="128.0" y="78.2" font-size="14" text-anchor="middle">Cart</text>
   </g>
   <g class="node" data-id="pay">
     <rect x="256" y="48" width="160" height="48" rx="6"/>

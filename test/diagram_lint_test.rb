@@ -210,6 +210,41 @@ class DiagramLintTest < Minitest::Test
   def test_multiline_label_needs_a_taller_box_and_a_centered_block
     multi = File.read(fixture("clean_multiline.svg"))
     with_svg(multi.sub('height="64"', 'height="48"')) { |checks| assert_includes checks, "box-height" }
-    with_svg(multi.sub('y="76.5"', 'y="84.9"')) { |checks| assert_equal [ "baseline" ], checks }
+    with_svg(multi.sub('y="76.5"', 'y="73.5"')) { |checks| assert_equal [ "baseline" ], checks }
+  end
+
+  # Research repros: each fails its own check under exact geometry.
+  def test_geometry_repros_fail_their_own_check
+    {
+      "broken_text_overflow_placement.svg" => "text-overflow",
+      "broken_text_overflow_vertical.svg" => "text-overflow",
+      "broken_overlap_gap.svg" => "overlap"
+    }.each do |name, id|
+      findings = lint(name)
+      refute_empty findings, name
+      assert_equal [ id ], findings.map(&:check).uniq, name
+    end
+  end
+
+  def test_round_and_polygon_nodes_use_an_inscribed_label_box
+    svg = <<~SVG
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 200">
+        <g class="node" data-id="c"><circle cx="100" cy="100" r="50"/></g>
+        <g class="node" data-id="e"><ellipse cx="100" cy="100" rx="60" ry="30"/></g>
+        <g class="node" data-id="d"><polygon points="300,40 360,100 300,160 240,100"/></g>
+      </svg>
+    SVG
+    doc = DiagramSvg::Document.new(svg)
+    half = 50 / Math.sqrt(2)
+    c = doc.node("c").label_box
+    assert_in_delta 100 - half, c.x
+    assert_in_delta 2 * half, c.w
+    e = doc.node("e").label_box
+    assert_in_delta 120 / Math.sqrt(2), e.w
+    assert_in_delta 60 / Math.sqrt(2), e.h
+    d = doc.node("d").label_box
+    assert_in_delta 60, d.w, 0.01
+    assert_in_delta 60, d.h, 0.01
+    assert_in_delta 270, d.x, 0.01
   end
 end

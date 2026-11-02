@@ -73,25 +73,25 @@ Customer, order, and order line, with two one-to-many links. This exact SVG is t
     <rect x="48" y="48" width="176" height="128" rx="6"/>
     <text class="label" x="136.0" y="76.9" font-size="14" text-anchor="middle">customer</text>
     <line class="divider" x1="48" y1="96" x2="224" y2="96"/>
-    <text class="column" x="64" y="120" font-size="12">id  PK</text>
-    <text class="column" x="64" y="140" font-size="12">email</text>
-    <text class="column" x="64" y="160" font-size="12">name</text>
+    <text class="column" x="64" y="116" font-size="12">id  PK</text>
+    <text class="column" x="64" y="136" font-size="12">email</text>
+    <text class="column" x="64" y="156" font-size="12">name</text>
   </g>
   <g class="node" data-id="order">
     <rect x="320" y="48" width="176" height="128" rx="6"/>
     <text class="label" x="408.0" y="76.9" font-size="14" text-anchor="middle">order</text>
     <line class="divider" x1="320" y1="96" x2="496" y2="96"/>
-    <text class="column" x="336" y="120" font-size="12">id  PK</text>
-    <text class="column" x="336" y="140" font-size="12">customer_id  FK</text>
-    <text class="column" x="336" y="160" font-size="12">placed_at</text>
+    <text class="column" x="336" y="116" font-size="12">id  PK</text>
+    <text class="column" x="336" y="136" font-size="12">customer_id  FK</text>
+    <text class="column" x="336" y="156" font-size="12">placed_at</text>
   </g>
   <g class="node" data-id="line">
     <rect x="592" y="48" width="176" height="128" rx="6"/>
     <text class="label" x="680.0" y="76.9" font-size="14" text-anchor="middle">order_line</text>
     <line class="divider" x1="592" y1="96" x2="768" y2="96"/>
-    <text class="column" x="608" y="120" font-size="12">id  PK</text>
-    <text class="column" x="608" y="140" font-size="12">order_id  FK</text>
-    <text class="column" x="608" y="160" font-size="12">quantity</text>
+    <text class="column" x="608" y="116" font-size="12">id  PK</text>
+    <text class="column" x="608" y="136" font-size="12">order_id  FK</text>
+    <text class="column" x="608" y="156" font-size="12">quantity</text>
   </g>
   <path class="edge" data-from="customer" data-to="order" d="M224 72 H320"/>
   <path class="edge" data-from="order" data-to="line" d="M496 72 H592"/>

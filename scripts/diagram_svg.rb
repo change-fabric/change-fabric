@@ -73,7 +73,9 @@ module DiagramSvg
     end
   end
 
-  Node = Data.define(:id, :box, :element)
+  # A node: `box` is the shape's bounding box, `label_box` the box its label
+  # must fit (the bbox for a rect, the inscribed box for a round or polygon).
+  Node = Data.define(:id, :box, :label_box, :element)
   # One rendered line of a text element: its own content and start point.
   Line = Data.define(:text, :x, :y)
   # A <text> element. `content` is every descendant character run, one line
@@ -168,7 +170,10 @@ module DiagramSvg
     def nodes
       @nodes ||= elements.select { |el| el.name == "g" && classes(el).include?("node") }.filter_map do |g|
         shape = g.elements.find { |el| SHAPES.include?(el.name) }
-        Node.new(id: g.attributes["data-id"] || g.attributes["id"], box: Geometry.box(shape), element: g) if shape
+        next unless shape
+
+        Node.new(id: g.attributes["data-id"] || g.attributes["id"], box: Geometry.box(shape),
+                 label_box: Geometry.label_box(shape), element: g)
       end.select(&:box)
     end
 
@@ -266,6 +271,60 @@ module DiagramSvg
       when "ellipse" then radial(a["cx"], a["cy"], a["rx"], a["ry"])
       when "polygon" then polygon(a["points"].to_s)
       end
+    end
+
+    # Largest axis-aligned box a label may use inside the shape.
+    def label_box(el)
+      a = el.attributes
+      case el.name
+      when "rect" then box(el)
+      when "circle" then inscribed(a["cx"].to_f, a["cy"].to_f, a["r"].to_f, a["r"].to_f)
+      when "ellipse" then inscribed(a["cx"].to_f, a["cy"].to_f, a["rx"].to_f, a["ry"].to_f)
+      when "polygon" then polygon_inscribed(a["points"].to_s)
+      end
+    end
+
+    # Box inscribed in an ellipse: half sides r / sqrt 2.
+    def inscribed(cx, cy, rx, ry)
+      hx = rx / Math.sqrt(2)
+      hy = ry / Math.sqrt(2)
+      Box.new(x: cx - hx, y: cy - hy, w: 2 * hx, h: 2 * hy)
+    end
+
+    # The polygon's bbox shrunk about the vertex centroid, by bisection on the
+    # scale, until all four corners sit inside the polygon.
+    def polygon_inscribed(points)
+      pts = points.split(/[\s,]+/).map(&:to_f).each_slice(2).to_a
+      outer = polygon(points)
+      return nil unless outer && pts.size >= 3
+
+      cx = pts.sum(&:first) / pts.size
+      cy = pts.sum(&:last) / pts.size
+      half_w = [ cx - outer.x, outer.right - cx ].min
+      half_h = [ cy - outer.y, outer.bottom - cy ].min
+      fits = ->(k) { [ [ -1, -1 ], [ 1, -1 ], [ 1, 1 ], [ -1, 1 ] ].all? { |sx, sy| inside?(pts, cx + (sx * k * half_w), cy + (sy * k * half_h)) } }
+      lo = 0.0
+      hi = 1.0
+      if fits.call(hi)
+        lo = hi
+      else
+        40.times do
+          mid = (lo + hi) / 2
+          fits.call(mid) ? lo = mid : hi = mid
+        end
+      end
+      Box.new(x: cx - (lo * half_w), y: cy - (lo * half_h), w: 2 * lo * half_w, h: 2 * lo * half_h)
+    end
+
+    # Closed point-in-polygon: on the outline counts as inside.
+    def inside?(pts, px, py)
+      ring = pts.each_with_index.map { |p, i| [ p, pts[(i + 1) % pts.size] ] }
+      on_edge = ring.any? do |(ax, ay), (bx, by)|
+        Segment.new(x1: ax, y1: ay, x2: bx, y2: by, command: "L").distance_to_point(px, py) < 1e-9
+      end
+      return true if on_edge
+
+      ring.count { |(ax, ay), (bx, by)| ((ay > py) != (by > py)) && px < ax + ((py - ay) * (bx - ax) / (by - ay)) }.odd?
     end
 
     def radial(cx, cy, rx, ry)

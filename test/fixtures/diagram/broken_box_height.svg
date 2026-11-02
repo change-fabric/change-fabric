@@ -19,8 +19,8 @@
   </defs>
   <rect class="bg" x="0" y="0" width="672" height="144" fill="#FBFBFA"/>
 <g class="node" data-id="cart">
-    <rect x="48" y="48" width="160" height="40" rx="6"/>
-    <text class="label" x="128.0" y="72.9" font-size="14" text-anchor="middle">Cart</text>
+    <rect x="48" y="48" width="160" height="56" rx="6"/>
+    <text class="label" x="128.0" y="83" font-size="20" text-anchor="middle">Cart</text>
   </g>
   <g class="node" data-id="pay">
     <rect x="256" y="48" width="160" height="48" rx="6"/>

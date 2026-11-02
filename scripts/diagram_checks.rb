@@ -141,18 +141,14 @@ module DiagramChecks
       texts = doc.texts.map { |t| [ t, context.text_box(t) ] }
       text_pairs = texts.combination(2).select { |(_, a), (_, b)| a.intersect?(b) }
                         .map { |(a, _), (b, _)| finding(a.key, "text overlaps #{b.key}", "move one label") }
-      crossings = texts.product(doc.edges).select { |(_, box), edge| edge.segments.any? { |s| Overlap.crosses?(s, box) } }
+      crossings = texts.product(doc.edges).select { |(_, box), edge| edge.segments.any? { |s| s.intersects_box?(box) } }
                        .map { |(t, _), edge| finding(t.key, "text crosses edge #{edge.id}", "offset the label at least #{LABEL_GAP}px") }
       nodes + text_pairs + crossings
     end
-
-    # Does an axis-aligned or sampled segment enter the box interior?
-    def self.crosses?(seg, box)
-      (0..20).any? { |i| box.contains_point?(seg.x1 + ((seg.x2 - seg.x1) * i / 20.0), seg.y1 + ((seg.y2 - seg.y1) * i / 20.0)) }
-    end
   end
 
-  # Text plus padding fits its node.
+  # The full text box sits inside its node's label box, padded on every
+  # side: one predicate for width, placement, and vertical fit.
   class TextOverflow < Base
     ID = "text-overflow"
 
@@ -160,15 +156,26 @@ module DiagramChecks
       severity = context.measured ? "error" : "warn"
       doc.texts.filter_map do |t|
         node = t.node_id && doc.node(t.node_id)
-        next unless node
+        next unless node&.label_box
 
-        width = context.text_box(t).w
-        inner = node.box.w - (2 * PADDING)
-        next if width <= inner
+        box = context.text_box(t)
+        inner = node.label_box.inset(PADDING)
+        next if inner.contains_box?(box)
 
-        finding(node.id, "label width #{width.round}px exceeds box inner width #{inner.round}px",
-                "widen box to #{(((width + (2 * PADDING)) / GRID).ceil * GRID)} or shorten label", severity: severity)
+        finding(node.id, "label #{t.key} box #{describe(box)} is outside padded node area #{describe(inner)}",
+                fix(box, inner), severity: severity)
       end
+    end
+
+    private
+
+    def describe(b) = "#{b.x.round(1)},#{b.y.round(1)} #{b.w.round(1)}x#{b.h.round(1)}"
+
+    def fix(box, inner)
+      return "widen box to #{(((box.w + (2 * PADDING)) / GRID).ceil * GRID)} or shorten label" if box.w > inner.w
+      return "grow the box height or move the label up" if box.h > inner.h
+
+      "move the label inside the box, #{PADDING}px from each edge"
     end
   end
 
@@ -236,17 +243,9 @@ module DiagramChecks
     def labels(doc, context)
       doc.texts.reject(&:node_id).product(doc.edges).filter_map do |text, edge|
         box = context.text_box(text)
-        dist = edge.segments.map { |s| distance(s, box) }.min
+        dist = edge.segments.map { |s| s.distance_to_box(box) }.min
         finding(text.key, "label is #{dist.round(1)}px from edge #{edge.id}", "keep at least #{LABEL_GAP}px") if dist&.between?(0.001, LABEL_GAP - 0.001)
       end
-    end
-
-    def distance(seg, box)
-      (0..20).map do |i|
-        px = seg.x1 + ((seg.x2 - seg.x1) * i / 20.0)
-        py = seg.y1 + ((seg.y2 - seg.y1) * i / 20.0)
-        box.contains_point?(px, py) ? 0.0 : box.boundary_distance(px, py)
-      end.min
     end
   end
 
@@ -307,7 +306,7 @@ module DiagramChecks
     def passes(doc, edge)
       doc.nodes.reject { |n| [ edge.from, edge.to ].include?(n.id) }.filter_map do |node|
         inner = node.box.inset(1)
-        next unless edge.segments.any? { |s| Overlap.crosses?(s, inner) }
+        next unless edge.segments.any? { |s| s.intersects_box?(inner) }
 
         finding(edge.id, "passes through #{node.id}", "route around it")
       end
