@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 672 144" width="672" height="144" role="img" aria-labelledby="t d" data-diagram-type="flow">
+  <title id="t">Checkout flow</title>
+  <desc id="d">A cart is reviewed, paid for, and confirmed.</desc>
+<style>
+    svg { --bg: #FBFBFA; --surface: #FFFFFF; --ink: #1F2328; --muted: #5B6470; --line: #8A939E; --accent: #2F5D8A; --accent-2: #8A5A2F; }
+    @media (prefers-color-scheme: dark) {
+      svg { --bg: #16181B; --surface: #1E2125; --ink: #E8EAED; --muted: #A3ABB5; --line: #6E7781; --accent: #7FA8D1; --accent-2: #D1A37F; }
+    }
+    .bg { fill: var(--bg); }
+    .node rect { fill: var(--surface); stroke: var(--line); stroke-width: 1.5; }
+    .label { fill: var(--ink); font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", sans-serif; }
+    .edge { fill: none; stroke: var(--line); stroke-width: 1.5; }
+    .group rect { fill: none; stroke: var(--muted); stroke-dasharray: 4 4; }
+    .note { fill: var(--muted); font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", sans-serif; }
+  </style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="#8A939E"/></marker>
+    <marker id="arrow-muted" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="#5B6470"/></marker>
+  </defs>
+  <rect class="bg" x="0" y="0" width="672" height="144" fill="#FBFBFA"/>
+<g class="node" data-id="cart">
+    <rect x="48" y="48" width="160" height="48" rx="6"/>
+    <text class="label" x="128.0" y="76.9" font-size="14" text-anchor="middle">Cart</text>
+  </g>
+  <g class="node" data-id="pay">
+    <rect x="256" y="48" width="160" height="48" rx="6"/>
+    <text class="label" x="336.0" y="76.9" font-size="14" text-anchor="middle">Payment</text>
+  </g>
+  <g class="node" data-id="done">
+    <rect x="464" y="48" width="160" height="48" rx="6"/>
+    <text class="label" x="544.0" y="76.9" font-size="14" text-anchor="middle">Confirmed</text>
+  </g>
+  <path class="edge" data-from="cart" data-to="pay" d="M208 72 H256"/>
+  <path class="edge" data-from="pay" data-to="done" d="M416 72 H464" marker-end="url(#arrow)"/>
+</svg>
