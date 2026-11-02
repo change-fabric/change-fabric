@@ -7,7 +7,8 @@ require_relative "change_docker"
 require_relative "browserless_js"
 
 # Text measurers for the cf:diagram linter. Each answers `measured?` and
-# `widths(doc) -> { text_key => [w, h] }` for a DiagramSvg::Document.
+# `widths(doc) -> { text_key => [x, y, w, h] }` for a DiagramSvg::Document:
+# the full box of each text in user units, anchor and lines resolved.
 # Browserless asks the pinned Chromium for getBBox of every <text>; Static is
 # the browser-free estimate used with --no-measure.
 module DiagramMeasure
@@ -17,16 +18,31 @@ module DiagramMeasure
   # Raised when one measurement request would exceed browserless's body cap.
   class TooLarge < StandardError; end
 
-  # Conservative width estimate with no browser: 0.6 em per Latin char and
-  # 1.0 em per CJK char. Results are advisory, so `measured?` is false.
+  # Conservative box estimate with no browser: 0.6 em per Latin char and
+  # 1.0 em per CJK char, 1.2 em per line, x placed by anchor, top at
+  # 0.8 em above each baseline, unioned across lines. Advisory only, so
+  # `measured?` is false.
   class Static
     CJK = /[\p{Han}\p{Hiragana}\p{Katakana}\p{Hangul}]/
 
     def measured? = false
 
-    def widths(doc) = doc.texts.to_h { |t| [ t.key, [ widths_for(t), t.font_size ] ] }
+    def widths(doc) = doc.texts.to_h { |t| [ t.key, box_for(t) ] }
 
-    def widths_for(text) = text.content.each_char.sum { |c| c.match?(CJK) ? 1.0 : 0.6 } * text.font_size
+    def widths_for(text) = text.lines.map { |l| line_width(l.text, text.font_size) }.max || 0.0
+
+    def box_for(text)
+      size = text.font_size
+      boxes = text.lines.map do |l|
+        w = line_width(l.text, size)
+        left = { "start" => l.x, "end" => l.x - w }.fetch(text.anchor, l.x - (w / 2.0))
+        DiagramSvg::Box.new(x: left, y: l.y - (0.8 * size), w: w, h: 1.2 * size)
+      end
+      b = boxes.reduce { |acc, x| acc.union(x) }
+      [ b.x, b.y, b.w, b.h ]
+    end
+
+    def line_width(str, size) = str.each_char.sum { |c| c.match?(CJK) ? 1.0 : 0.6 } * size
   end
 
   # Measures text with getBBox inside one browserless session per lint run.
@@ -35,6 +51,8 @@ module DiagramMeasure
   class Browserless
     MAX_BODY_BYTES = 10 * 1024 * 1024
     DEFAULT_CACHE = File.join(Dir.home, ".cache", "cf", "diagram-measure")
+    # Bumped when the cached value shape changes; v2 stores [x, y, w, h].
+    CACHE_VERSION = 2
 
     # `browser` yields a session that answers run_function(js); the default
     # starts the pinned container. `available` is checked before any start.
@@ -47,7 +65,7 @@ module DiagramMeasure
 
     def measured? = true
 
-    def self.key(svg) = Digest::SHA256.hexdigest("#{ChangeDocker::BROWSERLESS_IMAGE}\n#{svg}")
+    def self.key(svg) = Digest::SHA256.hexdigest("v#{CACHE_VERSION}\n#{ChangeDocker::BROWSERLESS_IMAGE}\n#{svg}")
 
     # Measures every cache miss among docs in one shared container, so a lint
     # run starts at most one browserless and an all-hit run starts none.
@@ -76,8 +94,9 @@ module DiagramMeasure
           const data = await page.evaluate(() => {
             const out = {};
             document.querySelectorAll("text").forEach((el, i) => {
+              el.getComputedTextLength();
               const b = el.getBBox();
-              out[el.id || ("t" + i)] = [b.width, b.height];
+              out[el.id || ("t" + i)] = { x: b.x, y: b.y, w: b.width, h: b.height };
             });
             return out;
           });
@@ -106,17 +125,30 @@ module DiagramMeasure
     def measure(session, doc)
       raw = session.run_function(js_module(doc.source))
       doc.texts.to_h do |t|
-        w, h = raw.fetch(t.key, [ 0.0, t.font_size ])
-        floor = t.content.match?(Static::CJK) ? @static.widths_for(t) : 0.0
-        [ t.key, [ [ w.to_f, floor ].max, h.to_f ] ]
+        estimate = @static.box_for(t)
+        got = raw[t.key]
+        box = got.is_a?(Hash) ? %w[x y w h].map { |k| got[k].to_f } : nil
+        box = estimate if box.nil? || box[2] <= 0 && !t.content.strip.empty?
+        box = union(box, estimate) if t.content.match?(Static::CJK)
+        [ t.key, box ]
       end
+    end
+
+    def union(a, b)
+      x = [ a[0], b[0] ].min
+      y = [ a[1], b[1] ].min
+      [ x, y, [ a[0] + a[2], b[0] + b[2] ].max - x, [ a[1] + a[3], b[1] + b[3] ].max - y ]
     end
 
     def cache_path(key) = File.join(@cache_dir, "#{key}.json")
 
     def read_cache(key)
       path = cache_path(key)
-      File.file?(path) ? JSON.parse(File.read(path)) : nil
+      return nil unless File.file?(path)
+
+      data = JSON.parse(File.read(path))
+      valid = data.is_a?(Hash) && data.values.all? { |v| v.is_a?(Array) && v.size == 4 && v.all?(Numeric) }
+      valid ? data : nil
     rescue JSON::ParserError
       nil
     end

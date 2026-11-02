@@ -74,7 +74,11 @@ module DiagramSvg
   end
 
   Node = Data.define(:id, :box, :element)
-  Text = Data.define(:key, :x, :y, :font_size, :anchor, :content, :node_id, :element)
+  # One rendered line of a text element: its own content and start point.
+  Line = Data.define(:text, :x, :y)
+  # A <text> element. `content` is every descendant character run, one line
+  # per row joined by newline; `lines` places each row with tspan x/y/dy.
+  Text = Data.define(:key, :x, :y, :font_size, :anchor, :content, :lines, :node_id, :element)
   # One straight chord of a connector, tagged with its path command letter.
   Segment = Data.define(:x1, :y1, :x2, :y2, :command) do
     def dx = x2 - x1
@@ -187,10 +191,49 @@ module DiagramSvg
 
     def build_text(el, index)
       a = el.attributes
-      node = el.parent && el.parent.name == "g" && classes(el.parent).include?("node") ? el.parent : nil
-      Text.new(key: a["id"] || "t#{index}", x: a["x"].to_f, y: a["y"].to_f, font_size: font_size(el),
-               anchor: inherited(el, "text-anchor") || "start", content: el.texts.map(&:value).join,
+      x = a["x"].to_f
+      y = a["y"].to_f
+      size = font_size(el)
+      lines = text_lines(el, x, y, size)
+      node = el.parent
+      node = node.parent while node.is_a?(REXML::Element) && !(node.name == "g" && classes(node).include?("node"))
+      node = nil unless node.is_a?(REXML::Element)
+      Text.new(key: a["id"] || "t#{index}", x: x, y: y, font_size: size,
+               anchor: inherited(el, "text-anchor") || "start", content: lines.map(&:text).join("\n"), lines: lines,
                node_id: node && (node.attributes["data-id"] || node.attributes["id"]), element: el)
+    end
+
+    # Rows of a text element. A tspan carrying x, y, or dy starts a new row; a
+    # tspan without x keeps the row start x; dy accumulates in px (em is
+    # scaled by font size). Unpositioned content joins the current row.
+    def text_lines(el, x, y, size)
+      rows = [ { text: +"", x: x, y: y } ]
+      walk = lambda do |node|
+        node.children.each do |c|
+          if c.is_a?(REXML::Text)
+            rows.last[:text] << c.value
+          elsif c.is_a?(REXML::Element) && c.name == "tspan"
+            ta = c.attributes
+            if ta["x"] || ta["y"] || ta["dy"]
+              cur = rows.last
+              ny = ta["y"] ? ta["y"].to_f : cur[:y]
+              ny += length(ta["dy"], size) if ta["dy"]
+              nx = ta["x"] ? ta["x"].to_f : x
+              rows << { text: +"", x: nx, y: ny }
+            end
+            walk.call(c)
+          end
+        end
+      end
+      walk.call(el)
+      rows = rows.reject { |r| r[:text].strip.empty? }
+      rows = [ { text: "", x: x, y: y } ] if rows.empty?
+      rows.map { |r| Line.new(text: r[:text].strip, x: r[:x], y: r[:y]) }
+    end
+
+    def length(raw, size)
+      v = raw.to_s.split(/[\s,]+/).first.to_s
+      v.end_with?("em") ? v.to_f * size : v.to_f
     end
 
     def font_size(el)

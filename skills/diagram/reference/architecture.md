@@ -99,6 +99,6 @@ An upload path: a browser calls an API inside a private network; the API writes 
   <path class="edge" data-from="api" data-to="worker" d="M416 112 H496" marker-end="url(#arrow)"/>
   <path class="edge" data-from="api" data-to="db" d="M344 136 V200" marker-end="url(#arrow)"/>
   <path class="edge" data-from="worker" data-to="store" d="M568 136 V200" marker-end="url(#arrow)"/>
-  <text class="note" x="456" y="104" font-size="12" text-anchor="middle">enqueue</text>
+  <text class="note" x="456" y="102" font-size="12" text-anchor="middle">enqueue</text>
 </svg>
 ```

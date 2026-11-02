@@ -16,7 +16,12 @@ class DiagramLintTest < Minitest::Test
   class FixedMeasurer
     def initialize(width) = @width = width
     def measured? = true
-    def widths(doc) = doc.texts.to_h { |t| [ t.key, [ @width, t.font_size ] ] }
+    def widths(doc)
+      doc.texts.to_h do |t|
+        left = { "start" => t.x, "end" => t.x - @width }.fetch(t.anchor, t.x - (@width / 2.0))
+        [ t.key, [ left, t.y - (0.8 * t.font_size), @width, t.font_size ] ]
+      end
+    end
   end
 
   def fixture(name) = File.join(FIXTURES, name)

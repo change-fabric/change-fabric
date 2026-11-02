@@ -43,11 +43,12 @@ module DiagramChecks
   Context = Data.define(:type, :widths, :measured, :palette) do
     def rules = TYPE_RULES.fetch(type, TYPE_RULES["flow"])
 
-    # Measured (or estimated) box of a text run, placed by its anchor.
+    # The single text bounds resolver: the measurer's full box [x, y, w, h]
+    # (anchor, baseline, and lines already resolved). A text the measurer
+    # did not report gets an empty box at its own position.
     def text_box(text)
-      w, h = widths.fetch(text.key, [ 0.0, text.font_size ])
-      left = { "start" => text.x, "end" => text.x - w }.fetch(text.anchor, text.x - (w / 2.0))
-      DiagramSvg::Box.new(x: left, y: text.y - (0.8 * h), w: w, h: h)
+      x, y, w, h = widths.fetch(text.key) { [ text.x, text.y - (0.8 * text.font_size), 0.0, text.font_size ] }
+      DiagramSvg::Box.new(x: x, y: y, w: w, h: h)
     end
   end
 

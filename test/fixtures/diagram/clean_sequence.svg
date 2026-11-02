@@ -35,12 +35,12 @@
   <line class="lifeline" x1="112" y1="96" x2="112" y2="344"/>
   <line class="lifeline" x1="288" y1="96" x2="288" y2="344"/>
   <line class="lifeline" x1="464" y1="96" x2="464" y2="344"/>
-  <text class="note" x="200.0" y="144" font-size="12" text-anchor="middle">POST /orders</text>
+  <text class="note" x="200.0" y="142" font-size="12" text-anchor="middle">POST /orders</text>
   <path class="edge" data-from="client" data-to="api" d="M112 152 H288" marker-end="url(#arrow)"/>
-  <text class="note" x="376.0" y="200" font-size="12" text-anchor="middle">INSERT order</text>
+  <text class="note" x="376.0" y="198" font-size="12" text-anchor="middle">INSERT order</text>
   <path class="edge" data-from="api" data-to="db" d="M288 208 H464" marker-end="url(#arrow)"/>
-  <text class="note" x="376.0" y="256" font-size="12" text-anchor="middle">row id</text>
+  <text class="note" x="376.0" y="254" font-size="12" text-anchor="middle">row id</text>
   <path class="edge reply" data-from="db" data-to="api" d="M464 264 H288" marker-end="url(#arrow-muted)"/>
-  <text class="note" x="200.0" y="312" font-size="12" text-anchor="middle">201 Created</text>
+  <text class="note" x="200.0" y="310" font-size="12" text-anchor="middle">201 Created</text>
   <path class="edge reply" data-from="api" data-to="client" d="M288 320 H112" marker-end="url(#arrow-muted)"/>
 </svg>
