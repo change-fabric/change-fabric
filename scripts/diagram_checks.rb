@@ -98,7 +98,7 @@ module DiagramChecks
     end
   end
 
-  # Shapes and text stay inside the viewBox with a margin.
+  # Shapes, connectors, and text stay inside the viewBox with a margin.
   class ViewboxClip < Base
     ID = "viewbox-clip"
 
@@ -106,11 +106,21 @@ module DiagramChecks
       vb = doc.view_box
       return [ finding("svg", "missing or malformed viewBox", "set viewBox=\"0 0 W H\"") ] unless vb
 
-      boxes = doc.nodes.map { |n| [ n.id, n.box ] } + doc.texts.map { |t| [ t.key, context.text_box(t) ] }
+      boxes = doc.nodes.map { |n| [ n.id, n.box ] } + doc.texts.map { |t| [ t.key, context.text_box(t) ] } +
+              doc.edges.filter_map { |e| (box = edge_box(e)) && [ e.id, box ] }
       boxes.filter_map { |id, box| judge(id, box, vb) }
     end
 
     private
+
+    # Bounding box of every vertex the connector's path passes through.
+    def edge_box(edge)
+      return if edge.segments.empty?
+
+      xs = edge.segments.flat_map { |s| [ s.x1, s.x2 ] }
+      ys = edge.segments.flat_map { |s| [ s.y1, s.y2 ] }
+      DiagramSvg::Box.new(x: xs.min, y: ys.min, w: xs.max - xs.min, h: ys.max - ys.min)
+    end
 
     def judge(id, box, vb)
       margin = [ box.x - vb.x, box.y - vb.y, vb.right - box.right, vb.bottom - box.bottom ].min

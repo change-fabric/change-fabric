@@ -77,6 +77,20 @@ class DiagramLintTest < Minitest::Test
     assert_empty findings[:findings]
   end
 
+  # A connector leaving the viewBox on any side is clipped, not just nodes and text.
+  def test_connector_outside_viewbox_is_clipped
+    clean = File.read(fixture("clean_flow.svg"))
+    { "above" => "M208 72 V-32 H256 V72", "left" => "M208 72 H-40 V72 H256",
+      "below" => "M208 72 V4000 H256 V72", "right" => "M208 72 H9000 V72 H256" }.each do |side, d|
+      Dir.mktmpdir do |dir|
+        path = File.join(dir, "edge.svg")
+        File.write(path, clean.sub("M208 72 H256", d))
+        findings = DiagramLint.new(measurer: DiagramMeasure::Static.new).lint_file(path)[:findings]
+        assert(findings.any? { |f| f.check == "viewbox-clip" && f.severity == "error" }, side)
+      end
+    end
+  end
+
   def test_json_shape
     code, out, = run_cli("--json", fixture("broken_spacing.svg"))
     assert_equal 1, code
