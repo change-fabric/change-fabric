@@ -151,42 +151,122 @@ module DiagramSvg
     end
   end
 
-  # Turns path data into absolute straight segments; a curve becomes one
-  # chord from its start to its end point, tagged with its command letter.
+  # Turns path data into absolute straight segments. A curve (C, S, Q, T, A)
+  # is flattened into short chords along its real geometry, each tagged with
+  # the curve's command letter, so route checks see the rendered shape.
   module PathData
     ARITY = { "M" => 2, "L" => 2, "H" => 1, "V" => 1, "C" => 6, "S" => 4, "Q" => 4, "T" => 2, "A" => 7, "Z" => 0 }.freeze
+    STEPS = 16
 
     module_function
 
     def commands(d) = d.scan(/[A-Za-z]/).map(&:upcase)
 
     def segments(d)
-      pos = [ 0.0, 0.0 ]
-      start = pos
+      state = { pos: [ 0.0, 0.0 ], start: [ 0.0, 0.0 ], ctrl: nil, prev: nil }
       d.scan(/([A-Za-z])([^A-Za-z]*)/).flat_map do |letter, args|
         nums = args.scan(/-?\d*\.?\d+(?:e-?\d+)?/i).map(&:to_f)
         arity = ARITY.fetch(letter.upcase, 0)
         groups = arity.zero? ? [ [] ] : nums.each_slice(arity).to_a
-        groups.filter_map do |g|
-          from = pos
-          pos = advance(letter, g, pos, start)
-          if letter.upcase == "M"
-            start = pos
-            next
-          end
-          Segment.new(x1: from[0], y1: from[1], x2: pos[0], y2: pos[1], command: letter.upcase)
-        end
+        groups.flat_map { |g| step(letter, g, state) }
       end
     end
 
-    def advance(letter, g, pos, start)
+    def step(letter, g, state)
+      cmd = letter.upcase
+      from = state[:pos]
+      pts = points(cmd, absolute(letter, g, from, state[:start]), from, state)
+      state[:prev] = cmd
+      state[:pos] = pts.last
+      if cmd == "M"
+        state[:start] = state[:pos]
+        return []
+      end
+      [ from, *pts ].each_cons(2).map { |(a, b)| Segment.new(x1: a[0], y1: a[1], x2: b[0], y2: b[1], command: cmd) }
+    end
+
+    # Absolute coordinates for every point argument of one command.
+    def absolute(letter, g, pos, start)
       rel = letter == letter.downcase
-      base = rel ? pos : [ 0.0, 0.0 ]
       case letter.upcase
       when "H" then [ (rel ? pos[0] : 0) + g[0], pos[1] ]
       when "V" then [ pos[0], (rel ? pos[1] : 0) + g[0] ]
       when "Z" then start
-      else [ base[0] + g[-2], base[1] + g[-1] ]
+      when "A" then g[0, 5] + [ (rel ? pos[0] : 0) + g[5], (rel ? pos[1] : 0) + g[6] ]
+      else g.each_slice(2).flat_map { |x, y| rel ? [ pos[0] + x, pos[1] + y ] : [ x, y ] }
+      end
+    end
+
+    def points(cmd, a, from, state)
+      case cmd
+      when "C" then cubic(from, a[0, 2], a[2, 2], a[4, 2], state)
+      when "S" then cubic(from, reflect(from, state, %w[C S]), a[0, 2], a[2, 2], state)
+      when "Q" then quad(from, a[0, 2], a[2, 2], state)
+      when "T" then quad(from, reflect(from, state, %w[Q T]), a[0, 2], state)
+      else
+        state[:ctrl] = nil
+        cmd == "A" ? arc(from, *a) : [ a[0, 2] ]
+      end
+    end
+
+    def reflect(from, state, kinds)
+      return from unless state[:ctrl] && kinds.include?(state[:prev])
+
+      [ 2 * from[0] - state[:ctrl][0], 2 * from[1] - state[:ctrl][1] ]
+    end
+
+    def cubic(p0, p1, p2, p3, state)
+      state[:ctrl] = p2
+      (1..STEPS).map do |i|
+        t = i.to_f / STEPS
+        u = 1 - t
+        (0..1).map { |k| u**3 * p0[k] + 3 * u * u * t * p1[k] + 3 * u * t * t * p2[k] + t**3 * p3[k] }
+      end
+    end
+
+    def quad(p0, p1, p2, state)
+      state[:ctrl] = p1
+      (1..STEPS).map do |i|
+        t = i.to_f / STEPS
+        u = 1 - t
+        (0..1).map { |k| u * u * p0[k] + 2 * u * t * p1[k] + t * t * p2[k] }
+      end
+    end
+
+    # SVG endpoint arc to center parameterization (SVG 1.1 F.6.5), sampled.
+    def arc(from, rx, ry, phi_deg, large, sweep, x, y)
+      rx = rx.abs
+      ry = ry.abs
+      return [ [ x, y ] ] if rx.zero? || ry.zero? || from == [ x, y ]
+
+      phi = phi_deg * Math::PI / 180
+      cos = Math.cos(phi)
+      sin = Math.sin(phi)
+      dx = (from[0] - x) / 2
+      dy = (from[1] - y) / 2
+      x1 = cos * dx + sin * dy
+      y1 = -sin * dx + cos * dy
+      scale = (x1**2) / (rx**2) + (y1**2) / (ry**2)
+      if scale > 1
+        rx *= Math.sqrt(scale)
+        ry *= Math.sqrt(scale)
+      end
+      num = (rx**2 * ry**2) - (rx**2 * y1**2) - (ry**2 * x1**2)
+      den = (rx**2 * y1**2) + (ry**2 * x1**2)
+      coef = Math.sqrt([ num / den, 0 ].max) * ((large != 0) == (sweep != 0) ? -1 : 1)
+      cx1 = coef * rx * y1 / ry
+      cy1 = -coef * ry * x1 / rx
+      cx = cos * cx1 - sin * cy1 + (from[0] + x) / 2
+      cy = sin * cx1 + cos * cy1 + (from[1] + y) / 2
+      theta = Math.atan2((y1 - cy1) / ry, (x1 - cx1) / rx)
+      delta = Math.atan2((-y1 - cy1) / ry, (-x1 - cx1) / rx) - theta
+      delta -= 2 * Math::PI if sweep.zero? && delta.positive?
+      delta += 2 * Math::PI if sweep != 0 && delta.negative?
+      (1..STEPS).map do |i|
+        a = theta + delta * i / STEPS
+        ex = rx * Math.cos(a)
+        ey = ry * Math.sin(a)
+        i == STEPS ? [ x, y ] : [ cos * ex - sin * ey + cx, sin * ex + cos * ey + cy ]
       end
     end
   end

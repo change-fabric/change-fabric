@@ -128,4 +128,35 @@ class DiagramLintTest < Minitest::Test
       refute_match(/#FF0000/, out)
     end
   end
+
+  # Every curve command is flattened along its real route, not its chord:
+  # each variant's sampled points must leave the straight endpoint line.
+  def test_curves_flatten_along_their_real_geometry
+    {
+      "M0 0 C0 40 100 40 100 0" => 30.0,
+      "M0 0 c0 40 100 40 100 0" => 30.0,
+      "M0 0 C0 40 50 40 50 0 S100 -40 100 0" => 30.0,
+      "M0 0 Q50 40 100 0" => 20.0,
+      "M0 0 q50 40 100 0" => 20.0,
+      "M0 0 Q25 40 50 0 T100 0" => 20.0,
+      "M0 0 A50 50 0 0 1 100 0" => 50.0,
+      "M0 0 a50 50 0 0 0 100 0" => 50.0
+    }.each do |d, depth|
+      segs = DiagramSvg::PathData.segments(d)
+      ys = segs.flat_map { |s| [ s.y1, s.y2 ] }
+      assert_operator ys.map(&:abs).max, :>=, depth - 1, d
+      assert_in_delta 100.0, segs.last.x2, 0.001, d
+      assert_in_delta 0.0, segs.last.y2, 0.001, d
+    end
+  end
+
+  def test_label_on_a_curved_back_edge_is_caught
+    svg = File.read(fixture("clean_state.svg")).sub(/(<text[^>]*y=")148(")/, '\\1126\\2')
+    refute_equal File.read(fixture("clean_state.svg")), svg
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "moved.svg")
+      File.write(path, svg)
+      refute_empty DiagramLint.new(measurer: DiagramMeasure::Static.new).lint_file(path)[:findings]
+    end
+  end
 end
