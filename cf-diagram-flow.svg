@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1088 264" width="1088" height="264" role="img" aria-labelledby="t d" data-diagram-type="flow">
+  <title id="t">How cf:diagram makes a diagram</title>
+  <desc id="d">The agent picks a diagram type, sketches nodes and edges, hand-writes the SVG, then lints it with text measured in browserless. Findings go back through fix and rewrite for up to three rounds; a clean lint yields the final SVG.</desc>
+  <style>
+    svg { --bg: #FBFBFA; --surface: #FFFFFF; --ink: #1F2328; --muted: #5B6470; --line: #8A939E; --accent: #2F5D8A; --accent-2: #8A5A2F; }
+    @media (prefers-color-scheme: dark) {
+      svg { --bg: #16181B; --surface: #1E2125; --ink: #E8EAED; --muted: #A3ABB5; --line: #6E7781; --accent: #7FA8D1; --accent-2: #D1A37F; }
+    }
+    .bg { fill: var(--bg); }
+    .node rect { fill: var(--surface); stroke: var(--line); stroke-width: 1.5; }
+    .node rect.accent { stroke: var(--accent); stroke-width: 2; }
+    .label { fill: var(--ink); font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", sans-serif; }
+    .edge { fill: none; stroke: var(--line); stroke-width: 1.5; }
+    .note { fill: var(--muted); font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", sans-serif; }
+  </style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="#8A939E"/></marker>
+    <marker id="arrow-muted" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="#5B6470"/></marker>
+  </defs>
+  <rect class="bg" x="0" y="0" width="1088" height="264" fill="#FBFBFA"/>
+  <g class="node" data-id="pick">
+    <rect x="48" y="48" width="160" height="48" rx="6"/>
+    <text id="pick-label" class="label" x="128" y="76.9" font-size="14" text-anchor="middle">Pick type</text>
+  </g>
+  <g class="node" data-id="sketch">
+    <rect x="256" y="48" width="160" height="48" rx="6"/>
+    <text id="sketch-label" class="label" x="336" y="76.9" font-size="14" text-anchor="middle">Sketch nodes</text>
+  </g>
+  <g class="node" data-id="write">
+    <rect x="464" y="48" width="160" height="48" rx="6"/>
+    <text id="write-label" class="label" x="544" y="76.9" font-size="14" text-anchor="middle">Hand-write SVG</text>
+  </g>
+  <g class="node" data-id="lint">
+    <rect x="672" y="48" width="160" height="48" rx="6"/>
+    <text id="lint-label" class="label" x="752" y="76.9" font-size="14" text-anchor="middle">Lint and measure</text>
+  </g>
+  <g class="node" data-id="clean">
+    <rect x="880" y="48" width="160" height="48" rx="6" class="accent"/>
+    <text id="clean-label" class="label" x="960" y="76.9" font-size="14" text-anchor="middle">Clean SVG</text>
+  </g>
+  <g class="node" data-id="fix">
+    <rect x="672" y="168" width="160" height="48" rx="6"/>
+    <text id="fix-label" class="label" x="752" y="196.9" font-size="14" text-anchor="middle">Fix from hints</text>
+  </g>
+  <path class="edge" data-from="pick" data-to="sketch" d="M208 72 H256" marker-end="url(#arrow)"/>
+  <path class="edge" data-from="sketch" data-to="write" d="M416 72 H464" marker-end="url(#arrow)"/>
+  <path class="edge" data-from="write" data-to="lint" d="M624 72 H672" marker-end="url(#arrow)"/>
+  <path class="edge" data-from="lint" data-to="clean" d="M832 72 H880" marker-end="url(#arrow)"/>
+  <path class="edge" data-from="lint" data-to="fix" d="M752 96 V168" marker-end="url(#arrow-muted)"/>
+  <path class="edge" data-from="fix" data-to="write" d="M672 192 H544 V96" marker-end="url(#arrow-muted)"/>
+  <text id="clean-note" class="note" x="856" y="62" font-size="12" text-anchor="middle">clean</text>
+  <text id="findings-note" class="note" x="760" y="136" font-size="12" text-anchor="start">findings</text>
+  <text id="rounds-note" class="note" x="552" y="148" font-size="12" text-anchor="start">up to 3 rounds</text>
+</svg>
