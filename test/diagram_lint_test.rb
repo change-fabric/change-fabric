@@ -28,7 +28,7 @@ class DiagramLintTest < Minitest::Test
   def run_cli(*argv)
     out = StringIO.new
     err = StringIO.new
-    code = DiagramLint.main(argv, out: out, err: err)
+    code = DiagramLint.main(argv, out: out, err: err, measurer: DiagramMeasure::Static.new)
     [ code, out.string, err.string ]
   end
 

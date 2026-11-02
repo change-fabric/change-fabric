@@ -5,30 +5,15 @@ require "json"
 require "optparse"
 require_relative "diagram_svg"
 require_relative "diagram_checks"
+require_relative "diagram_measure"
 
 # Blocking lint gate for cf:diagram SVGs. Parses each file, asks an injected
 # measurer for text sizes, runs the DiagramChecks list, and reports findings
 # as human lines or JSON. Exit 0 means no errors, 1 means at least one error,
-# 2 means a usage, read, or parse problem.
+# 2 means a usage, read, or parse problem, and 3 means measurement needed
+# Docker or browserless and neither was available.
 #
 #   ruby diagram_lint.rb [--json] [--no-measure] [--type TYPE] [--palette tokens.css] PATH [PATH...]
-module DiagramMeasure
-  # Conservative width estimate with no browser: 0.6 em per Latin char and
-  # 1.0 em per CJK char. Results are advisory, so `measured?` is false.
-  class Static
-    CJK = /[\p{Han}\p{Hiragana}\p{Katakana}\p{Hangul}]/
-
-    def measured? = false
-
-    def widths(doc)
-      doc.texts.to_h do |t|
-        em = t.content.each_char.sum { |c| c.match?(CJK) ? 1.0 : 0.6 }
-        [ t.key, [ em * t.font_size, t.font_size ] ]
-      end
-    end
-  end
-end
-
 # Orchestrates parsing, measurement, and the checks for a set of files.
 class DiagramLint
   NOTICE = DiagramChecks::NOTICE
@@ -42,8 +27,7 @@ class DiagramLint
     @palette = palette
   end
 
-  def lint_file(path)
-    doc = parse(path)
+  def lint_file(path, doc = parse(path))
     type = @type || doc.attr("data-diagram-type")
     context = DiagramChecks::Context.new(type: type, widths: @measurer.widths(doc), measured: @measurer.measured?, palette: @palette)
     { path: path, type: type, findings: @checks.flat_map { |c| c.call(doc, context) } }
@@ -56,7 +40,9 @@ class DiagramLint
   end
 
   def report(paths)
-    files = paths.map { |p| lint_file(p) }
+    docs = paths.map { |p| [ p, parse(p) ] }
+    @measurer.prefetch(docs.map(&:last)) if @measurer.respond_to?(:prefetch)
+    files = docs.map { |p, d| lint_file(p, d) }
     all = files.flat_map { |f| f[:findings] }
     {
       version: 1,
@@ -102,12 +88,16 @@ class DiagramLint
     raise UsageError, e.message
   end
 
-  def self.main(argv, out: $stdout, err: $stderr, measurer: DiagramMeasure::Static.new)
+  def self.main(argv, out: $stdout, err: $stderr, measurer: nil)
     opts, paths = parse_args(argv)
+    measurer ||= opts[:no_measure] ? DiagramMeasure::Static.new : DiagramMeasure::Browserless.new
     report = new(measurer: measurer, type: opts[:type], palette: opts[:palette]).report(paths)
     opts[:json] ? out.puts(JSON.pretty_generate(report)) : human(report).each { |line| out.puts(line) }
     report[:summary][:errors].positive? ? 1 : 0
-  rescue UsageError, DiagramSvg::ParseError, SystemCallError => e
+  rescue DiagramMeasure::Unavailable => e
+    err.puts("diagram_lint: #{e.message}; retry with --no-measure")
+    3
+  rescue UsageError, DiagramMeasure::TooLarge, DiagramSvg::ParseError, SystemCallError => e
     err.puts("diagram_lint: #{e.message}")
     2
   rescue StandardError => e
