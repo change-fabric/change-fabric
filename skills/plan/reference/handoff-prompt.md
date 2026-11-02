@@ -32,9 +32,11 @@ script was written, fix the script first and say what you changed and why.
 Adjusting it is expected; replacing it wholesale means something is wrong with
 the plan, so stop and say so instead.
 
-Check in with me at phase boundaries. Report what landed, what is next, and
-anything the plan got wrong, then wait for my go-ahead. Do not run the whole
-workflow end to end unsupervised.
+Run the whole workflow end to end in one Workflow call and report once at the
+end: what landed, the verification result, and anything the plan got wrong.
+The workflow stops on its own when a phase fails verification; when it does,
+report and wait. If I ask to be checked in with, run one phase at a time
+instead by passing args {only: ["<phase title>"]}, and report after each.
 
 Ground rules:
 

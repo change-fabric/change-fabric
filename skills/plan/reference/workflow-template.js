@@ -78,6 +78,10 @@ const PHASE_SCHEMA = {
 
 const input = typeof args === "string" ? JSON.parse(args) : (args ?? {})
 const stopOnFailure = input.stopOnFailure ?? true
+// Optional list of phase titles to run. Empty (the default) runs every phase
+// end to end; a non-empty list runs only the named phases, which is how a
+// caller who asked to be checked in with runs one phase at a time.
+const only = Array.isArray(input.only) ? input.only : []
 
 // Common preamble for every phase agent. The plan is the source of truth, so
 // each agent reads it rather than trusting a paraphrase in this script.
@@ -111,6 +115,7 @@ const PHASES = [
 
 const results = []
 for (const spec of PHASES) {
+  if (only.length > 0 && !only.includes(spec.title)) continue
   phase(spec.title)
   const result = await agent(
     preamble(spec.title) + spec.instruction +
