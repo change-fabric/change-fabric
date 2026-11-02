@@ -26,6 +26,7 @@ The deliverable is always the rewritten `DESIGN.md` and `tokens.css` at the targ
 
 Any of, in priority order:
 
+0. Accepted `docs/creative/*.md` records (written by cf:imagine) with `design_md: promote`: top priority. Ignore records marked `design_md: none` and superseded records entirely; they never grow DESIGN.md. Fold a promoted record in tersely: update or replace the existing DESIGN.md rule instead of appending, and cite the record rather than copying it (`[evidence: docs/creative/0003-x.md#production-plan]`). Apply the UI rubrics only when the record's `applies_to` includes `ui`. cf:design stays the only writer of DESIGN.md.
 1. PRD, SOW, or brief paths named by the user.
 2. An existing `DESIGN.md` and token files (`tokens.css`, a Tailwind theme, CSS custom properties).
 3. Brand assets: logos, brand guidelines, existing marketing pages.
