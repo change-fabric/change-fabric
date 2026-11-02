@@ -99,6 +99,14 @@ class SkillRegistryTest < Minitest::Test
     end
   end
 
+  def test_imagine_is_never_auto
+    path = File.join(REPO_SKILLS, "imagine", "SKILL.md")
+    meta = YAML.safe_load(File.read(path)[/\A---\n(.*?)\n---/m, 1])
+    assert_equal "cf:imagine", meta["name"]
+    refute meta.key?("auto"), "cf:imagine must have no auto block"
+    refute_includes SkillRegistry.load(REPO_SKILLS).map(&:name), "cf:imagine"
+  end
+
   def test_walkthrough_publish_step_is_never_auto
     body = File.read(File.join(REPO_SKILLS, "walkthrough", "SKILL.md"))
     assert_match(/Publish \(only when the user asked/, body)
