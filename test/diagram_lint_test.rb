@@ -56,6 +56,16 @@ class DiagramLintTest < Minitest::Test
     end
   end
 
+  DIAGRAM_TYPES = %w[architecture flow sequence state er timeline swimlane layers].freeze
+
+  def test_every_type_has_a_reference_and_a_clean_fixture_with_no_errors
+    DIAGRAM_TYPES.each do |type|
+      assert_path_exists File.expand_path("../skills/diagram/reference/#{type}.md", __dir__), type
+      errors = lint("clean_#{type}.svg").select { |f| f.severity == "error" }
+      assert_empty errors, type
+    end
+  end
+
   def test_text_overflow_is_an_error_when_measured_and_a_warning_when_estimated
     assert_equal [ "warn" ], lint("broken_text_overflow.svg").map(&:severity)
     measured = lint("clean_flow.svg", measurer: FixedMeasurer.new(150))

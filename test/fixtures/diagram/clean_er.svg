@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 816 224" width="816" height="224" role="img" aria-labelledby="t d" data-diagram-type="er">
+  <title id="t">Order data model</title>
+  <desc id="d">A customer places many orders, and each order holds many order lines. Each line points back to its order by order_id.</desc>
+  <style>
+    svg { --bg: #FBFBFA; --surface: #FFFFFF; --ink: #1F2328; --muted: #5B6470; --line: #8A939E; --accent: #2F5D8A; --accent-2: #8A5A2F; }
+    @media (prefers-color-scheme: dark) {
+      svg { --bg: #16181B; --surface: #1E2125; --ink: #E8EAED; --muted: #A3ABB5; --line: #6E7781; --accent: #7FA8D1; --accent-2: #D1A37F; }
+    }
+    .bg { fill: var(--bg); }
+    .node rect { fill: var(--surface); stroke: var(--line); stroke-width: 1.5; }
+    .divider { stroke: var(--line); stroke-width: 1; }
+    .label { fill: var(--ink); font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", sans-serif; }
+    .column { fill: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Noto Sans Mono CJK SC", monospace; }
+    .edge { fill: none; stroke: var(--line); stroke-width: 1.5; }
+    .crow { fill: none; stroke: var(--line); stroke-width: 1.5; }
+    .note { fill: var(--muted); font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", sans-serif; }
+  </style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="#8A939E"/></marker>
+    <marker id="arrow-muted" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="#5B6470"/></marker>
+  </defs>
+  <rect class="bg" x="0" y="0" width="816" height="224" fill="#FBFBFA"/>
+  <g class="node" data-id="customer">
+    <rect x="48" y="48" width="176" height="128" rx="6"/>
+    <text class="label" x="136.0" y="76.9" font-size="14" text-anchor="middle">customer</text>
+    <line class="divider" x1="48" y1="96" x2="224" y2="96"/>
+    <text class="column" x="64" y="120" font-size="12">id  PK</text>
+    <text class="column" x="64" y="140" font-size="12">email</text>
+    <text class="column" x="64" y="160" font-size="12">name</text>
+  </g>
+  <g class="node" data-id="order">
+    <rect x="320" y="48" width="176" height="128" rx="6"/>
+    <text class="label" x="408.0" y="76.9" font-size="14" text-anchor="middle">order</text>
+    <line class="divider" x1="320" y1="96" x2="496" y2="96"/>
+    <text class="column" x="336" y="120" font-size="12">id  PK</text>
+    <text class="column" x="336" y="140" font-size="12">customer_id  FK</text>
+    <text class="column" x="336" y="160" font-size="12">placed_at</text>
+  </g>
+  <g class="node" data-id="line">
+    <rect x="592" y="48" width="176" height="128" rx="6"/>
+    <text class="label" x="680.0" y="76.9" font-size="14" text-anchor="middle">order_line</text>
+    <line class="divider" x1="592" y1="96" x2="768" y2="96"/>
+    <text class="column" x="608" y="120" font-size="12">id  PK</text>
+    <text class="column" x="608" y="140" font-size="12">order_id  FK</text>
+    <text class="column" x="608" y="160" font-size="12">quantity</text>
+  </g>
+  <path class="edge" data-from="customer" data-to="order" d="M224 72 H320"/>
+  <path class="edge" data-from="order" data-to="line" d="M496 72 H592"/>
+  <path class="crow" d="M232 64 V80"/>
+  <path class="crow" d="M304 72 L320 64 M304 72 L320 80"/>
+  <path class="crow" d="M504 64 V80"/>
+  <path class="crow" d="M576 72 L592 64 M576 72 L592 80"/>
+  <text class="note" x="244" y="60" font-size="12">1</text>
+  <text class="note" x="296" y="60" font-size="12" text-anchor="end">N</text>
+  <text class="note" x="516" y="60" font-size="12">1</text>
+  <text class="note" x="568" y="60" font-size="12" text-anchor="end">N</text>
+</svg>

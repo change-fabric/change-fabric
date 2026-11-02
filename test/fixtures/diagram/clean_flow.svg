@@ -1,7 +1,7 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 672 144" width="672" height="144" role="img" aria-labelledby="t d" data-diagram-type="flow">
-  <title id="t">Checkout flow</title>
-  <desc id="d">A cart is reviewed, paid for, and confirmed.</desc>
-<style>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 672 264" width="672" height="264" role="img" aria-labelledby="t d" data-diagram-type="flow">
+  <title id="t">Order submission flow</title>
+  <desc id="d">A submitted order is validated. Valid orders are charged; invalid ones show an error to the customer.</desc>
+  <style>
     svg { --bg: #FBFBFA; --surface: #FFFFFF; --ink: #1F2328; --muted: #5B6470; --line: #8A939E; --accent: #2F5D8A; --accent-2: #8A5A2F; }
     @media (prefers-color-scheme: dark) {
       svg { --bg: #16181B; --surface: #1E2125; --ink: #E8EAED; --muted: #A3ABB5; --line: #6E7781; --accent: #7FA8D1; --accent-2: #D1A37F; }
@@ -17,19 +17,26 @@
     <marker id="arrow" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="#8A939E"/></marker>
     <marker id="arrow-muted" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="#5B6470"/></marker>
   </defs>
-  <rect class="bg" x="0" y="0" width="672" height="144" fill="#FBFBFA"/>
-<g class="node" data-id="cart">
+  <rect class="bg" x="0" y="0" width="672" height="264" fill="#FBFBFA"/>
+  <g class="node" data-id="submit">
     <rect x="48" y="48" width="160" height="48" rx="6"/>
-    <text class="label" x="128.0" y="76.9" font-size="14" text-anchor="middle">Cart</text>
+    <text id="submit-label" class="label" x="128" y="76.9" font-size="14" text-anchor="middle">Submit order</text>
   </g>
-  <g class="node" data-id="pay">
+  <g class="node" data-id="validate">
     <rect x="256" y="48" width="160" height="48" rx="6"/>
-    <text class="label" x="336.0" y="76.9" font-size="14" text-anchor="middle">Payment</text>
+    <text id="validate-label" class="label" x="336" y="76.9" font-size="14" text-anchor="middle">Validate</text>
   </g>
-  <g class="node" data-id="done">
+  <g class="node" data-id="charge">
     <rect x="464" y="48" width="160" height="48" rx="6"/>
-    <text class="label" x="544.0" y="76.9" font-size="14" text-anchor="middle">Confirmed</text>
+    <text id="charge-label" class="label" x="544" y="76.9" font-size="14" text-anchor="middle">Charge card</text>
   </g>
-  <path class="edge" data-from="cart" data-to="pay" d="M208 72 H256" marker-end="url(#arrow)"/>
-  <path class="edge" data-from="pay" data-to="done" d="M416 72 H464" marker-end="url(#arrow)"/>
+  <g class="node" data-id="error">
+    <rect x="256" y="168" width="160" height="48" rx="6"/>
+    <text id="error-label" class="label" x="336" y="196.9" font-size="14" text-anchor="middle">Show error</text>
+  </g>
+  <path class="edge" data-from="submit" data-to="validate" d="M208 72 H256" marker-end="url(#arrow)"/>
+  <path class="edge" data-from="validate" data-to="charge" d="M416 72 H464" marker-end="url(#arrow)"/>
+  <path class="edge" data-from="validate" data-to="error" d="M336 96 V168" marker-end="url(#arrow-muted)"/>
+  <text id="valid-note" class="note" x="440" y="62" font-size="12" text-anchor="middle">valid</text>
+  <text id="invalid-note" class="note" x="344" y="136" text-anchor="start" font-size="12">invalid</text>
 </svg>
