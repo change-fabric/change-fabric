@@ -39,7 +39,7 @@ class DiagramLintTest < Minitest::Test
 
   def test_every_check_has_a_kebab_id_and_a_broken_fixture
     ids = DiagramChecks::ALL.map { |c| c::ID }
-    assert_equal 16, ids.uniq.size
+    assert_equal 19, ids.uniq.size
     ids.each do |id|
       assert_match(/\A[a-z0-9]+(-[a-z0-9]+)*\z/, id)
       assert File.file?(fixture("broken_#{id.tr('-', '_')}.svg")), "missing broken fixture for #{id}"
@@ -56,7 +56,7 @@ class DiagramLintTest < Minitest::Test
   end
 
   def test_clean_fixtures_yield_no_findings
-    %w[clean_flow.svg clean_architecture.svg].each do |name|
+    %w[clean_flow.svg clean_architecture.svg clean_multiline.svg].each do |name|
       assert_empty lint(name), name
     end
   end
@@ -177,5 +177,39 @@ class DiagramLintTest < Minitest::Test
       File.write(path, svg)
       refute_empty DiagramLint.new(measurer: DiagramMeasure::Static.new).lint_file(path)[:findings]
     end
+  end
+
+  def with_svg(svg)
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "case.svg")
+      File.write(path, svg)
+      yield DiagramLint.new(measurer: DiagramMeasure::Static.new).lint_file(path)[:findings].map(&:check).uniq
+    end
+  end
+
+  # Forbidden constructs trip their check from a style attribute or an ancestor too.
+  def test_forbidden_constructs_in_style_and_on_ancestors
+    clean = File.read(fixture("clean_flow.svg"))
+    {
+      "transform" => [ '<g class="node" data-id="submit">', '<g class="node" data-id="submit" style="transform: translate(9px, 0)">' ],
+      "text-baseline" => [ '<g class="node" data-id="submit">', '<g class="node" data-id="submit" alignment-baseline="middle">' ],
+      "font-unit" => [ '<g class="node" data-id="submit">', '<g class="node" data-id="submit" style="font-size: 1.2rem">' ]
+    }.each do |id, (from, to)|
+      with_svg(clean.sub(from, to)) { |checks| assert_includes checks, id, id }
+    end
+    with_svg(clean.sub('<g class="node" data-id="submit">', '<g class="node" data-id="submit" dominant-baseline="alphabetic" font-size="14px">')) do |checks|
+      assert_empty checks
+    end
+  end
+
+  def test_em_font_size_does_not_parse_as_one_px
+    text = DiagramSvg::Document.new(File.read(fixture("broken_font_unit.svg"))).texts.find { |t| t.key == "submit-label" }
+    assert_in_delta DiagramSvg::DEFAULT_FONT_SIZE, text.font_size
+  end
+
+  def test_multiline_label_needs_a_taller_box_and_a_centered_block
+    multi = File.read(fixture("clean_multiline.svg"))
+    with_svg(multi.sub('height="64"', 'height="48"')) { |checks| assert_includes checks, "box-height" }
+    with_svg(multi.sub('y="76.5"', 'y="84.9"')) { |checks| assert_equal [ "baseline" ], checks }
   end
 end

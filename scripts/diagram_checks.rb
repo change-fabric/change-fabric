@@ -172,7 +172,8 @@ module DiagramChecks
     end
   end
 
-  # A lone centered label sits on center + 0.35 * font size.
+  # A lone centered label sits on center + 0.35 * font size. A multi-line
+  # label centers its block: the midpoint of its first and last baselines.
   class Baseline < Base
     ID = "baseline"
 
@@ -181,25 +182,42 @@ module DiagramChecks
         node = id && texts.size == 1 && doc.node(id)
         next unless node
 
-        want = node.box.center_y + (0.35 * texts.first.font_size)
-        next if (texts.first.y - want).abs <= 1
+        text = texts.first
+        first = text.lines.first.y
+        span = text.lines.last.y - first
+        want = node.box.center_y + (0.35 * text.font_size) - (span / 2.0)
+        next if (first - want).abs <= 1
 
-        finding(id, "baseline y=#{texts.first.y} should be #{want.round(1)}", "set y=\"#{want.round}\"")
+        finding(id, "first baseline y=#{first.round(1)} should be #{want.round(1)}", "set y=\"#{want.round(1)}\"")
       end
     end
   end
 
-  # Nodes are at least three font sizes tall.
+  # Nodes are at least three font sizes tall, plus one line height for each
+  # extra label line, and never shorter than the measured text plus padding.
   class BoxHeight < Base
     ID = "box-height"
+    LINE_HEIGHT = 1.2
 
-    def call(doc, _context)
+    def call(doc, context)
       doc.nodes.filter_map do |node|
-        size = doc.texts.select { |t| t.node_id == node.id }.map(&:font_size).max || DiagramSvg::DEFAULT_FONT_SIZE
-        next if node.box.h >= 3 * size
+        texts = doc.texts.select { |t| t.node_id == node.id }
+        need = required(texts, context)
+        next if node.box.h >= need
 
-        finding(node.id, "height #{node.box.h.round} is under 3 x #{size.round}", "make it at least #{((3 * size) / GRID).ceil * GRID}")
+        finding(node.id, "height #{node.box.h.round} is under the #{need.round(1)} its label needs", "make it at least #{(need / GRID).ceil * GRID}")
       end
+    end
+
+    private
+
+    def required(texts, context)
+      return 3 * DiagramSvg::DEFAULT_FONT_SIZE if texts.empty?
+
+      texts.map do |t|
+        lines = (3 * t.font_size) + (LINE_HEIGHT * t.font_size * (t.lines.size - 1))
+        context.measured ? [ lines, context.text_box(t).h + (2 * PADDING) ].max : lines
+      end.max
     end
   end
 
@@ -411,8 +429,65 @@ module DiagramChecks
     end
   end
 
+  # Presentation properties an element sets itself, as attribute or inline style.
+  module OwnProperty
+    module_function
+
+    def value(el, prop)
+      style = el.attributes["style"].to_s[/(?:\A|;)\s*#{Regexp.escape(prop)}\s*:\s*([^;]+)/, 1]&.strip
+      style || el.attributes[prop]
+    end
+  end
+
+  # No element carries a transform: the geometry model reads raw coordinates.
+  class Transform < Base
+    ID = "transform"
+
+    def call(doc, _context)
+      found = doc.elements.select { |el| OwnProperty.value(el, "transform") }.map do |el|
+        finding(el.attributes["data-id"] || el.attributes["id"] || el.name, "transform is not allowed", "write the coordinates directly")
+      end
+      found << finding("style", "transform in a style block is not allowed", "write the coordinates directly") if doc.style_text.match?(/(?:\A|[\s;{])transform\s*:/)
+      found
+    end
+  end
+
+  # Text sits on the alphabetic baseline; any other baseline, set on the text
+  # or inherited from an ancestor, moves glyphs off the measured y.
+  class TextBaseline < Base
+    ID = "text-baseline"
+    PROPS = %w[dominant-baseline alignment-baseline].freeze
+
+    def call(doc, _context)
+      doc.elements.flat_map do |el|
+        PROPS.filter_map do |prop|
+          v = OwnProperty.value(el, prop)
+          next if v.nil? || v == "alphabetic"
+
+          finding(el.attributes["id"] || el.attributes["data-id"] || el.name, "#{prop}=#{v} is not alphabetic", "remove #{prop} and place y on the baseline")
+        end
+      end
+    end
+  end
+
+  # Font sizes are unitless or px, set on the element or inherited.
+  class FontUnit < Base
+    ID = "font-unit"
+    OK = /\A\d+(\.\d+)?(px)?\z/
+
+    def call(doc, _context)
+      doc.elements.filter_map do |el|
+        v = OwnProperty.value(el, "font-size")
+        next if v.nil? || v.strip.match?(OK)
+
+        finding(el.attributes["id"] || el.attributes["data-id"] || el.name, "font-size #{v} is not unitless or px", "use a px size such as 14")
+      end
+    end
+  end
+
   ALL = [ A11y, XmlSafety, ViewboxClip, Overlap, TextOverflow, Baseline, BoxHeight, Spacing, Grid,
-          ConnectorGeometry, ArrowMarker, Palette, FontStack, ThemeFallback, Caps, TypeDeclared ].freeze
+          ConnectorGeometry, ArrowMarker, Palette, FontStack, ThemeFallback, Caps, TypeDeclared,
+          Transform, TextBaseline, FontUnit ].freeze
 
   def self.all = ALL.map(&:new)
 end

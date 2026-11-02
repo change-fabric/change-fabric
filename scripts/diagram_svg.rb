@@ -237,7 +237,7 @@ module DiagramSvg
     end
 
     def font_size(el)
-      raw = inherited(el, "font-size").to_s[/\A\s*([\d.]+)/, 1]
+      raw = inherited(el, "font-size").to_s.strip[/\A(\d+(?:\.\d+)?)(?:px)?\z/, 1]
       raw ? raw.to_f : DEFAULT_FONT_SIZE
     end
 
