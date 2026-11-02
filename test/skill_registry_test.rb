@@ -92,7 +92,7 @@ class SkillRegistryTest < Minitest::Test
     assert_operator skills.size, :>=, 2
     registered = SkillRegistry.load(REPO_SKILLS).map(&:name)
     skills.each do |path|
-      meta = YAML.safe_load(File.read(path)[/\A---\n(.*?)\n---/m, 1])
+      meta = frontmatter(path)
       refute meta.key?("auto"), "#{meta['name']} must have no auto block"
       refute_includes registered, meta["name"]
       assert_match(/only when invoked by name/, meta["description"], meta["name"])
@@ -101,10 +101,14 @@ class SkillRegistryTest < Minitest::Test
 
   def test_imagine_is_never_auto
     path = File.join(REPO_SKILLS, "imagine", "SKILL.md")
-    meta = YAML.safe_load(File.read(path)[/\A---\n(.*?)\n---/m, 1])
+    meta = frontmatter(path)
     assert_equal "cf:imagine", meta["name"]
     refute meta.key?("auto"), "cf:imagine must have no auto block"
     refute_includes SkillRegistry.load(REPO_SKILLS).map(&:name), "cf:imagine"
+  end
+
+  def frontmatter(path)
+    YAML.safe_load(File.read(path)[/\A---\n(.*?)\n---/m, 1])
   end
 
   def test_walkthrough_publish_step_is_never_auto

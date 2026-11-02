@@ -2,7 +2,6 @@
 # frozen_string_literal: true
 
 require 'json'
-require_relative 'shell_git'
 require_relative 'ctx_paths'
 require_relative 'plan_paths'
 
@@ -57,7 +56,7 @@ module ImaginePaths
 
     def self.run(argv, out: $stdout)
       verb, *rest = argv
-      flags = parse(rest)
+      flags = PlanPaths::CLI.parse(rest)
       case verb
       when 'resolve' then resolve(flags, out)
       when 'next-record' then next_record(flags, out)
@@ -82,16 +81,6 @@ module ImaginePaths
     rescue DuplicateNumber => e
       warn(e.message)
       exit 1
-    end
-
-    def self.parse(args)
-      flags = {}
-      until args.empty?
-        token = args.shift
-        key = token.start_with?('--') && token.delete_prefix('--')
-        flags[key] = args.shift if key
-      end
-      flags
     end
   end
 end
