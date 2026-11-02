@@ -41,11 +41,98 @@ module DiagramSvg
 
       [ px - x, right - px, py - y, bottom - py ].min
     end
+
+    # Closed containment of other inside self.inset(inset).
+    def contains_box?(other, inset: 0)
+      inner = inset(inset)
+      other.x >= inner.x && other.right <= inner.right && other.y >= inner.y && other.bottom <= inner.bottom
+    end
+
+    # Smallest box covering both.
+    def union(other)
+      left = [ x, other.x ].min
+      top = [ y, other.y ].min
+      Box.new(x: left, y: top, w: [ right, other.right ].max - left, h: [ bottom, other.bottom ].max - top)
+    end
+
+    # Euclidean gap; zero when the boxes overlap or touch.
+    def distance_to_box(other)
+      dx = [ other.x - right, x - other.right, 0 ].max
+      dy = [ other.y - bottom, y - other.bottom, 0 ].max
+      Math.hypot(dx, dy)
+    end
+
+    # Euclidean distance from a point to the closed box; zero inside.
+    def distance_to_point(px, py)
+      Math.hypot([ x - px, 0, px - right ].max, [ y - py, 0, py - bottom ].max)
+    end
+
+    def edges
+      [ [ x, y, right, y ], [ right, y, right, bottom ], [ right, bottom, x, bottom ], [ x, bottom, x, y ] ]
+        .map { |a, b, c, d| Segment.new(x1: a, y1: b, x2: c, y2: d, command: "L") }
+    end
   end
 
   Node = Data.define(:id, :box, :element)
   Text = Data.define(:key, :x, :y, :font_size, :anchor, :content, :node_id, :element)
-  Segment = Data.define(:x1, :y1, :x2, :y2, :command)
+  # One straight chord of a connector, tagged with its path command letter.
+  Segment = Data.define(:x1, :y1, :x2, :y2, :command) do
+    def dx = x2 - x1
+    def dy = y2 - y1
+
+    # Liang-Barsky clip against the open box: true only when a positive-length
+    # part of the segment lies strictly inside. A point segment is a point test.
+    def intersects_box?(box)
+      return box.contains_point?(x1, y1) if dx.zero? && dy.zero?
+
+      lo = 0.0
+      hi = 1.0
+      [ [ -dx, x1 - box.x ], [ dx, box.right - x1 ], [ -dy, y1 - box.y ], [ dy, box.bottom - y1 ] ].each do |p, q|
+        if p.zero?
+          return false if q <= 0
+
+          next
+        end
+        t = q.to_f / p
+        p.negative? ? lo = [ lo, t ].max : hi = [ hi, t ].min
+        return false if lo >= hi
+      end
+      true
+    end
+
+    # Zero when the segment meets the closed box, else the shortest distance.
+    def distance_to_box(box)
+      return 0.0 if box.distance_to_point(x1, y1).zero? || box.distance_to_point(x2, y2).zero?
+      return 0.0 if intersects_box?(box)
+
+      box.edges.map { |e| distance_to_segment(e) }.min
+    end
+
+    def distance_to_point(px, py)
+      len2 = (dx * dx) + (dy * dy)
+      t = len2.zero? ? 0.0 : (((px - x1) * dx) + ((py - y1) * dy)) / len2.to_f
+      t = t.clamp(0.0, 1.0)
+      Math.hypot(px - (x1 + (t * dx)), py - (y1 + (t * dy)))
+    end
+
+    def crosses?(other)
+      d1 = orient(other.x1, other.y1)
+      d2 = orient(other.x2, other.y2)
+      d3 = other.orient(x1, y1)
+      d4 = other.orient(x2, y2)
+      ((d1.positive? && d2.negative?) || (d1.negative? && d2.positive?)) &&
+        ((d3.positive? && d4.negative?) || (d3.negative? && d4.positive?))
+    end
+
+    def orient(px, py) = (dx * (py - y1)) - (dy * (px - x1))
+
+    def distance_to_segment(other)
+      return 0.0 if crosses?(other)
+
+      [ distance_to_point(other.x1, other.y1), distance_to_point(other.x2, other.y2),
+        other.distance_to_point(x1, y1), other.distance_to_point(x2, y2) ].min
+    end
+  end
   Edge = Data.define(:id, :from, :to, :d, :marker_end, :segments, :element)
 
   # The parsed diagram.
