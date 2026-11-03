@@ -139,8 +139,21 @@ module DiagramPalette
     cb = color(vars, b.sub(/\s\d+(?:\.\d+)?%\s*\z/, ""), depth + 1)
     return nil unless ca && cb
 
-    share = pa ? pa / 100 : (pb ? 1 - (pb / 100) : 0.5)
+    share = mix_share(pa, pb)
+    return nil unless share
+
     mix(ca, cb, share)
+  end
+
+  # CSS color-mix weights: one given implies the complement, both given are
+  # normalized by their sum, neither means 50/50. A zero sum is invalid.
+  def mix_share(pa, pb)
+    return 0.5 unless pa || pb
+    return pa / 100 unless pb
+    return 1 - (pb / 100) unless pa
+    return nil unless (pa + pb).positive?
+
+    pa / (pa + pb)
   end
 
   # Splits "A p%, B" on the top-level comma.

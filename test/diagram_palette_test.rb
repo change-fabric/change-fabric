@@ -82,6 +82,20 @@ class DiagramPaletteTest < Minitest::Test
     end
   end
 
+  def test_color_mix_weights_follow_css_normalization
+    {
+      "#ffffff, #000000" => "#808080",
+      "#ffffff 40%, #000000" => "#666666",
+      "#ffffff, #000000 40%" => "#999999",
+      "#ffffff 40%, #000000 80%" => "#555555",
+      "#ffffff 25%, #000000 25%" => "#808080",
+    }.each do |args, want|
+      got = DiagramPalette.color({}, "color-mix(in srgb, #{args})")
+      assert_equal want.upcase, DiagramPalette.hex(got), args
+    end
+    assert_nil DiagramPalette.color({}, "color-mix(in srgb, #ffffff 0%, #000000 0%)")
+  end
+
   def test_missing_ground_or_ink_is_an_error
     with_tokens(":root { --accent: #ff0000; }") do |path|
       assert_raises(DiagramPalette::Error) { DiagramPalette.resolve(path) }
