@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1088 264" width="1088" height="264" role="img" aria-labelledby="t d" data-diagram-type="flow">
   <title id="t">How cf:diagram makes a diagram</title>
-  <desc id="d">The agent picks a diagram type, sketches nodes and edges, hand-writes the SVG, then lints it with text measured in browserless. Findings go back through fix and rewrite for up to three rounds; a clean lint yields the final SVG.</desc>
+  <desc id="d">The agent picks a diagram type, sketches nodes and edges, hand-writes the SVG, then lints it with text measured in browserless. Findings go back through fix and rewrite for up to three rounds; a clean lint yields the final SVG, and findings left after 3 fix rounds stop the run with the SVG kept and the findings reported.</desc>
   <style>
     svg { --bg: #FBFBFA; --surface: #FFFFFF; --ink: #1F2328; --muted: #5B6470; --line: #8A939E; --accent: #2F5D8A; --accent-2: #8A5A2F; }
     @media (prefers-color-scheme: dark) {
@@ -45,10 +45,15 @@
   <path class="edge" data-from="pick" data-to="sketch" d="M208 72 H256" marker-end="url(#arrow)"/>
   <path class="edge" data-from="sketch" data-to="write" d="M416 72 H464" marker-end="url(#arrow)"/>
   <path class="edge" data-from="write" data-to="lint" d="M624 72 H672" marker-end="url(#arrow)"/>
+  <g class="node" data-id="report">
+    <rect x="880" y="168" width="160" height="48" rx="6"/>
+    <text id="report-label" class="label" x="960" y="196.9" font-size="14" text-anchor="middle">Report findings</text>
+  </g>
   <path class="edge" data-from="lint" data-to="clean" d="M832 72 H880" marker-end="url(#arrow)"/>
   <path class="edge" data-from="lint" data-to="fix" d="M752 96 V168" marker-end="url(#arrow-muted)"/>
+  <path class="edge" data-from="lint" data-to="report" d="M800 96 V136 H960 V168" marker-end="url(#arrow-muted)"/>
   <path class="edge" data-from="fix" data-to="write" d="M672 192 H544 V96" marker-end="url(#arrow-muted)"/>
   <text id="clean-note" class="note" x="856" y="62" font-size="12" text-anchor="middle">clean</text>
-  <text id="findings-note" class="note" x="760" y="136" font-size="12" text-anchor="start">findings</text>
-  <text id="rounds-note" class="note" x="552" y="148" font-size="12" text-anchor="start">up to 3 rounds</text>
+  <text id="findings-note" class="note" x="744" y="136" font-size="12" text-anchor="end">findings, under 3 fixes</text>
+  <text id="report-note" class="note" x="808" y="128" font-size="12" text-anchor="start">findings after 3 fixes</text>
 </svg>
