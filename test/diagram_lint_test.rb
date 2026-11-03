@@ -303,6 +303,16 @@ def test_text_geometry_in_style_block_is_rejected
   end
 end
 
+# The font shorthand sets the size too, in a style block or inline.
+def test_font_shorthand_is_rejected_anywhere
+  clean = File.read(fixture("clean_flow.svg"))
+  in_block = clean.sub(".label { fill: var(--ink);", ".label { fill: var(--ink); font: 48px sans-serif;")
+  with_svg(in_block) { |checks| assert_includes checks, "text-geometry-source" }
+  with_svg(set_on_first(clean, "g", "style", "font: 48px sans-serif")) do |checks|
+    assert_includes checks, "text-geometry-source"
+  end
+end
+
   def test_em_font_size_does_not_parse_as_one_px
     text = DiagramSvg::Document.new(File.read(fixture("broken_font_unit.svg"))).texts.find { |t| t.key == "submit-label" }
     assert_in_delta DiagramSvg::DEFAULT_FONT_SIZE, text.font_size

@@ -523,16 +523,20 @@ module DiagramChecks
   # The text model resolves font-size and text-anchor from attributes and
   # inline styles only, so a style block declaring either would render
   # geometry the checks never see. Every text-geometry property must sit on
-  # the text or an ancestor.
+  # the text or an ancestor. The `font` shorthand sets the size too and is
+  # never modeled, wherever it is declared.
   class TextGeometrySource < Base
     ID = "text-geometry-source"
     PROPS = %w[font-size text-anchor].freeze
 
     def call(doc, _context)
-      PROPS.flat_map do |prop|
+      longhand = PROPS.flat_map do |prop|
         DeclaredProperty.all(doc, prop).select { |d| d.source == :stylesheet }.map do |d|
           finding(d.where, "#{DeclaredProperty.describe(d, prop)} is not modeled", "set #{prop} as an attribute on the text")
         end
+      end
+      longhand + DeclaredProperty.all(doc, "font").map do |d|
+        finding(d.where, "#{DeclaredProperty.describe(d, 'font')} shorthand is not modeled", "use font-family and a font-size attribute instead")
       end
     end
   end
