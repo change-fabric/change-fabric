@@ -39,7 +39,7 @@ class DiagramLintTest < Minitest::Test
 
   def test_every_check_has_a_kebab_id_and_a_broken_fixture
     ids = DiagramChecks::ALL.map { |c| c::ID }
-    assert_equal 19, ids.uniq.size
+    assert_equal 20, ids.uniq.size
     ids.each do |id|
       assert_match(/\A[a-z0-9]+(-[a-z0-9]+)*\z/, id)
       assert File.file?(fixture("broken_#{id.tr('-', '_')}.svg")), "missing broken fixture for #{id}"
@@ -230,9 +230,25 @@ class DiagramLintTest < Minitest::Test
         with_svg(svg) { |checks| assert_includes checks, id, "#{source} #{prop}: #{value}" }
       end
     end
-    all_valid = with_rule.call("dominant-baseline: alphabetic; alignment-baseline: alphabetic; font-size: 14px;")
+    all_valid = with_rule.call("dominant-baseline: alphabetic; alignment-baseline: alphabetic;")
     with_svg(all_valid) { |checks| assert_empty checks }
   end
+
+# The text model resolves font-size and text-anchor from attributes and
+# inline styles only, so a style block declaring either is rejected for
+# every such property, even with an otherwise allowed value.
+def test_text_geometry_in_style_block_is_rejected
+  clean = File.read(fixture("clean_flow.svg"))
+  rule = ".label { fill: var(--ink);"
+  [ %w[font-size 18px], %w[font-size 14], %w[text-anchor middle], %w[text-anchor start] ].each do |prop, value|
+    svg = clean.sub(rule, "#{rule} #{prop}: #{value};")
+    refute_equal clean, svg
+    with_svg(svg) { |checks| assert_includes checks, "text-geometry-source", "#{prop}: #{value}" }
+  end
+  with_svg(set_on_first(clean, "g", "style", "font-size: 14px")) do |checks|
+    refute_includes checks, "text-geometry-source"
+  end
+end
 
   def test_em_font_size_does_not_parse_as_one_px
     text = DiagramSvg::Document.new(File.read(fixture("broken_font_unit.svg"))).texts.find { |t| t.key == "submit-label" }

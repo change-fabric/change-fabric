@@ -44,9 +44,9 @@ Never loosen a check or edit the linter to make a diagram pass.
 
 Each finding carries one of these IDs; `reference/grammar.md` states the rule behind each:
 
-`a11y`, `xml-safety`, `viewbox-clip`, `overlap`, `text-overflow`, `baseline`, `box-height`, `spacing`, `grid`, `connector-geometry`, `arrow-marker`, `palette`, `font-stack`, `theme-fallback`, `caps`, `type-declared`, `transform`, `text-baseline`, `font-unit`.
+`a11y`, `xml-safety`, `viewbox-clip`, `overlap`, `text-overflow`, `baseline`, `box-height`, `spacing`, `grid`, `connector-geometry`, `arrow-marker`, `palette`, `font-stack`, `theme-fallback`, `caps`, `type-declared`, `transform`, `text-baseline`, `font-unit`, `text-geometry-source`.
 
-The last three reject constructs the geometry model does not follow: any `transform`, a baseline other than alphabetic, and a font size that is not unitless or px.
+The last four reject constructs the geometry model does not follow: any `transform`, a baseline other than alphabetic, a font size that is not unitless or px, and a font size or text anchor declared in a style block.
 
 ## Icons
 

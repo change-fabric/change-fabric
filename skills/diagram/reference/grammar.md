@@ -130,6 +130,7 @@ The geometry model reads raw coordinates, so anything that moves glyphs or boxes
 - No `transform`, as an attribute on any element or as a property in a style [transform].
 - No `dominant-baseline` or `alignment-baseline` other than `alphabetic`, set on the text or inherited from a group or style [text-baseline].
 - `font-size` is unitless or px only, such as `14` or `14px`. Never `em`, `rem`, `%`, or a keyword [font-unit].
+- `font-size` and `text-anchor` go on the text or a group as attributes or inline style, never in a style block [text-geometry-source].
 
 ## Connectors
 
