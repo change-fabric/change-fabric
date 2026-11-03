@@ -68,7 +68,7 @@ module DiagramPalette
     dark_vars = light_vars.merge(declarations(dark_block(css)))
     light = roles(light_vars, :light)
     dark = roles(dark_vars, :dark)
-    Result.new(source: path, light:, dark:, warnings: contrast_warnings(light, "light") + contrast_warnings(dark, "dark"))
+    Result.new(source: path, light:, dark:, warnings: contrast_warnings(light, :light) + contrast_warnings(dark, :dark))
   end
 
   def strip_comments(css) = css.gsub(%r{/\*.*?\*/}m, "")
@@ -172,16 +172,13 @@ module DiagramPalette
   end
 
   def contrast_warnings(roles, theme)
-    grounds = %w[--bg --surface]
-    text = TEXT_ROLES.product(grounds).filter_map do |fg, bg|
-      r = contrast(roles[fg], roles[bg])
-      "#{theme}: #{fg} on #{bg} is #{r.round(2)}:1, under #{TEXT_MIN}" if r < TEXT_MIN
-    end
-    tint = contrast(roles["--accent"], roles["--accent-tint"])
-    text << "#{theme}: --accent on --accent-tint is #{tint.round(2)}:1, under #{TEXT_MIN}" if tint < TEXT_MIN
-    line = contrast(roles["--line"], roles["--bg"])
-    text << "#{theme}: --line on --bg is #{line.round(2)}:1, under #{STROKE_MIN}" if line < STROKE_MIN
-    text
+    pairs = TEXT_ROLES.product(%w[--bg --surface]).map { |fg, bg| [ fg, bg, TEXT_MIN ] }
+    pairs << [ "--accent", "--accent-tint", TEXT_MIN ] << [ "--line", "--bg", STROKE_MIN ]
+    pairs.filter_map { |fg, bg, floor| below(theme, fg, bg, contrast(roles[fg], roles[bg]), floor) }
+  end
+
+  def below(theme, fg, bg, ratio, floor)
+    "#{theme}: #{fg} on #{bg} is #{ratio.round(2)}:1, under #{floor}" if ratio < floor
   end
 
   def main(argv)

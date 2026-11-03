@@ -44,9 +44,12 @@ class DiagramPaletteTest < Minitest::Test
     end
   end
 
+  def with_brand_palette(&)
+    with_tokens(BRAND) { |path, _| yield DiagramPalette.resolve(path) }
+  end
+
   def test_resolves_var_and_color_mix_to_hex_for_both_themes
-    with_tokens(BRAND) do |path|
-      r = DiagramPalette.resolve(path)
+    with_brand_palette do |r|
       assert_equal "#F6EFE0", r.light["--bg"]
       assert_equal "#24122A", r.light["--ink"]
       assert_equal "#714C8C", r.light["--accent"]
@@ -58,16 +61,14 @@ class DiagramPaletteTest < Minitest::Test
   end
 
   def test_line_skips_a_border_too_faint_for_a_stroke
-    with_tokens(BRAND) do |path|
-      r = DiagramPalette.resolve(path)
+    with_brand_palette do |r|
       assert_equal r.light["--muted"], r.light["--line"]
       assert_operator DiagramPalette.contrast(r.light["--line"], r.light["--bg"]), :>=, DiagramPalette::STROKE_MIN
     end
   end
 
   def test_dark_inherits_light_authored_colors_and_derives_a_tint
-    with_tokens(BRAND) do |path|
-      r = DiagramPalette.resolve(path)
+    with_brand_palette do |r|
       refute_nil r.dark["--rule"]
       refute_equal r.light["--accent-tint"], r.dark["--accent-tint"]
       assert_includes r.css, "@media (prefers-color-scheme: dark)"
