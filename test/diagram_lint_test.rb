@@ -202,15 +202,17 @@ class DiagramLintTest < Minitest::Test
     end
   end
 
-  # Each forbidden property trips its check from every declaration source:
-  # stylesheet, inline style, attribute, and an inheriting ancestor group.
   def set_on_first(svg, tag, name, value)
-    svg.sub(/<#{tag} [^>]*>/) { |open| open.sub(/ #{name}="[^"]*"/, "").sub("<#{tag} ", "<#{tag} #{name}=\"#{value}\" ") }
+    prefix = "<#{tag} "
+    svg.sub(/#{prefix}[^>]*>/) { |element| element.sub(/ #{name}="[^"]*"/, "").sub(prefix, "#{prefix}#{name}=\"#{value}\" ") }
   end
 
+  # Each forbidden property trips its check from every declaration source:
+  # stylesheet, inline style, attribute, and an inheriting ancestor group.
   def test_forbidden_constructs_from_every_declaration_source
     clean = File.read(fixture("clean_flow.svg"))
     rule = ".label { fill: var(--ink);"
+    with_rule = ->(decl) { clean.sub(rule, "#{rule} #{decl}") }
     cases = [
       [ "transform", "transform", "translate(9px, 0)" ],
       [ "text-baseline", "dominant-baseline", "hanging" ],
@@ -219,7 +221,7 @@ class DiagramLintTest < Minitest::Test
     ]
     cases.each do |id, prop, value|
       {
-        stylesheet: clean.sub(rule, "#{rule} #{prop}: #{value};"),
+        stylesheet: with_rule.call("#{prop}: #{value};"),
         inline: set_on_first(clean, "text", "style", "#{prop}: #{value}"),
         attribute: set_on_first(clean, "text", prop, value),
         ancestor: set_on_first(clean, "g", prop, value)
@@ -228,8 +230,8 @@ class DiagramLintTest < Minitest::Test
         with_svg(svg) { |checks| assert_includes checks, id, "#{source} #{prop}: #{value}" }
       end
     end
-    ok = clean.sub(rule, "#{rule} dominant-baseline: alphabetic; alignment-baseline: alphabetic; font-size: 14px;")
-    with_svg(ok) { |checks| assert_empty checks }
+    all_valid = with_rule.call("dominant-baseline: alphabetic; alignment-baseline: alphabetic; font-size: 14px;")
+    with_svg(all_valid) { |checks| assert_empty checks }
   end
 
   def test_em_font_size_does_not_parse_as_one_px
