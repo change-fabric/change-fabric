@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 584" width="880" height="584" role="img" aria-labelledby="t d" data-diagram-type="flow">
   <title id="t">How cf:diagram makes a diagram</title>
-  <desc id="d">The agent picks a diagram type, sketches nodes and edges, hand-writes the SVG, then lints it with text measured in browserless. No findings yields the clean SVG. Findings with fewer than three fix rounds used go to fix from hints, then back to hand-writing for the next round, where a round is one fix and one re-lint. Findings after three fix rounds stop the run: the SVG is kept and the findings are reported.</desc>
+  <desc id="d">The agent picks a diagram type, sketches nodes and edges, hand-writes the SVG, then lints it with text measured in browserless. cf:diagram reads the request and picks one of 8 types. No findings yields the clean SVG. Findings with fewer than three fix rounds used go to fix from hints, then back to hand-writing for the next round, where a round is one fix and one re-lint. Findings after three fix rounds stop the run: the SVG is kept and the findings are reported.</desc>
   <style>
     svg { --bg: #F6EFE0; --surface: #F0E8DB; --ink: #24122A; --muted: #574F59; --soft: #574F59; --line: #574F59; --rule: #C1C1B7; --accent: #714C8C; --link: #714C8C; --accent-tint: #E9DFD8; }
     @media (prefers-color-scheme: dark) {
@@ -45,20 +45,20 @@
   <path class="edge accent" data-from="lint" data-to="clean" d="M752 312 V400" marker-end="url(#arrow-accent)"/>
   <path class="edge" data-from="lint" data-to="report" d="M704 312 V356 H440 V400" marker-end="url(#arrow)"/>
   <rect class="mask" x="542.0" y="228" width="116" height="32" rx="2"/>
-  <text id="l-fix" class="edge-label" x="600" y="240" font-size="11" text-anchor="middle" letter-spacing="0.06em"><tspan x="600">FINDINGS</tspan><tspan x="600" dy="16">UNDER 3 FIXES</tspan></text>
+  <text id="l-fix" class="edge-label" x="600" y="240" font-size="11" text-anchor="middle" letter-spacing="0.06em"><tspan x="600">FINDINGS</tspan><tspan x="600" dy="16">UNDER 3 ROUNDS</tspan></text>
   <rect class="mask" x="542.0" y="316" width="116" height="32" rx="2"/>
-  <text id="l-report" class="edge-label" x="600" y="328" font-size="11" text-anchor="middle" letter-spacing="0.06em"><tspan x="600">FINDINGS</tspan><tspan x="600" dy="16">AFTER 3 FIXES</tspan></text>
+  <text id="l-report" class="edge-label" x="600" y="328" font-size="11" text-anchor="middle" letter-spacing="0.06em"><tspan x="600">FINDINGS</tspan><tspan x="600" dy="16">3 ROUNDS USED</tspan></text>
   <rect class="mask" x="758.0" y="348" width="100" height="16" rx="2"/>
   <text id="l-clean" class="edge-label accent" x="808" y="360" font-size="11" text-anchor="middle" letter-spacing="0.06em">NO FINDINGS</text>
   <rect class="mask" x="530.0" y="152" width="92" height="16" rx="2"/>
-  <text id="l-next" class="edge-label" x="576" y="164" font-size="11" text-anchor="middle" letter-spacing="0.06em">NEXT ROUND</text>
+  <text id="l-next" class="edge-label" x="576" y="164" font-size="11" text-anchor="middle" letter-spacing="0.06em">APPLY, RE-LINT</text>
   <text id="callout" class="callout" x="48" y="252" font-size="15"><tspan x="48">A round is one fix</tspan><tspan x="48" dy="20">and one re-lint.</tspan><tspan x="48" dy="20">Three rounds at most.</tspan></text>
   <g class="node" data-id="pick">
     <rect x="48" y="48" width="168" height="88" rx="6"/>
     <rect class="chip" x="60" y="60" width="32" height="18" rx="2"/>
     <text id="pick-tag" class="tag" x="76.0" y="74" font-size="11" text-anchor="middle" letter-spacing="0.08em">01</text>
-    <text id="pick-label" class="label" x="132" y="102" font-size="14" text-anchor="middle">Pick type</text>
-    <text id="pick-sub" class="sub" x="132" y="120" font-size="12" text-anchor="middle">8 types</text>
+    <text id="pick-label" class="label" x="132" y="102" font-size="14" text-anchor="middle">Read request</text>
+    <text id="pick-sub" class="sub" x="132" y="120" font-size="12" text-anchor="middle">pick 1 of 8 types</text>
   </g>
   <g class="node" data-id="sketch">
     <rect x="360" y="48" width="168" height="88" rx="6"/>
@@ -75,9 +75,9 @@
     <text id="write-sub" class="sub" x="756" y="120" font-size="12" text-anchor="middle">8px grid</text>
   </g>
   <g class="node" data-id="lint">
-    <rect x="672" y="224" width="168" height="88" rx="6" class="accent"/>
-    <rect class="chip accent" x="684" y="236" width="32" height="18" rx="2"/>
-    <text id="lint-tag" class="tag accent" x="700.0" y="250" font-size="11" text-anchor="middle" letter-spacing="0.08em">04</text>
+    <rect x="672" y="224" width="168" height="88" rx="6"/>
+    <rect class="chip" x="684" y="236" width="32" height="18" rx="2"/>
+    <text id="lint-tag" class="tag" x="700.0" y="250" font-size="11" text-anchor="middle" letter-spacing="0.08em">04</text>
     <text id="lint-label" class="label" x="756" y="278" font-size="14" text-anchor="middle">Lint and measure</text>
     <text id="lint-sub" class="sub" x="756" y="296" font-size="12" text-anchor="middle">browserless</text>
   </g>
@@ -89,9 +89,9 @@
     <text id="fix-sub" class="sub" x="444" y="296" font-size="12" text-anchor="middle">one per finding</text>
   </g>
   <g class="node" data-id="clean">
-    <rect x="672" y="400" width="168" height="88" rx="6"/>
-    <rect class="chip" x="684" y="412" width="40" height="18" rx="2"/>
-    <text id="clean-tag" class="tag" x="704.0" y="426" font-size="11" text-anchor="middle" letter-spacing="0.08em">OUT</text>
+    <rect x="672" y="400" width="168" height="88" rx="6" class="accent"/>
+    <rect class="chip accent" x="684" y="412" width="40" height="18" rx="2"/>
+    <text id="clean-tag" class="tag accent" x="704.0" y="426" font-size="11" text-anchor="middle" letter-spacing="0.08em">OUT</text>
     <text id="clean-label" class="label" x="756" y="454" font-size="14" text-anchor="middle">Clean SVG</text>
     <text id="clean-sub" class="sub" x="756" y="472" font-size="12" text-anchor="middle">diagram.svg</text>
   </g>
@@ -108,9 +108,9 @@
     <rect class="swatch" x="160" y="540" width="24" height="16" rx="3"/>
     <text id="lg0" class="edge-label" x="196" y="552" font-size="11" letter-spacing="0.06em">STEP</text>
     <rect class="swatch accent" x="320" y="540" width="24" height="16" rx="3"/>
-    <text id="lg1" class="edge-label" x="356" y="552" font-size="11" letter-spacing="0.06em">FOCAL STEP</text>
+    <text id="lg1" class="edge-label" x="356" y="552" font-size="11" letter-spacing="0.06em">CLEAN SVG</text>
     <path class="key accent" d="M504 548 H528"/>
-    <text id="lg2" class="edge-label" x="540" y="552" font-size="11" letter-spacing="0.06em">CLEAN RESULT</text>
+    <text id="lg2" class="edge-label" x="540" y="552" font-size="11" letter-spacing="0.06em">CLEAN PATH</text>
     <path class="key dashed" d="M664 548 H688"/>
     <text id="lg3" class="edge-label" x="700" y="552" font-size="11" letter-spacing="0.06em">FIX LOOP</text>
   </g>
