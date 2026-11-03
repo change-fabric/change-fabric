@@ -51,7 +51,7 @@ module SkillRegistry
   # them in full and filter afterwards, which takes minutes from a large HOME.
   def self.manifests(dir)
     own = File.join(dir, 'package.json')
-    found = File.file?(own) ? [own] : []
+    found = File.file?(own) ? [ own ] : []
     Dir.children(dir).sort.each do |name|
       next if name.start_with?('.') || Skill::DEPENDENCY_DIRS.include?(name)
 
