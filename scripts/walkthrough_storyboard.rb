@@ -113,12 +113,23 @@ module WalkthroughStoryboard
 
   # Advisory findings that never fail validation. Roast refuses to run without a
   # review audience and purpose, so their absence is worth saying early.
-  def warnings(board)
+  def warnings(board) = review_warnings(board) + soft_zoom_warnings(board)
+
+  def review_warnings(board)
     return [ 'review is absent: roast refuses to run without an audience and a purpose (add a review object with kind, audience, purpose)' ] unless board.key?('review')
 
     review = board['review'].is_a?(Hash) ? board['review'] : {}
     %w[audience purpose].reject { |k| review[k] && !Array(review[k]).empty? && !review[k].to_s.strip.empty? }
                         .map { |k| "review.#{k} is missing: roast refuses to run without it" }
+  end
+
+  # A viewport pinned to dpr 1 opts out of the derived capture dpr, so a
+  # zoomed scene resamples small text up from too few pixels.
+  def soft_zoom_warnings(board)
+    return [] unless board.dig('viewport', 'dpr') == 1
+
+    Array(board['scenes']).select { |s| s.is_a?(Hash) && s.dig('camera', 'zoom').to_f > 1 }
+                          .map { |s| "scene #{s['id']}: camera.zoom #{s.dig('camera', 'zoom')} with viewport.dpr 1 renders soft text; drop viewport.dpr or raise it" }
   end
 
   def validate!(board, root: nil)

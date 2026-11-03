@@ -4,6 +4,7 @@ require "minitest/autorun"
 require_relative "../scripts/walkthrough_storyboard"
 require_relative "../scripts/walkthrough_device"
 require_relative "../scripts/walkthrough_ffmpeg"
+require_relative "../scripts/walkthrough_live"
 
 # Scene devices and layouts: validation, canvas geometry, cursor and tap
 # mapping, the composite filter, and caption-safe frame checks.
@@ -78,6 +79,26 @@ class WalkthroughDeviceTest < Minitest::Test
     arrow = WalkthroughDevice.arrow_path(rect, [ { "x" => 10, "y" => 20, "down" => true } ])
     assert_equal [ { "frame" => 1, "x" => 105.0, "y" => 50.0, "down" => true } ], arrow
     assert WalkthroughDevice.hidden_path(3).all? { |p| p["x"] == WalkthroughDevice::OFF_CANVAS }
+  end
+
+  def test_desktop_dpr_covers_camera_zoom_and_browser_frame
+    browser = { "url" => "http://app.test", "frame" => "browser" }
+    dpr = ->(board, sc) { WalkthroughDevice.specs(board, sc).first["dpr"] }
+    assert_equal 1, dpr.call({}, {})
+    assert_equal 2, dpr.call({}, { "camera" => { "zoom" => 1.5 } })
+    assert_equal 2, dpr.call({}, { "screen" => browser })
+    assert_equal 3, dpr.call({}, { "screen" => browser, "camera" => { "zoom" => 1.8 } })
+    assert_equal 1, dpr.call({}, { "camera" => { "zoom" => 0.6 } })
+    assert_equal 4, dpr.call({}, { "screen" => browser, "camera" => { "zoom" => 3.0 } })
+    assert_equal 1, dpr.call(BOARD, { "screen" => browser, "camera" => { "zoom" => 1.8 } })
+  end
+
+  def test_desktop_dpr_changes_the_live_frames_key
+    sc = { "id" => "s1", "screen" => { "url" => "http://app.test" }, "camera" => { "zoom" => 1.5 } }
+    unzoomed = sc.merge("camera" => { "zoom" => 1.0 })
+    refute_equal WalkthroughLive.frames_key({}, sc), WalkthroughLive.frames_key({}, unzoomed)
+    pinned = { "viewport" => { "dpr" => 1 } }
+    assert_equal WalkthroughLive.frames_key(pinned, sc), WalkthroughLive.frames_key(pinned, unzoomed)
   end
 
   def test_specs_use_mobile_emulation_for_the_phone

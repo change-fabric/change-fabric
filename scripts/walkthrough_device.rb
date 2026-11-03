@@ -2,6 +2,7 @@
 
 require_relative 'prototype_capture'
 require_relative 'prototype_ux_lint'
+require_relative 'walkthrough_browser_frame'
 
 # Which devices a live or compose scene is filmed on, and where each lands
 # on the board canvas. `devices` is ["desktop"] (the default, the board
@@ -65,9 +66,22 @@ module WalkthroughDevice
         ph = phone(board)
         { 'name' => 'phone', 'w' => ph['w'], 'h' => ph['h'], 'dpr' => ph['dpr'], 'mobile' => true, 'ua' => ph['ua'] }
       else
-        board_viewport(board).merge('name' => 'desktop', 'mobile' => false)
+        board_viewport(board).merge('name' => 'desktop', 'mobile' => false, 'dpr' => desktop_dpr(board, scene))
       end
     end
+  end
+
+  # A storyboard's own viewport dpr always wins. Otherwise capture enough
+  # device pixels that the browser frame's shrink and the camera's zoom
+  # never upsample: at dpr 1, a 1.5x zoom inside a 0.7x browser frame
+  # resamples small text down and back up, and it reads soft.
+  def desktop_dpr(board, scene)
+    explicit = board.dig('viewport', 'dpr')
+    return explicit if explicit
+
+    zoom = [ scene.dig('camera', 'zoom').to_f, 1.0 ].max
+    shrink = WalkthroughBrowserFrame.browser?(scene) ? WalkthroughBrowserFrame.layout(board).content.scale : 1.0
+    (zoom / shrink).ceil.clamp(DPR.min, DPR.max)
   end
 
   # A scene with no devices is filmed full bleed on the board viewport, so
