@@ -351,14 +351,34 @@ module DiagramSvg
 
     def commands(d) = d.scan(/[A-Za-z]/).map(&:upcase)
 
+    NUMBER = /[+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?/i
+
     def segments(d)
       state = { pos: [ 0.0, 0.0 ], start: [ 0.0, 0.0 ], ctrl: nil, prev: nil }
-      d.scan(/([A-Za-z])([^A-Za-z]*)/).flat_map do |letter, args|
-        nums = args.scan(/-?\d*\.?\d+(?:e-?\d+)?/i).map(&:to_f)
-        arity = ARITY.fetch(letter.upcase, 0)
-        groups = arity.zero? ? [ [] ] : nums.each_slice(arity).to_a
-        groups.flat_map { |g| step(letter, g, state) }
+      normalize(d).flat_map { |letter, g| step(letter, g, state) }
+    end
+
+    # Expands path data into one [letter, args] pair per drawn command, so
+    # every grammar rule is applied once here: implicit repetition of any
+    # command, extra moveto pairs read as linetos of the same case, and
+    # compact numbers ("1-2", ".5.5", "1e+3", whose "e" is no command). Incomplete trailing groups
+    # are dropped, as a renderer stops at the first malformed command.
+    def normalize(d)
+      groups = d.scan(/#{NUMBER}|[A-Za-z]/o).slice_before(/\A[A-Za-z]\z/).select { |t| t.first.match?(/\A[A-Za-z]\z/) }
+      groups.flat_map do |letter, *args|
+        arity = ARITY[letter.upcase]
+        next [] unless arity
+        next [ [ letter, [] ] ] if arity.zero?
+
+        nums = args.map(&:to_f)
+        nums.each_slice(arity).select { |g| g.size == arity }.each_with_index.map do |g, i|
+          [ i.positive? ? repeated(letter) : letter, g ]
+        end
       end
+    end
+
+    def repeated(letter)
+      { "M" => "L", "m" => "l" }.fetch(letter, letter)
     end
 
     def step(letter, g, state)

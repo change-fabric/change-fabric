@@ -123,4 +123,29 @@ class DiagramSvgTest < Minitest::Test
     assert(segs.all? { |s| s.is_a?(DiagramSvg::Segment) })
     assert_equal [ 20.0, 10.0 ], [ segs.last.x2, segs.last.y2 ]
   end
+
+  def test_path_grammar_normalizes_every_variant
+    {
+      "M208 72 208 -32 256 -32" => [ [ 208, 72, 208, -32 ], [ 208, -32, 256, -32 ] ],
+      "m10 10 0 -20 5 0" => [ [ 10, 10, 10, -10 ], [ 10, -10, 15, -10 ] ],
+      "M0 0 L5 5 m1 1 2 0" => [ [ 0, 0, 5, 5 ], [ 6, 6, 8, 6 ] ],
+      "M0 0 10 0 Z" => [ [ 0, 0, 10, 0 ], [ 10, 0, 0, 0 ] ],
+      "M0 0 L1 1 2 2" => [ [ 0, 0, 1, 1 ], [ 1, 1, 2, 2 ] ],
+      "M0 0 l1 1 1 1" => [ [ 0, 0, 1, 1 ], [ 1, 1, 2, 2 ] ],
+      "M0 0 H5 10" => [ [ 0, 0, 5, 0 ], [ 5, 0, 10, 0 ] ],
+      "M0 0 v5 5" => [ [ 0, 0, 0, 5 ], [ 0, 5, 0, 10 ] ],
+      "M0,0L10-5" => [ [ 0, 0, 10, -5 ] ],
+      "M+1e+1 0 L2e1 0" => [ [ 10, 0, 20, 0 ] ],
+      "M0 0 L1 1 2" => [ [ 0, 0, 1, 1 ] ]
+    }.each do |d, want|
+      segs = DiagramSvg::PathData.segments(d)
+      assert_equal want, segs.map { |s| [ s.x1, s.y1, s.x2, s.y2 ].map(&:round) }, d
+    end
+    segs = DiagramSvg::PathData.segments("M0 0 C0 10 10 10 10 0 10 -10 20 -10 20 0")
+    assert_equal [ 20, 0 ], [ segs.last.x2, segs.last.y2 ].map(&:round)
+    assert(segs.all? { |s| s.command == "C" })
+    segs = DiagramSvg::PathData.segments("M0 0 Q5 5 10 0 15 -5 20 0")
+    assert_equal [ 20, 0 ], [ segs.last.x2, segs.last.y2 ].map(&:round)
+    assert_equal [ 0.5, 0.5 ], DiagramSvg::PathData.normalize("M.5.5").first.last
+  end
 end
