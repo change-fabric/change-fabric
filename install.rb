@@ -54,7 +54,9 @@ module Install
     def opencode_config      = File.join(opencode_root, 'opencode.jsonc')
     def opencode_skills_root = File.join(opencode_root, 'skills')
     def copilot_skills_root  = File.join(@home, '.copilot', 'skills')
-    def legacy_pi_roots      = [ File.join(@home, '.pi', 'agent', 'skills'), File.join(@home, '.agents', 'skills') ]
+    def codex_skills_root    = File.join(@home, '.agents', 'skills')
+    def codex_skill(name)    = File.join(codex_skills_root, SkillName.portable(name))
+    def legacy_pi_roots      = [ File.join(@home, '.pi', 'agent', 'skills') ]
     def pi_extensions_root   = File.join(@home, '.pi', 'agent', 'extensions')
     def pi_extension_source  = File.join(@repo, 'extensions', 'pi-cf-hooks')
     def pi_extension_link    = File.join(pi_extensions_root, 'cf-hooks')
@@ -428,6 +430,28 @@ module Install
     def skill_path(name) = @paths.copilot_skill(name)
   end
 
+  # Codex discovers personal skills under ~/.agents/skills and invokes them
+  # with $name. Mode overrides avoid claiming Claude hooks already ran.
+  class CodexSkillMirror < PortableSkillMirror
+    private
+
+    def skills_root = @paths.codex_skills_root
+    def skill_path(name) = @paths.codex_skill(name)
+
+    def rewrite_frontmatter_name(path, name)
+      front, body = SkillRegistry::Frontmatter.split(File.read(path))
+      meta = YAML.safe_load(front)
+      override = File.join(File.dirname(path), 'reference', 'codex.md')
+      body = File.read(override) if File.file?(override)
+      body = body.gsub(%r{(?<![\w./-])/cf:([a-z][a-z0-9-]*)}) { "$cf-#{Regexp.last_match(1)}" }
+                 .gsub(%r{(?<![\w./-])/cf\b(?![/:-])}, '$cf')
+      notice = 'Codex: these are workflow instructions. This installer does not wire ' \
+               'Claude lifecycle hooks into Codex; do not assume their state or enforcement.'
+      portable = { 'name' => name, 'description' => meta.fetch('description') }
+      File.write(path, "---\n#{YAML.dump(portable).sub(/\A---\n/, '')}---\n\n#{notice}\n\n#{body}")
+    end
+  end
+
   # Top-level orchestration: copies hooks, links skills, and wires settings.
   class Installer
     HOOKS = {
@@ -455,6 +479,7 @@ module Install
       mirror_to_pi
       mirror_to_opencode
       mirror_to_copilot
+      mirror_to_codex
       report(wire_settings)
     end
 
@@ -634,6 +659,10 @@ module Install
       CopilotSkillMirror.new(@paths).mirror(@paths.skill_sources)
     end
 
+    def mirror_to_codex
+      CodexSkillMirror.new(@paths).mirror(@paths.skill_sources)
+    end
+
     def report(settings)
       skills = @paths.skill_sources.map { |s| SkillName.of(s) }.join(', ')
       puts 'cf shim installed:'
@@ -644,6 +673,7 @@ module Install
       puts "  opencode -> #{@paths.opencode_skills_root}"
       puts "  opencode hooks -> #{@paths.opencode_plugin_link}"
       puts "  copilot  -> #{@paths.copilot_skills_root}"
+      puts "  codex    -> #{@paths.codex_skills_root} (invoke with $cf-merge-ready or /skills; instructions only)"
       puts "  settings -> #{@paths.settings} (backup at #{settings.backup_path})"
     end
   end

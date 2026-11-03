@@ -74,6 +74,16 @@ portable-named skill copies (`cf-x`) in `~/.copilot/skills`; skills only, no hoo
 Ruby 3.2 or newer (the bundled scripts use `Data`; CI runs 3.4), takes no
 input, and is idempotent.
 
+Codex gets managed skill copies in `~/.agents/skills`, with portable names
+such as `cf-merge-ready`. Invoke `$cf-merge-ready` or select it through
+`/skills`; Claude's `/cf:merge-ready` is not a Codex slash command. These
+copies include resources and translate command references. Mode skills have
+Codex-specific instructions, tracked in conversation and compaction summaries.
+The installer does not wire lifecycle hooks, persistent mode state, per-turn
+reminders, or command guards into Codex. Restart Codex if a new skill does not
+appear. Reinstalling refreshes generated copies and preserves user-owned skills.
+See the [Codex integration RCA](docs/rca/2026-11-03-codex-skills.md).
+
 **Re-run the installer after every upgrade.** For a clone that is
 `ruby install.rb` after every `git pull`; for Homebrew it is
 `change-fabric-install` after every `brew upgrade change-fabric`. The skills are

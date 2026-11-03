@@ -320,6 +320,65 @@ class InstallerTest < Minitest::Test
     assert_includes File.read(translated).match(/\A---\n(.*?)\n---/m)[1], "name: cf-typescript"
   end
 
+  def test_codex_discovers_every_skill_with_portable_metadata_and_resources
+    paths = install
+    assert_equal File.join(@home, ".agents", "skills"), paths.codex_skills_root
+    paths.skill_sources.each do |source|
+      dest = paths.codex_skill(Install::SkillName.of(source))
+      front, = SkillRegistry::Frontmatter.split(File.read(File.join(dest, "SKILL.md")))
+      meta = YAML.safe_load(front)
+      assert_match(/\A[a-z0-9]+(?:-[a-z0-9]+)*\z/, meta.fetch("name"))
+      refute_empty meta.fetch("description")
+      Dir.glob(File.join(source, "**", "*")).select { |p| File.file?(p) }.each do |file|
+        assert File.file?(File.join(dest, file.delete_prefix("#{source}/"))), "missing resource #{file}"
+      end
+    end
+  end
+
+  def test_codex_mode_overrides_replace_claude_hook_assumptions
+    paths = install
+    %w[cf merge-ready local-only admin-bypass yolo active away].each do |mode|
+      name = mode == "cf" ? "cf" : "cf:#{mode}"
+      text = File.read(File.join(paths.codex_skill(name), "SKILL.md"))
+      refute_includes text, "has already persisted"
+      refute_includes text, "AskUserQuestion"
+      refute_match(%r{/cf(?::|\b)}, text)
+      assert_includes text, "$#{Install::SkillName.portable(name)}"
+    end
+  end
+
+  def test_codex_mirror_survives_reinstall_and_only_prunes_owned_skills
+    paths = install
+    target = File.join(paths.codex_skill("cf:merge-ready"), "SKILL.md")
+    expected = File.read(target)
+    File.write(target, "stale generated copy")
+    stale = paths.codex_skill("cf:removed")
+    FileUtils.mkdir_p(stale)
+    File.write(File.join(stale, Install::PortableSkillMirror::MARKER), "source: old\n")
+    custom = paths.codex_skill("custom")
+    collision = paths.codex_skill("cf:ruby")
+    FileUtils.mkdir_p(custom)
+    FileUtils.remove_entry(collision)
+    FileUtils.mkdir_p(collision)
+    File.write(File.join(collision, "SKILL.md"), "user-owned skill\n")
+
+    install
+    assert_equal expected, File.read(target)
+    refute File.exist?(stale)
+    assert File.directory?(custom)
+    assert_equal "user-owned skill\n", File.read(File.join(collision, "SKILL.md"))
+  end
+
+  def test_codex_translates_commands_without_rewriting_hook_paths
+    paths = install
+    text = File.read(File.join(paths.codex_skill("cf:design"), "SKILL.md"))
+    original = File.read(File.join(@repo, "skills", "design", "SKILL.md"))
+    original.scan(%r{[\w~./-]+/cf/[\w./-]+}).each do |path|
+      assert_includes text, path
+    end
+    refute_match(%r{`/cf:}, text)
+  end
+
   def test_copilot_mirror_is_idempotent_and_prunes_stale
     paths = Install::Paths.new(repo: @repo, home: @home)
     stale = File.join(paths.copilot_skills_root, "gone")
