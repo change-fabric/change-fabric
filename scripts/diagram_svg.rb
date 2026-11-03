@@ -349,9 +349,14 @@ module DiagramSvg
 
     module_function
 
-    def commands(d) = d.scan(/[A-Za-z]/).map(&:upcase)
-
     NUMBER = /[+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?/i
+    LETTER = /\A[A-Za-z]\z/
+
+    # The one number-aware tokenizer every path consumer reads, so an
+    # exponent "e" is never taken for a command.
+    def tokens(d) = d.scan(/#{NUMBER}|[A-Za-z]/o)
+
+    def commands(d) = tokens(d).grep(LETTER).map(&:upcase)
 
     def segments(d)
       state = { pos: [ 0.0, 0.0 ], start: [ 0.0, 0.0 ], ctrl: nil, prev: nil }
@@ -364,7 +369,7 @@ module DiagramSvg
     # compact numbers ("1-2", ".5.5", "1e+3", whose "e" is no command). Incomplete trailing groups
     # are dropped, as a renderer stops at the first malformed command.
     def normalize(d)
-      groups = d.scan(/#{NUMBER}|[A-Za-z]/o).slice_before(/\A[A-Za-z]\z/).select { |t| t.first.match?(/\A[A-Za-z]\z/) }
+      groups = tokens(d).slice_before(LETTER).select { |t| t.first.match?(LETTER) }
       groups.flat_map do |letter, *args|
         arity = ARITY[letter.upcase]
         next [] unless arity

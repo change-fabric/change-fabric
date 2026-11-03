@@ -148,4 +148,13 @@ class DiagramSvgTest < Minitest::Test
     assert_equal [ 20, 0 ], [ segs.last.x2, segs.last.y2 ].map(&:round)
     assert_equal [ 0.5, 0.5 ], DiagramSvg::PathData.normalize("M.5.5").first.last
   end
+
+  def test_commands_and_normalize_share_number_aware_tokens
+    { "M2.08e2 72 H256" => %w[M H], "M1E2 0L3e-1 4" => %w[M L], "m1e+2 0 v5E1 z" => %w[M V Z],
+      "M0 0 C1e1 0 2e1 0 3e1 0" => %w[M C], "M.5.5l1-2" => %w[M L] }.each do |d, want|
+      assert_equal want, DiagramSvg::PathData.commands(d), d
+      assert_equal want, DiagramSvg::PathData.normalize(d).map { |l, _| l.upcase }.chunk_while { |a, b| a == b }.map(&:first), d
+    end
+    assert_equal %w[M X], DiagramSvg::PathData.commands("M0 0 X5")
+  end
 end
