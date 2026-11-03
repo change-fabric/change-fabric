@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 672 144" width="672" height="144" role="img" aria-labelledby="t d" data-diagram-type="flow">
+  <title id="t">Checkout flow</title>
+  <desc id="d">A cart is reviewed, paid for, and confirmed.</desc>
+<style>
+    svg { --bg: #F5F5F5; --surface: #FFFFFF; --ink: #2D3142; --muted: #4F5D75; --soft: #5A6580; --line: #4F5D75; --rule: #D9DADD; --accent: #B5401C; --accent-tint: #F2E9E6; --link: #2E5AA8; }
+    @media (prefers-color-scheme: dark) {
+      svg { --bg: #2D3142; --surface: #2D3142; --ink: #F5F5F5; --muted: #BFC0C0; --soft: #A3ACC0; --line: #A3ACC0; --rule: #45495A; --accent: #F08A59; --accent-tint: #3D3844; --link: #7FA9E6; }
+    }
+    .bg { fill: var(--bg); }
+    .node rect { fill: var(--surface); stroke: var(--ink); stroke-width: 1; }
+    .label { fill: var(--ink); font-weight: 600; font-family: Geist, Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", sans-serif; }
+    .edge { fill: none; stroke: var(--line); stroke-width: 1.2; }
+    #arrow path { fill: var(--line); }
+    #arrow-soft path { fill: var(--soft); }
+    .group rect { fill: none; stroke: var(--muted); stroke-dasharray: 4 4; }
+    .note { fill: var(--muted); font-family: Geist, Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", sans-serif; }
+  </style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="#4F5D75"/></marker>
+    <marker id="arrow-soft" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="#5A6580"/></marker>
+  </defs>
+  <rect class="bg" x="0" y="0" width="672" height="144" fill="#F5F5F5"/>
+<g class="node" data-id="cart" onclick="go()">
+    <rect x="48" y="48" width="160" height="48" rx="6"/>
+    <text class="label" x="128.0" y="76.9" font-size="14" text-anchor="middle">Cart</text>
+  </g>
+  <g class="node" data-id="pay">
+    <rect x="256" y="48" width="160" height="48" rx="6"/>
+    <text class="label" x="336.0" y="76.9" font-size="14" text-anchor="middle">Payment</text>
+  </g>
+  <g class="node" data-id="done">
+    <rect x="464" y="48" width="160" height="48" rx="6"/>
+    <text class="label" x="544.0" y="76.9" font-size="14" text-anchor="middle">Confirmed</text>
+  </g>
+  <path class="edge" data-from="cart" data-to="pay" d="M208 72 H256" marker-end="url(#arrow)"/>
+  <path class="edge" data-from="pay" data-to="done" d="M416 72 H464" marker-end="url(#arrow)"/>
+</svg>

@@ -24,6 +24,12 @@ contributors_team:
 change_config:
   project: changefabric-site
 
+  design:
+    # The site's token file is the brand palette. cf:diagram resolves it into
+    # diagram roles (scripts/diagram_palette.rb), so diagrams in this repo
+    # match changefabric.org.
+    tokens: site/src/styles.css
+
   boot:
     # site/ is a static Vite + React SPA with no backend of its own (see
     # site/README.md). `npm run dev` runs in the foreground, so it is

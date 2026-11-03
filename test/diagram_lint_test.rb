@@ -1,0 +1,395 @@
+# frozen_string_literal: true
+
+require "minitest/autorun"
+require "json"
+require "stringio"
+require "tmpdir"
+require_relative "../scripts/diagram_lint"
+
+# Covers the cf:diagram linter: each broken fixture trips exactly its own
+# check, clean fixtures carry no errors, and the CLI keeps its JSON shape and
+# exit codes.
+class DiagramLintTest < Minitest::Test
+  FIXTURES = File.expand_path("fixtures/diagram", __dir__)
+
+  # Test double for the measurer interface.
+  class FixedMeasurer
+    def initialize(width) = @width = width
+    def measured? = true
+    def widths(doc)
+      doc.texts.to_h do |t|
+        left = { "start" => t.x, "end" => t.x - @width }.fetch(t.anchor, t.x - (@width / 2.0))
+        [ t.key, [ left, t.y - (0.8 * t.font_size), @width, t.font_size ] ]
+      end
+    end
+  end
+
+  def fixture(name) = File.join(FIXTURES, name)
+
+  def lint(name, measurer: DiagramMeasure::Static.new)
+    DiagramLint.new(measurer: measurer).lint_file(fixture(name))[:findings]
+  end
+
+  def run_cli(*argv)
+    out = StringIO.new
+    err = StringIO.new
+    code = DiagramLint.main(argv, out: out, err: err, measurer: DiagramMeasure::Static.new)
+    [ code, out.string, err.string ]
+  end
+
+  def test_every_check_has_a_kebab_id_and_a_broken_fixture
+    ids = DiagramChecks::ALL.map { |c| c::ID }
+    assert_equal 21, ids.uniq.size
+    ids.each do |id|
+      assert_match(/\A[a-z0-9]+(-[a-z0-9]+)*\z/, id)
+      assert File.file?(fixture("broken_#{id.tr('-', '_')}.svg")), "missing broken fixture for #{id}"
+    end
+  end
+
+  DiagramChecks::ALL.each do |check|
+    id = check::ID
+    define_method("test_broken_#{id.tr('-', '_')}_yields_only_#{id.tr('-', '_')}") do
+      findings = lint("broken_#{id.tr('-', '_')}.svg")
+      refute_empty findings
+      assert_equal [ id ], findings.map(&:check).uniq
+    end
+  end
+
+  def test_clean_fixtures_yield_no_findings
+    %w[clean_flow.svg clean_architecture.svg clean_multiline.svg].each do |name|
+      assert_empty lint(name), name
+    end
+  end
+
+  DIAGRAM_TYPES = %w[architecture flow sequence state er timeline swimlane layers].freeze
+
+  def test_every_type_has_a_reference_and_a_clean_fixture_with_no_errors
+    DIAGRAM_TYPES.each do |type|
+      assert_path_exists File.expand_path("../skills/diagram/reference/#{type}.md", __dir__), type
+      errors = lint("clean_#{type}.svg").select { |f| f.severity == "error" }
+      assert_empty errors, type
+    end
+  end
+
+  def test_text_overflow_is_an_error_when_measured_and_a_warning_when_estimated
+    assert_equal [ "warn" ], lint("broken_text_overflow.svg").map(&:severity)
+    measured = lint("clean_flow.svg", measurer: FixedMeasurer.new(150))
+    assert_equal %w[error], measured.select { |f| f.check == "text-overflow" }.map(&:severity).uniq
+  end
+
+  def test_type_override_replaces_the_declared_type
+    findings = DiagramLint.new(measurer: DiagramMeasure::Static.new, type: "flow").lint_file(fixture("broken_type_declared.svg"))
+    assert_empty findings[:findings]
+  end
+
+  # A connector leaving the viewBox on any side is clipped, not just nodes and text.
+  def test_connector_outside_viewbox_is_clipped
+    clean = File.read(fixture("clean_flow.svg"))
+    { "above" => "M208 72 V-32 H256 V72", "left" => "M208 72 H-40 V72 H256",
+      "below" => "M208 72 V4000 H256 V72", "right" => "M208 72 H9000 V72 H256" }.each do |side, d|
+      Dir.mktmpdir do |dir|
+        path = File.join(dir, "edge.svg")
+        File.write(path, clean.sub("M208 72 H256", d))
+        findings = DiagramLint.new(measurer: DiagramMeasure::Static.new).lint_file(path)[:findings]
+        assert(findings.any? { |f| f.check == "viewbox-clip" && f.severity == "error" }, side)
+      end
+    end
+  end
+
+  # Every connector must draw exactly one visible stroke. The path model keeps
+  # subpaths, so empty, vacuous, and split data are all one class.
+  def test_connector_must_draw_one_stroke
+    clean = File.read(fixture("clean_flow.svg"))
+    {
+      "empty" => [ "", "no segment" ], "moveto only" => [ "M208 72", "no segment" ],
+      "moveto chain" => [ "M208 72 M256 72", "no segment" ], "zero-length H" => [ "M208 72 H208", "no segment" ],
+      "zero-length L" => [ "M208 72 L208 72", "no segment" ], "no moveto" => [ "H0", "no segment" ],
+      "absolute split" => [ "M208 72 H216 M248 72 H256", "disconnected" ],
+      "relative split" => [ "M208 72 h8 m32 0 h8", "disconnected" ],
+      "lineto split" => [ "M208 72 L216 72 M248 72 L256 72", "disconnected" ],
+      "three pieces" => [ "M208 72 H216 M224 72 H240 M248 72 H256", "disconnected" ]
+    }.each do |name, (d, message)|
+      findings = lint_d(clean, d)
+      assert(findings.any? { |f| f.check == "connector-geometry" && f.message.include?(message) }, name)
+    end
+    { "moveto to current point" => "M208 72 H232 M232 72 H256", "zero-length tail" => "M208 72 H256 H256" }.each do |name, d|
+      assert(lint_d(clean, d).none? { |f| f.check == "connector-geometry" }, name)
+    end
+  end
+
+  def test_json_shape
+    code, out, = run_cli("--json", fixture("broken_spacing.svg"))
+    assert_equal 1, code
+    report = JSON.parse(out)
+    assert_equal 1, report["version"]
+    assert_equal false, report["measured"]
+    file = report["files"].first
+    assert_equal "flow", file["type"]
+    assert_equal %w[check element fix message severity], file["findings"].first.keys.sort
+    assert_equal({ "files" => 1, "errors" => 1, "warnings" => 0 }, report["summary"])
+  end
+
+  def test_exit_zero_on_clean_and_warn_only
+    assert_equal 0, run_cli(fixture("clean_flow.svg")).first
+    code, out, = run_cli(fixture("broken_grid.svg"))
+    assert_equal 0, code
+    assert_match(/broken_grid\.svg:grid:warn: .* \(cart\)/, out)
+  end
+
+  def test_exit_one_on_error
+    assert_equal 1, run_cli(fixture("broken_a11y.svg")).first
+  end
+
+  def test_directory_scan_lints_every_svg
+    code, out, = run_cli("--json", FIXTURES)
+    assert_equal 1, code
+    assert_equal Dir.glob(File.join(FIXTURES, "*.svg")).size, JSON.parse(out)["summary"]["files"]
+  end
+
+  def test_exit_two_on_usage_missing_file_and_bad_xml
+    assert_equal 2, run_cli.first
+    assert_equal 2, run_cli("--bogus", fixture("clean_flow.svg")).first
+    assert_equal 2, run_cli(fixture("nope.svg")).first
+    Dir.mktmpdir do |dir|
+      bad = File.join(dir, "bad.svg")
+      File.write(bad, "<svg><text>a & b</text></svg>")
+      code, _, err = run_cli(bad)
+      assert_equal 2, code
+      assert_match(/bad\.svg/, err)
+    end
+  end
+
+  def test_palette_flag_reads_tokens_file
+    Dir.mktmpdir do |dir|
+      tokens = File.join(dir, "tokens.css")
+      File.write(tokens, ":root { --brand: #FF0000; --bg: #FBFBFA; --line: #8A939E; }")
+      code, out, = run_cli("--palette", tokens, fixture("broken_palette.svg"))
+      assert_equal 0, code
+      refute_match(/#FF0000/, out)
+    end
+  end
+
+  # Every curve command is flattened along its real route, not its chord:
+  # each variant's sampled points must leave the straight endpoint line.
+  def test_curves_flatten_along_their_real_geometry
+    {
+      "M0 0 C0 40 100 40 100 0" => 30.0,
+      "M0 0 c0 40 100 40 100 0" => 30.0,
+      "M0 0 C0 40 50 40 50 0 S100 -40 100 0" => 30.0,
+      "M0 0 Q50 40 100 0" => 20.0,
+      "M0 0 q50 40 100 0" => 20.0,
+      "M0 0 Q25 40 50 0 T100 0" => 20.0,
+      "M0 0 A50 50 0 0 1 100 0" => 50.0,
+      "M0 0 a50 50 0 0 0 100 0" => 50.0
+    }.each do |d, depth|
+      segs = DiagramSvg::PathData.segments(d)
+      ys = segs.flat_map { |s| [ s.y1, s.y2 ] }
+      assert_operator ys.map(&:abs).max, :>=, depth - 1, d
+      assert_in_delta 100.0, segs.last.x2, 0.001, d
+      assert_in_delta 0.0, segs.last.y2, 0.001, d
+    end
+  end
+
+  def test_label_on_a_curved_back_edge_is_caught
+    svg = File.read(fixture("clean_state.svg")).sub(/(<text[^>]*y=")148(")/, '\\1126\\2')
+    refute_equal File.read(fixture("clean_state.svg")), svg
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "moved.svg")
+      File.write(path, svg)
+      refute_empty DiagramLint.new(measurer: DiagramMeasure::Static.new).lint_file(path)[:findings]
+    end
+  end
+
+  def lint_d(svg, d)
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "edge.svg")
+      File.write(path, svg.sub("M208 72 H256", d))
+      DiagramLint.new(measurer: DiagramMeasure::Static.new).lint_file(path)[:findings]
+    end
+  end
+
+  def with_svg(svg)
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "case.svg")
+      File.write(path, svg)
+      yield DiagramLint.new(measurer: DiagramMeasure::Static.new).lint_file(path)[:findings].map(&:check).uniq
+    end
+  end
+
+  # Forbidden constructs trip their check from a style attribute or an ancestor too.
+  def test_forbidden_constructs_in_style_and_on_ancestors
+    clean = File.read(fixture("clean_flow.svg"))
+    {
+      "transform" => [ '<g class="node" data-id="submit">', '<g class="node" data-id="submit" style="transform: translate(9px, 0)">' ],
+      "text-baseline" => [ '<g class="node" data-id="submit">', '<g class="node" data-id="submit" alignment-baseline="middle">' ],
+      "font-unit" => [ '<g class="node" data-id="submit">', '<g class="node" data-id="submit" style="font-size: 1.2rem">' ]
+    }.each do |id, (from, to)|
+      with_svg(clean.sub(from, to)) { |checks| assert_includes checks, id, id }
+    end
+    with_svg(clean.sub('<g class="node" data-id="submit">', '<g class="node" data-id="submit" dominant-baseline="alphabetic" font-size="14px">')) do |checks|
+      assert_empty checks
+    end
+  end
+
+  # The palette check reads colors through the shared DeclaredProperty
+  # resolver, so an out-of-palette color trips it from every source: a light
+  # custom-property role, a dark-scheme role, a stylesheet rule, a commented
+  # stylesheet (ignored), an inline style, and a presentation attribute, in
+  # hex, rgb() and hsl() forms.
+  def test_palette_covers_every_color_source
+    clean = File.read(fixture("clean_flow.svg"))
+    with_svg(clean) { |checks| refute_includes checks, "palette" }
+    {
+      "light role" => [ "--ink: #2D3142;", "--ink: #FFFF00;" ],
+      "dark role" => [ "--ink: #F5F5F5;", "--ink: rgb(255, 255, 0);" ],
+      "stylesheet rule" => [ ".edge { fill: none;", ".edge { fill: hsl(60, 100%, 50%);" ],
+      "inline style" => [ '<g class="node" data-id="submit">', '<g class="node" data-id="submit" style="fill: #FFFF00">' ],
+      "attribute" => [ '<g class="node" data-id="submit">', '<g class="node" data-id="submit" stroke="#FFFF00">' ]
+    }.each do |name, (from, to)|
+      svg = clean.sub(from, to)
+      refute_equal clean, svg, name
+      with_svg(svg) { |checks| assert_includes checks, "palette", name }
+    end
+    commented = clean.sub(".edge { fill: none;", "/* --old: #FFFF00; */ .edge { fill: none;")
+    refute_equal clean, commented
+    with_svg(commented) { |checks| refute_includes checks, "palette" }
+  end
+
+  def set_on_first(svg, tag, name, value)
+    prefix = "<#{tag} "
+    svg.sub(/#{prefix}[^>]*>/) { |element| element.sub(/ #{name}="[^"]*"/, "").sub(prefix, "#{prefix}#{name}=\"#{value}\" ") }
+  end
+
+  # Each forbidden property trips its check from every declaration source:
+  # stylesheet, inline style, attribute, and an inheriting ancestor group.
+  def test_forbidden_constructs_from_every_declaration_source
+    clean = File.read(fixture("clean_flow.svg"))
+    rule = ".label { fill: var(--ink);"
+    with_rule = ->(decl) { clean.sub(rule, "#{rule} #{decl}") }
+    cases = [
+      [ "transform", "transform", "translate(9px, 0)" ],
+      [ "text-baseline", "dominant-baseline", "hanging" ],
+      [ "text-baseline", "alignment-baseline", "middle" ],
+      [ "font-unit", "font-size", "4em" ]
+    ]
+    cases.each do |id, prop, value|
+      {
+        stylesheet: with_rule.call("#{prop}: #{value};"),
+        inline: set_on_first(clean, "text", "style", "#{prop}: #{value}"),
+        attribute: set_on_first(clean, "text", prop, value),
+        ancestor: set_on_first(clean, "g", prop, value)
+      }.each do |source, svg|
+        refute_equal clean, svg, "#{source} #{prop} edit did not apply"
+        with_svg(svg) { |checks| assert_includes checks, id, "#{source} #{prop}: #{value}" }
+      end
+    end
+    all_valid = with_rule.call("dominant-baseline: alphabetic; alignment-baseline: alphabetic;")
+    with_svg(all_valid) { |checks| assert_empty checks }
+  end
+
+# The text model resolves font-size and text-anchor from attributes and
+# inline styles only, so a style block declaring either is rejected for
+# every such property, even with an otherwise allowed value.
+def test_text_geometry_in_style_block_is_rejected
+  clean = File.read(fixture("clean_flow.svg"))
+  rule = ".label { fill: var(--ink);"
+  [ %w[font-size 18px], %w[font-size 14], %w[text-anchor middle], %w[text-anchor start] ].each do |prop, value|
+    svg = clean.sub(rule, "#{rule} #{prop}: #{value};")
+    refute_equal clean, svg
+    with_svg(svg) { |checks| assert_includes checks, "text-geometry-source", "#{prop}: #{value}" }
+  end
+  with_svg(set_on_first(clean, "g", "style", "font-size: 14px")) do |checks|
+    refute_includes checks, "text-geometry-source"
+  end
+end
+
+def test_endpoints_are_judged_against_an_ellipse_outline
+  clean = File.read(fixture("clean_flow.svg"))
+  doc = DiagramSvg::Document.new(clean)
+  node = doc.nodes.first
+  el = REXML::Document.new(%(<ellipse cx="128" cy="72" rx="80" ry="32"/>)).root
+  oval = node.with(element: el)
+  assert_operator oval.outline_distance(202.1619849, 60), :<=, 0.01
+  assert_operator oval.outline_distance(208, 72), :<=, 0.01
+  assert_operator oval.outline_distance(208, 48), :>, 2
+end
+
+def test_font_size_on_a_tspan_is_rejected
+  clean = File.read(fixture("clean_flow.svg"))
+  svg = clean.sub(">Submit order<", "><tspan font-size=\"22\">Submit order</tspan><")
+  refute_equal clean, svg
+  with_svg(svg) { |checks| assert_includes checks, "text-geometry-source" }
+end
+
+# The font shorthand sets the size too, in a style block or inline.
+def test_font_shorthand_is_rejected_anywhere
+  clean = File.read(fixture("clean_flow.svg"))
+  in_block = clean.sub(".label { fill: var(--ink);", ".label { fill: var(--ink); font: 48px sans-serif;")
+  with_svg(in_block) { |checks| assert_includes checks, "text-geometry-source" }
+  with_svg(set_on_first(clean, "g", "style", "font: 48px sans-serif")) do |checks|
+    assert_includes checks, "text-geometry-source"
+  end
+end
+
+  def test_em_font_size_does_not_parse_as_one_px
+    text = DiagramSvg::Document.new(File.read(fixture("broken_font_unit.svg"))).texts.find { |t| t.key == "submit-label" }
+    assert_in_delta DiagramSvg::DEFAULT_FONT_SIZE, text.font_size
+  end
+
+  def test_multiline_label_needs_a_taller_box_and_a_centered_block
+    multi = File.read(fixture("clean_multiline.svg"))
+    with_svg(multi.sub('height="64"', 'height="48"')) { |checks| assert_includes checks, "box-height" }
+    with_svg(multi.sub('y="76.5"', 'y="73.5"')) { |checks| assert_equal [ "baseline" ], checks }
+  end
+
+  # Research repros: each fails its own check under exact geometry.
+  def test_geometry_repros_fail_their_own_check
+    {
+      "broken_text_overflow_placement.svg" => "text-overflow",
+      "broken_text_overflow_vertical.svg" => "text-overflow",
+      "broken_overlap_gap.svg" => "overlap"
+    }.each do |name, id|
+      findings = lint(name)
+      refute_empty findings, name
+      assert_equal [ id ], findings.map(&:check).uniq, name
+    end
+  end
+
+  def test_round_and_polygon_nodes_use_an_inscribed_label_box
+    svg = <<~SVG
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 200">
+        <g class="node" data-id="c"><circle cx="100" cy="100" r="50"/></g>
+        <g class="node" data-id="e"><ellipse cx="100" cy="100" rx="60" ry="30"/></g>
+        <g class="node" data-id="d"><polygon points="300,40 360,100 300,160 240,100"/></g>
+      </svg>
+    SVG
+    doc = DiagramSvg::Document.new(svg)
+    half = 50 / Math.sqrt(2)
+    c = doc.node("c").label_box
+    assert_in_delta 100 - half, c.x
+    assert_in_delta 2 * half, c.w
+    e = doc.node("e").label_box
+    assert_in_delta 120 / Math.sqrt(2), e.w
+    assert_in_delta 60 / Math.sqrt(2), e.h
+    d = doc.node("d").label_box
+    assert_in_delta 60, d.w, 0.01
+    assert_in_delta 60, d.h, 0.01
+    assert_in_delta 270, d.x, 0.01
+  end
+
+  # Every marker fill in a clean fixture or type reference must follow the
+  # theme: a literal light-theme fill alone goes low contrast in dark mode.
+  def test_every_example_themes_its_arrowhead_fills
+    refs = Dir[File.expand_path("../skills/diagram/reference/*.md", __dir__)]
+    sources = Dir[File.join(FIXTURES, "clean_*.svg")] + refs
+    checked = 0
+    sources.each do |path|
+      text = File.read(path)
+      text.scan(/<marker id="([\w-]+)"/).flatten.uniq.each do |id|
+        checked += 1
+        assert_match(/##{Regexp.escape(id)} path \{ fill: var\(--[\w-]+\); \}/, text, "#{File.basename(path)} ##{id}")
+      end
+    end
+    assert_operator checked, :>, 0
+  end
+end
