@@ -5,6 +5,7 @@ require "json"
 require "optparse"
 require_relative "diagram_svg"
 require_relative "diagram_checks"
+require_relative "diagram_palette"
 require_relative "diagram_measure"
 
 # Blocking lint gate for cf:diagram SVGs. Parses each file, asks an injected
@@ -66,7 +67,13 @@ class DiagramLint
   def self.palette_from(file)
     raise UsageError, "cannot read palette #{file}" unless File.file?(file)
 
-    File.read(file).scan(/#\h{6}\b|#\h{3}\b/).uniq
+    literals = File.read(file).scan(/#\h{6}\b|#\h{3}\b/)
+    resolved = begin
+      DiagramPalette.resolve(file).hexes
+    rescue DiagramPalette::Error
+      []
+    end
+    (literals + resolved).uniq
   end
 
   def self.human(report)

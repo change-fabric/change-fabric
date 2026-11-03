@@ -37,6 +37,7 @@ A flow shows the steps a single piece of work passes through, in order, and the 
 - A loop back to an earlier step routes below the rows with two bends, never through a box. If loops dominate, the subject is a `state` diagram.
 - The conditions on the edges leaving one step are mutually exclusive and together cover every outcome, so a reader never has to work out which branch fires. Write each one as its full guard ("findings, under 3 fixes", "findings after 3 fixes"), not a bare outcome ("findings") with the limit parked in a separate note.
 - A bounded loop (retries, fix rounds, a polling cap) draws its exit: an edge from the deciding step, guarded by the exhausted bound, to a terminal step that names what happens then (report, fail, escalate). A loop with only an "up to N" note reads as unbounded.
+- A bounded loop names its unit. Say what one pass is (one fix plus one re-lint) in a callout or the guard itself, and word the guards around the count so exactly one is true on every pass: UNDER 3 FIXES and AFTER 3 FIXES, never FINDINGS beside 3 ROUNDS USED.
 
 ## Multi-line labels
 

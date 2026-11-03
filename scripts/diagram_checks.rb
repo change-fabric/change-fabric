@@ -512,9 +512,32 @@ module DiagramChecks
     end
   end
 
+  # Text stays legible at the width the diagram is shown at. A viewBox wider
+  # than DISPLAY_WIDTH is scaled down to it (a GitHub PR or README column),
+  # so the smallest text is judged at that scale.
+  class DisplayScale < Base
+    ID = "display-scale"
+    SEVERITY = "warn"
+    DISPLAY_WIDTH = 880
+    MIN_PX = 11
+
+    def call(doc, _context)
+      vb = doc.view_box
+      return [] unless vb && vb.w > DISPLAY_WIDTH && doc.texts.any?
+
+      scale = DISPLAY_WIDTH / vb.w
+      small = doc.texts.min_by(&:font_size)
+      shown = small.font_size * scale
+      return [] if shown >= MIN_PX
+
+      [ finding(small.key, "#{small.font_size.round}px text renders at #{shown.round(1)}px in a #{DISPLAY_WIDTH}px column",
+                "draw at viewBox width #{DISPLAY_WIDTH} or less instead of scaling a wider canvas down") ]
+    end
+  end
+
   ALL = [ A11y, XmlSafety, ViewboxClip, Overlap, TextOverflow, Baseline, BoxHeight, Spacing, Grid,
           ConnectorGeometry, ArrowMarker, Palette, FontStack, ThemeFallback, Caps, TypeDeclared,
-          Transform, TextBaseline, FontUnit, TextGeometrySource ].freeze
+          Transform, TextBaseline, FontUnit, TextGeometrySource, DisplayScale ].freeze
 
   def self.all = ALL.map(&:new)
 end

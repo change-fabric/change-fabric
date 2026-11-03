@@ -11,6 +11,10 @@ One `<svg>` element per file, with:
 - `role="img"` and `aria-labelledby="t d"` [a11y].
 - `data-diagram-type` set to one of the eight types [type-declared].
 
+## Display width
+
+Draw at the width the diagram is shown at, never larger. A GitHub PR, issue, or README column is about 880px, so the viewBox is at most 880 wide there; a wider canvas is scaled down and its 11px labels land under 9px. When a layout will not fit, recompose (wrap the main row into two or three rows, stack a branch underneath) rather than shrinking. The smallest text must render at 11px or more in an 880px column [display-scale].
+
 ## Children, in order
 
 1. `<title id="t">`: a short name for the diagram.
@@ -58,7 +62,7 @@ One accent. A diagram where everything is highlighted has nothing highlighted, s
 
 ### Default palette
 
-Used when the project has no DESIGN.md or tokens.css and no `--palette` was passed. Fill and stroke literals outside the resolved palette are a warning [palette].
+The brand comes first: when the repo carries a token file (`change_config.design.tokens` in CHANGE.md, or a root `tokens.css`), `scripts/diagram_palette.rb` resolves it into these same roles and that palette replaces this table. The values below are the fallback for a repo with no tokens. Fill and stroke literals outside the resolved palette are a warning [palette].
 
 | role | light | dark |
 |---|---|---|
@@ -105,9 +109,9 @@ Shape carries the kind of thing (an oval start, a diamond decision, a cylinder s
 |---|---|---|---|---|
 | title | serif | 22 | 400 | an in-figure heading, rare |
 | label | sans | 14 | 600 | node names, human words |
-| sub | mono | 11 | 400 | ports, commands, paths, field types |
-| tag | mono | 10 | 500, `letter-spacing="0.08em"`, uppercase | the type tag in a node corner |
-| edge-label | mono | 10 | 400, `letter-spacing="0.06em"`, uppercase | arrow labels, legend items |
+| sub | mono | 12 | 400 | ports, commands, paths, field types |
+| tag | mono | 11 | 500, `letter-spacing="0.08em"`, uppercase | the type tag in a node corner |
+| edge-label | mono | 11 | 400, `letter-spacing="0.06em"`, uppercase | arrow labels, legend items |
 | note | sans | 12 | 400 | free notes |
 | callout | serif italic | 15 | 400 | one editorial aside |
 
@@ -126,22 +130,22 @@ Stacks, and every `font-family` ends in a generic family and carries a CJK fallb
 ```xml
 <g class="node" data-id="api">
   <rect x="48" y="48" width="176" height="80" rx="6"/>
-  <rect class="chip" x="60" y="60" width="32" height="16" rx="2"/>
-  <text class="tag" x="76" y="72" font-size="10" text-anchor="middle" letter-spacing="0.08em">API</text>
+  <rect class="chip" x="60" y="60" width="40" height="18" rx="2"/>
+  <text class="tag" x="80" y="74" font-size="11" text-anchor="middle" letter-spacing="0.08em">API</text>
   <text class="label" x="136" y="98" font-size="14" text-anchor="middle">Orders service</text>
-  <text class="sub" x="136" y="114" font-size="11" text-anchor="middle">orders:8080</text>
+  <text class="sub" x="136" y="114" font-size="12" text-anchor="middle">orders:8080</text>
 </g>
 ```
 
 - The box comes first in the group; it is what the linter treats as the node.
-- The tag is optional: a 16-tall chip at `rx=2` (a rectangle, not a pill), 12px in from the top left corner, stroked in the node stroke and left unfilled. Keep tags to 2 to 5 letters.
+- The tag is optional: an 18-tall chip at `rx=2` (a rectangle, not a pill), 12px in from the top left corner with its baseline 14px below the chip top, stroked in the node stroke and left unfilled. Keep tags to 2 to 5 letters.
 - A node with a tag and a sublabel is 80 tall; with only a name it is 48, and the single-label baseline rule applies.
 
 ### Arrow label
 
 ```xml
-<rect class="mask" x="224" y="52" width="48" height="16" rx="2"/>
-<text class="edge-label" x="248" y="64" font-size="10" text-anchor="middle" letter-spacing="0.06em">WRITE</text>
+<rect class="mask" x="220" y="52" width="56" height="16" rx="2"/>
+<text class="edge-label" x="248" y="64" font-size="11" text-anchor="middle" letter-spacing="0.06em">WRITE</text>
 ```
 
 At most 14 characters, uppercase, centered on the straight part of its segment, on a `--bg` mask chip. The chip keeps at least 4px off the stroke so the line stays visible [spacing], and never overlaps a node.
@@ -163,7 +167,7 @@ A `<g class="group">` around a `<rect>` stroked in `--rule` (dashed `4 4` for a 
 
 ### Legend
 
-A horizontal strip under the figure, never floating inside it: a `--rule` hairline across the content width, a `LEGEND` eyebrow, then one swatch and edge-label-sized item per treatment actually used, about 160px apart. Grow the viewBox by 64px for it. Wrap it in `<g class="legend">`. Leave it out when the diagram uses one treatment only.
+A horizontal strip under the figure, never floating inside it: a `--rule` hairline across the content width, a `LEGEND` eyebrow, then one swatch and edge-label-sized item per treatment actually used, about 160px apart. Each entry names exactly what its style marks in this diagram: if only one connector is orange, the entry names that connector's meaning (CLEAN RESULT), not a broader one (PRIMARY PATH) the drawing does not show. Grow the viewBox by 64px for it. Wrap it in `<g class="legend">`. Leave it out when the diagram uses one treatment only.
 
 ### Dotted paper
 

@@ -25,16 +25,16 @@ Do not use it for:
 1. The subject: what the diagram has to explain, and to whom.
 2. The type, one of `architecture`, `flow`, `sequence`, `state`, `er`, `timeline`, `swimlane`, `layers`. Infer it from the subject when it is obvious, otherwise ask. Each has a reference file in `reference/<type>.md`.
 3. `--out <path>`: where the SVG lands. The default is `diagrams/<slug>.svg` in the target repo, or `diagrams/<slug>/<name>.svg` when one run makes several.
-4. `--palette <tokens.css>`: an explicit token file. Without it, look for `DESIGN.md` and `tokens.css` at the repo root (the same discovery cf:prototype uses, through `scripts/design_tokens.rb`), and fall back to the default palette in `reference/grammar.md`.
+4. `--palette <tokens.css>`: an explicit token file. Without it, the diagram takes the brand of the repo it lives in: `change_config.design.tokens` in the root CHANGE.md (the file DESIGN.md describes), else a root `tokens.css`. Only a repo with neither uses the default skin in `reference/grammar.md`.
 
 ## Procedure
 
 1. Pick the type. Read `reference/grammar.md` and `reference/<type>.md` in full.
 2. Sketch in plain text first: the node list with short labels, then the edge list as `from -> to (label)`. Cut anything the reader does not need. Check the caps. Where a node has several outgoing edges, their labels must be exclusive guards that cover every outcome, and every bounded loop needs an edge for the bound running out.
-3. Resolve the palette into literal hex values for every role, light and dark. Keep text at 4.5:1 or better against the surface it sits on.
-4. Lay out on the 8px grid: pick box widths from the longest label, place rows and columns with at least 24px between siblings, and compute every text baseline from the box center.
+3. Resolve the palette: `ruby ~/.claude/cf/bin/diagram_palette.rb` (add `--tokens <file>` for an explicit one). It follows `var()` and `color-mix()` to literal hex, maps the app's tokens onto the diagram roles, derives `--accent-tint`, and prints the `svg { ... }` light and dark blocks to paste into the style. Each role takes the first app token that clears its contrast floor (4.5:1 for text roles, 3:1 for `--line`). Exit 1 lists any role that still falls short; exit 3 means no token file. Use DESIGN.md for the brand's intent, such as which color is the one accent and which fonts lead the stacks. When the repo has no token file, or its palette sprawls past what a diagram can carry, run cf:color first to settle a small token set, then resolve from that.
+4. Lay out on the 8px grid at the display width (880 wide at most for a PR or README): pick box widths from the longest label, place rows and columns with at least 24px between siblings, and compute every text baseline from the box center.
 5. Write the SVG by hand following the grammar, with `data-diagram-type` on the root.
-6. Lint: `ruby ~/.claude/cf/bin/diagram_lint.rb --json <file>` (add `--palette <tokens.css>` when project colors are in use).
+6. Lint: `ruby ~/.claude/cf/bin/diagram_lint.rb --json --palette <tokens file> <file>`, with the same token file step 3 resolved (omit `--palette` only on the default skin).
 7. Fix each finding from its `fix` hint and lint again. Stop after 3 rounds.
 8. Report the path, whether text was measured, and any findings left over with their fix hints.
 
@@ -44,7 +44,7 @@ Never loosen a check or edit the linter to make a diagram pass.
 
 Each finding carries one of these IDs; `reference/grammar.md` states the rule behind each:
 
-`a11y`, `xml-safety`, `viewbox-clip`, `overlap`, `text-overflow`, `baseline`, `box-height`, `spacing`, `grid`, `connector-geometry`, `arrow-marker`, `palette`, `font-stack`, `theme-fallback`, `caps`, `type-declared`, `transform`, `text-baseline`, `font-unit`, `text-geometry-source`.
+`a11y`, `xml-safety`, `viewbox-clip`, `overlap`, `text-overflow`, `baseline`, `box-height`, `spacing`, `grid`, `connector-geometry`, `arrow-marker`, `palette`, `font-stack`, `theme-fallback`, `caps`, `type-declared`, `transform`, `text-baseline`, `font-unit`, `text-geometry-source`, `display-scale`.
 
 The last four reject constructs the geometry model does not follow: any `transform`, a baseline other than alphabetic, a font size that is not unitless or px, and a font size or text anchor declared in a style block.
 

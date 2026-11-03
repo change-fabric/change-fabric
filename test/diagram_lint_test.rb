@@ -39,7 +39,7 @@ class DiagramLintTest < Minitest::Test
 
   def test_every_check_has_a_kebab_id_and_a_broken_fixture
     ids = DiagramChecks::ALL.map { |c| c::ID }
-    assert_equal 20, ids.uniq.size
+    assert_equal 21, ids.uniq.size
     ids.each do |id|
       assert_match(/\A[a-z0-9]+(-[a-z0-9]+)*\z/, id)
       assert File.file?(fixture("broken_#{id.tr('-', '_')}.svg")), "missing broken fixture for #{id}"
