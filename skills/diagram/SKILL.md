@@ -30,7 +30,7 @@ Do not use it for:
 ## Procedure
 
 1. Pick the type. Read `reference/grammar.md` and `reference/<type>.md` in full.
-2. Sketch in plain text first: the node list with short labels, then the edge list as `from -> to (label)`. Cut anything the reader does not need. Check the caps. Where a node has several outgoing edges, their labels must be exclusive guards that cover every outcome, and every bounded loop needs an edge for the bound running out.
+2. Sketch in plain text first: the node list with short labels, then the edge list as `from -> to (label)`. Cut anything the reader does not need, but keep the mechanism the reader came to learn in a label: a step that "lints" by measuring text in a browser says so ("Lint and measure text in browser"), or a reviewer cannot tell it from a static check. Check the caps. Where a node has several outgoing edges, their labels must be exclusive guards that cover every outcome, and every bounded loop needs an edge for the bound running out.
 3. Resolve the palette: `ruby ~/.claude/cf/bin/diagram_palette.rb` (add `--tokens <file>` for an explicit one). It follows `var()` and `color-mix()` to literal hex, maps the app's tokens onto the diagram roles, derives `--accent-tint`, and prints the `svg { ... }` light and dark blocks to paste into the style. Each role takes the first app token that clears its contrast floor (4.5:1 for text roles, 3:1 for `--line`). Exit 1 lists any role that still falls short; exit 3 means no token file. Use DESIGN.md for the brand's intent, such as which color is the one accent and which fonts lead the stacks. When the repo has no token file, or its palette sprawls past what a diagram can carry, run cf:color first to settle a small token set, then resolve from that.
 4. Lay out on the 8px grid at the display width (880 wide at most for a PR or README): pick box widths from the longest label, place rows and columns with at least 24px between siblings, and compute every text baseline from the box center.
 5. Write the SVG by hand following the grammar, with `data-diagram-type` on the root.
@@ -56,7 +56,7 @@ Icons are optional and rarely needed. When one helps, take it from PrototypeIcon
 
 cf:roast is paid, so it runs only when the user asks for it by name. Never start it on your own.
 
-When asked, render the linted SVG to PNG in the browserless container twice, once as is and once with the dark palette forced, and pass both as `--shot` so the critic judges both themes. Give it `--kind`, an `--audience`, and a `--purpose` per outcome the reader must take away. The SVG adapts to the theme by itself, so a page embedding it needs no theme-aware image swap.
+When asked, render the linted SVG with `ruby ~/.claude/cf/bin/diagram_render.rb <file.svg>`, which writes `<file>-light.png` and `<file>-dark.png` from the pinned browserless container (exit 3 when Docker is missing), and pass both as `--shot` so the critic judges both themes. Re-render and re-lint after each accepted fix before the next round. Give it `--kind`, an `--audience`, and a `--purpose` per outcome the reader must take away. The SVG adapts to the theme by itself, so a page embedding it needs no theme-aware image swap.
 
 ## Failure handling
 

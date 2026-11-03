@@ -35,9 +35,8 @@ A flow shows the steps a single piece of work passes through, in order, and the 
 - Main-row edges run from the right side of one box to the left side of the next, at the box center line. Branch edges leave the bottom center and enter the top center of the step below.
 - A branch condition is a `.note` placed in the gap beside its edge, at least 4px clear of the line. On a vertical edge give the note `text-anchor="start"` and an `x` a few pixels right of the line.
 - A loop back to an earlier step routes below the rows with two bends, never through a box. If loops dominate, the subject is a `state` diagram.
-- The conditions on the edges leaving one step are mutually exclusive and together cover every outcome, so a reader never has to work out which branch fires. Write each one as its full guard ("findings, under 3 fixes", "findings after 3 fixes"), not a bare outcome ("findings") with the limit parked in a separate note.
-- A bounded loop (retries, fix rounds, a polling cap) draws its exit: an edge from the deciding step, guarded by the exhausted bound, to a terminal step that names what happens then (report, fail, escalate). A loop with only an "up to N" note reads as unbounded.
-- A bounded loop names its unit. Say what one pass is (one fix plus one re-lint) in a callout or the guard itself, and word the guards around the count so exactly one is true on every pass: UNDER 3 FIXES and AFTER 3 FIXES, never FINDINGS beside 3 ROUNDS USED.
+- The conditions on the edges leaving one step are mutually exclusive and together cover every outcome, so a reader never has to work out which branch fires. Write each one as its full guard ("findings, under 3 rounds", "findings, 3 rounds used"), not a bare outcome ("findings") with the limit parked in a separate note. Name the unit the bound counts (rounds, attempts, seconds): "3 fixes" reads as three corrected findings, not three passes.
+- A bounded loop (retries, fix rounds, a polling cap) draws its exit: an edge from the deciding step, guarded by the exhausted bound, to a terminal step that names what happens then (report, fail, escalate). A loop with only an "up to N" note reads as unbounded. The terminal step says the stop in its label ("Stop and report findings"), not only the outcome ("Report findings").
 
 ## Multi-line labels
 
@@ -48,6 +47,8 @@ When a label would push its box past the width the layout allows, wrap it onto t
 ```
 
 See "Multi-line labels" in `grammar.md` for the arithmetic.
+
+When any box on a row grows to 64, grow every box on that row (and keep the rows on one pitch), so edges stay on one center line and the row reads as one band.
 
 ## Lint allowances
 
