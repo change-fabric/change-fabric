@@ -96,6 +96,12 @@ class DiagramPaletteTest < Minitest::Test
     assert_nil DiagramPalette.color({}, "color-mix(in srgb, #ffffff 0%, #000000 0%)")
   end
 
+  def test_last_declaration_needs_no_semicolon
+    with_tokens(":root { --bg: #ffffff; --text: #000000 }") do |path|
+      assert_equal "#000000", DiagramPalette.resolve(path).light["--ink"]
+    end
+  end
+
   def test_missing_ground_or_ink_is_an_error
     with_tokens(":root { --accent: #ff0000; }") do |path|
       assert_raises(DiagramPalette::Error) { DiagramPalette.resolve(path) }

@@ -76,22 +76,22 @@ module DiagramPalette
   # Top-level `:root` rules (media blocks removed), dark ones excluded.
   def root_block(css)
     top = css.gsub(/@media[^{]*\{(?:[^{}]*\{[^{}]*\})*[^{}]*\}/m, "")
-    rules(top).select { |sel, _| sel.include?(":root") && !sel.include?("dark") }.map(&:last).join("\n")
+    rules(top).select { |sel, _| sel.include?(":root") && !sel.include?("dark") }.map(&:last).join(";\n")
   end
 
   # Rules inside a dark color-scheme media block, else `[data-theme=dark]` rules.
   def dark_block(css)
     media = css.scan(/@media[^{]*prefers-color-scheme:\s*dark[^{]*\{((?:[^{}]*\{[^{}]*\})*[^{}]*)\}/m).flatten
     bodies = media.flat_map { |m| rules(m).map(&:last) }
-    return bodies.join("\n") unless bodies.empty?
+    return bodies.join(";\n") unless bodies.empty?
 
-    rules(css).select { |sel, _| sel.match?(/data-theme=["']?dark/) }.map(&:last).join("\n")
+    rules(css).select { |sel, _| sel.match?(/data-theme=["']?dark/) }.map(&:last).join(";\n")
   end
 
   def rules(css) = css.scan(/([^{}]+)\{([^{}]*)\}/m).map { |sel, body| [ sel.strip, body ] }
 
   def declarations(block)
-    block.scan(/(--[\w-]+)\s*:\s*([^;]+);/).to_h { |k, v| [ k, v.strip ] }
+    block.scan(/(--[\w-]+)\s*:\s*([^;]+?)\s*(?:;|\z)/m).to_h { |k, v| [ k, v.strip ] }
   end
 
   def roles(vars, theme)

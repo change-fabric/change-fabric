@@ -524,7 +524,7 @@ module DiagramChecks
   # inline styles only, so a style block declaring either would render
   # geometry the checks never see. Every text-geometry property must sit on
   # the text or an ancestor. The `font` shorthand sets the size too and is
-  # never modeled, wherever it is declared.
+  # never modeled, wherever it is declared, and neither is a size on a tspan.
   class TextGeometrySource < Base
     ID = "text-geometry-source"
     PROPS = %w[font-size text-anchor].freeze
@@ -535,8 +535,18 @@ module DiagramChecks
           finding(d.where, "#{DeclaredProperty.describe(d, prop)} is not modeled", "set #{prop} as an attribute on the text")
         end
       end
-      longhand + DeclaredProperty.all(doc, "font").map do |d|
+      shorthand = DeclaredProperty.all(doc, "font").map do |d|
         finding(d.where, "#{DeclaredProperty.describe(d, 'font')} shorthand is not modeled", "use font-family and a font-size attribute instead")
+      end
+      longhand + shorthand + tspan_sizes(doc)
+    end
+
+    # Every line takes its <text>'s size, so a size set on a tspan is unmodeled.
+    def tspan_sizes(doc)
+      doc.elements.select { |el| el.name == "tspan" }.filter_map do |el|
+        next unless el.attributes["font-size"] || el.attributes["style"].to_s.match?(/(?:\A|;)\s*font-size\s*:/)
+
+        finding(el.attributes["id"] || "tspan", "font-size on a tspan is not modeled", "set font-size on the text, or split it into its own text")
       end
     end
   end

@@ -303,6 +303,13 @@ def test_text_geometry_in_style_block_is_rejected
   end
 end
 
+def test_font_size_on_a_tspan_is_rejected
+  clean = File.read(fixture("clean_flow.svg"))
+  svg = clean.sub(">Submit order<", "><tspan font-size=\"22\">Submit order</tspan><")
+  refute_equal clean, svg
+  with_svg(svg) { |checks| assert_includes checks, "text-geometry-source" }
+end
+
 # The font shorthand sets the size too, in a style block or inline.
 def test_font_shorthand_is_rejected_anywhere
   clean = File.read(fixture("clean_flow.svg"))
