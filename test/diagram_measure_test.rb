@@ -118,8 +118,14 @@ class DiagramMeasureTest < Minitest::Test
     assert_equal "n1", d.texts.first.node_id
   end
 
+  def test_generated_text_keys_never_collide_with_an_authored_id
+    d = svg_doc(%(<text id="t1" x="0" y="10">a</text><text x="0" y="40">b</text><text id="text1" x="0" y="70">c</text>))
+    keys = d.texts.map(&:key)
+    assert_equal keys.uniq, keys
+  end
+
   def test_context_text_box_reads_the_full_box
-    ctx = DiagramChecks::Context.new(type: "flow", widths: { "t0" => [ 1, 2, 3, 4 ] }, measured: true, palette: nil)
+    ctx = DiagramChecks::Context.new(type: "flow", widths: { "text[0]" => [ 1, 2, 3, 4 ] }, measured: true, palette: nil)
     box = ctx.text_box(svg_doc(%(<text x="9" y="9">x</text>)).texts.first)
     assert_equal [ 1, 2, 3, 4 ], [ box.x, box.y, box.w, box.h ]
   end

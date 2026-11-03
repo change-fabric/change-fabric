@@ -209,7 +209,7 @@ module DiagramSvg
       node = el.parent
       node = node.parent while node.is_a?(REXML::Element) && !(node.name == "g" && classes(node).include?("node"))
       node = nil unless node.is_a?(REXML::Element)
-      Text.new(key: a["id"] || "t#{index}", x: x, y: y, font_size: size,
+      Text.new(key: a["id"] || "text[#{index}]", x: x, y: y, font_size: size,
                anchor: inherited(el, "text-anchor") || "start", content: lines.map(&:text).join("\n"), lines: lines,
                node_id: node && (node.attributes["data-id"] || node.attributes["id"]), element: el)
     end

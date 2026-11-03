@@ -52,7 +52,7 @@ module DiagramMeasure
     MAX_BODY_BYTES = 10 * 1024 * 1024
     DEFAULT_CACHE = File.join(Dir.home, ".cache", "cf", "diagram-measure")
     # Bumped when the cached value shape changes; v2 stores [x, y, w, h].
-    CACHE_VERSION = 2
+    CACHE_VERSION = 3
 
     # `browser` yields a session that answers run_function(js); the default
     # starts the pinned container. `available` is checked before any start.
@@ -96,7 +96,7 @@ module DiagramMeasure
             document.querySelectorAll("text").forEach((el, i) => {
               el.getComputedTextLength();
               const b = el.getBBox();
-              out[el.id || ("t" + i)] = { x: b.x, y: b.y, w: b.width, h: b.height };
+              out[el.id || ("text[" + i + "]")] = { x: b.x, y: b.y, w: b.width, h: b.height };
             });
             return out;
           });
