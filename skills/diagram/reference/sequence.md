@@ -26,7 +26,7 @@ Use a sequence diagram when the question is "who talks to whom, and in what orde
 - `.node` with `.label` for participant boxes.
 - `.lifeline` for the vertical dashed lines, drawn as `<line>`, not as `.edge`. Add its rule to the style block, stroked in `--line`.
 - `.edge` for request messages, with `marker-end="url(#arrow)"`.
-- `.edge.reply` for return messages, dashed and stroked in `--muted`, with `marker-end="url(#arrow-muted)"`.
+- `.edge.reply` for return messages, dashed and stroked in `--muted`, with `marker-end="url(#arrow-soft)"`.
 - `.note` for message labels at 12px.
 - `--accent` on at most one message or participant, the one the diagram is about.
 
@@ -49,24 +49,24 @@ A client creates an order through an API that writes to a database. This exact S
   <title id="t">Order creation sequence</title>
   <desc id="d">A client posts an order to the API, the API inserts it into the database and gets back a row id, then the API answers the client with 201 Created.</desc>
 <style>
-    svg { --bg: #FBFBFA; --surface: #FFFFFF; --ink: #1F2328; --muted: #5B6470; --line: #8A939E; --accent: #2F5D8A; --accent-2: #8A5A2F; }
+    svg { --bg: #F5F5F5; --surface: #FFFFFF; --ink: #2D3142; --muted: #4F5D75; --soft: #5A6580; --line: #4F5D75; --rule: #D9DADD; --accent: #B5401C; --accent-tint: #F2E9E6; --link: #2E5AA8; }
     @media (prefers-color-scheme: dark) {
-      svg { --bg: #16181B; --surface: #1E2125; --ink: #E8EAED; --muted: #A3ABB5; --line: #6E7781; --accent: #7FA8D1; --accent-2: #D1A37F; }
+      svg { --bg: #2D3142; --surface: #2D3142; --ink: #F5F5F5; --muted: #BFC0C0; --soft: #A3ACC0; --line: #A3ACC0; --rule: #45495A; --accent: #F08A59; --accent-tint: #3D3844; --link: #7FA9E6; }
     }
     .bg { fill: var(--bg); }
-    .node rect { fill: var(--surface); stroke: var(--line); stroke-width: 1.5; }
-    .label { fill: var(--ink); font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", sans-serif; }
-    .edge { fill: none; stroke: var(--line); stroke-width: 1.5; }
+    .node rect { fill: var(--surface); stroke: var(--ink); stroke-width: 1; }
+    .label { fill: var(--ink); font-weight: 600; font-family: Geist, Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", sans-serif; }
+    .edge { fill: none; stroke: var(--line); stroke-width: 1.2; }
     .group rect { fill: none; stroke: var(--muted); stroke-dasharray: 4 4; }
     .lifeline { stroke: var(--line); stroke-width: 1; stroke-dasharray: 4 4; }
     .edge.reply { stroke: var(--muted); stroke-dasharray: 6 4; }
-    .note { fill: var(--muted); font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", sans-serif; }
+    .note { fill: var(--muted); font-family: Geist, Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", sans-serif; }
   </style>
   <defs>
-    <marker id="arrow" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="#8A939E"/></marker>
-    <marker id="arrow-muted" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="#5B6470"/></marker>
+    <marker id="arrow" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="#4F5D75"/></marker>
+    <marker id="arrow-soft" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="#5A6580"/></marker>
   </defs>
-  <rect class="bg" x="0" y="0" width="576" height="384" fill="#FBFBFA"/>
+  <rect class="bg" x="0" y="0" width="576" height="384" fill="#F5F5F5"/>
   <g class="node" data-id="client">
     <rect x="48" y="48" width="128" height="48" rx="6"/>
     <text class="label" x="112.0" y="76.9" font-size="14" text-anchor="middle">Client</text>
@@ -87,8 +87,8 @@ A client creates an order through an API that writes to a database. This exact S
   <text class="note" x="376.0" y="198" font-size="12" text-anchor="middle">INSERT order</text>
   <path class="edge" data-from="api" data-to="db" d="M288 208 H464" marker-end="url(#arrow)"/>
   <text class="note" x="376.0" y="254" font-size="12" text-anchor="middle">row id</text>
-  <path class="edge reply" data-from="db" data-to="api" d="M464 264 H288" marker-end="url(#arrow-muted)"/>
+  <path class="edge reply" data-from="db" data-to="api" d="M464 264 H288" marker-end="url(#arrow-soft)"/>
   <text class="note" x="200.0" y="310" font-size="12" text-anchor="middle">201 Created</text>
-  <path class="edge reply" data-from="api" data-to="client" d="M288 320 H112" marker-end="url(#arrow-muted)"/>
+  <path class="edge reply" data-from="api" data-to="client" d="M288 320 H112" marker-end="url(#arrow-soft)"/>
 </svg>
 ```

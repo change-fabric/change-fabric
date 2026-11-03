@@ -16,7 +16,7 @@ One `<svg>` element per file, with:
 1. `<title id="t">`: a short name for the diagram.
 2. `<desc id="d">`: one or two plain sentences saying what the diagram shows. A screen reader user gets only this, so make it complete.
 3. One `<style>` block (below).
-4. `<defs>` holding the arrow markers: `#arrow` stroked in the line color and `#arrow-muted` in the muted color.
+4. `<defs>` holding the arrow markers: `#arrow` in `--line`, `#arrow-accent` in `--accent`, `#arrow-link` in `--link`, each with a literal fill.
 5. `<rect class="bg">` covering the whole viewBox, with a literal `fill` set to the light background. It keeps the drawing readable in viewers that ignore CSS [theme-fallback].
 6. The content: groups, nodes, edges, notes.
 
@@ -25,65 +25,153 @@ One `<svg>` element per file, with:
 The `<style>` defines the custom properties on `svg`, then a dark override, then the classes:
 
 ```css
-svg { --bg: ...; --surface: ...; --ink: ...; --muted: ...; --line: ...; --accent: ...; --accent-2: ...; }
+svg { --bg: ...; --surface: ...; --ink: ...; --muted: ...; --soft: ...; --line: ...; --rule: ...; --accent: ...; --accent-tint: ...; --link: ...; }
 @media (prefers-color-scheme: dark) {
-  svg { --bg: ...; --surface: ...; --ink: ...; --muted: ...; --line: ...; --accent: ...; --accent-2: ...; }
+  svg { --bg: ...; --surface: ...; --ink: ...; ... }
 }
 ```
 
 - The dark block must redefine at least `--ink`, `--bg`, and `--surface` [theme-fallback].
-- Every value is a literal color. Never `var()` into an outside file and never `@import`; the SVG has to stand alone.
-- Classes: `.bg`, `.node` (box and its label), `.label` (text inside a node), `.edge` (connectors, `fill: none`), `.group` (dashed container), `.note` (secondary text in the muted color).
+- Every value is a literal hex color. Never `var()` into an outside file and never `@import`; the SVG has to stand alone. Translucent roles are written pre-composited over `--bg`, so the palette check can match them.
+- Classes: `.bg`, `.node` (box and its texts), `.label` (node name), `.sub` (mono sublabel), `.tag` (mono type tag), `.edge` (connectors, `fill: none`), `.edge-label` (mono arrow label), `.mask` (opaque `--bg` chip behind an arrow label), `.group` (container), `.note` (secondary text), `.callout` (italic serif aside), `.legend` (the bottom strip).
 
-## Roles
+## Skin
+
+The default skin is editorial: a cool off-white paper, near-black ink, one burnt-orange accent, slate secondary text. It is adapted from diagram-design's style guide (MIT, credited in NOTICE), re-tuned so every text role clears 4.5:1 on every surface it sits on in both themes.
+
+### Roles
 
 | role | used for |
 |---|---|
-| `--bg` | the canvas behind everything |
-| `--surface` | node fills |
-| `--ink` | primary text |
-| `--muted` | notes, edge labels, secondary text, dashed group borders |
-| `--line` | node borders, connectors, arrowheads |
-| `--accent` | the one node or path the reader should notice first |
-| `--accent-2` | a second highlight, used sparingly |
+| `--bg` | paper: the canvas, arrow-label masks, the node fill under a translucent box |
+| `--surface` | the fill of an ordinary node |
+| `--ink` | node names and primary node borders |
+| `--muted` | sublabels, notes, default connectors and arrowheads |
+| `--soft` | arrow labels, group labels, legend text, tags on neutral nodes |
+| `--line` | connector strokes (same hue family as muted) |
+| `--rule` | hairlines: the legend rule, group borders, external node borders |
+| `--accent` | the focal node or path, at most two per diagram |
+| `--accent-tint` | the fill of a focal node |
+| `--link` | HTTP, API, and external calls |
 
-Use accent on at most a few elements. A diagram where everything is highlighted has nothing highlighted.
+One accent. A diagram where everything is highlighted has nothing highlighted, so two accented elements is the ceiling.
 
-## Default palette
+### Default palette
 
 Used when the project has no DESIGN.md or tokens.css and no `--palette` was passed. Fill and stroke literals outside the resolved palette are a warning [palette].
 
 | role | light | dark |
 |---|---|---|
-| `--bg` | `#FBFBFA` | `#16181B` |
-| `--surface` | `#FFFFFF` | `#1E2125` |
-| `--ink` | `#1F2328` | `#E8EAED` |
-| `--muted` | `#5B6470` | `#A3ABB5` |
-| `--line` | `#8A939E` | `#6E7781` |
-| `--accent` | `#2F5D8A` | `#7FA8D1` |
-| `--accent-2` | `#8A5A2F` | `#D1A37F` |
+| `--bg` | `#F5F5F5` | `#2D3142` |
+| `--surface` | `#FFFFFF` | `#2D3142` |
+| `--ink` | `#2D3142` | `#F5F5F5` |
+| `--muted` | `#4F5D75` | `#BFC0C0` |
+| `--soft` | `#5A6580` | `#A3ACC0` |
+| `--line` | `#4F5D75` | `#A3ACC0` |
+| `--rule` | `#D9DADD` | `#45495A` |
+| `--accent` | `#B5401C` | `#F08A59` |
+| `--accent-tint` | `#F2E9E6` | `#3D3844` |
+| `--link` | `#2E5AA8` | `#7FA9E6` |
 
-Contrast, computed with `scripts/color_math.rb` (WCAG relative luminance):
+Contrast, computed with `scripts/color_math.rb` (WCAG relative luminance), against the worst surface each role sits on:
 
 | pair | light | dark |
 |---|---|---|
-| ink on surface | 15.80 | 13.41 |
-| ink on bg | 15.26 | 14.76 |
-| muted on surface | 6.00 | 6.96 |
-| accent on surface | 6.88 | 6.48 |
-| accent-2 on surface | 5.86 | 7.12 |
-| line on surface | 3.11 | 3.55 |
+| ink on bg | 11.82 | 11.82 |
+| muted on bg | 6.11 | 7.07 |
+| soft on bg | 5.34 | 5.66 |
+| accent on bg | 5.19 | 5.21 |
+| accent on accent-tint | 4.73 | 4.59 |
+| link on bg | 6.13 | 5.35 |
+| line on bg | 6.11 | 5.66 |
 
-Every text role clears AA (4.5:1) in both themes. `--line` is for strokes only and clears the 3:1 non-text minimum; never set text in it. When project tokens replace the defaults, check the same pairs before using them.
+`--rule` is decorative and carries no meaning alone. When project tokens replace the defaults, check the same pairs before using them.
+
+### Node treatments
+
+| treatment | fill | stroke |
+|---|---|---|
+| default | `--surface` | `--ink`, 1 |
+| focal (at most 2) | `--accent-tint` | `--accent`, 1.5 |
+| store | `--bg` | `--muted`, 1 |
+| external | `--bg` | `--rule`, 1, dashed `4 3` |
+| optional | `--bg` | `--soft`, 1, dashed `4 3` |
+
+Shape carries the kind of thing (an oval start, a diamond decision, a cylinder store); color carries only focus.
 
 ## Type
 
-- Sizes: 12 (notes, edge labels), 14 (node labels), 18 (titles or a lead node). No other sizes.
-- Sans stack, on every text class:
-  `system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", sans-serif`
-- Monospace stack, for identifiers, column types, and code:
-  `ui-monospace, SFMono-Regular, Menlo, Consolas, "Noto Sans Mono CJK SC", monospace`
-- Every `font-family` ends in a generic family and carries a CJK fallback [font-stack]. No bundled or remote fonts.
+| role | family | size | weight | use |
+|---|---|---|---|---|
+| title | serif | 22 | 400 | an in-figure heading, rare |
+| label | sans | 14 | 600 | node names, human words |
+| sub | mono | 11 | 400 | ports, commands, paths, field types |
+| tag | mono | 10 | 500, `letter-spacing="0.08em"`, uppercase | the type tag in a node corner |
+| edge-label | mono | 10 | 400, `letter-spacing="0.06em"`, uppercase | arrow labels, legend items |
+| note | sans | 12 | 400 | free notes |
+| callout | serif italic | 15 | 400 | one editorial aside |
+
+No other sizes. Mono is for technical strings only; a name a person would say goes in sans. Uppercase is written in the text itself, never through `text-transform`. CJK text never goes in a mono or uppercase slot: it switches to 12px sans with no tracking, since the mono faces carry no CJK glyphs.
+
+Stacks, and every `font-family` ends in a generic family and carries a CJK fallback [font-stack]. No bundled or remote fonts; a viewer who has Geist or Instrument Serif installed gets them, everyone else gets the system face:
+
+- sans: `Geist, Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", sans-serif`
+- mono: `"Geist Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, "Noto Sans Mono CJK SC", monospace`
+- serif: `"Instrument Serif", "Iowan Old Style", Georgia, "Noto Serif", "Noto Serif CJK SC", serif`
+
+## Anatomy
+
+### Node
+
+```xml
+<g class="node" data-id="api">
+  <rect x="48" y="48" width="176" height="80" rx="6"/>
+  <rect class="chip" x="60" y="60" width="32" height="16" rx="2"/>
+  <text class="tag" x="76" y="72" font-size="10" text-anchor="middle" letter-spacing="0.08em">API</text>
+  <text class="label" x="136" y="98" font-size="14" text-anchor="middle">Orders service</text>
+  <text class="sub" x="136" y="114" font-size="11" text-anchor="middle">orders:8080</text>
+</g>
+```
+
+- The box comes first in the group; it is what the linter treats as the node.
+- The tag is optional: a 16-tall chip at `rx=2` (a rectangle, not a pill), 12px in from the top left corner, stroked in the node stroke and left unfilled. Keep tags to 2 to 5 letters.
+- A node with a tag and a sublabel is 80 tall; with only a name it is 48, and the single-label baseline rule applies.
+
+### Arrow label
+
+```xml
+<rect class="mask" x="224" y="52" width="48" height="16" rx="2"/>
+<text class="edge-label" x="248" y="64" font-size="10" text-anchor="middle" letter-spacing="0.06em">WRITE</text>
+```
+
+At most 14 characters, uppercase, centered on the straight part of its segment, on a `--bg` mask chip. The chip keeps at least 4px off the stroke so the line stays visible [spacing], and never overlaps a node.
+
+### Connectors
+
+| style | stroke | marker |
+|---|---|---|
+| default | `--line`, 1.2 | `#arrow` |
+| primary path | `--accent`, 1.5 | `#arrow-accent` |
+| external call | `--link`, 1.2 | `#arrow-link` |
+| return, async, optional | any of the above, `stroke-dasharray="5 4"` | matching |
+
+Draw connectors before nodes, so lines sit behind boxes.
+
+### Group
+
+A `<g class="group">` around a `<rect>` stroked in `--rule` (dashed `4 4` for a trust or network boundary), `rx=8`, no fill, with its uppercase mono label in `--soft` sitting on the top border on a mask chip, 16px in from the left.
+
+### Legend
+
+A horizontal strip under the figure, never floating inside it: a `--rule` hairline across the content width, a `LEGEND` eyebrow, then one swatch and edge-label-sized item per treatment actually used, about 160px apart. Grow the viewBox by 64px for it. Wrap it in `<g class="legend">`. Leave it out when the diagram uses one treatment only.
+
+### Dotted paper
+
+Optional, for hero diagrams on their own page: a `<pattern id="dots">` of 1px circles every 24px in `--rule`, painted by a second full-bleed rect over `.bg`. Not for diagrams inside docs or PR bodies.
+
+### Callout
+
+One italic serif aside in `--muted`, beside the thing it explains, with a short `--rule` leader line. Use it for the sentence a reader would otherwise miss.
 
 ## Semantic structure
 
@@ -94,7 +182,7 @@ Every text role clears AA (4.5:1) in both themes. `--line` is for strokes only a
 ## Geometry
 
 - Grid: node `x`, `y`, `width`, and `height` are multiples of 8 [grid]. Text baselines are exempt.
-- Box height: at least 3 times the label font size, so 48 for a 14px label, plus 1.2 times the font size for each extra label line, and never less than the measured text height plus 24 [box-height].
+- Box height: at least 3 times the largest font size in the node, so 48 for a 14px label, plus 1.2 times the font size for each extra label line, and never less than the measured text height plus 24 [box-height].
 - Baseline: for text centered in a box, `y = box center + 0.35 * font size`, within 1px. A 48-tall box at `y=48` with 14px text puts the baseline at 72 + 4.9 = 76.9. For a multi-line label the first baseline moves up by half the distance between the first and last baselines [baseline].
 - Padding: the full measured text box sits at least 12px inside each side of its node's label box [text-overflow].
 - Spacing: at least 24px between sibling boxes, and at least 4px between a label and the edge it describes [spacing].
@@ -136,7 +224,7 @@ The geometry model reads raw coordinates, so anything that moves glyphs or boxes
 
 - Default is orthogonal: only `M`, `H`, `V`, and `L` commands, and every `L` is axis-aligned. `C` and `Q` are allowed only where the type reference says so (state self-loops and back-edges) [connector-geometry].
 - Each endpoint touches the boundary of its `data-from` or `data-to` node within 2px, and no segment passes through another node [connector-geometry].
-- A directed edge ends in `marker-end="url(#arrow)"` or `url(#arrow-muted)`, which must resolve to a marker in `<defs>` [arrow-marker]. ER relationships and timeline ticks carry no arrows.
+- A directed edge ends in `marker-end` naming one of the markers in `<defs>`, which must resolve to a marker in `<defs>` [arrow-marker]. ER relationships and timeline ticks carry no arrows.
 - Route around nodes with one or two bends rather than many. Prefer edges that leave the side facing the target.
 
 ## Forbidden

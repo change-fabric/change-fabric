@@ -6,7 +6,7 @@ description: Hand-placed SVG diagram command. Authors one standalone, theme-awar
 
 # CF diagram
 
-Source: own grammar; lint check concepts credited in NOTICE (diagram-design, svg-diagram, both MIT).
+Source: own grammar. The default skin, node anatomy, and lint check concepts are adapted from diagram-design (MIT); svg-diagram (MIT) informed further checks. Both are credited in NOTICE.
 
 The agent writes every coordinate by hand. There is no layout engine, no Mermaid, and no generated markup. The grammar in `reference/grammar.md` is the contract, and the linter (`ruby ~/.claude/cf/bin/diagram_lint.rb`) is the judge.
 

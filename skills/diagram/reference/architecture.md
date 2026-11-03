@@ -33,7 +33,7 @@ Use an architecture diagram to show which components a system is made of and whi
 ## Connectors
 
 - Orthogonal only: `M`, `H`, `V`, and axis-aligned `L`. No `C` or `Q`.
-- Every edge is directed and ends in `marker-end="url(#arrow)"`. Use `#arrow-muted` for optional or asynchronous paths when the diagram also has synchronous ones, and say so in the desc.
+- Every edge is directed and ends in `marker-end="url(#arrow)"`. Use `#arrow-soft` for optional or asynchronous paths when the diagram also has synchronous ones, and say so in the desc.
 - Point the arrow the way the call goes, not the way data comes back. A read from a database still points at the database.
 - Prefer a straight edge between neighbors in the same row or column. When a bend is needed, use one or two, and route along the gap between columns rather than through a group label.
 - An edge may cross a group border; that is how traffic enters a boundary. It may not cross a node.
@@ -64,23 +64,23 @@ An upload path: a browser calls an API inside a private network; the API writes 
   <title id="t">Upload service architecture</title>
   <desc id="d">A browser sends uploads to an API inside a private network. The API records metadata in a database and enqueues work for a worker, which writes processed files to an object store.</desc>
   <style>
-    svg { --bg: #FBFBFA; --surface: #FFFFFF; --ink: #1F2328; --muted: #5B6470; --line: #8A939E; --accent: #2F5D8A; --accent-2: #8A5A2F; }
+    svg { --bg: #F5F5F5; --surface: #FFFFFF; --ink: #2D3142; --muted: #4F5D75; --soft: #5A6580; --line: #4F5D75; --rule: #D9DADD; --accent: #B5401C; --accent-tint: #F2E9E6; --link: #2E5AA8; }
     @media (prefers-color-scheme: dark) {
-      svg { --bg: #16181B; --surface: #1E2125; --ink: #E8EAED; --muted: #A3ABB5; --line: #6E7781; --accent: #7FA8D1; --accent-2: #D1A37F; }
+      svg { --bg: #2D3142; --surface: #2D3142; --ink: #F5F5F5; --muted: #BFC0C0; --soft: #A3ACC0; --line: #A3ACC0; --rule: #45495A; --accent: #F08A59; --accent-tint: #3D3844; --link: #7FA9E6; }
     }
     .bg { fill: var(--bg); }
-    .node rect { fill: var(--surface); stroke: var(--line); stroke-width: 1.5; }
+    .node rect { fill: var(--surface); stroke: var(--ink); stroke-width: 1; }
     .node.lead rect { stroke: var(--accent); stroke-width: 2; }
-    .label { fill: var(--ink); font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", sans-serif; }
-    .edge { fill: none; stroke: var(--line); stroke-width: 1.5; }
+    .label { fill: var(--ink); font-weight: 600; font-family: Geist, Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", sans-serif; }
+    .edge { fill: none; stroke: var(--line); stroke-width: 1.2; }
     .group rect { fill: none; stroke: var(--muted); stroke-dasharray: 4 4; }
-    .note { fill: var(--muted); font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", sans-serif; }
+    .note { fill: var(--muted); font-family: Geist, Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", sans-serif; }
   </style>
   <defs>
-    <marker id="arrow" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="#8A939E"/></marker>
-    <marker id="arrow-muted" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="#5B6470"/></marker>
+    <marker id="arrow" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="#4F5D75"/></marker>
+    <marker id="arrow-soft" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="#5A6580"/></marker>
   </defs>
-  <rect class="bg" x="0" y="0" width="720" height="320" fill="#FBFBFA"/>
+  <rect class="bg" x="0" y="0" width="720" height="320" fill="#F5F5F5"/>
   <g class="group" data-id="private">
     <rect x="240" y="56" width="432" height="208" rx="8"/>
     <text class="note" x="256" y="76" font-size="12">private network</text>

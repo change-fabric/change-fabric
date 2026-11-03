@@ -2,11 +2,11 @@ change-fabric
 Copyright (c) 2026 Patrick Taylor
 Licensed under the MIT License; see LICENSE.
 
-Lint check concepts
--------------------
+cf:diagram
+----------
 
-The check categories implemented in scripts/diagram_*.rb (the cf:diagram
-SVG linter) were informed by two MIT-licensed projects:
+cf:diagram (skills/diagram and scripts/diagram_*.rb) adapts material from
+two MIT-licensed projects:
 
   diagram-design
   Copyright (c) 2025 Cathryn Lavery
@@ -16,10 +16,11 @@ SVG linter) were informed by two MIT-licensed projects:
   Copyright (c) 2026 bybit-exchange
   MIT License, https://github.com/bybit-exchange/svg-diagram
 
-Only the idea of which properties to check was taken. No source code,
-prose, palette, fonts, CSS, icons, or fixtures were copied from either
-project. The implementation is an independent Ruby rewrite written from
-cf:diagram's own grammar.
+From diagram-design: the default editorial skin (palette, re-tuned for
+contrast), the type roles, the node, arrow label, group, and legend
+anatomy, the diagram type catalog and its type guidance, and the ideas
+behind several lint checks. Its Python verifiers were ported to Ruby,
+not copied. From svg-diagram: the ideas behind further lint checks.
 
 Both upstream projects are distributed under the following terms.
 
