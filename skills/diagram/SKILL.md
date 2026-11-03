@@ -30,7 +30,7 @@ Do not use it for:
 ## Procedure
 
 1. Pick the type. Read `reference/grammar.md` and `reference/<type>.md` in full.
-2. Sketch in plain text first: the node list with short labels, then the edge list as `from -> to (label)`. Cut anything the reader does not need. Check the caps.
+2. Sketch in plain text first: the node list with short labels, then the edge list as `from -> to (label)`. Cut anything the reader does not need. Check the caps. Where a node has several outgoing edges, their labels must be exclusive guards that cover every outcome, and every bounded loop needs an edge for the bound running out.
 3. Resolve the palette into literal hex values for every role, light and dark. Keep text at 4.5:1 or better against the surface it sits on.
 4. Lay out on the 8px grid: pick box widths from the longest label, place rows and columns with at least 24px between siblings, and compute every text baseline from the box center.
 5. Write the SVG by hand following the grammar, with `data-diagram-type` on the root.
@@ -55,6 +55,8 @@ Icons are optional and rarely needed. When one helps, take it from PrototypeIcon
 ## Roast
 
 cf:roast is paid, so it runs only when the user asks for it by name. Never start it on your own.
+
+When asked, render the linted SVG to PNG in the browserless container twice, once as is and once with the dark palette forced, and pass both as `--shot` so the critic judges both themes. Give it `--kind`, an `--audience`, and a `--purpose` per outcome the reader must take away. The SVG adapts to the theme by itself, so a page embedding it needs no theme-aware image swap.
 
 ## Failure handling
 

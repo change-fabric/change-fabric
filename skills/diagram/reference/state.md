@@ -7,6 +7,7 @@ A state diagram shows the conditions one thing can be in and the events that mov
 - One entity with a lifecycle: an order, a document, a job, a connection, a subscription.
 - The set of states is small and named, and the interesting part is which moves are allowed.
 - Some transitions loop back (retry, reopen, send back) or stay put (a refresh that keeps the state).
+- A capped retry needs the transition taken when the cap is reached, and the events leaving one state must not overlap.
 
 ## When not to use
 

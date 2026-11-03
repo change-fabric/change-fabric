@@ -35,6 +35,8 @@ A flow shows the steps a single piece of work passes through, in order, and the 
 - Main-row edges run from the right side of one box to the left side of the next, at the box center line. Branch edges leave the bottom center and enter the top center of the step below.
 - A branch condition is a `.note` placed in the gap beside its edge, at least 4px clear of the line. On a vertical edge give the note `text-anchor="start"` and an `x` a few pixels right of the line.
 - A loop back to an earlier step routes below the rows with two bends, never through a box. If loops dominate, the subject is a `state` diagram.
+- The conditions on the edges leaving one step are mutually exclusive and together cover every outcome, so a reader never has to work out which branch fires. Write each one as its full guard ("findings, under 3 fixes", "findings after 3 fixes"), not a bare outcome ("findings") with the limit parked in a separate note.
+- A bounded loop (retries, fix rounds, a polling cap) draws its exit: an edge from the deciding step, guarded by the exhausted bound, to a terminal step that names what happens then (report, fail, escalate). A loop with only an "up to N" note reads as unbounded.
 
 ## Multi-line labels
 
