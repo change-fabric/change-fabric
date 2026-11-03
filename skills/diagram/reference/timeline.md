@@ -63,6 +63,8 @@ Three milestones, the middle one highlighted. Saved as `test/fixtures/diagram/cl
     .node.lead rect { stroke: var(--accent); stroke-width: 2; }
     .label { fill: var(--ink); font-weight: 600; font-family: Geist, Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", sans-serif; }
     .edge { fill: none; stroke: var(--line); stroke-width: 1.2; }
+    #arrow path { fill: var(--line); }
+    #arrow-soft path { fill: var(--soft); }
     .tick { fill: none; stroke: var(--line); stroke-width: 1.5; }
     .group rect { fill: none; stroke: var(--muted); stroke-dasharray: 4 4; }
     .note { fill: var(--muted); font-family: Geist, Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", sans-serif; }

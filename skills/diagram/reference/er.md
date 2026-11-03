@@ -61,6 +61,8 @@ Customer, order, and order line, with two one-to-many links. This exact SVG is t
     .label { fill: var(--ink); font-weight: 600; font-family: Geist, Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", sans-serif; }
     .column { fill: var(--muted); font-family: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, "Noto Sans Mono CJK SC", monospace; }
     .edge { fill: none; stroke: var(--line); stroke-width: 1.2; }
+    #arrow path { fill: var(--line); }
+    #arrow-soft path { fill: var(--soft); }
     .crow { fill: none; stroke: var(--line); stroke-width: 1.5; }
     .note { fill: var(--muted); font-family: Geist, Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", sans-serif; }
   </style>

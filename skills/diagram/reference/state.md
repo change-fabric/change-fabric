@@ -69,6 +69,8 @@ A document lifecycle with one back-edge. The curve's lowest point is at y=126, a
     .node rect { fill: var(--surface); stroke: var(--ink); stroke-width: 1; }
     .label { fill: var(--ink); font-weight: 600; font-family: Geist, Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", sans-serif; }
     .edge { fill: none; stroke: var(--line); stroke-width: 1.2; }
+    #arrow path { fill: var(--line); }
+    #arrow-soft path { fill: var(--soft); }
     .group rect { fill: none; stroke: var(--muted); stroke-dasharray: 4 4; }
     .note { fill: var(--muted); font-family: Geist, Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", sans-serif; }
   </style>

@@ -57,6 +57,8 @@ A client creates an order through an API that writes to a database. This exact S
     .node rect { fill: var(--surface); stroke: var(--ink); stroke-width: 1; }
     .label { fill: var(--ink); font-weight: 600; font-family: Geist, Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", sans-serif; }
     .edge { fill: none; stroke: var(--line); stroke-width: 1.2; }
+    #arrow path { fill: var(--line); }
+    #arrow-soft path { fill: var(--soft); }
     .group rect { fill: none; stroke: var(--muted); stroke-dasharray: 4 4; }
     .lifeline { stroke: var(--line); stroke-width: 1; stroke-dasharray: 4 4; }
     .edge.reply { stroke: var(--muted); stroke-dasharray: 6 4; }

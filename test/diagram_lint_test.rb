@@ -348,4 +348,20 @@ end
     assert_in_delta 60, d.h, 0.01
     assert_in_delta 270, d.x, 0.01
   end
+
+  # Every marker fill in a clean fixture or type reference must follow the
+  # theme: a literal light-theme fill alone goes low contrast in dark mode.
+  def test_every_example_themes_its_arrowhead_fills
+    refs = Dir[File.expand_path("../skills/diagram/reference/*.md", __dir__)]
+    sources = Dir[File.join(FIXTURES, "clean_*.svg")] + refs
+    checked = 0
+    sources.each do |path|
+      text = File.read(path)
+      text.scan(/<marker id="([\w-]+)"/).flatten.uniq.each do |id|
+        checked += 1
+        assert_match(/##{Regexp.escape(id)} path \{ fill: var\(--[\w-]+\); \}/, text, "#{File.basename(path)} ##{id}")
+      end
+    end
+    assert_operator checked, :>, 0
+  end
 end
