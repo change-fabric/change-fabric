@@ -19,7 +19,7 @@ A flow shows the steps a single piece of work passes through, in order, and the 
 - Branches leave the main row downward and form a second row below it, aligned to the column of the step they branch from. Keep branches to one or two; more means the flow wants splitting.
 - Columns sit on a fixed pitch: a 160 wide box plus a 48 gap is a 208 pitch, which keeps every `x` on the 8px grid and leaves room for an edge label in the gap.
 - Rows sit on a fixed pitch too: a 48 tall box plus a 72 gap leaves room for a vertical edge and its label.
-- One start step at the far left and one or more end steps. Mark the outcome the reader cares about most with `--accent`, and only that one.
+- One start step at the far left and one or more end steps. The start step names the input it takes (a request, an event), so the reader sees where the flow begins. Mark the outcome the reader cares about most with `--accent`, and only that one: an end step and the edge into it, never a process step, so the legend gives the accent a single meaning.
 
 ## Classes
 
