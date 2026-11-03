@@ -78,6 +78,10 @@ const PHASE_SCHEMA = {
 
 const input = typeof args === "string" ? JSON.parse(args) : (args ?? {})
 const stopOnFailure = input.stopOnFailure ?? true
+// Optional list of phase titles to run. Empty (the default) runs every phase
+// end to end; a non-empty list runs only the named phases, which is how a
+// caller who asked to be checked in with runs one phase at a time.
+const only = Array.isArray(input.only) ? input.only : []
 
 // Common preamble for every phase agent. The plan is the source of truth, so
 // each agent reads it rather than trusting a paraphrase in this script.
@@ -111,6 +115,7 @@ const PHASES = [
 
 const results = []
 for (const spec of PHASES) {
+  if (only.length > 0 && !only.includes(spec.title)) continue
   phase(spec.title)
   const result = await agent(
     preamble(spec.title) + spec.instruction +
@@ -137,15 +142,25 @@ for (const spec of PHASES) {
 //     { phase: "PHASE ONE TITLE", label: unit.title, schema: PHASE_SCHEMA }))
 // )
 
-phase("Verify")
 const landed = results.filter((r) => r.landed)
-const verification = await agent(
-  "Every phase below reports having landed and self-verified. Independently confirm the " +
-  "plan's own acceptance criteria in " + REPO_PATH + ": run the plan's full check suite " +
-  "yourself and read the real output. Report green only on evidence.\n\n" +
-  "Phase results:\n" + JSON.stringify(results, null, 2),
-  { model: "opus", phase: "Verify", schema: PHASE_SCHEMA }
-)
+// The plan-wide acceptance suite only means something once every phase has
+// landed. A check-in run (a non-empty `only`) or a run that stopped on a failed
+// phase skips it instead of reporting a premature failure. Pass {verify: true}
+// to run it anyway, for example alongside the last check-in phase.
+const fullRun = only.length === 0 && landed.length === PHASES.length
+let verification = null
+if (fullRun || input.verify === true) {
+  phase("Verify")
+  verification = await agent(
+    "Every phase below reports having landed and self-verified. Independently confirm the " +
+    "plan's own acceptance criteria in " + REPO_PATH + ": run the plan's full check suite " +
+    "yourself and read the real output. Report green only on evidence.\n\n" +
+    "Phase results:\n" + JSON.stringify(results, null, 2),
+    { model: "opus", phase: "Verify", schema: PHASE_SCHEMA }
+  )
+} else {
+  log("Skipping Verify: partial run (" + landed.length + " of " + PHASES.length + " phases landed)")
+}
 
 return {
   plan: PLAN_PATH,
