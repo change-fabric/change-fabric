@@ -108,7 +108,7 @@ class RoastTextTest < Minitest::Test
   end
 
   def test_text_kinds_are_accepted_and_prompted
-    assert_equal %w[email doc pr post], Roast::KINDS - %w[explainer promo demo]
+    assert_equal %w[email doc pr post], Roast::KINDS - %w[explainer promo demo] - Roast::CLI_KINDS
     %w[email doc pr post].each { |k| assert_match(/#{k}: /, Roast::SYSTEM_PROMPT) }
     assert_match(/email: is the ask clear, is the deadline stated/, Roast::SYSTEM_PROMPT)
   end

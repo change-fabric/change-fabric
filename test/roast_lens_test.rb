@@ -4,6 +4,8 @@ require "minitest/autorun"
 require "tmpdir"
 require "fileutils"
 require_relative "../scripts/roast_lens"
+require_relative "../scripts/roast_kind"
+require_relative "../scripts/change_schema"
 
 class RoastLensTest < Minitest::Test
   SKILLS = {
@@ -52,5 +54,19 @@ class RoastLensTest < Minitest::Test
     diff = "diff --git a/infra/main.tf b/infra/main.tf\n+++ b/infra/main.tf\n@@ -1 +1 @@\n" \
            "diff --git a/app/x.rb b/app/x.rb\n+++ b/app/x.rb\n@@ -1 +1 @@\n"
     assert_equal %w[cf:refactoring cf:terraform], RoastLens.suggest([ [ "change.diff", diff ] ])
+  end
+
+  def test_infer_reads_cli_only_kinds
+    diff = "diff --git a/app/x.rb b/app/x.rb\n+++ b/app/x.rb\n@@ -1,2 +1,3 @@\n+# Summary\n"
+    assert_equal "code", RoastKind.infer(texts: [ [ "change.txt", diff ] ]).kind
+    assert_equal "infra", RoastKind.infer(texts: [ [ "main.tf", "variable \"x\" {}\n" ] ]).kind
+    arch = RoastKind.infer(texts: [ [ "design.md", "# System\n\n## Architecture\n\nThree services.\n" ] ])
+    assert_equal [ "arch", "medium" ], [ arch.kind, arch.confidence ]
+  end
+
+  def test_change_schema_still_rejects_cli_only_kinds
+    errors = ChangeSchema.roast_review_errors({ "kind" => "code" }, "change_config.design.roast")
+    assert_equal 1, errors.size
+    assert_match(/kind must be one of/, errors.first)
   end
 end

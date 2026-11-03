@@ -41,15 +41,20 @@ module Roast
   MIME = { '.png' => 'image/png', '.jpg' => 'image/jpeg', '.jpeg' => 'image/jpeg', '.webp' => 'image/webp' }.freeze
   USAGE = 'usage: roast.rb --brief FILE (--shot IMG... | --text FILE...) [--allow-sensitive] [--history DIR] [--out-dir DIR] [--round N] ' \
           '[--max-usd N] [--model NAME] [--cache DIR] [--transcript FILE] [--estimate-only] ' \
-          '[--storyboard FILE] [--kind explainer|promo|demo|email|doc|pr|post] [--audience TEXT] [--purpose OUTCOME]... | roast.rb --video MP4 --brief FILE [...] | roast.rb infer [--storyboard FILE] [--text FILE]... | roast.rb decide --out-dir DIR [--target N] [--cap N] | roast.rb settings [--repo DIR]; ' \
+          '[--storyboard FILE] [--kind explainer|promo|demo|email|doc|pr|post|arch|code|infra] [--audience TEXT] [--purpose OUTCOME]... | roast.rb --video MP4 --brief FILE [...] | roast.rb infer [--storyboard FILE] [--text FILE]... | roast.rb decide --out-dir DIR [--target N] [--cap N] | roast.rb settings [--repo DIR]; ' \
           'flags win over the storyboard review object, which wins over change_config.design.roast in CHANGE.md (--repo DIR, default the working directory)'
 
-  KINDS = ChangeSchema::REVIEW_KINDS
+  # arch, code and infra are CLI-only: CHANGE.md still validates against
+  # ChangeSchema::REVIEW_KINDS and rejects them until a spec release adds them.
+  CLI_KINDS = RoastKind::CLI_KINDS
+  KINDS = ChangeSchema::REVIEW_KINDS + CLI_KINDS
 
   SYSTEM_PROMPT = <<~TEXT
-    You are a harsh, specific critic of a UX, a narrated walkthrough, or a piece of writing (an email,
-    a doc, a PR description, a post). Roast it: no praise padding, no vague taste talk. Every issue
-    names where it is (the screen or scene for visuals, a quoted phrase or paragraph number for text),
+    You are a harsh, specific critic of a UX, a narrated walkthrough, a piece of writing (an email,
+    a doc, a PR description, a post), a production architecture, a code diff, or infrastructure code.
+    Roast it: no praise padding, no vague taste talk. Every issue names where it is (the screen or
+    scene for visuals, a quoted phrase or paragraph number for text, file:line for a diff or infra
+    code, a component name for an architecture),
     the concrete problem the stated audience would hit, and a concrete fix the author can apply. Prioritize: P0 blocks the audience from the stated
     purpose, P1 badly hurts clarity or trust, P2 is polish.
 
@@ -76,6 +81,12 @@ module Roast
     concrete and checkable. pr: does the title and opening say what changed and why, is the test plan
     something a reviewer can run, and are risks and follow-ups named. post: does the first line earn the
     read, is there one clear point and one next step, and is the tone right for the audience and venue.
+    arch: judge reliability (single points of failure, failure modes, recovery), scalability
+    (bottlenecks, state, limits), and maintainability (coupling, ownership, operability); P0 is a
+    design that loses data or cannot meet the stated load. code: judge the diff for correctness risk
+    and code smells; cite file:line from the hunk; P0 is a bug or a data or security hazard. infra:
+    judge Terraform or AWS config for safety of change (destroy or replace, state), security (IAM,
+    exposure, encryption), cost, and reliability; P0 is an outage, data loss, or exposure.
     For text, the purpose outcomes are what the reader must be able to state or do after reading.
 
     Production facts you cannot see. The frames are sampled keyframes, not the full video, so do not
