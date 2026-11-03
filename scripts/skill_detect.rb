@@ -24,6 +24,10 @@ class SkillDetect
   end
 
   def emit(io = $stdout)
+    # HOME is not a project, and walking it from inside a C-level directory
+    # scan can outlast the timeout below, which cannot interrupt one.
+    return if home?
+
     # A session can start in HOME or another large tree. Fingerprinting is
     # optional context; abandon the scan before it can block startup.
     active = Timeout.timeout(@timeout) { registry.select { |skill| skill.detected?(cwd) } }
@@ -40,6 +44,12 @@ class SkillDetect
   def registry = @skills ||= SkillRegistry.load
 
   def cwd = (@event['cwd'] || Dir.pwd).to_s
+
+  def home?
+    File.expand_path(cwd) == File.expand_path(Dir.home)
+  rescue ArgumentError
+    false
+  end
 
   def announce(names)
     store = SkillStore.new(@event['session_id'], 'skills-announced')
