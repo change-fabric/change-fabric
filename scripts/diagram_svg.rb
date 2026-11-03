@@ -75,7 +75,37 @@ module DiagramSvg
 
   # A node: `box` is the shape's bounding box, `label_box` the box its label
   # must fit (the bbox for a rect, the inscribed box for a round or polygon).
-  Node = Data.define(:id, :box, :label_box, :element)
+  Node = Data.define(:id, :box, :label_box, :element) do
+    # Distance from a point to the drawn outline: the bbox edge for a rect,
+    # the ellipse along the ray from its center, the nearest polygon side.
+    def outline_distance(px, py)
+      a = element.attributes
+      case element.name
+      when "circle", "ellipse"
+        rx = (a["rx"] || a["r"]).to_f
+        ry = (a["ry"] || a["r"]).to_f
+        dx = px - a["cx"].to_f
+        dy = py - a["cy"].to_f
+        len = Math.hypot(dx, dy)
+        return [ rx, ry ].min if len.zero?
+
+        len * (1 - (1 / Math.hypot(dx / rx, dy / ry))).abs
+      when "polygon"
+        pts = a["points"].to_s.scan(/-?\d*\.?\d+(?:e-?\d+)?/i).map(&:to_f).each_slice(2).to_a
+        pts.zip(pts.rotate).map { |(x1, y1), (x2, y2)| DiagramSvg.point_segment_distance(px, py, x1, y1, x2, y2) }.min
+      else box.boundary_distance(px, py)
+      end
+    end
+  end
+
+  def self.point_segment_distance(px, py, x1, y1, x2, y2)
+    dx = x2 - x1
+    dy = y2 - y1
+    len2 = (dx * dx) + (dy * dy)
+    t = len2.zero? ? 0 : (((px - x1) * dx) + ((py - y1) * dy)) / len2
+    t = t.clamp(0.0, 1.0)
+    Math.hypot(px - (x1 + (t * dx)), py - (y1 + (t * dy)))
+  end
   # One rendered line of a text element: its own content and start point.
   Line = Data.define(:text, :x, :y)
   # A <text> element. `content` is every descendant character run, one line

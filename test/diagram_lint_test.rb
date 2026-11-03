@@ -303,6 +303,17 @@ def test_text_geometry_in_style_block_is_rejected
   end
 end
 
+def test_endpoints_are_judged_against_an_ellipse_outline
+  clean = File.read(fixture("clean_flow.svg"))
+  doc = DiagramSvg::Document.new(clean)
+  node = doc.nodes.first
+  el = REXML::Document.new(%(<ellipse cx="128" cy="72" rx="80" ry="32"/>)).root
+  oval = node.with(element: el)
+  assert_operator oval.outline_distance(202.1619849, 60), :<=, 0.01
+  assert_operator oval.outline_distance(208, 72), :<=, 0.01
+  assert_operator oval.outline_distance(208, 48), :>, 2
+end
+
 def test_font_size_on_a_tspan_is_rejected
   clean = File.read(fixture("clean_flow.svg"))
   svg = clean.sub(">Submit order<", "><tspan font-size=\"22\">Submit order</tspan><")

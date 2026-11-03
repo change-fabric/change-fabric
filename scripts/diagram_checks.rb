@@ -308,7 +308,7 @@ module DiagramChecks
       [ [ edge.from, first.x1, first.y1 ], [ edge.to, last.x2, last.y2 ] ].filter_map do |id, px, py|
         node = doc.node(id)
         next finding(edge.id, "endpoint node #{id.inspect} not found", "set data-from and data-to to node ids") unless node
-        next if node.box.boundary_distance(px, py) <= 2
+        next if node.outline_distance(px, py) <= 2
 
         finding(edge.id, "endpoint misses #{id} by more than 2px", "end the path on the node outline")
       end
