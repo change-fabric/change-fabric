@@ -6,7 +6,12 @@ description: Turns a described goal into a landed planning set under the configu
 
 # CF Plan
 
-Trigger: `/cf:plan <goal description>` (optionally `--area <name>`).
+Trigger: `/cf:plan <goal description>` (optionally `--area <name>`,
+`--seed <file>`).
+
+`--seed <file>` names a prior brainstorm, typically the `brainstorm.md` that
+cf:brainstorm landed and whose handoff line already carries this flag. Its
+text feeds the research and writing prompts through their `{{seed}}` section.
 
 Question: is there a plan on disk detailed enough that a separate agent, with
 none of this session's context, could turn it straight into real work, and are
@@ -73,6 +78,11 @@ fresh session that will execute the plan.
    `goal_md_tilde`, `workflow_js_tilde`). Use `--area` only when the
    invocation named one.
 
+   If `--seed <file>` was given, expand a leading `~` against your own home
+   and read the file now. If it is missing or unreadable, stop with a clear
+   error naming the expanded path; never plan without a seed that was asked
+   for. Keep its full text for steps 4 and 7.
+
    Use the absolute fields for real filesystem operations (mkdir, Read,
    Write) on this machine. Use the `_tilde` fields for any text you write
    into `plan.md`, `goal.md`, `workflow.js`, or the step-10 handoff prompt:
@@ -95,6 +105,11 @@ fresh session that will execute the plan.
    the first interview batch at step 5 when nothing blocks research; ask it up
    front only when it changes what to research.
 
+   Exception: when a seed was given and its expanded path sits inside the
+   resolved `plan_dir` (compare expanded absolute paths), skip the collision
+   question and extend the existing plan in place, saying so in one line. The
+   seed landing there is cf:brainstorm's own hand-off, not a collision.
+
 3. **Restate and create.** State the goal in two or three sentences, the
    chosen area, slug, and all three absolute paths. Then:
 
@@ -104,7 +119,8 @@ fresh session that will execute the plan.
 
 4. **Research.** Spawn background research agents with the `Agent` tool,
    `subagent_type: general-purpose`, `model: opus`, `run_in_background: true`,
-   built from `reference/research-prompt.md`'s research section. One agent by
+   built from `reference/research-prompt.md`'s research section, with
+   `{{seed}}` filled from step 1 or rendered empty. One agent by
    default. Fan out to at most four, in a single message so they run
    concurrently, only when the goal splits into genuinely independent
    questions (different subsystems, different repos, different vendors).
@@ -133,7 +149,8 @@ fresh session that will execute the plan.
 
 7. **Write.** Spawn one writing agent (`model: opus`) from
    `reference/research-prompt.md`'s writing section, with the full ledger and
-   every research finding pasted in verbatim. It writes all three files. Never
+   every research finding pasted in verbatim, and `{{seed}}` filled the same
+   way as at step 4. It writes all three files. Never
    two writers. It must reproduce the ledger in plan.md under
    "Decisions (settled, do not re-litigate)", each decision naming the answer
    it came from, so the executing session does not reopen a settled call.
