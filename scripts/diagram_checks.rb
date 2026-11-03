@@ -428,13 +428,31 @@ module DiagramChecks
     end
   end
 
-  # Presentation properties an element sets itself, as attribute or inline style.
-  module OwnProperty
+  # Every place a presentation property is declared: each element's own
+  # attribute and inline style (which also covers values an ancestor passes
+  # down by inheritance) and every <style> block declaration, any selector.
+  # The guards ask this one resolver so none of them misses a source.
+  module DeclaredProperty
+    Declaration = Struct.new(:where, :value, :source)
+
     module_function
 
-    def value(el, prop)
-      style = el.attributes["style"].to_s[/(?:\A|;)\s*#{Regexp.escape(prop)}\s*:\s*([^;]+)/, 1]&.strip
-      style || el.attributes[prop]
+    def all(doc, prop)
+      css = doc.style_text.scan(/(?:\A|[\s;{])#{Regexp.escape(prop)}\s*:\s*([^;}]+)/).flatten
+      own(doc, prop) + css.map { |v| Declaration.new("style", v.strip, :stylesheet) }
+    end
+
+    def own(doc, prop)
+      doc.elements.flat_map do |el|
+        where = el.attributes["data-id"] || el.attributes["id"] || el.name
+        inline = el.attributes["style"].to_s.scan(/(?:\A|;)\s*#{Regexp.escape(prop)}\s*:\s*([^;]+)/).flatten
+        attr = el.attributes[prop]
+        inline.map { |v| Declaration.new(where, v.strip, :inline) } + (attr ? [ Declaration.new(where, attr.strip, :attribute) ] : [])
+      end
+    end
+
+    def describe(decl, prop)
+      decl.source == :stylesheet ? "#{prop}: #{decl.value} in a style block" : "#{prop}=#{decl.value}"
     end
   end
 
@@ -443,43 +461,36 @@ module DiagramChecks
     ID = "transform"
 
     def call(doc, _context)
-      found = doc.elements.select { |el| OwnProperty.value(el, "transform") }.map do |el|
-        finding(el.attributes["data-id"] || el.attributes["id"] || el.name, "transform is not allowed", "write the coordinates directly")
+      DeclaredProperty.all(doc, "transform").map do |d|
+        finding(d.where, "#{DeclaredProperty.describe(d, 'transform')} is not allowed", "write the coordinates directly")
       end
-      found << finding("style", "transform in a style block is not allowed", "write the coordinates directly") if doc.style_text.match?(/(?:\A|[\s;{])transform\s*:/)
-      found
     end
   end
 
-  # Text sits on the alphabetic baseline; any other baseline, set on the text
-  # or inherited from an ancestor, moves glyphs off the measured y.
+  # Text sits on the alphabetic baseline; any other baseline, set on the text,
+  # inherited from an ancestor, or declared in a stylesheet, moves glyphs off
+  # the measured y.
   class TextBaseline < Base
     ID = "text-baseline"
     PROPS = %w[dominant-baseline alignment-baseline].freeze
 
     def call(doc, _context)
-      doc.elements.flat_map do |el|
-        PROPS.filter_map do |prop|
-          v = OwnProperty.value(el, prop)
-          next if v.nil? || v == "alphabetic"
-
-          finding(el.attributes["id"] || el.attributes["data-id"] || el.name, "#{prop}=#{v} is not alphabetic", "remove #{prop} and place y on the baseline")
+      PROPS.flat_map do |prop|
+        DeclaredProperty.all(doc, prop).reject { |d| d.value == "alphabetic" }.map do |d|
+          finding(d.where, "#{DeclaredProperty.describe(d, prop)} is not alphabetic", "remove #{prop} and place y on the baseline")
         end
       end
     end
   end
 
-  # Font sizes are unitless or px, set on the element or inherited.
+  # Font sizes are unitless or px, wherever they are declared.
   class FontUnit < Base
     ID = "font-unit"
     OK = /\A\d+(\.\d+)?(px)?\z/
 
     def call(doc, _context)
-      doc.elements.filter_map do |el|
-        v = OwnProperty.value(el, "font-size")
-        next if v.nil? || v.strip.match?(OK)
-
-        finding(el.attributes["id"] || el.attributes["data-id"] || el.name, "font-size #{v} is not unitless or px", "use a px size such as 14")
+      DeclaredProperty.all(doc, "font-size").reject { |d| d.value.match?(OK) }.map do |d|
+        finding(d.where, "#{DeclaredProperty.describe(d, 'font-size')} is not unitless or px", "use a px size such as 14")
       end
     end
   end

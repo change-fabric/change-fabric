@@ -202,6 +202,36 @@ class DiagramLintTest < Minitest::Test
     end
   end
 
+  # Each forbidden property trips its check from every declaration source:
+  # stylesheet, inline style, attribute, and an inheriting ancestor group.
+  def set_on_first(svg, tag, name, value)
+    svg.sub(/<#{tag} [^>]*>/) { |open| open.sub(/ #{name}="[^"]*"/, "").sub("<#{tag} ", "<#{tag} #{name}=\"#{value}\" ") }
+  end
+
+  def test_forbidden_constructs_from_every_declaration_source
+    clean = File.read(fixture("clean_flow.svg"))
+    rule = ".label { fill: var(--ink);"
+    cases = [
+      [ "transform", "transform", "translate(9px, 0)" ],
+      [ "text-baseline", "dominant-baseline", "hanging" ],
+      [ "text-baseline", "alignment-baseline", "middle" ],
+      [ "font-unit", "font-size", "4em" ]
+    ]
+    cases.each do |id, prop, value|
+      {
+        stylesheet: clean.sub(rule, "#{rule} #{prop}: #{value};"),
+        inline: set_on_first(clean, "text", "style", "#{prop}: #{value}"),
+        attribute: set_on_first(clean, "text", prop, value),
+        ancestor: set_on_first(clean, "g", prop, value)
+      }.each do |source, svg|
+        refute_equal clean, svg, "#{source} #{prop} edit did not apply"
+        with_svg(svg) { |checks| assert_includes checks, id, "#{source} #{prop}: #{value}" }
+      end
+    end
+    ok = clean.sub(rule, "#{rule} dominant-baseline: alphabetic; alignment-baseline: alphabetic; font-size: 14px;")
+    with_svg(ok) { |checks| assert_empty checks }
+  end
+
   def test_em_font_size_does_not_parse_as_one_px
     text = DiagramSvg::Document.new(File.read(fixture("broken_font_unit.svg"))).texts.find { |t| t.key == "submit-label" }
     assert_in_delta DiagramSvg::DEFAULT_FONT_SIZE, text.font_size
