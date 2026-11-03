@@ -241,6 +241,18 @@ class PlanCheckTest < Minitest::Test
     end
   end
 
+  # cf:brainstorm lands brainstorm.md beside the triple; the checker must
+  # tolerate it rather than reject an unexpected file in the plan dir.
+  def test_directory_mode_tolerates_an_extra_brainstorm_md
+    with_pair(goal: "short goal", plan: thick_plan, workflow: GOOD_WORKFLOW) do |goal_path, _plan_path|
+      dir = File.dirname(goal_path)
+      File.write(File.join(dir, "brainstorm.md"), "# Brainstorm\n\nchosen concept\n")
+      out = StringIO.new
+      ex = assert_raises(SystemExit) { PlanCheck::CLI.run([ dir ], out:) }
+      assert_equal 0, ex.status, out.string
+    end
+  end
+
   # A writing agent verifies the pair before it has authored the script; flag
   # mode without --workflow must not fail it for a file it has not written yet.
   def test_flag_mode_skips_the_workflow_check_when_not_named
