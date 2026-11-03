@@ -134,4 +134,23 @@ class SkillRegistryDepTest < Minitest::Test
   ensure
     FileUtils.remove_entry(drz) if drz
   end
+
+  def test_manifest_walk_never_enters_dependency_or_dot_dirs
+    proj = project_with_files("package.json" => pkg(deps: %w[pg]),
+                              "apps/web/package.json" => pkg(deps: %w[react]),
+                              "node_modules/a/b/c/package.json" => pkg(deps: %w[x]),
+                              "vendor/pkg/package.json" => pkg(deps: %w[y]),
+                              ".cache/package.json" => pkg(deps: %w[z]))
+    entered = []
+    spy = Module.new { define_method(:children) { |d| entered << d; super(d) } }
+    Dir.singleton_class.prepend(spy)
+    begin
+      assert_equal %w[pg react], SkillRegistry.load_project_deps(proj).sort
+    ensure
+      spy.send(:remove_method, :children)
+    end
+    assert entered.none? { |d| d.match?(%r{/(node_modules|vendor|\.cache)(/|$)}) }, entered.inspect
+  ensure
+    FileUtils.remove_entry(proj) if proj
+  end
 end

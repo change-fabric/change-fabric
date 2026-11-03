@@ -40,12 +40,27 @@ module SkillRegistry
   end
 
   def self.load_project_deps(dir)
-    files = Dir.glob(File.join(dir, '**', 'package.json'), File::FNM_DOTMATCH)
-               .reject { |p| p.split(File::SEPARATOR).include?('node_modules') }
-    parsed = files.filter_map { |path| dep_keys(path) }
+    parsed = manifests(dir).filter_map { |path| dep_keys(path) }
     parsed.empty? ? nil : parsed.flatten.uniq
   rescue SystemCallError
     nil
+  end
+
+  # Every package.json under dir, walked by hand so node_modules, vendor, and
+  # dot directories are pruned before they are entered. A glob would traverse
+  # them in full and filter afterwards, which takes minutes from a large HOME.
+  def self.manifests(dir)
+    own = File.join(dir, 'package.json')
+    found = File.file?(own) ? [ own ] : []
+    Dir.children(dir).sort.each do |name|
+      next if name.start_with?('.') || Skill::DEPENDENCY_DIRS.include?(name)
+
+      sub = File.join(dir, name)
+      found.concat(manifests(sub)) if File.directory?(sub) && !File.symlink?(sub)
+    end
+    found
+  rescue SystemCallError
+    found || []
   end
 
   # Dependency + devDependency names for one package.json, or nil if it cannot be

@@ -58,4 +58,11 @@ class SkillDetectTest < Minitest::Test
     assert_empty io.string
     assert announce, "a timed-out scan must not mark skills as announced"
   end
+
+  def test_skips_a_session_started_in_home
+    io = StringIO.new
+    event = { "session_id" => "s1", "cwd" => Dir.home }
+    SkillDetect.new(event, skills: SkillRegistry.load(@skills)).emit(io)
+    assert_empty io.string
+  end
 end
