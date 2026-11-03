@@ -86,6 +86,9 @@ module DiagramSvg
     def dx = x2 - x1
     def dy = y2 - y1
 
+    # Shorter than the lint tolerance on both axes: it renders nothing.
+    def degenerate? = dx.abs < PathData::EPSILON && dy.abs < PathData::EPSILON
+
     # Liang-Barsky clip against the open box: true only when a positive-length
     # part of the segment lies strictly inside. A point segment is a point test.
     def intersects_box?(box)
@@ -139,7 +142,10 @@ module DiagramSvg
         other.distance_to_point(x1, y1), other.distance_to_point(x2, y2) ].min
     end
   end
-  Edge = Data.define(:id, :from, :to, :d, :marker_end, :segments, :element)
+  Edge = Data.define(:id, :from, :to, :d, :marker_end, :subpaths, :element) do
+    # Every drawn segment, all subpaths joined in order.
+    def segments = subpaths.flatten(1)
+  end
 
   # The parsed diagram.
   class Document
@@ -185,7 +191,7 @@ module DiagramSvg
       @edges ||= REXML::XPath.match(root, "//path").select { |el| classes(el).include?("edge") }.map do |el|
         a = el.attributes
         Edge.new(id: a["id"] || "#{a['data-from']}->#{a['data-to']}", from: a["data-from"], to: a["data-to"],
-                 d: a["d"].to_s, marker_end: a["marker-end"], segments: PathData.segments(a["d"].to_s), element: el)
+                 d: a["d"].to_s, marker_end: a["marker-end"], subpaths: PathData.subpaths(a["d"].to_s), element: el)
       end
     end
 
@@ -346,6 +352,7 @@ module DiagramSvg
   module PathData
     ARITY = { "M" => 2, "L" => 2, "H" => 1, "V" => 1, "C" => 6, "S" => 4, "Q" => 4, "T" => 2, "A" => 7, "Z" => 0 }.freeze
     STEPS = 16
+    EPSILON = 0.01
 
     module_function
 
@@ -358,9 +365,23 @@ module DiagramSvg
 
     def commands(d) = tokens(d).grep(LETTER).map(&:upcase)
 
-    def segments(d)
+    def segments(d) = subpaths(d).flatten(1)
+
+    # The visible strokes of path data: each is a list of segments that join
+    # end to start. Zero-length segments draw nothing and are dropped, a
+    # subpath left with no segment vanishes, and a moveto to the current
+    # point continues the stroke rather than starting a new one. So an empty
+    # or vacuous path has no stroke and a split one has more than one.
+    def subpaths(d)
       state = { pos: [ 0.0, 0.0 ], start: [ 0.0, 0.0 ], ctrl: nil, prev: nil }
-      normalize(d).flat_map { |letter, g| step(letter, g, state) }
+      normalize(d).each_with_object([]) do |(letter, g), strokes|
+        drawn = step(letter, g, state).reject(&:degenerate?)
+        next if drawn.empty?
+
+        last = strokes.last&.last
+        joins = last && (last.x2 - drawn.first.x1).abs < EPSILON && (last.y2 - drawn.first.y1).abs < EPSILON
+        joins ? strokes.last.concat(drawn) : strokes << drawn
+      end
     end
 
     # Expands path data into one [letter, args] pair per drawn command, so

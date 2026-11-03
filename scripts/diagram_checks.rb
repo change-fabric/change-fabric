@@ -279,9 +279,20 @@ module DiagramChecks
       allowed = STRAIGHT + (rules[:curves] ? CURVES : [])
       bad = DiagramSvg::PathData.commands(edge.d) - allowed
       return [ finding(edge.id, "path uses #{bad.uniq.join(', ')}", "use only #{allowed.join(', ')}") ] if bad.any?
+      return [ stroke_count(edge) ] unless edge.subpaths.size == 1
 
       skew = edge.segments.reject { |s| CURVES.include?(s.command) || axis?(s, rules[:connectors]) }
       skew.any? ? [ finding(edge.id, "segment is not #{rules[:connectors]}", "route at right angles") ] : []
+    end
+
+    # A connector is exactly one visible stroke: none means nothing joins the
+    # nodes, more than one leaves a gap the endpoint checks cannot see.
+    def stroke_count(edge)
+      if edge.subpaths.empty?
+        finding(edge.id, "path draws no segment", "draw the connector from #{edge.from} to #{edge.to}")
+      else
+        finding(edge.id, "path is split into #{edge.subpaths.size} disconnected pieces", "draw the connector as one continuous subpath")
+      end
     end
 
     def axis?(seg, mode)

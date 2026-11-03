@@ -96,6 +96,27 @@ class DiagramLintTest < Minitest::Test
     end
   end
 
+  # Every connector must draw exactly one visible stroke. The path model keeps
+  # subpaths, so empty, vacuous, and split data are all one class.
+  def test_connector_must_draw_one_stroke
+    clean = File.read(fixture("clean_flow.svg"))
+    {
+      "empty" => [ "", "no segment" ], "moveto only" => [ "M208 72", "no segment" ],
+      "moveto chain" => [ "M208 72 M256 72", "no segment" ], "zero-length H" => [ "M208 72 H208", "no segment" ],
+      "zero-length L" => [ "M208 72 L208 72", "no segment" ], "no moveto" => [ "H0", "no segment" ],
+      "absolute split" => [ "M208 72 H216 M248 72 H256", "disconnected" ],
+      "relative split" => [ "M208 72 h8 m32 0 h8", "disconnected" ],
+      "lineto split" => [ "M208 72 L216 72 M248 72 L256 72", "disconnected" ],
+      "three pieces" => [ "M208 72 H216 M224 72 H240 M248 72 H256", "disconnected" ]
+    }.each do |name, (d, message)|
+      findings = lint_d(clean, d)
+      assert(findings.any? { |f| f.check == "connector-geometry" && f.message.include?(message) }, name)
+    end
+    { "moveto to current point" => "M208 72 H232 M232 72 H256", "zero-length tail" => "M208 72 H256 H256" }.each do |name, d|
+      assert(lint_d(clean, d).none? { |f| f.check == "connector-geometry" }, name)
+    end
+  end
+
   def test_json_shape
     code, out, = run_cli("--json", fixture("broken_spacing.svg"))
     assert_equal 1, code
@@ -176,6 +197,14 @@ class DiagramLintTest < Minitest::Test
       path = File.join(dir, "moved.svg")
       File.write(path, svg)
       refute_empty DiagramLint.new(measurer: DiagramMeasure::Static.new).lint_file(path)[:findings]
+    end
+  end
+
+  def lint_d(svg, d)
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "edge.svg")
+      File.write(path, svg.sub("M208 72 H256", d))
+      DiagramLint.new(measurer: DiagramMeasure::Static.new).lint_file(path)[:findings]
     end
   end
 
