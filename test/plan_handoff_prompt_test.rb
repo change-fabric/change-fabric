@@ -21,4 +21,15 @@ class PlanHandoffPromptTest < Minitest::Test
     assert_match(/const only = Array\.isArray\(input\.only\)/, TEMPLATE)
     assert_includes TEMPLATE, "!only.includes(spec.title)"
   end
+
+  # Final verification runs only on a full run that landed every phase, or
+  # when explicitly requested. Each partial-run variant must skip it.
+  def test_template_gates_verify_on_partial_runs
+    assert_includes TEMPLATE, "const fullRun = only.length === 0 && landed.length === PHASES.length"
+    assert_includes TEMPLATE, "if (fullRun || input.verify === true) {"
+    verify_at = TEMPLATE.index('phase("Verify")')
+    gate_at = TEMPLATE.index("if (fullRun || input.verify === true) {")
+    assert gate_at < verify_at, "Verify phase must sit inside the partial-run gate"
+    assert_includes PROMPT, "verify: true"
+  end
 end
