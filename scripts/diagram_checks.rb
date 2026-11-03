@@ -341,27 +341,30 @@ module DiagramChecks
     end
   end
 
-  # Fill and stroke literals come from the resolved palette.
+  # Color literals come from the resolved palette, from every source the
+  # shared DeclaredProperty resolver knows: attributes, inline styles, and
+  # <style> declarations, custom-property roles consumed through var()
+  # included (light and dark scheme alike).
   class Palette < Base
     ID = "palette"
     SEVERITY = "warn"
-    PROPS = %w[fill stroke stop-color].freeze
+    PROPS = %w[fill stroke stop-color flood-color lighting-color color].freeze
+    COLOR = /#\h{3,8}\b|(?:rgba?|hsla?)\([^)]*\)/i
 
     def call(doc, context)
       allowed = context.palette.map(&:upcase)
-      doc.elements.flat_map do |el|
-        literals(el).reject { |v| allowed.include?(v.upcase) }.map do |v|
-          finding(el.attributes["data-id"] || el.attributes["id"] || el.name, "color #{v} is not in the palette", "use a palette role")
+      declarations(doc).flat_map do |prop, decl|
+        decl.value.scan(COLOR).uniq.reject { |v| allowed.include?(v.upcase) }.map do |v|
+          finding(decl.where, "color #{v} in #{DeclaredProperty.describe(decl, prop)} is not in the palette", "use a palette role")
         end
-      end
+      end.uniq
     end
 
     private
 
-    def literals(el)
-      values = PROPS.filter_map { |p| el.attributes[p] }
-      values += el.attributes["style"].to_s.scan(/(?:fill|stroke|stop-color):\s*([^;]+)/).flatten
-      values.map(&:strip).grep(/\A(#|rgb|hsl)/i)
+    def declarations(doc)
+      PROPS.flat_map { |p| DeclaredProperty.all(doc, p).map { |d| [ p, d ] } } +
+        DeclaredProperty.custom(doc).map { |name, d| [ name, d ] }
     end
   end
 
@@ -449,9 +452,20 @@ module DiagramChecks
     module_function
 
     def all(doc, prop)
-      css = doc.style_text.scan(/(?:\A|[\s;{])#{Regexp.escape(prop)}\s*:\s*([^;}]+)/).flatten
+      css = stylesheet(doc).scan(/(?:\A|[\s;{])#{Regexp.escape(prop)}\s*:\s*([^;}]+)/).flatten
       own(doc, prop) + css.map { |v| Declaration.new("style", v.strip, :stylesheet) }
     end
+
+    # Custom-property definitions (--name: value) in any <style> block, as
+    # [name, Declaration] pairs, so a role read through var() is checked
+    # where its value is set.
+    def custom(doc)
+      stylesheet(doc).scan(/(?:\A|[\s;{])(--[\w-]+)\s*:\s*([^;}]+)/).map do |name, v|
+        [ name, Declaration.new("style", v.strip, :stylesheet) ]
+      end
+    end
+
+    def stylesheet(doc) = doc.style_text.gsub(%r{/\*.*?\*/}m, "")
 
     def own(doc, prop)
       doc.elements.flat_map do |el|

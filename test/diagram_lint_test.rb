@@ -231,6 +231,30 @@ class DiagramLintTest < Minitest::Test
     end
   end
 
+  # The palette check reads colors through the shared DeclaredProperty
+  # resolver, so an out-of-palette color trips it from every source: a light
+  # custom-property role, a dark-scheme role, a stylesheet rule, a commented
+  # stylesheet (ignored), an inline style, and a presentation attribute, in
+  # hex, rgb() and hsl() forms.
+  def test_palette_covers_every_color_source
+    clean = File.read(fixture("clean_flow.svg"))
+    with_svg(clean) { |checks| refute_includes checks, "palette" }
+    {
+      "light role" => [ "--ink: #2D3142;", "--ink: #FFFF00;" ],
+      "dark role" => [ "--ink: #F5F5F5;", "--ink: rgb(255, 255, 0);" ],
+      "stylesheet rule" => [ ".edge { fill: none;", ".edge { fill: hsl(60, 100%, 50%);" ],
+      "inline style" => [ '<g class="node" data-id="submit">', '<g class="node" data-id="submit" style="fill: #FFFF00">' ],
+      "attribute" => [ '<g class="node" data-id="submit">', '<g class="node" data-id="submit" stroke="#FFFF00">' ]
+    }.each do |name, (from, to)|
+      svg = clean.sub(from, to)
+      refute_equal clean, svg, name
+      with_svg(svg) { |checks| assert_includes checks, "palette", name }
+    end
+    commented = clean.sub(".edge { fill: none;", "/* --old: #FFFF00; */ .edge { fill: none;")
+    refute_equal clean, commented
+    with_svg(commented) { |checks| refute_includes checks, "palette" }
+  end
+
   def set_on_first(svg, tag, name, value)
     prefix = "<#{tag} "
     svg.sub(/#{prefix}[^>]*>/) { |element| element.sub(/ #{name}="[^"]*"/, "").sub(prefix, "#{prefix}#{name}=\"#{value}\" ") }
