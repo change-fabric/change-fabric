@@ -2,9 +2,9 @@
   <title id="t">How cf:diagram makes a diagram</title>
   <desc id="d">The agent picks a diagram type, sketches nodes and edges, hand-writes the SVG, then lints it with text measured in browserless. No findings yields the clean SVG. Findings with fewer than three fix rounds used go to fix from hints, then back to hand-writing for the next round, where a round is one fix and one re-lint. Findings after three fix rounds stop the run: the SVG is kept and the findings are reported.</desc>
   <style>
-    svg { --bg: #F5F5F5; --surface: #FFFFFF; --ink: #2D3142; --muted: #4F5D75; --soft: #5A6580; --line: #4F5D75; --rule: #D9DADD; --accent: #B5401C; --accent-tint: #F2E9E6; --link: #2E5AA8; }
+    svg { --bg: #F6EFE0; --surface: #F0E8DB; --ink: #24122A; --muted: #574F59; --soft: #574F59; --line: #574F59; --rule: #C1C1B7; --accent: #714C8C; --link: #714C8C; --accent-tint: #E9DFD8; }
     @media (prefers-color-scheme: dark) {
-      svg { --bg: #2D3142; --surface: #2D3142; --ink: #F5F5F5; --muted: #BFC0C0; --soft: #A3ACC0; --line: #A3ACC0; --rule: #45495A; --accent: #F08A59; --accent-tint: #3D3844; --link: #7FA9E6; }
+      svg { --bg: #24122A; --surface: #2C1B31; --ink: #F6EFE0; --muted: #B8BAB0; --soft: #B8BAB0; --line: #B8BAB0; --rule: #493D4C; --accent: #B690CE; --link: #B690CE; --accent-tint: #382441; }
     }
     .bg { fill: var(--bg); }
     .node rect { fill: var(--surface); stroke: var(--ink); stroke-width: 1; }
@@ -32,10 +32,10 @@
     .swatch.accent { fill: var(--accent-tint); stroke: var(--accent); stroke-width: 1.5; }
   </style>
   <defs>
-    <marker id="arrow" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path class="head" d="M0 0 L10 5 L0 10 Z" fill="#4F5D75"/></marker>
-    <marker id="arrow-accent" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path class="head accent" d="M0 0 L10 5 L0 10 Z" fill="#B5401C"/></marker>
+    <marker id="arrow" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path class="head" d="M0 0 L10 5 L0 10 Z" fill="#574F59"/></marker>
+    <marker id="arrow-accent" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path class="head accent" d="M0 0 L10 5 L0 10 Z" fill="#714C8C"/></marker>
   </defs>
-  <rect class="bg" x="0" y="0" width="880" height="584" fill="#F5F5F5"/>
+  <rect class="bg" x="0" y="0" width="880" height="584" fill="#F6EFE0"/>
 
   <path class="edge" data-from="pick" data-to="sketch" d="M216 92 H360" marker-end="url(#arrow)"/>
   <path class="edge" data-from="sketch" data-to="write" d="M528 92 H672" marker-end="url(#arrow)"/>
