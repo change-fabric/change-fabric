@@ -41,4 +41,21 @@ class SkillDetectTest < Minitest::Test
     assert announce
     assert_nil announce, "second SessionStart should not re-announce"
   end
+
+  def test_slow_detection_fails_silent_without_marking_session
+    slow_skill = Object.new
+    def slow_skill.detected?(_dir)
+      sleep 5
+      true
+    end
+
+    io = StringIO.new
+    event = { "session_id" => "s1", "cwd" => @proj }
+    started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+    SkillDetect.new(event, skills: [ slow_skill ], timeout: 0.02).emit(io)
+
+    assert_operator Process.clock_gettime(Process::CLOCK_MONOTONIC) - started, :<, 1
+    assert_empty io.string
+    assert announce, "a timed-out scan must not mark skills as announced"
+  end
 end

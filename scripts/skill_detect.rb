@@ -2,6 +2,7 @@
 # frozen_string_literal: true
 
 require 'json'
+require 'timeout'
 require_relative 'hook_event'
 require_relative 'skill_registry'
 require_relative 'skill_store'
@@ -14,18 +15,24 @@ require_relative 'skill_store'
 # fingerprint never suppresses a skill.
 class SkillDetect
   EVENT = 'SessionStart'
+  DETECTION_TIMEOUT = 2
 
-  def initialize(event, skills: nil)
+  def initialize(event, skills: nil, timeout: DETECTION_TIMEOUT)
     @event = event
     @skills = skills
+    @timeout = timeout
   end
 
   def emit(io = $stdout)
-    active = registry.select { |skill| skill.detected?(cwd) }
+    # A session can start in HOME or another large tree. Fingerprinting is
+    # optional context; abandon the scan before it can block startup.
+    active = Timeout.timeout(@timeout) { registry.select { |skill| skill.detected?(cwd) } }
     fresh = announce(active.map(&:name))
     return if fresh.empty?
 
     io.puts(JSON.generate(context(fresh)))
+  rescue Timeout::Error
+    nil
   end
 
   private
