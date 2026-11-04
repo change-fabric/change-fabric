@@ -95,6 +95,9 @@ module ImagePlate
       parsed
     end
 
+    # The one rule a name must meet is the filesystem one (write_out uses it as
+    # "<name>.png" in the output dir); js_module carries names as data, so it
+    # adds no rule of its own.
     SAFE_NAME = /\A[A-Za-z0-9._-]+\z/
 
     def parse_size(size, index)
@@ -302,13 +305,17 @@ module ImagePlate
       end
     end
 
+    # Size names are data, never code: each map crosses into JS as a JSON string
+    # literal decoded by JSON.parse, and shots has no prototype, so a name like
+    # __proto__ or constructor stays an ordinary own key instead of taking on
+    # object-literal or inherited-property meaning.
     def js_module(pages)
       dims = spec.sizes.to_h { |s| [ s.name, [ s.width, s.height ] ] }
       <<~JS
         export default async function ({ page }) {
-          const pages = #{JSON.generate(pages)};
-          const dims = #{JSON.generate(dims)};
-          const shots = {};
+          const pages = JSON.parse(#{js_json(pages)});
+          const dims = JSON.parse(#{js_json(dims)});
+          const shots = Object.create(null);
           const overflow = [];
           for (const name of Object.keys(pages)) {
             await page.setViewport({ width: dims[name][0], height: dims[name][1], deviceScaleFactor: 1 });
@@ -326,6 +333,8 @@ module ImagePlate
         }
       JS
     end
+
+    def js_json(value) = JSON.generate(JSON.generate(value)).gsub("\u2028", '\\u2028').gsub("\u2029", '\\u2029')
 
     def write_out
       FileUtils.mkdir_p(@out_dir)

@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require "open3"
 require "minitest/autorun"
 require "base64"
 require "json"
@@ -22,7 +23,7 @@ class ImagePlateTest < Minitest::Test
 
     def run_function(code)
       @modules << code
-      names = JSON.parse(code[/const dims = (\{.*?\});/, 1]).keys
+      names = JSON.parse(JSON.parse(code[/const dims = JSON\.parse\((".*?")\);/, 1])).keys
       return { "overflow" => @overflow } unless @overflow.empty?
 
       { "shots" => names.to_h { |n| [ n, Base64.strict_encode64("SHOT-#{n}") ] } }
@@ -98,6 +99,37 @@ class ImagePlateTest < Minitest::Test
       sizes = [ { "name" => bad, "width" => 100, "height" => 50, "zone" => { "x" => 0, "y" => 0, "w" => 1, "h" => 1 } } ]
       assert_spec_error(spec_hash(sizes: sizes), /plain filename/)
     end
+  end
+
+  # Every name SAFE_NAME admits must survive the trip through the generated JS
+  # module: object-literal specials (__proto__), inherited Object.prototype
+  # members, and filesystem-adjacent shapes all come back as their own shot.
+  JS_SPECIAL_NAMES = %w[__proto__ constructor toString valueOf hasOwnProperty __defineGetter__ prototype length 0 1e3 .hidden a.b -x].freeze
+
+  def test_generated_module_keeps_every_safe_name_as_its_own_shot
+    skip "node not installed" unless system("node", "--version", out: File::NULL, err: File::NULL)
+
+    JS_SPECIAL_NAMES.each do |name|
+      @out = StringIO.new
+      session = FakeSession.new
+      sizes = [ { "name" => name, "width" => 100, "height" => 50, "zone" => { "x" => 0, "y" => 0, "w" => 1, "h" => 1 } } ]
+      assert_equal 0, cli(write_spec(spec_hash(sizes: sizes)), session: session), "#{name}: #{@out.string}"
+      assert_equal [ name ], run_module_in_node(session.modules.first), "#{name}: dropped by the generated module"
+    end
+  end
+
+  def run_module_in_node(code)
+    mod = File.join(@dir, "mod-#{rand(1 << 30)}.mjs").tap { |p| File.write(p, code) }
+    runner = <<~JS
+      const { default: fn } = await import(#{JSON.generate("file://#{mod}")});
+      const el = { screenshot: async () => "U0hPVA==" };
+      const page = { setViewport: async () => {}, setContent: async () => {}, evaluate: async () => false, $: async () => el };
+      const out = await fn({ page });
+      process.stdout.write(JSON.stringify(Object.keys(out.data.shots)));
+    JS
+    stdout, status = Open3.capture2("node", "--input-type=module", "-e", runner)
+    assert status.success?, "node failed running the generated module"
+    JSON.parse(stdout)
   end
 
   def test_malformed_json_exits_2
