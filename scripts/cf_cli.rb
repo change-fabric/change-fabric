@@ -41,6 +41,25 @@ class CfCli
     nil
   end
 
+  def self.unwire_pi_exclusions(home, plan)
+    path = File.join(home, '.pi/agent/settings.json')
+    return unless File.file?(path)
+
+    data = JSON.parse(File.read(path))
+    owned = plan.map { |row| row['path'] }.select { |file| file.include?('/.agents/skills/') && File.basename(file) == 'SKILL.md' }
+    previous = Array(data['skills'])
+    data['skills'] = previous.reject do |entry|
+      next false unless entry.is_a?(String) && entry.start_with?('-') && File.file?(entry[1..])
+
+      owned.include?(File.realpath(entry[1..]))
+    end
+    return if previous == data['skills']
+
+    FileUtils.cp(path, "#{path}.bak")
+    File.write("#{path}.tmp", JSON.pretty_generate(data) + "\n")
+    File.rename("#{path}.tmp", path)
+  end
+
   def self.run(argv, io: $stdout, home: Dir.home)
     command = argv.shift
     options = { host: 'codex', surface: 'cli', project: Dir.pwd }
@@ -85,6 +104,7 @@ class CfCli
           NativeHookInstall.new(path: File.join(home, relative), host: host, ruby: RbConfig.ruby, bin: bin).unwire
         end
         unwire_legacy_hooks(home, plan)
+        unwire_pi_exclusions(home, plan)
         manifest.remove
       end
       io.puts JSON.pretty_generate('applied' => !!options[:apply], 'files' => plan, 'state' => 'preserved',

@@ -45,7 +45,9 @@ deprecated prompt aliases or claim Claude's namespace works in Codex.
 Run `ruby install.rb` after updating the checkout. Generated mode contracts and
 Markdown command references refresh for all hosts; native hook entries update
 without replacing unrelated hooks. Pi's old CF-added Claude skill search path
-is removed in favor of its own generated copies. Unmarked skill collisions
+is removed in favor of its own generated copies. Exact exclusions prevent Pi from
+also loading CF-owned Codex copies through shared discovery; uninstall removes
+those exclusions. Unmarked skill collisions
 are preserved. Claude's old merge-mode files remain a read-only fallback until
 neutral state exists. Old state and other subsystem stores are retained.
 

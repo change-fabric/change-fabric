@@ -77,6 +77,8 @@ class CfDoctorTest < Minitest::Test
     report = CfDoctor.new(home: @home).report(host: "codex", version: "0.166.0", probe: false)
     assert_operator report.dig("skills", "files_present"), :>, 60
     assert report.dig("adapter", "configured")
+    pi_skills = JSON.parse(File.read(paths.pi_settings))["skills"]
+    assert_includes pi_skills, "-#{File.join(paths.codex_skill('cf:roast'), 'SKILL.md')}"
     assert_equal "not-probed", report.dig("adapter", "active")
     launcher = File.join(@home, ".local/bin/cf")
     assert File.executable?(launcher)
@@ -87,6 +89,7 @@ class CfDoctorTest < Minitest::Test
     assert_includes JSON.parse(File.read(paths.settings)).dig("hooks", "Stop"), foreign
     refute File.exist?(File.join(paths.runtime_bin, "cf_host_hook.rb"))
     refute File.exist?(launcher)
+    refute JSON.parse(File.read(paths.pi_settings))["skills"].any? { |entry| entry.start_with?("-") }
     remaining = JSON.parse(File.read(paths.settings)).fetch("hooks").values.flatten.flat_map { |row| row.fetch("hooks", []) }
     assert_equal [ "echo foreign" ], remaining.map { |hook| hook["command"] }
   end

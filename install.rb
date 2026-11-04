@@ -489,10 +489,10 @@ module Install
       link_skills
       link_pi_extension
       link_opencode_plugin
+      mirror_to_codex
       mirror_to_pi
       mirror_to_opencode
       mirror_to_copilot
-      mirror_to_codex
       settings = wire_settings
       wire_native_hooks
       place_launcher
@@ -739,7 +739,13 @@ module Install
     def mirror_to_pi
       LegacyPiSkillPruner.new(@paths).prune
       PiSkillMirror.new(@paths).mirror(@paths.skill_sources)
-      PiSettingsFile.new(@paths.pi_settings).wire([ @paths.pi_skills_root ], retire: [ @paths.skills_root ])
+      shared_copies = @paths.skill_sources.filter_map do |source|
+        path = @paths.codex_skill(SkillName.of(source))
+        next unless PortableSkillMirror::LEGACY_MARKERS.any? { |marker| File.file?(File.join(path, marker)) }
+
+        "-#{File.join(path, 'SKILL.md')}"
+      end
+      PiSettingsFile.new(@paths.pi_settings).wire([ @paths.pi_skills_root, *shared_copies ], retire: [ @paths.skills_root ])
     end
 
     def mirror_to_opencode

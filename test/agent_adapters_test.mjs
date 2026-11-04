@@ -107,3 +107,18 @@ test("Pi and OpenCode deliver startup rubric detection into model context", asyn
   await plugin["experimental.chat.system.transform"]({ sessionID: "opencode-startup" }, output);
   assert.match(output.system.join("\n"), /Auto-skills active.*cf:ruby/);
 }));
+
+test("Pi skill exclusions prevent Codex shared-directory copies from shadowing native bodies", async () => isolated(async (home) => {
+  const { DefaultPackageManager } = await import("../node_modules/@earendil-works/pi-coding-agent/dist/core/package-manager.js");
+  const { SettingsManager } = await import("../node_modules/@earendil-works/pi-coding-agent/dist/core/settings-manager.js");
+  const native = join(home, ".pi/agent/skills/cf-roast");
+  const shared = join(home, ".agents/skills/cf-roast");
+  for (const dir of [native, shared]) {
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "SKILL.md"), "---\nname: cf-roast\ndescription: Roast\n---\nHost-specific body.\n");
+  }
+  const manager = new DefaultPackageManager({ cwd: home, agentDir: join(home, ".pi/agent"), settingsManager: SettingsManager.inMemory({ skills: [`-${join(shared, "SKILL.md")}`] }) });
+  const resources = await manager.resolve();
+  assert.equal(resources.skills.find((entry) => entry.path === join(native, "SKILL.md"))?.enabled, true);
+  assert.equal(resources.skills.find((entry) => entry.path === join(shared, "SKILL.md"))?.enabled, false);
+}));
