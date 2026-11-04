@@ -62,10 +62,10 @@ class ImageTextModeTest < Minitest::Test
 
   def test_word_internal_apostrophes_stay_inside_single_quoted_runs
     {
-      "poster saying 'Don't miss our biggest summer sale'" => [:heavy, "Don't miss our biggest summer sale"],
-      "sign reading 'It's open'" => [:short, "It's open"],
-      "label 'we'll be back, don't wait'" => [:heavy, "we'll be back, don't wait"],
-      "mug saying 'Don't'" => [:short, "Don't"]
+      "poster saying 'Don't miss our biggest summer sale'" => [ :heavy, "Don't miss our biggest summer sale" ],
+      "sign reading 'It's open'" => [ :short, "It's open" ],
+      "label 'we'll be back, don't wait'" => [ :heavy, "we'll be back, don't wait" ],
+      "mug saying 'Don't'" => [ :short, "Don't" ]
     }.each do |prompt, (mode, run)|
       result = classify(prompt)
       assert_equal mode, result.mode, prompt
