@@ -9,8 +9,9 @@ module ImageTextMode
   SHORT_MAX_CHARS = 25
   BANNER_WORDS = /\b(banner|headline|cta|hero)s?\b/i
   # A double-quoted run, or a single-quoted run whose quotes sit outside words,
-  # so the apostrophe in "don't" never opens or closes a run.
-  QUOTED_RUN = /"([^"]{2,})"|(?<![[:alnum:]])'([^']{2,})'(?![[:alnum:]])/
+  # so the apostrophe in "don't" never opens or closes a run, and a
+  # word-internal apostrophe (Don't, it's) stays inside the run.
+  QUOTED_RUN = /"([^"]{2,})"|(?<![[:alnum:]])'((?:[^']|(?<=[[:alnum:]])'(?=[[:alnum:]])){2,})'(?![[:alnum:]])/
 
   Result = Struct.new(:mode, :reason, :warnings, :runs, keyword_init: true)
 
