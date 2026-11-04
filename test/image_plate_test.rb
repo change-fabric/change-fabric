@@ -37,10 +37,14 @@ class ImagePlateTest < Minitest::Test
     @repo = File.join(@dir, "repo").tap { |d| Dir.mkdir(d) }
     @outdir = File.join(@dir, "out")
     @out = StringIO.new
+    @prior_key = ENV.fetch("OPENAI_API_KEY", nil)
     ENV["OPENAI_API_KEY"] = "sk-test-secret"
   end
 
-  def teardown = FileUtils.rm_rf(@dir)
+  def teardown
+    ENV["OPENAI_API_KEY"] = @prior_key
+    FileUtils.rm_rf(@dir)
+  end
 
   def spec_hash(sizes: nil, copy: nil)
     {
@@ -172,7 +176,7 @@ class ImagePlateTest < Minitest::Test
     assert_equal 3, code
   end
 
-  def test_fallback_uses_diagram_palette_colors
+  def test_fallback_colors_without_tokens_file
     session = FakeSession.new
     assert_equal 0, cli(write_spec(spec_hash), session: session)
     js = session.modules.first

@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'base64'
+require 'digest'
 require 'fileutils'
 require 'json'
 require_relative 'change_docker'
@@ -9,6 +10,7 @@ require_relative 'diagram_palette'
 require_relative 'prototype_capture'
 require_relative 'prototype_imagegen'
 require_relative 'walkthrough_cache'
+require_relative 'walkthrough_env'
 
 # cf:image heavy text mode: gpt-image-2 paints a textless plate per aspect
 # family (at most two paid calls), then each output size is cropped from its
@@ -18,7 +20,7 @@ require_relative 'walkthrough_cache'
 module ImagePlate
   IMAGE_PLATE_VERSION = 1
   FAMILY_SIZE = { landscape: '1536x1024', portrait: '1024x1536' }.freeze
-  FAMILY_DIMS = { landscape: [ 1536, 1024 ], portrait: [ 1024, 1536 ] }.freeze
+  FAMILY_DIMS = FAMILY_SIZE.transform_values { |s| s.split('x').map(&:to_i) }.freeze
   DEFAULT_OUT = 'image-text'
   # The cf:diagram default skin (light), used when the repo has no tokens file.
   FALLBACK_COLORS = { '--bg' => '#F5F5F5', '--ink' => '#2D3142', '--muted' => '#4F5D75', '--accent' => '#B5401C',
@@ -188,7 +190,9 @@ module ImagePlate
 
     def size_key(size) = WalkthroughCache.key({ composite: composite_key, size: size.name })
 
-    def cached? = spec.sizes.all? { |s| File.file?(WalkthroughCache.path(@cache, :images, size_key(s), 'png')) }
+    def image_path(size) = WalkthroughCache.path(@cache, :images, size_key(size), 'png')
+
+    def cached? = spec.sizes.all? { |s| File.file?(image_path(s)) }
 
     # The estimate: plates not yet cached times the per-image price.
     def estimate_usd
@@ -210,6 +214,8 @@ module ImagePlate
       end
       write_out
     end
+
+    private
 
     def html_for(size, plate_path)
       fx = (spec.focal['x'] * 100).round(2)
@@ -237,7 +243,6 @@ module ImagePlate
 
     def colors = @colors ||= resolve_colors
 
-    private
 
     def plate_requests
       families.map { |f| { family: f, prompt: plate_prompt(f), size: FAMILY_SIZE[f], quality: @quality } }
@@ -312,7 +317,7 @@ module ImagePlate
       FileUtils.mkdir_p(@out_dir)
       spec.sizes.map do |s|
         dest = File.join(@out_dir, "#{s.name}.png")
-        FileUtils.cp(WalkthroughCache.path(@cache, :images, size_key(s), 'png'), dest)
+        FileUtils.cp(image_path(s), dest)
         dest
       end
     end
