@@ -147,6 +147,30 @@ class WalkthroughRenderTest < Minitest::Test
     WalkthroughRender::Run.new(@root, **{ providers: providers, out: StringIO.new, gates: { roast: false } }.merge(opts)).call
   end
 
+  # A zoom with no focus still frames the scene, centred (issue #311).
+  def test_camera_zoom_without_focus_is_applied
+    b = JSON.parse(File.read(File.join(@root, "storyboard.json")))
+    b["scenes"][0]["camera"] = { "zoom" => 1.5 }
+    File.write(File.join(@root, "storyboard.json"), JSON.pretty_generate(b))
+    run_render
+    assert_includes @calls[:docker].map { |a| a.join(" ") }.join("\n"), "flags=lanczos,crop="
+  end
+
+  # Only a focus-less camera changes the render key: a mp4 cached before
+  # centred framing must not be reused, a focused or camera-less one may.
+  def test_camera_material_tags_only_focusless_zoom
+    run = WalkthroughRender::Run.new(@root, providers: providers, out: StringIO.new, gates: { roast: false })
+    { nil => [], { "zoom" => 1.5, "focus" => { "x" => 1, "y" => 2 } } => nil, { "zoom" => 1.5 } => "centred-zoom" }.each do |cam, tag|
+      b = JSON.parse(File.read(File.join(@root, "storyboard.json")))
+      b["scenes"].each { |s| s.delete("camera") }
+      b["scenes"][0]["camera"] = cam if cam
+      run.instance_variable_set(:@board, b)
+      material = run.send(:camera_material)
+      next assert_equal([], material) if cam.nil?
+      tag ? assert_equal(tag, material.dig(0, 0, 2)) : assert_nil(material.dig(0, 0, 2))
+    end
+  end
+
   def test_full_render_order_and_outputs
     result = run_render
     assert_equal %w[list detail hero], @calls[:capture], "from_scene dependency captured before its dependent"

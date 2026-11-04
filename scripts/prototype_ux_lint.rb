@@ -37,10 +37,17 @@ require 'fileutils'
 #                      whose scope (nearest [data-cf-state] ancestor, or the
 #                      element named by data-cf-for) is "pending", or a visible
 #                      [data-cf-when] that does not list its scope's state.
+#   unplayable-media   a visible <video> or <audio> whose source the capture
+#                      browser cannot decode (MEDIA_ERR_SRC_NOT_SUPPORTED or no
+#                      usable <source>), checked whenever lint runs, so a
+#                      source still loading at scene start is caught at a
+#                      later lint frame. Audio is checked even without
+#                      controls. The pinned Chromium has no H.264 or
+#                      AAC, so serve a VP9/Opus or AV1 transcode for filming.
 #
 # `data-ux-allow="<rule> ..."` on an element or ancestor opts it out of a rule.
 module PrototypeUxLint
-  VERSION = 2
+  VERSION = 3 # bump on any rule change so cached reports re-lint
   REPORT = 'ux-lint.json'
   SETTLE_FRAMES = 15 # also lint half a second after each click, once a toast has landed
   # Players draw a two-line cue in roughly the bottom tenth of the frame; the
@@ -245,6 +252,15 @@ module PrototypeUxLint
         });
         return out;
       };
+      const unplayable = () => {
+        const out = [];
+        document.querySelectorAll('video, audio').forEach((el) => {
+          if ((el.tagName === 'VIDEO' && !visible(el)) || allowed(el, 'unplayable-media')) return;
+          const bad = (el.error && el.error.code === 4) || el.networkState === 3;
+          if (bad) out.push({ rule: 'unplayable-media', target: sel(el), detail: 'capture browser cannot play ' + (el.currentSrc || (el.querySelector('source') || {}).src || 'its source').slice(-60) + ' (open-source Chromium has no H.264/AAC; use VP9/Opus or AV1)' });
+        });
+        return out;
+      };
       const overText = (el, x, y) => textRects(el).some(({ r }) => x < r.right && x + FOOT.w > r.left && y < r.bottom && y + FOOT.h > r.top);
       // The point the cursor should rest on for `el`: its centre when the
       // sprite there clears the label, else a padding or icon point.
@@ -266,7 +282,7 @@ module PrototypeUxLint
         return candidates.find((p) => !overText(el, p.x, p.y)) || centre;
       };
       const lint = (targets, band) => {
-        const found = [...emptyControls(), ...occlusion(), ...clipped(), ...contradictions(), ...captionSafe(band)];
+        const found = [...emptyControls(), ...occlusion(), ...clipped(), ...contradictions(), ...unplayable(), ...captionSafe(band)];
         (targets || []).forEach(({ selector, x, y }) => {
           const el = document.querySelector(selector);
           if (el && !allowed(el, 'cursor-over-label') && overText(el, x, y)) found.push({ rule: 'cursor-over-label', target: selector, detail: 'cursor at ' + Math.round(x) + ',' + Math.round(y) + ' covers the label' });

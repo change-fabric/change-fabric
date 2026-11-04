@@ -118,6 +118,7 @@ class PrototypeUxLintTest < Minitest::Test
     "pending-success" => [ '<div data-cf-state="pending"><span data-cf-success>Approved</span></div>', %w[contradictory-state] ],
     "stale-actions" => [ '<div data-cf-state="approved"><span data-cf-success>Approved</span><button data-cf-when="pending">Approve</button></div>',
                          %w[contradictory-state] ],
+    "unplayable-video" => [ '<video controls style="width:200px;height:100px" src="data:video/mp4;base64,AAAAAA=="></video>', %w[unplayable-media] ],
     "agreed-state" => [ '<div data-cf-state="approved"><span data-cf-success>Approved</span><button data-cf-when="approved">Message</button></div>', [] ]
   }.freeze
 

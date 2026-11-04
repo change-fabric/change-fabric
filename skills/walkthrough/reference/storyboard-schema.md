@@ -31,6 +31,10 @@
 
 `viewport.dpr` is optional. When it is absent, a live or compose desktop capture derives it per scene as `ceil(max(camera.zoom, 1) / frame shrink)`, clamped to 1..4, where the frame shrink is the browser frame's content scale (about 0.7) or 1 without one. So a zoomed or browser-framed scene is captured with enough device pixels that neither pass upsamples small text. An explicit `dpr` always wins; pin `"dpr": 1` only when a soft zoom is acceptable. The derived dpr is in the live `frames_key`, so changing a zoom recaptures.
 
+A scene's `camera` is `{ "zoom": <0.5..3>, "focus": { "x": <0..1>, "y": <0..1> } }`. `zoom` is required; `focus` is optional and defaults to the frame centre (0.5, 0.5), the point the zoom scales around.
+
+Live capture runs open-source Chromium, which cannot decode H.264 video or AAC audio. A `<video>` or `<audio>` it cannot play is reported by the UX lint as `unplayable-media` and blocks `--final`; serve a VP9/Opus or AV1 transcode at the same path for filming.
+
 `tokens_css_sha256` is computed, never hand-written. `validate --fix` writes the sha256 of the canonical `tokens.css` (found by walking up from the walkthrough directory to the repo root, trying the `change_config.design.tokens` path from CHANGE.md, default `design/tokens.css`, then a bare `tokens.css`; `--tokens PATH` overrides) before it rewrites the deps, so every `frames_key` that hashes it goes stale and recaptures when the tokens change. Plain `validate` fails on a missing or stale hash. With no canonical `tokens.css` found, the field is left alone and not checked.
 
 ## Per scene
