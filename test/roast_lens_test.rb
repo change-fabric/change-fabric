@@ -80,6 +80,22 @@ class RoastLensTest < Minitest::Test
     end
   end
 
+  def test_suggest_reads_paths_from_headerless_diff_records
+    variants = {
+      "pure rename" => "diff --git a/infra/main.tf b/infra/main.txt\nsimilarity index 100%\n" \
+                       "rename from infra/main.tf\nrename to infra/main.txt\n",
+      "pure copy" => "diff --git a/infra/main.tf b/infra/copy.tf\nsimilarity index 100%\n" \
+                     "copy from infra/main.tf\ncopy to infra/copy.tf\n",
+      "mode only" => "diff --git a/infra/main.tf b/infra/main.tf\nold mode 100644\nnew mode 100755\n",
+      "binary" => "diff --git a/infra/main.tf b/infra/main.tf\nBinary files a/infra/main.tf and b/infra/main.tf differ\n",
+      "deleted, no hunks" => "diff --git a/infra/main.tf b/infra/main.tf\ndeleted file mode 100644\nindex e69de29..0000000\n",
+      "rename records only" => "rename from infra/main.tf\nrename to infra/main.txt\n"
+    }
+    variants.each do |label, diff|
+      assert_equal [ "cf:terraform" ], RoastLens.suggest([ [ "change.diff", diff ] ]), label
+    end
+  end
+
   def test_infer_reads_cli_only_kinds
     diff = "diff --git a/app/x.rb b/app/x.rb\n+++ b/app/x.rb\n@@ -1,2 +1,3 @@\n+# Summary\n"
     assert_equal "code", RoastKind.infer(texts: [ [ "change.txt", diff ] ]).kind

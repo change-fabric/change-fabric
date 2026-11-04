@@ -12,7 +12,10 @@ module RoastLens
   class UnknownLens < StandardError; end
 
   # Both sides: a deletion's +++ is /dev/null, an addition's --- is.
-  DIFF_PATH = %r{^(?:\+\+\+ b|--- a)/(\S+)}
+  # Every path-bearing diff record: ---/+++ headers, the diff --git line
+  # (the only one a mode-only or binary change carries), and rename/copy
+  # records (the only ones a pure rename or copy carries).
+  DIFF_PATH = %r{^(?:(?:\+\+\+ b|--- a)/(\S+)|diff --git a/(\S+) b/(\S+)|(?:rename|copy) (?:from|to) (\S+))}
 
   module_function
 
@@ -54,7 +57,7 @@ module RoastLens
   def suggest(texts, skills_dir = dir)
     names = rubrics(skills_dir).keys
     skills = SkillRegistry.load(skills_dir).select { |s| names.include?(bare(s.name)) }
-    paths = texts.flat_map { |path, body| [ path, *body.to_s.scan(DIFF_PATH).flatten ] }
+    paths = texts.flat_map { |path, body| [ path, *body.to_s.scan(DIFF_PATH).flatten.compact ] }
     skills.select { |s| paths.any? { |p| s.matches?(p) } }.map { |s| "cf:#{bare(s.name)}" }.uniq.sort
   end
 end
