@@ -44,6 +44,7 @@ class CfHostHook
   def call
     request = base.merge('event' => EVENTS.fetch(@event))
     request['tool'] = tool if %w[PreToolUse PostToolUse].include?(@event)
+    request['initial_mode'] = @payload['initial_mode'] if @event == 'SessionStart'
     request['parent_session_id'] = parent_id if @event == 'SubagentStart' && parent_id
     result = runtime(request)
     @resolved_project = result['project']

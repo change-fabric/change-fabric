@@ -51,6 +51,13 @@ class CfRuntimeTest < Minitest::Test
     assert_equal "deny", call(event: "tool.before", tool: { "name" => "shell", "input" => { "command" => "gh pr create" } })["decision"]
   end
 
+  def test_initial_mode_only_applies_to_a_new_root_session
+    assert_equal "local-only", call(event: "session.start", initial_mode: "local-only").dig("state", "mode")
+    call(event: "mode.set", mode: "yolo")
+    assert_equal "yolo", call(event: "session.start", initial_mode: "local-only").dig("state", "mode")
+    assert_equal "yolo", call(event: "session.start", session_id: "child", parent_session_id: "one", initial_mode: "local-only").dig("state", "mode")
+  end
+
   def test_invalid_requests_do_not_change_state
     assert_raises(ArgumentError) { call(event: "mode.set", mode: "anything") }
     assert_raises(ArgumentError) { call(session_id: "") }

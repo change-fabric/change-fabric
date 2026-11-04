@@ -27,11 +27,13 @@ class CfState
 
   # only_missing keeps a value this session already chose, e.g. an environment
   # default must not overwrite an explicit /cf choice when a session resumes,
-  # including a choice still held only in pre-runtime legacy state.
-  def update(values, parent: nil, only_missing: false)
+  # including a choice still held only in pre-runtime legacy state. defaults
+  # seed a brand-new root session the same way.
+  def update(values, parent: nil, only_missing: false, defaults: {})
     locked do
       data = own(@session_id)
       values = values.reject { |key, _| data.key?(key) || legacy_choice?(key) } if only_missing
+      data.merge!(defaults.reject { |key, _| legacy_choice?(key) }) if data.empty? && !parent
       if parent
         raise ArgumentError, 'session cannot inherit itself' if parent == @session_id
         raise ArgumentError, 'parent binding cannot change' if data['parent'] && data['parent'] != parent

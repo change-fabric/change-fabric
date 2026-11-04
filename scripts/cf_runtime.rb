@@ -43,7 +43,11 @@ class CfRuntime
       parent = @request['parent_session_id']
       raise ArgumentError, 'invalid parent session' unless parent.nil? || (parent.is_a?(String) && !parent.empty?)
 
-      @state.update({}, parent: parent)
+      initial = @request['initial_mode']
+      mode = MergeModeSlug.of(initial)
+      raise ArgumentError, 'unknown initial merge mode' if initial && !mode
+
+      @state.update({}, parent: parent, defaults: mode ? { 'mode' => mode } : {})
     else @state.read
     end
     reason = @request['event'] == 'tool.before' ? violation(state) : nil

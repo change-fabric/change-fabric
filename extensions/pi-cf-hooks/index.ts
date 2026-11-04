@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { callHook } from "../shared/cf-client.ts";
-import { COMMAND_MODES, MERGE_MODES, modeSlug } from "../shared/mode-slug.ts";
+import { COMMAND_MODES, modeSlug } from "../shared/mode-slug.ts";
 
 type Context = { cwd: string; sessionManager: { getSessionFile?: () => string | undefined } };
 
@@ -12,6 +12,7 @@ export default function cfHooks(pi: ExtensionAPI) {
   // Prompt-specific context (an away-mode plan refusal) is only computable from
   // the input hook, which sees the prompt; hold it for before_agent_start.
   let inputContext = "";
+  let startupContext = "";
   const base = (ctx: Context) => ({ cwd: ctx.cwd, session_id: ctx.sessionManager.getSessionFile?.() ?? ephemeralId });
   pi.registerCommand("cf", {
     description: "Set merge mode: local-only, merge-ready, admin-bypass, or yolo",
@@ -26,12 +27,8 @@ export default function cfHooks(pi: ExtensionAPI) {
     },
   });
   pi.on("session_start", async (_event, ctx) => {
-    await callHook("pi", "SessionStart", base(ctx));
-    const envMode = modeSlug(process.env.CF_MERGE_MODE, MERGE_MODES);
-    if (envMode) {
-      // A default only: a resumed session keeps the mode it last chose with /cf.
-      await callHook("pi", "UserPromptSubmit", { ...base(ctx), prompt: `/skill:cf-${envMode}`, cf_default: true });
-    }
+    const result = await callHook("pi", "SessionStart", { ...base(ctx), initial_mode: process.env.CF_MERGE_MODE });
+    startupContext = result.hookSpecificOutput?.additionalContext ?? "";
   });
   pi.on("input", async (event, ctx) => {
     const result = await callHook("pi", "UserPromptSubmit", { ...base(ctx), prompt: event.text });
@@ -41,7 +38,8 @@ export default function cfHooks(pi: ExtensionAPI) {
   pi.on("before_agent_start", async (event, ctx) => {
     const result = await callHook("pi", "UserPromptSubmit", base(ctx));
     const late = result.hookSpecificOutput?.additionalContext ?? "";
-    const context = inputContext && inputContext !== late ? `${inputContext}\n\n${late}` : late;
+    const context = [startupContext, inputContext !== late ? inputContext : "", late].filter(Boolean).join("\n\n");
+    startupContext = "";
     inputContext = "";
     return { systemPrompt: `${event.systemPrompt}\n\n${context}` };
   });
