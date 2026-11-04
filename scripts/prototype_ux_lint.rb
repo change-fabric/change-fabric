@@ -47,7 +47,7 @@ require 'fileutils'
 #
 # `data-ux-allow="<rule> ..."` on an element or ancestor opts it out of a rule.
 module PrototypeUxLint
-  VERSION = 2
+  VERSION = 3 # bump on any rule change so cached reports re-lint
   REPORT = 'ux-lint.json'
   SETTLE_FRAMES = 15 # also lint half a second after each click, once a toast has landed
   # Players draw a two-line cue in roughly the bottom tenth of the frame; the
