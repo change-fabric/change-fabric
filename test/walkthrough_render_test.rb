@@ -147,6 +147,15 @@ class WalkthroughRenderTest < Minitest::Test
     WalkthroughRender::Run.new(@root, **{ providers: providers, out: StringIO.new, gates: { roast: false } }.merge(opts)).call
   end
 
+  # A zoom with no focus still frames the scene, centred (issue #311).
+  def test_camera_zoom_without_focus_is_applied
+    b = JSON.parse(File.read(File.join(@root, "storyboard.json")))
+    b["scenes"][0]["camera"] = { "zoom" => 1.5 }
+    File.write(File.join(@root, "storyboard.json"), JSON.pretty_generate(b))
+    run_render
+    assert_includes @calls[:docker].map { |a| a.join(" ") }.join("\n"), "flags=lanczos,crop="
+  end
+
   def test_full_render_order_and_outputs
     result = run_render
     assert_equal %w[list detail hero], @calls[:capture], "from_scene dependency captured before its dependent"

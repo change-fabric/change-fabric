@@ -475,7 +475,7 @@ module WalkthroughRender
       { id: entry['id'], frames_dir: container(input[:dir]), frames: entry['frames'], start_frame: entry['start_frame'],
         transition: input[:scene].dig('timing', 'transition') || WalkthroughStoryboard::DEFAULT_TRANSITION,
         cursor: input[:cursor], taps: input[:taps], hero_still: input[:scene]['hero_still'] == true,
-        camera: input[:scene]['camera']&.key?('focus') ? input[:scene]['camera'] : nil,
+        camera: input[:scene]['camera'],
         audio: input[:audio] && container(input[:audio]), offset_ms: input[:offset_ms] }
     end
 
