@@ -46,10 +46,11 @@ Question: before anyone plans, have several genuinely different directions been 
 
 5. **Shortlist.** Pick two to four concepts for the cull and state in one line why each made it.
 
-6. **Cull.** Write `<plan_dir>/brainstorm-comparison.md` from `reference/comparison-doc.md`. Keep it generic: no client or customer names, since roast runs a sensitive-terms scan. Then:
+6. **Cull.** Write `<plan_dir>/brainstorm-comparison.md` from `reference/comparison-doc.md`. Keep it generic: no client or customer names, since roast runs a sensitive-terms scan. Write `<plan_dir>/brainstorm-brief.md` with the framing from step 2 and the ask: pick the one concept to plan and name the fatal flaw in each other. roast requires `--brief` on every call, the estimate included. Then:
 
    ```
-   ruby ~/.claude/cf/bin/roast.rb --text <plan_dir>/brainstorm-comparison.md --kind doc \
+   ruby ~/.claude/cf/bin/roast.rb --brief <plan_dir>/brainstorm-brief.md \
+     --text <plan_dir>/brainstorm-comparison.md --kind doc \
      --audience "the engineer who will plan this" --purpose "pick one concept to plan" \
      --out-dir <plan_dir>/roast --estimate-only
    ```
