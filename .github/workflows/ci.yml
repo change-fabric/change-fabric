@@ -28,6 +28,9 @@ jobs:
       - name: TypeScript smoke test
         if: ${{ !cancelled() }}
         run: npm run typecheck
+      - name: Native adapter contract tests
+        if: ${{ !cancelled() }}
+        run: npm run test:adapters
       - name: rake test
         if: ${{ !cancelled() }}
         run: bundle exec rake test

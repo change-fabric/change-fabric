@@ -9,12 +9,12 @@ class HostCapabilitiesTest < Minitest::Test
     report = HostCapabilities.new.resolve(host: "codex", surface: "cli", version: "codex-cli 999.0.0")
     assert_equal "unverified", report["version_status"]
     assert_equal "instructions-only", report["effective_support"]
-    assert_equal "documented", report.dig("capabilities", "tool_guard")
-    assert_equal "not-run", report["live_verification"]
+    assert_equal "adapter-tested", report.dig("capabilities", "tool_guard")
+    assert_equal "passed", report["live_verification"]
   end
 
   def test_reference_version_is_not_a_live_or_adapter_test
-    report = HostCapabilities.new.resolve(host: "codex", surface: "cli", version: "0.166.0")
+    report = HostCapabilities.new.resolve(host: "claude", surface: "cli", version: "2.1.318")
     assert_equal "reference-only", report["version_status"]
     assert_equal "instructions-only", report["effective_support"]
   end
