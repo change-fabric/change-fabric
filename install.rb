@@ -9,6 +9,7 @@ require 'yaml'
 require_relative 'scripts/skill_registry'
 require_relative 'scripts/merge_mode_slug'
 require_relative 'scripts/skill_compiler'
+require_relative 'scripts/native_hook_install'
 
 # Installs the cf merge-mode shim: hook scripts, the skill symlink, and the
 # settings.json wiring. Internals are namespaced so the file stays one unit.
@@ -42,6 +43,11 @@ module Install
       @xdg_config = xdg_config.to_s.empty? ? File.join(home, '.config') : xdg_config
     end
 
+    def runtime_root = File.join(@home, '.local', 'share', 'change-fabric')
+    def runtime_bin = File.join(runtime_root, 'bin')
+    def runtime_sources = File.join(runtime_root, 'source-skills')
+    def codex_hooks = File.join(@home, '.codex', 'hooks.json')
+    def copilot_hooks = File.join(@home, '.copilot', 'hooks', 'change-fabric.json')
     def scripts              = File.join(@repo, 'scripts')
     def skills_dir           = File.join(@repo, 'skills')
     def bin                  = File.join(@home, '.claude', 'cf', 'bin')
@@ -339,7 +345,7 @@ module Install
       @path = path
     end
 
-    def wire(skill_paths)
+    def wire(skill_paths, remove_paths: [])
       data = load
       skills = data['skills'].is_a?(Hash) ? data['skills'] : {}
       paths = Array(skills['paths'])
@@ -460,10 +466,10 @@ module Install
 
   class Installer
     HOOKS = {
-      'SessionStart' => %w[session_start.rb skill_detect.rb ctx_session_start.rb doctrine_digest.rb secret_alert_poll.rb],
-      'PreToolUse' => %w[merge_mode_guard.rb away_guard.rb client_name_guard.rb slop_remind.rb review_gate.rb noreply_guard.rb docker_doctrine_guard.rb change_merge_guard.rb change_tag_guard.rb change_stale_remind.rb presence_probe.rb],
-      'PostToolUse' => %w[merge_mode_record.rb skill_inject.rb secret_ack.rb change_post_merge_check.rb],
-      'UserPromptSubmit' => %w[merge_mode_restate.rb away_restate.rb prune_remind.rb mode_command.rb inbox_prompt_hook.rb],
+      'SessionStart' => %w[skill_detect.rb ctx_session_start.rb doctrine_digest.rb secret_alert_poll.rb],
+      'PreToolUse' => %w[client_name_guard.rb slop_remind.rb review_gate.rb noreply_guard.rb docker_doctrine_guard.rb change_merge_guard.rb change_tag_guard.rb change_stale_remind.rb presence_probe.rb],
+      'PostToolUse' => %w[skill_inject.rb secret_ack.rb change_post_merge_check.rb],
+      'UserPromptSubmit' => %w[prune_remind.rb inbox_prompt_hook.rb],
       'SessionEnd' => %w[telemetry_emit.rb inbox_session_end.rb],
       'Stop' => %w[skill_review.rb]
     }.freeze
@@ -477,6 +483,7 @@ module Install
       migrate_state_root
       migrate_merge_mode_slugs
       place_hooks
+      place_runtime
       pin_expected_home
       link_skills
       link_pi_extension
@@ -485,7 +492,9 @@ module Install
       mirror_to_opencode
       mirror_to_copilot
       mirror_to_codex
-      report(wire_settings)
+      settings = wire_settings
+      wire_native_hooks
+      report(settings)
     end
 
     private
@@ -646,8 +655,30 @@ module Install
       end
     end
 
+    def place_runtime
+      FileUtils.mkdir_p(@paths.runtime_bin)
+      @paths.scripts_glob.each do |source|
+        FileUtils.cp(source, File.join(@paths.runtime_bin, File.basename(source)))
+      end
+      config = File.join(@paths.runtime_root, 'config')
+      FileUtils.mkdir_p(config)
+      FileUtils.cp(File.join(File.dirname(@paths.skills_dir), 'config', 'host_capabilities.json'), config)
+      FileUtils.mkdir_p(@paths.runtime_sources)
+      @paths.skill_sources.each do |source|
+        dest = File.join(@paths.runtime_sources, File.basename(source))
+        FileUtils.mkdir_p(dest)
+        FileUtils.cp(File.join(source, 'SKILL.md'), dest)
+      end
+    end
+
+    def wire_native_hooks
+      [ [ 'claude', @paths.settings ], [ 'codex', @paths.codex_hooks ], [ 'copilot', @paths.copilot_hooks ] ].each do |host, path|
+        NativeHookInstall.new(path: path, host: host, ruby: @ruby, bin: @paths.runtime_bin, backup: host != 'claude').wire
+      end
+    end
+
     def wire_settings
-      settings = SettingsFile.new(@paths.settings, managed_dir: @paths.bin, legacy_dirs: [ @paths.legacy_bin ])
+      settings = SettingsFile.new(@paths.settings, managed_dir: @paths.bin, legacy_dirs: [ @paths.legacy_bin, @paths.runtime_bin ])
       settings.wire(commands)
       settings
     end
@@ -687,7 +718,10 @@ module Install
       puts "  opencode -> #{@paths.opencode_skills_root}"
       puts "  opencode hooks -> #{@paths.opencode_plugin_link}"
       puts "  copilot  -> #{@paths.copilot_skills_root}"
-      puts "  codex    -> #{@paths.codex_skills_root} (invoke with $cf-merge-ready or /skills; instructions only)"
+      puts "  codex    -> #{@paths.codex_skills_root} (invoke with $cf-merge-ready or /skills; review hooks with /hooks)"
+      puts "  runtime  -> #{@paths.runtime_bin} (state: ~/.local/state/change-fabric)"
+      puts "  codex hooks -> #{@paths.codex_hooks} (host trust/configuration still applies)"
+      puts "  copilot hooks -> #{@paths.copilot_hooks} (CLI only)"
       puts "  settings -> #{@paths.settings} (backup at #{settings.backup_path})"
     end
   end

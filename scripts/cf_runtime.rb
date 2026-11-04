@@ -64,22 +64,27 @@ class CfRuntime
     return 'merging a pull request' if name == 'pr.merge' && %w[local-only merge-ready].include?(state['mode'])
     return 'pushing changes' if name == 'git.push' && state['mode'] == 'local-only'
     return 'a direct push to the trunk' if name == 'git.push' && state['mode'] == 'merge-ready' && GuardedCommand::TRUNK.include?(push_target(input))
+    if name == 'question' && state['availability'] == 'away'
+      headers = Array(input['questions']).filter_map { |question| question['header'] if question.is_a?(Hash) }
+      return 'asking a routine question while away' if (headers & [ 'Remote delete', 'Untracked', 'Secret alert' ]).empty?
+    end
     return unless name == 'shell'
 
     command = input['command']
     raise ArgumentError, 'shell command must be a string' unless command.is_a?(String)
 
-    GuardedCommand.new(command, state['mode'], branch: current_branch).violation
+    workdir = input['workdir'].is_a?(String) ? File.expand_path(input['workdir'], @request['project']) : @request['project']
+    GuardedCommand.new(command, state['mode'], branch: current_branch(workdir)).violation
   end
 
   # A structured push without an explicit branch pushes the current one.
   def push_target(input)
     branch = input['branch']
-    branch.is_a?(String) && !branch.empty? ? branch : current_branch
+    branch.is_a?(String) && !branch.empty? ? branch : current_branch(@request['project'])
   end
 
-  def current_branch
-    branch, = Open3.capture2('git', '-C', @request['project'], 'branch', '--show-current', err: File::NULL)
+  def current_branch(dir)
+    branch, = Open3.capture2('git', '-C', dir, 'branch', '--show-current', err: File::NULL)
     branch.strip
   end
 

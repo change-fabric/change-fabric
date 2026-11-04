@@ -62,3 +62,42 @@ only until their native integration is verified. Adapter fixture tests and live
 model evidence must be recorded independently. No registry entry currently claims
 a successful live behavioral run. Native hook support is conditional on host
 configuration, trust, and execution-environment access.
+
+## Native adapters
+
+`cf_host_hook.rb` maps Claude/Codex PascalCase and Copilot camelCase payloads
+to the same runtime and returns each host's native context/deny shape. Explicit
+mode invocations persist before returning context; successful skill-tool loads
+also persist modes. Failed loads do not. Native subagent IDs bind child state to
+the parent. A missing session ID is an error rather than a shared cwd identity.
+Shell input aliases include Codex unified exec. Known GitHub PR tools map to
+structured actions. Other tools remain outside command-policy coverage.
+
+The installer wires Claude's mode adapter alongside its existing rubric/review
+hooks, writes Codex `hooks.json`, and writes a dedicated Copilot CLI hook file.
+Existing unrelated hooks survive. Codex hooks still require the host's feature,
+trust review, and environment access; CF never grants itself trust or changes
+sandbox permissions. Copilot command prompt hooks can persist a selection but
+cannot inject prompt context; startup and successful tool-result hooks provide
+context instead. Cloud/editor deployment requires its own configuration.
+
+Pi and OpenCode use the same bounded TypeScript client to invoke the native
+adapter. Runtime errors are explicit and policy checks reject on evaluation
+failure. Pi has a best-effort review follow-up, not a blocking Stop equivalent.
+OpenCode restores mode context through its system transform and compaction
+interfaces; those experimental APIs remain version-sensitive. Sessionless Pi
+runs use independent random IDs. Existing session files support resume.
+
+Automatic rubric matching reuses the registry and existing review queue with a
+host/project/session-derived opaque key. These legacy rubric/review queues still
+live under `.claude/cf`; mode and availability state are fully neutral. Moving
+all other CF subsystems' data is outside this migration. Hosted tools, arbitrary
+API calls, shell indirection, and host timeouts are not a security boundary.
+
+Sources checked on 2026-11-04:
+- https://learn.chatgpt.com/docs/hooks
+- https://learn.chatgpt.com/docs/build-skills
+- https://docs.github.com/en/copilot/reference/hooks-reference
+- https://code.claude.com/docs/en/hooks
+- https://docs.opencode.ai/docs/plugins/
+- Pi's installed `ExtensionAPI` declarations (npm lockfile version).
