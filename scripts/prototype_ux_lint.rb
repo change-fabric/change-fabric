@@ -39,7 +39,10 @@ require 'fileutils'
 #                      [data-cf-when] that does not list its scope's state.
 #   unplayable-media   a visible <video> or <audio> whose source the capture
 #                      browser cannot decode (MEDIA_ERR_SRC_NOT_SUPPORTED or no
-#                      usable <source>). The pinned Chromium has no H.264 or
+#                      usable <source>), checked whenever lint runs, so a
+#                      source still loading at scene start is caught at a
+#                      later lint frame. Audio is checked even without
+#                      controls. The pinned Chromium has no H.264 or
 #                      AAC, so serve a VP9/Opus or AV1 transcode for filming.
 #
 # `data-ux-allow="<rule> ..."` on an element or ancestor opts it out of a rule.
@@ -252,7 +255,7 @@ module PrototypeUxLint
       const unplayable = () => {
         const out = [];
         document.querySelectorAll('video, audio').forEach((el) => {
-          if (!visible(el) || allowed(el, 'unplayable-media')) return;
+          if ((el.tagName === 'VIDEO' && !visible(el)) || allowed(el, 'unplayable-media')) return;
           const bad = (el.error && el.error.code === 4) || el.networkState === 3;
           if (bad) out.push({ rule: 'unplayable-media', target: sel(el), detail: 'capture browser cannot play ' + (el.currentSrc || (el.querySelector('source') || {}).src || 'its source').slice(-60) + ' (open-source Chromium has no H.264/AAC; use VP9/Opus or AV1)' });
         });
