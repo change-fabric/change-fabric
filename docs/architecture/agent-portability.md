@@ -133,3 +133,22 @@ On 2026-11-04, Codex CLI 0.166.0 passed explicit `$cf-local-only` activation,
 model acknowledgement, and native hook persistence. No live behavior claim is
 made for the other four hosts or the other skills. Codex's `/cf:roast` remains
 unsupported syntax; use `$cf-roast` or the `/skills` picker.
+
+## Diagnostics and owned installation lifecycle
+
+`cf doctor --host HOST [--json]` reports native invocation, binary version,
+installed files, adapter configuration, runtime availability, state root,
+dependencies, and version/live evidence. It intentionally reports host discovery
+and adapter activation as not probed: reading files cannot prove either.
+A foreign `~/.local/bin/cf` is preserved; the repository entry point remains
+`ruby scripts/cf_cli.rb`. Runtime context supplies an explicit session-bound
+mode command for implicitly loaded mode skills, avoiding cwd-based guessing.
+
+The installer snapshots known output hashes and link targets in
+`~/.local/share/change-fabric/installation.json`. Dry-run uninstall lists the
+plan; `--apply` removes native/legacy CF hook entries and unchanged managed
+files only. User edits, foreign files, state, and backups remain. There is no
+recursive directory deletion. Parent-symlink replacement cannot redirect the
+manifest's ordinary removal checks outside HOME. External XDG locations are
+excluded from the home-scoped removal manifest and require explicit cleanup.
+Legacy Claude availability, as well as merge mode, remains a read-only fallback.

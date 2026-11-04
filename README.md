@@ -67,31 +67,49 @@ git clone https://github.com/change-fabric/change-fabric.git
 ruby change-fabric/install.rb
 ```
 
-Either path symlinks the skills into `~/.claude/skills`, wires the hooks into
+Either path generates host-specific skills, links Claude discovery entries into
+`~/.claude/skills`, and wires hooks into
 `~/.claude/settings.json` (backed up alongside it as `settings.json.bak`), and
 mirrors into `~/.pi` and `~/.config/opencode` when present. GitHub Copilot gets
 portable-named skill copies (`cf-x`) in `~/.copilot/skills`; skills only, no hooks. The installer needs
 Ruby 3.2 or newer (the bundled scripts use `Data`; CI runs 3.4), takes no
 input, and is idempotent.
 
-Codex gets managed skill copies in `~/.agents/skills`, with portable names
-such as `cf-merge-ready`. Invoke `$cf-merge-ready` or select it through
-`/skills`; Claude's `/cf:merge-ready` is not a Codex slash command. These
-copies include resources and translate command references. Mode skills have
-Codex-specific instructions, tracked in conversation and compaction summaries.
-The installer does not wire lifecycle hooks, persistent mode state, per-turn
-reminders, or command guards into Codex. Restart Codex if a new skill does not
-appear. Reinstalling refreshes generated copies and preserves user-owned skills.
-See the [Codex integration RCA](docs/rca/2026-11-03-codex-skills.md).
+Codex gets managed skills in `~/.agents/skills`. Invoke `$cf-roast`,
+`$cf-merge-ready`, etc., or select through `/skills`. **`/cf:roast` and other
+Claude slash names are not registered Codex commands.** Pi uses
+`/skill:cf-roast`; OpenCode and Copilot use their native skill interfaces.
 
-**Re-run the installer after every upgrade.** For a clone that is
-`ruby install.rb` after every `git pull`; for Homebrew it is
-`change-fabric-install` after every `brew upgrade change-fabric`. The skills are
-symlinks into wherever the source tree lives, so an upgrade that moves or
-replaces that tree leaves them dangling until you relink. Homebrew's version
-directories change on every upgrade, which makes this mandatory rather than
-tidy. The [tap's README](https://github.com/change-fabric/homebrew-cf) covers
-the Homebrew lifecycle, including uninstalling, in full.
+The installer also wires native Claude, Codex CLI, and Copilot CLI lifecycle
+adapters and the Pi/OpenCode extensions. Codex hooks must pass Codex's own trust
+review (`/hooks`) and feature configuration before they run. Installation does
+not grant trust or change permissions. Cloud/editor/desktop surfaces require
+separate verification; file presence does not establish active hooks.
+
+Merge mode and availability use a shared runtime under
+`~/.local/share/change-fabric/bin` with state at
+`~/.local/state/change-fabric`, isolated by host, project, and session. Legacy
+Claude mode state is read as a compatibility fallback. Other CF subsystem
+stores remain in their existing locations.
+
+**Re-run `ruby install.rb` after each clone update**, or
+`change-fabric-install` after a Homebrew upgrade. Generated skills refresh;
+source-linked host extensions still need the checkout to remain available.
+User-owned skill collisions survive. Codex may need a new session to refresh
+discovery and hook trust review after changed hook definitions.
+
+The installer adds `~/.local/bin/cf` when that name is unowned; add
+`~/.local/bin` to PATH if necessary. It preserves an existing foreign `cf`.
+From the checkout, diagnostics always work as:
+
+```sh
+ruby scripts/cf_cli.rb doctor --host codex
+ruby scripts/cf_cli.rb doctor --host codex --json
+```
+
+The report separates installed files, configured adapters, version evidence,
+and live-test scope. See [host compatibility](docs/agent-compatibility.md) and
+[the architecture](docs/architecture/agent-portability.md).
 
 ## Verify the install
 
@@ -104,8 +122,8 @@ grep -c '.claude/cf/bin' ~/.claude/settings.json  # wired hooks, expect > 0
 ```
 
 Then start a new `claude` session in any git repo. Before it answers anything,
-cf's SessionStart hook makes it ask you to pick a merge mode. That prompt is the
-end-to-end proof: the hooks are wired and firing. Hooks are read once at session
+CF's SessionStart adapter states the current merge mode. Use `/cf` to choose
+another mode. That context is the check that hooks are firing. Hooks are read once at session
 start, so a session that was already open when you installed will not show it.
 
 ## Troubleshooting

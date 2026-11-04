@@ -110,6 +110,16 @@ class CfState
     "#{@host}-#{Digest::SHA256.hexdigest(id)[0, 32]}" if %w[pi opencode].include?(@host)
   end
 
+  def legacy_availability(id)
+    return unless @host == 'claude' && id.match?(/\A[\w-]+\z/)
+
+    file = File.join(@home, '.claude', 'cf', 'sessions', id, 'away')
+    return unless File.file?(file)
+
+    value = File.read(file).strip
+    value if %w[away active].include?(value)
+  end
+
   def write(data)
     Tempfile.create([ '.session-', '.json' ], directory) do |file|
       file.chmod(0o600)
