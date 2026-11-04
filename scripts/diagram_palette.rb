@@ -60,10 +60,12 @@ module DiagramPalette
     [ configured, "tokens.css" ].map { |p| File.expand_path(p, repo) }.find { |p| File.file?(p) }
   end
 
-  def resolve(path)
+  # `css` overrides the file's text, for a caller that has already expanded
+  # its local @imports, so imported declarations reach the roles too.
+  def resolve(path, css: nil)
     raise Error, "cannot read tokens #{path}" unless path && File.file?(path)
 
-    css = strip_comments(File.read(path))
+    css = strip_comments(css || File.read(path))
     light_vars = declarations(root_block(css))
     dark_vars = light_vars.merge(declarations(dark_block(css)))
     light = roles(light_vars, :light)

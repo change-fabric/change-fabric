@@ -366,13 +366,17 @@ module ImagePlate
     def style_css
       vars = ":root{--cf-ink:#{colors['--ink']};--cf-muted:#{colors['--muted']};--cf-accent:#{colors['--accent']};" \
              "--cf-on-accent:#{colors['--surface'] || colors['--bg']}}"
-      tokens_path ? "#{PrototypeCapture.inline_css(tokens_path)}\n#{vars}" : vars
+      tokens_path ? "#{tokens_css}\n#{vars}" : vars
     end
+
+    # tokens.css with its local @imports and url() assets inlined, read once
+    # so the overlay colors and the stylesheet see the same declarations.
+    def tokens_css = @tokens_css ||= PrototypeCapture.inline_css(tokens_path)
 
     def resolve_colors
       return FALLBACK_COLORS unless tokens_path
 
-      DiagramPalette.resolve(tokens_path).light
+      DiagramPalette.resolve(tokens_path, css: tokens_css).light
     rescue DiagramPalette::Error
       FALLBACK_COLORS
     end

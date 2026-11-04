@@ -215,6 +215,25 @@ class ImagePlateTest < Minitest::Test
     assert_includes js, "object-position:70.0% 45.0%"
   end
 
+  def test_overlay_colors_follow_imported_token_declarations
+    variants = {
+      "top level" => { "tokens.css" => ":root{--bg:#fff;--ink:#111;--accent:#006600}" },
+      "quoted import" => { "tokens.css" => %(@import "pal.css";), "pal.css" => ":root{--bg:#fff;--ink:#111;--accent:#006600}" },
+      "url import" => { "tokens.css" => %(@import url(pal.css);), "pal.css" => ":root{--bg:#fff;--ink:#111;--accent:#006600}" },
+      "nested import" => { "tokens.css" => %(@import "a.css";), "a.css" => %(@import "pal.css";),
+                           "pal.css" => ":root{--bg:#fff;--ink:#111;--accent:#006600}" },
+      "import beside local" => { "tokens.css" => %(@import "pal.css";\n:root{--ink:#111}), "pal.css" => ":root{--bg:#fff;--accent:#006600}" }
+    }
+    variants.each do |name, files|
+      Dir.glob(File.join(@repo, "*.css")).each { |f| File.delete(f) }
+      @cache = File.join(@dir, "cache-#{name.tr(" ", "-")}")
+      files.each { |f, body| File.write(File.join(@repo, f), body) }
+      session = FakeSession.new
+      assert_equal 0, cli(write_spec(spec_hash), session: session), name
+      assert_includes session.modules.first, "--cf-accent:#006600", "#{name}: imported accent not honored"
+    end
+  end
+
   def test_plate_prompt_holds_zone_clear
     prompt = run_for(spec_hash).plate_prompt(:landscape)
     assert_includes prompt, "No text, letters, logos, or watermarks"
