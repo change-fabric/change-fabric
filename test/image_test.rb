@@ -164,4 +164,19 @@ class ImageTest < Minitest::Test
     assert_equal 2, code
     assert_includes text, "--spec"
   end
+
+  def test_heavy_rejects_image_inputs_before_any_call
+    called = false
+    original = ImagePlate::Cli.method(:run)
+    ImagePlate::Cli.define_singleton_method(:run) { |_opts, out:| called = true; 0 }
+    [ %w[--ref r.png], %w[--edit e.png], %w[--edit e.png --mask m.png] ].each do |extra|
+      code, text, http = run_cli("a banner", "--spec", "copy.json", *extra)
+      assert_equal 2, code, extra.inspect
+      assert_includes text, extra.first
+      assert_empty http.requests
+    end
+    refute called
+  ensure
+    ImagePlate::Cli.define_singleton_method(:run, original)
+  end
 end

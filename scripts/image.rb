@@ -30,6 +30,7 @@ module Image
       opts = parse(argv.dup)
       text = ImageTextMode.classify(prompt: opts[:prompt], spec: opts[:spec], mode: opts[:mode])
       text.warnings.each { |w| err.puts("warning: #{w}") }
+      reject_heavy_inputs!(opts) if text.mode == :heavy
       WalkthroughEnv.load_secrets
       return ImagePlate::Cli.run(opts, out: out) if text.mode == :heavy
 
@@ -79,6 +80,13 @@ module Image
 
       "#{prompt} Render exactly the text \"#{run}\" once, large, bold, high contrast, " \
         'centered in clear space, spelled exactly, no other text.'
+    end
+
+    # Heavy mode generates its own textless plates, so a supplied image would
+    # be silently dropped; refuse before any paid call instead.
+    def reject_heavy_inputs!(opts)
+      given = { '--ref' => opts[:refs].any?, '--edit' => opts[:edit], '--mask' => opts[:mask] }.select { |_, v| v }.keys
+      raise UsageError, "heavy text does not take #{given.join(', ')}" unless given.empty?
     end
 
     def validate!(opts)
