@@ -59,7 +59,7 @@ Question: before anyone plans, have several genuinely different directions been 
 
 7. **Pick.** AskUserQuestion with the shortlisted concepts as options, the roast's leading concept first and marked recommended, each option carrying its one-line tradeoff. Ask a follow-up only for a contested call the roast raised. Under away mode take the recommended concept and report the assumption.
 
-8. **Land.** Write `<plan_dir>/brainstorm.md` from `reference/brainstorm-template.md`. Write the seeded goal as one or two sentences naming the chosen concept. Record a ctx pointer `brainstorm-<slug>` (class active) through cf:ctx pointing at the brainstorm.md tilde path. Print the handoff line, fenced, paste-ready:
+8. **Land.** Write `<plan_dir>/brainstorm.md` from `reference/brainstorm-template.md`. Write the seeded goal as one or two sentences naming the chosen concept. Record a ctx pointer `brainstorm-<slug>` (class active) through cf:ctx pointing at the brainstorm.md tilde path. Print the handoff line, fenced, paste-ready. cf:plan takes its slug from the seed's parent directory, so the plan lands beside brainstorm.md even when the seeded goal or a custom `--slug` would derive a different one:
 
    ```
    /cf:plan <seeded goal> --area <area> --seed <tilde path to brainstorm.md>

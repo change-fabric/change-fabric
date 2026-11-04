@@ -64,8 +64,11 @@ fresh session that will execute the plan.
 
 ## Workflow
 
-1. **Resolve the destination.** Derive a 2 to 5 word kebab slug from the goal.
-   Then run:
+1. **Resolve the destination.** Derive a 2 to 5 word kebab slug from the goal,
+   except when `--seed` names a file called `brainstorm.md`: then the slug is
+   the name of the seed's parent directory, and the area (unless `--area` was
+   given) is the name of that directory's parent, so the plan extends the
+   brainstorm's own directory. Then run:
 
    ```bash
    ruby ~/.claude/cf/bin/plan_paths.rb resolve --slug <slug> [--area <area>]
