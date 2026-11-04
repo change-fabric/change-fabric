@@ -95,11 +95,14 @@ module ImagePlate
       parsed
     end
 
+    SAFE_NAME = /\A[A-Za-z0-9._-]+\z/
+
     def parse_size(size, index)
       raise SpecError, "spec sizes[#{index}] must be an object" unless size.is_a?(Hash)
 
       name = size['name']
       raise SpecError, "spec sizes[#{index}].name must be a non-empty string" unless name.is_a?(String) && !name.empty?
+      raise SpecError, "spec size name #{name.inspect} must be a plain filename (letters, digits, dot, dash, underscore)" unless SAFE_NAME.match?(name) && !%w[. ..].include?(name)
 
       %w[width height].each do |k|
         raise SpecError, "spec size #{name} #{k} must be a positive integer" unless size[k].is_a?(Integer) && size[k].positive?

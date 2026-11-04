@@ -92,6 +92,14 @@ class ImagePlateTest < Minitest::Test
     assert_spec_error(spec_hash(sizes: [ s, s ]), /a is not unique/)
   end
 
+  def test_size_name_that_escapes_out_dir_exits_2
+    [ "../existing", "a/b", "/abs", "..", ".", "a\\b", "x y" ].each do |bad|
+      @out = StringIO.new
+      sizes = [ { "name" => bad, "width" => 100, "height" => 50, "zone" => { "x" => 0, "y" => 0, "w" => 1, "h" => 1 } } ]
+      assert_spec_error(spec_hash(sizes: sizes), /plain filename/)
+    end
+  end
+
   def test_malformed_json_exits_2
     path = File.join(@dir, "bad.json").tap { |p| File.write(p, "{nope") }
     assert_equal 2, cli(path)
