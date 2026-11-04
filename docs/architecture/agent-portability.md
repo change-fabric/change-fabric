@@ -59,8 +59,9 @@ Reference versions identify locally observed binaries, not successful model runs
 support. Missing or unknown versions remain unverified; unknown surfaces cannot
 inherit CLI hooks. Desktop, cloud, editor, and RPC profiles start as instructions
 only until their native integration is verified. Adapter fixture tests and live
-model evidence must be recorded independently. No registry entry currently claims
-a successful live behavioral run. Native hook support is conditional on host
+model evidence must be recorded independently. Codex CLI 0.166.0 has live evidence
+for explicit local-only activation, acknowledgement, and persistence; this does
+not establish every skill or another version. Native hook support is conditional on host
 configuration, trust, and execution-environment access.
 
 ## Native adapters
