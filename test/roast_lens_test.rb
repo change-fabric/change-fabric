@@ -67,6 +67,19 @@ class RoastLensTest < Minitest::Test
     assert_equal %w[cf:refactoring cf:terraform], RoastLens.suggest([ [ "change.diff", diff ] ])
   end
 
+  def test_suggest_reads_both_sides_of_each_diff_kind
+    variants = {
+      "deleted" => "--- a/infra/main.tf\n+++ /dev/null\n",
+      "added" => "--- /dev/null\n+++ b/infra/main.tf\n",
+      "modified" => "--- a/infra/main.tf\n+++ b/infra/main.tf\n",
+      "renamed away" => "--- a/infra/main.tf\n+++ b/infra/old.txt\n"
+    }
+    variants.each do |label, headers|
+      diff = "diff --git a/infra/main.tf b/infra/main.tf\n#{headers}@@ -1 +0,0 @@\n"
+      assert_equal [ "cf:terraform" ], RoastLens.suggest([ [ "change.diff", diff ] ]), label
+    end
+  end
+
   def test_infer_reads_cli_only_kinds
     diff = "diff --git a/app/x.rb b/app/x.rb\n+++ b/app/x.rb\n@@ -1,2 +1,3 @@\n+# Summary\n"
     assert_equal "code", RoastKind.infer(texts: [ [ "change.txt", diff ] ]).kind

@@ -4,14 +4,15 @@ require 'yaml'
 require_relative 'skill_registry'
 
 # Rubric lenses for cf:roast. Ruby routes, a haiku agent in the skill culls:
-# `suggest` maps input paths (and a diff's +++ b/ paths) to candidate rubric
+# `suggest` maps input paths (and a diff's --- a/ and +++ b/ paths) to candidate rubric
 # skills; `resolve` turns explicit --lens names into Lens pairs.
 module RoastLens
   Lens = Struct.new(:name, :body)
 
   class UnknownLens < StandardError; end
 
-  DIFF_PATH = %r{^\+\+\+ b/(\S+)}
+  # Both sides: a deletion's +++ is /dev/null, an addition's --- is.
+  DIFF_PATH = %r{^(?:\+\+\+ b|--- a)/(\S+)}
 
   module_function
 
