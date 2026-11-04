@@ -451,9 +451,14 @@ module WalkthroughRender
     def content_key(draft_keys) = WalkthroughCache.key([ draft_keys, live_digest, *camera_material ])
 
     # Empty when no scene has a camera, so keys for camera-less boards are
-    # unchanged.
+    # unchanged. A zoom with no focus was once dropped at assembly; its tag
+    # moves those keys so a render cached before centred framing is redone,
+    # while focused cameras keep their keys.
     def camera_material
-      cams = scenes.filter_map { |s| s['camera'] && [ s['id'], s['camera'] ] }
+      cams = scenes.filter_map do |s|
+        cam = s['camera'] or next
+        cam.key?('focus') ? [ s['id'], cam ] : [ s['id'], cam, 'centred-zoom' ]
+      end
       cams.empty? ? [] : [ cams ]
     end
 
