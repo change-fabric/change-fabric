@@ -22,6 +22,13 @@ module RoastKind
 
   VIDEO_KINDS = ChangeSchema::VIDEO_REVIEW_KINDS
   TEXT_KINDS = %w[email doc pr post].freeze
+  # CLI-only kinds: --kind and inference accept them, CHANGE.md does not yet.
+  CLI_KINDS = %w[arch code infra].freeze
+  CODE_STRONG = /^diff --git |^@@ -\d+(?:,\d+)? \+\d+/
+  CODE_EXTS = %w[.diff .patch].freeze
+  INFRA_STRONG = /^\s*(?:resource|module|provider|terraform)\s+"?[\w-]+"?\s*(?:"[\w-]+"\s*)?\{|AWSTemplateFormatVersion/
+  INFRA_EXTS = %w[.tf .tfvars .hcl].freeze
+  ARCH_WEAK = /^\#{1,3}\s*(?:architecture|components|data flow|failure modes|scalability|reliability)\b/i
   PROMO_CUES = /\b(get started|sign up|start (?:your )?free|try it (?:free|today)|book a demo|download|install|buy|subscribe|pricing)\b/i
   DEMO_CUES = /\b(click|tap|type|press|drag|select|watch it|running|live)\b/i
   EMAIL_HEADER = /\A\s*(?:subject|to|from|cc|date):/i
@@ -80,6 +87,9 @@ module RoastKind
   end
 
   def strong_kinds(path, text)
+    exclusive = exclusive_kind(path, text)
+    return [ exclusive ] if exclusive
+
     found = []
     found << 'email' if File.extname(path.to_s).casecmp('.eml').zero? || text.match?(EMAIL_HEADER)
     found << 'pr' if text.match?(PR_STRONG)
@@ -87,8 +97,19 @@ module RoastKind
     found
   end
 
+  # code or infra, alone, so a diff never also reads as a pr. A diff wins over
+  # infra: the artifact is the diff, and a rubric lens covers what it touches.
+  def exclusive_kind(path, text)
+    ext = File.extname(path.to_s).downcase
+    return 'code' if CODE_EXTS.include?(ext) || text.match?(CODE_STRONG)
+    return 'infra' if INFRA_EXTS.include?(ext) || File.basename(path.to_s) == 'cdk.json' || text.match?(INFRA_STRONG)
+
+    nil
+  end
+
   def weak_kinds(text)
     found = []
+    found << 'arch' if text.match?(ARCH_WEAK)
     found << 'email' if text.match?(EMAIL_GREETING)
     found << 'pr' if text.match?(PR_WEAK)
     found << 'doc' if text.match?(DOC_WEAK) && found.empty?

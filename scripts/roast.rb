@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'base64'
+require 'digest'
 require 'fileutils'
 require 'json'
 require 'net/http'
@@ -9,6 +10,7 @@ require 'optparse'
 require 'uri'
 require_relative 'design_config'
 require_relative 'roast_kind'
+require_relative 'roast_lens'
 require_relative 'sensitive_terms'
 require_relative 'walkthrough_cache'
 require_relative 'walkthrough_env'
@@ -41,15 +43,20 @@ module Roast
   MIME = { '.png' => 'image/png', '.jpg' => 'image/jpeg', '.jpeg' => 'image/jpeg', '.webp' => 'image/webp' }.freeze
   USAGE = 'usage: roast.rb --brief FILE (--shot IMG... | --text FILE...) [--allow-sensitive] [--history DIR] [--out-dir DIR] [--round N] ' \
           '[--max-usd N] [--model NAME] [--cache DIR] [--transcript FILE] [--estimate-only] ' \
-          '[--storyboard FILE] [--kind explainer|promo|demo|email|doc|pr|post] [--audience TEXT] [--purpose OUTCOME]... | roast.rb --video MP4 --brief FILE [...] | roast.rb infer [--storyboard FILE] [--text FILE]... | roast.rb decide --out-dir DIR [--target N] [--cap N] | roast.rb settings [--repo DIR]; ' \
+          '[--storyboard FILE] [--kind explainer|promo|demo|email|doc|pr|post|arch|code|infra] [--audience TEXT] [--purpose OUTCOME]... [--lens NAME]... | roast.rb --video MP4 --brief FILE [...] | roast.rb infer [--storyboard FILE] [--text FILE]... | roast.rb decide --out-dir DIR [--target N] [--cap N] | roast.rb settings [--repo DIR]; ' \
           'flags win over the storyboard review object, which wins over change_config.design.roast in CHANGE.md (--repo DIR, default the working directory)'
 
-  KINDS = ChangeSchema::REVIEW_KINDS
+  # arch, code and infra are CLI-only: CHANGE.md still validates against
+  # ChangeSchema::REVIEW_KINDS and rejects them until a spec release adds them.
+  CLI_KINDS = RoastKind::CLI_KINDS
+  KINDS = ChangeSchema::REVIEW_KINDS + CLI_KINDS
 
   SYSTEM_PROMPT = <<~TEXT
-    You are a harsh, specific critic of a UX, a narrated walkthrough, or a piece of writing (an email,
-    a doc, a PR description, a post). Roast it: no praise padding, no vague taste talk. Every issue
-    names where it is (the screen or scene for visuals, a quoted phrase or paragraph number for text),
+    You are a harsh, specific critic of a UX, a narrated walkthrough, a piece of writing (an email,
+    a doc, a PR description, a post), a production architecture, a code diff, or infrastructure code.
+    Roast it: no praise padding, no vague taste talk. Every issue names where it is (the screen or
+    scene for visuals, a quoted phrase or paragraph number for text, file:line for a diff or infra
+    code, a component name for an architecture),
     the concrete problem the stated audience would hit, and a concrete fix the author can apply. Prioritize: P0 blocks the audience from the stated
     purpose, P1 badly hurts clarity or trust, P2 is polish.
 
@@ -76,6 +83,14 @@ module Roast
     concrete and checkable. pr: does the title and opening say what changed and why, is the test plan
     something a reviewer can run, and are risks and follow-ups named. post: does the first line earn the
     read, is there one clear point and one next step, and is the tone right for the audience and venue.
+    arch: judge reliability (single points of failure, failure modes, recovery), scalability
+    (bottlenecks, state, limits), and maintainability (coupling, ownership, operability); P0 is a
+    design that loses data or cannot meet the stated load. code: judge the diff for correctness risk
+    and code smells; cite file:line from the hunk; P0 is a bug or a data or security hazard. infra:
+    judge Terraform or AWS config for safety of change (destroy or replace, state), security (IAM,
+    exposure, encryption), cost, and reliability; P0 is an outage, data loss, or exposure.
+    When the message carries a Lenses block, apply each lens as an extra rubric alongside the kind, and
+    name the lens (for example cf:terraform) at the start of the problem for any issue it raised.
     For text, the purpose outcomes are what the reader must be able to state or do after reading.
 
     Production facts you cannot see. The frames are sampled keyframes, not the full video, so do not
@@ -187,38 +202,45 @@ module Roast
 
   # `transcript` is optional narration and caption text the critic reads next to
   # the frames; it joins the key only when present, so frame-only keys are stable.
-  def request_key(brief:, shots:, history:, round:, texts: [], transcript: nil, review: nil, model: MODEL)
+  def request_key(brief:, shots:, history:, round:, texts: [], transcript: nil, review: nil, lenses: [], model: MODEL)
     WalkthroughCache.key({ model: model, brief: brief, round: round, history: history,
                            shots: shots.map { |s| Digest::SHA256.file(s).hexdigest } }
                            .merge(texts.empty? ? {} : { texts: texts.map { |t| Digest::SHA256.file(t).hexdigest } })
-                           .merge(transcript ? { transcript: transcript } : {}).merge(review ? { review: review } : {}))
+                           .merge(transcript ? { transcript: transcript } : {}).merge(review ? { review: review } : {})
+                           .merge(lenses.empty? ? {} : { lenses: lenses.map { |l| [ l.name, Digest::SHA256.hexdigest(l.body) ] } }))
   end
 
-  def estimate(brief:, shots:, history:, texts: [], transcript: nil, review: nil)
-    chars = SYSTEM_PROMPT.size + texts.sum { |t| File.size(t) } + brief.size + JSON.generate(history).size + transcript.to_s.size + review_text(review).to_s.size
+  def estimate(brief:, shots:, history:, texts: [], transcript: nil, review: nil, lenses: [])
+    chars = lenses.sum { |l| l.name.size + l.body.size } + SYSTEM_PROMPT.size + texts.sum { |t| File.size(t) } + brief.size + JSON.generate(history).size + transcript.to_s.size + review_text(review).to_s.size
     input = (chars / 4) + (shots.size * IMAGE_TOKENS)
     usd = ((input * PRICE_PER_MTOK[:input]) + (MAX_OUTPUT_TOKENS * PRICE_PER_MTOK[:output])) / 1_000_000.0
     { usd: usd.round(2), tokens: input }
   end
 
-  def user_text(brief, history, round, shots, texts: [], transcript: nil, review: nil)
+  def user_text(brief, history, round, shots, texts: [], transcript: nil, review: nil, lenses: [])
     past = history.map do |h|
       "Round #{h[:round]} critic:\n#{JSON.pretty_generate(h[:critic])}\n" \
         "Round #{h[:round]} author response:\n#{h[:response] ? JSON.pretty_generate(h[:response]) : '(none recorded)'}"
     end
-    [ "Round #{round}.", review_text(review), "Brief:\n#{brief}",
+    [ "Round #{round}.", review_text(review), lens_text(lenses), "Brief:\n#{brief}",
      (shots.empty? ? nil : "Screens, in order: #{shots.map { |s| File.basename(s) }.join(', ')}"),
      *texts.each_with_index.map { |t, i| "Text under review (#{i + 1} of #{texts.size}, #{File.basename(t)}):\n#{File.read(t).strip}" },
      (transcript ? "Narration transcript and captions:\n#{transcript}" : nil),
      (past.empty? ? 'No earlier rounds.' : "Earlier rounds:\n#{past.join("\n\n")}") ].compact.join("\n\n")
   end
 
+  def lens_text(lenses)
+    return nil if lenses.empty?
+
+    "Lenses:\n#{lenses.map { |l| "Lens #{l.name}:\n#{l.body}" }.join("\n\n")}"
+  end
+
   # The pure request description: the URL and the JSON body, no auth or cache key.
-  def build_request(brief:, shots:, history:, round:, texts: [], transcript: nil, review: nil, model: MODEL)
+  def build_request(brief:, shots:, history:, round:, texts: [], transcript: nil, review: nil, lenses: [], model: MODEL)
     images = shots.map do |s|
       { type: 'input_image', image_url: "data:#{mime_for(s)};base64,#{Base64.strict_encode64(File.binread(s))}" }
     end
-    text = { type: 'input_text', text: user_text(brief, history, round, shots, texts: texts, transcript: transcript, review: review) }
+    text = { type: 'input_text', text: user_text(brief, history, round, shots, texts: texts, transcript: transcript, review: review, lenses: lenses) }
     { url: RESPONSES_URL,
       body: { model: model, max_output_tokens: MAX_OUTPUT_TOKENS,
               input: [ { role: 'system', content: SYSTEM_PROMPT }, { role: 'user', content: [ text, *images ] } ],
@@ -286,11 +308,11 @@ module Roast
   end
 
   # Returns the cached critic JSON, making the paid call only on a miss.
-  def critique(brief:, shots:, history:, round:, cache_root:, texts: [], transcript: nil, review: nil, http: nil, model: MODEL, allow_sensitive: false)
-    check_sensitive!(brief: brief, texts: texts, transcript: transcript, review: review, history: history, allow: allow_sensitive)
-    key = request_key(brief: brief, shots: shots, history: history, round: round, texts: texts, transcript: transcript, review: review, model: model)
+  def critique(brief:, shots:, history:, round:, cache_root:, texts: [], transcript: nil, review: nil, lenses: [], http: nil, model: MODEL, allow_sensitive: false)
+    check_sensitive!(brief: brief, texts: texts, transcript: transcript, review: review, lenses: lenses, history: history, allow: allow_sensitive)
+    key = request_key(brief: brief, shots: shots, history: history, round: round, texts: texts, transcript: transcript, review: review, lenses: lenses, model: model)
     path = WalkthroughCache.fetch(*cache_args(cache_root, key)) do |tmp|
-      request = build_request(brief: brief, shots: shots, history: history, round: round, texts: texts, transcript: transcript, review: review, model: model)
+      request = build_request(brief: brief, shots: shots, history: history, round: round, texts: texts, transcript: transcript, review: review, lenses: lenses, model: model)
       File.write(tmp, JSON.generate(parse_critic(post(request, http))))
     end
     JSON.parse(File.read(path))
@@ -299,20 +321,21 @@ module Roast
   # Refuses before any paid call when the brief, text inputs, transcript, or the
   # rendered review text, or prior-round history matches the user's sensitive-terms list. Names only the
   # count, never a term. Shared by Cli.critique and every direct caller.
-  def check_sensitive!(brief:, texts: [], transcript: nil, review: nil, history: [], allow: false)
+  def check_sensitive!(brief:, texts: [], transcript: nil, review: nil, lenses: [], history: [], allow: false)
     return if allow
 
     bodies = [ brief, *Array(texts).map { |f| File.read(f) }, transcript, review_text(review),
+               *lenses.map { |l| "lens #{l.name}\n#{l.body}" },
                (history.empty? ? nil : JSON.generate(history)) ].compact
     hits = SensitiveTerms.matched(bodies, SensitiveTerms.load)
     return if hits.empty?
 
-    raise SensitiveError, "roast refused: #{hits.size} sensitive term(s) matched in the brief, text inputs, transcript, review contract, or prior rounds; pass --allow-sensitive to send anyway"
+    raise SensitiveError, "roast refused: #{hits.size} sensitive term(s) matched in the brief, text inputs, transcript, review contract, lenses, or prior rounds; pass --allow-sensitive to send anyway"
   end
 
   # USD one round will cost: nothing when cached, else the token estimate.
   def round_usd(cache_root, **inputs)
-    cached?(cache_root, **inputs) ? 0.0 : estimate(**inputs.slice(:brief, :shots, :history, :texts, :transcript, :review))[:usd]
+    cached?(cache_root, **inputs) ? 0.0 : estimate(**inputs.slice(:brief, :shots, :history, :texts, :transcript, :review, :lenses))[:usd]
   end
 
   def cached?(cache_root, **inputs)
@@ -365,6 +388,8 @@ module Roast
     def run(argv, out: $stdout, http: nil)
       args = argv.dup
       if args.include?('--video')
+        raise UsageError, 'lenses apply to stills and text only, not --video' if args.include?('--lens')
+
         require_relative 'roast_video'
         return RoastVideo::Cli.run(args, out: out, http: http)
       end
@@ -385,7 +410,7 @@ module Roast
       WalkthroughEnv.load_secrets
       critique(opts, out, http)
       0
-    rescue UsageError, OptionParser::ParseError => e
+    rescue UsageError, OptionParser::ParseError, RoastLens::UnknownLens => e
       out.puts("error: #{e.message}", USAGE)
       2
     rescue RoastKind::Ambiguous => e
@@ -422,7 +447,7 @@ module Roast
 
     def parse(args)
       repo = repo_arg(args)
-      opts = { shots: [], texts: [], max_usd: DEFAULT_CEILING_USD, cache: '.cache', out_dir: DEFAULT_OUT_DIR, model: MODEL, flags: { purpose: [] } }
+      opts = { shots: [], texts: [], max_usd: DEFAULT_CEILING_USD, cache: '.cache', out_dir: DEFAULT_OUT_DIR, model: MODEL, flags: { purpose: [] }, lens_names: [] }
              .merge(configured(repo).slice(:max_usd, :model).merge(config_review: configured(repo).slice(:kind, :audience)))
       OptionParser.new do |o|
         o.on('--model NAME') { |v| opts[:model] = v }
@@ -441,12 +466,13 @@ module Roast
         o.on('--kind KIND') { |v| opts[:flags][:kind] = v }
         o.on('--audience TEXT') { |v| opts[:flags][:audience] = v }
         o.on('--purpose OUTCOME') { |v| opts[:flags][:purpose] << v }
+        o.on('--lens NAME') { |v| opts[:lens_names] << v }
       end.parse!(args)
       opts[:shots] += args
       raise UsageError, '--brief is required' unless opts[:brief_file]
       raise UsageError, 'give at least one --shot or --text' if opts[:shots].empty? && opts[:texts].empty?
 
-      opts
+      opts.merge(lenses: RoastLens.resolve(opts[:lens_names]))
     end
 
     def parse_infer(args)
@@ -463,9 +489,19 @@ module Roast
     # Prints the inferred kind and confidence (exit 0), or raises Ambiguous (exit 3).
     def infer(opts, out)
       [ opts[:storyboard_file], *opts[:texts] ].compact.each { |f| raise Errno::ENOENT, f unless File.file?(f) }
+      suggest_lenses(opts[:texts], [], out)
       found = RoastKind.infer(storyboard: board_for(opts), texts: opts[:texts].map { |t| [ t, File.read(t) ] })
       out.puts("roast kind: #{found.kind} (confidence #{found.confidence}): #{found.reason}")
       0
+    end
+
+    # Prints rubric lenses the inputs' paths match, minus those applied; never applies one.
+    # Runs before kind inference so an ambiguous kind (exit 3) still reports them.
+    def suggest_lenses(texts, applied, out)
+      return if texts.empty?
+
+      names = RoastLens.suggest(texts.map { |t| [ t, File.read(t) ] }) - applied.map(&:name)
+      out.puts("roast lenses suggested: #{names.join(', ')} (pass --lens)") unless names.empty?
     end
 
     def parse_decide(args)
@@ -503,8 +539,9 @@ module Roast
     def critique(opts, out, http)
       [ opts[:brief_file], opts[:transcript_file], opts[:storyboard_file], *opts[:shots], *opts[:texts] ].compact.each { |f| raise Errno::ENOENT, f unless File.file?(f) }
       opts[:shots].each { |s| Roast.mime_for(s) }
+      suggest_lenses(opts[:texts], opts[:lenses] || [], out)
       inputs = inputs_for(opts, out)
-      Roast.check_sensitive!(**inputs.slice(:brief, :texts, :transcript, :review, :history), allow: opts[:allow_sensitive])
+      Roast.check_sensitive!(**inputs.slice(:brief, :texts, :transcript, :review, :lenses, :history), allow: opts[:allow_sensitive])
       usd = announce(inputs, opts, out)
       raise CeilingError, "$#{format('%.2f', usd)} would pass the $#{format('%.2f', opts[:max_usd])} ceiling" if usd > opts[:max_usd] + 1e-9
       return if opts[:estimate_only]
@@ -519,7 +556,7 @@ module Roast
         history: Roast.load_history(opts[:history] || opts[:out_dir]),
         round: opts[:round] || Roast.next_round(opts[:out_dir]),
         transcript: opts[:transcript_file] && File.read(opts[:transcript_file]).strip, review: review_for(opts, out),
-        model: opts[:model] }
+        lenses: opts[:lenses] || [], model: opts[:model] }
     end
 
     # The review contract; when no source names a kind, infers one from the
@@ -545,13 +582,18 @@ module Roast
     # Prints the estimate before any paid call and returns the USD it will cost.
     def announce(inputs, opts, out)
       usd = Roast.round_usd(opts[:cache], **inputs)
-      call = usd.zero? ? '1 call (cached)' : estimate_line(inputs, Roast.estimate(**inputs.slice(:brief, :shots, :history, :texts, :transcript, :review)))
+      call = usd.zero? ? '1 call (cached)' : estimate_line(inputs, Roast.estimate(**inputs.slice(:brief, :shots, :history, :texts, :transcript, :review, :lenses)))
       out.puts("roast estimate: #{call}, $#{format('%.2f', usd)} to spend")
       usd
     end
 
+    def lens_count(inputs)
+      n = Array(inputs[:lenses]).size
+      n.positive? ? ", #{n} lens(es)" : ''
+    end
+
     def estimate_line(inputs, est)
-      "1 call, #{inputs[:shots].size} image(s), #{inputs[:texts].size} text(s), about #{est[:tokens]} tokens in, up to #{MAX_OUTPUT_TOKENS} out, about $#{format('%.2f', est[:usd])}"
+      "1 call, #{inputs[:shots].size} image(s), #{inputs[:texts].size} text(s)#{lens_count(inputs)}, about #{est[:tokens]} tokens in, up to #{MAX_OUTPUT_TOKENS} out, about $#{format('%.2f', est[:usd])}"
     end
   end
 end
