@@ -193,4 +193,16 @@ class RoastLensTest < Minitest::Test
     assert_includes text, "1 lens(es)"
     refute_includes text, "suggested"
   end
+
+  def test_lens_suggestions_survive_ambiguous_kind
+    cfn = File.join(@dir, "notes.txt")
+    File.write(cfn, "hello\n")
+    code, text = run_cli("infer", "--text", @tf, "--text", cfn)
+    assert_equal 3, code
+    assert_includes text, "roast lenses suggested: cf:terraform (pass --lens)"
+    code, text = run_cli("--brief", @brief, "--text", @tf, "--text", cfn, "--audience", "ops", "--purpose", "x", "--cache", File.join(@dir, ".cache"),
+                         "--out-dir", File.join(@dir, "roast"), "--estimate-only")
+    assert_equal 3, code
+    assert_includes text, "roast lenses suggested: cf:terraform (pass --lens)"
+  end
 end

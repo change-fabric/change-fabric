@@ -489,13 +489,14 @@ module Roast
     # Prints the inferred kind and confidence (exit 0), or raises Ambiguous (exit 3).
     def infer(opts, out)
       [ opts[:storyboard_file], *opts[:texts] ].compact.each { |f| raise Errno::ENOENT, f unless File.file?(f) }
+      suggest_lenses(opts[:texts], [], out)
       found = RoastKind.infer(storyboard: board_for(opts), texts: opts[:texts].map { |t| [ t, File.read(t) ] })
       out.puts("roast kind: #{found.kind} (confidence #{found.confidence}): #{found.reason}")
-      suggest_lenses(opts[:texts], [], out)
       0
     end
 
     # Prints rubric lenses the inputs' paths match, minus those applied; never applies one.
+    # Runs before kind inference so an ambiguous kind (exit 3) still reports them.
     def suggest_lenses(texts, applied, out)
       return if texts.empty?
 
@@ -538,8 +539,8 @@ module Roast
     def critique(opts, out, http)
       [ opts[:brief_file], opts[:transcript_file], opts[:storyboard_file], *opts[:shots], *opts[:texts] ].compact.each { |f| raise Errno::ENOENT, f unless File.file?(f) }
       opts[:shots].each { |s| Roast.mime_for(s) }
+      suggest_lenses(opts[:texts], opts[:lenses] || [], out)
       inputs = inputs_for(opts, out)
-      suggest_lenses(opts[:texts], inputs[:lenses], out)
       Roast.check_sensitive!(**inputs.slice(:brief, :texts, :transcript, :review, :lenses, :history), allow: opts[:allow_sensitive])
       usd = announce(inputs, opts, out)
       raise CeilingError, "$#{format('%.2f', usd)} would pass the $#{format('%.2f', opts[:max_usd])} ceiling" if usd > opts[:max_usd] + 1e-9
