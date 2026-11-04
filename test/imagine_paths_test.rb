@@ -42,6 +42,22 @@ class ImaginePathsTest < Minitest::Test
     %i[root root_tilde area slug dir dir_tilde exists].each { |k| assert result.key?(k), k }
   end
 
+  def test_resolve_rejects_empty_or_unsafe_segments
+    [ "日本語", "!!!", "---", " ", "" ].each do |slug|
+      assert_raises(ImaginePaths::Unresolved, slug) { ImaginePaths.resolve(area: "acme", slug:) }
+    end
+    [ "", ".", "..", "a/b", "../x", "a\\b" ].each do |area|
+      assert_raises(ImaginePaths::Unresolved, area) { ImaginePaths.resolve(area:, slug: "ok") }
+    end
+  end
+
+  def test_cli_resolve_rejects_empty_normalized_slug
+    out = StringIO.new
+    err = assert_raises(SystemExit) { ImaginePaths::CLI.run([ "resolve", "--area", "a", "--slug", "日本語" ], out:) }
+    assert_equal 2, err.status
+    assert_includes out.string, "area_or_slug_unresolved"
+  end
+
   def test_next_record_missing_dir
     assert_equal "0001", ImaginePaths.next_record(repo:)
   end

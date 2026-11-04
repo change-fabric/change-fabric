@@ -11,6 +11,7 @@ require_relative 'plan_paths'
 # the facts. It never writes a file and never deletes one.
 module ImaginePaths
   class DuplicateNumber < StandardError; end
+  class Unresolved < StandardError; end
 
   RECORD_NAME = /\A(\d{4})-.+\.md\z/
   RECORD_DIR = File.join('docs', 'creative')
@@ -24,10 +25,16 @@ module ImaginePaths
 
   def self.resolve(area:, slug:)
     slug = PlanPaths.slugify(slug)
+    area = area.to_s
+    # An empty or traversing segment would collapse the working directory onto
+    # a parent shared across sessions, so refuse instead of resolving.
+    raise Unresolved, 'slug is empty after normalization' if slug.empty?
+    raise Unresolved, "area is not a single path segment: #{area.inspect}" unless area.match?(%r{\A[^/\\]+\z}) && !%w[. ..].include?(area)
+
     dir = File.join(root, area.to_s, slug)
     {
       root:, root_tilde: PlanPaths.tildeize(root),
-      area: area.to_s, slug:,
+      area:, slug:,
       dir:, dir_tilde: PlanPaths.tildeize(dir), exists: Dir.exist?(dir)
     }
   end
@@ -73,6 +80,9 @@ module ImaginePaths
         exit 2
       end
       out.puts(JSON.generate(ImaginePaths.resolve(area:, slug: flags['slug'])))
+    rescue Unresolved
+      out.puts(JSON.generate('error' => 'area_or_slug_unresolved'))
+      exit 2
     end
 
     def self.next_record(flags, out)
