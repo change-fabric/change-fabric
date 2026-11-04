@@ -11,6 +11,12 @@ only for text it renders into plan.md, goal.md, workflow.js, or the handoff
 prompt, so a repo carried to another machine by `rsync` or similar does not
 carry the source machine's literal home path along with it.
 
+`{{seed}}` is the seed block, filled only when the invocation passed
+`--seed <file>`: the line "Prior brainstorm: treat the chosen concept as the
+direction and the rejected ones as already considered; do not re-propose them
+without new evidence." followed by the seed file's full text. With no seed,
+render `{{seed}}` as an empty string so no stray placeholder survives.
+
 ## Research agent (step 4, writes nothing, asks nothing)
 
 ```
@@ -20,6 +26,8 @@ write it, after the user has answered the questions you surface.
 Question: {{sub_question}}
 Larger goal: {{goal_description}}
 Repo or area: {{repo_path}}
+
+{{seed}}
 
 Investigate thoroughly: read the real files, run read-only commands, check how
 the thing actually works rather than how it is documented to work. Cite file
@@ -69,6 +77,8 @@ re-open it.
 Goal: {{goal_description}}
 Repo or area: {{repo_path}} (tilde form for anything you write into a file: {{repo_path_tilde}})
 Plan directory (already created): {{plan_dir}} (tilde form: {{plan_dir_tilde}})
+
+{{seed}}
 
 DECISIONS LEDGER (the user's own answers, authoritative):
 {{decisions_ledger}}
