@@ -12,7 +12,7 @@
   "source_docs": [{ "path": "docs/prd.md", "sha256": "hex" }],
   "design_md_sha256": "hex",
   "tokens_css_sha256": "hex",
-  "viewport": { "w": 1920, "h": 1080, "dpr": 1 },
+  "viewport": { "w": 1920, "h": 1080 },
   "fps": 30,
   "voice": { "provider": "elevenlabs", "voice_id": "string", "model": "eleven_multilingual_v2", "output_format": "mp3_44100_128" },
   "music": { "provider": "elevenlabs", "model": "music_v1", "prompt": "string", "composition_plan": null, "gain_db": -18 },
@@ -28,6 +28,8 @@
 `voice.eq` is optional narration EQ applied to the narration bus before the music duck: `"warm"` or `{ "low_shelf_hz": 150, "low_shelf_db": 3, "cut_hz": 3500, "cut_db": -2.5 }` (each hz/db pair optional but all-or-nothing, 20-20000 Hz, +-24 dB); it changes the manifest hash and so re-assembles, never `audio_key`.
 
 `music` may be `null` for a narration-only walkthrough.
+
+`viewport.dpr` is optional. When it is absent, a live or compose desktop capture derives it per scene as `ceil(max(camera.zoom, 1) / frame shrink)`, clamped to 1..4, where the frame shrink is the browser frame's content scale (about 0.7) or 1 without one. So a zoomed or browser-framed scene is captured with enough device pixels that neither pass upsamples small text. An explicit `dpr` always wins; pin `"dpr": 1` only when a soft zoom is acceptable. The derived dpr is in the live `frames_key`, so changing a zoom recaptures.
 
 `tokens_css_sha256` is computed, never hand-written. `validate --fix` writes the sha256 of the canonical `tokens.css` (found by walking up from the walkthrough directory to the repo root, trying the `change_config.design.tokens` path from CHANGE.md, default `design/tokens.css`, then a bare `tokens.css`; `--tokens PATH` overrides) before it rewrites the deps, so every `frames_key` that hashes it goes stale and recaptures when the tokens change. Plain `validate` fails on a missing or stale hash. With no canonical `tokens.css` found, the field is left alone and not checked.
 
