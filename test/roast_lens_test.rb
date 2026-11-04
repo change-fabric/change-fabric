@@ -96,6 +96,29 @@ class RoastLensTest < Minitest::Test
     end
   end
 
+  def test_suggest_keeps_whitespace_and_quoting_in_diff_paths
+    path = "infra/my module/main.tf"
+    variants = {
+      "headers" => "--- a/#{path}\t\n+++ b/#{path}\t\n",
+      "deleted headers" => "--- a/#{path}\t\n+++ /dev/null\n",
+      "git line only" => "diff --git a/#{path} b/#{path}\nold mode 100644\nnew mode 100755\n",
+      "git line, renamed" => "diff --git a/#{path} b/infra/my module/x.txt\nsimilarity index 100%\n",
+      "rename records" => "rename from #{path}\nrename to infra/my module/x.txt\n",
+      "copy records" => "copy from #{path}\ncopy to infra/x.txt\n",
+      "quoted headers" => "--- \"a/infra/t\\303\\251st/main.tf\"\n+++ \"b/infra/tab\\there/main.tf\"\n",
+      "quoted git line" => "diff --git \"a/infra/q\\\"x/main.tf\" \"b/infra/q\\\"x/main.tf\"\n",
+      "quoted rename" => "rename from \"infra/t\\303\\251st/main.tf\"\nrename to infra/x.txt\n"
+    }
+    variants.each do |label, diff|
+      assert_equal [ "cf:terraform" ], RoastLens.suggest([ [ "change.diff", diff ] ]), label
+    end
+  end
+
+  def test_diff_paths_ignores_removed_lines_that_look_like_headers
+    assert_equal [], RoastLens.diff_paths("--- comment.tf\n+++ added.tf\n")
+    assert_equal [ "infra/tést/main.tf" ], RoastLens.diff_paths("+++ \"b/infra/t\\303\\251st/main.tf\"\n")
+  end
+
   def test_infer_reads_cli_only_kinds
     diff = "diff --git a/app/x.rb b/app/x.rb\n+++ b/app/x.rb\n@@ -1,2 +1,3 @@\n+# Summary\n"
     assert_equal "code", RoastKind.infer(texts: [ [ "change.txt", diff ] ]).kind
