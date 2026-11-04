@@ -2,6 +2,8 @@
 
 require 'fileutils'
 require 'optparse'
+require_relative 'image_plate'
+require_relative 'image_text_mode'
 require_relative 'prototype_imagegen'
 require_relative 'walkthrough_env'
 
@@ -14,7 +16,8 @@ module Image
   DEFAULT_SIZE = '1024x1024'
   DEFAULT_QUALITY = PrototypeImagegen::QUALITY_DRAFT
   USAGE = 'usage: image.rb "<prompt>" | --prompt-file PATH [--size WxH] [--quality low|medium|high] ' \
-          '[--ref PNG]... [--edit PNG [--mask PNG]] [--out PATH] [--max-usd N] [--cache DIR] [--estimate-only]'
+          '[--ref PNG]... [--edit PNG [--mask PNG]] [--mode none|short|heavy] [--spec copy.json] [--out PATH] ' \
+          '[--max-usd N] [--cache DIR] [--estimate-only]'
 
   class UsageError < StandardError; end
   class CeilingError < StandardError; end
@@ -23,12 +26,18 @@ module Image
   module Cli
     module_function
 
-    def run(argv, out: $stdout, http: nil)
+    def run(argv, out: $stdout, err: $stderr, http: nil)
       opts = parse(argv.dup)
+      text = ImageTextMode.classify(prompt: opts[:prompt], spec: opts[:spec], mode: opts[:mode])
+      text.warnings.each { |w| err.puts("warning: #{w}") }
+      reject_heavy_inputs!(opts) if text.mode == :heavy
       WalkthroughEnv.load_secrets
+      return ImagePlate::Cli.run(opts, out: out) if text.mode == :heavy
+
+      opts[:prompt] = short_prompt(opts[:prompt]) if text.mode == :short
       generate(opts, out, http)
       0
-    rescue UsageError, OptionParser::ParseError => e
+    rescue UsageError, OptionParser::ParseError, ArgumentError => e
       out.puts("error: #{e.message}", USAGE)
       2
     rescue CeilingError, PrototypeImagegen::RequestError, WalkthroughEnv::MissingKeyError, SystemCallError => e
@@ -49,6 +58,8 @@ module Image
         o.on('--max-usd N', Float) { |v| opts[:max_usd] = v }
         o.on('--cache DIR') { |v| opts[:cache] = v }
         o.on('--estimate-only') { opts[:estimate_only] = true }
+        o.on('--mode MODE') { |v| opts[:mode] = v }
+        o.on('--spec PATH') { |v| opts[:spec] = v }
       end.parse!(args)
       opts[:prompt] = prompt_from(opts, args)
       validate!(opts)
@@ -60,6 +71,22 @@ module Image
       raise UsageError, 'a prompt or --prompt-file is required' if opts[:prompt_file].nil? && positional.empty?
 
       (opts[:prompt_file] ? File.read(opts[:prompt_file]) : positional.join(' ')).strip
+    end
+
+    # Short mode: the model draws the one quoted run, so spell it out exactly.
+    def short_prompt(prompt)
+      run = ImageTextMode.quoted_runs(prompt).first
+      return prompt unless run
+
+      "#{prompt} Render exactly the text \"#{run}\" once, large, bold, high contrast, " \
+        'centered in clear space, spelled exactly, no other text.'
+    end
+
+    # Heavy mode generates its own textless plates, so a supplied image would
+    # be silently dropped; refuse before any paid call instead.
+    def reject_heavy_inputs!(opts)
+      given = { '--ref' => opts[:refs].any?, '--edit' => opts[:edit], '--mask' => opts[:mask] }.select { |_, v| v }.keys
+      raise UsageError, "heavy text does not take #{given.join(', ')}" unless given.empty?
     end
 
     def validate!(opts)
