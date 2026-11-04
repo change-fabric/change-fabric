@@ -25,7 +25,7 @@ class ImageTest < Minitest::Test
   end
 
   def run_cli(*args, http: ImagegenHelpers::FakeHttp.new)
-    code = Image::Cli.run([ *args, "--cache", @cache ], out: @out, http: http)
+    code = Image::Cli.run([ *args, "--cache", @cache ], out: @out, err: StringIO.new, http: http)
     [ code, @out.string, http ]
   end
 
@@ -123,5 +123,45 @@ class ImageTest < Minitest::Test
     assert_equal 0, code
     assert_includes text, "estimate"
     assert_empty http.requests
+  end
+
+  def test_short_prompt_carries_the_exact_text
+    _, _, http = run_cli('poster saying "Sale"')
+    prompt = JSON.parse(http.requests.first.body)["prompt"]
+    assert_includes prompt, 'Render exactly the text "Sale" once'
+  end
+
+  def test_none_prompt_and_key_are_unchanged
+    args = { size: Image::DEFAULT_SIZE, quality: Image::DEFAULT_QUALITY, refs: [], edit: nil, mask: nil, prompt: "a calm ocean" }
+    run_cli("a calm ocean")
+    assert PrototypeImagegen.cached?(@cache, **args)
+    _, _, http = run_cli("a calm ocean", "--mode", "none")
+    assert_empty http.requests
+  end
+
+  def test_bad_mode_exits_2
+    code, text = run_cli("a", "--mode", "loud")
+    assert_equal 2, code
+    assert_includes text, "unknown text mode"
+  end
+
+  def test_heavy_hands_off_to_image_plate
+    seen = nil
+    original = ImagePlate::Cli.method(:run)
+    ImagePlate::Cli.define_singleton_method(:run) { |opts, out:| seen = opts; out.puts("plate"); 0 }
+    code, text, http = run_cli("a banner", "--spec", "copy.json")
+    assert_equal 0, code
+    assert_includes text, "plate"
+    assert_empty http.requests
+    assert_equal "copy.json", seen[:spec]
+    assert_equal "a banner", seen[:prompt]
+  ensure
+    ImagePlate::Cli.define_singleton_method(:run, original)
+  end
+
+  def test_heavy_prompt_without_spec_exits_2
+    code, text = run_cli('"Big summer sale now on" banner')
+    assert_equal 2, code
+    assert_includes text, "--spec"
   end
 end
