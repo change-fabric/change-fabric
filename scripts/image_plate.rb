@@ -387,7 +387,9 @@ module ImagePlate
       end
     end
 
-    def tokens_digest = tokens_path ? Digest::SHA256.file(tokens_path).hexdigest : 'fallback'
+    # Hashes the fully inlined stylesheet (imports and url() assets embedded),
+    # not just tokens.css, so an edit to any dependency busts the cache.
+    def tokens_digest = Digest::SHA256.hexdigest(style_css)
 
     def browserless_digest = ChangeDocker::BROWSERLESS_IMAGE.split('@').last
   end

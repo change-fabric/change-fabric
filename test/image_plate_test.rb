@@ -164,6 +164,22 @@ class ImagePlateTest < Minitest::Test
     refute_equal base, run_for(spec_hash, version: ImagePlate::IMAGE_PLATE_VERSION + 1).composite_key
   end
 
+  def test_key_changes_with_any_inlined_style_dependency
+    File.write(File.join(@repo, "tokens.css"), %(@import "type.css";\n:root{--ink:#111;--accent:#06c;--bg:#fff}\n))
+    File.write(File.join(@repo, "type.css"), %(@font-face{font-family:D;src:url("d.woff2")}\n:root{--font-display:D}\n))
+    File.binwrite(File.join(@repo, "d.woff2"), "font-v1")
+    edits = {
+      "tokens.css" => ->(f) { File.write(f, File.read(f).sub("#111", "#222")) },
+      "type.css" => ->(f) { File.write(f, File.read(f).sub("--font-display:D", "--font-display:serif")) },
+      "d.woff2" => ->(f) { File.binwrite(f, "font-v2") }
+    }
+    edits.each do |name, edit|
+      before = run_for(spec_hash).composite_key
+      edit.call(File.join(@repo, name))
+      refute_equal before, run_for(spec_hash).composite_key, "editing #{name} left the key unchanged"
+    end
+  end
+
   def test_cache_hit_skips_calls_and_render
     path = write_spec(spec_hash)
     assert_equal 0, cli(path)
