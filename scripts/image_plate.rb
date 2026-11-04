@@ -198,7 +198,13 @@ module ImagePlate
     def estimate_usd
       return 0.0 if cached?
 
-      paid = plate_requests.count { |req| !plate_cached?(req) }
+      paid = 0
+      refs = []
+      plate_requests.each do |req|
+        path = plate_path(req, refs)
+        paid += 1 unless path && File.file?(path)
+        refs = [ path ] if refs.empty?
+      end
       (paid * PrototypeImagegen::PRICE.fetch(@quality)).round(2)
     end
 
@@ -248,10 +254,15 @@ module ImagePlate
       families.map { |f| { family: f, prompt: plate_prompt(f), size: FAMILY_SIZE[f], quality: @quality } }
     end
 
-    def plate_cached?(req)
-      return false unless req[:family] == families.first
+    # The cache path the plate lands at, keyed on the same refs generate_plates
+    # passes: the second plate references the first, so its key depends on it.
+    # Nil when a reference is not on disk yet: the key cannot be known, so the
+    # plate is counted as paid.
+    def plate_path(req, refs)
+      return nil unless refs.all? { |r| r && File.file?(r) }
 
-      @imagegen.cached?(@cache, prompt: req[:prompt], size: req[:size], quality: req[:quality])
+      key = @imagegen.asset_key(prompt: req[:prompt], size: req[:size], quality: req[:quality], refs: refs)
+      WalkthroughCache.path(@cache, :images, key, 'png')
     end
 
     def generate_plates

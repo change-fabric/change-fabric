@@ -127,6 +127,20 @@ class ImagePlateTest < Minitest::Test
     assert_match "2 plate(s), $0.10 to spend", @out.string
   end
 
+  # The second plate's key includes the first plate as a reference, so the
+  # estimate must resolve it rather than assume the second is uncached.
+  def test_estimate_after_copy_change_is_free_for_every_size_mix
+    [ spec_hash, spec_hash(sizes: MIXED) ].each do |hash|
+      assert_equal 0, cli(write_spec(hash))
+      changed = hash.merge("copy" => hash["copy"].merge("headline" => "Different words"))
+      @out = StringIO.new
+      http = ImagegenHelpers::FakeHttp.new
+      assert_equal 0, cli(write_spec(changed), http: http, max_usd: 0)
+      assert_match "$0.00 to spend", @out.string
+      assert_empty http.requests
+    end
+  end
+
   def test_ceiling_exits_1_before_any_call
     http = ImagegenHelpers::FakeHttp.new
     assert_equal 1, cli(write_spec(spec_hash(sizes: MIXED)), http: http, max_usd: 0.05)
