@@ -46,3 +46,19 @@ Legacy hook migration is handled by the native adapter installation layer.
 The policy uses the existing advisory shell classifier and additionally handles
 structured Git/PR actions. Unknown tools are outside that classifier's coverage;
 this is not a sandbox or a substitute for repository protections.
+
+## Capability evidence
+
+`config/host_capabilities.json` is a versioned host/surface registry. Each entry
+names its documentation source, date, reference versions, exact tested versions,
+and feature-level evidence. Exact versions are deliberately conservative: passing
+against one release does not establish compatibility with a future release.
+Reference versions identify locally observed binaries, not successful model runs.
+
+`HostCapabilities#resolve` returns both documented features and effective tested
+support. Missing or unknown versions remain unverified; unknown surfaces cannot
+inherit CLI hooks. Desktop, cloud, editor, and RPC profiles start as instructions
+only until their native integration is verified. Adapter fixture tests and live
+model evidence must be recorded independently. No registry entry currently claims
+a successful live behavioral run. Native hook support is conditional on host
+configuration, trust, and execution-environment access.
