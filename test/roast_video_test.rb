@@ -138,4 +138,11 @@ class RoastVideoTest < Minitest::Test
   def test_roast_cli_routes_video_flag
     assert_equal 2, Roast::Cli.run([ "--video", @mp4 ], out: StringIO.new)
   end
+
+  def test_estimate_is_priced_by_the_video_model
+    est = RoastVideo.estimate(brief: "b", transcript: nil, history: [], frame_count: 3)
+    assert_equal Roast.priced_usd(RoastVideo::MODEL, est[:tokens], RoastVideo::MAX_OUTPUT_TOKENS)[:usd], est[:usd]
+    assert_operator est[:usd], :>, 0
+    refute est[:unknown_price]
+  end
 end

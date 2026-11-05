@@ -130,8 +130,7 @@ module RoastVideo
   def estimate(brief:, transcript:, history:, frame_count:)
     chars = SYSTEM_PROMPT.size + brief.size + transcript.to_s.size + JSON.generate(history).size + (frame_count * 12)
     input = (chars / 4) + (frame_count * FRAME_TOKENS)
-    usd = ((input * Roast::PRICE_PER_MTOK[:input]) + (MAX_OUTPUT_TOKENS * Roast::PRICE_PER_MTOK[:output])) / 1_000_000.0
-    { usd: usd.round(2), tokens: input }
+    Roast.priced_usd(MODEL, input, MAX_OUTPUT_TOKENS)
   end
 
   def user_text(brief, history, round, transcript, duration)
@@ -243,6 +242,8 @@ module RoastVideo
       cached = File.file?(WalkthroughCache.path(*cache))
       est = RoastVideo.estimate(brief: brief, transcript: transcript, history: history, frame_count: frames.size)
       usd = cached ? 0.0 : est[:usd]
+      warning = Roast.price_warning(est)
+      out.puts(warning) if warning && !cached
       out.puts("roast estimate: #{model_line(frames, est, cached)}, $#{format('%.2f', usd)} to spend")
       raise Roast::CeilingError, "$#{format('%.2f', usd)} would pass the $#{format('%.2f', opts[:max_usd])} ceiling" if usd > opts[:max_usd] + 1e-9
       return if opts[:estimate_only]

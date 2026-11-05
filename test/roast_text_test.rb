@@ -282,4 +282,28 @@ class RoastTextTest < Minitest::Test
     assert_empty http.requests
     assert_includes text, "$0.00"
   end
+
+  def test_estimate_prices_the_model_that_runs
+    base = { brief: "b", shots: [], history: [], texts: [ @draft ] }
+    sol = Roast.estimate(**base, model: "gpt-6.1-sol")
+    terra = Roast.estimate(**base, model: "gpt-6.1-terra")
+    assert_in_delta sol[:usd] / 2, terra[:usd], 0.01
+    refute terra[:unknown_price]
+    odd = Roast.estimate(**base, model: "gpt-9-mystery")
+    assert_equal sol[:usd], odd[:usd]
+    assert odd[:unknown_price]
+    assert_equal "warning: no price for gpt-9-mystery, estimating at gpt-6.1-sol rates", Roast.price_warning(odd)
+    assert_nil Roast.price_warning(sol)
+  end
+
+  def test_long_context_surcharge_applies_above_272k_input
+    assert_in_delta 0.54, Roast.priced_usd("gpt-6.1-sol", 272_000, 0)[:usd], 0.001
+    assert_in_delta 16.09, Roast.priced_usd("gpt-6.1-sol", 272_001, 1_000_000)[:usd], 0.01
+  end
+
+  def test_cli_warns_on_unknown_model
+    code, text, = run_cli("--text", @draft, "--kind", "email", "--model", "gpt-9-mystery", "--estimate-only")
+    assert_equal 0, code
+    assert_includes text, "warning: no price for gpt-9-mystery, estimating at gpt-6.1-sol rates"
+  end
 end
