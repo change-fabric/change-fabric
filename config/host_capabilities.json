@@ -1,0 +1,220 @@
+{
+  "schema_version": 1,
+  "profiles": [
+    {
+      "host": "claude",
+      "surface": "cli",
+      "contract_version": 1,
+      "documented_on": "2026-11-04",
+      "source": "https://code.claude.com/docs/en/hooks",
+      "reference_versions": [
+        "2.1.318"
+      ],
+      "tested_versions": [],
+      "capabilities": {
+        "skill_discovery": "documented",
+        "startup_context": "documented",
+        "prompt_context": "documented",
+        "tool_guard": "documented",
+        "mode_persistence": "documented",
+        "child_inheritance": "documented",
+        "completion_gate": "documented"
+      },
+      "live_verification": "not-run"
+    },
+    {
+      "host": "codex",
+      "surface": "cli",
+      "contract_version": 1,
+      "documented_on": "2026-11-04",
+      "source": "https://learn.chatgpt.com/docs/hooks",
+      "reference_versions": [
+        "0.166.0"
+      ],
+      "tested_versions": [],
+      "capabilities": {
+        "skill_discovery": "documented",
+        "startup_context": "documented",
+        "prompt_context": "documented",
+        "tool_guard": "documented",
+        "mode_persistence": "documented",
+        "child_inheritance": "documented",
+        "completion_gate": "instructions-only"
+      },
+      "live_verification": "not-run"
+    },
+    {
+      "host": "copilot",
+      "surface": "cli",
+      "contract_version": 1,
+      "documented_on": "2026-11-04",
+      "source": "https://docs.github.com/en/copilot/reference/hooks-reference",
+      "reference_versions": [],
+      "tested_versions": [],
+      "capabilities": {
+        "skill_discovery": "documented",
+        "startup_context": "documented",
+        "prompt_context": "instructions-only",
+        "tool_guard": "documented",
+        "mode_persistence": "documented",
+        "child_inheritance": "documented",
+        "completion_gate": "instructions-only"
+      },
+      "live_verification": "not-run"
+    },
+    {
+      "host": "opencode",
+      "surface": "cli",
+      "contract_version": 1,
+      "documented_on": "2026-11-04",
+      "source": "https://docs.opencode.ai/docs/plugins/",
+      "reference_versions": [],
+      "tested_versions": [],
+      "capabilities": {
+        "skill_discovery": "documented",
+        "startup_context": "documented",
+        "prompt_context": "instructions-only",
+        "tool_guard": "documented",
+        "mode_persistence": "documented",
+        "child_inheritance": "documented",
+        "completion_gate": "instructions-only"
+      },
+      "live_verification": "not-run"
+    },
+    {
+      "host": "pi",
+      "surface": "cli",
+      "contract_version": 1,
+      "documented_on": "2026-11-04",
+      "source": "https://github.com/badlogic/pi-mono/tree/main/packages/coding-agent/docs/extensions.md",
+      "reference_versions": [
+        "0.73.1"
+      ],
+      "tested_versions": [],
+      "capabilities": {
+        "skill_discovery": "documented",
+        "startup_context": "documented",
+        "prompt_context": "documented",
+        "tool_guard": "documented",
+        "mode_persistence": "documented",
+        "child_inheritance": "instructions-only",
+        "completion_gate": "instructions-only"
+      },
+      "live_verification": "not-run"
+    },
+    {
+      "host": "codex",
+      "surface": "desktop",
+      "contract_version": 1,
+      "documented_on": "2026-11-04",
+      "source": "https://learn.chatgpt.com/docs/hooks",
+      "reference_versions": [],
+      "tested_versions": [],
+      "capabilities": {
+        "skill_discovery": "instructions-only",
+        "startup_context": "instructions-only",
+        "prompt_context": "instructions-only",
+        "tool_guard": "instructions-only",
+        "mode_persistence": "instructions-only",
+        "child_inheritance": "instructions-only",
+        "completion_gate": "instructions-only"
+      },
+      "live_verification": "not-run"
+    },
+    {
+      "host": "codex",
+      "surface": "cloud",
+      "contract_version": 1,
+      "documented_on": "2026-11-04",
+      "source": "https://learn.chatgpt.com/docs/hooks",
+      "reference_versions": [],
+      "tested_versions": [],
+      "capabilities": {
+        "skill_discovery": "instructions-only",
+        "startup_context": "instructions-only",
+        "prompt_context": "instructions-only",
+        "tool_guard": "instructions-only",
+        "mode_persistence": "instructions-only",
+        "child_inheritance": "instructions-only",
+        "completion_gate": "instructions-only"
+      },
+      "live_verification": "not-run"
+    },
+    {
+      "host": "copilot",
+      "surface": "editor",
+      "contract_version": 1,
+      "documented_on": "2026-11-04",
+      "source": "https://docs.github.com/en/copilot/reference/hooks-reference",
+      "reference_versions": [],
+      "tested_versions": [],
+      "capabilities": {
+        "skill_discovery": "instructions-only",
+        "startup_context": "instructions-only",
+        "prompt_context": "instructions-only",
+        "tool_guard": "instructions-only",
+        "mode_persistence": "instructions-only",
+        "child_inheritance": "instructions-only",
+        "completion_gate": "instructions-only"
+      },
+      "live_verification": "not-run"
+    },
+    {
+      "host": "copilot",
+      "surface": "cloud",
+      "contract_version": 1,
+      "documented_on": "2026-11-04",
+      "source": "https://docs.github.com/en/copilot/reference/hooks-reference",
+      "reference_versions": [],
+      "tested_versions": [],
+      "capabilities": {
+        "skill_discovery": "instructions-only",
+        "startup_context": "instructions-only",
+        "prompt_context": "instructions-only",
+        "tool_guard": "instructions-only",
+        "mode_persistence": "instructions-only",
+        "child_inheritance": "instructions-only",
+        "completion_gate": "instructions-only"
+      },
+      "live_verification": "not-run"
+    },
+    {
+      "host": "pi",
+      "surface": "rpc",
+      "contract_version": 1,
+      "documented_on": "2026-11-04",
+      "source": "https://github.com/badlogic/pi-mono/tree/main/packages/coding-agent/docs/extensions.md",
+      "reference_versions": [],
+      "tested_versions": [],
+      "capabilities": {
+        "skill_discovery": "instructions-only",
+        "startup_context": "instructions-only",
+        "prompt_context": "instructions-only",
+        "tool_guard": "instructions-only",
+        "mode_persistence": "instructions-only",
+        "child_inheritance": "instructions-only",
+        "completion_gate": "instructions-only"
+      },
+      "live_verification": "not-run"
+    },
+    {
+      "host": "opencode",
+      "surface": "desktop",
+      "contract_version": 1,
+      "documented_on": "2026-11-04",
+      "source": "https://docs.opencode.ai/docs/plugins/",
+      "reference_versions": [],
+      "tested_versions": [],
+      "capabilities": {
+        "skill_discovery": "instructions-only",
+        "startup_context": "instructions-only",
+        "prompt_context": "instructions-only",
+        "tool_guard": "instructions-only",
+        "mode_persistence": "instructions-only",
+        "child_inheritance": "instructions-only",
+        "completion_gate": "instructions-only"
+      },
+      "live_verification": "not-run"
+    }
+  ]
+}
