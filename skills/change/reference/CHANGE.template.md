@@ -316,7 +316,7 @@ change_config:
   #     target: 8.5                        # 0 to 10
   #     rounds: 4                          # at least 1
   #     max_usd: 2.00                      # spend ceiling, greater than 0
-  #     model: null                        # null keeps CF_ROAST_MODEL
+  #     model: null                        # terra, sol, or a full ID; null keeps CF_ROAST_MODEL or the per-kind default
   #   critic_rounds: 3                     # 1 to 5
 
 # Machine-checkable policy the change-fabric merge gate enforces. The prose below
