@@ -141,8 +141,38 @@ class RoastVideoTest < Minitest::Test
 
   def test_estimate_is_priced_by_the_video_model
     est = RoastVideo.estimate(brief: "b", transcript: nil, history: [], frame_count: 3)
-    assert_equal Roast.priced_usd(RoastVideo::MODEL, est[:tokens], RoastVideo::MAX_OUTPUT_TOKENS)[:usd], est[:usd]
+    assert_equal Roast.priced_usd("gpt-6.1-sol", est[:tokens], RoastVideo::MAX_OUTPUT_TOKENS)[:usd], est[:usd]
     assert_operator est[:usd], :>, 0
     refute est[:unknown_price]
+  end
+
+  def test_video_model_chain_precedence
+    assert_equal "gpt-6.1-sol", RoastVideo.model_for(env: {})
+    assert_equal "gpt-6.1-terra", RoastVideo.model_for(config: "terra", env: {})
+    assert_equal "gpt-6.1-terra", RoastVideo.model_for(config: "sol", env: { "CF_ROAST_MODEL" => "terra" })
+    assert_equal "gpt-6.1-sol", RoastVideo.model_for(env: { "CF_ROAST_MODEL" => "terra", "CF_ROAST_VIDEO_MODEL" => "sol" })
+    assert_equal "gpt-6.1-terra", RoastVideo.model_for(flag: "terra", env: { "CF_ROAST_VIDEO_MODEL" => "sol" })
+  end
+
+  def test_video_flag_model_and_effort_reach_the_request
+    out = StringIO.new
+    http = Http.new
+    code = RoastVideo::Cli.run([ "--video", @mp4, "--brief", @brief, "--out-dir", @roast, "--cache", File.join(@dir, ".cache"),
+                                 "--model", "terra", "--effort", "low" ], out: out, http: http, docker: fake_docker)
+    assert_equal 0, code, out.string
+    assert_includes out.string, "1 call to gpt-6.1-terra"
+    body = JSON.parse(http.requests.first.body)
+    assert_equal "gpt-6.1-terra", body["model"]
+    assert_equal "low", body["reasoning"]["effort"]
+    code = RoastVideo::Cli.run([ "--video", @mp4, "--brief", @brief, "--model", "sol", "--effort", "none" ], out: StringIO.new, docker: fake_docker)
+    assert_equal 2, code
+  end
+
+  def test_video_medium_effort_keeps_the_pre_effort_cache_key
+    args = { brief: "b", video_sha: "abc", transcript: nil, history: [], round: 1, fps: 1.5, width: 1280 }
+    legacy = WalkthroughCache.key({ mode: "video", model: "gpt-6.1-sol", **args.slice(:brief), video: "abc", transcript: nil,
+                                    history: [], round: 1, fps: 1.5, width: 1280 })
+    assert_equal legacy, RoastVideo.request_key(**args, model: "gpt-6.1-sol")
+    refute_equal legacy, RoastVideo.request_key(**args, model: "gpt-6.1-sol", effort: "high")
   end
 end
