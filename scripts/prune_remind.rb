@@ -3,6 +3,7 @@
 
 require 'json'
 require_relative 'hook_event'
+require_relative 'stack_store'
 
 # UserPromptSubmit hook: when the prompt says a merge already happened, surface
 # the cf:prune skill so post-merge cleanup is offered without being asked.
@@ -31,8 +32,9 @@ class PruneRemind
   # "merged" token in them must not fire. Checked before SIGNALS as an override.
   NEGATED = /\b(?:not|never|isn't|wasn't|hasn't|haven't|hadn't|un-?merged)\b[^.\n]{0,20}\bmerged\b|\bmerged\b[^.\n]{0,20}\byet\b/i
 
-  def initialize(event)
+  def initialize(event, stack_records = nil)
     @event = event
+    @stack_records = stack_records
   end
 
   def emit(io = $stdout)
@@ -51,7 +53,25 @@ class PruneRemind
     SIGNALS.any? { |pattern| prompt.match?(pattern) }
   end
 
-  def context
+  def context = [ prune_context, *stack_context ].join(' ')
+
+  # "merged #N" where N is the current PR of a stack being landed: the user's
+  # message is the second merge signal next to stack_watch.rb, so say resume.
+  def stack_context
+    numbers = prompt.scan(/#(\d+)/).flatten
+    slugs = stack_records.filter_map do |record|
+      record['slug'] if numbers.include?(StackStore.current_pr(record)&.fetch('number', nil).to_s)
+    end
+    slugs.map { |slug| "PR stack #{slug} lists that PR as current: run /cf:sweep stack resume." }
+  end
+
+  def stack_records
+    @stack_records ||= StackStore.unfinished_for_dir((@event['cwd'] || Dir.pwd).to_s)
+  rescue StandardError
+    []
+  end
+
+  def prune_context
     '[cf] This prompt reads as a completed merge. If a PR or branch just ' \
       'merged, run /cf:prune to fast-forward the trunk and prune merged ' \
       'branches and worktrees (local and remote). Honor its guards: never ' \
