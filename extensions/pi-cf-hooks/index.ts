@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { callHook } from "../shared/cf-client.ts";
+import { COMMAND_MODES, MERGE_MODES, modeSlug } from "../shared/mode-slug.ts";
 
 type Context = { cwd: string; sessionManager: { getSessionFile?: () => string | undefined } };
 
@@ -12,8 +13,8 @@ export default function cfHooks(pi: ExtensionAPI) {
   pi.registerCommand("cf", {
     description: "Set merge mode: local-only, merge-ready, admin-bypass, or yolo",
     handler: async (args, ctx) => {
-      const mode = args.trim();
-      if (!["local-only", "merge-ready", "admin-bypass", "yolo", "away", "active"].includes(mode)) {
+      const mode = modeSlug(args, COMMAND_MODES);
+      if (!mode) {
         ctx.ui.notify("Use /cf local-only|merge-ready|admin-bypass|yolo|away|active", "info");
         return;
       }
@@ -23,9 +24,10 @@ export default function cfHooks(pi: ExtensionAPI) {
   });
   pi.on("session_start", async (_event, ctx) => {
     await callHook("pi", "SessionStart", base(ctx));
-    if (process.env.CF_MERGE_MODE) {
+    const envMode = modeSlug(process.env.CF_MERGE_MODE, MERGE_MODES);
+    if (envMode) {
       // A default only: a resumed session keeps the mode it last chose with /cf.
-      await callHook("pi", "UserPromptSubmit", { ...base(ctx), prompt: `/skill:cf-${process.env.CF_MERGE_MODE}`, cf_default: true });
+      await callHook("pi", "UserPromptSubmit", { ...base(ctx), prompt: `/skill:cf-${envMode}`, cf_default: true });
     }
   });
   pi.on("input", async (event, ctx) => {
