@@ -173,7 +173,11 @@ class RoastTest < Minitest::Test
     assert_equal "gpt-6.1-terra", Roast.resolve_model("terra")
     assert_equal "gpt-6.1-sol", Roast.resolve_model("sol")
     assert_equal "gpt-9-custom", Roast.resolve_model("gpt-9-custom")
-    assert_equal "gpt-6.1-sol", Roast.default_model("doc")
+  end
+
+  def test_default_model_is_terra_for_text_kinds_and_sol_for_visual
+    %w[email doc pr post diff code arch infra].each { |k| assert_equal "gpt-6.1-terra", Roast.default_model(k), k }
+    [ nil, "explainer", "promo", "demo" ].each { |k| assert_equal "gpt-6.1-sol", Roast.default_model(k), k.inspect }
   end
 
   def test_model_chain_is_flag_then_env_then_config_then_default
@@ -181,7 +185,8 @@ class RoastTest < Minitest::Test
     assert_equal "gpt-6.1-sol", Roast.model_for(kind: "doc", flag: "sol", config: "terra", env: env)
     assert_equal "gpt-6.1-terra", Roast.model_for(kind: "doc", config: "sol", env: env)
     assert_equal "gpt-6.1-terra", Roast.model_for(kind: "doc", config: "terra", env: {})
-    assert_equal "gpt-6.1-sol", Roast.model_for(kind: "doc", env: { "CF_ROAST_MODEL" => " " })
+    assert_equal "gpt-6.1-terra", Roast.model_for(kind: "doc", env: { "CF_ROAST_MODEL" => " " })
+    assert_equal "gpt-6.1-sol", Roast.model_for(env: { "CF_ROAST_MODEL" => " " })
   end
 
   def test_effort_defaults_to_medium_in_the_body

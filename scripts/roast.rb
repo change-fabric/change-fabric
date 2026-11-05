@@ -232,8 +232,12 @@ module Roast
   # An alias names its full model ID; anything else (a full ID, nil) passes through.
   def resolve_model(name) = name.nil? ? nil : ALIASES.fetch(name.to_s.strip, name.to_s.strip)
 
-  # The default model for a review kind. Sol for every kind for now.
-  def default_model(_kind = nil) = DEFAULT_MODEL
+  # Kinds a text-only critic reads: writing, diff, code, arch, infra. They default
+  # to Terra; screenshots (no kind), walkthrough kinds, and video stay on Sol.
+  TERRA_KINDS = %w[email doc pr post diff code arch infra].freeze
+
+  # The default model for a review kind: Terra for text kinds, Sol otherwise.
+  def default_model(kind = nil) = TERRA_KINDS.include?(kind.to_s) ? ALIASES['terra'] : DEFAULT_MODEL
 
   # The one model resolution chain: flag, CF_ROAST_MODEL, repo config, per-kind default.
   # Blank values count as unset.
