@@ -416,6 +416,8 @@ module Roast
     rescue RoastKind::Ambiguous => e
       out.puts(e.message)
       3
+    rescue WalkthroughEnv::NeedsEnrollment => e
+      WalkthroughEnv.enroll(e, out: out)
     rescue CeilingError, SensitiveError, RequestError, WalkthroughEnv::MissingKeyError, SystemCallError, DesignConfig::Error => e
       out.puts("error: #{e.message}")
       1

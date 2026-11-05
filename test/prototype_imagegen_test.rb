@@ -6,9 +6,11 @@ require "json"
 require "tmpdir"
 require_relative "../scripts/prototype_imagegen"
 require_relative "imagegen_helpers"
+require_relative "enroll_helpers"
 
 class PrototypeImagegenTest < Minitest::Test
   include ImagegenHelpers
+  include EnrollHelpers
 
   def test_defaults
     assert_equal "gpt-image-2", PrototypeImagegen::MODEL unless ENV["CF_IMAGE_MODEL"]
@@ -44,6 +46,23 @@ class PrototypeImagegenTest < Minitest::Test
     err = assert_raises(PrototypeImagegen::AttemptCapError) { attempts.record!("home") }
     assert_includes err.message, "home"
     attempts.record!("other")
+  end
+
+  def test_unenrolled_generate_needs_enrollment_only_on_a_cache_miss
+    ENV["OPENAI_API_KEY"] = "sk-test-secret"
+    Dir.mktmpdir do |dir|
+      args = { prompt: "avatar", size: "1024x1024", quality: "medium", cache_root: dir }
+      cached = PrototypeImagegen.generate(**args, http: FakeHttp.new)
+      ENV.delete("OPENAI_API_KEY")
+      http = FakeHttp.new
+      with_store do
+        assert_equal cached, PrototypeImagegen.generate(**args, http: http)
+        assert_raises(WalkthroughEnv::NeedsEnrollment) { PrototypeImagegen.generate(**args, prompt: "fresh", http: http) }
+      end
+      assert_empty http.requests
+    end
+  ensure
+    ENV.delete("OPENAI_API_KEY")
   end
 
   def test_generate_caches_and_counts_only_paid_calls

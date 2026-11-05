@@ -3,8 +3,11 @@
 require "minitest/autorun"
 require "tmpdir"
 require_relative "../scripts/walkthrough_env"
+require_relative "enroll_helpers"
 
 class WalkthroughEnvTest < Minitest::Test
+  include EnrollHelpers
+
   VARS = %w[ELEVEN_LABS_API_KEY ELEVENLABS_API_KEY OPENAI_API_KEY GEMINI_API_KEY CF_SECRETS_ENV WT_PLAIN WT_QUOTED WT_SINGLE].freeze
 
   def setup
@@ -72,25 +75,68 @@ class WalkthroughEnvTest < Minitest::Test
   end
 
   def test_named_error_messages
-    err = assert_raises(WalkthroughEnv::MissingKeyError) { WalkthroughEnv.elevenlabs_key! }
-    assert_equal "ELEVEN_LABS_API_KEY (or ELEVENLABS_API_KEY) not set; set it or point CF_SECRETS_ENV at an env file",
-                 err.message
-    err = assert_raises(WalkthroughEnv::MissingKeyError) { WalkthroughEnv.openai_key! }
-    assert_match(/\AOPENAI_API_KEY not set/, err.message)
+    with_store(enrolled: true) do
+      err = assert_raises(WalkthroughEnv::MissingKeyError) { WalkthroughEnv.elevenlabs_key! }
+      assert_equal "ELEVEN_LABS_API_KEY for elevenlabs not found in the process env", err.message
+      err = assert_raises(WalkthroughEnv::MissingKeyError) { WalkthroughEnv.openai_key! }
+      assert_match(/\AOPENAI_API_KEY for openai not found/, err.message)
+      refute_kind_of WalkthroughEnv::NeedsEnrollment, err
+    end
+  end
+
+  def test_unenrolled_project_needs_enrollment_and_is_a_missing_key_error
+    with_store do
+      err = assert_raises(WalkthroughEnv::NeedsEnrollment) { WalkthroughEnv.elevenlabs_key! }
+      assert_kind_of WalkthroughEnv::MissingKeyError, err
+      assert_equal "ELEVEN_LABS_API_KEY", err.to_h[:env_var]
+      assert_equal CfSecrets.project_key, err.to_h[:project_key]
+    end
+  end
+
+  def test_enroll_prints_one_line_without_values_and_returns_4
+    secret = "sk-sentinel-never-printed"
+    path = write_env("UNRELATED=#{secret}\n")
+    with_store do
+      err = assert_raises(WalkthroughEnv::NeedsEnrollment) { WalkthroughEnv.openai_key! }
+      out = StringIO.new
+      assert_equal 4, WalkthroughEnv.enroll(err, out: out)
+      assert_one_enroll_line(out.string, "openai")
+      refute_includes out.string, secret
+      refute_includes out.string, path
+    end
+  end
+
+  def test_enroll_exit_exits_4
+    with_store do
+      err = assert_raises(WalkthroughEnv::NeedsEnrollment) { WalkthroughEnv.gemini_key! }
+      exit_err = assert_raises(SystemExit) { WalkthroughEnv.enroll_exit!(err, out: StringIO.new) }
+      assert_equal 4, exit_err.status
+    end
+  end
+
+  def test_recorded_env_file_supplies_the_key_without_touching_env
+    path = write_env("OPENAI_API_KEY=from-file\n")
+    with_store do
+      store = CfSecrets.store_path(Dir.home)
+      FileUtils.mkdir_p(File.dirname(store))
+      File.write(store, YAML.dump("projects" => { CfSecrets.project_key => { "env_file" => path } }))
+      assert_equal "from-file", WalkthroughEnv.openai_key!
+      assert_nil ENV.fetch("OPENAI_API_KEY", nil)
+    end
   end
 
   def test_key_value_never_appears_in_error_text
     secret = "sk-very-secret-value-123"
     ENV["ELEVEN_LABS_API_KEY"] = secret
     ENV["OPENAI_API_KEY"] = ""
-    err = assert_raises(WalkthroughEnv::MissingKeyError) { WalkthroughEnv.openai_key! }
+    err = with_store { assert_raises(WalkthroughEnv::MissingKeyError) { WalkthroughEnv.openai_key! } }
     refute_includes err.message, secret
     refute_includes err.full_message, secret
   end
 
   def test_gemini_key_reads_env_and_names_the_variable_when_missing
-    err = assert_raises(WalkthroughEnv::MissingKeyError) { WalkthroughEnv.gemini_key! }
-    assert_match(/\AGEMINI_API_KEY not set/, err.message)
+    err = with_store(enrolled: true) { assert_raises(WalkthroughEnv::MissingKeyError) { WalkthroughEnv.gemini_key! } }
+    assert_match(/\AGEMINI_API_KEY for gemini not found/, err.message)
     ENV["GEMINI_API_KEY"] = "g-file"
     assert_equal "g-file", WalkthroughEnv.gemini_key!
   end

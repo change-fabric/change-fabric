@@ -197,6 +197,8 @@ module RoastVideo
     rescue UsageError, OptionParser::ParseError => e
       out.puts("error: #{e.message}", USAGE)
       2
+    rescue WalkthroughEnv::NeedsEnrollment => e
+      WalkthroughEnv.enroll(e, out: out)
     rescue Roast::CeilingError, Roast::SensitiveError, Roast::RequestError, FfmpegError, WalkthroughEnv::MissingKeyError, SystemCallError => e
       out.puts("error: #{e.message}")
       1
