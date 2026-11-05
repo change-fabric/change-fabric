@@ -99,9 +99,10 @@ manual entry point for setting both axes together.
 While away mode is on, `away_restate.rb` reminds every turn not to ask and to
 take the recommended or safe default instead, reporting what was assumed.
 `away_guard.rb` (`PreToolUse`) enforces this by denying any `AskUserQuestion`
-call whose questions do not carry one of three floor headers that still fire
+call whose questions do not carry one of four floor headers that still fire
 even while away, because their default is destructive or a real secret is at
-stake: `Remote delete`, `Untracked`, and `Secret alert`. Running `/cf` itself
+stake: `Remote delete`, `Untracked`, `Secret alert`, and
+`Key source`. Running `/cf` itself
 is denied while away, since asking both mode questions is a contradiction of
 away mode; the deny message points at the six direct commands and at
 `/cf:active`.

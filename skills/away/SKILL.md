@@ -34,6 +34,8 @@ destructive or a real secret is at stake and no safe default exists:
   unclassified secret.
 - `Secret alert`, when a leaked credential is found and its disposition must
   not be auto decided.
+- `Key source`, when a paid skill needs to know which env file holds this
+  repo's API key; there is no safe default for where a secret lives.
 
 Everything else that would normally ask instead applies its stated default
 silently and reports the assumption. `cf:plan`'s own interview is a special

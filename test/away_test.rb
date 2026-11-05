@@ -194,10 +194,16 @@ class AwayGuardTest < Minitest::Test
 
   def test_allows_each_floor_header
     AwayStore.new("s1").write("away")
-    %w[Remote\ delete Untracked Secret\ alert].each do |header|
+    %w[Remote\ delete Untracked Secret\ alert Key\ source].each do |header|
       output = guard(tool_name: "AskUserQuestion", questions: [ question(header) ])
       assert_empty output, "#{header} should be a floor and pass through"
     end
+  end
+
+  def test_allows_key_source_while_away
+    AwayStore.new("s1").write("away")
+    output = guard(tool_name: "AskUserQuestion", questions: [ question("Key source") ])
+    assert_empty output, "Key source should be a floor and pass through"
   end
 
   def test_allows_everything_when_not_away
