@@ -222,9 +222,12 @@ module Install
       @path = path
     end
 
-    def wire(skill_paths)
+    # retire names paths an earlier installer wired and this one no longer
+    # manages; they are removed exactly, leaving user-added paths alone.
+    def wire(skill_paths, retire: [])
       data = load
-      paths = Array(data['skills'])
+      retired = Array(retire).map { |path| File.expand_path(path) }
+      paths = Array(data['skills']).reject { |path| path.is_a?(String) && retired.include?(File.expand_path(path)) }
       Array(skill_paths).each { |path| paths << path unless paths.include?(path) }
       data['skills'] = paths
       persist(data)
@@ -658,7 +661,7 @@ module Install
     def mirror_to_pi
       LegacyPiSkillPruner.new(@paths).prune
       PiSkillMirror.new(@paths).mirror(@paths.skill_sources)
-      PiSettingsFile.new(@paths.pi_settings).wire([ @paths.pi_skills_root ])
+      PiSettingsFile.new(@paths.pi_settings).wire([ @paths.pi_skills_root ], retire: [ @paths.skills_root ])
     end
 
     def mirror_to_opencode

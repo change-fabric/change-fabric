@@ -252,6 +252,20 @@ class InstallerTest < Minitest::Test
     assert_includes settings["skills"], paths.pi_skills_root
   end
 
+  def test_retires_the_previously_wired_claude_skills_path_from_pi_settings
+    paths = Install::Paths.new(repo: @repo, home: @home)
+    FileUtils.mkdir_p(File.dirname(paths.pi_settings))
+    user_path = File.join(@home, "my-pi-skills")
+    variants = [ paths.skills_root, "#{paths.skills_root}/", File.join(paths.skills_root, "..", "skills") ]
+    variants.each do |legacy|
+      File.write(paths.pi_settings, JSON.generate("skills" => [ legacy, user_path ]))
+      install
+      skills = JSON.parse(File.read(paths.pi_settings))["skills"]
+      refute_includes skills, legacy, "the Claude skills dir an earlier install wired (#{legacy}) should leave Pi"
+      assert_equal [ user_path, paths.pi_skills_root ], skills
+    end
+  end
+
   def test_links_pi_hook_extension
     paths = install
     assert File.symlink?(paths.pi_extension_link), "Pi hook extension should be symlinked"
