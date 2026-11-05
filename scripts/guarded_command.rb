@@ -64,6 +64,7 @@ class GuardedCommand
     case @mode
     when 'local-only'
       return 'git push' if push?
+      return 'gh pr create' if pr_create?
       return 'gh pr merge' if merge?
     when 'merge-ready'
       return 'a direct push to the trunk' if push_to_trunk?
