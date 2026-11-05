@@ -7,7 +7,7 @@ require 'net/http'
 require 'uri'
 require 'socket'
 require_relative 'hook_event'
-require_relative 'merge_mode_store'
+require_relative 'cf_runtime'
 require_relative 'change_gate_store'
 require_relative 'skill_registry'
 require_relative 'contributors_team'
@@ -85,7 +85,7 @@ class TelemetryEmit
       git_branch: git('rev-parse', '--abbrev-ref', 'HEAD'),
       git_head_sha: git('rev-parse', 'HEAD'),
       git_dirty: git_dirty?,
-      merge_mode: MergeModeStore.new(@event['session_id']).mode,
+      merge_mode: merge_mode,
       change_gate: change_gate,
       cf_skills_active: cf_skills_active,
       host: hostname,
@@ -93,6 +93,14 @@ class TelemetryEmit
     }
     add_identity(base)
     base
+  end
+
+  # Resolved through the runtime so the project root matches the one the hooks wrote.
+  def merge_mode
+    request = { 'version' => 1, 'host' => 'claude', 'event' => 'context', 'project' => cwd, 'session_id' => @event['session_id'].to_s }
+    CfRuntime.new(request).call.dig('state', 'mode')
+  rescue StandardError
+    nil
   end
 
   # Add the three identity fields only when fully resolved; never send empty

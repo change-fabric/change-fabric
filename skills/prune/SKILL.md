@@ -62,7 +62,7 @@ TRUNK=$(git symbolic-ref --short refs/remotes/origin/HEAD | sed 's#^origin/##')
    `git branch -d <branch>` per prunable item (`-d` refuses unmerged as a backstop).
 6. **Clean untracked** (per surviving worktree): `git clean -nd` to preview,
    classify (see below), then ask (header `Untracked`). Run `git clean -fd --
-   <paths>` only on a yes. This question is a floor: `away_guard.rb` lets it
+   <paths>` only on a yes. This question is a floor: the away guard in `cf_host_hook.rb` lets it
    through even while away mode is on.
 7. **Prune remote:** for non-trunk `origin/<branch>` still present after step 2:
    if `branch == CURRENT_BRANCH` and its classify `kind` was `prunable` or
@@ -72,7 +72,7 @@ TRUNK=$(git symbolic-ref --short refs/remotes/origin/HEAD | sed 's#^origin/##')
    final report instead of a question. On `confirmed: false`, or for every
    other `origin/<branch>` (including ones incidentally merged), ask as below
    (header `Remote delete`), then `git push origin --delete <branch>` only on a
-   yes. This question is a floor: `away_guard.rb` lets it through even while
+   yes. This question is a floor: the away guard in `cf_host_hook.rb` lets it through even while
    away mode is on.
 8. **Re-prune:** `git fetch --prune origin` if anything changed.
 9. **Report:** final `git branch`, `git branch -r`, `git worktree list`,
@@ -108,6 +108,6 @@ Run nothing destructive until the matching question returns a yes.
 | Remote deletion of any other `origin/<branch>` | `Remote delete` | State justification ("merged into $TRUNK as of #N, deleting discards nothing"), then Delete on remote; or Keep it |
 | Untracked files | `Untracked` | Clean the junk (`git clean -fd -- <junk>`, keepers excluded); Clean named keepers too (explicit only); or Keep everything |
 
-`Remote delete` and `Untracked` are both floor headers: `away_guard.rb` lets
+`Remote delete` and `Untracked` are both floor headers: the away guard in `cf_host_hook.rb` lets
 them through even while away mode is on, because their default is destructive
 and no safe default exists.

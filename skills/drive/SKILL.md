@@ -108,7 +108,7 @@ By default under Local only: `cf:drive` runs the entire local pipeline
 the way to a would-be-approved, would-be-green state, then stops cleanly at
 the step-8 boundary and reports that it did not push or approve because the
 active merge mode is Local only. It does not rely on the
-`merge_mode_guard.rb` hook to block it partway through; steps 1-7 never
+merge-mode guard in `cf_host_hook.rb` to block it partway through; steps 1-7 never
 touch git push/PR actions at all, so the guard is never even invoked there.
 `cf:drive`'s own logic checks the merge mode before attempting the step-8
 push. Under Local only, at step 8 it skips the push, skips the CI poll (step
@@ -338,7 +338,7 @@ user only, a fenced handoff prompt for a fresh session.
 - Writes only under `<root>`. Never edits the target repo, commits, or
   pushes; the merge mode governs the executing session, not this one.
 - Never calls `Workflow`. The interview runs here, not in a subagent.
-- Under away mode it refuses to start (the `mode_command.rb` hook says so),
+- Under away mode it refuses to start (the `cf_host_hook.rb` hook says so),
   as `cf:plan` does: guessing these calls defeats the point.
 - Project specifics (ports, database names, lane routes, flakes) live in the
   plan's `## Project profile`, never in this skill.

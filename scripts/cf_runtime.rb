@@ -10,6 +10,10 @@ require_relative 'guarded_command'
 class CfRuntime
   HOSTS = %w[claude codex copilot opencode pi].freeze
   EVENTS = %w[session.start context mode.set availability.set tool.before tool.after].freeze
+  CHANGE_MODE = 'run /cf:local-only, /cf:merge-ready, /cf:admin-bypass, /cf:yolo, or /cf to change it.'
+  # Questions whose default is destructive or puts a real secret at stake, so
+  # no safe default exists and they still fire while away.
+  FLOOR = [ 'Remote delete', 'Untracked', 'Secret alert' ].freeze
 
   def initialize(request, root: CfState.root, home: Dir.home)
     @request = request
@@ -42,9 +46,8 @@ class CfRuntime
       @state.update({}, parent: parent)
     else @state.read
     end
-    violation = @request['event'] == 'tool.before' ? violation(state) : nil
-    { 'version' => 1, 'decision' => violation ? 'deny' : 'allow',
-      'reason' => violation && "[cf] #{state['mode']}: #{violation} is not allowed",
+    reason = @request['event'] == 'tool.before' ? violation(state) : nil
+    { 'version' => 1, 'decision' => reason ? 'deny' : 'allow', 'reason' => reason,
       'state' => state, 'context' => context(state), 'project' => @project }
   end
 
@@ -60,14 +63,28 @@ class CfRuntime
     raise ArgumentError, 'tool must have a name and object input' unless tool.is_a?(Hash) && tool['name'].is_a?(String) && tool['input'].is_a?(Hash)
 
     name, input = tool.values_at('name', 'input')
+    return away_reason(input) if name == 'question' && state['availability'] == 'away'
+
+    action = mode_violation(name, input, state)
+    action && "[cf] Merge mode is #{state['mode']}: #{action} is not allowed. " \
+              'Run /cf:admin-bypass, /cf:merge-ready, /cf:local-only, /cf:yolo, or /cf to change the mode.'
+  end
+
+  def away_reason(input)
+    headers = Array(input['questions']).filter_map { |question| question['header'] if question.is_a?(Hash) }
+    return unless (headers & FLOOR).empty?
+
+    list = headers.empty? ? '(no header set)' : headers.join(', ')
+    "[cf] Away mode is active: this question (#{list}) is not allowed; only #{FLOOR.join(', ')} may ask. " \
+      'Take the recommended or safe default and continue; report what was assumed. ' \
+      'Run /cf:active to end away mode and resume asking normally.'
+  end
+
+  def mode_violation(name, input, state)
     return 'creating a pull request' if name == 'pr.create' && %w[local-only yolo].include?(state['mode'])
     return 'merging a pull request' if name == 'pr.merge' && %w[local-only merge-ready].include?(state['mode'])
     return 'pushing changes' if name == 'git.push' && state['mode'] == 'local-only'
     return 'a direct push to the trunk' if name == 'git.push' && state['mode'] == 'merge-ready' && GuardedCommand::TRUNK.include?(push_target(input))
-    if name == 'question' && state['availability'] == 'away'
-      headers = Array(input['questions']).filter_map { |question| question['header'] if question.is_a?(Hash) }
-      return 'asking a routine question while away' if (headers & [ 'Remote delete', 'Untracked', 'Secret alert' ]).empty?
-    end
     return unless name == 'shell'
 
     command = input['command']
@@ -89,8 +106,15 @@ class CfRuntime
   end
 
   def context(state)
-    "[cf] Merge mode: #{state['mode']}; availability: #{state['availability']}. " \
-      'Honor the shared CF workflow. Permissions remain controlled by the host. Shell guards are advisory.'
+    lines = [ "[cf] Merge mode for this session is #{state['mode']}; availability: #{state['availability']}. " \
+              "Honor it per the /cf rules; #{CHANGE_MODE}" ]
+    # Claude enforces shell guards through its PreToolUse deny; other hosts may not.
+    lines << 'Permissions remain controlled by the host. Shell guards are advisory.' unless @request['host'] == 'claude'
+    if state['availability'] == 'away'
+      lines << '[cf] Away mode is active for this session. Do not ask questions; take the recommended/safe default ' \
+               'and continue; report what was assumed. Run /cf:active to end away mode.'
+    end
+    lines.join("\n")
   end
 end
 

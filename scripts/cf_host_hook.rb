@@ -21,6 +21,10 @@ class CfHostHook
   COPILOT_EVENTS = { 'sessionStart' => 'SessionStart', 'subagentStart' => 'SubagentStart',
                      'userPromptSubmitted' => 'UserPromptSubmit', 'preToolUse' => 'PreToolUse',
                      'postToolUse' => 'PostToolUse', 'agentStop' => 'Stop' }.freeze
+  # Interview skills whose judgment calls must come from the human.
+  PLAN = %r{\A\s*(?:\$cf-|/cf:|/skill:cf-)(plan|drive(?:\s+thorough)?\b(?!\s+quick\b))\b}
+  # Events where the session state is restated; elsewhere it would only add noise per tool call.
+  CONTEXT_EVENTS = %w[SessionStart SubagentStart UserPromptSubmit PostCompact].freeze
   MODE = /\A\s*(?:\$cf-|\/cf:|\/skill:cf-)(local-only|merge-ready|admin-bypass|yolo|active|away)(?=\s|$)/
 
   def initialize(host:, event:, payload:, root: CfState.root, home: Dir.home, skills: nil)
@@ -43,7 +47,8 @@ class CfHostHook
     @resolved_project = result['project']
     result = apply_mode(request) || result if @event == 'UserPromptSubmit' || @event == 'SessionStart'
     result = record_choice(request) || result if @event == 'PostToolUse'
-    contexts = [ result.fetch('context') ]
+    restate = CONTEXT_EVENTS.include?(@event) || result['decision'] == 'deny'
+    contexts = [ @confirmation, (result.fetch('context') if restate), plan_refusal(result) ].compact
     @rubrics = rubric_contexts
     contexts.concat(@rubrics)
     review = review_result
@@ -58,6 +63,17 @@ class CfHostHook
   end
 
   private
+
+  def plan_refusal(result)
+    return unless @event == 'UserPromptSubmit' && result.dig('state', 'availability') == 'away'
+
+    match = (@payload['prompt'] || @payload['initialPrompt']).to_s.match(PLAN)
+    return unless match
+
+    skill = "cf:#{match[1].split.join(' ')}"
+    "[cf] Away mode is active: refuse to start the #{skill} interview. Guessing its judgment calls " \
+      "defeats the point of running it. Tell the user to run /cf:active first, then re-run /#{skill}."
+  end
 
   def runtime(request) = CfRuntime.new(request, root: @root, home: @home).call
 
@@ -104,7 +120,21 @@ class CfHostHook
     match = prompt.to_s.match(MODE)
     return unless match
 
-    set_choice(request, match[1], if_unset: @payload['cf_default'] == true)
+    default = @payload['cf_default'] == true
+    result = set_choice(request, match[1], if_unset: default)
+    @confirmation = confirmation(match[1]) unless default
+    result
+  end
+
+  def confirmation(choice)
+    case choice
+    when 'away'
+      '[cf] Away mode is now on for this session. Do not ask questions; take the recommended/safe default and continue. Run /cf:active to end away mode.'
+    when 'active'
+      '[cf] Away mode is now off for this session. Ask normally again. Run /cf:away to step away.'
+    else
+      "[cf] Merge mode for this session is now #{choice}. Honor it per the /cf rules; #{CfRuntime::CHANGE_MODE}"
+    end
   end
 
   def set_choice(request, choice, if_unset: false)
@@ -128,8 +158,9 @@ class CfHostHook
     response = @payload['tool_response'] || @payload['toolResult']
     mode = MergeModeAnswer.new(response).label
     result = set_choice(request, mode) if MergeModeSlug.of(mode)
-    away = AwayAnswer.new(response).label.to_s.downcase
-    result = set_choice(request, away) if %w[active away].include?(away)
+    away = AwayAnswer.new(response).label
+    # A free-form answer is not an explicit request to stay away.
+    result = set_choice(request, away.to_s.strip.downcase == 'away' ? 'away' : 'active') if away
     result
   end
 
@@ -187,17 +218,19 @@ class CfHostHook
   end
 
   def output(result, context)
+    context = nil if context.empty?
     if @host == 'copilot'
       return { 'permissionDecision' => 'deny', 'permissionDecisionReason' => result['reason'] } if result['decision'] == 'deny'
-      return {} if @event == 'UserPromptSubmit' # command-hook output is ignored by Copilot
+      return {} if @event == 'UserPromptSubmit' || context.nil? # command-hook output is ignored by Copilot
 
       return { 'additionalContext' => context }
     end
-    specific = { 'hookEventName' => @event, 'additionalContext' => context }
+    specific = { 'hookEventName' => @event }
+    specific['additionalContext'] = context if context
     # Hosts that cannot inject context mid-call surface a rubric by blocking once.
     specific['rubricContext'] = @compiler.references(@rubrics.join("\n\n")) if @event == 'PreToolUse' && @rubrics.any?
     specific.merge!('permissionDecision' => 'deny', 'permissionDecisionReason' => result['reason']) if result['decision'] == 'deny'
-    { 'hookSpecificOutput' => specific }
+    specific.size == 1 ? {} : { 'hookSpecificOutput' => specific }
   end
 end
 
@@ -205,14 +238,10 @@ if __FILE__ == $PROGRAM_NAME
   begin
     host, event = ARGV
     puts JSON.generate(CfHostHook.new(host: host, event: event, payload: JSON.parse($stdin.read)).call)
-  rescue JSON::ParserError, ArgumentError, SystemCallError => e
+  rescue StandardError => e
+    # Hooks fail silent. Denying on an internal error would wedge every tool,
+    # including the shell the agent needs to recover from a deleted cwd.
     warn "[cf] adapter error: #{e.message}"
-    if %w[PreToolUse preToolUse].include?(ARGV[1])
-      specific = { permissionDecision: 'deny', permissionDecisionReason: "CF could not evaluate this call: #{e.message}" }
-      output = ARGV[0] == 'copilot' ? specific : { hookSpecificOutput: specific.merge(hookEventName: 'PreToolUse') }
-      puts JSON.generate(output)
-      exit 2
-    end
-    exit 1
+    puts '{}'
   end
 end

@@ -16,10 +16,10 @@ Instead take the recommended option, or the safe default when there is no
 recommended one, continue the work, and report in the run's output what was
 skipped and what was assumed.
 
-The `mode_command.rb` `UserPromptSubmit` hook has already persisted the away
-flag for this session (`AwayStore`, keyed by session id) by the time this
-skill body is read. `away_restate.rb` restates the directive above at the
-start of every following turn while away stays on. `away_guard.rb` denies any
+The `cf_host_hook.rb` `UserPromptSubmit` hook has already persisted the away
+flag for this session (the shared CF session state, keyed by session id) by the
+time this skill body is read. The same hook restates the directive above at the
+start of every following turn while away stays on, and its `PreToolUse` handler denies any
 `AskUserQuestion` call made while away is on, unless the call carries one of
 the floor questions below.
 

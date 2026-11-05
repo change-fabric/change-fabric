@@ -8,9 +8,8 @@ description: Sets the session merge mode to yolo, committing and pushing straigh
 
 Trigger: `/cf:yolo`.
 
-A `UserPromptSubmit` hook (`mode_command.rb`) has already persisted `yolo` as
-this session's merge mode to
-`~/.claude/cf/sessions/<session_id>/merge-mode` before this skill body runs.
+A `UserPromptSubmit` hook (`cf_host_hook.rb`) has already persisted `yolo` as
+this session's merge mode to the shared CF session state before this skill body runs.
 Acknowledge the mode in one line, then proceed with the work.
 
 ## What yolo means
@@ -21,7 +20,7 @@ Acknowledge the mode in one line, then proceed with the work.
 - Never run `gh pr create`. Merging an existing PR with `gh pr merge` is
   unrestricted.
 
-A `PreToolUse` hook (`merge_mode_guard.rb`) backs this by denying
+A `PreToolUse` hook (`cf_host_hook.rb`) backs this by denying
 `gh pr create` while yolo is the active mode. It is an advisory guardrail,
 not a sandbox: it matches on the command text and is bypassable, so honoring
 the mode in your own actions is still the primary mechanism.

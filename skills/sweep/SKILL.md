@@ -83,7 +83,7 @@ no primary contributor to exempt: every in-scope author is treated as
 non-primary and needs a recorded level before auto mode runs.
 
 The decision is durable, not session-scoped. Unlike the cf merge mode, which
-`~/.claude/cf/sessions/<session_id>/merge-mode` deliberately scopes to one
+the shared CF session state deliberately scopes to one
 session, a trust call is a standing judgment about a person's work, and
 re-asking it every 30 minutes would make the loop mode unusable. It is stored
 per repo and per contributor by `scripts/sweep_trust_store.rb`, installed as
