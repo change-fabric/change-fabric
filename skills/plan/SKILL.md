@@ -203,6 +203,11 @@ fresh session that will execute the plan.
     session is what starts execution. Report how many interview rounds ran and
     which decisions the user's answers changed. Stop here.
 
+    Stack landing is the default for a multi-PR plan. When the plan has more
+    than one PR phase, the handoff ends with "When the phases are open as PRs,
+    run `/cf:sweep stack <plan_dir>`.", so cf:sweep stack mode lands the PRs
+    strictly one at a time by merge mode. A single-PR plan omits the line.
+
 ## Failure modes
 
 - **Assuming instead of asking.** The failure this skill exists to prevent. If

@@ -14,6 +14,11 @@ entries. Then it reads: "Judged decisions (unreviewed): the plan's
 gave, not the user. They are open to revisiting; flag any you would answer
 differently before running the phases they touch."
 
+`{{stack_note}}` is empty when the plan has one PR phase or none. When the
+plan has more than one PR phase, it reads, with `{{plan_dir}}` in tilde form:
+"When the phases are open as PRs, run `/cf:sweep stack {{plan_dir}}`." It is
+the last line of the block, so the stack lands one PR at a time by default.
+
 ```markdown
 Execute the plan at {{plan_path}}.
 
@@ -57,4 +62,6 @@ Ground rules:
 
 Repo: {{repo_path}}
 Goal in one line: {{goal_one_liner}}
+
+{{stack_note}}
 ```
