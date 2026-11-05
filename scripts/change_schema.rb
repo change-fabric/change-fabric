@@ -450,14 +450,17 @@ module ChangeSchema
   PARITY_STATUSES = %w[must_match intentional unreviewed].freeze
   # The accepted change_policy.gate.require_on values (0.14.0).
   GATE_SCOPES = %w[every_merge promotion].freeze
+  GATE_KEYS = %w[require_on trunk].freeze
 
   # Every problem with change_policy.gate.require_on / gate.trunk, as messages
   # naming the field. Empty when both are absent or valid.
   def self.gate_errors(policy)
-    gate = policy.is_a?(Hash) ? policy['gate'] : nil
-    return [] unless gate.is_a?(Hash)
+    return [] unless policy.is_a?(Hash) && policy.key?('gate')
 
-    errors = []
+    gate = policy['gate']
+    return [ 'change_policy.gate must be a mapping' ] unless gate.is_a?(Hash)
+
+    errors = unknown_keys(gate, GATE_KEYS, 'change_policy.gate')
     if gate.key?('require_on') && !GATE_SCOPES.include?(gate['require_on'])
       errors << "change_policy.gate.require_on must be one of #{GATE_SCOPES.join(', ')}"
     end
