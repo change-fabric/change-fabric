@@ -177,7 +177,7 @@ class WalkthroughRoastTest < Minitest::Test
   def test_settings_default_with_no_change_md
     Dir.mktmpdir do |dir|
       s = WalkthroughRoast.settings(dir)
-      assert_equal({ roast: true, max_usd: 2.0, target: 8.5, rounds: 4, model: Roast::MODEL, review: {} }, s)
+      assert_equal({ roast: true, max_usd: 2.0, target: 8.5, rounds: 4, model: "gpt-6.1-sol", review: {} }, s)
     end
   end
 
@@ -188,6 +188,7 @@ class WalkthroughRoastTest < Minitest::Test
       assert_equal({ roast: false, max_usd: 1.25, target: 7.0, rounds: 2, model: "m-cfg", review: {} }, s)
       s = WalkthroughRoast.settings(dir, roast: true, max_usd: 3.0, target: 9.0, rounds: 5, model: "m-flag")
       assert_equal({ roast: true, max_usd: 3.0, target: 9.0, rounds: 5, model: "m-flag", review: {} }, s)
+      assert_equal "gpt-6.1-terra", WalkthroughRoast.settings(dir, model: "terra")[:model]
       s = WalkthroughRoast.settings(dir, roast: nil, max_usd: nil)
       assert_equal 1.25, s[:max_usd]
       refute s[:roast]

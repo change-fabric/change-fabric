@@ -19,9 +19,10 @@ require_relative 'walkthrough_env'
 # is the stills JSON shape plus a timestamp per issue, logged as
 # round-N.video.json and round-N.video.md beside the stills rounds.
 module RoastVideo
-  # Pinned: gpt-6.1-sol, the stills roast's default (image input, Structured
-  # Outputs). CF_ROAST_VIDEO_MODEL overrides it.
-  MODEL = ENV.fetch('CF_ROAST_VIDEO_MODEL', 'gpt-6.1-sol')
+  # The model comes from the stills chain (Roast.model_for, video kind, Sol by
+  # default), with CF_ROAST_VIDEO_MODEL as a video-only override checked ahead
+  # of CF_ROAST_MODEL. A --model flag still wins over both.
+  KIND = 'video'
   FPS = 1.5
   WIDTH = 1280
   JPEG_QUALITY = 4
@@ -33,7 +34,7 @@ module RoastVideo
   KIND_VIDEO = 'video'
   DEFAULT_DOCKER = ->(argv) { Open3.capture2e(*argv) }
   USAGE = 'usage: roast.rb --video MP4 --brief FILE [--transcript VTT] [--history DIR] [--out-dir DIR] ' \
-          '[--round N] [--max-usd N] [--cache DIR] [--fps N] [--width N] [--estimate-only] [--allow-sensitive]'
+          '[--round N] [--max-usd N] [--model NAME|terra|sol] [--effort LEVEL] [--repo DIR] [--cache DIR] [--fps N] [--width N] [--estimate-only] [--allow-sensitive]'
 
   SYSTEM_PROMPT = <<~TEXT
     #{Roast::SYSTEM_PROMPT}
@@ -122,15 +123,21 @@ module RoastVideo
     ([ stills, *videos ].compact.max || 0) + 1
   end
 
-  def request_key(brief:, video_sha:, transcript:, history:, round:, fps:, width:)
-    WalkthroughCache.key({ mode: 'video', model: MODEL, brief: brief, video: video_sha, transcript: transcript,
-                           history: history, round: round, fps: fps, width: width })
+  # flag, CF_ROAST_VIDEO_MODEL, then the stills chain (CF_ROAST_MODEL, repo config, video default).
+  def model_for(flag: nil, config: nil, env: ENV)
+    pick = [ flag, env['CF_ROAST_VIDEO_MODEL'] ].find { |v| !v.to_s.strip.empty? }
+    pick ? Roast.resolve_model(pick) : Roast.model_for(kind: KIND, config: config, env: env)
   end
 
-  def estimate(brief:, transcript:, history:, frame_count:)
+  def request_key(brief:, video_sha:, transcript:, history:, round:, fps:, width:, model: model_for, effort: Roast::DEFAULT_EFFORT)
+    WalkthroughCache.key({ mode: 'video', model: model, brief: brief, video: video_sha, transcript: transcript,
+                           history: history, round: round, fps: fps, width: width }.merge(Roast.effort_key(effort)))
+  end
+
+  def estimate(brief:, transcript:, history:, frame_count:, model: model_for)
     chars = SYSTEM_PROMPT.size + brief.size + transcript.to_s.size + JSON.generate(history).size + (frame_count * 12)
     input = (chars / 4) + (frame_count * FRAME_TOKENS)
-    Roast.priced_usd(MODEL, input, MAX_OUTPUT_TOKENS)
+    Roast.priced_usd(model, input, MAX_OUTPUT_TOKENS)
   end
 
   def user_text(brief, history, round, transcript, duration)
@@ -144,7 +151,7 @@ module RoastVideo
       'The frames follow in order, each after its time label.' ].join("\n\n")
   end
 
-  def build_request(brief:, frames:, transcript:, history:, round:)
+  def build_request(brief:, frames:, transcript:, history:, round:, model: model_for, effort: Roast::DEFAULT_EFFORT)
     content = [ { type: 'input_text', text: user_text(brief, history, round, transcript, frames.last[:time]) } ]
     frames.each do |f|
       content << { type: 'input_text', text: "[#{mmss(f[:time])}]" }
@@ -152,7 +159,7 @@ module RoastVideo
                    image_url: "data:image/jpeg;base64,#{Base64.strict_encode64(File.binread(f[:path]))}" }
     end
     { url: Roast::RESPONSES_URL,
-      body: { model: MODEL, max_output_tokens: MAX_OUTPUT_TOKENS,
+      body: { model: model, max_output_tokens: MAX_OUTPUT_TOKENS, reasoning: { effort: effort },
               input: [ { role: 'system', content: SYSTEM_PROMPT }, { role: 'user', content: content } ],
               text: { format: { type: 'json_schema', name: 'video_roast', strict: true, schema: SCHEMA } } } }
   end
@@ -193,17 +200,22 @@ module RoastVideo
       WalkthroughEnv.load_secrets
       critique(opts, out, http, docker)
       0
-    rescue UsageError, OptionParser::ParseError => e
+    rescue UsageError, Roast::UsageError, OptionParser::ParseError => e
       out.puts("error: #{e.message}", USAGE)
       2
-    rescue Roast::CeilingError, Roast::SensitiveError, Roast::RequestError, FfmpegError, WalkthroughEnv::MissingKeyError, SystemCallError => e
+    rescue Roast::CeilingError, Roast::SensitiveError, Roast::RequestError, FfmpegError, WalkthroughEnv::MissingKeyError, SystemCallError,
+           DesignConfig::Error => e
       out.puts("error: #{e.message}")
       1
     end
 
     def parse(args)
-      opts = { max_usd: Roast::DEFAULT_CEILING_USD, cache: '.cache', out_dir: Roast::DEFAULT_OUT_DIR, fps: FPS, width: WIDTH }
+      repo = Roast::Cli.repo_arg(args)
+      opts = { max_usd: Roast::DEFAULT_CEILING_USD, cache: '.cache', out_dir: Roast::DEFAULT_OUT_DIR, fps: FPS, width: WIDTH,
+               effort: Roast::DEFAULT_EFFORT, config_model: Roast::Cli.configured(repo)[:model] }
       OptionParser.new do |o|
+        o.on('--model NAME') { |v| opts[:model] = v }
+        o.on('--effort LEVEL') { |v| opts[:effort] = v }
         o.on('--video MP4') { |v| opts[:video] = v }
         o.on('--brief FILE') { |v| opts[:brief_file] = v }
         o.on('--transcript FILE') { |v| opts[:transcript_file] = v }
@@ -219,6 +231,9 @@ module RoastVideo
       end.parse!(args)
       raise UsageError, '--video is required' unless opts[:video]
       raise UsageError, '--brief is required' unless opts[:brief_file]
+
+      opts[:model] = RoastVideo.model_for(flag: opts[:model], config: opts[:config_model])
+      opts[:effort] = Roast.check_effort!(opts[:effort], opts[:model])
 
       opts[:transcript_file] ||= begin
         vtt = File.join(File.dirname(opts[:video]), "#{File.basename(opts[:video], '.*')}.vtt")
@@ -237,10 +252,11 @@ module RoastVideo
       round = opts[:round] || RoastVideo.default_round(opts[:out_dir])
       Roast.check_sensitive!(brief: brief, transcript: transcript, history: history, allow: opts[:allow_sensitive])
       key = RoastVideo.request_key(brief: brief, video_sha: Digest::SHA256.file(opts[:video]).hexdigest, transcript: transcript,
-                                   history: history, round: round, fps: opts[:fps], width: opts[:width])
+                                   history: history, round: round, fps: opts[:fps], width: opts[:width],
+                                   model: opts[:model], effort: opts[:effort])
       cache = [ opts[:cache], :roasts, key, 'json' ]
       cached = File.file?(WalkthroughCache.path(*cache))
-      est = RoastVideo.estimate(brief: brief, transcript: transcript, history: history, frame_count: frames.size)
+      est = RoastVideo.estimate(brief: brief, transcript: transcript, history: history, frame_count: frames.size, model: opts[:model])
       usd = cached ? 0.0 : est[:usd]
       warning = Roast.price_warning(est)
       out.puts(warning) if warning && !cached
@@ -248,7 +264,8 @@ module RoastVideo
       raise Roast::CeilingError, "$#{format('%.2f', usd)} would pass the $#{format('%.2f', opts[:max_usd])} ceiling" if usd > opts[:max_usd] + 1e-9
       return if opts[:estimate_only]
 
-      request = RoastVideo.build_request(brief: brief, frames: frames, transcript: transcript, history: history, round: round)
+      request = RoastVideo.build_request(brief: brief, frames: frames, transcript: transcript, history: history, round: round,
+                                           model: opts[:model], effort: opts[:effort])
       critic = fetch_critic(cache, request, out, http)
       RoastVideo.write_round(opts[:out_dir], round, critic)
       out.puts("roast: #{File.join(opts[:out_dir], "round-#{round}.video.json")} score #{critic['score']}/10")
@@ -269,7 +286,7 @@ module RoastVideo
     def model_line(frames, est, cached)
       return '1 call (cached)' if cached
 
-      "1 call to #{MODEL}, #{frames.size} frame(s) over #{RoastVideo.mmss(frames.last[:time])}, " \
+      "1 call to #{est[:model]}, #{frames.size} frame(s) over #{RoastVideo.mmss(frames.last[:time])}, " \
         "about #{est[:tokens]} tokens in, up to #{MAX_OUTPUT_TOKENS} out, about $#{format('%.2f', est[:usd])}"
     end
     private_class_method :fetch_critic, :model_line
