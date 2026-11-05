@@ -79,10 +79,16 @@ class CfState
   # Read-only compatibility import. Neutral state always takes precedence;
   # another host's legacy state is never considered.
   def legacy_mode(id)
-    return unless @host == 'claude' && id.match?(/\A[\w-]+\z/)
-
-    file = File.join(@home, '.claude', 'cf', 'sessions', id, 'merge-mode')
+    file = File.join(@home, '.claude', 'cf', 'sessions', legacy_session_dir(id) || return, 'merge-mode')
     File.file?(file) ? MergeModeSlug.of(File.read(file)) : nil
+  end
+
+  # The pre-runtime Pi extension keyed a file-backed session by a hash of its
+  # session file path.
+  def legacy_session_dir(id)
+    return id if @host == 'claude' && id.match?(/\A[\w-]+\z/)
+
+    "pi-#{Digest::SHA256.hexdigest(id)[0, 32]}" if @host == 'pi'
   end
 
   def write(data)

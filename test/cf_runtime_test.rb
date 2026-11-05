@@ -3,6 +3,7 @@
 require "minitest/autorun"
 require "tmpdir"
 require "fileutils"
+require "digest"
 require_relative "../scripts/cf_runtime"
 
 class CfRuntimeTest < Minitest::Test
@@ -87,5 +88,15 @@ class CfRuntimeTest < Minitest::Test
     call(event: "mode.set", mode: "local-only")
     assert_equal "local-only", call(event: "mode.set", mode: "merge-ready", if_unset: true).dig("state", "mode")
     assert_equal "yolo", call(session_id: "fresh", event: "mode.set", mode: "yolo", if_unset: true).dig("state", "mode")
+  end
+
+  def test_legacy_pi_selection_is_imported_without_overriding_new_state
+    session_file = File.join(@home, "pi-session.jsonl")
+    legacy = File.join(@home, ".claude/cf/sessions/pi-#{Digest::SHA256.hexdigest(session_file)[0, 32]}")
+    FileUtils.mkdir_p(legacy)
+    File.write(File.join(legacy, "merge-mode"), "local-only")
+    assert_equal "local-only", call(host: "pi", session_id: session_file).dig("state", "mode")
+    call(host: "pi", session_id: session_file, event: "mode.set", mode: "yolo")
+    assert_equal "yolo", call(host: "pi", session_id: session_file).dig("state", "mode")
   end
 end
