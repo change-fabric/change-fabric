@@ -8,6 +8,7 @@ require 'set'
 require 'yaml'
 require_relative 'scripts/skill_registry'
 require_relative 'scripts/merge_mode_slug'
+require_relative 'scripts/skill_compiler'
 
 # Installs the cf merge-mode shim: hook scripts, the skill symlink, and the
 # settings.json wiring. Internals are namespaced so the file stays one unit.
@@ -54,6 +55,8 @@ module Install
     def opencode_config      = File.join(opencode_root, 'opencode.jsonc')
     def opencode_skills_root = File.join(opencode_root, 'skills')
     def copilot_skills_root  = File.join(@home, '.copilot', 'skills')
+    def compiled_claude_root = File.join(@home, '.local', 'share', 'change-fabric', 'skills', 'claude')
+    def pi_skills_root = File.join(@home, '.pi', 'agent', 'skills')
     def codex_skills_root    = File.join(@home, '.agents', 'skills')
     def codex_skill(name)    = File.join(codex_skills_root, SkillName.portable(name))
     def legacy_pi_roots      = [ File.join(@home, '.pi', 'agent', 'skills') ]
@@ -185,7 +188,8 @@ module Install
       managed = managed_skill_names
       @paths.legacy_pi_roots.each do |root|
         Dir.glob(File.join(root, '*')).each do |entry|
-          FileUtils.rm_rf(entry) if managed.include?(skill_name(entry))
+          owned = PortableSkillMirror::LEGACY_MARKERS.any? { |marker| File.file?(File.join(entry, marker)) }
+          FileUtils.rm_rf(entry) if owned && managed.include?(skill_name(entry))
         end
       end
     end
@@ -218,9 +222,12 @@ module Install
       @path = path
     end
 
-    def wire(skill_paths)
+    # retire names paths an earlier installer wired and this one no longer
+    # manages; they are removed exactly, leaving user-added paths alone.
+    def wire(skill_paths, retire: [])
       data = load
-      paths = Array(data['skills'])
+      retired = Array(retire).map { |path| File.expand_path(path) }
+      paths = Array(data['skills']).reject { |path| path.is_a?(String) && retired.include?(File.expand_path(path)) }
       Array(skill_paths).each { |path| paths << path unless paths.include?(path) }
       data['skills'] = paths
       persist(data)
@@ -399,60 +406,58 @@ module Install
       FileUtils.rm_rf(dest)
       FileUtils.mkdir_p(File.dirname(dest))
       FileUtils.cp_r(source, dest)
-      rewrite_frontmatter_name(File.join(dest, 'SKILL.md'), SkillName.portable(SkillName.of(source)))
+      compiler = SkillCompiler.new(host: host, workflows: File.join(File.dirname(@paths.skills_dir), 'workflows', 'modes'))
+      Dir.glob(File.join(dest, '**', '*.md')).each do |path|
+        text = File.read(path)
+        rendered = path == File.join(dest, 'SKILL.md') ? compiler.compile(text) : compiler.references(text)
+        File.write(path, rendered)
+      end
       File.write(File.join(dest, MARKER), "source: #{source}\n")
     end
 
-    def rewrite_frontmatter_name(path, name)
-      front, body = SkillRegistry::Frontmatter.split(File.read(path))
-      meta = front && YAML.safe_load(front)
-      return unless meta.is_a?(Hash)
+    def host = raise NotImplementedError
+  end
 
-      meta['name'] = name
-      File.write(path, "---\n#{YAML.dump(meta).sub(/\A---\n/, '')}---\n#{body}")
-    rescue StandardError
-      nil
-    end
+  class ClaudeSkillMirror < PortableSkillMirror
+    private
+
+    def host = 'claude'
+    def skills_root = @paths.compiled_claude_root
+    def skill_path(name) = File.join(skills_root, name)
+  end
+
+  class PiSkillMirror < PortableSkillMirror
+    private
+
+    def host = 'pi'
+    def skills_root = @paths.pi_skills_root
+    def skill_path(name) = File.join(skills_root, SkillName.portable(name))
   end
 
   class OpenCodeSkillMirror < PortableSkillMirror
     private
 
+    def host = 'opencode'
     def skills_root = @paths.opencode_skills_root
     def skill_path(name) = @paths.opencode_skill(name)
   end
 
-  # Copilot reads personal skills from ~/.copilot/skills (GitHub Docs, about agent skills).
   class CopilotSkillMirror < PortableSkillMirror
     private
 
+    def host = 'copilot'
     def skills_root = @paths.copilot_skills_root
     def skill_path(name) = @paths.copilot_skill(name)
   end
 
-  # Codex discovers personal skills under ~/.agents/skills and invokes them
-  # with $name. Mode overrides avoid claiming Claude hooks already ran.
   class CodexSkillMirror < PortableSkillMirror
     private
 
+    def host = 'codex'
     def skills_root = @paths.codex_skills_root
     def skill_path(name) = @paths.codex_skill(name)
-
-    def rewrite_frontmatter_name(path, name)
-      front, body = SkillRegistry::Frontmatter.split(File.read(path))
-      meta = YAML.safe_load(front)
-      override = File.join(File.dirname(path), 'reference', 'codex.md')
-      body = File.read(override) if File.file?(override)
-      body = body.gsub(%r{(?<![\w./-])/cf:([a-z][a-z0-9-]*)}) { "$cf-#{Regexp.last_match(1)}" }
-                 .gsub(%r{(?<![\w./-])/cf\b(?![/:-])}, '$cf')
-      notice = 'Codex: these are workflow instructions. This installer does not wire ' \
-               'Claude lifecycle hooks into Codex; do not assume their state or enforcement.'
-      portable = { 'name' => name, 'description' => meta.fetch('description') }
-      File.write(path, "---\n#{YAML.dump(portable).sub(/\A---\n/, '')}---\n\n#{notice}\n\n#{body}")
-    end
   end
 
-  # Top-level orchestration: copies hooks, links skills, and wires settings.
   class Installer
     HOOKS = {
       'SessionStart' => %w[session_start.rb skill_detect.rb ctx_session_start.rb doctrine_digest.rb secret_alert_poll.rb],
@@ -589,9 +594,15 @@ module Install
     end
 
     def link_skills
-      links = @paths.skill_sources.to_h { |source| [ @paths.skill_link(SkillName.of(source)), source ] }
+      ClaudeSkillMirror.new(@paths).mirror(@paths.skill_sources)
+      links = @paths.skill_sources.to_h do |source|
+        name = SkillName.of(source)
+        [ @paths.skill_link(name), File.join(@paths.compiled_claude_root, name) ]
+      end
       prune_stale_links(links.keys)
       links.each do |link, source|
+        next if File.exist?(link) && !points_into_repo_skills?(link)
+
         FileUtils.mkdir_p(File.dirname(link))
         FileUtils.rm_f(link) if File.symlink?(link)
         FileUtils.ln_sf(source, link)
@@ -630,7 +641,9 @@ module Install
       return false unless File.symlink?(entry)
 
       target = File.expand_path(File.readlink(entry), File.dirname(entry))
-      target.start_with?(File.expand_path(@paths.skills_dir) + File::SEPARATOR)
+      [ @paths.skills_dir, @paths.compiled_claude_root ].any? do |root|
+        target.start_with?(File.expand_path(root) + File::SEPARATOR)
+      end
     end
 
     def wire_settings
@@ -647,7 +660,8 @@ module Install
 
     def mirror_to_pi
       LegacyPiSkillPruner.new(@paths).prune
-      PiSettingsFile.new(@paths.pi_settings).wire([ @paths.skills_root ])
+      PiSkillMirror.new(@paths).mirror(@paths.skill_sources)
+      PiSettingsFile.new(@paths.pi_settings).wire([ @paths.pi_skills_root ], retire: [ @paths.skills_root ])
     end
 
     def mirror_to_opencode

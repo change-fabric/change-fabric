@@ -164,12 +164,12 @@ class InstallerTest < Minitest::Test
            "the a11y lane resolves its bundle at scripts/#{relative}; install must mirror that layout"
   end
 
-  def test_links_every_skill_to_its_repo_source
+  def test_links_every_skill_to_its_compiled_claude_source
     paths = install
     paths.skill_sources.each do |source|
       link = paths.skill_link(Install::SkillName.of(source))
       assert File.symlink?(link), "#{File.basename(source)} skill should be a symlink"
-      assert_equal source, File.readlink(link)
+      assert_equal File.join(paths.compiled_claude_root, Install::SkillName.of(source)), File.readlink(link)
     end
   end
 
@@ -249,7 +249,21 @@ class InstallerTest < Minitest::Test
   def test_adds_claude_skills_to_pi_settings
     paths = install
     settings = JSON.parse(File.read(paths.pi_settings))
-    assert_includes settings["skills"], paths.skills_root
+    assert_includes settings["skills"], paths.pi_skills_root
+  end
+
+  def test_retires_the_previously_wired_claude_skills_path_from_pi_settings
+    paths = Install::Paths.new(repo: @repo, home: @home)
+    FileUtils.mkdir_p(File.dirname(paths.pi_settings))
+    user_path = File.join(@home, "my-pi-skills")
+    variants = [ paths.skills_root, "#{paths.skills_root}/", File.join(paths.skills_root, "..", "skills") ]
+    variants.each do |legacy|
+      File.write(paths.pi_settings, JSON.generate("skills" => [ legacy, user_path ]))
+      install
+      skills = JSON.parse(File.read(paths.pi_settings))["skills"]
+      refute_includes skills, legacy, "the Claude skills dir an earlier install wired (#{legacy}) should leave Pi"
+      assert_equal [ user_path, paths.pi_skills_root ], skills
+    end
   end
 
   def test_links_pi_hook_extension
@@ -394,13 +408,14 @@ class InstallerTest < Minitest::Test
     assert File.directory?(custom), "unmanaged Copilot skills should be left alone"
   end
 
-  def test_prunes_stale_pi_copies_of_managed_skills
+  def test_refreshes_owned_pi_copies_of_managed_skills
     paths = Install::Paths.new(repo: @repo, home: @home)
     stale = File.join(paths.legacy_pi_roots.first, "cf-typescript")
     FileUtils.mkdir_p(stale)
     File.write(File.join(stale, "SKILL.md"), "---\nname: cf:typescript\ndescription: Old copy\n---\n")
+    File.write(File.join(stale, Install::PortableSkillMirror::MARKER), "source: old\n")
     install
-    refute File.exist?(stale), "managed stale Pi skill copy should be removed"
+    refute_includes File.read(File.join(stale, "SKILL.md")), "Old copy"
   end
 
   def test_preserves_unmanaged_pi_skill_dirs

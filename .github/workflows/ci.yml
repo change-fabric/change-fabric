@@ -4,9 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
-    # Stacked platform branches target their parent, not main, so a phase PR
-    # would otherwise run no checks at all until the whole stack landed.
-    branches: [main, "platform/**"]
+    # Every stacked PR must run checks, regardless of its parent branch.
 
 # Nothing here writes to the repository or publishes anything.
 permissions:
