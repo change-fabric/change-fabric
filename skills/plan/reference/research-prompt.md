@@ -105,7 +105,10 @@ Write exactly three files.
    - a `## Decisions (settled, do not re-litigate)` section reproducing the
      ledger, each decision naming the answer it came from. This section comes
      early, before the phases, and is the reason the executing session does
-     not reopen a settled call;
+     not reopen a settled call. When any ledger entry carries
+     `Answered by: judge`, add a `### Judged decisions (unreviewed)`
+     subsection under it, one line per judged item, so the user can reopen
+     any of them;
    - exact file paths for everything created or edited, relative to the repo
      root (never a literal absolute home path);
    - exact commands, config, and code where the code is what makes the plan
