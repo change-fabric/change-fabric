@@ -42,6 +42,9 @@ export default function cfHooks(pi: ExtensionAPI) {
     const result = await callHook("pi", "Stop", { ...base(ctx), stop_hook_active: reviewFollowUp });
     reviewFollowUp = result.decision === "block";
     if (reviewFollowUp && result.reason) pi.sendUserMessage(result.reason, { deliverAs: "followUp" });
+    // A nonblocking notice (the review cap) arrives as context; show it without starting another turn.
+    const notice = result.hookSpecificOutput?.additionalContext;
+    if (!reviewFollowUp && notice) pi.sendMessage({ customType: "cf-hook", content: notice, display: true }, { deliverAs: "nextTurn" });
   });
   pi.on("tool_call", async (event, ctx) => {
     const result = await callHook("pi", "PreToolUse", { ...base(ctx), tool_name: event.toolName, tool_input: event.input });
