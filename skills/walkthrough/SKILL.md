@@ -94,7 +94,7 @@ Only that scene's stale keys regenerate (frames, audio, or images); everything e
 
 ## Keys and licensing
 
-- Keys come from the environment or the secrets env file named by `CF_SECRETS_ENV` (no default path; unset means the process environment only): `ELEVEN_LABS_API_KEY` (fallback `ELEVENLABS_API_KEY`) `OPENAI_API_KEY`, and `GEMINI_API_KEY` (b-roll only; a missing one degrades b-roll scenes to their fallback). A missing key fails with a named error only when that provider is needed; a fully cached run needs no keys. Never print or write a key.
+- Keys come from the environment, the secrets env file named by `CF_SECRETS_ENV`, or this project's enrolled source in `~/.claude/cf/secrets.yml`: `ELEVEN_LABS_API_KEY` (fallback `ELEVENLABS_API_KEY`) `OPENAI_API_KEY`, and `GEMINI_API_KEY` (b-roll only; a missing one degrades b-roll scenes to their fallback). A key is looked up only when that provider is needed; a fully cached run needs no keys. Exit 4 with a `cf_enroll` line means this project has no key source recorded: enroll it and re-run, see `skills/walkthrough/reference/key-enrollment.md`. A recorded source missing the key is a named error. Never print or write a key.
 - Optional key-setup note: `npx @elevenlabs/cli onboard init` exists for minting an ElevenLabs key. This skill does not use it and never runs it; the render calls the REST API directly.
 - ElevenLabs music for commercial use needs the Starter plan or above; film or broadcast use needs Enterprise. Check the current terms before publishing.
 
