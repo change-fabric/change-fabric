@@ -37,7 +37,12 @@ module Roast
   # Rough planning figures, not a quote: USD per million tokens (input, output),
   # tokens per image, and the output cap. The estimate stays conservative.
   # Prices: standard tier, https://developers.openai.com/api/docs/pricing (checked 2026-10-28).
-  PRICE_PER_MTOK = { input: 2.0, output: 10.0 }.freeze
+  # Only the tiers cf:roast runs; an unknown model is priced at the dearest known
+  # rate (Sol) and the estimate line flags it, so it is never underpriced.
+  PRICES = { 'gpt-6.1-sol' => { input: 2.0, output: 10.0 }, 'gpt-6.1-terra' => { input: 1.0, output: 5.0 } }.freeze
+  # Above this many input tokens OpenAI bills 2x input and 1.5x output for the
+  # whole request. Roast prompts stay far under it; the estimate applies it anyway.
+  LONG_CONTEXT_TOKENS = 272_000
   IMAGE_TOKENS = 1500
   MAX_OUTPUT_TOKENS = 4000
   MIME = { '.png' => 'image/png', '.jpg' => 'image/jpeg', '.jpeg' => 'image/jpeg', '.webp' => 'image/webp' }.freeze
@@ -210,11 +215,32 @@ module Roast
                            .merge(lenses.empty? ? {} : { lenses: lenses.map { |l| [ l.name, Digest::SHA256.hexdigest(l.body) ] } }))
   end
 
-  def estimate(brief:, shots:, history:, texts: [], transcript: nil, review: nil, lenses: [])
+  # [rates, known]: the model's per-million rates, or Sol's when it has none.
+  def price_for(model)
+    return [ PRICES[model], true ] if PRICES.key?(model)
+
+    [ PRICES.values.max_by { |r| r[:output] }, false ]
+  end
+
+  def fallback_model
+    PRICES.max_by { |_, r| r[:output] }.first
+  end
+
+  # USD for input tokens plus a full output cap at the model's rates.
+  def priced_usd(model, input, output)
+    rates, known = price_for(model)
+    long = input > LONG_CONTEXT_TOKENS
+    usd = ((input * rates[:input] * (long ? 2 : 1)) + (output * rates[:output] * (long ? 1.5 : 1))) / 1_000_000.0
+    { usd: usd.round(2), tokens: input, model: model, unknown_price: !known }
+  end
+
+  def price_warning(est)
+    est[:unknown_price] ? "warning: no price for #{est[:model]}, estimating at #{fallback_model} rates" : nil
+  end
+
+  def estimate(brief:, shots:, history:, texts: [], transcript: nil, review: nil, lenses: [], model: MODEL)
     chars = lenses.sum { |l| l.name.size + l.body.size } + SYSTEM_PROMPT.size + texts.sum { |t| File.size(t) } + brief.size + JSON.generate(history).size + transcript.to_s.size + review_text(review).to_s.size
-    input = (chars / 4) + (shots.size * IMAGE_TOKENS)
-    usd = ((input * PRICE_PER_MTOK[:input]) + (MAX_OUTPUT_TOKENS * PRICE_PER_MTOK[:output])) / 1_000_000.0
-    { usd: usd.round(2), tokens: input }
+    priced_usd(model || MODEL, (chars / 4) + (shots.size * IMAGE_TOKENS), MAX_OUTPUT_TOKENS)
   end
 
   def user_text(brief, history, round, shots, texts: [], transcript: nil, review: nil, lenses: [])
@@ -335,7 +361,7 @@ module Roast
 
   # USD one round will cost: nothing when cached, else the token estimate.
   def round_usd(cache_root, **inputs)
-    cached?(cache_root, **inputs) ? 0.0 : estimate(**inputs.slice(:brief, :shots, :history, :texts, :transcript, :review, :lenses))[:usd]
+    cached?(cache_root, **inputs) ? 0.0 : estimate(**inputs.slice(:brief, :shots, :history, :texts, :transcript, :review, :lenses, :model))[:usd]
   end
 
   def cached?(cache_root, **inputs)
@@ -582,7 +608,10 @@ module Roast
     # Prints the estimate before any paid call and returns the USD it will cost.
     def announce(inputs, opts, out)
       usd = Roast.round_usd(opts[:cache], **inputs)
-      call = usd.zero? ? '1 call (cached)' : estimate_line(inputs, Roast.estimate(**inputs.slice(:brief, :shots, :history, :texts, :transcript, :review, :lenses)))
+      est = Roast.estimate(**inputs.slice(:brief, :shots, :history, :texts, :transcript, :review, :lenses, :model))
+      warning = Roast.price_warning(est)
+      out.puts(warning) if warning && !usd.zero?
+      call = usd.zero? ? '1 call (cached)' : estimate_line(inputs, est)
       out.puts("roast estimate: #{call}, $#{format('%.2f', usd)} to spend")
       usd
     end
