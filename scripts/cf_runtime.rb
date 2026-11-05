@@ -63,14 +63,24 @@ class CfRuntime
     return 'creating a pull request' if name == 'pr.create' && %w[local-only yolo].include?(state['mode'])
     return 'merging a pull request' if name == 'pr.merge' && %w[local-only merge-ready].include?(state['mode'])
     return 'pushing changes' if name == 'git.push' && state['mode'] == 'local-only'
-    return 'a direct push to the trunk' if name == 'git.push' && state['mode'] == 'merge-ready' && GuardedCommand::TRUNK.include?(input['branch'])
+    return 'a direct push to the trunk' if name == 'git.push' && state['mode'] == 'merge-ready' && GuardedCommand::TRUNK.include?(push_target(input))
     return unless name == 'shell'
 
     command = input['command']
     raise ArgumentError, 'shell command must be a string' unless command.is_a?(String)
 
+    GuardedCommand.new(command, state['mode'], branch: current_branch).violation
+  end
+
+  # A structured push without an explicit branch pushes the current one.
+  def push_target(input)
+    branch = input['branch']
+    branch.is_a?(String) && !branch.empty? ? branch : current_branch
+  end
+
+  def current_branch
     branch, = Open3.capture2('git', '-C', @request['project'], 'branch', '--show-current', err: File::NULL)
-    GuardedCommand.new(command, state['mode'], branch: branch.strip).violation
+    branch.strip
   end
 
   def context(state)

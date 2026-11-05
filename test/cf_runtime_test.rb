@@ -74,4 +74,12 @@ class CfRuntimeTest < Minitest::Test
     jobs.each(&:value)
     assert_equal({ "mode" => "local-only", "availability" => "away" }, call["state"])
   end
+
+  def test_structured_push_without_branch_resolves_the_current_branch
+    system("git", "-C", @project, "init", "-q", "-b", "main", exception: true)
+    push = { "name" => "git.push", "input" => {} }
+    assert_equal "deny", call(event: "tool.before", tool: push)["decision"]
+    system("git", "-C", @project, "checkout", "-q", "-b", "feature", exception: true)
+    assert_equal "allow", call(event: "tool.before", tool: push)["decision"]
+  end
 end
