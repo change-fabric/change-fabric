@@ -37,10 +37,15 @@ class SkillCompiler
     meta = YAML.safe_load(front)
     raise ArgumentError, 'skill needs name and description' unless meta.is_a?(Hash) && meta['name'] && meta['description']
 
+    # Claude has the installed adapter (hooks keyed to exact question headers
+    # and skill loads), so it keeps the native body; other hosts get the
+    # adapter-free shared contract.
+    return "---\n#{YAML.dump(meta).sub(/\A---\n/, '')}---\n#{references(body)}" if @host == 'claude'
+
     id = meta.fetch('name').sub(/\Acf[:-]/, '')
     workflow = File.join(@workflows, "#{id}.md")
     body = File.read(workflow) if File.file?(workflow)
-    meta = { 'name' => portable(meta['name']), 'description' => meta['description'] } unless @host == 'claude'
+    meta = { 'name' => portable(meta['name']), 'description' => meta['description'] }
     "---\n#{YAML.dump(meta).sub(/\A---\n/, '')}---\n\n#{host_contract}\n\n#{references(body)}"
   end
 
