@@ -55,4 +55,15 @@ class CfHostHookTest < Minitest::Test
   def test_missing_session_is_an_error_instead_of_shared_directory_identity
     assert_raises(ArgumentError) { hook("codex", "SessionStart", "session_id" => nil) }
   end
+
+  def test_plain_pre_tool_call_carries_no_rubric_to_block_on
+    result = hook("opencode", "PreToolUse", "tool_name" => "bash", "tool_input" => { "command" => "ls" })
+    refute result["hookSpecificOutput"].key?("rubricContext")
+  end
+
+  def test_environment_default_mode_keeps_a_resumed_explicit_choice
+    hook("pi", "UserPromptSubmit", "prompt" => "/skill:cf-local-only")
+    hook("pi", "UserPromptSubmit", "prompt" => "/skill:cf-merge-ready", "cf_default" => true)
+    assert_includes hook("pi", "SessionStart").dig("hookSpecificOutput", "additionalContext"), "local-only"
+  end
 end

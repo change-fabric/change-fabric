@@ -82,4 +82,10 @@ class CfRuntimeTest < Minitest::Test
     system("git", "-C", @project, "checkout", "-q", "-b", "feature", exception: true)
     assert_equal "allow", call(event: "tool.before", tool: push)["decision"]
   end
+
+  def test_default_mode_does_not_overwrite_an_explicit_choice
+    call(event: "mode.set", mode: "local-only")
+    assert_equal "local-only", call(event: "mode.set", mode: "merge-ready", if_unset: true).dig("state", "mode")
+    assert_equal "yolo", call(session_id: "fresh", event: "mode.set", mode: "yolo", if_unset: true).dig("state", "mode")
+  end
 end

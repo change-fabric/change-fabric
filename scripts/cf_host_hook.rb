@@ -44,7 +44,8 @@ class CfHostHook
     result = apply_mode(request) || result if @event == 'UserPromptSubmit' || @event == 'SessionStart'
     result = record_choice(request) || result if @event == 'PostToolUse'
     contexts = [ result.fetch('context') ]
-    contexts.concat(rubric_contexts)
+    @rubrics = rubric_contexts
+    contexts.concat(@rubrics)
     review = review_result
     if review['decision'] == 'block'
       review['reason'] = @compiler.references(review['reason']).sub(/Agent\(subagent_type: "general-purpose", model: "haiku", run_in_background: false\)/,
@@ -103,14 +104,14 @@ class CfHostHook
     match = prompt.to_s.match(MODE)
     return unless match
 
-    set_choice(request, match[1])
+    set_choice(request, match[1], if_unset: @payload['cf_default'] == true)
   end
 
-  def set_choice(request, choice)
+  def set_choice(request, choice, if_unset: false)
     if %w[active away].include?(choice)
       runtime(request.merge('event' => 'availability.set', 'availability' => choice))
     else
-      runtime(request.merge('event' => 'mode.set', 'mode' => choice))
+      runtime(request.merge('event' => 'mode.set', 'mode' => choice, 'if_unset' => if_unset))
     end
   end
 
@@ -193,6 +194,8 @@ class CfHostHook
       return { 'additionalContext' => context }
     end
     specific = { 'hookEventName' => @event, 'additionalContext' => context }
+    # Hosts that cannot inject context mid-call surface a rubric by blocking once.
+    specific['rubricContext'] = @compiler.references(@rubrics.join("\n\n")) if @event == 'PreToolUse' && @rubrics.any?
     specific.merge!('permissionDecision' => 'deny', 'permissionDecisionReason' => result['reason']) if result['decision'] == 'deny'
     { 'hookSpecificOutput' => specific }
   end

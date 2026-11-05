@@ -6,7 +6,7 @@ export type CfOutput = {
   reason?: string;
   additionalContext?: string;
   systemMessage?: string;
-  hookSpecificOutput?: { additionalContext?: string; permissionDecision?: string; permissionDecisionReason?: string };
+  hookSpecificOutput?: { additionalContext?: string; permissionDecision?: string; permissionDecisionReason?: string; rubricContext?: string };
 };
 
 export function isRecord(value: unknown): value is Record<string, unknown> {

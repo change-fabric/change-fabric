@@ -29,7 +29,7 @@ class CfRuntime
       mode = MergeModeSlug.of(@request['mode'])
       raise ArgumentError, 'unknown merge mode' unless mode
 
-      @state.update({ 'mode' => mode })
+      @state.update({ 'mode' => mode }, only_missing: @request['if_unset'] == true)
     when 'availability.set'
       availability = @request['availability']
       raise ArgumentError, 'unknown availability' unless %w[active away].include?(availability)

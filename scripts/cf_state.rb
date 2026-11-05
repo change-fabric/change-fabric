@@ -25,9 +25,12 @@ class CfState
     locked { effective(@session_id) }
   end
 
-  def update(values, parent: nil)
+  # only_missing keeps a value this session already chose, e.g. an environment
+  # default must not overwrite an explicit /cf choice when a session resumes.
+  def update(values, parent: nil, only_missing: false)
     locked do
       data = own(@session_id)
+      values = values.reject { |key, _| data.key?(key) } if only_missing
       if parent
         raise ArgumentError, 'session cannot inherit itself' if parent == @session_id
         raise ArgumentError, 'parent binding cannot change' if data['parent'] && data['parent'] != parent

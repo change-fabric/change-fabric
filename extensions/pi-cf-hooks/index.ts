@@ -24,7 +24,8 @@ export default function cfHooks(pi: ExtensionAPI) {
   pi.on("session_start", async (_event, ctx) => {
     await callHook("pi", "SessionStart", base(ctx));
     if (process.env.CF_MERGE_MODE) {
-      await callHook("pi", "UserPromptSubmit", { ...base(ctx), prompt: `/skill:cf-${process.env.CF_MERGE_MODE}` });
+      // A default only: a resumed session keeps the mode it last chose with /cf.
+      await callHook("pi", "UserPromptSubmit", { ...base(ctx), prompt: `/skill:cf-${process.env.CF_MERGE_MODE}`, cf_default: true });
     }
   });
   pi.on("input", async (event, ctx) => {
