@@ -169,6 +169,48 @@ class RoastTest < Minitest::Test
     assert_equal Roast::MODEL, Roast.build_request(brief: "b", shots: [ @shot ], history: [], round: 1)[:body][:model]
   end
 
+  def test_aliases_resolve_and_full_ids_pass_through
+    assert_equal "gpt-6.1-terra", Roast.resolve_model("terra")
+    assert_equal "gpt-6.1-sol", Roast.resolve_model("sol")
+    assert_equal "gpt-9-custom", Roast.resolve_model("gpt-9-custom")
+    assert_equal "gpt-6.1-sol", Roast.default_model("doc")
+  end
+
+  def test_model_chain_is_flag_then_env_then_config_then_default
+    env = { "CF_ROAST_MODEL" => "terra" }
+    assert_equal "gpt-6.1-sol", Roast.model_for(kind: "doc", flag: "sol", config: "terra", env: env)
+    assert_equal "gpt-6.1-terra", Roast.model_for(kind: "doc", config: "sol", env: env)
+    assert_equal "gpt-6.1-terra", Roast.model_for(kind: "doc", config: "terra", env: {})
+    assert_equal "gpt-6.1-sol", Roast.model_for(kind: "doc", env: { "CF_ROAST_MODEL" => " " })
+  end
+
+  def test_effort_defaults_to_medium_in_the_body
+    assert_equal({ "effort" => "medium" }, JSON.parse(JSON.generate(Roast.build_request(brief: "b", shots: [ @shot ], history: [], round: 1)[:body]))["reasoning"])
+    _, _, http = run_cli("--model", "terra", "--effort", "high")
+    body = JSON.parse(http.requests.last.body)
+    assert_equal "gpt-6.1-terra", body["model"]
+    assert_equal "high", body["reasoning"]["effort"]
+  end
+
+  def test_effort_none_on_sol_and_unknown_effort_are_refused
+    code, out, http = run_cli("--model", "sol", "--effort", "none")
+    assert_equal 2, code
+    assert_includes out, "effort none is not supported on gpt-6.1-sol"
+    assert_empty http.requests
+    code, out, = run_cli("--effort", "turbo")
+    assert_equal 2, code
+    assert_includes out, "unknown effort"
+    assert_equal "none", Roast.check_effort!("none", "gpt-6.1-terra")
+  end
+
+  def test_medium_effort_keeps_the_pre_effort_cache_key
+    base = { brief: "b", shots: [ @shot ], history: [], round: 1, model: "gpt-6.1-sol" }
+    legacy = WalkthroughCache.key({ model: "gpt-6.1-sol", brief: "b", round: 1, history: [], shots: [ Digest::SHA256.file(@shot).hexdigest ] })
+    assert_equal legacy, Roast.request_key(**base)
+    assert_equal legacy, Roast.request_key(**base, effort: "medium")
+    refute_equal legacy, Roast.request_key(**base, effort: "high")
+  end
+
   def test_second_round_sends_history_and_numbers_itself
     run_cli
     File.write(File.join(@roast, "round-1.response.json"), JSON.generate("accepted" => [ "home: One primary button" ]))
@@ -292,6 +334,16 @@ class RoastTest < Minitest::Test
     out = StringIO.new
     assert_equal 0, Roast::Cli.run([ "settings", "--repo", @dir ], out: out)
     assert_includes out.string, "auto true, target #{Roast::DEFAULT_TARGET}, rounds #{Roast::DEFAULT_CAP}, max_usd 0.50, model m-cfg"
+  end
+
+  def test_config_alias_resolves_in_settings_and_request
+    write_change({ "model" => "terra" })
+    out = StringIO.new
+    assert_equal 0, Roast::Cli.run([ "settings", "--repo", @dir ], out: out)
+    assert_includes out.string, "model gpt-6.1-terra"
+    _, text, http = run_cli("--repo", @dir)
+    assert_equal "gpt-6.1-terra", JSON.parse(http.requests.last.body)["model"]
+    assert_includes text, "to gpt-6.1-terra at medium effort"
   end
 
   def test_decide_reads_target_and_rounds_from_change_md

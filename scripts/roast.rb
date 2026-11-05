@@ -25,7 +25,16 @@ module Roast
   # gpt-6.1-sol: image input, Responses API, Structured Outputs, per
   # https://developers.openai.com/api/docs/models/gpt-6.1-sol (checked 2026-10-28).
   DEFAULT_MODEL = 'gpt-6.1-sol'
-  MODEL = ENV.fetch('CF_ROAST_MODEL', DEFAULT_MODEL)
+  # Short tier names accepted wherever a model is named (--model, CF_ROAST_MODEL,
+  # repo config); any other name passes through unchanged as a full model ID.
+  ALIASES = { 'terra' => 'gpt-6.1-terra', 'sol' => 'gpt-6.1-sol' }.freeze
+  # The env-or-default model, for direct callers that name no kind. The CLI
+  # resolves through Roast.model_for instead.
+  MODEL = ALIASES.fetch(ENV.fetch('CF_ROAST_MODEL', DEFAULT_MODEL), ENV.fetch('CF_ROAST_MODEL', DEFAULT_MODEL))
+  # reasoning.effort is always sent. medium is the default and stays out of the
+  # cache key, so rounds cached before effort existed keep their exact key.
+  EFFORTS = %w[none low medium high xhigh max].freeze
+  DEFAULT_EFFORT = 'medium'
   RESPONSES_URL = 'https://api.openai.com/v1/responses'
   DEFAULT_CEILING_USD = 0.5
   DEFAULT_TARGET = 9
@@ -47,7 +56,7 @@ module Roast
   MAX_OUTPUT_TOKENS = 4000
   MIME = { '.png' => 'image/png', '.jpg' => 'image/jpeg', '.jpeg' => 'image/jpeg', '.webp' => 'image/webp' }.freeze
   USAGE = 'usage: roast.rb --brief FILE (--shot IMG... | --text FILE...) [--allow-sensitive] [--history DIR] [--out-dir DIR] [--round N] ' \
-          '[--max-usd N] [--model NAME] [--cache DIR] [--transcript FILE] [--estimate-only] ' \
+          '[--max-usd N] [--model NAME|terra|sol] [--effort none|low|medium|high|xhigh|max] [--cache DIR] [--transcript FILE] [--estimate-only] ' \
           '[--storyboard FILE] [--kind explainer|promo|demo|email|doc|pr|post|arch|code|infra] [--audience TEXT] [--purpose OUTCOME]... [--lens NAME]... | roast.rb --video MP4 --brief FILE [...] | roast.rb infer [--storyboard FILE] [--text FILE]... | roast.rb decide --out-dir DIR [--target N] [--cap N] | roast.rb settings [--repo DIR]; ' \
           'flags win over the storyboard review object, which wins over change_config.design.roast in CHANGE.md (--repo DIR, default the working directory)'
 
@@ -207,12 +216,38 @@ module Roast
 
   # `transcript` is optional narration and caption text the critic reads next to
   # the frames; it joins the key only when present, so frame-only keys are stable.
-  def request_key(brief:, shots:, history:, round:, texts: [], transcript: nil, review: nil, lenses: [], model: MODEL)
+  def request_key(brief:, shots:, history:, round:, texts: [], transcript: nil, review: nil, lenses: [], model: MODEL, effort: DEFAULT_EFFORT)
     WalkthroughCache.key({ model: model, brief: brief, round: round, history: history,
                            shots: shots.map { |s| Digest::SHA256.file(s).hexdigest } }
                            .merge(texts.empty? ? {} : { texts: texts.map { |t| Digest::SHA256.file(t).hexdigest } })
                            .merge(transcript ? { transcript: transcript } : {}).merge(review ? { review: review } : {})
-                           .merge(lenses.empty? ? {} : { lenses: lenses.map { |l| [ l.name, Digest::SHA256.hexdigest(l.body) ] } }))
+                           .merge(lenses.empty? ? {} : { lenses: lenses.map { |l| [ l.name, Digest::SHA256.hexdigest(l.body) ] } })
+                           .merge(effort_key(effort)))
+  end
+
+  # The effort field a cache key carries: none at medium (Decision: keys cached
+  # before effort existed were implicitly medium and must not change).
+  def effort_key(effort) = effort.to_s == DEFAULT_EFFORT ? {} : { effort: effort.to_s }
+
+  # An alias names its full model ID; anything else (a full ID, nil) passes through.
+  def resolve_model(name) = name.nil? ? nil : ALIASES.fetch(name.to_s.strip, name.to_s.strip)
+
+  # The default model for a review kind. Sol for every kind for now.
+  def default_model(_kind = nil) = DEFAULT_MODEL
+
+  # The one model resolution chain: flag, CF_ROAST_MODEL, repo config, per-kind default.
+  # Blank values count as unset.
+  def model_for(kind: nil, flag: nil, config: nil, env: ENV)
+    pick = [ flag, env['CF_ROAST_MODEL'], config ].find { |v| !v.to_s.strip.empty? }
+    resolve_model(pick || default_model(kind))
+  end
+
+  # Raises UsageError for an unknown level, or none on a Sol model.
+  def check_effort!(effort, model)
+    raise UsageError, "unknown effort #{effort.inspect}; use one of #{EFFORTS.join(', ')}" unless EFFORTS.include?(effort.to_s)
+    raise UsageError, "effort none is not supported on #{model}; use low or higher" if effort.to_s == 'none' && model.to_s.start_with?(ALIASES['sol'])
+
+    effort.to_s
   end
 
   # [rates, known]: the model's per-million rates, or Sol's when it has none.
@@ -262,13 +297,13 @@ module Roast
   end
 
   # The pure request description: the URL and the JSON body, no auth or cache key.
-  def build_request(brief:, shots:, history:, round:, texts: [], transcript: nil, review: nil, lenses: [], model: MODEL)
+  def build_request(brief:, shots:, history:, round:, texts: [], transcript: nil, review: nil, lenses: [], model: MODEL, effort: DEFAULT_EFFORT)
     images = shots.map do |s|
       { type: 'input_image', image_url: "data:#{mime_for(s)};base64,#{Base64.strict_encode64(File.binread(s))}" }
     end
     text = { type: 'input_text', text: user_text(brief, history, round, shots, texts: texts, transcript: transcript, review: review, lenses: lenses) }
     { url: RESPONSES_URL,
-      body: { model: model, max_output_tokens: MAX_OUTPUT_TOKENS,
+      body: { model: model, max_output_tokens: MAX_OUTPUT_TOKENS, reasoning: { effort: effort },
               input: [ { role: 'system', content: SYSTEM_PROMPT }, { role: 'user', content: [ text, *images ] } ],
               text: { format: { type: 'json_schema', name: 'roast', strict: true, schema: SCHEMA } } } }
   end
@@ -334,11 +369,11 @@ module Roast
   end
 
   # Returns the cached critic JSON, making the paid call only on a miss.
-  def critique(brief:, shots:, history:, round:, cache_root:, texts: [], transcript: nil, review: nil, lenses: [], http: nil, model: MODEL, allow_sensitive: false)
+  def critique(brief:, shots:, history:, round:, cache_root:, texts: [], transcript: nil, review: nil, lenses: [], http: nil, model: MODEL, effort: DEFAULT_EFFORT, allow_sensitive: false)
     check_sensitive!(brief: brief, texts: texts, transcript: transcript, review: review, lenses: lenses, history: history, allow: allow_sensitive)
-    key = request_key(brief: brief, shots: shots, history: history, round: round, texts: texts, transcript: transcript, review: review, lenses: lenses, model: model)
+    key = request_key(brief: brief, shots: shots, history: history, round: round, texts: texts, transcript: transcript, review: review, lenses: lenses, model: model, effort: effort)
     path = WalkthroughCache.fetch(*cache_args(cache_root, key)) do |tmp|
-      request = build_request(brief: brief, shots: shots, history: history, round: round, texts: texts, transcript: transcript, review: review, lenses: lenses, model: model)
+      request = build_request(brief: brief, shots: shots, history: history, round: round, texts: texts, transcript: transcript, review: review, lenses: lenses, model: model, effort: effort)
       File.write(tmp, JSON.generate(parse_critic(post(request, http))))
     end
     JSON.parse(File.read(path))
@@ -473,10 +508,11 @@ module Roast
 
     def parse(args)
       repo = repo_arg(args)
-      opts = { shots: [], texts: [], max_usd: DEFAULT_CEILING_USD, cache: '.cache', out_dir: DEFAULT_OUT_DIR, model: MODEL, flags: { purpose: [] }, lens_names: [] }
-             .merge(configured(repo).slice(:max_usd, :model).merge(config_review: configured(repo).slice(:kind, :audience)))
+      opts = { shots: [], texts: [], max_usd: DEFAULT_CEILING_USD, cache: '.cache', out_dir: DEFAULT_OUT_DIR, effort: DEFAULT_EFFORT, flags: { purpose: [] }, lens_names: [] }
+             .merge(configured(repo).slice(:max_usd).merge(config_model: configured(repo)[:model], config_review: configured(repo).slice(:kind, :audience)))
       OptionParser.new do |o|
         o.on('--model NAME') { |v| opts[:model] = v }
+        o.on('--effort LEVEL') { |v| opts[:effort] = v }
         o.on('--brief FILE') { |v| opts[:brief_file] = v }
         o.on('--shot IMG') { |v| opts[:shots] << v }
         o.on('--text FILE') { |v| opts[:texts] << v }
@@ -497,6 +533,7 @@ module Roast
       opts[:shots] += args
       raise UsageError, '--brief is required' unless opts[:brief_file]
       raise UsageError, 'give at least one --shot or --text' if opts[:shots].empty? && opts[:texts].empty?
+      raise UsageError, "unknown effort #{opts[:effort].inspect}; use one of #{EFFORTS.join(', ')}" unless EFFORTS.include?(opts[:effort])
 
       opts.merge(lenses: RoastLens.resolve(opts[:lens_names]))
     end
@@ -545,7 +582,9 @@ module Roast
       repo = repo_arg(args)
       raise UsageError, "unknown argument: #{args.first}" unless args.empty?
 
-      { auto: true, target: DEFAULT_TARGET, cap: DEFAULT_CAP, max_usd: DEFAULT_CEILING_USD, model: MODEL }.merge(configured(repo))
+      cfg = configured(repo)
+      model = Roast.model_for(kind: cfg[:kind], config: cfg[:model])
+      { auto: true, target: DEFAULT_TARGET, cap: DEFAULT_CAP, max_usd: DEFAULT_CEILING_USD }.merge(cfg).merge(model: model)
     end
 
     # Prints the resolved settings; auto: false tells a loading skill (cf:design,
@@ -578,11 +617,13 @@ module Roast
     end
 
     def inputs_for(opts, out)
+      review = review_for(opts, out)
+      model = Roast.model_for(kind: review[:kind], flag: opts[:model], config: opts[:config_model])
       { brief: File.read(opts[:brief_file]).strip, shots: opts[:shots], texts: opts[:texts],
         history: Roast.load_history(opts[:history] || opts[:out_dir]),
         round: opts[:round] || Roast.next_round(opts[:out_dir]),
-        transcript: opts[:transcript_file] && File.read(opts[:transcript_file]).strip, review: review_for(opts, out),
-        lenses: opts[:lenses] || [], model: opts[:model] }
+        transcript: opts[:transcript_file] && File.read(opts[:transcript_file]).strip, review: review,
+        lenses: opts[:lenses] || [], model: model, effort: Roast.check_effort!(opts[:effort] || DEFAULT_EFFORT, model) }
     end
 
     # The review contract; when no source names a kind, infers one from the
@@ -622,7 +663,7 @@ module Roast
     end
 
     def estimate_line(inputs, est)
-      "1 call, #{inputs[:shots].size} image(s), #{inputs[:texts].size} text(s)#{lens_count(inputs)}, about #{est[:tokens]} tokens in, up to #{MAX_OUTPUT_TOKENS} out, about $#{format('%.2f', est[:usd])}"
+      "1 call, #{inputs[:shots].size} image(s), #{inputs[:texts].size} text(s)#{lens_count(inputs)}, to #{est[:model]} at #{inputs[:effort]} effort, about #{est[:tokens]} tokens in, up to #{MAX_OUTPUT_TOKENS} out, about $#{format('%.2f', est[:usd])}"
     end
   end
 end

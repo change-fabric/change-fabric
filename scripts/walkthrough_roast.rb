@@ -67,7 +67,7 @@ module WalkthroughRoast
       max_usd: given.fetch(:max_usd, cfg.max_usd || DEFAULT_CEILING_USD).to_f,
       target: given.fetch(:target, cfg.target || TARGET).to_f,
       rounds: given.fetch(:rounds, cfg.rounds || ROUND_CAP).to_i,
-      model: given.fetch(:model, cfg.model || Roast::MODEL),
+      model: Roast.model_for(kind: cfg.kind, flag: given[:model], config: cfg.model),
       review: { kind: cfg.kind, audience: cfg.audience }.compact }
   end
 
