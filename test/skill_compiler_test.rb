@@ -6,7 +6,7 @@ require_relative "../scripts/skill_compiler"
 class SkillCompilerTest < Minitest::Test
   def test_mode_contract_is_shared_by_all_hosts
     source = File.read(File.expand_path("../skills/merge-ready/SKILL.md", __dir__))
-    (SkillCompiler::HOSTS - ["claude"]).each do |host|
+    (SkillCompiler::HOSTS - [ "claude" ]).each do |host|
       compiler = SkillCompiler.new(host: host)
       text = compiler.compile(source)
       assert_includes text, "Stop before merging"
