@@ -48,7 +48,8 @@ class HostCapabilities
   end
 
   def normalize_version(raw)
-    version = raw.to_s[/\d+\.\d+\.\d+(?:-[\w.]+)?/]
+    # Take the whole token so 0.166.0.1 or 0.166.0+build never matches a registered 0.166.0.
+    version = raw.to_s[/\d+(?:\.\d+)+(?:[-+][\w.+-]+)?/]
     version if version && Gem::Version.correct?(version)
   end
 

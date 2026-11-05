@@ -35,4 +35,11 @@ class HostCapabilitiesTest < Minitest::Test
       assert_raises(ArgumentError) { HostCapabilities.new(path: file.path) }
     end
   end
+
+  def test_extra_version_components_do_not_match_a_registered_prefix
+    %w[0.166.0.1 0.166.0+custom].each do |version|
+      report = HostCapabilities.new.resolve(host: "codex", surface: "cli", version: "codex-cli #{version}")
+      refute_equal "reference-only", report["version_status"], version
+    end
+  end
 end
