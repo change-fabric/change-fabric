@@ -88,6 +88,8 @@ class ChangeTagGuard
   # question for a merge. ChangeGateCheck is the shared decision object;
   # everything here is deny-wording specific to a tag publish.
   def gate_violation(policy, tag, rule, sha, root)
+    return nil unless ChangeGateCheck.required?(policy, base: tag, kind: :tag)
+
     profile = policy.profile_for_rule(rule)
     apps = ChangeGateCheck.required_apps(root, policy.apps_for_rule(rule))
     check = ChangeGateCheck.new(sha: sha, profile: profile, apps: apps)

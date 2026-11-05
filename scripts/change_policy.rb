@@ -3,6 +3,7 @@
 
 require 'yaml'
 require_relative 'change_frontmatter'
+require_relative 'change_schema'
 
 # Reads the `change_policy:` block from a repo's CHANGE.md, the single
 # change-fabric file. CHANGE.md's prose body is the governance FAQ a human and an
@@ -227,6 +228,26 @@ class ChangePolicy
   # Some adopting repos, whose established flow admin-merges routinely once CI
   # is green, set this true with `require_change_pass: true` so the audit gate
   # still applies.
+  # When the cf:change gate applies to a PR merge (0.14.0): 'every_merge' (the
+  # default, also for an absent or invalid value, which ChangeSchema.gate_errors
+  # reports) or 'promotion'.
+  def gate_require_on
+    value = @policy.dig('gate', 'require_on').to_s
+    ChangeSchema::GATE_SCOPES.include?(value) ? value : 'every_merge'
+  end
+
+  # A PR merge into trunk is never a promotion.
+  def gate_required_for_pr_merge?(base) = gate_require_on == 'every_merge' || !trunk?(base)
+
+  def trunk?(branch) = branch.to_s == trunk_branch
+
+  def trunk_branch
+    value = @policy.dig('gate', 'trunk')
+    value.is_a?(String) && !value.strip.empty? ? value : 'main'
+  end
+
+  def gate_errors = ChangeSchema.gate_errors(@policy)
+
   def admin_bypass_allowed?
     !!@policy.dig('admin_bypass', 'allowed')
   end

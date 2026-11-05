@@ -225,4 +225,29 @@ class ChangePolicyTest < Minitest::Test
       assert_equal ChangePolicy::DEFAULT_PROTECTED, p.protected_branches
     end
   end
+
+  def test_gate_require_on_defaults_to_every_merge
+    policy("change_policy:\n  protected_branches: [main]\n") do |p|
+      assert_equal "every_merge", p.gate_require_on
+      assert_equal "main", p.trunk_branch
+      assert p.gate_required_for_pr_merge?("main")
+      assert_empty p.gate_errors
+    end
+  end
+
+  def test_promotion_scope_exempts_only_trunk
+    front = "change_policy:\n  gate:\n    require_on: promotion\n    trunk: develop\n"
+    policy(front) do |p|
+      refute p.gate_required_for_pr_merge?("develop")
+      assert p.gate_required_for_pr_merge?("main")
+      assert p.gate_required_for_pr_merge?("production")
+    end
+  end
+
+  def test_bad_gate_scope_is_a_named_error_and_falls_back
+    policy("change_policy:\n  gate:\n    require_on: sometimes\n") do |p|
+      assert_equal "every_merge", p.gate_require_on
+      assert_match(/change_policy\.gate\.require_on must be one of every_merge, promotion/, p.gate_errors.join)
+    end
+  end
 end

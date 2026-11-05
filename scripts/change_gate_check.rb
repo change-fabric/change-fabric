@@ -84,6 +84,16 @@ class ChangeGateCheck
     nil
   end
 
+  # Whether the gate applies at all to this event (0.14.0). `kind` is
+  # :pr_merge or :tag. A tag publish is always a promotion, so the
+  # `promotion` scope never relaxes it; a PR merge is gated unless the repo
+  # scopes the gate to promotions and the merge lands on trunk.
+  def self.required?(policy, base:, kind:)
+    return true if kind == :tag
+
+    policy.gate_required_for_pr_merge?(base)
+  end
+
   # CF_ALLOW_UNGATED_MERGE=1 only works if it was exported before this
   # session's own hook process started, which an agent mid-session cannot
   # arrange. The reachable path: a human runs change_override.rb themselves,

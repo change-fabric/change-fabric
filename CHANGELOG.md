@@ -18,6 +18,21 @@ Every version below has a frozen, permanently addressable rendering at
 field set: major for a removed, renamed or newly required field, minor for a new
 optional field, patch for a documentation-only clarification.
 
+## [0.14.0] - 2026-11-05
+
+A repo can say when the cf:change gate applies to a PR merge: on every merge,
+or only on environment promotions, where a PR merge into trunk is not one.
+
+### Added
+
+- `change_policy.gate.require_on`: `every_merge` (default, the 0.13.0
+  behavior) or `promotion`. Under `promotion`, `change_merge_guard.rb` lets a
+  PR merge into trunk through without a recorded cf:change pass, while merges
+  between other protected branches and every `tag:` rule stay gated. Any
+  other value is rejected with a message naming the field.
+- `change_policy.gate.trunk`: the trunk branch `promotion` exempts, default
+  `main`.
+
 ## [0.13.0] - 2026-10-29
 
 A project can configure design governance in `CHANGE.md`: where its one

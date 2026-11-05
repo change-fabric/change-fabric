@@ -18,7 +18,7 @@
 require_relative 'figma_url'
 
 module ChangeSchema
-  VERSION = '0.13.0'
+  VERSION = '0.14.0'
 
   # The five audit lanes, the authoritative list the config validator enforces.
   LANES = %w[k6 a11y zap browserless testcases].freeze
@@ -339,6 +339,13 @@ module ChangeSchema
     # either. A repo with no tag: entries anywhere is bit-for-bit unaffected.
     'change_policy.protected_refs',
     'change_policy.gate.require_change_pass',
+    # gate.require_on / gate.trunk (0.14.0): when the cf:change gate applies to
+    # a PR merge. every_merge (the default, and the pre-0.14.0 behavior) gates
+    # every merge into a protected branch; promotion gates only environment
+    # promotions, and a PR merge into trunk is never one. Tags are always
+    # promotions, so promotion never relaxes a tag rule.
+    'change_policy.gate.require_on',
+    'change_policy.gate.trunk',
     'change_policy.promotion.<ref>.review_required',
     'change_policy.promotion.<ref>.self_review_allowed',
     'change_policy.promotion.<ref>.require_change_pass',
@@ -441,6 +448,22 @@ module ChangeSchema
   VIDEO_REVIEW_KINDS = %w[explainer promo demo].freeze
   REVIEW_KINDS = (VIDEO_REVIEW_KINDS + %w[email doc pr post]).freeze
   PARITY_STATUSES = %w[must_match intentional unreviewed].freeze
+  # The accepted change_policy.gate.require_on values (0.14.0).
+  GATE_SCOPES = %w[every_merge promotion].freeze
+
+  # Every problem with change_policy.gate.require_on / gate.trunk, as messages
+  # naming the field. Empty when both are absent or valid.
+  def self.gate_errors(policy)
+    gate = policy.is_a?(Hash) ? policy['gate'] : nil
+    return [] unless gate.is_a?(Hash)
+
+    errors = []
+    if gate.key?('require_on') && !GATE_SCOPES.include?(gate['require_on'])
+      errors << "change_policy.gate.require_on must be one of #{GATE_SCOPES.join(', ')}"
+    end
+    errors << 'change_policy.gate.trunk must be a non-empty string' if gate.key?('trunk') && !present?(gate['trunk'])
+    errors
+  end
 
   # Every problem with a change_config.design block, as messages naming the
   # field. Empty when the block is absent or valid. Shared by ChangeConfig's

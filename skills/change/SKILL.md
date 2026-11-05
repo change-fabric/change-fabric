@@ -202,6 +202,16 @@ language:
 The prose is the truth a teammate reads; the frontmatter states the same policy
 in the form the merge gate enforces.
 
+### When the gate applies (0.14.0)
+
+`change_policy.gate.require_on` says when a PR merge needs a passing cf:change
+run. `every_merge` (the default, and the behavior before 0.14.0) gates every
+merge into a protected branch. `promotion` gates only environment promotions:
+a PR merge into trunk (`gate.trunk`, default `main`) is not one, so it merges
+without a recorded run, while a merge such as `staging` into `production` and
+every `tag:` rule stay gated. Both guards ask this through
+`ChangeGateCheck.required?`.
+
 ### Trunk with environment tags (0.9.0)
 
 A repo with one trunk (`main`) and no long-lived `staging`/`production`
