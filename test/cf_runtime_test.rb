@@ -99,4 +99,17 @@ class CfRuntimeTest < Minitest::Test
     call(host: "pi", session_id: session_file, event: "mode.set", mode: "yolo")
     assert_equal "yolo", call(host: "pi", session_id: session_file).dig("state", "mode")
   end
+
+  def test_legacy_opencode_mode_and_claude_away_are_imported
+    legacy = File.join(@home, ".claude/cf/sessions/opencode-#{Digest::SHA256.hexdigest("root")[0, 32]}")
+    FileUtils.mkdir_p(legacy)
+    File.write(File.join(legacy, "merge-mode"), "local-only")
+    assert_equal "local-only", call(host: "opencode", session_id: "root").dig("state", "mode")
+    away = File.join(@home, ".claude/cf/sessions/one")
+    FileUtils.mkdir_p(away)
+    File.write(File.join(away, "away"), "away\n")
+    assert_equal "away", call(host: "claude").dig("state", "availability")
+    call(host: "claude", event: "availability.set", availability: "active")
+    assert_equal "active", call(host: "claude").dig("state", "availability")
+  end
 end

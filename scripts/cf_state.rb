@@ -73,22 +73,32 @@ class CfState
     inherited = data['parent'] ? effective(data['parent'], seen + [ id ]) : {}
     mode = data['mode'] || inherited['mode'] || legacy_mode(id)
     { 'mode' => MergeModeSlug.of(mode) || MergeModeSlug::FALLBACK,
-      'availability' => data['availability'] || inherited['availability'] || 'active' }
+      'availability' => data['availability'] || inherited['availability'] || legacy_availability(id) || 'active' }
   end
 
   # Read-only compatibility import. Neutral state always takes precedence;
   # another host's legacy state is never considered.
   def legacy_mode(id)
-    file = File.join(@home, '.claude', 'cf', 'sessions', legacy_session_dir(id) || return, 'merge-mode')
-    File.file?(file) ? MergeModeSlug.of(File.read(file)) : nil
+    value = legacy_value(id, 'merge-mode')
+    value && MergeModeSlug.of(value)
   end
 
-  # The pre-runtime Pi extension keyed a file-backed session by a hash of its
-  # session file path.
+  def legacy_availability(id)
+    'away' if legacy_value(id, 'away') == 'away'
+  end
+
+  def legacy_value(id, name)
+    dir = legacy_session_dir(id)
+    file = dir && File.join(@home, '.claude', 'cf', 'sessions', dir, name)
+    file && File.file?(file) ? File.read(file).strip : nil
+  end
+
+  # Pre-runtime adapters keyed sessions differently: Claude by raw id, Pi by a
+  # hash of the session file path, OpenCode by a hash of the root session id.
   def legacy_session_dir(id)
     return id if @host == 'claude' && id.match?(/\A[\w-]+\z/)
 
-    "pi-#{Digest::SHA256.hexdigest(id)[0, 32]}" if @host == 'pi'
+    "#{@host}-#{Digest::SHA256.hexdigest(id)[0, 32]}" if %w[pi opencode].include?(@host)
   end
 
   def write(data)
