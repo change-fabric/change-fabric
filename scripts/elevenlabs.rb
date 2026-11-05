@@ -227,6 +227,8 @@ module ElevenLabs
       WalkthroughEnv.load_secrets
       send(command, parse(args), out, transport, sleeper)
       0
+    rescue WalkthroughEnv::NeedsEnrollment => e
+      WalkthroughEnv.enroll(e, out: out)
     rescue UsageError, Error, OptionParser::ParseError, WalkthroughEnv::MissingKeyError => e
       out.puts("error: #{e.message}")
       1

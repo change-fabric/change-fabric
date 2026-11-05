@@ -7,9 +7,11 @@ require "stringio"
 require "tmpdir"
 require_relative "../scripts/image"
 require_relative "imagegen_helpers"
+require_relative "enroll_helpers"
 
 class ImageTest < Minitest::Test
   include ImagegenHelpers
+  include EnrollHelpers
 
   def setup
     @dir = Dir.mktmpdir
@@ -106,9 +108,28 @@ class ImageTest < Minitest::Test
 
   def test_missing_key_exits_1_when_a_call_is_needed
     ENV.delete("OPENAI_API_KEY")
-    code, text = run_cli("fresh")
+    code, text = with_store(enrolled: true) { run_cli("fresh") }
     assert_equal 1, code
     assert_includes text, "OPENAI_API_KEY"
+    assert_empty enroll_lines(text)
+  end
+
+  def test_unenrolled_uncached_call_exits_4_with_one_enroll_line
+    ENV.delete("OPENAI_API_KEY")
+    code, text, http = with_store { run_cli("fresh") }
+    assert_equal 4, code
+    assert_one_enroll_line(text, "openai")
+    assert_empty http.requests
+  end
+
+  def test_unenrolled_cached_run_exits_0_without_asking
+    assert_equal 0, run_cli("cached once").first
+    ENV.delete("OPENAI_API_KEY")
+    @out = StringIO.new
+    code, text, http = with_store { run_cli("cached once") }
+    assert_equal 0, code, text
+    assert_empty enroll_lines(text)
+    assert_empty http.requests
   end
 
   def test_http_failure_exits_1_and_never_prints_the_key

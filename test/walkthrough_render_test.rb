@@ -5,8 +5,11 @@ require "json"
 require "stringio"
 require "tmpdir"
 require_relative "../scripts/walkthrough_render"
+require_relative "enroll_helpers"
 
 class WalkthroughRenderTest < Minitest::Test
+  include EnrollHelpers
+
   LOUDNORM_OUT = "{\n \"input_i\" : \"-20.0\", \"input_tp\" : \"-2.0\", \"input_lra\" : \"5.0\",\n" \
                  " \"input_thresh\" : \"-30.0\", \"target_offset\" : \"0.1\"\n}\n"
   Status = Struct.new(:ok) do
@@ -579,6 +582,30 @@ class WalkthroughRenderTest < Minitest::Test
     refute File.exist?(File.join(@root, "roast", "round-1.json"))
   ensure
     ENV.delete("CF_SENSITIVE_TERMS_FILE")
+  end
+
+  def keyed_roast = providers.merge(roast: ->(**) { WalkthroughEnv.openai_key! && @critic })
+
+  def test_unenrolled_draft_roast_needs_enrollment_instead_of_skipping
+    saved = ENV.delete("OPENAI_API_KEY")
+    with_store do
+      assert_raises(WalkthroughEnv::NeedsEnrollment) do
+        WalkthroughRender::Run.new(@root, providers: keyed_roast, out: StringIO.new).call
+      end
+    end
+    refute File.exist?(File.join(@root, "roast", "round-1.json"))
+  ensure
+    ENV["OPENAI_API_KEY"] = saved if saved
+  end
+
+  def test_enrolled_draft_roast_without_a_key_is_skipped
+    saved = ENV.delete("OPENAI_API_KEY")
+    out = StringIO.new
+    with_store(enrolled: true) { WalkthroughRender::Run.new(@root, providers: keyed_roast, out: out).call }
+    assert_includes out.string, "roast: skipped (OPENAI_API_KEY for openai not found"
+    assert_empty enroll_lines(out.string)
+  ensure
+    ENV["OPENAI_API_KEY"] = saved if saved
   end
 
   def test_allow_sensitive_gate_reaches_the_roast_provider

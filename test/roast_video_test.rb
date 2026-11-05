@@ -6,8 +6,11 @@ require "stringio"
 require "tmpdir"
 require_relative "../scripts/roast_video"
 require_relative "imagegen_helpers"
+require_relative "enroll_helpers"
 
 class RoastVideoTest < Minitest::Test
+  include EnrollHelpers
+
   CRITIC = {
     "score" => 6, "summary" => "Narration runs ahead of the picture.",
     "issues" => [ { "priority" => "P1", "timestamp" => "00:42", "where" => "inquiry", "problem" => "Says sent before the click",
@@ -92,6 +95,31 @@ class RoastVideoTest < Minitest::Test
                         out: again, http: Http.new, docker: docker)
     refute_match(/cached/, again.string) # history now includes the video round, so a new key
     assert_equal 1, docker.calls.size, "frames are cached by MP4 digest"
+  end
+
+  def video_args = [ "--video", @mp4, "--brief", @brief, "--out-dir", @roast, "--cache", File.join(@dir, ".cache"), "--round", "2" ]
+
+  def test_unenrolled_uncached_video_roast_exits_4_with_one_enroll_line
+    ENV.delete("OPENAI_API_KEY")
+    out = StringIO.new
+    http = Http.new
+    code = with_store { RoastVideo::Cli.run(video_args, out: out, http: http, docker: fake_docker) }
+    assert_equal 4, code
+    assert_one_enroll_line(out.string, "openai")
+    assert_empty http.requests
+  end
+
+  def test_unenrolled_cached_video_roast_exits_0_without_asking
+    docker = fake_docker
+    assert_equal 0, RoastVideo::Cli.run(video_args, out: StringIO.new, http: Http.new, docker: docker)
+    FileUtils.rm_f(Dir[File.join(@roast, "round-2.video.*")])
+    ENV.delete("OPENAI_API_KEY")
+    out = StringIO.new
+    http = Http.new
+    code = with_store { RoastVideo::Cli.run(video_args, out: out, http: http, docker: docker) }
+    assert_equal 0, code, out.string
+    assert_empty enroll_lines(out.string)
+    assert_empty http.requests
   end
 
   def test_ceiling_refuses_before_any_request
