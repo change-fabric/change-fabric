@@ -7,7 +7,7 @@ description: Turns a described goal into a landed planning set under the configu
 # CF Plan
 
 Trigger: `/cf:plan <goal description>` (optionally `--area <name>`,
-`--seed <file>`).
+`--seed <file>`, `--judge`).
 
 `--seed <file>` names a prior brainstorm, typically the `brainstorm.md` that
 cf:brainstorm landed and whose handoff line already carries this flag. Its
@@ -16,6 +16,17 @@ text feeds the research and writing prompts through their `{{seed}}` section.
 Question: is there a plan on disk detailed enough that a separate agent, with
 none of this session's context, could turn it straight into real work, and are
 the judgment calls in it the user's rather than yours?
+
+`--judge` replaces the human interview at steps 5 and 6 with an LLM-as-judge
+interview. Per open question, 2 to 3 background proposer agents with distinct
+briefs each propose an answer with rationale, and one judge agent (opus)
+picks or merges them. Each ledger entry then carries `Answered by: judge`,
+and plan.md lists those entries under `### Judged decisions (unreviewed)`
+so they stay open to revisiting. This is distinct from away mode, which only
+takes recommended defaults. Use `--judge` only when the caller's merge mode is
+admin-bypass (for example cf:sweep stack mode after a resolve-threads
+recurrence); under merge-ready the human interview always runs, and the flag
+is ignored with a one-line note. The protocol is in `reference/interview.md`.
 
 ## What it produces
 
@@ -139,7 +150,8 @@ fresh session that will execute the plan.
    you can settle from evidence, then call `AskUserQuestion` directly with up
    to four real decisions per call. Every question carries your own
    recommendation, labelled as such. Record each answer verbatim in a
-   decisions ledger.
+   decisions ledger. Under `--judge` (admin-bypass only), run the judge
+   protocol from `reference/interview.md` instead of `AskUserQuestion`.
 
    Grill, do not survey. A question exists because the answer changes the
    plan. If both options produce the same plan, decide it yourself and say so.

@@ -93,3 +93,49 @@ survives into the built code instead of evaporating with this session.
 Record what the user rejected too, when they rejected it for a reason. A plan
 that says "not X, because the user said Y" is worth more than one that never
 mentions X.
+
+## Judge mode (`--judge`)
+
+Only when invoked with `--judge` and the session merge mode is admin-bypass.
+Under merge-ready, ignore the flag and run the human interview above.
+
+The bar for what earns a question is unchanged. For each question that
+clears it:
+
+1. Spawn 2 to 3 proposer agents in one message (`model: opus`,
+   `run_in_background: true`), each with a distinct brief: one favors the
+   smallest change, one favors the most robust design, and an optional third
+   argues from the repo's existing conventions. Prompt:
+
+   ```
+   Decision: {{header}}. Question: {{question}}. Options: {{options}}.
+   Research findings: {{findings}}. Your brief: {{brief}}.
+   Return JSON {"answer": "...", "rationale": "...", "risk": "..."}.
+   Write no files, ask nothing.
+   ```
+
+2. Spawn one judge agent (`model: opus`) with every proposal verbatim:
+
+   ```
+   Pick or merge one answer for {{header}} from these proposals. Prefer the
+   answer that is cheapest to reverse when proposals are close. Return JSON
+   {"answer": "...", "rationale": "...", "dissent": "..."}.
+   ```
+
+   On a split with no majority the judge still picks, and records the dissent.
+
+3. Record the result in the ledger with the marker line:
+
+   ```
+   - Decision: <the short name>
+     Question asked: <the question>
+     Answer: <judge's answer>
+     Answered by: judge
+     Dissent: <judge's dissent, or none>
+     Consequence: <what changed in the plan>
+   ```
+
+The writing agent lists every `Answered by: judge` entry under
+`### Judged decisions (unreviewed)` inside the Decisions section, one line
+each, and the handoff names them as open to revisiting. Judged decisions are
+settled for execution but not for the user: they may reopen any of them.

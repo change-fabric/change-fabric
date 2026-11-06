@@ -8,6 +8,12 @@ absolute path: this block is meant to be pasted into a fresh session, possibly
 on another machine, and a literal `/Users/pxt/...` or `/home/exe/...` breaks
 the moment the same account's home sits under a different literal path there.
 
+`{{judged_note}}` is empty unless the ledger has `Answered by: judge`
+entries. Then it reads: "Judged decisions (unreviewed): the plan's
+`### Judged decisions (unreviewed)` subsection lists answers an LLM judge
+gave, not the user. They are open to revisiting; flag any you would answer
+differently before running the phases they touch."
+
 ```markdown
 Execute the plan at {{plan_path}}.
 
@@ -18,6 +24,7 @@ Read these three files first, in this order:
    what to build. Its "Decisions (settled, do not re-litigate)" section
    records answers the user already gave during planning. Those are fixed.
    Do not reopen them, do not offer alternatives they already rejected.
+   {{judged_note}}
 3. {{workflow_path}} - a Workflow script already written for this plan. Its
    phases are the plan's phases.
 
