@@ -1,6 +1,6 @@
 # CHANGE.md frontmatter specification
 
-Schema version: 0.13.0
+Schema version: 0.14.0
 
 Status: stable. This is the golden reference for authoring a repo's
 `CHANGE.md` frontmatter. A maintainer or an AI agent creating a new repo's
@@ -622,6 +622,8 @@ rules in a form the gate can enforce, and the body is expected to explain it.
 | `change_policy.protected_branches` | list of string | no (default `[staging, production]`) | Branches whose merges are gated. The union of this list and every branch under `promotion` (a `tag:` key never contributes here; see `protected_refs`). Retained unchanged; not deprecated. |
 | `change_policy.protected_refs` | list of string | no (default `[]`) | (0.9.0) Refs whose promotion is gated, each an unprefixed branch name, `branch:<name>`, or `tag:<glob>`. Unioned with `protected_branches` and with every key under `promotion:`. A repo with no `tag:` entry anywhere is unaffected: `protected_branches` alone still governs branch gating exactly as before this field existed. |
 | `change_policy.gate.require_change_pass` | boolean | no (default true) | Fallback gate for a protected branch that has no `promotion` rule of its own. |
+| `change_policy.gate.require_on` | `every_merge` or `promotion` | no (default `every_merge`) | (0.14.0) When the cf:change gate applies to a PR merge. `every_merge` gates every merge into a protected branch, as before 0.14.0. `promotion` gates only environment promotions: a PR merge into trunk (`gate.trunk`) is never one, so it passes the gate (an admin bypass still needs `admin_bypass.allowed`). Merges between other protected branches, such as `staging` into `production`, and every `tag:` rule stay gated. Any other value is a schema error. |
+| `change_policy.gate.trunk` | string | no (default `main`) | (0.14.0) The trunk branch `gate.require_on: promotion` exempts. |
 | `change_policy.promotion.<ref>.review_required` | boolean | no | Whether a merge review is required to promote into this ref (read by humans; explained in prose). |
 | `change_policy.promotion.<ref>.self_review_allowed` | boolean | no | Whether the author may review or merge their own change (read by humans; explained in prose). |
 | `change_policy.promotion.<ref>.require_change_pass` | boolean | no (default true) | Gates promotion into this ref on a passing comprehensive cf:change run for the commit. |
@@ -1250,3 +1252,15 @@ root `RELEASING.md`.
   settings (auto, target, rounds, a `max_usd` ceiling defaulting to 2.00,
   model), and `critic_rounds` (1 to 5). Fully additive: a `CHANGE.md` with no
   `design:` block parses and runs exactly as it did under 0.12.0.
+- 0.14.0: `change_policy.gate.require_on` (`every_merge` or `promotion`) and
+  `change_policy.gate.trunk` (default `main`). Under `promotion`, a PR merge
+  into trunk is not gated on cf:change; branch-to-branch promotions and every
+  `tag:` rule still are. Fully additive: an absent field means `every_merge`,
+  exactly the 0.13.0 behavior. Example:
+
+  ```yaml
+  change_policy:
+    gate:
+      require_on: promotion
+      trunk: main
+  ```

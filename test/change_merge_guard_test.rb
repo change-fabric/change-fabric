@@ -248,4 +248,30 @@ class ChangeMergeGuardTest < Minitest::Test
     StubMergeGuard.new(event, root: @root, pr: [ "main", SHA ]).emit(io)
     assert_empty io.string
   end
+
+  def scoped_decision(command, base:, require_on: nil)
+    gate = require_on ? "  gate: { require_on: #{require_on} }\n" : ""
+    front = "change_policy:\n#{gate}  protected_branches: [main, staging, production]\n" \
+            "  admin_bypass: { allowed: true, require_change_pass: true }\n"
+    File.write(File.join(@root, "CHANGE.md"), "---\n#{front}---\n\nbody\n")
+    event = { "tool_name" => "Bash", "tool_input" => { "command" => command } }
+    io = StringIO.new
+    StubMergeGuard.new(event, root: @root, pr: [ base, SHA ]).emit(io)
+    io.string.empty? ? nil : JSON.parse(io.string).dig("hookSpecificOutput")
+  end
+
+  def test_absent_gate_scope_gates_a_trunk_merge_as_before
+    assert_equal "deny", scoped_decision("gh pr merge 12 --admin", base: "main")&.dig("permissionDecision")
+  end
+
+  def test_promotion_scope_lets_an_admin_bypass_into_trunk_through
+    assert_nil scoped_decision("gh pr merge 12 --admin", base: "main", require_on: "promotion")
+    assert_nil scoped_decision("gh pr merge 12 --squash", base: "main", require_on: "promotion")
+  end
+
+  def test_promotion_scope_still_gates_a_branch_promotion
+    out = scoped_decision("gh pr merge 12 --squash", base: "production", require_on: "promotion")
+    assert_equal "deny", out["permissionDecision"]
+    assert_match(/gate\.require_on: promotion/, out["permissionDecisionReason"])
+  end
 end

@@ -70,12 +70,14 @@ class ChangeMergeGuard
              "Merge through the normal reviewed path. #{escape_note}"
     end
     return nil unless policy.admin_bypass_requires_change_pass?
+    return nil unless ChangeGateCheck.required?(policy, base: base, kind: :pr_merge)
 
     gate_violation(base, sha, policy, kind: 'admin-bypass merge')
   end
 
   def normal_violation(policy, base, sha)
     return nil unless policy.require_change_pass?(base)
+    return nil unless ChangeGateCheck.required?(policy, base: base, kind: :pr_merge)
 
     gate_violation(base, sha, policy, kind: 'merge')
   end
@@ -98,7 +100,8 @@ class ChangeMergeGuard
     conditions = policy.admin_bypass_conditions
     note = conditions.empty? ? '' : "Repo policy: #{conditions}. "
     target = profile ? "the '#{profile}' profile" : 'a comprehensive'
-    "#{kind} into '#{base}' is gated: no passing #{target} cf:change run recorded for head " \
+    "#{kind} into '#{base}' is gated (gate.require_on: #{policy.gate_require_on}): " \
+      "no passing #{target} cf:change run recorded for head " \
       "#{sha[0, 12]}#{check.missing_apps_clause}. #{rerun_hint(check)} " \
       "#{note}#{ChangeGateCheck.escape_note}"
   end

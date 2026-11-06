@@ -222,6 +222,35 @@ class ChangeAppRegistryTest < Minitest::Test
     end
   end
 
+  def test_doctor_reports_every_invalid_gate_block_shape
+    {
+      "require_on: sometimes" => /error: change_policy\.gate\.require_on must be one of every_merge, promotion/,
+      "require_on: 3" => /error: change_policy\.gate\.require_on must be one of/,
+      "trunk: ''" => /error: change_policy\.gate\.trunk must be a non-empty string/,
+      "trunk: [main]" => /error: change_policy\.gate\.trunk must be a non-empty string/,
+      "require_ok: promotion" => /error: change_policy\.gate sets unknown key\(s\): require_ok/,
+      "require_change_pass: maybe" => /error: change_policy\.gate\.require_change_pass must be a boolean/
+    }.each do |field, pattern|
+      assert_match(pattern, doctor_with_gate("\n    #{field}"), field)
+    end
+    assert_match(/error: change_policy\.gate must be a mapping/, doctor_with_gate(" promotion"))
+    refute_match(/change_policy\.gate/, doctor_with_gate("\n    require_on: promotion\n    trunk: develop"))
+  end
+
+  def test_doctor_accepts_gate_require_change_pass
+    refute_match(/change_policy\.gate/, doctor_with_gate("\n    require_change_pass: true"))
+    refute_match(/change_policy\.gate/, doctor_with_gate("\n    require_change_pass: false\n    require_on: promotion"))
+  end
+
+  def doctor_with_gate(gate_yaml)
+    Dir.mktmpdir do |root|
+      change_md = File.join(root, "CHANGE.md")
+      File.write(change_md, "---\nchange_config:\n  project: my-app\n  lanes:\n    k6: { enabled: true }\n" \
+                            "change_policy:\n  gate:#{gate_yaml}\n---\nbody\n")
+      ChangeAppRegistry.doctor(change_md)
+    end
+  end
+
   def test_doctor_warns_on_a_literal_looking_tag_pattern
     Dir.mktmpdir do |root|
       change_md = File.join(root, "CHANGE.md")

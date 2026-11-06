@@ -133,6 +133,7 @@ class ChangeAppRegistry
       lines << "apps: #{described.join(', ')}"
       lines.concat(promotion_profile_coverage_errors(change_md_path, registry))
     end
+    lines.concat(gate_scope_errors(change_md_path))
     lines.concat(promotion_target_lines(change_md_path))
 
     selected.each do |entry|
@@ -143,6 +144,17 @@ class ChangeAppRegistry
 
     lines.join("\n")
   end
+
+  # A bad change_policy.gate block never fails a guard (an invalid require_on
+  # reads as every_merge, an invalid trunk as main), so doctor is where the
+  # author learns of it, before the fallback exempts a branch they did not mean.
+  def self.gate_scope_errors(change_md_path)
+    policy = ChangePolicy.for_repo(File.dirname(change_md_path))
+    return [] unless policy
+
+    policy.gate_errors.map { |message| "error: #{message}" }
+  end
+  private_class_method :gate_scope_errors
 
   # For every protected branch, and every protected tag pattern, whose
   # promotion rule names a profile, every app required to gate it (the rule's

@@ -210,4 +210,13 @@ class ChangeTagGuardTest < Minitest::Test
     command = 'gh pr edit 5 --body "remember to run git push --tags later"'
     assert_nil decision(command)&.first
   end
+
+  def test_promotion_scope_never_relaxes_a_tag_rule
+    write_change_md("change_policy:\n  gate:\n    require_on: promotion\n" \
+                    "  promotion:\n    tag:staging/v*: { require_change_pass: true, profile: staging }\n")
+    git("tag", "staging/v1.0.0")
+
+    decision, = decision("git push origin staging/v1.0.0")
+    assert_equal "deny", decision
+  end
 end
