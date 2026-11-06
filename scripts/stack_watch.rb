@@ -9,7 +9,7 @@ require 'open3'
 # the harness re-invokes the session when this process exits; the exit code is
 # the event and one JSON line on stdout describes it.
 #
-# A baseline (head SHA, unresolved thread count) is captured on the first poll.
+# A baseline (head SHA, unresolved thread ids) is captured on the first poll.
 # Later polls compare against it. A head SHA listed in --expect-sha is ours (the
 # stack's own push), so moving to it is not a foreign push.
 class StackWatch
@@ -24,10 +24,13 @@ class StackWatch
   RED = %w[FAILURE ERROR CANCELLED TIMED_OUT ACTION_REQUIRED STARTUP_FAILURE].freeze
 
   THREADS_QUERY = <<~GRAPHQL
-    query($owner: String!, $name: String!, $number: Int!) {
+    query($owner: String!, $name: String!, $number: Int!, $after: String) {
       repository(owner: $owner, name: $name) {
         pullRequest(number: $number) {
-          reviewThreads(first: 100) { nodes { isResolved } }
+          reviewThreads(first: 100, after: $after) {
+            nodes { id isResolved }
+            pageInfo { hasNextPage endCursor }
+          }
         }
       }
     }
@@ -69,7 +72,8 @@ class StackWatch
     return [ MERGED, event('merged', merged_at: snap[:merged_at]) ] if snap[:state] == 'MERGED'
     return [ CLOSED, event('closed') ] if snap[:state] == 'CLOSED'
     return [ FOREIGN_PUSH, event('foreign_push', head: snap[:head]) ] if foreign_push?(snap, baseline)
-    return [ NEW_THREAD, event('new_thread', unresolved: snap[:threads]) ] if snap[:threads] > baseline[:threads]
+    opened = snap[:threads] - baseline[:threads]
+    return [ NEW_THREAD, event('new_thread', unresolved: snap[:threads].size, opened: opened) ] unless opened.empty?
     return [ RED_CHECK, event('red_check', checks: snap[:red]) ] unless snap[:red].empty?
 
     nil
@@ -95,11 +99,26 @@ class StackWatch
     end
   end
 
+  # Ids of every unresolved thread, following pageInfo past the first 100.
   def unresolved_threads
-    data = gh_json('api', 'graphql', '-f', "query=#{THREADS_QUERY}", '-F', "owner=#{@owner}",
-                   '-F', "name=#{@name}", '-F', "number=#{@pr}")
-    nodes = data.dig('data', 'repository', 'pullRequest', 'reviewThreads', 'nodes')
-    Array(nodes).count { |node| !node['isResolved'] }
+    ids = []
+    cursor = nil
+    loop do
+      page = threads_page(cursor)
+      ids.concat(Array(page['nodes']).reject { |node| node['isResolved'] }.map { |node| node['id'] })
+      info = page['pageInfo'] || {}
+      break unless info['hasNextPage'] && info['endCursor']
+
+      cursor = info['endCursor']
+    end
+    ids
+  end
+
+  def threads_page(cursor)
+    args = [ 'api', 'graphql', '-f', "query=#{THREADS_QUERY}", '-F', "owner=#{@owner}",
+             '-F', "name=#{@name}", '-F', "number=#{@pr}" ]
+    args += [ '-f', "after=#{cursor}" ] if cursor
+    gh_json(*args).dig('data', 'repository', 'pullRequest', 'reviewThreads') || {}
   end
 
   def gh_json(*args)

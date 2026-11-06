@@ -36,8 +36,14 @@ class StackWatchTest < Minitest::Test
       statusCheckRollup: checks }
   end
 
-  def threads(*resolved)
-    { data: { repository: { pullRequest: { reviewThreads: { nodes: resolved.map { |r| { isResolved: r } } } } } } }
+  # Each entry is [id, resolved] or a bare resolved flag (id derived from position).
+  def threads(*entries, next_cursor: nil)
+    nodes = entries.each_with_index.map do |entry, i|
+      id, resolved = entry.is_a?(Array) ? entry : [ "t#{i}", entry ]
+      { id:, isResolved: resolved }
+    end
+    page = { nodes:, pageInfo: { hasNextPage: !next_cursor.nil?, endCursor: next_cursor } }
+    { data: { repository: { pullRequest: { reviewThreads: page } } } }
   end
 
   def script(views, thread_sets = [ threads ])
@@ -72,6 +78,21 @@ class StackWatchTest < Minitest::Test
   def test_new_thread_exits_five
     script([ view ], [ threads(true), threads(true, false) ])
     assert_equal 5, watch.first
+  end
+
+  def test_swapped_thread_with_same_count_exits_five
+    script([ view ], [ threads([ "a", false ], [ "b", true ]), threads([ "a", true ], [ "b", false ]) ])
+    code, event = watch
+    assert_equal 5, code
+    assert_equal [ "b" ], event["opened"]
+  end
+
+  def test_threads_paginate_past_first_page
+    first = threads([ "a", true ], next_cursor: "c1")
+    script([ view ], [ first, threads([ "b", true ]), first, threads([ "b", false ]) ])
+    code, event = watch
+    assert_equal 5, code
+    assert_equal [ "b" ], event["opened"]
   end
 
   def test_red_check_exits_six
