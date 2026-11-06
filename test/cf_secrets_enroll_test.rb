@@ -40,6 +40,13 @@ class CfSecretsEnrollTest < Minitest::Test
     assert_equal 8.times.map { |i| "p#{i}" }.sort, store["projects"].keys.sort
   end
 
+  def test_accepts_any_listed_alias
+    File.write(@file, "ELEVENLABS_API_KEY=sentinel\n")
+    assert_equal 0, run_cli("set", "--project-key", "a", "--source", @file,
+                            "--env-var", "ELEVEN_LABS_API_KEY,ELEVENLABS_API_KEY")
+    assert_equal 2, run_cli("set", "--project-key", "a", "--source", @file, "--env-var", "ELEVEN_LABS_API_KEY")
+  end
+
   def test_writes_0600
     run_cli("default", "--source", @file)
     assert_equal 0o600, File.stat(CfSecrets.store_path(@home)).mode & 0o777

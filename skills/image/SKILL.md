@@ -55,7 +55,7 @@ Fonts and colors come from the repo `tokens.css` when present, otherwise system 
 - `--mode none|short|heavy`, `--spec <copy.json>`: see Text in images.
 - `--cache <dir>` (default `.cache`), `--estimate-only`. `CF_IMAGE_MODEL` overrides the model.
 
-Exit codes: 0 ok, 1 a named failure (ceiling, missing key, HTTP error, missing file, copy overflow), 2 usage or a malformed spec, 3 Docker unavailable (heavy only).
+Exit codes: 0 ok, 1 a named failure (ceiling, missing key from a recorded source, HTTP error, missing file, copy overflow), 2 usage or a malformed spec, 3 Docker unavailable (heavy only), 4 enroll a key source.
 
 ## Steps
 
@@ -66,7 +66,7 @@ Exit codes: 0 ok, 1 a named failure (ceiling, missing key, HTTP error, missing f
 
 ## Keys
 
-`OPENAI_API_KEY` from the environment or the env file named by `CF_SECRETS_ENV`, needed only when a call is made. Never print or write it.
+`OPENAI_API_KEY` from the environment, the env file named by `CF_SECRETS_ENV`, or this project's enrolled source, needed only when a call is made. Exit 4 with a `cf_enroll` line means this project has no key source recorded: enroll it and re-run, see `skills/walkthrough/reference/key-enrollment.md`. Never print or write it.
 
 ## Done when
 

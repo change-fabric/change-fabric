@@ -2,7 +2,7 @@
 # frozen_string_literal: true
 
 # Records where a project's API keys come from in ~/.claude/cf/secrets.yml.
-#   set --project-key K --source PATH|env [--provider P] [--env-var NAME]
+#   set --project-key K --source PATH|env [--provider P] [--env-var NAME[,ALIAS...]]
 #   status
 #   default --source PATH
 # Exit 0 ok, 2 usage or setup error. Never prints a key value.
@@ -88,7 +88,11 @@ class CfSecretsEnroll
 
     full = File.expand_path(source)
     raise Failure, "no such file: #{full}" unless File.file?(full)
-    raise Failure, "#{full} has no #{env_var}= line" if env_var && !names(full).include?(env_var)
+    # env_var may list accepted aliases (ELEVEN_LABS_API_KEY,ELEVENLABS_API_KEY);
+    # any one of them in the file is enough, as at resolve time.
+    if env_var && (env_var.split(',') & names(full)).empty?
+      raise Failure, "#{full} has no #{env_var.tr(',', '/')}= line"
+    end
 
     warn_if_tracked(full)
     full

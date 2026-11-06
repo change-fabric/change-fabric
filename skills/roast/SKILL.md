@@ -36,7 +36,7 @@ Optional, after screens exist: cf:design may roast a draft's mock screens, cf:pr
 
 Settings from CHANGE.md: when the repo's root `CHANGE.md` sets `change_config.design.roast`, its keys fill in for absent flags: `target` and `rounds` for `decide` (`--target`, `--cap`), `max_usd` for the ceiling (`--max-usd`), `model` for the critic (an alias or full ID; `--model` and `CF_ROAST_MODEL` both win over it), `kind` and `audience` as review defaults. A flag given always wins; a key left unset keeps this script's default. `--repo <dir>` names the repo (default the working directory). `roast.rb settings [--repo <dir>]` prints the resolved `auto`, `target`, `rounds`, `max_usd`, and `model`; a loading skill (cf:design, cf:prototype, cf:walkthrough) skips the roast when `auto` is false, the same as `--no-roast`. A malformed block is a named failure (exit 1).
 
-Exit codes: 0 ok, 1 a named failure (ceiling, missing key, HTTP error, invalid reply, missing file, missing audience or purpose, sensitive term), 2 usage, 3 kind ambiguous.
+Exit codes: 0 ok, 1 a named failure (ceiling, missing key, HTTP error, invalid reply, missing file, missing audience or purpose, sensitive term), 2 usage, 3 kind ambiguous, 4 enroll a key source.
 
 ## Text roasts
 
@@ -91,7 +91,7 @@ Contested calls (a rebuttal the critic keeps repeating, a fix that conflicts wit
 
 ## Keys and cost
 
-`OPENAI_API_KEY` from the environment or the env file named by `CF_SECRETS_ENV`, needed only when a call is made. Never print or write it. The cache key is a hash of the model, the effort when not medium, round, brief, history, and the screenshot and text digests, so a rerun of identical inputs is a cache hit: no call, no key, $0.00. A changed screenshot or a new response file is a new key and a new paid call.
+`OPENAI_API_KEY` from the environment, the env file named by `CF_SECRETS_ENV`, or this project's enrolled source, needed only when a call is made. Exit 4 with a `cf_enroll` line means this project has no key source recorded: enroll it and re-run, see `skills/walkthrough/reference/key-enrollment.md`. Never print or write it. The cache key is a hash of the model, the effort when not medium, round, brief, history, and the screenshot and text digests, so a rerun of identical inputs is a cache hit: no call, no key, $0.00. A changed screenshot or a new response file is a new key and a new paid call.
 
 ## Done when
 

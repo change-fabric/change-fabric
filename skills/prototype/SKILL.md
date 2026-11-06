@@ -45,7 +45,7 @@ An action in one scene can change what a later scene shows: the later scene name
 - UI icons: Phosphor, `ruby ~/.claude/cf/bin/prototype_icons.rb walkthrough/<slug>/.cache/icons` fetches the pinned tarballs (sha512 checked, no fallback). Copy only used SVGs into `screens/assets/icons/` with `PrototypeIcons.copy_used`.
 - Brand logos: any Simple Icons logo, including plausible integrations. Record each in `ASSUMPTIONS.md` with its `guidelines` link and `license` field, and drop any logo whose guidelines forbid the use.
 - Write `THIRD_PARTY_NOTICES` from `PrototypeIcons.notices` (Phosphor MIT notice, Simple Icons CC0 plus trademark disclaimer).
-- Imagery (avatars, product photos, hero art): use cf:image by name.
+- Imagery (avatars, product photos, hero art): use cf:image by name. Imagegen exits 4 with a `cf_enroll` line when this project has no key source recorded: enroll it and re-run, see `skills/walkthrough/reference/key-enrollment.md`.
 
 ## Render and record
 

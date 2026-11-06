@@ -29,7 +29,7 @@ Overrides: `--voice <voice_id>` (required unless the storyboard carries one), `-
 
 ## Keys
 
-`ELEVEN_LABS_API_KEY` (fallback `ELEVENLABS_API_KEY`) from the environment or the env file named by `CF_SECRETS_ENV`. A missing key fails with a named error only when a call is actually needed. Never print or write a key; the library scrubs it from every error.
+`ELEVEN_LABS_API_KEY` (fallback `ELEVENLABS_API_KEY`) from the environment, the env file named by `CF_SECRETS_ENV`, or this project's enrolled source, looked up only when a call is actually needed. Exit 4 with a `cf_enroll` line means this project has no key source recorded: enroll it and re-run, see `skills/walkthrough/reference/key-enrollment.md`. A recorded source missing the key is a named error. Never print or write a key; the library scrubs it from every error.
 
 ## Done when
 
