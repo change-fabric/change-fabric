@@ -450,7 +450,7 @@ module ChangeSchema
   PARITY_STATUSES = %w[must_match intentional unreviewed].freeze
   # The accepted change_policy.gate.require_on values (0.14.0).
   GATE_SCOPES = %w[every_merge promotion].freeze
-  GATE_KEYS = %w[require_on trunk].freeze
+  GATE_KEYS = %w[require_on trunk require_change_pass].freeze
 
   # Every problem with change_policy.gate.require_on / gate.trunk, as messages
   # naming the field. Empty when both are absent or valid.
@@ -465,6 +465,9 @@ module ChangeSchema
       errors << "change_policy.gate.require_on must be one of #{GATE_SCOPES.join(', ')}"
     end
     errors << 'change_policy.gate.trunk must be a non-empty string' if gate.key?('trunk') && !present?(gate['trunk'])
+    if gate.key?('require_change_pass') && !boolean?(gate['require_change_pass'])
+      errors << 'change_policy.gate.require_change_pass must be a boolean'
+    end
     errors
   end
 
