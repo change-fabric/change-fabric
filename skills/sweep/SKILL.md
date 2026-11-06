@@ -206,7 +206,7 @@ of trunk after the last merge of a tick.
    warnings, autoMergeQueue, holds, reportDraft }`. One call for the sweep, not
    one per PR: file overlap, migration ordering, and infra sequencing are only
    answerable with every PR's data at once.
-5. **(SKILL.md)** Report, per `reference/summaries.md`'s sweep-summary format.
+5. **(SKILL.md)** [SW-3] Report, per `reference/summaries.md`'s sweep-summary format.
    Under `report` mode the run ends here, except under Merge ready, where it
    continues at once (no go/no-go question) by driving the first PR in
    `autoMergeQueue` (never a held PR) without merging and handing off its
