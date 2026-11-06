@@ -104,12 +104,17 @@ class CfHostHookTest < Minitest::Test
     assert_includes reason, "or /cf to change the mode"
   end
 
+  def test_runtime_floor_matches_the_claude_away_guard
+    require_relative "../scripts/away_guard"
+    assert_equal AwayGuard::FLOOR, CfRuntime::FLOOR
+  end
+
   def test_away_question_denial_names_away_and_the_floor
     hook("claude", "UserPromptSubmit", "prompt" => "/cf:away")
     ask = { "tool_name" => "AskUserQuestion", "tool_input" => { "questions" => [ { "header" => "Scope" } ] } }
     reason = hook("claude", "PreToolUse", ask).dig("hookSpecificOutput", "permissionDecisionReason")
     assert_includes reason, "Away mode is active: this question (Scope)"
-    assert_includes reason, "Remote delete, Untracked, Secret alert"
+    assert_includes reason, "Remote delete, Untracked, Secret alert, Key source"
     assert_includes reason, "report what was assumed"
     assert_includes reason, "/cf:active"
     refute_includes reason, "Merge mode"

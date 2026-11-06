@@ -13,7 +13,7 @@ class CfRuntime
   CHANGE_MODE = 'run /cf:local-only, /cf:merge-ready, /cf:admin-bypass, /cf:yolo, or /cf to change it.'
   # Questions whose default is destructive or puts a real secret at stake, so
   # no safe default exists and they still fire while away.
-  FLOOR = [ 'Remote delete', 'Untracked', 'Secret alert' ].freeze
+  FLOOR = [ 'Remote delete', 'Untracked', 'Secret alert', 'Key source' ].freeze
 
   def initialize(request, root: CfState.root, home: Dir.home)
     @request = request
