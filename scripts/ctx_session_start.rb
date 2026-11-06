@@ -5,6 +5,7 @@ require 'json'
 require_relative 'hook_event'
 require_relative 'ctx_paths'
 require_relative 'ctx_surface'
+require_relative 'stack_store'
 
 # SessionStart hook: injects the project's cf:ctx context as additionalContext,
 # reading the LOCAL cache only. The context is the roadmap, the focused plan in
@@ -20,11 +21,29 @@ class CtxSessionStart
   EVENT = 'SessionStart'
 
   def self.run(event, io = $stdout)
-    CtxPaths.assert_home!
-    md = CtxSurface.render(CtxSurface.select(cwd: cwd(event)))
-    io.puts(JSON.generate(context(md))) unless md.empty?
+    text = [ ctx_markdown(event), stack_nudges(cwd(event)) ].reject(&:empty?).join("\n\n")
+    io.puts(JSON.generate(context(text))) unless text.empty?
   rescue StandardError
     nil
+  end
+
+  def self.ctx_markdown(event)
+    CtxPaths.assert_home!
+    CtxSurface.render(CtxSurface.select(cwd: cwd(event)))
+  rescue StandardError
+    ''
+  end
+
+  # A PR stack outlives the session that started it, so every start in its repo
+  # says where it stopped. The stack store is the source the ctx pointer
+  # (stack-<slug>) points at; reading it directly names the PR.
+  def self.stack_nudges(dir)
+    StackStore.unfinished_for_dir(dir).filter_map do |record|
+      pr = StackStore.current_pr(record)
+      "[cf] PR stack #{record['slug']} is paused at ##{pr['number']}; run /cf:sweep stack resume" if pr
+    end.join("\n")
+  rescue StandardError
+    ''
   end
 
   def self.cwd(event) = (event['cwd'] || Dir.pwd).to_s
