@@ -70,7 +70,7 @@ module CfSecrets
 
     key = project_key(cwd)
     entry = store.dig('projects', key)
-    raise NeedsEnrollment.new(provider:, env_var: env_vars.first, project_key: key, candidates: candidates(store)) unless entry.is_a?(Hash)
+    raise NeedsEnrollment.new(provider:, env_var: env_vars.join(','), project_key: key, candidates: candidates(store)) unless entry.is_a?(Hash)
 
     src = entry.dig('providers', provider) || entry['env_file']
     hit = src && src != ENV_ONLY ? read_var(src, env_vars) : nil

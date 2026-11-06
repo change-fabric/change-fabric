@@ -88,7 +88,7 @@ class WalkthroughEnvTest < Minitest::Test
     with_store do
       err = assert_raises(WalkthroughEnv::NeedsEnrollment) { WalkthroughEnv.elevenlabs_key! }
       assert_kind_of WalkthroughEnv::MissingKeyError, err
-      assert_equal "ELEVEN_LABS_API_KEY", err.to_h[:env_var]
+      assert_equal "ELEVEN_LABS_API_KEY,ELEVENLABS_API_KEY", err.to_h[:env_var]
       assert_equal CfSecrets.project_key, err.to_h[:project_key]
     end
   end

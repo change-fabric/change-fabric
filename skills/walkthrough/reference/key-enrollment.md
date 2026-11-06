@@ -27,6 +27,7 @@ A fully cached run never exits 4. On exit 4:
 2. Ask one AskUserQuestion with header `Key source` (it fires even in away mode). Build the options from `candidates` in order: the first is the global default when one is set, labeled "global default"; then the other recorded env files; then `env`, labeled "process env only".
 3. Record the answer:
    `ruby ~/.claude/cf/bin/cf_secrets_enroll.rb set --project-key <project_key> --source <choice> --env-var <env_var>`
+   Pass `env_var` exactly as printed. For a provider with aliases it is a comma list (`ELEVEN_LABS_API_KEY,ELEVENLABS_API_KEY`), and a file holding any one of them is accepted.
 4. On exit 2, show the stderr reason (missing file, variable name not in the file) and ask again. A stderr warning that the file sits in a git work tree and is not ignored is advice: pass it on.
 5. Re-run the original command unchanged.
 
