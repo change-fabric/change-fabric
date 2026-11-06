@@ -4,9 +4,13 @@ require "minitest/autorun"
 require "base64"
 require "json"
 require "tmpdir"
+require "open3"
 require_relative "../scripts/b_roll"
+require_relative "enroll_helpers"
 
 class BRollTest < Minitest::Test
+  include EnrollHelpers
+
   FILE_URI = "https://generativelanguage.googleapis.com/v1beta/files/abc123"
   Status = Struct.new(:success?)
 
@@ -175,7 +179,7 @@ class BRollTest < Minitest::Test
   def test_missing_key_is_named_and_makes_no_call
     ENV.delete("GEMINI_API_KEY")
     http = FakeHttp.new
-    assert_raises(WalkthroughEnv::MissingKeyError) { gen(http) }
+    with_store(enrolled: true) { assert_raises(WalkthroughEnv::MissingKeyError) { gen(http) } }
     assert_empty http.requests
   end
 
@@ -272,13 +276,48 @@ class BRollTest < Minitest::Test
 
   def test_fallback_when_key_missing_or_ceiling
     ENV.delete("GEMINI_API_KEY")
-    res = BRoll.generate_or_fallback(fallback: "static", source_image: @still, prompt: "p", seconds: 4, cache_root: @cache,
-                                     http: FakeHttp.new, validator: @ok_probe)
+    res = with_store(enrolled: true) do
+      BRoll.generate_or_fallback(fallback: "static", source_image: @still, prompt: "p", seconds: 4, cache_root: @cache,
+                                 http: FakeHttp.new, validator: @ok_probe)
+    end
     assert_equal "static", res[:mode]
     ENV["GEMINI_API_KEY"] = "k"
     res = BRoll.generate_or_fallback(fallback: "kenburns", source_image: @still, prompt: "p", seconds: 4, cache_root: @cache,
                                      http: FakeHttp.new, validator: @ok_probe, budget: BRoll::Budget.new(0.01))
     assert_equal "kenburns", res[:mode]
+  end
+
+  def test_unenrolled_needs_enrollment_instead_of_falling_back
+    ENV.delete("GEMINI_API_KEY")
+    http = FakeHttp.new
+    with_store do
+      assert_raises(WalkthroughEnv::NeedsEnrollment) do
+        BRoll.generate_or_fallback(source_image: @still, prompt: "p", seconds: 4, cache_root: @cache, http: http, validator: @ok_probe)
+      end
+    end
+    assert_empty http.requests
+  end
+
+  def test_unenrolled_cached_clip_is_generated_without_asking
+    gen(FakeHttp.new(ok(video_body(data: "V"))), prompt: "p")
+    ENV.delete("GEMINI_API_KEY")
+    res = with_store do
+      BRoll.generate_or_fallback(source_image: @still, prompt: "p", seconds: 4, cache_root: @cache, http: FakeHttp.new, validator: @ok_probe)
+    end
+    assert_equal "generated", res[:mode]
+  end
+
+  def test_cli_exits_4_with_one_enroll_line_when_unenrolled
+    script = File.expand_path("../scripts/b_roll.rb", __dir__)
+    home = Dir.mktmpdir
+    env = { "HOME" => home, "GEMINI_API_KEY" => nil, "CF_SECRETS_ENV" => nil }
+    out, _err, status = Open3.capture3(env, RbConfig.ruby, script, @still, "p", @cache)
+    assert_equal 4, status.exitstatus, out
+    lines = enroll_lines(out)
+    assert_equal 1, lines.size
+    assert_equal "gemini", lines.first.dig("cf_enroll", "provider")
+  ensure
+    FileUtils.rm_rf(home)
   end
 
   def test_success_reports_generated_mode

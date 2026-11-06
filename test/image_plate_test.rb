@@ -8,9 +8,11 @@ require "stringio"
 require "tmpdir"
 require_relative "../scripts/image_plate"
 require_relative "imagegen_helpers"
+require_relative "enroll_helpers"
 
 class ImagePlateTest < Minitest::Test
   include ImagegenHelpers
+  include EnrollHelpers
 
   # Answers run_function with canned shots, or an overflow list, and keeps the JS.
   class FakeSession
@@ -149,6 +151,25 @@ class ImagePlateTest < Minitest::Test
     assert_match(/1536x1024/, http.requests.first.body)
     assert_equal "SHOT-desktop", File.binread(File.join(@outdir, "desktop.png"))
     assert_equal "SHOT-wide", File.binread(File.join(@outdir, "wide.png"))
+  end
+
+  def test_unenrolled_uncached_plate_exits_4_with_one_enroll_line
+    ENV.delete("OPENAI_API_KEY")
+    http = ImagegenHelpers::FakeHttp.new
+    assert_equal 4, with_store { cli(write_spec(spec_hash), http: http) }
+    assert_one_enroll_line(@out.string, "openai")
+    assert_empty http.requests
+  end
+
+  def test_unenrolled_cached_plate_exits_0_without_asking
+    spec = write_spec(spec_hash)
+    assert_equal 0, cli(spec)
+    ENV.delete("OPENAI_API_KEY")
+    @out = StringIO.new
+    http = ImagegenHelpers::FakeHttp.new
+    assert_equal 0, with_store { cli(spec, http: http) }, @out.string
+    assert_empty enroll_lines(@out.string)
+    assert_empty http.requests
   end
 
   def test_mixed_sizes_two_calls_second_carries_ref

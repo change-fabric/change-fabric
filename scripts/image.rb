@@ -40,6 +40,8 @@ module Image
     rescue UsageError, OptionParser::ParseError, ArgumentError => e
       out.puts("error: #{e.message}", USAGE)
       2
+    rescue WalkthroughEnv::NeedsEnrollment => e
+      WalkthroughEnv.enroll(e, out: out)
     rescue CeilingError, PrototypeImagegen::RequestError, WalkthroughEnv::MissingKeyError, SystemCallError => e
       out.puts("error: #{e.message}")
       1

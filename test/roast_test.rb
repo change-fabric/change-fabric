@@ -6,9 +6,11 @@ require "stringio"
 require "tmpdir"
 require_relative "../scripts/roast"
 require_relative "imagegen_helpers"
+require_relative "enroll_helpers"
 
 class RoastTest < Minitest::Test
   include ImagegenHelpers
+  include EnrollHelpers
 
   CRITIC = {
     "score" => 6, "summary" => "Muddled hero.",
@@ -232,10 +234,11 @@ class RoastTest < Minitest::Test
     ENV.delete("OPENAI_API_KEY")
     @out.truncate(0)
     @out.rewind
-    code, text, http = run_cli("--round", "1", "--history", File.join(@dir, "none"))
+    code, text, http = with_store { run_cli("--round", "1", "--history", File.join(@dir, "none")) }
     assert_equal 0, code
     assert_empty http.requests
     assert_includes text, "$0.00"
+    assert_empty enroll_lines(text)
   end
 
   def test_ceiling_refuses_before_any_call
@@ -254,9 +257,17 @@ class RoastTest < Minitest::Test
 
   def test_missing_key_is_a_named_failure
     ENV.delete("OPENAI_API_KEY")
-    code, text, = run_cli
+    code, text, = with_store(enrolled: true) { run_cli }
     assert_equal 1, code
-    assert_includes text, "OPENAI_API_KEY not set"
+    assert_includes text, "OPENAI_API_KEY for openai not found"
+  end
+
+  def test_unenrolled_uncached_roast_exits_4_with_one_enroll_line
+    ENV.delete("OPENAI_API_KEY")
+    code, text, http = with_store { run_cli }
+    assert_equal 4, code
+    assert_one_enroll_line(text, "openai")
+    assert_empty http.requests
   end
 
   class RaisingHttp

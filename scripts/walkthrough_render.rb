@@ -619,6 +619,8 @@ module WalkthroughRender
       WalkthroughRoast.record_spend(roast_dir, inputs[:round], usd)
       WalkthroughRoast.record_content(roast_dir, inputs[:round], @content_key)
       report_roast_round(inputs[:round], critic)
+    rescue WalkthroughEnv::NeedsEnrollment
+      raise
     rescue WalkthroughEnv::MissingKeyError, Roast::RequestError, Roast::SensitiveError, SystemCallError => e
       say("roast: skipped (#{e.message})")
     end
@@ -740,5 +742,7 @@ if __FILE__ == $PROGRAM_NAME
                           .call(estimate_only: ARGV.include?('--estimate-only'))
   rescue PrototypeUxLint::FindingsError, WalkthroughRoast::OpenFindingsError => e
     abort("refused: #{e.message}")
+  rescue WalkthroughEnv::NeedsEnrollment => e
+    WalkthroughEnv.enroll_exit!(e)
   end
 end

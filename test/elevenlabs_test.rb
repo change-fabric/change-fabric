@@ -6,8 +6,11 @@ require "base64"
 require "json"
 require "stringio"
 require_relative "../scripts/elevenlabs"
+require_relative "enroll_helpers"
 
 class ElevenLabsTest < Minitest::Test
+  include EnrollHelpers
+
   KEY = "sk_test_secret_value_123"
   Resp = Struct.new(:code, :body, :headers) do
     def [](name) = (headers || {})[name]
@@ -133,10 +136,27 @@ class ElevenLabsTest < Minitest::Test
 
   def test_missing_key_raises_named_error
     ENV.delete("ELEVEN_LABS_API_KEY")
-    assert_raises(WalkthroughEnv::MissingKeyError) do
-      ElevenLabs.perform(ElevenLabs.music_request(prompt: "p", length_ms: 5000, model: "m"),
-                                    transport: ->(*) { flunk }, sleeper: ->(_) { })
+    with_store(enrolled: true) do
+      assert_raises(WalkthroughEnv::MissingKeyError) do
+        ElevenLabs.perform(ElevenLabs.music_request(prompt: "p", length_ms: 5000, model: "m"),
+                                      transport: ->(*) { flunk }, sleeper: ->(_) { })
+      end
     end
+  end
+
+  def test_unenrolled_uncached_cli_exits_4_with_one_enroll_line
+    ENV.delete("ELEVEN_LABS_API_KEY")
+    code, out = with_store { cli("narrate", "--text", "Hi", "--voice", "v1", transport: ->(*) { flunk "paid call" }) }
+    assert_equal 4, code
+    assert_one_enroll_line(out, "elevenlabs")
+  end
+
+  def test_unenrolled_cached_cli_exits_0_without_asking
+    assert_equal 0, cli("narrate", "--text", "Hi", "--voice", "v1").first
+    ENV.delete("ELEVEN_LABS_API_KEY")
+    code, out = with_store { cli("narrate", "--text", "Hi", "--voice", "v1", transport: ->(*) { flunk "cache miss" }) }
+    assert_equal 0, code, out
+    assert_empty enroll_lines(out)
   end
 
   def test_format_hint_on_422
