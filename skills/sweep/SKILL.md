@@ -9,7 +9,9 @@ description: Sweeps a repo's open feature pull requests and plans how to land th
 Analyze every open feature pull request in the current repo as one set, then
 land them in an order that holds up.
 
-Trigger: `/cf:sweep [report|land|auto] [--signoff]`.
+Trigger: `/cf:sweep [report|land|auto] [--signoff]`, or stack mode:
+`/cf:sweep stack <plan_dir | #a #b ...>`, `/cf:sweep stack resume`,
+`/cf:sweep stack status`.
 
 Question: if these PRs merge today, in what order do they land without
 breaking trunk, stranding an author in a doomed rebase, or applying a
@@ -27,6 +29,8 @@ approval mechanics to `cf:drive` rather than reimplementing them.
 - `reference/summaries.md`: the sweep summary format, the landing checkpoint
   format, and the author-warning comment format (steps 5, 6, 7). Read before
   composing any of them.
+- `reference/stack.md`: the stack mode loop in full. Read before any
+  `/cf:sweep stack` invocation.
 
 ## Scope
 
@@ -257,6 +261,41 @@ terminal.
 This skill never runs `terraform plan` or `terraform apply`, and never runs a
 migration. It names the step, orders the PRs around it, and holds the PRs that
 depend on it until a human reports it done.
+
+## Stack mode
+
+Stack mode lands a batch or stack of PRs strictly one at a time, in a fixed
+order, instead of computing an order for every open PR. cf:plan hands off to
+it by default for any plan with more than one PR phase.
+
+- `/cf:sweep stack <plan_dir | #a #b ...>` starts a stack from a plan
+  directory (one PR per phase) or an explicit PR list (slug
+  `prs-<first>-<last>`), recorded with `stack_store.rb init`.
+- `/cf:sweep stack resume` re-derives state from gh and continues at the
+  current PR, the first one not merged.
+- `/cf:sweep stack status` prints the store merged with live gh state, plus
+  the count of judged decisions and the plan.md path.
+
+Per PR: re-derive state from gh, rebase onto origin/main (`git rebase --onto
+origin/main <parent-old-head> <head>` once the parent squash merged, then
+`gh pr edit <n> --base main`), prepare with cf:drive quick nested under
+cf:sweep stack (CI green, cf:resolve-threads run, no approval review), handle
+recurrence, hand off, advance the store.
+
+| Merge mode | Hand-off |
+|---|---|
+| merge ready | Post the PR's absolute URL; arm `stack_watch.rb` in the background; advance on merge or a "merged #N" message. |
+| admin bypass | Escalate if CHANGE.md forbids admin bypass; pass the cf:change gate when `ChangeGateCheck.required?` says so; `gh pr merge <n> --squash --admin`. |
+| yolo | No PRs. Rebase, test, `git push origin HEAD:main`, next branch. |
+| local only | Stack mode does not run; say so. |
+
+Gates: a resolve-threads recurrence plan pauses the stack under merge ready
+for a human `/cf:plan` interview and runs `/cf:plan --judge` under admin
+bypass. A closed PR, cf:change exit 2, a CHANGE.md block, or a rejected yolo
+push escalates. `change_policy.gate.require_on` is available from spec
+0.14.0; absent, the gate applies to every merge. The watcher exit codes
+(0 merged, 3 closed, 4 foreign push, 5 new thread, 6 red check, 7 timeout,
+2 setup error) and the full loop are in `reference/stack.md`.
 
 ## Unattended gates
 
