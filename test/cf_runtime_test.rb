@@ -100,6 +100,15 @@ class CfRuntimeTest < Minitest::Test
     assert_equal "yolo", call(host: "pi", session_id: session_file).dig("state", "mode")
   end
 
+  def test_environment_default_does_not_overwrite_a_legacy_selection
+    session_file = File.join(@home, "pi-session.jsonl")
+    legacy = File.join(@home, ".claude/cf/sessions/pi-#{Digest::SHA256.hexdigest(session_file)[0, 32]}")
+    FileUtils.mkdir_p(legacy)
+    File.write(File.join(legacy, "merge-mode"), "local-only")
+    state = call(host: "pi", session_id: session_file, event: "mode.set", mode: "merge-ready", if_unset: true)
+    assert_equal "local-only", state.dig("state", "mode")
+  end
+
   def test_legacy_opencode_mode_and_claude_away_are_imported
     legacy = File.join(@home, ".claude/cf/sessions/opencode-#{Digest::SHA256.hexdigest("root")[0, 32]}")
     FileUtils.mkdir_p(legacy)

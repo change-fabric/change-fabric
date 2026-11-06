@@ -26,11 +26,12 @@ class CfState
   end
 
   # only_missing keeps a value this session already chose, e.g. an environment
-  # default must not overwrite an explicit /cf choice when a session resumes.
+  # default must not overwrite an explicit /cf choice when a session resumes,
+  # including a choice still held only in pre-runtime legacy state.
   def update(values, parent: nil, only_missing: false)
     locked do
       data = own(@session_id)
-      values = values.reject { |key, _| data.key?(key) } if only_missing
+      values = values.reject { |key, _| data.key?(key) || legacy_choice?(key) } if only_missing
       if parent
         raise ArgumentError, 'session cannot inherit itself' if parent == @session_id
         raise ArgumentError, 'parent binding cannot change' if data['parent'] && data['parent'] != parent
@@ -78,6 +79,14 @@ class CfState
 
   # Read-only compatibility import. Neutral state always takes precedence;
   # another host's legacy state is never considered.
+  def legacy_choice?(key)
+    case key
+    when 'mode' then !legacy_mode(@session_id).nil?
+    when 'availability' then !legacy_availability(@session_id).nil?
+    else false
+    end
+  end
+
   def legacy_mode(id)
     value = legacy_value(id, 'merge-mode')
     value && MergeModeSlug.of(value)
