@@ -37,7 +37,7 @@ class StackStoreTest < Minitest::Test
 
   def test_init_writes_record_under_repo_and_slug
     seed
-    assert_match %r{/\.claude/cf/stack/github\.com-acme-web/demo\.json\z}, store.path
+    assert_match %r{/\.claude/cf/stack/github\.com-acme-web-\h{12}/demo\.json\z}, store.path
     record = store.read
     assert_equal [ 12, 13 ], record["prs"].map { |pr| pr["number"] }
     assert_equal "pending", record["prs"].first["state"]
@@ -55,6 +55,14 @@ class StackStoreTest < Minitest::Test
   def test_write_leaves_no_temp_file
     seed
     assert_equal [ "demo.json" ], Dir.children(File.dirname(store.path))
+  end
+
+  def test_repo_ids_that_slug_alike_do_not_collide
+    a = StackStore.new("github.com/acme-tools/web", "demo")
+    b = StackStore.new("github.com/acme/tools-web", "demo")
+    refute_equal a.path, b.path
+    a.init(repo: "acme-tools/web", source: "plan", mode: "yolo", prs: [ { number: 1 } ])
+    assert_nil b.read
   end
 
   def test_bad_mode_and_state_are_rejected

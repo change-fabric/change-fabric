@@ -5,6 +5,7 @@ require 'json'
 require 'time'
 require 'fileutils'
 require 'open3'
+require 'digest'
 require_relative 'contributors_team'
 
 # Durable record of one PR stack that cf:sweep stack mode is landing, one PR at
@@ -14,7 +15,7 @@ require_relative 'contributors_team'
 # user may merge #12 tomorrow). The store is a cache of intent, never the
 # truth about a PR: stack mode re-derives every PR's state from gh on resume.
 #
-# File: ~/.claude/cf/stack/<repo_id>/<slug>.json. A corrupt or unreadable file
+# File: ~/.claude/cf/stack/<repo_id>-<digest>/<slug>.json. A corrupt or unreadable file
 # reads as absent, and every write is atomic (temp file plus rename), so a
 # crash mid-write can never leave a half-written record behind.
 class StackStore
@@ -36,9 +37,13 @@ class StackStore
 
   def self.segment(value) = value.to_s.gsub(/[^A-Za-z0-9._-]+/, '-')
 
+  # Readable slug plus a digest of the full repo id, so two ids that slug alike
+  # (acme-tools/web and acme/tools-web) never share a directory.
+  def self.repo_dir(repo_id) = "#{segment(repo_id)}-#{Digest::SHA256.hexdigest(repo_id.to_s)[0, 12]}"
+
   # Every readable stack record for the repo `dir` sits in, oldest slug first.
   def self.all_for_dir(dir)
-    base = File.join(root, segment(repo_key(dir)))
+    base = File.join(root, repo_dir(repo_key(dir)))
     Dir.glob(File.join(base, '*.json')).sort.filter_map do |file|
       new(repo_key(dir), File.basename(file, '.json')).read
     end
@@ -66,7 +71,7 @@ class StackStore
     @slug = StackStore.segment(slug)
   end
 
-  def path = File.join(StackStore.root, StackStore.segment(@repo_id), "#{@slug}.json")
+  def path = File.join(StackStore.root, StackStore.repo_dir(@repo_id), "#{@slug}.json")
 
   def read
     return nil unless persistable? && File.exist?(path)
