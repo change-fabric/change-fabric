@@ -133,7 +133,8 @@ Orthogonal to trust: trust is "do I believe this person's code", run mode is
 
 - `report`: analyze and report, merge nothing. Do not ask whether to start:
   under Merge ready, go straight on to `/cf:drive quick` for the first PR in
-  the order and hand off its URL, then take the next one as each merges.
+  `autoMergeQueue` and hand off its URL, then take the next one as each
+  merges. An empty queue ends the run at the report.
 - `land`: report, then drive and merge the eligible queue with one sign-off
   checkpoint before the first merge.
 - `auto` (the default): no questions at all after any trust question; drive
@@ -207,8 +208,9 @@ of trunk after the last merge of a tick.
    answerable with every PR's data at once.
 5. **(SKILL.md)** Report, per `reference/summaries.md`'s sweep-summary format.
    Under `report` mode the run ends here, except under Merge ready, where it
-   continues at once (no go/no-go question) by driving the first PR in the
-   order without merging and handing off its URL, one PR at a time.
+   continues at once (no go/no-go question) by driving the first PR in
+   `autoMergeQueue` (never a held PR) without merging and handing off its
+   URL, one PR at a time. An empty queue ends the run here.
 6. **(SKILL.md, `land` mode only)** Landing checkpoint: one summary, at most
    640 characters, one go/no-go for the whole queue. Under `auto`, skip it.
 7. **(SKILL.md, `land` and `auto`)** [SW-2][SW-4][SW-5] Walk `autoMergeQueue` in order. For each
