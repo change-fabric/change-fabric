@@ -62,7 +62,7 @@ export default function cfHooks(pi: ExtensionAPI) {
     return undefined;
   });
   pi.on("tool_result", async (event, ctx) => {
-    const result = await callHook("pi", "PostToolUse", { ...base(ctx), tool_name: event.toolName, tool_input: event.input, isError: event.isError });
+    const result = await callHook("pi", "PostToolUse", { ...base(ctx), tool_name: event.toolName, tool_input: event.input, tool_response: event.details ?? event.content, isError: event.isError });
     const text = result.hookSpecificOutput?.additionalContext;
     if (text) pi.sendMessage({ customType: "cf-hook", content: text, display: false }, { deliverAs: "steer" });
   });

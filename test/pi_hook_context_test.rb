@@ -33,6 +33,11 @@ class PiHookContextTest < Minitest::Test
     assert_match(/inputContext/, handler_body("before_agent_start"))
   end
 
+  # record_choice reads a Merge mode or Away mode answer only from tool_response.
+  def test_tool_result_forwards_the_tool_response
+    assert_match(/tool_response: event\.details \?\? event\.content/, handler_body("tool_result"))
+  end
+
   def test_agent_end_notice_does_not_start_a_turn
     assert_match(/deliverAs: "nextTurn"/, handler_body("agent_end"))
   end
