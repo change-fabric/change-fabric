@@ -36,16 +36,21 @@ does not run: say so and stop.
 1. **Re-derive.** `gh pr view <n> --json state,baseRefName,headRefName,headRefOid,mergedAt`.
    Never trust the store alone. A PR already merged advances; a PR closed
    unmerged escalates (the user decides drop or reopen).
-2. **Rebase.** `git fetch origin`. If the parent PR squash merged, run
-   `git rebase --onto origin/main <parent-old-head> <head>`, which drops the
-   commits the squash made empty, then `gh pr edit <n> --base main`. If the
-   parent's old head is unknown (store lost), take it from
-   `gh pr view <parent> --json headRefOid`; if the parent is gone, fall back
-   to `git rebase origin/main` and let empty commits drop. Resolve conflicts
+2. **Rebase.** Resolve trunk once per run, by the Scope rule in
+   `skills/sweep/SKILL.md`, and use it everywhere below as `<trunk>`.
+   `git fetch origin`. If the parent PR squash merged, run
+   `git rebase --onto origin/<trunk> <parent-old-head> <head>`, which drops
+   the parent's commits, then `gh pr edit <n> --base <trunk>`.
+   `<parent-old-head>` is the parent's own final pre-merge head: the
+   `old_head_sha` recorded on the parent's entry just before the parent
+   merged, never a SHA captured at the start of the run. If it is unknown
+   (store lost), take it from `gh pr view <parent> --json headRefOid` (GitHub
+   keeps a merged PR's last head); if the parent is gone, fall back to
+   `git rebase origin/<trunk>` and let empty commits drop. Resolve conflicts
    yourself, re-run the test command, and `git push --force-with-lease`.
-   Record the new head with `stack_store.rb set-pr <slug> <n> old_head_sha=<sha>`
-   for the next PR. If tests stay red after one fix pass, pause and escalate
-   with the conflict summary.
+   If tests stay red after one fix pass, pause and escalate with the conflict
+   summary. The same cut applies at any depth: each child rebases onto its
+   own parent's final head, one PR at a time.
 3. **Prepare.** Invoke cf:drive quick with "nested under cf:sweep stack". It
    skips cf:plan and runs no approval review. Read its `drive-result` block:
    CI fixed and green, cf:resolve-threads ran, `pendingReplies` posted after
@@ -56,9 +61,12 @@ does not run: say so and stop.
      the plan lands.
    - admin bypass: run `/cf:plan --judge` on the seeded goal, record each
      judged item with `stack_store.rb judged <slug> <text>`, and continue.
-5. **Hand off** by merge mode, below.
+5. **Hand off** by merge mode, below. Just before the hand off, record this
+   PR's final head with `stack_store.rb set-pr <slug> <n> old_head_sha=<sha>`
+   (`gh pr view <n> --json headRefOid`); the child cuts at it after the merge.
+   Re-record after any later push to this PR.
 6. **Advance.** `stack_store.rb advance <slug>`; the next PR rebases onto the
-   fresh main. After the last PR, clear the store and report what landed.
+   fresh trunk. After the last PR, clear the store and report what landed.
 
 ## Hand-off by merge mode
 
@@ -94,9 +102,14 @@ Read `ChangePolicy.for_repo(root)`.
 - If `!admin_bypass_allowed?`, escalate to the user: reconfigure CHANGE.md for
   this repo, or help run the lanes in local Docker. Never set
   `CF_ALLOW_UNGATED_MERGE` and never run `change_override.rb`.
-- If `ChangeGateCheck.required?(policy, base: 'main', kind: :pr_merge)`, first
-  `ruby ~/.claude/cf/bin/change_run.rb gate-status --ref <sha>`; if no pass is
-  recorded, run cf:change. Exit 0 passes. Exit 2 escalates at once. Exit 1:
+- If `ChangeGateCheck.required?(policy, base: '<trunk>', kind: :pr_merge)`,
+  ask the SHA gate record for the current head SHA directly:
+  `ChangeGateCheck.new(sha: <head>, profile: <base profile>, apps:
+  ChangeGateCheck.required_apps(root, <rule apps>)).satisfied?`. This is the
+  same record `change_merge_guard.rb` checks. Do not use
+  `change_run.rb gate-status --ref <sha>`: a bare SHA matches no promotion
+  rule, so it reports success without a recorded pass. If not satisfied, run
+  cf:change on the head. Exit 0 passes. Exit 2 escalates at once. Exit 1:
   make one attributable fix and re-run, else escalate. Every rebase
   invalidates the gate, so check it against the current head SHA.
 - `change_policy.gate.require_on` is available from spec 0.14.0. When it is
@@ -106,9 +119,9 @@ Read `ChangePolicy.for_repo(root)`.
 
 ### yolo
 
-No PRs are opened. Rebase the branch onto origin/main, run the tests, then
-`git push origin HEAD:main` and move to the next branch. A rejected push
-(protected main) escalates; never force.
+No PRs are opened. Rebase the branch onto origin/<trunk>, run the tests,
+then `git push origin HEAD:<trunk>` and move to the next branch. A rejected push
+(protected trunk) escalates; never force.
 
 ## Escalate versus pause
 

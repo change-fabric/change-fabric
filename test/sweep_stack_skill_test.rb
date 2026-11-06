@@ -39,7 +39,7 @@ class SweepStackSkillTest < Minitest::Test
   end
 
   def test_rebase_drops_squashed_commits
-    assert_includes stack_md, "git rebase --onto origin/main <parent-old-head> <head>"
+    assert_includes stack_md, "git rebase --onto origin/<trunk> <parent-old-head> <head>"
     assert_includes stack_md, "gh pr merge <n> --squash --admin"
   end
 end
