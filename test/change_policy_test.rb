@@ -250,4 +250,15 @@ class ChangePolicyTest < Minitest::Test
       assert_match(/change_policy\.gate\.require_on must be one of every_merge, promotion/, p.gate_errors.join)
     end
   end
+
+  def test_malformed_gate_block_falls_back_to_conservative_defaults
+    [ "promotion", "[promotion]" ].each do |gate|
+      policy("change_policy:\n  gate: #{gate}\n  promotion:\n    production: { require_change_pass: true }\n") do |p|
+        assert_equal "every_merge", p.gate_require_on, gate
+        assert_equal "main", p.trunk_branch, gate
+        assert p.gate_required_for_pr_merge?("production"), gate
+        assert p.require_change_pass?("production"), gate
+      end
+    end
+  end
 end

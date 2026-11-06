@@ -182,7 +182,7 @@ class ChangePolicy
   # The branch-name forms above are unchanged and stay the ones
   # `change_merge_guard.rb` calls.
   def require_change_pass_for_rule?(rule)
-    return @policy.dig('gate', 'require_change_pass') != false unless rule.is_a?(Hash)
+    return gate_block['require_change_pass'] != false unless rule.is_a?(Hash)
 
     rule['require_change_pass'] != false
   end
@@ -232,7 +232,7 @@ class ChangePolicy
   # default, also for an absent or invalid value, which ChangeSchema.gate_errors
   # reports) or 'promotion'.
   def gate_require_on
-    value = @policy.dig('gate', 'require_on').to_s
+    value = gate_block['require_on'].to_s
     ChangeSchema::GATE_SCOPES.include?(value) ? value : 'every_merge'
   end
 
@@ -242,11 +242,18 @@ class ChangePolicy
   def trunk?(branch) = branch.to_s == trunk_branch
 
   def trunk_branch
-    value = @policy.dig('gate', 'trunk')
+    value = gate_block['trunk']
     value.is_a?(String) && !value.strip.empty? ? value : 'main'
   end
 
   def gate_errors = ChangeSchema.gate_errors(@policy)
+
+  # The gate mapping, or {} when absent or malformed (a scalar or list), so a
+  # bad block falls back to the conservative defaults instead of raising.
+  def gate_block
+    gate = @policy['gate']
+    gate.is_a?(Hash) ? gate : {}
+  end
 
   def admin_bypass_allowed?
     !!@policy.dig('admin_bypass', 'allowed')
