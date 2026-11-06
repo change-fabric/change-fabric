@@ -52,15 +52,14 @@ class CfSecretsEnroll
   def set(opts)
     key = opts[:project_key] or raise Failure, '--project-key is required'
     source = validate_source(opts[:source], opts[:env_var])
-    store = read_store
-    projects = (store['projects'] ||= {})
-    entry = (projects[key] ||= {})
-    if opts[:provider]
-      (entry['providers'] ||= {})[opts[:provider]] = source
-    else
-      entry['env_file'] = source
+    update_store do |store|
+      entry = ((store['projects'] ||= {})[key] ||= {})
+      if opts[:provider]
+        (entry['providers'] ||= {})[opts[:provider]] = source
+      else
+        entry['env_file'] = source
+      end
     end
-    write_store(store)
     @out.puts("recorded #{key}: #{opts[:provider] || 'env_file'} -> #{source}")
   end
 
@@ -68,9 +67,7 @@ class CfSecretsEnroll
     source = validate_source(opts[:source], opts[:env_var])
     raise Failure, 'default must be an env file path, not env' if source == CfSecrets::ENV_ONLY
 
-    store = read_store
-    store['default'] = source
-    write_store(store)
+    update_store { |store| store['default'] = source }
     @out.puts("recorded default -> #{source}")
   end
 
@@ -114,6 +111,18 @@ class CfSecretsEnroll
     nil
   end
 
+  # Holds an exclusive lock across the read and the write, so two concurrent
+  # enrollments cannot both read the old store and drop each other's change.
+  def update_store
+    FileUtils.mkdir_p(File.dirname(@path))
+    File.open("#{@path}.lock", File::RDWR | File::CREAT, 0o600) do |lock|
+      lock.flock(File::LOCK_EX)
+      store = read_store
+      yield store
+      write_store(store)
+    end
+  end
+
   def read_store
     return {} unless File.file?(@path)
 
@@ -127,9 +136,7 @@ class CfSecretsEnroll
   end
 
   def write_store(store)
-    dir = File.dirname(@path)
-    FileUtils.mkdir_p(dir)
-    tmp = Tempfile.create([ 'secrets', '.yml' ], dir)
+    tmp = Tempfile.create([ 'secrets', '.yml' ], File.dirname(@path))
     tmp.write(YAML.dump(store))
     tmp.close
     File.chmod(0o600, tmp.path)

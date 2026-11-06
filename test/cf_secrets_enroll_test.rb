@@ -32,6 +32,14 @@ class CfSecretsEnrollTest < Minitest::Test
     assert_equal "env", store["projects"]["b"]["env_file"]
   end
 
+  def test_concurrent_sets_keep_every_project
+    pids = 8.times.map do |i|
+      fork { exit run_cli("set", "--project-key", "p#{i}", "--source", "env") }
+    end
+    pids.each { |pid| Process.wait(pid) }
+    assert_equal 8.times.map { |i| "p#{i}" }.sort, store["projects"].keys.sort
+  end
+
   def test_writes_0600
     run_cli("default", "--source", @file)
     assert_equal 0o600, File.stat(CfSecrets.store_path(@home)).mode & 0o777
