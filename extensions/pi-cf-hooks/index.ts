@@ -9,6 +9,9 @@ export default function cfHooks(pi: ExtensionAPI) {
   // Sessionless RPC runs get a process-local identity, never one shared by cwd.
   const ephemeralId = randomUUID();
   let reviewFollowUp = false;
+  // Prompt-specific context (an away-mode plan refusal) is only computable from
+  // the input hook, which sees the prompt; hold it for before_agent_start.
+  let inputContext = "";
   const base = (ctx: Context) => ({ cwd: ctx.cwd, session_id: ctx.sessionManager.getSessionFile?.() ?? ephemeralId });
   pi.registerCommand("cf", {
     description: "Set merge mode: local-only, merge-ready, admin-bypass, or yolo",
@@ -31,12 +34,16 @@ export default function cfHooks(pi: ExtensionAPI) {
     }
   });
   pi.on("input", async (event, ctx) => {
-    await callHook("pi", "UserPromptSubmit", { ...base(ctx), prompt: event.text });
+    const result = await callHook("pi", "UserPromptSubmit", { ...base(ctx), prompt: event.text });
+    inputContext = result.hookSpecificOutput?.additionalContext ?? "";
     return { action: "continue" };
   });
   pi.on("before_agent_start", async (event, ctx) => {
     const result = await callHook("pi", "UserPromptSubmit", base(ctx));
-    return { systemPrompt: `${event.systemPrompt}\n\n${result.hookSpecificOutput?.additionalContext ?? ""}` };
+    const late = result.hookSpecificOutput?.additionalContext ?? "";
+    const context = inputContext && inputContext !== late ? `${inputContext}\n\n${late}` : late;
+    inputContext = "";
+    return { systemPrompt: `${event.systemPrompt}\n\n${context}` };
   });
   pi.on("agent_end", async (_event, ctx) => {
     const result = await callHook("pi", "Stop", { ...base(ctx), stop_hook_active: reviewFollowUp });
