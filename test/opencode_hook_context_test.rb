@@ -18,4 +18,11 @@ class OpencodeHookContextTest < Minitest::Test
     assert body.index("const reminder") < deny, "reminder must be read before the denial throws"
     assert_match(/throw new Error\(reminder \? `\$\{reason\}\\n\\n\$\{reminder\}` : reason\)/, body)
   end
+
+  # A resumed grandchild only inherits the root's mode if every ancestor binds
+  # before it does.
+  def test_session_binding_walks_the_parent_chain_with_a_cycle_guard
+    assert_match(/if \(parentID\) await ensureSession\(parentID, new Set\(\[ \.\.\.seen, id \]\)\)/, SOURCE)
+    assert_match(/if \(seen\.has\(id\) \|\| seen\.size >= 32\) return/, SOURCE)
+  end
 end

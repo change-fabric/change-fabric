@@ -6,12 +6,17 @@ type SessionClient = { session?: { get?: (req: { path: { id: string } }) => Prom
 export const CfHooks = async ({ directory, client }: { directory: string; client?: SessionClient }) => {
   const initialized = new Map<string, Promise<void>>();
   const pending = new Map<string, Record<string, unknown>>();
-  const ensureSession = (id: string): Promise<void> => {
+  // Ancestors bind first, root down, so a resumed grandchild inherits the root's
+  // legacy mode even when its intermediate parent has no neutral record yet.
+  // `seen` stops a cyclic or runaway chain instead of awaiting itself.
+  const ensureSession = (id: string, seen: ReadonlySet<string> = new Set()): Promise<void> => {
+    if (seen.has(id) || seen.size >= 32) return Promise.resolve();
     let ready = initialized.get(id);
     if (!ready) {
       ready = (async () => {
-        const parent = await client?.session?.get?.({ path: { id } });
-        await callHook("opencode", "SubagentStart", { session_id: id, parent_session_id: parent?.data?.parentID, cwd: directory });
+        const parentID = (await client?.session?.get?.({ path: { id } }))?.data?.parentID;
+        if (parentID) await ensureSession(parentID, new Set([ ...seen, id ]));
+        await callHook("opencode", "SubagentStart", { session_id: id, parent_session_id: parentID, cwd: directory });
       })();
       initialized.set(id, ready);
       ready.catch(() => initialized.delete(id));
