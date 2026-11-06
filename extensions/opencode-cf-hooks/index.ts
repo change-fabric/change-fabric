@@ -25,10 +25,14 @@ export const CfHooks = async ({ directory, client }: { directory: string; client
       const args = isRecord(output.args) ? output.args : {};
       const payload = { session_id: input.sessionID, cwd: directory, tool_name: input.tool, tool_input: args };
       const result = await callHook("opencode", "PreToolUse", payload);
-      if (result.hookSpecificOutput?.permissionDecision === "deny") throw new Error(result.hookSpecificOutput.permissionDecisionReason);
       // OpenCode cannot add context to a running call, so a rubric reminder blocks
-      // once; the hook marks it surfaced, so the retry goes through.
+      // once; the hook marks it surfaced, so the retry goes through. A denial
+      // carries it too, or the marker is consumed without the reminder shown.
       const reminder = result.hookSpecificOutput?.rubricContext;
+      if (result.hookSpecificOutput?.permissionDecision === "deny") {
+        const reason = result.hookSpecificOutput.permissionDecisionReason ?? "CF denied this call";
+        throw new Error(reminder ? `${reason}\n\n${reminder}` : reason);
+      }
       if (reminder) throw new Error(`${reminder}\n\nReview the command against this, then run it again.`);
       // A mode is recorded only after the skill actually loads successfully.
       if (pending.size >= 256) pending.clear();
