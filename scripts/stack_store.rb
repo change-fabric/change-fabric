@@ -173,7 +173,7 @@ class StackStore
             'set-pr <slug> <n> key=value ... | advance <slug> | pause <slug> <reason> | ' \
             'judged <slug> <text> | list | clear <slug>'
 
-    def self.run(argv, out: $stdout, dir: Dir.pwd, ctx: method(:capture_ctx))
+    def self.run(argv, out: $stdout, dir: Dir.pwd, ctx: method(:ctx_pointer))
       command, slug, *rest = argv
       return out.puts(JSON.generate(StackStore.all_for_dir(dir))) if command == 'list'
       return usage(out) if slug.to_s.empty?
@@ -189,10 +189,10 @@ class StackStore
       when 'init' then init(store, rest, dir, ctx)
       when 'get' then store.read
       when 'set-pr' then store.set_pr(rest.first, pairs(rest.drop(1)))
-      when 'advance' then store.advance
+      when 'advance' then advance(store, dir, ctx)
       when 'pause' then store.pause(rest.first)
       when 'judged' then store.add_judged(rest.join(' '))
-      when 'clear' then store.clear || { cleared: store.slug }
+      when 'clear' then clear(store, dir, ctx)
       else { error: 'usage', usage: USAGE }
       end
     end
@@ -203,8 +203,21 @@ class StackStore
       flags, prs = parse_init(rest)
       record = store.init(repo: flags['repo'], source: flags['source'], mode: flags['mode'],
                           plan_dir: flags['plan-dir'], prs:)
-      ctx.call(dir, store.slug)
+      ctx.call(dir, store.slug, :capture)
       record
+    end
+
+    # A finished stack retires its ctx pointer so SessionStart stops offering a resume.
+    def self.advance(store, dir, ctx)
+      record = store.advance
+      ctx.call(dir, store.slug, :retire) if StackStore.finished?(record)
+      record
+    end
+
+    def self.clear(store, dir, ctx)
+      store.clear
+      ctx.call(dir, store.slug, :retire)
+      { cleared: store.slug }
     end
 
     def self.parse_init(args)
@@ -231,9 +244,12 @@ class StackStore
     end
 
     # The ctx pointer that lets SessionStart surface a stack after the session
-    # that started it is gone. Fail-soft: a repo with no ctx store still lands.
-    def self.capture_ctx(dir, slug)
+    # that started it is gone: captured on init, archived once the stack is
+    # finished or cleared. Fail-soft: a repo with no ctx store still lands.
+    def self.ctx_pointer(dir, slug, action)
       script = File.join(__dir__, 'ctx_store.rb')
+      return Open3.capture2e('ruby', script, 'archive', "stack-#{slug}", chdir: dir) if action == :retire
+
       body = "PR stack #{slug} is landing. Resume with /cf:sweep stack resume.\n"
       Open3.capture2e('ruby', script, 'capture', '--name', "stack-#{slug}", '--class', 'active',
                       '--desc', 'PR stack landing in progress', stdin_data: body, chdir: dir)

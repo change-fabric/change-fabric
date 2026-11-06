@@ -115,8 +115,8 @@ class StackWatch
   end
 
   def threads_page(cursor)
-    args = [ 'api', 'graphql', '-f', "query=#{THREADS_QUERY}", '-F', "owner=#{@owner}",
-             '-F', "name=#{@name}", '-F', "number=#{@pr}" ]
+    args = [ 'api', 'graphql', '-f', "query=#{THREADS_QUERY}", '-f', "owner=#{@owner}",
+             '-f', "name=#{@name}", '-F', "number=#{@pr}" ]
     args += [ '-f', "after=#{cursor}" ] if cursor
     gh_json(*args).dig('data', 'repository', 'pullRequest', 'reviewThreads') || {}
   end

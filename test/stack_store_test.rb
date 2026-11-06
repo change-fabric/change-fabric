@@ -84,7 +84,19 @@ class StackStoreTest < Minitest::Test
                           "--pr", "12:#{URL}12:feat-a:abc123" ], out:, dir: @repo, ctx: ->(*a) { calls << a })
     pr = JSON.parse(out.string)["prs"].first
     assert_equal [ 12, "#{URL}12", "feat-a", "abc123" ], pr.values_at("number", "url", "head", "old_head_sha")
-    assert_equal [ [ @repo, "demo" ] ], calls
+    assert_equal [ [ @repo, "demo", :capture ] ], calls
+  end
+
+  def test_cli_retires_ctx_pointer_when_finished_or_cleared
+    calls = []
+    ctx = ->(*a) { calls << a }
+    seed
+    StackStore::CLI.run([ "advance", "demo" ], out: StringIO.new, dir: @repo, ctx:)
+    assert_empty calls
+    StackStore::CLI.run([ "advance", "demo" ], out: StringIO.new, dir: @repo, ctx:)
+    assert_equal [ [ @repo, "demo", :retire ] ], calls
+    StackStore::CLI.run([ "clear", "demo" ], out: StringIO.new, dir: @repo, ctx:)
+    assert_equal 2, calls.size
   end
 
   def test_cli_set_pr_and_errors_print_json

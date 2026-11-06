@@ -95,6 +95,14 @@ class StackWatchTest < Minitest::Test
     assert_equal [ "b" ], event["opened"]
   end
 
+  def test_numeric_repo_name_is_sent_as_a_string
+    log = File.join(@dir, "args.log")
+    File.write(File.join(@dir, "gh"), File.read(File.join(@dir, "gh")).sub("#!/bin/sh\n", "#!/bin/sh\necho \"$@\" >> #{log}\n"))
+    script([ view(state: "MERGED") ])
+    StackWatch::CLI.run([ "--pr", "12", "--repo", "acme/123", "--interval", "0" ], out: StringIO.new)
+    assert_includes File.read(log), "-f name=123"
+  end
+
   def test_red_check_exits_six
     script([ view(checks: [ { name: "test", conclusion: "FAILURE" } ]) ])
     code, event = watch
