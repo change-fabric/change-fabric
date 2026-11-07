@@ -54,12 +54,27 @@ class AgentSmoke
       out, err, code = bounded(env, [ *argv, prompt ], project, timeout)
       states = Dir.glob(File.join(home, ".local/state/change-fabric/sessions", host, "**", "*.json")).map { |file| JSON.parse(File.read(file)) }
       persisted = states.any? { |state| state["mode"] == "local-only" }
-      passed = code == 0 && persisted && out.include?("local-only")
+      acknowledged = self.class.acknowledged?(out)
+      passed = code == 0 && persisted && acknowledged
       version, = Open3.capture2(argv.first, "--version", err: File::NULL)
       report(output, host: host, version: version.strip, status: passed ? "passed" : "failed",
         scope: "explicit local-only invocation, model acknowledgement, native hook persistence",
-        persisted: persisted, exit_status: code, stdout: out, stderr: err,
+        persisted: persisted, acknowledged: acknowledged, exit_status: code, stdout: out, stderr: err,
         limits: "Does not establish all skill behavior, native slash aliases, or release-gate enforcement.")
+    end
+  end
+
+  # Hook persistence proves the hook ran, not that the model accepted the mode,
+  # so only the assistant's own messages count, and a negated or push-intending
+  # reply does not. Codex --json emits one event per line.
+  def self.acknowledged?(stdout)
+    messages = stdout.each_line.filter_map do |line|
+      event = JSON.parse(line) rescue next
+      item = event.is_a?(Hash) && event["item"]
+      item["text"] if item.is_a?(Hash) && item["type"] == "agent_message"
+    end
+    messages.any? do |text|
+      text.include?("local-only") && !text.match?(/\bnot\b[^.]*local-only|\bwill\s+(?:now\s+)?(?:push|open)/i)
     end
   end
 
