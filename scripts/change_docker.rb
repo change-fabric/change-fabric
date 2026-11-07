@@ -283,12 +283,21 @@ module ChangeDocker
     # first one hit.
     FUNCTION_TIMEOUT_MS = 115_000
 
-    def run_function(code)
-      uri = URI("http://127.0.0.1:#{@port}/function?token=#{@token}&timeout=#{FUNCTION_TIMEOUT_MS}")
+    def run_function(code, launch_args: [])
+      uri = URI(function_url(launch_args))
       response = post(uri, code, 'application/javascript')
       raise "browserless /function failed: #{response.code} #{response.body}" unless response.is_a?(Net::HTTPSuccess)
 
       unwrap(JSON.parse(response.body))
+    end
+
+    # Chromium flags (e.g. --ignore-certificate-errors) go in browserless's
+    # `launch` query parameter, which starts this call's browser with them.
+    def function_url(launch_args = [])
+      url = "http://127.0.0.1:#{@port}/function?token=#{@token}&timeout=#{FUNCTION_TIMEOUT_MS}"
+      return url if launch_args.empty?
+
+      "#{url}&launch=#{URI.encode_www_form_component(JSON.generate('args' => launch_args))}"
     end
 
     # browserless echoes the module's `{ data, type }` return value back as the
