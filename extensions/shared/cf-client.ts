@@ -37,6 +37,9 @@ export function callHook(host: string, event: string, payload: Record<string, un
         const output: unknown = JSON.parse(stdout);
         if (!isRecord(output)) throw new Error("Invalid CF output");
         if (code !== 0 && code !== 2) throw new Error(stderr || "CF runtime failed");
+        const specific = isRecord(output.hookSpecificOutput) ? output.hookSpecificOutput : undefined;
+        // `{}` with exit 0 is a plain allow (and how a fail-silent hook error ends).
+        if (code === 2 && specific?.permissionDecision !== "deny") throw new Error("CF failed without a native deny response");
         settled = true;
         clearTimeout(timer);
         resolve(output);

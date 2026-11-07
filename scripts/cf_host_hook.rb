@@ -4,6 +4,8 @@
 require 'json'
 require 'digest'
 require 'stringio'
+require 'shellwords'
+require 'rbconfig'
 require_relative 'cf_runtime'
 require_relative 'skill_compiler'
 require_relative 'skill_detect'
@@ -42,13 +44,17 @@ class CfHostHook
   def call
     request = base.merge('event' => EVENTS.fetch(@event))
     request['tool'] = tool if %w[PreToolUse PostToolUse].include?(@event)
+    request['initial_mode'] = @payload['initial_mode'] if @event == 'SessionStart'
     request['parent_session_id'] = parent_id if @event == 'SubagentStart' && parent_id
     result = runtime(request)
     @resolved_project = result['project']
     result = apply_mode(request) || result if @event == 'UserPromptSubmit' || @event == 'SessionStart'
     result = record_choice(request) || result if @event == 'PostToolUse'
     restate = CONTEXT_EVENTS.include?(@event) || result['decision'] == 'deny'
-    contexts = [ @confirmation, (result.fetch('context') if restate), plan_refusal(result) ].compact
+    identity = Shellwords.join([ RbConfig.ruby, File.join(__dir__, 'cf_cli.rb'), 'mode', '--host', @host,
+      '--project', result.fetch('project'), '--session', session_id, '--mode' ])
+    persist = "[cf] To persist a mode selected implicitly, run #{identity} SELECTED_MODE. Use this session identity; never infer another session from cwd." if restate
+    contexts = [ @confirmation, (result.fetch('context') if restate), persist, plan_refusal(result) ].compact
     @rubrics = rubric_contexts
     contexts.concat(@rubrics)
     review = review_result

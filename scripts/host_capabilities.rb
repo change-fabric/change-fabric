@@ -29,7 +29,11 @@ class HostCapabilities
     reference = version && profile.fetch('reference_versions').include?(version)
     profile.merge('detected_version' => version,
       'version_status' => tested ? 'tested' : reference ? 'reference-only' : 'unverified',
-      'effective_support' => tested ? 'adapter-tested' : 'instructions-only')
+      'effective_support' => tested ? 'adapter-tested' : 'instructions-only',
+      'live_verification' => tested ? profile['live_verification'] : 'not-run',
+      'live_scope' => tested ? profile['live_scope'] : nil,
+      'reference_live_evidence' => { 'versions' => profile['tested_versions'],
+                                   'status' => profile['live_verification'], 'scope' => profile['live_scope'] })
   end
 
   def profiles = @profiles.map { |row| row.slice('host', 'surface', 'capabilities', 'live_verification') }

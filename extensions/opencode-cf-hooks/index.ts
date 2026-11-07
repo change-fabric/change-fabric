@@ -6,6 +6,7 @@ type SessionClient = { session?: { get?: (req: { path: { id: string } }) => Prom
 export const CfHooks = async ({ directory, client }: { directory: string; client?: SessionClient }) => {
   const initialized = new Map<string, Promise<void>>();
   const pending = new Map<string, Record<string, unknown>>();
+  const startupContext = new Map<string, string>();
   // Ancestors bind first, root down, so a resumed grandchild inherits the root's
   // legacy mode even when its intermediate parent has no neutral record yet.
   // `seen` stops a cyclic or runaway chain instead of awaiting itself.
@@ -16,7 +17,8 @@ export const CfHooks = async ({ directory, client }: { directory: string; client
       ready = (async () => {
         const parentID = (await client?.session?.get?.({ path: { id } }))?.data?.parentID;
         if (parentID) await ensureSession(parentID, new Set([ ...seen, id ]));
-        await callHook("opencode", "SubagentStart", { session_id: id, parent_session_id: parentID, cwd: directory });
+        const result = await callHook("opencode", parentID ? "SubagentStart" : "SessionStart", { session_id: id, parent_session_id: parentID, cwd: directory });
+        if (result.hookSpecificOutput?.additionalContext) startupContext.set(id, result.hookSpecificOutput.additionalContext);
       })();
       initialized.set(id, ready);
       ready.catch(() => initialized.delete(id));
@@ -57,6 +59,9 @@ export const CfHooks = async ({ directory, client }: { directory: string; client
       if (!input.sessionID) return;
       await ensureSession(input.sessionID);
       const result = await callHook("opencode", "UserPromptSubmit", { session_id: input.sessionID, cwd: directory });
+      const startup = startupContext.get(input.sessionID);
+      if (startup) output.system.push(startup);
+      startupContext.delete(input.sessionID);
       if (result.hookSpecificOutput?.additionalContext) output.system.push(result.hookSpecificOutput.additionalContext);
     },
     "experimental.session.compacting": async (input: { sessionID: string }, output: { context: string[] }) => {

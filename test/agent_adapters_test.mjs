@@ -63,3 +63,62 @@ test("client rejects missing runtime and enforces its timeout", async () => isol
   process.env.CF_RUNTIME_BIN = bin;
   await assert.rejects(callHook("pi", "SessionStart", { cwd: home, session_id: "x" }, 40), /timed out/);
 }));
+
+
+test("Pi environment defaults do not overwrite a resumed session", async () => isolated(async (home) => {
+  const previous = process.env.CF_MERGE_MODE;
+  process.env.CF_MERGE_MODE = "local-only";
+  try {
+    const handlers = new Map();
+    let command;
+    piHooks({ on: (event, handler) => handlers.set(event, handler), registerCommand: (_name, value) => { command = value; }, sendMessage() {}, sendUserMessage() {} });
+    const ctx = { cwd: home, sessionManager: { getSessionFile: () => "resumed" }, ui: { notify() {} } };
+    await handlers.get("session_start")({}, ctx);
+    await command.handler("yolo", ctx);
+    await handlers.get("session_start")({}, ctx);
+    const result = await handlers.get("before_agent_start")({ systemPrompt: "base" }, ctx);
+    assert.match(result.systemPrompt, /Merge mode for this session is yolo/);
+  } finally { if (previous === undefined) delete process.env.CF_MERGE_MODE; else process.env.CF_MERGE_MODE = previous; }
+}));
+
+test("client rejects a failed process that did not return a native deny", async () => isolated(async (home) => {
+  const bin = join(home, "invalid");
+  mkdirSync(bin);
+  writeFileSync(join(bin, "cf_host_hook.rb"), 'puts "{}"; exit 2\n');
+  process.env.CF_RUNTIME_BIN = bin;
+  await assert.rejects(callHook("pi", "PreToolUse", { cwd: home, session_id: "x" }), /without a native deny/);
+}));
+
+test("Pi and OpenCode deliver startup rubric detection into model context", async () => isolated(async (home) => {
+  const project = join(home, "project");
+  const skills = join(home, ".local/share/change-fabric/source-skills/ruby");
+  mkdirSync(project);
+  mkdirSync(skills, { recursive: true });
+  writeFileSync(join(project, "Gemfile"), "source 'https://rubygems.org'\n");
+  writeFileSync(join(skills, "SKILL.md"), "---\nname: cf:ruby\ndescription: Ruby\nauto:\n  detect: [Gemfile]\n---\nRuby rules.\n");
+  const handlers = new Map();
+  piHooks({ on: (event, handler) => handlers.set(event, handler), registerCommand() {}, sendMessage() {}, sendUserMessage() {} });
+  const ctx = { cwd: project, sessionManager: { getSessionFile: () => "pi-startup" }, ui: { notify() {} } };
+  await handlers.get("session_start")({}, ctx);
+  const piContext = await handlers.get("before_agent_start")({ systemPrompt: "base" }, ctx);
+  assert.match(piContext.systemPrompt, /Auto-skills active.*cf:ruby/);
+  const plugin = await CfHooks({ directory: project });
+  const output = { system: [] };
+  await plugin["experimental.chat.system.transform"]({ sessionID: "opencode-startup" }, output);
+  assert.match(output.system.join("\n"), /Auto-skills active.*cf:ruby/);
+}));
+
+test("Pi skill exclusions prevent Codex shared-directory copies from shadowing native bodies", async () => isolated(async (home) => {
+  const { DefaultPackageManager } = await import("../node_modules/@earendil-works/pi-coding-agent/dist/core/package-manager.js");
+  const { SettingsManager } = await import("../node_modules/@earendil-works/pi-coding-agent/dist/core/settings-manager.js");
+  const native = join(home, ".pi/agent/skills/cf-roast");
+  const shared = join(home, ".agents/skills/cf-roast");
+  for (const dir of [native, shared]) {
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "SKILL.md"), "---\nname: cf-roast\ndescription: Roast\n---\nHost-specific body.\n");
+  }
+  const manager = new DefaultPackageManager({ cwd: home, agentDir: join(home, ".pi/agent"), settingsManager: SettingsManager.inMemory({ skills: [`-${join(shared, "SKILL.md")}`] }) });
+  const resources = await manager.resolve();
+  assert.equal(resources.skills.find((entry) => entry.path === join(native, "SKILL.md"))?.enabled, true);
+  assert.equal(resources.skills.find((entry) => entry.path === join(shared, "SKILL.md"))?.enabled, false);
+}));
