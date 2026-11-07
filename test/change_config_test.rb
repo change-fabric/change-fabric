@@ -728,4 +728,3 @@ class ChangeConfigTest < Minitest::Test
     assert_raises(ChangeConfig::ConfigError) { with_config(local_https_config("ignore_https_errors" => "yes"), "local") { nil } }
   end
 end
-

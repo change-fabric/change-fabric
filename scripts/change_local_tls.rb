@@ -69,17 +69,22 @@ module ChangeLocalTls
         const cfLocalHosts = #{JSON.generate(hosts)};
         // Every page gets the guard before the module can navigate it: the
         // first page, any page from browser/context newPage, and popups.
+        // The marker holds the setup promise, not a flag: newPage and
+        // targetcreated can guard the same page at once, and both must wait
+        // until interception is really on before the page is used.
         const cfGuard = async (target) => {
-          if (!target || target.__cfLocalTls) return target;
-          target.__cfLocalTls = true;
-          await target.setRequestInterception(true);
-          target.on("request", (request) => {
-            const url = new URL(request.url());
-            // URL.hostname keeps IPv6 brackets; the allowlist is unbracketed.
-            const host = url.hostname.replace(/^\\[|\\]$/g, "");
-            if (url.protocol === "https:" && !cfLocalHosts.includes(host)) return request.abort("accessdenied");
-            return request.continue();
-          });
+          if (!target) return target;
+          target.__cfLocalTls ||= (async () => {
+            target.on("request", (request) => {
+              const url = new URL(request.url());
+              // URL.hostname keeps IPv6 brackets; the allowlist is unbracketed.
+              const host = url.hostname.replace(/^\\[|\\]$/g, "");
+              if (url.protocol === "https:" && !cfLocalHosts.includes(host)) return request.abort("accessdenied");
+              return request.continue();
+            });
+            await target.setRequestInterception(true);
+          })();
+          await target.__cfLocalTls;
           return target;
         };
         const cfPatchNewPage = (owner) => {

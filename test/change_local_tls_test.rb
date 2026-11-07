@@ -42,6 +42,8 @@ class ChangeLocalTlsTest < Minitest::Test
     assert_includes code, 'const cfLocalHosts = ["app.test"];'
     assert_includes code, 'const host = url.hostname.replace(/^\\[|\\]$/g, "");'
     assert_match(/protocol === "https:" && !cfLocalHosts\.includes\(host\)\) return request\.abort/, code)
+    assert_includes code, "target.__cfLocalTls ||= (async () => {"
+    assert_includes code, "await target.__cfLocalTls;"
     assert_includes code, "cfPatchNewPage(cfBrowser);"
     assert_includes code, 'cfBrowser.on("targetcreated"'
     assert_operator code.index("await cfGuard(page);"), :<, code.index("const results = await cfRunFlow(page")
