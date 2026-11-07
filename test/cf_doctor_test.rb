@@ -93,4 +93,27 @@ class CfDoctorTest < Minitest::Test
     remaining = JSON.parse(File.read(paths.settings)).fetch("hooks").values.flatten.flat_map { |row| row.fetch("hooks", []) }
     assert_equal [ "echo foreign" ], remaining.map { |hook| hook["command"] }
   end
+
+  def test_uninstall_then_reinstall_regenerates_skills_and_keeps_the_original_backup
+    paths = Install::Paths.new(repo: File.expand_path("..", __dir__), home: @home)
+    FileUtils.mkdir_p(File.dirname(paths.settings))
+    File.write(paths.settings, JSON.generate("theme" => "original"))
+    capture_io { Install::Installer.new(paths: paths, ruby: RbConfig.ruby).install }
+    backup = File.read("#{paths.settings}.bak")
+    assert_equal 0, CfCli.run([ "uninstall", "--apply" ], io: StringIO.new, home: @home)
+    assert_equal backup, File.read("#{paths.settings}.bak")
+    assert Dir.exist?(File.dirname(paths.codex_skill("cf:roast"))), "the shared skills root stays"
+    capture_io { Install::Installer.new(paths: paths, ruby: RbConfig.ruby).install }
+    report = CfDoctor.new(home: @home).report(host: "codex", version: "0.166.0", probe: false)
+    assert_operator report.dig("skills", "files_present"), :>, 60
+  end
+
+  def test_doctor_reads_opencode_from_xdg_config_home
+    xdg = File.join(@home, "xdg")
+    paths = Install::Paths.new(repo: File.expand_path("..", __dir__), home: @home, xdg_config: xdg)
+    capture_io { Install::Installer.new(paths: paths, ruby: RbConfig.ruby).install }
+    report = CfDoctor.new(home: @home, xdg_config: xdg).report(host: "opencode", probe: false)
+    assert_operator report.dig("skills", "files_present"), :>, 60
+    assert report.dig("adapter", "configured")
+  end
 end

@@ -69,7 +69,8 @@ class NativeHookInstall
         entries.reject! { |group| group.is_a?(Hash) && group['hooks'] == [] }
       end
     end
-    FileUtils.cp(@path, "#{@path}.bak")
+    # An existing .bak is the user's pre-install copy; never overwrite it.
+    FileUtils.cp(@path, "#{@path}.bak") unless File.exist?("#{@path}.bak")
     File.write("#{@path}.tmp", JSON.pretty_generate(data) + "\n")
     File.rename("#{@path}.tmp", @path)
   end

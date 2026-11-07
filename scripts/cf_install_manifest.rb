@@ -26,11 +26,30 @@ class CfInstallManifest
   end
 
   def remove
-    plan.each { |entry| FileUtils.rm_f(entry['path']) if entry['action'] == 'remove' }
+    removed = plan.select { |entry| entry['action'] == 'remove' }.map { |entry| entry['path'] }
+    removed.each { |path| FileUtils.rm_f(path) }
+    prune_empty_parents(removed)
     # Retain the manifest as a record of modified files intentionally preserved.
   end
 
   private
+
+  # A left-behind empty skill dir reads as a user-owned collision on reinstall,
+  # so remove emptied parents bottom-up. Dir.rmdir only removes an empty dir,
+  # never user content, and the walk stays inside a cf* skill directory so a
+  # shared root like ~/.agents/skills is never removed.
+  def prune_empty_parents(paths)
+    paths.map { |path| File.dirname(File.expand_path(path)) }.uniq.sort_by { |dir| -dir.length }.each do |dir|
+      while inside_skill_dir?(dir) && Dir.exist?(dir) && Dir.empty?(dir)
+        Dir.rmdir(dir)
+        dir = File.dirname(dir)
+      end
+    end
+  end
+
+  def inside_skill_dir?(dir)
+    dir.start_with?("#{@home}/") && dir.delete_prefix("#{@home}/").split('/').any? { |part| part.start_with?('cf') }
+  end
 
   def entries
     return [] unless File.file?(@path)

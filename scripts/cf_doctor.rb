@@ -12,8 +12,10 @@ require_relative 'skill_compiler'
 # Read-only installation diagnostics. File presence is never called discovery,
 # and configured hooks are never called trusted or active without host evidence.
 class CfDoctor
-  def initialize(home: Dir.home, registry: HostCapabilities.new)
+  def initialize(home: Dir.home, registry: HostCapabilities.new, xdg_config: ENV.fetch('XDG_CONFIG_HOME', nil))
     @home, @registry = home, registry
+    # Same fallback as Install::Paths, so doctor looks where install wrote.
+    @opencode_root = File.join(xdg_config.to_s.empty? ? File.join(home, '.config') : xdg_config, 'opencode')
   end
 
   def report(host:, surface: 'cli', version: nil, probe: true)
@@ -55,8 +57,10 @@ class CfDoctor
   end
 
   def skill_root(host)
+    return File.join(@opencode_root, 'skills') if host == 'opencode'
+
     relative = { 'claude' => '.claude/skills', 'codex' => '.agents/skills',
-                 'copilot' => '.copilot/skills', 'opencode' => '.config/opencode/skills', 'pi' => '.pi/agent/skills' }
+                 'copilot' => '.copilot/skills', 'pi' => '.pi/agent/skills' }
     File.join(@home, relative.fetch(host))
   end
 
@@ -64,7 +68,7 @@ class CfDoctor
     if host == 'pi'
       return File.exist?(File.join(@home, '.pi/agent/extensions/cf-hooks'))
     elsif host == 'opencode'
-      return File.file?(File.join(@home, '.config/opencode/plugins/cf-hooks.ts'))
+      return File.file?(File.join(@opencode_root, 'plugins/cf-hooks.ts'))
     end
     relative = { 'claude' => '.claude/settings.json', 'codex' => '.codex/hooks.json', 'copilot' => '.copilot/hooks/change-fabric.json' }
     path = File.join(@home, relative.fetch(host))
