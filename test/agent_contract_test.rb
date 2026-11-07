@@ -56,12 +56,14 @@ class AgentContractTest < Minitest::Test
     assert_includes other.dig("hookSpecificOutput", "additionalContext"), "merge-ready"
   end
 
-  def test_malformed_pretool_input_returns_native_deny_and_nonzero_status
+  # Hooks fail silent: denying on an internal error would wedge every tool,
+  # including the shell the agent needs to recover.
+  def test_malformed_pretool_input_fails_silent_with_a_warning
     out, err, status = Open3.capture3({ "HOME" => @home }, RbConfig.ruby,
       File.join(ROOT, "scripts/cf_host_hook.rb"), "codex", "PreToolUse", stdin_data: "broken JSON")
-    assert_equal 2, status.exitstatus
+    assert_equal 0, status.exitstatus
     assert_includes err, "adapter error"
-    assert_equal "deny", JSON.parse(out).dig("hookSpecificOutput", "permissionDecision")
+    assert_equal({}, JSON.parse(out))
   end
 
   def test_reported_roast_invocation_is_rendered_with_native_codex_name
