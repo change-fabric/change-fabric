@@ -18,7 +18,7 @@
 require_relative 'figma_url'
 
 module ChangeSchema
-  VERSION = '0.14.0'
+  VERSION = '0.15.0'
 
   # The five audit lanes, the authoritative list the config validator enforces.
   LANES = %w[k6 a11y zap browserless testcases].freeze
@@ -69,6 +69,10 @@ module ChangeSchema
     'change_config.boot.health.expect_status',
     'change_config.boot.health.timeout_seconds',
     'change_config.boot.env_file',
+    # add_hosts, ignore_https_errors (0.15.0): reaching a local HTTPS dev app
+    # from the browser container, profile-overridable like the rest of boot.
+    'change_config.boot.add_hosts',
+    'change_config.boot.ignore_https_errors',
     'change_config.lanes.<lane>.enabled',
     'change_config.lanes.<lane>.base_url',
     # basic_auth (0.3.0): only meaningful on a browser lane (a11y, browserless);
@@ -246,6 +250,8 @@ module ChangeSchema
     'change_config.profiles.<profile>.boot.health.expect_status',
     'change_config.profiles.<profile>.boot.health.timeout_seconds',
     'change_config.profiles.<profile>.boot.env_file',
+    'change_config.profiles.<profile>.boot.add_hosts',
+    'change_config.profiles.<profile>.boot.ignore_https_errors',
     'change_config.profiles.<profile>.lanes.<lane>.enabled',
     'change_config.profiles.<profile>.lanes.<lane>.base_url',
     'change_config.profiles.<profile>.lanes.<lane>.basic_auth.username_env',
