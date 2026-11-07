@@ -137,7 +137,11 @@ to:
    `cf:docker`, runs the compiled payload, and tears the container down even
    on failure. Never launch or reuse a host-level browser process, and never
    hand-write Playwright in place of the compiler. `--dump` compiles without
-   running, for reviewing a flow before it runs.
+   running, for reviewing a flow before it runs. For a local HTTPS dev app
+   behind a reverse proxy, pass `--add-host HOST:host-gateway` (the container
+   cannot read the host's /etc/hosts) and `--ignore-https-errors` (the
+   container lacks the local dev CA); the latter is refused unless the
+   base URL is a local host.
 4. Reach for the `eval:` escape hatch only when no verb covers the check, and
    say so in the findings: a compiled `eval` step is marked raw JS precisely
    so a reader can see where the declarative contract was abandoned.

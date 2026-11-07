@@ -3,6 +3,8 @@
 
 require 'json'
 require 'yaml'
+require 'ipaddr'
+require 'uri'
 require_relative 'change_docker'
 require_relative 'change_flow_compiler'
 require_relative 'change_suite_render'
@@ -12,6 +14,14 @@ require_relative 'change_suite_render'
 #
 #   ruby scripts/change_flow_run.rb flow.yml --base-url http://127.0.0.1:3000
 #   ruby scripts/change_flow_run.rb flow.yml --dump      # compile only, no run
+#   ruby scripts/change_flow_run.rb flow.yml --base-url https://app.local.example.test \
+#     --add-host app.local.example.test:host-gateway --ignore-https-errors
+#
+# The browser runs in a container, so a dev hostname from the host's
+# /etc/hosts needs `--add-host HOST:TARGET` (repeatable; `host-gateway` is the
+# host), and a local dev CA the container does not trust needs
+# `--ignore-https-errors`. The latter is refused unless the base URL is a local
+# host, so it can never skip a real certificate.
 #
 # The flow file is either a bare list of steps or a mapping carrying
 # `base_url`, `timeout_ms`, and `steps`. A command-line `--base-url` wins over
@@ -35,14 +45,16 @@ module ChangeFlowRun
     flow = load_flow(options[:path])
     return promote(flow, options) if options[:promote]
 
+    base_url = options[:base_url] || flow['base_url']
+    check_ignore_https(options, base_url)
     compiler = ChangeFlowCompiler.new(
       flow['steps'],
-      base_url: options[:base_url] || flow['base_url'],
+      base_url: base_url,
       timeout_ms: flow['timeout_ms'] || ChangeFlowCompiler::DEFAULT_TIMEOUT_MS
     )
-    puts(options[:dump] ? compiler.dump : JSON.pretty_generate(execute(compiler, options[:network])))
+    puts(options[:dump] ? compiler.dump : JSON.pretty_generate(execute(compiler, options)))
     0
-  rescue ChangeFlowCompiler::Error => e
+  rescue ChangeFlowCompiler::Error, ArgumentError => e
     warn "flow error: #{e.message}"
     1
   end
@@ -62,14 +74,39 @@ module ChangeFlowRun
     1
   end
 
-  def execute(compiler, network)
+  def execute(compiler, options)
     raise 'docker is unavailable; cannot run a browser flow' unless ChangeDocker.available?
 
-    ChangeDocker.with_network(network) do |net|
-      ChangeDocker.with_browserless(network: net.name) do |session|
-        session.run_function(compiler.function_module)
+    launch_args = options[:ignore_https_errors] ? [ '--ignore-certificate-errors' ] : []
+    ChangeDocker.with_network(options[:network]) do |net|
+      ChangeDocker.with_browserless(network: net.name, add_hosts: options[:add_hosts]) do |session|
+        session.run_function(compiler.function_module, launch_args: launch_args)
       end
     end
+  end
+
+  LOCAL_SUFFIXES = %w[.localhost .local .test .internal].freeze
+
+  def check_ignore_https(options, base_url)
+    return unless options[:ignore_https_errors]
+    return if local_host?(base_url)
+
+    raise ArgumentError, "--ignore-https-errors needs a local base URL (localhost, *.local, *.local.*, *.test, " \
+                         "*.internal, or a private IP); got #{base_url.inspect}"
+  end
+
+  # Local means a name or address that cannot carry a publicly issued
+  # certificate, so ignoring its certificate skips nothing a real user relies on.
+  def local_host?(url)
+    host = URI(url.to_s).host.to_s.downcase.delete_prefix('[').delete_suffix(']')
+    return false if host.empty?
+    return true if host == 'localhost' || LOCAL_SUFFIXES.any? { |suffix| host.end_with?(suffix) }
+    return true if host.split('.').include?('local')
+
+    ip = IPAddr.new(host)
+    ip.loopback? || ip.private? || ip.link_local?
+  rescue URI::InvalidURIError, IPAddr::InvalidAddressError
+    false
   end
 
   def load_flow(path)
@@ -82,12 +119,14 @@ module ChangeFlowRun
 
   def parse(argv)
     options = { path: nil, base_url: nil, network: nil, dump: false, promote: false,
-                suite: nil, case_id: nil, acceptance: nil, tags: [] }
+                suite: nil, case_id: nil, acceptance: nil, tags: [], add_hosts: [], ignore_https_errors: false }
     until argv.empty?
       arg = argv.shift
       case arg
       when '--base-url' then options[:base_url] = argv.shift
       when '--network' then options[:network] = argv.shift
+      when '--add-host' then options[:add_hosts] << add_host(argv.shift)
+      when '--ignore-https-errors' then options[:ignore_https_errors] = true
       when '--dump' then options[:dump] = true
       when '--promote' then options[:promote] = true
       when '--suite' then options[:suite] = argv.shift
@@ -100,8 +139,17 @@ module ChangeFlowRun
     options
   end
 
+  # HOST:TARGET, where TARGET is an IP or docker's `host-gateway`.
+  def add_host(value)
+    host, target = value.to_s.split(':', 2)
+    raise ArgumentError, "--add-host wants HOST:TARGET, got #{value.inspect}" if host.to_s.empty? || target.to_s.empty?
+
+    "#{host}:#{target}"
+  end
+
   def usage
     warn 'usage: change_flow_run.rb <flow.yml> [--base-url URL] [--network NAME] [--dump]'
+    warn '       [--add-host HOST:TARGET ...] [--ignore-https-errors]'
     warn '       change_flow_run.rb <flow.yml> --promote --suite NAME --case-id ID ' \
          '--acceptance TEXT [--tags a,b]'
     2
