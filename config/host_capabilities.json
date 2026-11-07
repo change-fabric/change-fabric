@@ -15,12 +15,14 @@
         "skill_discovery": "documented",
         "startup_context": "documented",
         "prompt_context": "documented",
-        "tool_guard": "documented",
-        "mode_persistence": "documented",
-        "child_inheritance": "documented",
+        "tool_guard": "adapter-tested",
+        "mode_persistence": "adapter-tested",
+        "child_inheritance": "adapter-tested",
         "completion_gate": "documented"
       },
-      "live_verification": "not-run"
+      "live_verification": "not-run",
+      "adapter_contract": "test/agent_contract_test.rb",
+      "adapter_evidence": "subprocess-tested"
     },
     {
       "host": "codex",
@@ -31,17 +33,22 @@
       "reference_versions": [
         "0.166.0"
       ],
-      "tested_versions": [],
+      "tested_versions": [
+        "0.166.0"
+      ],
       "capabilities": {
         "skill_discovery": "documented",
         "startup_context": "documented",
         "prompt_context": "documented",
-        "tool_guard": "documented",
-        "mode_persistence": "documented",
-        "child_inheritance": "documented",
+        "tool_guard": "adapter-tested",
+        "mode_persistence": "adapter-tested",
+        "child_inheritance": "adapter-tested",
         "completion_gate": "instructions-only"
       },
-      "live_verification": "not-run"
+      "live_verification": "passed",
+      "adapter_contract": "test/agent_contract_test.rb",
+      "adapter_evidence": "subprocess-tested",
+      "live_scope": "Explicit local-only invocation, model acknowledgement, and native hook persistence; other workflows not live-tested."
     },
     {
       "host": "copilot",
@@ -55,12 +62,14 @@
         "skill_discovery": "documented",
         "startup_context": "documented",
         "prompt_context": "instructions-only",
-        "tool_guard": "documented",
-        "mode_persistence": "documented",
-        "child_inheritance": "documented",
+        "tool_guard": "adapter-tested",
+        "mode_persistence": "adapter-tested",
+        "child_inheritance": "adapter-tested",
         "completion_gate": "instructions-only"
       },
-      "live_verification": "not-run"
+      "live_verification": "not-run",
+      "adapter_contract": "test/agent_contract_test.rb",
+      "adapter_evidence": "subprocess-tested"
     },
     {
       "host": "opencode",
@@ -74,12 +83,14 @@
         "skill_discovery": "documented",
         "startup_context": "documented",
         "prompt_context": "instructions-only",
-        "tool_guard": "documented",
-        "mode_persistence": "documented",
-        "child_inheritance": "documented",
+        "tool_guard": "adapter-tested",
+        "mode_persistence": "adapter-tested",
+        "child_inheritance": "adapter-tested",
         "completion_gate": "instructions-only"
       },
-      "live_verification": "not-run"
+      "live_verification": "not-run",
+      "adapter_contract": "test/agent_contract_test.rb",
+      "adapter_evidence": "subprocess-tested"
     },
     {
       "host": "pi",
@@ -95,12 +106,14 @@
         "skill_discovery": "documented",
         "startup_context": "documented",
         "prompt_context": "documented",
-        "tool_guard": "documented",
-        "mode_persistence": "documented",
+        "tool_guard": "adapter-tested",
+        "mode_persistence": "adapter-tested",
         "child_inheritance": "instructions-only",
         "completion_gate": "instructions-only"
       },
-      "live_verification": "not-run"
+      "live_verification": "not-run",
+      "adapter_contract": "test/agent_contract_test.rb",
+      "adapter_evidence": "subprocess-tested"
     },
     {
       "host": "codex",

@@ -101,3 +101,35 @@ Sources checked on 2026-11-04:
 - https://code.claude.com/docs/en/hooks
 - https://docs.opencode.ai/docs/plugins/
 - Pi's installed `ExtensionAPI` declarations (npm lockfile version).
+
+## Behavioral verification
+
+`bundle exec ruby -Itest test/agent_contract_test.rb` runs one scenario matrix
+through all five native wire formats in fresh directories and actual Ruby
+subprocesses. It covers all four modes, PR creation/merge, feature/trunk pushes,
+resume, child inheritance, malformed payloads, and the reported `/cf:roast`
+reference conversion. `npm run test:adapters` additionally loads the actual Pi
+and OpenCode TypeScript handlers and calls the Ruby process, including missing
+runtime and timeout paths. CI runs both suites for every stacked PR base.
+These are deterministic integration checks, not model behavior claims.
+
+An explicit model smoke can be run from the repository:
+
+```
+bundle exec ruby test/support/agent_smoke.rb --host codex --output /tmp/cf-smoke.json
+```
+
+The runner installs into a temporary HOME, copies local Codex authentication
+with mode 0600 for that run, enables hooks only in that temporary config, and
+uses read-only execution. It bypasses hook trust only for its generated, vetted
+temporary hooks; it does not change live trust or approval settings. Temporary
+authentication is removed on completion. The JSON artifact reports the precise
+scope, binary version, model output, and persistence evidence. It never points
+to a real remote. Other host profiles report `not-run` when isolated auth is not
+implemented or their binary is unavailable; they never use the live HOME as a
+fallback. `not-run` is not a pass.
+
+On 2026-11-04, Codex CLI 0.166.0 passed explicit `$cf-local-only` activation,
+model acknowledgement, and native hook persistence. No live behavior claim is
+made for the other four hosts or the other skills. Codex's `/cf:roast` remains
+unsupported syntax; use `$cf-roast` or the `/skills` picker.

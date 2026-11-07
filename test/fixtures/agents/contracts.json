@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "scenarios": [
+    {"mode":"local-only","command":"git push origin feature","deny":true},
+    {"mode":"local-only","command":"gh pr create","deny":true},
+    {"mode":"merge-ready","command":"git push origin feature","deny":false},
+    {"mode":"merge-ready","command":"git push origin HEAD:main","deny":true},
+    {"mode":"merge-ready","command":"gh pr merge 1","deny":true},
+    {"mode":"admin-bypass","command":"gh pr merge 1 --squash --admin","deny":false},
+    {"mode":"yolo","command":"git push origin HEAD:main","deny":false},
+    {"mode":"yolo","command":"gh pr create","deny":true}
+  ]
+}
