@@ -8,8 +8,8 @@ description: Sets the session's merge mode to local only, so changes stay on dis
 
 Trigger: `/cf:local-only`.
 
-The handler hook (`mode_command.rb`) has already persisted `local-only` as this
-session's merge mode to `~/.claude/cf/sessions/<session_id>/merge-mode` and
+The handler hook (`cf_host_hook.rb`) has already persisted `local-only` as this
+session's merge mode to the shared CF session state and
 injected a one-line confirmation. Acknowledge the mode in one line, then
 proceed.
 
@@ -19,7 +19,7 @@ Never `git push`, never open a new PR. Changes stay on disk. Posting review
 comments to a PR that already exists on GitHub is neither a push nor a merge
 and is not restricted by this mode.
 
-A `PreToolUse` hook (`merge_mode_guard.rb`) backs this rule by denying `git
+A `PreToolUse` hook (`cf_host_hook.rb`) backs this rule by denying `git
 push` while local only is active. It is an advisory guardrail, not a sandbox:
 it matches on the command text and is bypassable, so honoring the mode in your
 own actions is still the primary mechanism.

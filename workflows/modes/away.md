@@ -11,5 +11,5 @@ destructive action without a safe default. Host permission and approval
 requirements still apply.
 
 Keep this choice in subsequent turns and compaction summaries until the user
-changes it. No hook has persisted it; do not claim it was written to disk.
+changes it. Persist through the installed adapter when available. Only a successful runtime response proves it was written to disk.
 Use `{{skill:active}}` to resume normal questions.

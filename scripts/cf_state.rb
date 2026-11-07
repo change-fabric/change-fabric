@@ -25,9 +25,13 @@ class CfState
     locked { effective(@session_id) }
   end
 
-  def update(values, parent: nil)
+  # only_missing keeps a value this session already chose, e.g. an environment
+  # default must not overwrite an explicit /cf choice when a session resumes,
+  # including a choice still held only in pre-runtime legacy state.
+  def update(values, parent: nil, only_missing: false)
     locked do
       data = own(@session_id)
+      values = values.reject { |key, _| data.key?(key) || legacy_choice?(key) } if only_missing
       if parent
         raise ArgumentError, 'session cannot inherit itself' if parent == @session_id
         raise ArgumentError, 'parent binding cannot change' if data['parent'] && data['parent'] != parent
@@ -70,16 +74,40 @@ class CfState
     inherited = data['parent'] ? effective(data['parent'], seen + [ id ]) : {}
     mode = data['mode'] || inherited['mode'] || legacy_mode(id)
     { 'mode' => MergeModeSlug.of(mode) || MergeModeSlug::FALLBACK,
-      'availability' => data['availability'] || inherited['availability'] || 'active' }
+      'availability' => data['availability'] || inherited['availability'] || legacy_availability(id) || 'active' }
   end
 
   # Read-only compatibility import. Neutral state always takes precedence;
   # another host's legacy state is never considered.
-  def legacy_mode(id)
-    return unless @host == 'claude' && id.match?(/\A[\w-]+\z/)
+  def legacy_choice?(key)
+    case key
+    when 'mode' then !legacy_mode(@session_id).nil?
+    when 'availability' then !legacy_availability(@session_id).nil?
+    else false
+    end
+  end
 
-    file = File.join(@home, '.claude', 'cf', 'sessions', id, 'merge-mode')
-    File.file?(file) ? MergeModeSlug.of(File.read(file)) : nil
+  def legacy_mode(id)
+    value = legacy_value(id, 'merge-mode')
+    value && MergeModeSlug.of(value)
+  end
+
+  def legacy_availability(id)
+    'away' if legacy_value(id, 'away') == 'away'
+  end
+
+  def legacy_value(id, name)
+    dir = legacy_session_dir(id)
+    file = dir && File.join(@home, '.claude', 'cf', 'sessions', dir, name)
+    file && File.file?(file) ? File.read(file).strip : nil
+  end
+
+  # Pre-runtime adapters keyed sessions differently: Claude by raw id, Pi by a
+  # hash of the session file path, OpenCode by a hash of the root session id.
+  def legacy_session_dir(id)
+    return id if @host == 'claude' && id.match?(/\A[\w-]+\z/)
+
+    "#{@host}-#{Digest::SHA256.hexdigest(id)[0, 32]}" if %w[pi opencode].include?(@host)
   end
 
   def write(data)

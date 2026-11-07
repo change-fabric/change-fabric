@@ -8,7 +8,7 @@ description: Sets the session merge mode to admin bypass. The agent pushes, open
 
 Trigger: `/cf:admin-bypass`.
 
-A `UserPromptSubmit` hook (`mode_command.rb`) has already persisted this
+A `UserPromptSubmit` hook (`cf_host_hook.rb`) has already persisted this
 session's merge mode as `admin-bypass` and restated it back to you. This file
 states what the mode means going forward.
 
@@ -19,7 +19,7 @@ After completing work, push, open a PR, then run
 restriction applies under this mode: admin bypass is the mode that permits
 both the push and the merge.
 
-A `PreToolUse` hook (`merge_mode_guard.rb`) backs this by not restricting
+A `PreToolUse` hook (`cf_host_hook.rb`) backs this by not restricting
 `git push` or `gh pr merge` while this mode is active. It is an advisory
 guardrail, not a sandbox, so honoring the mode in your own actions is still
 the primary mechanism.

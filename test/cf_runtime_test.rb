@@ -3,6 +3,7 @@
 require "minitest/autorun"
 require "tmpdir"
 require "fileutils"
+require "digest"
 require_relative "../scripts/cf_runtime"
 
 class CfRuntimeTest < Minitest::Test
@@ -81,5 +82,43 @@ class CfRuntimeTest < Minitest::Test
     assert_equal "deny", call(event: "tool.before", tool: push)["decision"]
     system("git", "-C", @project, "checkout", "-q", "-b", "feature", exception: true)
     assert_equal "allow", call(event: "tool.before", tool: push)["decision"]
+  end
+
+  def test_default_mode_does_not_overwrite_an_explicit_choice
+    call(event: "mode.set", mode: "local-only")
+    assert_equal "local-only", call(event: "mode.set", mode: "merge-ready", if_unset: true).dig("state", "mode")
+    assert_equal "yolo", call(session_id: "fresh", event: "mode.set", mode: "yolo", if_unset: true).dig("state", "mode")
+  end
+
+  def test_legacy_pi_selection_is_imported_without_overriding_new_state
+    session_file = File.join(@home, "pi-session.jsonl")
+    legacy = File.join(@home, ".claude/cf/sessions/pi-#{Digest::SHA256.hexdigest(session_file)[0, 32]}")
+    FileUtils.mkdir_p(legacy)
+    File.write(File.join(legacy, "merge-mode"), "local-only")
+    assert_equal "local-only", call(host: "pi", session_id: session_file).dig("state", "mode")
+    call(host: "pi", session_id: session_file, event: "mode.set", mode: "yolo")
+    assert_equal "yolo", call(host: "pi", session_id: session_file).dig("state", "mode")
+  end
+
+  def test_environment_default_does_not_overwrite_a_legacy_selection
+    session_file = File.join(@home, "pi-session.jsonl")
+    legacy = File.join(@home, ".claude/cf/sessions/pi-#{Digest::SHA256.hexdigest(session_file)[0, 32]}")
+    FileUtils.mkdir_p(legacy)
+    File.write(File.join(legacy, "merge-mode"), "local-only")
+    state = call(host: "pi", session_id: session_file, event: "mode.set", mode: "merge-ready", if_unset: true)
+    assert_equal "local-only", state.dig("state", "mode")
+  end
+
+  def test_legacy_opencode_mode_and_claude_away_are_imported
+    legacy = File.join(@home, ".claude/cf/sessions/opencode-#{Digest::SHA256.hexdigest("root")[0, 32]}")
+    FileUtils.mkdir_p(legacy)
+    File.write(File.join(legacy, "merge-mode"), "local-only")
+    assert_equal "local-only", call(host: "opencode", session_id: "root").dig("state", "mode")
+    away = File.join(@home, ".claude/cf/sessions/one")
+    FileUtils.mkdir_p(away)
+    File.write(File.join(away, "away"), "away\n")
+    assert_equal "away", call(host: "claude").dig("state", "availability")
+    call(host: "claude", event: "availability.set", availability: "active")
+    assert_equal "active", call(host: "claude").dig("state", "availability")
   end
 end

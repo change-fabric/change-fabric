@@ -6,11 +6,11 @@ description: Set and enforce the session merge mode (local only, merge ready, ad
 
 # CF Merge Mode Shim
 
-The `SessionStart` hook (`session_start.rb`) states the current merge mode
+The `SessionStart` hook (`cf_host_hook.rb`) states the current merge mode
 (falling back to `merge-ready` when nothing is persisted) on session start,
 resume, `/clear`, and compaction. It never asks. The mode is set by one of the
 six direct commands below or by `/cf`, persisted per session (a `PostToolUse`
-hook records the answer to `~/.claude/cf/sessions/<session_id>/merge-mode`),
+hook records the answer in the shared CF session state),
 and restated every turn by a `UserPromptSubmit` hook, so it survives
 compaction. This file is the manual `/cf` picker path plus the rules for
 applying the chosen mode.
@@ -26,7 +26,7 @@ The `/cf` command still works mid-session to change the mode.
 
 OpenCode gets a smaller plugin (`extensions/opencode-cf-hooks/index.ts`,
 linked as `~/.config/opencode/plugins/cf-hooks.ts`). It runs only
-`merge_mode_guard.rb` and `slop_remind.rb` on bash calls and blocks on a
+`cf_host_hook.rb` (the merge-mode guard) and `slop_remind.rb` on bash calls and blocks on a
 deny. A reminder blocks the call once, carrying the reminder as the error, so
 the retry passes. Successfully loading a mode skill (`cf-local-only`, `cf-merge-ready`,
 `cf-admin-bypass`, `cf-yolo`) persists that mode for the session; with none
@@ -70,7 +70,7 @@ Acknowledge both choices in one line, then proceed.
   branch you're working against. Never run `gh pr create`; `gh pr merge` on
   an existing PR is unrestricted.
 
-A `PreToolUse` hook (`merge_mode_guard.rb`) backs these rules by denying the
+A `PreToolUse` hook (`cf_host_hook.rb`) backs these rules by denying the
 obvious violating Bash commands for the active mode: `git push` under Local
 only, `gh pr merge` under Local only or Merge ready, a direct push to the
 trunk under Merge ready (an explicit `main`/`master` refspec, or a bare
@@ -96,9 +96,9 @@ manual entry point for setting both axes together.
 
 ### Away mode
 
-While away mode is on, `away_restate.rb` reminds every turn not to ask and to
+While away mode is on, `cf_host_hook.rb` reminds every turn not to ask and to
 take the recommended or safe default instead, reporting what was assumed.
-`away_guard.rb` (`PreToolUse`) enforces this by denying any `AskUserQuestion`
+Its `PreToolUse` handler enforces this by denying any `AskUserQuestion`
 call whose questions do not carry one of four floor headers that still fire
 even while away, because their default is destructive or a real secret is at
 stake: `Remote delete`, `Untracked`, `Secret alert`, and

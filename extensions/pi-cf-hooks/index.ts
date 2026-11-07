@@ -1,266 +1,69 @@
-import { createHash } from "node:crypto";
-import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { randomUUID } from "node:crypto";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { callHook } from "../shared/cf-client.ts";
+import { COMMAND_MODES, MERGE_MODES, modeSlug } from "../shared/mode-slug.ts";
 
-type HookOutput = {
-	decision?: string;
-	reason?: string;
-	systemMessage?: string;
-	hookSpecificOutput?: {
-		additionalContext?: string;
-		permissionDecision?: string;
-		permissionDecisionReason?: string;
-	};
-};
-
-type HookContext = {
-	cwd: string;
-	sessionManager: { getSessionFile?: () => string | undefined };
-};
-
-type Selector = (message: string, options: string[]) => Promise<string | undefined>;
-
-const HOOK_BIN = join(process.env.HOME ?? "", ".claude", "cf", "bin");
-const RUBY = process.env.CF_RUBY ?? "ruby";
-const MERGE_MODES = ["Local only", "Merge ready", "Admin bypass"] as const;
-const MERGE_MODE_SLUGS = ["local-only", "merge-ready", "admin-bypass", "yolo"] as const;
-const DEFAULT_MERGE_MODE_SLUG = "merge-ready";
-const PI_SESSION_PREFIX = "pi-";
-const STOP_BEST_EFFORT_CONTEXT =
-	"[cf pi] Pi has no blocking Stop hook. Treat this follow-up as a required review gate before declaring the work complete.";
-const HOOK_TIMEOUT_MS = 5_000;
+type Context = { cwd: string; sessionManager: { getSessionFile?: () => string | undefined } };
 
 export default function cfHooks(pi: ExtensionAPI) {
-	let pendingContext: string[] = [];
-	let stopHookActive = false;
-
-	pi.registerCommand("cf", {
-		description: "Set the cf merge mode for this Pi session",
-		handler: async (args, ctx) => {
-			const mode = await resolveMode(args, ctx);
-			if (!mode) return;
-			writeMergeMode(sessionId(ctx), mode);
-			ctx.ui.notify(`cf merge mode: ${mode}`, "info");
-		},
-	});
-
-	pi.on("session_start", async (_event, ctx) => {
-		ensureMergeMode(ctx);
-		await runAndQueue(pi, pendingContext, "session_start.rb", baseEvent(ctx));
-		await runAndQueue(pi, pendingContext, "skill_detect.rb", baseEvent(ctx));
-	});
-
-	pi.on("before_agent_start", async (event, ctx) => {
-		await runAndQueue(pi, pendingContext, "merge_mode_restate.rb", baseEvent(ctx));
-		if (pendingContext.length === 0) return undefined;
-
-		const context = pendingContext.join("\n\n");
-		pendingContext = [];
-		return { systemPrompt: `${event.systemPrompt}\n\n${context}` };
-	});
-
-	pi.on("tool_call", async (event, ctx) => {
-		const payload = toolEvent(ctx, event.toolName, event.input);
-		for (const script of ["merge_mode_guard.rb", "slop_remind.rb"]) {
-			const output = await runHook(script, payload, ctx.cwd);
-			const decision = output.hookSpecificOutput?.permissionDecision;
-			if (decision === "deny") {
-				return { block: true, reason: output.hookSpecificOutput?.permissionDecisionReason ?? "Blocked by cf hook" };
-			}
-			emitContext(pi, output.hookSpecificOutput?.additionalContext);
-		}
-		return undefined;
-	});
-
-	pi.on("tool_result", async (event, ctx) => {
-		const payload = {
-			...toolEvent(ctx, event.toolName, event.input),
-			tool_response: event.details ?? event.content,
-		};
-		await runHook("merge_mode_record.rb", payload, ctx.cwd);
-		const output = await runHook("skill_inject.rb", payload, ctx.cwd);
-		emitContext(pi, output.hookSpecificOutput?.additionalContext);
-	});
-
-	pi.on("agent_end", async (_event, ctx) => {
-		if (stopHookActive) return;
-		stopHookActive = true;
-		try {
-			const output = await runHook("skill_review.rb", { ...baseEvent(ctx), stop_hook_active: false }, ctx.cwd);
-			if (output.systemMessage) emitContext(pi, output.systemMessage);
-			if (output.decision === "block" && output.reason) {
-				pi.sendUserMessage(`${STOP_BEST_EFFORT_CONTEXT}\n\n${output.reason}`, { deliverAs: "followUp" });
-			}
-		} finally {
-			stopHookActive = false;
-		}
-	});
-}
-
-// Never asks: matches the Claude Code SessionStart hook, which states the
-// merge mode instead of prompting for it. A session with no persisted mode
-// picks up CF_MERGE_MODE when it names a valid mode, else falls back to
-// merge-ready, the same fallback session_start.rb uses. A sessionless run
-// (RPC) shares one cwd-derived id with every other sessionless run in that
-// directory, so there a valid CF_MERGE_MODE always replaces the stored mode;
-// otherwise one caller's default would silently override another's request.
-function ensureMergeMode(ctx: HookContext) {
-	const id = sessionId(ctx);
-	const fromEnv = mergeModeSlug(process.env.CF_MERGE_MODE);
-	const sharedId = !ctx.sessionManager.getSessionFile?.();
-	if (sharedId && fromEnv) {
-		writeMergeMode(id, fromEnv);
-		return;
-	}
-	if (readMergeMode(id)) return;
-
-	writeMergeMode(id, fromEnv ?? DEFAULT_MERGE_MODE_SLUG);
-}
-
-// Normalizes a raw mode name (env var or otherwise) to one of the canonical
-// slugs the /cf:* commands use, mirroring scripts/merge_mode_slug.rb.
-function mergeModeSlug(raw: string | undefined): (typeof MERGE_MODE_SLUGS)[number] | undefined {
-	const slug = (raw ?? "")
-		.trim()
-		.toLowerCase()
-		.replace(/\s*\(.*\)\s*$/, "")
-		.replace(/[^a-z0-9]+/g, "-")
-		.replace(/^-|-$/g, "");
-	return MERGE_MODE_SLUGS.find((known) => known === slug);
-}
-
-async function resolveMode(args: string, ctx: HookContext & { hasUI?: boolean; ui: { select: Selector } }) {
-	const normalized = args.trim().toLowerCase();
-	const fromArgs = MERGE_MODES.find((mode) => mode.toLowerCase() === normalized);
-	if (fromArgs) return fromArgs;
-	if (!ctx.hasUI) return undefined;
-	const mode = await ctx.ui.select("Merge mode", [...MERGE_MODES]);
-	return isMergeMode(mode) ? mode : undefined;
-}
-
-function isMergeMode(value: string | undefined): value is (typeof MERGE_MODES)[number] {
-	return MERGE_MODES.some((mode) => mode === value);
-}
-
-function baseEvent(ctx: HookContext) {
-	return { session_id: sessionId(ctx), cwd: ctx.cwd };
-}
-
-function toolEvent(ctx: HookContext, piToolName: string, input: unknown) {
-	const normalized = normalizeTool(piToolName, input);
-	return { ...baseEvent(ctx), tool_name: normalized.name, tool_input: normalized.input };
-}
-
-function normalizeTool(toolName: string, input: unknown) {
-	const data = isRecord(input) ? input : {};
-	if (toolName === "bash") return { name: "Bash", input: data };
-	if (toolName === "write") return { name: "Write", input: { ...data, file_path: data.path } };
-	if (toolName === "edit") {
-		const edits = Array.isArray(data.edits) ? data.edits.filter(isRecord) : [];
-		const claudeEdits = edits.map((edit) => ({ old_string: edit.oldText, new_string: edit.newText }));
-		return {
-			name: claudeEdits.length > 1 ? "MultiEdit" : "Edit",
-			input: {
-				...data,
-				file_path: data.path,
-				old_string: claudeEdits[0]?.old_string,
-				new_string: claudeEdits[0]?.new_string,
-				edits: claudeEdits,
-			},
-		};
-	}
-	return { name: toolName, input: data };
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-async function runAndQueue(_pi: ExtensionAPI, pending: string[], script: string, event: Record<string, unknown>) {
-	const output = await runHook(script, event, String(event.cwd ?? process.cwd()));
-	const context = output.hookSpecificOutput?.additionalContext ?? output.systemMessage;
-	if (context) pending.push(context);
-}
-
-function emitContext(pi: ExtensionAPI, context: string | undefined) {
-	if (!context) return;
-	pi.sendMessage({ customType: "cf-hook", content: context, display: true }, { deliverAs: "steer" });
-}
-
-function runHook(script: string, event: Record<string, unknown>, cwd: string): Promise<HookOutput> {
-	return new Promise((resolve) => {
-		const child = spawn(RUBY, [join(HOOK_BIN, script)], { cwd, stdio: ["pipe", "pipe", "ignore"] });
-		let stdout = "";
-		let settled = false;
-		const finish = (output: HookOutput) => {
-			if (settled) return;
-			settled = true;
-			clearTimeout(timeout);
-			resolve(output);
-		};
-		const timeout = setTimeout(() => {
-			child.kill();
-			finish({});
-		}, HOOK_TIMEOUT_MS);
-		child.stdout.on("data", (chunk: Buffer) => {
-			stdout += chunk.toString();
-		});
-		child.on("error", () => finish({}));
-		child.on("close", () => finish(parseHookOutput(stdout)));
-		try {
-			child.stdin.end(JSON.stringify(event));
-		} catch {
-			child.kill();
-			finish({});
-		}
-	});
-}
-
-function parseHookOutput(stdout: string): HookOutput {
-	const line = stdout.trim().split("\n").find((candidate) => candidate.trim().startsWith("{"));
-	if (!line) return {};
-	try {
-		return toHookOutput(JSON.parse(line));
-	} catch {
-		return {};
-	}
-}
-
-function toHookOutput(value: unknown): HookOutput {
-	if (!isRecord(value)) return {};
-	const output: HookOutput = {};
-	if (typeof value.decision === "string") output.decision = value.decision;
-	if (typeof value.reason === "string") output.reason = value.reason;
-	if (typeof value.systemMessage === "string") output.systemMessage = value.systemMessage;
-	const specific = value.hookSpecificOutput;
-	if (isRecord(specific)) {
-		const nested: NonNullable<HookOutput["hookSpecificOutput"]> = {};
-		if (typeof specific.additionalContext === "string") nested.additionalContext = specific.additionalContext;
-		if (typeof specific.permissionDecision === "string") nested.permissionDecision = specific.permissionDecision;
-		if (typeof specific.permissionDecisionReason === "string") nested.permissionDecisionReason = specific.permissionDecisionReason;
-		output.hookSpecificOutput = nested;
-	}
-	return output;
-}
-
-function sessionId(ctx: HookContext) {
-	const raw = ctx.sessionManager.getSessionFile?.() ?? ctx.cwd;
-	return `${PI_SESSION_PREFIX}${createHash("sha256").update(raw).digest("hex").slice(0, 32)}`;
-}
-
-function mergeModePath(id: string) {
-	return join(process.env.HOME ?? "", ".claude", "cf", "sessions", id, "merge-mode");
-}
-
-function readMergeMode(id: string) {
-	const path = mergeModePath(id);
-	return existsSync(path) ? readFileSync(path, "utf8").trim() : undefined;
-}
-
-function writeMergeMode(id: string, mode: string) {
-	const path = mergeModePath(id);
-	mkdirSync(dirname(path), { recursive: true });
-	writeFileSync(path, `${mode}\n`);
+  // Sessionless RPC runs get a process-local identity, never one shared by cwd.
+  const ephemeralId = randomUUID();
+  let reviewFollowUp = false;
+  // Prompt-specific context (an away-mode plan refusal) is only computable from
+  // the input hook, which sees the prompt; hold it for before_agent_start.
+  let inputContext = "";
+  const base = (ctx: Context) => ({ cwd: ctx.cwd, session_id: ctx.sessionManager.getSessionFile?.() ?? ephemeralId });
+  pi.registerCommand("cf", {
+    description: "Set merge mode: local-only, merge-ready, admin-bypass, or yolo",
+    handler: async (args, ctx) => {
+      const mode = modeSlug(args, COMMAND_MODES);
+      if (!mode) {
+        ctx.ui.notify("Use /cf local-only|merge-ready|admin-bypass|yolo|away|active", "info");
+        return;
+      }
+      await callHook("pi", "UserPromptSubmit", { ...base(ctx), prompt: `/skill:cf-${mode}` });
+      ctx.ui.notify(`CF mode: ${mode}`, "info");
+    },
+  });
+  pi.on("session_start", async (_event, ctx) => {
+    await callHook("pi", "SessionStart", base(ctx));
+    const envMode = modeSlug(process.env.CF_MERGE_MODE, MERGE_MODES);
+    if (envMode) {
+      // A default only: a resumed session keeps the mode it last chose with /cf.
+      await callHook("pi", "UserPromptSubmit", { ...base(ctx), prompt: `/skill:cf-${envMode}`, cf_default: true });
+    }
+  });
+  pi.on("input", async (event, ctx) => {
+    const result = await callHook("pi", "UserPromptSubmit", { ...base(ctx), prompt: event.text });
+    inputContext = result.hookSpecificOutput?.additionalContext ?? "";
+    return { action: "continue" };
+  });
+  pi.on("before_agent_start", async (event, ctx) => {
+    const result = await callHook("pi", "UserPromptSubmit", base(ctx));
+    const late = result.hookSpecificOutput?.additionalContext ?? "";
+    const context = inputContext && inputContext !== late ? `${inputContext}\n\n${late}` : late;
+    inputContext = "";
+    return { systemPrompt: `${event.systemPrompt}\n\n${context}` };
+  });
+  pi.on("agent_end", async (_event, ctx) => {
+    const result = await callHook("pi", "Stop", { ...base(ctx), stop_hook_active: reviewFollowUp });
+    reviewFollowUp = result.decision === "block";
+    if (reviewFollowUp && result.reason) pi.sendUserMessage(result.reason, { deliverAs: "followUp" });
+    // A nonblocking notice (the review cap) arrives as context; show it without starting another turn.
+    const notice = result.hookSpecificOutput?.additionalContext;
+    if (!reviewFollowUp && notice) pi.sendMessage({ customType: "cf-hook", content: notice, display: true }, { deliverAs: "nextTurn" });
+  });
+  pi.on("tool_call", async (event, ctx) => {
+    const result = await callHook("pi", "PreToolUse", { ...base(ctx), tool_name: event.toolName, tool_input: event.input });
+    if (result.hookSpecificOutput?.additionalContext) pi.sendMessage({ customType: "cf-hook", content: result.hookSpecificOutput.additionalContext, display: false }, { deliverAs: "steer" });
+    if (result.hookSpecificOutput?.permissionDecision === "deny") {
+      return { block: true, reason: result.hookSpecificOutput.permissionDecisionReason ?? "CF denied this call" };
+    }
+    return undefined;
+  });
+  pi.on("tool_result", async (event, ctx) => {
+    const result = await callHook("pi", "PostToolUse", { ...base(ctx), tool_name: event.toolName, tool_input: event.input, tool_response: event.details ?? event.content, isError: event.isError });
+    const text = result.hookSpecificOutput?.additionalContext;
+    if (text) pi.sendMessage({ customType: "cf-hook", content: text, display: false }, { deliverAs: "steer" });
+  });
 }

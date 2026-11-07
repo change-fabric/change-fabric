@@ -33,10 +33,10 @@ fire, so the prompt handed to `CronCreate` must be exactly `/cf:status tick`.
 ## Arm mode
 
 1. **Interval.** If the argument is a positive integer, that is the interval
-   in minutes; ask nothing. Otherwise read the away store for this session
-   (`~/.claude/cf/sessions/<session_id>/away`, the file `cf:away` writes). If
+   in minutes; ask nothing. Otherwise read availability from the injected `[cf]` context line
+   (`availability: away` or `availability: active`). If
    away mode is on, arm at **10 minutes** and say so in the confirmation as an
-   assumption taken; do not call `AskUserQuestion` (`away_guard.rb` denies it
+   assumption taken; do not call `AskUserQuestion` (the away guard in `cf_host_hook.rb` denies it
    anyway). If away mode is off, one `AskUserQuestion` call, header
    `Interval`, four options in this order:
 

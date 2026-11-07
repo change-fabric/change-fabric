@@ -8,8 +8,8 @@ description: Ends away mode for this session, so the agent asks questions normal
 
 Trigger: `/cf:active`.
 
-Running this command turns away mode off for this session. `scripts/mode_command.rb`
-has already written the session's away store to `active` before this skill body is
+Running this command turns away mode off for this session. `scripts/cf_host_hook.rb`
+has already written the session's availability to `active` before this skill body is
 read, so there is nothing further to persist here.
 
 With away mode off, the agent goes back to asking normally: every `AskUserQuestion`

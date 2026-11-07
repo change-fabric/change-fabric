@@ -117,7 +117,7 @@ class InstallerTest < Minitest::Test
     telemetry_emit.rb presence_probe.rb secret_alert_poll.rb secret_ack.rb
     mode_command.rb away_guard.rb away_restate.rb
   ].freeze
-  EVENTS = %w[SessionStart PreToolUse PostToolUse UserPromptSubmit Stop SessionEnd].freeze
+  EVENTS = %w[SessionStart PreToolUse PostToolUse UserPromptSubmit Stop SessionEnd SubagentStart].freeze
 
   def setup
     @home = Dir.mktmpdir
@@ -215,7 +215,7 @@ class InstallerTest < Minitest::Test
     hooks = JSON.parse(File.read(paths.settings))["hooks"]
     assert_equal EVENTS.sort, hooks.keys.sort
     command = hooks["SessionStart"].dig(0, "hooks", 0, "command")
-    assert_equal "/usr/bin/ruby #{paths.script_dest('session_start.rb')}", command
+    assert_equal "/usr/bin/ruby #{paths.script_dest('skill_detect.rb')}", command
   end
 
   def test_backs_up_existing_settings_and_stays_idempotent
@@ -223,7 +223,7 @@ class InstallerTest < Minitest::Test
     install
     hooks = JSON.parse(File.read(paths.settings))["hooks"]
     counts = EVENTS.map { |event| hooks[event].sum { |group| group["hooks"].size } }
-    assert_equal [ 5, 11, 4, 5, 1, 2 ], counts
+    assert_equal [ 5, 10, 4, 3, 1, 2, 1 ], counts
     assert File.exist?("#{paths.settings}.bak"), "second install should back up settings"
   end
 

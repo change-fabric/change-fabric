@@ -8,9 +8,8 @@ description: Sets the session merge mode to merge ready. The agent pushes the br
 
 Trigger: `/cf:merge-ready`.
 
-A `UserPromptSubmit` hook (`mode_command.rb`) has already persisted
-`merge-ready` to `~/.claude/cf/sessions/<session_id>/merge-mode` for this
-session. Acknowledge the mode in one line, then proceed.
+A `UserPromptSubmit` hook (`cf_host_hook.rb`) has already persisted
+`merge-ready` to the shared CF session state for this session. Acknowledge the mode in one line, then proceed.
 
 ## What merge ready means
 
@@ -22,7 +21,7 @@ push nor a merge and is not restricted by this mode.
 
 ## Backed by a guard
 
-A `PreToolUse` hook (`merge_mode_guard.rb`) backs this rule by denying the
+A `PreToolUse` hook (`cf_host_hook.rb`) backs this rule by denying the
 obvious violating Bash commands while merge ready is active: a direct push to
 the trunk (an explicit `main`/`master` refspec, or a bare `git push` while the
 current branch is the trunk), and `gh pr merge`. It is an advisory guardrail,
