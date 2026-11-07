@@ -18,6 +18,20 @@ Every version below has a frozen, permanently addressable rendering at
 field set: major for a removed, renamed or newly required field, minor for a new
 optional field, patch for a documentation-only clarification.
 
+## [0.15.0] - 2026-11-07
+
+A profile can say how the browser container reaches a local HTTPS dev app
+behind a reverse proxy on the host, so cf:change and cf:qa need no flags.
+
+### Added
+
+- `change_config.boot.add_hosts`: `HOST:TARGET` docker `--add-host` mappings
+  (`TARGET` an IP or `host-gateway`) for the browser container.
+- `change_config.boot.ignore_https_errors`: ignore a local dev CA's
+  certificate errors. Refused unless `boot.target_url` is local; while on,
+  every HTTPS request to a non-local host is aborted.
+- Both are overridable under `change_config.profiles.<profile>.boot`.
+
 ## [0.14.0] - 2026-11-05
 
 A repo can say when the cf:change gate applies to a PR merge: on every merge,

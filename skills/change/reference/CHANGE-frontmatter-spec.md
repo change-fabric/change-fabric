@@ -1,6 +1,6 @@
 # CHANGE.md frontmatter specification
 
-Schema version: 0.14.0
+Schema version: 0.15.0
 
 Status: stable. This is the golden reference for authoring a repo's
 `CHANGE.md` frontmatter. A maintainer or an AI agent creating a new repo's
@@ -103,6 +103,8 @@ up and confirm it is ready; `lanes` describes what to audit.
 | `change_config.boot.health.expect_status` | integer | no (default 200) | HTTP status that means healthy. |
 | `change_config.boot.health.timeout_seconds` | integer | no (default 120) | How long to wait for health before failing the run. |
 | `change_config.boot.env_file` | string or list of string | no | Repo-relative path(s) of env file(s) (simple `KEY=VALUE` lines, not shell `source`) parsed and merged into `boot.up`'s subprocess environment, later files winning over earlier ones and overriding the inherited environment for that subprocess. Lets a compose `build.args:` entry's `${VAR}` interpolation resolve (Compose reads `build.args` from the shell/`.env`, never from a service's own `env_file:`) without pre-exporting anything. A missing declared file fails the run by name. |
+| `change_config.boot.add_hosts` | list of string | no | (0.15.0) `HOST:TARGET` docker `--add-host` mappings for the browser container, which cannot read the host's `/etc/hosts`. `TARGET` is an IP or `host-gateway` (the host). Lets a lane or a cf:qa flow reach a local dev hostname served by a reverse proxy on the host. |
+| `change_config.boot.ignore_https_errors` | boolean | no (default false) | (0.15.0) Ignore certificate errors for a local dev CA the browser container lacks. Refused unless `boot.target_url` is local: `localhost`, `*.localhost`, `*.local`, `*.test`, `*.internal`, a private IP, or a name `boot.add_hosts` maps to `host-gateway` or a private IP. While on, the browser aborts every HTTPS request to a host outside that local set, so no public certificate is ever skipped. |
 | `change_config.lanes.<lane>.enabled` | boolean | no (default true) | Whether this lane runs. Set false, or omit the lane, to skip it. |
 | `change_config.lanes.<lane>.base_url` | string | no | Per-lane override of `boot.target_url`. |
 | `change_config.lanes.<lane>.basic_auth.username_env` | string | no | Name of the environment variable holding the real HTTP Basic Auth username for a browser lane (`a11y`, `browserless`) hitting a target gated by it. The value is never written into `CHANGE.md`, the same rule `browserless.auth.email_env` already follows. Answered via `page.authenticate()`, never embedded in a url (see the 0.3.0 changelog entry for why). |
@@ -352,6 +354,8 @@ worked example below.
 | `change_config.profiles.<profile>.boot.health.expect_status` | integer | no | Overrides `change_config.boot.health.expect_status`. |
 | `change_config.profiles.<profile>.boot.health.timeout_seconds` | integer | no | Overrides `change_config.boot.health.timeout_seconds`. |
 | `change_config.profiles.<profile>.boot.env_file` | string or list of string | no | Overrides `change_config.boot.env_file`. |
+| `change_config.profiles.<profile>.boot.add_hosts` | list of string | no | (0.15.0) Overrides `change_config.boot.add_hosts`. |
+| `change_config.profiles.<profile>.boot.ignore_https_errors` | boolean | no | (0.15.0) Overrides `change_config.boot.ignore_https_errors`. |
 | `change_config.profiles.<profile>.lanes.<lane>.enabled` | boolean | no | Overrides whether `<lane>` runs under this profile (e.g. skip `zap` locally, require it in staging). |
 | `change_config.profiles.<profile>.lanes.<lane>.base_url` | string | no | Overrides `<lane>`'s base URL for this profile. The lane's other fields (`routes`, `thresholds`, `viewports`, ...) are always inherited from the base `change_config.lanes.<lane>` block; a profile cannot set them. |
 | `change_config.profiles.<profile>.lanes.<lane>.basic_auth.username_env` | string | no | (0.3.0) Overrides `<lane>`'s Basic Auth username env var name for this profile, e.g. when staging sits behind a Basic Auth wall but local dev does not. |
@@ -1263,4 +1267,20 @@ root `RELEASING.md`.
     gate:
       require_on: promotion
       trunk: main
+  ```
+- 0.15.0: `change_config.boot.add_hosts` and
+  `change_config.boot.ignore_https_errors`, each overridable per profile, so a
+  local profile can describe its HTTPS dev host behind a host reverse proxy
+  once. cf:change's browser lanes and `change_flow_run.rb --profile` (cf:qa)
+  read them. Fully additive: absent fields mean no extra host mappings and
+  normal certificate checks, exactly the 0.14.0 behavior. Example:
+
+  ```yaml
+  change_config:
+    profiles:
+      local:
+        boot:
+          target_url: https://app.local.example.test
+          add_hosts: ["app.local.example.test:host-gateway"]
+          ignore_https_errors: true
   ```

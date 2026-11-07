@@ -3,8 +3,7 @@
 
 require 'json'
 require 'yaml'
-require 'ipaddr'
-require 'uri'
+require_relative 'change_config'
 require_relative 'change_docker'
 require_relative 'change_flow_compiler'
 require_relative 'change_suite_render'
@@ -22,7 +21,9 @@ require_relative 'change_suite_render'
 # host), and a local dev CA the container does not trust needs
 # `--ignore-https-errors`. The latter is refused unless the base URL is a local
 # host, and the run then aborts HTTPS requests to any non-local host, so it can
-# never skip a real certificate.
+# never skip a real certificate. Both can also come from CHANGE.md's
+# change_config.boot (add_hosts, ignore_https_errors) via --profile NAME or
+# --change-md PATH, so a profile describes its own local dev host once.
 #
 # The flow file is either a bare list of steps or a mapping carrying
 # `base_url`, `timeout_ms`, and `steps`. A command-line `--base-url` wins over
@@ -46,7 +47,8 @@ module ChangeFlowRun
     flow = load_flow(options[:path])
     return promote(flow, options) if options[:promote]
 
-    base_url = options[:base_url] || flow['base_url']
+    apply_change_md(options)
+    base_url = options[:base_url] || flow['base_url'] || options[:config_base_url]
     check_ignore_https(options, base_url)
     compiler = ChangeFlowCompiler.new(
       flow['steps'],
@@ -55,7 +57,7 @@ module ChangeFlowRun
     )
     puts(options[:dump] ? compiler.dump : JSON.pretty_generate(execute(compiler, options)))
     0
-  rescue ChangeFlowCompiler::Error, ArgumentError => e
+  rescue ChangeFlowCompiler::Error, ChangeConfig::ConfigError, ArgumentError => e
     warn "flow error: #{e.message}"
     1
   end
@@ -78,85 +80,29 @@ module ChangeFlowRun
   def execute(compiler, options)
     raise 'docker is unavailable; cannot run a browser flow' unless ChangeDocker.available?
 
-    code = compiler.function_module
-    launch_args = []
-    if options[:ignore_https_errors]
-      code = local_https_only(code, options[:allowed_hosts])
-      launch_args = [ '--ignore-certificate-errors' ]
-    end
     ChangeDocker.with_network(options[:network]) do |net|
-      ChangeDocker.with_browserless(network: net.name, add_hosts: options[:add_hosts]) do |session|
-        session.run_function(code, launch_args: launch_args)
+      ChangeDocker.with_browserless(network: net.name, add_hosts: options[:add_hosts],
+                                    local_tls_hosts: options[:allowed_hosts]) do |session|
+        session.run_function(compiler.function_module)
       end
     end
   end
 
-  ENTRY = 'export default async ({ page }) => {'
-
-  # The Chromium flag is browser-wide, so a flow that navigated, redirected, or
-  # loaded a resource from a public HTTPS host would skip that certificate too.
-  # Abort every HTTPS request to a host outside the local allowlist instead.
-  # Chrome upgrades plain http to https first, so a public http URL is blocked
-  # too while the flag is on; the flag is only for local apps.
-  def local_https_only(code, hosts)
-    raise ArgumentError, 'flow module entry point changed; cannot scope --ignore-https-errors' unless code.include?(ENTRY)
-
-    code.sub(ENTRY, <<~JS.chomp)
-      #{ENTRY}
-        const cfLocalHosts = #{JSON.generate(hosts)};
-        await page.setRequestInterception(true);
-        page.on("request", (request) => {
-          const url = new URL(request.url());
-          // URL.hostname keeps IPv6 brackets; the allowlist is unbracketed.
-          const host = url.hostname.replace(/^\\[|\\]$/g, "");
-          if (url.protocol === "https:" && !cfLocalHosts.includes(host)) return request.abort("accessdenied");
-          return request.continue();
-        });
-    JS
-  end
-
-  LOCAL_SUFFIXES = %w[.localhost .local .test .internal].freeze
-
   def check_ignore_https(options, base_url)
-    return unless options[:ignore_https_errors]
-
-    unless local_host?(base_url, options[:add_hosts])
-      raise ArgumentError, '--ignore-https-errors needs a local base URL (localhost, *.localhost, *.local, *.test, ' \
-                           '*.internal, a private IP, or a name --add-host maps to host-gateway or a private IP); ' \
-                           "got #{base_url.inspect}"
-    end
-    options[:allowed_hosts] = ([ host_of(base_url) ] + options[:add_hosts].map { |entry| entry.split(':', 2).first.downcase })
-                              .select { |host| local_name?(host, options[:add_hosts]) }.uniq
+    options[:allowed_hosts] = ChangeLocalTls.allowed_hosts(base_url, options[:add_hosts]) if options[:ignore_https_errors]
   end
 
-  # Local means a name or address that cannot carry a publicly issued
-  # certificate, or one this run explicitly pins to the host or a private
-  # address, so ignoring its certificate skips nothing a real user relies on.
-  def local_host?(url, add_hosts = [])
-    local_name?(host_of(url), add_hosts)
-  rescue URI::InvalidURIError
-    false
+  # `--profile NAME` (or `--change-md PATH`) reads change_config.boot from the
+  # repo's CHANGE.md: add_hosts and ignore_https_errors join the flags, and
+  # target_url is the base URL when neither flag nor flow file names one.
+  def apply_change_md(options)
+    return unless options[:profile] || options[:change_md]
+
+    boot = ChangeConfig.load(options[:change_md] || File.join(Dir.pwd, 'CHANGE.md'), profile: options[:profile]).boot
+    options[:add_hosts] = (boot.add_hosts + options[:add_hosts]).uniq
+    options[:ignore_https_errors] ||= boot.ignore_https_errors
+    options[:config_base_url] = boot.target_url unless boot.target_url.empty?
   end
-
-  def local_name?(host, add_hosts)
-    return false if host.empty?
-    return true if host == 'localhost' || LOCAL_SUFFIXES.any? { |suffix| host.end_with?(suffix) }
-    return true if private_ip?(host)
-
-    add_hosts.any? do |entry|
-      name, target = entry.split(':', 2)
-      name.downcase == host && (target == 'host-gateway' || private_ip?(target))
-    end
-  end
-
-  def private_ip?(value)
-    ip = IPAddr.new(value.to_s)
-    ip.loopback? || ip.private? || ip.link_local?
-  rescue IPAddr::InvalidAddressError
-    false
-  end
-
-  def host_of(url) = URI(url.to_s).host.to_s.downcase.delete_prefix('[').delete_suffix(']')
 
   def load_flow(path)
     raw = YAML.safe_load_file(path, permitted_classes: [], aliases: true)
@@ -176,6 +122,8 @@ module ChangeFlowRun
       when '--network' then options[:network] = argv.shift
       when '--add-host' then options[:add_hosts] << add_host(argv.shift)
       when '--ignore-https-errors' then options[:ignore_https_errors] = true
+      when '--profile' then options[:profile] = argv.shift
+      when '--change-md' then options[:change_md] = argv.shift
       when '--dump' then options[:dump] = true
       when '--promote' then options[:promote] = true
       when '--suite' then options[:suite] = argv.shift
@@ -198,7 +146,7 @@ module ChangeFlowRun
 
   def usage
     warn 'usage: change_flow_run.rb <flow.yml> [--base-url URL] [--network NAME] [--dump]'
-    warn '       [--add-host HOST:TARGET ...] [--ignore-https-errors]'
+    warn '       [--add-host HOST:TARGET ...] [--ignore-https-errors] [--profile NAME] [--change-md PATH]'
     warn '       change_flow_run.rb <flow.yml> --promote --suite NAME --case-id ID ' \
          '--acceptance TEXT [--tags a,b]'
     2

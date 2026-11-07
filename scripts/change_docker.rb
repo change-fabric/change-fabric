@@ -6,6 +6,7 @@ require 'securerandom'
 require 'net/http'
 require 'json'
 require 'uri'
+require_relative 'change_local_tls'
 
 # Ephemeral-container plumbing shared by every lane, holding the cf:docker
 # doctrine in one place: every runner image is digest-pinned, every container is
@@ -144,14 +145,16 @@ module ChangeDocker
   # exit whether the block succeeds or raises.
   #
   # `add_hosts` ("host:ip" strings) become extra `--add-host` mappings, so a
-  # live walkthrough can reach an app by its own hostname.
-  def with_browserless(network:, add_hosts: [])
+  # live walkthrough can reach an app by its own hostname. `local_tls_hosts`
+  # (a ChangeLocalTls.allowed_hosts list) ignores certificate errors for those
+  # hosts only; every other HTTPS request is aborted.
+  def with_browserless(network:, add_hosts: [], local_tls_hosts: nil)
     token = SecureRandom.hex(8)
     name = "cf-change-bl-#{SecureRandom.hex(4)}"
     port = free_port
     start_browserless(name, network, port, token, add_hosts)
     begin
-      session = Browserless.new(port: port, token: token)
+      session = Browserless.new(port: port, token: token, local_tls_hosts: local_tls_hosts)
       session.wait_ready or raise 'browserless did not become ready'
       yield session
     ensure
@@ -246,9 +249,10 @@ module ChangeDocker
     READY_TRIES = 30
     READY_SLEEP = 1
 
-    def initialize(port:, token:)
+    def initialize(port:, token:, local_tls_hosts: nil)
       @port = port
       @token = token
+      @local_tls_hosts = local_tls_hosts
     end
 
     def wait_ready
@@ -284,6 +288,10 @@ module ChangeDocker
     FUNCTION_TIMEOUT_MS = 115_000
 
     def run_function(code, launch_args: [])
+      if @local_tls_hosts
+        code = ChangeLocalTls.wrap(code, @local_tls_hosts)
+        launch_args = launch_args + [ ChangeLocalTls::LAUNCH_ARG ]
+      end
       uri = URI(function_url(launch_args))
       response = post(uri, code, 'application/javascript')
       raise "browserless /function failed: #{response.code} #{response.body}" unless response.is_a?(Net::HTTPSuccess)

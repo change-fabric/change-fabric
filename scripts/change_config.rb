@@ -9,6 +9,7 @@ require 'date'
 require_relative 'change_frontmatter'
 require_relative 'change_schema'
 require_relative 'change_suite'
+require_relative 'change_local_tls'
 
 # Parses and validates a project's change-fabric config. There is one
 # change-fabric file per repo, `CHANGE.md` at the repo root: its YAML
@@ -432,6 +433,8 @@ class ChangeConfig
     raise ConfigError, 'no lanes enabled' if enabled_lanes.empty?
 
     validate_basic_auth_lanes(lanes || {})
+    boot_errors = boot.errors
+    raise ConfigError, boot_errors.join('; ') unless boot_errors.empty?
     design_errors = ChangeSchema.design_errors(@raw['design'])
     raise ConfigError, design_errors.join('; ') unless design_errors.empty?
   end
@@ -505,6 +508,30 @@ class ChangeConfig
     # a single path or a list; later files win over earlier ones. Resolved
     # against the CHANGE.md directory, same as a lane's repo-relative paths.
     def env_files = Array(@raw['env_file']).map { |path| File.expand_path(path.to_s, @dir) }
+
+    # 0.15.0: reaching a local HTTPS dev app from the browser container.
+    # `add_hosts` are "HOST:TARGET" docker --add-host mappings (the container
+    # cannot read the host's /etc/hosts); `ignore_https_errors` skips the local
+    # dev CA's certificate check, refused unless target_url is local.
+    def add_hosts = Array(@raw['add_hosts']).map(&:to_s)
+    def ignore_https_errors = @raw['ignore_https_errors'] == true
+
+    # The ChangeLocalTls allowlist when the bypass is on, else nil.
+    def local_tls_hosts = ignore_https_errors ? ChangeLocalTls.allowed_hosts(target_url, add_hosts) : nil
+
+    def errors
+      errors = []
+      hosts = @raw['add_hosts']
+      unless hosts.nil? || (hosts.is_a?(Array) && hosts.all? { |entry| entry.is_a?(String) && entry.match?(/\A[^:\s]+:\S+\z/) })
+        errors << 'boot.add_hosts must be a list of "HOST:TARGET" strings'
+      end
+      if @raw.key?('ignore_https_errors') && ![ true, false ].include?(@raw['ignore_https_errors'])
+        errors << 'boot.ignore_https_errors must be true or false'
+      elsif ignore_https_errors && !ChangeLocalTls.local_host?(target_url, add_hosts)
+        errors << "boot.ignore_https_errors needs a local boot.target_url or an add_hosts mapping for its host; got #{target_url.inspect}"
+      end
+      errors
+    end
   end
 
   # One lane's settings, read through named accessors so a lane script never digs

@@ -368,7 +368,9 @@ class ChangeRun
       signoff: @args.signoff, logger: method(:log)
     }
     if browser_needed?(config)
-      ChangeDocker.with_browserless(network: network.name) do |session|
+      boot = config.boot
+      ChangeDocker.with_browserless(network: network.name, add_hosts: boot.add_hosts,
+                                    local_tls_hosts: boot.local_tls_hosts) do |session|
         yield Context.new(browserless: session, **ctx_args)
       end
     else

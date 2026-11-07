@@ -695,4 +695,37 @@ class ChangeConfigTest < Minitest::Test
     assert_design_rejected({ "colour" => "red" }, /design sets unknown key\(s\): colour/)
     assert_design_rejected({ "roast" => { "budget" => 1 } }, /roast sets unknown key/)
   end
+
+  # --- boot.add_hosts / boot.ignore_https_errors (0.15.0) ------------------------
+
+  def local_https_config(boot)
+    { "boot" => { "target_url" => "http://web:3000" }, "lanes" => { "a11y" => { "routes" => [ "/" ] } },
+      "profiles" => { "local" => { "boot" => boot } } }
+  end
+
+  def test_a_profile_sets_add_hosts_and_the_https_bypass
+    boot = { "target_url" => "https://app.local.example.com", "add_hosts" => [ "app.local.example.com:host-gateway" ],
+             "ignore_https_errors" => true }
+    with_config(local_https_config(boot), "local") do |config|
+      assert_equal [ "app.local.example.com:host-gateway" ], config.boot.add_hosts
+      assert config.boot.ignore_https_errors
+      assert_equal %w[app.local.example.com], config.boot.local_tls_hosts
+    end
+    with_config(local_https_config(boot).except("profiles")) do |config|
+      refute config.boot.ignore_https_errors
+      assert_nil config.boot.local_tls_hosts
+    end
+  end
+
+  def test_the_https_bypass_is_rejected_for_a_public_target
+    boot = { "target_url" => "https://app.example.com", "ignore_https_errors" => true }
+    error = assert_raises(ChangeConfig::ConfigError) { with_config(local_https_config(boot), "local") { nil } }
+    assert_match(/ignore_https_errors needs a local boot.target_url/, error.message)
+  end
+
+  def test_malformed_add_hosts_and_bypass_values_are_rejected
+    assert_raises(ChangeConfig::ConfigError) { with_config(local_https_config("add_hosts" => [ "no-target" ]), "local") { nil } }
+    assert_raises(ChangeConfig::ConfigError) { with_config(local_https_config("ignore_https_errors" => "yes"), "local") { nil } }
+  end
 end
+

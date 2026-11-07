@@ -141,7 +141,10 @@ to:
    behind a reverse proxy, pass `--add-host HOST:host-gateway` (the container
    cannot read the host's /etc/hosts) and `--ignore-https-errors` (the
    container lacks the local dev CA); the latter is refused unless the
-   base URL is a local host.
+   base URL is a local host. When the repo's CHANGE.md profile already sets
+   `boot.add_hosts` and `boot.ignore_https_errors` (spec 0.15.0), pass
+   `--profile NAME` instead; it also supplies `boot.target_url` as the base
+   URL.
 4. Reach for the `eval:` escape hatch only when no verb covers the check, and
    say so in the findings: a compiled `eval` step is marked raw JS precisely
    so a reader can see where the declarative contract was abandoned.
