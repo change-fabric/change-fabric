@@ -48,7 +48,8 @@ class ChangeFlowRunTest < Minitest::Test
     code = ChangeFlowRun.local_https_only(compiler.function_module, %w[app.test])
     assert_includes code, 'const cfLocalHosts = ["app.test"];'
     assert_includes code, "await page.setRequestInterception(true);"
-    assert_match(/protocol === "https:" && !cfLocalHosts\.includes\(url\.hostname\)\) return request\.abort/, code)
+    assert_includes code, 'const host = url.hostname.replace(/^\\[|\\]$/g, "");'
+    assert_match(/protocol === "https:" && !cfLocalHosts\.includes\(host\)\) return request\.abort/, code)
     assert_operator code.index("setRequestInterception"), :<, code.index("const results = await cfRunFlow(page")
   end
 

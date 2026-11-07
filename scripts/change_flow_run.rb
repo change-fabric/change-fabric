@@ -107,7 +107,9 @@ module ChangeFlowRun
         await page.setRequestInterception(true);
         page.on("request", (request) => {
           const url = new URL(request.url());
-          if (url.protocol === "https:" && !cfLocalHosts.includes(url.hostname)) return request.abort("accessdenied");
+          // URL.hostname keeps IPv6 brackets; the allowlist is unbracketed.
+          const host = url.hostname.replace(/^\\[|\\]$/g, "");
+          if (url.protocol === "https:" && !cfLocalHosts.includes(host)) return request.abort("accessdenied");
           return request.continue();
         });
     JS
