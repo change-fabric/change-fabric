@@ -6,7 +6,7 @@ require "minitest/autorun"
 # additionalContext, or a warning such as the review cap is silently dropped.
 class PiHookContextTest < Minitest::Test
   SOURCE = File.read(File.expand_path("../extensions/pi-cf-hooks/index.ts", __dir__))
-  HANDLERS = %w[input before_agent_start agent_end tool_call tool_result].freeze
+  HANDLERS = %w[session_start input before_agent_start agent_end tool_call tool_result].freeze
 
   def handler_body(event)
     start = SOURCE.index("pi.on(\"#{event}\"")

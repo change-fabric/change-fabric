@@ -38,7 +38,7 @@ export function callHook(host: string, event: string, payload: Record<string, un
         if (!isRecord(output)) throw new Error("Invalid CF output");
         if (code !== 0 && code !== 2) throw new Error(stderr || "CF runtime failed");
         const specific = isRecord(output.hookSpecificOutput) ? output.hookSpecificOutput : undefined;
-        if (!specific && output.decision !== "block" && typeof output.systemMessage !== "string") throw new Error("CF returned no policy/context response");
+        // `{}` with exit 0 is a plain allow (and how a fail-silent hook error ends).
         if (code === 2 && specific?.permissionDecision !== "deny") throw new Error("CF failed without a native deny response");
         settled = true;
         clearTimeout(timer);

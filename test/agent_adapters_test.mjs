@@ -77,7 +77,7 @@ test("Pi environment defaults do not overwrite a resumed session", async () => i
     await command.handler("yolo", ctx);
     await handlers.get("session_start")({}, ctx);
     const result = await handlers.get("before_agent_start")({ systemPrompt: "base" }, ctx);
-    assert.match(result.systemPrompt, /Merge mode: yolo/);
+    assert.match(result.systemPrompt, /Merge mode for this session is yolo/);
   } finally { if (previous === undefined) delete process.env.CF_MERGE_MODE; else process.env.CF_MERGE_MODE = previous; }
 }));
 
@@ -86,7 +86,7 @@ test("client rejects a failed process that did not return a native deny", async 
   mkdirSync(bin);
   writeFileSync(join(bin, "cf_host_hook.rb"), 'puts "{}"; exit 2\n');
   process.env.CF_RUNTIME_BIN = bin;
-  await assert.rejects(callHook("pi", "PreToolUse", { cwd: home, session_id: "x" }), /no policy|without a native deny/);
+  await assert.rejects(callHook("pi", "PreToolUse", { cwd: home, session_id: "x" }), /without a native deny/);
 }));
 
 test("Pi and OpenCode deliver startup rubric detection into model context", async () => isolated(async (home) => {
