@@ -28,9 +28,35 @@ class ChangeFlowRunTest < Minitest::Test
 
   def test_public_hosts_are_not_local
     %w[https://example.com https://localexample.com https://app.example.com https://8.8.8.8
-       https://test.example.com not-a-url].each do |url|
+       https://test.example.com https://app.local.example.com not-a-url].each do |url|
       refute ChangeFlowRun.local_host?(url), "#{url} should not be local"
     end
+  end
+
+  # A name under a public domain is local only when this run pins it to the
+  # host or a private address.
+  def test_an_add_host_mapping_to_the_host_or_a_private_ip_makes_a_name_local
+    url = "https://app.local.example.com"
+    assert ChangeFlowRun.local_host?(url, [ "app.local.example.com:host-gateway" ])
+    assert ChangeFlowRun.local_host?(url, [ "app.local.example.com:192.168.1.20" ])
+    refute ChangeFlowRun.local_host?(url, [ "app.local.example.com:8.8.8.8" ])
+    refute ChangeFlowRun.local_host?(url, [ "other.example.com:host-gateway" ])
+  end
+
+  def test_https_requests_to_non_local_hosts_are_aborted_when_errors_are_ignored
+    compiler = ChangeFlowCompiler.new([ { "goto" => "/" } ], base_url: "https://app.test")
+    code = ChangeFlowRun.local_https_only(compiler.function_module, %w[app.test])
+    assert_includes code, 'const cfLocalHosts = ["app.test"];'
+    assert_includes code, "await page.setRequestInterception(true);"
+    assert_match(/protocol === "https:" && !cfLocalHosts\.includes\(url\.hostname\)\) return request\.abort/, code)
+    assert_operator code.index("setRequestInterception"), :<, code.index("const results = await cfRunFlow(page")
+  end
+
+  def test_allowed_hosts_are_the_local_base_and_local_mappings_only
+    options = ChangeFlowRun.parse(%w[f.yml --ignore-https-errors --add-host app.local.example.com:host-gateway
+                                     --add-host cdn.example.com:8.8.8.8])
+    ChangeFlowRun.check_ignore_https(options, "https://app.local.example.com")
+    assert_equal %w[app.local.example.com], options[:allowed_hosts]
   end
 
   def test_ignore_https_errors_is_refused_for_a_public_base_url

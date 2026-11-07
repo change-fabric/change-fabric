@@ -21,7 +21,8 @@ require_relative 'change_suite_render'
 # /etc/hosts needs `--add-host HOST:TARGET` (repeatable; `host-gateway` is the
 # host), and a local dev CA the container does not trust needs
 # `--ignore-https-errors`. The latter is refused unless the base URL is a local
-# host, so it can never skip a real certificate.
+# host, and the run then aborts HTTPS requests to any non-local host, so it can
+# never skip a real certificate.
 #
 # The flow file is either a bare list of steps or a mapping carrying
 # `base_url`, `timeout_ms`, and `steps`. A command-line `--base-url` wins over
@@ -77,37 +78,83 @@ module ChangeFlowRun
   def execute(compiler, options)
     raise 'docker is unavailable; cannot run a browser flow' unless ChangeDocker.available?
 
-    launch_args = options[:ignore_https_errors] ? [ '--ignore-certificate-errors' ] : []
+    code = compiler.function_module
+    launch_args = []
+    if options[:ignore_https_errors]
+      code = local_https_only(code, options[:allowed_hosts])
+      launch_args = [ '--ignore-certificate-errors' ]
+    end
     ChangeDocker.with_network(options[:network]) do |net|
       ChangeDocker.with_browserless(network: net.name, add_hosts: options[:add_hosts]) do |session|
-        session.run_function(compiler.function_module, launch_args: launch_args)
+        session.run_function(code, launch_args: launch_args)
       end
     end
+  end
+
+  ENTRY = 'export default async ({ page }) => {'
+
+  # The Chromium flag is browser-wide, so a flow that navigated, redirected, or
+  # loaded a resource from a public HTTPS host would skip that certificate too.
+  # Abort every HTTPS request to a host outside the local allowlist instead.
+  # Chrome upgrades plain http to https first, so a public http URL is blocked
+  # too while the flag is on; the flag is only for local apps.
+  def local_https_only(code, hosts)
+    raise ArgumentError, 'flow module entry point changed; cannot scope --ignore-https-errors' unless code.include?(ENTRY)
+
+    code.sub(ENTRY, <<~JS.chomp)
+      #{ENTRY}
+        const cfLocalHosts = #{JSON.generate(hosts)};
+        await page.setRequestInterception(true);
+        page.on("request", (request) => {
+          const url = new URL(request.url());
+          if (url.protocol === "https:" && !cfLocalHosts.includes(url.hostname)) return request.abort("accessdenied");
+          return request.continue();
+        });
+    JS
   end
 
   LOCAL_SUFFIXES = %w[.localhost .local .test .internal].freeze
 
   def check_ignore_https(options, base_url)
     return unless options[:ignore_https_errors]
-    return if local_host?(base_url)
 
-    raise ArgumentError, "--ignore-https-errors needs a local base URL (localhost, *.local, *.local.*, *.test, " \
-                         "*.internal, or a private IP); got #{base_url.inspect}"
+    unless local_host?(base_url, options[:add_hosts])
+      raise ArgumentError, '--ignore-https-errors needs a local base URL (localhost, *.localhost, *.local, *.test, ' \
+                           '*.internal, a private IP, or a name --add-host maps to host-gateway or a private IP); ' \
+                           "got #{base_url.inspect}"
+    end
+    options[:allowed_hosts] = ([ host_of(base_url) ] + options[:add_hosts].map { |entry| entry.split(':', 2).first.downcase })
+                              .select { |host| local_name?(host, options[:add_hosts]) }.uniq
   end
 
   # Local means a name or address that cannot carry a publicly issued
-  # certificate, so ignoring its certificate skips nothing a real user relies on.
-  def local_host?(url)
-    host = URI(url.to_s).host.to_s.downcase.delete_prefix('[').delete_suffix(']')
-    return false if host.empty?
-    return true if host == 'localhost' || LOCAL_SUFFIXES.any? { |suffix| host.end_with?(suffix) }
-    return true if host.split('.').include?('local')
-
-    ip = IPAddr.new(host)
-    ip.loopback? || ip.private? || ip.link_local?
-  rescue URI::InvalidURIError, IPAddr::InvalidAddressError
+  # certificate, or one this run explicitly pins to the host or a private
+  # address, so ignoring its certificate skips nothing a real user relies on.
+  def local_host?(url, add_hosts = [])
+    local_name?(host_of(url), add_hosts)
+  rescue URI::InvalidURIError
     false
   end
+
+  def local_name?(host, add_hosts)
+    return false if host.empty?
+    return true if host == 'localhost' || LOCAL_SUFFIXES.any? { |suffix| host.end_with?(suffix) }
+    return true if private_ip?(host)
+
+    add_hosts.any? do |entry|
+      name, target = entry.split(':', 2)
+      name.downcase == host && (target == 'host-gateway' || private_ip?(target))
+    end
+  end
+
+  def private_ip?(value)
+    ip = IPAddr.new(value.to_s)
+    ip.loopback? || ip.private? || ip.link_local?
+  rescue IPAddr::InvalidAddressError
+    false
+  end
+
+  def host_of(url) = URI(url.to_s).host.to_s.downcase.delete_prefix('[').delete_suffix(']')
 
   def load_flow(path)
     raw = YAML.safe_load_file(path, permitted_classes: [], aliases: true)
