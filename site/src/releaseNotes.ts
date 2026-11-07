@@ -28,6 +28,43 @@ export interface ReleaseNote {
 }
 
 export const RELEASE_NOTES: Record<string, ReleaseNote> = {
+  "0.15.0": {
+    version: "0.15.0",
+    date: "2026-11-07",
+    headline:
+      "A profile can say how the browser reaches a local HTTPS dev app behind a reverse proxy, so cf:change and cf:qa need no flags.",
+    highlights: [
+      {
+        title: "boot.add_hosts maps a dev hostname into the browser container",
+        body:
+          "HOST:TARGET docker --add-host entries, TARGET an IP or host-gateway, because the container cannot read the host's /etc/hosts. Overridable per profile.",
+      },
+      {
+        title: "boot.ignore_https_errors, for local targets only",
+        body:
+          "Skips the local dev CA's certificate check. Rejected at load unless boot.target_url is local, and while on, every HTTPS request to a non-local host from any page or popup fails, so no public certificate is skipped.",
+      },
+    ],
+    upgrade:
+      "Nothing to do. Both fields are optional and additive; a CHANGE.md without them runs exactly as it did under 0.14.0.",
+  },
+  "0.14.0": {
+    version: "0.14.0",
+    date: "2026-11-05",
+    headline: "A repo can say whether the cf:change gate applies to every merge or only to environment promotions.",
+    highlights: [
+      {
+        title: "change_policy.gate.require_on",
+        body:
+          "every_merge (the default, the 0.13.0 behavior) or promotion. Under promotion a PR merge into trunk passes without a recorded cf:change run, while merges between other protected branches and every tag: rule stay gated.",
+      },
+      {
+        title: "change_policy.gate.trunk",
+        body: "Names the trunk branch promotion exempts, main by default.",
+      },
+    ],
+    upgrade: "Nothing to do. An absent gate block means every_merge, exactly the 0.13.0 behavior.",
+  },
   "0.13.0": {
     version: "0.13.0",
     date: "2026-10-29",
