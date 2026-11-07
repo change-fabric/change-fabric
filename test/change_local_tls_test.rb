@@ -37,21 +37,21 @@ class ChangeLocalTlsTest < Minitest::Test
     assert_raises(ArgumentError) { ChangeLocalTls.allowed_hosts("https://example.com", []) }
   end
 
-  def test_wrap_guards_every_page_before_the_module_body
+  # A browser-target Fetch session covers every page and popup and is enabled
+  # before the module body runs.
+  def test_wrap_intercepts_at_the_browser_target_before_the_module_body
     code = ChangeLocalTls.wrap(ChangeFlowCompiler.new([ { "goto" => "/" } ], base_url: "https://app.test").function_module, %w[app.test])
     assert_includes code, 'const cfLocalHosts = ["app.test"];'
+    assert_includes code, "await page.browser().target().createCDPSession();"
     assert_includes code, 'const host = url.hostname.replace(/^\\[|\\]$/g, "");'
-    assert_match(/protocol === "https:" && !cfLocalHosts\.includes\(host\)\) return request\.abort/, code)
-    assert_includes code, "target.__cfLocalTls ||= (async () => {"
-    assert_includes code, "await target.__cfLocalTls;"
-    assert_includes code, "cfPatchNewPage(cfBrowser);"
-    assert_includes code, 'cfBrowser.on("targetcreated"'
-    assert_operator code.index("await cfGuard(page);"), :<, code.index("const results = await cfRunFlow(page")
+    assert_includes code, 'const blocked = url.protocol === "https:" && !cfLocalHosts.includes(host);'
+    assert_includes code, '"Fetch.failRequest", { requestId: event.requestId, errorReason: "AccessDenied" }'
+    assert_operator code.index('await cfFetch.send("Fetch.enable"'), :<, code.index("const results = await cfRunFlow(page")
   end
 
   def test_wrap_accepts_the_lane_function_entry_shape
     code = ChangeLocalTls.wrap("export default async function ({ page }) {\n  return 1;\n}\n", %w[app.test])
-    assert_operator code.index("await cfGuard(page);"), :<, code.index("return 1;")
+    assert_operator code.index('await cfFetch.send("Fetch.enable"'), :<, code.index("return 1;")
   end
 
   def test_wrap_refuses_an_unrecognised_module

@@ -66,41 +66,22 @@ module ChangeLocalTls
 
     code.sub(entry, <<~JS.chomp)
       #{entry}
+        // Fetch on the browser target pauses every request from every page,
+        // context page, and popup, and is on before this module navigates
+        // anything, so no page can race ahead of the guard.
         const cfLocalHosts = #{JSON.generate(hosts)};
-        // Every page gets the guard before the module can navigate it: the
-        // first page, any page from browser/context newPage, and popups.
-        // The marker holds the setup promise, not a flag: newPage and
-        // targetcreated can guard the same page at once, and both must wait
-        // until interception is really on before the page is used.
-        const cfGuard = async (target) => {
-          if (!target) return target;
-          target.__cfLocalTls ||= (async () => {
-            target.on("request", (request) => {
-              const url = new URL(request.url());
-              // URL.hostname keeps IPv6 brackets; the allowlist is unbracketed.
-              const host = url.hostname.replace(/^\\[|\\]$/g, "");
-              if (url.protocol === "https:" && !cfLocalHosts.includes(host)) return request.abort("accessdenied");
-              return request.continue();
-            });
-            await target.setRequestInterception(true);
-          })();
-          await target.__cfLocalTls;
-          return target;
-        };
-        const cfPatchNewPage = (owner) => {
-          const open = owner.newPage.bind(owner);
-          owner.newPage = async (...args) => cfGuard(await open(...args));
-          return owner;
-        };
-        const cfBrowser = page.browser();
-        cfPatchNewPage(cfBrowser);
-        for (const name of ["createBrowserContext", "createIncognitoBrowserContext"]) {
-          if (typeof cfBrowser[name] !== "function") continue;
-          const create = cfBrowser[name].bind(cfBrowser);
-          cfBrowser[name] = async (...args) => cfPatchNewPage(await create(...args));
-        }
-        cfBrowser.on("targetcreated", async (target) => { if (target.type() === "page") await cfGuard(await target.page()); });
-        await cfGuard(page);
+        const cfFetch = await page.browser().target().createCDPSession();
+        cfFetch.on("Fetch.requestPaused", (event) => {
+          const url = new URL(event.request.url);
+          // URL.hostname keeps IPv6 brackets; the allowlist is unbracketed.
+          const host = url.hostname.replace(/^\\[|\\]$/g, "");
+          const blocked = url.protocol === "https:" && !cfLocalHosts.includes(host);
+          const reply = blocked
+            ? cfFetch.send("Fetch.failRequest", { requestId: event.requestId, errorReason: "AccessDenied" })
+            : cfFetch.send("Fetch.continueRequest", { requestId: event.requestId });
+          reply.catch(() => {});
+        });
+        await cfFetch.send("Fetch.enable", { patterns: [{ urlPattern: "*" }] });
     JS
   end
 end
