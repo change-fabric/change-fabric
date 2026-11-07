@@ -10,7 +10,15 @@ class HostCapabilitiesTest < Minitest::Test
     assert_equal "unverified", report["version_status"]
     assert_equal "instructions-only", report["effective_support"]
     assert_equal "adapter-tested", report.dig("capabilities", "tool_guard")
+    assert_equal "not-run", report["live_verification"]
+  end
+
+  def test_live_evidence_is_scoped_to_the_exact_verified_version
+    report = HostCapabilities.new.resolve(host: "codex", surface: "cli", version: "0.166.0")
     assert_equal "passed", report["live_verification"]
+    future = HostCapabilities.new.resolve(host: "codex", surface: "cli", version: "999.0.0")
+    assert_nil future["live_scope"]
+    assert_equal [ "0.166.0" ], future.dig("reference_live_evidence", "versions")
   end
 
   def test_reference_version_is_not_a_live_or_adapter_test

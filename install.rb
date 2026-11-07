@@ -10,6 +10,7 @@ require_relative 'scripts/skill_registry'
 require_relative 'scripts/merge_mode_slug'
 require_relative 'scripts/skill_compiler'
 require_relative 'scripts/native_hook_install'
+require_relative 'scripts/cf_install_manifest'
 
 # Installs the cf merge-mode shim: hook scripts, the skill symlink, and the
 # settings.json wiring. Internals are namespaced so the file stays one unit.
@@ -488,12 +489,14 @@ module Install
       link_skills
       link_pi_extension
       link_opencode_plugin
+      mirror_to_codex
       mirror_to_pi
       mirror_to_opencode
       mirror_to_copilot
-      mirror_to_codex
       settings = wire_settings
       wire_native_hooks
+      place_launcher
+      record_installation
       report(settings)
     end
 
@@ -671,6 +674,50 @@ module Install
       end
     end
 
+    def place_launcher
+      # runtime_root is ~/.local/share/change-fabric; launcher is ~/.local/bin/cf.
+      path = File.expand_path('../../bin/cf', @paths.runtime_root)
+      marker = '# change-fabric managed launcher'
+      return if File.symlink?(path)
+      return if File.exist?(path) && !File.read(path).include?(marker)
+
+      FileUtils.mkdir_p(File.dirname(path))
+      File.write(path, "#!/usr/bin/env ruby\n#{marker}\nexec(#{@ruby.dump}, #{File.join(@paths.runtime_bin, 'cf_cli.rb').dump}, *ARGV)\n")
+      FileUtils.chmod(0o755, path)
+    end
+
+    def record_installation
+      files = @paths.scripts_glob.flat_map do |source|
+        [ @paths.script_dest(File.basename(source)), File.join(@paths.runtime_bin, File.basename(source)) ]
+      end
+      files.concat(@paths.vendor_glob.map { |source| @paths.vendor_dest(source) })
+      files << File.join(@paths.runtime_root, 'config', 'host_capabilities.json')
+      files << File.expand_path('../../bin/cf', @paths.runtime_root)
+      files << @paths.manifest
+      files << File.join(@paths.bin, '.expected-home')
+      roots = [ @paths.compiled_claude_root, @paths.pi_skills_root, @paths.opencode_skills_root,
+                @paths.copilot_skills_root, @paths.codex_skills_root ]
+      roots.each do |root|
+        Dir.glob(File.join(root, '*')).each do |dir|
+          next unless PortableSkillMirror::LEGACY_MARKERS.any? { |marker| File.file?(File.join(dir, marker)) }
+
+          files.concat(Dir.glob(File.join(dir, '**', '*'), File::FNM_DOTMATCH).select { |file| File.file?(file) })
+        end
+      end
+      files.concat(@paths.skill_sources.map { |source| File.join(@paths.runtime_sources, File.basename(source), 'SKILL.md') })
+      @paths.skill_sources.each do |source|
+        link = @paths.skill_link(SkillName.of(source))
+        files << link if points_into_repo_skills?(link)
+      end
+      [ [ @paths.pi_extension_link, @paths.pi_extension_source ], [ @paths.opencode_plugin_link, @paths.opencode_plugin_source ] ].each do |link, source|
+        files << link if File.symlink?(link) && File.readlink(link) == source
+      end
+      launcher = File.expand_path('../../bin/cf', @paths.runtime_root)
+      files.delete(launcher) unless File.file?(launcher) && !File.symlink?(launcher) && File.read(launcher).include?('# change-fabric managed launcher')
+      home = File.expand_path('../../..', @paths.runtime_root)
+      CfInstallManifest.new(path: File.join(@paths.runtime_root, 'installation.json'), home: home).record(files)
+    end
+
     def wire_native_hooks
       [ [ 'claude', @paths.settings ], [ 'codex', @paths.codex_hooks ], [ 'copilot', @paths.copilot_hooks ] ].each do |host, path|
         NativeHookInstall.new(path: path, host: host, ruby: @ruby, bin: @paths.runtime_bin, backup: host != 'claude').wire
@@ -692,7 +739,13 @@ module Install
     def mirror_to_pi
       LegacyPiSkillPruner.new(@paths).prune
       PiSkillMirror.new(@paths).mirror(@paths.skill_sources)
-      PiSettingsFile.new(@paths.pi_settings).wire([ @paths.pi_skills_root ], retire: [ @paths.skills_root ])
+      shared_copies = @paths.skill_sources.filter_map do |source|
+        path = @paths.codex_skill(SkillName.of(source))
+        next unless PortableSkillMirror::LEGACY_MARKERS.any? { |marker| File.file?(File.join(path, marker)) }
+
+        "-#{File.join(path, 'SKILL.md')}"
+      end
+      PiSettingsFile.new(@paths.pi_settings).wire([ @paths.pi_skills_root, *shared_copies ], retire: [ @paths.skills_root ])
     end
 
     def mirror_to_opencode

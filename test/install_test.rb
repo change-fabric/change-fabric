@@ -262,7 +262,8 @@ class InstallerTest < Minitest::Test
       install
       skills = JSON.parse(File.read(paths.pi_settings))["skills"]
       refute_includes skills, legacy, "the Claude skills dir an earlier install wired (#{legacy}) should leave Pi"
-      assert_equal [ user_path, paths.pi_skills_root ], skills
+      # "-path" entries are #309's exclusions of Codex shared copies, not wired dirs.
+      assert_equal [ user_path, paths.pi_skills_root ], skills.reject { |path| path.start_with?("-") }
     end
   end
 

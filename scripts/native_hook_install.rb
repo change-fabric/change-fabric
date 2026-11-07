@@ -51,6 +51,30 @@ class NativeHookInstall
     File.rename("#{@path}.tmp", @path)
   end
 
+  def unwire
+    return unless File.file?(@path)
+
+    data = JSON.parse(File.read(@path))
+    data.fetch('hooks', {}).each_value do |entries|
+      next unless entries.is_a?(Array)
+
+      if @host == 'copilot'
+        entries.reject! { |entry| entry.is_a?(Hash) && managed_command?(entry['bash']) }
+      else
+        entries.each do |group|
+          next unless group.is_a?(Hash) && group['hooks'].is_a?(Array)
+
+          group['hooks'].reject! { |hook| hook.is_a?(Hash) && managed_command?(hook['command']) }
+        end
+        entries.reject! { |group| group.is_a?(Hash) && group['hooks'] == [] }
+      end
+    end
+    # An existing .bak is the user's pre-install copy; never overwrite it.
+    FileUtils.cp(@path, "#{@path}.bak") unless File.exist?("#{@path}.bak")
+    File.write("#{@path}.tmp", JSON.pretty_generate(data) + "\n")
+    File.rename("#{@path}.tmp", @path)
+  end
+
   private
 
   def managed_command?(command)
