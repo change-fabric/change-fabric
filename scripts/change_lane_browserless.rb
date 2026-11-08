@@ -179,7 +179,7 @@ class ChangeLaneBrowserless < ChangeLane
     figma_refs, figma_findings = resolve_figma_refs(usable)
     findings.concat(figma_findings)
 
-    result = scan_per_viewport(session, findings) { |viewport| scan_module(usable, auth_ready ? auth : nil, figma_refs, [ viewport ]) }
+    result = scan_per_viewport(session, findings) { |group| scan_module(usable, auth_ready ? auth : nil, figma_refs, group) }
     cells(result).each do |check|
       findings << check_finding(check)
       findings << figma_diff_finding(check) if check['figmaDiff']
@@ -194,15 +194,18 @@ class ChangeLaneBrowserless < ChangeLane
   # real-time walk recording per viewport, so a modest matrix (7 routes x 3
   # viewports) overran it on every run. A viewport whose call fails becomes
   # its own finding instead of discarding every other viewport's cells.
+  # `cell_isolation: false` promises one carried session and one login for
+  # the whole matrix, so that mode keeps a single call.
   def scan_per_viewport(session, findings)
     merged = { 'cells' => [], 'videos' => [] }
-    viewports.each do |viewport|
-      result = session.run_function(yield(viewport))
+    groups = cell_isolation? ? viewports.map { |viewport| [ viewport ] } : [ viewports ]
+    groups.each do |group|
+      result = session.run_function(yield(group))
       merged['cells'].concat(cells(result))
       merged['videos'].concat(videos(result))
     rescue StandardError => e
       findings << Finding.new(lane: 'browserless', check: 'viewport scan', status: 'fail', severity: 'high',
-                               target: base_url, location: viewport['name'], detail: "scan error: #{e.message}")
+                               target: base_url, location: group.map { |vp| vp['name'] }.join(', '), detail: "scan error: #{e.message}")
     end
     merged
   end

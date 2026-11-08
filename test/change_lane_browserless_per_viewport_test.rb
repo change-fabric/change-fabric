@@ -36,8 +36,8 @@ class ChangeLaneBrowserlessPerViewportTest < Minitest::Test
   VIEWPORTS = [ { "name" => "mobile", "width" => 390, "height" => 844 },
                 { "name" => "desktop", "width" => 1440, "height" => 900 } ].freeze
 
-  def run_lane(session)
-    config = ChangeConfig::LaneConfig.new("browserless", { "routes" => [ "/" ], "viewports" => VIEWPORTS }, "/repo")
+  def run_lane(session, extra = {})
+    config = ChangeConfig::LaneConfig.new("browserless", { "routes" => [ "/" ], "viewports" => VIEWPORTS }.merge(extra), "/repo")
     lane = ChangeLaneBrowserless.new(config, Ctx.new("net", "https://app.example.org", session))
     [ lane.run, lane ]
   end
@@ -56,5 +56,11 @@ class ChangeLaneBrowserlessPerViewportTest < Minitest::Test
     assert_equal "mobile", scan_errors.first.location
     assert_match(/408/, scan_errors.first.detail)
     assert_equal %w[desktop], lane.instance_variable_get(:@timed_cells).map { |cell| cell["viewport"] }
+  end
+
+  def test_continuity_mode_keeps_one_call_for_the_whole_matrix
+    session = FakeSession.new
+    run_lane(session, { "cell_isolation" => false })
+    assert_equal [ %w[mobile desktop] ], session.viewports_seen
   end
 end
