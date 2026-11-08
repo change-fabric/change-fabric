@@ -6,6 +6,7 @@ require 'json'
 require 'open3'
 require_relative 'browserless_js'
 require_relative 'change_docker'
+require_relative 'frame_video'
 require_relative 'prototype_capture'
 require_relative 'prototype_ux_lint'
 require_relative 'walkthrough_compose'
@@ -716,10 +717,7 @@ module WalkthroughLive
     private
 
     def write_jpgs(run, dir)
-      FileUtils.mkdir_p(dir)
-      run['ticks'].each_with_index do |idx, i|
-        File.binwrite(File.join(dir, format('%06d.jpg', i + 1)), Base64.decode64(run['frames'][[ idx, 0 ].max]))
-      end
+      FrameVideo.write_jpgs(dir, run['frames'], run['ticks'])
       dir
     end
 
