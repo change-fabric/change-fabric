@@ -7,6 +7,9 @@ class WalkthroughFfmpegTest < Minitest::Test
   MEASURED = { "input_i" => "-23.10", "input_tp" => "-4.20", "input_lra" => "6.30",
                "input_thresh" => "-33.40", "target_offset" => "0.15" }.freeze
 
+  NORM = "aresample=48000,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,asetpts=N/SR/TB"
+  BOUND = "apad=whole_dur=6.000,atrim=duration=6.000"
+
   def cursor(frames, x0 = 10)
     (1..frames).map { |f| { "frame" => f, "x" => x0 + (f > 2 ? 5 : 0), "y" => 20, "down" => false } }
   end
@@ -32,7 +35,7 @@ class WalkthroughFfmpegTest < Minitest::Test
     inputs = argv.each_index.select { |i| argv[i] == "-i" }.map { |i| argv[i + 1] }
     assert_equal [ "/work/f/a/%06d.png", "/work/f/b/%06d.png", "/work/f/c/%06d.png", "/work/r/cursor.png",
                    "/work/a1.mp3", "/work/a2.mp3", "/work/m.mp3", "/work/r/captions.srt" ], inputs
-    assert_equal [ "-framerate", "30", "-i", "/work/f/a/%06d.png" ], argv[3, 4]
+    assert_equal [ "-framerate", "30", "-i", "/work/f/a/%06d.png" ], argv[6, 4]
     expected = [
       "[3:v]split=3[c0][c1][c2]",
       "[0:v]setpts=PTS-STARTPTS,scale=1920:1080:flags=lanczos[s0]",
@@ -45,13 +48,13 @@ class WalkthroughFfmpegTest < Minitest::Test
       "[v0][v1]xfade=transition=fade:duration=0.500:offset=1.500[j1]",
       "[j1][v2]concat=n=2:v=1:a=0,settb=1/30[j2]",
       "[j2]format=yuv420p[vout]",
-      "[4:a]adelay=delays=0:all=1[n4]",
-      "[5:a]adelay=delays=1500:all=1[n5]",
-      "[6:a]atrim=duration=6.000,volume='if(between(t,0.100,1.500),0.2512,if(between(t,2.500,3.800),0.5012,1))':eval=frame," \
-      "volume=-18.0dB[mus]",
-      "[n4][n5][mus]amix=inputs=3:normalize=0:duration=longest,apad,atrim=duration=6.000," \
+      "[4:a]#{NORM},adelay=delays=0:all=1,#{BOUND}[n4]",
+      "[5:a]#{NORM},adelay=delays=1500:all=1,#{BOUND}[n5]",
+      "[6:a]#{NORM},atrim=duration=6.000,volume='if(between(t,0.100,1.500),0.2512,if(between(t,2.500,3.800),0.5012,1))'" \
+      ":eval=frame,volume=-18.0dB,#{BOUND}[mus]",
+      "[n4][n5][mus]amix=inputs=3:normalize=0:duration=first,atrim=duration=6.000," \
       "loudnorm=I=-16:TP=-1.5:LRA=11:measured_I=-23.10:measured_TP=-4.20:measured_LRA=6.30:measured_thresh=-33.40:" \
-      "offset=0.15:linear=true:print_format=summary[aout]"
+      "offset=0.15:linear=true:print_format=summary,#{NORM},#{BOUND}[aout]"
     ]
     assert_equal expected, graph(argv)
     tail = argv[argv.index("-map")..]
@@ -68,7 +71,7 @@ class WalkthroughFfmpegTest < Minitest::Test
   def test_determinism_flags_present_in_order
     argv = WalkthroughFfmpeg.pass2(plan, MEASURED)
     flags = %w[-fflags +bitexact -flags:v +bitexact -flags:a +bitexact -r 30 -pix_fmt yuv420p -map_metadata -1
-               -c:v libx264 -preset medium -crf 18 -threads 4 -c:a aac -b:a 192k]
+               -c:v libx264 -preset medium -crf 18 -threads 4 -c:a aac -b:a 192k -t 6.000]
     assert_equal flags, argv[-(flags.size + 3)...-3]
     assert_equal %w[-movflags +faststart /work/r/walkthrough.mp4], argv.last(3)
   end
@@ -85,8 +88,8 @@ class WalkthroughFfmpegTest < Minitest::Test
     argv = WalkthroughFfmpeg.pass1(plan)
     refute(argv.any? { |a| a.include?("%06d") })
     g = graph(argv)
-    assert_equal "[0:a]adelay=delays=0:all=1[n0]", g.first
-    assert_match(/loudnorm=I=-16:TP=-1\.5:LRA=11:print_format=json\[aout\]\z/, g.last)
+    assert_equal "[0:a]#{NORM},adelay=delays=0:all=1,#{BOUND}[n0]", g.first
+    assert_match(/loudnorm=I=-16:TP=-1\.5:LRA=11:print_format=json,/, g.last)
     assert_equal [ "-map", "[aout]", "-f", "null", "-" ], argv.last(5)
   end
 
@@ -105,7 +108,7 @@ class WalkthroughFfmpegTest < Minitest::Test
   def test_voice_eq_filters_narration_only
     g = WalkthroughFfmpeg.audio_graph(plan.merge(voice_eq: WARM), "LN")
     shaped = "adelay=delays=0:all=1,bass=f=150:g=3,equalizer=f=3500:t=q:w=1:g=-2.5"
-    assert_equal "[4:a]#{shaped}[n4]", g[0]
+    assert_equal "[4:a]#{NORM},#{shaped},#{BOUND}[n4]", g[0]
     assert_equal 1, g.grep(/\[6:a\]/).size
     refute_match(/bass|equalizer/, g.grep(/\[6:a\]/).first)
     assert_equal 2, g.grep(/bass=/).size
@@ -113,11 +116,11 @@ class WalkthroughFfmpegTest < Minitest::Test
 
   def test_voice_eq_partial_and_absent_graphs
     only_cut = WalkthroughFfmpeg.audio_graph(plan.merge(voice_eq: { "cut_hz" => 3000, "cut_db" => -3 }), "LN")
-    assert_equal "[4:a]adelay=delays=0:all=1,equalizer=f=3000:t=q:w=1:g=-3[n4]", only_cut[0]
+    assert_equal "[4:a]#{NORM},adelay=delays=0:all=1,equalizer=f=3000:t=q:w=1:g=-3,#{BOUND}[n4]", only_cut[0]
     base = WalkthroughFfmpeg.audio_graph(plan, "LN")
     assert_equal base, WalkthroughFfmpeg.audio_graph(plan.merge(voice_eq: nil), "LN")
     assert_equal base, WalkthroughFfmpeg.audio_graph(plan.merge(voice_eq: {}), "LN")
-    assert_equal "[4:a]adelay=delays=0:all=1[n4]", base[0]
+    assert_equal "[4:a]#{NORM},adelay=delays=0:all=1,#{BOUND}[n4]", base[0]
   end
 
   def test_duck_expression
@@ -160,8 +163,50 @@ class WalkthroughFfmpegTest < Minitest::Test
     p = plan.merge(music: nil)
     p[:scenes].each { |s| s[:audio] = nil }
     argv = WalkthroughFfmpeg.pass2(p, MEASURED)
-    assert_match(/\Aanullsrc=r=44100:cl=stereo,atrim=duration=6\.000,loudnorm=/, graph(argv).last)
+    assert_match(/\Aanullsrc=r=48000:cl=stereo,atrim=duration=6\.000,loudnorm=/, graph(argv).last)
     assert_includes argv.join(" "), "-map 4:s"
+  end
+
+  # Every audio branch is resampled to one rate/layout, gets fresh
+  # timestamps, and is bounded to the timeline; nothing unbounded remains.
+  def test_every_audio_branch_is_normalized_and_bounded
+    audio = graph(WalkthroughFfmpeg.pass2(plan, MEASURED)).select { |p| p.match?(/\[\d+:a\]|amix|\[aout\]/) }
+    assert_equal 4, audio.size
+    audio.each do |part|
+      assert_includes part, NORM, part
+      assert part.end_with?("#{BOUND}[n4]", "#{BOUND}[n5]", "#{BOUND}[mus]", "#{BOUND}[aout]"), part
+      refute_match(/aloop|duration=longest|apad(,|\z)/, part)
+    end
+    assert_match(/loudnorm=[^,]*,aresample=48000,/, audio.last, "loudnorm's 192 kHz output is resampled")
+  end
+
+  def test_pass2_has_hard_duration_and_progress
+    argv = WalkthroughFfmpeg.pass2(plan, MEASURED)
+    assert_equal [ "-t", "6.000" ], argv[argv.index("-t"), 2]
+    assert_equal [ "-progress", "pipe:1", "-nostats" ], argv[argv.index("-progress"), 3]
+    assert_operator argv.index("-t"), :<, argv.index(plan[:output])
+  end
+
+  def test_runaway_limit_is_timeline_plus_max_5s_or_5_percent
+    assert_in_delta 11.0, WalkthroughFfmpeg.runaway_limit(6000)
+    assert_in_delta 840.0, WalkthroughFfmpeg.runaway_limit(800_000)
+  end
+
+  def test_probe_warnings_flag_corrupt_durations
+    out = "/work/a1.mp3,3.9\n/work/a2.mp3,N/A\n/work/m.mp3,5.8\nWARNING: platform\n"
+    warnings = WalkthroughFfmpeg.probe_warnings(plan, out)
+    assert_equal 1, warnings.size
+    assert_match(%r{/work/a2.mp3 reports no duration}, warnings.first)
+    huge = WalkthroughFfmpeg.probe_warnings(plan, "/work/a1.mp3,99999.0\n")
+    assert_match(%r{/work/a1.mp3 reports 99999.00s against a 2.00s span}, huge.first)
+    assert_empty WalkthroughFfmpeg.probe_warnings(plan, "garbage")
+  end
+
+  def test_probe_script_quotes_each_path
+    script = WalkthroughFfmpeg.probe_script([ "/work/a b.mp3", "/work/it's.mp3" ])
+    files = Shellwords.split(script[/\Afor f in (.*?); do/, 1])
+    assert_equal [ "/work/a b.mp3", "/work/it's.mp3" ], files
+    assert_includes script, "ffprobe -v error -show_entries format=duration"
   end
 
   def test_same_plan_same_argv

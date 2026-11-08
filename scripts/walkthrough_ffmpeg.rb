@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'json'
+require 'shellwords'
 
 # Pure FFmpeg argv generation for a walkthrough render. Nothing here shells
 # out: the renderer hands the argv to docker in FFMPEG_IMAGE. The input is a
@@ -15,6 +16,11 @@ require 'json'
 # print_format=json, pass 2 applies the measured values with linear=true.
 module WalkthroughFfmpeg
   LOUDNORM = 'I=-16:TP=-1.5:LRA=11'
+  AUDIO_RATE = 48_000
+  AUDIO_LAYOUT = 'stereo'
+  # Pass 2 is killed once its output clock passes the timeline by this much.
+  RUNAWAY_MIN_S = 5.0
+  RUNAWAY_RATIO = 0.05
   # Above this many value changes per axis a cursor path is driven by a
   # sendcmd file instead of an inline if() chain. FFmpeg's expression parser
   # fails near 100 levels of nesting ("Error when evaluating the expression",
@@ -217,27 +223,41 @@ module WalkthroughFfmpeg
     out
   end
 
+  # Every audio branch is brought to one rate and layout, given fresh
+  # sample-count timestamps, and padded then trimmed to the timeline before
+  # the mix. Source clips differ in rate and channels (mono narration, stereo
+  # music) and an mp3 starts at a non-zero start_time; mixing them unformatted
+  # let the graph negotiate its own rate and carry source timestamps through
+  # to the AAC encoder. loudnorm upsamples to 192 kHz in dynamic mode, so its
+  # output is resampled again and the whole stream is bounded once more.
+  def audio_format = "aresample=#{AUDIO_RATE},aformat=sample_fmts=fltp:sample_rates=#{AUDIO_RATE}:channel_layouts=#{AUDIO_LAYOUT}"
+
+  def normalize = "#{audio_format},asetpts=N/SR/TB"
+
+  def bound(total) = "apad=whole_dur=#{total},atrim=duration=#{total}"
+
   def audio_graph(plan, loudnorm)
     io = audio_inputs(plan)
+    total = seconds(plan[:total_ms])
     parts = []
     labels = []
     io[:narration].each do |scene, idx|
-      parts << "[#{idx}:a]adelay=delays=#{scene[:offset_ms]}:all=1#{eq_filters(plan[:voice_eq])}[n#{idx}]"
+      parts << "[#{idx}:a]#{normalize},adelay=delays=#{scene[:offset_ms]}:all=1#{eq_filters(plan[:voice_eq])}," \
+               "#{bound(total)}[n#{idx}]"
       labels << "[n#{idx}]"
     end
     if io[:music]
-      total = seconds(plan[:total_ms])
-      parts << "[#{io[:music]}:a]atrim=duration=#{total},volume='#{duck_expression(plan[:duck_spans] || [])}':eval=frame," \
-               "volume=#{plan[:music][:gain_db].to_f}dB[mus]"
+      parts << "[#{io[:music]}:a]#{normalize},atrim=duration=#{total}," \
+               "volume='#{duck_expression(plan[:duck_spans] || [])}':eval=frame," \
+               "volume=#{plan[:music][:gain_db].to_f}dB,#{bound(total)}[mus]"
       labels << '[mus]'
     end
-    total = seconds(plan[:total_ms])
-    parts << if labels.empty?
-               "anullsrc=r=44100:cl=stereo,atrim=duration=#{total},loudnorm=#{loudnorm}[aout]"
+    source = if labels.empty?
+               "anullsrc=r=#{AUDIO_RATE}:cl=#{AUDIO_LAYOUT},atrim=duration=#{total}"
     else
-               "#{labels.join}amix=inputs=#{labels.size}:normalize=0:duration=longest,apad,atrim=duration=#{total}," \
-                 "loudnorm=#{loudnorm}[aout]"
+               "#{labels.join}amix=inputs=#{labels.size}:normalize=0:duration=first,atrim=duration=#{total}"
     end
+    parts << "#{source},loudnorm=#{loudnorm},#{normalize},#{bound(total)}[aout]"
     parts
   end
 
@@ -279,11 +299,57 @@ module WalkthroughFfmpeg
     head + inputs(plan, with_video: false) + [ '-filter_complex', graph.join(';'), '-map', '[aout]', '-f', 'null', '-' ]
   end
 
+  # Pass 2 carries a hard -t at the timeline and machine-readable progress on
+  # stdout, which the renderer's watchdog reads to stop a runaway encode.
   def pass2(plan, measured)
     io = audio_inputs(plan)
     graph = video_graph(plan) + audio_graph(plan, pass2_loudnorm(measured))
-    head + inputs(plan, with_video: true) + [ '-i', plan[:srt], '-filter_complex', graph.join(';'),
-                                               '-map', '[vout]', '-map', '[aout]', '-map', "#{io[:next]}:s",
-                                               '-c:s', 'mov_text' ] + DETERMINISM + [ '-movflags', '+faststart', plan[:output] ]
+    head + [ '-progress', 'pipe:1', '-nostats' ] + inputs(plan, with_video: true) +
+      [ '-i', plan[:srt], '-filter_complex', graph.join(';'), '-map', '[vout]', '-map', '[aout]', '-map', "#{io[:next]}:s",
+        '-c:s', 'mov_text' ] + DETERMINISM + [ '-t', seconds(plan[:total_ms]), '-movflags', '+faststart', plan[:output] ]
+  end
+
+  # Output seconds past which pass 2 is a runaway: timeline + max(5s, 5%).
+  def runaway_limit(total_ms)
+    total = total_ms / 1000.0
+    total + [ RUNAWAY_MIN_S, total * RUNAWAY_RATIO ].max
+  end
+
+  # -- audio pre-flight ----------------------------------------------------
+
+  # One ffprobe per audio input, printing "path,duration" (N/A when the
+  # container cannot say). A shell loop keeps it to one container.
+  def probe_script(paths)
+    files = paths.map { |p| Shellwords.escape(p) }.join(' ')
+    "for f in #{files}; do printf '%s,' \"$f\"; " \
+      'ffprobe -v error -show_entries format=duration -of csv=p=0 "$f" | head -n 1; done'
+  end
+
+  # Audio inputs with the span each should roughly fit: a narration clip its
+  # scene (plus a little slack), the music the timeline.
+  def audio_expectations(plan)
+    fps = plan[:fps].to_f
+    clips = plan[:scenes].select { |s| s[:audio] }.to_h { |s| [ s[:audio], s[:frames] / fps ] }
+    clips[plan[:music][:path]] = plan[:total_ms] / 1000.0 if plan[:music]
+    clips
+  end
+
+  # Warnings for inputs whose reported duration is missing, non-positive, or
+  # wildly off the span they fill: the mark of a corrupt header or broken
+  # timestamps, which is what lets an unbounded audio branch run away.
+  def probe_warnings(plan, output)
+    reported = output.to_s.lines.filter_map do |line|
+      path, dur = line.strip.split(',', 2)
+      [ path, dur ] if path&.start_with?('/') && dur
+    end.to_h
+    audio_expectations(plan).filter_map do |path, expected|
+      next unless reported.key?(path)
+
+      dur = Float(reported[path], exception: false)
+      next "audio input #{path} reports no duration (header or timestamps corrupt?)" if dur.nil? || dur <= 0
+      next unless dur > (expected * 2) + 5 || (path == plan.dig(:music, :path) && dur < expected * 0.1)
+
+      format('audio input %<p>s reports %<d>.2fs against a %<e>.2fs span (header or timestamps corrupt?)', p: path, d: dur, e: expected)
+    end
   end
 end

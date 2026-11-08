@@ -13,6 +13,7 @@ require_relative 'prototype_ux_lint'
 require_relative 'walkthrough_cache'
 require_relative 'walkthrough_captions'
 require_relative 'elevenlabs'
+require_relative 'ffmpeg_watchdog'
 require_relative 'walkthrough_env'
 require_relative 'walkthrough_ffmpeg'
 require_relative 'walkthrough_live'
@@ -46,8 +47,14 @@ module WalkthroughRender
     live_login: ->(**kw) { WalkthroughLive.login(**kw) },
     live_capture: ->(**kw) { WalkthroughLive.capture(**kw) },
     roast: ->(**kw) { Roast.critique(**kw) },
-    docker: ->(argv) { Open3.capture2e(*argv) }
+    docker: ->(argv) { Open3.capture2e(*argv) },
+    # Pass 2 runs under a watchdog that kills it once its output clock passes
+    # the timeline (FfmpegWatchdog); same [output, status] contract as docker.
+    ffmpeg_watch: ->(argv, **kw) { FfmpegWatchdog.run(argv, **kw) }
   }.freeze
+  # Set to write pass 2's argv, filter graph and the loudnorm measurement
+  # into the render dir, for diagnosing a failed assembly.
+  DEBUG_ENV = 'CF_WALKTHROUGH_DEBUG'
 
   class Run
     attr_reader :root
@@ -64,6 +71,8 @@ module WalkthroughRender
       @final = final
       @burn_captions = burn_captions
       @p = DEFAULT_PROVIDERS.merge(providers)
+      # An injected docker runner also runs pass 2 unless a watcher is given.
+      @p[:ffmpeg_watch] = ->(argv, **) { @p[:docker].call(argv) } if providers.key?(:docker) && !providers.key?(:ffmpeg_watch)
       @out = out
       @cache = File.join(@root, '.cache')
       @board_path = File.join(@root, 'storyboard.json')
@@ -520,8 +529,44 @@ module WalkthroughRender
       File.write(File.join(dir, 'walkthrough.vtt'), WalkthroughCaptions.vtt(srt))
       WalkthroughFfmpeg.sendcmd_files(plan).each { |path, body| File.write(host_path(path), body) }
       preflight!
+      probe_audio!(plan)
       measured = WalkthroughFfmpeg.parse_loudnorm(ffmpeg!(WalkthroughFfmpeg.pass1(plan), 'pass 1'))
-      verify_mp4!(mp4) { ffmpeg!(WalkthroughFfmpeg.pass2(plan, measured), 'pass 2') }
+      argv = WalkthroughFfmpeg.pass2(plan, measured)
+      write_debug(dir, argv, measured) if ENV[DEBUG_ENV].to_s.strip != ''
+      verify_mp4!(mp4) { pass2!(argv, plan[:total_ms]) }
+    end
+
+    def write_debug(dir, argv, measured)
+      File.write(File.join(dir, 'pass2-argv.json'), JSON.pretty_generate(argv))
+      File.write(File.join(dir, 'pass2-filter_complex.txt'), argv[argv.index('-filter_complex') + 1].split(';').join(";\n"))
+      File.write(File.join(dir, 'loudnorm-measured.json'), JSON.pretty_generate(measured))
+    end
+
+    def pass2!(args, total_ms)
+      # Named so the watchdog can `docker kill` it; stable per render so the
+      # argv stays deterministic for one manifest.
+      name = "cf-walkthrough-pass2-#{Process.pid}-#{Digest::SHA256.hexdigest(args.last)[0, 12]}"
+      argv = ChangeDocker.run_command(network: 'none', image: ChangeDocker::FFMPEG_IMAGE, args: args, name: name,
+                                      mounts: { @root => WORK }, workdir: WORK)
+      kill = -> { system('docker', 'kill', name, out: File::NULL, err: File::NULL) }
+      out, status = @p[:ffmpeg_watch].call(argv, limit_s: WalkthroughFfmpeg.runaway_limit(total_ms), kill: kill, label: 'ffmpeg pass 2')
+      raise FfmpegError, "ffmpeg pass 2 failed:\n#{out.to_s.lines.last(20).join}" unless status.success?
+    rescue FfmpegWatchdog::RunawayError => e
+      raise FfmpegError, e.message
+    end
+
+    # Warns (never fails) on an audio input whose reported duration is
+    # missing or wildly off its scene: a corrupt header or broken timestamps.
+    def probe_audio!(plan)
+      paths = WalkthroughFfmpeg.audio_expectations(plan).keys
+      return if paths.empty?
+
+      out, = @p[:docker].call(ChangeDocker.run_command(network: 'none', image: ChangeDocker::FFMPEG_IMAGE, entrypoint: 'sh',
+                                                       args: [ '-c', WalkthroughFfmpeg.probe_script(paths) ],
+                                                       mounts: { @root => WORK }, workdir: WORK))
+      WalkthroughFfmpeg.probe_warnings(plan, out).each { |w| @out.puts "warning: #{w}" }
+    rescue StandardError => e
+      @out.puts "warning: audio probe skipped (#{e.message.lines.first&.strip})"
     end
 
     # A render is a cache hit by the mere presence of its mp4, so the file must

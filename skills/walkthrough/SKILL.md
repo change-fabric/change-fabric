@@ -100,7 +100,7 @@ Only that scene's stale keys regenerate (frames, audio, or images); everything e
 
 ## Determinism
 
-Same manifest hash and same image digests mean the same timeline, the same frame keys, and the same FFmpeg argv. A byte-identical MP4 is advisory, not guaranteed. Audio is normalized to -16 LUFS in two loudnorm passes; captions are soft only by default (a `mov_text` track in the MP4 plus a `walkthrough.vtt` sidecar beside it), and `--burn-captions` opts in to burning them into the frames. The manual release check is `reference/release-check.md`.
+Same manifest hash and same image digests mean the same timeline, the same frame keys, and the same FFmpeg argv. A byte-identical MP4 is advisory, not guaranteed. Audio is normalized to -16 LUFS in two loudnorm passes, with every audio branch resampled to 48 kHz stereo and bounded to the timeline; pass 2 carries a hard `-t` and a watchdog that kills it with a clear error once its output passes the timeline by max(5s, 5%), and the render warns when ffprobe reports an audio input wildly off its scene. `CF_WALKTHROUGH_DEBUG=1` writes the pass 2 argv, filter graph, and loudnorm measurement into the render dir; captions are soft only by default (a `mov_text` track in the MP4 plus a `walkthrough.vtt` sidecar beside it), and `--burn-captions` opts in to burning them into the frames. The manual release check is `reference/release-check.md`.
 
 ## Layout
 
