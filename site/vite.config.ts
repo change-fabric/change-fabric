@@ -14,6 +14,11 @@ export default defineConfig({
   server: {
     allowedHosts: ["host.docker.internal"],
   },
+  // The same allowance for `vite preview`, which is what CHANGE.md's boot
+  // serves to the audit lanes.
+  preview: {
+    allowedHosts: ["host.docker.internal"],
+  },
   build: {
     outDir: "dist",
     emptyOutDir: true,
