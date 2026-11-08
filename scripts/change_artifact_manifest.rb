@@ -135,7 +135,7 @@ class ChangeArtifactManifest
     video = @media.videos.find { |candidate| candidate.viewport == name }
     return nil unless video
 
-    { 'path' => video.path, 'bytes' => video.bytes, 'error' => video.error }
+    { 'path' => video.path, 'bytes' => video.bytes, 'error' => video.error, 'dropped' => video.dropped.to_i }
   end
 
   # Viewport order follows capture order, so the artifact's sections read

@@ -3,6 +3,8 @@
 
 require 'base64'
 require 'fileutils'
+require 'tmpdir'
+require_relative 'frame_video'
 
 # The on-disk media a run captured, and the sink lanes hand it to.
 #
@@ -26,7 +28,8 @@ class ChangeMedia
   Screenshot = Struct.new(:viewport, :route, :path, keyword_init: true)
 
   # One viewport's recording of the whole route walk at that viewport.
-  Video = Struct.new(:viewport, :path, :bytes, :error, keyword_init: true)
+  # `dropped` counts the sampled frames the lane's budget trimmed from the end.
+  Video = Struct.new(:viewport, :path, :bytes, :error, :dropped, keyword_init: true)
 
   attr_reader :root, :video_fps
 
@@ -34,8 +37,12 @@ class ChangeMedia
   # config by the lane: the lane's only dependency stays "there is somewhere to
   # put media, and here is what it wants", so the artifacts config never has to
   # be threaded through the run context.
-  def initialize(root, screenshots: true, video: true, video_fps: 6)
+  # `encoder` takes (dir, fps:, out:) and turns dir's JPEG sequence into out,
+  # raising on failure; tests swap it for a fake so no FFmpeg is needed.
+  def initialize(root, screenshots: true, video: true, video_fps: 6,
+                 encoder: ->(dir, fps:, out:) { FrameVideo.encode(dir, fps: fps, out: out) })
     @root = root
+    @encoder = encoder
     @screenshots_wanted = screenshots
     @video_wanted = video
     @video_fps = video_fps
@@ -65,19 +72,26 @@ class ChangeMedia
     @screenshots << Screenshot.new(viewport: viewport, route: route, path: File.join(SCREENSHOT_DIR, name))
   end
 
-  # Writes one viewport's recording and records it. `data` is base64 WebM. An
-  # `error` instead of data is kept as a recorded, reportable gap rather than
-  # dropped: a recording that failed is worth saying so on the artifact page,
+  # Encodes one viewport's sampled frames to `video/<slug>.mp4` and records
+  # it. `frames` are base64 JPEGs and `ticks` index into them, one per output
+  # frame (the ScreencastSampler result). No frames, a missing FFmpeg image,
+  # or a failed encode is kept as a recorded, reportable gap rather than
+  # raised: a recording that failed is worth saying so on the artifact page,
   # since a silently missing video reads as "this viewport was not tested".
-  def add_video(viewport:, data: nil, error: nil)
-    if data.to_s.empty?
-      @videos << Video.new(viewport: viewport, path: nil, bytes: 0, error: error || 'no recording produced')
-      return nil
-    end
+  def add_video(viewport:, frames: nil, ticks: nil, dropped: 0, error: nil)
+    return record_gap(viewport, error || 'no recording produced', dropped) if Array(frames).empty? || Array(ticks).empty?
 
-    relative = File.join(VIDEO_DIR, "#{slug(viewport)}.webm")
-    bytes = write(relative, data)
-    @videos << Video.new(viewport: viewport, path: relative, bytes: bytes, error: nil)
+    relative = File.join(VIDEO_DIR, "#{slug(viewport)}.mp4")
+    out = File.join(@root, relative)
+    Dir.mktmpdir('cf-frames') do |dir|
+      FrameVideo.write_jpgs(dir, frames, ticks)
+      @encoder.call(dir, fps: @video_fps, out: out)
+    end
+    video = Video.new(viewport: viewport, path: relative, bytes: File.size(out), error: nil, dropped: dropped)
+    @videos << video
+    video
+  rescue StandardError => e
+    record_gap(viewport, "encode failed: #{e.message}", dropped)
   end
 
   # Every file written under the bundle root, bundle-relative, for the uploader.
@@ -89,6 +103,12 @@ class ChangeMedia
   def empty? = @screenshots.empty? && @videos.none?(&:path)
 
   private
+
+  def record_gap(viewport, error, dropped)
+    video = Video.new(viewport: viewport, path: nil, bytes: 0, error: error, dropped: dropped)
+    @videos << video
+    video
+  end
 
   def write(relative, base64)
     path = File.join(@root, relative)

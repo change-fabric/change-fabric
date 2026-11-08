@@ -36,45 +36,60 @@ async function awaitReadiness(page, waitFor) {
   }
 }
 
-  async function startRecording(vp) {
-  if (!capture.video) return null;
-  try {
-    const recorderPage = await page.browser().newPage();
-    await recorderPage.setViewport({ width: vp.width, height: vp.height });
-    await recorderPage.setContent("<!doctype html><html><head><meta charset=\"utf-8\"><style>html,body{margin:0;background:#000}</style></head>\n<body><canvas id=\"cf-canvas\"></canvas><script>\n  let ctx = null, recorder = null, chunks = [], queue = Promise.resolve();\n  window.__cfStart = function (width, height, fps) {\n    const canvas = document.getElementById(\"cf-canvas\");\n    canvas.width = width;\n    canvas.height = height;\n    ctx = canvas.getContext(\"2d\");\n    ctx.fillStyle = \"#000\";\n    ctx.fillRect(0, 0, width, height);\n    const stream = canvas.captureStream(fps);\n    const preferred = \"video/webm;codecs=vp9\";\n    const mimeType = window.MediaRecorder && MediaRecorder.isTypeSupported(preferred) ? preferred : \"video/webm\";\n    recorder = new MediaRecorder(stream, { mimeType: mimeType });\n    chunks = [];\n    recorder.ondataavailable = function (event) { if (event.data && event.data.size) chunks.push(event.data); };\n    recorder.start(1000);\n    return true;\n  };\n  window.__cfPush = function (base64) {\n    queue = queue.then(function () {\n      return new Promise(function (resolve) {\n        const image = new Image();\n        image.onload = function () {\n          const canvas = ctx.canvas;\n          const scale = Math.min(canvas.width / image.width, canvas.height / image.height);\n          const width = image.width * scale;\n          const height = image.height * scale;\n          ctx.fillStyle = \"#000\";\n          ctx.fillRect(0, 0, canvas.width, canvas.height);\n          ctx.drawImage(image, (canvas.width - width) / 2, 0, width, height);\n          resolve();\n        };\n        image.onerror = function () { resolve(); };\n        image.src = \"data:image/jpeg;base64,\" + base64;\n      });\n    });\n    return queue;\n  };\n  window.__cfStop = function () {\n    if (!recorder) return Promise.resolve(null);\n    return queue.then(function () {\n      return new Promise(function (resolve) {\n        recorder.onstop = function () {\n          const blob = new Blob(chunks, { type: recorder.mimeType });\n          const reader = new FileReader();\n          reader.onloadend = function () { resolve(String(reader.result).split(\",\")[1] || null); };\n          reader.onerror = function () { resolve(null); };\n          reader.readAsDataURL(blob);\n        };\n        recorder.stop();\n      });\n    });\n  };\n</script></body></html>\n");
-    await recorderPage.evaluate((w, h, fps) => window.__cfStart(w, h, fps), vp.width, vp.height, capture.fps);
-    return { page: recorderPage, client: null, stopped: false, error: null };
-  } catch (err) {
-    return { page: null, client: null, stopped: true, error: String(err) };
-  }
+  function ScreencastSampler(opts) {
+  const store = [], ticks = [];
+  let latest = -1, client = null, handler = null;
+  return {
+    seed(data) { store.push(data); latest = store.length - 1; },
+    async attach(c) {
+      client = c;
+      handler = (f) => {
+        c.send("Page.screencastFrameAck", { sessionId: f.sessionId }).catch(() => {});
+        store.push(f.data); latest = store.length - 1;
+      };
+      c.on("Page.screencastFrame", handler);
+      await c.send("Page.startScreencast", { format: "jpeg", quality: opts.quality, maxWidth: opts.maxWidth, maxHeight: opts.maxHeight, everyNthFrame: 1 });
+    },
+    tick() { if (latest >= 0) ticks.push(latest); },
+    async detach() {
+      if (!client) return;
+      const c = client, h = handler;
+      client = null; handler = null;
+      if (typeof c.off === "function") c.off("Page.screencastFrame", h);
+      await c.send("Page.stopScreencast");
+    },
+    result(caps) {
+      const maxFrames = caps && caps.maxFrames, maxBytes = caps && caps.maxBytes;
+      const frames = [], out = [], index = new Map();
+      let bytes = 0, dropped = 0, cut = false;
+      for (const t of ticks) {
+        if (!cut && !index.has(t)) {
+          const size = store[t].length;
+          if ((maxFrames && frames.length + 1 > maxFrames) || (maxBytes && bytes + size > maxBytes)) cut = true;
+          else { index.set(t, frames.length); frames.push(store[t]); bytes += size; }
+        }
+        if (cut) dropped++;
+        else out.push(index.get(t));
+      }
+      return { frames, ticks: out, dropped };
+    }
+  };
 }
 
-async function attachCell(state, cellPage, vp) {
-  if (!state || !state.page || state.stopped) return;
+function startRecording(vp) {
+  if (!capture.video) return null;
+  const sampler = ScreencastSampler({ quality: 60, maxWidth: vp.width, maxHeight: vp.height });
+  const state = { sampler: sampler, client: null, error: null, timer: null };
+  state.timer = setInterval(() => sampler.tick(), 1000 / Math.max(1, capture.fps));
+  return state;
+}
+
+async function attachCell(state, cellPage) {
+  if (!state) return;
   try {
     const client = await cellPage.createCDPSession();
     state.client = client;
-    // Ack first and never wait on the recorder: Chrome withholds the
-    // next frame until the ack, so acking after the draw would hold the
-    // page under audit to the recorder's pace. Frames arriving while
-    // two are still drawing are dropped; a choppier video never slows
-    // the scan.
-    state.pending = state.pending || 0;
-    client.on("Page.screencastFrame", (frame) => {
-      client.send("Page.screencastFrameAck", { sessionId: frame.sessionId }).catch((err) => { state.error = String(err); });
-      if (state.stopped || !state.page || state.pending >= 2) return;
-      state.pending += 1;
-      state.page.evaluate((data) => window.__cfPush(data), frame.data)
-        .catch((err) => { state.error = String(err); })
-        .finally(() => { state.pending -= 1; });
-    });
-    await client.send("Page.startScreencast", {
-      format: "jpeg",
-      quality: 60,
-      maxWidth: vp.width,
-      maxHeight: vp.height,
-      everyNthFrame: 1,
-    });
+    await state.sampler.attach(client);
   } catch (err) {
     state.error = String(err);
   }
@@ -84,31 +99,19 @@ async function detachCell(state) {
   if (!state || !state.client) return;
   const client = state.client;
   state.client = null;
-  try { await client.send("Page.stopScreencast"); } catch (err) { void err; }
+  try { await state.sampler.detach(); } catch (err) { void err; }
   try { await client.detach(); } catch (err) { void err; }
 }
 
-async function stopRecording(state, vp) {
+async function finishRecording(state, vp) {
   if (!capture.video) return null;
   if (!state) return { viewport: vp.name, error: "recording was not started" };
   await detachCell(state);
-  state.stopped = true;
-  try {
-    if (!state.page) return { viewport: vp.name, error: state.error || "no recorder page" };
-    // MediaRecorder in the pinned browserless image never fires onstop,
-    // so an unbounded wait here hung the whole viewport's call until
-    // browserless's function timeout. Bound it and report no video.
-    const webm = await Promise.race([
-      state.page.evaluate(() => window.__cfStop()),
-      new Promise((_, reject) => setTimeout(() => reject(new Error("recorder did not stop within 10s")), 10000)),
-    ]);
-    await state.page.close();
-    if (!webm) return { viewport: vp.name, error: state.error || "recorder produced no data" };
-    return { viewport: vp.name, webm: webm };
-  } catch (err) {
-    try { if (state.page) await state.page.close(); } catch (closeErr) { void closeErr; }
-    return { viewport: vp.name, error: String(err) };
-  }
+  clearInterval(state.timer);
+  state.sampler.tick();
+  const sampled = state.sampler.result({ maxFrames: 300, maxBytes: 25165824 });
+  if (!sampled.frames.length) return { viewport: vp.name, error: state.error || "no screencast frames captured" };
+  return { viewport: vp.name, frames: sampled.frames, ticks: sampled.ticks, dropped: sampled.dropped };
 }
 
 
@@ -323,7 +326,7 @@ async function runAuthStep(session, step) {
           session = sharedSession;
         }
         await session.page.setViewport({ width: vp.width, height: vp.height, deviceScaleFactor: deviceScaleFactor });
-        await attachCell(recorder, session.page, vp);
+        await attachCell(recorder, session.page);
 
         if (entry.auth) {
           const ok = await ensureAuth(session);
@@ -389,7 +392,7 @@ async function runAuthStep(session, step) {
       cell.totalMs = Date.now() - cellStart;
       out.push(cell);
     }
-    const video = await stopRecording(recorder, vp);
+    const video = await finishRecording(recorder, vp);
     if (video) videos.push(video);
   }
   await closeSession(sharedSession);

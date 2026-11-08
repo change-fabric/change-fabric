@@ -218,14 +218,34 @@ class ChangeArtifactTest < Minitest::Test
 
   def test_media_writes_screenshots_and_videos_under_the_bundle
     Dir.mktmpdir do |dir|
-      media = ChangeMedia.new(dir)
+      seen = nil
+      encoder = lambda do |frames_dir, fps:, out:|
+        seen = [ Dir.children(frames_dir).sort, fps ]
+        FileUtils.mkdir_p(File.dirname(out))
+        File.binwrite(out, "mp4")
+      end
+      media = ChangeMedia.new(dir, video_fps: 6, encoder: encoder)
       media.add_screenshot(viewport: "mobile", route: "/sign-in", data: Base64.strict_encode64("jpeg"))
-      media.add_video(viewport: "mobile", data: Base64.strict_encode64("webm"))
+      media.add_video(viewport: "mobile", frames: [ Base64.strict_encode64("a"), Base64.strict_encode64("b") ],
+                      ticks: [ 0, 0, 1 ], dropped: 2)
 
       assert_equal [ "screenshots/mobile--sign-in.jpg" ], media.screenshots.map(&:path)
-      assert_equal "video/mobile.webm", media.video_for("mobile").path
-      assert_equal "webm", File.binread(File.join(dir, "video/mobile.webm"))
-      assert_equal [ "screenshots/mobile--sign-in.jpg", "video/mobile.webm" ], media.files
+      assert_equal [ %w[000001.jpg 000002.jpg 000003.jpg], 6 ], seen
+      assert_equal "video/mobile.mp4", media.video_for("mobile").path
+      assert_equal 2, media.video_for("mobile").dropped
+      assert_equal "mp4", File.binread(File.join(dir, "video/mobile.mp4"))
+      assert_equal [ "screenshots/mobile--sign-in.jpg", "video/mobile.mp4" ], media.files
+    end
+  end
+
+  def test_an_encode_failure_is_recorded_as_a_gap_not_raised
+    Dir.mktmpdir do |dir|
+      encoder = ->(_dir, fps:, out:) { raise FrameVideo::EncodeError, "ffmpeg failed: boom #{fps} #{out}" }
+      media = ChangeMedia.new(dir, encoder: encoder)
+      video = media.add_video(viewport: "desktop", frames: [ Base64.strict_encode64("a") ], ticks: [ 0 ])
+      assert_nil video.path
+      assert_match(/encode failed: ffmpeg failed: boom/, video.error)
+      assert media.empty?
     end
   end
 
@@ -240,10 +260,10 @@ class ChangeArtifactTest < Minitest::Test
   def test_a_failed_recording_is_recorded_as_a_gap_not_dropped
     Dir.mktmpdir do |dir|
       media = ChangeMedia.new(dir)
-      media.add_video(viewport: "tablet", error: "MediaRecorder unavailable")
+      media.add_video(viewport: "tablet", frames: [], ticks: [], error: "no screencast frames captured")
       video = media.videos.first
       assert_nil video.path
-      assert_equal "MediaRecorder unavailable", video.error
+      assert_equal "no screencast frames captured", video.error
       assert media.empty?
     end
   end
