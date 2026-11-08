@@ -92,9 +92,10 @@ contributors_team:
     # media:
     #   screenshots: true        # optional, this is the default
     #   video: true              # optional, this is the default
-    #   video_fps: 6             # optional, this is the default; the recording rides
-    #                            # back base64 in the lane's own browserless response,
-    #                            # so this is the main lever on that payload's size
+    #   video_fps: 6             # optional, this is the default; the sampler ticks and
+    #                            # the mp4 encodes at this rate, and the frames ride back
+    #                            # base64 in the lane's own browserless response, so this
+    #                            # is the main lever on that payload's size
 
 change_config:
   project: my-app                 # label used in the Desktop report filename

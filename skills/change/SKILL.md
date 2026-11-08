@@ -259,11 +259,16 @@ What gets built, into one bundle directory on the Desktop:
 
 How the media is captured. The browserless lane already walks every route at
 every viewport in one page inside the browserless container; with an artifacts
-block it also screenshots each cell and records the walk. The recording is
-assembled inside Chromium (a CDP screencast of the page being walked, drawn onto
-a canvas in a second page whose `captureStream()` feeds a `MediaRecorder`) and
-comes back base64 in the same response, because the container shares no
-filesystem with the host. The video is written next to the page and referenced
+block it also screenshots each cell and records the walk. The recording is a
+CDP screencast of the page being walked: a per-viewport sampler keeps the latest
+JPEG frame (quality 60) and ticks it at `video_fps`, capped at 300 frames or
+24 MB per viewport, and the sampled frames come back base64 in the same
+response, because the container shares no filesystem with the host. On the
+host, the frames are encoded to `video/<viewport>.mp4` by the pinned FFmpeg
+image, run with no network and pulled lazily on the first sweep that records.
+Frames past a cap are dropped, not failed: the manifest records a `dropped`
+count for that viewport and the run carries one info finding (status pass)
+saying so. The video is written next to the page and referenced
 as a sibling asset, never inlined as a data URI: a data-URI video would have to
 be fully downloaded before the page renders, while a sibling file streams from
 CloudFront and lets the browser fetch only what is played. A viewport whose
@@ -370,9 +375,11 @@ browserless responsive lane has no standalone skill; it runs as part of
   migration. The publisher carries no AWS SDK or AWS credential at all, so the
   per-team bucket path cannot be taken; replace the block with `organization`,
   `team`, and `platform:` (the legacy block is removed at schema 0.7.0).
-- A viewport's recording fails (no MediaRecorder, a screencast that never
-  attaches): a warn finding names the viewport and the reason, and the artifact
-  says so in place of that viewport's video. The rest of the artifact publishes.
+- A viewport's recording fails (a screencast that never delivers a frame, an
+  FFmpeg image that cannot be pulled, an encode error): a warn finding (severity
+  low) names the viewport and the reason, and the artifact says so in place of
+  that viewport's video. The lane still passes and the rest of the artifact
+  publishes.
 - A very large route matrix can exceed browserless's request payload limit when
   the per-viewport PDF is rendered (every screenshot travels inline). The PDF
   step reports it per viewport and the page, media, and upload still publish;
