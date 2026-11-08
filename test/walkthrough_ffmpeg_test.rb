@@ -147,6 +147,15 @@ class WalkthroughFfmpegTest < Minitest::Test
     assert_includes g, "[s0][c0]overlay@c0=x=1:y=7:eval=frame,settb=1/30,setpts=N,fps=30,settb=1/30[v0]"
   end
 
+  # A real path of about 120 runs crashed FFmpeg's expression parser as an
+  # inline chain, so it must go through sendcmd.
+  def test_a_120_run_cursor_path_uses_sendcmd
+    p = plan
+    p[:scenes][0][:cursor] = (1..120).map { |f| { "frame" => f, "x" => f, "y" => 7 } }
+    assert WalkthroughFfmpeg.long_path?(p[:scenes][0][:cursor])
+    assert_equal [ "/work/r/cursor-one.cmd" ], WalkthroughFfmpeg.sendcmd_files(p).keys
+  end
+
   def test_silent_plan_uses_null_source
     p = plan.merge(music: nil)
     p[:scenes].each { |s| s[:audio] = nil }

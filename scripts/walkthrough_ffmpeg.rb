@@ -16,8 +16,10 @@ require 'json'
 module WalkthroughFfmpeg
   LOUDNORM = 'I=-16:TP=-1.5:LRA=11'
   # Above this many value changes per axis a cursor path is driven by a
-  # sendcmd file instead of an inline if() chain, which FFmpeg parses slowly.
-  CHAIN_MAX = 200
+  # sendcmd file instead of an inline if() chain. FFmpeg's expression parser
+  # fails near 100 levels of nesting ("Error when evaluating the expression",
+  # then "Conversion failed!"), so the chain stays well under that.
+  CHAIN_MAX = 80
   OFFSCREEN = -200
   # The tap ripple sprite's size in canvas px (matches WalkthroughDevice::RIPPLE).
   RIPPLE = 44
