@@ -179,19 +179,35 @@ class ChangeLaneBrowserless < ChangeLane
     figma_refs, figma_findings = resolve_figma_refs(usable)
     findings.concat(figma_findings)
 
-    begin
-      result = session.run_function(scan_module(usable, auth_ready ? auth : nil, figma_refs))
-      cells(result).each do |check|
-        findings << check_finding(check)
-        findings << figma_diff_finding(check) if check['figmaDiff']
-      end
-      @timed_cells = cells(result)
-      findings.concat(capture_media(result))
+    result = scan_per_viewport(session, findings) { |group| scan_module(usable, auth_ready ? auth : nil, figma_refs, group) }
+    cells(result).each do |check|
+      findings << check_finding(check)
+      findings << figma_diff_finding(check) if check['figmaDiff']
+    end
+    @timed_cells = cells(result)
+    findings.concat(capture_media(result))
+    findings
+  end
+
+  # One browserless call per viewport, merged into one result. A single call
+  # for the whole matrix shared one function timeout across every cell plus a
+  # real-time walk recording per viewport, so a modest matrix (7 routes x 3
+  # viewports) overran it on every run. A viewport whose call fails becomes
+  # its own finding instead of discarding every other viewport's cells.
+  # `cell_isolation: false` promises one carried session and one login for
+  # the whole matrix, so that mode keeps a single call.
+  def scan_per_viewport(session, findings)
+    merged = { 'cells' => [], 'videos' => [] }
+    groups = cell_isolation? ? viewports.map { |viewport| [ viewport ] } : [ viewports ]
+    groups.each do |group|
+      result = session.run_function(yield(group))
+      merged['cells'].concat(cells(result))
+      merged['videos'].concat(videos(result))
     rescue StandardError => e
       findings << Finding.new(lane: 'browserless', check: 'viewport scan', status: 'fail', severity: 'high',
-                               detail: "scan error: #{e.message}")
+                               target: base_url, location: group.map { |vp| vp['name'] }.join(', '), detail: "scan error: #{e.message}")
     end
-    findings
+    merged
   end
 
   # A Markdown table of #run's own per-cell timing (F6 step 1), or nil when
@@ -547,12 +563,12 @@ class ChangeLaneBrowserless < ChangeLane
   # produce a video nothing on the host could ever read. Because the page being
   # walked now changes every cell, the screencast attaches and detaches per
   # cell while the recorder page and its MediaRecorder span the viewport.
-  def scan_module(entries, auth, figma_refs)
+  def scan_module(entries, auth, figma_refs, scan_viewports = viewports)
     <<~JS
       export default async function ({ page }) {
         const baseUrl = #{JSON.generate(base_url)};
         const routeEntries = #{JSON.generate(js_route_entries(entries, figma_refs))};
-        const viewports = #{JSON.generate(viewports)};
+        const viewports = #{JSON.generate(scan_viewports)};
         const auth = #{JSON.generate(js_auth(auth))};
         const figmaRefs = #{JSON.generate(figma_refs)};
         const basicAuth = #{JSON.generate(basic_auth)};
@@ -783,18 +799,19 @@ class ChangeLaneBrowserless < ChangeLane
         try {
           const client = #{BrowserlessJs.cdp_session_js('cellPage')};
           state.client = client;
-          client.on("Page.screencastFrame", async (frame) => {
-            if (state.stopped || !state.page) return;
-            try {
-              await state.page.evaluate((data) => window.__cfPush(data), frame.data);
-            } catch (err) {
-              state.error = String(err);
-            }
-            try {
-              await client.send("Page.screencastFrameAck", { sessionId: frame.sessionId });
-            } catch (err) {
-              state.error = String(err);
-            }
+          // Ack first and never wait on the recorder: Chrome withholds the
+          // next frame until the ack, so acking after the draw would hold the
+          // page under audit to the recorder's pace. Frames arriving while
+          // two are still drawing are dropped; a choppier video never slows
+          // the scan.
+          state.pending = state.pending || 0;
+          client.on("Page.screencastFrame", (frame) => {
+            client.send("Page.screencastFrameAck", { sessionId: frame.sessionId }).catch((err) => { state.error = String(err); });
+            if (state.stopped || !state.page || state.pending >= 2) return;
+            state.pending += 1;
+            state.page.evaluate((data) => window.__cfPush(data), frame.data)
+              .catch((err) => { state.error = String(err); })
+              .finally(() => { state.pending -= 1; });
           });
           await client.send("Page.startScreencast", {
             format: "jpeg",
@@ -823,7 +840,13 @@ class ChangeLaneBrowserless < ChangeLane
         state.stopped = true;
         try {
           if (!state.page) return { viewport: vp.name, error: state.error || "no recorder page" };
-          const webm = await state.page.evaluate(() => window.__cfStop());
+          // MediaRecorder in the pinned browserless image never fires onstop,
+          // so an unbounded wait here hung the whole viewport's call until
+          // browserless's function timeout. Bound it and report no video.
+          const webm = await Promise.race([
+            state.page.evaluate(() => window.__cfStop()),
+            new Promise((_, reject) => setTimeout(() => reject(new Error("recorder did not stop within 10s")), 10000)),
+          ]);
           await state.page.close();
           if (!webm) return { viewport: vp.name, error: state.error || "recorder produced no data" };
           return { viewport: vp.name, webm: webm };

@@ -54,18 +54,19 @@ async function attachCell(state, cellPage, vp) {
   try {
     const client = await cellPage.createCDPSession();
     state.client = client;
-    client.on("Page.screencastFrame", async (frame) => {
-      if (state.stopped || !state.page) return;
-      try {
-        await state.page.evaluate((data) => window.__cfPush(data), frame.data);
-      } catch (err) {
-        state.error = String(err);
-      }
-      try {
-        await client.send("Page.screencastFrameAck", { sessionId: frame.sessionId });
-      } catch (err) {
-        state.error = String(err);
-      }
+    // Ack first and never wait on the recorder: Chrome withholds the
+    // next frame until the ack, so acking after the draw would hold the
+    // page under audit to the recorder's pace. Frames arriving while
+    // two are still drawing are dropped; a choppier video never slows
+    // the scan.
+    state.pending = state.pending || 0;
+    client.on("Page.screencastFrame", (frame) => {
+      client.send("Page.screencastFrameAck", { sessionId: frame.sessionId }).catch((err) => { state.error = String(err); });
+      if (state.stopped || !state.page || state.pending >= 2) return;
+      state.pending += 1;
+      state.page.evaluate((data) => window.__cfPush(data), frame.data)
+        .catch((err) => { state.error = String(err); })
+        .finally(() => { state.pending -= 1; });
     });
     await client.send("Page.startScreencast", {
       format: "jpeg",
@@ -94,7 +95,13 @@ async function stopRecording(state, vp) {
   state.stopped = true;
   try {
     if (!state.page) return { viewport: vp.name, error: state.error || "no recorder page" };
-    const webm = await state.page.evaluate(() => window.__cfStop());
+    // MediaRecorder in the pinned browserless image never fires onstop,
+    // so an unbounded wait here hung the whole viewport's call until
+    // browserless's function timeout. Bound it and report no video.
+    const webm = await Promise.race([
+      state.page.evaluate(() => window.__cfStop()),
+      new Promise((_, reject) => setTimeout(() => reject(new Error("recorder did not stop within 10s")), 10000)),
+    ]);
     await state.page.close();
     if (!webm) return { viewport: vp.name, error: state.error || "recorder produced no data" };
     return { viewport: vp.name, webm: webm };
@@ -111,10 +118,10 @@ async function stopRecording(state, vp) {
   // are probed so the lane is not pinned to one puppeteer major beyond
   // the browserless image pin itself.
   async function newBrowserContext(browser) {
-    if (typeof browser.createBrowserContext === "function") return browser.createBrowserContext();
-    if (typeof browser.createIncognitoBrowserContext === "function") return browser.createIncognitoBrowserContext();
-    return null;
-  }
+  if (typeof browser.createBrowserContext === "function") return browser.createBrowserContext();
+  if (typeof browser.createIncognitoBrowserContext === "function") return browser.createIncognitoBrowserContext();
+  return null;
+}
 
   // Everything that makes a page's rendering reproducible is applied
   // here, once, at the moment the page is created: the pinned locale
@@ -139,9 +146,9 @@ async function stopRecording(state, vp) {
     }
     await cellPage.setExtraHTTPHeaders(headers);
     await cellPage.evaluateOnNewDocument((lang) => {
-      Object.defineProperty(navigator, "language", { get: () => lang });
-      Object.defineProperty(navigator, "languages", { get: () => [lang] });
-    }, locale);
+  Object.defineProperty(navigator, "language", { get: () => lang });
+  Object.defineProperty(navigator, "languages", { get: () => [lang] });
+}, locale);
     return { context, page: cellPage, authOk: null, authError: null, authDiagnostics: null, lastAuthResponse: null };
   }
 
