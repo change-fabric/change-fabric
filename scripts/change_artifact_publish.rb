@@ -37,7 +37,7 @@ class ChangeArtifactPublish
   CONTENT_TYPES = {
     '.html' => 'text/html; charset=utf-8', '.json' => 'application/json',
     '.jpg' => 'image/jpeg', '.jpeg' => 'image/jpeg', '.png' => 'image/png',
-    '.webm' => 'video/webm', '.pdf' => 'application/pdf',
+    '.webm' => 'video/webm', '.mp4' => 'video/mp4', '.pdf' => 'application/pdf',
     '.md' => 'text/markdown; charset=utf-8', '.csv' => 'text/csv; charset=utf-8'
   }.freeze
   DEFAULT_CONTENT_TYPE = 'application/octet-stream'

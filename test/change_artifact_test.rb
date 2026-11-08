@@ -397,9 +397,9 @@ class ChangeArtifactTest < Minitest::Test
 
   def test_content_types_cover_every_asset_a_bundle_holds
     publisher = ChangeArtifactPublish.new(bundle_dir: "/tmp/bundle", artifacts: artifacts)
-    types = %w[index.html manifest.json screenshots/a.jpg video/a.webm pdf/a.pdf report.md report.csv]
+    types = %w[index.html manifest.json screenshots/a.jpg video/a.webm video/a.mp4 pdf/a.pdf report.md report.csv]
             .map { |name| publisher.send(:content_type, name) }
-    assert_equal [ "text/html; charset=utf-8", "application/json", "image/jpeg", "video/webm",
+    assert_equal [ "text/html; charset=utf-8", "application/json", "image/jpeg", "video/webm", "video/mp4",
                    "application/pdf", "text/markdown; charset=utf-8", "text/csv; charset=utf-8" ], types
   end
 
