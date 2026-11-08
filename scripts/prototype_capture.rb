@@ -9,6 +9,7 @@ require_relative 'change_docker'
 require_relative 'prototype_imagegen'
 require_relative 'prototype_ux_lint'
 require_relative 'walkthrough_cache'
+require_relative 'walkthrough_diagram'
 require_relative 'walkthrough_environment'
 require_relative 'walkthrough_browser_frame'
 require_relative 'walkthrough_sharpness'
@@ -92,10 +93,28 @@ module PrototypeCapture
   # Every local ref must resolve inside `root` (default: the walkthrough
   # slug dir, the parent of a screens/ dir), so a screen cannot inline a
   # file from elsewhere on disk.
+  #
+  # An inline <script data-cf-inline> body is opaque: it is set aside before
+  # any scan and put back unchanged at the end, so string literals inside a
+  # vendored bundle (React DOM builds `src="'+x+'"` markup in code) are never
+  # read as attributes to resolve. Only generated screens carry the marker.
   def inline_screen(path, remap: {}, root: nil)
     dir = File.dirname(File.expand_path(path))
     root ||= default_root(dir)
-    html = File.read(path)
+    opaque = []
+    html = File.read(path).gsub(OPAQUE_SCRIPT_RE) do
+      opaque << Regexp.last_match(2)
+      "#{Regexp.last_match(1)}#{OPAQUE_MARK}#{opaque.size - 1}#{OPAQUE_MARK}#{Regexp.last_match(3)}"
+    end
+    restore_opaque(inline_assets(html, path, dir, remap, root), opaque)
+  end
+
+  OPAQUE_SCRIPT_RE = %r{(<script\b[^>]*\sdata-cf-inline\b[^>]*>)(.*?)(</script>)}im
+  OPAQUE_MARK = "\u0000cf-opaque\u0000"
+
+  def restore_opaque(html, opaque) = html.gsub(/#{OPAQUE_MARK}(\d+)#{OPAQUE_MARK}/o) { opaque.fetch(Regexp.last_match(1).to_i) }
+
+  def inline_assets(html, path, dir, remap, root)
     check_supported!(html, File.basename(path))
     html = html.gsub(%r{<link\b[^>]*\bhref\s*=\s*(["'])([^"']+?\.css(?:[?#][^"']*)?)\1[^>]*>}im) do
       href = Regexp.last_match(2)
@@ -718,6 +737,7 @@ module PrototypeCapture
                      mock_store: sha256_file(File.join(root, 'screens', 'mock-store.js')),
                      state: WalkthroughCache.key(state), prng_seed: prng, **(remap.empty? ? {} : { images: remap }),
                      **(WalkthroughEnvironment.environment?(scene) ? { desktop_kit: WalkthroughEnvironment.version } : {}),
+                     **(WalkthroughDiagram.diagram?(scene) ? WalkthroughDiagram.key_material : {}),
                      **(WalkthroughBrowserFrame.browser?(scene) ? { frame: WalkthroughBrowserFrame.material(scene) } : {}))
     memo[scene['id']] = { key: key, state: state, prng_seed: prng, html_path: html_path, remap: remap, root: root,
                           out_dir: File.join(root, '.cache', 'frames', key) }

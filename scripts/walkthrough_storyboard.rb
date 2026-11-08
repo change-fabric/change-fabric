@@ -7,6 +7,7 @@ require_relative 'design_config'
 require_relative 'prototype_capture'
 require_relative 'prototype_imagegen'
 require_relative 'walkthrough_cache'
+require_relative 'walkthrough_diagram'
 require_relative 'walkthrough_environment'
 require_relative 'walkthrough_live'
 
@@ -28,7 +29,7 @@ module WalkthroughStoryboard
   PATCH_OPS = %w[set push delete].freeze
   MD_HEADER = 'Generated from storyboard.json; do not edit'
   BROLL_KIND = 'ai-broll'
-  SCENE_KINDS = [ nil, 'screen', BROLL_KIND, WalkthroughCompose::KIND, WalkthroughMessage::KIND, WalkthroughEnvironment::KIND ].freeze
+  SCENE_KINDS = [ nil, 'screen', BROLL_KIND, WalkthroughCompose::KIND, WalkthroughMessage::KIND, WalkthroughEnvironment::KIND, WalkthroughDiagram::KIND ].freeze
   BROLL_IMAGE_EXTS = %w[.png .jpg .jpeg .webp].freeze
   BROLL_SECONDS = (1..10)
   KEY_KINDS = { 'frames_key' => 'frames', 'audio_key' => 'audio', 'asset_keys' => 'images', 'broll_key' => 'broll' }.freeze
@@ -159,7 +160,11 @@ module WalkthroughStoryboard
     errors << 'needs at least one requirement or assumption' if Array(scene['requirements']).empty? && Array(scene['assumptions']).empty?
     errors.concat(kind_errors(scene, root))
     errors.concat(WalkthroughBrowserFrame.errors(scene))
-    if WalkthroughEnvironment.environment?(scene)
+    if WalkthroughDiagram.diagram?(scene)
+      errors.concat(WalkthroughDiagram.errors(scene, root))
+      errors.concat(store_errors(scene, orders, root)) if scene['store']
+      LIVE_ONLY.each { |key| errors << "#{key} needs a live board (a diagram scene is a prototype screen)" if scene.key?(key) && !scene[key].nil? }
+    elsif WalkthroughEnvironment.environment?(scene)
       errors.concat(WalkthroughEnvironment.errors(scene, root))
       errors.concat(store_errors(scene, orders, root)) if scene['store']
       LIVE_ONLY.each { |key| errors << "#{key} needs a live board (an environment scene is a prototype screen)" if scene.key?(key) && !scene[key].nil? }
@@ -200,7 +205,7 @@ module WalkthroughStoryboard
   # A screen scene needs screen.html; an ai-broll scene needs a broll block and
   # carries no screen.
   def kind_errors(scene, root)
-    return [ "kind #{scene['kind'].inspect} must be one of screen, #{BROLL_KIND}, #{WalkthroughCompose::KIND}, #{WalkthroughMessage::KIND}, #{WalkthroughEnvironment::KIND}" ] unless SCENE_KINDS.include?(scene['kind'])
+    return [ "kind #{scene['kind'].inspect} must be one of screen, #{BROLL_KIND}, #{WalkthroughCompose::KIND}, #{WalkthroughMessage::KIND}, #{WalkthroughEnvironment::KIND}, #{WalkthroughDiagram::KIND}" ] unless SCENE_KINDS.include?(scene['kind'])
     return broll_errors(scene, root) if broll?(scene)
     return [] if WalkthroughLive.builtin?(scene)
 
@@ -506,6 +511,7 @@ module WalkthroughStoryboard
     out << "- Heuristics shown: #{scene['heuristics_shown'].join(', ')}" unless Array(scene['heuristics_shown']).empty?
     Array(scene['requirements']).each { |r| out << "- Requirement: #{r['source']}#{r['anchor']}" }
     Array(scene['assumptions']).each { |a| out << "- Assumption #{a['id']}: #{a['text']}" }
+    out.concat(WalkthroughDiagram.md(scene)) if WalkthroughDiagram.diagram?(scene)
     out << '' << "> #{scene.dig('narration', 'text')}" if scene.dig('narration', 'text')
     out << ''
   end
@@ -524,6 +530,8 @@ if __FILE__ == $PROGRAM_NAME
     tokens = tokens_flag ? ARGV[tokens_flag + 1] : WalkthroughStoryboard.canonical_tokens(root)
     abort("--tokens #{tokens.inspect} is not a file") if tokens_flag && !(tokens && File.file?(tokens))
     fix = ARGV.include?('--fix')
+    # Diagram screens are generated; --fix rewrites them before validating so drift is repaired, not reported.
+    WalkthroughDiagram.write_screens(board, root) if fix
     errors = WalkthroughStoryboard.validate(board, root: root)
     errors += WalkthroughStoryboard.tokens_hash_errors(board, tokens) unless fix
     unless errors.empty?
