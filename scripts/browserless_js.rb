@@ -51,31 +51,45 @@ module BrowserlessJs
   end
 
   # Defines ScreencastSampler(opts), the CDP screencast recorder shared by
-  # cf:walkthrough and cf:change. opts: { quality, maxWidth, maxHeight }.
-  # attach(client) starts a JPEG screencast and keeps every frame; seed(data)
-  # stores a frame up front (a still taken before the screencast starts);
-  # tick() samples the latest frame; detach() stops the screencast while ticks
-  # carry on across later attaches. result(caps) compacts the store to the
-  # frames some tick references and remaps the ticks to them. With caps
-  # ({ maxFrames, maxBytes }, either optional) frames are kept in tick order
-  # until a budget would be exceeded; every tick past that cut is dropped and
-  # counted. Returns { frames, ticks, dropped }.
+  # cf:walkthrough and cf:change. opts: { quality, maxWidth, maxHeight } plus
+  # optional caps { maxFrames, maxBytes }. attach(client) starts a JPEG
+  # screencast; seed(data) offers a frame up front (a still taken before the
+  # screencast starts); tick() samples the latest frame; detach() stops the
+  # screencast while ticks carry on across later attaches. Memory stays
+  # bounded as frames arrive: only frames some tick references are kept, plus
+  # the single latest unticked frame, which the next frame replaces. Caps are
+  # enforced at tick time: kept in tick order until a budget would be
+  # exceeded, then every later tick is dropped and counted and no further
+  # frame is stored. result(caps) returns { frames, ticks, dropped }; caps
+  # passed there are applied again over the kept frames, for older callers.
   SCREENCAST_SAMPLER_JS = <<~JS.chomp
     function ScreencastSampler(opts) {
-      const store = [], ticks = [];
-      let latest = -1, client = null, handler = null;
+      const frames = [], ticks = [];
+      const maxFrames = opts.maxFrames, maxBytes = opts.maxBytes;
+      let pending = null, latest = -1, bytes = 0, dropped = 0, cut = false, client = null, handler = null;
+      const offer = (data) => { if (!cut) { pending = data; latest = -1; } };
       return {
-        seed(data) { store.push(data); latest = store.length - 1; },
+        seed(data) { offer(data); },
         async attach(c) {
           client = c;
           handler = (f) => {
             c.send("Page.screencastFrameAck", { sessionId: f.sessionId }).catch(() => {});
-            store.push(f.data); latest = store.length - 1;
+            offer(f.data);
           };
           c.on("Page.screencastFrame", handler);
           await c.send("Page.startScreencast", { format: "jpeg", quality: opts.quality, maxWidth: opts.maxWidth, maxHeight: opts.maxHeight, everyNthFrame: 1 });
         },
-        tick() { if (latest >= 0) ticks.push(latest); },
+        tick() {
+          if (cut) { dropped++; return; }
+          if (pending !== null) {
+            const size = pending.length;
+            if ((maxFrames && frames.length + 1 > maxFrames) || (maxBytes && bytes + size > maxBytes)) {
+              cut = true; pending = null; dropped++; return;
+            }
+            frames.push(pending); bytes += size; latest = frames.length - 1; pending = null;
+          }
+          if (latest >= 0) ticks.push(latest);
+        },
         async detach() {
           if (!client) return;
           const c = client, h = handler;
@@ -83,20 +97,22 @@ module BrowserlessJs
           if (typeof c.off === "function") c.off("Page.screencastFrame", h);
           await c.send("Page.stopScreencast");
         },
+        stored() { return frames.length + (pending === null ? 0 : 1); },
         result(caps) {
-          const maxFrames = caps && caps.maxFrames, maxBytes = caps && caps.maxBytes;
-          const frames = [], out = [], index = new Map();
-          let bytes = 0, dropped = 0, cut = false;
+          const capFrames = caps && caps.maxFrames, capBytes = caps && caps.maxBytes;
+          if (!capFrames && !capBytes) return { frames: frames.slice(), ticks: ticks.slice(), dropped };
+          const kept = [], out = [];
+          let used = 0, extra = 0, stop = false;
           for (const t of ticks) {
-            if (!cut && !index.has(t)) {
-              const size = store[t].length;
-              if ((maxFrames && frames.length + 1 > maxFrames) || (maxBytes && bytes + size > maxBytes)) cut = true;
-              else { index.set(t, frames.length); frames.push(store[t]); bytes += size; }
+            if (!stop && t === kept.length) {
+              const size = frames[t].length;
+              if ((capFrames && kept.length + 1 > capFrames) || (capBytes && used + size > capBytes)) stop = true;
+              else { kept.push(frames[t]); used += size; }
             }
-            if (cut) dropped++;
-            else out.push(index.get(t));
+            if (stop) extra++;
+            else out.push(t);
           }
-          return { frames, ticks: out, dropped };
+          return { frames: kept, ticks: out, dropped: dropped + extra };
         }
       };
     }

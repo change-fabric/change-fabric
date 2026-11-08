@@ -802,7 +802,7 @@ class ChangeLaneBrowserless < ChangeLane
 
       function startRecording(vp) {
         if (!capture.video) return null;
-        const sampler = ScreencastSampler({ quality: #{VIDEO_JPEG_QUALITY}, maxWidth: vp.width, maxHeight: vp.height });
+        const sampler = ScreencastSampler({ quality: #{VIDEO_JPEG_QUALITY}, maxWidth: vp.width, maxHeight: vp.height, maxFrames: #{VIDEO_MAX_FRAMES}, maxBytes: #{VIDEO_MAX_BYTES} });
         const state = { sampler: sampler, client: null, error: null, timer: null };
         state.timer = setInterval(() => sampler.tick(), 1000 / Math.max(1, capture.fps));
         return state;
@@ -833,7 +833,7 @@ class ChangeLaneBrowserless < ChangeLane
         await detachCell(state);
         clearInterval(state.timer);
         state.sampler.tick();
-        const sampled = state.sampler.result({ maxFrames: #{VIDEO_MAX_FRAMES}, maxBytes: #{VIDEO_MAX_BYTES} });
+        const sampled = state.sampler.result();
         if (!sampled.frames.length) return { viewport: vp.name, error: state.error || "no screencast frames captured" };
         return { viewport: vp.name, frames: sampled.frames, ticks: sampled.ticks, dropped: sampled.dropped };
       }
