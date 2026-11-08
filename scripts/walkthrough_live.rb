@@ -464,6 +464,7 @@ module WalkthroughLive
       const ux = #{JSON.generate(PrototypeUxLint::BROWSER_JS)};
       const linkHook = #{JSON.generate(LINK_HOOK)};
       const stepMs = #{PrototypeCapture.frame_ms(fps_for(board))};
+      #{BrowserlessJs::SCREENCAST_SAMPLER_JS}
       const runDevice = async (job) => {
         const dev = job.dev;
         const { context, page, client } = await openPage(dev);
@@ -492,19 +493,13 @@ module WalkthroughLive
             return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
           }, sel), null);
         };
-        const store = [];
-        let latest = -1;
+        const sampler = ScreencastSampler({ quality: #{JPEG_QUALITY}, maxWidth: dev.w * dev.dpr, maxHeight: dev.h * dev.dpr });
         if (job.shots) {
-          store.push((await client.send("Page.captureScreenshot", { format: "jpeg", quality: #{JPEG_QUALITY} })).data);
-          latest = 0;
-          client.on("Page.screencastFrame", (f) => {
-            store.push(f.data); latest = store.length - 1;
-            client.send("Page.screencastFrameAck", { sessionId: f.sessionId }).catch(() => {});
-          });
-          await client.send("Page.startScreencast", { format: "jpeg", quality: #{JPEG_QUALITY}, maxWidth: dev.w * dev.dpr, maxHeight: dev.h * dev.dpr, everyNthFrame: 1 });
+          sampler.seed((await client.send("Page.captureScreenshot", { format: "jpeg", quality: #{JPEG_QUALITY} })).data);
+          await sampler.attach(client);
         }
         const lintAt = new Set(job.lint);
-        const ticks = [], cursor = [], lint = [], devices = [], links = [];
+        const cursor = [], lint = [], devices = [], links = [];
         const overlays = {};
         let resting = null;
         let pos = { x: dev.w / 2, y: dev.h / 2 };
@@ -578,11 +573,12 @@ module WalkthroughLive
             for (const f of await safe(() => page.evaluate((t, b) => window.__cfUx.lint(t, b), targets, job.band), [])) lint.push(Object.assign({ frame: i, device: dev.name }, f));
             for (const d of await safe(() => page.evaluate(() => window.__cfUx.devices()), [])) devices.push(Object.assign({ frame: i, group: job.group }, d));
           }
-          ticks.push(latest);
+          sampler.tick();
           cursor.push({ x: pos.x, y: pos.y, down });
           down = false;
         }
-        if (job.shots) await client.send("Page.stopScreencast");
+        if (job.shots) await sampler.detach();
+        const sampled = sampler.result();
         // The built-in page's end state, so a run can confirm what was sent
         // or tapped.
         const composed = job.html ? await safe(() => page.evaluate(() => {
@@ -594,7 +590,7 @@ module WalkthroughLive
         }), null) : null;
         const out = await dumpSession(page, client);
         if (context) await context.close();
-        return { name: dev.name, frames: store, ticks, cursor, pageErrors, lint, devices, overlays, links, composed, session: out };
+        return { name: dev.name, frames: sampled.frames, ticks: sampled.ticks, cursor, pageErrors, lint, devices, overlays, links, composed, session: out };
       };
     JS
   end

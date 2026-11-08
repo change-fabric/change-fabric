@@ -50,6 +50,58 @@ module BrowserlessJs
     "await #{page_var}.createCDPSession()"
   end
 
+  # Defines ScreencastSampler(opts), the CDP screencast recorder shared by
+  # cf:walkthrough and cf:change. opts: { quality, maxWidth, maxHeight }.
+  # attach(client) starts a JPEG screencast and keeps every frame; seed(data)
+  # stores a frame up front (a still taken before the screencast starts);
+  # tick() samples the latest frame; detach() stops the screencast while ticks
+  # carry on across later attaches. result(caps) compacts the store to the
+  # frames some tick references and remaps the ticks to them. With caps
+  # ({ maxFrames, maxBytes }, either optional) frames are kept in tick order
+  # until a budget would be exceeded; every tick past that cut is dropped and
+  # counted. Returns { frames, ticks, dropped }.
+  SCREENCAST_SAMPLER_JS = <<~JS.chomp
+    function ScreencastSampler(opts) {
+      const store = [], ticks = [];
+      let latest = -1, client = null, handler = null;
+      return {
+        seed(data) { store.push(data); latest = store.length - 1; },
+        async attach(c) {
+          client = c;
+          handler = (f) => {
+            c.send("Page.screencastFrameAck", { sessionId: f.sessionId }).catch(() => {});
+            store.push(f.data); latest = store.length - 1;
+          };
+          c.on("Page.screencastFrame", handler);
+          await c.send("Page.startScreencast", { format: "jpeg", quality: opts.quality, maxWidth: opts.maxWidth, maxHeight: opts.maxHeight, everyNthFrame: 1 });
+        },
+        tick() { if (latest >= 0) ticks.push(latest); },
+        async detach() {
+          if (!client) return;
+          const c = client, h = handler;
+          client = null; handler = null;
+          if (typeof c.off === "function") c.off("Page.screencastFrame", h);
+          await c.send("Page.stopScreencast");
+        },
+        result(caps) {
+          const maxFrames = caps && caps.maxFrames, maxBytes = caps && caps.maxBytes;
+          const frames = [], out = [], index = new Map();
+          let bytes = 0, dropped = 0, cut = false;
+          for (const t of ticks) {
+            if (!cut && !index.has(t)) {
+              const size = store[t].length;
+              if ((maxFrames && frames.length + 1 > maxFrames) || (maxBytes && bytes + size > maxBytes)) cut = true;
+              else { index.set(t, frames.length); frames.push(store[t]); bytes += size; }
+            }
+            if (cut) dropped++;
+            else out.push(index.get(t));
+          }
+          return { frames, ticks: out, dropped };
+        }
+      };
+    }
+  JS
+
   # Loads static HTML with every non-data, non-about request aborted and
   # recorded into the array named by failures_var.
   def inline_html_js(html, page_var: 'page', failures_var: 'blockedRequests')
