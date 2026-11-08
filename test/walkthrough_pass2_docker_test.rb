@@ -48,6 +48,9 @@ class WalkthroughPass2DockerTest < Minitest::Test
     data = bytes.index("data")
     bytes[4, 4] = [ 0xFFFFFFFF ].pack("V")
     bytes[data + 4, 4] = [ 0xFFFFFFFF ].pack("V")
+    # On Linux the container writes as root; replacing the file only needs
+    # write access to @dir, which the test owns.
+    File.delete(path)
     File.binwrite(path, bytes)
   end
 
