@@ -71,3 +71,50 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+xyflow diagram engine
+
+---------------------
+
+
+
+cf:walkthrough diagram scenes inline a bundle built by scripts/xyflow_vendor.rb
+
+and committed at scripts/vendor/xyflow/xyflow-12.12.1.min.js. It bundles:
+
+
+
+  React and React DOM (react, react-dom, scheduler), Copyright (c) Meta
+
+  Platforms, Inc. and affiliates, MIT License, https://github.com/facebook/react
+
+  @xyflow/react and @xyflow/system, Copyright (c) webkid GmbH, MIT License,
+
+  https://github.com/xyflow/xyflow
+
+  zustand, Copyright (c) Paul Henschel, MIT License
+
+  use-sync-external-store, Copyright (c) Meta Platforms, Inc., MIT License
+
+  classcat, Copyright (c) Jorge Bucaran, MIT License
+
+  d3-color, d3-dispatch, d3-drag, d3-ease, d3-interpolate, d3-selection,
+
+  d3-timer, d3-transition, d3-zoom, Copyright Mike Bostock, ISC License
+
+  (d3-ease also carries Robert Penner's BSD-3-Clause easing terms),
+  https://github.com/d3
+
+  @dagrejs/dagre, Copyright (c) Chris Pettitt, MIT License,
+
+  https://github.com/dagrejs/dagre
+
+
+
+The full license text of each, as shipped in its package, is in
+
+scripts/vendor/xyflow/LICENSES.txt. Diagram scenes render with React Flow's
+
+on-canvas attribution hidden by the maintainer's choice; this credit stands
+
+regardless.

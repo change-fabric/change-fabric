@@ -8,6 +8,7 @@ require "fileutils"
 
 require_relative "../install"
 require_relative "../scripts/change_lane_a11y"
+require_relative "../scripts/walkthrough_diagram"
 
 class RubyInterpreterTest < Minitest::Test
   def setup
@@ -162,6 +163,16 @@ class InstallerTest < Minitest::Test
     relative = ChangeLaneA11y::AXE_BUNDLE.delete_prefix("#{File.join(@repo, 'scripts')}/")
     assert File.exist?(File.join(paths.bin, relative)),
            "the a11y lane resolves its bundle at scripts/#{relative}; install must mirror that layout"
+  end
+
+  # Diagram scenes inline the xyflow bundle and its license file from the
+  # same scripts-relative layout, so install must carry both.
+  def test_the_installed_xyflow_bundle_mirrors_the_scripts_layout
+    paths = install
+    bundle = WalkthroughDiagram::XYFLOW_BUNDLE.delete_prefix("#{File.join(@repo, 'scripts')}/")
+    [ bundle, "vendor/xyflow/LICENSES.txt" ].each do |relative|
+      assert File.exist?(File.join(paths.bin, relative)), "install did not place scripts/#{relative}"
+    end
   end
 
   def test_links_every_skill_to_its_compiled_claude_source
