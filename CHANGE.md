@@ -20,6 +20,12 @@ contributors_team:
     basic_auth:
       username_env: CF_PLATFORM_BASIC_AUTH_USER
       password_env: CF_PLATFORM_BASIC_AUTH_PASSWORD
+    # The per-viewport walk recording runs in real time inside the same
+    # browserless call as the scan, and with 21 route/viewport cells it
+    # overran browserless's function timeout on every sweep. Screenshots stay
+    # on; the recording is off until the lane records outside that call.
+    media:
+      video: false
 
 change_config:
   project: changefabric-site
