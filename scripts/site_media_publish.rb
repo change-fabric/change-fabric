@@ -70,11 +70,15 @@ module SiteMediaPublish
   def bucket(env: ENV, runner: DEFAULT_RUNNER)
     return env['SITE_BUCKET'] unless env['SITE_BUCKET'].to_s.empty?
 
-    profile = { 'AWS_PROFILE' => env['AWS_PROFILE'] || 'personal' }
-    out, status = runner.call([ 'terraform', "-chdir=#{INFRA}", 'output', '-raw', 'site_bucket' ], profile)
+    out, status = runner.call([ 'terraform', "-chdir=#{INFRA}", 'output', '-raw', 'site_bucket' ], aws_env(env))
     raise Error, "could not read the site_bucket Terraform output:\n#{out}" unless status.success?
 
     out.strip
+  end
+
+  # The profile every AWS call runs under, defaulted like infra/deploy.sh.
+  def aws_env(env = ENV)
+    { 'AWS_PROFILE' => env['AWS_PROFILE'] || 'personal' }
   end
 
   # Probes duration and dimensions with the pinned ffprobe image.
@@ -171,19 +175,20 @@ module SiteMediaPublish
 
   # The real S3 side, through the aws CLI.
   class AwsUploader
-    def initialize(bucket:, runner: DEFAULT_RUNNER)
+    def initialize(bucket:, runner: DEFAULT_RUNNER, env: SiteMediaPublish.aws_env)
       @bucket = bucket
       @runner = runner
+      @env = env
     end
 
     def exists?(key)
-      _out, status = @runner.call([ 'aws', 's3api', 'head-object', '--bucket', @bucket, '--key', key ])
+      _out, status = @runner.call([ 'aws', 's3api', 'head-object', '--bucket', @bucket, '--key', key ], @env)
       status.success?
     end
 
     def put(path, key, content_type:, cache_control:)
       out, status = @runner.call([ 'aws', 's3', 'cp', path, "s3://#{@bucket}/#{key}",
-                                   '--content-type', content_type, '--cache-control', cache_control ])
+                                   '--content-type', content_type, '--cache-control', cache_control ], @env)
       raise Error, "upload of #{key} failed:\n#{out}" unless status.success?
     end
   end

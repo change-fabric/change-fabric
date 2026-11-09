@@ -136,6 +136,20 @@ class SiteMediaPublishTest < Minitest::Test
     assert_includes deploy, "output -raw site_bucket"
   end
 
+  def test_aws_uploader_runs_every_aws_call_under_the_fallback_profile
+    calls = []
+    runner = lambda do |argv, env|
+      calls << [ argv, env ]
+      [ "", Struct.new(:success?).new(true) ]
+    end
+    uploader = SiteMediaPublish::AwsUploader.new(bucket: "b", runner: runner, env: SiteMediaPublish.aws_env({}))
+    uploader.exists?("media/x.mp4")
+    uploader.put("/tmp/x.mp4", "media/x.mp4", content_type: "video/mp4", cache_control: "c")
+    assert_equal %w[head-object cp], calls.map { |argv, _| argv[2] }
+    calls.each { |_, env| assert_equal({ "AWS_PROFILE" => "personal" }, env) }
+    assert_equal({ "AWS_PROFILE" => "work" }, SiteMediaPublish.aws_env({ "AWS_PROFILE" => "work" }))
+  end
+
   def test_deploy_sh_excludes_media_from_both_syncs
     deploy = File.read(File.join(SiteMediaPublish::INFRA, "deploy.sh"))
     assert_equal 2, deploy.scan('--exclude "media/*"').size
