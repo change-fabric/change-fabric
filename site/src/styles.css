@@ -917,6 +917,50 @@ code {
   font-size: 0.95rem;
 }
 
+/* Toolkit map: the static SVG beside a text list of the same layers. Two
+   columns on a wide page, stacked on a phone; the image never sets a width of
+   its own beyond its intrinsic size. */
+.toolkit-map {
+  display: grid;
+  grid-template-columns: minmax(0, 560px) minmax(0, 1fr);
+  gap: var(--s6);
+  align-items: start;
+  margin-top: var(--s5);
+}
+
+.toolkit-map-img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.toolkit-map-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--border);
+}
+
+.toolkit-map-list li {
+  display: grid;
+  gap: var(--s1);
+  padding: var(--s3) 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.toolkit-map-list span {
+  color: var(--muted);
+  font-size: 0.95rem;
+}
+
+@media (max-width: 959px) {
+  .toolkit-map {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 /* Any box whose content is allowed to be wider than the page: a code sample, a
    reference table. It scrolls inside its own bounds instead of widening the
    document, and carries tabindex="0" in the markup so a keyboard user can

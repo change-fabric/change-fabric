@@ -2,6 +2,7 @@ import { Layout } from "../components/Layout";
 import { CodeBlock } from "../components/CodeBlock";
 import { CURRENT_VERSION, specPath } from "../spec";
 import { SUBTITLE } from "../components/Logo";
+import { MediaSlot } from "../components/MediaSlot";
 
 // The four audit lanes the gate boots an app for. Category leads, the tool is
 // the identifier, and the line says what the lane actually checks.
@@ -50,6 +51,17 @@ const HARNESSES = [
   { id: "pi", url: "https://pi.dev/", name: "Pi", showName: true },
 ] as const;
 
+// The toolkit map: the same five layers the SVG draws, top to bottom, each
+// linking to its filtered reference list. Keep this list and
+// public/diagrams/toolkit-map.svg in step.
+const MAP_LAYERS = [
+  { group: "modes", name: "Merge modes", detail: "How far the agent may go: local-only, merge-ready, admin-bypass, yolo." },
+  { group: "workflow", name: "Workflow commands", detail: "The work itself: plan, drive, walkthrough, diagram, narrate." },
+  { group: "rubrics", name: "Rubrics", detail: "Applied per change: react, ruby, docker, and more." },
+  { group: "lanes", name: "Audit lanes", detail: "Feed the change gate: a11y, k6, zap, qa, testcases." },
+  { group: "hooks", name: "Hooks", detail: "Enforce it: the review gate, the merge guard, the tag guard." },
+] as const;
+
 function Lane({ n, role, name, detail, url }: (typeof LANES)[number]) {
   return (
     <li>
@@ -86,6 +98,7 @@ export function Home() {
               Read the spec
             </a>
           </div>
+          <MediaSlot slot="walkthrough-self" />
           <div className="harnesses" aria-labelledby="harnesses-title">
             <p className="harnesses-title" id="harnesses-title">
               Works with your coding agents
@@ -102,6 +115,29 @@ export function Home() {
                     )}
                     <span className="sr-only"> (opens in a new tab)</span>
                   </a>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </section>
+
+        <section className="home-section" aria-labelledby="map-title">
+          <h2 id="map-title">What the toolkit installs.</h2>
+          <div className="toolkit-map">
+            <img
+              className="toolkit-map-img"
+              src="/diagrams/toolkit-map.svg"
+              width={560}
+              height={464}
+              alt="The toolkit as five stacked layers: merge modes, workflow commands, rubrics, audit lanes, and hooks. The list beside it names the same layers."
+              loading="lazy"
+              decoding="async"
+            />
+            <ul className="toolkit-map-list">
+              {MAP_LAYERS.map((layer) => (
+                <li key={layer.group}>
+                  <a href={`/reference?group=${layer.group}`}>{layer.name}</a>
+                  <span>{layer.detail}</span>
                 </li>
               ))}
             </ul>
