@@ -47,7 +47,20 @@ governance file into every team's assertion dump.
 Compiled by `ChangeFlowCompiler` (`scripts/change_flow_compiler.rb`), which
 owns this vocabulary; the list here is that compiler's, not a second copy of
 it. Every verb takes either a scalar shorthand (`click: "#go"`) or a full
-mapping (`click: { selector: "#go" }`).
+mapping (`click: { selector: "#go" }`). A `timeout_ms` may sit beside the
+verb or inside its mapping (`wait_for: { selector: "#app", timeout_ms: 30000 }`);
+the one beside the verb wins.
+
+A selector is a plain Puppeteer selector (CSS, `::-p-text(...)`,
+`::-p-xpath(...)`), or one of these text and position forms, parsed by
+`scripts/change_flow_selector.rb`: `text=Save` (innermost element whose text
+contains it, skipping `<head>`, `<title>`, `<script>`, `<style>`,
+`<noscript>`, and `<template>` content), `text="Save"` (exact), a trailing
+`:has-text("x")` or `:text-is("x")` on a CSS selector, and a trailing
+`>> nth=N` (0-based, `-1` is the last match). Text compares with whitespace
+collapsed. Other `>>` chains, a mid-selector `:has-text`, or mixing these
+forms with `::-p-` are refused at compile time; the same characters inside a
+quoted attribute value (`a[title="Next >>"]`) are plain CSS.
 
 | Kind | Verb | What it does |
 | --- | --- | --- |
@@ -57,13 +70,15 @@ mapping (`click: { selector: "#go" }`).
 | action | select | Selects an option by value in a `select` element. |
 | action | press | Presses a key, optionally after focusing a selector. |
 | action | wait_for | Waits for a selector, a url fragment, or a navigation load state. |
-| action | screenshot | Captures a named screenshot at this point in the flow. |
+| action | screenshot | Captures a named screenshot at this point in the flow. `full_page: true` captures the whole scrollable page; `viewport: { width, height }` resizes for this capture only. |
+| action | capture | Reads a selector into a named variable: `{ selector, as: name, kind: text, number, or count }` (default `text`; `number` is the first number in the text, commas ignored). |
 | assertion | expect_visible | The selector must be present and visible. |
 | assertion | expect_hidden | The selector must be absent or hidden. |
 | assertion | expect_text | The selector's text must `equals` or `contains` the expected string. |
 | assertion | expect_url | The current url must `equals` or `contains` the expected string. |
 | assertion | expect_status | The last navigation's HTTP status must equal the expected code, so a route that answers 500 with a rendered body is still a failure. |
 | assertion | expect_count | The number of elements matching the selector must equal the expected count. |
+| assertion | expect_equal | A captured `var` must equal a live read of `selector` (with `kind`) or a second captured `equals_var`. Compared as strings, so a captured number matches a count. A var no earlier step captures is refused at compile time. |
 | escape hatch | eval | Raw JS, run as-is in the page. Marked as raw in the compiled step and labeled as such in the report, so a reader can see exactly where the declarative contract was abandoned. Reach for it last. |
 
 ## Secrets

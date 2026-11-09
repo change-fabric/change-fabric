@@ -64,6 +64,12 @@ Task it to:
   `open_questions` (anything genuinely ambiguous: which environment, which
   account or role, destructive vs read-only actions, viewport, whether auth
   is required).
+- Write every selector in the plan in the syntax phase 4's compiler accepts,
+  as stated once in `skills/testcases/reference/suite-file-spec.md` (Step
+  verbs): plain CSS, `::-p-` selectors, and the `text=`, `:has-text`,
+  `:text-is`, `>> nth=N` forms listed there, nothing else. A cross-page
+  check (a count on one page equals a list length on another) is a
+  `capture` then `expect_equal`, never `eval`.
 - Fill a `screenshot` block alongside them, so the before/after phase needs no
   second relevance call of its own. Set `screenshot.ui_surface` true when the
   change touches a user-facing or browser-drivable surface, false when there is
@@ -120,17 +126,33 @@ to:
 2. Write each plan flow as a flow file: a mapping with `base_url` and `steps`,
    each step one verb. Actions: `goto`, `click`, `fill` (value from `env`, a
    literal `value`, or a `code_source`), `select`, `press`, `wait_for`,
-   `screenshot`. Assertions: `expect_visible`, `expect_hidden`, `expect_text`,
-   `expect_url`, `expect_status`, `expect_count`.
+   `screenshot` (`full_page: true`, per-capture `viewport: { width, height }`),
+   `capture` (`{ selector, as: name, kind: text|number|count }`). Assertions:
+   `expect_visible`, `expect_hidden`, `expect_text`, `expect_url`,
+   `expect_status`, `expect_count`, `expect_equal` (`{ var, selector, kind }`
+   or `{ var, equals_var }`). A flow-level `viewport: { width, height }` sizes
+   the page; any step takes `timeout_ms`, beside the verb or inside its
+   mapping (use 30000 or more for a cold start).
+
+   Use only the selector syntax in
+   `skills/testcases/reference/suite-file-spec.md` (Step verbs); any other
+   Playwright form is refused at compile time.
 
    ```yaml
    base_url: http://127.0.0.1:3000
+   viewport: { width: 1280, height: 800 }
    steps:
      - goto: /products/widget
-     - click: "[data-test=add-to-cart]"
+     - click: "button:has-text('Add to cart')"
      - expect_text: { selector: "[data-test=cart-count]", equals: "1" }
      - fill: { selector: "#email", env: QA_EMAIL }
      - expect_url: { contains: "/confirmation" }
+     - goto: /dashboard
+     - wait_for: { selector: "[data-test=summary]", timeout_ms: 30000 }
+     - capture: { selector: "[data-test=open-count]", as: open, kind: number }
+     - click: "text=Open orders"
+     - expect_equal: { var: open, selector: "tr.order", kind: count }
+     - screenshot: { name: orders, full_page: true }
    ```
 3. Run each flow with `ruby scripts/change_flow_run.rb <flow.yml>`, which
    starts the ephemeral browserless Chromium container, digest-pinned per

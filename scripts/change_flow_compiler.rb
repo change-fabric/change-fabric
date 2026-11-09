@@ -2,6 +2,7 @@
 # frozen_string_literal: true
 
 require 'json'
+require_relative 'change_flow_selector'
 
 # Compiles a declarative list of browser steps into one browserless /function
 # payload. Pure Ruby, deterministic, and it never calls an LLM: the same steps
@@ -22,9 +23,10 @@ require 'json'
 #   consumed. Its output is a compatibility contract, not a design.
 # - `ChangeFlowCompiler.new(steps, base_url:)` is the general vocabulary:
 #   actions `goto`, `click`, `fill`, `select`, `press`, `wait_for`,
-#   `screenshot`; assertions `expect_visible`, `expect_hidden`, `expect_text`,
-#   `expect_url`, `expect_status`, `expect_count`; and `eval` as an escape
-#   hatch for raw JS.
+#   `screenshot`, `capture`; assertions `expect_visible`, `expect_hidden`,
+#   `expect_text`, `expect_url`, `expect_status`, `expect_count`,
+#   `expect_equal`; and `eval` as an escape hatch for raw JS. Any selector
+#   may use the text/nth forms ChangeFlowSelector parses.
 #
 # `eval` is supported and marked. A compiled `eval` step carries `raw: true`
 # and a label naming it as raw JS, so a report can show a reader exactly where
@@ -47,8 +49,9 @@ class ChangeFlowCompiler
   DEFAULT_CODE_SOURCE_POLL_INTERVAL_MS = 1_000
   DEFAULT_WAIT_UNTIL = 'domcontentloaded'
 
-  ACTIONS = %w[goto click fill select press wait_for screenshot].freeze
-  ASSERTIONS = %w[expect_visible expect_hidden expect_text expect_url expect_status expect_count].freeze
+  ACTIONS = %w[goto click fill select press wait_for screenshot capture].freeze
+  ASSERTIONS = %w[expect_visible expect_hidden expect_text expect_url expect_status expect_count
+                  expect_equal].freeze
   ESCAPE_HATCH = 'eval'
   VERBS = (ACTIONS + ASSERTIONS + [ ESCAPE_HATCH ]).freeze
 
@@ -58,6 +61,10 @@ class ChangeFlowCompiler
 
   # Step-level keys that are options rather than the verb itself.
   OPTION_KEYS = %w[timeout_ms].freeze
+
+  # What capture and expect_equal read from a selector.
+  READ_KINDS = %w[text number count].freeze
+  VAR_NAME = /\A[A-Za-z_][A-Za-z0-9_]*\z/
 
   # --- the JS runtime ---------------------------------------------------------
 
@@ -127,9 +134,81 @@ class ChangeFlowCompiler
   FLOW_JS = <<~JS
     function cfFail(message) { throw new Error(message); }
 
-    async function cfText(page, selector, timeoutMs) {
-      await page.waitForSelector(selector, { timeout: timeoutMs });
-      return page.$eval(selector, (el) => (el.innerText || el.textContent || "").trim());
+    // Resolves a compiled text/nth locator (see ChangeFlowSelector) inside
+    // the page. Self-contained, because Puppeteer serializes it into the page.
+    // mode is one of "attached", "visible", "hidden", "count".
+    const cfLocate = (loc, mode) => {
+      const norm = (s) => String(s || "").replace(/\\s+/g, " ").trim();
+      const textOf = (el) => norm(el.innerText || el.textContent);
+      const content = (el) => !el.closest("head, title, script, style, noscript, template");
+      let els = Array.from(document.querySelectorAll(loc.css || "*"));
+      if (!loc.css) els = els.filter(content);
+      if (loc.textIs !== null) els = els.filter((el) => textOf(el) === loc.textIs);
+      if (loc.hasText !== null) els = els.filter((el) => textOf(el).indexOf(loc.hasText) !== -1);
+      if (!loc.css) els = els.filter((el) => !els.some((other) => other !== el && el.contains(other)));
+      const picked = loc.nth === null ? els[0] : els[loc.nth < 0 ? els.length + loc.nth : loc.nth];
+      if (mode === "count") return loc.nth === null ? els.length : (picked ? 1 : 0);
+      const visible = (el) => {
+        const style = getComputedStyle(el);
+        const rect = el.getBoundingClientRect();
+        return style.visibility !== "hidden" && style.display !== "none" && rect.width > 0 && rect.height > 0;
+      };
+      if (mode === "hidden") return !picked || !visible(picked);
+      if (!picked) return null;
+      if (mode === "visible" && !visible(picked)) return null;
+      return picked;
+    };
+
+    // Waits for a step's target: through Puppeteer's own selector engine for
+    // a plain selector, through cfLocate for a text/nth one. Returns the
+    // element handle, or null for mode "hidden".
+    async function cfWait(page, step, timeoutMs, mode = "attached") {
+      if (!step.locator) {
+        const options = { timeout: timeoutMs };
+        if (mode === "visible") options.visible = true;
+        if (mode === "hidden") options.hidden = true;
+        return page.waitForSelector(step.selector, options);
+      }
+      const handle = await page.waitForFunction(cfLocate, { timeout: timeoutMs }, step.locator, mode);
+      return mode === "hidden" ? null : handle.asElement();
+    }
+
+    async function cfCount(page, step) {
+      if (step.locator) return page.evaluate(cfLocate, step.locator, "count");
+      return page.$$eval(step.selector, (els) => els.length);
+    }
+
+    async function cfText(page, step, timeoutMs) {
+      const el = await cfWait(page, step, timeoutMs);
+      return el.evaluate((node) => (node.innerText || node.textContent || "").trim());
+    }
+
+    // Reads a value for capture and expect_equal: the element's text, the
+    // first number in that text, or the count of matching elements.
+    async function cfRead(page, step, timeoutMs) {
+      if (step.kind === "count") return cfCount(page, step);
+      const text = await cfText(page, step, timeoutMs);
+      if (step.kind === "text") return text;
+      const match = text.replace(/,/g, "").match(/-?\\d+(\\.\\d+)?/);
+      if (!match) cfFail(`expected a number in the text of ${step.selector}, found ${JSON.stringify(text)}`);
+      return Number(match[0]);
+    }
+
+    function cfVar(state, name) {
+      if (!Object.prototype.hasOwnProperty.call(state.vars, name)) cfFail(`variable ${name} was never captured`);
+      return state.vars[name];
+    }
+
+    // A step-level viewport applies to this capture only; the flow's own
+    // viewport is restored after it.
+    async function cfScreenshot(page, step) {
+      const previous = step.viewport ? page.viewport() : null;
+      if (step.viewport) await page.setViewport(step.viewport);
+      try {
+        return { screenshot: await page.screenshot({ encoding: "base64", fullPage: step.fullPage === true }), name: step.name };
+      } finally {
+        if (previous) await page.setViewport(previous);
+      }
     }
 
     async function cfRunStep(page, step, state) {
@@ -139,28 +218,23 @@ class ChangeFlowCompiler
           state.lastResponse = await page.goto(step.url, { waitUntil: step.waitUntil, timeout: timeout });
           return null;
         case "click":
-          await page.waitForSelector(step.selector, { timeout: timeout });
-          await page.click(step.selector);
+          await (await cfWait(page, step, timeout)).click();
           return null;
         case "fill": {
-          await page.waitForSelector(step.selector, { timeout: timeout });
+          const el = await cfWait(page, step, timeout);
           const value = step.codeSource ? await resolveCodeSource(step.codeSource) : step.value;
-          await page.type(step.selector, value);
+          await el.type(value);
           return null;
         }
         case "select":
-          await page.waitForSelector(step.selector, { timeout: timeout });
-          await page.select(step.selector, step.value);
+          await (await cfWait(page, step, timeout)).select(step.value);
           return null;
         case "press":
-          if (step.selector) {
-            await page.waitForSelector(step.selector, { timeout: timeout });
-            await page.focus(step.selector);
-          }
+          if (step.selector) await (await cfWait(page, step, timeout)).focus();
           await page.keyboard.press(step.key);
           return null;
         case "waitFor":
-          if (step.selector) await page.waitForSelector(step.selector, { timeout: timeout });
+          if (step.selector) await cfWait(page, step, timeout);
           else if (step.urlContains) {
             await page.waitForFunction((needle) => window.location.href.indexOf(needle) !== -1, { timeout: timeout }, step.urlContains);
           } else {
@@ -169,15 +243,20 @@ class ChangeFlowCompiler
           }
           return null;
         case "screenshot":
-          return { screenshot: await page.screenshot({ encoding: "base64" }), name: step.name };
+          return cfScreenshot(page, step);
+        case "capture": {
+          const value = await cfRead(page, step, timeout);
+          state.vars[step.as] = value;
+          return { captured: step.as, found: value };
+        }
         case "expectVisible":
-          await page.waitForSelector(step.selector, { visible: true, timeout: timeout });
+          await cfWait(page, step, timeout, "visible");
           return null;
         case "expectHidden":
-          await page.waitForSelector(step.selector, { hidden: true, timeout: timeout });
+          await cfWait(page, step, timeout, "hidden");
           return null;
         case "expectText": {
-          const text = await cfText(page, step.selector, timeout);
+          const text = await cfText(page, step, timeout);
           if (step.equals !== null && text !== step.equals) cfFail(`expected text ${JSON.stringify(step.equals)}, found ${JSON.stringify(text)}`);
           if (step.contains !== null && text.indexOf(step.contains) === -1) cfFail(`expected text containing ${JSON.stringify(step.contains)}, found ${JSON.stringify(text)}`);
           return { found: text };
@@ -195,9 +274,16 @@ class ChangeFlowCompiler
           return { found: status };
         }
         case "expectCount": {
-          const count = await page.$$eval(step.selector, (els) => els.length);
+          const count = await cfCount(page, step);
           if (count !== step.equals) cfFail(`expected ${step.equals} element(s) matching ${step.selector}, found ${count}`);
           return { found: count };
+        }
+        case "expectEqual": {
+          const expected = cfVar(state, step.var);
+          const actual = step.equalsVar !== null ? cfVar(state, step.equalsVar) : await cfRead(page, step, timeout);
+          const source = step.equalsVar !== null ? step.equalsVar : step.selector;
+          if (String(actual) !== String(expected)) cfFail(`expected ${source} = ${JSON.stringify(actual)} to equal ${step.var} = ${JSON.stringify(expected)}`);
+          return { found: actual, expected: expected };
         }
         case "eval":
           return { value: await page.evaluate("(async () => {" + step.script + "})()") };
@@ -207,7 +293,7 @@ class ChangeFlowCompiler
     }
 
     async function cfRunFlow(page, steps) {
-      const state = { lastResponse: null };
+      const state = { lastResponse: null, vars: {} };
       const results = [];
       for (const step of steps) {
         const record = { index: step.index, verb: step.verb, label: step.label, raw: step.raw === true, ok: true, error: null };
@@ -288,16 +374,28 @@ class ChangeFlowCompiler
 
   attr_reader :base_url, :timeout_ms
 
-  def initialize(steps, base_url: nil, timeout_ms: DEFAULT_TIMEOUT_MS, env: ENV)
+  # `viewport` ({ width:, height: }) sizes the page before the first step;
+  # without it the page keeps Puppeteer's default.
+  def initialize(steps, base_url: nil, timeout_ms: DEFAULT_TIMEOUT_MS, viewport: nil, env: ENV)
     @raw_steps = Array(steps)
     @base_url = base_url.to_s
     @timeout_ms = Integer(timeout_ms)
+    @viewport = viewport && compile_viewport(viewport, 'flow')
     @env = env
   end
 
   # The compiled steps, credentials included. Hand this to the container and
   # nowhere else.
-  def compile = @compile ||= @raw_steps.each_with_index.map { |raw, index| compile_step(raw, index) }
+  def compile
+    @compile ||= begin
+      captured = []
+      @raw_steps.each_with_index.map do |raw, index|
+        step = compile_step(raw, index, captured.dup)
+        captured << step[:as] if step[:verb] == 'capture'
+        step
+      end
+    end
+  end
 
   # The only shape that may be written to a report, a log, or a dump: every
   # value that came from an env var is replaced by a fixed marker, so a
@@ -320,6 +418,8 @@ class ChangeFlowCompiler
       #{self.class.flow_runtime_js}
       export default async ({ page }) => {
         const steps = #{JSON.generate(compile)};
+        const viewport = #{JSON.generate(@viewport)};
+        if (viewport) await page.setViewport(viewport);
         const results = await cfRunFlow(page, steps);
         return { data: { steps: results }, type: "application/json" };
       };
@@ -328,10 +428,23 @@ class ChangeFlowCompiler
 
   private
 
-  def compile_step(raw, index)
-    verb, value, options = split_step(raw, index)
-    compiled = send(:"compile_#{verb}", value, options)
-    compiled.merge(verb: RUNTIME_VERBS.fetch(verb), index: index, timeoutMs: step_timeout(options))
+  # `captured` names the variables earlier steps captured, so expect_equal can
+  # refuse one that nothing set.
+  def compile_step(raw, index, captured)
+    verb, value, timeout = split_step(raw, index)
+    compiled = with_locator(send(:"compile_#{verb}", value, captured))
+    compiled.merge(verb: RUNTIME_VERBS.fetch(verb), index: index, timeoutMs: Integer(timeout || @timeout_ms))
+  end
+
+  # A text/nth selector carries a locator the runtime resolves in the page; a
+  # plain one carries none, so its compiled step is unchanged.
+  def with_locator(compiled)
+    return compiled unless compiled[:selector]
+
+    locator = ChangeFlowSelector.locator(compiled[:selector])
+    locator ? compiled.merge(locator: locator) : compiled
+  rescue ChangeFlowSelector::Error => e
+    raise Error, e.message
   end
 
   # A step is a mapping carrying exactly one verb key, plus optional
@@ -347,20 +460,27 @@ class ChangeFlowCompiler
     raise Error, "step #{index + 1} names no known verb (expected one of: #{VERBS.join(', ')})" if verbs.empty?
     raise Error, "step #{index + 1} names more than one verb: #{verbs.sort.join(', ')}" if verbs.size > 1
 
-    [ verbs.first, keyed.fetch(verbs.first), keyed.slice(*OPTION_KEYS) ]
+    value = keyed.fetch(verbs.first)
+    [ verbs.first, value, keyed['timeout_ms'] || inner_timeout(value) ]
   end
 
-  def step_timeout(options) = Integer(options['timeout_ms'] || @timeout_ms)
+  # A step-level `timeout_ms` wins over one inside the verb's own mapping
+  # (`wait_for: { selector:, timeout_ms: }`); the flow default comes last.
+  def inner_timeout(value)
+    return nil unless value.is_a?(Hash)
+
+    value['timeout_ms']
+  end
 
   # --- actions ---------------------------------------------------------------
 
-  def compile_goto(value, _options)
+  def compile_goto(value, _captured)
     spec = spec_for(value, 'url')
     url = self.class.absolute_url(require_string(spec, 'url', 'goto'), @base_url)
     { url: url, waitUntil: (spec['wait_until'] || DEFAULT_WAIT_UNTIL).to_s, label: "goto #{url}" }
   end
 
-  def compile_click(value, _options)
+  def compile_click(value, _captured)
     selector = selector_for(value, 'click')
     { selector: selector, label: "click #{selector}" }
   end
@@ -368,7 +488,7 @@ class ChangeFlowCompiler
   # The one step that can carry a secret. Exactly one value source: an env var
   # read on the host, a literal already visible in the flow file, or a
   # code_source resolved inside the container.
-  def compile_fill(value, _options)
+  def compile_fill(value, _captured)
     spec = spec_for(value, 'selector')
     selector = require_string(spec, 'selector', 'fill')
     sources = spec.slice('env', 'value', 'code_source').keys
@@ -405,7 +525,7 @@ class ChangeFlowCompiler
     }
   end
 
-  def compile_select(value, _options)
+  def compile_select(value, _captured)
     spec = spec_for(value, 'selector')
     selector = require_string(spec, 'selector', 'select')
     raise Error, "select #{selector} needs a value" unless spec.key?('value')
@@ -414,7 +534,7 @@ class ChangeFlowCompiler
     { selector: selector, value: option, label: "select #{option.inspect} in #{selector}" }
   end
 
-  def compile_press(value, _options)
+  def compile_press(value, _captured)
     spec = spec_for(value, 'key')
     key = require_string(spec, 'key', 'press')
     selector = spec['selector']&.to_s
@@ -424,7 +544,7 @@ class ChangeFlowCompiler
   # The readiness contract in step form: wait for a selector, for the url to
   # contain a fragment, or for a navigation to reach a load state. The wait is
   # the contract; the timeout is only the failure mode.
-  def compile_wait_for(value, _options)
+  def compile_wait_for(value, _captured)
     spec = spec_for(value, 'selector')
     conditions = spec.slice('selector', 'url_contains', 'state').keys
     raise Error, 'wait_for needs one of selector, url_contains, or state' if conditions.empty?
@@ -434,23 +554,40 @@ class ChangeFlowCompiler
       label: "wait_for #{conditions.first} #{spec.fetch(conditions.first)}" }
   end
 
-  def compile_screenshot(value, _options)
-    name = (spec_for(value, 'name')['name'] || 'screenshot').to_s
-    { name: name, label: "screenshot #{name}" }
+  # `full_page: true` captures the whole scrollable page; `viewport:` resizes
+  # for this capture only.
+  def compile_screenshot(value, _captured)
+    spec = spec_for(value, 'name')
+    name = (spec['name'] || 'screenshot').to_s
+    full_page = spec['full_page'] == true
+    viewport = spec['viewport'] && compile_viewport(spec['viewport'], "screenshot #{name}")
+    label = [ "screenshot #{name}", full_page ? 'full page' : nil,
+              viewport ? "at #{viewport[:width]}x#{viewport[:height]}" : nil ].compact.join(' ')
+    { name: name, fullPage: full_page, viewport: viewport, label: label }
+  end
+
+  # Reads a value into a named variable a later expect_equal compares against,
+  # so a count on one page can be checked against a list on another.
+  def compile_capture(value, _captured)
+    spec = spec_for(value, 'selector')
+    selector = require_string(spec, 'selector', 'capture')
+    name = var_name(spec['as'], 'capture', 'as')
+    kind = read_kind(spec, 'capture')
+    { selector: selector, as: name, kind: kind, label: "capture #{kind} of #{selector} as #{name}" }
   end
 
   # --- assertions -------------------------------------------------------------
 
-  def compile_expect_visible(value, _options) = expect_selector(value, 'expect_visible')
+  def compile_expect_visible(value, _captured) = expect_selector(value, 'expect_visible')
 
-  def compile_expect_hidden(value, _options) = expect_selector(value, 'expect_hidden')
+  def compile_expect_hidden(value, _captured) = expect_selector(value, 'expect_hidden')
 
   def expect_selector(value, verb)
     selector = selector_for(value, verb)
     { selector: selector, label: "#{verb} #{selector}" }
   end
 
-  def compile_expect_text(value, _options)
+  def compile_expect_text(value, _captured)
     spec = spec_for(value, 'selector')
     selector = require_string(spec, 'selector', 'expect_text')
     match = match_for(spec, 'expect_text')
@@ -458,14 +595,14 @@ class ChangeFlowCompiler
       label: "expect_text #{selector} #{match[:description]}" }
   end
 
-  def compile_expect_url(value, _options)
+  def compile_expect_url(value, _captured)
     match = match_for(spec_for(value, 'contains'), 'expect_url')
     { equals: match[:equals], contains: match[:contains], label: "expect_url #{match[:description]}" }
   end
 
   # Reads the status of the last navigation this flow performed, so a route
   # that answers 500 with a rendered body is still a failure.
-  def compile_expect_status(value, _options)
+  def compile_expect_status(value, _captured)
     spec = spec_for(value, 'equals')
     raise Error, 'expect_status needs an expected status code' unless spec.key?('equals')
 
@@ -473,7 +610,7 @@ class ChangeFlowCompiler
     { equals: status, label: "expect_status #{status}" }
   end
 
-  def compile_expect_count(value, _options)
+  def compile_expect_count(value, _captured)
     spec = spec_for(value, 'selector')
     selector = require_string(spec, 'selector', 'expect_count')
     raise Error, "expect_count #{selector} needs an expected count" unless spec.key?('equals')
@@ -482,12 +619,65 @@ class ChangeFlowCompiler
     { selector: selector, equals: count, label: "expect_count #{selector} equals #{count}" }
   end
 
+  # Compares a captured variable with a live read of a selector, or with a
+  # second captured variable. Both sides compare as strings, so a captured
+  # number matches a count.
+  def compile_expect_equal(value, captured)
+    spec = spec_for(value, 'var')
+    name = captured_var(spec['var'], 'var', captured)
+    sources = spec.slice('selector', 'equals_var').keys
+    raise Error, 'expect_equal needs one of selector or equals_var' if sources.empty?
+    raise Error, 'expect_equal names both selector and equals_var' if sources.size > 1
+
+    if spec.key?('equals_var')
+      other = captured_var(spec['equals_var'], 'equals_var', captured)
+      return { var: name, equalsVar: other, selector: nil, kind: nil, label: "expect_equal #{other} equals #{name}" }
+    end
+
+    selector = require_string(spec, 'selector', 'expect_equal')
+    kind = read_kind(spec, 'expect_equal')
+    { var: name, equalsVar: nil, selector: selector, kind: kind,
+      label: "expect_equal #{kind} of #{selector} equals #{name}" }
+  end
+
+  def captured_var(raw, key, captured)
+    name = var_name(raw, 'expect_equal', key)
+    raise Error, "expect_equal #{key} #{name} is not captured by an earlier step" unless captured.include?(name)
+
+    name
+  end
+
+  def var_name(raw, verb, key)
+    name = raw.to_s
+    raise Error, "#{verb} needs #{key}: a variable name (letters, digits, underscore)" unless name.match?(VAR_NAME)
+
+    name
+  end
+
+  def read_kind(spec, verb)
+    kind = (spec['kind'] || 'text').to_s
+    raise Error, "#{verb} kind must be one of #{READ_KINDS.join(', ')}, got #{kind}" unless READ_KINDS.include?(kind)
+
+    kind
+  end
+
+  def compile_viewport(raw, where)
+    raise Error, "#{where} viewport must be a mapping of width and height" unless raw.is_a?(Hash)
+
+    spec = raw.to_h { |key, inner| [ key.to_s, inner ] }
+    width = Integer(spec['width'], exception: false)
+    height = Integer(spec['height'], exception: false)
+    raise Error, "#{where} viewport needs positive integer width and height" unless width&.positive? && height&.positive?
+
+    { width: width, height: height }
+  end
+
   # --- the escape hatch --------------------------------------------------------
 
   # Raw JS, run as-is in the page. Marked `raw: true` and labeled as raw JS so
   # every reader of a report can see that this step is not a checked assertion
   # but hand-written code the declarative vocabulary did not cover.
-  def compile_eval(value, _options)
+  def compile_eval(value, _captured)
     script = require_string(spec_for(value, 'script'), 'script', 'eval')
     { script: script, raw: true, label: "eval raw JS (declarative contract bypassed): #{script}" }
   end
