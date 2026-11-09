@@ -35,10 +35,17 @@ echo "syncing $dist -> s3://$bucket"
 # to public/) keeps a stable URL across deploys and must revalidate, or a
 # browser can hold a replaced file for a year. Deciding by directory instead of
 # a list of exceptions means a new public file is safe by default.
+#
+# media/ holds content-addressed clips that scripts/site_media_publish.rb
+# uploads on its own; they are never in dist/. Excluding media/* from both
+# syncs keeps --delete from removing them and keeps any stray local media/
+# from uploading here.
 aws s3 sync "$dist" "s3://$bucket" --delete \
   --exclude "assets/*" \
+  --exclude "media/*" \
   --cache-control "public, max-age=60, must-revalidate"
 aws s3 sync "$dist/assets" "s3://$bucket/assets" --delete \
+  --exclude "media/*" \
   --cache-control "public, max-age=31536000, immutable"
 
 # The raw spec markdown is fetched directly by agents/tools, so serve it as

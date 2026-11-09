@@ -1,0 +1,34 @@
+{
+  "version": 1,
+  "base": "/media/",
+  "slots": {
+    "fixture-video": {
+      "kind": "video",
+      "title": "Fixture clip",
+      "src": "19d46053cbca.mp4",
+      "poster": "b341deaa2535.jpg",
+      "vtt": "643342713318.vtt",
+      "words": null,
+      "duration_ms": 2000,
+      "width": 64,
+      "height": 36,
+      "bytes": 3205,
+      "alt": "A silent two second fixture clip",
+      "transcript": "A silent fixture clip."
+    },
+    "fixture-audio": {
+      "kind": "audio",
+      "title": "Fixture sample",
+      "src": "bc6528e12bb9.mp3",
+      "poster": null,
+      "vtt": "643342713318.vtt",
+      "words": "10a22bc17f2e.json",
+      "duration_ms": 3000,
+      "width": null,
+      "height": null,
+      "bytes": 6339,
+      "alt": "A silent three second fixture sample",
+      "transcript": "A silent fixture sample."
+    }
+  }
+}

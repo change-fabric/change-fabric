@@ -7,13 +7,15 @@
     "embed-spec": "node scripts/embed-spec.mjs",
     "embed-reference": "node scripts/embed-reference.mjs",
     "embed-changelog": "node scripts/embed-changelog.mjs",
-    "prebuild": "npm run embed-spec && npm run embed-reference && npm run embed-changelog",
-    "predev": "npm run embed-spec && npm run embed-reference && npm run embed-changelog",
+    "embed-media": "node scripts/embed-media.mjs",
+    "prebuild": "npm run embed-spec && npm run embed-reference && npm run embed-changelog && npm run embed-media",
+    "predev": "npm run embed-spec && npm run embed-reference && npm run embed-changelog && npm run embed-media",
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "verify:spec-release": "node verify/spec-release.mjs",
-    "test": "node --test test/search.test.ts test/skill-example.test.ts"
+    "test": "node --test test/*.test.ts",
+    "verify:media": "node verify/media.mjs"
   },
   "dependencies": {
     "marked": "^14.1.4",

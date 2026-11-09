@@ -7,6 +7,16 @@ import { ReferenceSkillPage } from "./pages/ReferenceSkillPage";
 import { ReferenceHookPage } from "./pages/ReferenceHookPage";
 import { Moose } from "./pages/Moose";
 import { Porcupine } from "./pages/Porcupine";
+import { lazy, Suspense } from "react";
+
+// The media fixture page exists only in a VITE_MEDIA_FIXTURE=1 build (made by
+// verify/media.mjs). Vite replaces the env check with a constant, so a
+// production build drops the branch and the module, and /verify/media falls
+// through to the homepage like any unknown path.
+const MediaFixture =
+  import.meta.env.VITE_MEDIA_FIXTURE === "1"
+    ? lazy(() => import("./pages/MediaFixture").then((m) => ({ default: m.MediaFixture })))
+    : null;
 
 // A tiny path-based router. Navigation is plain full-page anchors, so each load
 // resolves the current path here. CloudFront serves index.html for unknown
@@ -32,6 +42,14 @@ export function App() {
 
   if (path === "/reference") {
     return <Reference />;
+  }
+
+  if (MediaFixture && path === "/verify/media") {
+    return (
+      <Suspense fallback={null}>
+        <MediaFixture />
+      </Suspense>
+    );
   }
 
   if (path === "/moose") {
