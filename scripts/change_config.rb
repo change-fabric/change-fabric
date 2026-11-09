@@ -552,6 +552,10 @@ class ChangeConfig
     def dir = @dir
 
     def [](key) = @raw[key.to_s]
+
+    # A copy with some keys replaced, for an invocation-time override (a
+    # cf:screenshot --route) that must not touch the loaded config itself.
+    def merge(overrides) = LaneConfig.new(@name, @raw.merge(overrides.transform_keys(&:to_s)), @dir)
     def fetch(key, default) = @raw.fetch(key.to_s, default)
     def env = (@raw['env'] || {}).transform_keys(&:to_s).transform_values(&:to_s)
 

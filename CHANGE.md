@@ -75,7 +75,17 @@ change_config:
 
     a11y:
       enabled: true
-      routes: ["/", "/spec", "/spec/0.1.0", "/changelog", "/reference", "/reference/skills/away", "/reference/hooks/away_guard.rb"]
+      routes:
+        - "/"
+        - "/spec"
+        - "/spec/0.1.0"
+        - "/changelog"
+        - "/reference"
+        - "/reference/skills/away"
+        - "/reference/skills/diagram"
+        - "/reference/skills/walkthrough"
+        - "/reference/skills/narrate"
+        - "/reference/hooks/away_guard.rb"
       threshold: serious
 
     zap:
@@ -93,6 +103,9 @@ change_config:
         - "/changelog"
         - "/reference"
         - "/reference/skills/away"
+        - "/reference/skills/diagram"
+        - "/reference/skills/walkthrough"
+        - "/reference/skills/narrate"
         - "/reference/hooks/away_guard.rb"
       viewports:
         - { name: mobile, width: 390, height: 844 }

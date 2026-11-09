@@ -26,7 +26,7 @@ Docker unavailable is a stop, not a fallback.
 ## Trigger and flags
 
 ```
-/cf:screenshot [<target>] [--base <ref>] [--base-url <url>] [--pr <number>] [--no-upload] [--signoff]
+/cf:screenshot [<target>] [--base <ref>] [--base-url <url>] [--pr <number>] [--no-upload] [--route <path>]... [--viewport <name>]... [--signoff]
 ```
 
 The work is done by the script, run from the target repo root (a repo carrying
@@ -35,7 +35,8 @@ a root `CHANGE.md`):
 ```
 ruby ~/.claude/cf/bin/change_screenshot.rb \
   [--base <ref>] [--base-url <url>] [--config <path>] \
-  [--profile <name>] [--out <dir>] [--pr <number>] [--no-upload]
+  [--profile <name>] [--out <dir>] [--pr <number>] [--no-upload] \
+  [--route <path>]... [--viewport <name>]...
 ```
 
 - `--base <ref>` overrides ref resolution entirely, using the ref literally.
@@ -44,6 +45,12 @@ ruby ~/.claude/cf/bin/change_screenshot.rb \
 - `--out <dir>` is where the PNGs and `manifest.json` land (default
   `cf-screenshots/`).
 - `--no-upload` captures and diffs without touching GitHub.
+- `--route <path>` (repeatable) captures exactly those routes instead of
+  `lanes.browserless.routes`, each normalized through the lane's
+  `normalize_route` so it inherits the lane-level `wait_for`. For a quick ad
+  hoc shot of one page.
+- `--viewport <name>` (repeatable) keeps only the named configured viewports;
+  an unknown name aborts naming the configured ones.
 - `--signoff` asks before the `## Demo` body edit; by default it is written.
 
 A literal `full auto` or `auto` as the first or last word of the args is
@@ -176,7 +183,9 @@ There is no new `CHANGE.md` config key for this capability, and none should be
 added. A repo that already declares what to audit has already declared what to
 photograph; a second parallel route list would drift from the first and quietly
 photograph a different site than the one being audited. Nothing here needs a
-`ChangeSchema::VERSION` bump or a spec release.
+`ChangeSchema::VERSION` bump or a spec release. `--route` and `--viewport`
+are invocation-time overrides, not config: without them the configured lists
+are the source of truth.
 
 ## Diff and filtering
 
@@ -260,7 +269,8 @@ cannot save an unattended run from a half-finished edit. Report the local file
 paths and stop here instead.
 
 Otherwise, compose a `## Demo` markdown section pairing each surviving before/after image
-by route and viewport, appending to an existing Demo section rather than
+by route and viewport (each upload log line reads
+`uploaded <before|after> <viewport> <route>: <url>`), appending to an existing Demo section rather than
 replacing the body if the pull request already has one.
 
 Write it via `gh pr edit --body`, preserving the rest of the existing body.
