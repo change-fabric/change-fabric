@@ -67,8 +67,9 @@ Task it to:
 - Write every selector in the plan in the syntax phase 4's compiler accepts,
   as stated once in `skills/testcases/reference/suite-file-spec.md` (Step
   verbs): plain CSS, `::-p-` selectors, and the `text=`, `:has-text`,
-  `:text-is`, `>> nth=N` forms listed there, nothing else. A cross-page check (a count on one page equals a
-  list length on another) is a `capture` then `expect_equal`, never `eval`.
+  `:text-is`, `>> nth=N` forms listed there, nothing else. A cross-page
+  check (a count on one page equals a list length on another) is a
+  `capture` then `expect_equal`, never `eval`.
 - Fill a `screenshot` block alongside them, so the before/after phase needs no
   second relevance call of its own. Set `screenshot.ui_surface` true when the
   change touches a user-facing or browser-drivable surface, false when there is

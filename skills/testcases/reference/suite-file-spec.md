@@ -55,11 +55,12 @@ A selector is a plain Puppeteer selector (CSS, `::-p-text(...)`,
 `::-p-xpath(...)`), or one of these text and position forms, parsed by
 `scripts/change_flow_selector.rb`: `text=Save` (innermost element whose text
 contains it, skipping `<head>`, `<title>`, `<script>`, `<style>`,
-`<noscript>`, and `<template>` content), `text="Save"` (exact), a trailing `:has-text("x")` or
-`:text-is("x")` on a CSS selector, and a trailing `>> nth=N` (0-based, `-1`
-is the last match). Text compares with whitespace collapsed. Other `>>`
-chains, a mid-selector `:has-text`, or mixing these forms with `::-p-` are
-refused at compile time.
+`<noscript>`, and `<template>` content), `text="Save"` (exact), a trailing
+`:has-text("x")` or `:text-is("x")` on a CSS selector, and a trailing
+`>> nth=N` (0-based, `-1` is the last match). Text compares with whitespace
+collapsed. Other `>>` chains, a mid-selector `:has-text`, or mixing these
+forms with `::-p-` are refused at compile time; the same characters inside a
+quoted attribute value (`a[title="Next >>"]`) are plain CSS.
 
 | Kind | Verb | What it does |
 | --- | --- | --- |

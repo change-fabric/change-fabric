@@ -27,9 +27,8 @@ require_relative 'change_suite_render'
 #
 # The flow file is either a bare list of steps or a mapping carrying
 # `base_url`, `timeout_ms`, `viewport` ({ width:, height: }), and `steps`. A
-# command-line `--base-url` wins over
-# the file's, so the same flow file runs against any environment without being
-# edited.
+# command-line `--base-url` wins over the file's, so the same flow file runs
+# against any environment without being edited.
 #
 # This is the executor `cf:qa` drives in place of hand-written Playwright: the
 # steps are data, the JS is compiled from them by pure Ruby, and the same file
