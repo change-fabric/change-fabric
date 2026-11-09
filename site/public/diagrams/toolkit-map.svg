@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 560 464" width="560" height="464" role="img" aria-labelledby="t d" data-diagram-type="layers">
+  <title id="t">change-fabric toolkit map</title>
+  <desc id="d">The toolkit as five stacked layers, top to bottom. Merge modes set how far the agent may go: local-only, merge-ready, admin-bypass, or yolo. Workflow commands do the work, such as plan, drive, walkthrough, diagram, and narrate. Rubrics are applied per change, such as react, ruby, and docker. Audit lanes feed the change gate: a11y, k6, zap, qa, and testcases. Hooks enforce it all: the review gate, the merge guard, and the tag guard.</desc>
+  <style>
+    svg { --bg: #F6EFE0; --surface: #F0E8DB; --ink: #24122A; --muted: #574F59; --soft: #574F59; --line: #574F59; --rule: #C1C1B7; --accent: #714C8C; --link: #714C8C; --accent-tint: #E9DFD8; }
+    @media (prefers-color-scheme: dark) {
+      svg { --bg: #24122A; --surface: #2C1B31; --ink: #F6EFE0; --muted: #B8BAB0; --soft: #B8BAB0; --line: #B8BAB0; --rule: #493D4C; --accent: #B690CE; --link: #B690CE; --accent-tint: #382441; }
+    }
+    .bg { fill: var(--bg); }
+    .node rect { fill: var(--surface); stroke: var(--ink); stroke-width: 1; }
+    .node.focal rect { fill: var(--accent-tint); stroke: var(--accent); stroke-width: 1.5; }
+    .label { fill: var(--ink); font-weight: 600; font-family: Geist, Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", sans-serif; }
+    .node.focal .label { fill: var(--accent); }
+    .sub { fill: var(--muted); font-family: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, "Noto Sans Mono CJK SC", monospace; }
+    .edge { fill: none; stroke: var(--line); stroke-width: 1.2; }
+    #arrow path { fill: var(--line); }
+  </style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="#574F59"/></marker>
+  </defs>
+  <rect class="bg" x="0" y="0" width="560" height="464" fill="#F6EFE0"/>
+  <path class="edge" data-from="modes" data-to="workflow" d="M280 88 V112"/>
+  <path class="edge" data-from="workflow" data-to="rubrics" d="M280 176 V200"/>
+  <path class="edge" data-from="rubrics" data-to="lanes" d="M280 264 V288"/>
+  <path class="edge" data-from="lanes" data-to="hooks" d="M280 352 V376"/>
+  <g class="node" data-id="modes">
+    <rect x="24" y="24" width="512" height="64" rx="4"/>
+    <text id="modes-label" class="label" x="280" y="51.9" font-size="14" text-anchor="middle">Merge modes</text>
+    <text id="modes-sub" class="sub" x="280" y="69.9" font-size="12" text-anchor="middle">local-only, merge-ready, admin-bypass, yolo</text>
+  </g>
+  <g class="node" data-id="workflow">
+    <rect x="24" y="112" width="512" height="64" rx="4"/>
+    <text id="workflow-label" class="label" x="280" y="139.9" font-size="14" text-anchor="middle">Workflow commands</text>
+    <text id="workflow-sub" class="sub" x="280" y="157.9" font-size="12" text-anchor="middle">plan, drive, walkthrough, diagram, narrate</text>
+  </g>
+  <g class="node" data-id="rubrics">
+    <rect x="24" y="200" width="512" height="64" rx="4"/>
+    <text id="rubrics-label" class="label" x="280" y="227.9" font-size="14" text-anchor="middle">Rubrics</text>
+    <text id="rubrics-sub" class="sub" x="280" y="245.9" font-size="12" text-anchor="middle">applied per change: react, ruby, docker</text>
+  </g>
+  <g class="node focal" data-id="lanes">
+    <rect x="24" y="288" width="512" height="64" rx="4"/>
+    <text id="lanes-label" class="label" x="280" y="315.9" font-size="14" text-anchor="middle">Audit lanes</text>
+    <text id="lanes-sub" class="sub" x="280" y="333.9" font-size="12" text-anchor="middle">change gate: a11y, k6, zap, qa, testcases</text>
+  </g>
+  <g class="node" data-id="hooks">
+    <rect x="24" y="376" width="512" height="64" rx="4"/>
+    <text id="hooks-label" class="label" x="280" y="403.9" font-size="14" text-anchor="middle">Hooks</text>
+    <text id="hooks-sub" class="sub" x="280" y="421.9" font-size="12" text-anchor="middle">review gate, merge guard, tag guard</text>
+  </g>
+</svg>
