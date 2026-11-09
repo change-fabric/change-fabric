@@ -1,0 +1,23 @@
+/* The site's light theme (site/src/styles.css, site/DESIGN.md): four
+   authored colors, every other token a color-mix of two of them. */
+:root {
+  --cream: #f6efe0;
+  --plum: #24122a;
+  --lilac: #a070c8;
+  --sage: #9ea39b;
+  --bg: var(--cream);
+  --surface: color-mix(in srgb, var(--plum) 3%, var(--cream));
+  --code-bg: color-mix(in srgb, var(--plum) 5%, var(--cream));
+  --border: color-mix(in srgb, var(--sage) 60%, var(--cream));
+  --text: var(--plum);
+  --heading: var(--plum);
+  --muted: color-mix(in srgb, var(--sage) 42%, var(--plum));
+  --accent: color-mix(in srgb, var(--lilac) 62%, var(--plum));
+  --font-sans: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-serif: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
+  --font-mono: ui-monospace, SFMono-Regular, "JetBrains Mono", Menlo, Consolas, monospace;
+  --space-1: 12px;
+  --space-2: 24px;
+  --space-3: 48px;
+  --space-4: 96px;
+}

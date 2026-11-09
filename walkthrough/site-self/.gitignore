@@ -1,0 +1,5 @@
+.cache/
+out/
+flats/
+*.mp4
+overview*.png

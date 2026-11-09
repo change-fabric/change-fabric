@@ -1,0 +1,523 @@
+{
+  "schema_version": 1,
+  "slug": "site-self",
+  "title": "change fabric in 45 seconds",
+  "source_docs": [
+    {
+      "path": "brief.md"
+    }
+  ],
+  "viewport": {
+    "w": 1920,
+    "h": 1080
+  },
+  "fps": 30,
+  "music": null,
+  "hypotheses": [
+    {
+      "id": "H-01",
+      "text": "An engineer can say what the toolkit gates and where its rules live after one viewing.",
+      "dimension": "role"
+    },
+    {
+      "id": "H-02",
+      "text": "Watching the flow assemble makes the parallel lanes and the single gate easier to follow than prose.",
+      "dimension": "look_and_feel"
+    }
+  ],
+  "review": {
+    "kind": "explainer",
+    "audience": "Engineers deciding from the docs site whether to adopt the toolkit",
+    "purpose": [
+      "What change fabric is: skills and hooks for Claude Code that decide when a change may land",
+      "That one CHANGE.md per repo holds the config and the protected branches and tags",
+      "That five containerized audit lanes feed one report and a gate on the head commit before a merge or release tag",
+      "That this clip itself is made by the walkthrough skill, diagram scene included"
+    ]
+  },
+  "scenes": [
+    {
+      "id": "intro",
+      "title": "What it is",
+      "order": 1,
+      "user_goal": "Know what the toolkit is",
+      "action": "Read the title card",
+      "screen": {
+        "html": "screens/intro.html"
+      },
+      "narration": {
+        "text": "Change fabric is a set of skills and hooks for Claude Code. It decides when a change is ready to land, and it records why.",
+        "measured_ms": 0
+      },
+      "requirements": [
+        {
+          "source": "brief.md",
+          "anchor": "#toolkit"
+        }
+      ],
+      "hypotheses": [
+        "H-01"
+      ],
+      "heuristics_shown": [
+        "H2",
+        "H8"
+      ],
+      "timing": {
+        "min_ms": 6500,
+        "pad_ms": 500,
+        "transition": {
+          "type": "cut",
+          "ms": 0
+        }
+      },
+      "deps": {
+        "frames_key": "c3bd8be7f61886f1995fb8192eac6172e6418e12f9adf79216ae68659ac7b2b9",
+        "audio_key": "717f0dc6f1efd6bedfdea68490c39f076a214dc7e5174e1ffc7a02d18bbff935",
+        "asset_keys": []
+      }
+    },
+    {
+      "id": "change-md",
+      "title": "One file per repo",
+      "order": 2,
+      "user_goal": "Know where the rules live",
+      "action": "Read the CHANGE.md frontmatter",
+      "screen": {
+        "html": "screens/change-md.html"
+      },
+      "narration": {
+        "text": "Each repo carries one CHANGE.md. Its frontmatter names what to test, and which branches and release tags are protected.",
+        "measured_ms": 0
+      },
+      "requirements": [
+        {
+          "source": "brief.md",
+          "anchor": "#changemd"
+        }
+      ],
+      "assumptions": [
+        {
+          "id": "A-01",
+          "text": "The CHANGE.md on screen is an abridged example for an unnamed app, not a copy of any real repo's file."
+        }
+      ],
+      "hypotheses": [
+        "H-01"
+      ],
+      "heuristics_shown": [
+        "H2",
+        "H6"
+      ],
+      "timing": {
+        "min_ms": 7000,
+        "pad_ms": 500,
+        "transition": {
+          "type": "fade",
+          "ms": 400
+        }
+      },
+      "deps": {
+        "frames_key": "633b916a1ab0652f0dfe9c6a4fc1dbb138e5639f0a5f47c3cdeb76a260bb5165",
+        "audio_key": "5cc2cb248b540e4600845668d26f6f427f86339e7a915b379297c1c1cc4b1e0d",
+        "asset_keys": []
+      }
+    },
+    {
+      "id": "gate-flow",
+      "title": "How a change is gated",
+      "order": 3,
+      "kind": "diagram",
+      "user_goal": "See a change pass through the lanes and the gate",
+      "action": "Watch the flow assemble",
+      "screen": {
+        "html": "screens/gate-flow.html"
+      },
+      "diagram": {
+        "layout": {
+          "engine": "dagre",
+          "direction": "LR"
+        },
+        "nodes": [
+          {
+            "id": "pr",
+            "label": "Pull request",
+            "role": "accent"
+          },
+          {
+            "id": "k6",
+            "label": "Load (k6)"
+          },
+          {
+            "id": "a11y",
+            "label": "Accessibility (axe)"
+          },
+          {
+            "id": "zap",
+            "label": "Pentest (ZAP)"
+          },
+          {
+            "id": "ux",
+            "label": "Responsive UX"
+          },
+          {
+            "id": "cases",
+            "label": "Test cases"
+          },
+          {
+            "id": "report",
+            "label": "One report"
+          },
+          {
+            "id": "gate",
+            "label": "Gate"
+          },
+          {
+            "id": "merge",
+            "label": "Merge to main"
+          },
+          {
+            "id": "tag",
+            "label": "Release tag"
+          }
+        ],
+        "edges": [
+          {
+            "id": "e-pr-k6",
+            "source": "pr",
+            "target": "k6"
+          },
+          {
+            "id": "e-pr-a11y",
+            "source": "pr",
+            "target": "a11y"
+          },
+          {
+            "id": "e-pr-zap",
+            "source": "pr",
+            "target": "zap"
+          },
+          {
+            "id": "e-pr-ux",
+            "source": "pr",
+            "target": "ux"
+          },
+          {
+            "id": "e-pr-cases",
+            "source": "pr",
+            "target": "cases"
+          },
+          {
+            "id": "e-k6-report",
+            "source": "k6",
+            "target": "report"
+          },
+          {
+            "id": "e-a11y-report",
+            "source": "a11y",
+            "target": "report"
+          },
+          {
+            "id": "e-zap-report",
+            "source": "zap",
+            "target": "report"
+          },
+          {
+            "id": "e-ux-report",
+            "source": "ux",
+            "target": "report"
+          },
+          {
+            "id": "e-cases-report",
+            "source": "cases",
+            "target": "report"
+          },
+          {
+            "id": "e-report-gate",
+            "source": "report",
+            "target": "gate",
+            "label": "findings"
+          },
+          {
+            "id": "e-gate-merge",
+            "source": "gate",
+            "target": "merge"
+          },
+          {
+            "id": "e-gate-tag",
+            "source": "gate",
+            "target": "tag"
+          }
+        ],
+        "initial": [
+          "pr"
+        ],
+        "steps": [
+          {
+            "t_ms": 400,
+            "op": "add_node",
+            "ids": [
+              "k6",
+              "a11y",
+              "zap",
+              "ux",
+              "cases",
+              "e-pr-k6",
+              "e-pr-a11y",
+              "e-pr-zap",
+              "e-pr-ux",
+              "e-pr-cases"
+            ]
+          },
+          {
+            "t_ms": 600,
+            "op": "fit_view",
+            "padding": 0.15,
+            "duration": 700
+          },
+          {
+            "t_ms": 1500,
+            "op": "pulse_edge",
+            "ids": [
+              "e-pr-k6",
+              "e-pr-a11y",
+              "e-pr-zap",
+              "e-pr-ux",
+              "e-pr-cases"
+            ],
+            "duration": 900
+          },
+          {
+            "t_ms": 2400,
+            "op": "fit_view",
+            "ids": [
+              "k6",
+              "a11y",
+              "zap",
+              "ux",
+              "cases"
+            ],
+            "padding": 0.2,
+            "duration": 600
+          },
+          {
+            "t_ms": 3300,
+            "op": "highlight",
+            "id": "k6"
+          },
+          {
+            "t_ms": 4100,
+            "op": "highlight",
+            "id": "a11y"
+          },
+          {
+            "t_ms": 5000,
+            "op": "highlight",
+            "id": "zap"
+          },
+          {
+            "t_ms": 5800,
+            "op": "highlight",
+            "id": "ux"
+          },
+          {
+            "t_ms": 6700,
+            "op": "highlight",
+            "id": "cases"
+          },
+          {
+            "t_ms": 7600,
+            "op": "unhighlight",
+            "ids": [
+              "k6",
+              "a11y",
+              "zap",
+              "ux",
+              "cases"
+            ]
+          },
+          {
+            "t_ms": 7700,
+            "op": "add_node",
+            "ids": [
+              "report",
+              "e-k6-report",
+              "e-a11y-report",
+              "e-zap-report",
+              "e-ux-report",
+              "e-cases-report"
+            ]
+          },
+          {
+            "t_ms": 7800,
+            "op": "fit_view",
+            "padding": 0.15,
+            "duration": 600
+          },
+          {
+            "t_ms": 8500,
+            "op": "pulse_edge",
+            "ids": [
+              "e-k6-report",
+              "e-a11y-report",
+              "e-zap-report",
+              "e-ux-report",
+              "e-cases-report"
+            ],
+            "duration": 900
+          },
+          {
+            "t_ms": 9600,
+            "op": "add_node",
+            "ids": [
+              "gate",
+              "e-report-gate"
+            ]
+          },
+          {
+            "t_ms": 9700,
+            "op": "fit_view",
+            "padding": 0.15,
+            "duration": 600
+          },
+          {
+            "t_ms": 10500,
+            "op": "focus",
+            "id": "gate",
+            "zoom": 1.2,
+            "duration": 600
+          },
+          {
+            "t_ms": 11200,
+            "op": "highlight",
+            "ids": [
+              "gate",
+              "e-report-gate"
+            ]
+          },
+          {
+            "t_ms": 11500,
+            "op": "label",
+            "id": "gate",
+            "text": "Pass for head SHA"
+          },
+          {
+            "t_ms": 13000,
+            "op": "add_node",
+            "ids": [
+              "merge",
+              "tag",
+              "e-gate-merge",
+              "e-gate-tag"
+            ]
+          },
+          {
+            "t_ms": 13100,
+            "op": "fit_view",
+            "padding": 0.12,
+            "duration": 700
+          },
+          {
+            "t_ms": 14000,
+            "op": "pulse_edge",
+            "ids": [
+              "e-gate-merge",
+              "e-gate-tag"
+            ],
+            "duration": 800
+          },
+          {
+            "t_ms": 14300,
+            "op": "highlight",
+            "ids": [
+              "merge",
+              "tag",
+              "e-gate-merge",
+              "e-gate-tag"
+            ]
+          },
+          {
+            "t_ms": 15600,
+            "op": "fit_view",
+            "padding": 0.1,
+            "duration": 600
+          }
+        ]
+      },
+      "narration": {
+        "text": "A pull request fans out to five audit lanes, each in its own container: load, accessibility, pentest, responsive layout, and test cases. Every finding lands in one report, and the gate records a pass for the head commit. Only then does the merge or the release tag go through.",
+        "measured_ms": 0
+      },
+      "requirements": [
+        {
+          "source": "brief.md",
+          "anchor": "#lanes"
+        },
+        {
+          "source": "brief.md",
+          "anchor": "#gate"
+        }
+      ],
+      "hypotheses": [
+        "H-02"
+      ],
+      "heuristics_shown": [
+        "H1",
+        "H2"
+      ],
+      "timing": {
+        "min_ms": 17000,
+        "pad_ms": 500,
+        "transition": {
+          "type": "fade",
+          "ms": 400
+        }
+      },
+      "deps": {
+        "frames_key": "f2c9632b1107fac524628ba24283255f37cd7fb87c563012d37cb22cf2f4abcb",
+        "audio_key": "1edcc8a584fafe2deaa6b717acb29537cf3d4ecc464e92e1d3be294c10778519",
+        "asset_keys": []
+      }
+    },
+    {
+      "id": "made-by",
+      "title": "Made by the walkthrough skill",
+      "order": 4,
+      "user_goal": "Know how this clip was made",
+      "action": "Read the source list",
+      "screen": {
+        "html": "screens/made-by.html"
+      },
+      "narration": {
+        "text": "The walkthrough skill makes this clip from one storyboard, including the diagram you just watched. Voice, frames, and captions rebuild from committed sources.",
+        "measured_ms": 0
+      },
+      "requirements": [
+        {
+          "source": "brief.md",
+          "anchor": "#self-made"
+        }
+      ],
+      "hypotheses": [
+        "H-01"
+      ],
+      "heuristics_shown": [
+        "H6",
+        "H10"
+      ],
+      "timing": {
+        "min_ms": 8000,
+        "pad_ms": 800,
+        "transition": {
+          "type": "fade",
+          "ms": 400
+        }
+      },
+      "deps": {
+        "frames_key": "fcb2133cde26813683549225159201b9f7fb4efaff6eddcacf97cea5536aeb94",
+        "audio_key": "bd88d31e764c23cc3854b4239633920c6ea2fff11d61dfc28b33f83b3118ca8d",
+        "asset_keys": []
+      }
+    }
+  ],
+  "tokens_css_sha256": "3943aeecc481f9a68b5b115beb3fcc6b0a7b4afd8f03cec01119bfa5d5a1d571"
+}
