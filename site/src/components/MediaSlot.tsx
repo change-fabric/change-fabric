@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import manifest from "../generated/media.json";
-import { activeWordIndex, formatDuration, type MediaEntry, type Word } from "../media";
+import { activeWordIndex, formatDuration, highlightLoop, type MediaEntry, type Word } from "../media";
 
 const SLOTS = (manifest as { slots: Record<string, MediaEntry> }).slots;
 
@@ -54,28 +54,22 @@ function MediaFigure({ entry }: { entry: MediaEntry }) {
   useEffect(() => {
     const media = mediaRef.current;
     if (!started || !media || !words || prefersReducedMotion()) return;
-    let frame = 0;
-    const tick = () => {
-      setActive(activeWordIndex(words, media.currentTime * 1000));
-      if (!media.paused && !media.ended) frame = requestAnimationFrame(tick);
-    };
-    const start = () => {
-      cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(tick);
-    };
-    const stop = () => {
-      cancelAnimationFrame(frame);
-      setActive(-1);
-    };
+    const { start, stop, onTimeUpdate } = highlightLoop({
+      playing: () => !media.paused && !media.ended,
+      update: () => setActive(activeWordIndex(words, media.currentTime * 1000)),
+      clear: () => setActive(-1),
+      raf: (callback) => requestAnimationFrame(callback),
+      cancel: (id) => cancelAnimationFrame(id),
+    });
     media.addEventListener("play", start);
-    media.addEventListener("timeupdate", tick);
+    media.addEventListener("timeupdate", onTimeUpdate);
     media.addEventListener("pause", stop);
     media.addEventListener("ended", stop);
     if (!media.paused) start();
     return () => {
-      cancelAnimationFrame(frame);
+      stop();
       media.removeEventListener("play", start);
-      media.removeEventListener("timeupdate", tick);
+      media.removeEventListener("timeupdate", onTimeUpdate);
       media.removeEventListener("pause", stop);
       media.removeEventListener("ended", stop);
     };

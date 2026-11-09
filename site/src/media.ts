@@ -45,3 +45,41 @@ export function activeWordIndex(words: Word[], ms: number): number {
   if (found === -1 || ms >= words[found].end_ms) return -1;
   return found;
 }
+
+// The follow-along highlight loop, with one owner: start() runs a single
+// animation-frame chain, stop() cancels it, and onTimeUpdate() only redraws.
+// Frame scheduling is injected so the tests can count pending frames.
+export type HighlightLoop = { start(): void; stop(): void; onTimeUpdate(): void };
+
+export function highlightLoop(opts: {
+  playing: () => boolean;
+  update: () => void;
+  clear: () => void;
+  raf: (callback: () => void) => number;
+  cancel: (id: number) => void;
+}): HighlightLoop {
+  let frame: number | null = null;
+  const halt = () => {
+    if (frame !== null) opts.cancel(frame);
+    frame = null;
+  };
+  const tick = () => {
+    frame = null;
+    if (!opts.playing()) return;
+    opts.update();
+    frame = opts.raf(tick);
+  };
+  return {
+    start() {
+      halt();
+      frame = opts.raf(tick);
+    },
+    stop() {
+      halt();
+      opts.clear();
+    },
+    onTimeUpdate() {
+      if (opts.playing()) opts.update();
+    },
+  };
+}
