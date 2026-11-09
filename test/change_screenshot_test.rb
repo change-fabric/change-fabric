@@ -289,4 +289,75 @@ class ChangeScreenshotTest < Minitest::Test
     def subject.healthy?(_boot) = [ false, "curl: (7)" ]
     assert_nil subject.preflight(boot, ChangeScreenshot::BaseSide.new(commit: "abc"))
   end
+
+  # --- --route and --viewport overrides ----------------------------------------------
+
+  LaneHolder = Struct.new(:lane_config) do
+    def lane(_name) = lane_config
+  end
+
+  def lane_holder
+    raw = { "routes" => [ "/", "/about" ], "wait_for" => { "selector" => "main" } }
+    LaneHolder.new(ChangeConfig::LaneConfig.new("browserless", raw, "/repo"))
+  end
+
+  def capturer_for(lane) = ChangeScreenshotCapture.new(lane, nil)
+
+  def test_without_flags_the_configured_lane_is_used_untouched
+    config = lane_holder
+    assert_same config.lane_config, probe.capture_lane(config)
+  end
+
+  def test_route_replaces_the_configured_routes_through_normalize_route
+    config = lane_holder
+    lane = probe([ "--route", "/reference", "--route", "/changelog" ]).capture_lane(config)
+    entries = capturer_for(lane).send(:route_entries)
+    configured = capturer_for(config.lane_config).send(:route_entries)
+
+    assert_equal [ "/reference", "/changelog" ], entries.map { |e| e[:path] }
+    assert_equal configured.first[:wait_for], entries.first[:wait_for]
+    assert_equal ChangeLaneBrowserless::DEFAULT_VIEWPORTS, capturer_for(lane).send(:viewports)
+  end
+
+  def test_viewport_keeps_only_the_named_configured_viewports
+    lane = probe([ "--viewport", "desktop", "--viewport", "mobile" ]).capture_lane(lane_holder)
+
+    assert_equal %w[mobile desktop], capturer_for(lane).send(:viewports).map { |vp| vp["name"] }
+    assert_equal [ "/", "/about" ], capturer_for(lane).send(:routes)
+  end
+
+  def test_an_unknown_viewport_name_is_a_config_error_naming_the_configured_ones
+    error = assert_raises(ChangeConfig::ConfigError) { probe([ "--viewport", "watch" ]).capture_lane(lane_holder) }
+
+    assert_includes error.message, "watch"
+    assert_includes error.message, "mobile, tablet, desktop"
+  end
+
+  # --- labeled upload log lines ------------------------------------------------------
+
+  Uploaded = Struct.new(:path, :url, :error) do
+    def uploaded? = error.nil?
+  end
+
+  def pair(route:, viewport:, before_path:, after_path:)
+    ChangeScreenshotCapture::Pair.new(viewport: viewport, route: route, before_path: before_path,
+                                      after_path: after_path, changed: true)
+  end
+
+  def test_each_uploaded_url_is_labeled_before_or_after_with_its_viewport_and_route
+    subject = probe
+    kept = [ pair(route: "/spec", viewport: "mobile", before_path: "/o/before/a.png", after_path: "/o/after/a.png") ]
+    uploads = subject.labeled_paths(kept).map do |label, path|
+      [ label, Uploaded.new(path, "https://x/#{File.basename(File.dirname(path))}", nil) ]
+    end
+    output = capture_stderr { subject.summarize_uploads(uploads) }
+
+    assert_includes output, "uploaded before mobile /spec: https://x/before"
+    assert_includes output, "uploaded after mobile /spec: https://x/after"
+  end
+
+  def test_a_side_missing_at_one_ref_gets_no_label
+    kept = [ pair(route: "/new", viewport: "desktop", before_path: nil, after_path: "/o/after/n.png") ]
+    assert_equal [ [ "after desktop /new", "/o/after/n.png" ] ], probe.labeled_paths(kept)
+  end
 end

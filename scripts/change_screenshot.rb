@@ -24,6 +24,7 @@ require_relative 'change_screenshot_upload'
 #
 # Usage: change_screenshot.rb [--base REF] [--base-url URL] [--config PATH]
 #        [--profile NAME] [--out DIR] [--pr NUMBER] [--no-upload]
+#        [--route PATH]... [--viewport NAME]...
 #
 # Three decisions in here are load-bearing and worth reading before changing
 # anything:
@@ -49,7 +50,8 @@ class ChangeScreenshot
 
   DEFAULT_OUT_DIR = 'cf-screenshots'
 
-  Args = Struct.new(:base, :base_url, :config_path, :profile, :out_dir, :pr, :upload, keyword_init: true)
+  Args = Struct.new(:base, :base_url, :config_path, :profile, :out_dir, :pr, :upload, :routes, :viewports,
+                    keyword_init: true)
 
   # How the base ref is reached. Exactly one of the two is set: an
   # already-running url given with --base-url, or a commit to check out into an
@@ -68,11 +70,42 @@ class ChangeScreenshot
     return abort_setup('docker is not available') unless ChangeDocker.available?
 
     config = load_config
+    capture_lane(config)
     base_side = plan_base_side(config)
     preflight(config.boot, base_side)
     report(config, capture_both(config, base_side))
   rescue ChangeConfig::ConfigError => e
     abort_setup(e.message)
+  end
+
+  # --- route and viewport overrides ------------------------------------------
+
+  # The browserless lane config the capture runs against. With no --route and
+  # no --viewport it is the configured lane untouched: the flags are
+  # invocation-time overrides, never a second config source. --route replaces
+  # the route list (each path still goes through the lane's normalize_route,
+  # so it inherits the lane-level wait_for). --viewport keeps only the named
+  # configured viewports, and an unknown name aborts rather than silently
+  # photographing nothing.
+  def capture_lane(config)
+    @capture_lane ||= begin
+      lane = config.lane('browserless')
+      overrides = {}
+      overrides['routes'] = @args.routes unless @args.routes.empty?
+      overrides['viewports'] = selected_viewports(lane) unless @args.viewports.empty?
+      overrides.empty? ? lane : lane.merge(overrides)
+    end
+  end
+
+  def selected_viewports(lane)
+    configured = lane['viewports'] || ChangeLaneBrowserless::DEFAULT_VIEWPORTS
+    names = configured.map { |vp| vp['name'].to_s }
+    unknown = @args.viewports - names
+    unless unknown.empty?
+      raise ChangeConfig::ConfigError,
+            "unknown --viewport #{unknown.join(', ')}; configured viewports are #{names.join(', ')}"
+    end
+    configured.select { |vp| @args.viewports.include?(vp['name'].to_s) }
   end
 
   # --- ref resolution ---------------------------------------------------------
@@ -162,7 +195,7 @@ class ChangeScreenshot
     out_dir = File.expand_path(@args.out_dir)
     ChangeDocker.with_network(boot.network) do |network|
       ChangeDocker.with_browserless(network: network.name) do |session|
-        capturer = ChangeScreenshotCapture.new(config.lane('browserless'), lane_context(config, network, session))
+        capturer = ChangeScreenshotCapture.new(capture_lane(config), lane_context(config, network, session))
         before, after = run_sides(
           boot: boot,
           base_capture: -> { capture_base(config, base_side, capturer, session, out_dir) },
@@ -329,8 +362,17 @@ class ChangeScreenshot
     return [] if !@args.upload || kept.empty?
 
     uploader = ChangeScreenshotUpload.new
-    kept.flat_map { |pair| [ pair.before_path, pair.after_path ].compact }
-        .map { |path| uploader.upload(path) }
+    labeled_paths(kept).map { |label, path| [ label, uploader.upload(path) ] }
+  end
+
+  # Each kept image with the label the Demo composer needs: which side, at
+  # which viewport, of which route. A side missing at one ref has no entry.
+  def labeled_paths(kept)
+    kept.flat_map do |pair|
+      { 'before' => pair.before_path, 'after' => pair.after_path }.filter_map do |side, path|
+        [ "#{side} #{pair.viewport} #{pair.route}", path ] if path
+      end
+    end
   end
 
   def summarize(result, pairs, kept, manifest_path, uploads)
@@ -345,12 +387,14 @@ class ChangeScreenshot
   def summarize_uploads(uploads)
     return if uploads.empty?
 
-    failed = uploads.reject(&:uploaded?)
-    uploads.select(&:uploaded?).each { |item| log("[screenshot] uploaded #{File.basename(item.path)}: #{item.url}") }
+    failed = uploads.reject { |_label, item| item.uploaded? }
+    uploads.select { |_label, item| item.uploaded? }.each do |label, item|
+      log("[screenshot] uploaded #{label}: #{item.url}")
+    end
     return if failed.empty?
 
-    log("[screenshot] upload degraded (#{failed.first.error}); these stayed local:")
-    failed.each { |item| log("[screenshot]   #{item.path}") }
+    log("[screenshot] upload degraded (#{failed.first.last.error}); these stayed local:")
+    failed.each { |label, item| log("[screenshot]   #{label}: #{item.path}") }
   end
 
   # --- plumbing ---------------------------------------------------------------
@@ -358,7 +402,8 @@ class ChangeScreenshot
   private
 
   def parse_args(argv)
-    args = Args.new(config_path: ChangeConfig::DEFAULT_PATH, out_dir: DEFAULT_OUT_DIR, upload: true)
+    args = Args.new(config_path: ChangeConfig::DEFAULT_PATH, out_dir: DEFAULT_OUT_DIR, upload: true,
+                    routes: [], viewports: [])
     OptionParser.new do |o|
       o.on('--base REF') { |value| args.base = value }
       o.on('--base-url URL') { |value| args.base_url = value }
@@ -367,6 +412,8 @@ class ChangeScreenshot
       o.on('--out DIR') { |value| args.out_dir = value }
       o.on('--pr NUMBER') { |value| args.pr = value }
       o.on('--no-upload') { args.upload = false }
+      o.on('--route PATH') { |value| args.routes << value }
+      o.on('--viewport NAME') { |value| args.viewports << value }
     end.parse(argv)
     args
   end
