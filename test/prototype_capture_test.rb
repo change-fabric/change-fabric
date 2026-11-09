@@ -243,13 +243,17 @@ class PrototypeCaptureTest < Minitest::Test
   end
 
   class FakeSession
-    attr_reader :modules
+    attr_reader :modules, :launches
 
-    def initialize = @modules = []
+    def initialize
+      @modules = []
+      @launches = []
+    end
 
     def alive? = true
 
-    def run_function(code)
+    def run_function(code, launch_args: nil)
+      @launches << launch_args
       @modules << code
       first = code[/const first = (\d+);/, 1].to_i
       last = code[/const last = (\d+);/, 1].to_i
@@ -257,6 +261,24 @@ class PrototypeCaptureTest < Minitest::Test
       { "frames" => Array.new(n) { Base64.strict_encode64("png") }, "cursor" => Array.new(n) { { "x" => 0, "y" => 0, "down" => false } },
         "endState" => { "done" => true }, "blockedRequests" => [], "pageErrors" => [] }
     end
+  end
+
+  # Each batch launches the browser with grayscale text and, above dpr 1, at
+  # the viewport's scale (raw CDP screenshots ignore the emulated dpr); the
+  # screen's document scripts hide the page's own cursor.
+  def test_capture_launch_args_follow_the_viewport_dpr
+    Dir.mktmpdir do |dir|
+      session = FakeSession.new
+      PrototypeCapture.capture(session: session, html: "<p/>", interactions: [], duration_ms: 100, out_dir: dir,
+                               state: {}, prng_seed: 7, viewport: { "w" => 1280, "h" => 720, "dpr" => 2 })
+      assert_equal [ [ "--disable-lcd-text", "--force-device-scale-factor=2" ] ], session.launches.uniq
+      assert_includes session.modules.first, "deviceScaleFactor: 2"
+      assert_includes session.modules.first, "cursor: none !important"
+    end
+    assert_equal [ "--disable-lcd-text" ], BrowserlessJs.capture_launch_args(1)
+    html = PrototypeCapture.with_document_scripts("<html><head></head><body></body></html>", prng_seed: 1, state: {})
+    assert_includes html, BrowserlessJs::HIDE_CURSOR_SCRIPT
+    assert_operator html.index("__cf_no_cursor"), :<, html.index("<body>")
   end
 
   def test_capture_batches_and_writes_outputs
@@ -278,12 +300,12 @@ class PrototypeCaptureTest < Minitest::Test
       @drops = drops
     end
 
-    def run_function(code)
+    def run_function(code, **)
       if @drops.positive?
         @drops -= 1
         raise EOFError, "end of file reached"
       end
-      super
+      super(code)
     end
   end
 

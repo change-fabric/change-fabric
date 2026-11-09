@@ -5,6 +5,7 @@ require 'json'
 require 'open3'
 require_relative 'change_docker'
 require_relative 'prototype_ux_lint'
+require_relative 'walkthrough_sharpness'
 
 # The browser frame: `screen.frame: "browser"` on a live or environment
 # scene films the captured viewport inside a neutral, unbranded browser
@@ -201,13 +202,16 @@ module WalkthroughBrowserFrame
   # `dir`. On failure the end-state.json marker is removed, so the scene
   # is not treated as captured.
   def frame_dir!(board, scene, dir, work:, docker: ->(argv) { Open3.capture2e(*argv) })
+    # Frames land on the scene's stage (larger than the canvas under a
+    # camera zoom); cursor.json stays in canvas px.
     lay = layout(board)
+    stage = layout(WalkthroughSharpness.stage_board(board, scene))
     tmp = File.join(dir, 'framed')
     FileUtils.rm_rf(tmp)
-    title_path, address_path = write_text(lay, scene, File.join(tmp, 'chrome'))
+    title_path, address_path = write_text(stage, scene, File.join(tmp, 'chrome'))
     cpath = ->(p) { File.join('/work', File.expand_path(p).delete_prefix("#{File.expand_path(work)}/")) }
     args = [ '-hide_banner', '-nostdin', '-y', '-start_number', '1', '-i', File.join(cpath.(dir), '%06d.png'),
-             '-filter_complex', filter(lay, title_file: cpath.(title_path), address_file: cpath.(address_path)),
+             '-filter_complex', filter(stage, title_file: cpath.(title_path), address_file: cpath.(address_path)),
              '-map', '[out]', '-start_number', '1', File.join(cpath.(tmp), '%06d.png') ]
     argv = ChangeDocker.run_command(network: 'none', image: ChangeDocker::FFMPEG_IMAGE, args: args, mounts: { File.expand_path(work) => '/work' },
                                     workdir: '/work')

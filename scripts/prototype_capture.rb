@@ -11,6 +11,7 @@ require_relative 'prototype_ux_lint'
 require_relative 'walkthrough_cache'
 require_relative 'walkthrough_environment'
 require_relative 'walkthrough_browser_frame'
+require_relative 'walkthrough_sharpness'
 
 # Records a cf:prototype mock screen as a PNG frame sequence under a fixed,
 # controlled clock, in the pinned browserless container and nowhere else.
@@ -29,7 +30,7 @@ module PrototypeCapture
   # for it in real time before frame 0, and fails loudly past this bound
   # rather than capturing a blank frame.
   DIAGRAM_READY_TIMEOUT_MS = 15_000
-  CAPTURE_VERSION = 1
+  CAPTURE_VERSION = 2
   START_MS = 1_767_225_600_000 # 2026-01-01T00:00:00Z
   LOCALE = 'en-US'
   DEFAULT_VIEWPORT = { 'w' => 1920, 'h' => 1080, 'dpr' => 1 }.freeze
@@ -382,6 +383,15 @@ module PrototypeCapture
   # to its timeout), so a batch's measured base64 bytes stay under half that.
   BATCH_MAX_BYTES = 128 * 1024 * 1024
 
+  # The viewport a scene is captured at: the board's, with the dpr that
+  # fills the scene's slot on its stage (an authored viewport dpr wins).
+  def scene_viewport(board, scene)
+    DEFAULT_VIEWPORT.merge(board['viewport'] || {}).merge('dpr' => WalkthroughSharpness.desktop_dpr(board, scene))
+  end
+
+  # Browser launch flags for a capture at this viewport's dpr.
+  def launch_args(viewport) = BrowserlessJs.capture_launch_args(DEFAULT_VIEWPORT.merge(viewport || {})['dpr'])
+
   # `bytes_per_frame` (measured from a finished batch) further caps the size.
   def batch_size(viewport, bytes_per_frame: nil)
     vp = DEFAULT_VIEWPORT.merge(viewport || {})
@@ -423,7 +433,7 @@ module PrototypeCapture
   # The locale pin, frozen clock, and seeded state, inlined ahead of every
   # screen script so a setContent load actually runs them.
   def with_document_scripts(html, prng_seed:, state:)
-    with_clock(html, BrowserlessJs.locale_script(LOCALE) + clock_script(prng_seed: prng_seed, state: state))
+    with_clock(html, BrowserlessJs.locale_script(LOCALE) + BrowserlessJs::HIDE_CURSOR_SCRIPT + clock_script(prng_seed: prng_seed, state: state))
   end
 
   # `lint` lists the frames PrototypeUxLint checks; `shots: false` replays
@@ -596,7 +606,7 @@ module PrototypeCapture
       first = range.end
       code = function_module(html: html, plan: plan, range: range, viewport: viewport, prng_seed: prng_seed, state: state, fps: fps,
                              lint: lint_frames)
-      result = check_result!(run_with_retry(session, code), label)
+      result = check_result!(run_with_retry(session, code, launch_args: launch_args(viewport)), label)
       findings.concat(Array(result['lint']))
       devices.concat(Array(result['devices']))
       overlays = Array(result['overlays']).to_h.merge(overlays)
@@ -625,7 +635,7 @@ module PrototypeCapture
     plan = schedule(interactions, frames, fps)
     code = function_module(html: html, plan: plan, range: 0...frames, viewport: viewport, prng_seed: prng_seed, state: state,
                            fps: fps, lint: PrototypeUxLint.lint_frames(plan, frames), shots: false, aim: aim)
-    result = check_result!(run_with_retry(session, code), label)
+    result = check_result!(run_with_retry(session, code, launch_args: launch_args(viewport)), label)
     report = PrototypeUxLint.scene_report(label, Array(result['lint']), overlays: result['overlays'] || {},
                                                  devices: Array(result['devices'])).merge('aim' => aim)
     PrototypeUxLint.write(out_dir, report)
@@ -643,10 +653,10 @@ module PrototypeCapture
 
   # Before each retry the container must still answer; if it does not, retrying
   # only talks into a void, so fail with a clear error instead.
-  def run_with_retry(session, code, retries: BATCH_RETRIES)
+  def run_with_retry(session, code, retries: BATCH_RETRIES, launch_args: nil)
     attempt = 0
     begin
-      session.run_function(code)
+      launch_args ? session.run_function(code, launch_args: launch_args) : session.run_function(code)
     rescue *DROPPED => e
       attempt += 1
       raise if attempt > retries
@@ -702,7 +712,8 @@ module PrototypeCapture
     remap = final_remap(scene, root, final)
     key = frames_key(html: sha256_file(html_path), inlined: Digest::SHA256.hexdigest(inline_screen(html_path, remap: remap, root: root)),
                      tokens: board['tokens_css_sha256'], interactions: scene['interactions'] || [],
-                     viewport: board['viewport'], fps: board['fps'] || FPS, duration_ms: scene_duration(scene),
+                     viewport: scene_viewport(board, scene), stage: WalkthroughSharpness.stage_size(board, scene),
+                     fps: board['fps'] || FPS, duration_ms: scene_duration(scene),
                      seed: seed_path && sha256_file(seed_path),
                      mock_store: sha256_file(File.join(root, 'screens', 'mock-store.js')),
                      state: WalkthroughCache.key(state), prng_seed: prng, **(remap.empty? ? {} : { images: remap }),
@@ -719,7 +730,7 @@ module PrototypeCapture
     puts "#{scene['id']}: capturing #{frame_count(duration, board['fps'] || FPS)} frames"
     capture(session: session, html: inline_screen(prep[:html_path], root: prep[:root]), interactions: scene['interactions'] || [],
             duration_ms: duration, out_dir: prep[:out_dir], state: prep[:state], prng_seed: prep[:prng_seed],
-            viewport: board['viewport'], fps: board['fps'] || FPS, label: scene['id'])
+            viewport: scene_viewport(board, scene), fps: board['fps'] || FPS, label: scene['id'])
     WalkthroughBrowserFrame.frame_dir!(board, scene, prep[:out_dir], work: prep[:root]) if WalkthroughBrowserFrame.browser?(scene)
   end
 
@@ -758,7 +769,7 @@ if __FILE__ == $PROGRAM_NAME
         dir = File.join(root, '.cache', 'stills', scene['id'])
         PrototypeCapture.capture(session: session, html: PrototypeCapture.inline_screen(prep[:html_path], root: prep[:root]), interactions: [],
                                  duration_ms: PrototypeCapture.frame_ms, out_dir: dir, state: prep[:state],
-                                 prng_seed: prep[:prng_seed], viewport: board['viewport'], label: scene['id'])
+                                 prng_seed: prep[:prng_seed], viewport: PrototypeCapture.scene_viewport(board, scene), label: scene['id'])
         puts "#{scene['id']}: still #{File.join(dir, '000001.png')}"
         next
       end

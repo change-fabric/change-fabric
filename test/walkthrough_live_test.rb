@@ -425,6 +425,46 @@ class WalkthroughLiveTest < Minitest::Test
       end
     end
   end
+
+  # A zoomed scene is composited on its 1.5x stage, so the camera crops it
+  # without scaling up; the cursor track stays in canvas px.
+  def test_scene_writer_composites_on_the_zoomed_stage
+    secrets = Object.new.tap { |o| o.define_singleton_method(:mask_deep) { |v| v } }
+    Dir.mktmpdir do |work|
+      argvs = []
+      docker = ->(argv) { argvs << argv; [ "", Status.new(true) ] }
+      scene = { "id" => "s", "camera" => { "zoom" => 1.5 } }
+      runs = [ { "name" => "desktop", "frames" => [ Base64.strict_encode64("j") ], "ticks" => [ 0 ], "links" => [], "lint" => [],
+                 "cursor" => [ { "x" => 100, "y" => 200, "down" => false } ] } ]
+      WalkthroughLive::SceneWriter.new(board: {}, scene: scene, secrets: secrets, docker: docker, work: work).write(runs, File.join(work, "out"))
+      assert_includes argvs.first.join(" "), "scale=2880:1620:flags=lanczos"
+      assert_equal [ 100.0, 200.0 ], JSON.parse(File.read(File.join(work, "out", "cursor.json"))).first.values_at("x", "y")
+    end
+  end
+
+  # The browser launches at the scene's capture scale (its screencast ignores
+  # the emulated dpr otherwise) with grayscale text, and the page's own
+  # cursor is hidden on every document, so the sprite is the only cursor.
+  def test_capture_launches_at_scale_and_hides_the_page_cursor
+    launches = []
+    session = Object.new
+    session.define_singleton_method(:run_function) do |code, launch_args: nil|
+      launches << [ code, launch_args ]
+      { "devices" => [ { "name" => "desktop", "session" => { "url" => "u" } } ] }
+    end
+    scene = { "id" => "s", "screen" => { "url" => "http://app.example.test" }, "camera" => { "zoom" => 1.5 } }
+    WalkthroughLive.capture(session: session, board: {}, scene: scene, out_dir: nil, secrets: WalkthroughLive::Secrets.new([]), shots: false)
+    code, args = launches.first
+    assert_equal [ "--disable-lcd-text", "--force-device-scale-factor=2" ], args
+    assert_includes code, "maxWidth: dev.w * dev.dpr"
+    assert_includes code, '"dpr":2'
+    assert_includes code, "await page.evaluateOnNewDocument(hideCursor);"
+    assert_includes code, "await page.evaluate(hideCursor);"
+    assert_includes code, JSON.generate(BrowserlessJs::HIDE_CURSOR_SCRIPT)
+    WalkthroughLive.capture(session: session, board: {}, scene: scene.except("camera"), out_dir: nil,
+                            secrets: WalkthroughLive::Secrets.new([]), shots: false)
+    assert_equal [ "--disable-lcd-text" ], launches.last.last, "an unzoomed full-bleed scene stays at dpr 1"
+  end
 end
 
 class WalkthroughLiveRetryTest < Minitest::Test

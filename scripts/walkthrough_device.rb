@@ -3,6 +3,7 @@
 require_relative 'prototype_capture'
 require_relative 'prototype_ux_lint'
 require_relative 'walkthrough_browser_frame'
+require_relative 'walkthrough_sharpness'
 
 # Which devices a live or compose scene is filmed on, and where each lands
 # on the board canvas. `devices` is ["desktop"] (the default, the board
@@ -60,29 +61,35 @@ module WalkthroughDevice
   def board_viewport(board) = PrototypeCapture::DEFAULT_VIEWPORT.merge(board['viewport'] || {})
 
   # The capture spec per device: viewport, and for a phone the mobile UA.
+  # Every device of a scene shares one dpr, the largest any of them needs:
+  # it is also the scale the browser is launched at (capture_scale), and a
+  # device emulated below it would screencast at its own dpr while its
+  # first screenshot came back at the launch scale.
   def specs(board, scene)
-    devices(scene).map do |name|
+    raw = devices(scene).map do |name|
       if name == 'phone'
         ph = phone(board)
-        { 'name' => 'phone', 'w' => ph['w'], 'h' => ph['h'], 'dpr' => ph['dpr'], 'mobile' => true, 'ua' => ph['ua'] }
+        { 'name' => 'phone', 'w' => ph['w'], 'h' => ph['h'], 'dpr' => WalkthroughSharpness.phone_dpr(board, scene, ph), 'mobile' => true,
+          'ua' => ph['ua'] }
       else
         board_viewport(board).merge('name' => 'desktop', 'mobile' => false, 'dpr' => desktop_dpr(board, scene))
       end
     end
+    scale = capture_scale(raw)
+    raw.map { |s| s.merge('dpr' => scale) }
   end
 
   # A storyboard's own viewport dpr always wins. Otherwise capture enough
-  # device pixels that the browser frame's shrink and the camera's zoom
-  # never upsample: at dpr 1, a 1.5x zoom inside a 0.7x browser frame
-  # resamples small text down and back up, and it reads soft.
-  def desktop_dpr(board, scene)
-    explicit = board.dig('viewport', 'dpr')
-    return explicit if explicit
+  # device pixels to fill the desktop's slot on the scene's stage (the
+  # canvas times any camera zoom, inside any browser frame), so assembly
+  # never upsamples small text. See WalkthroughSharpness.
+  def desktop_dpr(board, scene) = WalkthroughSharpness.desktop_dpr(board, scene)
 
-    zoom = [ scene.dig('camera', 'zoom').to_f, 1.0 ].max
-    shrink = WalkthroughBrowserFrame.browser?(scene) ? WalkthroughBrowserFrame.layout(board).content.scale : 1.0
-    (zoom / shrink).ceil.clamp(DPR.min, DPR.max)
-  end
+  # The scale factor the browser is launched at for a scene: the largest
+  # dpr any of its devices captures at. Headless Chromium's screencast and
+  # raw CDP screenshots ignore the emulated dpr and stay at CSS px unless
+  # the browser itself runs at that scale.
+  def capture_scale(specs) = specs.map { |s| s['dpr'] }.max
 
   # A scene with no devices is filmed full bleed on the board viewport, so
   # boards authored before devices existed render unchanged.

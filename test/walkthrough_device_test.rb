@@ -81,24 +81,34 @@ class WalkthroughDeviceTest < Minitest::Test
     assert WalkthroughDevice.hidden_path(3).all? { |p| p["x"] == WalkthroughDevice::OFF_CANVAS }
   end
 
+  # The dpr fills the desktop's slot on the stage (canvas x zoom, times the
+  # browser frame's shrink) to within MAX_UPSCALE, and no further.
   def test_desktop_dpr_covers_camera_zoom_and_browser_frame
     browser = { "url" => "http://app.test", "frame" => "browser" }
     dpr = ->(board, sc) { WalkthroughDevice.specs(board, sc).first["dpr"] }
     assert_equal 1, dpr.call({}, {})
     assert_equal 2, dpr.call({}, { "camera" => { "zoom" => 1.5 } })
-    assert_equal 2, dpr.call({}, { "screen" => browser })
-    assert_equal 3, dpr.call({}, { "screen" => browser, "camera" => { "zoom" => 1.8 } })
+    assert_equal 1, dpr.call({}, { "screen" => browser }), "the frame shrinks the page, so dpr 1 already scales down"
+    assert_equal 2, dpr.call({}, { "screen" => browser, "camera" => { "zoom" => 1.8 } })
     assert_equal 1, dpr.call({}, { "camera" => { "zoom" => 0.6 } })
-    assert_equal 4, dpr.call({}, { "screen" => browser, "camera" => { "zoom" => 3.0 } })
+    assert_equal 3, dpr.call({}, { "camera" => { "zoom" => 3.0 } })
     assert_equal 1, dpr.call(BOARD, { "screen" => browser, "camera" => { "zoom" => 1.8 } })
   end
 
-  def test_desktop_dpr_changes_the_live_frames_key
+  def test_side_by_side_devices_share_the_launch_scale
+    specs = WalkthroughDevice.specs({}, scene(%w[desktop phone], "side_by_side"))
+    assert_equal [ 2, 2 ], specs.map { |s| s["dpr"] }, "the desktop rides the phone's dpr 2"
+    assert_equal 2, WalkthroughDevice.capture_scale(specs)
+  end
+
+  def test_desktop_dpr_and_stage_change_the_live_frames_key
     sc = { "id" => "s1", "screen" => { "url" => "http://app.test" }, "camera" => { "zoom" => 1.5 } }
     unzoomed = sc.merge("camera" => { "zoom" => 1.0 })
     refute_equal WalkthroughLive.frames_key({}, sc), WalkthroughLive.frames_key({}, unzoomed)
     pinned = { "viewport" => { "dpr" => 1 } }
-    assert_equal WalkthroughLive.frames_key(pinned, sc), WalkthroughLive.frames_key(pinned, unzoomed)
+    assert_equal WalkthroughDevice.specs(pinned, sc), WalkthroughDevice.specs(pinned, unzoomed)
+    refute_equal WalkthroughLive.frames_key(pinned, sc), WalkthroughLive.frames_key(pinned, unzoomed),
+                 "frames are composited on the zoomed stage, so the stage is key material"
   end
 
   def test_specs_use_mobile_emulation_for_the_phone

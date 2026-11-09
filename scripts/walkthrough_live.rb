@@ -28,7 +28,7 @@ module WalkthroughLive
   class CaptureError < StandardError; end
   class MissingEnvError < StandardError; end
 
-  CAPTURE_VERSION = 1
+  CAPTURE_VERSION = 2
   WAIT_UNTIL = %w[domcontentloaded load].freeze
   DEFAULT_WAIT = { 'until' => 'load', 'settle_ms' => 0 }.freeze
   STORAGE_AREAS = %w[sessionStorage localStorage].freeze
@@ -42,7 +42,10 @@ module WalkthroughLive
   ENV_RE = /\A[A-Z_][A-Z0-9_]*\z/
   HOST_RE = /\A[A-Za-z0-9.-]+:[0-9A-Fa-f:.]+\z/
   TIMEOUT_MS = 30_000
-  JPEG_QUALITY = 90
+  # 95, not 90: q90 costs about 6 dB PSNR on small text against a PNG of
+  # the same page (39.6 vs 45.4), more than the final x264 encode loses; q95
+  # adds about a fifth to frame bytes.
+  JPEG_QUALITY = 95
   MASK = '[masked]'
 
   module_function
@@ -308,6 +311,7 @@ module WalkthroughLive
                          storage: scene['storage'], viewport: board['viewport'], fps: fps_for(board),
                          duration_ms: PrototypeCapture.scene_duration(scene), browser: browser_opts(board),
                          devices: WalkthroughDevice.specs(board, scene), layout: WalkthroughDevice.layout_name(scene),
+                         stage: WalkthroughSharpness.stage_size(board, scene),
                          **(WalkthroughBrowserFrame.browser?(scene) ? { frame: WalkthroughBrowserFrame.material(scene) } : {}),
                          browserless: PrototypeCapture.browserless_digest, capture_version: CAPTURE_VERSION)
   end
@@ -464,6 +468,7 @@ module WalkthroughLive
     <<~JS.chomp
       const ux = #{JSON.generate(PrototypeUxLint::BROWSER_JS)};
       const linkHook = #{JSON.generate(LINK_HOOK)};
+      const hideCursor = #{JSON.generate(BrowserlessJs::HIDE_CURSOR_SCRIPT)};
       const stepMs = #{PrototypeCapture.frame_ms(fps_for(board))};
       #{BrowserlessJs::SCREENCAST_SAMPLER_JS}
       const runDevice = async (job) => {
@@ -473,10 +478,12 @@ module WalkthroughLive
         page.on("pageerror", (err) => pageErrors.push(String(err && err.message || err)));
         const seedId = await restore(page, client);
         await page.evaluateOnNewDocument(linkHook);
+        await page.evaluateOnNewDocument(hideCursor);
         const safe = async (fn, fallback) => { try { return await fn(); } catch (e) { void e; return fallback; } };
         if (job.html) {
           await page.setContent(job.html, { waitUntil: "load" });
           await page.evaluate(linkHook);
+          await page.evaluate(hideCursor);
         } else {
           await page.goto(job.url, { waitUntil: #{JSON.generate(wait['until'])} });
         }
@@ -676,10 +683,11 @@ module WalkthroughLive
   # rubocop:disable Metrics/ParameterLists
   def capture(session:, board:, scene:, out_dir:, secrets:, browser_session: nil, docker: nil, work: nil, shots: true, compose: nil)
     # rubocop:enable Metrics/ParameterLists
-    jobs = WalkthroughDevice.specs(board, scene).map { |spec| job(board, scene, spec, secrets, compose: compose, shots: shots, root: work) }
-    result = guard(secrets) do
-      PrototypeCapture.run_with_retry(session, capture_module(board, scene, jobs: jobs, session: browser_session), retries: retries_for(jobs))
-    end
+    specs = WalkthroughDevice.specs(board, scene)
+    jobs = specs.map { |spec| job(board, scene, spec, secrets, compose: compose, shots: shots, root: work) }
+    launch = BrowserlessJs.capture_launch_args(WalkthroughDevice.capture_scale(specs))
+    code = capture_module(board, scene, jobs: jobs, session: browser_session)
+    result = guard(secrets) { PrototypeCapture.run_with_retry(session, code, retries: retries_for(jobs), launch_args: launch) }
     runs = result['devices']
     SceneWriter.new(board: board, scene: scene, secrets: secrets, docker: docker, work: work).write(runs, out_dir) if shots
     runs.first['session']
@@ -696,7 +704,8 @@ module WalkthroughLive
       @docker = docker || ->(argv) { Open3.capture2e(*argv) }
       @work = work
       @framed = WalkthroughBrowserFrame.browser?(scene)
-      @layout = @framed ? WalkthroughBrowserFrame.layout(board) : WalkthroughDevice.layout(board, scene)
+      @layout = layout_for(board)
+      @stage = layout_for(WalkthroughSharpness.stage_board(board, scene))
     end
 
     def write(runs, out_dir)
@@ -705,7 +714,7 @@ module WalkthroughLive
       dirs = runs.to_h { |run| [ run['name'], write_jpgs(run, File.join(out_dir, 'jpg', run['name'])) ] }
       # The composite filter is positional over the layout's rects, so feed
       # inputs in rect order, not the scene's authored device order.
-      composite!(@layout.rects.map { |r| dirs.fetch(r.name) }, out_dir)
+      composite!(@stage.rects.map { |r| dirs.fetch(r.name) }, out_dir)
       FileUtils.rm_rf(File.join(out_dir, 'jpg'))
       write_tracks(runs, out_dir)
       links = runs.flat_map { |r| Array(r['links']) }.uniq.map { |href| WalkthroughCompose.parse_link(href).merge('href' => href) }
@@ -715,6 +724,10 @@ module WalkthroughLive
     end
 
     private
+
+    # The device layout on `board`: cursor tracks and frame lint use the
+    # canvas; frames are composited on the scene's stage.
+    def layout_for(board) = @framed ? WalkthroughBrowserFrame.layout(board) : WalkthroughDevice.layout(board, @scene)
 
     def write_jpgs(run, dir)
       FrameVideo.write_jpgs(dir, run['frames'], run['ticks'])
@@ -748,10 +761,10 @@ module WalkthroughLive
     # beside the frames (removed with the jpg dir); others use the device
     # layout filter.
     def composite_filter(out_dir)
-      return WalkthroughDevice.filter(@layout) unless @framed
+      return WalkthroughDevice.filter(@stage) unless @framed
 
-      title, address = WalkthroughBrowserFrame.write_text(@layout, @scene, File.join(out_dir, 'jpg', 'chrome'))
-      WalkthroughBrowserFrame.filter(@layout, title_file: container(title), address_file: container(address))
+      title, address = WalkthroughBrowserFrame.write_text(@stage, @scene, File.join(out_dir, 'jpg', 'chrome'))
+      WalkthroughBrowserFrame.filter(@stage, title_file: container(title), address_file: container(address))
     end
 
     # JPEG screencast frames become PNGs on the board canvas in the pinned

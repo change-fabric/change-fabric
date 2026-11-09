@@ -8,7 +8,34 @@ require 'json'
 # Nothing here talks to a container: callers interpolate the fragments into a
 # module and post it with ChangeDocker::Browserless#run_function.
 module BrowserlessJs
+  # Hides the page's own mouse cursor on every element, so the composited
+  # sprite is the only cursor a capture can ever show. Plain script source:
+  # it runs from evaluateOnNewDocument, page.evaluate, or a <script> tag.
+  HIDE_CURSOR_SCRIPT = <<~JS.gsub(/\n\s*/, ' ').strip
+    (() => {
+      const add = () => {
+        if (document.getElementById("__cf_no_cursor")) return;
+        const s = document.createElement("style");
+        s.id = "__cf_no_cursor";
+        s.textContent = "*, *::before, *::after { cursor: none !important; }";
+        (document.head || document.documentElement).appendChild(s);
+      };
+      if (document.documentElement) add(); else document.addEventListener("DOMContentLoaded", add);
+    })();
+  JS
+
   module_function
+
+  # Chromium launch flags for a frame capture. Text renders with grayscale
+  # antialiasing: LCD subpixel text carries colored fringes that 4:2:0
+  # chroma smears into soft halos. A scale above 1 launches the browser at
+  # that device scale factor, because headless screencast frames and raw
+  # CDP screenshots ignore the emulated dpr and stay at CSS px otherwise.
+  def capture_launch_args(scale = 1)
+    args = [ '--disable-lcd-text' ]
+    args << "--force-device-scale-factor=#{scale}" if scale.to_f > 1
+    args
+  end
 
   # Defines newBrowserContext(browser). Puppeteer renamed the call
   # (createIncognitoBrowserContext -> createBrowserContext); both are probed.

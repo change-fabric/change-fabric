@@ -71,7 +71,7 @@ class WalkthroughFfmpegTest < Minitest::Test
   def test_determinism_flags_present_in_order
     argv = WalkthroughFfmpeg.pass2(plan, MEASURED)
     flags = %w[-fflags +bitexact -flags:v +bitexact -flags:a +bitexact -r 30 -pix_fmt yuv420p -map_metadata -1
-               -c:v libx264 -preset medium -crf 18 -threads 4 -c:a aac -b:a 192k -t 6.000]
+               -c:v libx264 -preset medium -tune animation -crf 18 -threads 4 -c:a aac -b:a 192k -t 6.000]
     assert_equal flags, argv[-(flags.size + 3)...-3]
     assert_equal %w[-movflags +faststart /work/r/walkthrough.mp4], argv.last(3)
   end
@@ -140,6 +140,8 @@ class WalkthroughFfmpegTest < Minitest::Test
 
   def test_long_cursor_path_uses_sendcmd
     p = plan
+    # A cut: a fade into the next scene parks the outgoing cursor, collapsing the path.
+    p[:scenes][1][:transition] = { "type" => "cut", "ms" => 0 }
     p[:scenes][0][:cursor] = (1..(WalkthroughFfmpeg::CHAIN_MAX + 5)).map { |f| { "frame" => f, "x" => f, "y" => 7 } }
     files = WalkthroughFfmpeg.sendcmd_files(p)
     assert_equal [ "/work/r/cursor-one.cmd" ], files.keys
@@ -154,6 +156,7 @@ class WalkthroughFfmpegTest < Minitest::Test
   # inline chain, so it must go through sendcmd.
   def test_a_120_run_cursor_path_uses_sendcmd
     p = plan
+    p[:scenes][1][:transition] = { "type" => "cut", "ms" => 0 }
     p[:scenes][0][:cursor] = (1..120).map { |f| { "frame" => f, "x" => f, "y" => 7 } }
     assert WalkthroughFfmpeg.long_path?(p[:scenes][0][:cursor])
     assert_equal [ "/work/r/cursor-one.cmd" ], WalkthroughFfmpeg.sendcmd_files(p).keys
@@ -211,6 +214,37 @@ class WalkthroughFfmpegTest < Minitest::Test
 
   def test_same_plan_same_argv
     assert_equal WalkthroughFfmpeg.pass2(plan, MEASURED), WalkthroughFfmpeg.pass2(plan, MEASURED)
+  end
+
+  # A crossfade overlaps two scenes; the outgoing cursor is parked for the
+  # overlap so only the incoming one shows. A cut changes nothing.
+  def test_fade_parks_the_outgoing_cursor_for_the_overlap
+    p = plan
+    p[:scenes][0][:cursor] = (1..60).map { |f| { "frame" => f, "x" => 10, "y" => 20 } }
+    assert_equal 46, WalkthroughFfmpeg.fade_out_from(p, 0), "scene two fades in over frames 46..60"
+    track = WalkthroughFfmpeg.track(p, 0, :cursor)
+    assert(track.first(45).all? { |pt| pt["x"] == 10 })
+    assert(track.last(15).all? { |pt| pt["x"] < -WalkthroughFfmpeg::RIPPLE * 2 })
+    assert_equal p[:scenes][1][:cursor], WalkthroughFfmpeg.track(p, 1, :cursor), "the incoming cursor is untouched"
+    assert_nil WalkthroughFfmpeg.fade_out_from(p, 1), "scene three is a cut"
+    assert_includes graph(WalkthroughFfmpeg.pass2(p, MEASURED)).join(";"), "if(lt(n,45),10,-1000)"
+  end
+
+  # A zoomed scene is scaled down onto its stage, the sprite and the cursor
+  # track scale with it, and the camera only crops.
+  def test_zoomed_stage_scales_down_then_crops
+    p = plan
+    p[:scenes][0][:camera] = { "zoom" => 1.5 }
+    p[:scenes][0][:stage] = [ 2880, 1620 ]
+    g = graph(WalkthroughFfmpeg.pass2(p, MEASURED))
+    assert_includes g, "[c0]scale=iw*1.5000:ih*1.5000:flags=lanczos[cs0]"
+    assert_includes g, "[0:v]setpts=PTS-STARTPTS,scale=2880:1620:flags=lanczos[s0]"
+    chain = g.find { |part| part.start_with?("[s0][cs0]overlay") }
+    assert_includes chain, "x='if(lt(n,2),15,23)':y='30'"
+    assert_includes chain, "eval=frame,crop=1920:1080:480:270,setsar=1,"
+    refute_includes chain, "scale=2880:1620", "a frame already on its stage is never rescaled by the camera"
+    assert_equal "scale=2880:1620:flags=lanczos,crop=1920:1080:480:270,setsar=1",
+                 WalkthroughFfmpeg.camera_filter(p, { "zoom" => 1.5 }), "without a stage the old scale-up path stands"
   end
 end
 
