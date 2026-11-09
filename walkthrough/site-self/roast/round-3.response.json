@@ -1,0 +1,3 @@
+{ "responses": [
+  { "screen": "gate-flow", "problem": "The 7.5 s hold repeats the merge and tag destinations", "verdict": "rebut", "change": "Kept as a deliberate music-and-visuals hold, now carrying the 'Passed: head commit' label; the opener timing was tightened so the lockup holds 1.75 s." }
+] }

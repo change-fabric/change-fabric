@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "storyboard_sha256": "ea285bbbb45dd5094611472a5a5e6a33faec1d98a679f75c536a6e1621a42c54",
+  "storyboard_sha256": "8743aa1541bfb166869cb8b5c468be5ee1394f7c0313621a5e54303b5d694ee9",
   "models": {
     "voice": "eleven_multilingual_v2",
     "voice_id": "21m00Tcm4TlvDq8ikWAM",
@@ -36,7 +36,7 @@
       "start_frame": 0,
       "frames": 90,
       "duration_ms": 3000,
-      "frames_key": "559fe57987a40e02942c23208db5789bc96b40906e557c069fe1d8b84458d1f2",
+      "frames_key": "b32c15e7f549ad3b646ec291c28dea1a56a28cbf36aab1141a3735a526eaa7fd",
       "audio_key": "a7993f273c5bfec36154bf4ab3c684c99d4b2611d388658a2ca523b79470fcd5",
       "asset_keys": []
     },
@@ -63,7 +63,7 @@
       "start_frame": 420,
       "frames": 720,
       "duration_ms": 24000,
-      "frames_key": "b1800741228c320a78224d89c215f342c5e8b1fb9b59538c25fe02131ebf21b4",
+      "frames_key": "14e83a3b8d0c0b3434366c11aed8b8343816e0dc830d95f1862be8e9a5977ce1",
       "audio_key": "e8ca085435978a12dcf78f118b26e7fca546954375db9f965bd8deafe098c17b",
       "asset_keys": []
     },
@@ -77,5 +77,5 @@
       "asset_keys": []
     }
   ],
-  "manifest_hash": "33a9f25254cf78bc35a603e5c623285ac26d8e14297b6bf4dbeb0869d9320c67"
+  "manifest_hash": "402d8e9e4d36d857ca21fb12d6ad8b669fa23c21fb31697dd54b14e31611a171"
 }

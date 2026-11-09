@@ -166,7 +166,7 @@
         }
       },
       "deps": {
-        "frames_key": "559fe57987a40e02942c23208db5789bc96b40906e557c069fe1d8b84458d1f2",
+        "frames_key": "b32c15e7f549ad3b646ec291c28dea1a56a28cbf36aab1141a3735a526eaa7fd",
         "audio_key": "a7993f273c5bfec36154bf4ab3c684c99d4b2611d388658a2ca523b79470fcd5",
         "asset_keys": []
       }
@@ -716,6 +716,12 @@
             "duration": 200
           },
           {
+            "t_ms": 18000,
+            "op": "label",
+            "id": "gate",
+            "text": "Passed: head commit"
+          },
+          {
             "t_ms": 21000,
             "op": "add_node",
             "ids": [
@@ -801,7 +807,7 @@
         }
       },
       "deps": {
-        "frames_key": "b1800741228c320a78224d89c215f342c5e8b1fb9b59538c25fe02131ebf21b4",
+        "frames_key": "14e83a3b8d0c0b3434366c11aed8b8343816e0dc830d95f1862be8e9a5977ce1",
         "audio_key": "e8ca085435978a12dcf78f118b26e7fca546954375db9f965bd8deafe098c17b",
         "asset_keys": []
       }
