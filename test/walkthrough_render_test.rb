@@ -113,6 +113,8 @@ class WalkthroughRenderTest < Minitest::Test
         elsif argv.last.end_with?("%06d.png")
           File.binwrite(File.join(File.dirname(argv.last.sub(%r{\A/work/}, "#{@root}/")), "000001.png"), "png")
           [ "", Status.new(true) ]
+        elsif argv.last.include?("ffprobe")
+          [ @probe_out.to_s, Status.new(true) ]
         else
           out = argv.last.sub(%r{\A/work/}, "#{@root}/")
           File.binwrite(out, "mp4")
@@ -180,9 +182,10 @@ class WalkthroughRenderTest < Minitest::Test
     assert_equal 3, @calls[:tts].size
     assert_equal 1, @calls[:music].size
     assert_equal 1, @calls[:browser].size
-    assert_equal 3, @calls[:docker].size
+    assert_equal 4, @calls[:docker].size, "buildconf, audio probe, pass 1, pass 2"
     pass2 = @calls[:docker].last
-    assert_equal %w[docker run --rm --network none], pass2.first(5)
+    assert_equal %w[docker run --rm --name], pass2.first(4)
+    assert_includes pass2.join(" "), "--network none"
     assert_includes pass2, ChangeDocker::FFMPEG_IMAGE
     assert_includes pass2.join(" "), "source=#{@root}\",target=/work"
     assert_includes pass2.join(" "), "linear=true"
@@ -251,7 +254,7 @@ class WalkthroughRenderTest < Minitest::Test
     File.write(first[:mp4], "")
     @calls[:docker].clear
     second = run_render
-    assert_equal 3, @calls[:docker].size
+    assert_equal 4, @calls[:docker].size
     assert_equal "mp4", File.read(second[:mp4])
   end
 
@@ -285,7 +288,7 @@ class WalkthroughRenderTest < Minitest::Test
     soft = run_render
     @calls[:docker].clear
     burned = run_render(burn_captions: true)
-    assert_equal 3, @calls[:docker].size, "burn re-runs ffmpeg instead of reusing the soft mp4"
+    assert_equal 4, @calls[:docker].size, "burn re-runs ffmpeg instead of reusing the soft mp4"
     refute_equal soft[:mp4], burned[:mp4]
     assert_equal File.join(File.dirname(soft[:mp4]) + "-burn", "walkthrough.mp4"), burned[:mp4]
     @calls[:docker].clear
