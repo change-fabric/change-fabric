@@ -47,7 +47,7 @@
     },
     {
       "id": "gate",
-      "label": "Gate: all lanes pass?"
+      "label": "Gate: enabled lanes pass?"
     },
     {
       "id": "merge",
@@ -132,7 +132,16 @@
   ],
   "steps": [
     {
-      "t_ms": 400,
+      "t_ms": 0,
+      "op": "fit_view",
+      "ids": [
+        "pr"
+      ],
+      "padding": 0.4,
+      "duration": 0
+    },
+    {
+      "t_ms": 500,
       "op": "add_node",
       "ids": [
         "k6",
@@ -148,25 +157,7 @@
       ]
     },
     {
-      "t_ms": 600,
-      "op": "fit_view",
-      "padding": 0.15,
-      "duration": 700
-    },
-    {
-      "t_ms": 1500,
-      "op": "pulse_edge",
-      "ids": [
-        "e-pr-k6",
-        "e-pr-a11y",
-        "e-pr-zap",
-        "e-pr-ux",
-        "e-pr-cases"
-      ],
-      "duration": 900
-    },
-    {
-      "t_ms": 2400,
+      "t_ms": 3000,
       "op": "fit_view",
       "ids": [
         "k6",
@@ -176,35 +167,71 @@
         "cases"
       ],
       "padding": 0.2,
-      "duration": 600
+      "duration": 0
     },
     {
-      "t_ms": 3300,
+      "t_ms": 3500,
       "op": "highlight",
-      "id": "k6"
+      "ids": [
+        "k6",
+        "a11y"
+      ]
     },
     {
-      "t_ms": 4100,
+      "t_ms": 6000,
+      "op": "fit_view",
+      "ids": [
+        "zap",
+        "ux"
+      ],
+      "padding": 0.2,
+      "duration": 200
+    },
+    {
+      "t_ms": 6500,
       "op": "highlight",
-      "id": "a11y"
+      "ids": [
+        "zap",
+        "ux",
+        "cases"
+      ]
     },
     {
-      "t_ms": 5000,
-      "op": "highlight",
-      "id": "zap"
+      "t_ms": 9000,
+      "op": "add_node",
+      "ids": [
+        "report",
+        "e-k6-report",
+        "e-a11y-report",
+        "e-zap-report",
+        "e-ux-report",
+        "e-cases-report"
+      ]
     },
     {
-      "t_ms": 5800,
-      "op": "highlight",
-      "id": "ux"
+      "t_ms": 9000,
+      "op": "fit_view",
+      "ids": [
+        "cases",
+        "report"
+      ],
+      "padding": 0.2,
+      "duration": 0
     },
     {
-      "t_ms": 6700,
-      "op": "highlight",
-      "id": "cases"
+      "t_ms": 9500,
+      "op": "pulse_edge",
+      "ids": [
+        "e-k6-report",
+        "e-a11y-report",
+        "e-zap-report",
+        "e-ux-report",
+        "e-cases-report"
+      ],
+      "duration": 1000
     },
     {
-      "t_ms": 7600,
+      "t_ms": 12000,
       "op": "unhighlight",
       "ids": [
         "k6",
@@ -215,37 +242,13 @@
       ]
     },
     {
-      "t_ms": 7700,
-      "op": "add_node",
-      "ids": [
-        "report",
-        "e-k6-report",
-        "e-a11y-report",
-        "e-zap-report",
-        "e-ux-report",
-        "e-cases-report"
-      ]
-    },
-    {
-      "t_ms": 7800,
+      "t_ms": 12000,
       "op": "fit_view",
       "padding": 0.15,
-      "duration": 600
+      "duration": 0
     },
     {
-      "t_ms": 8500,
-      "op": "pulse_edge",
-      "ids": [
-        "e-k6-report",
-        "e-a11y-report",
-        "e-zap-report",
-        "e-ux-report",
-        "e-cases-report"
-      ],
-      "duration": 900
-    },
-    {
-      "t_ms": 9600,
+      "t_ms": 15000,
       "op": "add_node",
       "ids": [
         "gate",
@@ -253,20 +256,17 @@
       ]
     },
     {
-      "t_ms": 9700,
+      "t_ms": 15000,
       "op": "fit_view",
-      "padding": 0.15,
-      "duration": 600
+      "ids": [
+        "report",
+        "gate"
+      ],
+      "padding": 0.2,
+      "duration": 0
     },
     {
-      "t_ms": 10500,
-      "op": "focus",
-      "id": "gate",
-      "zoom": 1.2,
-      "duration": 600
-    },
-    {
-      "t_ms": 11200,
+      "t_ms": 16000,
       "op": "highlight",
       "ids": [
         "gate",
@@ -274,13 +274,14 @@
       ]
     },
     {
-      "t_ms": 11500,
-      "op": "label",
+      "t_ms": 18000,
+      "op": "focus",
       "id": "gate",
-      "text": "Passed for head SHA"
+      "zoom": 1.5,
+      "duration": 200
     },
     {
-      "t_ms": 13000,
+      "t_ms": 21000,
       "op": "add_node",
       "ids": [
         "merge",
@@ -290,64 +291,24 @@
       ]
     },
     {
-      "t_ms": 13050,
-      "op": "remove",
-      "ids": [
-        "pr",
-        "k6",
-        "a11y",
-        "zap",
-        "ux",
-        "cases",
-        "e-pr-k6",
-        "e-pr-a11y",
-        "e-pr-zap",
-        "e-pr-ux",
-        "e-pr-cases",
-        "e-k6-report",
-        "e-a11y-report",
-        "e-zap-report",
-        "e-ux-report",
-        "e-cases-report"
-      ]
-    },
-    {
-      "t_ms": 13100,
+      "t_ms": 21000,
       "op": "fit_view",
       "ids": [
-        "report",
         "gate",
         "merge",
         "tag"
       ],
-      "padding": 0.1,
-      "duration": 700
+      "padding": 0.2,
+      "duration": 0
     },
     {
-      "t_ms": 14000,
+      "t_ms": 21500,
       "op": "pulse_edge",
       "ids": [
         "e-gate-merge",
         "e-gate-tag"
       ],
-      "duration": 800
-    },
-    {
-      "t_ms": 14300,
-      "op": "highlight",
-      "ids": [
-        "merge",
-        "tag",
-        "e-gate-merge",
-        "e-gate-tag"
-      ]
-    },
-    {
-      "t_ms": 15200,
-      "op": "focus",
-      "id": "gate",
-      "zoom": 1.5,
-      "duration": 700
+      "duration": 1000
     }
   ]
 }
