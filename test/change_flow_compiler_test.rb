@@ -304,6 +304,16 @@ class ChangeFlowCompilerTest < Minitest::Test
     end
   end
 
+  def test_quoted_attribute_values_and_escapes_are_not_selector_syntax
+    [ 'a[title="Next >>"]', "a[title='a >> b']", 'a[title="x:has-text(y)"]', 'a.b\>\>c' ].each do |selector|
+      assert_nil one("click" => selector)[:locator], selector
+    end
+    assert_equal({ css: 'a[title="Next >>"]', hasText: nil, textIs: nil, nth: 1 },
+                 one("click" => 'a[title="Next >>"] >> nth=1')[:locator])
+    assert_raises(ChangeFlowCompiler::Error) { one("click" => 'a[title="Next >>"] >> span') }
+    assert_raises(ChangeFlowCompiler::Error) { one("click" => 'a[title="x"]:has-text("y") span') }
+  end
+
   def test_the_runtime_resolves_locators_in_the_page
     js = ChangeFlowCompiler.flow_runtime_js
     assert_includes js, "const cfLocate = (loc, mode) =>"

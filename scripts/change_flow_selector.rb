@@ -24,6 +24,7 @@ module ChangeFlowSelector
   TEXT_ENGINE = /\Atext=(.+)\z/m
   PSEUDO = /:(text-is|has-text)\((?:"([^"]*)"|'([^']*)'|([^)"']*))\)\z/
   PLAYWRIGHT_ONLY = /:text-is\(|:has-text\(|>>|\Atext=/
+  QUOTED = /\\.|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'/
 
   module_function
 
@@ -73,11 +74,15 @@ module ChangeFlowSelector
 
   def squish(text) = text.gsub(/\s+/, ' ').strip
 
+  # Quoted attribute values and escapes are data, so a `>>` inside
+  # `a[title="Next >>"]` is not a chain.
   def check_css(css, selector)
     return if css.nil?
     raise Error, "selector #{selector.inspect}: an empty selector before >> nth" if css.empty?
-    raise Error, "selector #{selector.inspect}: :text-is/:has-text/>> nth cannot combine with ::-p- selectors" if css.include?('::-p-')
-    return unless css.match?(PLAYWRIGHT_ONLY)
+
+    bare = css.gsub(QUOTED, '""')
+    raise Error, "selector #{selector.inspect}: :text-is/:has-text/>> nth cannot combine with ::-p- selectors" if bare.include?('::-p-')
+    return unless bare.match?(PLAYWRIGHT_ONLY)
 
     raise Error, "selector #{selector.inspect}: only one trailing :text-is/:has-text and one trailing >> nth=N are supported"
   end
