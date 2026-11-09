@@ -3,6 +3,8 @@
 require 'digest'
 require 'fileutils'
 require 'json'
+require_relative 'diagram_palette'
+require_relative 'prototype_ux_lint'
 
 # Diagram scenes for cf:walkthrough: a full-frame React Flow diagram built and
 # moved on screen under the capture clock. The storyboard carries a `diagram`
@@ -41,9 +43,18 @@ module WalkthroughDiagram
   ID_OPS = { 'add_node' => %i[node edge], 'remove' => %i[node edge], 'connect' => %i[edge], 'highlight' => %i[node edge],
              'dim' => %i[node edge], 'unhighlight' => %i[node edge], 'pulse_edge' => %i[edge] }.freeze
   DIAGRAM_OPS = (ID_OPS.keys + %w[move label fit_view zoom_to focus]).freeze
-  # Placeholder palette until the project's tokens feed it.
-  PALETTE = { 'surface' => '#ffffff', 'node' => '#f8fafc', 'line' => '#64748b', 'text' => '#0f172a',
-              'accent' => '#1d4ed8', 'accent-tint' => '#dbeafe' }.freeze
+  # The screen's colours, as --cf-* variables, when the walkthrough has no
+  # tokens.css. With one, each variable takes the cf:diagram palette role
+  # named in PALETTE_ROLES, resolved by DiagramPalette from the light theme.
+  PALETTE = { 'surface' => '#ffffff', 'node' => '#f8fafc', 'line' => '#64748b', 'rule' => '#cbd5e1', 'text' => '#0f172a',
+              'muted' => '#475569', 'accent' => '#1d4ed8', 'accent-tint' => '#dbeafe' }.freeze
+  PALETTE_ROLES = { 'surface' => '--bg', 'node' => '--surface', 'line' => '--line', 'rule' => '--rule', 'text' => '--ink',
+                    'muted' => '--muted', 'accent' => '--accent', 'accent-tint' => '--accent-tint' }.freeze
+  # A node's `role` picks its border, fill, and text from the palette.
+  NODE_ROLES = %w[default accent muted].freeze
+  # Pairs DiagramPalette does not check but a diagram node draws: label text
+  # on each node fill.
+  NODE_CONTRAST = [ %w[--ink --accent-tint], %w[--muted --bg] ].freeze
 
   module_function
 
@@ -56,13 +67,15 @@ module WalkthroughDiagram
 
   # -- validation ------------------------------------------------------------
 
-  def errors(scene, root)
+  def errors(scene, root, board: {})
     spec = scene['diagram']
     return [ 'a diagram scene needs a diagram object' ] unless spec.is_a?(Hash)
 
     errs = spec_errors(spec, PrototypeCapture.scene_duration(scene))
     errs << 'a diagram scene needs screen.html (a generated file)' if scene.dig('screen', 'html').to_s.empty?
-    errs.empty? && root ? drift_errors(scene, root) : errs
+    return errs unless errs.empty? && root
+
+    palette_errors(root) + drift_errors(scene, root, board)
   end
 
   def spec_errors(spec, duration_ms)
@@ -116,7 +129,7 @@ module WalkthroughDiagram
     label = "diagram node #{node['id'].inspect}"
     errs = []
     errs << "#{label}: label must be a non-empty string" unless node['label'].is_a?(String) && !node['label'].strip.empty?
-    errs << "#{label}: role must be a string" if node.key?('role') && !node['role'].is_a?(String)
+    errs << "#{label}: role must be one of #{NODE_ROLES.join(', ')}" if node.key?('role') && !NODE_ROLES.include?(node['role'])
     errs << "#{label}: position must be { x, y } numbers" if node.key?('position') && !point?(node['position'])
     errs
   end
@@ -198,11 +211,11 @@ module WalkthroughDiagram
   end
 
   # A committed screen that differs from what the generator writes now.
-  def drift_errors(scene, root)
+  def drift_errors(scene, root, board = {})
     rel = scene.dig('screen', 'html')
     path = File.join(root, rel)
     return [ "#{rel} does not exist; run walkthrough_diagram.rb on the storyboard" ] unless File.file?(path)
-    return [] if File.read(path) == screen(scene)
+    return [] if File.read(path) == screen(scene, root: root, board: board)
 
     [ "#{rel} drifted from the storyboard's diagram block; run walkthrough_diagram.rb on the storyboard (or validate --fix)" ]
   end
@@ -223,10 +236,55 @@ module WalkthroughDiagram
     JSON.pretty_generate(keep).gsub(/[<>]/) { |c| format('\\u%04x', c.ord) }
   end
 
-  def palette_css = ":root { #{PALETTE.map { |k, v| "--cf-#{k}: #{v};" }.join(' ')} }"
+  # -- palette -------------------------------------------------------------
 
-  # The full, self-contained screen file for a diagram scene.
-  def screen(scene)
+  # The walkthrough's tokens.css, found the way its tokens_css_sha256 is.
+  def tokens_path(root)
+    require_relative 'walkthrough_storyboard'
+    root && WalkthroughStoryboard.canonical_tokens(root)
+  end
+
+  # The --cf-* colours for a walkthrough at root: its tokens' light roles,
+  # else the placeholder PALETTE.
+  def palette(root)
+    path = tokens_path(root)
+    return PALETTE unless path
+
+    roles = DiagramPalette.resolve(path).light
+    PALETTE_ROLES.transform_values { |role| roles.fetch(role) }
+  rescue DiagramPalette::Error
+    PALETTE # palette_errors reports it; the screen still renders
+  end
+
+  # The light theme's contrast floors (DiagramPalette's own checks plus the
+  # node fills); an unreadable token file is an error, not a silent default.
+  def palette_errors(root)
+    path = tokens_path(root)
+    return [] unless path
+
+    result = DiagramPalette.resolve(path)
+    roles = result.light
+    node = NODE_CONTRAST.filter_map do |fg, bg|
+      ratio = DiagramPalette.contrast(roles[fg], roles[bg])
+      "light: #{fg} on #{bg} is #{ratio.round(2)}:1, under #{DiagramPalette::TEXT_MIN}" if ratio < DiagramPalette::TEXT_MIN
+    end
+    (result.warnings.grep(/\Alight:/) + node).map { |w| "diagram palette from #{path}: #{w}" }
+  rescue DiagramPalette::Error => e
+    [ "diagram palette from #{path}: #{e.message}" ]
+  end
+
+  def palette_css(colors) = ":root { #{colors.map { |k, v| "--cf-#{k}: #{v};" }.join(' ')} }"
+
+  # Where the scene sits in the frame: the bottom inset keeps the camera's
+  # fit and focus targets above the caption band players draw cues in.
+  def frame(board)
+    viewport = PrototypeCapture::DEFAULT_VIEWPORT.merge((board || {})['viewport'] || {})
+    { 'bottom_inset' => (viewport['h'] * PrototypeUxLint::CAPTION_BAND).ceil }
+  end
+
+  # The full, self-contained screen file for a diagram scene. root locates
+  # the tokens.css; board gives the viewport the caption inset comes from.
+  def screen(scene, root: nil, board: {})
     title = (scene['title'] || 'Diagram').to_s.gsub(/[<>&"]/, '<' => '&lt;', '>' => '&gt;', '&' => '&amp;', '"' => '&quot;')
     <<~HTML
       #{GENERATED}
@@ -236,13 +294,14 @@ module WalkthroughDiagram
       <head>
       <meta charset="utf-8">
       <title>#{title}</title>
-      <style>#{palette_css}</style>
+      <style>#{palette_css(palette(root))}</style>
       </head>
       <body>
       <main id="cf-diagram-root" aria-label="#{title}"></main>
       <script type="application/json" id="cf-diagram">
       #{spec_json(scene['diagram'])}
       </script>
+      <script type="application/json" id="cf-diagram-frame">#{JSON.generate(frame(board))}</script>
       #{script(File.read(XYFLOW_BUNDLE))}
       #{script(File.read(RUNTIME))}
       </body>
@@ -255,7 +314,7 @@ module WalkthroughDiagram
     Array(board['scenes']).select { |s| diagram?(s) && s.dig('screen', 'html') && (only.nil? || s['id'] == only) }.map do |scene|
       out = scene.dig('screen', 'html')
       FileUtils.mkdir_p(File.dirname(File.join(root, out)))
-      File.write(File.join(root, out), screen(scene))
+      File.write(File.join(root, out), screen(scene, root: root, board: board))
       out
     end
   end
@@ -276,6 +335,9 @@ module WalkthroughDiagram
 end
 
 if __FILE__ == $PROGRAM_NAME
+  # Run as a script, this file is not yet a loaded feature; mark it so the
+  # storyboard (required for the tokens lookup) does not load it twice.
+  $LOADED_FEATURES << File.expand_path(__FILE__)
   args = ARGV.dup
   only = (i = args.index('--scene')) && args.slice!(i, 2)[1]
   args.delete('--fix') # writing is the fix; accepted for symmetry with validate --fix

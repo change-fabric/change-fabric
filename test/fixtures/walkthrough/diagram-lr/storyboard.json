@@ -1,0 +1,175 @@
+{
+  "schema_version": 1,
+  "slug": "diagram-lr",
+  "title": "A request across services",
+  "viewport": {
+    "w": 1280,
+    "h": 720,
+    "dpr": 1
+  },
+  "fps": 30,
+  "music": null,
+  "scenes": [
+    {
+      "id": "pipeline",
+      "title": "Request path",
+      "order": 1,
+      "kind": "diagram",
+      "screen": {
+        "html": "screens/pipeline.html"
+      },
+      "diagram": {
+        "layout": {
+          "engine": "dagre",
+          "direction": "LR"
+        },
+        "nodes": [
+          {
+            "id": "client",
+            "label": "Browser",
+            "role": "accent"
+          },
+          {
+            "id": "gateway",
+            "label": "Gateway"
+          },
+          {
+            "id": "auth",
+            "label": "Auth service",
+            "role": "muted"
+          },
+          {
+            "id": "orders",
+            "label": "Orders service"
+          },
+          {
+            "id": "search",
+            "label": "Search"
+          },
+          {
+            "id": "billing",
+            "label": "Billing"
+          },
+          {
+            "id": "notify",
+            "label": "Notifications"
+          },
+          {
+            "id": "db",
+            "label": "Postgres"
+          }
+        ],
+        "edges": [
+          {
+            "id": "e1",
+            "source": "client",
+            "target": "gateway",
+            "label": "HTTPS"
+          },
+          {
+            "id": "e2",
+            "source": "gateway",
+            "target": "auth",
+            "label": "verify"
+          },
+          {
+            "id": "e3",
+            "source": "gateway",
+            "target": "orders"
+          },
+          {
+            "id": "e4",
+            "source": "gateway",
+            "target": "search"
+          },
+          {
+            "id": "e5",
+            "source": "gateway",
+            "target": "billing"
+          },
+          {
+            "id": "e6",
+            "source": "gateway",
+            "target": "notify"
+          },
+          {
+            "id": "e7",
+            "source": "orders",
+            "target": "db",
+            "label": "writes"
+          }
+        ],
+        "initial": [
+          "client",
+          "gateway",
+          "e1"
+        ],
+        "steps": [
+          {
+            "t_ms": 300,
+            "op": "add_node",
+            "ids": [
+              "auth",
+              "orders",
+              "search",
+              "e2",
+              "e3",
+              "e4"
+            ]
+          },
+          {
+            "t_ms": 700,
+            "op": "add_node",
+            "ids": [
+              "billing",
+              "notify",
+              "db",
+              "e5",
+              "e6",
+              "e7"
+            ]
+          },
+          {
+            "t_ms": 900,
+            "op": "fit_view",
+            "padding": 0.1,
+            "duration": 600
+          },
+          {
+            "t_ms": 1800,
+            "op": "highlight",
+            "ids": [
+              "db",
+              "e7"
+            ]
+          },
+          {
+            "t_ms": 2000,
+            "op": "focus",
+            "id": "db",
+            "zoom": 1.5,
+            "duration": 400
+          }
+        ]
+      },
+      "narration": {
+        "text": "A request passes the gateway, is verified, and lands in Postgres.",
+        "measured_ms": 0
+      },
+      "assumptions": [
+        {
+          "id": "A-01",
+          "text": "Auth is checked before any write."
+        }
+      ],
+      "timing": {
+        "min_ms": 2600,
+        "pad_ms": 0,
+        "transition": {
+          "type": "cut",
+          "ms": 0
+        }
+      }
+    }
+  ]
+}

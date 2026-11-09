@@ -205,6 +205,75 @@ class WalkthroughDiagramTest < Minitest::Test
     assert_includes md, "| 1600 | focus | db |"
   end
 
+  TOKENS = <<~CSS
+    :root { --bg: #fdfcf8; --surface: #f3efe4; --ink: #1b1f24; --muted: #4a5260; --border: #d9d3c4;
+            --line: #6b7280; --accent: #0b5e57; }
+    @media (prefers-color-scheme: dark) { :root { --bg: #111418; --ink: #f1f1ee; } }
+  CSS
+
+  def write_tokens(css = TOKENS) = File.write(File.join(@root, "tokens.css"), css)
+
+  def colors(html) = html[/:root \{([^}]*)\}/, 1].scan(/--cf-([\w-]+): (#\h{6})/).to_h
+
+  def test_without_tokens_the_placeholder_palette_is_written
+    generate
+    assert_equal WalkthroughDiagram::PALETTE, colors(File.read(screen_path))
+  end
+
+  def test_tokens_map_through_the_diagram_palette_roles
+    write_tokens
+    generate
+    roles = DiagramPalette.resolve(File.join(@root, "tokens.css")).light
+    got = colors(File.read(screen_path))
+    WalkthroughDiagram::PALETTE_ROLES.each { |var, role| assert_equal roles[role], got[var], var }
+    assert_equal "#FDFCF8", got["surface"]
+    assert_equal "#0B5E57", got["accent"]
+    assert_empty errs
+  end
+
+  def test_low_contrast_tokens_are_errors
+    write_tokens(":root { --bg: #ffffff; --ink: #bbbbbb; --accent: #cccccc; }")
+    generate
+    joined = errs.join("\n")
+    assert_match(/diagram palette from .*tokens\.css: light: --ink on --bg/, joined)
+    assert_match(/light: --ink on --accent-tint/, joined)
+  end
+
+  def test_unreadable_tokens_are_an_error_but_still_render
+    write_tokens(":root { --radius: 4px; }")
+    generate
+    assert_equal WalkthroughDiagram::PALETTE, colors(File.read(screen_path))
+    assert_includes errs.join, "no background or text color found"
+  end
+
+  def test_changed_tokens_drift_the_screen_and_its_key
+    write_tokens
+    generate
+    assert_empty errs
+    before = WalkthroughStoryboard.recompute_keys(@board, @root)["overview"]["frames_key"]
+    write_tokens(TOKENS.sub("#0b5e57", "#7a2e8f"))
+    assert_includes errs.join, "drifted from the storyboard's diagram block"
+    generate
+    refute_equal before, WalkthroughStoryboard.recompute_keys(@board, @root)["overview"]["frames_key"]
+  end
+
+  def test_node_role_must_be_a_palette_role
+    spec["nodes"][1]["role"] = "danger"
+    assert_includes diagram_errs.join, "role must be one of default, accent, muted"
+    spec["nodes"][1]["role"] = "muted"
+    assert_empty diagram_errs
+  end
+
+  def test_bottom_inset_comes_from_the_caption_band_and_viewport
+    generate
+    html = File.read(screen_path)
+    frame = JSON.parse(html[%r{<script type="application/json" id="cf-diagram-frame">(.*?)</script>}m, 1])
+    assert_equal (720 * PrototypeUxLint::CAPTION_BAND).ceil, frame["bottom_inset"]
+    @board["viewport"] = { "w" => 1920, "h" => 1080 }
+    assert_equal 162, WalkthroughDiagram.frame(@board)["bottom_inset"]
+    assert_includes errs.join, "drifted"
+  end
+
   private
 
   def stub(mod, name, value)

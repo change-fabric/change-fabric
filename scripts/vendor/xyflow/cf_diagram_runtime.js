@@ -35,6 +35,10 @@
   const { React, createRoot, flushSync, ReactFlow, ReactFlowProvider, useReactFlow, useNodesInitialized, Handle, Position, dagre } = X;
   const h = React.createElement;
   const spec = JSON.parse(document.getElementById('cf-diagram').textContent);
+  // The generator's frame: how much of the viewport bottom the caption band
+  // takes. Camera targets are fitted and centred in the area above it.
+  const frameEl = document.getElementById('cf-diagram-frame');
+  const BOTTOM_INSET = (frameEl && JSON.parse(frameEl.textContent).bottom_inset) || 0;
 
   const NODE_H = 56;
   const NODE_MIN_W = 140;
@@ -48,6 +52,8 @@
   const PULSE_MS = 800;
   const MIN_ZOOM = 0.2;
   const MAX_ZOOM = 3;
+  const NODE_SEP = 60;
+  const RANK_SEP = 120;
 
   const style = document.createElement('style');
   style.textContent = `${X.css}
@@ -57,6 +63,7 @@ html, body, #cf-diagram-root { margin: 0; width: 100%; height: 100%; }
   padding: 0 12px; border: 2px solid var(--cf-line, #94a3b8); border-radius: 10px; background: var(--cf-node, #f8fafc);
   color: var(--cf-text, #0f172a); font: 600 16px/1.2 system-ui, sans-serif; text-align: center; }
 .cf-node[data-role="accent"] { border-color: var(--cf-accent, #2563eb); background: var(--cf-accent-tint, #dbeafe); }
+.cf-node[data-role="muted"] { border-color: var(--cf-rule, #cbd5e1); background: var(--cf-surface, #ffffff); color: var(--cf-muted, #475569); }
 .cf-node .react-flow__handle { visibility: hidden; pointer-events: none; }
 .cf-node .react-flow__handle-right { right: -4px; } .cf-node .react-flow__handle-left { left: -4px; }
 .cf-node .react-flow__handle-top { top: -4px; } .cf-node .react-flow__handle-bottom { bottom: -4px; }
@@ -99,7 +106,7 @@ html, body, #cf-diagram-root { margin: 0; width: 100%; height: 100%; }
     const engine = (spec.layout && spec.layout.engine) || 'dagre';
     if (engine === 'dagre') {
       const g = new dagre.graphlib.Graph();
-      g.setGraph({ rankdir: direction, nodesep: 60, ranksep: 120, marginx: 0, marginy: 0 });
+      g.setGraph({ rankdir: direction, nodesep: NODE_SEP, ranksep: RANK_SEP, marginx: 0, marginy: 0 });
       g.setDefaultEdgeLabel(() => ({}));
       for (const n of spec.nodes) g.setNode(n.id, { width: WIDTH[n.id], height: NODE_H });
       for (const e of spec.edges) g.setEdge(e.source, e.target);
@@ -207,7 +214,8 @@ html, body, #cf-diagram-root { margin: 0; width: 100%; height: 100%; }
 
   // Folds every camera step up to t: each one tweens from wherever the
   // camera was when it started toward its own target.
-  const cameraAt = (t, camera, positionAt, size) => {
+  const cameraAt = (t, camera, positionAt, viewport) => {
+    const size = { w: viewport.w, h: Math.max(1, viewport.h - BOTTOM_INSET) };
     const first = visibleAt(0);
     let cur = fitTarget(first.length ? first : nodeIds, 0.2, 0, positionAt, size);
     camera.forEach((s, i) => {
