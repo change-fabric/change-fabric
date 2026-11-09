@@ -23,6 +23,12 @@ module PrototypeCapture
 
   FPS = 30
   BATCH_FRAMES = 90
+  # A diagram screen (scripts/vendor/xyflow/cf_diagram_runtime.js) sets
+  # window.__cfDiagramReady = false on load and true once React Flow has
+  # measured its nodes. Measurement runs on real time, so the capture waits
+  # for it in real time before frame 0, and fails loudly past this bound
+  # rather than capturing a blank frame.
+  DIAGRAM_READY_TIMEOUT_MS = 15_000
   CAPTURE_VERSION = 1
   START_MS = 1_767_225_600_000 # 2026-01-01T00:00:00Z
   LOCALE = 'en-US'
@@ -445,6 +451,17 @@ module PrototypeCapture
         await client.send("Animation.enable");
         await client.send("Animation.setPlaybackRate", { playbackRate: 0 });
         await page.evaluate(#{JSON.generate(PrototypeUxLint::BROWSER_JS)});
+        if (await page.evaluate(() => window.__cfDiagramReady === false)) {
+          const deadline = Date.now() + #{DIAGRAM_READY_TIMEOUT_MS};
+          while (!(await page.evaluate(() => window.__cfDiagramReady === true))) {
+            if (Date.now() > deadline) {
+              const status = await page.evaluate(() => String(window.__cfDiagramStatus || "no status"));
+              if (context) await context.close();
+              return { data: { diagramNotReady: status, frames: [], cursor: [], blockedRequests, pageErrors }, type: "application/json" };
+            }
+            await new Promise((r) => setTimeout(r, 25));
+          }
+        }
         const lintAt = new Set(#{JSON.generate(lint)});
         const aimMode = #{JSON.generate(aim)};
         const center = async (sel) => page.evaluate((s, mode) => {
@@ -542,6 +559,11 @@ module PrototypeCapture
 
   # Raises on any sign the page escaped the controlled environment.
   def check_result!(result, label)
+    if result['diagramNotReady']
+      raise UnsupportedContentError, "#{label}: diagram screen never set __cfDiagramReady within #{DIAGRAM_READY_TIMEOUT_MS}ms " \
+                                     "(last status: #{result['diagramNotReady']}; page errors: #{Array(result['pageErrors']).first(3).join('; ')})"
+    end
+
     blocked = Array(result['blockedRequests'])
     raise UnsupportedContentError, "#{label}: network request #{blocked.first['url']} left the page" unless blocked.empty?
 

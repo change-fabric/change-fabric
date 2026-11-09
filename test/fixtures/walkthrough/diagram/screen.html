@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Diagram fixture</title>
+<!-- Hand-written diagram screen: four nodes, three steps. The capture test
+     copies the vendored bundle and runtime next to this file as xyflow.js
+     and runtime.js before inlining it. -->
+<style>
+  :root { --cf-surface: #ffffff; --cf-node: #f8fafc; --cf-line: #64748b; --cf-text: #0f172a; --cf-accent: #1d4ed8; --cf-accent-tint: #dbeafe; }
+</style>
+</head>
+<body>
+<main id="cf-diagram-root" aria-label="Architecture diagram"></main>
+<script type="application/json" id="cf-diagram">
+{
+  "layout": { "engine": "dagre", "direction": "LR" },
+  "nodes": [
+    { "id": "web", "label": "Web app", "role": "accent" },
+    { "id": "api", "label": "API" },
+    { "id": "queue", "label": "Job queue" },
+    { "id": "db", "label": "Postgres" }
+  ],
+  "edges": [
+    { "id": "e1", "source": "web", "target": "api", "label": "HTTPS" },
+    { "id": "e2", "source": "api", "target": "db", "label": "writes" },
+    { "id": "e3", "source": "api", "target": "queue" }
+  ],
+  "initial": ["web", "api", "e1"],
+  "steps": [
+    { "t_ms": 300, "op": "add_node", "ids": ["db", "queue", "e2", "e3"] },
+    { "t_ms": 600, "op": "fit_view", "padding": 0.2, "duration": 600 },
+    { "t_ms": 1400, "op": "highlight", "ids": ["db", "e2"] }
+  ]
+}
+</script>
+<script src="xyflow.js"></script>
+<script src="runtime.js"></script>
+</body>
+</html>
