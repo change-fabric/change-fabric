@@ -59,6 +59,25 @@ class WalkthroughAssumptionsTest < Minitest::Test
     assert_includes text, "acmelogo"
   end
 
+  def test_diagram_scene_adds_xyflow_notice
+    fixture = File.expand_path("fixtures/walkthrough/diagram-lr/storyboard.json", __dir__)
+    _, notices = WalkthroughAssumptions.write(JSON.parse(File.read(fixture)), @root)
+    text = File.read(notices)
+    assert_includes text, "Diagram scenes (pipeline) render with a vendored bundle of:"
+    assert_includes text, "xyflow (React Flow) (@xyflow/react@#{WalkthroughDiagram::XYFLOW_VERSION}) license: MIT"
+    assert_match(/  React \(react@\d+\.\d+\.\d+\) license: MIT/, text)
+    assert_match(/  dagre \(@dagrejs\/dagre@\d+\.\d+\.\d+\) license: MIT/, text)
+    assert_includes text, "attribution badge is hidden by choice"
+    assert_includes text, "Copyright (c) 2019-2025 webkid GmbH"
+    refute_match(/[\u2014\u2022\u2026\u201c\u201d]/, text.lines.first(8).join)
+  end
+
+  def test_no_diagram_scene_no_xyflow_notice
+    _, notices = WalkthroughAssumptions.write(board, @root)
+    refute_includes File.read(notices), "xyflow"
+    assert_equal "", WalkthroughAssumptions.diagram_notice(board)
+  end
+
   def test_generated_footage_section_lists_each_ai_clip
     b = board
     b["scenes"] << { "id" => "shed", "order" => 3, "kind" => "ai-broll",

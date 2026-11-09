@@ -245,6 +245,71 @@ A live or compose scene picks the devices it films and how they share the frame:
 - Compositing is offline in the pinned FFmpeg container (`scripts/walkthrough_browser_frame.rb`); the cursor track is mapped into the window. A live scene is framed while its screencast is composited; an environment scene is framed in place right after capture.
 - The frame (title, address, compositor version, FFmpeg digest) is part of the scene's `frames_key`, so changing any of them recaptures.
 
+## Diagram scene
+
+`"kind": "diagram"` is a full-frame node and edge diagram (React Flow, vendored as `scripts/vendor/xyflow/xyflow-<version>.min.js`, driven by `cf_diagram_runtime.js`) that assembles and moves under the capture clock. It is a prototype screen: `screen.html` is required and generated, and live-only keys are refused. Worked example: `test/fixtures/walkthrough/diagram-lr/storyboard.json`.
+
+```json
+{
+  "id": "pipeline", "order": 1, "kind": "diagram", "title": "Request path",
+  "screen": { "html": "screens/pipeline.html" },
+  "diagram": {
+    "layout": { "engine": "dagre", "direction": "LR" },
+    "nodes": [
+      { "id": "client", "label": "Browser", "role": "accent" },
+      { "id": "gateway", "label": "Gateway" },
+      { "id": "db", "label": "Postgres", "role": "muted", "position": { "x": 600, "y": 200 } }
+    ],
+    "edges": [
+      { "id": "e1", "source": "client", "target": "gateway", "label": "HTTPS" },
+      { "id": "e2", "source": "gateway", "target": "db", "label": "writes" }
+    ],
+    "initial": ["client", "gateway", "e1"],
+    "steps": [
+      { "t_ms": 400, "op": "add_node", "ids": ["db", "e2"] },
+      { "t_ms": 900, "op": "fit_view", "padding": 0.1, "duration": 600 },
+      { "t_ms": 1800, "op": "highlight", "ids": ["db", "e2"] },
+      { "t_ms": 2000, "op": "focus", "id": "db", "zoom": 1.5, "duration": 400 }
+    ]
+  },
+  "narration": { "text": "string" }, "assumptions": [{ "id": "A-01", "text": "string" }],
+  "timing": { "min_ms": 2600, "pad_ms": 0, "transition": { "type": "cut", "ms": 0 } }
+}
+```
+
+The `diagram` block takes only `layout`, `nodes`, `edges`, `initial`, and `steps`; any other key fails validation.
+
+- `layout` (optional): `engine` is `dagre` (default) or `manual`; `direction` is `TB`, `LR` (default), `BT`, or `RL`. dagre lays out the full node set once, so a later `add_node` never reflows the rest, and nodes in one rank keep their spec order. Under `manual`, a node without `position` sits at 0,0.
+- `nodes`: 1 to 12 (`MAX_NODES`). `id` (required), `label` (required, non-empty string), `role` (`default`, `accent`, or `muted`), and `position` (`{ "x": <number>, "y": <number> }`, exactly those two keys, pins the node's top-left even under dagre). Node size comes from the spec, never measurement: height 56, width from the longest text the node ever shows (its label or any `label` step), clamped to 140..260.
+- `edges`: 0 to 16 (`MAX_EDGES`). `id`, `source` and `target` (node ids), and an optional `label` string. Arrowheads and sides (left/right or top/bottom) follow the node positions each frame.
+- Ids match `[a-z0-9][a-z0-9-]*` and are unique across nodes and edges together; steps name either by id.
+- `initial`: node and edge ids visible at time 0. Everything else starts hidden until an `add_node` or `connect` shows it, so an empty `initial` starts on a blank frame.
+- `steps`: `t_ms` is a non-negative integer, non-decreasing, and below the scene's derived duration. `duration` (optional on any op) is a non-negative integer in ms; a camera or move step with no duration jumps. Tweens ease in and out (cubic).
+
+Ops (closed set, `WalkthroughDiagram::DIAGRAM_OPS`). Ops marked "id or ids" take `id` or a non-empty `ids` list, never both.
+
+| op | Fields | Targets | Effect |
+| --- | --- | --- | --- |
+| `add_node` | id or ids | nodes, edges | Fades in over 300 ms (cancels an earlier `remove`). |
+| `connect` | id or ids | edges | Fades the edge in, as `add_node`. |
+| `remove` | id or ids | nodes, edges | Fades out over 300 ms. |
+| `highlight` | id or ids | nodes, edges | Accent border and halo, or accent stroke and arrowhead; clears `dim`. |
+| `dim` | id or ids | nodes, edges | Opacity 0.35; clears `highlight`. |
+| `unhighlight` | id or ids | nodes, edges | Clears both `highlight` and `dim`. |
+| `pulse_edge` | id or ids, `duration` (default 800) | edges | The stroke swells and settles once, highlighted while it runs. |
+| `move` | `id`, `position` `{x, y}`, `duration` | node | Tweens the node to the new top-left. |
+| `label` | `id`, `text` (string) | node | Replaces the node's text; the width was sized for it already. |
+| `fit_view` | `ids` (optional), `padding` (0..1, default 0.2), `duration` | nodes | Fits the camera to `ids`, or to the nodes visible when the step ends; zoom at most 1.25. |
+| `zoom_to` | `zoom` (0.2..3, required), `duration` | none | Zooms about the current view centre. |
+| `focus` | `id`, `zoom` (0.2..3, optional, keeps the current zoom), `duration` | node | Centres the node; zoom at most 1.5 when rendered. |
+
+- Camera: the scene opens fitted to the `initial` nodes (or every node when none is initial) at padding 0.2. Each camera step (`fit_view`, `zoom_to`, `focus`) tweens from wherever the camera is when it starts, and every target is fitted and centred in the area above the caption band (the bottom 15 percent of the viewport, `PrototypeUxLint::CAPTION_BAND`), which the generator writes into the screen as `bottom_inset`.
+- Gap: the caption inset applies to camera targets only. A node that moves or appears between camera steps can sit in the band until the next one, so follow a `move` or a late `add_node` with a `fit_view`.
+- Theme: the screen's `--cf-*` colours come from the walkthrough's `tokens.css` (the cf:diagram palette roles `--bg`, `--surface`, `--line`, `--rule`, `--ink`, `--muted`, `--accent`, `--accent-tint`, light theme), else a neutral placeholder. Validation fails on a token file DiagramPalette cannot read and on any light pair under the text contrast floor, including `--ink` on `--accent-tint` and `--muted` on `--bg` (node label text).
+- Generation: `ruby scripts/walkthrough_diagram.rb storyboard.json [--scene ID]` writes each diagram `screen.html` (marked GENERATED: the bundle, the runtime, the palette, and the spec as JSON). `validate --fix` rewrites them; validation reports a screen that differs as drift. `render-md` lists nodes (pinned ones marked), edges, the initial set, and a step table.
+- Determinism: the runtime derives each frame as a pure function of the capture clock, and the capture waits on `window.__cfDiagramReady` before frame 0 (it fails after 15 s with the runtime's last status rather than film a blank frame).
+- Notices: `walkthrough_assumptions.rb` adds xyflow (React Flow), React, React DOM, and dagre with their versions and licences, a note that the React Flow attribution badge is hidden by choice, and every bundled licence text to `THIRD_PARTY_NOTICES` whenever a diagram scene exists.
+
 ## Rules
 
 - `id` matches `\A[a-z0-9][a-z0-9-]*\z` and is unique; `order` is unique and contiguous from 1.
@@ -266,7 +331,7 @@ All keys are sha256 hex over canonical JSON (sorted keys, no whitespace).
 
 - `frames_key` (compose scene): the compose spec, the template version, the source scene's frames key, and the same capture fields as a live scene.
 - `frames_key` (live scene): URL, devices with their specs, layout, the browser frame when set, the persona name and login spec (env names, never values), the session parent's frames key, interactions, `wait`, `storage`, viewport, fps, the derived duration, `browser`, the browserless image digest, and the live capture version. It recaptures only with `--recapture` or `--scene` (which pulls in its `session_from_scene` dependents).
-- `frames_key`: screen html sha256, the inlined screen with every local asset, `tokens_css_sha256`, interactions, viewport, fps, the browserless image digest, the capture script version, the derived duration, the seed sha256, the mock-store.js sha256, the resolved starting state, and `prng_seed`; an environment scene adds the desktop kit `VERSION` and the browser frame when set.
+- `frames_key`: screen html sha256, the inlined screen with every local asset, `tokens_css_sha256`, interactions, viewport, fps, the browserless image digest, the capture script version, the derived duration, the seed sha256, the mock-store.js sha256, the resolved starting state, and `prng_seed`; an environment scene adds the desktop kit `VERSION` and the browser frame when set; a diagram scene adds the xyflow bundle sha256 and the diagram runtime sha256.
 - `audio_key`: narration text, voice id, model, output format, and voice settings.
 - `asset_key` (images): prompt, model id, size, quality, and reference image digests.
 - `broll_key` (ai-broll): source image digest, prompt, seconds, model id, resolution, and aspect ratio. An ai-broll scene's `frames_key` hashes the clip key (or, for a fallback, the source image digest and mode), the viewport, fps, frame count, and the FFmpeg image digest.
