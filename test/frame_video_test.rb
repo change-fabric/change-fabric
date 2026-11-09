@@ -92,6 +92,43 @@ class FrameVideoTest < Minitest::Test
     end
   end
 
+  def test_encode_argv_fits_frames_to_an_even_size_only_when_given_one
+    refute_includes FrameVideo.encode_argv("/tmp/frames", fps: 6), "-vf"
+    args = FrameVideo.encode_argv("/tmp/frames", fps: 6, size: [ 390, 293 ])
+    assert_match(/\Ascale=390:292:force_original_aspect_ratio=decrease,pad=390:292:/, args[args.index("-vf") + 1])
+  end
+
+  # A stray frame of another size (one Chromium painted before setViewport
+  # took effect) used to set the whole video's size: the encode used the
+  # first frame's. The dominant size wins, and an odd stray height no longer
+  # fails libx264.
+  def test_real_encode_with_a_stray_odd_sized_first_frame_keeps_the_walk_size
+    skip "docker not available" unless ChangeDocker.available?
+
+    Dir.mktmpdir do |dir|
+      src = File.join(dir, "src")
+      FileUtils.mkdir_p(src)
+      frames = { "a.jpg" => "390x293", "b.jpg" => "390x844" }.map do |name, size|
+        make = ChangeDocker.run_command(network: "none", image: ChangeDocker::FFMPEG_IMAGE, mounts: { src => "/work" },
+                                        args: [ "-v", "error", "-f", "lavfi", "-i", "color=c=red:s=#{size}:d=1", "-frames:v", "1",
+                                                "/work/#{name}" ])
+        _out, status = Open3.capture2e(*make)
+        skip "could not make sample frames" unless status.success?
+        Base64.strict_encode64(File.binread(File.join(src, name)))
+      end
+      jpg = File.join(dir, "jpg")
+      FrameVideo.write_jpgs(jpg, frames, [ 0, 1, 1, 1 ])
+      assert_equal [ 390, 844 ], FrameVideo.dominant_size(jpg)
+      out = File.join(dir, "v.mp4")
+      FrameVideo.encode(jpg, fps: 6, out: out)
+      probe = ChangeDocker.run_command(network: "none", image: ChangeDocker::FFMPEG_IMAGE, mounts: { dir => "/w" },
+                                       args: [ "-v", "error", "-i", "/w/v.mp4", "-f", "null", "-" ])
+      _o, ok = Open3.capture2e(*probe)
+      assert ok.success?
+      assert_equal [ 390, 844 ], mp4_size(dir)
+    end
+  end
+
   # Real encode in the pinned image: a few solid JPEGs made by FFmpeg itself.
   def test_real_encode_in_pinned_image
     skip "docker not available" unless ChangeDocker.available?
@@ -115,5 +152,13 @@ class FrameVideoTest < Minitest::Test
       _o, ok = Open3.capture2e(*check)
       assert ok.success?
     end
+  end
+  private
+
+  def mp4_size(dir)
+    grab = ChangeDocker.run_command(network: "none", image: ChangeDocker::FFMPEG_IMAGE, mounts: { dir => "/w" },
+                                    args: [ "-v", "error", "-i", "/w/v.mp4", "-frames:v", "1", "/w/first.jpg" ])
+    Open3.capture2e(*grab)
+    FrameVideo.jpeg_size(File.join(dir, "first.jpg"))
   end
 end

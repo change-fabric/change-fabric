@@ -80,6 +80,12 @@ class ChangeLaneBrowserless < ChangeLane
   # were stated before, so the diff percentage carried whatever the container
   # happened to default to that day.
   DEVICE_SCALE_FACTOR = 1
+  # The walk recording: lane JPEG quality and the per-viewport budget the
+  # sampler trims to (300 frames, 24MB of base64), so a long walk cannot blow
+  # the /function payload. Measured walks sit two orders of magnitude under.
+  VIDEO_JPEG_QUALITY = 60
+  VIDEO_MAX_FRAMES = 300
+  VIDEO_MAX_BYTES = 24 * 1024 * 1024
   DEFAULT_LOCALE = 'en-US'
   # Injected before a Figma reference screenshot: animations and transitions
   # frozen at their end state, and text antialiasing forced to one mode rather
@@ -508,7 +514,7 @@ class ChangeLaneBrowserless < ChangeLane
         sink.add_screenshot(viewport: cell['viewport'], route: "#{cell['route']} (auth failure)", data: auth_screenshot)
       end
     end
-    videos(result).map { |video| record_video(sink, video) }.compact
+    videos(result).flat_map { |video| record_video(sink, video) }
   end
 
   # The auth-failure diagnostic screenshot (F2), captured at the moment the
@@ -520,13 +526,26 @@ class ChangeLaneBrowserless < ChangeLane
 
   def videos(result) = result.is_a?(Hash) ? Array(result['videos']) : []
 
+  # Hands one viewport's sampled frames to the sink, which encodes them. A
+  # recording that could not be made (no frames, no FFmpeg, a failed encode)
+  # is a warn; frames trimmed by the caps are one info finding, so a cut-short
+  # walk is said plainly rather than silently.
   def record_video(sink, video)
-    sink.add_video(viewport: video['viewport'], data: video['webm'], error: video['error'])
-    return nil if video['webm'].to_s != ''
+    recorded = sink.add_video(viewport: video['viewport'], frames: video['frames'], ticks: video['ticks'],
+                              dropped: video['dropped'].to_i, error: video['error'])
+    unless recorded&.path
+      reason = recorded&.error || video['error'] || 'unknown reason'
+      return [ recording_finding(video['viewport'], 'warn', "no video recorded for this viewport: #{reason}") ]
+    end
+    return [] unless recorded.dropped.positive?
 
-    Finding.new(lane: 'browserless', check: "#{video['viewport']} recording", target: base_url,
-                status: 'warn', severity: 'low',
-                detail: "no video recorded for this viewport: #{video['error'] || 'unknown reason'}")
+    [ recording_finding(video['viewport'], 'pass',
+                        "recording trimmed to fit the per-viewport budget: #{recorded.dropped} sampled frames dropped from the end") ]
+  end
+
+  def recording_finding(viewport, status, detail)
+    Finding.new(lane: 'browserless', check: "#{viewport} recording", target: base_url,
+                status: status, severity: status == 'warn' ? 'low' : 'info', detail: detail)
   end
 
   def capture_options
@@ -553,16 +572,12 @@ class ChangeLaneBrowserless < ChangeLane
   # When the run is building a findings artifact (`capture`), the same walk
   # also collects the evidence that artifact renders: a full-page JPEG per
   # cell, and one recording per viewport covering that viewport's entire route
-  # walk. The recording is assembled inside Chromium rather than on the host:
-  # CDP's `Page.startScreencast` streams live frames of the page being walked,
-  # a second page in the same browser draws each frame onto a canvas whose
-  # `captureStream()` feeds a `MediaRecorder`, and the resulting WebM comes
-  # back base64 in this same response. That indirection is forced, not
-  # stylistic: the browserless container shares no filesystem or network path
-  # with the host, so a recorder writing a file inside the container would
-  # produce a video nothing on the host could ever read. Because the page being
-  # walked now changes every cell, the screencast attaches and detaches per
-  # cell while the recorder page and its MediaRecorder span the viewport.
+  # walk. CDP's `Page.startScreencast` streams live frames of the page being
+  # walked into a sampler (see #recorder_js) that comes back as capped base64
+  # JPEG frames in this same response, because the browserless container
+  # shares no filesystem or network path with the host; the host encodes them.
+  # Because the page being walked changes every cell, the screencast attaches
+  # and detaches per cell while the sampler spans the viewport.
   def scan_module(entries, auth, figma_refs, scan_viewports = viewports)
     <<~JS
       export default async function ({ page }) {
@@ -690,7 +705,7 @@ class ChangeLaneBrowserless < ChangeLane
                 session = sharedSession;
               }
               await session.page.setViewport({ width: vp.width, height: vp.height, deviceScaleFactor: deviceScaleFactor });
-              await attachCell(recorder, session.page, vp);
+              await attachCell(recorder, session.page);
 
               if (entry.auth) {
                 const ok = await ensureAuth(session);
@@ -756,7 +771,7 @@ class ChangeLaneBrowserless < ChangeLane
             cell.totalMs = Date.now() - cellStart;
             out.push(cell);
           }
-          const video = await stopRecording(recorder, vp);
+          const video = await finishRecording(recorder, vp);
           if (video) videos.push(video);
         }
         await closeSession(sharedSession);
@@ -765,61 +780,40 @@ class ChangeLaneBrowserless < ChangeLane
     JS
   end
 
-  # The in-Chromium recorder, injected into the scan module above.
+  # The in-Chromium recorder, injected into the scan module above. It wraps
+  # the shared ScreencastSampler (BrowserlessJs::SCREENCAST_SAMPLER_JS, the
+  # same one cf:walkthrough records with).
   #
-  # `startRecording` opens a second page in the same browser and gives it a
-  # canvas fed to a MediaRecorder. `attachCell`/`detachCell` then move the CDP
-  # screencast from cell page to cell page as the walk proceeds, since an
-  # isolated cell is a new page each time; every screencast frame is drawn onto
-  # that canvas, so one viewport's recording is a single moving picture of its
-  # whole route walk rather than a slide show assembled after the fact.
-  # `stopRecording` stops the MediaRecorder and returns the WebM base64.
+  # `startRecording` makes one sampler per viewport and ticks it on a timer at
+  # the configured fps across the whole route walk. `attachCell`/`detachCell`
+  # move the CDP screencast from cell page to cell page, since an isolated
+  # cell is a new page each time, while the ticks carry on, so one viewport's
+  # recording is a single moving picture of its whole walk. `finishRecording`
+  # returns the capped frames and ticks; the host encodes them to mp4 (see
+  # ChangeMedia#add_video), because the browserless container shares no
+  # filesystem with the host.
   #
   # Every failure path here is caught and reported as a per-viewport `error`
-  # string rather than thrown: a browser that cannot record (no MediaRecorder,
-  # a screencast that never attaches) must not take down an audit run whose
-  # actual job is the findings.
+  # string rather than thrown: a screencast that never attaches must not take
+  # down an audit run whose actual job is the findings.
   def recorder_js
     <<~JS
-      async function startRecording(vp) {
+      #{BrowserlessJs::SCREENCAST_SAMPLER_JS}
+
+      function startRecording(vp) {
         if (!capture.video) return null;
-        try {
-          const recorderPage = await page.browser().newPage();
-          await recorderPage.setViewport({ width: vp.width, height: vp.height });
-          await recorderPage.setContent(#{JSON.generate(recorder_page_html)});
-          await recorderPage.evaluate((w, h, fps) => window.__cfStart(w, h, fps), vp.width, vp.height, capture.fps);
-          return { page: recorderPage, client: null, stopped: false, error: null };
-        } catch (err) {
-          return { page: null, client: null, stopped: true, error: String(err) };
-        }
+        const sampler = ScreencastSampler({ quality: #{VIDEO_JPEG_QUALITY}, maxWidth: vp.width, maxHeight: vp.height, maxFrames: #{VIDEO_MAX_FRAMES}, maxBytes: #{VIDEO_MAX_BYTES} });
+        const state = { sampler: sampler, client: null, error: null, timer: null };
+        state.timer = setInterval(() => sampler.tick(), 1000 / Math.max(1, capture.fps));
+        return state;
       }
 
-      async function attachCell(state, cellPage, vp) {
-        if (!state || !state.page || state.stopped) return;
+      async function attachCell(state, cellPage) {
+        if (!state) return;
         try {
           const client = #{BrowserlessJs.cdp_session_js('cellPage')};
           state.client = client;
-          // Ack first and never wait on the recorder: Chrome withholds the
-          // next frame until the ack, so acking after the draw would hold the
-          // page under audit to the recorder's pace. Frames arriving while
-          // two are still drawing are dropped; a choppier video never slows
-          // the scan.
-          state.pending = state.pending || 0;
-          client.on("Page.screencastFrame", (frame) => {
-            client.send("Page.screencastFrameAck", { sessionId: frame.sessionId }).catch((err) => { state.error = String(err); });
-            if (state.stopped || !state.page || state.pending >= 2) return;
-            state.pending += 1;
-            state.page.evaluate((data) => window.__cfPush(data), frame.data)
-              .catch((err) => { state.error = String(err); })
-              .finally(() => { state.pending -= 1; });
-          });
-          await client.send("Page.startScreencast", {
-            format: "jpeg",
-            quality: 60,
-            maxWidth: vp.width,
-            maxHeight: vp.height,
-            everyNthFrame: 1,
-          });
+          await state.sampler.attach(client);
         } catch (err) {
           state.error = String(err);
         }
@@ -829,97 +823,21 @@ class ChangeLaneBrowserless < ChangeLane
         if (!state || !state.client) return;
         const client = state.client;
         state.client = null;
-        try { await client.send("Page.stopScreencast"); } catch (err) { void err; }
+        try { await state.sampler.detach(); } catch (err) { void err; }
         try { await client.detach(); } catch (err) { void err; }
       }
 
-      async function stopRecording(state, vp) {
+      async function finishRecording(state, vp) {
         if (!capture.video) return null;
         if (!state) return { viewport: vp.name, error: "recording was not started" };
         await detachCell(state);
-        state.stopped = true;
-        try {
-          if (!state.page) return { viewport: vp.name, error: state.error || "no recorder page" };
-          // MediaRecorder in the pinned browserless image never fires onstop,
-          // so an unbounded wait here hung the whole viewport's call until
-          // browserless's function timeout. Bound it and report no video.
-          const webm = await Promise.race([
-            state.page.evaluate(() => window.__cfStop()),
-            new Promise((_, reject) => setTimeout(() => reject(new Error("recorder did not stop within 10s")), 10000)),
-          ]);
-          await state.page.close();
-          if (!webm) return { viewport: vp.name, error: state.error || "recorder produced no data" };
-          return { viewport: vp.name, webm: webm };
-        } catch (err) {
-          try { if (state.page) await state.page.close(); } catch (closeErr) { void closeErr; }
-          return { viewport: vp.name, error: String(err) };
-        }
+        clearInterval(state.timer);
+        state.sampler.tick();
+        const sampled = state.sampler.result();
+        if (!sampled.frames.length) return { viewport: vp.name, error: state.error || "no screencast frames captured" };
+        return { viewport: vp.name, frames: sampled.frames, ticks: sampled.ticks, dropped: sampled.dropped };
       }
     JS
-  end
-
-  # The recorder page: a canvas, a MediaRecorder over its captured stream, and
-  # the three globals the module drives it with. Self-contained and asset-free
-  # (no remote font, no CDN script), so it renders identically wherever the
-  # browserless image runs.
-  def recorder_page_html
-    <<~HTML
-      <!doctype html><html><head><meta charset="utf-8"><style>html,body{margin:0;background:#000}</style></head>
-      <body><canvas id="cf-canvas"></canvas><script>
-        let ctx = null, recorder = null, chunks = [], queue = Promise.resolve();
-        window.__cfStart = function (width, height, fps) {
-          const canvas = document.getElementById("cf-canvas");
-          canvas.width = width;
-          canvas.height = height;
-          ctx = canvas.getContext("2d");
-          ctx.fillStyle = "#000";
-          ctx.fillRect(0, 0, width, height);
-          const stream = canvas.captureStream(fps);
-          const preferred = "video/webm;codecs=vp9";
-          const mimeType = window.MediaRecorder && MediaRecorder.isTypeSupported(preferred) ? preferred : "video/webm";
-          recorder = new MediaRecorder(stream, { mimeType: mimeType });
-          chunks = [];
-          recorder.ondataavailable = function (event) { if (event.data && event.data.size) chunks.push(event.data); };
-          recorder.start(1000);
-          return true;
-        };
-        window.__cfPush = function (base64) {
-          queue = queue.then(function () {
-            return new Promise(function (resolve) {
-              const image = new Image();
-              image.onload = function () {
-                const canvas = ctx.canvas;
-                const scale = Math.min(canvas.width / image.width, canvas.height / image.height);
-                const width = image.width * scale;
-                const height = image.height * scale;
-                ctx.fillStyle = "#000";
-                ctx.fillRect(0, 0, canvas.width, canvas.height);
-                ctx.drawImage(image, (canvas.width - width) / 2, 0, width, height);
-                resolve();
-              };
-              image.onerror = function () { resolve(); };
-              image.src = "data:image/jpeg;base64," + base64;
-            });
-          });
-          return queue;
-        };
-        window.__cfStop = function () {
-          if (!recorder) return Promise.resolve(null);
-          return queue.then(function () {
-            return new Promise(function (resolve) {
-              recorder.onstop = function () {
-                const blob = new Blob(chunks, { type: recorder.mimeType });
-                const reader = new FileReader();
-                reader.onloadend = function () { resolve(String(reader.result).split(",")[1] || null); };
-                reader.onerror = function () { resolve(null); };
-                reader.readAsDataURL(blob);
-              };
-              recorder.stop();
-            });
-          });
-        };
-      </script></body></html>
-    HTML
   end
 
   def js_route_entries(entries, figma_refs)
