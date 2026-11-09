@@ -4,3 +4,4 @@ src/generated/
 public/spec/
 public/changelog.xml
 .verification/
+public/reference-examples/

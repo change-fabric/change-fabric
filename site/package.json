@@ -13,7 +13,7 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "verify:spec-release": "node verify/spec-release.mjs",
-    "test": "node --test test/search.test.ts"
+    "test": "node --test test/search.test.ts test/skill-example.test.ts"
   },
   "dependencies": {
     "marked": "^14.1.4",

@@ -1686,6 +1686,26 @@ code {
   color: var(--text);
 }
 
+/* A skill's example of its own output. The SVG themes itself from the color
+   scheme of the img, which follows the page's, toggle included. */
+.skill-example {
+  margin: 0 0 2rem;
+}
+
+.skill-example img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.skill-example figcaption {
+  margin-top: 0.5rem;
+  color: var(--muted);
+  font-size: 0.875rem;
+}
+
 .spec-body > :first-child {
   margin-top: 0;
 }

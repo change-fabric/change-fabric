@@ -3,16 +3,30 @@
 //   src/generated/reference/skills.json  one entry per skills/<name>/SKILL.md
 //   src/generated/reference/hooks.json   one entry per script wired in
 //                                        install.rb's Installer::HOOKS map
+//   public/reference-examples/<id>.svg   a copy of skills/<id>/example.svg,
+//                                        for a skill that ships one
 // Both are git-ignored, derived at build time (prebuild/predev), same as
 // embed-spec.mjs's src/generated/spec.md.
-import { readFileSync, readdirSync, writeFileSync, mkdirSync, statSync } from "node:fs";
+import { readFileSync, readdirSync, writeFileSync, mkdirSync, statSync, existsSync, copyFileSync, rmSync } from "node:fs";
 import { dirname, resolve, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { exampleMeta } from "./skill-example.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(here, "../..");
 const outDir = resolve(here, "../src/generated/reference");
 mkdirSync(outDir, { recursive: true });
+const examplesDir = resolve(here, "../public/reference-examples");
+rmSync(examplesDir, { recursive: true, force: true });
+
+function embedExample(dirName) {
+  const source = join(repoRoot, "skills", dirName, "example.svg");
+  if (!existsSync(source)) return null;
+  const meta = exampleMeta(readFileSync(source, "utf8"), dirName);
+  mkdirSync(examplesDir, { recursive: true });
+  copyFileSync(source, join(examplesDir, `${dirName}.svg`));
+  return meta;
+}
 
 function splitFrontmatter(raw) {
   const match = raw.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/);
@@ -97,6 +111,7 @@ function buildSkills() {
         description: meta.description,
         summary: firstSentence(meta.description),
         autoBasenames: meta.autoBasenames,
+        example: embedExample(dirName),
         body: body.trim(),
       };
     })

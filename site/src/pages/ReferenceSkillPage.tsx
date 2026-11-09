@@ -59,6 +59,19 @@ export function ReferenceSkillPage({ id }: { id: string }) {
             ))}
           </p>
         )}
+        {skill.example && (
+          <figure className="skill-example">
+            <img
+              src={skill.example.src}
+              alt={skill.example.alt}
+              width={skill.example.width}
+              height={skill.example.height}
+            />
+            <figcaption>
+              This diagram was made by <code>{skill.name}</code>.
+            </figcaption>
+          </figure>
+        )}
         <div className="spec-body" dangerouslySetInnerHTML={{ __html: specHtml(skill.body) }} />
       </section>
     </Layout>
