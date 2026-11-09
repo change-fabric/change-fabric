@@ -150,6 +150,12 @@ class SiteMediaPublishTest < Minitest::Test
     assert_equal({ "AWS_PROFILE" => "work" }, SiteMediaPublish.aws_env({ "AWS_PROFILE" => "work" }))
   end
 
+  def test_transcript_keeps_numeric_caption_lines_and_drops_only_cue_indexes
+    srt = "1\n00:00:00,000 --> 00:00:01,000\nThe answer is\n42\n\n" \
+          "2\r\n00:00:01,000 --> 00:00:02,000\r\n2026\r\n"
+    assert_equal "The answer is 42 2026", SiteMediaPublish.transcript(srt)
+  end
+
   def test_deploy_sh_excludes_media_from_both_syncs
     deploy = File.read(File.join(SiteMediaPublish::INFRA, "deploy.sh"))
     assert_equal 2, deploy.scan('--exclude "media/*"').size

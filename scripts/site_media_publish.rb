@@ -100,9 +100,16 @@ module SiteMediaPublish
     raise Error, "ffprobe output for #{path} was not JSON"
   end
 
-  # Cue text only, in order: the plain transcript every slot carries.
+  # Cue text only, in order: the plain transcript every slot carries. Parsed
+  # by cue block, so only a header index before the timing line is dropped
+  # and a numeric caption line ("42") survives.
   def transcript(srt)
-    srt.lines.map(&:strip).reject { |l| l.empty? || l.match?(/\A\d+\z/) || l.include?('-->') }.join(' ')
+    srt.gsub("\r\n", "\n").split(/\n\s*\n/).flat_map do |block|
+      lines = block.lines.map(&:strip).reject(&:empty?)
+      lines.shift if lines.first&.match?(/\A\d+\z/) && lines[1]&.include?('-->')
+      lines.shift if lines.first&.include?('-->')
+      lines
+    end.join(' ')
   end
 
   # Writes the derived files into `work` and returns the slot's files as
