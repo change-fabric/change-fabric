@@ -29,7 +29,7 @@
     "kind": "explainer",
     "audience": "Engineers deciding from the docs site whether to adopt the toolkit",
     "purpose": [
-      "What change fabric is: skills and hooks for Claude Code that decide when a change may land",
+      "What change fabric is: skills and hooks for coding agents that decide when a change may land",
       "That one CHANGE.md per repo holds the config and the protected branches and tags",
       "That five containerized audit lanes feed one report and a gate on the head commit before a merge or release tag",
       "That this clip itself is made by the walkthrough skill, diagram scene included"
@@ -46,7 +46,7 @@
         "html": "screens/intro.html"
       },
       "narration": {
-        "text": "Change fabric is a set of skills and hooks for Claude Code. It decides when a change is ready to land, and it records why.",
+        "text": "Change fabric is a set of skills and hooks for coding agents. It decides when a change is ready to land, and it records why.",
         "measured_ms": 0
       },
       "requirements": [
@@ -71,8 +71,8 @@
         }
       },
       "deps": {
-        "frames_key": "c3bd8be7f61886f1995fb8192eac6172e6418e12f9adf79216ae68659ac7b2b9",
-        "audio_key": "717f0dc6f1efd6bedfdea68490c39f076a214dc7e5174e1ffc7a02d18bbff935",
+        "frames_key": "7f87cff6d0877a99dc021bb40a6228441ea730930a9a41c94f32b93c8fb4b55b",
+        "audio_key": "a3cd0a601813b5dfccd9504ec760ba21aab405f14730625f3dc54fe79e3378cf",
         "asset_keys": []
       }
     },
@@ -117,7 +117,7 @@
         }
       },
       "deps": {
-        "frames_key": "633b916a1ab0652f0dfe9c6a4fc1dbb138e5639f0a5f47c3cdeb76a260bb5165",
+        "frames_key": "86a97c276b2b94eccdff0cce0ce15193cfe18fb95d402d420c857abda501cf0f",
         "audio_key": "5cc2cb248b540e4600845668d26f6f427f86339e7a915b379297c1c1cc4b1e0d",
         "asset_keys": []
       }
@@ -153,7 +153,7 @@
           },
           {
             "id": "zap",
-            "label": "Pentest (ZAP)"
+            "label": "Security (ZAP)"
           },
           {
             "id": "ux",
@@ -444,7 +444,7 @@
         ]
       },
       "narration": {
-        "text": "A pull request fans out to five audit lanes, each in its own container: load, accessibility, pentest, responsive layout, and test cases. Every finding lands in one report, and the gate records a pass for the head commit. Only then does the merge or the release tag go through.",
+        "text": "A pull request fans out to five audit lanes, each in its own container: load, accessibility, security, responsive UX, and test cases. Every finding lands in one report, and the gate records a pass for the head commit. Only then does the merge or the release tag go through.",
         "measured_ms": 0
       },
       "requirements": [
@@ -473,8 +473,8 @@
         }
       },
       "deps": {
-        "frames_key": "f2c9632b1107fac524628ba24283255f37cd7fb87c563012d37cb22cf2f4abcb",
-        "audio_key": "1edcc8a584fafe2deaa6b717acb29537cf3d4ecc464e92e1d3be294c10778519",
+        "frames_key": "55a1fcd3e20946586dd4b820b0a0fa9724e6f31be590d0f585a62d10727a6d1c",
+        "audio_key": "16ceb987197d9126d6c553c1a9a7fb4feea4f6be4cc8baa46dd741103c56735c",
         "asset_keys": []
       }
     },

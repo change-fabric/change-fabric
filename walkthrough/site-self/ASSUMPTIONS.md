@@ -1,6 +1,6 @@
 # Assumptions: change fabric in 45 seconds
 
-This walkthrough is a role plus look-and-feel prototype (Houde and Hill, 1997). It does not demonstrate implementation or integration; nothing shown is built.
+This walkthrough shows the real toolkit and its real gate flow: the five audit lanes, the single report, and the merge and tag gate on the head commit all exist and behave as narrated. Only the CHANGE.md on screen in scene change-md is illustrative, an abridged example for an unnamed app (A-01). Note: walkthrough_assumptions.rb writes a fixed prototype statement on this line; restore this text after regenerating.
 
 ## Assumptions
 

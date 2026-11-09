@@ -17,7 +17,7 @@
 - Heuristics shown: H2, H8
 - Requirement: brief.md#toolkit
 
-> Change fabric is a set of skills and hooks for Claude Code. It decides when a change is ready to land, and it records why.
+> Change fabric is a set of skills and hooks for coding agents. It decides when a change is ready to land, and it records why.
 
 ## 2. One file per repo (`change-md`)
 
@@ -45,7 +45,7 @@
 - Node `pr`: Pull request
 - Node `k6`: Load (k6)
 - Node `a11y`: Accessibility (axe)
-- Node `zap`: Pentest (ZAP)
+- Node `zap`: Security (ZAP)
 - Node `ux`: Responsive UX
 - Node `cases`: Test cases
 - Node `report`: One report
@@ -93,7 +93,7 @@
 | 14300 | highlight | merge, tag, e-gate-merge, e-gate-tag |
 | 15600 | fit_view |  |
 
-> A pull request fans out to five audit lanes, each in its own container: load, accessibility, pentest, responsive layout, and test cases. Every finding lands in one report, and the gate records a pass for the head commit. Only then does the merge or the release tag go through.
+> A pull request fans out to five audit lanes, each in its own container: load, accessibility, security, responsive UX, and test cases. Every finding lands in one report, and the gate records a pass for the head commit. Only then does the merge or the release tag go through.
 
 ## 4. Made by the walkthrough skill (`made-by`)
 

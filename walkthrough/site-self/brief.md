@@ -6,7 +6,7 @@ Engineers deciding whether to adopt the toolkit from its site.
 
 ## Toolkit
 
-Change fabric is a set of skills and hooks for Claude Code. It decides when a
+Change fabric is a set of skills and hooks for coding agents. It decides when a
 change is ready to land and records why.
 
 ## CHANGE.md
@@ -17,9 +17,9 @@ release tags, admin bypass).
 
 ## Lanes
 
-`cf:change` runs five dockerized audit lanes against the config: k6 load,
-axe-core accessibility, OWASP ZAP pentest, browserless responsive UX, and
-committed test cases. Findings aggregate into one CSV and Markdown report, and
+`cf:change` runs five dockerized audit lanes against the config: Load (k6),
+Accessibility (axe-core), Security (OWASP ZAP passive baseline scan), Responsive UX (browserless), and
+Test cases (committed suites). Findings aggregate into one CSV and Markdown report, and
 the run records a pass or fail for the head commit.
 
 ## Gate
