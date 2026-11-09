@@ -144,8 +144,8 @@ class ChangeFlowCompiler
       if (loc.textIs !== null) els = els.filter((el) => textOf(el) === loc.textIs);
       if (loc.hasText !== null) els = els.filter((el) => textOf(el).indexOf(loc.hasText) !== -1);
       if (!loc.css) els = els.filter((el) => !els.some((other) => other !== el && el.contains(other)));
-      if (mode === "count") return els.length;
       const picked = loc.nth === null ? els[0] : els[loc.nth < 0 ? els.length + loc.nth : loc.nth];
+      if (mode === "count") return loc.nth === null ? els.length : (picked ? 1 : 0);
       const visible = (el) => {
         const style = getComputedStyle(el);
         const rect = el.getBoundingClientRect();

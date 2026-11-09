@@ -311,6 +311,36 @@ class ChangeFlowCompilerTest < Minitest::Test
     assert_includes js, "fullPage: step.fullPage === true"
   end
 
+  # Runs the runtime's own cfLocate in node against a stub document of three
+  # tr.row elements, so count mode is checked against the real JS.
+  def locate_count(selector)
+    skip "node not installed" unless system("command -v node >/dev/null 2>&1")
+    source = ChangeFlowCompiler.flow_runtime_js[/^const cfLocate = .*?^\};\n/m]
+    script = <<~JS
+      const rows = [1, 2, 3].map((n) => ({ innerText: "row " + n, contains: () => false }));
+      globalThis.document = { querySelectorAll: () => rows };
+      #{source}
+      process.stdout.write(String(cfLocate(#{JSON.generate(one("expect_count" => { "selector" => selector, "equals" => 1 })[:locator])}, "count")));
+    JS
+    Integer(IO.popen([ "node", "-e", script ], &:read))
+  end
+
+  def test_count_applies_the_nth_restriction
+    assert_equal 3, locate_count('tr.row:has-text("row")')
+    assert_equal 1, locate_count("tr.row >> nth=0")
+    assert_equal 1, locate_count("tr.row >> nth=-1")
+    assert_equal 0, locate_count("tr.row >> nth=3")
+    assert_equal 0, locate_count("tr.row >> nth=-4")
+  end
+
+  def test_capture_and_expect_equal_count_carry_the_nth_locator
+    steps = compile([ { "capture" => { "selector" => "tr.row >> nth=0", "as" => "n", "kind" => "count" } },
+                      { "expect_equal" => { "var" => "n", "selector" => "tr.row >> nth=5", "kind" => "count" } } ])
+    assert_equal [ 0, 5 ], steps.map { |s| s[:locator][:nth] }
+    assert_includes ChangeFlowCompiler.flow_runtime_js, 'if (step.kind === "count") return cfCount(page, step);'
+    assert_equal 0, locate_count("tr.row >> nth=5")
+  end
+
   # --- secret redaction ------------------------------------------------------------
 
   def test_redacted_replaces_an_env_sourced_value_and_leaves_the_rest
