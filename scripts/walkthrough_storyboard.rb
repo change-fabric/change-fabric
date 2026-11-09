@@ -161,7 +161,7 @@ module WalkthroughStoryboard
     errors.concat(kind_errors(scene, root))
     errors.concat(WalkthroughBrowserFrame.errors(scene))
     if WalkthroughDiagram.diagram?(scene)
-      errors.concat(WalkthroughDiagram.errors(scene, root))
+      errors.concat(WalkthroughDiagram.errors(scene, root, board: board))
       errors.concat(store_errors(scene, orders, root)) if scene['store']
       LIVE_ONLY.each { |key| errors << "#{key} needs a live board (a diagram scene is a prototype screen)" if scene.key?(key) && !scene[key].nil? }
     elsif WalkthroughEnvironment.environment?(scene)

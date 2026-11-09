@@ -84,6 +84,44 @@ class WalkthroughDiagramCaptureTest < Minitest::Test
     end
   end
 
+  # An LR dagre layout under a virtual clock: ranks run left to right, a node
+  # never moves once shown (add_node does not reflow), and whenever the
+  # camera rests on a fit or a focus its targets sit above the caption band.
+  def test_lr_dagre_layout_holds_still_and_clears_the_caption_band
+    skip "docker not available" unless ChangeDocker.available?
+
+    Dir.mktmpdir do |root|
+      FileUtils.cp_r("#{File.expand_path('fixtures/walkthrough/diagram-lr', __dir__)}/.", root)
+      board = WalkthroughStoryboard.load(File.join(root, "storyboard.json"))
+      WalkthroughDiagram.write_screens(board, root)
+      assert_empty WalkthroughStoryboard.validate(board, root: root)
+      scene = board["scenes"].first
+      html = PrototypeCapture.inline_screen(File.join(root, scene.dig("screen", "html")), root: root)
+      samples = ChangeDocker.with_browserless(network: nil) { |session| probe(session, html, board["viewport"], PrototypeCapture.scene_duration(scene)) }
+      band_top = board.dig("viewport", "h") * (1 - PrototypeUxLint::CAPTION_BAND)
+      at = ->(t) { samples.min_by { |s| (s["t"] - t).abs } }
+
+      flow = at.(0)["nodes"].to_h { |n| [ n["id"], n["flow"] ] }
+      samples.each do |s|
+        s["nodes"].each { |n| assert_equal flow[n["id"]], n["flow"], "#{n['id']} moved at #{s['t']} ms" }
+      end
+      x = ->(id) { flow[id][0] }
+      assert_operator x.("client"), :<, x.("gateway")
+      assert_operator x.("gateway"), :<, x.("orders")
+      assert_operator x.("orders"), :<, x.("db")
+      assert_equal x.("auth"), x.("orders"), "auth and orders share a rank"
+
+      [ 0, 1500, 1790 ].each do |t|
+        at.(t)["nodes"].select { |n| n["opacity"].positive? }.each do |n|
+          assert_operator n["bottom"], :<=, band_top, "#{n['id']} reaches the caption band at #{t} ms"
+          assert_operator n["top"], :>=, 0, "#{n['id']} is cut off at the top at #{t} ms"
+        end
+      end
+      db = at.(2500)["nodes"].find { |n| n["id"] == "db" }
+      assert_operator db["bottom"], :<=, band_top, "the focused node reaches the caption band"
+    end
+  end
+
   def test_a_screen_that_never_gets_ready_fails_loudly
     skip "docker not available" unless ChangeDocker.available?
 
@@ -123,6 +161,36 @@ class WalkthroughDiagramCaptureTest < Minitest::Test
       html = html.sub(%(<script src="#{src}"></script>)) { "<script>#{body}</script>" }
     end
     html
+  end
+
+  # A virtual clock the runtime drives itself from, so each sample is the
+  # state at an exact time without a full frame capture.
+  CLOCK = "<script>(() => { let t = 0; performance.now = () => t; window.__cfAdvance = (ms) => (t += ms); })();</script>"
+  STEP_MS = 10
+
+  # Node rects (viewport px), flow-space centres, and opacity every STEP_MS.
+  def probe(session, html, viewport, duration_ms)
+    code = <<~JS
+      export default async function ({ page }) {
+        await page.setViewport({ width: #{viewport['w']}, height: #{viewport['h']}, deviceScaleFactor: 1 });
+        await page.setContent(#{JSON.generate(html.sub('<head>', "<head>#{CLOCK}"))});
+        await page.waitForFunction('window.__cfDiagramReady === true', { timeout: 20000 });
+        const samples = [];
+        for (let t = 0; t <= #{duration_ms}; t += #{STEP_MS}) {
+          samples.push(await page.evaluate((step) => {
+            if (step) window.__cfAdvance(step);
+            const nodes = [...document.querySelectorAll('.react-flow__node')].map((el) => {
+              const r = el.getBoundingClientRect();
+              const m = el.style.transform.match(/translate\\(([-\\d.]+)px, ([-\\d.]+)px\\)/);
+              return { id: el.dataset.id, opacity: Number(el.style.opacity || 0), top: r.top, bottom: r.bottom, flow: m ? [Number(m[1]) + el.offsetWidth / 2, Number(m[2]) + el.offsetHeight / 2] : null };
+            });
+            return { t: performance.now(), nodes };
+          }, t === 0 ? 0 : #{STEP_MS}));
+        }
+        return { data: samples, type: 'application/json' };
+      }
+    JS
+    session.run_function(code)
   end
 
   def capture(recorder, html, out)
