@@ -49,6 +49,8 @@
   "libx264",
   "-preset",
   "medium",
+  "-tune",
+  "animation",
   "-crf",
   "18",
   "-threads",

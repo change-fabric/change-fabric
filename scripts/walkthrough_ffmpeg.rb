@@ -10,7 +10,13 @@ require 'shellwords'
 #   { fps:, width:, height:, total_ms:, cursor_png:, srt:, output:,
 #     music: { path:, gain_db: } | nil, duck_spans: [{ start_ms:, end_ms:, db: }],
 #     scenes: [{ id:, frames_dir:, frames:, start_frame:, transition: { 'type', 'ms' },
-#                cursor: [{ 'frame', 'x', 'y' }], taps: [...] | nil, hero_still:, audio:, offset_ms: }] }
+#                cursor: [{ 'frame', 'x', 'y' }], taps: [...] | nil, hero_still:, audio:, offset_ms:,
+#                stage: [w, h] | nil }] }
+#
+# A scene's frames are scaled (down) to its stage, the canvas or the canvas
+# times its camera zoom, and the cursor is drawn there before the camera
+# crops back to the canvas, so a zoom never resamples a frame up. Cursor and
+# tap tracks stay in canvas px and are scaled onto the stage here.
 #
 # Audio is normalized in two passes: pass 1 measures with loudnorm
 # print_format=json, pass 2 applies the measured values with linear=true.
@@ -29,8 +35,13 @@ module WalkthroughFfmpeg
   OFFSCREEN = -200
   # The tap ripple sprite's size in canvas px (matches WalkthroughDevice::RIPPLE).
   RIPPLE = 44
+  # yuv420p stays for player compatibility: with grayscale text antialiasing
+  # (BrowserlessJs.capture_launch_args) 4:2:0 loses little on UI text, and
+  # yuv444p does not play everywhere. -tune animation measured about 1.4 dB
+  # PSNR better on small text than no tune (-tune stillimage was worse) for
+  # about 8% more bytes.
   DETERMINISM = [ '-fflags', '+bitexact', '-flags:v', '+bitexact', '-flags:a', '+bitexact', '-r', '30',
-                  '-pix_fmt', 'yuv420p', '-map_metadata', '-1', '-c:v', 'libx264', '-preset', 'medium',
+                  '-pix_fmt', 'yuv420p', '-map_metadata', '-1', '-c:v', 'libx264', '-preset', 'medium', '-tune', 'animation',
                   '-crf', '18', '-threads', '4', '-c:a', 'aac', '-b:a', '192k' ].freeze
   MEASURED = { 'input_i' => 'measured_I', 'input_tp' => 'measured_TP', 'input_lra' => 'measured_LRA',
                'input_thresh' => 'measured_thresh', 'target_offset' => 'offset' }.freeze
@@ -79,25 +90,62 @@ module WalkthroughFfmpeg
   # { container_path => content } for every scene whose path needs sendcmd.
   def sendcmd_files(plan)
     plan[:scenes].each_with_index.filter_map do |scene, i|
-      points = Array(scene[:cursor])
+      points = track(plan, i, :cursor)
       [ sendcmd_path(plan, scene), sendcmd(points, "overlay@c#{i}", plan[:fps]) ] if long_path?(points)
     end.to_h
+  end
+
+  # -- stage ---------------------------------------------------------------
+
+  def stage(plan, scene) = scene[:stage] || [ plan[:width], plan[:height] ]
+
+  # Stage px per canvas px.
+  def stage_scale(plan, scene) = scene[:stage] ? scene[:stage].first.to_f / plan[:width] : 1.0
+
+  # Frames of `scene` (1-based, inclusive) the next scene fades in over.
+  def fade_out_from(plan, i)
+    scene = plan[:scenes][i]
+    following = plan[:scenes][i + 1]
+    return nil unless following && following.dig(:transition, 'type') == 'fade'
+
+    overlap = scene[:start_frame] + scene[:frames] - following[:start_frame]
+    overlap.positive? ? scene[:frames] - overlap + 1 : nil
+  end
+
+  # A scene's cursor or tap track as drawn: scaled onto its stage, and parked
+  # off canvas while the next scene fades in over it, so a crossfade never
+  # shows the outgoing and the incoming cursor at once.
+  def track(plan, i, key, scene = plan[:scenes][i])
+    s = stage_scale(plan, scene)
+    hide_from = fade_out_from(plan, i)
+    Array(scene[key]).map do |pt|
+      if hide_from && pt.fetch('frame') >= hide_from
+        pt.merge('x' => OFFSCREEN * 5, 'y' => OFFSCREEN * 5)
+      else
+        s == 1.0 ? pt : pt.merge('x' => pt.fetch('x') * s, 'y' => pt.fetch('y') * s)
+      end
+    end
   end
 
   # -- video graph ---------------------------------------------------------
 
   def scene_chain(plan, scene, i)
-    points = Array(scene[:cursor])
-    raw = "[#{i}:v]setpts=PTS-STARTPTS,scale=#{plan[:width]}:#{plan[:height]}:flags=lanczos"
-    taps = Array(scene[:taps])
+    points = track(plan, i, :cursor, scene)
+    w, h = stage(plan, scene)
+    s = stage_scale(plan, scene)
+    raw = "[#{i}:v]setpts=PTS-STARTPTS,scale=#{w}:#{h}:flags=lanczos"
+    # The sprite grows with the stage, so it looks as it did on the canvas.
+    parts = s == 1.0 ? [] : [ "[c#{i}]scale=iw*#{format('%.4f', s)}:ih*#{format('%.4f', s)}:flags=lanczos[cs#{i}]" ]
+    sprite = parts.empty? ? "c#{i}" : "cs#{i}"
+    taps = track(plan, i, :taps, scene)
     out = taps.empty? ? scene_output(plan, scene, i) : "[a#{i}]"
-    parts = if long_path?(points)
-              first = points.first
-              [ "#{raw},sendcmd=f='#{sendcmd_path(plan, scene)}'[s#{i}]",
-                "[s#{i}][c#{i}]overlay@c#{i}=x=#{first['x'].round}:y=#{first['y'].round}:eval=frame#{out}" ]
+    if long_path?(points)
+      first = points.first
+      parts << "#{raw},sendcmd=f='#{sendcmd_path(plan, scene)}'[s#{i}]"
+      parts << "[s#{i}][#{sprite}]overlay@c#{i}=x=#{first['x'].round}:y=#{first['y'].round}:eval=frame#{out}"
     else
-              [ "#{raw}[s#{i}]",
-                "[s#{i}][c#{i}]overlay=x='#{chain(runs(points, 'x'))}':y='#{chain(runs(points, 'y'))}':eval=frame#{out}" ]
+      parts << "#{raw}[s#{i}]"
+      parts << "[s#{i}][#{sprite}]overlay=x='#{chain(runs(points, 'x'))}':y='#{chain(runs(points, 'y'))}':eval=frame#{out}"
     end
     parts.concat(tap_chain(plan, scene, i, taps)) unless taps.empty?
     parts
@@ -107,7 +155,7 @@ module WalkthroughFfmpeg
   # input indices stay put) overlaid along taps.json, parked off canvas
   # between taps. Tap points are sparse, so the inline chain always fits.
   def tap_chain(plan, scene, i, taps)
-    size = RIPPLE
+    size = 2 * (RIPPLE * stage_scale(plan, scene) / 2).round
     half = size / 2
     ring = "hypot(X-#{half},Y-#{half})"
     [ "color=c=white@0:s=#{size}x#{size}:r=#{plan[:fps]},format=rgba,"       "geq=r=255:g=255:b=255:a='if(between(#{ring},#{half - 7},#{half - 2}),210,if(lt(#{ring},#{half - 7}),70,0))'[r#{i}]",
@@ -123,7 +171,7 @@ module WalkthroughFfmpeg
   # a plain scene renumbers its frames (setpts=N) before fps.
   def scene_output(plan, scene, i)
     tail = scene[:hero_still] ? ",#{hero_filter(plan)}" : ",#{timebase(plan)},setpts=N,fps=#{plan[:fps]}"
-    tail = ",#{camera_filter(plan, scene[:camera])}#{tail}" if scene[:camera]
+    tail = ",#{camera_filter(plan, scene[:camera], from: stage(plan, scene))}#{tail}" if scene[:camera]
     "#{tail},#{timebase(plan)}[v#{i}]"
   end
 
@@ -132,8 +180,9 @@ module WalkthroughFfmpeg
   # A camera framing: the frame scales by `zoom` around `focus`. Zooming in
   # crops back to the canvas, clamped so the crop never leaves the frame;
   # zooming out pads back to the canvas, clamped so the frame stays whole.
-  # Cursor and taps are already drawn in, so they stay aligned.
-  def camera_filter(plan, camera)
+  # Cursor and taps are already drawn in, so they stay aligned. A frame
+  # already on its zoomed stage (`from`) is cropped as is, never rescaled.
+  def camera_filter(plan, camera, from: nil)
     w = plan[:width]
     h = plan[:height]
     zoom = camera['zoom'].to_f
@@ -144,6 +193,8 @@ module WalkthroughFfmpeg
     x = camera_offset(fx, zw, w)
     y = camera_offset(fy, zh, h)
     fit = zoom >= 1 ? "crop=#{w}:#{h}:#{x}:#{y}" : "pad=#{w}:#{h}:#{x}:#{y}:color=black"
+    return "#{fit},setsar=1" if from == [ zw, zh ]
+
     "scale=#{zw}:#{zh}:flags=lanczos,#{fit},setsar=1"
   end
 

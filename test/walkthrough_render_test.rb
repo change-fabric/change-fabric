@@ -158,7 +158,9 @@ class WalkthroughRenderTest < Minitest::Test
     b["scenes"][0]["camera"] = { "zoom" => 1.5 }
     File.write(File.join(@root, "storyboard.json"), JSON.pretty_generate(b))
     run_render
-    assert_includes @calls[:docker].map { |a| a.join(" ") }.join("\n"), "flags=lanczos,crop="
+    log = @calls[:docker].map { |a| a.join(" ") }.join("\n")
+    assert_includes log, "scale=960:540:flags=lanczos[s0]", "the frame is scaled onto the 1.5x stage"
+    assert_includes log, ",crop=640:360:160:90,"
   end
 
   # Only a focus-less camera changes the render key: a mp4 cached before

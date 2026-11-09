@@ -29,8 +29,8 @@ class WalkthroughDiagramCaptureTest < Minitest::Test
       @results = []
     end
 
-    def run_function(code)
-      @session.run_function(code).tap { |r| @results << r }
+    def run_function(code, **opts)
+      @session.run_function(code, **opts).tap { |r| @results << r }
     end
 
     def alive? = @session.alive?

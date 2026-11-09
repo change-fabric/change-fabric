@@ -352,7 +352,7 @@ module WalkthroughRender
         say("#{scene['id']}: capturing #{scene_frames(scene)} frames")
         @p[:capture].call(session: session, html: PrototypeCapture.inline_screen(prep[:html_path], remap: prep[:remap], root: prep[:root]),
                           interactions: scene['interactions'] || [], duration_ms: duration, out_dir: prep[:out_dir],
-                          state: prep[:state], prng_seed: prep[:prng_seed], viewport: @board['viewport'], fps: fps,
+                          state: prep[:state], prng_seed: prep[:prng_seed], viewport: PrototypeCapture.scene_viewport(@board, scene), fps: fps,
                           label: scene['id'])
         frame!(scene, prep)
       end
@@ -489,7 +489,7 @@ module WalkthroughRender
       { id: entry['id'], frames_dir: container(input[:dir]), frames: entry['frames'], start_frame: entry['start_frame'],
         transition: input[:scene].dig('timing', 'transition') || WalkthroughStoryboard::DEFAULT_TRANSITION,
         cursor: input[:cursor], taps: input[:taps], hero_still: input[:scene]['hero_still'] == true,
-        camera: input[:scene]['camera'],
+        camera: input[:scene]['camera'], stage: WalkthroughSharpness.stage_size(@board, input[:scene]),
         audio: input[:audio] && container(input[:audio]), offset_ms: input[:offset_ms] }
     end
 
@@ -621,7 +621,7 @@ module WalkthroughRender
       say("#{scene['id']}: ux lint")
       @p[:lint].call(session: session, html: PrototypeCapture.inline_screen(prep[:html_path], remap: prep[:remap], root: prep[:root]),
                      interactions: scene['interactions'] || [], duration_ms: PrototypeCapture.scene_duration(scene),
-                     out_dir: prep[:out_dir], state: prep[:state], prng_seed: prep[:prng_seed], viewport: @board['viewport'],
+                     out_dir: prep[:out_dir], state: prep[:state], prng_seed: prep[:prng_seed], viewport: PrototypeCapture.scene_viewport(@board, scene),
                      fps: fps, label: scene['id'])
     end
 
@@ -637,6 +637,22 @@ module WalkthroughRender
       WalkthroughRoast.gate!(roast_dir, allow: @gates[:allow_roast], cap_usd: roast_cap, require_roast: @gates[:roast],
                                                   content: @content_key, **roast_stop)
       say("roast gate: #{roast_verdict[:reason]}") if @gates[:roast]
+    end
+
+    # The capture-size guard, before anything is captured: every scene's
+    # captured px against the slot it is drawn into on its stage, printed on
+    # every render. It warns rather than refuses: the derived dpr never
+    # stretches past WalkthroughSharpness::MAX_UPSCALE (the unit tests hold
+    # that across every layout and zoom), so a stretch only comes from an
+    # authored viewport.dpr pin, and boards pinned to dpr 1
+    # before the dpr was derived must still render.
+    def sharpness!
+      rows = WalkthroughSharpness.upscaled(@board)
+      return say('sharpness: every scene is captured at or above its slot size') if rows.empty?
+
+      say("warning: sharpness: #{rows.size} capture(s) upscaled into their slot, text will read soft; " \
+          'drop the pinned viewport.dpr')
+      rows.each { |r| say("  #{WalkthroughSharpness.describe(r)}") }
     end
 
     def roast_cap = @gates[:roast_max_usd]
@@ -737,6 +753,7 @@ module WalkthroughRender
       WalkthroughStoryboard.validate!(@board, root: @root)
       WalkthroughCache.ensure_gitignore(@root)
       estimate
+      sharpness!
       return nil if estimate_only
 
       generate_audio
