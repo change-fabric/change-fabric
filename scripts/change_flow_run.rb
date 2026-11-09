@@ -26,7 +26,8 @@ require_relative 'change_suite_render'
 # --change-md PATH, so a profile describes its own local dev host once.
 #
 # The flow file is either a bare list of steps or a mapping carrying
-# `base_url`, `timeout_ms`, and `steps`. A command-line `--base-url` wins over
+# `base_url`, `timeout_ms`, `viewport` ({ width:, height: }), and `steps`. A
+# command-line `--base-url` wins over
 # the file's, so the same flow file runs against any environment without being
 # edited.
 #
@@ -53,7 +54,8 @@ module ChangeFlowRun
     compiler = ChangeFlowCompiler.new(
       flow['steps'],
       base_url: base_url,
-      timeout_ms: flow['timeout_ms'] || ChangeFlowCompiler::DEFAULT_TIMEOUT_MS
+      timeout_ms: flow['timeout_ms'] || ChangeFlowCompiler::DEFAULT_TIMEOUT_MS,
+      viewport: flow['viewport']
     )
     puts(options[:dump] ? compiler.dump : JSON.pretty_generate(execute(compiler, options)))
     0

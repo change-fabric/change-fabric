@@ -196,6 +196,121 @@ class ChangeFlowCompilerTest < Minitest::Test
     assert_equal 9_000, steps.last[:timeoutMs]
   end
 
+  def test_a_timeout_inside_the_verb_mapping_is_honored
+    steps = ChangeFlowCompiler.new([ { "wait_for" => { "selector" => "#shell", "timeout_ms" => 30_000 } },
+                                     { "wait_for" => { "selector" => "#x", "timeout_ms" => 30_000 }, "timeout_ms" => 1_000 } ],
+                                   env: ENV_FIXTURE).compile
+    assert_equal 30_000, steps.first[:timeoutMs]
+    assert_equal 1_000, steps.last[:timeoutMs]
+  end
+
+  # --- capture and expect_equal ------------------------------------------------------
+
+  def test_capture_then_expect_equal_against_a_live_count
+    steps = compile([ { "capture" => { "selector" => "#premium-count", "as" => "premium", "kind" => "number" } },
+                      { "goto" => "/members?segment=premium" },
+                      { "expect_equal" => { "var" => "premium", "selector" => "tr.member", "kind" => "count" } } ])
+    assert_equal({ selector: "#premium-count", as: "premium", kind: "number" },
+                 steps.first.slice(:selector, :as, :kind))
+    assert_equal "capture", steps.first[:verb]
+    last = steps.last
+    assert_equal "expectEqual", last[:verb]
+    assert_equal [ "premium", nil, "tr.member", "count" ], last.values_at(:var, :equalsVar, :selector, :kind)
+  end
+
+  def test_expect_equal_can_compare_two_captured_variables
+    steps = compile([ { "capture" => { "selector" => "#a", "as" => "a" } },
+                      { "capture" => { "selector" => "#b", "as" => "b", "kind" => "count" } },
+                      { "expect_equal" => { "var" => "a", "equals_var" => "b" } } ])
+    assert_equal [ "a", "b" ], steps.last.values_at(:var, :equalsVar)
+    assert_equal "text", steps.first[:kind]
+  end
+
+  def test_expect_equal_refuses_a_variable_no_earlier_step_captured
+    error = assert_raises(ChangeFlowCompiler::Error) do
+      compile([ { "expect_equal" => { "var" => "missing", "selector" => "tr" } } ])
+    end
+    assert_match(/not captured/, error.message)
+  end
+
+  def test_capture_refuses_a_bad_name_or_kind
+    assert_raises(ChangeFlowCompiler::Error) { one("capture" => { "selector" => "#a", "as" => "bad name" }) }
+    assert_raises(ChangeFlowCompiler::Error) { one("capture" => { "selector" => "#a", "as" => "a", "kind" => "html" }) }
+  end
+
+  def test_expect_equal_needs_exactly_one_source
+    captured = { "capture" => { "selector" => "#a", "as" => "a" } }
+    assert_raises(ChangeFlowCompiler::Error) { compile([ captured, { "expect_equal" => { "var" => "a" } } ]) }
+    assert_raises(ChangeFlowCompiler::Error) do
+      compile([ captured, { "expect_equal" => { "var" => "a", "selector" => "#b", "equals_var" => "a" } } ])
+    end
+  end
+
+  # --- screenshots and viewports -----------------------------------------------------
+
+  def test_screenshot_defaults_to_the_viewport_only
+    step = one("screenshot" => "home")
+    assert_equal false, step[:fullPage]
+    assert_nil step[:viewport]
+  end
+
+  def test_screenshot_can_capture_the_full_page_at_its_own_viewport
+    step = one("screenshot" => { "name" => "list", "full_page" => true, "viewport" => { "width" => 1440, "height" => 900 } })
+    assert_equal true, step[:fullPage]
+    assert_equal({ width: 1440, height: 900 }, step[:viewport])
+    assert_equal "screenshot list full page at 1440x900", step[:label]
+  end
+
+  def test_a_flow_viewport_is_set_before_the_first_step
+    js = ChangeFlowCompiler.new([ { "goto" => "/" } ], base_url: "https://app.example.org",
+                                viewport: { "width" => 390, "height" => 844 }, env: ENV_FIXTURE).function_module
+    assert_includes js, 'const viewport = {"width":390,"height":844};'
+  end
+
+  def test_a_malformed_viewport_is_refused
+    assert_raises(ChangeFlowCompiler::Error) { ChangeFlowCompiler.new([], viewport: { "width" => 0, "height" => 9 }) }
+    assert_raises(ChangeFlowCompiler::Error) { one("screenshot" => { "name" => "x", "viewport" => "wide" }) }
+  end
+
+  # --- text and nth selectors --------------------------------------------------------
+
+  def test_a_plain_selector_carries_no_locator
+    assert_nil one("click" => "#go")[:locator]
+    assert_nil one("click" => "::-p-text(Save)")[:locator]
+  end
+
+  def test_has_text_and_nth_compile_to_a_locator
+    step = one("click" => 'li:has-text("Free plan") >> nth=1')
+    assert_equal({ css: "li", hasText: "Free plan", textIs: nil, nth: 1 }, step[:locator])
+    assert_equal 'li:has-text("Free plan") >> nth=1', step[:selector]
+  end
+
+  def test_text_is_and_the_text_engine
+    assert_equal({ css: "summary", hasText: nil, textIs: "Show counts", nth: nil },
+                 one("expect_visible" => "summary:text-is('Show  counts')")[:locator])
+    assert_equal({ css: nil, hasText: "Sign in", textIs: nil, nth: nil }, one("click" => "text=Sign in")[:locator])
+    assert_equal({ css: nil, hasText: nil, textIs: "Sign in", nth: -1 },
+                 one("click" => 'text="Sign in" >> nth=-1')[:locator])
+  end
+
+  def test_nth_alone_applies_to_a_css_selector
+    assert_equal({ css: "tr.row", hasText: nil, textIs: nil, nth: 0 },
+                 one("expect_count" => { "selector" => "tr.row >> nth=0", "equals" => 1 })[:locator])
+  end
+
+  def test_unsupported_playwright_forms_are_refused_at_compile_time
+    [ "div >> span", 'li:has-text("a") span', "::-p-xpath(//li) >> nth=1", ">> nth=1" ].each do |selector|
+      assert_raises(ChangeFlowCompiler::Error, selector) { one("click" => selector) }
+    end
+  end
+
+  def test_the_runtime_resolves_locators_in_the_page
+    js = ChangeFlowCompiler.flow_runtime_js
+    assert_includes js, "const cfLocate = (loc, mode) =>"
+    assert_includes js, 'replace(/\s+/g, " ")'
+    assert_includes js, "fullPage: step.fullPage === true"
+  end
+
   # --- secret redaction ------------------------------------------------------------
 
   def test_redacted_replaces_an_env_sourced_value_and_leaves_the_rest
