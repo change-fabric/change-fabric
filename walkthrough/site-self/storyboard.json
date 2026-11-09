@@ -13,6 +13,12 @@
   },
   "fps": 30,
   "music": null,
+  "voice": {
+    "provider": "elevenlabs",
+    "voice_id": "21m00Tcm4TlvDq8ikWAM",
+    "model": "eleven_multilingual_v2",
+    "output_format": "mp3_44100_128"
+  },
   "hypotheses": [
     {
       "id": "H-01",
@@ -31,7 +37,7 @@
     "purpose": [
       "What change fabric is: skills and hooks for coding agents that decide when a change may land",
       "That one CHANGE.md per repo holds the config and the protected branches and tags",
-      "That five containerized audit lanes feed one report and a gate on the head commit before a merge or release tag",
+      "That five audit lanes feed one report and a gate on the head commit before a merge or release tag",
       "That this clip itself is made by the walkthrough skill, diagram scene included"
     ]
   },
@@ -47,7 +53,7 @@
       },
       "narration": {
         "text": "Change fabric is a set of skills and hooks for coding agents. It decides when a change is ready to land, and it records why.",
-        "measured_ms": 0
+        "measured_ms": 7477
       },
       "requirements": [
         {
@@ -64,15 +70,15 @@
       ],
       "timing": {
         "min_ms": 6500,
-        "pad_ms": 500,
+        "pad_ms": 300,
         "transition": {
           "type": "cut",
           "ms": 0
         }
       },
       "deps": {
-        "frames_key": "7f87cff6d0877a99dc021bb40a6228441ea730930a9a41c94f32b93c8fb4b55b",
-        "audio_key": "a3cd0a601813b5dfccd9504ec760ba21aab405f14730625f3dc54fe79e3378cf",
+        "frames_key": "befc419499efc44f838acfd05d889346114ec0754c42b3a51524f4a56f7d75b7",
+        "audio_key": "8db70867c70cebc6af155a90c3924059ba9dd48763fcef032fc5eb410146b9f9",
         "asset_keys": []
       }
     },
@@ -86,8 +92,8 @@
         "html": "screens/change-md.html"
       },
       "narration": {
-        "text": "Each repo carries one CHANGE.md. Its frontmatter names what to test, and which branches and release tags are protected.",
-        "measured_ms": 0
+        "text": "Each repo carries one CHANGE.md. Its frontmatter names what to test and which branches and tags are protected.",
+        "measured_ms": 6409
       },
       "requirements": [
         {
@@ -109,16 +115,16 @@
         "H6"
       ],
       "timing": {
-        "min_ms": 7000,
-        "pad_ms": 500,
+        "min_ms": 6500,
+        "pad_ms": 300,
         "transition": {
-          "type": "fade",
-          "ms": 400
+          "type": "cut",
+          "ms": 0
         }
       },
       "deps": {
-        "frames_key": "86a97c276b2b94eccdff0cce0ce15193cfe18fb95d402d420c857abda501cf0f",
-        "audio_key": "5cc2cb248b540e4600845668d26f6f427f86339e7a915b379297c1c1cc4b1e0d",
+        "frames_key": "85aa2edc5a9b3e03ce727baedacda66640809cd1bf245d151391191caa10f469",
+        "audio_key": "f61aabbd6bc558f7635be5839e221595427b90453e941be334e7c2871bacfed5",
         "asset_keys": []
       }
     },
@@ -169,7 +175,7 @@
           },
           {
             "id": "gate",
-            "label": "Gate"
+            "label": "Gate: all lanes pass?"
           },
           {
             "id": "merge",
@@ -234,18 +240,19 @@
           {
             "id": "e-report-gate",
             "source": "report",
-            "target": "gate",
-            "label": "findings"
+            "target": "gate"
           },
           {
             "id": "e-gate-merge",
             "source": "gate",
-            "target": "merge"
+            "target": "merge",
+            "label": "on pass"
           },
           {
             "id": "e-gate-tag",
             "source": "gate",
-            "target": "tag"
+            "target": "tag",
+            "label": "on pass"
           }
         ],
         "initial": [
@@ -398,7 +405,7 @@
             "t_ms": 11500,
             "op": "label",
             "id": "gate",
-            "text": "Pass for head SHA"
+            "text": "Passed for head SHA"
           },
           {
             "t_ms": 13000,
@@ -411,9 +418,37 @@
             ]
           },
           {
+            "t_ms": 13050,
+            "op": "remove",
+            "ids": [
+              "pr",
+              "k6",
+              "a11y",
+              "zap",
+              "ux",
+              "cases",
+              "e-pr-k6",
+              "e-pr-a11y",
+              "e-pr-zap",
+              "e-pr-ux",
+              "e-pr-cases",
+              "e-k6-report",
+              "e-a11y-report",
+              "e-zap-report",
+              "e-ux-report",
+              "e-cases-report"
+            ]
+          },
+          {
             "t_ms": 13100,
             "op": "fit_view",
-            "padding": 0.12,
+            "ids": [
+              "report",
+              "gate",
+              "merge",
+              "tag"
+            ],
+            "padding": 0.1,
             "duration": 700
           },
           {
@@ -436,16 +471,17 @@
             ]
           },
           {
-            "t_ms": 15600,
-            "op": "fit_view",
-            "padding": 0.1,
-            "duration": 600
+            "t_ms": 15200,
+            "op": "focus",
+            "id": "gate",
+            "zoom": 1.5,
+            "duration": 700
           }
         ]
       },
       "narration": {
-        "text": "A pull request fans out to five audit lanes, each in its own container: load, accessibility, security, responsive UX, and test cases. Every finding lands in one report, and the gate records a pass for the head commit. Only then does the merge or the release tag go through.",
-        "measured_ms": 0
+        "text": "A pull request fans out to five audit lanes: load, accessibility, security, responsive UX, and test cases. Findings land in one report. Only when every lane passes does the gate record the head commit and let the merge or release tag through.",
+        "measured_ms": 18390
       },
       "requirements": [
         {
@@ -465,16 +501,16 @@
         "H2"
       ],
       "timing": {
-        "min_ms": 17000,
-        "pad_ms": 500,
+        "min_ms": 16500,
+        "pad_ms": 400,
         "transition": {
-          "type": "fade",
-          "ms": 400
+          "type": "cut",
+          "ms": 0
         }
       },
       "deps": {
-        "frames_key": "55a1fcd3e20946586dd4b820b0a0fa9724e6f31be590d0f585a62d10727a6d1c",
-        "audio_key": "16ceb987197d9126d6c553c1a9a7fb4feea4f6be4cc8baa46dd741103c56735c",
+        "frames_key": "f6f33f480ad42843f53705da27aeaeeb0b4cb942ccff45532134cc92fcfb4c54",
+        "audio_key": "879453f8649f6903ce57d47ff370165c1653bac0c248842d5d2835ea0fb99dd4",
         "asset_keys": []
       }
     },
@@ -488,8 +524,8 @@
         "html": "screens/made-by.html"
       },
       "narration": {
-        "text": "The walkthrough skill makes this clip from one storyboard, including the diagram you just watched. Voice, frames, and captions rebuild from committed sources.",
-        "measured_ms": 0
+        "text": "The walkthrough skill makes this clip from one storyboard, diagram included. Voice, frames, and captions rebuild from committed sources.",
+        "measured_ms": 9938
       },
       "requirements": [
         {
@@ -505,16 +541,16 @@
         "H10"
       ],
       "timing": {
-        "min_ms": 8000,
-        "pad_ms": 800,
+        "min_ms": 7500,
+        "pad_ms": 500,
         "transition": {
-          "type": "fade",
-          "ms": 400
+          "type": "cut",
+          "ms": 0
         }
       },
       "deps": {
-        "frames_key": "fcb2133cde26813683549225159201b9f7fb4efaff6eddcacf97cea5536aeb94",
-        "audio_key": "bd88d31e764c23cc3854b4239633920c6ea2fff11d61dfc28b33f83b3118ca8d",
+        "frames_key": "8629ac60f61201c29cabebdad5a975bbe0f4b71dfe3fc8de6e48ba4125a3e3c4",
+        "audio_key": "2c3011549a930ff4def0cf1b6ecc7dccf01f39c8a29f76698f4d670da89ce3d3",
         "asset_keys": []
       }
     }

@@ -9,7 +9,7 @@
 
 ## 1. What it is (`intro`)
 
-- Duration: 6500 ms
+- Duration: 7777 ms
 - Screen: screens/intro.html
 - User goal: Know what the toolkit is
 - Action: Read the title card
@@ -21,7 +21,7 @@
 
 ## 2. One file per repo (`change-md`)
 
-- Duration: 7000 ms
+- Duration: 6709 ms
 - Screen: screens/change-md.html
 - User goal: Know where the rules live
 - Action: Read the CHANGE.md frontmatter
@@ -30,11 +30,11 @@
 - Requirement: brief.md#changemd
 - Assumption A-01: The CHANGE.md on screen is an abridged example for an unnamed app, not a copy of any real repo's file.
 
-> Each repo carries one CHANGE.md. Its frontmatter names what to test, and which branches and release tags are protected.
+> Each repo carries one CHANGE.md. Its frontmatter names what to test and which branches and tags are protected.
 
 ## 3. How a change is gated (`gate-flow`)
 
-- Duration: 17000 ms
+- Duration: 18790 ms
 - Screen: screens/gate-flow.html
 - User goal: See a change pass through the lanes and the gate
 - Action: Watch the flow assemble
@@ -49,7 +49,7 @@
 - Node `ux`: Responsive UX
 - Node `cases`: Test cases
 - Node `report`: One report
-- Node `gate`: Gate
+- Node `gate`: Gate: all lanes pass?
 - Node `merge`: Merge to main
 - Node `tag`: Release tag
 - Edge `e-pr-k6`: pr -> k6
@@ -62,9 +62,9 @@
 - Edge `e-zap-report`: zap -> report
 - Edge `e-ux-report`: ux -> report
 - Edge `e-cases-report`: cases -> report
-- Edge `e-report-gate`: report -> gate (findings)
-- Edge `e-gate-merge`: gate -> merge
-- Edge `e-gate-tag`: gate -> tag
+- Edge `e-report-gate`: report -> gate
+- Edge `e-gate-merge`: gate -> merge (on pass)
+- Edge `e-gate-tag`: gate -> tag (on pass)
 - Initial: pr
 
 | t_ms | op | target |
@@ -88,16 +88,17 @@
 | 11200 | highlight | gate, e-report-gate |
 | 11500 | label | gate |
 | 13000 | add_node | merge, tag, e-gate-merge, e-gate-tag |
-| 13100 | fit_view |  |
+| 13050 | remove | pr, k6, a11y, zap, ux, cases, e-pr-k6, e-pr-a11y, e-pr-zap, e-pr-ux, e-pr-cases, e-k6-report, e-a11y-report, e-zap-report, e-ux-report, e-cases-report |
+| 13100 | fit_view | report, gate, merge, tag |
 | 14000 | pulse_edge | e-gate-merge, e-gate-tag |
 | 14300 | highlight | merge, tag, e-gate-merge, e-gate-tag |
-| 15600 | fit_view |  |
+| 15200 | focus | gate |
 
-> A pull request fans out to five audit lanes, each in its own container: load, accessibility, security, responsive UX, and test cases. Every finding lands in one report, and the gate records a pass for the head commit. Only then does the merge or the release tag go through.
+> A pull request fans out to five audit lanes: load, accessibility, security, responsive UX, and test cases. Findings land in one report. Only when every lane passes does the gate record the head commit and let the merge or release tag through.
 
 ## 4. Made by the walkthrough skill (`made-by`)
 
-- Duration: 8000 ms
+- Duration: 10438 ms
 - Screen: screens/made-by.html
 - User goal: Know how this clip was made
 - Action: Read the source list
@@ -105,4 +106,4 @@
 - Heuristics shown: H6, H10
 - Requirement: brief.md#self-made
 
-> The walkthrough skill makes this clip from one storyboard, including the diagram you just watched. Voice, frames, and captions rebuild from committed sources.
+> The walkthrough skill makes this clip from one storyboard, diagram included. Voice, frames, and captions rebuild from committed sources.

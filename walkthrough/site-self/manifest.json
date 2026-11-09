@@ -1,0 +1,72 @@
+{
+  "schema_version": 1,
+  "storyboard_sha256": "52e24d525d1152a009e0db7c57114218e1adf981d54ea17afb47c64d5dc58c13",
+  "models": {
+    "voice": "eleven_multilingual_v2",
+    "voice_id": "21m00Tcm4TlvDq8ikWAM",
+    "music": null,
+    "image": "gpt-image-2"
+  },
+  "images": {
+    "browserless": "ghcr.io/browserless/chromium:v2.38.1@sha256:78afaada9f7b049783bfed624e6b5e9a2d3438fc04bb46801ed777e82ae1501f",
+    "ffmpeg": "jrottenberg/ffmpeg:7.1.2-ubuntu2404@sha256:292a972c60356abd651d9a4f9c808c13e7473f65ad400b7eb99215f4e571931d",
+    "node": "node:22-alpine@sha256:0a7108bf6c7bf5de370ffb1a3ed6be93d405b43ff159f681a8d18c0e2bc2e402"
+  },
+  "icons": {
+    "phosphor": {
+      "name": "@phosphor-icons/core",
+      "version": "2.1.1",
+      "integrity": "sha512-v4ARvrip4qBCImOE5rmPUylOEK4iiED9ZyKjcvzuezqMaiRASCHKcRIuvvxL/twvLpkfnEODCOJp5dM4eZilxQ=="
+    },
+    "simple_icons": {
+      "name": "simple-icons",
+      "version": "16.36.0",
+      "integrity": "sha512-+VNPPkqSOLidFeSgBKUWX4n50WPpDC09hav+BgS26anIF1oQOlGBb8LvwGR+6fYRjo+B6CiKzNBceMPkSVXANQ=="
+    }
+  },
+  "music_key": "a26e5f867bddc2ee46dbd7071daaa6b44b08a9fb50c4ca96891c5c0e0a0f4987",
+  "timeline": {
+    "fps": 30,
+    "total_frames": 1314,
+    "total_ms": 43800
+  },
+  "scenes": [
+    {
+      "id": "intro",
+      "start_frame": 0,
+      "frames": 234,
+      "duration_ms": 7777,
+      "frames_key": "befc419499efc44f838acfd05d889346114ec0754c42b3a51524f4a56f7d75b7",
+      "audio_key": "8db70867c70cebc6af155a90c3924059ba9dd48763fcef032fc5eb410146b9f9",
+      "asset_keys": []
+    },
+    {
+      "id": "change-md",
+      "start_frame": 234,
+      "frames": 202,
+      "duration_ms": 6709,
+      "frames_key": "85aa2edc5a9b3e03ce727baedacda66640809cd1bf245d151391191caa10f469",
+      "audio_key": "f61aabbd6bc558f7635be5839e221595427b90453e941be334e7c2871bacfed5",
+      "asset_keys": []
+    },
+    {
+      "id": "gate-flow",
+      "start_frame": 436,
+      "frames": 564,
+      "duration_ms": 18790,
+      "frames_key": "f6f33f480ad42843f53705da27aeaeeb0b4cb942ccff45532134cc92fcfb4c54",
+      "audio_key": "879453f8649f6903ce57d47ff370165c1653bac0c248842d5d2835ea0fb99dd4",
+      "asset_keys": []
+    },
+    {
+      "id": "made-by",
+      "start_frame": 1000,
+      "frames": 314,
+      "duration_ms": 10438,
+      "frames_key": "8629ac60f61201c29cabebdad5a975bbe0f4b71dfe3fc8de6e48ba4125a3e3c4",
+      "audio_key": "2c3011549a930ff4def0cf1b6ecc7dccf01f39c8a29f76698f4d670da89ce3d3",
+      "asset_keys": []
+    }
+  ],
+  "manifest_hash": "32c98ed889429a67bf69ad30a2a21616b01aa48bf6048f3997ec21ac622f6be8"
+}

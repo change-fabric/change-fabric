@@ -47,7 +47,7 @@
     },
     {
       "id": "gate",
-      "label": "Gate"
+      "label": "Gate: all lanes pass?"
     },
     {
       "id": "merge",
@@ -112,18 +112,19 @@
     {
       "id": "e-report-gate",
       "source": "report",
-      "target": "gate",
-      "label": "findings"
+      "target": "gate"
     },
     {
       "id": "e-gate-merge",
       "source": "gate",
-      "target": "merge"
+      "target": "merge",
+      "label": "on pass"
     },
     {
       "id": "e-gate-tag",
       "source": "gate",
-      "target": "tag"
+      "target": "tag",
+      "label": "on pass"
     }
   ],
   "initial": [
@@ -276,7 +277,7 @@
       "t_ms": 11500,
       "op": "label",
       "id": "gate",
-      "text": "Pass for head SHA"
+      "text": "Passed for head SHA"
     },
     {
       "t_ms": 13000,
@@ -289,9 +290,37 @@
       ]
     },
     {
+      "t_ms": 13050,
+      "op": "remove",
+      "ids": [
+        "pr",
+        "k6",
+        "a11y",
+        "zap",
+        "ux",
+        "cases",
+        "e-pr-k6",
+        "e-pr-a11y",
+        "e-pr-zap",
+        "e-pr-ux",
+        "e-pr-cases",
+        "e-k6-report",
+        "e-a11y-report",
+        "e-zap-report",
+        "e-ux-report",
+        "e-cases-report"
+      ]
+    },
+    {
       "t_ms": 13100,
       "op": "fit_view",
-      "padding": 0.12,
+      "ids": [
+        "report",
+        "gate",
+        "merge",
+        "tag"
+      ],
+      "padding": 0.1,
       "duration": 700
     },
     {
@@ -314,10 +343,11 @@
       ]
     },
     {
-      "t_ms": 15600,
-      "op": "fit_view",
-      "padding": 0.1,
-      "duration": 600
+      "t_ms": 15200,
+      "op": "focus",
+      "id": "gate",
+      "zoom": 1.5,
+      "duration": 700
     }
   ]
 }

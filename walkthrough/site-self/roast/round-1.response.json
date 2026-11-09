@@ -1,0 +1,7 @@
+{ "responses": [
+  { "screen": "gate-flow", "problem": "Findings flow straight into a pass with no stated condition", "verdict": "accept", "change": "Gate node reads 'Gate: all lanes pass?' then 'Passed for head SHA'; outgoing edges labelled 'on pass'; narration says only when every lane passes does the gate record the head commit." },
+  { "screen": "gate-flow", "problem": "Narration claims a container per lane with no visual support", "verdict": "accept", "change": "Dropped the container clause from the narration and the review purpose instead of adding wrappers; the diagram scene has no grouping op and the clip must stay under 45 s." },
+  { "screen": "gate-flow", "problem": "Labels shrink to about 18 px in the full graph; 'findings' about 14 px", "verdict": "accept", "change": "Removed the 'findings' edge label and end on a fit to gate, merge, and tag so the decision labels read large. Tool names stay: they match the site homepage lane names the brief requires." },
+  { "screen": "transitions", "problem": "Crossfades superimpose unrelated text", "verdict": "accept", "change": "Every transition is now a cut." },
+  { "screen": "captions", "problem": "Caption cues strand 'protected.' and 'just watched.'", "verdict": "accept", "change": "Shortened both sentences ('which branches and tags are protected', 'diagram included') so the cue split falls on complete phrases." }
+] }

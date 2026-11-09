@@ -1,0 +1,13 @@
+{
+  "rounds": {
+    "1": 0.08,
+    "2": 0.08,
+    "3": 0.09
+  },
+  "capped": false,
+  "content": {
+    "1": "c8fa3b305bc6c8961d58411a26ba0a25b3f04310b2c40b0030ce4fbd728365d9",
+    "2": "78e201d3da491ccae0ad8b0d82e594567f79706e4e72f074d972463547dfdfb2",
+    "3": "4346377e3c95cee7e8d0847c133b7110a228f5e0fb963c564b6d9e6af6fa389f"
+  }
+}
