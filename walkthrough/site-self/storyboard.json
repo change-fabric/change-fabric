@@ -166,7 +166,7 @@
         }
       },
       "deps": {
-        "frames_key": "1e7ca97f3527bb890b940ba1ba85f3183ac0a3cc9b6b381490cd3c0a96d0b6d5",
+        "frames_key": "559fe57987a40e02942c23208db5789bc96b40906e557c069fe1d8b84458d1f2",
         "audio_key": "a7993f273c5bfec36154bf4ab3c684c99d4b2611d388658a2ca523b79470fcd5",
         "asset_keys": []
       }
@@ -299,26 +299,10 @@
           }
         ],
         "initial": [
-          "pr",
-          "k6",
-          "a11y",
-          "zap",
-          "ux",
-          "cases",
           "report",
           "gate",
           "merge",
           "tag",
-          "e-pr-k6",
-          "e-pr-a11y",
-          "e-pr-zap",
-          "e-pr-ux",
-          "e-pr-cases",
-          "e-k6-report",
-          "e-a11y-report",
-          "e-zap-report",
-          "e-ux-report",
-          "e-cases-report",
           "e-report-gate",
           "e-gate-merge",
           "e-gate-tag"
@@ -360,6 +344,14 @@
           },
           {
             "t_ms": 4000,
+            "op": "remove",
+            "ids": [
+              "report",
+              "e-report-gate"
+            ]
+          },
+          {
+            "t_ms": 4000,
             "op": "focus",
             "id": "merge",
             "zoom": 1.5,
@@ -380,8 +372,8 @@
         "H1"
       ],
       "narration": {
-        "text": "This pull request merged because the gate recorded a pass.",
-        "measured_ms": 3437
+        "text": "A passing gate lets this change merge.",
+        "measured_ms": 2276
       },
       "timing": {
         "min_ms": 5000,
@@ -392,8 +384,8 @@
         }
       },
       "deps": {
-        "frames_key": "cbe6aa892162df62c93bc6d35650dffe65aef40efba78aaadd2c241e95f702e2",
-        "audio_key": "bf77be0c30991c1fb70012b861800aa7ea8702140e9d24f6e06d8c61a5fa4142",
+        "frames_key": "977f807d5e91d8aabae8f678a0565c6d38fd812cb4e2b4ce033d8f727068ca9f",
+        "audio_key": "01cf313ecef7b33430f47541d1c182dd7c5b3526c1bf21ef1e724278aea80cd7",
         "asset_keys": []
       }
     },
@@ -745,6 +737,30 @@
             "duration": 0
           },
           {
+            "t_ms": 21000,
+            "op": "remove",
+            "ids": [
+              "pr",
+              "report",
+              "k6",
+              "a11y",
+              "zap",
+              "ux",
+              "cases",
+              "e-pr-k6",
+              "e-pr-a11y",
+              "e-pr-zap",
+              "e-pr-ux",
+              "e-pr-cases",
+              "e-k6-report",
+              "e-a11y-report",
+              "e-zap-report",
+              "e-ux-report",
+              "e-cases-report",
+              "e-report-gate"
+            ]
+          },
+          {
             "t_ms": 21500,
             "op": "pulse_edge",
             "ids": [
@@ -785,7 +801,7 @@
         }
       },
       "deps": {
-        "frames_key": "dbde0a0fe9c666cd7124c3330df189aff1bbcc9af46012cea7748d35187db3af",
+        "frames_key": "b1800741228c320a78224d89c215f342c5e8b1fb9b59538c25fe02131ebf21b4",
         "audio_key": "e8ca085435978a12dcf78f118b26e7fca546954375db9f965bd8deafe098c17b",
         "asset_keys": []
       }
@@ -813,8 +829,8 @@
         "H10"
       ],
       "narration": {
-        "text": "Made by the walkthrough skill from one storyboard, voice and frames included.",
-        "measured_ms": 4644
+        "text": "Made by the walkthrough skill from one storyboard, diagram and voice included.",
+        "measured_ms": 5248
       },
       "timing": {
         "min_ms": 6000,
@@ -826,7 +842,7 @@
       },
       "deps": {
         "frames_key": "17d07df58bd85e69721a806e77535bca9c490b34e35ef3856ef1796f81eaafb0",
-        "audio_key": "cfe7d4412d2c290fc46bb9852c826197c142b1bcefc512b919352286639ae39e",
+        "audio_key": "ffca697cc2aa1573d769cb661b3ef89b80dabf7c5e44f48fd397dfea53d1110a",
         "asset_keys": []
       }
     }

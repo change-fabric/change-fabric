@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "storyboard_sha256": "07e68e274f8469c23f1168fd8cdca18ebc2be2d99b717614df1acfc9eddbd9c2",
+  "storyboard_sha256": "ea285bbbb45dd5094611472a5a5e6a33faec1d98a679f75c536a6e1621a42c54",
   "models": {
     "voice": "eleven_multilingual_v2",
     "voice_id": "21m00Tcm4TlvDq8ikWAM",
@@ -36,7 +36,7 @@
       "start_frame": 0,
       "frames": 90,
       "duration_ms": 3000,
-      "frames_key": "1e7ca97f3527bb890b940ba1ba85f3183ac0a3cc9b6b381490cd3c0a96d0b6d5",
+      "frames_key": "559fe57987a40e02942c23208db5789bc96b40906e557c069fe1d8b84458d1f2",
       "audio_key": "a7993f273c5bfec36154bf4ab3c684c99d4b2611d388658a2ca523b79470fcd5",
       "asset_keys": []
     },
@@ -45,8 +45,8 @@
       "start_frame": 90,
       "frames": 150,
       "duration_ms": 5000,
-      "frames_key": "cbe6aa892162df62c93bc6d35650dffe65aef40efba78aaadd2c241e95f702e2",
-      "audio_key": "bf77be0c30991c1fb70012b861800aa7ea8702140e9d24f6e06d8c61a5fa4142",
+      "frames_key": "977f807d5e91d8aabae8f678a0565c6d38fd812cb4e2b4ce033d8f727068ca9f",
+      "audio_key": "01cf313ecef7b33430f47541d1c182dd7c5b3526c1bf21ef1e724278aea80cd7",
       "asset_keys": []
     },
     {
@@ -63,7 +63,7 @@
       "start_frame": 420,
       "frames": 720,
       "duration_ms": 24000,
-      "frames_key": "dbde0a0fe9c666cd7124c3330df189aff1bbcc9af46012cea7748d35187db3af",
+      "frames_key": "b1800741228c320a78224d89c215f342c5e8b1fb9b59538c25fe02131ebf21b4",
       "audio_key": "e8ca085435978a12dcf78f118b26e7fca546954375db9f965bd8deafe098c17b",
       "asset_keys": []
     },
@@ -73,9 +73,9 @@
       "frames": 180,
       "duration_ms": 6000,
       "frames_key": "17d07df58bd85e69721a806e77535bca9c490b34e35ef3856ef1796f81eaafb0",
-      "audio_key": "cfe7d4412d2c290fc46bb9852c826197c142b1bcefc512b919352286639ae39e",
+      "audio_key": "ffca697cc2aa1573d769cb661b3ef89b80dabf7c5e44f48fd397dfea53d1110a",
       "asset_keys": []
     }
   ],
-  "manifest_hash": "b427f1ad3c832bb1e39b7d5e4746717c495e2bdc876aa31bb819098db84bd812"
+  "manifest_hash": "33a9f25254cf78bc35a603e5c623285ac26d8e14297b6bf4dbeb0869d9320c67"
 }

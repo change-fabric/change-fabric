@@ -50,7 +50,7 @@
 - Edge `e-report-gate`: report -> gate
 - Edge `e-gate-merge`: gate -> merge (on pass)
 - Edge `e-gate-tag`: gate -> tag (on pass)
-- Initial: pr, k6, a11y, zap, ux, cases, report, gate, merge, tag, e-pr-k6, e-pr-a11y, e-pr-zap, e-pr-ux, e-pr-cases, e-k6-report, e-a11y-report, e-zap-report, e-ux-report, e-cases-report, e-report-gate, e-gate-merge, e-gate-tag
+- Initial: report, gate, merge, tag, e-report-gate, e-gate-merge, e-gate-tag
 
 | t_ms | op | target |
 | --- | --- | --- |
@@ -58,9 +58,10 @@
 | 1000 | highlight | gate |
 | 2000 | label | gate |
 | 2000 | pulse_edge | e-gate-merge, e-gate-tag |
+| 4000 | remove | report, e-report-gate |
 | 4000 | focus | merge |
 
-> This pull request merged because the gate recorded a pass.
+> A passing gate lets this change merge.
 
 ## 3. One file per repo (`change-md`)
 
@@ -129,6 +130,7 @@
 | 18000 | focus | gate |
 | 21000 | add_node | merge, tag, e-gate-merge, e-gate-tag |
 | 21000 | fit_view | gate, merge, tag |
+| 21000 | remove | pr, report, k6, a11y, zap, ux, cases, e-pr-k6, e-pr-a11y, e-pr-zap, e-pr-ux, e-pr-cases, e-k6-report, e-a11y-report, e-zap-report, e-ux-report, e-cases-report, e-report-gate |
 | 21500 | pulse_edge | e-gate-merge, e-gate-tag |
 
 > Every enabled lane runs: load, accessibility, security, responsive UX, and test cases. Findings land in one report. The gate records the result for the head commit, and only a pass lets the merge or release tag through.
@@ -143,4 +145,4 @@
 - Heuristics shown: H6, H10
 - Requirement: brief.md#self-made
 
-> Made by the walkthrough skill from one storyboard, voice and frames included.
+> Made by the walkthrough skill from one storyboard, diagram and voice included.
