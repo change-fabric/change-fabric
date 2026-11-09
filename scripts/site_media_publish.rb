@@ -92,12 +92,21 @@ module SiteMediaPublish
     out, status = runner.call(argv)
     raise Error, "ffprobe failed on #{path}:\n#{out}" unless status.success?
 
-    info = JSON.parse(out)
+    info = JSON.parse(json_object(out))
     stream = Array(info['streams']).find { |s| s['codec_type'] == 'video' }
     { duration_ms: (info.dig('format', 'duration').to_f * 1000).round,
       width: stream && stream['width'], height: stream && stream['height'] }
   rescue JSON::ParserError
     raise Error, "ffprobe output for #{path} was not JSON"
+  end
+
+  # The runner merges stderr into stdout, so docker's own notices (an amd64
+  # image on an arm64 host prints a platform WARNING) can precede ffprobe's
+  # JSON. Keep only the outermost object.
+  def json_object(out)
+    first = out.index('{')
+    last = out.rindex('}')
+    first && last && last > first ? out[first..last] : out
   end
 
   # Cue text only, in order: the plain transcript every slot carries. Parsed

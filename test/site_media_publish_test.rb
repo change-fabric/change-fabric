@@ -156,6 +156,14 @@ class SiteMediaPublishTest < Minitest::Test
     assert_equal "The answer is 42 2026", SiteMediaPublish.transcript(srt)
   end
 
+  def test_probe_reads_json_past_a_docker_platform_warning
+    out = "WARNING: The requested image's platform (linux/amd64) does not match the detected host platform\n" \
+          '{"streams":[{"codec_type":"video","width":1920,"height":1080}],"format":{"duration":"43.8"}}'
+    ok = Struct.new(:success?).new(true)
+    info = SiteMediaPublish.probe("/tmp/x.mp4", runner: ->(_argv, _env = {}) { [ out, ok ] })
+    assert_equal({ duration_ms: 43_800, width: 1920, height: 1080 }, info)
+  end
+
   def test_deploy_sh_excludes_media_from_both_syncs
     deploy = File.read(File.join(SiteMediaPublish::INFRA, "deploy.sh"))
     assert_equal 2, deploy.scan('--exclude "media/*"').size

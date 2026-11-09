@@ -484,11 +484,28 @@ module WalkthroughRender
         voice_eq: WalkthroughStoryboard.voice_eq(@board), scenes: inputs.map { |i| plan_scene(i) } }
     end
 
+    # Interaction ops that place the pointer; key and wait never do.
+    POINTER_OPS = %w[move click dblclick hover type scroll].freeze
+
+    # The capture records a position on every frame, steps or not, so a
+    # scene with nothing for the pointer to do would composite a cursor
+    # parked at its resting point. A diagram scene never draws one, and a
+    # prototype screen scene draws one only when an interaction places it.
+    # Live, compose, and message scenes keep their recorded track.
+    def drawn_cursor(input)
+      scene = input[:scene]
+      return [] if WalkthroughDiagram.diagram?(scene)
+      return input[:cursor] if live?(scene) || broll?(scene) || scene['kind'] == 'message'
+      return [] if Array(scene['interactions']).none? { |op| POINTER_OPS.include?(op['op']) }
+
+      input[:cursor]
+    end
+
     def plan_scene(input)
       entry = input[:entry]
       { id: entry['id'], frames_dir: container(input[:dir]), frames: entry['frames'], start_frame: entry['start_frame'],
         transition: input[:scene].dig('timing', 'transition') || WalkthroughStoryboard::DEFAULT_TRANSITION,
-        cursor: input[:cursor], taps: input[:taps], hero_still: input[:scene]['hero_still'] == true,
+        cursor: drawn_cursor(input), taps: input[:taps], hero_still: input[:scene]['hero_still'] == true,
         camera: input[:scene]['camera'], stage: WalkthroughSharpness.stage_size(@board, input[:scene]),
         audio: input[:audio] && container(input[:audio]), offset_ms: input[:offset_ms] }
     end
