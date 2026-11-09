@@ -10,6 +10,7 @@ import archivedV0_6_0 from "./archive/0.6.0.md?raw";
 import archivedV0_8_0 from "./archive/0.8.0.md?raw";
 import archivedV0_9_0 from "./archive/0.9.0.md?raw";
 import archivedV0_10_0 from "./archive/0.10.0.md?raw";
+import archivedV0_11_0 from "./archive/0.11.0.md?raw";
 import archivedV0_12_0 from "./archive/0.12.0.md?raw";
 import archivedV0_13_0 from "./archive/0.13.0.md?raw";
 import archivedV0_14_0 from "./archive/0.14.0.md?raw";
@@ -56,6 +57,7 @@ export const VERSIONS: SpecVersion[] = [
   { version: "0.14.0", date: "2026-11-05", status: "superseded", markdown: archivedV0_14_0 },
   { version: "0.13.0", date: "2026-10-29", status: "superseded", markdown: archivedV0_13_0 },
   { version: "0.12.0", date: "2026-09-17", status: "superseded", markdown: archivedV0_12_0 },
+  { version: "0.11.0", date: "2026-09-15", status: "superseded", markdown: archivedV0_11_0 },
   { version: "0.10.0", date: "2026-08-22", status: "superseded", markdown: archivedV0_10_0 },
   { version: "0.9.0", date: "2026-08-22", status: "superseded", markdown: archivedV0_9_0 },
   { version: "0.8.0", date: "2026-08-21", status: "superseded", markdown: archivedV0_8_0 },
