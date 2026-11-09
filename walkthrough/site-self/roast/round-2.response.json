@@ -1,4 +1,0 @@
-{ "responses": [
-  { "screen": "gate-flow", "problem": "Diagram labels stay about 20 px; the head-commit condition is hard to read", "verdict": "accept", "change": "Once merge and tag appear, the upstream pull request and lanes fade out and the camera fits report, gate, merge, and tag, then focuses the gate at zoom 1.5 so 'Passed for head SHA' and 'on pass' render about 1.5x larger. Node type size itself is fixed by the shared diagram runtime, not the storyboard, so the zoom is the lever." },
-  { "screen": "gate-flow", "problem": "Final framing cuts through the lane boxes", "verdict": "accept", "change": "The lanes and their edges are removed before the closing fit, so the end frame holds only complete nodes." }
-] }

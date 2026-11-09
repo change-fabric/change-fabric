@@ -1,62 +1,62 @@
 {
-  "score": 7,
-  "summary": "The narration delivers all four required takeaways, but the central diagram leaves two important claims to the voiceover: container isolation and conditional approval. The smallest diagram labels are undersized, scene crossfades superimpose unrelated text, and the caption segmentation creates avoidable flashes. Fix the gate explanation before adding more production detail.",
+  "score": 5,
+  "summary": "You explain the gate without explaining what change fabric is. Engineers can reconstruct the policy flow, but nothing identifies the toolkit as skills and hooks for coding agents. The opening also calls a permission-to-merge diagram a completed merge, and the closing leaves the diagram’s provenance implicit.",
   "issues": [
     {
-      "priority": "P1",
-      "where": "008-gate-flow-middle.jpg, 009-made-by-start.jpg; gate-flow, caption cue 8",
-      "problem": "cf:usability: Findings flow straight into “Pass for head SHA,” while the narration says “the gate records a pass” without a condition. Engineers can reasonably read this as an automatic pass after report generation, rather than a decision that controls whether the change may land.",
-      "fix": "Say “If the configured checks pass, the gate records approval for that head commit.” Label the decision “Gate: checks pass?” and label the outgoing path “Pass for current head commit.”"
+      "priority": "P0",
+      "where": "003-logo-open-end.jpg; cold-open narration",
+      "problem": "The product category is missing. Neither the title card nor the narration says that change fabric provides skills and hooks for coding agents. An engineer could finish this thinking it is a conventional CI gate or reporting service, failing the first required outcome.",
+      "fix": "Add an explicit opening definition: “Change fabric is skills and hooks for coding agents that decide when a change may land.” Put the same category beneath the opening product name."
     },
     {
       "priority": "P1",
-      "where": "008-gate-flow-middle.jpg, 009-made-by-start.jpg; gate-flow, caption cue 6",
-      "problem": "The voiceover says each audit lane runs in its own container, but the diagram shows only ordinary lane boxes. Nothing visible distinguishes five isolated executions from five categories inside one process. A required architectural takeaway gets no visual reinforcement in the scene intended to explain it.",
-      "fix": "Use the same container wrapper around each of the five lane modules, with a readable “Separate container per lane” heading. Keep those wrappers visible as the lanes converge into the report."
-    },
-    {
-      "priority": "P1",
-      "where": "009-made-by-start.jpg",
-      "problem": "The completed flow shrinks its main labels to roughly 18 pixels and “findings” to roughly 14 pixels on a 1920×1080 canvas. In an embedded docs player, the exact head-commit requirement becomes difficult to read precisely when the full merge-and-release relationship appears.",
-      "fix": "Remove the nonessential tool names and “findings” edge label, then enlarge the node text to at least 26–28 pixels at source resolution. Use a focused gate-and-destinations view if the complete graph cannot retain that size."
+      "where": "004-cold-open-start.jpg, 005-cold-open-middle.jpg, 006-cold-open-end.jpg; cold-open",
+      "problem": "cf:usability — “This pull request merged” claims a completed action, but the screen contains no identifiable pull request and no merged state. “Gate: passed” with an “on pass” arrow to “Merge to main” establishes eligibility, not completion. The opening teaches viewers to confuse approval with execution.",
+      "fix": "Either change the narration to “A passing gate lets this change merge,” or show an identified pull request progressing from a recorded pass to an explicit “Merged” state."
     },
     {
       "priority": "P2",
-      "where": "004-intro-end.jpg, 007-change-md-end.jpg, 010-gate-flow-end.jpg",
-      "problem": "The sampled transitions visibly superimpose outgoing content beneath incoming labels. In 004, the old “change fabric” title crosses the new heading and body; in 010, diagram nodes remain behind the source-file table. This adds competing text at each topic handoff.",
-      "fix": "Fade the outgoing scene completely before introducing incoming text, or use a clean cut. Do not crossfade two text-heavy compositions through one another."
+      "where": "004-cold-open-start.jpg, 005-cold-open-middle.jpg, 006-cold-open-end.jpg, 012-gate-flow-end.jpg",
+      "problem": "The diagram runs through the left frame edge. The opening loses node boundaries and incoming connections; 006 leaves a fragment of “One report,” and 012 slices through the lane labels. These are unfinished-looking fragments, not readable context, and they violate the requested outer-5% safe area.",
+      "fix": "Reframe each diagram view so retained nodes and labels sit inside x=96–1824. For close-ups, remove offscreen nodes cleanly and retain only their connector, rather than displaying severed text."
+    },
+    {
+      "priority": "P1",
+      "where": "013-logo-close-start.jpg, 014-logo-close-middle.jpg, 015-logo-close-end.jpg; logo-close",
+      "problem": "The required provenance claim stops short of naming the diagram. “Voice and frames included” and “Made with cf:walkthrough” leave viewers to infer whether the skill generated the diagram scene or merely assembled supplied assets.",
+      "fix": "Say: “The walkthrough skill made this clip from one storyboard—including the diagram, voice, and frames.” Make the closing credit equally explicit: “This clip, including its diagram, was made by cf:walkthrough.”"
     },
     {
       "priority": "P2",
-      "where": "change-md, caption cues 4–5; made-by, caption cues 10–11",
-      "problem": "Caption segmentation strands “protected.” for 0.639 seconds and “just watched.” for 0.743 seconds. The preceding cues end with unfinished syntax, forcing caption readers through a brief extra replacement just to complete each thought.",
-      "fix": "Rebalance cues into complete phrases. For example, use “Its frontmatter names what to test,” followed by “and which branches and release tags are protected.” Likewise, keep “including the diagram you just watched” together, with enough display time for the whole phrase."
+      "where": "gate-flow; caption cues 8–9",
+      "problem": "The supplied cue schedule leaves about 7.5 seconds between “release tag through” ending at 30.567 and the closing narration beginning at 38.046. That is roughly one-sixth of this short explainer without speech or captions, while the script still omits the toolkit definition. The listed 93 wpm hides this uneven allocation.",
+      "fix": "Use that interval for the missing definition or a concise head-commit recap, or shorten gate-flow. If the interval supports a deliberate visual explanation, give it an explicit explanatory label rather than relying on an uncaptioned hold."
     }
   ],
   "thirty_second_test": {
-    "verdict": "pass",
-    "reason": "Across the full clip, the supplied narration explicitly states every required outcome. The visual weaknesses reduce reinforcement and precision but do not prevent viewers from repeating those outcomes."
+    "verdict": "fail",
+    "reason": "The audience cannot state the required product definition: skills and hooks for coding agents never appears. Config and gate behavior are explained, but diagram provenance remains implicit."
   },
   "purpose_test": [
     {
       "outcome": "What change fabric is: skills and hooks for coding agents that decide when a change may land",
-      "verdict": "pass",
-      "reason": "001-intro-start.jpg and 002-intro-middle.jpg identify skills and hooks for coding agents and say the toolkit decides when a change is ready to land. Intro cues 1–2 state the same relationship."
+      "verdict": "fail",
+      "reason": "003 names change fabric, and the later scenes explain gating, but no frame or narration identifies skills, hooks, or coding agents."
     },
     {
       "outcome": "That one CHANGE.md per repo holds the config and the protected branches and tags",
       "verdict": "pass",
-      "reason": "005-change-md-middle.jpg explicitly says “One file per repo” and shows CHANGE.md containing change_config and change_policy, including main and tag:v*. Change-md narration identifies the file's role."
+      "reason": "007–009 explicitly say “One file per repo” and describe protected branches and tags. The example shows change_config and change_policy with main and tag:v*."
     },
     {
-      "outcome": "That five containerized audit lanes feed one report and a gate on the head commit before a merge or release tag",
+      "outcome": "That every enabled lane feeds one report and a gate on the head commit before a merge or release tag",
       "verdict": "pass",
-      "reason": "008-gate-flow-middle.jpg shows five named lanes converging into one report and gate; 009-made-by-start.jpg adds “Pass for head SHA” before merge and release-tag destinations. Gate-flow narration supplies the separate-container detail, although the diagram does not depict it."
+      "reason": "011 shows the lanes converging into one report; 012 connects that report to the gate and merge/tag paths. The gate-flow narration explicitly supplies enabled-lane scope, the head-commit binding, and the pass requirement."
     },
     {
       "outcome": "That this clip itself is made by the walkthrough skill, diagram scene included",
-      "verdict": "pass",
-      "reason": "011-made-by-middle.jpg and 012-made-by-end.jpg state that cf:walkthrough made this clip and identify kind: \"diagram\" as the flow just watched. Made-by narration explicitly connects the skill, storyboard, and diagram."
+      "verdict": "partial",
+      "reason": "The logo-close narration credits the walkthrough skill with the clip’s voice and frames, and 013–015 say “Made with cf:walkthrough.” Neither explicitly identifies the diagram scene as skill-generated."
     }
   ]
 }

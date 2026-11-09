@@ -1,10 +1,10 @@
 {
   "schema_version": 1,
-  "storyboard_sha256": "52e24d525d1152a009e0db7c57114218e1adf981d54ea17afb47c64d5dc58c13",
+  "storyboard_sha256": "07e68e274f8469c23f1168fd8cdca18ebc2be2d99b717614df1acfc9eddbd9c2",
   "models": {
     "voice": "eleven_multilingual_v2",
     "voice_id": "21m00Tcm4TlvDq8ikWAM",
-    "music": null,
+    "music": "music_v1",
     "image": "gpt-image-2"
   },
   "images": {
@@ -24,49 +24,58 @@
       "integrity": "sha512-+VNPPkqSOLidFeSgBKUWX4n50WPpDC09hav+BgS26anIF1oQOlGBb8LvwGR+6fYRjo+B6CiKzNBceMPkSVXANQ=="
     }
   },
-  "music_key": "a26e5f867bddc2ee46dbd7071daaa6b44b08a9fb50c4ca96891c5c0e0a0f4987",
+  "music_key": "87fb0d8b8a3da26fc91200c53a17c38eef030790b97bcf508724b6a7a5cc1ae9",
   "timeline": {
     "fps": 30,
-    "total_frames": 1314,
-    "total_ms": 43800
+    "total_frames": 1320,
+    "total_ms": 44000
   },
   "scenes": [
     {
-      "id": "intro",
+      "id": "logo-open",
       "start_frame": 0,
-      "frames": 234,
-      "duration_ms": 7777,
-      "frames_key": "befc419499efc44f838acfd05d889346114ec0754c42b3a51524f4a56f7d75b7",
-      "audio_key": "8db70867c70cebc6af155a90c3924059ba9dd48763fcef032fc5eb410146b9f9",
+      "frames": 90,
+      "duration_ms": 3000,
+      "frames_key": "1e7ca97f3527bb890b940ba1ba85f3183ac0a3cc9b6b381490cd3c0a96d0b6d5",
+      "audio_key": "a7993f273c5bfec36154bf4ab3c684c99d4b2611d388658a2ca523b79470fcd5",
+      "asset_keys": []
+    },
+    {
+      "id": "cold-open",
+      "start_frame": 90,
+      "frames": 150,
+      "duration_ms": 5000,
+      "frames_key": "cbe6aa892162df62c93bc6d35650dffe65aef40efba78aaadd2c241e95f702e2",
+      "audio_key": "bf77be0c30991c1fb70012b861800aa7ea8702140e9d24f6e06d8c61a5fa4142",
       "asset_keys": []
     },
     {
       "id": "change-md",
-      "start_frame": 234,
-      "frames": 202,
-      "duration_ms": 6709,
-      "frames_key": "85aa2edc5a9b3e03ce727baedacda66640809cd1bf245d151391191caa10f469",
-      "audio_key": "f61aabbd6bc558f7635be5839e221595427b90453e941be334e7c2871bacfed5",
+      "start_frame": 240,
+      "frames": 180,
+      "duration_ms": 6000,
+      "frames_key": "b4cd2d9bb707deae5c7d658a45ec39a6b5e598b67e672ad37b2956d81cfc9c9e",
+      "audio_key": "b96380c1023b094a7a0b9599ed3a81704c2bdc57dc29224de8dc49555c30f98e",
       "asset_keys": []
     },
     {
       "id": "gate-flow",
-      "start_frame": 436,
-      "frames": 564,
-      "duration_ms": 18790,
-      "frames_key": "f6f33f480ad42843f53705da27aeaeeb0b4cb942ccff45532134cc92fcfb4c54",
-      "audio_key": "879453f8649f6903ce57d47ff370165c1653bac0c248842d5d2835ea0fb99dd4",
+      "start_frame": 420,
+      "frames": 720,
+      "duration_ms": 24000,
+      "frames_key": "dbde0a0fe9c666cd7124c3330df189aff1bbcc9af46012cea7748d35187db3af",
+      "audio_key": "e8ca085435978a12dcf78f118b26e7fca546954375db9f965bd8deafe098c17b",
       "asset_keys": []
     },
     {
-      "id": "made-by",
-      "start_frame": 1000,
-      "frames": 314,
-      "duration_ms": 10438,
-      "frames_key": "8629ac60f61201c29cabebdad5a975bbe0f4b71dfe3fc8de6e48ba4125a3e3c4",
-      "audio_key": "2c3011549a930ff4def0cf1b6ecc7dccf01f39c8a29f76698f4d670da89ce3d3",
+      "id": "logo-close",
+      "start_frame": 1140,
+      "frames": 180,
+      "duration_ms": 6000,
+      "frames_key": "17d07df58bd85e69721a806e77535bca9c490b34e35ef3856ef1796f81eaafb0",
+      "audio_key": "cfe7d4412d2c290fc46bb9852c826197c142b1bcefc512b919352286639ae39e",
       "asset_keys": []
     }
   ],
-  "manifest_hash": "32c98ed889429a67bf69ad30a2a21616b01aa48bf6048f3997ec21ac622f6be8"
+  "manifest_hash": "b427f1ad3c832bb1e39b7d5e4746717c495e2bdc876aa31bb819098db84bd812"
 }

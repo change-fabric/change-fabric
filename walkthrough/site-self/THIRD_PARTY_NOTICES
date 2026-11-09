@@ -1,4 +1,4 @@
-Diagram scenes (gate-flow) render with a vendored bundle of:
+Diagram scenes (cold-open, gate-flow) render with a vendored bundle of:
   xyflow (React Flow) (@xyflow/react@12.12.1) license: MIT
   React (react@19.3.1) license: MIT
   React DOM (react-dom@19.3.1) license: MIT

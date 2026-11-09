@@ -380,7 +380,8 @@
         "H1"
       ],
       "narration": {
-        "text": "This pull request merged because the gate recorded a pass."
+        "text": "This pull request merged because the gate recorded a pass.",
+        "measured_ms": 3437
       },
       "timing": {
         "min_ms": 5000,
@@ -425,7 +426,8 @@
         "H6"
       ],
       "narration": {
-        "text": "Each repo carries one CHANGE.md: what to test, and what is protected."
+        "text": "One CHANGE.md per repo: what to test, what is protected.",
+        "measured_ms": 4365
       },
       "timing": {
         "min_ms": 6000,
@@ -437,7 +439,7 @@
       },
       "deps": {
         "frames_key": "b4cd2d9bb707deae5c7d658a45ec39a6b5e598b67e672ad37b2956d81cfc9c9e",
-        "audio_key": "63095eb5f946a36bcab0b6fb819fa2dd8cdaec5477a65d4f78a2266a6d2d6773",
+        "audio_key": "b96380c1023b094a7a0b9599ed3a81704c2bdc57dc29224de8dc49555c30f98e",
         "asset_keys": []
       }
     },
@@ -771,7 +773,8 @@
         "H2"
       ],
       "narration": {
-        "text": "Every enabled lane runs: load, accessibility, security, responsive UX, and test cases. Findings land in one report. The gate records the result for the head commit, and only a pass lets the merge or release tag through."
+        "text": "Every enabled lane runs: load, accessibility, security, responsive UX, and test cases. Findings land in one report. The gate records the result for the head commit, and only a pass lets the merge or release tag through.",
+        "measured_ms": 16765
       },
       "timing": {
         "min_ms": 24000,
@@ -810,7 +813,8 @@
         "H10"
       ],
       "narration": {
-        "text": "Made by the walkthrough skill from one storyboard, voice and frames included."
+        "text": "Made by the walkthrough skill from one storyboard, voice and frames included.",
+        "measured_ms": 4644
       },
       "timing": {
         "min_ms": 6000,

@@ -73,7 +73,7 @@
 - Requirement: brief.md#changemd
 - Assumption A-01: The CHANGE.md on screen is an abridged example for an unnamed app, not a copy of any real repo's file.
 
-> Each repo carries one CHANGE.md: what to test, and what is protected.
+> One CHANGE.md per repo: what to test, what is protected.
 
 ## 4. How a change is gated (`gate-flow`)
 
