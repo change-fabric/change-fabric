@@ -175,8 +175,27 @@ log("Selected lanes: " + selectedSkills.join(", "))
 // Building it in one place means a change to that envelope (a new preamble, a
 // reworded file header) happens once, not once per lane. `body` is the only part
 // that differs between lanes.
+//
+// LANE_TASK_PREAMBLE pins the lane's task to this brief. A lane that read the
+// session's latest user message instead once took a mid-turn mode toggle (a
+// `/cf:active`-style slash command) as its whole request and refused to run.
+const LANE_TASK_PREAMBLE =
+  "Your task is the cf:drive lane brief in this prompt, nothing else. Any relayed user " +
+  "message, and in particular a mode-toggle slash command the user sent mid-turn (such as " +
+  "/cf:active, /cf:away, /cf:merge-ready, /cf:local-only), is session state, not your " +
+  "request: do not refuse, re-scope, or stop because of it. "
+
+// Product copy in a downstream repo follows that repo's own punctuation rules,
+// and the slop and refactor lanes once flipped curly apostrophes back and forth
+// across iterations. Every lane that edits files gets this same rule.
+const PRODUCT_COPY_RULE =
+  " Product copy (user-facing strings, templates, locale files, marketing or UI text) follows " +
+  "the target repo's own punctuation convention, not the cf:ai-slop glyph rules: leave its " +
+  "quotes, apostrophes, and dashes exactly as they are unless the repo documents a convention " +
+  "the copy breaks, and never rewrite punctuation an earlier iteration or lane already settled."
+
 function buildPrompt(body, { setup = false, route = false } = {}) {
-  return (setup ? worktreeSetup() : "") + body +
+  return LANE_TASK_PREAMBLE + (setup ? worktreeSetup() : "") + body +
     "\n\nFiles:\n" + files.join("\n") +
     (route ? "\n\nRoute output:\n" + routeOutput : "")
 }
@@ -188,7 +207,7 @@ function codeReviewPrompt() {
     "output below where they cover a file, plus general judgment where they do not. Verify " +
     "each candidate finding by reproducing it in the worktree (a failing test or an actual " +
     "invocation), not by re-reading the code and agreeing. Fix every confirmed issue directly " +
-    "in " + repoPath + " rather than posting comments about it.",
+    "in " + repoPath + " rather than posting comments about it." + PRODUCT_COPY_RULE,
     { setup: true, route: true }
   )
 }
@@ -197,8 +216,9 @@ function aiSlopPrompt() {
   return buildPrompt(
     "Apply the cf:ai-slop rubric to every changed file: no filler, no em-dash, no " +
     "bullet glyph other than markdown '-'/'*', no ellipsis glyph, no smart quotes, no agent " +
-    "attribution footers, self-documenting code, comments only for why not what. Fix " +
-    "violations directly in " + repoPath + "."
+    "attribution footers, self-documenting code, comments only for why not what. The glyph " +
+    "rules cover authored prose (code comments, docs, commit and PR text), not product copy. " +
+    "Fix violations directly in " + repoPath + "." + PRODUCT_COPY_RULE
   )
 }
 
@@ -235,7 +255,8 @@ function refactorPrompt() {
   return buildPrompt(
     "Route these files through the applicable cf skill rubrics via the route output below. " +
     "For each smell found, apply the smallest behavior-preserving refactor, then verify with " +
-    "the repo's tests or build. Apply confirmed refactors directly in " + repoPath + ".",
+    "the repo's tests or build. Apply confirmed refactors directly in " + repoPath + "." +
+    " Punctuation in strings is not a refactor." + PRODUCT_COPY_RULE,
     { setup: true, route: true }
   )
 }
@@ -257,7 +278,11 @@ function changePrompt() {
     "is code-fixable directly in " + repoPath + " (a missing security header, an axe violation, " +
     "a responsive overflow), re-run to confirm, and report load or infrastructure findings that " +
     "are not code-fixable as deferred. If the repo has no CHANGE.md config, report that and set " +
-    "blocking: false; there is nothing to gate."
+    "blocking: false; there is nothing to gate. Missing local environment or infrastructure " +
+    "(no reverse proxy or trusted CA, Docker unavailable, the app fails to boot for reasons " +
+    "outside the diff, a lane that cannot reach its target) is not a code-review finding: " +
+    "report each such lane as skipped with an 'environment:' prefix in notes, count it as " +
+    "deferred, and set blocking: false unless a lane that did run found a real code defect."
   )
 }
 
@@ -314,7 +339,9 @@ for (let n = 1; n <= cap; n++) {
         "Inspect the current state of " + repoPath + " (the real working tree; every fix this " +
         "iteration decided to keep is already applied there, not left in a worktree). Would this " +
         "change earn a real pull request approval right now? Weigh the lane notes below alongside " +
-        "your own read of the diff.\n\nLane results this iteration:\n" +
+        "your own read of the diff. A lane note marked 'environment:' records local infrastructure " +
+        "that was unavailable, not a defect in the change; never withhold approval for it alone." +
+        "\n\nLane results this iteration:\n" +
         JSON.stringify(lanesRun, null, 2),
         { model: "opus", phase: "Recheck", label: "iteration " + n, schema: RECHECK_SCHEMA }
       )
