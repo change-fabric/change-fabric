@@ -62,6 +62,23 @@ class WalkthroughDiagramTest < Minitest::Test
     assert_equal "</script><b>x", JSON.parse(json)["nodes"][0]["label"]
   end
 
+  def test_omitted_lists_are_written_as_empty
+    spec.delete("edges")
+    spec.delete("steps")
+    generate
+    json = File.read(screen_path)[%r{<script type="application/json" id="cf-diagram">(.*?)</script>}m, 1]
+    assert_equal [], JSON.parse(json)["edges"]
+    assert_equal [], JSON.parse(json)["steps"]
+  end
+
+  def test_markup_in_a_label_survives_inline_screen_as_text
+    spec["nodes"][0]["label"] = "<iframe> embed"
+    generate
+    html = PrototypeCapture.inline_screen(screen_path)
+    json = html[%r{<script type="application/json" id="cf-diagram">(.*?)</script>}m, 1]
+    assert_equal "<iframe> embed", JSON.parse(json)["nodes"][0]["label"]
+  end
+
   def test_inline_screen_leaves_the_generated_screen_alone
     generate
     assert_equal File.read(screen_path), PrototypeCapture.inline_screen(screen_path)

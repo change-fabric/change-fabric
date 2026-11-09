@@ -213,9 +213,14 @@ module WalkthroughDiagram
   # the body is opaque code, not markup to rewrite.
   def script(body) = %(<script data-cf-inline>#{body.gsub('</script', '<\/script')}</script>)
 
+  # Validation lets nodes, edges, and steps be omitted, but the runtime maps
+  # over each, so they are written as empty lists. `<` and `>` become JSON
+  # escapes so a label like "<iframe>" reaches the runtime as text instead of
+  # markup inline_screen would reject or a tag that could close the script.
   def spec_json(spec)
     keep = spec.is_a?(Hash) ? spec.slice(*SPEC_FIELDS) : {}
-    JSON.pretty_generate(keep).gsub('</', '<\/')
+    %w[nodes edges steps].each { |key| keep[key] ||= [] }
+    JSON.pretty_generate(keep).gsub(/[<>]/) { |c| format('\\u%04x', c.ord) }
   end
 
   def palette_css = ":root { #{PALETTE.map { |k, v| "--cf-#{k}: #{v};" }.join(' ')} }"
