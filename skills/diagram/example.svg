@@ -1,0 +1,74 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 872 384" width="872" height="384" role="img" aria-labelledby="t d" data-diagram-type="flow">
+  <title id="t">How cf:diagram makes a diagram</title>
+  <desc id="d">cf:diagram takes a subject and a diagram type, resolves a palette from the repo's tokens.css, sketches the nodes and edges, and hand-places one SVG on an 8px grid. It then lints the SVG while measuring its text in the pinned browserless Chromium; with findings and under 3 rounds used it fixes each finding from its hint and lints again, a clean result is reported as the finished SVG, and findings left after 3 rounds stop the run with a report.</desc>
+  <style>
+    svg { --bg: #F6EFE0; --surface: #F0E8DB; --ink: #24122A; --muted: #574F59; --soft: #574F59; --line: #574F59; --rule: #C1C1B7; --accent: #714C8C; --link: #714C8C; --accent-tint: #E9DFD8; }
+    @media (prefers-color-scheme: dark) {
+      svg { --bg: #24122A; --surface: #2C1B31; --ink: #F6EFE0; --muted: #B8BAB0; --soft: #B8BAB0; --line: #B8BAB0; --rule: #493D4C; --accent: #B690CE; --link: #B690CE; --accent-tint: #382441; }
+    }
+    .bg { fill: var(--bg); }
+    .node rect { fill: var(--surface); stroke: var(--ink); stroke-width: 1; }
+    .node.focal rect { fill: var(--accent-tint); stroke: var(--accent); stroke-width: 1.5; }
+    .label { fill: var(--ink); font-weight: 600; font-family: Geist, Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", sans-serif; }
+    .node.focal .label { fill: var(--accent); }
+    .edge { fill: none; stroke: var(--line); stroke-width: 1.2; }
+    .edge.accent { stroke: var(--accent); stroke-width: 1.5; }
+    .edge.soft { stroke: var(--soft); stroke-dasharray: 5 4; }
+    #arrow path { fill: var(--line); }
+    #arrow-accent path { fill: var(--accent); }
+    #arrow-soft path { fill: var(--soft); }
+    #arrow-link path { fill: var(--link); }
+    .note { fill: var(--muted); font-family: Geist, Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", sans-serif; }
+  </style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="#574F59"/></marker>
+    <marker id="arrow-accent" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="#714C8C"/></marker>
+    <marker id="arrow-soft" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="#574F59"/></marker>
+    <marker id="arrow-link" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="#714C8C"/></marker>
+  </defs>
+  <rect class="bg" x="0" y="0" width="872" height="384" fill="#F6EFE0"/>
+  <path class="edge" data-from="take" data-to="palette" d="M200 56 H240" marker-end="url(#arrow)"/>
+  <path class="edge" data-from="palette" data-to="sketch" d="M416 56 H456" marker-end="url(#arrow)"/>
+  <path class="edge" data-from="sketch" data-to="write" d="M632 56 H672" marker-end="url(#arrow)"/>
+  <path class="edge" data-from="write" data-to="lint" d="M760 88 V160" marker-end="url(#arrow)"/>
+  <path class="edge" data-from="lint" data-to="fix" d="M672 176 H416" marker-end="url(#arrow)"/>
+  <path class="edge" data-from="fix" data-to="lint" d="M416 208 H672" marker-end="url(#arrow)"/>
+  <path class="edge accent" data-from="lint" data-to="clean" d="M760 224 V296" marker-end="url(#arrow-accent)"/>
+  <path class="edge soft" data-from="lint" data-to="stop" d="M704 224 V256 H544 V296" marker-end="url(#arrow-soft)"/>
+  <text id="under-note" class="note" x="544" y="168" font-size="12" text-anchor="middle">findings, under 3 rounds</text>
+  <text id="relint-note" class="note" x="544" y="224" font-size="12" text-anchor="middle">lint again</text>
+  <text id="clean-note" class="note" x="768" y="264" font-size="12" text-anchor="start">clean</text>
+  <text id="used-note" class="note" x="624" y="276" font-size="12" text-anchor="middle">findings, 3 rounds used</text>
+  <g class="node" data-id="take">
+    <rect x="24" y="24" width="176" height="64" rx="6"/>
+    <text id="take-label" class="label" x="112" y="52.5" font-size="14" text-anchor="middle"><tspan x="112">Take subject</tspan><tspan x="112" dy="16.8">and type</tspan></text>
+  </g>
+  <g class="node" data-id="palette">
+    <rect x="240" y="24" width="176" height="64" rx="6"/>
+    <text id="palette-label" class="label" x="328" y="52.5" font-size="14" text-anchor="middle"><tspan x="328">Resolve palette</tspan><tspan x="328" dy="16.8">from tokens.css</tspan></text>
+  </g>
+  <g class="node" data-id="sketch">
+    <rect x="456" y="24" width="176" height="64" rx="6"/>
+    <text id="sketch-label" class="label" x="544" y="52.5" font-size="14" text-anchor="middle"><tspan x="544">Sketch nodes</tspan><tspan x="544" dy="16.8">and edges</tspan></text>
+  </g>
+  <g class="node" data-id="write">
+    <rect x="672" y="24" width="176" height="64" rx="6"/>
+    <text id="write-label" class="label" x="760" y="52.5" font-size="14" text-anchor="middle"><tspan x="760">Hand-place SVG</tspan><tspan x="760" dy="16.8">on 8px grid</tspan></text>
+  </g>
+  <g class="node" data-id="lint">
+    <rect x="672" y="160" width="176" height="64" rx="6"/>
+    <text id="lint-label" class="label" x="760" y="188.5" font-size="14" text-anchor="middle"><tspan x="760">Lint, measure text</tspan><tspan x="760" dy="16.8">in browserless</tspan></text>
+  </g>
+  <g class="node" data-id="fix">
+    <rect x="240" y="160" width="176" height="64" rx="6"/>
+    <text id="fix-label" class="label" x="328" y="188.5" font-size="14" text-anchor="middle"><tspan x="328">Fix each finding</tspan><tspan x="328" dy="16.8">from its hint</tspan></text>
+  </g>
+  <g class="node focal" data-id="clean">
+    <rect x="672" y="296" width="176" height="64" rx="6"/>
+    <text id="clean-label" class="label" x="760" y="332.9" font-size="14" text-anchor="middle">Report clean SVG</text>
+  </g>
+  <g class="node" data-id="stop">
+    <rect x="456" y="296" width="176" height="64" rx="6"/>
+    <text id="stop-label" class="label" x="544" y="324.5" font-size="14" text-anchor="middle"><tspan x="544">Stop and report</tspan><tspan x="544" dy="16.8">findings left</tspan></text>
+  </g>
+</svg>

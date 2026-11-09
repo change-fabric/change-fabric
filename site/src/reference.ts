@@ -17,7 +17,16 @@ export interface SkillReference {
   description: string;
   summary: string;
   autoBasenames: string[];
+  // An example of the skill's own output, when skills/<id>/example.svg exists.
+  example: SkillExample | null;
   body: string;
+}
+
+export interface SkillExample {
+  src: string;
+  alt: string;
+  width: number;
+  height: number;
 }
 
 export interface HookReference {
