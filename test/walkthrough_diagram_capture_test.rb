@@ -8,6 +8,7 @@ require "tmpdir"
 require_relative "../scripts/change_docker"
 require_relative "../scripts/prototype_capture"
 require_relative "../scripts/walkthrough_diagram"
+require_relative "../scripts/walkthrough_storyboard"
 
 # A React Flow diagram screen renders deterministically under the controlled
 # clock: two captures in the pinned browserless container give identical
@@ -52,6 +53,33 @@ class WalkthroughDiagramCaptureTest < Minitest::Test
           assert_empty run[:blocked], "blocked requests: #{run[:blocked].inspect}"
           assert_empty run[:findings], "UX lint findings: #{run[:findings].inspect}"
         end
+      end
+    end
+  end
+
+  # The whole path an author takes: a storyboard diagram block, the
+  # generator, the storyboard's frames prep, inline_screen, and a capture.
+  def test_storyboard_diagram_scene_generates_and_captures
+    skip "docker not available" unless ChangeDocker.available?
+
+    Dir.mktmpdir do |root|
+      FileUtils.cp_r("#{File.expand_path('fixtures/walkthrough/architecture', __dir__)}/.", root)
+      board = WalkthroughStoryboard.load(File.join(root, "storyboard.json"))
+      WalkthroughDiagram.write_screens(board, root)
+      assert_empty WalkthroughStoryboard.validate(board, root: root)
+      scene = board["scenes"].first
+      prep = PrototypeCapture.prepare(board, scene, root)
+      ChangeDocker.with_browserless(network: nil) do |session|
+        recorder = Recorder.new(session)
+        PrototypeCapture.capture(session: recorder, html: PrototypeCapture.inline_screen(prep[:html_path], root: root),
+                                 interactions: [], duration_ms: PrototypeCapture.scene_duration(scene), out_dir: prep[:out_dir],
+                                 state: prep[:state], prng_seed: prep[:prng_seed], viewport: board["viewport"], label: scene["id"])
+        frames = Dir[File.join(prep[:out_dir], "*.png")].sort
+        assert_equal PrototypeCapture.frame_count(PrototypeCapture.scene_duration(scene)), frames.size
+        refute_equal Digest::SHA256.file(frames.first).hexdigest, Digest::SHA256.file(frames.last).hexdigest
+        assert_empty recorder.results.flat_map { |r| Array(r["pageErrors"]) }
+        assert_empty recorder.results.flat_map { |r| Array(r["blockedRequests"]) }
+        assert_empty JSON.parse(File.read(File.join(prep[:out_dir], PrototypeUxLint::REPORT)))["findings"]
       end
     end
   end

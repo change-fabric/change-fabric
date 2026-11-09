@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "slug": "architecture",
+  "title": "How an order moves",
+  "viewport": { "w": 1280, "h": 720, "dpr": 1 },
+  "fps": 30,
+  "music": null,
+  "scenes": [
+    {
+      "id": "overview",
+      "title": "Order flow",
+      "order": 1,
+      "kind": "diagram",
+      "screen": { "html": "screens/overview.html" },
+      "diagram": {
+        "layout": { "engine": "dagre", "direction": "LR" },
+        "nodes": [
+          { "id": "web", "label": "Web app", "role": "accent" },
+          { "id": "api", "label": "API" },
+          { "id": "queue", "label": "Job queue" },
+          { "id": "db", "label": "Postgres", "position": { "x": 520, "y": 160 } }
+        ],
+        "edges": [
+          { "id": "e1", "source": "web", "target": "api", "label": "HTTPS" },
+          { "id": "e2", "source": "api", "target": "db", "label": "writes" },
+          { "id": "e3", "source": "api", "target": "queue" }
+        ],
+        "initial": ["web", "api", "e1"],
+        "steps": [
+          { "t_ms": 300, "op": "add_node", "ids": ["db", "queue"] },
+          { "t_ms": 400, "op": "connect", "ids": ["e2", "e3"] },
+          { "t_ms": 600, "op": "fit_view", "padding": 0.2, "duration": 600 },
+          { "t_ms": 1400, "op": "highlight", "ids": ["db", "e2"] },
+          { "t_ms": 1600, "op": "focus", "id": "db", "zoom": 1.4, "duration": 300 }
+        ]
+      },
+      "narration": { "text": "An order enters through the web app and lands in Postgres.", "measured_ms": 0 },
+      "assumptions": [ { "id": "A-01", "text": "Orders are written synchronously; side work goes to a queue." } ],
+      "timing": { "min_ms": 2000, "pad_ms": 0, "transition": { "type": "cut", "ms": 0 } }
+    }
+  ]
+}

@@ -2,7 +2,9 @@
 
 require "minitest/autorun"
 require "digest"
+require "fileutils"
 require "json"
+require "tmpdir"
 require_relative "../scripts/design_tokens"
 require_relative "../scripts/prototype_capture"
 require_relative "../scripts/walkthrough_cache"
@@ -81,6 +83,21 @@ class WalkthroughFixturesTest < Minitest::Test
         html = PrototypeCapture.inline_screen(path(name, scene.dig("screen", "html")))
         refute_match(%r{https?://}, html.gsub("http://www.w3.org/2000/svg", ""), scene["id"])
       end
+    end
+  end
+
+  # The architecture fixture holds one diagram scene. Its screen is generated
+  # (about 500KB of inlined bundle), so the test writes it to a scratch copy
+  # rather than committing it.
+  def test_architecture_diagram_fixture_validates_and_renders_md
+    Dir.mktmpdir do |root|
+      FileUtils.cp_r("#{dir('architecture')}/.", root)
+      b = board("architecture")
+      WalkthroughDiagram.write_screens(b, root)
+      assert_empty WalkthroughStoryboard.validate(b, root: root)
+      assert_equal File.read(path("architecture", "storyboard.md")), WalkthroughStoryboard.render_md(b)
+      html = PrototypeCapture.inline_screen(File.join(root, "screens", "overview.html"))
+      refute_match(%r{<script[^>]*\ssrc=}, html)
     end
   end
 
