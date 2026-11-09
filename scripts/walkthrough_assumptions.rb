@@ -3,14 +3,22 @@
 require 'json'
 require_relative 'change_docker'
 require_relative 'prototype_icons'
+require_relative 'walkthrough_diagram'
 require_relative 'walkthrough_environment'
 require_relative 'walkthrough_storyboard'
 
 # The walkthrough truth trail. The video speaks as a shipped product, so
 # everything invented lives here instead: ASSUMPTIONS.md (assumptions,
 # invented features, fictional data, brand logos, unsupported claims) and
-# THIRD_PARTY_NOTICES for the icon sets the screens use.
+# THIRD_PARTY_NOTICES for the icon sets the screens use and, when any scene
+# is a diagram, the vendored xyflow bundle.
 module WalkthroughAssumptions
+  # The headline packages a diagram scene ships, by npm name, with the name
+  # the notice gives each. Versions and licences come from the vendored
+  # LICENSES.txt, so a rebuilt bundle updates the notice with it.
+  DIAGRAM_PACKAGES = { '@xyflow/react' => 'xyflow (React Flow)', 'react' => 'React', 'react-dom' => 'React DOM',
+                       '@dagrejs/dagre' => 'dagre' }.freeze
+  DIAGRAM_LICENSES = File.join(__dir__, 'vendor', 'xyflow', 'LICENSES.txt')
   KINDS = {
     'assumption' => 'Assumptions',
     'invented_feature' => 'Invented features',
@@ -135,8 +143,32 @@ module WalkthroughAssumptions
     assumptions = File.join(root, 'ASSUMPTIONS.md')
     File.write(assumptions, render(board, seed: seed, logos: logos))
     notices = File.join(root, 'THIRD_PARTY_NOTICES')
-    File.write(notices, PrototypeIcons.notices(phosphor: used[:phosphor], simple_icons: logos))
+    parts = [ PrototypeIcons.notices(phosphor: used[:phosphor], simple_icons: logos), diagram_notice(board) ]
+    File.write(notices, parts.reject(&:empty?).join("\n"))
     [ assumptions, notices ]
+  end
+
+  # Name => [version, licence] for each package in the xyflow bundle, read
+  # from LICENSES.txt's `--- name@version (licence) ---` headers.
+  def bundled_packages(path = DIAGRAM_LICENSES)
+    File.read(path).scan(/^--- (@?[^@\s]+)@(\S+) \(([^)]+)\) ---$/).to_h { |name, version, license| [ name, [ version, license ] ] }
+  end
+
+  # The diagram scenes' notice: the headline packages, the attribution
+  # choice, then every bundled licence text verbatim. Empty with no diagram.
+  def diagram_notice(board, path = DIAGRAM_LICENSES)
+    ids = WalkthroughStoryboard.scenes(board).select { |s| WalkthroughDiagram.diagram?(s) }.map { |s| s['id'] }
+    return '' if ids.empty?
+
+    bundled = bundled_packages(path)
+    lines = DIAGRAM_PACKAGES.map do |name, title|
+      version, license = bundled.fetch(name)
+      "  #{title} (#{name}@#{version}) license: #{license}"
+    end
+    [ "Diagram scenes (#{ids.join(', ')}) render with a vendored bundle of:", *lines,
+      'The React Flow attribution badge is hidden by choice (proOptions.hideAttribution). The MIT licence permits ' \
+      'this; xyflow asks projects that hide it to hold a React Flow Pro subscription. The credit stays here instead.',
+      '', File.read(path) ].join("\n")
   end
 end
 

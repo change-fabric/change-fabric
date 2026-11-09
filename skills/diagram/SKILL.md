@@ -8,7 +8,7 @@ description: Hand-placed SVG diagram command. Authors one standalone, theme-awar
 
 Source: own grammar. The default skin, node anatomy, and lint check concepts are adapted from diagram-design (MIT); svg-diagram (MIT) informed further checks. Both are credited in NOTICE.
 
-The agent writes every coordinate by hand. There is no layout engine, no Mermaid, and no generated markup. The grammar in `reference/grammar.md` is the contract, and the linter (`ruby ~/.claude/cf/bin/diagram_lint.rb`) is the judge.
+The agent writes every coordinate by hand. There is no layout engine, no Mermaid, and no generated markup. The grammar in `reference/grammar.md` is the contract, and the linter (`ruby ~/.claude/cf/bin/diagram_lint.rb`) is the judge. The one exception is cf:walkthrough's animated `kind: "diagram"` scene, which uses dagre for layout by design; static diagrams made here stay hand-placed.
 
 ## When to use
 
