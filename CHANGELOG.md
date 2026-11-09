@@ -18,6 +18,17 @@ Every version below has a frozen, permanently addressable rendering at
 field set: major for a removed, renamed or newly required field, minor for a new
 optional field, patch for a documentation-only clarification.
 
+## [0.15.1] - 2026-11-08
+
+Documentation only: no field is added, removed, or changed in meaning.
+
+### Changed
+
+- `contributors_team.platform.media.video_fps` now documents the
+  screencast-sampled recording: it is the rate the per-viewport sampler ticks
+  at and the rate the frames are encoded into `video/<viewport>.mp4`, with
+  frames capped at 300 or 24 MB per viewport and any drops reported.
+
 ## [0.15.0] - 2026-11-07
 
 A profile can say how the browser container reaches a local HTTPS dev app

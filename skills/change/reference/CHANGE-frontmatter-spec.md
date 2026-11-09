@@ -1,6 +1,6 @@
 # CHANGE.md frontmatter specification
 
-Schema version: 0.15.0
+Schema version: 0.15.1
 
 Status: stable. This is the golden reference for authoring a repo's
 `CHANGE.md` frontmatter. A maintainer or an AI agent creating a new repo's
@@ -697,7 +697,7 @@ See `scripts/CF_TEAM_SETUP.md` for the runbook.
 | `contributors_team.platform.basic_auth.password_env` | string | no | (0.6.0) Name of the environment variable holding the password half of that same fence. |
 | `contributors_team.platform.media.screenshots` | boolean | no (default true) | (0.6.0) Whether the browserless lane captures a full-page screenshot per route and viewport for the artifact. |
 | `contributors_team.platform.media.video` | boolean | no (default true) | (0.6.0) Whether the browserless lane records one video per viewport covering that viewport's whole route walk. |
-| `contributors_team.platform.media.video_fps` | integer | no (default 6) | (0.6.0) Frame rate of that recording. Higher is smoother and proportionally larger; the recording travels base64 inside the lane's single browserless response, so this is the main lever on that payload. |
+| `contributors_team.platform.media.video_fps` | integer | no (default 6) | (0.6.0) Frame rate of that recording: the rate the screencast sampler ticks at and the rate the frames are encoded into `video/<viewport>.mp4`. Higher is smoother and proportionally larger; the sampled frames travel base64 inside the lane's single browserless response (capped at 300 frames or 24 MB per viewport, extra frames dropped and reported), so this is the main lever on that payload. |
 
 ```yaml
 contributors_team:
@@ -1284,3 +1284,7 @@ root `RELEASING.md`.
           add_hosts: ["app.local.example.test:host-gateway"]
           ignore_https_errors: true
   ```
+- 0.15.1: documentation only, no field-set change. The
+  `contributors_team.platform.media.video_fps` row now describes the
+  screencast-sampled recording: the rate the sampler ticks at and the rate the
+  frames are encoded into an mp4, with the per-viewport frame and byte caps.
