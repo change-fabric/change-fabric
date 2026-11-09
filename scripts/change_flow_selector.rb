@@ -6,7 +6,7 @@
 # parses to nil here. The forms below compile to a locator the flow runtime
 # resolves inside the page (`cfLocate`):
 #
-#   text=Sign in                     innermost element whose text contains it
+#   text=Sign in                     innermost page-content element whose text contains it
 #   text="Sign in"                   innermost element whose text is exactly it
 #   button:has-text("Save")          CSS match whose text contains it
 #   li:text-is("Free plan")          CSS match whose text is exactly it

@@ -140,7 +140,9 @@ class ChangeFlowCompiler
     const cfLocate = (loc, mode) => {
       const norm = (s) => String(s || "").replace(/\\s+/g, " ").trim();
       const textOf = (el) => norm(el.innerText || el.textContent);
+      const content = (el) => !el.closest("head, title, script, style, noscript, template");
       let els = Array.from(document.querySelectorAll(loc.css || "*"));
+      if (!loc.css) els = els.filter(content);
       if (loc.textIs !== null) els = els.filter((el) => textOf(el) === loc.textIs);
       if (loc.hasText !== null) els = els.filter((el) => textOf(el).indexOf(loc.hasText) !== -1);
       if (!loc.css) els = els.filter((el) => !els.some((other) => other !== el && el.contains(other)));

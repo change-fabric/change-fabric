@@ -311,18 +311,48 @@ class ChangeFlowCompilerTest < Minitest::Test
     assert_includes js, "fullPage: step.fullPage === true"
   end
 
-  # Runs the runtime's own cfLocate in node against a stub document of three
-  # tr.row elements, so count mode is checked against the real JS.
-  def locate_count(selector)
+  # Runs the runtime's own cfLocate in node against a stub document, so the
+  # locator is checked against the real JS. The default page is three tr.row
+  # elements.
+  def run_locate(selector, mode, nodes: "rows")
     skip "node not installed" unless system("command -v node >/dev/null 2>&1")
     source = ChangeFlowCompiler.flow_runtime_js[/^const cfLocate = .*?^\};\n/m]
+    locator = one("expect_count" => { "selector" => selector, "equals" => 1 })[:locator]
     script = <<~JS
-      const rows = [1, 2, 3].map((n) => ({ innerText: "row " + n, contains: () => false }));
-      globalThis.document = { querySelectorAll: () => rows };
+      #{ROWS_JS}
+      globalThis.document = { querySelectorAll: () => #{nodes} };
+      globalThis.getComputedStyle = () => ({ visibility: "visible", display: "block" });
       #{source}
-      process.stdout.write(String(cfLocate(#{JSON.generate(one("expect_count" => { "selector" => selector, "equals" => 1 })[:locator])}, "count")));
+      const found = cfLocate(#{JSON.generate(locator)}, #{JSON.generate(mode)});
+      process.stdout.write(String(found && found.tagName ? found.tagName : found));
     JS
-    Integer(IO.popen([ "node", "-e", script ], &:read))
+    IO.popen([ "node", "-e", script ], &:read)
+  end
+
+  ROWS_JS = <<~JS
+    const node = (tagName, text, ancestors = []) => ({
+      tagName, innerText: text, contains: () => false,
+      closest: (sel) => ([tagName, ...ancestors].some((t) => sel.split(", ").includes(t)) ? {} : null),
+      getBoundingClientRect: () => ({ width: 10, height: 10 }),
+    });
+    const rows = [1, 2, 3].map((n) => node("tr", "row " + n));
+  JS
+
+  def locate_count(selector) = Integer(run_locate(selector, "count"))
+
+  # A <title>, <script>, and <noscript> carry the same text as the button but
+  # are not page content, so the text engine must skip them.
+  def test_the_text_engine_skips_head_and_non_content_elements
+    page = '[node("title", "Sign in", ["head"]), node("script", "Sign in"), node("noscript", "Sign in"), node("button", "Sign in")]'
+    assert_equal "button", run_locate("text=Sign in", "visible", nodes: page)
+    assert_equal "button", run_locate('text="Sign in"', "attached", nodes: page)
+    assert_equal "1", run_locate("text=Sign in", "count", nodes: page)
+    assert_equal "false", run_locate("text=Sign in", "hidden", nodes: page)
+  end
+
+  def test_an_explicit_css_selector_may_still_target_the_title
+    page = '[node("title", "Sign in", ["head"])]'
+    assert_equal "title", run_locate('title:has-text("Sign in")', "attached", nodes: page)
   end
 
   def test_count_applies_the_nth_restriction
