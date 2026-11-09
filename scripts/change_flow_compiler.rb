@@ -467,7 +467,7 @@ class ChangeFlowCompiler
   def inner_timeout(value)
     return nil unless value.is_a?(Hash)
 
-    value['timeout_ms'] || value[:timeout_ms]
+    value['timeout_ms']
   end
 
   # --- actions ---------------------------------------------------------------
