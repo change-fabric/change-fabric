@@ -10,8 +10,8 @@ require_relative 'walkthrough_storyboard'
 # The walkthrough truth trail. The video speaks as a shipped product, so
 # everything invented lives here instead: ASSUMPTIONS.md (assumptions,
 # invented features, fictional data, brand logos, unsupported claims) and
-# THIRD_PARTY_NOTICES for the icon sets the screens use and, when any scene
-# is a diagram, the vendored xyflow bundle.
+# THIRD_PARTY_NOTICES for the icon sets the screens and diagram nodes use
+# and, when any scene is a diagram, the vendored xyflow bundle.
 module WalkthroughAssumptions
   # The headline packages a diagram scene ships, by npm name, with the name
   # the notice gives each. Versions and licences come from the vendored
@@ -143,9 +143,17 @@ module WalkthroughAssumptions
     assumptions = File.join(root, 'ASSUMPTIONS.md')
     File.write(assumptions, render(board, seed: seed, logos: logos))
     notices = File.join(root, 'THIRD_PARTY_NOTICES')
-    parts = [ PrototypeIcons.notices(phosphor: used[:phosphor], simple_icons: logos), diagram_notice(board) ]
+    phosphor = used[:phosphor] || diagram_icons?(board)
+    parts = [ PrototypeIcons.notices(phosphor: phosphor, simple_icons: logos), diagram_notice(board) ]
     File.write(notices, parts.reject(&:empty?).join("\n"))
     [ assumptions, notices ]
+  end
+
+  # Diagram node icons are Phosphor glyphs inlined from the vendored subset,
+  # so they carry the same notice as icon files under screens/assets/icons.
+  def diagram_icons?(board)
+    WalkthroughStoryboard.scenes(board).select { |s| WalkthroughDiagram.diagram?(s) }
+                         .any? { |s| Array(s.dig('diagram', 'nodes')).any? { |n| n.is_a?(Hash) && n['icon'] } }
   end
 
   # Name => [version, licence] for each package in the xyflow bundle, read

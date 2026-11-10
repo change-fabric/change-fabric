@@ -165,12 +165,14 @@ class InstallerTest < Minitest::Test
            "the a11y lane resolves its bundle at scripts/#{relative}; install must mirror that layout"
   end
 
-  # Diagram scenes inline the xyflow bundle and its license file from the
-  # same scripts-relative layout, so install must carry both.
+  # Diagram scenes inline the xyflow bundle, the Phosphor icon subset, and
+  # their license files from the same scripts-relative layout, so install
+  # must carry them all.
   def test_the_installed_xyflow_bundle_mirrors_the_scripts_layout
     paths = install
     bundle = WalkthroughDiagram::XYFLOW_BUNDLE.delete_prefix("#{File.join(@repo, 'scripts')}/")
-    [ bundle, "vendor/xyflow/LICENSES.txt" ].each do |relative|
+    icons = WalkthroughDiagram::ICONS_DATA.delete_prefix("#{File.join(@repo, 'scripts')}/")
+    [ bundle, "vendor/xyflow/LICENSES.txt", icons, "vendor/phosphor/LICENSE.txt" ].each do |relative|
       assert File.exist?(File.join(paths.bin, relative)), "install did not place scripts/#{relative}"
     end
   end

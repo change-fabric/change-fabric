@@ -37,6 +37,10 @@ module WalkthroughDiagram
   DIRECTIONS = %w[TB LR BT RL].freeze
   ZOOM = (0.2..3.0)
   PADDING = (0.0..1.0)
+  # layout.max_zoom: how far a fit may enlarge the picture (nodes, icons,
+  # labels, and edges together). The runtime default is 1.25.
+  MAX_ZOOM = (0.5..2.0)
+  LAYOUT_FIELDS = %w[engine direction max_zoom].freeze
   SPEC_FIELDS = %w[layout theme nodes edges initial steps].freeze
   THEMES = %w[light dark].freeze
   # Ops that act on one or more ids (`id` or `ids`), and the kinds of id each
@@ -81,12 +85,21 @@ module WalkthroughDiagram
   CSS_COLOR = /\A(?:#\h{3}|#\h{6}|rgb\(\s*\d{1,3}\s*(?:,\s*|\s+)\d{1,3}\s*(?:,\s*|\s+)\d{1,3}\s*\))\z/
   # The halo a highlighted coloured node wears: the colour at this share over the background.
   RING_SHARE = 0.35
+  # Node icons: a curated Phosphor (MIT) subset whose path data is vendored
+  # by scripts/phosphor_vendor.rb, so a screen inlines each glyph it uses and
+  # never fetches one. A node names an `icon` and may pick an `icon_weight`.
+  ICONS_DATA = File.join(__dir__, 'vendor', 'phosphor', 'phosphor-2.1.1.json')
+  ICON_WEIGHTS = %w[regular bold duotone fill].freeze
 
   module_function
 
   def diagram?(scene) = scene['kind'] == KIND
 
   def runtime_sha256 = Digest::SHA256.file(RUNTIME).hexdigest
+
+  def icon_set = @icon_set ||= JSON.parse(File.read(ICONS_DATA)).freeze
+
+  def icon_names = icon_set['icons'].keys
 
   # frames_key material: a new bundle or runtime invalidates cached frames.
   def key_material = { xyflow: XYFLOW_SHA256, diagram_runtime: runtime_sha256 }
@@ -139,9 +152,10 @@ module WalkthroughDiagram
     return [ 'diagram.layout must be an object' ] unless layout.is_a?(Hash)
 
     errs = []
-    errs << "diagram.layout has unknown keys: #{(layout.keys - %w[engine direction]).join(', ')}" unless (layout.keys - %w[engine direction]).empty?
+    errs << "diagram.layout has unknown keys: #{(layout.keys - LAYOUT_FIELDS).join(', ')}" unless (layout.keys - LAYOUT_FIELDS).empty?
     errs << "diagram.layout.engine must be one of #{ENGINES.join(', ')}" if layout.key?('engine') && !ENGINES.include?(layout['engine'])
     errs << "diagram.layout.direction must be one of #{DIRECTIONS.join(', ')}" if layout.key?('direction') && !DIRECTIONS.include?(layout['direction'])
+    errs << "diagram.layout.max_zoom must be a number in #{MAX_ZOOM.min}..#{MAX_ZOOM.max}" if layout.key?('max_zoom') && !range?(layout['max_zoom'], MAX_ZOOM)
     errs
   end
 
@@ -159,6 +173,19 @@ module WalkthroughDiagram
     errs << "#{label}: role must be one of #{NODE_ROLES.join(', ')}" if node.key?('role') && !NODE_ROLES.include?(node['role'])
     errs << "#{label}: position must be { x, y } numbers" if node.key?('position') && !point?(node['position'])
     errs.concat(color_value_errors(node, label))
+    errs.concat(icon_errors(node, label))
+  end
+
+  def icon_errors(node, label)
+    errs = []
+    if node.key?('icon') && !icon_names.include?(node['icon'])
+      errs << "#{label}: icon #{node['icon'].inspect} is not a vendored icon; available: #{icon_names.join(', ')}"
+    end
+    errs << "#{label}: icon_weight needs an icon" if node.key?('icon_weight') && !node.key?('icon')
+    if node.key?('icon_weight') && !ICON_WEIGHTS.include?(node['icon_weight'])
+      errs << "#{label}: icon_weight must be one of #{ICON_WEIGHTS.join(', ')}"
+    end
+    errs
   end
 
   def edge_errors(edge, node_ids)
@@ -294,12 +321,22 @@ module WalkthroughDiagram
 
   # -- palette -------------------------------------------------------------
 
-  # The walkthrough's tokens.css, found the way its tokens_css_sha256 is.
   def theme(spec) = spec.is_a?(Hash) && spec['theme'] == 'dark' ? :dark : :light
 
+  # The walkthrough's own tokens: the screens/tokens.css its screens link,
+  # so a diagram matches them even inside a repo whose configured tokens
+  # path names another stylesheet; else the tokens.css found the way its
+  # tokens_css_sha256 is.
+  OWN_TOKENS = File.join('screens', 'tokens.css')
+
   def tokens_path(root)
+    return nil unless root
+
+    own = File.join(root, OWN_TOKENS)
+    return own if File.file?(own)
+
     require_relative 'walkthrough_storyboard'
-    root && WalkthroughStoryboard.canonical_tokens(root)
+    WalkthroughStoryboard.canonical_tokens(root)
   end
 
   # The --cf-* colours for a walkthrough at root: its tokens' roles in the
@@ -382,6 +419,12 @@ module WalkthroughDiagram
       ratio = DiagramPalette.contrast(pal['text'], c['tint'])
       "diagram node #{id.inspect}: label text #{pal['text']} on its #{th} fill #{c['tint']} is #{ratio.round(2)}:1, under #{DiagramPalette::TEXT_MIN}" if ratio < DiagramPalette::TEXT_MIN
     end
+    errs += colors['nodes'].filter_map do |id, c|
+      next unless Array(spec['nodes']).find { |n| n['id'] == id }&.key?('icon')
+
+      ratio = DiagramPalette.contrast(c['color'], c['tint'])
+      "diagram node #{id.inspect}: icon #{c['color']} on its #{th} fill #{c['tint']} is #{ratio.round(2)}:1, under #{DiagramPalette::STROKE_MIN}" if ratio < DiagramPalette::STROKE_MIN
+    end
     strokes = colors['nodes'].map { |id, c| [ "node #{id.inspect}", c ] } + colors['edges'].map { |id, c| [ "edge #{id.inspect}", c ] } +
               colors['steps'].map { |i, c| [ "step #{i}", c ] }
     errs + strokes.filter_map do |what, c|
@@ -416,6 +459,19 @@ module WalkthroughDiagram
     colors ? %(<script type="application/json" id="cf-diagram-colors">#{JSON.generate(colors)}</script>\n) : ''
   end
 
+  # The path data of each icon the spec's nodes use, keyed name/weight, or
+  # nothing at all when no node has one, so an iconless screen keeps its bytes.
+  def icons_script(spec)
+    used = Array(spec.is_a?(Hash) && spec['nodes']).select { |n| n.is_a?(Hash) && icon_names.include?(n['icon']) }
+    return '' if used.empty?
+
+    paths = used.to_h do |n|
+      weight = ICON_WEIGHTS.include?(n['icon_weight']) ? n['icon_weight'] : 'regular'
+      [ "#{n['icon']}/#{weight}", icon_set.dig('icons', n['icon'], weight) ]
+    end
+    %(<script type="application/json" id="cf-diagram-icons">#{JSON.generate(paths.sort.to_h)}</script>\n)
+  end
+
   # Where the scene sits in the frame: the bottom inset keeps the camera's
   # fit and focus targets above the caption band players draw cues in.
   def frame(board)
@@ -443,7 +499,7 @@ module WalkthroughDiagram
       #{spec_json(scene['diagram'])}
       </script>
       <script type="application/json" id="cf-diagram-frame">#{JSON.generate(frame(board))}</script>
-      #{colors_script(scene['diagram'], root)}#{script(File.read(XYFLOW_BUNDLE))}
+      #{colors_script(scene['diagram'], root)}#{icons_script(scene['diagram'])}#{script(File.read(XYFLOW_BUNDLE))}
       #{script(File.read(RUNTIME))}
       </body>
       </html>
@@ -463,7 +519,7 @@ module WalkthroughDiagram
   # storyboard.md lines: the node and edge lists and a step table.
   def md(scene)
     spec = scene['diagram'] || {}
-    out = Array(spec['nodes']).map { |n| "- Node `#{n['id']}`: #{n['label']}#{n['position'] ? ' (pinned)' : ''}" }
+    out = Array(spec['nodes']).map { |n| "- Node `#{n['id']}`: #{n['label']}#{n['icon'] ? " [#{n['icon']}]" : ''}#{n['position'] ? ' (pinned)' : ''}" }
     out.concat(Array(spec['edges']).map { |e| "- Edge `#{e['id']}`: #{e['source']} -> #{e['target']}#{e['label'] ? " (#{e['label']})" : ''}" })
     out << "- Initial: #{Array(spec['initial']).join(', ')}" unless Array(spec['initial']).empty?
     steps = Array(spec['steps'])

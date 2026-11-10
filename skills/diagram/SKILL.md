@@ -52,6 +52,8 @@ The last four reject constructs the geometry model does not follow: any `transfo
 
 Icons are optional and rarely needed. When one helps, take it from PrototypeIcons (`scripts/prototype_icons.rb`, Phosphor for UI glyphs and Simple Icons for brand marks), inline it as a `<path>` inside the node group, color it with a palette role, and add the notice comment that PrototypeIcons supplies inside the SVG. No other icon source.
 
+The engineering glyphs walkthrough diagram nodes use (`icon` in the storyboard schema) are already vendored as path data, all four weights, in `scripts/vendor/phosphor/phosphor-2.1.1.json`; take a glyph from there before fetching the package. It is still Phosphor, so the notice comment still applies.
+
 ## Roast
 
 cf:roast is paid, so it runs only when the user asks for it by name. Never start it on your own.

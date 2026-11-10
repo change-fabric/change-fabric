@@ -72,6 +72,15 @@ class WalkthroughAssumptionsTest < Minitest::Test
     refute_match(/[\u2014\u2022\u2026\u201c\u201d]/, text.lines.first(8).join)
   end
 
+  def test_diagram_node_icons_add_the_phosphor_notice
+    path = File.expand_path("fixtures/walkthrough/diagram-lr/storyboard.json", __dir__)
+    _, notices = WalkthroughAssumptions.write(JSON.parse(File.read(path)), @root)
+    refute_includes File.read(notices), "Phosphor Icons"
+    path = File.expand_path("fixtures/walkthrough/diagram-icons/storyboard.json", __dir__)
+    _, notices = WalkthroughAssumptions.write(JSON.parse(File.read(path)), @root)
+    assert_includes File.read(notices), "Phosphor Icons (@phosphor-icons/core)"
+  end
+
   def test_no_diagram_scene_no_xyflow_notice
     _, notices = WalkthroughAssumptions.write(board, @root)
     refute_includes File.read(notices), "xyflow"

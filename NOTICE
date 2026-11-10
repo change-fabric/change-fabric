@@ -118,3 +118,15 @@ scripts/vendor/xyflow/LICENSES.txt. Diagram scenes render with React Flow's
 on-canvas attribution hidden by the maintainer's choice; this credit stands
 
 regardless.
+
+Phosphor Icons
+--------------
+
+cf:walkthrough diagram nodes inline icons from a curated subset of
+@phosphor-icons/core 2.1.1, Copyright (c) 2023 Phosphor Icons, MIT License,
+https://github.com/phosphor-icons/core. scripts/phosphor_vendor.rb builds
+the subset from the pinned npm tarball into
+scripts/vendor/phosphor/phosphor-2.1.1.json; the full license text is in
+scripts/vendor/phosphor/LICENSE.txt. cf:prototype screens fetch the same
+pinned package and write its notice into each walkthrough's
+THIRD_PARTY_NOTICES, as diagram scenes with node icons do.

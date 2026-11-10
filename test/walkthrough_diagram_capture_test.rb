@@ -219,6 +219,84 @@ class WalkthroughDiagramCaptureTest < Minitest::Test
     end
   end
 
+  # Node icons in the dark theme: each icon renders inline before its label
+  # in its node's colour (the theme text colour when the node has none), a
+  # duotone keeps its second tone at reduced opacity, an icon widens its node
+  # by its own width, and two captures give identical frames.
+  def test_node_icons_render_in_their_node_colour_deterministically
+    skip "docker not available" unless ChangeDocker.available?
+
+    Dir.mktmpdir do |root|
+      FileUtils.cp_r("#{File.expand_path('fixtures/walkthrough/diagram-icons', __dir__)}/.", root)
+      board = WalkthroughStoryboard.load(File.join(root, "storyboard.json"))
+      WalkthroughDiagram.write_screens(board, root)
+      assert_empty WalkthroughStoryboard.validate(board, root: root)
+      scene = board["scenes"].first
+      spec = scene["diagram"]
+      colors = WalkthroughDiagram.item_colors(spec, root)
+      html = PrototypeCapture.inline_screen(File.join(root, scene.dig("screen", "html")), root: root)
+      duration = PrototypeCapture.scene_duration(scene)
+      runs = ChangeDocker.with_browserless(network: nil) do |session|
+        2.times.map do |n|
+          prep = PrototypeCapture.prepare(board, scene, root)
+          out = File.join(root, "run-#{n}")
+          PrototypeCapture.capture(session: session, html: html, interactions: [], duration_ms: duration, out_dir: out,
+                                   state: prep[:state], prng_seed: prep[:prng_seed], viewport: board["viewport"], label: scene["id"])
+          { frames: Dir[File.join(out, "*.png")].sort.map { |f| Digest::SHA256.file(f).hexdigest },
+            icons: icon_probe(session, html, board["viewport"]) }
+        end
+      end
+      assert_equal runs[0][:frames], runs[1][:frames], "icon frames differ between captures"
+      assert_equal runs[0][:icons], runs[1][:icons], "icon paint differs between runs"
+      rgb = ->(hex) { "rgb(#{hex.delete('#').scan(/../).map { |c| c.to_i(16) }.join(', ')})" }
+      icons = runs[0][:icons]
+      spec["nodes"].each do |n|
+        got = icons.fetch(n["id"])
+        weight = n["icon_weight"] || "regular"
+        want = n["color"] ? colors["nodes"][n["id"]]["color"] : WalkthroughDiagram::PALETTE_DARK["text"]
+        assert_equal rgb.(want), got["fill"], "#{n['id']} icon colour"
+        assert_equal [ 20, 20 ], got["size"], "#{n['id']} icon sized to the label"
+        assert got["before_label"], "#{n['id']} icon sits before its label"
+        assert_equal WalkthroughDiagram.icon_set.dig("icons", n["icon"], weight).map(&:first), got["paths"].map(&:first)
+        if weight == "duotone"
+          assert_includes got["paths"].map(&:last), "0.2", "#{n['id']} duotone second tone"
+        end
+        label_w = n["label"].size * 11 + 40
+        want_w = (([ 140, label_w + 28 ].max) / 2.0).round * 2
+        assert_equal want_w, got["node_w"], "#{n['id']} width includes the icon" if label_w <= 260
+      end
+    end
+  end
+
+  # layout.max_zoom lets a small diagram's fit enlarge past the default 1.25
+  # cap, scaling nodes, icons, and labels together; without it the cap holds.
+  def test_layout_max_zoom_raises_the_fit_cap
+    skip "docker not available" unless ChangeDocker.available?
+
+    Dir.mktmpdir do |root|
+      FileUtils.cp_r("#{File.expand_path('fixtures/walkthrough/diagram-icons', __dir__)}/.", root)
+      path = File.join(root, "storyboard.json")
+      board = WalkthroughStoryboard.load(path)
+      spec = board["scenes"].first["diagram"]
+      spec["nodes"] = spec["nodes"].select { |n| %w[load report].include?(n["id"]) }
+      spec["edges"] = spec["edges"].select { |e| e["id"] == "e-load" }
+      spec["initial"] = %w[load report e-load]
+      spec["steps"] = []
+      zooms = [ nil, 2.0 ].map do |max|
+        max ? spec["layout"]["max_zoom"] = max : spec["layout"].delete("max_zoom")
+        WalkthroughDiagram.write_screens(board, root)
+        assert_empty WalkthroughStoryboard.validate(board, root: root)
+        html = PrototypeCapture.inline_screen(File.join(root, board["scenes"].first.dig("screen", "html")), root: root)
+        icons = ChangeDocker.with_browserless(network: nil) { |session| icon_probe(session, html, board["viewport"]) }
+        assert_equal [ 20, 20 ], icons["load"]["size"], "the icon scales with its node"
+        icons["load"]["zoom"]
+      end
+      assert_in_delta 1.25, zooms[0], 0.01, "the default cap holds"
+      assert_operator zooms[1], :>, 1.5, "max_zoom lifts the cap"
+      assert_operator zooms[1], :<=, 2.0 + 1e-6, "max_zoom still caps the fit"
+    end
+  end
+
   def test_a_screen_that_never_gets_ready_fails_loudly
     skip "docker not available" unless ChangeDocker.available?
 
@@ -348,6 +426,34 @@ class WalkthroughDiagramCaptureTest < Minitest::Test
             return { edges, nodes };
           }));
         }
+        return { data: out, type: 'application/json' };
+      }
+    JS
+    session.run_function(code)
+  end
+
+  # Each node's icon: its fill, size, path data, whether it precedes the
+  # label, and the node's width, after the scene has fully faded in.
+  def icon_probe(session, html, viewport)
+    code = <<~JS
+      export default async function ({ page }) {
+        await page.setViewport({ width: #{viewport['w']}, height: #{viewport['h']}, deviceScaleFactor: 1 });
+        await page.setContent(#{JSON.generate(html.sub('<head>', "<head>#{CLOCK}"))});
+        await page.waitForFunction('window.__cfDiagramReady === true', { timeout: 20000 });
+        await page.evaluate(() => window.__cfAdvance(1000));
+        const out = await page.evaluate(() => {
+          const icons = {};
+          for (const el of document.querySelectorAll('.react-flow__node')) {
+            const node = el.querySelector('.cf-node');
+            const svg = node.querySelector('svg.cf-node-icon');
+            if (!svg) continue;
+            icons[el.dataset.id] = { fill: getComputedStyle(svg).fill, size: [svg.getBoundingClientRect().width, svg.getBoundingClientRect().height].map((v) => Math.round(v / (el.getBoundingClientRect().width / el.offsetWidth))),
+              paths: [...svg.querySelectorAll('path')].map((p) => [p.getAttribute('d'), p.getAttribute('opacity')]),
+              before_label: svg.nextElementSibling === node.querySelector('.cf-node-label'), node_w: node.offsetWidth,
+              zoom: el.getBoundingClientRect().width / el.offsetWidth };
+          }
+          return icons;
+        });
         return { data: out, type: 'application/json' };
       }
     JS
