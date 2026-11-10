@@ -287,16 +287,18 @@
 
   // Two invisible corner nodes span the whole composition (lane names,
   // lanes, and panel, or each result's own slot without one), so the
-  // runtime's fits frame all of it.
-  if (horizontal && laned.length) {
+  // runtime's fits frame all of it, with or without checkpoints. Their ids
+  // carry underscores, which no authored id may, so they never collide.
+  const ANCHORS = ['__cf_lane_anchor_a', '__cf_lane_anchor_b'];
+  if (horizontal) {
     const cards = panel ? [] : delivered.map((tr) => ({ ...pos[tr.result], ...resultSize(tr.result) }));
     const left = Math.min(span[0] - LABEL_COL, ...cards.map((c) => c.x));
     const top = Math.min(0, ...cards.map((c) => c.y));
     const right = panel ? panel.x + panel.w : Math.max(reach, ...cards.map((c) => c.x + c.w));
     const bottom = panel ? Math.max(edge, panel.h) : Math.max(edge, ...cards.map((c) => c.y + c.h));
-    spec.nodes.push({ id: 'cf-lane-anchor-a', label: ' ', position: { x: left, y: top } },
-      { id: 'cf-lane-anchor-b', label: ' ', position: { x: right - NODE_MIN_W, y: bottom - NODE_H } });
-    spec.initial = (spec.initial || []).concat(['cf-lane-anchor-a', 'cf-lane-anchor-b']);
+    spec.nodes.push({ id: ANCHORS[0], label: ' ', position: { x: left, y: top } },
+      { id: ANCHORS[1], label: ' ', position: { x: right - NODE_MIN_W, y: bottom - NODE_H } });
+    spec.initial = (spec.initial || []).concat(ANCHORS);
   }
 
   for (const n of spec.nodes) if (pos[n.id]) n.position = { x: Math.round(pos[n.id].x), y: Math.round(pos[n.id].y) };
@@ -434,7 +436,7 @@ body { background: var(--cf-surface, #ffffff); }
 .cf-lane-label svg { width: 18px; height: 18px; margin-right: 6px; vertical-align: -3px; }
 .cf-lanes[data-dir="horizontal"] .cf-lane-label { left: 0; top: 0; transform-origin: 0 0; font-size: 22px; line-height: 28px; padding: 0 0 0 12px; }
 .cf-lanes[data-dir="horizontal"] .cf-lane-label svg { width: 22px; height: 22px; margin-right: 8px; vertical-align: -4px; }
-.react-flow__node[data-id^="cf-lane-anchor-"] .cf-node { visibility: hidden; }
+${ANCHORS.map((id) => `.react-flow__node[data-id="${id}"] .cf-node`).join(', ')} { visibility: hidden; }
 #cf-diagram-root .cf-node { font-size: 19px; }
 ${laned.filter(checkpoint).map((id) => `.react-flow__node[data-id="${CSS.escape(id)}"] .cf-node { white-space: nowrap; }`).join('\n')}
 .cf-lane-panel { box-sizing: border-box; border: 1px solid; border-radius: 14px; padding: ${PANEL_PAD}px; }

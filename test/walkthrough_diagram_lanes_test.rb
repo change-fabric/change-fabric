@@ -242,6 +242,15 @@ class WalkthroughDiagramLanesTest < Minitest::Test
     refute WalkthroughAssumptions.diagram_icons?(@board)
   end
 
+  # The lane layer's camera anchors use underscores, which the id rule keeps
+  # out of every authored id, so they can never collide.
+  def test_lane_anchor_ids_are_reserved
+    anchors = File.read(WalkthroughDiagram::LANES_RUNTIME).scan(/'(__cf_lane_anchor_\w+)'/).flatten
+    assert_equal 2, anchors.size
+    spec["nodes"].first["id"] = anchors.first
+    assert_match(/must match/, errs)
+  end
+
   def test_render_md_lists_lanes
     md = WalkthroughDiagram.md(scene)
     assert_includes md, "- Lane `load`: Load [gauge]"

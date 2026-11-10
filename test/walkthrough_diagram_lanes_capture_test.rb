@@ -121,6 +121,41 @@ class WalkthroughDiagramLanesCaptureTest < Minitest::Test
     end
   end
 
+  # The lane camera frames the report even when no node joins a lane, and
+  # its internal anchors never collide with an authored node id.
+  def test_lane_camera_frames_the_report_whatever_the_nodes
+    skip "docker not available" unless ChangeDocker.available?
+
+    Dir.mktmpdir do |root|
+      FileUtils.cp_r("#{FIXTURE}/.", root)
+      board = WalkthroughStoryboard.load(File.join(root, "storyboard.json"))
+      scene = board["scenes"].first
+      base = scene["diagram"]
+      laneless_nodes = variant(base) do |d|
+        d["nodes"].reject! { |n| n["lane"] }
+        d["initial"] = []
+      end
+      authored_anchor = variant(base) do |d|
+        d["nodes"].find { |n| n["id"] == "check-load" }["id"] = "cf-lane-anchor-a"
+        d["initial"] = d["initial"].map { |id| id == "check-load" ? "cf-lane-anchor-a" : id }
+      end
+      htmls = [ laneless_nodes, authored_anchor ].map do |d|
+        scene["diagram"] = d
+        assert_empty WalkthroughDiagram.spec_errors(d, 8000)
+        WalkthroughDiagram.screen(scene, root: root, board: board)
+      end
+      runs = ChangeDocker.with_browserless(network: nil) do |session|
+        htmls.map { |html| session.run_function(snapshot_js(html, board["viewport"], 8000)) }
+      end
+      runs.each_with_index do |r, i|
+        panel = r["report"]
+        assert_operator panel["left"], :>=, -EPS, "variant #{i} clips the report"
+        assert_operator panel["right"], :<=, board["viewport"]["w"] + EPS, "variant #{i} clips the report"
+      end
+      assert_equal "visible", runs[1]["visibility"]["cf-lane-anchor-a"], "an authored node named like an anchor is hidden"
+    end
+  end
+
   private
 
   def variant(diagram) = JSON.parse(JSON.generate(diagram)).tap { |d| yield d }
@@ -154,7 +189,11 @@ class WalkthroughDiagramLanesCaptureTest < Minitest::Test
             border[el.dataset.id] = cs.borderTopColor;
             shadow[el.dataset.id] = cs.boxShadow;
           }
-          return { lanes, tokens, cards, checks, border, shadow };
+          const visibility = {};
+          for (const el of document.querySelectorAll('.react-flow__node')) visibility[el.dataset.id] = getComputedStyle(el.querySelector('.cf-node')).visibility;
+          const panel = document.querySelector('.cf-lane-panel');
+          const report = panel ? box(panel) : null;
+          return { lanes, tokens, cards, checks, border, shadow, visibility, report };
         });
         return { data, type: 'application/json' };
       }
