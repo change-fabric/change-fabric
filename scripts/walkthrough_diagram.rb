@@ -41,7 +41,9 @@ module WalkthroughDiagram
   # Ops that act on one or more ids (`id` or `ids`), and the kinds of id each
   # may name. add_node fades in nodes and the edges that come with them.
   ID_OPS = { 'add_node' => %i[node edge], 'remove' => %i[node edge], 'connect' => %i[edge], 'highlight' => %i[node edge],
-             'dim' => %i[node edge], 'unhighlight' => %i[node edge], 'pulse_edge' => %i[edge] }.freeze
+             'dim' => %i[node edge], 'unhighlight' => %i[node edge], 'pulse_edge' => %i[edge], 'flow' => %i[edge] }.freeze
+  # flow: how many dots may ride one edge at once.
+  FLOW_COUNT = (1..8)
   DIAGRAM_OPS = (ID_OPS.keys + %w[move label fit_view zoom_to focus]).freeze
   # The screen's colours, as --cf-* variables, when the walkthrough has no
   # tokens.css. With one, each variable takes the cf:diagram palette role
@@ -170,6 +172,7 @@ module WalkthroughDiagram
 
     errs = []
     errs << 'duration must be a non-negative integer' if step.key?('duration') && !(step['duration'].is_a?(Integer) && !step['duration'].negative?)
+    errs.concat(flow_errors(step)) if op == 'flow'
     return errs.concat(id_op_errors(step, ids, ID_OPS[op])) if ID_OPS.key?(op)
 
     case op
@@ -188,6 +191,17 @@ module WalkthroughDiagram
       errs.concat(ref_errors([ step['id'] ], ids, %i[node]))
       errs << "zoom must be a number in #{ZOOM.min}..#{ZOOM.max}" if step.key?('zoom') && !range?(step['zoom'], ZOOM)
     end
+    errs
+  end
+
+  def flow_errors(step)
+    errs = []
+    errs << "count must be an integer in #{FLOW_COUNT.min}..#{FLOW_COUNT.max}" if step.key?('count') && !(step['count'].is_a?(Integer) && FLOW_COUNT.cover?(step['count']))
+    errs << 'stagger must be a non-negative integer' if step.key?('stagger') && !(step['stagger'].is_a?(Integer) && !step['stagger'].negative?)
+    errs << 'repeat must be a positive integer' if step.key?('repeat') && !(step['repeat'].is_a?(Integer) && step['repeat'].positive?)
+    errs << 'loop must be true or false' if step.key?('loop') && ![ true, false ].include?(step['loop'])
+    errs << 'flow takes loop or repeat, not both' if step['loop'] == true && step.key?('repeat')
+    errs << 'duration must be positive for flow' if step['duration'] == 0
     errs
   end
 

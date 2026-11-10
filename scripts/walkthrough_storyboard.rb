@@ -60,12 +60,28 @@ module WalkthroughStoryboard
     errors.concat(WalkthroughLive.board_errors(board))
     errors.concat(review_errors(board['review']))
     errors.concat(voice_eq_errors(board.dig('voice', 'eq')))
+    errors.concat(pronunciation_errors(board.dig('voice', 'pronunciations')))
     orders = list.to_h { |s| [ s['id'], s['order'].to_i ] }
     by_id = list.to_h { |s| [ s['id'], s ] }
     list.each do |scene|
       label = "scene #{scene['id'].inspect}"
       errors.concat(scene_errors(scene, hyp_ids, orders, root, board: board, by_id: by_id).map { |e| "#{label}: #{e}" })
     end
+    errors
+  end
+
+  # Optional pronunciation aliases: a list of { text, say } objects, each a
+  # non-empty string, the texts unique. The voice says `say` for `text`.
+  def pronunciation_errors(list)
+    return [] if list.nil?
+    return [ 'voice.pronunciations must be a list of { text, say } objects' ] unless list.is_a?(Array) && list.all?(Hash)
+
+    errors = list.each_with_index.flat_map do |entry, i|
+      errs = (entry.keys - %w[text say]).map { |k| "voice.pronunciations[#{i}].#{k} is not a known field (text, say)" }
+      %w[text say].each { |k| errs << "voice.pronunciations[#{i}].#{k} must be a non-empty string" unless entry[k].is_a?(String) && !entry[k].strip.empty? }
+      errs
+    end
+    list.map { |e| e['text'] }.tally.each { |text, n| errors << "voice.pronunciations text #{text.inspect} appears more than once" if n > 1 && text.is_a?(String) }
     errors
   end
 
@@ -355,9 +371,11 @@ module WalkthroughStoryboard
   # -- keys ----------------------------------------------------------------
 
   def audio_key(board, scene)
+    require_relative 'elevenlabs' # elevenlabs.rb requires this file; load it on first use
     voice = board['voice'] || {}
-    WalkthroughCache.key({ text: scene.dig('narration', 'text').to_s, voice_id: voice['voice_id'], model: voice['model'],
-                           output_format: voice['output_format'], settings: voice['settings'] || {} })
+    ElevenLabs.audio_key(text: scene.dig('narration', 'text').to_s, voice_id: voice['voice_id'], model: voice['model'],
+                         output_format: voice['output_format'], settings: voice['settings'] || {},
+                         pronunciations: voice['pronunciations'])
   end
 
   def asset_keys(scene, root, final: false)
@@ -518,6 +536,9 @@ module WalkthroughStoryboard
 end
 
 if __FILE__ == $PROGRAM_NAME
+  # Not yet a loaded feature when run as a script; mark it so elevenlabs.rb
+  # (loaded for audio keys) does not load this file a second time.
+  $LOADED_FEATURES << File.expand_path(__FILE__)
   usage = 'usage: walkthrough_storyboard.rb validate <json> [--fix] [--tokens PATH] | render-md <json> | stale <json>'
   cmd, path = ARGV
   abort(usage) unless cmd && path

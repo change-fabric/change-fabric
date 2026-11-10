@@ -59,7 +59,7 @@ The same pipeline demos an app that already runs. A scene whose `screen` is `{ "
 
 A `kind: "diagram"` scene is a full-frame, animated node and edge diagram (React Flow from the vendored xyflow bundle, laid out by dagre) built and moved on screen under the capture clock. Fields and ops are in `reference/storyboard-schema.md`; `test/fixtures/walkthrough/diagram-lr/storyboard.json` is a worked example.
 
-- When: the story needs a system, a flow, or a request path the viewer should watch assemble (services joining, a request hopping, one part lighting up while the camera moves to it). A product screen still belongs in a screen scene, and a static picture with no motion belongs in cf:diagram.
+- When: the story needs a system, a flow, or a request path the viewer should watch assemble (services joining, a request hopping, data flowing along an edge, one part lighting up while the camera moves to it). A product screen still belongs in a screen scene, and a static picture with no motion belongs in cf:diagram.
 - Caps: at most 12 nodes and 16 edges, cf:diagram's caps; past that a viewer stops following the picture. Split a bigger system across scenes.
 - Cost: no paid call. The bundle and runtime are committed, nothing is fetched at capture, and no image, b-roll, or roast call is needed for the diagram itself (the draft roast still reads the whole MP4).
 - Screen: `screen.html` is a generated file. `ruby ~/.claude/cf/bin/walkthrough_diagram.rb walkthrough/<slug>/storyboard.json [--scene ID]` writes it, and `validate --fix` rewrites it; a hand edit is reported as drift. The xyflow bundle sha and the runtime sha are part of the scene's `frames_key`.

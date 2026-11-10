@@ -72,6 +72,48 @@ class ElevenLabsTest < Minitest::Test
     assert_equal 1, calls.length
   end
 
+  PRONS = [ { "text" => "CHANGE.md", "say" => "change dot M D" } ].freeze
+
+  def test_audio_key_is_unchanged_without_aliases_and_moves_with_them
+    base = { text: "Open CHANGE.md", voice_id: "v1", model: "m", output_format: "mp3_44100_128", settings: {} }
+    legacy = WalkthroughCache.key(base)
+    assert_equal legacy, ElevenLabs.audio_key(**base)
+    assert_equal legacy, ElevenLabs.audio_key(**base, pronunciations: [])
+    aliased = ElevenLabs.audio_key(**base, pronunciations: PRONS)
+    refute_equal legacy, aliased
+    changed = ElevenLabs.audio_key(**base, pronunciations: [ { "text" => "CHANGE.md", "say" => "change markdown" } ])
+    refute_equal aliased, changed
+  end
+
+  def test_tts_with_aliases_creates_one_dictionary_and_keeps_written_alignment
+    calls = []
+    transport = lambda do |req, _key|
+      calls << req
+      next Resp.new("200", JSON.generate("id" => "dict1", "version_id" => "ver1")) if req.path.include?("pronunciation")
+
+      Resp.new("200", tts_body)
+    end
+    args = { voice_id: "v1", model: "m", output_format: "mp3_44100_128", cache_root: @dir, pronunciations: PRONS }
+    out = ElevenLabs.tts(text: "Open CHANGE.md", **args, transport: transport)
+    ElevenLabs.tts(text: "Read CHANGE.md", **args, transport: transport)
+    dict = calls.select { |r| r.path == "/v1/pronunciation-dictionaries/add-from-rules" }
+    assert_equal 1, dict.size, "the dictionary is created once and cached by its rules"
+    assert_equal [ { "type" => "alias", "string_to_replace" => "CHANGE.md", "alias" => "change dot M D" } ], dict.first.body["rules"]
+    tts = calls.reject { |r| r.path.include?("pronunciation") }
+    assert_equal 2, tts.size
+    tts.each { |r| assert_equal [ { "pronunciation_dictionary_id" => "dict1", "version_id" => "ver1" } ], r.body["pronunciation_dictionary_locators"] }
+    # The raw alignment spells the written text; the normalized one the alias.
+    assert_equal %w[a], JSON.parse(File.read(out[:alignment]))["characters"]
+  end
+
+  def test_tts_without_aliases_sends_no_locator
+    calls = []
+    ElevenLabs.tts(text: "Hi", voice_id: "v1", model: "m", output_format: "f", cache_root: @dir,
+                   transport: ->(req, _) { calls << req; Resp.new("200", tts_body) })
+    assert_equal 1, calls.size
+    refute calls.first.body.key?("pronunciation_dictionary_locators")
+  end
+
   def test_music_request_clamps_length
     assert_equal 3000, ElevenLabs.music_request(prompt: "p", length_ms: 10, model: "music_v1").body["music_length_ms"]
     assert_equal 600_000, ElevenLabs.music_request(prompt: "p", length_ms: 9_000_000, model: "music_v1").body["music_length_ms"]

@@ -50,6 +50,11 @@
   const FOCUS_MAX_ZOOM = 1.5;
   const FADE_MS = 300;
   const PULSE_MS = 800;
+  const FLOW_MS = 1200;
+  const FLOW_COUNT = 3;
+  const FLOW_FADE_MS = 120;
+  const FLOW_R = 4;
+  const FLOW_HALO_R = 9;
   const MIN_ZOOM = 0.2;
   const MAX_ZOOM = 3;
   const NODE_SEP = 60;
@@ -70,6 +75,8 @@ html, body, #cf-diagram-root { margin: 0; width: 100%; height: 100%; }
 .react-flow__node[data-cf-hl="1"] .cf-node { border-color: var(--cf-accent, #2563eb); box-shadow: 0 0 0 4px var(--cf-accent-tint, #dbeafe); }
 .react-flow__edge-path { stroke: var(--cf-line, #94a3b8); stroke-width: 2; }
 .react-flow__edge[data-cf-hl="1"] .react-flow__edge-path { stroke: var(--cf-accent, #2563eb); stroke-width: 3; }
+.cf-flow-halo { fill: var(--cf-accent-tint, #dbeafe); fill-opacity: 0.85; stroke: var(--cf-accent, #2563eb); stroke-opacity: 0.25; stroke-width: 1; }
+.cf-flow-core { fill: var(--cf-accent, #2563eb); stroke: var(--cf-surface, #ffffff); stroke-width: 1.5; }
 .react-flow__edge-text { fill: var(--cf-text, #0f172a); font: 500 13px system-ui, sans-serif; }
 .react-flow__edge-textbg { fill: var(--cf-surface, #ffffff); }
 `;
@@ -147,6 +154,7 @@ html, body, #cf-diagram-root { margin: 0; width: 100%; height: 100%; }
     const dim = new Set();
     const labels = {};
     const pulses = {};
+    const flows = {};
     const moves = {};
     const camera = [];
     for (const s of steps) {
@@ -165,6 +173,7 @@ html, body, #cf-diagram-root { margin: 0; width: 100%; height: 100%; }
         case 'unhighlight': for (const id of ids) { hl.delete(id); dim.delete(id); } break;
         case 'label': labels[s.id] = s.text; break;
         case 'pulse_edge': for (const id of ids) pulses[id] = { start: s.t_ms, duration: s.duration || PULSE_MS }; break;
+        case 'flow': for (const id of ids) flows[id] = (flows[id] || []).concat([s]); break;
         case 'move': moves[s.id] = (moves[s.id] || []).concat([s]); break;
         default: camera.push(s);
       }
@@ -184,7 +193,7 @@ html, body, #cf-diagram-root { margin: 0; width: 100%; height: 100%; }
       return pos;
     };
     const positions = Object.fromEntries(nodeIds.map((id) => [id, positionAt(id, t)]));
-    return { opacity, hl, dim, labels, pulses, positions, viewport: cameraAt(t, camera, positionAt, viewportSize) };
+    return { opacity, hl, dim, labels, pulses, flows, positions, viewport: cameraAt(t, camera, positionAt, viewportSize) };
   };
 
   const fitTarget = (ids, padding, at, positionAt, size, maxZoom = FIT_MAX_ZOOM) => {
@@ -277,6 +286,56 @@ html, body, #cf-diagram-root { margin: 0; width: 100%; height: 100%; }
     };
   });
 
+  // A flow step's dots at time t: each dot i starts stagger*i after the
+  // step, glides source to target over `duration` with eased progress, and
+  // the batch repeats `repeat` times, or for the rest of the scene on loop.
+  // Pure in t, like everything else: a dot's place comes from the clock.
+  const flowDots = (s, t) => {
+    const duration = s.duration || FLOW_MS;
+    const count = s.count || FLOW_COUNT;
+    const stagger = s.stagger == null ? Math.round(duration / count) : s.stagger;
+    const period = duration + (count - 1) * stagger;
+    const runs = s.loop ? Infinity : (s.repeat || 1);
+    const dots = [];
+    for (let i = 0; i < count; i += 1) {
+      const since = t - s.t_ms - i * stagger;
+      if (since < 0) continue;
+      const run = Math.floor(since / period);
+      if (run >= runs) continue;
+      const local = since - run * period;
+      if (local >= duration) continue;
+      const alpha = clamp01(Math.min(local, duration - local) / FLOW_FADE_MS);
+      dots.push({ p: ease(local / duration), alpha });
+    }
+    return dots;
+  };
+
+  // The dots ride in the edge's own group, so they share its viewport
+  // transform and opacity, and are placed along the path React Flow drew
+  // for this frame, so they follow the edge when a node moves.
+  const SVG_NS = 'http://www.w3.org/2000/svg';
+  const drawFlow = (el, path, steps, t) => {
+    let g = el.querySelector(':scope > g.cf-flow');
+    const dots = path ? (steps || []).flatMap((s) => flowDots(s, t)) : [];
+    if (dots.length === 0) { if (g) g.remove(); return; }
+    if (!g) { g = document.createElementNS(SVG_NS, 'g'); g.setAttribute('class', 'cf-flow'); g.setAttribute('aria-hidden', 'true'); el.appendChild(g); }
+    while (g.childNodes.length > dots.length) g.lastChild.remove();
+    while (g.childNodes.length < dots.length) {
+      const dot = document.createElementNS(SVG_NS, 'g');
+      const halo = document.createElementNS(SVG_NS, 'circle'); halo.setAttribute('class', 'cf-flow-halo'); halo.setAttribute('r', String(FLOW_HALO_R));
+      const core = document.createElementNS(SVG_NS, 'circle'); core.setAttribute('class', 'cf-flow-core'); core.setAttribute('r', String(FLOW_R));
+      dot.append(halo, core);
+      g.appendChild(dot);
+    }
+    const length = path.getTotalLength();
+    dots.forEach((d, i) => {
+      const pt = path.getPointAtLength(d.p * length);
+      const dot = g.childNodes[i];
+      dot.setAttribute('transform', `translate(${pt.x.toFixed(2)} ${pt.y.toFixed(2)})`);
+      dot.setAttribute('opacity', d.alpha.toFixed(3));
+    });
+  };
+
   const live = { rf: null, setNodes: null, setEdges: null, positions: BASE, container: null };
 
   const sizeOf = () => ({ w: live.container.clientWidth, h: live.container.clientHeight });
@@ -315,6 +374,7 @@ html, body, #cf-diagram-root { margin: 0; width: 100%; height: 100%; }
       const marker = `url(#${el.dataset.cfHl === '1' ? MARKER.hl : MARKER.base})`;
       if (path && path.getAttribute('marker-end') !== marker) path.setAttribute('marker-end', marker);
       if (path) path.style.strokeWidth = on ? String(3 + 3 * Math.sin(Math.PI * clamp01((t - pulse.start) / pulse.duration))) : '';
+      drawFlow(el, path, s.flows[id], t);
     }
   };
 
@@ -357,9 +417,20 @@ html, body, #cf-diagram-root { margin: 0; width: 100%; height: 100%; }
     window.requestAnimationFrame(loop);
   }
 
+  // React Flow remounts an edge's element once a move has it re-measure
+  // the nodes, which lands after the frame's apply and drops what apply
+  // wrote onto it (arrowhead colour, flow dots). Re-applying the same
+  // virtual time when an edge element appears restores it before the frame
+  // is captured; apply is pure in t, so the result is the same either way.
+  const isEdge = (n) => n.nodeType === 1 && (n.classList.contains('react-flow__edge') || n.querySelector('.react-flow__edge'));
+  const watchEdges = () => new MutationObserver((records) => {
+    if (records.some((r) => [...r.addedNodes].some(isEdge))) apply();
+  }).observe(live.container, { childList: true, subtree: true });
+
   const mount = () => {
     live.container = document.getElementById('cf-diagram-root');
     document.body.appendChild(defs);
+    watchEdges();
     status('rendering');
     createRoot(live.container).render(h(ReactFlowProvider, null, h(Diagram)));
   };

@@ -167,7 +167,8 @@ module WalkthroughRender
         end
         say("#{scene['id']}: narrating")
         res = @p[:tts].call(text: scene['narration']['text'], voice_id: voice['voice_id'], model: voice['model'],
-                            output_format: voice['output_format'], settings: voice['settings'] || {}, cache_root: @cache)
+                            output_format: voice['output_format'], settings: voice['settings'] || {},
+                            pronunciations: voice['pronunciations'], cache_root: @cache)
         scene['narration']['measured_ms'] = res[:measured_ms]
       end
     end

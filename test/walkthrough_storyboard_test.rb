@@ -71,6 +71,25 @@ class WalkthroughStoryboardTest < Minitest::Test
     assert_match(/at least one band/, errors_for(b).grep(/voice\.eq/).first)
   end
 
+  def test_voice_pronunciations_validation_and_audio_key
+    b = board
+    b["scenes"] = [ { "id" => "s1", "narration" => { "text" => "Open CHANGE.md." } } ]
+    before = WalkthroughStoryboard.audio_key(b, b["scenes"].first)
+    b["voice"]["pronunciations"] = [ { "text" => "CHANGE.md", "say" => "change dot M D" } ]
+    assert_empty errors_for(b).grep(/pronunciations/)
+    aliased = WalkthroughStoryboard.audio_key(b, b["scenes"].first)
+    refute_equal before, aliased, "adding an alias re-voices the scene"
+    b["voice"]["pronunciations"][0]["say"] = "change markdown"
+    refute_equal aliased, WalkthroughStoryboard.audio_key(b, b["scenes"].first), "changing an alias re-voices"
+    b["voice"]["pronunciations"] = [ { "text" => "X", "say" => "" }, { "text" => "X", "say" => "ex", "ipa" => "x" } ]
+    errs = errors_for(b).grep(/pronunciations/)
+    assert_includes errs, "voice.pronunciations[0].say must be a non-empty string"
+    assert_includes errs, "voice.pronunciations[1].ipa is not a known field (text, say)"
+    assert_includes errs, %(voice.pronunciations text "X" appears more than once)
+    b["voice"]["pronunciations"] = { "text" => "X" }
+    assert_equal [ "voice.pronunciations must be a list of { text, say } objects" ], errors_for(b).grep(/pronunciations/)
+  end
+
   def board
     { "schema_version" => 1, "slug" => "demo", "title" => "Demo", "fps" => 30,
       "viewport" => { "w" => 1920, "h" => 1080, "dpr" => 1 },

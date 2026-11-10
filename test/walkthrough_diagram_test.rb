@@ -172,6 +172,27 @@ class WalkthroughDiagramTest < Minitest::Test
     assert_includes joined, "step 7: highlight takes id or ids, not both"
   end
 
+  def test_flow_fields
+    edge = spec["edges"].first["id"]
+    spec["steps"] = [
+      { "t_ms" => 0, "op" => "flow", "id" => edge, "count" => 3, "duration" => 900, "stagger" => 200, "repeat" => 2 },
+      { "t_ms" => 0, "op" => "flow", "ids" => [ edge ], "loop" => true },
+      { "t_ms" => 0, "op" => "flow", "id" => spec["nodes"].first["id"] },
+      { "t_ms" => 0, "op" => "flow", "id" => edge, "count" => 9, "stagger" => -1 },
+      { "t_ms" => 0, "op" => "flow", "id" => edge, "repeat" => 0, "loop" => "yes" },
+      { "t_ms" => 0, "op" => "flow", "id" => edge, "repeat" => 2, "loop" => true, "duration" => 0 }
+    ]
+    joined = diagram_errs.join("\n")
+    refute_match(/step [01]:/, joined)
+    assert_match(/step 2: .* is not a edge id/, joined)
+    assert_includes joined, "step 3: count must be an integer in 1..8"
+    assert_includes joined, "step 3: stagger must be a non-negative integer"
+    assert_includes joined, "step 4: repeat must be a positive integer"
+    assert_includes joined, "step 4: loop must be true or false"
+    assert_includes joined, "step 5: flow takes loop or repeat, not both"
+    assert_includes joined, "step 5: duration must be positive for flow"
+  end
+
   def test_layout_and_unknown_keys
     spec["layout"] = { "engine" => "elk", "direction" => "UP" }
     spec["extra"] = 1
