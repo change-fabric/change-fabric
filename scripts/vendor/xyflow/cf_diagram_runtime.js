@@ -39,6 +39,11 @@
   // takes. Camera targets are fitted and centred in the area above it.
   const frameEl = document.getElementById('cf-diagram-frame');
   const BOTTOM_INSET = (frameEl && JSON.parse(frameEl.textContent).bottom_inset) || 0;
+  // Item colours the generator resolved from the theme ({ color, tint, ring }
+  // hexes keyed by node id, edge id, and flow step index). A screen with no
+  // coloured item has no such script and draws exactly as before.
+  const colorsEl = document.getElementById('cf-diagram-colors');
+  const COLORS = colorsEl ? JSON.parse(colorsEl.textContent) : { nodes: {}, edges: {}, steps: {} };
 
   const NODE_H = 56;
   const NODE_MIN_W = 140;
@@ -77,6 +82,10 @@ html, body, #cf-diagram-root { margin: 0; width: 100%; height: 100%; }
 .react-flow__edge[data-cf-hl="1"] .react-flow__edge-path { stroke: var(--cf-accent, #2563eb); stroke-width: 3; }
 .cf-flow-halo { fill: var(--cf-accent-tint, #dbeafe); fill-opacity: 0.85; stroke: var(--cf-accent, #2563eb); stroke-opacity: 0.25; stroke-width: 1; }
 .cf-flow-core { fill: var(--cf-accent, #2563eb); stroke: var(--cf-surface, #ffffff); stroke-width: 1.5; }
+.cf-node[data-color] { border-color: var(--cf-item); background: var(--cf-item-tint); color: var(--cf-text, #0f172a); }
+.react-flow__node[data-cf-hl="1"] .cf-node[data-color] { border-color: var(--cf-item); box-shadow: 0 0 0 4px var(--cf-item-ring); }
+.react-flow__edge.cf-colored .react-flow__edge-path { stroke: var(--cf-item); }
+.react-flow__edge.cf-colored[data-cf-hl="1"] .react-flow__edge-path { stroke: var(--cf-item); stroke-width: 3; }
 .react-flow__edge-text { fill: var(--cf-text, #0f172a); font: 500 13px system-ui, sans-serif; }
 .react-flow__edge-textbg { fill: var(--cf-surface, #ffffff); }
 `;
@@ -89,11 +98,15 @@ html, body, #cf-diagram-root { margin: 0; width: 100%; height: 100%; }
   const defs = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
   defs.setAttribute('width', '0'); defs.setAttribute('height', '0'); defs.setAttribute('aria-hidden', 'true');
   defs.style.position = 'absolute';
-  defs.innerHTML = `<defs>${markerDef(MARKER.base, 'var(--cf-line, #94a3b8)')}${markerDef(MARKER.hl, 'var(--cf-accent, #2563eb)')}</defs>`;
+  // A coloured edge wears an arrowhead of its own colour in every state.
+  const itemColors = [...new Set(Object.values(COLORS.edges).map((c) => c.color))];
+  const markerFor = (color) => `cf-arrow-c${itemColors.indexOf(color)}`;
+  defs.innerHTML = `<defs>${markerDef(MARKER.base, 'var(--cf-line, #94a3b8)')}${markerDef(MARKER.hl, 'var(--cf-accent, #2563eb)')}${itemColors.map((c) => markerDef(markerFor(c), c)).join('')}</defs>`;
 
   const nodeIds = spec.nodes.map((n) => n.id);
   const edgeIds = spec.edges.map((e) => e.id);
-  const steps = (spec.steps || []).slice().sort((a, b) => a.t_ms - b.t_ms);
+  // Each step keeps its spec index, which keys a flow step's colour.
+  const steps = (spec.steps || []).map((s, i) => Object.assign({}, s, { index: i })).sort((a, b) => a.t_ms - b.t_ms);
   const direction = (spec.layout && spec.layout.direction) || 'LR';
 
   // Width from the longest text the node ever shows, by character count, so
@@ -254,7 +267,12 @@ html, body, #cf-diagram-root { margin: 0; width: 100%; height: 100%; }
   // Every node carries a source and a target handle on each side; each edge
   // picks its sides from where the two nodes sit.
   const SIDES = { left: Position.Left, right: Position.Right, top: Position.Top, bottom: Position.Bottom };
-  const CfNode = ({ id, data }) => h('div', { className: 'cf-node', 'data-role': data.role || 'default', style: { width: `${WIDTH[id]}px` } },
+  const nodeStyle = (id) => {
+    const c = COLORS.nodes[id];
+    const style = { width: `${WIDTH[id]}px` };
+    return c ? Object.assign(style, { '--cf-item': c.color, '--cf-item-tint': c.tint, '--cf-item-ring': c.ring }) : style;
+  };
+  const CfNode = ({ id, data }) => h('div', { className: 'cf-node', 'data-role': data.role || 'default', 'data-color': COLORS.nodes[id] ? '1' : undefined, style: nodeStyle(id) },
     ...Object.entries(SIDES).flatMap(([side, position]) => [
       h(Handle, { key: `t-${side}`, id: `t-${side}`, type: 'target', position, isConnectable: false }),
       h(Handle, { key: `s-${side}`, id: `s-${side}`, type: 'source', position, isConnectable: false })
@@ -282,7 +300,8 @@ html, body, #cf-diagram-root { margin: 0; width: 100%; height: 100%; }
     return {
       id: e.id, source: e.source, target: e.target, sourceHandle: `s-${from}`, targetHandle: `t-${to}`,
       label: e.label, selectable: false, focusable: false,
-      labelShowBg: true, labelBgPadding: [8, 4], labelBgBorderRadius: 4
+      labelShowBg: true, labelBgPadding: [8, 4], labelBgBorderRadius: 4,
+      ...(COLORS.edges[e.id] ? { className: 'cf-colored', style: { '--cf-item': COLORS.edges[e.id].color } } : {})
     };
   });
 
@@ -305,7 +324,7 @@ html, body, #cf-diagram-root { margin: 0; width: 100%; height: 100%; }
       const local = since - run * period;
       if (local >= duration) continue;
       const alpha = clamp01(Math.min(local, duration - local) / FLOW_FADE_MS);
-      dots.push({ p: ease(local / duration), alpha });
+      dots.push({ p: ease(local / duration), alpha, color: COLORS.steps[String(s.index)] });
     }
     return dots;
   };
@@ -314,7 +333,13 @@ html, body, #cf-diagram-root { margin: 0; width: 100%; height: 100%; }
   // transform and opacity, and are placed along the path React Flow drew
   // for this frame, so they follow the edge when a node moves.
   const SVG_NS = 'http://www.w3.org/2000/svg';
-  const drawFlow = (el, path, steps, t) => {
+  const dotPaint = (dot, c) => {
+    const [halo, core] = dot.childNodes;
+    const want = c ? [`fill: ${c.tint}; stroke: ${c.color}`, `fill: ${c.color}`] : ['', ''];
+    if (halo.getAttribute('style') !== want[0]) { if (want[0]) halo.setAttribute('style', want[0]); else halo.removeAttribute('style'); }
+    if (core.getAttribute('style') !== want[1]) { if (want[1]) core.setAttribute('style', want[1]); else core.removeAttribute('style'); }
+  };
+  const drawFlow = (el, path, steps, t, edgeColor) => {
     let g = el.querySelector(':scope > g.cf-flow');
     const dots = path ? (steps || []).flatMap((s) => flowDots(s, t)) : [];
     if (dots.length === 0) { if (g) g.remove(); return; }
@@ -333,6 +358,7 @@ html, body, #cf-diagram-root { margin: 0; width: 100%; height: 100%; }
       const dot = g.childNodes[i];
       dot.setAttribute('transform', `translate(${pt.x.toFixed(2)} ${pt.y.toFixed(2)})`);
       dot.setAttribute('opacity', d.alpha.toFixed(3));
+      dotPaint(dot, d.color || edgeColor);
     });
   };
 
@@ -371,10 +397,11 @@ html, body, #cf-diagram-root { margin: 0; width: 100%; height: 100%; }
       el.dataset.cfHl = s.hl.has(id) || on ? '1' : '0';
       const path = el.querySelector('.react-flow__edge-path');
       // Only touch the attribute on a change, so a frame repaints nothing new.
-      const marker = `url(#${el.dataset.cfHl === '1' ? MARKER.hl : MARKER.base})`;
+      const own = COLORS.edges[id];
+      const marker = `url(#${own ? markerFor(own.color) : el.dataset.cfHl === '1' ? MARKER.hl : MARKER.base})`;
       if (path && path.getAttribute('marker-end') !== marker) path.setAttribute('marker-end', marker);
       if (path) path.style.strokeWidth = on ? String(3 + 3 * Math.sin(Math.PI * clamp01((t - pulse.start) / pulse.duration))) : '';
-      drawFlow(el, path, s.flows[id], t);
+      drawFlow(el, path, s.flows[id], t, own);
     }
   };
 

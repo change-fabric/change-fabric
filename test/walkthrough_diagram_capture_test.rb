@@ -167,6 +167,58 @@ class WalkthroughDiagramCaptureTest < Minitest::Test
     end
   end
 
+  # Item colours in the dark theme: each lane's node border and tint, edge
+  # stroke and arrowhead, and flow dots take the colour its role resolved to;
+  # a flow step's own colour overrides its edge's; a highlighted coloured
+  # edge keeps its colour; and two captures give identical frames.
+  def test_coloured_lanes_paint_their_items_deterministically
+    skip "docker not available" unless ChangeDocker.available?
+
+    Dir.mktmpdir do |root|
+      FileUtils.cp_r("#{File.expand_path('fixtures/walkthrough/diagram-colors', __dir__)}/.", root)
+      board = WalkthroughStoryboard.load(File.join(root, "storyboard.json"))
+      WalkthroughDiagram.write_screens(board, root)
+      assert_empty WalkthroughStoryboard.validate(board, root: root)
+      scene = board["scenes"].first
+      spec = scene["diagram"]
+      colors = WalkthroughDiagram.item_colors(spec, root)
+      html = PrototypeCapture.inline_screen(File.join(root, scene.dig("screen", "html")), root: root)
+      duration = PrototypeCapture.scene_duration(scene)
+      runs = ChangeDocker.with_browserless(network: nil) do |session|
+        2.times.map do |n|
+          prep = PrototypeCapture.prepare(board, scene, root)
+          out = File.join(root, "run-#{n}")
+          PrototypeCapture.capture(session: session, html: html, interactions: [], duration_ms: duration, out_dir: out,
+                                   state: prep[:state], prng_seed: prep[:prng_seed], viewport: board["viewport"], label: scene["id"])
+          { frames: Dir[File.join(out, "*.png")].sort.map { |f| Digest::SHA256.file(f).hexdigest },
+            paint: paint_probe(session, html, board["viewport"], [ 1000, 3000 ]) }
+        end
+      end
+      assert_equal runs[0][:frames], runs[1][:frames], "coloured frames differ between captures"
+      assert_equal runs[0][:paint], runs[1][:paint], "coloured paint differs between runs"
+      rgb = ->(hex) { "rgb(#{hex.delete('#').scan(/../).map { |c| c.to_i(16) }.join(', ')})" }
+      early, late = runs[0][:paint]
+      spec["edges"].each do |e|
+        want = rgb.(colors["edges"][e["id"]]["color"])
+        assert_equal want, early["edges"][e["id"]]["stroke"], "#{e['id']} stroke"
+        assert_equal want, early["edges"][e["id"]]["marker"], "#{e['id']} arrowhead"
+        assert_equal want, late["edges"][e["id"]]["stroke"], "#{e['id']} keeps its colour"
+      end
+      assert_equal "3px", late["edges"]["e-pentest"]["width"], "a highlighted coloured edge thickens"
+      override = spec["steps"].index { |st| st["color"] }
+      spec["steps"].select { |st| st["op"] == "flow" }.each do |st|
+        dots = early["edges"][st["id"]]["dots"]
+        refute_empty dots, "#{st['id']} has dots at 1000 ms"
+        want = rgb.((st["color"] ? colors["steps"][override.to_s] : colors["edges"][st["id"]])["color"])
+        dots.each { |d| assert_equal want, d, "#{st['id']} dot colour" }
+      end
+      spec["nodes"].select { |n| n["color"] }.each do |n|
+        c = colors["nodes"][n["id"]]
+        assert_equal [ rgb.(c["color"]), rgb.(c["tint"]), rgb.(WalkthroughDiagram::PALETTE_DARK["text"]) ], early["nodes"][n["id"]]
+      end
+    end
+  end
+
   def test_a_screen_that_never_gets_ready_fails_loudly
     skip "docker not available" unless ChangeDocker.available?
 
@@ -261,6 +313,42 @@ class WalkthroughDiagramCaptureTest < Minitest::Test
           }, t === 0 || #{flow} ? 0 : #{STEP_MS}));
         }
         return { data: samples, type: 'application/json' };
+      }
+    JS
+    session.run_function(code)
+  end
+
+  # Computed paint of every coloured item at each time in `times`.
+  def paint_probe(session, html, viewport, times)
+    code = <<~JS
+      export default async function ({ page }) {
+        await page.setViewport({ width: #{viewport['w']}, height: #{viewport['h']}, deviceScaleFactor: 1 });
+        await page.setContent(#{JSON.generate(html.sub('<head>', "<head>#{CLOCK}"))});
+        await page.waitForFunction('window.__cfDiagramReady === true', { timeout: 20000 });
+        const out = [];
+        let at = 0;
+        for (const t of #{JSON.generate(times)}) {
+          await page.evaluate((step) => window.__cfAdvance(step), t - at);
+          at = t;
+          await page.evaluate(() => new Promise((r) => (window.__cfRealRaf || requestAnimationFrame)(() => (window.__cfRealRaf || requestAnimationFrame)(r))));
+          out.push(await page.evaluate(() => {
+            const edges = {};
+            for (const el of document.querySelectorAll('.react-flow__edge')) {
+              const path = el.querySelector('.react-flow__edge-path');
+              const cs = getComputedStyle(path);
+              const marker = document.querySelector(path.getAttribute('marker-end').slice(4, -1) + ' path');
+              edges[el.dataset.id] = { stroke: cs.stroke, width: cs.strokeWidth, marker: getComputedStyle(marker).fill,
+                dots: [...el.querySelectorAll('g.cf-flow circle.cf-flow-core')].map((c) => getComputedStyle(c).fill) };
+            }
+            const nodes = {};
+            for (const el of document.querySelectorAll('.react-flow__node')) {
+              const cs = getComputedStyle(el.querySelector('.cf-node'));
+              nodes[el.dataset.id] = [cs.borderTopColor, cs.backgroundColor, cs.color];
+            }
+            return { edges, nodes };
+          }));
+        }
+        return { data: out, type: 'application/json' };
       }
     JS
     session.run_function(code)

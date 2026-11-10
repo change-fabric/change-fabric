@@ -1,0 +1,177 @@
+{
+  "schema_version": 1,
+  "slug": "diagram-colors",
+  "title": "Five coloured audit lanes",
+  "viewport": {
+    "w": 1280,
+    "h": 720,
+    "dpr": 1
+  },
+  "fps": 30,
+  "music": null,
+  "scenes": [
+    {
+      "id": "lanes",
+      "title": "Audit lanes",
+      "order": 1,
+      "kind": "diagram",
+      "screen": {
+        "html": "screens/lanes.html"
+      },
+      "diagram": {
+        "layout": {
+          "engine": "dagre",
+          "direction": "LR"
+        },
+        "theme": "dark",
+        "nodes": [
+          {
+            "id": "load",
+            "label": "Load (k6)",
+            "color": "series-1"
+          },
+          {
+            "id": "a11y",
+            "label": "Accessibility",
+            "color": "series-2"
+          },
+          {
+            "id": "pentest",
+            "label": "Pentest (ZAP)",
+            "color": "series-3"
+          },
+          {
+            "id": "ux",
+            "label": "Responsive UX",
+            "color": "series-4"
+          },
+          {
+            "id": "cases",
+            "label": "Test cases",
+            "color": "series-5"
+          },
+          {
+            "id": "report",
+            "label": "Release report",
+            "role": "accent"
+          }
+        ],
+        "edges": [
+          {
+            "id": "e-load",
+            "source": "load",
+            "target": "report",
+            "color": "series-1"
+          },
+          {
+            "id": "e-a11y",
+            "source": "a11y",
+            "target": "report",
+            "color": "series-2"
+          },
+          {
+            "id": "e-pentest",
+            "source": "pentest",
+            "target": "report",
+            "color": "series-3"
+          },
+          {
+            "id": "e-ux",
+            "source": "ux",
+            "target": "report",
+            "color": "series-4"
+          },
+          {
+            "id": "e-cases",
+            "source": "cases",
+            "target": "report",
+            "color": "series-5"
+          }
+        ],
+        "initial": [
+          "load",
+          "a11y",
+          "pentest",
+          "ux",
+          "cases",
+          "report",
+          "e-load",
+          "e-a11y",
+          "e-pentest",
+          "e-ux",
+          "e-cases"
+        ],
+        "steps": [
+          {
+            "t_ms": 200,
+            "op": "flow",
+            "id": "e-load",
+            "count": 3,
+            "duration": 1200,
+            "loop": true
+          },
+          {
+            "t_ms": 350,
+            "op": "flow",
+            "id": "e-a11y",
+            "count": 3,
+            "duration": 1200,
+            "loop": true
+          },
+          {
+            "t_ms": 500,
+            "op": "flow",
+            "id": "e-pentest",
+            "count": 3,
+            "duration": 1200,
+            "loop": true,
+            "color": "#f97316"
+          },
+          {
+            "t_ms": 650,
+            "op": "flow",
+            "id": "e-ux",
+            "count": 3,
+            "duration": 1200,
+            "loop": true
+          },
+          {
+            "t_ms": 800,
+            "op": "flow",
+            "id": "e-cases",
+            "count": 3,
+            "duration": 1200,
+            "loop": true
+          },
+          {
+            "t_ms": 2600,
+            "op": "highlight",
+            "ids": [
+              "report",
+              "pentest",
+              "e-pentest"
+            ]
+          }
+        ]
+      },
+      "narration": {
+        "text": "Five audit lanes feed one release report.",
+        "measured_ms": 0
+      },
+      "assumptions": [
+        {
+          "id": "A-01",
+          "text": "Every lane reports into one gate."
+        }
+      ],
+      "timing": {
+        "min_ms": 3600,
+        "pad_ms": 0,
+        "transition": {
+          "type": "cut",
+          "ms": 0
+        }
+      }
+    }
+  ]
+}
