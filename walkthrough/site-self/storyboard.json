@@ -183,7 +183,7 @@
         }
       },
       "deps": {
-        "frames_key": "d2f88f016152472737e6b39c190822db5de504b27d5bd18ed79379e0c09ee881",
+        "frames_key": "bd2d5969e8abc2d4cf620115907198b8661acb4f480aa0bfa162539ea9ab15f4",
         "audio_key": "0c1a9a160fc956ab56c7ac2d82a80f0b381c9b20fe680972dc1f3b910a63ecf5",
         "asset_keys": []
       }
@@ -200,6 +200,10 @@
         {
           "id": "A-03",
           "text": "The pull request numbers, the head SHA a1b2c3d, the release tag, and the per-lane finding counts are illustrative examples, labelled as such on screen."
+        },
+        {
+          "id": "A-05",
+          "text": "Icons are Phosphor icons (@phosphor-icons/core 2.1.1, MIT licence, Phosphor Icons); only the path data used is inlined in the screens."
         }
       ],
       "narration": {
@@ -229,7 +233,7 @@
       },
       "order": 2,
       "deps": {
-        "frames_key": "dc49e9d414391664d161930c695a307ac584d9290eda42f64385d2f546348a73",
+        "frames_key": "a9b540facfe2f924ff6623f012bddf457b7ae238ad86daf20b7bd24a1594760f",
         "audio_key": "32c2e43b05eadb9549f7378e3627bff13ca65f180c60f0d467bc9053f238b57d",
         "asset_keys": []
       }
@@ -275,7 +279,7 @@
         }
       },
       "deps": {
-        "frames_key": "5466db23d47009053def77a9224e4ff57295fc8392f9b49d3414b915df952f8c",
+        "frames_key": "34cb09c6a228ad835efe64cdef455542ac0940841d56430e8e18cab296d6c87e",
         "audio_key": "e5bc95d46edbd99d9708277d67a6440609d1e2f6952fd4a87146908c843f9bf6",
         "asset_keys": []
       }
@@ -283,10 +287,331 @@
     {
       "id": "lanes",
       "title": "Every enabled lane runs",
+      "order": 4,
+      "kind": "diagram",
       "user_goal": "See the lanes a change passes through",
       "action": "Watch each lane light up",
       "screen": {
-        "html": "screens/lanes.html"
+        "html": "screens/lanes-flow.html"
+      },
+      "diagram": {
+        "layout": {
+          "engine": "dagre",
+          "direction": "LR"
+        },
+        "theme": "dark",
+        "nodes": [
+          {
+            "id": "pr",
+            "label": "Pull request",
+            "role": "accent"
+          },
+          {
+            "id": "k6",
+            "label": "Load (k6)",
+            "color": "#f6efe0"
+          },
+          {
+            "id": "a11y",
+            "label": "Accessibility (axe)",
+            "color": "#b690ce"
+          },
+          {
+            "id": "zap",
+            "label": "Security (ZAP)",
+            "color": "#a070c8"
+          },
+          {
+            "id": "ux",
+            "label": "Responsive UX",
+            "color": "#c9b0dd"
+          },
+          {
+            "id": "cases",
+            "label": "Test cases",
+            "color": "#9ea39b"
+          },
+          {
+            "id": "report",
+            "label": "One report",
+            "role": "accent"
+          }
+        ],
+        "edges": [
+          {
+            "id": "e-pr-k6",
+            "source": "pr",
+            "target": "k6",
+            "color": "#f6efe0"
+          },
+          {
+            "id": "e-k6-report",
+            "source": "k6",
+            "target": "report",
+            "color": "#f6efe0"
+          },
+          {
+            "id": "e-pr-a11y",
+            "source": "pr",
+            "target": "a11y",
+            "color": "#b690ce"
+          },
+          {
+            "id": "e-a11y-report",
+            "source": "a11y",
+            "target": "report",
+            "color": "#b690ce"
+          },
+          {
+            "id": "e-pr-zap",
+            "source": "pr",
+            "target": "zap",
+            "color": "#a070c8"
+          },
+          {
+            "id": "e-zap-report",
+            "source": "zap",
+            "target": "report",
+            "color": "#a070c8"
+          },
+          {
+            "id": "e-pr-ux",
+            "source": "pr",
+            "target": "ux",
+            "color": "#c9b0dd"
+          },
+          {
+            "id": "e-ux-report",
+            "source": "ux",
+            "target": "report",
+            "color": "#c9b0dd"
+          },
+          {
+            "id": "e-pr-cases",
+            "source": "pr",
+            "target": "cases",
+            "color": "#9ea39b"
+          },
+          {
+            "id": "e-cases-report",
+            "source": "cases",
+            "target": "report",
+            "color": "#9ea39b"
+          }
+        ],
+        "initial": [
+          "pr"
+        ],
+        "steps": [
+          {
+            "t_ms": 0,
+            "op": "fit_view",
+            "ids": [
+              "pr"
+            ],
+            "padding": 0.4,
+            "duration": 0
+          },
+          {
+            "t_ms": 300,
+            "op": "fit_view",
+            "ids": [
+              "pr",
+              "k6",
+              "a11y",
+              "zap",
+              "ux",
+              "cases"
+            ],
+            "padding": 0.15,
+            "duration": 800
+          },
+          {
+            "t_ms": 1100,
+            "op": "add_node",
+            "ids": [
+              "k6",
+              "a11y",
+              "zap",
+              "ux",
+              "cases",
+              "e-pr-k6",
+              "e-pr-a11y",
+              "e-pr-zap",
+              "e-pr-ux",
+              "e-pr-cases"
+            ]
+          },
+          {
+            "t_ms": 1100,
+            "op": "flow",
+            "ids": [
+              "e-pr-k6"
+            ],
+            "count": 2,
+            "duration": 900,
+            "color": "#f6efe0"
+          },
+          {
+            "t_ms": 1100,
+            "op": "flow",
+            "ids": [
+              "e-pr-a11y"
+            ],
+            "count": 2,
+            "duration": 900,
+            "color": "#b690ce"
+          },
+          {
+            "t_ms": 1100,
+            "op": "flow",
+            "ids": [
+              "e-pr-zap"
+            ],
+            "count": 2,
+            "duration": 900,
+            "color": "#a070c8"
+          },
+          {
+            "t_ms": 1100,
+            "op": "flow",
+            "ids": [
+              "e-pr-ux"
+            ],
+            "count": 2,
+            "duration": 900,
+            "color": "#c9b0dd"
+          },
+          {
+            "t_ms": 1100,
+            "op": "flow",
+            "ids": [
+              "e-pr-cases"
+            ],
+            "count": 2,
+            "duration": 900,
+            "color": "#9ea39b"
+          },
+          {
+            "t_ms": 1300,
+            "op": "fit_view",
+            "ids": [
+              "pr",
+              "k6",
+              "a11y",
+              "zap",
+              "ux",
+              "cases",
+              "report"
+            ],
+            "padding": 0.1,
+            "duration": 800
+          },
+          {
+            "t_ms": 1700,
+            "op": "highlight",
+            "ids": [
+              "k6"
+            ]
+          },
+          {
+            "t_ms": 2100,
+            "op": "add_node",
+            "ids": [
+              "report",
+              "e-k6-report",
+              "e-a11y-report",
+              "e-zap-report",
+              "e-ux-report",
+              "e-cases-report"
+            ]
+          },
+          {
+            "t_ms": 2400,
+            "op": "flow",
+            "ids": [
+              "e-k6-report"
+            ],
+            "count": 3,
+            "duration": 1000,
+            "color": "#f6efe0"
+          },
+          {
+            "t_ms": 2600,
+            "op": "highlight",
+            "ids": [
+              "a11y"
+            ]
+          },
+          {
+            "t_ms": 2600,
+            "op": "flow",
+            "ids": [
+              "e-a11y-report"
+            ],
+            "count": 3,
+            "duration": 1000,
+            "color": "#b690ce"
+          },
+          {
+            "t_ms": 3800,
+            "op": "highlight",
+            "ids": [
+              "zap"
+            ]
+          },
+          {
+            "t_ms": 3800,
+            "op": "flow",
+            "ids": [
+              "e-zap-report"
+            ],
+            "count": 3,
+            "duration": 1000,
+            "color": "#a070c8"
+          },
+          {
+            "t_ms": 5200,
+            "op": "highlight",
+            "ids": [
+              "ux"
+            ]
+          },
+          {
+            "t_ms": 5200,
+            "op": "flow",
+            "ids": [
+              "e-ux-report"
+            ],
+            "count": 3,
+            "duration": 1000,
+            "color": "#c9b0dd"
+          },
+          {
+            "t_ms": 6700,
+            "op": "highlight",
+            "ids": [
+              "cases"
+            ]
+          },
+          {
+            "t_ms": 6700,
+            "op": "flow",
+            "ids": [
+              "e-cases-report"
+            ],
+            "count": 3,
+            "duration": 1000,
+            "color": "#9ea39b"
+          },
+          {
+            "t_ms": 7600,
+            "op": "highlight",
+            "ids": [
+              "report"
+            ]
+          }
+        ]
       },
       "narration": {
         "text": "Every enabled lane runs: load, accessibility, security, responsive UX, and test cases.",
@@ -313,9 +638,8 @@
           "ms": 0
         }
       },
-      "order": 4,
       "deps": {
-        "frames_key": "7f758477535083f24ba49ad3697fadab92c50a2ff80526d254370058f77b11a8",
+        "frames_key": "62423326a6b0bd1130167d6e136cb917d2efda759e427e724d0c86b8e09299d9",
         "audio_key": "dc6ae4aa8db02b4ef95881e1c4e329ed61d54da9a1b57d088c526bc4d71982fe",
         "asset_keys": []
       }
@@ -354,7 +678,7 @@
       },
       "order": 5,
       "deps": {
-        "frames_key": "823d88aa1cdfb2f8dca3959342a51638c804436a1c3732e249b4c956615eb4c7",
+        "frames_key": "ed21d181cd826d522d0eb68c21ade71b2f8715f8c59d43eebe921dab2a7e033f",
         "audio_key": "7a430440962a2b1e14c9fc3ad319dbabc9eec11033e341411c7546053bc327b1",
         "asset_keys": []
       }
@@ -395,7 +719,7 @@
       },
       "order": 6,
       "deps": {
-        "frames_key": "cfd6ca3d315abab92b7a6bb3bb93803738bd6beda49546851b644db97900c853",
+        "frames_key": "7f6ef60308416875af924ab1f73d8c26c24d47e7ebc4527196f9168f3eb17bad",
         "audio_key": "9234aa48aa5b2909a8cff62c13a60f2e0d17dcab58eb6b6cae9fa5b24d75103f",
         "asset_keys": []
       }
@@ -435,7 +759,7 @@
         }
       },
       "deps": {
-        "frames_key": "87ee0d65be5d4e47edffecdecfb17483415bc1e532bd80c8b7333c979d9697a2",
+        "frames_key": "d2a79e8a0a42170e925be738155bd277abfdae95cfdd32bf18ed0a46bbaf9972",
         "audio_key": "da640e1c655fadb9b41994f7290cdd2305a92576c20ee6d62626aa7ec62f2a5f",
         "asset_keys": []
       }

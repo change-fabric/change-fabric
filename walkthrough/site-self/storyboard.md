@@ -29,6 +29,7 @@
 - Heuristics shown: H1, H2
 - Requirement: brief.md#toolkit
 - Assumption A-03: The pull request numbers, the head SHA a1b2c3d, the release tag, and the per-lane finding counts are illustrative examples, labelled as such on screen.
+- Assumption A-05: Icons are Phosphor icons (@phosphor-icons/core 2.1.1, MIT licence, Phosphor Icons); only the path data used is inlined in the screens.
 
 > Your agents write code faster than anyone can review it. Change fabric checks every change before it lands.
 
@@ -48,12 +49,54 @@
 ## 4. Every enabled lane runs (`lanes`)
 
 - Duration: 8500 ms
-- Screen: screens/lanes.html
+- Screen: screens/lanes-flow.html
 - User goal: See the lanes a change passes through
 - Action: Watch each lane light up
 - Hypotheses: H-02
 - Heuristics shown: H1, H2
 - Requirement: brief.md#lanes
+- Node `pr`: Pull request
+- Node `k6`: Load (k6)
+- Node `a11y`: Accessibility (axe)
+- Node `zap`: Security (ZAP)
+- Node `ux`: Responsive UX
+- Node `cases`: Test cases
+- Node `report`: One report
+- Edge `e-pr-k6`: pr -> k6
+- Edge `e-k6-report`: k6 -> report
+- Edge `e-pr-a11y`: pr -> a11y
+- Edge `e-a11y-report`: a11y -> report
+- Edge `e-pr-zap`: pr -> zap
+- Edge `e-zap-report`: zap -> report
+- Edge `e-pr-ux`: pr -> ux
+- Edge `e-ux-report`: ux -> report
+- Edge `e-pr-cases`: pr -> cases
+- Edge `e-cases-report`: cases -> report
+- Initial: pr
+
+| t_ms | op | target |
+| --- | --- | --- |
+| 0 | fit_view | pr |
+| 300 | fit_view | pr, k6, a11y, zap, ux, cases |
+| 1100 | add_node | k6, a11y, zap, ux, cases, e-pr-k6, e-pr-a11y, e-pr-zap, e-pr-ux, e-pr-cases |
+| 1100 | flow | e-pr-k6 |
+| 1100 | flow | e-pr-a11y |
+| 1100 | flow | e-pr-zap |
+| 1100 | flow | e-pr-ux |
+| 1100 | flow | e-pr-cases |
+| 1300 | fit_view | pr, k6, a11y, zap, ux, cases, report |
+| 1700 | highlight | k6 |
+| 2100 | add_node | report, e-k6-report, e-a11y-report, e-zap-report, e-ux-report, e-cases-report |
+| 2400 | flow | e-k6-report |
+| 2600 | highlight | a11y |
+| 2600 | flow | e-a11y-report |
+| 3800 | highlight | zap |
+| 3800 | flow | e-zap-report |
+| 5200 | highlight | ux |
+| 5200 | flow | e-ux-report |
+| 6700 | highlight | cases |
+| 6700 | flow | e-cases-report |
+| 7600 | highlight | report |
 
 > Every enabled lane runs: load, accessibility, security, responsive UX, and test cases.
 

@@ -1,11 +1,11 @@
 /* Lane colours on the dark theme (tokens.css): cream, accent, lilac,
    the mark tint #c9b0dd, and sage. */
 :root {
-  --lane-load: var(--cream);
-  --lane-a11y: var(--accent);
-  --lane-zap: var(--lilac);
-  --lane-ux: #c9b0dd;
-  --lane-cases: var(--sage);
+  --lane-load: var(--series-1);
+  --lane-a11y: var(--series-2);
+  --lane-zap: var(--series-3);
+  --lane-ux: var(--series-4);
+  --lane-cases: var(--series-5);
   --pass: var(--accent);
 }
 html, body { margin: 0; height: 100%; }
