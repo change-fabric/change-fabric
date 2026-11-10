@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { Layout } from "../components/Layout";
 import { CodeBlock } from "../components/CodeBlock";
 import { CURRENT_VERSION, specPath } from "../spec";
@@ -78,7 +79,55 @@ function Lane({ n, role, name, detail, url }: (typeof LANES)[number]) {
   );
 }
 
+// Loads the hero light after first paint, off the critical path, and only
+// where it can run: never in an automated browser, so screenshots and audits
+// see the static texture; never under reduced motion; and never where the
+// stylesheet hides the texture (phones, forced colors), so no WebGL context
+// or image request is spent on a decoration nobody sees. The media query is
+// watched, so turning reduced motion on mid-visit stops the light at once.
+const OFF_QUERY = "(max-width: 640px), (forced-colors: active), (prefers-reduced-motion: reduce)";
+
+function useFabricLight() {
+  useEffect(() => {
+    if (navigator.webdriver) return;
+    const hidden = matchMedia(OFF_QUERY);
+    let unmount: (() => void) | undefined;
+    let pending: number | undefined;
+    let cancelled = false;
+    const start = () => {
+      pending = undefined;
+      const shell = document.querySelector<HTMLElement>(".shell");
+      if (!shell) return;
+      import("../fabricLight").then((m) => {
+        if (!cancelled && !hidden.matches && !unmount) unmount = m.mount(shell);
+      });
+    };
+    const stop = () => {
+      if (pending !== undefined) {
+        if ("cancelIdleCallback" in window) cancelIdleCallback(pending);
+        else clearTimeout(pending);
+        pending = undefined;
+      }
+      unmount?.();
+      unmount = undefined;
+    };
+    const sync = () => {
+      if (hidden.matches) stop();
+      else if (!unmount && pending === undefined)
+        pending = "requestIdleCallback" in window ? requestIdleCallback(start) : (setTimeout(start, 200) as unknown as number);
+    };
+    hidden.addEventListener("change", sync);
+    sync();
+    return () => {
+      cancelled = true;
+      hidden.removeEventListener("change", sync);
+      stop();
+    };
+  }, []);
+}
+
 export function Home() {
+  useFabricLight();
   return (
     <Layout>
       <div className="home">

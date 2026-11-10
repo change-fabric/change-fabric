@@ -580,7 +580,7 @@ code {
   background-position: right top;
   background-size: cover;
   background-repeat: no-repeat;
-  opacity: var(--hero-texture-opacity);
+  opacity: calc(var(--hero-texture-opacity) * var(--hero-texture-strength));
   pointer-events: none;
   -webkit-mask-image: linear-gradient(to right, transparent, #000 70%), linear-gradient(to bottom, #000 35%, transparent 90%);
   -webkit-mask-composite: source-in;
@@ -593,6 +593,7 @@ code {
   --hero-texture-opacity: 0.33;
   --hero-texture-width: 58%;
   --hero-texture-height: 620px;
+  --hero-texture-strength: 1;
 }
 
 :root[data-theme="dark"] {
@@ -611,15 +612,44 @@ code {
   :root {
     --hero-texture-width: 55%;
     --hero-texture-height: 520px;
+    --hero-texture-strength: 0.6;
   }
-  .shell:has(.home)::after {
-    opacity: calc(var(--hero-texture-opacity) * 0.6);
-  }
+}
+
+/* Hero light: a WebGL canvas (src/fabricLight.ts) laid exactly over the
+   texture, with the same box, mask and strength, that relights the weave
+   as the page scrolls. The cloth never moves. Once the canvas has drawn
+   it takes over from the static layer; until then, or whenever it is
+   skipped or lost, the static texture stays. */
+.fabric-light {
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 0;
+  width: var(--hero-texture-width);
+  height: var(--hero-texture-height);
+  opacity: calc(var(--hero-texture-opacity) * var(--hero-texture-strength) * var(--fabric-light-boost, 1));
+  pointer-events: none;
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 70%), linear-gradient(to bottom, #000 35%, transparent 90%);
+  -webkit-mask-composite: source-in;
+  mask-image: linear-gradient(to right, transparent, #000 70%), linear-gradient(to bottom, #000 35%, transparent 90%);
+  mask-composite: intersect;
+}
+
+.fabric-light:not([data-live]) {
+  visibility: hidden;
+}
+
+.shell:has(> .fabric-light[data-live])::after {
+  visibility: hidden;
 }
 
 @media (max-width: 640px), (forced-colors: active) {
   .shell:has(.home)::after {
     content: none;
+  }
+  .fabric-light {
+    display: none;
   }
 }
 
