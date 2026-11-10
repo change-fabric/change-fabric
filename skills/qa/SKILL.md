@@ -166,7 +166,11 @@ to:
    base URL is a local host. When the repo's CHANGE.md profile already sets
    `boot.add_hosts` and `boot.ignore_https_errors` (spec 0.15.0), pass
    `--profile NAME` instead; it also supplies `boot.target_url` as the base
-   URL.
+   URL. Extra Chromium flags go in `--launch-arg FLAG` (repeatable), or come
+   from the profile's `lanes.testcases.launch_args` (spec 0.16.0). The usual
+   one is `--launch-arg --disable-features=LocalNetworkAccessChecks`, when a
+   `code_source` fetch from the page to a private address such as
+   `host.docker.internal` fails with `TypeError: Failed to fetch`.
 4. Reach for the `eval:` escape hatch only when no verb covers the check, and
    say so in the findings: a compiled `eval` step is marked raw JS precisely
    so a reader can see where the declarative contract was abandoned.

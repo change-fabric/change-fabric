@@ -83,7 +83,12 @@ verb, a missing `acceptance`, a quarantine missing its reason or its date, and a
 
 A real credential never goes in a suite file. A `fill` reads its value from the
 env var `env:` names, or polls a `code_source` endpoint from inside the
-container for an out-of-band code.
+container for an out-of-band code. That fetch runs in the browser page, so
+Chromium's Local Network Access check can block it from reaching a private
+address such as `http://host.docker.internal:3925/otp` (`TypeError: Failed to
+fetch`). Set `lanes.testcases.launch_args:
+["--disable-features=LocalNetworkAccessChecks"]` in CHANGE.md (spec 0.16.0) to
+launch the lane's browser with that flag.
 
 ## Read the output
 

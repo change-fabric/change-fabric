@@ -49,12 +49,13 @@ class ChangeLaneTestcasesTest < Minitest::Test
   # A stand-in browserless session that records the module it was handed and
   # returns whatever the test wants back.
   class FakeSession
-    attr_reader :code
+    attr_reader :code, :launch_args
 
     def initialize(result) = @result = result
 
-    def run_function(code)
+    def run_function(code, launch_args: [])
       @code = code
+      @launch_args = launch_args
       @result
     end
   end
@@ -154,6 +155,22 @@ class ChangeLaneTestcasesTest < Minitest::Test
 
   # gate_tags is the staged-adoption valve: a failing case no gate tag covers
   # still reports, it just cannot fail the run.
+  def test_launch_args_reach_the_browserless_launch
+    with_suite do |dir|
+      session = FakeSession.new(ok_result(2))
+      lane(dir, { "launch_args" => [ "--disable-features=LocalNetworkAccessChecks" ] }, session: session).run
+      assert_equal [ "--disable-features=LocalNetworkAccessChecks" ], session.launch_args
+    end
+  end
+
+  def test_no_launch_args_launches_with_none
+    with_suite do |dir|
+      session = FakeSession.new(ok_result(2))
+      lane(dir, {}, session: session).run
+      assert_equal [], session.launch_args
+    end
+  end
+
   def test_gate_tags_softens_only_the_cases_no_gate_tag_covers
     with_suite do |dir|
       result = [ failed_result(0, []), failed_result(1, []) ]

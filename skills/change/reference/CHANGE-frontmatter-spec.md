@@ -1,6 +1,6 @@
 # CHANGE.md frontmatter specification
 
-Schema version: 0.15.1
+Schema version: 0.16.0
 
 Status: stable. This is the golden reference for authoring a repo's
 `CHANGE.md` frontmatter. A maintainer or an AI agent creating a new repo's
@@ -213,6 +213,7 @@ lane; `gate_tags` is the staged-adoption valve for a suite still being trusted.
 | `change_config.lanes.testcases.viewport.width` | integer | no (default 1440) | Viewport width in pixels. Pinned at device scale factor 1, so a screenshot does not depend on the host. |
 | `change_config.lanes.testcases.viewport.height` | integer | no (default 900) | Viewport height in pixels. |
 | `change_config.lanes.testcases.timeout_ms` | integer | no (default 15000) | Default per-step timeout. A step may override it with its own `timeout_ms`. |
+| `change_config.lanes.testcases.launch_args` | list of string | no (default none) | (0.16.0) Extra Chromium flags for the browser every case runs in, passed to browserless as its `launch` args. Each entry must start with `--`. The motivating case: a step whose value comes from a `code_source` fetch runs inside the browser page, and Chromium's Local Network Access check blocks that page from fetching a private address such as `http://host.docker.internal:3925/otp` (`TypeError: Failed to fetch`); `["--disable-features=LocalNetworkAccessChecks"]` lifts it. Not profile-overridable. |
 | `change_config.lanes.testcases.auth.login_url` | string | yes, to run a case behind a login (unless `auth.steps` is used instead) | The same login-flow block `lanes.browserless.auth` defines, field for field, because a case behind a login has to get through the same login. Login page path (relative to the lane's base url) or absolute url. |
 | `change_config.lanes.testcases.auth.email_env` | string | yes, to log in (shorthand form) | Name of the environment variable holding the real test login email/username. The value is never written into `CHANGE.md`. |
 | `change_config.lanes.testcases.auth.password_env` | string | yes, to log in (shorthand form) | Name of the environment variable holding the real test login password. Never written into `CHANGE.md`. |
@@ -1288,3 +1289,13 @@ root `RELEASING.md`.
   `contributors_team.platform.media.video_fps` row now describes the
   screencast-sampled recording: the rate the sampler ticks at and the rate the
   frames are encoded into an mp4, with the per-viewport frame and byte caps.
+- 0.16.0: adds the optional `change_config.lanes.testcases.launch_args`, a list
+  of Chromium flags (each starting with `--`) the testcases lane and a cf:qa
+  flow launch their browser with. Additive; nothing else changes. Example:
+  ```yaml
+  change_config:
+    lanes:
+      testcases:
+        suites: ["qa/*.cf-testcases.yml"]
+        launch_args: ["--disable-features=LocalNetworkAccessChecks"]
+  ```

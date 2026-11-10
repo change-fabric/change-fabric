@@ -18,7 +18,7 @@
 require_relative 'figma_url'
 
 module ChangeSchema
-  VERSION = '0.15.1'
+  VERSION = '0.16.0'
 
   # The five audit lanes, the authoritative list the config validator enforces.
   LANES = %w[k6 a11y zap browserless testcases].freeze
@@ -191,6 +191,9 @@ module ChangeSchema
     'change_config.lanes.testcases.viewport.width',
     'change_config.lanes.testcases.viewport.height',
     'change_config.lanes.testcases.timeout_ms',
+    # launch_args (0.16.0): extra Chromium flags for the browser the lane's
+    # cases run in, passed through browserless's `launch` query parameter.
+    'change_config.lanes.testcases.launch_args',
     # testcases.auth: the same login-flow block browserless.auth already
     # defines, field for field, because a case behind a login has to get
     # through the same login. Expanded rather than cross-referenced so the
