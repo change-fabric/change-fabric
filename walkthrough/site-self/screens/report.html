@@ -20,10 +20,10 @@
     .run { color: var(--muted); animation: out 150ms linear var(--p) both; }
     .ok { color: var(--accent); font-weight: 700; opacity: 0; animation: fadein 200ms ease-out var(--p) both; }
     @keyframes out { to { opacity: 0; } }
-    .stamp { position: absolute; right: 36px; top: 36px; font-family: var(--font-mono); font-size: 26px; font-weight: 700; color: var(--accent); border: 4px solid var(--accent); border-radius: 12px; padding: 8px 16px; transform: rotate(-6deg); animation: slam 260ms cubic-bezier(.3,1.6,.5,1) 2500ms both; }
+    .stamp { position: absolute; right: 36px; top: 36px; font-family: var(--font-mono); font-size: 26px; font-weight: 700; color: var(--accent); border: 4px solid var(--accent); border-radius: 12px; padding: 8px 16px; transform: rotate(-6deg); animation: slam 260ms cubic-bezier(.3,1.6,.5,1) 1400ms both; }
     @keyframes slam { from { opacity: 0; transform: rotate(-6deg) scale(1.8); } to { opacity: 1; transform: rotate(-6deg) scale(1); } }
     .side { display: flex; flex-direction: column; gap: 28px; padding-top: 40px; }
-    .verdict { font-size: 36px; font-weight: 700; color: var(--cream); background: var(--pass); border-radius: 18px; padding: 26px 30px; animation: pop 300ms ease-out 2600ms both; }
+    .verdict { font-size: 36px; font-weight: 700; color: var(--btn-text); background: var(--pass); border-radius: 18px; padding: 26px 30px; animation: pop 300ms ease-out 1700ms both; }
     .verdict small { display: block; font-size: 24px; font-weight: 500; opacity: .85; margin-top: 6px; font-family: var(--font-mono); }
     .go { font-size: 34px; font-weight: 600; border: 3px solid var(--accent); border-radius: 18px; padding: 22px 30px; display: flex; justify-content: space-between; animation: pop 300ms ease-out var(--d) both; }
     .go b { color: var(--accent); }
@@ -37,17 +37,17 @@
         <h2>One report</h2>
         <span class="stamp">head a1b2c3d</span>
         <ul>
-          <li class="load" style="--p:300ms"><i></i><span class="name">Load (k6)</span><span class="st"><span class="run">running</span><span class="ok">pass</span></span></li>
-          <li class="a11y" style="--p:700ms"><i></i><span class="name">Accessibility (axe)</span><span class="st"><span class="run">running</span><span class="ok">pass</span></span></li>
-          <li class="zap" style="--p:1100ms"><i></i><span class="name">Security (ZAP)</span><span class="st"><span class="run">running</span><span class="ok">pass</span></span></li>
-          <li class="ux" style="--p:1500ms"><i></i><span class="name">Responsive UX</span><span class="st"><span class="run">running</span><span class="ok">pass</span></span></li>
-          <li class="cases" style="--p:1900ms"><i></i><span class="name">Test cases</span><span class="st"><span class="run">running</span><span class="ok">pass</span></span></li>
+          <li class="load" style="--p:150ms"><i></i><span class="name">Load (k6)</span><span class="st"><span class="run">running</span><span class="ok">pass</span></span></li>
+          <li class="a11y" style="--p:400ms"><i></i><span class="name">Accessibility (axe)</span><span class="st"><span class="run">running</span><span class="ok">pass</span></span></li>
+          <li class="zap" style="--p:650ms"><i></i><span class="name">Security (ZAP)</span><span class="st"><span class="run">running</span><span class="ok">pass</span></span></li>
+          <li class="ux" style="--p:900ms"><i></i><span class="name">Responsive UX</span><span class="st"><span class="run">running</span><span class="ok">pass</span></span></li>
+          <li class="cases" style="--p:1150ms"><i></i><span class="name">Test cases</span><span class="st"><span class="run">running</span><span class="ok">pass</span></span></li>
         </ul>
       </div>
       <div class="side">
         <div class="verdict">Gate: pass recorded<small>for head a1b2c3d</small></div>
-        <div class="go" style="--d:4300ms">Merge to main <b>allowed</b></div>
-        <div class="go" style="--d:4600ms">Release tag <b>allowed</b></div>
+        <div class="go" style="--d:3800ms">Merge to main <b>allowed</b></div>
+        <div class="go" style="--d:4400ms">Release tag <b>allowed</b></div>
       </div>
     </div>
   </main>

@@ -1,10 +1,10 @@
-/* Lane colours for the v4 scenes, each a palette colour or a mix of two
-   (tokens.css): plum, accent, lilac, pale lilac (the mark's tint), sage. */
+/* Lane colours on the dark theme (tokens.css): cream, accent, lilac,
+   the mark tint #c9b0dd, and sage. */
 :root {
-  --lane-load: var(--plum);
+  --lane-load: var(--cream);
   --lane-a11y: var(--accent);
   --lane-zap: var(--lilac);
-  --lane-ux: color-mix(in srgb, var(--lilac) 45%, var(--cream));
+  --lane-ux: #c9b0dd;
   --lane-cases: var(--sage);
   --pass: var(--accent);
 }

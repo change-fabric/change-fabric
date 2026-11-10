@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "storyboard_sha256": "7a4b4cf49606c5e44108cc9b4c3ecc9e81937783e0b65c8469ffd0ff2825dc65",
+  "storyboard_sha256": "532116a1420fcac9835e3cf146061e964cb43694ce68e4e74597b30afc7dbec6",
   "models": {
-    "voice": "eleven_multilingual_v2",
+    "voice": "eleven_v3",
     "voice_id": "21m00Tcm4TlvDq8ikWAM",
     "music": "music_v1",
     "image": "gpt-image-2"
@@ -36,35 +36,53 @@
       "start_frame": 0,
       "frames": 90,
       "duration_ms": 3000,
-      "frames_key": "db435132d6a68409d9181f7c9b240d67ade2dda27d116d3b2a00ba64ff5c2584",
-      "audio_key": "a9f66a0643e4633f7362ee8401916a08d1f79990193fe86de364b849f1580ea6",
+      "frames_key": "d2f88f016152472737e6b39c190822db5de504b27d5bd18ed79379e0c09ee881",
+      "audio_key": "0c1a9a160fc956ab56c7ac2d82a80f0b381c9b20fe680972dc1f3b910a63ecf5",
       "asset_keys": []
     },
     {
       "id": "cold-open",
       "start_frame": 90,
-      "frames": 150,
-      "duration_ms": 5000,
-      "frames_key": "ebce818c62771237aabc25f16f4aeb81c6290b6d551fb20112a64a849856976e",
-      "audio_key": "7de2e1fb05371fc8b304f526c7760961ee165e6e6b0b3a3dade7ec7448ee8018",
+      "frames": 240,
+      "duration_ms": 8000,
+      "frames_key": "dc49e9d414391664d161930c695a307ac584d9290eda42f64385d2f546348a73",
+      "audio_key": "32c2e43b05eadb9549f7378e3627bff13ca65f180c60f0d467bc9053f238b57d",
       "asset_keys": []
     },
     {
       "id": "change-md",
-      "start_frame": 240,
+      "start_frame": 330,
       "frames": 180,
       "duration_ms": 6000,
-      "frames_key": "f662ce34e9bcde251fe3480ed5c7ac29818dd91e2ab95342d3f4da59307adf6d",
-      "audio_key": "a9a38738249b268d276d9c90a8180bb61c4469eb1169fc37d330e21df4b94270",
+      "frames_key": "5466db23d47009053def77a9224e4ff57295fc8392f9b49d3414b915df952f8c",
+      "audio_key": "e5bc95d46edbd99d9708277d67a6440609d1e2f6952fd4a87146908c843f9bf6",
       "asset_keys": []
     },
     {
-      "id": "gate-flow",
-      "start_frame": 420,
-      "frames": 720,
-      "duration_ms": 24000,
-      "frames_key": "afbdc9912ad095028bbe7895979b967b66506d976c7f3ace7a1037ac769796f6",
-      "audio_key": "83e78c81cadcce9f47cd5f8a46c3facefcc592493c93e3cd9113f2e70956f41b",
+      "id": "lanes",
+      "start_frame": 510,
+      "frames": 255,
+      "duration_ms": 8500,
+      "frames_key": "7f758477535083f24ba49ad3697fadab92c50a2ff80526d254370058f77b11a8",
+      "audio_key": "dc6ae4aa8db02b4ef95881e1c4e329ed61d54da9a1b57d088c526bc4d71982fe",
+      "asset_keys": []
+    },
+    {
+      "id": "findings",
+      "start_frame": 765,
+      "frames": 135,
+      "duration_ms": 4500,
+      "frames_key": "823d88aa1cdfb2f8dca3959342a51638c804436a1c3732e249b4c956615eb4c7",
+      "audio_key": "7a430440962a2b1e14c9fc3ad319dbabc9eec11033e341411c7546053bc327b1",
+      "asset_keys": []
+    },
+    {
+      "id": "gate",
+      "start_frame": 900,
+      "frames": 240,
+      "duration_ms": 8000,
+      "frames_key": "cfd6ca3d315abab92b7a6bb3bb93803738bd6beda49546851b644db97900c853",
+      "audio_key": "9234aa48aa5b2909a8cff62c13a60f2e0d17dcab58eb6b6cae9fa5b24d75103f",
       "asset_keys": []
     },
     {
@@ -72,10 +90,10 @@
       "start_frame": 1140,
       "frames": 180,
       "duration_ms": 6000,
-      "frames_key": "4fb92652d9f410188a42737b2c6149e7d0bb302cbed5a498fa4e818130473455",
-      "audio_key": "4178750c67756a91774343458ad1f78eb66cc70da346c39d6f5e6e406b00986e",
+      "frames_key": "87ee0d65be5d4e47edffecdecfb17483415bc1e532bd80c8b7333c979d9697a2",
+      "audio_key": "da640e1c655fadb9b41994f7290cdd2305a92576c20ee6d62626aa7ec62f2a5f",
       "asset_keys": []
     }
   ],
-  "manifest_hash": "1bcce1c1d0bdf52486541f4090b0cb749d03359ab211403461829c68ac27ae4f"
+  "manifest_hash": "8275dd99d4f2fee0017f856712846e1ac4143a72f832e339cb8054da9ff083fa"
 }
