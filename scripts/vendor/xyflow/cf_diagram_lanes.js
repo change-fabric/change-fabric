@@ -286,12 +286,15 @@
   const resultSize = (id) => (panel ? { w: PANEL_W - 2 * PANEL_PAD, h: RESULT_H } : { w: WIDTH[id], h: NODE_H });
 
   // Two invisible corner nodes span the whole composition (lane names,
-  // lanes, and panel), so the runtime's fits frame all of it.
+  // lanes, and panel, or each result's own slot without one), so the
+  // runtime's fits frame all of it.
   if (horizontal && laned.length) {
-    const left = span[0] - LABEL_COL;
-    const right = panel ? panel.x + panel.w : reach;
-    const bottom = panel ? Math.max(edge, panel.h) : edge;
-    spec.nodes.push({ id: 'cf-lane-anchor-a', label: ' ', position: { x: left, y: 0 } },
+    const cards = panel ? [] : delivered.map((tr) => ({ ...pos[tr.result], ...resultSize(tr.result) }));
+    const left = Math.min(span[0] - LABEL_COL, ...cards.map((c) => c.x));
+    const top = Math.min(0, ...cards.map((c) => c.y));
+    const right = panel ? panel.x + panel.w : Math.max(reach, ...cards.map((c) => c.x + c.w));
+    const bottom = panel ? Math.max(edge, panel.h) : Math.max(edge, ...cards.map((c) => c.y + c.h));
+    spec.nodes.push({ id: 'cf-lane-anchor-a', label: ' ', position: { x: left, y: top } },
       { id: 'cf-lane-anchor-b', label: ' ', position: { x: right - NODE_MIN_W, y: bottom - NODE_H } });
     spec.initial = (spec.initial || []).concat(['cf-lane-anchor-a', 'cf-lane-anchor-b']);
   }

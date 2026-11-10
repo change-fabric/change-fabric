@@ -111,7 +111,7 @@ class WalkthroughDiagramLanesCaptureTest < Minitest::Test
       assert_operator card["left"], :>=, -EPS, "the standalone result lands off screen"
       assert_operator card["right"], :<=, board["viewport"]["w"] + EPS, "the standalone result lands off screen"
 
-      refute_equal h["border"]["check-load"], h["border"]["check-cases"], "the highlighted checkpoint loses its accent border"
+      refute_equal h["border"]["check-ux"], h["border"]["check-cases"], "the highlighted checkpoint loses its accent border"
       refute_equal "none", h["shadow"]["check-cases"], "the highlighted checkpoint loses its halo"
     end
   end
