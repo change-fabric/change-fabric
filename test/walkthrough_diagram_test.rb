@@ -285,6 +285,96 @@ class WalkthroughDiagramTest < Minitest::Test
     assert_empty diagram_errs
   end
 
+  def test_item_colors_take_roles_or_css_colours
+    spec["nodes"][0]["color"] = "series-1"
+    spec["nodes"][1]["color"] = "#0b5e57"
+    spec["edges"][0]["color"] = "rgb(190, 18, 60)"
+    spec["steps"] = [ { "t_ms" => 0, "op" => "flow", "id" => spec["edges"][0]["id"], "color" => "warning" } ]
+    assert_empty diagram_errs
+    spec["nodes"][0]["color"] = "series-9"
+    spec["nodes"][1]["color"] = "#12345"
+    spec["edges"][0]["color"] = "rgb(300, 0, 0)"
+    spec["steps"] << { "t_ms" => 0, "op" => "highlight", "id" => spec["nodes"][0]["id"], "color" => "accent" }
+    spec["steps"] << { "t_ms" => 0, "op" => "flow", "id" => spec["edges"][0]["id"], "color" => "blue" }
+    joined = diagram_errs.join("\n")
+    assert_match(/node "\w+": color must be a role \(accent, success, warning, danger, series-1/, joined)
+    assert_includes joined, 'not "series-9"'
+    assert_includes joined, 'not "#12345"'
+    assert_includes joined, 'not "rgb(300, 0, 0)"'
+    assert_includes joined, "step 1: color is only for flow steps"
+    assert_includes joined, "step 2: color must be a role"
+  end
+
+  def test_theme_must_be_light_or_dark
+    spec["theme"] = "sepia"
+    assert_includes diagram_errs.join, "diagram.theme must be one of light, dark"
+    spec["theme"] = "dark"
+    assert_empty diagram_errs
+  end
+
+  def colors_json(html) = JSON.parse(html[%r{<script type="application/json" id="cf-diagram-colors">(.*?)</script>}m, 1])
+
+  def test_an_uncoloured_screen_carries_no_colour_map
+    generate
+    refute_includes File.read(screen_path), %(id="cf-diagram-colors">)
+  end
+
+  def test_roles_resolve_from_the_theme_and_tint_over_the_surface
+    spec["nodes"][0]["color"] = "series-2"
+    spec["edges"][0]["color"] = "accent"
+    spec["steps"] = [ { "t_ms" => 0, "op" => "flow", "id" => spec["edges"][0]["id"], "color" => "#357" } ]
+    generate
+    got = colors_json(File.read(screen_path))
+    assert_equal WalkthroughDiagram::ITEM_DEFAULTS[:light]["series-2"], got["nodes"][spec["nodes"][0]["id"]]["color"]
+    assert_equal WalkthroughDiagram::PALETTE["accent"], got["edges"][spec["edges"][0]["id"]]["color"]
+    assert_equal "#335577", got["steps"]["0"]["color"]
+    assert_empty errs
+    spec["theme"] = "dark"
+    generate
+    assert_match(/step 0: color #335577 on the dark surface #0f172a is 2.3:1, under 3.0/, errs.join)
+    spec["steps"][0]["color"] = "series-3"
+    generate
+    html = File.read(screen_path)
+    assert_equal WalkthroughDiagram::PALETTE_DARK, colors(html)
+    node = colors_json(html)["nodes"][spec["nodes"][0]["id"]]
+    assert_equal WalkthroughDiagram::ITEM_DEFAULTS[:dark]["series-2"], node["color"]
+    assert_operator DiagramPalette.contrast(WalkthroughDiagram::PALETTE_DARK["text"], node["tint"]), :>=, 4.5
+    assert_empty errs
+  end
+
+  def test_token_variables_override_role_defaults_per_theme
+    write_tokens(TOKENS.sub("--accent: #0b5e57;", "--accent: #0b5e57; --chart-1: #1d4ed8; --danger: var(--chart-1);")
+                       .sub("--ink: #f1f1ee;", "--ink: #f1f1ee; --chart-1: #93c5fd;"))
+    light = WalkthroughDiagram.item_roles(@root, :light)
+    dark = WalkthroughDiagram.item_roles(@root, :dark)
+    assert_equal "#1d4ed8", light["series-1"]
+    assert_equal "#1d4ed8", light["danger"]
+    assert_equal "#93c5fd", dark["series-1"]
+    assert_equal "#93c5fd", dark["danger"]
+    assert_equal WalkthroughDiagram::ITEM_DEFAULTS[:dark]["series-2"], dark["series-2"]
+  end
+
+  def test_unreadable_item_colours_are_errors
+    write_tokens(":root { --bg: #ffffff; --ink: #6b6b6b; --accent: #1d4ed8; }")
+    spec["nodes"][0]["color"] = "#000000"
+    spec["edges"][0]["color"] = "#eeeeee"
+    generate
+    joined = errs.join("\n")
+    assert_match(/node "\w+": label text #6B6B6B on its light fill #e6e6e6 is 4.2\d:1, under 4.5/, joined)
+    assert_match(/edge "\w+": color #eeeeee on the light surface #(?i:ffffff) is [\d.]+:1, under 3.0/, joined)
+    spec["nodes"][0]["color"] = "series-1"
+    spec["edges"][0]["color"] = "series-1"
+    generate
+    refute_match(/label text|color #/, errs.join("\n"))
+  end
+
+  def test_dark_theme_checks_the_dark_tokens
+    write_tokens(TOKENS.sub("--ink: #f1f1ee;", "--ink: #222222;"))
+    spec["theme"] = "dark"
+    generate
+    assert_match(/tokens\.css: dark: --ink on --bg/, errs.join("\n"))
+  end
+
   def test_bottom_inset_comes_from_the_caption_band_and_viewport
     generate
     html = File.read(screen_path)

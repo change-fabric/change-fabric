@@ -37,7 +37,8 @@ module WalkthroughDiagram
   DIRECTIONS = %w[TB LR BT RL].freeze
   ZOOM = (0.2..3.0)
   PADDING = (0.0..1.0)
-  SPEC_FIELDS = %w[layout nodes edges initial steps].freeze
+  SPEC_FIELDS = %w[layout theme nodes edges initial steps].freeze
+  THEMES = %w[light dark].freeze
   # Ops that act on one or more ids (`id` or `ids`), and the kinds of id each
   # may name. add_node fades in nodes and the edges that come with them.
   ID_OPS = { 'add_node' => %i[node edge], 'remove' => %i[node edge], 'connect' => %i[edge], 'highlight' => %i[node edge],
@@ -50,6 +51,9 @@ module WalkthroughDiagram
   # named in PALETTE_ROLES, resolved by DiagramPalette from the light theme.
   PALETTE = { 'surface' => '#ffffff', 'node' => '#f8fafc', 'line' => '#64748b', 'rule' => '#cbd5e1', 'text' => '#0f172a',
               'muted' => '#475569', 'accent' => '#1d4ed8', 'accent-tint' => '#dbeafe' }.freeze
+  # The dark theme's placeholder, for a `theme: dark` scene with no tokens.css.
+  PALETTE_DARK = { 'surface' => '#0f172a', 'node' => '#1e293b', 'line' => '#94a3b8', 'rule' => '#334155', 'text' => '#f1f5f9',
+                   'muted' => '#cbd5e1', 'accent' => '#60a5fa', 'accent-tint' => '#1b2e4b' }.freeze
   PALETTE_ROLES = { 'surface' => '--bg', 'node' => '--surface', 'line' => '--line', 'rule' => '--rule', 'text' => '--ink',
                     'muted' => '--muted', 'accent' => '--accent', 'accent-tint' => '--accent-tint' }.freeze
   # A node's `role` picks its border, fill, and text from the palette.
@@ -57,6 +61,26 @@ module WalkthroughDiagram
   # Pairs DiagramPalette does not check but a diagram node draws: label text
   # on each node fill.
   NODE_CONTRAST = [ %w[--ink --accent-tint], %w[--muted --bg] ].freeze
+  # Item colours: a node, an edge, or a flow step may carry `color`, a named
+  # role or a CSS colour. Each role takes the first of its token names the
+  # walkthrough's tokens.css defines in the scene's theme, else the default
+  # here. `accent` is the palette's own accent. The series roles are a
+  # categorical set, for lanes that should read apart from each other.
+  SERIES = 6
+  ITEM_ROLE_SOURCES = {
+    'success' => %w[--success --ok --positive], 'warning' => %w[--warning --warn --caution],
+    'danger' => %w[--danger --error --destructive --negative]
+  }.merge((1..SERIES).to_h { |i| [ "series-#{i}", %W[--series-#{i} --chart-#{i} --cat-#{i}] ] }).freeze
+  ITEM_DEFAULTS = {
+    light: { 'success' => '#15803d', 'warning' => '#b45309', 'danger' => '#be123c', 'series-1' => '#2563eb', 'series-2' => '#0f766e',
+             'series-3' => '#b45309', 'series-4' => '#7c3aed', 'series-5' => '#be123c', 'series-6' => '#15803d' },
+    dark: { 'success' => '#4ade80', 'warning' => '#fbbf24', 'danger' => '#fb7185', 'series-1' => '#60a5fa', 'series-2' => '#2dd4bf',
+            'series-3' => '#fbbf24', 'series-4' => '#a78bfa', 'series-5' => '#fb7185', 'series-6' => '#4ade80' }
+  }.freeze
+  COLOR_ROLES = ([ 'accent' ] + ITEM_ROLE_SOURCES.keys).freeze
+  CSS_COLOR = /\A(?:#\h{3}|#\h{6}|rgb\(\s*\d{1,3}\s*(?:,\s*|\s+)\d{1,3}\s*(?:,\s*|\s+)\d{1,3}\s*\))\z/
+  # The halo a highlighted coloured node wears: the colour at this share over the background.
+  RING_SHARE = 0.35
 
   module_function
 
@@ -77,12 +101,13 @@ module WalkthroughDiagram
     errs << 'a diagram scene needs screen.html (a generated file)' if scene.dig('screen', 'html').to_s.empty?
     return errs unless errs.empty? && root
 
-    palette_errors(root) + drift_errors(scene, root, board)
+    palette_errors(root, theme(spec)) + item_color_errors(spec, root) + drift_errors(scene, root, board)
   end
 
   def spec_errors(spec, duration_ms)
     errs = (spec.keys - SPEC_FIELDS).empty? ? [] : [ "diagram has unknown keys: #{(spec.keys - SPEC_FIELDS).join(', ')}" ]
     errs.concat(layout_errors(spec['layout']))
+    errs << "diagram.theme must be one of #{THEMES.join(', ')}" if spec.key?('theme') && !THEMES.include?(spec['theme'])
     nodes = list(spec, 'nodes')
     edges = list(spec, 'edges')
     return errs << 'diagram.nodes and diagram.edges must be lists of objects' unless nodes && edges
@@ -133,14 +158,30 @@ module WalkthroughDiagram
     errs << "#{label}: label must be a non-empty string" unless node['label'].is_a?(String) && !node['label'].strip.empty?
     errs << "#{label}: role must be one of #{NODE_ROLES.join(', ')}" if node.key?('role') && !NODE_ROLES.include?(node['role'])
     errs << "#{label}: position must be { x, y } numbers" if node.key?('position') && !point?(node['position'])
-    errs
+    errs.concat(color_value_errors(node, label))
   end
 
   def edge_errors(edge, node_ids)
     label = "diagram edge #{edge['id'].inspect}"
     errs = %w[source target].filter_map { |k| "#{label}: #{k} #{edge[k].inspect} is not a node" unless node_ids.include?(edge[k]) }
     errs << "#{label}: label must be a string" if edge.key?('label') && !edge['label'].is_a?(String)
-    errs
+    errs.concat(color_value_errors(edge, label))
+  end
+
+  # `color` is a COLOR_ROLES name or a CSS colour CSS_COLOR accepts.
+  def color_value_errors(item, label = nil)
+    return [] unless item.key?('color')
+    return [] if color?(item['color'])
+
+    [ [ label, "color must be a role (#{COLOR_ROLES.join(', ')}) or a CSS colour (#rgb, #rrggbb, rgb(r, g, b)), not #{item['color'].inspect}" ].compact.join(': ') ]
+  end
+
+  def color?(value)
+    return false unless value.is_a?(String)
+    return true if COLOR_ROLES.include?(value)
+    return false unless value.match?(CSS_COLOR)
+
+    value.start_with?('#') || value.scan(/\d+/).all? { |n| n.to_i <= 255 }
   end
 
   def point?(value) = value.is_a?(Hash) && value.keys.sort == %w[x y] && value.values.all?(Numeric)
@@ -173,6 +214,7 @@ module WalkthroughDiagram
     errs = []
     errs << 'duration must be a non-negative integer' if step.key?('duration') && !(step['duration'].is_a?(Integer) && !step['duration'].negative?)
     errs.concat(flow_errors(step)) if op == 'flow'
+    errs << 'color is only for flow steps' if step.key?('color') && op != 'flow'
     return errs.concat(id_op_errors(step, ids, ID_OPS[op])) if ID_OPS.key?(op)
 
     case op
@@ -202,7 +244,7 @@ module WalkthroughDiagram
     errs << 'loop must be true or false' if step.key?('loop') && ![ true, false ].include?(step['loop'])
     errs << 'flow takes loop or repeat, not both' if step['loop'] == true && step.key?('repeat')
     errs << 'duration must be positive for flow' if step['duration'] == 0
-    errs
+    errs.concat(color_value_errors(step))
   end
 
   def range?(value, range) = value.is_a?(Numeric) && range.cover?(value)
@@ -253,41 +295,126 @@ module WalkthroughDiagram
   # -- palette -------------------------------------------------------------
 
   # The walkthrough's tokens.css, found the way its tokens_css_sha256 is.
+  def theme(spec) = spec.is_a?(Hash) && spec['theme'] == 'dark' ? :dark : :light
+
   def tokens_path(root)
     require_relative 'walkthrough_storyboard'
     root && WalkthroughStoryboard.canonical_tokens(root)
   end
 
-  # The --cf-* colours for a walkthrough at root: its tokens' light roles,
-  # else the placeholder PALETTE.
-  def palette(root)
+  # The --cf-* colours for a walkthrough at root: its tokens' roles in the
+  # theme, else the theme's placeholder.
+  def palette(root, theme = :light)
+    fallback = theme == :dark ? PALETTE_DARK : PALETTE
     path = tokens_path(root)
-    return PALETTE unless path
+    return fallback unless path
 
-    roles = DiagramPalette.resolve(path).light
+    roles = DiagramPalette.resolve(path).public_send(theme)
     PALETTE_ROLES.transform_values { |role| roles.fetch(role) }
   rescue DiagramPalette::Error
-    PALETTE # palette_errors reports it; the screen still renders
+    fallback # palette_errors reports it; the screen still renders
+  end
+
+  # Each COLOR_ROLES name to its hex in the theme: the token file's first
+  # matching variable (through var() and color-mix), else ITEM_DEFAULTS.
+  def item_roles(root, theme = :light)
+    colors = palette(root, theme)
+    vars = token_vars(root, theme)
+    found = ITEM_ROLE_SOURCES.to_h do |role, names|
+      hit = names.lazy.filter_map { |n| vars[n] && DiagramPalette.color(vars, vars[n]) }.first
+      [ role, hit ? DiagramPalette.hex(hit).downcase : ITEM_DEFAULTS.fetch(theme).fetch(role) ]
+    end
+    { 'accent' => colors['accent'] }.merge(found)
+  end
+
+  def token_vars(root, theme)
+    path = tokens_path(root)
+    return {} unless path
+
+    css = DiagramPalette.strip_comments(File.read(path))
+    light = DiagramPalette.declarations(DiagramPalette.root_block(css))
+    theme == :dark ? light.merge(DiagramPalette.declarations(DiagramPalette.dark_block(css))) : light
+  end
+
+  # One `color` value to { color, tint, ring } hexes over the theme's surface.
+  def item_color(value, roles, surface, theme)
+    hex = roles[value] || css_hex(value)
+    rgb = DiagramPalette.rgb(hex)
+    bg = DiagramPalette.rgb(surface)
+    mix = ->(share) { DiagramPalette.hex(DiagramPalette.mix(rgb, bg, share)).downcase }
+    { 'color' => hex.downcase, 'tint' => mix.(DiagramPalette::TINT_SHARE.fetch(theme)), 'ring' => mix.(RING_SHARE) }
+  end
+
+  def css_hex(value)
+    return "##{value[1..].chars.map { |c| c * 2 }.join}" if value.size == 4
+    return value if value.start_with?('#')
+
+    format('#%02x%02x%02x', *value.scan(/\d+/).map(&:to_i))
+  end
+
+  # The resolved colours the runtime draws, keyed by node id, edge id, and
+  # flow step index; nil when nothing in the spec carries a colour, so such
+  # a screen is written exactly as before colours existed.
+  def item_colors(spec, root)
+    nodes = Array(spec['nodes']).select { |n| color?(n['color']) }
+    edges = Array(spec['edges']).select { |e| color?(e['color']) }
+    steps = Array(spec['steps']).each_with_index.select { |s, _| s['op'] == 'flow' && color?(s['color']) }
+    return nil if nodes.empty? && edges.empty? && steps.empty?
+
+    th = theme(spec)
+    roles = item_roles(root, th)
+    surface = palette(root, th)['surface']
+    at = ->(v) { item_color(v, roles, surface, th) }
+    { 'nodes' => nodes.to_h { |n| [ n['id'], at.(n['color']) ] }, 'edges' => edges.to_h { |e| [ e['id'], at.(e['color']) ] },
+      'steps' => steps.to_h { |s, i| [ i.to_s, at.(s['color']) ] } }
+  end
+
+  # Readability of every coloured item in the scene's theme: a node's label
+  # (the theme's text colour) on its tinted fill clears the WCAG AA text
+  # floor, and an edge or dot colour clears the stroke floor on the surface.
+  def item_color_errors(spec, root)
+    colors = item_colors(spec, root)
+    return [] unless colors
+
+    th = theme(spec)
+    pal = palette(root, th)
+    errs = colors['nodes'].filter_map do |id, c|
+      ratio = DiagramPalette.contrast(pal['text'], c['tint'])
+      "diagram node #{id.inspect}: label text #{pal['text']} on its #{th} fill #{c['tint']} is #{ratio.round(2)}:1, under #{DiagramPalette::TEXT_MIN}" if ratio < DiagramPalette::TEXT_MIN
+    end
+    strokes = colors['nodes'].map { |id, c| [ "node #{id.inspect}", c ] } + colors['edges'].map { |id, c| [ "edge #{id.inspect}", c ] } +
+              colors['steps'].map { |i, c| [ "step #{i}", c ] }
+    errs + strokes.filter_map do |what, c|
+      ratio = DiagramPalette.contrast(c['color'], pal['surface'])
+      "diagram #{what}: color #{c['color']} on the #{th} surface #{pal['surface']} is #{ratio.round(2)}:1, under #{DiagramPalette::STROKE_MIN}" if ratio < DiagramPalette::STROKE_MIN
+    end
   end
 
   # The light theme's contrast floors (DiagramPalette's own checks plus the
   # node fills); an unreadable token file is an error, not a silent default.
-  def palette_errors(root)
+  def palette_errors(root, theme = :light)
     path = tokens_path(root)
     return [] unless path
 
     result = DiagramPalette.resolve(path)
-    roles = result.light
+    roles = result.public_send(theme)
     node = NODE_CONTRAST.filter_map do |fg, bg|
       ratio = DiagramPalette.contrast(roles[fg], roles[bg])
-      "light: #{fg} on #{bg} is #{ratio.round(2)}:1, under #{DiagramPalette::TEXT_MIN}" if ratio < DiagramPalette::TEXT_MIN
+      "#{theme}: #{fg} on #{bg} is #{ratio.round(2)}:1, under #{DiagramPalette::TEXT_MIN}" if ratio < DiagramPalette::TEXT_MIN
     end
-    (result.warnings.grep(/\Alight:/) + node).map { |w| "diagram palette from #{path}: #{w}" }
+    (result.warnings.grep(/\A#{theme}:/) + node).map { |w| "diagram palette from #{path}: #{w}" }
   rescue DiagramPalette::Error => e
     [ "diagram palette from #{path}: #{e.message}" ]
   end
 
   def palette_css(colors) = ":root { #{colors.map { |k, v| "--cf-#{k}: #{v};" }.join(' ')} }"
+
+  # The item colours as JSON for the runtime, or nothing at all when the
+  # spec has none, so an uncoloured screen keeps its bytes.
+  def colors_script(spec, root)
+    colors = spec.is_a?(Hash) && item_colors(spec, root)
+    colors ? %(<script type="application/json" id="cf-diagram-colors">#{JSON.generate(colors)}</script>\n) : ''
+  end
 
   # Where the scene sits in the frame: the bottom inset keeps the camera's
   # fit and focus targets above the caption band players draw cues in.
@@ -308,7 +435,7 @@ module WalkthroughDiagram
       <head>
       <meta charset="utf-8">
       <title>#{title}</title>
-      <style>#{palette_css(palette(root))}</style>
+      <style>#{palette_css(palette(root, theme(scene['diagram'])))}</style>
       </head>
       <body>
       <main id="cf-diagram-root" aria-label="#{title}"></main>
@@ -316,7 +443,7 @@ module WalkthroughDiagram
       #{spec_json(scene['diagram'])}
       </script>
       <script type="application/json" id="cf-diagram-frame">#{JSON.generate(frame(board))}</script>
-      #{script(File.read(XYFLOW_BUNDLE))}
+      #{colors_script(scene['diagram'], root)}#{script(File.read(XYFLOW_BUNDLE))}
       #{script(File.read(RUNTIME))}
       </body>
       </html>
