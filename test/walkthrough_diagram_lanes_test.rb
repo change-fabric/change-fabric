@@ -258,13 +258,47 @@ class WalkthroughDiagramLanesTest < Minitest::Test
     refute WalkthroughAssumptions.diagram_icons?(@board)
   end
 
-  # The lane layer's camera anchors use underscores, which the id rule keeps
-  # out of every authored id, so they can never collide.
+  # Every internal id in the lane layer starts `__cf_`, which the authored
+  # id rule rejects, so none can collide with an authored node.
   def test_lane_anchor_ids_are_reserved
-    anchors = File.read(WalkthroughDiagram::LANES_RUNTIME).scan(/'(__cf_lane_anchor_\w+)'/).flatten
-    assert_equal 2, anchors.size
-    spec["nodes"].first["id"] = anchors.first
+    js = File.read(WalkthroughDiagram::LANES_RUNTIME)
+    internal = js.scan(/'(__cf_[\w-]*)'/).flatten.uniq
+    assert_includes internal, "__cf_lane_anchor_a"
+    assert_includes internal, "__cf_lane_anchor_b"
+    internal.each { |id| refute_match WalkthroughDiagram::ID_RE, id, "#{id} would pass as an authored id" }
+    # The only nodes the layer adds are its anchors.
+    assert_equal [ "ANCHORS[0]", "ANCHORS[1]" ], js.scan(/\{ id: (\w+\[\d\])/).flatten
+    spec["nodes"].first["id"] = internal.first
     assert_match(/must match/, errs)
+  end
+
+  # Property: no string starting with an underscore passes the authored id
+  # rule, whatever follows it.
+  def test_reserved_prefix_property
+    alphabet = [ *"a".."z", *"0".."9", "-", "_" ]
+    (1..50).each do |seed|
+      rng = Random.new(seed)
+      tail = Array.new(rng.rand(0..12)) { alphabet[rng.rand(alphabet.size)] }.join
+      [ "_#{tail}", "__cf_#{tail}" ].each { |id| refute_match WalkthroughDiagram::ID_RE, id, "seed=#{seed}: #{id.inspect} passes ID_RE" }
+    end
+  end
+
+  # Property: the Phosphor notice is needed exactly when an icon sits
+  # anywhere in a diagram spec, on whatever carries it.
+  def test_icon_notice_property
+    (1..50).each do |seed|
+      rng = Random.new(seed)
+      d = scene["diagram"]
+      d["nodes"].each { |n| n.delete("icon") && n.delete("icon_weight") }
+      d["lanes"].each { |l| l.delete("icon") && l.delete("icon_weight") }
+      carriers = d["nodes"] + d["lanes"]
+      placed = carriers.select { rng.rand < 0.15 }
+      placed.each { |c| c["icon"] = "gauge" }
+      assert_equal placed.any?, WalkthroughAssumptions.diagram_icons?(@board), "seed=#{seed}: #{placed.map { |c| c['id'] }}"
+      d["future"] = [ { "icon" => "gauge" } ] if rng.rand < 0.3
+      assert_equal placed.any? || d.key?("future"), WalkthroughAssumptions.diagram_icons?(@board), "seed=#{seed}: a nested icon is missed"
+      d.delete("future")
+    end
   end
 
   # Each lane text box holds its budget exactly and rejects one char more.
