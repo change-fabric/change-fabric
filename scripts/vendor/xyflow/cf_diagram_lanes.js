@@ -387,7 +387,8 @@
     tr.exitMs = EXIT_MS;
     if (next) tr.exitAt = next.enterAt - EXIT_LEAD;
     else if (!tr.id) tr.exitAt = tr.transferAt;
-    else if (report && delivered.length) Object.assign(tr, { exitAt: lastLand + HOLD_MS, exitShift: 0, exitMs: FINAL_FADE_MS });
+    // The closing fade waits for the last landing and for this travel's own end.
+    else if (report && delivered.length) Object.assign(tr, { exitAt: Math.max(lastLand, tr.transferAt) + HOLD_MS, exitShift: 0, exitMs: FINAL_FADE_MS });
     else tr.exitAt = Infinity;
   });
   const slots = Object.fromEntries(delivered.map((tr) => [tr.result, tr]));

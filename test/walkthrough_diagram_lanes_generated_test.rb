@@ -18,10 +18,14 @@ require_relative "support/lane_invariants"
 class WalkthroughDiagramLanesGeneratedTest < Minitest::Test
   FIXTURE = File.expand_path("fixtures/walkthrough/diagram-swimlanes", __dir__)
   DEFAULT_SEEDS = 24
+  # Seeds past the default range that once found a defect, run every time:
+  # 47, a token's last travel without a result starting long after a
+  # report result landed, once hidden before its own ride.
+  REGRESSION_SEEDS = [ 47 ].freeze
   # Specs loaded per browserless session.
   BATCH = 24
 
-  def seeds = (1..Integer(ENV.fetch("CF_LANES_SEEDS", DEFAULT_SEEDS)))
+  def seeds = ((1..Integer(ENV.fetch("CF_LANES_SEEDS", DEFAULT_SEEDS))).to_a | REGRESSION_SEEDS)
 
   def test_generated_specs_hold_the_lane_invariants
     skip "docker not available" unless ChangeDocker.available?

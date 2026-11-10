@@ -95,6 +95,7 @@ module LaneInvariants
       check_panel(test, s, at)
       check_frame(test, s, frame, at)
       check_highlight(test, s, spec, at)
+      check_travels_shown(test, s, spec, at)
     end
   end
 
@@ -146,6 +147,19 @@ module LaneInvariants
              s["tokens"].map { |t| [ "token", t["box"] ] } + s["cards"].map { |c| [ "card #{c['id']}", c["box"] ] } +
              [ s["panel"] && [ "panel", s["panel"] ] ].compact
     things.each { |what, box| test.assert(inside?(box, frame), "#{at}: #{what} #{show(box)} is outside the frame") }
+  end
+
+  # Every token travel shows its token for the middle of its own ride.
+  def check_travels_shown(test, s, spec, at)
+    travels = spec["steps"].select { |st| st["op"] == "travel" }
+    travels.each_with_index do |tr, i|
+      next unless tr["id"]
+
+      mid = tr["t_ms"] + ((tr["duration"] || 700) / 2)
+      next unless (s["t"] - mid).abs < 1
+
+      test.assert(s["tokens"].any? { |t| t["id"] == i.to_s }, "#{at}: travel #{i}'s token is hidden mid-travel")
+    end
   end
 
   def check_highlight(test, s, spec, at)

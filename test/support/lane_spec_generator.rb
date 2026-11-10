@@ -8,7 +8,8 @@ require_relative "../../scripts/walkthrough_diagram"
 # branches on: lane direction, label length (one character, typical, exactly
 # at its budget, CJK at its budget), report on or off, laned and unlaned
 # nodes, icons on or off, zero or more travels (tokens and markers), and an
-# authored highlight on a random checkpoint. Every spec it returns passes
+# authored highlight on a random checkpoint, with
+# travels spaced one or two beats apart. Every spec it returns passes
 # WalkthroughDiagram.spec_errors; a spec that does not is a generator bug.
 class LaneSpecGenerator
   WORDS = %w[load budget scan audit check sweep cases viewport contrast alert report widths clean review merge
@@ -113,9 +114,13 @@ class LaneSpecGenerator
     end
   end
 
+  # Travels start STEP_GAP apart, or sometimes twice that, so a later
+  # travel can start after an earlier result has long landed.
   def travel_steps(lanes, token, results)
-    lanes.each_with_index.map do |l, i|
-      s = { "t_ms" => 300 + (i * STEP_GAP), "op" => "travel", "lane" => l["id"], "duration" => TRAVEL_MS }
+    at = 300 - STEP_GAP
+    lanes.map do |l|
+      at += at + (2 * STEP_GAP) <= 5800 && chance(0.4) ? 2 * STEP_GAP : STEP_GAP
+      s = { "t_ms" => at, "op" => "travel", "lane" => l["id"], "duration" => TRAVEL_MS }
       s["id"] = token["id"] if token
       s["result"] = results[l["id"]]["id"] if results[l["id"]]
       s
