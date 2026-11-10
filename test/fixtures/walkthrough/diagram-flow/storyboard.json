@@ -1,0 +1,111 @@
+{
+  "schema_version": 1,
+  "slug": "diagram-flow",
+  "title": "Data flowing through three services",
+  "viewport": {
+    "w": 1280,
+    "h": 720,
+    "dpr": 1
+  },
+  "fps": 30,
+  "music": null,
+  "scenes": [
+    {
+      "id": "flow",
+      "title": "Data flow",
+      "order": 1,
+      "kind": "diagram",
+      "screen": {
+        "html": "screens/flow.html"
+      },
+      "diagram": {
+        "layout": {
+          "engine": "dagre",
+          "direction": "LR"
+        },
+        "nodes": [
+          {
+            "id": "client",
+            "label": "Browser",
+            "role": "accent"
+          },
+          {
+            "id": "api",
+            "label": "API"
+          },
+          {
+            "id": "db",
+            "label": "Postgres"
+          }
+        ],
+        "edges": [
+          {
+            "id": "e1",
+            "source": "client",
+            "target": "api"
+          },
+          {
+            "id": "e2",
+            "source": "api",
+            "target": "db",
+            "label": "writes"
+          }
+        ],
+        "initial": [
+          "client",
+          "api",
+          "db",
+          "e1",
+          "e2"
+        ],
+        "steps": [
+          {
+            "t_ms": 200,
+            "op": "flow",
+            "id": "e1",
+            "count": 3,
+            "duration": 1000,
+            "stagger": 250
+          },
+          {
+            "t_ms": 1200,
+            "op": "flow",
+            "id": "e2",
+            "count": 2,
+            "duration": 700,
+            "repeat": 2,
+            "stagger": 200
+          },
+          {
+            "t_ms": 1400,
+            "op": "move",
+            "id": "db",
+            "position": {
+              "x": 700,
+              "y": 220
+            },
+            "duration": 600
+          }
+        ]
+      },
+      "narration": {
+        "text": "Requests flow from the browser to the API and on to Postgres.",
+        "measured_ms": 0
+      },
+      "assumptions": [
+        {
+          "id": "A-01",
+          "text": "Every write goes through the API."
+        }
+      ],
+      "timing": {
+        "min_ms": 3400,
+        "pad_ms": 0,
+        "transition": {
+          "type": "cut",
+          "ms": 0
+        }
+      }
+    }
+  ]
+}

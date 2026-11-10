@@ -16,7 +16,7 @@ Exactly one source:
 
 - `--text "<words>"`: one inline passage.
 - `--file <script.txt>`: a script file, read whole and stripped.
-- `--storyboard <storyboard.json>`: every scene with narration text, in `order`; `--scene <id>` narrates just that scene. The voice, model, output format, and settings come from the board's `voice` block.
+- `--storyboard <storyboard.json>`: every scene with narration text, in `order`; `--scene <id>` narrates just that scene. The voice, model, output format, settings, and pronunciation aliases (`voice.pronunciations`) come from the board's `voice` block.
 
 Overrides: `--voice <voice_id>` (required unless the storyboard carries one), `--model <model_id>` (default `eleven_multilingual_v2`), `--format <output_format>` (default `mp3_44100_128`), `--cache <dir>` (default `.cache`).
 
@@ -24,7 +24,7 @@ Overrides: `--voice <voice_id>` (required unless the storyboard carries one), `-
 
 1. Estimate first: add `--estimate-only`. It prints `ElevenLabs estimate: narration $X, ...` for the text not already cached and makes no call. Show it to the user before the paid run.
 2. Run without `--estimate-only`. Each item prints `audio:`, `alignment:`, and `srt:` paths under `<cache>/audio/<audio_key>.*`. A storyboard run prefixes each with `scene <id>:`.
-3. The `audio_key` is a hash of text, voice, model, output format, and settings. A repeat run is a cache hit: no HTTP call and no key needed. A storyboard run shares the walkthrough render's cache, so audio narrated here is reused by `walkthrough_render.rb`.
+3. The `audio_key` is a hash of text, voice, model, output format, settings, and any pronunciation aliases. A repeat run is a cache hit: no HTTP call and no key needed. A storyboard run shares the walkthrough render's cache, so audio narrated here is reused by `walkthrough_render.rb`.
 4. Narration in a walkthrough is present tense, as a shipped product; cf:walkthrough owns that voice rule.
 
 ## Keys

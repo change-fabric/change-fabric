@@ -50,9 +50,10 @@ module ElevenLabs
 
   module_function
 
-  def tts_request(text:, voice_id:, model:, output_format:, settings: nil)
+  def tts_request(text:, voice_id:, model:, output_format:, settings: nil, locator: nil)
     body = { 'text' => text, 'model_id' => model }
     body['voice_settings'] = settings if settings && !settings.empty?
+    body['pronunciation_dictionary_locators'] = [ locator ] if locator
     Request.new(method: :post, path: "/v1/text-to-speech/#{URI.encode_www_form_component(voice_id)}/with-timestamps",
                 query: { 'output_format' => output_format }, body: body)
   end
@@ -86,12 +87,45 @@ module ElevenLabs
     plan
   end
 
+  # Pronunciation aliases: the storyboard's voice.pronunciations as
+  # ElevenLabs alias rules. The voice speaks `say` wherever `text` appears;
+  # the narration text, and so the captions, keep `text`.
+  def pronunciation_rules(pronunciations)
+    Array(pronunciations).map { |p| { 'type' => 'alias', 'string_to_replace' => p['text'], 'alias' => p['say'] } }
+  end
+
+  def add_dictionary_request(rules, key)
+    Request.new(method: :post, path: '/v1/pronunciation-dictionaries/add-from-rules', query: {},
+                body: { 'name' => "cf-#{key[0, 16]}", 'rules' => rules })
+  end
+
+  # The dictionary locator for a set of aliases, created once per distinct
+  # rule set and cached by its content hash, so a re-render reuses it and a
+  # changed alias makes a new one.
+  def dictionary_locator(pronunciations, cache_root:, transport: DEFAULT_TRANSPORT, sleeper: method(:sleep))
+    rules = pronunciation_rules(pronunciations)
+    return nil if rules.empty?
+
+    key = WalkthroughCache.key(pronunciation_rules: rules)
+    path = WalkthroughCache.fetch(cache_root, :pronunciation, key, 'json') do |tmp|
+      data = JSON.parse(perform(add_dictionary_request(rules, key), transport: transport, sleeper: sleeper))
+      locator = { 'pronunciation_dictionary_id' => data.fetch('id'), 'version_id' => data.fetch('version_id') }
+      File.write(tmp, JSON.generate(locator))
+    rescue JSON::ParserError, KeyError => e
+      raise RequestError, "pronunciation dictionary response malformed: #{e.class}"
+    end
+    JSON.parse(File.read(path))
+  end
+
   # Decodes a with-timestamps JSON body into audio bytes, alignment, and the
-  # measured duration from the last character end time.
-  def decode_tts(json_body)
+  # measured duration from the last character end time. With aliases the
+  # normalized alignment spells what was spoken (the alias), so the raw
+  # alignment, which keeps the written text on the spoken timing, is used.
+  def decode_tts(json_body, aliased: false)
     data = JSON.parse(json_body)
     audio = Base64.decode64(data.fetch('audio_base64'))
-    alignment = data['normalized_alignment'] || data['alignment'] ||
+    preferred = aliased ? %w[alignment normalized_alignment] : %w[normalized_alignment alignment]
+    alignment = data.values_at(*preferred).compact.first ||
                 raise(RequestError, 'tts response carried no alignment')
     ends = alignment['character_end_times_seconds'] || []
     { audio: audio, alignment: alignment, measured_ms: ((ends.last || 0) * 1000).round }
@@ -99,24 +133,29 @@ module ElevenLabs
     raise RequestError, "tts response malformed: #{e.class}"
   end
 
-  def audio_key(text:, voice_id:, model:, output_format:, settings: nil)
-    WalkthroughCache.key(text: text, voice_id: voice_id, model: model, output_format: output_format,
-                         settings: settings)
+  # Aliases join the key only when present, so every key made before they
+  # existed still hits.
+  def audio_key(text:, voice_id:, model:, output_format:, settings: nil, pronunciations: nil)
+    parts = { text: text, voice_id: voice_id, model: model, output_format: output_format, settings: settings }
+    parts[:pronunciations] = pronunciation_rules(pronunciations) unless Array(pronunciations).empty?
+    WalkthroughCache.key(parts)
   end
 
   def music_key(music_block, total_ms)
     WalkthroughCache.key(music: music_block, total_ms: total_ms)
   end
 
-  def tts(text:, voice_id:, model:, output_format:, cache_root:, settings: nil, transport: DEFAULT_TRANSPORT,
-          sleeper: method(:sleep))
-    key = audio_key(text: text, voice_id: voice_id, model: model, output_format: output_format, settings: settings)
+  def tts(text:, voice_id:, model:, output_format:, cache_root:, settings: nil, pronunciations: nil,
+          transport: DEFAULT_TRANSPORT, sleeper: method(:sleep))
+    key = audio_key(text: text, voice_id: voice_id, model: model, output_format: output_format, settings: settings,
+                    pronunciations: pronunciations)
     align_path = WalkthroughCache.path(cache_root, :audio, key, 'alignment.json')
     measured = nil
     audio_path = WalkthroughCache.fetch(cache_root, :audio, key, 'mp3') do |tmp|
+      locator = dictionary_locator(pronunciations, cache_root: cache_root, transport: transport, sleeper: sleeper)
       req = tts_request(text: text, voice_id: voice_id, model: model, output_format: output_format,
-                        settings: settings)
-      decoded = decode_tts(perform(req, transport: transport, sleeper: sleeper))
+                        settings: settings, locator: locator)
+      decoded = decode_tts(perform(req, transport: transport, sleeper: sleeper), aliased: !locator.nil?)
       File.binwrite(tmp, decoded[:audio])
       File.write(align_path, JSON.generate(decoded[:alignment]))
       measured = decoded[:measured_ms]
@@ -307,7 +346,7 @@ module ElevenLabs
     end
 
     def cached?(cache, item)
-      key = ElevenLabs.audio_key(**item.slice(:text, :voice_id, :model, :output_format, :settings))
+      key = ElevenLabs.audio_key(**item.slice(:text, :voice_id, :model, :output_format, :settings, :pronunciations))
       File.file?(WalkthroughCache.path(cache, :audio, key, 'mp3'))
     end
 
@@ -329,7 +368,8 @@ module ElevenLabs
       scenes = scenes.select { |sc| sc['id'] == opts[:scene] } if opts[:scene]
       raise UsageError, "no narrated scene #{opts[:scene]}" if scenes.empty?
 
-      scenes.map { |sc| item(sc.dig('narration', 'text'), opts, board['voice'] || {}).merge(label: sc['id'], settings: board.dig('voice', 'settings') || {}) }
+      scenes.map { |sc| item(sc.dig('narration', 'text'), opts, board['voice'] || {}).merge(label: sc['id'], settings: board.dig('voice', 'settings') || {},
+                                                                    pronunciations: board.dig('voice', 'pronunciations')) }
     end
 
     def item(text, opts, board_voice)

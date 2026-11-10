@@ -122,6 +122,51 @@ class WalkthroughDiagramCaptureTest < Minitest::Test
     end
   end
 
+  # flow dots under the virtual clock: none before the step or after the
+  # last run, eased progress that only moves forward along the edge, each dot
+  # on the edge's own path even while a node moves, and the same placement
+  # on a second run.
+  def test_flow_dots_glide_along_their_edge_deterministically
+    skip "docker not available" unless ChangeDocker.available?
+
+    Dir.mktmpdir do |root|
+      FileUtils.cp_r("#{File.expand_path('fixtures/walkthrough/diagram-flow', __dir__)}/.", root)
+      board = WalkthroughStoryboard.load(File.join(root, "storyboard.json"))
+      WalkthroughDiagram.write_screens(board, root)
+      assert_empty WalkthroughStoryboard.validate(board, root: root)
+      scene = board["scenes"].first
+      html = PrototypeCapture.inline_screen(File.join(root, scene.dig("screen", "html")), root: root)
+      duration = PrototypeCapture.scene_duration(scene)
+      runs = ChangeDocker.with_browserless(network: nil) do |session|
+        2.times.map { probe(session, html, board["viewport"], duration, flow: true) }
+      end
+      # The probe samples without waiting on a painted frame, so React Flow
+      # can be mid re-render of its edge layer on a sample right after a
+      # move settles; compare the samples where both runs have their edges.
+      assert_equal runs[0], runs[1], "flow dots differ between runs"
+      samples = runs[0]
+      at = ->(t) { samples.min_by { |s| (s["t"] - t).abs } }
+      dots = ->(t, edge) { at.(t)["flows"].fetch(edge, []) }
+
+      assert_empty dots.(150, "e1"), "no dot before the step"
+      assert_equal 3, dots.(800, "e1").size, "three staggered dots mid-flow"
+      assert_empty dots.(1800, "e1"), "dots gone after the run"
+      # The lead dot advances along the edge, eased: slow, fast, slow.
+      lead = (200..1190).step(10).map { |t| dots.(t, "e1").first }.compact.map { |d| d["frac"] }
+      assert lead.each_cons(2).all? { |a, b| b >= a - 1e-6 }, "progress only moves forward"
+      assert_operator lead.first, :<, 0.05
+      assert_operator lead.last, :>, 0.95
+      # Two runs of two dots on e2, the second batch after the first.
+      assert_operator dots.(2300, "e2").size, :>, 0, "second repeat runs"
+      assert_empty dots.(3200, "e2"), "repeat 2 ends"
+      # While db moves, every e2 dot sits on the path as drawn that frame.
+      assert_operator dots.(1700, "e2").size, :>, 0, "dots stay on screen while a node moves"
+      (1400..2000).step(10).each do |t|
+        dots.(t, "e2").each { |d| assert_operator d["off"], :<, 0.5, "dot left its edge at #{t} ms" }
+      end
+    end
+  end
+
   def test_a_screen_that_never_gets_ready_fails_loudly
     skip "docker not available" unless ChangeDocker.available?
 
@@ -169,7 +214,27 @@ class WalkthroughDiagramCaptureTest < Minitest::Test
   STEP_MS = 10
 
   # Node rects (viewport px), flow-space centres, and opacity every STEP_MS.
-  def probe(session, html, viewport, duration_ms)
+  FLOW_PROBE = <<~JS
+    const flows = {};
+    for (const edge of document.querySelectorAll('.react-flow__edge')) {
+      const path = edge.querySelector('.react-flow__edge-path');
+      const len = path.getTotalLength();
+      flows[edge.dataset.id] = [...edge.querySelectorAll('g.cf-flow > g')].map((dot) => {
+        const m = dot.getAttribute('transform').match(/translate\\(([-\\d.]+) ([-\\d.]+)\\)/);
+        const x = Number(m[1]); const y = Number(m[2]);
+        let best = { off: Infinity, frac: 0 };
+        for (let i = 0; i <= 400; i += 1) {
+          const p = path.getPointAtLength((len * i) / 400);
+          const off = Math.hypot(p.x - x, p.y - y);
+          if (off < best.off) best = { off, frac: i / 400 };
+        }
+        return { frac: best.frac, off: Math.min(best.off, 99), alpha: Number(dot.getAttribute('opacity')) };
+      });
+    }
+    out.flows = flows;
+  JS
+
+  def probe(session, html, viewport, duration_ms, flow: false)
     code = <<~JS
       export default async function ({ page }) {
         await page.setViewport({ width: #{viewport['w']}, height: #{viewport['h']}, deviceScaleFactor: 1 });
@@ -177,6 +242,12 @@ class WalkthroughDiagramCaptureTest < Minitest::Test
         await page.waitForFunction('window.__cfDiagramReady === true', { timeout: 20000 });
         const samples = [];
         for (let t = 0; t <= #{duration_ms}; t += #{STEP_MS}) {
+          // A flow probe waits two painted frames after each advance, as the
+          // capture does, so React Flow has redrawn edges a move reshaped.
+          if (#{flow} && t > 0) {
+            await page.evaluate((step) => window.__cfAdvance(step), #{STEP_MS});
+            await page.evaluate(() => new Promise((r) => (window.__cfRealRaf || requestAnimationFrame)(() => (window.__cfRealRaf || requestAnimationFrame)(r))));
+          }
           samples.push(await page.evaluate((step) => {
             if (step) window.__cfAdvance(step);
             const nodes = [...document.querySelectorAll('.react-flow__node')].map((el) => {
@@ -184,8 +255,10 @@ class WalkthroughDiagramCaptureTest < Minitest::Test
               const m = el.style.transform.match(/translate\\(([-\\d.]+)px, ([-\\d.]+)px\\)/);
               return { id: el.dataset.id, opacity: Number(el.style.opacity || 0), top: r.top, bottom: r.bottom, flow: m ? [Number(m[1]) + el.offsetWidth / 2, Number(m[2]) + el.offsetHeight / 2] : null };
             });
-            return { t: performance.now(), nodes };
-          }, t === 0 ? 0 : #{STEP_MS}));
+            const out = { t: performance.now(), nodes };
+            #{FLOW_PROBE if flow}
+            return out;
+          }, t === 0 || #{flow} ? 0 : #{STEP_MS}));
         }
         return { data: samples, type: 'application/json' };
       }

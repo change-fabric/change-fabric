@@ -25,6 +25,8 @@
 
 `review` declares what the walkthrough is for; cf:roast judges against it (a purpose test over each outcome) and refuses to run without a non-empty `audience` and `purpose`. `kind` is `explainer` (no call to action required unless a purpose asks), `promo` (keeps the what, who, next-step test), or `demo` (must show the thing running). `validate` checks the shape when present and only warns when `review` is absent. CLI `--kind`, `--audience`, `--purpose` on roast.rb override it, and it overrides `change_config.design.roast.kind` and `.audience`.
 
+`voice.pronunciations` is an optional list of aliases, `[{ "text": "CHANGE.md", "say": "change dot M D" }]`: the voice speaks `say` wherever `text` appears, while the narration text and the captions keep `text` (caption timing follows the spoken alias). Each `text` and `say` is a non-empty string and each `text` appears once. They become an ElevenLabs pronunciation dictionary of alias rules, created once per distinct rule set (cached under `.cache/pronunciation/` by content hash, no charge) and sent with every narration request; verified on `eleven_multilingual_v2`. Aliases are part of `audio_key`, so adding or changing one re-voices every narrated scene.
+
 `voice.eq` is optional narration EQ applied to the narration bus before the music duck: `"warm"` or `{ "low_shelf_hz": 150, "low_shelf_db": 3, "cut_hz": 3500, "cut_db": -2.5 }` (each hz/db pair optional but all-or-nothing, 20-20000 Hz, +-24 dB); it changes the manifest hash and so re-assembles, never `audio_key`.
 
 `music` may be `null` for a narration-only walkthrough.
@@ -297,6 +299,7 @@ Ops (closed set, `WalkthroughDiagram::DIAGRAM_OPS`). Ops marked "id or ids" take
 | `dim` | id or ids | nodes, edges | Opacity 0.35; clears `highlight`. |
 | `unhighlight` | id or ids | nodes, edges | Clears both `highlight` and `dim`. |
 | `pulse_edge` | id or ids, `duration` (default 800) | edges | The stroke swells and settles once, highlighted while it runs. |
+| `flow` | id or ids, `count` (1..8, default 3), `duration` (per dot, default 1200), `stagger` (ms between dots, default `duration / count`), `repeat` (default 1) or `loop: true` | edges | Small glowing dots glide along the edge from source to target, eased in and out, in the accent colour with an accent-tint halo. Placed on the edge's drawn path each frame from the capture clock (not SVG or CSS animation), so they follow the edge when a node moves. `loop` runs to the scene's end; `repeat` replays the batch. |
 | `move` | `id`, `position` `{x, y}`, `duration` | node | Tweens the node to the new top-left. |
 | `label` | `id`, `text` (string) | node | Replaces the node's text; the width was sized for it already. |
 | `fit_view` | `ids` (optional), `padding` (0..1, default 0.2), `duration` | nodes | Fits the camera to `ids`, or to the nodes visible when the step ends; zoom at most 1.25. |
@@ -332,7 +335,7 @@ All keys are sha256 hex over canonical JSON (sorted keys, no whitespace).
 - `frames_key` (compose scene): the compose spec, the template version, the source scene's frames key, and the same capture fields as a live scene.
 - `frames_key` (live scene): URL, devices with their specs, layout, the browser frame when set, the persona name and login spec (env names, never values), the session parent's frames key, interactions, `wait`, `storage`, viewport, fps, the derived duration, `browser`, the browserless image digest, and the live capture version. It recaptures only with `--recapture` or `--scene` (which pulls in its `session_from_scene` dependents).
 - `frames_key`: screen html sha256, the inlined screen with every local asset, `tokens_css_sha256`, interactions, viewport, fps, the browserless image digest, the capture script version, the derived duration, the seed sha256, the mock-store.js sha256, the resolved starting state, and `prng_seed`; an environment scene adds the desktop kit `VERSION` and the browser frame when set; a diagram scene adds the xyflow bundle sha256 and the diagram runtime sha256.
-- `audio_key`: narration text, voice id, model, output format, and voice settings.
+- `audio_key`: narration text, voice id, model, output format, voice settings, and `voice.pronunciations` when present.
 - `asset_key` (images): prompt, model id, size, quality, and reference image digests.
 - `broll_key` (ai-broll): source image digest, prompt, seconds, model id, resolution, and aspect ratio. An ai-broll scene's `frames_key` hashes the clip key (or, for a fallback, the source image digest and mode), the viewport, fps, frame count, and the FFmpeg image digest.
 - `music_key`: the music block and the total timeline duration.
