@@ -300,6 +300,9 @@
   }
 
   for (const n of spec.nodes) if (pos[n.id]) n.position = { x: Math.round(pos[n.id].x), y: Math.round(pos[n.id].y) };
+  // The runtime sizes each checkpoint's node, handles, and edges to the
+  // checkpoint width, not its label.
+  for (const id of laned) if (checkpoint(id)) nodeById[id].cf_width = CHECK_W;
   spec.initial = (spec.initial || []).filter((id) => !owned.has(id));
   steps.forEach((s, i) => {
     if (s.op === 'travel') steps[i] = { t_ms: s.t_ms, op: 'add_node', ids: [] };
@@ -433,7 +436,7 @@ body { background: var(--cf-surface, #ffffff); }
 .cf-lanes[data-dir="horizontal"] .cf-lane-label svg { width: 22px; height: 22px; margin-right: 8px; vertical-align: -4px; }
 .react-flow__node[data-id^="cf-lane-anchor-"] .cf-node { visibility: hidden; }
 #cf-diagram-root .cf-node { font-size: 19px; }
-${laned.filter(checkpoint).map((id) => `.react-flow__node[data-id="${CSS.escape(id)}"] .cf-node { width: ${CHECK_W}px !important; white-space: nowrap; }`).join('\n')}
+${laned.filter(checkpoint).map((id) => `.react-flow__node[data-id="${CSS.escape(id)}"] .cf-node { white-space: nowrap; }`).join('\n')}
 .cf-lane-panel { box-sizing: border-box; border: 1px solid; border-radius: 14px; padding: ${PANEL_PAD}px; }
 .cf-lane-panel-head { height: ${PANEL_HEAD}px; color: var(--cf-text, #0f172a); font: 600 22px/28px system-ui, sans-serif; white-space: nowrap; }
 .cf-lane-badge { margin-left: 10px; padding: 2px 10px; border-radius: 999px; font: 600 16px/22px system-ui, sans-serif;

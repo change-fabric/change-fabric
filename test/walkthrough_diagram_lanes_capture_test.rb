@@ -72,7 +72,8 @@ class WalkthroughDiagramLanesCaptureTest < Minitest::Test
   # a vertical lane's rail fits the token's full width inside its band; a
   # result with no report panel lands inside the opening frame even when it
   # sits far right of the lanes; and a highlight step on one checkpoint keeps
-  # its accent border while its own lane is idle.
+  # its accent border while its own lane is idle, with its React Flow node
+  # and handles as wide as the card.
   def test_vertical_rails_standalone_results_and_node_highlight
     skip "docker not available" unless ChangeDocker.available?
 
@@ -111,6 +112,10 @@ class WalkthroughDiagramLanesCaptureTest < Minitest::Test
       assert_operator card["left"], :>=, -EPS, "the standalone result lands off screen"
       assert_operator card["right"], :<=, board["viewport"]["w"] + EPS, "the standalone result lands off screen"
 
+      h["checks"].each do |id, c|
+        assert_in_delta c["right"], c["wrap"]["right"], 1, "#{id}'s React Flow node is narrower than its card"
+        assert_in_delta c["right"], (c["handle"]["left"] + c["handle"]["right"]) / 2, 8, "#{id}'s right handle sits inside its card"
+      end
       refute_equal h["border"]["check-ux"], h["border"]["check-cases"], "the highlighted checkpoint loses its accent border"
       refute_equal "none", h["shadow"]["check-cases"], "the highlighted checkpoint loses its halo"
     end
@@ -143,6 +148,9 @@ class WalkthroughDiagramLanesCaptureTest < Minitest::Test
             const inner = el.querySelector('.cf-node');
             const cs = getComputedStyle(inner);
             checks[el.dataset.id] = box(inner);
+            checks[el.dataset.id].wrap = box(el);
+            const handle = el.querySelector('.react-flow__handle-right');
+            checks[el.dataset.id].handle = handle ? box(handle) : null;
             border[el.dataset.id] = cs.borderTopColor;
             shadow[el.dataset.id] = cs.boxShadow;
           }

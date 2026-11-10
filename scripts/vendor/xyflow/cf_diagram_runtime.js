@@ -126,7 +126,10 @@ html, body, #cf-diagram-root { margin: 0; width: 100%; height: 100%; }
 
   // Width from the longest text the node ever shows, by character count, so
   // a relabel never reflows and no measurement is needed.
+  // A layer inlined before this runtime may fix a node's width as
+  // `cf_width`; no authored spec carries it.
   const WIDTH = Object.fromEntries(spec.nodes.map((n) => {
+    if (n.cf_width) return [n.id, n.cf_width];
     const texts = [n.label || ''].concat(steps.filter((s) => s.op === 'label' && s.id === n.id).map((s) => s.text || ''));
     const chars = Math.max(...texts.map((x) => x.length));
     // An icon widens the node by its own width, so the label keeps its room.
