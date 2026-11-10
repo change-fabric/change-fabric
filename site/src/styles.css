@@ -55,6 +55,7 @@
   --border-strong-text: var(--text);
   --porcupine-bezel: var(--plum);
   --porcupine-bezel-text: var(--cream);
+  --faux3-mark-ink: var(--heading);
   color-scheme: light;
 }
 
@@ -99,6 +100,7 @@
     --border-strong-text: var(--text);
     --porcupine-bezel: color-mix(in srgb, var(--cream) 16%, var(--plum));
     --porcupine-bezel-text: var(--cream);
+    --faux3-mark-ink: var(--accent);
     color-scheme: dark;
   }
 }
@@ -142,6 +144,7 @@
   --border-strong-text: var(--text);
   --porcupine-bezel: color-mix(in srgb, var(--cream) 16%, var(--plum));
   --porcupine-bezel-text: var(--cream);
+  --faux3-mark-ink: var(--accent);
   color-scheme: dark;
 }
 
@@ -2890,20 +2893,22 @@ code {
   text-underline-offset: 0.2em;
 }
 
-/* faux3: no logo of its own yet, so the neutral Docker mark stands in where
-   moose and porcupine show theirs. */
-.faux3 .faux3-hub-mark {
-  color: var(--panel-text);
+/* faux3: the boat mark is inline SVG painted from --faux3-mark-ink (heading
+   ink in light, lifted lilac in dark), and panel text inside the dark hub. */
+.faux3-mark {
+  flex: none;
+  fill: var(--faux3-mark-ink);
 }
 
-.faux3-pair-mark {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 48px;
-  height: 48px;
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius);
+.project-hub .faux3-mark {
+  fill: var(--panel-text);
+}
+
+@media (forced-colors: active) {
+  .faux3-mark,
+  .project-hub .faux3-mark {
+    fill: CanvasText;
+  }
 }
 
 .faux3-scope {

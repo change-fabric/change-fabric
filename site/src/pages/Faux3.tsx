@@ -2,14 +2,11 @@ import type { ReactNode } from "react";
 import { Layout } from "../components/Layout";
 import { CodeBlock } from "../components/CodeBlock";
 import { Mark } from "../components/Logo";
+import { Faux3Mark } from "../components/Faux3Mark";
 
 const FAUX3_REPO_URL = "https://github.com/change-fabric/faux3";
 const README_URL = `${FAUX3_REPO_URL}#readme`;
 const ROADMAP_URL = `${FAUX3_REPO_URL}/blob/main/ROADMAP.md`;
-
-// faux3 has no logo of its own yet, so the page uses the neutral Docker mark
-// (a CC0 Simple Icon in public/brand/tech) wherever moose and porcupine show
-// theirs, rather than inventing one.
 
 // The nine S3 operations faux3 answers, grouped like the homepage lanes.
 const OPERATIONS = [
@@ -77,9 +74,10 @@ export function Faux3() {
           <p className="hero-eyebrow">
             Related project / Open source <span className="status-tag">v0.1.0</span>
           </p>
-          <h1 id="faux3-title">
-            S3 without the cloud.
-          </h1>
+          <div className="project-hero-head">
+            <Faux3Mark size={96} label="faux3 logo" />
+            <h1 id="faux3-title">S3 without the cloud.</h1>
+          </div>
           <p className="hero-copy">
             One container. One volume. One S3 endpoint. No AWS required. faux3 is a lightweight, open-source, S3-compatible object storage server for local
             development with Docker. Point the AWS SDK or AWS CLI you already use at it by changing only
@@ -116,7 +114,7 @@ export function Faux3() {
                 <span className="project-link-arrow" aria-hidden="true" />
               </p>
               <div className="project-hub">
-                <span className="tech-mark tech-docker faux3-hub-mark" aria-hidden="true" />
+                <Faux3Mark size={56} />
                 <span className="project-hub-title">faux3</span>
                 <span className="project-hub-sub">One container on port 9000</span>
               </div>
@@ -238,9 +236,7 @@ export function Faux3() {
             </div>
             <ul className="project-pair">
               <li>
-                <span className="faux3-pair-mark" aria-hidden="true">
-                  <span className="tech-mark tech-docker" />
-                </span>
+                <Faux3Mark size={48} />
                 <span className="project-pair-name">faux3</span>
                 <span className="project-pair-sub">S3 on your machine</span>
               </li>
