@@ -1,0 +1,381 @@
+{
+  "schema_version": 1,
+  "slug": "diagram-swimlanes",
+  "title": "A pull request crosses five audit lanes",
+  "viewport": {
+    "w": 1280,
+    "h": 720,
+    "dpr": 1
+  },
+  "fps": 30,
+  "music": null,
+  "scenes": [
+    {
+      "id": "swimlanes",
+      "title": "Audit swimlanes",
+      "order": 1,
+      "kind": "diagram",
+      "screen": {
+        "html": "screens/swimlanes.html"
+      },
+      "diagram": {
+        "layout": {
+          "engine": "manual"
+        },
+        "theme": "dark",
+        "lanes": [
+          {
+            "id": "load",
+            "label": "Load",
+            "color": "#f2b85b",
+            "icon": "gauge"
+          },
+          {
+            "id": "a11y",
+            "label": "Accessibility",
+            "color": "#6fb7f0",
+            "icon": "wheelchair"
+          },
+          {
+            "id": "security",
+            "label": "Security",
+            "color": "#f07f9b",
+            "icon": "shield-check"
+          },
+          {
+            "id": "ux",
+            "label": "Responsive UX",
+            "color": "#4fc4b0",
+            "icon": "devices"
+          },
+          {
+            "id": "cases",
+            "label": "Test cases",
+            "color": "#9ea39b",
+            "icon": "test-tube"
+          }
+        ],
+        "nodes": [
+          {
+            "id": "check-load",
+            "label": "Load budget",
+            "lane": "load",
+            "position": {
+              "x": 200,
+              "y": 0
+            },
+            "color": "#f2b85b"
+          },
+          {
+            "id": "check-a11y",
+            "label": "axe-core scan",
+            "lane": "a11y",
+            "position": {
+              "x": 320,
+              "y": 0
+            },
+            "color": "#6fb7f0"
+          },
+          {
+            "id": "check-security",
+            "label": "ZAP baseline",
+            "lane": "security",
+            "position": {
+              "x": 440,
+              "y": 0
+            },
+            "color": "#f07f9b"
+          },
+          {
+            "id": "check-ux",
+            "label": "Viewport sweep",
+            "lane": "ux",
+            "position": {
+              "x": 560,
+              "y": 0
+            },
+            "color": "#4fc4b0"
+          },
+          {
+            "id": "check-cases",
+            "label": "Committed cases",
+            "lane": "cases",
+            "position": {
+              "x": 680,
+              "y": 0
+            },
+            "color": "#9ea39b"
+          },
+          {
+            "id": "pr",
+            "label": "PR #42",
+            "role": "accent",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "icon": "git-pull-request"
+          },
+          {
+            "id": "report",
+            "label": "Report",
+            "position": {
+              "x": 1080,
+              "y": 20
+            }
+          },
+          {
+            "id": "f-load",
+            "label": "p95 412 ms",
+            "color": "success",
+            "position": {
+              "x": 1080,
+              "y": 60
+            }
+          },
+          {
+            "id": "f-a11y",
+            "label": "2 contrast issues",
+            "color": "warning",
+            "position": {
+              "x": 1080,
+              "y": 160
+            }
+          },
+          {
+            "id": "f-security",
+            "label": "1 medium alert",
+            "color": "danger",
+            "position": {
+              "x": 1080,
+              "y": 260
+            }
+          },
+          {
+            "id": "f-cases",
+            "label": "48 of 48 pass",
+            "color": "success",
+            "position": {
+              "x": 1080,
+              "y": 360
+            }
+          }
+        ],
+        "edges": [],
+        "initial": [
+          "check-load",
+          "check-a11y",
+          "check-security",
+          "check-ux",
+          "check-cases",
+          "report"
+        ],
+        "steps": [
+          {
+            "t_ms": 200,
+            "op": "add_node",
+            "id": "pr"
+          },
+          {
+            "t_ms": 200,
+            "op": "highlight",
+            "ids": [
+              "load",
+              "check-load"
+            ]
+          },
+          {
+            "t_ms": 200,
+            "op": "travel",
+            "id": "pr",
+            "lane": "load",
+            "duration": 900
+          },
+          {
+            "t_ms": 1100,
+            "op": "unhighlight",
+            "ids": [
+              "load",
+              "check-load"
+            ]
+          },
+          {
+            "t_ms": 1100,
+            "op": "add_node",
+            "id": "f-load"
+          },
+          {
+            "t_ms": 1100,
+            "op": "move",
+            "id": "f-load",
+            "position": {
+              "x": 1080,
+              "y": 140
+            },
+            "duration": 400
+          },
+          {
+            "t_ms": 1200,
+            "op": "highlight",
+            "ids": [
+              "a11y",
+              "check-a11y"
+            ]
+          },
+          {
+            "t_ms": 1200,
+            "op": "travel",
+            "id": "pr",
+            "lane": "a11y",
+            "duration": 900
+          },
+          {
+            "t_ms": 2100,
+            "op": "unhighlight",
+            "ids": [
+              "a11y",
+              "check-a11y"
+            ]
+          },
+          {
+            "t_ms": 2100,
+            "op": "add_node",
+            "id": "f-a11y"
+          },
+          {
+            "t_ms": 2100,
+            "op": "move",
+            "id": "f-a11y",
+            "position": {
+              "x": 1080,
+              "y": 240
+            },
+            "duration": 400
+          },
+          {
+            "t_ms": 2200,
+            "op": "highlight",
+            "ids": [
+              "security",
+              "check-security"
+            ]
+          },
+          {
+            "t_ms": 2200,
+            "op": "travel",
+            "id": "pr",
+            "lane": "security",
+            "duration": 900
+          },
+          {
+            "t_ms": 3100,
+            "op": "unhighlight",
+            "ids": [
+              "security",
+              "check-security"
+            ]
+          },
+          {
+            "t_ms": 3100,
+            "op": "add_node",
+            "id": "f-security"
+          },
+          {
+            "t_ms": 3100,
+            "op": "move",
+            "id": "f-security",
+            "position": {
+              "x": 1080,
+              "y": 340
+            },
+            "duration": 400
+          },
+          {
+            "t_ms": 3200,
+            "op": "highlight",
+            "ids": [
+              "ux",
+              "check-ux"
+            ]
+          },
+          {
+            "t_ms": 3200,
+            "op": "travel",
+            "id": "pr",
+            "lane": "ux",
+            "duration": 900
+          },
+          {
+            "t_ms": 4100,
+            "op": "unhighlight",
+            "ids": [
+              "ux",
+              "check-ux"
+            ]
+          },
+          {
+            "t_ms": 4200,
+            "op": "highlight",
+            "ids": [
+              "cases",
+              "check-cases"
+            ]
+          },
+          {
+            "t_ms": 4200,
+            "op": "travel",
+            "id": "pr",
+            "lane": "cases",
+            "duration": 900
+          },
+          {
+            "t_ms": 5100,
+            "op": "unhighlight",
+            "ids": [
+              "cases",
+              "check-cases"
+            ]
+          },
+          {
+            "t_ms": 5100,
+            "op": "add_node",
+            "id": "f-cases"
+          },
+          {
+            "t_ms": 5100,
+            "op": "move",
+            "id": "f-cases",
+            "position": {
+              "x": 1080,
+              "y": 440
+            },
+            "duration": 400
+          },
+          {
+            "t_ms": 5300,
+            "op": "highlight",
+            "id": "report"
+          }
+        ]
+      },
+      "narration": {
+        "text": "A pull request crosses every audit lane, and each lane drops its findings into the report.",
+        "measured_ms": 0
+      },
+      "assumptions": [
+        {
+          "id": "A-01",
+          "text": "Each lane runs in turn for the demo."
+        }
+      ],
+      "timing": {
+        "min_ms": 6000,
+        "pad_ms": 0,
+        "transition": {
+          "type": "cut",
+          "ms": 0
+        }
+      }
+    }
+  ]
+}
