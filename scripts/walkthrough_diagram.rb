@@ -4,6 +4,7 @@ require 'digest'
 require 'fileutils'
 require 'json'
 require_relative 'diagram_palette'
+require_relative 'diagram_text_fit'
 require_relative 'prototype_ux_lint'
 
 # Diagram scenes for cf:walkthrough: a full-frame React Flow diagram built and
@@ -160,6 +161,7 @@ module WalkthroughDiagram
     end
     errs.concat(steps_errors(spec['steps'] || [], ids, duration_ms))
     errs.concat(owned_errors(spec, nodes, edges))
+    errs.concat(fit_errors(spec, nodes, lanes))
   end
 
   def list(spec, key)
@@ -363,6 +365,69 @@ module WalkthroughDiagram
       errs << "diagram step #{i}: #{s['op']} names #{named.join(', ')}, which a travel draws" unless named.empty?
     end
     errs
+  end
+
+  # Every text the lane layer draws fits its box by DiagramTextFit's rule,
+  # or the spec is rejected: a checkpoint label wraps to its line cap, and
+  # every other lane text holds one line. Nothing is ever cut off.
+  def fit_errors(spec, nodes, lanes)
+    return [] if lanes.empty?
+
+    fit = DiagramTextFit::FIT
+    by_id = nodes.to_h { |n| [ n['id'], n ] }
+    travels = Array(spec['steps']).grep(Hash).select { |s| s['op'] == 'travel' }
+    horizontal = spec['lane_direction'] != 'vertical'
+    errs = []
+    lanes.each do |l|
+      errs.concat(line_errors("diagram lane #{l['id'].inspect}: label", l['label'], 'lane_label', icon: l['icon']))
+    end
+    if horizontal
+      nodes.select { |n| n['lane'] && lanes.any? { |l| l['id'] == n['lane'] } }.each do |n|
+        texts = [ n['label'] ] + Array(spec['steps']).grep(Hash).select { |s| s['op'] == 'label' && s['id'] == n['id'] }.map { |s| s['text'] }
+        texts.grep(String).each do |text|
+          f = fit['checkpoint']
+          used = DiagramTextFit.lines(text, f['font'], DiagramTextFit.room('checkpoint', icon: n['icon'])).size
+          next if used <= f['lines']
+
+          errs << "diagram node #{n['id'].inspect}: checkpoint label #{text.inspect} wraps to #{used} lines at #{f['font']}px; " \
+                  "the budget is #{f['lines']} lines of #{DiagramTextFit.room('checkpoint', icon: n['icon'])}px"
+        end
+      end
+    end
+    travels.filter_map { |s| s['id'] }.uniq.each do |id|
+      n = by_id[id]
+      errs.concat(line_errors("diagram node #{id.inspect}: token label", n['label'], 'token', icon: n['icon'])) if n
+    end
+    errs.concat(report_fit_errors(spec, by_id, lanes, travels)) if horizontal && spec['report'].is_a?(Hash)
+    errs
+  end
+
+  # A report row holds its result's label and its lane's name on one line;
+  # the head holds the report label and its count badge.
+  def report_fit_errors(spec, by_id, lanes, travels)
+    lane_by = lanes.to_h { |l| [ l['id'], l ] }
+    delivered = travels.select { |s| s['result'] && by_id[s['result']] }
+    errs = delivered.flat_map do |s|
+      lane = lane_by[s['lane']]
+      aside = lane && lane['label'].is_a?(String) ? lane['label'] : ''
+      line_errors("diagram node #{s['result'].inspect}: report row", by_id[s['result']]['label'], 'report_row', aside: aside)
+    end
+    report = spec['report']
+    badge = "#{delivered.size}/#{delivered.size} #{report['unit'].is_a?(String) ? report['unit'] : 'checks'}"
+    errs + line_errors('diagram.report: label', report['label'], 'report_head', aside: badge)
+  end
+
+  def line_errors(what, text, box, icon: nil, aside: nil)
+    return [] unless text.is_a?(String)
+
+    f = DiagramTextFit::FIT.fetch(box)
+    room = DiagramTextFit.room(box, icon: icon)
+    room -= DiagramTextFit.width(aside, f['aside_font']) + f['aside_pad'] if aside
+    wide = DiagramTextFit.width(text, f['font'])
+    return [] if wide <= room
+
+    [ "#{what} #{text.inspect} is #{wide.round}px wide at #{f['font']}px; the budget is #{room.round}px " \
+      "(about #{DiagramTextFit.chars(room, f['font'])} chars)" ]
   end
 
   def range?(value, range) = value.is_a?(Numeric) && range.cover?(value)

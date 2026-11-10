@@ -267,6 +267,41 @@ class WalkthroughDiagramLanesTest < Minitest::Test
     assert_match(/must match/, errs)
   end
 
+  # Each lane text box holds its budget exactly and rejects one char more.
+  def test_text_budgets_pass_at_budget_and_fail_one_over
+    node = ->(id) { spec["nodes"].find { |n| n["id"] == id } }
+    lane = spec["lanes"].find { |l| l["id"] == "load" }
+    lane.delete("icon")
+    at_budget = lambda do |box, font, aside: 0|
+      "x" * DiagramTextFit.chars(DiagramTextFit.room(box) - aside, font)
+    end
+    cases = {
+      "lane_label" => [ ->(t) { lane["label"] = t }, -> { at_budget.("lane_label", 22) }, 'diagram lane "load": label' ],
+      "token" => [ ->(t) { node.("pr")["label"] = t }, -> { at_budget.("token", 17) }, 'diagram node "pr": token label' ],
+      "report_row" => [ ->(t) { node.("f-load")["label"] = t },
+                        -> { at_budget.("report_row", 18, aside: DiagramTextFit.width(lane["label"], 15)) },
+                        'diagram node "f-load": report row' ],
+      "report_head" => [ ->(t) { spec["report"]["label"] = t },
+                         -> { at_budget.("report_head", 22, aside: DiagramTextFit.width("5/5 checks", 16) + 32) },
+                         "diagram.report: label" ]
+    }
+    cases.each do |box, (set, text, msg)|
+      %w[pr f-load].each { |id| node.(id).delete("icon") }
+      set.(text.call)
+      refute_includes errs, msg, "#{box} at budget"
+      set.("#{text.call}x")
+      assert_match(/#{Regexp.escape(msg)} "x+" is \d+px wide at \d+px; the budget is \d+px \(about \d+ chars\)/, errs, box)
+      set.("ok")
+    end
+    check = node.("check-load")
+    check.delete("icon")
+    two = "#{'a' * 13} #{'b' * 13}"
+    check["label"] = two
+    refute_includes errs, 'diagram node "check-load": checkpoint label'
+    check["label"] = "#{two}b"
+    assert_includes errs, 'diagram node "check-load": checkpoint label "' + "#{two}b" + '" wraps to 3 lines at 19px; the budget is 2 lines of 196px'
+  end
+
   def test_render_md_lists_lanes
     md = WalkthroughDiagram.md(scene)
     assert_includes md, "- Lane `load`: Load [gauge]"

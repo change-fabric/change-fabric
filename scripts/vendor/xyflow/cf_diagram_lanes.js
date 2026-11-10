@@ -70,10 +70,10 @@
   // Horizontal lanes: every checkpoint takes one width, so a column of them
   // reads as a column, and lane names sit in a column of their own.
   const CHECK_W = 224;
-  const LABEL_COL = 264;
+  const LABEL_COL = 280;
   // The report panel, right of the lanes; result rows stack inside it.
   const PANEL_GAP = 48;
-  const PANEL_W = 400;
+  const PANEL_W = 440;
   const PANEL_PAD = 24;
   const PANEL_HEAD = 44;
   const RESULT_H = 48;
@@ -102,6 +102,39 @@
   const PULSE_SCALE = 0.025;
   const MARKER_R = 7;
   const MARKER_HALO_R = 15;
+
+  // Text fitting, mirrored from scripts/diagram_text_fit.rb (a unit test
+  // holds the two together): one width estimate at the font each box is
+  // drawn in (an em share per glyph class, see EM there), and one rule per
+  // box. The validator rejects a spec whose text breaks a rule, so nothing
+  // here ever cuts text off.
+  const EM = {"narrow":{"chars":" 'ijlIJ|/.,;:f-!()[]tr_`","em":0.5},"caps":{"chars":"BRXAVKUGDNHQO^>=<+~#&","em":0.88},"wide":{"chars":"wMm@%W","em":1.11},"default":0.74,"cjk":1.0};
+  const CJK = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u;
+  const FIT = {"checkpoint":{"font":19,"width":196,"icon":28,"lines":2,"line_h":23,"pad_y":6},"token":{"font":17,"width":196,"icon":22,"lines":1},"lane_label":{"font":22,"width":248,"icon":30,"lines":1},"report_row":{"font":18,"width":328,"icon":0,"lines":1,"aside_font":15,"aside_pad":0},"report_head":{"font":22,"width":390,"icon":0,"lines":1,"aside_font":16,"aside_pad":32}};
+  const emOf = (c) => {
+    if (CJK.test(c)) return EM.cjk;
+    const k = ['narrow', 'caps', 'wide'].find((name) => EM[name].chars.includes(c));
+    return k ? EM[k].em : EM.default;
+  };
+  const textWidth = (text, fontPx) => [...String(text || '')].reduce((sum, c) => sum + emOf(c), 0) * fontPx;
+  // Greedy at spaces; a word wider than a line breaks between characters,
+  // as the browser does under overflow-wrap: anywhere.
+  const wrapLines = (text, fontPx, maxW) => {
+    const out = [];
+    let cur = '';
+    for (const word of String(text || '').split(/\s+/).filter(Boolean)) {
+      const trial = cur ? `${cur} ${word}` : word;
+      if (textWidth(trial, fontPx) <= maxW) { cur = trial; continue; }
+      if (cur) out.push(cur);
+      cur = '';
+      for (const c of word) {
+        if (cur && textWidth(cur + c, fontPx) > maxW) { out.push(cur); cur = ''; }
+        cur += c;
+      }
+    }
+    if (cur) out.push(cur);
+    return out;
+  };
 
   const horizontal = LANES.direction !== 'vertical';
   const along = horizontal ? 'x' : 'y';
