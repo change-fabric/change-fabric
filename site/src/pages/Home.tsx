@@ -81,25 +81,46 @@ function Lane({ n, role, name, detail, url }: (typeof LANES)[number]) {
 
 // Loads the hero light after first paint, off the critical path, and only
 // where it can run: never under reduced motion or in an automated browser,
-// so screenshots and audits see the static texture.
+// so screenshots and audits see the static texture, and never where the
+// stylesheet hides the texture (phones, forced colors), so no WebGL context
+// or image request is spent on a decoration nobody sees.
+const HIDDEN_QUERY = "(max-width: 640px), (forced-colors: active)";
+
 function useFabricLight() {
   useEffect(() => {
     if (navigator.webdriver || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    const hidden = matchMedia(HIDDEN_QUERY);
     let unmount: (() => void) | undefined;
+    let pending: number | undefined;
     let cancelled = false;
     const start = () => {
+      pending = undefined;
       const shell = document.querySelector<HTMLElement>(".shell");
       if (!shell) return;
       import("../fabricLight").then((m) => {
-        if (!cancelled) unmount = m.mount(shell);
+        if (!cancelled && !hidden.matches && !unmount) unmount = m.mount(shell);
       });
     };
-    const id = "requestIdleCallback" in window ? requestIdleCallback(start) : setTimeout(start, 200);
+    const stop = () => {
+      if (pending !== undefined) {
+        if ("cancelIdleCallback" in window) cancelIdleCallback(pending);
+        else clearTimeout(pending);
+        pending = undefined;
+      }
+      unmount?.();
+      unmount = undefined;
+    };
+    const sync = () => {
+      if (hidden.matches) stop();
+      else if (!unmount && pending === undefined)
+        pending = "requestIdleCallback" in window ? requestIdleCallback(start) : (setTimeout(start, 200) as unknown as number);
+    };
+    hidden.addEventListener("change", sync);
+    sync();
     return () => {
       cancelled = true;
-      if ("cancelIdleCallback" in window) cancelIdleCallback(id as number);
-      else clearTimeout(id);
-      unmount?.();
+      hidden.removeEventListener("change", sync);
+      stop();
     };
   }, []);
 }
