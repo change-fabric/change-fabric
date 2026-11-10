@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { Layout } from "../components/Layout";
 import { CodeBlock } from "../components/CodeBlock";
 import { CURRENT_VERSION, specPath } from "../spec";
@@ -78,7 +79,33 @@ function Lane({ n, role, name, detail, url }: (typeof LANES)[number]) {
   );
 }
 
+// Loads the hero light after first paint, off the critical path, and only
+// where it can run: never under reduced motion or in an automated browser,
+// so screenshots and audits see the static texture.
+function useFabricLight() {
+  useEffect(() => {
+    if (navigator.webdriver || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    let unmount: (() => void) | undefined;
+    let cancelled = false;
+    const start = () => {
+      const shell = document.querySelector<HTMLElement>(".shell");
+      if (!shell) return;
+      import("../fabricLight").then((m) => {
+        if (!cancelled) unmount = m.mount(shell);
+      });
+    };
+    const id = "requestIdleCallback" in window ? requestIdleCallback(start) : setTimeout(start, 200);
+    return () => {
+      cancelled = true;
+      if ("cancelIdleCallback" in window) cancelIdleCallback(id as number);
+      else clearTimeout(id);
+      unmount?.();
+    };
+  }, []);
+}
+
 export function Home() {
+  useFabricLight();
   return (
     <Layout>
       <div className="home">

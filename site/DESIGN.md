@@ -144,6 +144,14 @@ Every margin, padding, and gap uses a step, except these, which
   and nothing is rounded beyond that.
 - Transitions are 120ms on color and background only, disabled under
   `prefers-reduced-motion`. Focus is a 2px `--accent` outline everywhere.
+- One named exception: the homepage hero light. A small WebGL canvas over
+  the fabric texture moves a soft light across the weave as the reader
+  scrolls the first half screen: a warm sun in the light theme, a cool
+  moonlight in the dark one. It is decorative, the cloth itself never
+  moves, and it draws only when the scroll changes. Under
+  `prefers-reduced-motion`, in automated browsers, on phones, or without
+  WebGL2 the static texture shows instead. Nothing else on the site
+  animates.
 
 ## Themes
 
