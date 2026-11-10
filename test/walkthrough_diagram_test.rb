@@ -1,9 +1,11 @@
 # frozen_string_literal: true
 
 require "minitest/autorun"
+require "digest"
 require "fileutils"
 require "json"
 require "tmpdir"
+require_relative "../scripts/phosphor_vendor"
 require_relative "../scripts/walkthrough_diagram"
 require_relative "../scripts/walkthrough_storyboard"
 
@@ -368,6 +370,34 @@ class WalkthroughDiagramTest < Minitest::Test
     refute_match(/label text|color #/, errs.join("\n"))
   end
 
+  # A walkthrough inside a repo whose CHANGE.md points its tokens at another
+  # stylesheet still takes its colours from the screens/tokens.css its own
+  # screens link; without one the repo's configured tokens apply.
+  def test_the_walkthroughs_own_screen_tokens_win_over_the_repo_tokens
+    repo = Dir.mktmpdir
+    FileUtils.mkdir_p(File.join(repo, "site"))
+    File.write(File.join(repo, "CHANGE.md"), "---\nchange_config:\n  design:\n    tokens: site/styles.css\n---\n")
+    File.write(File.join(repo, "site", "styles.css"), TOKENS)
+    walk = File.join(repo, "walkthrough", "demo")
+    FileUtils.mkdir_p(walk)
+    assert_equal File.join(repo, "site", "styles.css"), WalkthroughDiagram.tokens_path(walk)
+    FileUtils.mkdir_p(File.join(walk, "screens"))
+    File.write(File.join(walk, "screens", "tokens.css"), TOKENS.sub("--accent: #0b5e57;", "--accent: #0b5e57; --series-1: #1e40af;"))
+    assert_equal File.join(walk, "screens", "tokens.css"), WalkthroughDiagram.tokens_path(walk)
+    assert_equal "#1e40af", WalkthroughDiagram.item_roles(walk, :light)["series-1"]
+  ensure
+    FileUtils.rm_rf(repo)
+  end
+
+  def test_layout_max_zoom_is_an_optional_bounded_number
+    spec["layout"] = { "engine" => "dagre", "max_zoom" => 2.0 }
+    assert_empty diagram_errs
+    [ 2.5, 0.2, "2" ].each do |bad|
+      spec["layout"]["max_zoom"] = bad
+      assert_match(/diagram.layout.max_zoom must be a number in 0.5..2.0/, diagram_errs.join)
+    end
+  end
+
   def test_dark_theme_checks_the_dark_tokens
     write_tokens(TOKENS.sub("--ink: #f1f1ee;", "--ink: #222222;"))
     spec["theme"] = "dark"
@@ -383,6 +413,85 @@ class WalkthroughDiagramTest < Minitest::Test
     @board["viewport"] = { "w" => 1920, "h" => 1080 }
     assert_equal 162, WalkthroughDiagram.frame(@board)["bottom_inset"]
     assert_includes errs.join, "drifted"
+  end
+
+  def icons_json(html) = JSON.parse(html[%r{<script type="application/json" id="cf-diagram-icons">(.*?)</script>}m, 1])
+
+  def test_node_icons_take_a_vendored_name_and_a_weight
+    node = spec["nodes"][0]
+    node["icon"] = "git-pull-request"
+    assert_empty diagram_errs
+    node["icon_weight"] = "duotone"
+    assert_empty diagram_errs
+    node["icon_weight"] = "thin"
+    assert_match(/icon_weight must be one of regular, bold, duotone, fill/, diagram_errs.join)
+    node.delete("icon")
+    assert_match(/icon_weight needs an icon/, diagram_errs.join)
+    node["icon"] = "git-pull-requests"
+    joined = diagram_errs.join
+    assert_match(/icon "git-pull-requests" is not a vendored icon; available: check-circle, /, joined)
+    assert_includes joined, "seal-check"
+  end
+
+  def test_the_vendored_subset_carries_every_weight_and_its_pin
+    set = WalkthroughDiagram.icon_set
+    assert_equal [ "@phosphor-icons/core", "2.1.1", "MIT" ], set.values_at("package", "version", "license")
+    assert_equal PhosphorVendor::NAMES, WalkthroughDiagram.icon_names
+    set["icons"].each do |name, weights|
+      assert_equal WalkthroughDiagram::ICON_WEIGHTS, weights.keys, name
+      weights.each_value { |paths| assert(paths.all? { |d, *| d.match?(/\AM[\d.,\-A-Za-z ]+\z/) }, name) }
+    end
+    assert(set.dig("icons", "shield-check", "duotone").any? { |_, o| o == 0.2 }, "duotone keeps its second tone")
+    assert_includes File.read(File.join(File.dirname(WalkthroughDiagram::ICONS_DATA), "LICENSE.txt")), "Copyright (c) 2023 Phosphor Icons"
+  end
+
+  def test_a_screen_inlines_only_the_icons_its_nodes_use
+    spec["nodes"][0]["icon"] = "gauge"
+    spec["nodes"][1]["icon"] = "lock"
+    spec["nodes"][1]["icon_weight"] = "fill"
+    generate
+    got = icons_json(File.read(screen_path))
+    assert_equal %w[gauge/regular lock/fill], got.keys
+    assert_equal WalkthroughDiagram.icon_set.dig("icons", "lock", "fill"), got["lock/fill"]
+    assert_empty errs
+    assert_includes WalkthroughDiagram.md(scene).first, "[gauge]"
+  end
+
+  def test_an_icon_must_read_on_its_coloured_fill
+    spec["nodes"][0]["icon"] = "gauge"
+    spec["nodes"][0]["color"] = "#d0d0d0"
+    generate
+    assert_match(/icon #d0d0d0 on its light fill #\h{6} is [\d.]+:1, under 3.0/, errs.join("\n"))
+    spec["nodes"][0]["color"] = "series-1"
+    generate
+    refute_match(/icon #/, errs.join("\n"))
+  end
+
+  # A screen with no node icon (and, for the uncoloured fixtures, no colour)
+  # generates byte for byte what it did before icons existed. The hashes are
+  # of each fixture's screen with the vendored bundle and runtime bodies cut
+  # out, taken from the generator before icon support; the runtime's own
+  # bytes are covered by capture tests, which give the same frames.
+  ICONLESS_SCREENS = {
+    "architecture" => "227c3d487319e4cb4569d5f96fddf22f4eed5a1b91fcb06460c76317a6e1a23f",
+    "diagram-colors" => "1c85190c2f1a6007284cb923c03ce378267376f0762c63226460bbd5b920f195",
+    "diagram-flow" => "13f83c885c57aa489d93196624c91567c05d180fc08e07aa7961d46efd9e834d",
+    "diagram-lr" => "13a5d7874484a258439441343a555efe98e7ae2379c244e6cf773eeca196ef88"
+  }.freeze
+
+  def test_iconless_screens_keep_their_bytes
+    ICONLESS_SCREENS.each do |fixture, sha|
+      root = File.expand_path("fixtures/walkthrough/#{fixture}", __dir__)
+      board = JSON.parse(File.read(File.join(root, "storyboard.json")))
+      html = WalkthroughDiagram.screen(board["scenes"].find { |s| WalkthroughDiagram.diagram?(s) }, root: root, board: board)
+      refute_includes html, %(id="cf-diagram-icons")
+      [ WalkthroughDiagram::RUNTIME, WalkthroughDiagram::XYFLOW_BUNDLE ].each do |file|
+        body = File.read(file).gsub("</script", "<\\/script")
+        assert_includes html, body
+        html = html.sub(body, "")
+      end
+      assert_equal sha, Digest::SHA256.hexdigest(html), "#{fixture} screen changed"
+    end
   end
 
   private

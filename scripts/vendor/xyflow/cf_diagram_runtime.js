@@ -13,8 +13,9 @@
 //   by folding the camera steps up to `now` and sets it with duration 0
 //   inside flushSync.
 // - Node sizes come from the spec alone (width from the longest label a node
-//   ever shows, by character count; height fixed), so layout and camera
-//   targets never depend on a ResizeObserver or text measurement.
+//   ever shows, by character count, plus an icon's fixed width; height
+//   fixed), so layout and camera targets never depend on a ResizeObserver
+//   or text measurement.
 // - Arrowheads are the runtime's own markers in user space units, swapped
 //   per frame by colour, so they follow highlight and never scale with the
 //   stroke width.
@@ -44,12 +45,21 @@
   // coloured item has no such script and draws exactly as before.
   const colorsEl = document.getElementById('cf-diagram-colors');
   const COLORS = colorsEl ? JSON.parse(colorsEl.textContent) : { nodes: {}, edges: {}, steps: {} };
+  // Vendored Phosphor path data for the icons the nodes use, keyed
+  // name/weight: each entry a list of [d] or [d, opacity] (a duotone's
+  // second tone). A screen with no node icon has no such script.
+  const iconsEl = document.getElementById('cf-diagram-icons');
+  const ICONS = iconsEl ? JSON.parse(iconsEl.textContent) : {};
+  const iconOf = (n) => (n.icon ? ICONS[`${n.icon}/${n.icon_weight || 'regular'}`] : null);
 
   const NODE_H = 56;
   const NODE_MIN_W = 140;
   const NODE_MAX_W = 260;
   const CHAR_W = 11;
   const NODE_PAD_W = 40;
+  // An icon is drawn at this size before the label, with ICON_GAP between.
+  const ICON_PX = 20;
+  const ICON_GAP = 8;
   const DIM_OPACITY = 0.35;
   const FIT_MAX_ZOOM = 1.25;
   const FOCUS_MAX_ZOOM = 1.5;
@@ -82,6 +92,8 @@ html, body, #cf-diagram-root { margin: 0; width: 100%; height: 100%; }
 .react-flow__edge[data-cf-hl="1"] .react-flow__edge-path { stroke: var(--cf-accent, #2563eb); stroke-width: 3; }
 .cf-flow-halo { fill: var(--cf-accent-tint, #dbeafe); fill-opacity: 0.85; stroke: var(--cf-accent, #2563eb); stroke-opacity: 0.25; stroke-width: 1; }
 .cf-flow-core { fill: var(--cf-accent, #2563eb); stroke: var(--cf-surface, #ffffff); stroke-width: 1.5; }
+.cf-node-icon { flex: none; width: ${ICON_PX}px; height: ${ICON_PX}px; margin-right: ${ICON_GAP}px; fill: currentColor; }
+.cf-node[data-color] .cf-node-icon { color: var(--cf-item); }
 .cf-node[data-color] { border-color: var(--cf-item); background: var(--cf-item-tint); color: var(--cf-text, #0f172a); }
 .react-flow__node[data-cf-hl="1"] .cf-node[data-color] { border-color: var(--cf-item); box-shadow: 0 0 0 4px var(--cf-item-ring); }
 .react-flow__edge.cf-colored .react-flow__edge-path { stroke: var(--cf-item); }
@@ -108,13 +120,18 @@ html, body, #cf-diagram-root { margin: 0; width: 100%; height: 100%; }
   // Each step keeps its spec index, which keys a flow step's colour.
   const steps = (spec.steps || []).map((s, i) => Object.assign({}, s, { index: i })).sort((a, b) => a.t_ms - b.t_ms);
   const direction = (spec.layout && spec.layout.direction) || 'LR';
+  // How far a fit may enlarge the picture; layout.max_zoom raises it so a
+  // small diagram can fill a large frame.
+  const fitMaxZoom = (spec.layout && spec.layout.max_zoom) || FIT_MAX_ZOOM;
 
   // Width from the longest text the node ever shows, by character count, so
   // a relabel never reflows and no measurement is needed.
   const WIDTH = Object.fromEntries(spec.nodes.map((n) => {
     const texts = [n.label || ''].concat(steps.filter((s) => s.op === 'label' && s.id === n.id).map((s) => s.text || ''));
     const chars = Math.max(...texts.map((x) => x.length));
-    const w = Math.min(NODE_MAX_W, Math.max(NODE_MIN_W, chars * CHAR_W + NODE_PAD_W));
+    // An icon widens the node by its own width, so the label keeps its room.
+    const icon = iconOf(n) ? ICON_PX + ICON_GAP : 0;
+    const w = Math.min(NODE_MAX_W + icon, Math.max(NODE_MIN_W, chars * CHAR_W + NODE_PAD_W + icon));
     return [n.id, Math.round(w / 2) * 2];
   }));
   const isLR = direction === 'LR' || direction === 'RL';
@@ -209,7 +226,7 @@ html, body, #cf-diagram-root { margin: 0; width: 100%; height: 100%; }
     return { opacity, hl, dim, labels, pulses, flows, positions, viewport: cameraAt(t, camera, positionAt, viewportSize) };
   };
 
-  const fitTarget = (ids, padding, at, positionAt, size, maxZoom = FIT_MAX_ZOOM) => {
+  const fitTarget = (ids, padding, at, positionAt, size, maxZoom = fitMaxZoom) => {
     if (ids.length === 0) return null;
     let x0 = Infinity; let y0 = Infinity; let x1 = -Infinity; let y1 = -Infinity;
     for (const id of ids) {
@@ -254,7 +271,7 @@ html, body, #cf-diagram-root { margin: 0; width: 100%; height: 100%; }
         target = { x: size.w / 2 - cx * zoom, y: size.h / 2 - cy * zoom, zoom };
       } else if (s.op === 'focus') {
         const p = positionAt(s.id, s.t_ms);
-        const zoom = Math.min(FOCUS_MAX_ZOOM, Math.max(MIN_ZOOM, s.zoom || cur.zoom));
+        const zoom = Math.min(Math.max(FOCUS_MAX_ZOOM, fitMaxZoom), Math.max(MIN_ZOOM, s.zoom || cur.zoom));
         target = { x: size.w / 2 - (p.x + WIDTH[s.id] / 2) * zoom, y: size.h / 2 - (p.y + NODE_H / 2) * zoom, zoom };
       }
       if (!target) return;
@@ -272,11 +289,14 @@ html, body, #cf-diagram-root { margin: 0; width: 100%; height: 100%; }
     const style = { width: `${WIDTH[id]}px` };
     return c ? Object.assign(style, { '--cf-item': c.color, '--cf-item-tint': c.tint, '--cf-item-ring': c.ring }) : style;
   };
+  const iconSvg = (paths) => h('svg', { className: 'cf-node-icon', viewBox: '0 0 256 256', 'aria-hidden': 'true', focusable: 'false' },
+    ...paths.map(([d, opacity], i) => h('path', { key: i, d, opacity })));
   const CfNode = ({ id, data }) => h('div', { className: 'cf-node', 'data-role': data.role || 'default', 'data-color': COLORS.nodes[id] ? '1' : undefined, style: nodeStyle(id) },
     ...Object.entries(SIDES).flatMap(([side, position]) => [
       h(Handle, { key: `t-${side}`, id: `t-${side}`, type: 'target', position, isConnectable: false }),
       h(Handle, { key: `s-${side}`, id: `s-${side}`, type: 'source', position, isConnectable: false })
     ]),
+    data.icon ? iconSvg(data.icon) : null,
     h('span', { className: 'cf-node-label' }, data.label));
   const nodeTypes = { cf: CfNode };
 
@@ -293,7 +313,7 @@ html, body, #cf-diagram-root { margin: 0; width: 100%; height: 100%; }
 
   const toNodes = (positions) => spec.nodes.map((n) => ({
     id: n.id, type: 'cf', position: positions[n.id], width: WIDTH[n.id], height: NODE_H,
-    data: { label: n.label, role: n.role }, draggable: false, selectable: false, connectable: false
+    data: { label: n.label, role: n.role, icon: iconOf(n) }, draggable: false, selectable: false, connectable: false
   }));
   const toEdges = (positions) => spec.edges.map((e) => {
     const [from, to] = sidesFor(e, positions);
