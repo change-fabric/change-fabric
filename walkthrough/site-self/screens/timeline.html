@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Every change, checked before it lands</title>
+  <link rel="stylesheet" href="tokens.css">
+  <link rel="stylesheet" href="lanes.css">
+  <style>
+    main { display: flex; flex-direction: column; justify-content: center; padding-top: 0; }
+    .chip { font-size: 34px !important; }
+    .stop { font-size: 36px !important; }
+    .track { margin-top: 140px !important; }
+    .chips { display: flex; flex-wrap: wrap; gap: 14px; max-width: 1640px; min-height: 150px; }
+    .chip { font-family: var(--font-mono); font-size: 28px; padding: 10px 18px; border-radius: 10px; background: var(--surface); border: 2px solid var(--border-strong, var(--border)); color: var(--muted); animation: pop 220ms ease-out both; }
+    .chip:nth-child(3n) { border-color: var(--lilac); } .chip:nth-child(4n) { border-color: var(--sage); }
+    .queue { animation: dimq 400ms ease-in-out 3300ms both; }
+    @keyframes dimq { to { opacity: .35; } }
+    .track { position: relative; margin-top: 120px; }
+    .line { position: absolute; left: 30px; right: 30px; top: 22px; height: 6px; background: var(--border); border-radius: 3px; }
+    .fill { position: absolute; left: 30px; top: 22px; height: 6px; width: calc(100% - 60px); background: linear-gradient(90deg, var(--lane-load), var(--lane-a11y), var(--lane-zap), var(--lane-ux), var(--lane-cases)); border-radius: 3px; transform-origin: left; animation: grow 3000ms linear 3600ms both; }
+    @keyframes grow { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+    ol { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(5, 1fr); position: relative; }
+    .stop { display: flex; flex-direction: column; align-items: center; gap: 14px; text-align: center; font-size: 30px; animation: pop 300ms ease-out var(--d) both; }
+    .stop .dot { width: 50px; height: 50px; border-radius: 50%; background: var(--bg); border: 6px solid var(--accent); box-sizing: border-box; }
+    .stop.verdict .dot, .stop.merge .dot, .stop.tag .dot { background: var(--accent); }
+    .stop code { font-family: var(--font-mono); font-size: 24px; color: var(--accent); font-weight: 600; }
+    .ticks { display: flex; gap: 8px; } .ticks i { width: 22px; height: 22px; border-radius: 50%; background: var(--c); }
+  </style>
+</head>
+<body>
+  <main>
+    <span class="note">Illustrative example</span>
+    <div class="queue">
+      <h1>Agent pull requests, waiting</h1>
+      <div class="chips">
+      <span class="chip" style="animation-delay:0ms">PR #471</span>
+      <span class="chip" style="animation-delay:190ms">PR #472</span>
+      <span class="chip" style="animation-delay:380ms">PR #473</span>
+      <span class="chip" style="animation-delay:570ms">PR #474</span>
+      <span class="chip" style="animation-delay:760ms">PR #475</span>
+      <span class="chip" style="animation-delay:950ms">PR #476</span>
+      <span class="chip" style="animation-delay:1140ms">PR #477</span>
+      <span class="chip" style="animation-delay:1330ms">PR #478</span>
+      <span class="chip" style="animation-delay:1520ms">PR #479</span>
+      <span class="chip" style="animation-delay:1710ms">PR #480</span>
+      <span class="chip" style="animation-delay:1900ms">PR #481</span>
+      <span class="chip" style="animation-delay:2090ms">PR #482</span>
+      <span class="chip" style="animation-delay:2280ms">PR #483</span>
+      <span class="chip" style="animation-delay:2470ms">PR #484</span>
+      </div>
+    </div>
+    <div class="track">
+      <div class="line"></div><div class="fill"></div>
+      <ol>
+        <li class="stop pr" style="--d:3600ms"><span class="dot"></span><b>PR opened</b>
+        <li class="stop lanes" style="--d:4350ms"><span class="dot"></span><b>Enabled lanes run</b><span class="ticks"><i class="load"></i><i class="a11y"></i><i class="zap"></i><i class="ux"></i><i class="cases"></i></span>
+        <li class="stop verdict" style="--d:5100ms"><span class="dot"></span><b>Verdict recorded</b><code>head a1b2c3d</code>
+        <li class="stop merge" style="--d:5850ms"><span class="dot"></span><b>Merge to main</b>
+        <li class="stop tag" style="--d:6600ms"><span class="dot"></span><b>Release tag</b><code>v1.4.0</code>
+      </ol>
+    </div>
+  </main>
+</body>
+</html>

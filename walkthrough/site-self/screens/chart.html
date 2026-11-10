@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Findings per lane</title>
+  <link rel="stylesheet" href="tokens.css">
+  <link rel="stylesheet" href="lanes.css">
+  <style>
+    @property --n { syntax: "<integer>"; inherits: true; initial-value: 0; }
+    .wrap { display: grid; grid-template-columns: 1fr 360px; gap: 80px; align-items: end; }
+    .chart { display: flex; gap: 56px; align-items: flex-end; height: 560px; border-bottom: 3px solid var(--border); padding: 0 20px; }
+    .col { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; position: relative;
+      --n: var(--n0); animation: drain calc(var(--n0) * 120ms) steps(var(--n0)) var(--z) both; }
+    @keyframes drain { from { --n: var(--n0); } to { --n: 0; } }
+    .bar { width: 100%; height: calc(var(--n) * 60px); min-height: 6px; background: var(--c); border-radius: 10px 10px 0 0; transition: none; animation: rise 600ms ease-out var(--g) both; transform-origin: bottom; }
+    @keyframes rise { from { transform: scaleY(0); } to { transform: scaleY(1); } }
+    .num { counter-reset: n var(--n); font-size: 44px; font-weight: 700; margin-bottom: 10px; font-variant-numeric: tabular-nums; }
+    .num::after { content: counter(n); }
+    .lbl { position: absolute; bottom: -56px; font-size: 26px; color: var(--muted); white-space: nowrap; }
+    .gate { position: relative; height: 140px; border-radius: 20px; border: 4px solid var(--border); font-size: 40px; font-weight: 700; display: grid; place-items: center; margin-bottom: 200px; animation: turn 300ms ease-out 4400ms both; }
+    .gate span { grid-area: 1 / 1; }
+    .wait { color: var(--muted); animation: out 200ms linear 4400ms both; }
+    .pass { color: var(--cream); opacity: 0; animation: fadein 300ms ease-out 4500ms both; }
+    @keyframes out { to { opacity: 0; } }
+    @keyframes turn { to { background: var(--pass); border-color: var(--pass); } }
+  </style>
+</head>
+<body>
+  <main>
+    <span class="note">Illustrative example, not real data</span>
+    <h1>Open findings per lane</h1>
+    <div class="wrap">
+      <div class="chart">
+        <div class="col load" style="--n0:3; --z:1500ms; --g:0ms"><span class="num"></span><div class="bar"></div><span class="lbl">Load</span></div>
+        <div class="col a11y" style="--n0:7; --z:2050ms; --g:100ms"><span class="num"></span><div class="bar"></div><span class="lbl">Accessibility</span></div>
+        <div class="col zap" style="--n0:2; --z:2600ms; --g:200ms"><span class="num"></span><div class="bar"></div><span class="lbl">Security</span></div>
+        <div class="col ux" style="--n0:4; --z:3150ms; --g:300ms"><span class="num"></span><div class="bar"></div><span class="lbl">Responsive UX</span></div>
+        <div class="col cases" style="--n0:5; --z:3700ms; --g:400ms"><span class="num"></span><div class="bar"></div><span class="lbl">Test cases</span></div>
+      </div>
+      <div class="gate"><span class="wait">Gate: waiting</span><span class="pass">Gate: pass</span></div>
+    </div>
+  </main>
+</body>
+</html>

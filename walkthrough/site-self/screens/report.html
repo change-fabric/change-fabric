@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>One report</title>
+  <link rel="stylesheet" href="tokens.css">
+  <link rel="stylesheet" href="lanes.css">
+  <style>
+    main { display: flex; flex-direction: column; justify-content: center; padding-top: 0; }
+    .card li { font-size: 38px !important; padding: 22px 0 !important; }
+    .grid { display: grid; grid-template-columns: 900px 1fr; gap: 80px; align-items: start; }
+    .card { background: var(--surface); border: 3px solid var(--border); border-radius: 24px; padding: 36px 44px; position: relative; }
+    .card h2 { font-family: var(--font-serif); font-weight: 500; font-size: 52px; margin: 0 0 20px; }
+    ul { list-style: none; margin: 0; padding: 0; }
+    li { display: flex; align-items: center; gap: 20px; font-size: 32px; padding: 16px 0; border-top: 1px solid var(--border); }
+    li i { width: 26px; height: 26px; border-radius: 50%; background: var(--c); flex: none; }
+    .name { flex: 1; font-weight: 600; }
+    .st { display: grid; width: 150px; text-align: right; }
+    .st span { grid-area: 1 / 1; }
+    .run { color: var(--muted); animation: out 150ms linear var(--p) both; }
+    .ok { color: var(--accent); font-weight: 700; opacity: 0; animation: fadein 200ms ease-out var(--p) both; }
+    @keyframes out { to { opacity: 0; } }
+    .stamp { position: absolute; right: 36px; top: 36px; font-family: var(--font-mono); font-size: 26px; font-weight: 700; color: var(--accent); border: 4px solid var(--accent); border-radius: 12px; padding: 8px 16px; transform: rotate(-6deg); animation: slam 260ms cubic-bezier(.3,1.6,.5,1) 2500ms both; }
+    @keyframes slam { from { opacity: 0; transform: rotate(-6deg) scale(1.8); } to { opacity: 1; transform: rotate(-6deg) scale(1); } }
+    .side { display: flex; flex-direction: column; gap: 28px; padding-top: 40px; }
+    .verdict { font-size: 36px; font-weight: 700; color: var(--cream); background: var(--pass); border-radius: 18px; padding: 26px 30px; animation: pop 300ms ease-out 2600ms both; }
+    .verdict small { display: block; font-size: 24px; font-weight: 500; opacity: .85; margin-top: 6px; font-family: var(--font-mono); }
+    .go { font-size: 34px; font-weight: 600; border: 3px solid var(--accent); border-radius: 18px; padding: 22px 30px; display: flex; justify-content: space-between; animation: pop 300ms ease-out var(--d) both; }
+    .go b { color: var(--accent); }
+  </style>
+</head>
+<body>
+  <main>
+    <span class="note">Illustrative example</span>
+    <div class="grid">
+      <div class="card">
+        <h2>One report</h2>
+        <span class="stamp">head a1b2c3d</span>
+        <ul>
+          <li class="load" style="--p:300ms"><i></i><span class="name">Load (k6)</span><span class="st"><span class="run">running</span><span class="ok">pass</span></span></li>
+          <li class="a11y" style="--p:700ms"><i></i><span class="name">Accessibility (axe)</span><span class="st"><span class="run">running</span><span class="ok">pass</span></span></li>
+          <li class="zap" style="--p:1100ms"><i></i><span class="name">Security (ZAP)</span><span class="st"><span class="run">running</span><span class="ok">pass</span></span></li>
+          <li class="ux" style="--p:1500ms"><i></i><span class="name">Responsive UX</span><span class="st"><span class="run">running</span><span class="ok">pass</span></span></li>
+          <li class="cases" style="--p:1900ms"><i></i><span class="name">Test cases</span><span class="st"><span class="run">running</span><span class="ok">pass</span></span></li>
+        </ul>
+      </div>
+      <div class="side">
+        <div class="verdict">Gate: pass recorded<small>for head a1b2c3d</small></div>
+        <div class="go" style="--d:4300ms">Merge to main <b>allowed</b></div>
+        <div class="go" style="--d:4600ms">Release tag <b>allowed</b></div>
+      </div>
+    </div>
+  </main>
+</body>
+</html>

@@ -176,236 +176,53 @@
         }
       },
       "deps": {
-        "frames_key": "db435132d6a68409d9181f7c9b240d67ade2dda27d116d3b2a00ba64ff5c2584",
+        "frames_key": "25fa095ce0994a54d681e2773d48b1fcab296ce8dec31c6b5ceb6a1a274c3f7d",
         "audio_key": "a9f66a0643e4633f7362ee8401916a08d1f79990193fe86de364b849f1580ea6",
         "asset_keys": []
       }
     },
     {
       "id": "cold-open",
-      "title": "A merge that passed the gate",
-      "order": 2,
-      "kind": "diagram",
-      "user_goal": "See the outcome first",
-      "action": "Watch the gate pass and the merge go through",
+      "title": "Every change, checked before it lands",
+      "user_goal": "See why a gate matters",
+      "action": "Watch a pull request run from opened to tagged",
       "screen": {
-        "html": "screens/gate-cold.html"
+        "html": "screens/timeline.html"
       },
-      "diagram": {
-        "layout": {
-          "engine": "dagre",
-          "direction": "LR"
-        },
-        "nodes": [
-          {
-            "id": "pr",
-            "label": "Pull request",
-            "role": "accent"
-          },
-          {
-            "id": "k6",
-            "label": "Load (k6)"
-          },
-          {
-            "id": "a11y",
-            "label": "Accessibility (axe)"
-          },
-          {
-            "id": "zap",
-            "label": "Security (ZAP)"
-          },
-          {
-            "id": "ux",
-            "label": "Responsive UX"
-          },
-          {
-            "id": "cases",
-            "label": "Test cases"
-          },
-          {
-            "id": "report",
-            "label": "One report"
-          },
-          {
-            "id": "gate",
-            "label": "Gate: enabled lanes pass?"
-          },
-          {
-            "id": "merge",
-            "label": "Merge to main"
-          },
-          {
-            "id": "tag",
-            "label": "Release tag"
-          }
-        ],
-        "edges": [
-          {
-            "id": "e-pr-k6",
-            "source": "pr",
-            "target": "k6"
-          },
-          {
-            "id": "e-pr-a11y",
-            "source": "pr",
-            "target": "a11y"
-          },
-          {
-            "id": "e-pr-zap",
-            "source": "pr",
-            "target": "zap"
-          },
-          {
-            "id": "e-pr-ux",
-            "source": "pr",
-            "target": "ux"
-          },
-          {
-            "id": "e-pr-cases",
-            "source": "pr",
-            "target": "cases"
-          },
-          {
-            "id": "e-k6-report",
-            "source": "k6",
-            "target": "report"
-          },
-          {
-            "id": "e-a11y-report",
-            "source": "a11y",
-            "target": "report"
-          },
-          {
-            "id": "e-zap-report",
-            "source": "zap",
-            "target": "report"
-          },
-          {
-            "id": "e-ux-report",
-            "source": "ux",
-            "target": "report"
-          },
-          {
-            "id": "e-cases-report",
-            "source": "cases",
-            "target": "report"
-          },
-          {
-            "id": "e-report-gate",
-            "source": "report",
-            "target": "gate"
-          },
-          {
-            "id": "e-gate-merge",
-            "source": "gate",
-            "target": "merge",
-            "label": "on pass"
-          },
-          {
-            "id": "e-gate-tag",
-            "source": "gate",
-            "target": "tag",
-            "label": "on pass"
-          }
-        ],
-        "initial": [
-          "report",
-          "gate",
-          "merge",
-          "tag",
-          "e-report-gate",
-          "e-gate-merge",
-          "e-gate-tag"
-        ],
-        "steps": [
-          {
-            "t_ms": 0,
-            "op": "fit_view",
-            "ids": [
-              "report",
-              "gate",
-              "merge",
-              "tag"
-            ],
-            "padding": 0.25,
-            "duration": 0
-          },
-          {
-            "t_ms": 0,
-            "op": "flow",
-            "ids": [
-              "e-report-gate"
-            ],
-            "count": 2,
-            "duration": 1000
-          },
-          {
-            "t_ms": 1000,
-            "op": "highlight",
-            "ids": [
-              "gate"
-            ]
-          },
-          {
-            "t_ms": 2000,
-            "op": "label",
-            "id": "gate",
-            "text": "Gate: passed"
-          },
-          {
-            "t_ms": 2000,
-            "op": "flow",
-            "ids": [
-              "e-gate-merge",
-              "e-gate-tag"
-            ],
-            "count": 3,
-            "duration": 1000
-          },
-          {
-            "t_ms": 3000,
-            "op": "remove",
-            "ids": [
-              "report",
-              "e-report-gate"
-            ]
-          },
-          {
-            "t_ms": 4000,
-            "op": "focus",
-            "id": "merge",
-            "zoom": 1.5,
-            "duration": 750
-          }
-        ]
+      "assumptions": [
+        {
+          "id": "A-03",
+          "text": "The pull request numbers, the head SHA a1b2c3d, the release tag, and the per-lane finding counts are illustrative examples, labelled as such on screen."
+        }
+      ],
+      "narration": {
+        "text": "Your agents write code faster than anyone can review it. Change fabric checks every change before it lands."
       },
       "requirements": [
         {
           "source": "brief.md",
-          "anchor": "#gate"
+          "anchor": "#toolkit"
         }
       ],
       "hypotheses": [
-        "H-02"
+        "H-01"
       ],
       "heuristics_shown": [
-        "H1"
+        "H1",
+        "H2"
       ],
-      "narration": {
-        "text": "A passing gate lets this change merge.",
-        "measured_ms": 2183
-      },
       "timing": {
-        "min_ms": 5000,
+        "min_ms": 8000,
         "pad_ms": 400,
         "transition": {
           "type": "cut",
           "ms": 0
         }
       },
+      "order": 2,
       "deps": {
-        "frames_key": "ebce818c62771237aabc25f16f4aeb81c6290b6d551fb20112a64a849856976e",
-        "audio_key": "7de2e1fb05371fc8b304f526c7760961ee165e6e6b0b3a3dade7ec7448ee8018",
+        "frames_key": "19909adfb6d6736603459171e9259748491b2bb073cece8212e4f88dae3d8a30",
+        "audio_key": "77da3cbfcca306157a497c3c9743292cb174a5d0088fd9077091917b85c5a047",
         "asset_keys": []
       }
     },
@@ -438,8 +255,7 @@
         "H6"
       ],
       "narration": {
-        "text": "One CHANGE.md per repo: what to test, what is protected.",
-        "measured_ms": 4783
+        "text": "One CHANGE.md per repo: what to test, what is protected."
       },
       "timing": {
         "min_ms": 6000,
@@ -450,408 +266,26 @@
         }
       },
       "deps": {
-        "frames_key": "f662ce34e9bcde251fe3480ed5c7ac29818dd91e2ab95342d3f4da59307adf6d",
+        "frames_key": "d5404bffd3be7873cbf6bfd07fe6be2c70d89d813bda2f0256c069c79ddf2b42",
         "audio_key": "a9a38738249b268d276d9c90a8180bb61c4469eb1169fc37d330e21df4b94270",
         "asset_keys": []
       }
     },
     {
-      "id": "gate-flow",
-      "title": "How a change is gated",
-      "order": 4,
-      "kind": "diagram",
-      "user_goal": "See a change pass through the lanes and the gate",
-      "action": "Watch the flow, one shot at a time",
+      "id": "lanes",
+      "title": "Every enabled lane runs",
+      "user_goal": "See the lanes a change passes through",
+      "action": "Watch each lane light up",
       "screen": {
-        "html": "screens/gate-flow.html"
+        "html": "screens/lanes.html"
       },
-      "diagram": {
-        "layout": {
-          "engine": "dagre",
-          "direction": "LR"
-        },
-        "nodes": [
-          {
-            "id": "pr",
-            "label": "Pull request",
-            "role": "accent"
-          },
-          {
-            "id": "k6",
-            "label": "Load (k6)"
-          },
-          {
-            "id": "a11y",
-            "label": "Accessibility (axe)"
-          },
-          {
-            "id": "zap",
-            "label": "Security (ZAP)"
-          },
-          {
-            "id": "ux",
-            "label": "Responsive UX"
-          },
-          {
-            "id": "cases",
-            "label": "Test cases"
-          },
-          {
-            "id": "report",
-            "label": "One report"
-          },
-          {
-            "id": "gate",
-            "label": "Gate: enabled lanes pass?"
-          },
-          {
-            "id": "merge",
-            "label": "Merge to main"
-          },
-          {
-            "id": "tag",
-            "label": "Release tag"
-          }
-        ],
-        "edges": [
-          {
-            "id": "e-pr-k6",
-            "source": "pr",
-            "target": "k6"
-          },
-          {
-            "id": "e-pr-a11y",
-            "source": "pr",
-            "target": "a11y"
-          },
-          {
-            "id": "e-pr-zap",
-            "source": "pr",
-            "target": "zap"
-          },
-          {
-            "id": "e-pr-ux",
-            "source": "pr",
-            "target": "ux"
-          },
-          {
-            "id": "e-pr-cases",
-            "source": "pr",
-            "target": "cases"
-          },
-          {
-            "id": "e-k6-report",
-            "source": "k6",
-            "target": "report"
-          },
-          {
-            "id": "e-a11y-report",
-            "source": "a11y",
-            "target": "report"
-          },
-          {
-            "id": "e-zap-report",
-            "source": "zap",
-            "target": "report"
-          },
-          {
-            "id": "e-ux-report",
-            "source": "ux",
-            "target": "report"
-          },
-          {
-            "id": "e-cases-report",
-            "source": "cases",
-            "target": "report"
-          },
-          {
-            "id": "e-report-gate",
-            "source": "report",
-            "target": "gate"
-          },
-          {
-            "id": "e-gate-merge",
-            "source": "gate",
-            "target": "merge",
-            "label": "on pass"
-          },
-          {
-            "id": "e-gate-tag",
-            "source": "gate",
-            "target": "tag",
-            "label": "on pass"
-          }
-        ],
-        "initial": [
-          "pr"
-        ],
-        "steps": [
-          {
-            "t_ms": 0,
-            "op": "fit_view",
-            "ids": [
-              "pr"
-            ],
-            "padding": 0.4,
-            "duration": 0
-          },
-          {
-            "t_ms": 500,
-            "op": "fit_view",
-            "ids": [
-              "pr",
-              "k6",
-              "a11y",
-              "zap",
-              "ux",
-              "cases"
-            ],
-            "padding": 0.15,
-            "duration": 750
-          },
-          {
-            "t_ms": 1500,
-            "op": "add_node",
-            "ids": [
-              "k6",
-              "a11y",
-              "zap",
-              "ux",
-              "cases",
-              "e-pr-k6",
-              "e-pr-a11y",
-              "e-pr-zap",
-              "e-pr-ux",
-              "e-pr-cases"
-            ]
-          },
-          {
-            "t_ms": 1500,
-            "op": "flow",
-            "ids": [
-              "e-pr-k6",
-              "e-pr-a11y",
-              "e-pr-zap",
-              "e-pr-ux",
-              "e-pr-cases"
-            ],
-            "count": 2,
-            "duration": 1000
-          },
-          {
-            "t_ms": 3000,
-            "op": "highlight",
-            "ids": [
-              "k6",
-              "a11y"
-            ]
-          },
-          {
-            "t_ms": 5000,
-            "op": "highlight",
-            "ids": [
-              "zap",
-              "ux",
-              "cases"
-            ]
-          },
-          {
-            "t_ms": 7500,
-            "op": "fit_view",
-            "ids": [
-              "pr",
-              "k6",
-              "a11y",
-              "zap",
-              "ux",
-              "cases",
-              "report"
-            ],
-            "padding": 0.12,
-            "duration": 750
-          },
-          {
-            "t_ms": 8500,
-            "op": "add_node",
-            "ids": [
-              "report",
-              "e-k6-report",
-              "e-a11y-report",
-              "e-zap-report",
-              "e-ux-report",
-              "e-cases-report"
-            ]
-          },
-          {
-            "t_ms": 8500,
-            "op": "flow",
-            "ids": [
-              "e-k6-report",
-              "e-a11y-report",
-              "e-zap-report",
-              "e-ux-report",
-              "e-cases-report"
-            ],
-            "count": 3,
-            "duration": 1000
-          },
-          {
-            "t_ms": 10000,
-            "op": "unhighlight",
-            "ids": [
-              "k6",
-              "a11y",
-              "zap",
-              "ux",
-              "cases"
-            ]
-          },
-          {
-            "t_ms": 10000,
-            "op": "fit_view",
-            "ids": [
-              "pr",
-              "k6",
-              "a11y",
-              "zap",
-              "ux",
-              "cases",
-              "report",
-              "gate"
-            ],
-            "padding": 0.1,
-            "duration": 750
-          },
-          {
-            "t_ms": 11000,
-            "op": "add_node",
-            "ids": [
-              "gate",
-              "e-report-gate"
-            ]
-          },
-          {
-            "t_ms": 11000,
-            "op": "flow",
-            "ids": [
-              "e-report-gate"
-            ],
-            "count": 3,
-            "duration": 1000
-          },
-          {
-            "t_ms": 14000,
-            "op": "remove",
-            "ids": [
-              "pr",
-              "k6",
-              "a11y",
-              "zap",
-              "ux",
-              "cases",
-              "e-pr-k6",
-              "e-pr-a11y",
-              "e-pr-zap",
-              "e-pr-ux",
-              "e-pr-cases",
-              "e-k6-report",
-              "e-a11y-report",
-              "e-zap-report",
-              "e-ux-report",
-              "e-cases-report"
-            ]
-          },
-          {
-            "t_ms": 15000,
-            "op": "fit_view",
-            "ids": [
-              "report",
-              "gate"
-            ],
-            "padding": 0.2,
-            "duration": 750
-          },
-          {
-            "t_ms": 16000,
-            "op": "highlight",
-            "ids": [
-              "gate",
-              "e-report-gate"
-            ]
-          },
-          {
-            "t_ms": 16000,
-            "op": "flow",
-            "ids": [
-              "e-report-gate"
-            ],
-            "count": 2,
-            "duration": 1000
-          },
-          {
-            "t_ms": 17000,
-            "op": "remove",
-            "ids": [
-              "report",
-              "e-report-gate"
-            ]
-          },
-          {
-            "t_ms": 18000,
-            "op": "label",
-            "id": "gate",
-            "text": "Passed: head commit"
-          },
-          {
-            "t_ms": 18000,
-            "op": "focus",
-            "id": "gate",
-            "zoom": 1.5,
-            "duration": 750
-          },
-          {
-            "t_ms": 20000,
-            "op": "fit_view",
-            "ids": [
-              "gate",
-              "merge",
-              "tag"
-            ],
-            "padding": 0.2,
-            "duration": 750
-          },
-          {
-            "t_ms": 21000,
-            "op": "add_node",
-            "ids": [
-              "merge",
-              "tag",
-              "e-gate-merge",
-              "e-gate-tag"
-            ]
-          },
-          {
-            "t_ms": 21000,
-            "op": "flow",
-            "ids": [
-              "e-gate-merge",
-              "e-gate-tag"
-            ],
-            "count": 3,
-            "duration": 1000,
-            "stagger": 500,
-            "loop": true
-          }
-        ]
+      "narration": {
+        "text": "Every enabled lane runs: load, accessibility, security, responsive UX, and test cases."
       },
       "requirements": [
         {
           "source": "brief.md",
           "anchor": "#lanes"
-        },
-        {
-          "source": "brief.md",
-          "anchor": "#gate"
         }
       ],
       "hypotheses": [
@@ -861,28 +295,103 @@
         "H1",
         "H2"
       ],
-      "narration": {
-        "text": "Every enabled lane runs: load, accessibility, security, responsive UX, and test cases. Findings land in one report. The gate records the result for the head commit, and only a pass lets the merge or release tag through.",
-        "measured_ms": 16393
-      },
       "timing": {
-        "min_ms": 24000,
+        "min_ms": 7000,
         "pad_ms": 400,
         "transition": {
           "type": "cut",
           "ms": 0
         }
       },
+      "order": 4,
       "deps": {
-        "frames_key": "afbdc9912ad095028bbe7895979b967b66506d976c7f3ace7a1037ac769796f6",
-        "audio_key": "83e78c81cadcce9f47cd5f8a46c3facefcc592493c93e3cd9113f2e70956f41b",
+        "frames_key": "ed1ddc73eb7f711bc7f398c66ae381514c0f2c914cd5b90cd982c96a96d9bb03",
+        "audio_key": "8b5d4df01576406c74286226c8d326077f2688aeef86e0393e55869e26ab456d",
+        "asset_keys": []
+      }
+    },
+    {
+      "id": "findings",
+      "title": "Findings land in one report",
+      "user_goal": "See findings drain to zero",
+      "action": "Watch the bars fall and the gate turn",
+      "screen": {
+        "html": "screens/chart.html"
+      },
+      "narration": {
+        "text": "Findings land in one report."
+      },
+      "requirements": [
+        {
+          "source": "brief.md",
+          "anchor": "#lanes"
+        }
+      ],
+      "hypotheses": [
+        "H-02"
+      ],
+      "heuristics_shown": [
+        "H1"
+      ],
+      "timing": {
+        "min_ms": 6000,
+        "pad_ms": 400,
+        "transition": {
+          "type": "cut",
+          "ms": 0
+        }
+      },
+      "order": 5,
+      "deps": {
+        "frames_key": "35cf5baa65776e80609272987b585caec25d760e677c4d1687e45e421dddcd3b",
+        "audio_key": "63c2dd35986fd8535ba03e9db309619a0100c51729a1fb10c79b9e4698e30574",
+        "asset_keys": []
+      }
+    },
+    {
+      "id": "gate",
+      "title": "The gate records the result",
+      "user_goal": "See the verdict bound to the head commit",
+      "action": "Read the report card and the verdict",
+      "screen": {
+        "html": "screens/report.html"
+      },
+      "narration": {
+        "text": "The gate records the result for the head commit, and only a pass lets the merge or release tag through."
+      },
+      "requirements": [
+        {
+          "source": "brief.md",
+          "anchor": "#gate"
+        }
+      ],
+      "hypotheses": [
+        "H-01",
+        "H-02"
+      ],
+      "heuristics_shown": [
+        "H1",
+        "H6"
+      ],
+      "timing": {
+        "min_ms": 8000,
+        "pad_ms": 400,
+        "transition": {
+          "type": "cut",
+          "ms": 0
+        }
+      },
+      "order": 6,
+      "deps": {
+        "frames_key": "5a0e9cc01dcdff1480c2669b71583f689849e29e2d492db1359fcab17e65b209",
+        "audio_key": "fcca43c8b95c1e53a856e19d401f674b99ced64332711e145b721f0559779941",
         "asset_keys": []
       }
     },
     {
       "id": "logo-close",
       "title": "Proof, not hope",
-      "order": 5,
+      "order": 7,
       "user_goal": "Know why to adopt the toolkit",
       "action": "Read the closing line",
       "screen": {
@@ -902,8 +411,7 @@
         "H10"
       ],
       "narration": {
-        "text": "Ship agent-written code with proof, not hope. Change fabric.",
-        "measured_ms": 4087
+        "text": "Ship agent-written code with proof, not hope. Change fabric."
       },
       "timing": {
         "min_ms": 6000,
@@ -914,11 +422,11 @@
         }
       },
       "deps": {
-        "frames_key": "4fb92652d9f410188a42737b2c6149e7d0bb302cbed5a498fa4e818130473455",
+        "frames_key": "847c2cae63c02e1e2b576734d605663393bbc96952d64e9e6a92569ad371800b",
         "audio_key": "4178750c67756a91774343458ad1f78eb66cc70da346c39d6f5e6e406b00986e",
         "asset_keys": []
       }
     }
   ],
-  "tokens_css_sha256": "d5f7f2a8036d74fdeafbf1bcbfbdd3c822945e68689acb3c397eda86190ef86f"
+  "tokens_css_sha256": "d173d78caa5c11a7f919528e140fa09fb2dd2384da39a119544228ece0fa8656"
 }
