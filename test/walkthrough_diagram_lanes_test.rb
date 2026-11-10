@@ -5,6 +5,7 @@ require "digest"
 require "fileutils"
 require "json"
 require "tmpdir"
+require_relative "../scripts/walkthrough_assumptions"
 require_relative "../scripts/walkthrough_diagram"
 require_relative "../scripts/walkthrough_storyboard"
 
@@ -229,6 +230,16 @@ class WalkthroughDiagramLanesTest < Minitest::Test
     end
     # The runtime's ease is the lane layer's `ease-in-out`.
     assert_equal runtime[/const ease = (.*)$/, 1], lanes[/const cubic = (.*)$/, 1]
+  end
+
+  # Lane icons inline Phosphor glyphs just like node icons, so a board whose
+  # only icons sit on lanes still carries the Phosphor notice.
+  def test_lane_icons_alone_need_the_phosphor_notice
+    spec["nodes"].each { |n| n.delete("icon") }
+    assert_includes html, "gauge/regular"
+    assert WalkthroughAssumptions.diagram_icons?(@board), "lane icons are missed by notice detection"
+    spec["lanes"].each { |l| l.delete("icon") }
+    refute WalkthroughAssumptions.diagram_icons?(@board)
   end
 
   def test_render_md_lists_lanes

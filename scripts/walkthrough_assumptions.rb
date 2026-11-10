@@ -149,11 +149,13 @@ module WalkthroughAssumptions
     [ assumptions, notices ]
   end
 
-  # Diagram node icons are Phosphor glyphs inlined from the vendored subset,
-  # so they carry the same notice as icon files under screens/assets/icons.
+  # Diagram node and lane icons are Phosphor glyphs inlined from the vendored
+  # subset, so they carry the same notice as icon files under
+  # screens/assets/icons.
   def diagram_icons?(board)
-    WalkthroughStoryboard.scenes(board).select { |s| WalkthroughDiagram.diagram?(s) }
-                         .any? { |s| Array(s.dig('diagram', 'nodes')).any? { |n| n.is_a?(Hash) && n['icon'] } }
+    WalkthroughStoryboard.scenes(board).select { |s| WalkthroughDiagram.diagram?(s) }.any? do |s|
+      %w[nodes lanes].any? { |key| Array(s.dig('diagram', key)).any? { |n| n.is_a?(Hash) && n['icon'] } }
+    end
   end
 
   # Name => [version, licence] for each package in the xyflow bundle, read
