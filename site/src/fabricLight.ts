@@ -56,7 +56,6 @@ export function mount(shell: HTMLElement): () => void {
   canvas.setAttribute("role", "presentation");
   const gl = canvas.getContext("webgl2", { alpha: false, antialias: false });
   if (!gl) return () => {};
-  shell.prepend(canvas);
 
   const prog = gl.createProgram()!;
   for (const [type, src] of [[gl.VERTEX_SHADER, VERT], [gl.FRAGMENT_SHADER, FRAG]] as const) {
@@ -66,6 +65,10 @@ export function mount(shell: HTMLElement): () => void {
     gl.attachShader(prog, sh);
   }
   gl.linkProgram(prog);
+  // A shader the driver rejects would draw nothing yet still hide the
+  // static texture, so a failed link backs out before the canvas is shown.
+  if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) return () => {};
+  shell.prepend(canvas);
   gl.useProgram(prog);
   gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
   gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
