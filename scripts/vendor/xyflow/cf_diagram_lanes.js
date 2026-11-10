@@ -546,7 +546,7 @@ body { background: var(--cf-surface, #ffffff); }
 .cf-lane { position: absolute; box-sizing: border-box; border: 0 solid ${DIVIDER}; }
 .cf-lanes[data-dir="horizontal"] .cf-lane { left: 0; right: 0; border-top-width: 1px; border-bottom-width: 1px; }
 .cf-lanes[data-dir="vertical"] .cf-lane { top: 0; bottom: 0; border-left-width: 1px; border-right-width: 1px; }
-.cf-lane-label { position: absolute; left: 0; top: 0; transform-origin: 0 0; box-sizing: border-box; white-space: nowrap; overflow: hidden;
+.cf-lane-label { position: absolute; left: 0; top: 0; transform-origin: 0 0; box-sizing: border-box; white-space: nowrap;
   padding: 0 0 0 ${LABEL_PAD_L}px; border-left: ${LABEL_BAR}px solid; color: var(--cf-text, #0f172a);
   font: 600 ${FIT.lane_label.font}px/${LABEL_H}px system-ui, sans-serif; }
 .cf-lane-label svg { width: 22px; height: 22px; margin-right: 8px; vertical-align: -4px; }

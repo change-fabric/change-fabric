@@ -9,6 +9,7 @@ require_relative "../scripts/change_docker"
 require_relative "../scripts/prototype_capture"
 require_relative "../scripts/walkthrough_diagram"
 require_relative "../scripts/walkthrough_storyboard"
+require_relative "support/lane_invariants"
 
 # Swimlanes in the pinned browserless container, the companion of
 # walkthrough_diagram_capture_test.rb: a dark scene with five coloured lanes,
@@ -21,9 +22,11 @@ require_relative "../scripts/walkthrough_storyboard"
 # clean; and two captures give identical frames.
 class WalkthroughDiagramLanesCaptureTest < Minitest::Test
   FIXTURE = File.expand_path("fixtures/walkthrough/diagram-swimlanes", __dir__)
-  CLOCK = "<script>(() => { let t = 0; performance.now = () => t; window.__cfAdvance = (ms) => (t += ms); })();</script>"
+  CLOCK = LaneInvariants::CLOCK
   STEP_MS = 10
   EPS = 0.75
+  # When the shared LaneInvariants are checked on each screen here.
+  INVARIANT_TIMES = [ 0, 650, 2050, 4850, 8000 ].freeze
 
   def test_lanes_paint_and_the_token_travels_deterministically
     skip "docker not available" unless ChangeDocker.available?
@@ -37,8 +40,8 @@ class WalkthroughDiagramLanesCaptureTest < Minitest::Test
       spec = scene["diagram"]
       html = PrototypeCapture.inline_screen(File.join(root, scene.dig("screen", "html")), root: root)
       duration = PrototypeCapture.scene_duration(scene)
-      runs = ChangeDocker.with_browserless(network: nil) do |session|
-        2.times.map do |n|
+      runs, inv = ChangeDocker.with_browserless(network: nil) do |session|
+        captures = 2.times.map do |n|
           prep = PrototypeCapture.prepare(board, scene, root)
           out = File.join(root, "run-#{n}")
           PrototypeCapture.capture(session: session, html: html, interactions: [], duration_ms: duration, out_dir: out,
@@ -47,7 +50,9 @@ class WalkthroughDiagramLanesCaptureTest < Minitest::Test
             lint: JSON.parse(File.read(File.join(out, PrototypeUxLint::REPORT)))["findings"],
             probe: probe(session, html, board["viewport"], duration) }
         end
+        [ captures, session.run_function(LaneInvariants.probe_js(html, board["viewport"], INVARIANT_TIMES)) ]
       end
+      LaneInvariants.assert_lane_invariants(self, inv, spec, board["viewport"], tag: "fixture")
       assert_equal PrototypeCapture.frame_count(duration), runs[0][:frames].size
       assert_equal runs[0][:frames], runs[1][:frames], "swimlane frames differ between captures"
       assert_equal runs[0][:probe], runs[1][:probe], "swimlane probe differs between runs"
@@ -97,8 +102,12 @@ class WalkthroughDiagramLanesCaptureTest < Minitest::Test
         assert_empty WalkthroughDiagram.spec_errors(d, 8000)
         WalkthroughDiagram.screen(scene, root: root, board: board)
       end
-      v, s, h = ChangeDocker.with_browserless(network: nil) do |session|
-        [ [ htmls[0], 650 ], [ htmls[1], 8000 ], [ htmls[2], 400 ] ].map { |html, t| session.run_function(snapshot_js(html, board["viewport"], t)) }
+      (v, s, h), invs = ChangeDocker.with_browserless(network: nil) do |session|
+        [ [ [ htmls[0], 650 ], [ htmls[1], 8000 ], [ htmls[2], 400 ] ].map { |html, t| session.run_function(snapshot_js(html, board["viewport"], t)) },
+          htmls.map { |html| session.run_function(LaneInvariants.probe_js(html, board["viewport"], INVARIANT_TIMES)) } ]
+      end
+      [ vertical, standalone, highlight ].zip(invs, %w[vertical standalone highlight]).each do |d, inv, tag|
+        LaneInvariants.assert_lane_invariants(self, inv, d, board["viewport"], tag: tag)
       end
 
       tok = v["tokens"][0]
@@ -144,8 +153,12 @@ class WalkthroughDiagramLanesCaptureTest < Minitest::Test
         assert_empty WalkthroughDiagram.spec_errors(d, 8000)
         WalkthroughDiagram.screen(scene, root: root, board: board)
       end
-      runs = ChangeDocker.with_browserless(network: nil) do |session|
-        htmls.map { |html| session.run_function(snapshot_js(html, board["viewport"], 8000)) }
+      runs, invs = ChangeDocker.with_browserless(network: nil) do |session|
+        [ htmls.map { |html| session.run_function(snapshot_js(html, board["viewport"], 8000)) },
+          htmls.map { |html| session.run_function(LaneInvariants.probe_js(html, board["viewport"], INVARIANT_TIMES)) } ]
+      end
+      [ laneless_nodes, authored_anchor ].zip(invs, %w[laneless-nodes authored-anchor]).each do |d, inv, tag|
+        LaneInvariants.assert_lane_invariants(self, inv, d, board["viewport"], tag: tag)
       end
       runs.each_with_index do |r, i|
         panel = r["report"]
