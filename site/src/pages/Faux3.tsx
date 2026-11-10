@@ -78,10 +78,10 @@ export function Faux3() {
             Related project / Open source <span className="status-tag">v0.1.0</span>
           </p>
           <h1 id="faux3-title">
-            One container. One volume. <span className="project-h1-line">One S3 endpoint. No AWS required.</span>
+            S3 without the cloud.
           </h1>
           <p className="hero-copy">
-            faux3 is a lightweight, open-source, S3-compatible object storage server for local
+            One container. One volume. One S3 endpoint. No AWS required. faux3 is a lightweight, open-source, S3-compatible object storage server for local
             development with Docker. Point the AWS SDK or AWS CLI you already use at it by changing only
             the endpoint and credentials.
           </p>
