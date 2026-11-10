@@ -80,16 +80,17 @@ function Lane({ n, role, name, detail, url }: (typeof LANES)[number]) {
 }
 
 // Loads the hero light after first paint, off the critical path, and only
-// where it can run: never under reduced motion or in an automated browser,
-// so screenshots and audits see the static texture, and never where the
+// where it can run: never in an automated browser, so screenshots and audits
+// see the static texture; never under reduced motion; and never where the
 // stylesheet hides the texture (phones, forced colors), so no WebGL context
-// or image request is spent on a decoration nobody sees.
-const HIDDEN_QUERY = "(max-width: 640px), (forced-colors: active)";
+// or image request is spent on a decoration nobody sees. The media query is
+// watched, so turning reduced motion on mid-visit stops the light at once.
+const OFF_QUERY = "(max-width: 640px), (forced-colors: active), (prefers-reduced-motion: reduce)";
 
 function useFabricLight() {
   useEffect(() => {
-    if (navigator.webdriver || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-    const hidden = matchMedia(HIDDEN_QUERY);
+    if (navigator.webdriver) return;
+    const hidden = matchMedia(OFF_QUERY);
     let unmount: (() => void) | undefined;
     let pending: number | undefined;
     let cancelled = false;
