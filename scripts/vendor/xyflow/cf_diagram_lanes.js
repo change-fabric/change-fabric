@@ -4,9 +4,12 @@
 // the runtime itself never learns about lanes.
 //
 // It works in two halves:
-// - prepare (runs at load, before the runtime parses the spec): lays every
-//   node out once, places each laned node inside its band (above the band's
-//   travel rail when anything travels), and pins every node to that place.
+// - prepare (runs at load, before the runtime parses the spec): computes one
+//   layout record (computeLayout: every node box, band, lane name, rail,
+//   token, report row, and the camera bounds), places each laned node inside
+//   its band (above the band's travel rail when anything travels), and pins
+//   every node to its box, size included. Everything drawn later reads the
+//   record; nothing sizes itself at draw time.
 //   A node a `travel` carries (its token) or delivers (its `result`) is owned
 //   by this layer: the runtime keeps it hidden, and each travel step becomes
 //   an empty add_node in place, so step indices (which key flow colours)
@@ -323,6 +326,14 @@
     const boxes = {};
     for (const id of nodeIds) boxes[id] = { x: pos[id].x, y: pos[id].y, w: size[id].w, h: size[id].h, lines: size[id].lines };
     for (const r of rows) boxes[r.id] = { x: r.x, y: r.y, w: r.w, h: r.h, lines: 1 };
+    // With a panel, the band fills run from the name column to just short
+    // of it.
+    if (panel) for (const b of bands) b.fill = { from: b.label.x - PANEL_GAP / 2, to: panel.x - PANEL_GAP / 2 };
+    // What the runtime needs to size each node as its box: a width or
+    // height only where the box differs from the runtime's own.
+    const runtime = Object.fromEntries(nodeIds.map((id) => [id, {
+      ...(size[id].w !== WIDTH[id] ? { cf_width: size[id].w } : {}), ...(size[id].h !== NODE_H ? { cf_height: size[id].h } : {})
+    }]));
 
     // The camera frames every visible box: nodes, lane names, the bands
     // over the travel stretch, each rider from its entrance to its exit
@@ -337,7 +348,7 @@
     });
     const laneBox = bands.length ? [flowBox(span[0], 0, span[1] - span[0], edge)] : [];
     const bounds = union([...shown, ...bands.map((b) => b.label), ...results, ...travel, ...laneBox]);
-    return { boxes, bands, rails: railList, tokens, marker, panel, rows, span, reach, bounds, pos };
+    return { boxes, bands, rails: railList, tokens, marker, panel, rows, span, reach, bounds, pos, runtime };
   };
   const LAYOUT = computeLayout();
   const pos = LAYOUT.pos;
@@ -396,8 +407,7 @@
     const b = LAYOUT.boxes[n.id];
     if (!b) continue;
     n.position = { x: Math.round(b.x), y: Math.round(b.y) };
-    if (b.w !== WIDTH[n.id]) n.cf_width = b.w;
-    if (b.h !== NODE_H) n.cf_height = b.h;
+    Object.assign(n, LAYOUT.runtime[n.id]);
   }
   spec.initial = (spec.initial || []).filter((id) => !owned.has(id));
   steps.forEach((s, i) => {
@@ -513,7 +523,18 @@
   const dark = LANES.theme === 'dark';
   const DIVIDER = dark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(15, 23, 42, 0.08)';
   const PANEL_FILL = dark ? '#111c2d' : 'var(--cf-node, #f8fafc)';
+  const hexRgb = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
   const rgba = (hex, a) => `rgba(${hexRgb(hex).join(', ')}, ${a})`;
+  // A laned node takes its lane's colour while the lane runs and a quiet
+  // border otherwise; the runtime's own highlight (data-cf-hl) and an idle
+  // node's own colour win over both, by selector, not by per-frame writes.
+  const QUIET = `1px solid ${dark ? 'rgba(255, 255, 255, 0.16)' : 'rgba(15, 23, 42, 0.16)'}`;
+  const laneRules = laned.map((id) => {
+    const lane = laneById[nodeById[id].lane];
+    const node = `.react-flow__node[data-id="${CSS.escape(id)}"]:not([data-cf-hl="1"]) .cf-node`;
+    return `#cf-diagram-root:not([data-cf-lanes-on~="${lane.id}"]) ${node}:not([data-color]) { border: ${QUIET}; }\n` +
+      `#cf-diagram-root[data-cf-lanes-on~="${lane.id}"] ${node} { border: 1.5px solid ${lane.color}; box-shadow: 0 0 16px ${rgba(lane.color, 0.12)}; }`;
+  }).join('\n');
   const css = document.createElement('style');
   css.textContent = `
 body { background: var(--cf-surface, #ffffff); }
@@ -525,24 +546,23 @@ body { background: var(--cf-surface, #ffffff); }
 .cf-lane { position: absolute; box-sizing: border-box; border: 0 solid ${DIVIDER}; }
 .cf-lanes[data-dir="horizontal"] .cf-lane { left: 0; right: 0; border-top-width: 1px; border-bottom-width: 1px; }
 .cf-lanes[data-dir="vertical"] .cf-lane { top: 0; bottom: 0; border-left-width: 1px; border-right-width: 1px; }
-.cf-lane-label { position: absolute; box-sizing: border-box; white-space: nowrap; padding: 2px 10px; border-left: 4px solid;
-  color: var(--cf-text, #0f172a); font: 600 15px/1.3 system-ui, sans-serif; letter-spacing: 0.02em; }
-.cf-lane-label svg { width: 18px; height: 18px; margin-right: 6px; vertical-align: -3px; }
-.cf-lanes[data-dir="horizontal"] .cf-lane-label { left: 0; top: 0; transform-origin: 0 0; font-size: 22px; line-height: 28px; padding: 0 0 0 12px; }
-.cf-lanes[data-dir="horizontal"] .cf-lane-label svg { width: 22px; height: 22px; margin-right: 8px; vertical-align: -4px; }
+.cf-lane-label { position: absolute; left: 0; top: 0; transform-origin: 0 0; box-sizing: border-box; white-space: nowrap; overflow: hidden;
+  padding: 0 0 0 ${LABEL_PAD_L}px; border-left: ${LABEL_BAR}px solid; color: var(--cf-text, #0f172a);
+  font: 600 ${FIT.lane_label.font}px/${LABEL_H}px system-ui, sans-serif; }
+.cf-lane-label svg { width: 22px; height: 22px; margin-right: 8px; vertical-align: -4px; }
 ${ANCHORS.map((id) => `.react-flow__node[data-id="${id}"] .cf-node`).join(', ')} { visibility: hidden; }
-#cf-diagram-root .cf-node { font-size: ${FIT.checkpoint.font}px; line-height: ${FIT.checkpoint.line_h}px; overflow-wrap: anywhere; }
+#cf-diagram-root .cf-node, .cf-lane-front .cf-node { font-size: ${FIT.checkpoint.font}px; line-height: ${FIT.checkpoint.line_h}px; overflow-wrap: anywhere; }
+${laneRules}
 .cf-lane-panel { box-sizing: border-box; border: 1px solid; border-radius: 14px; padding: ${PANEL_PAD}px; }
 .cf-lane-panel-head { height: ${PANEL_HEAD}px; color: var(--cf-text, #0f172a); font: 600 22px/28px system-ui, sans-serif; white-space: nowrap; }
 .cf-lane-badge { margin-left: 10px; padding: 2px 10px; border-radius: 999px; font: 600 16px/22px system-ui, sans-serif;
   color: var(--cf-text, #0f172a); background: ${DIVIDER}; border: 1px solid ${DIVIDER}; }
-.cf-lane-row { box-sizing: border-box; height: ${RESULT_H}px; display: flex; align-items: center; gap: 12px; padding: 0 14px;
+.cf-lane-row { box-sizing: border-box; display: flex; align-items: center; gap: 12px; padding: 0 14px;
   border: 1px solid ${DIVIDER}; border-radius: 10px; white-space: nowrap; font: 600 18px/1 system-ui, sans-serif; color: var(--cf-text, #0f172a); }
 .cf-lane-row i { flex: none; width: 10px; height: 10px; border-radius: 50%; }
 .cf-lane-row small { margin-left: auto; font: 500 15px/1 system-ui, sans-serif; color: var(--cf-muted, #475569); }
-.cf-lanes[data-dir="vertical"] .cf-lane-label { left: 10px; top: 12px; }
 .cf-lane-front > * { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
-.cf-lane-token { box-sizing: border-box; height: ${TOKEN_H}px; display: flex; align-items: center; justify-content: center; white-space: nowrap;
+.cf-lane-token { box-sizing: border-box; display: flex; align-items: center; justify-content: center; white-space: nowrap;
   border: 2px solid var(--cf-accent, #2563eb); border-radius: ${TOKEN_H / 2}px; background: var(--cf-accent-tint, #dbeafe);
   color: var(--cf-text, #0f172a); font: 600 17px/1 system-ui, sans-serif; }
 .cf-lane-token svg { width: ${TOKEN_ICON}px; height: ${TOKEN_ICON}px; margin-right: 6px; fill: currentColor; flex: none; }
@@ -581,7 +601,8 @@ ${ANCHORS.map((id) => `.react-flow__node[data-id="${id}"] .cf-node`).join(', ')}
     label.style.borderLeftColor = lane.color;
     if (lane.icon && ICONS[lane.icon]) label.appendChild(iconEl(ICONS[lane.icon], null, lane.color));
     label.appendChild(document.createTextNode(lane.label));
-    if (horizontal) back.appendChild(label); else el.appendChild(label);
+    Object.assign(label.style, { width: `${bands[lane.id].label.w}px`, height: `${bands[lane.id].label.h}px` });
+    back.appendChild(label);
     back.prepend(el);
     laneEls[lane.id] = el;
     labelEls[lane.id] = label;
@@ -606,7 +627,8 @@ ${ANCHORS.map((id) => `.react-flow__node[data-id="${id}"] .cf-node`).join(', ')}
     const el = document.createElement('div');
     el.className = 'cf-lane-row cf-lane-card';
     el.dataset.id = tr.result;
-    el.style.width = `${PANEL_W - 2 * PANEL_PAD}px`;
+    const row = LAYOUT.rows.find((r) => r.id === tr.result);
+    Object.assign(el.style, { width: `${row.w}px`, height: `${row.h}px` });
     el.style.background = PANEL_FILL;
     const mark = document.createElement('i');
     mark.style.background = laneById[tr.lane].color;
@@ -628,7 +650,7 @@ ${ANCHORS.map((id) => `.react-flow__node[data-id="${id}"] .cf-node`).join(', ')}
       el.dataset.color = '1';
       for (const [k, v] of [['--cf-item', c.color], ['--cf-item-tint', c.tint], ['--cf-item-ring', c.ring]]) el.style.setProperty(k, v);
     }
-    el.style.width = `${WIDTH[id]}px`;
+    Object.assign(el.style, { width: `${LAYOUT.boxes[id].w}px`, height: `${LAYOUT.boxes[id].h}px` });
     if (iconOf(n)) el.appendChild(iconEl(iconOf(n), 'cf-node-icon'));
     const span = document.createElement('span');
     span.className = 'cf-node-label';
@@ -644,7 +666,7 @@ ${ANCHORS.map((id) => `.react-flow__node[data-id="${id}"] .cf-node`).join(', ')}
       const n = nodeById[tr.id];
       const c = COLORS.nodes[tr.id];
       el.className = 'cf-lane-token';
-      el.style.width = `${tr.box.w}px`;
+      Object.assign(el.style, { width: `${tr.box.w}px`, height: `${tr.box.h}px` });
       if (c) { el.style.borderColor = c.color; el.style.background = c.tint; }
       if (iconOf(n)) el.appendChild(iconEl(iconOf(n), null, c ? c.color : null));
       el.appendChild(document.createTextNode(n.label));
@@ -677,7 +699,6 @@ ${ANCHORS.map((id) => `.react-flow__node[data-id="${id}"] .cf-node`).join(', ')}
   };
   const set = (el, key, value) => { if (el.style[key] !== value) el.style[key] = value; };
   const px = (v) => `${v.toFixed(2)}px`;
-  const hexRgb = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
   const mixHex = (a, b, p) => { const x = hexRgb(a); const y = hexRgb(b); return `rgb(${x.map((v, i) => Math.round(v + (y[i] - v) * p)).join(', ')})`; };
   // Places a front element at flow point (fx, fy), scaled with the camera.
   const place = (el, vp, fx, fy, opacity, scale = 1) => {
@@ -704,26 +725,22 @@ ${ANCHORS.map((id) => `.react-flow__node[data-id="${id}"] .cf-node`).join(', ')}
       set(el, horizontal ? 'top' : 'left', px(band.start * vp.zoom + off));
       set(el, horizontal ? 'height' : 'width', px(band.extent * vp.zoom));
       // With a panel, the fills stop short of it.
-      if (horizontal && panel) {
-        const left = sx(span[0] - LABEL_COL - PANEL_GAP / 2);
-        set(el, 'left', px(left));
-        set(el, 'width', px(sx(panel.x - PANEL_GAP / 2) - left));
+      if (band.fill) {
+        set(el, 'left', px(sx(band.fill.from)));
+        set(el, 'width', px((band.fill.to - band.fill.from) * vp.zoom));
       }
       set(el, 'background', mixHex(lane.tint, lane.tint_hl, s.level));
       set(el, 'opacity', String(s.opacity));
       el.dataset.cfHl = s.level >= 0.5 ? '1' : '0';
-      if (horizontal) {
-        const label = labelEls[lane.id];
-        set(label, 'transform', `translate(${px(sx(span[0] - LABEL_COL))}, ${px(sy(band.mid) - 14 * vp.zoom)}) scale(${vp.zoom.toFixed(4)})`);
-        set(label, 'opacity', String(s.opacity));
-      }
+      const label = labelEls[lane.id];
+      set(label, 'transform', `translate(${px(sx(band.label.x))}, ${px(sy(band.label.y))}) scale(${vp.zoom.toFixed(4)})`);
+      set(label, 'opacity', String(s.opacity));
     }
     travels.forEach((tr, i) => {
       const tok = tokenAt(tr, t);
       const el = tokenEls[i];
       if (!tok) { set(el, 'display', 'none'); return; }
-      const h = tr.id ? TOKEN_H : 2 * MARKER_HALO_R;
-      const [fx, fy] = horizontal ? [tok.a, tok.c - h / 2] : [tok.c - tr.box.w / 2, tok.a];
+      const [fx, fy] = horizontal ? [tok.a, tok.c - tr.box.h / 2] : [tok.c - tr.box.w / 2, tok.a];
       place(el, vp, fx, fy, tok.opacity);
     });
     travels.forEach((tr, i) => {
@@ -746,25 +763,24 @@ ${ANCHORS.map((id) => `.react-flow__node[data-id="${id}"] .cf-node`).join(', ')}
       if (!card) { set(el, 'display', 'none'); continue; }
       place(el, vp, card.x, card.y, card.opacity);
     }
-    // The running lane's checkpoints carry its colour; the rest stay quiet.
-    // A checkpoint's own highlight wins over both, and an idle checkpoint
-    // with its own colour keeps it, so the runtime's styles show through.
+    // Which lanes run, for the lane stylesheet; highlight styling itself
+    // is all CSS keyed on the runtime's data-cf-hl, so it is never
+    // overwritten here.
+    const root = document.getElementById('cf-diagram-root');
+    if (root) {
+      const on = laneIds.filter((id) => lanes[id].level >= 0.5).join(' ');
+      if (root.getAttribute('data-cf-lanes-on') !== on) root.setAttribute('data-cf-lanes-on', on);
+    }
     for (const id of laned) {
-      const wrap = document.querySelector(`.react-flow__node[data-id="${CSS.escape(id)}"]`);
-      const el = wrap && wrap.querySelector('.cf-node');
+      const el = document.querySelector(`.react-flow__node[data-id="${CSS.escape(id)}"] .cf-node`);
       if (!el) continue;
-      const lane = laneById[nodeById[id].lane];
-      const on = lanes[lane.id].level >= 0.5 && wrap.dataset.cfHl !== '1';
-      const quiet = wrap.dataset.cfHl === '1' || el.dataset.color ? '' : `1px solid ${dark ? 'rgba(255, 255, 255, 0.16)' : 'rgba(15, 23, 42, 0.16)'}`;
-      set(el, 'border', on ? `1.5px solid ${lane.color}` : quiet);
-      set(el, 'boxShadow', on ? `0 0 16px ${rgba(lane.color, 0.12)}` : '');
       const s = pulseAt(id, t);
       set(el, 'transform', s === 1 ? '' : `scale(${s.toFixed(4)})`);
     }
   };
 
   window.__cfLanes = {
-    bands, span, travels: travels.map(({ fn, ...rest }) => rest), slots: Object.fromEntries(Object.keys(slots).map((id) => [id, pos[id]])),
+    layout: LAYOUT, bands, span, travels: travels.map(({ fn, ...rest }) => rest), slots: Object.fromEntries(Object.keys(slots).map((id) => [id, pos[id]])),
     attach() {
       document.body.prepend(back);
       document.body.appendChild(front);
