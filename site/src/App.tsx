@@ -7,6 +7,7 @@ import { ReferenceSkillPage } from "./pages/ReferenceSkillPage";
 import { ReferenceHookPage } from "./pages/ReferenceHookPage";
 import { Moose } from "./pages/Moose";
 import { Porcupine } from "./pages/Porcupine";
+import { Faux3 } from "./pages/Faux3";
 import { lazy, Suspense } from "react";
 
 // The media fixture page exists only in a VITE_MEDIA_FIXTURE=1 build (made by
@@ -21,7 +22,7 @@ const MediaFixture =
 // A tiny path-based router. Navigation is plain full-page anchors, so each load
 // resolves the current path here. CloudFront serves index.html for unknown
 // paths (its 404 fallback), so /spec, /spec/<version>, /changelog, /reference,
-// /reference/{skills,hooks}/<id>, /moose, and /porcupine all reach this router. The raw
+// /reference/{skills,hooks}/<id>, /moose, /porcupine, and /faux3 all reach this router. The raw
 // /spec/<version>.md and /changelog.xml are real static files and never load
 // the app.
 export function App() {
@@ -57,6 +58,9 @@ export function App() {
   }
   if (path === "/porcupine") {
     return <Porcupine />;
+  }
+  if (path === "/faux3") {
+    return <Faux3 />;
   }
 
   const skillMatch = path.match(/^\/reference\/skills\/([^/]+)$/);

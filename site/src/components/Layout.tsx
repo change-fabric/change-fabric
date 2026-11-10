@@ -19,6 +19,7 @@ const PRIMARY = [
 const RELATED = [
   { label: "Moose", href: "/moose", match: "/moose" },
   { label: "Porcupine", href: "/porcupine", match: "/porcupine" },
+  { label: "Faux3", href: "/faux3", match: "/faux3" },
 ];
 
 function NavLink({ link }: { link: (typeof PRIMARY)[number] }) {
@@ -103,6 +104,7 @@ export function Layout({ children }: { children: ReactNode }) {
             <a href="/reference">Reference</a>
             <a className="footer-wide" href="/moose">Moose</a>
             <a className="footer-wide" href="/porcupine">Porcupine</a>
+            <a className="footer-wide" href="/faux3">Faux3</a>
             <a href={REPO_URL} target="_blank" rel="noopener noreferrer">
               GitHub<span aria-hidden="true"> &#8599;</span>
               <span className="sr-only"> (opens in a new tab)</span>

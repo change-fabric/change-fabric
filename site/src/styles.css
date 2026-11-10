@@ -55,6 +55,7 @@
   --border-strong-text: var(--text);
   --porcupine-bezel: var(--plum);
   --porcupine-bezel-text: var(--cream);
+  --faux3-mark-ink: var(--heading);
   color-scheme: light;
 }
 
@@ -99,6 +100,7 @@
     --border-strong-text: var(--text);
     --porcupine-bezel: color-mix(in srgb, var(--cream) 16%, var(--plum));
     --porcupine-bezel-text: var(--cream);
+    --faux3-mark-ink: var(--accent);
     color-scheme: dark;
   }
 }
@@ -142,6 +144,7 @@
   --border-strong-text: var(--text);
   --porcupine-bezel: color-mix(in srgb, var(--cream) 16%, var(--plum));
   --porcupine-bezel-text: var(--cream);
+  --faux3-mark-ink: var(--accent);
   color-scheme: dark;
 }
 
@@ -2888,4 +2891,71 @@ code {
   background: var(--surface-hover);
   text-decoration: underline;
   text-underline-offset: 0.2em;
+}
+
+/* faux3: the boat mark is inline SVG painted from --faux3-mark-ink (heading
+   ink in light, lifted lilac in dark), and panel text inside the dark hub. */
+.faux3-mark {
+  flex: none;
+  fill: var(--faux3-mark-ink);
+}
+
+.project-hub .faux3-mark {
+  fill: var(--panel-text);
+}
+
+@media (forced-colors: active) {
+  .faux3-mark,
+  .project-hub .faux3-mark {
+    fill: CanvasText;
+  }
+}
+
+.faux3-scope {
+  margin-top: var(--s4);
+  font-weight: 400;
+  color: var(--muted);
+}
+
+/* faux3 status row: the dated release and the repo's own evidence, shown at
+   every width (the facts line above hides on phones). */
+.project-status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s1) var(--s4);
+  margin: var(--s3) 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+/* faux3's whole diagram sits inside the machine boundary: app, container and
+   volume in one row. */
+.faux3-arch {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.faux3-arch .project-region {
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto minmax(0, 1fr);
+}
+
+@media (max-width: 760px) {
+  .faux3-arch .project-region {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.faux3-boundary {
+  margin-top: var(--s5);
+  max-width: 46rem;
+}
+
+.faux3-boundary h3 {
+  margin: 0 0 var(--s2);
+}
+
+.faux3-boundary p {
+  margin: 0;
+  color: var(--muted);
 }
