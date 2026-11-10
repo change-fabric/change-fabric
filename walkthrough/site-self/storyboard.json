@@ -183,7 +183,7 @@
         }
       },
       "deps": {
-        "frames_key": "bd2d5969e8abc2d4cf620115907198b8661acb4f480aa0bfa162539ea9ab15f4",
+        "frames_key": "10fe378254e5078c7ab52f4e34bccb6dbd6644ad984a589ee6cb0dd7339006a3",
         "audio_key": "0c1a9a160fc956ab56c7ac2d82a80f0b381c9b20fe680972dc1f3b910a63ecf5",
         "asset_keys": []
       }
@@ -233,7 +233,7 @@
       },
       "order": 2,
       "deps": {
-        "frames_key": "a9b540facfe2f924ff6623f012bddf457b7ae238ad86daf20b7bd24a1594760f",
+        "frames_key": "873c8ab6eb29fe0f9cc319bcf4ba614d639631a69c2c4f893e52f2cb6127b923",
         "audio_key": "32c2e43b05eadb9549f7378e3627bff13ca65f180c60f0d467bc9053f238b57d",
         "asset_keys": []
       }
@@ -279,7 +279,7 @@
         }
       },
       "deps": {
-        "frames_key": "34cb09c6a228ad835efe64cdef455542ac0940841d56430e8e18cab296d6c87e",
+        "frames_key": "fa02d3e6a5ee6bd405208f53bae7baee9ee48a730bbd71b8172ad5e392e7671b",
         "audio_key": "e5bc95d46edbd99d9708277d67a6440609d1e2f6952fd4a87146908c843f9bf6",
         "asset_keys": []
       }
@@ -296,7 +296,7 @@
       },
       "diagram": {
         "layout": {
-          "engine": "dagre",
+          "engine": "manual",
           "direction": "LR"
         },
         "theme": "dark",
@@ -304,37 +304,65 @@
           {
             "id": "pr",
             "label": "Pull request",
-            "role": "accent"
+            "role": "accent",
+            "position": {
+              "x": 0,
+              "y": 320
+            }
           },
           {
             "id": "k6",
             "label": "Load (k6)",
-            "color": "#f6efe0"
+            "color": "#f2b85b",
+            "position": {
+              "x": 500,
+              "y": 40
+            }
           },
           {
             "id": "a11y",
             "label": "Accessibility (axe)",
-            "color": "#b690ce"
+            "color": "#6fb7f0",
+            "position": {
+              "x": 500,
+              "y": 180
+            }
           },
           {
             "id": "zap",
             "label": "Security (ZAP)",
-            "color": "#a070c8"
+            "color": "#f07f9b",
+            "position": {
+              "x": 500,
+              "y": 320
+            }
           },
           {
             "id": "ux",
             "label": "Responsive UX",
-            "color": "#c9b0dd"
+            "color": "#4fc4b0",
+            "position": {
+              "x": 500,
+              "y": 460
+            }
           },
           {
             "id": "cases",
             "label": "Test cases",
-            "color": "#9ea39b"
+            "color": "#9ea39b",
+            "position": {
+              "x": 500,
+              "y": 600
+            }
           },
           {
             "id": "report",
             "label": "One report",
-            "role": "accent"
+            "role": "accent",
+            "position": {
+              "x": 1060,
+              "y": 320
+            }
           }
         ],
         "edges": [
@@ -342,49 +370,49 @@
             "id": "e-pr-k6",
             "source": "pr",
             "target": "k6",
-            "color": "#f6efe0"
+            "color": "#f2b85b"
           },
           {
             "id": "e-k6-report",
             "source": "k6",
             "target": "report",
-            "color": "#f6efe0"
+            "color": "#f2b85b"
           },
           {
             "id": "e-pr-a11y",
             "source": "pr",
             "target": "a11y",
-            "color": "#b690ce"
+            "color": "#6fb7f0"
           },
           {
             "id": "e-a11y-report",
             "source": "a11y",
             "target": "report",
-            "color": "#b690ce"
+            "color": "#6fb7f0"
           },
           {
             "id": "e-pr-zap",
             "source": "pr",
             "target": "zap",
-            "color": "#a070c8"
+            "color": "#f07f9b"
           },
           {
             "id": "e-zap-report",
             "source": "zap",
             "target": "report",
-            "color": "#a070c8"
+            "color": "#f07f9b"
           },
           {
             "id": "e-pr-ux",
             "source": "pr",
             "target": "ux",
-            "color": "#c9b0dd"
+            "color": "#4fc4b0"
           },
           {
             "id": "e-ux-report",
             "source": "ux",
             "target": "report",
-            "color": "#c9b0dd"
+            "color": "#4fc4b0"
           },
           {
             "id": "e-pr-cases",
@@ -450,7 +478,7 @@
             ],
             "count": 2,
             "duration": 900,
-            "color": "#f6efe0"
+            "color": "#f2b85b"
           },
           {
             "t_ms": 1100,
@@ -460,7 +488,7 @@
             ],
             "count": 2,
             "duration": 900,
-            "color": "#b690ce"
+            "color": "#6fb7f0"
           },
           {
             "t_ms": 1100,
@@ -470,7 +498,7 @@
             ],
             "count": 2,
             "duration": 900,
-            "color": "#a070c8"
+            "color": "#f07f9b"
           },
           {
             "t_ms": 1100,
@@ -480,7 +508,7 @@
             ],
             "count": 2,
             "duration": 900,
-            "color": "#c9b0dd"
+            "color": "#4fc4b0"
           },
           {
             "t_ms": 1100,
@@ -534,7 +562,7 @@
             ],
             "count": 3,
             "duration": 1000,
-            "color": "#f6efe0"
+            "color": "#f2b85b"
           },
           {
             "t_ms": 2600,
@@ -551,7 +579,7 @@
             ],
             "count": 3,
             "duration": 1000,
-            "color": "#b690ce"
+            "color": "#6fb7f0"
           },
           {
             "t_ms": 3800,
@@ -568,7 +596,7 @@
             ],
             "count": 3,
             "duration": 1000,
-            "color": "#a070c8"
+            "color": "#f07f9b"
           },
           {
             "t_ms": 5200,
@@ -585,7 +613,7 @@
             ],
             "count": 3,
             "duration": 1000,
-            "color": "#c9b0dd"
+            "color": "#4fc4b0"
           },
           {
             "t_ms": 6700,
@@ -639,7 +667,7 @@
         }
       },
       "deps": {
-        "frames_key": "62423326a6b0bd1130167d6e136cb917d2efda759e427e724d0c86b8e09299d9",
+        "frames_key": "cc1d9e141bf86eca418fcdec3b57c6390ae872202696652576243b13089789f6",
         "audio_key": "dc6ae4aa8db02b4ef95881e1c4e329ed61d54da9a1b57d088c526bc4d71982fe",
         "asset_keys": []
       }
@@ -678,7 +706,7 @@
       },
       "order": 5,
       "deps": {
-        "frames_key": "ed21d181cd826d522d0eb68c21ade71b2f8715f8c59d43eebe921dab2a7e033f",
+        "frames_key": "b57da6e94122400aa0103e88abcadb674253ac0ea361d23a73399dc226833e6d",
         "audio_key": "7a430440962a2b1e14c9fc3ad319dbabc9eec11033e341411c7546053bc327b1",
         "asset_keys": []
       }
@@ -719,7 +747,7 @@
       },
       "order": 6,
       "deps": {
-        "frames_key": "7f6ef60308416875af924ab1f73d8c26c24d47e7ebc4527196f9168f3eb17bad",
+        "frames_key": "f77ba8643876be81b3a32542958447f2ed546df471039a32ca012ecc343566a3",
         "audio_key": "9234aa48aa5b2909a8cff62c13a60f2e0d17dcab58eb6b6cae9fa5b24d75103f",
         "asset_keys": []
       }
@@ -759,7 +787,7 @@
         }
       },
       "deps": {
-        "frames_key": "d2a79e8a0a42170e925be738155bd277abfdae95cfdd32bf18ed0a46bbaf9972",
+        "frames_key": "db0c443c7c2c6581819b5994baa7c25f6e236121bb5134a3d10dd54a96b56231",
         "audio_key": "da640e1c655fadb9b41994f7290cdd2305a92576c20ee6d62626aa7ec62f2a5f",
         "asset_keys": []
       }

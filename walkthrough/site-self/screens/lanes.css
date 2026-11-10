@@ -1,5 +1,4 @@
-/* Lane colours on the dark theme (tokens.css): cream, accent, lilac,
-   the mark tint #c9b0dd, and sage. */
+/* Lane colours: the series tokens in tokens.css. */
 :root {
   --lane-load: var(--series-1);
   --lane-a11y: var(--series-2);
