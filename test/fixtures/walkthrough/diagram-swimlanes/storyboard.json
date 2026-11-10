@@ -130,7 +130,7 @@
             "color": "success",
             "position": {
               "x": 1080,
-              "y": 60
+              "y": 110
             }
           },
           {
@@ -139,7 +139,7 @@
             "color": "warning",
             "position": {
               "x": 1080,
-              "y": 160
+              "y": 210
             }
           },
           {
@@ -148,7 +148,7 @@
             "color": "danger",
             "position": {
               "x": 1080,
-              "y": 260
+              "y": 310
             }
           },
           {
@@ -157,7 +157,7 @@
             "color": "success",
             "position": {
               "x": 1080,
-              "y": 360
+              "y": 410
             }
           }
         ],
