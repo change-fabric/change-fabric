@@ -105,7 +105,17 @@
     "provider": "elevenlabs",
     "voice_id": "21m00Tcm4TlvDq8ikWAM",
     "model": "eleven_multilingual_v2",
-    "output_format": "mp3_44100_128"
+    "output_format": "mp3_44100_128",
+    "pronunciations": [
+      {
+        "text": "CHANGE.md",
+        "say": "change dot M D"
+      },
+      {
+        "text": "UX",
+        "say": "U X"
+      }
+    ]
   },
   "hypotheses": [
     {
@@ -167,7 +177,7 @@
       },
       "deps": {
         "frames_key": "db435132d6a68409d9181f7c9b240d67ade2dda27d116d3b2a00ba64ff5c2584",
-        "audio_key": "a7993f273c5bfec36154bf4ab3c684c99d4b2611d388658a2ca523b79470fcd5",
+        "audio_key": "a9f66a0643e4633f7362ee8401916a08d1f79990193fe86de364b849f1580ea6",
         "asset_keys": []
       }
     },
@@ -321,6 +331,15 @@
             "duration": 0
           },
           {
+            "t_ms": 0,
+            "op": "flow",
+            "ids": [
+              "e-report-gate"
+            ],
+            "count": 2,
+            "duration": 1000
+          },
+          {
             "t_ms": 1000,
             "op": "highlight",
             "ids": [
@@ -335,15 +354,16 @@
           },
           {
             "t_ms": 2000,
-            "op": "pulse_edge",
+            "op": "flow",
             "ids": [
               "e-gate-merge",
               "e-gate-tag"
             ],
+            "count": 3,
             "duration": 1000
           },
           {
-            "t_ms": 4000,
+            "t_ms": 3000,
             "op": "remove",
             "ids": [
               "report",
@@ -355,7 +375,7 @@
             "op": "focus",
             "id": "merge",
             "zoom": 1.5,
-            "duration": 200
+            "duration": 750
           }
         ]
       },
@@ -373,7 +393,7 @@
       ],
       "narration": {
         "text": "A passing gate lets this change merge.",
-        "measured_ms": 2276
+        "measured_ms": 2183
       },
       "timing": {
         "min_ms": 5000,
@@ -384,8 +404,8 @@
         }
       },
       "deps": {
-        "frames_key": "c90d9415a90287cba8dd25a2cdae802660f60f36a6040b99da2211a77ab8fa88",
-        "audio_key": "01cf313ecef7b33430f47541d1c182dd7c5b3526c1bf21ef1e724278aea80cd7",
+        "frames_key": "ebce818c62771237aabc25f16f4aeb81c6290b6d551fb20112a64a849856976e",
+        "audio_key": "7de2e1fb05371fc8b304f526c7760961ee165e6e6b0b3a3dade7ec7448ee8018",
         "asset_keys": []
       }
     },
@@ -419,7 +439,7 @@
       ],
       "narration": {
         "text": "One CHANGE.md per repo: what to test, what is protected.",
-        "measured_ms": 4365
+        "measured_ms": 4783
       },
       "timing": {
         "min_ms": 6000,
@@ -431,7 +451,7 @@
       },
       "deps": {
         "frames_key": "f662ce34e9bcde251fe3480ed5c7ac29818dd91e2ab95342d3f4da59307adf6d",
-        "audio_key": "b96380c1023b094a7a0b9599ed3a81704c2bdc57dc29224de8dc49555c30f98e",
+        "audio_key": "a9a38738249b268d276d9c90a8180bb61c4469eb1169fc37d330e21df4b94270",
         "asset_keys": []
       }
     },
@@ -577,6 +597,20 @@
           },
           {
             "t_ms": 500,
+            "op": "fit_view",
+            "ids": [
+              "pr",
+              "k6",
+              "a11y",
+              "zap",
+              "ux",
+              "cases"
+            ],
+            "padding": 0.15,
+            "duration": 750
+          },
+          {
+            "t_ms": 1500,
             "op": "add_node",
             "ids": [
               "k6",
@@ -592,20 +626,20 @@
             ]
           },
           {
-            "t_ms": 3000,
-            "op": "fit_view",
+            "t_ms": 1500,
+            "op": "flow",
             "ids": [
-              "k6",
-              "a11y",
-              "zap",
-              "ux",
-              "cases"
+              "e-pr-k6",
+              "e-pr-a11y",
+              "e-pr-zap",
+              "e-pr-ux",
+              "e-pr-cases"
             ],
-            "padding": 0.2,
-            "duration": 0
+            "count": 2,
+            "duration": 1000
           },
           {
-            "t_ms": 3500,
+            "t_ms": 3000,
             "op": "highlight",
             "ids": [
               "k6",
@@ -613,17 +647,7 @@
             ]
           },
           {
-            "t_ms": 6000,
-            "op": "fit_view",
-            "ids": [
-              "zap",
-              "ux"
-            ],
-            "padding": 0.2,
-            "duration": 200
-          },
-          {
-            "t_ms": 6500,
+            "t_ms": 5000,
             "op": "highlight",
             "ids": [
               "zap",
@@ -632,7 +656,22 @@
             ]
           },
           {
-            "t_ms": 9000,
+            "t_ms": 7500,
+            "op": "fit_view",
+            "ids": [
+              "pr",
+              "k6",
+              "a11y",
+              "zap",
+              "ux",
+              "cases",
+              "report"
+            ],
+            "padding": 0.12,
+            "duration": 750
+          },
+          {
+            "t_ms": 8500,
             "op": "add_node",
             "ids": [
               "report",
@@ -644,18 +683,8 @@
             ]
           },
           {
-            "t_ms": 9000,
-            "op": "fit_view",
-            "ids": [
-              "cases",
-              "report"
-            ],
-            "padding": 0.2,
-            "duration": 0
-          },
-          {
-            "t_ms": 9500,
-            "op": "pulse_edge",
+            "t_ms": 8500,
+            "op": "flow",
             "ids": [
               "e-k6-report",
               "e-a11y-report",
@@ -663,10 +692,11 @@
               "e-ux-report",
               "e-cases-report"
             ],
+            "count": 3,
             "duration": 1000
           },
           {
-            "t_ms": 12000,
+            "t_ms": 10000,
             "op": "unhighlight",
             "ids": [
               "k6",
@@ -677,13 +707,23 @@
             ]
           },
           {
-            "t_ms": 12000,
+            "t_ms": 10000,
             "op": "fit_view",
-            "padding": 0.15,
-            "duration": 0
+            "ids": [
+              "pr",
+              "k6",
+              "a11y",
+              "zap",
+              "ux",
+              "cases",
+              "report",
+              "gate"
+            ],
+            "padding": 0.1,
+            "duration": 750
           },
           {
-            "t_ms": 15000,
+            "t_ms": 11000,
             "op": "add_node",
             "ids": [
               "gate",
@@ -691,38 +731,16 @@
             ]
           },
           {
-            "t_ms": 15000,
-            "op": "fit_view",
+            "t_ms": 11000,
+            "op": "flow",
             "ids": [
-              "report",
-              "gate"
-            ],
-            "padding": 0.2,
-            "duration": 0
-          },
-          {
-            "t_ms": 16000,
-            "op": "highlight",
-            "ids": [
-              "gate",
               "e-report-gate"
-            ]
+            ],
+            "count": 3,
+            "duration": 1000
           },
           {
-            "t_ms": 18000,
-            "op": "focus",
-            "id": "gate",
-            "zoom": 1.5,
-            "duration": 200
-          },
-          {
-            "t_ms": 18000,
-            "op": "label",
-            "id": "gate",
-            "text": "Passed: head commit"
-          },
-          {
-            "t_ms": 18000,
+            "t_ms": 14000,
             "op": "remove",
             "ids": [
               "pr",
@@ -742,6 +760,65 @@
               "e-ux-report",
               "e-cases-report"
             ]
+          },
+          {
+            "t_ms": 15000,
+            "op": "fit_view",
+            "ids": [
+              "report",
+              "gate"
+            ],
+            "padding": 0.2,
+            "duration": 750
+          },
+          {
+            "t_ms": 16000,
+            "op": "highlight",
+            "ids": [
+              "gate",
+              "e-report-gate"
+            ]
+          },
+          {
+            "t_ms": 16000,
+            "op": "flow",
+            "ids": [
+              "e-report-gate"
+            ],
+            "count": 2,
+            "duration": 1000
+          },
+          {
+            "t_ms": 17000,
+            "op": "remove",
+            "ids": [
+              "report",
+              "e-report-gate"
+            ]
+          },
+          {
+            "t_ms": 18000,
+            "op": "label",
+            "id": "gate",
+            "text": "Passed: head commit"
+          },
+          {
+            "t_ms": 18000,
+            "op": "focus",
+            "id": "gate",
+            "zoom": 1.5,
+            "duration": 750
+          },
+          {
+            "t_ms": 20000,
+            "op": "fit_view",
+            "ids": [
+              "gate",
+              "merge",
+              "tag"
+            ],
+            "padding": 0.2,
+            "duration": 750
           },
           {
             "t_ms": 21000,
@@ -755,47 +832,15 @@
           },
           {
             "t_ms": 21000,
-            "op": "fit_view",
-            "ids": [
-              "gate",
-              "merge",
-              "tag"
-            ],
-            "padding": 0.2,
-            "duration": 0
-          },
-          {
-            "t_ms": 21000,
-            "op": "remove",
-            "ids": [
-              "pr",
-              "report",
-              "k6",
-              "a11y",
-              "zap",
-              "ux",
-              "cases",
-              "e-pr-k6",
-              "e-pr-a11y",
-              "e-pr-zap",
-              "e-pr-ux",
-              "e-pr-cases",
-              "e-k6-report",
-              "e-a11y-report",
-              "e-zap-report",
-              "e-ux-report",
-              "e-cases-report",
-              "e-report-gate"
-            ]
-          },
-          {
-            "t_ms": 21500,
-            "op": "pulse_edge",
+            "op": "flow",
             "ids": [
               "e-gate-merge",
               "e-gate-tag"
             ],
-            "duration": 1000
+            "count": 3,
+            "duration": 1000,
+            "stagger": 500,
+            "loop": true
           }
         ]
       },
@@ -818,7 +863,7 @@
       ],
       "narration": {
         "text": "Every enabled lane runs: load, accessibility, security, responsive UX, and test cases. Findings land in one report. The gate records the result for the head commit, and only a pass lets the merge or release tag through.",
-        "measured_ms": 16765
+        "measured_ms": 16393
       },
       "timing": {
         "min_ms": 24000,
@@ -829,17 +874,17 @@
         }
       },
       "deps": {
-        "frames_key": "b01ddafef83a00b6d21029d9fbf17c8124dcc68e7b997755c844c4fca9f155a1",
-        "audio_key": "e8ca085435978a12dcf78f118b26e7fca546954375db9f965bd8deafe098c17b",
+        "frames_key": "afbdc9912ad095028bbe7895979b967b66506d976c7f3ace7a1037ac769796f6",
+        "audio_key": "83e78c81cadcce9f47cd5f8a46c3facefcc592493c93e3cd9113f2e70956f41b",
         "asset_keys": []
       }
     },
     {
       "id": "logo-close",
-      "title": "Made with cf:walkthrough",
+      "title": "Proof, not hope",
       "order": 5,
-      "user_goal": "Know how this clip was made",
-      "action": "Read the made-by line",
+      "user_goal": "Know why to adopt the toolkit",
+      "action": "Read the closing line",
       "screen": {
         "html": "screens/logo-close.html"
       },
@@ -857,8 +902,8 @@
         "H10"
       ],
       "narration": {
-        "text": "Made by the walkthrough skill from one storyboard, diagram and voice included.",
-        "measured_ms": 5248
+        "text": "Ship agent-written code with proof, not hope. Change fabric.",
+        "measured_ms": 4087
       },
       "timing": {
         "min_ms": 6000,
@@ -869,8 +914,8 @@
         }
       },
       "deps": {
-        "frames_key": "1453210b044bea065f40f8d3e02970ba092a38bfe2f0564ffb8cbbc70af9f6ac",
-        "audio_key": "ffca697cc2aa1573d769cb661b3ef89b80dabf7c5e44f48fd397dfea53d1110a",
+        "frames_key": "4fb92652d9f410188a42737b2c6149e7d0bb302cbed5a498fa4e818130473455",
+        "audio_key": "4178750c67756a91774343458ad1f78eb66cc70da346c39d6f5e6e406b00986e",
         "asset_keys": []
       }
     }

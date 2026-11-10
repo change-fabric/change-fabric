@@ -55,10 +55,11 @@
 | t_ms | op | target |
 | --- | --- | --- |
 | 0 | fit_view | report, gate, merge, tag |
+| 0 | flow | e-report-gate |
 | 1000 | highlight | gate |
 | 2000 | label | gate |
-| 2000 | pulse_edge | e-gate-merge, e-gate-tag |
-| 4000 | remove | report, e-report-gate |
+| 2000 | flow | e-gate-merge, e-gate-tag |
+| 3000 | remove | report, e-report-gate |
 | 4000 | focus | merge |
 
 > A passing gate lets this change merge.
@@ -114,37 +115,39 @@
 | t_ms | op | target |
 | --- | --- | --- |
 | 0 | fit_view | pr |
-| 500 | add_node | k6, a11y, zap, ux, cases, e-pr-k6, e-pr-a11y, e-pr-zap, e-pr-ux, e-pr-cases |
-| 3000 | fit_view | k6, a11y, zap, ux, cases |
-| 3500 | highlight | k6, a11y |
-| 6000 | fit_view | zap, ux |
-| 6500 | highlight | zap, ux, cases |
-| 9000 | add_node | report, e-k6-report, e-a11y-report, e-zap-report, e-ux-report, e-cases-report |
-| 9000 | fit_view | cases, report |
-| 9500 | pulse_edge | e-k6-report, e-a11y-report, e-zap-report, e-ux-report, e-cases-report |
-| 12000 | unhighlight | k6, a11y, zap, ux, cases |
-| 12000 | fit_view |  |
-| 15000 | add_node | gate, e-report-gate |
+| 500 | fit_view | pr, k6, a11y, zap, ux, cases |
+| 1500 | add_node | k6, a11y, zap, ux, cases, e-pr-k6, e-pr-a11y, e-pr-zap, e-pr-ux, e-pr-cases |
+| 1500 | flow | e-pr-k6, e-pr-a11y, e-pr-zap, e-pr-ux, e-pr-cases |
+| 3000 | highlight | k6, a11y |
+| 5000 | highlight | zap, ux, cases |
+| 7500 | fit_view | pr, k6, a11y, zap, ux, cases, report |
+| 8500 | add_node | report, e-k6-report, e-a11y-report, e-zap-report, e-ux-report, e-cases-report |
+| 8500 | flow | e-k6-report, e-a11y-report, e-zap-report, e-ux-report, e-cases-report |
+| 10000 | unhighlight | k6, a11y, zap, ux, cases |
+| 10000 | fit_view | pr, k6, a11y, zap, ux, cases, report, gate |
+| 11000 | add_node | gate, e-report-gate |
+| 11000 | flow | e-report-gate |
+| 14000 | remove | pr, k6, a11y, zap, ux, cases, e-pr-k6, e-pr-a11y, e-pr-zap, e-pr-ux, e-pr-cases, e-k6-report, e-a11y-report, e-zap-report, e-ux-report, e-cases-report |
 | 15000 | fit_view | report, gate |
 | 16000 | highlight | gate, e-report-gate |
-| 18000 | focus | gate |
+| 16000 | flow | e-report-gate |
+| 17000 | remove | report, e-report-gate |
 | 18000 | label | gate |
-| 18000 | remove | pr, k6, a11y, zap, ux, cases, e-pr-k6, e-pr-a11y, e-pr-zap, e-pr-ux, e-pr-cases, e-k6-report, e-a11y-report, e-zap-report, e-ux-report, e-cases-report |
+| 18000 | focus | gate |
+| 20000 | fit_view | gate, merge, tag |
 | 21000 | add_node | merge, tag, e-gate-merge, e-gate-tag |
-| 21000 | fit_view | gate, merge, tag |
-| 21000 | remove | pr, report, k6, a11y, zap, ux, cases, e-pr-k6, e-pr-a11y, e-pr-zap, e-pr-ux, e-pr-cases, e-k6-report, e-a11y-report, e-zap-report, e-ux-report, e-cases-report, e-report-gate |
-| 21500 | pulse_edge | e-gate-merge, e-gate-tag |
+| 21000 | flow | e-gate-merge, e-gate-tag |
 
 > Every enabled lane runs: load, accessibility, security, responsive UX, and test cases. Findings land in one report. The gate records the result for the head commit, and only a pass lets the merge or release tag through.
 
-## 5. Made with cf:walkthrough (`logo-close`)
+## 5. Proof, not hope (`logo-close`)
 
 - Duration: 6000 ms
 - Screen: screens/logo-close.html
-- User goal: Know how this clip was made
-- Action: Read the made-by line
+- User goal: Know why to adopt the toolkit
+- Action: Read the closing line
 - Hypotheses: H-01
 - Heuristics shown: H6, H10
 - Requirement: brief.md#self-made
 
-> Made by the walkthrough skill from one storyboard, diagram and voice included.
+> Ship agent-written code with proof, not hope. Change fabric.
