@@ -74,6 +74,23 @@ class ChangeConfigTestcasesTest < Minitest::Test
     assert_match(/targets only applies to the zap lane/, error.message)
   end
 
+  # --- launch_args ---------------------------------------------------------------
+
+  def test_launch_args_accepts_a_list_of_flags
+    with_config(base("launch_args" => [ "--disable-features=LocalNetworkAccessChecks" ])) do |config, _root|
+      assert_equal [ "--disable-features=LocalNetworkAccessChecks" ], config.lane("testcases")["launch_args"]
+    end
+  end
+
+  def test_launch_args_rejects_an_entry_that_is_not_a_flag
+    error = assert_raises(ChangeConfig::ConfigError) { with_config(base("launch_args" => [ "disable-features=X" ])) { |_c, _r| } }
+    assert_match(/launch_args must be a list of Chromium flags/, error.message)
+  end
+
+  def test_launch_args_rejects_a_bare_string
+    assert_raises(ChangeConfig::ConfigError) { with_config(base("launch_args" => "--x")) { |_c, _r| } }
+  end
+
   # --- doctor --------------------------------------------------------------------
 
   def test_doctor_counts_the_loaded_cases

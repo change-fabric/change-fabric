@@ -28,6 +28,19 @@ export interface ReleaseNote {
 }
 
 export const RELEASE_NOTES: Record<string, ReleaseNote> = {
+  "0.16.0": {
+    version: "0.16.0",
+    date: "2026-11-10",
+    headline: "The testcases lane can launch its browser with extra Chromium flags.",
+    highlights: [
+      {
+        title: "lanes.testcases.launch_args",
+        body:
+          "A list of Chromium flags, each starting with --, for the browser every case runs in. The motivating case is --disable-features=LocalNetworkAccessChecks, so a code_source fetch can reach a private address like host.docker.internal.",
+      },
+    ],
+    upgrade: "Nothing to do. The field is optional and additive.",
+  },
   "0.15.0": {
     version: "0.15.0",
     date: "2026-11-07",

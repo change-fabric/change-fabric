@@ -84,7 +84,7 @@ module ChangeFlowRun
     ChangeDocker.with_network(options[:network]) do |net|
       ChangeDocker.with_browserless(network: net.name, add_hosts: options[:add_hosts],
                                     local_tls_hosts: options[:allowed_hosts]) do |session|
-        session.run_function(compiler.function_module)
+        session.run_function(compiler.function_module, launch_args: options[:launch_args])
       end
     end
   end
@@ -99,7 +99,9 @@ module ChangeFlowRun
   def apply_change_md(options)
     return unless options[:profile] || options[:change_md]
 
-    boot = ChangeConfig.load(options[:change_md] || File.join(Dir.pwd, 'CHANGE.md'), profile: options[:profile]).boot
+    config = ChangeConfig.load(options[:change_md] || File.join(Dir.pwd, 'CHANGE.md'), profile: options[:profile])
+    boot = config.boot
+    options[:launch_args] = (Array(config.lane('testcases')['launch_args']) + options[:launch_args]).uniq
     options[:add_hosts] = (boot.add_hosts + options[:add_hosts]).uniq
     options[:ignore_https_errors] ||= boot.ignore_https_errors
     options[:config_base_url] = boot.target_url unless boot.target_url.empty?
@@ -115,7 +117,8 @@ module ChangeFlowRun
 
   def parse(argv)
     options = { path: nil, base_url: nil, network: nil, dump: false, promote: false,
-                suite: nil, case_id: nil, acceptance: nil, tags: [], add_hosts: [], ignore_https_errors: false }
+                suite: nil, case_id: nil, acceptance: nil, tags: [], add_hosts: [], ignore_https_errors: false,
+                launch_args: [] }
     until argv.empty?
       arg = argv.shift
       case arg
@@ -123,6 +126,7 @@ module ChangeFlowRun
       when '--network' then options[:network] = argv.shift
       when '--add-host' then options[:add_hosts] << add_host(argv.shift)
       when '--ignore-https-errors' then options[:ignore_https_errors] = true
+      when '--launch-arg' then options[:launch_args] << launch_arg(argv.shift)
       when '--profile' then options[:profile] = argv.shift
       when '--change-md' then options[:change_md] = argv.shift
       when '--dump' then options[:dump] = true
@@ -137,6 +141,14 @@ module ChangeFlowRun
     options
   end
 
+  # A Chromium flag for the browserless launch, e.g.
+  # --launch-arg=--disable-features=LocalNetworkAccessChecks.
+  def launch_arg(value)
+    raise ArgumentError, "--launch-arg needs a Chromium flag starting with '--', got #{value.inspect}" unless value.to_s.match?(/\A--\S/)
+
+    value
+  end
+
   # HOST:TARGET, where TARGET is an IP or docker's `host-gateway`.
   def add_host(value)
     host, target = value.to_s.split(':', 2)
@@ -147,7 +159,7 @@ module ChangeFlowRun
 
   def usage
     warn 'usage: change_flow_run.rb <flow.yml> [--base-url URL] [--network NAME] [--dump]'
-    warn '       [--add-host HOST:TARGET ...] [--ignore-https-errors] [--profile NAME] [--change-md PATH]'
+    warn '       [--add-host HOST:TARGET ...] [--ignore-https-errors] [--launch-arg FLAG ...] [--profile NAME] [--change-md PATH]'
     warn '       change_flow_run.rb <flow.yml> --promote --suite NAME --case-id ID ' \
          '--acceptance TEXT [--tags a,b]'
     2

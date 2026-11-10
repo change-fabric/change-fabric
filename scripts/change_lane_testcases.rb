@@ -185,6 +185,11 @@ class ChangeLaneTestcases < ChangeLane
   # visible in the report rather than silent.
   def gate_tags = list('gate_tags')
 
+  # Extra Chromium flags (lanes.testcases.launch_args) for the browser the
+  # cases run in, e.g. --disable-features=LocalNetworkAccessChecks so a
+  # code_source fetch from the page can reach a private address.
+  def launch_args = list('launch_args')
+
   def list(key) = Array(@config[key]).map(&:to_s).reject(&:empty?)
 
   def viewport
@@ -246,7 +251,7 @@ class ChangeLaneTestcases < ChangeLane
   end
 
   def case_findings(selected, session)
-    result = session.run_function(scan_module(selected))
+    result = session.run_function(scan_module(selected), launch_args: launch_args)
     @results = graded(selected, Array(result))
     @results.map { |graded| case_finding(graded) }
   end

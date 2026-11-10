@@ -18,6 +18,19 @@ Every version below has a frozen, permanently addressable rendering at
 field set: major for a removed, renamed or newly required field, minor for a new
 optional field, patch for a documentation-only clarification.
 
+## [0.16.0] - 2026-11-10
+
+The testcases lane can launch its browser with extra Chromium flags.
+
+### Added
+
+- `change_config.lanes.testcases.launch_args`: a list of Chromium flags, each
+  starting with `--`, passed to browserless as its `launch` args for every case
+  the lane runs and for a cf:qa flow run with `--profile`. The motivating case
+  is `--disable-features=LocalNetworkAccessChecks`, which lets a `code_source`
+  fetch from the browser page reach a private address such as
+  `host.docker.internal`.
+
 ## [0.15.1] - 2026-11-08
 
 Documentation only: no field is added, removed, or changed in meaning.

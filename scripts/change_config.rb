@@ -433,10 +433,23 @@ class ChangeConfig
     raise ConfigError, 'no lanes enabled' if enabled_lanes.empty?
 
     validate_basic_auth_lanes(lanes || {})
+    validate_launch_args(lanes || {})
     boot_errors = boot.errors
     raise ConfigError, boot_errors.join('; ') unless boot_errors.empty?
     design_errors = ChangeSchema.design_errors(@raw['design'])
     raise ConfigError, design_errors.join('; ') unless design_errors.empty?
+  end
+
+  # lanes.testcases.launch_args (0.16.0): Chromium flags for the lane's browser.
+  # Only the shape is checked: a list of strings that each look like a flag.
+  def validate_launch_args(lanes)
+    section = lanes['testcases']
+    return unless section.is_a?(Hash) && section.key?('launch_args')
+
+    args = section['launch_args']
+    return if args.is_a?(Array) && args.all? { |arg| arg.is_a?(String) && arg.match?(/\A--\S/) }
+
+    raise ConfigError, "lanes.testcases.launch_args must be a list of Chromium flags, each starting with '--'; got #{args.inspect}"
   end
 
   # basic_auth only means anything on a lane that drives a real browser page

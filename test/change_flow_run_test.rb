@@ -65,4 +65,30 @@ class ChangeFlowRunTest < Minitest::Test
     launch = URI.decode_www_form(with_flag.query).to_h.fetch("launch")
     assert_equal({ "args" => [ "--ignore-certificate-errors" ] }, JSON.parse(launch))
   end
+
+  def test_parse_collects_launch_args_and_rejects_a_non_flag
+    options = ChangeFlowRun.parse(%w[flow.yml --launch-arg --disable-features=LocalNetworkAccessChecks])
+    assert_equal %w[--disable-features=LocalNetworkAccessChecks], options[:launch_args]
+    assert_raises(ArgumentError) { ChangeFlowRun.parse(%w[flow.yml --launch-arg nope]) }
+  end
+
+  def test_a_profile_supplies_the_testcases_launch_args
+    Dir.mktmpdir do |dir|
+      change_md = File.join(dir, "CHANGE.md")
+      File.write(change_md, <<~MD)
+        ---
+        change_config:
+          boot:
+            target_url: http://web:3000
+          lanes:
+            testcases:
+              suites: ["*.yml"]
+              launch_args: ["--disable-features=LocalNetworkAccessChecks"]
+        ---
+      MD
+      options = ChangeFlowRun.parse([ "flow.yml", "--change-md", change_md, "--launch-arg", "--x" ])
+      ChangeFlowRun.apply_change_md(options)
+      assert_equal %w[--disable-features=LocalNetworkAccessChecks --x], options[:launch_args]
+    end
+  end
 end
