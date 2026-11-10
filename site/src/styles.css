@@ -2889,3 +2889,25 @@ code {
   text-decoration: underline;
   text-underline-offset: 0.2em;
 }
+
+/* faux3: no logo of its own yet, so the neutral Docker mark stands in where
+   moose and porcupine show theirs. */
+.faux3 .faux3-hub-mark {
+  color: var(--panel-text);
+}
+
+.faux3-pair-mark {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+}
+
+.faux3-scope {
+  margin-top: var(--s4);
+  font-weight: 400;
+  color: var(--muted);
+}
