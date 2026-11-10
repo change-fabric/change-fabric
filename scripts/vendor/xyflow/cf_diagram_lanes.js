@@ -53,6 +53,12 @@
   const ICON_PX = 20;
   const ICON_GAP = 8;
   const NODE_SEP = 60;
+  // A node's horizontal padding plus border, and its border, as the
+  // runtime's .cf-node draws them.
+  const NODE_PAD_X = 28;
+  const NODE_BORDER = 2;
+  // Invisible camera anchors are this many units square.
+  const ANCHOR_PX = 2;
   const RANK_SEP = 120;
   const FADE_MS = 300;
   const DIM_OPACITY = 0.35;
@@ -71,6 +77,12 @@
   // reads as a column, and lane names sit in a column of their own.
   const CHECK_W = 224;
   const LABEL_COL = 280;
+  // A lane name: its left padding and colour bar, its line box, and (on a
+  // vertical lane) its gap above the first checkpoint.
+  const LABEL_PAD_L = 12;
+  const LABEL_BAR = 4;
+  const LABEL_H = 28;
+  const LABEL_GAP = 16;
   // The report panel, right of the lanes; result rows stack inside it.
   const PANEL_GAP = 48;
   const PANEL_W = 440;
@@ -153,7 +165,6 @@
     return [n.id, Math.round(w / 2) * 2];
   }));
   const checkpoint = (id) => horizontal && !!nodeById[id].lane;
-  const size = (id, axis) => (axis === 'x' ? (checkpoint(id) ? CHECK_W : WIDTH[id]) : NODE_H);
   const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
   const clamp01 = (v) => clamp(v, 0, 1);
 
@@ -194,89 +205,154 @@
   const travelSteps = steps.filter((s) => s.op === 'travel');
   const owned = new Set(travelSteps.flatMap((s) => [s.id, s.result].filter(Boolean)));
   const rails = travelSteps.length > 0;
-
-  const direction = (spec.layout && spec.layout.direction) || 'LR';
-  const pos = {};
-  if (((spec.layout && spec.layout.engine) || 'dagre') === 'dagre') {
-    const g = new dagre.graphlib.Graph();
-    g.setGraph({ rankdir: direction, nodesep: NODE_SEP, ranksep: RANK_SEP, marginx: 0, marginy: 0 });
-    g.setDefaultEdgeLabel(() => ({}));
-    for (const n of spec.nodes) g.setNode(n.id, { width: WIDTH[n.id], height: NODE_H });
-    for (const e of spec.edges) g.setEdge(e.source, e.target);
-    dagre.layout(g);
-    for (const id of nodeIds) { const p = g.node(id); pos[id] = { x: Math.round(p.x - WIDTH[id] / 2), y: Math.round(p.y - NODE_H / 2) }; }
-  }
-  const pinned = new Set();
-  for (const n of spec.nodes) if (n.position) { pos[n.id] = { x: n.position.x, y: n.position.y }; pinned.add(n.id); }
-  for (const id of nodeIds) if (!pos[id]) pos[id] = { x: 0, y: 0 };
-
-  // Bands stack along the cross axis in spec order. Inside a band, nodes
-  // keep their along coordinate and take rows greedily, so two nodes that
-  // would overlap sit one row apart; the band grows to fit its rows, plus
-  // its rail when anything travels. A pinned node keeps only its along
-  // coordinate: the band owns the other.
-  const tokenW = (id) => {
-    const n = nodeById[id];
-    return Math.round((n.label.length * TOKEN_CHAR_W + TOKEN_PAD_W + (iconOf(n) ? TOKEN_ICON + 6 : 0)) / 2) * 2;
-  };
-
-  // A rail reserves the cross-axis size of whatever rides it: a token's
-  // height across horizontal lanes, its full width across vertical ones.
-  const railSize = (laneId) => {
-    if (horizontal) return TOKEN_H;
-    const sizes = travelSteps.filter((s) => s.lane === laneId).map((s) => (s.id ? tokenW(s.id) : 2 * MARKER_HALO_R));
-    return Math.max(TOKEN_H, ...sizes);
-  };
-  const bands = {};
-  let edge = 0;
-  for (const lane of LANES.lanes) {
-    const members = spec.nodes.filter((n) => n.lane === lane.id).map((n) => n.id)
-      .sort((a, b) => pos[a][along] - pos[b][along] || nodeIds.indexOf(a) - nodeIds.indexOf(b));
-    const rows = [];
-    const rowOf = {};
-    for (const id of members) {
-      let r = rows.findIndex((row) => row.end + ROW_GAP <= pos[id][along]);
-      if (r < 0) { rows.push({ end: -Infinity, size: 0 }); r = rows.length - 1; }
-      rows[r].end = pos[id][along] + size(id, along);
-      rows[r].size = Math.max(rows[r].size, size(id, cross));
-      rowOf[id] = r;
-    }
-    const content = rows.reduce((sum, row) => sum + row.size, 0) + ROW_GAP * Math.max(0, rows.length - 1);
-    const rail = railSize(lane.id);
-    const tail = rails ? RAIL_GAP + rail + LANE_PAD : LANE_PAD;
-    const extent = Math.max(LANE_MIN, content + LANE_PAD + tail);
-    let at = edge + LANE_PAD + (extent - LANE_PAD - tail - content) / 2;
-    const rowStart = rows.map((row) => { const s = at; at += row.size + ROW_GAP; return s; });
-    for (const id of members) pos[id][cross] = Math.round(rowStart[rowOf[id]] + (rows[rowOf[id]].size - size(id, cross)) / 2);
-    bands[lane.id] = { start: edge, extent, rail: edge + extent - LANE_PAD - rail / 2, mid: edge + LANE_PAD + (extent - LANE_PAD - tail) / 2, members };
-    edge += extent;
-  }
-
-  // A laid-out node outside every lane keeps its place relative to the
-  // other such nodes, centred on the stack of bands.
-  const free = nodeIds.filter((id) => !nodeById[id].lane && !pinned.has(id) && !owned.has(id));
-  if (free.length && !(spec.layout && spec.layout.engine === 'manual')) {
-    const lo = Math.min(...free.map((id) => pos[id][cross]));
-    const hi = Math.max(...free.map((id) => pos[id][cross] + size(id, cross)));
-    const shift = Math.round(edge / 2 - (lo + hi) / 2);
-    for (const id of free) pos[id][cross] += shift;
-  }
-
-  // Every travel spans the same stretch: from the first checkpoint's start
-  // to CLEAR past the widest reach of the last, so a token crossing each
-  // lane in turn reads as one short route under its checkpoints.
+  const report = horizontal && LANES.report ? LANES.report : null;
   const laned = spec.nodes.filter((n) => n.lane).map((n) => n.id);
-  const span = laned.length
-    ? [Math.min(...laned.map((id) => pos[id][along])), Math.max(...laned.map((id) => pos[id][along] + size(id, along))) + CLEAR]
-    : [0, 600];
+  const even = (v) => Math.round(v / 2) * 2;
+  const textsOf = (n) => [n.label || ''].concat(steps.filter((s) => s.op === 'label' && s.id === n.id).map((s) => s.text || ''));
+  const ext = (box, axis) => (axis === 'x' ? box.w : box.h);
+  const union = (boxes) => boxes.reduce((b, r) => ({
+    x0: Math.min(b.x0, r.x), y0: Math.min(b.y0, r.y), x1: Math.max(b.x1, r.x + r.w), y1: Math.max(b.y1, r.y + r.h)
+  }), { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity });
+  // A box from along/cross coordinates and extents.
+  const flowBox = (a, c, alongExt, crossExt) => (horizontal ? { x: a, y: c, w: alongExt, h: crossExt } : { x: c, y: a, w: crossExt, h: alongExt });
+
+  // The layout record: every node box, band, label, rail, token, report
+  // row, and the camera bounds, computed once here from the spec before the
+  // runtime boots. The runtime takes each node's size from it (cf_width,
+  // cf_height), and every draw reads it; nothing sizes itself at draw time.
+  const computeLayout = () => {
+    const fc = FIT.checkpoint;
+    // A checkpoint is CHECK_W wide; any other node keeps the runtime's
+    // width. Either wraps its text at FIT's checkpoint font and line height
+    // and grows to fit, never under NODE_H.
+    const size = Object.fromEntries(spec.nodes.map((n) => {
+      const w = checkpoint(n.id) ? CHECK_W : WIDTH[n.id];
+      const room = checkpoint(n.id) ? fc.width - (iconOf(n) ? fc.icon : 0) : w - NODE_PAD_X - (iconOf(n) ? ICON_PX + ICON_GAP : 0);
+      const lines = Math.max(1, ...textsOf(n).map((t) => wrapLines(t, fc.font, room).length));
+      return [n.id, { w, h: Math.max(NODE_H, even(lines * fc.line_h + 2 * fc.pad_y + 2 * NODE_BORDER)), lines }];
+    }));
+    const tokens = {};
+    for (const s of travelSteps) {
+      if (!s.id || tokens[s.id]) continue;
+      const n = nodeById[s.id];
+      tokens[s.id] = { w: even(textWidth(n.label, FIT.token.font) + TOKEN_PAD_W + (iconOf(n) ? FIT.token.icon : 0)), h: TOKEN_H };
+    }
+    const marker = { w: 2 * MARKER_HALO_R, h: 2 * MARKER_HALO_R };
+    const rider = (s) => (s.id ? tokens[s.id] : marker);
+
+    const direction = (spec.layout && spec.layout.direction) || 'LR';
+    const pos = {};
+    if (((spec.layout && spec.layout.engine) || 'dagre') === 'dagre') {
+      const g = new dagre.graphlib.Graph();
+      g.setGraph({ rankdir: direction, nodesep: NODE_SEP, ranksep: RANK_SEP, marginx: 0, marginy: 0 });
+      g.setDefaultEdgeLabel(() => ({}));
+      for (const n of spec.nodes) g.setNode(n.id, { width: size[n.id].w, height: size[n.id].h });
+      for (const e of spec.edges) g.setEdge(e.source, e.target);
+      dagre.layout(g);
+      for (const id of nodeIds) { const p = g.node(id); pos[id] = { x: Math.round(p.x - size[id].w / 2), y: Math.round(p.y - size[id].h / 2) }; }
+    }
+    const pinned = new Set();
+    for (const n of spec.nodes) if (n.position) { pos[n.id] = { x: n.position.x, y: n.position.y }; pinned.add(n.id); }
+    for (const id of nodeIds) if (!pos[id]) pos[id] = { x: 0, y: 0 };
+
+    // Bands stack along the cross axis in spec order. Inside a band, nodes
+    // keep their along coordinate and take rows greedily, so two nodes that
+    // would overlap sit one row apart; the band grows to fit its rows, plus
+    // its rail when anything travels, and a vertical band to fit its name.
+    // A pinned node keeps only its along coordinate: the band owns the
+    // other. A rail reserves the cross-axis extent of whatever rides it.
+    const labelW = (lane) => even(LABEL_PAD_L + LABEL_BAR + (lane.icon && ICONS[lane.icon] ? FIT.lane_label.icon : 0) + textWidth(lane.label, FIT.lane_label.font));
+    const bands = [];
+    let edge = 0;
+    for (const lane of LANES.lanes) {
+      const members = spec.nodes.filter((n) => n.lane === lane.id).map((n) => n.id)
+        .sort((a, b) => pos[a][along] - pos[b][along] || nodeIds.indexOf(a) - nodeIds.indexOf(b));
+      const rows = [];
+      const rowOf = {};
+      for (const id of members) {
+        let r = rows.findIndex((row) => row.end + ROW_GAP <= pos[id][along]);
+        if (r < 0) { rows.push({ end: -Infinity, size: 0 }); r = rows.length - 1; }
+        rows[r].end = pos[id][along] + ext(size[id], along);
+        rows[r].size = Math.max(rows[r].size, ext(size[id], cross));
+        rowOf[id] = r;
+      }
+      const content = rows.reduce((sum, row) => sum + row.size, 0) + ROW_GAP * Math.max(0, rows.length - 1);
+      const rail = Math.max(TOKEN_H, ...travelSteps.filter((s) => s.lane === lane.id).map((s) => ext(rider(s), cross)));
+      const tail = rails ? RAIL_GAP + rail + LANE_PAD : LANE_PAD;
+      const least = horizontal ? LANE_MIN : Math.max(LANE_MIN, labelW(lane) + 2 * LANE_PAD);
+      const extent = Math.max(least, content + LANE_PAD + tail);
+      let at = edge + LANE_PAD + (extent - LANE_PAD - tail - content) / 2;
+      const rowStart = rows.map((row) => { const s = at; at += row.size + ROW_GAP; return s; });
+      for (const id of members) pos[id][cross] = Math.round(rowStart[rowOf[id]] + (rows[rowOf[id]].size - ext(size[id], cross)) / 2);
+      bands.push({ id: lane.id, start: edge, extent, rail: edge + extent - LANE_PAD - rail / 2, railSize: rail, mid: edge + LANE_PAD + (extent - LANE_PAD - tail) / 2, members });
+      edge += extent;
+    }
+
+    // A laid-out node outside every lane keeps its place relative to the
+    // other such nodes, centred on the stack of bands.
+    const free = nodeIds.filter((id) => !nodeById[id].lane && !pinned.has(id) && !owned.has(id));
+    if (free.length && !(spec.layout && spec.layout.engine === 'manual')) {
+      const lo = Math.min(...free.map((id) => pos[id][cross]));
+      const hi = Math.max(...free.map((id) => pos[id][cross] + ext(size[id], cross)));
+      const shift = Math.round(edge / 2 - (lo + hi) / 2);
+      for (const id of free) pos[id][cross] += shift;
+    }
+
+    // Every travel spans the same stretch: from the first checkpoint's start
+    // to CLEAR past the widest reach of the last, so a token crossing each
+    // lane in turn reads as one short route under its checkpoints.
+    const span = laned.length
+      ? [Math.min(...laned.map((id) => pos[id][along])), Math.max(...laned.map((id) => pos[id][along] + ext(size[id], along))) + CLEAR]
+      : [0, 600];
+    for (const b of bands) {
+      const w = labelW(laneById[b.id]);
+      b.label = horizontal
+        ? { x: span[0] - LABEL_COL, y: Math.round(b.mid - LABEL_H / 2), w, h: LABEL_H }
+        : { x: b.start + LANE_PAD, y: span[0] - LABEL_GAP - LABEL_H, w, h: LABEL_H };
+    }
+    const railList = bands.map((b) => ({ lane: b.id, axis: along, from: span[0], to: span[1], at: b.rail, size: b.railSize }));
+    const reach = Math.max(span[1], ...travelSteps.map((s) => span[1] + ext(rider(s), along)));
+    const delivered = travelSteps.filter((s) => s.result);
+    const panel = report && {
+      x: reach + PANEL_GAP, y: 0, w: PANEL_W, h: Math.max(edge, PANEL_PAD * 2 + PANEL_HEAD + delivered.length * (RESULT_H + RESULT_GAP))
+    };
+    const rows = panel ? delivered.map((s, k) => ({
+      id: s.result, x: panel.x + PANEL_PAD, y: panel.y + PANEL_PAD + PANEL_HEAD + k * (RESULT_H + RESULT_GAP), w: PANEL_W - 2 * PANEL_PAD, h: RESULT_H
+    })) : [];
+    for (const r of rows) pos[r.id] = { x: r.x, y: r.y };
+    const boxes = {};
+    for (const id of nodeIds) boxes[id] = { x: pos[id].x, y: pos[id].y, w: size[id].w, h: size[id].h, lines: size[id].lines };
+    for (const r of rows) boxes[r.id] = { x: r.x, y: r.y, w: r.w, h: r.h, lines: 1 };
+
+    // The camera frames every visible box: nodes, lane names, the bands
+    // over the travel stretch, each rider from its entrance to its exit
+    // with its chip, the panel, and each standalone result from where its
+    // drop starts.
+    const shown = nodeIds.filter((id) => !owned.has(id)).map((id) => boxes[id]);
+    const results = panel ? [panel] : delivered.map((s) => ({ ...boxes[s.result], y: boxes[s.result].y - DROP_SHIFT, h: boxes[s.result].h + DROP_SHIFT }));
+    const travel = travelSteps.map((s) => {
+      const b = bands.find((x) => x.id === s.lane);
+      return flowBox(span[0] - ENTER_SHIFT - ext(rider(s), along), b.rail - b.railSize / 2,
+        span[1] - span[0] + 2 * ext(rider(s), along) + ENTER_SHIFT + EXIT_SHIFT + 2 * CHIP_R + 4, b.railSize);
+    });
+    const laneBox = bands.length ? [flowBox(span[0], 0, span[1] - span[0], edge)] : [];
+    const bounds = union([...shown, ...bands.map((b) => b.label), ...results, ...travel, ...laneBox]);
+    return { boxes, bands, rails: railList, tokens, marker, panel, rows, span, reach, bounds, pos };
+  };
+  const LAYOUT = computeLayout();
+  const pos = LAYOUT.pos;
+  const span = LAYOUT.span;
+  const panel = LAYOUT.panel;
+  const bands = Object.fromEntries(LAYOUT.bands.map((b) => [b.id, b]));
 
   // The timeline of every travel, in step order.
   const travels = travelSteps.map((s) => {
     const D = s.duration == null ? TRAVEL_MS : s.duration;
-    const w = s.id ? (horizontal ? tokenW(s.id) : TOKEN_H) : 2 * MARKER_HALO_R;
+    const box = s.id ? LAYOUT.tokens[s.id] : LAYOUT.marker;
+    const w = ext(box, along);
     const fn = easing(s.easing);
     const tr = {
-      t0: s.t_ms, D, lane: s.lane, id: s.id || null, result: s.result || null, w, fn,
+      t0: s.t_ms, D, lane: s.lane, id: s.id || null, result: s.result || null, w, box, fn,
       startA: s.id ? span[0] : span[0] - w / 2, endA: s.id ? span[1] : span[1] - w / 2, rail: bands[s.lane].rail,
       enterAt: s.t_ms - ENTER_MS, chipAt: s.t_ms + D - CHIP_IN_MS, transferAt: s.t_ms + D + TAIL_MS
     };
@@ -284,7 +360,8 @@
     tr.releaseAt = tr.result ? tr.landAt : tr.transferAt;
     // When the token's centre passes each checkpoint's centre.
     tr.pulses = bands[s.lane].members.filter((id) => !owned.has(id)).flatMap((id) => {
-      const p = (pos[id][along] + size(id, along) / 2 - tr.startA - w / 2) / (tr.endA - tr.startA);
+      const b = LAYOUT.boxes[id];
+      const p = (b[along] + ext(b, along) / 2 - tr.startA - w / 2) / (tr.endA - tr.startA);
       return p >= 0 && p <= 1 ? [{ id, at: s.t_ms + bisect(fn, p) * D }] : [];
     });
     return tr;
@@ -293,7 +370,6 @@
   // marker, or a token's last travel, leaves only if it is a marker.
   const delivered = travels.filter((tr) => tr.result);
   const lastLand = delivered.length ? Math.max(...delivered.map((tr) => tr.landAt)) : Infinity;
-  const report = horizontal && LANES.report ? LANES.report : null;
   travels.forEach((tr, i) => {
     const next = tr.id && travels.slice(i + 1).find((o) => o.id === tr.id);
     tr.exitShift = EXIT_SHIFT;
@@ -305,39 +381,24 @@
   });
   const slots = Object.fromEntries(delivered.map((tr) => [tr.result, tr]));
 
-  // The report panel and its rows, in delivery order, in flow units. With a
-  // panel, each result lands in its row rather than at its own position.
-  const reach = Math.max(span[1], ...travels.map((tr) => tr.endA + tr.w));
-  const panel = report && {
-    x: reach + PANEL_GAP, y: 0, w: PANEL_W, h: Math.max(edge, PANEL_PAD * 2 + PANEL_HEAD + delivered.length * (RESULT_H + RESULT_GAP))
-  };
-  if (panel) {
-    delivered.forEach((tr, k) => {
-      pos[tr.result] = { x: panel.x + PANEL_PAD, y: panel.y + PANEL_PAD + PANEL_HEAD + k * (RESULT_H + RESULT_GAP) };
-    });
-  }
-  const resultSize = (id) => (panel ? { w: PANEL_W - 2 * PANEL_PAD, h: RESULT_H } : { w: WIDTH[id], h: NODE_H });
-
-  // Two invisible corner nodes span the whole composition (lane names,
-  // lanes, and panel, or each result's own slot without one), so the
-  // runtime's fits frame all of it, with or without checkpoints. Their ids
-  // carry underscores, which no authored id may, so they never collide.
+  // Two invisible corner nodes span LAYOUT.bounds, so the runtime's fits
+  // frame the whole composition. Internal ids start `__cf_`, which no
+  // authored id may, so they never collide.
   const ANCHORS = ['__cf_lane_anchor_a', '__cf_lane_anchor_b'];
-  if (horizontal) {
-    const cards = panel ? [] : delivered.map((tr) => ({ ...pos[tr.result], ...resultSize(tr.result) }));
-    const left = Math.min(span[0] - LABEL_COL, ...cards.map((c) => c.x));
-    const top = Math.min(0, ...cards.map((c) => c.y));
-    const right = panel ? panel.x + panel.w : Math.max(reach, ...cards.map((c) => c.x + c.w));
-    const bottom = panel ? Math.max(edge, panel.h) : Math.max(edge, ...cards.map((c) => c.y + c.h));
-    spec.nodes.push({ id: ANCHORS[0], label: ' ', position: { x: left, y: top } },
-      { id: ANCHORS[1], label: ' ', position: { x: right - NODE_MIN_W, y: bottom - NODE_H } });
-    spec.initial = (spec.initial || []).concat(ANCHORS);
-  }
+  const B = LAYOUT.bounds;
+  spec.nodes.push({ id: ANCHORS[0], label: ' ', cf_width: ANCHOR_PX, cf_height: ANCHOR_PX, position: { x: Math.floor(B.x0), y: Math.floor(B.y0) } },
+    { id: ANCHORS[1], label: ' ', cf_width: ANCHOR_PX, cf_height: ANCHOR_PX, position: { x: Math.ceil(B.x1) - ANCHOR_PX, y: Math.ceil(B.y1) - ANCHOR_PX } });
+  spec.initial = (spec.initial || []).concat(ANCHORS);
 
-  for (const n of spec.nodes) if (pos[n.id]) n.position = { x: Math.round(pos[n.id].x), y: Math.round(pos[n.id].y) };
-  // The runtime sizes each checkpoint's node, handles, and edges to the
-  // checkpoint width, not its label.
-  for (const id of laned) if (checkpoint(id)) nodeById[id].cf_width = CHECK_W;
+  // Every node takes its place and size from the record; the runtime
+  // reads both, so its node, handles, and edges match each box.
+  for (const n of spec.nodes) {
+    const b = LAYOUT.boxes[n.id];
+    if (!b) continue;
+    n.position = { x: Math.round(b.x), y: Math.round(b.y) };
+    if (b.w !== WIDTH[n.id]) n.cf_width = b.w;
+    if (b.h !== NODE_H) n.cf_height = b.h;
+  }
   spec.initial = (spec.initial || []).filter((id) => !owned.has(id));
   steps.forEach((s, i) => {
     if (s.op === 'travel') steps[i] = { t_ms: s.t_ms, op: 'add_node', ids: [] };
@@ -416,7 +477,7 @@
     const tok = tokenAt(tr, Math.min(t, tr.transferAt));
     const from = { a: (tok ? tok.a : tr.endA) + tr.w + CHIP_R + 4, c: tr.rail };
     const slot = pos[tr.result];
-    const box = resultSize(tr.result);
+    const box = LAYOUT.boxes[tr.result];
     const to = { a: slot[along] + (panel ? 18 : CHIP_R), c: slot[cross] + (horizontal ? box.h : box.w) / 2 };
     if (t < tr.transferAt) return { a: from.a, c: from.c, opacity: clamp01((t - tr.chipAt) / CHIP_IN_MS), scale: 0.6 + 0.4 * clamp01((t - tr.chipAt) / CHIP_IN_MS) };
     const p = EASINGS.emphasized((t - tr.transferAt) / TRANSFER_MS);
@@ -470,8 +531,7 @@ body { background: var(--cf-surface, #ffffff); }
 .cf-lanes[data-dir="horizontal"] .cf-lane-label { left: 0; top: 0; transform-origin: 0 0; font-size: 22px; line-height: 28px; padding: 0 0 0 12px; }
 .cf-lanes[data-dir="horizontal"] .cf-lane-label svg { width: 22px; height: 22px; margin-right: 8px; vertical-align: -4px; }
 ${ANCHORS.map((id) => `.react-flow__node[data-id="${id}"] .cf-node`).join(', ')} { visibility: hidden; }
-#cf-diagram-root .cf-node { font-size: 19px; }
-${laned.filter(checkpoint).map((id) => `.react-flow__node[data-id="${CSS.escape(id)}"] .cf-node { white-space: nowrap; }`).join('\n')}
+#cf-diagram-root .cf-node { font-size: ${FIT.checkpoint.font}px; line-height: ${FIT.checkpoint.line_h}px; overflow-wrap: anywhere; }
 .cf-lane-panel { box-sizing: border-box; border: 1px solid; border-radius: 14px; padding: ${PANEL_PAD}px; }
 .cf-lane-panel-head { height: ${PANEL_HEAD}px; color: var(--cf-text, #0f172a); font: 600 22px/28px system-ui, sans-serif; white-space: nowrap; }
 .cf-lane-badge { margin-left: 10px; padding: 2px 10px; border-radius: 999px; font: 600 16px/22px system-ui, sans-serif;
@@ -584,7 +644,7 @@ ${laned.filter(checkpoint).map((id) => `.react-flow__node[data-id="${CSS.escape(
       const n = nodeById[tr.id];
       const c = COLORS.nodes[tr.id];
       el.className = 'cf-lane-token';
-      el.style.width = `${horizontal ? tr.w : tokenW(tr.id)}px`;
+      el.style.width = `${tr.box.w}px`;
       if (c) { el.style.borderColor = c.color; el.style.background = c.tint; }
       if (iconOf(n)) el.appendChild(iconEl(iconOf(n), null, c ? c.color : null));
       el.appendChild(document.createTextNode(n.label));
@@ -663,7 +723,7 @@ ${laned.filter(checkpoint).map((id) => `.react-flow__node[data-id="${CSS.escape(
       const el = tokenEls[i];
       if (!tok) { set(el, 'display', 'none'); return; }
       const h = tr.id ? TOKEN_H : 2 * MARKER_HALO_R;
-      const [fx, fy] = horizontal ? [tok.a, tok.c - h / 2] : [tok.c - (tr.id ? tokenW(tr.id) : h) / 2, tok.a];
+      const [fx, fy] = horizontal ? [tok.a, tok.c - h / 2] : [tok.c - tr.box.w / 2, tok.a];
       place(el, vp, fx, fy, tok.opacity);
     });
     travels.forEach((tr, i) => {
