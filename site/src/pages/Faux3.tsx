@@ -201,7 +201,7 @@ export function Faux3() {
           </p>
           <h2 id="faux3-roadmap-title">Small on purpose</h2>
           <p className="home-lede">
-            faux3 is a local development stand-in for S3, not production hosting. It leaves out production hosting,
+            faux3 is a local development stand-in for S3, not production hosting. It leaves out
             multipart uploads (on the roadmap), IAM and bucket policies, versioning, encryption, a web
             UI and distributed storage.
           </p>
