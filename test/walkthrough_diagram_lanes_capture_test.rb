@@ -68,7 +68,90 @@ class WalkthroughDiagramLanesCaptureTest < Minitest::Test
     end
   end
 
+  # Three variants of the fixture, each loaded once and probed at one moment:
+  # a vertical lane's rail fits the token's full width inside its band; a
+  # result with no report panel lands inside the opening frame even when it
+  # sits far right of the lanes; and a highlight step on one checkpoint keeps
+  # its accent border while its own lane is idle.
+  def test_vertical_rails_standalone_results_and_node_highlight
+    skip "docker not available" unless ChangeDocker.available?
+
+    Dir.mktmpdir do |root|
+      FileUtils.cp_r("#{FIXTURE}/.", root)
+      board = WalkthroughStoryboard.load(File.join(root, "storyboard.json"))
+      scene = board["scenes"].first
+      base = scene["diagram"]
+      vertical = variant(base) do |d|
+        d.delete("report")
+        d["lane_direction"] = "vertical"
+        d["nodes"].find { |n| n["id"] == "pr" }["label"] = "Pull request"
+      end
+      standalone = variant(base) do |d|
+        d.delete("report")
+        d["nodes"].find { |n| n["id"] == "f-load" }["position"] = { "x" => 3000, "y" => 0 }
+      end
+      highlight = variant(base) { |d| d["steps"].insert(1, { "t_ms" => 100, "op" => "highlight", "id" => "check-cases" }) }
+      htmls = [ vertical, standalone, highlight ].map do |d|
+        scene["diagram"] = d
+        assert_empty WalkthroughDiagram.spec_errors(d, 8000)
+        WalkthroughDiagram.screen(scene, root: root, board: board)
+      end
+      v, s, h = ChangeDocker.with_browserless(network: nil) do |session|
+        [ [ htmls[0], 650 ], [ htmls[1], 8000 ], [ htmls[2], 400 ] ].map { |html, t| session.run_function(snapshot_js(html, board["viewport"], t)) }
+      end
+
+      tok = v["tokens"][0]
+      band = v["lanes"]["load"]
+      assert_operator tok["left"], :>=, band["left"] - EPS, "the vertical token leaves its band"
+      assert_operator tok["right"], :<=, band["right"] + EPS, "the vertical token leaves its band"
+      v["checks"].each { |id, c| refute overlap?(tok, c), "the vertical token passes through #{id}" }
+
+      card = s["cards"]["f-load"]
+      refute_nil card, "the standalone result shows"
+      assert_operator card["left"], :>=, -EPS, "the standalone result lands off screen"
+      assert_operator card["right"], :<=, board["viewport"]["w"] + EPS, "the standalone result lands off screen"
+
+      refute_equal h["border"]["check-load"], h["border"]["check-cases"], "the highlighted checkpoint loses its accent border"
+      refute_equal "none", h["shadow"]["check-cases"], "the highlighted checkpoint loses its halo"
+    end
+  end
+
   private
+
+  def variant(diagram) = JSON.parse(JSON.generate(diagram)).tap { |d| yield d }
+
+  # Loads a screen, advances its clock to `t_ms`, and reports the lanes,
+  # tokens, cards, and each checkpoint's box and computed border and shadow.
+  def snapshot_js(html, viewport, t_ms)
+    <<~JS
+      export default async function ({ page }) {
+        await page.setViewport({ width: #{viewport['w']}, height: #{viewport['h']}, deviceScaleFactor: 1 });
+        await page.setContent(#{JSON.generate(html.sub('<head>', "<head>#{CLOCK}"))});
+        await page.waitForFunction('window.__cfDiagramReady === true', { timeout: 20000 });
+        for (let t = 0; t < #{t_ms}; t += #{STEP_MS}) await page.evaluate((step) => window.__cfAdvance(step), #{STEP_MS});
+        const data = await page.evaluate(() => {
+          const box = (el) => { const r = el.getBoundingClientRect(); return { left: r.left, right: r.right, top: r.top, bottom: r.bottom }; };
+          const vis = (el) => el && el.style.display !== 'none' && Number(el.style.opacity || 1) > 0;
+          const lanes = {};
+          for (const el of document.querySelectorAll('.cf-lane')) lanes[el.dataset.lane] = box(el);
+          const tokens = [...document.querySelectorAll('.cf-lane-front > [data-travel]')].map((el) => (vis(el) ? box(el) : null));
+          const cards = {};
+          for (const el of document.querySelectorAll('.cf-lane-card')) if (vis(el)) cards[el.dataset.id] = box(el);
+          const checks = {}; const border = {}; const shadow = {};
+          for (const el of document.querySelectorAll('.react-flow__node')) {
+            if (!el.dataset.id.startsWith('check-')) continue;
+            const inner = el.querySelector('.cf-node');
+            const cs = getComputedStyle(inner);
+            checks[el.dataset.id] = box(inner);
+            border[el.dataset.id] = cs.borderTopColor;
+            shadow[el.dataset.id] = cs.boxShadow;
+          }
+          return { lanes, tokens, cards, checks, border, shadow };
+        });
+        return { data, type: 'application/json' };
+      }
+    JS
+  end
 
   def at(t) = @samples.min_by { |s| (s["t"] - t).abs }
 

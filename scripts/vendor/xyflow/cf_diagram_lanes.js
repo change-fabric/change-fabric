@@ -182,6 +182,18 @@
   // would overlap sit one row apart; the band grows to fit its rows, plus
   // its rail when anything travels. A pinned node keeps only its along
   // coordinate: the band owns the other.
+  const tokenW = (id) => {
+    const n = nodeById[id];
+    return Math.round((n.label.length * TOKEN_CHAR_W + TOKEN_PAD_W + (iconOf(n) ? TOKEN_ICON + 6 : 0)) / 2) * 2;
+  };
+
+  // A rail reserves the cross-axis size of whatever rides it: a token's
+  // height across horizontal lanes, its full width across vertical ones.
+  const railSize = (laneId) => {
+    if (horizontal) return TOKEN_H;
+    const sizes = travelSteps.filter((s) => s.lane === laneId).map((s) => (s.id ? tokenW(s.id) : 2 * MARKER_HALO_R));
+    return Math.max(TOKEN_H, ...sizes);
+  };
   const bands = {};
   let edge = 0;
   for (const lane of LANES.lanes) {
@@ -197,12 +209,13 @@
       rowOf[id] = r;
     }
     const content = rows.reduce((sum, row) => sum + row.size, 0) + ROW_GAP * Math.max(0, rows.length - 1);
-    const tail = rails ? RAIL_GAP + TOKEN_H + LANE_PAD : LANE_PAD;
+    const rail = railSize(lane.id);
+    const tail = rails ? RAIL_GAP + rail + LANE_PAD : LANE_PAD;
     const extent = Math.max(LANE_MIN, content + LANE_PAD + tail);
     let at = edge + LANE_PAD + (extent - LANE_PAD - tail - content) / 2;
     const rowStart = rows.map((row) => { const s = at; at += row.size + ROW_GAP; return s; });
     for (const id of members) pos[id][cross] = Math.round(rowStart[rowOf[id]] + (rows[rowOf[id]].size - size(id, cross)) / 2);
-    bands[lane.id] = { start: edge, extent, rail: edge + extent - LANE_PAD - TOKEN_H / 2, mid: edge + LANE_PAD + (extent - LANE_PAD - tail) / 2, members };
+    bands[lane.id] = { start: edge, extent, rail: edge + extent - LANE_PAD - rail / 2, mid: edge + LANE_PAD + (extent - LANE_PAD - tail) / 2, members };
     edge += extent;
   }
 
@@ -223,11 +236,6 @@
   const span = laned.length
     ? [Math.min(...laned.map((id) => pos[id][along])), Math.max(...laned.map((id) => pos[id][along] + size(id, along))) + CLEAR]
     : [0, 600];
-
-  const tokenW = (id) => {
-    const n = nodeById[id];
-    return Math.round((n.label.length * TOKEN_CHAR_W + TOKEN_PAD_W + (iconOf(n) ? TOKEN_ICON + 6 : 0)) / 2) * 2;
-  };
 
   // The timeline of every travel, in step order.
   const travels = travelSteps.map((s) => {
