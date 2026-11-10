@@ -109,6 +109,12 @@
 
   // -- easing --------------------------------------------------------------
 
+  // The u in 0..1 where a rising fn(u) reaches p, by fixed-count bisection.
+  const bisect = (fn, p) => {
+    let lo = 0; let hi = 1;
+    for (let i = 0; i < 40; i += 1) { const mid = (lo + hi) / 2; if (fn(mid) < p) lo = mid; else hi = mid; }
+    return (lo + hi) / 2;
+  };
   // A CSS cubic-bezier, solved for x by bisection so every frame lands on
   // the same value whatever the engine.
   const bezier = (x1, y1, x2, y2) => {
@@ -116,9 +122,7 @@
     return (p) => {
       if (p <= 0) return 0;
       if (p >= 1) return 1;
-      let lo = 0; let hi = 1;
-      for (let i = 0; i < 40; i += 1) { const mid = (lo + hi) / 2; if (at(x1, x2, mid) < p) lo = mid; else hi = mid; }
-      return at(y1, y2, (lo + hi) / 2);
+      return at(y1, y2, bisect((u) => at(x1, x2, u), p));
     };
   };
   const cubic = (p) => (p < 0.5 ? 4 * p * p * p : 1 - Math.pow(-2 * p + 2, 3) / 2);
@@ -133,12 +137,6 @@
     const m = String(name).match(/^cubic-bezier\(([^)]*)\)$/);
     const v = m ? m[1].split(',').map(Number) : [];
     return v.length === 4 && v.every(Number.isFinite) ? bezier(...v) : EASINGS.standard;
-  };
-  // Inverts a monotone easing: the progress u at which it reaches p.
-  const invert = (fn, p) => {
-    let lo = 0; let hi = 1;
-    for (let i = 0; i < 40; i += 1) { const mid = (lo + hi) / 2; if (fn(mid) < p) lo = mid; else hi = mid; }
-    return (lo + hi) / 2;
   };
 
   // -- prepare -----------------------------------------------------------
@@ -229,7 +227,7 @@
     // When the token's centre passes each checkpoint's centre.
     tr.pulses = bands[s.lane].members.filter((id) => !owned.has(id)).flatMap((id) => {
       const p = (pos[id][along] + size(id, along) / 2 - tr.startA - w / 2) / (tr.endA - tr.startA);
-      return p >= 0 && p <= 1 ? [{ id, at: s.t_ms + invert(fn, p) * D }] : [];
+      return p >= 0 && p <= 1 ? [{ id, at: s.t_ms + bisect(fn, p) * D }] : [];
     });
     return tr;
   });

@@ -159,8 +159,11 @@ class WalkthroughDiagramLanesCaptureTest < Minitest::Test
     end
   end
 
-  def probe(session, html, viewport, duration_ms)
-    code = <<~JS
+  def probe(session, html, viewport, duration_ms) = session.run_function(probe_js(html, viewport, duration_ms))
+
+  # Samples lanes, tokens, chips, cards, and checkpoints every STEP_MS.
+  def probe_js(html, viewport, duration_ms)
+    <<~JS
       export default async function ({ page }) {
         await page.setViewport({ width: #{viewport['w']}, height: #{viewport['h']}, deviceScaleFactor: 1 });
         await page.setContent(#{JSON.generate(html.sub('<head>', "<head>#{CLOCK}"))});
@@ -194,6 +197,5 @@ class WalkthroughDiagramLanesCaptureTest < Minitest::Test
         return { data: { samples, meta: { zoom, travels } }, type: 'application/json' };
       }
     JS
-    session.run_function(code)
   end
 end
