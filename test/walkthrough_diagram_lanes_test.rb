@@ -38,7 +38,7 @@ class WalkthroughDiagramLanesTest < Minitest::Test
 
   def spec = scene["diagram"]
 
-  def errs = WalkthroughDiagram.spec_errors(spec, 6000).join("\n")
+  def errs = WalkthroughDiagram.spec_errors(spec, 8000).join("\n")
 
   def html = WalkthroughDiagram.screen(scene, root: @root, board: @board)
 
@@ -174,6 +174,36 @@ class WalkthroughDiagramLanesTest < Minitest::Test
     assert_includes joined, 'step 4: "load" is not a node id'
   end
 
+  def test_travel_easing_and_result
+    spec["steps"][0]["easing"] = "cubic-bezier(0.22, 1, 0.36, 1)"
+    spec["steps"][1]["easing"] = "emphasized"
+    assert_empty errs
+    spec["steps"][0]["easing"] = "bounce"
+    spec["steps"][1]["easing"] = "cubic-bezier(1.4, 0, 0.2, 1)"
+    spec["steps"][2]["result"] = "nope"
+    joined = errs
+    assert_includes joined, "step 0: easing must be one of standard, linear"
+    assert_includes joined, "step 1: easing must be one of"
+    assert_includes joined, 'step 2: "nope" is not a node id'
+  end
+
+  # A travel's token and result belong to the lane layer from start to end.
+  def test_travel_owns_its_token_and_result
+    spec["steps"][1]["result"] = "f-load"
+    spec["steps"][2]["result"] = "pr"
+    spec["initial"] << "f-ux"
+    spec["nodes"].find { |n| n["id"] == "pr" }["lane"] = "load"
+    spec["edges"] = [ { "id" => "e1", "source" => "report", "target" => "f-cases" } ]
+    spec["steps"] << { "t_ms" => 7500, "op" => "highlight", "ids" => %w[report pr] }
+    joined = errs
+    assert_includes joined, 'diagram node "f-load" is the result of more than one travel'
+    assert_includes joined, 'diagram node "pr" cannot be both a travel token and a result'
+    assert_includes joined, 'diagram node "pr": a travel token or result sits in no lane'
+    assert_includes joined, 'diagram edge "e1": a travel token or result takes no edges'
+    assert_includes joined, 'diagram.initial names "f-ux"'
+    assert_includes joined, "step 6: highlight names pr, which a travel draws"
+  end
+
   # The lane layer re-runs the runtime's layout; its sizing must not drift.
   def test_lane_layout_constants_mirror_the_runtime
     lanes = File.read(WalkthroughDiagram::LANES_RUNTIME)
@@ -182,14 +212,14 @@ class WalkthroughDiagramLanesTest < Minitest::Test
       re = /const #{name} = ([\d.]+);/
       assert_equal runtime[re, 1], lanes[re, 1], name
     end
-    ease = /const ease = .*$/
-    assert_equal runtime[ease], lanes[ease]
+    # The runtime's ease is the lane layer's `ease-in-out`.
+    assert_equal runtime[/const ease = (.*)$/, 1], lanes[/const cubic = (.*)$/, 1]
   end
 
   def test_render_md_lists_lanes
     md = WalkthroughDiagram.md(scene)
     assert_includes md, "- Lane `load`: Load [gauge]"
     assert_includes md, "- Node `check-load`: Load budget (pinned) (lane load)"
-    assert_includes md, "| 200 | travel | pr, load |"
+    assert_includes md, "| 300 | travel | pr, load |"
   end
 end

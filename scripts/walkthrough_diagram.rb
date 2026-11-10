@@ -52,6 +52,9 @@ module WalkthroughDiagram
   # while highlighted; its label is drawn in the theme's text colour on both.
   LANE_TINT_SHARE = { light: 0.07, dark: 0.10 }.freeze
   LANE_HL_SHARE = 0.22
+  # travel easings: the named set the lane layer knows, or a CSS cubic-bezier.
+  EASINGS = %w[standard linear ease-in-out decelerate accelerate emphasized settle].freeze
+  BEZIER = /\Acubic-bezier\(\s*(-?[\d.]+)\s*,\s*(-?[\d.]+)\s*,\s*(-?[\d.]+)\s*,\s*(-?[\d.]+)\s*\)\z/
   THEMES = %w[light dark].freeze
   # Ops that act on one or more ids (`id` or `ids`), and the kinds of id each
   # may name. add_node fades in nodes and the edges that come with them.
@@ -154,6 +157,7 @@ module WalkthroughDiagram
       errs << 'diagram.initial must be a list of ids'
     end
     errs.concat(steps_errors(spec['steps'] || [], ids, duration_ms))
+    errs.concat(owned_errors(spec, nodes, edges))
   end
 
   def list(spec, key)
@@ -282,6 +286,8 @@ module WalkthroughDiagram
       errs.concat(ref_errors([ step['id'] ], ids, %i[node])) if step.key?('id')
       errs << 'travel takes one id, not ids' if step.key?('ids')
       errs << 'duration must be positive for travel' if step['duration'] == 0
+      errs.concat(ref_errors([ step['result'] ], ids, %i[node])) if step.key?('result')
+      errs << "easing must be one of #{EASINGS.join(', ')} or cubic-bezier(x1, y1, x2, y2) with x1 and x2 in 0..1" if step.key?('easing') && !easing?(step['easing'])
     when 'move'
       errs.concat(ref_errors([ step['id'] ], ids, %i[node]))
       errs << 'move needs a position of { x, y } numbers' unless point?(step['position'])
@@ -309,6 +315,38 @@ module WalkthroughDiagram
     errs << 'flow takes loop or repeat, not both' if step['loop'] == true && step.key?('repeat')
     errs << 'duration must be positive for flow' if step['duration'] == 0
     errs.concat(color_value_errors(step))
+  end
+
+  def easing?(value)
+    return EASINGS.include?(value) if value.is_a?(String) && !value.start_with?('cubic-bezier')
+
+    m = value.is_a?(String) && value.match(BEZIER)
+    m ? [ m[1], m[3] ].all? { |x| Float(x, exception: false)&.between?(0, 1) } && [ m[2], m[4] ].all? { |y| Float(y, exception: false) } : false
+  end
+
+  # A travel's token and result are drawn by the lane layer, which owns their
+  # whole life: they sit in no lane and no edge, start hidden, and no other
+  # step names them; a result belongs to one travel and is never a token.
+  def owned_errors(spec, nodes, edges)
+    steps = Array(spec['steps']).grep(Hash)
+    travels = steps.select { |s| s['op'] == 'travel' }
+    tokens = travels.filter_map { |s| s['id'] }.uniq
+    results = travels.filter_map { |s| s['result'] }
+    owned = tokens + results
+    return [] if owned.empty?
+
+    errs = results.tally.select { |_, n| n > 1 }.keys.map { |id| "diagram node #{id.inspect} is the result of more than one travel" }
+    errs.concat((tokens & results).map { |id| "diagram node #{id.inspect} cannot be both a travel token and a result" })
+    nodes.select { |n| owned.include?(n['id']) && n.key?('lane') }.each { |n| errs << "diagram node #{n['id'].inspect}: a travel token or result sits in no lane" }
+    edges.select { |e| owned.include?(e['source']) || owned.include?(e['target']) }.each { |e| errs << "diagram edge #{e['id'].inspect}: a travel token or result takes no edges" }
+    (Array(spec['initial']) & owned).each { |id| errs << "diagram.initial names #{id.inspect}; a travel shows its token and result itself" }
+    steps.each_with_index do |s, i|
+      next if s['op'] == 'travel'
+
+      named = Array(s['ids'] || s['id']) & owned
+      errs << "diagram step #{i}: #{s['op']} names #{named.join(', ')}, which a travel draws" unless named.empty?
+    end
+    errs
   end
 
   def range?(value, range) = value.is_a?(Numeric) && range.cover?(value)

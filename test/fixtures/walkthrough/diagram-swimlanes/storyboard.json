@@ -60,65 +60,66 @@
             "id": "check-load",
             "label": "Load budget",
             "lane": "load",
+            "color": "#f2b85b",
             "position": {
               "x": 200,
               "y": 0
-            },
-            "color": "#f2b85b"
+            }
           },
           {
             "id": "check-a11y",
             "label": "axe-core scan",
             "lane": "a11y",
+            "color": "#6fb7f0",
             "position": {
               "x": 320,
               "y": 0
-            },
-            "color": "#6fb7f0"
+            }
           },
           {
             "id": "check-security",
             "label": "ZAP baseline",
             "lane": "security",
+            "color": "#f07f9b",
             "position": {
               "x": 440,
               "y": 0
-            },
-            "color": "#f07f9b"
+            }
           },
           {
             "id": "check-ux",
             "label": "Viewport sweep",
             "lane": "ux",
+            "color": "#4fc4b0",
             "position": {
               "x": 560,
               "y": 0
-            },
-            "color": "#4fc4b0"
+            }
           },
           {
             "id": "check-cases",
             "label": "Committed cases",
             "lane": "cases",
+            "color": "#9ea39b",
             "position": {
               "x": 680,
               "y": 0
-            },
-            "color": "#9ea39b"
+            }
           },
           {
             "id": "pr",
             "label": "PR #42",
             "role": "accent",
+            "icon": "git-pull-request",
             "position": {
               "x": 0,
               "y": 0
-            },
-            "icon": "git-pull-request"
+            }
           },
           {
             "id": "report",
             "label": "Report",
+            "icon": "clipboard-text",
             "position": {
               "x": 1080,
               "y": 20
@@ -139,7 +140,7 @@
             "color": "warning",
             "position": {
               "x": 1080,
-              "y": 210
+              "y": 190
             }
           },
           {
@@ -148,7 +149,16 @@
             "color": "danger",
             "position": {
               "x": 1080,
-              "y": 310
+              "y": 270
+            }
+          },
+          {
+            "id": "f-ux",
+            "label": "3 widths clean",
+            "color": "success",
+            "position": {
+              "x": 1080,
+              "y": 350
             }
           },
           {
@@ -157,7 +167,7 @@
             "color": "success",
             "position": {
               "x": 1080,
-              "y": 410
+              "y": 430
             }
           }
         ],
@@ -172,194 +182,59 @@
         ],
         "steps": [
           {
-            "t_ms": 200,
-            "op": "add_node",
-            "id": "pr"
-          },
-          {
-            "t_ms": 200,
-            "op": "highlight",
-            "ids": [
-              "load",
-              "check-load"
-            ]
-          },
-          {
-            "t_ms": 200,
+            "t_ms": 300,
             "op": "travel",
             "id": "pr",
             "lane": "load",
-            "duration": 900
+            "result": "f-load",
+            "duration": 700,
+            "easing": "standard"
           },
           {
-            "t_ms": 1100,
-            "op": "unhighlight",
-            "ids": [
-              "load",
-              "check-load"
-            ]
-          },
-          {
-            "t_ms": 1100,
-            "op": "add_node",
-            "id": "f-load"
-          },
-          {
-            "t_ms": 1100,
-            "op": "move",
-            "id": "f-load",
-            "position": {
-              "x": 1080,
-              "y": 140
-            },
-            "duration": 400
-          },
-          {
-            "t_ms": 1200,
-            "op": "highlight",
-            "ids": [
-              "a11y",
-              "check-a11y"
-            ]
-          },
-          {
-            "t_ms": 1200,
+            "t_ms": 1700,
             "op": "travel",
             "id": "pr",
             "lane": "a11y",
-            "duration": 900
+            "result": "f-a11y",
+            "duration": 700,
+            "easing": "standard"
           },
           {
-            "t_ms": 2100,
-            "op": "unhighlight",
-            "ids": [
-              "a11y",
-              "check-a11y"
-            ]
-          },
-          {
-            "t_ms": 2100,
-            "op": "add_node",
-            "id": "f-a11y"
-          },
-          {
-            "t_ms": 2100,
-            "op": "move",
-            "id": "f-a11y",
-            "position": {
-              "x": 1080,
-              "y": 240
-            },
-            "duration": 400
-          },
-          {
-            "t_ms": 2200,
-            "op": "highlight",
-            "ids": [
-              "security",
-              "check-security"
-            ]
-          },
-          {
-            "t_ms": 2200,
+            "t_ms": 3100,
             "op": "travel",
             "id": "pr",
             "lane": "security",
-            "duration": 900
+            "result": "f-security",
+            "duration": 700,
+            "easing": "standard"
           },
           {
-            "t_ms": 3100,
-            "op": "unhighlight",
-            "ids": [
-              "security",
-              "check-security"
-            ]
-          },
-          {
-            "t_ms": 3100,
-            "op": "add_node",
-            "id": "f-security"
-          },
-          {
-            "t_ms": 3100,
-            "op": "move",
-            "id": "f-security",
-            "position": {
-              "x": 1080,
-              "y": 340
-            },
-            "duration": 400
-          },
-          {
-            "t_ms": 3200,
-            "op": "highlight",
-            "ids": [
-              "ux",
-              "check-ux"
-            ]
-          },
-          {
-            "t_ms": 3200,
+            "t_ms": 4500,
             "op": "travel",
             "id": "pr",
             "lane": "ux",
-            "duration": 900
+            "result": "f-ux",
+            "duration": 700,
+            "easing": "standard"
           },
           {
-            "t_ms": 4100,
-            "op": "unhighlight",
-            "ids": [
-              "ux",
-              "check-ux"
-            ]
-          },
-          {
-            "t_ms": 4200,
-            "op": "highlight",
-            "ids": [
-              "cases",
-              "check-cases"
-            ]
-          },
-          {
-            "t_ms": 4200,
+            "t_ms": 5900,
             "op": "travel",
             "id": "pr",
             "lane": "cases",
-            "duration": 900
+            "result": "f-cases",
+            "duration": 700,
+            "easing": "standard"
           },
           {
-            "t_ms": 5100,
-            "op": "unhighlight",
-            "ids": [
-              "cases",
-              "check-cases"
-            ]
-          },
-          {
-            "t_ms": 5100,
-            "op": "add_node",
-            "id": "f-cases"
-          },
-          {
-            "t_ms": 5100,
-            "op": "move",
-            "id": "f-cases",
-            "position": {
-              "x": 1080,
-              "y": 440
-            },
-            "duration": 400
-          },
-          {
-            "t_ms": 5300,
+            "t_ms": 7400,
             "op": "highlight",
             "id": "report"
           }
         ]
       },
       "narration": {
-        "text": "A pull request crosses every audit lane, and each lane drops its findings into the report.",
+        "text": "A pull request crosses every audit lane, and each lane drops its result into the report.",
         "measured_ms": 0
       },
       "assumptions": [
@@ -369,7 +244,7 @@
         }
       ],
       "timing": {
-        "min_ms": 6000,
+        "min_ms": 8000,
         "pad_ms": 0,
         "transition": {
           "type": "cut",

@@ -5,16 +5,30 @@
 //
 // It works in two halves:
 // - prepare (runs at load, before the runtime parses the spec): lays every
-//   node out once, places each laned node inside its band, pins every node
-//   to that position, and rewrites a `travel` step on a node into the two
-//   `move` steps the runtime already knows (a jump to the lane's start and
-//   an eased glide to its end). The travel step itself becomes an empty
-//   add_node in place, so step indices (which key flow colours) hold and the
-//   runtime's camera fold never sees an op it does not aim.
+//   node out once, places each laned node inside its band (above the band's
+//   travel rail when anything travels), and pins every node to that place.
+//   A node a `travel` carries (its token) or delivers (its `result`) is owned
+//   by this layer: the runtime keeps it hidden, and each travel step becomes
+//   an empty add_node in place, so step indices (which key flow colours)
+//   hold and the runtime's camera fold never sees an op it does not aim.
 // - attach (called by a one-line script after the runtime): draws the bands,
-//   their labels and separators behind the diagram, and any marker travel in
-//   front of it, as a pure function of the capture clock, after every
+//   labels and separators behind the diagram, and the tokens, result chips,
+//   and result cards in front of it, and pulses each checkpoint the token
+//   passes, all as a pure function of the capture clock after every
 //   __cfAdvance the runtime has already wrapped. No CSS or SMIL animation.
+//
+// One travel, anchored on its t_ms (t0) and duration D:
+//   t0 - ENTER_MS .. t0     the token reveals at the lane's entry, sliding
+//                           ENTER_SHIFT right as it fades in; the lane lights.
+//   t0 .. t0 + D            it rides the rail under the checkpoints with the
+//                           step's easing; each checkpoint pulses as it passes.
+//   t0 + D - CHIP_IN_MS     a result chip appears at the token's exit,
+//   t0 + D + TAIL_MS        and transfers to its report slot over TRANSFER_MS;
+//   landing                 the result card drops DROP_SHIFT into its slot and
+//                           the lane's light fades over HL_OUT_MS.
+//   next entrance           the token fades out drifting EXIT_SHIFT right,
+//                           starting EXIT_LEAD before the next lane's reveal,
+//                           so the two overlap and nothing slides back.
 //
 // The node sizing and dagre constants mirror cf_diagram_runtime.js; the
 // diagram unit test asserts they match.
@@ -28,6 +42,8 @@
   const iconsEl = document.getElementById('cf-diagram-icons');
   const ICONS = iconsEl ? JSON.parse(iconsEl.textContent) : {};
   const iconOf = (n) => (n.icon ? ICONS[`${n.icon}/${n.icon_weight || 'regular'}`] : null);
+  const colorsEl = document.getElementById('cf-diagram-colors');
+  const COLORS = colorsEl ? JSON.parse(colorsEl.textContent) : { nodes: {} };
 
   const NODE_H = 56;
   const NODE_MIN_W = 140;
@@ -43,9 +59,31 @@
   const LANE_PAD = 28;
   const ROW_GAP = 24;
   const LANE_MIN = 120;
-  const ALONG_PAD = 80;
-  const TRAVEL_MS = 1600;
-  const MARKER_FADE_MS = 120;
+  // The strip under a band's checkpoints that a travel rides.
+  const RAIL = 48;
+  const CLEAR = 16;
+  const TOKEN_H = 26;
+  const TOKEN_CHAR_W = 7.6;
+  const TOKEN_PAD_W = 24;
+  const TOKEN_ICON = 14;
+  const TRAVEL_MS = 700;
+  const ENTER_MS = 130;
+  const ENTER_SHIFT = 12;
+  const EXIT_MS = 90;
+  const EXIT_LEAD = 60;
+  const EXIT_SHIFT = 16;
+  const TAIL_MS = 100;
+  const CHIP_IN_MS = 100;
+  const CHIP_R = 6;
+  const CHIP_OUT_MS = 60;
+  const TRANSFER_MS = 260;
+  const DROP_MS = 220;
+  const DROP_FADE_MS = 100;
+  const DROP_SHIFT = 14;
+  const HL_IN_MS = 120;
+  const HL_OUT_MS = 180;
+  const PULSE_MS = 180;
+  const PULSE_SCALE = 0.025;
   const MARKER_R = 7;
   const MARKER_HALO_R = 15;
 
@@ -54,7 +92,9 @@
   const cross = horizontal ? 'y' : 'x';
   const steps = spec.steps || [];
   const nodeIds = spec.nodes.map((n) => n.id);
+  const nodeById = Object.fromEntries(spec.nodes.map((n) => [n.id, n]));
   const laneIds = LANES.lanes.map((l) => l.id);
+  const laneById = Object.fromEntries(LANES.lanes.map((l) => [l.id, l]));
 
   const WIDTH = Object.fromEntries(spec.nodes.map((n) => {
     const texts = [n.label || ''].concat(steps.filter((s) => s.op === 'label' && s.id === n.id).map((s) => s.text || ''));
@@ -65,8 +105,47 @@
   }));
   const size = (id, axis) => (axis === 'x' ? WIDTH[id] : NODE_H);
   const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+  const clamp01 = (v) => clamp(v, 0, 1);
+
+  // -- easing --------------------------------------------------------------
+
+  // A CSS cubic-bezier, solved for x by bisection so every frame lands on
+  // the same value whatever the engine.
+  const bezier = (x1, y1, x2, y2) => {
+    const at = (a, b, u) => 3 * a * u * (1 - u) * (1 - u) + 3 * b * u * u * (1 - u) + u * u * u;
+    return (p) => {
+      if (p <= 0) return 0;
+      if (p >= 1) return 1;
+      let lo = 0; let hi = 1;
+      for (let i = 0; i < 40; i += 1) { const mid = (lo + hi) / 2; if (at(x1, x2, mid) < p) lo = mid; else hi = mid; }
+      return at(y1, y2, (lo + hi) / 2);
+    };
+  };
+  const cubic = (p) => (p < 0.5 ? 4 * p * p * p : 1 - Math.pow(-2 * p + 2, 3) / 2);
+  const EASINGS = {
+    linear: (p) => clamp01(p), 'ease-in-out': (p) => cubic(clamp01(p)),
+    standard: bezier(0.4, 0, 0.2, 1), decelerate: bezier(0, 0, 0.2, 1), accelerate: bezier(0.4, 0, 1, 1),
+    emphasized: bezier(0.22, 1, 0.36, 1), settle: bezier(0.16, 1, 0.3, 1)
+  };
+  const easing = (name) => {
+    if (!name) return EASINGS.standard;
+    if (EASINGS[name]) return EASINGS[name];
+    const m = String(name).match(/^cubic-bezier\(([^)]*)\)$/);
+    const v = m ? m[1].split(',').map(Number) : [];
+    return v.length === 4 && v.every(Number.isFinite) ? bezier(...v) : EASINGS.standard;
+  };
+  // Inverts a monotone easing: the progress u at which it reaches p.
+  const invert = (fn, p) => {
+    let lo = 0; let hi = 1;
+    for (let i = 0; i < 40; i += 1) { const mid = (lo + hi) / 2; if (fn(mid) < p) lo = mid; else hi = mid; }
+    return (lo + hi) / 2;
+  };
 
   // -- prepare -----------------------------------------------------------
+
+  const travelSteps = steps.filter((s) => s.op === 'travel');
+  const owned = new Set(travelSteps.flatMap((s) => [s.id, s.result].filter(Boolean)));
+  const rails = travelSteps.length > 0;
 
   const direction = (spec.layout && spec.layout.direction) || 'LR';
   const pos = {};
@@ -85,8 +164,9 @@
 
   // Bands stack along the cross axis in spec order. Inside a band, nodes
   // keep their along coordinate and take rows greedily, so two nodes that
-  // would overlap sit one row apart; the band grows to fit its rows. A
-  // pinned node keeps only its along coordinate: the band owns the other.
+  // would overlap sit one row apart; the band grows to fit its rows, plus
+  // its rail when anything travels. A pinned node keeps only its along
+  // coordinate: the band owns the other.
   const bands = {};
   let edge = 0;
   for (const lane of LANES.lanes) {
@@ -102,110 +182,215 @@
       rowOf[id] = r;
     }
     const content = rows.reduce((sum, row) => sum + row.size, 0) + ROW_GAP * Math.max(0, rows.length - 1);
-    const extent = Math.max(LANE_MIN, content + 2 * LANE_PAD);
-    let at = edge + (extent - content) / 2;
+    const tail = rails ? RAIL : LANE_PAD;
+    const extent = Math.max(LANE_MIN, content + LANE_PAD + tail);
+    let at = edge + LANE_PAD + (extent - LANE_PAD - tail - content) / 2;
     const rowStart = rows.map((row) => { const s = at; at += row.size + ROW_GAP; return s; });
     for (const id of members) pos[id][cross] = Math.round(rowStart[rowOf[id]] + (rows[rowOf[id]].size - size(id, cross)) / 2);
-    bands[lane.id] = { start: edge, extent };
+    bands[lane.id] = { start: edge, extent, rail: edge + extent - RAIL / 2, members };
     edge += extent;
   }
 
   // A laid-out node outside every lane keeps its place relative to the
   // other such nodes, centred on the stack of bands.
-  const free = nodeIds.filter((id) => !spec.nodes.find((n) => n.id === id).lane && !pinned.has(id));
-  if (free.length && spec.layout && spec.layout.engine === 'manual') free.length = 0;
-  if (free.length) {
+  const free = nodeIds.filter((id) => !nodeById[id].lane && !pinned.has(id) && !owned.has(id));
+  if (free.length && !(spec.layout && spec.layout.engine === 'manual')) {
     const lo = Math.min(...free.map((id) => pos[id][cross]));
     const hi = Math.max(...free.map((id) => pos[id][cross] + size(id, cross)));
     const shift = Math.round(edge / 2 - (lo + hi) / 2);
     for (const id of free) pos[id][cross] += shift;
   }
 
-  // Travel runs from just before the first laned node to just past the
-  // last, across every lane alike; a travelling node is not part of it.
-  const travellers = new Set(steps.filter((s) => s.op === 'travel' && s.id).map((s) => s.id));
-  const laned = spec.nodes.filter((n) => n.lane && !travellers.has(n.id)).map((n) => n.id);
+  // Every travel spans the same stretch: from CLEAR before the first
+  // checkpoint to CLEAR past the widest reach of the last, so a token
+  // crossing each lane in turn reads as one route.
+  const laned = spec.nodes.filter((n) => n.lane).map((n) => n.id);
   const span = laned.length
-    ? [Math.min(...laned.map((id) => pos[id][along])) - ALONG_PAD, Math.max(...laned.map((id) => pos[id][along] + size(id, along))) + ALONG_PAD]
+    ? [Math.min(...laned.map((id) => pos[id][along])) - CLEAR, Math.max(...laned.map((id) => pos[id][along] + size(id, along))) + CLEAR]
     : [0, 600];
 
+  const tokenW = (id) => {
+    const n = nodeById[id];
+    return Math.round((n.label.length * TOKEN_CHAR_W + TOKEN_PAD_W + (iconOf(n) ? TOKEN_ICON + 6 : 0)) / 2) * 2;
+  };
+
+  // The timeline of every travel, in step order.
+  const travels = travelSteps.map((s) => {
+    const D = s.duration == null ? TRAVEL_MS : s.duration;
+    const w = s.id ? (horizontal ? tokenW(s.id) : TOKEN_H) : 2 * MARKER_HALO_R;
+    const fn = easing(s.easing);
+    const tr = {
+      t0: s.t_ms, D, lane: s.lane, id: s.id || null, result: s.result || null, w, fn,
+      startA: s.id ? span[0] - w : span[0] - w / 2, endA: s.id ? span[1] : span[1] - w / 2, rail: bands[s.lane].rail,
+      enterAt: s.t_ms - ENTER_MS, chipAt: s.t_ms + D - CHIP_IN_MS, transferAt: s.t_ms + D + TAIL_MS
+    };
+    tr.landAt = tr.transferAt + TRANSFER_MS;
+    tr.releaseAt = tr.result ? tr.landAt : tr.transferAt;
+    // When the token's centre passes each checkpoint's centre.
+    tr.pulses = bands[s.lane].members.filter((id) => !owned.has(id)).flatMap((id) => {
+      const p = (pos[id][along] + size(id, along) / 2 - tr.startA - w / 2) / (tr.endA - tr.startA);
+      return p >= 0 && p <= 1 ? [{ id, at: s.t_ms + invert(fn, p) * D }] : [];
+    });
+    return tr;
+  });
+  // A token leaves its lane as the next travel of the same token arrives; a
+  // marker, or a token's last travel, leaves only if it is a marker.
+  travels.forEach((tr, i) => {
+    const next = tr.id && travels.slice(i + 1).find((o) => o.id === tr.id);
+    tr.exitAt = next ? next.enterAt - EXIT_LEAD : (tr.id ? Infinity : tr.transferAt);
+  });
+  const slots = Object.fromEntries(travels.filter((tr) => tr.result).map((tr) => [tr.result, tr]));
+
   for (const n of spec.nodes) n.position = { x: Math.round(pos[n.id].x), y: Math.round(pos[n.id].y) };
-  const markers = [];
+  spec.initial = (spec.initial || []).filter((id) => !owned.has(id));
   steps.forEach((s, i) => {
-    if (s.op !== 'travel') return;
-    const band = bands[s.lane];
-    const duration = s.duration == null ? TRAVEL_MS : s.duration;
-    if (s.id) {
-      const mid = band.start + (band.extent - size(s.id, cross)) / 2;
-      const at = (a) => ({ [along]: Math.round(a), [cross]: Math.round(mid) });
-      steps.push({ t_ms: s.t_ms, op: 'move', id: s.id, position: at(span[0]) },
-        { t_ms: s.t_ms, op: 'move', id: s.id, position: at(span[1] - size(s.id, along)), duration });
-    } else {
-      markers.push({ t_ms: s.t_ms, duration, lane: s.lane });
-    }
-    steps[i] = { t_ms: s.t_ms, op: 'add_node', ids: [] };
+    if (s.op === 'travel') steps[i] = { t_ms: s.t_ms, op: 'add_node', ids: [] };
   });
   spec.steps = steps;
   specEl.textContent = JSON.stringify(spec);
 
-  // -- draw --------------------------------------------------------------
+  // -- state ---------------------------------------------------------------
 
-  const clamp01 = (v) => clamp(v, 0, 1);
-  const ease = (p) => (p < 0.5 ? 4 * p * p * p : 1 - Math.pow(-2 * p + 2, 3) / 2);
   const ordered = steps.map((s, i) => [s, i]).sort((a, b) => a[0].t_ms - b[0].t_ms || a[1] - b[1]).map(([s]) => s);
   const named = (spec.initial || []).filter((id) => laneIds.includes(id));
+  // The steps that name a lane (prepare rewrote only travel steps, which
+  // name a lane by `lane`, never by id).
+  const laneSteps = ordered.filter((s) => (s.ids || (s.id ? [s.id] : [])).some((id) => laneIds.includes(id)));
+  const highlightSpans = Object.fromEntries(laneIds.map((id) => [id, []]));
+  {
+    const open = {};
+    for (const s of laneSteps) {
+      for (const id of (s.ids || [s.id]).filter((x) => laneIds.includes(x))) {
+        if (s.op === 'highlight' && !(id in open)) open[id] = s.t_ms;
+        else if ((s.op === 'unhighlight' || s.op === 'dim' || s.op === 'remove') && id in open) {
+          highlightSpans[id].push([open[id], s.t_ms, HL_OUT_MS]); delete open[id];
+        }
+      }
+    }
+    for (const [id, at] of Object.entries(open)) highlightSpans[id].push([at, Infinity, HL_OUT_MS]);
+    for (const tr of travels) highlightSpans[tr.lane].push([tr.enterAt, tr.releaseAt, HL_OUT_MS]);
+  }
+  const ramp = (t, [on, off, out]) => (t < on ? 0 : Math.min(clamp01((t - on) / HL_IN_MS), 1 - clamp01((t - off) / out)));
 
-  // Lane state at t, replayed from the original spec's ops: a lane shows
-  // from the start when `initial` names it, or when `initial` names no lane.
-  const derive = (t) => {
+  const laneState = (t) => {
     const shownAt = {};
     for (const id of named.length ? named : laneIds) shownAt[id] = -Infinity;
     const removedAt = {};
-    const hl = new Set();
     const dim = new Set();
-    for (const s of ordered) {
+    for (const s of laneSteps) {
       if (s.t_ms > t) break;
-      const ids = (s.ids || (s.id ? [s.id] : [])).filter((id) => laneIds.includes(id));
-      for (const id of ids) {
+      for (const id of (s.ids || [s.id]).filter((x) => laneIds.includes(x))) {
         if (s.op === 'add_node') { shownAt[id] = s.t_ms; delete removedAt[id]; }
         else if (s.op === 'remove') removedAt[id] = s.t_ms;
-        else if (s.op === 'highlight') { hl.add(id); dim.delete(id); }
-        else if (s.op === 'dim') { dim.add(id); hl.delete(id); }
-        else if (s.op === 'unhighlight') { hl.delete(id); dim.delete(id); }
+        else if (s.op === 'dim') dim.add(id);
+        else if (s.op === 'highlight' || s.op === 'unhighlight') dim.delete(id);
       }
     }
-    const opacity = (id) => {
+    return Object.fromEntries(laneIds.map((id) => {
       let o = id in shownAt ? clamp01((t - shownAt[id]) / FADE_MS) : 0;
       if (id in removedAt) o = Math.min(o, 1 - clamp01((t - removedAt[id]) / FADE_MS));
-      return o * (dim.has(id) ? DIM_OPACITY : 1);
-    };
-    return { opacity, hl };
+      const level = Math.max(0, ...highlightSpans[id].map((span) => ramp(t, span)));
+      return [id, { opacity: o * (dim.has(id) ? DIM_OPACITY : 1), level }];
+    }));
   };
+
+  // A travel's token at t: along (left edge) and cross (centre) in flow
+  // units, and opacity; null while it is not on screen.
+  const tokenAt = (tr, t) => {
+    if (t < tr.enterAt || t >= tr.exitAt + EXIT_MS) return null;
+    let a; let o = 1;
+    if (t < tr.t0) {
+      const q = clamp01((t - tr.enterAt) / ENTER_MS);
+      a = tr.startA - ENTER_SHIFT * (1 - EASINGS.decelerate(q));
+      o = q;
+    } else {
+      a = tr.startA + (tr.endA - tr.startA) * tr.fn(clamp01((t - tr.t0) / tr.D));
+    }
+    if (t >= tr.exitAt) {
+      const q = clamp01((t - tr.exitAt) / EXIT_MS);
+      a += EXIT_SHIFT * EASINGS.decelerate(q);
+      o = Math.min(o, 1 - q);
+    }
+    return { a, c: tr.rail, opacity: o };
+  };
+
+  // The result chip: born at the token's exit, carried to its slot.
+  const chipAt = (tr, t) => {
+    if (!tr.result || t < tr.chipAt || t >= tr.landAt) return null;
+    const tok = tokenAt(tr, Math.min(t, tr.transferAt));
+    const from = { a: (tok ? tok.a : tr.endA) + tr.w + CHIP_R + 4, c: tr.rail };
+    const slot = pos[tr.result];
+    const to = { a: slot[along] + CHIP_R, c: slot[cross] + size(tr.result, cross) / 2 };
+    if (t < tr.transferAt) return { a: from.a, c: from.c, opacity: clamp01((t - tr.chipAt) / CHIP_IN_MS), scale: 0.6 + 0.4 * clamp01((t - tr.chipAt) / CHIP_IN_MS) };
+    const p = EASINGS.emphasized((t - tr.transferAt) / TRANSFER_MS);
+    return { a: from.a + (to.a - from.a) * p, c: from.c + (to.c - from.c) * p, opacity: 1 - clamp01((t - (tr.landAt - CHIP_OUT_MS)) / CHIP_OUT_MS), scale: 1 };
+  };
+
+  // A result card: hidden until its chip lands, then it settles into its
+  // reserved slot from DROP_SHIFT above, fading in over DROP_FADE_MS.
+  const cardAt = (id, t) => {
+    const tr = slots[id];
+    if (t < tr.landAt) return null;
+    const q = (t - tr.landAt) / DROP_MS;
+    return { x: pos[id].x, y: pos[id].y - DROP_SHIFT * (1 - EASINGS.settle(q)), opacity: clamp01((t - tr.landAt) / DROP_FADE_MS) };
+  };
+
+  const pulseAt = (id, t) => {
+    let s = 1;
+    for (const tr of travels) for (const p of tr.pulses) {
+      if (p.id === id && t >= p.at && t < p.at + PULSE_MS) s = Math.max(s, 1 + PULSE_SCALE * Math.sin(Math.PI * (t - p.at) / PULSE_MS));
+    }
+    return s;
+  };
+  const pulsed = [...new Set(travels.flatMap((tr) => tr.pulses.map((p) => p.id)))];
+
+  // -- draw --------------------------------------------------------------
 
   const css = document.createElement('style');
   css.textContent = `
 body { background: var(--cf-surface, #ffffff); }
 #cf-diagram-root { position: relative; z-index: 1; }
 #cf-diagram-root .react-flow { background: transparent; --xy-background-color: transparent; }
-.cf-lanes, .cf-lane-markers { position: fixed; inset: 0; pointer-events: none; overflow: visible; }
+.cf-lanes, .cf-lane-front { position: fixed; inset: 0; pointer-events: none; overflow: visible; }
 .cf-lanes { z-index: 0; }
-.cf-lane-markers { z-index: 2; }
+.cf-lane-front { z-index: 2; }
 .cf-lane { position: absolute; box-sizing: border-box; border: 0 solid var(--cf-rule, #cbd5e1); }
 .cf-lanes[data-dir="horizontal"] .cf-lane { left: 0; right: 0; border-top-width: 1px; border-bottom-width: 1px; }
 .cf-lanes[data-dir="vertical"] .cf-lane { top: 0; bottom: 0; border-left-width: 1px; border-right-width: 1px; }
 .cf-lane-label { position: absolute; box-sizing: border-box; white-space: nowrap; padding: 2px 10px; border-left: 4px solid;
   color: var(--cf-text, #0f172a); font: 600 15px/1.3 system-ui, sans-serif; letter-spacing: 0.02em; }
+.cf-lane-label svg { width: 18px; height: 18px; margin-right: 6px; vertical-align: -3px; }
 .cf-lanes[data-dir="horizontal"] .cf-lane-label { left: 12px; top: 10px; }
 .cf-lanes[data-dir="vertical"] .cf-lane-label { left: 10px; top: 12px; }
-.cf-lane-label svg { width: 18px; height: 18px; margin-right: 6px; vertical-align: -3px; }
-.cf-lane-marker { position: absolute; border-radius: 50%; box-sizing: border-box; }
+.cf-lane-front > * { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
+.cf-lane-token { box-sizing: border-box; height: ${TOKEN_H}px; display: flex; align-items: center; justify-content: center; white-space: nowrap;
+  border: 2px solid var(--cf-accent, #2563eb); border-radius: ${TOKEN_H / 2}px; background: var(--cf-accent-tint, #dbeafe);
+  color: var(--cf-text, #0f172a); font: 600 13px/1 system-ui, sans-serif; }
+.cf-lane-token svg { width: ${TOKEN_ICON}px; height: ${TOKEN_ICON}px; margin-right: 6px; fill: currentColor; flex: none; }
+.cf-lane-chip { box-sizing: border-box; width: ${2 * CHIP_R}px; height: ${2 * CHIP_R}px; border-radius: 50%; }
+.cf-lane-marker { border-radius: 50%; box-sizing: border-box; }
 `;
   document.head.appendChild(css);
 
+  const SVG_NS = 'http://www.w3.org/2000/svg';
+  const iconEl = (paths, cls, fill) => {
+    const svg = document.createElementNS(SVG_NS, 'svg');
+    svg.setAttribute('viewBox', '0 0 256 256');
+    svg.setAttribute('aria-hidden', 'true');
+    if (cls) svg.setAttribute('class', cls);
+    if (fill) svg.style.fill = fill;
+    for (const [d, opacity] of paths) {
+      const path = document.createElementNS(SVG_NS, 'path');
+      path.setAttribute('d', d);
+      if (opacity != null) path.setAttribute('opacity', String(opacity));
+      svg.appendChild(path);
+    }
+    return svg;
+  };
   const layer = (cls) => { const el = document.createElement('div'); el.className = cls; el.setAttribute('aria-hidden', 'true'); return el; };
   const back = layer('cf-lanes');
   back.dataset.dir = horizontal ? 'horizontal' : 'vertical';
-  const front = layer('cf-lane-markers');
+  const front = layer('cf-lane-front');
   const laneEls = {};
   for (const lane of LANES.lanes) {
     const el = document.createElement('div');
@@ -214,36 +399,64 @@ body { background: var(--cf-surface, #ffffff); }
     const label = document.createElement('div');
     label.className = 'cf-lane-label';
     label.style.borderLeftColor = lane.color;
-    const paths = lane.icon && ICONS[lane.icon];
-    if (paths) {
-      const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-      svg.setAttribute('viewBox', '0 0 256 256');
-      svg.setAttribute('aria-hidden', 'true');
-      svg.style.fill = lane.color;
-      for (const [d, opacity] of paths) {
-        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-        path.setAttribute('d', d);
-        if (opacity != null) path.setAttribute('opacity', String(opacity));
-        svg.appendChild(path);
-      }
-      label.appendChild(svg);
-    }
+    if (lane.icon && ICONS[lane.icon]) label.appendChild(iconEl(ICONS[lane.icon], null, lane.color));
     label.appendChild(document.createTextNode(lane.label));
     el.appendChild(label);
     back.appendChild(el);
     laneEls[lane.id] = el;
   }
-  const markerEls = markers.map((m) => {
-    const lane = LANES.lanes.find((l) => l.id === m.lane);
-    const halo = document.createElement('div');
-    halo.className = 'cf-lane-marker';
-    Object.assign(halo.style, { width: `${2 * MARKER_HALO_R}px`, height: `${2 * MARKER_HALO_R}px`, background: lane.tint_hl, border: `1px solid ${lane.color}` });
-    const core = document.createElement('div');
-    core.className = 'cf-lane-marker';
-    Object.assign(core.style, { width: `${2 * MARKER_R}px`, height: `${2 * MARKER_R}px`, background: lane.color, left: `${MARKER_HALO_R - MARKER_R - 1}px`, top: `${MARKER_HALO_R - MARKER_R - 1}px` });
-    halo.appendChild(core);
-    front.appendChild(halo);
-    return halo;
+  // Result cards wear the runtime's own node classes, so they match the
+  // diagram's nodes exactly.
+  const cardEls = Object.fromEntries(Object.keys(slots).map((id) => {
+    const n = nodeById[id];
+    const c = COLORS.nodes[id];
+    const el = document.createElement('div');
+    el.className = 'cf-node cf-lane-card';
+    el.dataset.id = id;
+    el.dataset.role = n.role || 'default';
+    if (c) {
+      el.dataset.color = '1';
+      for (const [k, v] of [['--cf-item', c.color], ['--cf-item-tint', c.tint], ['--cf-item-ring', c.ring]]) el.style.setProperty(k, v);
+    }
+    el.style.width = `${WIDTH[id]}px`;
+    if (iconOf(n)) el.appendChild(iconEl(iconOf(n), 'cf-node-icon'));
+    const span = document.createElement('span');
+    span.className = 'cf-node-label';
+    span.textContent = n.label;
+    el.appendChild(span);
+    front.appendChild(el);
+    return [id, el];
+  }));
+  const tokenEls = travels.map((tr, i) => {
+    const el = document.createElement('div');
+    el.dataset.travel = String(i);
+    if (tr.id) {
+      const n = nodeById[tr.id];
+      const c = COLORS.nodes[tr.id];
+      el.className = 'cf-lane-token';
+      el.style.width = `${horizontal ? tr.w : tokenW(tr.id)}px`;
+      if (c) { el.style.borderColor = c.color; el.style.background = c.tint; }
+      if (iconOf(n)) el.appendChild(iconEl(iconOf(n), null, c ? c.color : null));
+      el.appendChild(document.createTextNode(n.label));
+    } else {
+      const lane = laneById[tr.lane];
+      el.className = 'cf-lane-marker';
+      Object.assign(el.style, { width: `${2 * MARKER_HALO_R}px`, height: `${2 * MARKER_HALO_R}px`, background: lane.tint_hl, border: `1px solid ${lane.color}` });
+      const core = document.createElement('div');
+      Object.assign(core.style, { position: 'absolute', borderRadius: '50%', width: `${2 * MARKER_R}px`, height: `${2 * MARKER_R}px`, background: lane.color, left: `${MARKER_HALO_R - MARKER_R - 1}px`, top: `${MARKER_HALO_R - MARKER_R - 1}px` });
+      el.appendChild(core);
+    }
+    front.appendChild(el);
+    return el;
+  });
+  const chipEls = travels.map((tr) => {
+    if (!tr.result) return null;
+    const lane = laneById[tr.lane];
+    const el = document.createElement('div');
+    el.className = 'cf-lane-chip';
+    Object.assign(el.style, { background: lane.color, boxShadow: `0 0 0 3px ${lane.tint_hl}` });
+    front.appendChild(el);
+    return el;
   });
 
   // The camera the runtime set this frame, read back from React Flow.
@@ -254,39 +467,65 @@ body { background: var(--cf-surface, #ffffff); }
   };
   const set = (el, key, value) => { if (el.style[key] !== value) el.style[key] = value; };
   const px = (v) => `${v.toFixed(2)}px`;
+  const hexRgb = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+  const mixHex = (a, b, p) => { const x = hexRgb(a); const y = hexRgb(b); return `rgb(${x.map((v, i) => Math.round(v + (y[i] - v) * p)).join(', ')})`; };
+  // Places a front element at flow point (fx, fy), scaled with the camera.
+  const place = (el, vp, fx, fy, opacity, scale = 1) => {
+    const on = opacity > 0;
+    set(el, 'display', on ? '' : 'none');
+    if (!on) return;
+    set(el, 'transform', `translate(${px(fx * vp.zoom + vp.x)}, ${px(fy * vp.zoom + vp.y)}) scale(${(vp.zoom * scale).toFixed(4)})`);
+    set(el, 'opacity', opacity.toFixed(3));
+  };
+  const flowXY = (a, c) => (horizontal ? [a, c] : [c, a]);
 
   const draw = () => {
     const vp = viewport();
     if (!vp) return;
     const t = performance.now();
-    const s = derive(t);
+    const lanes = laneState(t);
     const off = horizontal ? vp.y : vp.x;
     for (const lane of LANES.lanes) {
       const el = laneEls[lane.id];
       const band = bands[lane.id];
+      const s = lanes[lane.id];
       set(el, horizontal ? 'top' : 'left', px(band.start * vp.zoom + off));
       set(el, horizontal ? 'height' : 'width', px(band.extent * vp.zoom));
-      set(el, 'background', s.hl.has(lane.id) ? lane.tint_hl : lane.tint);
-      set(el, 'opacity', String(s.opacity(lane.id)));
-      el.dataset.cfHl = s.hl.has(lane.id) ? '1' : '0';
+      set(el, 'background', mixHex(lane.tint, lane.tint_hl, s.level));
+      set(el, 'opacity', String(s.opacity));
+      el.dataset.cfHl = s.level >= 0.5 ? '1' : '0';
     }
-    markers.forEach((m, i) => {
-      const el = markerEls[i];
-      const local = t - m.t_ms;
-      const on = local >= 0 && local <= m.duration;
-      set(el, 'display', on ? 'block' : 'none');
-      if (!on) return;
-      const band = bands[m.lane];
-      const a = (span[0] + (span[1] - span[0]) * ease(clamp01(local / m.duration))) * vp.zoom + (horizontal ? vp.x : vp.y);
-      const c = (band.start + band.extent / 2) * vp.zoom + off;
-      set(el, 'left', px((horizontal ? a : c) - MARKER_HALO_R));
-      set(el, 'top', px((horizontal ? c : a) - MARKER_HALO_R));
-      set(el, 'opacity', clamp01(Math.min(local, m.duration - local) / MARKER_FADE_MS).toFixed(3));
+    travels.forEach((tr, i) => {
+      const tok = tokenAt(tr, t);
+      const el = tokenEls[i];
+      if (!tok) { set(el, 'display', 'none'); return; }
+      const h = tr.id ? TOKEN_H : 2 * MARKER_HALO_R;
+      const [fx, fy] = horizontal ? [tok.a, tok.c - h / 2] : [tok.c - (tr.id ? tokenW(tr.id) : h) / 2, tok.a];
+      place(el, vp, fx, fy, tok.opacity);
     });
+    travels.forEach((tr, i) => {
+      const el = chipEls[i];
+      const chip = el && chipAt(tr, t);
+      if (!el) return;
+      if (!chip) { set(el, 'display', 'none'); return; }
+      const [cx, cy] = flowXY(chip.a, chip.c);
+      place(el, vp, cx - CHIP_R * chip.scale, cy - CHIP_R * chip.scale, chip.opacity, chip.scale);
+    });
+    for (const [id, el] of Object.entries(cardEls)) {
+      const card = cardAt(id, t);
+      if (!card) { set(el, 'display', 'none'); continue; }
+      place(el, vp, card.x, card.y, card.opacity);
+    }
+    for (const id of pulsed) {
+      const el = document.querySelector(`.react-flow__node[data-id="${CSS.escape(id)}"] .cf-node`);
+      if (!el) continue;
+      const s = pulseAt(id, t);
+      set(el, 'transform', s === 1 ? '' : `scale(${s.toFixed(4)})`);
+    }
   };
 
   window.__cfLanes = {
-    bands, span,
+    bands, span, travels: travels.map(({ fn, ...rest }) => rest), slots: Object.fromEntries(Object.keys(slots).map((id) => [id, pos[id]])),
     attach() {
       document.body.prepend(back);
       document.body.appendChild(front);
