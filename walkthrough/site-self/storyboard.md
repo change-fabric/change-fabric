@@ -129,6 +129,7 @@
 | 16000 | highlight | gate, e-report-gate |
 | 18000 | focus | gate |
 | 18000 | label | gate |
+| 18000 | remove | pr, k6, a11y, zap, ux, cases, e-pr-k6, e-pr-a11y, e-pr-zap, e-pr-ux, e-pr-cases, e-k6-report, e-a11y-report, e-zap-report, e-ux-report, e-cases-report |
 | 21000 | add_node | merge, tag, e-gate-merge, e-gate-tag |
 | 21000 | fit_view | gate, merge, tag |
 | 21000 | remove | pr, report, k6, a11y, zap, ux, cases, e-pr-k6, e-pr-a11y, e-pr-zap, e-pr-ux, e-pr-cases, e-k6-report, e-a11y-report, e-zap-report, e-ux-report, e-cases-report, e-report-gate |
