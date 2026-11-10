@@ -27,6 +27,18 @@ class WalkthroughDiagramLanesTest < Minitest::Test
     "diagram-colors" => "17022d4c40c055ed58f82c9e8df52c52219d46381636b095d3d2b5df18895a08"
   }.freeze
 
+  # The same screens hashed whole, runtime and bundle included, and the
+  # runtime file itself: the markers above hide any runtime edit, so these
+  # pin it. Update both only with a capture proof that laneless geometry is
+  # unchanged (test/walkthrough_diagram_capture_test.rb).
+  RUNTIME_SHA = "bfb845a2fb628e93f8ad634a6cb6329e3c451348d76e5ec5f66729f0b1ccd1f2"
+  LANELESS_RAW = {
+    "architecture" => "1ae996b14ce5df60a5fc0b3f553a9e0bde0f025e725e933c0b52f730a883f650",
+    "diagram-lr" => "de9b413a9be0ef40479990e2c21c8aba31dc27c27bb69a77647ff590516d1efd",
+    "diagram-flow" => "e2f385e7f664aa3598855a586a17db21e24b554621b73cec76df8e159f21b980",
+    "diagram-colors" => "897e086e215d0e6a1aac824f386eeffb5875ca836789196a4b57a69d213d034b"
+  }.freeze
+
   def setup
     @root = Dir.mktmpdir
     FileUtils.cp_r("#{LANES}/.", @root)
@@ -46,6 +58,9 @@ class WalkthroughDiagramLanesTest < Minitest::Test
   def test_specs_without_lanes_keep_their_screen_bytes
     bundle = File.read(WalkthroughDiagram::XYFLOW_BUNDLE).gsub("</script", "<\\/script")
     runtime = File.read(WalkthroughDiagram::RUNTIME)
+    assert_equal RUNTIME_SHA, Digest::SHA256.file(WalkthroughDiagram::RUNTIME).hexdigest,
+                 "cf_diagram_runtime.js changed: laneless screen bytes change with it; update RUNTIME_SHA only with a " \
+                 "capture proof that laneless geometry is unchanged"
     LANELESS.each do |name, sha|
       Dir.mktmpdir do |root|
         FileUtils.cp_r("#{File.join(FIXTURES, name)}/.", root)
@@ -54,6 +69,7 @@ class WalkthroughDiagramLanesTest < Minitest::Test
         refute_includes out, "cf-diagram-lanes"
         refute_includes out, File.read(WalkthroughDiagram::LANES_RUNTIME)
         assert_equal sha, Digest::SHA256.hexdigest(out.sub(runtime, "RUNTIME").sub(bundle, "BUNDLE")), "#{name} screen changed"
+        assert_equal LANELESS_RAW.fetch(name), Digest::SHA256.hexdigest(out), "#{name} raw screen changed"
       end
     end
   end
