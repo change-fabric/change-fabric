@@ -56,16 +56,32 @@
   const RANK_SEP = 120;
   const FADE_MS = 300;
   const DIM_OPACITY = 0.35;
-  const LANE_PAD = 28;
+  const LANE_PAD = 12;
   const ROW_GAP = 24;
   const LANE_MIN = 120;
-  // The strip under a band's checkpoints that a travel rides.
-  const RAIL = 48;
+  // A travel rides a rail RAIL_GAP under its band's checkpoints.
+  const RAIL_GAP = 8;
   const CLEAR = 16;
-  const TOKEN_H = 26;
-  const TOKEN_CHAR_W = 7.6;
-  const TOKEN_PAD_W = 24;
-  const TOKEN_ICON = 14;
+  // Sized to stay legible when a 1280 wide frame plays on a phone.
+  const TOKEN_H = 32;
+  const TOKEN_CHAR_W = 9.6;
+  const TOKEN_PAD_W = 28;
+  const TOKEN_ICON = 16;
+  // Horizontal lanes: every checkpoint takes one width, so a column of them
+  // reads as a column, and lane names sit in a column of their own.
+  const CHECK_W = 224;
+  const LABEL_COL = 264;
+  // The report panel, right of the lanes; result rows stack inside it.
+  const PANEL_GAP = 48;
+  const PANEL_W = 400;
+  const PANEL_PAD = 24;
+  const PANEL_HEAD = 44;
+  const RESULT_H = 48;
+  // Wider than DROP_SHIFT, so a settling row never touches the one above.
+  const RESULT_GAP = 18;
+  const HOLD_MS = 800;
+  const FINAL_FADE_MS = 120;
+  const PANEL_PULSE_MS = 180;
   const TRAVEL_MS = 700;
   const ENTER_MS = 130;
   const ENTER_SHIFT = 12;
@@ -103,7 +119,8 @@
     const w = Math.min(NODE_MAX_W + icon, Math.max(NODE_MIN_W, chars * CHAR_W + NODE_PAD_W + icon));
     return [n.id, Math.round(w / 2) * 2];
   }));
-  const size = (id, axis) => (axis === 'x' ? WIDTH[id] : NODE_H);
+  const checkpoint = (id) => horizontal && !!nodeById[id].lane;
+  const size = (id, axis) => (axis === 'x' ? (checkpoint(id) ? CHECK_W : WIDTH[id]) : NODE_H);
   const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
   const clamp01 = (v) => clamp(v, 0, 1);
 
@@ -180,12 +197,12 @@
       rowOf[id] = r;
     }
     const content = rows.reduce((sum, row) => sum + row.size, 0) + ROW_GAP * Math.max(0, rows.length - 1);
-    const tail = rails ? RAIL : LANE_PAD;
+    const tail = rails ? RAIL_GAP + TOKEN_H + LANE_PAD : LANE_PAD;
     const extent = Math.max(LANE_MIN, content + LANE_PAD + tail);
     let at = edge + LANE_PAD + (extent - LANE_PAD - tail - content) / 2;
     const rowStart = rows.map((row) => { const s = at; at += row.size + ROW_GAP; return s; });
     for (const id of members) pos[id][cross] = Math.round(rowStart[rowOf[id]] + (rows[rowOf[id]].size - size(id, cross)) / 2);
-    bands[lane.id] = { start: edge, extent, rail: edge + extent - RAIL / 2, members };
+    bands[lane.id] = { start: edge, extent, rail: edge + extent - LANE_PAD - TOKEN_H / 2, mid: edge + LANE_PAD + (extent - LANE_PAD - tail) / 2, members };
     edge += extent;
   }
 
@@ -199,12 +216,12 @@
     for (const id of free) pos[id][cross] += shift;
   }
 
-  // Every travel spans the same stretch: from CLEAR before the first
-  // checkpoint to CLEAR past the widest reach of the last, so a token
-  // crossing each lane in turn reads as one route.
+  // Every travel spans the same stretch: from the first checkpoint's start
+  // to CLEAR past the widest reach of the last, so a token crossing each
+  // lane in turn reads as one short route under its checkpoints.
   const laned = spec.nodes.filter((n) => n.lane).map((n) => n.id);
   const span = laned.length
-    ? [Math.min(...laned.map((id) => pos[id][along])) - CLEAR, Math.max(...laned.map((id) => pos[id][along] + size(id, along))) + CLEAR]
+    ? [Math.min(...laned.map((id) => pos[id][along])), Math.max(...laned.map((id) => pos[id][along] + size(id, along))) + CLEAR]
     : [0, 600];
 
   const tokenW = (id) => {
@@ -219,7 +236,7 @@
     const fn = easing(s.easing);
     const tr = {
       t0: s.t_ms, D, lane: s.lane, id: s.id || null, result: s.result || null, w, fn,
-      startA: s.id ? span[0] - w : span[0] - w / 2, endA: s.id ? span[1] : span[1] - w / 2, rail: bands[s.lane].rail,
+      startA: s.id ? span[0] : span[0] - w / 2, endA: s.id ? span[1] : span[1] - w / 2, rail: bands[s.lane].rail,
       enterAt: s.t_ms - ENTER_MS, chipAt: s.t_ms + D - CHIP_IN_MS, transferAt: s.t_ms + D + TAIL_MS
     };
     tr.landAt = tr.transferAt + TRANSFER_MS;
@@ -233,13 +250,45 @@
   });
   // A token leaves its lane as the next travel of the same token arrives; a
   // marker, or a token's last travel, leaves only if it is a marker.
+  const delivered = travels.filter((tr) => tr.result);
+  const lastLand = delivered.length ? Math.max(...delivered.map((tr) => tr.landAt)) : Infinity;
+  const report = horizontal && LANES.report ? LANES.report : null;
   travels.forEach((tr, i) => {
     const next = tr.id && travels.slice(i + 1).find((o) => o.id === tr.id);
-    tr.exitAt = next ? next.enterAt - EXIT_LEAD : (tr.id ? Infinity : tr.transferAt);
+    tr.exitShift = EXIT_SHIFT;
+    tr.exitMs = EXIT_MS;
+    if (next) tr.exitAt = next.enterAt - EXIT_LEAD;
+    else if (!tr.id) tr.exitAt = tr.transferAt;
+    else if (report && delivered.length) Object.assign(tr, { exitAt: lastLand + HOLD_MS, exitShift: 0, exitMs: FINAL_FADE_MS });
+    else tr.exitAt = Infinity;
   });
-  const slots = Object.fromEntries(travels.filter((tr) => tr.result).map((tr) => [tr.result, tr]));
+  const slots = Object.fromEntries(delivered.map((tr) => [tr.result, tr]));
 
-  for (const n of spec.nodes) n.position = { x: Math.round(pos[n.id].x), y: Math.round(pos[n.id].y) };
+  // The report panel and its rows, in delivery order, in flow units. With a
+  // panel, each result lands in its row rather than at its own position.
+  const reach = Math.max(span[1], ...travels.map((tr) => tr.endA + tr.w));
+  const panel = report && {
+    x: reach + PANEL_GAP, y: 0, w: PANEL_W, h: Math.max(edge, PANEL_PAD * 2 + PANEL_HEAD + delivered.length * (RESULT_H + RESULT_GAP))
+  };
+  if (panel) {
+    delivered.forEach((tr, k) => {
+      pos[tr.result] = { x: panel.x + PANEL_PAD, y: panel.y + PANEL_PAD + PANEL_HEAD + k * (RESULT_H + RESULT_GAP) };
+    });
+  }
+  const resultSize = (id) => (panel ? { w: PANEL_W - 2 * PANEL_PAD, h: RESULT_H } : { w: WIDTH[id], h: NODE_H });
+
+  // Two invisible corner nodes span the whole composition (lane names,
+  // lanes, and panel), so the runtime's fits frame all of it.
+  if (horizontal && laned.length) {
+    const left = span[0] - LABEL_COL;
+    const right = panel ? panel.x + panel.w : reach;
+    const bottom = panel ? Math.max(edge, panel.h) : edge;
+    spec.nodes.push({ id: 'cf-lane-anchor-a', label: ' ', position: { x: left, y: 0 } },
+      { id: 'cf-lane-anchor-b', label: ' ', position: { x: right - NODE_MIN_W, y: bottom - NODE_H } });
+    spec.initial = (spec.initial || []).concat(['cf-lane-anchor-a', 'cf-lane-anchor-b']);
+  }
+
+  for (const n of spec.nodes) if (pos[n.id]) n.position = { x: Math.round(pos[n.id].x), y: Math.round(pos[n.id].y) };
   spec.initial = (spec.initial || []).filter((id) => !owned.has(id));
   steps.forEach((s, i) => {
     if (s.op === 'travel') steps[i] = { t_ms: s.t_ms, op: 'add_node', ids: [] };
@@ -295,7 +344,7 @@
   // A travel's token at t: along (left edge) and cross (centre) in flow
   // units, and opacity; null while it is not on screen.
   const tokenAt = (tr, t) => {
-    if (t < tr.enterAt || t >= tr.exitAt + EXIT_MS) return null;
+    if (t < tr.enterAt || t >= tr.exitAt + tr.exitMs) return null;
     let a; let o = 1;
     if (t < tr.t0) {
       const q = clamp01((t - tr.enterAt) / ENTER_MS);
@@ -305,8 +354,8 @@
       a = tr.startA + (tr.endA - tr.startA) * tr.fn(clamp01((t - tr.t0) / tr.D));
     }
     if (t >= tr.exitAt) {
-      const q = clamp01((t - tr.exitAt) / EXIT_MS);
-      a += EXIT_SHIFT * EASINGS.decelerate(q);
+      const q = clamp01((t - tr.exitAt) / tr.exitMs);
+      a += tr.exitShift * EASINGS.decelerate(q);
       o = Math.min(o, 1 - q);
     }
     return { a, c: tr.rail, opacity: o };
@@ -318,7 +367,8 @@
     const tok = tokenAt(tr, Math.min(t, tr.transferAt));
     const from = { a: (tok ? tok.a : tr.endA) + tr.w + CHIP_R + 4, c: tr.rail };
     const slot = pos[tr.result];
-    const to = { a: slot[along] + CHIP_R, c: slot[cross] + size(tr.result, cross) / 2 };
+    const box = resultSize(tr.result);
+    const to = { a: slot[along] + (panel ? 18 : CHIP_R), c: slot[cross] + (horizontal ? box.h : box.w) / 2 };
     if (t < tr.transferAt) return { a: from.a, c: from.c, opacity: clamp01((t - tr.chipAt) / CHIP_IN_MS), scale: 0.6 + 0.4 * clamp01((t - tr.chipAt) / CHIP_IN_MS) };
     const p = EASINGS.emphasized((t - tr.transferAt) / TRANSFER_MS);
     return { a: from.a + (to.a - from.a) * p, c: from.c + (to.c - from.c) * p, opacity: 1 - clamp01((t - (tr.landAt - CHIP_OUT_MS)) / CHIP_OUT_MS), scale: 1 };
@@ -340,10 +390,20 @@
     }
     return s;
   };
-  const pulsed = [...new Set(travels.flatMap((tr) => tr.pulses.map((p) => p.id)))];
+
+  // The panel's closing beat: the count appears as the last result lands,
+  // and the border swells once as the token leaves.
+  const finale = (t) => ({
+    badge: clamp01((t - lastLand) / FINAL_FADE_MS),
+    border: t >= lastLand + HOLD_MS && t < lastLand + HOLD_MS + PANEL_PULSE_MS ? Math.sin(Math.PI * (t - lastLand - HOLD_MS) / PANEL_PULSE_MS) : 0
+  });
 
   // -- draw --------------------------------------------------------------
 
+  const dark = LANES.theme === 'dark';
+  const DIVIDER = dark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(15, 23, 42, 0.08)';
+  const PANEL_FILL = dark ? '#111c2d' : 'var(--cf-node, #f8fafc)';
+  const rgba = (hex, a) => `rgba(${hexRgb(hex).join(', ')}, ${a})`;
   const css = document.createElement('style');
   css.textContent = `
 body { background: var(--cf-surface, #ffffff); }
@@ -352,18 +412,30 @@ body { background: var(--cf-surface, #ffffff); }
 .cf-lanes, .cf-lane-front { position: fixed; inset: 0; pointer-events: none; overflow: visible; }
 .cf-lanes { z-index: 0; }
 .cf-lane-front { z-index: 2; }
-.cf-lane { position: absolute; box-sizing: border-box; border: 0 solid var(--cf-rule, #cbd5e1); }
+.cf-lane { position: absolute; box-sizing: border-box; border: 0 solid ${DIVIDER}; }
 .cf-lanes[data-dir="horizontal"] .cf-lane { left: 0; right: 0; border-top-width: 1px; border-bottom-width: 1px; }
 .cf-lanes[data-dir="vertical"] .cf-lane { top: 0; bottom: 0; border-left-width: 1px; border-right-width: 1px; }
 .cf-lane-label { position: absolute; box-sizing: border-box; white-space: nowrap; padding: 2px 10px; border-left: 4px solid;
   color: var(--cf-text, #0f172a); font: 600 15px/1.3 system-ui, sans-serif; letter-spacing: 0.02em; }
 .cf-lane-label svg { width: 18px; height: 18px; margin-right: 6px; vertical-align: -3px; }
-.cf-lanes[data-dir="horizontal"] .cf-lane-label { left: 12px; top: 10px; }
+.cf-lanes[data-dir="horizontal"] .cf-lane-label { left: 0; top: 0; transform-origin: 0 0; font-size: 22px; line-height: 28px; padding: 0 0 0 12px; }
+.cf-lanes[data-dir="horizontal"] .cf-lane-label svg { width: 22px; height: 22px; margin-right: 8px; vertical-align: -4px; }
+.react-flow__node[data-id^="cf-lane-anchor-"] .cf-node { visibility: hidden; }
+#cf-diagram-root .cf-node { font-size: 19px; }
+${laned.filter(checkpoint).map((id) => `.react-flow__node[data-id="${CSS.escape(id)}"] .cf-node { width: ${CHECK_W}px !important; white-space: nowrap; }`).join('\n')}
+.cf-lane-panel { box-sizing: border-box; border: 1px solid; border-radius: 14px; padding: ${PANEL_PAD}px; }
+.cf-lane-panel-head { height: ${PANEL_HEAD}px; color: var(--cf-text, #0f172a); font: 600 22px/28px system-ui, sans-serif; white-space: nowrap; }
+.cf-lane-badge { margin-left: 10px; padding: 2px 10px; border-radius: 999px; font: 600 16px/22px system-ui, sans-serif;
+  color: var(--cf-text, #0f172a); background: ${DIVIDER}; border: 1px solid ${DIVIDER}; }
+.cf-lane-row { box-sizing: border-box; height: ${RESULT_H}px; display: flex; align-items: center; gap: 12px; padding: 0 14px;
+  border: 1px solid ${DIVIDER}; border-radius: 10px; white-space: nowrap; font: 600 18px/1 system-ui, sans-serif; color: var(--cf-text, #0f172a); }
+.cf-lane-row i { flex: none; width: 10px; height: 10px; border-radius: 50%; }
+.cf-lane-row small { margin-left: auto; font: 500 15px/1 system-ui, sans-serif; color: var(--cf-muted, #475569); }
 .cf-lanes[data-dir="vertical"] .cf-lane-label { left: 10px; top: 12px; }
 .cf-lane-front > * { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
 .cf-lane-token { box-sizing: border-box; height: ${TOKEN_H}px; display: flex; align-items: center; justify-content: center; white-space: nowrap;
   border: 2px solid var(--cf-accent, #2563eb); border-radius: ${TOKEN_H / 2}px; background: var(--cf-accent-tint, #dbeafe);
-  color: var(--cf-text, #0f172a); font: 600 13px/1 system-ui, sans-serif; }
+  color: var(--cf-text, #0f172a); font: 600 17px/1 system-ui, sans-serif; }
 .cf-lane-token svg { width: ${TOKEN_ICON}px; height: ${TOKEN_ICON}px; margin-right: 6px; fill: currentColor; flex: none; }
 .cf-lane-chip { box-sizing: border-box; width: ${2 * CHIP_R}px; height: ${2 * CHIP_R}px; border-radius: 50%; }
 .cf-lane-marker { border-radius: 50%; box-sizing: border-box; }
@@ -390,6 +462,7 @@ body { background: var(--cf-surface, #ffffff); }
   back.dataset.dir = horizontal ? 'horizontal' : 'vertical';
   const front = layer('cf-lane-front');
   const laneEls = {};
+  const labelEls = {};
   for (const lane of LANES.lanes) {
     const el = document.createElement('div');
     el.className = 'cf-lane';
@@ -399,13 +472,43 @@ body { background: var(--cf-surface, #ffffff); }
     label.style.borderLeftColor = lane.color;
     if (lane.icon && ICONS[lane.icon]) label.appendChild(iconEl(ICONS[lane.icon], null, lane.color));
     label.appendChild(document.createTextNode(lane.label));
-    el.appendChild(label);
-    back.appendChild(el);
+    if (horizontal) back.appendChild(label); else el.appendChild(label);
+    back.prepend(el);
     laneEls[lane.id] = el;
+    labelEls[lane.id] = label;
   }
   // Result cards wear the runtime's own node classes, so they match the
   // diagram's nodes exactly.
+  const panelEl = panel && document.createElement('div');
+  const headEl = panel && document.createElement('div');
+  const badgeEl = panel && document.createElement('span');
+  if (panel) {
+    panelEl.className = 'cf-lane-panel';
+    Object.assign(panelEl.style, { width: `${panel.w}px`, height: `${panel.h}px`, background: PANEL_FILL });
+    headEl.className = 'cf-lane-panel-head';
+    headEl.textContent = report.label;
+    badgeEl.className = 'cf-lane-badge';
+    badgeEl.textContent = `${delivered.length}/${delivered.length} ${report.unit || 'checks'}`;
+    headEl.appendChild(badgeEl);
+    panelEl.appendChild(headEl);
+    front.appendChild(panelEl);
+  }
+  const rowEl = (tr) => {
+    const el = document.createElement('div');
+    el.className = 'cf-lane-row cf-lane-card';
+    el.dataset.id = tr.result;
+    el.style.width = `${PANEL_W - 2 * PANEL_PAD}px`;
+    el.style.background = PANEL_FILL;
+    const mark = document.createElement('i');
+    mark.style.background = laneById[tr.lane].color;
+    const lane = document.createElement('small');
+    lane.textContent = laneById[tr.lane].label;
+    el.append(mark, document.createTextNode(nodeById[tr.result].label), lane);
+    front.appendChild(el);
+    return el;
+  };
   const cardEls = Object.fromEntries(Object.keys(slots).map((id) => {
+    if (panel) return [id, rowEl(slots[id])];
     const n = nodeById[id];
     const c = COLORS.nodes[id];
     const el = document.createElement('div');
@@ -483,15 +586,28 @@ body { background: var(--cf-surface, #ffffff); }
     const t = performance.now();
     const lanes = laneState(t);
     const off = horizontal ? vp.y : vp.x;
+    const sx = (x) => x * vp.zoom + vp.x;
+    const sy = (y) => y * vp.zoom + vp.y;
     for (const lane of LANES.lanes) {
       const el = laneEls[lane.id];
       const band = bands[lane.id];
       const s = lanes[lane.id];
       set(el, horizontal ? 'top' : 'left', px(band.start * vp.zoom + off));
       set(el, horizontal ? 'height' : 'width', px(band.extent * vp.zoom));
+      // With a panel, the fills stop short of it.
+      if (horizontal && panel) {
+        const left = sx(span[0] - LABEL_COL - PANEL_GAP / 2);
+        set(el, 'left', px(left));
+        set(el, 'width', px(sx(panel.x - PANEL_GAP / 2) - left));
+      }
       set(el, 'background', mixHex(lane.tint, lane.tint_hl, s.level));
       set(el, 'opacity', String(s.opacity));
       el.dataset.cfHl = s.level >= 0.5 ? '1' : '0';
+      if (horizontal) {
+        const label = labelEls[lane.id];
+        set(label, 'transform', `translate(${px(sx(span[0] - LABEL_COL))}, ${px(sy(band.mid) - 14 * vp.zoom)}) scale(${vp.zoom.toFixed(4)})`);
+        set(label, 'opacity', String(s.opacity));
+      }
     }
     travels.forEach((tr, i) => {
       const tok = tokenAt(tr, t);
@@ -509,14 +625,26 @@ body { background: var(--cf-surface, #ffffff); }
       const [cx, cy] = flowXY(chip.a, chip.c);
       place(el, vp, cx - CHIP_R * chip.scale, cy - CHIP_R * chip.scale, chip.opacity, chip.scale);
     });
+    if (panel) {
+      const f = finale(t);
+      place(panelEl, vp, panel.x, panel.y, 1);
+      set(panelEl, 'borderColor', dark ? `rgba(255, 255, 255, ${(0.08 + 0.27 * f.border).toFixed(3)})` : `rgba(15, 23, 42, ${(0.08 + 0.27 * f.border).toFixed(3)})`);
+      set(badgeEl, 'display', f.badge > 0 ? '' : 'none');
+      set(badgeEl, 'opacity', f.badge.toFixed(3));
+    }
     for (const [id, el] of Object.entries(cardEls)) {
       const card = cardAt(id, t);
       if (!card) { set(el, 'display', 'none'); continue; }
       place(el, vp, card.x, card.y, card.opacity);
     }
-    for (const id of pulsed) {
+    // The running lane's checkpoints carry its colour; the rest stay quiet.
+    for (const id of laned) {
       const el = document.querySelector(`.react-flow__node[data-id="${CSS.escape(id)}"] .cf-node`);
       if (!el) continue;
+      const lane = laneById[nodeById[id].lane];
+      const on = lanes[lane.id].level >= 0.5;
+      set(el, 'border', on ? `1.5px solid ${lane.color}` : `1px solid ${dark ? 'rgba(255, 255, 255, 0.16)' : 'rgba(15, 23, 42, 0.16)'}`);
+      set(el, 'boxShadow', on ? `0 0 16px ${rgba(lane.color, 0.12)}` : '');
       const s = pulseAt(id, t);
       set(el, 'transform', s === 1 ? '' : `scale(${s.toFixed(4)})`);
     }

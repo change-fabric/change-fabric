@@ -13,7 +13,7 @@ require_relative "../scripts/walkthrough_storyboard"
 # Swimlanes in the pinned browserless container, the companion of
 # walkthrough_diagram_capture_test.rb: a dark scene with five coloured lanes,
 # a pull request token travelling across each in turn on the lane's rail,
-# and a result chip per lane carried into a reserved report slot. Bands
+# and a result chip per lane carried into its row of the report panel. Bands
 # paint their tint and light while their lane runs; the token never passes
 # through a checkpoint and never moves right to left; handoffs overlap;
 # result cards settle from just above their own slot without touching
@@ -64,6 +64,7 @@ class WalkthroughDiagramLanesCaptureTest < Minitest::Test
       check_handoffs_overlap
       check_results
       check_pulses
+      check_finale
     end
   end
 
@@ -144,9 +145,19 @@ class WalkthroughDiagramLanesCaptureTest < Minitest::Test
         assert_operator card["top"], :>=, slot_top - (16 * zoom) - EPS, "#{tr['result']} starts too high at #{s['t']} ms"
         assert_operator card["top"], :<=, slot_top + EPS, "#{tr['result']} overshoots its slot"
         (s["cards"].keys - [ tr["result"] ]).each { |o| refute overlap?(card, s["cards"][o]), "#{tr['result']} touches #{o} at #{s['t']} ms" }
-        refute overlap?(card, s["report"]), "#{tr['result']} touches the report at #{s['t']} ms"
+        %w[left top].each { |k| assert_operator card[k], :>=, s["report"][k] - EPS, "#{tr['result']} leaves the panel" }
+        %w[right bottom].each { |k| assert_operator card[k], :<=, s["report"][k] + EPS, "#{tr['result']} leaves the panel" }
       end
     end
+  end
+
+  # The panel counts the checks once the last result lands, never before.
+  def check_finale
+    last = @travels.map { |tr| tr["landAt"] }.max
+    assert_nil at(last - 50)["report"]["badge"]
+    assert_equal "#{@travels.size}/#{@travels.size} checks", @samples.last["report"]["badge"]
+    assert_empty @samples.last["tokens"].compact, "the token leaves after the hold"
+    assert @samples.find { |s| s["t"] > last + 100 && s["t"] < last + 700 }["tokens"].compact.any?, "the token holds after the last landing"
   end
 
   # Each checkpoint swells to at most 1.025 as the token passes, then rests.
@@ -188,7 +199,9 @@ class WalkthroughDiagramLanesCaptureTest < Minitest::Test
               const m = inner.style.transform.match(/scale\\(([\\d.]+)\\)/);
               scale[el.dataset.id] = m ? Number(m[1]) : 1;
             }
-            const report = box(document.querySelector('.react-flow__node[data-id="report"] .cf-node'));
+            const report = box(document.querySelector('.cf-lane-panel'));
+            const badge = document.querySelector('.cf-lane-badge');
+            report.badge = badge.style.display === 'none' ? null : badge.textContent;
             return { t: performance.now(), lanes, tokens, chips, cards, checks, scale, report };
           }, t === 0 ? 0 : #{STEP_MS}));
         }

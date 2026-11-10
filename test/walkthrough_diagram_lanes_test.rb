@@ -175,26 +175,26 @@ class WalkthroughDiagramLanesTest < Minitest::Test
   end
 
   def test_travel_easing_and_result
-    spec["steps"][0]["easing"] = "cubic-bezier(0.22, 1, 0.36, 1)"
-    spec["steps"][1]["easing"] = "emphasized"
+    spec["steps"][1]["easing"] = "cubic-bezier(0.22, 1, 0.36, 1)"
+    spec["steps"][2]["easing"] = "emphasized"
     assert_empty errs
-    spec["steps"][0]["easing"] = "bounce"
-    spec["steps"][1]["easing"] = "cubic-bezier(1.4, 0, 0.2, 1)"
-    spec["steps"][2]["result"] = "nope"
+    spec["steps"][1]["easing"] = "bounce"
+    spec["steps"][2]["easing"] = "cubic-bezier(1.4, 0, 0.2, 1)"
+    spec["steps"][3]["result"] = "nope"
     joined = errs
-    assert_includes joined, "step 0: easing must be one of standard, linear"
-    assert_includes joined, "step 1: easing must be one of"
-    assert_includes joined, 'step 2: "nope" is not a node id'
+    assert_includes joined, "step 1: easing must be one of standard, linear"
+    assert_includes joined, "step 2: easing must be one of"
+    assert_includes joined, 'step 3: "nope" is not a node id'
   end
 
   # A travel's token and result belong to the lane layer from start to end.
   def test_travel_owns_its_token_and_result
-    spec["steps"][1]["result"] = "f-load"
-    spec["steps"][2]["result"] = "pr"
+    spec["steps"][2]["result"] = "f-load"
+    spec["steps"][3]["result"] = "pr"
     spec["initial"] << "f-ux"
     spec["nodes"].find { |n| n["id"] == "pr" }["lane"] = "load"
-    spec["edges"] = [ { "id" => "e1", "source" => "report", "target" => "f-cases" } ]
-    spec["steps"] << { "t_ms" => 7500, "op" => "highlight", "ids" => %w[report pr] }
+    spec["edges"] = [ { "id" => "e1", "source" => "check-cases", "target" => "f-cases" } ]
+    spec["steps"] << { "t_ms" => 7500, "op" => "highlight", "ids" => %w[check-load pr] }
     joined = errs
     assert_includes joined, 'diagram node "f-load" is the result of more than one travel'
     assert_includes joined, 'diagram node "pr" cannot be both a travel token and a result'
@@ -202,6 +202,21 @@ class WalkthroughDiagramLanesTest < Minitest::Test
     assert_includes joined, 'diagram edge "e1": a travel token or result takes no edges'
     assert_includes joined, 'diagram.initial names "f-ux"'
     assert_includes joined, "step 6: highlight names pr, which a travel draws"
+  end
+
+  def test_report_panel_fields
+    assert_empty errs
+    spec["report"] = { "label" => " ", "unit" => 3, "title" => "x" }
+    joined = errs
+    assert_includes joined, "diagram.report has unknown keys: title"
+    assert_includes joined, "diagram.report.label must be a non-empty string"
+    assert_includes joined, "diagram.report.unit must be a non-empty string"
+    spec["report"] = { "label" => "Report" }
+    spec["lane_direction"] = "vertical"
+    assert_includes errs, "diagram.report needs horizontal lanes"
+    data = JSON.parse(html[%r{<script type="application/json" id="cf-diagram-lanes">(.*?)</script>}m, 1])
+    assert_equal({ "label" => "Report" }, data["report"])
+    assert_equal "dark", data["theme"]
   end
 
   # The lane layer re-runs the runtime's layout; its sizing must not drift.

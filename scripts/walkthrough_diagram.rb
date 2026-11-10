@@ -43,15 +43,17 @@ module WalkthroughDiagram
   # labels, and edges together). The runtime default is 1.25.
   MAX_ZOOM = (0.5..2.0)
   LAYOUT_FIELDS = %w[engine direction max_zoom].freeze
-  SPEC_FIELDS = %w[layout theme lanes lane_direction nodes edges initial steps].freeze
+  SPEC_FIELDS = %w[layout theme lanes lane_direction report nodes edges initial steps].freeze
   # Swimlanes: horizontal bands (or vertical columns) a node joins by `lane`.
   MAX_LANES = 8
   LANE_DIRECTIONS = %w[horizontal vertical].freeze
   LANE_FIELDS = %w[id label color icon icon_weight].freeze
   # A lane's band is a subtle tint of its colour over the surface, stronger
   # while highlighted; its label is drawn in the theme's text colour on both.
-  LANE_TINT_SHARE = { light: 0.07, dark: 0.10 }.freeze
-  LANE_HL_SHARE = 0.22
+  LANE_TINT_SHARE = { light: 0.05, dark: 0.05 }.freeze
+  LANE_HL_SHARE = 0.11
+  # report: a panel right of horizontal lanes that collects travel results.
+  REPORT_FIELDS = %w[label unit].freeze
   # travel easings: the named set the lane layer knows, or a CSS cubic-bezier.
   EASINGS = %w[standard linear ease-in-out decelerate accelerate emphasized settle].freeze
   BEZIER = /\Acubic-bezier\(\s*(-?[\d.]+)\s*,\s*(-?[\d.]+)\s*,\s*(-?[\d.]+)\s*,\s*(-?[\d.]+)\s*\)\z/
@@ -191,6 +193,7 @@ module WalkthroughDiagram
       errs << "diagram.lane_direction must be one of #{LANE_DIRECTIONS.join(', ')}" unless LANE_DIRECTIONS.include?(spec['lane_direction'])
       errs << 'diagram.lane_direction needs lanes' if lanes.empty?
     end
+    errs.concat(report_errors(spec, lanes)) if spec.key?('report')
     lanes.each do |lane|
       label = "diagram lane #{lane['id'].inspect}"
       errs << "#{label}: unknown keys: #{(lane.keys - LANE_FIELDS).join(', ')}" unless (lane.keys - LANE_FIELDS).empty?
@@ -198,6 +201,19 @@ module WalkthroughDiagram
       errs.concat(color_value_errors(lane, label))
       errs.concat(icon_errors(lane, label))
     end
+    errs
+  end
+
+  def report_errors(spec, lanes)
+    report = spec['report']
+    return [ 'diagram.report must be an object' ] unless report.is_a?(Hash)
+
+    errs = []
+    errs << "diagram.report has unknown keys: #{(report.keys - REPORT_FIELDS).join(', ')}" unless (report.keys - REPORT_FIELDS).empty?
+    errs << 'diagram.report.label must be a non-empty string' unless report['label'].is_a?(String) && !report['label'].strip.empty?
+    errs << 'diagram.report.unit must be a non-empty string' if report.key?('unit') && !(report['unit'].is_a?(String) && !report['unit'].strip.empty?)
+    errs << 'diagram.report needs lanes' if lanes.empty?
+    errs << 'diagram.report needs horizontal lanes' if spec['lane_direction'] == 'vertical'
     errs
   end
 
@@ -577,7 +593,8 @@ module WalkthroughDiagram
     lanes = lane_colors(spec, root)
     return [ '', '' ] if lanes.empty?
 
-    data = { 'direction' => spec['lane_direction'] || 'horizontal', 'lanes' => lanes }
+    data = { 'direction' => spec['lane_direction'] || 'horizontal', 'theme' => theme(spec).to_s, 'lanes' => lanes }
+    data['report'] = spec['report'] if spec['report'].is_a?(Hash)
     json = JSON.generate(data).gsub(/[<>]/) { |c| format('\\u%04x', c.ord) }
     [ %(<script type="application/json" id="cf-diagram-lanes">#{json}</script>\n#{script(File.read(LANES_RUNTIME))}\n),
       %(\n#{script('window.__cfLanes && window.__cfLanes.attach();')}) ]

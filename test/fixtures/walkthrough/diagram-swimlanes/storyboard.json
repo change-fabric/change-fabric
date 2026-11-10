@@ -60,9 +60,8 @@
             "id": "check-load",
             "label": "Load budget",
             "lane": "load",
-            "color": "#f2b85b",
             "position": {
-              "x": 200,
+              "x": 224,
               "y": 0
             }
           },
@@ -70,9 +69,8 @@
             "id": "check-a11y",
             "label": "axe-core scan",
             "lane": "a11y",
-            "color": "#6fb7f0",
             "position": {
-              "x": 320,
+              "x": 224,
               "y": 0
             }
           },
@@ -80,9 +78,8 @@
             "id": "check-security",
             "label": "ZAP baseline",
             "lane": "security",
-            "color": "#f07f9b",
             "position": {
-              "x": 440,
+              "x": 224,
               "y": 0
             }
           },
@@ -90,9 +87,8 @@
             "id": "check-ux",
             "label": "Viewport sweep",
             "lane": "ux",
-            "color": "#4fc4b0",
             "position": {
-              "x": 560,
+              "x": 224,
               "y": 0
             }
           },
@@ -100,9 +96,8 @@
             "id": "check-cases",
             "label": "Committed cases",
             "lane": "cases",
-            "color": "#9ea39b",
             "position": {
-              "x": 680,
+              "x": 224,
               "y": 0
             }
           },
@@ -117,58 +112,29 @@
             }
           },
           {
-            "id": "report",
-            "label": "Report",
-            "icon": "clipboard-text",
-            "position": {
-              "x": 1080,
-              "y": 20
-            }
-          },
-          {
             "id": "f-load",
             "label": "p95 412 ms",
-            "color": "success",
-            "position": {
-              "x": 1080,
-              "y": 110
-            }
+            "color": "success"
           },
           {
             "id": "f-a11y",
             "label": "2 contrast issues",
-            "color": "warning",
-            "position": {
-              "x": 1080,
-              "y": 190
-            }
+            "color": "warning"
           },
           {
             "id": "f-security",
             "label": "1 medium alert",
-            "color": "danger",
-            "position": {
-              "x": 1080,
-              "y": 270
-            }
+            "color": "danger"
           },
           {
             "id": "f-ux",
             "label": "3 widths clean",
-            "color": "success",
-            "position": {
-              "x": 1080,
-              "y": 350
-            }
+            "color": "success"
           },
           {
             "id": "f-cases",
             "label": "48 of 48 pass",
-            "color": "success",
-            "position": {
-              "x": 1080,
-              "y": 430
-            }
+            "color": "success"
           }
         ],
         "edges": [],
@@ -177,10 +143,14 @@
           "check-a11y",
           "check-security",
           "check-ux",
-          "check-cases",
-          "report"
+          "check-cases"
         ],
         "steps": [
+          {
+            "t_ms": 0,
+            "op": "fit_view",
+            "padding": 0.06
+          },
           {
             "t_ms": 300,
             "op": "travel",
@@ -225,13 +195,12 @@
             "result": "f-cases",
             "duration": 700,
             "easing": "standard"
-          },
-          {
-            "t_ms": 7400,
-            "op": "highlight",
-            "id": "report"
           }
-        ]
+        ],
+        "report": {
+          "label": "Report",
+          "unit": "checks"
+        }
       },
       "narration": {
         "text": "A pull request crosses every audit lane, and each lane drops its result into the report.",
@@ -244,7 +213,7 @@
         }
       ],
       "timing": {
-        "min_ms": 8000,
+        "min_ms": 8400,
         "pad_ms": 0,
         "transition": {
           "type": "cut",
