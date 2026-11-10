@@ -11,8 +11,7 @@ const ROADMAP_URL = `${FAUX3_REPO_URL}/blob/main/ROADMAP.md`;
 // (a CC0 Simple Icon in public/brand/tech) wherever moose and porcupine show
 // theirs, rather than inventing one.
 
-// The nine S3 operations the first release plans to answer, grouped like the
-// homepage lanes.
+// The nine S3 operations faux3 answers, grouped like the homepage lanes.
 const OPERATIONS = [
   {
     n: "01",
@@ -27,7 +26,7 @@ const OPERATIONS = [
   { n: "03", name: "Listing", ops: ["ListObjectsV2"] },
 ];
 
-// What the MVP plans beyond the operations themselves.
+// What faux3 does beyond the operations themselves.
 const SCOPE = [
   "AWS SigV4 auth with static credentials",
   "Presigned GET and PUT URLs",
@@ -36,7 +35,7 @@ const SCOPE = [
 ];
 
 
-// Planned for v0.1.0; the image is not published yet.
+// The install command for v0.1.0.
 const RUN = `docker run -d --name faux3 -p 9000:9000 \\
   -v faux3-data:/data \\
   ghcr.io/change-fabric/faux3:0.1.0
@@ -76,7 +75,7 @@ export function Faux3() {
       <div className="home project faux3">
         <section className="hero project-hero" aria-labelledby="faux3-title">
           <p className="hero-eyebrow">
-            Related project / Open source <span className="status-tag">Pre-alpha</span>
+            Related project / Open source <span className="status-tag">v0.1.0</span>
           </p>
           <h1 id="faux3-title">
             One container. One volume. <span className="project-h1-line">One S3 endpoint. No AWS required.</span>
@@ -86,7 +85,7 @@ export function Faux3() {
             development with Docker. Point the AWS SDK or AWS CLI you already use at it by changing only
             the endpoint and credentials.
           </p>
-          <p className="project-meta">MIT licensed · In planning · First release will be v0.1.0</p>
+          <p className="project-meta">MIT licensed · Local development · One Docker container</p>
           <div className="hero-actions">
             <a className="btn" href="#get-started">
               Get started <span aria-hidden="true">&rarr;</span>
@@ -158,29 +157,26 @@ export function Faux3() {
             ))}
           </ul>
           <p className="home-note">
-            Planned to be verified against the AWS SDK for JavaScript v3 and AWS CLI v2 in Docker
-            Compose.
+            Works with the AWS SDK for JavaScript v3 and AWS CLI v2.
           </p>
         </section>
 
         <section className="home-section" id="get-started" aria-labelledby="faux3-start-title">
           <h2 id="faux3-start-title">Get up and running.</h2>
           <p className="home-lede">
-            <span className="status-tag">Coming in v0.1.0</span> The image{" "}
-            <code>ghcr.io/change-fabric/faux3</code> is not published yet. These are the planned
-            commands and defaults.
+            You need Docker. faux3 is ready to use for local development.
           </p>
           <ol className="project-steps">
             <li>
               <h3>Run the container</h3>
               <p>One container, one named volume for your data.</p>
               <div className="project-code">
-                <CodeBlock code={RUN} label="coming in v0.1.0" />
+                <CodeBlock code={RUN} label="install" />
               </div>
             </li>
             <li>
               <h3>Configure the server, if you need to</h3>
-              <p>The planned defaults. CORS stays off unless you set allowed origins.</p>
+              <p>The defaults. CORS stays off unless you set allowed origins.</p>
               <div className="project-code">
                 <CodeBlock code={SERVER_ENV} label="server defaults" />
               </div>
@@ -194,8 +190,8 @@ export function Faux3() {
             </li>
           </ol>
           <p className="home-note">
-            Follow the <External href={README_URL}>README</External> for progress toward the first
-            release.
+            See the <External href={README_URL}>README</External> for every setting and client
+            example.
           </p>
         </section>
 
@@ -205,14 +201,14 @@ export function Faux3() {
           </p>
           <h2 id="faux3-roadmap-title">Small on purpose</h2>
           <p className="home-lede">
-            faux3 is for local development only and stays 0.x. It leaves out production hosting,
+            faux3 is a local development stand-in for S3, not production hosting. It leaves out production hosting,
             multipart uploads (on the roadmap), IAM and bucket policies, versioning, encryption, a web
             UI and distributed storage.
           </p>
           <p className="home-lede">
-            Want to help? <External href={ROADMAP_URL}>ROADMAP.md</External> lists the operations after
-            the MVP, such as DeleteObjects, CopyObject, ListObjects V1 and multipart. They will become
-            GitHub issues labelled good first issue.
+            Want to help? <External href={ROADMAP_URL}>ROADMAP.md</External> lists the next
+            operations, such as DeleteObjects, CopyObject, ListObjects V1 and multipart. Each one is a
+            GitHub issue labelled good first issue.
           </p>
         </aside>
 
@@ -222,8 +218,8 @@ export function Faux3() {
             <div>
               <p className="home-lede">
                 faux3 is a separate, MIT-licensed project, not part of the Change Fabric spec. It is
-                being planned with the Change Fabric cf skills (cf:plan and cf:diagram), and like the
-                rest of the framework it is local-first and runs in containers.
+                built with the Change Fabric cf skills (cf:plan and cf:diagram), and like the rest of
+                the framework it is local-first and runs in containers.
               </p>
               <ul className="project-links" aria-label="faux3 resources">
                 <li>
