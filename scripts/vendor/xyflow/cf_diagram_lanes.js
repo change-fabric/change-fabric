@@ -649,12 +649,16 @@ ${laned.filter(checkpoint).map((id) => `.react-flow__node[data-id="${CSS.escape(
       place(el, vp, card.x, card.y, card.opacity);
     }
     // The running lane's checkpoints carry its colour; the rest stay quiet.
+    // A checkpoint's own highlight wins over both, and an idle checkpoint
+    // with its own colour keeps it, so the runtime's styles show through.
     for (const id of laned) {
-      const el = document.querySelector(`.react-flow__node[data-id="${CSS.escape(id)}"] .cf-node`);
+      const wrap = document.querySelector(`.react-flow__node[data-id="${CSS.escape(id)}"]`);
+      const el = wrap && wrap.querySelector('.cf-node');
       if (!el) continue;
       const lane = laneById[nodeById[id].lane];
-      const on = lanes[lane.id].level >= 0.5;
-      set(el, 'border', on ? `1.5px solid ${lane.color}` : `1px solid ${dark ? 'rgba(255, 255, 255, 0.16)' : 'rgba(15, 23, 42, 0.16)'}`);
+      const on = lanes[lane.id].level >= 0.5 && wrap.dataset.cfHl !== '1';
+      const quiet = wrap.dataset.cfHl === '1' || el.dataset.color ? '' : `1px solid ${dark ? 'rgba(255, 255, 255, 0.16)' : 'rgba(15, 23, 42, 0.16)'}`;
+      set(el, 'border', on ? `1.5px solid ${lane.color}` : quiet);
       set(el, 'boxShadow', on ? `0 0 16px ${rgba(lane.color, 0.12)}` : '');
       const s = pulseAt(id, t);
       set(el, 'transform', s === 1 ? '' : `scale(${s.toFixed(4)})`);
