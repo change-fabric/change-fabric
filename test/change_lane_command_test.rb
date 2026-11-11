@@ -154,6 +154,14 @@ class ChangeLaneCommandTest < Minitest::Test
     assert_equal File.join(@desktop, "change-r1-command", "itest.log"), finding.location
   end
 
+  def test_non_ascii_values_in_raw_output_are_masked_without_raising
+    output = "token=sëcret\n".b
+    finding = lane([ entry(env: %w[CF_LANE_TOKEN]) ], FakeRunner.new(result(0, output: output)),
+                   env_file_values: { "CF_LANE_TOKEN" => "sëcret" }).run.first
+    assert_equal "pass", finding.status
+    assert_includes finding.detail, "token=***CF_LANE_TOKEN***"
+  end
+
   def test_artifacts_are_copied_masked_with_a_warn_for_an_empty_glob
     FileUtils.mkdir_p(File.join(@repo, "tmp/itest"))
     File.write(File.join(@repo, "tmp/itest/junit.xml"), "<x>s3cret-value</x>")
