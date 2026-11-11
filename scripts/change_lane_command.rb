@@ -11,7 +11,7 @@ require_relative 'change_report'
 # The command lane (0.17.0): a project's own checks (integration tests against
 # a throwaway database container, a containerized e2e suite, test-data
 # cleanup, a smoke test against a deployed environment) run on the host beside
-# the five dockerized audit lanes, each passing or failing on its exit code.
+# the dockerized audit lanes, each passing or failing on its exit code.
 #
 # Entries run in order, one at a time, since they may share a database
 # container. Each entry runs only when trusted (its definition equals the base

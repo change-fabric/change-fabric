@@ -199,6 +199,14 @@ module ChangeSchema
     # launch_args (0.16.0): extra Chromium flags for the browser the lane's
     # cases run in, passed through browserless's `launch` query parameter.
     'change_config.lanes.testcases.launch_args',
+    # 0.17.0: the host-run command lane's entries.
+    'change_config.lanes.command.commands[].name',
+    'change_config.lanes.command.commands[].run',
+    'change_config.lanes.command.commands[].env',
+    'change_config.lanes.command.commands[].timeout_seconds',
+    'change_config.lanes.command.commands[].artifacts',
+    'change_config.lanes.command.commands[].profiles',
+    'change_config.lanes.command.commands[].retries',
     # testcases.auth: the same login-flow block browserless.auth already
     # defines, field for field, because a case behind a login has to get
     # through the same login. Expanded rather than cross-referenced so the

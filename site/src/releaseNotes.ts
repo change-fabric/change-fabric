@@ -31,12 +31,17 @@ export const RELEASE_NOTES: Record<string, ReleaseNote> = {
   "0.17.0": {
     version: "0.17.0",
     date: "2026-11-10",
-    headline: "Boot steps run as the base branch defines them, with only the environment they declare.",
+    headline: "A command lane for your own checks, and host-run steps that run as the base branch defines them.",
     highlights: [
       {
-        title: "Base-branch trust for boot.up and boot.down",
+        title: "lanes.command",
         body:
-          "A boot step that differs from the base branch runs only after a human approves it for that commit with change_approve.rb, from their own terminal. Gate records carry each step's digest, and the merge and tag guards check them.",
+          "A sixth lane, run on the host: integration tests against a throwaway database container, an end-to-end suite, data cleanup, a deployed smoke test. Each entry passes on exit 0, has a required timeout, optional retries and a per-entry profiles filter, and its masked transcript and artifacts land beside the report.",
+      },
+      {
+        title: "Base-branch trust for boot and command steps",
+        body:
+          "A boot step or command entry that differs from the base branch runs only after a human approves it for that commit with change_approve.rb, from their own terminal. Gate records carry each step's digest, and the merge and tag guards check them.",
       },
       {
         title: "boot.env and boot.timeout_seconds",
