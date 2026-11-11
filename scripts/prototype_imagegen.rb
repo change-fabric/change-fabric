@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'base64'
+require 'date'
 require 'json'
 require 'net/http'
 require 'openssl'
@@ -17,17 +18,52 @@ module PrototypeImagegen
   class AttemptCapError < StandardError; end
   class RequestError < StandardError; end
 
-  MODEL = ENV.fetch('CF_IMAGE_MODEL', 'gpt-image-2')
+  DEFAULT_MODEL = 'gpt-image-2.6-sunburst'
+  MODEL = ENV.fetch('CF_IMAGE_MODEL', DEFAULT_MODEL)
+  # OpenAI shuts gpt-image-2 down on 2027-02-10; a pinned override gets a one-time nudge.
+  RETIRING = { 'gpt-image-2' => '2027-02-10' }.freeze
   QUALITY_DRAFT = 'medium'
   QUALITY_FINAL = 'high'
   ATTEMPT_CAP = 3
-  # Approximate USD per 1024x1024 image. `low` is a rough figure: the docs
-  # list the tier but no price, so the estimate stays conservative.
-  PRICE = { 'low' => 0.02, 'medium' => 0.05, 'high' => 0.21 }.freeze
+  # Approximate USD per 1024x1024 image, per model. `low` is a rough figure:
+  # the docs list the tier but no per-image price, so the estimate stays
+  # conservative. gpt-image-2.6-sunburst bills the same token rates as
+  # gpt-image-2 (pricing page, checked 2026-11-11) but no per-image table is
+  # published and low is reported to cost more, so its low is priced at medium.
+  PRICES = {
+    'gpt-image-2' => { 'low' => 0.02, 'medium' => 0.05, 'high' => 0.21 }.freeze,
+    'gpt-image-2.6-sunburst' => { 'low' => 0.05, 'medium' => 0.05, 'high' => 0.21 }.freeze
+  }.freeze
+  # An unknown model is priced at the highest known figure per quality, so an
+  # estimate never under-prices.
+  PRICE_UNKNOWN = PRICES.values.flat_map(&:to_a).group_by(&:first)
+                        .transform_values { |pairs| pairs.map(&:last).max }.freeze
+  PRICE = PRICES.fetch(MODEL, PRICE_UNKNOWN)
   GENERATIONS_URL = 'https://api.openai.com/v1/images/generations'
   EDITS_URL = 'https://api.openai.com/v1/images/edits'
 
   module_function
+
+  def price_for(model) = PRICES.fetch(model, PRICE_UNKNOWN)
+
+  # The retirement warning for a pinned model, or nil. Pure: the caller prints it.
+  def retirement_warning(model = MODEL)
+    date = RETIRING[model] or return nil
+    "warning: CF_IMAGE_MODEL=#{model} is shut down by OpenAI on #{date}; " \
+      "unset it or set #{DEFAULT_MODEL}"
+  end
+
+  # Prints the warning at most once per process, before the shutdown date.
+  # `today` is injected so tests never read the clock.
+  def warn_retirement(io = $stderr, model: MODEL, today: Date.today)
+    return if @retirement_warned
+
+    msg = retirement_warning(model) or return
+    return if today >= Date.parse(RETIRING[model])
+
+    @retirement_warned = true
+    io.puts(msg)
+  end
 
   # The content-hash key for one image request.
   def asset_key(prompt:, size:, quality:, refs: [], edit: nil, mask: nil, model: MODEL)
@@ -40,9 +76,9 @@ module PrototypeImagegen
   end
 
   # Returns { count:, by_quality:, usd:, line: }: the totals and the printable line.
-  def estimate(requests)
+  def estimate(requests, model: MODEL)
     by_quality = requests.group_by { |req| req[:quality] }.transform_values(&:size)
-    usd = requests.sum { |req| PRICE.fetch(req[:quality]) }.round(2)
+    usd = requests.sum { |req| price_for(model).fetch(req[:quality]) }.round(2)
     { count: requests.size, by_quality: by_quality, usd: usd,
       line: "#{requests.size} image(s) (#{by_quality.map { |q, n| "#{n} #{q}" }.join(', ')}), about $#{format('%.2f', usd)}" }
   end

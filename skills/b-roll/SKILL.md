@@ -1,7 +1,7 @@
 ---
 name: cf:b-roll
 group: workflow
-description: B-roll command. Animates one local still (typically a gpt-image-2 hero) into a short silent clip with the Gemini Interactions API (gemini-omni-1.1-flash, image to video only), cached by content key, with a cost estimate and an explicit ceiling before any paid call and a deterministic Ken Burns or static fallback so a failed generation never blocks a render. Never for UI. Paid, so it runs only when invoked by name or loaded by cf:walkthrough, never auto-applied or chosen on a model guess. Usable alone, outside any walkthrough.
+description: B-roll command. Animates one local still (typically a gpt-image-2.6-sunburst hero) into a short silent clip with the Gemini Interactions API (gemini-omni-1.1-flash, image to video only), cached by content key, with a cost estimate and an explicit ceiling before any paid call and a deterministic Ken Burns or static fallback so a failed generation never blocks a render. Never for UI. Paid, so it runs only when invoked by name or loaded by cf:walkthrough, never auto-applied or chosen on a model guess. Usable alone, outside any walkthrough.
 ---
 
 # CF b-roll
@@ -12,7 +12,7 @@ A thin command over `ruby ~/.claude/cf/bin/b_roll.rb`, one small adapter (`scrip
 
 ## Rubric (read before authoring a shot)
 
-- Image to video only: animate a still we already own (the gpt-image-2 hero, a product shot). Never text to video.
+- Image to video only: animate a still we already own (the gpt-image-2.6-sunburst hero, a product shot). Never text to video.
 - Never generative video for UI. Screens, text, numbers, forms, and anything the viewer is meant to read stay HTML/CSS captured frames.
 - No people, faces, or logos in the source still: Google may refuse recognizable people, and a likeness is a provenance risk.
 - Prompt for motion, not content: "slow push in, soft light, no text". The request already adds "no audio, no dialogue, no on-screen text".
