@@ -169,14 +169,14 @@ class WalkthroughInsetTest < Minitest::Test
     secrets = Object.new.tap { |o| o.define_singleton_method(:mask_deep) { |v| v } }
     status = Struct.new(:ok) { def success? = ok }
     run = { "name" => "desktop", "frames" => [ [ "j" ].pack("m0") ] * 40, "ticks" => (0...40).to_a, "links" => [], "lint" => [],
-            "cursor" => [ { "x" => 1, "y" => 2, "down" => false } ] * 40, "inset" => { "x" => 100, "y" => 200, "w" => 60, "h" => 14 } }
+            "cursor" => [ { "x" => 1, "y" => 2, "down" => false } ] * 40, "inset" => { "x" => 100, "y" => 200, "w" => 60, "h" => 14 }, "insetError" => "clip failed" }
     [ [ run, false ], [ run.merge("insetHi" => [ "png" ].pack("m0")), true ] ].each do |r, hires|
       Dir.mktmpdir do |work|
         argvs = []
         docker = ->(argv) { argvs << argv; [ "", status.new(true) ] }
         _o, err = capture_io { WalkthroughLive::SceneWriter.new(board: BOARD, scene: live, secrets: secrets, docker: docker, work: work).write([ r ], File.join(work, "out")) }
         cmd = argvs.first.join(" ")
-        assert_equal !hires, err.include?("hi-res inset capture failed")
+        assert_equal !hires, err.include?("hi-res inset capture failed (clip failed)")
         assert_equal hires, cmd.include?("/jpg/inset.png")
         assert_equal hires, cmd.include?("[1:v]scale=")
         assert_equal hires, JSON.parse(File.read(File.join(work, "out", "inset.json")))["hires"]

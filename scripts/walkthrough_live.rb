@@ -514,6 +514,7 @@ module WalkthroughLive
         let resting = null;
         let inset = null;
         let insetHi = null;
+        let insetError = null;
         let pos = { x: dev.w / 2, y: dev.h / 2 };
         let from = pos;
         let down = false;
@@ -590,16 +591,30 @@ module WalkthroughLive
             if (!inset) throw new Error(`inset selector not found: ${job.inset.selector}`);
             // The same padded, viewport-clamped region the composite crops,
             // shot at scale x dpr so the inset is not an upscaled 1x crop.
-            insetHi = await safe(async () => {
+            // The clip shot renders the page at that scale for one compositor
+            // frame, which the screencast would deliver as the latest frame and,
+            // on a static page, keep for the rest of the scene. So the recording
+            // stops for the still, the viewport is checked and restored, and it
+            // resumes from a fresh full-viewport frame.
+            if (job.shots) await sampler.detach();
+            try {
               const p = job.inset.pad;
               const cl = (v, max) => Math.min(Math.max(v, 0), max);
               const x0 = cl(inset.x - p, dev.w), y0 = cl(inset.y - p, dev.h);
               const x1 = cl(inset.x + inset.w + p, dev.w), y1 = cl(inset.y + inset.h + p, dev.h);
-              if (x1 - x0 < 1 || y1 - y0 < 1) return null;
+              if (x1 - x0 < 1 || y1 - y0 < 1) throw new Error(`inset region is off screen: ${JSON.stringify(inset)}`);
               const scroll = await page.evaluate(() => ({ x: window.scrollX, y: window.scrollY }));
               const clip = { x: x0 + scroll.x, y: y0 + scroll.y, width: x1 - x0, height: y1 - y0, scale: job.inset.scale * (dev.dpr || 1) };
-              return (await client.send("Page.captureScreenshot", { format: "png", clip })).data;
-            }, null);
+              insetHi = (await client.send("Page.captureScreenshot", { format: "png", clip })).data;
+            } catch (e) { insetError = String(e && e.message || e); }
+            const vp = await safe(() => page.evaluate(() => ({ w: window.innerWidth, h: window.innerHeight, dpr: window.devicePixelRatio })), null);
+            if (!vp || vp.w !== dev.w || vp.h !== dev.h || vp.dpr !== (dev.dpr || 1)) {
+              await page.setViewport({ width: dev.w, height: dev.h, deviceScaleFactor: dev.dpr, isMobile: !!dev.mobile, hasTouch: !!dev.mobile });
+            }
+            if (job.shots) {
+              sampler.seed((await client.send("Page.captureScreenshot", { format: "jpeg", quality: #{JPEG_QUALITY} })).data);
+              await sampler.attach(client);
+            }
           }
           sampler.tick();
           cursor.push({ x: pos.x, y: pos.y, down });
@@ -618,7 +633,7 @@ module WalkthroughLive
         }), null) : null;
         const out = await dumpSession(page, client);
         if (context) await context.close();
-        return { name: dev.name, frames: sampled.frames, ticks: sampled.ticks, cursor, pageErrors, lint, devices, overlays, links, composed, inset, insetHi, session: out };
+        return { name: dev.name, frames: sampled.frames, ticks: sampled.ticks, cursor, pageErrors, lint, devices, overlays, links, composed, inset, insetHi, insetError, session: out };
       };
     JS
   end
@@ -799,9 +814,11 @@ module WalkthroughLive
     # (removed with them), or nil with a warning when that capture failed,
     # in which case the composite upscales the 1x crop instead.
     def write_inset_still(runs, out_dir)
-      data = runs.find { |r| r['name'] == 'desktop' }&.dig('insetHi')
+      desk = runs.find { |r| r['name'] == 'desktop' } || {}
+      data = desk['insetHi']
       unless data.is_a?(String) && !data.empty?
-        warn "walkthrough: scene #{@scene['id']}: hi-res inset capture failed; upscaling the 1x crop"
+        reason = desk['insetError'] ? " (#{desk['insetError']})" : ''
+        warn "walkthrough: scene #{@scene['id']}: hi-res inset capture failed#{reason}; upscaling the 1x crop"
         return nil
       end
       path = File.join(out_dir, 'jpg', 'inset.png')
