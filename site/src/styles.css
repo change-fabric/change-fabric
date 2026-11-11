@@ -2994,8 +2994,7 @@ code {
 
 .media-slot-frame .media-slot-thumb:hover .media-slot-play-icon,
 .media-slot-frame .media-slot-thumb:focus-visible .media-slot-play-icon {
-  background: var(--cream);
-  color: var(--plum);
+  background: var(--panel);
   transform: scale(1.06);
 }
 
@@ -3032,6 +3031,10 @@ code {
   .media-slot-thumb:hover .media-slot-thumb-image,
   .media-slot-thumb:focus-visible .media-slot-thumb-image {
     transform: scale(1.14);
+  }
+  .media-slot-frame .media-slot-thumb:hover .media-slot-play-icon,
+  .media-slot-frame .media-slot-thumb:focus-visible .media-slot-play-icon {
+    transform: none;
   }
 }
 
