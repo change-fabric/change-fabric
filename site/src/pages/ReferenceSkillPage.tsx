@@ -3,6 +3,8 @@ import { specHtml } from "../spec";
 import { SourceLink } from "../components/SourceLink";
 import { Breadcrumbs } from "../components/Breadcrumbs";
 import { findSkill, skillSourceUrl } from "../reference";
+import { MediaSlot } from "../components/MediaSlot";
+import { skillMediaSlot } from "../media-slots";
 
 const GROUP_LABELS: Record<string, string> = {
   lanes: "Lanes",
@@ -13,6 +15,7 @@ const GROUP_LABELS: Record<string, string> = {
 
 export function ReferenceSkillPage({ id }: { id: string }) {
   const skill = findSkill(id);
+  const mediaSlot = skillMediaSlot(id);
 
   if (!skill) {
     return (
@@ -59,6 +62,7 @@ export function ReferenceSkillPage({ id }: { id: string }) {
             ))}
           </p>
         )}
+        {mediaSlot && <MediaSlot slot={mediaSlot} />}
         {skill.example && (
           <figure className="skill-example">
             <img

@@ -22,8 +22,10 @@ const video = () => ({
 });
 const manifest = (slots: Record<string, unknown>) => ({ version: 1, base: "/media/", slots });
 
-test("the committed manifest is valid and starts empty", () => {
-  assert.deepEqual(resolveManifest(readJson("../media/manifest.json")), { slots: {} });
+test("the committed manifest is valid and carries the self walkthrough", () => {
+  const { slots } = resolveManifest(readJson("../media/manifest.json"));
+  assert.deepEqual(Object.keys(slots), ["walkthrough-self"]);
+  assert.equal(slots["walkthrough-self"].kind, "video");
 });
 
 test("the verify fixture manifest is valid", () => {
