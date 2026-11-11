@@ -109,7 +109,7 @@ class ChangeMedia
 
   # Every file written under the bundle root, bundle-relative, for the uploader.
   def files
-    Dir.glob(File.join(@root, '**', '*')).select { |path| File.file?(path) }
+    Dir.glob(File.join(@root, '**', '*'), File::FNM_DOTMATCH).select { |path| File.file?(path) }
            .map { |path| path.delete_prefix("#{@root}/") }.sort
   end
 

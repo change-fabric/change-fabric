@@ -7,6 +7,7 @@ require "stringio"
 require_relative "../scripts/change_run"
 require_relative "../scripts/change_lane_command"
 require_relative "../scripts/change_trust"
+require_relative "../scripts/change_artifact_publish"
 
 # The command lane with a fake runner: nothing here spawns a shell, reads git,
 # or writes outside temp directories.
@@ -180,6 +181,31 @@ class ChangeLaneCommandTest < Minitest::Test
   def test_output_directory_is_namespaced_by_app_and_profile
     finding = lane([ entry ], FakeRunner.new(result(0)), step_prefix: "web/", profile: "staging").run.first
     assert_equal File.join(@desktop, "change-r1-web-staging-command", "itest.log"), finding.location
+  end
+
+  def test_dot_prefixed_artifacts_are_listed_for_upload
+    Dir.mktmpdir do |root|
+      source = File.join(@repo, "result.json")
+      File.write(source, "{}")
+      media = ChangeMedia.new(root)
+      media.add_command_file(command: "coverage", relative: "artifacts/.nyc_output/result.json", source: source)
+      assert_equal %w[commands/coverage/artifacts/.nyc_output/result.json], media.files
+      publisher = ChangeArtifactPublish.new(bundle_dir: root, artifacts: nil)
+      assert_equal %w[commands/coverage/artifacts/.nyc_output/result.json],
+                   publisher.send(:declared_files).map { |file| file["path"] }
+    end
+  end
+
+  def test_changing_boot_env_file_changes_command_digests
+    Dir.mktmpdir do |root|
+      path = File.join(root, "CHANGE.md")
+      digest_for = lambda do |env_file|
+        File.write(path, "---\nchange_config:\n  boot: { env_file: #{env_file} }\n  lanes:\n    command:\n" \
+                         "      commands: [{ name: cleanup, run: bin/cleanup, timeout_seconds: 60 }]\n---\n")
+        ChangeTrust.step_digests(ChangeConfig.load(path))["command:cleanup"]
+      end
+      refute_equal digest_for.call(".env.staging"), digest_for.call(".env.production")
+    end
   end
 
   def test_media_keeps_distinct_command_names_apart

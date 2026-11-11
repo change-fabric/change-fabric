@@ -77,7 +77,9 @@ module ChangeTrust
     defs = {}
     defs["#{prefix}boot.up"] = boot_fields(boot, boot.up) if boot.up?
     defs["#{prefix}boot.down"] = boot_fields(boot, boot.down) unless boot.down.empty?
-    command_entries(config).each { |entry| defs["#{prefix}command:#{entry['name']}"] = command_fields(entry) }
+    command_entries(config).each do |entry|
+      defs["#{prefix}command:#{entry['name']}"] = command_fields(entry, boot.env_file_entries)
+    end
     defs
   end
 
@@ -92,9 +94,12 @@ module ChangeTrust
     end
   end
 
-  def command_fields(entry)
+  # `env_file` is boot.env_file: the command lane resolves declared names from
+  # it, so pointing it at another file changes what an entry runs against.
+  def command_fields(entry, env_file)
     {
       'name' => entry['name'].to_s, 'run' => entry['run'].to_s, 'env' => Array(entry['env']).map(&:to_s).sort,
+      'env_file' => env_file,
       'timeout_seconds' => entry['timeout_seconds'], 'artifacts' => Array(entry['artifacts']).map(&:to_s),
       'profiles' => entry['profiles'] && Array(entry['profiles']).map(&:to_s).sort, 'retries' => entry.fetch('retries', 0)
     }
