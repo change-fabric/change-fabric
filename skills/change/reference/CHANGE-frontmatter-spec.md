@@ -261,7 +261,7 @@ on the host, beside the five dockerized audit lanes. `change_run.rb all` runs
 it with the rest, and `change_run.rb command` runs it alone. Each entry passes
 or fails on its exit code; its masked output tail is in the report, its full
 masked transcript and collected artifacts are in a Desktop folder beside the
-report (`change-<run id>-command/`), and the result is part of the same gate
+report (`change-<run id>[-<app>][-<profile>]-command/`), and the result is part of the same gate
 the merge and tag guards read.
 
 Entries run in order, one at a time (they may share a database container),

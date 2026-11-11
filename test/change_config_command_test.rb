@@ -93,6 +93,7 @@ class ChangeConfigCommandTest < Minitest::Test
   def test_artifacts_must_be_relative_without_parent_segments
     assert_match(/\.artifacts entry "\/etc\/passwd" must be repo-relative/, errors(lane(entry(artifacts: [ "/etc/passwd" ]))).join)
     assert_match(/\.artifacts entry "\.\.\/x" must be repo-relative/, errors(lane(entry(artifacts: [ "../x" ]))).join)
+    assert_match(/must be repo-relative/, errors(lane(entry(artifacts: [ "{../private.txt,none}" ]))).join)
     assert_match(/\.artifacts must be a list of repo-relative globs/, errors(lane(entry(artifacts: "x"))).join)
   end
 

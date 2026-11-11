@@ -99,7 +99,7 @@ module ChangeCommandConfig
     return [ "#{path} must be a list of repo-relative globs" ] unless globs.is_a?(Array) && globs.all?(String)
 
     globs.filter_map do |glob|
-      "#{path} entry #{glob.inspect} must be repo-relative with no '..' segment" if glob.start_with?('/') || glob.split('/').include?('..')
+      "#{path} entry #{glob.inspect} must be repo-relative with no '..' segment" if glob.start_with?('/') || glob.split(%r{[/{,}]}).include?('..')
     end
   end
 

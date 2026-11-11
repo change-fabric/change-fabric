@@ -137,7 +137,13 @@ class ChangeLaneCommand < ChangeLane
     "exit #{result.exit_code} in #{result.duration}s"
   end
 
-  def out_dir = File.join(@desktop, "change-#{@context.run_id}-command")
+  # One directory per run, app and profile: a monorepo sweep or a --for-tag
+  # sweep shares one run id, and two apps (or profiles) with a same-named
+  # command must not overwrite each other's evidence.
+  def out_dir
+    parts = [ "change-#{@context.run_id}", @context.step_prefix.to_s.delete_suffix('/'), @context.profile, 'command' ]
+    File.join(@desktop, parts.compact.reject(&:empty?).join('-'))
+  end
 
   def write_transcript(name, text)
     FileUtils.mkdir_p(out_dir)
@@ -161,9 +167,24 @@ class ChangeLaneCommand < ChangeLane
     notes.compact.empty? ? nil : notes.compact.join("\n")
   end
 
+  # A match is copied only when it, after following symlinks, is a file inside
+  # the repository: a branch could otherwise point a trusted glob's match at a
+  # secret elsewhere on the host, whose value no declared name would mask.
+  def contained?(rel)
+    root = File.realpath(@config.dir)
+    File.realpath(File.join(@config.dir, rel)).start_with?("#{root}/")
+  rescue SystemCallError
+    false
+  end
+
   def copy_artifact(name, rel, mask)
+    artifacts_dir = File.join(out_dir, name, 'artifacts')
+    dest = File.expand_path(rel, artifacts_dir)
+    unless contained?(rel) && dest.start_with?("#{artifacts_dir}/")
+      return "warn: artifact #{rel} resolves outside the repository; not copied"
+    end
+
     source = File.join(@config.dir, rel)
-    dest = File.join(out_dir, name, 'artifacts', rel)
     FileUtils.mkdir_p(File.dirname(dest))
     note = nil
     if masked_text?(source)

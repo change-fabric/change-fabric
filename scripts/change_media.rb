@@ -97,9 +97,11 @@ class ChangeMedia
 
   # Copies one command lane file (0.17.0: a masked transcript or a collected
   # artifact) into `commands/<command>/<relative>`, so the uploader publishes it
-  # with the rest of the bundle.
+  # with the rest of the bundle. The name is used as written: config load
+  # already restricts it to a path-safe [a-z0-9_-] form, and slugging it would
+  # merge `unit_test` and `unit-test` into one directory.
   def add_command_file(command:, relative:, source:)
-    dest = File.join(@root, COMMAND_DIR, slug(command), relative)
+    dest = File.join(@root, COMMAND_DIR, command.to_s, relative)
     FileUtils.mkdir_p(File.dirname(dest))
     FileUtils.cp(source, dest)
     dest

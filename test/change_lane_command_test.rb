@@ -53,9 +53,9 @@ class ChangeLaneCommandTest < Minitest::Test
                               timed_out: timed_out, duration: 1.5)
   end
 
-  def context(profile: nil, trust: Verdict.new(nil), media: nil, env_file_values: {})
+  def context(profile: nil, trust: Verdict.new(nil), media: nil, env_file_values: {}, step_prefix: "")
     ChangeRun::Context.new(target_url: "http://app", health_url: "http://app/health", run_id: "r1", profile: profile,
-                           trust: trust, step_prefix: "", env_file_values: env_file_values, media: media,
+                           trust: trust, step_prefix: step_prefix, env_file_values: env_file_values, media: media,
                            logger: ->(message) { @logs << message })
   end
 
@@ -162,6 +162,35 @@ class ChangeLaneCommandTest < Minitest::Test
     copied = File.join(@desktop, "change-r1-command", "itest", "artifacts", "tmp/itest/junit.xml")
     assert_equal "<x>***CF_LANE_TOKEN***</x>", File.read(copied)
     assert_match(/warn: artifact glob none\/\*\.log matched nothing/, subject.report_section)
+  end
+
+  def test_an_artifact_symlinked_outside_the_repo_is_not_copied
+    Dir.mktmpdir do |outside|
+      File.write(File.join(outside, "secret.txt"), "host-secret")
+      File.symlink(File.join(outside, "secret.txt"), File.join(@repo, "leak.txt"))
+      media = FakeMedia.new
+      subject = lane([ entry(artifacts: [ "*.txt" ]) ], FakeRunner.new(result(0)), media: media)
+      subject.run
+      refute File.exist?(File.join(@desktop, "change-r1-command", "itest", "artifacts", "leak.txt"))
+      assert_match(/artifact leak\.txt resolves outside the repository; not copied/, subject.report_section)
+      refute(media.files.any? { |file| file.last.include?("host-secret") })
+    end
+  end
+
+  def test_output_directory_is_namespaced_by_app_and_profile
+    finding = lane([ entry ], FakeRunner.new(result(0)), step_prefix: "web/", profile: "staging").run.first
+    assert_equal File.join(@desktop, "change-r1-web-staging-command", "itest.log"), finding.location
+  end
+
+  def test_media_keeps_distinct_command_names_apart
+    Dir.mktmpdir do |root|
+      source = File.join(@repo, "out.txt")
+      File.write(source, "x")
+      media = ChangeMedia.new(root)
+      media.add_command_file(command: "unit_test", relative: "out.txt", source: source)
+      media.add_command_file(command: "unit-test", relative: "out.txt", source: source)
+      assert_equal %w[commands/unit-test/out.txt commands/unit_test/out.txt], media.files
+    end
   end
 
   def test_media_sink_receives_transcript_and_artifacts
