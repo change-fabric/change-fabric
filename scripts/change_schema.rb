@@ -18,7 +18,7 @@
 require_relative 'figma_url'
 
 module ChangeSchema
-  VERSION = '0.16.0'
+  VERSION = '0.17.0'
 
   # The five audit lanes, the authoritative list the config validator enforces.
   LANES = %w[k6 a11y zap browserless testcases].freeze
@@ -69,6 +69,10 @@ module ChangeSchema
     'change_config.boot.health.expect_status',
     'change_config.boot.health.timeout_seconds',
     'change_config.boot.env_file',
+    # 0.17.0: the names boot.up and boot.down may see beyond the minimal base
+    # environment, and an optional limit on each step.
+    'change_config.boot.env',
+    'change_config.boot.timeout_seconds',
     # add_hosts, ignore_https_errors (0.15.0): reaching a local HTTPS dev app
     # from the browser container, profile-overridable like the rest of boot.
     'change_config.boot.add_hosts',
@@ -253,6 +257,8 @@ module ChangeSchema
     'change_config.profiles.<profile>.boot.health.expect_status',
     'change_config.profiles.<profile>.boot.health.timeout_seconds',
     'change_config.profiles.<profile>.boot.env_file',
+    'change_config.profiles.<profile>.boot.env',
+    'change_config.profiles.<profile>.boot.timeout_seconds',
     'change_config.profiles.<profile>.boot.add_hosts',
     'change_config.profiles.<profile>.boot.ignore_https_errors',
     'change_config.profiles.<profile>.lanes.<lane>.enabled',

@@ -297,6 +297,7 @@ read the manifest, so a run can be re-uploaded without being re-captured.
 | ID | Action | Requires | When unmet |
 |---|---|---|---|
 | SS-1 | Edit the PR body's `## Demo` section | Every pair's upload succeeded | No edit at all; report the local file paths instead |
+| SS-2 | Boot either side (spec 0.17.0) | HEAD's `boot.up`/`boot.down` match the base branch, or a human approved them for the HEAD sha with `change_approve.rb` | Nothing boots; ask the user to run the approval from their own terminal, never run it for them |
 
 ## Failure modes
 
@@ -312,6 +313,12 @@ read the manifest, so a run can be re-uploaded without being re-captured.
   pidfile, a fixed port claimed elsewhere). This surfaces as a boot failure
   inside the worktree. Report it with the boot command's own output; `--base-url`
   is the escape hatch, pointing the base side at an instance started elsewhere.
+- **The boot is refused as untrusted** (spec 0.17.0). Both sides boot with
+  HEAD's `boot.up`/`boot.down`, so when the branch changed them the run stops
+  until a human approves them for the HEAD sha from their own terminal:
+  `ruby ~/.claude/cf/bin/change_approve.rb <sha>` [SS-2]. It refuses without a
+  real TTY; ask the user to run it, never run it for them. Boot steps also see
+  only the minimal environment plus the names `boot.env` declares.
 - **`boot.up` is absent entirely** (the "assume it is already running"
   contract). Skip boot, teardown, and the verify-gone check for that side. The
   base side is then reachable only via `--base-url`; without it, abort with a
