@@ -47,6 +47,9 @@
   const iconOf = (n) => (n.icon ? ICONS[`${n.icon}/${n.icon_weight || 'regular'}`] : null);
   const colorsEl = document.getElementById('cf-diagram-colors');
   const COLORS = colorsEl ? JSON.parse(colorsEl.textContent) : { nodes: {} };
+  // An own-property read: an authored id such as `constructor` must not
+  // find Object.prototype.
+  const colorOf = (id) => (Object.hasOwn(COLORS.nodes, id) ? COLORS.nodes[id] : null);
 
   const NODE_H = 56;
   const NODE_MIN_W = 140;
@@ -234,7 +237,8 @@
       const lines = Math.max(1, ...textsOf(n).map((t) => wrapLines(t, fc.font, room).length));
       return [n.id, { w, h: Math.max(NODE_H, even(lines * fc.line_h + 2 * fc.pad_y + 2 * NODE_BORDER)), lines }];
     }));
-    const tokens = {};
+    // Keyed by authored id, which may be a prototype name like `constructor`.
+    const tokens = Object.create(null);
     for (const s of travelSteps) {
       if (!s.id || tokens[s.id]) continue;
       const n = nodeById[s.id];
@@ -642,7 +646,7 @@ ${laneRules}
   const cardEls = Object.fromEntries(Object.keys(slots).map((id) => {
     if (panel) return [id, rowEl(slots[id])];
     const n = nodeById[id];
-    const c = COLORS.nodes[id];
+    const c = colorOf(id);
     const el = document.createElement('div');
     el.className = 'cf-node cf-lane-card';
     el.dataset.id = id;
@@ -665,7 +669,7 @@ ${laneRules}
     el.dataset.travel = String(i);
     if (tr.id) {
       const n = nodeById[tr.id];
-      const c = COLORS.nodes[tr.id];
+      const c = colorOf(tr.id);
       el.className = 'cf-lane-token';
       Object.assign(el.style, { width: `${tr.box.w}px`, height: `${tr.box.h}px` });
       if (c) { el.style.borderColor = c.color; el.style.background = c.tint; }

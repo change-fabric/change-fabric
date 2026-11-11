@@ -272,6 +272,13 @@ class WalkthroughDiagramLanesTest < Minitest::Test
     assert_match(/must match/, errs)
   end
 
+  # An id that names an Object.prototype property would be read from the
+  # prototype by the runtime's id-keyed lookups, so the validator rejects it.
+  def test_prototype_names_are_reserved_ids
+    spec["nodes"].find { |n| n["id"] == "pr" }["id"] = "constructor"
+    assert_includes errs, 'diagram id "constructor" is reserved'
+  end
+
   # Property: no string starting with an underscore passes the authored id
   # rule, whatever follows it.
   def test_reserved_prefix_property
