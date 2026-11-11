@@ -68,11 +68,16 @@ module ChangeEnv
   # A callable that replaces each declared value with ***NAME***, longest value
   # first so a value that contains another is hidden whole rather than leaving
   # a recognisable remainder.
+  # Captured output arrives as raw bytes (ASCII-8BIT); a non-ASCII value would
+  # make gsub raise on the encoding mismatch and abort the run. Everything is
+  # compared as UTF-8, with invalid bytes replaced rather than raised on.
+  def utf8(text) = text.to_s.dup.force_encoding(Encoding::UTF_8).scrub
+
   def masker(declared)
     pairs = declared.to_h.reject { |_name, value| value.to_s.length < MIN_MASK_LENGTH }
                     .sort_by { |_name, value| -value.to_s.length }
     lambda do |text|
-      pairs.reduce(text.to_s.dup) { |out, (name, value)| out.gsub(value.to_s, "***#{name}***") }
+      pairs.reduce(utf8(text)) { |out, (name, value)| out.gsub(utf8(value), "***#{name}***") }
     end
   end
 end

@@ -40,6 +40,11 @@ class ChangeEnvTest < Minitest::Test
     assert_equal "x ***LONG*** y ***SHORT***", mask.call("x abcdefgh y abcd")
   end
 
+  def test_masks_a_non_ascii_value_in_raw_captured_bytes
+    raw = "token=sëcret\xFF\n".b
+    assert_equal "token=***TOKEN***�\n", ChangeEnv.masker("TOKEN" => "sëcret").call(raw)
+  end
+
   def test_skips_values_shorter_than_four_characters
     mask = ChangeEnv.masker("FLAG" => "on", "KEY" => "s3cret")
     assert_equal "on ***KEY***", mask.call("on s3cret")
