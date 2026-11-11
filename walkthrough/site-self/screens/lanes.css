@@ -1,0 +1,18 @@
+/* Lane colours: the series tokens in tokens.css. */
+:root {
+  --lane-load: var(--series-1);
+  --lane-a11y: var(--series-2);
+  --lane-zap: var(--series-3);
+  --lane-ux: var(--series-4);
+  --lane-cases: var(--series-5);
+  --pass: var(--accent);
+}
+html, body { margin: 0; height: 100%; }
+body { background: var(--bg); color: var(--text); font-family: var(--font-sans); overflow: hidden; }
+main { box-sizing: border-box; height: 85vh; padding: 72px 140px 0; position: relative; }
+h1 { font-family: var(--font-serif); font-weight: 500; font-size: 64px; margin: 0 0 40px; }
+.note { position: absolute; right: 140px; bottom: 24px; font-size: 22px; color: var(--muted); border: 1px solid var(--border); border-radius: 999px; padding: 6px 16px; }
+.load { --c: var(--lane-load); } .a11y { --c: var(--lane-a11y); } .zap { --c: var(--lane-zap); }
+.ux { --c: var(--lane-ux); } .cases { --c: var(--lane-cases); }
+@keyframes pop { from { opacity: 0; transform: translateY(16px) scale(.96); } to { opacity: 1; transform: none; } }
+@keyframes fadein { from { opacity: 0; } to { opacity: 1; } }

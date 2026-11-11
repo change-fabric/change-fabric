@@ -2829,6 +2829,17 @@ code {
   background: var(--surface);
 }
 
+/* Caption cues scale with the video box, so a phone-width player draws
+   them at about 10 px. Hold them at a readable size on narrow screens. */
+@media (max-width: 640px) {
+  .media-slot video::cue {
+    font-size: 1rem;
+    line-height: 1.3;
+    background: rgb(0 0 0 / 0.8);
+    color: #fff;
+  }
+}
+
 .media-slot audio {
   display: block;
   width: 100%;

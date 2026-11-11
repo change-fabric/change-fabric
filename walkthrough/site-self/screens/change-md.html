@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>CHANGE.md</title>
+  <link rel="stylesheet" href="tokens.css">
+  <style>
+    .ic { width: 1.1em; height: 1.1em; flex: none; vertical-align: -0.18em; }
+    .path .ic { color: var(--accent); }
+    html, body { margin: 0; height: 100%; }
+    body { background: var(--bg); color: var(--text); font-family: var(--font-sans); }
+    main { box-sizing: border-box; height: 85vh; display: grid; grid-template-columns: 1fr 1.25fr; gap: var(--space-3); align-items: center; padding: 0 160px; }
+    h1 { font-family: var(--font-serif); font-weight: 500; font-size: 84px; margin: 0 0 var(--space-2); }
+    .lede { font-size: 36px; line-height: 1.4; margin: 0; }
+    .file { background: var(--code-bg); border: 1px solid var(--border); border-radius: 8px; padding: var(--space-3); }
+    .path { font-family: var(--font-mono); font-size: 24px; color: var(--muted); margin: 0 0 var(--space-2); }
+    pre { font-family: var(--font-mono); font-size: 30px; line-height: 1.5; margin: 0; white-space: pre; }
+    .k { color: var(--accent); font-weight: 600; }
+    .c { color: var(--muted); }
+  </style>
+</head>
+<body>
+  <main>
+    <div>
+      <h1>One file per repo</h1>
+      <p class="lede">The root CHANGE.md says what to test and which branches and tags are protected.</p>
+    </div>
+    <div class="file">
+      <p class="path"><!-- Phosphor file-text, bold, @phosphor-icons/core 2.1.1 (MIT) --><svg class="ic" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M216.49,79.52l-56-56A12,12,0,0,0,152,20H56A20,20,0,0,0,36,40V216a20,20,0,0,0,20,20H200a20,20,0,0,0,20-20V88A12,12,0,0,0,216.49,79.52ZM160,57l23,23H160ZM60,212V44h76V92a12,12,0,0,0,12,12h48V212Zm112-80a12,12,0,0,1-12,12H96a12,12,0,0,1,0-24h64A12,12,0,0,1,172,132Zm0,40a12,12,0,0,1-12,12H96a12,12,0,0,1,0-24h64A12,12,0,0,1,172,172Z"/></svg> CHANGE.md</p>
+<pre>---
+<span class="k">change_config:</span>
+  project: <span class="c">example-app</span>
+  lanes:
+    a11y:
+      routes: [/, /pricing]
+<span class="k">change_policy:</span>
+  protected_refs:
+    - main
+    - <span class="c">"tag:v*"</span>
+  promotion:
+    main:
+      require_change_pass: true
+---</pre>
+    </div>
+  </main>
+</body>
+</html>

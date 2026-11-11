@@ -1,0 +1,22 @@
+# Roast round 1
+
+Score: 5/10
+
+You explain the gate without explaining what change fabric is. Engineers can reconstruct the policy flow, but nothing identifies the toolkit as skills and hooks for coding agents. The opening also calls a permission-to-merge diagram a completed merge, and the closing leaves the diagram’s provenance implicit.
+
+- P0 (003-logo-open-end.jpg; cold-open narration): The product category is missing. Neither the title card nor the narration says that change fabric provides skills and hooks for coding agents. An engineer could finish this thinking it is a conventional CI gate or reporting service, failing the first required outcome.
+  Fix: Add an explicit opening definition: “Change fabric is skills and hooks for coding agents that decide when a change may land.” Put the same category beneath the opening product name.
+- P1 (004-cold-open-start.jpg, 005-cold-open-middle.jpg, 006-cold-open-end.jpg; cold-open): cf:usability — “This pull request merged” claims a completed action, but the screen contains no identifiable pull request and no merged state. “Gate: passed” with an “on pass” arrow to “Merge to main” establishes eligibility, not completion. The opening teaches viewers to confuse approval with execution.
+  Fix: Either change the narration to “A passing gate lets this change merge,” or show an identified pull request progressing from a recorded pass to an explicit “Merged” state.
+- P1 (013-logo-close-start.jpg, 014-logo-close-middle.jpg, 015-logo-close-end.jpg; logo-close): The required provenance claim stops short of naming the diagram. “Voice and frames included” and “Made with cf:walkthrough” leave viewers to infer whether the skill generated the diagram scene or merely assembled supplied assets.
+  Fix: Say: “The walkthrough skill made this clip from one storyboard—including the diagram, voice, and frames.” Make the closing credit equally explicit: “This clip, including its diagram, was made by cf:walkthrough.”
+- P2 (004-cold-open-start.jpg, 005-cold-open-middle.jpg, 006-cold-open-end.jpg, 012-gate-flow-end.jpg): The diagram runs through the left frame edge. The opening loses node boundaries and incoming connections; 006 leaves a fragment of “One report,” and 012 slices through the lane labels. These are unfinished-looking fragments, not readable context, and they violate the requested outer-5% safe area.
+  Fix: Reframe each diagram view so retained nodes and labels sit inside x=96–1824. For close-ups, remove offscreen nodes cleanly and retain only their connector, rather than displaying severed text.
+- P2 (gate-flow; caption cues 8–9): The supplied cue schedule leaves about 7.5 seconds between “release tag through” ending at 30.567 and the closing narration beginning at 38.046. That is roughly one-sixth of this short explainer without speech or captions, while the script still omits the toolkit definition. The listed 93 wpm hides this uneven allocation.
+  Fix: Use that interval for the missing definition or a concise head-commit recap, or shorten gate-flow. If the interval supports a deliberate visual explanation, give it an explicit explanatory label rather than relying on an uncaptioned hold.
+
+Purpose test: fail. The audience cannot state the required product definition: skills and hooks for coding agents never appears. Config and gate behavior are explained, but diagram provenance remains implicit.
+- fail: What change fabric is: skills and hooks for coding agents that decide when a change may land (003 names change fabric, and the later scenes explain gating, but no frame or narration identifies skills, hooks, or coding agents.)
+- pass: That one CHANGE.md per repo holds the config and the protected branches and tags (007–009 explicitly say “One file per repo” and describe protected branches and tags. The example shows change_config and change_policy with main and tag:v*.)
+- pass: That every enabled lane feeds one report and a gate on the head commit before a merge or release tag (011 shows the lanes converging into one report; 012 connects that report to the gate and merge/tag paths. The gate-flow narration explicitly supplies enabled-lane scope, the head-commit binding, and the pass requirement.)
+- partial: That this clip itself is made by the walkthrough skill, diagram scene included (The logo-close narration credits the walkthrough skill with the clip’s voice and frames, and 013–015 say “Made with cf:walkthrough.” Neither explicitly identifies the diagram scene as skill-generated.)

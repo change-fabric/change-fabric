@@ -1,0 +1,7 @@
+{ "responses": [
+  { "screen": "logo-open", "problem": "The product category is missing", "verdict": "accept", "change": "The opener shows 'skills and hooks for coding agents' under the wordmark; no narration added." },
+  { "screen": "cold-open", "problem": "'This pull request merged' claims a completed merge", "verdict": "accept", "change": "Narration now says 'A passing gate lets this change merge.'" },
+  { "screen": "logo-close", "problem": "Provenance stops short of naming the diagram", "verdict": "accept", "change": "Narration now says 'Made by the walkthrough skill from one storyboard, diagram and voice included.'" },
+  { "screen": "cold-open, gate-flow", "problem": "Diagram runs through the left frame edge", "verdict": "accept", "change": "Off-screen nodes are removed at the cold-open start and close-up and at the final gate-flow shot." },
+  { "screen": "gate-flow", "problem": "About 7.5 s with no speech before the closer", "verdict": "rebut", "change": "Kept as a deliberate music-and-visuals hold on the merge and tag shot; the timeline is locked to the music sections." }
+] }

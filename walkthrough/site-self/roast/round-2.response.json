@@ -1,0 +1,4 @@
+{ "responses": [
+  { "screen": "gate-flow", "problem": "About 7.5 s with no new takeaway before the closer", "verdict": "rebut", "change": "The hold is deliberate: the merge and tag shot sits under the music while the outcome lands, and the timeline is locked to the music sections." },
+  { "screen": "gate-flow", "problem": "The head commit is spoken but never shown", "verdict": "accept", "change": "The gate relabels to 'Passed: head commit' at the close-up and stays that way through the merge and tag shot." }
+] }
