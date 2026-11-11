@@ -22,8 +22,9 @@ module WalkthroughInset
   DURATION_MS = (600..15_000)
   DEFAULT_SCALE = 2.0
   DEFAULT_POSITION = 'top-right'
-  # Bumped when the drawn inset changes; it is key material.
-  VERSION = 2
+  # Bumped when the drawn inset or its capture changes; it is key
+  # material, so a bump recaptures scenes with an inset.
+  VERSION = 3
   FADE_MS = 200
   # CSS px of breathing room around the element before magnifying.
   PAD_CSS = 6

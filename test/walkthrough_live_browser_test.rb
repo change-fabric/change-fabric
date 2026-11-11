@@ -15,6 +15,8 @@ class WalkthroughLiveBrowserTest < Minitest::Test
   PASSWORD = "fixture-pw-#{SecureRandom.hex(6)}".freeze
   EMAIL = "member@example.test"
   HOST = "app.example.test"
+  # Baseline, extended, progressive and lossless start-of-frame markers.
+  JPEG_SOF = (0xC0..0xC3)
 
   def test_login_session_reuse_storage_seed_and_capture
     skip "docker not available" unless ChangeDocker.available?
@@ -53,6 +55,7 @@ class WalkthroughLiveBrowserTest < Minitest::Test
 
     filmed_capture(session, board, secrets)
     inset_capture(session, board, secrets)
+    inset_isolation(session, board, secrets)
     devices_capture(session, board, secrets, login)
   end
 
@@ -61,22 +64,94 @@ class WalkthroughLiveBrowserTest < Minitest::Test
   # The hi-res inset carries more edge energy (crisper text) than the upscale.
   def inset_capture(session, board, secrets)
     scene = scene_by(board, "inset")
-    jobs = WalkthroughDevice.specs(board, scene).map { |d| WalkthroughLive.job(board, scene, d, secrets, compose: nil, shots: true) }
-    jobs.each { |j| j["inset"] = WalkthroughInset.job(scene, WalkthroughLive.fps_for(board)) }
+    jobs = inset_jobs(board, scene, secrets)
     runs = PrototypeCapture.run_with_retry(session, WalkthroughLive.capture_module(board, scene, jobs: jobs, session: nil))["devices"]
-    assert_kind_of String, runs.first["insetHi"], "the capture returns a hi-res element still"
+    assert_kind_of String, runs.first["insetHi"], "the capture returns a hi-res element still: #{runs.first['insetError'].inspect}"
+    # A leaked clip frame would put hi-res pixels in the upscale path too.
+    assert_equal [ [ 640, 400 ] ], runs.first["ticks"].uniq.map { |t| jpeg_size(runs.first["frames"][t]) }.uniq, "the still stays out of the recording"
     Dir.mktmpdir do |work|
       sharp = {}
+      metas = {}
       { "hires" => runs, "upscale" => runs.map { |r| r.except("insetHi") } }.each do |name, rs|
         out_dir = File.join(work, ".cache", "frames", name)
         _o, err = capture_io { WalkthroughLive::SceneWriter.new(board: board, scene: scene, secrets: secrets, docker: nil, work: work).write(rs, out_dir) }
         meta = JSON.parse(File.read(File.join(out_dir, "inset.json")))
-        assert_equal name == "hires", meta["hires"]
+        assert_equal name == "hires", meta["hires"], "#{name} inset: #{err}"
         assert_equal name == "upscale", err.include?("hi-res inset capture failed"), err
         sharp[name] = hard_edges(work, out_dir, meta)
+        metas[name] = meta.slice("hires", "region", "start", "stop")
       end
-      assert_operator sharp["hires"], :>, sharp["upscale"] * 2, "hi-res inset is crisper: #{sharp.inspect}"
+      assert_operator sharp["hires"], :>, sharp["upscale"] * 2, "hi-res inset is crisper: #{sharp.inspect}; still #{png_size(runs.first['insetHi']).inspect} px for box #{runs.first['inset'].inspect}; insets #{metas.inspect}; frames #{runs.first['frames'].size}, ticks #{runs.first['ticks'].size}"
     end
+  end
+
+  # A medium region at scale 2.5: the hi-res still must not leak into the
+  # recording. Every raw frame after at_ms matches the first frame (the
+  # page is static), and the composite inset is not blank. The leak is a
+  # race (the clip shot's compositor frame reaching the screencast last),
+  # so the capture runs several times and every run's frames keep the
+  # viewport size.
+  def inset_isolation(session, board, secrets)
+    scene = scene_by(board, "inset-medium")
+    jobs = inset_jobs(board, scene, secrets)
+    run = nil
+    4.times do |n|
+      run = PrototypeCapture.run_with_retry(session, WalkthroughLive.capture_module(board, scene, jobs: jobs, session: nil))["devices"].first
+      assert_kind_of String, run["insetHi"], "the capture returns a hi-res element still: #{run['insetError'].inspect}"
+      sizes = run["ticks"].uniq.map { |t| jpeg_size(run["frames"][t]) }
+      assert_equal [ [ 640, 400 ] ], sizes.uniq, "run #{n}: every recorded frame is the viewport, not the clip still"
+    end
+    Dir.mktmpdir do |work|
+      assert_frames_match_page(work, run, jobs.first["inset"]["frame"])
+      out_dir = File.join(work, ".cache", "frames", "medium")
+      WalkthroughLive::SceneWriter.new(board: board, scene: scene, secrets: secrets, docker: nil, work: work).write([ run ], out_dir)
+      meta = JSON.parse(File.read(File.join(out_dir, "inset.json")))
+      assert meta["hires"], "the medium inset is drawn from the hi-res still: #{run['insetError'].inspect}"
+      assert_operator hard_edges(work, out_dir, meta), :>, 20, "the medium inset carries the form, not a blank crop"
+    end
+  end
+
+  # Every frame from at_ms on matches the first frame (the page is static).
+  def assert_frames_match_page(work, run, from)
+    first = gray(work, run["frames"][run["ticks"].first])
+    run["ticks"].drop(from).uniq.each do |t|
+      px = gray(work, run["frames"][t])
+      assert_equal first.size, px.size, "frame #{t} keeps the viewport size"
+      diff = first.zip(px).sum { |a, b| (a - b).abs } / first.size.to_f
+      assert_operator diff, :<, 2.0, "frame #{t} after at_ms shows the page, not a zoomed still (mean diff #{diff.round(1)})"
+    end
+  end
+
+  def inset_jobs(board, scene, secrets)
+    WalkthroughDevice.specs(board, scene).map do |d|
+      WalkthroughLive.job(board, scene, d, secrets, compose: nil, shots: true).merge("inset" => WalkthroughInset.job(scene, WalkthroughLive.fps_for(board)))
+    end
+  end
+
+  # A base64 PNG's [width, height] from its IHDR chunk.
+  def png_size(data) = data.unpack1("m").byteslice(16, 8).unpack("NN")
+
+  # A base64 JPEG's [width, height] from its first SOF marker.
+  def jpeg_size(data)
+    bytes = data.unpack1("m").b
+    i = 2
+    while i < bytes.size
+      marker, len = bytes.byteslice(i + 1, 3).unpack("Cn")
+      return bytes.byteslice(i + 5, 4).unpack("nn").reverse if JPEG_SOF.cover?(marker)
+
+      i += 2 + len
+    end
+    flunk "no JPEG frame header"
+  end
+
+  # One base64 JPEG frame as 8-bit gray pixels, decoded offline in FFmpeg.
+  def gray(work, data)
+    path = File.join(work, "f-#{SecureRandom.hex(4)}.jpg")
+    File.binwrite(path, data.unpack1("m"))
+    argv = ChangeDocker.run_command(network: "none", image: ChangeDocker::FFMPEG_IMAGE, mounts: { work => "/work" }, workdir: "/work",
+                                    args: [ "-v", "error", "-i", "/work/#{File.basename(path)}", "-vf", "format=gray", "-f", "rawvideo", "-" ])
+    out, = Open3.capture2(*argv, binmode: true)
+    out.bytes
   end
 
   # Hard horizontal edges (a step over 96 gray levels between neighbours)
@@ -182,6 +257,7 @@ class WalkthroughLiveBrowserTest < Minitest::Test
           { "t_ms" => 1000, "op" => "click", "target" => "#sign-in" }
         ]),
         live_scene("inset", "/login", "inset" => { "selector" => "#sign-in", "at_ms" => 300, "duration_ms" => 1000, "scale" => 4 }),
+        live_scene("inset-medium", "/login", "inset" => { "selector" => "#login", "at_ms" => 300, "duration_ms" => 1000, "scale" => 2.5 }),
         live_scene("phone-app", "/app", "devices" => [ "phone" ], "interactions" => [ { "t_ms" => 300, "op" => "click", "target" => "#welcome" } ]),
         live_scene("both", "/app", "devices" => %w[desktop phone], "layout" => "side_by_side",
                                    "interactions" => { "desktop" => [ { "t_ms" => 300, "op" => "click", "target" => "#contact" } ] }),
