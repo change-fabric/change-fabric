@@ -329,7 +329,7 @@ class ChangeRun
     log("[change] app: #{entry.name}") if multi
     lanes = resolve_lanes(config)
     prefix = multi ? "#{entry.name}/" : ''
-    trust = trust_verdict(config, prefix: prefix)
+    trust = trust_verdict(config, prefix: prefix, apps: multi ? [ entry.name ] : nil)
     refuse_untrusted_boot(config, trust, app: label)
     artifact = ChangeArtifactStep.for(repo_root: repo_root, publish: @args.publish, label: label)
     findings, instances = with_app(config, artifact, trust: trust, prefix: prefix) do |ctx|
@@ -372,8 +372,8 @@ class ChangeRun
   # HEAD's host-run step definitions (as loaded from the working tree)
   # compared against the base branch's and this sha's approvals. Logged when
   # the base could not be fetched, so a stale comparison is never silent.
-  def trust_verdict(config, prefix: '')
-    verdict = ChangeTrust.evaluate(root: repo_root, head_sha: head_sha, profile: config.profile,
+  def trust_verdict(config, prefix: '', apps: nil)
+    verdict = ChangeTrust.evaluate(root: repo_root, head_sha: head_sha, profile: config.profile, apps: apps,
                                    head_definitions: ChangeTrust.step_definitions(config, prefix: prefix))
     log("[change] trust: #{verdict.note}") if verdict.note
     verdict

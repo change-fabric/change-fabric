@@ -51,6 +51,22 @@ class ChangeApproveTest < Minitest::Test
     GitFixture.git(@repo, "rev-parse", "HEAD").strip
   end
 
+  def commit_app(staging_up:)
+    File.write(File.join(@repo, "CHANGE.md"), "---\nchange_config:\n  apps:\n    web: { config: web.yml }\n---\n")
+    File.write(File.join(@repo, "web.yml"), <<~YML)
+      change_config:
+        boot: { up: "echo web" }
+        lanes: { k6: { enabled: true } }
+        default_profile: local
+        profiles:
+          local: {}
+          staging: { boot: { up: "#{staging_up}" } }
+    YML
+    GitFixture.git(@repo, "add", "-A")
+    GitFixture.git(@repo, "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-qm", "app")
+    GitFixture.git(@repo, "rev-parse", "HEAD").strip
+  end
+
   def approve(tty:, typed: @sha[0, 12], sha: @sha)
     out = StringIO.new
     err = StringIO.new
@@ -86,6 +102,14 @@ class ChangeApproveTest < Minitest::Test
     status, out, _err = approve(tty: true, sha: @base)
     assert_equal 0, status
     assert_match(/nothing to approve/, out)
+  end
+
+  def test_monorepo_app_profile_change_is_listed_for_approval
+    base = commit_app(staging_up: "echo staging")
+    GitFixture.git(@repo, "update-ref", "refs/remotes/origin/main", base)
+    sha = commit_app(staging_up: "echo changed")
+    pending = ChangeApprove.pending_steps(@repo, sha, ChangeTrust.resolve_base(@repo, fetch: false))
+    assert_equal [ [ "web/boot.up", "staging" ] ], pending.map { |item| [ item.step, item.profile ] }
   end
 
   def test_usage_error_without_a_sha

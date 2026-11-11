@@ -6,6 +6,7 @@ require 'json'
 require 'open3'
 require 'tmpdir'
 require 'fileutils'
+require 'yaml'
 require_relative 'change_apps'
 require_relative 'change_frontmatter'
 require_relative 'change_approval_store'
@@ -86,7 +87,7 @@ module ChangeTrust
     }
   end
 
-  def digests(definitions) = definitions.transform_values { |fields| digest(fields) }
+  def digests(definitions) = definitions.to_h.transform_values { |fields| digest(fields) }
 
   def step_digests(config, prefix: '') = digests(step_definitions(config, prefix: prefix))
 
@@ -95,20 +96,57 @@ module ChangeTrust
   # enabled app's config file is read at the same ref. A ref with no
   # CHANGE.md, or one that no longer parses, yields {}: nothing on it can
   # vouch for anything at HEAD.
-  def snapshot_definitions(root, ref, profile: nil)
-    Dir.mktmpdir('cf-trust') do |dir|
-      change_md = File.join(dir, 'CHANGE.md')
-      return {} unless write_blob(root, ref, 'CHANGE.md', change_md)
+  #
+  # A config that exists but cannot be loaded returns nil, never {}: "could
+  # not read the steps" must not read as "there are no steps". `apps` limits a
+  # monorepo snapshot to the named apps, so an app that does not define the
+  # requested profile cannot sink the snapshot of one that does.
+  def snapshot_definitions(root, ref, profile: nil, apps: nil)
+    with_snapshot(root, ref) do |registry|
+      return {} unless registry
 
-      app_paths(change_md).each { |rel| write_blob(root, ref, rel, File.join(dir, rel)) }
-      registry = ChangeAppRegistry.load(change_md)
-      registry.enabled_entries.each_with_object({}) do |entry, defs|
+      entries = registry.enabled_entries
+      entries = entries.select { |entry| apps.include?(entry.name) } if apps && registry.multi_app?
+      entries.each_with_object({}) do |entry, defs|
         prefix = registry.multi_app? ? "#{entry.name}/" : ''
         defs.merge!(step_definitions(entry.load(profile: profile), prefix: prefix))
       end
     end
   rescue StandardError
-    {}
+    nil
+  end
+
+  # { app name (nil in single-app mode) => profile names it defines, or
+  # [nil] when it defines none }, as committed at `ref`. change_approve.rb
+  # walks this so every definition a run could execute can be approved.
+  def profiles_by_app(root, ref)
+    with_snapshot(root, ref) do |registry|
+      return {} unless registry
+
+      registry.enabled_entries.to_h do |entry|
+        profiles = entry_profiles(entry)
+        [ registry.multi_app? ? entry.name : nil, profiles.empty? ? [ nil ] : profiles ]
+      end
+    end
+  end
+
+  # Yields the app registry as committed at `ref`, every app config written
+  # beside its CHANGE.md in a temp dir, or nil when `ref` has no CHANGE.md.
+  def with_snapshot(root, ref)
+    Dir.mktmpdir('cf-trust') do |dir|
+      change_md = File.join(dir, 'CHANGE.md')
+      next yield(nil) unless write_blob(root, ref, 'CHANGE.md', change_md)
+
+      app_paths(change_md).each { |rel| write_blob(root, ref, rel, File.join(dir, rel)) }
+      yield ChangeAppRegistry.load(change_md)
+    end
+  end
+
+  def entry_profiles(entry)
+    raw = entry.synthetic ? ChangeFrontmatter.parse_file(entry.config_path) : YAML.safe_load_file(entry.config_path, aliases: true)
+    front = raw.is_a?(Hash) ? raw['change_config'] : nil
+    profiles = front.is_a?(Hash) ? front['profiles'] : nil
+    profiles.is_a?(Hash) ? profiles.keys.map(&:to_s) : []
   end
 
   def app_paths(change_md)
@@ -189,27 +227,39 @@ module ChangeTrust
   # The run-time entry point: resolve and fetch the base, read its
   # definitions, and compare HEAD's (as loaded from the working tree) against
   # them and against this sha's approvals.
-  def evaluate(root:, head_sha:, head_definitions:, profile: nil, fetch: true)
+  # `apps` names the app being run in a monorepo, so the base snapshot reads
+  # only that app's config under this profile.
+  def evaluate(root:, head_sha:, head_definitions:, profile: nil, apps: nil, fetch: true)
     base = resolve_base(root, fetch: fetch)
-    base_digests = base.sha ? digests(snapshot_definitions(root, base.sha, profile: profile)) : {}
-    verify(head_digests: digests(head_definitions), base_digests: base_digests,
+    verify(head_digests: digests(head_definitions), base_digests: base_digests(root, base, profile, apps),
            approvals: ChangeApprovalStore.new(head_sha).approvals, head_sha: head_sha, base: base)
+  end
+
+  # The base branch's digests, or {} when the base cannot be resolved or read:
+  # every step is then untrusted until approved, never trusted by default.
+  def base_digests(root, base, profile, apps)
+    return {} unless base.sha
+
+    digests(snapshot_definitions(root, base.sha, profile: profile, apps: apps) || {})
   end
 
   # The merge and tag guards' question: does this gate record's trust block
   # prove that every step defined at `sha` ran as the base branch or an
   # approval defines it? nil when it does, else the reason it does not.
-  # `apps` scopes a monorepo check to the apps the rule gates.
+  # `apps` scopes a monorepo check to the apps the rule gates. A config at
+  # `sha` that cannot be loaded is a problem, not an absence of steps.
   def record_problem(root:, sha:, record:, profile: nil, apps: nil)
-    head = digests(snapshot_definitions(root, sha, profile: profile))
-    head = head.select { |step, _| apps.include?(step.split('/').first) } if apps
+    definitions = snapshot_definitions(root, sha, profile: profile, apps: apps)
+    return "the step definitions committed at #{sha[0, 12]} could not be loaded; fix CHANGE.md and re-run change_run.rb all" unless definitions
+
+    head = digests(definitions)
     return nil if head.empty?
 
     recorded = recorded_steps(record)
     return "the gate record for #{sha[0, 12]} predates step trust; re-run change_run.rb all" unless recorded
 
     base = resolve_base(root, fetch: false)
-    base_digests = base.sha ? digests(snapshot_definitions(root, base.sha, profile: profile)) : {}
+    base_digests = base_digests(root, base, profile, apps)
     approvals = ChangeApprovalStore.new(sha).approvals
     head.each do |step, step_digest|
       unless recorded.dig(step, 'digest') == step_digest

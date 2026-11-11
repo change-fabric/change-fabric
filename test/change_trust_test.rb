@@ -161,7 +161,67 @@ class ChangeTrustTest < Minitest::Test
                  ChangeTrust.record_problem(root: @repo, sha: sha, record: record))
   end
 
+  def test_record_problem_fails_closed_when_the_committed_config_cannot_load
+    sha = commit(change_md(up: "echo up").sub("k6:", "nope:"))
+    point_origin("main", sha)
+    assert_nil ChangeTrust.snapshot_definitions(@repo, sha)
+    assert_match(/could not be loaded/, ChangeTrust.record_problem(root: @repo, sha: sha, record: { "scope" => "all" }))
+  end
+
+  def test_monorepo_snapshot_scopes_to_the_gated_apps_profile
+    sha = commit_monorepo(web_staging_up: "echo web-staging")
+    point_origin("main", sha)
+    defs = ChangeTrust.snapshot_definitions(@repo, sha, profile: "staging", apps: %w[web])
+    assert_equal "echo web-staging", defs["web/boot.up"]["run"]
+    problem = ChangeTrust.record_problem(root: @repo, sha: sha, record: { "scope" => "all" }, profile: "staging",
+                                         apps: %w[web])
+    assert_match(/predates step trust/, problem)
+  end
+
+  def test_profiles_by_app_reads_each_app_config
+    sha = commit_monorepo(web_staging_up: "echo web-staging")
+    assert_equal({ "web" => %w[local staging], "api" => %w[local] }, ChangeTrust.profiles_by_app(@repo, sha))
+  end
+
   private
+
+  def commit_monorepo(web_staging_up:)
+    write("CHANGE.md", <<~MD)
+      ---
+      change_config:
+        project: mono
+        apps:
+          web: { config: apps/web/CHANGE.app.yml }
+          api: { config: apps/api/CHANGE.app.yml }
+      ---
+    MD
+    write("apps/web/CHANGE.app.yml", <<~YML)
+      change_config:
+        boot: { up: "echo web" }
+        lanes: { k6: { enabled: true } }
+        default_profile: local
+        profiles:
+          local: {}
+          staging: { boot: { up: "#{web_staging_up}" } }
+    YML
+    write("apps/api/CHANGE.app.yml", <<~YML)
+      change_config:
+        boot: { up: "echo api" }
+        lanes: { k6: { enabled: true } }
+        default_profile: local
+        profiles:
+          local: {}
+    YML
+    GitFixture.git(@repo, "add", "-A")
+    GitFixture.git(@repo, "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-qm", "mono")
+    GitFixture.git(@repo, "rev-parse", "HEAD").strip
+  end
+
+  def write(rel, text)
+    path = File.join(@repo, rel)
+    FileUtils.mkdir_p(File.dirname(path))
+    File.write(path, text)
+  end
 
   def trust_record(sha, source)
     digests = ChangeTrust.digests(ChangeTrust.snapshot_definitions(@repo, sha))

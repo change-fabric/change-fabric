@@ -48,7 +48,7 @@ module ChangeApprove
 
     base = ChangeTrust.resolve_base(root, fetch: fetch)
     stderr.puts "[change] note: #{base.note}" if base.note
-    pending = pending_steps(root, sha, base)
+    pending = pending_steps(root, sha, base, stderr: stderr)
     if pending.empty?
       stdout.puts "[change] nothing to approve: every step at #{sha[0, 12]} matches #{base.ref} or is already approved."
       return 0
@@ -63,27 +63,33 @@ module ChangeApprove
   end
 
   # Every (step, digest) at `sha` that matches neither the base branch nor an
-  # existing approval, across the unprofiled config and every named profile,
-  # since a profile may override boot and so define a different step.
-  def pending_steps(root, sha, base)
+  # existing approval, for every app and every profile that app defines (or
+  # its unprofiled config), since a profile may override boot and so define a
+  # different step. In a monorepo the profiles live in each app's own config.
+  def pending_steps(root, sha, base, stderr: $stderr)
     approvals = ChangeApprovalStore.new(sha).approvals
-    profiles_at(root, sha).flat_map do |profile|
-      head = ChangeTrust.snapshot_definitions(root, sha, profile: profile)
-      base_defs = base.sha ? ChangeTrust.snapshot_definitions(root, base.sha, profile: profile) : {}
-      head.filter_map do |step, fields|
-        digest = ChangeTrust.digest(fields)
-        next if base_defs[step] && ChangeTrust.digest(base_defs[step]) == digest
-        next if approvals.include?([ step, digest ])
-
-        Pending.new(step: step, digest: digest, fields: fields, base_fields: base_defs[step], profile: profile)
+    ChangeTrust.profiles_by_app(root, sha).flat_map do |app, profiles|
+      profiles.flat_map do |profile|
+        pending_for(root, sha, base, app: app, profile: profile, approvals: approvals, stderr: stderr)
       end
     end.uniq { |item| [ item.step, item.digest ] }
   end
 
-  def profiles_at(root, sha)
-    out, status = Open3.capture2e('git', '-C', root, 'show', "#{sha}:CHANGE.md")
-    profiles = status.success? ? ChangeFrontmatter.parse(out).dig('change_config', 'profiles') : nil
-    profiles.is_a?(Hash) && !profiles.empty? ? profiles.keys.map(&:to_s) : [ nil ]
+  def pending_for(root, sha, base, app:, profile:, approvals:, stderr:)
+    apps = app ? [ app ] : nil
+    head = ChangeTrust.snapshot_definitions(root, sha, profile: profile, apps: apps)
+    unless head
+      stderr.puts "[change] could not load #{app || 'CHANGE.md'} at #{sha[0, 12]} (profile: #{profile || 'none'}); fix it first"
+      return []
+    end
+    base_defs = (base.sha && ChangeTrust.snapshot_definitions(root, base.sha, profile: profile, apps: apps)) || {}
+    head.filter_map do |step, fields|
+      digest = ChangeTrust.digest(fields)
+      next if base_defs[step] && ChangeTrust.digest(base_defs[step]) == digest
+      next if approvals.include?([ step, digest ])
+
+      Pending.new(step: step, digest: digest, fields: fields, base_fields: base_defs[step], profile: profile)
+    end
   end
 
   def describe(pending, sha, base, stdout)
