@@ -2912,6 +2912,12 @@ code {
   width: 100%;
 }
 
+/* The display rule above would otherwise override [hidden] and show an
+   empty native player before the tap gives it a src. */
+.media-slot audio[hidden] {
+  display: none;
+}
+
 .media-slot-duration {
   margin-right: 0.25rem;
   padding: 0 0.375rem;
