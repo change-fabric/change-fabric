@@ -174,7 +174,19 @@ module ChangeDocker
     cmd += [ '--network', network ] if network
     cmd += host_gateway_args
     Array(add_hosts).each { |entry| cmd += [ '--add-host', entry ] }
-    cmd + [ '-p', "127.0.0.1:#{port}:3000", '-e', "TOKEN=#{token}", BROWSERLESS_IMAGE ]
+    cmd += [ '-p', "127.0.0.1:#{port}:3000", '-e', "TOKEN=#{token}" ]
+    browserless_limits.each { |key, value| cmd += [ '-e', "#{key}=#{value}" ] }
+    cmd + [ BROWSERLESS_IMAGE ]
+  end
+
+  # browserless's own limiter settings, set explicitly rather than left to the
+  # image defaults (CONCURRENT 10, QUEUED 10, TIMEOUT 30000 ms in v2.38.1;
+  # the older MAX_CONCURRENT_SESSIONS, QUEUE_LENGTH and CONNECTION_TIMEOUT
+  # names are aliases). TIMEOUT is the server-side job limit for any request
+  # that carries no `timeout` query parameter, so it matches the per-call
+  # FUNCTION_TIMEOUT_MS and the server is never stricter than the client.
+  def browserless_limits
+    { 'CONCURRENT' => 10, 'QUEUED' => 10, 'TIMEOUT' => Browserless::FUNCTION_TIMEOUT_MS }
   end
 
   # Prefix every ephemeral resource this platform creates carries, so a
@@ -287,13 +299,19 @@ module ChangeDocker
     # first one hit.
     FUNCTION_TIMEOUT_MS = 115_000
 
+    # A 408 is browserless's limiter giving up on the job: the module's result
+    # never reached us, so nothing was produced and re-running the whole call
+    # is safe. Retried once, and only for that status; any other failure, and
+    # whatever the caller then asserts on the result, is untouched.
+    TIMEOUT_RETRIES = 1
+
     def run_function(code, launch_args: [])
       if @local_tls_hosts
         code = ChangeLocalTls.wrap(code, @local_tls_hosts)
         launch_args = launch_args + [ ChangeLocalTls::LAUNCH_ARG ]
       end
       uri = URI(function_url(launch_args))
-      response = post(uri, code, 'application/javascript')
+      response = post_with_timeout_retry(uri, code)
       raise "browserless /function failed: #{response.code} #{response.body}" unless response.is_a?(Net::HTTPSuccess)
 
       unwrap(JSON.parse(response.body))
@@ -323,6 +341,17 @@ module ChangeDocker
       Net::HTTP.get_response(uri).is_a?(Net::HTTPSuccess)
     rescue StandardError
       false
+    end
+
+    def post_with_timeout_retry(uri, code)
+      response = nil
+      (TIMEOUT_RETRIES + 1).times do
+        response = post(uri, code, 'application/javascript')
+        break unless response.code.to_s == '408'
+
+        warn "browserless /function returned 408 (#{response.body}); re-running the call once"
+      end
+      response
     end
 
     def post(uri, body, content_type)

@@ -12,6 +12,34 @@ permissions:
 
 jobs:
   ci:
+    # The required status check. It passes only when every test shard passed,
+    # the shards together ran every test/*_test.rb file exactly once with at
+    # least the expected number of runs, and the checks job passed.
+    if: ${{ !cancelled() }}
+    needs: [checks, test]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.4"
+      - name: checks and every shard passed
+        env:
+          CHECKS: ${{ needs.checks.result }}
+          TESTS: ${{ needs.test.result }}
+        run: |
+          echo "checks: $CHECKS, test shards: $TESTS"
+          test "$CHECKS" = success && test "$TESTS" = success
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: test-shard-*
+          path: shard-reports
+          merge-multiple: true
+      - name: shards covered every test file
+        run: ruby scripts/test_shards.rb verify shard-reports/*.json
+
+  # Everything but the Ruby suite, run once.
+  checks:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -31,9 +59,6 @@ jobs:
       - name: Native adapter contract tests
         if: ${{ !cancelled() }}
         run: npm run test:adapters
-      - name: rake test
-        if: ${{ !cancelled() }}
-        run: bundle exec rake test
       - name: site build
         if: ${{ !cancelled() }}
         working-directory: site
@@ -41,6 +66,44 @@ jobs:
           npm ci
           npm test
           npm run build
+
+  # rake test, split by scripts/test_shards.rb so the slow browser-capture
+  # files sit on different shards. Each shard keeps random order (minitest
+  # prints its seed) and warnings, and reports the files it ran and its run
+  # count for the ci job to check.
+  test:
+    name: test (${{ matrix.shard }}/4)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.4"
+          bundler-cache: true
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: rake test
+        env:
+          TEST_SHARD: ${{ matrix.shard }}/4
+        run: |
+          set -o pipefail
+          bundle exec rake test 2>&1 | tee rake-test.log
+      - name: shard report
+        if: ${{ !cancelled() }}
+        run: ruby scripts/test_shards.rb report "${{ matrix.shard }}/4" rake-test.log "test-shard-${{ matrix.shard }}.json"
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: test-shard-${{ matrix.shard }}
+          path: test-shard-${{ matrix.shard }}.json
+          retention-days: 7
 
   platform:
     runs-on: ubuntu-latest
