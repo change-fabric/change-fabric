@@ -105,9 +105,9 @@ module WalkthroughInset
     margin = even(lay.canvas_h * MARGIN)
     room_w = lay.canvas_w - (2 * margin) - (2 * BORDER)
     room_h = band_top(lay.canvas_h) - (2 * margin) - (2 * BORDER)
-    scale = [ sp['scale'].to_f, room_w / crop_w, room_h / crop_h ].min
-    w = even(crop_w * scale)
-    h = even(crop_h * scale)
+    scale = [ sp['scale'].to_f, room_w.to_f / crop_w, room_h.to_f / crop_h ].min
+    w = [ even(crop_w * scale), 2 ].max
+    h = [ even(crop_h * scale), 2 ].max
     outer_w = w + (2 * BORDER)
     outer_h = h + (2 * BORDER)
     right = sp['position'].end_with?('right')

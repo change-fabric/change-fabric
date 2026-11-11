@@ -77,6 +77,9 @@ class WalkthroughInsetTest < Minitest::Test
     plan = WI.plan(live(INSET.merge("scale" => 4)), WalkthroughDevice.layout(BOARD, live), huge, viewport_w: 1920, fps: 30, frames: 50)
     assert_operator plan.x, :>=, 42
     assert_operator plan.scale, :<, 4
+    assert_operator plan.scale, :>, 0.9
+    assert_operator plan.w, :>, 1800
+    assert_operator plan.x + plan.w + (2 * WI::BORDER), :<=, 1920 - 42
     assert_equal 49, plan.stop
   end
 
