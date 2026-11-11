@@ -22,15 +22,21 @@ module TestShards
 
   GLOB = 'test/*_test.rb'
 
-  # Seconds per file from one local run, rounded. Only the files that dominate
-  # a shard are listed; the rest are short enough that a flat weight balances.
+  # Seconds per file from one local run, rounded: every file over about 5s.
+  # The rest are short enough that a flat weight balances them.
   WEIGHTS = {
-    'test/walkthrough_diagram_lanes_capture_test.rb' => 70,
+    'test/walkthrough_diagram_capture_test.rb' => 115,
+    'test/walkthrough_diagram_lanes_capture_test.rb' => 80,
     'test/walkthrough_environment_capture_test.rb' => 60,
-    'test/walkthrough_diagram_capture_test.rb' => 90,
-    'test/walkthrough_live_browser_test.rb' => 30,
-    'test/walkthrough_diagram_lanes_generated_test.rb' => 20,
-    'test/prototype_ux_lint_test.rb' => 20
+    'test/color_check_test.rb' => 50,
+    'test/install_test.rb' => 30,
+    'test/walkthrough_live_browser_test.rb' => 20,
+    'test/walkthrough_crisp_docker_test.rb' => 20,
+    'test/walkthrough_diagram_lanes_generated_test.rb' => 17,
+    'test/prototype_ux_lint_test.rb' => 16,
+    'test/agent_contract_test.rb' => 9,
+    'test/walkthrough_pass2_docker_test.rb' => 7,
+    'test/change_artifact_test.rb' => 7
   }.freeze
   DEFAULT_WEIGHT = 1.0
 
