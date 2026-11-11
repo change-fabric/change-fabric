@@ -522,6 +522,18 @@ class ChangeConfig
     # against the CHANGE.md directory, same as a lane's repo-relative paths.
     def env_files = Array(@raw['env_file']).map { |path| File.expand_path(path.to_s, @dir) }
 
+    # boot.env_file as authored (repo-relative), for the trust digest: the
+    # digest describes the definition, not where this checkout happens to be.
+    def env_file_entries = Array(@raw['env_file']).map(&:to_s)
+
+    # boot.env (0.17.0): the names boot.up and boot.down may see beyond the
+    # minimal base environment. Values come from ENV, then boot.env_file.
+    def env_names = Array(@raw['env']).map(&:to_s)
+
+    # boot.timeout_seconds (0.17.0): applies to boot.up and boot.down alike.
+    # nil means no limit, so a long first build is never cut short by default.
+    def timeout_seconds = @raw['timeout_seconds']
+
     # 0.15.0: reaching a local HTTPS dev app from the browser container.
     # `add_hosts` are "HOST:TARGET" docker --add-host mappings (the container
     # cannot read the host's /etc/hosts); `ignore_https_errors` skips the local
