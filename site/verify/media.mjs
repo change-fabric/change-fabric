@@ -300,9 +300,22 @@ async function checkSlotKeyboard(page, route, index) {
     );
   }
   assert(reached, `${route}: Tab never reached "${label}"`);
-  await page.keyboard.press("Enter");
   const figure = page.locator("figure.media-slot").nth(index);
+  // A video slot shows the designed thumbnail: one native button whose
+  // accessible name says what plays and for how long.
+  if (await figure.locator("video").count()) {
+    const thumb = figure.locator("button.media-slot-thumb");
+    assert(await thumb.count() === 1, `${route}: the video slot has no thumbnail button`);
+    const named = await figure.getByRole("button", { name: /^Play video: .+ \(\d+:\d\d\)$/ }).count();
+    assert(named === 1, `${route}: the thumbnail button has no "Play video: title (m:ss)" name`);
+  }
+  await page.keyboard.press("Enter");
   await figure.locator("video, audio").waitFor();
+  if (await figure.locator("video").count()) {
+    const src = await figure.evaluate((el) => el.querySelector("video")?.getAttribute("src") ?? "");
+    assert(src.length > 0, `${route}: activating the thumbnail did not give the player its src`);
+    assert(await figure.locator("button.media-slot-thumb").count() === 0, `${route}: the thumbnail stayed after activation`);
+  }
   assert(await figure.locator("track[kind=captions][default]").count() === 1, `${route}: no default captions track`);
   const focusedMedia = await page.evaluate(() => ["VIDEO", "AUDIO"].includes(document.activeElement?.tagName ?? ""));
   assert(focusedMedia, `${route}: focus did not move to the player after "${label}"`);

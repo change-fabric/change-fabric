@@ -6,6 +6,17 @@ import { activeWordIndex, captionText, formatDuration, highlightLoop } from "../
 
 const slotSource = readFileSync(new URL("../src/components/MediaSlot.tsx", import.meta.url), "utf8");
 
+test("the video thumbnail is one native button that starts playback", () => {
+  const at = slotSource.indexOf('<button type="button" className="media-slot-play media-slot-thumb" onClick={start}>');
+  assert.ok(at > 0, "the thumbnail is a native button wired to start()");
+  const body = slotSource.slice(at, slotSource.indexOf("</button>", at));
+  assert.match(body, /\{entry\.title\}/, "the thumbnail shows the title");
+  assert.match(body, /media-slot-thumb-chip">\{duration\}/, "the thumbnail shows a duration chip");
+  assert.match(body, /<span className="sr-only">\s*Play video: \{entry\.title\} \(\{duration\}\)/, "accessible name");
+  assert.match(body, /media-slot-thumb-bar" aria-hidden="true"/, "visible text does not double the name");
+  assert.doesNotMatch(body, /onKeyDown|tabIndex/, "a native button already handles Enter and Space");
+});
+
 test("the caption drops a leading title so it never restates the runtime", () => {
   const title = "change fabric in 45 seconds";
   assert.equal(
