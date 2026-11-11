@@ -660,12 +660,19 @@ module WalkthroughLive
     frames = PrototypeCapture.frame_count(PrototypeCapture.scene_duration(scene), fps)
     ops = interactions_for(scene, spec['name'])
     plan = PrototypeCapture.schedule(resolve_interactions(ops, secrets), frames, fps)
-    # Only the full-bleed desktop frame meets the caption band in the page;
-    # a composited frame is checked on the canvas instead.
-    band = WalkthroughDevice.default?(scene) ? PrototypeUxLint::CAPTION_BAND : 0
+    band = caption_band(board, scene)
     { 'dev' => spec, 'plan' => plan, 'lint' => PrototypeUxLint.lint_frames(plan, frames), 'band' => band, 'shots' => shots,
       'group' => WalkthroughDevice.group(scene, spec['name']),
       'url' => url(scene), 'html' => page_html(scene, spec['name'], compose: compose, board: board, root: root) }
+  end
+
+  # The in-page caption band share: a browser frame maps it through the
+  # frame's own transform; otherwise only the full-bleed desktop frame meets
+  # the band in the page, and a device layout is checked on the canvas.
+  def caption_band(board, scene)
+    return WalkthroughBrowserFrame.page_band(board) if WalkthroughBrowserFrame.browser?(scene)
+
+    WalkthroughDevice.default?(scene) ? PrototypeUxLint::CAPTION_BAND : 0
   end
 
   # The built-in page a compose or message scene films on one device.

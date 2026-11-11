@@ -16,8 +16,9 @@ require_relative 'walkthrough_sharpness'
 module WalkthroughBrowserFrame
   FRAMES = %w[browser].freeze
   SCREEN_KEYS = %w[frame title address].freeze
-  # Bumped when the chrome drawn by the filter changes; it is key material.
-  VERSION = 1
+  # Bumped when the chrome drawn by the filter or the in-page lint band
+  # changes; it is key material, so a bump recaptures framed scenes.
+  VERSION = 2
   MAX_TEXT = 200
   MARGIN = 0.04
   # Chrome heights as a share of the canvas height.
@@ -139,6 +140,17 @@ module WalkthroughBrowserFrame
                bar: Box.new(left + BORDER, top + BORDER + tab_h, w, bar_h),
                field: Box.new(left + BORDER + nav_w, top + BORDER + tab_h + inset, w - nav_w - inset, bar_h - (2 * inset)),
                font: [ (tab_h * 0.42).round, 10 ].max)
+  end
+
+  # The caption band as a share of the page viewport height, mapped back
+  # through the content rect's scale and offset, so the in-page lint flags
+  # only content the composite would place inside the canvas band. Zero
+  # when the whole page lands above the band (the usual case).
+  def page_band(board) = page_band_for(layout(board).content, viewport(board)['h'], viewport(board)['h'])
+
+  def page_band_for(rect, page_h, canvas_h)
+    page_top = (band_top(canvas_h) - rect.y) / rect.scale
+    page_top >= page_h ? 0 : 1 - (page_top.to_f / page_h)
   end
 
   # Text clipped to what fits `width` canvas px at the layout font size.
