@@ -20,6 +20,7 @@ require_relative 'change_lane_a11y'
 require_relative 'change_lane_zap'
 require_relative 'change_lane_browserless'
 require_relative 'change_lane_testcases'
+require_relative 'change_lane_command'
 require_relative 'change_trust'
 
 # The change-fabric orchestrator: the one command the cf:change / cf:k6 /
@@ -83,7 +84,7 @@ class ChangeRun
   LANE_CLASSES = {
     'k6' => ChangeLaneK6, 'a11y' => ChangeLaneA11y,
     'zap' => ChangeLaneZap, 'browserless' => ChangeLaneBrowserless,
-    'testcases' => ChangeLaneTestcases
+    'testcases' => ChangeLaneTestcases, 'command' => ChangeLaneCommand
   }.freeze
 
   # Per-lane run context. Lanes talk only to this, never to the run internals:
@@ -106,8 +107,13 @@ class ChangeRun
   # gate (row 39, Decision 8: missing grader or an `unclear` verdict fails
   # under full auto, warns under `--signoff`) without changing anything a lane
   # grades deterministically.
+  # The command lane (0.17.0) also reads `run_id` (CF_CHANGE_RUN_ID and its
+  # Desktop directory), `profile` (its per-entry filter), `trust` (the run's
+  # ChangeTrust verdict), `step_prefix` (the app in a monorepo) and
+  # `env_file_values` (parsed boot.env_file, a source for declared names).
   Context = Struct.new(:network, :target_url, :health_url, :browserless, :media, :suite_select, :signoff,
-                       :logger, keyword_init: true) do
+                       :logger, :run_id, :profile, :trust, :step_prefix, :env_file_values,
+                       keyword_init: true) do
     def log(message) = logger.call(message)
     def signoff? = signoff == true
   end
@@ -363,7 +369,7 @@ class ChangeRun
     boot_up(boot, trust: trust, prefix: prefix)
     wait_healthy(boot)
     ChangeDocker.with_network(boot.network) do |network|
-      with_context(config, network, artifact) { |ctx| yield ctx }
+      with_context(config, network, artifact, trust: trust, prefix: prefix) { |ctx| yield ctx }
     end
   ensure
     boot_down(boot, trust: trust, prefix: prefix)
@@ -401,13 +407,23 @@ class ChangeRun
     rows
   end
 
+  # boot.env_file values the command lane may resolve declared names from;
+  # parsed only when that lane runs, and a missing file stops the run by name
+  # exactly as it does for boot.
+  def command_env_file_values(config)
+    return {} unless resolve_lanes(config).include?('command')
+
+    boot_env(config.boot) { |message| abort_and_exit(message) }
+  end
+
   def boot_run_id = @boot_run_id ||= "#{Time.now.utc.strftime('%Y%m%dT%H%M%SZ')}-#{SecureRandom.hex(3)}"
 
-  def with_context(config, network, artifact = nil)
+  def with_context(config, network, artifact = nil, trust: nil, prefix: '')
     ctx_args = {
       network: network.name, target_url: config.boot.target_url,
       health_url: config.boot.health_url, media: artifact&.media, suite_select: @args.suites,
-      signoff: @args.signoff, logger: method(:log)
+      signoff: @args.signoff, logger: method(:log), run_id: boot_run_id, profile: config.profile,
+      trust: trust, step_prefix: prefix, env_file_values: command_env_file_values(config)
     }
     if browser_needed?(config)
       boot = config.boot
@@ -444,6 +460,8 @@ class ChangeRun
   # more than one try rather than one that looks identical to a clean first
   # run. The status itself is never rewritten; {pass, warn, fail} stays the
   # sole gate signal.
+  # A self-retrying lane (the command lane) runs exactly once here and keeps
+  # the per-entry attempt counts its own findings already carry.
   def run_lane(name, lane_config, ctx)
     budget = retry_budget(lane_config)
     attempts = 0
@@ -453,6 +471,7 @@ class ChangeRun
       attempts += 1
       lane = LANE_CLASSES.fetch(name).new(lane_config, ctx)
       results = Array(lane.run)
+      return [ results, lane ] if lane.self_retrying?
       break if attempts > budget || results.none?(&:fail?)
 
       log("[change] #{name} lane failed on attempt #{attempts}; retrying (#{budget - attempts + 1} left)")
@@ -526,6 +545,7 @@ class ChangeRun
     sections << ChangeK6Narrative.section(config.lane('k6')['scenario']) if lanes.include?('k6')
     sections << instances['browserless']&.timing_section if lanes.include?('browserless')
     sections << instances['testcases']&.acceptance_section if lanes.include?('testcases')
+    sections << instances['command']&.report_section if lanes.include?('command')
     sections.compact
   end
 

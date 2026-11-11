@@ -20,8 +20,9 @@ require_relative 'figma_url'
 module ChangeSchema
   VERSION = '0.17.0'
 
-  # The five audit lanes, the authoritative list the config validator enforces.
-  LANES = %w[k6 a11y zap browserless testcases].freeze
+  # The six lanes, the authoritative list the config validator enforces: five
+  # dockerized audit lanes plus a host-run command lane (0.17.0).
+  LANES = %w[k6 a11y zap browserless testcases command].freeze
 
   # The only top-level key an app config file (change_config.apps.<app>.config,
   # 0.4.0) may declare. Governance is repo-wide and lives only in the root
@@ -198,6 +199,14 @@ module ChangeSchema
     # launch_args (0.16.0): extra Chromium flags for the browser the lane's
     # cases run in, passed through browserless's `launch` query parameter.
     'change_config.lanes.testcases.launch_args',
+    # 0.17.0: the host-run command lane's entries.
+    'change_config.lanes.command.commands[].name',
+    'change_config.lanes.command.commands[].run',
+    'change_config.lanes.command.commands[].env',
+    'change_config.lanes.command.commands[].timeout_seconds',
+    'change_config.lanes.command.commands[].artifacts',
+    'change_config.lanes.command.commands[].profiles',
+    'change_config.lanes.command.commands[].retries',
     # testcases.auth: the same login-flow block browserless.auth already
     # defines, field for field, because a case behind a login has to get
     # through the same login. Expanded rather than cross-referenced so the

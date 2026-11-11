@@ -74,7 +74,9 @@ is the field-by-field authority behind it.
 
 Field paths are dotted. Placeholder segments are literal and mean:
 
-- `<lane>`: any of the five lanes, `k6`, `a11y`, `zap`, `browserless`, `testcases`.
+- `<lane>`: any of the six lanes: the five dockerized audit lanes `k6`, `a11y`,
+  `zap`, `browserless`, `testcases`, plus the host-run `command` lane (0.17.0),
+  which accepts only `enabled` and `commands` (see its own section).
 - `<ref>`: a promotion target (0.9.0; formerly `<branch>`, since only
   branches were promotion targets before this version). An unprefixed key (or
   `branch:<name>`) is a git branch, gated at merge time. A `tag:<glob>` key is
@@ -249,6 +251,82 @@ change_config:
 To check a boot before upgrading, run it as it will run:
 `env -i PATH="$PATH" HOME="$HOME" TERM="$TERM" sh -c '<boot.up>'`. Whatever
 it then fails to find belongs in `boot.env`.
+
+### change_config.lanes.command (0.17.0): the project's own checks
+
+Checks the built-in lanes cannot express (integration tests against a
+throwaway database container, a containerized end-to-end suite, test-data
+cleanup, a smoke test against a deployed environment) run as a sixth lane,
+on the host, beside the five dockerized audit lanes. `change_run.rb all` runs
+it with the rest, and `change_run.rb command` runs it alone. Each entry passes
+or fails on its exit code; its masked output tail is in the report, its full
+masked transcript and collected artifacts are in a Desktop folder beside the
+report (`change-<run id>[-<app>][-<profile>]-command/`), and the result is part of the same gate
+the merge and tag guards read.
+
+Entries run in order, one at a time (they may share a database container),
+from the repo root through `/bin/sh -c`, each in its own process group. They
+are host-run steps under the same rules as boot (see "Host-run steps" above):
+each runs only when its definition equals the base branch's or a human
+approved it for the commit, as step `command:<name>`; an untrusted entry is a
+failing finding with the refusal text and does not execute, while trusted
+entries still run. Each sees only the minimal environment, the
+`CF_CHANGE_*` values and the names its `env` declares (looked up in the
+environment, then `boot.env_file`); a missing name is a failing finding
+naming every missing variable. Declared values are masked in the finding, the
+report section, the transcript, text artifacts (UTF-8, under 5 MB; binary
+artifacts are copied unmasked and the report says so) and published media.
+
+A command may start its own containers. Name or label them with
+`CF_CHANGE_RUN_ID` (for example `cf-cmd-$CF_CHANGE_RUN_ID-db`) and clean
+them up in the command itself: `change_run.rb sweep` reaps only
+`cf-change-*` resources. A `run` string that would start a project service as
+a host daemon is refused at config load unless `CF_ALLOW_HOSTDAEMON=1`. There
+is no scheduled execution: commands run only as part of a cf:change run.
+
+Lane-level `retries` is rejected (set it per entry), and so are `base_url`,
+`wait_for`, `basic_auth`, `auth` and `targets`, which the lane never reads. A
+profile may set only `profiles.<profile>.lanes.command.enabled`; select
+entries per environment with each entry's own `profiles:` list. An entry with
+`profiles` is skipped on an unprofiled run and under any other profile: a
+skip is a passing finding whose detail starts with `skipped:`, so it never
+fails a gate.
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `change_config.lanes.command.commands[].name` | string | yes | (0.17.0) Unique id, `[a-z0-9][a-z0-9_-]{0,62}`. Names the finding, the transcript file and the trust step `command:<name>`. |
+| `change_config.lanes.command.commands[].run` | string | yes | (0.17.0) The command, run through `/bin/sh -c` from the repo root. Exit 0 passes; anything else fails. |
+| `change_config.lanes.command.commands[].env` | list of string | no (default none) | (0.17.0) Variable names the command may see beyond the minimal environment, each `[A-Z_][A-Z0-9_]*` and none of `PATH`, `HOME`, `DOCKER_HOST`, `TERM` or the `CF_CHANGE_*` names. |
+| `change_config.lanes.command.commands[].timeout_seconds` | integer | yes | (0.17.0) 1 to 21600. On expiry the process group is killed (TERM, then KILL after 10s) and the entry fails, naming the timeout. |
+| `change_config.lanes.command.commands[].artifacts` | list of string | no | (0.17.0) Repo-relative globs (no absolute path, no `..`) copied after the run, preserving their paths, into the Desktop folder and, when `contributors_team.platform` is set, the published bundle. A glob that matches nothing is a warning in the report, not a failure. |
+| `change_config.lanes.command.commands[].profiles` | list of string | no | (0.17.0) Profile names (each defined under `profiles:`) the entry runs under. Omitted, it runs under every profile and on unprofiled runs. |
+| `change_config.lanes.command.commands[].retries` | integer | no (default 0) | (0.17.0) 0 to 3 further attempts while the entry fails. A pass that needed one is recorded `flaky` with its attempt count. |
+
+```yaml
+change_config:
+  profiles:
+    staging: { boot: { up: "true", target_url: https://staging.example.test } }
+  lanes:
+    command:
+      enabled: true
+      commands:
+        - name: integration
+          run: "bin/itest"
+          env: [DATABASE_URL]
+          timeout_seconds: 900
+          artifacts: ["tmp/itest/**/*.xml"]
+          retries: 1
+        - name: e2e
+          run: "docker compose -p cf-cmd-$CF_CHANGE_RUN_ID -f e2e/compose.yml run --rm e2e"
+          timeout_seconds: 1800
+        - name: cleanup
+          run: "bin/cleanup-test-data"
+          timeout_seconds: 300
+        - name: smoke
+          run: "bin/smoke \"$CF_CHANGE_TARGET_URL\""
+          timeout_seconds: 300
+          profiles: [staging]
+```
 
 ### change_config.lanes.testcases (0.10.0): committed regression cases
 
@@ -1374,4 +1452,7 @@ root `RELEASING.md`.
   differ from the base branch need a human approval per commit
   (`change_approve.rb`), and gate records carry a `trust` manifest the merge
   and tag guards verify; a pre-0.17.0 record needs a re-run. See "Host-run
-  steps" and "Migrating from 0.16" above.
+  steps" and "Migrating from 0.16" above. Also adds the host-run `command`
+  lane (`change_config.lanes.command.commands[]`: `name`, `run`, `env`,
+  `timeout_seconds`, `artifacts`, `profiles`, `retries`), under the same trust
+  and environment rules, each entry its own trust step `command:<name>`.

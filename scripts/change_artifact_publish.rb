@@ -138,7 +138,7 @@ class ChangeArtifactPublish
   # the only thing that turns "the PUT returned 200" into "the right bytes
   # landed".
   def declared_files
-    Dir.glob(File.join(@dir, '**', '*')).select { |path| File.file?(path) }.sort.map do |path|
+    Dir.glob(File.join(@dir, '**', '*'), File::FNM_DOTMATCH).select { |path| File.file?(path) }.sort.map do |path|
       relative = path.delete_prefix("#{@dir}/")
       body = File.binread(path)
       {

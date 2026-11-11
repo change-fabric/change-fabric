@@ -1,7 +1,7 @@
 ---
 name: cf:change
 group: lanes
-description: Deterministic, config-driven release-gate sweep. Runs all five dockerized audit lanes (k6 load, axe-core accessibility, OWASP ZAP pentest, browserless responsive UX, committed test cases) against a project's change-fabric config, aggregates every finding into one CSV and Markdown report on the Desktop, and records a pass/fail gate for the head commit. Invocable directly and gated into cf:drive.
+description: Deterministic, config-driven release-gate sweep. Runs six lanes, five dockerized audit lanes (k6 load, axe-core accessibility, OWASP ZAP pentest, browserless responsive UX, committed test cases) plus a host-run command lane for the project's own checks, against a project's change-fabric config, aggregates every finding into one CSV and Markdown report on the Desktop, and records a pass/fail gate for the head commit. Invocable directly and gated into cf:drive.
 ---
 
 # CF Change (change fabric)
@@ -9,7 +9,8 @@ description: Deterministic, config-driven release-gate sweep. Runs all five dock
 The comprehensive, unattended release-gate sweep. One file per project, the
 repo-root `CHANGE.md`, tells the platform how to boot the target app and what to
 audit (its `change_config:` frontmatter) and how the repo is governed (its
-`change_policy:` frontmatter); this skill runs all five dockerized lanes against
+`change_policy:` frontmatter); this skill runs six lanes (five dockerized audit
+lanes plus a host-run command lane) against
 it and produces one shareable report pair plus a gate record for the PR's head
 commit.
 
@@ -157,6 +158,14 @@ and policy together). Shape under `change_config:`:
   the host. See
   "Config schema" -> `reference/CHANGE-frontmatter-spec.md` for the full field
   set.
+
+- `lanes.command` (0.17.0): `enabled` and `commands`, a list of entries with
+  `name`, `run` (from the repo root, graded by exit code), `timeout_seconds`
+  (required), and optional `env` (declared names), `artifacts` (repo-relative
+  globs collected beside the report), `profiles` (entries outside the run's
+  profile are skipped as a pass) and `retries` (0 to 3, per entry). It runs on
+  the host, not in a container, under the same trust and declared-environment
+  rules as boot; `change_run.rb command` runs it alone.
 
 A lane a project does not want is omitted or set `enabled: false`. A project can
 carry the config alone with none of the tools installed as repo dependencies.
@@ -340,6 +349,11 @@ browserless responsive lane has no standalone skill; it runs as part of
   TTY; never try to run it on the user's behalf. Report the refusal and ask
   the user to run it, then re-run. The rule covers the maintainer's own pull
   requests too.
+- A command lane finding `refusing to run command:<name>`: the branch changed
+  that entry; the same human approval as for boot covers it. A finding
+  `missing declared env: A, B` names variables the entry's `env` lists that are
+  set nowhere. A command that starts containers should name them with
+  `CF_CHANGE_RUN_ID` and remove them itself; `sweep` does not reap them.
 - `boot.env declares variables that are not set: A, B`: boot steps see only
   the minimal environment plus the names `boot.env` lists. Set the named
   variables in the environment or in `boot.env_file`. A boot that relied on an

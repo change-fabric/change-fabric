@@ -10,8 +10,7 @@ require_relative 'change_frontmatter'
 require_relative 'change_schema'
 require_relative 'change_suite'
 require_relative 'change_local_tls'
-require_relative 'change_env'
-require_relative 'docker_doctrine_guard'
+require_relative 'change_command_config'
 
 # Parses and validates a project's change-fabric config. There is one
 # change-fabric file per repo, `CHANGE.md` at the repo root: its YAML
@@ -83,24 +82,16 @@ class ChangeConfig
   # Host-run steps (boot.up, boot.down, command lane entries, 0.17.0) declare
   # the variables they need by name; these are the shapes and the names a step
   # may not declare because the runner always provides them.
-  ENV_NAME = /\A[A-Z_][A-Z0-9_]*\z/
-  RESERVED_ENV_NAMES = (ChangeEnv::BASE_NAMES + ChangeEnv::RUN_NAMES).freeze
-  MAX_TIMEOUT_SECONDS = 21_600
+  ENV_NAME = ChangeCommandConfig::ENV_NAME
+  RESERVED_ENV_NAMES = ChangeCommandConfig::RESERVED_ENV_NAMES
+  MAX_TIMEOUT_SECONDS = ChangeCommandConfig::MAX_TIMEOUT_SECONDS
 
   def self.timeout?(value) = value.is_a?(Integer) && value.between?(1, MAX_TIMEOUT_SECONDS)
 
   # The cf:docker doctrine at config load: a host-run step that would start a
   # project service as a host daemon is refused with the same pattern list the
   # PreToolUse guard uses, and the same CF_ALLOW_HOSTDAEMON=1 escape hatch.
-  def self.doctrine_error(field, cmd)
-    return nil if ENV['CF_ALLOW_HOSTDAEMON'] == '1'
-
-    offender = DockerDoctrineGuard.match(cmd)
-    return nil unless offender
-
-    "#{field} starts a host daemon (#{offender}); run it in a container (see skills/docker/SKILL.md) " \
-      'or set CF_ALLOW_HOSTDAEMON=1'
-  end
+  def self.doctrine_error(field, cmd) = ChangeCommandConfig.doctrine_error(field, cmd)
 
   def self.load(path, profile: nil, root: nil, overrides: {})
     raise ConfigError, "CHANGE.md not found: #{path}. #{REFERENCE_HINT}" unless File.exist?(path)
@@ -278,6 +269,7 @@ class ChangeConfig
   def initialize(raw, dir, profile: nil, spec_version: nil, overrides: {})
     @dir = dir
     @declared_spec_version = spec_version.to_s
+    @profile_names = raw['profiles'].is_a?(Hash) ? raw['profiles'].keys.map(&:to_s) : []
     @profile = resolve_profile_name(raw, profile)
     merged = @profile ? merge_profile(raw, @profile) : raw
     @raw = apply_overrides(merged, overrides)
@@ -424,6 +416,9 @@ class ChangeConfig
     (lanes || {}).each do |lane, section|
       raise ConfigError, "profile '#{name}' lane '#{lane}' override must be a mapping" unless section.is_a?(Hash)
 
+      command_error = lane == 'command' && ChangeCommandConfig.profile_override_error(name, section)
+      raise ConfigError, command_error if command_error
+
       unknown_lane = section.keys - PROFILE_LANE_KEYS
       unless unknown_lane.empty?
         raise ConfigError,
@@ -458,10 +453,19 @@ class ChangeConfig
 
     validate_basic_auth_lanes(lanes || {})
     validate_launch_args(lanes || {})
+    validate_command_lane(lanes || {})
     boot_errors = boot.errors
     raise ConfigError, boot_errors.join('; ') unless boot_errors.empty?
     design_errors = ChangeSchema.design_errors(@raw['design'])
     raise ConfigError, design_errors.join('; ') unless design_errors.empty?
+  end
+
+  # lanes.command (0.17.0): see ChangeCommandConfig for the entry rules.
+  def validate_command_lane(lanes)
+    return unless lanes.key?('command')
+
+    errors = ChangeCommandConfig.errors(lanes['command'], profiles: @profile_names)
+    raise ConfigError, errors.join('; ') unless errors.empty?
   end
 
   # lanes.testcases.launch_args (0.16.0): Chromium flags for the lane's browser.

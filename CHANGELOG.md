@@ -20,8 +20,9 @@ optional field, patch for a documentation-only clarification.
 
 ## [0.17.0] - 2026-11-10
 
-Host-run boot steps run as the base branch defines them, with only the
-environment they declare. A minor bump because the spec is still 0.x, but read
+A host-run command lane for a project's own checks, and host-run steps (boot
+and commands) run as the base branch defines them, with only the environment
+they declare. A minor bump because the spec is still 0.x, but read
 the Breaking section before upgrading.
 
 ### Breaking
@@ -49,6 +50,14 @@ the Breaking section before upgrading.
   verify them.
 - Boot steps that would start a host daemon are refused at config load unless
   `CF_ALLOW_HOSTDAEMON=1`.
+- `change_config.lanes.command`: a sixth, host-run lane for a project's own
+  checks. Each entry in `commands[]` (`name`, `run`, `env`, `timeout_seconds`
+  (required), `artifacts`, `profiles`, `retries`) passes or fails on its exit
+  code, runs under the same base-branch trust and declared environment as
+  boot, writes a masked transcript and its artifacts beside the report, and
+  joins the same gate. Entries with `profiles` are skipped (as a pass) outside
+  those profiles. Lane-level `retries`, `base_url`, `wait_for`, `basic_auth`,
+  `auth` and `targets` are rejected; a profile may only set `enabled`.
 
 ### Changed
 
