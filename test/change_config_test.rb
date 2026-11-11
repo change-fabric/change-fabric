@@ -154,10 +154,13 @@ class ChangeConfigTest < Minitest::Test
   end
 
   def test_boot_step_starting_a_host_daemon_is_refused
+    prev = ENV.delete("CF_ALLOW_HOSTDAEMON")
     error = assert_raises(ChangeConfig::ConfigError) do
       with_config("boot" => { "up" => "redis-server --daemonize yes" }, "lanes" => { "k6" => {} }) { |_config, _root| nil }
     end
     assert_match(/boot\.up starts a host daemon \(redis-server\); run it in a container/, error.message)
+  ensure
+    ENV["CF_ALLOW_HOSTDAEMON"] = prev if prev
   end
 
   def test_host_daemon_escape_hatch_allows_the_boot_step

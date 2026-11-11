@@ -12,7 +12,9 @@ class DockerDoctrineGuardTest < Minitest::Test
   end
 
   def teardown
-    ENV["CF_ALLOW_HOSTDAEMON"] = @prev if @prev
+    # Restore exactly, deleting when it was unset: a test here sets it to "1",
+    # and leaving that behind turns off the doctrine check for every later test.
+    @prev ? ENV["CF_ALLOW_HOSTDAEMON"] = @prev : ENV.delete("CF_ALLOW_HOSTDAEMON")
   end
 
   def guard(tool_name, tool_input)
