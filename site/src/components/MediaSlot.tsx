@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import manifest from "../generated/media.json";
-import { activeWordIndex, formatDuration, highlightLoop, type MediaEntry, type Word } from "../media";
+import { activeWordIndex, captionText, formatDuration, highlightLoop, type MediaEntry, type Word } from "../media";
 
 const SLOTS = (manifest as { slots: Record<string, MediaEntry> }).slots;
 
@@ -8,9 +8,9 @@ function prefersReducedMotion(): boolean {
   return typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
 
-// One click-to-load media slot. Before the click there is no <video> or
-// <audio> in the DOM, so the page fetches no media bytes; the click swaps in
-// the player with captions on, plays it, and moves focus to it. A slot with no
+// One click-to-load media slot. Before the click the player has no src, so
+// the page fetches no media bytes; the click gives it its src, plays it with
+// captions on, and moves focus to it. A slot with no
 // manifest entry renders nothing; one whose bytes are missing (a fresh clone,
 // a preview) says so and keeps its transcript.
 export function MediaSlot({ slot }: { slot: string }) {
@@ -28,13 +28,6 @@ function MediaFigure({ entry }: { entry: MediaEntry }) {
   const duration = formatDuration(entry.duration_ms);
   const noun = entry.kind === "video" ? "Video" : "Audio";
 
-  useEffect(() => {
-    const media = mediaRef.current;
-    if (!started || !media) return;
-    media.focus();
-    media.play().catch(() => setUnavailable(true));
-  }, [started]);
-
   // Words load only after the click, so they never cost a byte before it.
   useEffect(() => {
     if (!started || !entry.words) return;
@@ -49,6 +42,14 @@ function MediaFigure({ entry }: { entry: MediaEntry }) {
       cancelled = true;
     };
   }, [started, entry.words]);
+
+  // Focus moves to the player once it is revealed: inside the click handler
+  // the player is still hidden (React applies `started` after the handler
+  // returns), so a focus() there is a no-op and focus would be lost with the
+  // removed play button.
+  useEffect(() => {
+    if (started) mediaRef.current?.focus();
+  }, [started]);
 
   // Follow-along highlight: only while playing, never under reduced motion.
   useEffect(() => {
@@ -78,49 +79,86 @@ function MediaFigure({ entry }: { entry: MediaEntry }) {
   const sized = entry.width && entry.height ? { width: entry.width, height: entry.height } : {};
   const onError = () => setUnavailable(true);
 
-  let player;
-  if (!started) {
-    player = (
-      <div className="media-slot-cover">
-        {entry.poster ? (
-          <img src={entry.poster} alt={entry.alt} {...sized} loading="lazy" decoding="async" />
-        ) : null}
-        <span className="media-slot-duration" aria-hidden="true">
-          {duration}
-        </span>
-        <button type="button" className="media-slot-play" onClick={() => setStarted(true)}>
-          Play: {entry.title} ({duration})
-        </button>
+  // The player is in the DOM from the first render with no src and
+  // preload="none", so it costs no bytes until the click. The click sets the
+  // src and calls play() on that same element inside the tap: iOS Safari
+  // honors play() only within the user gesture, and the earlier design (a
+  // fresh <video> with <source> children swapped in, play() from an effect)
+  // sat at 00:00 / 00:00 there and never loaded.
+  const start = () => {
+    const media = mediaRef.current;
+    setStarted(true);
+    if (!media) return;
+    media.src = entry.src;
+    media.play().catch((error: unknown) => {
+      if (!(error instanceof DOMException && error.name === "AbortError")) setUnavailable(true);
+    });
+  };
+
+  const icon = (
+    <span className="media-slot-play-icon" aria-hidden="true">
+      <svg viewBox="0 0 24 24" focusable="false">
+        <path d="M8 5.5v13l10.5-6.5z" />
+      </svg>
+    </span>
+  );
+  // Captions mount with the click, so the .vtt is not fetched before it.
+  const track = <track kind="captions" srcLang="en" label="English" src={entry.vtt} default />;
+
+  const player =
+    entry.kind === "video" ? (
+      <div
+        className="media-slot-frame"
+        style={entry.width && entry.height ? { aspectRatio: `${entry.width} / ${entry.height}` } : undefined}
+      >
+        <video
+          ref={mediaRef}
+          controls={started}
+          preload="none"
+          playsInline
+          poster={started ? (entry.poster ?? undefined) : undefined}
+          aria-label={entry.title}
+          aria-hidden={started ? undefined : true}
+          tabIndex={started ? undefined : -1}
+          onError={onError}
+          {...sized}
+        >
+          {started ? track : null}
+        </video>
+        {started ? null : (
+          <button type="button" className="media-slot-play" onClick={start}>
+            {entry.poster ? <img src={entry.poster} alt="" {...sized} loading="lazy" decoding="async" /> : null}
+            {icon}
+            <span className="sr-only">
+              Play video: {entry.title} ({duration})
+            </span>
+          </button>
+        )}
+      </div>
+    ) : (
+      <div className="media-slot-audio-row">
+        {started ? null : (
+          <button type="button" className="media-slot-play" onClick={start}>
+            {icon}
+            <span>
+              Play: {entry.title} ({duration})
+            </span>
+          </button>
+        )}
+        <audio ref={mediaRef} controls hidden={!started} preload="none" aria-label={entry.title} onError={onError}>
+          {started ? track : null}
+        </audio>
       </div>
     );
-  } else if (entry.kind === "video") {
-    player = (
-      <video
-        ref={mediaRef}
-        controls
-        preload="none"
-        playsInline
-        poster={entry.poster ?? undefined}
-        aria-label={entry.title}
-        onError={onError}
-        {...sized}
-      >
-        <source src={entry.src} type="video/mp4" onError={onError} />
-        <track kind="captions" srcLang="en" label="English" src={entry.vtt} default />
-      </video>
-    );
-  } else {
-    player = (
-      <audio ref={mediaRef} controls preload="none" aria-label={entry.title} onError={onError}>
-        <source src={entry.src} type="audio/mpeg" onError={onError} />
-        <track kind="captions" srcLang="en" label="English" src={entry.vtt} default />
-      </audio>
-    );
-  }
 
   return (
     <figure className={`media-slot media-slot-${entry.kind}`}>
       {player}
+      {entry.kind === "video" ? (
+        <figcaption className="media-slot-caption">
+          <span className="media-slot-duration">{duration}</span> {captionText(entry)}
+        </figcaption>
+      ) : null}
       {unavailable ? (
         <p className="media-slot-note" role="status">
           {noun} unavailable in this build
