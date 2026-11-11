@@ -183,16 +183,23 @@ class ChangeTrustTest < Minitest::Test
     assert_equal({ "web" => %w[local staging], "api" => %w[local] }, ChangeTrust.profiles_by_app(@repo, sha))
   end
 
+  def test_an_explicitly_named_disabled_app_is_snapshotted_and_approvable
+    sha = commit_monorepo(web_staging_up: "echo web-staging", api_enabled: false)
+    refute ChangeTrust.snapshot_definitions(@repo, sha).key?("api/boot.up")
+    assert_equal "echo api", ChangeTrust.snapshot_definitions(@repo, sha, apps: %w[api])["api/boot.up"]["run"]
+    assert_equal %w[local], ChangeTrust.profiles_by_app(@repo, sha)["api"]
+  end
+
   private
 
-  def commit_monorepo(web_staging_up:)
+  def commit_monorepo(web_staging_up:, api_enabled: true)
     write("CHANGE.md", <<~MD)
       ---
       change_config:
         project: mono
         apps:
           web: { config: apps/web/CHANGE.app.yml }
-          api: { config: apps/api/CHANGE.app.yml }
+          api: { config: apps/api/CHANGE.app.yml, enabled: #{api_enabled} }
       ---
     MD
     write("apps/web/CHANGE.app.yml", <<~YML)

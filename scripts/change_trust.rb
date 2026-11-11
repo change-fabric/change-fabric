@@ -105,8 +105,13 @@ module ChangeTrust
     with_snapshot(root, ref) do |registry|
       return {} unless registry
 
-      entries = registry.enabled_entries
-      entries = entries.select { |entry| apps.include?(entry.name) } if apps && registry.multi_app?
+      # An app named explicitly counts even when disabled: `--app NAME` runs a
+      # disabled app, so its steps need the same comparison and approval.
+      entries = if apps && registry.multi_app?
+                  registry.entries.select { |entry| apps.include?(entry.name) }
+      else
+                  registry.enabled_entries
+      end
       entries.each_with_object({}) do |entry, defs|
         prefix = registry.multi_app? ? "#{entry.name}/" : ''
         defs.merge!(step_definitions(entry.load(profile: profile), prefix: prefix))
@@ -118,12 +123,13 @@ module ChangeTrust
 
   # { app name (nil in single-app mode) => profile names it defines, or
   # [nil] when it defines none }, as committed at `ref`. change_approve.rb
-  # walks this so every definition a run could execute can be approved.
+  # walks this so every definition a run could execute can be approved,
+  # including a disabled app's (`--app NAME` runs one).
   def profiles_by_app(root, ref)
     with_snapshot(root, ref) do |registry|
       return {} unless registry
 
-      registry.enabled_entries.to_h do |entry|
+      registry.entries.to_h do |entry|
         profiles = entry_profiles(entry)
         [ registry.multi_app? ? entry.name : nil, profiles.empty? ? [ nil ] : profiles ]
       end
