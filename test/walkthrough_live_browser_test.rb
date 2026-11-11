@@ -52,7 +52,48 @@ class WalkthroughLiveBrowserTest < Minitest::Test
     assert out["url"].end_with?("/login"), "no persona means a fresh logged-out session"
 
     filmed_capture(session, board, secrets)
+    inset_capture(session, board, secrets)
     devices_capture(session, board, secrets, login)
+  end
+
+  # The inset is drawn from a hi-res element still taken at at_ms; the same
+  # runs without the still fall back to the upscaled 1x crop with a warning.
+  # The hi-res inset carries more edge energy (crisper text) than the upscale.
+  def inset_capture(session, board, secrets)
+    scene = scene_by(board, "inset")
+    jobs = WalkthroughDevice.specs(board, scene).map { |d| WalkthroughLive.job(board, scene, d, secrets, compose: nil, shots: true) }
+    jobs.each { |j| j["inset"] = WalkthroughInset.job(scene, WalkthroughLive.fps_for(board)) }
+    runs = PrototypeCapture.run_with_retry(session, WalkthroughLive.capture_module(board, scene, jobs: jobs, session: nil))["devices"]
+    assert_kind_of String, runs.first["insetHi"], "the capture returns a hi-res element still"
+    Dir.mktmpdir do |work|
+      sharp = {}
+      { "hires" => runs, "upscale" => runs.map { |r| r.except("insetHi") } }.each do |name, rs|
+        out_dir = File.join(work, ".cache", "frames", name)
+        _o, err = capture_io { WalkthroughLive::SceneWriter.new(board: board, scene: scene, secrets: secrets, docker: nil, work: work).write(rs, out_dir) }
+        meta = JSON.parse(File.read(File.join(out_dir, "inset.json")))
+        assert_equal name == "hires", meta["hires"]
+        assert_equal name == "upscale", err.include?("hi-res inset capture failed"), err
+        sharp[name] = hard_edges(work, out_dir, meta)
+      end
+      assert_operator sharp["hires"], :>, sharp["upscale"] * 2, "hi-res inset is crisper: #{sharp.inspect}"
+    end
+  end
+
+  # Hard horizontal edges (a step over 96 gray levels between neighbours)
+  # inside the inset on its middle frame: an upscale smears each edge over
+  # several pixels, so it has far fewer.
+  def hard_edges(work, out_dir, meta)
+    r = meta["region"]
+    frame = format("%06d.png", ((meta["start"] + meta["stop"]) / 2) + 1)
+    file = File.join(out_dir, frame).delete_prefix("#{work}/")
+    argv = ChangeDocker.run_command(network: "none", image: ChangeDocker::FFMPEG_IMAGE, mounts: { work => "/work" }, workdir: "/work",
+                                    args: [ "-v", "error", "-i", "/work/#{file}", "-vf", "crop=#{r['w'] - 8}:#{r['h'] - 8}:#{r['x'] + 4}:#{r['y'] + 4},format=gray",
+                                            "-f", "rawvideo", "-" ])
+    out, = Open3.capture2(*argv, binmode: true)
+    px = out.bytes
+    w = r["w"] - 8
+    diffs = px.each_slice(w).flat_map { |row| row.each_cons(2).map { |a, b| (a - b).abs } }
+    diffs.count { |d| d > 96 }
   end
 
   # A desktop login session carries into a phone scene; a side-by-side scene
@@ -140,6 +181,7 @@ class WalkthroughLiveBrowserTest < Minitest::Test
           { "t_ms" => 500, "op" => "type", "target" => "#password", "env" => "FIXTURE_PASSWORD", "cps" => 60 },
           { "t_ms" => 1000, "op" => "click", "target" => "#sign-in" }
         ]),
+        live_scene("inset", "/login", "inset" => { "selector" => "#sign-in", "at_ms" => 300, "duration_ms" => 1000, "scale" => 4 }),
         live_scene("phone-app", "/app", "devices" => [ "phone" ], "interactions" => [ { "t_ms" => 300, "op" => "click", "target" => "#welcome" } ]),
         live_scene("both", "/app", "devices" => %w[desktop phone], "layout" => "side_by_side",
                                    "interactions" => { "desktop" => [ { "t_ms" => 300, "op" => "click", "target" => "#contact" } ] }),

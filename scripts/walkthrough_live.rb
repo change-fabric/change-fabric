@@ -513,6 +513,7 @@ module WalkthroughLive
         const overlays = {};
         let resting = null;
         let inset = null;
+        let insetHi = null;
         let pos = { x: dev.w / 2, y: dev.h / 2 };
         let from = pos;
         let down = false;
@@ -587,6 +588,18 @@ module WalkthroughLive
           if (job.inset && i === job.inset.frame) {
             inset = await safe(() => page.evaluate((s) => { const el = document.querySelector(s); if (!el) return null; const r = el.getBoundingClientRect(); return { x: r.left, y: r.top, w: r.width, h: r.height }; }, job.inset.selector), null);
             if (!inset) throw new Error(`inset selector not found: ${job.inset.selector}`);
+            // The same padded, viewport-clamped region the composite crops,
+            // shot at scale x dpr so the inset is not an upscaled 1x crop.
+            insetHi = await safe(async () => {
+              const p = job.inset.pad;
+              const cl = (v, max) => Math.min(Math.max(v, 0), max);
+              const x0 = cl(inset.x - p, dev.w), y0 = cl(inset.y - p, dev.h);
+              const x1 = cl(inset.x + inset.w + p, dev.w), y1 = cl(inset.y + inset.h + p, dev.h);
+              if (x1 - x0 < 1 || y1 - y0 < 1) return null;
+              const scroll = await page.evaluate(() => ({ x: window.scrollX, y: window.scrollY }));
+              const clip = { x: x0 + scroll.x, y: y0 + scroll.y, width: x1 - x0, height: y1 - y0, scale: job.inset.scale * (dev.dpr || 1) };
+              return (await client.send("Page.captureScreenshot", { format: "png", clip })).data;
+            }, null);
           }
           sampler.tick();
           cursor.push({ x: pos.x, y: pos.y, down });
@@ -605,7 +618,7 @@ module WalkthroughLive
         }), null) : null;
         const out = await dumpSession(page, client);
         if (context) await context.close();
-        return { name: dev.name, frames: sampled.frames, ticks: sampled.ticks, cursor, pageErrors, lint, devices, overlays, links, composed, inset, session: out };
+        return { name: dev.name, frames: sampled.frames, ticks: sampled.ticks, cursor, pageErrors, lint, devices, overlays, links, composed, inset, insetHi, session: out };
       };
     JS
   end
@@ -730,7 +743,8 @@ module WalkthroughLive
       dirs = runs.to_h { |run| [ run['name'], write_jpgs(run, File.join(out_dir, 'jpg', run['name'])) ] }
       # The composite filter is positional over the layout's rects, so feed
       # inputs in rect order, not the scene's authored device order.
-      composite!(@stage.rects.map { |r| dirs.fetch(r.name) }, out_dir, inset_plan(runs))
+      plan = inset_plan(runs)
+      composite!(@stage.rects.map { |r| dirs.fetch(r.name) }, out_dir, plan, hires: plan && write_inset_still(runs, out_dir))
       FileUtils.rm_rf(File.join(out_dir, 'jpg'))
       write_tracks(runs, out_dir)
       links = runs.flat_map { |r| Array(r['links']) }.uniq.map { |href| WalkthroughCompose.parse_link(href).merge('href' => href) }
@@ -781,6 +795,21 @@ module WalkthroughLive
       WalkthroughInset.plan(@scene, @stage, desk['inset'], viewport_w: viewport_for(@board)['w'], fps: fps_for(@board), frames: desk['cursor'].size)
     end
 
+    # The hi-res element still captured at at_ms, written beside the jpgs
+    # (removed with them), or nil with a warning when that capture failed,
+    # in which case the composite upscales the 1x crop instead.
+    def write_inset_still(runs, out_dir)
+      data = runs.find { |r| r['name'] == 'desktop' }&.dig('insetHi')
+      unless data.is_a?(String) && !data.empty?
+        warn "walkthrough: scene #{@scene['id']}: hi-res inset capture failed; upscaling the 1x crop"
+        return nil
+      end
+      path = File.join(out_dir, 'jpg', 'inset.png')
+      FileUtils.mkdir_p(File.dirname(path))
+      File.binwrite(path, data.unpack1('m'))
+      path
+    end
+
     def viewport_for(board) = WalkthroughLive.viewport_for(board)
 
     def fps_for(board) = WalkthroughLive.fps_for(board)
@@ -799,15 +828,18 @@ module WalkthroughLive
 
     # JPEG screencast frames become PNGs on the board canvas in the pinned
     # FFmpeg container, offline.
-    def composite!(dirs, out_dir, inset = nil)
+    def composite!(dirs, out_dir, inset = nil, hires: nil)
       inputs = dirs.flat_map { |d| [ '-start_number', '1', '-i', File.join(container(d), '%06d.jpg') ] }
-      args = [ '-hide_banner', '-nostdin', '-y', *inputs, '-filter_complex', WalkthroughInset.append(composite_filter(out_dir), inset), '-map', '[out]',
+      hires = nil unless inset
+      inputs += [ '-i', container(hires) ] if hires
+      filter = WalkthroughInset.append(composite_filter(out_dir), inset, hires: hires && dirs.size)
+      args = [ '-hide_banner', '-nostdin', '-y', *inputs, '-filter_complex', filter, '-map', '[out]',
                '-start_number', '1', File.join(container(out_dir), '%06d.png') ]
       argv = ChangeDocker.run_command(network: 'none', image: ChangeDocker::FFMPEG_IMAGE, args: args, mounts: { @work => '/work' }, workdir: '/work')
       out, status = @docker.call(argv)
       raise CaptureError, "ffmpeg frame composite failed:\n#{out.to_s.lines.last(10).join}" unless status.success?
 
-      File.write(File.join(out_dir, 'inset.json'), JSON.pretty_generate(inset.to_h.merge('region' => WalkthroughInset.region(inset)))) if inset
+      File.write(File.join(out_dir, 'inset.json'), JSON.pretty_generate(inset.to_h.merge('region' => WalkthroughInset.region(inset), 'hires' => !hires.nil?))) if inset
     end
   end
 end
