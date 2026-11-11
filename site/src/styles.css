@@ -639,9 +639,10 @@ code {
   mask-composite: intersect;
 }
 
-/* The canvas fades in over the static layer rather than swapping with it,
-   so the first lit frame never pops. The static layer stays until the fade
-   has finished, then steps out. Opacity only, so it stays on the compositor. */
+/* The canvas and the static layer crossfade rather than swap, so the first
+   lit frame never pops. Both are translucent, so the static layer fades out
+   over the same 900 ms the canvas fades in, then leaves the tree. Opacity
+   only, so it stays on the compositor. */
 .fabric-light {
   transition: opacity 900ms ease-out;
 }
@@ -651,10 +652,11 @@ code {
 }
 
 .shell:has(.home)::after {
-  transition: visibility 0s linear 900ms;
+  transition: opacity 900ms ease-out, visibility 0s linear 900ms;
 }
 
 .shell:has(> .fabric-light[data-live])::after {
+  opacity: 0;
   visibility: hidden;
 }
 
