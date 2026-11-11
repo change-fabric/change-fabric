@@ -247,6 +247,30 @@ A live or compose scene picks the devices it films and how they share the frame:
 - Compositing is offline in the pinned FFmpeg container (`scripts/walkthrough_browser_frame.rb`); the cursor track is mapped into the window. A live scene is framed while its screencast is composited; an environment scene is framed in place right after capture.
 - The frame (title, address, compositor version, FFmpeg digest) is part of the scene's `frames_key`, so changing any of them recaptures.
 
+### Magnified inset
+
+`inset` on a live scene magnifies one small element (a badge, a figure, a source line of 8 to 11 px at 1080p) the viewer must read, without a camera zoom: the device or browser frame keeps its size, so the device-frame rule still holds.
+
+```json
+{ "id": "report", "order": 4,
+  "screen": { "url": "https://app.localhost/report", "frame": "browser" },
+  "inset": { "selector": "[data-test=source-line]", "at_ms": 1200, "duration_ms": 2500, "scale": 2.5, "position": "top-right" } }
+```
+
+| Field | Type | Default | Rule |
+|---|---|---|---|
+| `selector` | string | required | CSS selector; its first match is magnified. A selector that matches nothing at `at_ms` fails the capture. |
+| `at_ms` | integer | required | Non-negative; the element box is read on that frame and the inset starts there. |
+| `duration_ms` | integer | required | 600..15000; the window is clipped to the scene's end. |
+| `scale` | number | 2.0 | 1.25..4; lowered to fit when the magnified box would leave the safe area. |
+| `position` | string | `top-right` | One of `top-right`, `top-left`, `bottom-right`, `bottom-left`. |
+
+- The scene must be live (`screen.url`) and film the desktop only; `inset` with `camera.zoom` above 1 is an error.
+- At capture the desktop run records the element's bounding box (viewport CSS px, padded by 6 px). The box maps to the canvas through the scene's own frame layout (`walkthrough_browser_frame.rb` or `walkthrough_device.rb`), so a browser frame is accounted for.
+- The composite crops that region from every captured frame and overlays it magnified with a 3 px border and a 200 ms alpha fade in and out, in a corner of the safe area: 4% of the canvas height from the edges and above the caption band. Fades count frames, so the output is deterministic (`scripts/walkthrough_inset.rb`).
+- The inset is drawn after the in-page UX lint ran, so it never enters the lint; its on-canvas region is written to `inset.json` beside the frames.
+- The inset spec and its compositor version are part of the scene's `frames_key`.
+
 ## Diagram scene
 
 `"kind": "diagram"` is a full-frame node and edge diagram (React Flow, vendored as `scripts/vendor/xyflow/xyflow-<version>.min.js`, driven by `cf_diagram_runtime.js`) that assembles and moves under the capture clock. It is a prototype screen: `screen.html` is required and generated, and live-only keys are refused. Worked example: `test/fixtures/walkthrough/diagram-lr/storyboard.json`.
@@ -341,7 +365,7 @@ Ops (closed set, `WalkthroughDiagram::DIAGRAM_OPS`). Ops marked "id or ids" take
 All keys are sha256 hex over canonical JSON (sorted keys, no whitespace).
 
 - `frames_key` (compose scene): the compose spec, the template version, the source scene's frames key, and the same capture fields as a live scene.
-- `frames_key` (live scene): URL, devices with their specs, layout, the browser frame when set, the persona name and login spec (env names, never values), the session parent's frames key, interactions, `wait`, `storage`, viewport, fps, the derived duration, `browser`, the browserless image digest, and the live capture version. It recaptures only with `--recapture` or `--scene` (which pulls in its `session_from_scene` dependents).
+- `frames_key` (live scene): URL, devices with their specs, layout, the browser frame when set, the inset when set, the persona name and login spec (env names, never values), the session parent's frames key, interactions, `wait`, `storage`, viewport, fps, the derived duration, `browser`, the browserless image digest, and the live capture version. It recaptures only with `--recapture` or `--scene` (which pulls in its `session_from_scene` dependents).
 - `frames_key`: screen html sha256, the inlined screen with every local asset, `tokens_css_sha256`, interactions, viewport, fps, the browserless image digest, the capture script version, the derived duration, the seed sha256, the mock-store.js sha256, the resolved starting state, and `prng_seed`; an environment scene adds the desktop kit `VERSION` and the browser frame when set; a diagram scene adds the xyflow bundle sha256 and the diagram runtime sha256.
 - `audio_key`: narration text, voice id, model, output format, voice settings, and `voice.pronunciations` when present.
 - `asset_key` (images): prompt, model id, size, quality, and reference image digests.
