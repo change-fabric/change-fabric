@@ -57,26 +57,26 @@ class ChangeDockerTest < Minitest::Test
   def ok_response = http_response(Net::HTTPOK, "200", '{"data":["frame"],"type":"application/json"}')
   def timed_out = http_response(Net::HTTPRequestTimeout, "408", "Request has timed out")
 
-  def test_run_function_reruns_a_408_once
+  # run_function itself never re-runs: a module that clicked or submitted may
+  # have acted before the timeout. A 408 gets its own class for replay-safe
+  # callers; anything else stays a plain failure.
+  def test_run_function_raises_timed_out_on_a_408_without_rerunning
     session, calls = scripted_session(timed_out, ok_response)
-    _out, err = capture_io { assert_equal [ "frame" ], session.run_function("code") }
-    assert_equal 2, calls.size
-    assert_match(/408/, err)
-  end
-
-  def test_run_function_raises_on_a_second_408
-    session, calls = scripted_session(timed_out, timed_out, ok_response)
-    capture_io do
-      error = assert_raises(RuntimeError) { session.run_function("code") }
-      assert_match(/408 Request has timed out/, error.message)
-    end
-    assert_equal 2, calls.size
-  end
-
-  def test_run_function_never_reruns_another_failure
-    session, calls = scripted_session(http_response(Net::HTTPBadRequest, "400", "boom"), ok_response)
-    assert_raises(RuntimeError) { session.run_function("code") }
+    error = assert_raises(ChangeDocker::Browserless::TimedOut) { session.run_function("code") }
+    assert_match(/408 Request has timed out/, error.message)
     assert_equal 1, calls.size
+  end
+
+  def test_run_function_raises_a_plain_error_on_another_failure
+    session, calls = scripted_session(http_response(Net::HTTPBadRequest, "400", "boom"), ok_response)
+    error = assert_raises(RuntimeError) { session.run_function("code") }
+    refute_kind_of ChangeDocker::Browserless::TimedOut, error
+    assert_equal 1, calls.size
+  end
+
+  def test_run_function_unwraps_a_success
+    session, = scripted_session(ok_response)
+    assert_equal [ "frame" ], session.run_function("code")
   end
 
   # The configured-network branch must not touch docker: it just wraps the name.

@@ -299,11 +299,11 @@ module ChangeDocker
     # first one hit.
     FUNCTION_TIMEOUT_MS = 115_000
 
-    # A 408 is browserless's limiter giving up on the job: the module's result
-    # never reached us, so nothing was produced and re-running the whole call
-    # is safe. Retried once, and only for that status; any other failure, and
-    # whatever the caller then asserts on the result, is untouched.
-    TIMEOUT_RETRIES = 1
+    # A 408: browserless's limiter gave up on the job and no result came back.
+    # Its own class so a caller whose module is a pure replay can re-run it;
+    # a module that clicks or submits may have acted before the timeout, so
+    # nothing here retries.
+    class TimedOut < RuntimeError; end
 
     def run_function(code, launch_args: [])
       if @local_tls_hosts
@@ -311,8 +311,10 @@ module ChangeDocker
         launch_args = launch_args + [ ChangeLocalTls::LAUNCH_ARG ]
       end
       uri = URI(function_url(launch_args))
-      response = post_with_timeout_retry(uri, code)
-      raise "browserless /function failed: #{response.code} #{response.body}" unless response.is_a?(Net::HTTPSuccess)
+      response = post(uri, code, 'application/javascript')
+      failure = "browserless /function failed: #{response.code} #{response.body}"
+      raise TimedOut, failure if response.code.to_s == '408'
+      raise failure unless response.is_a?(Net::HTTPSuccess)
 
       unwrap(JSON.parse(response.body))
     end
@@ -341,17 +343,6 @@ module ChangeDocker
       Net::HTTP.get_response(uri).is_a?(Net::HTTPSuccess)
     rescue StandardError
       false
-    end
-
-    def post_with_timeout_retry(uri, code)
-      response = nil
-      (TIMEOUT_RETRIES + 1).times do
-        response = post(uri, code, 'application/javascript')
-        break unless response.code.to_s == '408'
-
-        warn "browserless /function returned 408 (#{response.body}); re-running the call once"
-      end
-      response
     end
 
     def post(uri, body, content_type)
