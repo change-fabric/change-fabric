@@ -26,6 +26,17 @@ export function formatDuration(ms: number): string {
   return `${minutes}:${String(seconds).padStart(2, "0")}`;
 }
 
+// The caption beside the runtime badge. The alt text usually opens with the
+// title ("change fabric in 45 seconds: a narrated walkthrough"), and that
+// rounded duration next to the exact badge reads as a contradiction, so the
+// caption keeps only what follows the title.
+export function captionText(entry: Pick<MediaEntry, "title" | "alt">): string {
+  const prefix = `${entry.title}: `;
+  if (!entry.alt.startsWith(prefix) || entry.alt.length === prefix.length) return entry.alt;
+  const rest = entry.alt.slice(prefix.length);
+  return rest[0].toUpperCase() + rest.slice(1);
+}
+
 // The word being spoken at `ms`, or -1 between words, before the first, or
 // after the last. Words arrive sorted by start time, so this is a binary
 // search for the last word that has started.

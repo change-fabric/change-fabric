@@ -1,7 +1,39 @@
 // Run with `npm test` (node --test, which strips the types itself).
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { activeWordIndex, formatDuration, highlightLoop } from "../src/media.ts";
+import { readFileSync } from "node:fs";
+import { activeWordIndex, captionText, formatDuration, highlightLoop } from "../src/media.ts";
+
+const slotSource = readFileSync(new URL("../src/components/MediaSlot.tsx", import.meta.url), "utf8");
+
+test("the caption drops a leading title so it never restates the runtime", () => {
+  const title = "change fabric in 45 seconds";
+  assert.equal(
+    captionText({ title, alt: `${title}: a narrated walkthrough of the toolkit` }),
+    "A narrated walkthrough of the toolkit",
+  );
+  assert.equal(captionText({ title, alt: "A walkthrough with no title prefix" }), "A walkthrough with no title prefix");
+  assert.equal(captionText({ title, alt: `${title}: ` }), `${title}: `);
+});
+
+// iOS Safari plays media only from inside the tap. The 0.13.1 slot swapped in
+// a fresh <video> with <source> children and called play() from an effect;
+// on an iPhone it sat at 00:00 / 00:00. Guard the shape of the fix: one
+// player mounted up front, its src set and play() called in the click handler.
+test("play() runs in the click handler on the mounted player, never in an effect", () => {
+  const start = slotSource.slice(slotSource.indexOf("const start = () => {"));
+  const body = start.slice(0, start.indexOf("\n  };"));
+  assert.match(body, /media\.src = entry\.src;/);
+  assert.match(body, /media\.play\(\)/);
+  assert.ok(body.indexOf("media.src") < body.indexOf("media.play()"), "src must be set before play()");
+  assert.match(slotSource, /onClick=\{start\}/);
+  for (const effect of slotSource.split("useEffect(").slice(1)) {
+    assert.doesNotMatch(effect.slice(0, effect.indexOf("}, [")), /\.play\(\)/, "play() inside a useEffect");
+  }
+  assert.doesNotMatch(slotSource, /<source\s+src=/, "a <source> child instead of the src set on tap");
+  assert.match(slotSource, /preload="none"/);
+  assert.match(slotSource, /playsInline/);
+});
 
 test("durations format as m:ss", () => {
   assert.equal(formatDuration(0), "0:00");
