@@ -12,6 +12,7 @@ require_relative 'prototype_ux_lint'
 require_relative 'walkthrough_compose'
 require_relative 'walkthrough_device'
 require_relative 'walkthrough_browser_frame'
+require_relative 'walkthrough_inset'
 require_relative 'walkthrough_message'
 require_relative 'walkthrough_cache'
 
@@ -313,6 +314,7 @@ module WalkthroughLive
                          devices: WalkthroughDevice.specs(board, scene), layout: WalkthroughDevice.layout_name(scene),
                          stage: WalkthroughSharpness.stage_size(board, scene),
                          **(WalkthroughBrowserFrame.browser?(scene) ? { frame: WalkthroughBrowserFrame.material(scene) } : {}),
+                         **(WalkthroughInset.inset?(scene) ? { inset: WalkthroughInset.material(scene) } : {}),
                          browserless: PrototypeCapture.browserless_digest, capture_version: CAPTURE_VERSION)
   end
 
@@ -510,6 +512,7 @@ module WalkthroughLive
         const cursor = [], lint = [], devices = [], links = [];
         const overlays = {};
         let resting = null;
+        let inset = null;
         let pos = { x: dev.w / 2, y: dev.h / 2 };
         let from = pos;
         let down = false;
@@ -581,6 +584,10 @@ module WalkthroughLive
             for (const f of await safe(() => page.evaluate((t, b) => window.__cfUx.lint(t, b), targets, job.band), [])) lint.push(Object.assign({ frame: i, device: dev.name }, f));
             for (const d of await safe(() => page.evaluate(() => window.__cfUx.devices()), [])) devices.push(Object.assign({ frame: i, group: job.group }, d));
           }
+          if (job.inset && i === job.inset.frame) {
+            inset = await safe(() => page.evaluate((s) => { const el = document.querySelector(s); if (!el) return null; const r = el.getBoundingClientRect(); return { x: r.left, y: r.top, w: r.width, h: r.height }; }, job.inset.selector), null);
+            if (!inset) throw new Error(`inset selector not found: ${job.inset.selector}`);
+          }
           sampler.tick();
           cursor.push({ x: pos.x, y: pos.y, down });
           down = false;
@@ -598,7 +605,7 @@ module WalkthroughLive
         }), null) : null;
         const out = await dumpSession(page, client);
         if (context) await context.close();
-        return { name: dev.name, frames: sampled.frames, ticks: sampled.ticks, cursor, pageErrors, lint, devices, overlays, links, composed, session: out };
+        return { name: dev.name, frames: sampled.frames, ticks: sampled.ticks, cursor, pageErrors, lint, devices, overlays, links, composed, inset, session: out };
       };
     JS
   end
@@ -692,6 +699,8 @@ module WalkthroughLive
     # rubocop:enable Metrics/ParameterLists
     specs = WalkthroughDevice.specs(board, scene)
     jobs = specs.map { |spec| job(board, scene, spec, secrets, compose: compose, shots: shots, root: work) }
+    # The desktop run reads the inset element's box at its first frame.
+    jobs.each { |j| j['inset'] = WalkthroughInset.job(scene, fps_for(board)) if shots && j['dev']['name'] == 'desktop' }
     launch = BrowserlessJs.capture_launch_args(WalkthroughDevice.capture_scale(specs))
     code = capture_module(board, scene, jobs: jobs, session: browser_session)
     result = guard(secrets) { PrototypeCapture.run_with_retry(session, code, retries: retries_for(jobs), launch_args: launch) }
@@ -721,7 +730,7 @@ module WalkthroughLive
       dirs = runs.to_h { |run| [ run['name'], write_jpgs(run, File.join(out_dir, 'jpg', run['name'])) ] }
       # The composite filter is positional over the layout's rects, so feed
       # inputs in rect order, not the scene's authored device order.
-      composite!(@stage.rects.map { |r| dirs.fetch(r.name) }, out_dir)
+      composite!(@stage.rects.map { |r| dirs.fetch(r.name) }, out_dir, inset_plan(runs))
       FileUtils.rm_rf(File.join(out_dir, 'jpg'))
       write_tracks(runs, out_dir)
       links = runs.flat_map { |r| Array(r['links']) }.uniq.map { |href| WalkthroughCompose.parse_link(href).merge('href' => href) }
@@ -762,6 +771,20 @@ module WalkthroughLive
                      .merge('aim' => 'safe', 'live' => true)
     end
 
+    # The magnified inset on the stage, or nil. The element box (viewport
+    # CSS px) maps through the stage layout's content rect; the region is
+    # written to inset.json beside the frames.
+    def inset_plan(runs)
+      desk = runs.find { |r| r['name'] == 'desktop' }
+      return nil unless WalkthroughInset.inset?(@scene) && desk && desk['inset']
+
+      WalkthroughInset.plan(@scene, @stage, desk['inset'], viewport_w: viewport_for(@board)['w'], fps: fps_for(@board), frames: desk['cursor'].size)
+    end
+
+    def viewport_for(board) = WalkthroughLive.viewport_for(board)
+
+    def fps_for(board) = WalkthroughLive.fps_for(board)
+
     def container(path) = File.join('/work', path.delete_prefix("#{@work}/"))
 
     # A browser-framed scene draws its chrome text from files written
@@ -776,13 +799,15 @@ module WalkthroughLive
 
     # JPEG screencast frames become PNGs on the board canvas in the pinned
     # FFmpeg container, offline.
-    def composite!(dirs, out_dir)
+    def composite!(dirs, out_dir, inset = nil)
       inputs = dirs.flat_map { |d| [ '-start_number', '1', '-i', File.join(container(d), '%06d.jpg') ] }
-      args = [ '-hide_banner', '-nostdin', '-y', *inputs, '-filter_complex', composite_filter(out_dir), '-map', '[out]',
+      args = [ '-hide_banner', '-nostdin', '-y', *inputs, '-filter_complex', WalkthroughInset.append(composite_filter(out_dir), inset), '-map', '[out]',
                '-start_number', '1', File.join(container(out_dir), '%06d.png') ]
       argv = ChangeDocker.run_command(network: 'none', image: ChangeDocker::FFMPEG_IMAGE, args: args, mounts: { @work => '/work' }, workdir: '/work')
       out, status = @docker.call(argv)
       raise CaptureError, "ffmpeg frame composite failed:\n#{out.to_s.lines.last(10).join}" unless status.success?
+
+      File.write(File.join(out_dir, 'inset.json'), JSON.pretty_generate(inset.to_h.merge('region' => WalkthroughInset.region(inset)))) if inset
     end
   end
 end

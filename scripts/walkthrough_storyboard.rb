@@ -176,6 +176,7 @@ module WalkthroughStoryboard
     errors << 'needs at least one requirement or assumption' if Array(scene['requirements']).empty? && Array(scene['assumptions']).empty?
     errors.concat(kind_errors(scene, root))
     errors.concat(WalkthroughBrowserFrame.errors(scene))
+    errors.concat(WalkthroughInset.errors(scene, live: WalkthroughLive.live?(scene)))
     if WalkthroughDiagram.diagram?(scene)
       errors.concat(WalkthroughDiagram.errors(scene, root, board: board))
       errors.concat(store_errors(scene, orders, root)) if scene['store']
