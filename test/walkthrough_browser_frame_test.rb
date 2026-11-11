@@ -4,6 +4,7 @@ require "minitest/autorun"
 require "tmpdir"
 require_relative "../scripts/walkthrough_storyboard"
 require_relative "../scripts/walkthrough_browser_frame"
+require_relative "../scripts/walkthrough_live"
 
 # The browser frame: validation, geometry above the caption band, the
 # address and title text slots, the filter, the cursor remap, and the
@@ -51,6 +52,30 @@ class WalkthroughBrowserFrameTest < Minitest::Test
     assert_operator lay.field.x + lay.field.w, :<=, lay.window.x + lay.window.w
     assert_equal (1920 - lay.window.w) / 2, lay.window.x
     assert_empty WalkthroughDevice.frame_findings(lay)
+  end
+
+  # Mirrors the in-page caption-safe rule: a box is flagged when its bottom
+  # passes innerHeight * (1 - band), and a zero band checks nothing.
+  def in_band?(band, bottom, page_h = 1080) = band.positive? && bottom > (page_h * (1 - band)) + 1
+
+  def test_caption_band_maps_through_the_frame
+    content = BF.layout(BOARD).content
+    raw_bottom = 1000
+    assert raw_bottom > 1080 * (1 - PrototypeUxLint::CAPTION_BAND), "raw y sits in the raw viewport band"
+    assert content.map(0, raw_bottom)[1] < BF.band_top(1080), "but composites above the canvas band"
+    refute in_band?(BF.page_band(BOARD), raw_bottom)
+
+    secrets = WalkthroughLive::Secrets.new([])
+    scene = live("frame" => "browser").merge("duration" => 1)
+    job = WalkthroughLive.job(BOARD, scene, WalkthroughDevice.specs(BOARD, scene).first, secrets, compose: nil, shots: false)
+    assert_equal BF.page_band(BOARD), job["band"]
+
+    # A rect that overhangs the band still flags content composited into it.
+    low = WalkthroughDevice::Rect.new(name: "desktop", scale: 0.5, x: 0, y: 600, w: 960, h: 540, bezel: 0)
+    band = BF.page_band_for(low, 1080, 1080)
+    above, inside = 600, 700
+    refute in_band?(band, above), "composited y #{low.map(0, above)[1]} is above the band"
+    assert in_band?(band, inside), "composited y #{low.map(0, inside)[1]} is in the band"
   end
 
   def test_address_text_slot_is_clipped_to_field
