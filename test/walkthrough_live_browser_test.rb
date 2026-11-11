@@ -62,8 +62,7 @@ class WalkthroughLiveBrowserTest < Minitest::Test
   # The hi-res inset carries more edge energy (crisper text) than the upscale.
   def inset_capture(session, board, secrets)
     scene = scene_by(board, "inset")
-    jobs = WalkthroughDevice.specs(board, scene).map { |d| WalkthroughLive.job(board, scene, d, secrets, compose: nil, shots: true) }
-    jobs.each { |j| j["inset"] = WalkthroughInset.job(scene, WalkthroughLive.fps_for(board)) }
+    jobs = inset_jobs(board, scene, secrets)
     runs = PrototypeCapture.run_with_retry(session, WalkthroughLive.capture_module(board, scene, jobs: jobs, session: nil))["devices"]
     assert_kind_of String, runs.first["insetHi"], "the capture returns a hi-res element still: #{runs.first['insetError'].inspect}"
     # A leaked clip frame would put hi-res pixels in the upscale path too.
@@ -90,8 +89,7 @@ class WalkthroughLiveBrowserTest < Minitest::Test
   # viewport size.
   def inset_isolation(session, board, secrets)
     scene = scene_by(board, "inset-medium")
-    jobs = WalkthroughDevice.specs(board, scene).map { |d| WalkthroughLive.job(board, scene, d, secrets, compose: nil, shots: true) }
-    jobs.each { |j| j["inset"] = WalkthroughInset.job(scene, WalkthroughLive.fps_for(board)) }
+    jobs = inset_jobs(board, scene, secrets)
     run = nil
     4.times do |n|
       run = PrototypeCapture.run_with_retry(session, WalkthroughLive.capture_module(board, scene, jobs: jobs, session: nil))["devices"].first
@@ -112,6 +110,12 @@ class WalkthroughLiveBrowserTest < Minitest::Test
       meta = JSON.parse(File.read(File.join(out_dir, "inset.json")))
       assert meta["hires"], "the medium inset is drawn from the hi-res still: #{run['insetError'].inspect}"
       assert_operator hard_edges(work, out_dir, meta), :>, 20, "the medium inset carries the form, not a blank crop"
+    end
+  end
+
+  def inset_jobs(board, scene, secrets)
+    WalkthroughDevice.specs(board, scene).map do |d|
+      WalkthroughLive.job(board, scene, d, secrets, compose: nil, shots: true).merge("inset" => WalkthroughInset.job(scene, WalkthroughLive.fps_for(board)))
     end
   end
 
