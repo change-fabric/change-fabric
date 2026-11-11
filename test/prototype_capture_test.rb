@@ -357,6 +357,23 @@ class PrototypeCaptureTest < Minitest::Test
     assert PrototypeCapture.run_with_retry(session, "const first = 0; const last = 0;")
   end
 
+  # A browserless 408 returns no result, so a batch replay re-runs it.
+  def test_a_browserless_timeout_is_retried
+    session = Class.new(FlakySession) do
+      def run_function(code)
+        unless @timed_out
+          @timed_out = true
+          raise ChangeDocker::Browserless::TimedOut, "browserless /function failed: 408 Request has timed out"
+        end
+
+        super
+      end
+
+      def alive? = true
+    end.new(0)
+    assert PrototypeCapture.run_with_retry(session, "const first = 0; const last = 0;")
+  end
+
   def test_batch_size_caps_by_measured_bytes
     vp = { "w" => 1280, "h" => 720, "dpr" => 1 }
     assert_equal 90, PrototypeCapture.batch_size(vp, bytes_per_frame: 1_000_000)

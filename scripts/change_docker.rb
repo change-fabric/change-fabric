@@ -174,7 +174,19 @@ module ChangeDocker
     cmd += [ '--network', network ] if network
     cmd += host_gateway_args
     Array(add_hosts).each { |entry| cmd += [ '--add-host', entry ] }
-    cmd + [ '-p', "127.0.0.1:#{port}:3000", '-e', "TOKEN=#{token}", BROWSERLESS_IMAGE ]
+    cmd += [ '-p', "127.0.0.1:#{port}:3000", '-e', "TOKEN=#{token}" ]
+    browserless_limits.each { |key, value| cmd += [ '-e', "#{key}=#{value}" ] }
+    cmd + [ BROWSERLESS_IMAGE ]
+  end
+
+  # browserless's own limiter settings, set explicitly rather than left to the
+  # image defaults (CONCURRENT 10, QUEUED 10, TIMEOUT 30000 ms in v2.38.1;
+  # the older MAX_CONCURRENT_SESSIONS, QUEUE_LENGTH and CONNECTION_TIMEOUT
+  # names are aliases). TIMEOUT is the server-side job limit for any request
+  # that carries no `timeout` query parameter, so it matches the per-call
+  # FUNCTION_TIMEOUT_MS and the server is never stricter than the client.
+  def browserless_limits
+    { 'CONCURRENT' => 10, 'QUEUED' => 10, 'TIMEOUT' => Browserless::FUNCTION_TIMEOUT_MS }
   end
 
   # Prefix every ephemeral resource this platform creates carries, so a
@@ -287,6 +299,12 @@ module ChangeDocker
     # first one hit.
     FUNCTION_TIMEOUT_MS = 115_000
 
+    # A 408: browserless's limiter gave up on the job and no result came back.
+    # Its own class so a caller whose module is a pure replay can re-run it;
+    # a module that clicks or submits may have acted before the timeout, so
+    # nothing here retries.
+    class TimedOut < RuntimeError; end
+
     def run_function(code, launch_args: [])
       if @local_tls_hosts
         code = ChangeLocalTls.wrap(code, @local_tls_hosts)
@@ -294,7 +312,11 @@ module ChangeDocker
       end
       uri = URI(function_url(launch_args))
       response = post(uri, code, 'application/javascript')
-      raise "browserless /function failed: #{response.code} #{response.body}" unless response.is_a?(Net::HTTPSuccess)
+      unless response.is_a?(Net::HTTPSuccess)
+        failure = "browserless /function failed: #{response.code} #{response.body}"
+        raise TimedOut, failure if response.code.to_s == '408'
+        raise failure
+      end
 
       unwrap(JSON.parse(response.body))
     end

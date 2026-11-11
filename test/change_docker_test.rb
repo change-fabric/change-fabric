@@ -25,6 +25,60 @@ class ChangeDockerTest < Minitest::Test
     assert_equal hash, browserless.unwrap(hash)
   end
 
+  # The server-side limiter is set explicitly, and its default job timeout is
+  # never below the per-call timeout the client sends.
+  def test_browserless_command_sets_the_limiter_explicitly
+    argv = ChangeDocker.browserless_command("cf-change-bl-x", nil, 1234, "tok")
+    envs = argv.each_cons(2).select { |flag, _| flag == "-e" }.map(&:last)
+    assert_includes envs, "CONCURRENT=10"
+    assert_includes envs, "QUEUED=10"
+    assert_includes envs, "TIMEOUT=#{ChangeDocker::Browserless::FUNCTION_TIMEOUT_MS}"
+    assert_equal ChangeDocker::BROWSERLESS_IMAGE, argv.last
+  end
+
+  # A session whose post returns the scripted responses in order.
+  def scripted_session(*responses)
+    session = browserless
+    calls = []
+    session.define_singleton_method(:post) do |_uri, _body, _type|
+      calls << 1
+      responses.shift
+    end
+    [ session, calls ]
+  end
+
+  def http_response(klass, code, body)
+    response = klass.new("1.1", code, "")
+    response.instance_variable_set(:@body, body)
+    response.instance_variable_set(:@read, true)
+    response
+  end
+
+  def ok_response = http_response(Net::HTTPOK, "200", '{"data":["frame"],"type":"application/json"}')
+  def timed_out = http_response(Net::HTTPRequestTimeout, "408", "Request has timed out")
+
+  # run_function itself never re-runs: a module that clicked or submitted may
+  # have acted before the timeout. A 408 gets its own class for replay-safe
+  # callers; anything else stays a plain failure.
+  def test_run_function_raises_timed_out_on_a_408_without_rerunning
+    session, calls = scripted_session(timed_out, ok_response)
+    error = assert_raises(ChangeDocker::Browserless::TimedOut) { session.run_function("code") }
+    assert_match(/408 Request has timed out/, error.message)
+    assert_equal 1, calls.size
+  end
+
+  def test_run_function_raises_a_plain_error_on_another_failure
+    session, calls = scripted_session(http_response(Net::HTTPBadRequest, "400", "boom"), ok_response)
+    error = assert_raises(RuntimeError) { session.run_function("code") }
+    refute_kind_of ChangeDocker::Browserless::TimedOut, error
+    assert_equal 1, calls.size
+  end
+
+  def test_run_function_unwraps_a_success
+    session, = scripted_session(ok_response)
+    assert_equal [ "frame" ], session.run_function("code")
+  end
+
   # The configured-network branch must not touch docker: it just wraps the name.
   # This exercises the keyword-arg Struct construction that a runtime bug once
   # broke (a mixed positional/keyword call raised ArgumentError).

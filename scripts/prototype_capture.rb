@@ -666,7 +666,9 @@ module PrototypeCapture
   # replay from its seeded start, so re-running it is safe.
   BATCH_RETRIES = 2
   # ECONNREFUSED is a dropped response too: the container died mid-request.
-  DROPPED = [ EOFError, Errno::ECONNRESET, Errno::EPIPE, Errno::ECONNREFUSED ].freeze
+  # TimedOut is browserless's 408, raised before any result (so any frame)
+  # comes back.
+  DROPPED = [ EOFError, Errno::ECONNRESET, Errno::EPIPE, Errno::ECONNREFUSED, ChangeDocker::Browserless::TimedOut ].freeze
 
   class BrowserlessGoneError < StandardError; end
 

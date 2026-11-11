@@ -393,7 +393,7 @@ class WalkthroughDiagramCaptureTest < Minitest::Test
         return { data: samples, type: 'application/json' };
       }
     JS
-    session.run_function(code)
+    PrototypeCapture.run_with_retry(session, code)
   end
 
   # Computed paint of every coloured item at each time in `times`.
@@ -429,7 +429,7 @@ class WalkthroughDiagramCaptureTest < Minitest::Test
         return { data: out, type: 'application/json' };
       }
     JS
-    session.run_function(code)
+    PrototypeCapture.run_with_retry(session, code)
   end
 
   # Each node's icon: its fill, size, path data, whether it precedes the
@@ -457,7 +457,7 @@ class WalkthroughDiagramCaptureTest < Minitest::Test
         return { data: out, type: 'application/json' };
       }
     JS
-    session.run_function(code)
+    PrototypeCapture.run_with_retry(session, code)
   end
 
   def capture(recorder, html, out)
