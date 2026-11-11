@@ -12,7 +12,7 @@ require_relative 'prototype_imagegen'
 require_relative 'walkthrough_cache'
 require_relative 'walkthrough_env'
 
-# cf:image heavy text mode: gpt-image-2 paints a textless plate per aspect
+# cf:image heavy text mode: the image model paints a textless plate per aspect
 # family (at most two paid calls), then each output size is cropped from its
 # family's plate and real copy is laid over it as HTML rendered in the pinned
 # browserless container. The imagegen, the browser, and the Docker probe are
@@ -422,6 +422,7 @@ module ImagePlate
       spec = Spec.load(options[:spec])
       run = Run.new(spec: spec, prompt: options.fetch(:prompt), quality: options.fetch(:quality, PrototypeImagegen::QUALITY_DRAFT),
                     cache: options.fetch(:cache, '.cache'), out_dir: options[:out] || DEFAULT_OUT, **deps)
+      PrototypeImagegen.warn_retirement
       usd = run.estimate_usd
       out.puts("image estimate: #{run.families.size} plate(s)#{' (cached)' if usd.zero?}, $#{format('%.2f', usd)} to spend")
       max = options.fetch(:max_usd, 1.0)

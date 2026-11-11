@@ -4,6 +4,7 @@ require "minitest/autorun"
 require "base64"
 require "json"
 require "tmpdir"
+require "stringio"
 require_relative "../scripts/prototype_imagegen"
 require_relative "imagegen_helpers"
 require_relative "enroll_helpers"
@@ -13,7 +14,7 @@ class PrototypeImagegenTest < Minitest::Test
   include EnrollHelpers
 
   def test_defaults
-    assert_equal "gpt-image-2", PrototypeImagegen::MODEL unless ENV["CF_IMAGE_MODEL"]
+    assert_equal "gpt-image-2.6-sunburst", PrototypeImagegen::MODEL unless ENV["CF_IMAGE_MODEL"]
     assert_equal "medium", PrototypeImagegen::QUALITY_DRAFT
     assert_equal "high", PrototypeImagegen::QUALITY_FINAL
     assert_equal 3, PrototypeImagegen::ATTEMPT_CAP
@@ -124,6 +125,42 @@ class PrototypeImagegenTest < Minitest::Test
     end
   ensure
     ENV.delete("OPENAI_API_KEY")
+  end
+
+  def test_unknown_model_never_under_prices
+    PrototypeImagegen::PRICES.each_value do |table|
+      table.each { |q, usd| assert_operator PrototypeImagegen.price_for("gpt-image-9").fetch(q), :>=, usd }
+    end
+  end
+
+  def test_sunburst_low_not_cheaper_than_gpt_image_2
+    assert_operator PrototypeImagegen.price_for("gpt-image-2.6-sunburst")["low"], :>=, PrototypeImagegen.price_for("gpt-image-2")["low"]
+  end
+
+  def test_model_change_changes_cache_key
+    args = { prompt: "p", size: "1024x1024", quality: "low" }
+    refute_equal PrototypeImagegen.asset_key(**args, model: "gpt-image-2"),
+                 PrototypeImagegen.asset_key(**args, model: "gpt-image-2.6-sunburst")
+  end
+
+  def test_retirement_warning_prints_once_before_shutdown
+    PrototypeImagegen.instance_variable_set(:@retirement_warned, nil)
+    io = StringIO.new
+    2.times { PrototypeImagegen.warn_retirement(io, model: "gpt-image-2", today: Date.new(2026, 11, 11)) }
+    assert_equal 1, io.string.lines.size
+    assert_includes io.string, "2027-02-10"
+  ensure
+    PrototypeImagegen.instance_variable_set(:@retirement_warned, nil)
+  end
+
+  def test_retirement_warning_silent_after_shutdown_and_for_default
+    PrototypeImagegen.instance_variable_set(:@retirement_warned, nil)
+    io = StringIO.new
+    PrototypeImagegen.warn_retirement(io, model: "gpt-image-2", today: Date.new(2027, 2, 10))
+    PrototypeImagegen.warn_retirement(io, model: "gpt-image-2.6-sunburst", today: Date.new(2026, 11, 11))
+    assert_empty io.string
+  ensure
+    PrototypeImagegen.instance_variable_set(:@retirement_warned, nil)
   end
 
   def test_low_quality_is_priced

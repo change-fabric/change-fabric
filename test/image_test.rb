@@ -40,7 +40,7 @@ class ImageTest < Minitest::Test
     assert_operator text.index("estimate"), :<, text.index("image:")
     assert_equal "PNG", File.binread(out_path)
     assert_equal 1, http.requests.size
-    assert_equal "gpt-image-2", JSON.parse(http.requests.first.body)["model"] unless ENV["CF_IMAGE_MODEL"]
+    assert_equal "gpt-image-2.6-sunburst", JSON.parse(http.requests.first.body)["model"] unless ENV["CF_IMAGE_MODEL"]
   end
 
   def test_rerun_is_free_and_needs_no_key

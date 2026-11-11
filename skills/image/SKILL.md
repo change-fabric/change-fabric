@@ -1,12 +1,14 @@
 ---
 name: cf:image
 group: workflow
-description: Image command. Generates, or edits, a still with the OpenAI Images API (gpt-image-2) from a prompt or prompt file, with optional reference images for consistency across shots and an edit image with a mask, cached by content key, with a cost estimate printed before any paid call and an explicit ceiling. Three text modes, none, short (the model draws a few quoted words), or heavy (a textless plate with HTML copy overlaid per size from a JSON spec). Never for UI screenshots. Paid, so it runs only when invoked by name or loaded by cf:prototype or cf:walkthrough, never auto-applied or chosen on a model guess. Usable alone, outside any walkthrough.
+description: Image command. Generates, or edits, a still with the OpenAI Images API (gpt-image-2.6-sunburst) from a prompt or prompt file, with optional reference images for consistency across shots and an edit image with a mask, cached by content key, with a cost estimate printed before any paid call and an explicit ceiling. Three text modes, none, short (the model draws a few quoted words), or heavy (a textless plate with HTML copy overlaid per size from a JSON spec). Never for UI screenshots. Paid, so it runs only when invoked by name or loaded by cf:prototype or cf:walkthrough, never auto-applied or chosen on a model guess. Usable alone, outside any walkthrough.
 ---
 
 # CF image
 
-Source: the OpenAI image generation guide https://developers.openai.com/api/docs/guides/image-generation (checked 2026-10-28).
+Source: the OpenAI image generation guide https://developers.openai.com/api/docs/guides/image-generation, the model page https://developers.openai.com/api/docs/models/gpt-image-2.6-sunburst, and the pricing page https://developers.openai.com/api/docs/pricing (checked 2026-11-11).
+
+The default model is `gpt-image-2.6-sunburst`; `CF_IMAGE_MODEL` still overrides it. OpenAI shuts `gpt-image-2` down on February 10, 2027: if you pinned `CF_IMAGE_MODEL=gpt-image-2`, unset it or move to the new default. Until then the command prints a one-time warning and carries on. An unknown model is estimated at the highest known per-image price for its quality, so an estimate never under-prices.
 
 A thin command over `ruby ~/.claude/cf/bin/image.rb`. It has no provider code of its own: generation, the cache, and the edits multipart live in `prototype_imagegen.rb`, shared with cf:prototype and cf:design.
 
@@ -15,8 +17,8 @@ A thin command over `ruby ~/.claude/cf/bin/image.rb`. It has no provider code of
 Never use this for UI screenshots, screens, forms, or charts. Real app screens are HTML/CSS in cf:prototype. Text in marketing art (banners, posters, hero copy) is handled by one of three modes.
 
 - `none`: no quoted words in the prompt. The prompt asks for no text, logos, or watermarks, as before.
-- `short`: one quoted run of up to 4 words and 25 characters, such as `poster saying "Sale"`. gpt-image-2 draws that exact text, large and centered. Check the spelling in the result, and use the overlay for brand-critical copy.
-- `heavy`: a longer quoted run, two or more runs, or any `--spec`. gpt-image-2 makes a textless plate per aspect family (landscape 1536x1024, portrait 1024x1536, the second using the first as a reference) with the copy zone kept calm, then real text is laid over each output size with HTML in the pinned browserless container. Heavy needs `--spec copy.json` and Docker.
+- `short`: one quoted run of up to 4 words and 25 characters, such as `poster saying "Sale"`. gpt-image-2.6-sunburst draws that exact text, large and centered. Check the spelling in the result, and use the overlay for brand-critical copy.
+- `heavy`: a longer quoted run, two or more runs, or any `--spec`. gpt-image-2.6-sunburst makes a textless plate per aspect family (landscape 1536x1024, portrait 1024x1536, the second using the first as a reference) with the copy zone kept calm, then real text is laid over each output size with HTML in the pinned browserless container. Heavy needs `--spec copy.json` and Docker.
 
 `--mode none|short|heavy` always overrides the choice. Banner words without quotes (banner, headline, CTA, hero) only print a warning.
 

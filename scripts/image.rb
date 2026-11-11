@@ -7,7 +7,7 @@ require_relative 'image_text_mode'
 require_relative 'prototype_imagegen'
 require_relative 'walkthrough_env'
 
-# cf:image: a thin paid command over PrototypeImagegen (gpt-image-2 by default,
+# cf:image: a thin paid command over PrototypeImagegen (gpt-image-2.6-sunburst by default,
 # CF_IMAGE_MODEL to override). It owns only the CLI: argument handling, the
 # cost ceiling, and the output copy. Generation, the content-key cache, and the
 # edits multipart live in PrototypeImagegen so there is one implementation.
@@ -113,6 +113,7 @@ module Image
 
     # Prints the estimate before any paid call and returns the USD it will cost.
     def announce(opts, out, cached)
+      PrototypeImagegen.warn_retirement
       est = PrototypeImagegen.estimate([ { quality: opts[:quality] } ])
       usd = cached ? 0.0 : est[:usd]
       what = cached ? '1 image (cached)' : est[:line]
