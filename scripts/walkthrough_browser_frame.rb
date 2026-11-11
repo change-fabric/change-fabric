@@ -16,8 +16,9 @@ require_relative 'walkthrough_sharpness'
 module WalkthroughBrowserFrame
   FRAMES = %w[browser].freeze
   SCREEN_KEYS = %w[frame title address].freeze
-  # Bumped when the chrome drawn by the filter changes; it is key material.
-  VERSION = 1
+  # Bumped when the chrome drawn by the filter or the in-page lint band
+  # changes; it is key material, so a bump recaptures framed scenes.
+  VERSION = 2
   MAX_TEXT = 200
   MARGIN = 0.04
   # Chrome heights as a share of the canvas height.
