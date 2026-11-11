@@ -15,6 +15,8 @@ class WalkthroughLiveBrowserTest < Minitest::Test
   PASSWORD = "fixture-pw-#{SecureRandom.hex(6)}".freeze
   EMAIL = "member@example.test"
   HOST = "app.example.test"
+  # Baseline, extended, progressive and lossless start-of-frame markers.
+  JPEG_SOF = (0xC0..0xC3)
 
   def test_login_session_reuse_storage_seed_and_capture
     skip "docker not available" unless ChangeDocker.available?
@@ -69,6 +71,7 @@ class WalkthroughLiveBrowserTest < Minitest::Test
     assert_equal [ [ 640, 400 ] ], runs.first["ticks"].uniq.map { |t| jpeg_size(runs.first["frames"][t]) }.uniq, "the still stays out of the recording"
     Dir.mktmpdir do |work|
       sharp = {}
+      metas = {}
       { "hires" => runs, "upscale" => runs.map { |r| r.except("insetHi") } }.each do |name, rs|
         out_dir = File.join(work, ".cache", "frames", name)
         _o, err = capture_io { WalkthroughLive::SceneWriter.new(board: board, scene: scene, secrets: secrets, docker: nil, work: work).write(rs, out_dir) }
@@ -76,8 +79,9 @@ class WalkthroughLiveBrowserTest < Minitest::Test
         assert_equal name == "hires", meta["hires"], "#{name} inset: #{err}"
         assert_equal name == "upscale", err.include?("hi-res inset capture failed"), err
         sharp[name] = hard_edges(work, out_dir, meta)
+        metas[name] = meta.slice("hires", "region", "start", "stop")
       end
-      assert_operator sharp["hires"], :>, sharp["upscale"] * 2, "hi-res inset is crisper: #{sharp.inspect}"
+      assert_operator sharp["hires"], :>, sharp["upscale"] * 2, "hi-res inset is crisper: #{sharp.inspect}; still #{png_size(runs.first['insetHi']).inspect} px for box #{runs.first['inset'].inspect}; insets #{metas.inspect}; frames #{runs.first['frames'].size}, ticks #{runs.first['ticks'].size}"
     end
   end
 
@@ -98,18 +102,23 @@ class WalkthroughLiveBrowserTest < Minitest::Test
       assert_equal [ [ 640, 400 ] ], sizes.uniq, "run #{n}: every recorded frame is the viewport, not the clip still"
     end
     Dir.mktmpdir do |work|
-      first = gray(work, run["frames"][run["ticks"].first])
-      run["ticks"].drop(jobs.first["inset"]["frame"]).uniq.each do |t|
-        px = gray(work, run["frames"][t])
-        assert_equal first.size, px.size, "frame #{t} keeps the viewport size"
-        diff = first.zip(px).sum { |a, b| (a - b).abs } / first.size.to_f
-        assert_operator diff, :<, 2.0, "frame #{t} after at_ms shows the page, not a zoomed still (mean diff #{diff.round(1)})"
-      end
+      assert_frames_match_page(work, run, jobs.first["inset"]["frame"])
       out_dir = File.join(work, ".cache", "frames", "medium")
       WalkthroughLive::SceneWriter.new(board: board, scene: scene, secrets: secrets, docker: nil, work: work).write([ run ], out_dir)
       meta = JSON.parse(File.read(File.join(out_dir, "inset.json")))
       assert meta["hires"], "the medium inset is drawn from the hi-res still: #{run['insetError'].inspect}"
       assert_operator hard_edges(work, out_dir, meta), :>, 20, "the medium inset carries the form, not a blank crop"
+    end
+  end
+
+  # Every frame from at_ms on matches the first frame (the page is static).
+  def assert_frames_match_page(work, run, from)
+    first = gray(work, run["frames"][run["ticks"].first])
+    run["ticks"].drop(from).uniq.each do |t|
+      px = gray(work, run["frames"][t])
+      assert_equal first.size, px.size, "frame #{t} keeps the viewport size"
+      diff = first.zip(px).sum { |a, b| (a - b).abs } / first.size.to_f
+      assert_operator diff, :<, 2.0, "frame #{t} after at_ms shows the page, not a zoomed still (mean diff #{diff.round(1)})"
     end
   end
 
@@ -119,13 +128,16 @@ class WalkthroughLiveBrowserTest < Minitest::Test
     end
   end
 
+  # A base64 PNG's [width, height] from its IHDR chunk.
+  def png_size(data) = data.unpack1("m").byteslice(16, 8).unpack("NN")
+
   # A base64 JPEG's [width, height] from its first SOF marker.
   def jpeg_size(data)
     bytes = data.unpack1("m").b
     i = 2
     while i < bytes.size
       marker, len = bytes.byteslice(i + 1, 3).unpack("Cn")
-      return bytes.byteslice(i + 5, 4).unpack("nn").reverse if (0xC0..0xC3).cover?(marker)
+      return bytes.byteslice(i + 5, 4).unpack("nn").reverse if JPEG_SOF.cover?(marker)
 
       i += 2 + len
     end
