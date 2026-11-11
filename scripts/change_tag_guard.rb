@@ -92,14 +92,14 @@ class ChangeTagGuard
 
     profile = policy.profile_for_rule(rule)
     apps = ChangeGateCheck.required_apps(root, policy.apps_for_rule(rule))
-    check = ChangeGateCheck.new(sha: sha, profile: profile, apps: apps)
+    check = ChangeGateCheck.new(sha: sha, profile: profile, apps: apps, root: root)
     return nil if check.satisfied?
 
     conditions = policy.admin_bypass_conditions
     note = conditions.empty? ? '' : "Repo policy: #{conditions}. "
     target = profile ? "the '#{profile}' profile" : 'a comprehensive'
     "publishing tag '#{tag}' is gated: no passing #{target} cf:change run recorded for commit " \
-      "#{sha[0, 12]}#{check.missing_apps_clause}. #{rerun_hint(check, tag)} #{note}#{ChangeGateCheck.escape_note}"
+      "#{sha[0, 12]}#{check.missing_apps_clause}#{check.trust_clause}. #{rerun_hint(check, tag)} #{note}#{ChangeGateCheck.escape_note}"
   end
 
   def rerun_hint(check, tag)

@@ -123,8 +123,11 @@ and policy together). Shape under `change_config:`:
 - `boot`: `up` (boot command, e.g. `docker compose up -d --build ...`), `down`
   (teardown command), `network` (an existing docker network the runners join;
   omit to create an ephemeral one and reach the app via `host.docker.internal`),
-  `target_url` (in-network base url the lanes default to), and `health`
-  (`url` host-reachable, `expect_status`, `timeout_seconds`).
+  `target_url` (in-network base url the lanes default to), `health`
+  (`url` host-reachable, `expect_status`, `timeout_seconds`), and (0.17.0)
+  `env` (the variable names `up` and `down` may see beyond PATH, HOME,
+  DOCKER_HOST, TERM and the CF_CHANGE_* values; looked up in the environment,
+  then `env_file`) and `timeout_seconds` (a limit on each step).
 - `lanes.k6`: `enabled`, `script` (repo-relative k6 script; omit for the
   built-in light-load default), `env`, `thresholds` (`http_req_failed`,
   `http_req_duration`).
@@ -330,6 +333,17 @@ browserless responsive lane has no standalone skill; it runs as part of
   error names the template and spec doc to author one against. Run
   `ruby ~/.claude/cf/bin/change_config.rb doctor` against a `CHANGE.md` in
   progress to validate it before a full sweep.
+- `refusing to run boot.up: its definition differs from origin/main` (0.17.0):
+  the branch changed a boot step, so it does not run until a human approves
+  that exact definition for this commit from their own terminal with
+  `ruby ~/.claude/cf/bin/change_approve.rb <sha>`. It refuses without a real
+  TTY; never try to run it on the user's behalf. Report the refusal and ask
+  the user to run it, then re-run. The rule covers the maintainer's own pull
+  requests too.
+- `boot.env declares variables that are not set: A, B`: boot steps see only
+  the minimal environment plus the names `boot.env` lists. Set the named
+  variables in the environment or in `boot.env_file`. A boot that relied on an
+  inherited variable needs that name added to `boot.env`.
 - `boot.up` never returns: it must leave the app running in the background, not
   block. A foreground dev-server command has to self-detach (see the template's
   `boot.up` comment); a blocking command hangs the run before health is ever

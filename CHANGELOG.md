@@ -18,6 +18,43 @@ Every version below has a frozen, permanently addressable rendering at
 field set: major for a removed, renamed or newly required field, minor for a new
 optional field, patch for a documentation-only clarification.
 
+## [0.17.0] - 2026-11-10
+
+Host-run boot steps run as the base branch defines them, with only the
+environment they declare. A minor bump because the spec is still 0.x, but read
+the Breaking section before upgrading.
+
+### Breaking
+
+- boot.up and boot.down run with a minimal environment (PATH, HOME,
+  DOCKER_HOST, TERM) plus the names declared in the new boot.env key. Values
+  come from the environment first, then boot.env_file. A missing name stops
+  the run and names every missing variable. boot steps that differ from the
+  base branch need a human approval per commit (change_approve.rb).
+- A gate record written before 0.17.0 has no `trust` block, so it no longer
+  satisfies the merge or tag gate for a commit that defines a boot step.
+  Re-run `change_run.rb all` for that commit.
+
+### Added
+
+- `change_config.boot.env` (and its profile override): the variable names a
+  boot step may see. Declared values are masked in captured output, reports
+  and published media.
+- `change_config.boot.timeout_seconds` (and its profile override): a limit for
+  `boot.up` and for `boot.down`; on expiry the step's process group is killed.
+- Base-branch trust: each boot step's digest is compared with the base
+  branch's; a differing or new step runs only once
+  `ruby ~/.claude/cf/bin/change_approve.rb <sha>` records a human approval for
+  that commit. The gate record's manifest carries the digests and the guards
+  verify them.
+- Boot steps that would start a host daemon are refused at config load unless
+  `CF_ALLOW_HOSTDAEMON=1`.
+
+### Changed
+
+- `change_config.boot.env_file` is a value source only: its keys reach a boot
+  step only when `boot.env` declares them. `boot.down` now reads it too.
+
 ## [0.16.0] - 2026-11-10
 
 The testcases lane can launch its browser with extra Chromium flags.

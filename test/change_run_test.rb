@@ -23,12 +23,19 @@ class ChangeRunTest < Minitest::Test
 
   Boot = Struct.new(:up, :down, :health_url, :health_status, :health_timeout, :network, :target_url) do
     def up? = !up.to_s.empty?
-    def env_files = []
+    def env_file_entries = []
+    def env_names = []
+    def timeout_seconds = nil
   end
+
+  # Every step trusted, so these tests exercise the boot mechanics; trust
+  # itself is covered by change_boot_trust_test.rb.
+  TRUSTED = Object.new
+  def TRUSTED.trusted?(_step) = true
 
   def test_boot_up_surfaces_captured_output_on_failure
     boot = Boot.new("sh -c 'echo BOOM 1>&2; exit 1'")
-    output = capture_stderr { assert_raises(SystemExit) { runner.send(:boot_up, boot) } }
+    output = capture_stderr { assert_raises(SystemExit) { runner.send(:boot_up, boot, trust: TRUSTED) } }
     assert_match(/BOOM/, output)
     assert_match(/boot command failed/, output)
   end
@@ -131,16 +138,18 @@ class ChangeRunTest < Minitest::Test
   end
 
   # boot.env_file: the compose build-arg trap fix. A KEY=VALUE file gets parsed
-  # (not shell-sourced) and reaches the boot subprocess environment.
+  # (not shell-sourced) and, for the names boot.env declares (0.17.0), reaches
+  # the boot subprocess environment.
   def test_boot_up_sources_env_file_into_the_subprocess
     Dir.mktmpdir do |dir|
       env_path = File.join(dir, ".env.local")
       File.write(env_path, "export FOO=bar\n# a comment\n\nQUOTED=\"baz\"\n")
       out_path = File.join(dir, "out.txt")
       boot = Boot.new("sh -c 'echo $FOO-$QUOTED > #{out_path}'")
-      boot.define_singleton_method(:env_files) { [ env_path ] }
+      boot.define_singleton_method(:env_file_entries) { [ env_path ] }
+      boot.define_singleton_method(:env_names) { %w[FOO QUOTED] }
 
-      capture_stderr { runner.send(:boot_up, boot) }
+      capture_stderr { runner.send(:boot_up, boot, trust: TRUSTED) }
 
       assert_equal "bar-baz\n", File.read(out_path)
     end
@@ -148,8 +157,8 @@ class ChangeRunTest < Minitest::Test
 
   def test_boot_up_fails_fast_on_a_missing_env_file
     boot = Boot.new("true")
-    boot.define_singleton_method(:env_files) { [ "/no/such/.env.local" ] }
-    output = capture_stderr { assert_raises(SystemExit) { runner.send(:boot_up, boot) } }
+    boot.define_singleton_method(:env_file_entries) { [ "/no/such/.env.local" ] }
+    output = capture_stderr { assert_raises(SystemExit) { runner.send(:boot_up, boot, trust: TRUSTED) } }
     assert_match(%r{boot\.env_file not found: /no/such/\.env\.local}, output)
   end
 

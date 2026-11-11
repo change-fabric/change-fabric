@@ -28,6 +28,25 @@ export interface ReleaseNote {
 }
 
 export const RELEASE_NOTES: Record<string, ReleaseNote> = {
+  "0.17.0": {
+    version: "0.17.0",
+    date: "2026-11-10",
+    headline: "Boot steps run as the base branch defines them, with only the environment they declare.",
+    highlights: [
+      {
+        title: "Base-branch trust for boot.up and boot.down",
+        body:
+          "A boot step that differs from the base branch runs only after a human approves it for that commit with change_approve.rb, from their own terminal. Gate records carry each step's digest, and the merge and tag guards check them.",
+      },
+      {
+        title: "boot.env and boot.timeout_seconds",
+        body:
+          "Boot steps see PATH, HOME, DOCKER_HOST, TERM, the CF_CHANGE_* values and the names boot.env lists, with declared values masked in output. boot.timeout_seconds bounds each step.",
+      },
+    ],
+    upgrade:
+      "Breaking. List every variable your boot needs under boot.env; boot.env_file keys are value sources only. A missing name stops the run and names it. Re-run change_run.rb all for any commit whose older gate record lacks a trust block.",
+  },
   "0.16.0": {
     version: "0.16.0",
     date: "2026-11-10",

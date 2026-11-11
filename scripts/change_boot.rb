@@ -2,6 +2,8 @@
 # frozen_string_literal: true
 
 require 'open3'
+require_relative 'change_env'
+require_relative 'change_process'
 
 # The target app's lifecycle: bring it up, wait for its own health signal, tear
 # it down. Lifted out of ChangeRun verbatim so cf:screenshot, which boots the
@@ -11,9 +13,17 @@ require 'open3'
 # be worse than cosmetic: a before/after tool that mis-decides "the app is up"
 # photographs the wrong ref.
 #
-# The includer supplies four things: `repo_root` (the default working directory
-# for a boot command), `log(message)`, and `abort_and_exit(message)`. Everything
-# else is here.
+# The includer supplies `repo_root` (the default working directory for a boot
+# command), `log(message)`, `abort_and_exit(message)`, and `boot_run_id` (the
+# CF_CHANGE_RUN_ID a boot step sees). It may override `boot_runner` (default
+# ChangeProcess) so a test never spawns a real shell. Everything else is here.
+#
+# 0.17.0: boot.up and boot.down run only when trusted (ChangeTrust: the
+# definition equals the base branch's, or a human approved it for this
+# commit), with the minimal environment ChangeEnv builds (PATH, HOME,
+# DOCKER_HOST, TERM, the CF_CHANGE_* values, and the names boot.env declares),
+# under boot.timeout_seconds when set. The caller passes its trust verdict in
+# as `trust:`, so cf:change and cf:screenshot decide trust the same way.
 #
 # `chdir:` is the one thing this module adds over what ChangeRun had inline. It
 # defaults to `repo_root`, which is what every existing caller passes
@@ -25,29 +35,73 @@ module ChangeBoot
   # readable while the line that actually explains the failure is still there.
   OUTPUT_TAIL_LINES = 40
 
-  def boot_up(boot, chdir: repo_root)
+  # `prefix` names the app in a monorepo ("portal/"), matching the step names
+  # ChangeTrust.step_definitions produced.
+  def boot_up(boot, trust:, chdir: repo_root, prefix: '')
     return unless boot.up?
 
+    step = "#{prefix}boot.up"
+    abort_and_exit(trust.refusal(step)) unless trust.trusted?(step)
+    env = boot_step_env(boot, chdir: chdir) { |message| abort_and_exit(message) }
     log("[change] booting: #{boot.up}")
-    out, status = Open3.capture2e(boot_env(boot), boot.up, chdir: chdir)
-    return if status.success?
+    result = boot_runner.run(boot.up, env: env.env, chdir: chdir, timeout: boot.timeout_seconds)
+    return if result.success?
 
-    abort_and_exit("boot command failed: #{boot.up}\n--- boot output (last #{OUTPUT_TAIL_LINES} lines) ---\n#{tail(out)}")
+    abort_and_exit("#{failure_reason(result, boot, 'boot command failed')}: #{boot.up}\n" \
+                   "--- boot output (last #{OUTPUT_TAIL_LINES} lines) ---\n#{tail(env.masker.call(result.output))}")
   end
 
-  # Parses each configured boot.env_file (simple KEY=VALUE lines, no shell
-  # `source`, so no secret is ever echoed) and merges them into the inherited
-  # process environment, later files winning over earlier ones. This is the
-  # shell-level equivalent of `set -a; source .env.local; set +a`: it makes a
-  # compose `build.args:` entry's `${VAR}` interpolation resolve without the
-  # author having to pre-export anything. Fails fast, by name, when a declared
-  # file is missing.
-  def boot_env(boot)
-    files = boot.env_files
-    return {} if files.empty?
+  # Teardown is best effort: an untrusted step, a missing variable, or a
+  # failure is logged, never raised, so it cannot hide the run's own outcome.
+  def boot_down(boot, trust:, chdir: repo_root, prefix: '')
+    return if boot.down.empty?
 
-    files.each_with_object({}) do |path, merged|
-      abort_and_exit("boot.env_file not found: #{path}") unless File.exist?(path)
+    step = "#{prefix}boot.down"
+    return log("[change] #{trust.refusal(step)}") unless trust.trusted?(step)
+
+    env = boot_step_env(boot, chdir: chdir) { |message| return log("[change] teardown skipped: #{message}") }
+    log("[change] tearing down: #{boot.down}")
+    result = boot_runner.run(boot.down, env: env.env, chdir: chdir, timeout: boot.timeout_seconds)
+    return if result.success?
+
+    log("[change] #{failure_reason(result, boot, 'teardown command failed')}: #{boot.down}\n" \
+        "--- teardown output (last #{OUTPUT_TAIL_LINES} lines) ---\n#{tail(env.masker.call(result.output))}")
+  end
+
+  # The environment a boot step runs with. A missing env file or missing
+  # declared variables are yielded to the caller's block as a message, and the
+  # caller decides whether that aborts (boot.up) or only logs (boot.down).
+  def boot_step_env(boot, chdir:)
+    values = boot_env(boot, chdir: chdir) { |message| return yield(message) }
+    ChangeEnv.build(declared: boot.env_names, env_file_values: values, extra: boot_extra_env(boot))
+  rescue ChangeEnv::MissingVariables => e
+    yield("boot.env declares variables that are not set: #{e.names.join(', ')} " \
+          '(set them in the environment or in boot.env_file)')
+  end
+
+  def boot_extra_env(boot)
+    {
+      'CF_CHANGE_RUN_ID' => boot_run_id, 'CF_CHANGE_TARGET_URL' => boot.target_url,
+      'CF_CHANGE_HEALTH_URL' => boot.health_url
+    }
+  end
+
+  def failure_reason(result, boot, default)
+    result.timed_out ? "timed out after #{boot.timeout_seconds}s; process group killed" : default
+  end
+
+  def boot_runner = ChangeProcess
+
+  # Parses each configured boot.env_file (simple KEY=VALUE lines, no shell
+  # `source`, so no secret is ever echoed), later files winning over earlier
+  # ones. Since 0.17.0 these are value sources only: a key reaches a boot step
+  # only when boot.env declares its name. A relative path resolves against
+  # `chdir`, so a base-ref boot in a worktree reads the worktree's own file. A
+  # missing file is yielded by name to the caller's block.
+  def boot_env(boot, chdir: repo_root)
+    boot.env_file_entries.each_with_object({}) do |entry, merged|
+      path = File.expand_path(entry, chdir)
+      return yield("boot.env_file not found: #{path}") unless File.exist?(path)
 
       merged.merge!(parse_env_file(path))
     end
@@ -63,14 +117,6 @@ module ChangeBoot
 
       env[key.strip] = value.strip.gsub(/\A['"]|['"]\z/, '')
     end
-  end
-
-  def boot_down(boot, chdir: repo_root)
-    return if boot.down.empty?
-
-    log("[change] tearing down: #{boot.down}")
-    out, status = Open3.capture2e(boot.down, chdir: chdir)
-    log("[change] teardown command failed: #{boot.down}\n--- teardown output (last #{OUTPUT_TAIL_LINES} lines) ---\n#{tail(out)}") unless status.success?
   end
 
   # Polls the health url from the host until it returns the expected status or

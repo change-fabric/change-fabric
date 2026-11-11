@@ -122,6 +122,56 @@ class ChangeConfigTest < Minitest::Test
     with_config("lanes" => { "k6" => {} }) { |config, _root| assert_empty config.boot.env_files }
   end
 
+  def test_boot_env_and_timeout_are_read
+    boot = { "env" => %w[DATABASE_URL APP_SECRET], "timeout_seconds" => 900 }
+    with_config("boot" => boot, "lanes" => { "k6" => {} }) do |config, _root|
+      assert_equal %w[DATABASE_URL APP_SECRET], config.boot.env_names
+      assert_equal 900, config.boot.timeout_seconds
+    end
+  end
+
+  def test_boot_env_rejects_a_bad_name
+    error = assert_raises(ChangeConfig::ConfigError) do
+      with_config("boot" => { "env" => [ "lower" ] }, "lanes" => { "k6" => {} }) { |_config, _root| nil }
+    end
+    assert_match(/boot\.env must be a list of variable names/, error.message)
+  end
+
+  def test_boot_env_rejects_a_reserved_name
+    error = assert_raises(ChangeConfig::ConfigError) do
+      with_config("boot" => { "env" => %w[PATH CF_CHANGE_RUN_ID] }, "lanes" => { "k6" => {} }) { |_config, _root| nil }
+    end
+    assert_match(/boot\.env may not declare PATH, CF_CHANGE_RUN_ID/, error.message)
+  end
+
+  def test_boot_timeout_must_be_a_positive_bounded_integer
+    [ 0, 21_601, "60" ].each do |value|
+      error = assert_raises(ChangeConfig::ConfigError) do
+        with_config("boot" => { "timeout_seconds" => value }, "lanes" => { "k6" => {} }) { |_config, _root| nil }
+      end
+      assert_match(/boot\.timeout_seconds must be an integer from 1 to 21600/, error.message)
+    end
+  end
+
+  def test_boot_step_starting_a_host_daemon_is_refused
+    prev = ENV.delete("CF_ALLOW_HOSTDAEMON")
+    error = assert_raises(ChangeConfig::ConfigError) do
+      with_config("boot" => { "up" => "redis-server --daemonize yes" }, "lanes" => { "k6" => {} }) { |_config, _root| nil }
+    end
+    assert_match(/boot\.up starts a host daemon \(redis-server\); run it in a container/, error.message)
+  ensure
+    ENV["CF_ALLOW_HOSTDAEMON"] = prev if prev
+  end
+
+  def test_host_daemon_escape_hatch_allows_the_boot_step
+    ENV["CF_ALLOW_HOSTDAEMON"] = "1"
+    with_config("boot" => { "down" => "redis-server" }, "lanes" => { "k6" => {} }) do |config, _root|
+      assert_equal "redis-server", config.boot.down
+    end
+  ensure
+    ENV.delete("CF_ALLOW_HOSTDAEMON")
+  end
+
   def test_lane_paths_resolve_against_repo_root
     with_config("lanes" => { "k6" => { "script" => "apps/load/smoke.js" } }) do |config, root|
       assert_equal File.join(root, "apps", "load", "smoke.js"), config.lane("k6").path("script")

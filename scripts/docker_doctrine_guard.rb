@@ -46,6 +46,13 @@ class DockerDoctrineGuard
     /#{ANCHOR}(caddy\s+(?:run|start)\b)/i
   ].freeze
 
+  # The offending command in `cmd`, or nil. Public so cf:change can refuse a
+  # boot step or command lane entry that would start a host daemon, at config
+  # load, with the same pattern list this hook enforces at the Bash tool.
+  def self.match(cmd)
+    PATTERNS.filter_map { |pattern| cmd.to_s.match(pattern)&.captures&.first }.first&.strip
+  end
+
   def initialize(event) = @event = event
 
   def emit(io = $stdout)
@@ -69,9 +76,7 @@ class DockerDoctrineGuard
 
   # The offending command (capture group 1, without the leading separator) of the
   # first matching pattern, so the deny reason names exactly what to containerize.
-  def offending_snippet(cmd)
-    PATTERNS.filter_map { |pattern| cmd.match(pattern)&.captures&.first }.first
-  end
+  def offending_snippet(cmd) = self.class.match(cmd)
 
   def deny(offender)
     {

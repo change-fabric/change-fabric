@@ -1,6 +1,6 @@
 # CHANGE.md frontmatter specification
 
-Schema version: 0.16.0
+Schema version: 0.17.0
 
 Status: stable. This is the golden reference for authoring a repo's
 `CHANGE.md` frontmatter. A maintainer or an AI agent creating a new repo's
@@ -102,7 +102,9 @@ up and confirm it is ready; `lanes` describes what to audit.
 | `change_config.boot.health.url` | string | no | Host-reachable url polled from the host (via curl, so a local-CA dev cert is trusted). Omit to skip the health wait. Prefer a published host port (created by the same `boot.up`) over a named host routed through a separately-running reverse proxy: the proxy is not part of this run's compose project, so a fresh ephemeral boot's container is never wired into it and the poll gets no response even though the app itself is healthy. |
 | `change_config.boot.health.expect_status` | integer | no (default 200) | HTTP status that means healthy. |
 | `change_config.boot.health.timeout_seconds` | integer | no (default 120) | How long to wait for health before failing the run. |
-| `change_config.boot.env_file` | string or list of string | no | Repo-relative path(s) of env file(s) (simple `KEY=VALUE` lines, not shell `source`) parsed and merged into `boot.up`'s subprocess environment, later files winning over earlier ones and overriding the inherited environment for that subprocess. Lets a compose `build.args:` entry's `${VAR}` interpolation resolve (Compose reads `build.args` from the shell/`.env`, never from a service's own `env_file:`) without pre-exporting anything. A missing declared file fails the run by name. |
+| `change_config.boot.env_file` | string or list of string | no | Repo-relative path(s) of env file(s) (simple `KEY=VALUE` lines, not shell `source`), later files winning over earlier ones. Since 0.17.0 a value source only: a key reaches `boot.up` or `boot.down` only when `boot.env` declares its name, and the environment wins over the file. Lets a compose `build.args:` entry's `${VAR}` interpolation resolve (Compose reads `build.args` from the shell/`.env`, never from a service's own `env_file:`) without pre-exporting anything. A missing declared file fails the run by name. |
+| `change_config.boot.env` | list of string | no (default none) | (0.17.0) The variable names `boot.up` and `boot.down` may see beyond the minimal environment (`PATH`, `HOME`, `DOCKER_HOST`, `TERM`, plus `CF_CHANGE_RUN_ID`, `CF_CHANGE_TARGET_URL`, `CF_CHANGE_HEALTH_URL`). Each value comes from the environment first, then `boot.env_file`. A name that resolves to nothing stops the run, naming every missing variable. Values are masked in captured output, reports and published media. Names must match `[A-Z_][A-Z0-9_]*` and may not repeat a base or `CF_CHANGE_*` name. |
+| `change_config.boot.timeout_seconds` | integer | no (default none) | (0.17.0) Limit for `boot.up` and for `boot.down`, from 1 to 21600. On expiry the step's whole process group is killed (TERM, then KILL after 10s) and the run fails naming the timeout. Absent means no limit, so a long first build is never cut short. |
 | `change_config.boot.add_hosts` | list of string | no | (0.15.0) `HOST:TARGET` docker `--add-host` mappings for the browser container, which cannot read the host's `/etc/hosts`. `TARGET` is an IP or `host-gateway` (the host). Lets a lane or a cf:qa flow reach a local dev hostname served by a reverse proxy on the host. |
 | `change_config.boot.ignore_https_errors` | boolean | no (default false) | (0.15.0) Ignore certificate errors for a local dev CA the browser container lacks. Refused unless `boot.target_url` is local: `localhost`, `*.localhost`, `*.local`, `*.test`, `*.internal`, a private IP, or a name `boot.add_hosts` maps to `host-gateway` or a private IP. While on, the browser aborts every HTTPS request to a host outside that local set, so no public certificate is ever skipped. |
 | `change_config.lanes.<lane>.enabled` | boolean | no (default true) | Whether this lane runs. Set false, or omit the lane, to skip it. |
@@ -185,6 +187,68 @@ up and confirm it is ready; `lanes` describes what to audit.
 | `change_config.lanes.browserless.auth.steps[].timeout_ms` | integer | no (default 15000) | Timeout for this step's navigation, field waits, and post-submit wait. |
 | `change_config.lanes.browserless.figma.token_env` | string | no (default `FIGMA_ACCESS_TOKEN`) | Name of the environment variable holding a real Figma personal access token. |
 | `change_config.lanes.browserless.figma.max_diff_percent` | number | no (default 10) | Pixel-diff percentage above which a route's Figma alignment check fails; a nonzero diff at or below this still reports as a warn so a rerun after a fix shows the number moving toward zero. |
+
+### Host-run steps: base-branch trust and declared environment (0.17.0)
+
+`boot.up` and `boot.down` execute on the maintainer's host, so a pull request
+that edits them could make the gate pass by doing nothing, or run anything
+with every secret in the shell. Since 0.17.0 the base branch defines them:
+
+- Trust. Each step is reduced to a digest of what it runs (`run`, `env`,
+  `env_file`, `timeout_seconds`). The base branch is the repo's default branch
+  (`origin/HEAD`, else `origin/main`), or the `change_policy.gate.trunk` that
+  branch's own CHANGE.md names; it is fetched first and read with `git show`,
+  never from the working tree. A step whose digest equals the base branch's
+  runs. A step that differs, or is new, runs only after a human approves that
+  exact definition for that exact commit from their own terminal:
+  `ruby ~/.claude/cf/bin/change_approve.rb <sha>`. It refuses without a real
+  terminal and applies to every pull request, the maintainer's own included.
+  Until then the run refuses to boot, says why, and records a failing gate.
+  If the base cannot be fetched the last fetched ref is used and the report
+  says so; if no base ref resolves at all, every step is untrusted.
+- Gate. The gate record's manifest carries `trust`: the base ref and sha and
+  each executed step's digest and source (`base` or `approved`). The merge and
+  tag guards recompute the digests at the commit and accept a pass only when
+  every step matches the record and is either the base branch's or approved.
+  A record written before 0.17.0 has no `trust` block and no longer satisfies
+  the gate when the commit defines any boot step: re-run `change_run.rb all`.
+- Environment. A step sees `PATH`, `HOME`, `DOCKER_HOST` and `TERM` (when
+  set), `CF_CHANGE_RUN_ID`, `CF_CHANGE_TARGET_URL`, `CF_CHANGE_HEALTH_URL`, and
+  the names `boot.env` declares, nothing else. Declared values are masked as
+  `***NAME***` in captured output, reports and published media. Values shorter
+  than 4 characters, and values a step transforms (base64, url-encoded) before
+  printing, are not masked: do not echo secrets.
+- Doctrine. A step that would start a project service as a host daemon (the
+  `docker_doctrine_guard.rb` pattern list, for example `redis-server` or
+  `brew services start postgresql`) is refused at config load, unless
+  `CF_ALLOW_HOSTDAEMON=1` is set.
+- cf:screenshot boots HEAD's definitions on both sides (the base side only
+  changes the working directory), so the same verdict, for the HEAD sha,
+  covers both.
+
+#### Migrating from 0.16
+
+boot.up and boot.down no longer inherit your shell environment. They see
+PATH, HOME, DOCKER_HOST and TERM, the names listed in boot.env, and
+CF_CHANGE_RUN_ID, CF_CHANGE_TARGET_URL, CF_CHANGE_HEALTH_URL. Keys in
+boot.env_file are value sources only: list each one your boot needs under
+boot.env. A missing name stops the run and names it. Changes to boot.up or
+boot.down in a pull request need a one-time human approval per commit:
+ruby ~/.claude/cf/bin/change_approve.rb <sha>.
+
+```yaml
+change_config:
+  boot:
+    up: "docker compose up -d --wait"
+    down: "docker compose down -v"
+    env: [DATABASE_URL, APP_SECRET]   # names only; values from ENV, then env_file
+    env_file: .env.local              # a value source, nothing more
+    timeout_seconds: 900              # optional; applies to up and to down
+```
+
+To check a boot before upgrading, run it as it will run:
+`env -i PATH="$PATH" HOME="$HOME" TERM="$TERM" sh -c '<boot.up>'`. Whatever
+it then fails to find belongs in `boot.env`.
 
 ### change_config.lanes.testcases (0.10.0): committed regression cases
 
@@ -355,6 +419,8 @@ worked example below.
 | `change_config.profiles.<profile>.boot.health.expect_status` | integer | no | Overrides `change_config.boot.health.expect_status`. |
 | `change_config.profiles.<profile>.boot.health.timeout_seconds` | integer | no | Overrides `change_config.boot.health.timeout_seconds`. |
 | `change_config.profiles.<profile>.boot.env_file` | string or list of string | no | Overrides `change_config.boot.env_file`. |
+| `change_config.profiles.<profile>.boot.env` | list of string | no | (0.17.0) Overrides `change_config.boot.env`. An overridden step is compared against the base branch under the same profile. |
+| `change_config.profiles.<profile>.boot.timeout_seconds` | integer | no | (0.17.0) Overrides `change_config.boot.timeout_seconds`. |
 | `change_config.profiles.<profile>.boot.add_hosts` | list of string | no | (0.15.0) Overrides `change_config.boot.add_hosts`. |
 | `change_config.profiles.<profile>.boot.ignore_https_errors` | boolean | no | (0.15.0) Overrides `change_config.boot.ignore_https_errors`. |
 | `change_config.profiles.<profile>.lanes.<lane>.enabled` | boolean | no | Overrides whether `<lane>` runs under this profile (e.g. skip `zap` locally, require it in staging). |
@@ -1299,3 +1365,13 @@ root `RELEASING.md`.
         suites: ["qa/*.cf-testcases.yml"]
         launch_args: ["--disable-features=LocalNetworkAccessChecks"]
   ```
+- 0.17.0: breaking. `boot.up` and `boot.down` run with a minimal
+  environment (`PATH`, `HOME`, `DOCKER_HOST`, `TERM`, the `CF_CHANGE_*`
+  values) plus the names declared in the new `change_config.boot.env`; values
+  come from the environment first, then `boot.env_file`, which is now a value
+  source only. A missing name stops the run, naming every missing variable.
+  Adds the optional `change_config.boot.timeout_seconds`. Boot steps that
+  differ from the base branch need a human approval per commit
+  (`change_approve.rb`), and gate records carry a `trust` manifest the merge
+  and tag guards verify; a pre-0.17.0 record needs a re-run. See "Host-run
+  steps" and "Migrating from 0.16" above.

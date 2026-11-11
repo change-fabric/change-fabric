@@ -58,6 +58,12 @@ change_config:
     # shell's own command line, which would have it kill itself and report a
     # failed teardown for a teardown that worked.
     down: "kill \"$(cat /tmp/changefabric-site.pid)\" 2>/dev/null; pkill -f '[v]ite preview --port 5173 --strictPort' 2>/dev/null; rm -f /tmp/changefabric-site.pid"
+    # Since spec 0.17.0 boot.up and boot.down see only PATH, HOME,
+    # DOCKER_HOST, TERM and the CF_CHANGE_* values, plus the names listed
+    # here. npm ci, the build and the preview server need nothing more
+    # (checked under `env -i PATH HOME TERM`), so the list is explicitly
+    # empty.
+    env: []
     # No boot.network: this app is booted on the host, not in compose, so the
     # runners reach it by the spec's host alias. `health.url` stays on
     # localhost because that poll runs on the host, not in a container.

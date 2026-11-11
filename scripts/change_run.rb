@@ -3,6 +3,7 @@
 
 require 'open3'
 require 'optparse'
+require 'securerandom'
 require_relative 'change_apps'
 require_relative 'change_artifact'
 require_relative 'change_boot'
@@ -19,6 +20,7 @@ require_relative 'change_lane_a11y'
 require_relative 'change_lane_zap'
 require_relative 'change_lane_browserless'
 require_relative 'change_lane_testcases'
+require_relative 'change_trust'
 
 # The change-fabric orchestrator: the one command the cf:change / cf:k6 /
 # cf:a11y / cf:zap / cf:testcases skills invoke. It reads a project's config, boots the target
@@ -247,11 +249,11 @@ class ChangeRun
   def report_rule_status(policy, root, sha, kind, pattern, rule)
     profile = policy.profile_for_rule(rule)
     apps = ChangeGateCheck.required_apps(root, policy.apps_for_rule(rule))
-    check = ChangeGateCheck.new(sha: sha, profile: profile, apps: apps)
+    check = ChangeGateCheck.new(sha: sha, profile: profile, apps: apps, root: root)
     satisfied = check.satisfied?
     status = satisfied ? 'SATISFIED' : 'NOT SATISFIED'
     log("[change] gate-status: #{kind} rule '#{pattern}' (profile=#{profile || '(none)'}): " \
-        "#{status}#{check.missing_apps_clause}")
+        "#{status}#{check.missing_apps_clause}#{check.trust_clause}")
     satisfied
   end
 
@@ -326,11 +328,17 @@ class ChangeRun
     label = multi ? entry.name : nil
     log("[change] app: #{entry.name}") if multi
     lanes = resolve_lanes(config)
+    prefix = multi ? "#{entry.name}/" : ''
+    trust = trust_verdict(config, prefix: prefix, apps: multi ? [ entry.name ] : nil)
+    refuse_untrusted_boot(config, trust, app: label)
     artifact = ChangeArtifactStep.for(repo_root: repo_root, publish: @args.publish, label: label)
-    findings, instances = with_app(config, artifact) { |ctx| execute(config, lanes, ctx) }
+    findings, instances = with_app(config, artifact, trust: trust, prefix: prefix) do |ctx|
+      execute(config, lanes, ctx)
+    end
     manifest = run_manifest(config, lanes)
-    report = write_report(config, findings, lanes, instances, app: label, manifest: manifest)
-    record_gate(config, findings, report, app: label, manifest: manifest)
+    report = write_report(config, findings, lanes, instances, app: label, manifest: manifest.merge(trust_rows(trust)))
+    gate_manifest = manifest.merge('trust' => trust.manifest(trust.head_digests.keys))
+    record_gate(config, findings, report, app: label, manifest: gate_manifest)
     summarize(findings, report, app: label)
     publish_artifact(artifact, config, findings, report, app: label)
     { app: entry.name, passed: findings.passed?, failing: findings.failures.size, report: File.basename(report[:markdown]) }
@@ -350,16 +358,50 @@ class ChangeRun
   # Boots the app, waits for health, then yields a context to run lanes in,
   # tearing the app down afterward. Network and browser lifecycle nest inside so
   # they too are always cleaned up.
-  def with_app(config, artifact = nil)
+  def with_app(config, artifact = nil, trust:, prefix: '')
     boot = config.boot
-    boot_up(boot)
+    boot_up(boot, trust: trust, prefix: prefix)
     wait_healthy(boot)
     ChangeDocker.with_network(boot.network) do |network|
       with_context(config, network, artifact) { |ctx| yield ctx }
     end
   ensure
-    boot_down(boot)
+    boot_down(boot, trust: trust, prefix: prefix)
   end
+
+  # HEAD's host-run step definitions (as loaded from the working tree)
+  # compared against the base branch's and this sha's approvals. Logged when
+  # the base could not be fetched, so a stale comparison is never silent.
+  def trust_verdict(config, prefix: '', apps: nil)
+    verdict = ChangeTrust.evaluate(root: repo_root, head_sha: head_sha, profile: config.profile, apps: apps,
+                                   head_definitions: ChangeTrust.step_definitions(config, prefix: prefix))
+    log("[change] trust: #{verdict.note}") if verdict.note
+    verdict
+  end
+
+  # An untrusted boot.up stops the run before anything executes, and records
+  # a failing gate for this sha so an earlier pass can never stand in for it.
+  def refuse_untrusted_boot(config, trust, app:)
+    step = trust.head_digests.keys.find { |name| name.end_with?('boot.up') }
+    return if step.nil? || trust.trusted?(step)
+
+    ChangeGateStore.new(head_sha, profile: config.profile).record(
+      scope: @args.scope, status: 'fail', project: config.project, lanes: {}, report: '', app: app,
+      profile: config.profile, target: config.boot.target_url
+    )
+    abort_and_exit(trust.refusal(step))
+  end
+
+  # The trust block flattened into report manifest rows, one per step.
+  def trust_rows(trust)
+    rows = trust.head_digests.to_h do |step, digest|
+      [ "trust #{step}", "#{digest} (#{trust.sources[step] || 'untrusted'})" ]
+    end
+    rows['trust base'] = "#{trust.base_ref} #{trust.base_sha.to_s[0, 12]}" unless rows.empty?
+    rows
+  end
+
+  def boot_run_id = @boot_run_id ||= "#{Time.now.utc.strftime('%Y%m%dT%H%M%SZ')}-#{SecureRandom.hex(3)}"
 
   def with_context(config, network, artifact = nil)
     ctx_args = {
@@ -548,7 +590,8 @@ class ChangeRun
   # ChangeBoot's methods arrive public through the include; they were private
   # here before the extraction and stay that way, so this class's public API is
   # still just `run`.
-  private :boot_up, :boot_env, :parse_env_file, :boot_down, :wait_healthy, :healthy?, :tail
+  private :boot_up, :boot_env, :parse_env_file, :boot_down, :wait_healthy, :healthy?, :tail, :boot_step_env,
+          :boot_extra_env, :failure_reason, :boot_runner
 
   def log(message) = warn(message)
 
