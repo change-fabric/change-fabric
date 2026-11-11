@@ -126,7 +126,11 @@ html, body, #cf-diagram-root { margin: 0; width: 100%; height: 100%; }
 
   // Width from the longest text the node ever shows, by character count, so
   // a relabel never reflows and no measurement is needed.
+  // A layer inlined before this runtime may fix a node's width as
+  // `cf_width` and its height as `cf_height`; no authored spec carries
+  // either, so without them every node keeps NODE_H and the width below.
   const WIDTH = Object.fromEntries(spec.nodes.map((n) => {
+    if (n.cf_width) return [n.id, n.cf_width];
     const texts = [n.label || ''].concat(steps.filter((s) => s.op === 'label' && s.id === n.id).map((s) => s.text || ''));
     const chars = Math.max(...texts.map((x) => x.length));
     // An icon widens the node by its own width, so the label keeps its room.
@@ -134,6 +138,7 @@ html, body, #cf-diagram-root { margin: 0; width: 100%; height: 100%; }
     const w = Math.min(NODE_MAX_W + icon, Math.max(NODE_MIN_W, chars * CHAR_W + NODE_PAD_W + icon));
     return [n.id, Math.round(w / 2) * 2];
   }));
+  const HEIGHT = Object.fromEntries(spec.nodes.map((n) => [n.id, n.cf_height || NODE_H]));
   const isLR = direction === 'LR' || direction === 'RL';
 
   // Base positions: a pinned node keeps its position; under dagre the rest
@@ -145,7 +150,7 @@ html, body, #cf-diagram-root { margin: 0; width: 100%; height: 100%; }
       const g = new dagre.graphlib.Graph();
       g.setGraph({ rankdir: direction, nodesep: NODE_SEP, ranksep: RANK_SEP, marginx: 0, marginy: 0 });
       g.setDefaultEdgeLabel(() => ({}));
-      for (const n of spec.nodes) g.setNode(n.id, { width: WIDTH[n.id], height: NODE_H });
+      for (const n of spec.nodes) g.setNode(n.id, { width: WIDTH[n.id], height: HEIGHT[n.id] });
       for (const e of spec.edges) g.setEdge(e.source, e.target);
       dagre.layout(g);
       // dagre may order a rank's nodes against the spec; reassign each rank's
@@ -161,7 +166,7 @@ html, body, #cf-diagram-root { margin: 0; width: 100%; height: 100%; }
         const slots = ids.map((id) => (isLR ? g.node(id).y : g.node(id).x)).sort((a, b) => a - b);
         ids.forEach((id, i) => { if (isLR) g.node(id).y = slots[i]; else g.node(id).x = slots[i]; });
       }
-      for (const id of nodeIds) { const p = g.node(id); out[id] = { x: Math.round(p.x - WIDTH[id] / 2), y: Math.round(p.y - NODE_H / 2) }; }
+      for (const id of nodeIds) { const p = g.node(id); out[id] = { x: Math.round(p.x - WIDTH[id] / 2), y: Math.round(p.y - HEIGHT[id] / 2) }; }
     }
     for (const n of spec.nodes) if (n.position) out[n.id] = { x: n.position.x, y: n.position.y };
     for (const id of nodeIds) if (!out[id]) out[id] = { x: 0, y: 0 };
@@ -231,7 +236,7 @@ html, body, #cf-diagram-root { margin: 0; width: 100%; height: 100%; }
     let x0 = Infinity; let y0 = Infinity; let x1 = -Infinity; let y1 = -Infinity;
     for (const id of ids) {
       const p = positionAt(id, at);
-      x0 = Math.min(x0, p.x); y0 = Math.min(y0, p.y); x1 = Math.max(x1, p.x + WIDTH[id]); y1 = Math.max(y1, p.y + NODE_H);
+      x0 = Math.min(x0, p.x); y0 = Math.min(y0, p.y); x1 = Math.max(x1, p.x + WIDTH[id]); y1 = Math.max(y1, p.y + HEIGHT[id]);
     }
     const w = x1 - x0; const hgt = y1 - y0;
     const zoom = Math.min(maxZoom, Math.max(MIN_ZOOM, Math.min(size.w / (w * (1 + 2 * padding)), size.h / (hgt * (1 + 2 * padding)))));
@@ -272,7 +277,7 @@ html, body, #cf-diagram-root { margin: 0; width: 100%; height: 100%; }
       } else if (s.op === 'focus') {
         const p = positionAt(s.id, s.t_ms);
         const zoom = Math.min(Math.max(FOCUS_MAX_ZOOM, fitMaxZoom), Math.max(MIN_ZOOM, s.zoom || cur.zoom));
-        target = { x: size.w / 2 - (p.x + WIDTH[s.id] / 2) * zoom, y: size.h / 2 - (p.y + NODE_H / 2) * zoom, zoom };
+        target = { x: size.w / 2 - (p.x + WIDTH[s.id] / 2) * zoom, y: size.h / 2 - (p.y + HEIGHT[s.id] / 2) * zoom, zoom };
       }
       if (!target) return;
       const p = progress(end, s.t_ms, s.duration || 0);
@@ -287,6 +292,7 @@ html, body, #cf-diagram-root { margin: 0; width: 100%; height: 100%; }
   const nodeStyle = (id) => {
     const c = COLORS.nodes[id];
     const style = { width: `${WIDTH[id]}px` };
+    if (HEIGHT[id] !== NODE_H) style.height = `${HEIGHT[id]}px`;
     return c ? Object.assign(style, { '--cf-item': c.color, '--cf-item-tint': c.tint, '--cf-item-ring': c.ring }) : style;
   };
   const iconSvg = (paths) => h('svg', { className: 'cf-node-icon', viewBox: '0 0 256 256', 'aria-hidden': 'true', focusable: 'false' },
@@ -305,14 +311,14 @@ html, body, #cf-diagram-root { margin: 0; width: 100%; height: 100%; }
   const sidesFor = (e, positions) => {
     const a = positions[e.source]; const b = positions[e.target];
     const dx = (b.x + WIDTH[e.target] / 2) - (a.x + WIDTH[e.source] / 2);
-    const dy = (b.y + NODE_H / 2) - (a.y + NODE_H / 2);
+    const dy = (b.y + HEIGHT[e.target] / 2) - (a.y + HEIGHT[e.source] / 2);
     const gapX = Math.abs(dx) - (WIDTH[e.source] + WIDTH[e.target]) / 2;
     if (gapX < 24 || Math.abs(dy) > 2 * Math.abs(dx)) return dy >= 0 ? ['bottom', 'top'] : ['top', 'bottom'];
     return dx >= 0 ? ['right', 'left'] : ['left', 'right'];
   };
 
   const toNodes = (positions) => spec.nodes.map((n) => ({
-    id: n.id, type: 'cf', position: positions[n.id], width: WIDTH[n.id], height: NODE_H,
+    id: n.id, type: 'cf', position: positions[n.id], width: WIDTH[n.id], height: HEIGHT[n.id],
     data: { label: n.label, role: n.role, icon: iconOf(n) }, draggable: false, selectable: false, connectable: false
   }));
   const toEdges = (positions) => spec.edges.map((e) => {

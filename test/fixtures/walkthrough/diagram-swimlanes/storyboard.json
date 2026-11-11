@@ -1,0 +1,225 @@
+{
+  "schema_version": 1,
+  "slug": "diagram-swimlanes",
+  "title": "A pull request crosses five audit lanes",
+  "viewport": {
+    "w": 1280,
+    "h": 720,
+    "dpr": 1
+  },
+  "fps": 30,
+  "music": null,
+  "scenes": [
+    {
+      "id": "swimlanes",
+      "title": "Audit swimlanes",
+      "order": 1,
+      "kind": "diagram",
+      "screen": {
+        "html": "screens/swimlanes.html"
+      },
+      "diagram": {
+        "layout": {
+          "engine": "manual"
+        },
+        "theme": "dark",
+        "lanes": [
+          {
+            "id": "load",
+            "label": "Load",
+            "color": "#f2b85b",
+            "icon": "gauge"
+          },
+          {
+            "id": "a11y",
+            "label": "Accessibility",
+            "color": "#6fb7f0",
+            "icon": "wheelchair"
+          },
+          {
+            "id": "security",
+            "label": "Security",
+            "color": "#f07f9b",
+            "icon": "shield-check"
+          },
+          {
+            "id": "ux",
+            "label": "Responsive UX",
+            "color": "#4fc4b0",
+            "icon": "devices"
+          },
+          {
+            "id": "cases",
+            "label": "Test cases",
+            "color": "#9ea39b",
+            "icon": "test-tube"
+          }
+        ],
+        "nodes": [
+          {
+            "id": "check-load",
+            "label": "Load budget",
+            "lane": "load",
+            "position": {
+              "x": 224,
+              "y": 0
+            }
+          },
+          {
+            "id": "check-a11y",
+            "label": "axe-core scan",
+            "lane": "a11y",
+            "position": {
+              "x": 224,
+              "y": 0
+            }
+          },
+          {
+            "id": "check-security",
+            "label": "ZAP baseline",
+            "lane": "security",
+            "position": {
+              "x": 224,
+              "y": 0
+            }
+          },
+          {
+            "id": "check-ux",
+            "label": "Viewport sweep",
+            "lane": "ux",
+            "position": {
+              "x": 224,
+              "y": 0
+            }
+          },
+          {
+            "id": "check-cases",
+            "label": "Committed cases",
+            "lane": "cases",
+            "position": {
+              "x": 224,
+              "y": 0
+            }
+          },
+          {
+            "id": "pr",
+            "label": "PR #42",
+            "role": "accent",
+            "icon": "git-pull-request",
+            "position": {
+              "x": 0,
+              "y": 0
+            }
+          },
+          {
+            "id": "f-load",
+            "label": "p95 412 ms",
+            "color": "success"
+          },
+          {
+            "id": "f-a11y",
+            "label": "2 AA issues",
+            "color": "warning"
+          },
+          {
+            "id": "f-security",
+            "label": "1 medium alert",
+            "color": "danger"
+          },
+          {
+            "id": "f-ux",
+            "label": "3 widths clean",
+            "color": "success"
+          },
+          {
+            "id": "f-cases",
+            "label": "48 of 48 pass",
+            "color": "success"
+          }
+        ],
+        "edges": [],
+        "initial": [
+          "check-load",
+          "check-a11y",
+          "check-security",
+          "check-ux",
+          "check-cases"
+        ],
+        "steps": [
+          {
+            "t_ms": 0,
+            "op": "fit_view",
+            "padding": 0.06
+          },
+          {
+            "t_ms": 300,
+            "op": "travel",
+            "id": "pr",
+            "lane": "load",
+            "result": "f-load",
+            "duration": 700,
+            "easing": "standard"
+          },
+          {
+            "t_ms": 1700,
+            "op": "travel",
+            "id": "pr",
+            "lane": "a11y",
+            "result": "f-a11y",
+            "duration": 700,
+            "easing": "standard"
+          },
+          {
+            "t_ms": 3100,
+            "op": "travel",
+            "id": "pr",
+            "lane": "security",
+            "result": "f-security",
+            "duration": 700,
+            "easing": "standard"
+          },
+          {
+            "t_ms": 4500,
+            "op": "travel",
+            "id": "pr",
+            "lane": "ux",
+            "result": "f-ux",
+            "duration": 700,
+            "easing": "standard"
+          },
+          {
+            "t_ms": 5900,
+            "op": "travel",
+            "id": "pr",
+            "lane": "cases",
+            "result": "f-cases",
+            "duration": 700,
+            "easing": "standard"
+          }
+        ],
+        "report": {
+          "label": "Report",
+          "unit": "checks"
+        }
+      },
+      "narration": {
+        "text": "A pull request crosses every audit lane, and each lane drops its result into the report.",
+        "measured_ms": 0
+      },
+      "assumptions": [
+        {
+          "id": "A-01",
+          "text": "Each lane runs in turn for the demo."
+        }
+      ],
+      "timing": {
+        "min_ms": 8400,
+        "pad_ms": 0,
+        "transition": {
+          "type": "cut",
+          "ms": 0
+        }
+      }
+    }
+  ]
+}
