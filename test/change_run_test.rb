@@ -126,6 +126,7 @@ class ChangeRunTest < Minitest::Test
   # browserless container; what is under test is the selection reaching it.
   ContextConfig = Struct.new(:boot) do
     def enabled_lanes = %w[k6]
+    def profile = nil
   end
 
   def test_the_suite_selection_reaches_the_lane_context
@@ -242,6 +243,7 @@ class ChangeRunTest < Minitest::Test
     end
 
     def run = @attempt
+    def self_retrying? = false
   end
 
   def with_scripted_lane(attempts)

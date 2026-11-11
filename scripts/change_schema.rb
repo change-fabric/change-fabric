@@ -20,8 +20,9 @@ require_relative 'figma_url'
 module ChangeSchema
   VERSION = '0.17.0'
 
-  # The five audit lanes, the authoritative list the config validator enforces.
-  LANES = %w[k6 a11y zap browserless testcases].freeze
+  # The six lanes, the authoritative list the config validator enforces: five
+  # dockerized audit lanes plus a host-run command lane (0.17.0).
+  LANES = %w[k6 a11y zap browserless testcases command].freeze
 
   # The only top-level key an app config file (change_config.apps.<app>.config,
   # 0.4.0) may declare. Governance is repo-wide and lives only in the root

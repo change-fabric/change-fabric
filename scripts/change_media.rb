@@ -22,6 +22,7 @@ require_relative 'frame_video'
 class ChangeMedia
   SCREENSHOT_DIR = 'screenshots'
   VIDEO_DIR = 'video'
+  COMMAND_DIR = 'commands'
 
   # One captured screenshot: the route and viewport it belongs to, plus the
   # bundle-relative path the artifact page and the PDFs both reference.
@@ -92,6 +93,16 @@ class ChangeMedia
     video
   rescue StandardError => e
     record_gap(viewport, "encode failed: #{e.message}", dropped)
+  end
+
+  # Copies one command lane file (0.17.0: a masked transcript or a collected
+  # artifact) into `commands/<command>/<relative>`, so the uploader publishes it
+  # with the rest of the bundle.
+  def add_command_file(command:, relative:, source:)
+    dest = File.join(@root, COMMAND_DIR, slug(command), relative)
+    FileUtils.mkdir_p(File.dirname(dest))
+    FileUtils.cp(source, dest)
+    dest
   end
 
   # Every file written under the bundle root, bundle-relative, for the uploader.

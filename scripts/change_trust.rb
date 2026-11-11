@@ -77,7 +77,27 @@ module ChangeTrust
     defs = {}
     defs["#{prefix}boot.up"] = boot_fields(boot, boot.up) if boot.up?
     defs["#{prefix}boot.down"] = boot_fields(boot, boot.down) unless boot.down.empty?
+    command_entries(config).each { |entry| defs["#{prefix}command:#{entry['name']}"] = command_fields(entry) }
     defs
+  end
+
+  # The command lane entries that would execute under this config's profile:
+  # an entry with a `profiles:` list it is not in is skipped, so it is not a
+  # step that ran.
+  def command_entries(config)
+    return [] unless config.enabled_lanes.include?('command')
+
+    Array(config.lane('command')['commands']).select do |entry|
+      entry.is_a?(Hash) && (entry['profiles'].nil? || Array(entry['profiles']).include?(config.profile))
+    end
+  end
+
+  def command_fields(entry)
+    {
+      'name' => entry['name'].to_s, 'run' => entry['run'].to_s, 'env' => Array(entry['env']).map(&:to_s).sort,
+      'timeout_seconds' => entry['timeout_seconds'], 'artifacts' => Array(entry['artifacts']).map(&:to_s),
+      'profiles' => entry['profiles'] && Array(entry['profiles']).map(&:to_s).sort, 'retries' => entry.fetch('retries', 0)
+    }
   end
 
   def boot_fields(boot, run)
