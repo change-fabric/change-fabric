@@ -12,6 +12,7 @@ require_relative 'change_config'
 require_relative 'change_docker'
 require_relative 'change_screenshot_capture'
 require_relative 'change_screenshot_upload'
+require_relative 'change_trust'
 
 # The cf:screenshot entry point: what visibly changed on screen between two git
 # refs.
@@ -227,21 +228,21 @@ class ChangeScreenshot
     in_worktree(base_side.commit) do |dir|
       # chdir is the worktree, never repo_root: booting from the main working
       # tree here would photograph HEAD twice.
-      boot_up(boot, chdir: dir)
+      boot_up(boot, trust: boot_trust(config), chdir: dir)
       wait_healthy(boot)
       capturer.capture(session: session, side: 'before', out_dir: out_dir)
     ensure
-      boot_down(boot, chdir: dir)
+      boot_down(boot, trust: boot_trust(config), chdir: dir)
     end
   end
 
   def capture_head(config, capturer, session, out_dir)
     boot = config.boot
-    boot_up(boot, chdir: repo_root)
+    boot_up(boot, trust: boot_trust(config), chdir: repo_root)
     wait_healthy(boot)
     capturer.capture(session: session, side: 'after', out_dir: out_dir)
   ensure
-    boot_down(boot, chdir: repo_root)
+    boot_down(boot, trust: boot_trust(config), chdir: repo_root)
   end
 
   # `git worktree add --detach` matters: a merge-base is a commit, not a
@@ -457,6 +458,19 @@ class ChangeScreenshot
       ok ? out : ''
     end
   end
+
+  # Both sides boot with HEAD's boot definitions (the base side only changes
+  # the working directory), so one verdict covers both: HEAD's boot.up and
+  # boot.down compared against the base branch, approvals looked up for the
+  # HEAD sha. Computed once per run, so the base branch is fetched once.
+  def boot_trust(config)
+    @boot_trust ||= ChangeTrust.evaluate(root: repo_root, head_sha: head_sha, profile: config.profile,
+                                         head_definitions: ChangeTrust.step_definitions(config)).tap do |verdict|
+      log("[screenshot] trust: #{verdict.note}") if verdict.note
+    end
+  end
+
+  def boot_run_id = @boot_run_id ||= "screenshot-#{Time.now.utc.strftime('%Y%m%dT%H%M%SZ')}-#{Process.pid}"
 
   def log(message) = warn(message)
 

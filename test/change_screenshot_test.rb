@@ -43,8 +43,9 @@ class ChangeScreenshotTest < Minitest::Test
     end
 
     def repo_root = "/repo"
-    def boot_up(_boot, chdir: repo_root) = @boots << [ :up, chdir ]
-    def boot_down(_boot, chdir: repo_root) = @boots << [ :down, chdir ]
+    def boot_up(_boot, trust:, chdir: repo_root) = @boots << [ :up, chdir, trust ]
+    def boot_down(_boot, trust:, chdir: repo_root) = @boots << [ :down, chdir, trust ]
+    def boot_trust(_config) = :verdict
     def wait_healthy(_boot) = nil
 
     def git_calls = @calls.select { |argv| argv.first == "git" }
@@ -191,7 +192,7 @@ class ChangeScreenshotTest < Minitest::Test
     subject.capture_base(Config.new(boot: boot), side, capturer, :session, "/out")
 
     worktree = subject.git_calls.find { |argv| argv[4] == "add" }[6]
-    assert_equal [ [ :up, worktree ], [ :down, worktree ] ], subject.boots
+    assert_equal [ [ :up, worktree, :verdict ], [ :down, worktree, :verdict ] ], subject.boots
     refute_equal "/repo", worktree
     assert_equal "before", capturer.sides.first[:side]
     assert_nil capturer.sides.first[:base_url], "the base side is served by the worktree's own boot"
@@ -202,7 +203,7 @@ class ChangeScreenshotTest < Minitest::Test
     capturer = ProbeCapturer.new
     subject.capture_head(Config.new(boot: boot), capturer, :session, "/out")
 
-    assert_equal [ [ :up, "/repo" ], [ :down, "/repo" ] ], subject.boots
+    assert_equal [ [ :up, "/repo", :verdict ], [ :down, "/repo", :verdict ] ], subject.boots
     assert_equal "after", capturer.sides.first[:side]
   end
 

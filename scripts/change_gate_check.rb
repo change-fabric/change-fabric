@@ -4,6 +4,7 @@
 require_relative 'change_apps'
 require_relative 'change_gate_store'
 require_relative 'change_override_store'
+require_relative 'change_trust'
 
 # The one question both release gates ask, extracted so `change_merge_guard.rb`
 # (gh pr merge into a protected branch) and `change_tag_guard.rb` (pushing a
@@ -12,19 +13,45 @@ require_relative 'change_override_store'
 # (command surface, fact resolution, ref-to-rule matching, deny wording); only
 # the final gate check is shared, so it lives here rather than in either hook.
 class ChangeGateCheck
-  def initialize(sha:, profile:, apps: nil)
+  # `root` (0.17.0) is the repo the guard is deciding for. When given, a
+  # passing record must also prove its host-run steps were trusted (see
+  # trust_problem); without it the check is the pre-0.17.0 question.
+  def initialize(sha:, profile:, apps: nil, root: nil)
     @sha = sha
     @profile = profile
     @apps = apps
+    @root = root
   end
 
   # True when a human-recorded override covers this (sha, profile), or a
   # passing comprehensive cf:change run is on record, scoped to `apps` (0.4.0
-  # monorepo mode) when given, or the unscoped 0.3.1 question otherwise.
+  # monorepo mode) when given, or the unscoped 0.3.1 question otherwise, and
+  # that run executed only trusted step definitions.
   def satisfied?
     return true if overridden?
 
-    store.comprehensive_pass?(apps: @apps)
+    store.comprehensive_pass?(apps: @apps) && trust_problem.nil?
+  end
+
+  # nil when the recorded run's trust block covers every boot step and
+  # command lane entry defined at this sha (each equal to the base branch's
+  # definition or approved for this sha), else the reason. A record written
+  # before 0.17.0 has no trust block and fails here whenever the sha defines
+  # any such step, so a pass earned by a rewritten check cannot stand.
+  def trust_problem
+    return @trust_problem if defined?(@trust_problem)
+
+    @trust_problem = @root && ChangeTrust.record_problem(root: @root, sha: @sha, record: store.read,
+                                                         profile: @profile, apps: @apps)
+  end
+
+  # " (trust: <reason>)" or '', for a deny message.
+  # Empty when no passing record exists at all: that case already has its own
+  # wording, and a trust reason would only confuse it.
+  def trust_clause
+    return '' unless store.comprehensive_pass?(apps: @apps) && trust_problem
+
+    " (trust: #{trust_problem})"
   end
 
   # Whether a human recorded an override for this (sha, profile). Exposed so a

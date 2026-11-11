@@ -10,6 +10,8 @@ require_relative 'change_frontmatter'
 require_relative 'change_schema'
 require_relative 'change_suite'
 require_relative 'change_local_tls'
+require_relative 'change_env'
+require_relative 'docker_doctrine_guard'
 
 # Parses and validates a project's change-fabric config. There is one
 # change-fabric file per repo, `CHANGE.md` at the repo root: its YAML
@@ -77,6 +79,28 @@ class ChangeConfig
   # (0.10.0) reads the same block, in the same shape, since a case behind a
   # login has to get through it first.
   AUTH_LANES = %w[a11y browserless testcases].freeze
+
+  # Host-run steps (boot.up, boot.down, command lane entries, 0.17.0) declare
+  # the variables they need by name; these are the shapes and the names a step
+  # may not declare because the runner always provides them.
+  ENV_NAME = /\A[A-Z_][A-Z0-9_]*\z/
+  RESERVED_ENV_NAMES = (ChangeEnv::BASE_NAMES + ChangeEnv::RUN_NAMES).freeze
+  MAX_TIMEOUT_SECONDS = 21_600
+
+  def self.timeout?(value) = value.is_a?(Integer) && value.between?(1, MAX_TIMEOUT_SECONDS)
+
+  # The cf:docker doctrine at config load: a host-run step that would start a
+  # project service as a host daemon is refused with the same pattern list the
+  # PreToolUse guard uses, and the same CF_ALLOW_HOSTDAEMON=1 escape hatch.
+  def self.doctrine_error(field, cmd)
+    return nil if ENV['CF_ALLOW_HOSTDAEMON'] == '1'
+
+    offender = DockerDoctrineGuard.match(cmd)
+    return nil unless offender
+
+    "#{field} starts a host daemon (#{offender}); run it in a container (see skills/docker/SKILL.md) " \
+      'or set CF_ALLOW_HOSTDAEMON=1'
+  end
 
   def self.load(path, profile: nil, root: nil, overrides: {})
     raise ConfigError, "CHANGE.md not found: #{path}. #{REFERENCE_HINT}" unless File.exist?(path)
@@ -555,7 +579,34 @@ class ChangeConfig
       elsif ignore_https_errors && !ChangeLocalTls.local_host?(target_url, add_hosts)
         errors << "boot.ignore_https_errors needs a local boot.target_url or an add_hosts mapping for its host; got #{target_url.inspect}"
       end
-      errors
+      errors.concat(env_errors, timeout_errors, doctrine_errors)
+    end
+
+    private
+
+    def env_errors
+      return [] unless @raw.key?('env')
+
+      names = @raw['env']
+      unless names.is_a?(Array) && names.all? { |name| name.is_a?(String) && name.match?(ChangeConfig::ENV_NAME) }
+        return [ "boot.env must be a list of variable names (A-Z, 0-9, _); got #{names.inspect}" ]
+      end
+
+      reserved = names & ChangeConfig::RESERVED_ENV_NAMES
+      return [] if reserved.empty?
+
+      [ "boot.env may not declare #{reserved.join(', ')}; the base environment and CF_CHANGE_* values are always provided" ]
+    end
+
+    def timeout_errors
+      return [] unless @raw.key?('timeout_seconds')
+      return [] if ChangeConfig.timeout?(@raw['timeout_seconds'])
+
+      [ "boot.timeout_seconds must be an integer from 1 to #{ChangeConfig::MAX_TIMEOUT_SECONDS}; got #{@raw['timeout_seconds'].inspect}" ]
+    end
+
+    def doctrine_errors
+      { 'boot.up' => up, 'boot.down' => down }.filter_map { |field, cmd| ChangeConfig.doctrine_error(field, cmd) }
     end
   end
 

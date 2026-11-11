@@ -94,7 +94,7 @@ class ChangeMergeGuard
   def gate_violation(base, sha, policy, kind:)
     profile = policy.profile_for(base)
     apps = ChangeGateCheck.required_apps(repo_root, policy.apps_for(base))
-    check = ChangeGateCheck.new(sha: sha, profile: profile, apps: apps)
+    check = ChangeGateCheck.new(sha: sha, profile: profile, apps: apps, root: repo_root)
     return check.overridden? ? nil : testcases_violation(base, sha, policy, check, kind: kind) if check.satisfied?
 
     conditions = policy.admin_bypass_conditions
@@ -102,7 +102,7 @@ class ChangeMergeGuard
     target = profile ? "the '#{profile}' profile" : 'a comprehensive'
     "#{kind} into '#{base}' is gated (gate.require_on: #{policy.gate_require_on}): " \
       "no passing #{target} cf:change run recorded for head " \
-      "#{sha[0, 12]}#{check.missing_apps_clause}. #{rerun_hint(check)} " \
+      "#{sha[0, 12]}#{check.missing_apps_clause}#{check.trust_clause}. #{rerun_hint(check)} " \
       "#{note}#{ChangeGateCheck.escape_note}"
   end
 
