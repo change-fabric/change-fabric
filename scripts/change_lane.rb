@@ -36,6 +36,11 @@ class ChangeLane
     @context = context
   end
 
+  # A lane that retries its own units (the command lane retries each entry up
+  # to that entry's own `retries`) returns true, so ChangeRun's lane-wide retry
+  # loop never re-runs it as a whole.
+  def self_retrying? = false
+
   # The JS every browser lane's module uses to honor one normalized contract.
   # Emitted once per module and called per navigation, so the two lanes cannot
   # drift on what "ready" means.
