@@ -12,354 +12,187 @@
 <script type="application/json" id="cf-diagram">
 {
   "layout": {
-    "engine": "manual",
-    "direction": "LR"
+    "engine": "manual"
   },
   "theme": "dark",
-  "nodes": [
+  "lanes": [
     {
-      "id": "pr",
-      "label": "Pull request",
-      "role": "accent",
-      "position": {
-        "x": 0,
-        "y": 320
-      }
-    },
-    {
-      "id": "k6",
-      "label": "Load (k6)",
+      "id": "load",
+      "label": "Load",
       "color": "#f2b85b",
-      "position": {
-        "x": 500,
-        "y": 40
-      }
+      "icon": "gauge"
     },
     {
       "id": "a11y",
-      "label": "Accessibility (axe)",
+      "label": "Accessibility",
       "color": "#6fb7f0",
-      "position": {
-        "x": 500,
-        "y": 180
-      }
+      "icon": "wheelchair"
     },
     {
-      "id": "zap",
-      "label": "Security (ZAP)",
+      "id": "security",
+      "label": "Security",
       "color": "#f07f9b",
-      "position": {
-        "x": 500,
-        "y": 320
-      }
+      "icon": "shield-check"
     },
     {
       "id": "ux",
       "label": "Responsive UX",
       "color": "#4fc4b0",
-      "position": {
-        "x": 500,
-        "y": 460
-      }
+      "icon": "devices"
     },
     {
       "id": "cases",
       "label": "Test cases",
       "color": "#9ea39b",
+      "icon": "test-tube"
+    }
+  ],
+  "lane_direction": "horizontal",
+  "report": {
+    "label": "Report",
+    "unit": "checks"
+  },
+  "nodes": [
+    {
+      "id": "check-load",
+      "label": "k6 load run",
+      "lane": "load",
       "position": {
-        "x": 500,
-        "y": 600
+        "x": 224,
+        "y": 0
       }
     },
     {
-      "id": "report",
-      "label": "One report",
+      "id": "check-a11y",
+      "label": "axe-core scan",
+      "lane": "a11y",
+      "position": {
+        "x": 224,
+        "y": 0
+      }
+    },
+    {
+      "id": "check-security",
+      "label": "ZAP baseline",
+      "lane": "security",
+      "position": {
+        "x": 224,
+        "y": 0
+      }
+    },
+    {
+      "id": "check-ux",
+      "label": "Viewport sweep",
+      "lane": "ux",
+      "position": {
+        "x": 224,
+        "y": 0
+      }
+    },
+    {
+      "id": "check-cases",
+      "label": "Committed cases",
+      "lane": "cases",
+      "position": {
+        "x": 224,
+        "y": 0
+      }
+    },
+    {
+      "id": "pr",
+      "label": "Pull request",
       "role": "accent",
+      "icon": "git-pull-request",
       "position": {
-        "x": 1060,
-        "y": 320
+        "x": 0,
+        "y": 0
       }
+    },
+    {
+      "id": "r-load",
+      "label": "k6 summary"
+    },
+    {
+      "id": "r-a11y",
+      "label": "axe violations"
+    },
+    {
+      "id": "r-security",
+      "label": "ZAP alerts"
+    },
+    {
+      "id": "r-ux",
+      "label": "Screenshots"
+    },
+    {
+      "id": "r-cases",
+      "label": "Case results"
     }
   ],
-  "edges": [
-    {
-      "id": "e-pr-k6",
-      "source": "pr",
-      "target": "k6",
-      "color": "#f2b85b"
-    },
-    {
-      "id": "e-k6-report",
-      "source": "k6",
-      "target": "report",
-      "color": "#f2b85b"
-    },
-    {
-      "id": "e-pr-a11y",
-      "source": "pr",
-      "target": "a11y",
-      "color": "#6fb7f0"
-    },
-    {
-      "id": "e-a11y-report",
-      "source": "a11y",
-      "target": "report",
-      "color": "#6fb7f0"
-    },
-    {
-      "id": "e-pr-zap",
-      "source": "pr",
-      "target": "zap",
-      "color": "#f07f9b"
-    },
-    {
-      "id": "e-zap-report",
-      "source": "zap",
-      "target": "report",
-      "color": "#f07f9b"
-    },
-    {
-      "id": "e-pr-ux",
-      "source": "pr",
-      "target": "ux",
-      "color": "#4fc4b0"
-    },
-    {
-      "id": "e-ux-report",
-      "source": "ux",
-      "target": "report",
-      "color": "#4fc4b0"
-    },
-    {
-      "id": "e-pr-cases",
-      "source": "pr",
-      "target": "cases",
-      "color": "#9ea39b"
-    },
-    {
-      "id": "e-cases-report",
-      "source": "cases",
-      "target": "report",
-      "color": "#9ea39b"
-    }
-  ],
+  "edges": [],
   "initial": [
-    "pr"
+    "check-load",
+    "check-a11y",
+    "check-security",
+    "check-ux",
+    "check-cases"
   ],
   "steps": [
     {
       "t_ms": 0,
       "op": "fit_view",
-      "ids": [
-        "pr"
-      ],
-      "padding": 0.4,
-      "duration": 0
+      "padding": 0.06
     },
     {
-      "t_ms": 300,
-      "op": "fit_view",
-      "ids": [
-        "pr",
-        "k6",
-        "a11y",
-        "zap",
-        "ux",
-        "cases"
-      ],
-      "padding": 0.15,
-      "duration": 800
+      "t_ms": 1650,
+      "op": "travel",
+      "id": "pr",
+      "lane": "load",
+      "result": "r-load",
+      "duration": 700,
+      "easing": "standard"
     },
     {
-      "t_ms": 1100,
-      "op": "add_node",
-      "ids": [
-        "k6",
-        "a11y",
-        "zap",
-        "ux",
-        "cases",
-        "e-pr-k6",
-        "e-pr-a11y",
-        "e-pr-zap",
-        "e-pr-ux",
-        "e-pr-cases"
-      ]
+      "t_ms": 2550,
+      "op": "travel",
+      "id": "pr",
+      "lane": "a11y",
+      "result": "r-a11y",
+      "duration": 700,
+      "easing": "standard"
     },
     {
-      "t_ms": 1100,
-      "op": "flow",
-      "ids": [
-        "e-pr-k6"
-      ],
-      "count": 2,
-      "duration": 900,
-      "color": "#f2b85b"
+      "t_ms": 3750,
+      "op": "travel",
+      "id": "pr",
+      "lane": "security",
+      "result": "r-security",
+      "duration": 700,
+      "easing": "standard"
     },
     {
-      "t_ms": 1100,
-      "op": "flow",
-      "ids": [
-        "e-pr-a11y"
-      ],
-      "count": 2,
-      "duration": 900,
-      "color": "#6fb7f0"
+      "t_ms": 5150,
+      "op": "travel",
+      "id": "pr",
+      "lane": "ux",
+      "result": "r-ux",
+      "duration": 700,
+      "easing": "standard"
     },
     {
-      "t_ms": 1100,
-      "op": "flow",
-      "ids": [
-        "e-pr-zap"
-      ],
-      "count": 2,
-      "duration": 900,
-      "color": "#f07f9b"
-    },
-    {
-      "t_ms": 1100,
-      "op": "flow",
-      "ids": [
-        "e-pr-ux"
-      ],
-      "count": 2,
-      "duration": 900,
-      "color": "#4fc4b0"
-    },
-    {
-      "t_ms": 1100,
-      "op": "flow",
-      "ids": [
-        "e-pr-cases"
-      ],
-      "count": 2,
-      "duration": 900,
-      "color": "#9ea39b"
-    },
-    {
-      "t_ms": 1300,
-      "op": "fit_view",
-      "ids": [
-        "pr",
-        "k6",
-        "a11y",
-        "zap",
-        "ux",
-        "cases",
-        "report"
-      ],
-      "padding": 0.1,
-      "duration": 800
-    },
-    {
-      "t_ms": 1700,
-      "op": "highlight",
-      "ids": [
-        "k6"
-      ]
-    },
-    {
-      "t_ms": 2100,
-      "op": "add_node",
-      "ids": [
-        "report",
-        "e-k6-report",
-        "e-a11y-report",
-        "e-zap-report",
-        "e-ux-report",
-        "e-cases-report"
-      ]
-    },
-    {
-      "t_ms": 2400,
-      "op": "flow",
-      "ids": [
-        "e-k6-report"
-      ],
-      "count": 3,
-      "duration": 1000,
-      "color": "#f2b85b"
-    },
-    {
-      "t_ms": 2600,
-      "op": "highlight",
-      "ids": [
-        "a11y"
-      ]
-    },
-    {
-      "t_ms": 2600,
-      "op": "flow",
-      "ids": [
-        "e-a11y-report"
-      ],
-      "count": 3,
-      "duration": 1000,
-      "color": "#6fb7f0"
-    },
-    {
-      "t_ms": 3800,
-      "op": "highlight",
-      "ids": [
-        "zap"
-      ]
-    },
-    {
-      "t_ms": 3800,
-      "op": "flow",
-      "ids": [
-        "e-zap-report"
-      ],
-      "count": 3,
-      "duration": 1000,
-      "color": "#f07f9b"
-    },
-    {
-      "t_ms": 5200,
-      "op": "highlight",
-      "ids": [
-        "ux"
-      ]
-    },
-    {
-      "t_ms": 5200,
-      "op": "flow",
-      "ids": [
-        "e-ux-report"
-      ],
-      "count": 3,
-      "duration": 1000,
-      "color": "#4fc4b0"
-    },
-    {
-      "t_ms": 6700,
-      "op": "highlight",
-      "ids": [
-        "cases"
-      ]
-    },
-    {
-      "t_ms": 6700,
-      "op": "flow",
-      "ids": [
-        "e-cases-report"
-      ],
-      "count": 3,
-      "duration": 1000,
-      "color": "#9ea39b"
-    },
-    {
-      "t_ms": 7600,
-      "op": "highlight",
-      "ids": [
-        "report"
-      ]
+      "t_ms": 6650,
+      "op": "travel",
+      "id": "pr",
+      "lane": "cases",
+      "result": "r-cases",
+      "duration": 700,
+      "easing": "standard"
     }
   ]
 }
 </script>
 <script type="application/json" id="cf-diagram-frame">{"bottom_inset":162}</script>
-<script type="application/json" id="cf-diagram-colors">{"nodes":{"k6":{"color":"#f2b85b","tint":"#412931","ring":"#6c4c3b"},"a11y":{"color":"#6fb7f0","tint":"#2f2946","ring":"#3e4c6f"},"zap":{"color":"#f07f9b","tint":"#41213a","ring":"#6b3852"},"ux":{"color":"#4fc4b0","tint":"#2a2b3d","ring":"#335059"},"cases":{"color":"#9ea39b","tint":"#35263a","ring":"#4f4552"}},"edges":{"e-pr-k6":{"color":"#f2b85b","tint":"#412931","ring":"#6c4c3b"},"e-k6-report":{"color":"#f2b85b","tint":"#412931","ring":"#6c4c3b"},"e-pr-a11y":{"color":"#6fb7f0","tint":"#2f2946","ring":"#3e4c6f"},"e-a11y-report":{"color":"#6fb7f0","tint":"#2f2946","ring":"#3e4c6f"},"e-pr-zap":{"color":"#f07f9b","tint":"#41213a","ring":"#6b3852"},"e-zap-report":{"color":"#f07f9b","tint":"#41213a","ring":"#6b3852"},"e-pr-ux":{"color":"#4fc4b0","tint":"#2a2b3d","ring":"#335059"},"e-ux-report":{"color":"#4fc4b0","tint":"#2a2b3d","ring":"#335059"},"e-pr-cases":{"color":"#9ea39b","tint":"#35263a","ring":"#4f4552"},"e-cases-report":{"color":"#9ea39b","tint":"#35263a","ring":"#4f4552"}},"steps":{"3":{"color":"#f2b85b","tint":"#412931","ring":"#6c4c3b"},"4":{"color":"#6fb7f0","tint":"#2f2946","ring":"#3e4c6f"},"5":{"color":"#f07f9b","tint":"#41213a","ring":"#6b3852"},"6":{"color":"#4fc4b0","tint":"#2a2b3d","ring":"#335059"},"7":{"color":"#9ea39b","tint":"#35263a","ring":"#4f4552"},"11":{"color":"#f2b85b","tint":"#412931","ring":"#6c4c3b"},"13":{"color":"#6fb7f0","tint":"#2f2946","ring":"#3e4c6f"},"15":{"color":"#f07f9b","tint":"#41213a","ring":"#6b3852"},"17":{"color":"#4fc4b0","tint":"#2a2b3d","ring":"#335059"},"19":{"color":"#9ea39b","tint":"#35263a","ring":"#4f4552"}}}</script>
+<script type="application/json" id="cf-diagram-icons">{"devices/regular":[["M224,72H208V64a24,24,0,0,0-24-24H40A24,24,0,0,0,16,64v96a24,24,0,0,0,24,24H152v8a24,24,0,0,0,24,24h48a24,24,0,0,0,24-24V96A24,24,0,0,0,224,72ZM40,168a8,8,0,0,1-8-8V64a8,8,0,0,1,8-8H184a8,8,0,0,1,8,8v8H176a24,24,0,0,0-24,24v72Zm192,24a8,8,0,0,1-8,8H176a8,8,0,0,1-8-8V96a8,8,0,0,1,8-8h48a8,8,0,0,1,8,8Zm-96,16a8,8,0,0,1-8,8H88a8,8,0,0,1,0-16h40A8,8,0,0,1,136,208Zm80-96a8,8,0,0,1-8,8H192a8,8,0,0,1,0-16h16A8,8,0,0,1,216,112Z"]],"gauge/regular":[["M207.06,72.67A111.24,111.24,0,0,0,128,40h-.4C66.07,40.21,16,91,16,153.13V176a16,16,0,0,0,16,16H224a16,16,0,0,0,16-16V152A111.25,111.25,0,0,0,207.06,72.67ZM224,176H119.71l54.76-75.3a8,8,0,0,0-12.94-9.42L99.92,176H32V153.13c0-3.08.15-6.12.43-9.13H56a8,8,0,0,0,0-16H35.27c10.32-38.86,44-68.24,84.73-71.66V80a8,8,0,0,0,16,0V56.33A96.14,96.14,0,0,1,221,128H200a8,8,0,0,0,0,16h23.67c.21,2.65.33,5.31.33,8Z"]],"git-pull-request/regular":[["M104,64A32,32,0,1,0,64,95v66a32,32,0,1,0,16,0V95A32.06,32.06,0,0,0,104,64ZM56,64A16,16,0,1,1,72,80,16,16,0,0,1,56,64ZM88,192a16,16,0,1,1-16-16A16,16,0,0,1,88,192Zm120-31V110.63a23.85,23.85,0,0,0-7-17L163.31,56H192a8,8,0,0,0,0-16H144a8,8,0,0,0-8,8V96a8,8,0,0,0,16,0V67.31L189.66,105a8,8,0,0,1,2.34,5.66V161a32,32,0,1,0,16,0Zm-8,47a16,16,0,1,1,16-16A16,16,0,0,1,200,208Z"]],"shield-check/regular":[["M208,40H48A16,16,0,0,0,32,56v56c0,52.72,25.52,84.67,46.93,102.19,23.06,18.86,46,25.26,47,25.53a8,8,0,0,0,4.2,0c1-.27,23.91-6.67,47-25.53C198.48,196.67,224,164.72,224,112V56A16,16,0,0,0,208,40Zm0,72c0,37.07-13.66,67.16-40.6,89.42A129.3,129.3,0,0,1,128,223.62a128.25,128.25,0,0,1-38.92-21.81C61.82,179.51,48,149.3,48,112l0-56,160,0ZM82.34,141.66a8,8,0,0,1,11.32-11.32L112,148.69l50.34-50.35a8,8,0,0,1,11.32,11.32l-56,56a8,8,0,0,1-11.32,0Z"]],"test-tube/regular":[["M237.66,86.34l-60-60a8,8,0,0,0-11.32,0L37.11,155.57a44.77,44.77,0,0,0,63.32,63.32L212.32,107l22.21-7.4a8,8,0,0,0,3.13-13.25ZM89.11,207.57a28.77,28.77,0,0,1-40.68-40.68l28.8-28.8c8.47-2.9,21.75-4,39.07,5,10.6,5.54,20.18,8,28.56,8.73ZM205.47,92.41a8,8,0,0,0-3.13,1.93l-39.57,39.57c-8.47,2.9-21.75,4-39.07-5-10.6-5.54-20.18-8-28.56-8.73L172,43.31,217.19,88.5Z"]],"wheelchair/regular":[["M255.59,189.47a8,8,0,0,0-10.12-5.06l-17.42,5.81-28.9-57.8A8,8,0,0,0,192,128H112V104h56a8,8,0,0,0,0-16H112V79a32,32,0,1,0-16,0V89.81A72,72,0,0,0,112,232c33.52,0,63.69-22.71,71.75-54a8,8,0,1,0-15.5-4C162.09,198,137.91,216,112,216A56,56,0,0,1,96,106.34V136a8,8,0,0,0,8,8h83.05l29.79,59.58a8,8,0,0,0,9.69,4l24-8A8,8,0,0,0,255.59,189.47ZM88,48a16,16,0,1,1,16,16A16,16,0,0,1,88,48Z"]]}</script>
 <script data-cf-inline>(()=>{var Xx=Object.create;var Pg=Object.defineProperty;var jx=Object.getOwnPropertyDescriptor;var Zx=Object.getOwnPropertyNames;var Gx=Object.getPrototypeOf,Qx=Object.prototype.hasOwnProperty;var ue=(t,e)=>()=>{try{return e||t((e={exports:{}}).exports,e),e.exports}catch(n){throw e=0,n}};var Ix=(t,e,n,l)=>{if(e&&typeof e=="object"||typeof e=="function")for(let o of Zx(e))!Qx.call(t,o)&&o!==n&&Pg(t,o,{get:()=>e[o],enumerable:!(l=jx(e,o))||l.enumerable});return t};var Tn=(t,e,n)=>(n=t!=null?Xx(Gx(t)):{},Ix(e||!t||!t.__esModule?Pg(n,"default",{value:t,enumerable:!0}):n,t));var f0=ue(W=>{"use strict";var hs=Symbol.for("react.transitional.element"),Kx=Symbol.for("react.portal"),$x=Symbol.for("react.fragment"),Jx=Symbol.for("react.strict_mode"),Fx=Symbol.for("react.profiler"),Px=Symbol.for("react.consumer"),Wx=Symbol.for("react.context"),tS=Symbol.for("react.forward_ref"),eS=Symbol.for("react.suspense"),nS=Symbol.for("react.memo"),l0=Symbol.for("react.lazy"),lS=Symbol.for("react.activity"),oS=Symbol.for("react.view_transition"),Wg=Symbol.iterator;function iS(t){return t===null||typeof t!="object"?null:(t=Wg&&t[Wg]||t["@@iterator"],typeof t=="function"?t:null)}var o0={isMounted:function(){return!1},enqueueForceUpdate:function(){},enqueueReplaceState:function(){},enqueueSetState:function(){}},i0=Object.assign,a0={};function Oo(t,e,n){this.props=t,this.context=e,this.refs=a0,this.updater=n||o0}Oo.prototype.isReactComponent={};Oo.prototype.setState=function(t,e){if(typeof t!="object"&&typeof t!="function"&&t!=null)throw Error("takes an object of state variables to update or a function which returns an object of state variables.");this.updater.enqueueSetState(this,t,e,"setState")};Oo.prototype.forceUpdate=function(t){this.updater.enqueueForceUpdate(this,t,"forceUpdate")};function r0(){}r0.prototype=Oo.prototype;function gs(t,e,n){this.props=t,this.context=e,this.refs=a0,this.updater=n||o0}var ms=gs.prototype=new r0;ms.constructor=gs;i0(ms,Oo.prototype);ms.isPureReactComponent=!0;var t0=Array.isArray;function ds(){}var Et={H:null,A:null,T:null,S:null},u0=Object.prototype.hasOwnProperty;function ys(t,e,n){var l=n.ref;return{$$typeof:hs,type:t,key:e,ref:l!==void 0?l:null,props:n}}function aS(t,e){return ys(t.type,e,t.props)}function ps(t){return typeof t=="object"&&t!==null&&t.$$typeof===hs}function rS(t){var e={"=":"=0",":":"=2"};return"$"+t.replace(/[=:]/g,function(n){return e[n]})}var e0=/\/+/g;function fs(t,e){return typeof t=="object"&&t!==null&&t.key!=null?rS(""+t.key):e.toString(36)}function uS(t){switch(t.status){case"fulfilled":return t.value;case"rejected":throw t.reason;default:switch(typeof t.status=="string"?t.then(ds,ds):(t.status="pending",t.then(function(e){t.status==="pending"&&(t.status="fulfilled",t.value=e)},function(e){t.status==="pending"&&(t.status="rejected",t.reason=e)})),t.status){case"fulfilled":return t.value;case"rejected":throw t.reason}}throw t}function To(t,e,n,l,o){var i=typeof t;(i==="undefined"||i==="boolean")&&(t=null);var a=!1;if(t===null)a=!0;else switch(i){case"bigint":case"string":case"number":a=!0;break;case"object":switch(t.$$typeof){case hs:case Kx:a=!0;break;case l0:return a=t._init,To(a(t._payload),e,n,l,o)}}if(a)return o=o(t),a=l===""?"."+fs(t,0):l,t0(o)?(n="",a!=null&&(n=a.replace(e0,"$&/")+"/"),To(o,e,n,"",function(c){return c})):o!=null&&(ps(o)&&(o=aS(o,n+(o.key==null||t&&t.key===o.key?"":(""+o.key).replace(e0,"$&/")+"/")+a)),e.push(o)),1;a=0;var r=l===""?".":l+":";if(t0(t))for(var u=0;u<t.length;u++)l=t[u],i=r+fs(l,u),a+=To(l,e,n,i,o);else if(u=iS(t),typeof u=="function")for(t=u.call(t),u=0;!(l=t.next()).done;)l=l.value,i=r+fs(l,u++),a+=To(l,e,n,i,o);else if(i==="object"){if(typeof t.then=="function")return To(uS(t),e,n,l,o);throw e=String(t),Error("Objects are not valid as a React child (found: "+(e==="[object Object]"?"object with keys {"+Object.keys(t).join(", ")+"}":e)+"). If you meant to render a collection of children, use an array instead.")}return a}function xr(t,e,n){if(t==null)return t;var l=[],o=0;return To(t,l,"","",function(i){return e.call(n,i,o++)}),l}function cS(t){if(t._status===-1){var e=t._result,n=e();n.then(function(l){(t._status===0||t._status===-1)&&(t._status=1,t._result=l,n.status===void 0&&(n.status="fulfilled",n.value=l))},function(l){(t._status===0||t._status===-1)&&(t._status=2,t._result=l,n.status===void 0&&(n.status="rejected",n.reason=l))}),t._status===-1&&(t._status=0,t._result=n)}if(t._status===1)return t._result.default;throw t._result}var n0=typeof reportError=="function"?reportError:function(t){if(typeof window=="object"&&typeof window.ErrorEvent=="function"){var e=new window.ErrorEvent("error",{bubbles:!0,cancelable:!0,message:typeof t=="object"&&t!==null&&typeof t.message=="string"?String(t.message):String(t),error:t});if(!window.dispatchEvent(e))return}else if(typeof process=="object"&&typeof process.emit=="function"){process.emit("uncaughtException",t);return}console.error(t)};function c0(t){var e=Et.T,n={};n.types=e!==null?e.types:null,Et.T=n;try{var l=t(),o=Et.S;o!==null&&o(n,l),typeof l=="object"&&l!==null&&typeof l.then=="function"&&l.then(ds,n0)}catch(i){n0(i)}finally{e!==null&&n.types!==null&&(e.types=n.types),Et.T=e}}function s0(t){var e=Et.T;if(e!==null){var n=e.types;n===null?e.types=[t]:n.indexOf(t)===-1&&n.push(t)}else c0(s0.bind(null,t))}var sS={map:xr,forEach:function(t,e,n){xr(t,function(){e.apply(this,arguments)},n)},count:function(t){var e=0;return xr(t,function(){e++}),e},toArray:function(t){return xr(t,function(e){return e})||[]},only:function(t){if(!ps(t))throw Error("React.Children.only expected to receive a single React element child.");return t}};W.Activity=lS;W.Children=sS;W.Component=Oo;W.Fragment=$x;W.Profiler=Fx;W.PureComponent=gs;W.StrictMode=Jx;W.Suspense=eS;W.ViewTransition=oS;W.__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE=Et;W.__COMPILER_RUNTIME={__proto__:null,c:function(t){return Et.H.useMemoCache(t)}};W.addTransitionType=s0;W.cache=function(t){return function(){return t.apply(null,arguments)}};W.cacheSignal=function(){return null};W.cloneElement=function(t,e,n){if(t==null)throw Error("The argument must be a React element, but you passed "+t+".");var l=i0({},t.props),o=t.key;if(e!=null)for(i in e.key!==void 0&&(o=""+e.key),e)!u0.call(e,i)||i==="key"||i==="__self"||i==="__source"||i==="ref"&&e.ref===void 0||(l[i]=e[i]);var i=arguments.length-2;if(i===1)l.children=n;else if(1<i){for(var a=Array(i),r=0;r<i;r++)a[r]=arguments[r+2];l.children=a}return ys(t.type,o,l)};W.createContext=function(t){return t={$$typeof:Wx,_currentValue:t,_currentValue2:t,_threadCount:0,Provider:null,Consumer:null},t.Provider=t,t.Consumer={$$typeof:Px,_context:t},t};W.createElement=function(t,e,n){var l,o={},i=null;if(e!=null)for(l in e.key!==void 0&&(i=""+e.key),e)u0.call(e,l)&&l!=="key"&&l!=="__self"&&l!=="__source"&&(o[l]=e[l]);var a=arguments.length-2;if(a===1)o.children=n;else if(1<a){for(var r=Array(a),u=0;u<a;u++)r[u]=arguments[u+2];o.children=r}if(t&&t.defaultProps)for(l in a=t.defaultProps,a)o[l]===void 0&&(o[l]=a[l]);return ys(t,i,o)};W.createRef=function(){return{current:null}};W.forwardRef=function(t){return{$$typeof:tS,render:t}};W.isValidElement=ps;W.lazy=function(t){return{$$typeof:l0,_payload:{_status:-1,_result:t},_init:cS}};W.memo=function(t,e){return{$$typeof:nS,type:t,compare:e===void 0?null:e}};W.startTransition=c0;W.unstable_useCacheRefresh=function(){return Et.H.useCacheRefresh()};W.use=function(t){return Et.H.use(t)};W.useActionState=function(t,e,n){return Et.H.useActionState(t,e,n)};W.useCallback=function(t,e){return Et.H.useCallback(t,e)};W.useContext=function(t){return Et.H.useContext(t)};W.useDebugValue=function(){};W.useDeferredValue=function(t,e){return Et.H.useDeferredValue(t,e)};W.useEffect=function(t,e){return Et.H.useEffect(t,e)};W.useEffectEvent=function(t){return Et.H.useEffectEvent(t)};W.useId=function(){return Et.H.useId()};W.useImperativeHandle=function(t,e,n){return Et.H.useImperativeHandle(t,e,n)};W.useInsertionEffect=function(t,e){return Et.H.useInsertionEffect(t,e)};W.useLayoutEffect=function(t,e){return Et.H.useLayoutEffect(t,e)};W.useMemo=function(t,e){return Et.H.useMemo(t,e)};W.useOptimistic=function(t,e){return Et.H.useOptimistic(t,e)};W.useReducer=function(t,e,n){return Et.H.useReducer(t,e,n)};W.useRef=function(t){return Et.H.useRef(t)};W.useState=function(t){return Et.H.useState(t)};W.useSyncExternalStore=function(t,e,n){return Et.H.useSyncExternalStore(t,e,n)};W.useTransition=function(){return Et.H.useTransition()};W.version="19.3.1"});var Fn=ue((ID,d0)=>{"use strict";d0.exports=f0()});var m0=ue(Wt=>{"use strict";var fS=Fn();function g0(t){var e="https://react.dev/errors/"+t;if(1<arguments.length){e+="?args[]="+encodeURIComponent(arguments[1]);for(var n=2;n<arguments.length;n++)e+="&args[]="+encodeURIComponent(arguments[n])}return"Minified React error #"+t+"; visit "+e+" for the full message or use the non-minified dev environment for full errors and additional helpful warnings."}function Pn(){}var le={d:{f:Pn,r:function(){throw Error(g0(522))},D:Pn,C:Pn,L:Pn,m:Pn,X:Pn,S:Pn,M:Pn},p:0,findDOMNode:null},dS=Symbol.for("react.portal"),hS=Symbol.for("react.recoverable"),h0=Symbol.for("react.optimistic_key");function gS(t,e,n){var l=3<arguments.length&&arguments[3]!==void 0?arguments[3]:null;return{$$typeof:dS,key:l==null?null:l===h0?h0:""+l,children:t,containerInfo:e,implementation:n}}var Fi=fS.__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE;function Sr(t,e){if(t==="font")return"";if(typeof e=="string")return e==="use-credentials"?e:""}Wt.__DOM_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE=le;Wt.browser=function(t){return{$$typeof:hS,_reason:t}};Wt.createPortal=function(t,e){var n=2<arguments.length&&arguments[2]!==void 0?arguments[2]:null;if(!e||e.nodeType!==1&&e.nodeType!==9&&e.nodeType!==11)throw Error(g0(299));return gS(t,e,null,n)};Wt.flushSync=function(t){var e=Fi.T,n=le.p;try{if(Fi.T=null,le.p=2,t)return t()}finally{Fi.T=e,le.p=n,le.d.f()}};Wt.preconnect=function(t,e){typeof t=="string"&&(e?(e=e.crossOrigin,e=typeof e=="string"?e==="use-credentials"?e:"":void 0):e=null,le.d.C(t,e))};Wt.prefetchDNS=function(t){typeof t=="string"&&le.d.D(t)};Wt.preinit=function(t,e){if(typeof t=="string"&&e&&typeof e.as=="string"){var n=e.as,l=Sr(n,e.crossOrigin),o=typeof e.integrity=="string"?e.integrity:void 0,i=typeof e.fetchPriority=="string"?e.fetchPriority:void 0;n==="style"?le.d.S(t,typeof e.precedence=="string"?e.precedence:void 0,{crossOrigin:l,integrity:o,fetchPriority:i}):n==="script"&&le.d.X(t,{crossOrigin:l,integrity:o,fetchPriority:i,nonce:typeof e.nonce=="string"?e.nonce:void 0})}};Wt.preinitModule=function(t,e){if(typeof t=="string")if(typeof e=="object"&&e!==null){if(e.as==null||e.as==="script"){var n=Sr(e.as,e.crossOrigin);le.d.M(t,{crossOrigin:n,integrity:typeof e.integrity=="string"?e.integrity:void 0,nonce:typeof e.nonce=="string"?e.nonce:void 0,fetchPriority:typeof e.fetchPriority=="string"?e.fetchPriority:void 0})}}else e==null&&le.d.M(t)};Wt.preload=function(t,e){if(typeof t=="string"&&typeof e=="object"&&e!==null&&typeof e.as=="string"){var n=e.as,l=Sr(n,e.crossOrigin);le.d.L(t,n,{crossOrigin:l,integrity:typeof e.integrity=="string"?e.integrity:void 0,nonce:typeof e.nonce=="string"?e.nonce:void 0,type:typeof e.type=="string"?e.type:void 0,fetchPriority:typeof e.fetchPriority=="string"?e.fetchPriority:void 0,referrerPolicy:typeof e.referrerPolicy=="string"?e.referrerPolicy:void 0,imageSrcSet:typeof e.imageSrcSet=="string"?e.imageSrcSet:void 0,imageSizes:typeof e.imageSizes=="string"?e.imageSizes:void 0,media:typeof e.media=="string"?e.media:void 0})}};Wt.preloadModule=function(t,e){if(typeof t=="string")if(e){var n=Sr(e.as,e.crossOrigin);le.d.m(t,{as:typeof e.as=="string"&&e.as!=="script"?e.as:void 0,crossOrigin:n,integrity:typeof e.integrity=="string"?e.integrity:void 0,nonce:typeof e.nonce=="string"?e.nonce:void 0,fetchPriority:typeof e.fetchPriority=="string"?e.fetchPriority:void 0})}else le.d.m(t)};Wt.requestFormReset=function(t){le.d.r(t)};Wt.unstable_batchedUpdates=function(t,e){return t(e)};Wt.useFormState=function(t,e,n){return Fi.H.useFormState(t,e,n)};Wt.useFormStatus=function(){return Fi.H.useHostTransitionStatus()};Wt.version="19.3.1"});var Pi=ue(($D,p0)=>{"use strict";function y0(){if(!(typeof __REACT_DEVTOOLS_GLOBAL_HOOK__>"u"||typeof __REACT_DEVTOOLS_GLOBAL_HOOK__.checkDCE!="function"))try{__REACT_DEVTOOLS_GLOBAL_HOOK__.checkDCE(y0)}catch(t){console.error(t)}}y0(),p0.exports=m0()});var M0=ue(Ct=>{"use strict";function Es(t,e){var n=t.length;t.push(e);t:for(;0<n;){var l=n-1>>>1,o=t[l];if(0<Nr(o,e))t[l]=e,t[n]=o,n=l;else break t}}function ln(t){return t.length===0?null:t[0]}function Mr(t){if(t.length===0)return null;var e=t[0],n=t.pop();if(n!==e){t[0]=n;t:for(var l=0,o=t.length,i=o>>>1;l<i;){var a=2*(l+1)-1,r=t[a],u=a+1,c=t[u];if(0>Nr(r,n))u<o&&0>Nr(c,r)?(t[l]=c,t[u]=n,l=u):(t[l]=r,t[a]=n,l=a);else if(u<o&&0>Nr(c,n))t[l]=c,t[u]=n,l=u;else break t}}return e}function Nr(t,e){var n=t.sortIndex-e.sortIndex;return n!==0?n:t.id-e.id}Ct.unstable_now=void 0;typeof performance=="object"&&typeof performance.now=="function"?(v0=performance,Ct.unstable_now=function(){return v0.now()}):(vs=Date,b0=vs.now(),Ct.unstable_now=function(){return vs.now()-b0});var v0,vs,b0,On=[],Wn=[],mS=1,Ae=null,te=3,ws=!1,Wi=!1,ta=!1,xs=!1,w0=typeof setTimeout=="function"?setTimeout:null,x0=typeof clearTimeout=="function"?clearTimeout:null,_0=typeof setImmediate<"u"?setImmediate:null;function Cr(t){for(var e=ln(Wn);e!==null;){if(e.callback===null)Mr(Wn);else if(e.startTime<=t)Mr(Wn),e.sortIndex=e.expirationTime,Es(On,e);else break;e=ln(Wn)}}function Ss(t){if(ta=!1,Cr(t),!Wi)if(ln(On)!==null)Wi=!0,Ao||(Ao=!0,zo());else{var e=ln(Wn);e!==null&&Ns(Ss,e.startTime-t)}}var Ao=!1,ea=-1,S0=5,N0=-1;function C0(){return xs?!0:!(Ct.unstable_now()-N0<S0)}function bs(){if(xs=!1,Ao){var t=Ct.unstable_now();N0=t;var e=!0;try{t:{Wi=!1,ta&&(ta=!1,x0(ea),ea=-1),ws=!0;var n=te;try{e:{for(Cr(t),Ae=ln(On);Ae!==null&&!(Ae.expirationTime>t&&C0());){var l=Ae.callback;if(typeof l=="function"){Ae.callback=null,te=Ae.priorityLevel;var o=l(Ae.expirationTime<=t);if(t=Ct.unstable_now(),typeof o=="function"){Ae.callback=o,Cr(t),e=!0;break e}Ae===ln(On)&&Mr(On),Cr(t)}else Mr(On);Ae=ln(On)}if(Ae!==null)e=!0;else{var i=ln(Wn);i!==null&&Ns(Ss,i.startTime-t),e=!1}}break t}finally{Ae=null,te=n,ws=!1}e=void 0}}finally{e?zo():Ao=!1}}}var zo;typeof _0=="function"?zo=function(){_0(bs)}:typeof MessageChannel<"u"?(_s=new MessageChannel,E0=_s.port2,_s.port1.onmessage=bs,zo=function(){E0.postMessage(null)}):zo=function(){w0(bs,0)};var _s,E0;function Ns(t,e){ea=w0(function(){t(Ct.unstable_now())},e)}Ct.unstable_IdlePriority=5;Ct.unstable_ImmediatePriority=1;Ct.unstable_LowPriority=4;Ct.unstable_NormalPriority=3;Ct.unstable_Profiling=null;Ct.unstable_UserBlockingPriority=2;Ct.unstable_cancelCallback=function(t){t.callback=null};Ct.unstable_forceFrameRate=function(t){0>t||125<t?console.error("forceFrameRate takes a positive int between 0 and 125, forcing frame rates higher than 125 fps is not supported"):S0=0<t?Math.floor(1e3/t):5};Ct.unstable_getCurrentPriorityLevel=function(){return te};Ct.unstable_next=function(t){switch(te){case 1:case 2:case 3:var e=3;break;default:e=te}var n=te;te=e;try{return t()}finally{te=n}};Ct.unstable_requestPaint=function(){xs=!0};Ct.unstable_runWithPriority=function(t,e){switch(t){case 1:case 2:case 3:case 4:case 5:break;default:t=3}var n=te;te=t;try{return e()}finally{te=n}};Ct.unstable_scheduleCallback=function(t,e,n){var l=Ct.unstable_now();switch(typeof n=="object"&&n!==null?(n=n.delay,n=typeof n=="number"&&0<n?l+n:l):n=l,t){case 1:var o=-1;break;case 2:o=250;break;case 5:o=1073741823;break;case 4:o=1e4;break;default:o=5e3}return o=n+o,t={id:mS++,callback:e,priorityLevel:t,startTime:n,expirationTime:o,sortIndex:-1},n>l?(t.sortIndex=n,Es(Wn,t),ln(On)===null&&t===ln(Wn)&&(ta?(x0(ea),ea=-1):ta=!0,Ns(Ss,n-l))):(t.sortIndex=o,Es(On,t),Wi||ws||(Wi=!0,Ao||(Ao=!0,zo()))),t};Ct.unstable_shouldYield=C0;Ct.unstable_wrapCallback=function(t){var e=te;return function(){var n=te;te=e;try{return t.apply(this,arguments)}finally{te=n}}}});var O0=ue((FD,T0)=>{"use strict";T0.exports=M0()});var m1=ue(uc=>{"use strict";var Yt=O0(),gy=Fn(),yS=Pi();function V(t){var e="https://react.dev/errors/"+t;if(1<arguments.length){e+="?args[]="+encodeURIComponent(arguments[1]);for(var n=2;n<arguments.length;n++)e+="&args[]="+encodeURIComponent(arguments[n])}return"Minified React error #"+t+"; visit "+e+" for the full message or use the non-minified dev environment for full errors and additional helpful warnings."}function my(t){return!(!t||t.nodeType!==1&&t.nodeType!==9&&t.nodeType!==11)}function Xa(t){for(var e=t,n=e;n&&!n.alternate;)e=n,(e.flags&4098)!==0&&(t=e.return),n=e.return;for(;e.return;)e=e.return;return e.tag===3?t:null}function yy(t){if(t.tag===13){var e=t.memoizedState;if(e===null&&(t=t.alternate,t!==null&&(e=t.memoizedState)),e!==null)return e.dehydrated}return null}function py(t){if(t.tag===31){var e=t.memoizedState;if(e===null&&(t=t.alternate,t!==null&&(e=t.memoizedState)),e!==null)return e.dehydrated}return null}function z0(t){if(Xa(t)!==t)throw Error(V(188))}function pS(t){var e=t.alternate;if(!e){if(e=Xa(t),e===null)throw Error(V(188));return e!==t?null:t}for(var n=t,l=e;;){var o=n.return;if(o===null)break;var i=o.alternate;if(i===null){if(l=o.return,l!==null){n=l;continue}break}if(o.child===i.child){for(i=o.child;i;){if(i===n)return z0(o),t;if(i===l)return z0(o),e;i=i.sibling}throw Error(V(188))}if(n.return!==l.return)n=o,l=i;else{for(var a=!1,r=o.child;r;){if(r===n){a=!0,n=o,l=i;break}if(r===l){a=!0,l=o,n=i;break}r=r.sibling}if(!a){for(r=i.child;r;){if(r===n){a=!0,n=i,l=o;break}if(r===l){a=!0,l=i,n=o;break}r=r.sibling}if(!a)throw Error(V(189))}}if(n.alternate!==l)throw Error(V(190))}if(n.tag!==3)throw Error(V(188));return n.stateNode.current===n?t:e}function vy(t){var e=t.tag;if(e===5||e===26||e===27||e===6)return t;for(t=t.child;t!==null;){if(e=vy(t),e!==null)return e;t=t.sibling}return null}function ge(t,e,n,l,o,i){for(;t!==null;){if((t.tag===5||t.tag===27||t.tag===6)&&n(t,l,o,i)||(t.tag!==22||t.memoizedState===null)&&(e||t.tag!==5&&t.tag!==27)&&ge(t.child,e,n,l,o,i))return!0;t=t.sibling}return!1}function ro(t){for(t=t.return;t!==null;){if(t.tag===3||t.tag===5||t.tag===27)return t;t=t.return}return null}function A0(t){var e=!1;for(t=t.return;t!==null&&(t.tag===4&&(e=!0),!(t.tag===3||t.tag===5||t.tag===27));)t=t.return;return e}function by(t){var e=[null,null],n=ro(t);return n===null||_y(e,t,n.child,{foundSelf:!1}),e}function _y(t,e,n,l){for(;n!==null;){if(n===e)l.foundSelf=!0;else if(n.tag===5||n.tag===27||n.tag===6){if(l.foundSelf)return t[1]=n,!0;t[0]=n}else if((n.tag!==22||n.memoizedState===null)&&_y(t,e,n.child,l))return!0;n=n.sibling}return!1}function Vt(t){switch(t.tag){case 5:case 27:case 6:return t.stateNode;case 3:return t.stateNode.containerInfo;default:throw Error(V(559))}}var Vo=null,lf=null;function vS(t,e,n){return t===n?!0:t===e?(Vo=t,!0):!1}function bS(t,e,n){return t===n?(lf=t,!1):t===e?(lf!==null&&(Vo=t),!0):!1}function D0(t){if(t===null)return null;do t=t===null?null:t.return;while(t&&t.tag!==5&&t.tag!==27&&t.tag!==3);return t||null}function of(t,e,n){for(var l=0,o=t;o;o=n(o))l++;o=0;for(var i=e;i;i=n(i))o++;for(;0<l-o;)t=n(t),l--;for(;0<o-l;)e=n(e),o--;for(;l--;){if(t===e||e!==null&&t===e.alternate)return t;t=n(t),e=n(e)}return null}var _t=Object.assign,_S=Symbol.for("react.element"),Tr=Symbol.for("react.transitional.element"),ua=Symbol.for("react.portal"),Yo=Symbol.for("react.fragment"),Ey=Symbol.for("react.strict_mode"),af=Symbol.for("react.profiler"),wy=Symbol.for("react.consumer"),sn=Symbol.for("react.context"),md=Symbol.for("react.forward_ref"),rf=Symbol.for("react.suspense"),uf=Symbol.for("react.suspense_list"),yd=Symbol.for("react.memo"),ll=Symbol.for("react.lazy"),cf=Symbol.for("react.activity"),ES=Symbol.for("react.legacy_hidden"),wS=Symbol.for("react.memo_cache_sentinel"),sf=Symbol.for("react.view_transition"),xS=Symbol.for("react.recoverable"),R0=Symbol.iterator;function na(t){return t===null||typeof t!="object"?null:(t=R0&&t[R0]||t["@@iterator"],typeof t=="function"?t:null)}var SS=Symbol.for("react.client.reference");function ff(t){if(t==null)return null;if(typeof t=="function")return t.$$typeof===SS?null:t.displayName||t.name||null;if(typeof t=="string")return t;switch(t){case Yo:return"Fragment";case af:return"Profiler";case Ey:return"StrictMode";case rf:return"Suspense";case uf:return"SuspenseList";case cf:return"Activity";case sf:return"ViewTransition"}if(typeof t=="object")switch(t.$$typeof){case ua:return"Portal";case sn:return t.displayName||"Context";case wy:return(t._context.displayName||"Context")+".Consumer";case md:var e=t.render;return t=t.displayName,t||(t=e.displayName||e.name||"",t=t!==""?"ForwardRef("+t+")":"ForwardRef"),t;case yd:return e=t.displayName||null,e!==null?e:ff(t.type)||"Memo";case ll:e=t._payload,t=t._init;try{return ff(t(e))}catch{}}return null}var ca=Array.isArray,F=gy.__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE,dt=yS.__DOM_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE,Kl={pending:!1,data:null,method:null,action:null},df=[],ko=-1;function pn(t){return{current:t}}function $t(t){0>ko||(t.current=df[ko],df[ko]=null,ko--)}function St(t,e){ko++,df[ko]=t.current,t.current=e}var gn=pn(null),Ca=pn(null),dl=pn(null),gu=pn(null);function mu(t,e){switch(St(dl,e),St(Ca,t),St(gn,null),e.nodeType){case 9:case 11:t=(t=e.documentElement)&&(t=t.namespaceURI)?Im(t):0;break;default:if(t=e.tagName,e=e.namespaceURI)e=Im(e),t=Zv(e,t);else switch(t){case"svg":t=1;break;case"math":t=2;break;default:t=0}}$t(gn),St(gn,t)}function ai(){$t(gn),$t(Ca),$t(dl)}function hf(t){var e=t.memoizedState;e!==null&&(yi._currentValue=e.memoizedState,St(gu,t)),e=gn.current;var n=Zv(e,t.type);e!==n&&(St(Ca,t),St(gn,n))}function yu(t){Ca.current===t&&($t(gn),$t(Ca)),gu.current===t&&($t(gu),yi._currentValue=Kl)}var Cs,H0;function el(t){if(Cs===void 0)try{throw Error()}catch(n){var e=n.stack.trim().match(/\n( *(at )?)/);Cs=e&&e[1]||"",H0=-1<n.stack.indexOf(`
     at`)?" (<anonymous>)":-1<n.stack.indexOf("@")?"@unknown:0:0":""}return`
 `+Cs+t+H0}var Ms=!1;function Ts(t,e){if(!t||Ms)return"";Ms=!0;var n=Error.prepareStackTrace;Error.prepareStackTrace=void 0;try{var l={DetermineComponentFrameRoot:function(){try{if(e){var d=function(){throw Error()};if(Object.defineProperty(d.prototype,"props",{set:function(){throw Error()}}),typeof Reflect=="object"&&Reflect.construct){try{Reflect.construct(d,[])}catch(p){var f=p}Reflect.construct(t,[],d)}else{try{d.call()}catch(p){f=p}d=!1;try{var h=Object.getOwnPropertyDescriptor(t.prototype,"props");Object.defineProperty(t.prototype,"props",{configurable:!0,set:function(){throw Error()}}),d=!0,new t}finally{d&&(h!==void 0?Object.defineProperty(t.prototype,"props",h):delete t.prototype.props)}}}else{try{throw Error()}catch(p){f=p}(d=t())&&typeof d.catch=="function"&&d.catch(function(){})}}catch(p){if(p&&f&&typeof p.stack=="string")return[p.stack,f.stack]}return[null,null]}};l.DetermineComponentFrameRoot.displayName="DetermineComponentFrameRoot";var o=Object.getOwnPropertyDescriptor(l.DetermineComponentFrameRoot,"name");o&&o.configurable&&Object.defineProperty(l.DetermineComponentFrameRoot,"name",{value:"DetermineComponentFrameRoot"});var i=l.DetermineComponentFrameRoot(),a=i[0],r=i[1];if(a&&r){var u=a.split(`
@@ -1083,6 +916,813 @@ use-sync-external-store/cjs/use-sync-external-store-shim/with-selector.productio
   (*! For license information please see dagre.esm.js.LEGAL.txt *)
 */
 </script>
+<script type="application/json" id="cf-diagram-lanes">{"direction":"horizontal","theme":"dark","lanes":[{"id":"load","label":"Load","color":"#f2b85b","tint":"#2e1a2c","tint_hl":"#3b242f","icon":"gauge/regular"},{"id":"a11y","label":"Accessibility","color":"#6fb7f0","tint":"#281a34","tint_hl":"#2c2440","icon":"wheelchair/regular"},{"id":"security","label":"Security","color":"#f07f9b","tint":"#2e1730","tint_hl":"#3a1e36","icon":"shield-check/regular"},{"id":"ux","label":"Responsive UX","color":"#4fc4b0","tint":"#261b31","tint_hl":"#292639","icon":"devices/regular"},{"id":"cases","label":"Test cases","color":"#9ea39b","tint":"#2a1930","tint_hl":"#312236","icon":"test-tube/regular"}],"report":{"label":"Report","unit":"checks"}}</script>
+<script data-cf-inline>// cf:walkthrough diagram swimlanes. A classic script the generator inlines
+// only into a screen whose spec declares `lanes`, between the xyflow bundle
+// and cf_diagram_runtime.js, so a screen without lanes keeps its bytes and
+// the runtime itself never learns about lanes.
+//
+// It works in two halves:
+// - prepare (runs at load, before the runtime parses the spec): computes one
+//   layout record (computeLayout: every node box, band, lane name, rail,
+//   token, report row, and the camera bounds), places each laned node inside
+//   its band (above the band's travel rail when anything travels), and pins
+//   every node to its box, size included. Everything drawn later reads the
+//   record; nothing sizes itself at draw time.
+//   A node a `travel` carries (its token) or delivers (its `result`) is owned
+//   by this layer: the runtime keeps it hidden, and each travel step becomes
+//   an empty add_node in place, so step indices (which key flow colours)
+//   hold and the runtime's camera fold never sees an op it does not aim.
+// - attach (called by a one-line script after the runtime): draws the bands,
+//   labels and separators behind the diagram, and the tokens, result chips,
+//   and result cards in front of it, and pulses each checkpoint the token
+//   passes, all as a pure function of the capture clock after every
+//   __cfAdvance the runtime has already wrapped. No CSS or SMIL animation.
+//
+// One travel, anchored on its t_ms (t0) and duration D:
+//   t0 - ENTER_MS .. t0     the token reveals at the lane's entry, sliding
+//                           ENTER_SHIFT right as it fades in; the lane lights.
+//   t0 .. t0 + D            it rides the rail under the checkpoints with the
+//                           step's easing; each checkpoint pulses as it passes.
+//   t0 + D - CHIP_IN_MS     a result chip appears at the token's exit,
+//   t0 + D + TAIL_MS        and transfers to its report slot over TRANSFER_MS;
+//   landing                 the result card drops DROP_SHIFT into its slot and
+//                           the lane's light fades over HL_OUT_MS.
+//   next entrance           the token fades out drifting EXIT_SHIFT right,
+//                           starting EXIT_LEAD before the next lane's reveal,
+//                           so the two overlap and nothing slides back.
+//
+// The node sizing and dagre constants mirror cf_diagram_runtime.js; the
+// diagram unit test asserts they match.
+(() => {
+  const dataEl = document.getElementById('cf-diagram-lanes');
+  const specEl = document.getElementById('cf-diagram');
+  if (!dataEl || !specEl) return;
+  const LANES = JSON.parse(dataEl.textContent);
+  const spec = JSON.parse(specEl.textContent);
+  const { dagre } = window.CfXyflow;
+  const iconsEl = document.getElementById('cf-diagram-icons');
+  const ICONS = iconsEl ? JSON.parse(iconsEl.textContent) : {};
+  const iconOf = (n) => (n.icon ? ICONS[`${n.icon}/${n.icon_weight || 'regular'}`] : null);
+  const colorsEl = document.getElementById('cf-diagram-colors');
+  const COLORS = colorsEl ? JSON.parse(colorsEl.textContent) : { nodes: {} };
+  // An own-property read: an authored id such as `constructor` must not
+  // find Object.prototype.
+  const colorOf = (id) => (Object.hasOwn(COLORS.nodes, id) ? COLORS.nodes[id] : null);
+
+  const NODE_H = 56;
+  const NODE_MIN_W = 140;
+  const NODE_MAX_W = 260;
+  const CHAR_W = 11;
+  const NODE_PAD_W = 40;
+  const ICON_PX = 20;
+  const ICON_GAP = 8;
+  const NODE_SEP = 60;
+  // A node's horizontal padding plus border, and its border, as the
+  // runtime's .cf-node draws them.
+  const NODE_PAD_X = 28;
+  const NODE_BORDER = 2;
+  // Invisible camera anchors are this many units square.
+  const ANCHOR_PX = 2;
+  const RANK_SEP = 120;
+  const FADE_MS = 300;
+  const DIM_OPACITY = 0.35;
+  const LANE_PAD = 12;
+  const ROW_GAP = 24;
+  const LANE_MIN = 120;
+  // A travel rides a rail RAIL_GAP under its band's checkpoints.
+  const RAIL_GAP = 8;
+  const CLEAR = 16;
+  // Sized to stay legible when a 1280 wide frame plays on a phone.
+  const TOKEN_H = 32;
+  const TOKEN_CHAR_W = 9.6;
+  const TOKEN_PAD_W = 28;
+  const TOKEN_ICON = 16;
+  // Horizontal lanes: every checkpoint takes one width, so a column of them
+  // reads as a column, and lane names sit in a column of their own.
+  const CHECK_W = 224;
+  const LABEL_COL = 280;
+  // A lane name: its left padding and colour bar, its line box, and (on a
+  // vertical lane) its gap above the first checkpoint.
+  const LABEL_PAD_L = 12;
+  const LABEL_BAR = 4;
+  const LABEL_H = 28;
+  const LABEL_GAP = 16;
+  // The report panel, right of the lanes; result rows stack inside it.
+  const PANEL_GAP = 48;
+  const PANEL_W = 440;
+  const PANEL_PAD = 24;
+  const PANEL_HEAD = 44;
+  const RESULT_H = 48;
+  // Wider than DROP_SHIFT, so a settling row never touches the one above.
+  const RESULT_GAP = 18;
+  const HOLD_MS = 800;
+  const FINAL_FADE_MS = 120;
+  const PANEL_PULSE_MS = 180;
+  const TRAVEL_MS = 700;
+  const ENTER_MS = 130;
+  const ENTER_SHIFT = 12;
+  const EXIT_MS = 90;
+  const EXIT_LEAD = 60;
+  const EXIT_SHIFT = 16;
+  const TAIL_MS = 100;
+  const CHIP_IN_MS = 100;
+  const CHIP_R = 6;
+  const CHIP_OUT_MS = 60;
+  const TRANSFER_MS = 260;
+  const DROP_MS = 220;
+  const DROP_FADE_MS = 100;
+  const DROP_SHIFT = 14;
+  const HL_IN_MS = 120;
+  const HL_OUT_MS = 180;
+  const PULSE_MS = 180;
+  const PULSE_SCALE = 0.025;
+  const MARKER_R = 7;
+  const MARKER_HALO_R = 15;
+
+  // Text fitting, mirrored from scripts/diagram_text_fit.rb (a unit test
+  // holds the two together): one width estimate at the font each box is
+  // drawn in (an em share per glyph class, see EM there), and one rule per
+  // box. The validator rejects a spec whose text breaks a rule, so nothing
+  // here ever cuts text off.
+  const EM = {"narrow":{"chars":" 'ijlIJ|/.,;:f-!()[]tr_`","em":0.5},"caps":{"chars":"BRXAVKUGDNHQO^>=<+~#&","em":0.88},"wide":{"chars":"wMm@%W","em":1.11},"default":0.74,"cjk":1.0};
+  const CJK = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u;
+  const FIT = {"checkpoint":{"font":19,"width":196,"icon":28,"lines":2,"line_h":23,"pad_y":6},"token":{"font":17,"width":196,"icon":22,"lines":1},"lane_label":{"font":22,"width":248,"icon":30,"lines":1},"report_row":{"font":18,"width":328,"icon":0,"lines":1,"aside_font":15,"aside_pad":0},"report_head":{"font":22,"width":390,"icon":0,"lines":1,"aside_font":16,"aside_pad":32}};
+  const emOf = (c) => {
+    if (CJK.test(c)) return EM.cjk;
+    const k = ['narrow', 'caps', 'wide'].find((name) => EM[name].chars.includes(c));
+    return k ? EM[k].em : EM.default;
+  };
+  const textWidth = (text, fontPx) => [...String(text || '')].reduce((sum, c) => sum + emOf(c), 0) * fontPx;
+  // Greedy at spaces; a word wider than a line breaks between characters,
+  // as the browser does under overflow-wrap: anywhere.
+  const wrapLines = (text, fontPx, maxW) => {
+    const out = [];
+    let cur = '';
+    for (const word of String(text || '').split(/\s+/).filter(Boolean)) {
+      const trial = cur ? `${cur} ${word}` : word;
+      if (textWidth(trial, fontPx) <= maxW) { cur = trial; continue; }
+      if (cur) out.push(cur);
+      cur = '';
+      for (const c of word) {
+        if (cur && textWidth(cur + c, fontPx) > maxW) { out.push(cur); cur = ''; }
+        cur += c;
+      }
+    }
+    if (cur) out.push(cur);
+    return out;
+  };
+
+  const horizontal = LANES.direction !== 'vertical';
+  const along = horizontal ? 'x' : 'y';
+  const cross = horizontal ? 'y' : 'x';
+  const steps = spec.steps || [];
+  const nodeIds = spec.nodes.map((n) => n.id);
+  const nodeById = Object.fromEntries(spec.nodes.map((n) => [n.id, n]));
+  const laneIds = LANES.lanes.map((l) => l.id);
+  const laneById = Object.fromEntries(LANES.lanes.map((l) => [l.id, l]));
+
+  const WIDTH = Object.fromEntries(spec.nodes.map((n) => {
+    const texts = [n.label || ''].concat(steps.filter((s) => s.op === 'label' && s.id === n.id).map((s) => s.text || ''));
+    const chars = Math.max(...texts.map((x) => x.length));
+    const icon = iconOf(n) ? ICON_PX + ICON_GAP : 0;
+    const w = Math.min(NODE_MAX_W + icon, Math.max(NODE_MIN_W, chars * CHAR_W + NODE_PAD_W + icon));
+    return [n.id, Math.round(w / 2) * 2];
+  }));
+  const checkpoint = (id) => horizontal && !!nodeById[id].lane;
+  const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+  const clamp01 = (v) => clamp(v, 0, 1);
+
+  // -- easing --------------------------------------------------------------
+
+  // The u in 0..1 where a rising fn(u) reaches p, by fixed-count bisection.
+  const bisect = (fn, p) => {
+    let lo = 0; let hi = 1;
+    for (let i = 0; i < 40; i += 1) { const mid = (lo + hi) / 2; if (fn(mid) < p) lo = mid; else hi = mid; }
+    return (lo + hi) / 2;
+  };
+  // A CSS cubic-bezier, solved for x by bisection so every frame lands on
+  // the same value whatever the engine.
+  const bezier = (x1, y1, x2, y2) => {
+    const at = (a, b, u) => 3 * a * u * (1 - u) * (1 - u) + 3 * b * u * u * (1 - u) + u * u * u;
+    return (p) => {
+      if (p <= 0) return 0;
+      if (p >= 1) return 1;
+      return at(y1, y2, bisect((u) => at(x1, x2, u), p));
+    };
+  };
+  const cubic = (p) => (p < 0.5 ? 4 * p * p * p : 1 - Math.pow(-2 * p + 2, 3) / 2);
+  const EASINGS = {
+    linear: (p) => clamp01(p), 'ease-in-out': (p) => cubic(clamp01(p)),
+    standard: bezier(0.4, 0, 0.2, 1), decelerate: bezier(0, 0, 0.2, 1), accelerate: bezier(0.4, 0, 1, 1),
+    emphasized: bezier(0.22, 1, 0.36, 1), settle: bezier(0.16, 1, 0.3, 1)
+  };
+  const easing = (name) => {
+    if (!name) return EASINGS.standard;
+    if (EASINGS[name]) return EASINGS[name];
+    const m = String(name).match(/^cubic-bezier\(([^)]*)\)$/);
+    const v = m ? m[1].split(',').map(Number) : [];
+    return v.length === 4 && v.every(Number.isFinite) ? bezier(...v) : EASINGS.standard;
+  };
+
+  // -- prepare -----------------------------------------------------------
+
+  const travelSteps = steps.filter((s) => s.op === 'travel');
+  const owned = new Set(travelSteps.flatMap((s) => [s.id, s.result].filter(Boolean)));
+  const rails = travelSteps.length > 0;
+  const report = horizontal && LANES.report ? LANES.report : null;
+  const laned = spec.nodes.filter((n) => n.lane).map((n) => n.id);
+  const even = (v) => Math.round(v / 2) * 2;
+  const textsOf = (n) => [n.label || ''].concat(steps.filter((s) => s.op === 'label' && s.id === n.id).map((s) => s.text || ''));
+  const ext = (box, axis) => (axis === 'x' ? box.w : box.h);
+  const union = (boxes) => boxes.reduce((b, r) => ({
+    x0: Math.min(b.x0, r.x), y0: Math.min(b.y0, r.y), x1: Math.max(b.x1, r.x + r.w), y1: Math.max(b.y1, r.y + r.h)
+  }), { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity });
+  // A box from along/cross coordinates and extents.
+  const flowBox = (a, c, alongExt, crossExt) => (horizontal ? { x: a, y: c, w: alongExt, h: crossExt } : { x: c, y: a, w: crossExt, h: alongExt });
+
+  // The layout record: every node box, band, label, rail, token, report
+  // row, and the camera bounds, computed once here from the spec before the
+  // runtime boots. The runtime takes each node's size from it (cf_width,
+  // cf_height), and every draw reads it; nothing sizes itself at draw time.
+  const computeLayout = () => {
+    const fc = FIT.checkpoint;
+    // A checkpoint is CHECK_W wide; any other node keeps the runtime's
+    // width. Either wraps its text at FIT's checkpoint font and line height
+    // and grows to fit, never under NODE_H.
+    const size = Object.fromEntries(spec.nodes.map((n) => {
+      const w = checkpoint(n.id) ? CHECK_W : WIDTH[n.id];
+      const room = checkpoint(n.id) ? fc.width - (iconOf(n) ? fc.icon : 0) : w - NODE_PAD_X - (iconOf(n) ? ICON_PX + ICON_GAP : 0);
+      const lines = Math.max(1, ...textsOf(n).map((t) => wrapLines(t, fc.font, room).length));
+      return [n.id, { w, h: Math.max(NODE_H, even(lines * fc.line_h + 2 * fc.pad_y + 2 * NODE_BORDER)), lines }];
+    }));
+    // Keyed by authored id, which may be a prototype name like `constructor`.
+    const tokens = Object.create(null);
+    for (const s of travelSteps) {
+      if (!s.id || tokens[s.id]) continue;
+      const n = nodeById[s.id];
+      tokens[s.id] = { w: even(textWidth(n.label, FIT.token.font) + TOKEN_PAD_W + (iconOf(n) ? FIT.token.icon : 0)), h: TOKEN_H };
+    }
+    const marker = { w: 2 * MARKER_HALO_R, h: 2 * MARKER_HALO_R };
+    const rider = (s) => (s.id ? tokens[s.id] : marker);
+
+    const direction = (spec.layout && spec.layout.direction) || 'LR';
+    const pos = {};
+    if (((spec.layout && spec.layout.engine) || 'dagre') === 'dagre') {
+      const g = new dagre.graphlib.Graph();
+      g.setGraph({ rankdir: direction, nodesep: NODE_SEP, ranksep: RANK_SEP, marginx: 0, marginy: 0 });
+      g.setDefaultEdgeLabel(() => ({}));
+      for (const n of spec.nodes) g.setNode(n.id, { width: size[n.id].w, height: size[n.id].h });
+      for (const e of spec.edges) g.setEdge(e.source, e.target);
+      dagre.layout(g);
+      for (const id of nodeIds) { const p = g.node(id); pos[id] = { x: Math.round(p.x - size[id].w / 2), y: Math.round(p.y - size[id].h / 2) }; }
+    }
+    const pinned = new Set();
+    for (const n of spec.nodes) if (n.position) { pos[n.id] = { x: n.position.x, y: n.position.y }; pinned.add(n.id); }
+    for (const id of nodeIds) if (!pos[id]) pos[id] = { x: 0, y: 0 };
+
+    // Bands stack along the cross axis in spec order. Inside a band, nodes
+    // keep their along coordinate and take rows greedily, so two nodes that
+    // would overlap sit one row apart; the band grows to fit its rows, plus
+    // its rail when anything travels, and a vertical band to fit its name.
+    // A pinned node keeps only its along coordinate: the band owns the
+    // other. A rail reserves the cross-axis extent of whatever rides it.
+    const labelW = (lane) => even(LABEL_PAD_L + LABEL_BAR + (lane.icon && ICONS[lane.icon] ? FIT.lane_label.icon : 0) + textWidth(lane.label, FIT.lane_label.font));
+    const bands = [];
+    let edge = 0;
+    for (const lane of LANES.lanes) {
+      const members = spec.nodes.filter((n) => n.lane === lane.id).map((n) => n.id)
+        .sort((a, b) => pos[a][along] - pos[b][along] || nodeIds.indexOf(a) - nodeIds.indexOf(b));
+      const rows = [];
+      const rowOf = {};
+      for (const id of members) {
+        let r = rows.findIndex((row) => row.end + ROW_GAP <= pos[id][along]);
+        if (r < 0) { rows.push({ end: -Infinity, size: 0 }); r = rows.length - 1; }
+        rows[r].end = pos[id][along] + ext(size[id], along);
+        rows[r].size = Math.max(rows[r].size, ext(size[id], cross));
+        rowOf[id] = r;
+      }
+      const content = rows.reduce((sum, row) => sum + row.size, 0) + ROW_GAP * Math.max(0, rows.length - 1);
+      const rail = Math.max(TOKEN_H, ...travelSteps.filter((s) => s.lane === lane.id).map((s) => ext(rider(s), cross)));
+      const tail = rails ? RAIL_GAP + rail + LANE_PAD : LANE_PAD;
+      const least = horizontal ? LANE_MIN : Math.max(LANE_MIN, labelW(lane) + 2 * LANE_PAD);
+      const extent = Math.max(least, content + LANE_PAD + tail);
+      let at = edge + LANE_PAD + (extent - LANE_PAD - tail - content) / 2;
+      const rowStart = rows.map((row) => { const s = at; at += row.size + ROW_GAP; return s; });
+      for (const id of members) pos[id][cross] = Math.round(rowStart[rowOf[id]] + (rows[rowOf[id]].size - ext(size[id], cross)) / 2);
+      bands.push({ id: lane.id, start: edge, extent, rail: edge + extent - LANE_PAD - rail / 2, railSize: rail, mid: edge + LANE_PAD + (extent - LANE_PAD - tail) / 2, members });
+      edge += extent;
+    }
+
+    // A laid-out node outside every lane keeps its place relative to the
+    // other such nodes, centred on the stack of bands.
+    const free = nodeIds.filter((id) => !nodeById[id].lane && !pinned.has(id) && !owned.has(id));
+    if (free.length && !(spec.layout && spec.layout.engine === 'manual')) {
+      const lo = Math.min(...free.map((id) => pos[id][cross]));
+      const hi = Math.max(...free.map((id) => pos[id][cross] + ext(size[id], cross)));
+      const shift = Math.round(edge / 2 - (lo + hi) / 2);
+      for (const id of free) pos[id][cross] += shift;
+    }
+
+    // Every travel spans the same stretch: from the first checkpoint's start
+    // to CLEAR past the widest reach of the last, so a token crossing each
+    // lane in turn reads as one short route under its checkpoints.
+    const span = laned.length
+      ? [Math.min(...laned.map((id) => pos[id][along])), Math.max(...laned.map((id) => pos[id][along] + ext(size[id], along))) + CLEAR]
+      : [0, 600];
+    for (const b of bands) {
+      const w = labelW(laneById[b.id]);
+      b.label = horizontal
+        ? { x: span[0] - LABEL_COL, y: Math.round(b.mid - LABEL_H / 2), w, h: LABEL_H }
+        : { x: b.start + LANE_PAD, y: span[0] - LABEL_GAP - LABEL_H, w, h: LABEL_H };
+    }
+    const railList = bands.map((b) => ({ lane: b.id, axis: along, from: span[0], to: span[1], at: b.rail, size: b.railSize }));
+    const reach = Math.max(span[1], ...travelSteps.map((s) => span[1] + ext(rider(s), along)));
+    const delivered = travelSteps.filter((s) => s.result);
+    const panel = report && {
+      x: reach + PANEL_GAP, y: 0, w: PANEL_W, h: Math.max(edge, PANEL_PAD * 2 + PANEL_HEAD + delivered.length * (RESULT_H + RESULT_GAP))
+    };
+    const rows = panel ? delivered.map((s, k) => ({
+      id: s.result, x: panel.x + PANEL_PAD, y: panel.y + PANEL_PAD + PANEL_HEAD + k * (RESULT_H + RESULT_GAP), w: PANEL_W - 2 * PANEL_PAD, h: RESULT_H
+    })) : [];
+    for (const r of rows) pos[r.id] = { x: r.x, y: r.y };
+    const boxes = {};
+    for (const id of nodeIds) boxes[id] = { x: pos[id].x, y: pos[id].y, w: size[id].w, h: size[id].h, lines: size[id].lines };
+    for (const r of rows) boxes[r.id] = { x: r.x, y: r.y, w: r.w, h: r.h, lines: 1 };
+    // With a panel, the band fills run from the name column to just short
+    // of it.
+    if (panel) for (const b of bands) b.fill = { from: b.label.x - PANEL_GAP / 2, to: panel.x - PANEL_GAP / 2 };
+    // What the runtime needs to size each node as its box: a width or
+    // height only where the box differs from the runtime's own.
+    const runtime = Object.fromEntries(nodeIds.map((id) => [id, {
+      ...(size[id].w !== WIDTH[id] ? { cf_width: size[id].w } : {}), ...(size[id].h !== NODE_H ? { cf_height: size[id].h } : {})
+    }]));
+
+    // The camera frames every visible box: nodes, lane names, the bands
+    // over the travel stretch, each rider from its entrance to its exit
+    // with its chip, the panel, and each standalone result from where its
+    // drop starts.
+    const shown = nodeIds.filter((id) => !owned.has(id)).map((id) => boxes[id]);
+    const results = panel ? [panel] : delivered.map((s) => ({ ...boxes[s.result], y: boxes[s.result].y - DROP_SHIFT, h: boxes[s.result].h + DROP_SHIFT }));
+    const travel = travelSteps.map((s) => {
+      const b = bands.find((x) => x.id === s.lane);
+      return flowBox(span[0] - ENTER_SHIFT - ext(rider(s), along), b.rail - b.railSize / 2,
+        span[1] - span[0] + 2 * ext(rider(s), along) + ENTER_SHIFT + EXIT_SHIFT + 2 * CHIP_R + 4, b.railSize);
+    });
+    const laneBox = bands.length ? [flowBox(span[0], 0, span[1] - span[0], edge)] : [];
+    const bounds = union([...shown, ...bands.map((b) => b.label), ...results, ...travel, ...laneBox]);
+    return { boxes, bands, rails: railList, tokens, marker, panel, rows, span, reach, bounds, pos, runtime };
+  };
+  const LAYOUT = computeLayout();
+  const pos = LAYOUT.pos;
+  const span = LAYOUT.span;
+  const panel = LAYOUT.panel;
+  const bands = Object.fromEntries(LAYOUT.bands.map((b) => [b.id, b]));
+
+  // The timeline of every travel, in step order.
+  const travels = travelSteps.map((s) => {
+    const D = s.duration == null ? TRAVEL_MS : s.duration;
+    const box = s.id ? LAYOUT.tokens[s.id] : LAYOUT.marker;
+    const w = ext(box, along);
+    const fn = easing(s.easing);
+    const tr = {
+      t0: s.t_ms, D, lane: s.lane, id: s.id || null, result: s.result || null, w, box, fn,
+      startA: s.id ? span[0] : span[0] - w / 2, endA: s.id ? span[1] : span[1] - w / 2, rail: bands[s.lane].rail,
+      enterAt: s.t_ms - ENTER_MS, chipAt: s.t_ms + D - CHIP_IN_MS, transferAt: s.t_ms + D + TAIL_MS
+    };
+    tr.landAt = tr.transferAt + TRANSFER_MS;
+    tr.releaseAt = tr.result ? tr.landAt : tr.transferAt;
+    // When the token's centre passes each checkpoint's centre.
+    tr.pulses = bands[s.lane].members.filter((id) => !owned.has(id)).flatMap((id) => {
+      const b = LAYOUT.boxes[id];
+      const p = (b[along] + ext(b, along) / 2 - tr.startA - w / 2) / (tr.endA - tr.startA);
+      return p >= 0 && p <= 1 ? [{ id, at: s.t_ms + bisect(fn, p) * D }] : [];
+    });
+    return tr;
+  });
+  // A token leaves its lane as the next travel of the same token arrives; a
+  // marker, or a token's last travel, leaves only if it is a marker.
+  const delivered = travels.filter((tr) => tr.result);
+  const lastLand = delivered.length ? Math.max(...delivered.map((tr) => tr.landAt)) : Infinity;
+  travels.forEach((tr, i) => {
+    const next = tr.id && travels.slice(i + 1).find((o) => o.id === tr.id);
+    tr.exitShift = EXIT_SHIFT;
+    tr.exitMs = EXIT_MS;
+    if (next) tr.exitAt = next.enterAt - EXIT_LEAD;
+    else if (!tr.id) tr.exitAt = tr.transferAt;
+    // The closing fade waits for the last landing and for this travel's own end.
+    else if (report && delivered.length) Object.assign(tr, { exitAt: Math.max(lastLand, tr.transferAt) + HOLD_MS, exitShift: 0, exitMs: FINAL_FADE_MS });
+    else tr.exitAt = Infinity;
+  });
+  const slots = Object.fromEntries(delivered.map((tr) => [tr.result, tr]));
+
+  // Two invisible corner nodes span LAYOUT.bounds, so the runtime's fits
+  // frame the whole composition. Internal ids start `__cf_`, which no
+  // authored id may, so they never collide.
+  const ANCHORS = ['__cf_lane_anchor_a', '__cf_lane_anchor_b'];
+  const B = LAYOUT.bounds;
+  spec.nodes.push({ id: ANCHORS[0], label: ' ', cf_width: ANCHOR_PX, cf_height: ANCHOR_PX, position: { x: Math.floor(B.x0), y: Math.floor(B.y0) } },
+    { id: ANCHORS[1], label: ' ', cf_width: ANCHOR_PX, cf_height: ANCHOR_PX, position: { x: Math.ceil(B.x1) - ANCHOR_PX, y: Math.ceil(B.y1) - ANCHOR_PX } });
+  spec.initial = (spec.initial || []).concat(ANCHORS);
+
+  // Every node takes its place and size from the record; the runtime
+  // reads both, so its node, handles, and edges match each box.
+  for (const n of spec.nodes) {
+    const b = LAYOUT.boxes[n.id];
+    if (!b) continue;
+    n.position = { x: Math.round(b.x), y: Math.round(b.y) };
+    Object.assign(n, LAYOUT.runtime[n.id]);
+  }
+  spec.initial = (spec.initial || []).filter((id) => !owned.has(id));
+  steps.forEach((s, i) => {
+    if (s.op === 'travel') steps[i] = { t_ms: s.t_ms, op: 'add_node', ids: [] };
+  });
+  spec.steps = steps;
+  specEl.textContent = JSON.stringify(spec);
+
+  // -- state ---------------------------------------------------------------
+
+  const ordered = steps.map((s, i) => [s, i]).sort((a, b) => a[0].t_ms - b[0].t_ms || a[1] - b[1]).map(([s]) => s);
+  const named = (spec.initial || []).filter((id) => laneIds.includes(id));
+  // The steps that name a lane (prepare rewrote only travel steps, which
+  // name a lane by `lane`, never by id).
+  const laneSteps = ordered.filter((s) => (s.ids || (s.id ? [s.id] : [])).some((id) => laneIds.includes(id)));
+  const highlightSpans = Object.fromEntries(laneIds.map((id) => [id, []]));
+  {
+    const open = {};
+    for (const s of laneSteps) {
+      for (const id of (s.ids || [s.id]).filter((x) => laneIds.includes(x))) {
+        if (s.op === 'highlight' && !(id in open)) open[id] = s.t_ms;
+        else if ((s.op === 'unhighlight' || s.op === 'dim' || s.op === 'remove') && id in open) {
+          highlightSpans[id].push([open[id], s.t_ms, HL_OUT_MS]); delete open[id];
+        }
+      }
+    }
+    for (const [id, at] of Object.entries(open)) highlightSpans[id].push([at, Infinity, HL_OUT_MS]);
+    for (const tr of travels) highlightSpans[tr.lane].push([tr.enterAt, tr.releaseAt, HL_OUT_MS]);
+  }
+  const ramp = (t, [on, off, out]) => (t < on ? 0 : Math.min(clamp01((t - on) / HL_IN_MS), 1 - clamp01((t - off) / out)));
+
+  const laneState = (t) => {
+    const shownAt = {};
+    for (const id of named.length ? named : laneIds) shownAt[id] = -Infinity;
+    const removedAt = {};
+    const dim = new Set();
+    for (const s of laneSteps) {
+      if (s.t_ms > t) break;
+      for (const id of (s.ids || [s.id]).filter((x) => laneIds.includes(x))) {
+        if (s.op === 'add_node') { shownAt[id] = s.t_ms; delete removedAt[id]; }
+        else if (s.op === 'remove') removedAt[id] = s.t_ms;
+        else if (s.op === 'dim') dim.add(id);
+        else if (s.op === 'highlight' || s.op === 'unhighlight') dim.delete(id);
+      }
+    }
+    return Object.fromEntries(laneIds.map((id) => {
+      let o = id in shownAt ? clamp01((t - shownAt[id]) / FADE_MS) : 0;
+      if (id in removedAt) o = Math.min(o, 1 - clamp01((t - removedAt[id]) / FADE_MS));
+      const level = Math.max(0, ...highlightSpans[id].map((span) => ramp(t, span)));
+      return [id, { opacity: o * (dim.has(id) ? DIM_OPACITY : 1), level }];
+    }));
+  };
+
+  // A travel's token at t: along (left edge) and cross (centre) in flow
+  // units, and opacity; null while it is not on screen.
+  const tokenAt = (tr, t) => {
+    if (t < tr.enterAt || t >= tr.exitAt + tr.exitMs) return null;
+    let a; let o = 1;
+    if (t < tr.t0) {
+      const q = clamp01((t - tr.enterAt) / ENTER_MS);
+      a = tr.startA - ENTER_SHIFT * (1 - EASINGS.decelerate(q));
+      o = q;
+    } else {
+      a = tr.startA + (tr.endA - tr.startA) * tr.fn(clamp01((t - tr.t0) / tr.D));
+    }
+    if (t >= tr.exitAt) {
+      const q = clamp01((t - tr.exitAt) / tr.exitMs);
+      a += tr.exitShift * EASINGS.decelerate(q);
+      o = Math.min(o, 1 - q);
+    }
+    return { a, c: tr.rail, opacity: o };
+  };
+
+  // The result chip: born at the token's exit, carried to its slot.
+  const chipAt = (tr, t) => {
+    if (!tr.result || t < tr.chipAt || t >= tr.landAt) return null;
+    const tok = tokenAt(tr, Math.min(t, tr.transferAt));
+    const from = { a: (tok ? tok.a : tr.endA) + tr.w + CHIP_R + 4, c: tr.rail };
+    const slot = pos[tr.result];
+    const box = LAYOUT.boxes[tr.result];
+    const to = { a: slot[along] + (panel ? 18 : CHIP_R), c: slot[cross] + (horizontal ? box.h : box.w) / 2 };
+    if (t < tr.transferAt) return { a: from.a, c: from.c, opacity: clamp01((t - tr.chipAt) / CHIP_IN_MS), scale: 0.6 + 0.4 * clamp01((t - tr.chipAt) / CHIP_IN_MS) };
+    const p = EASINGS.emphasized((t - tr.transferAt) / TRANSFER_MS);
+    return { a: from.a + (to.a - from.a) * p, c: from.c + (to.c - from.c) * p, opacity: 1 - clamp01((t - (tr.landAt - CHIP_OUT_MS)) / CHIP_OUT_MS), scale: 1 };
+  };
+
+  // A result card: hidden until its chip lands, then it settles into its
+  // reserved slot from DROP_SHIFT above, fading in over DROP_FADE_MS.
+  const cardAt = (id, t) => {
+    const tr = slots[id];
+    if (t < tr.landAt) return null;
+    const q = (t - tr.landAt) / DROP_MS;
+    return { x: pos[id].x, y: pos[id].y - DROP_SHIFT * (1 - EASINGS.settle(q)), opacity: clamp01((t - tr.landAt) / DROP_FADE_MS) };
+  };
+
+  const pulseAt = (id, t) => {
+    let s = 1;
+    for (const tr of travels) for (const p of tr.pulses) {
+      if (p.id === id && t >= p.at && t < p.at + PULSE_MS) s = Math.max(s, 1 + PULSE_SCALE * Math.sin(Math.PI * (t - p.at) / PULSE_MS));
+    }
+    return s;
+  };
+
+  // The panel's closing beat: the count appears as the last result lands,
+  // and the border swells once as the token leaves.
+  const finale = (t) => ({
+    badge: clamp01((t - lastLand) / FINAL_FADE_MS),
+    border: t >= lastLand + HOLD_MS && t < lastLand + HOLD_MS + PANEL_PULSE_MS ? Math.sin(Math.PI * (t - lastLand - HOLD_MS) / PANEL_PULSE_MS) : 0
+  });
+
+  // -- draw --------------------------------------------------------------
+
+  const dark = LANES.theme === 'dark';
+  const DIVIDER = dark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(15, 23, 42, 0.08)';
+  const PANEL_FILL = dark ? '#111c2d' : 'var(--cf-node, #f8fafc)';
+  const hexRgb = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+  const rgba = (hex, a) => `rgba(${hexRgb(hex).join(', ')}, ${a})`;
+  // A laned node takes its lane's colour while the lane runs and a quiet
+  // border otherwise; the runtime's own highlight (data-cf-hl) and an idle
+  // node's own colour win over both, by selector, not by per-frame writes.
+  const QUIET = `1px solid ${dark ? 'rgba(255, 255, 255, 0.16)' : 'rgba(15, 23, 42, 0.16)'}`;
+  const laneRules = laned.map((id) => {
+    const lane = laneById[nodeById[id].lane];
+    const node = `.react-flow__node[data-id="${CSS.escape(id)}"]:not([data-cf-hl="1"]) .cf-node`;
+    return `#cf-diagram-root:not([data-cf-lanes-on~="${lane.id}"]) ${node}:not([data-color]) { border: ${QUIET}; }\n` +
+      `#cf-diagram-root[data-cf-lanes-on~="${lane.id}"] ${node} { border: 1.5px solid ${lane.color}; box-shadow: 0 0 16px ${rgba(lane.color, 0.12)}; }`;
+  }).join('\n');
+  const css = document.createElement('style');
+  css.textContent = `
+body { background: var(--cf-surface, #ffffff); }
+#cf-diagram-root { position: relative; z-index: 1; }
+#cf-diagram-root .react-flow { background: transparent; --xy-background-color: transparent; }
+.cf-lanes, .cf-lane-front { position: fixed; inset: 0; pointer-events: none; overflow: visible; }
+.cf-lanes { z-index: 0; }
+.cf-lane-front { z-index: 2; }
+.cf-lane { position: absolute; box-sizing: border-box; border: 0 solid ${DIVIDER}; }
+.cf-lanes[data-dir="horizontal"] .cf-lane { left: 0; right: 0; border-top-width: 1px; border-bottom-width: 1px; }
+.cf-lanes[data-dir="vertical"] .cf-lane { top: 0; bottom: 0; border-left-width: 1px; border-right-width: 1px; }
+.cf-lane-label { position: absolute; left: 0; top: 0; transform-origin: 0 0; box-sizing: border-box; white-space: nowrap;
+  padding: 0 0 0 ${LABEL_PAD_L}px; border-left: ${LABEL_BAR}px solid; color: var(--cf-text, #0f172a);
+  font: 600 ${FIT.lane_label.font}px/${LABEL_H}px system-ui, sans-serif; }
+.cf-lane-label svg { width: 22px; height: 22px; margin-right: 8px; vertical-align: -4px; }
+${ANCHORS.map((id) => `.react-flow__node[data-id="${id}"] .cf-node`).join(', ')} { visibility: hidden; }
+#cf-diagram-root .cf-node, .cf-lane-front .cf-node { font-size: ${FIT.checkpoint.font}px; line-height: ${FIT.checkpoint.line_h}px; overflow-wrap: anywhere; }
+${laneRules}
+.cf-lane-panel { box-sizing: border-box; border: 1px solid; border-radius: 14px; padding: ${PANEL_PAD}px; }
+.cf-lane-panel-head { height: ${PANEL_HEAD}px; color: var(--cf-text, #0f172a); font: 600 22px/28px system-ui, sans-serif; white-space: nowrap; }
+.cf-lane-badge { margin-left: 10px; padding: 2px 10px; border-radius: 999px; font: 600 16px/22px system-ui, sans-serif;
+  color: var(--cf-text, #0f172a); background: ${DIVIDER}; border: 1px solid ${DIVIDER}; }
+.cf-lane-row { box-sizing: border-box; display: flex; align-items: center; gap: 12px; padding: 0 14px;
+  border: 1px solid ${DIVIDER}; border-radius: 10px; white-space: nowrap; font: 600 18px/1 system-ui, sans-serif; color: var(--cf-text, #0f172a); }
+.cf-lane-row i { flex: none; width: 10px; height: 10px; border-radius: 50%; }
+.cf-lane-row small { margin-left: auto; font: 500 15px/1 system-ui, sans-serif; color: var(--cf-muted, #475569); }
+.cf-lane-front > * { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
+.cf-lane-token { box-sizing: border-box; display: flex; align-items: center; justify-content: center; white-space: nowrap;
+  border: 2px solid var(--cf-accent, #2563eb); border-radius: ${TOKEN_H / 2}px; background: var(--cf-accent-tint, #dbeafe);
+  color: var(--cf-text, #0f172a); font: 600 17px/1 system-ui, sans-serif; }
+.cf-lane-token svg { width: ${TOKEN_ICON}px; height: ${TOKEN_ICON}px; margin-right: 6px; fill: currentColor; flex: none; }
+.cf-lane-chip { box-sizing: border-box; width: ${2 * CHIP_R}px; height: ${2 * CHIP_R}px; border-radius: 50%; }
+.cf-lane-marker { border-radius: 50%; box-sizing: border-box; }
+`;
+  document.head.appendChild(css);
+
+  const SVG_NS = 'http://www.w3.org/2000/svg';
+  const iconEl = (paths, cls, fill) => {
+    const svg = document.createElementNS(SVG_NS, 'svg');
+    svg.setAttribute('viewBox', '0 0 256 256');
+    svg.setAttribute('aria-hidden', 'true');
+    if (cls) svg.setAttribute('class', cls);
+    if (fill) svg.style.fill = fill;
+    for (const [d, opacity] of paths) {
+      const path = document.createElementNS(SVG_NS, 'path');
+      path.setAttribute('d', d);
+      if (opacity != null) path.setAttribute('opacity', String(opacity));
+      svg.appendChild(path);
+    }
+    return svg;
+  };
+  const layer = (cls) => { const el = document.createElement('div'); el.className = cls; el.setAttribute('aria-hidden', 'true'); return el; };
+  const back = layer('cf-lanes');
+  back.dataset.dir = horizontal ? 'horizontal' : 'vertical';
+  const front = layer('cf-lane-front');
+  const laneEls = {};
+  const labelEls = {};
+  for (const lane of LANES.lanes) {
+    const el = document.createElement('div');
+    el.className = 'cf-lane';
+    el.dataset.lane = lane.id;
+    const label = document.createElement('div');
+    label.className = 'cf-lane-label';
+    label.style.borderLeftColor = lane.color;
+    if (lane.icon && ICONS[lane.icon]) label.appendChild(iconEl(ICONS[lane.icon], null, lane.color));
+    label.appendChild(document.createTextNode(lane.label));
+    Object.assign(label.style, { width: `${bands[lane.id].label.w}px`, height: `${bands[lane.id].label.h}px` });
+    back.appendChild(label);
+    back.prepend(el);
+    laneEls[lane.id] = el;
+    labelEls[lane.id] = label;
+  }
+  // Result cards wear the runtime's own node classes, so they match the
+  // diagram's nodes exactly.
+  const panelEl = panel && document.createElement('div');
+  const headEl = panel && document.createElement('div');
+  const badgeEl = panel && document.createElement('span');
+  if (panel) {
+    panelEl.className = 'cf-lane-panel';
+    Object.assign(panelEl.style, { width: `${panel.w}px`, height: `${panel.h}px`, background: PANEL_FILL });
+    headEl.className = 'cf-lane-panel-head';
+    headEl.textContent = report.label;
+    badgeEl.className = 'cf-lane-badge';
+    badgeEl.textContent = `${delivered.length}/${delivered.length} ${report.unit || 'checks'}`;
+    headEl.appendChild(badgeEl);
+    panelEl.appendChild(headEl);
+    front.appendChild(panelEl);
+  }
+  const rowEl = (tr) => {
+    const el = document.createElement('div');
+    el.className = 'cf-lane-row cf-lane-card';
+    el.dataset.id = tr.result;
+    const row = LAYOUT.rows.find((r) => r.id === tr.result);
+    Object.assign(el.style, { width: `${row.w}px`, height: `${row.h}px` });
+    el.style.background = PANEL_FILL;
+    const mark = document.createElement('i');
+    mark.style.background = laneById[tr.lane].color;
+    const lane = document.createElement('small');
+    lane.textContent = laneById[tr.lane].label;
+    el.append(mark, document.createTextNode(nodeById[tr.result].label), lane);
+    front.appendChild(el);
+    return el;
+  };
+  const cardEls = Object.fromEntries(Object.keys(slots).map((id) => {
+    if (panel) return [id, rowEl(slots[id])];
+    const n = nodeById[id];
+    const c = colorOf(id);
+    const el = document.createElement('div');
+    el.className = 'cf-node cf-lane-card';
+    el.dataset.id = id;
+    el.dataset.role = n.role || 'default';
+    if (c) {
+      el.dataset.color = '1';
+      for (const [k, v] of [['--cf-item', c.color], ['--cf-item-tint', c.tint], ['--cf-item-ring', c.ring]]) el.style.setProperty(k, v);
+    }
+    Object.assign(el.style, { width: `${LAYOUT.boxes[id].w}px`, height: `${LAYOUT.boxes[id].h}px` });
+    if (iconOf(n)) el.appendChild(iconEl(iconOf(n), 'cf-node-icon'));
+    const span = document.createElement('span');
+    span.className = 'cf-node-label';
+    span.textContent = n.label;
+    el.appendChild(span);
+    front.appendChild(el);
+    return [id, el];
+  }));
+  const tokenEls = travels.map((tr, i) => {
+    const el = document.createElement('div');
+    el.dataset.travel = String(i);
+    if (tr.id) {
+      const n = nodeById[tr.id];
+      const c = colorOf(tr.id);
+      el.className = 'cf-lane-token';
+      Object.assign(el.style, { width: `${tr.box.w}px`, height: `${tr.box.h}px` });
+      if (c) { el.style.borderColor = c.color; el.style.background = c.tint; }
+      if (iconOf(n)) el.appendChild(iconEl(iconOf(n), null, c ? c.color : null));
+      el.appendChild(document.createTextNode(n.label));
+    } else {
+      const lane = laneById[tr.lane];
+      el.className = 'cf-lane-marker';
+      Object.assign(el.style, { width: `${2 * MARKER_HALO_R}px`, height: `${2 * MARKER_HALO_R}px`, background: lane.tint_hl, border: `1px solid ${lane.color}` });
+      const core = document.createElement('div');
+      Object.assign(core.style, { position: 'absolute', borderRadius: '50%', width: `${2 * MARKER_R}px`, height: `${2 * MARKER_R}px`, background: lane.color, left: `${MARKER_HALO_R - MARKER_R - 1}px`, top: `${MARKER_HALO_R - MARKER_R - 1}px` });
+      el.appendChild(core);
+    }
+    front.appendChild(el);
+    return el;
+  });
+  const chipEls = travels.map((tr) => {
+    if (!tr.result) return null;
+    const lane = laneById[tr.lane];
+    const el = document.createElement('div');
+    el.className = 'cf-lane-chip';
+    Object.assign(el.style, { background: lane.color, boxShadow: `0 0 0 3px ${lane.tint_hl}` });
+    front.appendChild(el);
+    return el;
+  });
+
+  // The camera the runtime set this frame, read back from React Flow.
+  const viewport = () => {
+    const el = document.querySelector('.react-flow__viewport');
+    const m = el && el.style.transform.match(/translate\(([-\d.e]+)px,\s*([-\d.e]+)px\)\s*scale\(([-\d.e]+)\)/);
+    return m ? { x: Number(m[1]), y: Number(m[2]), zoom: Number(m[3]) } : null;
+  };
+  const set = (el, key, value) => { if (el.style[key] !== value) el.style[key] = value; };
+  const px = (v) => `${v.toFixed(2)}px`;
+  const mixHex = (a, b, p) => { const x = hexRgb(a); const y = hexRgb(b); return `rgb(${x.map((v, i) => Math.round(v + (y[i] - v) * p)).join(', ')})`; };
+  // Places a front element at flow point (fx, fy), scaled with the camera.
+  const place = (el, vp, fx, fy, opacity, scale = 1) => {
+    const on = opacity > 0;
+    set(el, 'display', on ? '' : 'none');
+    if (!on) return;
+    set(el, 'transform', `translate(${px(fx * vp.zoom + vp.x)}, ${px(fy * vp.zoom + vp.y)}) scale(${(vp.zoom * scale).toFixed(4)})`);
+    set(el, 'opacity', opacity.toFixed(3));
+  };
+  const flowXY = (a, c) => (horizontal ? [a, c] : [c, a]);
+
+  const draw = () => {
+    const vp = viewport();
+    if (!vp) return;
+    const t = performance.now();
+    const lanes = laneState(t);
+    const off = horizontal ? vp.y : vp.x;
+    const sx = (x) => x * vp.zoom + vp.x;
+    const sy = (y) => y * vp.zoom + vp.y;
+    for (const lane of LANES.lanes) {
+      const el = laneEls[lane.id];
+      const band = bands[lane.id];
+      const s = lanes[lane.id];
+      set(el, horizontal ? 'top' : 'left', px(band.start * vp.zoom + off));
+      set(el, horizontal ? 'height' : 'width', px(band.extent * vp.zoom));
+      // With a panel, the fills stop short of it.
+      if (band.fill) {
+        set(el, 'left', px(sx(band.fill.from)));
+        set(el, 'width', px((band.fill.to - band.fill.from) * vp.zoom));
+      }
+      set(el, 'background', mixHex(lane.tint, lane.tint_hl, s.level));
+      set(el, 'opacity', String(s.opacity));
+      el.dataset.cfHl = s.level >= 0.5 ? '1' : '0';
+      const label = labelEls[lane.id];
+      set(label, 'transform', `translate(${px(sx(band.label.x))}, ${px(sy(band.label.y))}) scale(${vp.zoom.toFixed(4)})`);
+      set(label, 'opacity', String(s.opacity));
+    }
+    travels.forEach((tr, i) => {
+      const tok = tokenAt(tr, t);
+      const el = tokenEls[i];
+      if (!tok) { set(el, 'display', 'none'); return; }
+      const [fx, fy] = horizontal ? [tok.a, tok.c - tr.box.h / 2] : [tok.c - tr.box.w / 2, tok.a];
+      place(el, vp, fx, fy, tok.opacity);
+    });
+    travels.forEach((tr, i) => {
+      const el = chipEls[i];
+      const chip = el && chipAt(tr, t);
+      if (!el) return;
+      if (!chip) { set(el, 'display', 'none'); return; }
+      const [cx, cy] = flowXY(chip.a, chip.c);
+      place(el, vp, cx - CHIP_R * chip.scale, cy - CHIP_R * chip.scale, chip.opacity, chip.scale);
+    });
+    if (panel) {
+      const f = finale(t);
+      place(panelEl, vp, panel.x, panel.y, 1);
+      set(panelEl, 'borderColor', dark ? `rgba(255, 255, 255, ${(0.08 + 0.27 * f.border).toFixed(3)})` : `rgba(15, 23, 42, ${(0.08 + 0.27 * f.border).toFixed(3)})`);
+      set(badgeEl, 'display', f.badge > 0 ? '' : 'none');
+      set(badgeEl, 'opacity', f.badge.toFixed(3));
+    }
+    for (const [id, el] of Object.entries(cardEls)) {
+      const card = cardAt(id, t);
+      if (!card) { set(el, 'display', 'none'); continue; }
+      place(el, vp, card.x, card.y, card.opacity);
+    }
+    // Which lanes run, for the lane stylesheet; highlight styling itself
+    // is all CSS keyed on the runtime's data-cf-hl, so it is never
+    // overwritten here.
+    const root = document.getElementById('cf-diagram-root');
+    if (root) {
+      const on = laneIds.filter((id) => lanes[id].level >= 0.5).join(' ');
+      if (root.getAttribute('data-cf-lanes-on') !== on) root.setAttribute('data-cf-lanes-on', on);
+    }
+    for (const id of laned) {
+      const el = document.querySelector(`.react-flow__node[data-id="${CSS.escape(id)}"] .cf-node`);
+      if (!el) continue;
+      const s = pulseAt(id, t);
+      set(el, 'transform', s === 1 ? '' : `scale(${s.toFixed(4)})`);
+    }
+  };
+
+  window.__cfLanes = {
+    layout: LAYOUT, bands, span, travels: travels.map(({ fn, ...rest }) => rest), slots: Object.fromEntries(Object.keys(slots).map((id) => [id, pos[id]])),
+    attach() {
+      document.body.prepend(back);
+      document.body.appendChild(front);
+      if (typeof window.__cfAdvance === 'function') {
+        const advance = window.__cfAdvance;
+        window.__cfAdvance = (ms) => { const now = advance(ms); draw(); return now; };
+      } else {
+        const loop = () => { draw(); window.requestAnimationFrame(loop); };
+        window.requestAnimationFrame(loop);
+      }
+      // The runtime flips ready once its first frame has painted; draw that
+      // frame's bands too, before the capture takes frame 0.
+      let ready = window.__cfDiagramReady;
+      Object.defineProperty(window, '__cfDiagramReady', { configurable: true, get: () => ready, set: (v) => { ready = v; if (v) draw(); } });
+    }
+  };
+})();
+</script>
 <script data-cf-inline>// cf:walkthrough diagram runtime. A classic script loaded after the vendored
 // xyflow bundle (window.CfXyflow). It reads the scene spec from
 // <script type="application/json" id="cf-diagram">, mounts React Flow once
@@ -1098,8 +1738,9 @@ use-sync-external-store/cjs/use-sync-external-store-shim/with-selector.productio
 //   by folding the camera steps up to `now` and sets it with duration 0
 //   inside flushSync.
 // - Node sizes come from the spec alone (width from the longest label a node
-//   ever shows, by character count; height fixed), so layout and camera
-//   targets never depend on a ResizeObserver or text measurement.
+//   ever shows, by character count, plus an icon's fixed width; height
+//   fixed), so layout and camera targets never depend on a ResizeObserver
+//   or text measurement.
 // - Arrowheads are the runtime's own markers in user space units, swapped
 //   per frame by colour, so they follow highlight and never scale with the
 //   stroke width.
@@ -1129,12 +1770,21 @@ use-sync-external-store/cjs/use-sync-external-store-shim/with-selector.productio
   // coloured item has no such script and draws exactly as before.
   const colorsEl = document.getElementById('cf-diagram-colors');
   const COLORS = colorsEl ? JSON.parse(colorsEl.textContent) : { nodes: {}, edges: {}, steps: {} };
+  // Vendored Phosphor path data for the icons the nodes use, keyed
+  // name/weight: each entry a list of [d] or [d, opacity] (a duotone's
+  // second tone). A screen with no node icon has no such script.
+  const iconsEl = document.getElementById('cf-diagram-icons');
+  const ICONS = iconsEl ? JSON.parse(iconsEl.textContent) : {};
+  const iconOf = (n) => (n.icon ? ICONS[`${n.icon}/${n.icon_weight || 'regular'}`] : null);
 
   const NODE_H = 56;
   const NODE_MIN_W = 140;
   const NODE_MAX_W = 260;
   const CHAR_W = 11;
   const NODE_PAD_W = 40;
+  // An icon is drawn at this size before the label, with ICON_GAP between.
+  const ICON_PX = 20;
+  const ICON_GAP = 8;
   const DIM_OPACITY = 0.35;
   const FIT_MAX_ZOOM = 1.25;
   const FOCUS_MAX_ZOOM = 1.5;
@@ -1167,6 +1817,8 @@ html, body, #cf-diagram-root { margin: 0; width: 100%; height: 100%; }
 .react-flow__edge[data-cf-hl="1"] .react-flow__edge-path { stroke: var(--cf-accent, #2563eb); stroke-width: 3; }
 .cf-flow-halo { fill: var(--cf-accent-tint, #dbeafe); fill-opacity: 0.85; stroke: var(--cf-accent, #2563eb); stroke-opacity: 0.25; stroke-width: 1; }
 .cf-flow-core { fill: var(--cf-accent, #2563eb); stroke: var(--cf-surface, #ffffff); stroke-width: 1.5; }
+.cf-node-icon { flex: none; width: ${ICON_PX}px; height: ${ICON_PX}px; margin-right: ${ICON_GAP}px; fill: currentColor; }
+.cf-node[data-color] .cf-node-icon { color: var(--cf-item); }
 .cf-node[data-color] { border-color: var(--cf-item); background: var(--cf-item-tint); color: var(--cf-text, #0f172a); }
 .react-flow__node[data-cf-hl="1"] .cf-node[data-color] { border-color: var(--cf-item); box-shadow: 0 0 0 4px var(--cf-item-ring); }
 .react-flow__edge.cf-colored .react-flow__edge-path { stroke: var(--cf-item); }
@@ -1193,15 +1845,25 @@ html, body, #cf-diagram-root { margin: 0; width: 100%; height: 100%; }
   // Each step keeps its spec index, which keys a flow step's colour.
   const steps = (spec.steps || []).map((s, i) => Object.assign({}, s, { index: i })).sort((a, b) => a.t_ms - b.t_ms);
   const direction = (spec.layout && spec.layout.direction) || 'LR';
+  // How far a fit may enlarge the picture; layout.max_zoom raises it so a
+  // small diagram can fill a large frame.
+  const fitMaxZoom = (spec.layout && spec.layout.max_zoom) || FIT_MAX_ZOOM;
 
   // Width from the longest text the node ever shows, by character count, so
   // a relabel never reflows and no measurement is needed.
+  // A layer inlined before this runtime may fix a node's width as
+  // `cf_width` and its height as `cf_height`; no authored spec carries
+  // either, so without them every node keeps NODE_H and the width below.
   const WIDTH = Object.fromEntries(spec.nodes.map((n) => {
+    if (n.cf_width) return [n.id, n.cf_width];
     const texts = [n.label || ''].concat(steps.filter((s) => s.op === 'label' && s.id === n.id).map((s) => s.text || ''));
     const chars = Math.max(...texts.map((x) => x.length));
-    const w = Math.min(NODE_MAX_W, Math.max(NODE_MIN_W, chars * CHAR_W + NODE_PAD_W));
+    // An icon widens the node by its own width, so the label keeps its room.
+    const icon = iconOf(n) ? ICON_PX + ICON_GAP : 0;
+    const w = Math.min(NODE_MAX_W + icon, Math.max(NODE_MIN_W, chars * CHAR_W + NODE_PAD_W + icon));
     return [n.id, Math.round(w / 2) * 2];
   }));
+  const HEIGHT = Object.fromEntries(spec.nodes.map((n) => [n.id, n.cf_height || NODE_H]));
   const isLR = direction === 'LR' || direction === 'RL';
 
   // Base positions: a pinned node keeps its position; under dagre the rest
@@ -1213,7 +1875,7 @@ html, body, #cf-diagram-root { margin: 0; width: 100%; height: 100%; }
       const g = new dagre.graphlib.Graph();
       g.setGraph({ rankdir: direction, nodesep: NODE_SEP, ranksep: RANK_SEP, marginx: 0, marginy: 0 });
       g.setDefaultEdgeLabel(() => ({}));
-      for (const n of spec.nodes) g.setNode(n.id, { width: WIDTH[n.id], height: NODE_H });
+      for (const n of spec.nodes) g.setNode(n.id, { width: WIDTH[n.id], height: HEIGHT[n.id] });
       for (const e of spec.edges) g.setEdge(e.source, e.target);
       dagre.layout(g);
       // dagre may order a rank's nodes against the spec; reassign each rank's
@@ -1229,7 +1891,7 @@ html, body, #cf-diagram-root { margin: 0; width: 100%; height: 100%; }
         const slots = ids.map((id) => (isLR ? g.node(id).y : g.node(id).x)).sort((a, b) => a - b);
         ids.forEach((id, i) => { if (isLR) g.node(id).y = slots[i]; else g.node(id).x = slots[i]; });
       }
-      for (const id of nodeIds) { const p = g.node(id); out[id] = { x: Math.round(p.x - WIDTH[id] / 2), y: Math.round(p.y - NODE_H / 2) }; }
+      for (const id of nodeIds) { const p = g.node(id); out[id] = { x: Math.round(p.x - WIDTH[id] / 2), y: Math.round(p.y - HEIGHT[id] / 2) }; }
     }
     for (const n of spec.nodes) if (n.position) out[n.id] = { x: n.position.x, y: n.position.y };
     for (const id of nodeIds) if (!out[id]) out[id] = { x: 0, y: 0 };
@@ -1294,12 +1956,12 @@ html, body, #cf-diagram-root { margin: 0; width: 100%; height: 100%; }
     return { opacity, hl, dim, labels, pulses, flows, positions, viewport: cameraAt(t, camera, positionAt, viewportSize) };
   };
 
-  const fitTarget = (ids, padding, at, positionAt, size, maxZoom = FIT_MAX_ZOOM) => {
+  const fitTarget = (ids, padding, at, positionAt, size, maxZoom = fitMaxZoom) => {
     if (ids.length === 0) return null;
     let x0 = Infinity; let y0 = Infinity; let x1 = -Infinity; let y1 = -Infinity;
     for (const id of ids) {
       const p = positionAt(id, at);
-      x0 = Math.min(x0, p.x); y0 = Math.min(y0, p.y); x1 = Math.max(x1, p.x + WIDTH[id]); y1 = Math.max(y1, p.y + NODE_H);
+      x0 = Math.min(x0, p.x); y0 = Math.min(y0, p.y); x1 = Math.max(x1, p.x + WIDTH[id]); y1 = Math.max(y1, p.y + HEIGHT[id]);
     }
     const w = x1 - x0; const hgt = y1 - y0;
     const zoom = Math.min(maxZoom, Math.max(MIN_ZOOM, Math.min(size.w / (w * (1 + 2 * padding)), size.h / (hgt * (1 + 2 * padding)))));
@@ -1339,8 +2001,8 @@ html, body, #cf-diagram-root { margin: 0; width: 100%; height: 100%; }
         target = { x: size.w / 2 - cx * zoom, y: size.h / 2 - cy * zoom, zoom };
       } else if (s.op === 'focus') {
         const p = positionAt(s.id, s.t_ms);
-        const zoom = Math.min(FOCUS_MAX_ZOOM, Math.max(MIN_ZOOM, s.zoom || cur.zoom));
-        target = { x: size.w / 2 - (p.x + WIDTH[s.id] / 2) * zoom, y: size.h / 2 - (p.y + NODE_H / 2) * zoom, zoom };
+        const zoom = Math.min(Math.max(FOCUS_MAX_ZOOM, fitMaxZoom), Math.max(MIN_ZOOM, s.zoom || cur.zoom));
+        target = { x: size.w / 2 - (p.x + WIDTH[s.id] / 2) * zoom, y: size.h / 2 - (p.y + HEIGHT[s.id] / 2) * zoom, zoom };
       }
       if (!target) return;
       const p = progress(end, s.t_ms, s.duration || 0);
@@ -1355,13 +2017,17 @@ html, body, #cf-diagram-root { margin: 0; width: 100%; height: 100%; }
   const nodeStyle = (id) => {
     const c = COLORS.nodes[id];
     const style = { width: `${WIDTH[id]}px` };
+    if (HEIGHT[id] !== NODE_H) style.height = `${HEIGHT[id]}px`;
     return c ? Object.assign(style, { '--cf-item': c.color, '--cf-item-tint': c.tint, '--cf-item-ring': c.ring }) : style;
   };
+  const iconSvg = (paths) => h('svg', { className: 'cf-node-icon', viewBox: '0 0 256 256', 'aria-hidden': 'true', focusable: 'false' },
+    ...paths.map(([d, opacity], i) => h('path', { key: i, d, opacity })));
   const CfNode = ({ id, data }) => h('div', { className: 'cf-node', 'data-role': data.role || 'default', 'data-color': COLORS.nodes[id] ? '1' : undefined, style: nodeStyle(id) },
     ...Object.entries(SIDES).flatMap(([side, position]) => [
       h(Handle, { key: `t-${side}`, id: `t-${side}`, type: 'target', position, isConnectable: false }),
       h(Handle, { key: `s-${side}`, id: `s-${side}`, type: 'source', position, isConnectable: false })
     ]),
+    data.icon ? iconSvg(data.icon) : null,
     h('span', { className: 'cf-node-label' }, data.label));
   const nodeTypes = { cf: CfNode };
 
@@ -1370,15 +2036,15 @@ html, body, #cf-diagram-root { margin: 0; width: 100%; height: 100%; }
   const sidesFor = (e, positions) => {
     const a = positions[e.source]; const b = positions[e.target];
     const dx = (b.x + WIDTH[e.target] / 2) - (a.x + WIDTH[e.source] / 2);
-    const dy = (b.y + NODE_H / 2) - (a.y + NODE_H / 2);
+    const dy = (b.y + HEIGHT[e.target] / 2) - (a.y + HEIGHT[e.source] / 2);
     const gapX = Math.abs(dx) - (WIDTH[e.source] + WIDTH[e.target]) / 2;
     if (gapX < 24 || Math.abs(dy) > 2 * Math.abs(dx)) return dy >= 0 ? ['bottom', 'top'] : ['top', 'bottom'];
     return dx >= 0 ? ['right', 'left'] : ['left', 'right'];
   };
 
   const toNodes = (positions) => spec.nodes.map((n) => ({
-    id: n.id, type: 'cf', position: positions[n.id], width: WIDTH[n.id], height: NODE_H,
-    data: { label: n.label, role: n.role }, draggable: false, selectable: false, connectable: false
+    id: n.id, type: 'cf', position: positions[n.id], width: WIDTH[n.id], height: HEIGHT[n.id],
+    data: { label: n.label, role: n.role, icon: iconOf(n) }, draggable: false, selectable: false, connectable: false
   }));
   const toEdges = (positions) => spec.edges.map((e) => {
     const [from, to] = sidesFor(e, positions);
@@ -1549,5 +2215,6 @@ html, body, #cf-diagram-root { margin: 0; width: 100%; height: 100%; }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', mount); else mount();
 })();
 </script>
+<script data-cf-inline>window.__cfLanes && window.__cfLanes.attach();</script>
 </body>
 </html>

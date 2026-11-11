@@ -183,7 +183,7 @@
         }
       },
       "deps": {
-        "frames_key": "10fe378254e5078c7ab52f4e34bccb6dbd6644ad984a589ee6cb0dd7339006a3",
+        "frames_key": "4581ea8dcdb65a8cd49b2fa59d5d31b86dc503a170bc7e12e5984fe9b008fb91",
         "audio_key": "0c1a9a160fc956ab56c7ac2d82a80f0b381c9b20fe680972dc1f3b910a63ecf5",
         "asset_keys": []
       }
@@ -233,7 +233,7 @@
       },
       "order": 2,
       "deps": {
-        "frames_key": "873c8ab6eb29fe0f9cc319bcf4ba614d639631a69c2c4f893e52f2cb6127b923",
+        "frames_key": "281398a60dfb8dc3da58b200b0f8c6ba83306ebce77ee7db71e4f78cd2277be0",
         "audio_key": "32c2e43b05eadb9549f7378e3627bff13ca65f180c60f0d467bc9053f238b57d",
         "asset_keys": []
       }
@@ -279,7 +279,7 @@
         }
       },
       "deps": {
-        "frames_key": "fa02d3e6a5ee6bd405208f53bae7baee9ee48a730bbd71b8172ad5e392e7671b",
+        "frames_key": "32c518d8e507aefd5d792eff3e47ad6c760da887ff5c8a6ff00a2b12b2283c1b",
         "audio_key": "e5bc95d46edbd99d9708277d67a6440609d1e2f6952fd4a87146908c843f9bf6",
         "asset_keys": []
       }
@@ -290,354 +290,187 @@
       "order": 4,
       "kind": "diagram",
       "user_goal": "See the lanes a change passes through",
-      "action": "Watch each lane light up",
+      "action": "Watch the pull request ride each lane into one report",
       "screen": {
         "html": "screens/lanes-flow.html"
       },
       "diagram": {
         "layout": {
-          "engine": "manual",
-          "direction": "LR"
+          "engine": "manual"
         },
         "theme": "dark",
-        "nodes": [
+        "lanes": [
           {
-            "id": "pr",
-            "label": "Pull request",
-            "role": "accent",
-            "position": {
-              "x": 0,
-              "y": 320
-            }
-          },
-          {
-            "id": "k6",
-            "label": "Load (k6)",
+            "id": "load",
+            "label": "Load",
             "color": "#f2b85b",
-            "position": {
-              "x": 500,
-              "y": 40
-            }
+            "icon": "gauge"
           },
           {
             "id": "a11y",
-            "label": "Accessibility (axe)",
+            "label": "Accessibility",
             "color": "#6fb7f0",
-            "position": {
-              "x": 500,
-              "y": 180
-            }
+            "icon": "wheelchair"
           },
           {
-            "id": "zap",
-            "label": "Security (ZAP)",
+            "id": "security",
+            "label": "Security",
             "color": "#f07f9b",
-            "position": {
-              "x": 500,
-              "y": 320
-            }
+            "icon": "shield-check"
           },
           {
             "id": "ux",
             "label": "Responsive UX",
             "color": "#4fc4b0",
-            "position": {
-              "x": 500,
-              "y": 460
-            }
+            "icon": "devices"
           },
           {
             "id": "cases",
             "label": "Test cases",
             "color": "#9ea39b",
+            "icon": "test-tube"
+          }
+        ],
+        "lane_direction": "horizontal",
+        "report": {
+          "label": "Report",
+          "unit": "checks"
+        },
+        "nodes": [
+          {
+            "id": "check-load",
+            "label": "k6 load run",
+            "lane": "load",
             "position": {
-              "x": 500,
-              "y": 600
+              "x": 224,
+              "y": 0
             }
           },
           {
-            "id": "report",
-            "label": "One report",
+            "id": "check-a11y",
+            "label": "axe-core scan",
+            "lane": "a11y",
+            "position": {
+              "x": 224,
+              "y": 0
+            }
+          },
+          {
+            "id": "check-security",
+            "label": "ZAP baseline",
+            "lane": "security",
+            "position": {
+              "x": 224,
+              "y": 0
+            }
+          },
+          {
+            "id": "check-ux",
+            "label": "Viewport sweep",
+            "lane": "ux",
+            "position": {
+              "x": 224,
+              "y": 0
+            }
+          },
+          {
+            "id": "check-cases",
+            "label": "Committed cases",
+            "lane": "cases",
+            "position": {
+              "x": 224,
+              "y": 0
+            }
+          },
+          {
+            "id": "pr",
+            "label": "Pull request",
             "role": "accent",
+            "icon": "git-pull-request",
             "position": {
-              "x": 1060,
-              "y": 320
+              "x": 0,
+              "y": 0
             }
+          },
+          {
+            "id": "r-load",
+            "label": "k6 summary"
+          },
+          {
+            "id": "r-a11y",
+            "label": "axe violations"
+          },
+          {
+            "id": "r-security",
+            "label": "ZAP alerts"
+          },
+          {
+            "id": "r-ux",
+            "label": "Screenshots"
+          },
+          {
+            "id": "r-cases",
+            "label": "Case results"
           }
         ],
-        "edges": [
-          {
-            "id": "e-pr-k6",
-            "source": "pr",
-            "target": "k6",
-            "color": "#f2b85b"
-          },
-          {
-            "id": "e-k6-report",
-            "source": "k6",
-            "target": "report",
-            "color": "#f2b85b"
-          },
-          {
-            "id": "e-pr-a11y",
-            "source": "pr",
-            "target": "a11y",
-            "color": "#6fb7f0"
-          },
-          {
-            "id": "e-a11y-report",
-            "source": "a11y",
-            "target": "report",
-            "color": "#6fb7f0"
-          },
-          {
-            "id": "e-pr-zap",
-            "source": "pr",
-            "target": "zap",
-            "color": "#f07f9b"
-          },
-          {
-            "id": "e-zap-report",
-            "source": "zap",
-            "target": "report",
-            "color": "#f07f9b"
-          },
-          {
-            "id": "e-pr-ux",
-            "source": "pr",
-            "target": "ux",
-            "color": "#4fc4b0"
-          },
-          {
-            "id": "e-ux-report",
-            "source": "ux",
-            "target": "report",
-            "color": "#4fc4b0"
-          },
-          {
-            "id": "e-pr-cases",
-            "source": "pr",
-            "target": "cases",
-            "color": "#9ea39b"
-          },
-          {
-            "id": "e-cases-report",
-            "source": "cases",
-            "target": "report",
-            "color": "#9ea39b"
-          }
-        ],
+        "edges": [],
         "initial": [
-          "pr"
+          "check-load",
+          "check-a11y",
+          "check-security",
+          "check-ux",
+          "check-cases"
         ],
         "steps": [
           {
             "t_ms": 0,
             "op": "fit_view",
-            "ids": [
-              "pr"
-            ],
-            "padding": 0.4,
-            "duration": 0
+            "padding": 0.06
           },
           {
-            "t_ms": 300,
-            "op": "fit_view",
-            "ids": [
-              "pr",
-              "k6",
-              "a11y",
-              "zap",
-              "ux",
-              "cases"
-            ],
-            "padding": 0.15,
-            "duration": 800
+            "t_ms": 1650,
+            "op": "travel",
+            "id": "pr",
+            "lane": "load",
+            "result": "r-load",
+            "duration": 700,
+            "easing": "standard"
           },
           {
-            "t_ms": 1100,
-            "op": "add_node",
-            "ids": [
-              "k6",
-              "a11y",
-              "zap",
-              "ux",
-              "cases",
-              "e-pr-k6",
-              "e-pr-a11y",
-              "e-pr-zap",
-              "e-pr-ux",
-              "e-pr-cases"
-            ]
+            "t_ms": 2550,
+            "op": "travel",
+            "id": "pr",
+            "lane": "a11y",
+            "result": "r-a11y",
+            "duration": 700,
+            "easing": "standard"
           },
           {
-            "t_ms": 1100,
-            "op": "flow",
-            "ids": [
-              "e-pr-k6"
-            ],
-            "count": 2,
-            "duration": 900,
-            "color": "#f2b85b"
+            "t_ms": 3750,
+            "op": "travel",
+            "id": "pr",
+            "lane": "security",
+            "result": "r-security",
+            "duration": 700,
+            "easing": "standard"
           },
           {
-            "t_ms": 1100,
-            "op": "flow",
-            "ids": [
-              "e-pr-a11y"
-            ],
-            "count": 2,
-            "duration": 900,
-            "color": "#6fb7f0"
+            "t_ms": 5150,
+            "op": "travel",
+            "id": "pr",
+            "lane": "ux",
+            "result": "r-ux",
+            "duration": 700,
+            "easing": "standard"
           },
           {
-            "t_ms": 1100,
-            "op": "flow",
-            "ids": [
-              "e-pr-zap"
-            ],
-            "count": 2,
-            "duration": 900,
-            "color": "#f07f9b"
-          },
-          {
-            "t_ms": 1100,
-            "op": "flow",
-            "ids": [
-              "e-pr-ux"
-            ],
-            "count": 2,
-            "duration": 900,
-            "color": "#4fc4b0"
-          },
-          {
-            "t_ms": 1100,
-            "op": "flow",
-            "ids": [
-              "e-pr-cases"
-            ],
-            "count": 2,
-            "duration": 900,
-            "color": "#9ea39b"
-          },
-          {
-            "t_ms": 1300,
-            "op": "fit_view",
-            "ids": [
-              "pr",
-              "k6",
-              "a11y",
-              "zap",
-              "ux",
-              "cases",
-              "report"
-            ],
-            "padding": 0.1,
-            "duration": 800
-          },
-          {
-            "t_ms": 1700,
-            "op": "highlight",
-            "ids": [
-              "k6"
-            ]
-          },
-          {
-            "t_ms": 2100,
-            "op": "add_node",
-            "ids": [
-              "report",
-              "e-k6-report",
-              "e-a11y-report",
-              "e-zap-report",
-              "e-ux-report",
-              "e-cases-report"
-            ]
-          },
-          {
-            "t_ms": 2400,
-            "op": "flow",
-            "ids": [
-              "e-k6-report"
-            ],
-            "count": 3,
-            "duration": 1000,
-            "color": "#f2b85b"
-          },
-          {
-            "t_ms": 2600,
-            "op": "highlight",
-            "ids": [
-              "a11y"
-            ]
-          },
-          {
-            "t_ms": 2600,
-            "op": "flow",
-            "ids": [
-              "e-a11y-report"
-            ],
-            "count": 3,
-            "duration": 1000,
-            "color": "#6fb7f0"
-          },
-          {
-            "t_ms": 3800,
-            "op": "highlight",
-            "ids": [
-              "zap"
-            ]
-          },
-          {
-            "t_ms": 3800,
-            "op": "flow",
-            "ids": [
-              "e-zap-report"
-            ],
-            "count": 3,
-            "duration": 1000,
-            "color": "#f07f9b"
-          },
-          {
-            "t_ms": 5200,
-            "op": "highlight",
-            "ids": [
-              "ux"
-            ]
-          },
-          {
-            "t_ms": 5200,
-            "op": "flow",
-            "ids": [
-              "e-ux-report"
-            ],
-            "count": 3,
-            "duration": 1000,
-            "color": "#4fc4b0"
-          },
-          {
-            "t_ms": 6700,
-            "op": "highlight",
-            "ids": [
-              "cases"
-            ]
-          },
-          {
-            "t_ms": 6700,
-            "op": "flow",
-            "ids": [
-              "e-cases-report"
-            ],
-            "count": 3,
-            "duration": 1000,
-            "color": "#9ea39b"
-          },
-          {
-            "t_ms": 7600,
-            "op": "highlight",
-            "ids": [
-              "report"
-            ]
+            "t_ms": 6650,
+            "op": "travel",
+            "id": "pr",
+            "lane": "cases",
+            "result": "r-cases",
+            "duration": 700,
+            "easing": "standard"
           }
         ]
       },
@@ -667,7 +500,7 @@
         }
       },
       "deps": {
-        "frames_key": "cc1d9e141bf86eca418fcdec3b57c6390ae872202696652576243b13089789f6",
+        "frames_key": "e8d42ffcb6d58ca4797b11f7f9350fcf9a37c1cb9c529be34d656b1a39c4b02a",
         "audio_key": "dc6ae4aa8db02b4ef95881e1c4e329ed61d54da9a1b57d088c526bc4d71982fe",
         "asset_keys": []
       }
@@ -706,7 +539,7 @@
       },
       "order": 5,
       "deps": {
-        "frames_key": "b57da6e94122400aa0103e88abcadb674253ac0ea361d23a73399dc226833e6d",
+        "frames_key": "c67f7d8641ed6d61aa6b961d589eed3de5f5162a5e414dcb8c023321f8f169c2",
         "audio_key": "7a430440962a2b1e14c9fc3ad319dbabc9eec11033e341411c7546053bc327b1",
         "asset_keys": []
       }
@@ -747,7 +580,7 @@
       },
       "order": 6,
       "deps": {
-        "frames_key": "f77ba8643876be81b3a32542958447f2ed546df471039a32ca012ecc343566a3",
+        "frames_key": "9d302f0d1d28a37a28a8d5f76621f6168236053b69d813812907b506179494b0",
         "audio_key": "9234aa48aa5b2909a8cff62c13a60f2e0d17dcab58eb6b6cae9fa5b24d75103f",
         "asset_keys": []
       }
@@ -787,11 +620,11 @@
         }
       },
       "deps": {
-        "frames_key": "db0c443c7c2c6581819b5994baa7c25f6e236121bb5134a3d10dd54a96b56231",
+        "frames_key": "62353485de5dc706d1899a0603456f713a7e0e8be4ef61d75d6af35ca6beae7e",
         "audio_key": "da640e1c655fadb9b41994f7290cdd2305a92576c20ee6d62626aa7ec62f2a5f",
         "asset_keys": []
       }
     }
   ],
-  "tokens_css_sha256": "d173d78caa5c11a7f919528e140fa09fb2dd2384da39a119544228ece0fa8656"
+  "tokens_css_sha256": "f00e1e6bb08b0c79ce682ac43a1f9fb66d0d7d762ff3e479ac455ad323fc41a2"
 }
