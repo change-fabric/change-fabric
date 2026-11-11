@@ -9,7 +9,11 @@ require_relative 'prototype_ux_lint'
 # the safe area above the caption band. The device or browser frame is never
 # resized (unlike a camera zoom), so the device-frame rule still holds, and
 # the inset is drawn after the in-page UX lint ran, so the lint never sees
-# it. Pure geometry and one filter chain here; FFmpeg runs in the scene
+# it. At at_ms the capture also screenshots the padded element region at
+# `scale` times the device pixel ratio (CDP clip.scale), so the inset is
+# drawn from real pixels instead of an upscaled 1x crop; when that capture
+# fails the composite falls back to the upscaled crop with a warning. Pure
+# geometry and one filter chain here; FFmpeg runs in the scene
 # composite (walkthrough_live.rb).
 module WalkthroughInset
   KEYS = %w[selector at_ms duration_ms scale position].freeze
@@ -19,7 +23,7 @@ module WalkthroughInset
   DEFAULT_SCALE = 2.0
   DEFAULT_POSITION = 'top-right'
   # Bumped when the drawn inset changes; it is key material.
-  VERSION = 1
+  VERSION = 2
   FADE_MS = 200
   # CSS px of breathing room around the element before magnifying.
   PAD_CSS = 6
@@ -67,12 +71,13 @@ module WalkthroughInset
 
   # -- capture -------------------------------------------------------------
 
-  # What the desktop capture job needs: the selector and the frame index at
-  # which its bounding box is read.
+  # What the desktop capture job needs: the selector, the frame index at
+  # which its bounding box is read, and the hi-res capture's scale and pad.
   def job(scene, fps)
     return nil unless inset?(scene)
 
-    { 'selector' => scene['inset']['selector'], 'frame' => frame_at(scene['inset']['at_ms'], fps) }
+    { 'selector' => scene['inset']['selector'], 'frame' => frame_at(scene['inset']['at_ms'], fps),
+      'scale' => spec(scene)['scale'].to_f, 'pad' => PAD_CSS }
   end
 
   def frame_at(ms, fps) = (ms * fps / 1000.0).floor
@@ -130,22 +135,30 @@ module WalkthroughInset
 
   # Appends the inset to a composite filter_complex ending in [out]. Fades
   # count frames (not timestamps), so the output is frame exact and
-  # independent of the image sequence's nominal rate.
-  def append(filter, plan)
+  # independent of the image sequence's nominal rate. `hires` is the input
+  # index of the hi-res element still, or nil for the upscaled crop. The
+  # still is laid over the upscaled crop (repeating its one frame), so the
+  # crop stream still carries the frame timing and the fades.
+  def append(filter, plan, hires: nil)
     return filter if plan.nil? || plan.stop < plan.start
 
     base = filter.delete_suffix('[out]')
     raise ArgumentError, 'composite filter must end in [out]' if base == filter
 
-    "#{base}[cfbase];[cfbase]split=2[cfbg][cfsrc];[cfsrc]#{chain(plan)}[cfins];" \
+    src = "[cfsrc]#{crop(plan)}"
+    src = "#{src}[cflo];[#{hires}:v]#{magnify(plan)}[cfhi];[cflo][cfhi]overlay=0:0:eof_action=repeat" if hires
+    "#{base}[cfbase];[cfbase]split=2[cfbg][cfsrc];#{src},#{finish(plan)}[cfins];" \
       "[cfbg][cfins]overlay=x=#{plan.x}:y=#{plan.y}:enable='between(n,#{plan.start},#{plan.stop})'[out]"
   end
 
   # Crop, magnify, border, and fade the region.
-  def chain(plan)
+  def chain(plan) = "#{crop(plan)},#{finish(plan)}"
+
+  def crop(plan) = "crop=#{plan.crop_w}:#{plan.crop_h}:#{plan.crop_x}:#{plan.crop_y},#{magnify(plan)}"
+
+  def finish(plan)
     region = region(plan)
     [
-      "crop=#{plan.crop_w}:#{plan.crop_h}:#{plan.crop_x}:#{plan.crop_y}", magnify(plan),
       "pad=#{region['w']}:#{region['h']}:#{BORDER}:#{BORDER}:color=#{BORDER_COLOR}", 'format=rgba',
       "fade=t=in:s=#{plan.start}:n=#{plan.fade}:alpha=1",
       "fade=t=out:s=#{plan.stop - plan.fade + 1}:n=#{plan.fade}:alpha=1"

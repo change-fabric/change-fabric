@@ -267,6 +267,7 @@ A live or compose scene picks the devices it films and how they share the frame:
 
 - The scene must be live (`screen.url`) and film the desktop only; `inset` with `camera.zoom` above 1 is an error.
 - At capture the desktop run records the element's bounding box (viewport CSS px, padded by 6 px). The box maps to the canvas through the scene's own frame layout (`walkthrough_browser_frame.rb` or `walkthrough_device.rb`), so a browser frame is accounted for.
+- At `at_ms` the capture also screenshots that padded region at `scale` times the device pixel ratio (CDP `clip.scale`), and the inset is drawn from that still, so it reads crisp instead of as an upscaled 1x crop. If that capture fails, the composite falls back to upscaling the crop and prints a warning; `inset.json` records which path ran (`hires`).
 - The composite crops that region from every captured frame and overlays it magnified with a 3 px border and a 200 ms alpha fade in and out, in a corner of the safe area: 4% of the canvas height from the edges and above the caption band. Fades count frames, so the output is deterministic (`scripts/walkthrough_inset.rb`).
 - The inset is drawn after the in-page UX lint ran, so it never enters the lint; its on-canvas region is written to `inset.json` beside the frames.
 - The inset spec and its compositor version are part of the scene's `frames_key`.

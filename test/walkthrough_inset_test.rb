@@ -94,6 +94,19 @@ class WalkthroughInsetTest < Minitest::Test
     assert_raises(ArgumentError) { WI.append("a[x]", plan) }
   end
 
+  def test_filter_chain_with_hires_still
+    plan = WI::Plan.new(crop_x: 10, crop_y: 20, crop_w: 40, crop_h: 12, x: 100, y: 42, w: 80, h: 24, scale: 2.0, start: 30, stop: 89, fade: 6)
+    out = WI.append("[0:v]null[out]", plan, hires: 1)
+    assert_includes out, "[cfsrc]crop=40:12:10:20,scale=80:24:flags=lanczos[cflo];[1:v]scale=80:24:flags=lanczos[cfhi]"
+    assert_includes out, "[cflo][cfhi]overlay=0:0:eof_action=repeat,pad=86:30:3:3"
+    assert out.end_with?("overlay=x=100:y=42:enable='between(n,30,89)'[out]")
+  end
+
+  def test_job_carries_hires_scale_and_pad
+    assert_equal({ "selector" => ".badge", "frame" => 30, "scale" => 2.0, "pad" => WI::PAD_CSS }, WI.job(live, 30))
+    assert_in_delta 3.0, WI.job(live(INSET.merge("scale" => 3)), 30)["scale"]
+  end
+
   def test_frames_key_includes_inset
     plain = live.except("inset")
     key = WalkthroughLive.frames_key(BOARD, plain)
@@ -129,6 +142,45 @@ class WalkthroughInsetTest < Minitest::Test
       assert red.(px.(5, *center)), "magnified red inside the window"
       refute red.(px.(9, *center)), "no inset after the window"
       assert red.(px.(5, 25, 25)), "the source frame itself is untouched"
+
+      # A blue hi-res still replaces the upscaled crop but keeps the window.
+      blue = ChangeDocker.run_command(network: "none", image: ChangeDocker::FFMPEG_IMAGE, mounts: { dir => "/w" }, workdir: "/w",
+                                      args: [ "-hide_banner", "-y", "-f", "lavfi", "-i", "color=c=blue:s=56x56", "-frames:v", "1", "hi.png" ])
+      out, st = Open3.capture2e(*blue)
+      assert st.success?, out
+      run = ChangeDocker.run_command(network: "none", image: ChangeDocker::FFMPEG_IMAGE, mounts: { dir => "/w" }, workdir: "/w",
+                                     args: [ "-hide_banner", "-y", "-start_number", "1", "-i", "in%06d.png", "-i", "hi.png",
+                                             "-filter_complex", WI.append("[0:v]null[out]", plan, hires: 1),
+                                             "-map", "[out]", "-pix_fmt", "rgb24", "-f", "rawvideo", "out.rgb" ])
+      out, st = Open3.capture2e(*run)
+      assert st.success?, out
+      raw = File.binread(File.join(dir, "out.rgb"))
+      assert_equal 10 * frame, raw.bytesize
+      bluish = ->(rgb) { rgb[2] > 200 && rgb[0] < 60 }
+      refute bluish.(px.(0, *center)), "no hi-res inset before at_ms"
+      assert bluish.(px.(5, *center)), "the hi-res still inside the window"
+      assert bluish.(px.(7, *center)), "the one-frame still repeats to the end of the window"
+      refute bluish.(px.(9, *center)), "no hi-res inset after the window"
+    end
+  end
+
+  # Without a hi-res still the writer warns and composites the upscale.
+  def test_scene_writer_falls_back_with_a_warning
+    secrets = Object.new.tap { |o| o.define_singleton_method(:mask_deep) { |v| v } }
+    status = Struct.new(:ok) { def success? = ok }
+    run = { "name" => "desktop", "frames" => [ [ "j" ].pack("m0") ] * 40, "ticks" => (0...40).to_a, "links" => [], "lint" => [],
+            "cursor" => [ { "x" => 1, "y" => 2, "down" => false } ] * 40, "inset" => { "x" => 100, "y" => 200, "w" => 60, "h" => 14 } }
+    [ [ run, false ], [ run.merge("insetHi" => [ "png" ].pack("m0")), true ] ].each do |r, hires|
+      Dir.mktmpdir do |work|
+        argvs = []
+        docker = ->(argv) { argvs << argv; [ "", status.new(true) ] }
+        _o, err = capture_io { WalkthroughLive::SceneWriter.new(board: BOARD, scene: live, secrets: secrets, docker: docker, work: work).write([ r ], File.join(work, "out")) }
+        cmd = argvs.first.join(" ")
+        assert_equal !hires, err.include?("hi-res inset capture failed")
+        assert_equal hires, cmd.include?("/jpg/inset.png")
+        assert_equal hires, cmd.include?("[1:v]scale=")
+        assert_equal hires, JSON.parse(File.read(File.join(work, "out", "inset.json")))["hires"]
+      end
     end
   end
 end
