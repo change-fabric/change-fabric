@@ -43,6 +43,14 @@ function MediaFigure({ entry }: { entry: MediaEntry }) {
     };
   }, [started, entry.words]);
 
+  // Focus moves to the player once it is revealed: inside the click handler
+  // the player is still hidden (React applies `started` after the handler
+  // returns), so a focus() there is a no-op and focus would be lost with the
+  // removed play button.
+  useEffect(() => {
+    if (started) mediaRef.current?.focus();
+  }, [started]);
+
   // Follow-along highlight: only while playing, never under reduced motion.
   useEffect(() => {
     const media = mediaRef.current;
@@ -85,7 +93,6 @@ function MediaFigure({ entry }: { entry: MediaEntry }) {
     media.play().catch((error: unknown) => {
       if (!(error instanceof DOMException && error.name === "AbortError")) setUnavailable(true);
     });
-    media.focus();
   };
 
   const icon = (
