@@ -312,9 +312,11 @@ module ChangeDocker
       end
       uri = URI(function_url(launch_args))
       response = post(uri, code, 'application/javascript')
-      failure = "browserless /function failed: #{response.code} #{response.body}"
-      raise TimedOut, failure if response.code.to_s == '408'
-      raise failure unless response.is_a?(Net::HTTPSuccess)
+      unless response.is_a?(Net::HTTPSuccess)
+        failure = "browserless /function failed: #{response.code} #{response.body}"
+        raise TimedOut, failure if response.code.to_s == '408'
+        raise failure
+      end
 
       unwrap(JSON.parse(response.body))
     end
