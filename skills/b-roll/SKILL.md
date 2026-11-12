@@ -1,6 +1,7 @@
 ---
 name: cf:b-roll
 group: workflow
+providers: [gemini]
 description: B-roll command. Animates one local still (typically a gpt-image-2.6-sunburst hero) into a short silent clip with the Gemini Interactions API (gemini-omni-1.1-flash, image to video only), cached by content key, with a cost estimate and an explicit ceiling before any paid call and a deterministic Ken Burns or static fallback so a failed generation never blocks a render. Never for UI. Paid, so it runs only when invoked by name or loaded by cf:walkthrough, never auto-applied or chosen on a model guess. Usable alone, outside any walkthrough.
 ---
 
