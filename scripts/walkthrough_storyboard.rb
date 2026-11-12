@@ -186,6 +186,7 @@ module WalkthroughStoryboard
     errors.concat(scene_interaction_errors(scene))
     errors.concat(navigate_errors(scene, board))
     errors.concat(timeline_errors(scene, board))
+    errors.concat(overlap_errors(scene, board))
     Array(scene['hypotheses']).each { |h| errors << "hypothesis #{h} is not in the top-level list" unless hyp_ids.include?(h) }
     errors << 'needs at least one requirement or assumption' if Array(scene['requirements']).empty? && Array(scene['assumptions']).empty?
     errors.concat(kind_errors(scene, root))
@@ -435,6 +436,23 @@ module WalkthroughStoryboard
     end
   end
 
+  # An overlapping transition blends the scene's first `ms` with the scene
+  # before, so the scene must be at least that long.
+  def overlap_errors(scene, board)
+    list = scenes(board)
+    i = list.index(scene).to_i
+    return [] unless i.positive?
+
+    fps = fps(board)
+    overlap = WalkthroughTimeline.overlap_frames(board, scene, fps)
+    frames = PrototypeCapture.frame_count(WalkthroughLive.duration_ms(board, scene), fps)
+    return [] if overlap <= frames
+
+    [ "the transition into this scene overlaps #{overlap} frames, longer than the scene's #{frames}; lengthen the scene or shorten the transition" ]
+  rescue ArgumentError, TypeError, NoMethodError
+    []
+  end
+
   # A tap with `navigate: true` carries straight into the next scene: one
   # per scene, on a live scene, in the lead device's list (the session the
   # next scene starts from), and the next scene (by order) is a live scene
@@ -478,6 +496,7 @@ module WalkthroughStoryboard
     return [ "the scene after a navigate tap films only the tapping device (#{lead}), not #{(devices - [ lead ]).join(', ')}" ] if devices.size > 1
 
     errs = %w[wait storage].filter_map { |k| "#{k} has no effect on the scene after a navigate tap (it continues the page)" if nxt.key?(k) }
+    errs << 'the scene after a navigate tap cannot navigate again (a run is two scenes)' if WalkthroughTimeline.navigate_tap(nxt, lead)
     errs << 'only one scene of a navigate run may have an inset' if WalkthroughInset.inset?(scene) && WalkthroughInset.inset?(nxt)
     errs
   end

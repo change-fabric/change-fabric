@@ -16,9 +16,12 @@ class WalkthroughTimelineTest < Minitest::Test
             { "t_ms" => 0, "op" => "hover", "target" => "#h" },
             { "t_ms" => 0, "op" => "scroll", "target" => "html", "dy" => 10 },
             { "t_ms" => 0, "op" => "type", "target" => "#t", "text" => "a" },
-            { "t_ms" => 0, "op" => "move", "target" => "#m", "duration_ms" => 0 } ]
+            { "t_ms" => 0, "op" => "move", "target" => "#m", "duration_ms" => 0 },
+            { "t_ms" => 0, "op" => "tap", "target" => "#p", "press_ms" => 1 },
+            { "t_ms" => 0, "op" => "tap", "target" => "#q", "press_ms" => 1, "navigate" => true } ]
     kinds = build(ops).events_by_frame[0].map { |e| e["kind"] }
-    assert_equal %w[scroll move_step hover click type_char], kinds
+    assert_equal %w[scroll move_step hover press press click type_char], kinds
+    assert_equal %w[release release navigate], build(ops).events_by_frame[1].map { |e| e["kind"] }
   end
 
   def test_tap_presses_releases_and_navigates_on_frames
@@ -62,6 +65,11 @@ class WalkthroughTimelineTest < Minitest::Test
     ops = [ { "t_ms" => 0, "op" => "tap", "target" => "#a", "press_ms" => 300 },
             { "t_ms" => 200, "op" => "tap", "target" => "#a" } ]
     assert_match(/presses on #a overlap/, build(ops).conflicts.join)
+    # Touching: the second press lands on the first one's release frame.
+    touch = [ { "t_ms" => 0, "op" => "tap", "target" => "#a" }, { "t_ms" => 133, "op" => "tap", "target" => "#a" } ]
+    assert_match(/presses on #a overlap/, build(touch).conflicts.join)
+    touch[1]["t_ms"] = 167
+    assert_empty build(touch).conflicts
   end
 
   # E3: a release past the last frame is rejected, never clamped.
@@ -107,7 +115,7 @@ class WalkthroughTimelineTest < Minitest::Test
       ops << { "t_ms" => rng.rand(0..3000), "op" => "tap", "target" => "#go", "navigate" => true } if rng.rand < 0.6
       ops.sort_by! { |op| op["t_ms"] }
       t = WalkthroughTimeline.build(ops, fps: FPS, frames: frames)
-      broken = broken_rules(t)
+      broken = broken_rules(ops, frames)
       if t.conflicts.empty?
         seen[:clean] += 1
         assert_empty broken, "case #{n}: #{ops.inspect}"
@@ -154,18 +162,37 @@ class WalkthroughTimelineTest < Minitest::Test
     end
   end
 
-  # The rules, checked straight from the events and intervals.
-  def broken_rules(t)
+  # The rules, checked straight from the ops (an oracle independent of the
+  # timeline's own events and intervals): every op's frames are recomputed
+  # here from t_ms with frame_at and frame_count.
+  def broken_rules(ops, frames)
+    span = ->(ms) { [ PrototypeCapture.frame_count(ms.to_i, FPS), 1 ].max }
+    at = ->(op) { PrototypeCapture.frame_at(op["t_ms"], FPS) }
+    reach = lambda do |op|
+      case op["op"]
+      when "tap" then [ at.call(op), at.call(op) + span.call(op["press_ms"] || PrototypeCapture::PRESS_MS) ]
+      when "scroll" then op["ms"] ? [ at.call(op), at.call(op) + span.call(op["ms"]) - 1 ] : [ at.call(op), at.call(op) ]
+      when "move" then [ at.call(op), at.call(op) + span.call(op["duration_ms"]) - 1 ]
+      when "type" then [ at.call(op), PrototypeCapture.frame_at(op["t_ms"] + ((op["text"].length - 1) * 1000.0 / op["cps"]), FPS) ]
+      when "wait" then nil
+      else [ at.call(op), at.call(op) ]
+      end
+    end
     out = []
-    if (nav = t.navigate)
-      out << :after_navigate if t.events.any? { |e| e.op_index != nav.op_index && e.frame >= nav.frame }
+    nav = ops.find { |op| op["navigate"] }
+    if nav
+      cut = reach.call(nav)[1]
+      out << :after_navigate if ops.any? { |op| !op.equal?(nav) && (r = reach.call(op)) && r[1] >= cut && r[0] < frames }
     end
-    t.intervals.combination(2).each do |a, b|
-      next unless a.family == b.family && a.target == b.target
+    family = { "tap" => :press, "scroll" => :scroll }
+    ops.combination(2).each do |a, b|
+      next unless family[a["op"]] && family[a["op"]] == family[b["op"]] && a["target"] == b["target"]
 
-      out << :overlap if a.from_frame <= b.to_frame && b.from_frame <= a.to_frame
+      ra = reach.call(a)
+      rb = reach.call(b)
+      out << :overlap if ra[0] <= rb[1] && rb[0] <= ra[1]
     end
-    out << :late_release if t.events.any? { |e| e.kind == "release" && e.frame >= t.frames }
+    out << :late_release if ops.any? { |op| op["op"] == "tap" && reach.call(op)[1] >= frames }
     out
   end
 

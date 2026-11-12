@@ -712,7 +712,7 @@ module WalkthroughLive
     timeline = PrototypeCapture.timeline!(resolve_interactions(ops, secrets), frames, fps, label: "#{scene['id']} #{spec['name']}")
     plan = WalkthroughTimeline.to_plan(timeline)
     band = caption_band(board, scene)
-    { 'dev' => spec, 'plan' => plan, 'events' => timeline.events_by_frame, 'pressFrame' => timeline.navigate_press_frame,
+    { 'dev' => spec, 'plan' => plan, 'events' => timeline.events_by_frame,
       'lint' => PrototypeUxLint.lint_frames(plan, frames), 'band' => band, 'shots' => shots,
       'group' => WalkthroughDevice.group(scene, spec['name']),
       'url' => url(scene), 'html' => page_html(scene, spec['name'], compose: compose, board: board, root: root) }

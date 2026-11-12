@@ -123,6 +123,14 @@ class WalkthroughFluidMotionTest < Minitest::Test
     assert_empty WalkthroughStoryboard.validate(nav_board)
   end
 
+  def test_chained_navigate_and_a_transition_longer_than_its_scene_are_rejected
+    b = nav_board(second: { "interactions" => [ { "t_ms" => 0, "op" => "tap", "target" => "#more", "navigate" => true } ] })
+    b["scenes"] << live("more", 3, "session_from_scene" => "detail")
+    assert_includes errors(b), "the scene after a navigate tap cannot navigate again"
+    short = nav_board(second: { "timing" => { "min_ms" => 300, "pad_ms" => 0, "transition" => { "type" => "push", "ms" => 1500 } } })
+    assert_includes errors(short), "the transition into this scene overlaps 45 frames, longer than the scene's 9"
+  end
+
   # Decision 10: the tapping scene ends at the tap plus the overlap, and its
   # voice line must end by the tap.
   def test_tapping_scene_is_trimmed_to_the_tap_and_narration_must_fit

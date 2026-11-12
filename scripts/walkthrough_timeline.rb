@@ -89,7 +89,7 @@ module WalkthroughTimeline
       return [] if navs.empty?
 
       cut = navs.map(&:frame).min
-      late = events.reject { |e| navs.any? { |n| n.op_index == e.op_index } || e.frame < cut }
+      late = events.reject { |e| navs.any? { |n| n.op_index == e.op_index } || e.frame < cut || e.frame >= frames }
       late.group_by(&:op_index).map do |index, list|
         e = list.min_by(&:sort_key)
         "a navigate tap must be the last input: op #{index} (#{e.kind} #{e.target}) acts at frame #{e.frame}, " \
