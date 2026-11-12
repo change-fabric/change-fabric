@@ -702,4 +702,89 @@ class WalkthroughRenderTest < Minitest::Test
                JSON.generate("responses" => [ { "screen" => "002-list-middle.jpg", "problem" => "Toast covers", "verdict" => "rebut", "reason" => "r" } ]))
     assert run_render(final: true)[:mp4]
   end
+
+  def with_env(vars)
+    old = vars.keys.to_h { |k| [ k, ENV[k] ] }
+    vars.each { |k, v| ENV[k] = v }
+    yield
+  ensure
+    old.each { |k, v| ENV[k] = v }
+  end
+
+  def test_draft_and_final_land_beside_the_storyboard_and_survive_a_cache_delete
+    draft = run_render
+    assert_equal File.join(@root, "demo-draft.mp4"), draft[:deliverable][:mp4]
+    assert_equal File.binread(draft[:mp4]), File.binread(File.join(@root, "demo-draft.mp4"))
+    assert File.file?(File.join(@root, "demo-draft.vtt"))
+    assert File.file?(draft[:mp4]), "the cache copy stays where the renderer expects it"
+    final = run_render(final: true)
+    assert_equal File.join(@root, "demo-final.mp4"), final[:deliverable][:mp4]
+    FileUtils.rm_rf(File.join(@root, ".cache"))
+    assert_equal "mp4", File.binread(File.join(@root, "demo-final.mp4"))
+    assert File.file?(File.join(@root, "demo-final.vtt"))
+    assert File.file?(File.join(@root, "demo-draft.mp4"))
+    assert_empty Dir.glob(File.join(@root, ".demo-*.tmp-*")), "no temp file is left behind"
+  end
+
+  def test_final_prunes_superseded_renders_and_dead_frames_but_keeps_paid_audio
+    run_render
+    cache = File.join(@root, ".cache")
+    old = File.join(cache, "render", "superseded")
+    FileUtils.mkdir_p(old)
+    File.binwrite(File.join(old, "walkthrough.mp4"), "old")
+    dead = File.join(cache, "frames", "dead-scene-key")
+    FileUtils.mkdir_p(dead)
+    audio = Dir.glob(File.join(cache, "audio", "*.mp3"))
+    refute_empty audio
+    out = StringIO.new
+    final = run_render(final: true, out: out)
+    refute File.exist?(old)
+    refute File.exist?(dead)
+    assert File.file?(final[:mp4]), "the current render dir stays"
+    audio.each { |a| assert File.file?(a) }
+    final[:manifest]["scenes"].each { |s| assert File.directory?(File.join(cache, "frames", s["frames_key"])) }
+    assert_includes out.string, "prune: dropped"
+  end
+
+  def test_cache_root_override_links_the_cache_out_of_the_tree
+    Dir.mktmpdir do |ext|
+      with_env("CF_WALKTHROUGH_CACHE_ROOT" => ext) do
+        result = run_render
+        link = File.join(@root, ".cache")
+        assert File.symlink?(link)
+        target = File.join(File.realpath(ext), WalkthroughHousekeeping.cache_key(@root))
+        assert_equal target, File.realpath(link)
+        assert File.file?(File.join(target, "render", File.basename(File.dirname(result[:mp4])), "walkthrough.mp4"))
+        assert_includes @calls[:docker].last.join(" "), "source=#{target}\",target=#{File.readlink(link)}"
+        assert_includes File.read(File.join(@root, ".gitignore")).lines.map(&:strip), ".cache"
+        assert File.file?(File.join(@root, "demo-draft.mp4"))
+      end
+    end
+  end
+
+  def test_render_warns_when_the_cache_passes_the_threshold
+    out = StringIO.new
+    with_env("CF_WALKTHROUGH_CACHE_WARN_GB" => "0.000000001") { run_render(out: out) }
+    assert_match(/warning: .* over 1.0e-09 GB/, out.string)
+    out = StringIO.new
+    run_render(out: out)
+    refute_includes out.string, "over 2.0 GB"
+  end
+
+
+  def test_screens_inline_cached_images_from_an_external_cache_root
+    Dir.mktmpdir do |ext|
+      with_env("CF_WALKTHROUGH_CACHE_ROOT" => ext) { test_final_inlines_high_quality_images_with_new_keys_and_mp4 }
+      assert File.symlink?(File.join(@root, ".cache"))
+    end
+  end
+
+  def test_prune_after_a_board_edit_keeps_the_render_it_recorded
+    draft = run_render
+    b = JSON.parse(File.read(File.join(@root, "storyboard.json")))
+    b["scenes"][0]["camera"] = { "zoom" => 1.5 }
+    File.write(File.join(@root, "storyboard.json"), JSON.pretty_generate(b))
+    WalkthroughRender::Run.new(@root, providers: providers, out: StringIO.new).prune
+    assert File.file?(draft[:mp4])
+  end
 end

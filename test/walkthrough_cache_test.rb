@@ -59,7 +59,7 @@ class WalkthroughCacheTest < Minitest::Test
     file = WalkthroughCache.ensure_gitignore(wt)
     WalkthroughCache.ensure_gitignore(wt)
     assert_equal "#{expected}\n", File.read(file)
-    assert_equal [ ".cache/", "flats/", "*.mp4", "overview*.png" ], expected.lines.map(&:strip)
+    assert_equal [ ".cache/", ".cache", "flats/", "*.mp4", "*.vtt", "overview*.png" ], expected.lines.map(&:strip)
 
     other = File.join(@dir, "other")
     FileUtils.mkdir_p(other)

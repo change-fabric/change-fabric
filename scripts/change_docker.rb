@@ -98,9 +98,25 @@ module ChangeDocker
     cmd += [ '--user', user ] if user
     cmd += [ '-w', workdir ] if workdir
     env.each { |key, value| cmd += [ '-e', "#{key}=#{value}" ] }
-    mounts.each { |host, spec| cmd += mount_arg(host, spec) }
+    with_cache_links(mounts).each { |host, spec| cmd += mount_arg(host, spec) }
     cmd << image
     cmd + Array(args)
+  end
+
+  # A mount source whose `.cache` is a symlink (cf:walkthrough's
+  # CF_WALKTHROUGH_CACHE_ROOT) also mounts the link's target at the link's
+  # own absolute path, so the link resolves inside the container too.
+  def with_cache_links(mounts)
+    extra = mounts.keys.filter_map do |host|
+      link = File.join(host.to_s, '.cache')
+      next unless File.symlink?(link) && File.directory?(link)
+
+      target = File.readlink(link)
+      next unless target.start_with?('/')
+
+      [ File.realpath(link), target ]
+    end
+    mounts.merge(extra.to_h.reject { |src, _| mounts.key?(src) })
   end
 
   # One bind mount as `--mount` with its source CSV-quoted, so a host path
