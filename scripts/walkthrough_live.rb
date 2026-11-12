@@ -557,7 +557,8 @@ module WalkthroughLive
             return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
           }, sel), null);
         };
-        const sampler = ScreencastSampler({ quality: #{JPEG_QUALITY}, maxWidth: dev.w * dev.dpr, maxHeight: dev.h * dev.dpr });
+        // CDP takes whole pixels; a full-bleed phone's dpr (2.7692) is not.
+        const sampler = ScreencastSampler({ quality: #{JPEG_QUALITY}, maxWidth: Math.ceil(dev.w * dev.dpr), maxHeight: Math.ceil(dev.h * dev.dpr) });
         if (job.shots) {
           sampler.seed((await client.send("Page.captureScreenshot", { format: "jpeg", quality: #{JPEG_QUALITY} })).data);
           await sampler.attach(client);

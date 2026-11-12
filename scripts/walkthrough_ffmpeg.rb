@@ -409,7 +409,8 @@ module WalkthroughFfmpeg
     else
                "#{labels.join}amix=inputs=#{labels.size}:normalize=0:duration=first,atrim=duration=#{total}"
     end
-    parts << "#{source},loudnorm=#{loudnorm},#{normalize},#{bound(total)}[aout]"
+    level = loudnorm.nil? ? '' : "loudnorm=#{loudnorm},"
+    parts << "#{source},#{level}#{normalize},#{bound(total)}[aout]"
     parts
   end
 
@@ -427,7 +428,11 @@ module WalkthroughFfmpeg
   def pass1_loudnorm = "#{LOUDNORM}:print_format=json"
 
   # Pass 2 filter options from the pass 1 JSON measurement.
+  # A silent mix (no narration, no music) measures -inf, which loudnorm
+  # rejects as an option, so silence passes through untouched (nil).
   def pass2_loudnorm(measured)
+    return nil if measured.fetch('input_i').to_s.include?('inf')
+
     values = MEASURED.map { |src, dest| "#{dest}=#{measured.fetch(src)}" }
     "#{LOUDNORM}:#{values.join(':')}:linear=true:print_format=summary"
   end

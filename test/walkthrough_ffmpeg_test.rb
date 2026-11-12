@@ -321,4 +321,11 @@ class WalkthroughFfmpegCanvasScaleTest < WalkthroughFfmpegTest
     refute_match(/adelay|afade/, plain)
     assert_equal({ "/work/m.mp3" => 2.1 }, WalkthroughFfmpeg.audio_expectations(plan.merge(music: { path: "/work/m.mp3", start_ms: 3900 }, scenes: [])))
   end
+
+  def test_silent_mix_skips_loudnorm
+    silent = { "input_i" => "-inf", "input_tp" => "-inf", "input_lra" => "0.00", "input_thresh" => "-70.00", "target_offset" => "inf" }
+    assert_nil WalkthroughFfmpeg.pass2_loudnorm(silent)
+    loud = silent.merge("input_i" => "-20.1", "input_tp" => "-3.0", "target_offset" => "0.2")
+    assert_includes WalkthroughFfmpeg.pass2_loudnorm(loud), "measured_I=-20.1"
+  end
 end

@@ -85,7 +85,7 @@ module PrototypeCapture
       }
       if (on && !el.classList.contains("__cf-pressed")) {
         const cs = getComputedStyle(el);
-        if (cs.translate === "none") {
+        if (cs.translate === "none" && el instanceof HTMLElement) {
           const m = new DOMMatrixReadOnly(cs.transform === "none" ? undefined : cs.transform);
           const [ox, oy] = cs.transformOrigin.split(" ").map(parseFloat);
           const cx = el.offsetWidth / 2 - ox, cy = el.offsetHeight / 2 - oy;
