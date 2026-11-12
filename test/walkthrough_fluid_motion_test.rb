@@ -161,12 +161,8 @@ class WalkthroughFluidMotionTest < Minitest::Test
     Dir[File.join(FIXTURES, "*", "storyboard.json")].each do |path|
       b = JSON.parse(File.read(path))
       WalkthroughStoryboard.scenes(b).each do |scene|
-        lists = scene["interactions"].is_a?(Hash) ? scene["interactions"].values : [ scene["interactions"] ]
-        lists.each do |ops|
-          plan = PrototypeCapture.schedule(Array(ops), 400)
-          extra = plan.flat_map(&:keys).uniq - LEGACY_PLAN_KEYS
-          assert_empty extra, "#{path} #{scene['id']}"
-        end
+        plan = PrototypeCapture.schedule(WalkthroughLive.all_interactions(scene), 400)
+        assert_empty plan.flat_map(&:keys).uniq - LEGACY_PLAN_KEYS, "#{path} #{scene['id']}"
       end
     end
     assert_equal 3, PrototypeCapture::CAPTURE_VERSION

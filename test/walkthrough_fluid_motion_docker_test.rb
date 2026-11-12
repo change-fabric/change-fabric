@@ -85,6 +85,9 @@ class WalkthroughFluidMotionDockerTest < Minitest::Test
     out = ENV["CF_FLUID_SAMPLE_DIR"] or return
     dir = File.join(out, name)
     FileUtils.mkdir_p(dir)
-    run["ticks"].each_with_index { |t, i| File.binwrite(File.join(dir, format("%03d.jpg", i)), Base64.decode64(run["frames"][t])) }
+    run["ticks"].each_with_index do |frame, tick|
+      jpg = Base64.decode64(run["frames"][frame])
+      File.binwrite(File.join(dir, format("%03d.jpg", tick)), jpg)
+    end
   end
 end
