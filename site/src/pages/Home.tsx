@@ -2,7 +2,6 @@ import { useEffect } from "react";
 import { Layout } from "../components/Layout";
 import { CodeBlock } from "../components/CodeBlock";
 import { CURRENT_VERSION, specPath } from "../spec";
-import { SUBTITLE } from "../components/Logo";
 import { MediaSlot } from "../components/MediaSlot";
 
 // The four audit lanes the gate boots an app for. Category leads, the tool is
@@ -134,10 +133,10 @@ export function Home() {
         <section className="hero" aria-labelledby="hero-title">
           <p className="hero-eyebrow">Local-first release quality</p>
           <h1 id="hero-title">Quality before merge.</h1>
-          <p className="hero-subtitle">{SUBTITLE}</p>
+          <p className="hero-subtitle">An open-source spec and agent skills that check your app locally, in containers.</p>
           <p className="hero-copy">
-            Run load, accessibility, security and responsive checks against your app, booted
-            locally in containers, before a change merges.
+            Load, accessibility, security and responsive checks run against your booted app
+            before a change merges.
           </p>
           <div className="hero-actions">
             <a className="btn" href="#get-started">

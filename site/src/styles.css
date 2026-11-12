@@ -1673,6 +1673,19 @@ code {
     flex-wrap: wrap;
     margin: 0 0 0 calc(-1 * var(--s2));
   }
+  /* The related projects get their own labelled row, as on desktop, so
+     they never read as more product docs. */
+  .nav-group-label {
+    display: block;
+    flex-basis: 100%;
+    margin: var(--s2) 0 0;
+    padding: 0 var(--s2);
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
   /* The group filters scroll sideways instead of wrapping into a second
      row that would break the underline. Sideways only: the chips' -1px
      overlap onto the border made the rail 1px taller than its box, so it

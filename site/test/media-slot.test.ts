@@ -18,7 +18,7 @@ test("the video thumbnail is one native button that starts playback", () => {
 });
 
 test("the caption drops a leading title so it never restates the runtime", () => {
-  const title = "change fabric in 45 seconds";
+  const title = "change fabric in 44 seconds";
   assert.equal(
     captionText({ title, alt: `${title}: a narrated walkthrough of the toolkit` }),
     "A narrated walkthrough of the toolkit",
