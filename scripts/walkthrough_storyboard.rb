@@ -185,7 +185,7 @@ module WalkthroughStoryboard
     errors.concat(camera_errors(scene['camera']))
     errors.concat(scene_interaction_errors(scene))
     errors.concat(navigate_errors(scene, board))
-    errors.concat(glide_overlap_errors(scene))
+    errors.concat(timeline_errors(scene, board))
     Array(scene['hypotheses']).each { |h| errors << "hypothesis #{h} is not in the top-level list" unless hyp_ids.include?(h) }
     errors << 'needs at least one requirement or assumption' if Array(scene['requirements']).empty? && Array(scene['assumptions']).empty?
     errors.concat(kind_errors(scene, root))
@@ -413,42 +413,36 @@ module WalkthroughStoryboard
     errs
   end
 
-  # Two glides on one target share its origin, so one may not start before
-  # the other ends (the earlier one would jump back when the later one
-  # re-reads the origin). Glides on different targets, or on different
-  # devices (each its own page), may overlap.
-  def glide_overlap_errors(scene)
+  # Every timing conflict of a scene, found on frames by its event
+  # timeline, one per device: input on or after a navigate tap's release,
+  # overlapping scrolls (a glide or an instant scroll) or presses on one
+  # target, and a tap that releases past the scene's last frame. Each device
+  # is its own page, so two devices never conflict with each other. A list
+  # whose ops fail their shape checks is skipped; those errors say why.
+  def timeline_errors(scene, board)
     list = scene['interactions']
-    lists = list.is_a?(Hash) ? list.values : [ list ]
-    lists.flat_map { |ops| list_glide_overlaps(Array(ops)) }
-  end
+    return [] if list.nil?
 
-  def list_glide_overlaps(ops)
-    ops.select { |op| op.is_a?(Hash) && op['op'] == 'scroll' && op['ms'].is_a?(Integer) }
-       .group_by { |op| op['target'] }.flat_map do |target, glides|
-      glides.sort_by { |op| op['t_ms'].to_i }.each_cons(2).filter_map do |a, b|
-        "glides on #{target} overlap (#{a['t_ms']} ms + #{a['ms']} ms runs past #{b['t_ms']} ms)" if b['t_ms'].to_i < a['t_ms'].to_i + a['ms']
-      end
+    fps = fps(board)
+    frames = PrototypeCapture.frame_count(PrototypeCapture.scene_duration(scene), fps)
+    lists = list.is_a?(Hash) ? list.map { |device, ops| [ "#{device}: ", ops ] } : [ [ '', list ] ]
+    lists.flat_map do |prefix, ops|
+      next [] unless ops.is_a?(Array) && ops.all?(Hash)
+
+      WalkthroughTimeline.build(ops, fps: fps, frames: frames).conflicts.map { |c| "#{prefix}#{c}" }
+    rescue ArgumentError, TypeError
+      []
     end
   end
 
-  # When an op's last scheduled input lands: a tap's release, a glide's or
-  # move's end, a type op's last character, else its start.
-  def op_end_ms(op)
-    t = op['t_ms'].to_i
-    case op['op']
-    when 'tap' then t + (op['press_ms'] || PrototypeCapture::PRESS_MS).to_i
-    when 'scroll' then t + op['ms'].to_i
-    when 'move' then t + op['duration_ms'].to_i
-    when 'type' then t + ((op['text'].to_s.length - 1).clamp(0..) * 1000.0 / (op['cps'] || 12).to_f).ceil
-    else t
-    end
-  end
-
-  # A tap with `navigate: true` carries straight into the next scene: it is
-  # the scene's last op, on a live scene, and the next scene (by order) is a
-  # live scene whose session_from_scene is this one, and no other scene
-  # starts from this one's session.
+  # A tap with `navigate: true` carries straight into the next scene: one
+  # per scene, on a live scene, in the lead device's list (the session the
+  # next scene starts from), and the next scene (by order) is a live scene
+  # whose session_from_scene is this one, filming only the tapping device,
+  # and no other scene starts from this one's session. The two capture as
+  # one continuous run (WalkthroughTimeline.cut), so the tapping scene is
+  # trimmed to end at the tap plus the transition, and its voice line has
+  # to end by the tap. Order on frames is timeline_errors' job.
   def navigate_errors(scene, board)
     lists = scene['interactions'].is_a?(Hash) ? scene['interactions'].values : [ scene['interactions'] ]
     navs = lists.flat_map { |l| Array(l).select { |op| op.is_a?(Hash) && op['navigate'] == true } }
@@ -456,14 +450,7 @@ module WalkthroughStoryboard
     return [ 'a navigate tap needs a live scene (screen.url)' ] unless WalkthroughLive.live?(scene)
 
     errs = []
-    errs << 'a navigate tap must be the last interaction of its scene' unless lists.all? { |l| navs.include?(Array(l).last) || Array(l).none? { |op| navs.include?(op) } }
     errs << 'only one navigate tap per scene' if navs.size > 1
-    release = ->(op) { op['t_ms'].to_i + (op['press_ms'] || PrototypeCapture::PRESS_MS).to_i }
-    others = lists.flat_map { |l| Array(l).select { |op| op.is_a?(Hash) && !navs.include?(op) } }
-    if others.any? { |op| navs.any? { |n| op_end_ms(op) > release.call(n) || (op['op'] == 'tap' && release.call(op) == release.call(n)) } }
-      errs << 'a navigate tap must release after every other interaction in its scene ends'
-    end
-    # The scene hands on its first device's session, so that device navigates.
     lead = WalkthroughDevice.devices(scene).first
     if scene['interactions'].is_a?(Hash) && Array(scene['interactions'][lead]).none? { |op| navs.include?(op) }
       errs << "a navigate tap must be in the #{lead} interactions (the session the next scene starts from)"
@@ -475,7 +462,35 @@ module WalkthroughStoryboard
     end
     others = list.select { |s| s['session_from_scene'] == scene['id'] && !s.equal?(nxt) }.map { |s| s['id'] }
     errs << "only the next scene may start from a navigate tap's session (#{others.join(', ')})" unless others.empty?
+    errs.concat(navigate_device_errors(nxt, lead)) if nxt && WalkthroughLive.live?(nxt)
+    errs.concat(navigate_fit_errors(scene, board))
     errs
+  end
+
+  # The next scene continues the tapping device's page, so it films that
+  # device and only it: a different lead device would start on another
+  # page, and a second device has no page carried into it.
+  def navigate_device_errors(nxt, lead)
+    devices = WalkthroughDevice.devices(nxt)
+    return [ "a navigate tap on #{lead} needs the next scene #{nxt['id'].inspect} to lead with #{lead}, not #{devices.first}" ] if devices.first != lead
+    return [ "the scene after a navigate tap films only the tapping device (#{lead}), not #{(devices - [ lead ]).join(', ')}" ] if devices.size > 1
+
+    []
+  end
+
+  # The tapping scene ends at the tap plus the overlap, so its voice line
+  # (narration_start plus measured_ms) must end by the tap.
+  def navigate_fit_errors(scene, board)
+    fps = fps(board)
+    cut = WalkthroughLive.navigate_cut(board, scene) or return []
+    line_ms = PrototypeCapture.narration_start_ms(scene) + scene.dig('narration', 'measured_ms').to_i
+    tap_ms = WalkthroughTimeline.frames_ms(cut['cut_frame'], fps)
+    return [] if line_ms <= tap_ms
+
+    [ "narration no longer fits: the scene is trimmed to its navigate tap at #{tap_ms} ms (plus the transition), " \
+      "but its voice line runs to #{line_ms} ms; move the tap later or shorten the line" ]
+  rescue ArgumentError, TypeError
+    []
   end
 
   def interaction_errors(interactions, live: false)
@@ -524,9 +539,11 @@ module WalkthroughStoryboard
 
   # -- durations and timeline ----------------------------------------------
 
-  # duration_ms = max(min_ms, narration_start_ms + measured_ms + pad_ms), per scene id.
+  # duration_ms = max(min_ms, narration_start_ms + measured_ms + pad_ms), per
+  # scene id; a scene that taps to navigate is trimmed to its cut plus the
+  # next scene's overlap (WalkthroughLive.duration_ms).
   def derive_durations(board)
-    scenes(board).to_h { |s| [ s['id'], PrototypeCapture.scene_duration(s) ] }
+    scenes(board).to_h { |s| [ s['id'], WalkthroughLive.duration_ms(board, s) ] }
   end
 
   # Scene start offsets in frames. Any transition but a cut overlaps the

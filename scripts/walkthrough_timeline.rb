@@ -12,6 +12,8 @@
 #
 # Loaded by prototype_capture.rb, whose timing helpers (frame_at,
 # frame_count, ease, key_chord) it calls.
+require_relative 'walkthrough_transition'
+
 module WalkthroughTimeline
   # Part of every frames key of a scene that glides or taps. Bump it when
   # the meaning of an event changes (a new seq order, a new payload field).
@@ -87,13 +89,12 @@ module WalkthroughTimeline
       return [] if navs.empty?
 
       cut = navs.map(&:frame).min
-      events.filter_map do |e|
-        next if navs.any? { |n| n.op_index == e.op_index }
-        next if e.frame < cut
-
-        "a navigate tap must be the last input: op #{e.op_index} (#{e.kind} #{e.target}) acts at frame #{e.frame}, " \
+      late = events.reject { |e| navs.any? { |n| n.op_index == e.op_index } || e.frame < cut }
+      late.group_by(&:op_index).map do |index, list|
+        e = list.min_by(&:sort_key)
+        "a navigate tap must be the last input: op #{index} (#{e.kind} #{e.target}) acts at frame #{e.frame}, " \
           "on or after the navigate at frame #{cut}"
-      end.uniq
+      end
     end
 
     def overlap_conflicts
@@ -239,6 +240,59 @@ module WalkthroughTimeline
     entry['type']['after_line'] = e.payload['after_line'] if e.payload['after_line']
     entry['type']['replace'] = true if e.payload['replace']
   end
+
+  # -- navigate pairs --------------------------------------------------------
+  #
+  # A tap with navigate: true hands its scene to the next one by order. The
+  # two capture as one continuous run, split at the cut (the tap's release
+  # frame): the tapping scene ends at the cut plus the next scene's
+  # transition overlap, so the transition starts at the tap, and the next
+  # scene's frame 0 is the run's cut frame.
+
+  def scene_list(board) = Array(board['scenes']).sort_by { |s| s['order'].to_i }
+
+  # [device, op] of a scene's navigate tap, or nil. A shared list taps on
+  # the scene's lead device, whose name the caller passes.
+  def navigate_tap(scene, lead)
+    list = scene['interactions']
+    lists = list.is_a?(Hash) ? list.map { |d, ops| [ d, Array(ops) ] } : [ [ lead, Array(list) ] ]
+    lists.each do |device, ops|
+      op = ops.find { |o| o.is_a?(Hash) && o['op'] == 'tap' && o['navigate'] == true }
+      return [ device, op ] if op
+    end
+    nil
+  end
+
+  def next_scene(board, scene)
+    list = scene_list(board)
+    i = list.index { |s| s['id'] == scene['id'] }
+    i && list[i + 1]
+  end
+
+  # Frames the next scene's transition overlaps the tapping scene by: what
+  # WalkthroughStoryboard.timeline uses, 0 for a cut.
+  def overlap_frames(board, nxt, fps)
+    index = scene_list(board).index { |s| s['id'] == nxt['id'] }.to_i
+    transition = WalkthroughTransition.resolve(board, nxt, index)
+    WalkthroughTransition.overlaps?(transition) ? PrototypeCapture.frame_at(transition['ms'].to_i, fps) : 0
+  end
+
+  # The cut of a tapping scene, or nil: { device, cut_frame, press_frame,
+  # overlap, frames } with frames = cut_frame + overlap, the scene's
+  # trimmed length. `lead` is the scene's first device's name.
+  def cut(board, scene, lead:, fps:)
+    device, op = navigate_tap(scene, lead)
+    return nil unless op
+
+    press = PrototypeCapture.frame_at(op['t_ms'].to_i, fps)
+    release = press + span(op['press_ms'] || PrototypeCapture::PRESS_MS, fps)
+    nxt = next_scene(board, scene)
+    overlap = nxt ? overlap_frames(board, nxt, fps) : 0
+    { 'device' => device, 'cut_frame' => release, 'press_frame' => press, 'overlap' => overlap, 'frames' => release + overlap }
+  end
+
+  # The ms that frame_count turns back into exactly `frames` frames.
+  def frames_ms(frames, fps) = (frames * 1000).div(fps)
 
   # Whether ops use a key only the timeline gives meaning to (a glide or a
   # tap), so their frames key carries VERSION.

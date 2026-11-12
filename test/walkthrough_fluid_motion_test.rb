@@ -62,8 +62,11 @@ class WalkthroughFluidMotionTest < Minitest::Test
   end
 
   def test_navigate_tap_rules
-    last = [ { "t_ms" => 0, "op" => "tap", "target" => "#next", "navigate" => true }, { "t_ms" => 100, "op" => "wait", "duration_ms" => 100 } ]
-    assert_includes errors(nav_board(first_ops: last)), "must be the last interaction"
+    after = [ { "t_ms" => 0, "op" => "tap", "target" => "#next", "navigate" => true }, { "t_ms" => 200, "op" => "hover", "target" => "#x" } ]
+    assert_includes errors(nav_board(first_ops: after)), "a navigate tap must be the last input: op 1 (hover #x)"
+    # A wait acts on nothing, so it may follow the navigate.
+    waits = [ { "t_ms" => 0, "op" => "tap", "target" => "#next", "navigate" => true }, { "t_ms" => 300, "op" => "wait", "duration_ms" => 100 } ]
+    refute_includes errors(nav_board(first_ops: waits)), "last input"
     assert_includes errors(nav_board(second: { "session_from_scene" => nil, "persona" => nil })), "next scene to be live with session_from_scene \"feed\""
     alone = board([ live("feed", 1, "interactions" => [ { "t_ms" => 0, "op" => "tap", "target" => "#n", "navigate" => true } ]) ])
     assert_includes errors(alone), "next scene to be live"
@@ -74,17 +77,71 @@ class WalkthroughFluidMotionTest < Minitest::Test
     b = nav_board
     b["scenes"] << live("later", 3, "session_from_scene" => "feed")
     assert_includes errors(b), "only the next scene may start from a navigate tap's session (later)"
-    early = [ { "t_ms" => 0, "op" => "tap", "target" => "#a", "press_ms" => 1000 },
+    # A press that releases on the navigate frame acts on the destination.
+    early = [ { "t_ms" => 0, "op" => "tap", "target" => "#a", "press_ms" => 200 },
               { "t_ms" => 100, "op" => "tap", "target" => "#next", "press_ms" => 100, "navigate" => true } ]
-    assert_includes errors(nav_board(first_ops: early)), "must release after every other interaction"
+    assert_includes errors(nav_board(first_ops: early)), "op 0 (release #a) acts at frame 6, on or after the navigate at frame 6"
     early[0]["press_ms"] = 50
-    refute_includes errors(nav_board(first_ops: early)), "must release after every other interaction"
+    refute_includes errors(nav_board(first_ops: early)), "last input"
     gliding = [ { "t_ms" => 0, "op" => "scroll", "target" => "html", "dy" => 200, "ms" => 900 },
                 { "t_ms" => 100, "op" => "tap", "target" => "#next", "press_ms" => 100, "navigate" => true } ]
-    assert_includes errors(nav_board(first_ops: gliding)), "must release after every other interaction"
+    assert_includes errors(nav_board(first_ops: gliding)), "op 0 (glide_step html) acts at frame 6"
     gliding[1]["t_ms"] = 800
-    refute_includes errors(nav_board(first_ops: gliding)), "must release after every other interaction"
-    refute_includes errors(nav_board(first_ops: early)), "must release after every other interaction"
+    refute_includes errors(nav_board(first_ops: gliding)), "last input"
+  end
+
+  # E1: the last character lands on the release frame of the navigate.
+  def test_input_on_the_navigate_frame_is_rejected
+    ops = [ { "t_ms" => 1000, "op" => "type", "target" => "#q", "text" => "abcd", "cps" => 30 },
+            { "t_ms" => 1000, "op" => "tap", "target" => "#next", "press_ms" => 100, "navigate" => true } ]
+    assert_includes errors(nav_board(first_ops: ops)), "op 0 (type_char #q) acts at frame 33, on or after the navigate at frame 33"
+    %w[click key move].each do |kind|
+      late = { "t_ms" => 1100, "op" => kind, "target" => "#x", "keys" => "a", "duration_ms" => 0 }
+      assert_includes errors(nav_board(first_ops: [ late, ops[1] ])), "last input", kind
+    end
+  end
+
+  # E2 and E3 on a whole board.
+  def test_scroll_inside_a_glide_and_a_late_release_are_rejected
+    ops = [ { "t_ms" => 0, "op" => "scroll", "target" => "#feed", "dy" => 300, "ms" => 900 },
+            { "t_ms" => 400, "op" => "scroll", "target" => "#feed", "dy" => 50 } ]
+    assert_includes errors(board([ live("one", 1, "interactions" => ops) ])), "scrolls on #feed overlap"
+    late = [ { "t_ms" => 2100, "op" => "tap", "target" => "#a", "press_ms" => 200 } ]
+    assert_includes errors(board([ live("one", 1, "interactions" => late) ])), "op 0 (tap #a) releases at frame 69, past the scene's last frame 59"
+  end
+
+  # Decision 7: the next scene leads with, and films only, the tapping device.
+  def test_navigate_needs_the_same_device_next
+    b = nav_board(second: { "device" => "desktop" })
+    assert_includes errors(b), "needs the next scene \"detail\" to lead with phone, not desktop"
+    b = nav_board
+    b["scenes"][1].delete("device")
+    b["scenes"][1]["devices"] = %w[phone desktop]
+    b["scenes"][1]["layout"] = "side_by_side"
+    b["phone"] = { "w" => 390, "h" => 844, "dpr" => 2 }
+    assert_includes errors(b), "films only the tapping device (phone), not desktop"
+    assert_empty WalkthroughStoryboard.validate(nav_board)
+  end
+
+  # Decision 10: the tapping scene ends at the tap plus the overlap, and its
+  # voice line must end by the tap.
+  def test_tapping_scene_is_trimmed_to_the_tap_and_narration_must_fit
+    b = nav_board
+    feed = b["scenes"][0]
+    assert_equal 34, PrototypeCapture.frame_count(WalkthroughLive.duration_ms(b, feed), 30), "cut at frame 34, no overlap"
+    b["transition"] = { "type" => "push", "ms" => 300 }
+    assert_equal 34 + 9, PrototypeCapture.frame_count(WalkthroughLive.duration_ms(b, feed), 30), "plus a 300 ms push"
+    timeline = WalkthroughStoryboard.timeline(b)["scenes"]
+    assert_equal 34, timeline[1]["start_frame"], "the next scene starts on the tap's release frame"
+    feed["narration"]["measured_ms"] = 1200
+    assert_includes errors(b), "narration no longer fits: the scene is trimmed to its navigate tap at 1133 ms"
+    feed["narration"]["measured_ms"] = 1100
+    refute_includes errors(b), "narration no longer fits"
+    (0..300).each do |n|
+      ms = WalkthroughTimeline.frames_ms(n, 30)
+      assert_equal n, PrototypeCapture.frame_count(ms, 30), n.to_s
+      assert_equal n, PrototypeCapture.frame_count(WalkthroughTimeline.frames_ms(n, 24), 24), "24 fps #{n}"
+    end
   end
 
   # -- easing ------------------------------------------------------------
@@ -135,7 +192,7 @@ class WalkthroughFluidMotionTest < Minitest::Test
   def test_overlapping_glides_on_one_target_are_rejected
     ops = [ { "t_ms" => 0, "op" => "scroll", "target" => "#feed", "dy" => 300, "ms" => 900 },
             { "t_ms" => 100, "op" => "scroll", "target" => "#feed", "dy" => 100, "ms" => 100 } ]
-    assert_includes errors(board([ live("one", 1, "interactions" => ops) ])), "glides on #feed overlap"
+    assert_includes errors(board([ live("one", 1, "interactions" => ops) ])), "scrolls on #feed overlap"
     ops[1]["t_ms"] = 900
     refute_includes errors(board([ live("one", 1, "interactions" => ops) ])), "overlap"
     ops[1]["t_ms"] = 100
@@ -146,7 +203,7 @@ class WalkthroughFluidMotionTest < Minitest::Test
   def test_glides_on_two_devices_never_overlap
     glide = { "t_ms" => 0, "op" => "scroll", "target" => "html", "dy" => 300, "ms" => 900 }
     scene = live("one", 1, "interactions" => { "desktop" => [ glide ], "phone" => [ glide ] }).except("device")
-    assert_empty WalkthroughStoryboard.glide_overlap_errors(scene)
+    assert_empty WalkthroughStoryboard.timeline_errors(scene, board([ scene ]))
   end
 
   def test_overlapping_glides_on_two_targets_both_run
@@ -182,9 +239,12 @@ class WalkthroughFluidMotionTest < Minitest::Test
   def test_typing_must_finish_before_a_navigate_tap
     ops = [ { "t_ms" => 0, "op" => "type", "target" => "#q", "text" => "abcdefghij", "cps" => 5 },
             { "t_ms" => 100, "op" => "tap", "target" => "#next", "press_ms" => 100, "navigate" => true } ]
-    assert_includes errors(nav_board(first_ops: ops)), "must release after every other interaction"
+    assert_includes errors(nav_board(first_ops: ops)), "op 0 (type_char #q) acts at frame 6"
+    # The old ms check let the last character share the release frame.
     ops[1]["t_ms"] = 1700
-    refute_includes errors(nav_board(first_ops: ops)), "must release after every other interaction"
+    assert_includes errors(nav_board(first_ops: ops)), "op 0 (type_char #q) acts at frame 54, on or after the navigate at frame 54"
+    ops[1]["t_ms"] = 1800
+    refute_includes errors(nav_board(first_ops: ops)), "last input"
   end
 
   def test_navigate_cut_uses_the_resolved_transition

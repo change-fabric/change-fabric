@@ -261,6 +261,20 @@ module WalkthroughLive
 
   def fps_for(board) = board['fps'] || PrototypeCapture::FPS
 
+  # A live scene's navigate cut (WalkthroughTimeline.cut), or nil.
+  def navigate_cut(board, scene)
+    return nil unless live?(scene)
+
+    WalkthroughTimeline.cut(board, scene, lead: WalkthroughDevice.devices(scene).first, fps: fps_for(board))
+  end
+
+  # A scene's length in ms: trimmed to its navigate cut plus the next
+  # scene's overlap when it taps to navigate, else the derived duration.
+  def duration_ms(board, scene)
+    cut = navigate_cut(board, scene)
+    cut ? WalkthroughTimeline.frames_ms(cut['frames'], fps_for(board)) : PrototypeCapture.scene_duration(scene)
+  end
+
   def persona_env_names(persona) = Array(persona.dig('login', 'steps')).filter_map { |s| s['env'] }
 
   # -- secrets -------------------------------------------------------------
@@ -318,7 +332,7 @@ module WalkthroughLive
                          message: WalkthroughMessage.realtime?(scene) ? WalkthroughMessage.material(scene, root) : nil, persona: persona_spec(board, scene['persona']),
                          session_from: parent_key, interactions: scene['interactions'] || [], wait: scene['wait'],
                          storage: scene['storage'], viewport: board['viewport'], fps: fps_for(board),
-                         duration_ms: PrototypeCapture.scene_duration(scene), browser: browser_opts(board),
+                         duration_ms: duration_ms(board, scene), browser: browser_opts(board),
                          devices: WalkthroughDevice.specs(board, scene), layout: WalkthroughDevice.layout_name(scene),
                          stage: WalkthroughSharpness.stage_size(board, scene),
                          **(WalkthroughDevice.fullbleed?(scene) ? { scrim: WalkthroughDevice.scrim(board), scrim_version: 2 } : {}),
@@ -678,7 +692,7 @@ module WalkthroughLive
   def job(board, scene, spec, secrets, compose:, shots:, root: nil)
     # rubocop:enable Metrics/ParameterLists
     fps = fps_for(board)
-    frames = PrototypeCapture.frame_count(PrototypeCapture.scene_duration(scene), fps)
+    frames = PrototypeCapture.frame_count(duration_ms(board, scene), fps)
     ops = interactions_for(scene, spec['name'])
     timeline = PrototypeCapture.timeline!(resolve_interactions(ops, secrets), frames, fps, label: "#{scene['id']} #{spec['name']}")
     plan = WalkthroughTimeline.to_plan(timeline)
