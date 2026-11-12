@@ -119,6 +119,17 @@ Write exactly three files.
    - the failure modes and what to do about each.
    Anything still genuinely open after the interview is recorded as an open
    question with your default, not silently resolved.
+   End plan.md with a `## Visuals` section listing the visuals this plan
+   needs per the scale rule, one line each: file name, type, one-line
+   purpose. Do not draw them. With zero visuals, the section reads "None
+   (single-PR, single-subsystem plan)." The scale rule: 0 visuals for a
+   single-PR plan touching one subsystem; 1 (a flow or architecture diagram)
+   for a multi-phase plan; up to 3 diagrams when the plan crosses subsystems
+   or services, plus a timeline or a schedule chart at 4 or more phases; a
+   data chart only when plan.md carries a real numeric table. You will be
+   asked later, by message, to fill this section from the diagram agent's
+   return and to append a `## Roast` section; you stay the only writer of
+   all three files.
 
 2. {{plan_dir}}/goal.md - the short vision statement. What done looks like and
    why it matters. Deliberately no implementation detail: it exists to orient

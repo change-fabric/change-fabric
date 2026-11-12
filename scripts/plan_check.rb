@@ -37,9 +37,79 @@ module PlanCheck
     ok &= check_absolute_home_paths(goal_path, 'goal.md', lines)
     ok &= check_absolute_home_paths(plan_path, 'plan.md', lines)
     ok &= check_workflow(workflow_path, lines) if workflow_path
+    ok &= check_visuals(File.dirname(plan_path), lines)
 
     warnings = plan_warnings(plan_path)
     Result.new(lines:, warnings:, ok?: ok)
+  end
+
+  VISUAL_TYPE = /data-(?:diagram|chart)-type=/
+  VISUALS_HEADING = /^## Visuals\s*$/
+
+  # The visuals a plan carries are illustrative, so this checks only what a
+  # text read can settle: every SVG the plan names exists, none leaks a glyph
+  # or a home path, each declares its type, and every roast round sent has a
+  # response beside it. No lint, no Docker. It runs only when the plan has a
+  # diagrams/ directory or a ## Visuals section, and reports every problem.
+  def self.check_visuals(plan_dir, lines)
+    plan_path = File.join(plan_dir, 'plan.md')
+    section = visuals_section(plan_path)
+    diagrams = File.join(plan_dir, 'diagrams')
+    return true unless section || Dir.exist?(diagrams)
+
+    ok = true
+    ok &= check_listed_visuals(plan_dir, section, lines) if section
+    Dir.glob(File.join(diagrams, '*.svg')).sort.each { |svg| ok &= check_svg(svg, plan_dir, lines) }
+    ok &= check_roast_rounds(File.join(plan_dir, 'roast'), lines)
+    ok
+  end
+
+  def self.visuals_section(plan_path)
+    return nil unless File.exist?(plan_path)
+
+    body = File.read(plan_path).split(/^(?=## )/).find { |part| part.match?(VISUALS_HEADING) }
+    body&.sub(VISUALS_HEADING, '')
+  end
+
+  def self.check_listed_visuals(plan_dir, section, lines)
+    section.scan(%r{[\w./-]+\.svg}).uniq.map do |rel|
+      path = File.join(plan_dir, rel)
+      if File.exist?(path) && !File.read(path).strip.empty?
+        lines << "visuals: #{rel} present"
+        true
+      else
+        lines << "visuals: #{rel} named in ## Visuals is MISSING or empty"
+        false
+      end
+    end.all?
+  end
+
+  def self.check_svg(path, plan_dir, lines)
+    label = path.delete_prefix("#{plan_dir}/")
+    ok = check_glyphs(path, label, lines)
+    ok &= check_absolute_home_paths(path, label, lines)
+    if File.read(path).match?(VISUAL_TYPE)
+      lines << "#{label}: type attribute present"
+    else
+      lines << "#{label}: MISSING data-diagram-type or data-chart-type"
+      ok = false
+    end
+    ok
+  end
+
+  def self.check_roast_rounds(roast_dir, lines)
+    rounds = Dir.glob(File.join(roast_dir, 'round-*.json')).sort
+    rounds.select { |round| File.basename(round).match?(/\Around-\d+\.json\z/) }.map do |round|
+      response = round.sub(/\.json\z/, '.response.json')
+      name = File.basename(round)
+      if File.exist?(response)
+        lines << "roast/#{name}: response present"
+        true
+      else
+        lines << "roast/#{name}: MISSING #{File.basename(response)}"
+        false
+      end
+    end.all?
   end
 
   # The Workflow script is checked by grep, not by parsing: the checker has no

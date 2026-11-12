@@ -139,3 +139,8 @@ The writing agent lists every `Answered by: judge` entry under
 `### Judged decisions (unreviewed)` inside the Decisions section, one line
 each, and the handoff names them as open to revisiting. Judged decisions are
 settled for execution but not for the user: they may reopen any of them.
+
+The step 7b roast uses the same protocol for a contested roast finding under
+`--judge`: the ledger entry and the `## Roast` line carry
+`Answered by: judge (roast)` instead of `Answered by: judge`, and it is listed
+under `### Judged decisions (unreviewed)` the same way.

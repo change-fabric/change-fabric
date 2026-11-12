@@ -59,6 +59,7 @@ fresh session that will execute the plan.
   instantiates as the plan's `workflow.js`, carrying the Workflow tool's
   authoring contract.
 - `reference/handoff-prompt.md`: the handoff template emitted at step 10.
+- `reference/visualize-prompt.md`: the brief for the step 7a diagram agent.
 
 ## Boundaries
 
@@ -169,6 +170,70 @@ fresh session that will execute the plan.
    two writers. It must reproduce the ledger in plan.md under
    "Decisions (settled, do not re-litigate)", each decision naming the answer
    it came from, so the executing session does not reopen a settled call.
+   It ends plan.md with a `## Visuals` section listing the visuals the
+   scale rule below calls for, one line each (file name, type, purpose),
+   without drawing them. With none, the section reads "None (single-PR,
+   single-subsystem plan)." Keep the writing agent's id for 7a and 7b.
+
+   Scale rule (deterministic):
+
+   - 0 visuals for a single-PR plan that touches one subsystem.
+   - 1 visual for a multi-phase plan, normally a flow or an architecture
+     diagram.
+   - Up to 3 diagrams when the plan crosses subsystems or services
+     (architecture plus sequence or state). Add a cf:diagram timeline or a
+     cf:chart schedule when the plan has 4 or more phases.
+   - A data chart only when plan.md carries a real numeric table, such as
+     load targets, cost, or sizes.
+
+7a. **Visualize.** Skipped when the `## Visuals` list is empty. Otherwise
+   spawn one background diagram agent (`model: opus`) from
+   `reference/visualize-prompt.md`. It authors diagrams per cf:diagram and
+   charts per cf:chart into `<plan_dir>/diagrams/`, reads the palette with
+   `--repo <target repo>`, lints for up to 3 rounds (retrying with
+   `--no-measure` on exit 3), renders light and dark PNGs with
+   `diagram_render.rb` (skipping on exit 3), and never edits the three plan
+   files. It returns each SVG with type, purpose, and measured yes or no.
+   Then `SendMessage` the writing agent to fill `## Visuals` from that
+   return: each SVG's relative path, type, purpose, and "text measured" or
+   "text not measured (no Docker)", plus a note that diagrams are
+   illustrative and plan.md wins on any conflict. A visual still failing
+   lint after 3 rounds is dropped and noted there; a picture never blocks
+   the plan.
+
+7b. **Roast.** Always runs, here in the main session, estimate first. Cap:
+   at most 2 rounds and 0.50 USD in total, tracked by summing the per-round
+   estimates. Never raise the cap.
+
+   1. Inputs: `--text plan.md --text goal.md`, one `--shot` for every
+      `-light.png` and `-dark.png` under `diagrams/`, `--kind arch` when an
+      architecture diagram exists (else `--kind doc`),
+      `--audience "the engineer executing this plan in a fresh session"`,
+      `--purpose` set to goal.md's outcomes, and
+      `--out-dir <plan_dir>/roast`. The script is
+      `ruby ~/.claude/cf/bin/roast.rb`.
+   2. Run with `--estimate-only` first and show the estimate. If round 1 is
+      over 0.50 USD, shorten the inputs: drop the dark PNGs first, then trim
+      plan.md quotes.
+   3. Run round 1 at `--max-usd` equal to the remaining budget (0.50 minus
+      the estimates spent so far).
+   4. Accept or rebut each P0, P1, and P2 finding yourself. `SendMessage`
+      the writing agent to apply accepted text fixes, and resume the diagram
+      agent to apply accepted visual fixes and re-lint. Contested calls go to
+      `AskUserQuestion`; under `--judge`, through the judge protocol in
+      `reference/interview.md`, recorded as `Answered by: judge (roast)`.
+   5. Round 2 runs only if
+      `ruby ~/.claude/cf/bin/roast.rb decide --out-dir <plan_dir>/roast`
+      says continue and the summed estimates, round 2's own included, stay at
+      or under 0.50 USD. There is never a round 3.
+   6. The writing agent appends `## Roast` to plan.md: rounds run, score per
+      round and spend (summed estimates), each finding with its verdict
+      (accepted, rebutted, or contested) and resolution, any open P0 or P1,
+      and any skip reason.
+   7. On a sensitive-term refusal (exit 1), scrub and retry once. Exit 4 (no
+      key) or a second refusal records "roast skipped: <reason>" in
+      `## Roast` and continues. Without Docker, roast the text only and
+      record "visuals not rendered, text-only roast."
 
 8. **Verify what landed.**
 
@@ -179,8 +244,11 @@ fresh session that will execute the plan.
    It fails on a missing or empty file, a `goal.md` over 4000 characters, an
    AI-slop glyph, or a `workflow.js` that is missing its literal
    `export const meta = {` header, has no `phase()` call, or calls
-   `Date.now()`, `Math.random()`, or `new Date()`. Do not report success until
-   it exits zero.
+   `Date.now()`, `Math.random()`, or `new Date()`. When the plan has a
+   `diagrams/` directory or a `## Visuals` section, it also fails on a listed
+   SVG that is missing, an SVG with a glyph, a home path, or no
+   `data-diagram-type`/`data-chart-type`, and a `roast/round-N.json` without
+   its `round-N.response.json`. Do not report success until it exits zero.
 
    On failure, `SendMessage` the writing agent the checker's exact output and
    have it fix and re-run. Up to two rounds. If `goal.md` is still over cap
@@ -201,7 +269,8 @@ fresh session that will execute the plan.
     the final message, in one fenced block, ready to copy. Say plainly that
     this skill has not run anything and that pasting the block into a fresh
     session is what starts execution. Report how many interview rounds ran and
-    which decisions the user's answers changed. Stop here.
+    which decisions the user's answers changed, how many visuals landed, and
+    the roast rounds, scores, and spend. Stop here.
 
     Stack landing is the default for a multi-PR plan. When the plan has more
     than one PR phase, the handoff ends with "When the phases are open as PRs,
@@ -229,3 +298,7 @@ fresh session that will execute the plan.
   `--area`): ask for the area explicitly.
 - The writing agent errors or never reports: say so explicitly and stop. Do
   not silently hand-write the plan yourself.
+- No Docker at 7a or 7b: lint with `--no-measure`, skip rendering, roast the
+  text only, and record the gap in `## Visuals` and the report.
+- No roast key (exit 4) or a second sensitive-term refusal: record "roast
+  skipped: <reason>" in `## Roast` and continue.
