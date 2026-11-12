@@ -541,6 +541,7 @@ module WalkthroughLive
         let from = pos;
         let down = false;
         let tapped = null;
+        let pressedAt = null;
         const pressCss = #{JSON.generate(PrototypeCapture::PRESS_CSS)};
         const t0 = Date.now();
         for (let i = 0; i < job.plan.length; i++) {
@@ -564,6 +565,7 @@ module WalkthroughLive
             if (!dev.mobile) await page.mouse.move(pos.x, pos.y);
             await safe(() => page.evaluate(#{PrototypeCapture::PRESS_JS}, step.press, true, pressCss), null);
             down = true;
+            pressedAt = i;
           }
           for (const tap of step.tap || []) {
             await safe(() => page.evaluate(#{PrototypeCapture::PRESS_JS}, tap.target, false, pressCss), null);
@@ -573,7 +575,7 @@ module WalkthroughLive
             resting = tap.target;
             if (dev.mobile) { await page.touchscreen.tap(pos.x, pos.y); }
             else { await page.mouse.move(pos.x, pos.y); await page.mouse.down(); await page.mouse.up(); }
-            if (tap.navigate) tapped = { x: pos.x, y: pos.y, from: page.url() };
+            if (tap.navigate) tapped = { x: pos.x, y: pos.y, from: page.url(), age: pressedAt === null ? null : job.plan.length - pressedAt };
           }
           if (step.hover) { const to = await aim(step.hover); if (to) { pos = to; if (!dev.mobile) await page.mouse.move(pos.x, pos.y); } resting = step.hover; }
           if (step.click) {
@@ -662,7 +664,9 @@ module WalkthroughLive
             }
           }
           sampler.tick();
-          cursor.push({ x: pos.x, y: pos.y, down });
+          // The first frame after a navigate cut carries the tap ripple's age,
+          // so the ripple finishes here instead of vanishing at the cut.
+          cursor.push(i === 0 && entered && entered.age ? { x: pos.x, y: pos.y, down, carry: entered.age } : { x: pos.x, y: pos.y, down });
           down = false;
         }
         if (job.shots) await sampler.detach();
@@ -685,7 +689,7 @@ module WalkthroughLive
           await safe(() => page.waitForNetworkIdle({ idleTime: 200, timeout: Math.max(until - Date.now(), 1) }), null);
         }
         const out = await dumpSession(page, client);
-        if (tapped) out.tap = { x: tapped.x, y: tapped.y };
+        if (tapped) out.tap = Object.assign({ x: tapped.x, y: tapped.y }, tapped.age ? { age: tapped.age } : {});
         if (context) await context.close();
         return { name: dev.name, frames: sampled.frames, ticks: sampled.ticks, cursor, pageErrors, lint, devices, overlays, links, composed, inset, insetHi, insetError, session: out };
       };

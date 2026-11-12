@@ -373,14 +373,18 @@ module WalkthroughDevice
   def hidden_path(frames) = (1..frames).map { |f| hidden_point(f) }
 
   # The tap track for a phone rect: the ripple sprite's top left, shown for
-  # RIPPLE_FRAMES after each tap.
+  # RIPPLE_FRAMES after each tap. A first position with `carry` (frames a
+  # navigate tap's ripple already showed before the cut) finishes that
+  # ripple at the first position.
   def ripple_path(rect, positions, size = RIPPLE)
     taps = positions.each_index.select { |i| positions[i]['down'] }
+    taps.unshift(-positions.first['carry']) if positions.first&.dig('carry').to_i.positive?
     positions.each_index.map do |i|
       tap = taps.reverse.find { |t| t <= i }
       next hidden_point(i + 1) unless tap && i - tap < RIPPLE_FRAMES
 
-      x, y = rect.map(positions[tap]['x'], positions[tap]['y'])
+      at = positions[[ tap, 0 ].max]
+      x, y = rect.map(at['x'], at['y'])
       track_point(i + 1, x - (size / 2.0), y - (size / 2.0), i == tap)
     end
   end

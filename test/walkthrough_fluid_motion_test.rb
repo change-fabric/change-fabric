@@ -136,7 +136,19 @@ class WalkthroughFluidMotionTest < Minitest::Test
   def test_navigate_waits_for_the_destination_before_exporting
     js = WalkthroughLive.run_device_js(nav_board, nav_board["scenes"][0])
     assert_includes js, "while (page.url() === tapped.from"
-    assert_includes js, "out.tap = { x: tapped.x, y: tapped.y }"
+    assert_includes js, "out.tap = Object.assign({ x: tapped.x, y: tapped.y }"
+  end
+
+  def test_ripple_carries_across_a_navigate_cut
+    rect = WalkthroughDevice::Rect.new(name: "phone", scale: 1.0, x: 0, y: 0, w: 390, h: 693, bezel: 0)
+    still = Array.new(12) { { "x" => 50, "y" => 60, "down" => false } }
+    assert_equal WalkthroughDevice.hidden_path(12), WalkthroughDevice.ripple_path(rect, still, 10)
+    carried = [ still.first.merge("carry" => 4) ] + still.drop(1)
+    path = WalkthroughDevice.ripple_path(rect, carried, 10)
+    shown = path.each_index.select { |i| path[i]["x"] == 45 }
+    assert_equal (0..4).to_a, shown, "the ripple finishes its 9 frames: 4 before the cut, 5 after"
+    js = WalkthroughLive.run_device_js(nav_board, nav_board["scenes"][1])
+    assert_includes js, "carry: entered.age"
   end
 
   def test_taps_releasing_on_one_frame_both_land
@@ -178,8 +190,8 @@ class WalkthroughFluidMotionTest < Minitest::Test
   def test_navigate_tap_hands_its_point_to_the_next_scene
     b = nav_board
     js = WalkthroughLive.run_device_js(b, b["scenes"][1])
-    assert_includes js, "if (tap.navigate) tapped = { x: pos.x, y: pos.y, from: page.url() };"
-    assert_includes js, "if (tapped) out.tap = { x: tapped.x, y: tapped.y };"
+    assert_includes js, "if (tap.navigate) tapped = { x: pos.x, y: pos.y, from: page.url(),"
+    assert_includes js, "if (tapped) out.tap = Object.assign("
     assert_includes js, "let pos = entered ? { x: entered.x, y: entered.y }"
     assert_includes js, "tap-navigate landed on"
     plan = WalkthroughLive.job(b, b["scenes"][0], WalkthroughDevice.specs(b, b["scenes"][0]).first,
