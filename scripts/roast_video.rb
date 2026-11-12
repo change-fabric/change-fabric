@@ -197,7 +197,6 @@ module RoastVideo
 
     def run(argv, out: $stdout, http: nil, docker: DEFAULT_DOCKER)
       opts = parse(argv.dup)
-      WalkthroughEnv.load_secrets
       critique(opts, out, http, docker)
       0
     rescue UsageError, Roast::UsageError, OptionParser::ParseError => e

@@ -31,7 +31,6 @@ module Image
       text = ImageTextMode.classify(prompt: opts[:prompt], spec: opts[:spec], mode: opts[:mode])
       text.warnings.each { |w| err.puts("warning: #{w}") }
       reject_heavy_inputs!(opts) if text.mode == :heavy
-      WalkthroughEnv.load_secrets
       return ImagePlate::Cli.run(opts, out: out) if text.mode == :heavy
 
       opts[:prompt] = short_prompt(opts[:prompt]) if text.mode == :short
