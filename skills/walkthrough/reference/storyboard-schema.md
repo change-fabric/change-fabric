@@ -27,6 +27,8 @@
 
 `voice.pronunciations` is an optional list of aliases, `[{ "text": "CHANGE.md", "say": "change dot M D" }]`: the voice speaks `say` wherever `text` appears, while the narration text and the captions keep `text` (caption timing follows the spoken alias). Each `text` and `say` is a non-empty string and each `text` appears once. They become an ElevenLabs pronunciation dictionary of alias rules, created once per distinct rule set (cached under `.cache/pronunciation/` by content hash, no charge) and sent with every narration request; verified on `eleven_multilingual_v2`. Aliases are part of `audio_key`, so adding or changing one re-voices every narrated scene.
 
+`music.start` is optional seconds from the video's start (default 0, >= 0 and below the total length); `music.fade_in` is optional seconds (default 0, 0..2). Silence plays before `start`; the bed is generated for `total - start` (an unset `start` keeps the cache key), delayed to `start`, then faded in. Music duck spans keep their absolute times. Example: `"music": { "prompt": "string", "start": 3.9, "fade_in": 0.05 }`.
+
 `voice.eq` is optional narration EQ applied to the narration bus before the music duck: `"warm"` or `{ "low_shelf_hz": 150, "low_shelf_db": 3, "cut_hz": 3500, "cut_db": -2.5 }` (each hz/db pair optional but all-or-nothing, 20-20000 Hz, +-24 dB); it changes the manifest hash and so re-assembles, never `audio_key`.
 
 `music` may be `null` for a narration-only walkthrough.
@@ -175,7 +177,8 @@ A live or compose scene picks the devices it films and how they share the frame:
 - A phone or side-by-side scene is composited onto the board canvas: each device sits in a plain bezel on a neutral background, scaled to fit above the caption band, so captions clear every frame. A phone shows tap ripples instead of the arrow; the desktop keeps the arrow.
 - Side-by-side devices are captured in parallel against the same URL and the same starting session. `interactions` is one list both devices play, or `{ "desktop": [...], "phone": [...] }`. A scene's end session (for `session_from_scene`) is its first device's. Cookies and storage are keyed by origin, so a session crosses between desktop and phone scenes.
 - The device-frame lint compares frames only within one group (device and layout, such as `phone side_by_side`).
-- The unreleased single `device` field is gone: validation rejects it in favor of `devices` and the board `phone` spec.
+- The single `device` field takes one value only, `"device": "phone-fullbleed"`, for vertical output (such as a 1080x1920 viewport); any other value is rejected in favor of `devices` and the board `phone` spec. It takes no `devices` or `layout`, and no browser `frame` or `inset` (both film the desktop only).
+- A `phone-fullbleed` scene is filmed frameless: captured at the board's `"phone_fullbleed": { "w": 390, "h": 693 }` CSS viewport (`w` defaults to 390, `h` to the canvas aspect at that width, so 693 on 1080x1920; each an integer in 100..4000, such as 430x764, and `h` must stay within 1 percent of the canvas aspect) with the phone `ua` and mobile emulation, at a dpr of stage width over `w` (1080/390, about 2.769), and scaled edge to edge: no bezel, mat, or caption band. Captions overlay a subtle bottom scrim (four stacked bands of the bezel ink at 12 percent over the bottom 24 percent). The cursor and tap ripple grow by the canvas px per CSS px (2.769 by default). Its frames key carries layout `fullbleed` and the spec.
 
 ## Compose scene
 

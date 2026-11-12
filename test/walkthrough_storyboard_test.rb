@@ -476,4 +476,18 @@ class WalkthroughStoryboardTest < Minitest::Test
     refute_nil before["create"]["frames_key"]
     refute_equal before["create"]["frames_key"], after["create"]["frames_key"]
   end
+
+  def test_music_start_and_fade_in_validation
+    b = board.merge("music" => { "prompt" => "calm", "start" => 3.9, "fade_in" => 0.05 })
+    assert_empty errors_for(b).grep(/music/)
+    assert_equal 3900, WalkthroughStoryboard.music_start_ms(b)
+    total = WalkthroughStoryboard.timeline(b)["total_ms"]
+    assert_equal total - 3900, WalkthroughStoryboard.music_length_ms(b, total)
+    assert_equal total, WalkthroughStoryboard.music_length_ms(board, total)
+    [ -1, "3", total / 1000.0 ].each do |bad|
+      assert_equal [ "music.start must be a number of seconds >= 0 and below the total length" ],
+                   errors_for(board.merge("music" => { "start" => bad })).grep(/music/)
+    end
+    assert_equal [ "music.fade_in must be a number of seconds in 0..2" ], errors_for(board.merge("music" => { "fade_in" => 3 })).grep(/music/)
+  end
 end

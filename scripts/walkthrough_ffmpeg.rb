@@ -11,10 +11,10 @@ require_relative 'walkthrough_duck'
 #
 #   { fps:, width:, height:, total_ms:, cursor_png:, srt:, output:,
 #     sfx: [{ path:, start_ms:, max_ms:, gain_db:, duck_spans: [...] }],
-#     music: { path:, gain_db: } | nil, duck_spans: [{ start_ms:, end_ms:, db:, attack_ms:, release_ms: }],
+#     music: { path:, gain_db:, start_ms:, fade_in_ms: } | nil (start and fade only when set), duck_spans: [{ start_ms:, end_ms:, db:, attack_ms:, release_ms: }],
 #     scenes: [{ id:, frames_dir:, frames:, start_frame:, transition: { 'type', 'ms' },
 #                cursor: [{ 'frame', 'x', 'y' }], taps: [...] | nil, hero_still:, audio:, offset_ms:,
-#                stage: [w, h] | nil }] }
+#                stage: [w, h] | nil, sprite: Float (full-bleed phone only) }] }
 #
 # A scene's frames are scaled (down) to its stage, the canvas or the canvas
 # times its camera zoom, and the cursor is drawn there before the camera
@@ -105,6 +105,13 @@ module WalkthroughFfmpeg
   # Stage px per canvas px.
   def stage_scale(plan, scene) = scene[:stage] ? scene[:stage].first.to_f / plan[:width] : 1.0
 
+  # Sprite px per canvas sprite px: a full-bleed phone scene's `sprite`.
+  def sprite(scene) = scene[:sprite] || 1.0
+
+  # A point parked off canvas (an idle sprite): it moves out with the
+  # sprite's growth, so an enlarged sprite never pokes into the corner.
+  def parked?(point) = point.fetch('x') <= OFFSCREEN && point.fetch('y') <= OFFSCREEN
+
   # Frames of `scene` (1-based, inclusive) the next scene fades in over.
   def fade_out_from(plan, i)
     scene = plan[:scenes][i]
@@ -125,7 +132,8 @@ module WalkthroughFfmpeg
       if hide_from && pt.fetch('frame') >= hide_from
         pt.merge('x' => OFFSCREEN * 5, 'y' => OFFSCREEN * 5)
       else
-        s == 1.0 ? pt : pt.merge('x' => pt.fetch('x') * s, 'y' => pt.fetch('y') * s)
+        k = parked?(pt) ? s * sprite(scene) : s
+        k == 1.0 ? pt : pt.merge('x' => pt.fetch('x') * k, 'y' => pt.fetch('y') * k)
       end
     end
   end
@@ -135,9 +143,10 @@ module WalkthroughFfmpeg
   def scene_chain(plan, scene, i)
     points = track(plan, i, :cursor, scene)
     w, h = stage(plan, scene)
-    s = stage_scale(plan, scene)
+    s = stage_scale(plan, scene) * sprite(scene)
     raw = "[#{i}:v]setpts=PTS-STARTPTS,#{FfmpegSquare.scale(w, h)}"
-    # The sprite grows with the stage, so it looks as it did on the canvas.
+    # The sprite grows with the stage (and a full-bleed phone's scale), so it
+    # looks as it did on the canvas.
     parts = s == 1.0 ? [] : [ "[c#{i}]scale=iw*#{format('%.4f', s)}:ih*#{format('%.4f', s)}:flags=lanczos[cs#{i}]" ]
     sprite = parts.empty? ? "c#{i}" : "cs#{i}"
     taps = track(plan, i, :taps, scene)
@@ -158,7 +167,7 @@ module WalkthroughFfmpeg
   # input indices stay put) overlaid along taps.json, parked off canvas
   # between taps. Tap points are sparse, so the inline chain always fits.
   def tap_chain(plan, scene, i, taps)
-    size = 2 * (RIPPLE * stage_scale(plan, scene) / 2).round
+    size = 2 * (RIPPLE * stage_scale(plan, scene) * sprite(scene) / 2).round
     half = size / 2
     ring = "hypot(X-#{half},Y-#{half})"
     [ "color=c=white@0:s=#{size}x#{size}:r=#{plan[:fps]},format=rgba,"       "geq=r=255:g=255:b=255:a='if(between(#{ring},#{half - 7},#{half - 2}),210,if(lt(#{ring},#{half - 7}),70,0))'[r#{i}]",
@@ -287,6 +296,16 @@ module WalkthroughFfmpeg
 
   def bound(total) = "apad=whole_dur=#{total},atrim=duration=#{total}"
 
+  # A bed with music.start waits in silence, then fades in over fade_in;
+  # it runs after the trim and before the duck, so duck spans keep their
+  # absolute times. Unset, it adds nothing.
+  def music_entry(music)
+    start = music[:start_ms].to_i
+    fade = music[:fade_in_ms].to_i
+    out = start.positive? ? "adelay=delays=#{start}:all=1," : ''
+    fade.positive? ? "#{out}afade=t=in:st=#{seconds(start)}:d=#{seconds(fade)}," : out
+  end
+
   def audio_graph(plan, loudnorm)
     io = audio_inputs(plan)
     total = seconds(plan[:total_ms])
@@ -298,7 +317,7 @@ module WalkthroughFfmpeg
       labels << "[n#{idx}]"
     end
     if io[:music]
-      parts << "[#{io[:music]}:a]#{normalize},atrim=duration=#{total}," \
+      parts << "[#{io[:music]}:a]#{normalize},atrim=duration=#{total},#{music_entry(plan[:music])}" \
                "volume='#{duck_expression(plan[:duck_spans] || [], total_ms: plan[:total_ms])}':eval=frame," \
                "volume=#{plan[:music][:gain_db].to_f}dB,#{bound(total)}[mus]"
       labels << '[mus]'
@@ -395,7 +414,7 @@ module WalkthroughFfmpeg
   def audio_expectations(plan)
     fps = plan[:fps].to_f
     clips = plan[:scenes].select { |s| s[:audio] }.to_h { |s| [ s[:audio], s[:frames] / fps ] }
-    clips[plan[:music][:path]] = plan[:total_ms] / 1000.0 if plan[:music]
+    clips[plan[:music][:path]] = (plan[:total_ms] - plan[:music][:start_ms].to_i) / 1000.0 if plan[:music]
     clips
   end
 

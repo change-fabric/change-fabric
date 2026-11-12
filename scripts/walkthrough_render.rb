@@ -131,8 +131,11 @@ module WalkthroughRender
     def music_block = { prompt: @board.dig('music', 'prompt'), composition_plan: @board.dig('music', 'composition_plan'),
                         model: @board.dig('music', 'model') }
 
+    # The bed is generated for the span from music.start to the end.
+    def music_ms(total_ms) = ElevenLabs.clamp_music_ms(WalkthroughStoryboard.music_length_ms(@board, total_ms))
+
     def music_path(total_ms)
-      len = ElevenLabs.clamp_music_ms(total_ms)
+      len = music_ms(total_ms)
       WalkthroughCache.path(@cache, :music, ElevenLabs.music_key(music_block, len), 'mp3')
     end
 
@@ -140,7 +143,7 @@ module WalkthroughRender
       todo = scenes.select { |s| targeted?(s) }
       chars = todo.select { |s| narrated?(s) && !audio_cached?(s) }.sum { |s| s.dig('narration', 'text').length }
       total = WalkthroughStoryboard.timeline(@board)['total_ms']
-      music_ms = @board['music'] && !File.file?(music_path(total)) ? ElevenLabs.clamp_music_ms(total) : 0
+      music_ms = @board['music'] && !File.file?(music_path(total)) ? music_ms(total) : 0
       images = todo.flat_map { |s| image_requests(s) }.reject { |r| image_cached?(r) }
       clips = todo.select { |s| broll?(s) && !broll_cached?(s) }.map { |s| { seconds: WalkthroughStoryboard.broll_spec(s)['seconds'] } }
       est = { audio: ElevenLabs.estimate(chars: chars, music_ms: music_ms, model: voice['model']),
@@ -385,7 +388,7 @@ module WalkthroughRender
       return if File.file?(music_path(total_ms))
 
       say('music: composing')
-      @p[:music].call(**music_block, length_ms: ElevenLabs.clamp_music_ms(total_ms), cache_root: @cache)
+      @p[:music].call(**music_block, length_ms: music_ms(total_ms), cache_root: @cache)
     end
 
     # -- assembly (cache only) -----------------------------------------------
@@ -501,6 +504,8 @@ module WalkthroughRender
       music = nil
       if @board['music']
         music = { path: container(require_file!(music_path(total), 'music')), gain_db: @board.dig('music', 'gain_db') || -18 }
+        music.merge!(start_ms: WalkthroughStoryboard.music_start_ms(@board), fade_in_ms: WalkthroughStoryboard.music_fade_in_ms(@board))
+        music.reject! { |k, v| %i[start_ms fade_in_ms].include?(k) && v.zero? }
       end
       { fps: fps, width: viewport['w'], height: viewport['h'], total_ms: total,
         cursor_png: container(File.join(dir, 'cursor.png')), srt: container(File.join(dir, 'captions.srt')),
@@ -554,7 +559,14 @@ module WalkthroughRender
         transition: input[:scene].dig('timing', 'transition') || WalkthroughStoryboard::DEFAULT_TRANSITION,
         cursor: drawn_cursor(input), taps: input[:taps], hero_still: input[:scene]['hero_still'] == true,
         camera: input[:scene]['camera'], stage: WalkthroughSharpness.stage_size(@board, input[:scene]),
-        audio: input[:audio] && container(input[:audio]), offset_ms: input[:offset_ms] }
+        audio: input[:audio] && container(input[:audio]), offset_ms: input[:offset_ms] }.merge(sprite_for(input[:scene]))
+    end
+
+    # A full-bleed phone scene grows its cursor and tap sprites; others add nothing.
+    def sprite_for(scene)
+      return {} unless WalkthroughDevice.fullbleed?(scene)
+
+      { sprite: WalkthroughDevice.sprite_scale(@board, scene) }
     end
 
     def docker_argv(args)
