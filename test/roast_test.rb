@@ -191,6 +191,22 @@ class RoastTest < Minitest::Test
     assert_equal "gpt-6.1-sol", Roast.model_for(env: { "CF_ROAST_MODEL" => " " })
   end
 
+  def test_any_shot_defaults_to_sol_unless_flag_env_or_config_says_otherwise
+    assert_equal "gpt-6.1-sol", Roast.model_for(kind: "doc", env: {}, shots: true)
+    assert_equal "gpt-6.1-terra", Roast.model_for(kind: "doc", env: {}, shots: false)
+    assert_equal "gpt-6.1-terra", Roast.model_for(kind: "doc", flag: "terra", env: {}, shots: true)
+    assert_equal "gpt-6.1-terra", Roast.model_for(kind: "doc", env: { "CF_ROAST_MODEL" => "terra" }, shots: true)
+    assert_equal "gpt-6.1-terra", Roast.model_for(kind: "doc", config: "terra", env: {}, shots: true)
+  end
+
+  def test_doc_kind_with_a_shot_estimates_at_sol_rates
+    code, text, http = run_cli("--kind", "doc", "--estimate-only")
+    assert_equal 0, code
+    assert_includes text, "1 image(s)"
+    assert_includes text, "to gpt-6.1-sol"
+    assert_empty http.requests
+  end
+
   def test_effort_defaults_to_medium_in_the_body
     assert_equal({ "effort" => "medium" }, JSON.parse(JSON.generate(Roast.build_request(brief: "b", shots: [ @shot ], history: [], round: 1)[:body]))["reasoning"])
     _, _, http = run_cli("--model", "terra", "--effort", "high")

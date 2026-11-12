@@ -239,11 +239,12 @@ module Roast
   # The default model for a review kind: Terra for text kinds, Sol otherwise.
   def default_model(kind = nil) = TERRA_KINDS.include?(kind.to_s) ? ALIASES['terra'] : DEFAULT_MODEL
 
-  # The one model resolution chain: flag, CF_ROAST_MODEL, repo config, per-kind default.
+  # The one model resolution chain: flag, CF_ROAST_MODEL, repo config, then Sol
+  # when any screenshot is given, else the per-kind default.
   # Blank values count as unset.
-  def model_for(kind: nil, flag: nil, config: nil, env: ENV)
+  def model_for(kind: nil, flag: nil, config: nil, env: ENV, shots: false)
     pick = [ flag, env['CF_ROAST_MODEL'], config ].find { |v| !v.to_s.strip.empty? }
-    resolve_model(pick || default_model(kind))
+    resolve_model(pick || (shots ? DEFAULT_MODEL : default_model(kind)))
   end
 
   # Raises UsageError for an unknown level, or none on a Sol model.
@@ -624,7 +625,7 @@ module Roast
 
     def inputs_for(opts, out)
       review = review_for(opts, out)
-      model = Roast.model_for(kind: review[:kind], flag: opts[:model], config: opts[:config_model])
+      model = Roast.model_for(kind: review[:kind], flag: opts[:model], config: opts[:config_model], shots: opts[:shots].any?)
       { brief: File.read(opts[:brief_file]).strip, shots: opts[:shots], texts: opts[:texts],
         history: Roast.load_history(opts[:history] || opts[:out_dir]),
         round: opts[:round] || Roast.next_round(opts[:out_dir]),
