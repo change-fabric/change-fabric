@@ -7,10 +7,12 @@ require "fileutils"
 require "json"
 require_relative "../scripts/walkthrough_render"
 
-# Real captures in the pinned browserless image. A prototype page glides
-# through distinct frames and shows its pressed state before the real
-# click; a phone page scrolls, taps a link that navigates, and the next
-# scene starts on the navigated page with the cursor where the tap landed.
+# Real captures in the pinned browserless image. A prototype page records
+# its own scroll offset and the tap target's computed look on every frame,
+# so the glide is checked against the curve and the press against its
+# CSS, not only by frames differing. A phone page glides, taps a link that
+# navigates, and the next scene continues the same page in one run: its
+# scroll position survives the cut and the cursor never jumps.
 # Set CF_FLUID_SAMPLE_DIR to keep the phone frames as JPEGs for a look.
 class WalkthroughFluidMotionDockerTest < Minitest::Test
   FEED = <<~HTML
@@ -19,64 +21,110 @@ class WalkthroughFluidMotionDockerTest < Minitest::Test
     .row:nth-child(odd){background:#eef} #next{display:block;margin:24px;padding:16px;background:#246;color:#fff;text-align:center}
     #detail{display:none} #detail:target{display:block;position:fixed;inset:0;background:#fc6;padding:40px;font-size:32px}</style></head>
     <body>#{(1..9).map { |i| "<div class='row'>Row #{i}</div>" }.join}
-    <a id="next" href="#detail">Open detail</a><div id="detail">Detail page</div></body></html>
+    <a id="next" href="#detail">Open detail</a><div id="detail">Detail page</div><p id="status"></p>
+    <script>window.addEventListener("hashchange", () => { document.getElementById("status").textContent = "scrolled " + window.scrollY; });</script>
+    </body></html>
   HTML
-  # setContent cannot carry a hash, so the destination scene loads the
-  # detail view as its own page, as a live goto of the URL would show it.
-  DETAIL = "<!doctype html><html><head><meta name='viewport' content='width=device-width'></head><body style='margin:0;background:#fc6;padding:40px;font:32px sans-serif'>Detail page</body></html>"
+  # Each virtual-clock tick records the list's offset and the button's look
+  # as the previous frame's input left them; CFStore.dump hands the log
+  # back as the capture's end state.
   PROTO = <<~HTML
     <!doctype html><html><body style="margin:0;font:20px sans-serif">
     <div id="list" style="height:300px;overflow:auto">#{(1..30).map { |i| "<p style='margin:0;height:40px'>Item #{i}</p>" }.join}</div>
-    <button id="buy" style="margin:20px;padding:20px 40px;font-size:24px" onclick="this.textContent='Bought'">Buy</button>
+    <div style="position:relative;height:120px"><button id="buy" style="position:absolute;left:50%;top:20px;transform:translateX(-50%);padding:20px 40px;font-size:24px"
+      onclick="this.dataset.clicked = String(Date.now())">Buy</button></div>
+    <script>
+      const log = [];
+      const tick = () => {
+        const b = document.getElementById("buy"), r = b.getBoundingClientRect(), cs = getComputedStyle(b);
+        log.push({ t: Date.now(), top: document.getElementById("list").scrollTop, scale: cs.scale, opacity: cs.opacity,
+                   clicked: b.dataset.clicked || null, cx: r.left + r.width / 2, cy: r.top + r.height / 2 });
+        requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+      window.CFStore = { dump: () => log };
+    </script>
     </body></html>
   HTML
+
+  PHONE = { "name" => "phone", "w" => 390, "h" => 693, "dpr" => 2, "mobile" => true,
+            "ua" => "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148" }.freeze
 
   def setup
     skip "docker not available" unless ChangeDocker.available?
   end
 
-  def test_prototype_glide_and_press_frames
+  def test_prototype_glide_follows_the_curve_and_the_press_shows_before_the_click
     Dir.mktmpdir do |dir|
       ChangeDocker.with_browserless(network: nil) do |session|
         PrototypeCapture.capture(session: session, html: PROTO, out_dir: dir, state: {}, prng_seed: 7, duration_ms: 1000,
-                                 viewport: { "w" => 400, "h" => 420, "dpr" => 1 },
+                                 viewport: { "w" => 400, "h" => 460, "dpr" => 1 },
                                  interactions: [ { "t_ms" => 0, "op" => "scroll", "target" => "#list", "dy" => 300, "ms" => 500 },
                                                  { "t_ms" => 600, "op" => "tap", "target" => "#buy", "press_ms" => 200 } ])
       end
-      sums = Dir[File.join(dir, "*.png")].sort.map { |f| Digest::SHA256.file(f).hexdigest }
-      glide = sums[0, 15]
-      assert_equal glide.size, glide.uniq.size, "every glide frame shows a new scroll offset"
-      # Press lands on frame 18 and releases on frame 24 (plan indexes) (200 ms at 30 fps).
-      assert_equal sums[18], sums[23], "the press holds steady"
-      refute_equal sums[17], sums[18], "the pressed look shows"
-      refute_equal sums[18], sums[24], "the release lifts it and the click lands"
-      refute_equal sums[17], sums[24], "the page responded"
+      after = after_frames(JSON.parse(File.read(File.join(dir, "end-state.json"))))
+      # A 500 ms glide is 15 frames (0..14); after frame k the offset is
+      # 300 * ease((k + 1) / 15) as scheduled (to 0.01 px), within the half
+      # pixel a dpr 1 page snaps a scroll offset by, the last exact.
+      tops = (0..14).map { |k| after[k]["top"] }
+      want = (0..14).map { |k| (300 * PrototypeCapture.ease("ease-in-out", (k + 1) / 15.0)).round(2) }
+      tops.zip(want).each_with_index { |(got, exp), k| assert_in_delta exp, got, 0.5, "frame #{k}" }
+      assert_equal 300, tops.last
+      assert tops.each_cons(2).all? { |a, b| b > a }, "monotonic: #{tops.inspect}"
+      # The press lands on frame 18 and releases on frame 24 (200 ms).
+      before = after[17]
+      pressed = after[18]
+      assert_equal "0.96", pressed["scale"]
+      assert_in_delta 0.82, pressed["opacity"].to_f, 1e-6
+      assert_nil after[23]["clicked"], "the click has not fired while the finger is down"
+      refute_nil after[24]["clicked"], "the release lands the real click"
+      assert_equal "none", after[24]["scale"], "the release lifts the pressed look"
+      assert_in_delta before["cx"], pressed["cx"], 0.01, "a translateX(-50%) target keeps its centre while pressed"
+      assert_in_delta before["cy"], pressed["cy"], 0.01
     end
   end
 
-  def test_phone_glide_then_tap_navigate_carries_into_the_next_scene
-    board = { "fps" => 30, "viewport" => { "w" => 1080, "h" => 1920 } }
-    dev = { "name" => "phone", "w" => 390, "h" => 693, "dpr" => 2, "mobile" => true,
-            "ua" => "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148" }
-    scene = { "id" => "feed", "wait" => { "until" => "load" } }
-    ops = [ { "t_ms" => 0, "op" => "scroll", "target" => "html", "dy" => 440, "ms" => 900 },
-            { "t_ms" => 1000, "op" => "tap", "target" => "#next", "navigate" => true } ]
-    first = film(board, scene, dev, FEED, "about:blank", PrototypeCapture.schedule(ops, 50), nil)
-    keep(first, "feed")
-    assert_equal "about:blank#detail", first["session"]["url"]
-    tap = first["session"]["tap"]
-    refute_nil tap
-    second = film(board, scene, dev, DETAIL, "about:blank#detail", PrototypeCapture.schedule([], 10), first["session"])
-    assert_equal [ tap["x"], tap["y"] ], second["cursor"].first.values_at("x", "y"), "the cursor starts where the tap landed"
-    assert first["frames"].size > 20, "the glide streams many distinct frames, not a jump"
-    keep(second, "detail")
+  def test_phone_navigate_run_continues_the_same_page
+    board = { "fps" => 30, "viewport" => { "w" => 1080, "h" => 1920 }, "scenes" => [
+      { "id" => "feed", "order" => 1, "device" => "phone-fullbleed", "screen" => { "url" => "about:blank" },
+        "interactions" => [ { "t_ms" => 0, "op" => "scroll", "target" => "html", "dy" => 440, "ms" => 900 },
+                            { "t_ms" => 1000, "op" => "tap", "target" => "#next", "navigate" => true } ] },
+      { "id" => "detail", "order" => 2, "device" => "phone-fullbleed", "screen" => { "url" => "about:blank#detail" },
+        "session_from_scene" => "feed", "timing" => { "min_ms" => 600 } }
+    ] }
+    feed, detail = board["scenes"]
+    cut = WalkthroughLive.navigate_cut(board, feed)
+    job = WalkthroughLive.run_job(board, feed, detail, PHONE, WalkthroughLive::Secrets.new([]), cut, shots: true).merge("html" => FEED)
+    run = film(board, feed, job)
+    keep(run, "run")
+    assert_equal "scrolled 440", run.dig("composed", "status"), "the destination is the same page, its scroll position kept"
+    at = cut["cut_frame"]
+    assert_equal run["cursor"][at - 1].values_at("x", "y"), run["cursor"][at].values_at("x", "y"), "the cursor never jumps at the cut"
+    head, tail = WalkthroughLive::NavigateRun.split(run, cut)
+    assert_equal at, head["ticks"].size
+    assert_equal 4, tail["cursor"].first["carry"], "the ripple carries its 4 frames into the next scene"
+    assert_operator run["frames"].size, :>, 20, "the glide streams many distinct frames, not a jump"
+    bad = job.merge("expectUrl" => "about:blank#elsewhere")
+    error = assert_raises(StandardError) { film(board, feed, bad) }
+    assert_match(/tap-navigate never reached the next scene's url about:blank#elsewhere/, error.message)
   end
 
   private
 
-  def film(board, scene, dev, html, url, plan, session)
-    job = { "dev" => dev, "plan" => plan, "lint" => [], "band" => 0, "shots" => true, "group" => "phone", "url" => url, "html" => html }
-    code = WalkthroughLive.capture_module(board, scene, jobs: [ job ], session: session)
+  # The page's state after each frame's input, by frame index. Frame k's
+  # input runs once the clock reaches (k + 1) frames, so a record strictly
+  # between (k + 1) and (k + 2) frames shows it; a record landing exactly on
+  # a frame boundary could fall either side and is skipped.
+  def after_frames(log)
+    step = 1000.0 / 30
+    log.filter_map do |e|
+      f = (e["t"] - PrototypeCapture::START_MS) / step
+      [ f.floor - 1, e ] unless (f - f.round).abs < 1e-6
+    end.group_by(&:first).transform_values { |list| list.last.last }
+  end
+
+  def film(board, scene, job)
+    code = WalkthroughLive.capture_module(board, scene, jobs: [ job ], session: nil)
     res = nil
     ChangeDocker.with_browserless(network: nil) do |bl|
       res = PrototypeCapture.run_with_retry(bl, code, retries: 0, launch_args: BrowserlessJs.capture_launch_args(2))

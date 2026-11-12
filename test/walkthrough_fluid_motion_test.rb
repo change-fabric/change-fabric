@@ -213,12 +213,6 @@ class WalkthroughFluidMotionTest < Minitest::Test
     assert_equal %w[#feed #side], plan[10]["glide"].map { |g| g["target"] }
   end
 
-  def test_navigate_waits_for_the_destination_before_exporting
-    js = WalkthroughLive.run_device_js(nav_board, nav_board["scenes"][0])
-    assert_includes js, "while (page.url() === tapped.from"
-    assert_includes js, "out.tap = Object.assign({ x: tapped.x, y: tapped.y }"
-  end
-
   def test_ripple_carries_across_a_navigate_cut
     rect = WalkthroughDevice::Rect.new(name: "phone", scale: 1.0, x: 0, y: 0, w: 390, h: 693, bezel: 0)
     still = Array.new(12) { { "x" => 50, "y" => 60, "down" => false } }
@@ -227,8 +221,6 @@ class WalkthroughFluidMotionTest < Minitest::Test
     path = WalkthroughDevice.ripple_path(rect, carried, 10)
     shown = path.each_index.select { |i| path[i]["x"] == 45 }
     assert_equal (0..4).to_a, shown, "the ripple finishes its 9 frames: 4 before the cut, 5 after"
-    js = WalkthroughLive.run_device_js(nav_board, nav_board["scenes"][1])
-    assert_includes js, "carry: entered.age"
   end
 
   def test_presses_starting_on_one_frame_both_show
@@ -262,12 +254,6 @@ class WalkthroughFluidMotionTest < Minitest::Test
     assert_equal %w[#a #b], plan[6]["tap"].map { |t| t["target"] }
   end
 
-  def test_navigate_url_check_canonicalizes
-    js = WalkthroughLive.run_device_js(nav_board, nav_board["scenes"][1])
-    assert_includes js, "canon(session.url) !== canon(job.url)"
-    assert_includes js, "new URL(u).href"
-  end
-
   def test_navigate_tap_must_come_from_the_session_device
     b = nav_board
     b["scenes"][0].delete("device")
@@ -292,16 +278,98 @@ class WalkthroughFluidMotionTest < Minitest::Test
 
   # -- tap-to-navigate -----------------------------------------------------
 
-  def test_navigate_tap_hands_its_point_to_the_next_scene
-    b = nav_board
-    js = WalkthroughLive.run_device_js(b, b["scenes"][1])
-    assert_includes js, "onNavigate: () => { tapped = { x: st.pos.x, y: st.pos.y, from: page.url(),"
-    assert_includes js, "if (tapped) out.tap = Object.assign("
-    assert_includes js, "const st = { pos: entered ? { x: entered.x, y: entered.y }"
-    assert_includes js, "tap-navigate landed on"
-    plan = WalkthroughLive.job(b, b["scenes"][0], WalkthroughDevice.specs(b, b["scenes"][0]).first,
-                               WalkthroughLive::Secrets.new([]), compose: nil, shots: true)["plan"]
-    assert_equal([ { "target" => "#next", "navigate" => true } ], plan[34]["tap"])
+  # -- the navigate run ------------------------------------------------------
+
+  def run_job(b)
+    feed, detail = b["scenes"]
+    cut = WalkthroughLive.navigate_cut(b, feed)
+    [ WalkthroughLive.run_job(b, feed, detail, WalkthroughDevice.specs(b, feed).first, WalkthroughLive::Secrets.new([]), cut, shots: true), cut ]
+  end
+
+  def test_navigate_run_is_one_plan_split_at_the_cut
+    b = nav_board(second: { "interactions" => [ { "t_ms" => 300, "op" => "tap", "target" => "#b" } ] })
+    job, cut = run_job(b)
+    assert_equal({ "device" => "phone", "cut_frame" => 34, "press_frame" => 30, "overlap" => 0, "frames" => 34 }, cut)
+    kinds = job["events"].each_with_index.reject { |e, _| e.empty? }.to_h { |e, i| [ i, e.map { |x| x["kind"] } ] }
+    assert_equal %w[press], kinds[30]
+    assert_equal %w[release navigate], kinds[34], "the tap's release is the cut frame, the next scene's frame 0"
+    assert_equal %w[press], kinds[34 + 9], "the next scene's events follow on the run's frames"
+    assert_equal 34 + 60, job["events"].size
+    assert_equal "https://app.localhost/detail", job["expectUrl"]
+    assert_nil job["html"], "the page is never reloaded: one goto, for the tapping scene"
+    js = WalkthroughLive.run_device_js(b, b["scenes"][0])
+    assert_includes js, "tap-navigate never reached the next scene's url"
+    refute_includes js, "session.tap", "nothing hands a tap through the exported session"
+  end
+
+  def test_navigate_run_splits_into_two_scenes
+    run = { "name" => "phone", "ticks" => (0...50).to_a, "cursor" => (0...50).map { |i| { "x" => i, "y" => 7, "down" => i == 30 } },
+            "lint" => [ { "frame" => 2 }, { "frame" => 40 } ], "devices" => [], "overlays" => { "a" => 3, "b" => 41 },
+            "links" => %w[early late], "linkFrames" => [ 1, 36 ], "session" => { "url" => "u" } }
+    cut = { "device" => "phone", "cut_frame" => 34, "press_frame" => 30, "overlap" => 9, "frames" => 43 }
+    head, tail = WalkthroughLive::NavigateRun.split(run, cut)
+    assert_equal (0...34).to_a + ([ 33 ] * 9), head["ticks"], "the tapping scene holds its last frame before the tap through the overlap"
+    assert_equal 43, head["cursor"].size
+    assert_equal [ { "frame" => 2 } ], head["lint"]
+    assert_equal({ "a" => 3 }, head["overlays"])
+    assert_equal %w[early], head["links"]
+    assert_equal (34...50).to_a, tail["ticks"]
+    assert_equal({ "x" => 34, "y" => 7, "down" => false, "carry" => 4 }, tail["cursor"].first, "the ripple has shown 4 frames at the cut")
+    assert_equal [ { "frame" => 6 } ], tail["lint"]
+    assert_equal({ "b" => 7 }, tail["overlays"])
+    assert_equal %w[late], tail["links"]
+    assert_equal({ "phone" => { "x" => 34, "y" => 7, "ripple_age_at_cut" => 4 } }, WalkthroughLive::NavigateRun.handoff(run, cut))
+  end
+
+  def test_navigate_run_shares_one_key
+    keys = lambda do |b|
+      memo = {}
+      b["scenes"].map { |s| WalkthroughLive.prepare(b, s, "/r", memo)[:key] }
+    end
+    base = keys.call(nav_board)
+    later = nav_board(second: { "interactions" => [ { "t_ms" => 300, "op" => "tap", "target" => "#b" } ] })
+    changed = keys.call(later)
+    refute_equal base[0], changed[0], "the tapping scene recaptures when the next scene changes"
+    refute_equal base[1], changed[1]
+    moved = nav_board(first_ops: [ { "t_ms" => 1100, "op" => "tap", "target" => "#next", "navigate" => true } ])
+    refute_equal base[1], keys.call(moved)[1], "the next scene recaptures when the tapping scene changes"
+  end
+
+  def test_render_captures_a_navigate_pair_as_one_run
+    Dir.mktmpdir do |root|
+      b = nav_board
+      b["scenes"] << live("after", 3, "session_from_scene" => "detail")
+      calls = []
+      capture = lambda do |**kw|
+        calls << [ kw[:scene]["id"], kw[:next_scene]&.dig("id"), kw[:out_dir] ? :shots : :replay ]
+        { "from" => kw[:next_scene] ? kw[:next_scene]["id"] : kw[:scene]["id"] }
+      end
+      run = WalkthroughRender::Run.new(root, board: b, out: StringIO.new, providers: { live_capture: capture })
+      run.send(:capture_live, :session)
+      assert_equal [ [ "feed", "detail", :shots ], [ "after", nil, :shots ] ], calls, "detail is never captured on its own"
+      calls.clear
+      run.send(:start_session, :session, b["scenes"][2], {})
+      assert_equal [ [ "feed", "detail", :replay ] ], calls, "a later scene's session replays the whole run"
+    end
+  end
+
+  def test_bridge_holds_cursor_and_ripple_still_through_a_push
+    push = { "type" => "push", "ms" => 300, "ease" => "ease-in-out" }
+    point = ->(f, x) { { "frame" => f, "x" => x, "y" => 50 } }
+    plan = { fps: 30, width: 1080, height: 1920,
+             scenes: [ { id: "feed", frames: 43, start_frame: 0, transition: WalkthroughTransition::CUT,
+                         cursor: (1..43).map { |f| point.call(f, 10) }, taps: nil },
+                       { id: "detail", frames: 60, start_frame: 34, transition: push, bridge: true,
+                         cursor: (1..60).map { |f| point.call(f, 10) }, taps: (1..60).map { |f| f <= 5 ? point.call(f, 33) : point.call(f, -500) } } ] }
+    assert_equal 9, WalkthroughFfmpeg.bridge_frames(plan, 1)
+    hidden = WalkthroughFfmpeg.track(plan, 1, :taps).first(9).map { |p| p["x"] }
+    assert_equal [ -1000 ] * 9, hidden, "the scene's own layer, which the push moves, draws nothing in the overlap"
+    graph = WalkthroughFfmpeg.video_graph(plan).join(";")
+    assert_includes graph, "split=3[c0][c1][cb1]", "the bridge has its own cursor sprite"
+    assert_match(/\[j1\]\[cb1\]overlay=x='if\(lt\(n,34\),-1000,if\(lt\(n,43\),10,-1000\)\)'/, graph, "drawn on the blended stream, absolute frames 34..42")
+    assert_match(/\[cursorb1\]\[rb1\]overlay=x='if\(lt\(n,34\),-1000,if\(lt\(n,39\),33,if\(lt\(n,43\),-500,-1000\)\)\)'/, graph, "the ripple finishes at the tap point")
+    plan[:scenes][1].delete(:bridge)
+    refute_includes WalkthroughFfmpeg.video_graph(plan).join(";"), "cb1", "only a navigate run bridges"
   end
 
   def test_new_keys_change_the_frames_key
