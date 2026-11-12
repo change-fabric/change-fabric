@@ -818,6 +818,7 @@ module WalkthroughRender
     # <slug>-final.mp4 (and the VTT). Only once a final is verified on disk
     # does the cache get pruned.
     def deliver(mp4)
+      WalkthroughHousekeeping.mark_current_render(File.dirname(mp4))
       paths = WalkthroughHousekeeping.deliver(@root, slug, mp4, final: @final)
       say("deliverable #{paths[:mp4]}")
       prune if @final
@@ -847,15 +848,17 @@ module WalkthroughRender
       { render: current_render_dirs, frames: live_frame_keys, stills: scenes.map { |s| s['id'] } }
     end
 
+    # The dir the last render recorded, plus the soft and burned names
+    # computed from manifest.json and the board. With neither, keep all.
     def current_render_dirs
+      recorded = WalkthroughHousekeeping.current_render(@root)
       path = File.join(@root, 'manifest.json')
-      unless File.file?(path)
-        say('prune: no manifest.json, keeping every render')
-        return nil
-      end
+      computed = File.file?(path) ? File.basename(render_dir(JSON.parse(File.read(path)))).delete_suffix('-burn') : nil
+      names = [ recorded, computed, computed && "#{computed}-burn" ].compact
+      return names.uniq + [ WalkthroughHousekeeping::CURRENT_RENDER ] unless names.empty?
 
-      base = File.basename(render_dir(JSON.parse(File.read(path)))).delete_suffix('-burn')
-      [ base, "#{base}-burn" ]
+      say('prune: no recorded render and no manifest.json, keeping every render')
+      nil
     end
 
     def live_frame_keys

@@ -770,4 +770,21 @@ class WalkthroughRenderTest < Minitest::Test
     run_render(out: out)
     refute_includes out.string, "over 2.0 GB"
   end
+
+
+  def test_screens_inline_cached_images_from_an_external_cache_root
+    Dir.mktmpdir do |ext|
+      with_env("CF_WALKTHROUGH_CACHE_ROOT" => ext) { test_final_inlines_high_quality_images_with_new_keys_and_mp4 }
+      assert File.symlink?(File.join(@root, ".cache"))
+    end
+  end
+
+  def test_prune_after_a_board_edit_keeps_the_render_it_recorded
+    draft = run_render
+    b = JSON.parse(File.read(File.join(@root, "storyboard.json")))
+    b["scenes"][0]["camera"] = { "zoom" => 1.5 }
+    File.write(File.join(@root, "storyboard.json"), JSON.pretty_generate(b))
+    WalkthroughRender::Run.new(@root, providers: providers, out: StringIO.new).prune
+    assert File.file?(draft[:mp4])
+  end
 end

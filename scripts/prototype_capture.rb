@@ -4,6 +4,7 @@ require 'base64'
 require 'digest'
 require 'fileutils'
 require 'json'
+require_relative 'walkthrough_housekeeping'
 require_relative 'browserless_js'
 require_relative 'change_docker'
 require_relative 'png_info'
@@ -229,7 +230,8 @@ module PrototypeCapture
 
     base = File.realpath(root || default_root(dir))
     real = File.realpath(path)
-    raise UnsupportedContentError, "local asset #{ref} resolves outside #{base}" unless real.start_with?(base + File::SEPARATOR)
+    inside = real.start_with?(base + File::SEPARATOR) || WalkthroughHousekeeping.in_managed_cache?(base, real)
+    raise UnsupportedContentError, "local asset #{ref} resolves outside #{base}" unless inside
 
     path
   end

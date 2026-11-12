@@ -35,6 +35,8 @@ module WalkthroughHousekeeping
   # Kept until older than the retention.
   AGED = %w[roasts].freeze
 
+  CURRENT_RENDER = 'CURRENT'
+
   class Error < StandardError; end
 
   module_function
@@ -85,6 +87,29 @@ module WalkthroughHousekeeping
     end
 
     File.realpath(link)
+  end
+
+  # True when real sits in root's .cache and that cache is a real dir or the
+  # link CF_WALKTHROUGH_CACHE_ROOT made, so screens can inline cached images.
+  def in_managed_cache?(root, real, env = ENV)
+    cache = managed_cache(root, env)
+    !cache.nil? && real.start_with?("#{cache}/")
+  rescue Error
+    false
+  end
+
+  # Records the render dir a render produced, so a prune keeps it even after
+  # the storyboard is edited and a recomputed name would differ.
+  def mark_current_render(render_dir)
+    path = File.join(File.dirname(render_dir), CURRENT_RENDER)
+    File.write("#{path}.tmp", "#{File.basename(render_dir)}\n")
+    File.rename("#{path}.tmp", path)
+  end
+
+  def current_render(root, env = ENV)
+    cache = managed_cache(root, env) or return nil
+    path = File.join(cache, 'render', CURRENT_RENDER)
+    File.file?(path) ? File.read(path).strip : nil
   end
 
   # -- deliverables ----------------------------------------------------------
