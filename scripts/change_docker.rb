@@ -77,17 +77,26 @@ module ChangeDocker
   # gets the `cf-change-` prefix every resource this platform creates carries,
   # so a container orphaned by a crashed run (`--rm` never ran) is identifiable
   # and reachable by `sweep`. Extra args are the image plus its command.
+  # Env values travel in the docker client's own environment and only the
+  # names reach argv (`-e KEY`), so a key or token never shows up in `ps`.
   def run(network:, image:, args:, env: {}, mounts: {}, name: nil, user: nil, workdir: nil, entrypoint: nil)
-    Open3.capture2e(*run_command(network: network, image: image, args: args, env: env, mounts: mounts,
-                                 name: name, user: user, workdir: workdir, entrypoint: entrypoint))
+    Open3.capture2e(child_env(env), *run_command(network: network, image: image, args: args, env: env, mounts: mounts,
+                                                 name: name, user: user, workdir: workdir, entrypoint: entrypoint,
+                                                 inline_env: false))
   end
+
+  def child_env(env) = env.to_h { |key, value| [ key.to_s, value.to_s ] }
 
   # The argv `run` executes, split out so a test can assert the flags without
   # a docker daemon. The container command is always an argument list handed
   # to the image's entrypoint, never a shell string, so a path or value with
   # spaces or shell metacharacters stays one argument. A `mounts` value is a
-  # String target or a Hash `{ target:, readonly: }`.
-  def run_command(network:, image:, args:, env: {}, mounts: {}, name: nil, user: nil, workdir: nil, entrypoint: nil)
+  # String target or a Hash `{ target:, readonly: }`. `inline_env: false`
+  # emits only `-e KEY`, for a caller that hands the values to the spawn; the
+  # default inlines them, for callers that run the argv themselves with fixed,
+  # non-secret build settings.
+  def run_command(network:, image:, args:, env: {}, mounts: {}, name: nil, user: nil, workdir: nil, entrypoint: nil,
+                  inline_env: true)
     cmd = [ 'docker', 'run', '--rm' ]
     cmd += [ '--entrypoint', entrypoint ] if entrypoint
     # Only a named container can match the sweep's prefix filter, so only it
@@ -97,7 +106,7 @@ module ChangeDocker
     cmd += host_gateway_args
     cmd += [ '--user', user ] if user
     cmd += [ '-w', workdir ] if workdir
-    env.each { |key, value| cmd += [ '-e', "#{key}=#{value}" ] }
+    env.each { |key, value| cmd += [ '-e', inline_env ? "#{key}=#{value}" : key.to_s ] }
     with_cache_links(mounts).each { |host, spec| cmd += mount_arg(host, spec) }
     cmd << image
     cmd + Array(args)
@@ -179,18 +188,18 @@ module ChangeDocker
   end
 
   def start_browserless(name, network, port, token, add_hosts = [])
-    out, status = Open3.capture2e(*browserless_command(name, network, port, token, add_hosts))
+    out, status = Open3.capture2e({ 'TOKEN' => token.to_s }, *browserless_command(name, network, port, token, add_hosts))
     raise "failed to start browserless container: #{out.strip}" unless status.success?
   end
 
   # The browser container's argv, split out for the same reason as
   # run_command: the host alias is asserted in a test, not in a docker run.
-  def browserless_command(name, network, port, token, add_hosts = [])
+  def browserless_command(name, network, port, _token, add_hosts = [])
     cmd = [ 'docker', 'run', '-d', '--rm', '--name', name, '--label', "#{OWNER_LABEL}=#{Process.pid}" ]
     cmd += [ '--network', network ] if network
     cmd += host_gateway_args
     Array(add_hosts).each { |entry| cmd += [ '--add-host', entry ] }
-    cmd += [ '-p', "127.0.0.1:#{port}:3000", '-e', "TOKEN=#{token}" ]
+    cmd += [ '-p', "127.0.0.1:#{port}:3000", '-e', 'TOKEN' ]
     browserless_limits.each { |key, value| cmd += [ '-e', "#{key}=#{value}" ] }
     cmd + [ BROWSERLESS_IMAGE ]
   end

@@ -13,6 +13,14 @@ class PrototypeImagegenTest < Minitest::Test
   include ImagegenHelpers
   include EnrollHelpers
 
+  def setup
+    enroll_home!("openai")
+  end
+
+  def teardown
+    restore_home!
+  end
+
   def test_defaults
     assert_equal "gpt-image-2.6-sunburst", PrototypeImagegen::MODEL unless ENV["CF_IMAGE_MODEL"]
     assert_equal "medium", PrototypeImagegen::QUALITY_DRAFT
@@ -50,24 +58,20 @@ class PrototypeImagegenTest < Minitest::Test
   end
 
   def test_unenrolled_generate_needs_enrollment_only_on_a_cache_miss
-    ENV["OPENAI_API_KEY"] = "sk-test-secret"
     Dir.mktmpdir do |dir|
       args = { prompt: "avatar", size: "1024x1024", quality: "medium", cache_root: dir }
       cached = PrototypeImagegen.generate(**args, http: FakeHttp.new)
-      ENV.delete("OPENAI_API_KEY")
+      unenroll!("openai")
       http = FakeHttp.new
-      with_store do
+      with_enrolled do
         assert_equal cached, PrototypeImagegen.generate(**args, http: http)
         assert_raises(WalkthroughEnv::NeedsEnrollment) { PrototypeImagegen.generate(**args, prompt: "fresh", http: http) }
       end
       assert_empty http.requests
     end
-  ensure
-    ENV.delete("OPENAI_API_KEY")
   end
 
   def test_generate_caches_and_counts_only_paid_calls
-    ENV["OPENAI_API_KEY"] = "sk-test-secret"
     Dir.mktmpdir do |dir|
       http = FakeHttp.new
       attempts = PrototypeImagegen::Attempts.new
@@ -80,8 +84,6 @@ class PrototypeImagegenTest < Minitest::Test
       assert_equal "Bearer sk-test-secret", http.requests.first["Authorization"]
       assert_equal "avatar", JSON.parse(http.requests.first.body)["prompt"]
     end
-  ensure
-    ENV.delete("OPENAI_API_KEY")
   end
 
   def test_edit_and_mask_ride_the_edits_endpoint_with_edit_first
@@ -119,12 +121,9 @@ class PrototypeImagegenTest < Minitest::Test
     Dir.mktmpdir do |dir|
       args = { prompt: "p", size: "1024x1024", quality: "low" }
       refute PrototypeImagegen.cached?(dir, **args)
-      ENV["OPENAI_API_KEY"] = "k"
-      PrototypeImagegen.generate(**args, cache_root: dir, http: FakeHttp.new)
+        PrototypeImagegen.generate(**args, cache_root: dir, http: FakeHttp.new)
       assert PrototypeImagegen.cached?(dir, **args)
     end
-  ensure
-    ENV.delete("OPENAI_API_KEY")
   end
 
   def test_unknown_model_never_under_prices
@@ -168,19 +167,15 @@ class PrototypeImagegenTest < Minitest::Test
   end
 
   def test_failure_message_never_carries_key
-    ENV["OPENAI_API_KEY"] = "sk-test-secret"
     Dir.mktmpdir do |dir|
       err = assert_raises(PrototypeImagegen::RequestError) do
         PrototypeImagegen.generate(prompt: "x", size: "1024x1024", quality: "medium", cache_root: dir, http: FakeHttp.new("401"))
       end
       refute_includes err.message, "sk-test-secret"
     end
-  ensure
-    ENV.delete("OPENAI_API_KEY")
   end
 
   def test_transport_failures_are_request_errors
-    ENV["OPENAI_API_KEY"] = "sk-test-secret"
     [ Net::ReadTimeout.new, Errno::ECONNRESET.new, EOFError.new, SocketError.new("dns"), OpenSSL::SSL::SSLError.new("tls") ].each do |error|
       http = Object.new
       http.define_singleton_method(:request) { |_req| raise error }
@@ -191,7 +186,5 @@ class PrototypeImagegenTest < Minitest::Test
         assert_includes err.message, error.class.name
       end
     end
-  ensure
-    ENV.delete("OPENAI_API_KEY")
   end
 end

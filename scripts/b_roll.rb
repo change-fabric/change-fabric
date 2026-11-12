@@ -212,11 +212,10 @@ module BRoll
   # -- fallback chain ------------------------------------------------------
 
   # { mode: 'generated', path: } or { mode: fallback, path: nil, reason: }.
-  # Any named failure, a missing key, or the ceiling degrades to the fallback;
-  # it never raises, so a render is never blocked by generation. The one
-  # exception is an unenrolled project: NeedsEnrollment propagates so the
-  # caller exits 4 and the user is asked; once enrolled, a missing key falls
-  # back silently.
+  # Any named failure or the ceiling degrades to the fallback; it never
+  # raises, so a render is never blocked by generation. The one exception is
+  # a project with no gemini key enrolled: NeedsEnrollment propagates so the
+  # caller exits 4 with the enrollment snippet, deferred or not.
   def generate_or_fallback(fallback: 'kenburns', **args)
     { mode: 'generated', path: generate(**args) }
   rescue WalkthroughEnv::NeedsEnrollment
@@ -317,7 +316,6 @@ if __FILE__ == $PROGRAM_NAME
   puts BRoll.estimate([ { seconds: seconds } ])[:line]
   exit if ARGV.include?('--estimate-only')
 
-  WalkthroughEnv.load_secrets
   budget = BRoll::Budget.new(flag.call('--max-usd', BRoll::DEFAULT_CEILING_USD).to_f)
   begin
     puts BRoll.generate(source_image: image, prompt: prompt, seconds: seconds, cache_root: cache,

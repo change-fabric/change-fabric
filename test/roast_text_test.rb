@@ -7,9 +7,11 @@ require "tmpdir"
 require_relative "../scripts/roast"
 require_relative "../scripts/walkthrough_storyboard"
 require_relative "imagegen_helpers"
+require_relative "enroll_helpers"
 
 class RoastTextTest < Minitest::Test
   include ImagegenHelpers
+  include EnrollHelpers
 
   EMAIL = "Subject: Budget sign-off\nTo: team@example.test\n\nHi all, please approve the budget by Friday."
   WHERE_CRITIC = {
@@ -49,12 +51,11 @@ class RoastTextTest < Minitest::Test
     @shot = write_fixture(@dir, "home.png")
     @terms = File.join(@dir, "terms.txt")
     ENV["CF_SENSITIVE_TERMS_FILE"] = @terms
-    ENV["OPENAI_API_KEY"] = "sk-test-secret"
-    ENV.delete("CF_SECRETS_ENV")
+    enroll_home!("openai")
   end
 
   def teardown
-    ENV.delete("OPENAI_API_KEY")
+    restore_home!
     ENV.delete("CF_SENSITIVE_TERMS_FILE")
     FileUtils.remove_entry(@dir)
   end
@@ -276,7 +277,7 @@ class RoastTextTest < Minitest::Test
     assert_equal Roast.request_key(**base), Roast.request_key(**base, texts: [])
     assert_operator Roast.estimate(**base.slice(:brief, :shots, :history), texts: [ @draft ])[:tokens], :>, Roast.estimate(**base.slice(:brief, :shots, :history))[:tokens]
     run_cli("--text", @draft, "--kind", "email", "--round", "1", "--history", File.join(@dir, "none"))
-    ENV.delete("OPENAI_API_KEY")
+    unenroll!("openai")
     code, text, http = run_cli("--text", @draft, "--kind", "email", "--round", "1", "--history", File.join(@dir, "none"))
     assert_equal 0, code
     assert_empty http.requests
