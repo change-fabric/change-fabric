@@ -245,7 +245,7 @@ module WalkthroughRender
       scenes.any? do |scene|
         next false unless capture_target?(scene) && !broll?(scene) && live?(scene) == live
 
-        recapture?(scene) || !captured?(prep(scene, memo))
+        recapture?(scene) || !captured?(scene, prep(scene, memo))
       rescue ArgumentError
         true
       end
@@ -274,7 +274,13 @@ module WalkthroughRender
       !parent.nil? && capture_target?(parent, seen)
     end
 
-    def captured?(prep) = File.file?(File.join(prep[:out_dir], 'end-state.json'))
+    # A prototype capture also has to match the board's frame size; a
+    # wrong-size one is recaptured rather than reused.
+    def captured?(scene, prep)
+      return File.file?(File.join(prep[:out_dir], 'end-state.json')) if live?(scene)
+
+      PrototypeCapture.cached?(@board, scene, prep[:out_dir])
+    end
 
     def with_session(&blk) = @p[:browser].call(&blk)
 
@@ -289,7 +295,7 @@ module WalkthroughRender
         next unless live?(scene) && capture_target?(scene)
 
         pr = prep(scene, memo)
-        next if captured?(pr) && !recapture?(scene)
+        next if captured?(scene, pr) && !recapture?(scene)
 
         say("#{scene['id']}: capturing #{scene_frames(scene)} live frames")
         start = start_session(session, scene, sessions)
@@ -346,7 +352,7 @@ module WalkthroughRender
         next if broll?(scene) || live?(scene)
 
         prep = prep(scene, memo)
-        next if captured?(prep) || !capture_target?(scene)
+        next if captured?(scene, prep) || !capture_target?(scene)
 
         warn_unmatched_remap(scene, prep)
         duration = PrototypeCapture.scene_duration(scene)
