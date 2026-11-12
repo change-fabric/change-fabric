@@ -108,6 +108,10 @@ module WalkthroughFfmpeg
   # Sprite px per canvas sprite px: a full-bleed phone scene's `sprite`.
   def sprite(scene) = scene[:sprite] || 1.0
 
+  # A point parked off canvas (an idle sprite): it moves out with the
+  # sprite's growth, so an enlarged sprite never pokes into the corner.
+  def parked?(point) = point.fetch('x') <= OFFSCREEN && point.fetch('y') <= OFFSCREEN
+
   # Frames of `scene` (1-based, inclusive) the next scene fades in over.
   def fade_out_from(plan, i)
     scene = plan[:scenes][i]
@@ -128,7 +132,8 @@ module WalkthroughFfmpeg
       if hide_from && pt.fetch('frame') >= hide_from
         pt.merge('x' => OFFSCREEN * 5, 'y' => OFFSCREEN * 5)
       else
-        s == 1.0 ? pt : pt.merge('x' => pt.fetch('x') * s, 'y' => pt.fetch('y') * s)
+        k = parked?(pt) ? s * sprite(scene) : s
+        k == 1.0 ? pt : pt.merge('x' => pt.fetch('x') * k, 'y' => pt.fetch('y') * k)
       end
     end
   end

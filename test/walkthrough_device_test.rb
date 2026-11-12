@@ -184,6 +184,9 @@ class WalkthroughDeviceTest < Minitest::Test
     graph = WalkthroughFfmpeg.scene_chain(plan, plan[:scenes][0], 0).join(";")
     assert_includes graph, "scale=iw*2.7692:ih*2.7692"
     assert_includes graph, "s=122x122"
+    idle = { id: "b", frames: 1, start_frame: 0, sprite: 10.8, cursor: [], taps: WalkthroughDevice.hidden_path(1) }
+    parked = WalkthroughFfmpeg.track({ width: 1080, scenes: [ idle ] }, 0, :taps).first
+    assert_operator parked["x"], :<=, -(WalkthroughDevice::RIPPLE * 10.8)
   end
 
   def test_existing_modes_unchanged_by_fullbleed
