@@ -10,6 +10,7 @@ bearing on steps 1-5.
 | `fix` | The concern reproduces against the real code and the isolated trial fix holds | Applied on `repoPath`, committed, thread replied to and resolved |
 | `wont_fix` | The concern does not hold up, is already covered, or costs more than it is worth | No code change; thread replied to with the rationale and resolved |
 | `needs_human` | The right call depends on judgment this skill cannot make, or a `fix` diff conflicted once applied | No code change; thread replied to with the open question, left unresolved |
+| tiebroken | A `needs_human` tradeoff between two concrete options where the step 3a roast made a confident pick | The pick applied (a fix commit or a wont-fix), thread replied to with the tiebreak and resolved |
 | in-run cluster | Recurring feedback whose root cause the Root cause phase fixed in one systemic commit | Every cluster thread replied to citing that one commit, and resolved |
 | plan cluster | Recurring feedback whose honest fix is a redesign | Every cluster thread replied to with the deferral, left unresolved; cf:plan starts after the push, or a pointer is recorded instead when the run is nested or away mode is on |
 
@@ -34,4 +35,9 @@ the next run, so they are exact, not stylistic:
   this reply until the thread's own reviewer (its opener) comments after
   it; any other comment after it, ours included, leaves the thread
   deferred.
+- A tiebreak reply is `Tiebreak: <chosen option>. <one-line reason>.
+  (critic score n/10, see roast log)`. When the pick was a fix, the reply
+  starts with `Fixed in <sha>.` first and stays under RT-6. A tiebreak
+  that was not confident stays a needs_human reply and names the critic's
+  leaning, if any.
 - A dismissal never starts with either phrase.

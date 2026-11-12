@@ -131,7 +131,8 @@ would-be-approved local state, and since nothing landed, also skips step
    resolves what cites no commit, does not push (`cf:drive` owns the
    push), does not start cf:plan, and ends with its nested summary block,
    whose `pendingReplies` holds every `Fixed in <sha>` reply and
-   resolution until that push lands (see step 8). Capture the counts and
+   resolution until that push lands (see step 8). It inherits resolve-threads' roast
+   tiebreaker (step 3a) and its `tiebroken` count. Capture the counts and
    rationales for checkpoint 1. If the block is missing, unparseable, or
    carries `error: true`, stop here: no push, no approval [DR-1]. If the
    block's `truncated` is true, the review history is incomplete: stop and

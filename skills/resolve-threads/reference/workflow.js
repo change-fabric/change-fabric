@@ -54,7 +54,9 @@ const VERDICT_SCHEMA = {
         required: [ "path", "note" ]
       }
     },
-    recurrenceOf: { type: "array", items: { type: "string" } }
+    recurrenceOf: { type: "array", items: { type: "string" } },
+    tieBreakable: { type: "boolean" },
+    options: { type: "array", items: { type: "string" }, minItems: 2, maxItems: 2 }
   },
   required: [ "action", "rationale", "concernClass" ]
 }
@@ -181,7 +183,12 @@ const verdicts = await parallel(threads.map((t) => () =>
     "(already covered elsewhere, based on a misreading, or the cost outweighs the benefit), set " +
     "action to wont_fix and say why in rationale. If the right call depends on a judgment this " +
     "agent cannot make (product intent, a tradeoff only a maintainer can weigh, conflicting " +
-    "guidance elsewhere in the PR), set action to needs_human. Always include a short reply " +
+    "guidance elsewhere in the PR), set action to needs_human. On a needs_human verdict, set " +
+    "tieBreakable true only when the open question is a tradeoff between two concrete " +
+    "resolutions, and name them as options: exactly two short strings, each a resolution a " +
+    "critic could pick (for example a specific fix, or leaving the code as is). Set " +
+    "tieBreakable false for missing product intent or a call only a maintainer can make. " +
+    "Always include a short reply " +
     "meant for the thread itself.",
     { phase: "Evaluate", label: t.path + ":" + t.line, schema: VERDICT_SCHEMA }
   ).then((v) => (v ? { ...t, ...v } : { ...t, action: "needs_human", concernClass: "unknown", rationale: "evaluation agent did not return a result" }))
@@ -366,7 +373,10 @@ const wontFix = verdicts.filter((v) => v.action === "wont_fix" && !clustered.has
 // in no bucket, it needs a human, same as an explicit needs_human verdict.
 const fixNoDiff = verdicts.filter((v) => v.action === "fix" && !v.diff && !clustered.has(v.threadId))
   .map((v) => ({ ...v, rationale: "fix verdict carried no diff" }))
+// tieBreakable and options ride through so SKILL.md step 3a can roast a
+// two-option tradeoff; anything without exactly two options is not breakable.
+const tieFields = (v) => (Array.isArray(v.options) && v.options.length === 2 ? { ...v, tieBreakable: v.tieBreakable === true } : { ...v, tieBreakable: false, options: [] })
 const needsHuman = verdicts.filter((v) => v.action === "needs_human" && !clustered.has(v.threadId))
-  .concat(fixNoDiff)
+  .concat(fixNoDiff).map(tieFields)
 
 return { fixed, wontFix, needsHuman, conflicts, clusters: inRunClusters, planClusters, plan, recurrence }
