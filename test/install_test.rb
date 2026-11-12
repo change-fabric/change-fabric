@@ -117,6 +117,7 @@ class InstallerTest < Minitest::Test
     doctrine_digest.rb docker_doctrine_guard.rb change_merge_guard.rb change_tag_guard.rb
     telemetry_emit.rb presence_probe.rb secret_alert_poll.rb secret_ack.rb
     mode_command.rb away_guard.rb away_restate.rb
+    key_paste_guard.rb secrets_read_guard.rb
   ].freeze
   EVENTS = %w[SessionStart PreToolUse PostToolUse UserPromptSubmit Stop SessionEnd SubagentStart].freeze
 
@@ -231,12 +232,19 @@ class InstallerTest < Minitest::Test
     assert_equal "/usr/bin/ruby #{paths.script_dest('skill_detect.rb')}", command
   end
 
+  def test_wires_the_key_guards_first_in_their_events
+    hooks = JSON.parse(File.read(install.settings))["hooks"]
+    first = ->(event) { hooks[event].dig(0, "hooks", 0, "command") }
+    assert first.call("UserPromptSubmit").end_with?("/key_paste_guard.rb")
+    assert first.call("PreToolUse").end_with?("/secrets_read_guard.rb")
+  end
+
   def test_backs_up_existing_settings_and_stays_idempotent
     paths = install
     install
     hooks = JSON.parse(File.read(paths.settings))["hooks"]
     counts = EVENTS.map { |event| hooks[event].sum { |group| group["hooks"].size } }
-    assert_equal [ 5, 10, 4, 3, 1, 2, 1 ], counts
+    assert_equal [ 5, 11, 4, 4, 1, 2, 1 ], counts
     assert File.exist?("#{paths.settings}.bak"), "second install should back up settings"
   end
 
