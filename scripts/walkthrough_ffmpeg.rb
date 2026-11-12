@@ -2,8 +2,8 @@
 
 require 'json'
 require 'shellwords'
-require_relative 'walkthrough_duck'
 require_relative 'ffmpeg_square'
+require_relative 'walkthrough_duck'
 
 # Pure FFmpeg argv generation for a walkthrough render. Nothing here shells
 # out: the renderer hands the argv to docker in FFMPEG_IMAGE. The input is a
