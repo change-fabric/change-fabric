@@ -480,7 +480,10 @@ module WalkthroughStoryboard
     end
     others = list.select { |s| s['session_from_scene'] == scene['id'] && !s.equal?(nxt) }.map { |s| s['id'] }
     errs << "only the next scene may start from a navigate tap's session (#{others.join(', ')})" unless others.empty?
-    errs.concat(navigate_next_errors(scene, nxt, lead)) if nxt && WalkthroughLive.live?(nxt)
+    if nxt && WalkthroughLive.live?(nxt)
+      errs.concat(navigate_next_errors(scene, nxt, lead))
+      errs.concat(navigate_spec_errors(board, scene, nxt, lead))
+    end
     errs.concat(navigate_fit_errors(scene, board))
     errs.concat(navigate_device_length_errors(scene, board, lead))
     errs
@@ -518,6 +521,27 @@ module WalkthroughStoryboard
     errs << 'the scene after a navigate tap cannot navigate again (a run is two scenes)' if WalkthroughTimeline.navigate_tap(nxt, lead)
     errs << 'only one scene of a navigate run may have an inset' if WalkthroughInset.inset?(scene) && WalkthroughInset.inset?(nxt)
     errs
+  end
+
+  CAPTURE_SPEC_KEYS = %w[w h dpr mobile].freeze
+
+  # The run films both scenes with the tapping scene's capture spec, so the
+  # next scene must declare the same one: device mode (phone or
+  # phone-fullbleed), CSS viewport and dpr. Anything else would be
+  # stretched into the next scene's layout with its taps misaligned.
+  def navigate_spec_errors(board, scene, nxt, lead)
+    src = WalkthroughDevice.specs(board, scene).find { |s| s['name'] == lead } or return []
+    dst = WalkthroughDevice.specs(board, nxt).first or return []
+    diffs = CAPTURE_SPEC_KEYS.reject { |k| src[k] == dst[k] }.map { |k| "#{k} #{src[k].inspect} vs #{dst[k].inspect}" }
+    if WalkthroughDevice.fullbleed?(scene) != WalkthroughDevice.fullbleed?(nxt)
+      diffs.unshift("device #{WalkthroughDevice.layout_name(scene)} vs #{WalkthroughDevice.layout_name(nxt)}")
+    end
+    return [] if diffs.empty?
+
+    [ "the scene after a navigate tap must capture like the tapping scene (#{diffs.join(', ')}); " \
+      'the run films both with the tapping scene\'s spec' ]
+  rescue ArgumentError, TypeError, NoMethodError
+    []
   end
 
   # The tapping scene ends at the tap plus the overlap, so its voice line

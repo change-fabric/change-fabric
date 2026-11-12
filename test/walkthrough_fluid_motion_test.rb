@@ -148,6 +148,21 @@ class WalkthroughFluidMotionTest < Minitest::Test
     refute_includes errors(b), "trimmed to the navigate tap"
   end
 
+  # The run films both scenes with the tapping scene's spec, so a navigate
+  # pair must declare one capture spec.
+  def test_navigate_pair_capture_specs_must_match
+    b = nav_board
+    b["phone"] = { "w" => 390, "h" => 844, "dpr" => 2 }
+    b["scenes"].each { |s| s.delete("device"); s["devices"] = [ "phone" ] }
+    assert_empty WalkthroughStoryboard.validate(b), "same phone spec on both scenes is accepted"
+    b["scenes"][1].delete("devices")
+    b["scenes"][1]["device"] = "phone-fullbleed"
+    assert_includes errors(b), "the scene after a navigate tap must capture like the tapping scene (device single vs fullbleed"
+    b["scenes"][0].delete("devices")
+    b["scenes"][0]["device"] = "phone-fullbleed"
+    assert_empty WalkthroughStoryboard.validate(b), "two full-bleed scenes are accepted"
+  end
+
   # Decision 10: the tapping scene ends at the tap plus the overlap, and its
   # voice line must end by the tap.
   def test_tapping_scene_is_trimmed_to_the_tap_and_narration_must_fit
