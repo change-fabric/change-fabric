@@ -29,7 +29,9 @@ module WalkthroughLive
   class CaptureError < StandardError; end
   class MissingEnvError < StandardError; end
 
-  CAPTURE_VERSION = 2
+  # 3: desktop frames are taken only once the page lays out at its viewport,
+  # and phone composites carry square pixels (no pHYs aspect metadata).
+  CAPTURE_VERSION = 3
   WAIT_UNTIL = %w[domcontentloaded load].freeze
   DEFAULT_WAIT = { 'until' => 'load', 'settle_ms' => 0 }.freeze
   STORAGE_AREAS = %w[sessionStorage localStorage].freeze
@@ -349,6 +351,7 @@ module WalkthroughLive
   def page_setup_js(ignore_https)
     <<~JS.chomp
       #{BrowserlessJs.fresh_context_js}
+      #{BrowserlessJs.ensure_viewport_js}
       const browser = basePage.browser();
       const sleep = (ms) => new Promise((r) => setTimeout(r, Math.max(0, ms)));
       const openPage = async (dev) => {
@@ -488,6 +491,12 @@ module WalkthroughLive
           await page.evaluate(hideCursor);
         } else {
           await page.goto(job.url, { waitUntil: #{JSON.generate(wait['until'])} });
+        }
+        // A desktop page must lay out at its viewport, never the container's
+        // default window; a phone's layout width is the page's own choice.
+        if (!dev.mobile) {
+          const laid = await ensureViewport(page, { width: dev.w, height: dev.h, deviceScaleFactor: dev.dpr, mobile: false });
+          if (laid[0] !== dev.w || laid[1] !== dev.h) throw new Error(`viewport mismatch: laid out at ${laid[0]}x${laid[1]}, not ${dev.w}x${dev.h}`);
         }
         #{wait['selector'] ? "await page.waitForSelector(#{JSON.generate(wait['selector'])});" : ''}
         #{wait['zoom'] ? "await page.evaluate((z) => { document.documentElement.style.zoom = String(z); }, #{wait['zoom'].to_f});" : ''}

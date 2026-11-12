@@ -2,6 +2,7 @@
 
 require 'json'
 require 'shellwords'
+require_relative 'ffmpeg_square'
 require_relative 'walkthrough_duck'
 
 # Pure FFmpeg argv generation for a walkthrough render. Nothing here shells
@@ -134,7 +135,7 @@ module WalkthroughFfmpeg
     points = track(plan, i, :cursor, scene)
     w, h = stage(plan, scene)
     s = stage_scale(plan, scene)
-    raw = "[#{i}:v]setpts=PTS-STARTPTS,scale=#{w}:#{h}:flags=lanczos"
+    raw = "[#{i}:v]setpts=PTS-STARTPTS,#{FfmpegSquare.scale(w, h)}"
     # The sprite grows with the stage, so it looks as it did on the canvas.
     parts = s == 1.0 ? [] : [ "[c#{i}]scale=iw*#{format('%.4f', s)}:ih*#{format('%.4f', s)}:flags=lanczos[cs#{i}]" ]
     sprite = parts.empty? ? "c#{i}" : "cs#{i}"
@@ -225,7 +226,7 @@ module WalkthroughFfmpeg
   def video_graph(plan)
     n = plan[:scenes].size
     cursor_in = n
-    parts = [ "[#{cursor_in}:v]split=#{n}#{(0...n).map { |i| "[c#{i}]" }.join}" ]
+    parts = [ "[#{cursor_in}:v]#{FfmpegSquare::SETSAR},split=#{n}#{(0...n).map { |i| "[c#{i}]" }.join}" ]
     plan[:scenes].each_with_index { |scene, i| parts.concat(scene_chain(plan, scene, i)) }
     acc = 'v0'
     transitions(plan).each_with_index do |fade, k|

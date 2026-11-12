@@ -6,6 +6,7 @@ require 'fileutils'
 require 'json'
 require_relative 'browserless_js'
 require_relative 'change_docker'
+require_relative 'png_info'
 require_relative 'prototype_imagegen'
 require_relative 'prototype_ux_lint'
 require_relative 'walkthrough_cache'
@@ -22,6 +23,10 @@ require_relative 'walkthrough_sharpness'
 # content the clock cannot control fails loudly instead.
 module PrototypeCapture
   class UnsupportedContentError < StandardError; end
+  # The page laid out, or a frame came back, at a size other than the
+  # scene's viewport. A batch that raises it is retried on a fresh
+  # connection; nothing from it is written to the cache.
+  class ViewportMismatchError < StandardError; end
 
   FPS = 30
   BATCH_FRAMES = 90
@@ -31,7 +36,10 @@ module PrototypeCapture
   # for it in real time before frame 0, and fails loudly past this bound
   # rather than capturing a blank frame.
   DIAGRAM_READY_TIMEOUT_MS = 15_000
-  CAPTURE_VERSION = 2
+  # 3: the viewport is asserted before capture and a wrong-size capture is
+  # never cached, so frames from version 2 (possibly laid out at the
+  # container's 800x600 window) are not reused.
+  CAPTURE_VERSION = 3
   START_MS = 1_767_225_600_000 # 2026-01-01T00:00:00Z
   LOCALE = 'en-US'
   DEFAULT_VIEWPORT = { 'w' => 1920, 'h' => 1080, 'dpr' => 1 }.freeze
@@ -408,6 +416,34 @@ module PrototypeCapture
     DEFAULT_VIEWPORT.merge(board['viewport'] || {}).merge('dpr' => WalkthroughSharpness.desktop_dpr(board, scene))
   end
 
+  # The metrics ensureViewport applies for a capture viewport.
+  def viewport_metrics(vp) = { width: vp['w'], height: vp['h'], deviceScaleFactor: vp['dpr'], mobile: false }
+
+  # A captured frame's pixel size at this viewport: CSS px times dpr.
+  def frame_size(viewport)
+    vp = DEFAULT_VIEWPORT.merge(viewport || {})
+    [ (vp['w'] * vp['dpr']).round, (vp['h'] * vp['dpr']).round ]
+  end
+
+  # The pixel size of a scene's cached frames: the viewport capture, or the
+  # stage a browser frame composites it onto.
+  def expected_frame_size(board, scene)
+    return WalkthroughSharpness.stage_size(board, scene) if WalkthroughBrowserFrame.browser?(scene)
+
+    frame_size(scene_viewport(board, scene))
+  end
+
+  # A scene's frames are cached when the end-state.json marker is there and
+  # the first frame has the board's size. A capture of the wrong size (one
+  # laid out at the container's default window) is rejected, so it is
+  # recaptured instead of reused.
+  def cached?(board, scene, out_dir)
+    return false unless File.file?(File.join(out_dir, 'end-state.json'))
+
+    size = PngInfo.file_size(File.join(out_dir, '000001.png'))
+    size.nil? || size == expected_frame_size(board, scene)
+  end
+
   # Browser launch flags for a capture at this viewport's dpr.
   def launch_args(viewport) = BrowserlessJs.capture_launch_args(DEFAULT_VIEWPORT.merge(viewport || {})['dpr'])
 
@@ -463,6 +499,7 @@ module PrototypeCapture
     <<~JS
       export default async function ({ page: basePage }) {
         #{BrowserlessJs.fresh_context_js}
+        #{BrowserlessJs.ensure_viewport_js}
         const browser = basePage.browser();
         const context = await newBrowserContext(browser);
         const page = context ? await context.newPage() : await browser.newPage();
@@ -477,6 +514,11 @@ module PrototypeCapture
         await page.setExtraHTTPHeaders(#{BrowserlessJs.locale_header_js});
         #{BrowserlessJs.inline_html_js(with_document_scripts(html, prng_seed: prng_seed, state: state), page_var: 'page')}
         const client = #{BrowserlessJs.cdp_session_js('page')};
+        const laidOut = await ensureViewport(page, #{JSON.generate(viewport_metrics(vp))});
+        if (laidOut[0] !== #{vp['w']} || laidOut[1] !== #{vp['h']}) {
+          if (context) await context.close();
+          return { data: { viewportMismatch: laidOut, frames: [], cursor: [], blockedRequests, pageErrors }, type: "application/json" };
+        }
         await client.send("Animation.enable");
         await client.send("Animation.setPlaybackRate", { playbackRate: 0 });
         await page.evaluate(#{JSON.generate(PrototypeUxLint::BROWSER_JS)});
@@ -588,6 +630,10 @@ module PrototypeCapture
 
   # Raises on any sign the page escaped the controlled environment.
   def check_result!(result, label)
+    if result['viewportMismatch']
+      raise ViewportMismatchError, "#{label}: page laid out at #{Array(result['viewportMismatch']).join('x')}, not the scene viewport"
+    end
+
     if result['diagramNotReady']
       raise UnsupportedContentError, "#{label}: diagram screen never set __cfDiagramReady within #{DIAGRAM_READY_TIMEOUT_MS}ms " \
                                      "(last status: #{result['diagramNotReady']}; page errors: #{Array(result['pageErrors']).first(3).join('; ')})"
@@ -610,6 +656,9 @@ module PrototypeCapture
     plan = schedule(interactions, frames, fps)
     lint_frames = PrototypeUxLint.lint_frames(plan, frames)
     FileUtils.mkdir_p(out_dir)
+    # The marker goes first, so a capture that fails part way never leaves
+    # an older run's marker vouching for a mix of frames.
+    FileUtils.rm_f(File.join(out_dir, 'end-state.json'))
     positions = []
     findings = []
     devices = []
@@ -625,7 +674,7 @@ module PrototypeCapture
       first = range.end
       code = function_module(html: html, plan: plan, range: range, viewport: viewport, prng_seed: prng_seed, state: state, fps: fps,
                              lint: lint_frames)
-      result = check_result!(run_with_retry(session, code, launch_args: launch_args(viewport)), label)
+      result = run_checked(session, code, viewport, label, frames: true)
       findings.concat(Array(result['lint']))
       devices.concat(Array(result['devices']))
       overlays = Array(result['overlays']).to_h.merge(overlays)
@@ -654,11 +703,40 @@ module PrototypeCapture
     plan = schedule(interactions, frames, fps)
     code = function_module(html: html, plan: plan, range: 0...frames, viewport: viewport, prng_seed: prng_seed, state: state,
                            fps: fps, lint: PrototypeUxLint.lint_frames(plan, frames), shots: false, aim: aim)
-    result = check_result!(run_with_retry(session, code, launch_args: launch_args(viewport)), label)
+    result = run_checked(session, code, viewport, label)
     report = PrototypeUxLint.scene_report(label, Array(result['lint']), overlays: result['overlays'] || {},
                                                  devices: Array(result['devices'])).merge('aim' => aim)
     PrototypeUxLint.write(out_dir, report)
     report
+  end
+
+  # A fresh /function call reconnects, so a viewport the last connection
+  # failed to apply gets another chance before the capture fails.
+  VIEWPORT_RETRIES = 2
+
+  # Runs one batch and checks it: the page's laid-out size, and with
+  # `frames`, every returned frame's pixel size, before any is written.
+  def run_checked(session, code, viewport, label, frames: false)
+    attempt = 0
+    begin
+      result = check_result!(run_with_retry(session, code, launch_args: launch_args(viewport)), label)
+      check_frames!(result['frames'], viewport, label) if frames
+      result
+    rescue ViewportMismatchError
+      attempt += 1
+      raise if attempt > VIEWPORT_RETRIES
+
+      retry
+    end
+  end
+
+  # Raises when a returned frame is a PNG of a size other than the viewport's.
+  def check_frames!(frames, viewport, label)
+    want = frame_size(viewport)
+    Array(frames).each do |b64|
+      got = PngInfo.size(Base64.decode64(b64))
+      raise ViewportMismatchError, "#{label}: frame is #{got.join('x')}, not #{want.join('x')}" if got && got != want
+    end
   end
 
   # browserless occasionally drops a long /function response mid-body
@@ -795,7 +873,7 @@ if __FILE__ == $PROGRAM_NAME
         puts "#{scene['id']}: still #{File.join(dir, '000001.png')}"
         next
       end
-      if File.file?(File.join(prep[:out_dir], 'end-state.json'))
+      if PrototypeCapture.cached?(board, scene, prep[:out_dir])
         puts "#{scene['id']}: cached #{prep[:key][0, 12]}"
         next
       end

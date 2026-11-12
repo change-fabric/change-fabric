@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require_relative 'ffmpeg_square'
 require_relative 'prototype_capture'
 require_relative 'prototype_ux_lint'
 require_relative 'walkthrough_browser_frame'
@@ -204,7 +205,7 @@ module WalkthroughDevice
   # rect order) into [out].
   def filter(lay)
     parts = lay.rects.each_with_index.map do |r, i|
-      chain = [ "[#{i}:v]scale=#{r.w}:#{r.h}:flags=lanczos" ]
+      chain = [ "[#{i}:v]#{FfmpegSquare.scale(r.w, r.h)}" ]
       chain << "pad=#{r.outer_w}:#{r.outer_h}:#{r.bezel}:#{r.bezel}:color=#{BEZEL}" if r.bezel.positive?
       chain << "pad=#{lay.canvas_w}:#{lay.canvas_h}:#{r.outer_x}:#{r.outer_y}:color=#{CANVAS}" if i.zero?
       "#{chain.join(',')}[d#{i}]"

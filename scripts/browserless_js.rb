@@ -72,6 +72,33 @@ module BrowserlessJs
       "Object.defineProperty(navigator, \"languages\", { get: () => [#{lang}] });"
   end
 
+  # How many times ensureViewport re-applies the metrics before giving up.
+  VIEWPORT_TRIES = 3
+
+  # Defines ensureViewport(page, vp), vp = { width, height, deviceScaleFactor,
+  # mobile }. Over a browserless connection the viewport set through
+  # Puppeteer is sometimes not applied, or is dropped with the CDP session
+  # when a navigation swaps renderers, and the page lays out at the
+  # container's 800x600 window instead. This sets the metrics on the page
+  # itself through a fresh CDP session, checks the laid-out
+  # innerWidth/innerHeight, and retries; it resolves to the last laid-out
+  # [width, height], so the caller decides what a mismatch means.
+  def ensure_viewport_js
+    <<~JS.chomp
+      async function ensureViewport(page, vp) {
+        const laidOut = () => page.evaluate(() => [window.innerWidth, window.innerHeight]);
+        let size = await laidOut();
+        for (let tries = 0; tries < #{VIEWPORT_TRIES} && (size[0] !== vp.width || size[1] !== vp.height); tries += 1) {
+          const fresh = await page.createCDPSession();
+          await fresh.send("Emulation.setDeviceMetricsOverride", { width: vp.width, height: vp.height, deviceScaleFactor: vp.deviceScaleFactor, mobile: !!vp.mobile });
+          await new Promise((r) => setTimeout(r, 200));
+          size = await laidOut();
+        }
+        return size;
+      }
+    JS
+  end
+
   # An expression yielding a CDP session for the page.
   def cdp_session_js(page_var = 'page')
     "await #{page_var}.createCDPSession()"

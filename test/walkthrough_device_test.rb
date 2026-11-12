@@ -35,7 +35,7 @@ class WalkthroughDeviceTest < Minitest::Test
     rect = lay.rect("desktop")
     assert_equal [ 0, 0, 1920, 1080, 0 ], [ rect.x, rect.y, rect.w, rect.h, rect.bezel ]
     assert_empty WalkthroughDevice.frame_findings(lay)
-    assert_equal "[0:v]scale=1920:1080:flags=lanczos,pad=1920:1080:0:0:color=0xE6E7EB[d0];[d0]null[out]", WalkthroughDevice.filter(lay)
+    assert_equal "[0:v]scale=1920:1080:flags=lanczos,setsar=1,pad=1920:1080:0:0:color=0xE6E7EB[d0];[d0]null[out]", WalkthroughDevice.filter(lay)
   end
 
   def test_phone_is_centered_above_the_caption_band

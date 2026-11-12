@@ -5,6 +5,7 @@ require "json"
 require "stringio"
 require "tmpdir"
 require_relative "../scripts/walkthrough_render"
+require_relative "support/png_fixture"
 require_relative "enroll_helpers"
 
 class WalkthroughRenderTest < Minitest::Test
@@ -159,7 +160,7 @@ class WalkthroughRenderTest < Minitest::Test
     File.write(File.join(@root, "storyboard.json"), JSON.pretty_generate(b))
     run_render
     log = @calls[:docker].map { |a| a.join(" ") }.join("\n")
-    assert_includes log, "scale=960:540:flags=lanczos[s0]", "the frame is scaled onto the 1.5x stage"
+    assert_includes log, "scale=960:540:flags=lanczos,setsar=1[s0]", "the frame is scaled onto the 1.5x stage"
     assert_includes log, ",crop=640:360:160:90,"
   end
 
@@ -320,6 +321,17 @@ class WalkthroughRenderTest < Minitest::Test
     second = run_render
     assert_empty @calls, "a cached run touches no provider, browser, or docker"
     assert_equal first[:manifest]["manifest_hash"], second[:manifest]["manifest_hash"]
+  end
+
+  # A cached capture laid out at the browser's 800x600 default instead of
+  # the board's 640x360 viewport is stale: it is recaptured, not reused.
+  def test_a_wrong_size_cached_capture_is_recaptured
+    first = run_render
+    entry = first[:manifest]["scenes"].first
+    File.binwrite(File.join(@root, ".cache", "frames", entry["frames_key"], "000001.png"), PngFixture.png(800, 600))
+    @calls.clear
+    run_render
+    assert_equal [ entry["id"] ], @calls[:capture]
   end
 
   def test_same_manifest_yields_identical_argv
