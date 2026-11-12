@@ -614,6 +614,15 @@ module PrototypeCapture
 
   def browserless_digest = ChangeDocker::BROWSERLESS_IMAGE.split('@').last
 
+  # Key material for a scene that glides or taps: the timeline version and
+  # the in-page dispatcher (with its press and glide helpers), so a change
+  # to either recaptures exactly the boards that use them.
+  def timeline_material(ops)
+    return {} unless WalkthroughTimeline.fluid?(ops)
+
+    { timeline: WalkthroughTimeline::VERSION, dispatch: Digest::SHA256.hexdigest(DISPATCH_JS) }
+  end
+
   def frames_key(inputs)
     WalkthroughCache.key(inputs.merge(browserless: browserless_digest, capture_version: CAPTURE_VERSION))
   end
@@ -937,6 +946,7 @@ module PrototypeCapture
                      state: WalkthroughCache.key(state), prng_seed: prng, **(remap.empty? ? {} : { images: remap }),
                      **(WalkthroughEnvironment.environment?(scene) ? { desktop_kit: WalkthroughEnvironment.version } : {}),
                      **(WalkthroughDiagram.diagram?(scene) ? WalkthroughDiagram.key_material : {}),
+                     **timeline_material(scene['interactions']),
                      **(WalkthroughBrowserFrame.browser?(scene) ? { frame: WalkthroughBrowserFrame.material(scene) } : {}))
     memo[scene['id']] = { key: key, state: state, prng_seed: prng, html_path: html_path, remap: remap, root: root,
                           out_dir: File.join(root, '.cache', 'frames', key) }

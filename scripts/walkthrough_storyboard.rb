@@ -462,20 +462,24 @@ module WalkthroughStoryboard
     end
     others = list.select { |s| s['session_from_scene'] == scene['id'] && !s.equal?(nxt) }.map { |s| s['id'] }
     errs << "only the next scene may start from a navigate tap's session (#{others.join(', ')})" unless others.empty?
-    errs.concat(navigate_device_errors(nxt, lead)) if nxt && WalkthroughLive.live?(nxt)
+    errs.concat(navigate_next_errors(scene, nxt, lead)) if nxt && WalkthroughLive.live?(nxt)
     errs.concat(navigate_fit_errors(scene, board))
     errs
   end
 
   # The next scene continues the tapping device's page, so it films that
   # device and only it: a different lead device would start on another
-  # page, and a second device has no page carried into it.
-  def navigate_device_errors(nxt, lead)
+  # page, and a second device has no page carried into it. It never loads
+  # its url, so a page wait or seeded storage has nothing to act on, and
+  # the run has one desktop inset at most.
+  def navigate_next_errors(scene, nxt, lead)
     devices = WalkthroughDevice.devices(nxt)
     return [ "a navigate tap on #{lead} needs the next scene #{nxt['id'].inspect} to lead with #{lead}, not #{devices.first}" ] if devices.first != lead
     return [ "the scene after a navigate tap films only the tapping device (#{lead}), not #{(devices - [ lead ]).join(', ')}" ] if devices.size > 1
 
-    []
+    errs = %w[wait storage].filter_map { |k| "#{k} has no effect on the scene after a navigate tap (it continues the page)" if nxt.key?(k) }
+    errs << 'only one scene of a navigate run may have an inset' if WalkthroughInset.inset?(scene) && WalkthroughInset.inset?(nxt)
+    errs
   end
 
   # The tapping scene ends at the tap plus the overlap, so its voice line

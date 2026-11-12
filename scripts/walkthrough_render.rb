@@ -291,19 +291,27 @@ module WalkthroughRender
     def with_live_session(&blk) = @p[:live_browser].call(WalkthroughLive.browser_opts(@board), &blk)
 
     # Captures live scenes in order, so a session_from_scene parent recorded
-    # this run hands its end session straight to the scenes after it.
+    # this run hands its end session straight to the scenes after it. A
+    # navigate pair (a tap with navigate: true and the next scene) captures
+    # as one continuous run when either half needs it; the second half is
+    # never captured on its own.
     def capture_live(session)
       memo = {}
       sessions = {}
       scenes.each do |scene|
-        next unless live?(scene) && capture_target?(scene)
+        next unless live?(scene)
+        next if WalkthroughLive.pair_parent(@board, scene)
 
-        pr = prep(scene, memo)
-        next if captured?(scene, pr) && !recapture?(scene)
+        nxt = WalkthroughLive.pair_next(@board, scene)
+        halves = [ scene, nxt ].compact
+        next unless halves.any? { |s| capture_target?(s) }
+        next if halves.all? { |s| captured?(s, prep(s, memo)) && !recapture?(s) }
 
-        say("#{scene['id']}: capturing #{scene_frames(scene)} live frames")
+        say("#{scene['id']}: capturing #{scene_frames(scene)} live frames#{" with #{nxt['id']} as one navigate run" if nxt}")
         start = start_session(session, scene, sessions)
-        sessions[scene['id']] = @p[:live_capture].call(**live_args(session, scene, pr[:out_dir], start), compose: compose_spec(scene, memo))
+        pair = nxt ? { next_scene: nxt, next_out_dir: prep(nxt, memo)[:out_dir] } : {}
+        ended = @p[:live_capture].call(**live_args(session, scene, prep(scene, memo)[:out_dir], start), compose: compose_spec(scene, memo), **pair)
+        sessions[(nxt || scene)['id']] = ended
       end
     end
 
@@ -325,7 +333,8 @@ module WalkthroughRender
 
     # The session a live scene starts from: a persona's login (once per
     # persona per run), an earlier scene's end session (replayed without
-    # frames when that scene is cached), or none, a fresh logged-out session.
+    # frames when that scene is cached; the second half of a navigate pair
+    # replays the whole run), or none, a fresh logged-out session.
     def start_session(session, scene, sessions)
       if (name = scene['persona'])
         @personas[name] ||= begin
@@ -333,12 +342,22 @@ module WalkthroughRender
           @p[:live_login].call(session: session, board: @board, persona: @board['personas'].fetch(name), secrets: secrets)
         end
       elsif (from = scene['session_from_scene'])
-        sessions[from] ||= begin
-          parent = scenes.find { |s| s['id'] == from }
-          say("#{from}: replaying for its session")
-          @p[:live_capture].call(**live_args(session, parent, nil, start_session(session, parent, sessions)), shots: false)
-        end
+        sessions[from] ||= replay(session, scenes.find { |s| s['id'] == from }, sessions)
       end
+    end
+
+    def replay(session, scene, sessions)
+      head = WalkthroughLive.pair_parent(@board, scene)
+      return replay_run(session, head, scene, sessions) if head
+
+      say("#{scene['id']}: replaying for its session")
+      @p[:live_capture].call(**live_args(session, scene, nil, start_session(session, scene, sessions)), shots: false)
+    end
+
+    def replay_run(session, head, scene, sessions)
+      say("#{head['id']} and #{scene['id']}: replaying the navigate run for its session")
+      @p[:live_capture].call(**live_args(session, head, nil, start_session(session, head, sessions)), shots: false,
+                                                                                                     next_scene: scene, next_out_dir: nil)
     end
 
     # --final swaps each draft image for its high-quality twin by content key;
@@ -381,7 +400,7 @@ module WalkthroughRender
 
     def viewport = @board['viewport'] || PrototypeCapture::DEFAULT_VIEWPORT
 
-    def scene_frames(scene) = PrototypeCapture.frame_count(PrototypeCapture.scene_duration(scene), fps)
+    def scene_frames(scene) = PrototypeCapture.frame_count(WalkthroughLive.duration_ms(@board, scene), fps)
 
     def generate_music(total_ms)
       return unless @board['music']
@@ -570,7 +589,17 @@ module WalkthroughRender
         transition: transition_for(input[:scene]),
         cursor: drawn_cursor(input), taps: input[:taps], hero_still: input[:scene]['hero_still'] == true,
         camera: input[:scene]['camera'], stage: WalkthroughSharpness.stage_size(@board, input[:scene]),
-        audio: input[:audio] && container(input[:audio]), offset_ms: input[:offset_ms] }.merge(sprite_for(input[:scene]))
+        audio: input[:audio] && container(input[:audio]), offset_ms: input[:offset_ms], bridge: bridge?(input[:scene]) }
+        .merge(sprite_for(input[:scene]))
+    end
+
+    # The second half of a navigate run draws its first (overlap) frames of
+    # cursor and ripple over the transition, at the tap point, so they stay
+    # put while the pages move. Off when either half zooms its camera: the
+    # tracks are only on the canvas grid without one.
+    def bridge?(scene)
+      head = WalkthroughLive.pair_parent(@board, scene)
+      !head.nil? && head['camera'].nil? && scene['camera'].nil?
     end
 
     # The transition into a scene: its own, else the board default.

@@ -255,13 +255,15 @@ module WalkthroughTimeline
   # the scene's lead device, whose name the caller passes.
   def navigate_tap(scene, lead)
     list = scene['interactions']
-    lists = list.is_a?(Hash) ? list.map { |d, ops| [ d, Array(ops) ] } : [ [ lead, Array(list) ] ]
+    lists = list.is_a?(Hash) ? list.to_a : [ [ lead, list ] ]
     lists.each do |device, ops|
-      op = ops.find { |o| o.is_a?(Hash) && o['op'] == 'tap' && o['navigate'] == true }
+      op = Array(ops).find { |o| navigate_op?(o) }
       return [ device, op ] if op
     end
     nil
   end
+
+  def navigate_op?(op) = op.is_a?(Hash) && op['op'] == 'tap' && op['navigate'] == true
 
   def next_scene(board, scene)
     list = scene_list(board)

@@ -15,7 +15,8 @@ require_relative 'walkthrough_transition'
 #     music: { path:, gain_db:, start_ms:, fade_in_ms: } | nil (start and fade only when set), duck_spans: [{ start_ms:, end_ms:, db:, attack_ms:, release_ms: }],
 #     scenes: [{ id:, frames_dir:, frames:, start_frame:, transition: { 'type', 'ms', 'ease' },
 #                cursor: [{ 'frame', 'x', 'y' }], taps: [...] | nil, hero_still:, audio:, offset_ms:,
-#                stage: [w, h] | nil, sprite: Float (full-bleed phone only) }] }
+#                stage: [w, h] | nil, sprite: Float (full-bleed phone only),
+#                bridge: true (second half of a navigate run) | nil }] }
 #
 # A scene's frames are scaled (down) to its stage, the canvas or the canvas
 # times its camera zoom, and the cursor is drawn there before the camera
@@ -123,14 +124,27 @@ module WalkthroughFfmpeg
     overlap.positive? ? scene[:frames] - overlap + 1 : nil
   end
 
+  # Frames (1-based, from the first) of a navigate run's second half that
+  # its transition overlaps: the bridge draws its cursor and ripple there,
+  # over the transition, instead of the scene's own moving layer.
+  def bridge_frames(plan, i)
+    scene = plan[:scenes][i]
+    return 0 unless scene[:bridge] && i.positive? && WalkthroughTransition.overlaps?(scene[:transition])
+
+    prev = plan[:scenes][i - 1]
+    [ prev[:start_frame] + prev[:frames] - scene[:start_frame], 0 ].max
+  end
+
   # A scene's cursor or tap track as drawn: scaled onto its stage, and parked
   # off canvas while the next scene transitions in over it, so an overlap
-  # never shows the outgoing and the incoming cursor at once.
+  # never shows the outgoing and the incoming cursor at once, and while a
+  # bridge draws it instead.
   def track(plan, i, key, scene = plan[:scenes][i])
     s = stage_scale(plan, scene)
     hide_from = fade_out_from(plan, i)
+    bridged = bridge_frames(plan, i)
     Array(scene[key]).map do |pt|
-      if hide_from && pt.fetch('frame') >= hide_from
+      if (hide_from && pt.fetch('frame') >= hide_from) || pt.fetch('frame') <= bridged
         pt.merge('x' => OFFSCREEN * 5, 'y' => OFFSCREEN * 5)
       else
         k = parked?(pt) ? s * sprite(scene) : s
@@ -168,11 +182,68 @@ module WalkthroughFfmpeg
   # input indices stay put) overlaid along taps.json, parked off canvas
   # between taps. Tap points are sparse, so the inline chain always fits.
   def tap_chain(plan, scene, i, taps)
+    [ ring(plan, scene, "r#{i}"),
+      "[a#{i}][r#{i}]overlay=x='#{chain(runs(taps, 'x'))}':y='#{chain(runs(taps, 'y'))}':eval=frame:shortest=1" \
+      "#{scene_output(plan, scene, i)}" ]
+  end
+
+  # The generated ripple ring sprite, labelled `label`.
+  def ring(plan, scene, label)
     size = 2 * (RIPPLE * stage_scale(plan, scene) * sprite(scene) / 2).round
     half = size / 2
     ring = "hypot(X-#{half},Y-#{half})"
-    [ "color=c=white@0:s=#{size}x#{size}:r=#{plan[:fps]},format=rgba,"       "geq=r=255:g=255:b=255:a='if(between(#{ring},#{half - 7},#{half - 2}),210,if(lt(#{ring},#{half - 7}),70,0))'[r#{i}]",
-      "[a#{i}][r#{i}]overlay=x='#{chain(runs(taps, 'x'))}':y='#{chain(runs(taps, 'y'))}':eval=frame:shortest=1"       "#{scene_output(plan, scene, i)}" ]
+    "color=c=white@0:s=#{size}x#{size}:r=#{plan[:fps]},format=rgba," \
+      "geq=r=255:g=255:b=255:a='if(between(#{ring},#{half - 7},#{half - 2}),210,if(lt(#{ring},#{half - 7}),70,0))'[#{label}]"
+  end
+
+  # The bridge over a navigate run's transition: the second half's first
+  # (overlap) frames of cursor and ripple, drawn on the blended stream at
+  # its absolute frame numbers and parked everywhere else, so the pointer
+  # and the ripple stay put while crossfade, slide or push moves the pages.
+  # Returns the filter parts and the label the stream continues from.
+  def bridge(plan, i, acc)
+    n = bridge_frames(plan, i)
+    return [ [], acc ] unless n.positive?
+
+    scene = plan[:scenes][i]
+    shift = ->(key) { bridge_points(scene, key, n) }
+    parts = []
+    out = acc
+    { cursor: "cb#{i}", taps: "rb#{i}" }.each do |key, sprite|
+      points = shift.call(key)
+      next if points.nil?
+
+      parts << (key == :cursor ? bridge_sprite(scene, i) : ring(plan, scene, sprite)).then { |p| p.empty? ? nil : p }
+      label = key == :cursor && sprite(scene) != 1.0 ? "cbs#{i}" : sprite
+      # The ring is an endless source, so its overlay ends with the stream;
+      # the cursor is one still frame, repeated.
+      parts << "[#{out}][#{label}]overlay=x='#{chain(runs(points, 'x'))}':y='#{chain(runs(points, 'y'))}':eval=frame" \
+               "#{key == :taps ? ':shortest=1' : ''}[#{key}b#{i}]"
+      out = "#{key}b#{i}"
+    end
+    parts.compact!
+    return [ parts, acc ] if out == acc
+
+    parts << "[#{out}]#{timebase(plan)},setpts=N,fps=#{plan[:fps]},#{timebase(plan)}[bj#{i}]"
+    [ parts, "bj#{i}" ]
+  end
+
+  # The cursor sprite of a bridge: its own split output, grown like the
+  # scene's for a full-bleed phone.
+  def bridge_sprite(scene, i)
+    s = sprite(scene)
+    s == 1.0 ? '' : "[cb#{i}]scale=iw*#{format('%.4f', s)}:ih*#{format('%.4f', s)}:flags=lanczos[cbs#{i}]"
+  end
+
+  # The window's points on absolute output frames, parked before and after,
+  # or nil when nothing in the window is drawn.
+  def bridge_points(scene, key, n)
+    window = Array(scene[key]).select { |pt| pt.fetch('frame') <= n }
+    return nil if window.empty? || window.all? { |pt| parked?(pt) }
+
+    start = scene[:start_frame]
+    park = ->(frame) { { 'frame' => frame, 'x' => OFFSCREEN * 5, 'y' => OFFSCREEN * 5 } }
+    [ park.call(1) ] + window.map { |pt| pt.merge('frame' => pt.fetch('frame') + start) } + [ park.call(start + n + 1) ]
   end
 
   # A hero still slowly pushes in: upscale 4x with lanczos, then zoompan back
@@ -237,7 +308,9 @@ module WalkthroughFfmpeg
   def video_graph(plan)
     n = plan[:scenes].size
     cursor_in = n
-    parts = [ "[#{cursor_in}:v]#{FfmpegSquare::SETSAR},split=#{n}#{(0...n).map { |i| "[c#{i}]" }.join}" ]
+    bridged = (0...n).select { |i| bridge_points(plan[:scenes][i], :cursor, bridge_frames(plan, i)) && bridge_frames(plan, i).positive? }
+    labels = (0...n).map { |i| "[c#{i}]" } + bridged.map { |i| "[cb#{i}]" }
+    parts = [ "[#{cursor_in}:v]#{FfmpegSquare::SETSAR},split=#{labels.size}#{labels.join}" ]
     plan[:scenes].each_with_index { |scene, i| parts.concat(scene_chain(plan, scene, i)) }
     acc = 'v0'
     transitions(plan).each_with_index do |fade, k|
@@ -247,7 +320,8 @@ module WalkthroughFfmpeg
       else
                  "[#{acc}][v#{i}]concat=n=2:v=1:a=0,#{timebase(plan)}[j#{i}]"
       end
-      acc = "j#{i}"
+      more, acc = bridge(plan, i, "j#{i}")
+      parts.concat(more)
     end
     # Captions are soft (a mov_text track) unless the plan asks to burn them in.
     # caption_track false means sidecar files only: nothing burned or muxed.
