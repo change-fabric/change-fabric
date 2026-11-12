@@ -22,10 +22,10 @@ const RELATED = [
   { label: "Faux3", href: "/faux3", match: "/faux3" },
 ];
 
-function NavLink({ link }: { link: (typeof PRIMARY)[number] }) {
+function NavLink({ link, className = "nav-link" }: { link: (typeof PRIMARY)[number]; className?: string }) {
   return (
     <a
-      className="nav-link"
+      className={className}
       href={link.href}
       aria-current={isCurrent(link.match) ? "page" : undefined}
     >
@@ -68,9 +68,9 @@ export function Layout({ children }: { children: ReactNode }) {
           {PRIMARY.map((link) => (
             <NavLink key={link.label} link={link} />
           ))}
-          <span className="nav-group-label">Related projects</span>
+          <span className="nav-group-label nav-related">Related projects</span>
           {RELATED.map((link) => (
-            <NavLink key={link.label} link={link} />
+            <NavLink key={link.label} link={link} className="nav-link nav-related" />
           ))}
         </nav>
         <div className="site-utils">
@@ -95,6 +95,17 @@ export function Layout({ children }: { children: ReactNode }) {
             the wordmark is Home and the Spec page links Versions, so the footer
             drops to one quiet row; the full list returns beside the sidebar. */}
         <footer className="site-footer">
+          {/* Phones keep the header to the docs; the sibling projects move here. */}
+          <nav className="footer-related" aria-labelledby="footer-related-title">
+            <span className="footer-related-title" id="footer-related-title">
+              Related projects
+            </span>
+            {RELATED.map((link) => (
+              <a key={link.label} href={link.href}>
+                {link.label}
+              </a>
+            ))}
+          </nav>
           <span className="footer-brand">&copy; Change Fabric</span>
           <nav className="footer-nav" aria-label="Footer">
             <a className="footer-wide" href="/">Home</a>

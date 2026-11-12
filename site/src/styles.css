@@ -1497,6 +1497,37 @@ code {
   }
 }
 
+.footer-related {
+  display: none;
+}
+
+@media (max-width: 640px) {
+  .footer-related {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--s2) var(--s5);
+    width: 100%;
+    padding-bottom: var(--s3);
+    border-bottom: 1px solid var(--border);
+  }
+  .footer-related-title {
+    flex-basis: 100%;
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .footer-related a {
+    color: var(--muted);
+    text-decoration: none;
+  }
+  .footer-related a:hover {
+    color: var(--text);
+  }
+}
+
 /* Reference index */
 .ref-search {
   position: relative;
@@ -1724,17 +1755,9 @@ code {
     flex-wrap: wrap;
     margin: 0 0 0 calc(-1 * var(--s2));
   }
-  /* Without the label, sibling projects read as more product docs. */
-  .nav-group-label {
-    display: block;
-    flex-basis: 100%;
-    margin: var(--s2) 0 0;
-    padding: 0 var(--s2);
-    font-family: var(--font-mono);
-    font-size: 0.7rem;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--muted);
+  /* The sibling projects move to the footer, leaving the header to the docs. */
+  .nav-related {
+    display: none;
   }
   /* The group filters scroll sideways instead of wrapping into a second
      row that would break the underline. Sideways only: the chips' -1px
