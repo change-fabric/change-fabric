@@ -525,9 +525,17 @@ module WalkthroughLive
         let inset = null;
         let insetHi = null;
         let insetError = null;
-        let pos = { x: dev.w / 2, y: dev.h / 2 };
+        // A scene entered by a tap-navigate starts where that tap landed, so
+        // the cursor and ripple carry across the cut, and on the page it led to.
+        const entered = session.tap || null;
+        if (entered && job.url && session.url && session.url !== job.url) {
+          throw new Error(`tap-navigate landed on ${session.url}, not this scene's url ${job.url}`);
+        }
+        let pos = entered ? { x: entered.x, y: entered.y } : { x: dev.w / 2, y: dev.h / 2 };
         let from = pos;
         let down = false;
+        let tapped = null;
+        const pressCss = #{JSON.generate(PrototypeCapture::PRESS_CSS)};
         const t0 = Date.now();
         for (let i = 0; i < job.plan.length; i++) {
           const step = job.plan[i] || {};
@@ -540,6 +548,27 @@ module WalkthroughLive
           // Same semantics as a prototype scene: dx/dy scroll by pixels,
           // a bare target is scrolled into view, at `block` (center by default).
           if (step.scroll) await safe(() => page.evaluate((s) => { const el = document.querySelector(s.target); if (!el) return; if (s.dx === undefined && s.dy === undefined) el.scrollIntoView({ block: s.block || "center" }); else el.scrollBy({ left: s.dx || 0, top: s.dy || 0, behavior: "instant" }); }, step.scroll), null);
+          // A gliding scroll sets one eased offset per frame tick.
+          if (step.glide) await safe(() => page.evaluate(#{PrototypeCapture::GLIDE_JS}, step.glide), null);
+          if (step.press) {
+            const to = await aim(step.press);
+            if (!to) throw new Error(`tap target not found: ${step.press}`);
+            pos = to;
+            resting = step.press;
+            if (!dev.mobile) await page.mouse.move(pos.x, pos.y);
+            await safe(() => page.evaluate(#{PrototypeCapture::PRESS_JS}, step.press, true, pressCss), null);
+            down = true;
+          }
+          if (step.tap) {
+            await safe(() => page.evaluate(#{PrototypeCapture::PRESS_JS}, step.tap.target, false, pressCss), null);
+            const to = await aim(step.tap.target);
+            if (!to) throw new Error(`tap target not found: ${step.tap.target}`);
+            pos = to;
+            resting = step.tap.target;
+            if (dev.mobile) { await page.touchscreen.tap(pos.x, pos.y); }
+            else { await page.mouse.move(pos.x, pos.y); await page.mouse.down(); await page.mouse.up(); }
+            if (step.tap.navigate) tapped = { x: pos.x, y: pos.y };
+          }
           if (step.hover) { const to = await aim(step.hover); if (to) { pos = to; if (!dev.mobile) await page.mouse.move(pos.x, pos.y); } resting = step.hover; }
           if (step.click) {
             const to = await aim(step.click);
@@ -642,6 +671,7 @@ module WalkthroughLive
                    view: view ? view.className : null, cta: val("cta", "className") };
         }), null) : null;
         const out = await dumpSession(page, client);
+        if (tapped) out.tap = tapped;
         if (context) await context.close();
         return { name: dev.name, frames: sampled.frames, ticks: sampled.ticks, cursor, pageErrors, lint, devices, overlays, links, composed, inset, insetHi, insetError, session: out };
       };

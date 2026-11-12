@@ -44,7 +44,50 @@ module PrototypeCapture
   START_MS = 1_767_225_600_000 # 2026-01-01T00:00:00Z
   LOCALE = 'en-US'
   DEFAULT_VIEWPORT = { 'w' => 1920, 'h' => 1080, 'dpr' => 1 }.freeze
-  OPS = %w[move click dblclick type key hover scroll wait].freeze
+  OPS = %w[move click dblclick type key hover scroll wait tap].freeze
+  # A scroll op with `ms` glides: its dx/dy are reached over that many ms,
+  # one eased scroll offset per frame. The CSS easing keywords are the real
+  # CSS cubic-bezier curves.
+  CSS_EASES = { 'ease' => [ 0.25, 0.1, 0.25, 1.0 ], 'ease-in' => [ 0.42, 0.0, 1.0, 1.0 ],
+                'ease-out' => [ 0.0, 0.0, 0.58, 1.0 ], 'ease-in-out' => [ 0.42, 0.0, 0.58, 1.0 ] }.freeze
+  SCROLL_EASES = ([ 'linear' ] + CSS_EASES.keys).freeze
+  DEFAULT_SCROLL_EASE = 'ease-in-out'
+  SCROLL_MS = (1..10_000)
+  # A tap holds its pressed state this long before the real click lands.
+  PRESS_MS = 120
+  PRESS_RANGE = (1..1000)
+  # The pressed look a tap's target wears for its press frames, injected
+  # only into a page that taps, so pages without a tap op never change.
+  PRESS_CSS = '.__cf-pressed { transform: scale(0.96) !important; opacity: 0.82 !important; transition: none !important; }'
+  # In-page helper (a JS function, passed to page.evaluate): toggles the
+  # pressed class on a selector, adding the style sheet on first use.
+  PRESS_JS = <<~JS.chomp
+    (sel, on, css) => {
+      const el = document.querySelector(sel);
+      if (!el) return false;
+      if (!document.getElementById("__cf-press")) {
+        const s = document.createElement("style");
+        s.id = "__cf-press";
+        s.textContent = css;
+        (document.head || document.documentElement).appendChild(s);
+      }
+      el.classList.toggle("__cf-pressed", on);
+      return true;
+    }
+  JS
+  # In-page helper: one glide frame. The origin is read on the glide's first
+  # frame, so each frame sets an absolute offset (origin plus the eased
+  # delta) and never accumulates rounding.
+  GLIDE_JS = <<~JS.chomp
+    (g) => {
+      const el = document.querySelector(g.target);
+      if (!el) throw new Error(`scroll target not found: ${g.target}`);
+      window.__cfGlide = window.__cfGlide || {};
+      if (g.first || !window.__cfGlide[g.target]) window.__cfGlide[g.target] = { x: el.scrollLeft, y: el.scrollTop };
+      const o = window.__cfGlide[g.target];
+      el.scrollTo({ left: o.x + g.dx, top: o.y + g.dy, behavior: "instant" });
+    }
+  JS
   # Key names a `key` op may press after any modifiers; a single printable
   # character is also accepted. Aliases normalize to Puppeteer key names.
   MODIFIERS = %w[Control Shift Alt Meta].freeze
@@ -338,8 +381,25 @@ module PrototypeCapture
     when 'easeInOutCubic' then p < 0.5 ? 4 * (p**3) : 1 - (((-2 * p) + 2)**3 / 2)
     when 'easeOutCubic' then 1 - ((1 - p)**3)
     when 'easeInCubic' then p**3
+    when *CSS_EASES.keys then cubic_bezier(*CSS_EASES[name.to_s], p)
     else raise ArgumentError, "unknown easing #{name}"
     end
+  end
+
+  # The y of a CSS cubic-bezier(x1, y1, x2, y2) at x = p: bisection on the
+  # curve's parameter (x is monotonic for x1, x2 in 0..1), a fixed 64 steps
+  # so the result is the same on every machine.
+  def cubic_bezier(x1, y1, x2, y2, p)
+    return p if p <= 0.0 || p >= 1.0
+
+    coord = ->(t, a, b) { (3 * ((1 - t)**2) * t * a) + (3 * (1 - t) * (t**2) * b) + (t**3) }
+    lo = 0.0
+    hi = 1.0
+    64.times do
+      mid = (lo + hi) / 2
+      coord.call(mid, x1, x2) < p ? lo = mid : hi = mid
+    end
+    coord.call((lo + hi) / 2, y1, y2)
   end
 
   # Per-frame input plan. Each entry lists what the page does at that frame:
@@ -356,7 +416,11 @@ module PrototypeCapture
       when 'click', 'dblclick', 'hover' then plan.dig(start)&.store(op['op'], op['target'])
       when 'type' then schedule_type(plan, op, fps)
       when 'key' then plan.dig(start)&.then { |e| (e['key'] ||= []) << { 'keys' => key_chord(op['keys']), 'target' => op['target'] }.compact }
-      when 'scroll' then plan.dig(start)&.store('scroll', { 'target' => op['target'], 'dx' => op['dx'], 'dy' => op['dy'], 'block' => op['block'] }.compact)
+      when 'tap' then schedule_tap(plan, op, start, fps)
+      when 'scroll'
+        next schedule_glide(plan, op, start, fps) if op['ms']
+
+        plan.dig(start)&.store('scroll', { 'target' => op['target'], 'dx' => op['dx'], 'dy' => op['dy'], 'block' => op['block'] }.compact)
       end
     end
     plan
@@ -382,6 +446,32 @@ module PrototypeCapture
       entry = plan[start + k - 1] or break
       entry['move'] = { 'target' => op['target'], 'p' => ease(op['easing'], k.to_f / span), 'first' => k == 1 }
     end
+  end
+
+  # A gliding scroll: one `glide` entry per frame over `ms`, each carrying
+  # the eased share of dx/dy (absolute from the glide's origin), the last
+  # frame at the full delta.
+  def schedule_glide(plan, op, start, fps)
+    span = [ frame_count(op['ms'].to_i, fps), 1 ].max
+    (1..span).each do |k|
+      entry = plan[start + k - 1] or break
+      p = ease(op['ease'] || DEFAULT_SCROLL_EASE, k.to_f / span)
+      entry['glide'] = { 'target' => op['target'], 'dx' => (op['dx'].to_i * p).round(2), 'dy' => (op['dy'].to_i * p).round(2),
+                         'first' => k == 1 }
+    end
+  end
+
+  # A tap: `press` on its first frame (the finger lands: pressed look and
+  # ripple), then `tap` once `press_ms` has passed, where the pressed look
+  # lifts and the real click lands. A press that would outlast the scene
+  # releases on the last frame.
+  def schedule_tap(plan, op, start, fps)
+    return unless plan[start]
+
+    plan[start]['press'] = op['target']
+    span = [ frame_count((op['press_ms'] || PRESS_MS).to_i, fps), 1 ].max
+    release = plan[start + span] || plan.last
+    release['tap'] = { 'target' => op['target'], 'navigate' => op['navigate'] == true }
   end
 
   def schedule_type(plan, op, fps)
@@ -592,6 +682,22 @@ module PrototypeCapture
               if (s.dx === undefined && s.dy === undefined) el.scrollIntoView({ block: s.block || "center", behavior: "instant" });
               else el.scrollBy({ left: s.dx || 0, top: s.dy || 0, behavior: "instant" });
             }, step.scroll);
+          }
+          if (step.glide) await page.evaluate(#{GLIDE_JS}, step.glide);
+          if (step.press) {
+            pos = await center(step.press);
+            resting = step.press;
+            await page.mouse.move(pos.x, pos.y);
+            await page.evaluate(#{PRESS_JS}, step.press, true, #{JSON.generate(PRESS_CSS)});
+            down = true;
+          }
+          if (step.tap) {
+            await page.evaluate(#{PRESS_JS}, step.tap.target, false, #{JSON.generate(PRESS_CSS)});
+            pos = await center(step.tap.target);
+            resting = step.tap.target;
+            await page.mouse.move(pos.x, pos.y);
+            await page.mouse.down();
+            await page.mouse.up();
           }
           if (step.type) {
             if (step.type.focus) await page.focus(step.type.target);

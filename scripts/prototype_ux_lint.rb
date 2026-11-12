@@ -302,8 +302,8 @@ module PrototypeUxLint
   def lint_frames(plan, frames)
     picks = [ 0, frames / 2, frames - 1 ]
     plan.each_with_index do |step, i|
-      picks << i if step['click'] || step['hover'] || step['type'] || step.dig('move', 'p').to_f >= 1.0
-      picks << i + SETTLE_FRAMES if step['click']
+      picks << i if step['click'] || step['tap'] || step['hover'] || step['type'] || step.dig('move', 'p').to_f >= 1.0
+      picks << i + SETTLE_FRAMES if step['click'] || step['tap']
     end
     picks.select { |f| f >= 0 && f < frames }.uniq.sort
   end

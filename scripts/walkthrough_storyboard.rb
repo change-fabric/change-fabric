@@ -184,6 +184,7 @@ module WalkthroughStoryboard
     errors.concat(sfx_errors(scene, root))
     errors.concat(camera_errors(scene['camera']))
     errors.concat(scene_interaction_errors(scene))
+    errors.concat(navigate_errors(scene, board))
     Array(scene['hypotheses']).each { |h| errors << "hypothesis #{h} is not in the top-level list" unless hyp_ids.include?(h) }
     errors << 'needs at least one requirement or assumption' if Array(scene['requirements']).empty? && Array(scene['assumptions']).empty?
     errors.concat(kind_errors(scene, root))
@@ -381,10 +382,57 @@ module WalkthroughStoryboard
       rescue ArgumentError => e
         [ e.message ]
       end
-    when 'scroll'
-      %w[dx dy].filter_map { |k| "scroll #{k} must be an integer (pixels)" if op.key?(k) && !op[k].is_a?(Integer) }
-    else []
+    when 'scroll' then scroll_shape_errors(op)
+    when 'tap' then tap_shape_errors(op)
+    else %w[ms ease press_ms navigate].filter_map { |k| "#{k} applies only to #{k.start_with?('press', 'nav') ? 'a tap' : 'a scroll'} op" if op.key?(k) }
     end
+  end
+
+  # Scroll deltas are integers; `ms` makes the scroll glide over that many
+  # ms with `ease` (default ease-in-out), and needs a delta to glide by.
+  def scroll_shape_errors(op)
+    errs = %w[dx dy].filter_map { |k| "scroll #{k} must be an integer (pixels)" if op.key?(k) && !op[k].is_a?(Integer) }
+    errs += %w[press_ms navigate].filter_map { |k| "#{k} applies only to a tap op" if op.key?(k) }
+    if op.key?('ms')
+      ms = PrototypeCapture::SCROLL_MS
+      errs << "scroll ms must be an integer in #{ms.min}..#{ms.max}" unless op['ms'].is_a?(Integer) && ms.cover?(op['ms'])
+      errs << 'a gliding scroll (ms) needs dx or dy' unless op.key?('dx') || op.key?('dy')
+    elsif op.key?('ease')
+      errs << 'scroll ease needs ms'
+    end
+    errs << "scroll ease must be one of #{PrototypeCapture::SCROLL_EASES.join(', ')}" if op.key?('ease') && !PrototypeCapture::SCROLL_EASES.include?(op['ease'])
+    errs
+  end
+
+  def tap_shape_errors(op)
+    range = PrototypeCapture::PRESS_RANGE
+    errs = %w[ms ease dx dy].filter_map { |k| "#{k} applies only to a scroll op" if op.key?(k) }
+    errs << "tap press_ms must be an integer in #{range.min}..#{range.max}" if op.key?('press_ms') && !(op['press_ms'].is_a?(Integer) && range.cover?(op['press_ms']))
+    errs << 'tap navigate must be true or false' if op.key?('navigate') && ![ true, false ].include?(op['navigate'])
+    errs
+  end
+
+  # A tap with `navigate: true` carries straight into the next scene: it is
+  # the scene's last op, on a live scene, and the next scene (by order) is a
+  # live scene whose session_from_scene is this one, and no other scene
+  # starts from this one's session.
+  def navigate_errors(scene, board)
+    lists = scene['interactions'].is_a?(Hash) ? scene['interactions'].values : [ scene['interactions'] ]
+    navs = lists.flat_map { |l| Array(l).select { |op| op.is_a?(Hash) && op['navigate'] == true } }
+    return [] if navs.empty?
+    return [ 'a navigate tap needs a live scene (screen.url)' ] unless WalkthroughLive.live?(scene)
+
+    errs = []
+    errs << 'a navigate tap must be the last interaction of its scene' unless lists.all? { |l| navs.include?(Array(l).last) || Array(l).none? { |op| navs.include?(op) } }
+    errs << 'only one navigate tap per scene' if navs.size > 1
+    list = scenes(board)
+    nxt = list[list.index(scene).to_i + 1]
+    unless nxt && WalkthroughLive.live?(nxt) && nxt['session_from_scene'] == scene['id']
+      errs << "a navigate tap needs the next scene to be live with session_from_scene #{scene['id'].inspect}"
+    end
+    others = list.select { |s| s['session_from_scene'] == scene['id'] && !s.equal?(nxt) }.map { |s| s['id'] }
+    errs << "only the next scene may start from a navigate tap's session (#{others.join(', ')})" unless others.empty?
+    errs
   end
 
   def interaction_errors(interactions, live: false)
