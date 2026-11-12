@@ -557,13 +557,13 @@ module WalkthroughLive
           if (step.scroll) await safe(() => page.evaluate((s) => { const el = document.querySelector(s.target); if (!el) return; if (s.dx === undefined && s.dy === undefined) el.scrollIntoView({ block: s.block || "center" }); else el.scrollBy({ left: s.dx || 0, top: s.dy || 0, behavior: "instant" }); }, step.scroll), null);
           // A gliding scroll sets one eased offset per frame tick.
           for (const glide of step.glide || []) await safe(() => page.evaluate(#{PrototypeCapture::GLIDE_JS}, glide), null);
-          if (step.press) {
-            const to = await aim(step.press);
-            if (!to) throw new Error(`tap target not found: ${step.press}`);
+          for (const press of step.press || []) {
+            const to = await aim(press);
+            if (!to) throw new Error(`tap target not found: ${press}`);
             pos = to;
-            resting = step.press;
+            resting = press;
             if (!dev.mobile) await page.mouse.move(pos.x, pos.y);
-            await safe(() => page.evaluate(#{PrototypeCapture::PRESS_JS}, step.press, true, pressCss), null);
+            await safe(() => page.evaluate(#{PrototypeCapture::PRESS_JS}, press, true, pressCss), null);
             down = true;
             pressedAt = i;
           }

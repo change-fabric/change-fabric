@@ -432,6 +432,19 @@ module WalkthroughStoryboard
     end
   end
 
+  # When an op's last scheduled input lands: a tap's release, a glide's or
+  # move's end, a type op's last character, else its start.
+  def op_end_ms(op)
+    t = op['t_ms'].to_i
+    case op['op']
+    when 'tap' then t + (op['press_ms'] || PrototypeCapture::PRESS_MS).to_i
+    when 'scroll' then t + op['ms'].to_i
+    when 'move' then t + op['duration_ms'].to_i
+    when 'type' then t + ((op['text'].to_s.length - 1).clamp(0..) * 1000.0 / (op['cps'] || 12).to_f).ceil
+    else t
+    end
+  end
+
   # A tap with `navigate: true` carries straight into the next scene: it is
   # the scene's last op, on a live scene, and the next scene (by order) is a
   # live scene whose session_from_scene is this one, and no other scene
@@ -446,10 +459,10 @@ module WalkthroughStoryboard
     errs << 'a navigate tap must be the last interaction of its scene' unless lists.all? { |l| navs.include?(Array(l).last) || Array(l).none? { |op| navs.include?(op) } }
     errs << 'only one navigate tap per scene' if navs.size > 1
     release = ->(op) { op['t_ms'].to_i + (op['press_ms'] || PrototypeCapture::PRESS_MS).to_i }
-    late = lists.flat_map { |l| Array(l).select { |op| op.is_a?(Hash) && op['op'] == 'tap' && !navs.include?(op) } }
-    errs << 'a navigate tap must release after every other tap in its scene' if late.any? { |op| navs.any? { |n| release.call(op) >= release.call(n) } }
-    glides = lists.flat_map { |l| Array(l).select { |op| op.is_a?(Hash) && op['op'] == 'scroll' && op['ms'].is_a?(Integer) } }
-    errs << 'a navigate tap must release after every glide in its scene ends' if glides.any? { |g| navs.any? { |n| g['t_ms'].to_i + g['ms'] > release.call(n) } }
+    others = lists.flat_map { |l| Array(l).select { |op| op.is_a?(Hash) && !navs.include?(op) } }
+    if others.any? { |op| navs.any? { |n| op_end_ms(op) > release.call(n) || (op['op'] == 'tap' && release.call(op) == release.call(n)) } }
+      errs << 'a navigate tap must release after every other interaction in its scene ends'
+    end
     # The scene hands on its first device's session, so that device navigates.
     lead = WalkthroughDevice.devices(scene).first
     if scene['interactions'].is_a?(Hash) && Array(scene['interactions'][lead]).none? { |op| navs.include?(op) }

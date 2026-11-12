@@ -471,7 +471,8 @@ module PrototypeCapture
   def schedule_tap(plan, op, start, fps)
     return unless plan[start]
 
-    plan[start]['press'] = op['target']
+    # A list, like `tap`: two presses may start on one frame.
+    (plan[start]['press'] ||= []) << op['target']
     span = [ frame_count((op['press_ms'] || PRESS_MS).to_i, fps), 1 ].max
     release = plan[start + span] || plan.last
     # A list: two taps may release on the same frame, and each must land.
@@ -688,11 +689,11 @@ module PrototypeCapture
             }, step.scroll);
           }
           for (const glide of step.glide || []) await page.evaluate(#{GLIDE_JS}, glide);
-          if (step.press) {
-            pos = await center(step.press);
-            resting = step.press;
+          for (const press of step.press || []) {
+            pos = await center(press);
+            resting = press;
             await page.mouse.move(pos.x, pos.y);
-            await page.evaluate(#{PRESS_JS}, step.press, true, #{JSON.generate(PRESS_CSS)});
+            await page.evaluate(#{PRESS_JS}, press, true, #{JSON.generate(PRESS_CSS)});
             down = true;
           }
           for (const tap of step.tap || []) {

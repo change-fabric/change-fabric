@@ -76,15 +76,15 @@ class WalkthroughFluidMotionTest < Minitest::Test
     assert_includes errors(b), "only the next scene may start from a navigate tap's session (later)"
     early = [ { "t_ms" => 0, "op" => "tap", "target" => "#a", "press_ms" => 1000 },
               { "t_ms" => 100, "op" => "tap", "target" => "#next", "press_ms" => 100, "navigate" => true } ]
-    assert_includes errors(nav_board(first_ops: early)), "must release after every other tap"
+    assert_includes errors(nav_board(first_ops: early)), "must release after every other interaction"
     early[0]["press_ms"] = 50
-    refute_includes errors(nav_board(first_ops: early)), "must release after every other tap"
+    refute_includes errors(nav_board(first_ops: early)), "must release after every other interaction"
     gliding = [ { "t_ms" => 0, "op" => "scroll", "target" => "html", "dy" => 200, "ms" => 900 },
                 { "t_ms" => 100, "op" => "tap", "target" => "#next", "press_ms" => 100, "navigate" => true } ]
-    assert_includes errors(nav_board(first_ops: gliding)), "after every glide in its scene ends"
+    assert_includes errors(nav_board(first_ops: gliding)), "must release after every other interaction"
     gliding[1]["t_ms"] = 800
-    refute_includes errors(nav_board(first_ops: gliding)), "after every glide"
-    refute_includes errors(nav_board(first_ops: early)), "must release after every other tap"
+    refute_includes errors(nav_board(first_ops: gliding)), "must release after every other interaction"
+    refute_includes errors(nav_board(first_ops: early)), "must release after every other interaction"
   end
 
   # -- easing ------------------------------------------------------------
@@ -124,7 +124,7 @@ class WalkthroughFluidMotionTest < Minitest::Test
 
   def test_tap_presses_then_releases_into_a_real_click
     plan = PrototypeCapture.schedule([ { "t_ms" => 300, "op" => "tap", "target" => "#buy" } ], 30)
-    assert_equal "#buy", plan[9]["press"]
+    assert_equal [ "#buy" ], plan[9]["press"]
     assert_equal 9 + 4, plan.index { |e| e["tap"] }, "default 120 ms press is 4 frames at 30 fps"
     assert_equal([ { "target" => "#buy", "navigate" => false } ], plan[13]["tap"])
     long = PrototypeCapture.schedule([ { "t_ms" => 0, "op" => "tap", "target" => "#x", "press_ms" => 5000, "navigate" => true } ], 10)
@@ -174,6 +174,28 @@ class WalkthroughFluidMotionTest < Minitest::Test
     assert_includes js, "carry: entered.age"
   end
 
+  def test_presses_starting_on_one_frame_both_show
+    plan = PrototypeCapture.schedule([ { "t_ms" => 0, "op" => "tap", "target" => "#a" }, { "t_ms" => 10, "op" => "tap", "target" => "#b" } ], 10)
+    assert_equal %w[#a #b], plan[0]["press"]
+  end
+
+  def test_typing_must_finish_before_a_navigate_tap
+    ops = [ { "t_ms" => 0, "op" => "type", "target" => "#q", "text" => "abcdefghij", "cps" => 5 },
+            { "t_ms" => 100, "op" => "tap", "target" => "#next", "press_ms" => 100, "navigate" => true } ]
+    assert_includes errors(nav_board(first_ops: ops)), "must release after every other interaction"
+    ops[1]["t_ms"] = 1700
+    refute_includes errors(nav_board(first_ops: ops)), "must release after every other interaction"
+  end
+
+  def test_navigate_cut_uses_the_resolved_transition
+    b = nav_board.merge("transition" => { "type" => "slide-left", "ms" => 400 })
+    assert_equal({ "type" => "slide-left", "ms" => 400, "ease" => "ease-in-out" }, WalkthroughTransition.resolve(b, b["scenes"][1], 1))
+    b["scenes"][1]["timing"]["transition"] = { "type" => "push", "ms" => 300, "ease" => "ease-out" }
+    assert_equal "push", WalkthroughTransition.resolve(b, b["scenes"][1], 1)["type"]
+    b["scenes"][1]["timing"]["transition"] = { "type" => "zoom" }
+    assert_includes errors(b), "must be one of"
+  end
+
   def test_taps_releasing_on_one_frame_both_land
     plan = PrototypeCapture.schedule([ { "t_ms" => 0, "op" => "tap", "target" => "#a", "press_ms" => 200 },
                                        { "t_ms" => 100, "op" => "tap", "target" => "#b", "press_ms" => 100 } ], 20)
@@ -200,11 +222,11 @@ class WalkthroughFluidMotionTest < Minitest::Test
 
   def test_press_state_is_injected_only_for_taps
     js = PrototypeCapture.function_module(html: "<p>x</p>", plan: [], range: 0...1, viewport: nil, prng_seed: 1, state: {})
-    assert_includes js, "if (step.press)"
+    assert_includes js, "for (const press of step.press || [])"
     assert_includes js, "__cf-pressed"
     assert_includes PrototypeCapture::PRESS_CSS, "scale: 0.96 !important"
     live_js = WalkthroughLive.run_device_js(board([ live("a", 1) ]), live("a", 1))
-    assert_includes live_js, "if (step.press)"
+    assert_includes live_js, "for (const press of step.press || [])"
     assert_includes live_js, "page.touchscreen.tap(pos.x, pos.y)"
   end
 
