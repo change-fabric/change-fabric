@@ -567,10 +567,15 @@ module WalkthroughRender
     def plan_scene(input)
       entry = input[:entry]
       { id: entry['id'], frames_dir: container(input[:dir]), frames: entry['frames'], start_frame: entry['start_frame'],
-        transition: input[:scene].dig('timing', 'transition') || WalkthroughStoryboard::DEFAULT_TRANSITION,
+        transition: transition_for(input[:scene]),
         cursor: drawn_cursor(input), taps: input[:taps], hero_still: input[:scene]['hero_still'] == true,
         camera: input[:scene]['camera'], stage: WalkthroughSharpness.stage_size(@board, input[:scene]),
         audio: input[:audio] && container(input[:audio]), offset_ms: input[:offset_ms] }.merge(sprite_for(input[:scene]))
+    end
+
+    # The transition into a scene: its own, else the board default.
+    def transition_for(scene)
+      WalkthroughTransition.resolve(@board, scene, WalkthroughStoryboard.scenes(@board).index(scene).to_i)
     end
 
     # A full-bleed phone scene grows its cursor and tap sprites; others add nothing.

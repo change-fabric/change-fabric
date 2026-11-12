@@ -4,6 +4,7 @@ require 'json'
 require 'shellwords'
 require_relative 'ffmpeg_square'
 require_relative 'walkthrough_duck'
+require_relative 'walkthrough_transition'
 
 # Pure FFmpeg argv generation for a walkthrough render. Nothing here shells
 # out: the renderer hands the argv to docker in FFMPEG_IMAGE. The input is a
@@ -12,7 +13,7 @@ require_relative 'walkthrough_duck'
 #   { fps:, width:, height:, total_ms:, cursor_png:, srt:, output:,
 #     sfx: [{ path:, start_ms:, max_ms:, gain_db:, duck_spans: [...] }],
 #     music: { path:, gain_db:, start_ms:, fade_in_ms: } | nil (start and fade only when set), duck_spans: [{ start_ms:, end_ms:, db:, attack_ms:, release_ms: }],
-#     scenes: [{ id:, frames_dir:, frames:, start_frame:, transition: { 'type', 'ms' },
+#     scenes: [{ id:, frames_dir:, frames:, start_frame:, transition: { 'type', 'ms', 'ease' },
 #                cursor: [{ 'frame', 'x', 'y' }], taps: [...] | nil, hero_still:, audio:, offset_ms:,
 #                stage: [w, h] | nil, sprite: Float (full-bleed phone only) }] }
 #
@@ -112,19 +113,19 @@ module WalkthroughFfmpeg
   # sprite's growth, so an enlarged sprite never pokes into the corner.
   def parked?(point) = point.fetch('x') <= OFFSCREEN && point.fetch('y') <= OFFSCREEN
 
-  # Frames of `scene` (1-based, inclusive) the next scene fades in over.
+  # Frames of `scene` (1-based, inclusive) the next scene transitions in over.
   def fade_out_from(plan, i)
     scene = plan[:scenes][i]
     following = plan[:scenes][i + 1]
-    return nil unless following && following.dig(:transition, 'type') == 'fade'
+    return nil unless following && WalkthroughTransition.overlaps?(following[:transition])
 
     overlap = scene[:start_frame] + scene[:frames] - following[:start_frame]
     overlap.positive? ? scene[:frames] - overlap + 1 : nil
   end
 
   # A scene's cursor or tap track as drawn: scaled onto its stage, and parked
-  # off canvas while the next scene fades in over it, so a crossfade never
-  # shows the outgoing and the incoming cursor at once.
+  # off canvas while the next scene transitions in over it, so an overlap
+  # never shows the outgoing and the incoming cursor at once.
   def track(plan, i, key, scene = plan[:scenes][i])
     s = stage_scale(plan, scene)
     hide_from = fade_out_from(plan, i)
@@ -226,7 +227,7 @@ module WalkthroughFfmpeg
   # scene after the first; nil for a cut.
   def transitions(plan)
     plan[:scenes].each_cons(2).map do |prev, scene|
-      next nil unless scene.dig(:transition, 'type') == 'fade'
+      next nil unless WalkthroughTransition.overlaps?(scene[:transition])
 
       overlap = prev[:start_frame] + prev[:frames] - scene[:start_frame]
       { offset: frame_seconds(scene[:start_frame], plan[:fps]), duration: frame_seconds(overlap, plan[:fps]) }
@@ -242,7 +243,7 @@ module WalkthroughFfmpeg
     transitions(plan).each_with_index do |fade, k|
       i = k + 1
       parts << if fade
-                 "[#{acc}][v#{i}]xfade=transition=fade:duration=#{fade[:duration]}:offset=#{fade[:offset]}[j#{i}]"
+                 "[#{acc}][v#{i}]#{WalkthroughTransition.xfade(plan[:scenes][i][:transition], duration: fade[:duration], offset: fade[:offset])}[j#{i}]"
       else
                  "[#{acc}][v#{i}]concat=n=2:v=1:a=0,#{timebase(plan)}[j#{i}]"
       end

@@ -10,6 +10,7 @@ require_relative 'walkthrough_cache'
 require_relative 'walkthrough_diagram'
 require_relative 'walkthrough_duck'
 require_relative 'walkthrough_environment'
+require_relative 'walkthrough_transition'
 require_relative 'walkthrough_live'
 
 # storyboard.json (schema_version 1) is the source of truth for a
@@ -21,10 +22,10 @@ module WalkthroughStoryboard
 
   SCHEMA_VERSION = 1
   ID_RE = /\A[a-z0-9][a-z0-9-]*\z/
-  TRANSITIONS = %w[cut fade].freeze
-  FADE_MS = (100..1500)
+  TRANSITIONS = WalkthroughTransition::TYPES
+  FADE_MS = WalkthroughTransition::MS
   CAMERA_ZOOM = (0.5..3.0)
-  DEFAULT_TRANSITION = { 'type' => 'cut', 'ms' => 0 }.freeze
+  DEFAULT_TRANSITION = WalkthroughTransition::CUT
   DEFAULT_IMAGE_SIZE = '1024x1024'
   OPS = PrototypeCapture::OPS
   PATCH_OPS = %w[set push delete].freeze
@@ -68,6 +69,7 @@ module WalkthroughStoryboard
     errors.concat(voice_eq_errors(board.dig('voice', 'eq')))
     errors.concat(pronunciation_errors(board.dig('voice', 'pronunciations')))
     errors.concat(music_errors(board)) unless list.empty?
+    errors.concat(WalkthroughTransition.errors(board['transition']))
     orders = list.to_h { |s| [ s['id'], s['order'].to_i ] }
     by_id = list.to_h { |s| [ s['id'], s ] }
     list.each do |scene|
@@ -355,15 +357,7 @@ module WalkthroughStoryboard
     errors
   end
 
-  def transition_errors(transition)
-    return [] if transition.nil?
-
-    type = transition['type']
-    return [ "transition.type #{type.inspect} must be one of #{TRANSITIONS.join(', ')}" ] unless TRANSITIONS.include?(type)
-    return [ "fade transition ms must be in #{FADE_MS.min}..#{FADE_MS.max}" ] if type == 'fade' && !FADE_MS.cover?(transition['ms'].to_i)
-
-    []
-  end
+  def transition_errors(transition) = WalkthroughTransition.errors(transition)
 
   # A declared camera zoom is the only way a scene may resize the device
   # frame (the UX lint's device-frame rule); the screen scales the whole frame
@@ -444,16 +438,16 @@ module WalkthroughStoryboard
     scenes(board).to_h { |s| [ s['id'], PrototypeCapture.scene_duration(s) ] }
   end
 
-  # Scene start offsets in frames. A fade into a scene overlaps the previous
-  # scene by its ms; a cut starts at the previous scene's end.
+  # Scene start offsets in frames. Any transition but a cut overlaps the
+  # previous scene by its ms; a cut starts at the previous scene's end.
   def timeline(board)
     fps = fps(board)
     durations = derive_durations(board)
     cursor = 0
     entries = scenes(board).each_with_index.map do |scene, i|
       frames = PrototypeCapture.frame_count(durations[scene['id']], fps)
-      transition = scene.dig('timing', 'transition') || DEFAULT_TRANSITION
-      overlap = i.positive? && transition['type'] == 'fade' ? PrototypeCapture.frame_at(transition['ms'].to_i, fps) : 0
+      transition = WalkthroughTransition.resolve(board, scene, i)
+      overlap = i.positive? && WalkthroughTransition.overlaps?(transition) ? PrototypeCapture.frame_at(transition['ms'].to_i, fps) : 0
       start = [ cursor - overlap, 0 ].max
       cursor = start + frames
       { 'id' => scene['id'], 'start_frame' => start, 'frames' => frames, 'duration_ms' => durations[scene['id']],
