@@ -176,18 +176,27 @@ module WalkthroughPublish
     end
   end
 
-  # The flats overview PNGs for a walkthrough dir or a rendered MP4 under its
-  # .cache/render/<hash>/. Only boards that exist are returned.
+  # The flats overview PNGs for a walkthrough dir, a <slug>-draft.mp4 or
+  # <slug>-final.mp4 deliverable beside its storyboard, or a rendered MP4
+  # under .cache/render/<hash>/. Only boards that exist are returned.
   def locate_boards(arg)
-    root = File.directory?(arg) ? arg : File.expand_path("../../..", File.dirname(arg))
+    root = if File.directory?(arg) then arg
+    elsif arg.end_with?('-draft.mp4', '-final.mp4') then File.dirname(arg)
+    else File.expand_path('../../..', File.dirname(arg))
+    end
     PrototypeFlats::THEMES.to_h { |theme| [ theme, PrototypeFlats.overview_path(root, theme) ] }
                           .select { |_theme, path| File.file?(path) }
   end
 
-  # Accepts an MP4 or a walkthrough/<slug> dir (newest rendered MP4 in it).
+  # Accepts an MP4 or a walkthrough/<slug> dir: its <slug>-final.mp4, else
+  # its <slug>-draft.mp4, else the newest rendered MP4 left in the cache.
   def locate(arg)
     return arg if File.file?(arg)
 
+    %w[final draft].each do |kind|
+      found = Dir.glob(File.join(arg, "*-#{kind}.mp4")).reject { |f| f.end_with?('.pr.mp4') }.max_by { |f| File.mtime(f) }
+      return found if found
+    end
     Dir.glob(File.join(arg, '.cache', 'render', '*', 'walkthrough.mp4')).max_by { |f| File.mtime(f) }
   end
 end

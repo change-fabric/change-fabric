@@ -28,15 +28,15 @@ The walkthrough is the launch video of the finished product, the press release s
 
 ## Steps
 
-1. Pick a slug (`[a-z0-9][a-z0-9-]*`). Everything lands in `walkthrough/<slug>/`; `.cache/`, `flats/`, `*.mp4`, and `overview*.png` are ignored by the slug dir ignore file.
+1. Pick a slug (`[a-z0-9][a-z0-9-]*`). Everything lands in `walkthrough/<slug>/`; `.cache`, `flats/`, `*.mp4`, `*.vtt`, and `overview*.png` are ignored by the slug dir ignore file.
 2. Write `storyboard.json` (schema in `reference/storyboard-schema.md`): one scene per user goal, ordered as the story, each with a screen, scripted interactions, narration text, at least one requirement anchor or assumption, hypotheses from cf:prototyping, and `heuristics_shown`. A scene that shows a result of an earlier action names `store.from_scene`. Never author `duration_ms`; it is derived from measured narration.
 3. Declare the review in storyboard.json: `"review": { "kind": "explainer|promo|demo", "audience": "...", "purpose": ["outcome a viewer can state afterward"] }`. The draft roast reads it and refuses to run without an audience and a purpose. When `kind` is absent, `roast.rb infer --storyboard <file>` previews the inferred one; exit 3 means ambiguous, so ask the user with AskUserQuestion (candidates as options, and any missing audience or purpose the same way) and write the answer into `review`; under away mode take the top candidate and report the assumption; `validate` warns when it is absent. Validate and pin keys: `ruby ~/.claude/cf/bin/walkthrough_storyboard.rb validate walkthrough/<slug>/storyboard.json --fix`.
 4. Render the readable copy: `walkthrough_storyboard.rb render-md walkthrough/<slug>/storyboard.json`. storyboard.md is generated and never hand-edited.
 5. Write the sidecar: `ruby ~/.claude/cf/bin/walkthrough_assumptions.rb walkthrough/<slug>/storyboard.json` writes `ASSUMPTIONS.md` (invented features, fictional data including every seed collection, each Simple Icons logo with its guidelines link and license field, unsupported claims, and the Houde and Hill role plus look-and-feel statement) and `THIRD_PARTY_NOTICES` (icon sets, plus xyflow, React, and dagre with their bundled licences when any scene is a diagram).
    Optional B-roll: a scene may be `kind: "ai-broll"`, a short AI clip animated from an existing still (for example the hero still made with cf:image), never for UI. It carries a `broll` block and no screen; the rubric, ceiling, and fallbacks are in cf:b-roll. Every clip is listed under "Generated footage" in `ASSUMPTIONS.md`.
 6. Estimate: `ruby ~/.claude/cf/bin/walkthrough_render.rb walkthrough/<slug> --estimate-only` prints the ElevenLabs, OpenAI (including the roast loop's rounds), and Google (b-roll) cost of everything not yet cached, with the b-roll ceiling (`--max-usd <n>`, default 1.00); `elevenlabs.rb narrate --storyboard <json> --estimate-only` and `elevenlabs.rb music --storyboard <json> --estimate-only` (cf:narrate, cf:music) price each part alone. Show it to the user before any paid call.
-7. Draft: `walkthrough_render.rb walkthrough/<slug> --draft` (medium image quality). It narrates (the cf:narrate flow over the same cache), generates images, generates b-roll clips (cf:b-roll; a failed or over-ceiling clip falls back to Ken Burns or the static still and the render continues), captures frames in the pinned browserless container, composes music for the total timeline (the cf:music flow), rebuilds `manifest.json`, and assembles with two FFmpeg passes. Every draft then runs the two gates below and prints both results, and the roast loop runs on it before any human review. Review the stills, the captions, and the draft MP4 with the user, scene by scene, against cf:usability, only once the loop has stopped.
-8. Final: `walkthrough_render.rb walkthrough/<slug> --final` (high image quality). It refuses while the UX lint has any finding, or the roast loop has not finished or has an open P0 or P1 (see Gates). It prints the manifest hash and the MP4 sha256; the MP4 is under `.cache/render/<manifest_hash>/`.
+7. Draft: `walkthrough_render.rb walkthrough/<slug> --draft` (medium image quality). It narrates (the cf:narrate flow over the same cache), generates images, generates b-roll clips (cf:b-roll; a failed or over-ceiling clip falls back to Ken Burns or the static still and the render continues), captures frames in the pinned browserless container, composes music for the total timeline (the cf:music flow), rebuilds `manifest.json`, and assembles with two FFmpeg passes. The draft lands at `walkthrough/<slug>/<slug>-draft.mp4` (with `<slug>-draft.vtt`), overwritten by each draft. Every draft then runs the two gates below and prints both results, and the roast loop runs on it before any human review. Review the stills, the captions, and the draft MP4 with the user, scene by scene, against cf:usability, only once the loop has stopped.
+8. Final: `walkthrough_render.rb walkthrough/<slug> --final` (high image quality). It refuses while the UX lint has any finding, or the roast loop has not finished or has an open P0 or P1 (see Gates). It prints the manifest hash and the MP4 sha256, writes `walkthrough/<slug>/<slug>-final.mp4` (with `<slug>-final.vtt`), and once that file is verified on disk prunes the cache (see Cache housekeeping). The cache copy stays under `.cache/render/<dir>/` too.
 9. Flats (required output alongside the MP4): author `flats.json` from the PRD information architecture (every major screen plus empty, error, and success states, not only the screens in the video), then `ruby ~/.claude/cf/bin/prototype_flats.rb walkthrough/<slug>`. See the cf:prototype Flats section; it writes `flats/{light,dark}/`, the two overview boards, and `flats/index.md`. Only when the user asks (or `--push-figma`), push the flats to Figma per the cf:prototype "Push to Figma (only when asked)" section.
 10. Publish (only when the user asked for it or approves the final; never auto-fire, since it uploads to GitHub): `ruby ~/.claude/cf/bin/walkthrough_publish.rb walkthrough/<slug> [--pr N | --issue N | --none] [--comment]` (or pass the MP4 path). See Publishing below.
 
@@ -86,7 +86,7 @@ The loop (this session drives it, the script gates and reports):
 
 ## Publishing
 
-Context rule: attach the final MP4 to whatever artifact the request is about, a pull request, an issue, or nothing. Target selection, in order: an explicit `--pr N`, `--issue N`, or `--none`; else the open PR of the current branch; else no target, no upload, and the file stays on disk (the path is printed).
+Context rule: attach the final MP4 to whatever artifact the request is about, a pull request, an issue, or nothing. Given a slug dir, publish picks `<slug>-final.mp4`, else `<slug>-draft.mp4`, else the newest MP4 left in `.cache/render/`. Target selection, in order: an explicit `--pr N`, `--issue N`, or `--none`; else the open PR of the current branch; else no target, no upload, and the file stays on disk (the path is printed).
 
 - Upload reuses `ChangeScreenshotUpload` (the same user-attachments endpoint, `gh auth token` auth, and never-raise degradation as cf:screenshot, see `skills/screenshot/SKILL.md`), sent as `video/mp4`. An orphaned attachment from a failed run is an accepted risk there too.
 - GitHub rejects attachments over `WalkthroughPublish::MAX_BYTES` (10 MB). A larger MP4 gets a smaller `walkthrough.pr.mp4` sibling transcoded in the pinned `ChangeDocker::FFMPEG_IMAGE` container (CRF ladder, last rung also scales down); the original is kept. If no rung fits, nothing uploads and the original stays on disk.
@@ -105,6 +105,19 @@ ruby ~/.claude/cf/bin/walkthrough_render.rb walkthrough/<slug> --scene <id>
 
 Only that scene's stale keys regenerate (frames, audio, or images); everything else is read from the cache and the video reassembles. `walkthrough_storyboard.rb stale <json>` lists what would regenerate. A changed narration shifts later scene offsets and, when the total length changes, the music key; a changed `from_scene` dependency recaptures its dependents. Optional `voice.eq` (`"warm"` or `{low_shelf_hz, low_shelf_db, cut_hz, cut_db}`) EQs the narration bus only and re-assembles without re-narrating. Restyling or retiming the cursor needs no recapture: FFmpeg composites it from `cursor.json`.
 
+## Cache housekeeping
+
+Deliverables never live only in the cache. Every render copies its MP4 and VTT to `<slug>-draft.*` or `<slug>-final.*` beside `storyboard.json` (the storyboard `slug`, else the dir name), through a temp file in the same dir and a rename, checked by size and sha256. Deleting `.cache/` loses no video; it costs only a re-render, and re-paying for whatever paid outputs it held.
+
+- `walkthrough_render.rb walkthrough/<slug> --cache-report` prints the cache size per category (`render`, `frames`, `stills`, `audio`, `music`, `images`, `broll`, `roasts`, `icons`, other files).
+- `walkthrough_render.rb walkthrough/<slug> --prune [--dry-run]` keeps the current manifest's render dir (soft and burned), the frames of every scene still in the board (draft and final keys), the stills of scenes still in the board, and every content-keyed paid or slow output (`audio`, `music`, `images`, `broll`, `pronunciation`, `icons`), which it never prunes. It drops superseded render dirs, frames and stills of scenes no longer in the board, and cached roast responses (`roasts/`) and stale temp files older than the retention. With no `manifest.json` it keeps every render; while any scene's frames key cannot be computed it keeps every frames dir. `--dry-run` lists each entry and the bytes it would reclaim and deletes nothing. `--final` runs the prune itself after its deliverable is verified.
+- Retention: `CF_WALKTHROUGH_RETENTION_DAYS`, default 14. Roast keyframes and round files live in `roast/`, outside the cache, and are never pruned.
+- Safety: the prune works only inside the dir's `.cache`. It walks with lstat, never descends into or deletes a symlink, refuses any path whose real location is outside the cache, and refuses outright when `.cache` is a symlink it did not create.
+- Size warning: any render prints a warning when the cache passes `CF_WALKTHROUGH_CACHE_WARN_GB` (default 2).
+- Location: set `CF_WALKTHROUGH_CACHE_ROOT` (for example `~/Library/Caches/change-fabric/walkthrough`) and the next render points `.cache` at `<root>/<dir name>-<first 16 hex of sha256 of the dir's real path>` with a symlink, so the key is stable per dir and two dirs never share one. Containers mount the link's target at its own path. An existing real `.cache` dir is left in place with a warning; move its contents to the printed path and delete it to switch.
+
+Safe for sync: a walkthrough dir inside a synced folder (iCloud Drive, Dropbox, OneDrive, a Desktop or Documents sync) replicates every frame and draft to every device. Set `CF_WALKTHROUGH_CACHE_ROOT` to a local, unsynced path, keep `.cache` (now a small symlink) out of the sync where the client allows exclusions, and let only the storyboard, sidecars, and the `<slug>-draft` and `<slug>-final` deliverables sync. Run `--prune --dry-run` before a big sync.
+
 ## Keys and licensing
 
 - Keys come from the environment, the secrets env file named by `CF_SECRETS_ENV`, or this project's enrolled source in `~/.claude/cf/secrets.yml`: `ELEVEN_LABS_API_KEY` (fallback `ELEVENLABS_API_KEY`) `OPENAI_API_KEY`, and `GEMINI_API_KEY` (b-roll only; a missing one degrades b-roll scenes to their fallback). A key is looked up only when that provider is needed; a fully cached run needs no keys. Exit 4 with a `cf_enroll` line means this project has no key source recorded: enroll it and re-run, see `skills/walkthrough/reference/key-enrollment.md`. A recorded source missing the key is a named error. Never print or write a key.
@@ -121,10 +134,11 @@ Same manifest hash and same image digests mean the same timeline, the same frame
 walkthrough/<slug>/
   storyboard.json  storyboard.md  manifest.json  ASSUMPTIONS.md  THIRD_PARTY_NOTICES
   screens/<scene-id>.html  screens/tokens.css  screens/mock-store.js  screens/assets/
-  data/seed.json  flats.json  .gitignore (.cache/ flats/ *.mp4 overview*.png)
+  <slug>-draft.mp4  <slug>-draft.vtt  <slug>-final.mp4  <slug>-final.vtt  (deliverables, ignored)
+  data/seed.json  flats.json  .gitignore (.cache/ .cache flats/ *.mp4 *.vtt overview*.png)
   flats/  index.md  light/  dark/  (generated, ignored)
   roast/  round-N.json  round-N.md  round-N.response.json  keyframes/
-  .cache/  frames/  audio/  music/  images/  broll/  icons/  render/<manifest_hash>/
+  .cache/  frames/  stills/  audio/  music/  images/  broll/  icons/  roasts/  render/<manifest_hash>/  (or a symlink under CF_WALKTHROUGH_CACHE_ROOT)
 ```
 
 ## Done when
@@ -133,4 +147,4 @@ walkthrough/<slug>/
 - Every scene has a requirement or assumption, cites `heuristics_shown`, and its narration is present tense with no concept framing.
 - `flats/` is rendered for every IA screen and key state in both themes, with `index.md` and both overview boards.
 - `ASSUMPTIONS.md` and `THIRD_PARTY_NOTICES` are current.
-- The user reviewed the draft, and the final MP4 path, manifest hash, and MP4 sha256 are reported, and the MP4 is published to the request's PR or issue when there is one.
+- The user reviewed the draft, and the final MP4 path (`<slug>-final.mp4`), manifest hash, and MP4 sha256 are reported, and the MP4 is published to the request's PR or issue when there is one.

@@ -16,6 +16,7 @@ require_relative 'elevenlabs'
 require_relative 'ffmpeg_watchdog'
 require_relative 'walkthrough_env'
 require_relative 'walkthrough_ffmpeg'
+require_relative 'walkthrough_housekeeping'
 require_relative 'walkthrough_live'
 require_relative 'walkthrough_manifest'
 require_relative 'walkthrough_roast'
@@ -777,6 +778,7 @@ module WalkthroughRender
     def call(estimate_only: false)
       WalkthroughEnv.load_secrets
       WalkthroughStoryboard.validate!(@board, root: @root)
+      WalkthroughHousekeeping.ensure_location!(@root).each { |line| say(line) }
       WalkthroughCache.ensure_gitignore(@root)
       estimate
       sharpness!
@@ -802,16 +804,86 @@ module WalkthroughRender
       say("b-roll spend about $#{format('%.2f', @budget.spent)}") if @budget.spent.positive?
       say("manifest #{manifest['manifest_hash']}")
       say("mp4 #{Digest::SHA256.file(mp4).hexdigest} #{mp4}")
-      { manifest: manifest, mp4: mp4 }
+      paths = deliver(mp4)
+      warning = WalkthroughHousekeeping.size_warning(@root)
+      say(warning) if warning
+      { manifest: manifest, mp4: mp4, deliverable: paths }
+    end
+
+    # -- housekeeping ---------------------------------------------------------
+
+    def slug = @board['slug'].to_s.empty? ? File.basename(@root) : @board['slug']
+
+    # Copies the render out of the cache to <slug>-draft.mp4 or
+    # <slug>-final.mp4 (and the VTT). Only once a final is verified on disk
+    # does the cache get pruned.
+    def deliver(mp4)
+      paths = WalkthroughHousekeeping.deliver(@root, slug, mp4, final: @final)
+      say("deliverable #{paths[:mp4]}")
+      prune if @final
+      paths
+    end
+
+    # Drops superseded renders, dead frames and stills, and aged roast
+    # responses; paid audio, music, images, and b-roll always stay.
+    def prune(dry_run: false)
+      plan = WalkthroughHousekeeping.plan(@root, keep: prune_keep)
+      WalkthroughHousekeeping.apply!(plan, @root) unless dry_run
+      WalkthroughHousekeeping.describe(plan, dry_run: dry_run).each { |line| say(line) }
+      plan
+    end
+
+    def cache_report
+      sizes = WalkthroughHousekeeping.report(@root)
+      sizes.each { |cat, n| say(format('%-14s %s', cat, WalkthroughHousekeeping.human(n))) }
+      say(format('%-14s %s', 'total', WalkthroughHousekeeping.human(sizes.values.sum)))
+      sizes
+    end
+
+    # What a prune must keep. A nil category keeps all of it: the render dir
+    # cannot be named without manifest.json, and frames are kept whole while
+    # any scene's key cannot be computed (a from_scene parent not captured).
+    def prune_keep
+      { render: current_render_dirs, frames: live_frame_keys, stills: scenes.map { |s| s['id'] } }
+    end
+
+    def current_render_dirs
+      path = File.join(@root, 'manifest.json')
+      unless File.file?(path)
+        say('prune: no manifest.json, keeping every render')
+        return nil
+      end
+
+      base = File.basename(render_dir(JSON.parse(File.read(path)))).delete_suffix('-burn')
+      [ base, "#{base}-burn" ]
+    end
+
+    def live_frame_keys
+      keys = [ false, true ].flat_map { |final| WalkthroughStoryboard.recompute_keys(@board, @root, final: final).values }
+                            .map { |k| k['frames_key'] }
+      return keys.uniq unless keys.include?(nil)
+
+      say('prune: a scene frames key cannot be computed yet, keeping every frames dir')
+      nil
     end
   end
 end
 
 if __FILE__ == $PROGRAM_NAME
   usage = 'usage: walkthrough_render.rb walkthrough/<slug> [--scene <id>] [--draft|--final] [--estimate-only] [--max-usd <n>] [--burn-captions] ' \
-          '[--allow-ux-findings] [--allow-roast-findings] [--no-roast] [--allow-sensitive] [--roast-max-usd <run cap>] [--recapture]'
+          '[--allow-ux-findings] [--allow-roast-findings] [--no-roast] [--allow-sensitive] [--roast-max-usd <run cap>] [--recapture]' \
+          "\n       walkthrough_render.rb walkthrough/<slug> --prune [--dry-run] | --cache-report"
   dir = ARGV.first
   abort(usage) if dir.nil? || dir.start_with?('--')
+  if ARGV.include?('--prune') || ARGV.include?('--cache-report')
+    begin
+      run = WalkthroughRender::Run.new(dir)
+      ARGV.include?('--prune') ? run.prune(dry_run: ARGV.include?('--dry-run')) : run.cache_report
+    rescue WalkthroughHousekeeping::Error => e
+      abort(e.message)
+    end
+    exit 0
+  end
   scene = ARGV.include?('--scene') ? (ARGV[ARGV.index('--scene') + 1] || abort(usage)) : nil
   abort('--draft and --final are exclusive') if ARGV.include?('--draft') && ARGV.include?('--final')
   max_usd = ARGV.include?('--max-usd') ? (ARGV[ARGV.index('--max-usd') + 1] || abort(usage)).to_f : BRoll::DEFAULT_CEILING_USD

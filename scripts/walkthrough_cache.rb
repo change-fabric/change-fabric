@@ -11,8 +11,10 @@ require 'json'
 module WalkthroughCache
   # Everything generated and heavy stays out of version control: the cache
   # (which holds every rendered MP4), the flats folder with its index and
-  # overview boards, and any stray MP4 or overview PNG.
-  GITIGNORE_LINES = [ '.cache/', 'flats/', '*.mp4', 'overview*.png' ].freeze
+  # overview boards, any MP4 or caption sidecar (the <slug>-draft and
+  # <slug>-final deliverables), and any overview PNG. `.cache` without the
+  # slash also covers a .cache symlink (CF_WALKTHROUGH_CACHE_ROOT).
+  GITIGNORE_LINES = [ '.cache/', '.cache', 'flats/', '*.mp4', '*.vtt', 'overview*.png' ].freeze
 
   module_function
 
@@ -59,7 +61,6 @@ module WalkthroughCache
     file = File.join(walkthrough_dir, '.gitignore')
     existing = File.exist?(file) ? File.read(file) : ''
     have = existing.lines.map(&:strip)
-    have << '.cache/' if have.include?('.cache')
     missing = GITIGNORE_LINES - have
     return file if missing.empty?
 
