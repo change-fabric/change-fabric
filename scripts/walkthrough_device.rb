@@ -16,7 +16,8 @@ require_relative 'walkthrough_sharpness'
 # `"device": "phone-fullbleed"` films the phone frameless instead: captured
 # at the board's `phone_fullbleed` CSS viewport (default 390 wide, height
 # from the canvas aspect) at the dpr that fills the canvas, scaled edge to
-# edge with no bezel, mat, or band, and a subtle scrim under the captions.
+# edge with no bezel, mat, or band, and a smooth scrim under the captions
+# (board `captions.scrim`: gradient, the default, or none).
 module WalkthroughDevice
   DEVICES = %w[desktop phone].freeze
   LAYOUTS = %w[single side_by_side].freeze
@@ -30,11 +31,16 @@ module WalkthroughDevice
   FULLBLEED_KEYS = %w[w h].freeze
   FULLBLEED_W = 390
   ASPECT_SLACK = 0.01
-  # The caption scrim: SCRIM_STEPS stacked bands of the bezel ink, each
-  # SCRIM_ALPHA, ramping darker toward the bottom over SCRIM of the height.
+  # The caption scrim: one continuous alpha ramp of the bezel ink over the
+  # bottom SCRIM of the height, from clear at the top to SCRIM_ALPHA at the
+  # bottom, eased by SCRIM_EASE so it has no visible edge or steps.
   SCRIM = 0.24
-  SCRIM_STEPS = 4
-  SCRIM_ALPHA = 0.12
+  SCRIM_ALPHA = 0.6
+  SCRIM_EASE = 1.6
+  SCRIMS = %w[gradient none].freeze
+  CAPTION_KEYS = %w[scrim burn].freeze
+  # Burned captions with no scrim get an outline and shadow instead (libass).
+  NO_SCRIM_STYLE = 'BorderStyle=1,Outline=2,Shadow=1,OutlineColour=&H00161716,BackColour=&H80000000'
   # Bezel thickness in device CSS px (phone) and canvas px (desktop frame).
   PHONE_BEZEL_CSS = 14
   DESKTOP_BEZEL = 6
@@ -100,6 +106,22 @@ module WalkthroughDevice
     layout(board, scene).rect('phone').scale.round(4)
   end
 
+  # The board's caption scrim under full-bleed scenes: gradient or none.
+  def scrim(board)
+    cap = board['captions']
+    (cap.is_a?(Hash) && cap['scrim']) || 'gradient'
+  end
+
+  # The libass force_style for burned captions: an outline and shadow when
+  # the board drops the scrim, nil (the default style) otherwise.
+  def caption_style(board) = scrim(board) == 'none' ? NO_SCRIM_STYLE : nil
+
+  # False only when the board asks for sidecar-only captions.
+  def caption_track?(board)
+    cap = board['captions']
+    !(cap.is_a?(Hash) && cap['burn'] == false)
+  end
+
   def phone(board) = DEFAULT_PHONE.merge(board['phone'] || {})
 
   def board_viewport(board) = PrototypeCapture::DEFAULT_VIEWPORT.merge(board['viewport'] || {})
@@ -143,7 +165,19 @@ module WalkthroughDevice
 
   # -- validation ----------------------------------------------------------
 
-  def board_errors(board) = phone_errors(board) + fullbleed_errors(board)
+  def board_errors(board) = phone_errors(board) + fullbleed_errors(board) + caption_errors(board)
+
+  def caption_errors(board)
+    cap = board['captions']
+    return [] if cap.nil?
+    return [ 'captions must be an object' ] unless cap.is_a?(Hash)
+
+    unknown = cap.keys - CAPTION_KEYS
+    errs = unknown.empty? ? [] : [ "captions has unknown keys: #{unknown.join(', ')}" ]
+    errs << "captions.scrim must be one of #{SCRIMS.join(', ')}" if cap.key?('scrim') && !SCRIMS.include?(cap['scrim'])
+    errs << 'captions.burn must be true or false' if cap.key?('burn') && ![ true, false ].include?(cap['burn'])
+    errs
+  end
 
   def fullbleed_errors(board)
     fb = board['phone_fullbleed']
@@ -247,7 +281,7 @@ module WalkthroughDevice
   # The phone fills the whole canvas: scale is canvas px per CSS px.
   def fullbleed_layout(board, vp)
     rect = Rect.new(name: 'phone', scale: vp['w'].to_f / fullbleed_viewport(board)['w'], x: 0, y: 0, w: vp['w'], h: vp['h'], bezel: 0)
-    Layout.new(rects: [ rect ], canvas_w: vp['w'], canvas_h: vp['h'], scrim: true)
+    Layout.new(rects: [ rect ], canvas_w: vp['w'], canvas_h: vp['h'], scrim: scrim(board) == 'gradient')
   end
 
   def full_bleed(vp) = Rect.new(name: 'desktop', scale: 1.0, x: 0, y: 0, w: vp['w'], h: vp['h'], bezel: 0)
@@ -298,18 +332,20 @@ module WalkthroughDevice
       "#{chain.join(',')}[d#{i}]"
     end
     chain = overlay_chain(lay.rects)
-    chain[-1] = "[d0]#{scrim_filter}[out]" if lay.scrim
+    chain[-1] = "#{scrim_filter(lay)}[out]" if lay.scrim
     (parts + chain).join(';')
   end
 
-  # The caption scrim: stacked drawbox bands of the bezel ink over the
-  # bottom SCRIM of the frame, so burned or overlaid captions read on any
-  # screen without a reserved band.
-  def scrim_filter
-    (0...SCRIM_STEPS).map do |k|
-      top = format('%.4f', 1 - (SCRIM * (SCRIM_STEPS - k) / SCRIM_STEPS))
-      "drawbox=x=0:y=ih*#{top}:w=iw:h=ih:color=#{BEZEL}@#{SCRIM_ALPHA}:t=fill"
-    end.join(',')
+  # The caption scrim: one generated strip of the bezel ink whose alpha
+  # ramps continuously down the bottom SCRIM of the frame, built once
+  # (trim to one frame) and held under every frame by overlay, so burned
+  # or overlaid captions read on any screen without a reserved band.
+  def scrim_filter(lay)
+    h = (lay.canvas_h * SCRIM).round
+    r, g, b = BEZEL.delete_prefix('0x').scan(/../).map { |c| c.to_i(16) }
+    alpha = "255*#{SCRIM_ALPHA}*pow(Y/(H-1),#{SCRIM_EASE})"
+    "color=c=#{BEZEL}:s=#{lay.canvas_w}x#{h},format=rgba,geq=r=#{r}:g=#{g}:b=#{b}:a='#{alpha}',trim=end_frame=1[scrim];" \
+      "[d0][scrim]overlay=x=0:y=#{lay.canvas_h - h}"
   end
 
   # Stacks every later frame onto the first, ending in [out].

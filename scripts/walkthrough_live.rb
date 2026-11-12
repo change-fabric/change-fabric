@@ -315,6 +315,7 @@ module WalkthroughLive
                          duration_ms: PrototypeCapture.scene_duration(scene), browser: browser_opts(board),
                          devices: WalkthroughDevice.specs(board, scene), layout: WalkthroughDevice.layout_name(scene),
                          stage: WalkthroughSharpness.stage_size(board, scene),
+                         **(WalkthroughDevice.fullbleed?(scene) ? { scrim: WalkthroughDevice.scrim(board), scrim_version: 2 } : {}),
                          **(WalkthroughBrowserFrame.browser?(scene) ? { frame: WalkthroughBrowserFrame.material(scene) } : {}),
                          **(WalkthroughInset.inset?(scene) ? { inset: WalkthroughInset.material(scene) } : {}),
                          browserless: PrototypeCapture.browserless_digest, capture_version: CAPTURE_VERSION)

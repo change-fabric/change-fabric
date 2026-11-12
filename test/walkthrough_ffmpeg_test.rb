@@ -100,6 +100,15 @@ class WalkthroughFfmpegTest < Minitest::Test
     assert_equal %w[-movflags +faststart /work/r/walkthrough.mp4], argv.last(3)
   end
 
+  def test_caption_style_and_sidecar_only
+    burned = graph(WalkthroughFfmpeg.pass2(plan.merge(burn_captions: true, caption_style: "Outline=2,Shadow=1"), MEASURED))
+    assert_includes burned, "[j2]subtitles=filename='/work/r/captions.srt':force_style='Outline=2,Shadow=1',format=yuv420p[vout]"
+    argv = WalkthroughFfmpeg.pass2(plan.merge(burn_captions: true, caption_track: false), MEASURED)
+    assert_empty graph(argv).grep(/subtitles=/)
+    refute_includes argv, "/work/r/captions.srt"
+    refute_includes argv, "mov_text"
+  end
+
   def test_subtitles_filter_only_when_burning
     soft = graph(WalkthroughFfmpeg.pass2(plan, MEASURED))
     assert_empty soft.grep(/subtitles=/)

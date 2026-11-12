@@ -249,10 +249,13 @@ module WalkthroughFfmpeg
       acc = "j#{i}"
     end
     # Captions are soft (a mov_text track) unless the plan asks to burn them in.
-    burn = plan[:burn_captions] ? "subtitles=filename='#{plan[:srt]}'," : ''
+    # caption_track false means sidecar files only: nothing burned or muxed.
+    burn = plan[:burn_captions] && plan[:caption_track] != false ? "subtitles=filename='#{plan[:srt]}'#{caption_style(plan)}," : ''
     parts << "[#{acc}]#{burn}format=yuv420p[vout]"
     parts
   end
+
+  def caption_style(plan) = plan[:caption_style] ? ":force_style='#{plan[:caption_style]}'" : ''
 
   # -- audio graph ---------------------------------------------------------
 
@@ -388,9 +391,10 @@ module WalkthroughFfmpeg
   def pass2(plan, measured)
     io = audio_inputs(plan)
     graph = video_graph(plan) + audio_graph(plan, pass2_loudnorm(measured))
-    head + [ '-progress', 'pipe:1', '-nostats' ] + inputs(plan, with_video: true) +
-      [ '-i', plan[:srt], '-filter_complex', graph.join(';'), '-map', '[vout]', '-map', '[aout]', '-map', "#{io[:next]}:s",
-        '-c:s', 'mov_text' ] + DETERMINISM + [ '-t', seconds(plan[:total_ms]), '-movflags', '+faststart', plan[:output] ]
+    subs = plan[:caption_track] == false ? [] : [ '-i', plan[:srt] ]
+    track = subs.empty? ? [] : [ '-map', "#{io[:next]}:s", '-c:s', 'mov_text' ]
+    head + [ '-progress', 'pipe:1', '-nostats' ] + inputs(plan, with_video: true) + subs +
+      [ '-filter_complex', graph.join(';'), '-map', '[vout]', '-map', '[aout]' ] + track + DETERMINISM + [ '-t', seconds(plan[:total_ms]), '-movflags', '+faststart', plan[:output] ]
   end
 
   # Output seconds past which pass 2 is a runaway: timeline + max(5s, 5%).

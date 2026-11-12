@@ -166,10 +166,29 @@ class WalkthroughDeviceTest < Minitest::Test
 
   def test_fullbleed_scrim_filter
     filter = WalkthroughDevice.filter(WalkthroughDevice.layout(VERTICAL, FULL))
-    assert filter.start_with?("[0:v]scale=1080:1920:flags=lanczos,setsar=1,pad=1080:1920:0:0:color=0xE6E7EB[d0];[d0]drawbox=")
-    assert_equal 4, filter.scan("color=0x16171A@0.12:t=fill").size
-    assert_includes filter, "y=ih*0.7600"
-    assert filter.end_with?("[out]")
+    assert filter.start_with?("[0:v]scale=1080:1920:flags=lanczos,setsar=1,pad=1080:1920:0:0:color=0xE6E7EB[d0];")
+    assert_includes filter, "color=c=0x16171A:s=1080x461,format=rgba,geq=r=22:g=23:b=26:a='255*0.6*pow(Y/(H-1),1.6)',trim=end_frame=1[scrim]"
+    assert filter.end_with?("[d0][scrim]overlay=x=0:y=1459[out]")
+    refute_includes filter, "drawbox", "one continuous ramp, no stepped bands"
+  end
+
+  def test_fullbleed_scrim_none
+    board = VERTICAL.merge("captions" => { "scrim" => "none" })
+    lay = WalkthroughDevice.layout(board, FULL)
+    refute lay.scrim
+    assert_equal "[0:v]scale=1080:1920:flags=lanczos,setsar=1,pad=1080:1920:0:0:color=0xE6E7EB[d0];[d0]null[out]", WalkthroughDevice.filter(lay)
+    assert_includes WalkthroughDevice.caption_style(board), "Outline=2"
+    assert_nil WalkthroughDevice.caption_style(VERTICAL)
+  end
+
+  def test_caption_board_errors
+    assert_empty WalkthroughDevice.board_errors(VERTICAL.merge("captions" => { "scrim" => "gradient", "burn" => false }))
+    assert_equal [ "captions must be an object" ], WalkthroughDevice.board_errors(VERTICAL.merge("captions" => "none"))
+    errs = WalkthroughDevice.board_errors(VERTICAL.merge("captions" => { "scrim" => "steps", "burn" => "no", "size" => 1 }))
+    assert_equal [ "captions has unknown keys: size", "captions.scrim must be one of gradient, none",
+                   "captions.burn must be true or false" ], errs
+    assert WalkthroughDevice.caption_track?(VERTICAL)
+    refute WalkthroughDevice.caption_track?(VERTICAL.merge("captions" => { "burn" => false }))
   end
 
   def test_fullbleed_sprite_scaling
@@ -190,8 +209,10 @@ class WalkthroughDeviceTest < Minitest::Test
   end
 
   def test_existing_modes_unchanged_by_fullbleed
-    [ {}, scene([ "phone" ]), scene(%w[desktop phone], "side_by_side") ].each do |sc|
-      lay = WalkthroughDevice.layout(BOARD, sc)
+    none = BOARD.merge("captions" => { "scrim" => "none" })
+    [ {}, scene([ "phone" ]), scene(%w[desktop phone], "side_by_side") ].product([ BOARD, none ]).each do |sc, board|
+      lay = WalkthroughDevice.layout(board, sc)
+      assert_equal WalkthroughDevice.filter(WalkthroughDevice.layout(BOARD, sc)), WalkthroughDevice.filter(lay)
       assert_nil lay.scrim
       refute_includes WalkthroughDevice.filter(lay), "drawbox"
       assert_in_delta 1.0, WalkthroughDevice.sprite_scale(BOARD, sc)
