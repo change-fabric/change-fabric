@@ -30,6 +30,7 @@ Mode defaults to `thorough`.
 | sub-question | the part one scope agent owns | whole change | thorough | `{{sub_question}}` |
 | ledger | verbatim interview answers | none | thorough | `{{decisions_ledger}}` |
 | findings | scope agent reports, verbatim | none | thorough | `{{research_findings}}` |
+| visuals note | plan.md `## Visuals` after step 7b | empty | thorough | `{{visuals_note}}` |
 
 The thorough workflow template keeps its own `FILL:` markers, filled by the
 writing agent from the plan, not from these params.
@@ -375,6 +376,15 @@ user only, a fenced handoff prompt for a fresh session.
 7. **Write.** One writing agent (`model: opus`) from the research prompt's
    writing section, with the full ledger and every finding pasted verbatim.
    Never two writers.
+   It ends plan.md with `## Visuals` per `cf:plan`'s scale rule
+   (`skills/plan/SKILL.md` step 7). Keep its id for 7a and 7b.
+7a. **Visualize** exactly as `cf:plan` step 7a: one background diagram agent
+   from `skills/plan/reference/visualize-prompt.md`, skipped when the list is
+   empty, never a writer of the plan files.
+7b. **Roast** exactly as `cf:plan` step 7b, in this session, estimate first:
+   at most 2 rounds and 0.50 USD in total, the same failure handling, and the
+   writing agent appends `## Roast`. Do not restate those steps here; follow
+   `skills/plan/SKILL.md`. Quick mode never runs this roast.
 8. **Verify what landed.** All must pass:
 
    ```bash
@@ -393,7 +403,8 @@ user only, a fenced handoff prompt for a fresh session.
 9. **Record a pointer.** Pipe `Thorough plan for <target>: <plan_dir>` to
    `ruby ~/.claude/cf/bin/ctx_store.rb capture --name thorough-<slug> --class
    active --desc "Thorough planning set for <target>, in flight."`.
-10. **Emit the handoff.** Fill `reference/thorough/handoff-prompt.md`, print
+10. **Emit the handoff.** Fill `reference/thorough/handoff-prompt.md`
+    (`{{visuals_note}}` per that file), print
     it as the final message in one fenced block, say plainly that nothing
     has run, report the tier, the interview rounds, and which decisions the
     answers changed. Stop.

@@ -87,6 +87,10 @@ Write these files, using the tilde form for every path you write as text.
      checklist` (numbered steps with STOP points and owner OKs),
      `## Rollback` (levels, least drastic first).
    - `## Failure modes and responses`.
+   - `## Visuals`: the visuals cf:plan's scale rule calls for, one line each
+     (file name, type, purpose). Do not draw them. With none, it reads "None
+     (single-PR, single-subsystem plan)." Later you will be asked to fill it
+     from the diagram agent's return and to append `## Roast`.
    Every total must be the length of a list beside it; count the list.
 
 2. goal.md: what done looks like and why, no implementation detail. HARD CAP

@@ -1,6 +1,11 @@
 Fill every `{{placeholder}}` with the tilde form of each path, then print the
 fenced block below as the final message. No commentary inside the fence.
 
+`{{visuals_note}}` is empty when plan.md's `## Visuals` reads "None".
+Otherwise it reads: "Visuals in diagrams/ are illustrative; plan.md wins on
+any conflict. Roast score and any open P0/P1 are in plan.md's ## Roast
+section."
+
 ```markdown
 Execute the thorough plan at {{plan_path}}.
 
@@ -43,4 +48,5 @@ Ground rules:
 
 Repo: {{repo_path}}
 Change: {{target}} ({{base}} .. {{head}}), tier {{tier}}
+{{visuals_note}}
 ```
