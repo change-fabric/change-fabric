@@ -48,8 +48,9 @@ module WalkthroughLive
   ENV_RE = /\A[A-Z_][A-Z0-9_]*\z/
   HOST_RE = /\A[A-Za-z0-9.-]+:[0-9A-Fa-f:.]+\z/
   TIMEOUT_MS = 30_000
-  # The bound on waiting, after a navigate run's last frame, for the page
-  # to go quiet before its session is exported.
+  # The bound on waiting at a navigate cut for the destination to paint,
+  # and after a navigate run's last frame for the page to go quiet before
+  # its session is exported.
   NAVIGATE_WAIT_MS = 5000
   # 95, not 90: q90 costs about 6 dB PSNR on small text against a PNG of
   # the same page (39.6 vs 45.4), more than the final x264 encode loses; q95
@@ -579,9 +580,29 @@ module WalkthroughLive
         const st = { pos: { x: dev.w / 2, y: dev.h / 2 }, from: null, down: false, resting: null };
         st.from = st.pos;
         const dispatch = (#{PrototypeCapture::DISPATCH_JS})(page, { aim, mobile: !!dev.mobile, st });
-        const t0 = Date.now();
+        let t0 = Date.now();
         for (let i = 0; i < job.events.length; i++) {
+          const leaving = job.cutFrame !== undefined && i === job.cutFrame ? page.url() : null;
           for (const ev of job.events[i]) await dispatch(ev);
+          // The cut: the incoming scene's first frame must show the painted
+          // destination, never a blank page mid-load. Recording pauses (the
+          // outgoing scene already holds its last frame before the tap),
+          // the run waits for the new document, network idle, fonts and two
+          // animation frames, then resumes from a fresh shot; the clock
+          // shifts by the wait, so it adds no video time.
+          if (leaving !== null) {
+            const paused = Date.now();
+            if (job.shots) await sampler.detach();
+            const until = paused + #{NAVIGATE_WAIT_MS};
+            while (page.url() === leaving && Date.now() < until) await sleep(25);
+            await safe(() => page.waitForNetworkIdle({ idleTime: 200, timeout: Math.max(until - Date.now(), 1) }), null);
+            await safe(() => page.evaluate(() => document.fonts.ready.then(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))))), null);
+            if (job.shots) {
+              sampler.seed((await client.send("Page.captureScreenshot", { format: "jpeg", quality: #{JPEG_QUALITY} })).data);
+              await sampler.attach(client);
+            }
+            t0 += Date.now() - paused;
+          }
           await sleep(t0 + i * stepMs - Date.now());
           for (const href of await safe(() => page.evaluate(() => (window.__cfLinks || []).splice(0)), [])) { links.push(href); linkFrames.push(i); }
           if (job.expectUrl && i >= job.cutFrame) reached.add(canon(page.url()));

@@ -5,6 +5,7 @@ require "base64"
 require "digest"
 require "fileutils"
 require "json"
+require "open3"
 require_relative "../scripts/walkthrough_render"
 
 # Real captures in the pinned browserless image. A prototype page records
@@ -109,7 +110,46 @@ class WalkthroughFluidMotionDockerTest < Minitest::Test
     assert_match(/tap-navigate never reached the next scene's url about:blank#elsewhere/, error.message)
   end
 
+  # A full page load: the destination is a new document. The first incoming
+  # frame must show it painted, not the old page or a blank one mid-load.
+  def test_navigate_run_first_incoming_frame_shows_the_painted_destination
+    dest = "<!doctype html><html><body style='margin:0;background:#c03'><h1 style='font:64px sans-serif;color:#fff'>Detail</h1></body></html>"
+    # A blob URL is a real top-level document load (Chromium refuses a
+    # top-level data: navigation), so the URL is only known in the page.
+    href = "https://app.localhost/detail"
+    feed = "<!doctype html><html><body style='margin:0;background:#fff'><a id='next' " \
+           "style='display:block;margin:200px 40px;padding:40px;background:#246;color:#fff'>Go</a>" \
+           "<script>document.getElementById('next').href = URL.createObjectURL(new Blob([#{JSON.generate(dest)}], { type: 'text/html' }));</script></body></html>"
+    board = { "fps" => 30, "viewport" => { "w" => 1080, "h" => 1920 }, "transition" => { "type" => "push", "ms" => 300 }, "scenes" => [
+      { "id" => "feed", "order" => 1, "device" => "phone-fullbleed", "screen" => { "url" => "about:blank" },
+        "interactions" => [ { "t_ms" => 300, "op" => "tap", "target" => "#next", "navigate" => true } ] },
+      { "id" => "detail", "order" => 2, "device" => "phone-fullbleed", "screen" => { "url" => href },
+        "session_from_scene" => "feed", "timing" => { "min_ms" => 600 } }
+    ] }
+    cut = WalkthroughLive.navigate_cut(board, board["scenes"][0])
+    job = WalkthroughLive.run_job(board, board["scenes"][0], board["scenes"][1], PHONE, WalkthroughLive::Secrets.new([]), cut, shots: true)
+                        .merge("html" => feed, "expectUrl" => nil)
+    run = film(board, board["scenes"][0], job)
+    _, tail = WalkthroughLive::NavigateRun.split(run, cut)
+    assert_equal job["events"].size - cut["cut_frame"], tail["ticks"].size, "the wait adds no frames"
+    keep(tail, "incoming")
+    first = Base64.decode64(run["frames"][tail["ticks"].first])
+    assert_operator red_share(first), :>, 0.5, "the first incoming frame shows the painted destination"
+  end
+
   private
+
+  # The share of pixels that are the destination's red, via the pinned ffmpeg.
+  def red_share(jpg)
+    Dir.mktmpdir do |dir|
+      File.binwrite(File.join(dir, "f.jpg"), jpg)
+      argv = ChangeDocker.run_command(network: "none", image: ChangeDocker::FFMPEG_IMAGE, mounts: { dir => "/w" },
+                                      args: [ "-v", "error", "-i", "/w/f.jpg", "-vf", "scale=20:20", "-f", "rawvideo", "-pix_fmt", "rgb24", "/w/f.rgb" ])
+      Open3.capture2e(*argv)
+      px = File.binread(File.join(dir, "f.rgb")).bytes.each_slice(3).to_a
+      px.count { |r, g, b| r > 150 && g < 80 && b < 100 }.fdiv(px.size)
+    end
+  end
 
   # The page's state after each frame's input, by frame index. Frame k's
   # input runs once the clock reaches (k + 1) frames, so a record strictly
