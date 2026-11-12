@@ -456,7 +456,7 @@ class WalkthroughLiveTest < Minitest::Test
     WalkthroughLive.capture(session: session, board: {}, scene: scene, out_dir: nil, secrets: WalkthroughLive::Secrets.new([]), shots: false)
     code, args = launches.first
     assert_equal [ "--disable-lcd-text", "--force-device-scale-factor=2" ], args
-    assert_includes code, "maxWidth: dev.w * dev.dpr"
+    assert_includes code, "maxWidth: Math.ceil(dev.w * dev.dpr)"
     assert_includes code, '"dpr":2'
     assert_includes code, "await page.evaluateOnNewDocument(hideCursor);"
     assert_includes code, "await page.evaluate(hideCursor);"
