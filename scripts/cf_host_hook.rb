@@ -16,6 +16,7 @@ require_relative 'away_answer'
 require_relative 'slop_remind'
 require_relative 'key_paste_guard'
 require_relative 'secrets_read_guard'
+require_relative 'key_enrollment_prompt'
 
 # Native wire-format adapter. No host-specific mode policy belongs here.
 class CfHostHook
@@ -234,7 +235,8 @@ class CfHostHook
       return [ capture(SlopRemind.new(event, skills: @skills)).dig('hookSpecificOutput', 'additionalContext') ].compact
     end
     if @event == 'SessionStart'
-      return [ capture(SkillDetect.new(event, skills: @skills)).dig('hookSpecificOutput', 'additionalContext') ].compact
+      return [ capture(SkillDetect.new(event, skills: @skills)).dig('hookSpecificOutput', 'additionalContext'),
+               KeyEnrollmentPrompt.new(@payload, home: @home).context ].compact
     end
     return [] unless @event == 'PostToolUse' && successful_tool?
 

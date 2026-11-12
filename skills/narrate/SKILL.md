@@ -1,6 +1,7 @@
 ---
 name: cf:narrate
 group: workflow
+providers: [elevenlabs]
 description: Narration command. Turns text, a script file, or a storyboard.json (all scenes or one with --scene) into ElevenLabs narration audio, a character alignment JSON, and an SRT, cached by content key, with a cost estimate printed before any paid call. Voice, model, and output format are overridable. Paid, so it runs only when invoked by name or loaded by cf:walkthrough, never auto-applied or chosen on a model guess. Usable alone, outside any walkthrough.
 ---
 

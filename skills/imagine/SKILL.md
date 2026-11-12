@@ -1,6 +1,7 @@
 ---
 name: cf:imagine
 group: workflow
+providers: [openai]
 description: Imagines 3 to 5 divergent options for the creative direction of any it (UI, brand, campaign, art, video), lets the human pick or cherry-pick elements across options, then runs 2 to 3 rounds of background critic review converging on one production-ready creative plan. Working files stay out of git; the outcome is one numbered record at docs/creative/NNNN-slug.md that cf:design folds into DESIGN.md. Free by default; --images and --roast are paid and opt-in.
 ---
 

@@ -11,6 +11,7 @@ require_relative 'scripts/merge_mode_slug'
 require_relative 'scripts/skill_compiler'
 require_relative 'scripts/native_hook_install'
 require_relative 'scripts/cf_install_manifest'
+require_relative 'scripts/skill_providers'
 
 # Installs the cf merge-mode shim: hook scripts, the skill symlink, and the
 # settings.json wiring. Internals are namespaced so the file stays one unit.
@@ -471,7 +472,7 @@ module Install
 
   class Installer
     HOOKS = {
-      'SessionStart' => %w[skill_detect.rb ctx_session_start.rb doctrine_digest.rb secret_alert_poll.rb],
+      'SessionStart' => %w[skill_detect.rb ctx_session_start.rb doctrine_digest.rb secret_alert_poll.rb key_enrollment_prompt.rb],
       'PreToolUse' => %w[secrets_read_guard.rb client_name_guard.rb slop_remind.rb review_gate.rb noreply_guard.rb docker_doctrine_guard.rb change_merge_guard.rb change_tag_guard.rb change_stale_remind.rb presence_probe.rb],
       'PostToolUse' => %w[skill_inject.rb secret_ack.rb change_post_merge_check.rb],
       'UserPromptSubmit' => %w[key_paste_guard.rb prune_remind.rb inbox_prompt_hook.rb],
@@ -485,6 +486,8 @@ module Install
     end
 
     def install
+      # First, so an unknown provider fails the install before anything moves.
+      @required_providers = SkillProviders.collect(@paths.skill_sources)
       migrate_state_root
       migrate_merge_mode_slugs
       place_hooks
@@ -728,7 +731,8 @@ module Install
       launcher = File.expand_path('../../bin/cf', @paths.runtime_root)
       files.delete(launcher) unless File.file?(launcher) && !File.symlink?(launcher) && File.read(launcher).include?('# change-fabric managed launcher')
       home = File.expand_path('../../..', @paths.runtime_root)
-      CfInstallManifest.new(path: File.join(@paths.runtime_root, 'installation.json'), home: home).record(files)
+      CfInstallManifest.new(path: File.join(@paths.runtime_root, 'installation.json'), home: home)
+                       .record(files, 'required_providers' => @required_providers)
     end
 
     def wire_native_hooks
@@ -789,6 +793,7 @@ module Install
       puts "  codex hooks -> #{@paths.codex_hooks} (host trust/configuration still applies)"
       puts "  copilot hooks -> #{@paths.copilot_hooks} (CLI only)"
       puts "  settings -> #{@paths.settings} (backup at #{settings.backup_path})"
+      puts "  #{SkillProviders.report(@required_providers)}"
     end
   end
 end
