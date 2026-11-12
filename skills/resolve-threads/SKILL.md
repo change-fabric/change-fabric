@@ -85,17 +85,17 @@ run reports that it assumed the default.
        ruby scripts/roast.rb --kind code --text <thread.md> --text <diff.patch> \
          --text <options.md> --brief <brief.md> \
          --audience "PR maintainer" --purpose "pick the correct resolution" \
-         --out-dir .cache/roast/resolve-<pr>/<threadId> --estimate-only
+         --out-dir .cache/roast/tiebreak-<pr>/<threadId> --estimate-only
 
    then the real call with `--max-usd` set to the run's remaining budget.
    One round per thread, at most 0.50 USD per run summed over the
    estimates: once the next estimate would cross it, stop tiebreaking and
    every remaining thread stays needs_human. A confident pick (the critic
    names one option and no P0 argues against it) is acted on: a wont-fix
-   pick is replied to and resolved; a fix pick gets one small apply pass (a
+   pick is replied to and resolved [RT-3]; a fix pick gets one small apply pass (a
    background agent in the thread's worktree that runs the thread's tests,
    then commits on `repoPath`; on red it reverts and the thread stays
-   needs_human) and is resolved under RT-6. Each counts as `tiebroken` and
+   needs_human) and is resolved under [RT-6]. Each counts as `tiebroken` and
    leaves `needsHuman`. Not confident, contested, roast.rb exit 4 (no key)
    or a sensitive-term refusal: the thread stays needs_human, its reply
    carries the critic's leaning when there was one, and the report gets one
