@@ -95,10 +95,10 @@ class WalkthroughFluidMotionTest < Minitest::Test
     plan = PrototypeCapture.schedule([ { "t_ms" => 100, "op" => "scroll", "target" => "html", "dy" => 220, "ms" => 900 } ], 40)
     glides = plan.each_index.select { |i| plan[i]["glide"] }
     assert_equal (3..29).to_a, glides, "27 frames of a 900 ms glide at 30 fps from frame 3"
-    dys = glides.map { |i| plan[i]["glide"]["dy"] }
+    dys = glides.map { |i| plan[i]["glide"][0]["dy"] }
     assert_equal 220.0, dys.last
-    assert plan[3]["glide"]["first"]
-    refute plan[4]["glide"]["first"]
+    assert plan[3]["glide"][0]["first"]
+    refute plan[4]["glide"][0]["first"]
     assert_nil plan[3]["scroll"], "a glide never jumps"
     steps = dys.each_cons(2).map { |a, b| b - a }
     assert steps.all?(&:positive?), "monotonic"
@@ -106,7 +106,7 @@ class WalkthroughFluidMotionTest < Minitest::Test
     want = (1..27).map { |k| (220 * PrototypeCapture.cubic_bezier(0.42, 0, 0.58, 1, k / 27.0)).round(2) }
     assert_equal want, dys
     lin = PrototypeCapture.schedule([ { "t_ms" => 0, "op" => "scroll", "target" => "html", "dy" => 90, "ms" => 100, "ease" => "linear" } ], 5)
-    assert_equal [ 30.0, 60.0, 90.0 ], lin.first(3).map { |e| e["glide"]["dy"] }
+    assert_equal [ 30.0, 60.0, 90.0 ], lin.first(3).map { |e| e["glide"][0]["dy"] }
   end
 
   # -- taps --------------------------------------------------------------
@@ -119,6 +119,19 @@ class WalkthroughFluidMotionTest < Minitest::Test
     long = PrototypeCapture.schedule([ { "t_ms" => 0, "op" => "tap", "target" => "#x", "press_ms" => 5000, "navigate" => true } ], 10)
     assert_equal([ { "target" => "#x", "navigate" => true } ], long.last["tap"], "a press longer than the scene releases on its last frame")
     assert_includes PrototypeUxLint.lint_frames(plan, 30), 13
+  end
+
+  def test_overlapping_glides_on_two_targets_both_run
+    plan = PrototypeCapture.schedule([ { "t_ms" => 0, "op" => "scroll", "target" => "#feed", "dy" => 300, "ms" => 900 },
+                                       { "t_ms" => 100, "op" => "scroll", "target" => "#side", "dy" => 50, "ms" => 900 } ], 40)
+    assert_equal 300.0, plan[26]["glide"].find { |g| g["target"] == "#feed" }["dy"]
+    assert_equal %w[#feed #side], plan[10]["glide"].map { |g| g["target"] }
+  end
+
+  def test_navigate_waits_for_the_destination_before_exporting
+    js = WalkthroughLive.run_device_js(nav_board, nav_board["scenes"][0])
+    assert_includes js, "while (page.url() === tapped.from"
+    assert_includes js, "out.tap = { x: tapped.x, y: tapped.y }"
   end
 
   def test_taps_releasing_on_one_frame_both_land
@@ -160,8 +173,8 @@ class WalkthroughFluidMotionTest < Minitest::Test
   def test_navigate_tap_hands_its_point_to_the_next_scene
     b = nav_board
     js = WalkthroughLive.run_device_js(b, b["scenes"][1])
-    assert_includes js, "if (tap.navigate) tapped = { x: pos.x, y: pos.y };"
-    assert_includes js, "if (tapped) out.tap = tapped;"
+    assert_includes js, "if (tap.navigate) tapped = { x: pos.x, y: pos.y, from: page.url() };"
+    assert_includes js, "if (tapped) out.tap = { x: tapped.x, y: tapped.y };"
     assert_includes js, "let pos = entered ? { x: entered.x, y: entered.y }"
     assert_includes js, "tap-navigate landed on"
     plan = WalkthroughLive.job(b, b["scenes"][0], WalkthroughDevice.specs(b, b["scenes"][0]).first,

@@ -456,7 +456,8 @@ module PrototypeCapture
     (1..span).each do |k|
       entry = plan[start + k - 1] or break
       p = ease(op['ease'] || DEFAULT_SCROLL_EASE, k.to_f / span)
-      entry['glide'] = { 'target' => op['target'], 'dx' => (op['dx'].to_i * p).round(2), 'dy' => (op['dy'].to_i * p).round(2),
+      # A list: glides on different targets may overlap, and each must run.
+      (entry['glide'] ||= []) << { 'target' => op['target'], 'dx' => (op['dx'].to_i * p).round(2), 'dy' => (op['dy'].to_i * p).round(2),
                          'first' => k == 1 }
     end
   end
@@ -684,7 +685,7 @@ module PrototypeCapture
               else el.scrollBy({ left: s.dx || 0, top: s.dy || 0, behavior: "instant" });
             }, step.scroll);
           }
-          if (step.glide) await page.evaluate(#{GLIDE_JS}, step.glide);
+          for (const glide of step.glide || []) await page.evaluate(#{GLIDE_JS}, glide);
           if (step.press) {
             pos = await center(step.press);
             resting = step.press;

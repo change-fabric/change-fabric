@@ -45,6 +45,9 @@ module WalkthroughLive
   ENV_RE = /\A[A-Z_][A-Z0-9_]*\z/
   HOST_RE = /\A[A-Za-z0-9.-]+:[0-9A-Fa-f:.]+\z/
   TIMEOUT_MS = 30_000
+  # The bound on waiting for a navigate tap's destination before the
+  # session is exported.
+  NAVIGATE_WAIT_MS = 5000
   # 95, not 90: q90 costs about 6 dB PSNR on small text against a PNG of
   # the same page (39.6 vs 45.4), more than the final x264 encode loses; q95
   # adds about a fifth to frame bytes.
@@ -552,7 +555,7 @@ module WalkthroughLive
           // a bare target is scrolled into view, at `block` (center by default).
           if (step.scroll) await safe(() => page.evaluate((s) => { const el = document.querySelector(s.target); if (!el) return; if (s.dx === undefined && s.dy === undefined) el.scrollIntoView({ block: s.block || "center" }); else el.scrollBy({ left: s.dx || 0, top: s.dy || 0, behavior: "instant" }); }, step.scroll), null);
           // A gliding scroll sets one eased offset per frame tick.
-          if (step.glide) await safe(() => page.evaluate(#{PrototypeCapture::GLIDE_JS}, step.glide), null);
+          for (const glide of step.glide || []) await safe(() => page.evaluate(#{PrototypeCapture::GLIDE_JS}, glide), null);
           if (step.press) {
             const to = await aim(step.press);
             if (!to) throw new Error(`tap target not found: ${step.press}`);
@@ -570,7 +573,7 @@ module WalkthroughLive
             resting = tap.target;
             if (dev.mobile) { await page.touchscreen.tap(pos.x, pos.y); }
             else { await page.mouse.move(pos.x, pos.y); await page.mouse.down(); await page.mouse.up(); }
-            if (tap.navigate) tapped = { x: pos.x, y: pos.y };
+            if (tap.navigate) tapped = { x: pos.x, y: pos.y, from: page.url() };
           }
           if (step.hover) { const to = await aim(step.hover); if (to) { pos = to; if (!dev.mobile) await page.mouse.move(pos.x, pos.y); } resting = step.hover; }
           if (step.click) {
@@ -673,8 +676,16 @@ module WalkthroughLive
                    bubbles: [...document.querySelectorAll(".bubble, .cfm-out")].map((b) => b.textContent),
                    view: view ? view.className : null, cta: val("cta", "className") };
         }), null) : null;
+        // A navigate tap near the scene's end may still be in flight: wait
+        // (bounded) for the URL to change and the page to go quiet, so the
+        // exported session is the destination's, not the page tapped on.
+        if (tapped) {
+          const until = Date.now() + #{NAVIGATE_WAIT_MS};
+          while (page.url() === tapped.from && Date.now() < until) await sleep(50);
+          await safe(() => page.waitForNetworkIdle({ idleTime: 200, timeout: Math.max(until - Date.now(), 1) }), null);
+        }
         const out = await dumpSession(page, client);
-        if (tapped) out.tap = tapped;
+        if (tapped) out.tap = { x: tapped.x, y: tapped.y };
         if (context) await context.close();
         return { name: dev.name, frames: sampled.frames, ticks: sampled.ticks, cursor, pageErrors, lint, devices, overlays, links, composed, inset, insetHi, insetError, session: out };
       };
