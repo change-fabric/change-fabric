@@ -115,10 +115,34 @@ class WalkthroughFluidMotionTest < Minitest::Test
     plan = PrototypeCapture.schedule([ { "t_ms" => 300, "op" => "tap", "target" => "#buy" } ], 30)
     assert_equal "#buy", plan[9]["press"]
     assert_equal 9 + 4, plan.index { |e| e["tap"] }, "default 120 ms press is 4 frames at 30 fps"
-    assert_equal({ "target" => "#buy", "navigate" => false }, plan[13]["tap"])
+    assert_equal([ { "target" => "#buy", "navigate" => false } ], plan[13]["tap"])
     long = PrototypeCapture.schedule([ { "t_ms" => 0, "op" => "tap", "target" => "#x", "press_ms" => 5000, "navigate" => true } ], 10)
-    assert_equal({ "target" => "#x", "navigate" => true }, long.last["tap"], "a press longer than the scene releases on its last frame")
+    assert_equal([ { "target" => "#x", "navigate" => true } ], long.last["tap"], "a press longer than the scene releases on its last frame")
     assert_includes PrototypeUxLint.lint_frames(plan, 30), 13
+  end
+
+  def test_taps_releasing_on_one_frame_both_land
+    plan = PrototypeCapture.schedule([ { "t_ms" => 0, "op" => "tap", "target" => "#a", "press_ms" => 200 },
+                                       { "t_ms" => 100, "op" => "tap", "target" => "#b", "press_ms" => 100 } ], 20)
+    assert_equal %w[#a #b], plan[6]["tap"].map { |t| t["target"] }
+  end
+
+  def test_navigate_url_check_canonicalizes
+    js = WalkthroughLive.run_device_js(nav_board, nav_board["scenes"][1])
+    assert_includes js, "canon(session.url) !== canon(job.url)"
+    assert_includes js, "new URL(u).href"
+  end
+
+  def test_navigate_tap_must_come_from_the_session_device
+    b = nav_board
+    b["scenes"][0].delete("device")
+    b["scenes"][0]["devices"] = %w[desktop phone]
+    b["scenes"][0]["layout"] = "side_by_side"
+    b["scenes"][0]["interactions"] = { "desktop" => [], "phone" => [ { "t_ms" => 0, "op" => "tap", "target" => "#n", "navigate" => true } ] }
+    b["phone"] = { "w" => 390, "h" => 844, "dpr" => 2 }
+    assert_includes errors(b), "a navigate tap must be in the desktop interactions"
+    b["scenes"][0]["interactions"] = { "desktop" => [ { "t_ms" => 0, "op" => "tap", "target" => "#n", "navigate" => true } ], "phone" => [] }
+    refute_includes errors(b), "navigate tap must be in"
   end
 
   def test_press_state_is_injected_only_for_taps
@@ -136,13 +160,13 @@ class WalkthroughFluidMotionTest < Minitest::Test
   def test_navigate_tap_hands_its_point_to_the_next_scene
     b = nav_board
     js = WalkthroughLive.run_device_js(b, b["scenes"][1])
-    assert_includes js, "if (step.tap.navigate) tapped = { x: pos.x, y: pos.y };"
+    assert_includes js, "if (tap.navigate) tapped = { x: pos.x, y: pos.y };"
     assert_includes js, "if (tapped) out.tap = tapped;"
     assert_includes js, "let pos = entered ? { x: entered.x, y: entered.y }"
     assert_includes js, "tap-navigate landed on"
     plan = WalkthroughLive.job(b, b["scenes"][0], WalkthroughDevice.specs(b, b["scenes"][0]).first,
                                WalkthroughLive::Secrets.new([]), compose: nil, shots: true)["plan"]
-    assert_equal({ "target" => "#next", "navigate" => true }, plan[34]["tap"])
+    assert_equal([ { "target" => "#next", "navigate" => true } ], plan[34]["tap"])
   end
 
   def test_new_keys_change_the_frames_key

@@ -528,7 +528,10 @@ module WalkthroughLive
         // A scene entered by a tap-navigate starts where that tap landed, so
         // the cursor and ripple carry across the cut, and on the page it led to.
         const entered = session.tap || null;
-        if (entered && job.url && session.url && session.url !== job.url) {
+        // Compared as parsed URLs, so browser canonicalization (an origin's
+        // trailing slash, a default port) is not a mismatch.
+        const canon = (u) => { try { return new URL(u).href; } catch (e) { void e; return u; } };
+        if (entered && job.url && session.url && canon(session.url) !== canon(job.url)) {
           throw new Error(`tap-navigate landed on ${session.url}, not this scene's url ${job.url}`);
         }
         let pos = entered ? { x: entered.x, y: entered.y } : { x: dev.w / 2, y: dev.h / 2 };
@@ -559,15 +562,15 @@ module WalkthroughLive
             await safe(() => page.evaluate(#{PrototypeCapture::PRESS_JS}, step.press, true, pressCss), null);
             down = true;
           }
-          if (step.tap) {
-            await safe(() => page.evaluate(#{PrototypeCapture::PRESS_JS}, step.tap.target, false, pressCss), null);
-            const to = await aim(step.tap.target);
-            if (!to) throw new Error(`tap target not found: ${step.tap.target}`);
+          for (const tap of step.tap || []) {
+            await safe(() => page.evaluate(#{PrototypeCapture::PRESS_JS}, tap.target, false, pressCss), null);
+            const to = await aim(tap.target);
+            if (!to) throw new Error(`tap target not found: ${tap.target}`);
             pos = to;
-            resting = step.tap.target;
+            resting = tap.target;
             if (dev.mobile) { await page.touchscreen.tap(pos.x, pos.y); }
             else { await page.mouse.move(pos.x, pos.y); await page.mouse.down(); await page.mouse.up(); }
-            if (step.tap.navigate) tapped = { x: pos.x, y: pos.y };
+            if (tap.navigate) tapped = { x: pos.x, y: pos.y };
           }
           if (step.hover) { const to = await aim(step.hover); if (to) { pos = to; if (!dev.mobile) await page.mouse.move(pos.x, pos.y); } resting = step.hover; }
           if (step.click) {

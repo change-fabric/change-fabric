@@ -471,7 +471,8 @@ module PrototypeCapture
     plan[start]['press'] = op['target']
     span = [ frame_count((op['press_ms'] || PRESS_MS).to_i, fps), 1 ].max
     release = plan[start + span] || plan.last
-    release['tap'] = { 'target' => op['target'], 'navigate' => op['navigate'] == true }
+    # A list: two taps may release on the same frame, and each must land.
+    (release['tap'] ||= []) << { 'target' => op['target'], 'navigate' => op['navigate'] == true }
   end
 
   def schedule_type(plan, op, fps)
@@ -691,10 +692,10 @@ module PrototypeCapture
             await page.evaluate(#{PRESS_JS}, step.press, true, #{JSON.generate(PRESS_CSS)});
             down = true;
           }
-          if (step.tap) {
-            await page.evaluate(#{PRESS_JS}, step.tap.target, false, #{JSON.generate(PRESS_CSS)});
-            pos = await center(step.tap.target);
-            resting = step.tap.target;
+          for (const tap of step.tap || []) {
+            await page.evaluate(#{PRESS_JS}, tap.target, false, #{JSON.generate(PRESS_CSS)});
+            pos = await center(tap.target);
+            resting = tap.target;
             await page.mouse.move(pos.x, pos.y);
             await page.mouse.down();
             await page.mouse.up();

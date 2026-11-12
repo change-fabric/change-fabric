@@ -425,6 +425,11 @@ module WalkthroughStoryboard
     errs = []
     errs << 'a navigate tap must be the last interaction of its scene' unless lists.all? { |l| navs.include?(Array(l).last) || Array(l).none? { |op| navs.include?(op) } }
     errs << 'only one navigate tap per scene' if navs.size > 1
+    # The scene hands on its first device's session, so that device navigates.
+    lead = WalkthroughDevice.devices(scene).first
+    if scene['interactions'].is_a?(Hash) && Array(scene['interactions'][lead]).none? { |op| navs.include?(op) }
+      errs << "a navigate tap must be in the #{lead} interactions (the session the next scene starts from)"
+    end
     list = scenes(board)
     nxt = list[list.index(scene).to_i + 1]
     unless nxt && WalkthroughLive.live?(nxt) && nxt['session_from_scene'] == scene['id']
