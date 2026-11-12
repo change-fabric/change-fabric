@@ -2,7 +2,6 @@ import { useEffect } from "react";
 import { Layout } from "../components/Layout";
 import { CodeBlock } from "../components/CodeBlock";
 import { CURRENT_VERSION, specPath } from "../spec";
-import { SUBTITLE } from "../components/Logo";
 import { MediaSlot } from "../components/MediaSlot";
 
 // The four audit lanes the gate boots an app for. Category leads, the tool is
@@ -126,6 +125,16 @@ function useFabricLight() {
   }, []);
 }
 
+// The phone-width stand-in for the poster's diagram, which is too small to
+// read at 375 px. Same lanes and tools the walkthrough shows.
+const HERO_CHECKS: [string, string][] = [
+  ["Load", "k6 load run"],
+  ["Accessibility", "axe-core scan"],
+  ["Security", "ZAP baseline"],
+  ["Responsive UX", "Viewport sweep"],
+  ["Test cases", "Committed cases"],
+];
+
 export function Home() {
   useFabricLight();
   return (
@@ -134,10 +143,10 @@ export function Home() {
         <section className="hero" aria-labelledby="hero-title">
           <p className="hero-eyebrow">Local-first release quality</p>
           <h1 id="hero-title">Quality before merge.</h1>
-          <p className="hero-subtitle">{SUBTITLE}</p>
+          <p className="hero-subtitle">An open-source spec and agent skills that check your app locally, in containers.</p>
           <p className="hero-copy">
-            Run load, accessibility, security and responsive checks against your app, booted
-            locally in containers, before a change merges.
+            Load, accessibility, security and responsive checks run against your booted app
+            before a change merges.
           </p>
           <div className="hero-actions">
             <a className="btn" href="#get-started">
@@ -148,6 +157,20 @@ export function Home() {
             </a>
           </div>
           <MediaSlot slot="walkthrough-self" />
+          <div className="hero-checks" aria-labelledby="hero-checks-title">
+            <p className="hero-checks-title" id="hero-checks-title">
+              Five checks, one report
+            </p>
+            <ul className="hero-checks-list">
+              {HERO_CHECKS.map(([lane, tool]) => (
+                <li key={lane}>
+                  <span className="hero-checks-lane">{lane}</span>
+                  <span className="hero-checks-tool">{tool}</span>
+                </li>
+              ))}
+            </ul>
+            <p className="hero-checks-gate">They roll up into one report that gates the pull request.</p>
+          </div>
           <div className="harnesses" aria-labelledby="harnesses-title">
             <p className="harnesses-title" id="harnesses-title">
               Works with your coding agents

@@ -4,7 +4,7 @@
   "slots": {
     "walkthrough-self": {
       "kind": "video",
-      "title": "change fabric in 45 seconds",
+      "title": "change fabric walkthrough",
       "src": "0d14a86ac4e6.mp4",
       "poster": "e65c3c3d37d3.jpg",
       "vtt": "82a5ad80220b.vtt",
@@ -13,7 +13,7 @@
       "width": 1920,
       "height": 1080,
       "bytes": 2007267,
-      "alt": "change fabric in 45 seconds: a narrated walkthrough of the toolkit gating a pull request",
+      "alt": "change fabric walkthrough: a narrated walkthrough of the toolkit gating a pull request",
       "transcript": "Your agents write code faster than anyone can review it. Change fabric checks every change before it lands. One CHANGE.md per repo: what to test, what is protected. Every enabled lane runs: load, accessibility, security, responsive UX, and test cases. Findings land in one report. The gate records the result for the head commit, and only a pass lets the merge or release tag through. Ship agent-written code with proof, not hope. Change fabric."
     }
   }

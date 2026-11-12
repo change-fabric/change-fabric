@@ -26,10 +26,9 @@ export function formatDuration(ms: number): string {
   return `${minutes}:${String(seconds).padStart(2, "0")}`;
 }
 
-// The caption beside the runtime badge. The alt text usually opens with the
-// title ("change fabric in 45 seconds: a narrated walkthrough"), and that
-// rounded duration next to the exact badge reads as a contradiction, so the
-// caption keeps only what follows the title.
+// The caption under the player. The alt text usually opens with the title
+// ("change fabric walkthrough: a narrated walkthrough"), which the thumbnail
+// already shows, so the caption keeps only what follows the title.
 export function captionText(entry: Pick<MediaEntry, "title" | "alt">): string {
   const prefix = `${entry.title}: `;
   if (!entry.alt.startsWith(prefix) || entry.alt.length === prefix.length) return entry.alt;

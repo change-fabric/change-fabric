@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import manifest from "../generated/media.json";
+import { Mark } from "./Logo";
 import { activeWordIndex, captionText, formatDuration, highlightLoop, type MediaEntry, type Word } from "../media";
 
 const SLOTS = (manifest as { slots: Record<string, MediaEntry> }).slots;
@@ -126,9 +127,35 @@ function MediaFigure({ entry }: { entry: MediaEntry }) {
           {started ? track : null}
         </video>
         {started ? null : (
-          <button type="button" className="media-slot-play" onClick={start}>
-            {entry.poster ? <img src={entry.poster} alt="" {...sized} loading="lazy" decoding="async" /> : null}
-            {icon}
+          // The designed thumbnail: the woven mark on a plum ground, the
+          // poster crop over it under a scrim, then the title and play mark.
+          // A missing poster leaves the mark and ground, never a blank block.
+          // The runtime is only in the accessible name, not on screen. The
+          // whole surface is one native button, so a click, a tap, Enter and
+          // Space all reach start().
+          <button type="button" className="media-slot-play media-slot-thumb" onClick={start}>
+            <Mark size={96} className="media-slot-thumb-emblem" />
+            {entry.poster ? (
+              <img
+                className="media-slot-thumb-image"
+                src={entry.poster}
+                alt=""
+                {...sized}
+                loading="lazy"
+                decoding="async"
+                onError={(event) => {
+                  event.currentTarget.hidden = true;
+                }}
+              />
+            ) : null}
+            <span className="media-slot-thumb-scrim" aria-hidden="true" />
+            <span className="media-slot-thumb-bar" aria-hidden="true">
+              {icon}
+              <span className="media-slot-thumb-title">
+                <Mark size={20} />
+                {entry.title}
+              </span>
+            </span>
             <span className="sr-only">
               Play video: {entry.title} ({duration})
             </span>
@@ -156,7 +183,7 @@ function MediaFigure({ entry }: { entry: MediaEntry }) {
       {player}
       {entry.kind === "video" ? (
         <figcaption className="media-slot-caption">
-          <span className="media-slot-duration">{duration}</span> {captionText(entry)}
+          {captionText(entry)}
         </figcaption>
       ) : null}
       {unavailable ? (

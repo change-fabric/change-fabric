@@ -2,7 +2,8 @@
 // like sun moving across cloth over a day. The cloth never moves; only the
 // light does. The texture's own luminance is the height map, so the weave's
 // ridges catch the light and throw soft shade. It renders on demand (one
-// frame per scroll change, nothing while still) and backs out to the static
+// eased step per animation frame while the light travels, nothing while
+// still) and backs out to the static
 // CSS texture on reduced motion, automation, no WebGL2, or a lost context.
 
 const VERT = `#version 300 es
@@ -84,8 +85,17 @@ export function mount(shell: HTMLElement): () => void {
   let visible = true;
   let frame = 0;
   let url = "";
+  // The sun eases toward the scroll position instead of snapping to it. A
+  // wheel notch or a scroll restore moves scrollY by 100 px or more in one
+  // event, which is a fifth of the whole arc; drawn as is, the pool of light
+  // jumps. Each frame closes a fixed share of the gap per elapsed time, so
+  // the glide is the same at 60 and 120 Hz and stops once it has settled.
+  let shown = -1;
+  let last = 0;
+  let ground: [number, number, number] = [0, 0, 0];
+  const target = () => Math.min(Math.max(scrollY / (innerHeight / 2), 0), 1);
 
-  const draw = () => {
+  const draw = (now: number) => {
     frame = 0;
     if (!ready || gl.isContextLost()) return;
     const dpr = Math.min(devicePixelRatio, 2);
@@ -97,7 +107,13 @@ export function mount(shell: HTMLElement): () => void {
       canvas.height = h;
       gl.viewport(0, 0, w, h);
     }
-    const p = Math.min(Math.max(scrollY / (innerHeight / 2), 0), 1);
+    const goal = target();
+    if (shown < 0) shown = goal;
+    const dt = last ? Math.min(now - last, 100) : 16;
+    shown += (goal - shown) * (1 - Math.exp(-dt / 220));
+    if (Math.abs(goal - shown) < 0.0005) shown = goal;
+    last = shown === goal ? 0 : now;
+    const p = shown;
     const dark = url.includes("dark");
     gl.uniform2f(u("res"), w, h);
     gl.uniform2f(u("sun"), 0.1 + 0.9 * p, 0.65 - 0.5 * Math.sin(Math.PI * p));
@@ -108,11 +124,11 @@ export function mount(shell: HTMLElement): () => void {
     const boost = dark ? 1.6 : 1;
     gl.uniform1f(u("gain"), dark ? 2.5 : 1);
     gl.uniform1f(u("boost"), boost);
-    const ground = getComputedStyle(document.body).backgroundColor.match(/[\d.]+/g)?.map(Number) ?? [0, 0, 0];
-    gl.uniform3f(u("bg"), ground[0] / 255, ground[1] / 255, ground[2] / 255);
+    gl.uniform3f(u("bg"), ground[0], ground[1], ground[2]);
     canvas.style.setProperty("--fabric-light-boost", String(boost));
     gl.drawArrays(gl.TRIANGLES, 0, 3);
     canvas.setAttribute("data-live", "");
+    if (shown !== goal) request();
   };
   const request = () => {
     if (visible && !document.hidden && !frame) frame = requestAnimationFrame(draw);
@@ -127,6 +143,9 @@ export function mount(shell: HTMLElement): () => void {
       if (url !== next) return;
       gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, im);
       gl.uniform2f(u("img"), im.naturalWidth, im.naturalHeight);
+      // Read the page ground once per theme, not once per frame.
+      const rgb = getComputedStyle(document.body).backgroundColor.match(/[\d.]+/g)?.map(Number) ?? [0, 0, 0];
+      ground = [rgb[0] / 255, rgb[1] / 255, rgb[2] / 255];
       ready = true;
       request();
     };
