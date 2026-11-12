@@ -43,6 +43,7 @@ class WalkthroughManifestTest < Minitest::Test
     assert_equal({ "fps" => 30, "total_frames" => 90, "total_ms" => 3000 }, m["timeline"])
     assert_match(/\A\h{64}\z/, m["scenes"][0]["frames_key"])
     assert_equal WalkthroughManifest.music_key(board, 3000), m["music_key"]
+    assert_equal WalkthroughDuck::VERSION, m["music_duck"]
     assert_equal WalkthroughManifest.manifest_hash(m), m["manifest_hash"]
   end
 

@@ -74,7 +74,8 @@ class WalkthroughCaptionsTest < Minitest::Test
       { offset_ms: 5000, alignment: alignment(" ") },
       { offset_ms: 9000, alignment: alignment("Ok") }
     ])
-    assert_equal [ { start_ms: 0, end_ms: 200, db: -10 }, { start_ms: 9000, end_ms: 9200, db: -12 } ], spans
+    assert_equal [ { start_ms: 0, end_ms: 200, db: -10, attack_ms: 300, release_ms: 500 },
+                   { start_ms: 9000, end_ms: 9200, db: -8, attack_ms: 300, release_ms: 500 } ], spans
   end
 
   def test_cues_split_at_silent_gaps_in_either_line_position

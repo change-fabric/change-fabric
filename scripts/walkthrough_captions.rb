@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require_relative 'walkthrough_duck'
+
 # Caption timing from ElevenLabs character alignment: word spans, SRT cues
 # (at most 42 characters per line, 2 lines per cue), and music duck spans
 # per scene offset for the composer.
@@ -108,14 +110,16 @@ module WalkthroughCaptions
     format('%<h>02d:%<m>02d:%<s>02d,%<ms>03d', h: h, m: m, s: s, ms: msr)
   end
 
-  # scenes: [{ offset_ms:, alignment:, duck_db: }]. A duck span covers the
-  # first to last spoken character of each scene, shifted by its offset.
+  # scenes: [{ offset_ms:, alignment:, duck_db:, attack_ms:, release_ms: }]. A
+  # duck span covers the first to last spoken character of each scene, shifted
+  # by its offset; WalkthroughDuck ramps and merges them.
   def duck_spans(scenes)
     scenes.filter_map do |s|
       words = word_spans(s.fetch(:alignment), offset_ms: s.fetch(:offset_ms))
       next if words.empty?
 
-      { start_ms: words.first[:start_ms], end_ms: words.last[:end_ms], db: s.fetch(:duck_db, -12) }
+      { start_ms: words.first[:start_ms], end_ms: words.last[:end_ms], db: s[:duck_db] || WalkthroughDuck::DEFAULT_DB,
+        attack_ms: s[:attack_ms] || WalkthroughDuck::DEFAULT_ATTACK_MS, release_ms: s[:release_ms] || WalkthroughDuck::DEFAULT_RELEASE_MS }
     end
   end
 end

@@ -5,6 +5,7 @@ require 'json'
 require_relative 'change_docker'
 require_relative 'prototype_imagegen'
 require_relative 'walkthrough_cache'
+require_relative 'walkthrough_duck'
 require_relative 'walkthrough_storyboard'
 
 # manifest.json pins everything a render depends on: the storyboard digest,
@@ -39,6 +40,7 @@ module WalkthroughManifest
                     'node' => ChangeDocker::NODE_IMAGE },
       'icons' => { 'phosphor' => pin(ChangeDocker::PHOSPHOR_PKG), 'simple_icons' => pin(ChangeDocker::SIMPLE_ICONS_PKG) },
       'music_key' => music_key(board, line['total_ms']),
+      'music_duck' => WalkthroughDuck::VERSION,
       'timeline' => { 'fps' => line['fps'], 'total_frames' => line['total_frames'], 'total_ms' => line['total_ms'] },
       'scenes' => scenes
     }
