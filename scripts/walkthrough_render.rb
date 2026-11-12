@@ -554,7 +554,14 @@ module WalkthroughRender
         transition: input[:scene].dig('timing', 'transition') || WalkthroughStoryboard::DEFAULT_TRANSITION,
         cursor: drawn_cursor(input), taps: input[:taps], hero_still: input[:scene]['hero_still'] == true,
         camera: input[:scene]['camera'], stage: WalkthroughSharpness.stage_size(@board, input[:scene]),
-        audio: input[:audio] && container(input[:audio]), offset_ms: input[:offset_ms] }
+        audio: input[:audio] && container(input[:audio]), offset_ms: input[:offset_ms] }.merge(sprite_for(input[:scene]))
+    end
+
+    # A full-bleed phone scene grows its cursor and tap sprites; others add nothing.
+    def sprite_for(scene)
+      return {} unless WalkthroughDevice.fullbleed?(scene)
+
+      { sprite: WalkthroughDevice.sprite_scale(@board, scene) }
     end
 
     def docker_argv(args)

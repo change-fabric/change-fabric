@@ -128,4 +128,63 @@ class WalkthroughDeviceTest < Minitest::Test
     assert_includes chain, "[a0][r0]overlay=x='50':y='60'"
     refute_includes WalkthroughFfmpeg.scene_chain(plan, plan[:scenes].first.merge(taps: nil), 0).join, "[r0]"
   end
+
+  VERTICAL = { "viewport" => { "w" => 1080, "h" => 1920 } }.freeze
+  FULL = { "device" => "phone-fullbleed" }.freeze
+
+  def test_fullbleed_scene_and_board_errors
+    assert_empty WalkthroughDevice.scene_errors(FULL)
+    assert_includes WalkthroughDevice.scene_errors(FULL.merge("devices" => [ "phone" ])).join, "takes no devices or layout"
+    assert_includes WalkthroughDevice.scene_errors({ "device" => "tablet" }).join, "device is replaced by devices"
+    assert_empty WalkthroughDevice.board_errors({ "phone_fullbleed" => { "w" => 430, "h" => 764 } })
+    assert_equal [ "phone_fullbleed must be an object" ], WalkthroughDevice.board_errors({ "phone_fullbleed" => 3 })
+    errs = WalkthroughDevice.board_errors({ "phone_fullbleed" => { "w" => 5, "h" => "x", "dpr" => 2 } })
+    assert_equal 3, errs.size
+  end
+
+  def test_fullbleed_geometry
+    spec = WalkthroughDevice.specs(VERTICAL, FULL).first
+    assert_equal [ "phone", 390, 693, 2.7692, true ], spec.values_at("name", "w", "h", "dpr", "mobile")
+    lay = WalkthroughDevice.layout(VERTICAL, FULL)
+    rect = lay.rect("phone")
+    assert_equal [ 0, 0, 1080, 1920, 0 ], [ rect.x, rect.y, rect.w, rect.h, rect.bezel ]
+    assert_in_delta 1080 / 390.0, rect.scale, 1e-9
+    assert_empty WalkthroughDevice.frame_findings(lay)
+    assert_equal "phone fullbleed", WalkthroughDevice.group(FULL, "phone")
+    custom = VERTICAL.merge("phone_fullbleed" => { "w" => 430, "h" => 764 })
+    assert_equal [ 430, 764, 2.5116 ], WalkthroughDevice.specs(custom, FULL).first.values_at("w", "h", "dpr")
+  end
+
+  def test_fullbleed_scrim_filter
+    filter = WalkthroughDevice.filter(WalkthroughDevice.layout(VERTICAL, FULL))
+    assert filter.start_with?("[0:v]scale=1080:1920:flags=lanczos,setsar=1,pad=1080:1920:0:0:color=0xE6E7EB[d0];[d0]drawbox=")
+    assert_equal 4, filter.scan("color=0x16171A@0.12:t=fill").size
+    assert_includes filter, "y=ih*0.7600"
+    assert filter.end_with?("[out]")
+  end
+
+  def test_fullbleed_sprite_scaling
+    assert_in_delta 2.7692, WalkthroughDevice.sprite_scale(VERTICAL, FULL), 1e-9
+    assert_in_delta 1.0, WalkthroughDevice.sprite_scale(BOARD, scene([ "phone" ]))
+    rect = WalkthroughDevice.layout(VERTICAL, FULL).rect("phone")
+    size = WalkthroughDevice::RIPPLE * 2.7692
+    point = WalkthroughDevice.ripple_path(rect, [ { "x" => 195, "y" => 300, "down" => true } ], size).first
+    assert_in_delta 540 - (size / 2), point["x"], 0.01
+    plan = { width: 1080, height: 1920, fps: 30, scenes: [ { id: "a", frames: 1, start_frame: 0, sprite: 2.7692,
+                                                            cursor: [ { "frame" => 1, "x" => 1, "y" => 1 } ], taps: [ point ] } ] }
+    graph = WalkthroughFfmpeg.scene_chain(plan, plan[:scenes][0], 0).join(";")
+    assert_includes graph, "scale=iw*2.7692:ih*2.7692"
+    assert_includes graph, "s=122x122"
+  end
+
+  def test_existing_modes_unchanged_by_fullbleed
+    [ {}, scene([ "phone" ]), scene(%w[desktop phone], "side_by_side") ].each do |sc|
+      lay = WalkthroughDevice.layout(BOARD, sc)
+      assert_nil lay.scrim
+      refute_includes WalkthroughDevice.filter(lay), "drawbox"
+      assert_in_delta 1.0, WalkthroughDevice.sprite_scale(BOARD, sc)
+    end
+    assert_equal "[0:v]scale=1920:1080:flags=lanczos,setsar=1,pad=1920:1080:0:0:color=0xE6E7EB[d0];[d0]null[out]",
+                 WalkthroughDevice.filter(WalkthroughDevice.layout(BOARD, {}))
+  end
 end

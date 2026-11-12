@@ -799,8 +799,11 @@ module WalkthroughLive
       phone = @layout.rect('phone')
       return unless phone
 
-      File.write(File.join(out_dir, 'taps.json'), JSON.pretty_generate(WalkthroughDevice.ripple_path(phone, by_name['phone']['cursor'])))
+      File.write(File.join(out_dir, 'taps.json'), JSON.pretty_generate(WalkthroughDevice.ripple_path(phone, by_name['phone']['cursor'], ripple_size)))
     end
+
+    # The ripple in canvas px, grown with a full-bleed phone's scale.
+    def ripple_size = WalkthroughDevice::RIPPLE * WalkthroughDevice.sprite_scale(@board, @scene)
 
     def report(runs)
       raw = runs.flat_map { |r| Array(r['lint']) } + WalkthroughDevice.frame_findings(@layout)
