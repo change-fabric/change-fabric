@@ -2979,6 +2979,23 @@ code {
   text-align: left;
   color: var(--cream);
   font: inherit;
+  background: radial-gradient(circle at 50% 42%, color-mix(in srgb, var(--lilac) 22%, var(--plum)), var(--plum) 70%);
+}
+
+/* The mark under the poster: what a missing or slow poster leaves showing. */
+.media-slot-thumb-emblem {
+  position: absolute;
+  top: 42%;
+  left: 50%;
+  width: 22%;
+  height: auto;
+  transform: translate(-50%, -50%);
+}
+
+/* The thumbnail is always on plum, so the mark's ink role takes the cream
+   ink in both themes instead of the light theme's plum. */
+.media-slot-frame .media-slot-thumb .mark .mark-l-ink {
+  fill: currentColor;
 }
 
 .media-slot-frame .media-slot-thumb .media-slot-thumb-image {
@@ -2991,7 +3008,7 @@ code {
 .media-slot-thumb-scrim {
   position: absolute;
   inset: 0;
-  background: linear-gradient(to top, rgb(24 12 30 / 0.92) 0%, rgb(24 12 30 / 0.55) 32%, rgb(24 12 30 / 0) 62%);
+  background: linear-gradient(to top, rgb(24 12 30 / 0.88) 0%, rgb(24 12 30 / 0.4) 20%, rgb(24 12 30 / 0) 36%);
 }
 
 .media-slot-thumb-bar {
@@ -3017,38 +3034,17 @@ code {
   height: 1.75rem;
 }
 
-.media-slot-thumb-text {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-  flex: 1;
-}
-
-.media-slot-thumb-kicker {
-  font-family: var(--font-mono);
-  font-size: 0.7rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  opacity: 0.8;
-}
-
 .media-slot-thumb-title {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
   font-family: var(--font-serif);
   font-size: 1.35rem;
   line-height: 1.2;
 }
 
-.media-slot-thumb-chip {
+.media-slot-thumb-title .mark {
   flex: none;
-  align-self: flex-end;
-  padding: 2px var(--s2);
-  border: 1px solid rgb(246 239 224 / 0.45);
-  border-radius: 4px;
-  background: rgb(24 12 30 / 0.6);
-  font-family: var(--font-mono);
-  font-size: 0.8rem;
-  font-variant-numeric: tabular-nums;
 }
 
 .media-slot-thumb:hover .media-slot-thumb-image,
@@ -3080,9 +3076,6 @@ code {
   .media-slot-thumb .media-slot-play-icon svg {
     width: 1.375rem;
     height: 1.375rem;
-  }
-  .media-slot-thumb-kicker {
-    display: none;
   }
   .media-slot-thumb-title {
     font-size: 1.05rem;
