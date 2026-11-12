@@ -62,11 +62,16 @@ module PrototypeCapture
   PRESS_RANGE = (1..1000)
   # The pressed look a tap's target wears for its press frames, injected
   # only into a page that taps, so pages without a tap op never change.
-  # The `scale` property composes with the element's own transform (a
-  # centring translate stays put) instead of replacing it.
-  PRESS_CSS = '.__cf-pressed { scale: 0.96 !important; opacity: 0.82 !important; transition: none !important; }'
+  # The `scale` property composes with the element's own transform instead
+  # of replacing it.
+  PRESS_SCALE = 0.96
+  PRESS_CSS = ".__cf-pressed { scale: #{PRESS_SCALE} !important; opacity: 0.82 !important; transition: none !important; }".freeze
   # In-page helper (a JS function, passed to page.evaluate): toggles the
-  # pressed class on a selector, adding the style sheet on first use.
+  # pressed class on a selector, adding the style sheet on first use. The
+  # scale also shrinks the element's own transform offset (a centring
+  # translate(-50%) would move by 2% of the width), so while pressed it
+  # translates that difference back: the box's centre stays exactly put.
+  # An element with an authored `translate` is left as it is.
   PRESS_JS = <<~JS.chomp
     (sel, on, css) => {
       const el = document.querySelector(sel);
@@ -76,6 +81,20 @@ module PrototypeCapture
         s.id = "__cf-press";
         s.textContent = css;
         (document.head || document.documentElement).appendChild(s);
+      }
+      if (on && !el.classList.contains("__cf-pressed")) {
+        const cs = getComputedStyle(el);
+        if (cs.transform !== "none" && cs.translate === "none") {
+          const m = new DOMMatrixReadOnly(cs.transform);
+          const [ox, oy] = cs.transformOrigin.split(" ").map(parseFloat);
+          const cx = el.offsetWidth / 2 - ox, cy = el.offsetHeight / 2 - oy;
+          const k = 1 - #{PRESS_SCALE};
+          el.dataset.cfPressTranslate = el.style.translate;
+          el.style.translate = `${k * (m.a * cx + m.c * cy + m.e)}px ${k * (m.b * cx + m.d * cy + m.f)}px`;
+        }
+      } else if (!on && "cfPressTranslate" in el.dataset) {
+        el.style.translate = el.dataset.cfPressTranslate;
+        delete el.dataset.cfPressTranslate;
       }
       el.classList.toggle("__cf-pressed", on);
       return true;
