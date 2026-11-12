@@ -33,6 +33,11 @@ module WalkthroughStoryboard
   SCENE_KINDS = [ nil, 'screen', BROLL_KIND, WalkthroughCompose::KIND, WalkthroughMessage::KIND, WalkthroughEnvironment::KIND, WalkthroughDiagram::KIND ].freeze
   BROLL_IMAGE_EXTS = %w[.png .jpg .jpeg .webp].freeze
   BROLL_SECONDS = (1..10)
+  SFX_EXTS = %w[.mp3 .wav .m4a .aac .ogg .flac].freeze
+  # A scene's sound effect: only `file` is required. `duck_db` nil means the
+  # effect never ducks under the voice.
+  SFX_DEFAULTS = { 'start' => 0.0, 'gain_db' => -18, 'duck_db' => nil, 'duck_lead' => 0.1 }.freeze
+  NARRATION_START_MAX = 60
   KEY_KINDS = { 'frames_key' => 'frames', 'audio_key' => 'audio', 'asset_keys' => 'images', 'broll_key' => 'broll' }.freeze
 
   VOICE_EQ_PRESETS = { 'warm' => { 'low_shelf_hz' => 150, 'low_shelf_db' => 3, 'cut_hz' => 3500, 'cut_db' => -2.5 } }.freeze
@@ -172,6 +177,8 @@ module WalkthroughStoryboard
     errors << 'duration_ms is derived and must not be authored' if scene.key?('duration_ms') || scene['timing'].is_a?(Hash) && scene['timing'].key?('duration_ms')
     errors.concat(transition_errors(scene.dig('timing', 'transition')))
     errors.concat(duck_errors(scene['timing']))
+    errors.concat(narration_start_errors(scene))
+    errors.concat(sfx_errors(scene, root))
     errors.concat(camera_errors(scene['camera']))
     errors.concat(scene_interaction_errors(scene))
     Array(scene['hypotheses']).each { |h| errors << "hypothesis #{h} is not in the top-level list" unless hyp_ids.include?(h) }
@@ -260,6 +267,51 @@ module WalkthroughStoryboard
     return [ 'broll.source_image must be inside the walkthrough directory' ] if src.start_with?('/') || src.split('/').include?('..')
     return [ 'broll.source_image must be a png, jpg, or webp' ] unless BROLL_IMAGE_EXTS.include?(File.extname(src).downcase)
     return [ "broll.source_image #{src} does not exist" ] if root && !File.file?(File.join(root, src))
+
+    []
+  end
+
+  # `narration_start` delays the voice line inside its scene. The scene is
+  # sized to fit it (PrototypeCapture.scene_duration), so the only way it
+  # cannot fit is a bad value or no line at all.
+  def narration_start_errors(scene)
+    return [] unless scene.key?('narration_start')
+
+    start = scene['narration_start']
+    unless start.is_a?(Numeric) && start >= 0 && start <= NARRATION_START_MAX
+      return [ "narration_start must be a number of seconds in 0..#{NARRATION_START_MAX} (got #{start.inspect})" ]
+    end
+    return [ "narration_start #{start} needs narration.text: there is no voice line to start late" ] if scene.dig('narration', 'text').to_s.strip.empty?
+
+    []
+  end
+
+  def sfx?(scene) = scene['sfx'].is_a?(Hash)
+
+  def sfx_spec(scene) = SFX_DEFAULTS.merge(scene['sfx'].compact)
+
+  # Resolved like broll.source_image: relative to the storyboard, inside the
+  # walkthrough directory.
+  def sfx_errors(scene, root)
+    return [] unless scene.key?('sfx')
+    return [ 'sfx must be an object with a file' ] unless sfx?(scene)
+
+    spec = sfx_spec(scene)
+    errors = sfx_file_errors(spec['file'].to_s, root)
+    unknown = spec.keys - SFX_DEFAULTS.keys - [ 'file' ]
+    errors << "sfx has unknown keys: #{unknown.join(', ')}" unless unknown.empty?
+    errors << 'sfx.start must be a number of seconds >= 0' unless spec['start'].is_a?(Numeric) && spec['start'] >= 0
+    errors << 'sfx.gain_db must be a number in -60..12' unless spec['gain_db'].is_a?(Numeric) && (-60..12).cover?(spec['gain_db'])
+    errors << 'sfx.duck_db must be a number in -60..0' unless spec['duck_db'].nil? || (spec['duck_db'].is_a?(Numeric) && (-60..0).cover?(spec['duck_db']))
+    errors << 'sfx.duck_lead must be a number of seconds in 0..2' unless spec['duck_lead'].is_a?(Numeric) && (0..2).cover?(spec['duck_lead'])
+    errors
+  end
+
+  def sfx_file_errors(src, root)
+    return [ 'sfx.file is required' ] if src.empty?
+    return [ 'sfx.file must be inside the walkthrough directory' ] if src.start_with?('/') || src.split('/').include?('..')
+    return [ "sfx.file must be one of #{SFX_EXTS.join(', ')}" ] unless SFX_EXTS.include?(File.extname(src).downcase)
+    return [ "sfx.file #{src} does not exist" ] if root && !File.file?(File.join(root, src))
 
     []
   end
@@ -363,7 +415,7 @@ module WalkthroughStoryboard
 
   # -- durations and timeline ----------------------------------------------
 
-  # duration_ms = max(min_ms, measured_ms + pad_ms), per scene id.
+  # duration_ms = max(min_ms, narration_start_ms + measured_ms + pad_ms), per scene id.
   def derive_durations(board)
     scenes(board).to_h { |s| [ s['id'], PrototypeCapture.scene_duration(s) ] }
   end

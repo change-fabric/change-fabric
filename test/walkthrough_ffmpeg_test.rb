@@ -30,6 +30,30 @@ class WalkthroughFfmpegTest < Minitest::Test
 
   def graph(argv) = argv[argv.index("-filter_complex") + 1].split(";")
 
+  # The sfx enters after the music, trimmed to its scene, delayed to its
+  # start, ducked by the shared WalkthroughDuck ramp, then set to its gain.
+  def test_sfx_branch_is_mixed_and_ducked
+    duck = [ { start_ms: 3900, end_ms: 5000, db: -10 } ]
+    p = plan.merge(sfx: [ { path: "/work/sfx/riser.wav", start_ms: 0, max_ms: 6000, gain_db: -17, duck_spans: duck } ])
+    argv = WalkthroughFfmpeg.pass2(p, MEASURED)
+    inputs = argv.each_index.select { |i| argv[i] == "-i" }.map { |i| argv[i + 1] }
+    assert_equal [ "/work/m.mp3", "/work/sfx/riser.wav", "/work/r/captions.srt" ], inputs.last(3)
+    g = graph(argv)
+    expr = WalkthroughDuck.expression(duck, total_ms: 6000)
+    assert_equal "pow(10,(-10.00*clip(min((t-3.600)/0.300,(5.500-t)/0.500),0,1))/20)", expr
+    assert_includes g, "[7:a]#{NORM},atrim=duration=6.000,adelay=delays=0:all=1,volume='#{expr}':eval=frame,volume=-17.0dB,#{BOUND}[fx7]"
+    assert(g.any? { |part| part.start_with?("[n4][n5][mus][fx7]amix=inputs=4:") })
+    assert_equal [ "-map", "8:s" ], argv[argv.rindex("-map"), 2], "subtitles follow the sfx input"
+    pass1 = graph(WalkthroughFfmpeg.pass1(p))
+    assert(pass1.any? { |part| part.start_with?("[3:a]") && part.end_with?("[fx3]") })
+  end
+
+  def test_sfx_without_duck_has_no_volume_expression
+    p = plan.merge(music: nil, sfx: [ { path: "/work/s.mp3", start_ms: 1500, max_ms: 2000, gain_db: -18, duck_spans: [] } ])
+    assert_includes graph(WalkthroughFfmpeg.pass2(p, MEASURED)),
+                    "[6:a]#{NORM},atrim=duration=2.000,adelay=delays=1500:all=1,volume=-18.0dB,#{BOUND}[fx6]"
+  end
+
   def test_pass2_golden_argv
     argv = WalkthroughFfmpeg.pass2(plan, MEASURED)
     inputs = argv.each_index.select { |i| argv[i] == "-i" }.map { |i| argv[i + 1] }

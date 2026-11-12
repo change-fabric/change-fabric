@@ -30,7 +30,7 @@ module WalkthroughManifest
       deps = keys.fetch(entry['id'])
       entry.slice('id', 'start_frame', 'frames', 'duration_ms').merge(
         'frames_key' => deps['frames_key'], 'audio_key' => deps['audio_key'], 'asset_keys' => deps['asset_keys']
-      ).merge(deps.slice('broll_key'))
+      ).merge(deps.slice('broll_key')).merge(sfx_entry(board, root, entry['id']))
     end
     manifest = {
       'schema_version' => SCHEMA_VERSION,
@@ -47,6 +47,16 @@ module WalkthroughManifest
     eq = WalkthroughStoryboard.voice_eq(board)
     manifest['voice_eq'] = eq if eq
     manifest.merge('manifest_hash' => manifest_hash(manifest))
+  end
+
+  # The sfx file's digest, so editing the effect in place re-assembles. Empty
+  # for a scene without one, so existing manifests keep their hash.
+  def sfx_entry(board, root, id)
+    scene = WalkthroughStoryboard.scenes(board).find { |s| s['id'] == id }
+    return {} unless scene && WalkthroughStoryboard.sfx?(scene)
+
+    path = File.join(root, scene['sfx']['file'].to_s)
+    { 'sfx_sha256' => File.file?(path) ? Digest::SHA256.file(path).hexdigest : nil }
   end
 
   def models(board)

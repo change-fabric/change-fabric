@@ -419,8 +419,9 @@ module WalkthroughRender
           align = JSON.parse(File.read(require_file!(WalkthroughCache.path(@cache, :audio, entry['audio_key'], 'alignment.json'),
                                                      "#{entry['id']} alignment")))
         end
+        scene_ms = (entry['start_frame'] * 1000.0 / fps).round
         { entry: entry, scene: scene, dir: dir, cursor: cursor, taps: taps, audio: audio, alignment: align,
-          offset_ms: (entry['start_frame'] * 1000.0 / fps).round }
+          scene_ms: scene_ms, offset_ms: scene_ms + PrototypeCapture.narration_start_ms(scene) }
       end
     end
 
@@ -491,7 +492,26 @@ module WalkthroughRender
       { fps: fps, width: viewport['w'], height: viewport['h'], total_ms: total,
         cursor_png: container(File.join(dir, 'cursor.png')), srt: container(File.join(dir, 'captions.srt')),
         output: container(File.join(dir, 'walkthrough.mp4')), burn_captions: @burn_captions, music: music, duck_spans: duck_spans(inputs),
-        voice_eq: WalkthroughStoryboard.voice_eq(@board), scenes: inputs.map { |i| plan_scene(i) } }
+        voice_eq: WalkthroughStoryboard.voice_eq(@board), scenes: inputs.map { |i| plan_scene(i) },
+        sfx: sfx_tracks(inputs) }
+    end
+
+    # Each scene's sound effect, placed on the timeline and cut at its scene's
+    # end. A ducking effect dips under every narration span (the same ramped
+    # WalkthroughDuck spans as the music), each starting duck_lead earlier.
+    def sfx_tracks(inputs)
+      spans = duck_spans(inputs)
+      inputs.filter_map do |i|
+        next unless WalkthroughStoryboard.sfx?(i[:scene])
+
+        spec = WalkthroughStoryboard.sfx_spec(i[:scene])
+        path = require_file!(File.join(@root, spec['file']), "#{i[:entry]['id']} sfx")
+        start = i[:scene_ms] + (spec['start'] * 1000).round
+        lead = (spec['duck_lead'] * 1000).round
+        { path: container(path), start_ms: start, gain_db: spec['gain_db'],
+          max_ms: [ i[:scene_ms] + i[:entry]['duration_ms'] - start, 0 ].max,
+          duck_spans: spec['duck_db'] ? spans.map { |d| d.merge(start_ms: [ d[:start_ms] - lead, 0 ].max, db: spec['duck_db']) } : [] }
+      end
     end
 
     # Interaction ops that place the pointer; key and wait never do.

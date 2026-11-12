@@ -179,6 +179,30 @@ class WalkthroughRenderTest < Minitest::Test
     end
   end
 
+  # narration_start shifts the voice, the captions, and the duck spans; the
+  # sfx rides from its scene start and ducks duck_lead before each line.
+  def test_narration_start_and_sfx_shift_the_mix
+    FileUtils.mkdir_p(File.join(@root, "sfx"))
+    File.binwrite(File.join(@root, "sfx", "riser.wav"), "RIFF")
+    b = JSON.parse(File.read(File.join(@root, "storyboard.json")))
+    b["scenes"][0]["narration_start"] = 4.0
+    b["scenes"][0]["sfx"] = { "file" => "sfx/riser.wav", "gain_db" => -17, "duck_db" => -10 }
+    File.write(File.join(@root, "storyboard.json"), JSON.pretty_generate(b))
+    result = run_render
+    first = result[:manifest]["scenes"][0]
+    line_ms = "Scene list speaks.".length * 50
+    assert_equal 4000 + line_ms + 200, first["duration_ms"], "the scene grows to fit the offset plus the line"
+    assert first.key?("sfx_sha256")
+    log = @calls[:docker].last.join(" ")
+    assert_includes log, "adelay=delays=4000:all=1", "narration starts 4 s into the scene"
+    assert_includes log, "/work/sfx/riser.wav"
+    assert_includes log, "atrim=duration=#{format('%.3f', first['duration_ms'] / 1000.0)},adelay=delays=0:all=1,volume='pow(10,(-10.00*"
+    assert_includes log, "-10.00*clip(min((t-3.600)/0.300,", "the sfx duck lands 100 ms before the voice"
+    assert_includes log, "volume=-17.0dB"
+    dir = File.dirname(result[:mp4])
+    assert_match(/\A1\n00:00:04,000 --> /, File.read(File.join(dir, "captions.srt")), "captions shift by the offset")
+  end
+
   def test_full_render_order_and_outputs
     result = run_render
     assert_equal %w[list detail hero], @calls[:capture], "from_scene dependency captured before its dependent"
