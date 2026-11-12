@@ -451,8 +451,11 @@ module WalkthroughRender
     # Camera pushes happen at assembly, so they key the directory as well.
     # The directory is keyed on what is actually captured, not only on the
     # declared keys: a live recapture keeps its key but changes its frames.
+    # The captions block keys the render only when present.
+    def caption_material = @board['captions'] ? [ { captions: @board['captions'] } ] : []
+
     def render_dir(manifest)
-      hash = WalkthroughCache.key([ manifest['manifest_hash'], live_digest, *camera_material ])
+      hash = WalkthroughCache.key([ manifest['manifest_hash'], live_digest, *camera_material, *caption_material ])
       File.join(@cache, 'render', @burn_captions ? "#{hash}-burn" : hash)
     end
 
@@ -511,7 +514,15 @@ module WalkthroughRender
         cursor_png: container(File.join(dir, 'cursor.png')), srt: container(File.join(dir, 'captions.srt')),
         output: container(File.join(dir, 'walkthrough.mp4')), burn_captions: @burn_captions, music: music, duck_spans: duck_spans(inputs),
         voice_eq: WalkthroughStoryboard.voice_eq(@board), scenes: inputs.map { |i| plan_scene(i) },
-        sfx: sfx_tracks(inputs) }
+        sfx: sfx_tracks(inputs) }.merge(caption_plan)
+    end
+
+    # Board `captions` choices, only when set, so other plans stay identical.
+    def caption_plan
+      out = {}
+      out[:caption_style] = WalkthroughDevice.caption_style(@board) if WalkthroughDevice.caption_style(@board)
+      out[:caption_track] = false unless WalkthroughDevice.caption_track?(@board)
+      out
     end
 
     # Each scene's sound effect, placed on the timeline and cut at its scene's
