@@ -69,8 +69,9 @@ module PrototypeCapture
   # In-page helper (a JS function, passed to page.evaluate): toggles the
   # pressed class on a selector, adding the style sheet on first use. The
   # scale also shrinks the element's own transform offset (a centring
-  # translate(-50%) would move by 2% of the width), so while pressed it
-  # translates that difference back: the box's centre stays exactly put.
+  # translate(-50%) would move by 2% of the width) and, about an off-centre
+  # transform-origin, the box itself, so while pressed it translates that
+  # difference back: the box's centre stays exactly put.
   # An element with an authored `translate` is left as it is.
   PRESS_JS = <<~JS.chomp
     (sel, on, css) => {
@@ -84,8 +85,8 @@ module PrototypeCapture
       }
       if (on && !el.classList.contains("__cf-pressed")) {
         const cs = getComputedStyle(el);
-        if (cs.transform !== "none" && cs.translate === "none") {
-          const m = new DOMMatrixReadOnly(cs.transform);
+        if (cs.translate === "none") {
+          const m = new DOMMatrixReadOnly(cs.transform === "none" ? undefined : cs.transform);
           const [ox, oy] = cs.transformOrigin.split(" ").map(parseFloat);
           const cx = el.offsetWidth / 2 - ox, cy = el.offsetHeight / 2 - oy;
           const k = 1 - #{PRESS_SCALE};

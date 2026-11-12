@@ -65,9 +65,11 @@ class WalkthroughTimelineTest < Minitest::Test
     ops = [ { "t_ms" => 0, "op" => "tap", "target" => "#a", "press_ms" => 300 },
             { "t_ms" => 200, "op" => "tap", "target" => "#a" } ]
     assert_match(/presses on #a overlap/, build(ops).conflicts.join)
-    # Touching: the second press lands on the first one's release frame.
-    touch = [ { "t_ms" => 0, "op" => "tap", "target" => "#a" }, { "t_ms" => 133, "op" => "tap", "target" => "#a" } ]
-    assert_match(/presses on #a overlap/, build(touch).conflicts.join)
+    # Touching: a 120 ms press releases on frame 4, and the second press
+    # lands on that same frame (134 ms); one frame later (167 ms) is clean.
+    touch = [ { "t_ms" => 0, "op" => "tap", "target" => "#a" }, { "t_ms" => 134, "op" => "tap", "target" => "#a" } ]
+    assert_equal [ 4, 4 ], [ PrototypeCapture.frame_at(134, FPS), PrototypeCapture.frame_count(120, FPS) ]
+    assert_match(/op 0 runs frames 0..4, op 1 starts at frame 4/, build(touch).conflicts.join)
     touch[1]["t_ms"] = 167
     assert_empty build(touch).conflicts
   end
