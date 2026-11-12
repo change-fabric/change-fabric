@@ -14,6 +14,8 @@ require_relative 'skill_review'
 require_relative 'merge_mode_answer'
 require_relative 'away_answer'
 require_relative 'slop_remind'
+require_relative 'key_paste_guard'
+require_relative 'secrets_read_guard'
 
 # Native wire-format adapter. No host-specific mode policy belongs here.
 class CfHostHook
@@ -41,7 +43,15 @@ class CfHostHook
     @compiler = SkillCompiler.new(host: host)
   end
 
+  # Native tool names the secrets read guard knows, per host.
+  GUARD_TOOLS = { 'shell' => 'Bash', 'apply_patch' => 'Bash', 'read' => 'Read', 'read_file' => 'Read', 'view' => 'Read',
+                  'edit' => 'Edit', 'write' => 'Write', 'create' => 'Write', 'str_replace_editor' => 'Edit',
+                  'grep' => 'Grep', 'glob' => 'Glob' }.freeze
+
   def call
+    guarded = key_guard
+    return guarded if guarded
+
     request = base.merge('event' => EVENTS.fetch(@event))
     request['tool'] = tool if %w[PreToolUse PostToolUse].include?(@event)
     request['initial_mode'] = @payload['initial_mode'] if @event == 'SessionStart'
@@ -69,6 +79,31 @@ class CfHostHook
   end
 
   private
+
+  # The paid-key guards for hosts other than Claude, whose native
+  # key_paste_guard.rb and secrets_read_guard.rb hooks are wired directly.
+  def key_guard
+    return if @host == 'claude'
+
+    case @event
+    when 'UserPromptSubmit'
+      prompt = @payload['prompt'] || @payload['initialPrompt'] || @payload['initial_prompt']
+      hit = capture(KeyPasteGuard.new(@payload.merge('prompt' => prompt.to_s)))
+      return if hit.empty?
+
+      @host == 'copilot' ? {} : hit # Copilot ignores prompt-hook output
+    when 'PreToolUse'
+      input = tool['input']
+      input = input.merge('command' => input['command'] || input['patch']) if tool['name'] == 'apply_patch'
+      name = GUARD_TOOLS.fetch(tool['name'], tool['name'])
+      event = @payload.merge('tool_name' => name, 'tool_input' => input)
+      reason = capture(SecretsReadGuard.new(event, home: @home)).dig('hookSpecificOutput', 'permissionDecisionReason')
+      return unless reason
+
+      @rubrics = []
+      output({ 'decision' => 'deny', 'reason' => reason }, '')
+    end
+  end
 
   def plan_refusal(result)
     return unless @event == 'UserPromptSubmit' && result.dig('state', 'availability') == 'away'
