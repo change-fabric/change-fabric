@@ -263,6 +263,22 @@ class WalkthroughFluidMotionTest < Minitest::Test
     assert_equal (0..4).to_a, shown, "the ripple finishes its 9 frames: 4 before the cut, 5 after"
   end
 
+  # CODEX-4: a frame-0 hover on the next scene moves the pointer at the
+  # cut, but the carried ripple stays where the source tap landed.
+  def test_carried_ripple_stays_on_the_tap_when_the_next_scene_hovers_at_zero
+    rect = WalkthroughDevice::Rect.new(name: "phone", scale: 1.0, x: 0, y: 0, w: 390, h: 693, bezel: 0)
+    cursor = (0...20).map { |i| { "x" => i < 14 ? 100 : 300, "y" => 60, "down" => i == 10 } }
+    run = { "name" => "phone", "ticks" => (0...20).to_a, "cursor" => cursor }
+    cut = { "device" => "phone", "cut_frame" => 14, "press_frame" => 10, "overlap" => 0, "frames" => 14 }
+    _head, tail = WalkthroughLive::NavigateRun.split(run, cut)
+    assert_equal [ 300 ] * 6, tail["cursor"].map { |c| c["x"] }, "the cursor moves to the hover at x 300"
+    path = WalkthroughDevice.ripple_path(rect, tail["cursor"], 10)
+    shown = path.select { |p| p["x"] != WalkthroughDevice.hidden_path(1).first["x"] }
+    assert_equal 5, shown.size, "the ripple finishes its last 5 frames after the cut"
+    assert_equal [ 95 ], shown.map { |p| p["x"] }.uniq, "every carried ripple frame stays at the tap, x 100"
+    assert_equal 100, WalkthroughLive::NavigateRun.handoff(run, cut)["phone"]["x"]
+  end
+
   def test_presses_starting_on_one_frame_both_show
     plan = PrototypeCapture.schedule([ { "t_ms" => 0, "op" => "tap", "target" => "#a" }, { "t_ms" => 10, "op" => "tap", "target" => "#b" } ], 10)
     assert_equal %w[#a #b], plan[0]["press"]
@@ -356,11 +372,12 @@ class WalkthroughFluidMotionTest < Minitest::Test
     assert_equal({ "a" => 3 }, head["overlays"])
     assert_equal %w[early], head["links"]
     assert_equal (34...50).to_a, tail["ticks"]
-    assert_equal({ "x" => 34, "y" => 7, "down" => false, "carry" => 4 }, tail["cursor"].first, "the ripple has shown 4 frames at the cut")
+    assert_equal({ "x" => 34, "y" => 7, "down" => false, "carry" => 4, "carry_x" => 30, "carry_y" => 7 }, tail["cursor"].first,
+                 "the ripple has shown 4 frames at the cut, pressed at x 30")
     assert_equal [ { "frame" => 6 } ], tail["lint"]
     assert_equal({ "b" => 7 }, tail["overlays"])
     assert_equal %w[late], tail["links"]
-    assert_equal({ "phone" => { "x" => 34, "y" => 7, "ripple_age_at_cut" => 4 } }, WalkthroughLive::NavigateRun.handoff(run, cut))
+    assert_equal({ "phone" => { "x" => 30, "y" => 7, "ripple_age_at_cut" => 4 } }, WalkthroughLive::NavigateRun.handoff(run, cut))
   end
 
   def test_navigate_run_shares_one_key

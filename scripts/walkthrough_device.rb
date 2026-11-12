@@ -383,10 +383,16 @@ module WalkthroughDevice
       tap = taps.reverse.find { |t| t <= i }
       next hidden_point(i + 1) unless tap && i - tap < RIPPLE_FRAMES
 
-      at = positions[[ tap, 0 ].max]
+      at = tap.negative? ? carried_at(positions.first) : positions[tap]
       x, y = rect.map(at['x'], at['y'])
       track_point(i + 1, x - (size / 2.0), y - (size / 2.0), i == tap)
     end
+  end
+
+  # Where a carried ripple was pressed: the source tap's point, falling
+  # back to the first cursor point for a handoff without one.
+  def carried_at(first)
+    first.key?('carry_x') ? { 'x' => first['carry_x'], 'y' => first['carry_y'] } : first
   end
 
   # -- lint ----------------------------------------------------------------

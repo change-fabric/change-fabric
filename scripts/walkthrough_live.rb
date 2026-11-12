@@ -844,14 +844,16 @@ module WalkthroughLive
     # frame before the tap held for the overlap (the outgoing page of a
     # transition stays as it was when the finger lifted). The next scene:
     # the run from the cut on, its first cursor point carrying the tap
-    # ripple's age, so the ripple finishes instead of restarting.
+    # ripple's age and where the press landed, so the ripple finishes in
+    # place even when the next scene's frame-0 input moves the pointer.
     def split(run, cut, inset_to_next: false)
       at = cut['cut_frame']
       overlap = cut['overlap']
       ticks = Array(run['ticks'])
       cursor = Array(run['cursor'])
       tail_cursor = cursor.drop(at)
-      tail_cursor[0] = tail_cursor[0].merge('carry' => at - cut['press_frame']) if tail_cursor[0]
+      press = cursor[cut['press_frame']] || {}
+      tail_cursor[0] = tail_cursor[0].merge('carry' => at - cut['press_frame'], 'carry_x' => press['x'], 'carry_y' => press['y']).compact if tail_cursor[0]
       head = run.merge('ticks' => ticks.first(at) + ([ ticks[at - 1] ] * overlap),
                        'cursor' => (cursor.first(at) + cursor.drop(at).first(overlap)).then { |c| pad(c, at + overlap) },
                        **before(run, at))
@@ -887,7 +889,7 @@ module WalkthroughLive
     # The handoff at the cut, keyed by device: where the tap landed and how
     # many frames its ripple had shown.
     def handoff(run, cut)
-      at = Array(run['cursor'])[cut['cut_frame']] || {}
+      at = Array(run['cursor'])[cut['press_frame']] || {}
       { run['name'] => { 'x' => at['x'], 'y' => at['y'], 'ripple_age_at_cut' => cut['cut_frame'] - cut['press_frame'] } }
     end
   end
