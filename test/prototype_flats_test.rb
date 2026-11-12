@@ -95,7 +95,7 @@ class PrototypeFlatsTest < Minitest::Test
   def test_seed_locale_and_clock_are_inlined_ahead_of_screen_scripts
     html = "<html><head><script>app()</script></head><body></body></html>"
     [ F.function_module(html: html, theme: "light", viewport: nil, state: { "k" => "seeded" }, prng_seed: 1),
-      PrototypeCapture.function_module(html: html, plan: [ { "frame" => 0 } ], range: 0...1, viewport: nil,
+      PrototypeCapture.function_module(html: html, events: [ [] ], range: 0...1, viewport: nil,
                                        prng_seed: 1, state: { "k" => "seeded" }) ].each do |mod|
       refute_includes mod, "evaluateOnNewDocument"
       %w[__CF_SEED__ seeded navigator __cfAdvance].each do |needle|

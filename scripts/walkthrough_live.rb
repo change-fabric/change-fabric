@@ -31,7 +31,10 @@ module WalkthroughLive
 
   # 3: desktop frames are taken only once the page lays out at its viewport,
   # and phone composites carry square pixels (no pHYs aspect metadata).
-  CAPTURE_VERSION = 3
+  # 4: input runs through PrototypeCapture::DISPATCH_JS in timeline seq
+  # order (a scroll before a move on one frame; an instant scroll or a
+  # glide on a missing target fails instead of being skipped).
+  CAPTURE_VERSION = 4
   WAIT_UNTIL = %w[domcontentloaded load].freeze
   DEFAULT_WAIT = { 'until' => 'load', 'settle_ms' => 0 }.freeze
   STORAGE_AREAS = %w[sessionStorage localStorage].freeze
@@ -524,7 +527,6 @@ module WalkthroughLive
         const lintAt = new Set(job.lint);
         const cursor = [], lint = [], devices = [], links = [];
         const overlays = {};
-        let resting = null;
         let inset = null;
         let insetHi = null;
         let insetError = null;
@@ -537,90 +539,16 @@ module WalkthroughLive
         if (entered && job.url && session.url && canon(session.url) !== canon(job.url)) {
           throw new Error(`tap-navigate landed on ${session.url}, not this scene's url ${job.url}`);
         }
-        let pos = entered ? { x: entered.x, y: entered.y } : { x: dev.w / 2, y: dev.h / 2 };
-        let from = pos;
-        let down = false;
+        const st = { pos: entered ? { x: entered.x, y: entered.y } : { x: dev.w / 2, y: dev.h / 2 }, from: null, down: false, resting: null };
+        st.from = st.pos;
         let tapped = null;
-        let pressedAt = null;
-        const pressCss = #{JSON.generate(PrototypeCapture::PRESS_CSS)};
+        const dispatch = (#{PrototypeCapture::DISPATCH_JS})(page, {
+          aim, mobile: !!dev.mobile, st,
+          onNavigate: () => { tapped = { x: st.pos.x, y: st.pos.y, from: page.url(), age: job.pressFrame === null ? null : job.events.length - job.pressFrame }; }
+        });
         const t0 = Date.now();
-        for (let i = 0; i < job.plan.length; i++) {
-          const step = job.plan[i] || {};
-          if (step.move) {
-            if (step.move.first) from = pos;
-            const to = await aim(step.move.target);
-            if (to) { pos = { x: from.x + (to.x - from.x) * step.move.p, y: from.y + (to.y - from.y) * step.move.p }; if (!dev.mobile) await page.mouse.move(pos.x, pos.y); }
-            resting = step.move.p >= 1 ? step.move.target : null;
-          }
-          // Same semantics as a prototype scene: dx/dy scroll by pixels,
-          // a bare target is scrolled into view, at `block` (center by default).
-          if (step.scroll) await safe(() => page.evaluate((s) => { const el = document.querySelector(s.target); if (!el) return; if (s.dx === undefined && s.dy === undefined) el.scrollIntoView({ block: s.block || "center" }); else el.scrollBy({ left: s.dx || 0, top: s.dy || 0, behavior: "instant" }); }, step.scroll), null);
-          // A gliding scroll sets one eased offset per frame tick.
-          for (const glide of step.glide || []) await safe(() => page.evaluate(#{PrototypeCapture::GLIDE_JS}, glide), null);
-          for (const press of step.press || []) {
-            const to = await aim(press);
-            if (!to) throw new Error(`tap target not found: ${press}`);
-            pos = to;
-            resting = press;
-            if (!dev.mobile) await page.mouse.move(pos.x, pos.y);
-            await safe(() => page.evaluate(#{PrototypeCapture::PRESS_JS}, press, true, pressCss), null);
-            down = true;
-            pressedAt = i;
-          }
-          for (const tap of step.tap || []) {
-            await safe(() => page.evaluate(#{PrototypeCapture::PRESS_JS}, tap.target, false, pressCss), null);
-            const to = await aim(tap.target);
-            if (!to) throw new Error(`tap target not found: ${tap.target}`);
-            pos = to;
-            resting = tap.target;
-            if (dev.mobile) { await page.touchscreen.tap(pos.x, pos.y); }
-            else { await page.mouse.move(pos.x, pos.y); await page.mouse.down(); await page.mouse.up(); }
-            if (tap.navigate) tapped = { x: pos.x, y: pos.y, from: page.url(), age: pressedAt === null ? null : job.plan.length - pressedAt };
-          }
-          if (step.hover) { const to = await aim(step.hover); if (to) { pos = to; if (!dev.mobile) await page.mouse.move(pos.x, pos.y); } resting = step.hover; }
-          if (step.click) {
-            const to = await aim(step.click);
-            // A click never falls back to the last cursor spot: that would
-            // press whatever control sits there in the real app.
-            if (!to) throw new Error(`click target not found: ${step.click}`);
-            pos = to;
-            resting = step.click;
-            if (dev.mobile) { await page.touchscreen.tap(pos.x, pos.y); }
-            else { await page.mouse.move(pos.x, pos.y); await page.mouse.down(); await page.mouse.up(); }
-            down = true;
-          }
-          if (step.type) {
-            if (step.type.focus) await page.focus(step.type.target);
-            // after_line puts the caret at the end of the first line that
-            // starts with it, so typing fills in a prefilled template line.
-            if (step.type.after_line) await page.$eval(step.type.target, (el, prefix) => {
-              const lines = el.value.split("\\n");
-              const at = lines.findIndex((l) => l.startsWith(prefix));
-              if (at < 0) throw new Error(`no line starting with ${prefix}`);
-              const end = lines.slice(0, at + 1).join("\\n").length;
-              el.setSelectionRange(end, end);
-            }, step.type.after_line);
-            // replace selects the field's value first, so typing swaps it out.
-            if (step.type.replace) await page.$eval(step.type.target, (el) => el.select());
-            for (const ch of step.type.text) await page.keyboard.type(ch);
-          }
-          if (step.dblclick) {
-            const to = await aim(step.dblclick);
-            if (!to) throw new Error(`dblclick target not found: ${step.dblclick}`);
-            pos = to;
-            resting = step.dblclick;
-            await page.mouse.move(pos.x, pos.y);
-            await page.mouse.click(pos.x, pos.y, { clickCount: 1 });
-            await page.mouse.click(pos.x, pos.y, { clickCount: 2 });
-            down = true;
-          }
-          for (const press of step.key || []) {
-            if (press.target) await page.focus(press.target);
-            const mods = press.keys.slice(0, -1);
-            for (const m of mods) await page.keyboard.down(m);
-            await page.keyboard.press(press.keys[press.keys.length - 1]);
-            for (const m of mods.reverse()) await page.keyboard.up(m);
-          }
+        for (let i = 0; i < job.events.length; i++) {
+          for (const ev of job.events[i]) await dispatch(ev);
           await sleep(t0 + i * stepMs - Date.now());
           for (const href of await safe(() => page.evaluate(() => (window.__cfLinks || []).splice(0)), [])) links.push(href);
           let fresh = false;
@@ -629,7 +557,7 @@ module WalkthroughLive
             if (!(key in overlays)) { overlays[key] = i; fresh = true; }
           }
           if (lintAt.has(i) || fresh) {
-            const targets = resting ? [{ selector: resting, x: pos.x, y: pos.y }] : [];
+            const targets = st.resting ? [{ selector: st.resting, x: st.pos.x, y: st.pos.y }] : [];
             for (const f of await safe(() => page.evaluate((t, b) => window.__cfUx.lint(t, b), targets, job.band), [])) lint.push(Object.assign({ frame: i, device: dev.name }, f));
             for (const d of await safe(() => page.evaluate(() => window.__cfUx.devices()), [])) devices.push(Object.assign({ frame: i, group: job.group }, d));
           }
@@ -666,8 +594,8 @@ module WalkthroughLive
           sampler.tick();
           // The first frame after a navigate cut carries the tap ripple's age,
           // so the ripple finishes here instead of vanishing at the cut.
-          cursor.push(i === 0 && entered && entered.age ? { x: pos.x, y: pos.y, down, carry: entered.age } : { x: pos.x, y: pos.y, down });
-          down = false;
+          cursor.push(i === 0 && entered && entered.age ? { x: st.pos.x, y: st.pos.y, down: st.down, carry: entered.age } : { x: st.pos.x, y: st.pos.y, down: st.down });
+          st.down = false;
         }
         if (job.shots) await sampler.detach();
         const sampled = sampler.result();
@@ -752,9 +680,11 @@ module WalkthroughLive
     fps = fps_for(board)
     frames = PrototypeCapture.frame_count(PrototypeCapture.scene_duration(scene), fps)
     ops = interactions_for(scene, spec['name'])
-    plan = PrototypeCapture.schedule(resolve_interactions(ops, secrets), frames, fps)
+    timeline = PrototypeCapture.timeline!(resolve_interactions(ops, secrets), frames, fps, label: "#{scene['id']} #{spec['name']}")
+    plan = WalkthroughTimeline.to_plan(timeline)
     band = caption_band(board, scene)
-    { 'dev' => spec, 'plan' => plan, 'lint' => PrototypeUxLint.lint_frames(plan, frames), 'band' => band, 'shots' => shots,
+    { 'dev' => spec, 'plan' => plan, 'events' => timeline.events_by_frame, 'pressFrame' => timeline.navigate_press_frame,
+      'lint' => PrototypeUxLint.lint_frames(plan, frames), 'band' => band, 'shots' => shots,
       'group' => WalkthroughDevice.group(scene, spec['name']),
       'url' => url(scene), 'html' => page_html(scene, spec['name'], compose: compose, board: board, root: root) }
   end

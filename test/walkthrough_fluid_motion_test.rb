@@ -128,7 +128,7 @@ class WalkthroughFluidMotionTest < Minitest::Test
     assert_equal 9 + 4, plan.index { |e| e["tap"] }, "default 120 ms press is 4 frames at 30 fps"
     assert_equal([ { "target" => "#buy", "navigate" => false } ], plan[13]["tap"])
     long = PrototypeCapture.schedule([ { "t_ms" => 0, "op" => "tap", "target" => "#x", "press_ms" => 5000, "navigate" => true } ], 10)
-    assert_equal([ { "target" => "#x", "navigate" => true } ], long.last["tap"], "a press longer than the scene releases on its last frame")
+    assert(long.none? { |e| e["tap"] }, "a release past the scene's end never lands (validation rejects it)")
     assert_includes PrototypeUxLint.lint_frames(plan, 30), 13
   end
 
@@ -221,13 +221,13 @@ class WalkthroughFluidMotionTest < Minitest::Test
   end
 
   def test_press_state_is_injected_only_for_taps
-    js = PrototypeCapture.function_module(html: "<p>x</p>", plan: [], range: 0...1, viewport: nil, prng_seed: 1, state: {})
-    assert_includes js, "for (const press of step.press || [])"
+    js = PrototypeCapture.function_module(html: "<p>x</p>", events: [], range: 0...1, viewport: nil, prng_seed: 1, state: {})
+    assert_includes js, 'case "press":'
     assert_includes js, "__cf-pressed"
     assert_includes PrototypeCapture::PRESS_CSS, "scale: 0.96 !important"
     live_js = WalkthroughLive.run_device_js(board([ live("a", 1) ]), live("a", 1))
-    assert_includes live_js, "for (const press of step.press || [])"
-    assert_includes live_js, "page.touchscreen.tap(pos.x, pos.y)"
+    assert_includes live_js, 'case "press":'
+    assert_includes live_js, "page.touchscreen.tap(to.x, to.y)"
   end
 
   # -- tap-to-navigate -----------------------------------------------------
@@ -235,9 +235,9 @@ class WalkthroughFluidMotionTest < Minitest::Test
   def test_navigate_tap_hands_its_point_to_the_next_scene
     b = nav_board
     js = WalkthroughLive.run_device_js(b, b["scenes"][1])
-    assert_includes js, "if (tap.navigate) tapped = { x: pos.x, y: pos.y, from: page.url(),"
+    assert_includes js, "onNavigate: () => { tapped = { x: st.pos.x, y: st.pos.y, from: page.url(),"
     assert_includes js, "if (tapped) out.tap = Object.assign("
-    assert_includes js, "let pos = entered ? { x: entered.x, y: entered.y }"
+    assert_includes js, "const st = { pos: entered ? { x: entered.x, y: entered.y }"
     assert_includes js, "tap-navigate landed on"
     plan = WalkthroughLive.job(b, b["scenes"][0], WalkthroughDevice.specs(b, b["scenes"][0]).first,
                                WalkthroughLive::Secrets.new([]), compose: nil, shots: true)["plan"]
@@ -264,7 +264,7 @@ class WalkthroughFluidMotionTest < Minitest::Test
         assert_empty plan.flat_map(&:keys).uniq - LEGACY_PLAN_KEYS, "#{path} #{scene['id']}"
       end
     end
-    assert_equal 3, PrototypeCapture::CAPTURE_VERSION
-    assert_equal 3, WalkthroughLive::CAPTURE_VERSION
+    assert_equal 4, PrototypeCapture::CAPTURE_VERSION
+    assert_equal 4, WalkthroughLive::CAPTURE_VERSION
   end
 end

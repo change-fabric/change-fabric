@@ -57,7 +57,7 @@ class PrototypeCaptureViewportTest < Minitest::Test
   end
 
   def test_the_capture_module_applies_and_asserts_the_viewport_on_the_page
-    code = PrototypeCapture.function_module(html: "<p/>", plan: [], range: 0...1, viewport: VIEWPORT, prng_seed: 1, state: {})
+    code = PrototypeCapture.function_module(html: "<p/>", events: [], range: 0...1, viewport: VIEWPORT, prng_seed: 1, state: {})
     assert_includes code, "async function ensureViewport(page, vp)"
     assert_includes code, '"Emulation.setDeviceMetricsOverride"'
     assert_includes code, "window.innerWidth, window.innerHeight"

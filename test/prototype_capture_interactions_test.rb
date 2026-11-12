@@ -40,7 +40,7 @@ class PrototypeCaptureInteractionsTest < Minitest::Test
   end
 
   def test_function_module_dispatches_new_ops_through_real_input
-    mod = PrototypeCapture.function_module(html: "<p>hi</p>", plan: [ { "frame" => 0 } ], range: 0...1,
+    mod = PrototypeCapture.function_module(html: "<p>hi</p>", events: [ [] ], range: 0...1,
                                            viewport: nil, prng_seed: 1, state: {})
     [ "clickCount: 2", "page.keyboard.down(m)", "page.keyboard.press(", "page.keyboard.up(m)",
       "el.scrollBy({ left: s.dx || 0, top: s.dy || 0, behavior: \"instant\" })",

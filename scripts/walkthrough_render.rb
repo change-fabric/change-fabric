@@ -548,7 +548,7 @@ module WalkthroughRender
     end
 
     # Interaction ops that place the pointer; key and wait never do.
-    POINTER_OPS = %w[move click dblclick hover type scroll].freeze
+    POINTER_OPS = %w[move click dblclick hover type scroll tap].freeze
 
     # The capture records a position on every frame, steps or not, so a
     # scene with nothing for the pointer to do would composite a cursor
