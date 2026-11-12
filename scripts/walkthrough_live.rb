@@ -587,7 +587,7 @@ module WalkthroughLive
           // The cut: the incoming scene's first frame must show the painted
           // destination, never a blank page mid-load. Recording pauses (the
           // outgoing scene already holds its last frame before the tap),
-          // the run waits for the new document, network idle, fonts and two
+          // the run waits for the new document to load, network idle, fonts and two
           // animation frames, then resumes from a fresh shot; the clock
           // shifts by the wait, so it adds no video time.
           if (leaving !== null) {
@@ -596,7 +596,10 @@ module WalkthroughLive
             const until = paused + #{NAVIGATE_WAIT_MS};
             while (page.url() === leaving && Date.now() < until) await sleep(25);
             await safe(() => page.waitForNetworkIdle({ idleTime: 200, timeout: Math.max(until - Date.now(), 1) }), null);
+            await safe(() => page.waitForFunction(() => document.readyState === "complete", { timeout: Math.max(until - Date.now(), 1) }), null);
             await safe(() => page.evaluate(() => document.fonts.ready.then(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))))), null);
+            // The next scene's own frame-0 input, on the painted destination.
+            for (const ev of job.entryEvents || []) await dispatch(ev);
             if (job.shots) {
               sampler.seed((await client.send("Page.captureScreenshot", { format: "jpeg", quality: #{JPEG_QUALITY} })).data);
               await sampler.attach(client);
@@ -812,13 +815,14 @@ module WalkthroughLive
     tail = PrototypeCapture.timeline!(resolve_interactions(interactions_for(nxt, name), secrets), frames, fps, label: "#{nxt['id']} #{name}")
     events = head.events_by_frame
     after = tail.events_by_frame
-    events[at] += after.first.to_a
+    # The next scene's frame-0 input runs once the destination has painted
+    # (entryEvents, after the wait at the cut), never beside the release.
     events.concat(after.drop(1))
     lint = PrototypeUxLint.lint_frames(WalkthroughTimeline.to_plan(head), at) +
            PrototypeUxLint.lint_frames(WalkthroughTimeline.to_plan(tail), frames).map { |f| f + at }
     { 'dev' => spec, 'events' => events, 'lint' => lint.uniq.sort, 'band' => caption_band(board, scene), 'shots' => shots,
       'group' => WalkthroughDevice.group(scene, name), 'url' => url(scene), 'html' => nil,
-      'expectUrl' => url(nxt), 'cutFrame' => at }
+      'expectUrl' => url(nxt), 'cutFrame' => at, 'entryEvents' => after.first.to_a }
   end
 
   # The desktop inset of a scene, or of a navigate run: the next scene's,

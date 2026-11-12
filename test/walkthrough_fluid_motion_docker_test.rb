@@ -137,7 +137,48 @@ class WalkthroughFluidMotionDockerTest < Minitest::Test
     assert_operator red_share(first), :>, 0.5, "the first incoming frame shows the painted destination"
   end
 
+  # CODEX-1: the next scene's input at 0 ms acts on the painted
+  # destination, so a control only the destination has is found and clicked.
+  def test_next_scene_input_at_zero_lands_on_the_destination
+    # The destination builds its button one animation frame after load, as
+    # an app's first render does; the paint wait at the cut covers it.
+    dest = "<!doctype html><html><body style='margin:0;background:#fff'><script>addEventListener('load', () => requestAnimationFrame(() => {" \
+           "const b = document.createElement('button'); b.id = 'only'; b.textContent = 'Only here'; b.style.cssText = 'margin:200px 40px;padding:40px;font-size:40px';" \
+           "b.onclick = () => { document.body.style.background = '#0a3'; }; document.body.appendChild(b); }));</script></body></html>"
+    feed = "<!doctype html><html><body style='margin:0;background:#fff'><a id='next' " \
+           "style='display:block;margin:200px 40px;padding:40px;background:#246;color:#fff'>Go</a>" \
+           "<script>document.getElementById('next').href = URL.createObjectURL(new Blob([#{JSON.generate(dest).gsub('</', '<\\/')}], { type: 'text/html' }));</script></body></html>"
+    board = { "fps" => 30, "viewport" => { "w" => 1080, "h" => 1920 }, "scenes" => [
+      { "id" => "feed", "order" => 1, "device" => "phone-fullbleed", "screen" => { "url" => "about:blank" },
+        "interactions" => [ { "t_ms" => 300, "op" => "tap", "target" => "#next", "navigate" => true } ] },
+      { "id" => "detail", "order" => 2, "device" => "phone-fullbleed", "screen" => { "url" => "https://app.localhost/detail" },
+        "session_from_scene" => "feed", "timing" => { "min_ms" => 600 },
+        "interactions" => [ { "t_ms" => 0, "op" => "tap", "target" => "#only", "press_ms" => 60 } ] }
+    ] }
+    cut = WalkthroughLive.navigate_cut(board, board["scenes"][0])
+    job = WalkthroughLive.run_job(board, board["scenes"][0], board["scenes"][1], PHONE, WalkthroughLive::Secrets.new([]), cut, shots: true)
+                        .merge("html" => feed, "expectUrl" => nil)
+    run = film(board, board["scenes"][0], job)
+    _, tail = WalkthroughLive::NavigateRun.split(run, cut)
+    keep(tail, "entry")
+    last = Base64.decode64(run["frames"][tail["ticks"].last])
+    assert_operator green_share(last), :>, 0.5, "the 0 ms tap found the destination's button and clicked it"
+  end
+
   private
+
+  def green_share(jpg) = share(jpg) { |r, g, b| g > 120 && r < 60 && b < 100 }
+
+  def share(jpg, &pick)
+    Dir.mktmpdir do |dir|
+      File.binwrite(File.join(dir, "f.jpg"), jpg)
+      argv = ChangeDocker.run_command(network: "none", image: ChangeDocker::FFMPEG_IMAGE, mounts: { dir => "/w" },
+                                      args: [ "-v", "error", "-i", "/w/f.jpg", "-vf", "scale=20:20", "-f", "rawvideo", "-pix_fmt", "rgb24", "/w/f.rgb" ])
+      Open3.capture2e(*argv)
+      px = File.binread(File.join(dir, "f.rgb")).bytes.each_slice(3).to_a
+      px.count(&pick).fdiv(px.size)
+    end
+  end
 
   # The share of pixels that are the destination's red, via the pinned ffmpeg.
   def red_share(jpg)

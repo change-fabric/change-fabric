@@ -131,6 +131,23 @@ class WalkthroughFluidMotionTest < Minitest::Test
     assert_includes errors(short), "the transition into this scene overlaps 45 frames, longer than the scene's 9"
   end
 
+  # CODEX-2: a shared list gives the phone the navigate tap too, and on a
+  # cut its release lands one frame past the trimmed scene.
+  def test_shared_navigate_on_two_devices_is_rejected
+    b = nav_board
+    feed = b["scenes"][0]
+    feed.delete("device")
+    feed["devices"] = %w[desktop phone]
+    feed["layout"] = "side_by_side"
+    feed["interactions"] = [ { "t_ms" => 1000, "op" => "tap", "target" => "#next", "navigate" => true } ]
+    b["scenes"][1]["device"] = "desktop"
+    b["phone"] = { "w" => 390, "h" => 844, "dpr" => 2 }
+    assert_includes errors(b), "phone: op 0 (tap #next) releases at frame 34, past the scene's last frame 33"
+    feed["interactions"] = { "desktop" => [ { "t_ms" => 1000, "op" => "tap", "target" => "#next", "navigate" => true } ],
+                             "phone" => [ { "t_ms" => 300, "op" => "tap", "target" => "#a" } ] }
+    refute_includes errors(b), "trimmed to the navigate tap"
+  end
+
   # Decision 10: the tapping scene ends at the tap plus the overlap, and its
   # voice line must end by the tap.
   def test_tapping_scene_is_trimmed_to_the_tap_and_narration_must_fit
@@ -302,6 +319,8 @@ class WalkthroughFluidMotionTest < Minitest::Test
     assert_equal %w[press], kinds[30]
     assert_equal %w[release navigate], kinds[34], "the tap's release is the cut frame, the next scene's frame 0"
     assert_equal %w[press], kinds[34 + 9], "the next scene's events follow on the run's frames"
+    assert_equal %w[release navigate], kinds[34], "the next scene's frame-0 input waits for the painted page"
+    assert_equal [], job["entryEvents"]
     assert_equal 34 + 60, job["events"].size
     assert_equal "https://app.localhost/detail", job["expectUrl"]
     assert_nil job["html"], "the page is never reloaded: one goto, for the tapping scene"

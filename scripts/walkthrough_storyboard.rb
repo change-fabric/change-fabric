@@ -482,7 +482,26 @@ module WalkthroughStoryboard
     errs << "only the next scene may start from a navigate tap's session (#{others.join(', ')})" unless others.empty?
     errs.concat(navigate_next_errors(scene, nxt, lead)) if nxt && WalkthroughLive.live?(nxt)
     errs.concat(navigate_fit_errors(scene, board))
+    errs.concat(navigate_device_length_errors(scene, board, lead))
     errs
+  end
+
+  # Every device of a tapping scene films only up to the trimmed length
+  # (cut plus overlap), so a non-lead device's input must fit inside it: a
+  # shared list hands the navigate tap to every device, and on a cut its
+  # release lands one frame past a non-lead device's last frame.
+  def navigate_device_length_errors(scene, board, lead)
+    cut = WalkthroughLive.navigate_cut(board, scene) or return []
+    WalkthroughDevice.devices(scene).drop(1).flat_map do |device|
+      next [] if device == lead
+
+      ops = WalkthroughLive.interactions_for(scene, device)
+      WalkthroughTimeline.build(ops, fps: fps(board), frames: cut['frames']).conflicts.map do |c|
+        "#{device}: #{c} (the scene is trimmed to the navigate tap; give each device its own interactions)"
+      end
+    rescue ArgumentError, TypeError
+      []
+    end
   end
 
   # The next scene continues the tapping device's page, so it films that
