@@ -74,6 +74,11 @@ class WalkthroughFluidMotionTest < Minitest::Test
     b = nav_board
     b["scenes"] << live("later", 3, "session_from_scene" => "feed")
     assert_includes errors(b), "only the next scene may start from a navigate tap's session (later)"
+    early = [ { "t_ms" => 0, "op" => "tap", "target" => "#a", "press_ms" => 1000 },
+              { "t_ms" => 100, "op" => "tap", "target" => "#next", "press_ms" => 100, "navigate" => true } ]
+    assert_includes errors(nav_board(first_ops: early)), "must release after every other tap"
+    early[0]["press_ms"] = 50
+    refute_includes errors(nav_board(first_ops: early)), "must release after every other tap"
   end
 
   # -- easing ------------------------------------------------------------

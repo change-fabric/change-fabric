@@ -425,6 +425,9 @@ module WalkthroughStoryboard
     errs = []
     errs << 'a navigate tap must be the last interaction of its scene' unless lists.all? { |l| navs.include?(Array(l).last) || Array(l).none? { |op| navs.include?(op) } }
     errs << 'only one navigate tap per scene' if navs.size > 1
+    release = ->(op) { op['t_ms'].to_i + (op['press_ms'] || PrototypeCapture::PRESS_MS).to_i }
+    late = lists.flat_map { |l| Array(l).select { |op| op.is_a?(Hash) && op['op'] == 'tap' && !navs.include?(op) } }
+    errs << 'a navigate tap must release after every other tap in its scene' if late.any? { |op| navs.any? { |n| release.call(op) >= release.call(n) } }
     # The scene hands on its first device's session, so that device navigates.
     lead = WalkthroughDevice.devices(scene).first
     if scene['interactions'].is_a?(Hash) && Array(scene['interactions'][lead]).none? { |op| navs.include?(op) }
