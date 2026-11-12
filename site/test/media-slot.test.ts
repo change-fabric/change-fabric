@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { activeWordIndex, captionText, formatDuration, highlightLoop } from "../src/media.ts";
+import { activeWordIndex, captionText, formatDuration, highlightLoop, NARROW_QUERY, pickVariant, type MediaEntry } from "../src/media.ts";
 
 const slotSource = readFileSync(new URL("../src/components/MediaSlot.tsx", import.meta.url), "utf8");
 
@@ -23,7 +23,8 @@ test("the caption drops a leading title so it never restates the runtime", () =>
 test("play() runs in the click handler on the mounted player, never in an effect", () => {
   const start = slotSource.slice(slotSource.indexOf("const start = () => {"));
   const body = start.slice(0, start.indexOf("\n  };"));
-  assert.match(body, /media\.src = entry\.src;/);
+  assert.match(body, /pickVariant\(entry, isNarrow\(\)\)/, "the cut is chosen inside the tap");
+  assert.match(body, /media\.src = chosen\.src;/);
   assert.match(body, /media\.play\(\)/);
   assert.ok(body.indexOf("media.src") < body.indexOf("media.play()"), "src must be set before play()");
   assert.match(slotSource, /onClick=\{start\}/);
@@ -33,6 +34,39 @@ test("play() runs in the click handler on the mounted player, never in an effect
   assert.doesNotMatch(slotSource, /<source\s+src=/, "a <source> child instead of the src set on tap");
   assert.match(slotSource, /preload="none"/);
   assert.match(slotSource, /playsInline/);
+});
+
+const slotEntry = (): MediaEntry => ({
+  kind: "video",
+  title: "Clip",
+  src: "/media/wide.mp4",
+  poster: "/media/wide.jpg",
+  vtt: "/media/c.vtt",
+  words: null,
+  duration_ms: 44000,
+  width: 1920,
+  height: 1080,
+  bytes: 1,
+  alt: "A clip",
+  transcript: "Words.",
+  mobile: { src: "/media/tall.mp4", poster: "/media/tall.jpg", vtt: "/media/c.vtt", width: 1080, height: 1350, bytes: 1 },
+});
+
+test("a narrow viewport plays the mobile cut, a wide one the slot's own", () => {
+  assert.deepEqual(pickVariant(slotEntry(), true), {
+    src: "/media/tall.mp4", poster: "/media/tall.jpg", vtt: "/media/c.vtt", width: 1080, height: 1350,
+  });
+  assert.equal(pickVariant(slotEntry(), false).src, "/media/wide.mp4");
+  const { mobile: _drop, ...single } = slotEntry();
+  assert.equal(pickVariant(single, true).src, "/media/wide.mp4");
+  assert.equal(pickVariant({ ...single, mobile: null }, true).src, "/media/wide.mp4");
+});
+
+test("the poster swap and the tap-time choice share one media query", () => {
+  assert.match(slotSource, /<source media=\{NARROW_QUERY\}/);
+  assert.match(slotSource, /matchMedia\(NARROW_QUERY\)/);
+  const css = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
+  assert.ok(css.includes(`@media ${NARROW_QUERY}`), `styles.css has no @media ${NARROW_QUERY} block`);
 });
 
 test("durations format as m:ss", () => {

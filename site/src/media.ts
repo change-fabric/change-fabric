@@ -14,7 +14,30 @@ export type MediaEntry = {
   bytes: number;
   alt: string;
   transcript: string;
+  // A video's portrait cut for phones: the same audio and captions, laid
+  // out for a narrow frame. Absent on slots with one cut.
+  mobile?: MediaVariant | null;
 };
+
+export type MediaVariant = {
+  src: string;
+  poster: string;
+  vtt: string;
+  width: number;
+  height: number;
+  bytes: number;
+};
+
+// The viewport where the hero column is phone width and the 16:9 cut shrinks
+// past reading. The poster's <source media> and the tap-time choice share it.
+export const NARROW_QUERY = "(max-width: 600px)";
+
+// The files one playback uses: the mobile cut on a narrow viewport when the
+// slot has one, else the slot's own.
+export function pickVariant(entry: MediaEntry, narrow: boolean): Pick<MediaEntry, "src" | "poster" | "vtt" | "width" | "height"> {
+  const cut = narrow && entry.mobile ? entry.mobile : entry;
+  return { src: cut.src, poster: cut.poster, vtt: cut.vtt, width: cut.width, height: cut.height };
+}
 
 export type Word = { text: string; start_ms: number; end_ms: number };
 

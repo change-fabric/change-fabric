@@ -14,7 +14,15 @@
       "height": 36,
       "bytes": 3205,
       "alt": "A silent two second fixture clip",
-      "transcript": "A silent fixture clip."
+      "transcript": "A silent fixture clip.",
+      "mobile": {
+        "src": "74ebf2899803.mp4",
+        "poster": "baa2f202cbb1.jpg",
+        "vtt": "643342713318.vtt",
+        "width": 32,
+        "height": 40,
+        "bytes": 2689
+      }
     },
     "fixture-audio": {
       "kind": "audio",

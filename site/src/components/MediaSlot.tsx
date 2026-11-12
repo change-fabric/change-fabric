@@ -1,11 +1,24 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import manifest from "../generated/media.json";
-import { activeWordIndex, captionText, formatDuration, highlightLoop, type MediaEntry, type Word } from "../media";
+import {
+  activeWordIndex,
+  captionText,
+  formatDuration,
+  highlightLoop,
+  NARROW_QUERY,
+  pickVariant,
+  type MediaEntry,
+  type Word,
+} from "../media";
 
 const SLOTS = (manifest as { slots: Record<string, MediaEntry> }).slots;
 
 function prefersReducedMotion(): boolean {
   return typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+
+function isNarrow(): boolean {
+  return typeof window.matchMedia === "function" && window.matchMedia(NARROW_QUERY).matches;
 }
 
 // One click-to-load media slot. Before the click the player has no src, so
@@ -21,6 +34,8 @@ export function MediaSlot({ slot }: { slot: string }) {
 
 function MediaFigure({ entry }: { entry: MediaEntry }) {
   const [started, setStarted] = useState(false);
+  // The cut is chosen once, at the tap, and kept for this playback.
+  const [variant, setVariant] = useState(() => pickVariant(entry, false));
   const [unavailable, setUnavailable] = useState(false);
   const [words, setWords] = useState<Word[] | null>(null);
   const [active, setActive] = useState(-1);
@@ -77,6 +92,7 @@ function MediaFigure({ entry }: { entry: MediaEntry }) {
   }, [started, words]);
 
   const sized = entry.width && entry.height ? { width: entry.width, height: entry.height } : {};
+  const played = variant.width && variant.height ? { width: variant.width, height: variant.height } : {};
   const onError = () => setUnavailable(true);
 
   // The player is in the DOM from the first render with no src and
@@ -84,12 +100,15 @@ function MediaFigure({ entry }: { entry: MediaEntry }) {
   // src and calls play() on that same element inside the tap: iOS Safari
   // honors play() only within the user gesture, and the earlier design (a
   // fresh <video> with <source> children swapped in, play() from an effect)
-  // sat at 00:00 / 00:00 there and never loaded.
+  // sat at 00:00 / 00:00 there and never loaded. The cut (portrait on a
+  // narrow viewport) is picked here too, so src is still set synchronously.
   const start = () => {
     const media = mediaRef.current;
+    const chosen = pickVariant(entry, isNarrow());
+    setVariant(chosen);
     setStarted(true);
     if (!media) return;
-    media.src = entry.src;
+    media.src = chosen.src;
     media.play().catch((error: unknown) => {
       if (!(error instanceof DOMException && error.name === "AbortError")) setUnavailable(true);
     });
@@ -103,31 +122,47 @@ function MediaFigure({ entry }: { entry: MediaEntry }) {
     </span>
   );
   // Captions mount with the click, so the .vtt is not fetched before it.
-  const track = <track kind="captions" srcLang="en" label="English" src={entry.vtt} default />;
+  const track = <track kind="captions" srcLang="en" label="English" src={variant.vtt} default />;
+
+  // Before the tap the frame follows the viewport (the narrow aspect comes
+  // from CSS through --media-ar-narrow); after it, the chosen cut's own.
+  const mobile = entry.kind === "video" ? entry.mobile : null;
+  const frameStyle = started
+    ? variant.width && variant.height
+      ? { aspectRatio: `${variant.width} / ${variant.height}` }
+      : undefined
+    : ({
+        ...(entry.width && entry.height ? { "--media-ar": `${entry.width} / ${entry.height}` } : {}),
+        ...(mobile ? { "--media-ar-narrow": `${mobile.width} / ${mobile.height}` } : {}),
+      } as CSSProperties);
 
   const player =
     entry.kind === "video" ? (
-      <div
-        className="media-slot-frame"
-        style={entry.width && entry.height ? { aspectRatio: `${entry.width} / ${entry.height}` } : undefined}
-      >
+      <div className="media-slot-frame" data-narrow-cut={mobile ? "" : undefined} style={frameStyle}>
         <video
           ref={mediaRef}
           controls={started}
           preload="none"
           playsInline
-          poster={started ? (entry.poster ?? undefined) : undefined}
+          poster={started ? (variant.poster ?? undefined) : undefined}
           aria-label={entry.title}
           aria-hidden={started ? undefined : true}
           tabIndex={started ? undefined : -1}
           onError={onError}
-          {...sized}
+          {...played}
         >
           {started ? track : null}
         </video>
         {started ? null : (
           <button type="button" className="media-slot-play" onClick={start}>
-            {entry.poster ? <img src={entry.poster} alt="" {...sized} loading="lazy" decoding="async" /> : null}
+            {entry.poster ? (
+              <picture>
+                {mobile ? (
+                  <source media={NARROW_QUERY} srcSet={mobile.poster} width={mobile.width} height={mobile.height} />
+                ) : null}
+                <img src={entry.poster} alt="" {...sized} loading="lazy" decoding="async" />
+              </picture>
+            ) : null}
             {icon}
             <span className="sr-only">
               Play video: {entry.title} ({duration})

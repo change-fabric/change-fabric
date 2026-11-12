@@ -59,3 +59,23 @@ test("a video needs a poster and dimensions; audio does not", () => {
   const audio = { ...video(), kind: "audio", src: "a1b2c3d4e5f6.mp3", poster: null, width: null, height: null };
   assert.doesNotThrow(() => validateManifest(manifest({ sample: audio })));
 });
+
+test("a mobile cut resolves its files and needs its own size", () => {
+  const mobile = { src: "aaaaaaaaaaaa.mp4", poster: "bbbbbbbbbbbb.jpg", vtt: "9a8b7c6d5e4f.vtt", width: 1080, height: 1350, bytes: 1 };
+  const { slots } = resolveManifest(manifest({ clip: { ...video(), mobile } }));
+  assert.equal(slots.clip.mobile.src, "/media/aaaaaaaaaaaa.mp4");
+  assert.equal(slots.clip.mobile.poster, "/media/bbbbbbbbbbbb.jpg");
+  assert.equal(slots.clip.mobile.height, 1350);
+  assert.equal(resolveManifest(manifest({ clip: video() })).slots.clip.mobile, undefined);
+  assert.throws(() => validateManifest(manifest({ clip: { ...video(), mobile: { ...mobile, src: "tall.mp4" } } })), /mobile\.src/);
+  assert.throws(() => validateManifest(manifest({ clip: { ...video(), mobile: { ...mobile, height: 0 } } })), /mobile\.height/);
+  const audio = { ...video(), kind: "audio", src: "a1b2c3d4e5f6.mp3", poster: null, width: null, height: null, mobile };
+  assert.throws(() => validateManifest(manifest({ sample: audio })), /only a video/);
+});
+
+test("the committed walkthrough carries a portrait mobile cut", () => {
+  const { slots } = resolveManifest(readJson("../media/manifest.json"));
+  const mobile = slots["walkthrough-self"].mobile;
+  assert.ok(mobile, "walkthrough-self has no mobile cut");
+  assert.ok(mobile.height > mobile.width, "the mobile cut is not portrait");
+});

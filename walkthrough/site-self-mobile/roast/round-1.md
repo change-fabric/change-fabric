@@ -1,0 +1,17 @@
+# Roast round 1
+
+Score: 5/10
+
+This is a desktop diagram squeezed into a phone cut. The workflow and final verdict are readable, but the central lane-to-report explanation becomes miniature text surrounded by unused space. The sole outcome is only partially met: viewers can follow the broad story, not reliably read what the middle shows. Assessment is limited to the supplied keyframes; narration and caption readability cannot be assessed here.
+
+- P0 (06-lanes-end.jpg — pulled-back swimlane diagram and filled report): At 390 CSS px wide, the report labels render at roughly 5–7 px and the entire diagram occupies only about 180 px of screen height. The viewer cannot read the outputs that this reveal is supposed to explain. Pulling back has turned the explanation into a thumbnail.
+  Fix: Replace the side-by-side overview with a phone-sized report reveal. Stack five output rows vertically, use at least 16 CSS px for essential labels, and retain a compact lane icon beside each output to preserve the connection. Keep the bottom caption area clear rather than shrinking the whole diagram.
+- P1 (04-lanes-load.jpg and 05-lanes-security.jpg — lane labels, runner labels, and pull-request marker): Even the closer views leave essential labels at roughly 10–11 CSS px. All five lanes remain on screen while a mostly empty upper region consumes space. The report is also clipped at the right edge, so the viewer gets tiny source labels without a readable destination.
+  Fix: Recompose each lane moment around one active lane: a large lane name, its runner, the pull-request marker, and its output below. Use a small five-step progress indicator for context instead of keeping every lane visible. Target 16–18 CSS px for the labels needed to follow the action.
+- P1 (02-cold.jpg — “Agent pull requests, waiting” and PR #471–#478): The queue heading and PR cards are dark gray on dark purple. At phone size, the setup is much harder to read than the bright gate track beneath it. The viewer has to decipher the premise before following the explanation.
+  Fix: Raise the heading and PR identifier contrast to at least 4.5:1 in their readable state. If this keyframe represents an intentional fade into the gate track, provide a separate fully legible queue state before dimming it.
+- P1 (03-change-md.jpg — CHANGE.md code panel): The panel presents roughly fourteen lines of configuration at about 13 CSS px, with project metadata, route configuration, protected refs, and promotion policy receiving almost equal visual weight. On a phone, viewers must search the syntax to connect “what to test” with “what is protected.”
+  Fix: Split this into two focused views: “What runs” with the lane and routes, then “What is protected” with refs and the pass requirement. Remove nonessential project metadata, enlarge code to at least 16 CSS px, and highlight the exact lines corresponding to each explanation.
+
+Purpose test: partial. The broad sequence is readable in 02-cold.jpg, 07-findings.jpg, and 08-gate.jpg, but the lane close-ups are undersized and the filled report in 06-lanes-end.jpg is effectively unreadable at the specified phone width.
+- partial: Follow what the video shows on a phone screen (The viewer can follow PR opened → lanes run → recorded pass → merge/release allowed from screens 02 and 08. They cannot reliably read the lane-to-output explanation in screens 04–06; the pulled-back report labels shrink to roughly 5–7 CSS px. Screen 03 also requires reading a dense configuration panel at roughly 13 CSS px.)

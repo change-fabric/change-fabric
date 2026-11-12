@@ -2816,7 +2816,7 @@ code {
 .media-slot-frame {
   position: relative;
   width: 100%;
-  aspect-ratio: 16 / 9;
+  aspect-ratio: var(--media-ar, 16 / 9);
   overflow: hidden;
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -2854,6 +2854,19 @@ code {
   object-fit: cover;
   transform: scale(1.2);
   transform-origin: 50% 25%;
+}
+
+/* A slot with a portrait cut shows it on phones: the frame takes that cut's
+   aspect before the tap, and its poster (from the <picture> source) is drawn
+   whole, since it has no empty margin to crop. */
+@media (max-width: 600px) {
+  .media-slot-frame[data-narrow-cut] {
+    aspect-ratio: var(--media-ar-narrow, var(--media-ar, 16 / 9));
+  }
+
+  .media-slot-frame[data-narrow-cut] .media-slot-play img {
+    transform: none;
+  }
 }
 
 .media-slot-play-icon {

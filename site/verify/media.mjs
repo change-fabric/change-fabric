@@ -215,8 +215,14 @@ async function checkProductionClean() {
 // Loads a route with a fresh context and sums transferred bytes before any
 // interaction, noting any media byte request.
 async function load(browser, base, route, options = {}) {
-  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, ...options });
+  const settings = { viewport: { width: 390, height: 844 }, ...options };
+  const context = await browser.newContext(settings);
   const page = await context.newPage();
+  // Over connectOverCDP to browserless the context viewport is reported but
+  // not applied (the page lays out at the container's 800 px window), so
+  // set the metrics on the page itself.
+  const cdp = await context.newCDPSession(page);
+  await cdp.send("Emulation.setDeviceMetricsOverride", { ...settings.viewport, deviceScaleFactor: 1, mobile: false });
   page.on("pageerror", (error) => console.log(`[pageerror] ${error.message}`));
   const state = { bytes: 0, media: [], pending: [] };
   page.on("request", (request) => {
@@ -351,6 +357,29 @@ async function highlightSeen(browser, base, reducedMotion) {
   }
 }
 
+// The fixture video carries a portrait mobile cut. A phone-width viewport
+// shows its aspect and poster before the tap and plays its src after; a
+// desktop-width one keeps the slot's own.
+async function checkCutChoice(browser, base, viewport, expected) {
+  const { context, page } = await load(browser, base, FIXTURE_ROUTE, { viewport });
+  try {
+    const figure = page.locator("figure.media-slot-video");
+    const frame = figure.locator(".media-slot-frame");
+    const box = await frame.boundingBox();
+    const ratio = box.width / box.height;
+    assert(Math.abs(ratio - expected.ratio) < 0.02, `${viewport.width}px: frame ratio ${ratio.toFixed(3)} before tap, want ${expected.ratio}`);
+    const poster = await figure.locator(".media-slot-play img").evaluate((img) => img.currentSrc);
+    assert(poster.endsWith(expected.poster), `${viewport.width}px: poster ${poster}, want ${expected.poster}`);
+    await figure.locator(".media-slot-play").click();
+    await figure.locator("track").waitFor({ state: "attached" });
+    const src = await figure.locator("video").evaluate((video) => video.getAttribute("src") ?? "");
+    assert(src.endsWith(expected.src), `${viewport.width}px: played ${src}, want ${expected.src}`);
+    record("cut choice", `${viewport.width}px: ratio ${ratio.toFixed(2)}, poster ${expected.poster}, src ${expected.src}`);
+  } finally {
+    await context.close();
+  }
+}
+
 async function readBaseline() {
   const raw = await readFile(baselineFile, "utf8").catch(() => null);
   return raw === null ? null : JSON.parse(raw);
@@ -389,6 +418,8 @@ async function main() {
       record("reduced motion", "no word highlighted during playback");
       assert(await highlightSeen(browser, base, "no-preference"), "no word got aria-current during playback");
       record("follow-along", "a word span got aria-current during playback");
+      await checkCutChoice(browser, base, { width: 390, height: 844 }, { ratio: 32 / 40, poster: "baa2f202cbb1.jpg", src: "74ebf2899803.mp4" });
+      await checkCutChoice(browser, base, { width: 1280, height: 800 }, { ratio: 64 / 36, poster: "b341deaa2535.jpg", src: "19d46053cbca.mp4" });
     }
   } finally {
     await browser.close().catch(() => {});

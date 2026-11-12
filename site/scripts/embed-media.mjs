@@ -53,6 +53,19 @@ function checkSlot(slot, entry) {
     const ok = video ? Number.isInteger(value) && value > 0 : value === null || Number.isInteger(value);
     if (!ok) fail(slot, `missing required field ${field}`);
   }
+  if (entry.mobile !== undefined && entry.mobile !== null) checkMobile(slot, entry);
+}
+
+// The optional portrait cut of a video: its own files and size, sharing the
+// slot's title, transcript, and duration.
+function checkMobile(slot, entry) {
+  const mobile = entry.mobile;
+  if (entry.kind !== "video") fail(slot, "only a video takes a mobile cut");
+  if (typeof mobile !== "object" || Array.isArray(mobile)) fail(slot, "mobile must be an object");
+  for (const field of ["src", "poster", "vtt"]) checkName(slot, `mobile.${field}`, mobile[field]);
+  for (const field of ["width", "height", "bytes"]) {
+    if (!Number.isInteger(mobile[field]) || mobile[field] <= 0) fail(slot, `missing required field mobile.${field}`);
+  }
 }
 
 // Throws naming the slot on any shape error; returns the manifest unchanged.
@@ -81,6 +94,9 @@ export function resolveManifest(manifest) {
       poster: url(entry.poster),
       vtt: url(entry.vtt),
       words: url(entry.words),
+      ...(entry.mobile
+        ? { mobile: { ...entry.mobile, src: url(entry.mobile.src), poster: url(entry.mobile.poster), vtt: url(entry.mobile.vtt) } }
+        : {}),
     };
   }
   return { slots };
