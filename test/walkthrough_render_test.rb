@@ -833,4 +833,16 @@ class WalkthroughRenderTest < Minitest::Test
     WalkthroughRender::Run.new(@root, providers: providers, out: StringIO.new).prune
     assert File.file?(draft[:mp4])
   end
+
+  def test_music_start_sizes_the_bed_and_delays_it
+    run_render
+    full = @calls[:music].last
+    b = JSON.parse(File.read(File.join(@root, "storyboard.json")))
+    b["music"].merge!("start" => 1.5, "fade_in" => 0.05)
+    File.write(File.join(@root, "storyboard.json"), JSON.pretty_generate(b))
+    run_render
+    assert_equal ElevenLabs.clamp_music_ms(WalkthroughStoryboard.timeline(b)["total_ms"] - 1500), @calls[:music].last
+    assert_operator @calls[:music].last, :<, full
+    assert_includes @calls[:docker].last.join(" "), "adelay=delays=1500:all=1,afade=t=in:st=1.500:d=0.050,"
+  end
 end

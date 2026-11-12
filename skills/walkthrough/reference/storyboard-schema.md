@@ -27,6 +27,8 @@
 
 `voice.pronunciations` is an optional list of aliases, `[{ "text": "CHANGE.md", "say": "change dot M D" }]`: the voice speaks `say` wherever `text` appears, while the narration text and the captions keep `text` (caption timing follows the spoken alias). Each `text` and `say` is a non-empty string and each `text` appears once. They become an ElevenLabs pronunciation dictionary of alias rules, created once per distinct rule set (cached under `.cache/pronunciation/` by content hash, no charge) and sent with every narration request; verified on `eleven_multilingual_v2`. Aliases are part of `audio_key`, so adding or changing one re-voices every narrated scene.
 
+`music.start` is optional seconds from the video's start (default 0, >= 0 and below the total length); `music.fade_in` is optional seconds (default 0, 0..2). Silence plays before `start`; the bed is generated for `total - start` (an unset `start` keeps the cache key), delayed to `start`, then faded in. Music duck spans keep their absolute times. Example: `"music": { "prompt": "string", "start": 3.9, "fade_in": 0.05 }`.
+
 `voice.eq` is optional narration EQ applied to the narration bus before the music duck: `"warm"` or `{ "low_shelf_hz": 150, "low_shelf_db": 3, "cut_hz": 3500, "cut_db": -2.5 }` (each hz/db pair optional but all-or-nothing, 20-20000 Hz, +-24 dB); it changes the manifest hash and so re-assembles, never `audio_key`.
 
 `music` may be `null` for a narration-only walkthrough.

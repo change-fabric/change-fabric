@@ -342,7 +342,7 @@ module ElevenLabs
       board = JSON.parse(File.read(opts[:storyboard]))
       block = board['music'] || raise(UsageError, 'the storyboard has no music block')
       { prompt: block['prompt'], composition_plan: block['composition_plan'], model: block['model'],
-        length_ms: WalkthroughStoryboard.timeline(board)['total_ms'] }
+        length_ms: WalkthroughStoryboard.music_length_ms(board, WalkthroughStoryboard.timeline(board)['total_ms']) }
     end
 
     def cached?(cache, item)

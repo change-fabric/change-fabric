@@ -11,7 +11,7 @@ require_relative 'walkthrough_duck'
 #
 #   { fps:, width:, height:, total_ms:, cursor_png:, srt:, output:,
 #     sfx: [{ path:, start_ms:, max_ms:, gain_db:, duck_spans: [...] }],
-#     music: { path:, gain_db: } | nil, duck_spans: [{ start_ms:, end_ms:, db:, attack_ms:, release_ms: }],
+#     music: { path:, gain_db:, start_ms:, fade_in_ms: } | nil (start and fade only when set), duck_spans: [{ start_ms:, end_ms:, db:, attack_ms:, release_ms: }],
 #     scenes: [{ id:, frames_dir:, frames:, start_frame:, transition: { 'type', 'ms' },
 #                cursor: [{ 'frame', 'x', 'y' }], taps: [...] | nil, hero_still:, audio:, offset_ms:,
 #                stage: [w, h] | nil, sprite: Float (full-bleed phone only) }] }
@@ -291,6 +291,16 @@ module WalkthroughFfmpeg
 
   def bound(total) = "apad=whole_dur=#{total},atrim=duration=#{total}"
 
+  # A bed with music.start waits in silence, then fades in over fade_in;
+  # it runs after the trim and before the duck, so duck spans keep their
+  # absolute times. Unset, it adds nothing.
+  def music_entry(music)
+    start = music[:start_ms].to_i
+    fade = music[:fade_in_ms].to_i
+    out = start.positive? ? "adelay=delays=#{start}:all=1," : ''
+    fade.positive? ? "#{out}afade=t=in:st=#{seconds(start)}:d=#{seconds(fade)}," : out
+  end
+
   def audio_graph(plan, loudnorm)
     io = audio_inputs(plan)
     total = seconds(plan[:total_ms])
@@ -302,7 +312,7 @@ module WalkthroughFfmpeg
       labels << "[n#{idx}]"
     end
     if io[:music]
-      parts << "[#{io[:music]}:a]#{normalize},atrim=duration=#{total}," \
+      parts << "[#{io[:music]}:a]#{normalize},atrim=duration=#{total},#{music_entry(plan[:music])}" \
                "volume='#{duck_expression(plan[:duck_spans] || [], total_ms: plan[:total_ms])}':eval=frame," \
                "volume=#{plan[:music][:gain_db].to_f}dB,#{bound(total)}[mus]"
       labels << '[mus]'
@@ -399,7 +409,7 @@ module WalkthroughFfmpeg
   def audio_expectations(plan)
     fps = plan[:fps].to_f
     clips = plan[:scenes].select { |s| s[:audio] }.to_h { |s| [ s[:audio], s[:frames] / fps ] }
-    clips[plan[:music][:path]] = plan[:total_ms] / 1000.0 if plan[:music]
+    clips[plan[:music][:path]] = (plan[:total_ms] - plan[:music][:start_ms].to_i) / 1000.0 if plan[:music]
     clips
   end
 

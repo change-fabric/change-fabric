@@ -303,4 +303,13 @@ class WalkthroughFfmpegCanvasScaleTest < WalkthroughFfmpegTest
       end
     end
   end
+
+  def test_music_start_delays_then_fades_before_the_duck
+    mus = graph(WalkthroughFfmpeg.pass1(plan.merge(music: { path: "/work/m.mp3", gain_db: -18, start_ms: 3900, fade_in_ms: 50 })))
+          .find { |p| p.end_with?("[mus]") }
+    assert_includes mus, "atrim=duration=6.000,adelay=delays=3900:all=1,afade=t=in:st=3.900:d=0.050,volume='"
+    plain = graph(WalkthroughFfmpeg.pass1(plan)).find { |p| p.end_with?("[mus]") }
+    refute_match(/adelay|afade/, plain)
+    assert_equal({ "/work/m.mp3" => 2.1 }, WalkthroughFfmpeg.audio_expectations(plan.merge(music: { path: "/work/m.mp3", start_ms: 3900 }, scenes: [])))
+  end
 end

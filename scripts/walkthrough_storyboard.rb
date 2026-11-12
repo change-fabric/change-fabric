@@ -67,6 +67,7 @@ module WalkthroughStoryboard
     errors.concat(review_errors(board['review']))
     errors.concat(voice_eq_errors(board.dig('voice', 'eq')))
     errors.concat(pronunciation_errors(board.dig('voice', 'pronunciations')))
+    errors.concat(music_errors(board)) unless list.empty?
     orders = list.to_h { |s| [ s['id'], s['order'].to_i ] }
     by_id = list.to_h { |s| [ s['id'], s ] }
     list.each do |scene|
@@ -314,6 +315,29 @@ module WalkthroughStoryboard
     return [ "sfx.file #{src} does not exist" ] if root && !File.file?(File.join(root, src))
 
     []
+  end
+
+  # The music bed's start offset, in ms on the timeline (0 when unset).
+  def music_start_ms(board) = ((board.dig('music', 'start') || 0) * 1000).round
+
+  def music_fade_in_ms(board) = ((board.dig('music', 'fade_in') || 0) * 1000).round
+
+  # The music bed's length: the timeline from its start to the end.
+  def music_length_ms(board, total_ms) = total_ms - music_start_ms(board)
+
+  # music.start: seconds, >= 0 and below the total; music.fade_in: 0..2 s.
+  def music_errors(board)
+    music = board['music']
+    return [] unless music.is_a?(Hash)
+
+    errors = []
+    start = music['start']
+    unless start.nil? || (start.is_a?(Numeric) && start >= 0 && (start * 1000) < timeline(board)['total_ms'])
+      errors << 'music.start must be a number of seconds >= 0 and below the total length'
+    end
+    fade = music['fade_in']
+    errors << 'music.fade_in must be a number of seconds in 0..2' unless fade.nil? || (fade.is_a?(Numeric) && (0..2).cover?(fade))
+    errors
   end
 
   # Optional music duck overrides; absent keys take WalkthroughDuck's defaults.
