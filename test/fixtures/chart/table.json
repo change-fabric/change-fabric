@@ -1,0 +1,11 @@
+{
+  "type": "table",
+  "title": "Phase overview",
+  "columns": ["Phase", "Title", "Depends on", "Days"],
+  "rows": [
+    ["P1", "Roast defaults to Sol for shots", "none", 2],
+    ["P2", "Extract shared SVG checks", "none", 4],
+    ["P3", "Add cf:chart with all seven types", "P2", 7]
+  ],
+  "desc": "Three phases; P3 depends on P2 and takes the longest at seven days."
+}

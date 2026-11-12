@@ -12,7 +12,7 @@ Events placed in time order along one horizontal axis. Follow `grammar.md` for e
 - Steps with branching or decisions: use `flow.md`.
 - Messages between actors over time: use `sequence.md`.
 - Work split across owners or teams: use `swimlane.md`.
-- Quantities over time (counts, rates, durations as bars): that is a chart, so use the dataviz skill.
+- Quantities over time (counts, rates, durations as bars): that is a chart, so use cf:chart (a `schedule` for durations).
 
 ## Layout skeleton
 

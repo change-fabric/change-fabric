@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 220" width="880" height="220" role="img" aria-labelledby="t d" data-chart-type="table">
+  <title id="t">Phase overview</title>
+  <desc id="d">Three phases; P3 depends on P2 and takes the longest at seven days.</desc>
+  <style>
+    svg { --bg: #F5F5F5; --surface: #FFFFFF; --ink: #2D3142; --muted: #4F5D75; --soft: #5A6580; --line: #4F5D75; --rule: #D9DADD; --accent: #B5401C; --accent-tint: #F2E9E6; --link: #2E5AA8; --s1: #B5401C; --s2: #2E5AA8; --s3: #2D3142; --s4: #724D62; --s5: #D2917E; --s6: #88A0CB; --ramp-1: #E8D1CA; --ramp-2: #DBAD9E; --ramp-3: #CF8873; --ramp-4: #C26447; --ramp-5: #B5401C; }
+    @media (prefers-color-scheme: dark) {
+      svg { --bg: #2D3142; --surface: #2D3142; --ink: #F5F5F5; --muted: #BFC0C0; --soft: #A3ACC0; --line: #A3ACC0; --rule: #45495A; --accent: #F08A59; --accent-tint: #3D3844; --link: #7FA9E6; --s1: #F08A59; --s2: #7FA9E6; --s3: #F5F5F5; --s4: #B89AA0; --s5: #98624F; --s6: #5A739C; --ramp-1: #544347; --ramp-2: #7B554B; --ramp-3: #A26650; --ramp-4: #C97854; --ramp-5: #F08A59; }
+    }
+    .bg { fill: var(--bg); }
+    text { font-family: Geist, Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", sans-serif; }
+    .chart-title { fill: var(--ink); font-weight: 600; }
+    .axis-title { fill: var(--soft); }
+    .tick-label, .legend-label { fill: var(--muted); }
+    .cell { fill: var(--ink); }
+    .header { fill: var(--ink); font-weight: 600; }
+    .tick { stroke: var(--rule); stroke-width: 1; }
+    .baseline { stroke: var(--ink); stroke-width: 1; }
+    .rule-line { stroke: var(--rule); stroke-width: 1; }
+    .mark-line { fill: none; stroke-width: 2; }
+    .marks rect { stroke: var(--bg); stroke-width: 1; }
+    .s1 { fill: var(--s1); } .line-s1 { stroke: var(--s1); }
+      .s2 { fill: var(--s2); } .line-s2 { stroke: var(--s2); }
+      .s3 { fill: var(--s3); } .line-s3 { stroke: var(--s3); }
+      .s4 { fill: var(--s4); } .line-s4 { stroke: var(--s4); }
+      .s5 { fill: var(--s5); } .line-s5 { stroke: var(--s5); }
+      .s6 { fill: var(--s6); } .line-s6 { stroke: var(--s6); }
+    .ramp-1 { fill: var(--ramp-1); }
+      .ramp-2 { fill: var(--ramp-2); }
+      .ramp-3 { fill: var(--ramp-3); }
+      .ramp-4 { fill: var(--ramp-4); }
+      .ramp-5 { fill: var(--ramp-5); }
+  </style>
+  <rect class="bg" x="0" y="0" width="880" height="220" fill="#F5F5F5"/>
+  <text class="chart-title" x="32" y="44" font-size="18">Phase overview</text>
+  <g class="table">
+    <text class="header" x="32" y="88" font-size="13">Phase</text>
+    <text class="header" x="95" y="88" font-size="13">Title</text>
+    <text class="header" x="376.4" y="88" font-size="13">Depends on</text>
+    <text class="header" x="521.6" y="88" font-size="13" text-anchor="end">Days</text>
+    <line class="baseline" x1="32" y1="98" x2="533.6" y2="98"/>
+    <text class="mark cell" data-key="0,0" data-value="P1" x="32" y="116" font-size="13">P1</text>
+    <text class="mark cell" data-key="0,1" data-value="Roast defaults to Sol for shots" x="95" y="116" font-size="13">Roast defaults to Sol for shots</text>
+    <text class="mark cell" data-key="0,2" data-value="none" x="376.4" y="116" font-size="13">none</text>
+    <text class="mark cell" data-key="0,3" data-value="2" x="521.6" y="116" font-size="13" text-anchor="end">2</text>
+    <line class="rule-line" x1="32" y1="126" x2="533.6" y2="126"/>
+    <text class="mark cell" data-key="1,0" data-value="P2" x="32" y="144" font-size="13">P2</text>
+    <text class="mark cell" data-key="1,1" data-value="Extract shared SVG checks" x="95" y="144" font-size="13">Extract shared SVG checks</text>
+    <text class="mark cell" data-key="1,2" data-value="none" x="376.4" y="144" font-size="13">none</text>
+    <text class="mark cell" data-key="1,3" data-value="4" x="521.6" y="144" font-size="13" text-anchor="end">4</text>
+    <line class="rule-line" x1="32" y1="154" x2="533.6" y2="154"/>
+    <text class="mark cell" data-key="2,0" data-value="P3" x="32" y="172" font-size="13">P3</text>
+    <text class="mark cell" data-key="2,1" data-value="Add cf:chart with all seven types" x="95" y="172" font-size="13">Add cf:chart with all seven types</text>
+    <text class="mark cell" data-key="2,2" data-value="P2" x="376.4" y="172" font-size="13">P2</text>
+    <text class="mark cell" data-key="2,3" data-value="7" x="521.6" y="172" font-size="13" text-anchor="end">7</text>
+    <line class="rule-line" x1="32" y1="182" x2="533.6" y2="182"/>
+  </g>
+  <g data-role="data-table" aria-label="Data table">
+    <desc>Phase: P1; Title: Roast defaults to Sol for shots; Depends on: none; Days: 2</desc>
+    <desc>Phase: P2; Title: Extract shared SVG checks; Depends on: none; Days: 4</desc>
+    <desc>Phase: P3; Title: Add cf:chart with all seven types; Depends on: P2; Days: 7</desc>
+  </g>
+</svg>

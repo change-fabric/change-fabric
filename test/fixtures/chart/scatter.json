@@ -1,0 +1,11 @@
+{
+  "type": "scatter",
+  "title": "Diff size against review findings",
+  "x": { "label": "Lines changed", "unit": "lines" },
+  "y": { "label": "Findings", "unit": "count" },
+  "series": [
+    { "name": "merged", "points": [[40, 1], [120, 2], [260, 4], [400, 5]] },
+    { "name": "reverted", "points": [[310, 7], [520, 9]] }
+  ],
+  "desc": "Findings rise with diff size; both reverted PRs sit above the trend."
+}

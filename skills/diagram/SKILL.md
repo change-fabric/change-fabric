@@ -16,7 +16,7 @@ Use it for a picture of structure or behavior that a reader should take in at a 
 
 Do not use it for:
 
-- Data charts (bars, lines, scatter, heatmaps). Those go to the dataviz skill.
+- Data charts (bars, lines, scatter, heatmaps, schedules). Those go to cf:chart.
 - UI mocks or screen states. Those go to cf:prototype.
 - A picture with more than 12 nodes or 16 edges. Split it into several diagrams instead.
 

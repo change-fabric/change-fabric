@@ -1,0 +1,11 @@
+{
+  "type": "heatmap",
+  "title": "Lint findings by check and phase",
+  "x": { "label": "Phase", "unit": "" },
+  "y": { "label": "Check", "unit": "" },
+  "value": { "label": "Findings", "unit": "count" },
+  "rows": ["a11y", "palette", "tick-count"],
+  "cols": ["P1", "P2", "P3", "P4"],
+  "cells": [[0, 1, 3, 2], [2, 0, 5, 1], [0, 0, 4, 8]],
+  "desc": "tick-count in P4 is the hottest cell at 8 findings."
+}

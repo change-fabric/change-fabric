@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 296" width="880" height="296" role="img" aria-labelledby="t d" data-chart-type="schedule">
+  <title id="t">Plan phases</title>
+  <desc id="d">P1 and P2 run together, then P3 and P4 follow in sequence, ending November 18.</desc>
+  <style>
+    svg { --bg: #F5F5F5; --surface: #FFFFFF; --ink: #2D3142; --muted: #4F5D75; --soft: #5A6580; --line: #4F5D75; --rule: #D9DADD; --accent: #B5401C; --accent-tint: #F2E9E6; --link: #2E5AA8; --s1: #B5401C; --s2: #2E5AA8; --s3: #2D3142; --s4: #724D62; --s5: #D2917E; --s6: #88A0CB; --ramp-1: #E8D1CA; --ramp-2: #DBAD9E; --ramp-3: #CF8873; --ramp-4: #C26447; --ramp-5: #B5401C; }
+    @media (prefers-color-scheme: dark) {
+      svg { --bg: #2D3142; --surface: #2D3142; --ink: #F5F5F5; --muted: #BFC0C0; --soft: #A3ACC0; --line: #A3ACC0; --rule: #45495A; --accent: #F08A59; --accent-tint: #3D3844; --link: #7FA9E6; --s1: #F08A59; --s2: #7FA9E6; --s3: #F5F5F5; --s4: #B89AA0; --s5: #98624F; --s6: #5A739C; --ramp-1: #544347; --ramp-2: #7B554B; --ramp-3: #A26650; --ramp-4: #C97854; --ramp-5: #F08A59; }
+    }
+    .bg { fill: var(--bg); }
+    text { font-family: Geist, Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", sans-serif; }
+    .chart-title { fill: var(--ink); font-weight: 600; }
+    .axis-title { fill: var(--soft); }
+    .tick-label, .legend-label { fill: var(--muted); }
+    .cell { fill: var(--ink); }
+    .header { fill: var(--ink); font-weight: 600; }
+    .tick { stroke: var(--rule); stroke-width: 1; }
+    .baseline { stroke: var(--ink); stroke-width: 1; }
+    .rule-line { stroke: var(--rule); stroke-width: 1; }
+    .mark-line { fill: none; stroke-width: 2; }
+    .marks rect { stroke: var(--bg); stroke-width: 1; }
+    .s1 { fill: var(--s1); } .line-s1 { stroke: var(--s1); }
+      .s2 { fill: var(--s2); } .line-s2 { stroke: var(--s2); }
+      .s3 { fill: var(--s3); } .line-s3 { stroke: var(--s3); }
+      .s4 { fill: var(--s4); } .line-s4 { stroke: var(--s4); }
+      .s5 { fill: var(--s5); } .line-s5 { stroke: var(--s5); }
+      .s6 { fill: var(--s6); } .line-s6 { stroke: var(--s6); }
+    .ramp-1 { fill: var(--ramp-1); }
+      .ramp-2 { fill: var(--ramp-2); }
+      .ramp-3 { fill: var(--ramp-3); }
+      .ramp-4 { fill: var(--ramp-4); }
+      .ramp-5 { fill: var(--ramp-5); }
+  </style>
+  <rect class="bg" x="0" y="0" width="880" height="296" fill="#F5F5F5"/>
+  <text class="chart-title" x="32" y="44" font-size="18">Plan phases</text>
+  <g class="axis" data-axis="x" data-role="value-x" data-scale="time" data-label="Date" data-unit="day" data-min="2461345" data-max="2461365">
+    <line class="tick" data-value="2461345" x1="155.2" y1="88" x2="155.2" y2="216"/>
+    <text class="tick-label" x="155.2" y="236" font-size="12" text-anchor="middle">Oct 31</text>
+    <line class="tick" data-value="2461350" x1="324.4" y1="88" x2="324.4" y2="216"/>
+    <text class="tick-label" x="324.4" y="236" font-size="12" text-anchor="middle">Nov 5</text>
+    <line class="tick" data-value="2461355" x1="493.6" y1="88" x2="493.6" y2="216"/>
+    <text class="tick-label" x="493.6" y="236" font-size="12" text-anchor="middle">Nov 10</text>
+    <line class="tick" data-value="2461360" x1="662.8" y1="88" x2="662.8" y2="216"/>
+    <text class="tick-label" x="662.8" y="236" font-size="12" text-anchor="middle">Nov 15</text>
+    <line class="tick" data-value="2461365" x1="832" y1="88" x2="832" y2="216"/>
+    <text class="tick-label" x="832" y="236" font-size="12" text-anchor="middle">Nov 20</text>
+    <text class="axis-title" x="493.6" y="260" font-size="12" text-anchor="middle">Date (day)</text>
+  </g>
+  <g class="axis" data-axis="y" data-role="category" data-scale="band" data-label="Phase" data-unit="">
+    <text class="tick-label" x="147.2" y="108" font-size="12" text-anchor="end">P1 roast model</text>
+    <text class="tick-label" x="147.2" y="140" font-size="12" text-anchor="end">P2 shared checks</text>
+    <text class="tick-label" x="147.2" y="172" font-size="12" text-anchor="end">P3 cf:chart</text>
+    <text class="tick-label" x="147.2" y="204" font-size="12" text-anchor="end">P4 cf:plan</text>
+    <text class="axis-title" x="32" y="72" font-size="12">Phase</text>
+  </g>
+  <g class="marks">
+    <rect class="mark s1" data-series="tasks" data-key="P1 roast model" data-value="2026-11-02..2026-11-04" x="222.88" y="96" width="67.68" height="16"/>
+    <rect class="mark s1" data-series="tasks" data-key="P2 shared checks" data-value="2026-11-02..2026-11-06" x="222.88" y="128" width="135.36" height="16"/>
+    <rect class="mark s1" data-series="tasks" data-key="P3 cf:chart" data-value="2026-11-06..2026-11-13" x="358.24" y="160" width="236.88" height="16"/>
+    <rect class="mark s1" data-series="tasks" data-key="P4 cf:plan" data-value="2026-11-13..2026-11-18" x="595.12" y="192" width="169.2" height="16"/>
+  </g>
+  <g data-role="data-table" aria-label="Data table">
+    <desc>P1 roast model: 2026-11-02 to 2026-11-04</desc>
+    <desc>P2 shared checks: 2026-11-02 to 2026-11-06</desc>
+    <desc>P3 cf:chart: 2026-11-06 to 2026-11-13</desc>
+    <desc>P4 cf:plan: 2026-11-13 to 2026-11-18</desc>
+  </g>
+</svg>
