@@ -10,6 +10,7 @@ require_relative 'walkthrough_duck'
 # plan hash built from manifest.json and the cache (container paths only):
 #
 #   { fps:, width:, height:, total_ms:, cursor_png:, srt:, output:,
+#     sfx: [{ path:, start_ms:, max_ms:, gain_db:, duck_spans: [...] }],
 #     music: { path:, gain_db: } | nil, duck_spans: [{ start_ms:, end_ms:, db:, attack_ms:, release_ms: }],
 #     scenes: [{ id:, frames_dir:, frames:, start_frame:, transition: { 'type', 'ms' },
 #                cursor: [{ 'frame', 'x', 'y' }], taps: [...] | nil, hero_still:, audio:, offset_ms:,
@@ -253,7 +254,9 @@ module WalkthroughFfmpeg
     voiced = plan[:scenes].select { |s| s[:audio] }
     narration = voiced.each_with_index.map { |s, k| [ s, base + k ] }
     music = plan[:music] ? base + voiced.size : nil
-    { narration: narration, music: music, next: base + voiced.size + (music ? 1 : 0) }
+    after = base + voiced.size + (music ? 1 : 0)
+    sfx = Array(plan[:sfx]).each_with_index.map { |fx, k| [ fx, after + k ] }
+    { narration: narration, music: music, sfx: sfx, next: after + sfx.size }
   end
 
   # Volume automation: the ramped music duck under narration (WalkthroughDuck).
@@ -300,6 +303,10 @@ module WalkthroughFfmpeg
                "volume=#{plan[:music][:gain_db].to_f}dB,#{bound(total)}[mus]"
       labels << '[mus]'
     end
+    io[:sfx].each do |fx, idx|
+      parts << sfx_branch(fx, idx, total, plan[:total_ms])
+      labels << "[fx#{idx}]"
+    end
     source = if labels.empty?
                "anullsrc=r=#{AUDIO_RATE}:cl=#{AUDIO_LAYOUT},atrim=duration=#{total}"
     else
@@ -307,6 +314,15 @@ module WalkthroughFfmpeg
     end
     parts << "#{source},loudnorm=#{loudnorm},#{normalize},#{bound(total)}[aout]"
     parts
+  end
+
+  # A sound effect: trimmed to the rest of its scene, delayed to its start,
+  # ducked (the volume expression runs on timeline time, after the delay),
+  # then set to its gain.
+  def sfx_branch(fx, idx, total, total_ms)
+    duck = fx[:duck_spans].to_a.empty? ? '' : "volume='#{duck_expression(fx[:duck_spans], total_ms: total_ms)}':eval=frame,"
+    "[#{idx}:a]#{normalize},atrim=duration=#{seconds(fx[:max_ms])},adelay=delays=#{fx[:start_ms]}:all=1," \
+      "#{duck}volume=#{fx[:gain_db].to_f}dB,#{bound(total)}[fx#{idx}]"
   end
 
   # -- loudnorm ------------------------------------------------------------
@@ -335,6 +351,7 @@ module WalkthroughFfmpeg
     end
     plan[:scenes].select { |s| s[:audio] }.each { |s| argv += [ '-i', s[:audio] ] }
     argv += [ '-i', plan[:music][:path] ] if plan[:music]
+    Array(plan[:sfx]).each { |fx| argv += [ '-i', fx[:path] ] }
     argv
   end
 

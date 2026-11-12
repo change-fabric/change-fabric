@@ -282,6 +282,52 @@ class WalkthroughStoryboardTest < Minitest::Test
     assert_raises(WalkthroughStoryboard::ValidationError) { WalkthroughStoryboard.validate!(b, root: @root) }
   end
 
+  # -- narration_start and sfx ---------------------------------------------
+
+  def test_narration_start_validation
+    b = board
+    b["scenes"][1]["narration_start"] = 4.0
+    assert_equal [], errors_for(b)
+    [ -1, "4", 61 ].each do |bad|
+      b["scenes"][1]["narration_start"] = bad
+      assert errors_for(b).any? { |e| e.include?("narration_start must be a number of seconds in 0..60") }, bad.inspect
+    end
+    b["scenes"][1]["narration_start"] = 2
+    b["scenes"][1]["narration"] = { "text" => " " }
+    assert errors_for(b).any? { |e| e.include?("narration_start 2 needs narration.text") }
+  end
+
+  # The scene grows to fit the offset plus the line: max(min_ms, start + measured + pad).
+  def test_narration_start_sizes_the_scene
+    scene = { "narration_start" => 4.0, "narration" => { "measured_ms" => 1500 }, "timing" => { "min_ms" => 3000, "pad_ms" => 400 } }
+    assert_equal 4000, PrototypeCapture.narration_start_ms(scene)
+    assert_equal 5900, PrototypeCapture.scene_duration(scene)
+    assert_equal 6000, PrototypeCapture.scene_duration(scene.merge("timing" => { "min_ms" => 6000, "pad_ms" => 400 }))
+    assert_equal 0, PrototypeCapture.narration_start_ms({})
+  end
+
+  def sfx_board(sfx)
+    FileUtils.mkdir_p(File.join(@root, "sfx"))
+    File.binwrite(File.join(@root, "sfx", "riser.wav"), "RIFF")
+    b = board
+    b["scenes"][0]["sfx"] = sfx
+    b
+  end
+
+  def test_sfx_validation_and_defaults
+    assert_equal [], errors_for(sfx_board("file" => "sfx/riser.wav"))
+    assert_equal [], errors_for(sfx_board("file" => "sfx/riser.wav", "start" => 0.0, "gain_db" => -17, "duck_db" => -10, "duck_lead" => 0.1))
+    spec = WalkthroughStoryboard.sfx_spec(sfx_board("file" => "sfx/riser.wav")["scenes"][0])
+    assert_equal({ "start" => 0.0, "gain_db" => -18, "duck_db" => nil, "duck_lead" => 0.1, "file" => "sfx/riser.wav" }, spec)
+    [ [ { "file" => "" }, "sfx.file is required" ], [ { "file" => "sfx/none.wav" }, "does not exist" ],
+      [ { "file" => "../riser.wav" }, "inside the walkthrough" ], [ { "file" => "sfx/riser.txt" }, "sfx.file must be one of" ],
+      [ { "file" => "sfx/riser.wav", "start" => -1 }, "sfx.start" ], [ { "file" => "sfx/riser.wav", "gain_db" => 20 }, "sfx.gain_db" ],
+      [ { "file" => "sfx/riser.wav", "duck_db" => 3 }, "sfx.duck_db" ], [ { "file" => "sfx/riser.wav", "duck_lead" => 5 }, "sfx.duck_lead" ],
+      [ { "file" => "sfx/riser.wav", "loop" => true }, "unknown keys: loop" ], [ "sfx/riser.wav", "sfx must be an object" ] ].each do |sfx, fragment|
+      assert errors_for(sfx_board(sfx)).any? { |e| e.include?(fragment) }, "#{sfx.inspect} should mention #{fragment}"
+    end
+  end
+
   # -- ai-broll scenes -----------------------------------------------------
 
   def broll_scene(extra = {})

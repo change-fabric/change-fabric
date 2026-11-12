@@ -772,10 +772,19 @@ module PrototypeCapture
 
   # -- storyboard driving --------------------------------------------------
 
+  # max(min_ms, narration_start + measured_ms + pad_ms): a line that starts
+  # late still ends inside its scene, which grows to fit it.
   def scene_duration(scene)
     timing = scene['timing'] || {}
     measured = scene.dig('narration', 'measured_ms').to_i
-    [ timing['min_ms'].to_i, measured + timing.fetch('pad_ms', 0).to_i ].max
+    [ timing['min_ms'].to_i, narration_start_ms(scene) + measured + timing.fetch('pad_ms', 0).to_i ].max
+  end
+
+  # The scene-relative start of the voice line in ms (`narration_start`
+  # seconds, default 0).
+  def narration_start_ms(scene)
+    start = scene['narration_start']
+    start.is_a?(Numeric) ? (start * 1000).round : 0
   end
 
   def sha256_file(path) = File.file?(path) ? Digest::SHA256.file(path).hexdigest : nil
