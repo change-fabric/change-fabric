@@ -125,6 +125,16 @@ function useFabricLight() {
   }, []);
 }
 
+// The phone-width stand-in for the poster's diagram, which is too small to
+// read at 375 px. Same lanes and tools the walkthrough shows.
+const HERO_CHECKS: [string, string][] = [
+  ["Load", "k6 load run"],
+  ["Accessibility", "axe-core scan"],
+  ["Security", "ZAP baseline"],
+  ["Responsive UX", "Viewport sweep"],
+  ["Test cases", "Committed cases"],
+];
+
 export function Home() {
   useFabricLight();
   return (
@@ -147,6 +157,20 @@ export function Home() {
             </a>
           </div>
           <MediaSlot slot="walkthrough-self" />
+          <div className="hero-checks" aria-labelledby="hero-checks-title">
+            <p className="hero-checks-title" id="hero-checks-title">
+              Five checks, one report
+            </p>
+            <ul className="hero-checks-list">
+              {HERO_CHECKS.map(([lane, tool]) => (
+                <li key={lane}>
+                  <span className="hero-checks-lane">{lane}</span>
+                  <span className="hero-checks-tool">{tool}</span>
+                </li>
+              ))}
+            </ul>
+            <p className="hero-checks-gate">They roll up into one report that gates the pull request.</p>
+          </div>
           <div className="harnesses" aria-labelledby="harnesses-title">
             <p className="harnesses-title" id="harnesses-title">
               Works with your coding agents

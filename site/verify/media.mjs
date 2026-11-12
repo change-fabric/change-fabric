@@ -215,8 +215,14 @@ async function checkProductionClean() {
 // Loads a route with a fresh context and sums transferred bytes before any
 // interaction, noting any media byte request.
 async function load(browser, base, route, options = {}) {
-  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, ...options });
+  const settings = { viewport: { width: 390, height: 844 }, ...options };
+  const context = await browser.newContext(settings);
   const page = await context.newPage();
+  // Over connectOverCDP to browserless the context viewport is reported but
+  // not applied (the page lays out at the container's 800 px window), so
+  // set the metrics on the page itself.
+  const cdp = await context.newCDPSession(page);
+  await cdp.send("Emulation.setDeviceMetricsOverride", { ...settings.viewport, deviceScaleFactor: 1, mobile: false });
   page.on("pageerror", (error) => console.log(`[pageerror] ${error.message}`));
   const state = { bytes: 0, media: [], pending: [] };
   page.on("request", (request) => {
@@ -231,6 +237,15 @@ async function load(browser, base, route, options = {}) {
   });
   const response = await page.goto(`${base}${route}`, { waitUntil: "networkidle" });
   assert(response?.status() === 200, `${route} answered ${response?.status()}`);
+  // A navigation that swaps renderers drops the override with the old CDP
+  // session, seen about one run in five; apply it on a fresh session.
+  for (let tries = 0; tries < 3 && (await page.evaluate(() => innerWidth)) !== settings.viewport.width; tries += 1) {
+    const fresh = await context.newCDPSession(page);
+    await fresh.send("Emulation.setDeviceMetricsOverride", { ...settings.viewport, deviceScaleFactor: 1, mobile: false });
+    await page.waitForTimeout(200);
+  }
+  const laidOut = await page.evaluate(() => innerWidth);
+  assert(laidOut === settings.viewport.width, `${route}: laid out at ${laidOut} px, not ${settings.viewport.width} px`);
   await Promise.all(state.pending);
   return { context, page, state, preBytes: state.bytes, preMedia: [...state.media] };
 }
@@ -244,6 +259,8 @@ async function checkRoute(browser, base, route, baseline) {
   const slug = route.replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "") || "home";
   const { context, page, state, preBytes, preMedia } = await load(browser, base, route);
   try {
+    const width = await page.evaluate(() => innerWidth);
+    assert(width === 390, `${route}: laid out at ${width} px, not the 390 px viewport`);
     const h1 = await page.locator("h1").first().boundingBox();
     assert(h1 !== null && h1.y >= 0 && h1.y + h1.height <= 844, `${route}: h1 is not within the 390x844 viewport`);
     for (const box of await Promise.all((await page.locator(".hero-actions a").all()).map((l) => l.boundingBox()))) {
@@ -364,6 +381,24 @@ async function highlightSeen(browser, base, reducedMotion) {
   }
 }
 
+// The homepage's check summary sits under the video on phones and is
+// hidden on desktop, where the poster's own diagram is legible.
+async function checkHeroSummary(browser, base, viewport, visible) {
+  const { context, page } = await load(browser, base, "/", { viewport });
+  try {
+    const width = await page.evaluate(() => innerWidth);
+    assert(width === viewport.width, `/: laid out at ${width} px, not ${viewport.width} px (${page.url()}, ${JSON.stringify(page.viewportSize())})`);
+    const summary = page.locator(".hero-checks");
+    assert(await summary.count() === 1, "/: no hero check summary");
+    assert((await summary.isVisible()) === visible, `/: check summary ${visible ? "hidden" : "shown"} at ${viewport.width} px`);
+    if (visible) assert(await summary.locator("li").count() === 5, "/: the check summary does not list five checks");
+    await page.screenshot({ path: path.join(shots, `home-${viewport.width}.png`), fullPage: true });
+    record("/", `${viewport.width} px: check summary ${visible ? "shown" : "hidden"}`);
+  } finally {
+    await context.close();
+  }
+}
+
 async function readBaseline() {
   const raw = await readFile(baselineFile, "utf8").catch(() => null);
   return raw === null ? null : JSON.parse(raw);
@@ -402,6 +437,8 @@ async function main() {
       record("reduced motion", "no word highlighted during playback");
       assert(await highlightSeen(browser, base, "no-preference"), "no word got aria-current during playback");
       record("follow-along", "a word span got aria-current during playback");
+      await checkHeroSummary(browser, base, { width: 390, height: 844 }, true);
+      await checkHeroSummary(browser, base, { width: 1440, height: 900 }, false);
     }
   } finally {
     await browser.close().catch(() => {});

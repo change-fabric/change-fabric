@@ -729,6 +729,57 @@ code {
   margin-top: var(--s6);
 }
 
+/* Phone-only summary of the poster's diagram, under the video. On wider
+   screens the poster itself is legible, so the summary stays out. */
+.hero-checks {
+  display: none;
+}
+
+@media (max-width: 600px) {
+  .hero-checks {
+    display: block;
+    margin-top: var(--s5);
+    padding: var(--s4);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+  }
+  .hero-checks-title {
+    margin: 0 0 var(--s3);
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .hero-checks-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+  .hero-checks-list li {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--s3);
+    padding: var(--s2) 0;
+    border-top: 1px solid var(--border);
+    font-size: 0.95rem;
+  }
+  .hero-checks-lane {
+    color: var(--heading);
+    font-weight: 500;
+  }
+  .hero-checks-tool {
+    color: var(--muted);
+    font-family: var(--font-mono);
+    font-size: 0.85rem;
+  }
+  .hero-checks-gate {
+    margin: var(--s3) 0 0;
+    color: var(--muted);
+    font-size: 0.9rem;
+  }
+}
+
 /* The walkthrough is the hero's second beat, after the calls to action:
    a full section step of air above it, so the frame never crowds the
    buttons, and it spans the same text column the copy sits in. */
