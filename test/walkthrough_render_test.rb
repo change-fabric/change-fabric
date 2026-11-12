@@ -203,6 +203,16 @@ class WalkthroughRenderTest < Minitest::Test
     assert_match(/\A1\n00:00:04,000 --> /, File.read(File.join(dir, "captions.srt")), "captions shift by the offset")
   end
 
+  def test_sfx_starting_past_its_scene_is_dropped
+    FileUtils.mkdir_p(File.join(@root, "sfx"))
+    File.binwrite(File.join(@root, "sfx", "riser.wav"), "RIFF")
+    b = JSON.parse(File.read(File.join(@root, "storyboard.json")))
+    b["scenes"][0]["sfx"] = { "file" => "sfx/riser.wav", "start" => 59.0 }
+    File.write(File.join(@root, "storyboard.json"), JSON.pretty_generate(b))
+    run_render
+    refute_includes @calls[:docker].last.join(" "), "/work/sfx/riser.wav"
+  end
+
   def test_full_render_order_and_outputs
     result = run_render
     assert_equal %w[list detail hero], @calls[:capture], "from_scene dependency captured before its dependent"

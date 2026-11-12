@@ -507,9 +507,13 @@ module WalkthroughRender
         spec = WalkthroughStoryboard.sfx_spec(i[:scene])
         path = require_file!(File.join(@root, spec['file']), "#{i[:entry]['id']} sfx")
         start = i[:scene_ms] + (spec['start'] * 1000).round
+        max_ms = i[:scene_ms] + i[:entry]['duration_ms'] - start
+        # atrim treats duration=0 as no limit, so an effect starting at or
+        # past its scene's end would play over every later scene.
+        next if max_ms <= 0
+
         lead = (spec['duck_lead'] * 1000).round
-        { path: container(path), start_ms: start, gain_db: spec['gain_db'],
-          max_ms: [ i[:scene_ms] + i[:entry]['duration_ms'] - start, 0 ].max,
+        { path: container(path), start_ms: start, gain_db: spec['gain_db'], max_ms: max_ms,
           duck_spans: spec['duck_db'] ? spans.map { |d| d.merge(start_ms: [ d[:start_ms] - lead, 0 ].max, db: spec['duck_db']) } : [] }
       end
     end
