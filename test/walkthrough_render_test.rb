@@ -179,6 +179,18 @@ class WalkthroughRenderTest < Minitest::Test
     end
   end
 
+  # A narration offset absorbed by timing.min_ms moves no frame or audio
+  # key, so it must move the roast content key itself.
+  def test_audio_timing_moves_the_content_key_only_when_set
+    run = WalkthroughRender::Run.new(@root, providers: providers, out: StringIO.new, gates: { roast: false })
+    b = JSON.parse(File.read(File.join(@root, "storyboard.json")))
+    run.instance_variable_set(:@board, b)
+    assert_equal [], run.send(:audio_timing_material)
+    before = run.send(:content_key, %w[k])
+    b["scenes"][0]["narration_start"] = 4.0
+    refute_equal before, run.send(:content_key, %w[k])
+  end
+
   # narration_start shifts the voice, the captions, and the duck spans; the
   # sfx rides from its scene start and ducks duck_lead before each line.
   def test_narration_start_and_sfx_shift_the_mix

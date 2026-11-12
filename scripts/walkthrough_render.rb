@@ -468,7 +468,20 @@ module WalkthroughRender
     # the same authored inputs matches the roasted draft) plus the live capture.
     # Camera framing is applied at assembly, outside every capture key, so it
     # is part of what the roast reviewed: a framing edit reopens the loop.
-    def content_key(draft_keys) = WalkthroughCache.key([ draft_keys, live_digest, *camera_material ])
+    def content_key(draft_keys) = WalkthroughCache.key([ draft_keys, live_digest, *camera_material, *audio_timing_material ])
+
+    # A narration offset or sfx can move audio against the picture without
+    # changing any frame or audio key (a long timing.min_ms absorbs it), so
+    # they key the roast directly. Empty when no scene sets either, so keys
+    # for existing boards are unchanged.
+    def audio_timing_material
+      timed = scenes.filter_map do |s|
+        next unless s.key?('narration_start') || s.key?('sfx')
+
+        [ s['id'], s['narration_start'], s['sfx'] ]
+      end
+      timed.empty? ? [] : [ timed ]
+    end
 
     # Empty when no scene has a camera, so keys for camera-less boards are
     # unchanged. A zoom with no focus was once dropped at assembly; its tag
