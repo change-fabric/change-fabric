@@ -38,13 +38,12 @@ class BRollTest < Minitest::Test
     @cache = File.join(@dir, ".cache")
     @still = File.join(@dir, "shed.png")
     File.binwrite(@still, "PNGDATA")
-    @old_key = ENV.fetch("GEMINI_API_KEY", nil)
-    ENV["GEMINI_API_KEY"] = "test-key-not-real"
+    enroll_home!({ "gemini" => "test-key-not-real" })
     @ok_probe = ->(_path) { nil }
   end
 
   def teardown
-    ENV["GEMINI_API_KEY"] = @old_key
+    restore_home!
     FileUtils.rm_rf(@dir)
   end
 
@@ -176,13 +175,6 @@ class BRollTest < Minitest::Test
     refute_includes err.message, "test-key-not-real"
   end
 
-  def test_missing_key_is_named_and_makes_no_call
-    ENV.delete("GEMINI_API_KEY")
-    http = FakeHttp.new
-    with_store(enrolled: true) { assert_raises(WalkthroughEnv::MissingKeyError) { gen(http) } }
-    assert_empty http.requests
-  end
-
   def test_response_without_video_is_an_error
     body = JSON.generate("steps" => [ { "type" => "model_output", "content" => [ { "type" => "text", "text" => "no" } ] } ])
     assert_raises(BRoll::RequestError) { gen(FakeHttp.new(ok(body))) }
@@ -274,23 +266,16 @@ class BRollTest < Minitest::Test
     assert_raises(BRoll::RequestError) { gen(http, poll_interval: 5, poll_timeout: 15) }
   end
 
-  def test_fallback_when_key_missing_or_ceiling
-    ENV.delete("GEMINI_API_KEY")
-    res = with_store(enrolled: true) do
-      BRoll.generate_or_fallback(fallback: "static", source_image: @still, prompt: "p", seconds: 4, cache_root: @cache,
-                                 http: FakeHttp.new, validator: @ok_probe)
-    end
-    assert_equal "static", res[:mode]
-    ENV["GEMINI_API_KEY"] = "k"
+  def test_fallback_when_over_the_ceiling
     res = BRoll.generate_or_fallback(fallback: "kenburns", source_image: @still, prompt: "p", seconds: 4, cache_root: @cache,
                                      http: FakeHttp.new, validator: @ok_probe, budget: BRoll::Budget.new(0.01))
     assert_equal "kenburns", res[:mode]
   end
 
   def test_unenrolled_needs_enrollment_instead_of_falling_back
-    ENV.delete("GEMINI_API_KEY")
+    unenroll!("gemini")
     http = FakeHttp.new
-    with_store do
+    with_enrolled do
       assert_raises(WalkthroughEnv::NeedsEnrollment) do
         BRoll.generate_or_fallback(source_image: @still, prompt: "p", seconds: 4, cache_root: @cache, http: http, validator: @ok_probe)
       end
@@ -300,8 +285,8 @@ class BRollTest < Minitest::Test
 
   def test_unenrolled_cached_clip_is_generated_without_asking
     gen(FakeHttp.new(ok(video_body(data: "V"))), prompt: "p")
-    ENV.delete("GEMINI_API_KEY")
-    res = with_store do
+    unenroll!("gemini")
+    res = with_enrolled do
       BRoll.generate_or_fallback(source_image: @still, prompt: "p", seconds: 4, cache_root: @cache, http: FakeHttp.new, validator: @ok_probe)
     end
     assert_equal "generated", res[:mode]

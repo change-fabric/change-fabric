@@ -776,7 +776,6 @@ module WalkthroughRender
     # -- driver -------------------------------------------------------------
 
     def call(estimate_only: false)
-      WalkthroughEnv.load_secrets
       WalkthroughStoryboard.validate!(@board, root: @root)
       WalkthroughHousekeeping.ensure_location!(@root).each { |line| say(line) }
       WalkthroughCache.ensure_gitignore(@root)

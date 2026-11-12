@@ -40,12 +40,11 @@ class ImagePlateTest < Minitest::Test
     @repo = File.join(@dir, "repo").tap { |d| Dir.mkdir(d) }
     @outdir = File.join(@dir, "out")
     @out = StringIO.new
-    @prior_key = ENV.fetch("OPENAI_API_KEY", nil)
-    ENV["OPENAI_API_KEY"] = "sk-test-secret"
+    enroll_home!("openai")
   end
 
   def teardown
-    ENV["OPENAI_API_KEY"] = @prior_key
+    restore_home!
     FileUtils.rm_rf(@dir)
   end
 
@@ -154,9 +153,9 @@ class ImagePlateTest < Minitest::Test
   end
 
   def test_unenrolled_uncached_plate_exits_4_with_one_enroll_line
-    ENV.delete("OPENAI_API_KEY")
+    unenroll!("openai")
     http = ImagegenHelpers::FakeHttp.new
-    assert_equal 4, with_store { cli(write_spec(spec_hash), http: http) }
+    assert_equal 4, with_enrolled { cli(write_spec(spec_hash), http: http) }
     assert_one_enroll_line(@out.string, "openai")
     assert_empty http.requests
   end
@@ -164,10 +163,10 @@ class ImagePlateTest < Minitest::Test
   def test_unenrolled_cached_plate_exits_0_without_asking
     spec = write_spec(spec_hash)
     assert_equal 0, cli(spec)
-    ENV.delete("OPENAI_API_KEY")
+    unenroll!("openai")
     @out = StringIO.new
     http = ImagegenHelpers::FakeHttp.new
-    assert_equal 0, with_store { cli(spec, http: http) }, @out.string
+    assert_equal 0, with_enrolled { cli(spec, http: http) }, @out.string
     assert_empty enroll_lines(@out.string)
     assert_empty http.requests
   end

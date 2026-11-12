@@ -19,8 +19,6 @@ class WalkthroughRenderTest < Minitest::Test
 
   def setup
     @root = Dir.mktmpdir
-    @old_env = ENV["CF_SECRETS_ENV"]
-    ENV["CF_SECRETS_ENV"] = File.join(@root, "no-such.env")
     FileUtils.mkdir_p(File.join(@root, "screens"))
     FileUtils.mkdir_p(File.join(@root, "data"))
     %w[list detail hero].each { |n| File.write(File.join(@root, "screens", "#{n}.html"), "<html><body>#{n}</body></html>") }
@@ -32,7 +30,6 @@ class WalkthroughRenderTest < Minitest::Test
   end
 
   def teardown
-    ENV["CF_SECRETS_ENV"] = @old_env
     FileUtils.rm_rf(@root)
   end
 
@@ -604,25 +601,12 @@ class WalkthroughRenderTest < Minitest::Test
   def keyed_roast = providers.merge(roast: ->(**) { WalkthroughEnv.openai_key! && @critic })
 
   def test_unenrolled_draft_roast_needs_enrollment_instead_of_skipping
-    saved = ENV.delete("OPENAI_API_KEY")
-    with_store do
+    with_enrolled do
       assert_raises(WalkthroughEnv::NeedsEnrollment) do
         WalkthroughRender::Run.new(@root, providers: keyed_roast, out: StringIO.new).call
       end
     end
     refute File.exist?(File.join(@root, "roast", "round-1.json"))
-  ensure
-    ENV["OPENAI_API_KEY"] = saved if saved
-  end
-
-  def test_enrolled_draft_roast_without_a_key_is_skipped
-    saved = ENV.delete("OPENAI_API_KEY")
-    out = StringIO.new
-    with_store(enrolled: true) { WalkthroughRender::Run.new(@root, providers: keyed_roast, out: out).call }
-    assert_includes out.string, "roast: skipped (OPENAI_API_KEY for openai not found"
-    assert_empty enroll_lines(out.string)
-  ensure
-    ENV["OPENAI_API_KEY"] = saved if saved
   end
 
   def test_allow_sensitive_gate_reaches_the_roast_provider

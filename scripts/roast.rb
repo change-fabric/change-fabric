@@ -472,7 +472,6 @@ module Roast
       end
 
       opts = parse(args)
-      WalkthroughEnv.load_secrets
       critique(opts, out, http)
       0
     rescue UsageError, OptionParser::ParseError, RoastLens::UnknownLens => e

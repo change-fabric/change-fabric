@@ -263,7 +263,6 @@ module ElevenLabs
         out.puts(USAGE)
         return 2
       end
-      WalkthroughEnv.load_secrets
       send(command, parse(args), out, transport, sleeper)
       0
     rescue WalkthroughEnv::NeedsEnrollment => e

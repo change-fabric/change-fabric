@@ -44,12 +44,11 @@ class RoastTest < Minitest::Test
     @brief = File.join(@dir, "brief.txt")
     File.write(@brief, "A booking site for dog groomers")
     @shot = write_fixture(@dir, "home.png")
-    ENV["OPENAI_API_KEY"] = "sk-test-secret"
-    ENV.delete("CF_SECRETS_ENV")
+    enroll_home!("openai")
   end
 
   def teardown
-    ENV.delete("OPENAI_API_KEY")
+    restore_home!
     FileUtils.remove_entry(@dir)
   end
 
@@ -231,10 +230,10 @@ class RoastTest < Minitest::Test
 
   def test_rerun_of_same_inputs_is_cached_free_and_keyless
     run_cli("--round", "1", "--history", File.join(@dir, "none"))
-    ENV.delete("OPENAI_API_KEY")
+    unenroll!("openai")
     @out.truncate(0)
     @out.rewind
-    code, text, http = with_store { run_cli("--round", "1", "--history", File.join(@dir, "none")) }
+    code, text, http = with_enrolled { run_cli("--round", "1", "--history", File.join(@dir, "none")) }
     assert_equal 0, code
     assert_empty http.requests
     assert_includes text, "$0.00"
@@ -255,16 +254,9 @@ class RoastTest < Minitest::Test
     assert_empty http.requests
   end
 
-  def test_missing_key_is_a_named_failure
-    ENV.delete("OPENAI_API_KEY")
-    code, text, = with_store(enrolled: true) { run_cli }
-    assert_equal 1, code
-    assert_includes text, "OPENAI_API_KEY for openai not found"
-  end
-
   def test_unenrolled_uncached_roast_exits_4_with_one_enroll_line
-    ENV.delete("OPENAI_API_KEY")
-    code, text, http = with_store { run_cli }
+    unenroll!("openai")
+    code, text, http = with_enrolled { run_cli }
     assert_equal 4, code
     assert_one_enroll_line(text, "openai")
     assert_empty http.requests

@@ -18,14 +18,12 @@ class ElevenLabsTest < Minitest::Test
 
   def setup
     @dir = Dir.mktmpdir
-    @saved = %w[ELEVEN_LABS_API_KEY ELEVENLABS_API_KEY].to_h { |k| [ k, ENV.fetch(k, nil) ] }
-    ENV["ELEVEN_LABS_API_KEY"] = KEY
-    ENV.delete("ELEVENLABS_API_KEY")
+    enroll_home!({ "elevenlabs" => KEY })
   end
 
   def teardown
     FileUtils.rm_rf(@dir)
-    @saved.each { |k, v| v.nil? ? ENV.delete(k) : ENV[k] = v }
+    restore_home!
   end
 
   def tts_body
@@ -176,27 +174,17 @@ class ElevenLabsTest < Minitest::Test
     assert_equal 3, sleeps.length
   end
 
-  def test_missing_key_raises_named_error
-    ENV.delete("ELEVEN_LABS_API_KEY")
-    with_store(enrolled: true) do
-      assert_raises(WalkthroughEnv::MissingKeyError) do
-        ElevenLabs.perform(ElevenLabs.music_request(prompt: "p", length_ms: 5000, model: "m"),
-                                      transport: ->(*) { flunk }, sleeper: ->(_) { })
-      end
-    end
-  end
-
   def test_unenrolled_uncached_cli_exits_4_with_one_enroll_line
-    ENV.delete("ELEVEN_LABS_API_KEY")
-    code, out = with_store { cli("narrate", "--text", "Hi", "--voice", "v1", transport: ->(*) { flunk "paid call" }) }
+    unenroll!("elevenlabs")
+    code, out = with_enrolled { cli("narrate", "--text", "Hi", "--voice", "v1", transport: ->(*) { flunk "paid call" }) }
     assert_equal 4, code
     assert_one_enroll_line(out, "elevenlabs")
   end
 
   def test_unenrolled_cached_cli_exits_0_without_asking
     assert_equal 0, cli("narrate", "--text", "Hi", "--voice", "v1").first
-    ENV.delete("ELEVEN_LABS_API_KEY")
-    code, out = with_store { cli("narrate", "--text", "Hi", "--voice", "v1", transport: ->(*) { flunk "cache miss" }) }
+    unenroll!("elevenlabs")
+    code, out = with_enrolled { cli("narrate", "--text", "Hi", "--voice", "v1", transport: ->(*) { flunk "cache miss" }) }
     assert_equal 0, code, out
     assert_empty enroll_lines(out)
   end
@@ -250,7 +238,7 @@ class ElevenLabsTest < Minitest::Test
 
   def test_cli_narrate_cache_hit_makes_no_call_and_needs_no_key
     cli("narrate", "--text", "Hi there", "--voice", "v1")
-    ENV.delete("ELEVEN_LABS_API_KEY")
+    unenroll!("elevenlabs")
     code, out = cli("narrate", "--text", "Hi there", "--voice", "v1")
     assert_equal 0, code, out
     assert_empty @http_calls, "second run is served from the audio_key cache"

@@ -36,6 +36,29 @@ class ChangeDockerTest < Minitest::Test
     assert_equal ChangeDocker::BROWSERLESS_IMAGE, argv.last
   end
 
+  # Env values ride in the docker client's environment; only names reach
+  # argv, so `ps` never shows a key or the browserless token.
+  def test_run_keeps_env_values_off_argv
+    seen = nil
+    original = Open3.method(:capture2e)
+    Open3.define_singleton_method(:capture2e) { |*call| seen = call and [ "", nil ] }
+    begin
+      ChangeDocker.run(network: nil, image: "img", args: %w[cmd], env: { "API_KEY" => "sk-never-on-argv" })
+    ensure
+      Open3.define_singleton_method(:capture2e, original)
+    end
+    env, *argv = seen
+    assert_equal({ "API_KEY" => "sk-never-on-argv" }, env)
+    assert_equal [ "-e", "API_KEY" ], argv.each_cons(2).find { |flag, _| flag == "-e" }
+    refute(argv.any? { |arg| arg.include?("sk-never-on-argv") })
+  end
+
+  def test_browserless_command_names_the_token_without_its_value
+    argv = ChangeDocker.browserless_command("cf-change-bl-x", nil, 1234, "tok-secret")
+    assert_includes argv.each_cons(2).to_a, [ "-e", "TOKEN" ]
+    refute(argv.any? { |arg| arg.include?("tok-secret") })
+  end
+
   # A session whose post returns the scripted responses in order.
   def scripted_session(*responses)
     session = browserless
