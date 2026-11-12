@@ -137,6 +137,12 @@ class WalkthroughFluidMotionTest < Minitest::Test
     refute_includes errors(board([ live("one", 1, "interactions" => ops) ])), "overlap"
   end
 
+  def test_glides_on_two_devices_never_overlap
+    glide = { "t_ms" => 0, "op" => "scroll", "target" => "html", "dy" => 300, "ms" => 900 }
+    scene = live("one", 1, "interactions" => { "desktop" => [ glide ], "phone" => [ glide ] }).except("device")
+    assert_empty WalkthroughStoryboard.glide_overlap_errors(scene)
+  end
+
   def test_overlapping_glides_on_two_targets_both_run
     plan = PrototypeCapture.schedule([ { "t_ms" => 0, "op" => "scroll", "target" => "#feed", "dy" => 300, "ms" => 900 },
                                        { "t_ms" => 100, "op" => "scroll", "target" => "#side", "dy" => 50, "ms" => 900 } ], 40)

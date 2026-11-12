@@ -415,10 +415,17 @@ module WalkthroughStoryboard
 
   # Two glides on one target share its origin, so one may not start before
   # the other ends (the earlier one would jump back when the later one
-  # re-reads the origin). Glides on different targets may overlap.
+  # re-reads the origin). Glides on different targets, or on different
+  # devices (each its own page), may overlap.
   def glide_overlap_errors(scene)
-    WalkthroughLive.all_interactions(scene).select { |op| op.is_a?(Hash) && op['op'] == 'scroll' && op['ms'].is_a?(Integer) }
-                   .group_by { |op| op['target'] }.flat_map do |target, glides|
+    list = scene['interactions']
+    lists = list.is_a?(Hash) ? list.values : [ list ]
+    lists.flat_map { |ops| list_glide_overlaps(Array(ops)) }
+  end
+
+  def list_glide_overlaps(ops)
+    ops.select { |op| op.is_a?(Hash) && op['op'] == 'scroll' && op['ms'].is_a?(Integer) }
+       .group_by { |op| op['target'] }.flat_map do |target, glides|
       glides.sort_by { |op| op['t_ms'].to_i }.each_cons(2).filter_map do |a, b|
         "glides on #{target} overlap (#{a['t_ms']} ms + #{a['ms']} ms runs past #{b['t_ms']} ms)" if b['t_ms'].to_i < a['t_ms'].to_i + a['ms']
       end
