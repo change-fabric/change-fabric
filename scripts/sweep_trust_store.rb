@@ -4,7 +4,7 @@
 require 'json'
 require 'time'
 require 'fileutils'
-require_relative 'contributors_team'
+require_relative 'cf_project_identity'
 
 # Records the per-contributor trust policy cf:sweep asks for once and then
 # reuses on every later sweep of the same repo.
@@ -18,8 +18,10 @@ require_relative 'contributors_team'
 #
 # The key is ContributorsTeam's normalized `repo_id` (host/path, so SSH and
 # HTTPS clones of one repo collapse to one record), slugged into a single path
-# segment. A repo with no remote falls back to its absolute root path, which is
-# still stable for a local-only checkout.
+# segment. A repo with no remote falls back to its main checkout root (so a
+# worktree shares its repo's record), and a non-repo directory to its realpath.
+# Both come from CfProjectIdentity, so this store and the paid-key store agree
+# on what a project is.
 class SweepTrustStore
   # Ordinal, highest trust first. The ordering is meaningful: cf:sweep sorts
   # merge order by it and resolves a conflict between two PRs in favor of the
@@ -30,9 +32,12 @@ class SweepTrustStore
 
   # Builds a store for whatever repo `dir` sits in. Fail-soft: a directory that
   # is not a git repo, or a repo with no remote, still gets a usable store keyed
-  # by its own path.
+  # by its own path. Keys on the bare (unprefixed) identity value so records
+  # written before the shared identity existed keep their paths.
   def self.for_dir(dir)
-    new(ContributorsTeam.new(dir).repo_id || File.expand_path(dir.to_s))
+    new(CfProjectIdentity.resolve(dir)[1])
+  rescue SystemCallError
+    new(File.expand_path(dir.to_s))
   end
 
   def initialize(repo_id)
