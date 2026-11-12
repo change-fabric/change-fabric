@@ -448,6 +448,8 @@ module WalkthroughStoryboard
     release = ->(op) { op['t_ms'].to_i + (op['press_ms'] || PrototypeCapture::PRESS_MS).to_i }
     late = lists.flat_map { |l| Array(l).select { |op| op.is_a?(Hash) && op['op'] == 'tap' && !navs.include?(op) } }
     errs << 'a navigate tap must release after every other tap in its scene' if late.any? { |op| navs.any? { |n| release.call(op) >= release.call(n) } }
+    glides = lists.flat_map { |l| Array(l).select { |op| op.is_a?(Hash) && op['op'] == 'scroll' && op['ms'].is_a?(Integer) } }
+    errs << 'a navigate tap must release after every glide in its scene ends' if glides.any? { |g| navs.any? { |n| g['t_ms'].to_i + g['ms'] > release.call(n) } }
     # The scene hands on its first device's session, so that device navigates.
     lead = WalkthroughDevice.devices(scene).first
     if scene['interactions'].is_a?(Hash) && Array(scene['interactions'][lead]).none? { |op| navs.include?(op) }

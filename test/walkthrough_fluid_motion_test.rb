@@ -79,6 +79,12 @@ class WalkthroughFluidMotionTest < Minitest::Test
     assert_includes errors(nav_board(first_ops: early)), "must release after every other tap"
     early[0]["press_ms"] = 50
     refute_includes errors(nav_board(first_ops: early)), "must release after every other tap"
+    gliding = [ { "t_ms" => 0, "op" => "scroll", "target" => "html", "dy" => 200, "ms" => 900 },
+                { "t_ms" => 100, "op" => "tap", "target" => "#next", "press_ms" => 100, "navigate" => true } ]
+    assert_includes errors(nav_board(first_ops: gliding)), "after every glide in its scene ends"
+    gliding[1]["t_ms"] = 800
+    refute_includes errors(nav_board(first_ops: gliding)), "after every glide"
+    refute_includes errors(nav_board(first_ops: early)), "must release after every other tap"
   end
 
   # -- easing ------------------------------------------------------------
@@ -196,7 +202,7 @@ class WalkthroughFluidMotionTest < Minitest::Test
     js = PrototypeCapture.function_module(html: "<p>x</p>", plan: [], range: 0...1, viewport: nil, prng_seed: 1, state: {})
     assert_includes js, "if (step.press)"
     assert_includes js, "__cf-pressed"
-    assert_includes PrototypeCapture::PRESS_CSS, "scale(0.96)"
+    assert_includes PrototypeCapture::PRESS_CSS, "scale: 0.96 !important"
     live_js = WalkthroughLive.run_device_js(board([ live("a", 1) ]), live("a", 1))
     assert_includes live_js, "if (step.press)"
     assert_includes live_js, "page.touchscreen.tap(pos.x, pos.y)"

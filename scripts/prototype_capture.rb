@@ -58,7 +58,9 @@ module PrototypeCapture
   PRESS_RANGE = (1..1000)
   # The pressed look a tap's target wears for its press frames, injected
   # only into a page that taps, so pages without a tap op never change.
-  PRESS_CSS = '.__cf-pressed { transform: scale(0.96) !important; opacity: 0.82 !important; transition: none !important; }'
+  # The `scale` property composes with the element's own transform (a
+  # centring translate stays put) instead of replacing it.
+  PRESS_CSS = '.__cf-pressed { scale: 0.96 !important; opacity: 0.82 !important; transition: none !important; }'
   # In-page helper (a JS function, passed to page.evaluate): toggles the
   # pressed class on a selector, adding the style sheet on first use.
   PRESS_JS = <<~JS.chomp

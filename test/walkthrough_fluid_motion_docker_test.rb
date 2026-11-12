@@ -21,6 +21,9 @@ class WalkthroughFluidMotionDockerTest < Minitest::Test
     <body>#{(1..9).map { |i| "<div class='row'>Row #{i}</div>" }.join}
     <a id="next" href="#detail">Open detail</a><div id="detail">Detail page</div></body></html>
   HTML
+  # setContent cannot carry a hash, so the destination scene loads the
+  # detail view as its own page, as a live goto of the URL would show it.
+  DETAIL = "<!doctype html><html><head><meta name='viewport' content='width=device-width'></head><body style='margin:0;background:#fc6;padding:40px;font:32px sans-serif'>Detail page</body></html>"
   PROTO = <<~HTML
     <!doctype html><html><body style="margin:0;font:20px sans-serif">
     <div id="list" style="height:300px;overflow:auto">#{(1..30).map { |i| "<p style='margin:0;height:40px'>Item #{i}</p>" }.join}</div>
@@ -63,7 +66,7 @@ class WalkthroughFluidMotionDockerTest < Minitest::Test
     assert_equal "about:blank#detail", first["session"]["url"]
     tap = first["session"]["tap"]
     refute_nil tap
-    second = film(board, scene, dev, FEED, "about:blank#detail", PrototypeCapture.schedule([], 10), first["session"])
+    second = film(board, scene, dev, DETAIL, "about:blank#detail", PrototypeCapture.schedule([], 10), first["session"])
     assert_equal [ tap["x"], tap["y"] ], second["cursor"].first.values_at("x", "y"), "the cursor starts where the tap landed"
     assert first["frames"].size > 20, "the glide streams many distinct frames, not a jump"
     keep(second, "detail")
