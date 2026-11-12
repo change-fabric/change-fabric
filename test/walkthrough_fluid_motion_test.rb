@@ -126,6 +126,17 @@ class WalkthroughFluidMotionTest < Minitest::Test
     assert_includes PrototypeUxLint.lint_frames(plan, 30), 13
   end
 
+  def test_overlapping_glides_on_one_target_are_rejected
+    ops = [ { "t_ms" => 0, "op" => "scroll", "target" => "#feed", "dy" => 300, "ms" => 900 },
+            { "t_ms" => 100, "op" => "scroll", "target" => "#feed", "dy" => 100, "ms" => 100 } ]
+    assert_includes errors(board([ live("one", 1, "interactions" => ops) ])), "glides on #feed overlap"
+    ops[1]["t_ms"] = 900
+    refute_includes errors(board([ live("one", 1, "interactions" => ops) ])), "overlap"
+    ops[1]["t_ms"] = 100
+    ops[1]["target"] = "#side"
+    refute_includes errors(board([ live("one", 1, "interactions" => ops) ])), "overlap"
+  end
+
   def test_overlapping_glides_on_two_targets_both_run
     plan = PrototypeCapture.schedule([ { "t_ms" => 0, "op" => "scroll", "target" => "#feed", "dy" => 300, "ms" => 900 },
                                        { "t_ms" => 100, "op" => "scroll", "target" => "#side", "dy" => 50, "ms" => 900 } ], 40)

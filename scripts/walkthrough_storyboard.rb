@@ -185,6 +185,7 @@ module WalkthroughStoryboard
     errors.concat(camera_errors(scene['camera']))
     errors.concat(scene_interaction_errors(scene))
     errors.concat(navigate_errors(scene, board))
+    errors.concat(glide_overlap_errors(scene))
     Array(scene['hypotheses']).each { |h| errors << "hypothesis #{h} is not in the top-level list" unless hyp_ids.include?(h) }
     errors << 'needs at least one requirement or assumption' if Array(scene['requirements']).empty? && Array(scene['assumptions']).empty?
     errors.concat(kind_errors(scene, root))
@@ -410,6 +411,18 @@ module WalkthroughStoryboard
     errs << "tap press_ms must be an integer in #{range.min}..#{range.max}" if op.key?('press_ms') && !(op['press_ms'].is_a?(Integer) && range.cover?(op['press_ms']))
     errs << 'tap navigate must be true or false' if op.key?('navigate') && ![ true, false ].include?(op['navigate'])
     errs
+  end
+
+  # Two glides on one target share its origin, so one may not start before
+  # the other ends (the earlier one would jump back when the later one
+  # re-reads the origin). Glides on different targets may overlap.
+  def glide_overlap_errors(scene)
+    WalkthroughLive.all_interactions(scene).select { |op| op.is_a?(Hash) && op['op'] == 'scroll' && op['ms'].is_a?(Integer) }
+                   .group_by { |op| op['target'] }.flat_map do |target, glides|
+      glides.sort_by { |op| op['t_ms'].to_i }.each_cons(2).filter_map do |a, b|
+        "glides on #{target} overlap (#{a['t_ms']} ms + #{a['ms']} ms runs past #{b['t_ms']} ms)" if b['t_ms'].to_i < a['t_ms'].to_i + a['ms']
+      end
+    end
   end
 
   # A tap with `navigate: true` carries straight into the next scene: it is
