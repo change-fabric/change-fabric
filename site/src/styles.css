@@ -1673,8 +1673,7 @@ code {
     flex-wrap: wrap;
     margin: 0 0 0 calc(-1 * var(--s2));
   }
-  /* The related projects get their own labelled row, as on desktop, so
-     they never read as more product docs. */
+  /* Without the label, sibling projects read as more product docs. */
   .nav-group-label {
     display: block;
     flex-basis: 100%;
