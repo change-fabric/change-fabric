@@ -4,6 +4,7 @@ require 'fileutils'
 require 'json'
 require 'securerandom'
 require 'time'
+require_relative 'cf_project_identity'
 require_relative 'cf_provider_registry'
 
 # Owns ~/.claude/cf/secrets: one 0700 directory per project slug, one hidden
@@ -73,6 +74,27 @@ module CfSecretStore
       m['id'] = identity.id
       m['root'] = identity.root
     end
+  end
+
+  # Enrollment levels above a project root (an org folder, a home dir), deepest
+  # first, that hold a key for provider. Each is [id, slug]. The project's own
+  # level is excluded; whether it may be used is the caller's question.
+  def inheritable(root, provider)
+    ancestors(root).filter_map do |dir|
+      id = "dir:#{dir}"
+      slug = CfProjectIdentity.slug(id)
+      [ id, slug ] if key?(slug, provider)
+    end
+  end
+
+  def ancestors(root)
+    dirs = []
+    dir = File.dirname(root.to_s)
+    while dir != dirs.last
+      dirs << dir
+      dir = File.dirname(dir)
+    end
+    dirs
   end
 
   def slugs

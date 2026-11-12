@@ -86,6 +86,10 @@ module Install
     def skill_sources        = Dir.glob(File.join(skills_dir, '*')).select { |p| File.directory?(p) }
     def script_dest(name)    = File.join(bin, name)
     def manifest             = File.join(bin, '.installed-manifest')
+    # The paid-provider registry, read by scripts via __dir__/../config, so it
+    # lands beside both installed script dirs.
+    def providers_source     = File.join(@repo, 'config', 'providers.yml')
+    def providers_dests      = [ File.join(state_root, 'config', 'providers.yml'), File.join(runtime_root, 'config', 'providers.yml') ]
     def skill_link(name)     = File.join(skills_root, name)
     def opencode_skill(name) = File.join(opencode_skills_root, SkillName.portable(name))
     def copilot_skill(name)  = File.join(copilot_skills_root, SkillName.portable(name))
@@ -565,7 +569,15 @@ module Install
         FileUtils.chmod(0o755, dest)
       end
       place_vendor
+      place_providers
       write_manifest(names)
+    end
+
+    def place_providers
+      @paths.providers_dests.each do |dest|
+        FileUtils.mkdir_p(File.dirname(dest))
+        FileUtils.cp(@paths.providers_source, dest)
+      end
     end
 
     def remove_stale_managed_scripts(current_names)
@@ -692,6 +704,7 @@ module Install
       end
       files.concat(@paths.vendor_glob.map { |source| @paths.vendor_dest(source) })
       files << File.join(@paths.runtime_root, 'config', 'host_capabilities.json')
+      files.concat(@paths.providers_dests)
       files << File.expand_path('../../bin/cf', @paths.runtime_root)
       files << @paths.manifest
       files << File.join(@paths.bin, '.expected-home')
