@@ -92,7 +92,7 @@ Contested calls (a rebuttal the critic keeps repeating, a fix that conflicts wit
 
 ## Keys and cost
 
-`OPENAI_API_KEY` from the environment, the env file named by `CF_SECRETS_ENV`, or this project's enrolled source, needed only when a call is made. Exit 4 with a `cf_enroll` line means this project has no key source recorded: enroll it and re-run, see `skills/walkthrough/reference/key-enrollment.md`. Never print or write it. The cache key is a hash of the model, the effort when not medium, round, brief, history, and the screenshot and text digests, so a rerun of identical inputs is a cache hit: no call, no key, $0.00. A changed screenshot or a new response file is a new key and a new paid call.
+The OpenAI key comes only from this project's enrollment (`cf_keys.rb`), never from env vars, needed only when a call is made. Exit 4 with a `cf_enroll` line means this project has no usable key: paste the printed snippet for the user to run, or ask about inheriting, then re-run, see `skills/walkthrough/reference/key-enrollment.md`. Never print or write it. The cache key is a hash of the model, the effort when not medium, round, brief, history, and the screenshot and text digests, so a rerun of identical inputs is a cache hit: no call, no key, $0.00. A changed screenshot or a new response file is a new key and a new paid call.
 
 ## Done when
 

@@ -30,7 +30,7 @@ Overrides: `--model <model_id>` (default `music_v1`), `--cache <dir>` (default `
 
 ## Keys and licensing
 
-`ELEVEN_LABS_API_KEY` (fallback `ELEVENLABS_API_KEY`) from the environment, `CF_SECRETS_ENV`, or this project's enrolled source; never print or write it. Exit 4 with a `cf_enroll` line means this project has no key source recorded: enroll it and re-run, see `skills/walkthrough/reference/key-enrollment.md`. Music for commercial use needs the ElevenLabs Starter plan or above, and film or broadcast use needs Enterprise. Check the current terms before publishing.
+The ElevenLabs key comes only from this project's enrollment (`cf_keys.rb`), never from env vars; never print or write it. Exit 4 with a `cf_enroll` line means this project has no usable key: paste the printed snippet for the user to run, or ask about inheriting, then re-run, see `skills/walkthrough/reference/key-enrollment.md`. Music for commercial use needs the ElevenLabs Starter plan or above, and film or broadcast use needs Enterprise. Check the current terms before publishing.
 
 ## Done when
 
