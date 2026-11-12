@@ -145,19 +145,16 @@ module WalkthroughHousekeeping
     end
   end
 
-  def warn_gb(env = ENV)
-    v = env[WARN_ENV].to_s.strip
-    v.empty? ? DEFAULT_WARN_GB : Float(v)
+  def env_float(key, default, env)
+    v = env[key].to_s.strip
+    v.empty? ? default : Float(v)
   rescue ArgumentError
-    DEFAULT_WARN_GB
+    default
   end
 
-  def retention_days(env = ENV)
-    v = env[RETENTION_ENV].to_s.strip
-    v.empty? ? DEFAULT_RETENTION_DAYS : Float(v)
-  rescue ArgumentError
-    DEFAULT_RETENTION_DAYS
-  end
+  def warn_gb(env = ENV) = env_float(WARN_ENV, DEFAULT_WARN_GB, env)
+
+  def retention_days(env = ENV) = env_float(RETENTION_ENV, DEFAULT_RETENTION_DAYS, env)
 
   # A warning line when the cache passes the threshold, else nil.
   def size_warning(root, env = ENV)
