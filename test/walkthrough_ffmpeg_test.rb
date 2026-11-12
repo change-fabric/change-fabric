@@ -50,7 +50,7 @@ class WalkthroughFfmpegTest < Minitest::Test
       "[j2]format=yuv420p[vout]",
       "[4:a]#{NORM},adelay=delays=0:all=1,#{BOUND}[n4]",
       "[5:a]#{NORM},adelay=delays=1500:all=1,#{BOUND}[n5]",
-      "[6:a]#{NORM},atrim=duration=6.000,volume='if(between(t,0.100,1.500),0.2512,if(between(t,2.500,3.800),0.5012,1))'" \
+      "[6:a]#{NORM},atrim=duration=6.000,volume='pow(10,(-12.00*clip(min((t-0.000)/0.100,(2.000-t)/0.500),0,1)+-6.00*clip(min((t-2.200)/0.300,(4.300-t)/0.500),0,1))/20)'" \
       ":eval=frame,volume=-18.0dB,#{BOUND}[mus]",
       "[n4][n5][mus]amix=inputs=3:normalize=0:duration=first,atrim=duration=6.000," \
       "loudnorm=I=-16:TP=-1.5:LRA=11:measured_I=-23.10:measured_TP=-4.20:measured_LRA=6.30:measured_thresh=-33.40:" \
@@ -125,7 +125,7 @@ class WalkthroughFfmpegTest < Minitest::Test
 
   def test_duck_expression
     assert_equal "1", WalkthroughFfmpeg.duck_expression([])
-    assert_equal "if(between(t,1.000,2.000),0.2512,1)",
+    assert_equal "pow(10,(-12.00*clip(min((t-0.700)/0.300,(2.500-t)/0.500),0,1))/20)",
                  WalkthroughFfmpeg.duck_expression([ { start_ms: 1000, end_ms: 2000, db: -12 } ])
   end
 

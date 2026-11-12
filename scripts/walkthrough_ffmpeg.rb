@@ -2,13 +2,14 @@
 
 require 'json'
 require 'shellwords'
+require_relative 'walkthrough_duck'
 
 # Pure FFmpeg argv generation for a walkthrough render. Nothing here shells
 # out: the renderer hands the argv to docker in FFMPEG_IMAGE. The input is a
 # plan hash built from manifest.json and the cache (container paths only):
 #
 #   { fps:, width:, height:, total_ms:, cursor_png:, srt:, output:,
-#     music: { path:, gain_db: } | nil, duck_spans: [{ start_ms:, end_ms:, db: }],
+#     music: { path:, gain_db: } | nil, duck_spans: [{ start_ms:, end_ms:, db:, attack_ms:, release_ms: }],
 #     scenes: [{ id:, frames_dir:, frames:, start_frame:, transition: { 'type', 'ms' },
 #                cursor: [{ 'frame', 'x', 'y' }], taps: [...] | nil, hero_still:, audio:, offset_ms:,
 #                stage: [w, h] | nil }] }
@@ -254,13 +255,8 @@ module WalkthroughFfmpeg
     { narration: narration, music: music, next: base + voiced.size + (music ? 1 : 0) }
   end
 
-  # Volume automation: gain 1 outside narration, the span's duck level inside.
-  def duck_expression(spans)
-    spans.reverse.reduce('1') do |acc, span|
-      gain = format('%.4f', 10**(span[:db].to_f / 20))
-      "if(between(t,#{seconds(span[:start_ms])},#{seconds(span[:end_ms])}),#{gain},#{acc})"
-    end
-  end
+  # Volume automation: the ramped music duck under narration (WalkthroughDuck).
+  def duck_expression(spans, total_ms: nil) = WalkthroughDuck.expression(spans, total_ms: total_ms)
 
   # Narration EQ filters: a `bass` shelf and an `equalizer` peaking cut (this
   # ffmpeg rejects equalizer t=l). Empty without an EQ, so the graph is unchanged.
@@ -299,7 +295,7 @@ module WalkthroughFfmpeg
     end
     if io[:music]
       parts << "[#{io[:music]}:a]#{normalize},atrim=duration=#{total}," \
-               "volume='#{duck_expression(plan[:duck_spans] || [])}':eval=frame," \
+               "volume='#{duck_expression(plan[:duck_spans] || [], total_ms: plan[:total_ms])}':eval=frame," \
                "volume=#{plan[:music][:gain_db].to_f}dB,#{bound(total)}[mus]"
       labels << '[mus]'
     end

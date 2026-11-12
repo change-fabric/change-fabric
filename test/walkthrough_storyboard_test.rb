@@ -128,6 +128,17 @@ class WalkthroughStoryboardTest < Minitest::Test
     end
   end
 
+  def test_music_duck_overrides
+    b = board
+    b["scenes"][1]["timing"].merge!("music_duck_db" => -6, "music_duck_attack_ms" => 0, "music_duck_release_ms" => 2000)
+    assert errors_for(b).none? { |e| e.include?("music_duck") }
+    b["scenes"][1]["timing"].merge!("music_duck_db" => 3, "music_duck_attack_ms" => 2001, "music_duck_release_ms" => 1.5)
+    errs = errors_for(b).join("\n")
+    assert_includes errs, "timing.music_duck_db must be a number in -60..0"
+    assert_includes errs, "timing.music_duck_attack_ms must be an integer in 0..2000"
+    assert_includes errs, "timing.music_duck_release_ms must be an integer in 0..2000"
+  end
+
   def test_id_order_transition_and_op_rules
     b = board
     b["scenes"][0]["id"] = "Bad_Id"

@@ -8,6 +8,7 @@ require_relative 'prototype_capture'
 require_relative 'prototype_imagegen'
 require_relative 'walkthrough_cache'
 require_relative 'walkthrough_diagram'
+require_relative 'walkthrough_duck'
 require_relative 'walkthrough_environment'
 require_relative 'walkthrough_live'
 
@@ -170,6 +171,7 @@ module WalkthroughStoryboard
     errors = []
     errors << 'duration_ms is derived and must not be authored' if scene.key?('duration_ms') || scene['timing'].is_a?(Hash) && scene['timing'].key?('duration_ms')
     errors.concat(transition_errors(scene.dig('timing', 'transition')))
+    errors.concat(duck_errors(scene['timing']))
     errors.concat(camera_errors(scene['camera']))
     errors.concat(scene_interaction_errors(scene))
     Array(scene['hypotheses']).each { |h| errors << "hypothesis #{h} is not in the top-level list" unless hyp_ids.include?(h) }
@@ -260,6 +262,21 @@ module WalkthroughStoryboard
     return [ "broll.source_image #{src} does not exist" ] if root && !File.file?(File.join(root, src))
 
     []
+  end
+
+  # Optional music duck overrides; absent keys take WalkthroughDuck's defaults.
+  def duck_errors(timing)
+    return [] unless timing.is_a?(Hash)
+
+    errors = []
+    db = timing['music_duck_db']
+    errors << 'timing.music_duck_db must be a number in -60..0' unless db.nil? || (db.is_a?(Numeric) && (-60..0).cover?(db))
+    %w[music_duck_attack_ms music_duck_release_ms].each do |k|
+      v = timing[k]
+      range = WalkthroughDuck::RAMP_MS
+      errors << "timing.#{k} must be an integer in #{range.min}..#{range.max}" unless v.nil? || (v.is_a?(Integer) && range.cover?(v))
+    end
+    errors
   end
 
   def transition_errors(transition)

@@ -429,7 +429,9 @@ module WalkthroughRender
 
     def duck_spans(inputs)
       WalkthroughCaptions.duck_spans(aligned(inputs).map do |i|
-        { offset_ms: i[:offset_ms], alignment: i[:alignment], duck_db: i[:scene].dig('timing', 'music_duck_db') || -12 }
+        timing = i[:scene]['timing'] || {}
+        { offset_ms: i[:offset_ms], alignment: i[:alignment], duck_db: timing['music_duck_db'],
+          attack_ms: timing['music_duck_attack_ms'], release_ms: timing['music_duck_release_ms'] }
       end)
     end
 
