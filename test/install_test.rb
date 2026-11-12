@@ -117,7 +117,7 @@ class InstallerTest < Minitest::Test
     doctrine_digest.rb docker_doctrine_guard.rb change_merge_guard.rb change_tag_guard.rb
     telemetry_emit.rb presence_probe.rb secret_alert_poll.rb secret_ack.rb
     mode_command.rb away_guard.rb away_restate.rb
-    key_paste_guard.rb secrets_read_guard.rb
+    key_paste_guard.rb secrets_read_guard.rb key_enrollment_prompt.rb
   ].freeze
   EVENTS = %w[SessionStart PreToolUse PostToolUse UserPromptSubmit Stop SessionEnd SubagentStart].freeze
 
@@ -244,7 +244,7 @@ class InstallerTest < Minitest::Test
     install
     hooks = JSON.parse(File.read(paths.settings))["hooks"]
     counts = EVENTS.map { |event| hooks[event].sum { |group| group["hooks"].size } }
-    assert_equal [ 5, 11, 4, 4, 1, 2, 1 ], counts
+    assert_equal [ 6, 11, 4, 4, 1, 2, 1 ], counts
     assert File.exist?("#{paths.settings}.bak"), "second install should back up settings"
   end
 
