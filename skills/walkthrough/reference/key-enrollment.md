@@ -2,43 +2,49 @@
 
 Shared protocol for every paid cf script (cf:image, cf:roast, cf:narrate, cf:music, cf:b-roll, cf:prototype imagegen, and the cf:walkthrough render). It lives beside cf:walkthrough so it installs with the toolkit; every paid skill points here.
 
-## Where keys come from
+## Keys are per project
 
-A key is resolved in this order, and the first hit wins:
+Each paid provider key (OpenAI, ElevenLabs, Gemini) belongs to exactly one project. A project is a repository (a worktree maps to its repo); a directory outside any repo is its own project. Keys are stored as hidden 0600 files under `~/.claude/cf/secrets/<project>/`, beside a `meta.json` that holds no key material.
 
-1. The process environment (`OPENAI_API_KEY`, `ELEVEN_LABS_API_KEY` or `ELEVENLABS_API_KEY`, `GEMINI_API_KEY`).
-2. The env file named by `CF_SECRETS_ENV`.
-3. This project's entry in `~/.claude/cf/secrets.yml`: a per-provider override, then its `env_file`.
-4. Nothing else. The global default is offered as the first choice when a project is enrolled, never used silently.
+A key is resolved in this order, and nothing else is consulted:
 
-`secrets.yml` stores only pointers (an env file path, or the literal `env` for "process env only"), never a key value. A project is keyed by its git remote (host/path), or by its working directory when it has no remote. `install.rb` never creates or overwrites it.
+1. This project's own enrolled key.
+2. The nearest enrolled ancestor level (an org folder or a home directory, deepest first), only after this project confirmed it may use that key.
+
+Environment variables (`OPENAI_API_KEY`, `ELEVENLABS_API_KEY`, `ELEVEN_LABS_API_KEY`, `XI_API_KEY`, `GEMINI_API_KEY`, `GOOGLE_API_KEY`, `CF_SECRETS_ENV`) and the old `~/.claude/cf/secrets.yml` pointers are ignored. A set variable earns one stderr warning naming it, never its value. Every project enrolls through the CLI below.
+
+## Enrolling
+
+Only the user types a key, and only into `cf_keys.rb` at their own terminal. Paste them the snippet; never ask for the key in chat:
+
+```
+ruby ~/.claude/cf/bin/cf_keys.rb enroll openai --dir '/path/to/project'
+```
+
+`enroll` refuses piped input (exit 2), reads the key with echo off, and always makes the provider's free validation call before storing anything: a rejected key or no network exits 3 and stores nothing. `--dir` names the level: a repo root is that repo; any other directory (an org folder, `~`) is a level that descendant projects may inherit from after confirmation.
 
 ## Exit 4 means enroll
 
-When a paid call is actually needed and the project has no recorded choice, the script makes no call, prints exactly one stdout line, and exits 4:
+When a paid call is actually needed and this project has no usable key, the script makes no call, prints one `cf_enroll` JSON line plus the snippet, and exits 4:
 
 ```json
-{"cf_enroll":{"provider":"openai","env_var":"OPENAI_API_KEY","project_key":"github.com/example/app","candidates":["~/secrets/example.env","env"]}}
+{"cf_enroll":{"provider":"openai","project_root":"/path/to/project","project_id":"repo:github.com/example/app","snippet":"ruby ~/.claude/cf/bin/cf_keys.rb enroll openai --dir /path/to/project"}}
 ```
 
-A fully cached run never exits 4. On exit 4:
+A fully cached run never exits 4. A deferred provider still exits 4. On exit 4:
 
-1. Parse the `cf_enroll` line. It never carries a value.
-2. Ask one AskUserQuestion with header `Key source` (it fires even in away mode). Build the options from `candidates` in order: the first is the global default when one is set, labeled "global default"; then the other recorded env files; then `env`, labeled "process env only".
-3. Record the answer:
-   `ruby ~/.claude/cf/bin/cf_secrets_enroll.rb set --project-key <project_key> --source <choice> --env-var <env_var>`
-   Pass `env_var` exactly as printed. For a provider with aliases it is a comma list (`ELEVEN_LABS_API_KEY,ELEVENLABS_API_KEY`), and a file holding any one of them is accepted.
-4. On exit 2, show the stderr reason (missing file, variable name not in the file) and ask again. A stderr warning that the file sits in a git work tree and is not ignored is advice: pass it on.
-5. Re-run the original command unchanged.
+1. If the line carries `inheritable_from`, ask one AskUserQuestion: may this project use the key enrolled at that directory? On yes run `ruby ~/.claude/cf/bin/cf_keys.rb confirm-inherit <provider> --dir '<project_root>'` and re-run. Never inherit without asking.
+2. Otherwise paste the `snippet` for the user to run, wait until they say it succeeded, and re-run the original command unchanged.
 
-Ask once per project. A recorded choice whose file or variable later goes missing is a named error, not a new prompt; run `set` again to change it.
+## SessionStart prompt
+
+Skills declare their paid providers in SKILL.md frontmatter (`providers: [openai]`), and install records them. At SessionStart, each project is checked for every required provider it has not enrolled, confirmed inheriting, or deferred, and the agent asks with AskUserQuestion: enroll now (paste the snippet), use the ancestor key (only when one exists; run `confirm-inherit`), or defer for this project (run `ruby ~/.claude/cf/bin/cf_keys.rb defer <provider> --dir '<project_root>'`). Deferral is per provider and per project, and only silences that prompt.
 
 ## Other commands
 
-- `ruby ~/.claude/cf/bin/cf_secrets_enroll.rb default --source ~/secrets/example.env` sets the global default offered first.
-- `ruby ~/.claude/cf/bin/cf_secrets_enroll.rb status` lists project keys, providers, and source paths, never values.
-- `set ... --provider gemini --source ~/secrets/other.env` adds a per-provider override by hand; the agent never asks per provider.
+- `ruby ~/.claude/cf/bin/cf_keys.rb status [--dir PATH]` lists each provider as enrolled, inherited, inheritable, deferred, or missing, never a value.
+- `ruby ~/.claude/cf/bin/cf_keys.rb remove <provider> [--dir PATH]` deletes a key; it needs a real terminal too.
 
 ## Never
 
-Never read, cat, grep, or echo an env file, and never print or write a key, in output, logs, errors, or commits. Use placeholder paths like the ones above in any example.
+Never read, cat, grep, or echo anything under `~/.claude/cf/secrets` (a PreToolUse guard denies it), never ask for or accept a key in chat (a UserPromptSubmit guard blocks a prompt that looks like one), and never print or write a key in output, logs, errors, or commits. Use placeholder paths like the ones above in any example.

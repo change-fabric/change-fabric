@@ -69,7 +69,7 @@ Exit codes: 0 ok, 1 a named failure (ceiling, missing key from a recorded source
 
 ## Keys
 
-`OPENAI_API_KEY` from the environment, the env file named by `CF_SECRETS_ENV`, or this project's enrolled source, needed only when a call is made. Exit 4 with a `cf_enroll` line means this project has no key source recorded: enroll it and re-run, see `skills/walkthrough/reference/key-enrollment.md`. Never print or write it.
+The OpenAI key comes only from this project's enrollment (`cf_keys.rb`), never from env vars, needed only when a call is made. Exit 4 with a `cf_enroll` line means this project has no usable key: paste the printed snippet for the user to run, or ask about inheriting, then re-run, see `skills/walkthrough/reference/key-enrollment.md`. Never print or write it.
 
 ## Done when
 
