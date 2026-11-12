@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative 'prototype_ux_lint'
+require_relative 'walkthrough_browser_frame'
 
 # The magnified inset: `inset` on a live scene picks one element by CSS
 # selector, records its bounding box at `at_ms` during capture, and the
@@ -55,7 +56,7 @@ module WalkthroughInset
 
     errs = []
     errs << 'inset needs a live scene (screen.url)' unless live
-    errs << 'inset magnifies the desktop; drop devices and layout' unless Array(scene['devices']).reject { |d| d == 'desktop' }.empty? && scene['layout'].nil?
+    errs << 'inset magnifies the desktop; drop devices, layout, and device' unless WalkthroughBrowserFrame.desktop_only?(scene)
     errs << 'inset and camera.zoom are exclusive (the inset keeps the frame size)' if scene.dig('camera', 'zoom').to_f > 1
     unknown = inset.keys - KEYS
     errs << "inset has unknown keys: #{unknown.join(', ')}" unless unknown.empty?

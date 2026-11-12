@@ -29,6 +29,7 @@ module WalkthroughDevice
   FULLBLEED = 'phone-fullbleed'
   FULLBLEED_KEYS = %w[w h].freeze
   FULLBLEED_W = 390
+  ASPECT_SLACK = 0.01
   # The caption scrim: SCRIM_STEPS stacked bands of the bezel ink, each
   # SCRIM_ALPHA, ramping darker toward the bottom over SCRIM of the height.
   SCRIM = 0.24
@@ -151,11 +152,25 @@ module WalkthroughDevice
 
     unknown = fb.keys - FULLBLEED_KEYS
     errs = unknown.empty? ? [] : [ "phone_fullbleed has unknown keys: #{unknown.join(', ')}" ]
-    errs + FULLBLEED_KEYS.filter_map do |k|
+    sizes = FULLBLEED_KEYS.filter_map do |k|
       next if !fb.key?(k) || (fb[k].is_a?(Integer) && SIZE.cover?(fb[k]))
 
       range_error("phone_fullbleed.#{k}", SIZE, 'an integer')
     end
+    errs + sizes + (sizes.empty? ? aspect_errors(board) : [])
+  end
+
+  # The capture is scaled to the canvas on both axes and taps map by one
+  # scale, so h must keep the canvas aspect at w (within ASPECT_SLACK).
+  def aspect_errors(board)
+    return [] unless board.dig('phone_fullbleed', 'h')
+
+    vp = board_viewport(board)
+    fit = fullbleed_viewport(board)
+    want = fit['w'] * vp['h'].to_f / vp['w']
+    return [] if (fit['h'] - want).abs <= want * ASPECT_SLACK
+
+    [ "phone_fullbleed.h must keep the canvas aspect: #{want.round} at w #{fit['w']}" ]
   end
 
   def phone_errors(board)
@@ -269,7 +284,7 @@ module WalkthroughDevice
 
   def floor_even(value) = (value / 2.0).floor * 2
 
-  private_class_method :range_error, :size_error, :fit_scale, :full_bleed, :phone_rect, :side_by_side, :place, :floor_even, :fullbleed_layout
+  private_class_method :aspect_errors, :range_error, :size_error, :fit_scale, :full_bleed, :phone_rect, :side_by_side, :place, :floor_even, :fullbleed_layout
 
   # -- compositing ---------------------------------------------------------
 

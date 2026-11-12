@@ -136,10 +136,19 @@ class WalkthroughDeviceTest < Minitest::Test
     assert_empty WalkthroughDevice.scene_errors(FULL)
     assert_includes WalkthroughDevice.scene_errors(FULL.merge("devices" => [ "phone" ])).join, "takes no devices or layout"
     assert_includes WalkthroughDevice.scene_errors({ "device" => "tablet" }).join, "device is replaced by devices"
-    assert_empty WalkthroughDevice.board_errors({ "phone_fullbleed" => { "w" => 430, "h" => 764 } })
+    assert_empty WalkthroughDevice.board_errors(VERTICAL.merge("phone_fullbleed" => { "w" => 430, "h" => 764 }))
+    assert_equal [ "phone_fullbleed.h must keep the canvas aspect: 693 at w 390" ],
+                 WalkthroughDevice.board_errors(VERTICAL.merge("phone_fullbleed" => { "w" => 390, "h" => 844 }))
     assert_equal [ "phone_fullbleed must be an object" ], WalkthroughDevice.board_errors({ "phone_fullbleed" => 3 })
     errs = WalkthroughDevice.board_errors({ "phone_fullbleed" => { "w" => 5, "h" => "x", "dpr" => 2 } })
     assert_equal 3, errs.size
+  end
+
+  def test_fullbleed_rejects_desktop_only_features
+    framed = FULL.merge("kind" => "live", "screen" => { "url" => "http://app.test", "frame" => "browser" })
+    assert_includes WalkthroughBrowserFrame.errors(framed).join, "films the desktop only"
+    assert WalkthroughBrowserFrame.desktop_only?({ "devices" => [ "desktop" ] })
+    refute WalkthroughBrowserFrame.desktop_only?(FULL)
   end
 
   def test_fullbleed_geometry

@@ -84,7 +84,7 @@ module WalkthroughBrowserFrame
     errs = []
     errs << "screen.frame must be one of #{FRAMES.join(', ')}" unless FRAMES.include?(screen['frame'])
     errs << 'screen.frame "browser" applies to a live or environment scene' unless live?(scene) || scene['kind'] == 'environment'
-    errs << 'screen.frame "browser" films the desktop only; drop devices and layout' unless Array(scene['devices']).reject { |d| d == 'desktop' }.empty? && scene['layout'].nil?
+    errs << 'screen.frame "browser" films the desktop only; drop devices, layout, and device' unless desktop_only?(scene)
     %w[title address].each { |k| errs << text_error(screen, k) }
     errs << 'an environment scene in a browser frame needs screen.address' if scene['kind'] == 'environment' && address(scene).strip.empty?
     errs.compact
@@ -110,6 +110,9 @@ module WalkthroughBrowserFrame
   # -- geometry ------------------------------------------------------------
 
   def viewport(board) = { 'w' => 1920, 'h' => 1080 }.merge(board['viewport'] || {})
+
+  # No phone: no `device`, no non-desktop `devices`, no `layout`.
+  def desktop_only?(scene) = scene['device'].nil? && Array(scene['devices']).reject { |d| d == 'desktop' }.empty? && scene['layout'].nil?
 
   def band_top(canvas_h) = canvas_h * (1 - PrototypeUxLint::CAPTION_BAND)
 
