@@ -84,6 +84,8 @@ The loop (this session drives it, the script gates and reports):
 
 `--final` refuses with no roast on record, with an open P0 or P1 not rebutted in its response file, or while the loop is neither converged nor capped. `--allow-roast-findings` overrides all three; `--no-roast` on the final run waives only the no-roast-on-record case. Offer `--final` to a human only after the loop prints `stop`.
 
+Fidelity gate (design targets, spec 0.18.0): when storyboard.json names a `target` whose CHANGE.md entry has a `reference`, `--final` also refuses with no fidelity round on record in `roast/fidelity/` or with an open fidelity P0 or P1 there (the prototype stills against the reference app, run in cf:prototype). Score 9 is that loop's advisory stop; its stop verdict is written to `roast/fidelity/signoff.json` as the stills sign-off. `--allow-fidelity-findings` overrides. A storyboard without a target, or a target without a reference, is never gated on fidelity.
+
 ## Publishing
 
 Context rule: attach the final MP4 to whatever artifact the request is about, a pull request, an issue, or nothing. Given a slug dir, publish picks `<slug>-final.mp4`, else `<slug>-draft.mp4`, else the newest MP4 left in `.cache/render/`. Target selection, in order: an explicit `--pr N`, `--issue N`, or `--none`; else the open PR of the current branch; else no target, no upload, and the file stays on disk (the path is printed).

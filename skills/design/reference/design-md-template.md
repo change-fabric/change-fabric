@@ -8,6 +8,8 @@ Provenance tags, one per content line:
 - `[assumption]` the evidence does not settle it
 - `[proposal]` an opinion this run brings to bear
 
+In target mode (`cf:design --target <name>`, a monorepo target in spec 0.18.0) the doc describes the production system as it is: every content line is `[evidence: path#anchor]` from the live theme, the components directory, or the kit's compiled CSS, and `[proposal]` is not used. Critic findings go only under Open questions.
+
 ````markdown
 # <Product> design system
 
