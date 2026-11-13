@@ -76,6 +76,33 @@ run reports that it assumed the default.
    returns `{ fixed, wontFix, needsHuman, conflicts, clusters, planClusters,
    plan, recurrence }`. On a repeat run against the same PR, pass back the
    `scriptPath` the first call returned instead of resending `script`.
+3a. **Roast tiebreaker.** In the main session, for each `needsHuman` entry
+   with `tieBreakable` true that did not come from `conflicts`, write its
+   thread as `thread.md`, its two `options` as `options.md`, the PR's
+   purpose as `brief.md`, and `git diff
+   <base>...<head> -- <path>` as `diff.patch`, then run:
+
+       ruby ~/.claude/cf/bin/roast.rb --kind code --text <thread.md> --text <diff.patch> \
+         --text <options.md> --brief <brief.md> \
+         --audience "PR maintainer" --purpose "pick the correct resolution" \
+         --out-dir .cache/roast/tiebreak-<pr>/<threadId> --estimate-only
+
+   then the real call with `--max-usd` set to the run's remaining budget.
+   One round per thread, at most 0.50 USD per run summed over the
+   estimates: once the next estimate would cross it, stop tiebreaking and
+   every remaining thread stays needs_human. A confident pick (the critic
+   names one option and no P0 argues against it) is acted on: a wont-fix
+   pick is recorded as wontFix and replied to and resolved with the other
+   wontFix threads in the reply step, after any `--signoff` approval
+   [RT-3]; a fix pick gets one small apply pass (a
+   background agent in the thread's worktree that runs the thread's tests,
+   then commits on `repoPath`; on red it reverts and the thread stays
+   needs_human) and is resolved under [RT-6]. Each counts as `tiebroken` and
+   leaves `needsHuman`. Not confident, contested, roast.rb exit 4 (no key)
+   or a sensitive-term refusal: the thread stays needs_human, its reply
+   carries the critic's leaning when there was one, and the report gets one
+   line. Never AskUserQuestion here; this runs in away mode too. Reply text
+   follows `reference/replying.md`.
 4. **Report.** For every thread: its verdict, one-line rationale, and (for
    `fixed`) which commit. For every cluster: its `concernClass`,
    `rootCause`, size, and commit or plan slug. Say whether
@@ -165,7 +192,7 @@ start cf:plan, and end the final message with one fenced `json` block the
 caller reads:
 
     {"fixed": 0, "wontFix": 0, "needsHuman": 0, "conflicts": 0,
-     "deferred": 0, "clusters": 0, "recurrence": false, "plan": null,
+     "deferred": 0, "clusters": 0, "tiebroken": 0, "recurrence": false, "plan": null,
      "truncated": false, "pendingReplies": []}
 
 `pendingReplies` lists the held commit-citing mutations [RT-6], one
@@ -177,6 +204,8 @@ unresolved.
 
 `truncated` is step 1's flag; when true the run stopped there and the
 counts are all zero.
+
+`tiebroken` counts threads step 3a settled by a confident critic pick.
 
 `deferred` counts threads this run deferred to a plan, i.e. replied
 `Deferred to plan <slug>.` (see step 1's `deferred` field and

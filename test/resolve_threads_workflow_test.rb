@@ -254,4 +254,46 @@ class ResolveThreadsWorkflowTest < Minitest::Test
     assert_empty missing.keys, "a fixed-thread reply can reach GitHub before its push"
     refute_match(/Replies and resolutions still happen in a nested run\./, skill_md)
   end
+  # The roast tiebreaker (SKILL.md step 3a) needs both fields on every
+  # needsHuman entry, and cf:drive quick reads tiebroken from the json block.
+  def test_verdict_schema_carries_tiebreak_fields
+    schema = workflow[/^const VERDICT_SCHEMA = \{.*?\n\}/m] or flunk("workflow lost VERDICT_SCHEMA")
+    assert_includes schema, "tieBreakable: { type: \"boolean\" }"
+    assert_match(/options: \{ type: "array".*minItems: 2, maxItems: 2/, schema)
+  end
+
+  TIE_CASES = {
+    "breakable with two options" => [ { tieBreakable: true, options: %w[a b] }, [ true, %w[a b] ] ],
+    "two options, not breakable" => [ { tieBreakable: false, options: %w[a b] }, [ false, %w[a b] ] ],
+    "breakable with one option" => [ { tieBreakable: true, options: %w[a] }, [ false, [] ] ],
+    "breakable with no options" => [ { tieBreakable: true }, [ false, [] ] ],
+    "fields absent" => [ {}, [ false, [] ] ]
+  }.freeze
+
+  def test_needs_human_carries_tiebreak_fields
+    skip "node not installed" unless system("node", "--version", out: File::NULL)
+    assert_includes workflow, ".concat(fixNoDiff).map(tieFields)"
+    definition = workflow[/^const tieFields = .*$/] or flunk("workflow lost tieFields")
+    js = "#{definition}\nconst c = #{JSON.generate(TIE_CASES.transform_values(&:first))}\n" \
+         "console.log(JSON.stringify(Object.fromEntries(Object.entries(c).map(([k, v]) => { const r = tieFields(v); return [k, [r.tieBreakable, r.options]] }))))"
+    out, status = Open3.capture2("node", "-e", js)
+    assert status.success?, "node failed to evaluate tieFields"
+    assert_equal TIE_CASES.transform_values(&:last), JSON.parse(out)
+  end
+
+  def test_nested_json_contract_includes_tiebroken
+    assert_includes skill_md, '"tiebroken": 0'
+    assert_includes File.read(REPLYING), "Tiebreak: <chosen option>."
+  end
+
+  # Step 3a must not mutate GitHub before a --signoff approval, and must
+  # call the installed roast script, not a repo-relative path that only
+  # exists inside the Change Fabric checkout.
+  def test_tiebreak_defers_mutations_and_uses_installed_roast
+    step = skill_md[/^3a\. .*?(?=^4\. )/m] or flunk("SKILL.md lost step 3a")
+    assert_includes step, "ruby ~/.claude/cf/bin/roast.rb"
+    refute_match(%r{(?<![/\w])scripts/roast\.rb}, skill_md)
+    assert_includes step, "after any `--signoff` approval"
+    refute_match(/wont-fix\s+pick is replied to and resolved \[RT-3\]/, step)
+  end
 end
