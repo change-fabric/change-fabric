@@ -294,6 +294,15 @@ change_config:
       # viewport: { name: desktop, width: 1440, height: 900 }  # optional, the default
       # auth: same shape as lanes.browserless.auth above, for cases behind a login
 
+    # Optional (0.17.0): the project's own checks, run on the host. With a
+    # design target (0.18.0) the kit drift check belongs here, so a theme
+    # change the kit has not caught up with blocks the gate.
+    # command:
+    #   commands:
+    #     - name: design-kit-check
+    #       run: ruby "$HOME/.claude/cf/bin/prototype_kit.rb" check --target portal
+    #       timeout_seconds: 600
+
   # Optional (0.13.0): design governance for cf:design, cf:prototype, cf:roast,
   # and cf:walkthrough. tokens.css stays the one design source; Figma is read
   # as evidence and drift-checked, never canon. Omit the block for all defaults.
