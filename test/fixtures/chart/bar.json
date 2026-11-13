@@ -1,0 +1,12 @@
+{
+  "type": "bar",
+  "orientation": "vertical",
+  "title": "Roast cost per round",
+  "x": { "label": "Round", "unit": "" },
+  "y": { "label": "Cost", "unit": "USD" },
+  "series": [
+    { "name": "estimate", "values": [["1", 0.08], ["2", 0.07], ["3", 0.05]] },
+    { "name": "actual", "values": [["1", 0.06], ["2", 0.07], ["3", 0.04]] }
+  ],
+  "desc": "Three roast rounds; every estimate and actual stays under 0.10 USD."
+}

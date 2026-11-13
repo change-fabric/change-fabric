@@ -1,0 +1,11 @@
+{
+  "type": "line",
+  "title": "Roast score by round",
+  "x": { "label": "Round", "unit": "" },
+  "y": { "label": "Score", "unit": "of 10" },
+  "series": [
+    { "name": "plan", "values": [["1", 6.5], ["2", 8], ["3", 9]] },
+    { "name": "visuals", "values": [["1", 5], ["2", 7.5], ["3", 8.5]] }
+  ],
+  "desc": "Both scores climb every round; the plan reaches 9 by round 3."
+}

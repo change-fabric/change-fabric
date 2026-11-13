@@ -1,0 +1,86 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 288" width="880" height="288" role="img" aria-labelledby="t d" data-chart-type="heatmap">
+  <title id="t">Lint findings by check and phase</title>
+  <desc id="d">tick-count in P4 is the hottest cell at 8 findings.</desc>
+  <style>
+    svg { --bg: #F5F5F5; --surface: #FFFFFF; --ink: #2D3142; --muted: #4F5D75; --soft: #5A6580; --line: #4F5D75; --rule: #D9DADD; --accent: #B5401C; --accent-tint: #F2E9E6; --link: #2E5AA8; --s1: #B5401C; --s2: #2E5AA8; --s3: #2D3142; --s4: #724D62; --s5: #D2917E; --s6: #88A0CB; --ramp-1: #E8D1CA; --ramp-2: #DBAD9E; --ramp-3: #CF8873; --ramp-4: #C26447; --ramp-5: #B5401C; }
+    @media (prefers-color-scheme: dark) {
+      svg { --bg: #2D3142; --surface: #2D3142; --ink: #F5F5F5; --muted: #BFC0C0; --soft: #A3ACC0; --line: #A3ACC0; --rule: #45495A; --accent: #F08A59; --accent-tint: #3D3844; --link: #7FA9E6; --s1: #F08A59; --s2: #7FA9E6; --s3: #F5F5F5; --s4: #B89AA0; --s5: #98624F; --s6: #5A739C; --ramp-1: #544347; --ramp-2: #7B554B; --ramp-3: #A26650; --ramp-4: #C97854; --ramp-5: #F08A59; }
+    }
+    .bg { fill: var(--bg); }
+    text { font-family: Geist, Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", sans-serif; }
+    .chart-title { fill: var(--ink); font-weight: 600; }
+    .axis-title { fill: var(--soft); }
+    .tick-label, .legend-label { fill: var(--muted); }
+    .cell { fill: var(--ink); }
+    .header { fill: var(--ink); font-weight: 600; }
+    .tick { stroke: var(--rule); stroke-width: 1; }
+    .baseline { stroke: var(--ink); stroke-width: 1; }
+    .rule-line { stroke: var(--rule); stroke-width: 1; }
+    .mark-line { fill: none; stroke-width: 2; }
+    .marks rect { stroke: var(--bg); stroke-width: 1; }
+    .s1 { fill: var(--s1); } .line-s1 { stroke: var(--s1); }
+      .s2 { fill: var(--s2); } .line-s2 { stroke: var(--s2); }
+      .s3 { fill: var(--s3); } .line-s3 { stroke: var(--s3); }
+      .s4 { fill: var(--s4); } .line-s4 { stroke: var(--s4); }
+      .s5 { fill: var(--s5); } .line-s5 { stroke: var(--s5); }
+      .s6 { fill: var(--s6); } .line-s6 { stroke: var(--s6); }
+    .ramp-1 { fill: var(--ramp-1); }
+      .ramp-2 { fill: var(--ramp-2); }
+      .ramp-3 { fill: var(--ramp-3); }
+      .ramp-4 { fill: var(--ramp-4); }
+      .ramp-5 { fill: var(--ramp-5); }
+  </style>
+  <rect class="bg" x="0" y="0" width="880" height="288" fill="#F5F5F5"/>
+  <text class="chart-title" x="32" y="44" font-size="18">Lint findings by check and phase</text>
+  <g class="axis" data-axis="y" data-role="category" data-scale="band" data-label="Check" data-unit="">
+    <text class="tick-label" x="104" y="108" font-size="12" text-anchor="end">a11y</text>
+    <text class="tick-label" x="104" y="140" font-size="12" text-anchor="end">palette</text>
+    <text class="tick-label" x="104" y="172" font-size="12" text-anchor="end">tick-count</text>
+    <text class="axis-title" x="32" y="72" font-size="12">Check</text>
+  </g>
+  <g class="axis" data-axis="x" data-role="category" data-scale="band" data-label="Phase" data-unit="">
+    <text class="tick-label" x="202" y="204" font-size="12" text-anchor="middle">P1</text>
+    <text class="tick-label" x="382" y="204" font-size="12" text-anchor="middle">P2</text>
+    <text class="tick-label" x="562" y="204" font-size="12" text-anchor="middle">P3</text>
+    <text class="tick-label" x="742" y="204" font-size="12" text-anchor="middle">P4</text>
+    <text class="axis-title" x="472" y="228" font-size="12" text-anchor="middle">Phase</text>
+  </g>
+  <g class="marks">
+    <rect class="mark ramp-1" data-key="0,0" data-value="0" x="113" y="89" width="178" height="30"/>
+    <rect class="mark ramp-1" data-key="0,1" data-value="1" x="293" y="89" width="178" height="30"/>
+    <rect class="mark ramp-2" data-key="0,2" data-value="3" x="473" y="89" width="178" height="30"/>
+    <rect class="mark ramp-2" data-key="0,3" data-value="2" x="653" y="89" width="178" height="30"/>
+    <rect class="mark ramp-2" data-key="1,0" data-value="2" x="113" y="121" width="178" height="30"/>
+    <rect class="mark ramp-1" data-key="1,1" data-value="0" x="293" y="121" width="178" height="30"/>
+    <rect class="mark ramp-4" data-key="1,2" data-value="5" x="473" y="121" width="178" height="30"/>
+    <rect class="mark ramp-1" data-key="1,3" data-value="1" x="653" y="121" width="178" height="30"/>
+    <rect class="mark ramp-1" data-key="2,0" data-value="0" x="113" y="153" width="178" height="30"/>
+    <rect class="mark ramp-1" data-key="2,1" data-value="0" x="293" y="153" width="178" height="30"/>
+    <rect class="mark ramp-3" data-key="2,2" data-value="4" x="473" y="153" width="178" height="30"/>
+    <rect class="mark ramp-5" data-key="2,3" data-value="8" x="653" y="153" width="178" height="30"/>
+  </g>
+  <g class="scale-legend" data-min="0" data-max="8" data-label="Findings" data-unit="count">
+    <text class="legend-label" x="112" y="258" font-size="12">0</text>
+    <rect class="swatch ramp-1" x="127.2" y="248" width="24" height="12"/>
+    <rect class="swatch ramp-2" x="151.2" y="248" width="24" height="12"/>
+    <rect class="swatch ramp-3" x="175.2" y="248" width="24" height="12"/>
+    <rect class="swatch ramp-4" x="199.2" y="248" width="24" height="12"/>
+    <rect class="swatch ramp-5" x="223.2" y="248" width="24" height="12"/>
+    <text class="legend-label" x="255.2" y="258" font-size="12">8</text>
+    <text class="axis-title" x="278.4" y="258" font-size="12">Findings (count)</text>
+  </g>
+  <g data-role="data-table" aria-label="Data table">
+    <desc>a11y, P1: 0</desc>
+    <desc>a11y, P2: 1</desc>
+    <desc>a11y, P3: 3</desc>
+    <desc>a11y, P4: 2</desc>
+    <desc>palette, P1: 2</desc>
+    <desc>palette, P2: 0</desc>
+    <desc>palette, P3: 5</desc>
+    <desc>palette, P4: 1</desc>
+    <desc>tick-count, P1: 0</desc>
+    <desc>tick-count, P2: 0</desc>
+    <desc>tick-count, P3: 4</desc>
+    <desc>tick-count, P4: 8</desc>
+  </g>
+</svg>

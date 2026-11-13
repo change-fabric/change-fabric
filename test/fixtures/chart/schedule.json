@@ -1,0 +1,13 @@
+{
+  "type": "schedule",
+  "title": "Plan phases",
+  "x": { "label": "Date", "unit": "day" },
+  "y": { "label": "Phase", "unit": "" },
+  "tasks": [
+    { "name": "P1 roast model", "start": "2026-11-02", "end": "2026-11-04" },
+    { "name": "P2 shared checks", "start": "2026-11-02", "end": "2026-11-06" },
+    { "name": "P3 cf:chart", "start": "2026-11-06", "end": "2026-11-13" },
+    { "name": "P4 cf:plan", "start": "2026-11-13", "end": "2026-11-18" }
+  ],
+  "desc": "P1 and P2 run together, then P3 and P4 follow in sequence, ending November 18."
+}

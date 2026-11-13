@@ -1,0 +1,83 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 352" width="880" height="352" role="img" aria-labelledby="t d" data-chart-type="stacked-bar">
+  <title id="t">Findings by phase and severity</title>
+  <desc id="d">P3 carries the most findings, twelve in all, two of them P0.</desc>
+  <style>
+    svg { --bg: #F5F5F5; --surface: #FFFFFF; --ink: #2D3142; --muted: #4F5D75; --soft: #5A6580; --line: #4F5D75; --rule: #D9DADD; --accent: #B5401C; --accent-tint: #F2E9E6; --link: #2E5AA8; --s1: #B5401C; --s2: #2E5AA8; --s3: #2D3142; --s4: #724D62; --s5: #D2917E; --s6: #88A0CB; --ramp-1: #E8D1CA; --ramp-2: #DBAD9E; --ramp-3: #CF8873; --ramp-4: #C26447; --ramp-5: #B5401C; }
+    @media (prefers-color-scheme: dark) {
+      svg { --bg: #2D3142; --surface: #2D3142; --ink: #F5F5F5; --muted: #BFC0C0; --soft: #A3ACC0; --line: #A3ACC0; --rule: #45495A; --accent: #F08A59; --accent-tint: #3D3844; --link: #7FA9E6; --s1: #F08A59; --s2: #7FA9E6; --s3: #F5F5F5; --s4: #B89AA0; --s5: #98624F; --s6: #5A739C; --ramp-1: #544347; --ramp-2: #7B554B; --ramp-3: #A26650; --ramp-4: #C97854; --ramp-5: #F08A59; }
+    }
+    .bg { fill: var(--bg); }
+    text { font-family: Geist, Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", sans-serif; }
+    .chart-title { fill: var(--ink); font-weight: 600; }
+    .axis-title { fill: var(--soft); }
+    .tick-label, .legend-label { fill: var(--muted); }
+    .cell { fill: var(--ink); }
+    .header { fill: var(--ink); font-weight: 600; }
+    .tick { stroke: var(--rule); stroke-width: 1; }
+    .baseline { stroke: var(--ink); stroke-width: 1; }
+    .rule-line { stroke: var(--rule); stroke-width: 1; }
+    .mark-line { fill: none; stroke-width: 2; }
+    .marks rect { stroke: var(--bg); stroke-width: 1; }
+    .s1 { fill: var(--s1); } .line-s1 { stroke: var(--s1); }
+      .s2 { fill: var(--s2); } .line-s2 { stroke: var(--s2); }
+      .s3 { fill: var(--s3); } .line-s3 { stroke: var(--s3); }
+      .s4 { fill: var(--s4); } .line-s4 { stroke: var(--s4); }
+      .s5 { fill: var(--s5); } .line-s5 { stroke: var(--s5); }
+      .s6 { fill: var(--s6); } .line-s6 { stroke: var(--s6); }
+    .ramp-1 { fill: var(--ramp-1); }
+      .ramp-2 { fill: var(--ramp-2); }
+      .ramp-3 { fill: var(--ramp-3); }
+      .ramp-4 { fill: var(--ramp-4); }
+      .ramp-5 { fill: var(--ramp-5); }
+  </style>
+  <rect class="bg" x="0" y="0" width="880" height="352" fill="#F5F5F5"/>
+  <text class="chart-title" x="32" y="44" font-size="18">Findings by phase and severity</text>
+  <g class="axis" data-axis="x" data-role="category" data-scale="band" data-label="Phase" data-unit="">
+    <text class="tick-label" x="46.4" y="118.67" font-size="12" text-anchor="end">P1</text>
+    <text class="tick-label" x="46.4" y="172" font-size="12" text-anchor="end">P2</text>
+    <text class="tick-label" x="46.4" y="225.33" font-size="12" text-anchor="end">P3</text>
+    <text class="axis-title" x="32" y="72" font-size="12">Phase</text>
+  </g>
+  <g class="axis" data-axis="y" data-role="value-x" data-scale="linear" data-label="Findings" data-unit="count" data-min="0" data-max="15">
+    <line class="tick" data-value="0" x1="54.4" y1="88" x2="54.4" y2="248"/>
+    <text class="tick-label" x="54.4" y="268" font-size="12" text-anchor="middle">0</text>
+    <line class="tick" data-value="5" x1="313.6" y1="88" x2="313.6" y2="248"/>
+    <text class="tick-label" x="313.6" y="268" font-size="12" text-anchor="middle">5</text>
+    <line class="tick" data-value="10" x1="572.8" y1="88" x2="572.8" y2="248"/>
+    <text class="tick-label" x="572.8" y="268" font-size="12" text-anchor="middle">10</text>
+    <line class="tick" data-value="15" x1="832" y1="88" x2="832" y2="248"/>
+    <text class="tick-label" x="832" y="268" font-size="12" text-anchor="middle">15</text>
+    <text class="axis-title" x="443.2" y="292" font-size="12" text-anchor="middle">Findings (count)</text>
+  </g>
+  <g class="marks">
+    <rect class="mark s1" data-series="P0" data-key="P1" data-value="1" x="54.4" y="96" width="51.84" height="37.33"/>
+    <rect class="mark s2" data-series="P1" data-key="P1" data-value="3" x="106.24" y="96" width="155.52" height="37.33"/>
+    <rect class="mark s3" data-series="P2" data-key="P1" data-value="5" x="261.76" y="96" width="259.2" height="37.33"/>
+    <rect class="mark s1" data-series="P0" data-key="P2" data-value="0" x="54.4" y="149.33" width="0" height="37.33"/>
+    <rect class="mark s2" data-series="P1" data-key="P2" data-value="2" x="54.4" y="149.33" width="103.68" height="37.33"/>
+    <rect class="mark s3" data-series="P2" data-key="P2" data-value="3" x="158.08" y="149.33" width="155.52" height="37.33"/>
+    <rect class="mark s1" data-series="P0" data-key="P3" data-value="2" x="54.4" y="202.67" width="103.68" height="37.33"/>
+    <rect class="mark s2" data-series="P1" data-key="P3" data-value="4" x="158.08" y="202.67" width="207.36" height="37.33"/>
+    <rect class="mark s3" data-series="P2" data-key="P3" data-value="6" x="365.44" y="202.67" width="311.04" height="37.33"/>
+  </g>
+  <line class="baseline" data-value="0" x1="54.4" y1="88" x2="54.4" y2="248"/>
+  <g class="legend">
+    <rect class="swatch s1" data-series="P0" x="54.4" y="312" width="12" height="12"/>
+    <text class="legend-label" data-series="P0" x="72.4" y="322" font-size="12">P0</text>
+    <rect class="swatch s2" data-series="P1" x="110.8" y="312" width="12" height="12"/>
+    <text class="legend-label" data-series="P1" x="128.8" y="322" font-size="12">P1</text>
+    <rect class="swatch s3" data-series="P2" x="167.2" y="312" width="12" height="12"/>
+    <text class="legend-label" data-series="P2" x="185.2" y="322" font-size="12">P2</text>
+  </g>
+  <g data-role="data-table" aria-label="Data table">
+    <desc>P0, P1: 1</desc>
+    <desc>P0, P2: 0</desc>
+    <desc>P0, P3: 2</desc>
+    <desc>P1, P1: 3</desc>
+    <desc>P1, P2: 2</desc>
+    <desc>P1, P3: 4</desc>
+    <desc>P2, P1: 5</desc>
+    <desc>P2, P2: 3</desc>
+    <desc>P2, P3: 6</desc>
+  </g>
+</svg>

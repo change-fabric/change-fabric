@@ -1,0 +1,83 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 472" width="880" height="472" role="img" aria-labelledby="t d" data-chart-type="scatter">
+  <title id="t">Diff size against review findings</title>
+  <desc id="d">Findings rise with diff size; both reverted PRs sit above the trend.</desc>
+  <style>
+    svg { --bg: #F5F5F5; --surface: #FFFFFF; --ink: #2D3142; --muted: #4F5D75; --soft: #5A6580; --line: #4F5D75; --rule: #D9DADD; --accent: #B5401C; --accent-tint: #F2E9E6; --link: #2E5AA8; --s1: #B5401C; --s2: #2E5AA8; --s3: #2D3142; --s4: #724D62; --s5: #D2917E; --s6: #88A0CB; --ramp-1: #E8D1CA; --ramp-2: #DBAD9E; --ramp-3: #CF8873; --ramp-4: #C26447; --ramp-5: #B5401C; }
+    @media (prefers-color-scheme: dark) {
+      svg { --bg: #2D3142; --surface: #2D3142; --ink: #F5F5F5; --muted: #BFC0C0; --soft: #A3ACC0; --line: #A3ACC0; --rule: #45495A; --accent: #F08A59; --accent-tint: #3D3844; --link: #7FA9E6; --s1: #F08A59; --s2: #7FA9E6; --s3: #F5F5F5; --s4: #B89AA0; --s5: #98624F; --s6: #5A739C; --ramp-1: #544347; --ramp-2: #7B554B; --ramp-3: #A26650; --ramp-4: #C97854; --ramp-5: #F08A59; }
+    }
+    .bg { fill: var(--bg); }
+    text { font-family: Geist, Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", sans-serif; }
+    .chart-title { fill: var(--ink); font-weight: 600; }
+    .axis-title { fill: var(--soft); }
+    .tick-label, .legend-label { fill: var(--muted); }
+    .cell { fill: var(--ink); }
+    .header { fill: var(--ink); font-weight: 600; }
+    .tick { stroke: var(--rule); stroke-width: 1; }
+    .baseline { stroke: var(--ink); stroke-width: 1; }
+    .rule-line { stroke: var(--rule); stroke-width: 1; }
+    .mark-line { fill: none; stroke-width: 2; }
+    .marks rect { stroke: var(--bg); stroke-width: 1; }
+    .s1 { fill: var(--s1); } .line-s1 { stroke: var(--s1); }
+      .s2 { fill: var(--s2); } .line-s2 { stroke: var(--s2); }
+      .s3 { fill: var(--s3); } .line-s3 { stroke: var(--s3); }
+      .s4 { fill: var(--s4); } .line-s4 { stroke: var(--s4); }
+      .s5 { fill: var(--s5); } .line-s5 { stroke: var(--s5); }
+      .s6 { fill: var(--s6); } .line-s6 { stroke: var(--s6); }
+    .ramp-1 { fill: var(--ramp-1); }
+      .ramp-2 { fill: var(--ramp-2); }
+      .ramp-3 { fill: var(--ramp-3); }
+      .ramp-4 { fill: var(--ramp-4); }
+      .ramp-5 { fill: var(--ramp-5); }
+  </style>
+  <rect class="bg" x="0" y="0" width="880" height="472" fill="#F5F5F5"/>
+  <text class="chart-title" x="32" y="44" font-size="18">Diff size against review findings</text>
+  <g class="axis" data-axis="y" data-role="value-y" data-scale="linear" data-label="Findings" data-unit="count" data-min="0" data-max="10">
+    <line class="tick" data-value="0" x1="54.4" y1="368" x2="832" y2="368"/>
+    <text class="tick-label" x="46.4" y="372" font-size="12" text-anchor="end">0</text>
+    <line class="tick" data-value="2" x1="54.4" y1="312" x2="832" y2="312"/>
+    <text class="tick-label" x="46.4" y="316" font-size="12" text-anchor="end">2</text>
+    <line class="tick" data-value="4" x1="54.4" y1="256" x2="832" y2="256"/>
+    <text class="tick-label" x="46.4" y="260" font-size="12" text-anchor="end">4</text>
+    <line class="tick" data-value="6" x1="54.4" y1="200" x2="832" y2="200"/>
+    <text class="tick-label" x="46.4" y="204" font-size="12" text-anchor="end">6</text>
+    <line class="tick" data-value="8" x1="54.4" y1="144" x2="832" y2="144"/>
+    <text class="tick-label" x="46.4" y="148" font-size="12" text-anchor="end">8</text>
+    <line class="tick" data-value="10" x1="54.4" y1="88" x2="832" y2="88"/>
+    <text class="tick-label" x="46.4" y="92" font-size="12" text-anchor="end">10</text>
+    <text class="axis-title" x="32" y="72" font-size="12">Findings (count)</text>
+  </g>
+  <g class="axis" data-axis="x" data-role="value-x" data-scale="linear" data-label="Lines changed" data-unit="lines" data-min="0" data-max="600">
+    <line class="tick" data-value="0" x1="54.4" y1="88" x2="54.4" y2="368"/>
+    <text class="tick-label" x="54.4" y="388" font-size="12" text-anchor="middle">0</text>
+    <line class="tick" data-value="200" x1="313.6" y1="88" x2="313.6" y2="368"/>
+    <text class="tick-label" x="313.6" y="388" font-size="12" text-anchor="middle">200</text>
+    <line class="tick" data-value="400" x1="572.8" y1="88" x2="572.8" y2="368"/>
+    <text class="tick-label" x="572.8" y="388" font-size="12" text-anchor="middle">400</text>
+    <line class="tick" data-value="600" x1="832" y1="88" x2="832" y2="368"/>
+    <text class="tick-label" x="832" y="388" font-size="12" text-anchor="middle">600</text>
+    <text class="axis-title" x="443.2" y="412" font-size="12" text-anchor="middle">Lines changed (lines)</text>
+  </g>
+  <g class="marks">
+    <circle class="mark s1" data-series="merged" data-key="0" data-value="40,1" cx="106.24" cy="340" r="4"/>
+    <circle class="mark s1" data-series="merged" data-key="1" data-value="120,2" cx="209.92" cy="312" r="4"/>
+    <circle class="mark s1" data-series="merged" data-key="2" data-value="260,4" cx="391.36" cy="256" r="4"/>
+    <circle class="mark s1" data-series="merged" data-key="3" data-value="400,5" cx="572.8" cy="228" r="4"/>
+    <circle class="mark s2" data-series="reverted" data-key="0" data-value="310,7" cx="456.16" cy="172" r="4"/>
+    <circle class="mark s2" data-series="reverted" data-key="1" data-value="520,9" cx="728.32" cy="116" r="4"/>
+  </g>
+  <g class="legend">
+    <rect class="swatch s1" data-series="merged" x="54.4" y="432" width="12" height="12"/>
+    <text class="legend-label" data-series="merged" x="72.4" y="442" font-size="12">merged</text>
+    <rect class="swatch s2" data-series="reverted" x="139.6" y="432" width="12" height="12"/>
+    <text class="legend-label" data-series="reverted" x="157.6" y="442" font-size="12">reverted</text>
+  </g>
+  <g data-role="data-table" aria-label="Data table">
+    <desc>merged: 40, 1</desc>
+    <desc>merged: 120, 2</desc>
+    <desc>merged: 260, 4</desc>
+    <desc>merged: 400, 5</desc>
+    <desc>reverted: 310, 7</desc>
+    <desc>reverted: 520, 9</desc>
+  </g>
+</svg>
