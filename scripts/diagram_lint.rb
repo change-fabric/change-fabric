@@ -43,14 +43,7 @@ class DiagramLint
   def report(paths)
     docs = paths.map { |p| [ p, parse(p) ] }
     @measurer.prefetch(docs.map(&:last)) if @measurer.respond_to?(:prefetch)
-    files = docs.map { |p, d| lint_file(p, d) }
-    all = files.flat_map { |f| f[:findings] }
-    {
-      version: 1,
-      measured: @measurer.measured?,
-      files: files.map { |f| f.merge(findings: f[:findings].map(&:to_h)) },
-      summary: { files: files.size, errors: all.count { |f| f.severity == "error" }, warnings: all.count { |f| f.severity == "warn" } }
-    }
+    SvgChecks.report(docs.map { |p, d| lint_file(p, d) }, measured: @measurer.measured?)
   end
 
   def self.expand(paths)
@@ -100,16 +93,16 @@ class DiagramLint
     measurer ||= opts[:no_measure] ? DiagramMeasure::Static.new : DiagramMeasure::Browserless.new
     report = new(measurer: measurer, type: opts[:type], palette: opts[:palette]).report(paths)
     opts[:json] ? out.puts(JSON.pretty_generate(report)) : human(report).each { |line| out.puts(line) }
-    report[:summary][:errors].positive? ? 1 : 0
+    SvgChecks.exit_code(report)
   rescue DiagramMeasure::Unavailable => e
     err.puts("diagram_lint: #{e.message}; retry with --no-measure")
-    3
+    SvgChecks::EXIT_UNMEASURED
   rescue UsageError, DiagramMeasure::TooLarge, DiagramSvg::ParseError, SystemCallError => e
     err.puts("diagram_lint: #{e.message}")
-    2
+    SvgChecks::EXIT_USAGE
   rescue StandardError => e
     err.puts("diagram_lint: unexpected #{e.class}: #{e.message}")
-    2
+    SvgChecks::EXIT_USAGE
   end
 end
 
