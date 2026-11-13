@@ -859,4 +859,45 @@ class WalkthroughRenderTest < Minitest::Test
     assert_operator @calls[:music].last, :<, full
     assert_includes @calls[:docker].last.join(" "), "adelay=delays=1500:all=1,afade=t=in:st=1.500:d=0.050,"
   end
+
+  def set_board_target(name)
+    path = File.join(@root, "storyboard.json")
+    b = JSON.parse(File.read(path))
+    b["target"] = name
+    File.write(path, JSON.pretty_generate(b))
+  end
+
+  def fidelity_round(issues)
+    critic = { "score" => 8, "summary" => "s", "issues" => issues,
+               "thirty_second_test" => { "verdict" => "pass", "reason" => "r" }, "purpose_test" => [] }
+    Roast.write_round(File.join(@root, WalkthroughRoast::FIDELITY_DIR), 1, critic)
+  end
+
+  def test_fidelity_gate_is_active_only_for_a_reference_target
+    gates = { roast: false, allow_roast: true, fidelity_targets: [ "portal" ] }
+    assert run_render(final: true, gates: gates)[:mp4], "a storyboard without a target is untouched"
+    set_board_target("admin")
+    assert run_render(final: true, gates: gates)[:mp4], "a target with no reference is untouched"
+    set_board_target("portal")
+    err = assert_raises(WalkthroughRoast::OpenFindingsError) { run_render(final: true, gates: gates) }
+    assert_includes err.message, "no fidelity roast on record"
+  end
+
+  def test_fidelity_gate_blocks_open_p1_and_the_override_works
+    set_board_target("portal")
+    gates = { roast: false, allow_roast: true, fidelity_targets: [ "portal" ] }
+    fidelity_round([ { "priority" => "P1", "where" => "001.png header", "problem" => "foreign type scale", "fix" => "use the kit" } ])
+    err = assert_raises(WalkthroughRoast::OpenFindingsError) { run_render(final: true, gates: gates) }
+    assert_includes err.message, "fidelity finding(s)"
+    assert_includes err.message, "--allow-fidelity-findings"
+    assert run_render(final: true, gates: gates.merge(allow_fidelity: true))[:mp4]
+  end
+
+  def test_fidelity_gate_passes_on_p2_only_and_records_the_signoff
+    set_board_target("portal")
+    fidelity_round([ { "priority" => "P2", "where" => "001.png", "problem" => "radius", "fix" => "4px" } ])
+    assert run_render(final: true, gates: { roast: false, allow_roast: true, fidelity_targets: [ "portal" ] })[:mp4]
+    signoff = JSON.parse(File.read(File.join(@root, WalkthroughRoast::FIDELITY_DIR, "signoff.json")))
+    assert_equal 1, signoff["round"]
+  end
 end

@@ -768,6 +768,24 @@ module WalkthroughRender
       WalkthroughRoast.gate!(roast_dir, allow: @gates[:allow_roast], cap_usd: roast_cap, require_roast: @gates[:roast],
                                                   content: @content_key, **roast_stop)
       say("roast gate: #{roast_verdict[:reason]}") if @gates[:roast]
+      fidelity_gate!
+    end
+
+    # A storyboard naming a design target that has a reference app must clear
+    # the fidelity loop: no open fidelity P0/P1 (spec 0.18.0). Any other
+    # storyboard is untouched. @gates[:fidelity_targets] lists the targets
+    # with a reference, read from CHANGE.md by the CLI.
+    def fidelity_required? = !@board['target'].to_s.empty? && Array(@gates[:fidelity_targets]).include?(@board['target'])
+
+    def fidelity_dir = File.join(@root, WalkthroughRoast::FIDELITY_DIR)
+
+    def fidelity_gate!
+      return unless fidelity_required?
+
+      WalkthroughRoast.fidelity_gate!(fidelity_dir, allow: @gates[:allow_fidelity])
+      verdict = WalkthroughRoast.fidelity_verdict(fidelity_dir)
+      WalkthroughRoast.record_signoff(fidelity_dir, verdict)
+      say("fidelity gate: #{verdict[:reason]}")
     end
 
     # The capture-size guard, before anything is captured: every scene's
@@ -979,7 +997,7 @@ end
 
 if __FILE__ == $PROGRAM_NAME
   usage = 'usage: walkthrough_render.rb walkthrough/<slug> [--scene <id>] [--draft|--final] [--estimate-only] [--max-usd <n>] [--burn-captions] ' \
-          '[--allow-ux-findings] [--allow-roast-findings] [--no-roast] [--allow-sensitive] [--roast-max-usd <run cap>] [--recapture]' \
+          '[--allow-ux-findings] [--allow-roast-findings] [--allow-fidelity-findings] [--no-roast] [--allow-sensitive] [--roast-max-usd <run cap>] [--recapture]' \
           "\n       walkthrough_render.rb walkthrough/<slug> --prune [--dry-run] | --cache-report"
   dir = ARGV.first
   abort(usage) if dir.nil? || dir.start_with?('--')
@@ -998,12 +1016,14 @@ if __FILE__ == $PROGRAM_NAME
   roast_usd = ARGV.include?('--roast-max-usd') ? (ARGV[ARGV.index('--roast-max-usd') + 1] || abort(usage)).to_f : nil
   begin
     roast = WalkthroughRoast.settings(Dir.pwd, roast: ARGV.include?('--no-roast') ? false : nil, max_usd: roast_usd)
+    fidelity_targets = DesignConfig.load(Dir.pwd).select { |c| c.target.reference? }.map { |c| c.target.name }
   rescue DesignConfig::Error => e
     abort("CHANGE.md design block: #{e.message}")
   end
   gates = { allow_ux: ARGV.include?('--allow-ux-findings'), allow_roast: ARGV.include?('--allow-roast-findings'), allow_sensitive: ARGV.include?('--allow-sensitive'),
             roast: roast[:roast], roast_max_usd: roast[:max_usd], roast_target: roast[:target],
-            roast_rounds: roast[:rounds], roast_model: roast[:model], roast_review: roast[:review] }
+            roast_rounds: roast[:rounds], roast_model: roast[:model], roast_review: roast[:review],
+            allow_fidelity: ARGV.include?('--allow-fidelity-findings'), fidelity_targets: fidelity_targets }
   begin
     WalkthroughRender::Run.new(dir, scene: scene, final: ARGV.include?('--final'), max_usd: max_usd,
                                burn_captions: ARGV.include?('--burn-captions'), gates: gates, recapture: ARGV.include?('--recapture'))
