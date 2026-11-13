@@ -345,6 +345,20 @@ class WalkthroughRenderTest < Minitest::Test
     assert_empty @calls[:docker], "a cached burned render is reused"
   end
 
+  # QA-L7-3: a silent board writes an empty SRT; it renders with burned
+  # captions on and no captions key, the empty track skipped cleanly.
+  def test_silent_board_renders_without_a_caption_track
+    b = board
+    b["scenes"].each { |s| s.delete("narration") }
+    File.write(File.join(@root, "storyboard.json"), JSON.pretty_generate(b))
+    result = run_render(burn_captions: true)
+    assert_empty @calls[:tts]
+    assert_equal "", File.read(File.join(File.dirname(result[:mp4]), "captions.srt")).strip
+    pass2 = @calls[:docker].last.join(" ")
+    refute_includes pass2, "captions.srt", "neither a subtitle input nor a burn filter for an empty SRT"
+    refute_includes pass2, "subtitles="
+  end
+
   def test_image_model_is_part_of_the_cache_key
     b = board
     b["scenes"][0]["images"] = [ { "prompt" => "a hero", "model" => "custom-image-model" } ]

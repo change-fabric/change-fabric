@@ -649,10 +649,13 @@ module WalkthroughRender
       return mp4 if File.size?(mp4)
 
       inputs = assembly_inputs(manifest)
+      srt = captions(inputs)
       plan = plan(manifest, inputs)
+      # A silent board has no cues: an empty SRT is no caption track (pass 2
+      # cannot open it), so it renders without needing captions.burn false.
+      plan[:caption_track] = false if srt.strip.empty?
       FileUtils.mkdir_p(dir)
       FileUtils.cp(CURSOR_PNG, File.join(dir, 'cursor.png'))
-      srt = captions(inputs)
       File.write(File.join(dir, 'captions.srt'), srt)
       File.write(File.join(dir, 'walkthrough.vtt'), WalkthroughCaptions.vtt(srt))
       WalkthroughFfmpeg.sendcmd_files(plan).each { |path, body| File.write(host_path(path), body) }
