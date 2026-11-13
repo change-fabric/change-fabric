@@ -15,6 +15,7 @@ require_relative 'walkthrough_diagram'
 require_relative 'walkthrough_environment'
 require_relative 'walkthrough_browser_frame'
 require_relative 'walkthrough_sharpness'
+require_relative 'walkthrough_timeline'
 
 # Records a cf:prototype mock screen as a PNG frame sequence under a fixed,
 # controlled clock, in the pinned browserless container and nowhere else.
@@ -40,11 +41,184 @@ module PrototypeCapture
   # 3: the viewport is asserted before capture and a wrong-size capture is
   # never cached, so frames from version 2 (possibly laid out at the
   # container's 800x600 window) are not reused.
-  CAPTURE_VERSION = 3
+  # 4: same-frame input runs in WalkthroughTimeline::SEQ order through one
+  # dispatcher (a scroll now lands before a move on its frame, in both the
+  # prototype and the live loop), so a version 3 frame may differ.
+  CAPTURE_VERSION = 4
   START_MS = 1_767_225_600_000 # 2026-01-01T00:00:00Z
   LOCALE = 'en-US'
   DEFAULT_VIEWPORT = { 'w' => 1920, 'h' => 1080, 'dpr' => 1 }.freeze
-  OPS = %w[move click dblclick type key hover scroll wait].freeze
+  OPS = %w[move click dblclick type key hover scroll wait tap].freeze
+  # A scroll op with `ms` glides: its dx/dy are reached over that many ms,
+  # one eased scroll offset per frame. The CSS easing keywords are the real
+  # CSS cubic-bezier curves.
+  CSS_EASES = { 'ease' => [ 0.25, 0.1, 0.25, 1.0 ], 'ease-in' => [ 0.42, 0.0, 1.0, 1.0 ],
+                'ease-out' => [ 0.0, 0.0, 0.58, 1.0 ], 'ease-in-out' => [ 0.42, 0.0, 0.58, 1.0 ] }.freeze
+  SCROLL_EASES = ([ 'linear' ] + CSS_EASES.keys).freeze
+  DEFAULT_SCROLL_EASE = 'ease-in-out'
+  SCROLL_MS = (1..10_000)
+  # A tap holds its pressed state this long before the real click lands.
+  PRESS_MS = 120
+  PRESS_RANGE = (1..1000)
+  # The pressed look a tap's target wears for its press frames, injected
+  # only into a page that taps, so pages without a tap op never change.
+  # The `scale` property composes with the element's own transform instead
+  # of replacing it.
+  PRESS_SCALE = 0.96
+  PRESS_CSS = ".__cf-pressed { scale: #{PRESS_SCALE} !important; opacity: 0.82 !important; transition: none !important; }".freeze
+  # In-page helper (a JS function, passed to page.evaluate): toggles the
+  # pressed class on a selector, adding the style sheet on first use. The
+  # scale also shrinks the element's own transform offset (a centring
+  # translate(-50%) would move by 2% of the width) and, about an off-centre
+  # transform-origin, the box itself, so while pressed it translates that
+  # difference back: the box's centre stays exactly put.
+  # An element with an authored `translate` is left as it is.
+  PRESS_JS = <<~JS.chomp
+    (sel, on, css) => {
+      const el = document.querySelector(sel);
+      if (!el) return false;
+      if (!document.getElementById("__cf-press")) {
+        const s = document.createElement("style");
+        s.id = "__cf-press";
+        s.textContent = css;
+        (document.head || document.documentElement).appendChild(s);
+      }
+      if (on && !el.classList.contains("__cf-pressed")) {
+        const cs = getComputedStyle(el);
+        if (cs.translate === "none" && el instanceof HTMLElement) {
+          const m = new DOMMatrixReadOnly(cs.transform === "none" ? undefined : cs.transform);
+          const [ox, oy] = cs.transformOrigin.split(" ").map(parseFloat);
+          const cx = el.offsetWidth / 2 - ox, cy = el.offsetHeight / 2 - oy;
+          const k = 1 - #{PRESS_SCALE};
+          el.dataset.cfPressTranslate = el.style.translate;
+          el.style.translate = `${k * (m.a * cx + m.c * cy + m.e)}px ${k * (m.b * cx + m.d * cy + m.f)}px`;
+        }
+      } else if (!on && "cfPressTranslate" in el.dataset) {
+        el.style.translate = el.dataset.cfPressTranslate;
+        delete el.dataset.cfPressTranslate;
+      }
+      el.classList.toggle("__cf-pressed", on);
+      return true;
+    }
+  JS
+  # In-page helper: one glide frame. The origin is read on the glide's first
+  # frame, so each frame sets an absolute offset (origin plus the eased
+  # delta) and never accumulates rounding.
+  GLIDE_JS = <<~JS.chomp
+    (g) => {
+      const el = document.querySelector(g.target);
+      if (!el) throw new Error(`scroll target not found: ${g.target}`);
+      window.__cfGlide = window.__cfGlide || {};
+      if (g.first || !window.__cfGlide[g.target]) window.__cfGlide[g.target] = { x: el.scrollLeft, y: el.scrollTop };
+      const o = window.__cfGlide[g.target];
+      el.scrollTo({ left: o.x + g.dx, top: o.y + g.dy, behavior: "instant" });
+    }
+  JS
+  # The one input dispatcher both capture loops run, a JS factory taking
+  # (page, io): io.aim(selector) gives a point (or null), io.mobile picks
+  # touch over mouse, io.st holds the cursor state (pos, from, down,
+  # resting), and io.onNavigate sees a navigate event. Each timeline event
+  # runs through it in seq order, so a prototype scene and a live scene act
+  # the same way on the same event; a missing click, tap, scroll or glide
+  # target fails the capture in both.
+  DISPATCH_JS = <<~JS.chomp
+    (page, io) => {
+      const st = io.st;
+      const need = async (sel, what) => {
+        const to = await io.aim(sel);
+        if (!to) throw new Error(`${what} target not found: ${sel}`);
+        return to;
+      };
+      const point = async (to) => { if (!io.mobile) await page.mouse.move(to.x, to.y); };
+      const press = async (to) => {
+        if (io.mobile) { await page.touchscreen.tap(to.x, to.y); return; }
+        await page.mouse.move(to.x, to.y); await page.mouse.down(); await page.mouse.up();
+      };
+      const pressCss = #{JSON.generate(PRESS_CSS)};
+      return async (ev) => {
+        switch (ev.kind) {
+          case "scroll":
+            await page.evaluate((s) => {
+              const el = document.querySelector(s.target);
+              if (!el) throw new Error(`scroll target not found: ${s.target}`);
+              if (s.dx === undefined && s.dy === undefined) el.scrollIntoView({ block: s.block || "center", behavior: "instant" });
+              else el.scrollBy({ left: s.dx || 0, top: s.dy || 0, behavior: "instant" });
+            }, ev);
+            return;
+          case "glide_step": await page.evaluate(#{GLIDE_JS}, ev); return;
+          case "move_step": {
+            if (ev.first) st.from = st.pos;
+            const to = await io.aim(ev.target);
+            if (to) { st.pos = { x: st.from.x + (to.x - st.from.x) * ev.p, y: st.from.y + (to.y - st.from.y) * ev.p }; await point(st.pos); }
+            st.resting = ev.p >= 1 ? ev.target : null;
+            return;
+          }
+          case "hover": {
+            const to = await io.aim(ev.target);
+            if (to) { st.pos = to; await point(to); }
+            st.resting = ev.target;
+            return;
+          }
+          case "click": {
+            // A click never falls back to the last cursor spot: that would
+            // press whatever control sits there.
+            st.pos = await need(ev.target, "click"); st.resting = ev.target;
+            await press(st.pos); st.down = true;
+            return;
+          }
+          case "dblclick": {
+            const to = await need(ev.target, "dblclick"); st.pos = to; st.resting = ev.target;
+            await page.mouse.move(to.x, to.y);
+            await page.mouse.click(to.x, to.y, { clickCount: 1 });
+            await page.mouse.click(to.x, to.y, { clickCount: 2 });
+            st.down = true;
+            return;
+          }
+          // The finger lands: pressed look on, ripple from this frame.
+          case "press": {
+            st.pos = await need(ev.target, "tap"); st.resting = ev.target;
+            await point(st.pos);
+            await page.evaluate(#{PRESS_JS}, ev.target, true, pressCss);
+            st.down = true;
+            return;
+          }
+          // The finger lifts: pressed look off, then the real click.
+          case "release": {
+            await page.evaluate(#{PRESS_JS}, ev.target, false, pressCss);
+            st.pos = await need(ev.target, "tap"); st.resting = ev.target;
+            await press(st.pos);
+            return;
+          }
+          case "type_char": {
+            if (ev.focus) await page.focus(ev.target);
+            // after_line puts the caret at the end of the first line that
+            // starts with it, so typing fills in a prefilled template line.
+            if (ev.after_line) await page.$eval(ev.target, (el, prefix) => {
+              const lines = el.value.split("\\n");
+              const at = lines.findIndex((l) => l.startsWith(prefix));
+              if (at < 0) throw new Error(`no line starting with ${prefix}`);
+              const end = lines.slice(0, at + 1).join("\\n").length;
+              el.setSelectionRange(end, end);
+            }, ev.after_line);
+            // replace selects the field's value first, so typing swaps it out.
+            if (ev.replace) await page.$eval(ev.target, (el) => el.select());
+            await page.keyboard.type(ev.char);
+            return;
+          }
+          case "key": {
+            if (ev.target) await page.focus(ev.target);
+            const mods = ev.keys.slice(0, -1);
+            for (const m of mods) await page.keyboard.down(m);
+            await page.keyboard.press(ev.keys[ev.keys.length - 1]);
+            for (const m of mods.reverse()) await page.keyboard.up(m);
+            return;
+          }
+          case "navigate": if (io.onNavigate) io.onNavigate(ev); return;
+          default: throw new Error(`unknown event kind ${ev.kind}`);
+        }
+      };
+    }
+  JS
   # Key names a `key` op may press after any modifiers; a single printable
   # character is also accepted. Aliases normalize to Puppeteer key names.
   MODIFIERS = %w[Control Shift Alt Meta].freeze
@@ -338,28 +512,35 @@ module PrototypeCapture
     when 'easeInOutCubic' then p < 0.5 ? 4 * (p**3) : 1 - (((-2 * p) + 2)**3 / 2)
     when 'easeOutCubic' then 1 - ((1 - p)**3)
     when 'easeInCubic' then p**3
+    when *CSS_EASES.keys then cubic_bezier(*CSS_EASES[name.to_s], p)
     else raise ArgumentError, "unknown easing #{name}"
     end
   end
 
-  # Per-frame input plan. Each entry lists what the page does at that frame:
-  # `move` (target plus eased progress, 1.0 on the last move frame), `hover`
-  # and `click` targets, and the characters `type` sends to a target.
-  def schedule(interactions, frames, fps = FPS)
-    plan = Array.new(frames) { |i| { 'frame' => i } }
-    Array(interactions).each do |op|
-      raise ArgumentError, "unknown interaction op #{op['op']}" unless OPS.include?(op['op'])
+  # The y of a CSS cubic-bezier(x1, y1, x2, y2) at x = p: bisection on the
+  # curve's parameter (x is monotonic for x1, x2 in 0..1), a fixed 64 steps
+  # so the result is the same on every machine.
+  def cubic_bezier(x1, y1, x2, y2, p)
+    return p if p <= 0.0 || p >= 1.0
 
-      start = frame_at(op['t_ms'].to_i, fps)
-      case op['op']
-      when 'move' then schedule_move(plan, op, start, fps)
-      when 'click', 'dblclick', 'hover' then plan.dig(start)&.store(op['op'], op['target'])
-      when 'type' then schedule_type(plan, op, fps)
-      when 'key' then plan.dig(start)&.then { |e| (e['key'] ||= []) << { 'keys' => key_chord(op['keys']), 'target' => op['target'] }.compact }
-      when 'scroll' then plan.dig(start)&.store('scroll', { 'target' => op['target'], 'dx' => op['dx'], 'dy' => op['dy'], 'block' => op['block'] }.compact)
-      end
+    coord = ->(t, a, b) { (3 * ((1 - t)**2) * t * a) + (3 * (1 - t) * (t**2) * b) + (t**3) }
+    lo = 0.0
+    hi = 1.0
+    64.times do
+      mid = (lo + hi) / 2
+      coord.call(mid, x1, x2) < p ? lo = mid : hi = mid
     end
-    plan
+    coord.call((lo + hi) / 2, y1, y2)
+  end
+
+  # Per-frame input plan, rendered from the scene's event timeline (the one
+  # source of timing). Each entry lists what the page does at that frame:
+  # `move` (target plus eased progress, 1.0 on the last move frame), `hover`
+  # and `click` targets, and the characters `type` sends to a target; a
+  # board with glides or taps adds `glide`, `press` and `tap`. The frame lint
+  # reads it; the capture loops read the timeline's events directly.
+  def schedule(interactions, frames, fps = FPS)
+    WalkthroughTimeline.to_plan(WalkthroughTimeline.build(interactions, fps: fps, frames: frames))
   end
 
   # "Ctrl+Shift+Esc" -> ["Control", "Shift", "Escape"]: modifiers first, in
@@ -376,24 +557,14 @@ module PrototypeCapture
     names
   end
 
-  def schedule_move(plan, op, start, fps)
-    span = [ frame_count(op['duration_ms'].to_i, fps), 1 ].max
-    (1..span).each do |k|
-      entry = plan[start + k - 1] or break
-      entry['move'] = { 'target' => op['target'], 'p' => ease(op['easing'], k.to_f / span), 'first' => k == 1 }
-    end
-  end
+  # The timeline of one scene's (or device's) ops, raising on any conflict
+  # so a board that slipped past validation (env text is only known here)
+  # never captures input on the wrong page or a stuck press.
+  def timeline!(interactions, frames, fps = FPS, label: 'scene')
+    timeline = WalkthroughTimeline.build(interactions, fps: fps, frames: frames)
+    raise ArgumentError, "#{label}: #{timeline.conflicts.join('; ')}" unless timeline.conflicts.empty?
 
-  def schedule_type(plan, op, fps)
-    cps = (op['cps'] || 12).to_f
-    op['text'].to_s.each_char.with_index do |char, k|
-      entry = plan[frame_at(op['t_ms'].to_i + (k * 1000.0 / cps), fps)] or break
-      entry['type'] ||= { 'target' => op['target'], 'text' => +'', 'focus' => k.zero? }
-      entry['type']['text'] << char
-      entry['type']['focus'] ||= k.zero?
-      entry['type']['after_line'] = op['after_line'] if k.zero? && op['after_line']
-      entry['type']['replace'] = true if k.zero? && op['replace']
-    end
+    timeline
   end
 
   def cursor_path(positions)
@@ -463,6 +634,15 @@ module PrototypeCapture
 
   def browserless_digest = ChangeDocker::BROWSERLESS_IMAGE.split('@').last
 
+  # Key material for a scene that glides or taps: the timeline version and
+  # the in-page dispatcher (with its press and glide helpers), so a change
+  # to either recaptures exactly the boards that use them.
+  def timeline_material(ops)
+    return {} unless WalkthroughTimeline.fluid?(ops)
+
+    { timeline: WalkthroughTimeline::VERSION, dispatch: Digest::SHA256.hexdigest(DISPATCH_JS) }
+  end
+
   def frames_key(inputs)
     WalkthroughCache.key(inputs.merge(browserless: browserless_digest, capture_version: CAPTURE_VERSION))
   end
@@ -496,7 +676,7 @@ module PrototypeCapture
   # `lint` lists the frames PrototypeUxLint checks; `shots: false` replays
   # without screenshots (a lint-only pass over a cached capture), and
   # `aim: 'centre'` reproduces the pre-lint cursor targeting for such a pass.
-  def function_module(html:, plan:, range:, viewport:, prng_seed:, state:, fps: FPS, lint: [], shots: true, aim: 'safe')
+  def function_module(html:, events:, range:, viewport:, prng_seed:, state:, fps: FPS, lint: [], shots: true, aim: 'safe')
     vp = DEFAULT_VIEWPORT.merge(viewport || {})
     <<~JS
       export default async function ({ page: basePage }) {
@@ -506,7 +686,7 @@ module PrototypeCapture
         const context = await newBrowserContext(browser);
         const page = context ? await context.newPage() : await browser.newPage();
         const locale = #{JSON.generate(LOCALE)};
-        const plan = #{JSON.generate(plan)};
+        const events = #{JSON.generate(events)};
         const first = #{range.first};
         const last = #{range.last - (range.exclude_end? ? 1 : 0)};
         const stepMs = #{frame_ms(fps)};
@@ -545,14 +725,12 @@ module PrototypeCapture
         const lint = [];
         const devices = [];
         const overlays = {};
-        let resting = null;
-        let pos = { x: #{vp['w'] / 2.0}, y: #{vp['h'] / 2.0} };
-        let from = pos;
-        let down = false;
+        const st = { pos: { x: #{vp['w'] / 2.0}, y: #{vp['h'] / 2.0} }, from: null, down: false, resting: null };
+        st.from = st.pos;
+        const dispatch = (#{DISPATCH_JS})(page, { aim: center, mobile: false, st });
         const frames = [];
         const cursor = [];
         for (let i = 0; i <= last; i++) {
-          const step = plan[i] || {};
           const virtualMs = await page.evaluate((ms) => window.__cfAdvance(ms), stepMs);
           await page.evaluate((now) => {
             window.__cfAnimStart = window.__cfAnimStart || new WeakMap();
@@ -562,50 +740,7 @@ module PrototypeCapture
               anim.currentTime = now - window.__cfAnimStart.get(anim);
             }
           }, virtualMs - #{START_MS});
-          if (step.move) {
-            if (step.move.first) from = pos;
-            const to = await center(step.move.target);
-            pos = { x: from.x + (to.x - from.x) * step.move.p, y: from.y + (to.y - from.y) * step.move.p };
-            await page.mouse.move(pos.x, pos.y);
-            resting = step.move.p >= 1 ? step.move.target : null;
-          }
-          if (step.hover) { pos = await center(step.hover); await page.mouse.move(pos.x, pos.y); resting = step.hover; }
-          if (step.click) {
-            pos = await center(step.click);
-            resting = step.click;
-            await page.mouse.move(pos.x, pos.y);
-            await page.mouse.down(); down = true;
-            await page.mouse.up();
-          }
-          if (step.dblclick) {
-            pos = await center(step.dblclick);
-            resting = step.dblclick;
-            await page.mouse.move(pos.x, pos.y);
-            await page.mouse.click(pos.x, pos.y, { clickCount: 1 });
-            await page.mouse.click(pos.x, pos.y, { clickCount: 2 });
-            down = true;
-          }
-          if (step.scroll) {
-            await page.evaluate((s) => {
-              const el = document.querySelector(s.target);
-              if (!el) throw new Error(`scroll target not found: ${s.target}`);
-              if (s.dx === undefined && s.dy === undefined) el.scrollIntoView({ block: s.block || "center", behavior: "instant" });
-              else el.scrollBy({ left: s.dx || 0, top: s.dy || 0, behavior: "instant" });
-            }, step.scroll);
-          }
-          if (step.type) {
-            if (step.type.focus) await page.focus(step.type.target);
-            // replace selects the field's value first, so typing swaps it out.
-            if (step.type.replace) await page.$eval(step.type.target, (el) => el.select());
-            for (const ch of step.type.text) await page.keyboard.type(ch);
-          }
-          for (const press of step.key || []) {
-            if (press.target) await page.focus(press.target);
-            const mods = press.keys.slice(0, -1);
-            for (const m of mods) await page.keyboard.down(m);
-            await page.keyboard.press(press.keys[press.keys.length - 1]);
-            for (const m of mods.reverse()) await page.keyboard.up(m);
-          }
+          for (const ev of events[i] || []) await dispatch(ev);
           await page.evaluate(() => new Promise((r) => window.__cfRealRaf(() => window.__cfRealRaf(r))));
           let fresh = false;
           for (const key of await page.evaluate(() => window.__cfUx.overlays())) {
@@ -613,14 +748,14 @@ module PrototypeCapture
           }
           if (i >= first) {
             if (lintAt.has(i) || fresh) {
-              const targets = resting ? [{ selector: resting, x: pos.x, y: pos.y }] : [];
+              const targets = st.resting ? [{ selector: st.resting, x: st.pos.x, y: st.pos.y }] : [];
               for (const f of await page.evaluate((t, b) => window.__cfUx.lint(t, b), targets, #{PrototypeUxLint::CAPTION_BAND})) lint.push(Object.assign({ frame: i }, f));
               for (const d of await page.evaluate(() => window.__cfUx.devices())) devices.push(Object.assign({ frame: i }, d));
             }
             if (#{shots}) frames.push(#{BrowserlessJs.screenshot_js('client')});
-            cursor.push({ x: pos.x, y: pos.y, down });
+            cursor.push({ x: st.pos.x, y: st.pos.y, down: st.down });
           }
-          down = false;
+          st.down = false;
         }
         const endState = await page.evaluate(() => (window.CFStore && typeof window.CFStore.dump === "function") ? window.CFStore.dump() : null);
         if (context) await context.close();
@@ -655,8 +790,9 @@ module PrototypeCapture
   # one from ChangeDocker.with_browserless.
   def capture(session:, html:, interactions:, duration_ms:, out_dir:, state:, prng_seed:, viewport: nil, fps: FPS, label: 'scene')
     frames = frame_count(duration_ms, fps)
-    plan = schedule(interactions, frames, fps)
-    lint_frames = PrototypeUxLint.lint_frames(plan, frames)
+    timeline = timeline!(interactions, frames, fps, label: label)
+    events = timeline.events_by_frame
+    lint_frames = PrototypeUxLint.lint_frames(WalkthroughTimeline.to_plan(timeline), frames)
     FileUtils.mkdir_p(out_dir)
     # The marker goes first, so a capture that fails part way never leaves
     # an older run's marker vouching for a mix of frames.
@@ -674,7 +810,7 @@ module PrototypeCapture
     while first < frames
       range = first...[ first + size, frames ].min
       first = range.end
-      code = function_module(html: html, plan: plan, range: range, viewport: viewport, prng_seed: prng_seed, state: state, fps: fps,
+      code = function_module(html: html, events: events, range: range, viewport: viewport, prng_seed: prng_seed, state: state, fps: fps,
                              lint: lint_frames)
       result = run_checked(session, code, viewport, label, frames: true)
       findings.concat(Array(result['lint']))
@@ -702,9 +838,10 @@ module PrototypeCapture
   def lint_only(session:, html:, interactions:, duration_ms:, out_dir:, state:, prng_seed:, viewport: nil, fps: FPS, label: 'scene',
                 aim: PrototypeUxLint.prior_aim(out_dir))
     frames = frame_count(duration_ms, fps)
-    plan = schedule(interactions, frames, fps)
-    code = function_module(html: html, plan: plan, range: 0...frames, viewport: viewport, prng_seed: prng_seed, state: state,
-                           fps: fps, lint: PrototypeUxLint.lint_frames(plan, frames), shots: false, aim: aim)
+    timeline = timeline!(interactions, frames, fps, label: label)
+    code = function_module(html: html, events: timeline.events_by_frame, range: 0...frames, viewport: viewport, prng_seed: prng_seed,
+                           state: state, fps: fps, lint: PrototypeUxLint.lint_frames(WalkthroughTimeline.to_plan(timeline), frames),
+                           shots: false, aim: aim)
     result = run_checked(session, code, viewport, label)
     report = PrototypeUxLint.scene_report(label, Array(result['lint']), overlays: result['overlays'] || {},
                                                  devices: Array(result['devices'])).merge('aim' => aim)
@@ -829,6 +966,7 @@ module PrototypeCapture
                      state: WalkthroughCache.key(state), prng_seed: prng, **(remap.empty? ? {} : { images: remap }),
                      **(WalkthroughEnvironment.environment?(scene) ? { desktop_kit: WalkthroughEnvironment.version } : {}),
                      **(WalkthroughDiagram.diagram?(scene) ? WalkthroughDiagram.key_material : {}),
+                     **timeline_material(scene['interactions']),
                      **(WalkthroughBrowserFrame.browser?(scene) ? { frame: WalkthroughBrowserFrame.material(scene) } : {}))
     memo[scene['id']] = { key: key, state: state, prng_seed: prng, html_path: html_path, remap: remap, root: root,
                           out_dir: File.join(root, '.cache', 'frames', key) }

@@ -121,7 +121,7 @@ class WalkthroughLiveTest < Minitest::Test
     assert_empty errors_for(b)
     step = jobs(b, mail).first["plan"].find { |st| st["type"] }
     assert_equal "Name:", step["type"]["after_line"]
-    assert_includes WalkthroughLive.capture_module(b, mail, jobs: [], session: nil), "step.type.after_line"
+    assert_includes WalkthroughLive.capture_module(b, mail, jobs: [], session: nil), "if (ev.after_line) await page.$eval(ev.target"
     mail["interactions"][1]["after_line"] = "x"
     assert(errors_for(b).any? { |e| e.include?("after_line apply only to a type op") })
     proto = live("proto", 1, "screen" => { "html" => "screens/a.html" },
@@ -272,8 +272,8 @@ class WalkthroughLiveTest < Minitest::Test
     assert_includes js, '"tour":"on"'
     assert_operator js.index("evaluateOnNewDocument"), :<, js.index("page.goto")
     refute_includes js, "networkidle"
-    assert_includes js, "if (!to) throw new Error(`click target not found: ${step.click}`);"
-    refute_includes js, "if (to) pos = to;"
+    assert_includes js, 'st.pos = await need(ev.target, "click")'
+    assert_includes js, "if (!to) throw new Error(`${what} target not found: ${sel}`);"
     b["browser"]["ignore_https_errors"] = false
     refute_includes WalkthroughLive.capture_module(b, b["scenes"][1], jobs: [], session: nil), "setIgnoreCertificateErrors"
   end
@@ -456,7 +456,7 @@ class WalkthroughLiveTest < Minitest::Test
     WalkthroughLive.capture(session: session, board: {}, scene: scene, out_dir: nil, secrets: WalkthroughLive::Secrets.new([]), shots: false)
     code, args = launches.first
     assert_equal [ "--disable-lcd-text", "--force-device-scale-factor=2" ], args
-    assert_includes code, "maxWidth: dev.w * dev.dpr"
+    assert_includes code, "maxWidth: Math.ceil(dev.w * dev.dpr)"
     assert_includes code, '"dpr":2'
     assert_includes code, "await page.evaluateOnNewDocument(hideCursor);"
     assert_includes code, "await page.evaluate(hideCursor);"

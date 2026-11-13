@@ -174,11 +174,11 @@ class PrototypeCaptureTest < Minitest::Test
       typed = PrototypeCapture.schedule([ op ], 20).filter_map { |f| f["type"] }
       assert_equal expected, typed.first.key?("replace")
     end
-    mod = PrototypeCapture.function_module(html: "<p>hi</p>", plan: [ { "frame" => 0 } ], range: 0...1,
+    mod = PrototypeCapture.function_module(html: "<p>hi</p>", events: [ [] ], range: 0...1,
                                            viewport: nil, prng_seed: 1, state: {})
-    assert_match(/if \(step\.type\.replace\) await page\.\$eval\(step\.type\.target, \(el\) => el\.select\(\)\)/, mod)
-    assert_operator mod.index("step.type.focus"), :<, mod.index("step.type.replace")
-    assert_operator mod.index("step.type.replace"), :<, mod.index("page.keyboard.type(ch)")
+    assert_match(/if \(ev\.replace\) await page\.\$eval\(ev\.target, \(el\) => el\.select\(\)\)/, mod)
+    assert_operator mod.index("if (ev.focus)"), :<, mod.index("if (ev.replace)")
+    assert_operator mod.index("if (ev.replace)"), :<, mod.index("page.keyboard.type(ev.char)")
   end
 
   def test_cursor_path_numbers_frames_from_one
@@ -197,7 +197,7 @@ class PrototypeCaptureTest < Minitest::Test
   end
 
   def test_function_module_uses_shared_primitives_and_real_input
-    mod = PrototypeCapture.function_module(html: "<p>hi</p>", plan: [ { "frame" => 0 } ], range: 0...1,
+    mod = PrototypeCapture.function_module(html: "<p>hi</p>", events: [ [] ], range: 0...1,
                                            viewport: nil, prng_seed: 1, state: {})
     [ "newBrowserContext", "setRequestInterception", "createCDPSession",
       "Animation.setPlaybackRate", "getAnimations", "anim.pause()", "page.mouse.move", "page.keyboard.type",
@@ -207,7 +207,7 @@ class PrototypeCaptureTest < Minitest::Test
 
   def test_clock_is_injected_ahead_of_screen_scripts
     mod = PrototypeCapture.function_module(html: "<html><head><script>app()</script></head><body></body></html>",
-                                           plan: [ { "frame" => 0 } ], range: 0...1, viewport: nil, prng_seed: 1, state: {})
+                                           events: [ [] ], range: 0...1, viewport: nil, prng_seed: 1, state: {})
     refute_match(/evaluateOnNewDocument\([^\n]*__cfAdvance/, mod)
     html = PrototypeCapture.with_clock("<html><head><script>app()</script></head></html>", "window.__cfAdvance = 1;")
     assert_operator html.index("__cfAdvance"), :<, html.index("app()")

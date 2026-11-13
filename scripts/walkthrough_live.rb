@@ -31,7 +31,10 @@ module WalkthroughLive
 
   # 3: desktop frames are taken only once the page lays out at its viewport,
   # and phone composites carry square pixels (no pHYs aspect metadata).
-  CAPTURE_VERSION = 3
+  # 4: input runs through PrototypeCapture::DISPATCH_JS in timeline seq
+  # order (a scroll before a move on one frame; an instant scroll or a
+  # glide on a missing target fails instead of being skipped).
+  CAPTURE_VERSION = 4
   WAIT_UNTIL = %w[domcontentloaded load].freeze
   DEFAULT_WAIT = { 'until' => 'load', 'settle_ms' => 0 }.freeze
   STORAGE_AREAS = %w[sessionStorage localStorage].freeze
@@ -45,6 +48,10 @@ module WalkthroughLive
   ENV_RE = /\A[A-Z_][A-Z0-9_]*\z/
   HOST_RE = /\A[A-Za-z0-9.-]+:[0-9A-Fa-f:.]+\z/
   TIMEOUT_MS = 30_000
+  # The bound on waiting at a navigate cut for the destination to paint,
+  # and after a navigate run's last frame for the page to go quiet before
+  # its session is exported.
+  NAVIGATE_WAIT_MS = 5000
   # 95, not 90: q90 costs about 6 dB PSNR on small text against a PNG of
   # the same page (39.6 vs 45.4), more than the final x264 encode loses; q95
   # adds about a fifth to frame bytes.
@@ -255,6 +262,36 @@ module WalkthroughLive
 
   def fps_for(board) = board['fps'] || PrototypeCapture::FPS
 
+  # A live scene's navigate cut (WalkthroughTimeline.cut), or nil.
+  def navigate_cut(board, scene)
+    return nil unless live?(scene)
+
+    WalkthroughTimeline.cut(board, scene, lead: WalkthroughDevice.devices(scene).first, fps: fps_for(board))
+  end
+
+  # The scene a navigate tap hands to, when the pair is a valid run: the
+  # next scene by order, live, starting from this scene's session.
+  def pair_next(board, scene)
+    return nil unless navigate_cut(board, scene)
+
+    nxt = WalkthroughTimeline.next_scene(board, scene)
+    nxt if nxt && live?(nxt) && nxt['session_from_scene'] == scene['id']
+  end
+
+  # The tapping scene a scene is the second half of, or nil.
+  def pair_parent(board, scene)
+    from = scene['session_from_scene'] or return nil
+    parent = Array(board['scenes']).find { |s| s['id'] == from }
+    parent if parent && pair_next(board, parent)&.fetch('id') == scene['id']
+  end
+
+  # A scene's length in ms: trimmed to its navigate cut plus the next
+  # scene's overlap when it taps to navigate, else the derived duration.
+  def duration_ms(board, scene)
+    cut = navigate_cut(board, scene)
+    cut ? WalkthroughTimeline.frames_ms(cut['frames'], fps_for(board)) : PrototypeCapture.scene_duration(scene)
+  end
+
   def persona_env_names(persona) = Array(persona.dig('login', 'steps')).filter_map { |s| s['env'] }
 
   # -- secrets -------------------------------------------------------------
@@ -312,12 +349,13 @@ module WalkthroughLive
                          message: WalkthroughMessage.realtime?(scene) ? WalkthroughMessage.material(scene, root) : nil, persona: persona_spec(board, scene['persona']),
                          session_from: parent_key, interactions: scene['interactions'] || [], wait: scene['wait'],
                          storage: scene['storage'], viewport: board['viewport'], fps: fps_for(board),
-                         duration_ms: PrototypeCapture.scene_duration(scene), browser: browser_opts(board),
+                         duration_ms: duration_ms(board, scene), browser: browser_opts(board),
                          devices: WalkthroughDevice.specs(board, scene), layout: WalkthroughDevice.layout_name(scene),
                          stage: WalkthroughSharpness.stage_size(board, scene),
                          **(WalkthroughDevice.fullbleed?(scene) ? { scrim: WalkthroughDevice.scrim(board), scrim_version: 2 } : {}),
                          **(WalkthroughBrowserFrame.browser?(scene) ? { frame: WalkthroughBrowserFrame.material(scene) } : {}),
                          **(WalkthroughInset.inset?(scene) ? { inset: WalkthroughInset.material(scene) } : {}),
+                         **PrototypeCapture.timeline_material(all_interactions(scene)),
                          browserless: PrototypeCapture.browserless_digest, capture_version: CAPTURE_VERSION)
   end
 
@@ -340,6 +378,13 @@ module WalkthroughLive
       parent = prepare(board, found, root, memo)
     end
     key = frames_key(board, scene, parent_key: parent && parent[:key], root: root)
+    # A navigate run captures both scenes at once, so the tapping scene's
+    # key covers the next scene's material too (keyed under this scene's
+    # own key); the next scene keys on this one, so a change to either
+    # recaptures both.
+    if (nxt = pair_next(board, scene))
+      key = WalkthroughCache.key(run: key, next: frames_key(board, nxt, parent_key: key, root: root))
+    end
     memo[scene['id']] = { key: key, live: true, parent: from, compose: compose?(scene),
                           out_dir: File.join(root, '.cache', 'frames', key) }
   end
@@ -513,7 +558,8 @@ module WalkthroughLive
             return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
           }, sel), null);
         };
-        const sampler = ScreencastSampler({ quality: #{JPEG_QUALITY}, maxWidth: dev.w * dev.dpr, maxHeight: dev.h * dev.dpr });
+        // CDP takes whole pixels; a full-bleed phone's dpr (2.7692) is not.
+        const sampler = ScreencastSampler({ quality: #{JPEG_QUALITY}, maxWidth: Math.ceil(dev.w * dev.dpr), maxHeight: Math.ceil(dev.h * dev.dpr) });
         if (job.shots) {
           sampler.seed((await client.send("Page.captureScreenshot", { format: "jpeg", quality: #{JPEG_QUALITY} })).data);
           await sampler.attach(client);
@@ -521,78 +567,69 @@ module WalkthroughLive
         const lintAt = new Set(job.lint);
         const cursor = [], lint = [], devices = [], links = [];
         const overlays = {};
-        let resting = null;
         let inset = null;
         let insetHi = null;
         let insetError = null;
-        let pos = { x: dev.w / 2, y: dev.h / 2 };
-        let from = pos;
-        let down = false;
-        const t0 = Date.now();
-        for (let i = 0; i < job.plan.length; i++) {
-          const step = job.plan[i] || {};
-          if (step.move) {
-            if (step.move.first) from = pos;
-            const to = await aim(step.move.target);
-            if (to) { pos = { x: from.x + (to.x - from.x) * step.move.p, y: from.y + (to.y - from.y) * step.move.p }; if (!dev.mobile) await page.mouse.move(pos.x, pos.y); }
-            resting = step.move.p >= 1 ? step.move.target : null;
+        // A navigate run (the tapping scene and the next one, filmed as one)
+        // must reach the next scene's url after the cut. Compared as parsed
+        // URLs, so browser canonicalization (an origin's trailing slash, a
+        // default port) is not a mismatch.
+        const canon = (u) => { try { return new URL(u).href; } catch (e) { void e; return u; } };
+        const reached = new Set();
+        let tapLanded = null;
+        const landsOn = async (sel) => {
+          const to = await aim(sel);
+          if (!to) return false;
+          return safe(() => page.evaluate((s, x, y) => {
+            const el = document.querySelector(s), hit = document.elementFromPoint(x, y);
+            return !!(el && hit && (el === hit || el.contains(hit)));
+          }, sel, to.x, to.y), false);
+        };
+        const linkFrames = [];
+        const st = { pos: { x: dev.w / 2, y: dev.h / 2 }, from: null, down: false, resting: null };
+        st.from = st.pos;
+        const dispatch = (#{PrototypeCapture::DISPATCH_JS})(page, { aim, mobile: !!dev.mobile, st });
+        let t0 = Date.now();
+        for (let i = 0; i < job.events.length; i++) {
+          const leaving = job.cutFrame !== undefined && i === job.cutFrame ? page.url() : null;
+          for (const ev of job.events[i]) {
+            // The navigate tap must land on its target: when both scenes share
+            // a url, the url check alone passes on a tap that hit nothing.
+            if (ev.kind === "release" && ev.navigate) tapLanded = await landsOn(ev.target);
+            await dispatch(ev);
           }
-          // Same semantics as a prototype scene: dx/dy scroll by pixels,
-          // a bare target is scrolled into view, at `block` (center by default).
-          if (step.scroll) await safe(() => page.evaluate((s) => { const el = document.querySelector(s.target); if (!el) return; if (s.dx === undefined && s.dy === undefined) el.scrollIntoView({ block: s.block || "center" }); else el.scrollBy({ left: s.dx || 0, top: s.dy || 0, behavior: "instant" }); }, step.scroll), null);
-          if (step.hover) { const to = await aim(step.hover); if (to) { pos = to; if (!dev.mobile) await page.mouse.move(pos.x, pos.y); } resting = step.hover; }
-          if (step.click) {
-            const to = await aim(step.click);
-            // A click never falls back to the last cursor spot: that would
-            // press whatever control sits there in the real app.
-            if (!to) throw new Error(`click target not found: ${step.click}`);
-            pos = to;
-            resting = step.click;
-            if (dev.mobile) { await page.touchscreen.tap(pos.x, pos.y); }
-            else { await page.mouse.move(pos.x, pos.y); await page.mouse.down(); await page.mouse.up(); }
-            down = true;
-          }
-          if (step.type) {
-            if (step.type.focus) await page.focus(step.type.target);
-            // after_line puts the caret at the end of the first line that
-            // starts with it, so typing fills in a prefilled template line.
-            if (step.type.after_line) await page.$eval(step.type.target, (el, prefix) => {
-              const lines = el.value.split("\\n");
-              const at = lines.findIndex((l) => l.startsWith(prefix));
-              if (at < 0) throw new Error(`no line starting with ${prefix}`);
-              const end = lines.slice(0, at + 1).join("\\n").length;
-              el.setSelectionRange(end, end);
-            }, step.type.after_line);
-            // replace selects the field's value first, so typing swaps it out.
-            if (step.type.replace) await page.$eval(step.type.target, (el) => el.select());
-            for (const ch of step.type.text) await page.keyboard.type(ch);
-          }
-          if (step.dblclick) {
-            const to = await aim(step.dblclick);
-            if (!to) throw new Error(`dblclick target not found: ${step.dblclick}`);
-            pos = to;
-            resting = step.dblclick;
-            await page.mouse.move(pos.x, pos.y);
-            await page.mouse.click(pos.x, pos.y, { clickCount: 1 });
-            await page.mouse.click(pos.x, pos.y, { clickCount: 2 });
-            down = true;
-          }
-          for (const press of step.key || []) {
-            if (press.target) await page.focus(press.target);
-            const mods = press.keys.slice(0, -1);
-            for (const m of mods) await page.keyboard.down(m);
-            await page.keyboard.press(press.keys[press.keys.length - 1]);
-            for (const m of mods.reverse()) await page.keyboard.up(m);
+          // The cut: the incoming scene's first frame must show the painted
+          // destination, never a blank page mid-load. Recording pauses (the
+          // outgoing scene already holds its last frame before the tap),
+          // the run waits for the new document to load, network idle, fonts and two
+          // animation frames, then resumes from a fresh shot; the clock
+          // shifts by the wait, so it adds no video time.
+          if (leaving !== null) {
+            const paused = Date.now();
+            if (job.shots) await sampler.detach();
+            const until = paused + #{NAVIGATE_WAIT_MS};
+            while (page.url() === leaving && Date.now() < until) await sleep(25);
+            await safe(() => page.waitForNetworkIdle({ idleTime: 200, timeout: Math.max(until - Date.now(), 1) }), null);
+            await safe(() => page.waitForFunction(() => document.readyState === "complete", { timeout: Math.max(until - Date.now(), 1) }), null);
+            await safe(() => page.evaluate(() => document.fonts.ready.then(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))))), null);
+            // The next scene's own frame-0 input, on the painted destination.
+            for (const ev of job.entryEvents || []) await dispatch(ev);
+            if (job.shots) {
+              sampler.seed((await client.send("Page.captureScreenshot", { format: "jpeg", quality: #{JPEG_QUALITY} })).data);
+              await sampler.attach(client);
+            }
+            t0 += Date.now() - paused;
           }
           await sleep(t0 + i * stepMs - Date.now());
-          for (const href of await safe(() => page.evaluate(() => (window.__cfLinks || []).splice(0)), [])) links.push(href);
+          for (const href of await safe(() => page.evaluate(() => (window.__cfLinks || []).splice(0)), [])) { links.push(href); linkFrames.push(i); }
+          if (job.expectUrl && i >= job.cutFrame) reached.add(canon(page.url()));
           let fresh = false;
           await ensureUx();
           for (const key of await safe(() => page.evaluate(() => window.__cfUx.overlays()), [])) {
             if (!(key in overlays)) { overlays[key] = i; fresh = true; }
           }
           if (lintAt.has(i) || fresh) {
-            const targets = resting ? [{ selector: resting, x: pos.x, y: pos.y }] : [];
+            const targets = st.resting ? [{ selector: st.resting, x: st.pos.x, y: st.pos.y }] : [];
             for (const f of await safe(() => page.evaluate((t, b) => window.__cfUx.lint(t, b), targets, job.band), [])) lint.push(Object.assign({ frame: i, device: dev.name }, f));
             for (const d of await safe(() => page.evaluate(() => window.__cfUx.devices()), [])) devices.push(Object.assign({ frame: i, group: job.group }, d));
           }
@@ -627,8 +664,8 @@ module WalkthroughLive
             }
           }
           sampler.tick();
-          cursor.push({ x: pos.x, y: pos.y, down });
-          down = false;
+          cursor.push({ x: st.pos.x, y: st.pos.y, down: st.down });
+          st.down = false;
         }
         if (job.shots) await sampler.detach();
         const sampled = sampler.result();
@@ -641,9 +678,17 @@ module WalkthroughLive
                    bubbles: [...document.querySelectorAll(".bubble, .cfm-out")].map((b) => b.textContent),
                    view: view ? view.className : null, cta: val("cta", "className") };
         }), null) : null;
+        if (job.expectUrl) {
+          if (tapLanded !== true) throw new Error(`tap-navigate never landed on its target (the point under the tap is not inside it)`);
+          if (!reached.has(canon(job.expectUrl))) {
+            throw new Error(`tap-navigate never reached the next scene's url ${job.expectUrl} (after the cut: ${[...reached].join(", ") || "nothing"})`);
+          }
+          // The session handed on is the page at rest, not mid-request.
+          await safe(() => page.waitForNetworkIdle({ idleTime: 200, timeout: #{NAVIGATE_WAIT_MS} }), null);
+        }
         const out = await dumpSession(page, client);
         if (context) await context.close();
-        return { name: dev.name, frames: sampled.frames, ticks: sampled.ticks, cursor, pageErrors, lint, devices, overlays, links, composed, inset, insetHi, insetError, session: out };
+        return { name: dev.name, frames: sampled.frames, ticks: sampled.ticks, cursor, pageErrors, lint, devices, overlays, links, linkFrames, composed, inset, insetHi, insetError, session: out };
       };
     JS
   end
@@ -702,11 +747,13 @@ module WalkthroughLive
   def job(board, scene, spec, secrets, compose:, shots:, root: nil)
     # rubocop:enable Metrics/ParameterLists
     fps = fps_for(board)
-    frames = PrototypeCapture.frame_count(PrototypeCapture.scene_duration(scene), fps)
+    frames = PrototypeCapture.frame_count(duration_ms(board, scene), fps)
     ops = interactions_for(scene, spec['name'])
-    plan = PrototypeCapture.schedule(resolve_interactions(ops, secrets), frames, fps)
+    timeline = PrototypeCapture.timeline!(resolve_interactions(ops, secrets), frames, fps, label: "#{scene['id']} #{spec['name']}")
+    plan = WalkthroughTimeline.to_plan(timeline)
     band = caption_band(board, scene)
-    { 'dev' => spec, 'plan' => plan, 'lint' => PrototypeUxLint.lint_frames(plan, frames), 'band' => band, 'shots' => shots,
+    { 'dev' => spec, 'plan' => plan, 'events' => timeline.events_by_frame,
+      'lint' => PrototypeUxLint.lint_frames(plan, frames), 'band' => band, 'shots' => shots,
       'group' => WalkthroughDevice.group(scene, spec['name']),
       'url' => url(scene), 'html' => page_html(scene, spec['name'], compose: compose, board: board, root: root) }
   end
@@ -732,19 +779,134 @@ module WalkthroughLive
   # on the board canvas, cursor.json, taps.json for a phone, links.json, a
   # null end-state.json, ux-lint.json) and returns its end session (the
   # first device's). With `shots: false` it only replays for the session.
+  # With `next_scene` (the scene a navigate tap hands to) the two capture
+  # as one continuous run on the tapping device, split at the cut into
+  # out_dir and next_out_dir, and the end session is the next scene's.
   # rubocop:disable Metrics/ParameterLists
-  def capture(session:, board:, scene:, out_dir:, secrets:, browser_session: nil, docker: nil, work: nil, shots: true, compose: nil)
+  def capture(session:, board:, scene:, out_dir:, secrets:, browser_session: nil, docker: nil, work: nil, shots: true, compose: nil,
+              next_scene: nil, next_out_dir: nil)
     # rubocop:enable Metrics/ParameterLists
     specs = WalkthroughDevice.specs(board, scene)
-    jobs = specs.map { |spec| job(board, scene, spec, secrets, compose: compose, shots: shots, root: work) }
-    # The desktop run reads the inset element's box at its first frame.
-    jobs.each { |j| j['inset'] = WalkthroughInset.job(scene, fps_for(board)) if shots && j['dev']['name'] == 'desktop' }
+    cut = next_scene && navigate_cut(board, scene)
+    jobs = specs.map do |spec|
+      next run_job(board, scene, next_scene, spec, secrets, cut, shots: shots) if cut && spec['name'] == cut['device']
+
+      job(board, scene, spec, secrets, compose: compose, shots: shots, root: work)
+    end
+    # The desktop run reads the inset element's box at its frame.
+    jobs.each { |j| j['inset'] = run_inset(board, scene, next_scene, cut) if shots && j['dev']['name'] == 'desktop' }
     launch = BrowserlessJs.capture_launch_args(WalkthroughDevice.capture_scale(specs))
     code = capture_module(board, scene, jobs: jobs, session: browser_session)
     result = guard(secrets) { PrototypeCapture.run_with_retry(session, code, retries: retries_for(jobs), launch_args: launch) }
     runs = result['devices']
-    SceneWriter.new(board: board, scene: scene, secrets: secrets, docker: docker, work: work).write(runs, out_dir) if shots
-    runs.first['session']
+    lead = cut ? runs.find { |r| r['name'] == cut['device'] } : runs.first
+    return lead['session'] unless shots
+
+    write = ->(sc, rs, dir) { SceneWriter.new(board: board, scene: sc, secrets: secrets, docker: docker, work: work).write(rs, dir) }
+    unless cut
+      write.call(scene, runs, out_dir)
+      return lead['session']
+    end
+
+    head, tail = NavigateRun.split(lead, cut, inset_to_next: run_inset(board, scene, next_scene, cut)&.dig('owner') == 'next')
+    write.call(scene, runs.map { |r| r.equal?(lead) ? head : r }, out_dir)
+    write.call(next_scene, [ tail ], next_out_dir)
+    File.write(File.join(next_out_dir, 'handoff.json'), JSON.pretty_generate(NavigateRun.handoff(lead, cut)))
+    tail['session']
+  end
+
+  # The tapping device's job for a navigate run: the tapping scene's events
+  # through the cut frame (its release and navigate), then the next scene's
+  # from that frame on, as one plan of cut + next-scene frames. The page is
+  # never reloaded; the run asserts it reaches the next scene's url.
+  # rubocop:disable Metrics/ParameterLists
+  def run_job(board, scene, nxt, spec, secrets, cut, shots:)
+    # rubocop:enable Metrics/ParameterLists
+    fps = fps_for(board)
+    name = spec['name']
+    at = cut['cut_frame']
+    head = PrototypeCapture.timeline!(resolve_interactions(interactions_for(scene, name), secrets), at + 1, fps, label: "#{scene['id']} #{name}")
+    frames = PrototypeCapture.frame_count(duration_ms(board, nxt), fps)
+    tail = PrototypeCapture.timeline!(resolve_interactions(interactions_for(nxt, name), secrets), frames, fps, label: "#{nxt['id']} #{name}")
+    events = head.events_by_frame
+    after = tail.events_by_frame
+    # The next scene's frame-0 input runs once the destination has painted
+    # (entryEvents, after the wait at the cut), never beside the release.
+    events.concat(after.drop(1))
+    lint = PrototypeUxLint.lint_frames(WalkthroughTimeline.to_plan(head), at) +
+           PrototypeUxLint.lint_frames(WalkthroughTimeline.to_plan(tail), frames).map { |f| f + at }
+    { 'dev' => spec, 'events' => events, 'lint' => lint.uniq.sort, 'band' => caption_band(board, scene), 'shots' => shots,
+      'group' => WalkthroughDevice.group(scene, name), 'url' => url(scene), 'html' => nil,
+      'expectUrl' => url(nxt), 'cutFrame' => at, 'entryEvents' => after.first.to_a }
+  end
+
+  # The desktop inset of a scene, or of a navigate run: the next scene's,
+  # moved onto the run's frames (validation allows one of the two).
+  def run_inset(board, scene, nxt, cut)
+    fps = fps_for(board)
+    later = cut && WalkthroughInset.job(nxt, fps)
+    return WalkthroughInset.job(scene, fps) unless later
+
+    later.merge('frame' => later['frame'] + cut['cut_frame'], 'owner' => 'next')
+  end
+
+  # Splits a navigate run's lead device result at the cut into the tapping
+  # scene's half and the next scene's half.
+  module NavigateRun
+    module_function
+
+    # The tapping scene: the run's frames up to the cut, then its last
+    # frame before the tap held for the overlap (the outgoing page of a
+    # transition stays as it was when the finger lifted). The next scene:
+    # the run from the cut on, its first cursor point carrying the tap
+    # ripple's age and where the press landed, so the ripple finishes in
+    # place even when the next scene's frame-0 input moves the pointer.
+    def split(run, cut, inset_to_next: false)
+      at = cut['cut_frame']
+      overlap = cut['overlap']
+      ticks = Array(run['ticks'])
+      cursor = Array(run['cursor'])
+      tail_cursor = cursor.drop(at)
+      press = cursor[cut['press_frame']] || {}
+      tail_cursor[0] = tail_cursor[0].merge('carry' => at - cut['press_frame'], 'carry_x' => press['x'], 'carry_y' => press['y']).compact if tail_cursor[0]
+      head = run.merge('ticks' => ticks.first(at) + ([ ticks[at - 1] ] * overlap),
+                       'cursor' => (cursor.first(at) + cursor.drop(at).first(overlap)).then { |c| pad(c, at + overlap) },
+                       **before(run, at))
+      tail = run.merge('ticks' => ticks.drop(at), 'cursor' => tail_cursor, **after(run, at))
+      inset_to(head, tail, inset_to_next)
+    end
+
+    def pad(list, size) = list.size >= size || list.empty? ? list : list + ([ list.last ] * (size - list.size))
+
+    def before(run, at)
+      { 'lint' => Array(run['lint']).select { |f| f['frame'] < at }, 'devices' => Array(run['devices']).select { |d| d['frame'] < at },
+        'overlays' => (run['overlays'] || {}).select { |_, f| f < at }, 'links' => links(run) { |f| f < at } }
+    end
+
+    def after(run, at)
+      shift = ->(h) { h.merge('frame' => h['frame'] - at) }
+      { 'lint' => Array(run['lint']).select { |f| f['frame'] >= at }.map(&shift),
+        'devices' => Array(run['devices']).select { |d| d['frame'] >= at }.map(&shift),
+        'overlays' => (run['overlays'] || {}).filter_map { |k, f| [ k, f - at ] if f >= at }.to_h, 'links' => links(run) { |f| f >= at } }
+    end
+
+    def links(run)
+      frames = Array(run['linkFrames'])
+      Array(run['links']).each_with_index.select { |_, i| yield(frames[i].to_i) }.map(&:first)
+    end
+
+    # The inset goes to the half whose scene declared it.
+    def inset_to(head, tail, to_next)
+      none = { 'inset' => nil, 'insetHi' => nil, 'insetError' => nil }
+      to_next ? [ head.merge(none), tail ] : [ head, tail.merge(none) ]
+    end
+
+    # The handoff at the cut, keyed by device: where the tap landed and how
+    # many frames its ripple had shown.
+    def handoff(run, cut)
+      at = Array(run['cursor'])[cut['press_frame']] || {}
+      { run['name'] => { 'x' => at['x'], 'y' => at['y'], 'ripple_age_at_cut' => cut['cut_frame'] - cut['press_frame'] } }
+    end
   end
 
   # Writes one captured scene to disk: frames composited per the scene's
