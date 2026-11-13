@@ -275,7 +275,9 @@ module PrototypeCapture
   #
   # Every local ref must resolve inside `root` (default: the walkthrough
   # slug dir, the parent of a screens/ dir), so a screen cannot inline a
-  # file from elsewhere on disk.
+  # file from elsewhere on disk. `root` may also be an allow-list (an Array):
+  # in target mode it is the slug dir plus the target kit's dist/, so a
+  # screen links the live kit CSS and component HTML instead of a copy.
   #
   # An inline <script data-cf-inline> body is opaque: it is set aside before
   # any scan and put back unchanged at the end, so string literals inside a
@@ -402,12 +404,29 @@ module PrototypeCapture
     path = File.expand_path(ref.split(/[?#]/).first, dir)
     raise UnsupportedContentError, "missing local asset #{ref}" unless File.file?(path)
 
-    base = File.realpath(root || default_root(dir))
+    bases = Array(root || default_root(dir)).map { |r| File.realpath(r) }
     real = File.realpath(path)
-    inside = real.start_with?(base + File::SEPARATOR) || WalkthroughHousekeeping.in_managed_cache?(base, real)
-    raise UnsupportedContentError, "local asset #{ref} resolves outside #{base}" unless inside
+    inside = bases.any? { |base| real.start_with?(base + File::SEPARATOR) || WalkthroughHousekeeping.in_managed_cache?(base, real) }
+    raise UnsupportedContentError, "local asset #{ref} resolves outside #{bases.join(', ')}" unless inside
 
     path
+  end
+
+  # The allow-list for a target capture: the slug dir plus the kit's dist/.
+  # Nil kit_dist (no target) keeps the plain slug-dir root, so a no-target
+  # capture is unchanged.
+  def allowed_roots(root, kit_dist = nil) = kit_dist ? [ root, kit_dist ] : root
+
+  # Target mode: rebuild the kit, then refuse to capture against stale kit
+  # output. Returns the kit's dist dir. kit is PrototypeKit (injectable).
+  def prepare_target!(repo_root, name, kit: nil)
+    require_relative 'prototype_kit'
+    kit ||= PrototypeKit
+    kit.build(repo_root, name)
+    drift = kit.check(repo_root, name)
+    raise UnsupportedContentError, "kit for target #{name} is stale:\n#{drift.join("\n")}" unless drift.empty?
+
+    kit.dist_dir(repo_root, kit.target_config(repo_root, name))
   end
 
   def inline_css(path, remap = {}, root = nil, seen = [])
@@ -939,7 +958,7 @@ module PrototypeCapture
 
   # Resolves a scene's starting state and frames_key, recursing through its
   # from_scene chain via that scene's cached end-state.json.
-  def prepare(board, scene, root, memo = {}, final: false)
+  def prepare(board, scene, root, memo = {}, final: false, kit_dist: nil)
     return memo[scene['id']] if memo[scene['id']]
 
     store = scene['store'] || {}
@@ -948,7 +967,7 @@ module PrototypeCapture
     from = nil
     if store['from_scene']
       parent = board['scenes'].find { |s| s['id'] == store['from_scene'] } || raise(ArgumentError, "unknown from_scene #{store['from_scene']}")
-      parent_end = File.join(prepare(board, parent, root, memo, final: final)[:out_dir], 'end-state.json')
+      parent_end = File.join(prepare(board, parent, root, memo, final: final, kit_dist: kit_dist)[:out_dir], 'end-state.json')
       raise ArgumentError, "capture #{parent['id']} before #{scene['id']}" unless File.file?(parent_end)
 
       from = JSON.parse(File.read(parent_end))
@@ -957,7 +976,8 @@ module PrototypeCapture
     html_path = File.join(root, scene.dig('screen', 'html'))
     prng = store['prng_seed'] || default_prng_seed(scene['id'])
     remap = final_remap(scene, root, final)
-    key = frames_key(html: sha256_file(html_path), inlined: Digest::SHA256.hexdigest(inline_screen(html_path, remap: remap, root: root)),
+    inline_root = allowed_roots(root, kit_dist)
+    key = frames_key(html: sha256_file(html_path), inlined: Digest::SHA256.hexdigest(inline_screen(html_path, remap: remap, root: inline_root)),
                      tokens: board['tokens_css_sha256'], interactions: scene['interactions'] || [],
                      viewport: scene_viewport(board, scene), stage: WalkthroughSharpness.stage_size(board, scene),
                      fps: board['fps'] || FPS, duration_ms: scene_duration(scene),
@@ -968,7 +988,7 @@ module PrototypeCapture
                      **(WalkthroughDiagram.diagram?(scene) ? WalkthroughDiagram.key_material : {}),
                      **timeline_material(scene['interactions']),
                      **(WalkthroughBrowserFrame.browser?(scene) ? { frame: WalkthroughBrowserFrame.material(scene) } : {}))
-    memo[scene['id']] = { key: key, state: state, prng_seed: prng, html_path: html_path, remap: remap, root: root,
+    memo[scene['id']] = { key: key, state: state, prng_seed: prng, html_path: html_path, remap: remap, root: root, inline_root: inline_root,
                           out_dir: File.join(root, '.cache', 'frames', key) }
   end
 
@@ -977,7 +997,7 @@ module PrototypeCapture
   def capture_motion(board, scene, prep, session)
     duration = scene_duration(scene)
     puts "#{scene['id']}: capturing #{frame_count(duration, board['fps'] || FPS)} frames"
-    capture(session: session, html: inline_screen(prep[:html_path], root: prep[:root]), interactions: scene['interactions'] || [],
+    capture(session: session, html: inline_screen(prep[:html_path], root: prep[:inline_root]), interactions: scene['interactions'] || [],
             duration_ms: duration, out_dir: prep[:out_dir], state: prep[:state], prng_seed: prep[:prng_seed],
             viewport: scene_viewport(board, scene), fps: board['fps'] || FPS, label: scene['id'])
     WalkthroughBrowserFrame.frame_dir!(board, scene, prep[:out_dir], work: prep[:root]) if WalkthroughBrowserFrame.browser?(scene)
@@ -986,24 +1006,37 @@ module PrototypeCapture
   # A still of a from_scene dependent needs each ancestor's post-interaction
   # end state, which only a motion capture writes; capture any that are
   # missing, root first, so stills-first review works on a fresh cache.
-  def ensure_parents(board, scene, root, memo, session)
+  def ensure_parents(board, scene, root, memo, session, kit_dist: nil)
     parent_id = (scene['store'] || {})['from_scene']
     return unless parent_id
 
     parent = board['scenes'].find { |s| s['id'] == parent_id } || raise(ArgumentError, "unknown from_scene #{parent_id}")
-    ensure_parents(board, parent, root, memo, session)
-    prep = prepare(board, parent, root, memo)
+    ensure_parents(board, parent, root, memo, session, kit_dist: kit_dist)
+    prep = prepare(board, parent, root, memo, kit_dist: kit_dist)
     capture_motion(board, parent, prep, session) unless File.file?(File.join(prep[:out_dir], 'end-state.json'))
   end
 end
 
 if __FILE__ == $PROGRAM_NAME
-  board_path = ARGV[0] || abort('usage: prototype_capture.rb walkthrough/<slug>/storyboard.json [--scene <id>] [--still]')
+  board_path = ARGV[0] || abort('usage: prototype_capture.rb walkthrough/<slug>/storyboard.json [--scene <id>] [--still] ' \
+                                '[--target <name> [--repo DIR]]')
   only = ARGV.include?('--scene') ? ARGV[ARGV.index('--scene') + 1] : nil
   still = ARGV.include?('--still')
   board = JSON.parse(File.read(board_path))
   root = File.dirname(File.expand_path(board_path))
   WalkthroughCache.ensure_gitignore(root)
+  # Target mode (spec 0.18.0): build the kit, refuse stale output, and allow
+  # the kit's dist/ beside the slug dir. No target leaves everything as it was.
+  target = ARGV.include?('--target') ? ARGV[ARGV.index('--target') + 1] : board['target']
+  kit_dist = nil
+  if target
+    repo = ARGV.include?('--repo') ? File.expand_path(ARGV[ARGV.index('--repo') + 1]) : Dir.pwd
+    begin
+      kit_dist = PrototypeCapture.prepare_target!(repo, target)
+    rescue StandardError => e
+      abort "prototype_capture: #{e.message}"
+    end
+  end
   scenes = board['scenes'].sort_by { |s| s['order'].to_i }
   ChangeDocker.with_browserless(network: nil) do |session|
     memo = {}
@@ -1012,11 +1045,11 @@ if __FILE__ == $PROGRAM_NAME
       reason = PrototypeCapture.skip_reason(scene)
       next puts("#{scene['id']}: #{reason}") if reason
 
-      PrototypeCapture.ensure_parents(board, scene, root, memo, session) if still
-      prep = PrototypeCapture.prepare(board, scene, root, memo)
+      PrototypeCapture.ensure_parents(board, scene, root, memo, session, kit_dist: kit_dist) if still
+      prep = PrototypeCapture.prepare(board, scene, root, memo, kit_dist: kit_dist)
       if still
         dir = File.join(root, '.cache', 'stills', scene['id'])
-        PrototypeCapture.capture(session: session, html: PrototypeCapture.inline_screen(prep[:html_path], root: prep[:root]), interactions: [],
+        PrototypeCapture.capture(session: session, html: PrototypeCapture.inline_screen(prep[:html_path], root: prep[:inline_root]), interactions: [],
                                  duration_ms: PrototypeCapture.frame_ms, out_dir: dir, state: prep[:state],
                                  prng_seed: prep[:prng_seed], viewport: PrototypeCapture.scene_viewport(board, scene), label: scene['id'])
         puts "#{scene['id']}: still #{File.join(dir, '000001.png')}"
