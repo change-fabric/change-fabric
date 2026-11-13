@@ -2,6 +2,8 @@
 
 require "minitest/autorun"
 require "tmpdir"
+require "yaml"
+require_relative "../scripts/design_config"
 require_relative "../scripts/walkthrough_cache"
 
 class WalkthroughCacheTest < Minitest::Test
@@ -76,5 +78,27 @@ class WalkthroughCacheTest < Minitest::Test
     lines = File.read(File.join(wt, ".gitignore")).lines.map(&:strip)
     assert_equal 1, lines.count(".cache/")
     assert_includes lines, "flats/"
+  end
+
+  def write_targets(design)
+    File.write(File.join(@dir, "CHANGE.md"), "#{YAML.dump('change_config' => { 'design' => design })}---\n")
+  end
+
+  def test_output_dir_without_a_target_is_unchanged
+    assert_equal "walkthrough/demo", WalkthroughCache.output_dir("demo")
+    assert_equal "walkthrough/demo", WalkthroughCache.output_dir("demo", DesignConfig.from_hash(nil))
+    dir = WalkthroughCache.prepare_output(@dir, "demo")
+    assert_equal File.join(@dir, "walkthrough/demo"), dir
+    assert File.file?(File.join(dir, ".gitignore"))
+  end
+
+  def test_output_dir_for_a_target_and_an_output_override
+    target = { "source" => "css", "theme" => "apps/portal/theme.css", "kit" => "packages/design-kit" }
+    write_targets("targets" => { "portal" => target, "admin" => target.merge("output" => "packages/design-kit/walkthroughs") })
+    portal = WalkthroughCache.prepare_output(@dir, "demo", target: "portal")
+    assert_equal File.join(@dir, "walkthrough/portal/demo"), portal
+    admin = WalkthroughCache.prepare_output(@dir, "demo", target: "admin")
+    assert_equal File.join(@dir, "packages/design-kit/walkthroughs/demo"), admin
+    [ portal, admin ].each { |d| assert_includes File.read(File.join(d, ".gitignore")).lines.map(&:strip), ".cache/" }
   end
 end
