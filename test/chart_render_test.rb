@@ -49,6 +49,19 @@ class ChartRenderTest < Minitest::Test
     end
   end
 
+  def test_one_day_schedule_keeps_three_ticks
+    s = { "type" => "schedule", "title" => "t", "x" => { "label" => "Date" }, "y" => { "label" => "Task" },
+          "tasks" => [ { "name" => "a", "start" => "2026-11-02", "end" => "2026-11-03" } ] }
+    assert_operator ChartRender.render(s).scan('class="tick"').size, :>=, 3
+  end
+
+  def test_tiny_domains_keep_finite_distinct_ticks
+    s = { "type" => "scatter", "title" => "t", "x" => { "label" => "x" }, "y" => { "label" => "y" },
+          "series" => [ { "name" => "a", "points" => [ [ 1e-12, 1e-12 ], [ 2e-12, 2e-12 ] ] } ] }
+    svg = ChartRender.render(s)
+    refute_match(/Inf|NaN/, svg)
+  end
+
   def test_repo_tokens_replace_the_default_skin
     Dir.mktmpdir do |dir|
       File.write(File.join(dir, "tokens.css"), ":root { --bg: #FFFFFF; --ink: #111111; --accent: #0055AA; }")

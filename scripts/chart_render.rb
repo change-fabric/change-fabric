@@ -181,7 +181,9 @@ class ChartRender
 
   def value_of(s, cat) = s["values"].find { |k, _| k.to_s == cat }&.last
 
-  # Ticks on a 1, 2, 5 ladder: the smallest step giving at most 6 ticks.
+  # Ticks on a 1, 2, 5 ladder: the smallest step giving at most 6 ticks,
+  # and never fewer than 3, rounded relative to the step so tiny domains keep
+  # distinct ticks.
   def nice(lo, hi, integer: false)
     lo, hi = lo.to_f, hi.to_f
     if lo == hi
@@ -194,9 +196,9 @@ class ChartRender
     steps = steps.select { |s| s >= 1 } if integer
     step = steps.find { |s| (((hi / s).ceil - (lo / s).floor) + 1) <= 6 } || steps.last
     first = (lo / step).floor
-    count = (hi / step).ceil - first
+    count = [ (hi / step).ceil - first, 2 ].max
     decimals = [ 0, -Math.log10(step).floor ].max
-    ticks = (0..count).map { |i| ((first + i) * step).round(10) }
+    ticks = (0..count).map { |i| ((first + i) * step).round(decimals + 2) }
     [ ticks, decimals ]
   end
 

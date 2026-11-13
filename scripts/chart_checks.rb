@@ -165,7 +165,7 @@ module ChartChecks
       missing = (expected.keys - actual.keys).map { |k| finding(k, "mark #{k} from the spec is not drawn", "re-render from chart.json") }
       extra = (actual.keys - expected.keys).map { |k| finding(k, "mark #{k} is not in the spec", "re-render from chart.json") }
       drift = (expected.keys & actual.keys).flat_map do |k|
-        (GEOMETRY + [ "text" ]).filter_map do |attr|
+        (GEOMETRY + %w[text bin]).filter_map do |attr|
           want = expected[k][attr]
           got = actual[k][attr]
           finding(k, "#{attr} is #{got.inspect}, the spec gives #{want.inspect}", "re-render from chart.json") unless want == got
@@ -181,7 +181,7 @@ module ChartChecks
     def index(doc)
       ChartChecks.marks(doc).to_h do |m|
         a = m.attributes
-        [ "#{a['data-series']}|#{a['data-key']}", GEOMETRY.to_h { |g| [ g, a[g] ] }.merge("text" => ChartChecks.text_of(m)) ]
+        [ "#{a['data-series']}|#{a['data-key']}", GEOMETRY.to_h { |g| [ g, a[g] ] }.merge("text" => ChartChecks.text_of(m), "bin" => ChartChecks.classes(m).grep(/\Aramp-\d+\z/).first) ]
       end
     end
   end

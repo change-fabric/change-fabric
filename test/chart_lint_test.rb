@@ -65,6 +65,12 @@ class ChartLintTest < Minitest::Test
     end
   end
 
+  def test_recolored_heatmap_cells_trip_value_fidelity
+    svg = File.read(path("heatmap")).gsub(/class="mark ramp-\d"/, 'class="mark ramp-5"')
+    refute_equal File.read(path("heatmap")), svg
+    assert_includes errors(lint_svg(svg, spec: spec("heatmap"))), "value-fidelity"
+  end
+
   def test_axis_without_a_title_trips_axis_label
     svg = File.read(path("bar")).sub(%r{<text class="axis-title"[^>]*>Round</text>}, "")
     assert_equal [ "axis-label" ], errors(lint_svg(svg, spec: spec("bar")))
