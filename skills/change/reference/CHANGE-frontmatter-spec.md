@@ -1,6 +1,6 @@
 # CHANGE.md frontmatter specification
 
-Schema version: 0.17.0
+Schema version: 0.18.0
 
 Status: stable. This is the golden reference for authoring a repo's
 `CHANGE.md` frontmatter. A maintainer or an AI agent creating a new repo's
@@ -440,6 +440,69 @@ change_config:
 | `change_config.design.roast.kind` | `explainer`, `promo`, `demo`, `email`, `doc`, `pr`, `post`, or null | no (default null) | Default artifact kind the roast judges against. A storyboard `review.kind` (video kinds only) overrides it; `--kind` overrides both. |
 | `change_config.design.roast.audience` | string or null | no (default null) | Default audience the roast judges against, with the same precedence. The roast refuses to run when no source supplies an audience and a purpose. |
 | `change_config.design.critic_rounds` | integer | no (default 3) | How many grilling rounds `cf:design` runs with its four background critics. Must be 1 to 5. |
+
+#### design.targets (0.18.0): one design system per app
+
+In a monorepo, each app with its own design system is a target. A target names
+the live theme file, the directory of presentational components, and a kit
+package (a private workspace package, scaffolded once and reused by every
+prototype) that compiles CSS from the live theme and renders the named
+components by server-side rendering against typed seed fixtures. Nothing is
+copied out of the app, so a theme or component change shows up in the next
+capture. A target may name a reference app whose routes are captured and
+compared with prototype stills by the fidelity critic.
+
+The flat keys above stay valid: with no `targets`, the block is shorthand for
+one target named `default`, and every skill behaves as it did at 0.17.0.
+Setting flat `tokens` or `tailwind` together with `targets` is a config error
+naming both keys. The shared keys (`figma`, `parity`, `roast`,
+`critic_rounds`) apply to every target. A target's `app` must be an entry of
+`change_config.apps`; its `reference.auth` takes env var names only, never a
+literal credential.
+
+```yaml
+change_config:
+  design:
+    default_target: portal
+    targets:
+      portal:
+        app: portal
+        source: tailwind
+        theme: apps/portal/src/app/globals.css
+        components: apps/portal/src/components/ui
+        kit: packages/design-kit
+        output: packages/design-kit/walkthroughs
+        reference:
+          base_url: https://staging.example.org
+          routes:
+            - path: /admin/analytics
+              mask: ["[data-live-value]"]
+          auth: browserless
+```
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `change_config.design.default_target` | string | no (default the first target) | (0.18.0) The target a skill uses when none is named. Must name an entry of `targets`. Only valid with `targets`. |
+| `change_config.design.targets.<target>.app` | string | no | (0.18.0) An entry of `change_config.apps` this target belongs to. Its `base_url` is the reference default, and its lane auth can be named by `reference.auth`. |
+| `change_config.design.targets.<target>.source` | `tokens`, `tailwind`, or `css` | yes | (0.18.0) What kind of file `theme` is: a token CSS file, a Tailwind CSS entry, or plain CSS custom properties. |
+| `change_config.design.targets.<target>.theme` | string | yes | (0.18.0) Repo-relative path of the app's full CSS entry, the live theme the kit compiles and the drift check compares against. |
+| `change_config.design.targets.<target>.components` | string | no | (0.18.0) Repo-relative directory of the app's presentational components the kit renders. |
+| `change_config.design.targets.<target>.kit` | string | no | (0.18.0) Repo-relative directory of the kit package (for example `packages/design-kit`). Unset, the target has no kit and prototypes fall back to the flat flow. |
+| `change_config.design.targets.<target>.output` | string | no (default `walkthrough/<target>/`) | (0.18.0) Repo-relative directory prototypes and walkthroughs for this target are written under. |
+| `change_config.design.targets.<target>.reference.base_url` | string | no (default the linked app's `base_url`) | (0.18.0) Where the reference app runs. |
+| `change_config.design.targets.<target>.reference.routes[].path` | string | yes, on each route | (0.18.0) A path on the reference app to capture, starting with `/`. At least one route is required when `reference` is set. |
+| `change_config.design.targets.<target>.reference.routes[].mask` | list of string | no | (0.18.0) CSS selectors masked before capture, for live data the critic should not judge. |
+| `change_config.design.targets.<target>.reference.auth` | string or mapping | no | (0.18.0) Either the name of a login-driving lane (`browserless`, `a11y`, `testcases`) whose `auth` block the linked app defines (needs `app`), or a login-flow block of the `lanes.browserless.auth` shape. Every `*_env` and `env` value must be an env var name (`[A-Z_][A-Z0-9_]*`); a literal credential key is a config error. Sessions stay in memory. |
+
+#### Migrating from 0.17
+
+Nothing is required: 0.18.0 is additive, and a 0.17.0 `design` block reads
+the same as before. To adopt targets in a monorepo, bump `spec_version`, move
+a flat `tokens` or `tailwind` into a target entry (`source: tokens` with
+`theme:` set to the old `tokens` path, or `source: tailwind` with `theme:` set
+to the app's CSS entry), delete the flat key, and add `kit`, `components` and
+`reference` as the app needs them. Keep `figma`, `parity`, `roast` and
+`critic_rounds` where they are; they apply to every target.
 
 ### change_config.profiles (0.2.0): multiple deploy targets, one audit shape
 
@@ -1456,3 +1519,10 @@ root `RELEASING.md`.
   lane (`change_config.lanes.command.commands[]`: `name`, `run`, `env`,
   `timeout_seconds`, `artifacts`, `profiles`, `retries`), under the same trust
   and environment rules, each entry its own trust step `command:<name>`.
+- 0.18.0: additive. Adds `change_config.design.targets.<target>` (`app`,
+  `source`, `theme`, `components`, `kit`, `output`, `reference.base_url`,
+  `reference.routes[].path`, `reference.routes[].mask`, `reference.auth`) and
+  `change_config.design.default_target`, so each app in a monorepo can name
+  its own live design system, kit package and reference app. The flat design
+  keys remain shorthand for one target named `default`; mixing flat `tokens`
+  or `tailwind` with `targets` is an error. See "Migrating from 0.17".

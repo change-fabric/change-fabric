@@ -61,7 +61,7 @@ module WalkthroughRoast
   # :model. auto: false in the config reads as --no-roast. A malformed design
   # block raises DesignConfig::Error naming the field.
   def settings(repo_root, flags = {})
-    cfg = DesignConfig.load(repo_root).roast
+    cfg = DesignConfig.load(repo_root).default.roast
     given = flags.compact
     { roast: given.fetch(:roast, cfg.auto != false),
       max_usd: given.fetch(:max_usd, cfg.max_usd || DEFAULT_CEILING_USD).to_f,
