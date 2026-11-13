@@ -285,4 +285,15 @@ class ResolveThreadsWorkflowTest < Minitest::Test
     assert_includes skill_md, '"tiebroken": 0'
     assert_includes File.read(REPLYING), "Tiebreak: <chosen option>."
   end
+
+  # Step 3a must not mutate GitHub before a --signoff approval, and must
+  # call the installed roast script, not a repo-relative path that only
+  # exists inside the Change Fabric checkout.
+  def test_tiebreak_defers_mutations_and_uses_installed_roast
+    step = skill_md[/^3a\. .*?(?=^4\. )/m] or flunk("SKILL.md lost step 3a")
+    assert_includes step, "ruby ~/.claude/cf/bin/roast.rb"
+    refute_match(%r{(?<![/\w])scripts/roast\.rb}, skill_md)
+    assert_includes step, "after any `--signoff` approval"
+    refute_match(/wont-fix\s+pick is replied to and resolved \[RT-3\]/, step)
+  end
 end

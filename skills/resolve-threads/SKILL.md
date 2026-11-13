@@ -82,7 +82,7 @@ run reports that it assumed the default.
    purpose as `brief.md`, and `git diff
    <base>...<head> -- <path>` as `diff.patch`, then run:
 
-       ruby scripts/roast.rb --kind code --text <thread.md> --text <diff.patch> \
+       ruby ~/.claude/cf/bin/roast.rb --kind code --text <thread.md> --text <diff.patch> \
          --text <options.md> --brief <brief.md> \
          --audience "PR maintainer" --purpose "pick the correct resolution" \
          --out-dir .cache/roast/tiebreak-<pr>/<threadId> --estimate-only
@@ -92,7 +92,9 @@ run reports that it assumed the default.
    estimates: once the next estimate would cross it, stop tiebreaking and
    every remaining thread stays needs_human. A confident pick (the critic
    names one option and no P0 argues against it) is acted on: a wont-fix
-   pick is replied to and resolved [RT-3]; a fix pick gets one small apply pass (a
+   pick is recorded as wontFix and replied to and resolved with the other
+   wontFix threads in the reply step, after any `--signoff` approval
+   [RT-3]; a fix pick gets one small apply pass (a
    background agent in the thread's worktree that runs the thread's tests,
    then commits on `repoPath`; on red it reverts and the thread stays
    needs_human) and is resolved under [RT-6]. Each counts as `tiebroken` and
