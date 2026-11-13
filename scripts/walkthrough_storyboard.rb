@@ -544,6 +544,12 @@ module WalkthroughStoryboard
     []
   end
 
+  # Every navigate scene's fit against its measured narration, for a
+  # recheck once generated or cached audio has replaced measured_ms.
+  def navigate_fit_report(board)
+    scenes(board).flat_map { |scene| navigate_fit_errors(scene, board).map { |e| "scene #{scene['id']}: #{e}" } }
+  end
+
   # The tapping scene ends at the tap plus the overlap, so its voice line
   # (narration_start plus measured_ms) must end by the tap.
   def navigate_fit_errors(scene, board)

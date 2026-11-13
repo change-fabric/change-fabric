@@ -394,6 +394,29 @@ class WalkthroughFluidMotionTest < Minitest::Test
     refute_equal base[1], keys.call(moved)[1], "the next scene recaptures when the tapping scene changes"
   end
 
+  # A new scene's measured_ms is 0 until its audio is generated, so the
+  # navigate fit is rechecked after audio and before any capture.
+  def test_navigate_fit_is_rechecked_after_audio_is_measured
+    Dir.mktmpdir do |root|
+      b = nav_board
+      assert_empty WalkthroughStoryboard.validate(b), "measured_ms 0 passes the authored check"
+      captured = []
+      tts = lambda do |**kw|
+        key = ElevenLabs.audio_key(**kw.slice(:text, :voice_id, :model, :output_format, :settings))
+        WalkthroughCache.fetch(kw[:cache_root], :audio, key, "mp3") { |tmp| File.binwrite(tmp, "mp3") }
+        { measured_ms: 5000 }
+      end
+      run = WalkthroughRender::Run.new(root, board: b, out: StringIO.new,
+                                       providers: { tts: tts, live_capture: ->(**kw) { captured << kw[:scene]["id"] } })
+      run.send(:generate_audio)
+      err = assert_raises(WalkthroughStoryboard::ValidationError) { run.send(:navigate_fit!) }
+      assert_includes err.message, "scene feed: narration no longer fits"
+      assert_empty captured, "nothing is captured"
+      b["scenes"].each { |s| s["narration"]["measured_ms"] = 1000 }
+      run.send(:navigate_fit!)
+    end
+  end
+
   def test_render_captures_a_navigate_pair_as_one_run
     Dir.mktmpdir do |root|
       b = nav_board

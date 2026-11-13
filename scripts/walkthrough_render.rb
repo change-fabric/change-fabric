@@ -177,6 +177,13 @@ module WalkthroughRender
       end
     end
 
+    # validate! ran on the authored measured_ms; a navigate scene's line
+    # is only known once its audio is measured, so recheck before capture.
+    def navigate_fit!
+      errors = WalkthroughStoryboard.navigate_fit_report(@board)
+      raise WalkthroughStoryboard::ValidationError, errors.join("\n") unless errors.empty?
+    end
+
     def generate_images
       attempts = PrototypeImagegen::Attempts.new
       scenes.select { |s| targeted?(s) }.each do |scene|
@@ -879,6 +886,7 @@ module WalkthroughRender
       return nil if estimate_only
 
       generate_audio
+      navigate_fit!
       generate_images
       generate_broll
       capture_frames
