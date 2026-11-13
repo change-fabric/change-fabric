@@ -97,15 +97,15 @@ module DesignConfig
     Config.new(tokens: tokens, tailwind: design['tailwind'], target: target, **shared)
   end
 
-  # A target's tokens path is its theme file when the theme is a token or CSS
-  # file, so a tokens-reading caller sees the live theme; a tailwind target
-  # keeps the default tokens path and sets tailwind.
+  # A target's tokens path is always its theme file, so a tokens-reading
+  # caller sees the live theme. A tailwind target also sets tailwind, and the
+  # drift check compiles that same theme as its Tailwind input.
   def target_config(name, raw, shared)
     target = Target.new(name: name, app: raw['app'], source: raw['source'], theme: raw['theme'],
                         components: raw['components'], kit: raw['kit'], output: raw['output'],
                         reference: reference(raw['reference']), flat: false)
     tailwind = raw['source'] == 'tailwind'
-    Config.new(tokens: tailwind ? DEFAULT_TOKENS : raw['theme'], tailwind: tailwind, target: target, **shared)
+    Config.new(tokens: raw['theme'], tailwind: tailwind, target: target, **shared)
   end
 
   def reference(raw)

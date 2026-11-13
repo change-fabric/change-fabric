@@ -123,6 +123,7 @@ class DesignConfigTest < Minitest::Test
       assert_equal "apps/admin/theme.css", targets.default.tokens
       portal = targets.target("portal")
       assert portal.tailwind
+      assert_equal "apps/portal/src/app/globals.css", portal.tokens
       assert portal.target.kit?
       assert_equal "packages/design-kit", portal.target.kit
       assert_equal "/admin/analytics", portal.target.reference.routes.first.path
