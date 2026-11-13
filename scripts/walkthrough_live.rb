@@ -576,6 +576,15 @@ module WalkthroughLive
         // default port) is not a mismatch.
         const canon = (u) => { try { return new URL(u).href; } catch (e) { void e; return u; } };
         const reached = new Set();
+        let tapLanded = null;
+        const landsOn = async (sel) => {
+          const to = await aim(sel);
+          if (!to) return false;
+          return safe(() => page.evaluate((s, x, y) => {
+            const el = document.querySelector(s), hit = document.elementFromPoint(x, y);
+            return !!(el && hit && (el === hit || el.contains(hit)));
+          }, sel, to.x, to.y), false);
+        };
         const linkFrames = [];
         const st = { pos: { x: dev.w / 2, y: dev.h / 2 }, from: null, down: false, resting: null };
         st.from = st.pos;
@@ -583,7 +592,12 @@ module WalkthroughLive
         let t0 = Date.now();
         for (let i = 0; i < job.events.length; i++) {
           const leaving = job.cutFrame !== undefined && i === job.cutFrame ? page.url() : null;
-          for (const ev of job.events[i]) await dispatch(ev);
+          for (const ev of job.events[i]) {
+            // The navigate tap must land on its target: when both scenes share
+            // a url, the url check alone passes on a tap that hit nothing.
+            if (ev.kind === "release" && ev.navigate) tapLanded = await landsOn(ev.target);
+            await dispatch(ev);
+          }
           // The cut: the incoming scene's first frame must show the painted
           // destination, never a blank page mid-load. Recording pauses (the
           // outgoing scene already holds its last frame before the tap),
@@ -665,6 +679,7 @@ module WalkthroughLive
                    view: view ? view.className : null, cta: val("cta", "className") };
         }), null) : null;
         if (job.expectUrl) {
+          if (tapLanded !== true) throw new Error(`tap-navigate never landed on its target (the point under the tap is not inside it)`);
           if (!reached.has(canon(job.expectUrl))) {
             throw new Error(`tap-navigate never reached the next scene's url ${job.expectUrl} (after the cut: ${[...reached].join(", ") || "nothing"})`);
           }

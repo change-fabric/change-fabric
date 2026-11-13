@@ -165,6 +165,27 @@ class WalkthroughFluidMotionDockerTest < Minitest::Test
     assert_operator green_share(last), :>, 0.5, "the 0 ms tap found the destination's button and clicked it"
   end
 
+  # U1-4: when both scenes share a url the url check passes on any tap, so
+  # the run checks the tap itself landed on its target. An overlay over
+  # the button swallows the tap: same url, nothing tapped, rejected.
+  def test_same_url_navigate_tap_must_land_on_its_target
+    spa = ->(cover) { "<!doctype html><html><body style='margin:0'><button id='next' style='margin:200px 40px;padding:40px;font-size:40px' " \
+                      "onclick=\"document.body.dataset.view='detail'\">Open</button>" \
+                      "#{cover ? "<div style='position:fixed;inset:0;background:transparent'></div>" : ''}</body></html>" }
+    board = { "fps" => 30, "viewport" => { "w" => 1080, "h" => 1920 }, "scenes" => [
+      { "id" => "feed", "order" => 1, "device" => "phone-fullbleed", "screen" => { "url" => "about:blank" },
+        "interactions" => [ { "t_ms" => 300, "op" => "tap", "target" => "#next", "navigate" => true } ] },
+      { "id" => "detail", "order" => 2, "device" => "phone-fullbleed", "screen" => { "url" => "about:blank" },
+        "session_from_scene" => "feed", "timing" => { "min_ms" => 600 } }
+    ] }
+    cut = WalkthroughLive.navigate_cut(board, board["scenes"][0])
+    job = WalkthroughLive.run_job(board, board["scenes"][0], board["scenes"][1], PHONE, WalkthroughLive::Secrets.new([]), cut, shots: false)
+    assert_equal "about:blank", job["expectUrl"]
+    film(board, board["scenes"][0], job.merge("html" => spa.call(false)))
+    error = assert_raises(StandardError) { film(board, board["scenes"][0], job.merge("html" => spa.call(true))) }
+    assert_match(/tap-navigate never landed on its target/, error.message)
+  end
+
   private
 
   def green_share(jpg) = share(jpg) { |r, g, b| g > 120 && r < 60 && b < 100 }
