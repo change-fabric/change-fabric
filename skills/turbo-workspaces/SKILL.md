@@ -36,6 +36,16 @@ CI:
 - `npm ls --workspaces`
 - `base=$(git rev-parse --verify --quiet "${BASE_REF:-origin/HEAD}^{commit}") && l=$(mktemp) && trap 'rm -f "$l"' EXIT && git diff -z --name-only --no-renames --diff-filter=AM --merge-base "$base" -- 'apps/**' 'packages/**' >"$l" && f=() && while IFS= read -r -d "" p; do f+=("$p"); done <"$l" && { [ ${#f[@]} -eq 0 ] || { s=0; GIT_LITERAL_PATHSPECS=1 git grep -nP "(\\.\\./){2,}(apps|packages)/" -- "${f[@]}" || s=$?; [ $s -eq 1 ]; }; }` (see skills/README.md, CI diff-grep checks)
 
+pnpm workspaces:
+- `node_modules` is symlinks into the root `.pnpm` store. A container step mounts the workspace root, never one package, or the links dangle.
+- Tailwind v4 source detection does not follow workspace links. A package that styles another package's markup lists it with an explicit `@source`.
+- Detect the package manager from the root lockfile (`pnpm-lock.yaml`, `yarn.lock`, `package-lock.json`) and run its own `run <task>`.
+
+Design kit packages (a cf design target's `kit`, for example `packages/design-kit`):
+- The kit depends on app source, never the reverse. No app imports the kit.
+- `"private": true`, and no deployed app depends on it, so deploy filters exclude it.
+- `build` and `check` are workspace scripts turbo runs: `build` declares `outputs: ["dist/**"]`; `check` depends on `build` and is not cached.
+
 Agent protocol:
 1. Keep package boundaries explicit.
 2. Move orchestration into `turbo.json`.
