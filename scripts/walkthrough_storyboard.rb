@@ -727,7 +727,7 @@ module WalkthroughStoryboard
     dir = File.expand_path(root)
     loop do
       configured = begin
-        DesignConfig.load(dir).tokens
+        DesignConfig.load(dir).default.tokens
       rescue StandardError
         DesignConfig::DEFAULT_TOKENS
       end

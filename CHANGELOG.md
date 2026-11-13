@@ -18,6 +18,25 @@ Every version below has a frozen, permanently addressable rendering at
 field set: major for a removed, renamed or newly required field, minor for a new
 optional field, patch for a documentation-only clarification.
 
+## [0.18.0] - 2026-11-13
+
+Design targets: per-app design systems in a monorepo, built from the live
+theme through a kit package instead of a copied token file. Additive.
+
+### Added
+
+- `change_config.design.targets.<target>` with `app`, `source`, `theme`,
+  `components`, `kit`, `output` and `reference` (`base_url`, `routes[].path`,
+  `routes[].mask`, `auth`).
+- `change_config.design.default_target`.
+
+### Changed
+
+- A flat design block is read as one target named `default`. Setting flat
+  `tokens` or `tailwind` together with `targets` is a config error.
+- `reference.auth` accepts a login-driving lane name or a lane login-flow
+  block whose secrets are env var names only.
+
 ## [0.17.0] - 2026-11-10
 
 A host-run command lane for a project's own checks, and host-run steps (boot

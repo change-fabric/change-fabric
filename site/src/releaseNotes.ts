@@ -28,6 +28,25 @@ export interface ReleaseNote {
 }
 
 export const RELEASE_NOTES: Record<string, ReleaseNote> = {
+  "0.18.0": {
+    version: "0.18.0",
+    date: "2026-11-13",
+    headline: "Design targets: one design system per app in a monorepo, built from the live theme.",
+    highlights: [
+      {
+        title: "design.targets",
+        body:
+          "Each target names its live theme, its presentational components and a kit package that renders them, so a prototype links the real system instead of a copied token file. An optional app link reuses that app's base_url and lane auth.",
+      },
+      {
+        title: "Reference apps",
+        body:
+          "A target can name reference routes on a running app, with mask selectors for volatile regions and auth by env var name only. Prototype stills are compared with those captures before sign-off.",
+      },
+    ],
+    upgrade:
+      "Additive. A flat design block keeps working as one target named default. To adopt targets, move flat tokens or tailwind into a target entry; setting both forms is an error.",
+  },
   "0.17.0": {
     version: "0.17.0",
     date: "2026-11-10",

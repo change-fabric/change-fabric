@@ -365,7 +365,7 @@ module DesignTokens
 
     def fill_drift_defaults(opts)
       root = opts[:root] ||= Dir.pwd
-      config = DesignConfig.load(root)
+      config = DesignConfig.load(root).default
       opts[:parity] ||= config
       opts[:tailwind] = config.tailwind unless opts.key?(:tailwind)
       opts[:tokens] ||= File.join(root, config.tokens)

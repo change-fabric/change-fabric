@@ -56,7 +56,7 @@ module DiagramPalette
   def locate(repo:, tokens: nil)
     return File.expand_path(tokens, repo) if tokens
 
-    configured = DesignConfig.load(repo).tokens
+    configured = DesignConfig.load(repo).default.tokens
     [ configured, "tokens.css" ].map { |p| File.expand_path(p, repo) }.find { |p| File.file?(p) }
   end
 

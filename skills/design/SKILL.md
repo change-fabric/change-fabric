@@ -37,7 +37,7 @@ With none of these, ask the user for a brief before drafting.
 
 ## Process
 
-Each round runs the same five steps. At most `critic_rounds` rounds, read from `DesignConfig.load(repo_root).critic_rounds` (`change_config.design.critic_rounds`, default 3).
+Each round runs the same five steps. At most `critic_rounds` rounds, read from `DesignConfig.load(repo_root).default.critic_rounds` (`change_config.design.critic_rounds`, default 3).
 
 1. Read evidence. Record each source path and the anchor (heading or line) you will cite.
 2. Draft. Write an opinionated DESIGN.md in memory from `reference/design-md-template.md`, plus a draft tokens.css. Name the module set, base unit, and scale ratio per cf:fractal. On round two and later, draft from the previous round's revision.

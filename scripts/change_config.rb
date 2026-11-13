@@ -456,7 +456,7 @@ class ChangeConfig
     validate_command_lane(lanes || {})
     boot_errors = boot.errors
     raise ConfigError, boot_errors.join('; ') unless boot_errors.empty?
-    design_errors = ChangeSchema.design_errors(@raw['design'])
+    design_errors = ChangeSchema.design_errors(@raw['design'], apps: @raw['apps'].is_a?(Hash) ? @raw['apps'].keys : [])
     raise ConfigError, design_errors.join('; ') unless design_errors.empty?
   end
 

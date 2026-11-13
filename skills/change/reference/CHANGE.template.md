@@ -319,6 +319,26 @@ change_config:
   #     max_usd: 2.00                      # spend ceiling, greater than 0
   #     model: null                        # terra, sol, or a full ID; null keeps CF_ROAST_MODEL or the per-kind default
   #   critic_rounds: 3                     # 1 to 5
+  #
+  # Monorepo form (0.18.0): one target per app with its own design system,
+  # built from the live theme by a kit package. Replaces flat tokens/tailwind
+  # (setting both is an error); figma, parity, roast, critic_rounds stay shared.
+  # design:
+  #   default_target: portal
+  #   targets:
+  #     portal:
+  #       app: portal                      # optional; an entry of change_config.apps
+  #       source: tailwind                 # tokens | tailwind | css
+  #       theme: apps/portal/src/app/globals.css
+  #       components: apps/portal/src/components/ui
+  #       kit: packages/design-kit
+  #       output: packages/design-kit/walkthroughs   # default walkthrough/<target>/
+  #       reference:
+  #         base_url: https://staging.example.org    # default: the linked app's base_url
+  #         routes:
+  #           - path: /admin/analytics
+  #             mask: ["[data-live-value]"]          # optional, volatile regions
+  #         auth: browserless              # a lane name (needs app) or a login-flow block, env names only
 
 # Machine-checkable policy the change-fabric merge gate enforces. The prose below
 # is the human source of truth; this block states the same rules in the form the

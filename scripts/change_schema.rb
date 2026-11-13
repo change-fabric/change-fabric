@@ -18,7 +18,7 @@
 require_relative 'figma_url'
 
 module ChangeSchema
-  VERSION = '0.17.0'
+  VERSION = '0.18.0'
 
   # The six lanes, the authoritative list the config validator enforces: five
   # dockerized audit lanes plus a host-run command lane (0.17.0).
@@ -251,6 +251,23 @@ module ChangeSchema
     'change_config.design.roast.kind',
     'change_config.design.roast.audience',
     'change_config.design.critic_rounds',
+    # design targets (0.18.0): one entry per app with its own design system in
+    # a monorepo. Each names the live theme, the presentational components, a
+    # durable kit package that renders them, an optional output path and an
+    # optional reference app to compare prototypes against. The flat keys
+    # above stay valid as shorthand for one target named `default`; setting
+    # flat tokens/tailwind together with targets is an error.
+    'change_config.design.default_target',
+    'change_config.design.targets.<target>.app',
+    'change_config.design.targets.<target>.source',
+    'change_config.design.targets.<target>.theme',
+    'change_config.design.targets.<target>.components',
+    'change_config.design.targets.<target>.kit',
+    'change_config.design.targets.<target>.output',
+    'change_config.design.targets.<target>.reference.base_url',
+    'change_config.design.targets.<target>.reference.routes[].path',
+    'change_config.design.targets.<target>.reference.routes[].mask',
+    'change_config.design.targets.<target>.reference.auth',
     # change_config.profiles (0.2.0): named deploy-target overrides sharing one
     # audit surface. A profile may only set project, boot.*, and a lane's
     # enabled/base_url, never its routes/thresholds/viewports, so one CHANGE.md
@@ -462,7 +479,22 @@ module ChangeSchema
     'contributors_team.artifacts.media.video_fps'
   ].freeze
   # The design block's accepted keys and parity statuses (0.13.0).
-  DESIGN_KEYS = %w[tokens tailwind figma parity roast critic_rounds].freeze
+  DESIGN_KEYS = %w[tokens tailwind figma parity roast critic_rounds default_target targets].freeze
+  # Design targets (0.18.0).
+  DESIGN_TARGET_KEYS = %w[app source theme components kit output reference].freeze
+  DESIGN_TARGET_SOURCES = %w[tokens tailwind css].freeze
+  DESIGN_REFERENCE_KEYS = %w[base_url routes auth].freeze
+  DESIGN_ROUTE_KEYS = %w[path mask].freeze
+  # A reference.auth block takes the lane login-flow shape
+  # (lanes.browserless.auth), so a secret is only ever named by an env var.
+  REFERENCE_AUTH_KEYS = %w[login_url email_env password_env email_selector password_selector
+                           submit_selector wait_for_selector timeout_ms steps].freeze
+  REFERENCE_AUTH_STEP_KEYS = %w[url fields submit_selector wait_for_selector timeout_ms].freeze
+  REFERENCE_AUTH_FIELD_KEYS = %w[selector env code_source].freeze
+  REFERENCE_AUTH_CODE_SOURCE_KEYS = %w[url pattern timeout_ms poll_interval_ms].freeze
+  REFERENCE_AUTH_LANES = %w[browserless a11y testcases].freeze
+  ENV_NAME = /\A[A-Z_][A-Z0-9_]*\z/
+  TARGET_NAME = /\A[a-z0-9][a-z0-9_-]{0,62}\z/
   DESIGN_FIGMA_KEYS = %w[url variables_snapshot code_connect].freeze
   DESIGN_PARITY_KEYS = %w[default areas].freeze
   DESIGN_AREA_KEYS = %w[match status reason].freeze
@@ -498,11 +530,16 @@ module ChangeSchema
   # Every problem with a change_config.design block, as messages naming the
   # field. Empty when the block is absent or valid. Shared by ChangeConfig's
   # validator and DesignConfig so the rules live in one place.
-  def self.design_errors(design)
+  #
+  # apps is the list of change_config.apps names a target's `app` may link
+  # (0.18.0). Passing :unchecked skips that one check, for a caller that only
+  # holds the design block; every other rule still applies.
+  def self.design_errors(design, apps: :unchecked)
     return [] if design.nil?
     return [ 'change_config.design must be a mapping' ] unless design.is_a?(Hash)
 
     errors = unknown_keys(design, DESIGN_KEYS, 'change_config.design')
+    errors.concat(targets_errors(design, apps))
     errors << 'change_config.design.tokens must be a string' if design.key?('tokens') && !design['tokens'].is_a?(String)
     errors << 'change_config.design.tailwind must be a boolean' if design.key?('tailwind') && !boolean?(design['tailwind'])
     errors.concat(figma_errors(design['figma'])) if design.key?('figma')
@@ -512,6 +549,138 @@ module ChangeSchema
       errors << 'change_config.design.critic_rounds must be an integer from 1 to 5'
     end
     errors
+  end
+
+  # change_config.design.targets and default_target (0.18.0).
+  def self.targets_errors(design, apps)
+    field = 'change_config.design'
+    errors = []
+    targets = design['targets']
+    if design.key?('targets')
+      return [ "#{field}.targets must be a non-empty mapping" ] unless targets.is_a?(Hash) && !targets.empty?
+
+      flat = %w[tokens tailwind].select { |k| design.key?(k) }
+      unless flat.empty?
+        errors << "#{field} sets both #{flat.map { |k| "#{field}.#{k}" }.join(' and ')} and #{field}.targets; " \
+                  'the flat form is shorthand for one target, so move it into a target entry'
+      end
+      targets.each { |name, target| errors.concat(target_errors(name.to_s, target, apps)) }
+    end
+    errors.concat(default_target_errors(design, targets))
+  end
+
+  def self.default_target_errors(design, targets)
+    return [] unless design.key?('default_target')
+
+    field = 'change_config.design.default_target'
+    return [ "#{field} must be a non-empty string" ] unless present?(design['default_target'])
+    return [ "#{field} requires change_config.design.targets" ] unless targets.is_a?(Hash)
+    return [] if targets.key?(design['default_target'])
+
+    [ "#{field} names unknown target '#{design['default_target']}' (known: #{targets.keys.join(', ')})" ]
+  end
+
+  def self.target_errors(name, target, apps)
+    field = "change_config.design.targets.#{name}"
+    errors = []
+    errors << "#{field}: target name must match #{TARGET_NAME.source}" unless name.match?(TARGET_NAME)
+    return errors << "#{field} must be a mapping" unless target.is_a?(Hash)
+
+    errors.concat(unknown_keys(target, DESIGN_TARGET_KEYS, field))
+    errors << "#{field}.source must be one of #{DESIGN_TARGET_SOURCES.join(', ')}" unless DESIGN_TARGET_SOURCES.include?(target['source'])
+    errors << "#{field}.theme must be a non-empty string" unless present?(target['theme'])
+    %w[components kit output].each do |key|
+      errors << "#{field}.#{key} must be a non-empty string" if target.key?(key) && !present?(target[key])
+    end
+    errors.concat(target_app_errors(field, target, apps))
+    errors.concat(reference_errors(target['reference'], "#{field}.reference")) if target.key?('reference')
+    if target['reference'].is_a?(Hash) && target['reference']['auth'].is_a?(String) && !target.key?('app')
+      errors << "#{field}.reference.auth names a lane, which needs #{field}.app to say whose lane"
+    end
+    errors
+  end
+
+  def self.target_app_errors(field, target, apps)
+    return [] unless target.key?('app')
+    return [ "#{field}.app must be a non-empty string" ] unless present?(target['app'])
+    return [] if apps == :unchecked || Array(apps).map(&:to_s).include?(target['app'])
+
+    [ "#{field}.app names '#{target['app']}', which is not an entry of change_config.apps" ]
+  end
+
+  def self.reference_errors(reference, field)
+    return [ "#{field} must be a mapping" ] unless reference.is_a?(Hash)
+
+    errors = unknown_keys(reference, DESIGN_REFERENCE_KEYS, field)
+    errors << "#{field}.base_url must be a non-empty string" if reference.key?('base_url') && !present?(reference['base_url'])
+    routes = reference['routes']
+    if !routes.is_a?(Array) || routes.empty?
+      errors << "#{field}.routes must be a non-empty list"
+    else
+      routes.each_with_index { |route, i| errors.concat(reference_route_errors(route, "#{field}.routes[#{i}]")) }
+    end
+    errors.concat(reference_auth_errors(reference['auth'], "#{field}.auth")) if reference.key?('auth')
+    errors
+  end
+
+  def self.reference_route_errors(route, field)
+    return [ "#{field} must be a mapping" ] unless route.is_a?(Hash)
+
+    errors = unknown_keys(route, DESIGN_ROUTE_KEYS, field)
+    errors << "#{field}.path must be a string starting with /" unless route['path'].is_a?(String) && route['path'].start_with?('/')
+    if route.key?('mask') && !(route['mask'].is_a?(Array) && route['mask'].all? { |m| present?(m) })
+      errors << "#{field}.mask must be a list of CSS selectors"
+    end
+    errors
+  end
+
+  # reference.auth is either the string name of a lane whose auth block the
+  # linked app already defines (for example `browserless`), or a login-flow
+  # block of the lane shape. Secrets appear only as env var names: a literal
+  # credential key is an unknown key, and every *_env / env value must be an
+  # env var name.
+  def self.reference_auth_errors(auth, field)
+    return [] if auth.is_a?(String) && REFERENCE_AUTH_LANES.include?(auth)
+    if auth.is_a?(String)
+      return [ "#{field} names '#{auth}', which is not a login-driving lane (#{REFERENCE_AUTH_LANES.join(', ')})" ]
+    end
+
+    return [ "#{field} must be a lane name or a login-flow mapping" ] unless auth.is_a?(Hash)
+
+    errors = unknown_keys(auth, REFERENCE_AUTH_KEYS, field)
+    errors.concat(env_name_errors(auth, field))
+    steps = auth.fetch('steps', [])
+    return errors << "#{field}.steps must be a list" unless steps.is_a?(Array)
+
+    steps.each_with_index { |step, i| errors.concat(auth_step_errors(step, "#{field}.steps[#{i}]")) }
+    errors
+  end
+
+  def self.auth_step_errors(step, field)
+    return [ "#{field} must be a mapping" ] unless step.is_a?(Hash)
+
+    errors = unknown_keys(step, REFERENCE_AUTH_STEP_KEYS, field)
+    fields = step.fetch('fields', [])
+    return errors << "#{field}.fields must be a list" unless fields.is_a?(Array)
+
+    fields.each_with_index do |entry, i|
+      sub = "#{field}.fields[#{i}]"
+      next errors << "#{sub} must be a mapping" unless entry.is_a?(Hash)
+
+      errors.concat(unknown_keys(entry, REFERENCE_AUTH_FIELD_KEYS, sub))
+      errors.concat(env_name_errors(entry, sub))
+      source = entry['code_source']
+      errors.concat(unknown_keys(source, REFERENCE_AUTH_CODE_SOURCE_KEYS, "#{sub}.code_source")) if source.is_a?(Hash)
+    end
+    errors
+  end
+
+  def self.env_name_errors(hash, field)
+    hash.select { |k, _| k.to_s == 'env' || k.to_s.end_with?('_env') }.filter_map do |key, value|
+      next if value.is_a?(String) && value.match?(ENV_NAME)
+
+      "#{field}.#{key} must name an env var (#{ENV_NAME.source}), never carry a literal value"
+    end
   end
 
   def self.figma_errors(figma)
