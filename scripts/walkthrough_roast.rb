@@ -15,6 +15,12 @@ module WalkthroughRoast
   # per-round ceiling.
   DEFAULT_CEILING_USD = 2.0
   DIR = 'roast'
+  # The fidelity loop's own log (spec 0.18.0 design targets with a
+  # reference): roast/fidelity/ beside the draft roast, with its own rounds,
+  # open blockers, and stop verdict.
+  FIDELITY_DIR = File.join(DIR, 'fidelity')
+  FIDELITY_TARGET = 9.0
+  SIGNOFF = 'signoff.json'
   LEDGER = 'spend.json'
   TARGET = 8.5
   ROUND_CAP = Roast::DEFAULT_CAP
@@ -216,10 +222,48 @@ module WalkthroughRoast
     end
   end
 
-  def raise_open_blockers(blockers)
+  def raise_open_blockers(blockers, label: 'roast', flag: '--allow-roast-findings')
     lines = blockers.map { |i| "#{i['priority']} (#{Roast.location(i)}): #{i['problem']}" }
-    raise OpenFindingsError, "#{blockers.size} open P0/P1 roast finding(s) block --final (pass --allow-roast-findings to override):\n" \
+    raise OpenFindingsError, "#{blockers.size} open P0/P1 #{label} finding(s) block --final (pass #{flag} to override):\n" \
                              "#{lines.join("\n")}"
+  end
+
+  # -- fidelity loop ------------------------------------------------------
+
+  # The fidelity loop's stop verdict over `dir` (roast/fidelity/): Roast.decide
+  # with the 9 target as an advisory stop, round cap 4. A stop is the stills
+  # sign-off and is recorded in signoff.json.
+  def fidelity_verdict(dir, target: FIDELITY_TARGET, rounds: ROUND_CAP)
+    history = Roast.load_history(dir)
+    return { stop: false, reason: 'no fidelity round yet' } if history.empty?
+
+    Roast.decide(history, target: target, cap: rounds)
+  end
+
+  def record_signoff(dir, verdict)
+    return nil unless verdict[:stop]
+
+    last = Roast.load_history(dir).last
+    FileUtils.mkdir_p(dir)
+    path = File.join(dir, SIGNOFF)
+    File.write(path, "#{JSON.pretty_generate('round' => last && last[:round], 'score' => last && last[:critic]['score'],
+                                              'reason' => verdict[:reason])}\n")
+    path
+  end
+
+  # --final with a reference target blocks only on open fidelity P0/P1; the
+  # score target is advisory. No fidelity round on record also blocks, since
+  # an unrun comparison has no findings to clear.
+  def fidelity_gate!(dir, allow: false)
+    return if allow
+
+    history = Roast.load_history(dir)
+    if history.empty?
+      raise OpenFindingsError, 'no fidelity roast on record for this reference target; compare the prototype stills with ' \
+                               'the reference first (pass --allow-fidelity-findings to override)'
+    end
+    blockers = open_blockers(history)
+    raise_open_blockers(blockers, label: 'fidelity', flag: '--allow-fidelity-findings') unless blockers.empty?
   end
   private_class_method :raise_open_blockers
 
