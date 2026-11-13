@@ -1,7 +1,7 @@
 ---
 name: cf:diagram
 group: workflow
-description: Hand-placed SVG diagram command. Authors one standalone, theme-aware, accessible .svg per diagram (architecture, flow, sequence, state, ER, timeline, swimlane, layers) from a skill-owned grammar, using the project's DESIGN.md or tokens.css colors when present, then gates it on a Ruby linter that measures text in the pinned browserless container, for up to three fix rounds. Invoked by name only.
+description: Hand-placed SVG diagram command. Authors one standalone, theme-aware, accessible .svg per diagram (architecture, flow, sequence, state, ER, timeline, swimlane, layers) from a skill-owned grammar, using the project's DESIGN.md or tokens.css colors when present, then gates it on a Ruby linter that measures text in the pinned browserless container, for up to three fix rounds. Invoked by name, or loaded by cf:plan and cf:drive thorough for a plan's visuals.
 ---
 
 # CF diagram
@@ -56,7 +56,7 @@ The engineering glyphs walkthrough diagram nodes use (`icon` in the storyboard s
 
 ## Roast
 
-cf:roast is paid, so it runs only when the user asks for it by name. Never start it on your own.
+cf:roast is paid, so it runs only when the user asks for it by name. Never start it on your own. The exceptions are cf:plan and cf:drive thorough, which load this skill for a plan's visuals and roast them together with the plan under their own 2-round, 0.50 USD cap.
 
 When asked, render the linted SVG with `ruby ~/.claude/cf/bin/diagram_render.rb <file.svg>`, which writes `<file>-light.png` and `<file>-dark.png` from the pinned browserless container (exit 3 when Docker is missing), and pass both as `--shot` so the critic judges both themes. Re-render and re-lint after each accepted fix before the next round. Give it `--kind`, an `--audience`, and a `--purpose` per outcome the reader must take away. The SVG adapts to the theme by itself, so a page embedding it needs no theme-aware image swap.
 

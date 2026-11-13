@@ -32,4 +32,23 @@ class PlanHandoffPromptTest < Minitest::Test
     assert gate_at < verify_at, "Verify phase must sit inside the partial-run gate"
     assert_includes PROMPT, "verify: true"
   end
+
+  VISUALS_NOTE = "Visuals in diagrams/ are illustrative; plan.md wins on any conflict. " \
+                 "Roast score and any open P0/P1 are in plan.md's ## Roast section."
+
+  def fenced_block
+    PROMPT[/```markdown\n(.*?)```/m, 1]
+  end
+
+  def test_visuals_note_renders_empty
+    rendered = fenced_block.gsub("{{visuals_note}}", "")
+    refute_includes rendered, "{{visuals_note}}"
+    refute_includes rendered, "Visuals in diagrams/"
+  end
+
+  def test_visuals_note_renders_filled
+    assert_includes fenced_block, "{{visuals_note}}"
+    assert_includes PROMPT.gsub(/\s+/, " "), VISUALS_NOTE
+    assert_includes fenced_block.gsub("{{visuals_note}}", VISUALS_NOTE), VISUALS_NOTE
+  end
 end

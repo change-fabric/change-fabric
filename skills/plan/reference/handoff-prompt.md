@@ -14,6 +14,11 @@ entries. Then it reads: "Judged decisions (unreviewed): the plan's
 gave, not the user. They are open to revisiting; flag any you would answer
 differently before running the phases they touch."
 
+`{{visuals_note}}` is empty when the plan has no visuals (its `## Visuals`
+section reads "None"). Otherwise it reads: "Visuals in diagrams/ are
+illustrative; plan.md wins on any conflict. Roast score and any open P0/P1
+are in plan.md's ## Roast section."
+
 `{{stack_note}}` is empty when the plan has one PR phase or none. When the
 plan has more than one PR phase, it reads, with `{{plan_dir}}` in tilde form:
 "When the phases are open as PRs, run `/cf:sweep stack {{plan_dir}}`." It is
@@ -32,6 +37,7 @@ Read these three files first, in this order:
    {{judged_note}}
 3. {{workflow_path}} - a Workflow script already written for this plan. Its
    phases are the plan's phases.
+   {{visuals_note}}
 
 Then run it: read {{workflow_path}} and call `Workflow` with its full contents
 as the `script` argument, verbatim. Do not paraphrase it, do not rewrite it
