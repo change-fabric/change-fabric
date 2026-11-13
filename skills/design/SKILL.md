@@ -22,6 +22,16 @@ Never:
 
 The deliverable is always the rewritten `DESIGN.md` and `tokens.css` at the target repo root.
 
+## Target mode (`--target <name>`): document, never redesign
+
+When the root CHANGE.md names `change_config.design.targets` (spec 0.18.0) and the user passes `--target <name>`, the stance above is reversed for that target: the production app's system is the canon, and cf:design documents it.
+
+- Write the target's DESIGN.md (beside its kit, `<kit>/DESIGN.md`) from evidence only: the live theme (`targets.<n>.theme`), the components directory, the kit's compiled `dist/kit.css`, and the app itself. Every claim carries `[evidence: path#anchor]` provenance; nothing is `[proposal]`.
+- Lint against the compiled theme, not a copied tokens.css: `ruby ~/.claude/cf/bin/design_tokens.rb lint <kit>/DESIGN.md --kit-css <kit>/dist/kit.css`. Never write or rewrite a tokens file.
+- The four critics still run, but may only file questions. Each finding goes under `## Open questions` with its evidence; none changes a token, a component, or a rule, and no competing system is drafted. Grilling with AskUserQuestion is for what the evidence leaves unclear, not for changing the system.
+
+Without `--target`, everything below applies unchanged.
+
 ## Inputs
 
 Any of, in priority order:

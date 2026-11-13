@@ -66,6 +66,7 @@ module WalkthroughStoryboard
     errors.concat(id_and_order_errors(list))
     errors.concat(WalkthroughLive.board_errors(board))
     errors.concat(review_errors(board['review']))
+    errors.concat(target_errors(board))
     errors.concat(voice_eq_errors(board.dig('voice', 'eq')))
     errors.concat(pronunciation_errors(board.dig('voice', 'pronunciations')))
     errors.concat(music_errors(board)) unless list.empty?
@@ -77,6 +78,15 @@ module WalkthroughStoryboard
       errors.concat(scene_errors(scene, hyp_ids, orders, root, board: board, by_id: by_id).map { |e| "#{label}: #{e}" })
     end
     errors
+  end
+
+  # Optional design target (spec 0.18.0): the name of a
+  # change_config.design.targets entry the walkthrough is built against.
+  def target_errors(board)
+    return [] unless board.key?('target')
+    return [] if board['target'].is_a?(String) && board['target'].match?(ChangeSchema::TARGET_NAME)
+
+    [ "target must name a design target (#{ChangeSchema::TARGET_NAME.source})" ]
   end
 
   # Optional pronunciation aliases: a list of { text, say } objects, each a
@@ -723,7 +733,15 @@ module WalkthroughStoryboard
   # root, the first directory whose CHANGE.md-configured tokens path (default
   # design/tokens.css) or bare tokens.css exists. The walk stops at the repo
   # root (a directory holding .git or CHANGE.md). nil when none is found.
-  def canonical_tokens(root)
+  #
+  # A board naming a design target (spec 0.18.0) pins the target kit's
+  # compiled dist/kit.css instead, so a theme change that reaches the kit
+  # changes the hash; nil until the kit is built. A board with no target is
+  # resolved exactly as before.
+  def canonical_tokens(root, board = nil)
+    target = board.is_a?(Hash) ? board['target'] : nil
+    return kit_css(root, target) if target.is_a?(String) && !target.empty?
+
     dir = File.expand_path(root)
     loop do
       configured = begin
@@ -734,6 +752,28 @@ module WalkthroughStoryboard
       found = [ configured, 'tokens.css' ].map { |rel| File.join(dir, rel) }.find { |f| File.file?(f) }
       return found if found
       return nil if %w[.git CHANGE.md].any? { |m| File.exist?(File.join(dir, m)) }
+
+      parent = File.dirname(dir)
+      return nil if parent == dir
+
+      dir = parent
+    end
+  end
+
+  # The target kit's dist/kit.css, from the nearest CHANGE.md above root.
+  def kit_css(root, target)
+    repo = repo_root(root) or return nil
+    config = DesignConfig.load(repo).target(target)
+    return nil unless config.target.kit?
+
+    path = File.join(repo, config.target.kit, 'dist', 'kit.css')
+    File.file?(path) ? path : nil
+  end
+
+  def repo_root(root)
+    dir = File.expand_path(root)
+    loop do
+      return dir if File.file?(File.join(dir, 'CHANGE.md'))
 
       parent = File.dirname(dir)
       return nil if parent == dir
@@ -816,7 +856,7 @@ if __FILE__ == $PROGRAM_NAME
   root = File.dirname(File.expand_path(path))
   case cmd
   when 'validate'
-    tokens = tokens_flag ? ARGV[tokens_flag + 1] : WalkthroughStoryboard.canonical_tokens(root)
+    tokens = tokens_flag ? ARGV[tokens_flag + 1] : WalkthroughStoryboard.canonical_tokens(root, board)
     abort("--tokens #{tokens.inspect} is not a file") if tokens_flag && !(tokens && File.file?(tokens))
     fix = ARGV.include?('--fix')
     # Diagram screens are generated; --fix rewrites them before validating so drift is repaired, not reported.

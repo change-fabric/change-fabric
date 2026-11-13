@@ -12,6 +12,7 @@
   "source_docs": [{ "path": "docs/prd.md", "sha256": "hex" }],
   "design_md_sha256": "hex",
   "tokens_css_sha256": "hex",
+  "target": "portal",
   "viewport": { "w": 1920, "h": 1080 },
   "fps": 30,
   "voice": { "provider": "elevenlabs", "voice_id": "string", "model": "eleven_multilingual_v2", "output_format": "mp3_44100_128" },
@@ -38,6 +39,8 @@
 A scene's `camera` is `{ "zoom": <0.5..3>, "focus": { "x": <0..1>, "y": <0..1> } }`. `zoom` is required; `focus` is optional and defaults to the frame centre (0.5, 0.5), the point the zoom scales around.
 
 Live capture runs open-source Chromium, which cannot decode H.264 video or AAC audio. A `<video>` or `<audio>` it cannot play is reported by the UX lint as `unplayable-media` and blocks `--final`; serve a VP9/Opus or AV1 transcode at the same path for filming.
+
+`target` is optional (spec 0.18.0): the name of a `change_config.design.targets` entry in the root CHANGE.md, matching `[a-z0-9][a-z0-9_-]{0,62}`. With it, screens link the target kit's live CSS and component HTML (cf:prototype), `tokens_css_sha256` pins the kit's compiled `dist/kit.css` instead of a tokens.css, the walkthrough lives in `walkthrough/<target>/<slug>/` (or the target's `output`), and when the target names a `reference`, `--final` also requires the fidelity loop to have no open P0 or P1. Without it, nothing changes.
 
 `tokens_css_sha256` is computed, never hand-written. `validate --fix` writes the sha256 of the canonical `tokens.css` (found by walking up from the walkthrough directory to the repo root, trying the `change_config.design.tokens` path from CHANGE.md, default `design/tokens.css`, then a bare `tokens.css`; `--tokens PATH` overrides) before it rewrites the deps, so every `frames_key` that hashes it goes stale and recaptures when the tokens change. Plain `validate` fails on a missing or stale hash. With no canonical `tokens.css` found, the field is left alone and not checked.
 

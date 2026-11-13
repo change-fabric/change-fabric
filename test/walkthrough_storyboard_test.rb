@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "minitest/autorun"
+require "yaml"
 require "json"
 require "tmpdir"
 require "open3"
@@ -425,6 +426,36 @@ class WalkthroughStoryboardTest < Minitest::Test
     assert_equal File.join(repo, "design", "tokens.css"), WalkthroughStoryboard.canonical_tokens(walk)
     File.delete(File.join(repo, "design", "tokens.css"))
     assert_nil WalkthroughStoryboard.canonical_tokens(walk)
+  end
+
+  def target_repo
+    repo, walk = tokens_repo
+    design = { "targets" => { "portal" => { "source" => "tailwind", "theme" => "apps/portal/src/app/globals.css",
+                                            "kit" => "packages/design-kit" } } }
+    File.write(File.join(repo, "CHANGE.md"), "#{YAML.dump('change_config' => { 'design' => design })}---\n")
+    [ repo, walk ]
+  end
+
+  def test_target_board_pins_the_kit_css_and_no_target_is_unchanged
+    repo, walk = target_repo
+    b = board.merge("target" => "portal")
+    assert_nil WalkthroughStoryboard.canonical_tokens(walk, b), "nil until the kit is built"
+    kit = File.join(repo, "packages/design-kit/dist/kit.css")
+    FileUtils.mkdir_p(File.dirname(kit))
+    File.write(kit, ":root{--brand:#123}")
+    assert_equal kit, WalkthroughStoryboard.canonical_tokens(walk, b)
+    WalkthroughStoryboard.fix_tokens_hash(b, WalkthroughStoryboard.canonical_tokens(walk, b))
+    before = b["tokens_css_sha256"]
+    File.write(kit, ":root{--brand:#456}")
+    assert_match(/stale/, WalkthroughStoryboard.tokens_hash_errors(b, WalkthroughStoryboard.canonical_tokens(walk, b)).join)
+    refute_equal before, Digest::SHA256.file(kit).hexdigest
+    assert_equal File.join(repo, "design", "tokens.css"), WalkthroughStoryboard.canonical_tokens(walk, board)
+    assert_equal WalkthroughStoryboard.canonical_tokens(walk), WalkthroughStoryboard.canonical_tokens(walk, board)
+  end
+
+  def test_target_field_is_validated
+    assert_empty errors_for(board.merge("target" => "portal")).grep(/target/)
+    assert_equal [ "target must name a design target (\\A[a-z0-9][a-z0-9_-]{0,62}\\z)" ], errors_for(board.merge("target" => "Bad Name")).grep(/^target/)
   end
 
   def test_tokens_hash_missing_stale_and_fixed

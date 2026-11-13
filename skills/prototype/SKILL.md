@@ -12,10 +12,21 @@ Load cf:prototyping, cf:usability, and cf:fractal by name before authoring anyth
 
 ## Inputs
 
-1. `DESIGN.md` and `tokens.css` at the target repo root. With neither, run cf:design first.
+1. `DESIGN.md` and `tokens.css` at the target repo root. With neither, run cf:design first. With `--target <name>`, the target's kit instead (next section).
 2. A PRD, brief, or a `walkthrough/<slug>/storyboard.json` naming the screens and their states.
 
-Everything lands in `walkthrough/<slug>/` in the target repo (layout below).
+Everything lands in `walkthrough/<slug>/` in the target repo (layout below), or with a target in `walkthrough/<target>/<slug>/` (`targets.<n>.output` overrides it): `ruby ~/.claude/cf/bin/walkthrough_cache.rb output-dir <slug> --target <name>` prints and prepares it.
+
+## Design target (`--target <name>`, monorepo)
+
+When the root CHANGE.md names `change_config.design.targets` (spec 0.18.0), a prototype is built against the production app's live system, never a copy:
+
+- The kit (`targets.<n>.kit`, for example `packages/design-kit`) is a private workspace package. Scaffold it once with `ruby ~/.claude/cf/bin/prototype_kit.rb init --target <name>`, then wire `components.json`, `src/registry.tsx` (live app components and the app shell, rendered by SSR with framework imports stubbed) and typed `seed/` fixtures. Every later prototype reuses it.
+- Screens link `<kit>/dist/kit.css` and embed `<kit>/dist/components/<Name>.html` by relative path. Never copy tokens or component markup into `screens/`; a hard-coded value or a copied token file is a defect.
+- Set `"target": "<name>"` in storyboard.json. `prototype_capture.rb` then builds the kit, refuses a stale kit (`prototype_kit.rb check` names the drifted property), and inlines only from the slug dir and the kit's `dist/`. `tokens_css_sha256` pins the kit CSS, so a theme change invalidates the stills.
+- When the target names a `reference`, run the fidelity loop on the stills before recording motion: `ruby ~/.claude/cf/bin/prototype_reference.rb --target <name>` captures the reference routes into the ignored `.cache/reference/<target>/`, then cf:roast `--kind fidelity --pair proto.png=ref.png` (paid, estimate first) compares them. Fix accepted findings and repeat to score 9 or the round cap 4. Rounds log to `roast/fidelity/`; cf:walkthrough `--final` refuses while a fidelity P0 or P1 is open.
+
+Without a target, everything below runs exactly as before, including the `tokens.css` copy in `screens/`.
 
 ## Screens
 

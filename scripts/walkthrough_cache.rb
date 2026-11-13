@@ -68,4 +68,39 @@ module WalkthroughCache
     File.write(file, "#{existing}#{missing.join("\n")}\n")
     file
   end
+
+  DEFAULT_OUTPUT = 'walkthrough'
+
+  # Where a walkthrough slug lives, relative to the repo root. No target:
+  # walkthrough/<slug>, as always. A design target (spec 0.18.0):
+  # walkthrough/<target>/<slug>, or <targets.<n>.output>/<slug> when the
+  # target sets one. `config` is the target's DesignConfig::Config, or nil.
+  def output_dir(slug, config = nil)
+    target = config&.target
+    return File.join(DEFAULT_OUTPUT, slug) if target.nil? || target.flat
+
+    File.join(target.output || File.join(DEFAULT_OUTPUT, target.name), slug)
+  end
+
+  # Resolves and creates the slug dir under `repo_root`, with the generated
+  # media ignored in either location.
+  def prepare_output(repo_root, slug, target: nil)
+    require_relative 'design_config'
+    config = target && DesignConfig.load(repo_root).target(target)
+    dir = File.join(repo_root, output_dir(slug, config))
+    ensure_gitignore(dir)
+    dir
+  end
+end
+
+if __FILE__ == $PROGRAM_NAME
+  usage = 'usage: walkthrough_cache.rb output-dir <slug> [--target <name>] [--repo DIR]'
+  abort(usage) unless ARGV[0] == 'output-dir' && ARGV[1] && !ARGV[1].start_with?('--')
+  target = ARGV.include?('--target') ? ARGV[ARGV.index('--target') + 1] : nil
+  repo = ARGV.include?('--repo') ? File.expand_path(ARGV[ARGV.index('--repo') + 1]) : Dir.pwd
+  begin
+    puts WalkthroughCache.prepare_output(repo, ARGV[1], target: target)
+  rescue StandardError => e
+    abort("walkthrough_cache: #{e.message}")
+  end
 end
