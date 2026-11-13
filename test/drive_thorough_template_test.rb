@@ -109,4 +109,21 @@ class DriveThoroughTemplateTest < Minitest::Test
     refute_empty used
     assert_empty used.reject { |ph| table.include?(ph) }, "placeholders missing from the parameter table"
   end
+
+  def handoff = File.read(File.join(SKILL, "reference", "thorough", "handoff-prompt.md"))
+
+  def test_handoff_carries_the_visuals_note
+    fence = handoff[/```markdown\n(.*?)```/m, 1]
+    assert_includes fence, "{{visuals_note}}"
+    refute_includes fence.gsub("{{visuals_note}}", ""), "{{visuals_note}}"
+  end
+
+  def test_thorough_runs_plan_visualize_and_roast
+    steps = skill_md[/^## Thorough mode.*/m]
+    assert_match(/^7a\. \*\*Visualize\*\*.*cf:plan/, steps)
+    assert_match(/^7b\. \*\*Roast\*\*.*cf:plan/, steps)
+    assert_includes steps, "0.50 USD"
+    assert_includes steps, "Quick mode never runs this roast"
+    assert_includes File.read(File.join(SKILL, "reference", "thorough", "research-prompt.md")), "## Visuals"
+  end
 end
