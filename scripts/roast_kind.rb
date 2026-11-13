@@ -23,7 +23,9 @@ module RoastKind
   VIDEO_KINDS = ChangeSchema::VIDEO_REVIEW_KINDS
   TEXT_KINDS = %w[email doc pr post].freeze
   # CLI-only kinds: --kind and inference accept them, CHANGE.md does not yet.
-  CLI_KINDS = %w[arch code infra].freeze
+  # fidelity (spec 0.18.0 design targets) is never inferred: it is named with
+  # --kind fidelity and fed prototype/reference pairs with --pair.
+  CLI_KINDS = %w[arch code infra fidelity].freeze
   CODE_STRONG = /^diff --git |^@@ -\d+(?:,\d+)? \+\d+/
   CODE_EXTS = %w[.diff .patch].freeze
   INFRA_STRONG = /^\s*(?:resource|module|provider|terraform)\s+"?[\w-]+"?\s*(?:"[\w-]+"\s*)?\{|AWSTemplateFormatVersion/

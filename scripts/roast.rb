@@ -57,7 +57,7 @@ module Roast
   MIME = { '.png' => 'image/png', '.jpg' => 'image/jpeg', '.jpeg' => 'image/jpeg', '.webp' => 'image/webp' }.freeze
   USAGE = 'usage: roast.rb --brief FILE (--shot IMG... | --text FILE...) [--allow-sensitive] [--history DIR] [--out-dir DIR] [--round N] ' \
           '[--max-usd N] [--model NAME|terra|sol] [--effort none|low|medium|high|xhigh|max] [--cache DIR] [--transcript FILE] [--estimate-only] ' \
-          '[--storyboard FILE] [--kind explainer|promo|demo|email|doc|pr|post|arch|code|infra] [--audience TEXT] [--purpose OUTCOME]... [--lens NAME]... | roast.rb --video MP4 --brief FILE [...] | roast.rb infer [--storyboard FILE] [--text FILE]... | roast.rb decide --out-dir DIR [--target N] [--cap N] | roast.rb settings [--repo DIR]; ' \
+          '[--storyboard FILE] [--kind explainer|promo|demo|email|doc|pr|post|arch|code|infra|fidelity] [--pair PROTO.png=REF.png]... [--audience TEXT] [--purpose OUTCOME]... [--lens NAME]... | roast.rb --video MP4 --brief FILE [...] | roast.rb infer [--storyboard FILE] [--text FILE]... | roast.rb decide --out-dir DIR [--target N] [--cap N] | roast.rb settings [--repo DIR]; ' \
           'flags win over the storyboard review object, which wins over change_config.design.roast in CHANGE.md (--repo DIR, default the working directory)'
 
   # arch, code and infra are CLI-only: CHANGE.md still validates against
@@ -103,6 +103,13 @@ module Roast
     and code smells; cite file:line from the hunk; P0 is a bug or a data or security hazard. infra:
     judge Terraform or AWS config for safety of change (destroy or replace, state), security (IAM,
     exposure, encryption), cost, and reliability; P0 is an outage, data loss, or exposure.
+    fidelity: the screens come in pairs, a prototype still then a still of the production app it
+    extends. Judge only design-system fidelity: type (family, size, weight, line height), spacing and
+    layout grid, components (shape, states, density), color and elevation, and the app shell. Ignore
+    data content, copy, and masked regions entirely; different numbers or names are not issues. Name
+    each issue's where as the prototype still and the region. P0 is a prototype that reads as a
+    different product; P1 is a visible system break (a wrong type scale, a foreign component, an
+    off-palette color); 9 means a team member could not tell the prototype from the app.
     When the message carries a Lenses block, apply each lens as an extra rubric alongside the kind, and
     name the lens (for example cf:terraform) at the start of the problem for any issue it raised.
     For text, the purpose outcomes are what the reader must be able to state or do after reading.
@@ -148,6 +155,11 @@ module Roast
     }
   }.freeze
 
+  # The fidelity kind's review contract when none is given: the reader is the
+  # app's own team, and the one outcome is that the prototype passes as the app.
+  FIDELITY_AUDIENCE = "The production app's own team, who know its design system"
+  FIDELITY_PURPOSE = 'Each prototype still reads as a screen of the production app it is paired with'
+
   class UsageError < StandardError; end
   class CeilingError < StandardError; end
   class RequestError < StandardError; end
@@ -190,6 +202,20 @@ module Roast
     review = { kind: pick.call(:kind), audience: pick.call(:audience)&.to_s&.strip, purpose: Array(pick.call(:purpose)).map { |p| p.to_s.strip }.reject(&:empty?) }
     check_review!(review)
     review
+  end
+
+  # One --pair value as [prototype, reference] paths.
+  def parse_pair(value)
+    proto, ref = value.to_s.split('=', 2)
+    raise UsageError, "--pair needs PROTO.png=REF.png, got #{value.inspect}" if proto.to_s.empty? || ref.to_s.empty?
+
+    [ proto, ref ]
+  end
+
+  # The pairing text the fidelity critic reads in the brief, by file name.
+  def pair_note(pairs)
+    lines = pairs.each_with_index.map { |(p, r), i| "#{i + 1}. prototype #{File.basename(p)} against reference #{File.basename(r)}" }
+    "Fidelity pairs, each a prototype still followed by its reference still:\n#{lines.join("\n")}"
   end
 
   def blank_review?(value) = value.nil? || value.to_s.strip.empty? || (value.respond_to?(:empty?) && value.empty?)
@@ -536,13 +562,31 @@ module Roast
         o.on('--audience TEXT') { |v| opts[:flags][:audience] = v }
         o.on('--purpose OUTCOME') { |v| opts[:flags][:purpose] << v }
         o.on('--lens NAME') { |v| opts[:lens_names] << v }
+        o.on('--pair PROTO=REF') { |v| (opts[:pairs] ||= []) << Roast.parse_pair(v) }
       end.parse!(args)
       opts[:shots] += args
+      apply_pairs!(opts)
       raise UsageError, '--brief is required' unless opts[:brief_file]
       raise UsageError, 'give at least one --shot or --text' if opts[:shots].empty? && opts[:texts].empty?
       raise UsageError, "unknown effort #{opts[:effort].inspect}; use one of #{EFFORTS.join(', ')}" unless EFFORTS.include?(opts[:effort])
 
       opts.merge(lenses: RoastLens.resolve(opts[:lens_names]))
+    end
+
+    # --pair is the fidelity kind's input: each pair adds its prototype then
+    # its reference still to the shots, the order the critic reads them in,
+    # and the brief gains the pairing. It implies --kind fidelity, and the
+    # kind needs at least one pair.
+    def apply_pairs!(opts)
+      pairs = opts[:pairs] || []
+      opts[:flags][:kind] ||= 'fidelity' unless pairs.empty?
+      raise UsageError, '--pair is only for --kind fidelity' if pairs.any? && opts[:flags][:kind] != 'fidelity'
+      return unless opts[:flags][:kind] == 'fidelity'
+      raise UsageError, '--kind fidelity needs at least one --pair PROTO.png=REF.png' if pairs.empty?
+
+      opts[:shots] = pairs.flatten + opts[:shots]
+      opts[:flags][:audience] ||= Roast::FIDELITY_AUDIENCE
+      opts[:flags][:purpose] = [ Roast::FIDELITY_PURPOSE ] if opts[:flags][:purpose].empty?
     end
 
     def parse_infer(args)
@@ -626,7 +670,9 @@ module Roast
     def inputs_for(opts, out)
       review = review_for(opts, out)
       model = Roast.model_for(kind: review[:kind], flag: opts[:model], config: opts[:config_model], shots: opts[:shots].any?)
-      { brief: File.read(opts[:brief_file]).strip, shots: opts[:shots], texts: opts[:texts],
+      brief = File.read(opts[:brief_file]).strip
+      brief = "#{brief}\n\n#{Roast.pair_note(opts[:pairs])}" if opts[:pairs]&.any?
+      { brief: brief, shots: opts[:shots], texts: opts[:texts],
         history: Roast.load_history(opts[:history] || opts[:out_dir]),
         round: opts[:round] || Roast.next_round(opts[:out_dir]),
         transcript: opts[:transcript_file] && File.read(opts[:transcript_file]).strip, review: review,
