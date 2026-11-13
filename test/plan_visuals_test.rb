@@ -86,4 +86,18 @@ class PlanVisualsTest < Minitest::Test
       assert ok
     end
   end
+  ROAST_STEP = File.read(File.expand_path("../skills/plan/SKILL.md", __dir__))[/^7b\. \*\*Roast\.\*\*.*?(?=^\d+\. \*\*)/m]
+
+  def test_roast_step_passes_the_required_brief
+    assert_includes ROAST_STEP, "--brief <plan_dir>/goal.md"
+  end
+
+  def test_roast_step_writes_a_response_file_every_round
+    assert_includes ROAST_STEP, "roast/round-N.response.json"
+    assert_match(/empty response list/, ROAST_STEP)
+  end
+
+  def test_roast_step_re_renders_visuals_before_round_two
+    assert_match(/re-render both\s+themes with `diagram_render.rb`/, ROAST_STEP)
+  end
 end

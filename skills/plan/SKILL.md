@@ -205,7 +205,8 @@ fresh session that will execute the plan.
    at most 2 rounds and 0.50 USD in total, tracked by summing the per-round
    estimates. Never raise the cap.
 
-   1. Inputs: `--text plan.md --text goal.md`, one `--shot` for every
+   1. Inputs: `--brief <plan_dir>/goal.md --text plan.md --text goal.md`,
+      one `--shot` for every
       `-light.png` and `-dark.png` under `diagrams/`, `--kind arch` when an
       architecture diagram exists (else `--kind doc`),
       `--audience "the engineer executing this plan in a fresh session"`,
@@ -219,7 +220,11 @@ fresh session that will execute the plan.
       the estimates spent so far).
    4. Accept or rebut each P0, P1, and P2 finding yourself. `SendMessage`
       the writing agent to apply accepted text fixes, and resume the diagram
-      agent to apply accepted visual fixes and re-lint. Contested calls go to
+      agent to apply accepted visual fixes, re-lint, and re-render both
+      themes with `diagram_render.rb` so round 2 sees the fixed PNGs before
+      its estimate. Write `roast/round-N.response.json` (the cf:roast response
+      shape) for every round run, an empty response list when it has no
+      findings; `plan_check.rb` fails a round without it. Contested calls go to
       `AskUserQuestion`; under `--judge`, through the judge protocol in
       `reference/interview.md`, recorded as `Answered by: judge (roast)`.
    5. Round 2 runs only if
