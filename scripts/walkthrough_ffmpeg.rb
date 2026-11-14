@@ -36,10 +36,14 @@ module WalkthroughFfmpeg
   LOUDNORM = 'I=-16:TP=-1.5:LRA=11'
   # Linear ceiling for TP -1.5 dBFS, rounded down so it never overshoots.
   LIMIT = ((10**(TARGET_TP / 20)) * 100).floor / 100.0
-  LIMITER = "alimiter=limit=#{LIMIT}:attack=5:release=80:level=false:latency=true".freeze
+  # alimiter limits samples, not reconstructed peaks; running it at 4x the
+  # output rate makes its sample ceiling a true-peak ceiling. The mix is
+  # resampled back to AUDIO_RATE right after.
+  TRUE_PEAK_RATE = 48_000 * 4
+  LIMITER = "aresample=#{TRUE_PEAK_RATE},alimiter=limit=#{LIMIT}:attack=5:release=80:level=false:latency=true".freeze
   # Bump whenever the leveling changes, so cached mixes re-render.
   LEVEL_VERSION = 2
-  AUDIO_RATE = 48_000
+  AUDIO_RATE = 48_000 # TRUE_PEAK_RATE is 4x this
   AUDIO_LAYOUT = 'stereo'
   # Pass 2 is killed once its output clock passes the timeline by this much.
   RUNAWAY_MIN_S = 5.0

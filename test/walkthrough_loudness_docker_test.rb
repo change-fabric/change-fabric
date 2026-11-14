@@ -54,6 +54,14 @@ class WalkthroughLoudnessDockerTest < Minitest::Test
     FileUtils.cp(File.join(__dir__, "..", "scripts", "vendor", "walkthrough", "cursor.png"), @dir)
   end
 
+  # Square-wave clicks between quiet passages: high crest factor and
+  # intersample overshoot, so the gain drives the limiter hard.
+  def transient_fixture!
+    fixtures!
+    make!([ "-f", "lavfi", "-i", "aevalsrc='0.5*sgn(sin(2*PI*3001*t))*lt(mod(t,0.5),0.004)+0.01*sin(2*PI*220*t)':s=48000:d=20",
+            "-ac", "1", "-y", "n0.wav" ])
+  end
+
   def plan
     scene = { id: "s0", frames_dir: "/work/f0", frames: TOTAL_MS / 1000 * FPS, start_frame: 0,
               transition: { "type" => "cut", "ms" => 0 }, cursor: [], hero_still: false, audio: "/work/n0.wav", offset_ms: 0 }
@@ -75,6 +83,30 @@ class WalkthroughLoudnessDockerTest < Minitest::Test
     delivered = measure("out.mp4")
     assert_in_delta measured["input_lra"].to_f, delivered["input_lra"].to_f, 1.0, "loudness range was compressed"
     assert_in_delta WalkthroughFfmpeg::TARGET_I, delivered["input_i"].to_f, 1.0
+  end
+
+  # The limiter alone, to PCM: oversampled it holds the TP ceiling, while
+  # the same alimiter at 48 kHz lets intersample peaks through above 0 dBTP.
+  def test_limiter_holds_the_true_peak_ceiling
+    transient_fixture!
+    gain = WalkthroughFfmpeg.static_gain(measure("n0.wav"))
+    tp = lambda do |limiter|
+      ffmpeg!([ "-hide_banner", "-nostdin", "-y", "-i", "n0.wav", "-af", "volume=#{gain}dB,#{limiter},aresample=48000",
+                "-c:a", "pcm_f32le", "lim.wav" ])
+      measure("lim.wav")["input_tp"].to_f
+    end
+    assert_operator tp.call(WalkthroughFfmpeg::LIMITER), :<=, WalkthroughFfmpeg::TARGET_TP + 0.1
+    assert_operator tp.call(WalkthroughFfmpeg::LIMITER.sub(/\Aaresample=\d+,/, "")), :>, 0.0
+  end
+
+  # The delivered mp4 adds AAC's own overshoot, measured at about 0.5 dB.
+  def test_delivered_transients_stay_near_the_ceiling
+    transient_fixture!
+    p = plan
+    measured = WalkthroughFfmpeg.parse_loudnorm(ffmpeg!(WalkthroughFfmpeg.pass1(p)))
+    assert_operator measured["input_tp"].to_f + WalkthroughFfmpeg.static_gain(measured), :>, 0, "the fixture must need limiting"
+    ffmpeg!(WalkthroughFfmpeg.pass2(p, measured))
+    assert_operator measure("out.mp4")["input_tp"].to_f, :<=, WalkthroughFfmpeg::TARGET_TP + 1.0
   end
 
   # The fixture is the case the bug lives in: the old linear loudnorm pass 2
