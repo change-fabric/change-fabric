@@ -167,14 +167,22 @@ module DesignTokens
   # Target mode (spec 0.18.0): the canon is the kit CSS compiled from the live
   # theme, which a build reformats, so a declaration is matched by custom
   # property name and normalized value rather than verbatim text.
+  # A property may be declared under several selectors (light and dark), so
+  # every compiled value is kept and a documented value matches any of them.
   def kit_check(design_md, kit_css)
-    compiled = Drift.properties(kit_css)
+    compiled = kit_values(kit_css)
     documented = Drift.properties(css_fences(design_md).join("\n"))
     documented.filter_map do |name, value|
-      next if compiled.key?(name) && Drift.normalize(compiled[name]) == Drift.normalize(value)
+      values = compiled.fetch(name, [])
+      next if values.any? { |v| Drift.normalize(v) == Drift.normalize(value) }
 
-      compiled.key?(name) ? "#{name}: #{value} (compiled kit has #{compiled[name]})" : "#{name}: #{value} (not in the compiled kit)"
+      values.empty? ? "#{name}: #{value} (not in the compiled kit)" : "#{name}: #{value} (compiled kit has #{values.join(', ')})"
     end
+  end
+
+  def kit_values(css)
+    text = css.to_s.dup.force_encoding(Encoding::UTF_8).scrub.gsub(%r{/\*.*?\*/}m, " ")
+    text.scan(Drift::PROPERTY).group_by(&:first).transform_values { |pairs| pairs.map { |_, v| v.strip } }
   end
 
   def kit_lint(design_md, kit_css)

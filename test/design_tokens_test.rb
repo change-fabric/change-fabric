@@ -262,4 +262,11 @@ class DesignTokensTest < Minitest::Test
     assert_match(/--off: 2px \(compiled kit has 3px\)/, misses.join)
     assert(DesignTokens.kit_lint(md, kit).any? { |f| f.kind == "kit" })
   end
+
+  def test_kit_check_keeps_values_from_every_selector
+    md = "## Tokens\n\n```css\n:root {\n  --background: #fff;\n}\n```\n"
+    assert_empty DesignTokens.kit_check(md, ":root{--background:#fff}.dark{--background:#000}")
+    miss = DesignTokens.kit_check(md, ":root{--background:#eee}.dark{--background:#000}")
+    assert_match(/compiled kit has #eee, #000/, miss.join)
+  end
 end
