@@ -480,9 +480,17 @@ module WalkthroughRender
     # The captions block keys the render only when present.
     def caption_material = @board['captions'] ? [ { captions: @board['captions'] } ] : []
 
+    # A music bed keys the render with its outro, so a mix cached before the
+    # render-time fade out existed is redone. Silent boards keep their keys.
+    def music_outro_material
+      return [] unless @board['music']
+
+      [ { music_outro: WalkthroughStoryboard.music_fade_out_ms(@board) || WalkthroughFfmpeg::MUSIC_FADE_OUT_MS } ]
+    end
+
     def render_dir(manifest)
       hash = WalkthroughCache.key([ manifest['manifest_hash'], live_digest, *camera_material, *caption_material,
-                                    { level: WalkthroughFfmpeg::LEVEL_VERSION } ])
+                                    { level: WalkthroughFfmpeg::LEVEL_VERSION }, *music_outro_material ])
       File.join(@cache, 'render', @burn_captions ? "#{hash}-burn" : hash)
     end
 
@@ -536,6 +544,8 @@ module WalkthroughRender
         music = { path: container(require_file!(music_path(total), 'music')), gain_db: @board.dig('music', 'gain_db') || -18 }
         music.merge!(start_ms: WalkthroughStoryboard.music_start_ms(@board), fade_in_ms: WalkthroughStoryboard.music_fade_in_ms(@board))
         music.reject! { |k, v| %i[start_ms fade_in_ms].include?(k) && v.zero? }
+        fade_out = WalkthroughStoryboard.music_fade_out_ms(@board)
+        music[:fade_out_ms] = fade_out unless fade_out.nil?
       end
       { fps: fps, width: viewport['w'], height: viewport['h'], total_ms: total,
         cursor_png: container(File.join(dir, 'cursor.png')), srt: container(File.join(dir, 'captions.srt')),

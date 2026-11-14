@@ -58,6 +58,11 @@ module ElevenLabs
                 query: { 'output_format' => output_format }, body: body)
   end
 
+  # Appended to every prompt-mode request: a generated bed otherwise composes
+  # its own ending well before its last sample, and the renderer fades the
+  # bed itself. Outside music_key, so cached beds stay valid (no paid redo).
+  MUSIC_NO_OUTRO = ' Keep the same energy through the very last second: no outro, no fade, no ending.'
+
   def music_request(length_ms:, model:, prompt: nil, composition_plan: nil)
     raise RequestError, 'music needs exactly one of prompt or composition_plan' if prompt.nil? == composition_plan.nil?
 
@@ -66,7 +71,7 @@ module ElevenLabs
       validate_plan!(composition_plan)
       body['composition_plan'] = composition_plan
     else
-      body['prompt'] = prompt
+      body['prompt'] = "#{prompt}#{MUSIC_NO_OUTRO}"
       body['music_length_ms'] = clamp_music_ms(length_ms)
     end
     Request.new(method: :post, path: '/v1/music', query: {}, body: body)

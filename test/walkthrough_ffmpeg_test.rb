@@ -74,7 +74,7 @@ class WalkthroughFfmpegTest < Minitest::Test
       "[j2]format=yuv420p[vout]",
       "[4:a]#{NORM},adelay=delays=0:all=1,#{BOUND}[n4]",
       "[5:a]#{NORM},adelay=delays=1500:all=1,#{BOUND}[n5]",
-      "[6:a]#{NORM},atrim=duration=6.000,volume='pow(10,(-12.00*clip(min((t-0.000)/0.100,(2.000-t)/0.500),0,1)+-6.00*clip(min((t-2.200)/0.300,(4.300-t)/0.500),0,1))/20)'" \
+      "[6:a]#{NORM},atrim=duration=6.000,afade=t=out:st=3.500:d=2.500,volume='pow(10,(-12.00*clip(min((t-0.000)/0.100,(2.000-t)/0.500),0,1)+-6.00*clip(min((t-2.200)/0.300,(4.300-t)/0.500),0,1))/20)'" \
       ":eval=frame,volume=-18.0dB,#{BOUND}[mus]",
       "[n4][n5][mus]amix=inputs=3:normalize=0:duration=first,atrim=duration=6.000," \
       "volume=+7.10dB,aresample=192000,alimiter=limit=0.84:attack=5:release=80:level=false:latency=true,#{NORM},#{BOUND}[aout]"
@@ -316,10 +316,33 @@ class WalkthroughFfmpegCanvasScaleTest < WalkthroughFfmpegTest
   def test_music_start_delays_then_fades_before_the_duck
     mus = graph(WalkthroughFfmpeg.pass1(plan.merge(music: { path: "/work/m.mp3", gain_db: -18, start_ms: 3900, fade_in_ms: 50 })))
           .find { |p| p.end_with?("[mus]") }
-    assert_includes mus, "atrim=duration=6.000,adelay=delays=3900:all=1,afade=t=in:st=3.900:d=0.050,volume='"
+    assert_includes mus, "atrim=duration=6.000,adelay=delays=3900:all=1,afade=t=in:st=3.900:d=0.050,afade=t=out:st=3.900:d=2.100,volume='"
     plain = graph(WalkthroughFfmpeg.pass1(plan)).find { |p| p.end_with?("[mus]") }
-    refute_match(/adelay|afade/, plain)
+    refute_match(/adelay|afade=t=in/, plain)
     assert_equal({ "/work/m.mp3" => 2.1 }, WalkthroughFfmpeg.audio_expectations(plan.merge(music: { path: "/work/m.mp3", start_ms: 3900 }, scenes: [])))
+  end
+
+  def music_branch(music, total_ms: 6000)
+    graph(WalkthroughFfmpeg.pass1(plan.merge(total_ms: total_ms, music: { path: "/work/m.mp3", gain_db: -18 }.merge(music))))
+      .find { |p| p.end_with?("[mus]") }
+  end
+
+  def test_music_fades_out_at_the_timeline_end
+    assert_includes music_branch({}), "atrim=duration=6.000,afade=t=out:st=3.500:d=2.500,volume='"
+    assert_includes music_branch({ fade_out_ms: 3000 }), "afade=t=out:st=3.000:d=3.000,"
+    refute_match(/afade=t=out/, music_branch({ fade_out_ms: 0 }))
+    both = music_branch({ start_ms: 1000, fade_in_ms: 50, fade_out_ms: 2000 })
+    assert_includes both, "afade=t=in:st=1.000:d=0.050,afade=t=out:st=4.000:d=2.000,volume='"
+  end
+
+  # The bed is shorter than the timeline (a clamped or stale bed): the fade is
+  # still placed from the timeline end, not the bed's.
+  def test_short_bed_still_fades_at_the_timeline_end
+    assert_includes music_branch({}, total_ms: 30_000), "afade=t=out:st=27.500:d=2.500,"
+  end
+
+  def test_outro_never_starts_before_the_bed
+    assert_includes music_branch({ start_ms: 5000, fade_out_ms: 2500 }), "afade=t=out:st=5.000:d=1.000,"
   end
 
   def test_silent_mix_skips_leveling

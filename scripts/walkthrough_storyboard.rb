@@ -337,10 +337,17 @@ module WalkthroughStoryboard
 
   def music_fade_in_ms(board) = ((board.dig('music', 'fade_in') || 0) * 1000).round
 
+  # The bed's render-time outro in ms, nil when unset (the renderer's default).
+  def music_fade_out_ms(board)
+    fade = board.dig('music', 'fade_out')
+    fade.nil? ? nil : (fade * 1000).round
+  end
+
   # The music bed's length: the timeline from its start to the end.
   def music_length_ms(board, total_ms) = total_ms - music_start_ms(board)
 
-  # music.start: seconds, >= 0 and below the total; music.fade_in: 0..2 s.
+  # music.start: seconds, >= 0 and below the total; music.fade_in: 0..2 s;
+  # music.fade_out: 0..5 s (0 turns the outro off).
   def music_errors(board)
     music = board['music']
     return [] unless music.is_a?(Hash)
@@ -352,6 +359,8 @@ module WalkthroughStoryboard
     end
     fade = music['fade_in']
     errors << 'music.fade_in must be a number of seconds in 0..2' unless fade.nil? || (fade.is_a?(Numeric) && (0..2).cover?(fade))
+    out = music['fade_out']
+    errors << 'music.fade_out must be a number of seconds in 0..5' unless out.nil? || (out.is_a?(Numeric) && (0..5).cover?(out))
     errors
   end
 

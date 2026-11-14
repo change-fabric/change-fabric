@@ -112,6 +112,14 @@ class ElevenLabsTest < Minitest::Test
     refute calls.first.body.key?("pronunciation_dictionary_locators")
   end
 
+  def test_music_prompt_asks_for_no_outro_outside_the_key
+    body = ElevenLabs.music_request(prompt: "calm", length_ms: 5000, model: "music_v1").body
+    assert body["prompt"].start_with?("calm ")
+    assert_match(/no outro, no fade, no ending/, body["prompt"])
+    assert_equal ElevenLabs.music_key({ prompt: "calm", composition_plan: nil, model: "m" }, 5000),
+                 WalkthroughCache.key(music: { prompt: "calm", composition_plan: nil, model: "m" }, total_ms: 5000)
+  end
+
   def test_music_request_clamps_length
     assert_equal 3000, ElevenLabs.music_request(prompt: "p", length_ms: 10, model: "music_v1").body["music_length_ms"]
     assert_equal 600_000, ElevenLabs.music_request(prompt: "p", length_ms: 9_000_000, model: "music_v1").body["music_length_ms"]
@@ -345,7 +353,7 @@ class ElevenLabsTest < Minitest::Test
     assert_equal 0, code, out
     req = @http_calls.first.first
     assert_equal "/v1/music", req.path
-    assert_equal "calm piano", req.body["prompt"]
+    assert_equal "calm piano#{ElevenLabs::MUSIC_NO_OUTRO}", req.body["prompt"]
     assert_equal 60_000, req.body["music_length_ms"]
     assert_equal "MUSICBYTES", File.binread(out[/^music: (.+)$/, 1])
     assert_includes out, "music $0.15"
@@ -390,7 +398,7 @@ class ElevenLabsTest < Minitest::Test
     expected = ElevenLabs.clamp_music_ms(WalkthroughStoryboard.timeline(JSON.parse(File.read(board)))["total_ms"])
     req = @http_calls.first.first
     assert_equal expected, req.body["music_length_ms"]
-    assert_equal "calm piano", req.body["prompt"]
+    assert_equal "calm piano#{ElevenLabs::MUSIC_NO_OUTRO}", req.body["prompt"]
     assert_equal "music_v1", req.body["model_id"]
   end
 

@@ -238,7 +238,7 @@ class WalkthroughRenderTest < Minitest::Test
     assert_includes pass2.join(" "), "volume=+4.00dB,#{WalkthroughFfmpeg::LIMITER}"
     refute_includes pass2.join(" "), "loudnorm"
     assert_includes log.string, "loudness: measured I -20.0 LUFS, LRA 5.0 LU"
-    key = WalkthroughCache.key([ result[:manifest]["manifest_hash"], {}, { level: WalkthroughFfmpeg::LEVEL_VERSION } ])
+    key = WalkthroughCache.key([ result[:manifest]["manifest_hash"], {}, { level: WalkthroughFfmpeg::LEVEL_VERSION }, { music_outro: 2500 } ])
     dir = File.join(@root, ".cache", "render", key)
     assert_equal File.join(dir, "walkthrough.mp4"), result[:mp4]
     assert_match(/\A1\n00:00:00,000 --> /, File.read(File.join(dir, "captions.srt")))
@@ -846,6 +846,19 @@ class WalkthroughRenderTest < Minitest::Test
     assert_equal ElevenLabs.clamp_music_ms(WalkthroughStoryboard.timeline(b)["total_ms"] - 1500), @calls[:music].last
     assert_operator @calls[:music].last, :<, full
     assert_includes @calls[:docker].last.join(" "), "adelay=delays=1500:all=1,afade=t=in:st=1.500:d=0.050,"
+  end
+
+  def test_music_fade_out_reaches_the_mix_and_rekeys_the_render
+    run_render
+    first = @calls[:docker].last.join(" ")
+    assert_match(/afade=t=out:st=[\d.]+:d=2\.500,/, first)
+    paid = @calls[:music].size
+    b = JSON.parse(File.read(File.join(@root, "storyboard.json")))
+    b["music"]["fade_out"] = 1
+    File.write(File.join(@root, "storyboard.json"), JSON.pretty_generate(b))
+    run_render
+    assert_match(/afade=t=out:st=[\d.]+:d=1\.000,/, @calls[:docker].last.join(" "))
+    assert_equal paid, @calls[:music].size
   end
 
   def set_board_target(name)

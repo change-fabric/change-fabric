@@ -25,7 +25,7 @@ Overrides: `--model <model_id>` (default `music_v1`), `--cache <dir>` (default `
 
 1. Estimate first: add `--estimate-only`. It prints the music cost for a track not already cached and makes no call. Show it to the user before the paid run.
 2. Run without `--estimate-only`. It prints `music: <cache>/music/<music_key>.mp3`.
-3. The `music_key` hashes the prompt or plan, model, and length. A plan cannot be seeded, so the same plan can sound different on a regenerate; the cached file is the authority. Keep the one you chose, and delete its cache entry only to deliberately re-roll. A repeat run is a cache hit: no call, no key.
+3. The `music_key` hashes the prompt or plan, model, and length. A plan cannot be seeded, so the same plan can sound different on a regenerate; the cached file is the authority. Keep the one you chose, and delete its cache entry only to deliberately re-roll. A repeat run is a cache hit: no call, no key. A prompt request also asks for no outro, fade, or ending (the walkthrough renderer fades the bed itself); that wording sits outside the key, so beds cached before it stay valid.
 4. A storyboard run shares the walkthrough render's cache, so a track composed here is reused by `walkthrough_render.rb`.
 
 ## Keys and licensing
