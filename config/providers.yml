@@ -1,0 +1,23 @@
+# Paid API providers. Adding one is an entry here plus a `providers:` line in
+# the skill's SKILL.md frontmatter; resolution, the CLI, the guards, and the
+# SessionStart prompt read this file and need no code change.
+providers:
+  openai:
+    label: OpenAI
+    key_file: .openai
+    ignored_env: [OPENAI_API_KEY]
+    key_shape: '\bsk-(?:proj-|svcacct-|admin-)?[A-Za-z0-9_-]{20,}'
+    validate: { method: GET, url: https://api.openai.com/v1/models, auth: bearer }
+  elevenlabs:
+    label: ElevenLabs
+    key_file: .elevenlabs
+    ignored_env: [ELEVENLABS_API_KEY, ELEVEN_LABS_API_KEY, XI_API_KEY]
+    key_shape: '\bsk_[a-f0-9]{48}\b'
+    validate: { method: GET, url: https://api.elevenlabs.io/v1/user, auth: header, header: xi-api-key }
+  gemini:
+    label: Gemini
+    key_file: .gemini
+    ignored_env: [GEMINI_API_KEY, GOOGLE_API_KEY]
+    key_shape: '\bAIza[0-9A-Za-z_-]{35}\b'
+    validate: { method: GET, url: https://generativelanguage.googleapis.com/v1beta/models, auth: header, header: x-goog-api-key }
+global_ignored_env: [CF_SECRETS_ENV]
