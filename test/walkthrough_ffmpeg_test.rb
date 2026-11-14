@@ -77,8 +77,7 @@ class WalkthroughFfmpegTest < Minitest::Test
       "[6:a]#{NORM},atrim=duration=6.000,volume='pow(10,(-12.00*clip(min((t-0.000)/0.100,(2.000-t)/0.500),0,1)+-6.00*clip(min((t-2.200)/0.300,(4.300-t)/0.500),0,1))/20)'" \
       ":eval=frame,volume=-18.0dB,#{BOUND}[mus]",
       "[n4][n5][mus]amix=inputs=3:normalize=0:duration=first,atrim=duration=6.000," \
-      "loudnorm=I=-16:TP=-1.5:LRA=11:measured_I=-23.10:measured_TP=-4.20:measured_LRA=6.30:measured_thresh=-33.40:" \
-      "offset=0.15:linear=true:print_format=summary,#{NORM},#{BOUND}[aout]"
+      "volume=+7.10dB,alimiter=limit=0.84:attack=5:release=80:level=false:latency=true,#{NORM},#{BOUND}[aout]"
     ]
     assert_equal expected, graph(argv)
     tail = argv[argv.index("-map")..]
@@ -123,6 +122,7 @@ class WalkthroughFfmpegTest < Minitest::Test
     g = graph(argv)
     assert_equal "[0:a]#{NORM},adelay=delays=0:all=1,#{BOUND}[n0]", g.first
     assert_match(/loudnorm=I=-16:TP=-1\.5:LRA=11:print_format=json,/, g.last)
+    refute_match(/volume=[^,]*dB,alimiter/, g.last, "pass 1 measures the raw mix")
     assert_equal [ "-map", "[aout]", "-f", "null", "-" ], argv.last(5)
   end
 
@@ -132,7 +132,7 @@ class WalkthroughFfmpegTest < Minitest::Test
           "  \"input_thresh\" : \"-33.40\",\n  \"target_offset\" : \"0.15\"\n}\n"
     measured = WalkthroughFfmpeg.parse_loudnorm(out)
     assert_equal MEASURED, measured
-    assert_includes WalkthroughFfmpeg.pass2_loudnorm(measured), "measured_I=-23.10"
+    assert_equal(7.1, WalkthroughFfmpeg.static_gain(measured))
     assert_raises(WalkthroughFfmpeg::LoudnormParseError) { WalkthroughFfmpeg.parse_loudnorm("nothing") }
   end
 
@@ -199,7 +199,7 @@ class WalkthroughFfmpegTest < Minitest::Test
     p = plan.merge(music: nil)
     p[:scenes].each { |s| s[:audio] = nil }
     argv = WalkthroughFfmpeg.pass2(p, MEASURED)
-    assert_match(/\Aanullsrc=r=48000:cl=stereo,atrim=duration=6\.000,loudnorm=/, graph(argv).last)
+    assert_match(/\Aanullsrc=r=48000:cl=stereo,atrim=duration=6\.000,volume=/, graph(argv).last)
     assert_includes argv.join(" "), "-map 4:s"
   end
 
@@ -213,7 +213,7 @@ class WalkthroughFfmpegTest < Minitest::Test
       assert part.end_with?("#{BOUND}[n4]", "#{BOUND}[n5]", "#{BOUND}[mus]", "#{BOUND}[aout]"), part
       refute_match(/aloop|duration=longest|apad(,|\z)/, part)
     end
-    assert_match(/loudnorm=[^,]*,aresample=48000,/, audio.last, "loudnorm's 192 kHz output is resampled")
+    assert_match(/alimiter=[^,]*,aresample=48000,/, audio.last, "the leveled mix is formatted again")
   end
 
   def test_pass2_has_hard_duration_and_progress
@@ -322,10 +322,22 @@ class WalkthroughFfmpegCanvasScaleTest < WalkthroughFfmpegTest
     assert_equal({ "/work/m.mp3" => 2.1 }, WalkthroughFfmpeg.audio_expectations(plan.merge(music: { path: "/work/m.mp3", start_ms: 3900 }, scenes: [])))
   end
 
-  def test_silent_mix_skips_loudnorm
+  def test_silent_mix_skips_leveling
     silent = { "input_i" => "-inf", "input_tp" => "-inf", "input_lra" => "0.00", "input_thresh" => "-70.00", "target_offset" => "inf" }
-    assert_nil WalkthroughFfmpeg.pass2_loudnorm(silent)
-    loud = silent.merge("input_i" => "-20.1", "input_tp" => "-3.0", "target_offset" => "0.2")
-    assert_includes WalkthroughFfmpeg.pass2_loudnorm(loud), "measured_I=-20.1"
+    assert_nil WalkthroughFfmpeg.pass2_level(silent)
+    assert_equal "loudness: silent mix, no gain applied", WalkthroughFfmpeg.level_summary(silent)
+    loud = silent.merge("input_i" => "-20.1", "input_tp" => "-3.0", "input_lra" => "13.1", "target_offset" => "0.2")
+    assert_equal "volume=+4.10dB,#{WalkthroughFfmpeg::LIMITER}", WalkthroughFfmpeg.pass2_level(loud)
+    assert_match(/measured I -20\.1 LUFS, LRA 13\.1 LU.*static gain \+4\.10 dB.*no dynamic loudnorm/, WalkthroughFfmpeg.level_summary(loud))
+  end
+
+  # Pass 2 levels with a fixed gain and a limiter, never loudnorm: loudnorm
+  # with linear=true silently goes dynamic when LRA exceeds its target.
+  def test_pass2_graph_is_static_gain_plus_limiter
+    wide = MEASURED.merge("input_i" => "-21.1", "input_lra" => "13.1")
+    last = graph(WalkthroughFfmpeg.pass2(plan, wide)).last
+    assert_match(/volume=\+5\.10dB,alimiter=limit=0\.84:/, last)
+    refute_match(/loudnorm|dynaudnorm/, graph(WalkthroughFfmpeg.pass2(plan, wide)).join(";"))
+    assert_operator WalkthroughFfmpeg::LIMIT, :<=, 10**(-1.5 / 20)
   end
 end

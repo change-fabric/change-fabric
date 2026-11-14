@@ -53,7 +53,7 @@ module WalkthroughRender
     # the timeline (FfmpegWatchdog); same [output, status] contract as docker.
     ffmpeg_watch: ->(argv, **kw) { FfmpegWatchdog.run(argv, **kw) }
   }.freeze
-  # Set to write pass 2's argv, filter graph and the loudnorm measurement
+  # Set to write pass 2's argv, filter graph and the pass 1 loudness measurement
   # into the render dir, for diagnosing a failed assembly.
   DEBUG_ENV = 'CF_WALKTHROUGH_DEBUG'
 
@@ -481,7 +481,8 @@ module WalkthroughRender
     def caption_material = @board['captions'] ? [ { captions: @board['captions'] } ] : []
 
     def render_dir(manifest)
-      hash = WalkthroughCache.key([ manifest['manifest_hash'], live_digest, *camera_material, *caption_material ])
+      hash = WalkthroughCache.key([ manifest['manifest_hash'], live_digest, *camera_material, *caption_material,
+                                    { level: WalkthroughFfmpeg::LEVEL_VERSION } ])
       File.join(@cache, 'render', @burn_captions ? "#{hash}-burn" : hash)
     end
 
@@ -662,6 +663,7 @@ module WalkthroughRender
       preflight!
       probe_audio!(plan)
       measured = WalkthroughFfmpeg.parse_loudnorm(ffmpeg!(WalkthroughFfmpeg.pass1(plan), 'pass 1'))
+      say(WalkthroughFfmpeg.level_summary(measured))
       argv = WalkthroughFfmpeg.pass2(plan, measured)
       write_debug(dir, argv, measured) if ENV[DEBUG_ENV].to_s.strip != ''
       verify_mp4!(mp4) { pass2!(argv, plan[:total_ms]) }

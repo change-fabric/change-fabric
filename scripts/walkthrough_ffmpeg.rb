@@ -23,10 +23,22 @@ require_relative 'walkthrough_transition'
 # crops back to the canvas, so a zoom never resamples a frame up. Cursor and
 # tap tracks stay in canvas px and are scaled onto the stage here.
 #
-# Audio is normalized in two passes: pass 1 measures with loudnorm
-# print_format=json, pass 2 applies the measured values with linear=true.
+# Audio is leveled in two passes: pass 1 measures with loudnorm
+# print_format=json (measurement only, its output is discarded), pass 2
+# applies one static gain, target I minus measured I, then a peak limiter
+# with its ceiling at the TP target. Pass 2 never runs loudnorm: with
+# linear=true it still falls back to dynamic mode whenever the measured LRA
+# exceeds its LRA target or the gain would breach TP, and that dynamic mode
+# pumps the music bed under narration.
 module WalkthroughFfmpeg
+  TARGET_I = -16.0
+  TARGET_TP = -1.5
   LOUDNORM = 'I=-16:TP=-1.5:LRA=11'
+  # Linear ceiling for TP -1.5 dBFS, rounded down so it never overshoots.
+  LIMIT = ((10**(TARGET_TP / 20)) * 100).floor / 100.0
+  LIMITER = "alimiter=limit=#{LIMIT}:attack=5:release=80:level=false:latency=true".freeze
+  # Bump whenever the leveling changes, so cached mixes re-render.
+  LEVEL_VERSION = 2
   AUDIO_RATE = 48_000
   AUDIO_LAYOUT = 'stereo'
   # Pass 2 is killed once its output clock passes the timeline by this much.
@@ -48,8 +60,6 @@ module WalkthroughFfmpeg
   DETERMINISM = [ '-fflags', '+bitexact', '-flags:v', '+bitexact', '-flags:a', '+bitexact', '-r', '30',
                   '-pix_fmt', 'yuv420p', '-map_metadata', '-1', '-c:v', 'libx264', '-preset', 'medium', '-tune', 'animation',
                   '-crf', '18', '-threads', '4', '-c:a', 'aac', '-b:a', '192k' ].freeze
-  MEASURED = { 'input_i' => 'measured_I', 'input_tp' => 'measured_TP', 'input_lra' => 'measured_LRA',
-               'input_thresh' => 'measured_thresh', 'target_offset' => 'offset' }.freeze
 
   class LoudnormParseError < StandardError; end
 
@@ -366,8 +376,7 @@ module WalkthroughFfmpeg
   # the mix. Source clips differ in rate and channels (mono narration, stereo
   # music) and an mp3 starts at a non-zero start_time; mixing them unformatted
   # let the graph negotiate its own rate and carry source timestamps through
-  # to the AAC encoder. loudnorm upsamples to 192 kHz in dynamic mode, so its
-  # output is resampled again and the whole stream is bounded once more.
+  # to the AAC encoder. The leveled mix is formatted and bounded once more.
   def audio_format = "aresample=#{AUDIO_RATE},aformat=sample_fmts=fltp:sample_rates=#{AUDIO_RATE}:channel_layouts=#{AUDIO_LAYOUT}"
 
   def normalize = "#{audio_format},asetpts=N/SR/TB"
@@ -384,7 +393,7 @@ module WalkthroughFfmpeg
     fade.positive? ? "#{out}afade=t=in:st=#{seconds(start)}:d=#{seconds(fade)}," : out
   end
 
-  def audio_graph(plan, loudnorm)
+  def audio_graph(plan, level)
     io = audio_inputs(plan)
     total = seconds(plan[:total_ms])
     parts = []
@@ -409,8 +418,7 @@ module WalkthroughFfmpeg
     else
                "#{labels.join}amix=inputs=#{labels.size}:normalize=0:duration=first,atrim=duration=#{total}"
     end
-    level = loudnorm.nil? ? '' : "loudnorm=#{loudnorm},"
-    parts << "#{source},#{level}#{normalize},#{bound(total)}[aout]"
+    parts << "#{source},#{level.nil? ? '' : "#{level},"}#{normalize},#{bound(total)}[aout]"
     parts
   end
 
@@ -425,16 +433,31 @@ module WalkthroughFfmpeg
 
   # -- loudnorm ------------------------------------------------------------
 
-  def pass1_loudnorm = "#{LOUDNORM}:print_format=json"
+  def pass1_loudnorm = "loudnorm=#{LOUDNORM}:print_format=json"
 
-  # Pass 2 filter options from the pass 1 JSON measurement.
-  # A silent mix (no narration, no music) measures -inf, which loudnorm
-  # rejects as an option, so silence passes through untouched (nil).
-  def pass2_loudnorm(measured)
-    return nil if measured.fetch('input_i').to_s.include?('inf')
+  # The static gain in dB that moves the measured mix onto TARGET_I, or nil
+  # for a silent mix (measured -inf), which passes through untouched.
+  def static_gain(measured)
+    input = measured.fetch('input_i').to_s
+    return nil if input.include?('inf')
 
-    values = MEASURED.map { |src, dest| "#{dest}=#{measured.fetch(src)}" }
-    "#{LOUDNORM}:#{values.join(':')}:linear=true:print_format=summary"
+    (TARGET_I - Float(input)).round(2)
+  end
+
+  # Pass 2 level filters from the pass 1 JSON measurement: a fixed volume
+  # then the peak limiter. Never loudnorm, so never dynamic.
+  def pass2_level(measured)
+    gain = static_gain(measured) or return nil
+    "volume=#{format('%+.2f', gain)}dB,#{LIMITER}"
+  end
+
+  # One line for the render log.
+  def level_summary(measured)
+    gain = static_gain(measured)
+    return 'loudness: silent mix, no gain applied' if gain.nil?
+
+    format('loudness: measured I %s LUFS, LRA %s LU, TP %s dBTP; static gain %+.2f dB, limiter %.2f (no dynamic loudnorm)',
+           measured['input_i'], measured['input_lra'], measured['input_tp'], gain, LIMIT)
   end
 
   # The last JSON object loudnorm printed to stderr.
@@ -470,7 +493,7 @@ module WalkthroughFfmpeg
   # stdout, which the renderer's watchdog reads to stop a runaway encode.
   def pass2(plan, measured)
     io = audio_inputs(plan)
-    graph = video_graph(plan) + audio_graph(plan, pass2_loudnorm(measured))
+    graph = video_graph(plan) + audio_graph(plan, pass2_level(measured))
     subs = plan[:caption_track] == false ? [] : [ '-i', plan[:srt] ]
     track = subs.empty? ? [] : [ '-map', "#{io[:next]}:s", '-c:s', 'mov_text' ]
     head + [ '-progress', 'pipe:1', '-nostats' ] + inputs(plan, with_video: true) + subs +

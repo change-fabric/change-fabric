@@ -1,0 +1,91 @@
+# frozen_string_literal: true
+
+require "minitest/autorun"
+require "fileutils"
+require "json"
+require "open3"
+require "tmpdir"
+require_relative "../scripts/change_docker"
+require_relative "../scripts/walkthrough_ffmpeg"
+
+# Real pass 1 and pass 2 in the pinned FFmpeg image on a mix whose loudness
+# range is well above loudnorm's LRA=11 target: a loud half then a quiet half.
+# loudnorm with linear=true falls back to dynamic mode on such a mix and
+# squeezes the range; the static gain plus limiter must keep the range within
+# about 1 LU of the input and land integrated loudness within 1 LU of -16.
+class WalkthroughLoudnessDockerTest < Minitest::Test
+  FPS = 30
+  TOTAL_MS = 20_000
+
+  def setup
+    skip "docker not available" unless ChangeDocker.available?
+    @dir = Dir.mktmpdir
+  end
+
+  def teardown
+    FileUtils.rm_rf(@dir) if @dir
+  end
+
+  def ffmpeg(args, entrypoint: nil)
+    argv = ChangeDocker.run_command(network: "none", image: ChangeDocker::FFMPEG_IMAGE, args: args, entrypoint: entrypoint,
+                                    mounts: { @dir => "/work" }, workdir: "/work")
+    Open3.capture2e("timeout", "300", *argv)
+  end
+
+  def make!(args)
+    out, status = ffmpeg([ "-hide_banner", "-v", "error", "-y" ] + args)
+    skip "could not make fixtures: #{out.lines.last(3).join}" unless status.success?
+  end
+
+  # A tone 20 dB quieter for its second half: low crest factor, so the gain
+  # never reaches the limiter and the range is the leveling's alone.
+  def fixtures!
+    FileUtils.mkdir_p(File.join(@dir, "f0"))
+    make!([ "-f", "lavfi", "-i", "color=c=gray:s=64x36:r=#{FPS}", "-frames:v", (TOTAL_MS / 1000 * FPS).to_s,
+            "-start_number", "1", "f0/%06d.png" ])
+    make!([ "-f", "lavfi", "-i", "sine=f=440:r=48000:d=20", "-af", "volume=0.1,volume='if(lt(t,10),1,0.1)':eval=frame",
+            "-ac", "1", "n0.wav" ])
+    FileUtils.cp(File.join(__dir__, "..", "scripts", "vendor", "walkthrough", "cursor.png"), @dir)
+  end
+
+  def plan
+    scene = { id: "s0", frames_dir: "/work/f0", frames: TOTAL_MS / 1000 * FPS, start_frame: 0,
+              transition: { "type" => "cut", "ms" => 0 }, cursor: [], hero_still: false, audio: "/work/n0.wav", offset_ms: 0 }
+    { fps: FPS, width: 64, height: 36, total_ms: TOTAL_MS, cursor_png: "/work/cursor.png", srt: "/work/c.srt",
+      output: "/work/out.mp4", music: nil, duck_spans: [], scenes: [ scene ], caption_track: false }
+  end
+
+  def measure(input)
+    out, status = ffmpeg([ "-hide_banner", "-nostdin", "-i", input, "-af", WalkthroughFfmpeg.pass1_loudnorm, "-f", "null", "-" ])
+    assert status.success?, out.lines.last(10).join
+    WalkthroughFfmpeg.parse_loudnorm(out)
+  end
+
+  def test_static_level_keeps_the_range_and_hits_the_target
+    fixtures!
+    p = plan
+    out, status = ffmpeg(WalkthroughFfmpeg.pass1(p))
+    assert status.success?, out.lines.last(10).join
+    measured = WalkthroughFfmpeg.parse_loudnorm(out)
+    assert_operator measured["input_lra"].to_f, :>, 11.0, "the fixture must exceed loudnorm's LRA target"
+
+    out, status = ffmpeg(WalkthroughFfmpeg.pass2(p, measured))
+    assert status.success?, out.lines.last(10).join
+    delivered = measure("out.mp4")
+    assert_in_delta measured["input_lra"].to_f, delivered["input_lra"].to_f, 1.0, "loudness range was compressed"
+    assert_in_delta WalkthroughFfmpeg::TARGET_I, delivered["input_i"].to_f, 1.0
+  end
+
+  # The fixture is the case the bug lives in: the old linear loudnorm pass 2
+  # on the same input goes dynamic and squeezes the range by more than 1 LU.
+  def test_old_linear_loudnorm_would_compress_the_range
+    fixtures!
+    raw = measure("n0.wav")
+    values = { "measured_I" => raw["input_i"], "measured_TP" => raw["input_tp"], "measured_LRA" => raw["input_lra"],
+               "measured_thresh" => raw["input_thresh"], "offset" => raw["target_offset"] }
+    old = "loudnorm=#{WalkthroughFfmpeg::LOUDNORM}:#{values.map { |k, v| "#{k}=#{v}" }.join(':')}:linear=true"
+    out, status = ffmpeg([ "-hide_banner", "-nostdin", "-i", "n0.wav", "-af", "#{old},aresample=48000", "-y", "old.wav" ])
+    assert status.success?, out.lines.last(10).join
+    assert_operator raw["input_lra"].to_f - measure("old.wav")["input_lra"].to_f, :>, 1.0
+  end
+end
