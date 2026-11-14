@@ -218,7 +218,7 @@ module PrototypeFlats
 
   # Renders everything into <root>/flats and returns that directory.
   # `session` responds to run_function, as in PrototypeCapture.capture.
-  def run(session:, root:, manifest_path: File.join(root, 'flats.json'))
+  def run(session:, root:, manifest_path: File.join(root, 'flats.json'), kit_dist: nil)
     manifest = load_manifest(manifest_path)
     out = File.join(root, 'flats')
     WalkthroughCache.ensure_gitignore(root)
@@ -226,7 +226,7 @@ module PrototypeFlats
     boards = THEMES.to_h { |t| [ t, [] ] }
     THEMES.each do |theme|
       FileUtils.mkdir_p(File.join(out, theme))
-      list.each { |e| boards[theme] << render_flat(session, e, theme, root, manifest) }
+      list.each { |e| boards[theme] << render_flat(session, e, theme, root, manifest, kit_dist: kit_dist) }
       html = board_html(boards[theme], theme: theme)
       png = check!(session.run_function(board_module(html)), "overview #{theme}")['png']
       File.binwrite(overview_path(root, theme), Base64.decode64(png))
@@ -235,10 +235,11 @@ module PrototypeFlats
     out
   end
 
-  def render_flat(session, entry, theme, root, manifest)
+  # kit_dist (target mode) adds the kit's dist/ to the inline allow-list.
+  def render_flat(session, entry, theme, root, manifest, kit_dist: nil)
     out = File.join(root, 'flats')
     seed = seed_for(root)
-    html = PrototypeCapture.inline_screen(File.join(root, entry[:html]), root: root)
+    html = PrototypeCapture.inline_screen(File.join(root, entry[:html]), root: PrototypeCapture.allowed_roots(root, kit_dist))
     state = PrototypeCapture.resolve_state(seed, patch: entry[:patch])
     mod = function_module(html: html, theme: theme, viewport: manifest['viewport'], state: state,
                           prng_seed: PrototypeCapture.default_prng_seed(entry[:name]))
@@ -322,11 +323,18 @@ if __FILE__ == $PROGRAM_NAME && %w[record-figma routes-snippet].include?(ARGV.fi
 end
 
 if __FILE__ == $PROGRAM_NAME
-  root = ARGV[0] || abort('usage: prototype_flats.rb walkthrough/<slug> [--manifest flats.json]')
+  root = ARGV[0] || abort('usage: prototype_flats.rb walkthrough/<slug> [--manifest flats.json] [--target <name> [--repo DIR]]')
   manifest = ARGV.include?('--manifest') ? ARGV[ARGV.index('--manifest') + 1] : File.join(root, 'flats.json')
   root = File.expand_path(root)
+  target = ARGV.include?('--target') ? ARGV[ARGV.index('--target') + 1] : nil
+  repo = ARGV.include?('--repo') ? File.expand_path(ARGV[ARGV.index('--repo') + 1]) : Dir.pwd
+  begin
+    kit_dist = target && PrototypeCapture.prepare_target!(repo, target)
+  rescue StandardError => e
+    abort "prototype_flats: #{e.message}"
+  end
   out = ChangeDocker.with_browserless(network: nil) do |session|
-    PrototypeFlats.run(session: session, root: root, manifest_path: File.expand_path(manifest))
+    PrototypeFlats.run(session: session, root: root, manifest_path: File.expand_path(manifest), kit_dist: kit_dist)
   end
   puts "flats #{out}"
 end

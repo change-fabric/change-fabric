@@ -520,4 +520,63 @@ class PrototypeCaptureTest < Minitest::Test
       assert_equal [ "a.css?v=2" ], PrototypeCapture.local_refs(File.join(dir, "x.html")).first(1)
     end
   end
+
+  def target_fixture
+    Dir.mktmpdir do |base|
+      slug = File.join(base, "walkthrough", "s")
+      kit_dist = File.join(base, "packages", "design-kit", "dist")
+      write(kit_dist, "kit.css", ":root{--brand:#123456}")
+      write(kit_dist, "components/Shell.html", "<nav>shell</nav>")
+      write(base, "secret.css", "body{}")
+      yield slug, kit_dist, base
+    end
+  end
+
+  def test_allow_list_accepts_the_kit_dist_and_still_refuses_other_outside_paths
+    target_fixture do |slug, kit_dist, _base|
+      html = write(slug, "screens/a.html", %(<link rel="stylesheet" href="../../../packages/design-kit/dist/kit.css"><p>a</p>))
+      error = assert_raises(PrototypeCapture::UnsupportedContentError) { PrototypeCapture.inline_screen(html) }
+      assert_match(/resolves outside/, error.message)
+      out = PrototypeCapture.inline_screen(html, root: PrototypeCapture.allowed_roots(slug, kit_dist))
+      assert_includes out, "--brand:#123456"
+      other = write(slug, "screens/b.html", %(<link rel="stylesheet" href="../../../secret.css">))
+      assert_raises(PrototypeCapture::UnsupportedContentError) do
+        PrototypeCapture.inline_screen(other, root: PrototypeCapture.allowed_roots(slug, kit_dist))
+      end
+    end
+  end
+
+  def test_no_target_keeps_the_plain_root_and_an_identical_frames_key
+    Dir.mktmpdir do |root|
+      assert_equal root, PrototypeCapture.allowed_roots(root)
+      write(root, "screens/tokens.css", ":root{--a:#111}")
+      write(root, "screens/a.html", %(<link rel="stylesheet" href="tokens.css"><p>a</p>))
+      board = { "tokens_css_sha256" => "abc", "viewport" => { "w" => 10, "h" => 10, "dpr" => 1 },
+                "scenes" => [ { "id" => "a", "screen" => { "html" => "screens/a.html" } } ] }
+      plain = PrototypeCapture.prepare(board, board["scenes"][0], root, {})
+      assert_equal plain[:key], PrototypeCapture.prepare(board, board["scenes"][0], root, {}, kit_dist: nil)[:key]
+      assert_equal root, plain[:inline_root]
+    end
+  end
+
+  def test_a_rebuilt_kit_changes_the_frames_key
+    target_fixture do |slug, kit_dist, _base|
+      write(slug, "screens/a.html", %(<link rel="stylesheet" href="../../../packages/design-kit/dist/kit.css"><p>a</p>))
+      board = { "viewport" => { "w" => 10, "h" => 10, "dpr" => 1 }, "scenes" => [ { "id" => "a", "screen" => { "html" => "screens/a.html" } } ] }
+      before = PrototypeCapture.prepare(board, board["scenes"][0], slug, {}, kit_dist: kit_dist)[:key]
+      write(kit_dist, "kit.css", ":root{--brand:#654321}")
+      refute_equal before, PrototypeCapture.prepare(board, board["scenes"][0], slug, {}, kit_dist: kit_dist)[:key]
+    end
+  end
+
+  def test_prepare_target_refuses_a_stale_kit
+    fake = Module.new do
+      module_function
+
+      def build(*) = nil
+      def check(*) = [ "error: kit: --brand: expected \"#111\", got \"#222\"" ]
+    end
+    error = assert_raises(PrototypeCapture::UnsupportedContentError) { PrototypeCapture.prepare_target!("/repo", "portal", kit: fake) }
+    assert_match(/stale.*--brand/m, error.message)
+  end
 end

@@ -164,6 +164,32 @@ module DesignTokens
     required_sections(design_md) + misses + provenance_lint(design_md)
   end
 
+  # Target mode (spec 0.18.0): the canon is the kit CSS compiled from the live
+  # theme, which a build reformats, so a declaration is matched by custom
+  # property name and normalized value rather than verbatim text.
+  # A property may be declared under several selectors (light and dark), so
+  # every compiled value is kept and a documented value matches any of them.
+  def kit_check(design_md, kit_css)
+    compiled = kit_values(kit_css)
+    documented = Drift.properties(css_fences(design_md).join("\n"))
+    documented.filter_map do |name, value|
+      values = compiled.fetch(name, [])
+      next if values.any? { |v| Drift.normalize(v) == Drift.normalize(value) }
+
+      values.empty? ? "#{name}: #{value} (not in the compiled kit)" : "#{name}: #{value} (compiled kit has #{values.join(', ')})"
+    end
+  end
+
+  def kit_values(css)
+    text = css.to_s.dup.force_encoding(Encoding::UTF_8).scrub.gsub(%r{/\*.*?\*/}m, " ")
+    text.scan(Drift::PROPERTY).group_by(&:first).transform_values { |pairs| pairs.map { |_, v| v.strip } }
+  end
+
+  def kit_lint(design_md, kit_css)
+    misses = kit_check(design_md, kit_css).map { |miss| Finding.new("kit", nil, "differs from the live theme: #{miss}") }
+    required_sections(design_md) + misses + provenance_lint(design_md)
+  end
+
   # Token drift: tokens.css is the only canon. Every other source (screens
   # copies, the storyboard hash, compiled Tailwind properties, a Figma
   # variables snapshot) is compared against it and never written back to.
@@ -302,7 +328,8 @@ module DesignTokens
   module CLI
     module_function
 
-    USAGE = "usage: design_tokens.rb lint DESIGN.md tokens.css [--json] [--contrast]"
+    USAGE = "usage: design_tokens.rb lint DESIGN.md tokens.css [--json] [--contrast]\n" \
+            "       design_tokens.rb lint DESIGN.md --kit-css <kit>/dist/kit.css [--json]"
 
     DRIFT_USAGE = "usage: design_tokens.rb drift [--root DIR] [--tokens PATH] [--screens DIR] [--storyboard PATH] " \
                   "[--figma-snapshot PATH] [--tailwind|--no-tailwind] [--json]"
@@ -311,11 +338,13 @@ module DesignTokens
       return drift(argv.drop(1), out: out, err: err, compiler: compiler) if argv.first == "drift"
 
       command, design, tokens, *flags = argv
-      unless command == "lint" && design && tokens && (flags - %w[--json --contrast]).empty?
+      kit = tokens == "--kit-css"
+      tokens = flags.shift if kit
+      unless command == "lint" && design && tokens && (flags - %w[--json --contrast]).empty? && !(kit && flags.include?("--contrast"))
         err.puts USAGE
         return 2
       end
-      findings = DesignTokens.lint(File.read(design), File.read(tokens))
+      findings = kit ? DesignTokens.kit_lint(File.read(design), File.read(tokens)) : DesignTokens.lint(File.read(design), File.read(tokens))
       findings += DesignTokens.contrast_findings(DesignTokens.contrast(tokens)) if flags.include?("--contrast")
       if flags.include?("--json")
         out.puts JSON.generate(findings: findings.map(&:to_h))

@@ -62,7 +62,12 @@ module ColorCompile
   # Result.css carries the file's raw bytes so the browser decodes them (a
   # BOM is stripped and an invalid byte becomes U+FFFD there); the routing
   # scan works on a scrubbed UTF-8 copy so an invalid byte cannot raise.
-  def read(root_abs, path_abs)
+  #
+  # `package_root` (default the root) is where Tailwind is installed. In a
+  # pnpm or yarn workspace that is the package holding the CSS, not the
+  # workspace root; the root is still the mount, so every workspace symlink
+  # resolves inside the container.
+  def read(root_abs, path_abs, package_root: root_abs)
     bytes = File.binread(path_abs)
     text = bytes.dup.force_encoding(Encoding::UTF_8).scrub
     return Result.new(css: bytes, error: nil) unless needs_compile?(text)
@@ -73,12 +78,12 @@ module ColorCompile
                                          'mounts only the root, so pass a root that contains it')
     end
 
-    compile(root_abs, path_abs.delete_prefix(prefix), text)
+    compile(root_abs, path_abs.delete_prefix(prefix), text, package_root: package_root)
   end
 
-  def compile(root, relative_path, text)
-    version = tailwindcss_version(root)
-    return Result.new(css: nil, error: missing_tailwind_message(root, relative_path, text)) if version.nil?
+  def compile(root, relative_path, text, package_root: root)
+    version = tailwindcss_version(package_root)
+    return Result.new(css: nil, error: missing_tailwind_message(package_root, relative_path, text)) if version.nil?
     unless version.is_a?(String) && SEMVER.match?(version)
       return Result.new(css: nil, error: "#{relative_path}: node_modules/tailwindcss/package.json has version " \
                                          "#{version.inspect}, which is not a plain semver version; reinstall dependencies")
