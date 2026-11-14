@@ -11,6 +11,18 @@ class CfKeysTest < Minitest::Test
 
   # Stands in for a terminal: tty? is true and the typed key comes from gets.
   class FakeTty < StringIO
+    attr_reader :hidden
+
+    def tty? = true
+
+    def noecho
+      @hidden = true
+      yield self
+    end
+  end
+
+  # A terminal with no way to hide input.
+  class EchoingTty < StringIO
     def tty? = true
   end
 
@@ -67,6 +79,24 @@ class CfKeysTest < Minitest::Test
     req, uri = @requests.first
     assert_equal "https://api.openai.com/v1/models", uri.to_s
     assert_equal "Bearer #{FAKE}", req["Authorization"]
+  end
+
+  def test_enroll_reads_the_key_with_echo_off
+    stdin = FakeTty.new("#{FAKE}\n")
+    assert_equal 0, run_cli("enroll", "openai", "--dir", @project, stdin: stdin).first
+    assert stdin.hidden
+  end
+
+  def test_enroll_refuses_a_terminal_that_cannot_hide_input
+    code, _out, err = run_cli("enroll", "openai", "--dir", @project, stdin: EchoingTty.new("#{FAKE}\n"))
+    assert_equal 2, code
+    assert_match(/real terminal/, err)
+    assert_empty @requests
+    refute File.exist?(CfSecretStore.root)
+  end
+
+  def test_real_stdin_supports_noecho
+    assert_respond_to $stdin, :noecho
   end
 
   def test_header_auth_providers_send_their_named_header

@@ -1,6 +1,7 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 
+require 'io/console'
 require 'optparse'
 require 'shellwords'
 require_relative 'cf_key_validator'
@@ -79,6 +80,8 @@ class CfKeys
 
     project = identity(dir)
     label = CfProviderRegistry.fetch(provider).label
+    return refuse_without_tty unless @in.respond_to?(:noecho)
+
     key = read_secret("#{label} API key for #{project.root} (input hidden): ")
     return fail_with('no key entered; nothing stored', EXIT_USAGE) if key.empty?
 
@@ -143,9 +146,11 @@ class CfKeys
     'missing'
   end
 
+  # Callers check noecho first: a terminal that cannot hide input never gets
+  # a plain gets fallback, so the key is never echoed.
   def read_secret(prompt)
     @err.print(prompt)
-    value = @in.respond_to?(:noecho) ? @in.noecho(&:gets) : @in.gets
+    value = @in.noecho(&:gets)
     @err.puts
     value.to_s.strip
   end
