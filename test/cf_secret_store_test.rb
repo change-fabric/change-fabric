@@ -85,4 +85,11 @@ class CfSecretStoreTest < Minitest::Test
     CfSecretStore.write_key("a", "openai", FAKE)
     assert_equal %w[a b], CfSecretStore.slugs
   end
+
+  def test_slug_cannot_escape_the_secrets_root
+    [ "../evil", "a/b", "..", "", "x\n" ].each do |bad|
+      assert_raises(ArgumentError) { CfSecretStore.write_key(bad, "openai", FAKE) }
+    end
+    refute File.exist?(File.join(@home, ".claude", "cf", "evil"))
+  end
 end

@@ -13,12 +13,18 @@ require_relative 'cf_provider_registry'
 module CfSecretStore
   DIR_MODE = 0o700
   FILE_MODE = 0o600
+  # One path segment: a slug can never climb out of the secrets root.
+  SLUG_SHAPE = /\A[A-Za-z0-9_-]+\z/
 
   module_function
 
   def root(home = ENV.fetch('HOME', Dir.home)) = File.join(home, '.claude', 'cf', 'secrets')
 
-  def dir(slug) = File.join(root, slug.to_s)
+  def dir(slug)
+    raise ArgumentError, 'invalid slug' unless slug.to_s.match?(SLUG_SHAPE)
+
+    File.join(root, slug.to_s)
+  end
 
   def key_path(slug, provider) = File.join(dir(slug), CfProviderRegistry.fetch(provider).key_file)
 
