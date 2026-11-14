@@ -148,6 +148,16 @@ class InstallerTest < Minitest::Test
   # script's own directory, and refuses to fetch axe over the network when it
   # is missing. An install that shipped only the .rb files would turn every
   # a11y run into that named failure.
+  # Each installed script copy resolves the registry from its own ../config.
+  def test_installs_the_provider_registry_where_both_script_copies_look
+    paths = install
+    [ paths.bin, paths.runtime_bin ].each do |bin|
+      registry = File.expand_path("../config/providers.yml", bin)
+      assert File.exist?(registry), "providers.yml missing beside #{bin}"
+      assert_equal File.read(paths.provider_registry), File.read(registry)
+    end
+  end
+
   def test_copies_the_vendored_run_time_assets_beside_the_scripts
     paths = install
     refute_empty paths.vendor_glob, "the repo should carry at least one vendored asset"

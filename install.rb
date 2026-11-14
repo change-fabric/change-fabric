@@ -53,6 +53,13 @@ module Install
     def skills_dir           = File.join(@repo, 'skills')
     def bin                  = File.join(@home, '.claude', 'cf', 'bin')
     def legacy_bin           = File.join(@home, '.claude', 'pst', 'bin')
+    def provider_registry    = File.join(@repo, 'config', 'providers.yml')
+
+    # Every place a script resolves providers.yml from (its own ../config):
+    # beside the Claude bin and beside the runtime bin.
+    def provider_registry_dests
+      [ File.join(state_root, 'config', 'providers.yml'), File.join(runtime_root, 'config', 'providers.yml') ]
+    end
     def state_root           = File.join(@home, '.claude', 'cf')
     def legacy_state_root    = File.join(@home, '.claude', 'pst')
     def skills_root          = File.join(@home, '.claude', 'skills')
@@ -565,7 +572,15 @@ module Install
         FileUtils.chmod(0o755, dest)
       end
       place_vendor
+      place_provider_registry
       write_manifest(names)
+    end
+
+    def place_provider_registry
+      @paths.provider_registry_dests.each do |dest|
+        FileUtils.mkdir_p(File.dirname(dest))
+        FileUtils.cp(@paths.provider_registry, dest)
+      end
     end
 
     def remove_stale_managed_scripts(current_names)
@@ -692,6 +707,7 @@ module Install
       end
       files.concat(@paths.vendor_glob.map { |source| @paths.vendor_dest(source) })
       files << File.join(@paths.runtime_root, 'config', 'host_capabilities.json')
+      files.concat(@paths.provider_registry_dests)
       files << File.expand_path('../../bin/cf', @paths.runtime_root)
       files << @paths.manifest
       files << File.join(@paths.bin, '.expected-home')
