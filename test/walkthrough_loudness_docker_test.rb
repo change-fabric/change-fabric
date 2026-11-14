@@ -32,6 +32,12 @@ class WalkthroughLoudnessDockerTest < Minitest::Test
     Open3.capture2e("timeout", "300", *argv)
   end
 
+  def ffmpeg!(args)
+    out, status = ffmpeg(args)
+    assert status.success?, out.lines.last(10).join
+    out
+  end
+
   def make!(args)
     out, status = ffmpeg([ "-hide_banner", "-v", "error", "-y" ] + args)
     skip "could not make fixtures: #{out.lines.last(3).join}" unless status.success?
@@ -56,21 +62,16 @@ class WalkthroughLoudnessDockerTest < Minitest::Test
   end
 
   def measure(input)
-    out, status = ffmpeg([ "-hide_banner", "-nostdin", "-i", input, "-af", WalkthroughFfmpeg.pass1_loudnorm, "-f", "null", "-" ])
-    assert status.success?, out.lines.last(10).join
-    WalkthroughFfmpeg.parse_loudnorm(out)
+    WalkthroughFfmpeg.parse_loudnorm(ffmpeg!([ "-hide_banner", "-nostdin", "-i", input, "-af", WalkthroughFfmpeg.pass1_loudnorm, "-f", "null", "-" ]))
   end
 
   def test_static_level_keeps_the_range_and_hits_the_target
     fixtures!
     p = plan
-    out, status = ffmpeg(WalkthroughFfmpeg.pass1(p))
-    assert status.success?, out.lines.last(10).join
-    measured = WalkthroughFfmpeg.parse_loudnorm(out)
+    measured = WalkthroughFfmpeg.parse_loudnorm(ffmpeg!(WalkthroughFfmpeg.pass1(p)))
     assert_operator measured["input_lra"].to_f, :>, 11.0, "the fixture must exceed loudnorm's LRA target"
 
-    out, status = ffmpeg(WalkthroughFfmpeg.pass2(p, measured))
-    assert status.success?, out.lines.last(10).join
+    ffmpeg!(WalkthroughFfmpeg.pass2(p, measured))
     delivered = measure("out.mp4")
     assert_in_delta measured["input_lra"].to_f, delivered["input_lra"].to_f, 1.0, "loudness range was compressed"
     assert_in_delta WalkthroughFfmpeg::TARGET_I, delivered["input_i"].to_f, 1.0
@@ -84,8 +85,7 @@ class WalkthroughLoudnessDockerTest < Minitest::Test
     values = { "measured_I" => raw["input_i"], "measured_TP" => raw["input_tp"], "measured_LRA" => raw["input_lra"],
                "measured_thresh" => raw["input_thresh"], "offset" => raw["target_offset"] }
     old = "loudnorm=#{WalkthroughFfmpeg::LOUDNORM}:#{values.map { |k, v| "#{k}=#{v}" }.join(':')}:linear=true"
-    out, status = ffmpeg([ "-hide_banner", "-nostdin", "-i", "n0.wav", "-af", "#{old},aresample=48000", "-y", "old.wav" ])
-    assert status.success?, out.lines.last(10).join
+    ffmpeg!([ "-hide_banner", "-nostdin", "-i", "n0.wav", "-af", "#{old},aresample=48000", "-y", "old.wav" ])
     assert_operator raw["input_lra"].to_f - measure("old.wav")["input_lra"].to_f, :>, 1.0
   end
 end
