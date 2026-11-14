@@ -449,7 +449,12 @@ class WalkthroughStoryboardTest < Minitest::Test
     File.write(kit, ":root{--brand:#456}")
     assert_match(/stale/, WalkthroughStoryboard.tokens_hash_errors(b, WalkthroughStoryboard.canonical_tokens(walk, b)).join)
     refute_equal before, Digest::SHA256.file(kit).hexdigest
-    assert_equal File.join(repo, "design", "tokens.css"), WalkthroughStoryboard.canonical_tokens(walk, board)
+    # No target: the default target's tokens path, which since 0.18.0 is its
+    # theme file even for a tailwind source, exactly as a board-less call.
+    theme = File.join(repo, "apps/portal/src/app/globals.css")
+    FileUtils.mkdir_p(File.dirname(theme))
+    File.write(theme, "@theme { --brand: #123; }")
+    assert_equal theme, WalkthroughStoryboard.canonical_tokens(walk, board)
     assert_equal WalkthroughStoryboard.canonical_tokens(walk), WalkthroughStoryboard.canonical_tokens(walk, board)
   end
 
