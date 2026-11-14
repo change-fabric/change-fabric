@@ -44,12 +44,13 @@ module CfProjectIdentity
   # bare value so its existing per-repo records keep their paths.
   def resolve(dir)
     real = File.realpath(File.expand_path(dir.to_s))
-    root = git_root(real)
-    if root
+    common = git_common_dir(real)
+    if common
+      key, root = git_key_and_root(real, common)
       repo_id = ContributorsTeam.new(real).repo_id
       return [ 'repo', repo_id, root ] if repo_id && !repo_id.empty?
 
-      return [ 'git', root, root ]
+      return [ 'git', key, root ]
     end
     [ 'dir', real, real ]
   end
@@ -66,17 +67,26 @@ module CfProjectIdentity
     nil
   end
 
-  # The main checkout root: the parent of the absolute git common dir, so a
-  # linked worktree resolves to the repo it belongs to. nil outside git.
-  def git_root(dir)
+  # [key, root] for a repo. The usual `<root>/.git` keys on that root, which
+  # every linked worktree shares. A separate git dir
+  # (`git init --separate-git-dir /storage/one.git`) shares its parent with
+  # unrelated repos, so it keys on the common dir itself, rooted at the
+  # checkout dir sits in.
+  def git_key_and_root(dir, common)
+    return [ File.dirname(common) ] * 2 if File.basename(common) == '.git'
+
+    [ common, checkout_root(dir) || dir ]
+  end
+
+  # The absolute, real git common dir (shared by every linked worktree), or
+  # nil outside git.
+  def git_common_dir(dir)
     out, status = Open3.capture2('git', '-C', dir, 'rev-parse', '--path-format=absolute', '--git-common-dir',
                                  err: File::NULL)
     return nil unless status.success?
 
     common = out.strip
-    return nil if common.empty?
-
-    File.realpath(File.dirname(common))
+    common.empty? ? nil : File.realpath(common)
   rescue SystemCallError
     nil
   end

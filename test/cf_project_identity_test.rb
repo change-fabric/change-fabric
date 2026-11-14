@@ -83,4 +83,19 @@ class CfProjectIdentityTest < Minitest::Test
     assert_equal "dir:#{sub}", CfProjectIdentity.for_explicit_dir(sub).id
     assert_equal "repo:github.com/acme/web", CfProjectIdentity.for_explicit_dir(dir).id
   end
+
+  def separate_repo(name)
+    dir = File.join(@tmp, name)
+    FileUtils.mkdir_p(File.join(@tmp, "storage"))
+    GitFixture.git(@tmp, "init", "-q", "--separate-git-dir", File.join(@tmp, "storage", "#{name}.git"), dir)
+    dir
+  end
+
+  def test_separate_git_dirs_with_a_shared_parent_stay_distinct
+    one = CfProjectIdentity.for(separate_repo("one"))
+    two = CfProjectIdentity.for(separate_repo("two"))
+    refute_equal one.id, two.id
+    assert_equal "git:#{File.join(@tmp, 'storage', 'one.git')}", one.id
+    assert_equal File.join(@tmp, "one"), one.root
+  end
 end
