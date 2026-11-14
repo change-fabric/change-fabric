@@ -202,6 +202,9 @@ module PrototypeKit
           jsx: "automatic",
           alias: { ...stubs, "@": "#{alias_root}" },
           packages: "bundle",
+          // Bundled CommonJS (react-dom/server) requires Node built-ins; an
+          // ESM bundle has no require, so supply one.
+          banner: { js: 'import { createRequire as __kitRequire } from "node:module"; const require = __kitRequire(import.meta.url);' },
           logLevel: "error",
         });
       } catch (error) {

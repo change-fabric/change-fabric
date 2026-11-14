@@ -63,6 +63,14 @@ class PrototypeKitTest < Minitest::Test
     end
   end
 
+  def test_build_supplies_require_to_the_esm_ssr_bundle
+    with_workspace do |root|
+      PrototypeKit.init(root, "portal")
+      build = File.read(File.join(root, "packages/design-kit/build.mjs"))
+      assert_match(/banner: \{ js: .*createRequire.*const require = /, build)
+    end
+  end
+
   def test_non_tailwind_target_still_declares_the_css_compiler
     with_workspace(source: "css") do |root|
       PrototypeKit.init(root, "portal")
