@@ -31,13 +31,13 @@ class PrototypeReferenceTest < Minitest::Test
     def [](key) = raw[key]
     def base_url(fallback) = url || fallback
   end
-  FakeApp = Struct.new(:lanes, :target_url) do
+  FakeApp = Struct.new(:lanes, :target_url, :network) do
     def lane(name) = FakeLane.new(lanes.fetch(name, {}), nil)
-    def boot = Struct.new(:target_url).new(target_url)
+    def boot = Struct.new(:target_url, :network).new(target_url, network)
   end
 
-  def app_loader(lanes = { "browserless" => { "auth" => LANE_AUTH } })
-    ->(_root, _name) { FakeApp.new(lanes, "https://staging.example.org") }
+  def app_loader(lanes = { "browserless" => { "auth" => LANE_AUTH } }, network: nil)
+    ->(_root, _name) { FakeApp.new(lanes, "https://staging.example.org", network) }
   end
 
   def with_repo(reference, app: "portal")
@@ -100,7 +100,7 @@ class PrototypeReferenceTest < Minitest::Test
     with_repo({ "routes" => ROUTES, "auth" => "browserless" }) do |root|
       session = Session.new([ { "path" => "/admin/analytics", "status" => 200, "png" => PNG } ])
       paths = PrototypeReference.capture(root, "portal", session: session, source: ENV_OK, app_loader: app_loader)
-      assert_equal [ File.join(root, ".cache/reference/portal/admin-analytics.png") ], paths
+      assert_equal [ File.join(root, ".cache/reference/portal/#{PrototypeReference.still_name('/admin/analytics')}") ], paths
       assert_equal "png-bytes", File.binread(paths.first)
       assert_equal "*\n", File.read(File.join(root, ".cache/reference/.gitignore"))
       code = session.modules.first
@@ -136,5 +136,18 @@ class PrototypeReferenceTest < Minitest::Test
       error = assert_raises(PrototypeReference::Error) { PrototypeReference.plan(root, nil) }
       assert_match(/names no reference/, error.message)
     end
+  end
+
+  def test_plan_carries_the_linked_apps_network
+    with_repo({ "routes" => ROUTES, "auth" => "browserless" }) do |root|
+      assert_equal "my-repo_default", PrototypeReference.plan(root, "portal", app_loader: app_loader(network: "my-repo_default")).network
+      assert_nil PrototypeReference.plan(root, "portal", app_loader: app_loader).network
+    end
+  end
+
+  def test_routes_that_slug_alike_get_distinct_still_names
+    names = [ "/admin/users", "/admin-users", "/", "/root" ].map { |p| PrototypeReference.still_name(p) }
+    assert_equal names.uniq, names
+    assert_match(/\Aadmin-users-\h{8}\.png\z/, names.first)
   end
 end

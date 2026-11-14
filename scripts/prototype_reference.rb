@@ -2,6 +2,7 @@
 # frozen_string_literal: true
 
 require 'base64'
+require 'digest'
 require 'fileutils'
 require 'json'
 require 'optparse'
@@ -28,7 +29,7 @@ module PrototypeReference
   DEFAULT_VIEWPORT = { 'w' => 1440, 'h' => 900, 'dpr' => 1 }.freeze
   NAV_TIMEOUT_MS = 30_000
 
-  Plan = Data.define(:target, :base_url, :routes, :auth)
+  Plan = Data.define(:target, :base_url, :routes, :auth, :network)
 
   module_function
 
@@ -51,7 +52,15 @@ module PrototypeReference
     base = ref.base_url || (app && app.lane('browserless').base_url(app.boot.target_url))
     raise Error, "design target '#{target.name}' has no reference base_url and no linked app to take one from" if base.to_s.empty?
 
-    Plan.new(target: target.name, base_url: base.to_s.chomp('/'), routes: ref.routes, auth: auth_block(target, ref.auth, app))
+    Plan.new(target: target.name, base_url: base.to_s.chomp('/'), routes: ref.routes, auth: auth_block(target, ref.auth, app),
+             network: app_network(app))
+  end
+
+  # The linked app's Compose network (boot.network), so browserless can
+  # resolve a service hostname the inherited base_url names, as the lanes do.
+  def app_network(app)
+    net = app&.boot&.network.to_s
+    net.empty? ? nil : net
   end
 
   # A lane name resolves to that lane's auth block in the linked app's config.
@@ -108,7 +117,12 @@ module PrototypeReference
     file
   end
 
-  def still_name(path) = "#{path.delete_prefix('/').gsub(/[^A-Za-z0-9]+/, '-').sub(/-\z/, '').then { |s| s.empty? ? 'root' : s }}.png"
+  # A readable slug plus a digest of the exact path, so routes that slug alike
+  # (/admin/users and /admin-users, / and /root) never overwrite each other.
+  def still_name(path)
+    slug = path.delete_prefix('/').gsub(/[^A-Za-z0-9]+/, '-').sub(/-\z/, '').then { |s| s.empty? ? 'root' : s }
+    "#{slug}-#{Digest::SHA256.hexdigest(path)[0, 8]}.png"
+  end
 
   # The browserless /function module: log in once, then for each route load
   # it, hide mask selectors (layout kept, so the critic sees structure), and
@@ -184,7 +198,8 @@ if __FILE__ == $PROGRAM_NAME
   end.parse!
   abort('prototype_reference: --target is required') unless opts[:target]
   begin
-    paths = ChangeDocker.with_browserless(network: nil) do |session|
+    network = PrototypeReference.plan(opts[:root], opts[:target]).network
+    paths = ChangeDocker.with_browserless(network: network) do |session|
       PrototypeReference.capture(opts[:root], opts[:target], session: session, viewport: opts[:viewport])
     end
     paths.each { |p| puts "reference #{p}" }
