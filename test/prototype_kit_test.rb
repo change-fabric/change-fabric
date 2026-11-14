@@ -12,9 +12,9 @@ class PrototypeKitTest < Minitest::Test
 
   # A workspace with one app and a portal target. lockfile picks the package
   # manager layout (pnpm-lock.yaml, package-lock.json, yarn.lock).
-  def with_workspace(lockfile: "pnpm-lock.yaml", kit: "packages/design-kit")
+  def with_workspace(lockfile: "pnpm-lock.yaml", kit: "packages/design-kit", source: "tailwind")
     Dir.mktmpdir do |root|
-      design = { "targets" => { "portal" => { "source" => "tailwind", "theme" => "apps/portal/src/app/globals.css",
+      design = { "targets" => { "portal" => { "source" => source, "theme" => "apps/portal/src/app/globals.css",
                                               "components" => "apps/portal/src/components/ui", "kit" => kit } } }
       File.write(File.join(root, "CHANGE.md"), "#{YAML.dump('change_config' => { 'design' => design })}---\n")
       File.write(File.join(root, lockfile), "") if lockfile
@@ -60,6 +60,15 @@ class PrototypeKitTest < Minitest::Test
       assert_includes build, '"next/link"'
       assert_includes build, '"@": "../../apps/portal/src"'
       assert_includes File.read(File.join(kit, "src/render.tsx")), "prerender"
+    end
+  end
+
+  def test_non_tailwind_target_still_declares_the_css_compiler
+    with_workspace(source: "css") do |root|
+      PrototypeKit.init(root, "portal")
+      deps = JSON.parse(File.read(File.join(root, "packages/design-kit/package.json")))["devDependencies"]
+      assert_equal "4.1.3", deps["@tailwindcss/cli"]
+      assert_equal "4.1.3", deps["tailwindcss"]
     end
   end
 

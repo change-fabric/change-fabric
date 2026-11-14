@@ -112,7 +112,6 @@ module PrototypeKit
   def package_json(root, config, app)
     deps = app_dependencies(app)
     pick = ->(*names) { names.to_h { |n| [ n, deps[n] ] }.compact }
-    tailwind = config.target.source == 'tailwind'
     {
       'name' => File.basename(config.target.kit),
       'private' => true,
@@ -125,7 +124,10 @@ module PrototypeKit
       'devDependencies' => {
         'esbuild' => deps.fetch('esbuild', '^0.25.0'),
         **pick.call('react', 'react-dom'),
-        **(tailwind ? { '@tailwindcss/cli' => deps['tailwindcss'] || '^4.0.0' }.merge(pick.call('tailwindcss')) : {})
+        # The build and check compile kit.css with Tailwind for every source
+        # (it resolves the @import and @source), so the compiler is always declared.
+        '@tailwindcss/cli' => deps['tailwindcss'] || '^4.0.0',
+        'tailwindcss' => deps['tailwindcss'] || '^4.0.0'
       }
     }
   end
