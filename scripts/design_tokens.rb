@@ -365,10 +365,11 @@ module DesignTokens
 
     def fill_drift_defaults(opts)
       root = opts[:root] ||= Dir.pwd
-      config = DesignConfig.load(root)
+      config = DesignConfig.load(root).default
       opts[:parity] ||= config
       opts[:tailwind] = config.tailwind unless opts.key?(:tailwind)
       opts[:tokens] ||= File.join(root, config.tokens)
+      opts[:tailwind_input] ||= File.join(root, config.target.theme) if config.target.source == "tailwind" && !config.target.flat
       opts[:screens] ||= File.join(root, Drift::DEFAULT_SCREENS)
       opts[:storyboard] ||= File.join(root, Drift::DEFAULT_STORYBOARD)
       opts[:figma_snapshot] ||= File.join(root, config.variables_snapshot)

@@ -4,6 +4,8 @@ require "minitest/autorun"
 require "json"
 require "stringio"
 require "tmpdir"
+require "fileutils"
+require "yaml"
 require_relative "../scripts/design_tokens"
 
 class DesignTokensTest < Minitest::Test
@@ -219,6 +221,22 @@ class DesignTokensTest < Minitest::Test
     err = StringIO.new
     code = DesignTokens::CLI.run([ "drift", *args ], out: out, err: err, compiler: ->(*) { Compiled.new(nil, "stub") })
     [ code, out.string, err.string ]
+  end
+
+  def test_drift_tailwind_target_reads_its_live_theme_without_legacy_tokens
+    Dir.mktmpdir do |root|
+      theme = File.join(root, "apps/portal/globals.css")
+      FileUtils.mkdir_p(File.dirname(theme))
+      File.write(theme, ":root{--a:#fff}")
+      design = { "targets" => { "portal" => { "source" => "tailwind", "theme" => "apps/portal/globals.css" } } }
+      File.write(File.join(root, "CHANGE.md"), "#{YAML.dump('change_config' => { 'design' => design })}---\n\nbody\n")
+      opts = DesignTokens::CLI.fill_drift_defaults(root: root)
+      assert_equal theme, opts[:tokens]
+      assert_equal theme, opts[:tailwind_input]
+      code, out, err = drift_cli("--root", root)
+      assert_equal 0, code, err
+      assert_match(/no drift/, out)
+    end
   end
 
   def test_drift_cli_exit_codes
