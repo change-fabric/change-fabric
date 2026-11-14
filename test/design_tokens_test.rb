@@ -252,4 +252,21 @@ class DesignTokensTest < Minitest::Test
     assert_equal 2, drift_cli("--bogus").first
     assert_equal 2, drift_cli("--root", DRIFT, "--tokens", "/missing.css").first
   end
+
+  def test_kit_check_matches_by_property_and_normalized_value
+    md = "## Tokens\n\n```css\n:root {\n  --brand: #ABC;\n  --gone: 1px;\n  --off: 2px;\n}\n```\n"
+    kit = ":root{--brand:#abc;--off:3px}.p-2{padding:2px}"
+    misses = DesignTokens.kit_check(md, kit)
+    assert_equal 2, misses.size
+    assert_match(/--gone: 1px \(not in the compiled kit\)/, misses.join)
+    assert_match(/--off: 2px \(compiled kit has 3px\)/, misses.join)
+    assert(DesignTokens.kit_lint(md, kit).any? { |f| f.kind == "kit" })
+  end
+
+  def test_kit_check_keeps_values_from_every_selector
+    md = "## Tokens\n\n```css\n:root {\n  --background: #fff;\n}\n```\n"
+    assert_empty DesignTokens.kit_check(md, ":root{--background:#fff}.dark{--background:#000}")
+    miss = DesignTokens.kit_check(md, ":root{--background:#eee}.dark{--background:#000}")
+    assert_match(/compiled kit has #eee, #000/, miss.join)
+  end
 end
