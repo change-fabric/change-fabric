@@ -226,7 +226,8 @@ class WalkthroughRenderTest < Minitest::Test
   end
 
   def test_full_render_order_and_outputs
-    result = run_render
+    log = StringIO.new
+    result = run_render(out: log)
     assert_equal %w[list detail hero], @calls[:capture], "from_scene dependency captured before its dependent"
     assert_equal 3, @calls[:tts].size
     assert_equal 1, @calls[:music].size
@@ -237,8 +238,11 @@ class WalkthroughRenderTest < Minitest::Test
     assert_includes pass2.join(" "), "--network none"
     assert_includes pass2, ChangeDocker::FFMPEG_IMAGE
     assert_includes pass2.join(" "), "source=#{@root}\",target=/work"
-    assert_includes pass2.join(" "), "linear=true"
-    dir = File.join(@root, ".cache", "render", WalkthroughCache.key([ result[:manifest]["manifest_hash"], {} ]))
+    assert_includes pass2.join(" "), "volume=+4.00dB,#{WalkthroughFfmpeg::LIMITER}"
+    refute_includes pass2.join(" "), "loudnorm"
+    assert_includes log.string, "loudness: measured I -20.0 LUFS, LRA 5.0 LU"
+    key = WalkthroughCache.key([ result[:manifest]["manifest_hash"], {}, { level: WalkthroughFfmpeg::LEVEL_VERSION } ])
+    dir = File.join(@root, ".cache", "render", key)
     assert_equal File.join(dir, "walkthrough.mp4"), result[:mp4]
     assert_match(/\A1\n00:00:00,000 --> /, File.read(File.join(dir, "captions.srt")))
     assert File.file?(File.join(dir, "cursor.png"))

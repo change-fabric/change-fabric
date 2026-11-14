@@ -9,6 +9,7 @@ require "fileutils"
 require_relative "../install"
 require_relative "../scripts/change_lane_a11y"
 require_relative "../scripts/walkthrough_diagram"
+require_relative "../scripts/walkthrough_render"
 
 class RubyInterpreterTest < Minitest::Test
   def setup
@@ -165,6 +166,17 @@ class InstallerTest < Minitest::Test
       dest = paths.vendor_dest(source)
       assert File.exist?(dest), "#{source} was not copied into bin/vendor"
       assert_equal File.size(source), File.size(dest)
+    end
+  end
+
+  # Hooks and the cf launcher run from the runtime bin, so the walkthrough
+  # renderer resolves cursor.png there; it used to get only the .rb files.
+  def test_runtime_bin_carries_the_vendored_assets_too
+    paths = install
+    cursor = WalkthroughRender::CURSOR_PNG.delete_prefix("#{File.join(@repo, 'scripts')}/")
+    assert File.exist?(File.join(paths.runtime_bin, cursor)), "runtime bin is missing scripts/#{cursor}"
+    paths.vendor_glob.each do |source|
+      assert File.exist?(paths.vendor_dest(source, paths.runtime_bin)), "#{source} was not copied into the runtime bin"
     end
   end
 

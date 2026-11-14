@@ -89,7 +89,7 @@ module Install
     # working identically from the repo and from the installed copy.
     def vendor               = File.join(scripts, 'vendor')
     def vendor_glob          = Dir.glob(File.join(vendor, '**', '*')).select { |path| File.file?(path) }
-    def vendor_dest(source)  = File.join(bin, 'vendor', source.delete_prefix("#{vendor}/"))
+    def vendor_dest(source, root = bin) = File.join(root, 'vendor', source.delete_prefix("#{vendor}/"))
     def skill_sources        = Dir.glob(File.join(skills_dir, '*')).select { |p| File.directory?(p) }
     def script_dest(name)    = File.join(bin, name)
     def manifest             = File.join(bin, '.installed-manifest')
@@ -604,9 +604,12 @@ module Install
     end
 
     # Run-time assets, not executables: copied without the 0755 the scripts get.
-    def place_vendor
+    # Both script dirs get them: hooks and the cf launcher run the runtime
+    # copy, whose __dir__-relative lookups (the walkthrough cursor, axe-core)
+    # otherwise found nothing.
+    def place_vendor(root = @paths.bin)
       @paths.vendor_glob.each do |source|
-        dest = @paths.vendor_dest(source)
+        dest = @paths.vendor_dest(source, root)
         FileUtils.mkdir_p(File.dirname(dest))
         FileUtils.cp(source, dest)
       end
@@ -678,6 +681,7 @@ module Install
       @paths.scripts_glob.each do |source|
         FileUtils.cp(source, File.join(@paths.runtime_bin, File.basename(source)))
       end
+      place_vendor(@paths.runtime_bin)
       config = File.join(@paths.runtime_root, 'config')
       FileUtils.mkdir_p(config)
       FileUtils.cp(File.join(File.dirname(@paths.skills_dir), 'config', 'host_capabilities.json'), config)
@@ -705,7 +709,7 @@ module Install
       files = @paths.scripts_glob.flat_map do |source|
         [ @paths.script_dest(File.basename(source)), File.join(@paths.runtime_bin, File.basename(source)) ]
       end
-      files.concat(@paths.vendor_glob.map { |source| @paths.vendor_dest(source) })
+      files.concat(@paths.vendor_glob.flat_map { |source| [ @paths.vendor_dest(source), @paths.vendor_dest(source, @paths.runtime_bin) ] })
       files << File.join(@paths.runtime_root, 'config', 'host_capabilities.json')
       files.concat(@paths.provider_registry_dests)
       files << File.expand_path('../../bin/cf', @paths.runtime_root)
