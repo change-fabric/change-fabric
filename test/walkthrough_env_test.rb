@@ -60,4 +60,19 @@ class WalkthroughEnvTest < Minitest::Test
       assert_equal 4, exit_err.status
     end
   end
+
+  def test_expired_key_exits_4_with_reason_expired_and_both_commands
+    with_enrolled("openai") do
+      slug = CfProjectIdentity.for(Dir.pwd).slug
+      CfSecretStore.update_enrollment(slug, "openai", "expires_at" => "2000-01-01T00:00:00Z", "label" => "ci")
+      err = assert_raises(WalkthroughEnv::NeedsEnrollment) { WalkthroughEnv.openai_key! }
+      out = StringIO.new
+      assert_equal 4, WalkthroughEnv.enroll(err, out: out)
+      assert_one_enroll_line(out.string, "openai")
+      assert_equal "expired", enroll_lines(out.string).first.dig("cf_enroll", "reason")
+      assert_includes out.string, 'key "ci" enrolled at'
+      assert_includes out.string, "cf_keys.rb expires openai YYYY-MM-DD"
+      refute_includes out.string, "sk-test-secret"
+    end
+  end
 end

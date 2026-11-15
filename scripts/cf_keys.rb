@@ -4,6 +4,7 @@
 require 'io/console'
 require 'optparse'
 require 'shellwords'
+require_relative 'cf_key_expiry'
 require_relative 'cf_key_validator'
 require_relative 'cf_project_identity'
 require_relative 'cf_provider_registry'
@@ -13,7 +14,9 @@ require_relative 'cf_secret_store'
 # the agent pastes in chat; the key is typed at a real terminal with echo off,
 # validated against the provider's free endpoint, and stored per project.
 #
-#   enroll PROVIDER [--dir PATH]           TTY only; validates, then stores
+#   enroll PROVIDER [--dir PATH] [--expires DATE] [--label TEXT] [--scope tree|project]
+#                                          TTY only; validates, then stores
+#   expires PROVIDER DATE [--dir PATH]     records or corrects the expiry
 #   confirm-inherit PROVIDER [--dir PATH]  after an AskUserQuestion yes
 #   defer PROVIDER [--dir PATH]            after an AskUserQuestion defer
 #   status [--dir PATH]                    never prints a value
@@ -22,12 +25,18 @@ require_relative 'cf_secret_store'
 # --dir names the enrollment level. Without it the project is the one the
 # current directory belongs to. A repo root (or any checkout of it) is that
 # repo; any other directory, such as an org folder or a home dir, is its own
-# level that descendant projects may inherit from after confirmation.
+# level that descendant projects may inherit from after confirmation, or
+# without one when that level enrolled with --scope tree.
+#
+# --expires takes a date (00:00 UTC) or full ISO8601. Providers do not expose
+# expiry, so it is recorded by the user; status and resolve read it.
 #
 # Like change_override.rb, the TTY check is friction against an agent piping
 # a key in, not a sandbox.
 class CfKeys
-  USAGE = 'usage: cf_keys.rb enroll|confirm-inherit|defer|remove PROVIDER [--dir PATH] | status [--dir PATH]'
+  USAGE = 'usage: cf_keys.rb enroll PROVIDER [--dir PATH] [--expires DATE] [--label TEXT] [--scope tree|project] | ' \
+          'expires PROVIDER DATE [--dir PATH] | confirm-inherit|defer|remove PROVIDER [--dir PATH] | status [--dir PATH]'
+  SCOPES = %w[project tree].freeze
   EXIT_USAGE = 1
   EXIT_NO_TTY = 2
   EXIT_INVALID = 3
@@ -36,23 +45,35 @@ class CfKeys
     "ruby ~/.claude/cf/bin/cf_keys.rb enroll #{provider} --dir #{Shellwords.escape(root.to_s)}"
   end
 
+  def self.expires_snippet(provider, root)
+    "ruby ~/.claude/cf/bin/cf_keys.rb expires #{provider} YYYY-MM-DD --dir #{Shellwords.escape(root.to_s)}"
+  end
+
   def initialize(stdin: $stdin, stdout: $stdout, stderr: $stderr, cwd: Dir.pwd, validator: CfKeyValidator.new)
     @in, @out, @err, @cwd, @validator = stdin, stdout, stderr, cwd, validator
   end
 
   def run(argv)
-    command, provider, dir = parse(argv)
+    command, provider, rest, opts = parse(argv)
     return usage unless command
 
     case command
-    when 'status' then status(dir)
-    when 'enroll', 'confirm-inherit', 'defer', 'remove'
-      return usage unless provider && CfProviderRegistry.known?(provider)
+    when 'status' then status(opts[:dir])
+    when 'enroll'
+      return usage unless known?(provider) && valid_enroll_opts?(opts)
 
-      send(command.tr('-', '_'), provider, dir)
+      enroll(provider, opts)
+    when 'expires'
+      return usage unless known?(provider) && rest.first
+
+      expires(provider, rest.first, opts[:dir])
+    when 'confirm-inherit', 'defer', 'remove'
+      return usage unless known?(provider)
+
+      send(command.tr('-', '_'), provider, opts[:dir])
     else usage
     end
-  rescue OptionParser::ParseError, SystemCallError => e
+  rescue OptionParser::ParseError, ArgumentError, SystemCallError => e
     @err.puts("cf_keys: #{e.message}")
     EXIT_USAGE
   end
@@ -61,9 +82,25 @@ class CfKeys
 
   def parse(argv)
     args = argv.dup
-    dir = nil
-    OptionParser.new { |o| o.on('--dir PATH') { |v| dir = v } }.parse!(args)
-    [ args[0], args[1], dir ]
+    opts = {}
+    OptionParser.new do |o|
+      o.on('--dir PATH') { |v| opts[:dir] = v }
+      o.on('--expires DATE') { |v| opts[:expires] = v }
+      o.on('--label TEXT') { |v| opts[:label] = v }
+      o.on('--scope SCOPE') { |v| opts[:scope] = v }
+    end.parse!(args)
+    [ args[0], args[1], args.drop(2), opts ]
+  end
+
+  def known?(provider) = provider && CfProviderRegistry.known?(provider)
+
+  # Checked before any key is read, so a typo costs nothing.
+  def valid_enroll_opts?(opts)
+    CfKeyExpiry.parse(opts[:expires]) if opts[:expires]
+    opts[:scope].nil? || SCOPES.include?(opts[:scope])
+  rescue ArgumentError => e
+    @err.puts("cf_keys: #{e.message}")
+    false
   end
 
   def usage
@@ -75,10 +112,10 @@ class CfKeys
     dir ? CfProjectIdentity.for_explicit_dir(File.expand_path(dir, @cwd)) : CfProjectIdentity.for(@cwd)
   end
 
-  def enroll(provider, dir)
+  def enroll(provider, opts)
     return refuse_without_tty unless @in.tty?
 
-    project = identity(dir)
+    project = identity(opts[:dir])
     label = CfProviderRegistry.fetch(provider).label
     return refuse_without_tty unless @in.respond_to?(:noecho)
 
@@ -93,8 +130,30 @@ class CfKeys
 
     CfSecretStore.describe(project)
     CfSecretStore.write_key(project.slug, provider, key)
+    CfSecretStore.update_enrollment(project.slug, provider, enrollment_fields(opts))
     CfSecretStore.update_meta(project.slug) { |m| m['deferred']&.delete(provider) }
-    @out.puts("enrolled #{provider} for #{project.root}")
+    @out.puts("enrolled #{provider} for #{project.root}#{details(CfSecretStore.enrollment(project.slug, provider))}")
+    0
+  end
+
+  def enrollment_fields(opts)
+    label = opts[:label].to_s.strip
+    { 'expires_at' => opts[:expires] && CfKeyExpiry.parse(opts[:expires]).iso8601,
+      'label' => label.empty? ? nil : label,
+      'scope' => opts[:scope] == 'tree' ? 'tree' : nil }
+  end
+
+  # Sets or corrects the date without touching the key. Exit 3 when this
+  # level has no key for provider: there is nothing to date.
+  def expires(provider, date, dir)
+    expires_at = CfKeyExpiry.parse(date).iso8601
+    project = identity(dir)
+    unless CfSecretStore.key?(project.slug, provider)
+      return fail_with("no #{provider} key enrolled at #{project.root}; nothing to date", EXIT_INVALID)
+    end
+
+    CfSecretStore.update_enrollment(project.slug, provider, 'expires_at' => expires_at)
+    @out.puts("#{provider} at #{project.root} now expires #{expires_at}")
     0
   end
 
@@ -135,15 +194,33 @@ class CfKeys
   end
 
   def state(project, meta, provider)
-    return 'enrolled' if CfSecretStore.key?(project.slug, provider)
+    if CfSecretStore.key?(project.slug, provider)
+      return "enrolled#{details(CfSecretStore.enrollment(project.slug, provider))}"
+    end
 
     ancestor = CfSecretStore.inheritable(project.root, provider).first
     confirmed = meta.dig('confirmed_inherits', provider)
-    return "inherited from #{confirmed.delete_prefix('dir:')}" if ancestor && confirmed == ancestor.first
+    if ancestor
+      entry = CfSecretStore.enrollment(ancestor.last, provider)
+      from = ancestor.first.delete_prefix('dir:')
+      return "inherited from #{from}#{details(entry)}" if confirmed == ancestor.first || entry['scope'] == 'tree'
+    end
     return 'deferred' if meta.dig('deferred', provider)
     return "inheritable from #{ancestor.first.delete_prefix('dir:')} (unconfirmed)" if ancestor
 
     'missing'
+  end
+
+  # Label, scope and expiry of an enrolled entry, never a value.
+  def details(entry, now: Time.now)
+    parts = []
+    parts << "label \"#{entry['label']}\"" if entry['label']
+    parts << 'scope tree' if entry['scope'] == 'tree'
+    if (days = CfKeyExpiry.days_remaining(entry['expires_at'], now: now))
+      left = CfKeyExpiry.state(entry['expires_at'], now: now) == :expired ? 'expired' : "#{days} days left"
+      parts << "expires #{entry['expires_at']} (#{left})"
+    end
+    parts.empty? ? '' : " (#{parts.join(', ')})"
   end
 
   # Callers check noecho first: a terminal that cannot hide input never gets
