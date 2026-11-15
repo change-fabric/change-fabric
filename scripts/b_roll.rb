@@ -189,16 +189,22 @@ module BRoll
     req
   end
 
-  def send_request(req, http)
-    response = begin
-      (http || default_http).request(req)
-    rescue *TRANSPORT_ERRORS => e
-      raise RequestError, "b-roll request failed: #{e.class}: #{e.message}"
-    end
-    return response if response.is_a?(Net::HTTPSuccess)
+  # A non-2xx answer raises a named CfProviderError::Failure whose message is
+  # scrubbed of the key and anything key-shaped; rate_limited is retried a
+  # bounded number of times.
+  def send_request(req, http, sleeper: nil)
+    key = req['x-goog-api-key']
+    CfProviderError.with_retry(sleeper: sleeper) do
+      response = begin
+        (http || default_http).request(req)
+      rescue *TRANSPORT_ERRORS => e
+        raise RequestError, CfProviderError.scrub("b-roll request failed: #{e.class}: #{e.message}", key: key)
+      end
+      failure = CfProviderError.from_response(provider: 'gemini', response: response, key: key)
+      raise failure if failure
 
-    # Google error bodies describe the request, never the key.
-    raise RequestError, "b-roll request failed: HTTP #{response.code} #{response.body.to_s[0, 300]}".strip
+      response
+    end
   end
 
   def default_http
@@ -213,13 +219,19 @@ module BRoll
 
   # { mode: 'generated', path: } or { mode: fallback, path: nil, reason: }.
   # Any named failure or the ceiling degrades to the fallback; it never
-  # raises, so a render is never blocked by generation. The one exception is
-  # a project with no gemini key enrolled: NeedsEnrollment propagates so the
-  # caller exits 4 with the enrollment snippet, deferred or not.
+  # raises, so a render is never blocked by generation. The exceptions are
+  # key-class failures: no gemini key enrolled or its expiry passed
+  # (NeedsEnrollment, exit 4), and a revoked key or an empty quota
+  # (CfProviderError::Failure#surface?), which the user must fix. A rate limit
+  # after retries, a bad request or a server fault still falls back.
   def generate_or_fallback(fallback: 'kenburns', **args)
     { mode: 'generated', path: generate(**args) }
   rescue WalkthroughEnv::NeedsEnrollment
     raise
+  rescue CfProviderError::Failure => e
+    raise if e.surface?
+
+    { mode: fallback, path: nil, reason: e.message }
   rescue Error, WalkthroughEnv::MissingKeyError => e
     { mode: fallback, path: nil, reason: e.message }
   end
@@ -322,6 +334,8 @@ if __FILE__ == $PROGRAM_NAME
                         model: flag.call('--model', BRoll::MODEL), budget: budget)
   rescue WalkthroughEnv::NeedsEnrollment => e
     WalkthroughEnv.enroll_exit!(e)
+  rescue CfProviderError::Failure => e
+    WalkthroughEnv.key_error_exit!(e)
   end
   puts "spent about $#{format('%.2f', budget.spent)}"
 end

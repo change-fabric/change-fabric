@@ -98,6 +98,17 @@ class RoastVideoTest < Minitest::Test
 
   def video_args = [ "--video", @mp4, "--brief", @brief, "--out-dir", @roast, "--cache", File.join(@dir, ".cache"), "--round", "2" ]
 
+  def test_video_roast_provider_failures_use_the_shared_exit_contract
+    { "401" => 4, "402" => 1, "400" => 1 }.each do |status, exit_code|
+      http = ImagegenHelpers::FakeHttp.new(status)
+      out = StringIO.new
+      code = RoastVideo::Cli.run(video_args + [ "--cache", File.join(@dir, "c#{status}") ], out: out, http: http, docker: fake_docker)
+      assert_equal exit_code, code, out.string
+      refute_includes out.string, "sk-test-secret"
+      assert_includes out.string, status == "401" ? '"reason":"revoked"' : '"cf_key_error"'
+    end
+  end
+
   def test_unenrolled_uncached_video_roast_exits_4_with_one_enroll_line
     unenroll!("openai")
     out = StringIO.new

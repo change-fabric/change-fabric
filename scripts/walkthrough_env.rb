@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'shellwords'
+require_relative 'cf_provider_error'
 require_relative 'cf_secrets'
 
 # Key lookup for the paid skills. A key comes only from this project's
@@ -68,4 +69,31 @@ module WalkthroughEnv
 
   # Same output, then exits 4.
   def enroll_exit!(err, out: $stdout) = exit(enroll(err, out: out))
+
+  # A named provider failure (CfProviderError::Failure) as the exit contract:
+  # auth_revoked is an enrollment problem, so a cf_enroll line with reason
+  # revoked and exit 4; every other class a cf_key_error line and exit 1.
+  # Both lines carry the next step and never a key value.
+  def key_error(err, out: $stdout)
+    return revoked(err, out) if err.is_a?(CfProviderError::AuthRevoked)
+
+    out.puts(JSON.generate(cf_key_error: err.to_h))
+    out.puts("error: #{err.message}. Next: #{err.next_step}")
+    1
+  end
+
+  def key_error_exit!(err, out: $stdout) = exit(key_error(err, out: out))
+
+  def revoked(err, out)
+    project = CfProjectIdentity.for(Dir.pwd)
+    owner = CfSecrets.owning_level(project, err.provider) || { root: project.root }
+    snippet = CfKeys.snippet(err.provider, owner[:root])
+    out.puts(JSON.generate(cf_enroll: { provider: err.provider, project_root: project.root, project_id: project.id,
+                                        reason: 'revoked', owner_root: owner[:root], status: err.status,
+                                        snippet: snippet }))
+    out.puts("The #{err.provider} key enrolled at #{owner[:root]} was rejected by the provider (HTTP #{err.status}, " \
+             "revoked or invalid); no retry was made. Paste this for the user to enroll a new key in their own " \
+             "terminal: #{snippet}")
+    ENROLL_EXIT
+  end
 end

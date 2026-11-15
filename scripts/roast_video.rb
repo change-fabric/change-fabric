@@ -204,6 +204,8 @@ module RoastVideo
       2
     rescue WalkthroughEnv::NeedsEnrollment => e
       WalkthroughEnv.enroll(e, out: out)
+    rescue CfProviderError::Failure => e
+      WalkthroughEnv.key_error(e, out: out)
     rescue Roast::CeilingError, Roast::SensitiveError, Roast::RequestError, FfmpegError, WalkthroughEnv::MissingKeyError, SystemCallError,
            DesignConfig::Error => e
       out.puts("error: #{e.message}")

@@ -143,6 +143,13 @@ ruby ~/.claude/cf/bin/cf_keys.rb status --dir ~/code/app
 
 See [key enrollment](skills/walkthrough/reference/key-enrollment.md).
 
+**A paid skill exits 4 with `"reason":"revoked"` or exits 1 with a
+`cf_key_error` line.** The provider rejected the call. Revoked (401 or 403)
+means enroll a new key with the printed snippet. Otherwise the line names the
+class (`quota_exhausted`, `rate_limited`, `bad_request`, `server`) and the next
+step; a quota is never retried and a rate limit is retried three times first.
+See [provider failures](skills/walkthrough/reference/key-enrollment.md#provider-failures).
+
 **Hooks error or stop firing after `brew upgrade ruby`.** The hook commands in
 `settings.json` name a Ruby interpreter by path, and a Ruby upgrade moves it.
 Re-run the installer.

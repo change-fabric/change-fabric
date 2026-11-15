@@ -145,7 +145,7 @@ class ElevenLabsTest < Minitest::Test
 
   def test_named_errors_and_scrubbed_key
     { 401 => ElevenLabs::AuthError, 402 => ElevenLabs::QuotaError,
-      422 => ElevenLabs::RequestError }.each do |code, klass|
+      422 => CfProviderError::BadRequest }.each do |code, klass|
       body = JSON.generate("detail" => { "message" => "bad key #{KEY}" })
       err = assert_raises(klass) do
         ElevenLabs.perform(ElevenLabs.music_request(prompt: "p", length_ms: 5000, model: "m"),
@@ -173,13 +173,33 @@ class ElevenLabsTest < Minitest::Test
     assert_equal [ 1.5, 4 ], sleeps
   end
 
-  def test_429_gives_up_after_three_retries
+  def test_429_gives_up_after_three_attempts
     sleeps = []
+    calls = 0
     assert_raises(ElevenLabs::RateLimitError) do
       ElevenLabs.perform(ElevenLabs.music_request(prompt: "p", length_ms: 5000, model: "m"),
-                                    transport: ->(*) { Resp.new("429", "{}") }, sleeper: ->(s) { sleeps << s })
+                                    transport: ->(*) { calls += 1; Resp.new("429", "{}") }, sleeper: ->(s) { sleeps << s })
     end
-    assert_equal 3, sleeps.length
+    assert_equal 3, calls
+    assert_equal 2, sleeps.length
+  end
+
+  def test_402_quota_is_never_retried
+    calls = 0
+    assert_raises(CfProviderError::QuotaExhausted) do
+      ElevenLabs.perform(ElevenLabs.music_request(prompt: "p", length_ms: 5000, model: "m"),
+                         transport: ->(*) { calls += 1; Resp.new("402", "{}") }, sleeper: ->(_) { flunk "slept" })
+    end
+    assert_equal 1, calls
+  end
+
+  def test_cli_quota_exits_1_with_cf_key_error
+    code, out = cli("narrate", "--text", "Hi", "--voice", "v1", transport: stub_transport(body: "{}", code: 402))
+    assert_equal 1, code
+    line = out.lines.map { |l| JSON.parse(l) rescue nil }.compact.find { |h| h.is_a?(Hash) && h["cf_key_error"] }
+    assert_equal "quota_exhausted", line["cf_key_error"]["class"]
+    assert_includes line["cf_key_error"]["next_step"], "credit"
+    refute_includes out, KEY
   end
 
   def test_unenrolled_uncached_cli_exits_4_with_one_enroll_line
@@ -198,7 +218,7 @@ class ElevenLabsTest < Minitest::Test
   end
 
   def test_format_hint_on_422
-    err = assert_raises(ElevenLabs::RequestError) do
+    err = assert_raises(CfProviderError::BadRequest) do
       ElevenLabs.perform(ElevenLabs.music_request(prompt: "p", length_ms: 5000, model: "m"),
                                     transport: ->(*) { Resp.new("422", '{"detail":"output_format not allowed"}') },
                                     sleeper: ->(_) { })
@@ -275,11 +295,19 @@ class ElevenLabsTest < Minitest::Test
     assert_includes out, "usage: elevenlabs.rb narrate|music"
   end
 
-  def test_cli_maps_api_errors_to_exit_one_without_the_key
+  def test_cli_maps_revoked_key_to_exit_4_without_the_key
     transport = stub_transport(body: JSON.generate("detail" => { "message" => "bad #{KEY}" }), code: 401)
     code, out = cli("narrate", "--text", "Hi", "--voice", "v1", transport: transport)
+    assert_equal 4, code
+    assert_equal "revoked", enroll_lines(out).first["cf_enroll"]["reason"]
+    refute_includes out, KEY
+  end
+
+  def test_cli_maps_bad_request_to_exit_1_without_the_key
+    transport = stub_transport(body: JSON.generate("detail" => { "message" => "bad #{KEY}" }), code: 400)
+    code, out = cli("narrate", "--text", "Hi", "--voice", "v1", transport: transport)
     assert_equal 1, code
-    assert_includes out, "ElevenLabs HTTP 401"
+    assert_includes out, "ElevenLabs HTTP 400"
     refute_includes out, KEY
   end
 

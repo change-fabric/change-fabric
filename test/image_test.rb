@@ -123,10 +123,19 @@ class ImageTest < Minitest::Test
     assert_empty http.requests
   end
 
-  def test_http_failure_exits_1_and_never_prints_the_key
+  def test_revoked_key_exits_4_with_reason_revoked_and_never_prints_the_key
     code, text = run_cli("x", http: ImagegenHelpers::FakeHttp.new("401"))
-    assert_equal 1, code
+    assert_equal 4, code
+    assert_equal "revoked", enroll_lines(text).first["cf_enroll"]["reason"]
     assert_includes text, "401"
+    refute_includes text, "sk-test-secret"
+  end
+
+  def test_bad_request_exits_1_with_a_cf_key_error_line
+    code, text = run_cli("x", http: ImagegenHelpers::FakeHttp.new("400"))
+    assert_equal 1, code
+    line = text.lines.map { |l| JSON.parse(l) rescue nil }.compact.find { |h| h.is_a?(Hash) && h["cf_key_error"] }
+    assert_equal "bad_request", line["cf_key_error"]["class"]
     refute_includes text, "sk-test-secret"
   end
 

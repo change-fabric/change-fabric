@@ -45,6 +45,28 @@ A fully cached run never exits 4. On exit 4:
 
 On `"reason":"expired"`, paste the `snippet` to renew the key at `owner_root`. If the user says the key has not expired and only the date is wrong, paste `correct` with their date instead. Neither needs a confirm-inherit.
 
+On `"reason":"revoked"`, the provider answered 401 or 403: the key at `owner_root` was revoked or is invalid. Paste the `snippet` so the user can enroll a new key, then re-run. It is never retried.
+
+## Provider failures
+
+Every paid client (roast, image, b-roll, narrate, music) names an HTTP failure from the provider with one shared class (`scripts/cf_provider_error.rb`). Each message is scrubbed of the key and of anything shaped like a provider key, and each class carries a next step.
+
+| Class | When | Exit |
+| --- | --- | --- |
+| `auth_revoked` | 401 or 403 | 4, `cf_enroll` with `"reason":"revoked"` |
+| `quota_exhausted` | OpenAI 429 `insufficient_quota`, ElevenLabs 402 (or its 401 `quota_exceeded`) | 1, never retried |
+| `rate_limited` | any other 429, after 3 attempts honouring `retry-after` (capped at 60s) | 1 |
+| `bad_request` | 400 and any other 4xx, with the provider's message | 1 |
+| `server` | 5xx | 1 |
+
+Exit 1 prints one JSON line with no value, then a plain message:
+
+```json
+{"cf_key_error":{"provider":"openai","class":"quota_exhausted","status":429,"next_step":"the OpenAI account is out of credit or over its usage limit; add credit or raise the limit in its billing settings, then rerun (not retried)"}}
+```
+
+Relay the `next_step` to the user. On the optional paths (b-roll's Ken Burns fallback, the walkthrough draft roast) an expired key, a revoked key, or an empty quota still stops the run, since the user must fix them. A rate limit after retries, a bad request, or a server fault still falls back or skips with a note.
+
 ## Other commands
 
 - `ruby ~/.claude/cf/bin/cf_keys.rb status [--dir PATH]` lists each provider as enrolled, inherited, inheritable, deferred, or missing, with any label, tree scope, expiry date and days left, never a value.

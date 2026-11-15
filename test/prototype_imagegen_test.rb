@@ -168,7 +168,7 @@ class PrototypeImagegenTest < Minitest::Test
 
   def test_failure_message_never_carries_key
     Dir.mktmpdir do |dir|
-      err = assert_raises(PrototypeImagegen::RequestError) do
+      err = assert_raises(CfProviderError::AuthRevoked) do
         PrototypeImagegen.generate(prompt: "x", size: "1024x1024", quality: "medium", cache_root: dir, http: FakeHttp.new("401"))
       end
       refute_includes err.message, "sk-test-secret"

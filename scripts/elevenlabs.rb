@@ -21,15 +21,15 @@ module ElevenLabs
   MUSIC_MAX_MS = 600_000
   SECTION_MIN_MS = 3_000
   SECTION_MAX_MS = 120_000
-  MAX_RETRIES = 3
   TTS_USD_PER_1K = { multilingual: 0.08, flash: 0.04 }.freeze
   MUSIC_USD_PER_MIN = 0.15
 
   class Error < StandardError; end
-  class AuthError < Error; end
-  class QuotaError < Error; end
   class RequestError < Error; end
-  class RateLimitError < Error; end
+  # HTTP failures are the shared provider classes; the old names stay as aliases.
+  AuthError = CfProviderError::AuthRevoked
+  QuotaError = CfProviderError::QuotaExhausted
+  RateLimitError = CfProviderError::RateLimited
 
   Request = Struct.new(:method, :path, :query, :body, keyword_init: true) do
     def uri
@@ -199,52 +199,32 @@ module ElevenLabs
            t: est[:tts_usd], m: est[:music_usd], s: est[:total_usd])
   end
 
+  # A non-2xx answer raises a named CfProviderError::Failure (scrubbed, with a
+  # next step); rate_limited is retried a bounded number of times, honouring
+  # retry-after, and quota_exhausted never is.
   def perform(request, transport:, sleeper:, key: WalkthroughEnv.elevenlabs_key!)
-    attempt = 0
-    loop do
+    CfProviderError.with_retry(sleeper: sleeper) do
       response = begin
         transport.call(request, key)
       rescue StandardError => e
         raise RequestError, scrub("transport failed: #{e.class}: #{e.message}", key)
       end
-      code = response.code.to_i
-      return response.body if code.between?(200, 299)
+      failure = CfProviderError.from_response(provider: 'elevenlabs', response: response, key: key)
+      raise with_format_hint(failure) if failure
 
-      if code == 429 && attempt < MAX_RETRIES
-        attempt += 1
-        sleeper.call(retry_after(response, attempt))
-        next
-      end
-      raise error_for(code, response.body, key)
+      response.body
     end
   end
 
-  def retry_after(response, attempt)
-    header = response.respond_to?(:[]) ? response['retry-after'] : nil
-    value = Float(header, exception: false)
-    value&.positive? ? value : 2**attempt
+  # A rejected output format usually means the plan does not include it.
+  def with_format_hint(failure)
+    return failure unless failure.is_a?(CfProviderError::BadRequest) && failure.message.match?(/output_format|format/i)
+
+    failure.class.new("#{failure.message} (the output format may need a higher plan; default mp3_44100_128)",
+                      provider: failure.provider, status: failure.status, next_step: failure.next_step)
   end
 
-  def error_for(code, body, key)
-    detail = scrub(error_detail(body), key)
-    klass = { 401 => AuthError, 402 => QuotaError, 429 => RateLimitError }.fetch(code, RequestError)
-    hint = detail.match?(/output_format|format/i) ? ' (the output format may need a higher plan; default mp3_44100_128)' : ''
-    klass.new("ElevenLabs HTTP #{code}: #{detail}#{hint}")
-  end
-
-  def error_detail(body)
-    parsed = JSON.parse(body.to_s)
-    d = parsed['detail'] || parsed
-    d.is_a?(Hash) ? (d['message'] || JSON.generate(d)) : d.to_s
-  rescue JSON::ParserError
-    body.to_s[0, 300]
-  end
-
-  def scrub(text, key)
-    return text.to_s if key.nil? || key.empty?
-
-    text.to_s.gsub(key, '[REDACTED]')
-  end
+  def scrub(text, key) = CfProviderError.scrub(text, key: key)
 end
 
 module ElevenLabs
@@ -272,6 +252,8 @@ module ElevenLabs
       0
     rescue WalkthroughEnv::NeedsEnrollment => e
       WalkthroughEnv.enroll(e, out: out)
+    rescue CfProviderError::Failure => e
+      WalkthroughEnv.key_error(e, out: out)
     rescue UsageError, Error, OptionParser::ParseError, WalkthroughEnv::MissingKeyError => e
       out.puts("error: #{e.message}")
       1

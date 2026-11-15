@@ -30,7 +30,7 @@ Overrides: `--voice <voice_id>` (required unless the storyboard carries one), `-
 
 ## Keys
 
-`ELEVEN_LABS_API_KEY` (fallback `ELEVENLABS_API_KEY`) from this project's enrolled key only (env vars are ignored), looked up only when a call is actually needed. Exit 4 with a `cf_enroll` line means this project has no usable key: paste the enrollment snippet (or confirm an ancestor key) and re-run, see `skills/walkthrough/reference/key-enrollment.md`. Never print or write a key; the library scrubs it from every error.
+`ELEVEN_LABS_API_KEY` (fallback `ELEVENLABS_API_KEY`) from this project's enrolled key only (env vars are ignored), looked up only when a call is actually needed. Exit 4 with a `cf_enroll` line means this project has no usable key: paste the enrollment snippet (or confirm an ancestor key) and re-run, see `skills/walkthrough/reference/key-enrollment.md`. A provider rejection is named, never generic: exit 4 with `"reason":"revoked"` (enroll a new key), or exit 1 with a `cf_key_error` line naming `quota_exhausted` (never retried), `rate_limited` (after 3 attempts), `bad_request` (with the provider message) or `server`, plus the next step to relay; see Provider failures in that file. Never print or write a key; the library scrubs it from every error.
 
 ## Done when
 

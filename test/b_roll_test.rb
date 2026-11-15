@@ -149,7 +149,7 @@ class BRollTest < Minitest::Test
   def test_interrupted_job_resumes_without_a_second_post
     first = FakeHttp.new(ok(video_body(uri: FILE_URI)),
                          FakeResponse.new("503", "{}"))
-    assert_raises(BRoll::RequestError) { gen(first) }
+    assert_raises(CfProviderError::Server) { gen(first) }
     pending = Dir.glob(File.join(@cache, "broll", "*.pending.json"))
     assert_equal 1, pending.size
     assert_equal "int-1", JSON.parse(File.read(pending.first))["interaction_id"]
@@ -169,7 +169,7 @@ class BRollTest < Minitest::Test
   end
 
   def test_http_error_names_status_and_leaks_no_key
-    err = assert_raises(BRoll::RequestError) { gen(FakeHttp.new(FakeResponse.new("400", '{"error":"bad"}'))) }
+    err = assert_raises(CfProviderError::BadRequest) { gen(FakeHttp.new(FakeResponse.new("400", '{"error":"bad"}'))) }
     assert_includes err.message, "400"
     assert_includes err.message, "bad"
     refute_includes err.message, "test-key-not-real"
@@ -242,6 +242,35 @@ class BRollTest < Minitest::Test
     assert_equal "kenburns", res[:mode]
     assert_nil res[:path]
     assert_includes res[:reason], "500"
+  end
+
+  def test_revoked_key_surfaces_instead_of_falling_back
+    assert_raises(CfProviderError::AuthRevoked) do
+      BRoll.generate_or_fallback(fallback: "kenburns", source_image: @still, prompt: "p", seconds: 4, cache_root: @cache,
+                                 http: FakeHttp.new(FakeResponse.new("403", '{"error":{"message":"denied"}}')), validator: @ok_probe)
+    end
+  end
+
+  def test_rate_limit_after_retries_falls_back
+    CfProviderError.sleeper = ->(_s) { }
+    http = FakeHttp.new(*Array.new(3) { FakeResponse.new("429", "{}") })
+    res = BRoll.generate_or_fallback(fallback: "kenburns", source_image: @still, prompt: "p", seconds: 4, cache_root: @cache,
+                                     http: http, validator: @ok_probe)
+    assert_equal "kenburns", res[:mode]
+    assert_includes res[:reason], "rate_limited"
+    assert_equal 3, http.requests.size
+  ensure
+    CfProviderError.sleeper = ->(s) { sleep(s) }
+  end
+
+  def test_error_body_echo_is_scrubbed_of_key_shapes
+    leaked = "AIza#{'x' * 35}"
+    err = assert_raises(CfProviderError::BadRequest) do
+      gen(FakeHttp.new(FakeResponse.new("400", %({"error":{"message":"bad key #{leaked} test-key-not-real"}}))))
+    end
+    refute_includes err.message, leaked
+    refute_includes err.message, "test-key-not-real"
+    assert_includes err.message, "[REDACTED]"
   end
 
   class RaisingHttp

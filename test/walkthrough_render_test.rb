@@ -673,6 +673,27 @@ class WalkthroughRenderTest < Minitest::Test
     refute File.exist?(File.join(@root, "roast", "round-1.json"))
   end
 
+  def failing_roast(status, body = "{}")
+    providers.merge(roast: lambda do |**|
+      raise CfProviderError.classify(provider: "openai", status: status, body: body, key: "sk-test-secret")
+    end)
+  end
+
+  def test_revoked_or_quota_draft_roast_surfaces_instead_of_skipping
+    [ [ 401, "{}" ], [ 429, '{"error":{"code":"insufficient_quota"}}' ] ].each do |status, body|
+      err = assert_raises(CfProviderError::Failure) do
+        WalkthroughRender::Run.new(@root, providers: failing_roast(status, body), out: StringIO.new).call
+      end
+      assert err.surface?, status.to_s
+    end
+  end
+
+  def test_server_error_draft_roast_still_skips
+    out = StringIO.new
+    WalkthroughRender::Run.new(@root, providers: failing_roast(503), out: out).call
+    assert_includes out.string, "roast: skipped (OpenAI HTTP 503 server"
+  end
+
   def test_allow_sensitive_gate_reaches_the_roast_provider
     seen = nil
     prov = providers.merge(roast: lambda do |**kw|

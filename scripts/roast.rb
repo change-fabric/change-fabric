@@ -339,16 +339,22 @@ module Roast
               text: { format: { type: 'json_schema', name: 'roast', strict: true, schema: SCHEMA } } } }
   end
 
-  def post(request, http)
+  # A non-2xx answer raises a named CfProviderError::Failure (scrubbed, with a
+  # next step); rate_limited is retried a bounded number of times.
+  def post(request, http, sleeper: nil)
     uri = URI(request[:url])
+    key = WalkthroughEnv.openai_key!
     req = Net::HTTP::Post.new(uri)
-    req['Authorization'] = "Bearer #{WalkthroughEnv.openai_key!}"
+    req['Authorization'] = "Bearer #{key}"
     req['Content-Type'] = 'application/json'
     req.body = JSON.generate(request[:body])
-    response = transport { (http || default_http(uri)).request(req) }
-    raise RequestError, "roast request failed: HTTP #{response.code}" unless response.is_a?(Net::HTTPSuccess)
+    CfProviderError.with_retry(sleeper: sleeper) do
+      response = transport { (http || default_http(uri)).request(req) }
+      failure = CfProviderError.from_response(provider: 'openai', response: response, key: key)
+      raise failure if failure
 
-    JSON.parse(response.body)
+      JSON.parse(response.body)
+    end
   end
 
   # Network faults (timeouts, resets, TLS, DNS) surface as RequestError so
@@ -509,6 +515,8 @@ module Roast
       3
     rescue WalkthroughEnv::NeedsEnrollment => e
       WalkthroughEnv.enroll(e, out: out)
+    rescue CfProviderError::Failure => e
+      WalkthroughEnv.key_error(e, out: out)
     rescue CeilingError, SensitiveError, RequestError, WalkthroughEnv::MissingKeyError, SystemCallError, DesignConfig::Error => e
       out.puts("error: #{e.message}")
       1

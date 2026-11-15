@@ -439,6 +439,8 @@ module ImagePlate
       3
     rescue WalkthroughEnv::NeedsEnrollment => e
       WalkthroughEnv.enroll(e, out: out)
+    rescue CfProviderError::Failure => e
+      WalkthroughEnv.key_error(e, out: out)
     rescue OverflowError, CeilingError, PrototypeImagegen::RequestError, PrototypeImagegen::AttemptCapError,
            WalkthroughEnv::MissingKeyError, SystemCallError, PrototypeCapture::UnsupportedContentError => e
       out.puts("error: #{e.message}")
