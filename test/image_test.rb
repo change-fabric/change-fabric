@@ -17,12 +17,11 @@ class ImageTest < Minitest::Test
     @dir = Dir.mktmpdir
     @cache = File.join(@dir, ".cache")
     @out = StringIO.new
-    ENV["OPENAI_API_KEY"] = "sk-test-secret"
-    ENV.delete("CF_SECRETS_ENV")
+    enroll_home!("openai")
   end
 
   def teardown
-    ENV.delete("OPENAI_API_KEY")
+    restore_home!
     FileUtils.remove_entry(@dir)
   end
 
@@ -45,7 +44,7 @@ class ImageTest < Minitest::Test
 
   def test_rerun_is_free_and_needs_no_key
     run_cli("same prompt")
-    ENV.delete("OPENAI_API_KEY")
+    unenroll!("openai")
     @out.truncate(0)
     @out.rewind
     code, text, http = run_cli("same prompt")
@@ -106,17 +105,9 @@ class ImageTest < Minitest::Test
     assert_includes text, "nope.png"
   end
 
-  def test_missing_key_exits_1_when_a_call_is_needed
-    ENV.delete("OPENAI_API_KEY")
-    code, text = with_store(enrolled: true) { run_cli("fresh") }
-    assert_equal 1, code
-    assert_includes text, "OPENAI_API_KEY"
-    assert_empty enroll_lines(text)
-  end
-
   def test_unenrolled_uncached_call_exits_4_with_one_enroll_line
-    ENV.delete("OPENAI_API_KEY")
-    code, text, http = with_store { run_cli("fresh") }
+    unenroll!("openai")
+    code, text, http = with_enrolled { run_cli("fresh") }
     assert_equal 4, code
     assert_one_enroll_line(text, "openai")
     assert_empty http.requests
@@ -124,9 +115,9 @@ class ImageTest < Minitest::Test
 
   def test_unenrolled_cached_run_exits_0_without_asking
     assert_equal 0, run_cli("cached once").first
-    ENV.delete("OPENAI_API_KEY")
+    unenroll!("openai")
     @out = StringIO.new
-    code, text, http = with_store { run_cli("cached once") }
+    code, text, http = with_enrolled { run_cli("cached once") }
     assert_equal 0, code, text
     assert_empty enroll_lines(text)
     assert_empty http.requests

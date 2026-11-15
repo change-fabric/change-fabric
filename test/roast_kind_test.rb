@@ -6,12 +6,14 @@ require "stringio"
 require "tmpdir"
 require_relative "../scripts/roast"
 require_relative "imagegen_helpers"
+require_relative "enroll_helpers"
 
 # The CLI-only fidelity kind (spec 0.18.0 design targets): prototype and
 # reference stills fed in pairs. Every paid call is stubbed with a fake HTTP
 # transport; nothing here reaches the network.
 class RoastKindTest < Minitest::Test
   include ImagegenHelpers
+  include EnrollHelpers
 
   CRITIC = { "score" => 9, "summary" => "Reads as the app.", "issues" => [],
              "thirty_second_test" => { "verdict" => "pass", "reason" => "r" },
@@ -32,12 +34,11 @@ class RoastKindTest < Minitest::Test
     @proto = write_fixture(@dir, "proto-analytics.png")
     @ref = write_fixture(@dir, "ref-analytics.png")
     @out = StringIO.new
-    ENV["OPENAI_API_KEY"] = "sk-test-secret"
-    ENV.delete("CF_SECRETS_ENV")
+    enroll_home!("openai")
   end
 
   def teardown
-    ENV.delete("OPENAI_API_KEY")
+    restore_home!
     FileUtils.remove_entry(@dir)
   end
 

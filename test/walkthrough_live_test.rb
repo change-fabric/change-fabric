@@ -18,8 +18,7 @@ class WalkthroughLiveTest < Minitest::Test
 
   def setup
     @root = Dir.mktmpdir
-    @old_env = ENV.to_h.slice("CF_SECRETS_ENV", "APP_PASSWORD", "APP_EMAIL")
-    ENV["CF_SECRETS_ENV"] = File.join(@root, "no-such.env")
+    @old_env = ENV.to_h.slice("APP_PASSWORD", "APP_EMAIL")
     ENV["APP_PASSWORD"] = SECRET
     ENV["APP_EMAIL"] = "member@example.test"
     @calls = Hash.new { |h, k| h[k] = [] }

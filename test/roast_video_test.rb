@@ -56,14 +56,13 @@ class RoastVideoTest < Minitest::Test
     @roast = File.join(@dir, "roast")
     FileUtils.mkdir_p(@roast)
     File.write(File.join(@roast, "round-2.json"), JSON.generate(CRITIC.merge("issues" => [])))
-    ENV["OPENAI_API_KEY"] = "sk-test-secret"
-    ENV.delete("CF_SECRETS_ENV")
+    enroll_home!("openai")
     @terms = File.join(@dir, "terms.txt").tap { |p| File.write(p, "zorblax\n") }
     ENV["CF_SENSITIVE_TERMS_FILE"] = @terms
   end
 
   def teardown
-    ENV.delete("OPENAI_API_KEY")
+    restore_home!
     ENV.delete("CF_SENSITIVE_TERMS_FILE")
     FileUtils.remove_entry(@dir)
   end
@@ -100,10 +99,10 @@ class RoastVideoTest < Minitest::Test
   def video_args = [ "--video", @mp4, "--brief", @brief, "--out-dir", @roast, "--cache", File.join(@dir, ".cache"), "--round", "2" ]
 
   def test_unenrolled_uncached_video_roast_exits_4_with_one_enroll_line
-    ENV.delete("OPENAI_API_KEY")
+    unenroll!("openai")
     out = StringIO.new
     http = Http.new
-    code = with_store { RoastVideo::Cli.run(video_args, out: out, http: http, docker: fake_docker) }
+    code = with_enrolled { RoastVideo::Cli.run(video_args, out: out, http: http, docker: fake_docker) }
     assert_equal 4, code
     assert_one_enroll_line(out.string, "openai")
     assert_empty http.requests
@@ -113,10 +112,10 @@ class RoastVideoTest < Minitest::Test
     docker = fake_docker
     assert_equal 0, RoastVideo::Cli.run(video_args, out: StringIO.new, http: Http.new, docker: docker)
     FileUtils.rm_f(Dir[File.join(@roast, "round-2.video.*")])
-    ENV.delete("OPENAI_API_KEY")
+    unenroll!("openai")
     out = StringIO.new
     http = Http.new
-    code = with_store { RoastVideo::Cli.run(video_args, out: out, http: http, docker: docker) }
+    code = with_enrolled { RoastVideo::Cli.run(video_args, out: out, http: http, docker: docker) }
     assert_equal 0, code, out.string
     assert_empty enroll_lines(out.string)
     assert_empty http.requests
