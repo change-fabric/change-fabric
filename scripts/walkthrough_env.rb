@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require 'shellwords'
 require_relative 'cf_secrets'
 
 # Key lookup for the paid skills. A key comes only from this project's
