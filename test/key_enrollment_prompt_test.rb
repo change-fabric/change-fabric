@@ -108,6 +108,45 @@ class KeyEnrollmentPromptTest < Minitest::Test
     assert_includes out, "hookSpecificOutput" if out != ""
   end
 
+  NOW = Time.utc(2026, 6, 1, 12)
+
+  def enroll(dir, provider, value, **fields)
+    s = slug(dir)
+    CfSecretStore.write_key(s, provider, value)
+    CfSecretStore.update_meta(s) { |m| m["root"] = dir }
+    CfSecretStore.update_enrollment(s, provider, fields)
+  end
+
+  def scan = KeyEnrollmentPrompt.new({ "cwd" => @project }, home: @home, now: NOW).context
+
+  def test_expiry_scan_names_expired_and_soon_keys_across_projects
+    enroll(@project, "openai", "sk-own-fake", expires_at: "2026-05-31T00:00:00Z", label: "team key")
+    enroll(@sibling, "gemini", "gm-sib-fake", expires_at: "2026-06-02T06:00:00Z")
+    enroll(@org, "elevenlabs", "el-org-fake", expires_at: "2026-07-01T00:00:00Z")
+    text = scan
+    assert_includes text, "expired or expiring within 24h"
+    assert_includes text, "- openai \"team key\" at #{@project}: expired"
+    assert_includes text, "cf_keys.rb enroll openai --dir #{@project}"
+    assert_includes text, "- gemini at #{@sibling}: expires within 24h"
+    assert_includes text, "cf_keys.rb enroll gemini --dir #{@sibling}"
+    refute_includes text, "elevenlabs"
+    %w[sk-own-fake gm-sib-fake el-org-fake].each { |key| refute_includes text, key }
+  end
+
+  def test_expiry_scan_is_quiet_without_dates_and_skips_malformed_meta
+    enroll(@project, "openai", "sk-own-fake")
+    FileUtils.mkdir_p(File.join(CfSecretStore.root, "broken"))
+    File.write(File.join(CfSecretStore.root, "broken", "meta.json"), "{not json")
+    CfSecretStore.update_meta("odd") { |m| m.merge!("root" => "/x", "enrolled" => { "openai" => "nope", "bogus" => {} }) }
+    assert_nil scan
+  end
+
+  def test_expiry_scan_runs_without_an_installation_record
+    FileUtils.rm_rf(File.join(@home, ".local"))
+    enroll(@sibling, "openai", "sk-sib-fake", expires_at: "2026-05-01")
+    assert_includes scan, "- openai at #{@sibling}: expired"
+  end
+
   def test_codex_session_start_carries_the_prompt
     result = CfHostHook.new(host: "codex", event: "SessionStart", payload: { "session_id" => "s", "cwd" => @project },
                             root: File.join(@home, "state"), home: @home, skills: []).call

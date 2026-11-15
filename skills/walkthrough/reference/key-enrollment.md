@@ -18,6 +18,7 @@ Providers do not report when a key expires, so the date is recorded: `enroll --e
 
 - Within 24 hours of expiry, resolving the key prints one stderr warning naming the provider, label, owning level, and the renew command. The call still runs.
 - Once the date has passed, the key is refused locally: no paid request is made and the script exits 4 with `"reason":"expired"`.
+- At SessionStart, every project's meta.json in the secret store is scanned (never a key file), and any key already expired or expiring within 24 hours is named with its provider, label, project root, and renew command.
 
 Keys live as hidden 0600 files under `~/.claude/cf/secrets/<slug>/`, beside a value-free `meta.json`. Process env vars (`OPENAI_API_KEY`, `ELEVEN_LABS_API_KEY`, `ELEVENLABS_API_KEY`, `GEMINI_API_KEY`, `CF_SECRETS_ENV`) and the old `~/.claude/cf/secrets.yml` are never key sources: a set variable earns one stderr warning naming it, never its value. There is no global fallback.
 
