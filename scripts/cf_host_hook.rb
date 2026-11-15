@@ -51,6 +51,8 @@ class CfHostHook
   def call
     guarded = key_guard
     return guarded if guarded
+    # A prompt-only check (OpenCode chat.message) runs the guard and nothing else.
+    return {} if @payload['guard_only']
 
     request = base.merge('event' => EVENTS.fetch(@event))
     request['tool'] = tool if %w[PreToolUse PostToolUse].include?(@event)

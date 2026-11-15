@@ -97,4 +97,23 @@ class SecretsReadGuardTest < Minitest::Test
     out = host("codex", "UserPromptSubmit", "prompt" => "key AIza#{'Q' * 35}")
     assert_equal "block", out["decision"]
   end
+
+  def test_guard_only_prompts_run_the_paste_guard_and_nothing_else
+    blocked = host("opencode", "UserPromptSubmit", "prompt" => "key AIza#{'Q' * 35}", "guard_only" => true)
+    assert_equal "block", blocked["decision"]
+    refute_includes JSON.generate(blocked), "AIza"
+    assert_equal({}, host("opencode", "UserPromptSubmit", "prompt" => "/cf:yolo", "guard_only" => true))
+  end
+
+  # Pi and OpenCode must enforce the block, not just read context from it.
+  def test_pi_and_opencode_extensions_enforce_a_prompt_block
+    root = File.expand_path("../extensions", __dir__)
+    pi = File.read(File.join(root, "pi-cf-hooks", "index.ts"))
+    assert_match(/result\.decision === "block"[^}]*action: "handled"/m, pi)
+    opencode = File.read(File.join(root, "opencode-cf-hooks", "index.ts"))
+    chat = opencode[opencode.index('"chat.message"')...opencode.index('"experimental.chat.system.transform"')]
+    assert_includes chat, "prompt, guard_only: true"
+    assert_match(/decision !== "block"/, chat)
+    assert_match(/part\.text = notice/, chat)
+  end
 end
