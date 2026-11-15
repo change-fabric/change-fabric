@@ -55,6 +55,13 @@ class KeyEnrollmentPromptTest < Minitest::Test
     refute_includes text, "sk-org-fake"
   end
 
+  def test_a_malformed_entry_skips_only_itself
+    require_providers("elevenlabs" => "cf:narrate", "openai" => [ "cf:image" ])
+    text = context
+    assert_includes text, "OpenAI (openai, used by cf:image)"
+    refute_includes text, "elevenlabs"
+  end
+
   def test_enrolled_or_confirmed_projects_are_quiet
     CfSecretStore.write_key(slug(@project), "openai", "sk-own-fake")
     assert_nil context

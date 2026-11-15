@@ -48,7 +48,7 @@ class KeyEnrollmentPrompt
   private
 
   def line(project, meta, provider, skills)
-    return unless CfProviderRegistry.known?(provider)
+    return unless CfProviderRegistry.known?(provider) && skills.is_a?(Array)
     return if CfSecretStore.key?(project.slug, provider)
     return if meta.dig('deferred', provider)
 
