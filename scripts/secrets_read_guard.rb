@@ -13,6 +13,7 @@ require_relative 'hook_event'
 class SecretsReadGuard
   EVENT = 'PreToolUse'
   FILE_TOOLS = %w[Read Edit Write MultiEdit NotebookEdit Grep Glob].freeze
+  SEARCH_TOOLS = %w[Grep Glob].freeze
   PATH_KEYS = %w[file_path notebook_path path filePath].freeze
   SHELL_MARKERS = [ '.claude/cf/secrets', 'cf/secrets/' ].freeze
   CHAINING = /[;&|<>`\n]|\$\(/
@@ -56,8 +57,11 @@ class SecretsReadGuard
     false
   end
 
+  # Grep and Glob search the session cwd when no path is given.
   def file_paths(input)
-    PATH_KEYS.filter_map { |key| input[key] if input[key].is_a?(String) && !input[key].empty? }
+    paths = PATH_KEYS.filter_map { |key| input[key] if input[key].is_a?(String) && !input[key].empty? }
+    paths << '.' if paths.empty? && SEARCH_TOOLS.include?(@event['tool_name'])
+    paths
   end
 
   def under_secrets?(path)

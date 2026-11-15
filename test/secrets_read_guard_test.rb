@@ -46,6 +46,13 @@ class SecretsReadGuardTest < Minitest::Test
     assert_equal "deny", decide("Read", "file_path" => File.join(link, "abc", ".openai"))
   end
 
+  def test_pathless_search_from_inside_the_secrets_dir_is_denied
+    FileUtils.mkdir_p(File.join(@secrets, "abc"))
+    assert_equal "deny", decide("Grep", { "pattern" => "sk-" }, cwd: File.join(@secrets, "abc"))
+    assert_equal "deny", decide("Glob", { "pattern" => "**/*" }, cwd: @secrets)
+    assert_nil decide("Grep", { "pattern" => "sk-" }, cwd: @home)
+  end
+
   def test_other_paths_are_allowed
     assert_nil decide("Read", "file_path" => File.join(@home, ".claude", "cf", "secrets-notes.md"))
     assert_nil decide("Read", "file_path" => File.join(@home, "project", "README.md"))

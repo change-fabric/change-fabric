@@ -43,6 +43,12 @@ class KeyPasteGuardTest < Minitest::Test
     assert_nil emit("")
   end
 
+  def test_commit_and_content_hashes_pass
+    assert_nil emit("rebase onto ae5e71186144127b828c109e6ee02dc673c5bdc4 please")
+    assert_nil emit("sha256 #{'0f' * 32} and #{'ab12' * 12}")
+    assert_nil emit("tag sk_#{'0f' * 20} is short")
+  end
+
   def test_malformed_stdin_exits_0_silently
     [ "not json", "[]", "", "{\"prompt\": 42}" ].each do |stdin|
       out, err, status = Open3.capture3(RbConfig.ruby, SCRIPT, stdin_data: stdin)
