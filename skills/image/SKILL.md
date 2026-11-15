@@ -1,6 +1,7 @@
 ---
 name: cf:image
 group: workflow
+providers: [openai]
 description: Image command. Generates, or edits, a still with the OpenAI Images API (gpt-image-2.6-sunburst) from a prompt or prompt file, with optional reference images for consistency across shots and an edit image with a mask, cached by content key, with a cost estimate printed before any paid call and an explicit ceiling. Three text modes, none, short (the model draws a few quoted words), or heavy (a textless plate with HTML copy overlaid per size from a JSON spec). Never for UI screenshots. Paid, so it runs only when invoked by name or loaded by cf:prototype or cf:walkthrough, never auto-applied or chosen on a model guess. Usable alone, outside any walkthrough.
 ---
 

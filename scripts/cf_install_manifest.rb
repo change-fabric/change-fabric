@@ -11,13 +11,14 @@ class CfInstallManifest
     @path, @home = path, File.realpath(home)
   end
 
-  def record(paths)
+  # `extra` adds top-level fields beside the entries (required_providers).
+  def record(paths, extra = {})
     previous = entries
     current = paths.uniq.filter_map { |path| snapshot(path) }
     obsolete = previous.reject { |entry| current.any? { |row| row['path'] == entry['path'] } }
     obsolete.each { |entry| FileUtils.rm_f(entry['path']) if unchanged?(entry) }
     FileUtils.mkdir_p(File.dirname(@path))
-    File.write("#{@path}.tmp", JSON.pretty_generate('version' => 1, 'home' => @home, 'entries' => current) + "\n")
+    File.write("#{@path}.tmp", JSON.pretty_generate({ 'version' => 1, 'home' => @home, 'entries' => current }.merge(extra)) + "\n")
     File.rename("#{@path}.tmp", @path)
   end
 
