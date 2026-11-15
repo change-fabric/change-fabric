@@ -7,9 +7,11 @@ require 'json'
 require 'net/http'
 require 'openssl'
 require 'optparse'
+require 'tmpdir'
 require 'uri'
 require_relative 'design_config'
 require_relative 'roast_kind'
+require_relative 'roast_image_fit'
 require_relative 'roast_lens'
 require_relative 'sensitive_terms'
 require_relative 'walkthrough_cache'
@@ -54,6 +56,8 @@ module Roast
   LONG_CONTEXT_TOKENS = 272_000
   IMAGE_TOKENS = 1500
   MAX_OUTPUT_TOKENS = 4000
+  # One retry at this cap when the first answer stops at MAX_OUTPUT_TOKENS.
+  RETRY_OUTPUT_TOKENS = 16_000
   MIME = { '.png' => 'image/png', '.jpg' => 'image/jpeg', '.jpeg' => 'image/jpeg', '.webp' => 'image/webp' }.freeze
   USAGE = 'usage: roast.rb --brief FILE (--shot IMG... | --text FILE...) [--allow-sensitive] [--history DIR] [--out-dir DIR] [--round N] ' \
           '[--max-usd N] [--model NAME|terra|sol] [--effort none|low|medium|high|xhigh|max] [--cache DIR] [--transcript FILE] [--estimate-only] ' \
@@ -304,9 +308,9 @@ module Roast
     est[:unknown_price] ? "warning: no price for #{est[:model]}, estimating at #{fallback_model} rates" : nil
   end
 
-  def estimate(brief:, shots:, history:, texts: [], transcript: nil, review: nil, lenses: [], model: MODEL)
+  def estimate(brief:, shots:, history:, texts: [], transcript: nil, review: nil, lenses: [], model: MODEL, max_output: MAX_OUTPUT_TOKENS)
     chars = lenses.sum { |l| l.name.size + l.body.size } + SYSTEM_PROMPT.size + texts.sum { |t| File.size(t) } + brief.size + JSON.generate(history).size + transcript.to_s.size + review_text(review).to_s.size
-    priced_usd(model || MODEL, (chars / 4) + (shots.size * IMAGE_TOKENS), MAX_OUTPUT_TOKENS)
+    priced_usd(model || MODEL, (chars / 4) + (shots.size * IMAGE_TOKENS), max_output)
   end
 
   def user_text(brief, history, round, shots, texts: [], transcript: nil, review: nil, lenses: [])
@@ -374,16 +378,66 @@ module Roast
     http
   end
 
-  # Pulls the model's JSON out of a Responses body and validates its shape.
-  def parse_critic(body)
-    text = output_text(body)
-    raise RequestError, 'roast response carried no output_text' unless text
+  # Pulls the model's JSON out of a Responses body and validates its shape. A
+  # truncated, refused, incomplete, or unparseable answer is named, and its
+  # scrubbed raw body is saved to raw (when given) so the cause can be read.
+  def parse_critic(body, raw: nil)
+    failure = answer_failure(body)
+    raise RequestError, keep_raw(raw, body, failure) if failure
 
-    critic = JSON.parse(text)
+    text = output_text(body)
+    raise RequestError, keep_raw(raw, body, 'roast response carried no output_text') unless text
+
+    critic = begin
+      JSON.parse(text)
+    rescue JSON::ParserError
+      raise RequestError, keep_raw(raw, body, 'roast response was not valid JSON')
+    end
     validate_critic!(critic)
     critic
-  rescue JSON::ParserError
-    raise RequestError, 'roast response was not valid JSON'
+  end
+
+  def answer_failure(body)
+    refusal = refusal_text(body)
+    return "roast critic refused: #{CfProviderError.scrub(refusal.strip[0, 300])}" if refusal
+    return "roast response truncated at max_output_tokens (#{body['max_output_tokens'] || 'cap'})" if truncated?(body)
+    return "roast response incomplete: #{body.dig('incomplete_details', 'reason') || 'no reason given'}" if body['status'] == 'incomplete'
+
+    nil
+  end
+
+  def truncated?(body) = body.dig('incomplete_details', 'reason') == 'max_output_tokens'
+
+  def refusal_text(body)
+    Array(body['output']).flat_map { |item| Array(item['content']) }
+                         .find { |c| c['type'] == 'refusal' }&.fetch('refusal', nil)
+  end
+
+  def raw_path(dir, round) = dir ? File.join(dir, "raw-#{round}.json") : nil
+
+  # Writes the scrubbed raw body and returns the message naming where it went.
+  def keep_raw(raw, body, message)
+    return message unless raw
+
+    FileUtils.mkdir_p(File.dirname(raw))
+    File.write(raw, CfProviderError.scrub(JSON.pretty_generate(body)))
+    "#{message}; raw response at #{raw}"
+  end
+
+  # One paid call, retried once at RETRY_OUTPUT_TOKENS when the answer stops at
+  # the output cap. retry_usd prices the retry; it is printed before the call
+  # and held to max_usd. A second truncation fails by name.
+  def call_critic(request, http, raw:, out:, retry_usd:, max_usd: nil)
+    body = post(request, http)
+    if truncated?(body)
+      keep_raw(raw, body, '')
+      usd = retry_usd.call
+      out.puts("roast: truncated at max_output_tokens (#{request[:body][:max_output_tokens]}), retrying once at #{RETRY_OUTPUT_TOKENS}: about $#{format('%.2f', usd)} more")
+      raise CeilingError, "the retry's $#{format('%.2f', usd)} would pass the $#{format('%.2f', max_usd)} ceiling" if max_usd && usd > max_usd + 1e-9
+
+      body = post({ url: request[:url], body: request[:body].merge(max_output_tokens: RETRY_OUTPUT_TOKENS) }, http)
+    end
+    parse_critic(body, raw: raw)
   end
 
   def output_text(body)
@@ -406,12 +460,20 @@ module Roast
   end
 
   # Returns the cached critic JSON, making the paid call only on a miss.
-  def critique(brief:, shots:, history:, round:, cache_root:, texts: [], transcript: nil, review: nil, lenses: [], http: nil, model: MODEL, effort: DEFAULT_EFFORT, allow_sensitive: false)
+  # Oversized shots are fitted into a temp copy just for the request; the key
+  # hashes the originals, so a fit never changes what is cached.
+  def critique(brief:, shots:, history:, round:, cache_root:, texts: [], transcript: nil, review: nil, lenses: [], http: nil, model: MODEL, effort: DEFAULT_EFFORT,
+               allow_sensitive: false, raw_dir: nil, out: $stdout, docker: RoastImageFit::DEFAULT_DOCKER, max_usd: nil)
     check_sensitive!(brief: brief, texts: texts, transcript: transcript, review: review, lenses: lenses, history: history, allow: allow_sensitive)
     key = request_key(brief: brief, shots: shots, history: history, round: round, texts: texts, transcript: transcript, review: review, lenses: lenses, model: model, effort: effort)
     path = WalkthroughCache.fetch(*cache_args(cache_root, key)) do |tmp|
-      request = build_request(brief: brief, shots: shots, history: history, round: round, texts: texts, transcript: transcript, review: review, lenses: lenses, model: model, effort: effort)
-      File.write(tmp, JSON.generate(parse_critic(post(request, http))))
+      Dir.mktmpdir('roast-fit') do |fit_dir|
+        sent = RoastImageFit.fit_all(shots, tmp_dir: fit_dir, out: out, docker: docker)
+        request = build_request(brief: brief, shots: sent, history: history, round: round, texts: texts, transcript: transcript, review: review, lenses: lenses, model: model, effort: effort)
+        retry_usd = -> { estimate(brief: brief, shots: shots, history: history, texts: texts, transcript: transcript, review: review, lenses: lenses, model: model, max_output: RETRY_OUTPUT_TOKENS)[:usd] }
+        critic = call_critic(request, http, raw: raw_path(raw_dir, round), out: out, retry_usd: retry_usd, max_usd: max_usd)
+        File.write(tmp, JSON.generate(critic))
+      end
     end
     JSON.parse(File.read(path))
   end
@@ -483,7 +545,7 @@ module Roast
   module Cli
     module_function
 
-    def run(argv, out: $stdout, http: nil)
+    def run(argv, out: $stdout, http: nil, docker: RoastImageFit::DEFAULT_DOCKER)
       args = argv.dup
       if args.include?('--video')
         raise UsageError, 'lenses apply to stills and text only, not --video' if args.include?('--lens')
@@ -505,7 +567,7 @@ module Roast
       end
 
       opts = parse(args)
-      critique(opts, out, http)
+      critique(opts, out, http, docker)
       0
     rescue UsageError, OptionParser::ParseError, RoastLens::UnknownLens => e
       out.puts("error: #{e.message}", USAGE)
@@ -517,7 +579,7 @@ module Roast
       WalkthroughEnv.enroll(e, out: out)
     rescue CfProviderError::Failure => e
       WalkthroughEnv.key_error(e, out: out)
-    rescue CeilingError, SensitiveError, RequestError, WalkthroughEnv::MissingKeyError, SystemCallError, DesignConfig::Error => e
+    rescue CeilingError, SensitiveError, RequestError, RoastImageFit::FitError, WalkthroughEnv::MissingKeyError, SystemCallError, DesignConfig::Error => e
       out.puts("error: #{e.message}")
       1
     end
@@ -659,7 +721,7 @@ module Roast
       0
     end
 
-    def critique(opts, out, http)
+    def critique(opts, out, http, docker)
       [ opts[:brief_file], opts[:transcript_file], opts[:storyboard_file], *opts[:shots], *opts[:texts] ].compact.each { |f| raise Errno::ENOENT, f unless File.file?(f) }
       opts[:shots].each { |s| Roast.mime_for(s) }
       suggest_lenses(opts[:texts], opts[:lenses] || [], out)
@@ -669,7 +731,8 @@ module Roast
       raise CeilingError, "$#{format('%.2f', usd)} would pass the $#{format('%.2f', opts[:max_usd])} ceiling" if usd > opts[:max_usd] + 1e-9
       return if opts[:estimate_only]
 
-      critic = Roast.critique(**inputs, cache_root: opts[:cache], http: http, allow_sensitive: opts[:allow_sensitive])
+      critic = Roast.critique(**inputs, cache_root: opts[:cache], http: http, allow_sensitive: opts[:allow_sensitive], raw_dir: opts[:out_dir], out: out,
+                                        docker: docker, max_usd: opts[:max_usd])
       Roast.write_round(opts[:out_dir], inputs[:round], critic)
       out.puts("roast: #{File.join(opts[:out_dir], "round-#{inputs[:round]}.json")} score #{critic['score']}/10")
     end
