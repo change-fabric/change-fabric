@@ -32,6 +32,12 @@ A fully cached run never exits 4. On exit 4:
 - `ruby ~/.claude/cf/bin/cf_keys.rb status [--dir PATH]` lists each provider as enrolled, inherited, inheritable, deferred, or missing, never a value.
 - `ruby ~/.claude/cf/bin/cf_keys.rb defer <provider> [--dir PATH]` records a per-project deferral after an AskUserQuestion defer.
 - `ruby ~/.claude/cf/bin/cf_keys.rb enroll <provider> --dir ~/org` enrolls an ancestor level that descendant projects may inherit from after confirmation.
+- `ruby ~/.claude/cf/bin/cf_keys.rb remove <provider> [--dir PATH]` deletes this project's key for that provider. Like `enroll`, it refuses without a real terminal.
+
+## Hooks
+
+- At SessionStart, for each provider an installed skill needs that this project has not enrolled, confirmed, or deferred, the agent is told to ask with AskUserQuestion: enroll now, use the ancestor key (only offered when one exists), or defer. A defer silences that prompt for this project and provider only; a later paid call still exits 4 with the snippet.
+- A UserPromptSubmit guard blocks any chat prompt shaped like a provider key before the model sees it and points the user at `cf_keys.rb enroll`.
 
 ## Never
 

@@ -69,7 +69,7 @@ Write N option briefs from `reference/option-template.md`.
 1. Print the cf:image estimate for N boards at `medium` quality. Stop if it is above `--max-usd`, and offer to continue text-only.
 2. Generate each board with cf:image (`image.rb`) using `--cache <dir>/.cache`, one per option, under `moodboards/<opt>/`.
 3. Build the contact sheet through cf:design's moodboard path (inline HTML in browserless).
-4. Never for UI screenshots. If `OPENAI_API_KEY` is missing, fall back to text-only and record it in `brief.md`.
+4. Never for UI screenshots. If cf:image exits 4 (no OpenAI key enrolled for this project), offer the user the printed snippet; if they decline, fall back to text-only and record it in `brief.md`.
 
 ## Decide
 

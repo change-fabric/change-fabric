@@ -33,4 +33,24 @@ class KeyDocsCutoverTest < Minitest::Test
     assert_includes text, "cf_keys.rb confirm-inherit"
     assert_includes text, "There is no global fallback"
   end
+
+  def test_enrollment_doc_covers_remove_hooks_and_defer
+    text = File.read(DOC)
+    assert_includes text, "cf_keys.rb remove"
+    assert_includes text, "SessionStart"
+    assert_includes text, "UserPromptSubmit"
+    assert_includes text, "cf_keys.rb defer"
+  end
+
+  def test_readme_carries_the_breaking_reenroll_note
+    text = File.read(File.join(ROOT, "README.md"))
+    assert_includes text, "BREAKING: a paid skill exits 4 after upgrading"
+    assert_includes text, "cf_keys.rb enroll"
+  end
+
+  def test_imagine_falls_back_on_exit_4_not_a_missing_env_var
+    text = File.read(File.join(ROOT, "skills/imagine/SKILL.md"))
+    refute_includes text, "`OPENAI_API_KEY` is missing"
+    assert_includes text, "exits 4"
+  end
 end

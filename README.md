@@ -129,6 +129,20 @@ start, so a session that was already open when you installed will not show it.
 
 ## Troubleshooting
 
+**BREAKING: a paid skill exits 4 after upgrading.** Paid API keys are now per
+project. `OPENAI_API_KEY`, `ELEVEN_LABS_API_KEY`, `ELEVENLABS_API_KEY`,
+`GEMINI_API_KEY`, `CF_SECRETS_ENV` and the old `secrets.yml` pointer file are
+ignored (a set variable gets one warning naming it, never its value). Re-enroll
+each project from your own terminal, or enroll once at a parent folder and
+confirm inheriting it per project:
+
+```sh
+ruby ~/.claude/cf/bin/cf_keys.rb enroll openai --dir ~/code/app
+ruby ~/.claude/cf/bin/cf_keys.rb status --dir ~/code/app
+```
+
+See [key enrollment](skills/walkthrough/reference/key-enrollment.md).
+
 **Hooks error or stop firing after `brew upgrade ruby`.** The hook commands in
 `settings.json` name a Ruby interpreter by path, and a Ruby upgrade moves it.
 Re-run the installer.
