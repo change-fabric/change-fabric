@@ -526,4 +526,15 @@ class WalkthroughStoryboardTest < Minitest::Test
     end
     assert_equal [ "music.fade_in must be a number of seconds in 0..2" ], errors_for(board.merge("music" => { "fade_in" => 3 })).grep(/music/)
   end
+
+  def test_music_fade_out_validation
+    assert_empty errors_for(board.merge("music" => { "prompt" => "calm", "fade_out" => 2.5 })).grep(/music/)
+    assert_empty errors_for(board.merge("music" => { "prompt" => "calm", "fade_out" => 0 })).grep(/music/)
+    [ -0.5, 5.5, "2" ].each do |bad|
+      assert_equal [ "music.fade_out must be a number of seconds in 0..5" ],
+                   errors_for(board.merge("music" => { "fade_out" => bad })).grep(/music/)
+    end
+    assert_equal 2500, WalkthroughStoryboard.music_fade_out_ms(board.merge("music" => { "fade_out" => 2.5 }))
+    assert_nil WalkthroughStoryboard.music_fade_out_ms(board.merge("music" => { "prompt" => "calm" }))
+  end
 end

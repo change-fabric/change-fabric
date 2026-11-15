@@ -12,7 +12,7 @@ require_relative 'walkthrough_transition'
 #
 #   { fps:, width:, height:, total_ms:, cursor_png:, srt:, output:,
 #     sfx: [{ path:, start_ms:, max_ms:, gain_db:, duck_spans: [...] }],
-#     music: { path:, gain_db:, start_ms:, fade_in_ms: } | nil (start and fade only when set), duck_spans: [{ start_ms:, end_ms:, db:, attack_ms:, release_ms: }],
+#     music: { path:, gain_db:, start_ms:, fade_in_ms:, fade_out_ms: } | nil (start and fade in only when set), duck_spans: [{ start_ms:, end_ms:, db:, attack_ms:, release_ms: }],
 #     scenes: [{ id:, frames_dir:, frames:, start_frame:, transition: { 'type', 'ms', 'ease' },
 #                cursor: [{ 'frame', 'x', 'y' }], taps: [...] | nil, hero_still:, audio:, offset_ms:,
 #                stage: [w, h] | nil, sprite: Float (full-bleed phone only),
@@ -54,6 +54,8 @@ module WalkthroughFfmpeg
   # then "Conversion failed!"), so the chain stays well under that.
   CHAIN_MAX = 80
   OFFSCREEN = -200
+  # The music bed's render-time outro when the board sets no music.fade_out.
+  MUSIC_FADE_OUT_MS = 2500
   # The tap ripple sprite's size in canvas px (matches WalkthroughDevice::RIPPLE).
   RIPPLE = 44
   # yuv420p stays for player compatibility: with grayscale text antialiasing
@@ -389,12 +391,21 @@ module WalkthroughFfmpeg
 
   # A bed with music.start waits in silence, then fades in over fade_in;
   # it runs after the trim and before the duck, so duck spans keep their
-  # absolute times. Unset, it adds nothing.
-  def music_entry(music)
+  # absolute times. Unset, start and fade in add nothing.
+  def music_entry(music, total_ms)
     start = music[:start_ms].to_i
     fade = music[:fade_in_ms].to_i
     out = start.positive? ? "adelay=delays=#{start}:all=1," : ''
-    fade.positive? ? "#{out}afade=t=in:st=#{seconds(start)}:d=#{seconds(fade)}," : out
+    out = "#{out}afade=t=in:st=#{seconds(start)}:d=#{seconds(fade)}," if fade.positive?
+    out + music_outro(music, start, total_ms)
+  end
+
+  # The bed's own outro, timed from the timeline end rather than the bed's:
+  # a generated bed composes its own ending well before its last sample, and
+  # a short bed would otherwise stop dead. Never starts before the bed does.
+  def music_outro(music, start, total_ms)
+    fade = music.fetch(:fade_out_ms, MUSIC_FADE_OUT_MS).to_i.clamp(0, total_ms - start)
+    fade.positive? ? "afade=t=out:st=#{seconds(total_ms - fade)}:d=#{seconds(fade)}," : ''
   end
 
   def audio_graph(plan, level)
@@ -408,7 +419,7 @@ module WalkthroughFfmpeg
       labels << "[n#{idx}]"
     end
     if io[:music]
-      parts << "[#{io[:music]}:a]#{normalize},atrim=duration=#{total},#{music_entry(plan[:music])}" \
+      parts << "[#{io[:music]}:a]#{normalize},atrim=duration=#{total},#{music_entry(plan[:music], plan[:total_ms])}" \
                "volume='#{duck_expression(plan[:duck_spans] || [], total_ms: plan[:total_ms])}':eval=frame," \
                "volume=#{plan[:music][:gain_db].to_f}dB,#{bound(total)}[mus]"
       labels << '[mus]'
