@@ -10,7 +10,8 @@ require_relative 'cf_secrets'
 module WalkthroughEnv
   class MissingKeyError < StandardError; end
 
-  # No usable key for this project. A MissingKeyError so existing rescues
+  # No usable key for this project (missing, or its recorded expiry passed;
+  # to_h[:reason] says which). A MissingKeyError so existing rescues
   # still catch it; callers that can stop for the user rescue it first and
   # call enroll / enroll_exit!.
   class NeedsEnrollment < MissingKeyError
@@ -34,7 +35,7 @@ module WalkthroughEnv
 
   def key!(provider)
     CfSecrets.resolve(provider)
-  rescue CfSecrets::Unenrolled => e
+  rescue CfSecrets::Unenrolled, CfSecrets::Expired => e
     raise NeedsEnrollment, e
   end
 
@@ -44,6 +45,8 @@ module WalkthroughEnv
   def enroll(err, out: $stdout)
     details = err.to_h
     out.puts(JSON.generate(cf_enroll: details))
+    return expired(details, out) if details[:reason] == 'expired'
+
     out.puts("No #{details[:provider]} key is enrolled for #{details[:project_root]}. " \
              "Paste this for the user to run in their own terminal: #{details[:snippet]}")
     if details[:inheritable_from]
@@ -52,6 +55,14 @@ module WalkthroughEnv
                "ruby ~/.claude/cf/bin/cf_keys.rb confirm-inherit #{details[:provider]} " \
                "--dir #{Shellwords.escape(details[:project_root].to_s)}")
     end
+    ENROLL_EXIT
+  end
+
+  def expired(details, out)
+    label = details[:label] ? " \"#{details[:label]}\"" : ''
+    out.puts("The #{details[:provider]} key#{label} enrolled at #{details[:owner_root]} expired at " \
+             "#{details[:expires_at]}; no paid request was made. Paste this for the user to renew it in their own " \
+             "terminal: #{details[:snippet]}. If the recorded date is wrong, correct it with: #{details[:correct]}")
     ENROLL_EXIT
   end
 

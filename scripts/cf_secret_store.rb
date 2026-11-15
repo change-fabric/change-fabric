@@ -45,6 +45,21 @@ module CfSecretStore
 
   def key?(slug, provider) = File.file?(key_path(slug, provider))
 
+  # The value-free enrolled entry for provider at a level: at, and optionally
+  # expires_at, label and scope. Empty when nothing is recorded.
+  def enrollment(slug, provider)
+    entry = meta(slug).dig('enrolled', provider.to_s)
+    entry.is_a?(Hash) ? entry : {}
+  end
+
+  # Merges fields into the enrolled entry, dropping nil values.
+  def update_enrollment(slug, provider, fields)
+    update_meta(slug) do |m|
+      entry = ((m['enrolled'] ||= {})[provider.to_s] ||= {})
+      fields.each { |k, v| v.nil? ? entry.delete(k.to_s) : entry[k.to_s] = v }
+    end
+  end
+
   # Only resolution calls this. The value is never logged or written elsewhere.
   def read_key(slug, provider)
     path = key_path(slug, provider)

@@ -176,4 +176,79 @@ class CfKeysTest < Minitest::Test
   def test_snippet_quotes_the_root
     assert_equal "ruby ~/.claude/cf/bin/cf_keys.rb enroll openai --dir /a\\ b", CfKeys.snippet("openai", "/a b")
   end
+
+  def test_enroll_records_expiry_label_and_tree_scope
+    code, out, err = run_cli("enroll", "openai", "--dir", @org, "--expires", "2099-01-02",
+                             "--label", "org billing", "--scope", "tree")
+    assert_equal 0, code, err
+    entry = CfSecretStore.enrollment(slug(@org), "openai")
+    assert_equal "2099-01-02T00:00:00Z", entry["expires_at"]
+    assert_equal "org billing", entry["label"]
+    assert_equal "tree", entry["scope"]
+    assert_match(/label "org billing", scope tree, expires 2099-01-02T00:00:00Z/, out)
+    refute_includes out + err, FAKE
+  end
+
+  def test_enroll_defaults_to_project_scope_and_reenroll_clears_old_fields
+    run_cli("enroll", "openai", "--dir", @project, "--expires", "2099-01-02", "--label", "old")
+    run_cli("enroll", "openai", "--dir", @project)
+    entry = CfSecretStore.enrollment(slug(@project), "openai")
+    assert_nil entry["scope"]
+    assert_nil entry["expires_at"]
+    assert_nil entry["label"]
+  end
+
+  def test_enroll_with_a_bad_date_or_scope_is_a_usage_error_before_any_key_is_read
+    stdin = FakeTty.new("#{FAKE}\n")
+    code, _out, err = run_cli("enroll", "openai", "--dir", @project, "--expires", "next week", stdin: stdin)
+    assert_equal 1, code
+    assert_match(/not an ISO8601 date/, err)
+    assert_match(/usage:/, err)
+    assert_nil stdin.hidden
+    assert_equal 1, run_cli("enroll", "openai", "--dir", @project, "--scope", "org").first
+    assert_empty @requests
+    refute File.exist?(CfSecretStore.root)
+  end
+
+  def test_expires_sets_and_corrects_the_date_without_a_tty
+    run_cli("enroll", "openai", "--dir", @project, "--expires", "2099-01-02")
+    code, out, = run_cli("expires", "openai", "2099-03-04T10:00:00+02:00", "--dir", @project,
+                         stdin: StringIO.new)
+    assert_equal 0, code
+    assert_match(/now expires 2099-03-04T08:00:00Z/, out)
+    assert_equal "2099-03-04T08:00:00Z", CfSecretStore.enrollment(slug(@project), "openai")["expires_at"]
+    assert_equal FAKE, CfSecretStore.read_key(slug(@project), "openai")
+    assert_equal 1, @requests.size
+  end
+
+  def test_expires_exits_3_when_nothing_is_enrolled_at_that_level
+    code, _out, err = run_cli("expires", "openai", "2099-01-02", "--dir", @project)
+    assert_equal 3, code
+    assert_match(/no openai key enrolled at/, err)
+    refute File.exist?(CfSecretStore.root)
+  end
+
+  def test_expires_rejects_a_bad_date_and_a_missing_date
+    run_cli("enroll", "openai", "--dir", @project)
+    assert_equal 1, run_cli("expires", "openai", "soon", "--dir", @project).first
+    assert_equal 1, run_cli("expires", "openai", "--dir", @project).first
+    assert_nil CfSecretStore.enrollment(slug(@project), "openai")["expires_at"]
+  end
+
+  def test_status_shows_label_scope_expiry_and_days_but_no_key_bytes
+    run_cli("enroll", "openai", "--dir", @org, "--expires", "2000-01-01", "--label", "org", "--scope", "tree")
+    run_cli("enroll", "gemini", "--dir", @project, "--label", "proj", stdin: FakeTty.new("AIza#{'B' * 35}\n"))
+    code, out, = run_cli("status", "--dir", @project)
+    assert_equal 0, code
+    assert_match(/openai: inherited from #{Regexp.escape(@org)} \(label "org", scope tree, expires 2000-01-01T00:00:00Z \(expired\)\)/, out)
+    assert_match(/gemini: enrolled \(label "proj"\)/, out)
+    refute_includes out, FAKE
+    refute_includes out, "BBBBBBBB"
+  end
+
+  def test_status_shows_days_left
+    date = (Time.now.utc + (10 * 86_400) + 3600).strftime("%Y-%m-%dT%H:%M:%SZ")
+    run_cli("enroll", "openai", "--dir", @project, "--expires", date)
+    assert_match(/openai: enrolled \(expires #{date} \(10 days left\)\)/, run_cli("status", "--dir", @project)[1])
+  end
 end
