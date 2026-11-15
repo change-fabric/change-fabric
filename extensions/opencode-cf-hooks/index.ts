@@ -55,6 +55,18 @@ export const CfHooks = async ({ directory, client }: { directory: string; client
         if (result.hookSpecificOutput?.additionalContext) output.output = `${output.output ?? ""}\n\n${result.hookSpecificOutput.additionalContext}`;
       }
     },
+    // The paste guard needs the prompt text, which only chat.message sees. A
+    // blocked prompt has its text replaced by the reason, so a pasted key never
+    // reaches the model.
+    "chat.message": async (input: { sessionID?: string }, output: { parts?: Array<{ type?: string; text?: string }> }) => {
+      if (!input.sessionID || !Array.isArray(output.parts)) return;
+      const prompt = output.parts.filter((part) => part.type === "text").map((part) => part.text ?? "").join("\n");
+      if (!prompt) return;
+      const result = await callHook("opencode", "UserPromptSubmit", { session_id: input.sessionID, cwd: directory, prompt, guard_only: true });
+      if (result.decision !== "block") return;
+      const notice = `[cf:keys] Prompt withheld. ${result.reason ?? "CF blocked this prompt"}`;
+      output.parts.forEach((part) => { if (part.type === "text") part.text = notice; });
+    },
     "experimental.chat.system.transform": async (input: { sessionID?: string }, output: { system: string[] }) => {
       if (!input.sessionID) return;
       await ensureSession(input.sessionID);

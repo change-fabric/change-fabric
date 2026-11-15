@@ -32,6 +32,11 @@ export default function cfHooks(pi: ExtensionAPI) {
   });
   pi.on("input", async (event, ctx) => {
     const result = await callHook("pi", "UserPromptSubmit", { ...base(ctx), prompt: event.text });
+    // A blocked prompt (a pasted key) never reaches the model; show why instead.
+    if (result.decision === "block") {
+      ctx.ui.notify(result.reason ?? "CF blocked this prompt", "error");
+      return { action: "handled" };
+    }
     inputContext = result.hookSpecificOutput?.additionalContext ?? "";
     return { action: "continue" };
   });
