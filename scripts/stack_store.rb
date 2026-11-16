@@ -170,8 +170,9 @@ class StackStore
   # so it is prepared again rather than re-watched. A paused head waits for a
   # human: only an explicit resume (the user ran the resume command after
   # clearing the cause) prepares it again; an unattended tick reports.
-  def self.resume_action(store_state, gh_state, recorded_head: nil, live_head: nil, explicit: false)
-    return 'advance' if gh_state == 'MERGED'
+  # A merged head advances only once its merge commit has one parent.
+  def self.resume_action(store_state, gh_state, recorded_head: nil, live_head: nil, explicit: false, merge_commit: false)
+    return merge_commit ? 'escalate' : 'advance' if gh_state == 'MERGED'
     return 'escalate' if gh_state == 'CLOSED'
     return 'redrive' if store_state.to_s == 'handed_off' && live_head && recorded_head != live_head
     return 'redrive' if store_state.to_s == 'paused' && explicit

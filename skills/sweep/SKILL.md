@@ -256,7 +256,7 @@ first; gh is the truth, the store is intent.
 
 | Store state of head | gh says | Action |
 |---|---|---|
-| any | MERGED | `advance <slug> --expect <n>` (a crash after the merge, before advance) |
+| any | MERGED | run the parent-count check first (Linear-history checks); linear: `advance <slug> --expect <n>`; merge commit: stay or go `paused` with `merge-commit` and escalate, never advance |
 | any | CLOSED unmerged | escalate, `pause <slug> closed` |
 | pending | OPEN | start step 4 |
 | preparing | OPEN | re-run drive from the rebase (idempotent) |

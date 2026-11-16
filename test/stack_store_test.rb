@@ -383,6 +383,11 @@ class StackStoreTest < Minitest::Test
     refute done.claimed?
   end
 
+  def test_merged_head_with_a_merge_commit_never_advances_on_resume
+    assert_equal "advance", StackStore.resume_action("paused", "MERGED")
+    assert_equal "escalate", StackStore.resume_action("paused", "MERGED", merge_commit: true)
+  end
+
   def test_paused_head_restarts_only_on_explicit_resume
     assert_equal "report", StackStore.resume_action("paused", "OPEN")
     assert_equal "redrive", StackStore.resume_action("paused", "OPEN", explicit: true)
