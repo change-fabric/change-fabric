@@ -36,6 +36,9 @@ destructive or a real secret is at stake and no safe default exists:
   not be auto decided.
 - `Key source`, when a paid skill needs to know which env file holds this
   repo's API key; there is no safe default for where a secret lives.
+- `Secret destination`, when cf:secret-intake must learn where a staged
+  secret goes (an env file, SSM, or the cf key store); a wrong guess ships a
+  secret to the wrong place.
 
 Everything else that would normally ask instead applies its stated default
 silently and reports the assumption. `cf:plan`'s own interview is a special
