@@ -1,6 +1,6 @@
 # Paid API providers. Adding one is an entry here plus a `providers:` line in
 # the skill's SKILL.md frontmatter; resolution, the CLI, the guards, and the
-# SessionStart prompt read this file and need no code change.
+# cf:enroll skill read this file and need no code change.
 providers:
   openai:
     label: OpenAI
