@@ -6,7 +6,10 @@ require 'fileutils'
 require 'tempfile'
 require_relative 'merge_mode_slug'
 
-# Host/project/session identities are hashed, never interpolated into paths.
+# Host and session identities are hashed, never interpolated into paths.
+# State is keyed by host plus session id only, so a subagent started from
+# another worktree or repo still reaches its parent's live record. Records
+# from the older per-project layout are read as a fallback, never written.
 # A lock serializes read-modify-write across processes; rename makes reads atomic.
 class CfState
   def self.root(home: Dir.home)
@@ -57,13 +60,15 @@ class CfState
     end
   end
 
-  def directory = File.join(@root, 'sessions', @host, @project_key)
+  def directory = File.join(@root, 'sessions', @host, 'by-id')
   def path(id) = File.join(directory, "#{Digest::SHA256.hexdigest(id)}.json")
+  def project_path(id) = File.join(@root, 'sessions', @host, @project_key, "#{Digest::SHA256.hexdigest(id)}.json")
 
   def own(id)
-    return {} unless File.file?(path(id))
+    file = [ path(id), project_path(id) ].find { |candidate| File.file?(candidate) }
+    return {} unless file
 
-    data = JSON.parse(File.read(path(id)))
+    data = JSON.parse(File.read(file))
     raise ArgumentError, 'invalid persisted session state' unless data.is_a?(Hash) && data['version'] == 1
 
     data

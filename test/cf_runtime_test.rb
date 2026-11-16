@@ -20,14 +20,14 @@ class CfRuntimeTest < Minitest::Test
     CfRuntime.new(@request.merge(values.transform_keys(&:to_s)), root: File.join(@home, "state"), home: @home).call
   end
 
-  def test_resume_and_project_host_session_isolation
+  def test_resume_and_host_session_isolation
     call(event: "mode.set", mode: "local-only")
     assert_equal "local-only", call.dig("state", "mode")
     assert_equal "merge-ready", call(session_id: "two").dig("state", "mode")
     assert_equal "merge-ready", call(host: "pi").dig("state", "mode")
     other = File.join(@home, "other")
     FileUtils.mkdir_p(other)
-    assert_equal "merge-ready", call(project: other).dig("state", "mode")
+    assert_equal "local-only", call(project: other).dig("state", "mode")
   end
 
   def test_child_inherits_but_cannot_overwrite_parent
