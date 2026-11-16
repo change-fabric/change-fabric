@@ -38,7 +38,7 @@ module SecretIntake
         candidate = fresh_name
         result = @aws.call(*create_args(candidate))
       end
-      raise AwsError, "aws s3api create-bucket failed: #{first_line(result.err)}" unless result.ok?
+      raise AwsError, AwsRunner.failure_message(%w[s3api create-bucket], result) unless result.ok?
 
       @name = candidate
       @aws.call!('s3api', 'put-public-access-block', '--bucket', @name,
@@ -65,7 +65,7 @@ module SecretIntake
       return true if result.ok?
       return false if result.err.match?(MISSING)
 
-      raise AwsError, "aws s3api head-object failed: #{first_line(result.err)}"
+      raise AwsError, AwsRunner.failure_message(%w[s3api head-object], result)
     end
 
     def download(path)
@@ -103,7 +103,5 @@ module SecretIntake
       prefix = 'cf' if prefix.empty?
       "#{prefix[0, NAME_MAX - suffix.length].sub(/-+\z/, '')}#{suffix}"
     end
-
-    def first_line(text) = text.lines.map(&:strip).reject(&:empty?).first || 'no error output'
   end
 end

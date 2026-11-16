@@ -33,7 +33,7 @@ module SecretIntake
     # Calls and raises AwsError on failure; returns stdout.
     def call!(*args)
       result = call(*args)
-      raise AwsError, failure(args, result) unless result.ok?
+      raise AwsError, self.class.failure_message(args, result) unless result.ok?
 
       result.out
     end
@@ -49,9 +49,9 @@ module SecretIntake
       SecretFile.with(JSON.generate(hash)) { |path| yield "file://#{path}" }
     end
 
-    private
-
-    def failure(args, result)
+    # "aws <service> <subcommand> failed: <first stderr line>", for any caller
+    # that inspects a Result itself before deciding it failed.
+    def self.failure_message(args, result)
       line = result.err.lines.map(&:strip).reject(&:empty?).first || 'no error output'
       "aws #{args.take(2).join(' ')} failed: #{line}"
     end
