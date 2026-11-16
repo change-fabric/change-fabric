@@ -13,6 +13,10 @@ require 'prism'
 # dispatch (send, callbacks, DSLs). Uses only the Ruby standard library (Prism
 # ships with Ruby 3.4). Every subprocess takes an argument array, and any
 # failure nulls that one field and adds a note instead of crashing.
+#
+# TypeScript unused exports come from ts-prune (MIT), run with npx inside a
+# pinned node container and never added to package.json. It runs only when
+# the range touches .ts or .tsx files and the repo has a tsconfig.json.
 module SimplicitySignals
   # Names that frameworks or Ruby itself call implicitly, so zero textual
   # references says nothing about whether they are used.
@@ -25,6 +29,9 @@ module SimplicitySignals
 
   ABSTRACT_NAME = /(?:Base|Abstract)\z|\AAbstract/
   LOCKFILES = %w[Gemfile.lock package-lock.json].freeze
+  TS_PRUNE_VERSION = '0.10.3'
+  TS_PRUNE_IMAGE = 'node:22.18-alpine@sha256:1b2479dd35a99687d6638f5976fd235e26c5b37e8122f786fcd5fe231d63de5b'
+  TS_EXTENSIONS = %w[.ts .tsx].freeze
   DYNAMIC_NOTE = 'unused_ruby is a hint: dynamic dispatch (send, callbacks, DSLs) is not seen'
 
   # A git range read at two refs inside one repo.
@@ -99,7 +106,7 @@ module SimplicitySignals
       'deps' => safely(range, 'deps') { deps(range) },
       'unused_ruby' => safely(range, 'unused_ruby') { unused_ruby(range) },
       'single_impl' => safely(range, 'single_impl') { single_impl(range) },
-      'unused_ts' => nil
+      'unused_ts' => safely(range, 'unused_ts') { unused_ts(range) }
     }
     report.merge('notes' => [ DYNAMIC_NOTE, *range.notes ])
   end
@@ -337,6 +344,40 @@ module SimplicitySignals
 
     yield node
     node.compact_child_nodes.each { |child| own_nodes(child, root: false, &block) }
+  end
+
+  # Unused TS exports in files the range changed. Nil when the range has no
+  # TS; nil with a note when there is no tsconfig.json or the container fails.
+  def unused_ts(range)
+    changed = range.changed_files.select { |path| path.end_with?(*TS_EXTENSIONS) }
+    return nil if changed.empty?
+    raise 'no tsconfig.json at the repo root' unless File.file?(File.join(range.repo, 'tsconfig.json'))
+
+    parse_ts_prune(ts_prune_output(range.repo), changed)
+  end
+
+  def ts_prune_output(repo)
+    out, err, status = Open3.capture3(
+      'docker', 'run', '--rm', '-v', "#{File.expand_path(repo)}:/src:ro", '-w', '/src', TS_PRUNE_IMAGE,
+      'npx', '--yes', "ts-prune@#{TS_PRUNE_VERSION}", '-p', 'tsconfig.json'
+    )
+    raise "ts-prune exited #{status.exitstatus}: #{err.strip[0, 200]}" unless status.success?
+
+    out
+  rescue SystemCallError => e
+    raise "docker unavailable: #{e.message}"
+  end
+
+  # ts-prune prints `path:line - name`, tagging exports used only inside their
+  # own file with `(used in module)`; those are skipped.
+  def parse_ts_prune(output, changed)
+    output.each_line.filter_map do |row|
+      next if row.include?('(used in module)')
+      next unless (m = row.strip.match(/\A(.+?):(\d+) - (\S+)\z/))
+
+      path = m[1].delete_prefix('/src/').delete_prefix('./')
+      { 'name' => m[3], 'file' => path, 'line' => m[2].to_i } if changed.include?(path)
+    end
   end
 
   # Command-line entry: `signals [--base REF] [--head REF] [--repo DIR]`.
