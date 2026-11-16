@@ -135,9 +135,20 @@ module DiagramProviderChecks
 
     def plate?(node) = node.is_a?(REXML::Element) && node.name == "rect" && node.attributes["class"].to_s.split.include?("plate")
 
+    # The only attributes the placed svg.icon root may carry: its class,
+    # placement, and the two viewport attributes the digest covers. Anything
+    # else (opacity, style, filter) would restyle the artwork unseen.
+    ROOT_ATTRIBUTES = %w[class x y width height viewBox preserveAspectRatio].freeze
+
     def verify(icon, pack, where)
       file = pack.file(icon.slug)
       return [ finding(where, "#{icon.provider} pack has no icon #{icon.slug.inspect}", "use a pack slug or the Phosphor fallback") ] unless file
+
+      extra = icon.element.attributes.keys - ROOT_ATTRIBUTES
+      unless extra.empty?
+        return [ finding(where, "svg.icon root carries #{extra.join(', ')}; only #{ROOT_ATTRIBUTES.join(', ')} are allowed",
+                         "re-inline the icon from the pack and style its node or plate instead") ]
+      end
       return [] if self.class.placed_digest(icon.element) == self.class.pinned_digest(file)
 
       [ finding(where, "svg.icon differs from the pinned #{icon.provider} file for #{icon.slug} (viewBox, preserveAspectRatio, or body)",

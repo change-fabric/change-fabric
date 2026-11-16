@@ -109,6 +109,14 @@ class DiagramProviderTest < Minitest::Test
     assert(lint_source(svg).any? { |f| f.check == "icon-pack-provenance" && f.message.include?("differs from the pinned") })
   end
 
+  def test_extra_attributes_on_the_icon_root_fail_provenance
+    root = '<svg class="icon" x="116" y="180" width="32" height="32" viewBox="0 0 64 64"'
+    [ 'opacity="0"', 'style="display:none"', 'filter="url(#f)"' ].each do |attr|
+      svg = CLEAN.sub(root, "#{root} #{attr}")
+      assert(lint_source(svg).any? { |f| f.check == "icon-pack-provenance" && f.message.include?("svg.icon root carries") }, attr)
+    end
+  end
+
   def test_placement_attributes_do_not_change_the_digest
     svg = CLEAN.sub('<svg class="icon" x="116" y="180" width="32" height="32"', '<svg class="icon" x="118" y="182" width="28" height="28"')
     assert(lint_source(svg).none? { |f| f.message.include?("differs from the pinned") })
