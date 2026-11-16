@@ -197,6 +197,9 @@ class WalkthroughDiagramLanesTest < Minitest::Test
     assert_empty errs
     spec.delete("report")
     assert_match(/"report" is not a node or lane or fit id/, errs)
+    spec["report"] = { "label" => "Report" }
+    spec["lanes"].first["id"] = "report"
+    assert_match(/id "report" is reserved/, errs)
   end
 
   def test_travel_easing_and_result

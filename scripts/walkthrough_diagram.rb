@@ -222,6 +222,9 @@ module WalkthroughDiagram
     errs << 'diagram.report.unit must be a non-empty string' if report.key?('unit') && !(report['unit'].is_a?(String) && !report['unit'].strip.empty?)
     errs << 'diagram.report needs lanes' if lanes.empty?
     errs << 'diagram.report needs horizontal lanes' if spec['lane_direction'] == 'vertical'
+    # fit_view reads `report` as the panel, so no node or lane may take it.
+    taken = (Array(spec['nodes']) + lanes).any? { |x| x.is_a?(Hash) && x['id'] == 'report' }
+    errs << 'diagram id "report" is reserved for the results panel when diagram.report is set' if taken
     errs
   end
 
