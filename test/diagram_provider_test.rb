@@ -104,6 +104,27 @@ class DiagramProviderTest < Minitest::Test
     assert(lint_source(CLEAN).none? { |f| f.element == "style" }, "#arrow path anchors on an icon-free id")
   end
 
+  def test_a_scoped_selector_that_matches_no_icon_is_allowed
+    svg = CLEAN.sub(".bg { fill: var(--bg); }", ".bg { fill: var(--bg); }\n    .legend rect { fill: var(--surface); }")
+    assert(lint_source(svg).none? { |f| f.element == "style" })
+  end
+
+  def test_a_bare_shape_selector_reaching_into_icons_is_an_error
+    svg = CLEAN.sub(".bg { fill: var(--bg); }", ".bg { fill: var(--bg); }\n    path { fill: var(--ink); }")
+    leak = lint_source(svg).find { |f| f.element == "style" }
+    assert_equal "icon-pack-provenance", leak.check
+  end
+
+  def test_icon_contrast_reads_the_node_fill_from_the_stylesheet
+    svg = CLEAN.sub(".node > rect { fill: var(--surface);", ".node > rect { fill: var(--muted);")
+    assert(lint_source(svg).any? { |f| f.check == "icon-contrast" && f.message.start_with?("light: tile #ED7100") })
+  end
+
+  def test_an_edge_leaving_and_reentering_at_a_vertex_is_flagged
+    svg = CLEAN.sub('d="M432 224 V280"', 'd="M432 224 H648 H660 V250 H648 H432 V280"')
+    assert(lint_source(svg).any? { |f| f.check == "group-nesting" && f.message.include?("subnet border 2 times") })
+  end
+
   def test_offline_cli_exits_zero_with_an_empty_cache
     Dir.mktmpdir do |cache|
       old = ENV.fetch("CF_CLOUD_ICONS_CACHE", nil)

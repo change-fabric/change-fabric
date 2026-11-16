@@ -39,6 +39,58 @@ module DiagramProviderChecks
     def hexes(roles, value) = %i[light dark].to_h { |t| [ t, DiagramPalette.resolve_hex(roles[t], value) ] }
   end
 
+  # A small CSS selector matcher: compound selectors (type, #id, .class)
+  # joined by descendant or child combinators. Attribute, pseudo, and
+  # sibling selectors parse to nil so callers pick a conservative answer.
+  module Selector
+    module_function
+
+    COMPOUND = /\A(?<type>[a-z][\w-]*|\*)?(?<rest>(?:[.#][\w-]+)*)\z/
+
+    # Steps left to right, each [combinator to its left, type, simples].
+    def parse(sel)
+      steps = []
+      combinator = :descendant
+      sel.gsub(/\s*>\s*/, " > ").split.each do |token|
+        next combinator = :child if token == ">"
+
+        m = COMPOUND.match(token)
+        return nil unless m
+
+        steps << [ combinator, m[:type], m[:rest].scan(/([.#])([\w-]+)/) ]
+        combinator = :descendant
+      end
+      steps.empty? ? nil : steps
+    end
+
+    def match?(steps, el)
+      *left, (combinator, type, simples) = steps
+      compound?(el, type, simples) && left_match?(left, el.parent, combinator)
+    end
+
+    def left_match?(steps, el, combinator)
+      return true if steps.empty?
+
+      *left, (next_combinator, type, simples) = steps
+      return compound?(el, type, simples) && left_match?(left, el.parent, next_combinator) if combinator == :child
+
+      while el.is_a?(REXML::Element)
+        return true if compound?(el, type, simples) && left_match?(left, el.parent, next_combinator)
+
+        el = el.parent
+      end
+      false
+    end
+
+    def compound?(el, type, simples)
+      return false unless el.is_a?(REXML::Element)
+      return false if type && type != "*" && el.name != type
+
+      classes = el.attributes["class"].to_s.split
+      simples.all? { |kind, name| kind == "#" ? el.attributes["id"] == name : classes.include?(name) }
+    end
+  end
+
   # Palette, plus the provenance exemption: a --<provider>-<kind> role whose
   # value is that kind's color in the declared provider's pack profile.
   class ProviderPalette < SvgChecks::Palette
@@ -53,9 +105,9 @@ module DiagramProviderChecks
   # Every provider icon proves where it came from: a pack icon names its
   # provider, slug, and the sha256 of the pinned pack's file, and carries no
   # color that file does not. A fallback glyph warns and stays on palette.
-  # A stylesheet rule that reaches into an icon body (a descendant selector
-  # ending on a bare shape, such as `.node rect`) would recolor the pack's
-  # artwork at render time, so it is an error too.
+  # A stylesheet rule that matches an element inside an icon body (such as
+  # `.node rect` or a bare `path`) would recolor the pack's artwork at
+  # render time, so it is an error too.
   class IconPackProvenance < Base
     ID = "icon-pack-provenance"
     REACHING = /\A(?:rect|path|circle|ellipse|polygon|polyline|line|g|svg|use|text|\*)\z/
@@ -73,22 +125,29 @@ module DiagramProviderChecks
       css.scan(/([^{}]+)\{[^{}]*\}/).flatten.flat_map { |list| list.split(",").map(&:strip) }.uniq.filter_map do |sel|
         next unless reaches?(doc, sel)
 
-        finding("style", "selector #{sel.inspect} reaches into icon bodies and would recolor them",
-                "use a child combinator, such as #{sel.sub(/\s+(\S+)\z/, ' > \1').inspect}")
+        finding("style", "selector #{sel.inspect} reaches into icon bodies and would recolor them", fix_for(sel))
       end
     end
 
-    # A descendant combinator before a bare type, unless the rule is anchored
-    # on an #id whose element holds no icon.
+    def fix_for(sel)
+      return "scope it with a class or a child combinator so it cannot match inside an icon" unless sel.match?(/\s/)
+
+      "use a child combinator, such as #{sel.sub(/\s+(\S+)\z/, ' > \1').inspect}"
+    end
+
+    # True when the selector matches an element inside some icon body. A
+    # selector the matcher cannot parse falls back to the syntactic rule: a
+    # bare shape type that a child combinator does not pin.
     def reaches?(doc, sel)
+      steps = Selector.parse(sel)
+      return syntactic_reach?(sel) unless steps
+
+      doc.icons.any? { |icon| REXML::XPath.match(icon.element, ".//*").any? { |el| Selector.match?(steps, el) } }
+    end
+
+    def syntactic_reach?(sel)
       parts = sel.split(/\s+/)
-      return false unless parts.size >= 2 && parts.last.match?(REACHING) && parts[-2] != ">"
-
-      id = parts.first[/\A#([\w-]+)\z/, 1]
-      return true unless id
-
-      host = doc.all_elements.find { |el| el.attributes["id"] == id }
-      host ? doc.icons.any? { |i| doc.descendant?(i.element, host) } : false
+      parts.last.match?(REACHING) && parts[-2] != ">"
     end
 
     def judge(icon, context)
@@ -219,22 +278,52 @@ module DiagramProviderChecks
       end
 
       kind, id = icon.owner
-      fill = owner_fill(doc, kind, id)
-      fill = nil if fill == "none"
-      Provider.hexes(roles, fill || (kind == :node ? "var(--surface)" : "var(--bg)"))
-    end
-
-    def owner_fill(doc, kind, id)
-      case kind
-      when :node then node_fill(doc.node(id))
-      when :group then doc.group(id)&.fill
+      fills = owner_fills(doc, kind, id)
+      default = kind == :node ? "var(--surface)" : "var(--bg)"
+      %i[light dark].to_h do |theme|
+        fill = fills[theme]
+        fill = default if fill.nil? || fill == "none"
+        [ theme, DiagramPalette.resolve_hex(roles[theme], fill) ]
       end
     end
 
-    # The fill attribute on a node's own shape, if it sets one.
-    def node_fill(node)
+    def owner_fills(doc, kind, id)
+      case kind
+      when :node then node_fills(doc, doc.node(id))
+      when :group then { light: doc.group(id)&.fill, dark: doc.group(id)&.fill }
+      else {}
+      end
+    end
+
+    # The fill on a node's own shape per theme, by CSS precedence: inline
+    # style, then the last matching stylesheet rule (dark rules over light),
+    # then the presentation attribute. Specificity is not weighed.
+    def node_fills(doc, node)
       shape = node && node.element.elements.find { |el| DiagramSvg::SHAPES.include?(el.name) }
-      shape&.attributes&.[]("fill")
+      return {} unless shape
+
+      inline = shape.attributes["style"].to_s[/(?:\A|;)\s*fill\s*:\s*([^;]+)/, 1]&.strip
+      attr = shape.attributes["fill"]
+      theme_rules(doc).transform_values { |rules| inline || sheet_fill(rules, shape) || attr }
+    end
+
+    def theme_rules(doc)
+      css = SvgChecks::DeclaredProperty.stylesheet(doc)
+      dark_media = css.scan(/@media[^{]*prefers-color-scheme:\s*dark[^{]*\{((?:[^{}]*\{[^{}]*\})*[^{}]*)\}/m).flatten
+      top = DiagramPalette.rules(css.gsub(/@media[^{]*\{(?:[^{}]*\{[^{}]*\})*[^{}]*\}/m, ""))
+      themed, light = top.partition { |sel, _| sel.match?(/data-theme=["']?dark/) }
+      dark = themed.map { |sel, body| [ sel.gsub(/[^\s,]*\[data-theme=["']?dark["']?\]\s*/, ""), body ] }
+      { light: light, dark: light + dark + dark_media.flat_map { |m| DiagramPalette.rules(m) } }
+    end
+
+    def sheet_fill(rules, shape)
+      rules.reverse_each do |sels, body|
+        fill = body[/(?:\A|;)\s*fill\s*:\s*([^;]+)/, 1]&.strip
+        next unless fill
+
+        return fill if sels.split(",").any? { |sel| (steps = Selector.parse(sel.strip)) && Selector.match?(steps, shape) }
+      end
+      nil
     end
 
     # The fill covering the most area in the icon body: shapes with a
@@ -328,11 +417,41 @@ module DiagramProviderChecks
     end
 
     def crossings(doc, group)
-      border = group.box.edges
       doc.edges.filter_map do |edge|
-        count = edge.segments.sum { |s| border.count { |b| s.crosses?(b) } }
+        count = edge.subpaths.sum { |segs| side_changes(segs, group.box) }
         finding(edge.id, "edge crosses the #{group.id} border #{count} times", "route it to cross each group border at most once") if count > 1
       end
+    end
+
+    # Border crossings along one subpath: sample each segment at its border
+    # hits and the midpoints between them, drop samples on the border, and
+    # count inside/outside changes. A vertex on the border then counts once
+    # when the path changes side there, and not at all when it only touches.
+    def side_changes(segs, box)
+      sides = segs.flat_map { |s| samples(s, box) }.filter_map { |x, y| side(box, x, y) }
+      sides.each_cons(2).count { |a, b| a != b }
+    end
+
+    def samples(seg, box)
+      ts = ([ 0.0, 1.0 ] + box.edges.filter_map { |b| hit(seg, b) }).uniq.sort
+      points = ts.each_cons(2).flat_map { |a, b| [ a, (a + b) / 2.0 ] } + [ 1.0 ]
+      points.map { |t| [ seg.x1 + (t * seg.dx), seg.y1 + (t * seg.dy) ] }
+    end
+
+    # Where along seg (0..1) it meets border segment b, or nil.
+    def hit(seg, b)
+      den = (seg.dx * b.dy) - (seg.dy * b.dx)
+      return nil if den.abs < 1e-9
+
+      t = (((b.x1 - seg.x1) * b.dy) - ((b.y1 - seg.y1) * b.dx)) / den.to_f
+      u = (((b.x1 - seg.x1) * seg.dy) - ((b.y1 - seg.y1) * seg.dx)) / den.to_f
+      t if t.between?(0.0, 1.0) && u.between?(0.0, 1.0)
+    end
+
+    def side(box, x, y)
+      return :in if box.contains_point?(x, y)
+
+      :out unless box.edges.any? { |e| e.distance_to_point(x, y) < 1e-6 }
     end
 
     def overlaps(doc, groups)
