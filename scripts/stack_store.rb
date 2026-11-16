@@ -202,45 +202,56 @@ class StackStore
   def release(stale: false)
     if stale
       raise Invalid, "#{@slug} has a record; resume or clear it" if read
-      raise Invalid, "#{@slug} lease holder is still live" unless lease_takeable?(StackStore.holder(lease_path))
 
-      FileUtils.rm_f(lease_path)
+      with_lease_lock do
+        raise Invalid, "#{@slug} lease holder is still live" unless lease_takeable?(StackStore.holder(lease_path))
+
+        FileUtils.rm_f(lease_path)
+      end
     end
     remove_claim
   end
 
   # Acquires the executor lease. Exclusive even for the same slug; only the
   # same session re-acquires its own. Takeover only when the holder's pid is
-  # gone on this host or its heartbeat is older than LEASE_TTL.
+  # gone on this host or its heartbeat is older than LEASE_TTL. The holder
+  # check and the replacement run under one lock, so two runs taking over the
+  # same stale lease cannot both win.
   def lease(session:, pid: nil, now: Time.now.utc)
     data = { 'slug' => @slug, 'pid' => pid&.to_i, 'host' => Socket.gethostname, 'session_id' => session.to_s,
              'acquired_at' => now.iso8601, 'heartbeat_at' => now.iso8601 }
-    return data if StackStore.publish_exclusive(lease_path, data)
+    with_lease_lock do
+      return data if StackStore.publish_exclusive(lease_path, data)
 
-    holder = StackStore.holder(lease_path)
-    raise Held.new('leased', holder.is_a?(Hash) ? holder : nil) unless own_lease?(holder, session) ||
-                                                                       lease_takeable?(holder, now)
+      holder = StackStore.holder(lease_path)
+      raise Held.new('leased', holder.is_a?(Hash) ? holder : nil) unless own_lease?(holder, session) ||
+                                                                         lease_takeable?(holder, now)
 
-    FileUtils.rm_f(lease_path)
-    return data if StackStore.publish_exclusive(lease_path, data)
+      FileUtils.rm_f(lease_path)
+      return data if StackStore.publish_exclusive(lease_path, data)
 
-    raise Held.new('leased', nil)
+      raise Held.new('leased', nil)
+    end
   end
 
   def heartbeat(session:, now: Time.now.utc)
-    holder = StackStore.holder(lease_path)
-    raise Invalid, "#{@slug} does not hold the lease for this session" unless own_lease?(holder, session)
+    with_lease_lock do
+      holder = StackStore.holder(lease_path)
+      raise Invalid, "#{@slug} does not hold the lease for this session" unless own_lease?(holder, session)
 
-    holder['heartbeat_at'] = now.iso8601
-    tmp = "#{lease_path}.#{Process.pid}.tmp"
-    File.write(tmp, JSON.generate(holder))
-    File.rename(tmp, lease_path)
-    holder
+      holder['heartbeat_at'] = now.iso8601
+      tmp = "#{lease_path}.#{Process.pid}.tmp"
+      File.write(tmp, JSON.generate(holder))
+      File.rename(tmp, lease_path)
+      holder
+    end
   end
 
   def unlease
-    holder = StackStore.holder(lease_path)
-    FileUtils.rm_f(lease_path) if holder.is_a?(Hash) && holder['slug'] == @slug
+    with_lease_lock do
+      holder = StackStore.holder(lease_path)
+      FileUtils.rm_f(lease_path) if holder.is_a?(Hash) && holder['slug'] == @slug
+    end
     { 'unleased' => @slug }
   end
 
@@ -253,6 +264,7 @@ class StackStore
 
     existing = read
     raise Invalid, "#{@slug} is finished and archived; use the next free suffix" if existing && StackStore.finished?(existing)
+    raise Invalid, "#{@slug} is unfinished; resume it rather than init" if existing
 
     write(
       'slug' => @slug, 'repo' => repo.to_s, 'source' => source.to_s,
@@ -324,6 +336,15 @@ class StackStore
 
     FileUtils.rm_f(active_path)
     { 'released' => true, 'slug' => @slug }
+  end
+
+  # Serializes every read-check-replace of LEASE across processes.
+  def with_lease_lock
+    FileUtils.mkdir_p(File.dirname(lease_path))
+    File.open("#{lease_path}.lock", File::RDWR | File::CREAT, 0o600) do |lock|
+      lock.flock(File::LOCK_EX)
+      yield
+    end
   end
 
   def own_lease?(holder, session)

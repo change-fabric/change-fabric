@@ -243,13 +243,15 @@ mode keeps its own slug).
    highest unfinished `<base>` or `<base>-<N>` resumes; otherwise `new` at the
    first free suffix. A finished record is archived, never revived, so a new
    queue over the same PRs is `<base>-2`, then `-3`. A held claim stops here.
-2. New: `ruby $S claim <slug> --source sweep`, then `ruby $S init <slug>
-   --repo o/r --source sweep --mode <merge mode> --pr N:URL:HEAD:SHA ...` for
-   each queued PR in order. Resume: `ruby $S claim <slug>`, then the resume
-   table below.
-3. `ruby $S lease <slug> --session <id>`.
+2. `ruby $S claim <slug> --source sweep`, then `ruby $S lease <slug>
+   --session <id>` before anything writes the record; a `leased` reply
+   stops the run here.
+3. New: `ruby $S init <slug> --repo o/r --source sweep --mode <merge mode>
+   --pr N:URL:HEAD:SHA ...` for each queued PR in order. `init` refuses an
+   existing record, finished or not, so a late duplicate can never reset a
+   live queue. Resume: the resume table below.
 4. Per head PR: `ruby $S set-pr <slug> <n> state=preparing`, rebase onto
-   origin/main and `/cf:drive quick` nested under cf:sweep, then hand off or
+   origin/<trunk> and `/cf:drive quick` nested under cf:sweep, then hand off or
    merge by merge mode, then `gh pr view <n> --json state,mergedAt` must say
    MERGED and the linear-history check must pass, then `ruby $S advance <slug>
    --expect <n>`. Only then is the next PR touched.
@@ -287,7 +289,7 @@ next PR; the full table is in `reference/stack.md`.
 
 Squash (the repo rule) or rebase only, never a merge commit. Admin bypass:
 `gh pr merge <n> --squash --admin`. Yolo: rebase and `git push origin
-HEAD:main`. If the repo allows neither squash nor rebase, escalate; never fall
+HEAD:<trunk>`. If the repo allows neither squash nor rebase, escalate; never fall
 back to a merge commit.
 
 ### Linear-history checks
@@ -295,7 +297,7 @@ back to a merge commit.
 - Preflight, once per run: `gh api repos/{o}/{r} --jq '.allow_merge_commit'`;
   if true, warn once in the summary that the repo allows merge commits but CF
   does not.
-- After gh confirms a merge, before `advance`: `git fetch origin main`, take
+- After gh confirms a merge, before `advance`: `git fetch origin <trunk>`, take
   the oid from `gh pr view <n> --json mergeCommit`, and run `git rev-list
   --parents -n 1 <oid>`. More than one parent means a merge commit landed:
   `pause <slug> merge-commit` and escalate (`StackStore.merge_commit?` is the
@@ -355,7 +357,7 @@ back to a merge commit.
    `nested under cf:sweep` (cf:drive runs straight through by default; the
    instruction makes a recurrence stop record a pointer instead of starting
    cf:plan). That instruction also tells drive to rebase the branch onto
-   origin/main before driving it (a BEHIND or `rebase_then_merge` PR reaches
+   origin/<trunk> (trunk per Scope) before driving it (a BEHIND or `rebase_then_merge` PR reaches
    the head only after every PR ahead of it merged, so the rebase is onto
    trunk, never onto an unmerged PR), and drive pushes the rebase to the
    contributor's own branch; sweep never rebases or pushes by itself. Under
@@ -429,9 +431,9 @@ it by default for any plan with more than one PR phase.
 - `/cf:sweep stack status` prints the store merged with live gh state, plus
   the count of judged decisions and the plan.md path.
 
-Per PR: re-derive state from gh, rebase onto origin/main (`git rebase --onto
-origin/main <parent-old-head> <head>` once the parent squash merged, then
-`gh pr edit <n> --base main`), prepare with cf:drive quick nested under
+Per PR: re-derive state from gh, rebase onto origin/<trunk> (`git rebase --onto
+origin/<trunk> <parent-old-head> <head>` once the parent squash merged, then
+`gh pr edit <n> --base <trunk>`), prepare with cf:drive quick nested under
 cf:sweep stack (CI green, cf:resolve-threads run, no approval review), handle
 recurrence, hand off, advance the store.
 
@@ -439,7 +441,7 @@ recurrence, hand off, advance the store.
 |---|---|
 | merge ready | Post the PR's absolute URL; arm `stack_watch.rb` in the background; advance on merge or a "merged #N" message. |
 | admin bypass | Escalate if CHANGE.md forbids admin bypass; pass the cf:change gate when `ChangeGateCheck.required?` says so; `gh pr merge <n> --squash --admin`. |
-| yolo | No PRs. Rebase, test, `git push origin HEAD:main`, next branch. |
+| yolo | No PRs. Rebase, test, `git push origin HEAD:<trunk>`, next branch. |
 | local only | Stack mode does not run; say so. |
 
 Gates: a resolve-threads recurrence plan pauses the stack under merge ready

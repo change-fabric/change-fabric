@@ -76,6 +76,7 @@ class StackStoreTest < Minitest::Test
   end
 
   def test_phase_field_is_optional_and_persisted
+    store.claim
     store.init(repo: "acme/web", source: "plan", mode: "merge_ready",
                prs: [ { number: 12, phase: "demo-area/widget-plan#Phase 1" }, { number: 13 } ])
     assert_equal [ "demo-area/widget-plan#Phase 1", nil ], store.read["prs"].map { |pr| pr["phase"] }
@@ -328,6 +329,25 @@ class StackStoreTest < Minitest::Test
     assert_raises(StackStore::Held) { store.lease(session: "s3") }
     later = Time.now.utc + StackStore::LEASE_TTL + 1
     assert_equal "s3", store.lease(session: "s3", now: later)["session_id"]
+  end
+
+  def test_concurrent_takeover_of_a_stale_lease_has_one_winner
+    store.lease(session: "old", now: Time.now.utc - StackStore::LEASE_TTL - 5)
+    results = Array.new(8) do |i|
+      Thread.new do
+        store.lease(session: "s#{i}")
+      rescue StackStore::Held
+        :held
+      end
+    end.map(&:value)
+    assert_equal 1, results.count { |r| r.is_a?(Hash) }
+  end
+
+  def test_init_refuses_to_overwrite_an_unfinished_record
+    seed
+    store.set_pr(12, state: "handed_off", old_head_sha: "abc")
+    assert_raises(StackStore::Invalid) { seed }
+    assert_equal "abc", store.read["prs"][0]["old_head_sha"]
   end
 
   def test_heartbeat_keeps_the_lease_and_unlease_frees_it

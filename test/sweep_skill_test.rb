@@ -104,6 +104,13 @@ class SweepSkillTest < Minitest::Test
     assert_includes body, "pause <slug> merge-commit"
   end
 
+  def test_lease_precedes_init_and_trunk_is_resolved_not_main
+    body = section("## One PR at a time")
+    assert_operator body.index("$S lease <slug>"), :<, body.index("$S init <slug>")
+    assert_includes body, "`init` refuses an\n   existing record"
+    [ "origin/main", "HEAD:main", "--base main", "fetch origin main" ].each { |s| refute_includes skill_md, s }
+  end
+
   def test_no_merge_commit_method
     [ skill_md, stack_md ].each do |text|
       text.scan(/gh pr merge[^\n`]*/).each { |line| refute_includes line, "--merge" }
