@@ -118,6 +118,20 @@ module CfSecretStore
     dirs
   end
 
+  # Yields [slug, meta] for every project level holding a readable meta.json.
+  # Reads meta.json only, never a key file; a missing, unreadable or malformed
+  # meta is skipped. Returns an Enumerator without a block.
+  def each_meta
+    return enum_for(:each_meta) unless block_given?
+
+    slugs.each do |slug|
+      next unless slug.match?(SLUG_SHAPE)
+
+      data = meta(slug)
+      yield slug, data unless data.empty?
+    end
+  end
+
   def slugs
     return [] unless File.directory?(root)
 

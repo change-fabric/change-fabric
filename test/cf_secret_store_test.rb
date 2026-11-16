@@ -92,4 +92,25 @@ class CfSecretStoreTest < Minitest::Test
     end
     refute File.exist?(File.join(@home, ".claude", "cf", "evil"))
   end
+
+  def test_each_meta_yields_every_project_meta_and_never_reads_a_key_file
+    CfSecretStore.write_key("a", "openai", FAKE)
+    CfSecretStore.write_key("b", "gemini", FAKE)
+    CfSecretStore.update_enrollment("b", "gemini", expires_at: "2026-06-01T00:00:00Z")
+    FileUtils.mkdir_p(File.join(CfSecretStore.root, "bad"))
+    File.write(File.join(CfSecretStore.root, "bad", "meta.json"), "[1,")
+    FileUtils.mkdir_p(File.join(CfSecretStore.root, "empty"))
+    keys = [ CfSecretStore.key_path("a", "openai"), CfSecretStore.key_path("b", "gemini") ]
+    keys.each { |k| File.chmod(0o000, k) }
+    pairs = CfSecretStore.each_meta.to_a
+    assert_equal %w[a b], pairs.map(&:first)
+    assert_equal "2026-06-01T00:00:00Z", pairs.last.last.dig("enrolled", "gemini", "expires_at")
+    refute_includes pairs.inspect, FAKE
+  ensure
+    keys&.each { |k| File.chmod(0o600, k) if File.exist?(k) }
+  end
+
+  def test_each_meta_is_empty_without_a_store
+    assert_empty CfSecretStore.each_meta.to_a
+  end
 end
