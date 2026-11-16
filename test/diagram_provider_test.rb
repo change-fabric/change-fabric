@@ -151,6 +151,30 @@ class DiagramProviderTest < Minitest::Test
     assert(lint_source(svg).any? { |f| f.check == "icon-contrast" && f.message.start_with?("light: tile #ED7100") })
   end
 
+  def test_a_group_fill_from_the_stylesheet_is_contrast_checked
+    svg = CLEAN.sub(".group > rect { fill: none;", ".group > rect { fill: var(--muted);")
+    assert(lint_source(svg).any? { |f| f.check == "icon-contrast" && f.message.start_with?("light: tile #00A4A6") })
+  end
+
+  def test_a_more_specific_earlier_fill_wins
+    svg = CLEAN.sub(".node > rect {", "g.node > rect { fill: var(--muted); }\n    .node > rect {")
+    assert(lint_source(svg).any? { |f| f.check == "icon-contrast" && f.message.start_with?("light: tile #ED7100") })
+  end
+
+  def test_a_changed_icon_viewbox_loses_provenance
+    svg = CLEAN.sub('<svg class="icon" x="116" y="180" width="32" height="32" viewBox="0 0 64 64">',
+                    '<svg class="icon" x="116" y="180" width="32" height="32" viewBox="0 0 1 1">')
+    assert(lint_source(svg).any? { |f| f.check == "icon-pack-provenance" && f.message.include?("viewBox") })
+  end
+
+  def test_a_plate_after_its_icon_is_flagged
+    plate = '<rect class="plate" x="356" y="292" width="32" height="32" rx="2" fill="#FFFFFF"/>'
+    svg = CLEAN.sub("            #{plate}\n", "")
+               .sub(%r{(<g class="icon" id="db-icon".*?</svg>)}m) { "#{Regexp.last_match(1)}#{plate}" }
+    refute_equal CLEAN, svg
+    assert(lint_source(svg).any? { |f| f.check == "icon-box" && f.message.include?("plate is drawn over") })
+  end
+
   def test_offline_cli_exits_zero_with_an_empty_cache
     Dir.mktmpdir do |cache|
       old = ENV.fetch("CF_CLOUD_ICONS_CACHE", nil)

@@ -287,7 +287,9 @@ module DiagramSvg
       wa = wrap ? wrap.attributes : {}
       a = svg.attributes
       box = Box.new(x: a["x"].to_f, y: a["y"].to_f, w: a["width"].to_f, h: a["height"].to_f)
-      plate = wrap&.elements&.find { |el| el.name == "rect" && classes(el).include?("plate") }
+      # Paint order: only a plate drawn before the icon sits behind it.
+      before = wrap ? wrap.elements.to_a.take_while { |el| el != svg } : []
+      plate = before.find { |el| el.name == "rect" && classes(el).include?("plate") }
       Icon.new(provider: wa["data-provider"], slug: wa["data-icon"], sha: wa["data-pack-sha"], fallback: wa["data-fallback"],
                box: box, view_box: a["viewBox"], body: svg.children.map(&:to_s).join, plate: plate,
                owner: owner_of(wrap || svg), element: svg)

@@ -185,7 +185,11 @@ module DiagramProviderChecks
         finding(where, "color #{c} is not in the #{icon.provider} pack file for #{icon.slug}", "inline the pack file unmodified")
       end
       return off unless off.empty?
-      return [] if canonical(icon.body) == canonical(CloudIcons.inner(pack.file(icon.slug)))
+      pinned = pack.file(icon.slug)
+      unless icon.view_box.to_s.split.join(" ") == CloudIcons.view_box(pinned).to_s.split.join(" ")
+        return [ finding(where, "viewBox #{icon.view_box.inspect} differs from the pinned #{icon.provider} file for #{icon.slug}", "re-inline the icon from the pack") ]
+      end
+      return [] if canonical(icon.body) == canonical(CloudIcons.inner(pinned))
 
       [ finding(where, "icon body differs from the pinned #{icon.provider} file for #{icon.slug}", "re-inline the icon from the pack") ]
     end
@@ -221,9 +225,10 @@ module DiagramProviderChecks
 
     def judge(doc, icon, context)
       where = DiagramProviderChecks.where(icon)
-      unless icon.view_box && icon.box.w.positive? && icon.box.h.positive?
-        return [ finding(where, "svg.icon needs width, height, and a viewBox", "set x, y, width, height, and viewBox") ]
+      unless icon.view_box && icon.box.w.positive? && icon.box.h.positive? && view_box_valid?(icon.view_box)
+        return [ finding(where, "svg.icon needs width, height, and a viewBox with positive size", "set x, y, width, height, and viewBox") ]
       end
+      return [ finding(where, "a plate is drawn over the icon", "move <rect class=\"plate\"> before the icon's <svg>") ] if plate_after?(icon)
 
       kind, id = icon.owner
       case kind
@@ -231,6 +236,17 @@ module DiagramProviderChecks
       when :group then in_group(doc, icon, id, where)
       else [ finding(where, "icon sits in no node or provider group", "place it inside a g.node or g.group") ]
       end
+    end
+
+    def view_box_valid?(view_box)
+      nums = view_box.to_s.split(/[\s,]+/).map { |n| Float(n, exception: false) }
+      nums.size == 4 && nums.none?(&:nil?) && nums[2].positive? && nums[3].positive?
+    end
+
+    def plate_after?(icon)
+      wrap = icon.element.parent
+      siblings = wrap.elements.to_a
+      siblings.drop(siblings.index(icon.element) + 1).any? { |el| el.name == "rect" && el.attributes["class"].to_s.split.include?("plate") }
     end
 
     def in_node(doc, icon, id, where, context)
@@ -317,9 +333,14 @@ module DiagramProviderChecks
     def owner_fills(doc, kind, id)
       case kind
       when :node then node_fills(doc, doc.node(id))
-      when :group then { light: doc.group(id)&.fill, dark: doc.group(id)&.fill }
+      when :group then group_fills(doc, doc.group(id))
       else {}
       end
+    end
+
+    def group_fills(doc, group)
+      rect = group && group.element.elements.find { |el| el.name == "rect" }
+      rect ? shape_fills(doc, rect) : {}
     end
 
     def node_fills(doc, node)
@@ -355,12 +376,26 @@ module DiagramProviderChecks
       { light: light, dark: light + dark + dark_media.flat_map { |m| DiagramPalette.rules(m) } }
     end
 
+    # The winning matching fill: !important first, then selector
+    # specificity, then source order.
     def sheet_fill(rules, shape)
-      matched = rules.filter_map do |sels, body|
+      ranked = rules.each_with_index.filter_map do |(sels, body), index|
         decl = fill_decl(body)
-        decl if decl && sels.split(",").any? { |sel| (steps = Selector.parse(sel.strip)) && Selector.match?(steps, shape) }
+        next unless decl
+
+        specs = sels.split(",").map(&:strip).filter_map { |sel| (steps = Selector.parse(sel)) && Selector.match?(steps, shape) && specificity(steps) }
+        [ decl, [ decl.last ? 1 : 0, specs.max, index ] ] unless specs.empty?
       end
-      matched.reverse.find(&:last) || matched.last
+      ranked.max_by(&:last)&.first
+    end
+
+    # [ids, classes, types] for a parsed selector.
+    def specificity(steps)
+      steps.each_with_object([ 0, 0, 0 ]) do |(_, type, simples), acc|
+        acc[0] += simples.count { |kind, _| kind == "#" }
+        acc[1] += simples.count { |kind, _| kind == "." }
+        acc[2] += 1 if type && type != "*"
+      end
     end
 
     # The fill covering the most area in the icon body: shapes with a
