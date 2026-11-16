@@ -76,6 +76,18 @@ class RoastKindTest < Minitest::Test
     assert_operator body.index("proto-analytics.png"), :<, body.index("ref-analytics.png")
   end
 
+  # One schema serves every kind, so each kind's request asks for saving.
+  def test_every_kind_requests_the_saving_field
+    Roast::KINDS.each do |kind|
+      args = kind == "fidelity" ? [ "--pair", "#{@proto}=#{@ref}" ] : [ "--shot", @proto, "--kind", kind, "--audience", "a", "--purpose", "p" ]
+      FileUtils.rm_rf(File.join(@dir, ".cache"))
+      code, text, http = run_cli(*args)
+      assert_equal 0, code, "#{kind}: #{text}"
+      item = JSON.parse(http.requests.first.body).dig("text", "format", "schema", "properties", "issues", "items")
+      assert_includes item["required"], "saving", kind
+    end
+  end
+
   def test_fidelity_kind_without_a_pair_and_a_pair_with_another_kind_are_usage_errors
     code, = run_cli("--kind", "fidelity", "--shot", @proto)
     assert_equal 2, code

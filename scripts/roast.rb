@@ -77,6 +77,7 @@ module Roast
     code, a component name for an architecture),
     the concrete problem the stated audience would hit, and a concrete fix the author can apply. Prioritize: P0 blocks the audience from the stated
     purpose, P1 badly hurts clarity or trust, P2 is polish.
+    saving: estimated lines, files, deps removed if the fix is applied; null when not applicable.
 
     The artifact declares what it is: a review contract gives its kind, its audience, and its purpose,
     a list of outcomes a viewer must be able to state afterward. Judge it against that contract, not
@@ -129,6 +130,10 @@ module Roast
     as the scene id or the cue it concerns.
   TEXT
 
+  # What an issue's fix would remove, as critic estimates: strict mode requires
+  # the key, so "not applicable" is a null object or null counts.
+  SAVING_KEYS = %w[lines files deps].freeze
+
   SCHEMA = {
     type: 'object', additionalProperties: false,
     required: %w[score summary issues thirty_second_test purpose_test],
@@ -138,10 +143,14 @@ module Roast
       issues: {
         type: 'array',
         items: {
-          type: 'object', additionalProperties: false, required: %w[priority where problem fix],
+          type: 'object', additionalProperties: false, required: %w[priority where problem fix saving],
           properties: {
             priority: { type: 'string', enum: PRIORITIES },
-            where: { type: 'string' }, problem: { type: 'string' }, fix: { type: 'string' }
+            where: { type: 'string' }, problem: { type: 'string' }, fix: { type: 'string' },
+            saving: {
+              type: %w[object null], additionalProperties: false, required: SAVING_KEYS,
+              properties: SAVING_KEYS.to_h { |k| [ k.to_sym, { type: %w[integer null] } ] }
+            }
           }
         }
       },
@@ -452,11 +461,27 @@ module Roast
     bad = critic['issues'].find { |i| !PRIORITIES.include?(i['priority']) }
     raise RequestError, "roast issue has an unknown priority: #{bad['priority'].inspect}" if bad
     raise RequestError, 'roast issue has no where' if critic['issues'].any? { |i| location(i).strip.empty? }
+    raise RequestError, 'roast issue saving is invalid' unless critic['issues'].all? { |i| valid_saving?(i['saving']) }
     raise RequestError, 'roast thirty_second_test verdict is invalid' unless VERDICTS.include?(critic.dig('thirty_second_test', 'verdict'))
     raise RequestError, 'roast purpose_test must be a list' unless critic['purpose_test'].is_a?(Array)
 
     bad_outcome = critic['purpose_test'].find { |o| !o.is_a?(Hash) || !VERDICTS.include?(o['verdict']) }
     raise RequestError, 'roast purpose_test verdict is invalid' if bad_outcome
+  end
+
+  # nil (or absent, as in rounds logged before the field existed) or an object
+  # of exactly lines, files, deps, each a non-negative integer or null.
+  def valid_saving?(saving)
+    return true if saving.nil?
+    return false unless saving.is_a?(Hash) && saving.keys.sort == SAVING_KEYS.sort
+
+    saving.values.all? { |v| v.nil? || (v.is_a?(Integer) && v >= 0) }
+  end
+
+  # The markdown line for an issue's estimated saving, or nil when it has none.
+  def saving_line(issue)
+    parts = SAVING_KEYS.filter_map { |k| (n = issue.dig('saving', k)) && "~#{n} #{k}" }
+    "  Saving: #{parts.join(', ')} (estimate)" unless parts.empty?
   end
 
   # Returns the cached critic JSON, making the paid call only on a miss.
@@ -511,6 +536,8 @@ module Roast
     PRIORITIES.each do |p|
       critic['issues'].select { |i| i['priority'] == p }.each do |i|
         lines << "- #{p} (#{location(i)}): #{i['problem']}" << "  Fix: #{i['fix']}"
+        saving = saving_line(i)
+        lines << saving if saving
       end
     end
     t = critic['thirty_second_test']
