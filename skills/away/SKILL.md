@@ -35,7 +35,9 @@ destructive or a real secret is at stake and no safe default exists:
 - `Secret alert`, when a leaked credential is found and its disposition must
   not be auto decided.
 - `Key source`, when a paid skill needs to know which env file holds this
-  repo's API key; there is no safe default for where a secret lives.
+  repo's API key; there is no safe default for where a secret lives. When the
+  user cannot reach a terminal to enroll, cf:secret-intake stages the key from
+  any device and `push NAME --to cf-key:<provider>` enrolls it.
 - `Secret destination`, when cf:secret-intake must learn where a staged
   secret goes (an env file, SSM, or the cf key store); a wrong guess ships a
   secret to the wrong place.

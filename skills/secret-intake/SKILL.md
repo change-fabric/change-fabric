@@ -41,3 +41,26 @@ removed.
 
 Where a staged secret goes next is the user's call: ask with the
 `Secret destination` question header, which away mode still lets through.
+
+## Push a staged secret
+
+```
+ruby ~/.claude/cf/bin/secret_intake.rb push NAME --to env:.env.local
+ruby ~/.claude/cf/bin/secret_intake.rb push NAME --to cf-key:openai [--dir PATH]
+ruby ~/.claude/cf/bin/secret_intake.rb push NAME --to ssm:/app/prod/NAME \
+  --profile personal --region us-east-1 --confirm-account <id> [--overwrite]
+ruby ~/.claude/cf/bin/secret_intake.rb remove NAME
+```
+
+`env:` sets `NAME=` in the file (relative to the current directory), keeps a
+`.bak`, and appends the file to the repo `.gitignore` when git does not
+already ignore it. `cf-key:` enrolls the value as that provider's key at
+`--dir` (default this project), validating it first unless intake already did.
+`ssm:` writes a SecureString and prints the live account id, alias and path.
+
+Before any `ssm:` push, ask the user with AskUserQuestion to confirm the
+account id the push will write to, and pass `--confirm-account` only with the
+id they confirmed. Without it, or with any other id, the push refuses before
+writing. An existing parameter is refused unless the user asked for
+`--overwrite`. Exit codes: 0 pushed, 1 usage or nothing staged, 3 provider
+rejected the key, 5 AWS or write failure, 6 refused (account or overwrite).
