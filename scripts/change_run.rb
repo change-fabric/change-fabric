@@ -4,15 +4,19 @@
 require 'open3'
 require 'optparse'
 require 'securerandom'
+require 'time'
+require 'tmpdir'
 require_relative 'change_apps'
 require_relative 'change_artifact'
 require_relative 'change_boot'
 require_relative 'change_config'
 require_relative 'change_docker'
 require_relative 'change_findings'
+require_relative 'change_frontmatter'
 require_relative 'change_gate_check'
 require_relative 'change_policy'
 require_relative 'change_report'
+require_relative 'change_schedule_store'
 require_relative 'change_k6_narrative'
 require_relative 'change_gate_store'
 require_relative 'change_lane_k6'
@@ -34,6 +38,19 @@ require_relative 'change_trust'
 #        [--app NAME]... [--target-url URL] [--health-url URL] [--suite NAME]...
 #        [--no-publish] [--for-tag TAGNAME]
 #        change_run.rb gate-status [--ref REF] [--config PATH]
+#        change_run.rb schedule <name> [--repo PATH] [--dry-run]
+#        change_run.rb zap --mode full [--profile NAME]
+#
+# schedule <name> (0.19.0, unreleased) runs one change_config.schedules entry:
+# its lanes, against its profile, with its per-lane overrides. CHANGE.md is
+# read from the default branch (origin/<default> after a fetch), never the
+# working tree, so boot steps are base-trusted and a branch cannot redefine
+# what a schedule runs. The outcome goes to the time-keyed schedule store
+# (change_schedule_store.rb), never a per-sha gate record, so a scheduled run
+# can never satisfy the per-PR gate. --dry-run prints what would run and runs
+# nothing. An active zap scan (zap.mode: full) is refused before any docker
+# call unless the profile sets allow_active_scan: true; `zap --mode full` is
+# the standalone form of the same opt-in.
 #
 # --for-tag TAGNAME (0.9.0, trunk + tag releases): resolves the tag against
 # change_policy.promotion's tag: rules, runs `all` once per distinct profile
@@ -113,13 +130,13 @@ class ChangeRun
   # `env_file_values` (parsed boot.env_file, a source for declared names).
   Context = Struct.new(:network, :target_url, :health_url, :browserless, :media, :suite_select, :signoff,
                        :logger, :run_id, :profile, :trust, :step_prefix, :env_file_values,
-                       keyword_init: true) do
+                       :active_scan_allowed, keyword_init: true) do
     def log(message) = logger.call(message)
     def signoff? = signoff == true
   end
 
   Args = Struct.new(:scope, :config_path, :profile, :apps, :target_url, :health_url, :publish, :suites,
-                    :for_tag, :ref, :signoff, keyword_init: true)
+                    :for_tag, :ref, :signoff, :schedule, :repo, :dry_run, :zap_mode, keyword_init: true)
 
   def self.main(argv)
     new(argv).run
@@ -131,6 +148,7 @@ class ChangeRun
 
   def run
     return gate_status if @args.scope == 'gate-status'
+    return run_schedule if @args.scope == 'schedule'
     return abort_setup('docker is not available') unless ChangeDocker.available?
     return sweep_stale_resources if @args.scope == 'sweep'
     return run_for_tag if @args.for_tag
@@ -141,6 +159,164 @@ class ChangeRun
   end
 
   private
+
+  # schedule <name>: resolves the schedule from the default branch's
+  # CHANGE.md, refuses an un-opted-in active scan or a k6 script that differs
+  # from the base before any docker call, then runs the schedule's lanes
+  # through the same boot and lane machinery a sweep uses and writes a
+  # schedule-store record.
+  def run_schedule
+    base_ref, base_sha, raw = base_change_config
+    schedule = resolve_schedule(raw)
+    Dir.mktmpdir('cf-schedule') do |dir|
+      config = load_base_config(dir, base_ref, schedule)
+      check_schedule_safety(config, schedule, base_ref)
+      return print_schedule_plan(config, schedule, base_ref, base_sha) if @args.dry_run
+      return abort_setup('docker is not available') unless ChangeDocker.available?
+
+      @head_sha = base_sha
+      execute_schedule(config, schedule, base_ref)
+    end
+  end
+
+  # [ref, sha, change_config] from origin/<default branch>, after a fetch. A
+  # failed fetch is logged and the last fetched ref is used, as the trust
+  # check does.
+  def base_change_config
+    default = ChangeTrust.default_branch(repo_root)
+    note = ChangeTrust.fetch_note(repo_root, default)
+    log("[change] schedule: #{note}") if note
+    ref = "origin/#{default}"
+    sha = resolve_ref_sha("#{ref}^{commit}")
+    abort_and_exit("schedule: #{ref} does not resolve; a schedule runs the default branch's CHANGE.md") unless sha
+    @base_change_md = git_show(ref, 'CHANGE.md')
+    abort_and_exit("schedule: #{ref} has no CHANGE.md") unless @base_change_md
+    raw = ChangeFrontmatter.parse(@base_change_md)['change_config']
+    abort_and_exit("schedule: #{ref}:CHANGE.md has no change_config block") unless raw.is_a?(Hash)
+    [ ref, sha, raw ]
+  end
+
+  def resolve_schedule(raw)
+    if raw.key?('apps')
+      abort_and_exit('schedule: a monorepo (change_config.apps) cannot run schedules yet; ' \
+                     'declare them in a single-app CHANGE.md')
+    end
+    schedules = ChangeScheduleConfig.new(raw)
+    schedule = schedules.fetch(@args.schedule)
+    return schedule if schedule
+
+    declared = schedules.names.empty? ? 'none' : schedules.names.join(', ')
+    abort_and_exit("schedule: no schedule named '#{@args.schedule}' on the default branch; declared: #{declared}")
+  end
+
+  # The base CHANGE.md written to a temp file and loaded under the schedule's
+  # profile, rooted at the repo so boot steps and repo paths resolve as usual.
+  def load_base_config(dir, base_ref, schedule)
+    path = File.join(dir, 'CHANGE.md')
+    File.write(path, @base_change_md)
+    ChangeConfig.load(path, profile: schedule.profile, root: repo_root)
+  rescue ChangeConfig::ConfigError => e
+    abort_and_exit("schedule: #{base_ref}:CHANGE.md does not load: #{e.message}")
+  end
+
+  # Both refusals happen before docker is touched. Validation already rejects
+  # an un-opted-in full scan; the re-check here is the runner's own guard.
+  def check_schedule_safety(config, schedule, base_ref)
+    @schedule = schedule
+    @lane_overrides = schedule.overrides
+    if schedule.active_scan?
+      unless config.schedule_config.allow_active_scan?(schedule.profile)
+        abort_and_exit("schedule #{schedule.name}: refusing an active zap scan (mode: full): profile " \
+                       "'#{schedule.profile}' does not set allow_active_scan: true")
+      end
+      @active_scan_allowed = true
+    end
+    check_k6_script_matches_base(scheduled_lane(config, 'k6'), base_ref) if schedule.lanes.include?('k6')
+  end
+
+  # The k6 lane reads its script from the working tree. A scheduled run is
+  # base-trusted, so that file must be byte-identical to the base branch's.
+  def check_k6_script_matches_base(lane, base_ref)
+    rel = lane['script']
+    return if rel.nil?
+
+    working = lane.path('script')
+    base = git_show(base_ref, rel.to_s.delete_prefix('./'))
+    return if base && File.exist?(working) && File.binread(working) == base.b
+
+    abort_and_exit("schedule #{@schedule.name}: k6 script '#{rel}' differs from #{base_ref} (or is missing " \
+                   "there); a scheduled run executes only the default branch's definitions")
+  end
+
+  def print_schedule_plan(config, schedule, base_ref, base_sha)
+    log("[change] schedule #{schedule.name} (dry run; nothing runs)")
+    log("[change]   base: #{base_ref} #{base_sha[0, 12]}")
+    log("[change]   runner: #{schedule.runner}, cron: #{schedule.cron} (UTC)")
+    log("[change]   profile: #{schedule.profile}, target: #{config.boot.target_url}")
+    schedule.lanes.each do |name|
+      lane = scheduled_lane(config, name)
+      mode = name == 'zap' ? " mode=#{lane.fetch('mode', ChangeScheduleConfig::ZAP_DEFAULT_MODE)}" : ''
+      log("[change]   lane #{name}#{mode} -> #{scheduled_targets(config, name, lane).join(', ')}")
+    end
+    run_manifest(config, schedule.lanes).each { |key, value| log("[change]   #{key}: #{value}") }
+    0
+  end
+
+  def scheduled_targets(config, name, lane)
+    return lane.targets(config.boot.target_url) if name == 'zap'
+
+    [ lane.base_url(config.boot.target_url) ]
+  end
+
+  def execute_schedule(config, schedule, base_ref)
+    trust = trust_verdict(config)
+    untrusted = trust.head_digests.keys.reject { |step| trust.trusted?(step) }
+    abort_and_exit(trust.refusal(untrusted.first)) unless untrusted.empty?
+
+    started_at = Time.now.utc.iso8601
+    findings, instances = with_app(config, trust: trust) { |ctx| execute(config, schedule.lanes, ctx) }
+    manifest = run_manifest(config, schedule.lanes)
+               .merge('schedule' => schedule.name, 'base' => "#{base_ref} #{head_sha[0, 12]}")
+    report = write_report(config, findings, schedule.lanes, instances, app: nil, manifest: manifest)
+    path = ChangeScheduleStore.new(schedule.name, schedule.profile)
+                              .write(schedule_record(schedule, findings, report, started_at))
+    summarize(findings, report, app: nil)
+    log("[change] schedule record: #{path}")
+    findings.passed? ? 0 : 1
+  end
+
+  def schedule_record(schedule, findings, report, started_at)
+    {
+      'schedule' => schedule.name, 'profile' => schedule.profile, 'runner' => schedule.runner,
+      'sha' => head_sha, 'started_at' => started_at, 'finished_at' => Time.now.utc.iso8601,
+      'result' => findings.passed? ? 'pass' : 'fail', 'lanes' => findings.lane_status,
+      'report_path' => report[:markdown]
+    }
+  end
+
+  # A lane's config with this run's invocation overrides (a schedule's
+  # per-lane block, or `zap --mode full`) applied.
+  def scheduled_lane(config, name) = config.lane(name).merge(lane_overrides.fetch(name, {}))
+
+  def lane_overrides = @lane_overrides || {}
+
+  def git_show(ref, rel)
+    out, status = Open3.capture2e('git', '-C', repo_root, 'show', "#{ref}:#{rel}")
+    status.success? ? out : nil
+  end
+
+  # `zap --mode full`: the standalone active scan. Re-checks the resolved
+  # profile's opt-in before anything runs.
+  def prepare_zap_mode(config)
+    return unless @args.zap_mode
+
+    if @args.zap_mode == 'full' && !config.schedule_config.allow_active_scan?(config.profile)
+      abort_and_exit("zap --mode full: refusing an active scan: profile '#{config.profile || '(none)'}' " \
+                     'does not set allow_active_scan: true')
+    end
+    @lane_overrides = { 'zap' => { 'mode' => @args.zap_mode } }
+    @active_scan_allowed = @args.zap_mode == 'full'
+  end
 
   def run_sweep
     registry = ChangeAppRegistry.load(@args.config_path)
@@ -280,6 +456,11 @@ class ChangeRun
     for_tag = nil
     ref = nil
     signoff = false
+    repo = nil
+    dry_run = false
+    zap_mode = nil
+    rest = argv.drop(1)
+    schedule = scope == 'schedule' && rest.first && !rest.first.start_with?('-') ? rest.shift : nil
     OptionParser.new do |o|
       o.on('--config PATH') { |value| path = value }
       o.on('--profile NAME') { |value| profile = value }
@@ -291,8 +472,11 @@ class ChangeRun
       o.on('--for-tag NAME') { |value| for_tag = value }
       o.on('--ref REF') { |value| ref = value }
       o.on('--signoff') { signoff = true }
-    end.parse(argv.drop(1))
-    valid = %w[all sweep gate-status] + ChangeConfig::LANES
+      o.on('--repo PATH') { |value| repo = value }
+      o.on('--dry-run') { dry_run = true }
+      o.on('--mode MODE') { |value| zap_mode = value }
+    end.parse(rest)
+    valid = %w[all sweep gate-status schedule] + ChangeConfig::LANES
     abort_and_exit("scope must be one of: #{valid.join(', ')}") unless valid.include?(scope)
     # `--suite` narrows the testcases lane and nothing else reads it. Refusing
     # it outside a run that includes that lane keeps a mistyped invocation from
@@ -300,9 +484,15 @@ class ChangeRun
     # indistinguishable, from the outside, from a filter that matched.
     abort_and_exit('--suite narrows the testcases lane; run scope testcases or all') if
       !suites.empty? && !%w[testcases all].include?(scope)
+    abort_and_exit('schedule needs a schedule name: change_run.rb schedule <name>') if scope == 'schedule' && schedule.nil?
+    abort_and_exit('--dry-run applies only to schedule <name>') if dry_run && scope != 'schedule'
+    abort_and_exit('--mode applies only to the zap scope') if zap_mode && scope != 'zap'
+    if zap_mode && !ChangeScheduleConfig::ZAP_MODES.include?(zap_mode)
+      abort_and_exit("--mode must be one of #{ChangeScheduleConfig::ZAP_MODES.join(', ')}")
+    end
     Args.new(scope: scope, config_path: path, profile: profile, apps: apps, target_url: target_url,
              health_url: health_url, publish: publish, suites: suites, for_tag: for_tag, ref: ref,
-             signoff: signoff)
+             signoff: signoff, schedule: schedule, repo: repo, dry_run: dry_run, zap_mode: zap_mode)
   end
 
   def overrides
@@ -331,6 +521,7 @@ class ChangeRun
   def run_entry(entry, multi:)
     config = entry.load(profile: @args.profile, overrides: overrides)
     log("[change] warning: #{config.spec_version_mismatch}") if config.spec_version_mismatch
+    prepare_zap_mode(config)
     label = multi ? entry.name : nil
     log("[change] app: #{entry.name}") if multi
     lanes = resolve_lanes(config)
@@ -356,6 +547,7 @@ class ChangeRun
   end
 
   def resolve_lanes(config)
+    return @schedule.lanes if @schedule
     return config.enabled_lanes if @args.scope == 'all'
 
     [ @args.scope ]
@@ -423,7 +615,8 @@ class ChangeRun
       network: network.name, target_url: config.boot.target_url,
       health_url: config.boot.health_url, media: artifact&.media, suite_select: @args.suites,
       signoff: @args.signoff, logger: method(:log), run_id: boot_run_id, profile: config.profile,
-      trust: trust, step_prefix: prefix, env_file_values: command_env_file_values(config)
+      trust: trust, step_prefix: prefix, env_file_values: command_env_file_values(config),
+      active_scan_allowed: @active_scan_allowed == true
     }
     if browser_needed?(config)
       boot = config.boot
@@ -446,7 +639,7 @@ class ChangeRun
     instances = {}
     lanes.each do |name|
       log("[change] running #{name} lane")
-      lane_findings, instances[name] = run_lane(name, config.lane(name), ctx)
+      lane_findings, instances[name] = run_lane(name, scheduled_lane(config, name), ctx)
       lane_findings.each { |finding| findings.add(finding) }
     end
     [ findings, instances ]
@@ -594,6 +787,8 @@ class ChangeRun
   end
 
   def repo_root
+    return @repo_root ||= File.expand_path(@args.repo) if @args&.repo
+
     @repo_root ||= begin
       out, status = Open3.capture2e('git', 'rev-parse', '--show-toplevel')
       status.success? ? out.strip : Dir.pwd

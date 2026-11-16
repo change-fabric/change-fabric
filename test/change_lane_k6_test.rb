@@ -75,4 +75,23 @@ class ChangeLaneK6Test < Minitest::Test
     ctx = Ctx.new("net", "http://app:3000", "http://localhost:3000/api/health")
     assert_equal "/healthz", ChangeLaneK6.new(config, ctx).send(:env)["HEALTH_PATH"]
   end
+
+  # A script override (a schedule's k6.script) is repo-relative; one that
+  # escapes the repo root is refused before any container starts.
+  def test_a_script_escaping_the_repo_is_refused_without_a_docker_call
+    original = ChangeDocker.method(:run)
+    called = false
+    ChangeDocker.define_singleton_method(:run) { |**| called = true }
+    findings = lane({ "script" => "../outside.js" }).run
+    assert_equal "fail", findings.first.status
+    assert_match(/outside the repo root/, findings.first.detail)
+    refute called
+  ensure
+    ChangeDocker.define_singleton_method(:run, original)
+  end
+
+  def test_a_script_inside_the_repo_does_not_escape
+    refute lane({ "script" => "load/soak.js" }).send(:script_escapes_repo?)
+    assert lane({ "script" => "/etc/passwd" }).send(:script_escapes_repo?)
+  end
 end
