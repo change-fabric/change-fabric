@@ -267,20 +267,18 @@ module PlanVisuals
     end
 
     def post(phase: nil, omits: {}, first_pr: nil, dry_run: false, require_settled: false)
-      if require_settled
-        ok, why = PlanVisuals.settled?(@gh, @pr)
-        return Outcome.new(code: 4, lines: [ "not settled: #{why}" ]) unless ok
-      end
+      refusal = require_settled && unsettled_reason
+      return Outcome.new(code: 4, lines: [ "not settled: #{refusal}" ]) if refusal
 
       manifest = PlanVisuals.manifest(@plan_dir)
       picked = PlanVisuals.select(@plan_dir, phase: phase)
       omits = omits.dup
-      visuals = picked[:visuals].reject { |v| omits.key?(v.name) }
-      visuals, missing = visuals.partition { |v| PlanVisuals.png_paths(v, manifest).all? { |p| File.exist?(p) } }
+      kept = picked[:visuals].reject { |v| omits.key?(v.name) }
+      visuals, missing = kept.partition { |v| PlanVisuals.png_paths(v, manifest).all? { |p| File.exist?(p) } }
       missing.each { |v| omits[v.name] = 'PNG not rendered' }
       return Outcome.new(code: 0, lines: [ 'nothing to post' ]) if picked[:visuals].empty? && !picked[:link_back]
 
-      hash = PlanVisuals.section_hash(visuals + missing)
+      hash = PlanVisuals.section_hash(kept)
       body, ok = @gh.run('gh', 'pr', 'view', @pr.to_s, '--json', 'body', '--jq', '.body')
       return Outcome.new(code: 3, lines: [ 'could not read the PR body' ]) unless ok
       return Outcome.new(code: 0, lines: [ 'unchanged' ]) if PlanVisuals.current_hash(body) == hash
@@ -297,6 +295,11 @@ module PlanVisuals
     end
 
     private
+
+    def unsettled_reason
+      ok, why = PlanVisuals.settled?(@gh, @pr)
+      ok ? nil : why
+    end
 
     def placeholder_urls(visuals)
       visuals.to_h { |v| [ v.name, { light: "#{v.name}-light.png", dark: "#{v.name}-dark.png" } ] }
