@@ -340,6 +340,18 @@ class PlanVisualsScriptTest < Minitest::Test
     assert_equal "<!-- cf:plan-visuals sha=h -->\nPlan visuals: see #5.\n#{PV::END_MARK}", out
   end
 
+  # A redraw whose render failed leaves the old PNGs; they must not be
+  # posted as the new diagram.
+  def test_post_omits_a_visual_whose_png_predates_its_svg
+    with_plan do |dir|
+      old = Time.now - 3600
+      %w[light dark].each { |m| File.utime(old, old, File.join(dir, "diagrams", "wire-#{m}.png")) }
+      up = FakeUploader.new
+      PV::Poster.new(dir, pr: 7, gh: pr_gh, uploader: up).post(phase: 2)
+      refute_includes up.paths.map { |p| File.basename(p) }, "wire-light.png"
+    end
+  end
+
   def test_post_uploads_both_pngs_and_edits_body
     with_plan do |dir|
       gh = pr_gh

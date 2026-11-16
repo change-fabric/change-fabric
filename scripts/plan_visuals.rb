@@ -250,6 +250,18 @@ module PlanVisuals
 
   def svg_title(svg) = svg_source(svg)[%r{<title\b[^>]*>(.*?)</title>}m, 1]&.strip
 
+  # Both PNGs exist and none predates its SVG: a redraw whose render failed
+  # leaves the old PNGs in place, and posting them would show a stale image
+  # as the current one.
+  def png_current?(visual, manifest)
+    pngs = png_paths(visual, manifest)
+    return false unless pngs.all? { |p| File.exist?(p) }
+    return true unless File.exist?(visual.svg)
+
+    svg_time = File.mtime(visual.svg)
+    pngs.all? { |p| File.mtime(p) >= svg_time }
+  end
+
   def png_paths(visual, manifest)
     entry = manifest&.dig('visuals', visual.name) || {}
     dir = File.dirname(visual.svg)
@@ -335,8 +347,8 @@ module PlanVisuals
       picked = PlanVisuals.select(@plan_dir, phase: phase)
       omits = omits.dup
       kept = picked[:visuals].reject { |v| omits.key?(v.name) }
-      visuals, missing = kept.partition { |v| PlanVisuals.png_paths(v, manifest).all? { |p| File.exist?(p) } }
-      missing.each { |v| omits[v.name] = 'PNG not rendered' }
+      visuals, missing = kept.partition { |v| PlanVisuals.png_current?(v, manifest) }
+      missing.each { |v| omits[v.name] = 'PNG not rendered from the current SVG' }
       return clear(dry_run) if picked[:visuals].empty? && !picked[:link_back]
 
       link = picked[:link_back] ? first_pr : nil
