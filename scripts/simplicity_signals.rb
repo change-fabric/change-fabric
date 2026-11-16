@@ -241,17 +241,17 @@ module SimplicitySignals
 
   def single_users(names, users_by_name)
     names.filter_map do |name|
-      users = users_by_name.fetch(short(name), []).uniq
+      users = users_by_name.fetch(name, []).uniq
       { 'base' => name, 'impls' => users } if users.size == 1
     end
   end
 
   def repo_types(range)
-    tree = { classes: {}, modules: [], subclasses: Hash.new { |h, k| h[k] = [] }, includes: Hash.new { |h, k| h[k] = [] } }
+    tree = { classes: {}, modules: [], refs: [] }
     range.ruby_files(range.git('ls-tree', '-r', '--name-only', range.head).lines.map(&:strip)).each do |path|
       collect_types(Prism.parse(range.show(range.head, path).to_s).value, tree)
     end
-    tree
+    resolve_refs(tree)
   end
 
   def collect_types(root, tree)
@@ -263,11 +263,37 @@ module SimplicitySignals
     end
   end
 
+  # Superclass and include targets are kept as written, with the lexical
+  # scopes they were written in, and resolved once every type is known.
   def record_class(node, name, tree)
-    tree[:subclasses][short(node.superclass.slice)] << name if node.superclass
+    outer = enclosing(name)
+    tree[:refs] << [ :subclasses, node.superclass.slice, outer, name ] if node.superclass
     abstract = name.match?(ABSTRACT_NAME) || node.slice.include?('NotImplementedError')
     tree[:classes][name] = { abstract: } unless tree[:classes][name]&.dig(:abstract)
-    included_modules(node).each { |mod| tree[:includes][short(mod)] << name }
+    included_modules(node).each { |mod| tree[:refs] << [ :includes, mod, [ name ] + outer, name ] }
+  end
+
+  # The lexical scopes of a qualified name, innermost first: A::B::C -> A::B, A.
+  def enclosing(name)
+    parts = name.split('::')[0...-1]
+    parts.each_index.map { |i| parts[0..i].join('::') }.reverse
+  end
+
+  def resolve_refs(tree)
+    known = tree[:classes].keys + tree[:modules]
+    tree[:subclasses] = Hash.new { |h, k| h[k] = [] }
+    tree[:includes] = Hash.new { |h, k| h[k] = [] }
+    tree.delete(:refs).each { |kind, ref, scopes, user| tree[kind][resolve(ref, scopes, known)] << user }
+    tree
+  end
+
+  # Ruby's lexical lookup: each enclosing scope innermost first, then the
+  # top level. An unknown target keeps its written name.
+  def resolve(ref, scopes, known)
+    return ref.delete_prefix('::') if ref.start_with?('::')
+
+    candidates = scopes.map { |scope| "#{scope}::#{ref}" } + [ ref ]
+    candidates.find { |c| known.include?(c) } || ref
   end
 
   # Includes in this class's own body; a nested class or module owns its own.
@@ -286,8 +312,6 @@ module SimplicitySignals
     yield node
     node.compact_child_nodes.each { |child| own_nodes(child, root: false, &block) }
   end
-
-  def short(name) = name.to_s.split('::').last
 
   # Command-line entry: `signals [--base REF] [--head REF] [--repo DIR]`.
   module CLI

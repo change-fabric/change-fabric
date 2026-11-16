@@ -72,6 +72,17 @@ class SimplicitySignalsTest < Minitest::Test
     refute(report["single_impl"].any? { |entry| entry["base"] == "NotifierBase" })
   end
 
+  def test_same_named_bases_in_two_namespaces_keep_their_own_subclasses
+    report = inline_repo({ "README" => "x\n" }, {
+      "lib/a.rb" => "module A\n  class NotifierBase; end\nend\n",
+      "lib/b.rb" => "module B\n  class NotifierBase; end\nend\n",
+      "lib/worker.rb" => "class Worker < A::NotifierBase; end\n"
+    })
+
+    assert_includes report["single_impl"], { "base" => "A::NotifierBase", "impls" => [ "Worker" ] }
+    refute(report["single_impl"].any? { |entry| entry["base"] == "B::NotifierBase" })
+  end
+
   def test_an_include_in_a_nested_class_belongs_only_to_it
     report = inline_repo({ "README" => "x\n" }, {
       "lib/outer.rb" => "module Auditable; end\nclass Outer\n  class Inner\n    include Auditable\n  end\nend\n"
