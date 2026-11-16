@@ -236,8 +236,10 @@ fresh session that will execute the plan.
       (accepted, rebutted, or contested) and resolution, any open P0 or P1,
       and any skip reason.
    7. On a sensitive-term refusal (exit 1), scrub and retry once. Exit 4 (no
-      key) or a second refusal records "roast skipped: <reason>" in
-      `## Roast` and continues. Without Docker, roast the text only and
+      usable key): load the installed cf:enroll with its `cf_enroll` line
+      verbatim, then retry the round once. A deferral there, a second exit 4,
+      or a second refusal records "roast skipped: <reason>" in `## Roast` and
+      continues. Without Docker, roast the text only and
       record "visuals not rendered, text-only roast."
 
 8. **Verify what landed.**
@@ -305,7 +307,8 @@ fresh session that will execute the plan.
   not silently hand-write the plan yourself.
 - No Docker at 7a or 7b: lint with `--no-measure`, skip rendering, roast the
   text only, and record the gap in `## Visuals` and the report.
-- No roast key (exit 4) or a second sensitive-term refusal: record "roast
-  skipped: <reason>" in `## Roast` and continue.
+- No roast key (exit 4): run cf:enroll with the `cf_enroll` line, then
+  retry once. Still exit 4 after that, or a second sensitive-term refusal:
+  record "roast skipped: <reason>" in `## Roast` and continue.
 - Roast exit 5 (openai deferred for this project): record "roast skipped:
   <the [cf] deferred note>" in `## Roast` and continue.

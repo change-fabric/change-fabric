@@ -18,7 +18,7 @@ Providers do not report when a key expires, so the date is recorded: `enroll --e
 
 - Within 24 hours of expiry, resolving the key prints one stderr warning naming the provider, label, owning level, and the renew command. The call still runs.
 - Once the date has passed, the key is refused locally: no paid request is made and the script exits 4 with `"reason":"expired"`.
-- At SessionStart, every project's meta.json in the secret store is scanned (never a key file), and any key already expired or expiring within 24 hours is named with its provider, label, project root, and renew command.
+- A paid skill checks expiry when it resolves the key. Until the SessionStart key prompt is removed, it also scans every project's meta.json (never a key file) and names any key already expired or expiring within 24 hours.
 
 Keys live as hidden 0600 files under `~/.claude/cf/secrets/<slug>/`, beside a value-free `meta.json`. Process env vars (`OPENAI_API_KEY`, `ELEVEN_LABS_API_KEY`, `ELEVENLABS_API_KEY`, `GEMINI_API_KEY`, `CF_SECRETS_ENV`) and the old `~/.claude/cf/secrets.yml` are never key sources: a set variable earns one stderr warning naming it, never its value. There is no global fallback.
 
@@ -36,12 +36,12 @@ An expired key adds the owning level, its label and date, and the command that c
 {"cf_enroll":{"provider":"openai","project_root":"/path/to/app","project_id":"github.com/example/app","reason":"expired","owner_root":"/path/to","label":"team billing","expires_at":"2026-01-01T00:00:00Z","snippet":"ruby ~/.claude/cf/bin/cf_keys.rb enroll openai --dir /path/to","correct":"ruby ~/.claude/cf/bin/cf_keys.rb expires openai YYYY-MM-DD --dir /path/to"}}
 ```
 
-A fully cached run never exits 4. On exit 4:
+A fully cached run never exits 4. On exit 4, the caller loads the installed cf:enroll (`~/.claude/skills/cf:enroll/SKILL.md`; `cf-enroll` on Codex, Copilot, OpenCode and Pi) with the `cf_enroll` line verbatim. It does steps 1 to 3, one question per provider, and offers a deferral of 1 or 7 days alongside them:
 
 1. Parse the `cf_enroll` line. It never carries a value.
 2. When `inheritable_from` is present, ask one AskUserQuestion: use the key enrolled at that ancestor for this project, or enroll a project key. On yes, run `ruby ~/.claude/cf/bin/cf_keys.rb confirm-inherit <provider> --dir <project_root>`. It records the confirmation and needs no secret.
 3. Otherwise paste the `snippet` in chat for the user to run in their own terminal. It reads the key with echo off, validates it against the provider's free endpoint, and stores it. Never run it for the user and never ask for the key in chat. When the user has no terminal at hand (a phone, a remote session), offer cf:secret-intake instead: stage the key with `intake --name <ENV_NAME> --validate <provider>`, then `push <ENV_NAME> --to cf-key:<provider> --dir <project_root>` enrolls it at the same level the snippet would.
-4. Re-run the original command unchanged.
+4. After the user says done and `cf_keys.rb status` reads the provider as enrolled or inherited, the caller re-runs the original command unchanged, once. A second exit 4 stops and reports the status line.
 
 On `"reason":"expired"`, paste the `snippet` to renew the key at `owner_root`. If the user says the key has not expired and only the date is wrong, paste `correct` with their date instead. Neither needs a confirm-inherit.
 
@@ -71,13 +71,13 @@ Relay the `next_step` to the user. On the optional paths (b-roll's Ken Burns fal
 
 - `ruby ~/.claude/cf/bin/cf_keys.rb status [--dir PATH]` lists each provider as enrolled, inherited, inheritable, deferred, or missing, with any label, tree scope, expiry date and days left, never a value.
 - `ruby ~/.claude/cf/bin/cf_keys.rb expires <provider> DATE [--dir PATH]` records or corrects the expiry of the key enrolled at that level, without re-entering it. It exits 3 when that level has no key for the provider.
-- `ruby ~/.claude/cf/bin/cf_keys.rb defer <provider> [--dir PATH]` records a per-project deferral after an AskUserQuestion defer.
+- `ruby ~/.claude/cf/bin/cf_keys.rb defer <provider> [--days 1|7] [--dir PATH]` records a per-project deferral (default 7 days) when the user picks defer in cf:enroll. While it is active, a paid step for that provider prints one `[cf] <provider> deferred until <time>` line and exits 5 instead of 4; once it lapses, the next paid run loads cf:enroll again. `enroll` clears it.
 - `ruby ~/.claude/cf/bin/cf_keys.rb enroll <provider> --dir ~/org` enrolls an ancestor level that descendant projects may inherit from after confirmation. Add `--scope tree` to let them inherit without one, `--expires DATE` to record when it stops, and `--label TEXT` to name it in status and warnings. Re-enrolling replaces all three.
 - `ruby ~/.claude/cf/bin/cf_keys.rb remove <provider> [--dir PATH]` deletes this project's key for that provider. Like `enroll`, it refuses without a real terminal.
 
 ## Hooks
 
-- At SessionStart, for each provider an installed skill needs that this project has not enrolled, confirmed, or deferred, the agent is told to ask with AskUserQuestion: enroll now, use the ancestor key (only offered when one exists), or defer. A defer silences that prompt for this project and provider only; a later paid call still exits 4 with the snippet.
+- A paid skill that needs a key loads cf:enroll on exit 4, and `/cf:enroll` (`$cf-enroll` on Codex) enrolls every installed provider up front. Until it is removed, the SessionStart key prompt still asks about each provider this project has not enrolled, confirmed, or actively deferred.
 - A UserPromptSubmit guard blocks any chat prompt shaped like a provider key before the model sees it and points the user at `cf_keys.rb enroll`.
 
 ## Never

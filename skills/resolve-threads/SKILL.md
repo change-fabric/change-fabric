@@ -98,10 +98,14 @@ run reports that it assumed the default.
    background agent in the thread's worktree that runs the thread's tests,
    then commits on `repoPath`; on red it reverts and the thread stays
    needs_human) and is resolved under [RT-6]. Each counts as `tiebroken` and
-   leaves `needsHuman`. Not confident, contested, roast.rb exit 4 (no key),
-   roast.rb exit 5 (openai deferred; its note goes in the report line), or a sensitive-term refusal: the thread stays needs_human, its reply
-   carries the critic's leaning when there was one, and the report gets one
-   line. Never AskUserQuestion here; this runs in away mode too. Reply text
+   leaves `needsHuman`. On roast.rb exit 4 (no key), load the installed
+   cf:enroll with its `cf_enroll` line verbatim (in away mode it takes its
+   default deferral and reports it), then retry the tiebreak once. Not
+   confident, contested, a second exit 4, roast.rb exit 5 (openai deferred;
+   its note goes in the report line), or a sensitive-term refusal: the
+   thread stays needs_human, its reply carries the critic's leaning when
+   there was one, and the report gets one line. Outside cf:enroll, never
+   AskUserQuestion here; this runs in away mode too. Reply text
    follows `reference/replying.md`.
 4. **Report.** For every thread: its verdict, one-line rationale, and (for
    `fixed`) which commit. For every cluster: its `concernClass`,

@@ -141,14 +141,14 @@ ruby ~/.claude/cf/bin/cf_keys.rb enroll openai --dir ~/code/app
 ruby ~/.claude/cf/bin/cf_keys.rb status --dir ~/code/app
 ```
 
-See [key enrollment](skills/walkthrough/reference/key-enrollment.md).
+See [key enrollment](skills/enroll/reference/key-enrollment.md).
 
 **A paid skill exits 4 with `"reason":"revoked"` or exits 1 with a
 `cf_key_error` line.** The provider rejected the call. Revoked (401 or 403)
 means enroll a new key with the printed snippet. Otherwise the line names the
 class (`quota_exhausted`, `rate_limited`, `bad_request`, `server`) and the next
 step; a quota is never retried and a rate limit is retried three times first.
-See [provider failures](skills/walkthrough/reference/key-enrollment.md#provider-failures).
+See [provider failures](skills/enroll/reference/key-enrollment.md#provider-failures).
 
 **The agent is denied a read of `.env` after upgrading.** By design: agent
 file tools and shell commands are denied on `.env` and `.env.<suffix>` files

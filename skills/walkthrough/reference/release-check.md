@@ -12,7 +12,7 @@ ruby scripts/walkthrough_render.rb "$SCRATCH/greenfield" --final --estimate-only
 ruby scripts/walkthrough_render.rb "$SCRATCH/greenfield" --final
 ```
 
-Keys come only from the project's enrolled key; env vars are ignored. A render that exits 4 needs enrollment first, see `skills/walkthrough/reference/key-enrollment.md`. Never paste a key into this file.
+Keys come only from the project's enrolled key; env vars are ignored. A render that exits 4 needs enrollment first: run cf:enroll with its `cf_enroll` line, see `skills/enroll/reference/key-enrollment.md`. Never paste a key into this file.
 
 Record, from the run output and the cache:
 

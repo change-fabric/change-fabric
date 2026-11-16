@@ -385,7 +385,7 @@ user only, a fenced handoff prompt for a fresh session.
 7b. **Roast** exactly as `cf:plan` step 7b, in this session, estimate first:
    at most 2 rounds and 0.50 USD in total, the same failure handling, and the
    writing agent appends `## Roast`. Do not restate those steps here; follow
-   `skills/plan/SKILL.md`, including its exit 5 (deferred) noted skip.
+   `skills/plan/SKILL.md`, including its exit 4 cf:enroll and retry and its exit 5 (deferred) noted skip.
    Quick mode never runs this roast.
 8. **Verify what landed.** All must pass:
 
