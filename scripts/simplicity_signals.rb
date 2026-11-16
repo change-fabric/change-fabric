@@ -135,28 +135,37 @@ module SimplicitySignals
     added = lines && lines['added']
     return nil if added.nil?
 
-    count = range.ruby_files(range.changed_files).sum do |path|
-      (type_names(range.show(range.head, path)) - type_names(range.show(range.base, range.base_path(path)))).size
-    end
+    # Distinct qualified identities across the range, so a namespace
+    # reopened in several files counts once.
+    files = range.ruby_files(range.changed_files)
+    head = files.flat_map { |path| type_names(range.show(range.head, path)) }.uniq
+    base = files.flat_map { |path| type_names(range.show(range.base, range.base_path(path))) }.uniq
+    count = (head - base).size
     added.zero? ? 0.0 : (count * 100.0 / added).round(2)
   end
 
   def type_names(source)
     return [] unless source
 
-    each_type(Prism.parse(source).value).map { |_node, name| name }
+    each_type(Prism.parse(source).value).map { |_node, name, _crefs| name }
   end
 
   # Every class and module with its lexically qualified name, so A::Worker
   # and B::Worker stay two types.
-  def each_type(node, scope = [], &block)
-    return enum_for(:each_type, node, scope) unless block
+  # Yields each class or module with its qualified name and the lexical
+  # scopes (crefs) enclosing its declaration, innermost first. The crefs
+  # come from the AST nesting, not the name: `class A::B` at top level is
+  # declared in the top-level scope, so its superclass is looked up there.
+  def each_type(node, crefs = [], &block)
+    return enum_for(:each_type, node, crefs) unless block
 
     if node.is_a?(Prism::ClassNode) || node.is_a?(Prism::ModuleNode)
-      scope += [ node.constant_path.slice.delete_prefix('::') ]
-      yield node, scope.join('::')
+      path = node.constant_path.slice
+      name = path.start_with?('::') || crefs.empty? ? path.delete_prefix('::') : "#{crefs.first}::#{path}"
+      yield node, name, crefs
+      crefs = [ name ] + crefs
     end
-    node.compact_child_nodes.each { |child| each_type(child, scope, &block) }
+    node.compact_child_nodes.each { |child| each_type(child, crefs, &block) }
   end
 
   def walk(node, &block)
@@ -255,28 +264,23 @@ module SimplicitySignals
   end
 
   def collect_types(root, tree)
-    each_type(root).each do |node, name|
+    each_type(root).each do |node, name, crefs|
       case node
       when Prism::ModuleNode then tree[:modules] << name
-      when Prism::ClassNode then record_class(node, name, tree)
+      when Prism::ClassNode then record_class(node, name, crefs, tree)
       end
+      included_modules(node).each { |mod| tree[:refs] << [ :includes, mod, [ name ] + crefs, name ] }
     end
   end
 
   # Superclass and include targets are kept as written, with the lexical
-  # scopes they were written in, and resolved once every type is known.
-  def record_class(node, name, tree)
-    outer = enclosing(name)
-    tree[:refs] << [ :subclasses, node.superclass.slice, outer, name ] if node.superclass
+  # scopes they were written in, and resolved once every type is known. A
+  # superclass is evaluated where the class is declared, an include inside
+  # its body.
+  def record_class(node, name, crefs, tree)
+    tree[:refs] << [ :subclasses, node.superclass.slice, crefs, name ] if node.superclass
     abstract = name.match?(ABSTRACT_NAME) || node.slice.include?('NotImplementedError')
     tree[:classes][name] = { abstract: } unless tree[:classes][name]&.dig(:abstract)
-    included_modules(node).each { |mod| tree[:refs] << [ :includes, mod, [ name ] + outer, name ] }
-  end
-
-  # The lexical scopes of a qualified name, innermost first: A::B::C -> A::B, A.
-  def enclosing(name)
-    parts = name.split('::')[0...-1]
-    parts.each_index.map { |i| parts[0..i].join('::') }.reverse
   end
 
   def resolve_refs(tree)
@@ -284,7 +288,28 @@ module SimplicitySignals
     tree[:subclasses] = Hash.new { |h, k| h[k] = [] }
     tree[:includes] = Hash.new { |h, k| h[k] = [] }
     tree.delete(:refs).each { |kind, ref, scopes, user| tree[kind][resolve(ref, scopes, known)] << user }
+    tree[:includes] = consumers(tree[:includes], tree[:modules])
     tree
+  end
+
+  # A module included into another module is consumed by whatever includes
+  # that one, so each mixin's users are expanded through module includers.
+  # A module that nothing includes stays a user itself.
+  def consumers(includes, modules)
+    includes.keys.to_h do |mixin|
+      seen = {}
+      queue = includes[mixin].dup
+      users = []
+      until queue.empty?
+        user = queue.shift
+        next if seen[user]
+
+        seen[user] = true
+        via = modules.include?(user) ? includes.fetch(user, []) : []
+        via.empty? ? users << user : queue.concat(via)
+      end
+      [ mixin, users ]
+    end.then { |h| Hash.new { |hash, k| hash[k] = [] }.merge(h) }
   end
 
   # Ruby's lexical lookup: each enclosing scope innermost first, then the
@@ -296,7 +321,7 @@ module SimplicitySignals
     candidates.find { |c| known.include?(c) } || ref
   end
 
-  # Includes in this class's own body; a nested class or module owns its own.
+  # Includes in this type's own body; a nested class or module owns its own.
   def included_modules(class_node)
     own_nodes(class_node).filter_map do |node|
       next unless node.is_a?(Prism::CallNode) && node.name == :include && node.receiver.nil?

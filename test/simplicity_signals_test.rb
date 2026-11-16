@@ -83,6 +83,36 @@ class SimplicitySignalsTest < Minitest::Test
     refute(report["single_impl"].any? { |entry| entry["base"] == "B::NotifierBase" })
   end
 
+  # Ruby resolves the superclass of a compact `class A::Worker < NotifierBase`
+  # at the top level, not inside A.
+  def test_a_compact_declaration_resolves_its_superclass_where_declared
+    report = inline_repo({ "README" => "x\n" }, {
+      "lib/bases.rb" => "class NotifierBase; end\nmodule A\n  class NotifierBase; end\nend\n",
+      "lib/worker.rb" => "class A::Worker < NotifierBase; end\n"
+    })
+
+    assert_includes report["single_impl"], { "base" => "NotifierBase", "impls" => [ "A::Worker" ] }
+    refute(report["single_impl"].any? { |entry| entry["base"] == "A::NotifierBase" })
+  end
+
+  def test_a_mixin_used_through_another_module_counts_every_consumer
+    report = inline_repo({ "README" => "x\n" }, {
+      "lib/mixins.rb" => "module Auditable; end\nmodule Shared\n  include Auditable\nend\n",
+      "lib/app.rb" => "class App\n  include Auditable\nend\nclass Other\n  include Shared\nend\n"
+    })
+
+    refute(report["single_impl"].any? { |entry| entry["base"] == "Auditable" })
+  end
+
+  def test_a_namespace_reopened_across_files_counts_once
+    report = inline_repo({ "README" => "x\n" }, {
+      "lib/a.rb" => "module Shared\n  class A; end\nend\n",
+      "lib/b.rb" => "module Shared\n  class B; end\nend\n"
+    })
+
+    assert_in_delta 50.0, report["new_types_per_100"]
+  end
+
   def test_an_include_in_a_nested_class_belongs_only_to_it
     report = inline_repo({ "README" => "x\n" }, {
       "lib/outer.rb" => "module Auditable; end\nclass Outer\n  class Inner\n    include Auditable\n  end\nend\n"
