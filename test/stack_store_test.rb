@@ -72,6 +72,41 @@ class StackStoreTest < Minitest::Test
     assert_raises(StackStore::Invalid) { store.set_pr(99, state: "merged") }
   end
 
+  def test_phase_field_is_optional_and_persisted
+    store.init(repo: "acme/web", source: "plan", mode: "merge_ready",
+               prs: [ { number: 12, phase: "demo-area/widget-plan#Phase 1" }, { number: 13 } ])
+    assert_equal [ "demo-area/widget-plan#Phase 1", nil ], store.read["prs"].map { |pr| pr["phase"] }
+    store.set_pr(13, phase: "demo-area/widget-plan#Phase 2")
+    assert_equal "demo-area/widget-plan#Phase 2", store.read["prs"][1]["phase"]
+    store.set_pr(13, phase: nil)
+    assert_nil store.read["prs"][1]["phase"]
+  end
+
+  def test_old_record_without_phase_still_loads_and_updates
+    FileUtils.mkdir_p(File.dirname(store.path))
+    old = { "slug" => "demo", "repo" => "acme/web", "source" => "plan", "mode" => "merge_ready",
+            "prs" => [ { "number" => 12, "url" => "#{URL}12", "head" => "a", "old_head_sha" => nil,
+                         "state" => "pending", "pause_reason" => nil } ], "current" => 0, "judged" => [] }
+    File.write(store.path, JSON.generate(old))
+    record = store.read
+    refute record["prs"].first.key?("phase")
+    store.set_pr(12, state: "handed_off")
+    assert_equal "handed_off", store.read["prs"].first["state"]
+  end
+
+  def test_bad_phase_is_rejected
+    [ "widget-plan#Phase 1", "demo-area/widget-plan#Phase 0", "demo-area/widget-plan Phase 2", 7 ].each do |bad|
+      assert_raises(StackStore::Invalid) do
+        store.init(repo: "a/b", source: "plan", mode: "yolo", prs: [ { number: 1, phase: bad } ])
+      end
+    end
+    seed
+    assert_raises(StackStore::Invalid) { store.set_pr(12, phase: "nope") }
+    out = StringIO.new
+    StackStore::CLI.run([ "set-pr", "demo", "12", "phase=bad" ], out:, dir: @repo)
+    assert_match(/phase must read/, JSON.parse(out.string)["error"])
+  end
+
   def test_advance_and_pause_track_the_current_pr
     seed
     store.set_pr(12, state: "handed_off", old_head_sha: "abc")
