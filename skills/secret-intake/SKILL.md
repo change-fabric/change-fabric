@@ -64,3 +64,32 @@ id they confirmed. Without it, or with any other id, the push refuses before
 writing. An existing parameter is refused unless the user asked for
 `--overwrite`. Exit codes: 0 pushed, 1 usage or nothing staged, 3 provider
 rejected the key, 5 AWS or write failure, 6 refused (account or overwrite).
+
+## Env files are off limits to the agent
+
+`secrets_read_guard.rb` denies agent file tools (Read, Edit, Write, Grep,
+Glob) on any `.env` or `.env.<suffix>` file, a symlink to one included, and
+any shell command that names one (`cat`, `source`, `grep`, `--env-file=`).
+`.env.example`, `.env.sample` and `.env.template` stay readable, and so do
+lookalikes such as `.envrc`. A bare run of `secret_intake.rb` is exempt, so
+`push NAME --to env:.env.local` works; the same command piped, redirected or
+chained is denied. To change a value, ask the user to edit the file, or stage
+it here and push it.
+
+Blast radius: this guard ships with the toolkit, so every project where cf is
+installed loses agent reads of `.env` files, not just projects that use
+intake. The user edits those files or runs `push`. It is a loud guardrail,
+not a sandbox: a script that opens the file without naming it gets through.
+
+## Risks
+
+- The page link carries a short-lived session token. It is for the user
+  only; never forward it, post it, or paste it into a PR or issue.
+- The bucket is upload only. The page can PUT the one object and offers no
+  read path; the CLI reads it back with the user's own credentials.
+- Intake relies on the user's AWS SSO session lasting the TTL. The TTL is
+  capped at the session's own expiry, and a session that ends early means
+  no upload lands and intake exits 4.
+- Teardown runs on every exit path short of kill -9. After a kill -9 the
+  bucket's one-day expiry rule removes the object; the empty
+  `<project>-key-intake-<hex>` bucket stays until deleted by hand.

@@ -92,7 +92,10 @@ TRUNK=$(git symbolic-ref --short refs/remotes/origin/HEAD | sed 's#^origin/##')
 From `git clean -nd`, when unsure treat as a keeper:
 - **Keeper** (never in a clean command): `.env`, `.env.*`, `.envrc`, `*.pem`,
   `*.key`, `*.crt`, `*.p12`, `*.pfx`, `id_rsa*`, anything secrets-pathed, and any
-  hand-authored file (config, note, script).
+  hand-authored file (config, note, script). The `.env` read guard does not
+  change this: `.env` and `.env.*` files are still kept, never cleaned. The
+  guard denies any shell command that names one, so keep them out of a clean
+  command by leaving them off its path list, not with an `-e` exclude.
 - **Junk:** build output and tool/OS cruft - `.DS_Store`, `Thumbs.db`, `*.log`,
   `*.tmp`, `*.swp`, `*~`, known build directories.
 

@@ -150,6 +150,14 @@ class (`quota_exhausted`, `rate_limited`, `bad_request`, `server`) and the next
 step; a quota is never retried and a rate limit is retried three times first.
 See [provider failures](skills/walkthrough/reference/key-enrollment.md#provider-failures).
 
+**The agent is denied a read of `.env` after upgrading.** By design: agent
+file tools and shell commands are denied on `.env` and `.env.<suffix>` files
+in every project where cf is installed. `.env.example`, `.env.sample` and
+`.env.template` stay readable. Edit the file yourself, or stage the value with
+`cf:secret-intake` and have the agent run
+`ruby ~/.claude/cf/bin/secret_intake.rb push NAME --to env:<path>`. See
+[secret intake](skills/secret-intake/SKILL.md).
+
 **Hooks error or stop firing after `brew upgrade ruby`.** The hook commands in
 `settings.json` name a Ruby interpreter by path, and a Ruby upgrade moves it.
 Re-run the installer.
