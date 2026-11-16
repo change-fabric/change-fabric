@@ -97,6 +97,23 @@ class EpicStoreTest < Minitest::Test
     assert_nil EpicStore.phases_for(epic, { "dir" => "demo/nowhere" })
   end
 
+  def test_fenced_examples_are_not_headings
+    md = <<~MD
+      ## Phases
+
+      ### Phase 1: Parse
+
+      ```markdown
+      ## Example output
+      ### Phase 9: Not real
+      ```
+
+      ### Phase 2: Wire
+    MD
+
+    assert_equal [ [ 1, "Parse" ], [ 2, "Wire" ] ], EpicStore.plan_phases(md)
+  end
+
   def test_path_for_resolves_under_the_epics_area
     previous = ENV.fetch("CF_PLANS_ROOT", nil)
     ENV["CF_PLANS_ROOT"] = "/plans-root"

@@ -77,11 +77,20 @@ module EpicStore
   end
 
   # Phase numbers and titles from `### Phase N: Title` headings, read only
-  # inside a `## Phases` or `## Phased rollout` section.
+  # inside a `## Phases` or `## Phased rollout` section. Lines inside a
+  # fenced code block are examples, never headings.
   def self.plan_phases(plan_md)
     inside = false
+    fence = nil
     plan_md.each_line.filter_map do |line|
       line = line.chomp
+      marker = line[/\A {0,3}(`{3,}|~{3,})/, 1]
+      if marker && (fence.nil? || (marker[0] == fence[0] && marker.size >= fence.size && line.strip == marker))
+        fence = fence ? nil : marker
+        next
+      end
+      next if fence
+
       inside = line.match?(PHASES_SECTION) if line.start_with?('## ')
       heading = inside && PHASE_HEADING.match(line)
       [ heading[1].to_i, heading[2] ] if heading
