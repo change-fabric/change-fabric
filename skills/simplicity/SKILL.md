@@ -26,7 +26,7 @@ What is the least code, the fewest files, and the fewest dependencies that meet 
 
 1. Name the requirement the complexity serves, or say `none`.
 2. Give a concrete simpler alternative: what to delete, inline, or replace, and with what.
-3. Estimate the saving (lines, files, deps removed if the fix is applied) in the issue's `saving` field. An estimate is never a measurement.
+3. Estimate the saving (lines, files, deps removed if the fix is applied) at the end of the issue's `fix` field (the roast schema has no separate field for it), for example `Saves about 40 lines and one file.`. An estimate is never a measurement.
 
 ## Priority
 
