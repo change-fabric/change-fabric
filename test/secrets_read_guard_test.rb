@@ -72,6 +72,60 @@ class SecretsReadGuardTest < Minitest::Test
     assert_nil decide("Bash", "command" => "git status")
   end
 
+  def test_env_files_are_denied_to_file_tools
+    project = File.join(@home, "project")
+    assert_equal "deny", decide("Read", "file_path" => File.join(project, ".env"))
+    assert_equal "deny", decide("Read", "file_path" => File.join(project, ".env.local"))
+    assert_equal "deny", decide("Edit", "file_path" => File.join(project, ".env.production"))
+    assert_equal "deny", decide("Write", "file_path" => ".env.local.bak")
+    assert_equal "deny", decide("Grep", "pattern" => "KEY", "path" => File.join(project, ".env"))
+    assert_equal "deny", decide("Grep", "pattern" => "KEY", "path" => project, "glob" => ".env.local")
+  end
+
+  def test_env_reason_names_the_push_verb
+    io = StringIO.new
+    SecretsReadGuard.new({ "tool_name" => "Read", "tool_input" => { "file_path" => ".env" }, "cwd" => @home }, home: @home).emit(io)
+    reason = JSON.parse(io.string).dig("hookSpecificOutput", "permissionDecisionReason")
+    assert_includes reason, "[cf:secret-intake]"
+    assert_includes reason, "push NAME --to env:"
+  end
+
+  def test_symlink_to_an_env_file_is_denied
+    project = File.join(@home, "project")
+    FileUtils.mkdir_p(project)
+    File.write(File.join(project, ".env"), "")
+    File.symlink(File.join(project, ".env"), File.join(project, "settings.txt"))
+    assert_equal "deny", decide("Read", "file_path" => File.join(project, "settings.txt"))
+  end
+
+  def test_env_templates_and_lookalikes_are_allowed
+    project = File.join(@home, "project")
+    [ ".env.example", ".env.sample", ".env.template", "config.template", ".envrc", "src/.envrc", "dotenv.rb" ].each do |name|
+      assert_nil decide("Read", "file_path" => File.join(project, name)), name
+    end
+  end
+
+  def test_shell_reads_of_env_files_are_denied
+    [ "cat .env", "cat .env.production", "source .env", ". ./.env.local", "head -n 3 app/.env",
+      "grep KEY .env.local", "sed -n 1p $HOME/proj/.env", "less '.env'", "docker run --env-file=.env img" ].each do |cmd|
+      assert_equal "deny", decide("Bash", "command" => cmd), cmd
+    end
+  end
+
+  def test_shell_commands_on_env_templates_are_allowed
+    [ "cat .env.example", "cp .env.sample /dev/null", "ls src/.envrc", "git status", "echo $NODE_ENV" ].each do |cmd|
+      assert_nil decide("Bash", "command" => cmd), cmd
+    end
+  end
+
+  def test_secret_intake_push_to_an_env_file_is_allowed_only_bare
+    push = "ruby ~/.claude/cf/bin/secret_intake.rb push X --to env:.env.local"
+    assert_nil decide("Bash", "command" => push)
+    assert_equal "deny", decide("Bash", "command" => "#{push} | cat")
+    assert_equal "deny", decide("Bash", "command" => "#{push} && cat .env.local")
+    assert_equal "deny", decide("Bash", "command" => "#{push}; cat .env.local")
+  end
+
   def test_malformed_stdin_exits_0_silently
     [ "not json", "[]", "", "{\"tool_name\": \"Read\", \"tool_input\": 3}" ].each do |stdin|
       out, err, status = Open3.capture3(RbConfig.ruby, SCRIPT, stdin_data: stdin)
