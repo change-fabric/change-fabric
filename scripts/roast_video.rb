@@ -56,7 +56,7 @@ module RoastVideo
   SCHEMA = begin
     schema = JSON.parse(JSON.generate(Roast::SCHEMA))
     item = schema['properties']['issues']['items']
-    item['required'] = %w[priority timestamp where problem fix]
+    item['required'] = %w[priority timestamp where problem fix saving]
     item['properties'] = { 'priority' => item['properties']['priority'], 'timestamp' => { 'type' => 'string' } }
                          .merge(item['properties'].except('priority'))
     schema.freeze
@@ -177,6 +177,8 @@ module RoastVideo
     Roast::PRIORITIES.each do |p|
       critic['issues'].select { |i| i['priority'] == p }.each do |i|
         lines << "- #{p} [#{i['timestamp']}] (#{Roast.location(i)}): #{i['problem']}" << "  Fix: #{i['fix']}"
+        saving = Roast.saving_line(i)
+        lines << saving if saving
       end
     end
     t = critic['thirty_second_test']

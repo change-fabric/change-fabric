@@ -131,6 +131,41 @@ class RoastTest < Minitest::Test
     assert_equal %w[outcome verdict reason], item[:required]
   end
 
+  def test_issue_saving_is_a_required_nullable_object_of_nullable_counts
+    item = Roast::SCHEMA.dig(:properties, :issues, :items)
+    assert_empty item[:required].map(&:to_sym) - item[:properties].keys, "strict mode needs every property required"
+    assert_includes item[:required], "saving"
+    saving = item[:properties][:saving]
+    assert_equal %w[object null], saving[:type]
+    assert_equal false, saving[:additionalProperties]
+    assert_equal %w[lines files deps], saving[:required]
+    saving[:properties].each_value { |v| assert_equal %w[integer null], v[:type] }
+    assert_match(/saving: estimated lines, files, deps removed/, Roast::SYSTEM_PROMPT)
+  end
+
+  def test_saving_renders_as_an_estimate_only_when_present
+    issues = [ CRITIC["issues"][0].merge("saving" => { "lines" => 40, "files" => 2, "deps" => nil }),
+               CRITIC["issues"][1].merge("saving" => nil) ]
+    code, = run_cli(http: RoastHttp.new(CRITIC.merge("issues" => issues)))
+    assert_equal 0, code
+    md = File.read(File.join(@roast, "round-1.md"))
+    assert_includes md, "Saving: ~40 lines, ~2 files (estimate)"
+    assert_equal 1, md.scan("Saving:").size
+  end
+
+  def test_legacy_round_without_saving_still_validates_and_renders
+    Roast.validate_critic!(CRITIC)
+    refute_includes Roast.render_markdown(CRITIC, 1), "Saving:"
+  end
+
+  def test_malformed_saving_is_rejected
+    [ { "lines" => -1, "files" => 0, "deps" => 0 }, { "lines" => 1 }, { "lines" => "5", "files" => nil, "deps" => nil }, 3 ].each do |bad|
+      critic = CRITIC.merge("issues" => [ CRITIC["issues"][0].merge("saving" => bad) ])
+      err = assert_raises(Roast::RequestError) { Roast.validate_critic!(critic) }
+      assert_includes err.message, "saving is invalid"
+    end
+  end
+
   def test_critic_without_a_valid_purpose_test_is_rejected
     bad = CRITIC.merge("purpose_test" => [ { "outcome" => "x", "verdict" => "maybe", "reason" => "r" } ])
     code, = run_cli(http: RoastHttp.new(bad))

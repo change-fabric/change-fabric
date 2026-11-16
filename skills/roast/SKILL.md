@@ -2,7 +2,7 @@
 name: cf:roast
 group: workflow
 providers: [openai]
-description: Multi-round roast of a UX, writing, a production architecture, a git diff, or Terraform or AWS infra, optionally through cf rubric lenses, a sub-skill of cf:design. An OpenAI vision model (the critic) reads screenshots plus the earlier rounds and returns a harsh, specific roast as JSON (score out of 10, P0/P1/P2 issues with where, problem, and fix, and a purpose-test verdict per stated outcome); Claude accepts or rebuts each issue, applies the accepted fixes, re-captures, and starts the next round. Stops at a target score (default 9), a round cap (default 4), or a round with no P0 or P1. Each round is logged to a roast/ directory beside the artifact. Paid, so it runs only when invoked by name or loaded by cf:design, cf:walkthrough, cf:prototype, cf:plan, or cf:drive thorough, never auto-applied or chosen on a model guess. Usable alone on any set of screenshots or on a text (email, doc, PR description, post, diff, .tf file, architecture doc).
+description: Multi-round roast of a UX, writing, a production architecture, a git diff, or Terraform or AWS infra, optionally through cf rubric lenses, a sub-skill of cf:design. An OpenAI vision model (the critic) reads screenshots plus the earlier rounds and returns a harsh, specific roast as JSON (score out of 10, P0/P1/P2 issues with where, problem, fix, and an estimated saving, and a purpose-test verdict per stated outcome); Claude accepts or rebuts each issue, applies the accepted fixes, re-captures, and starts the next round. Stops at a target score (default 9), a round cap (default 4), or a round with no P0 or P1. Each round is logged to a roast/ directory beside the artifact. Paid, so it runs only when invoked by name or loaded by cf:design, cf:walkthrough, cf:prototype, cf:plan, or cf:drive thorough, never auto-applied or chosen on a model guess. Usable alone on any set of screenshots or on a text (email, doc, PR description, post, diff, .tf file, architecture doc).
 ---
 
 # CF roast
@@ -75,7 +75,7 @@ It reads the same history (stills rounds and earlier video rounds with their res
 ## The round
 
 1. Run `roast.rb` with `--estimate-only` for round 1 and show the user the `roast estimate:` line. The estimate is a rough token-based planning figure, not a quote. Each later round costs more as history grows.
-2. Run it for real. It writes `roast/round-N.json` (the critic's JSON) and `roast/round-N.md` (a readable copy), and prints the score.
+2. Run it for real. It writes `roast/round-N.json` (the critic's JSON) and `roast/round-N.md` (a readable copy), and prints the score. Every issue also carries `saving`: the critic's estimate of the lines, files, and dependencies the fix would remove (`{"lines": N, "files": N, "deps": N}`, any count null), or null when not applicable. It is an estimate, printed as such in the markdown, never a measured figure; rounds logged before the field existed still load.
 3. Respond to every issue, in your own words, never by rubber-stamping. Write `roast/round-N.response.json`:
 
 ```json

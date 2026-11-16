@@ -24,6 +24,7 @@ class RoastVideoTest < Minitest::Test
     assert_equal false, item["additionalProperties"]
     assert_empty item["required"] - item["properties"].keys
     assert_includes item["required"], "timestamp"
+    assert_includes item["required"], "saving"
   end
 
   class Http < ImagegenHelpers::FakeHttp
