@@ -18,7 +18,9 @@ Read first:
    told.
 3. Merging stages; a human-pushed tag releases. A toolkit PR bumps nothing (the
    `skills/v*` tag is the version). A spec or site change bumps
-   `ChangeSchema::VERSION` or `site/VERSION` in the same PR.
+   `ChangeSchema::VERSION` or `site/VERSION` in the same PR. The browserless-cf
+   image (`docker/browserless-cf`) is its own track: no version file, a human
+   pushes `image/vX.Y.Z`, and a follow-up PR pins the published digest.
 4. Docs are the living set only. A new markdown file fails `rake test` unless
    `scripts/docs_check.rb` allows it; put lasting lessons in `PRINCIPLES.md`.
 5. Run `bundle exec rubocop` and `bundle exec rake test` before pushing.

@@ -19,7 +19,14 @@ module ChangeDocker
   # one place when a runner is upgraded.
   K6_IMAGE = 'grafana/k6:1.4.0@sha256:6a3ee54ac0e9ff5527923f6295257453dd88012f32f40dadf0eb1b638cbb21c7'
   ZAP_IMAGE = 'ghcr.io/zaproxy/zaproxy:stable@sha256:8d387b1a63e3425beef4846e39719f5af2a787753af2d8b6558c6257d7a577a2'
-  BROWSERLESS_IMAGE = 'ghcr.io/browserless/chromium:v2.38.1@sha256:78afaada9f7b049783bfed624e6b5e9a2d3438fc04bb46801ed777e82ae1501f'
+  # Two browserless pins with two roles, kept apart on purpose. The upstream
+  # third-party digest is only the FROM of docker/browserless-cf/Dockerfile
+  # (a test holds them equal). The runtime pin is what capture, diagram, and
+  # the lint lanes run; it stays on upstream until the first image/v* tag
+  # publishes browserless-cf, then a follow-up PR moves it to that ghcr digest.
+  # See RELEASING.md, Image track.
+  BROWSERLESS_UPSTREAM = 'ghcr.io/browserless/chromium:v2.38.1@sha256:78afaada9f7b049783bfed624e6b5e9a2d3438fc04bb46801ed777e82ae1501f'
+  BROWSERLESS_IMAGE = BROWSERLESS_UPSTREAM
   # The one Node image cf:color's Tailwind compile step runs under (and any
   # future lane that needs a throwaway Node CLI): Alpine keeps the pull
   # small, and the digest pins it the same way every other runner image here

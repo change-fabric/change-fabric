@@ -4,7 +4,7 @@ Merging to `main` stages work. Nothing is released until you push the matching
 tag.
 
 That is the whole rule. A merge to `main` never creates a GitHub Release and
-never deploys the production site. Three independent tracks live in this repo,
+never deploys the production site. Five independent tracks live in this repo,
 each with its own tag namespace and its own publish workflow, and each is
 released on its own schedule by pushing one tag.
 
@@ -14,6 +14,7 @@ released on its own schedule by pushing one tag.
 | Spec | `ChangeSchema::VERSION` in `scripts/change_schema.rb` | `spec/vX.Y.Z` | A GitHub Release whose body is the `CHANGELOG.md` section for that version, with the spec markdown attached |
 | Site | `site/VERSION` | `site/vX.Y.Z` | A production deploy of `www.changefabric.org`. No GitHub Release |
 | Platform app | the `app/v*` tags themselves. No file | `app/vX.Y.Z` | A production deploy of `app.changefabric.org` (once that environment exists; not yet provisioned) |
+| Image | the `image/v*` tags themselves. No file | `image/vX.Y.Z` | The `browserless-cf` container image on ghcr, built from `docker/browserless-cf` by `release-image.yml`. No GitHub Release |
 
 ## Runbook
 
@@ -132,6 +133,46 @@ toolkit, the platform app has no version file, so the tag is the version.
    `deploy-app-prod.yml` rejects the tag unless it is plain `MAJOR.MINOR.PATCH`,
    newly created rather than moved, and strictly greater than every existing
    `app/v*` tag. It then builds `platform/web` and publishes it to production.
+
+### I changed the browserless-cf image (`docker/browserless-cf`)
+
+The image is the upstream browserless Chromium image plus the OFL faces in
+`docker/browserless-cf/fonts.lock`. Only CI builds and publishes it. Two pins
+in `scripts/change_docker.rb` keep its two roles apart: `BROWSERLESS_UPSTREAM`
+is the third-party digest and only the Dockerfile `FROM` (a test holds them
+equal), and `BROWSERLESS_IMAGE` is the runtime pin every capture, diagram,
+and lint lane runs.
+
+1. Merge your change to `main`. Nothing is built or published yet.
+2. Pick the next number from the existing tags:
+
+   ```
+   git fetch --tags
+   git tag --list 'image/v*' | sed 's|^image/v||' \
+     | sort -t. -k1,1n -k2,2n -k3,3n | tail -1
+   ```
+
+3. From an up to date `main`, tag and push it:
+
+   ```
+   git tag -a image/vX.Y.Z -m image/vX.Y.Z
+   git push origin image/vX.Y.Z
+   ```
+
+   `release-image.yml` rejects the tag unless it is plain `MAJOR.MINOR.PATCH`,
+   newly created, and strictly above every existing `image/v*` tag, then
+   builds and pushes `ghcr.io/<owner>/browserless-cf:X.Y.Z` and prints the
+   digest in the job summary.
+4. Open a follow-up PR that sets `BROWSERLESS_IMAGE` to the printed
+   `image:version@sha256:digest`. Until it merges, runtime stays on upstream.
+   A new ghcr package starts private: make it public (or accept that
+   consumers need `docker login ghcr.io`) before that PR lands.
+
+Refresh upstream: bump `BROWSERLESS_UPSTREAM` and the Dockerfile `FROM`
+together in one PR, merge, push the next `image/v*`, then move
+`BROWSERLESS_IMAGE` in a follow-up. Rollback: revert `BROWSERLESS_IMAGE` to
+the previous published digest; published digests are never deleted from
+ghcr.
 
 ## Team setup
 
