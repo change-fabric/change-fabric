@@ -3,6 +3,7 @@
 require "minitest/autorun"
 require "json"
 require "stringio"
+require "open3"
 require "tmpdir"
 require "fileutils"
 require_relative "git_fixture"
@@ -30,8 +31,9 @@ class StackStoreTest < Minitest::Test
 
   def store = StackStore.for_dir(@repo, "demo")
 
-  def seed
-    store.init(repo: "acme/web", source: "plan", mode: "merge_ready", plan_dir: "/p",
+  def seed(target = store)
+    target.claim(source: "stack")
+    target.init(repo: "acme/web", source: "plan", mode: "merge_ready", plan_dir: "/p",
                prs: [ { number: 12, url: "#{URL}12", head: "a" }, { number: 13, url: "#{URL}13", head: "b" } ])
   end
 
@@ -54,13 +56,14 @@ class StackStoreTest < Minitest::Test
 
   def test_write_leaves_no_temp_file
     seed
-    assert_equal [ "demo.json" ], Dir.children(File.dirname(store.path))
+    assert_equal [ "ACTIVE", "demo.json" ], Dir.children(File.dirname(store.path)).sort
   end
 
   def test_repo_ids_that_slug_alike_do_not_collide
     a = StackStore.new("github.com/acme-tools/web", "demo")
     b = StackStore.new("github.com/acme/tools-web", "demo")
     refute_equal a.path, b.path
+    a.claim
     a.init(repo: "acme-tools/web", source: "plan", mode: "yolo", prs: [ { number: 1 } ])
     assert_nil b.read
   end
@@ -123,6 +126,7 @@ class StackStoreTest < Minitest::Test
   def test_cli_init_parses_pr_specs_and_writes_ctx_pointer
     calls = []
     out = StringIO.new
+    store.claim
     StackStore::CLI.run([ "init", "demo", "--repo", "acme/web", "--source", "list", "--mode", "yolo",
                           "--pr", "12:#{URL}12:feat-a:abc123" ], out:, dir: @repo, ctx: ->(*a) { calls << a })
     pr = JSON.parse(out.string)["prs"].first
@@ -165,6 +169,229 @@ class StackStoreTest < Minitest::Test
     records = StackStore.all_for_dir(@repo)
     assert_includes nudge("merged #12", records), "/cf:sweep stack resume"
     refute_includes nudge("merged #13", records), "/cf:sweep stack resume"
+  end
+
+  # Head of line guard.
+
+  def test_non_current_pr_cannot_start_preparing_or_be_handed_off
+    seed
+    error = assert_raises(StackStore::Invalid) { store.set_pr(13, state: "preparing") }
+    assert_equal "PR #13 is not head of line (current is #12)", error.message
+    assert_raises(StackStore::Invalid) { store.set_pr(13, state: "handed_off") }
+    assert_equal "pending", store.read["prs"][1]["state"]
+  end
+
+  def test_current_pr_may_start_preparing
+    seed
+    store.set_pr(12, state: "preparing")
+    assert_equal "preparing", store.read["prs"][0]["state"]
+  end
+
+  def test_non_current_pr_may_still_be_escalated_or_annotated
+    seed
+    store.set_pr(13, state: "escalated", pause_reason: "author")
+    store.set_pr(13, head: "renamed")
+    assert_equal %w[escalated renamed], store.read["prs"][1].values_at("state", "head")
+  end
+
+  def test_advance_moves_exactly_one_pr
+    seed
+    store.advance
+    assert_equal %w[merged pending], store.read["prs"].map { |pr| pr["state"] }
+    assert_equal 1, store.read["current"]
+    store.set_pr(13, state: "preparing")
+  end
+
+  def test_advance_expect_refuses_wrong_or_duplicate
+    seed
+    assert_raises(StackStore::Invalid) { store.advance(expect: 13) }
+    store.advance(expect: 12)
+    error = assert_raises(StackStore::Invalid) { store.advance(expect: 12) }
+    assert_match(/expected #12, current is #13/, error.message)
+    assert_equal %w[merged pending], store.read["prs"].map { |pr| pr["state"] }
+  end
+
+  def test_cli_set_pr_off_head_exits_non_zero
+    seed
+    out = StringIO.new
+    status = StackStore::CLI.run([ "set-pr", "demo", "13", "state=preparing" ], out:, dir: @repo)
+    assert_equal 1, status
+    assert_match(/not head of line/, JSON.parse(out.string)["error"])
+    assert_equal 0, StackStore::CLI.run([ "set-pr", "demo", "12", "state=preparing" ], out: StringIO.new, dir: @repo)
+  end
+
+  def test_cli_exit_status_from_a_real_process
+    seed
+    script = File.expand_path("../scripts/stack_store.rb", __dir__)
+    _, status = Open3.capture2e({ "HOME" => @home }, "ruby", script, "set-pr", "demo", "13", "state=preparing", chdir: @repo)
+    refute status.success?
+  end
+
+  # Active-queue claim.
+
+  def other(slug) = StackStore.for_dir(@repo, slug)
+
+  def test_claim_creates_then_resumes_then_blocks_another_queue
+    assert_equal "created", store.claim(source: "sweep")["claim"]
+    assert_equal "resumed", store.claim(source: "sweep")["claim"]
+    error = assert_raises(StackStore::Held) { other("sweep-10-14").claim }
+    assert_equal "demo", error.holder["slug"]
+  end
+
+  def test_stack_and_loop_queues_block_each_other
+    other("prs-1-3").claim(source: "stack")
+    out = StringIO.new
+    assert_equal 1, StackStore::CLI.run([ "claim", "sweep-10-14", "--source", "sweep" ], out:, dir: @repo)
+    reply = JSON.parse(out.string)
+    assert_equal [ "held", "prs-1-3" ], [ reply["error"], reply.dig("holder", "slug") ]
+    other("prs-1-3").release
+    other("sweep-10-14").claim(source: "sweep")
+    assert_raises(StackStore::Held) { other("prs-1-3").claim(source: "stack") }
+  end
+
+  def test_release_by_non_holder_is_a_no_op_and_clear_releases
+    seed
+    assert_equal false, other("x").release["released"]
+    assert store.claimed?
+    store.clear
+    refute File.exist?(store.active_path)
+  end
+
+  def test_init_requires_the_claim_and_accepts_sweep_source
+    error = assert_raises(StackStore::Invalid) do
+      store.init(repo: "acme/web", source: "sweep", mode: "merge_ready", prs: [ { number: 1 } ])
+    end
+    assert_match(/claim demo before init/, error.message)
+    store.claim
+    store.init(repo: "acme/web", source: "sweep", mode: "merge_ready", prs: [ { number: 1 } ])
+    assert_equal "sweep", store.read["source"]
+  end
+
+  def test_finished_record_is_not_reinitialized
+    seed
+    store.advance
+    store.advance
+    assert_raises(StackStore::Invalid) { seed }
+  end
+
+  # Atomic publish.
+
+  def test_empty_or_garbage_active_reads_as_held
+    FileUtils.mkdir_p(File.dirname(store.active_path))
+    [ "", "{not json" ].each do |body|
+      File.write(store.active_path, body)
+      error = assert_raises(StackStore::Held) { store.claim }
+      assert_nil error.holder
+      refute store.claimed?
+    end
+  end
+
+  def test_concurrent_claims_have_one_winner_and_readers_never_see_partial_json
+    seen = []
+    reader = Thread.new { 200.times { seen << StackStore.holder(store.active_path) } }
+    results = Array.new(8) { |i| Thread.new { other("q#{i}").claim rescue :held } }.map(&:value)
+    reader.join
+    assert_equal 1, results.count { |r| r.is_a?(Hash) }
+    refute_includes seen, :incomplete
+    assert_empty Dir.glob("#{File.dirname(store.active_path)}/*.tmp")
+  end
+
+  def test_release_stale_clears_an_interrupted_claim_only_when_holder_is_dead
+    store.claim
+    store.lease(session: "s1", pid: Process.pid)
+    assert_raises(StackStore::Invalid) { store.release(stale: true) }
+    File.write(store.lease_path, JSON.generate(JSON.parse(File.read(store.lease_path)).merge("pid" => dead_pid)))
+    assert store.release(stale: true)["released"]
+    seed
+    assert_raises(StackStore::Invalid) { store.release(stale: true) }
+  end
+
+  # Executor lease.
+
+  def dead_pid
+    pid = Process.spawn("true")
+    Process.wait(pid)
+    pid
+  end
+
+  def test_second_run_of_the_same_slug_is_leased_out
+    store.lease(session: "s1", pid: Process.pid)
+    error = assert_raises(StackStore::Held) { store.lease(session: "s2", pid: Process.pid) }
+    assert_equal "leased", error.kind
+    assert_equal "s1", error.holder["session_id"]
+    assert_equal "s1", store.lease(session: "s1")["session_id"]
+  end
+
+  def test_lease_takeover_on_dead_pid_or_stale_heartbeat_only
+    store.lease(session: "s1", pid: dead_pid)
+    assert_equal "s2", store.lease(session: "s2", pid: Process.pid)["session_id"]
+    assert_raises(StackStore::Held) { store.lease(session: "s3") }
+    later = Time.now.utc + StackStore::LEASE_TTL + 1
+    assert_equal "s3", store.lease(session: "s3", now: later)["session_id"]
+  end
+
+  def test_heartbeat_keeps_the_lease_and_unlease_frees_it
+    store.lease(session: "s1", pid: Process.pid, now: Time.now.utc - StackStore::LEASE_TTL - 5)
+    store.heartbeat(session: "s1")
+    assert_raises(StackStore::Held) { store.lease(session: "s2") }
+    assert_raises(StackStore::Invalid) { store.heartbeat(session: "s2") }
+    store.unlease
+    assert_equal "s2", store.lease(session: "s2")["session_id"]
+  end
+
+  # Queue resolution.
+
+  def test_resolve_new_then_suffix_after_finish
+    assert_equal({ "action" => "new", "slug" => "sweep-10-14" }, StackStore.resolve(@repo, "sweep-10-14"))
+    base = other("sweep-10-14")
+    seed(base)
+    base.advance
+    base.advance
+    base.release
+    assert_equal({ "action" => "new", "slug" => "sweep-10-14-2" }, StackStore.resolve(@repo, "sweep-10-14"))
+  end
+
+  def test_resolve_resumes_unfinished_suffix_over_finished_base
+    base = other("sweep-10-14")
+    seed(base)
+    2.times { base.advance }
+    base.release
+    seed(other("sweep-10-14-2"))
+    other("sweep-10-14-2").release
+    assert_equal({ "action" => "resume", "slug" => "sweep-10-14-2" }, StackStore.resolve(@repo, "sweep-10-14"))
+    other("sweep-10-14-2").claim
+    assert_equal({ "action" => "resume", "slug" => "sweep-10-14-2" }, StackStore.resolve(@repo, "sweep-10-14"))
+  end
+
+  def test_resolve_stops_on_another_holder
+    other("prs-1-3").claim
+    assert_raises(StackStore::Held) { StackStore.resolve(@repo, "sweep-10-14") }
+  end
+
+  # Handoff boundary and resume table.
+
+  def test_crash_after_handed_off_resumes_to_rewatch_not_redrive
+    seed
+    store.set_pr(12, state: "preparing")
+    store.set_pr(12, state: "handed_off", old_head_sha: "abc")
+    head = StackStore.current_pr(StackStore.for_dir(@repo, "demo").read)
+    assert_equal "rewatch", StackStore.resume_action(head["state"], "OPEN")
+    assert_equal "abc", head["old_head_sha"]
+    store.set_pr(12, state: "preparing")
+    assert_equal "redrive", StackStore.resume_action(store.read["prs"][0]["state"], "OPEN")
+  end
+
+  def test_resume_table
+    assert_equal "advance", StackStore.resume_action("handed_off", "MERGED")
+    assert_equal "escalate", StackStore.resume_action("pending", "CLOSED")
+    assert_equal "drive", StackStore.resume_action("pending", "OPEN")
+    assert_equal "report", StackStore.resume_action("paused", "OPEN")
+    assert_equal "report", StackStore.resume_action("escalated", "OPEN")
+  end
+
+  def test_merge_commit_detection
+    refute StackStore.merge_commit?("abc123 def456\n")
+    assert StackStore.merge_commit?("abc123 def456 789abc\n")
   end
 
   def nudge(prompt, records)
