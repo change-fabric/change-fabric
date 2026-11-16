@@ -5,6 +5,7 @@ require "json"
 require "stringio"
 require "tmpdir"
 require_relative "../scripts/diagram_lint"
+require_relative "styled_measurer"
 
 # Covers the cf:diagram linter: each broken fixture trips exactly its own
 # check, clean fixtures carry no errors, and the CLI keeps its JSON shape and
@@ -28,8 +29,13 @@ class DiagramLintTest < Minitest::Test
 
   def fixture(name) = File.join(FIXTURES, name)
 
-  def lint(name, measurer: DiagramMeasure::Static.new)
-    DiagramLint.new(measurer: measurer, packs: FAKE_PACKS).lint_file(fixture(name))[:findings]
+  # Provider fixtures need computed styles, read from the pinned Chromium.
+  def lint(name, measurer: nil)
+    if measurer.nil? && File.read(fixture(name)).include?("data-provider=")
+      skip "docker not available" unless StyledMeasurer.available?
+      measurer = StyledMeasurer.new
+    end
+    DiagramLint.new(measurer: measurer || DiagramMeasure::Static.new, packs: FAKE_PACKS).lint_file(fixture(name))[:findings]
   end
 
   def run_cli(*argv)

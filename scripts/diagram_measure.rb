@@ -5,6 +5,7 @@ require "fileutils"
 require "json"
 require_relative "change_docker"
 require_relative "browserless_js"
+require_relative "diagram_styles"
 
 # Text measurers for the cf:diagram linter. Each answers `measured?` and
 # `widths(doc) -> { text_key => [x, y, w, h] }` for a DiagramSvg::Document:
@@ -26,6 +27,10 @@ module DiagramMeasure
     CJK = /[\p{Han}\p{Hiragana}\p{Katakana}\p{Hangul}]/
 
     def measured? = false
+
+    # No browser, so no computed styles: the checks that need them say
+    # Docker is required rather than guess.
+    def styles(_doc) = nil
 
     def widths(doc) = doc.texts.to_h { |t| [ t.key, box_for(t) ] }
 
@@ -66,14 +71,29 @@ module DiagramMeasure
     def measured? = true
 
     def self.key(svg) = Digest::SHA256.hexdigest("v#{CACHE_VERSION}\n#{ChangeDocker::BROWSERLESS_IMAGE}\n#{svg}")
+    def self.styles_key(svg) = Digest::SHA256.hexdigest("styles-v1\n#{ChangeDocker::BROWSERLESS_IMAGE}\n#{svg}")
 
     # Measures every cache miss among docs in one shared container, so a lint
     # run starts at most one browserless and an all-hit run starts none.
+    # Styles are read only for diagrams that place provider icons.
     def prefetch(docs)
       misses = docs.reject { |d| read_cache(self.class.key(d.source)) }.uniq(&:source)
-      return if misses.empty?
+      style_misses = docs.select { |d| d.respond_to?(:icons) && d.icons.any? && !read_json(self.class.styles_key(d.source)) }.uniq(&:source)
+      return if misses.empty? && style_misses.empty?
 
-      with_session { |session| misses.each { |d| write_cache(self.class.key(d.source), measure(session, d)) } }
+      with_session do |session|
+        misses.each { |d| write_cache(self.class.key(d.source), measure(session, d)) }
+        style_misses.each { |d| write_json(self.class.styles_key(d.source), session.run_function(DiagramStyles.js_module(d.source))) }
+      end
+    end
+
+    # Computed paint per element and scheme for a diagram with icons.
+    def styles(doc)
+      return nil unless doc.respond_to?(:icons) && doc.icons.any?
+
+      key = self.class.styles_key(doc.source)
+      raw = read_json(key) || with_session { |session| session.run_function(DiagramStyles.js_module(doc.source)) }.tap { |r| write_json(key, r) }
+      DiagramStyles.build(raw)
     end
 
     def widths(doc)
@@ -150,6 +170,20 @@ module DiagramMeasure
       valid = data.is_a?(Hash) && data.values.all? { |v| v.is_a?(Array) && v.size == 4 && v.all?(Numeric) }
       valid ? data : nil
     rescue JSON::ParserError
+      nil
+    end
+
+    def read_json(key)
+      path = cache_path(key)
+      File.file?(path) ? JSON.parse(File.read(path)) : nil
+    rescue JSON::ParserError
+      nil
+    end
+
+    def write_json(key, data)
+      FileUtils.mkdir_p(@cache_dir)
+      File.write(cache_path(key), JSON.generate(data))
+    rescue SystemCallError
       nil
     end
 

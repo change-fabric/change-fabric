@@ -178,9 +178,9 @@ Icon. Generate the markup with `CloudIcons.inline(provider, slug, instance_id:, 
 </g>
 ```
 
-The nested `svg.icon` is an opaque box: its children are never scaled, recolored, or read by the shared checks, and the transform ban still holds everywhere else. Put the `g.icon` inside its `g.node` (left of the label, 12px in, the label starting 12px past the icon) or, as a corner chip, directly inside its provider `g.group`. Style node shapes with a child combinator (`.node > rect`), never `.node rect`: a descendant selector would reach into the icon and recolor it.
+The nested `svg.icon` is an opaque box: its children are never scaled, recolored, or read by the shared checks, and the transform ban still holds everywhere else. Put the `g.icon` inside its `g.node` (left of the label, 12px in, the label starting 12px past the icon) or, as a corner chip, directly inside its provider `g.group`. Style node shapes with a child combinator (`.node > rect`), never `.node rect`: a descendant selector reaches into the icon and recolors it, which the lint catches by comparing the icon's computed paint with the same icon alone.
 
-Plate. When a tile is under 3:1 on what it sits on, add `<rect class="plate" fill="#FFFFFF" rx="2">` as the first child of the `g.icon` and shrink the icon so the plate shows at least 2px on every side.
+Plate. When a tile is under 3:1 on what it sits on, add `<rect class="plate" fill="#FFFFFF" rx="2">` as the first child of the `g.icon` (before the notice comment; nothing else goes in a `g.icon`) and shrink the icon so the plate shows at least 2px on every side.
 
 Fallback. When the pack is not cached or has no such slug, `inline` draws the profile's Phosphor glyph in `var(--ink)` with `data-fallback="<glyph>"` instead. Keep the service name in the node label, so the diagram still reads. Lint warns and passes.
 

@@ -66,7 +66,7 @@ When asked, render the linted SVG with `ruby ~/.claude/cf/bin/diagram_render.rb 
 
 ## Failure handling
 
-- Exit 3 means Docker or browserless is unavailable. Re-run with `--no-measure`, treat `text-overflow` as advisory, and tell the user measurement was skipped.
+- Exit 3 means Docker or browserless is unavailable. Re-run with `--no-measure`, treat `text-overflow` as advisory, and tell the user measurement was skipped. A provider diagram with icons still fails there: its icon color checks report "Docker is required", since only the pinned Chromium reads its CSS.
 - Exit 2 means bad usage, an unreadable file, or SVG that does not parse. Fix the file, it does not count as a round.
 - Metrics come from the pinned Chromium in the browserless container, whose fonts differ from a viewer's. The 12px inner padding is the safety margin. For CJK labels the larger of the measured and the static estimate wins.
 - After 3 rounds with findings left, keep the SVG, list the remaining findings, and stop.

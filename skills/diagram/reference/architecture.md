@@ -63,9 +63,9 @@ Lay out outside in: the outermost group first, each nested group 24px inside its
 
 Five checks apply only to provider diagrams:
 
-- `icon-pack-provenance`: each icon names its provider, slug, and the sha256 of the pinned pack file, and carries only that file's colors. A stylesheet selector that would reach into an icon body is an error. An uncached pack or a fallback glyph is a warning, so lint passes offline.
+- `icon-pack-provenance`: each `g.icon` holds an optional leading plate, one notice comment, and the `svg.icon`, in that order, and the `svg.icon` (viewBox, preserveAspectRatio, body; only x, y, width, and height vary) hashes the same as the pinned pack file normalized the same way. Nothing in the diagram may change how an icon renders: the pinned Chromium compares each icon as placed with the same svg alone, in both color schemes. An uncached pack or a fallback glyph is a warning.
 - `icon-box`: each icon has a size and a viewBox and sits inside its node or group, clear of the node's label.
-- `icon-contrast`: an icon's dominant tile color clears 3:1 against its background in both themes; the fix is a plate, never a recolor. Provider group borders use the official colors exactly and are not graded.
+- `icon-contrast`: an icon's dominant tile color clears 3:1 against the first painted surface behind it (plate, owner shape, enclosing groups, then `--bg`) in both color schemes, all read as Chromium computes them; the fix is a plate, never a recolor. Provider group borders use the official colors exactly and are not graded. Both color checks need Docker: with `--no-measure` they report "Docker is required" rather than guess.
 - `group-nesting`: strict nesting in the profile's depth order, the 16px inset, nodes inside their group, no partial overlap, and at most one border crossing per edge.
 - `group-label-clearance`: the label chip stays inside its border, clear of child groups, nodes, and edges.
 

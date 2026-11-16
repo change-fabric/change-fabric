@@ -186,25 +186,10 @@ module DiagramPalette
     ColorMath.contrast_ratio(ca, cb)
   end
 
-  # A diagram's own custom-property roles per theme, for the checks that
-  # read colors back out of an SVG: light from the top-level rules, dark
-  # from the prefers-color-scheme dark block layered over light.
-  def theme_roles(css)
-    css = strip_comments(css)
-    top = css.gsub(/@media[^{]*\{(?:[^{}]*\{[^{}]*\})*[^{}]*\}/m, "")
-    light = declarations(rules(top).map(&:last).join(";\n"))
-    { light: light, dark: light.merge(declarations(dark_block(css))) }
-  end
-
-  # A color value (literal, var(), or color-mix) resolved to hex, or nil.
-  def resolve_hex(vars, value)
-    c = value && color(vars, value)
-    c && hex(c)
-  end
-
-  # Provider brand colors are palette-exempt by provenance only (the pack
-  # profile), and each must still clear STROKE_MIN against the background it
-  # sits on in both themes. Returns [theme, ratio] pairs that fail.
+  # Provider icon tiles are palette-exempt by provenance only (the pack),
+  # and each must still clear STROKE_MIN against the background it sits on
+  # in both themes. Takes hexes per theme; returns [theme, ratio] pairs that
+  # fail.
   def brand_failures(fg_by_theme, bg_by_theme, floor: STROKE_MIN)
     %i[light dark].filter_map do |theme|
       fg = fg_by_theme[theme]

@@ -56,8 +56,8 @@ module DiagramChecks
   # What every check may consult beyond the document itself.
   # `packs` is the CloudIcons store provider icons are verified against
   # (nil: no pack is available, so provenance cannot be verified).
-  Context = Data.define(:type, :widths, :measured, :palette, :packs) do
-    def initialize(type:, widths:, measured:, palette:, packs: nil) = super
+  Context = Data.define(:type, :widths, :measured, :palette, :packs, :styles) do
+    def initialize(type:, widths:, measured:, palette:, packs: nil, styles: nil) = super
 
     def rules = TYPE_RULES.fetch(type, TYPE_RULES["flow"])
 

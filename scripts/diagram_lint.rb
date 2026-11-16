@@ -33,8 +33,9 @@ class DiagramLint
 
   def lint_file(path, doc = parse(path))
     type = @type || doc.attr("data-diagram-type")
+    styles = @measurer.respond_to?(:styles) ? @measurer.styles(doc) : nil
     context = DiagramChecks::Context.new(type: type, widths: @measurer.widths(doc), measured: @measurer.measured?, palette: @palette,
-                                           packs: packs)
+                                           packs: packs, styles: styles)
     { path: path, type: type, findings: @checks.flat_map { |c| c.call(doc, context) } }
   end
 

@@ -1,20 +1,40 @@
 # frozen_string_literal: true
 
+require "digest"
+require "json"
 require "rexml/document"
 require_relative "svg_checks"
 require_relative "cloud_icons"
 require_relative "diagram_palette"
+require_relative "diagram_styles"
 
 # The cf:diagram checks for provider architecture diagrams
 # (data-provider="aws" on an architecture SVG): icon provenance against the
 # pinned pack, icon placement, provider color contrast, and strict group
 # nesting with clear label chips. A diagram with no provider icon and no
 # provider group yields nothing here, so today's diagrams are unaffected.
+#
+# Colors are never resolved here. Contrast and recoloring read the computed
+# styles the lint's pinned Chromium reports (DiagramStyles); without Docker
+# those checks say so instead of guessing.
 module DiagramProviderChecks
   Base = SvgChecks::Base
+  DOCKER_REQUIRED = "Docker is required: provider icon colors are read from a pinned Chromium, which parses the CSS"
 
   # The name a finding points at: the icon instance id, else its slug.
   def self.where(icon) = icon.element.parent.attributes["id"] || icon.slug || "icon"
+
+  # The computed styles for doc, or a finding that explains why not.
+  def self.styles_or_finding(check, doc, context)
+    styles = context.styles
+    return [ nil, check.send(:finding, "svg", DOCKER_REQUIRED, "run diagram_lint.rb where Docker is available, without --no-measure") ] unless styles
+    return [ nil, check.send(:finding, "svg", "computed styles do not line up with the parsed SVG", "re-run the lint; report it if it persists") ] unless styles.aligned?(doc)
+
+    [ styles, nil ]
+  end
+
+  # Document index of every element, by identity, matching the browser's order.
+  def self.index(doc) = doc.all_elements.each_with_index.to_h.compare_by_identity
 
   # Provider profile lookups shared by the provider checks.
   module Provider
@@ -23,71 +43,15 @@ module DiagramProviderChecks
     def profile(provider) = provider && CloudIcons.manifest(provider)
     def groups(provider) = profile(provider)&.fetch("groups", nil) || {}
 
-    # Light and dark hexes the profile allows for one group kind.
+    # The official hex for one group kind.
     def colors(provider, kind)
       spec = groups(provider)[kind]
-      spec ? [ spec["color"], spec["dark"] ].compact.map(&:upcase) : []
+      spec ? [ spec["color"] ].compact.map(&:upcase) : []
     end
 
     # The group kind a --<provider>-<kind> custom property names, or nil.
     def role_kind(provider, name)
       provider && name.to_s[/\A--#{Regexp.escape(provider)}-([a-z0-9-]+)\z/, 1]
-    end
-
-    def roles(doc) = DiagramPalette.theme_roles(doc.style_text)
-
-    def hexes(roles, value) = %i[light dark].to_h { |t| [ t, DiagramPalette.resolve_hex(roles[t], value) ] }
-  end
-
-  # A small CSS selector matcher: compound selectors (type, #id, .class)
-  # joined by descendant or child combinators. Attribute, pseudo, and
-  # sibling selectors parse to nil so callers pick a conservative answer.
-  module Selector
-    module_function
-
-    COMPOUND = /\A(?<type>[a-z][\w-]*|\*)?(?<rest>(?:[.#][\w-]+)*)\z/
-
-    # Steps left to right, each [combinator to its left, type, simples].
-    def parse(sel)
-      steps = []
-      combinator = :descendant
-      sel.gsub(/\s*>\s*/, " > ").split.each do |token|
-        next combinator = :child if token == ">"
-
-        m = COMPOUND.match(token)
-        return nil unless m
-
-        steps << [ combinator, m[:type], m[:rest].scan(/([.#])([\w-]+)/) ]
-        combinator = :descendant
-      end
-      steps.empty? ? nil : steps
-    end
-
-    def match?(steps, el)
-      *left, (combinator, type, simples) = steps
-      compound?(el, type, simples) && left_match?(left, el.parent, combinator)
-    end
-
-    def left_match?(steps, el, combinator)
-      return true if steps.empty?
-
-      *left, (next_combinator, type, simples) = steps
-      return compound?(el, type, simples) && left_match?(left, el.parent, next_combinator) if combinator == :child
-
-      while el.is_a?(REXML::Element)
-        return true if compound?(el, type, simples) && left_match?(left, el.parent, next_combinator)
-
-        el = el.parent
-      end
-      false
-    end
-
-    def compound?(el, type, simples)
-      return false unless el.is_a?(REXML::Element)
-      return false if type && type != "*" && el.name != type
-
-      classes = el.attributes["class"].to_s.split
-      simples.all? { |kind, name| kind == "#" ? el.attributes["id"] == name : classes.include?(name) }
     end
   end
 
@@ -102,64 +66,44 @@ module DiagramProviderChecks
     end
   end
 
-  # Every provider icon proves where it came from: a pack icon names its
-  # provider, slug, and the sha256 of the pinned pack's file, and carries no
-  # color that file does not. A fallback glyph warns and stays on palette.
-  # A stylesheet rule that matches an element inside an icon body (such as
-  # `.node rect` or a bare `path`) would recolor the pack's artwork at
-  # render time, so it is an error too.
+  # Every provider icon proves where it came from. A pack icon's g.icon holds
+  # an optional leading plate, exactly one notice comment, and the svg.icon,
+  # and that svg.icon (viewBox, preserveAspectRatio, and body; only x, y,
+  # width, and height may vary) hashes the same as the pinned pack file
+  # normalized the same way. Nothing in the diagram may change how the icon
+  # renders: the browser compares each icon as placed with the same svg
+  # alone, in both color schemes. A fallback glyph warns and stays on palette.
   class IconPackProvenance < Base
     ID = "icon-pack-provenance"
-    REACHING = /\A(?:rect|path|circle|ellipse|polygon|polyline|line|g|svg|use|text|\*)\z/
 
     def call(doc, context)
       return [] if doc.icons.empty?
 
-      leaks(doc) + doc.icons.flat_map { |icon| judge(icon, context) }
+      doc.icons.flat_map { |icon| judge(icon, context) } + recolored(doc, context)
+    end
+
+    # sha256 of an svg element's normalized viewport and body tree.
+    def self.digest(view_box:, aspect:, children:)
+      tree = lambda do |node|
+        case node
+        when REXML::Element then [ node.name, node.attributes.to_h.sort, node.children.filter_map { |c| tree.call(c) } ]
+        when REXML::Text then (text = node.value.strip).empty? ? nil : text
+        end
+      end
+      material = [ view_box.to_s.split(/[\s,]+/).map(&:to_f), aspect, children.filter_map { |c| tree.call(c) } ]
+      Digest::SHA256.hexdigest(JSON.generate(material))
+    end
+
+    def self.placed_digest(svg)
+      digest(view_box: svg.attributes["viewBox"], aspect: svg.attributes["preserveAspectRatio"], children: svg.children)
+    end
+
+    def self.pinned_digest(file)
+      root = REXML::Document.new(file).root
+      digest(view_box: CloudIcons.view_box(file), aspect: root.attributes["preserveAspectRatio"], children: root.children)
     end
 
     private
-
-    def leaks(doc)
-      css = SvgChecks::DeclaredProperty.stylesheet(doc).gsub(/@media[^{]*\{/, "")
-      painting = css.scan(/([^{}]+)\{([^{}]*)\}/).reject { |_, body| inert?(body) }.map(&:first)
-      painting.flat_map { |list| list.split(",").map(&:strip) }.uniq.filter_map do |sel|
-        next unless reaches?(doc, sel)
-
-        finding("style", "selector #{sel.inspect} reaches into icon bodies and would recolor them", fix_for(sel))
-      end
-    end
-
-    # Properties that never change how the artwork is drawn. A rule made only
-    # of these cannot recolor an icon; anything else is treated as painting.
-    INERT = %w[pointer-events cursor user-select transition transition-property
-               transition-duration transition-delay transition-timing-function].freeze
-
-    def inert?(body)
-      props = body.scan(/(?:\A|;)\s*([\w-]+)\s*:/).flatten.map(&:downcase)
-      !props.empty? && props.all? { |prop| INERT.include?(prop) }
-    end
-
-    def fix_for(sel)
-      return "scope it with a class or a child combinator so it cannot match inside an icon" unless sel.match?(/\s/)
-
-      "use a child combinator, such as #{sel.sub(/\s+(\S+)\z/, ' > \1').inspect}"
-    end
-
-    # True when the selector matches an element inside some icon body. A
-    # selector the matcher cannot parse falls back to the syntactic rule: a
-    # bare shape type that a child combinator does not pin.
-    def reaches?(doc, sel)
-      steps = Selector.parse(sel)
-      return syntactic_reach?(sel) unless steps
-
-      doc.icons.any? { |icon| REXML::XPath.match(icon.element, ".//*").any? { |el| Selector.match?(steps, el) } }
-    end
-
-    def syntactic_reach?(sel)
-      parts = sel.split(/\s+/)
-      parts.last.match?(REACHING) && parts[-2] != ">"
-    end
 
     def judge(icon, context)
       where = DiagramProviderChecks.where(icon)
@@ -169,38 +113,59 @@ module DiagramProviderChecks
       return [ finding(where, "provider #{icon.provider.inspect} has no pack profile", "use a provider under skills/diagram/packs") ] unless Provider.profile(icon.provider)
       return fallback(icon, context) if icon.fallback
 
+      structure = structure(icon, where)
+      return structure unless structure.empty?
+
       pack = context.packs&.pack(icon.provider)
       return verify(icon, pack, where) if pack
 
       [ finding(where, "#{icon.provider} pack is not cached, provenance not verified", "run ruby scripts/cloud_icons.rb #{icon.provider}", severity: "warn") ]
     end
 
-    def verify(icon, pack, where)
-      return [ finding(where, "#{icon.provider} pack has no icon #{icon.slug.inspect}", "use a pack slug or the Phosphor fallback") ] unless pack.file(icon.slug)
-      unless icon.sha == pack.sha(icon.slug)
-        return [ finding(where, "data-pack-sha does not match the pinned #{icon.provider} file for #{icon.slug}", "re-inline the icon from the pack") ]
-      end
+    # [plate]? notice-comment svg.icon, and nothing else.
+    def structure(icon, where)
+      parts = icon.element.parent.children.reject { |c| c.is_a?(REXML::Text) && c.value.strip.empty? }
+      parts = parts.drop(1) if plate?(parts.first)
+      notice = CloudIcons.notice_comment(icon.provider)
+      return [] if parts.size == 2 && parts[0].is_a?(REXML::Comment) && parts[0].string.strip == notice && parts[1] == icon.element
 
-      off = (CloudIcons.colors(icon.body) - pack.colors(icon.slug)).map do |c|
-        finding(where, "color #{c} is not in the #{icon.provider} pack file for #{icon.slug}", "inline the pack file unmodified")
-      end
-      return off unless off.empty?
-      pinned = pack.file(icon.slug)
-      unless icon.view_box.to_s.split.join(" ") == CloudIcons.view_box(pinned).to_s.split.join(" ")
-        return [ finding(where, "viewBox #{icon.view_box.inspect} differs from the pinned #{icon.provider} file for #{icon.slug}", "re-inline the icon from the pack") ]
-      end
-      return [] if canonical(icon.body) == canonical(CloudIcons.inner(pinned))
-
-      [ finding(where, "icon body differs from the pinned #{icon.provider} file for #{icon.slug}", "re-inline the icon from the pack") ]
+      [ finding(where, "g.icon must hold an optional leading plate, one notice comment, and the svg.icon, in that order",
+                "re-inline it with cloud_icons.rb and put any plate first") ]
     end
 
-    # Element tree with sorted attributes, ignoring whitespace and comments,
-    # so serialization differences are not edits but changed artwork is.
-    def canonical(markup)
-      tree = ->(el) { [ el.name, el.attributes.to_h.sort, el.elements.map { |child| tree.call(child) } ] }
-      REXML::Document.new("<svg>#{markup}</svg>").root.elements.map { |el| tree.call(el) }
+    def plate?(node) = node.is_a?(REXML::Element) && node.name == "rect" && node.attributes["class"].to_s.split.include?("plate")
+
+    def verify(icon, pack, where)
+      file = pack.file(icon.slug)
+      return [ finding(where, "#{icon.provider} pack has no icon #{icon.slug.inspect}", "use a pack slug or the Phosphor fallback") ] unless file
+      return [] if self.class.placed_digest(icon.element) == self.class.pinned_digest(file)
+
+      [ finding(where, "svg.icon differs from the pinned #{icon.provider} file for #{icon.slug} (viewBox, preserveAspectRatio, or body)",
+                "re-inline the icon from the pack unmodified") ]
     rescue REXML::ParseException
-      nil
+      [ finding(where, "the pinned #{icon.provider} file for #{icon.slug} does not parse", "re-fetch the pack") ]
+    end
+
+    # Pack icons whose rendering the diagram changes, one finding per icon
+    # and scheme, naming the first changed property.
+    def recolored(doc, context)
+      pack_icons = doc.icons.reject(&:fallback).select(&:slug)
+      return [] if pack_icons.empty?
+
+      styles, problem = DiagramProviderChecks.styles_or_finding(self, doc, context)
+      return [ problem ] if problem
+
+      index = DiagramProviderChecks.index(doc)
+      by_svg = pack_icons.to_h { |icon| [ index[icon.element], icon ] }
+      DiagramStyles::SCHEMES.flat_map do |scheme|
+        styles[scheme.to_sym].recolored.group_by { |r| r["icon"] }.filter_map do |svg_index, diffs|
+          icon = by_svg[svg_index] or next
+          d = diffs.first
+          tag = doc.all_elements[d["el"]]&.name
+          finding(DiagramProviderChecks.where(icon), "#{scheme}: the diagram changes #{d['prop']} of a #{tag} inside the icon (#{d['got']}, the pack draws #{d['want']})",
+                  "scope the rule so it cannot reach inside g.icon")
+        end
+      end
     end
 
     def fallback(icon, context)
@@ -228,7 +193,6 @@ module DiagramProviderChecks
       unless icon.view_box && icon.box.w.positive? && icon.box.h.positive? && view_box_valid?(icon.view_box)
         return [ finding(where, "svg.icon needs width, height, and a viewBox with positive size", "set x, y, width, height, and viewBox") ]
       end
-      return [ finding(where, "a plate is drawn over the icon", "move <rect class=\"plate\"> before the icon's <svg>") ] if plate_after?(icon)
 
       kind, id = icon.owner
       case kind
@@ -241,12 +205,6 @@ module DiagramProviderChecks
     def view_box_valid?(view_box)
       nums = view_box.to_s.split(/[\s,]+/).map { |n| Float(n, exception: false) }
       nums.size == 4 && nums.none?(&:nil?) && nums[2].positive? && nums[3].positive?
-    end
-
-    def plate_after?(icon)
-      wrap = icon.element.parent
-      siblings = wrap.elements.to_a
-      siblings.drop(siblings.index(icon.element) + 1).any? { |el| el.name == "rect" && el.attributes["class"].to_s.split.include?("plate") }
     end
 
     def in_node(doc, icon, id, where, context)
@@ -269,163 +227,76 @@ module DiagramProviderChecks
   end
 
   # Provider colors are trusted by provenance, never for legibility: an
-  # icon's area-weighted outermost tile color must clear STROKE_MIN against
-  # what it sits on in both themes. Provider group borders keep the official
-  # colors exactly and are not graded. The fix is
-  # a surface plate behind the icon, never a recolor.
+  # icon's area-weighted tile color must clear STROKE_MIN against what it
+  # sits on, in both color schemes, both read as Chromium computes them.
+  # What it sits on is the first painted surface behind it: a plate drawn
+  # before it that shows PLATE_PAD past it, else its node or group shape,
+  # else each enclosing group, else the diagram --bg. Provider group borders
+  # keep the official colors exactly and are not graded. The fix is a
+  # surface plate behind the icon, never a recolor.
   class IconContrast < Base
     ID = "icon-contrast"
     SHAPES = %w[rect circle ellipse polygon path].freeze
     PLATE_PAD = 2
 
-    def call(doc, _context)
-      roles = Provider.roles(doc)
-      icons(doc, roles)
+    def call(doc, context)
+      icons = doc.icons.reject(&:fallback)
+      return [] if icons.empty?
+
+      styles, problem = DiagramProviderChecks.styles_or_finding(self, doc, context)
+      return [ problem ] if problem
+
+      index = DiagramProviderChecks.index(doc)
+      icons.flat_map { |icon| judge(doc, icon, styles, index) }
     end
 
     private
 
-    def icons(doc, roles)
-      doc.icons.reject(&:fallback).flat_map do |icon|
-        tile = tile_color(icon.body)
-        next [] unless tile
-
-        DiagramPalette.brand_failures({ light: tile, dark: tile }, background(doc, icon, roles)).map do |theme, ratio|
-          finding(DiagramProviderChecks.where(icon), "#{theme}: tile #{tile} is #{ratio.round(2)}:1 on its background, under #{DiagramPalette::STROKE_MIN}",
-                  "add <rect class=\"plate\"> behind the icon inside its g.icon, at least #{PLATE_PAD}px larger on every side, filled with a surface that clears #{DiagramPalette::STROKE_MIN}:1")
-        end
+    def judge(doc, icon, styles, index)
+      tiles = DiagramStyles::SCHEMES.to_h { |s| [ s.to_sym, tile_color(icon, styles[s.to_sym], index) ] }
+      backs = DiagramStyles::SCHEMES.to_h { |s| [ s.to_sym, background(doc, icon, styles[s.to_sym], index) ] }
+      DiagramPalette.brand_failures(tiles, backs).map do |theme, ratio|
+        finding(DiagramProviderChecks.where(icon), "#{theme}: tile #{tiles[theme]} is #{ratio.round(2)}:1 on its background, under #{DiagramPalette::STROKE_MIN}",
+                "add <rect class=\"plate\"> behind the icon inside its g.icon, at least #{PLATE_PAD}px larger on every side, filled with a surface that clears #{DiagramPalette::STROKE_MIN}:1")
       end
     end
 
-    # A plate counts only when it shows: it must extend PLATE_PAD past the
-    # icon on every side, since an opaque tile hides a plate of its own size.
-    def background(doc, icon, roles)
+    def fill(scheme, index, el) = el && DiagramStyles.hex(scheme.paint.dig(index[el], "fill"))
+
+    def background(doc, icon, scheme, index)
       plate = icon.plate
       if plate && DiagramSvg::Geometry.box(plate).contains_box?(icon.box.inset(-PLATE_PAD))
-        fills = shape_fills(doc, plate)
-        return resolve(fills, roles, nil) if fills.values.all? { |f| f && f != "none" }
+        painted = fill(scheme, index, plate)
+        return painted if painted
       end
 
+      surfaces(doc, icon).each do |el|
+        painted = fill(scheme, index, el)
+        return painted if painted
+      end
+      DiagramStyles.hex(scheme.bg)
+    end
+
+    # The owner's shape, then each enclosing group's rect, innermost first.
+    def surfaces(doc, icon)
       kind, id = icon.owner
-      resolve(owner_fills(doc, kind, id), roles, kind == :node ? "var(--surface)" : "var(--bg)", enclosing(doc, kind, id))
+      owner = kind == :node ? doc.node(id)&.element : doc.group(id)&.element
+      own = owner && owner.elements.find { |el| SHAPES.include?(el.name) }
+      enclosing = doc.groups.select { |g| g.element != owner && doc.descendant?(icon.element, g.element) }.sort_by { |g| -g.depth }
+      [ own, *enclosing.map { |g| g.element.elements.find { |el| el.name == "rect" } } ].compact
     end
 
-    # A transparent (fill: none) owner shows whatever encloses it: walk the
-    # enclosing groups innermost first, then the diagram's --bg. An owner
-    # with no resolvable fill keeps the default for its kind.
-    def resolve(fills, roles, default, ancestors = [])
-      %i[light dark].to_h do |theme|
-        fill = fills[theme]
-        fill = default if fill.nil?
-        fill = ancestors.lazy.map { |g| group_fills(@doc, g)[theme] }.find { |f| f && f != "none" } || "var(--bg)" if fill == "none"
-        [ theme, DiagramPalette.resolve_hex(roles[theme], fill) ]
-      end
-    end
-
-    # Groups enclosing the owner, innermost first.
-    def enclosing(doc, kind, id)
-      @doc = doc
-      element = kind == :node ? doc.node(id)&.element : doc.group(id)&.element
-      return [] unless element
-
-      doc.groups.select { |g| g.element != element && doc.descendant?(element, g.element) }.sort_by { |g| -g.depth }
-    end
-
-    def owner_fills(doc, kind, id)
-      case kind
-      when :node then node_fills(doc, doc.node(id))
-      when :group then group_fills(doc, doc.group(id))
-      else {}
-      end
-    end
-
-    def group_fills(doc, group)
-      rect = group && group.element.elements.find { |el| el.name == "rect" }
-      rect ? shape_fills(doc, rect) : {}
-    end
-
-    def node_fills(doc, node)
-      shape = node && node.element.elements.find { |el| DiagramSvg::SHAPES.include?(el.name) }
-      shape ? shape_fills(doc, shape) : {}
-    end
-
-    # A shape's rendered fill per theme, by CSS precedence: an !important
-    # inline style, then an !important stylesheet rule, then inline style, then the last matching rule (dark
-    # rules over light), then the presentation attribute. Specificity is not
-    # weighed.
-    def shape_fills(doc, shape)
-      inline, inline_important = fill_decl(shape.attributes["style"].to_s)
-      attr = shape.attributes["fill"]
-      theme_rules(doc).transform_values do |rules|
-        value, important = sheet_fill(rules, shape)
-        next inline if inline_important
-
-        (important && value) || inline || value || attr
-      end
-    end
-
-    # [value, important?] of the last fill declaration in a body, or nil.
-    def fill_decl(body)
-      raw = body.scan(/(?:\A|;)\s*fill\s*:\s*([^;]+)/).flatten.last&.strip
-      raw && [ raw.sub(/\s*!important\z/i, ""), raw.match?(/!important\z/i) ]
-    end
-
-    def theme_rules(doc)
-      css = SvgChecks::DeclaredProperty.stylesheet(doc)
-      dark_media = css.scan(/@media[^{]*prefers-color-scheme:\s*dark[^{]*\{((?:[^{}]*\{[^{}]*\})*[^{}]*)\}/m).flatten
-      top = DiagramPalette.rules(css.gsub(/@media[^{]*\{(?:[^{}]*\{[^{}]*\})*[^{}]*\}/m, ""))
-      themed, light = top.partition { |sel, _| sel.match?(/data-theme=["']?dark/) }
-      dark = themed.map { |sel, body| [ sel.gsub(/[^\s,]*\[data-theme=["']?dark["']?\]\s*/, ""), body ] }
-      { light: light, dark: light + dark + dark_media.flat_map { |m| DiagramPalette.rules(m) } }
-    end
-
-    # The winning matching fill: !important first, then selector
-    # specificity, then source order.
-    def sheet_fill(rules, shape)
-      ranked = rules.each_with_index.filter_map do |(sels, body), index|
-        decl = fill_decl(body)
-        next unless decl
-
-        specs = sels.split(",").map(&:strip).filter_map { |sel| (steps = Selector.parse(sel)) && Selector.match?(steps, shape) && specificity(steps) }
-        [ decl, [ decl.last ? 1 : 0, specs.max, index ] ] unless specs.empty?
-      end
-      ranked.max_by(&:last)&.first
-    end
-
-    # [ids, classes, types] for a parsed selector.
-    def specificity(steps)
-      steps.each_with_object([ 0, 0, 0 ]) do |(_, type, simples), acc|
-        acc[0] += simples.count { |kind, _| kind == "#" }
-        acc[1] += simples.count { |kind, _| kind == "." }
-        acc[2] += 1 if type && type != "*"
-      end
-    end
-
-    # The fill covering the most area in the icon body: shapes with a
-    # literal fill (own or inherited inside the body), weighted by bbox area.
-    def tile_color(body)
-      frag = REXML::Document.new("<svg>#{body}</svg>")
+    # The computed fill covering the most area among the icon's shapes.
+    def tile_color(icon, scheme, index)
       areas = Hash.new(0.0)
-      REXML::XPath.match(frag.root, "//*").each do |el|
+      REXML::XPath.match(icon.element, ".//*").each do |el|
         next unless SHAPES.include?(el.name)
 
-        rgb = DiagramPalette.rgb(inherited_fill(el))
-        area = rgb && area(el)
-        areas[DiagramPalette.hex(rgb)] += area if area
+        color = fill(scheme, index, el)
+        area = color && area(el)
+        areas[color] += area if area
       end
       areas.max_by(&:last)&.first
-    rescue REXML::ParseException
-      nil
-    end
-
-    def inherited_fill(el)
-      while el.is_a?(REXML::Element)
-        own = el.attributes["style"].to_s[/(?:\A|;)\s*fill\s*:\s*([^;]+)/, 1]&.strip || el.attributes["fill"]
-        return own if own
-
-        el = el.parent
-      end
-      nil
     end
 
     def area(el)
