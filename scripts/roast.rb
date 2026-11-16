@@ -511,7 +511,7 @@ module Roast
 
     bodies = [ brief, *Array(texts).map { |f| File.read(f) }, transcript, review_text(review),
                *lenses.map { |l| "lens #{l.name}\n#{l.body}" },
-               (history.empty? ? nil : JSON.generate(history)) ].compact
+               *SensitiveTerms.strings(history) ].compact
     hits = SensitiveTerms.matched(bodies, SensitiveTerms.load)
     return if hits.empty?
 

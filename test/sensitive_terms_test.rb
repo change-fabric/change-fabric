@@ -30,6 +30,16 @@ class SensitiveTermsTest < Minitest::Test
     assert_equal [ "acmecorp" ], matched("ACMECORP rollout")
   end
 
+  def test_term_after_a_literal_escape_still_matches
+    assert_equal [ "acmecorp" ], matched('{"note":"Review notes:\\nacmecorp staging"}')
+    assert_equal [ "acmecorp" ], matched('printf "a\\tacmecorp"')
+  end
+
+  def test_strings_decodes_nested_structures
+    history = [ { round: 1, response: { "note" => "Review notes:\nacmecorp staging" } } ]
+    assert_equal [ "acmecorp" ], SensitiveTerms.matched(SensitiveTerms.strings(history), TERMS)
+  end
+
   def test_load_ignores_comments_and_blanks
     Dir.mktmpdir do |dir|
       path = File.join(dir, "terms.txt")
