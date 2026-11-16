@@ -219,20 +219,9 @@ command. It never starts a second queue.
 
 ### Executor lease
 
-`LEASE` in the same directory says which run is executing the queue:
-`stack_store.rb lease <slug> --session <id> [--pid <pid>]`. It is exclusive
-even for the same slug, so two runs of one queue never execute at once; only
-the same session re-acquires its own lease. Takeover only when the holder's
-pid is gone on this host or its heartbeat is older than 900 seconds; otherwise
-it exits non-zero with `{"error":"leased"}` and the run stops. Run
-`stack_store.rb heartbeat <slug> --session <id>` at each step of the per-PR
-loop, and `unlease <slug>` on completion, pause, or abandon.
-
-Claim and lease are published atomically (temp file, fsync, `link(2)`, which
-fails when the name exists), so neither is ever read half written. An empty or
-unparseable file reads as held, never as free. `stack_store.rb release <slug>
---stale` clears a claim that has no record and no live lease holder, and
-refuses otherwise.
+`LEASE` says which run is executing the queue; it is exclusive even for the
+same slug. Acquire, heartbeat, takeover, atomic publish, and `release --stale`
+are in `reference/stack.md`, Executor lease.
 
 ### Command sequence
 

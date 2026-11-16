@@ -35,6 +35,24 @@ another stack) holds it, stop and name the holder. `init` refuses without the
 claim. `init` also writes the `stack-<slug>` ctx pointer, so SessionStart surfaces
 a paused stack and offers `/cf:sweep stack resume`.
 
+## Executor lease
+
+`LEASE` in the same directory as ACTIVE says which run is executing the queue:
+`stack_store.rb lease <slug> --session <id> [--pid <pid>]`. It is exclusive
+even for the same slug, so two runs of one queue never execute at once; only
+the same session re-acquires its own lease. Takeover only when the holder's
+pid is gone on this host or its heartbeat is older than 900 seconds; otherwise
+it exits non-zero with `{"error":"leased"}` and the run stops. The check and
+the replacement run under one lock, so two takeovers never both win. Run
+`stack_store.rb heartbeat <slug> --session <id>` at each step of the per-PR
+loop, and `unlease <slug>` on completion, pause, or abandon.
+
+Claim and lease are published atomically (temp file, fsync, `link(2)`, which
+fails when the name exists), so neither is ever read half written. An empty or
+unparseable file reads as held, never as free. `stack_store.rb release <slug>
+--stale` clears a claim that has no record and no live lease holder, and
+refuses otherwise.
+
 Read the merge mode with `merge_mode_store.rb`. Under local only, stack mode
 does not run: say so and stop.
 
