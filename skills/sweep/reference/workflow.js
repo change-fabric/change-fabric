@@ -317,8 +317,9 @@ const planResult = await agent(
   "auto-merge path and waits for a human. An author with no recorded level is unknown, not " +
   "standard; treat unknown exactly like blocked, never entering the auto-merge path, and say in " +
   "the rationale that the level was never recorded.\n\n" +
-  "Actions: merge means it is ready as-is; rebase_then_merge means it needs to be rebased on " +
-  trunk + " or on an earlier PR in this order first, and say which in the rationale; hold means it " +
+  "Actions: merge means it is ready as-is; rebase_then_merge means it needs to be rebased onto " +
+  trunk + " (never onto another PR) once every PR ahead of it has merged, and say why in the " +
+  "rationale; hold means it " +
   "should not land in this sweep, say what would unblock it; needs_human means the call is not " +
   "one an agent should make. Use warnAuthor when someone should be told before they lose time, " +
   "for example when their PR is doomed to conflict with one landing ahead of it.\n\n" +
@@ -388,7 +389,9 @@ function eligibilityReasons(pr, entry) {
   if (pr.mergeable !== "MERGEABLE") {
     reasons.push("gh reports mergeable " + (pr.mergeable || "missing"))
   }
-  if (!["CLEAN", "HAS_HOOKS", "UNSTABLE"].includes(pr.mergeStateStatus)) {
+  // BEHIND is eligible: the sweep lands one PR at a time and rebases the head
+  // of line onto trunk when it is reached, so a PR is never rebased early.
+  if (!["CLEAN", "HAS_HOOKS", "UNSTABLE", "BEHIND"].includes(pr.mergeStateStatus)) {
     reasons.push("gh reports mergeStateStatus " + (pr.mergeStateStatus || "missing"))
   }
   // baseRef comes from gh in step 1, not the agent: a PR whose base is not
