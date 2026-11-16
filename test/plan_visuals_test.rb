@@ -332,6 +332,42 @@ class PlanVisualsScriptTest < Minitest::Test
     end
   end
 
+  def test_repo_reaches_every_pr_command
+    with_plan do |dir|
+      gh = FakeGh.new("gh pr view 7 --json mergeStateStatus" => [ JSON.generate(mergeStateStatus: "CLEAN", statusCheckRollup: []), true ])
+      PV::Poster.new(dir, pr: 7, gh: gh, uploader: FakeUploader.new, repo: "o/r").post(phase: 2, require_settled: true)
+      pr_calls = gh.calls.select { |c| c[0, 2] == %w[gh pr] }
+      assert_equal 3, pr_calls.size
+      assert(pr_calls.all? { |c| c.each_cons(2).include?([ "--repo", "o/r" ]) })
+    end
+  end
+
+  def test_rendering_a_missing_png_reposts_the_visual
+    with_plan do |dir|
+      File.delete(File.join(dir, "diagrams", "wire-dark.png"))
+      assert_equal [ "posted 0 visual(s)" ], PV::Poster.new(dir, pr: 7, gh: pr_gh, uploader: FakeUploader.new).post(phase: 2).lines
+      first = PV.section_hash(PV.select(dir, phase: 2)[:visuals], unrendered: [ "wire" ])
+      File.write(File.join(dir, "diagrams", "wire-dark.png"), "D")
+      up = FakeUploader.new
+      again = pr_gh(body: "Intro\n\n#{PV::START_PREFIX}#{first} -->\nold\n#{PV::END_MARK}")
+      outcome = PV::Poster.new(dir, pr: 7, gh: again, uploader: up).post(phase: 2)
+      assert_equal "posted 1 visual(s)", outcome.lines.first
+      assert_equal %w[wire-light.png wire-dark.png], up.paths.map { |p| File.basename(p) }
+    end
+  end
+
+  def test_phase_count_reads_declared_phases_not_call_sites
+    Dir.mktmpdir do |dir|
+      File.write(File.join(dir, "workflow.js"), <<~JS)
+        export const meta = { phases: [ { title: "A" }, { title: "B" }, { title: "C" }, { title: "Verify" } ] }
+        // phase(...) runs once per spec below
+        for (const spec of PHASES) { phase(spec.title) }
+        phase("Verify")
+      JS
+      assert_equal 4, PV.workflow_phase_count(dir)
+    end
+  end
+
   def test_one_failed_upload_means_no_edit
     with_plan do |dir|
       gh = pr_gh

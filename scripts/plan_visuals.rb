@@ -98,10 +98,9 @@ module PlanVisuals
     Digest::SHA256.hexdigest(kept.join)
   end
 
-  def workflow_phase_count(plan_dir)
-    path = File.join(plan_dir, 'workflow.js')
-    File.exist?(path) ? File.read(path).scan(/\bphase\(/).size : 0
-  end
+  # Declared phases in meta.phases, not phase( call sites: the plan template
+  # runs its build phases from one call inside a loop.
+  def workflow_phase_count(plan_dir) = phase_titles(plan_dir).size
 
   def phase_titles(plan_dir)
     path = File.join(plan_dir, 'workflow.js')
@@ -182,8 +181,11 @@ module PlanVisuals
     drift << "#{visual.name} drawn for #{drawn} phases, workflow.js has #{now}" unless drawn == now
   end
 
-  def section_hash(visuals)
+  # `unrendered` names visuals posted as an omission notice, so rendering the
+  # missing PNG later changes the hash and the visual replaces its notice.
+  def section_hash(visuals, unrendered: [])
     digests = visuals.map { |v| File.exist?(v.svg) ? Digest::SHA256.file(v.svg).hexdigest : 'missing' }
+    digests += unrendered.map { |name| "unrendered:#{name}" }
     Digest::SHA256.hexdigest(digests.sort.join("\n"))[0, 16]
   end
 
@@ -229,8 +231,10 @@ module PlanVisuals
     body.strip.empty? ? section : "#{body.rstrip}\n\n#{section}"
   end
 
-  def settled?(gh, pr)
-    out, ok = gh.run('gh', 'pr', 'view', pr.to_s, '--json', 'mergeStateStatus,statusCheckRollup')
+  def repo_args(repo) = repo ? [ '--repo', repo ] : []
+
+  def settled?(gh, pr, repo = nil)
+    out, ok = gh.run('gh', 'pr', 'view', pr.to_s, '--json', 'mergeStateStatus,statusCheckRollup', *repo_args(repo))
     return [ false, 'could not read the PR state' ] unless ok
 
     data = JSON.parse(out)
@@ -245,9 +249,7 @@ module PlanVisuals
   end
 
   def pr_facts(gh, pr, repo)
-    argv = [ 'gh', 'pr', 'view', pr.to_s, '--json', 'files,title,headRefName' ]
-    argv += [ '--repo', repo ] if repo
-    out, ok = gh.run(*argv)
+    out, ok = gh.run('gh', 'pr', 'view', pr.to_s, '--json', 'files,title,headRefName', *repo_args(repo))
     data = ok ? JSON.parse(out) : {}
     { files: Array(data['files']).map { |f| f['path'] }, title: data['title'].to_s, branch: data['headRefName'].to_s }
   rescue JSON::ParserError
@@ -278,8 +280,8 @@ module PlanVisuals
       missing.each { |v| omits[v.name] = 'PNG not rendered' }
       return Outcome.new(code: 0, lines: [ 'nothing to post' ]) if picked[:visuals].empty? && !picked[:link_back]
 
-      hash = PlanVisuals.section_hash(kept)
-      body, ok = @gh.run('gh', 'pr', 'view', @pr.to_s, '--json', 'body', '--jq', '.body')
+      hash = PlanVisuals.section_hash(kept, unrendered: missing.map(&:name))
+      body, ok = @gh.run('gh', 'pr', 'view', @pr.to_s, '--json', 'body', '--jq', '.body', *PlanVisuals.repo_args(@repo))
       return Outcome.new(code: 3, lines: [ 'could not read the PR body' ]) unless ok
       return Outcome.new(code: 0, lines: [ 'unchanged' ]) if PlanVisuals.current_hash(body) == hash
 
@@ -297,7 +299,7 @@ module PlanVisuals
     private
 
     def unsettled_reason
-      ok, why = PlanVisuals.settled?(@gh, @pr)
+      ok, why = PlanVisuals.settled?(@gh, @pr, @repo)
       ok ? nil : why
     end
 
@@ -318,7 +320,7 @@ module PlanVisuals
       Tempfile.create([ 'plan-visuals', '.md' ]) do |file|
         file.write(body)
         file.flush
-        _, ok = @gh.run('gh', 'pr', 'edit', @pr.to_s, '--body-file', file.path)
+        _, ok = @gh.run('gh', 'pr', 'edit', @pr.to_s, '--body-file', file.path, *PlanVisuals.repo_args(@repo))
         ok
       end
     end
