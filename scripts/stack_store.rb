@@ -167,11 +167,14 @@ class StackStore
   # The resume table: what to do with the head PR given its stored state and
   # what gh reports. gh is the truth; the store is intent. A handed_off head
   # whose live head is not the recorded one took a push while nobody watched,
-  # so it is prepared again rather than re-watched.
-  def self.resume_action(store_state, gh_state, recorded_head: nil, live_head: nil)
+  # so it is prepared again rather than re-watched. A paused head waits for a
+  # human: only an explicit resume (the user ran the resume command after
+  # clearing the cause) prepares it again; an unattended tick reports.
+  def self.resume_action(store_state, gh_state, recorded_head: nil, live_head: nil, explicit: false)
     return 'advance' if gh_state == 'MERGED'
     return 'escalate' if gh_state == 'CLOSED'
     return 'redrive' if store_state.to_s == 'handed_off' && live_head && recorded_head != live_head
+    return 'redrive' if store_state.to_s == 'paused' && explicit
 
     { 'pending' => 'drive', 'preparing' => 'redrive', 'handed_off' => 'rewatch' }.fetch(store_state.to_s, 'report')
   end
@@ -201,12 +204,14 @@ class StackStore
   # is already ours; raises Held naming the holder otherwise.
   def claim(source: nil)
     data = { 'slug' => @slug, 'source' => source.to_s, 'claimed_at' => Time.now.utc.iso8601 }
-    return { 'claim' => 'created', 'slug' => @slug } if StackStore.publish_exclusive(active_path, data)
+    with_lock(active_path) do
+      return { 'claim' => 'created', 'slug' => @slug } if StackStore.publish_exclusive(active_path, data)
 
-    holder = StackStore.holder(active_path)
-    return { 'claim' => 'resumed', 'slug' => @slug } if holder.is_a?(Hash) && holder['slug'] == @slug
+      holder = StackStore.holder(active_path)
+      return { 'claim' => 'resumed', 'slug' => @slug } if holder.is_a?(Hash) && holder['slug'] == @slug
 
-    raise Held.new('held', holder.is_a?(Hash) ? holder : nil)
+      raise Held.new('held', holder.is_a?(Hash) ? holder : nil)
+    end
   end
 
   def claimed?
@@ -354,16 +359,21 @@ class StackStore
   end
 
   def remove_claim
-    return { 'released' => false, 'slug' => @slug } unless claimed?
+    with_lock(active_path) do
+      return { 'released' => false, 'slug' => @slug } unless claimed?
 
-    FileUtils.rm_f(active_path)
-    { 'released' => true, 'slug' => @slug }
+      FileUtils.rm_f(active_path)
+      { 'released' => true, 'slug' => @slug }
+    end
   end
 
-  # Serializes every read-check-replace of LEASE across processes.
-  def with_lease_lock
-    FileUtils.mkdir_p(File.dirname(lease_path))
-    File.open("#{lease_path}.lock", File::RDWR | File::CREAT, 0o600) do |lock|
+  def with_lease_lock(&) = with_lock(lease_path, &)
+
+  # Serializes every read-check-replace of ACTIVE or LEASE across processes;
+  # atomic publish alone cannot protect a check followed by a delete.
+  def with_lock(file)
+    FileUtils.mkdir_p(File.dirname(file))
+    File.open("#{file}.lock", File::RDWR | File::CREAT, 0o600) do |lock|
       lock.flock(File::LOCK_EX)
       yield
     end

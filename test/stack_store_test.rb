@@ -56,7 +56,7 @@ class StackStoreTest < Minitest::Test
 
   def test_write_leaves_no_temp_file
     seed
-    assert_equal [ "ACTIVE", "demo.json" ], Dir.children(File.dirname(store.path)).sort
+    assert_equal [ "ACTIVE", "ACTIVE.lock", "demo.json" ], Dir.children(File.dirname(store.path)).sort
   end
 
   def test_repo_ids_that_slug_alike_do_not_collide
@@ -381,6 +381,25 @@ class StackStoreTest < Minitest::Test
     2.times { done.advance }
     assert_equal({ "action" => "new", "slug" => "sweep-15-16" }, StackStore.resolve(@repo, "sweep-15-16"))
     refute done.claimed?
+  end
+
+  def test_paused_head_restarts_only_on_explicit_resume
+    assert_equal "report", StackStore.resume_action("paused", "OPEN")
+    assert_equal "redrive", StackStore.resume_action("paused", "OPEN", explicit: true)
+    assert_equal "report", StackStore.resume_action("escalated", "OPEN", explicit: true)
+    seed
+    store.pause("timeout")
+    store.set_pr(12, state: "preparing")
+    assert_equal "preparing", store.read["prs"][0]["state"]
+  end
+
+  def test_racing_claim_recovery_never_deletes_a_successor_claim
+    done = other("sweep-1-2")
+    done.claim
+    done.release
+    other("sweep-3-4").claim
+    assert_equal false, done.release["released"]
+    assert other("sweep-3-4").claimed?
   end
 
   def test_handed_off_head_with_a_new_live_head_is_prepared_again

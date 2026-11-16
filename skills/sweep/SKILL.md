@@ -262,7 +262,8 @@ first; gh is the truth, the store is intent.
 | preparing | OPEN | re-run drive from the rebase (idempotent) |
 | handed_off | OPEN, head is `old_head_sha` | never re-drive; re-arm the watcher (Handoff boundary) |
 | handed_off | OPEN, head moved | a push landed while nobody watched: `set-pr <slug> <n> state=preparing` and prepare again |
-| paused or escalated | OPEN | report the recorded reason; do not continue |
+| paused | OPEN | unattended tick: report the reason and stop. Explicit resume by the user after the cause is cleared: `set-pr <slug> <n> state=preparing` and prepare again |
+| escalated | OPEN | report the recorded reason; do not continue |
 
 ### Handoff boundary
 
