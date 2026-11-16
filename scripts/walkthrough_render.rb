@@ -843,6 +843,12 @@ module WalkthroughRender
       report_roast_round(inputs[:round], critic)
     rescue WalkthroughEnv::NeedsEnrollment
       raise
+    rescue CfProviderError::Failure => e
+      # A revoked key or an empty quota surfaces even though the round is
+      # optional; a rate limit after retries or a server fault still skips.
+      raise if e.surface?
+
+      say("roast: skipped (#{e.message})")
     rescue WalkthroughEnv::MissingKeyError, Roast::RequestError, Roast::SensitiveError, SystemCallError => e
       say("roast: skipped (#{e.message})")
     end
@@ -1043,5 +1049,7 @@ if __FILE__ == $PROGRAM_NAME
     abort("refused: #{e.message}")
   rescue WalkthroughEnv::NeedsEnrollment => e
     WalkthroughEnv.enroll_exit!(e)
+  rescue CfProviderError::Failure => e
+    WalkthroughEnv.key_error_exit!(e)
   end
 end

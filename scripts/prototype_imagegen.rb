@@ -133,10 +133,13 @@ module PrototypeImagegen
     Base64.decode64(b64)
   end
 
-  def post(request, http)
+  # A non-2xx answer raises a named CfProviderError::Failure (scrubbed, with a
+  # next step); rate_limited is retried a bounded number of times.
+  def post(request, http, sleeper: nil)
     uri = URI(request[:url])
+    key = WalkthroughEnv.openai_key!
     req = Net::HTTP::Post.new(uri)
-    req['Authorization'] = "Bearer #{WalkthroughEnv.openai_key!}"
+    req['Authorization'] = "Bearer #{key}"
     if request[:files]
       boundary = "cf-#{SecureRandom.hex(8)}"
       req['Content-Type'] = "multipart/form-data; boundary=#{boundary}"
@@ -145,14 +148,17 @@ module PrototypeImagegen
       req['Content-Type'] = 'application/json'
       req.body = JSON.generate(request[:body])
     end
-    response = begin
-      (http || default_http(uri)).request(req)
-    rescue Timeout::Error, IOError, SocketError, SystemCallError, OpenSSL::SSL::SSLError, Net::ProtocolError => e
-      raise RequestError, "image request failed: #{e.class}: #{e.message}"
-    end
-    raise RequestError, "image request failed: HTTP #{response.code}" unless response.is_a?(Net::HTTPSuccess)
+    CfProviderError.with_retry(sleeper: sleeper) do
+      response = begin
+        (http || default_http(uri)).request(req)
+      rescue Timeout::Error, IOError, SocketError, SystemCallError, OpenSSL::SSL::SSLError, Net::ProtocolError => e
+        raise RequestError, CfProviderError.scrub("image request failed: #{e.class}: #{e.message}", key: key)
+      end
+      failure = CfProviderError.from_response(provider: 'openai', response: response, key: key)
+      raise failure if failure
 
-    JSON.parse(response.body)
+      JSON.parse(response.body)
+    end
   end
 
   def multipart(fields, files, boundary, mask = nil)

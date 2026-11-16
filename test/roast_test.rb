@@ -383,4 +383,90 @@ class RoastTest < Minitest::Test
     Roast::Cli.run([ "settings", "--repo", @dir ], out: out)
     assert_includes out.string, "auto false"
   end
+  # -- provider failures ------------------------------------------------------
+
+  HeadResp = Struct.new(:code, :body, :headers) do
+    def [](name) = (headers || {})[name]
+  end
+
+  # Answers each request with the next scripted response, then the critic.
+  class ScriptedHttp
+    attr_reader :requests
+
+    def initialize(*responses)
+      @responses = responses
+      @requests = []
+    end
+
+    def request(req)
+      @requests << req
+      @responses.shift || HeadResp.new("200", JSON.generate("output" => [ { "type" => "message", "content" => [ { "type" => "output_text", "text" => JSON.generate(CRITIC) } ] } ]))
+    end
+  end
+
+  def key_error_line(text)
+    text.lines.map { |l| JSON.parse(l) rescue nil }.compact.find { |h| h.is_a?(Hash) && h.key?("cf_key_error") }
+  end
+
+  def with_sleeps
+    sleeps = []
+    CfProviderError.sleeper = ->(s) { sleeps << s }
+    yield sleeps
+  ensure
+    CfProviderError.sleeper = ->(s) { sleep(s) }
+  end
+
+  def test_revoked_key_exits_4_with_reason_revoked
+    code, text, http = run_cli(http: ScriptedHttp.new(HeadResp.new("401", %({"error":{"message":"Incorrect API key sk-test-secret"}}))))
+    assert_equal 4, code
+    assert_equal "revoked", enroll_lines(text).first.dig("cf_enroll", "reason")
+    assert_equal 1, http.requests.size
+    refute_includes text, "sk-test-secret"
+  end
+
+  def test_insufficient_quota_exits_1_and_is_never_retried
+    with_sleeps do |sleeps|
+      body = %({"error":{"code":"insufficient_quota","message":"You exceeded your current quota"}})
+      code, text, http = run_cli(http: ScriptedHttp.new(HeadResp.new("429", body)))
+      assert_equal 1, code
+      assert_equal "quota_exhausted", key_error_line(text).dig("cf_key_error", "class")
+      assert_equal 1, http.requests.size
+      assert_empty sleeps
+    end
+  end
+
+  def test_rate_limit_honours_retry_after_then_succeeds
+    with_sleeps do |sleeps|
+      http = ScriptedHttp.new(HeadResp.new("429", "{}", { "retry-after" => "7" }), HeadResp.new("429", "{}", { "retry-after" => "900" }))
+      code, text, = run_cli(http: http)
+      assert_equal 0, code, text
+      assert_equal [ 7.0, 60 ], sleeps
+      assert_equal 3, http.requests.size
+    end
+  end
+
+  def test_rate_limit_after_three_attempts_exits_1
+    with_sleeps do
+      http = ScriptedHttp.new(*Array.new(3) { HeadResp.new("429", "{}") })
+      code, text, = run_cli(http: http)
+      assert_equal 1, code
+      assert_equal "rate_limited", key_error_line(text).dig("cf_key_error", "class")
+      assert_equal 3, http.requests.size
+    end
+  end
+
+  def test_bad_request_carries_the_provider_message
+    code, text, = run_cli(http: ScriptedHttp.new(HeadResp.new("400", %({"error":{"message":"Invalid image_url"}}))))
+    assert_equal 1, code
+    assert_includes text, "Invalid image_url"
+    assert_equal "bad_request", key_error_line(text).dig("cf_key_error", "class")
+  end
+
+  def test_server_error_exits_1_with_next_step
+    code, text, = run_cli(http: ScriptedHttp.new(HeadResp.new("503", "upstream down")))
+    assert_equal 1, code
+    line = key_error_line(text)
+    assert_equal "server", line.dig("cf_key_error", "class")
+    assert_includes line.dig("cf_key_error", "next_step"), "rerun later"
+  end
 end
