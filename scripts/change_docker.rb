@@ -18,7 +18,7 @@ module ChangeDocker
   # a project migrating off those files gets byte-identical tooling. Bump these in
   # one place when a runner is upgraded.
   K6_IMAGE = 'grafana/k6:1.4.0@sha256:6a3ee54ac0e9ff5527923f6295257453dd88012f32f40dadf0eb1b638cbb21c7'
-  ZAP_IMAGE = 'ghcr.io/zaproxy/zaproxy:stable@sha256:8d387b1a63e3425beef4846e39719f5af2a787753af2d8b6558c6257d7a577a2'
+  ZAP_IMAGE = 'ghcr.io/zaproxy/zaproxy:2.17.0@sha256:9624669db72f54d86c4b46a7064518bd9bf79d8c61a4c31befa9923489f328af'
   # Two browserless pins with two roles, kept apart on purpose. The upstream
   # third-party digest is only the FROM of docker/browserless-cf/Dockerfile
   # (a test holds them equal). The runtime pin is what capture, diagram, and

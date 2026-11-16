@@ -10,6 +10,12 @@ class ChangeDockerTest < Minitest::Test
   # needs the value under "data".
   def browserless = ChangeDocker::Browserless.new(port: 1, token: "x")
 
+  # ZAP is pinned like k6: a version tag plus the manifest list digest, so the
+  # image a scan runs is reproducible and its version is readable at a glance.
+  def test_zap_image_is_pinned_to_a_version_tag_and_digest
+    assert_match(/:\d+\.\d+\.\d+@sha256:[0-9a-f]{64}\z/, ChangeDocker::ZAP_IMAGE)
+  end
+
   def test_unwrap_returns_the_data_payload
     payload = [ { "route" => "/", "violations" => [] } ]
     assert_equal payload, browserless.unwrap("data" => payload, "type" => "application/json")

@@ -1,0 +1,13 @@
+promotion targets:
+  tag:v* (v*): profile=(none) apps=every enabled app
+
+CHANGE.md OK: CHANGE.md
+profile: staging
+project: example
+enabled lanes: a11y, zap
+boot.up: (none, assumes the app is already running)
+boot.down: (none)
+boot.health.url: http://localhost:3000/up
+lane targets:
+  a11y: https://staging.example.test
+  zap: https://staging.example.test/, https://staging.example.test/admin
