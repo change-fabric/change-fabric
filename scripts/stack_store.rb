@@ -221,9 +221,13 @@ class StackStore
 
   # Removes ACTIVE only when it names this slug; a non-holder release is a
   # no-op. `stale: true` clears this slug's claim only when it has no record
-  # and no live lease holder, and refuses otherwise.
+  # and no live lease holder, and refuses otherwise. Stale recovery holds the
+  # ACTIVE lock (which init also takes) and then the LEASE lock for the whole
+  # check-and-remove, so no run can lease and init in between.
   def release(stale: false)
-    if stale
+    return remove_claim unless stale
+
+    with_lock(active_path) do
       raise Invalid, "#{@slug} has a record; resume or clear it" if read
 
       with_lease_lock do
@@ -231,8 +235,10 @@ class StackStore
 
         FileUtils.rm_f(lease_path)
       end
+      released = claimed?
+      FileUtils.rm_f(active_path) if released
+      { 'released' => released, 'slug' => @slug }
     end
-    remove_claim
   end
 
   # Acquires the executor lease. Exclusive even for the same slug; only the
@@ -287,18 +293,20 @@ class StackStore
     validate!(MODES, mode, 'mode')
     prs = prs.map { |pr| stringify(pr) }
     prs.each { |pr| validate_phase!(pr) }
-    raise Invalid, "claim #{@slug} before init (stack_store.rb claim #{@slug})" unless claimed?
+    with_lock(active_path) do
+      raise Invalid, "claim #{@slug} before init (stack_store.rb claim #{@slug})" unless claimed?
 
-    existing = read
-    raise Invalid, "#{@slug} is finished and archived; use the next free suffix" if existing && StackStore.finished?(existing)
-    raise Invalid, "#{@slug} is unfinished; resume it rather than init" if existing
+      existing = read
+      raise Invalid, "#{@slug} is finished and archived; use the next free suffix" if existing && StackStore.finished?(existing)
+      raise Invalid, "#{@slug} is unfinished; resume it rather than init" if existing
 
-    write(
-      'slug' => @slug, 'repo' => repo.to_s, 'source' => source.to_s,
-      'plan_dir' => plan_dir, 'mode' => mode.to_s,
-      'prs' => prs.map { |pr| blank_pr.merge(pr) },
-      'current' => 0, 'judged' => []
-    )
+      write(
+        'slug' => @slug, 'repo' => repo.to_s, 'source' => source.to_s,
+        'plan_dir' => plan_dir, 'mode' => mode.to_s,
+        'prs' => prs.map { |pr| blank_pr.merge(pr) },
+        'current' => 0, 'judged' => []
+      )
+    end
   end
 
   # Merges fields into the PR entry numbered `number`.
