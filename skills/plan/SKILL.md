@@ -195,11 +195,18 @@ fresh session that will execute the plan.
    `diagram_render.rb` (skipping on exit 3), and never edits the three plan
    files. It returns each SVG with type, purpose, and measured yes or no.
    Then `SendMessage` the writing agent to fill `## Visuals` from that
-   return: each SVG's relative path, type, purpose, and "text measured" or
+   return: each SVG's relative path, type, purpose with its
+   `(phases: all)` or `(phases: N[,N])` tag, and "text measured" or
    "text not measured (no Docker)", plus a note that diagrams are
    illustrative and plan.md wins on any conflict. A visual still failing
    lint after 3 rounds is dropped and noted there; a picture never blocks
-   the plan.
+   the plan. Only once `## Visuals` lists the `diagrams/<name>.svg` paths,
+   write `diagrams/manifest.json` here with `ruby
+   ~/.claude/cf/bin/plan_visuals.rb manifest <plan_dir>` (each SVG's sha256
+   and phase tag, the plan.md digest, the workflow.js phase count), which is
+   what later lets a settled PR be checked against the diagram before it is
+   posted. Written earlier, the manifest would resolve the agent's bare
+   filenames against the plan dir and silently skip every SVG.
 
 7b. **Roast.** Always runs, here in the main session, estimate first. Cap:
    at most 2 rounds and 0.50 USD in total, tracked by summing the per-round
@@ -277,7 +284,17 @@ fresh session that will execute the plan.
     this skill has not run anything and that pasting the block into a fresh
     session is what starts execution. Report how many interview rounds ran and
     which decisions the user's answers changed, how many visuals landed, and
-    the roast rounds, scores, and spend. Stop here.
+    the roast rounds, scores, and spend. The visuals line also says where
+    they will post: on the single PR once it settles, or for a multi-PR
+    plan on each phase's PR at cf:sweep stack step 4b (`all`,
+    architecture, and timelines on the first PR). Stop here.
+
+    Chat delivery. After the fenced block, never inside it, send the light
+    PNGs (`diagrams/<name>-light.png`) in `## Visuals` order with the
+    harness `SendUserFile` tool: one call, the files array, display
+    `render`, status `normal`. When the tool is absent or no PNG was
+    rendered (no Docker at 7a), print `visuals not sent: <reason>` instead.
+    The paste block itself never changes.
 
     Stack landing is the default for a multi-PR plan. When the plan has more
     than one PR phase, the handoff ends with "When the phases are open as PRs,

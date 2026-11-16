@@ -121,7 +121,11 @@ Write exactly three files.
    question with your default, not silently resolved.
    End plan.md with a `## Visuals` section listing the visuals this plan
    needs per the scale rule, one line each: file name, type, one-line
-   purpose. Do not draw them. With zero visuals, the section reads "None
+   purpose ending in exactly one phase tag, `(phases: all)` or
+   `(phases: N[,N])`, where N is a 1-based position in workflow.js
+   `meta.phases`. Architecture diagrams and timelines are always
+   `(phases: all)`. The tag routes the visual to the PR that executes those
+   phases. Do not draw them. With zero visuals, the section reads "None
    (single-PR, single-subsystem plan)." The scale rule: 0 visuals for a
    single-PR plan touching one subsystem; 1 (a flow or architecture diagram)
    for a multi-phase plan; up to 3 diagrams when the plan crosses subsystems

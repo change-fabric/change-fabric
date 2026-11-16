@@ -296,4 +296,63 @@ class PlanCheckTest < Minitest::Test
       assert_equal 0, ex.status
     end
   end
+
+  TAG_SVG = '<svg data-diagram-type="flow"><title>Flow</title></svg>'
+  TWO_PHASES = "export const meta = { name: \"d\", phases: [ { title: \"A\" }, { title: \"B\" } ] }\nphase(\"A\")\n"
+
+  # A plan dir with flow.svg listed by `line`, plus a manifest unless nil.
+  def visuals_check(line, manifest: { "visuals" => { "flow" => {} } })
+    Dir.mktmpdir do |dir|
+      FileUtils.mkdir_p(File.join(dir, "diagrams"))
+      File.write(File.join(dir, "plan.md"), "# P\n\n## Visuals\n\n#{line}\n")
+      File.write(File.join(dir, "workflow.js"), TWO_PHASES)
+      File.write(File.join(dir, "diagrams", "flow.svg"), TAG_SVG)
+      File.write(File.join(dir, "diagrams", "manifest.json"), manifest.is_a?(String) ? manifest : JSON.generate(manifest)) if manifest
+      lines = []
+      ok = PlanCheck.check_visuals(dir, lines)
+      return [ ok, lines.join("\n") ]
+    end
+  end
+
+  def test_tagged_lines_pass_with_a_manifest
+    ok, out = visuals_check("- diagrams/flow.svg - flow - order (phases: all) - text measured")
+    assert ok, out
+    assert_match "tagged (phases: all)", out
+  end
+
+  def test_untagged_line_passes_without_a_manifest
+    ok, out = visuals_check("- diagrams/flow.svg - flow - order", manifest: nil)
+    assert ok, out
+  end
+
+  def test_untagged_line_fails_once_a_manifest_exists
+    ok, out = visuals_check("- diagrams/flow.svg - flow - order")
+    refute ok
+    assert_match "needs exactly one", out
+  end
+
+  def test_two_tags_on_one_line_fail
+    ok, = visuals_check("- diagrams/flow.svg - flow (phases: 1) (phases: 2)")
+    refute ok
+  end
+
+  # Bounded by meta.phases (2), not the single literal phase( call.
+  def test_tag_above_the_phase_count_fails
+    assert visuals_check("- diagrams/flow.svg - flow (phases: 2)").first
+    ok, out = visuals_check("- diagrams/flow.svg - flow (phases: 1,3)")
+    refute ok
+    assert_match "tags phase 3 but workflow.js has 2 phases", out
+  end
+
+  def test_manifest_missing_a_listed_svg_fails
+    ok, out = visuals_check("- diagrams/flow.svg - flow (phases: all)", manifest: { "visuals" => {} })
+    refute ok
+    assert_match "not in diagrams/manifest.json", out
+  end
+
+  def test_unparseable_manifest_fails
+    ok, out = visuals_check("- diagrams/flow.svg - flow (phases: all)", manifest: "{nope")
+    refute ok
+    assert_match "does NOT parse", out
+  end
 end

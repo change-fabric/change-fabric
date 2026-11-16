@@ -340,6 +340,18 @@ class PlanVisualsScriptTest < Minitest::Test
     assert_equal "<!-- cf:plan-visuals sha=h -->\nPlan visuals: see #5.\n#{PV::END_MARK}", out
   end
 
+  # A redraw whose render failed leaves the old PNGs; they must not be
+  # posted as the new diagram.
+  def test_post_omits_a_visual_whose_png_predates_its_svg
+    with_plan do |dir|
+      old = Time.now - 3600
+      %w[light dark].each { |m| File.utime(old, old, File.join(dir, "diagrams", "wire-#{m}.png")) }
+      up = FakeUploader.new
+      PV::Poster.new(dir, pr: 7, gh: pr_gh, uploader: up).post(phase: 2)
+      refute_includes up.paths.map { |p| File.basename(p) }, "wire-light.png"
+    end
+  end
+
   def test_post_uploads_both_pngs_and_edits_body
     with_plan do |dir|
       gh = pr_gh
@@ -491,5 +503,66 @@ class PlanVisualsScriptTest < Minitest::Test
       assert_equal 4, status.exitstatus
       assert_match "BEHIND", out
     end
+  end
+
+  # A workflow that loops `phase(spec.title)` has fewer literal calls than
+  # meta.phases entries; the count follows meta.phases, which tags index into.
+  def test_phase_count_follows_meta_phases_not_literal_calls
+    with_plan do |dir|
+      File.write(File.join(dir, "workflow.js"), <<~JS)
+        export const meta = { name: "d", phases: [ { title: "A" }, { title: "B" }, { title: "Verify" } ] }
+        for (const spec of specs) { phase(spec.title) }
+        phase("Verify")
+      JS
+      assert_equal 3, PV.workflow_phase_count(dir)
+    end
+  end
+
+  def test_phase_count_falls_back_to_calls_without_meta_phases
+    with_plan do |dir|
+      File.write(File.join(dir, "workflow.js"), "export const meta = { name: \"d\" }\nphase(\"A\")\n")
+      assert_equal 1, PV.workflow_phase_count(dir)
+    end
+  end
+
+  def test_redrawing_one_visual_keeps_the_others_drift
+    with_plan(manifest: false) do |dir|
+      PV.write_manifest(dir)
+      File.write(File.join(dir, "workflow.js"), WORKFLOW.sub('{ title: "Wire the widget output" } ]', '{ title: "Wire the widget output" }, { title: "Ship it" } ]'))
+      File.write(File.join(dir, "diagrams", "flow.svg"), svg("flow", "Flow", "lib/widget.rb redrawn"))
+      PV.write_manifest(dir)
+
+      assert_equal "drift", check(dir, pr_gh)["plan"][:verdict]
+      assert_equal 3, PV.manifest(dir)["visuals"]["flow"]["workflow_phase_count"]
+    end
+  end
+
+  def test_manifest_verb_writes_what_check_compares
+    with_plan(manifest: false) do |dir|
+      out = StringIO.new
+      assert_equal 0, PV::CLI.run([ "manifest", dir ], out: out)
+      assert_match "5 visuals, 2 phases", out.string
+      data = PV.manifest(dir)
+      assert_equal %w[flow arch parse wire plan], data["visuals"].keys
+      assert_equal({ "light_png" => "plan-light.png", "dark_png" => "plan-dark.png", "type" => "timeline",
+                     "phases" => "1,2", "drawn_against" => "plan", "plan_sha256" => data["plan_sha256"],
+                     "workflow_phase_count" => 2 }, data["visuals"]["plan"].except("svg_sha256"))
+      assert_equal "match", check(dir, pr_gh)["plan"][:verdict]
+    end
+  end
+
+  def test_manifest_rewrite_keeps_drawn_against_for_unchanged_svgs
+    with_plan(manifest: false) do |dir|
+      PV.write_manifest(dir)
+      File.write(File.join(dir, "diagrams", "wire.svg"), svg("sequence", "Wire v2", "out/"))
+      PV::CLI.run([ "manifest", dir, "--drawn-against", "pr:9@abc" ], out: StringIO.new)
+      visuals = PV.manifest(dir)["visuals"]
+      assert_equal "pr:9@abc", visuals["wire"]["drawn_against"]
+      assert_equal "plan", visuals["flow"]["drawn_against"]
+    end
+  end
+
+  def test_manifest_verb_needs_a_diagrams_dir
+    Dir.mktmpdir { |dir| assert_equal 2, PV::CLI.run([ "manifest", dir ], out: StringIO.new) }
   end
 end

@@ -1,7 +1,9 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 
+require 'json'
 require_relative 'ctx_paths'
+require_relative 'plan_visuals'
 
 # Mechanically verifies a landed cf:plan triple: plan.md, goal.md, and the
 # workflow.js that operationalizes the plan. Every file must exist and be
@@ -59,6 +61,7 @@ module PlanCheck
 
     ok = true
     ok &= check_listed_visuals(plan_dir, section, lines) if section
+    ok &= check_manifest(plan_dir, section, lines) if section && File.exist?(File.join(diagrams, 'manifest.json'))
     Dir.glob(File.join(diagrams, '*.svg')).sort.each { |svg| ok &= check_svg(svg, plan_dir, lines) }
     ok &= check_roast_rounds(File.join(plan_dir, 'roast'), lines)
     ok
@@ -82,6 +85,40 @@ module PlanCheck
         false
       end
     end.all?
+  end
+
+  # Only a plan whose diagrams carry a manifest is held to phase tags, so a
+  # plan landed before tags existed keeps passing. The manifest must parse and
+  # name every listed SVG; each listed line carries exactly one tag, and no
+  # tagged phase exceeds the count `plan_visuals.rb check` itself uses.
+  def self.check_manifest(plan_dir, section, lines)
+    data = JSON.parse(File.read(File.join(plan_dir, 'diagrams', 'manifest.json')))
+    total = PlanVisuals.workflow_phase_count(plan_dir)
+    section.lines.select { |line| line.match?(%r{[\w./-]+\.svg}) }
+           .map { |line| check_tagged_line(line, data.fetch('visuals', {}), total, lines) }.all?
+  rescue JSON::ParserError, TypeError => e
+    lines << "visuals: diagrams/manifest.json does NOT parse (#{e.message.lines.first&.strip})"
+    false
+  end
+
+  def self.check_tagged_line(line, entries, total, lines)
+    rel = line[%r{[\w./-]+\.svg}]
+    problem = tag_problem(line, total) || ("not in diagrams/manifest.json" unless entries.key?(File.basename(rel, '.svg')))
+    if problem
+      lines << "visuals: #{rel} #{problem}"
+      false
+    else
+      lines << "visuals: #{rel} tagged #{line[PlanVisuals::PHASE_TAG]}"
+      true
+    end
+  end
+
+  def self.tag_problem(line, total)
+    tags = line.scan(PlanVisuals::PHASE_TAG).flatten
+    return "needs exactly one (phases: all) or (phases: N[,N]) tag, has #{tags.size}" unless tags.size == 1
+
+    over = tags.first.split(',').map(&:to_i).select { |n| n < 1 || n > total } unless tags.first == 'all'
+    "tags phase #{over.join(',')} but workflow.js has #{total} phases" if over&.any?
   end
 
   def self.check_svg(path, plan_dir, lines)

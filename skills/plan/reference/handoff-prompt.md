@@ -20,7 +20,12 @@ differently before running the phases they touch."
 `{{visuals_note}}` is empty when the plan has no visuals (its `## Visuals`
 section reads "None"). Otherwise it reads: "Visuals in diagrams/ are
 illustrative; plan.md wins on any conflict. Roast score and any open P0/P1
-are in plan.md's ## Roast section."
+are in plan.md's ## Roast section." A single-PR plan with visuals appends,
+with `{{plan_dir}}` in tilde form: "Once CI is green and the PR is CLEAN,
+run `ruby ~/.claude/cf/bin/plan_visuals.rb check {{plan_dir}} --pr <n>`,
+then `ruby ~/.claude/cf/bin/plan_visuals.rb post {{plan_dir}} --pr <n>
+--require-settled`; on exit 1 from check, redraw per cf:sweep stack step 4b
+first." A multi-PR plan leaves posting to that step 4b.
 
 `{{stack_note}}` is empty when the plan has one PR phase or none. When the
 plan has more than one PR phase, it reads, with `{{plan_dir}}` in tilde form:

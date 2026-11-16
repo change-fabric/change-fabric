@@ -7,8 +7,8 @@ require 'open3'
 require 'tempfile'
 require_relative 'change_screenshot_upload'
 
-# Carries a cf:plan's diagrams onto the pull requests that execute it. Four
-# verbs: `select` routes each Visuals-section line to a phase's PR by its
+# Carries a cf:plan's diagrams onto the pull requests that execute it. Five
+# verbs: `manifest` records what each diagram was drawn against, `select` routes each Visuals-section line to a phase's PR by its
 # `(phases: ...)` tag, `check` asks whether a diagram still matches what the PR
 # does, `compose` builds the marker-wrapped "Plan visuals" body section from
 # upload urls, and `post` uploads the PNGs and splices that section into the PR
@@ -98,9 +98,50 @@ module PlanVisuals
     Digest::SHA256.hexdigest(kept.join)
   end
 
-  # Declared phases in meta.phases, not phase( call sites: the plan template
-  # runs its build phases from one call inside a loop.
-  def workflow_phase_count(plan_dir) = phase_titles(plan_dir).size
+  # The one phase count every caller shares: the manifest records it at draw
+  # time, `check` compares against it, and plan_check bounds phase tags by it.
+  # It counts `meta.phases` entries, the list phase tags index into; a script
+  # that loops `phase(spec.title)` has fewer literal calls than phases. A
+  # workflow.js with no `meta.phases` falls back to counting `phase(` calls.
+  def workflow_phase_count(plan_dir)
+    path = File.join(plan_dir, 'workflow.js')
+    return 0 unless File.exist?(path)
+
+    titles = phase_titles(plan_dir)
+    titles.empty? ? File.read(path).scan(/\bphase\(/).size : titles.size
+  end
+
+  # diagrams/manifest.json as step 7a writes it and a redraw rewrites it. An
+  # entry whose SVG is unchanged keeps its `drawn_against` and its drift
+  # baselines (plan digest, phase count), so redrawing one visual never
+  # clears another's drift; a new or redrawn one takes the current values.
+  def build_manifest(plan_dir, drawn_against: 'plan')
+    old = manifest(plan_dir) || {}
+    now = { 'plan_sha256' => plan_digest(File.join(plan_dir, 'plan.md')), 'workflow_phase_count' => workflow_phase_count(plan_dir) }
+    entries = visuals(plan_dir).select { |v| File.exist?(v.svg) }.to_h do |v|
+      [ v.name, manifest_entry(v, old.fetch('visuals', {})[v.name], old, now, drawn_against) ]
+    end
+    { 'version' => 1, **now, 'visuals' => entries }
+  end
+
+  def manifest_entry(visual, prior, old, now, drawn_against)
+    sha = Digest::SHA256.hexdigest(File.read(visual.svg))
+    unchanged = prior && prior['svg_sha256'] == sha
+    baseline = unchanged ? now.keys.to_h { |k| [ k, prior.fetch(k, old[k]) ] } : now
+    { 'svg_sha256' => sha, 'light_png' => "#{visual.name}-light.png", 'dark_png' => "#{visual.name}-dark.png",
+      'type' => visual.type, 'phases' => visual.phases, 'drawn_against' => unchanged ? prior['drawn_against'] : drawn_against,
+      **baseline }
+  end
+
+  # A visual's drift baseline: its own entry, else the manifest-wide value
+  # an older manifest carries.
+  def baseline(manifest, visual, key) = manifest.dig('visuals', visual.name, key) || manifest[key]
+
+  def write_manifest(plan_dir, drawn_against: 'plan')
+    data = build_manifest(plan_dir, drawn_against: drawn_against)
+    File.write(File.join(plan_dir, 'diagrams', 'manifest.json'), "#{JSON.pretty_generate(data)}\n")
+    data
+  end
 
   def phase_titles(plan_dir)
     path = File.join(plan_dir, 'workflow.js')
@@ -139,7 +180,7 @@ module PlanVisuals
     unsure = []
     check_paths(visual, plan_text, pr[:files], drift)
     check_title(plan_dir, phase, pr, unsure)
-    check_digest(plan_dir, manifest, drift, unsure)
+    check_digest(visual, plan_dir, manifest, drift, unsure)
     check_timeline(visual, plan_dir, manifest, drift, unsure) if visual.timeline?
     if visual.timeline? && !unsure.empty?
       drift.concat(unsure)
@@ -167,16 +208,17 @@ module PlanVisuals
     unsure << "phase title \"#{title}\" overlaps the PR title or branch #{(overlap * 100).round} percent" if overlap < 0.5
   end
 
-  def check_digest(plan_dir, manifest, drift, unsure)
+  def check_digest(visual, plan_dir, manifest, drift, unsure)
     return unsure << 'no diagrams/manifest.json' unless manifest
 
-    drift << 'plan.md changed since the diagram was drawn' unless manifest['plan_sha256'] == plan_digest(File.join(plan_dir, 'plan.md'))
+    drawn = baseline(manifest, visual, 'plan_sha256')
+    drift << 'plan.md changed since the diagram was drawn' unless drawn == plan_digest(File.join(plan_dir, 'plan.md'))
   end
 
   def check_timeline(visual, plan_dir, manifest, drift, _unsure)
     return unless manifest
 
-    drawn = manifest['workflow_phase_count']
+    drawn = baseline(manifest, visual, 'workflow_phase_count')
     now = workflow_phase_count(plan_dir)
     drift << "#{visual.name} drawn for #{drawn} phases, workflow.js has #{now}" unless drawn == now
   end
@@ -207,6 +249,18 @@ module PlanVisuals
   end
 
   def svg_title(svg) = svg_source(svg)[%r{<title\b[^>]*>(.*?)</title>}m, 1]&.strip
+
+  # Both PNGs exist and none predates its SVG: a redraw whose render failed
+  # leaves the old PNGs in place, and posting them would show a stale image
+  # as the current one.
+  def png_current?(visual, manifest)
+    pngs = png_paths(visual, manifest)
+    return false unless pngs.all? { |p| File.exist?(p) }
+    return true unless File.exist?(visual.svg)
+
+    svg_time = File.mtime(visual.svg)
+    pngs.all? { |p| File.mtime(p) >= svg_time }
+  end
 
   def png_paths(visual, manifest)
     entry = manifest&.dig('visuals', visual.name) || {}
@@ -293,8 +347,8 @@ module PlanVisuals
       picked = PlanVisuals.select(@plan_dir, phase: phase)
       omits = omits.dup
       kept = picked[:visuals].reject { |v| omits.key?(v.name) }
-      visuals, missing = kept.partition { |v| PlanVisuals.png_paths(v, manifest).all? { |p| File.exist?(p) } }
-      missing.each { |v| omits[v.name] = 'PNG not rendered' }
+      visuals, missing = kept.partition { |v| PlanVisuals.png_current?(v, manifest) }
+      missing.each { |v| omits[v.name] = 'PNG not rendered from the current SVG' }
       return clear(dry_run) if picked[:visuals].empty? && !picked[:link_back]
 
       link = picked[:link_back] ? first_pr : nil
@@ -366,7 +420,8 @@ module PlanVisuals
 
   module CLI
     USAGE = <<~TXT
-      usage: plan_visuals.rb select  <plan_dir> [--phase N]
+      usage: plan_visuals.rb select   <plan_dir> [--phase N]
+             plan_visuals.rb manifest <plan_dir> [--drawn-against plan|pr:N@SHA]
              plan_visuals.rb check   <plan_dir> --pr N [--phase N] [--repo owner/name]
              plan_visuals.rb compose <plan_dir> --pr N --urls JSON [--phase N]
              plan_visuals.rb post    <plan_dir> --pr N [--phase N] [--first-pr N] [--omit name=reason ...]
@@ -376,8 +431,8 @@ module PlanVisuals
     def self.run(argv, out: $stdout, gh: Gh.new, uploader: nil)
       verb, dir, *rest = argv
       opts = parse(rest)
-      return usage(out) unless dir && File.directory?(dir) && %w[select check compose post].include?(verb)
-      return usage(out) if verb != 'select' && !opts[:pr]
+      return usage(out) unless dir && File.directory?(dir) && %w[select manifest check compose post].include?(verb)
+      return usage(out) if %w[select manifest].none?(verb) && !opts[:pr]
 
       send("run_#{verb}", dir, opts, out, gh, uploader)
     end
@@ -391,6 +446,15 @@ module PlanVisuals
       picked = PlanVisuals.select(dir, phase: opts[:phase])
       out.puts(JSON.generate(visuals: picked[:visuals].map { |v| { name: v.name, type: v.type, phases: v.phases } },
                              link_back: picked[:link_back]))
+      0
+    end
+
+    def self.run_manifest(dir, opts, out, _gh, _uploader)
+      return usage(out) unless File.directory?(File.join(dir, 'diagrams'))
+
+      data = PlanVisuals.write_manifest(dir, drawn_against: opts[:drawn_against] || 'plan')
+      out.puts("manifest: #{data['visuals'].size} visuals, #{data['workflow_phase_count']} phases, " \
+               "plan #{data['plan_sha256'][0, 12]}")
       0
     end
 
@@ -431,6 +495,7 @@ module PlanVisuals
         when '--phase' then opts[:phase] = args.shift.to_i
         when '--first-pr' then opts[:first_pr] = args.shift
         when '--repo' then opts[:repo] = args.shift
+        when '--drawn-against' then opts[:drawn_against] = args.shift
         when '--urls' then opts[:urls] = args.shift
         when '--omit'
           name, reason = args.shift.to_s.split('=', 2)
