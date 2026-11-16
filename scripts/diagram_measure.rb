@@ -71,7 +71,7 @@ module DiagramMeasure
     def measured? = true
 
     def self.key(svg) = Digest::SHA256.hexdigest("v#{CACHE_VERSION}\n#{ChangeDocker::BROWSERLESS_IMAGE}\n#{svg}")
-    def self.styles_key(svg) = Digest::SHA256.hexdigest("styles-v1\n#{ChangeDocker::BROWSERLESS_IMAGE}\n#{svg}")
+    def self.styles_key(svg) = Digest::SHA256.hexdigest("styles-v3\n#{ChangeDocker::BROWSERLESS_IMAGE}\n#{svg}")
 
     # Measures every cache miss among docs in one shared container, so a lint
     # run starts at most one browserless and an all-hit run starts none.

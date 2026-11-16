@@ -15,8 +15,11 @@ module DiagramStyles
   SCHEMES = %w[light dark].freeze
   PAINT = %w[fill stroke opacity fill-opacity stroke-opacity display visibility filter].freeze
 
-  # One scheme's answer. `paint` is indexed like Document#all_elements.
-  Scheme = Data.define(:paint, :bg, :recolored)
+  # One scheme's answer. `paint` and `alpha` are indexed like
+  # Document#all_elements; `alpha` is each element's effective opacity, the
+  # product of opacity up through every ancestor. `shown` has one entry per
+  # svg.icon: its rendered box and whether anything hides it.
+  Scheme = Data.define(:paint, :alpha, :bg, :recolored, :shown)
 
   # `names` is the element order the browser saw, checked against the
   # parsed document before any index is trusted.
@@ -48,9 +51,30 @@ module DiagramStyles
           const bg = getComputedStyle(probe).fill;
           probe.remove();
 
+          const alpha = els.map((el) => {
+            let a = 1;
+            for (let n = el; n && n.nodeType === 1; n = n.parentElement) a *= parseFloat(getComputedStyle(n).opacity || "1");
+            return a;
+          });
+          const hidden = (el) => {
+            for (let n = el; n && n.nodeType === 1; n = n.parentElement) {
+              const cs = getComputedStyle(n);
+              if (cs.display === "none") return "display: none";
+            }
+            return getComputedStyle(el).visibility !== "visible" ? "visibility: " + getComputedStyle(el).visibility : null;
+          };
+          const shown = [];
           const recolored = [];
           els.forEach((el, index) => {
             if (el === root || el.localName !== "svg" || !el.classList.contains("icon")) return;
+            // A nested svg's client rect follows its children, so the CSS
+            // viewport size is read too; either at zero means nothing shows.
+            const box = el.getBoundingClientRect();
+            const cs = getComputedStyle(el);
+            const w = Math.min(box.width, parseFloat(cs.width));
+            const h = Math.min(box.height, parseFloat(cs.height));
+            shown.push({ icon: index, w: Number.isNaN(w) ? box.width : w, h: Number.isNaN(h) ? box.height : h,
+                         alpha: alpha[index], hidden: hidden(el) });
             const host = document.createElement("div");
             document.body.append(host);
             const clone = el.cloneNode(true);
@@ -68,7 +92,7 @@ module DiagramStyles
             });
             host.remove();
           });
-          return { names: els.map((e) => e.localName), paint: els.map(paintOf), bg, recolored };
+          return { names: els.map((e) => e.localName), paint: els.map(paintOf), alpha, bg, recolored, shown };
         }, PAINT);
         await page.emulateMediaFeatures([ { name: "prefers-color-scheme", value: "light" } ]);
         const light = await read();
@@ -82,9 +106,18 @@ module DiagramStyles
   def build(raw)
     schemes = SCHEMES.to_h do |s|
       d = raw.fetch(s)
-      [ s.to_sym, Scheme.new(paint: d.fetch("paint"), bg: d["bg"], recolored: d.fetch("recolored")) ]
+      [ s.to_sym, Scheme.new(paint: d.fetch("paint"), alpha: d.fetch("alpha"), bg: d["bg"], recolored: d.fetch("recolored"), shown: d.fetch("shown")) ]
     end
     Result.new(names: raw.fetch("light").fetch("names"), schemes: schemes)
+  end
+
+  # How visibly an element's fill paints: the fill color's own alpha times
+  # fill-opacity times the effective opacity. Zero means it paints nothing.
+  def fill_alpha(paint, alpha)
+    m = paint["fill"].to_s.match(/\Argba?\(\s*\d+,\s*\d+,\s*\d+(?:,\s*([\d.]+))?\s*\)\z/)
+    return 0.0 unless m
+
+    (m[1] ? m[1].to_f : 1.0) * paint["fill-opacity"].to_f * alpha.to_f
   end
 
   # A computed color as #RRGGBB, or nil for none, a paint server, or a

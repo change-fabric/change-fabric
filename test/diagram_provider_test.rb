@@ -41,6 +41,10 @@ class DiagramProviderTest < Minitest::Test
     unplated: UNPLATED,
     group_muted: UNPLATED.sub(".group > rect { fill: none;", ".group > rect { fill: var(--muted);"),
     enclosing_muted: UNPLATED.sub(CLOUD_RECT, CLOUD_RECT.sub("/>", ' style="fill: var(--muted)"/>')),
+    clear_plate: CLEAN.sub('<rect class="plate" x="356" y="292" width="32" height="32" rx="2" fill="#FFFFFF"/>',
+                           '<rect class="plate" x="356" y="292" width="32" height="32" rx="2" fill="#FFFFFF" style="fill-opacity:0"/>'),
+    group_opacity: CLEAN.sub('<g class="icon" id="api-icon"', '<g class="icon" id="api-icon" opacity="0"'),
+    zero_width: style(CLEAN, "svg.icon { width: 0px; }"),
     fallback: CLEAN.sub(%r{<g class="icon" id="api-icon".*?</svg>\s*</g>}m,
                         CloudIcons.inline("aws", "lambda", instance_id: "fb", box: [ 116, 180, 32, 32 ], store: FAKE))
   }.freeze
@@ -227,6 +231,21 @@ class DiagramProviderTest < Minitest::Test
     refute contrast?(styled(:unplated), "dark: tile #00A4A6")
     assert contrast?(styled(:group_muted), "dark: tile #00A4A6")
     assert contrast?(styled(:enclosing_muted), "dark: tile #00A4A6")
+  end
+
+  def hidden?(findings) = findings.any? { |f| f.check == "icon-pack-provenance" && f.message.include?("does not render") }
+
+  def test_every_icon_must_render
+    refute hidden?(styled(:clean))
+    assert hidden?(styled(:group_opacity))
+    assert hidden?(styled(:zero_width))
+  end
+
+  # A plate painted with zero alpha is not a background; the icon sits on
+  # the dark node surface instead.
+  def test_an_invisible_plate_does_not_count
+    refute contrast?(styled(:clean), "dark: tile #C925D1")
+    assert contrast?(styled(:clear_plate), "dark: tile #C925D1")
   end
 
   def test_a_top_level_group_clipped_by_the_viewbox_is_flagged

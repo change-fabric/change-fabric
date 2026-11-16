@@ -168,13 +168,31 @@ module DiagramProviderChecks
 
       index = DiagramProviderChecks.index(doc)
       by_svg = pack_icons.to_h { |icon| [ index[icon.element], icon ] }
-      DiagramStyles::SCHEMES.flat_map do |scheme|
+      hidden(styles, by_svg) + DiagramStyles::SCHEMES.flat_map do |scheme|
         styles[scheme.to_sym].recolored.group_by { |r| r["icon"] }.filter_map do |svg_index, diffs|
           icon = by_svg[svg_index] or next
           d = diffs.first
           tag = doc.all_elements[d["el"]]&.name
           finding(DiagramProviderChecks.where(icon), "#{scheme}: the diagram changes #{d['prop']} of a #{tag} inside the icon (#{d['got']}, the pack draws #{d['want']})",
                   "scope the rule so it cannot reach inside g.icon")
+        end
+      end
+    end
+
+    # Every pack icon must actually show: a non-zero rendered box, effective
+    # opacity above zero through every ancestor, and nothing setting display
+    # none or hiding it.
+    def hidden(styles, by_svg)
+      DiagramStyles::SCHEMES.flat_map do |scheme|
+        styles[scheme.to_sym].shown.filter_map do |s|
+          icon = by_svg[s["icon"]] or next
+          why = if s["hidden"] then s["hidden"]
+          elsif s["w"].to_f <= 0 || s["h"].to_f <= 0 then "a zero rendered size"
+          elsif s["alpha"].to_f <= 0 then "zero effective opacity"
+          end
+          next unless why
+
+          finding(DiagramProviderChecks.where(icon), "#{scheme}: the icon does not render (#{why})", "remove the rule or attribute that hides it")
         end
       end
     end
@@ -274,15 +292,22 @@ module DiagramProviderChecks
 
     def fill(scheme, index, el) = el && DiagramStyles.hex(scheme.paint.dig(index[el], "fill"))
 
+    # A surface's fill only when it is visibly painted.
+    def surface(scheme, index, el)
+      return nil unless el && DiagramStyles.fill_alpha(scheme.paint[index[el]], scheme.alpha[index[el]]).positive?
+
+      fill(scheme, index, el)
+    end
+
     def background(doc, icon, scheme, index)
       plate = icon.plate
       if plate && DiagramSvg::Geometry.box(plate).contains_box?(icon.box.inset(-PLATE_PAD))
-        painted = fill(scheme, index, plate)
+        painted = surface(scheme, index, plate)
         return painted if painted
       end
 
       surfaces(doc, icon).each do |el|
-        painted = fill(scheme, index, el)
+        painted = surface(scheme, index, el)
         return painted if painted
       end
       DiagramStyles.hex(scheme.bg)
