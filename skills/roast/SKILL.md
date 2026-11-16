@@ -100,6 +100,10 @@ Contested calls (a rebuttal the critic keeps repeating, a fix that conflicts wit
 
 `OPENAI_API_KEY` from this project's enrolled key only (env vars are ignored), needed only when a call is made. Exit 4 with a `cf_enroll` line means this project has no usable key: paste the enrollment snippet (or confirm an ancestor key) and re-run, see `skills/walkthrough/reference/key-enrollment.md`. A provider rejection is named, never generic: exit 4 with `"reason":"revoked"` (enroll a new key), or exit 1 with a `cf_key_error` line naming `quota_exhausted` (never retried), `rate_limited` (after 3 attempts), `bad_request` (with the provider message) or `server`, plus the next step to relay; see Provider failures in that file. Never print or write it. The cache key is a hash of the model, the effort when not medium, round, brief, history, and the screenshot and text digests, so a rerun of identical inputs is a cache hit: no call, no key, $0.00. A changed screenshot or a new response file is a new key and a new paid call.
 
+Image fit: a shot whose long edge passes 2048px is sent as a downscaled temp copy (lanczos, 2048px long edge) made in the pinned ffmpeg container, with a `roast: <shot> is WxH, sending a wxh copy` note. The original file is untouched and still keys the cache. If the container fails, the round fails by name (exit 1) and nothing is sent.
+
+Answer failures are named. An answer cut off at the output cap prints `truncated at max_output_tokens (4000)`, the retry's estimate, and retries once at 16000 tokens (held to the same ceiling); a second cut fails with `roast response truncated at max_output_tokens`. A refusal fails as `roast critic refused: <text>`; any other incomplete or unparseable answer is named too. Each of these saves the scrubbed raw response to `<out-dir>/raw-<round>.json` so the cause can be read.
+
 ## Done when
 
 - Every paid round was preceded by a shown estimate and stayed under the ceiling.

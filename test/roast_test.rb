@@ -469,4 +469,135 @@ class RoastTest < Minitest::Test
     assert_equal "server", line.dig("cf_key_error", "class")
     assert_includes line.dig("cf_key_error", "next_step"), "rerun later"
   end
+
+  # -- image fit and truncated or refused answers -----------------------------
+
+  def answer(text: nil, status: "completed", reason: nil, refusal: nil)
+    content = refusal ? [ { "type" => "refusal", "refusal" => refusal } ] : [ { "type" => "output_text", "text" => text || JSON.generate(CRITIC) } ]
+    body = { "status" => status, "output" => [ { "type" => "message", "content" => content } ] }
+    body["incomplete_details"] = { "reason" => reason } if reason
+    HeadResp.new("200", JSON.generate(body))
+  end
+
+  def truncated = answer(text: '{"score": 6, "summ', status: "incomplete", reason: "max_output_tokens")
+
+  # A PNG whose header claims width x height; only the header is ever read.
+  def big_png(name, width, height)
+    File.join(@dir, name).tap do |path|
+      File.binwrite(path, "\x89PNG\r\n\x1A\n".b + [ 13 ].pack("N") + "IHDR" + [ width, height ].pack("NN") + "\x08\x02\x00\x00\x00".b + name)
+    end
+  end
+
+  # Stands in for docker: records argv and writes the file the container would.
+  class FakeDocker
+    Status = Struct.new(:ok) do
+      def success? = ok
+    end
+
+    attr_reader :calls
+
+    def initialize(ok: true)
+      @ok = ok
+      @calls = []
+    end
+
+    def call(argv)
+      @calls << argv
+      work = argv.join(" ")[%r{source=([^"]+)",target=/work}, 1]
+      File.binwrite(File.join(work, File.basename(argv.last)), "small") if @ok
+      [ @ok ? "" : "docker: daemon down", Status.new(@ok) ]
+    end
+  end
+
+  def run_fit(shot, *extra, docker:, http: RoastHttp.new)
+    out = StringIO.new
+    code = Roast::Cli.run([ "--brief", @brief, "--shot", shot, "--cache", @cache, "--out-dir", @roast, "--audience", "Dog groomers", "--purpose", "Book a slot", *extra ],
+                          out: out, http: http, docker: docker)
+    [ code, out.string, http ]
+  end
+
+  def test_dimensions_read_png_jpeg_and_webp_headers
+    assert_equal [ 3000, 1200 ], RoastImageFit.dimensions(big_png("a.png", 3000, 1200))
+    jpg = File.join(@dir, "a.jpg")
+    File.binwrite(jpg, "\xFF\xD8\xFF\xE0\x00\x04ab\xFF\xC0\x00\x11\x08\x05\xDC\x0F\xA0".b)
+    assert_equal [ 4000, 1500 ], RoastImageFit.dimensions(jpg)
+    webp = File.join(@dir, "a.webp")
+    File.binwrite(webp, "RIFF\x00\x00\x00\x00WEBPVP8X\x0A\x00\x00\x00\x00\x00\x00\x00".b + [ 2999 ].pack("V")[0, 3] + [ 999 ].pack("V")[0, 3])
+    assert_equal [ 3000, 1000 ], RoastImageFit.dimensions(webp)
+    assert_nil RoastImageFit.dimensions(@shot)
+    assert_equal [ 2048, 820 ], RoastImageFit.target(3000, 1200)
+  end
+
+  def test_oversized_shot_is_fitted_with_the_pinned_ffmpeg_and_keeps_its_cache_key
+    shot = big_png("wide.png", 4096, 1024)
+    docker = FakeDocker.new
+    code, text, http = run_fit(shot, docker: docker)
+    assert_equal 0, code, text
+    assert_includes text, "wide.png is 4096x1024, sending a 2048x512 copy"
+    argv = docker.calls.first
+    assert_includes argv, ChangeDocker::FFMPEG_IMAGE
+    assert_includes argv, "scale=2048:512:flags=lanczos"
+    sent = JSON.parse(http.requests.first.body).dig("input", 1, "content", 1, "image_url")
+    assert_equal "data:image/png;base64,#{Base64.strict_encode64('small')}", sent
+    _code, again, = run_fit(shot, "--out-dir", File.join(@dir, "again"), docker: docker)
+    assert_includes again, "1 call (cached)"
+    assert_equal 1, docker.calls.size, "a cache hit keyed on the original never refits"
+  end
+
+  def test_small_shot_never_calls_docker
+    docker = FakeDocker.new
+    code, _text, = run_fit(big_png("ok.png", 2048, 1500), docker: docker)
+    assert_equal 0, code
+    assert_empty docker.calls
+  end
+
+  def test_failed_fit_is_named_and_nothing_is_sent
+    code, text, http = run_fit(big_png("huge.png", 5000, 5000), docker: FakeDocker.new(ok: false))
+    assert_equal 1, code
+    assert_includes text, "roast image fit failed for huge.png (5000x5000)"
+    assert_empty http.requests
+  end
+
+  def test_truncated_answer_retries_once_at_16000_then_succeeds
+    code, text, http = run_cli(http: ScriptedHttp.new(truncated))
+    assert_equal 0, code, text
+    assert_equal [ 4000, 16_000 ], http.requests.map { |r| JSON.parse(r.body)["max_output_tokens"] }
+    assert_match(/truncated at max_output_tokens \(4000\), retrying once at 16000: about \$\d+\.\d\d more/, text)
+    assert_operator text.index("retrying once"), :>, text.index("roast estimate:")
+    assert File.file?(File.join(@roast, "raw-1.json"))
+  end
+
+  def test_second_truncation_fails_with_the_named_message
+    code, text, http = run_cli(http: ScriptedHttp.new(truncated, truncated))
+    assert_equal 1, code
+    assert_equal 2, http.requests.size
+    assert_includes text, "roast response truncated at max_output_tokens"
+    assert_includes text, "raw response at #{File.join(@roast, 'raw-1.json')}"
+    refute File.file?(File.join(@roast, "round-1.json"))
+  end
+
+  def test_retry_is_held_to_the_ceiling
+    code, text, http = run_cli("--max-usd", "0.10", http: ScriptedHttp.new(truncated))
+    assert_equal 1, code, text
+    assert_equal 1, http.requests.size
+    assert_includes text, "ceiling"
+  end
+
+  def test_refusal_is_named_and_its_raw_answer_saved_scrubbed
+    leaked = "sk-proj-#{'A' * 30}"
+    code, text, = run_cli(http: ScriptedHttp.new(answer(refusal: "I cannot help with that #{leaked}")))
+    assert_equal 1, code
+    assert_includes text, "roast critic refused: I cannot help with that"
+    raw = File.read(File.join(@roast, "raw-1.json"))
+    assert_includes raw, "refusal"
+    refute_includes raw, leaked
+    refute_includes text, leaked
+  end
+
+  def test_invalid_json_saves_the_raw_answer
+    code, text, = run_cli(http: ScriptedHttp.new(answer(text: "{not json")))
+    assert_equal 1, code
+    assert_includes text, "roast response was not valid JSON; raw response at"
+    assert_includes File.read(File.join(@roast, "raw-1.json")), "{not json"
+  end
 end
