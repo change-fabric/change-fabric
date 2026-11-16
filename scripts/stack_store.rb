@@ -7,6 +7,7 @@ require 'fileutils'
 require 'open3'
 require 'digest'
 require_relative 'contributors_team'
+require_relative 'plan_phase_trailer'
 
 # Durable record of one PR stack that cf:sweep stack mode is landing, one PR at
 # a time. Modeled on SweepTrustStore: keyed by ContributorsTeam's normalized
@@ -85,10 +86,12 @@ class StackStore
   def init(repo:, source:, mode:, prs:, plan_dir: nil)
     validate!(SOURCES, source, 'source')
     validate!(MODES, mode, 'mode')
+    prs = prs.map { |pr| stringify(pr) }
+    prs.each { |pr| validate_phase!(pr) }
     write(
       'slug' => @slug, 'repo' => repo.to_s, 'source' => source.to_s,
       'plan_dir' => plan_dir, 'mode' => mode.to_s,
-      'prs' => prs.map { |pr| blank_pr.merge(stringify(pr)) },
+      'prs' => prs.map { |pr| blank_pr.merge(pr) },
       'current' => 0, 'judged' => []
     )
   end
@@ -97,6 +100,7 @@ class StackStore
   def set_pr(number, fields)
     fields = stringify(fields)
     validate!(STATES, fields['state'], 'state') if fields.key?('state')
+    validate_phase!(fields)
     update do |record|
       pr = find_pr!(record, number)
       pr.merge!(fields)
@@ -146,6 +150,16 @@ class StackStore
     return if allowed.include?(value.to_s)
 
     raise Invalid, "#{field} must be one of #{allowed.join('|')}, got #{value.inspect}"
+  end
+
+  # `phase` (`<area>/<slug>#Phase N`) is optional: absent or nil stays valid,
+  # so records written before the field existed read unchanged and fall back
+  # to position order.
+  def validate_phase!(pr)
+    phase = pr['phase']
+    return if phase.nil? || PlanPhaseTrailer.valid?(phase)
+
+    raise Invalid, "phase must read <area>/<slug>#Phase N, got #{phase.inspect}"
   end
 
   def find_pr!(record, number)

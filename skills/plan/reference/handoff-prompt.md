@@ -8,6 +8,9 @@ absolute path: this block is meant to be pasted into a fresh session, possibly
 on another machine, and a literal `/Users/pxt/...` or `/home/exe/...` breaks
 the moment the same account's home sits under a different literal path there.
 
+`{{plan_ref}}` is the plan set's `<area>/<slug>` (its directory relative to
+the plans root), the left half of a `Plan-Phase:` trailer ref.
+
 `{{judged_note}}` is empty unless the ledger has `Answered by: judge`
 entries. Then it reads: "Judged decisions (unreviewed): the plan's
 `### Judged decisions (unreviewed)` subsection lists answers an LLM judge
@@ -65,6 +68,9 @@ Ground rules:
   for you. Ask with AskUserQuestion, the way the plan itself was built.
 - Honor this session's cf merge mode for anything that pushes, opens a PR, or
   merges.
+- A PR opened outside `/cf:sweep stack` ends its body with the line
+  `Plan-Phase: {{plan_ref}}#Phase N`, where N is the phase it lands, so
+  epic tooling can link the PR to its phase.
 
 Repo: {{repo_path}}
 Goal in one line: {{goal_one_liner}}

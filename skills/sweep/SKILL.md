@@ -276,7 +276,11 @@ it by default for any plan with more than one PR phase.
 
 - `/cf:sweep stack <plan_dir | #a #b ...>` starts a stack from a plan
   directory (one PR per phase) or an explicit PR list (slug
-  `prs-<first>-<last>`), recorded with `stack_store.rb init`.
+  `prs-<first>-<last>`), recorded with `stack_store.rb init`. A stack from a
+  plan records each PR's phase as `stack_store.rb set-pr <slug> <n>
+  'phase=<area>/<slug>#Phase N'`, taken from the plan's `### Phase N`
+  heading the PR lands; that field is the recorded link. Position in the
+  stack stays the fallback only for old records with no `phase`.
 - `/cf:sweep stack resume` re-derives state from gh and continues at the
   current PR, the first one not merged.
 - `/cf:sweep stack status` prints the store merged with live gh state, plus
