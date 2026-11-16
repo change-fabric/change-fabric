@@ -307,3 +307,5 @@ fresh session that will execute the plan.
   text only, and record the gap in `## Visuals` and the report.
 - No roast key (exit 4) or a second sensitive-term refusal: record "roast
   skipped: <reason>" in `## Roast` and continue.
+- Roast exit 5 (openai deferred for this project): record "roast skipped:
+  <the [cf] deferred note>" in `## Roast` and continue.

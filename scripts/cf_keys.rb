@@ -18,7 +18,7 @@ require_relative 'cf_secret_store'
 #                                          TTY only; validates, then stores
 #   expires PROVIDER DATE [--dir PATH]     records or corrects the expiry
 #   confirm-inherit PROVIDER [--dir PATH]  after an AskUserQuestion yes
-#   defer PROVIDER [--dir PATH]            after an AskUserQuestion defer
+#   defer PROVIDER [--dir PATH] [--days 1|7] skip it here for 1 or 7 days (default 7)
 #   status [--dir PATH]                    never prints a value
 #   remove PROVIDER [--dir PATH]           TTY only
 #
@@ -35,7 +35,8 @@ require_relative 'cf_secret_store'
 # a key in, not a sandbox.
 class CfKeys
   USAGE = 'usage: cf_keys.rb enroll PROVIDER [--dir PATH] [--expires DATE] [--label TEXT] [--scope tree|project] | ' \
-          'expires PROVIDER DATE [--dir PATH] | confirm-inherit|defer|remove PROVIDER [--dir PATH] | status [--dir PATH]'
+          'expires PROVIDER DATE [--dir PATH] | defer PROVIDER [--dir PATH] [--days 1|7] | ' \
+          'confirm-inherit|remove PROVIDER [--dir PATH] | status [--dir PATH]'
   SCOPES = %w[project tree].freeze
   EXIT_USAGE = 1
   EXIT_NO_TTY = 2
@@ -67,7 +68,11 @@ class CfKeys
       return usage unless known?(provider) && rest.first
 
       expires(provider, rest.first, opts[:dir])
-    when 'confirm-inherit', 'defer', 'remove'
+    when 'defer'
+      return usage unless known?(provider)
+
+      defer(provider, opts[:dir], opts.fetch(:days, CfSecretStore::DEFER_DEFAULT_DAYS))
+    when 'confirm-inherit', 'remove'
       return usage unless known?(provider)
 
       send(command.tr('-', '_'), provider, opts[:dir])
@@ -88,6 +93,7 @@ class CfKeys
       o.on('--expires DATE') { |v| opts[:expires] = v }
       o.on('--label TEXT') { |v| opts[:label] = v }
       o.on('--scope SCOPE') { |v| opts[:scope] = v }
+      o.on('--days N', Integer) { |v| opts[:days] = v }
     end.parse!(args)
     [ args[0], args[1], args.drop(2), opts ]
   end
@@ -131,7 +137,7 @@ class CfKeys
     CfSecretStore.describe(project)
     CfSecretStore.write_key(project.slug, provider, key)
     CfSecretStore.update_enrollment(project.slug, provider, enrollment_fields(opts))
-    CfSecretStore.update_meta(project.slug) { |m| m['deferred']&.delete(provider) }
+    CfSecretStore.clear_deferral(project.slug, provider)
     @out.puts("enrolled #{provider} for #{project.root}#{details(CfSecretStore.enrollment(project.slug, provider))}")
     0
   end
@@ -168,11 +174,13 @@ class CfKeys
     0
   end
 
-  def defer(provider, dir)
+  # A paid step needing provider here skips with a one-line note (exit 5)
+  # until the deferral lapses; the next paid run after that asks again.
+  def defer(provider, dir, days)
     project = identity(dir)
     CfSecretStore.describe(project)
-    CfSecretStore.update_meta(project.slug) { |m| (m['deferred'] ||= {})[provider] = true }
-    @out.puts("deferred #{provider} for #{project.root}; a skill that needs it still stops until it is enrolled")
+    until_at = CfSecretStore.defer(project.slug, provider, days: days)
+    @out.puts("deferred #{provider} for #{project.root} until #{until_at}; paid steps needing it skip until then")
     0
   end
 
@@ -205,7 +213,9 @@ class CfKeys
       from = ancestor.first.delete_prefix('dir:')
       return "inherited from #{from}#{details(entry)}" if confirmed == ancestor.first || entry['scope'] == 'tree'
     end
-    return 'deferred' if meta.dig('deferred', provider)
+    if CfSecretStore.deferral_active?(project.slug, provider)
+      return "deferred until #{CfSecretStore.deferred_until(project.slug, provider).iso8601}"
+    end
     return "inheritable from #{ancestor.first.delete_prefix('dir:')} (unconfirmed)" if ancestor
 
     'missing'

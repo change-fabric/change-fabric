@@ -673,6 +673,16 @@ class WalkthroughRenderTest < Minitest::Test
     refute File.exist?(File.join(@root, "roast", "round-1.json"))
   end
 
+def test_deferred_draft_roast_skips_the_round_and_keeps_rendering
+  out = StringIO.new
+  with_enrolled("openai") do
+    CfSecretStore.defer(CfProjectIdentity.for(Dir.pwd).slug, "openai")
+    capture_io { WalkthroughRender::Run.new(@root, providers: keyed_roast, out: out).call }
+  end
+  assert_match(/roast: skipped \(\[cf\] openai deferred until \S+; skipping paid step\)/, out.string)
+  refute File.exist?(File.join(@root, "roast", "round-1.json"))
+end
+
   def failing_roast(status, body = "{}")
     providers.merge(roast: lambda do |**|
       raise CfProviderError.classify(provider: "openai", status: status, body: body, key: "sk-test-secret")

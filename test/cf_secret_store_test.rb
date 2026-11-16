@@ -69,6 +69,35 @@ class CfSecretStoreTest < Minitest::Test
     assert_equal "dir:/home", meta.dig("confirmed_inherits", "openai")
   end
 
+  def test_defer_round_trips_deferred_until
+    now = Time.utc(2026, 11, 16, 12)
+    assert_equal "2026-11-23T12:00:00Z", CfSecretStore.defer("abc", "gemini", now: now)
+    assert_equal({ "gemini" => { "deferred_until" => "2026-11-23T12:00:00Z" } }, CfSecretStore.meta("abc")["deferred"])
+    assert_equal Time.utc(2026, 11, 23, 12), CfSecretStore.deferred_until("abc", "gemini")
+    assert CfSecretStore.deferral_active?("abc", "gemini", now: now + (6 * 86_400))
+    refute CfSecretStore.deferral_active?("abc", "gemini", now: Time.utc(2026, 11, 23, 12))
+    refute CfSecretStore.deferral_active?("abc", "openai", now: now)
+    CfSecretStore.defer("abc", "gemini", days: 1, now: now)
+    assert_equal Time.utc(2026, 11, 17, 12), CfSecretStore.deferred_until("abc", "gemini")
+    assert_raises(ArgumentError) { CfSecretStore.defer("abc", "gemini", days: 3) }
+    CfSecretStore.clear_deferral("abc", "gemini")
+    assert_nil CfSecretStore.deferred_until("abc", "gemini")
+  end
+
+  def test_legacy_and_unreadable_deferrals_migrate_to_lapsed
+    [ { "gemini" => true }, [ "gemini" ], { "gemini" => { "deferred_until" => "soon" } } ].each do |legacy|
+      CfSecretStore.update_meta("abc") { |m| m["deferred"] = legacy }
+      assert_equal Time.at(0).utc, CfSecretStore.deferred_until("abc", "gemini"), legacy.inspect
+      refute CfSecretStore.deferral_active?("abc", "gemini"), legacy.inspect
+    end
+    CfSecretStore.update_meta("abc") { |m| m["deferred"] = [ "gemini", "openai" ] }
+    CfSecretStore.defer("abc", "openai", now: Time.utc(2026, 11, 16))
+    assert_equal({ "gemini" => { "deferred_until" => CfSecretStore::LAPSED },
+                   "openai" => { "deferred_until" => "2026-11-23T00:00:00Z" } }, CfSecretStore.meta("abc")["deferred"])
+    CfSecretStore.update_meta("abc") { |m| m["deferred"] = "junk" }
+    assert_nil CfSecretStore.deferred_until("abc", "gemini")
+  end
+
   def test_corrupt_meta_reads_as_empty
     CfSecretStore.ensure_dir("abc")
     File.write(CfSecretStore.meta_path("abc"), "{not json")

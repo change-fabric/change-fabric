@@ -75,4 +75,73 @@ class WalkthroughEnvTest < Minitest::Test
       refute_includes out.string, "sk-test-secret"
     end
   end
+
+  def slug_here = CfProjectIdentity.for(Dir.pwd).slug
+
+  # key! order, step 1: an active deferral exits 5 with one note before any
+  # resolve, so even an enrolled key is never read.
+  def test_active_deferral_exits_5_before_any_resolve
+    with_enrolled("openai") do
+      CfSecretStore.defer(slug_here, "openai")
+      err = StringIO.new
+      calls = []
+      original = CfSecrets.method(:resolve)
+      CfSecrets.define_singleton_method(:resolve) { |*args, **kw| calls << args && original.call(*args, **kw) }
+      begin
+        exit_err = assert_raises(WalkthroughEnv::Deferred) { WalkthroughEnv.key!("openai", err: err) }
+      ensure
+        CfSecrets.define_singleton_method(:resolve, original)
+      end
+      assert_equal 5, exit_err.status
+      assert_kind_of SystemExit, exit_err
+      assert_empty calls
+      assert_equal 1, err.string.lines.size
+      assert_match(/\A\[cf\] openai deferred until \d{4}-\d{2}-\d{2}T\S+; skipping paid step\n\z/, err.string)
+    end
+  end
+
+  def test_lapsed_deferral_falls_through_to_missing_exit_4
+    with_enrolled do
+      CfSecretStore.defer(slug_here, "openai", days: 1, now: Time.now - (2 * 86_400))
+      err = StringIO.new
+      e = assert_raises(WalkthroughEnv::NeedsEnrollment) { WalkthroughEnv.key!("openai", err: err) }
+      assert_equal "missing", e.to_h[:reason]
+      assert_empty err.string
+    end
+  end
+
+  def test_expired_exits_4_without_a_warning_line
+    with_enrolled("openai") do
+      CfSecrets.reset_warnings!
+      CfSecretStore.update_enrollment(slug_here, "openai", "expires_at" => "2000-01-01T00:00:00Z")
+      err = StringIO.new
+      e = assert_raises(WalkthroughEnv::NeedsEnrollment) { WalkthroughEnv.key!("openai", err: err) }
+      assert_equal "expired", e.to_h[:reason]
+      assert_empty err.string
+    end
+  end
+
+  def test_warn_window_prints_exactly_one_line_across_two_calls
+    with_enrolled("openai") do
+      CfSecrets.reset_warnings!
+      soon = (Time.now.utc + 3600).iso8601
+      CfSecretStore.update_enrollment(slug_here, "openai", "expires_at" => soon)
+      err = StringIO.new
+      2.times { assert_equal "sk-test-secret", WalkthroughEnv.key!("openai", err: err) }
+      assert_equal 1, err.string.lines.size
+      assert_includes err.string, "(within 24h); renew: ruby ~/.claude/cf/bin/cf_keys.rb enroll openai"
+    ensure
+      CfSecrets.reset_warnings!
+    end
+  end
+
+  def test_ok_key_prints_nothing
+    with_enrolled("openai") do
+      CfSecrets.reset_warnings!
+      CfSecretStore.update_enrollment(slug_here, "openai", "expires_at" => "2999-01-01")
+      err = StringIO.new
+      assert_equal "sk-test-secret", WalkthroughEnv.key!("openai", err: err)
+      assert_empty err.string
+    end
+  end
 end

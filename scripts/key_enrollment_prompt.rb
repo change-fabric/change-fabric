@@ -93,7 +93,7 @@ class KeyEnrollmentPrompt
   def line(project, meta, provider, skills)
     return unless CfProviderRegistry.known?(provider) && skills.is_a?(Array)
     return if CfSecretStore.key?(project.slug, provider)
-    return if meta.dig('deferred', provider)
+    return if CfSecretStore.deferral_active?(project.slug, provider, now: @now)
 
     ancestor = CfSecretStore.inheritable(project.root, provider).first
     return if ancestor && meta.dig('confirmed_inherits', provider) == ancestor.first
@@ -105,7 +105,7 @@ class KeyEnrollmentPrompt
                  "`#{CLI} confirm-inherit #{provider} --dir #{dir}`"
     end
     options << "Defer for this project: run `#{CLI} defer #{provider} --dir #{dir}` " \
-               '(a skill needing it still stops with the enroll snippet)'
+               '(7 days, or add `--days 1`; paid steps skip until it lapses)'
     "- #{CfProviderRegistry.fetch(provider).label} (#{provider}, used by #{skills.join(', ')}). Options: #{options.join('; ')}."
   end
 

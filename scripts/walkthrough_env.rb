@@ -25,6 +25,15 @@ module WalkthroughEnv
   end
 
   ENROLL_EXIT = 4
+  DEFER_EXIT = 5
+
+  # The user deferred this provider for this project (cf_keys.rb defer) and
+  # the deferral has not lapsed. A SystemExit with status 5, so every caller's
+  # StandardError rescues let it through and the process exits 5 unchanged:
+  # a deferred skip, not an error.
+  class Deferred < SystemExit
+    def initialize(note) = super(DEFER_EXIT, note)
+  end
 
   module_function
 
@@ -34,10 +43,25 @@ module WalkthroughEnv
 
   def gemini_key! = key!('gemini')
 
-  def key!(provider)
-    CfSecrets.resolve(provider)
+  # In order, before any network call: (1) an active deferral prints one note
+  # and raises Deferred (exit 5); (2) resolve the key, missing raises
+  # NeedsEnrollment (exit 4, reason missing); (3) CfSecrets checks the
+  # resolved key's expiry: expired raises NeedsEnrollment (reason expired) with
+  # no warning line, within 24h warns once per process, else nothing.
+  def key!(provider, cwd: Dir.pwd, err: $stderr, now: Time.now)
+    defer_check!(provider, cwd, err, now)
+    CfSecrets.resolve(provider, cwd: cwd, err: err, now: now)
   rescue CfSecrets::Unenrolled, CfSecrets::Expired => e
     raise NeedsEnrollment, e
+  end
+
+  def defer_check!(provider, cwd, err, now)
+    slug = CfProjectIdentity.for(cwd).slug
+    return unless CfSecretStore.deferral_active?(slug, provider, now: now)
+
+    note = "[cf] #{provider} deferred until #{CfSecretStore.deferred_until(slug, provider).iso8601}; skipping paid step"
+    err.puts(note)
+    raise Deferred, note
   end
 
   # Prints the cf_enroll JSON line (no values), the snippet for the user to run
