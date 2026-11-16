@@ -40,7 +40,7 @@ A fully cached run never exits 4. On exit 4:
 
 1. Parse the `cf_enroll` line. It never carries a value.
 2. When `inheritable_from` is present, ask one AskUserQuestion: use the key enrolled at that ancestor for this project, or enroll a project key. On yes, run `ruby ~/.claude/cf/bin/cf_keys.rb confirm-inherit <provider> --dir <project_root>`. It records the confirmation and needs no secret.
-3. Otherwise paste the `snippet` in chat for the user to run in their own terminal. It reads the key with echo off, validates it against the provider's free endpoint, and stores it. Never run it for the user and never ask for the key in chat.
+3. Otherwise paste the `snippet` in chat for the user to run in their own terminal. It reads the key with echo off, validates it against the provider's free endpoint, and stores it. Never run it for the user and never ask for the key in chat. When the user has no terminal at hand (a phone, a remote session), offer cf:secret-intake instead: stage the key with `intake --name <ENV_NAME> --validate <provider>`, then `push <ENV_NAME> --to cf-key:<provider> --dir <project_root>` enrolls it at the same level the snippet would.
 4. Re-run the original command unchanged.
 
 On `"reason":"expired"`, paste the `snippet` to renew the key at `owner_root`. If the user says the key has not expired and only the date is wrong, paste `correct` with their date instead. Neither needs a confirm-inherit.

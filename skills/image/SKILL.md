@@ -69,7 +69,7 @@ Exit codes: 0 ok, 1 a named failure (ceiling, missing key, HTTP error, missing f
 
 ## Keys
 
-`OPENAI_API_KEY` from this project's enrolled key only (env vars are ignored), needed only when a call is made. Exit 4 with a `cf_enroll` line means this project has no usable key: paste the enrollment snippet (or confirm an ancestor key) and re-run, see `skills/walkthrough/reference/key-enrollment.md`. A provider rejection is named, never generic: exit 4 with `"reason":"revoked"` (enroll a new key), or exit 1 with a `cf_key_error` line naming `quota_exhausted` (never retried), `rate_limited` (after 3 attempts), `bad_request` (with the provider message) or `server`, plus the next step to relay; see Provider failures in that file. Never print or write it.
+`OPENAI_API_KEY` from this project's enrolled key only (env vars are ignored), needed only when a call is made. Exit 4 with a `cf_enroll` line means this project has no usable key: paste the enrollment snippet (or confirm an ancestor key, or stage it with cf:secret-intake and push it `--to cf-key:<provider>`) and re-run, see `skills/walkthrough/reference/key-enrollment.md`. A provider rejection is named, never generic: exit 4 with `"reason":"revoked"` (enroll a new key), or exit 1 with a `cf_key_error` line naming `quota_exhausted` (never retried), `rate_limited` (after 3 attempts), `bad_request` (with the provider message) or `server`, plus the next step to relay; see Provider failures in that file. Never print or write it.
 
 ## Done when
 

@@ -82,13 +82,13 @@ module SecretIntakeHelpers
   end
 
   # A CLI on fakes whose poller never sleeps, with signal traps off unless asked.
-  def cli_for(aws, home:, validator: FakeValidator.new, poller: nil, traps: false, clock: -> { Time.utc(2030, 1, 1, 12) })
+  def cli_for(aws, home:, validator: FakeValidator.new, key_validator: FakeValidator.new, poller: nil, traps: false, clock: -> { Time.utc(2030, 1, 1, 12) })
     @out, @err = StringIO.new, StringIO.new
     project = File.join(home, "project")
     FileUtils.mkdir_p(project)
     SecretIntake::CLI.new(stdout: @out, stderr: @err, cwd: project, aws_factory: ->(_p, _r) { aws },
                           poller: poller || SecretIntake::Poller.new(clock: clock, sleeper: ->(_) { }),
-                          validator: validator, clock: clock, traps: traps,
+                          validator: validator, key_validator: key_validator, clock: clock, traps: traps,
                           bucket_factory: ->(a, name) { SecretIntake::IntakeBucket.new(aws: a, project: name, hex: -> { "abcd1234" }) })
   end
 end

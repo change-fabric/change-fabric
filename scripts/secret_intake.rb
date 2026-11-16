@@ -7,6 +7,9 @@ require 'time'
 require_relative 'cf_project_identity'
 require_relative 'change_artifacts_config'
 require_relative 'secret_intake/aws_runner'
+require_relative 'secret_intake/destinations/cf_key'
+require_relative 'secret_intake/destinations/env_file'
+require_relative 'secret_intake/destinations/ssm'
 require_relative 'secret_intake/intake_bucket'
 require_relative 'secret_intake/page_renderer'
 require_relative 'secret_intake/poller'
@@ -22,19 +25,31 @@ module SecretIntake
   #
   #   intake --name NAME [--profile P] [--region R] [--validate PROVIDER|none] [--ttl 1h]
   #   status
+  #   push NAME --to env:<path>|ssm:<param>|cf-key:<provider> [--profile P] [--region R]
+  #        [--confirm-account ID] [--overwrite] [--dir PATH]
+  #   remove NAME
   #
   # intake makes a private bucket in the user's AWS account, uploads a
   # one-field page holding a signed PUT URL, prints the signed page link once,
   # waits for the upload, validates it, stages it in the cf secret store, and
   # deletes the bucket on every exit path. kill -9 skips the teardown; the
   # bucket's 1-day expiry rule is the backstop.
+  #
+  # push reads the staged value and writes it to one destination; remove
+  # deletes it. Neither prints a value. An ssm push prints the live account
+  # and refuses unless --confirm-account matches it, so the agent asks the
+  # user to confirm that account first.
   class CLI
     USAGE = 'usage: secret_intake.rb intake --name NAME [--profile P] [--region R] ' \
-            '[--validate PROVIDER|none] [--ttl 1h] | status'
+            '[--validate PROVIDER|none] [--ttl 1h] | status | ' \
+            'push NAME --to env:PATH|ssm:PARAM|cf-key:PROVIDER [--profile P] [--region R] ' \
+            '[--confirm-account ID] [--overwrite] [--dir PATH] | remove NAME'
     EXIT_USAGE = 1
     EXIT_INVALID = 3
     EXIT_TIMEOUT = 4
     EXIT_AWS = 5
+    EXIT_REFUSED = 6
+    DESTINATION_SHAPE = /\A(env|ssm|cf-key):(.+)\z/
     EXIT_INTERRUPTED = 130
     DEFAULT_TTL = 3600
     MAX_TTL = 43_200
@@ -44,12 +59,13 @@ module SecretIntake
     # Every collaborator is injectable; the defaults are the real ones.
     def initialize(stdout: $stdout, stderr: $stderr, cwd: Dir.pwd, aws_factory: nil, bucket_factory: nil,
                    presigner_factory: nil, renderer: PageRenderer.new, poller: Poller.new, validator: Validator.new,
-                   clock: -> { Time.now.utc }, traps: true)
+                   clock: -> { Time.now.utc }, traps: true, key_validator: CfKeyValidator.new)
       @out, @err, @cwd = stdout, stderr, cwd
       @aws_factory = aws_factory || ->(profile, region) { AwsRunner.new(profile: profile, region: region) }
       @bucket_factory = bucket_factory || ->(aws, project) { IntakeBucket.new(aws: aws, project: project) }
       @presigner_factory = presigner_factory || method(:default_presigner)
       @renderer, @poller, @validator, @clock, @traps = renderer, poller, validator, clock, traps
+      @key_validator = key_validator
       @redactor = Redactor.new
     end
 
@@ -58,6 +74,8 @@ module SecretIntake
       case command
       when 'intake' then intake(opts)
       when 'status' then status
+      when 'push' then push(@positional.first, opts)
+      when 'remove' then remove(@positional.first)
       else usage
       end
     rescue OptionParser::ParseError, ArgumentError => e
@@ -77,7 +95,12 @@ module SecretIntake
         o.on('--region REGION') { |v| opts[:region] = v }
         o.on('--validate PROVIDER') { |v| opts[:validate] = v }
         o.on('--ttl DURATION') { |v| opts[:ttl] = ttl_seconds(v) }
+        o.on('--to DESTINATION') { |v| opts[:to] = v }
+        o.on('--confirm-account ID') { |v| opts[:confirm_account] = v }
+        o.on('--overwrite') { opts[:overwrite] = true }
+        o.on('--dir PATH') { |v| opts[:dir] = v }
       end.parse!(args)
+      @positional = args.drop(1)
       [ args.first, opts ]
     end
 
@@ -187,6 +210,68 @@ module SecretIntake
       yield
     ensure
       previous&.each { |sig, handler| trap(sig, handler || 'DEFAULT') }
+    end
+
+    # Reads the staged value, writes it to one destination, records the push
+    # in meta (destination and time only), and prints status lines.
+    def push(name, opts)
+      match = DESTINATION_SHAPE.match(opts[:to].to_s)
+      return usage unless StagingStore.valid_name?(name) && match
+
+      value = store.read(name) or return not_staged(name)
+      @redactor.add(value)
+      kind, target = match.captures
+      lines, recorded = deliver(kind, target, name, value, opts)
+      store.record_push(name, recorded)
+      lines.each { |line| say(line) }
+      0
+    rescue Destinations::Refused => e
+      refuse(e, EXIT_REFUSED)
+    rescue Destinations::Invalid => e
+      refuse(e, EXIT_INVALID)
+    rescue Destinations::WriteFailed, AwsError => e
+      refuse(e, EXIT_AWS)
+    end
+
+    # [status lines, the destination as recorded in meta].
+    def deliver(kind, target, name, value, opts)
+      case kind
+      when 'env'
+        env = Destinations::EnvFile.new(path: File.expand_path(target, @cwd))
+        [ env.push(name, value), "env:#{env.path}" ]
+      when 'ssm'
+        ssm = Destinations::Ssm.new(aws: @aws_factory.call(opts[:profile], opts[:region]), say: method(:say))
+        [ ssm.push(name, value, param: target, confirm_account: opts[:confirm_account], overwrite: opts[:overwrite]),
+          "ssm:#{target}" ]
+      else
+        cf_key = Destinations::CfKey.new(project: key_level(opts[:dir]), validator: @key_validator)
+        [ cf_key.push(name, value, provider: target, validated_by: store.list.to_h.dig(name, 'validated_by')),
+          "cf-key:#{target}" ]
+      end
+    end
+
+    # The enrollment level for a cf-key push, chosen as cf_keys.rb does.
+    def key_level(dir)
+      dir ? CfProjectIdentity.for_explicit_dir(File.expand_path(dir, @cwd)) : project
+    end
+
+    def remove(name)
+      return usage unless StagingStore.valid_name?(name)
+      return not_staged(name) unless store.list.to_h.key?(name) || store.read(name)
+
+      store.remove(name)
+      say("removed #{name} from #{project.root}")
+      0
+    end
+
+    def not_staged(name)
+      say_err("secret_intake: nothing staged as #{name} for #{project.root}; run status")
+      EXIT_USAGE
+    end
+
+    def refuse(error, code)
+      say_err("secret_intake: #{error.message}")
+      code
     end
 
     def status
