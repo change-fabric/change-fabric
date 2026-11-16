@@ -28,7 +28,20 @@ class ReviewPromptTest < Minitest::Test
     text = build([ { skill: "ruby", path: "/p/user.rb", hash: "h1" } ])
     assert_includes text, "/p/user.rb"
     assert_includes text, "POODR-PRINCIPLES"
-    assert_includes text, "run_in_background: false", "review must be synchronous, not backgrounded"
+    refute_includes text, "run_in_background", "Agent calls return asynchronously; never ask to block on one"
+    refute_includes text, "WAIT"
+    assert_includes text, "When its result arrives"
+    assert_includes text, "gate stays closed until this ack runs"
+  end
+
+  def test_reviewer_line_is_the_one_other_hosts_rewrite
+    text = build([ { skill: "ruby", path: "/p/user.rb", hash: "h1" } ])
+    assert_includes text, ReviewPrompt::REVIEWER, "cf_host_hook substitutes this exact text"
+  end
+
+  def test_build_names_every_key_in_one_ack_command
+    text = build([ { skill: "ruby", path: "/p/user.rb", hash: "h1" } ], session: %w[s1 s1_a1])
+    assert_match(/review_ack\.rb s1 s1_a1$/, text)
   end
 
   def test_build_embeds_the_ack_command_with_session

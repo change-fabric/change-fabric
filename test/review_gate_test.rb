@@ -47,6 +47,18 @@ class ReviewGateTest < Minitest::Test
     assert_equal "deny", decision(gate("gh pr create --fill"))
   end
 
+  # Agent edits now live in their own keys; until the gate is scoped to the
+  # pushed branch diff it must still see them, so nothing escapes unreviewed.
+  def test_agent_key_rows_still_deny_and_the_ack_names_each_key
+    ReviewQueue.new("s1:a1").add("ruby", "/w/agent.rb", "h1")
+    enqueue
+    out = gate("git push -u origin feat/x")
+    reason = out.dig("hookSpecificOutput", "permissionDecisionReason")
+    assert_equal "deny", decision(out)
+    assert_includes reason, "/w/agent.rb"
+    assert_includes reason, "review_ack.rb s1 s1_a1"
+  end
+
   def test_allows_when_queue_empty
     assert_nil gate("git push")
   end

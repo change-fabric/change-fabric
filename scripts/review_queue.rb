@@ -3,6 +3,7 @@
 
 require 'fileutils'
 require 'digest'
+require_relative 'review_key'
 
 # Tracks which review-eligible files changed during a session, keyed by content
 # hash so a file is reviewed once per distinct content, not once per identity or
@@ -139,7 +140,9 @@ class ReviewQueue
 
   def persistable? = !@session_id.empty?
 
-  def dir           = File.join(Dir.home, '.claude', 'cf', 'sessions', @session_id)
+  # A key may carry an agent id (session:agent); the directory keeps only
+  # filesystem-safe characters.
+  def dir           = File.join(Dir.home, '.claude', 'cf', 'sessions', ReviewKey.dir_name(@session_id))
   def queue_file    = File.join(dir, 'review-queue')
   def reviewed_file = File.join(dir, 'review-reviewed')
   def rounds_file   = File.join(dir, 'review-rounds')
