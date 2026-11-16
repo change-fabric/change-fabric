@@ -1,0 +1,14 @@
+# Fonts baked into the browserless-cf image. One file per line:
+#   <sha256> <install path under /usr/share/fonts/truetype/cf/> <url>
+# Every URL is pinned to one google/fonts commit, so a changed upstream file
+# fails `sha256sum -c` and the build, never silently ships a different font.
+# All faces are SIL Open Font License 1.1; each family's OFL.txt is installed
+# beside its fonts and recorded in THIRD_PARTY_NOTICES.
+97b2d4da6e3cb494b5a1e66ae176914d852ccabef49e0c02c0df25f3e39aca0b sourceserif4/SourceSerif4[opsz,wght].ttf https://raw.githubusercontent.com/google/fonts/7af0d90b4d532ffa4b041937b560c6df4e7b1e95/ofl/sourceserif4/SourceSerif4%5Bopsz,wght%5D.ttf
+15fbc7e4679489a501998c3669272637a6646388ef7e4bd77eebb5bf967a1f42 sourceserif4/SourceSerif4-Italic[opsz,wght].ttf https://raw.githubusercontent.com/google/fonts/7af0d90b4d532ffa4b041937b560c6df4e7b1e95/ofl/sourceserif4/SourceSerif4-Italic%5Bopsz,wght%5D.ttf
+5f94c3fd3a23131a417ab5a0c8452de57e70c3cfb9f604d88241f7065ebf9fd9 sourceserif4/OFL.txt https://raw.githubusercontent.com/google/fonts/7af0d90b4d532ffa4b041937b560c6df4e7b1e95/ofl/sourceserif4/OFL.txt
+29160a80ff49ddcab2c97711247e08b1fab27a484a329ce8b813d820dc559031 inter/Inter[opsz,wght].ttf https://raw.githubusercontent.com/google/fonts/7af0d90b4d532ffa4b041937b560c6df4e7b1e95/ofl/inter/Inter%5Bopsz,wght%5D.ttf
+acd98e64795781b2058f07b18475e0ecee2a0fe2b42a49e2f9e37d0d6bf66ce6 inter/Inter-Italic[opsz,wght].ttf https://raw.githubusercontent.com/google/fonts/7af0d90b4d532ffa4b041937b560c6df4e7b1e95/ofl/inter/Inter-Italic%5Bopsz,wght%5D.ttf
+5b9321a4298cfeb6b34354164a1c3afc3db114569984c502b9b35d988fd58c57 inter/OFL.txt https://raw.githubusercontent.com/google/fonts/7af0d90b4d532ffa4b041937b560c6df4e7b1e95/ofl/inter/OFL.txt
+48715a42ec242c21e9f02692891e147d022299a52e48d5e413e1a942193ffeda jetbrainsmono/JetBrainsMono[wght].ttf https://raw.githubusercontent.com/google/fonts/7af0d90b4d532ffa4b041937b560c6df4e7b1e95/ofl/jetbrainsmono/JetBrainsMono%5Bwght%5D.ttf
+b2fe5e8987594e9ffd1d2ca52a2f5d73eb8335243893c5d6254b5ad69269591d jetbrainsmono/OFL.txt https://raw.githubusercontent.com/google/fonts/7af0d90b4d532ffa4b041937b560c6df4e7b1e95/ofl/jetbrainsmono/OFL.txt

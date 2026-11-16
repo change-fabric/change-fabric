@@ -29,7 +29,7 @@ module DocsCheck
   ].freeze
 
   EXTENSIONS = %w[rb md json yml yaml ts tsx js mjs tf sh txt].freeze
-  TAG = %r{\A(skills|spec|site|app|change-schema)/v}
+  TAG = %r{\A(skills|spec|site|app|image|change-schema)/v}
   LINK = /\]\(([^)\s]+)\)/
   CODE = /`([^`\n]+)`/
 
