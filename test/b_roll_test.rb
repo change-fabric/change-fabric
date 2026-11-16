@@ -312,6 +312,22 @@ class BRollTest < Minitest::Test
     assert_empty http.requests
   end
 
+  def test_deferred_gemini_falls_back_to_kenburns_with_the_note
+    http = FakeHttp.new
+    with_enrolled("gemini") do
+      CfSecretStore.defer(CfProjectIdentity.for(Dir.pwd).slug, "gemini")
+      res = nil
+      _, err = capture_io do
+        res = BRoll.generate_or_fallback(fallback: "kenburns", source_image: @still, prompt: "p", seconds: 4,
+                                         cache_root: @cache, http: http, validator: @ok_probe)
+      end
+      assert_equal "kenburns", res[:mode]
+      assert_match(/\A\[cf\] gemini deferred until \S+; skipping paid step\z/, res[:reason])
+      assert_includes err, "[cf] gemini deferred until"
+    end
+    assert_empty http.requests
+  end
+
   def test_unenrolled_cached_clip_is_generated_without_asking
     gen(FakeHttp.new(ok(video_body(data: "V"))), prompt: "p")
     unenroll!("gemini")

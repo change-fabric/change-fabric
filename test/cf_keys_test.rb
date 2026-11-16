@@ -141,11 +141,44 @@ class CfKeysTest < Minitest::Test
     assert_equal "dir:#{@org}", CfSecretStore.meta(slug(@project)).dig("confirmed_inherits", "openai")
   end
 
-  def test_defer_records_per_provider
-    assert_equal 0, run_cli("defer", "gemini", "--dir", @project).first
-    meta = CfSecretStore.meta(slug(@project))
-    assert_equal true, meta.dig("deferred", "gemini")
-    assert_nil meta.dig("deferred", "openai")
+  def test_defer_records_per_provider_for_seven_days_by_default
+    before = Time.now.utc
+    code, out, = run_cli("defer", "gemini", "--dir", @project)
+    assert_equal 0, code
+    until_at = CfSecretStore.deferred_until(slug(@project), "gemini")
+    assert_in_delta before + (7 * 86_400), until_at, 5
+    assert_includes out, "until #{until_at.iso8601}"
+    assert_nil CfSecretStore.meta(slug(@project)).dig("deferred", "openai")
+  end
+
+  def test_defer_days_takes_one_or_seven_only
+    before = Time.now.utc
+    assert_equal 0, run_cli("defer", "gemini", "--days", "1", "--dir", @project).first
+    assert_in_delta before + 86_400, CfSecretStore.deferred_until(slug(@project), "gemini"), 5
+    code, _, err = run_cli("defer", "gemini", "--days", "3", "--dir", @project)
+    assert_equal CfKeys::EXIT_USAGE, code
+    assert_includes err, "defer days must be one of 1, 7"
+    assert_equal 1, run_cli("defer", "gemini", "--days", "x", "--dir", @project).first
+  end
+
+  def test_status_reports_an_active_deferral_over_an_enrolled_key
+    run_cli("enroll", "openai", "--dir", @project)
+    run_cli("defer", "openai", "--dir", @project)
+    assert_match(/openai: deferred until \d{4}-/, run_cli("status", "--dir", @project)[1])
+  end
+
+  def test_confirm_inherit_clears_a_deferral
+    run_cli("enroll", "openai", "--dir", @org)
+    run_cli("defer", "openai", "--dir", @project)
+    assert_equal 0, run_cli("confirm-inherit", "openai", "--dir", @project).first
+    refute CfSecretStore.deferral_active?(slug(@project), "openai")
+  end
+
+  def test_enroll_clears_a_deferral
+    run_cli("defer", "openai", "--dir", @project)
+    run_cli("enroll", "openai", "--dir", @project)
+    refute CfSecretStore.deferral_active?(slug(@project), "openai")
+    assert_nil CfSecretStore.deferred_until(slug(@project), "openai")
   end
 
   def test_status_reports_states_and_never_prints_values
@@ -156,7 +189,7 @@ class CfKeysTest < Minitest::Test
     assert_equal 0, code
     assert_match(/openai: enrolled/, out)
     assert_match(/elevenlabs: inheritable from #{Regexp.escape(@org)} \(unconfirmed\)/, out)
-    assert_match(/gemini: deferred/, out)
+    assert_match(/gemini: deferred until \d{4}-\d{2}-\d{2}T/, out)
     refute_includes out, FAKE
     refute_includes out, "0f0f0f"
   end

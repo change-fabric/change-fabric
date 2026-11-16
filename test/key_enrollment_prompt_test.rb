@@ -71,14 +71,26 @@ class KeyEnrollmentPromptTest < Minitest::Test
   end
 
   def test_deferral_silences_only_that_project
-    CfSecretStore.update_meta(slug(@project)) { |m| m["deferred"] = { "openai" => true } }
+    CfSecretStore.defer(slug(@project), "openai")
     assert_nil context
     assert_includes context(@sibling), "cf_keys.rb enroll openai --dir #{@sibling}"
   end
 
+  # Phase boundary: while this hook is still installed, it honors the new
+  # deferred_until. An active one silences the provider, a lapsed one does
+  # not, and a legacy boolean counts as lapsed.
+  def test_active_deferred_until_silences_and_lapsed_or_legacy_does_not
+    CfSecretStore.defer(slug(@project), "openai", days: 1, now: Time.now - 3600)
+    assert_nil context
+    CfSecretStore.defer(slug(@project), "openai", days: 1, now: Time.now - (25 * 3600))
+    assert_includes context, "cf_keys.rb enroll openai --dir #{@project}"
+    CfSecretStore.update_meta(slug(@project)) { |m| m["deferred"] = { "openai" => true } }
+    assert_includes context, "cf_keys.rb enroll openai --dir #{@project}"
+  end
+
   def test_deferral_is_per_provider
     require_providers("openai" => [ "cf:image" ], "gemini" => [ "cf:b-roll" ])
-    CfSecretStore.update_meta(slug(@project)) { |m| m["deferred"] = { "openai" => true } }
+    CfSecretStore.defer(slug(@project), "openai")
     text = context
     refute_includes text, "enroll openai"
     assert_includes text, "enroll gemini"

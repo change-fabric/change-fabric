@@ -841,6 +841,9 @@ module WalkthroughRender
       WalkthroughRoast.record_spend(roast_dir, inputs[:round], usd)
       WalkthroughRoast.record_content(roast_dir, inputs[:round], @content_key)
       report_roast_round(inputs[:round], critic)
+    rescue WalkthroughEnv::Deferred => e
+      # openai deferred: the optional round is skipped and the render goes on.
+      say("roast: skipped (#{e.message})")
     rescue WalkthroughEnv::NeedsEnrollment
       raise
     rescue CfProviderError::Failure => e

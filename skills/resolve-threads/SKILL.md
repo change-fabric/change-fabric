@@ -98,8 +98,8 @@ run reports that it assumed the default.
    background agent in the thread's worktree that runs the thread's tests,
    then commits on `repoPath`; on red it reverts and the thread stays
    needs_human) and is resolved under [RT-6]. Each counts as `tiebroken` and
-   leaves `needsHuman`. Not confident, contested, roast.rb exit 4 (no key)
-   or a sensitive-term refusal: the thread stays needs_human, its reply
+   leaves `needsHuman`. Not confident, contested, roast.rb exit 4 (no key),
+   roast.rb exit 5 (openai deferred; its note goes in the report line), or a sensitive-term refusal: the thread stays needs_human, its reply
    carries the critic's leaning when there was one, and the report gets one
    line. Never AskUserQuestion here; this runs in away mode too. Reply text
    follows `reference/replying.md`.

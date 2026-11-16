@@ -16,6 +16,12 @@ module CfSecretStore
   FILE_MODE = 0o600
   # One path segment: a slug can never climb out of the secrets root.
   SLUG_SHAPE = /\A[A-Za-z0-9_-]+\z/
+  # A deferral lasts one of these many days; DEFER_DEFAULT_DAYS when unset.
+  DEFER_DAYS = [ 1, 7 ].freeze
+  DEFER_DEFAULT_DAYS = 7
+  # What a legacy boolean or array deferral migrates to: already lapsed, so
+  # the next paid run asks again.
+  LAPSED = '1970-01-01T00:00:00Z'
 
   module_function
 
@@ -116,6 +122,59 @@ module CfSecretStore
       dir = File.dirname(dir)
     end
     dirs
+  end
+
+  # Records a deferral for provider at this level ending `days` from now and
+  # returns its end as ISO8601 UTC. Legacy entries migrate in the same write.
+  def defer(slug, provider, days: DEFER_DEFAULT_DAYS, now: Time.now)
+    raise ArgumentError, "defer days must be one of #{DEFER_DAYS.join(', ')}" unless DEFER_DAYS.include?(days)
+
+    until_at = (now.utc + (days * 86_400)).iso8601
+    update_meta(slug) do |m|
+      m['deferred'] = deferrals(m)
+      m['deferred'][provider.to_s] = { 'deferred_until' => until_at }
+    end
+    until_at
+  end
+
+  def clear_deferral(slug, provider)
+    update_meta(slug) do |m|
+      next unless m.key?('deferred')
+
+      m['deferred'] = deferrals(m)
+      m['deferred'].delete(provider.to_s)
+    end
+  end
+
+  # provider => { 'deferred_until' => ISO8601 } for a meta hash. A legacy
+  # boolean, an array of names, or any shape it cannot read becomes a lapsed
+  # deferral, so nothing old stays silent forever.
+  def deferrals(meta)
+    raw = meta['deferred']
+    raw = raw.to_h { |name| [ name.to_s, true ] } if raw.is_a?(Array)
+    return {} unless raw.is_a?(Hash)
+
+    raw.to_h do |provider, entry|
+      until_at = entry.is_a?(Hash) ? entry['deferred_until'] : nil
+      [ provider.to_s, { 'deferred_until' => readable_time(until_at) ? until_at : LAPSED } ]
+    end
+  end
+
+  # The end of this level's deferral for provider as a UTC Time, or nil when
+  # none is recorded. A lapsed one is still returned; see deferral_active?.
+  def deferred_until(slug, provider)
+    readable_time(deferrals(meta(slug)).dig(provider.to_s, 'deferred_until'))
+  end
+
+  def deferral_active?(slug, provider, now: Time.now)
+    until_at = deferred_until(slug, provider)
+    !until_at.nil? && until_at > now.utc
+  end
+
+  def readable_time(text)
+    text.is_a?(String) ? Time.iso8601(text).utc : nil
+  rescue ArgumentError
+    nil
   end
 
   # Yields [slug, meta] for every project level holding a readable meta.json.

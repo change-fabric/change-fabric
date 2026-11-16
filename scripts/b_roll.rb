@@ -226,6 +226,10 @@ module BRoll
   # after retries, a bad request or a server fault still falls back.
   def generate_or_fallback(fallback: 'kenburns', **args)
     { mode: 'generated', path: generate(**args) }
+  rescue WalkthroughEnv::Deferred => e
+    # gemini deferred for this project: key! already printed the note; the
+    # free fallback stands in, so the render goes on.
+    { mode: fallback, path: nil, reason: e.message }
   rescue WalkthroughEnv::NeedsEnrollment
     raise
   rescue CfProviderError::Failure => e
