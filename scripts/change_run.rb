@@ -232,6 +232,30 @@ class ChangeRun
       @active_scan_allowed = true
     end
     check_k6_script_matches_base(scheduled_lane(config, 'k6'), base_ref) if schedule.lanes.include?('k6')
+    check_suites_match_base(scheduled_lane(config, 'testcases'), base_ref) if schedule.lanes.include?('testcases')
+  end
+
+  # The testcases lane loads suites from the working tree by glob, so the
+  # matched file set and every file's bytes must equal the base branch's, or
+  # a branch-local case could change a verdict recorded against the base sha.
+  def check_suites_match_base(lane, base_ref)
+    base_files = git_ls(base_ref)
+    Array(lane['suites']).map(&:to_s).reject(&:empty?).each do |glob|
+      working = Dir.glob(File.expand_path(glob, lane.dir.to_s)).select { |f| File.file?(f) }
+                   .map { |f| f.delete_prefix("#{repo_root}/") }.sort
+      base = base_files.select { |f| File.fnmatch?(glob.delete_prefix('./'), f, File::FNM_PATHNAME | File::FNM_EXTGLOB) }.sort
+      same = working == base && working.all? { |f| git_show(base_ref, f)&.b == File.binread(File.join(repo_root, f)) }
+      next if same
+
+      abort_and_exit("schedule #{@schedule.name}: testcase suites '#{glob}' differ from #{base_ref}; " \
+                     "a scheduled run executes only the default branch's definitions")
+    end
+    nil
+  end
+
+  def git_ls(ref)
+    out, status = Open3.capture2e('git', '-C', repo_root, 'ls-tree', '-r', '--name-only', ref)
+    status.success? ? out.split("\n") : []
   end
 
   # The k6 lane reads its script from the working tree. A scheduled run is

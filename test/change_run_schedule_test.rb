@@ -250,6 +250,24 @@ class ChangeRunScheduleTest < Minitest::Test
     assert_includes runner.send(:report_sections, config, [ "k6" ], {}).join, "spike traffic"
   end
 
+  def test_scheduled_suites_must_match_the_base
+    write("suites/a.yml", "suite: a\n")
+    git("add", ".")
+    git("commit", "-q", "-m", "suite")
+    git("push", "-q", "origin", "main")
+    runner = StubRun.new(%w[schedule nightly-pentest], root: @repo)
+    runner.instance_variable_set(:@schedule, Struct.new(:name).new("nightly"))
+    lane = ChangeConfig::LaneConfig.new("testcases", { "suites" => [ "suites/*.yml" ] }, @repo)
+    guard = -> { capture { runner.send(:check_suites_match_base, lane, "origin/main") } }
+
+    assert_nil guard.call.first, "identical suites pass"
+    write("suites/b.yml", "suite: b\n")
+    assert_equal 2, guard.call.first, "an extra branch-local suite is refused"
+    File.delete(File.join(@repo, "suites/b.yml"))
+    write("suites/a.yml", "suite: changed\n")
+    assert_equal 2, guard.call.first, "edited suite content is refused"
+  end
+
   def test_mode_flag_is_only_for_the_zap_scope
     code, out = capture { ChangeRun.new(%w[k6 --mode full]) }
     assert_equal 2, code
