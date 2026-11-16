@@ -14,6 +14,13 @@ module EpicGraph
 
   def self.node_id(plan_id, phase) = "#{plan_id}#Phase #{phase}"
 
+  # `P2#Phase 01` names the same node as `P2#Phase 1`; epic_check accepts
+  # both, so the graph must too or the edge is silently dropped.
+  def self.canonical(ref)
+    match = NODE.match(ref.to_s)
+    match ? node_id(match[:plan], match[:phase].to_i) : ref.to_s
+  end
+
   # Natural order: plan id, then phase number, so Phase 10 follows Phase 9.
   def self.sort_key(node)
     match = NODE.match(node)
@@ -33,7 +40,7 @@ module EpicGraph
     end
     known = nodes.to_h { |node| [ node, true ] }
     epic.edges.each do |edge|
-      pair = [ edge['from'].to_s, edge['to'].to_s ]
+      pair = [ canonical(edge['from']), canonical(edge['to']) ]
       edges << pair if pair.all? { |node| known[node] }
     end
     Graph.new(nodes, edges)

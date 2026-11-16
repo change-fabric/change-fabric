@@ -51,6 +51,17 @@ class EpicGraphTest < Minitest::Test
     assert_empty graph.downstream("P4#Phase 1")
   end
 
+  def test_zero_padded_edge_refs_keep_their_dependency
+    dir = Dir.mktmpdir
+    epic_path = File.join(dir, "epic.md")
+    File.write(epic_path, File.read(File.join(FIXTURES, "clean/epic.md")).sub('to: "P2#Phase 1"', 'to: "P2#Phase 01"'))
+    graph = EpicGraph.build(EpicStore.load(epic_path, plans_root: PLANS))
+
+    assert_includes graph.successors("P1#Phase 1"), "P2#Phase 1"
+  ensure
+    FileUtils.rm_rf(dir)
+  end
+
   def test_downstream_terminates_on_a_cycle
     graph = EpicGraph::Graph.new(%w[a b], [ %w[a b], %w[b a] ])
 
