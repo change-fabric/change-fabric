@@ -202,7 +202,12 @@ class CfKeys
     0
   end
 
+  # An active deferral comes first, matching WalkthroughEnv.key!: it is why
+  # paid calls skip even when a key is enrolled or inherited.
   def state(project, meta, provider)
+    if CfSecretStore.deferral_active?(project.slug, provider)
+      return "deferred until #{CfSecretStore.deferred_until(project.slug, provider).iso8601}"
+    end
     if CfSecretStore.key?(project.slug, provider)
       return "enrolled#{details(CfSecretStore.enrollment(project.slug, provider))}"
     end
@@ -213,9 +218,6 @@ class CfKeys
       entry = CfSecretStore.enrollment(ancestor.last, provider)
       from = ancestor.first.delete_prefix('dir:')
       return "inherited from #{from}#{details(entry)}" if confirmed == ancestor.first || entry['scope'] == 'tree'
-    end
-    if CfSecretStore.deferral_active?(project.slug, provider)
-      return "deferred until #{CfSecretStore.deferred_until(project.slug, provider).iso8601}"
     end
     return "inheritable from #{ancestor.first.delete_prefix('dir:')} (unconfirmed)" if ancestor
 
