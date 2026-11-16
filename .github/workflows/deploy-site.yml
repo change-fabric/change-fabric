@@ -45,7 +45,7 @@ jobs:
           # current version at /spec. Deploying a spec version that has no
           # spec/v* tag would publish it as current with no release, no
           # permanent artifact and nothing to pin. The site may lag a spec
-          # release; it may never lead one. See RELEASING.md decision 2.
+          # release; it may never lead one. See PRINCIPLES.md (site lags spec).
           spec="$(sed -n 's/^Schema version:[[:space:]]*\(.*\)$/\1/p' skills/change/reference/CHANGE-frontmatter-spec.md | head -1)"
           if [ -z "$spec" ]; then
             echo "::error title=No spec version::The spec doc has no 'Schema version:' line."

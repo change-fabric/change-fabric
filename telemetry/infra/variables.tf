@@ -34,11 +34,11 @@ variable "throttle_burst_limit" {
 # reference. Applying before the images exist fails on purpose, so a half-built
 # backend never goes live.
 variable "presence_image_uri" {
-  description = "ECR image URI (<repo_url>:<tag> or @<digest>) for the presence Lambda. Set AFTER `docker build && docker push` to the cf-presence repo (see telemetry/infra/lambda/presence/README and the root README). No default: apply fails until a real pushed image is provided."
+  description = "ECR image URI (<repo_url>:<tag> or @<digest>) for the presence Lambda. Set AFTER `docker build && docker push` to the cf-presence repo (see telemetry/infra/README.md). No default: apply fails until a real pushed image is provided."
   type        = string
 }
 
 variable "notifications_image_uri" {
-  description = "ECR image URI (<repo_url>:<tag> or @<digest>) for the notifications Lambda. Set AFTER `docker build && docker push` to the cf-notifications repo (see telemetry/infra/lambda/notifications/README and the root README). No default: apply fails until a real pushed image is provided."
+  description = "ECR image URI (<repo_url>:<tag> or @<digest>) for the notifications Lambda. Set AFTER `docker build && docker push` to the cf-notifications repo (see telemetry/infra/README.md). No default: apply fails until a real pushed image is provided."
   type        = string
 }

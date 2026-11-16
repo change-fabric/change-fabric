@@ -14,7 +14,7 @@ const WHO = [
   { who: "You run a team repo", why: "Add a gate later: load, accessibility, security and layout checks before a merge." },
 ] as const;
 
-// Every host install.rb wires today (docs/agent-compatibility.md). Codex and
+// Every host install.rb wires today (ARCHITECTURE.md, Host portability). Codex and
 // Copilot are named by their CLIs, since only the CLI surfaces are installed;
 // desktop, cloud and editor variants are not claimed.
 const HARNESSES = [

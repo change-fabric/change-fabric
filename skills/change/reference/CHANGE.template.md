@@ -49,7 +49,7 @@ spec_version: "0.9.0"
 # Mint the team once with `ruby ~/.claude/cf/bin/cf_team_init.rb <team_id>
 # "<label>"`, which prints the first half of this block. The second half is the
 # organization and team you created in the platform web app, plus the API key
-# you minted for that team. See scripts/CF_TEAM_SETUP.md.
+# you minted for that team. See RELEASING.md, Team setup.
 contributors_team:
   team_id: my-team
   public_key_ed25519: <base64 verify-only key printed by cf_team_init.rb>

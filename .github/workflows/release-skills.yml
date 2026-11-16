@@ -5,7 +5,7 @@ name: release-skills
 # the toolkit's version: there is no VERSION file in the tree, so nothing can
 # disagree with the tag and nothing has to be edited to cut a release. The
 # guardrail is therefore monotonicity against the tags already published rather
-# than agreement with a committed file. See RELEASING.md.
+# than agreement with a committed file. See ARCHITECTURE.md, Release model.
 
 on:
   push:

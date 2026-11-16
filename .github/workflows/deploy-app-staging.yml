@@ -3,7 +3,7 @@ name: deploy-app-staging
 # Publishes app.staging.changefabric.org. Triggered by any push to main that
 # touches platform/web, unlike deploy-site.yml: this is a staging environment
 # with no external consumer pinning a version, so it deploys continuously
-# rather than waiting on a tag (see RELEASING.md, "platform/ is out of scope").
+# rather than waiting on a tag (see ARCHITECTURE.md, Release model).
 #
 # The role this assumes is trusted for ref:refs/heads/main only
 # (platform/infra/webapp.tf), matching this trigger.
