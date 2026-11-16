@@ -87,7 +87,7 @@ module DocsCheck
   end
 
   def run(root)
-    tracked, = Open3.capture2('git', '-C', root, 'ls-files', '-z', '-c', '-o', '--exclude-standard')
+    tracked, = Open3.capture2('git', '-C', root, 'ls-files', '-z')
     files = tracked.split("\0")
     basenames = files.to_set { |f| File.basename(f) }
     exists = lambda do |path|
