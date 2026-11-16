@@ -11,6 +11,8 @@ require_relative "../scripts/diagram_lint"
 # exit codes.
 class DiagramLintTest < Minitest::Test
   FIXTURES = File.expand_path("fixtures/diagram", __dir__)
+  # Provider icons are verified against the synthetic fake pack, never a real one.
+  FAKE_PACKS = CloudIcons::Store.new("aws" => File.expand_path("fixtures/cloud_icons/fake-pack", __dir__))
 
   # Test double for the measurer interface.
   class FixedMeasurer
@@ -27,7 +29,7 @@ class DiagramLintTest < Minitest::Test
   def fixture(name) = File.join(FIXTURES, name)
 
   def lint(name, measurer: DiagramMeasure::Static.new)
-    DiagramLint.new(measurer: measurer).lint_file(fixture(name))[:findings]
+    DiagramLint.new(measurer: measurer, packs: FAKE_PACKS).lint_file(fixture(name))[:findings]
   end
 
   def run_cli(*argv)
@@ -39,7 +41,7 @@ class DiagramLintTest < Minitest::Test
 
   def test_every_check_has_a_kebab_id_and_a_broken_fixture
     ids = DiagramChecks::ALL.map { |c| c::ID }
-    assert_equal 21, ids.uniq.size
+    assert_equal 26, ids.uniq.size
     ids.each do |id|
       assert_match(/\A[a-z0-9]+(-[a-z0-9]+)*\z/, id)
       assert File.file?(fixture("broken_#{id.tr('-', '_')}.svg")), "missing broken fixture for #{id}"
@@ -56,7 +58,7 @@ class DiagramLintTest < Minitest::Test
   end
 
   def test_clean_fixtures_yield_no_findings
-    %w[clean_flow.svg clean_architecture.svg clean_multiline.svg].each do |name|
+    %w[clean_flow.svg clean_architecture.svg clean_multiline.svg clean_architecture_aws.svg].each do |name|
       assert_empty lint(name), name
     end
   end

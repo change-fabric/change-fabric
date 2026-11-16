@@ -1,0 +1,89 @@
+# cf:diagram provider profile: AWS. Metadata only; no icon is committed.
+# scripts/cloud_icons.rb fetches the package below with `npm pack` in the
+# pinned Node image, checks the sha512 integrity, and caches it outside git.
+# Bump the pin by hand in a toolkit PR (version and integrity together).
+provider: aws
+title: AWS Architecture Icons
+package: "@squinch/pack-aws"
+version: 0.19.0
+integrity: sha512-IFMKVFIJge6wheO5zB0DRQnwvjViOSbtBEhTA6uD/l0l4TsCX5wLZl+y/oMKqJRbyjFmaU7aFrpkjFpQ5rhPAg==
+release: "04302026"
+# Attribution cites the provider's own terms, never the package license.
+terms: https://aws.amazon.com/architecture/icons/
+attribution: AWS Architecture Icons, Copyright Amazon Web Services, Inc. or its affiliates. AWS and the service names shown are trademarks of Amazon.com, Inc. or its affiliates.
+max_depth: 6
+# Group chrome. depth orders nesting (a child is strictly deeper than its
+# parent); color is the official light-theme border, read from the pack's
+# own group SVG fill where one exists (source: pack) and from AWS's
+# published group guidance otherwise (source: guidance). dark is used only
+# where the official value fails 3:1 against the default dark --bg
+# (#2D3142): the official color mixed toward #FFFFFF until it clears 3.1:1.
+groups:
+  cloud:
+    depth: 1
+    color: "#242F3E"
+    dark: "#777E87"
+    dash: solid
+    corner: cloud
+    source: pack
+  region:
+    depth: 2
+    color: "#00A4A6"
+    dash: dashed
+    corner: region
+    source: pack
+  vpc:
+    depth: 3
+    color: "#8C4FFF"
+    dark: "#9258FF"
+    dash: solid
+    corner: virtual-private-cloud-vpc
+    source: pack
+  availability-zone:
+    depth: 4
+    color: "#00A4A6"
+    dash: dashed
+    corner: null
+    source: guidance
+  public-subnet:
+    depth: 5
+    color: "#7AA116"
+    dash: solid
+    corner: public-subnet
+    source: pack
+  private-subnet:
+    depth: 5
+    color: "#00A4A6"
+    dash: solid
+    corner: private-subnet
+    source: pack
+  security-group:
+    depth: 6
+    color: "#DD344C"
+    dark: "#DF4259"
+    dash: solid
+    corner: null
+    source: guidance
+  auto-scaling-group:
+    depth: 6
+    color: "#ED7100"
+    dash: dashed
+    corner: auto-scaling-group
+    source: pack
+# Phosphor glyph (scripts/vendor/phosphor subset) drawn when the pack or a
+# slug is unavailable; any slug not listed takes the default.
+fallback:
+  default: cloud
+  slugs:
+    lambda: lightning
+    ec2: gear
+    rds: database
+    dynamodb: database
+    simple-storage-service: database
+    s3: database
+    api-gateway: flow-arrow
+    elastic-load-balancing: flow-arrow
+    simple-queue-service: list-checks
+    cloudfront: devices
+    cognito: lock
+    iam: shield-check

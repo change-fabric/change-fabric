@@ -165,6 +165,27 @@ Draw connectors before nodes, so lines sit behind boxes.
 
 A `<g class="group">` around a `<rect>` stroked in `--rule` (dashed `4 4` for a trust or network boundary), `rx=8`, no fill, with its uppercase mono label in `--soft` sitting on the top border on a mask chip, 16px in from the left.
 
+### Provider diagrams
+
+An architecture diagram may declare a cloud provider with `data-provider="aws"` on the root, next to `data-diagram-type="architecture"`. It then draws the provider's official service icons and group chrome. Each provider has a profile: `skills/diagram/packs/<provider>.yml` (pin, groups, fallback glyphs) and `reference/providers/<provider>.md` (how to use it). Without `data-provider` nothing below applies.
+
+Icon. Generate the markup with `CloudIcons.inline(provider, slug, instance_id:, box: [x, y, w, h])` from `scripts/cloud_icons.rb`; never hand-copy an icon. It yields:
+
+```xml
+<g class="icon" id="api-icon" data-provider="aws" data-icon="lambda" data-pack-sha="(sha256 of the pack file)">
+  <!-- AWS Architecture Icons: (terms URL) (fetched via @squinch/pack-aws@0.19.0) -->
+  <svg class="icon" x="116" y="180" width="32" height="32" viewBox="0 0 80 80">(the pack file's children, unmodified)</svg>
+</g>
+```
+
+The nested `svg.icon` is an opaque box: its children are never scaled, recolored, or read by the shared checks, and the transform ban still holds everywhere else. Put the `g.icon` inside its `g.node` (left of the label, 12px in, the label starting 12px past the icon) or, as a corner chip, directly inside its provider `g.group`. Style node shapes with a child combinator (`.node > rect`), never `.node rect`: a descendant selector would reach into the icon and recolor it.
+
+Plate. When a tile is under 3:1 on what it sits on, add `<rect class="plate" fill="#FFFFFF" rx="2">` as the first child of the `g.icon` and shrink the icon so the plate shows at least 2px on every side.
+
+Fallback. When the pack is not cached or has no such slug, `inline` draws the profile's Phosphor glyph in `var(--ink)` with `data-fallback="<glyph>"` instead. Keep the service name in the node label, so the diagram still reads. Lint warns and passes.
+
+Provider group. `<g class="group" data-id="vpc" data-group-kind="vpc">` whose first child is the border `<rect stroke="var(--aws-vpc)">`, followed by its label chip (an optional corner `g.icon` at the rect's top-left corner and a 12px label text 8px past it), then its children. Nest the elements as the groups nest: a subnet's `g.group` sits inside its VPC's `g.group`. Each level is inset at least 16px inside its parent, never partly overlaps a group it is not nested in, and keeps its nodes 16px in. The `--<provider>-<kind>` custom properties carry the official colors in both theme blocks and are the only place those colors are palette-exempt.
+
 ### Legend
 
 A horizontal strip under the figure, never floating inside it: a `--rule` hairline across the content width, a `LEGEND` eyebrow, then one swatch and edge-label-sized item per treatment actually used, about 160px apart. Each entry names exactly what its style marks in this diagram: if only one connector is orange, the entry names that connector's meaning (CLEAN RESULT), not a broader one (PRIMARY PATH) the drawing does not show. Grow the viewBox by 64px for it. Wrap it in `<g class="legend">`. Leave it out when the diagram uses one treatment only.

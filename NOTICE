@@ -132,4 +132,26 @@ the subset from the pinned npm tarball into
 scripts/vendor/phosphor/phosphor-2.1.1.json; the full license text is in
 scripts/vendor/phosphor/LICENSE.txt. cf:prototype screens fetch the same
 pinned package and write its notice into each walkthrough's
-THIRD_PARTY_NOTICES, as diagram scenes with node icons do.
+THIRD_PARTY_NOTICES, as diagram scenes with node icons do. cf:diagram
+provider diagrams draw the same vendored glyphs as their fallback when a
+provider icon is unavailable.
+
+Cloud provider architecture icons
+---------------------------------
+
+cf:diagram provider architecture diagrams draw official cloud service
+icons. No provider icon is stored in this repository. scripts/cloud_icons.rb
+fetches each provider's icons at use time from a pinned npm package (named,
+with its sha512, in skills/diagram/packs/<provider>.yml) into a local cache
+outside git, and inlines the files unmodified into the diagrams a user
+makes. The icons belong to the provider and are used under the provider's
+own terms, which each diagram's notice comment and THIRD_PARTY_NOTICES
+cite, not under the license of the package that carries them:
+
+  AWS Architecture Icons, Copyright Amazon Web Services, Inc. or its
+  affiliates. https://aws.amazon.com/architecture/icons/
+  Fetched from @squinch/pack-aws (https://github.com/jquatier/squinch),
+  which redistributes the icons unmodified.
+
+The test suite uses only synthetic icons invented for it, under
+test/fixtures/cloud_icons/fake-pack.

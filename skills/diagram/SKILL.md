@@ -44,13 +44,17 @@ Never loosen a check or edit the linter to make a diagram pass.
 
 Each finding carries one of these IDs; `reference/grammar.md` states the rule behind each:
 
-`a11y`, `xml-safety`, `viewbox-clip`, `overlap`, `text-overflow`, `baseline`, `box-height`, `spacing`, `grid`, `connector-geometry`, `arrow-marker`, `palette`, `font-stack`, `theme-fallback`, `caps`, `type-declared`, `transform`, `text-baseline`, `font-unit`, `text-geometry-source`, `display-scale`.
+`a11y`, `xml-safety`, `viewbox-clip`, `overlap`, `text-overflow`, `baseline`, `box-height`, `spacing`, `grid`, `connector-geometry`, `arrow-marker`, `palette`, `font-stack`, `theme-fallback`, `caps`, `type-declared`, `transform`, `text-baseline`, `font-unit`, `text-geometry-source`, `display-scale`, `icon-pack-provenance`, `icon-contrast`, `group-nesting`, `group-label-clearance`, `icon-box`.
+
+The last five apply only to a provider diagram (`data-provider` on the root); `reference/architecture.md` describes them.
 
 The last four reject constructs the geometry model does not follow: any `transform`, a baseline other than alphabetic, a font size that is not unitless or px, and a font size or text anchor declared in a style block.
 
 ## Icons
 
-Icons are optional and rarely needed. When one helps, take it from PrototypeIcons (`scripts/prototype_icons.rb`, Phosphor for UI glyphs and Simple Icons for brand marks), inline it as a `<path>` inside the node group, color it with a palette role, and add the notice comment that PrototypeIcons supplies inside the SVG. No other icon source.
+Icons are optional and rarely needed. When one helps, take it from PrototypeIcons (`scripts/prototype_icons.rb`, Phosphor for UI glyphs and Simple Icons for brand marks), inline it as a `<path>` inside the node group, color it with a palette role, and add the notice comment that PrototypeIcons supplies inside the SVG. No other icon source, with one exception: a provider architecture diagram.
+
+A provider diagram (an architecture diagram of a system on one cloud) takes official service icons from that provider's pinned pack through `scripts/cloud_icons.rb`. Fill the cache with `ruby ~/.claude/cf/bin/cloud_icons.rb <provider>` (Docker, once per machine), then inline each icon with `CloudIcons.inline`. Never copy a provider SVG into a repo by hand. Profiles: `packs/<provider>.yml` and `reference/providers/<provider>.md`; today AWS.
 
 The engineering glyphs walkthrough diagram nodes use (`icon` in the storyboard schema) are already vendored as path data, all four weights, in `scripts/vendor/phosphor/phosphor-2.1.1.json`; take a glyph from there before fetching the package. It is still Phosphor, so the notice comment still applies.
 

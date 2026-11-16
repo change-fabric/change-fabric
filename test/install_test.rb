@@ -209,6 +209,17 @@ class InstallerTest < Minitest::Test
     end
   end
 
+  # cloud_icons.rb reads provider pack manifests from the installed
+  # cf:diagram skill when it runs outside the repo.
+  def test_installs_the_diagram_provider_pack_manifests
+    paths = install
+    Dir.glob(File.join(@repo, "skills", "diagram", "packs", "*.yml")).each do |src|
+      dest = File.join(paths.skill_link("cf:diagram"), "packs", File.basename(src))
+      assert File.exist?(dest), "install did not place #{File.basename(src)} with cf:diagram"
+      assert_equal File.read(src), File.read(dest)
+    end
+  end
+
   def test_links_the_auto_skills_under_the_namespace_keeping_cf_plain
     paths = install
     linked = paths.skill_sources.map { |s| Install::SkillName.of(s) }

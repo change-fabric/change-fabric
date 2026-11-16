@@ -1,0 +1,110 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 440" width="720" height="440" role="img" aria-labelledby="t d" data-diagram-type="architecture" data-provider="aws">
+  <title id="t">Broken: VPC label runs into the subnet</title>
+  <desc id="d">Inside the cloud, a VPC holds a private subnet. An orders API calls a worker function, which writes order records to a database. Icons come from a synthetic test pack.</desc>
+  <style>
+    svg { --bg: #FFFFFF; --surface: #FFFFFF; --ink: #2D3142; --muted: #4F5D75; --soft: #5A6580; --line: #4F5D75; --rule: #D9DADD; --accent: #B5401C; --accent-tint: #F2E9E6; --link: #2E5AA8; --aws-cloud: #242F3E; --aws-vpc: #8C4FFF; --aws-private-subnet: #00A4A6; }
+    @media (prefers-color-scheme: dark) {
+      svg { --bg: #2D3142; --surface: #2D3142; --ink: #F5F5F5; --muted: #BFC0C0; --soft: #A3ACC0; --line: #A3ACC0; --rule: #45495A; --accent: #F08A59; --accent-tint: #3D3844; --link: #7FA9E6; --aws-cloud: #777E87; --aws-vpc: #9258FF; --aws-private-subnet: #00A4A6; }
+    }
+    .bg { fill: var(--bg); }
+    .node > rect { fill: var(--surface); stroke: var(--ink); stroke-width: 1; }
+    .label { fill: var(--ink); font-weight: 600; font-family: Geist, Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", sans-serif; }
+    .edge { fill: none; stroke: var(--line); stroke-width: 1.2; }
+    #arrow path { fill: var(--line); }
+    .group > rect { fill: none; stroke-width: 1.5; }
+    .group-label { fill: var(--ink); font-weight: 600; font-family: Geist, Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", sans-serif; }
+  </style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="#4F5D75"/></marker>
+  </defs>
+  <rect class="bg" x="0" y="0" width="720" height="440" fill="#FFFFFF"/>
+  <g class="group" data-id="cloud" data-group-kind="cloud">
+    <rect x="24" y="40" width="672" height="376" stroke="var(--aws-cloud)"/>
+    <g class="icon" id="cloud-chip" data-provider="aws" data-icon="cloud" data-pack-sha="8e4ad40af6430fc7edda97c2c42e3c556310758b612c4a80eaefb9edef60782c">
+      <rect class="plate" x="24" y="40" width="24" height="24" rx="2" fill="#FFFFFF"/>
+      <!-- AWS Architecture Icons: https://aws.amazon.com/architecture/icons/ (fetched via @squinch/pack-aws@0.19.0) -->
+      <svg class="icon" x="27" y="43" width="18" height="18" viewBox="0 0 64 64">
+        <title>Synthetic test icon</title>
+        <g stroke="none" fill="none" fill-rule="evenodd">
+            <rect fill="#242F3E" x="0" y="0" width="64" height="64"></rect>
+            <path d="M16 40 H48 V44 H16 Z" fill="#FFFFFF"></path>
+        </g>
+    </svg>
+    </g>
+    <text class="group-label" x="56" y="57" font-size="12">AWS Cloud</text>
+    <g class="group" data-id="vpc" data-group-kind="vpc">
+      <rect x="48" y="80" width="624" height="320" stroke="var(--aws-vpc)"/>
+      <g class="icon" id="vpc-chip" data-provider="aws" data-icon="virtual-private-cloud-vpc" data-pack-sha="e22fcfafa8c866138f4297d22c06138877642ba8c1af5f792835e6ce581cafce">
+        <rect class="plate" x="48" y="80" width="24" height="24" rx="2" fill="#FFFFFF"/>
+        <!-- AWS Architecture Icons: https://aws.amazon.com/architecture/icons/ (fetched via @squinch/pack-aws@0.19.0) -->
+        <svg class="icon" x="51" y="83" width="18" height="18" viewBox="0 0 64 64">
+          <title>Synthetic test icon</title>
+          <g stroke="none" fill="none" fill-rule="evenodd">
+              <rect fill="#8C4FFF" x="0" y="0" width="64" height="64"></rect>
+              <path d="M20 20 H44 V44 H20 Z" fill="#FFFFFF"></path>
+          </g>
+      </svg>
+      </g>
+      <text class="group-label" x="80" y="126" font-size="12">VPC</text>
+      <g class="group" data-id="subnet" data-group-kind="private-subnet">
+        <rect x="72" y="120" width="576" height="264" stroke="var(--aws-private-subnet)"/>
+        <g class="icon" id="subnet-chip" data-provider="aws" data-icon="private-subnet" data-pack-sha="431628993a137da4fab3231639c707f71b3afd215dccd79c25e689fdf2ea4ce0">
+          <!-- AWS Architecture Icons: https://aws.amazon.com/architecture/icons/ (fetched via @squinch/pack-aws@0.19.0) -->
+          <svg class="icon" x="72" y="120" width="24" height="24" viewBox="0 0 64 64">
+            <title>Synthetic test icon</title>
+            <g stroke="none" fill="none" fill-rule="evenodd">
+                <rect fill="#00A4A6" x="0" y="0" width="64" height="64"></rect>
+                <path d="M28 20 H36 V44 H28 Z" fill="#FFFFFF"></path>
+            </g>
+        </svg>
+        </g>
+        <text class="group-label" x="104" y="137" font-size="12">Private subnet</text>
+        <g class="node" data-id="api">
+          <rect x="104" y="168" width="176" height="56" rx="6"/>
+          <g class="icon" id="api-icon" data-provider="aws" data-icon="function" data-pack-sha="46f922e7b12f63f8833f47353749bdc769b790baf6f83eba15a6d466712ac27e">
+            <!-- AWS Architecture Icons: https://aws.amazon.com/architecture/icons/ (fetched via @squinch/pack-aws@0.19.0) -->
+            <svg class="icon" x="116" y="180" width="32" height="32" viewBox="0 0 64 64">
+              <title>Synthetic test icon</title>
+              <g stroke="none" fill="none" fill-rule="evenodd">
+                  <rect fill="#ED7100" x="0" y="0" width="64" height="64"></rect>
+                  <path d="M20 48 L32 16 L44 48 Z" fill="#FFFFFF"></path>
+              </g>
+          </svg>
+          </g>
+          <text class="label" x="160" y="200.9" font-size="14">Orders API</text>
+        </g>
+        <g class="node" data-id="worker">
+          <rect x="344" y="168" width="176" height="56" rx="6"/>
+          <g class="icon" id="worker-icon" data-provider="aws" data-icon="function" data-pack-sha="46f922e7b12f63f8833f47353749bdc769b790baf6f83eba15a6d466712ac27e">
+            <!-- AWS Architecture Icons: https://aws.amazon.com/architecture/icons/ (fetched via @squinch/pack-aws@0.19.0) -->
+            <svg class="icon" x="356" y="180" width="32" height="32" viewBox="0 0 64 64">
+              <title>Synthetic test icon</title>
+              <g stroke="none" fill="none" fill-rule="evenodd">
+                  <rect fill="#ED7100" x="0" y="0" width="64" height="64"></rect>
+                  <path d="M20 48 L32 16 L44 48 Z" fill="#FFFFFF"></path>
+              </g>
+          </svg>
+          </g>
+          <text class="label" x="400" y="200.9" font-size="14">Worker</text>
+        </g>
+        <g class="node" data-id="db">
+          <rect x="344" y="280" width="176" height="56" rx="6"/>
+          <g class="icon" id="db-icon" data-provider="aws" data-icon="database" data-pack-sha="4376fd124e1871b52da0626430e838e6e76a2c2f25c62c52022b73a7104d3174">
+            <rect class="plate" x="356" y="292" width="32" height="32" rx="2" fill="#FFFFFF"/>
+            <!-- AWS Architecture Icons: https://aws.amazon.com/architecture/icons/ (fetched via @squinch/pack-aws@0.19.0) -->
+            <svg class="icon" x="359" y="295" width="26" height="26" viewBox="0 0 64 64">
+              <title>Synthetic test icon</title>
+              <g stroke="none" fill="none" fill-rule="evenodd">
+                  <rect fill="#C925D1" x="0" y="0" width="64" height="64"></rect>
+                  <path d="M20 18 H44 V46 H20 Z" fill="#FFFFFF"></path>
+              </g>
+          </svg>
+          </g>
+          <text class="label" x="400" y="312.9" font-size="14">Orders DB</text>
+        </g>
+      </g>
+    </g>
+  </g>
+  <path class="edge" data-from="api" data-to="worker" d="M280 196 H344" marker-end="url(#arrow)"/>
+  <path class="edge" data-from="worker" data-to="db" d="M432 224 V280" marker-end="url(#arrow)"/>
+</svg>

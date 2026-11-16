@@ -1,6 +1,9 @@
 # frozen_string_literal: true
 
 require_relative "svg_checks"
+require_relative "cloud_icons"
+require_relative "diagram_palette"
+require_relative "diagram_provider_checks"
 
 # The cf:diagram lint rules. The type-aware checks (connectors, markers,
 # node spacing and grid, caps) live here; the SVG checks every cf SVG shares
@@ -51,7 +54,11 @@ module DiagramChecks
   MAX_EDGES = 16
 
   # What every check may consult beyond the document itself.
-  Context = Data.define(:type, :widths, :measured, :palette) do
+  # `packs` is the CloudIcons store provider icons are verified against
+  # (nil: no pack is available, so provenance cannot be verified).
+  Context = Data.define(:type, :widths, :measured, :palette, :packs) do
+    def initialize(type:, widths:, measured:, palette:, packs: nil) = super
+
     def rules = TYPE_RULES.fetch(type, TYPE_RULES["flow"])
 
     # The single text bounds resolver: the measurer's full box [x, y, w, h]
@@ -133,8 +140,8 @@ module DiagramChecks
     ID = "spacing"
 
     def call(doc, context)
-      tight = doc.nodes.combination(2).select { |a, b| a.box.gap(b.box).between?(0, SIBLING_GAP - 0.001) }
-                 .map { |a, b| finding(a.id, "gap to #{b.id} is #{a.box.gap(b.box).round}px", "keep at least #{SIBLING_GAP}px") }
+      tight = doc.nodes.combination(2).map { |a, b| [ a, b, a.box.gap(b.box) ] }.select { |_, _, gap| gap.between?(0, SIBLING_GAP - 0.001) }
+                 .map { |a, b, gap| finding(a.id, "gap to #{b.id} is #{gap.round}px", "keep at least #{SIBLING_GAP}px") }
       tight + labels(doc, context)
     end
 
@@ -267,8 +274,11 @@ module DiagramChecks
   end
 
   ALL = [ A11y, XmlSafety, ViewboxClip, Overlap, TextOverflow, Baseline, BoxHeight, Spacing, Grid,
-          ConnectorGeometry, ArrowMarker, Palette, FontStack, ThemeFallback, Caps, TypeDeclared,
-          Transform, TextBaseline, FontUnit, TextGeometrySource, DisplayScale ].freeze
+          ConnectorGeometry, ArrowMarker, DiagramProviderChecks::ProviderPalette, FontStack, ThemeFallback, Caps,
+          TypeDeclared, Transform, TextBaseline, FontUnit, TextGeometrySource, DisplayScale,
+          DiagramProviderChecks::IconPackProvenance, DiagramProviderChecks::IconContrast,
+          DiagramProviderChecks::GroupNesting, DiagramProviderChecks::GroupLabelClearance,
+          DiagramProviderChecks::IconBox ].freeze
 
   def self.all = ALL.map(&:new)
 end
