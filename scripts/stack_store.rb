@@ -119,26 +119,35 @@ class StackStore
 
   # Which queue a sweep works on, given the base slug sweep-<first>-<last>.
   # ACTIVE wins whatever its suffix; otherwise the highest unfinished
-  # base[-N] resumes; otherwise a new record at the first free suffix.
+  # base[-N] resumes; otherwise a new record at the first free suffix. A
+  # sweep's endpoints shift as its PRs merge (sweep-12-14 becomes 13-14 once
+  # #12 lands), so for a sweep base any unfinished sweep-* queue resumes: the
+  # recorded queue wins until it finishes.
   def self.resolve(dir, base)
     base = segment(base)
     active = holder(File.join(base_dir(dir), 'ACTIVE'))
     return resolve_active(active, base) if active
 
-    records = all_for_dir(dir).select { |r| suffix(r['slug'].to_s, base) }
-    open = records.reject { |r| finished?(r) }.max_by { |r| suffix(r['slug'], base) }
+    records = all_for_dir(dir)
+    family = records.select { |r| suffix(r['slug'].to_s, base) }
+    open = family.reject { |r| finished?(r) }.max_by { |r| suffix(r['slug'], base) } ||
+           records.find { |r| !finished?(r) && same_queue?(r['slug'], base) }
     return { 'action' => 'resume', 'slug' => open['slug'] } if open
 
-    taken = records.map { |r| r['slug'] }
+    taken = family.map { |r| r['slug'] }
     slug = ([ base ] + (2..taken.size + 2).map { |n| "#{base}-#{n}" }).find { |c| !taken.include?(c) }
     { 'action' => 'new', 'slug' => slug }
   end
 
   def self.resolve_active(active, base)
     raise Held.new('held', nil) if active == :incomplete
-    return { 'action' => 'resume', 'slug' => active['slug'] } if suffix(active['slug'].to_s, base)
+    return { 'action' => 'resume', 'slug' => active['slug'] } if same_queue?(active['slug'], base)
 
     raise Held.new('held', active)
+  end
+
+  def self.same_queue?(slug, base)
+    suffix(slug.to_s, base) || (base.start_with?('sweep-') && slug.to_s.start_with?('sweep-'))
   end
 
   # 1 for the base slug, N for base-N, nil for anything else.
@@ -150,10 +159,13 @@ class StackStore
   end
 
   # The resume table: what to do with the head PR given its stored state and
-  # what gh reports. gh is the truth; the store is intent.
-  def self.resume_action(store_state, gh_state)
+  # what gh reports. gh is the truth; the store is intent. A handed_off head
+  # whose live head is not the recorded one took a push while nobody watched,
+  # so it is prepared again rather than re-watched.
+  def self.resume_action(store_state, gh_state, recorded_head: nil, live_head: nil)
     return 'advance' if gh_state == 'MERGED'
     return 'escalate' if gh_state == 'CLOSED'
+    return 'redrive' if store_state.to_s == 'handed_off' && live_head && recorded_head != live_head
 
     { 'pending' => 'drive', 'preparing' => 'redrive', 'handed_off' => 'rewatch' }.fetch(store_state.to_s, 'report')
   end
@@ -247,12 +259,16 @@ class StackStore
     end
   end
 
-  def unlease
+  # Frees the lease only for the session holding it, so a run whose expired
+  # lease was taken over cannot delete its successor's. `clear` is the manual
+  # reset and passes force: true.
+  def unlease(session: nil, force: false)
     with_lease_lock do
       holder = StackStore.holder(lease_path)
-      FileUtils.rm_f(lease_path) if holder.is_a?(Hash) && holder['slug'] == @slug
+      mine = force ? holder.is_a?(Hash) && holder['slug'] == @slug : own_lease?(holder, session)
+      FileUtils.rm_f(lease_path) if mine
+      { 'unleased' => mine ? @slug : nil }
     end
-    { 'unleased' => @slug }
   end
 
   def init(repo:, source:, mode:, prs:, plan_dir: nil)
@@ -318,7 +334,7 @@ class StackStore
   def clear
     FileUtils.rm_f(path) if persistable?
     remove_claim
-    unlease
+    unlease(force: true)
     nil
   end
 
@@ -421,7 +437,7 @@ class StackStore
   # line so the skill parses one shape.
   class CLI
     USAGE = 'stack_store.rb claim <slug> [--source S] | release <slug> [--stale] | resolve <base-slug> | ' \
-            'lease <slug> --session ID [--pid PID] | heartbeat <slug> --session ID | unlease <slug> | ' \
+            'lease <slug> --session ID [--pid PID] | heartbeat <slug> --session ID | unlease <slug> --session ID | ' \
             'init <slug> --repo o/r --source plan|list|sweep --mode MODE ' \
             '[--plan-dir DIR] --pr N:URL:HEAD:SHA ... | get <slug> | ' \
             'set-pr <slug> <n> key=value ... | advance <slug> [--expect N] | pause <slug> <reason> | ' \
@@ -454,7 +470,7 @@ class StackStore
       when 'release' then store.release(stale: rest.include?('--stale'))
       when 'lease' then store.lease(session: flag(rest, 'session'), pid: flag(rest, 'pid'))
       when 'heartbeat' then store.heartbeat(session: flag(rest, 'session'))
-      when 'unlease' then store.unlease
+      when 'unlease' then store.unlease(session: flag(rest, 'session'))
       else record_command(command, store, rest, dir, ctx)
       end
     end

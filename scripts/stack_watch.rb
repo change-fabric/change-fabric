@@ -38,7 +38,13 @@ class StackWatch
 
   class SetupError < StandardError; end
 
-  def initialize(pr:, repo:, interval: 60, ttl: 86_400, expect_sha: [], sleeper: method(:sleep))
+  # `heartbeat` is called once per poll, so a sweep's executor lease stays
+  # fresh for as long as the watcher waits on the maintainer's merge.
+  # `baseline_sha` is the head recorded at handoff: a first snapshot on any
+  # other head took a push while nobody watched, so it is foreign.
+  def initialize(pr:, repo:, interval: 60, ttl: 86_400, expect_sha: [], sleeper: method(:sleep), # rubocop:disable Metrics/ParameterLists
+                 heartbeat: nil, baseline_sha: nil)
+    @baseline_sha = baseline_sha&.to_s
     @pr = Integer(pr)
     @owner, @name = repo.to_s.split('/', 2)
     raise SetupError, 'repo must be owner/name' if @owner.to_s.empty? || @name.to_s.empty?
@@ -47,6 +53,7 @@ class StackWatch
     @ttl = ttl.to_f
     @expect = Array(expect_sha).map(&:to_s)
     @sleeper = sleeper
+    @heartbeat = heartbeat
   end
 
   # Returns [exit_code, event_hash].
@@ -54,7 +61,10 @@ class StackWatch
     started = now
     baseline = nil
     loop do
+      @heartbeat&.call
       snap = snapshot
+      return [ FOREIGN_PUSH, event('foreign_push', head: snap[:head]) ] if baseline.nil? && unexpected_head?(snap)
+
       baseline ||= snap
       event = classify(snap, baseline)
       return event if event
@@ -67,6 +77,10 @@ class StackWatch
   private
 
   def now = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+
+  def unexpected_head?(snap)
+    snap[:state] == 'OPEN' && @baseline_sha && snap[:head].to_s != @baseline_sha
+  end
 
   def classify(snap, baseline)
     return [ MERGED, event('merged', merged_at: snap[:merged_at]) ] if snap[:state] == 'MERGED'
@@ -134,15 +148,34 @@ class StackWatch
 
   # Flag parsing and the exit-code contract.
   class CLI
-    USAGE = 'stack_watch.rb --pr N --repo owner/name [--interval 60] [--ttl 86400] [--expect-sha SHA ...]'
+    USAGE = 'stack_watch.rb --pr N --repo owner/name [--interval 60] [--ttl 86400] [--expect-sha SHA ...] ' \
+            '[--baseline-sha SHA] [--lease SLUG --session ID]'
 
     def self.run(argv, out: $stdout)
-      code, payload = StackWatch.new(**parse(argv)).run
+      opts = parse(argv)
+      slug = opts.delete(:lease)
+      session = opts.delete(:session)
+      opts[:heartbeat] = lease_heartbeat(slug, session) if slug
+      code, payload = StackWatch.new(**opts).run
       out.puts(JSON.generate(payload))
       code
     rescue SetupError, ArgumentError, TypeError => e
       out.puts(JSON.generate(event: 'setup_error', error: e.message, usage: USAGE))
       SETUP
+    end
+
+    # Fail-soft: a lost lease surfaces on the sweep's next store call, and a
+    # watcher that crashed here would wake nobody.
+    def self.lease_heartbeat(slug, session, dir: Dir.pwd)
+      raise ArgumentError, '--lease needs --session' if session.to_s.empty?
+
+      require_relative 'stack_store'
+      store = StackStore.for_dir(dir, slug)
+      lambda do
+        store.heartbeat(session:)
+      rescue StackStore::Invalid, SystemCallError
+        nil
+      end
     end
 
     def self.parse(argv)
@@ -164,6 +197,9 @@ class StackWatch
       when '--interval' then opts[:interval] = Float(value)
       when '--ttl' then opts[:ttl] = Float(value)
       when '--expect-sha' then opts[:expect_sha] << value
+      when '--baseline-sha' then opts[:baseline_sha] = value
+      when '--lease' then opts[:lease] = value
+      when '--session' then opts[:session] = value
       else raise ArgumentError, "unknown flag #{flag}"
       end
     end

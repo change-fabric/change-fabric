@@ -45,7 +45,11 @@ pid is gone on this host or its heartbeat is older than 900 seconds; otherwise
 it exits non-zero with `{"error":"leased"}` and the run stops. The check and
 the replacement run under one lock, so two takeovers never both win. Run
 `stack_store.rb heartbeat <slug> --session <id>` at each step of the per-PR
-loop, and `unlease <slug>` on completion, pause, or abandon.
+loop, and `unlease <slug> --session <id>` on completion, pause, or abandon;
+it frees only this session's lease, never a successor's. While a PR waits on
+the maintainer, `stack_watch.rb --lease <slug> --session <id>` heartbeats on
+every poll, and `--baseline-sha <old_head_sha>` makes a head that moved
+before the watcher started read as a foreign push (exit 4).
 
 Claim and lease are published atomically (temp file, fsync, `link(2)`, which
 fails when the name exists), so neither is ever read half written. An empty or

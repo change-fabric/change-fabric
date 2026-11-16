@@ -355,8 +355,29 @@ class StackStoreTest < Minitest::Test
     store.heartbeat(session: "s1")
     assert_raises(StackStore::Held) { store.lease(session: "s2") }
     assert_raises(StackStore::Invalid) { store.heartbeat(session: "s2") }
-    store.unlease
+    store.unlease(session: "s1")
     assert_equal "s2", store.lease(session: "s2")["session_id"]
+  end
+
+  def test_unlease_by_a_taken_over_session_keeps_the_successor_lease
+    store.lease(session: "s1", now: Time.now.utc - StackStore::LEASE_TTL - 5)
+    store.lease(session: "s2")
+    assert_nil store.unlease(session: "s1")["unleased"]
+    assert_raises(StackStore::Held) { store.lease(session: "s3") }
+  end
+
+  def test_resolve_resumes_a_sweep_whose_endpoints_shifted
+    active = other("sweep-12-14")
+    seed(active)
+    active.advance
+    assert_equal({ "action" => "resume", "slug" => "sweep-12-14" }, StackStore.resolve(@repo, "sweep-13-14"))
+    active.release
+    assert_equal({ "action" => "resume", "slug" => "sweep-12-14" }, StackStore.resolve(@repo, "sweep-13-14"))
+  end
+
+  def test_handed_off_head_with_a_new_live_head_is_prepared_again
+    assert_equal "rewatch", StackStore.resume_action("handed_off", "OPEN", recorded_head: "abc", live_head: "abc")
+    assert_equal "redrive", StackStore.resume_action("handed_off", "OPEN", recorded_head: "abc", live_head: "def")
   end
 
   # Queue resolution.

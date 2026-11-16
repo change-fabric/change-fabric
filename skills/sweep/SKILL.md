@@ -230,8 +230,10 @@ mode keeps its own slug).
 
 1. `ruby $S resolve <base>`: ACTIVE wins whatever its suffix; otherwise the
    highest unfinished `<base>` or `<base>-<N>` resumes; otherwise `new` at the
-   first free suffix. A finished record is archived, never revived, so a new
-   queue over the same PRs is `<base>-2`, then `-3`. A held claim stops here.
+   first free suffix. Any unfinished `sweep-*` queue resumes even when its
+   endpoints have shifted as PRs merged. A finished record is archived, never
+   revived, so a new queue over the same PRs is `<base>-2`, then `-3`. A held
+   claim stops here.
 2. `ruby $S claim <slug> --source sweep`, then `ruby $S lease <slug>
    --session <id>` before anything writes the record; a `leased` reply
    stops the run here.
@@ -244,7 +246,8 @@ mode keeps its own slug).
    merge by merge mode, then `gh pr view <n> --json state,mergedAt` must say
    MERGED and the linear-history check must pass, then `ruby $S advance <slug>
    --expect <n>`. Only then is the next PR touched.
-5. After the last PR: `ruby $S release <slug>` and `ruby $S unlease <slug>`.
+5. After the last PR: `ruby $S release <slug>` and `ruby $S unlease <slug>
+   --session <id>`.
 
 ### Resume table
 
@@ -257,14 +260,17 @@ first; gh is the truth, the store is intent.
 | any | CLOSED unmerged | escalate, `pause <slug> closed` |
 | pending | OPEN | start step 4 |
 | preparing | OPEN | re-run drive from the rebase (idempotent) |
-| handed_off | OPEN | never re-drive; re-arm `stack_watch.rb --pr <n> --repo o/r --expect-sha <old_head_sha>` |
+| handed_off | OPEN, head is `old_head_sha` | never re-drive; re-arm the watcher (Handoff boundary) |
+| handed_off | OPEN, head moved | a push landed while nobody watched: `set-pr <slug> <n> state=preparing` and prepare again |
 | paused or escalated | OPEN | report the recorded reason; do not continue |
 
 ### Handoff boundary
 
 The order is fixed: (a) `set-pr <slug> <n> state=handed_off
 old_head_sha=<sha>`, (b) post the PR's absolute URL, (c) arm `stack_watch.rb
---pr <n> --repo o/r --expect-sha <sha>` in the background. Resume never
+--pr <n> --repo o/r --expect-sha <sha> --baseline-sha <sha> --lease <slug>
+--session <id>` in the background; it heartbeats the lease every poll, so a
+long wait never lets it expire. Resume never
 re-drives a handed_off head; it re-posts nothing and only re-arms the watcher.
 The handoff message says "squash or rebase only, no merge commit".
 
