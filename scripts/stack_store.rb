@@ -126,6 +126,12 @@ class StackStore
   def self.resolve(dir, base)
     base = segment(base)
     active = holder(File.join(base_dir(dir), 'ACTIVE'))
+    # A run that died between its final advance and its release leaves ACTIVE
+    # naming a finished queue; that claim is spent, so release it here.
+    if active.is_a?(Hash) && (record = for_dir(dir, active['slug']).read) && finished?(record)
+      for_dir(dir, active['slug']).release
+      active = nil
+    end
     return resolve_active(active, base) if active
 
     records = all_for_dir(dir)

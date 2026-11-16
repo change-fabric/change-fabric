@@ -375,6 +375,14 @@ class StackStoreTest < Minitest::Test
     assert_equal({ "action" => "resume", "slug" => "sweep-12-14" }, StackStore.resolve(@repo, "sweep-13-14"))
   end
 
+  def test_resolve_releases_an_active_claim_on_a_finished_queue
+    done = other("sweep-12-14")
+    seed(done)
+    2.times { done.advance }
+    assert_equal({ "action" => "new", "slug" => "sweep-15-16" }, StackStore.resolve(@repo, "sweep-15-16"))
+    refute done.claimed?
+  end
+
   def test_handed_off_head_with_a_new_live_head_is_prepared_again
     assert_equal "rewatch", StackStore.resume_action("handed_off", "OPEN", recorded_head: "abc", live_head: "abc")
     assert_equal "redrive", StackStore.resume_action("handed_off", "OPEN", recorded_head: "abc", live_head: "def")
