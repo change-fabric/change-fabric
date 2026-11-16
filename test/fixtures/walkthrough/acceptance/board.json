@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "slug": "acceptance",
+  "title": "Acceptance board",
+  "viewport": { "w": 1920, "h": 1080, "dpr": 1 },
+  "fps": 30,
+  "voice": {
+    "provider": "elevenlabs",
+    "voice_id": "21m00Tcm4TlvDq8ikWAM",
+    "model": "eleven_multilingual_v2",
+    "output_format": "mp3_44100_128"
+  },
+  "hypotheses": [
+    { "id": "H-01", "text": "Motion lands on the word the narrator says.", "dimension": "look_and_feel" }
+  ],
+  "scenes": [
+    {
+      "id": "plan",
+      "title": "Every change starts as a plan",
+      "order": 1,
+      "screen": { "html": "screens/stage.html" },
+      "interactions": [
+        { "at": { "word": "change", "offset_ms": -300 }, "op": "move", "target": "#statement", "duration_ms": 300 },
+        { "at": { "word": "change", "nth": 2 }, "op": "move", "target": "#ship", "duration_ms": 300 },
+        { "at": { "word": "green" }, "op": "click", "target": "#ship" }
+      ],
+      "narration": {
+        "text": "Every change starts as a plan, and the change ships when the gate is green.",
+        "measured_ms": 4470
+      },
+      "requirements": [ { "source": "acceptance", "anchor": "#word-anchors" } ],
+      "hypotheses": [ "H-01" ],
+      "timing": { "min_ms": 5000, "pad_ms": 400, "transition": { "type": "cut", "ms": 0 } }
+    },
+    {
+      "id": "record",
+      "title": "One change, one record",
+      "order": 2,
+      "screen": { "html": "screens/stage.html" },
+      "narration_start": 0.5,
+      "interactions": [
+        { "at": { "word": "change" }, "op": "move", "target": "#statement", "duration_ms": 300 },
+        { "at": { "word": "change", "nth": 2 }, "op": "click", "target": "#ship" }
+      ],
+      "narration": {
+        "text": "One change, one record: the change log stays true.",
+        "measured_ms": 3090
+      },
+      "requirements": [ { "source": "acceptance", "anchor": "#word-anchors" } ],
+      "hypotheses": [ "H-01" ],
+      "timing": { "min_ms": 4000, "pad_ms": 400, "transition": { "type": "fade", "ms": 400 } }
+    }
+  ]
+}

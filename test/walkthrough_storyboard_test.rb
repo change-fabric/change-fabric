@@ -537,4 +537,56 @@ class WalkthroughStoryboardTest < Minitest::Test
     assert_equal 2500, WalkthroughStoryboard.music_fade_out_ms(board.merge("music" => { "fade_out" => 2.5 }))
     assert_nil WalkthroughStoryboard.music_fade_out_ms(board.merge("music" => { "prompt" => "calm" }))
   end
+
+  # -- word anchors ----------------------------------------------------------
+
+  def anchored(at, extra = {}) = { "at" => at, "op" => "move", "target" => "#go", "duration_ms" => 300 }.merge(extra)
+
+  def test_an_op_takes_exactly_one_of_t_ms_or_at
+    b = board
+    b["scenes"][0]["interactions"] = [ anchored({ "word" => "create", "nth" => 1, "offset_ms" => -300 }) ]
+    assert_equal [], errors_for(b)
+    b["scenes"][0]["interactions"] = [ anchored({ "word" => "create" }, "t_ms" => 0) ]
+    assert_includes errors_for(b), 'scene "create": interaction 0: takes exactly one of t_ms or at'
+  end
+
+  def test_anchor_shape_is_checked
+    b = board
+    b["scenes"][0]["interactions"] = [ anchored({ "word" => "two words", "nth" => 0, "offset_ms" => 1.5, "scene" => "x" }) ]
+    errs = errors_for(b)
+    [ "at.word must be one spoken word", "at.nth must be a positive integer", "at.offset_ms must be an integer",
+      "at.scene is not a known field (word, nth, offset_ms)" ].each { |e| assert_includes errs, "scene \"create\": interaction 0: #{e}" }
+    b["scenes"][0]["interactions"] = [ anchored("create") ]
+    assert_includes errors_for(b), 'scene "create": interaction 0: at must be an object { word, nth, offset_ms }'
+  end
+
+  def test_anchored_ops_skip_static_ordering_and_mix_with_t_ms
+    b = board
+    b["scenes"][0]["interactions"] = [ { "t_ms" => 900, "op" => "wait", "duration_ms" => 100 }, anchored({ "word" => "create" }) ]
+    assert_equal [], errors_for(b)
+  end
+
+  def test_anchor_needs_scene_narration
+    b = board
+    b["scenes"][0]["narration"] = { "text" => "", "measured_ms" => 0 }
+    b["scenes"][0]["interactions"] = [ anchored({ "word" => "create" }) ]
+    assert_includes errors_for(b), 'scene "create": an op with at needs this scene to have narration'
+  end
+
+  def test_scene_windows_are_not_anchorable_in_v1
+    b = board
+    b["scenes"][0]["start_at"] = { "word" => "create" }
+    b["scenes"][1]["end_at"] = { "word" => "list" }
+    errs = errors_for(b)
+    assert_includes errs, 'scene "create": start_at is not supported; scene placement is derived (anchor ops with at)'
+    assert_includes errs, 'scene "list": end_at is not supported; scene placement is derived (anchor ops with at)'
+  end
+
+  def test_unresolved_scene_has_no_frames_key
+    b = board
+    b["scenes"][0]["interactions"] = [ anchored({ "word" => "create" }) ]
+    keys = WalkthroughStoryboard.recompute_keys(b, @root)
+    assert_nil keys["create"]["frames_key"]
+    assert_includes WalkthroughStoryboard.stale(b, @root, keys).find { |s| s["id"] == "create" }["kinds"], "frames"
+  end
 end
