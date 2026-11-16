@@ -18,7 +18,7 @@
 require_relative 'figma_url'
 
 module ChangeSchema
-  VERSION = '0.18.0'
+  VERSION = '0.19.0'
 
   # The six lanes, the authoritative list the config validator enforces: five
   # dockerized audit lanes plus a host-run command lane (0.17.0).
@@ -268,6 +268,37 @@ module ChangeSchema
     'change_config.design.targets.<target>.reference.routes[].path',
     'change_config.design.targets.<target>.reference.routes[].mask',
     'change_config.design.targets.<target>.reference.auth',
+    # change_config.execution / outbound / trackers (0.19.0): wiring for plan
+    # phases run by an agent outside the harness, the one outbound send path
+    # every effect goes through, and the issue tracker a tracker policy talks
+    # to. Validated by ExecutionConfigSchema; the fixed limits (roast target
+    # at least 9, at most 4 rounds, at most $2 per run) are enforced there.
+    #   <adapter> any name under change_config.execution.adapters
+    #   <channel> one of github, slack, jira
+    #   <tracker> any name under change_config.trackers
+    'change_config.execution.ledger_dir',
+    'change_config.execution.adapters.<adapter>.kind',
+    'change_config.execution.adapters.<adapter>.repo',
+    'change_config.execution.adapters.<adapter>.trigger_label',
+    'change_config.execution.adapters.<adapter>.label_after_create',
+    'change_config.execution.adapters.<adapter>.bot_login',
+    'change_config.execution.adapters.<adapter>.design_ref',
+    'change_config.execution.adapters.<adapter>.ask_markers',
+    'change_config.execution.adapters.<adapter>.failure_markers',
+    'change_config.outbound.spend_usd_cap',
+    'change_config.outbound.hold_flush_minutes',
+    'change_config.outbound.stale_hold_hours',
+    'change_config.outbound.roast_target',
+    'change_config.outbound.roast_rounds',
+    'change_config.outbound.templates',
+    'change_config.outbound.channels.<channel>.deliver',
+    'change_config.outbound.channels.<channel>.provider',
+    'change_config.outbound.channels.<channel>.channel',
+    'change_config.outbound.channels.<channel>.tracker',
+    'change_config.trackers.<tracker>.kind',
+    'change_config.trackers.<tracker>.site',
+    'change_config.trackers.<tracker>.provider',
+    'change_config.trackers.<tracker>.project',
     # change_config.profiles (0.2.0): named deploy-target overrides sharing one
     # audit surface. A profile may only set project, boot.*, and a lane's
     # enabled/base_url, never its routes/thresholds/viewports, so one CHANGE.md
@@ -424,6 +455,26 @@ module ChangeSchema
     'change_policy.admin_bypass.allowed',
     'change_policy.admin_bypass.require_change_pass',
     'change_policy.admin_bypass.conditions',
+    # change_policy.trackers.<tracker> (0.19.0): the per-project tracker
+    # workflow, validated by TrackerPolicy. Roles only, never a person.
+    #   <event> a cf event (dispatch, agent_started, asked, pr_opened, merged,
+    #           staging_passed, escalated) or release:<ref>
+    #   <state> any entry of change_policy.trackers.<tracker>.states
+    'change_policy.trackers.<tracker>.states',
+    'change_policy.trackers.<tracker>.transitions.<event>.to',
+    'change_policy.trackers.<tracker>.transitions.<event>.comment',
+    'change_policy.trackers.<tracker>.transitions.<event>.evidence',
+    'change_policy.trackers.<tracker>.evidence.deploy_run.workflow',
+    'change_policy.trackers.<tracker>.evidence.check.source',
+    'change_policy.trackers.<tracker>.evidence.check.argv',
+    'change_policy.trackers.<tracker>.evidence.check.cwd',
+    'change_policy.trackers.<tracker>.evidence.check.timeout_s',
+    'change_policy.trackers.<tracker>.evidence.check.name',
+    'change_policy.trackers.<tracker>.evidence.check.prompt',
+    'change_policy.trackers.<tracker>.handoffs.<state>',
+    'change_policy.trackers.<tracker>.locks.estimates',
+    'change_policy.trackers.<tracker>.locks.move_between_boards',
+    'change_policy.trackers.<tracker>.locks.rename',
     # contributors_team: (0.5.0) the third top-level block. It registers the
     # repo with a contributors team and, under `artifacts`, with that team's
     # shared findings-artifact area. The first three fields predate this

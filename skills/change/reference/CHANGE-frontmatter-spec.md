@@ -1,6 +1,6 @@
 # CHANGE.md frontmatter specification
 
-Schema version: 0.18.0
+Schema version: 0.19.0
 
 Status: stable. This is the golden reference for authoring a repo's
 `CHANGE.md` frontmatter. A maintainer or an AI agent creating a new repo's
@@ -83,6 +83,8 @@ Field paths are dotted. Placeholder segments are literal and mean:
   a tag pattern, gated at tag-push time. See "change_policy tag rules" below.
 - `<profile>`: any name under `change_config.profiles` (a deploy target such as `staging`).
 - `<app>`: any name under `change_config.apps` (an app in a monorepo, 0.4.0).
+- `<adapter>`, `<channel>`, `<tracker>`, `<event>`, `<state>` (0.19.0): see
+  "execution, outbound, trackers" and "change_policy.trackers" below.
 - `[]`: a field on each item of a list.
 
 Required means the platform cannot run without it. Almost everything is optional
@@ -504,6 +506,51 @@ to the app's CSS entry), delete the flat key, and add `kit`, `components` and
 `reference` as the app needs them. Keep `figma`, `parity`, `roast` and
 `critic_rounds` where they are; they apply to every target.
 
+### execution, outbound, trackers (0.19.0): phases run outside the harness
+
+A plan phase can be executed by an agent outside the harness: the first
+adapter kind, `github_issue`, opens a GitHub issue and hands it to a cloud
+agent by adding a trigger label. `execution` wires the adapters, `outbound`
+configures the one send path every outbound effect goes through
+(`scripts/outbound.rb`), and `trackers` wires the issue tracker a
+`change_policy.trackers` workflow talks to. Credentials never appear here:
+`provider` names a provider enrolled with cf:enroll.
+
+Placeholders: `<adapter>` is any name under `change_config.execution.adapters`;
+`<channel>` is one of `github`, `slack`, `jira`; `<tracker>` is any name under
+`change_config.trackers`.
+
+Some limits are fixed by design and the schema rejects a looser value: every
+written message must roast at 9 or more (`roast_target` from 9 to 10), at most
+4 roast rounds, at most $2 of roast spend per plan run, and held messages
+surface at least every 15 minutes.
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `change_config.execution.ledger_dir` | string | no (default `plan`) | (0.19.0) Where the run's local ledgers (effects, holds, audit, friction) live: `plan` for the plan dir, or an absolute or `~` path. Never committed. |
+| `change_config.execution.adapters.<adapter>.kind` | `github_issue` or `fixture` | yes | (0.19.0) The adapter implementation. `fixture` replays a recorded cassette and exists for tests. |
+| `change_config.execution.adapters.<adapter>.repo` | string `owner/name` | yes for `github_issue` | (0.19.0) The GitHub repo the issues are opened in. |
+| `change_config.execution.adapters.<adapter>.trigger_label` | string | yes for `github_issue` | (0.19.0) The label that wakes the agent. It is added last, only after every preparation step was sent. |
+| `change_config.execution.adapters.<adapter>.label_after_create` | boolean | no (default true) | (0.19.0) Create the issue first, then add the trigger label in a second call. |
+| `change_config.execution.adapters.<adapter>.bot_login` | string | yes for `github_issue` | (0.19.0) The agent's GitHub login, for example `some-bot[bot]`. Only its comments are read as agent events. |
+| `change_config.execution.adapters.<adapter>.design_ref` | boolean | no (default false) | (0.19.0) Post a design-reference comment (stills, PDF pages) after the issue is created. |
+| `change_config.execution.adapters.<adapter>.ask_markers` | list of string | no | (0.19.0) Text that marks an agent comment as a question. A comment matching no marker falls back to a cheap model classification charged to the run's spend cap. |
+| `change_config.execution.adapters.<adapter>.failure_markers` | list of string | no | (0.19.0) Text that marks an agent comment as a failure (a refusal, blocked access, a failed stage). |
+| `change_config.outbound.spend_usd_cap` | number | no (default 2.0) | (0.19.0) Roast and classification spend cap per plan run, in USD, above 0 and at most 2.0. Reaching it holds every pending roast-gated send. |
+| `change_config.outbound.hold_flush_minutes` | integer | no (default 15) | (0.19.0) Held messages surface at the next phase boundary or after this many minutes, from 1 to 15. |
+| `change_config.outbound.stale_hold_hours` | integer | no (default 24) | (0.19.0) A hold older than this fires a `stale_hold` watcher event. |
+| `change_config.outbound.roast_target` | number | no (default 9) | (0.19.0) Minimum roast score for a written message, from 9 to 10. There is no lower setting and no fallback when the roast cannot run: the message holds. |
+| `change_config.outbound.roast_rounds` | integer | no (default 4) | (0.19.0) Roast rounds per message, from 1 to 4. Below target after the last round holds. |
+| `change_config.outbound.templates` | list of `name@version` | no | (0.19.0) The fixed templates enabled for this repo (for example `pr_link@1`). Templates take typed values only, are not roasted, and are still scanned. |
+| `change_config.outbound.channels.<channel>.deliver` | `send` or `draft` | no (default `send`) | (0.19.0) `draft` writes the message locally for a human to promote instead of sending it. |
+| `change_config.outbound.channels.<channel>.provider` | string | no | (0.19.0) `slack` only. The enrolled provider whose token the channel uses. |
+| `change_config.outbound.channels.<channel>.channel` | string | no | (0.19.0) `slack` only. A `#channel` name or a channel id. |
+| `change_config.outbound.channels.<channel>.tracker` | string | no | (0.19.0) `jira` only. The `change_config.trackers` entry the channel writes to. |
+| `change_config.trackers.<tracker>.kind` | `jira` | yes | (0.19.0) The tracker type. |
+| `change_config.trackers.<tracker>.site` | string | yes | (0.19.0) Bare hostname of the tracker site, for example `example.atlassian.net`. |
+| `change_config.trackers.<tracker>.provider` | string | yes | (0.19.0) The enrolled provider holding the tracker credential. |
+| `change_config.trackers.<tracker>.project` | string | yes | (0.19.0) The project key, for example `PROJ`. Ticket keys in a plan must belong to it. |
+
 ### change_config.profiles (0.2.0): multiple deploy targets, one audit shape
 
 A repo with more than one deployable target (a local Docker stack, a real
@@ -850,6 +897,63 @@ rules in a form the gate can enforce, and the body is expected to explain it.
 | `change_policy.admin_bypass.allowed` | boolean | no (default false) | Whether admin-bypass merging (`gh pr merge --admin`) is permitted at all for a protected branch. |
 | `change_policy.admin_bypass.require_change_pass` | boolean | no (default true) | Whether an allowed admin bypass still requires the cf:change gate to have passed. |
 | `change_policy.admin_bypass.conditions` | string | no | The repo's stated condition for an acceptable admin bypass, surfaced in the gate's deny reason. |
+
+### change_policy.trackers (0.19.0): the tracker workflow
+
+Tracker statuses and transitions differ per project, the way release lanes do,
+so the workflow is declared here: the states, which state each cf event moves a
+ticket to, the evidence a move needs, which role holds a state, and locks. It
+is validated by `scripts/tracker_policy.rb`, reported by `doctor`, and checked
+against the live tracker before any phase dispatches; drift holds the phase.
+
+Holders are role names only, never a person: `me`, an email, or an
+account-like string is an error. The role-to-account map is local and never
+committed (`~/.claude/cf/roles/<repo-slug>.yml`). A plan phase may override a
+state's role with its `external.roles` map.
+
+Placeholders: `<tracker>` matches a `change_config.trackers` entry; `<event>`
+is one of `dispatch`, `agent_started`, `asked`, `pr_opened`, `merged`,
+`staging_passed`, `escalated`, or `release:<ref>`; `<state>` is an entry of
+`states`.
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `change_policy.trackers.<tracker>.states` | list of string | yes | (0.19.0) Every status the workflow uses, unique. |
+| `change_policy.trackers.<tracker>.transitions.<event>.to` | list of state | no | (0.19.0) The ordered path to walk on this event. States already reached are skipped; a hop the tracker does not offer holds. |
+| `change_policy.trackers.<tracker>.transitions.<event>.comment` | `name@version` | no | (0.19.0) A template comment to post on this event. Must be enabled in `change_config.outbound.templates`. |
+| `change_policy.trackers.<tracker>.transitions.<event>.evidence` | list of `deploy_run`, `check` | no | (0.19.0) Evidence that must hold for the merge commit before the move. Each type must be defined under `evidence`. |
+| `change_policy.trackers.<tracker>.evidence.deploy_run.workflow` | string | yes when `deploy_run` is set | (0.19.0) The deploy workflow whose successful run for the merge commit counts. |
+| `change_policy.trackers.<tracker>.evidence.check.source` | `command`, `plan`, or `manual` | yes when `check` is set | (0.19.0) Where the check comes from: a command here, a named `Check:` in the plan phase, or a human answer recorded in the session. |
+| `change_policy.trackers.<tracker>.evidence.check.argv` | list of string | yes for `command` | (0.19.0) The command as an argv array, run without a shell. Never a shell string. |
+| `change_policy.trackers.<tracker>.evidence.check.cwd` | `repo` | yes for `command` | (0.19.0) Working directory: the checkout of the merge commit. The only value in 0.19.0. |
+| `change_policy.trackers.<tracker>.evidence.check.timeout_s` | integer | yes for `command` | (0.19.0) Seconds before the command is killed and the check fails. |
+| `change_policy.trackers.<tracker>.evidence.check.name` | string | yes for `plan` | (0.19.0) The name of the phase's `Check:` entry to run. |
+| `change_policy.trackers.<tracker>.evidence.check.prompt` | string | yes for `manual` | (0.19.0) The question asked; "no" holds. |
+| `change_policy.trackers.<tracker>.handoffs.<state>` | string | no | (0.19.0) The role that holds a ticket in this state. A role name, never a person. |
+| `change_policy.trackers.<tracker>.locks.estimates` | `false` | no | (0.19.0) Schema-fixed false: cf never writes estimates or worklogs. |
+| `change_policy.trackers.<tracker>.locks.move_between_boards` | `false` | no | (0.19.0) Schema-fixed false: cf never moves a ticket to another board or project. |
+| `change_policy.trackers.<tracker>.locks.rename` | `false` | no | (0.19.0) Schema-fixed false: cf never renames boards or tickets. |
+
+Example:
+
+```yaml
+change_policy:
+  trackers:
+    jira:
+      states: [Backlog, Ready to Pull, In Progress, Ready to Ship, Done]
+      transitions:
+        dispatch:        { to: [Ready to Pull, In Progress] }
+        pr_opened:       { comment: pr_link@1 }
+        staging_passed:  { to: [Ready to Ship], evidence: [deploy_run, check] }
+        "release:production": { to: [Done] }
+      evidence:
+        deploy_run: { workflow: deploy-staging }
+        check: { source: command, argv: [bin/smoke, --env, staging], cwd: repo, timeout_s: 600 }
+      handoffs:
+        In Progress: builder
+        Ready to Ship: releaser
+      locks: { estimates: false, move_between_boards: false, rename: false }
+```
 
 ## contributors_team fields (0.6.0)
 
@@ -1526,3 +1630,13 @@ root `RELEASING.md`.
   its own live design system, kit package and reference app. The flat design
   keys remain shorthand for one target named `default`; mixing flat `tokens`
   or `tailwind` with `targets` is an error. See "Migrating from 0.17".
+- 0.19.0: additive. Adds `change_config.execution` (`ledger_dir`,
+  `adapters.<adapter>` with `kind`, `repo`, `trigger_label`,
+  `label_after_create`, `bot_login`, `design_ref`, `ask_markers`,
+  `failure_markers`), `change_config.outbound` (`spend_usd_cap`,
+  `hold_flush_minutes`, `stale_hold_hours`, `roast_target`, `roast_rounds`,
+  `templates`, `channels.<channel>`), `change_config.trackers.<tracker>`
+  (`kind`, `site`, `provider`, `project`) and `change_policy.trackers.<tracker>`
+  (`states`, `transitions`, typed `evidence`, `handoffs` by role, schema-fixed
+  `locks`), so plan phases can run outside the harness through one outbound
+  send path with a per-project tracker workflow. Nothing existing changes.

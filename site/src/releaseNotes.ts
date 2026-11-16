@@ -28,6 +28,25 @@ export interface ReleaseNote {
 }
 
 export const RELEASE_NOTES: Record<string, ReleaseNote> = {
+  "0.19.0": {
+    version: "0.19.0",
+    date: "2026-11-16",
+    headline: "Plan phases an outside agent runs, one checked send path, and a tracker workflow per project.",
+    highlights: [
+      {
+        title: "execution and outbound",
+        body:
+          "An adapter hands a plan phase to an agent outside the harness through a labeled GitHub issue. Every message it causes goes through one send path that scans it, roasts written prose at 9 or more, caps spend at $2 per run, and holds instead of guessing.",
+      },
+      {
+        title: "Tracker workflows",
+        body:
+          "change_policy.trackers declares a project's states, the moves each cf event makes, the evidence a move needs, and which role holds each state. Roles only, never a person; estimates, board moves and renames are locked off.",
+      },
+    ],
+    upgrade:
+      "Additive. Nothing changes for a CHANGE.md that does not set the new blocks.",
+  },
   "0.18.0": {
     version: "0.18.0",
     date: "2026-11-13",

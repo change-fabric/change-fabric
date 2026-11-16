@@ -18,6 +18,27 @@ Every version below has a frozen, permanently addressable rendering at
 field set: major for a removed, renamed or newly required field, minor for a new
 optional field, patch for a documentation-only clarification.
 
+## [0.19.0] - 2026-11-16
+
+Plan phases run by an agent outside the harness, one outbound send path, and a
+per-project tracker workflow. Additive.
+
+### Added
+
+- `change_config.execution` with `ledger_dir` and `adapters.<adapter>`
+  (`kind`, `repo`, `trigger_label`, `label_after_create`, `bot_login`,
+  `design_ref`, `ask_markers`, `failure_markers`).
+- `change_config.outbound` with `spend_usd_cap` (at most 2.0),
+  `hold_flush_minutes` (at most 15), `stale_hold_hours`, `roast_target` (at
+  least 9), `roast_rounds` (at most 4), `templates` (`name@version`) and
+  `channels.<channel>` (`deliver`, `provider`, `channel`, `tracker`).
+- `change_config.trackers.<tracker>` with `kind`, `site`, `provider`,
+  `project`.
+- `change_policy.trackers.<tracker>` with `states`, `transitions.<event>`
+  (`to`, `comment`, `evidence`), typed `evidence` (`deploy_run`, `check` from
+  `command`, `plan` or `manual`), `handoffs.<state>` naming roles only, and
+  `locks` fixed to false.
+
 ## [0.18.0] - 2026-11-13
 
 Design targets: per-app design systems in a monorepo, built from the live

@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://www.changefabric.org/schemas/cf.adapter.request-1.json",
+  "title": "cf.adapter.request/1",
+  "description": "One call into an execution adapter (scripts/adapters/). prepare runs the persisted preparation sequence, activate performs the trigger effect only, observe is one pure-read poll, classify maps a raw source item to the event vocabulary. No operation calls a transport; writes go through scripts/outbound.rb.",
+  "type": "object",
+  "required": ["schema", "op", "execution_id", "phase_id", "adapter"],
+  "properties": {
+    "schema": { "const": "cf.adapter.request/1" },
+    "op": { "enum": ["prepare", "activate", "observe", "classify"] },
+    "execution_id": { "type": "string", "minLength": 1 },
+    "phase_id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,62}$" },
+    "adapter": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_-]{0,62}$" },
+    "ledger_dir": { "type": "string" },
+    "dry_run": { "type": "boolean" },
+    "external": { "$ref": "#/$defs/external" },
+    "cursor": { "type": "object" },
+    "raw": { "type": "object" }
+  },
+  "additionalProperties": false,
+  "allOf": [
+    { "if": { "properties": { "op": { "enum": ["prepare", "activate"] } } }, "then": { "required": ["external"] } },
+    { "if": { "properties": { "op": { "const": "classify" } } }, "then": { "required": ["raw"] } }
+  ],
+  "$defs": {
+    "external": {
+      "type": "object",
+      "required": ["adapter", "phase_id", "tickets"],
+      "properties": {
+        "adapter": { "type": "string" },
+        "phase_id": { "type": "string" },
+        "tickets": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["key", "role"],
+            "properties": {
+              "key": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]{1,9}-[0-9]+$" },
+              "role": { "type": "string", "pattern": "^(primary|related-mention|mention-on:[a-z_]+(:\\S+)?)$" }
+            },
+            "additionalProperties": false
+          }
+        },
+        "roles": { "type": "object", "additionalProperties": { "type": "string", "pattern": "^[a-z][a-z0-9_-]{0,31}$" } },
+        "design_ref": {
+          "type": "object",
+          "properties": {
+            "stills": { "type": "array", "items": { "type": "string" } },
+            "pdf": { "type": "string" },
+            "pages": { "type": "array", "items": { "type": "integer", "minimum": 1 } }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}
