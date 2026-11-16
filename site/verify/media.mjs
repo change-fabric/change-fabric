@@ -381,19 +381,20 @@ async function highlightSeen(browser, base, reducedMotion) {
   }
 }
 
-// The homepage's check summary sits under the video on phones and is
-// hidden on desktop, where the poster's own diagram is legible.
-async function checkHeroSummary(browser, base, viewport, visible) {
+// The homepage lists the five gate lanes under Before it merges at every
+// width, and never scrolls sideways.
+async function checkGateLanes(browser, base, viewport) {
   const { context, page } = await load(browser, base, "/", { viewport });
   try {
     const width = await page.evaluate(() => innerWidth);
     assert(width === viewport.width, `/: laid out at ${width} px, not ${viewport.width} px (${page.url()}, ${JSON.stringify(page.viewportSize())})`);
-    const summary = page.locator(".hero-checks");
-    assert(await summary.count() === 1, "/: no hero check summary");
-    assert((await summary.isVisible()) === visible, `/: check summary ${visible ? "hidden" : "shown"} at ${viewport.width} px`);
-    if (visible) assert(await summary.locator("li").count() === 5, "/: the check summary does not list five checks");
+    const lanes = page.locator(".gate-lanes li");
+    assert(await lanes.count() === 5, "/: the gate does not list five lanes");
+    assert(await lanes.first().isVisible(), `/: gate lanes hidden at ${viewport.width} px`);
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - innerWidth);
+    assert(overflow <= 0, `/: page scrolls sideways by ${overflow} px at ${viewport.width} px`);
     await page.screenshot({ path: path.join(shots, `home-${viewport.width}.png`), fullPage: true });
-    record("/", `${viewport.width} px: check summary ${visible ? "shown" : "hidden"}`);
+    record("/", `${viewport.width} px: five gate lanes, no sideways scroll`);
   } finally {
     await context.close();
   }
@@ -437,8 +438,8 @@ async function main() {
       record("reduced motion", "no word highlighted during playback");
       assert(await highlightSeen(browser, base, "no-preference"), "no word got aria-current during playback");
       record("follow-along", "a word span got aria-current during playback");
-      await checkHeroSummary(browser, base, { width: 390, height: 844 }, true);
-      await checkHeroSummary(browser, base, { width: 1440, height: 900 }, false);
+      await checkGateLanes(browser, base, { width: 390, height: 844 });
+      await checkGateLanes(browser, base, { width: 1440, height: 900 });
     }
   } finally {
     await browser.close().catch(() => {});

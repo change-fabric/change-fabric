@@ -135,7 +135,7 @@ Every margin, padding, and gap uses a step, except these, which
 - Every page opens with the same `.page-head`: eyebrow, title, optional lede,
   then `--s5` before content. No giant heading followed by a huge gap.
 - Content sits in a 760px measure (the homepage widens to 1040px for its
-  two-column audit grid; spec prose is capped at 70ch). From 960px up the site nav is a 224px left
+  "What is it?" diagram row and toolkit map; spec prose is capped at 70ch). From 960px up the site nav is a 224px left
   sidebar (wordmark, section links, then GitHub and the theme toggle pinned to
   the bottom); below that it is a top bar, wrapping to two rows on a phone.
 - Lists are rows separated by `--border` hairlines. A row's hover fill bleeds

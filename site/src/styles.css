@@ -677,8 +677,8 @@ code {
 }
 
 /* Home: an editorial front page, not a stretched docs template. The page
-   column widens for it so the lanes can sit two by two, while prose keeps a
-   reading measure of its own. */
+   column widens for it so the What is it? diagram can sit beside its rows,
+   while prose keeps the 760px reading measure. */
 .page:has(.home) {
   max-width: calc(1040px + 2 * var(--s7));
 }
@@ -706,15 +706,6 @@ code {
   margin: 0;
 }
 
-.hero-subtitle {
-  font-family: var(--font-serif);
-  font-size: 1.35rem;
-  line-height: 1.35;
-  color: var(--heading);
-  margin: var(--s4) 0 0;
-  max-width: 32ch;
-}
-
 .hero-copy {
   color: var(--muted);
   font-size: 1rem;
@@ -727,57 +718,6 @@ code {
   flex-wrap: wrap;
   gap: var(--s3);
   margin-top: var(--s6);
-}
-
-/* Phone-only summary of the poster's diagram, under the video. On wider
-   screens the poster itself is legible, so the summary stays out. */
-.hero-checks {
-  display: none;
-}
-
-@media (max-width: 600px) {
-  .hero-checks {
-    display: block;
-    margin-top: var(--s5);
-    padding: var(--s4);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-  }
-  .hero-checks-title {
-    margin: 0 0 var(--s3);
-    font-family: var(--font-mono);
-    font-size: 0.72rem;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--muted);
-  }
-  .hero-checks-list {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-  }
-  .hero-checks-list li {
-    display: flex;
-    justify-content: space-between;
-    gap: var(--s3);
-    padding: var(--s2) 0;
-    border-top: 1px solid var(--border);
-    font-size: 0.95rem;
-  }
-  .hero-checks-lane {
-    color: var(--heading);
-    font-weight: 500;
-  }
-  .hero-checks-tool {
-    color: var(--muted);
-    font-family: var(--font-mono);
-    font-size: 0.85rem;
-  }
-  .hero-checks-gate {
-    margin: var(--s3) 0 0;
-    color: var(--muted);
-    font-size: 0.9rem;
-  }
 }
 
 /* The walkthrough is the hero's second beat, after the calls to action:
@@ -813,107 +753,6 @@ code {
   font-size: 0.95rem;
 }
 
-/* Harness strip: monochrome marks drawn as masks in the muted ink, so they
-   follow the theme without per-theme assets. Heights are set per mark for
-   optical balance, not to one intrinsic size. */
-.harnesses {
-  margin-top: var(--s7);
-}
-
-.harnesses-title {
-  font-family: var(--font-mono);
-  font-size: 0.72rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--muted);
-  margin: 0 0 var(--s4);
-}
-
-.harness-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--s4) var(--s6);
-}
-
-.harness-link {
-  display: flex;
-  align-items: center;
-  gap: var(--s2);
-  color: var(--muted);
-  text-decoration: none;
-  transition: color 160ms ease;
-}
-
-/* A hover tints the marks raw lilac. The text label (Pi's) takes the
-   contrast-adjusted accent instead, since raw lilac on cream is only 3.5:1. */
-.harness-link:hover,
-.harness-link:focus-visible {
-  color: var(--accent);
-}
-
-@media (forced-colors: none) {
-  .harness-link:hover .harness-mark,
-  .harness-link:focus-visible .harness-mark {
-    color: var(--lilac);
-  }
-}
-
-.harness-mark {
-  display: block;
-  flex: none;
-  background: currentColor;
-  mask: var(--mark) center / contain no-repeat;
-  -webkit-mask: var(--mark) center / contain no-repeat;
-}
-
-.harness-claude .harness-mark {
-  --mark: url("/brand/harness/anthropic.png");
-  width: 107px;
-  height: 12px;
-}
-
-.harness-openai .harness-mark {
-  --mark: url("/brand/harness/openai.png");
-  width: 74px;
-  height: 20px;
-}
-
-.harness-copilot .harness-mark {
-  --mark: url("/brand/harness/copilot.png");
-  width: 127px;
-  height: 16px;
-}
-
-.harness-opencode .harness-mark {
-  --mark: url("/brand/harness/opencode.svg");
-  width: 112px;
-  height: 20px;
-}
-
-.harness-pi .harness-mark {
-  --mark: url("/brand/harness/pi.svg");
-  width: 18px;
-  height: 18px;
-}
-
-/* Forced colors repaint backgrounds, which would blank a mask drawn with one;
-   paint the mark in the system link color instead. */
-@media (forced-colors: active) {
-  .harness-mark {
-    background: LinkText;
-    forced-color-adjust: none;
-  }
-}
-
-.harness-name {
-  font-size: 0.9rem;
-  font-weight: 500;
-}
-
 .home-section {
   margin-top: 80px;
 }
@@ -943,109 +782,259 @@ code {
   margin: var(--s4) 0 0;
 }
 
-/* The four lanes: a two by two grid ruled by hairlines, no boxes. Category
-   leads, the tool is its identifier, the line says what it checks. */
-.lanes {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  column-gap: var(--s7);
-  border-top: 1px solid var(--border-strong);
+/* Home guided path. Prose and rows keep the 760px measure; only the What is
+   it? diagram row and the toolkit map use the page's 1040px. */
+.home .hero {
+  max-width: var(--measure);
 }
 
-.lanes li {
+.home .hero-copy {
+  max-width: none;
+  font-size: 1.05rem;
+}
+
+.home-text {
+  max-width: var(--measure);
+  margin: var(--s3) 0 0;
+}
+
+.home-sub {
+  font-size: 1.05rem;
+  font-weight: 600;
+  margin: var(--s7) 0 0;
+}
+
+.home .home-section {
+  scroll-margin-top: var(--s5);
+}
+
+.who,
+.layer-rows,
+.gate-lanes,
+.steps {
+  list-style: none;
+  margin: var(--s5) 0 0;
+  padding: 0;
+  max-width: var(--measure);
+  border-top: 1px solid var(--border);
+}
+
+.who li,
+.layer-rows li,
+.gate-lanes li {
+  display: grid;
+  gap: var(--s1);
+  padding: var(--s3) 0;
   border-bottom: 1px solid var(--border);
 }
 
-/* Number in its own narrow column, so the category, tool and description
-   share one left edge. Number and tool are set alike in small mono. */
-.lane {
-  display: grid;
-  grid-template-columns: 2rem minmax(0, 1fr);
-  column-gap: 0;
-  row-gap: var(--s1);
-  padding: var(--s5) 0;
-  color: var(--text);
+.who strong,
+.layer-rows strong {
+  font-weight: 600;
+  color: var(--heading);
+}
+
+.who span,
+.layer-rows span,
+.gate-detail {
+  color: var(--muted);
+}
+
+@media (min-width: 720px) {
+  .who li {
+    grid-template-columns: 240px minmax(0, 1fr);
+    gap: var(--s5);
+  }
+}
+
+/* Harness names as plain text between two hairlines: no logos, so each
+   name can say exactly which surface is installed. */
+.harness-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--s2) var(--s5);
+  max-width: var(--measure);
+  margin: var(--s6) 0 0;
+  padding: var(--s3) 0;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+.harness-strip p {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.harness-strip ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2) var(--s5);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.harness-strip a {
+  color: var(--heading);
+  font-weight: 600;
   text-decoration: none;
-  transition: background var(--ease), box-shadow var(--ease);
+}
+
+.harness-strip a:hover {
+  color: var(--link);
+  text-decoration: underline;
+}
+
+@media (max-width: 719px) {
+  .harness-strip ul {
+    display: grid;
+    grid-template-columns: repeat(3, max-content);
+  }
+}
+
+/* What is it?: the inline layer diagram beside its rows. Only the top
+   layer takes the accent. */
+.layers {
+  display: grid;
+  gap: var(--s5);
+  margin-top: var(--s5);
+}
+
+@media (min-width: 880px) {
+  .layers {
+    grid-template-columns: minmax(0, 400px) minmax(0, 1fr);
+    align-items: start;
+  }
+}
+
+.layers-svg {
+  display: block;
+  width: 100%;
+  max-width: 400px;
+  height: auto;
+}
+
+.layers-svg .ly-cf {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.5;
+}
+
+.layers-svg .ly-ln {
+  fill: none;
+  stroke: var(--border-strong);
+}
+
+.layers-svg text {
+  font-family: var(--font-sans);
+  font-size: 14px;
+}
+
+.layers-svg .ly-t {
+  fill: var(--text);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.layers-svg .ly-m {
+  fill: var(--muted);
+}
+
+.layers .layer-rows {
+  margin-top: 0;
+}
+
+.credit {
+  font-size: 0.8rem;
+  color: var(--muted);
+  margin: var(--s3) 0 0;
+}
+
+/* Before it merges: one row per lane, category, tool, then what fails it. */
+.gate-lanes li {
+  grid-template-columns: minmax(0, 1fr) auto;
+  column-gap: var(--s4);
+}
+
+.gate-role {
+  font-weight: 600;
+  color: var(--heading);
+}
+
+.gate-tool {
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+}
+
+.gate-detail {
+  grid-column: 1 / -1;
+  font-size: 0.9rem;
+}
+
+@media (min-width: 720px) {
+  .gate-lanes li {
+    grid-template-columns: 160px 140px minmax(0, 1fr);
+  }
+  .gate-detail {
+    grid-column: auto;
+  }
+}
+
+.gate-example {
+  max-width: var(--measure);
+  margin-top: var(--s5);
+}
+
+/* Start building: three steps in hairline rows. */
+.steps {
+  counter-reset: step;
+}
+
+.steps > li {
+  padding: var(--s4) 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.steps h3 {
+  font-size: 1.05rem;
+  font-weight: 650;
+  margin: 0 0 var(--s2);
+}
+
+.steps h3::before {
+  counter-increment: step;
+  content: "Step " counter(step) ". ";
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.steps p {
+  margin: var(--s2) 0 0;
+}
+
+.steps-note {
+  font-size: 0.85rem;
+  color: var(--muted);
 }
 
 /* Hover fills bleed past the text column by box-shadow, so the hairlines
    stay aligned with everything else on the page. */
-.lane:hover,
 .ref-row:hover {
   color: var(--text);
   background: var(--surface-hover);
   box-shadow: calc(-1 * var(--s2)) 0 0 var(--surface-hover), var(--s2) 0 0 var(--surface-hover);
 }
 
-.lane-role {
-  grid-row: 1;
-  align-self: baseline;
-  font-size: 1.15rem;
-  font-weight: 600;
-  color: var(--heading);
-}
-
-.lane-n,
-.lane-name {
+.lane-n {
   font-family: var(--font-mono);
   font-size: 0.8rem;
   letter-spacing: 0.02em;
   color: var(--accent);
-}
-
-.lane-n {
   grid-row: 1;
   grid-column: 1;
   align-self: baseline;
-}
-
-.lane-role,
-.lane-name,
-.lane-detail {
-  grid-column: 2;
-}
-
-.lane:hover .lane-name {
-  text-decoration: underline;
-}
-
-.lane-detail {
-  color: var(--muted);
-  font-size: 0.95rem;
-  margin-top: var(--s1);
-}
-
-#get-started {
-  scroll-margin-top: var(--s5);
-}
-
-#get-started .code-block {
-  max-width: 46rem;
-}
-
-.further ul {
-  list-style: none;
-  margin: var(--s5) 0 0;
-  padding: 0;
-  border-top: 1px solid var(--border);
-}
-
-.further li {
-  display: grid;
-  grid-template-columns: 12rem minmax(0, 1fr);
-  gap: var(--s4);
-  align-items: baseline;
-  padding: var(--s3) 0;
-  border-bottom: 1px solid var(--border);
-}
-
-.further span {
-  color: var(--muted);
-  font-size: 0.95rem;
 }
 
 /* Toolkit map: the static SVG beside a text list of the same layers. Two
@@ -1807,9 +1796,6 @@ code {
   .hero h1 {
     font-size: 2.4rem;
   }
-  .hero-subtitle {
-    font-size: 1.12rem;
-  }
   .hero-copy {
     font-size: 0.95rem;
   }
@@ -1818,12 +1804,6 @@ code {
   }
   .hero .media-slot {
     margin-top: var(--s6);
-  }
-  .harnesses {
-    margin-top: var(--s6);
-  }
-  .harness-list {
-    gap: var(--s3) var(--s5);
   }
   .home-section {
     margin-top: var(--s8);
@@ -1836,23 +1816,6 @@ code {
   }
   .home-lede {
     margin-bottom: var(--s5);
-  }
-  .lanes {
-    grid-template-columns: minmax(0, 1fr);
-  }
-  .lane {
-    padding: var(--s4) 0;
-    gap: 2px;
-  }
-  .lane-role {
-    font-size: 1.05rem;
-  }
-  .lane-detail {
-    font-size: 0.92rem;
-  }
-  .further li {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 2px;
   }
   .ref-row,
   .ref-list-flat .ref-row {
