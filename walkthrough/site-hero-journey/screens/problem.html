@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Faster than you can judge it</title>
+  <link rel="stylesheet" href="tokens.css">
+  <link rel="stylesheet" href="journey.css">
+  <style>
+    .grid { display: grid; grid-template-columns: 1fr 720px; gap: var(--space-4); align-items: center; }
+    .grid .lede { margin-top: var(--space-3); }
+    .q { color: var(--text); }
+    .feed { background: var(--code-bg); border: 1px solid var(--border); border-radius: 16px; padding: 32px 40px; display: flex; flex-direction: column; }
+    .row { display: flex; justify-content: space-between; font-family: var(--font-mono); font-size: 40px; line-height: 1.6; animation: show 120ms linear var(--d) both; }
+    .row b { color: var(--series-4); font-weight: 600; }
+    .seen { margin: 24px 0 0; padding-top: 24px; border-top: 1px solid var(--border); font-size: 40px; color: var(--muted); }
+    .seen b { color: var(--series-1); font-weight: 600; }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="grid">
+      <div>
+        <h1 class="in">Your agent writes code faster than you can judge it.</h1>
+        <p class="lede in" style="--d:2400ms"><span class="q">Is it good? Is it safe to ship?</span> You can't yet tell.</p>
+      </div>
+      <div class="feed" aria-label="Changed files arriving">
+        <p class="row" style="--d:300ms;margin:0"><span>auth.ts</span><b>+212</b></p>
+        <p class="row" style="--d:650ms;margin:0"><span>billing.ts</span><b>+418</b></p>
+        <p class="row" style="--d:950ms;margin:0"><span>api/orders.ts</span><b>+96</b></p>
+        <p class="row" style="--d:1200ms;margin:0"><span>schema.sql</span><b>+57</b></p>
+        <p class="row" style="--d:1400ms;margin:0"><span>Checkout.tsx</span><b>+330</b></p>
+        <p class="row" style="--d:1550ms;margin:0"><span>retry.ts</span><b>+141</b></p>
+        <p class="seen in" style="--d:1700ms">You have read <b>1 of 6</b> files.</p>
+      </div>
+    </div>
+  </main>
+</body>
+</html>

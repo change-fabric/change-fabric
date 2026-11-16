@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Start building</title>
+  <link rel="stylesheet" href="tokens.css">
+  <link rel="stylesheet" href="journey.css">
+  <style>
+    main { gap: 40px; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3); align-items: start; }
+    .step { font-size: 40px; color: var(--muted); margin: 0 0 20px; }
+    .step b { color: var(--text); font-weight: 600; }
+    .term { background: var(--code-bg); border: 1px solid var(--border); border-radius: 16px; padding: 36px 44px; }
+    .term p { font-family: var(--font-mono); font-size: 40px; line-height: 1.6; margin: 0; white-space: pre; }
+    .term .p { color: var(--muted); }
+    .t1 { animation: show 100ms linear 400ms both; }
+    .t2 { animation: show 100ms linear 1100ms both; }
+    .t3 { animation: show 100ms linear 1800ms both; }
+    .session { display: flex; flex-direction: column; gap: 28px; }
+    .who { font-family: var(--font-mono); font-size: 40px; color: var(--muted); margin: 0 0 4px; }
+    .msg { font-size: 40px; line-height: 1.35; margin: 0; }
+    .rubric { display: inline-block; font-family: var(--font-mono); font-weight: 600; color: var(--btn-text); background: var(--accent); border-radius: 8px; padding: 0 14px; }
+  </style>
+</head>
+<body>
+  <main>
+    <p class="eyebrow">Start building</p>
+    <h1>Three commands, then your agent.</h1>
+    <div class="grid">
+      <div>
+        <p class="step"><b>Install</b></p>
+        <div class="term">
+          <p class="t1"><span class="p">$ </span>brew tap change-fabric/cf</p>
+          <p class="t2"><span class="p">$ </span>brew install change-fabric</p>
+          <p class="t3"><span class="p">$ </span>change-fabric-install</p>
+        </div>
+      </div>
+      <div class="session">
+        <p class="step in" style="--d:3200ms"><b>Open your agent</b>, ask for a small change</p>
+        <div class="card in" style="--d:4200ms"><p class="who">you</p><p class="msg">Tidy up this long function.</p></div>
+        <div class="card in" style="--d:6000ms"><p class="who">your agent</p><p class="msg">Following <span class="rubric">cf:refactoring</span>: Extract Function.</p></div>
+      </div>
+    </div>
+  </main>
+</body>
+</html>

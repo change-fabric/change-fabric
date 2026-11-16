@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Is it for me?</title>
+  <link rel="stylesheet" href="tokens.css">
+  <link rel="stylesheet" href="journey.css">
+  <style>
+    main { gap: 40px; }
+    .rows { display: grid; grid-template-columns: repeat(3, 1fr); gap: 32px; }
+    .rows h2 { font-size: 44px; font-weight: 600; line-height: 1.2; margin: 0 0 16px; }
+    .rows p { font-size: 40px; line-height: 1.3; margin: 0; color: var(--muted); }
+    .hosts { font-size: 40px; color: var(--muted); margin: 0; }
+    .hosts span { color: var(--text); font-weight: 600; }
+  </style>
+</head>
+<body>
+  <main>
+    <p class="eyebrow">Is it for me?</p>
+    <h1 class="in">If you already ask an agent to write code, this is for you.</h1>
+    <div class="rows">
+      <div class="card in" style="--d:1200ms"><h2>New to engineering</h2><p>The habits a senior reviewer would push for.</p></div>
+      <div class="card in" style="--d:1700ms"><h2>Shipping side projects</h2><p>A review before every push.</p></div>
+      <div class="card in" style="--d:2200ms"><h2>Running a team repo</h2><p>A gate later, before a merge.</p></div>
+    </div>
+    <p class="hosts in" style="--d:3200ms">Runs inside <span>Claude Code</span>, <span>Codex CLI</span>, <span>Copilot CLI</span>, <span>OpenCode</span> and <span>Pi</span>.</p>
+  </main>
+</body>
+</html>

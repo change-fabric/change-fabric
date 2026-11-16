@@ -1,0 +1,869 @@
+{
+  "schema_version": 1,
+  "slug": "site-hero-journey",
+  "title": "change fabric, the hero's journey",
+  "source_docs": [
+    {
+      "path": "brief.md"
+    }
+  ],
+  "viewport": {
+    "w": 1920,
+    "h": 1080
+  },
+  "fps": 30,
+  "music": {
+    "provider": "elevenlabs",
+    "model": "music_v1",
+    "gain_db": -18,
+    "fade_out": 2.5,
+    "composition_plan": {
+      "positive_global_styles": [
+        "instrumental",
+        "minimal electronic",
+        "120 BPM",
+        "4/4",
+        "no vocals",
+        "clean for voice-over",
+        "quiet and warm"
+      ],
+      "negative_global_styles": [
+        "vocals",
+        "tempo changes",
+        "outro",
+        "ending",
+        "fade out"
+      ],
+      "sections": [
+        {
+          "section_name": "sting",
+          "positive_local_styles": [
+            "120 BPM",
+            "4/4",
+            "bright mallet hit on beat 1 of bar 2",
+            "short riser"
+          ],
+          "negative_local_styles": [],
+          "duration_ms": 4000,
+          "lines": []
+        },
+        {
+          "section_name": "call",
+          "positive_local_styles": [
+            "120 BPM",
+            "sparse kick on every beat",
+            "low pad"
+          ],
+          "negative_local_styles": [],
+          "duration_ms": 18000,
+          "lines": []
+        },
+        {
+          "section_name": "mentor",
+          "positive_local_styles": [
+            "120 BPM",
+            "light drums",
+            "muted synth bass",
+            "steady eighths"
+          ],
+          "negative_local_styles": [],
+          "duration_ms": 12000,
+          "lines": []
+        },
+        {
+          "section_name": "trial",
+          "positive_local_styles": [
+            "120 BPM",
+            "same groove",
+            "add a plucked arpeggio"
+          ],
+          "negative_local_styles": [],
+          "duration_ms": 16000,
+          "lines": []
+        },
+        {
+          "section_name": "return",
+          "positive_local_styles": [
+            "120 BPM",
+            "same groove",
+            "small lift on the first bar"
+          ],
+          "negative_local_styles": [],
+          "duration_ms": 12000,
+          "lines": []
+        },
+        {
+          "section_name": "close",
+          "positive_local_styles": [
+            "120 BPM",
+            "same groove and energy through the very last second",
+            "no outro, no fade, no ending"
+          ],
+          "negative_local_styles": [
+            "resolution",
+            "ritardando"
+          ],
+          "duration_ms": 6000,
+          "lines": []
+        }
+      ]
+    }
+  },
+  "voice": {
+    "provider": "elevenlabs",
+    "voice_id": "21m00Tcm4TlvDq8ikWAM",
+    "model": "eleven_v3",
+    "output_format": "mp3_44100_128",
+    "pronunciations": [
+      {
+        "text": "CHANGE.md",
+        "say": "change dot M D"
+      }
+    ],
+    "settings": {
+      "stability": 0.0
+    }
+  },
+  "hypotheses": [
+    {
+      "id": "H-01",
+      "text": "A newcomer can say what Change Fabric is (a layer on the agent they already use) and whether it is for them after one viewing.",
+      "dimension": "role"
+    },
+    {
+      "id": "H-02",
+      "text": "Scenes that follow the homepage's headings and order (the problem, Is it for me?, What is it?, Before it merges, Start building) make the page and the clip read as one story.",
+      "dimension": "look_and_feel"
+    }
+  ],
+  "review": {
+    "kind": "explainer",
+    "audience": "Newcomers moving into engineering who already use AI tools for code, for example from marketing technology, deciding from the homepage whether the toolkit is for them",
+    "purpose": [
+      "Your agent writes code faster than you can judge it, and you can't yet tell whether it is good or safe to ship",
+      "If you already ask an agent to write code, it is for you, inside Claude Code, Codex CLI, Copilot CLI, OpenCode or Pi",
+      "Your coding agent is the harness and Change Fabric extends it with rubrics, commands and hooks, whose rubrics credit sources such as Sandi Metz and Martin Fowler",
+      "One CHANGE.md adds a gate where five checks run and any failure blocks the merge, and you do not need it on day one",
+      "How to start: brew tap, brew install change-fabric and change-fabric-install, open your agent, watch a rubric apply, then Start Building"
+    ]
+  },
+  "scenes": [
+    {
+      "id": "logo-open",
+      "title": "change fabric",
+      "order": 1,
+      "user_goal": "Know whose clip this is",
+      "action": "Watch the mark draw in",
+      "screen": {
+        "html": "screens/logo.html"
+      },
+      "requirements": [
+        {
+          "source": "brief.md",
+          "anchor": "#self-made"
+        }
+      ],
+      "assumptions": [
+        {
+          "id": "A-02",
+          "text": "Music and narration are generated by ElevenLabs under a Starter or above plan, whose terms cover commercial use of generated audio."
+        },
+        {
+          "id": "A-04",
+          "text": "The clip uses the site dark theme palette, as the clip it replaces did; tokens.css is a byte-identical copy from walkthrough/site-self, and both logo cards reuse its mark; the opener drops the old tagline."
+        }
+      ],
+      "hypotheses": [
+        "H-01"
+      ],
+      "heuristics_shown": [
+        "H4"
+      ],
+      "timing": {
+        "min_ms": 4000,
+        "pad_ms": 400,
+        "transition": {
+          "type": "cut",
+          "ms": 0
+        }
+      },
+      "deps": {
+        "frames_key": "f4a1fbbe4b1e182954f179e69f8da772e256d95b6ac1eb1a8f9b02efd9804ce2",
+        "audio_key": "3af13be7e00d6ce93b3e307e98b7cd6bd2c64d3d1793c754880db17e03fe8391",
+        "asset_keys": []
+      }
+    },
+    {
+      "id": "problem",
+      "title": "The problem",
+      "order": 2,
+      "user_goal": "Recognise the problem",
+      "action": "Watch changed files pile up faster than they are read",
+      "screen": {
+        "html": "screens/problem.html"
+      },
+      "narration": {
+        "text": "Your agent writes code faster than you can judge it. Is it good? Is it safe to ship? You can't yet tell."
+      },
+      "requirements": [
+        {
+          "source": "brief.md",
+          "anchor": "#problem"
+        }
+      ],
+      "assumptions": [
+        {
+          "id": "A-08",
+          "text": "The changed files and line counts on screen are illustrative, not from any real repo."
+        }
+      ],
+      "hypotheses": [
+        "H-01"
+      ],
+      "heuristics_shown": [
+        "H1",
+        "H2"
+      ],
+      "timing": {
+        "min_ms": 8000,
+        "pad_ms": 400,
+        "transition": {
+          "type": "cut",
+          "ms": 0
+        }
+      },
+      "deps": {
+        "frames_key": "6a995163bc7de356d3143a45c09337b803a08a9ea54b0a204424cab7aa7d6c18",
+        "audio_key": "bcde9c1e62b05926f9b952ea4ee195fc179334f2403454ae4cd4699f3eef4fce",
+        "asset_keys": []
+      }
+    },
+    {
+      "id": "for-me",
+      "title": "Is it for me?",
+      "order": 3,
+      "user_goal": "Decide whether this is for me",
+      "action": "Read the three reader rows and the agents it runs inside",
+      "screen": {
+        "html": "screens/for-me.html"
+      },
+      "narration": {
+        "text": "If you already ask an agent to write code, this is for you. It runs inside the agent you already use."
+      },
+      "requirements": [
+        {
+          "source": "brief.md",
+          "anchor": "#for-you"
+        }
+      ],
+      "hypotheses": [
+        "H-01",
+        "H-02"
+      ],
+      "heuristics_shown": [
+        "H2",
+        "H4"
+      ],
+      "timing": {
+        "min_ms": 10000,
+        "pad_ms": 400,
+        "transition": {
+          "type": "cut",
+          "ms": 0
+        }
+      },
+      "deps": {
+        "frames_key": "4b660f9c02547d7ac91abf102e5d142aaea776e5dc02dc0d44eab069f5bf86e1",
+        "audio_key": "35f70dba8bb244c6ffac513a57894c5904df6f8a5d1dd784d48e0ada931cee5b",
+        "asset_keys": []
+      }
+    },
+    {
+      "id": "layers",
+      "title": "What is it?",
+      "order": 4,
+      "kind": "diagram",
+      "user_goal": "Know what Change Fabric is and where its rubrics come from",
+      "action": "Watch Change Fabric stack on your agent, then the credited sources join its rubrics",
+      "screen": {
+        "html": "screens/layers.html"
+      },
+      "diagram": {
+        "layout": {
+          "engine": "dagre",
+          "direction": "TB",
+          "max_zoom": 2.0
+        },
+        "theme": "dark",
+        "nodes": [
+          {
+            "id": "metz",
+            "label": "Sandi Metz",
+            "role": "muted"
+          },
+          {
+            "id": "fowler",
+            "label": "Martin Fowler",
+            "role": "muted"
+          },
+          {
+            "id": "nielsen",
+            "label": "Jakob Nielsen",
+            "role": "muted"
+          },
+          {
+            "id": "houde",
+            "label": "Houde and Hill",
+            "role": "muted"
+          },
+          {
+            "id": "rubrics",
+            "label": "Rubrics",
+            "icon": "list-checks"
+          },
+          {
+            "id": "commands",
+            "label": "Commands",
+            "icon": "terminal"
+          },
+          {
+            "id": "hooks",
+            "label": "Hooks",
+            "icon": "lock"
+          },
+          {
+            "id": "cf",
+            "label": "Change Fabric",
+            "role": "accent"
+          },
+          {
+            "id": "agent",
+            "label": "Your coding agent",
+            "icon": "robot"
+          },
+          {
+            "id": "code",
+            "label": "Your code",
+            "icon": "code"
+          }
+        ],
+        "edges": [
+          {
+            "id": "e-metz",
+            "source": "metz",
+            "target": "rubrics"
+          },
+          {
+            "id": "e-fowler",
+            "source": "fowler",
+            "target": "rubrics"
+          },
+          {
+            "id": "e-nielsen",
+            "source": "nielsen",
+            "target": "rubrics"
+          },
+          {
+            "id": "e-houde",
+            "source": "houde",
+            "target": "rubrics"
+          },
+          {
+            "id": "e-rubrics",
+            "source": "rubrics",
+            "target": "cf"
+          },
+          {
+            "id": "e-commands",
+            "source": "commands",
+            "target": "cf"
+          },
+          {
+            "id": "e-hooks",
+            "source": "hooks",
+            "target": "cf"
+          },
+          {
+            "id": "e-cf",
+            "source": "cf",
+            "target": "agent",
+            "label": "extends"
+          },
+          {
+            "id": "e-agent",
+            "source": "agent",
+            "target": "code",
+            "label": "edits"
+          }
+        ],
+        "initial": [
+          "agent",
+          "code",
+          "e-agent"
+        ],
+        "steps": [
+          {
+            "t_ms": 1300,
+            "op": "add_node",
+            "ids": [
+              "cf",
+              "e-cf"
+            ]
+          },
+          {
+            "t_ms": 1400,
+            "op": "fit_view",
+            "padding": 0.15,
+            "duration": 600
+          },
+          {
+            "t_ms": 1500,
+            "op": "flow",
+            "id": "e-cf",
+            "count": 3,
+            "duration": 1200
+          },
+          {
+            "t_ms": 3600,
+            "op": "add_node",
+            "ids": [
+              "rubrics",
+              "commands",
+              "hooks",
+              "e-rubrics",
+              "e-commands",
+              "e-hooks"
+            ]
+          },
+          {
+            "t_ms": 3700,
+            "op": "fit_view",
+            "padding": 0.12,
+            "duration": 700
+          },
+          {
+            "t_ms": 6800,
+            "op": "add_node",
+            "ids": [
+              "metz",
+              "fowler",
+              "nielsen",
+              "houde",
+              "e-metz",
+              "e-fowler",
+              "e-nielsen",
+              "e-houde"
+            ]
+          },
+          {
+            "t_ms": 6900,
+            "op": "fit_view",
+            "padding": 0.08,
+            "duration": 700
+          },
+          {
+            "t_ms": 7600,
+            "op": "highlight",
+            "ids": [
+              "rubrics",
+              "e-metz",
+              "e-fowler",
+              "e-nielsen",
+              "e-houde"
+            ]
+          },
+          {
+            "t_ms": 10000,
+            "op": "highlight",
+            "ids": [
+              "cf"
+            ]
+          }
+        ]
+      },
+      "narration": {
+        "text": "Your coding agent is the harness. Change Fabric extends it with rubrics, commands and hooks. Its rubrics credit their sources, like Sandi Metz and Martin Fowler."
+      },
+      "requirements": [
+        {
+          "source": "brief.md",
+          "anchor": "#fundamentals"
+        }
+      ],
+      "assumptions": [
+        {
+          "id": "A-06",
+          "text": "Named authors and works are credited as sources of rubric content, not as endorsements of the toolkit; the narration says they are credited sources."
+        }
+      ],
+      "hypotheses": [
+        "H-01"
+      ],
+      "heuristics_shown": [
+        "H2",
+        "H6",
+        "H10"
+      ],
+      "timing": {
+        "min_ms": 12000,
+        "pad_ms": 400,
+        "transition": {
+          "type": "cut",
+          "ms": 0
+        }
+      },
+      "deps": {
+        "frames_key": "ee87a8a9354fe71199910e8c41f1778f999453e0d4893ee6fe29e221914541ca",
+        "audio_key": "0b2c22075e952fa817142684dfca4ffa7b193667422f4d5b35a3f743d2138e9e",
+        "asset_keys": []
+      }
+    },
+    {
+      "id": "gate",
+      "title": "Before it merges",
+      "order": 5,
+      "kind": "diagram",
+      "user_goal": "See what the gate checks and what fails it",
+      "action": "Watch a change ride each of the five checks into the CHANGE.md gate",
+      "screen": {
+        "html": "screens/gate.html"
+      },
+      "diagram": {
+        "layout": {
+          "engine": "manual"
+        },
+        "theme": "dark",
+        "lanes": [
+          {
+            "id": "load",
+            "label": "Load",
+            "color": "#f2b85b",
+            "icon": "gauge"
+          },
+          {
+            "id": "a11y",
+            "label": "Accessibility",
+            "color": "#6fb7f0",
+            "icon": "wheelchair"
+          },
+          {
+            "id": "security",
+            "label": "Security",
+            "color": "#f07f9b",
+            "icon": "shield-check"
+          },
+          {
+            "id": "ux",
+            "label": "Responsive",
+            "color": "#4fc4b0",
+            "icon": "devices"
+          },
+          {
+            "id": "cases",
+            "label": "Test cases",
+            "color": "#9ea39b",
+            "icon": "test-tube"
+          }
+        ],
+        "lane_direction": "horizontal",
+        "report": {
+          "label": "CHANGE.md gate",
+          "unit": "checks"
+        },
+        "nodes": [
+          {
+            "id": "check-load",
+            "label": "k6",
+            "lane": "load",
+            "position": {
+              "x": 224,
+              "y": 0
+            }
+          },
+          {
+            "id": "check-a11y",
+            "label": "axe-core",
+            "lane": "a11y",
+            "position": {
+              "x": 224,
+              "y": 0
+            }
+          },
+          {
+            "id": "check-security",
+            "label": "OWASP ZAP",
+            "lane": "security",
+            "position": {
+              "x": 224,
+              "y": 0
+            }
+          },
+          {
+            "id": "check-ux",
+            "label": "browserless",
+            "lane": "ux",
+            "position": {
+              "x": 224,
+              "y": 0
+            }
+          },
+          {
+            "id": "check-cases",
+            "label": "testcases",
+            "lane": "cases",
+            "position": {
+              "x": 224,
+              "y": 0
+            }
+          },
+          {
+            "id": "pr",
+            "label": "Your change",
+            "role": "accent",
+            "icon": "git-pull-request",
+            "position": {
+              "x": 0,
+              "y": 0
+            }
+          },
+          {
+            "id": "r-load",
+            "label": "Threshold breaks"
+          },
+          {
+            "id": "r-a11y",
+            "label": "Serious impact"
+          },
+          {
+            "id": "r-security",
+            "label": "Bad headers"
+          },
+          {
+            "id": "r-ux",
+            "label": "Layout breaks"
+          },
+          {
+            "id": "r-cases",
+            "label": "A case fails"
+          }
+        ],
+        "edges": [],
+        "initial": [
+          "check-load",
+          "check-a11y",
+          "check-security",
+          "check-ux",
+          "check-cases"
+        ],
+        "steps": [
+          {
+            "t_ms": 0,
+            "op": "fit_view",
+            "padding": 0.06
+          },
+          {
+            "t_ms": 1650,
+            "op": "travel",
+            "id": "pr",
+            "lane": "load",
+            "result": "r-load",
+            "duration": 700,
+            "easing": "standard"
+          },
+          {
+            "t_ms": 2550,
+            "op": "travel",
+            "id": "pr",
+            "lane": "a11y",
+            "result": "r-a11y",
+            "duration": 700,
+            "easing": "standard"
+          },
+          {
+            "t_ms": 3750,
+            "op": "travel",
+            "id": "pr",
+            "lane": "security",
+            "result": "r-security",
+            "duration": 700,
+            "easing": "standard"
+          },
+          {
+            "t_ms": 5150,
+            "op": "travel",
+            "id": "pr",
+            "lane": "ux",
+            "result": "r-ux",
+            "duration": 700,
+            "easing": "standard"
+          },
+          {
+            "t_ms": 6650,
+            "op": "travel",
+            "id": "pr",
+            "lane": "cases",
+            "result": "r-cases",
+            "duration": 700,
+            "easing": "standard"
+          }
+        ]
+      },
+      "narration": {
+        "text": "When you're ready, one CHANGE.md says how to boot your app. Five checks run in their own containers, and any failure blocks the merge."
+      },
+      "requirements": [
+        {
+          "source": "brief.md",
+          "anchor": "#gate"
+        }
+      ],
+      "assumptions": [
+        {
+          "id": "A-03",
+          "text": "The run on screen is illustrative; each result names what fails that check, not a real finding."
+        }
+      ],
+      "hypotheses": [
+        "H-01",
+        "H-02"
+      ],
+      "heuristics_shown": [
+        "H1",
+        "H9"
+      ],
+      "timing": {
+        "min_ms": 12000,
+        "pad_ms": 400,
+        "transition": {
+          "type": "cut",
+          "ms": 0
+        }
+      },
+      "deps": {
+        "frames_key": "e17b601018de129001e25d8d4e75c686c6c5e86a6e37fc4b54ce89c91010749d",
+        "audio_key": "20d30b1608966ccf5c574a2e88343cd9503755fb45e9f3cfd65d79c5402571fb",
+        "asset_keys": []
+      }
+    },
+    {
+      "id": "not-day-one",
+      "title": "Not on day one",
+      "order": 6,
+      "user_goal": "Know the gate can wait",
+      "action": "Read that the gate waits until you are ready",
+      "screen": {
+        "html": "screens/not-day-one.html"
+      },
+      "narration": {
+        "text": "You do not need it on day one."
+      },
+      "requirements": [
+        {
+          "source": "brief.md",
+          "anchor": "#gate"
+        }
+      ],
+      "hypotheses": [
+        "H-01"
+      ],
+      "heuristics_shown": [
+        "H2"
+      ],
+      "timing": {
+        "min_ms": 4000,
+        "pad_ms": 400,
+        "transition": {
+          "type": "cut",
+          "ms": 0
+        }
+      },
+      "deps": {
+        "frames_key": "55d59a295da253d44fe987746ea1ac413603fefd4bf8ec9cb384cf7651388878",
+        "audio_key": "46ef49fcbf16974067b37efd14e1d9ec35239d73d6427919f5365c7e4fddea45",
+        "asset_keys": []
+      }
+    },
+    {
+      "id": "start",
+      "title": "Start building",
+      "order": 7,
+      "user_goal": "Know how to start and what the first win looks like",
+      "action": "Read the three install commands, then watch the agent name the rubric it follows",
+      "screen": {
+        "html": "screens/start.html"
+      },
+      "narration": {
+        "text": "Three commands install it. Open the agent you already use, ask for a small change, and watch the first rubric apply."
+      },
+      "requirements": [
+        {
+          "source": "brief.md",
+          "anchor": "#start"
+        }
+      ],
+      "assumptions": [
+        {
+          "id": "A-07",
+          "text": "The agent session on screen is a neutral illustration of the next-edit behaviour, not a capture of any one agent's interface."
+        }
+      ],
+      "hypotheses": [
+        "H-01"
+      ],
+      "heuristics_shown": [
+        "H1",
+        "H6",
+        "H10"
+      ],
+      "timing": {
+        "min_ms": 12000,
+        "pad_ms": 400,
+        "transition": {
+          "type": "cut",
+          "ms": 0
+        }
+      },
+      "deps": {
+        "frames_key": "37e98e6467d834226e20e42fb23a7ec61be517e33a67ffaf78cb648f73141698",
+        "audio_key": "3329e9d18aa2c66fdd73de32a63bf8685df077feb2868a4cc761fa7bfd6e5071",
+        "asset_keys": []
+      }
+    },
+    {
+      "id": "close",
+      "title": "Start Building",
+      "order": 8,
+      "user_goal": "Know the one next step",
+      "action": "Read the call to action and the install line under the mark",
+      "screen": {
+        "html": "screens/close.html"
+      },
+      "requirements": [
+        {
+          "source": "brief.md",
+          "anchor": "#start"
+        }
+      ],
+      "hypotheses": [
+        "H-01"
+      ],
+      "heuristics_shown": [
+        "H4"
+      ],
+      "timing": {
+        "min_ms": 6000,
+        "pad_ms": 400,
+        "transition": {
+          "type": "cut",
+          "ms": 0
+        }
+      },
+      "deps": {
+        "frames_key": "6893b0b15dd43b0c0789c78af3e5a7130d022ea0cfda3bc58fc70e7e547c8346",
+        "audio_key": "3af13be7e00d6ce93b3e307e98b7cd6bd2c64d3d1793c754880db17e03fe8391",
+        "asset_keys": []
+      }
+    }
+  ],
+  "tokens_css_sha256": "90dfaa71a6445de41f9dc53bc814dc978f5a93f0b05aa0186c9f64a80139e236"
+}
