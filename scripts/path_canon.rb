@@ -11,17 +11,32 @@
 module PathCanon
   module_function
 
-  # The realpath of the longest existing prefix plus the missing tail, with
-  # `..` collapsed. Never raises. follow_leaf: false resolves the parent only
-  # and keeps the leaf name as given, so a symlink leaf is not followed.
+  # The path as the filesystem resolves it, walked one segment at a time the
+  # way the kernel does: a symlink is followed before a later `..` applies,
+  # so `link/../x` names the link target's parent, not a lexical sibling.
+  # Missing segments are kept as given. Never raises. follow_leaf: false
+  # keeps a symlink leaf unfollowed.
   def real(path, base: Dir.pwd, follow_leaf: true)
-    full = File.expand_path(path.to_s, base.to_s)
-    return resolve(full) if follow_leaf
+    str = path.to_s
+    start = str.start_with?('/') ? '/' : resolve(File.expand_path(base.to_s))
+    parts = str.split('/').reject { |seg| seg.empty? || seg == '.' }
+    walked = parts.each_with_index.reduce(start) do |cur, (seg, i)|
+      next File.dirname(cur) if seg == '..'
 
-    parent = File.dirname(full)
-    parent == full ? full : File.join(resolve(parent), File.basename(full))
+      step(File.join(cur, seg), follow: follow_leaf || i < parts.size - 1)
+    end
+    return resolve(walked) if follow_leaf
+
+    parent = File.dirname(walked)
+    parent == walked ? walked : File.join(resolve(parent), File.basename(walked))
   rescue StandardError
     fallback(path, base)
+  end
+
+  def step(candidate, follow:)
+    return candidate unless follow && File.symlink?(candidate)
+
+    resolve(candidate)
   end
 
   # True when path is root or inside it, both canonicalized. Compares against
@@ -63,5 +78,5 @@ module PathCanon
     path.to_s
   end
 
-  private_class_method :resolve, :fallback
+  private_class_method :resolve, :fallback, :step
 end

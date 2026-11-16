@@ -111,4 +111,17 @@ class PathCanonTest < Minitest::Test
     File.symlink(File.join(@tmp, "nowhere"), leaf)
     assert_equal leaf, PathCanon.real(leaf)
   end
+
+  def test_a_symlink_is_followed_before_a_parent_segment
+    Dir.mktmpdir do |dir|
+      root = File.join(dir, "walkthrough")
+      outside = File.join(dir, "outside", "nested")
+      FileUtils.mkdir_p([ root, outside ])
+      File.symlink(outside, File.join(root, "jump"))
+      File.write(File.join(dir, "outside", "seed.json"), "{}")
+
+      refute PathCanon.within?("jump/../seed.json", root)
+      assert_equal File.realpath(File.join(dir, "outside", "seed.json")), PathCanon.real("jump/../seed.json", base: root)
+    end
+  end
 end
