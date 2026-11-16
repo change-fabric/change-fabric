@@ -134,6 +134,8 @@ class ChangeScheduleConfig
   end
 
   def self.cron_item_valid?(item, range)
+    return false if item.empty?
+
     base, step = item.split('/', 2)
     return false if item.count('/') > 1
     return false if step && !(step.match?(/\A\d+\z/) && step.to_i.positive?)

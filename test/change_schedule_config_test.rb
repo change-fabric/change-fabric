@@ -83,6 +83,9 @@ class ChangeScheduleConfigTest < Minitest::Test
     assert_match(/day-of-month field '0'/, errors_for("n" => nightly("cron" => "0 3 0 * *")).join)
     assert_match(/minute field '\*\/0'/, errors_for("n" => nightly("cron" => "*/0 3 * * *")).join)
     assert_match(/five-field cron string/, errors_for("n" => nightly("cron" => 5)).join)
+    [ "0, 3 * * *", ",0 3 * * *", "0,,30 3 * * *" ].each do |cron|
+      assert_match(/minute field/, errors_for("n" => nightly("cron" => cron)).join, cron)
+    end
   end
 
   def test_cron_accepts_ranges_steps_and_lists
