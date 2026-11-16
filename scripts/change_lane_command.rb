@@ -178,7 +178,7 @@ class ChangeLaneCommand < ChangeLane
   def copy_artifact(name, rel, mask)
     artifacts_dir = File.join(out_dir, name, 'artifacts')
     dest = File.expand_path(rel, artifacts_dir)
-    unless contained?(rel) && dest.start_with?("#{artifacts_dir}/")
+    unless contained?(rel) && PathCanon.strictly_within?(dest, artifacts_dir)
       return "warn: artifact #{rel} resolves outside the repository; not copied"
     end
 

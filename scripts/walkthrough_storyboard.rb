@@ -282,7 +282,7 @@ module WalkthroughStoryboard
 
   def broll_image_errors(src, root)
     return [ 'broll.source_image is required' ] if src.empty?
-    return [ 'broll.source_image must be inside the walkthrough directory' ] if src.start_with?('/') || src.split('/').include?('..')
+    return [ 'broll.source_image must be inside the walkthrough directory' ] unless WalkthroughEnvironment.inside_walkthrough?(src, root)
     return [ 'broll.source_image must be a png, jpg, or webp' ] unless BROLL_IMAGE_EXTS.include?(File.extname(src).downcase)
     return [ "broll.source_image #{src} does not exist" ] if root && !File.file?(File.join(root, src))
 
@@ -327,7 +327,7 @@ module WalkthroughStoryboard
 
   def sfx_file_errors(src, root)
     return [ 'sfx.file is required' ] if src.empty?
-    return [ 'sfx.file must be inside the walkthrough directory' ] if src.start_with?('/') || src.split('/').include?('..')
+    return [ 'sfx.file must be inside the walkthrough directory' ] unless WalkthroughEnvironment.inside_walkthrough?(src, root)
     return [ "sfx.file must be one of #{SFX_EXTS.join(', ')}" ] unless SFX_EXTS.include?(File.extname(src).downcase)
     return [ "sfx.file #{src} does not exist" ] if root && !File.file?(File.join(root, src))
 
