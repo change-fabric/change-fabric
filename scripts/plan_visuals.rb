@@ -181,11 +181,13 @@ module PlanVisuals
     drift << "#{visual.name} drawn for #{drawn} phases, workflow.js has #{now}" unless drawn == now
   end
 
-  # `unrendered` names visuals posted as an omission notice, so rendering the
-  # missing PNG later changes the hash and the visual replaces its notice.
-  def section_hash(visuals, unrendered: [])
+  # Everything the posted section shows: each SVG, every omission notice with
+  # its reason, and the link-back target. A later render, a changed reason or
+  # a new --first-pr then changes the hash and the section is reposted.
+  def section_hash(visuals, omits: {}, first_pr: nil)
     digests = visuals.map { |v| File.exist?(v.svg) ? Digest::SHA256.file(v.svg).hexdigest : 'missing' }
-    digests += unrendered.map { |name| "unrendered:#{name}" }
+    digests += omits.map { |name, reason| "omit:#{name}:#{reason}" }
+    digests << "link:#{first_pr}" if first_pr
     Digest::SHA256.hexdigest(digests.sort.join("\n"))[0, 16]
   end
 
@@ -280,12 +282,12 @@ module PlanVisuals
       missing.each { |v| omits[v.name] = 'PNG not rendered' }
       return Outcome.new(code: 0, lines: [ 'nothing to post' ]) if picked[:visuals].empty? && !picked[:link_back]
 
-      hash = PlanVisuals.section_hash(kept, unrendered: missing.map(&:name))
+      link = picked[:link_back] ? first_pr : nil
+      hash = PlanVisuals.section_hash(kept, omits: omits, first_pr: link)
       body, ok = @gh.run('gh', 'pr', 'view', @pr.to_s, '--json', 'body', '--jq', '.body', *PlanVisuals.repo_args(@repo))
       return Outcome.new(code: 3, lines: [ 'could not read the PR body' ]) unless ok
       return Outcome.new(code: 0, lines: [ 'unchanged' ]) if PlanVisuals.current_hash(body) == hash
 
-      link = picked[:link_back] ? first_pr : nil
       return Outcome.new(code: 0, lines: [ 'would post', PlanVisuals.compose(visuals, urls: placeholder_urls(visuals), hash: hash, omits: omits, first_pr: link) ]) if dry_run
 
       urls = upload(visuals, manifest)
@@ -386,7 +388,7 @@ module PlanVisuals
     def self.run_compose(dir, opts, out, _gh, _uploader)
       visuals = PlanVisuals.select(dir, phase: opts[:phase])[:visuals]
       out.puts(PlanVisuals.compose(visuals, urls: JSON.parse(opts[:urls] || '{}'),
-                                            hash: PlanVisuals.section_hash(visuals), omits: opts[:omit]))
+                                            hash: PlanVisuals.section_hash(visuals, omits: opts[:omit] || {}), omits: opts[:omit]))
       0
     end
 

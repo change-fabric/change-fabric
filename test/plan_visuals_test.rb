@@ -346,7 +346,7 @@ class PlanVisualsScriptTest < Minitest::Test
     with_plan do |dir|
       File.delete(File.join(dir, "diagrams", "wire-dark.png"))
       assert_equal [ "posted 0 visual(s)" ], PV::Poster.new(dir, pr: 7, gh: pr_gh, uploader: FakeUploader.new).post(phase: 2).lines
-      first = PV.section_hash(PV.select(dir, phase: 2)[:visuals], unrendered: [ "wire" ])
+      first = PV.section_hash(PV.select(dir, phase: 2)[:visuals], omits: { "wire" => "PNG not rendered" })
       File.write(File.join(dir, "diagrams", "wire-dark.png"), "D")
       up = FakeUploader.new
       again = pr_gh(body: "Intro\n\n#{PV::START_PREFIX}#{first} -->\nold\n#{PV::END_MARK}")
@@ -365,6 +365,25 @@ class PlanVisualsScriptTest < Minitest::Test
         phase("Verify")
       JS
       assert_equal 4, PV.workflow_phase_count(dir)
+    end
+  end
+
+  def test_adding_first_pr_later_posts_the_link_back
+    with_plan do |dir|
+      empty = PV.section_hash([])
+      gh = FakeGh.new("gh pr view 7 --json body" => [ "Intro\n\n#{PV::START_PREFIX}#{empty} -->\n#{PV::END_MARK}", true ])
+      outcome = PV::Poster.new(dir, pr: 7, gh: gh, uploader: FakeUploader.new).post(phase: 3, first_pr: "5")
+      refute_equal [ "unchanged" ], outcome.lines
+      assert_equal 1, gh.edits.size
+    end
+  end
+
+  def test_changing_an_omission_reason_reposts
+    with_plan do |dir|
+      old = PV.section_hash([], omits: { "wire" => "old reason" })
+      gh = pr_gh(body: "Intro\n\n#{PV::START_PREFIX}#{old} -->\nold\n#{PV::END_MARK}")
+      PV::Poster.new(dir, pr: 7, gh: gh, uploader: FakeUploader.new).post(phase: 2, omits: { "wire" => "new reason" })
+      assert_equal 1, gh.edits.size
     end
   end
 
