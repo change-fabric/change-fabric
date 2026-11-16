@@ -161,6 +161,13 @@ class CfKeysTest < Minitest::Test
     assert_equal 1, run_cli("defer", "gemini", "--days", "x", "--dir", @project).first
   end
 
+def test_confirm_inherit_clears_a_deferral
+  run_cli("enroll", "openai", "--dir", @org)
+  run_cli("defer", "openai", "--dir", @project)
+  assert_equal 0, run_cli("confirm-inherit", "openai", "--dir", @project).first
+  refute CfSecretStore.deferral_active?(slug(@project), "openai")
+end
+
   def test_enroll_clears_a_deferral
     run_cli("defer", "openai", "--dir", @project)
     run_cli("enroll", "openai", "--dir", @project)

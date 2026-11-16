@@ -56,6 +56,10 @@ class EnrollSkillTest < Minitest::Test
     end
   end
 
+def test_a_direct_run_never_skips_an_expired_key
+  assert_includes SKILL, "never one whose entry says `(expired)`"
+end
+
   def test_plain_question_fallback_and_away_default
     assert_includes SKILL, "plain numbered question"
     assert_includes SKILL, "Away mode: take Defer (7 days)"

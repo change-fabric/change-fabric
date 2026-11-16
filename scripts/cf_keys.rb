@@ -170,6 +170,7 @@ class CfKeys
 
     CfSecretStore.describe(project)
     CfSecretStore.update_meta(project.slug) { |m| (m['confirmed_inherits'] ||= {})[provider] = ancestor.first }
+    CfSecretStore.clear_deferral(project.slug, provider)
     @out.puts("#{project.root} now uses the #{provider} key enrolled at #{ancestor.first.delete_prefix('dir:')}")
     0
   end

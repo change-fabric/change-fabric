@@ -28,7 +28,9 @@ One of three:
 The project is `project_root` from the line, else the current directory's
 project. Start with `ruby ~/.claude/cf/bin/cf_keys.rb status --dir <root>`; it
 never prints a value. Skip a provider that already reads `enrolled`,
-`inherited from`, or `deferred until` (unless the line itself named it).
+`inherited from`, or `deferred until` (unless the line itself named it),
+but never one whose entry says `(expired)`: treat that as `reason` `expired`
+and ask the renewal question for its owning level.
 
 ## One question per provider
 
