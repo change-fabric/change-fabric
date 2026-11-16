@@ -41,6 +41,52 @@ class SimplicitySignalsTest < Minitest::Test
     SimplicitySignals.run(repo: repo_for(name), base: "HEAD~1", head: "HEAD")
   end
 
+  # A two-commit repo from inline file maps; a nil value deletes the file.
+  def inline_repo(base, head)
+    dir = Dir.mktmpdir
+    @dirs << dir
+    GitFixture.git_init(dir, "-b", "main")
+    GitFixture.git(dir, "config", "user.email", "fixture@example.com")
+    GitFixture.git(dir, "config", "user.name", "Fixture")
+    [ base, head ].each_with_index do |files, i|
+      files.each do |path, body|
+        full = File.join(dir, path)
+        next FileUtils.rm_f(full) if body.nil?
+
+        FileUtils.mkdir_p(File.dirname(full))
+        File.write(full, body)
+      end
+      GitFixture.git(dir, "add", "-A")
+      GitFixture.git(dir, "commit", "-q", "--allow-empty", "-m", "c#{i}")
+    end
+    SimplicitySignals.run(repo: dir, base: "HEAD~1", head: "HEAD")
+  end
+
+  def test_same_named_subclasses_in_two_namespaces_are_two_implementations
+    report = inline_repo({ "README" => "x\n" }, {
+      "lib/notifier_base.rb" => "class NotifierBase\n  def call = raise(NotImplementedError)\nend\n",
+      "lib/a.rb" => "module A\n  class Worker < NotifierBase; end\nend\n",
+      "lib/b.rb" => "module B\n  class Worker < NotifierBase; end\nend\n"
+    })
+
+    refute(report["single_impl"].any? { |entry| entry["base"] == "NotifierBase" })
+  end
+
+  def test_an_include_in_a_nested_class_belongs_only_to_it
+    report = inline_repo({ "README" => "x\n" }, {
+      "lib/outer.rb" => "module Auditable; end\nclass Outer\n  class Inner\n    include Auditable\n  end\nend\n"
+    })
+
+    assert_includes report["single_impl"], { "base" => "Auditable", "impls" => [ "Outer::Inner" ] }
+  end
+
+  def test_a_renamed_file_introduces_no_types
+    body = "class Foo\n  def a = 1\n  def b = 2\n  def c = 3\nend\n"
+    report = inline_repo({ "lib/old.rb" => body }, { "lib/old.rb" => nil, "lib/new.rb" => "# moved\n#{body}" })
+
+    assert_in_delta 0.0, report["new_types_per_100"]
+  end
+
   def test_factory_with_one_product_reports_single_implementation
     report = signals("factory")
 

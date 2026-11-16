@@ -55,6 +55,15 @@ module SimplicitySignals
       @changed_files ||= git('diff', '--name-only', '--diff-filter=AMR', base, head).lines.map(&:strip)
     end
 
+    # A head path's path at base: its rename source, else itself.
+    def base_path(path)
+      @renames ||= git('diff', '--name-status', '-M', '--diff-filter=R', base, head).lines.to_h do |row|
+        _status, from, to = row.chomp.split("\t")
+        [ to, from ]
+      end
+      @renames.fetch(path, path)
+    end
+
     def ruby_files(paths) = paths.select { |path| path.end_with?('.rb') }
 
     # Line numbers added at head, per file, from a zero-context diff.
@@ -127,7 +136,7 @@ module SimplicitySignals
     return nil if added.nil?
 
     count = range.ruby_files(range.changed_files).sum do |path|
-      (type_names(range.show(range.head, path)) - type_names(range.show(range.base, path))).size
+      (type_names(range.show(range.head, path)) - type_names(range.show(range.base, range.base_path(path)))).size
     end
     added.zero? ? 0.0 : (count * 100.0 / added).round(2)
   end
@@ -135,9 +144,19 @@ module SimplicitySignals
   def type_names(source)
     return [] unless source
 
-    walk(Prism.parse(source).value).filter_map do |node|
-      node.constant_path.slice if node.is_a?(Prism::ClassNode) || node.is_a?(Prism::ModuleNode)
+    each_type(Prism.parse(source).value).map { |_node, name| name }
+  end
+
+  # Every class and module with its lexically qualified name, so A::Worker
+  # and B::Worker stay two types.
+  def each_type(node, scope = [], &block)
+    return enum_for(:each_type, node, scope) unless block
+
+    if node.is_a?(Prism::ClassNode) || node.is_a?(Prism::ModuleNode)
+      scope += [ node.constant_path.slice.delete_prefix('::') ]
+      yield node, scope.join('::')
     end
+    node.compact_child_nodes.each { |child| each_type(child, scope, &block) }
   end
 
   def walk(node, &block)
@@ -236,28 +255,36 @@ module SimplicitySignals
   end
 
   def collect_types(root, tree)
-    walk(root).each do |node|
+    each_type(root).each do |node, name|
       case node
-      when Prism::ModuleNode then tree[:modules] << node.constant_path.slice
-      when Prism::ClassNode then record_class(node, tree)
+      when Prism::ModuleNode then tree[:modules] << name
+      when Prism::ClassNode then record_class(node, name, tree)
       end
     end
   end
 
-  def record_class(node, tree)
-    name = node.constant_path.slice
+  def record_class(node, name, tree)
     tree[:subclasses][short(node.superclass.slice)] << name if node.superclass
     abstract = name.match?(ABSTRACT_NAME) || node.slice.include?('NotImplementedError')
     tree[:classes][name] = { abstract: } unless tree[:classes][name]&.dig(:abstract)
     included_modules(node).each { |mod| tree[:includes][short(mod)] << name }
   end
 
+  # Includes in this class's own body; a nested class or module owns its own.
   def included_modules(class_node)
-    walk(class_node).filter_map do |node|
+    own_nodes(class_node).filter_map do |node|
       next unless node.is_a?(Prism::CallNode) && node.name == :include && node.receiver.nil?
 
       node.arguments&.arguments&.map(&:slice)
     end.flatten
+  end
+
+  def own_nodes(node, root: true, &block)
+    return enum_for(:own_nodes, node, root:) unless block
+    return if !root && (node.is_a?(Prism::ClassNode) || node.is_a?(Prism::ModuleNode))
+
+    yield node
+    node.compact_child_nodes.each { |child| own_nodes(child, root: false, &block) }
   end
 
   def short(name) = name.to_s.split('::').last
