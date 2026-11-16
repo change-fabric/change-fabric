@@ -8,7 +8,7 @@ require_relative "../scripts/change_lane_a11y"
 #
 # - Basic auth: page.authenticate() only fires on a real WWW-Authenticate
 #   challenge header. An AWS ALB fixed-response 401 (used to gate e.g.
-#   cms.staging.amfm.org/admin/login) never sends that header, so
+#   cms.staging.example.org/admin/login) never sends that header, so
 #   page.authenticate() silently never engages and axe scans the raw 401
 #   challenge body instead of the real page. The fix sends the
 #   Authorization header unconditionally via page.setExtraHTTPHeaders(),
