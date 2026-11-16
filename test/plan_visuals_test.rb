@@ -387,6 +387,18 @@ class PlanVisualsScriptTest < Minitest::Test
     end
   end
 
+  def test_an_emptied_selection_removes_the_posted_section
+    with_plan do |dir|
+      plan = File.join(dir, "plan.md")
+      File.write(plan, File.read(plan).gsub(/^- diagrams.*\n/, ""))
+      gh = pr_gh(body: "Intro\n\n#{PV::START_PREFIX}abc -->\nold\n#{PV::END_MARK}")
+      outcome = PV::Poster.new(dir, pr: 7, gh: gh, uploader: FakeUploader.new).post(phase: 1)
+      assert_equal [ "removed the plan visuals section" ], outcome.lines
+      assert_equal 1, gh.edits.size
+      assert_equal [ "nothing to post" ], PV::Poster.new(dir, pr: 7, gh: pr_gh).post(phase: 1).lines
+    end
+  end
+
   def test_one_failed_upload_means_no_edit
     with_plan do |dir|
       gh = pr_gh

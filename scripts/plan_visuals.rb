@@ -233,6 +233,8 @@ module PlanVisuals
     body.strip.empty? ? section : "#{body.rstrip}\n\n#{section}"
   end
 
+  def unsplice(body) = "#{body.to_s.sub(SECTION, '').rstrip}\n"
+
   def repo_args(repo) = repo ? [ '--repo', repo ] : []
 
   def settled?(gh, pr, repo = nil)
@@ -280,7 +282,7 @@ module PlanVisuals
       kept = picked[:visuals].reject { |v| omits.key?(v.name) }
       visuals, missing = kept.partition { |v| PlanVisuals.png_paths(v, manifest).all? { |p| File.exist?(p) } }
       missing.each { |v| omits[v.name] = 'PNG not rendered' }
-      return Outcome.new(code: 0, lines: [ 'nothing to post' ]) if picked[:visuals].empty? && !picked[:link_back]
+      return clear(dry_run) if picked[:visuals].empty? && !picked[:link_back]
 
       link = picked[:link_back] ? first_pr : nil
       hash = PlanVisuals.section_hash(kept, omits: omits, first_pr: link)
@@ -299,6 +301,18 @@ module PlanVisuals
     end
 
     private
+
+    # Nothing is selected any more: remove a section an earlier post left,
+    # and only no-op when there is none.
+    def clear(dry_run)
+      body, ok = @gh.run('gh', 'pr', 'view', @pr.to_s, '--json', 'body', '--jq', '.body', *PlanVisuals.repo_args(@repo))
+      return Outcome.new(code: 3, lines: [ 'could not read the PR body' ]) unless ok
+      return Outcome.new(code: 0, lines: [ 'nothing to post' ]) unless PlanVisuals.current_hash(body)
+      return Outcome.new(code: 0, lines: [ 'would remove the plan visuals section' ]) if dry_run
+
+      edit(PlanVisuals.unsplice(body)) or return Outcome.new(code: 3, lines: [ 'gh pr edit failed' ])
+      Outcome.new(code: 0, lines: [ 'removed the plan visuals section' ])
+    end
 
     def unsettled_reason
       ok, why = PlanVisuals.settled?(@gh, @pr, @repo)
