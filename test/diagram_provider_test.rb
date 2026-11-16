@@ -136,6 +136,21 @@ class DiagramProviderTest < Minitest::Test
     assert(lint_source(svg).any? { |f| f.check == "viewbox-clip" && f.element == "cloud" })
   end
 
+  def test_an_icon_recolored_with_pack_colors_loses_provenance
+    svg = CLEAN.sub('<path d="M20 48 L32 16 L44 48 Z" fill="#FFFFFF">', '<path d="M20 48 L32 16 L44 48 Z" fill="#ED7100">')
+    assert(lint_source(svg).any? { |f| f.check == "icon-pack-provenance" && f.message.include?("body differs") })
+  end
+
+  def test_a_plate_fill_overridden_by_css_is_contrast_checked
+    svg = CLEAN.sub(".bg { fill: var(--bg); }", ".bg { fill: var(--bg); }\n    .plate { fill: var(--bg); }")
+    assert(lint_source(svg).any? { |f| f.check == "icon-contrast" && f.message.start_with?("dark:") })
+  end
+
+  def test_an_important_node_fill_is_still_contrast_checked
+    svg = CLEAN.sub(".node > rect { fill: var(--surface);", ".node > rect { fill: var(--muted) !important;")
+    assert(lint_source(svg).any? { |f| f.check == "icon-contrast" && f.message.start_with?("light: tile #ED7100") })
+  end
+
   def test_offline_cli_exits_zero_with_an_empty_cache
     Dir.mktmpdir do |cache|
       old = ENV.fetch("CF_CLOUD_ICONS_CACHE", nil)

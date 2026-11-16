@@ -181,9 +181,22 @@ module DiagramProviderChecks
         return [ finding(where, "data-pack-sha does not match the pinned #{icon.provider} file for #{icon.slug}", "re-inline the icon from the pack") ]
       end
 
-      (CloudIcons.colors(icon.body) - pack.colors(icon.slug)).map do |c|
+      off = (CloudIcons.colors(icon.body) - pack.colors(icon.slug)).map do |c|
         finding(where, "color #{c} is not in the #{icon.provider} pack file for #{icon.slug}", "inline the pack file unmodified")
       end
+      return off unless off.empty?
+      return [] if canonical(icon.body) == canonical(CloudIcons.inner(pack.file(icon.slug)))
+
+      [ finding(where, "icon body differs from the pinned #{icon.provider} file for #{icon.slug}", "re-inline the icon from the pack") ]
+    end
+
+    # Element tree with sorted attributes, ignoring whitespace and comments,
+    # so serialization differences are not edits but changed artwork is.
+    def canonical(markup)
+      tree = ->(el) { [ el.name, el.attributes.to_h.sort, el.elements.map { |child| tree.call(child) } ] }
+      REXML::Document.new("<svg>#{markup}</svg>").root.elements.map { |el| tree.call(el) }
+    rescue REXML::ParseException
+      nil
     end
 
     def fallback(icon, context)
@@ -284,13 +297,16 @@ module DiagramProviderChecks
     # icon on every side, since an opaque tile hides a plate of its own size.
     def background(doc, icon, roles)
       plate = icon.plate
-      if plate && DiagramSvg::Geometry.box(plate).contains_box?(icon.box.inset(-PLATE_PAD)) && plate.attributes["fill"]
-        return Provider.hexes(roles, plate.attributes["fill"])
+      if plate && DiagramSvg::Geometry.box(plate).contains_box?(icon.box.inset(-PLATE_PAD))
+        fills = shape_fills(doc, plate)
+        return resolve(fills, roles, nil) if fills.values.all? { |f| f && f != "none" }
       end
 
       kind, id = icon.owner
-      fills = owner_fills(doc, kind, id)
-      default = kind == :node ? "var(--surface)" : "var(--bg)"
+      resolve(owner_fills(doc, kind, id), roles, kind == :node ? "var(--surface)" : "var(--bg)")
+    end
+
+    def resolve(fills, roles, default)
       %i[light dark].to_h do |theme|
         fill = fills[theme]
         fill = default if fill.nil? || fill == "none"
@@ -306,16 +322,28 @@ module DiagramProviderChecks
       end
     end
 
-    # The fill on a node's own shape per theme, by CSS precedence: inline
-    # style, then the last matching stylesheet rule (dark rules over light),
-    # then the presentation attribute. Specificity is not weighed.
     def node_fills(doc, node)
       shape = node && node.element.elements.find { |el| DiagramSvg::SHAPES.include?(el.name) }
-      return {} unless shape
+      shape ? shape_fills(doc, shape) : {}
+    end
 
-      inline = shape.attributes["style"].to_s[/(?:\A|;)\s*fill\s*:\s*([^;]+)/, 1]&.strip
+    # A shape's rendered fill per theme, by CSS precedence: an !important
+    # stylesheet rule, then inline style, then the last matching rule (dark
+    # rules over light), then the presentation attribute. Specificity is not
+    # weighed.
+    def shape_fills(doc, shape)
+      inline = fill_decl(shape.attributes["style"].to_s)&.first
       attr = shape.attributes["fill"]
-      theme_rules(doc).transform_values { |rules| inline || sheet_fill(rules, shape) || attr }
+      theme_rules(doc).transform_values do |rules|
+        value, important = sheet_fill(rules, shape)
+        (important && value) || inline || value || attr
+      end
+    end
+
+    # [value, important?] of the last fill declaration in a body, or nil.
+    def fill_decl(body)
+      raw = body.scan(/(?:\A|;)\s*fill\s*:\s*([^;]+)/).flatten.last&.strip
+      raw && [ raw.sub(/\s*!important\z/i, ""), raw.match?(/!important\z/i) ]
     end
 
     def theme_rules(doc)
@@ -328,13 +356,11 @@ module DiagramProviderChecks
     end
 
     def sheet_fill(rules, shape)
-      rules.reverse_each do |sels, body|
-        fill = body[/(?:\A|;)\s*fill\s*:\s*([^;]+)/, 1]&.strip
-        next unless fill
-
-        return fill if sels.split(",").any? { |sel| (steps = Selector.parse(sel.strip)) && Selector.match?(steps, shape) }
+      matched = rules.filter_map do |sels, body|
+        decl = fill_decl(body)
+        decl if decl && sels.split(",").any? { |sel| (steps = Selector.parse(sel.strip)) && Selector.match?(steps, shape) }
       end
-      nil
+      matched.reverse.find(&:last) || matched.last
     end
 
     # The fill covering the most area in the icon body: shapes with a
