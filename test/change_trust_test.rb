@@ -56,7 +56,7 @@ class ChangeTrustTest < Minitest::Test
     a = ChangeTrust.digest("run" => "x", "env" => %w[A B], "timeout_seconds" => 5)
     b = ChangeTrust.digest("timeout_seconds" => 5, "env" => %w[A B], "run" => "x")
     assert_equal a, b
-    assert_match(/\Asha256:[0-9a-f]{64}\z/, a)
+    assert_match(/\A[0-9a-f]{64}\z/, a)
     refute_equal a, ChangeTrust.digest("run" => "y", "env" => %w[A B], "timeout_seconds" => 5)
   end
 
@@ -228,6 +228,19 @@ class ChangeTrustTest < Minitest::Test
     path = File.join(@repo, rel)
     FileUtils.mkdir_p(File.dirname(path))
     File.write(path, text)
+  end
+
+  # Gate records and approvals written before the plain-hex format carry a
+  # `sha256:` prefix; both still match the same definition.
+  def test_legacy_prefixed_record_and_approval_still_trust_the_step
+    base = commit(change_md(up: "echo base"))
+    point_origin("main", base)
+    sha = commit(change_md(up: "true"))
+    record = trust_record(sha, "approved")
+    record["manifest"]["trust"]["steps"].each_value { |step| step["digest"] = "sha256:#{step['digest']}" }
+    digest = record.dig("manifest", "trust", "steps", "boot.up", "digest")
+    ChangeApprovalStore.new(sha).record(steps: [ [ "boot.up", digest ] ], by: "t")
+    assert_nil ChangeTrust.record_problem(root: @repo, sha: sha, record: record)
   end
 
   def trust_record(sha, source)

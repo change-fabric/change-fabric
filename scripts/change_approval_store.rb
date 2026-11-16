@@ -27,7 +27,7 @@ class ChangeApprovalStore
     Array(record['approved']).filter_map do |entry|
       next unless entry.is_a?(Hash)
 
-      [ entry['step'].to_s, entry['digest'].to_s ]
+      [ entry['step'].to_s, normalize(entry['digest']) ]
     end
   end
 
@@ -40,8 +40,8 @@ class ChangeApprovalStore
 
     now = Time.now.utc.iso8601
     existing = Array(read&.fetch('approved', nil))
-    known = existing.map { |entry| [ entry['step'], entry['digest'] ] }
-    added = steps.reject { |pair| known.include?(pair) }.map do |step, digest|
+    known = existing.map { |entry| [ entry['step'], normalize(entry['digest']) ] }
+    added = steps.reject { |step, digest| known.include?([ step, normalize(digest) ]) }.map do |step, digest|
       { 'step' => step, 'digest' => digest, 'at' => now, 'by' => by.to_s }
     end
     write('sha' => @sha, 'approved' => existing + added)
@@ -50,6 +50,10 @@ class ChangeApprovalStore
   def path = File.join(@root, "#{@sha}.json")
 
   private
+
+  # Approvals recorded before the plain-hex digest format carry a `sha256:`
+  # prefix; stripping it on read keeps them valid without re-approval.
+  def normalize(digest) = digest.to_s.delete_prefix('sha256:')
 
   def read
     return nil if @sha.empty? || !File.exist?(path)

@@ -61,15 +61,11 @@ module ChangeTrust
 
   module_function
 
-  def digest(fields) = "sha256:#{Digest::SHA256.hexdigest(JSON.generate(canonical(fields)))}"
+  # Plain hex since EmitDigest unified the format. Records written before it
+  # carry a `sha256:` prefix; `normalize` strips it wherever one is read.
+  def digest(fields) = EmitDigest.of(fields)
 
-  def canonical(value)
-    case value
-    when Hash then value.to_h { |key, item| [ key.to_s, canonical(item) ] }.sort.to_h
-    when Array then value.map { |item| canonical(item) }
-    else value
-    end
-  end
+  def normalize(digest) = digest.to_s.delete_prefix('sha256:')
 
   # { step name => the fields that define it } for one loaded config. `prefix`
   # names the app in a monorepo ("portal/boot.up"); it is empty otherwise.
@@ -294,7 +290,7 @@ module ChangeTrust
     base_digests = base_digests(root, base, profile, apps)
     approvals = ChangeApprovalStore.new(sha).approvals
     head.each do |step, step_digest|
-      unless recorded.dig(step, 'digest') == step_digest
+      unless normalize(recorded.dig(step, 'digest')) == step_digest
         return "#{step} at #{sha[0, 12]} is not the definition the recorded run executed; re-run change_run.rb all"
       end
       next if base_digests[step] == step_digest || approvals.include?([ step, step_digest ])

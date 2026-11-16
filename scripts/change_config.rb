@@ -315,7 +315,7 @@ class ChangeConfig
   # re-ordering CHANGE.md without changing a value leaves the digest alone; the
   # values are env var names and urls, never secrets, so the hashed input is
   # safe to derive from the config as-is.
-  def digest = Digest::SHA256.hexdigest(JSON.generate(canonical(@raw)))
+  def digest = EmitDigest.of(@raw)
 
   # The enabled lanes, in the fixed LANES order so a report's lane sequence is
   # stable across runs regardless of the file's key order.
@@ -338,14 +338,6 @@ class ChangeConfig
 
   # Key-sorted, symbol-free rendering of a config tree, so #digest depends on
   # the values a run resolved and not on the order they were written in.
-  def canonical(value)
-    case value
-    when Hash then value.keys.map(&:to_s).sort.to_h { |key| [ key, canonical(value[key]) ] }
-    when Array then value.map { |item| canonical(item) }
-    else value
-    end
-  end
-
   def resolved_targets(name)
     lane_config = lane(name)
     return lane_config.targets(boot.target_url) if name == 'zap'
