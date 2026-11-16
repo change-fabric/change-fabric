@@ -193,18 +193,20 @@ fresh session that will execute the plan.
    `--repo <target repo>`, lints for up to 3 rounds (retrying with
    `--no-measure` on exit 3), renders light and dark PNGs with
    `diagram_render.rb` (skipping on exit 3), and never edits the three plan
-   files. Last, it writes `diagrams/manifest.json` with
-   `plan_visuals.rb manifest <plan_dir>` (each SVG's sha256 and phase tag,
-   the plan.md digest, the workflow.js phase count), which is what later
-   lets a settled PR be checked against the diagram before it is posted.
-   It returns each SVG with type, purpose, and measured yes or no.
+   files. It returns each SVG with type, purpose, and measured yes or no.
    Then `SendMessage` the writing agent to fill `## Visuals` from that
    return: each SVG's relative path, type, purpose with its
    `(phases: all)` or `(phases: N[,N])` tag, and "text measured" or
    "text not measured (no Docker)", plus a note that diagrams are
    illustrative and plan.md wins on any conflict. A visual still failing
    lint after 3 rounds is dropped and noted there; a picture never blocks
-   the plan.
+   the plan. Only once `## Visuals` lists the `diagrams/<name>.svg` paths,
+   write `diagrams/manifest.json` here with `ruby
+   ~/.claude/cf/bin/plan_visuals.rb manifest <plan_dir>` (each SVG's sha256
+   and phase tag, the plan.md digest, the workflow.js phase count), which is
+   what later lets a settled PR be checked against the diagram before it is
+   posted. Written earlier, the manifest would resolve the agent's bare
+   filenames against the plan dir and silently skip every SVG.
 
 7b. **Roast.** Always runs, here in the main session, estimate first. Cap:
    at most 2 rounds and 0.50 USD in total, tracked by summing the per-round
