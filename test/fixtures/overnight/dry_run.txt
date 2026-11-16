@@ -1,0 +1,159 @@
+# cf:overnight dry-run
+repo: test/fixtures/overnight/repo
+plan: test/fixtures/overnight/plan
+mode: admin-bypass
+execution: disabled (OVERNIGHT_EXECUTE_ENABLED is false); nothing below runs
+policy sha256: 4e53fa08492022ab3267e719a9bb2b38f4a5849ed5d1a936c909f5d925cf9f61
+
+## Manifest
+trunk_model: main [CHANGE.md:15]
+staging_trigger: merge to trunk [default]
+staging_workflow: deploy-staging.yml [AGENTS.md:5]
+production_trigger: tag v* [CHANGE.md:17]
+production_workflow: deploy-production.yml [AGENTS.md:6]
+version_endpoint: https://app.example.test/version [AGENTS.md:7]
+agent_tags_allowed: yes [AGENTS.md:3] safety
+production_lanes: browserless, testcases [CHANGE.md:19] safety
+flags_adapter: FLAGS_TOKEN=**** bin/flags [AGENTS.md:4] safety
+terraform_wrapper: bin/tf [AGENTS.md:9] safety
+migration_command: (none) [AGENTS.md:8 vs CLAUDE.md:3] safety
+expand_only_marker: (none) [default] safety
+maintenance_command: (none) [default] safety
+backup_provider: rds-snapshot [docs/deploy.md:4] safety
+credential_isolation: no [docs/deploy.md:5] safety
+readonly_data_access: none [default]
+day_goals_path: reports/overnight-<date>.md [default]
+
+## Denials
+migration_command: conflict: AGENTS.md:8=bin/migrate vs CLAUDE.md:3=bin/rails db:migrate
+expand_only_marker: missing
+maintenance_command: missing
+capability production-tag: allowed
+capability flags: allowed
+capability terraform: allowed
+capability migrations: denied (migration_command conflict; expand_only_marker missing)
+capability destructive: denied (maintenance_command missing; migration_command conflict; expand_only_marker missing; no credential isolation inside the executor)
+
+## Interview (one prompt at run start)
+Destructive writes: never (destructive capability denied for this run)
+Scope and order: the schedule below | a subset | a different order
+Flag after ship: on | off | as the plan says
+Walkthrough: numbered drafts overnight, final in the morning | none
+
+## Units
+p1 Add the export endpoint (new) depends on: none
+p2 Show exports in the dashboard (new) depends on: p1
+p3 Document exports (new) depends on: p1
+
+## Schedule p1
+1. build: git worktree add -b overnight/p1 <worktree> origin/main
+   gate: ON-1 one unit under the fenced lease; expect: worktree on the unit branch
+2. local-ci: /cf:drive quick --local-only
+   gate: tests and lint green; expect: green locally
+3. review-gate: ruby ~/.claude/cf/bin/review_ack.rb <session_id>
+   gate: review gate released; expect: review recorded
+4. change-gate: ruby ~/.claude/cf/bin/change_run.rb all
+   gate: cf:change pass for the head sha; expect: gate recorded
+5. merge: gh pr merge <pr> --squash --admin --match-head-commit <sha>
+   gate: ON-3 merge mode and SW-2; expect: merged at <sha>
+6. staging-deploy: gh run list --workflow deploy-staging.yml --commit <sha> --json databaseId,headSha,status; Monitor gh run watch <id> --exit-status
+   gate: deploy identity matches <sha>; expect: run succeeded; deadline: discovery 10m, deploy 45m
+7. staging-version: curl -fsS https://app.example.test/version
+   gate: ON-10 before any smoke; expect: deployed version equals <sha>
+8. staging-smoke: /cf:qa --suite overnight-smoke (flag on, temporary)
+   gate: flags adapter tested at intake (planned: set then read back in staging); expect: pass; deadline: smoke 15m
+9. production-tag: ruby ~/.claude/cf/bin/change_run.rb all --for-tag <tag> && git push origin <tag>
+   gate: ON-4 change_tag_guard.rb; expect: tag v* at <sha>
+10. production-deploy: gh run list --workflow deploy-production.yml --commit <sha> --json databaseId,headSha,status; Monitor gh run watch <id> --exit-status
+   gate: deploy identity matches <sha>; expect: run succeeded; deadline: discovery 10m, deploy 45m
+11. production-version: curl -fsS https://app.example.test/version
+   gate: ON-10 before any smoke; expect: deployed version equals <sha>
+12. smoke-flag-off: /cf:qa --suite overnight-smoke (flag off)
+   gate: flags adapter tested at intake (planned: set then read back in staging); expect: pass; deadline: smoke 15m
+13. smoke-flag-on: /cf:qa --suite overnight-smoke (flag on)
+   gate: flags adapter tested at intake (planned: set then read back in staging); expect: pass; deadline: smoke 15m
+14. smoke-flag-off-again: /cf:qa --suite overnight-smoke (flag off)
+   gate: flags adapter tested at intake (planned: set then read back in staging); expect: pass; deadline: smoke 15m
+15. flag-final: set the agreed-final flag state, then read it back
+   gate: flags adapter tested at intake (planned: set then read back in staging); expect: read-back equals the agreed-final state
+16. healthy: curl -fsS https://app.example.test/version
+   gate: next-unit rule; expect: healthy at <sha>
+
+## Schedule p2
+1. build: git worktree add -b overnight/p2 <worktree> origin/main
+   gate: ON-1 one unit under the fenced lease; expect: worktree on the unit branch
+2. local-ci: /cf:drive quick --local-only
+   gate: tests and lint green; expect: green locally
+3. review-gate: ruby ~/.claude/cf/bin/review_ack.rb <session_id>
+   gate: review gate released; expect: review recorded
+4. change-gate: ruby ~/.claude/cf/bin/change_run.rb all
+   gate: cf:change pass for the head sha; expect: gate recorded
+5. merge: gh pr merge <pr> --squash --admin --match-head-commit <sha>
+   gate: ON-3 merge mode and SW-2; expect: merged at <sha>
+6. staging-deploy: gh run list --workflow deploy-staging.yml --commit <sha> --json databaseId,headSha,status; Monitor gh run watch <id> --exit-status
+   gate: deploy identity matches <sha>; expect: run succeeded; deadline: discovery 10m, deploy 45m
+7. staging-version: curl -fsS https://app.example.test/version
+   gate: ON-10 before any smoke; expect: deployed version equals <sha>
+8. staging-smoke: /cf:qa --suite overnight-smoke (flag on, temporary)
+   gate: flags adapter tested at intake (planned: set then read back in staging); expect: pass; deadline: smoke 15m
+9. production-tag: ruby ~/.claude/cf/bin/change_run.rb all --for-tag <tag> && git push origin <tag>
+   gate: ON-4 change_tag_guard.rb; expect: tag v* at <sha>
+10. production-deploy: gh run list --workflow deploy-production.yml --commit <sha> --json databaseId,headSha,status; Monitor gh run watch <id> --exit-status
+   gate: deploy identity matches <sha>; expect: run succeeded; deadline: discovery 10m, deploy 45m
+11. production-version: curl -fsS https://app.example.test/version
+   gate: ON-10 before any smoke; expect: deployed version equals <sha>
+12. smoke-flag-off: /cf:qa --suite overnight-smoke (flag off)
+   gate: flags adapter tested at intake (planned: set then read back in staging); expect: pass; deadline: smoke 15m
+13. smoke-flag-on: /cf:qa --suite overnight-smoke (flag on)
+   gate: flags adapter tested at intake (planned: set then read back in staging); expect: pass; deadline: smoke 15m
+14. smoke-flag-off-again: /cf:qa --suite overnight-smoke (flag off)
+   gate: flags adapter tested at intake (planned: set then read back in staging); expect: pass; deadline: smoke 15m
+15. flag-final: set the agreed-final flag state, then read it back
+   gate: flags adapter tested at intake (planned: set then read back in staging); expect: read-back equals the agreed-final state
+16. healthy: curl -fsS https://app.example.test/version
+   gate: next-unit rule; expect: healthy at <sha>
+
+## Schedule p3
+1. build: git worktree add -b overnight/p3 <worktree> origin/main
+   gate: ON-1 one unit under the fenced lease; expect: worktree on the unit branch
+2. local-ci: /cf:drive quick --local-only
+   gate: tests and lint green; expect: green locally
+3. review-gate: ruby ~/.claude/cf/bin/review_ack.rb <session_id>
+   gate: review gate released; expect: review recorded
+4. change-gate: ruby ~/.claude/cf/bin/change_run.rb all
+   gate: cf:change pass for the head sha; expect: gate recorded
+5. merge: gh pr merge <pr> --squash --admin --match-head-commit <sha>
+   gate: ON-3 merge mode and SW-2; expect: merged at <sha>
+6. staging-deploy: gh run list --workflow deploy-staging.yml --commit <sha> --json databaseId,headSha,status; Monitor gh run watch <id> --exit-status
+   gate: deploy identity matches <sha>; expect: run succeeded; deadline: discovery 10m, deploy 45m
+7. staging-version: curl -fsS https://app.example.test/version
+   gate: ON-10 before any smoke; expect: deployed version equals <sha>
+8. staging-smoke: /cf:qa --suite overnight-smoke (flag on, temporary)
+   gate: flags adapter tested at intake (planned: set then read back in staging); expect: pass; deadline: smoke 15m
+9. production-tag: ruby ~/.claude/cf/bin/change_run.rb all --for-tag <tag> && git push origin <tag>
+   gate: ON-4 change_tag_guard.rb; expect: tag v* at <sha>
+10. production-deploy: gh run list --workflow deploy-production.yml --commit <sha> --json databaseId,headSha,status; Monitor gh run watch <id> --exit-status
+   gate: deploy identity matches <sha>; expect: run succeeded; deadline: discovery 10m, deploy 45m
+11. production-version: curl -fsS https://app.example.test/version
+   gate: ON-10 before any smoke; expect: deployed version equals <sha>
+12. smoke-flag-off: /cf:qa --suite overnight-smoke (flag off)
+   gate: flags adapter tested at intake (planned: set then read back in staging); expect: pass; deadline: smoke 15m
+13. smoke-flag-on: /cf:qa --suite overnight-smoke (flag on)
+   gate: flags adapter tested at intake (planned: set then read back in staging); expect: pass; deadline: smoke 15m
+14. smoke-flag-off-again: /cf:qa --suite overnight-smoke (flag off)
+   gate: flags adapter tested at intake (planned: set then read back in staging); expect: pass; deadline: smoke 15m
+15. flag-final: set the agreed-final flag state, then read it back
+   gate: flags adapter tested at intake (planned: set then read back in staging); expect: read-back equals the agreed-final state
+16. healthy: curl -fsS https://app.example.test/version
+   gate: next-unit rule; expect: healthy at <sha>
+
+## Reservations
+budget: 5.00 USD
+cf:walkthrough --estimate-only (free)
+cf:walkthrough --draft --none --roast-max-usd 2.00 --max-usd 1.00: reserve 3.00 USD (fits)
+keys: cf_keys.rb status checked at intake, never enrolled in a dry-run
+
+## Pacing
+Monitor: gh run watch <id> --exit-status per deploy; a Monitor failure falls back to one gh run view <id>
+ScheduleWakeup: fallback every 25 minutes (20 to 30), deduped by a stored next-wake id
+in-session only: a closed session is resumed by a human with /cf:overnight resume <run-id>
