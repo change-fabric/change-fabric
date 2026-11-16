@@ -15,3 +15,13 @@ h1 { font-family: var(--font-serif); font-weight: 500; font-size: 96px; line-hei
 @keyframes rise { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
 @keyframes show { from { opacity: 0; } to { opacity: 1; } }
 @keyframes hide { from { opacity: 1; } to { opacity: 0; } }
+/* Icons and logos: each SVG under assets/icons is drawn as a mask over the
+   current text colour, so Phosphor glyphs and Simple Icons logos take the
+   theme ink instead of their own black fill. Decorative: the label beside
+   each one carries the name. */
+.ico { display: inline-block; flex: none; width: var(--s, 96px); height: var(--s, 96px); background: currentColor; -webkit-mask: var(--src) center / contain no-repeat; mask: var(--src) center / contain no-repeat; }
+.tiles { display: flex; justify-content: space-between; gap: var(--space-3); }
+.tile { flex: 1; display: flex; flex-direction: column; align-items: center; gap: var(--space-2); margin: 0; }
+.tile figcaption, .tile .label { font-size: 44px; font-weight: 600; text-align: center; }
+.tile .sub { font-size: 40px; color: var(--muted); }
+.rule { border: 0; border-top: 1px solid var(--border); margin: 0; }

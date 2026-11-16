@@ -1,6 +1,6 @@
 # Assumptions: change fabric, the hero's journey
 
-This walkthrough shows the real toolkit: the harnesses it runs inside, the install commands, the rubrics and their credited sources, the CHANGE.md gate and its five checks all exist and behave as narrated. Only the changed files in the problem scene (A-08), the gate run and its result labels (A-03) and the agent session (A-07) are illustrative. A-02 (ElevenLabs commercial-use terms for the generated music and narration) stays a recorded assumption until the plan's terms are confirmed. Note: walkthrough_assumptions.rb writes a fixed prototype statement on this line; restore this text after regenerating.
+This walkthrough shows the real toolkit: the harnesses it runs inside (shown by their Simple Icons logos, A-09 for Codex CLI), the install commands, the rubrics and their credited sources, the CHANGE.md gate and its five checks all exist and behave as narrated. Only the changed files in the problem scene (A-08), the gate run and its result labels (A-03) and the agent session (A-07) are illustrative. A-02 (ElevenLabs commercial-use terms for the generated music and narration) stays a recorded assumption until the plan's terms are confirmed. Note: walkthrough_assumptions.rb writes a fixed prototype statement on this line; restore this text after regenerating.
 
 ## Assumptions
 
@@ -10,6 +10,7 @@ This walkthrough shows the real toolkit: the harnesses it runs inside, the insta
 - A-06: Named authors and works are credited as sources of rubric content, not as endorsements of the toolkit; the narration says they are credited sources. (scenes: layers)
 - A-07: The agent session on screen is a neutral illustration of the next-edit behaviour, not a capture of any one agent's interface. (scenes: start)
 - A-08: The changed files and line counts on screen are illustrative, not from any real repo. (scenes: problem)
+- A-09: Codex CLI has no Simple Icons logo (OpenAI marks are not in the set), so the screen shows a plain monospace wordmark, set in the site's mono font, instead of a brand logo. (scenes: for-me)
 
 ## Invented features
 
@@ -29,4 +30,7 @@ No seed data.
 
 ## Brand logos
 
-None used.
+- Claude Code (claudecode): guidelines: no guidelines link in Simple Icons data; check the brand site before use; license: CC0-1.0 data (trademark rights remain with the owner)
+- GitHub Copilot (githubcopilot): guidelines: no guidelines link in Simple Icons data; check the brand site before use; license: MIT
+- OpenCode (opencode): guidelines: no guidelines link in Simple Icons data; check the brand site before use; license: CC0-1.0 data (trademark rights remain with the owner)
+- Pi (pi): guidelines: no guidelines link in Simple Icons data; check the brand site before use; license: CC0-1.0 data (trademark rights remain with the owner)

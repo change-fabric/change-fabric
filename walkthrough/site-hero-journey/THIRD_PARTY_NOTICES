@@ -23,6 +23,25 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
+Simple Icons (simple-icons)
+https://github.com/simple-icons/simple-icons
+
+The Simple Icons data and SVG files are released under CC0 1.0 Universal
+(https://creativecommons.org/publicdomain/zero/1.0/), except where an icon
+lists its own license below.
+
+Trademark disclaimer: the brand logos below are trademarks of their
+respective owners. Their use here does not indicate endorsement by, or
+affiliation with, those owners. Each use must follow the brand's own
+guidelines, linked below where the owner publishes them.
+
+  Claude Code (claudecode) simple-icons@16.36.0 license: CC0-1.0 source: https://code.claude.com
+  GitHub Copilot (githubcopilot) simple-icons@16.36.0 license: MIT source: https://primer.style/foundations/icons/copilot-24
+  OpenCode (opencode) simple-icons@16.36.0 license: CC0-1.0 source: https://github.com/anomalyco/opencode/blob/1251a870cb384543c150c4a72fb101b55eec971b/packages/identity/mark.svg
+  Pi (pi) simple-icons@16.36.0 license: CC0-1.0 source: https://pi.dev/favicon.svg
+
+Codex CLI is shown as a plain text wordmark set in the site's mono font (no logo file; Simple Icons carries no OpenAI mark). Codex and OpenAI are trademarks of OpenAI. See ASSUMPTIONS.md A-09.
+
 Diagram scenes (layers, gate) render with a vendored bundle of:
   xyflow (React Flow) (@xyflow/react@12.12.1) license: MIT
   React (react@19.3.1) license: MIT

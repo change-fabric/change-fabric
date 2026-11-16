@@ -5,12 +5,26 @@
   <title>Not on day one</title>
   <link rel="stylesheet" href="tokens.css">
   <link rel="stylesheet" href="journey.css">
+  <style>
+    main { gap: 72px; }
+    .path { display: flex; align-items: center; gap: var(--space-3); }
+    .path .tile { flex: none; width: 440px; }
+    .path .ico { --s: 180px; }
+    .now .ico { color: var(--text); }
+    .later .ico { color: var(--accent); }
+    .later figcaption { color: var(--accent); }
+    .track { flex: 1; height: 0; border-top: 6px dotted var(--border-strong); margin-bottom: 80px; animation: grow 1200ms ease-out 900ms both; transform-origin: left; }
+    @keyframes grow { from { transform: scaleX(0); } to { transform: none; } }
+  </style>
 </head>
 <body>
   <main>
-    <p class="eyebrow">Before it merges</p>
-    <h1 class="in">You do not need this on day one.</h1>
-    <p class="lede in" style="--d:700ms">It waits until you're ready to gate.</p>
+    <h1 class="in">Not on day one.</h1>
+    <div class="path">
+      <figure class="tile now in" style="--d:500ms"><span class="ico" style="--src:url(assets/icons/phosphor-code-regular.svg)" aria-hidden="true"></span><figcaption>Day one</figcaption></figure>
+      <div class="track" aria-hidden="true"></div>
+      <figure class="tile later in" style="--d:2000ms"><span class="ico" style="--src:url(assets/icons/phosphor-shield-check-regular.svg)" aria-hidden="true"></span><figcaption>Gate, when ready</figcaption></figure>
+    </div>
   </main>
 </body>
 </html>

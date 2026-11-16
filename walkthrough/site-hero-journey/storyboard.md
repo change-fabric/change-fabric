@@ -37,10 +37,11 @@
 - Duration: 10000 ms
 - Screen: screens/for-me.html
 - User goal: Decide whether this is for me
-- Action: Read the three reader rows and the agents it runs inside
+- Action: See the three reader icons and the logos of the agents it runs inside
 - Hypotheses: H-01, H-02
 - Heuristics shown: H2, H4
 - Requirement: brief.md#for-you
+- Assumption A-09: Codex CLI has no Simple Icons logo (OpenAI marks are not in the set), so the screen shows a plain monospace wordmark, set in the site's mono font, instead of a brand logo.
 
 > If you already ask an agent to write code, this is for you. It runs inside the agent you already use.
 
@@ -133,7 +134,7 @@
 - Duration: 4000 ms
 - Screen: screens/not-day-one.html
 - User goal: Know the gate can wait
-- Action: Read that the gate waits until you are ready
+- Action: Watch the path run from day one to the gate, when you are ready
 - Hypotheses: H-01
 - Heuristics shown: H2
 - Requirement: brief.md#gate
@@ -145,7 +146,7 @@
 - Duration: 12000 ms
 - Screen: screens/start.html
 - User goal: Know how to start and what the first win looks like
-- Action: Read the three install commands, then watch the agent name the rubric it follows
+- Action: Watch three install commands, then the agent name the rubric it follows, each step marked by an icon
 - Hypotheses: H-01
 - Heuristics shown: H1, H6, H10
 - Requirement: brief.md#start

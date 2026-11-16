@@ -233,7 +233,7 @@
         }
       },
       "deps": {
-        "frames_key": "6a995163bc7de356d3143a45c09337b803a08a9ea54b0a204424cab7aa7d6c18",
+        "frames_key": "f2d015791bf399ecf0c4e67e0eb389e8c9f027113c8ac3fe8ac888dd2a2dbfbe",
         "audio_key": "bcde9c1e62b05926f9b952ea4ee195fc179334f2403454ae4cd4699f3eef4fce",
         "asset_keys": []
       }
@@ -243,7 +243,7 @@
       "title": "Is it for me?",
       "order": 3,
       "user_goal": "Decide whether this is for me",
-      "action": "Read the three reader rows and the agents it runs inside",
+      "action": "See the three reader icons and the logos of the agents it runs inside",
       "screen": {
         "html": "screens/for-me.html"
       },
@@ -273,10 +273,16 @@
         }
       },
       "deps": {
-        "frames_key": "4b660f9c02547d7ac91abf102e5d142aaea776e5dc02dc0d44eab069f5bf86e1",
+        "frames_key": "4ef35f0161561c491d12fb328b736a44442e0ab9d7629016d7283f70ba53c9e3",
         "audio_key": "35f70dba8bb244c6ffac513a57894c5904df6f8a5d1dd784d48e0ada931cee5b",
         "asset_keys": []
-      }
+      },
+      "assumptions": [
+        {
+          "id": "A-09",
+          "text": "Codex CLI has no Simple Icons logo (OpenAI marks are not in the set), so the screen shows a plain monospace wordmark, set in the site's mono font, instead of a brand logo."
+        }
+      ]
     },
     {
       "id": "layers",
@@ -750,7 +756,7 @@
       "title": "Not on day one",
       "order": 6,
       "user_goal": "Know the gate can wait",
-      "action": "Read that the gate waits until you are ready",
+      "action": "Watch the path run from day one to the gate, when you are ready",
       "screen": {
         "html": "screens/not-day-one.html"
       },
@@ -778,7 +784,7 @@
         }
       },
       "deps": {
-        "frames_key": "55d59a295da253d44fe987746ea1ac413603fefd4bf8ec9cb384cf7651388878",
+        "frames_key": "76bec1547e44ca100b067958084991c324bec61cd3634059f970d7ae4c3fe546",
         "audio_key": "46ef49fcbf16974067b37efd14e1d9ec35239d73d6427919f5365c7e4fddea45",
         "asset_keys": []
       }
@@ -788,7 +794,7 @@
       "title": "Start building",
       "order": 7,
       "user_goal": "Know how to start and what the first win looks like",
-      "action": "Read the three install commands, then watch the agent name the rubric it follows",
+      "action": "Watch three install commands, then the agent name the rubric it follows, each step marked by an icon",
       "screen": {
         "html": "screens/start.html"
       },
@@ -824,7 +830,7 @@
         }
       },
       "deps": {
-        "frames_key": "37e98e6467d834226e20e42fb23a7ec61be517e33a67ffaf78cb648f73141698",
+        "frames_key": "195cae352f5159a3fefbc10958ecbd42f8b62fb2eb59fc3be5b38d9ed92b4dc3",
         "audio_key": "3329e9d18aa2c66fdd73de32a63bf8685df077feb2868a4cc761fa7bfd6e5071",
         "asset_keys": []
       }
