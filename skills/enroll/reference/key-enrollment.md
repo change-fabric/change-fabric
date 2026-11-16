@@ -18,7 +18,7 @@ Providers do not report when a key expires, so the date is recorded: `enroll --e
 
 - Within 24 hours of expiry, resolving the key prints one stderr warning naming the provider, label, owning level, and the renew command. The call still runs.
 - Once the date has passed, the key is refused locally: no paid request is made and the script exits 4 with `"reason":"expired"`.
-- Expiry is checked only when a paid skill runs and resolves the key, never at session start. Session start asks nothing about keys; cf:enroll is where they are added.
+- A paid skill checks expiry when it resolves the key. Until the SessionStart key prompt is removed, it also scans every project's meta.json (never a key file) and names any key already expired or expiring within 24 hours.
 
 Keys live as hidden 0600 files under `~/.claude/cf/secrets/<slug>/`, beside a value-free `meta.json`. Process env vars (`OPENAI_API_KEY`, `ELEVEN_LABS_API_KEY`, `ELEVENLABS_API_KEY`, `GEMINI_API_KEY`, `CF_SECRETS_ENV`) and the old `~/.claude/cf/secrets.yml` are never key sources: a set variable earns one stderr warning naming it, never its value. There is no global fallback.
 
@@ -77,7 +77,7 @@ Relay the `next_step` to the user. On the optional paths (b-roll's Ken Burns fal
 
 ## Hooks
 
-- SessionStart does not prompt for keys. A paid skill that needs one loads cf:enroll on exit 4, and `/cf:enroll` (`$cf-enroll` on Codex) enrolls every installed provider up front.
+- A paid skill that needs a key loads cf:enroll on exit 4, and `/cf:enroll` (`$cf-enroll` on Codex) enrolls every installed provider up front. Until it is removed, the SessionStart key prompt still asks about each provider this project has not enrolled, confirmed, or actively deferred.
 - A UserPromptSubmit guard blocks any chat prompt shaped like a provider key before the model sees it and points the user at `cf_keys.rb enroll`.
 
 ## Never
