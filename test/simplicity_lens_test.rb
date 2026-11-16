@@ -25,8 +25,8 @@ class SimplicityLensTest < Minitest::Test
   end
 
   def test_resolve_returns_one_lens
-    lenses = RoastLens.resolve(["cf:simplicity"], SKILLS)
-    assert_equal ["cf:simplicity"], lenses.map(&:name)
+    lenses = RoastLens.resolve([ "cf:simplicity" ], SKILLS)
+    assert_equal [ "cf:simplicity" ], lenses.map(&:name)
   end
 
   def test_skill_registry_never_loads_it
