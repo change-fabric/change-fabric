@@ -7,6 +7,7 @@ require_relative 'change_env'
 require_relative 'change_findings'
 require_relative 'change_process'
 require_relative 'change_report'
+require_relative 'path_canon'
 
 # The command lane (0.17.0): a project's own checks (integration tests against
 # a throwaway database container, a containerized e2e suite, test-data
@@ -171,10 +172,7 @@ class ChangeLaneCommand < ChangeLane
   # the repository: a branch could otherwise point a trusted glob's match at a
   # secret elsewhere on the host, whose value no declared name would mask.
   def contained?(rel)
-    root = File.realpath(@config.dir)
-    File.realpath(File.join(@config.dir, rel)).start_with?("#{root}/")
-  rescue SystemCallError
-    false
+    PathCanon.strictly_within?(File.join(@config.dir, rel), @config.dir)
   end
 
   def copy_artifact(name, rel, mask)

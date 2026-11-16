@@ -76,6 +76,15 @@ class WalkthroughEnvironmentTest < Minitest::Test
     assert_empty errs
   end
 
+  def test_a_seed_symlinked_out_of_the_walkthrough_is_rejected
+    Dir.mktmpdir do |outside|
+      FileUtils.cp(File.join(@root, "data", "install.json"), File.join(outside, "seed.json"))
+      File.symlink(File.join(outside, "seed.json"), File.join(@root, "data", "leak.json"))
+      got = WalkthroughEnvironment.errors(scene("install").merge("store" => { "seed" => "data/leak.json" }), @root)
+      assert(got.any? { |e| e.include?("store.seed must be inside the walkthrough directory") }, got.inspect)
+    end
+  end
+
   def test_spec_and_seed_validation
     base = scene("install")
     {

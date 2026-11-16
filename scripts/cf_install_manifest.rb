@@ -3,6 +3,7 @@
 require 'json'
 require 'digest'
 require 'fileutils'
+require_relative 'path_canon'
 
 # Snapshot only known installer outputs. Never recursively delete a directory;
 # uninstall removes an entry only if its current bytes/target still match.
@@ -49,7 +50,16 @@ class CfInstallManifest
   end
 
   def inside_skill_dir?(dir)
-    dir.start_with?("#{@home}/") && dir.delete_prefix("#{@home}/").split('/').any? { |part| part.start_with?('cf') }
+    rel = under_home(dir)
+    !rel.nil? && rel.split('/').any? { |part| part.start_with?('cf') }
+  end
+
+  # The path relative to HOME, resolving the parent but not the leaf (a
+  # managed symlink can point to a repo outside HOME), or nil when the path
+  # is HOME itself or outside it.
+  def under_home(path)
+    rel = PathCanon.relative(File.expand_path(path), @home, follow_leaf: false)
+    rel == '.' ? nil : rel
   end
 
   def entries
@@ -65,21 +75,13 @@ class CfInstallManifest
   def safe_path?(path)
     return false unless path.is_a?(String)
 
-    expanded = canonical_leaf(path)
-    return false unless expanded.start_with?("#{@home}/")
-
     # Resolve the parent, not the leaf: a managed symlink can point to a repo
     # outside HOME, but replacing a parent directory with a symlink is unsafe.
-    parent = File.dirname(expanded)
-    resolved = File.realpath(parent)
-    resolved == @home || resolved.start_with?("#{@home}/")
-  rescue Errno::ENOENT
-    false
+    # A missing parent is never safe: there is nothing installed there.
+    File.directory?(File.dirname(File.expand_path(path))) && !under_home(path).nil?
   end
 
-  def canonical_leaf(path)
-    File.join(File.realpath(File.dirname(path)), File.basename(path))
-  end
+  def canonical_leaf(path) = PathCanon.real(path, follow_leaf: false)
 
   def snapshot(path)
     return unless safe_path?(path)

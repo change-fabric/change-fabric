@@ -11,6 +11,7 @@ require_relative 'change_schema'
 require_relative 'change_suite'
 require_relative 'change_local_tls'
 require_relative 'change_command_config'
+require_relative 'emit_digest'
 
 # Parses and validates a project's change-fabric config. There is one
 # change-fabric file per repo, `CHANGE.md` at the repo root: its YAML

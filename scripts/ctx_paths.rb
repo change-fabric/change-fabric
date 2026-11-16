@@ -2,6 +2,7 @@
 # frozen_string_literal: true
 
 require 'fileutils'
+require_relative 'path_canon'
 
 # Resolves the .ctx store paths for a project, keyed by the absolute cwd with
 # every slash turned to a dash. Devices key the store identically because they
@@ -51,10 +52,10 @@ module CtxPaths
   # cwd, so a cwd anywhere else (a system temp dir, an external volume) would mint
   # a junk store under the real ctx root, which it has during dogfooding. This is
   # the write-side twin of assert_home!: home guards which store, this guards
-  # whether to key one at all. The home is not symlinked, so a prefix test needs
-  # no realpath. Bare home is rejected: a store keys a project, not $HOME.
+  # whether to key one at all. Both sides are canonicalized, so a symlinked
+  # ancestor cannot carry a cwd outside home past the check. Bare home is rejected: a store keys a project, not $HOME.
   def self.project_cwd?(cwd)
-    cwd.to_s.start_with?("#{expected_home}/")
+    File.absolute_path?(cwd.to_s) && PathCanon.strictly_within?(cwd.to_s, expected_home)
   end
 
   # Raised at the store-keying boundary (the CtxStore constructor) so no stray cwd

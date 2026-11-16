@@ -10,6 +10,7 @@ require 'yaml'
 require_relative 'change_apps'
 require_relative 'change_frontmatter'
 require_relative 'change_approval_store'
+require_relative 'emit_digest'
 
 # Base-branch trust for the steps cf:change executes on the host: boot.up,
 # boot.down and (from 0.17.0) each command lane entry. A gate that runs

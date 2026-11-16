@@ -31,6 +31,12 @@ module PathCanon
     !relative(path, root, follow_leaf: follow_leaf).nil?
   end
 
+  # within? minus root itself: for callers keying or copying a child of root.
+  def strictly_within?(path, root, follow_leaf: true)
+    rel = relative(path, root, follow_leaf: follow_leaf)
+    !rel.nil? && rel != '.'
+  end
+
   # The canonical path relative to the canonical root: '.' for root itself,
   # nil when outside. A relative path resolves against root.
   def relative(path, root, follow_leaf: true)

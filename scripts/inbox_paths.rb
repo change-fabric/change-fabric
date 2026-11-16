@@ -3,6 +3,7 @@
 
 require 'fileutils'
 require_relative 'change_frontmatter'
+require_relative 'path_canon'
 
 # Resolves the inbox root for a project, mirroring CtxPaths' keying so the two
 # stores stay consistent. Three-step order, first hit wins (never merged):
@@ -35,7 +36,7 @@ module InboxPaths
   def self.dashed(cwd) = cwd.to_s.gsub('/', '-')
 
   def self.project_cwd?(cwd, home: expected_home)
-    cwd.to_s.start_with?("#{home}/")
+    File.absolute_path?(cwd.to_s) && PathCanon.strictly_within?(cwd.to_s, home)
   end
 
   def self.assert_project!(cwd, home: expected_home)

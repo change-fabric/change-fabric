@@ -7,6 +7,7 @@ require_relative 'hook_event'
 require_relative 'contributors_team'
 require_relative 'ed25519_signing'
 require_relative 'hook_http'
+require_relative 'path_canon'
 
 # PreToolUse hook (Capability B, plan sections 9.2-9.4): before an
 # Edit/Write/NotebookEdit inside a registered team repo, ask the backend "is a
@@ -78,12 +79,7 @@ class PresenceProbe
   def repo_relative(root, file_path)
     return nil unless root
 
-    resolved = if File.exist?(file_path)
-                 File.realpath(file_path)
-    else
-                 File.join(File.realpath(File.dirname(file_path)), File.basename(file_path))
-    end
-    Pathname.new(resolved).relative_path_from(Pathname.new(root)).to_s
+    Pathname.new(PathCanon.real(file_path)).relative_path_from(Pathname.new(root)).to_s
   rescue StandardError
     nil
   end

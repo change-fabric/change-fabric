@@ -3,6 +3,7 @@
 require 'digest'
 require 'fileutils'
 require 'json'
+require_relative 'emit_digest'
 
 # Content-addressed cache for walkthrough media. Keys are sha256 hex over a
 # canonical JSON (sorted keys, no whitespace) of the inputs, so the same

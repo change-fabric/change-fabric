@@ -3,6 +3,7 @@
 require 'erb'
 require 'fileutils'
 require 'json'
+require_relative 'path_canon'
 
 # The environment scene kind: a simulated, neutral desktop (browser,
 # file explorer, text editor, terminal, elevation prompt, services list)
@@ -51,7 +52,7 @@ module WalkthroughEnvironment
     errs << 'an environment scene needs screen.html (a generated file)' if scene.dig('screen', 'html').to_s.empty?
     seed_path = scene.dig('store', 'seed')
     return errs << 'an environment scene needs store.seed' if seed_path.to_s.empty?
-    return errs << 'store.seed must be inside the walkthrough directory' if seed_path.start_with?('/') || seed_path.split('/').include?('..')
+    return errs << 'store.seed must be inside the walkthrough directory' unless inside_walkthrough?(seed_path, root)
     return errs if root.nil?
     return errs << "store.seed #{seed_path} does not exist" unless File.file?(File.join(root, seed_path))
 
@@ -122,6 +123,13 @@ module WalkthroughEnvironment
     errs
   end
 
+  # A relative path that stays inside the walkthrough directory after
+  # symlinks. Without a root yet (a lint before the directory exists), the
+  # walkthrough is anchored at the cwd, which still rejects `..` escapes.
+  def inside_walkthrough?(rel, root)
+    !File.absolute_path?(rel) && PathCanon.strictly_within?(rel, root || Dir.pwd)
+  end
+
   def spec_errors(spec, seed, root)
     ids = seed['windows'].map { |w| w['id'] }
     errs = []
@@ -134,7 +142,7 @@ module WalkthroughEnvironment
     browsers = seed['windows'].select { |w| w['type'] == 'browser' }.map { |w| "#{w['id']}-content" }
     slots.each do |name, file|
       errs << "environment.slots.#{name} is not a browser content slot (#{browsers.join(', ')})" unless browsers.include?(name)
-      if file.to_s.start_with?('/') || file.to_s.split('/').include?('..')
+      if !inside_walkthrough?(file.to_s, root)
         errs << "environment.slots.#{name} must be inside the walkthrough directory"
       elsif !File.file?(File.join(root, file.to_s))
         errs << "environment.slots.#{name}: #{file} does not exist"
