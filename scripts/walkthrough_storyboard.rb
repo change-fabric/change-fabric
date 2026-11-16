@@ -702,9 +702,9 @@ module WalkthroughStoryboard
         ms, warning = anchor_ms(scene, words, op['at'])
         warnings << "#{prefix}interaction #{i} #{warning}" if warning
         op['t_ms'] = snap_ms(ms, fps(board))
-        next if op['t_ms'] <= duration
+        next if PrototypeCapture.frame_at(op['t_ms'], fps(board)) < PrototypeCapture.frame_count(duration, fps(board))
 
-        raise ValidationError, "#{prefix}interaction #{i} (at #{op['at']['word'].inspect}) resolves to #{op['t_ms']} ms, past the scene's #{duration} ms"
+        raise ValidationError, "#{prefix}interaction #{i} (at #{op['at']['word'].inspect}) resolves to #{op['t_ms']} ms, past the last frame of the scene's #{duration} ms"
       end
       order_errors(ops).each { |e| raise ValidationError, "#{prefix}#{e}" }
     end

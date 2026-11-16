@@ -107,7 +107,18 @@ class WalkthroughWordsTest < Minitest::Test
   def test_time_past_the_scene_end_fails_and_never_stretches
     @board["scenes"][0]["interactions"][2]["at"]["offset_ms"] = 5000
     err = assert_raises(WalkthroughStoryboard::ValidationError) { WalkthroughStoryboard.resolve_anchors(@board, @cache) }
-    assert_match(/interaction 2 .* past the scene's 5000 ms/, err.message)
+    assert_match(/interaction 2 .* past the last frame of the scene's 5000 ms/, err.message)
+  end
+
+  # 4110 + 890 snaps to 5000 ms, frame 150, one past the last captured
+  # frame (0..149) of a 5000 ms scene at 30 fps.
+  def test_time_on_the_frame_after_the_last_fails
+    @board["scenes"][0]["interactions"][2]["at"]["offset_ms"] = 890
+    err = assert_raises(WalkthroughStoryboard::ValidationError) { WalkthroughStoryboard.resolve_anchors(@board, @cache) }
+    assert_match(/interaction 2 .* resolves to 5000 ms, past the last frame/, err.message)
+    @board["scenes"][0]["interactions"][2]["at"]["offset_ms"] = 850
+    assert_equal [], WalkthroughStoryboard.resolve_anchors(@board, @cache)
+    assert_equal 4967, times(@board, "plan").last
   end
 
   def test_missing_word_and_missing_alignment_fail
