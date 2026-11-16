@@ -48,6 +48,7 @@ module EpicCheck
     epic.plans.each_with_object({}) do |plan, numbers|
       phases = plan['dir'].to_s.empty? ? nil : EpicStore.phases_for(epic, plan)
       problems << "missing_plan: #{plan['id']} has no plan.md at #{plan['dir'].inspect}" unless phases
+      problems << "empty_plan: #{plan['id']} plan.md has no recognized phase headings" if phases&.empty?
       numbers[plan['id'].to_s] ||= (phases || []).map(&:first)
     end
   end
@@ -96,7 +97,7 @@ module EpicCheck
 
     def self.run(argv, out: $stdout, err: $stderr)
       flags = parse(argv.dup)
-      path = flags && resolve(flags[:target])
+      path = flags && resolve(flags[:target], flags[:plans_root])
       return usage(err, flags && flags[:target]) unless path
 
       epic = EpicStore.load(path, plans_root: flags[:plans_root] || PlanPaths.root)
@@ -114,13 +115,15 @@ module EpicCheck
       2
     end
 
-    def self.resolve(target)
+    def self.resolve(target, plans_root = nil)
       return nil if target.to_s.empty?
       return target if File.file?(target)
       return nil if target.include?('/') || target.end_with?('.md')
 
-      path = EpicStore.path_for(target)
-      File.file?(path) ? path : nil
+      # The epic lives in the same tree as its plans when --plans-root names
+      # one; the default root is the fallback.
+      candidates = [ plans_root && EpicStore.path_for(target, root: plans_root), EpicStore.path_for(target) ]
+      candidates.compact.find { |path| File.file?(path) }
     end
 
     def self.parse(args)

@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "tmpdir"
+require "fileutils"
 require_relative "test_helpers"
 require_relative "#{SKILL_SCRIPTS}/epic_check"
 
@@ -119,6 +121,27 @@ class EpicCheckTest < Minitest::Test
     assert_equal 1, code
     assert_includes out, "P3#Phase 9"
     refute_match(/Layer 1/, out)
+  end
+
+  def test_cli_resolves_a_slug_under_plans_root
+    Dir.mktmpdir do |root|
+      FileUtils.mkdir_p(File.join(root, "epics", "demo"))
+      FileUtils.cp(CLEAN, File.join(root, "epics", "demo", "epic.md"))
+      FileUtils.cp_r(File.join(PLANS, "demo"), root)
+
+      assert_equal 0, cli("--plans-root", root, "demo").first
+    end
+  end
+
+  def test_a_plan_with_no_phases_is_a_problem
+    Dir.mktmpdir do |root|
+      FileUtils.cp_r(File.join(PLANS, "demo"), root)
+      File.write(File.join(root, "demo", "web-sso", "plan.md"), "# Web SSO\n\nNo phases yet.\n")
+      code, out, = cli("--plans-root", root, CLEAN)
+
+      assert_equal 1, code
+      assert_includes out, "empty_plan: P3"
+    end
   end
 
   def test_cli_usage_errors_exit_two

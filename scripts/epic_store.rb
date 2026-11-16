@@ -18,7 +18,10 @@ module EpicStore
   PHASES_SECTION = /\A##\s+(?:Phases|Phased rollout)\s*\z/
   PHASE_HEADING = /\A###\s+Phase\s+(\d+)\s*:\s*(.+?)\s*\z/
 
-  def self.path_for(slug) = File.join(PlanPaths.plan_dir('epics', slug), 'epic.md')
+  def self.path_for(slug, root: nil)
+    dir = root ? File.join(root, 'epics', slug.to_s) : PlanPaths.plan_dir('epics', slug)
+    File.join(dir, 'epic.md')
+  end
 
   def self.load(path, plans_root: PlanPaths.root)
     text = File.read(path)
