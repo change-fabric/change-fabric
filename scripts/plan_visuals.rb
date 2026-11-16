@@ -181,14 +181,29 @@ module PlanVisuals
     drift << "#{visual.name} drawn for #{drawn} phases, workflow.js has #{now}" unless drawn == now
   end
 
-  # Everything the posted section shows: each SVG, every omission notice with
-  # its reason, and the link-back target. A later render, a changed reason or
-  # a new --first-pr then changes the hash and the section is reposted.
-  def section_hash(visuals, omits: {}, first_pr: nil)
-    digests = visuals.map { |v| File.exist?(v.svg) ? Digest::SHA256.file(v.svg).hexdigest : 'missing' }
-    digests += omits.map { |name, reason| "omit:#{name}:#{reason}" }
-    digests << "link:#{first_pr}" if first_pr
-    Digest::SHA256.hexdigest(digests.sort.join("\n"))[0, 16]
+  # The section's identity is a hash of exactly what it emits: the body as
+  # compose renders it (with name-based placeholder urls, since real urls
+  # change per upload) plus each embedded SVG's digest. A visual marked
+  # omitted is never embedded, and one with no url is emitted as an omission,
+  # so a later render, reason change, or --first-pr changes the hash.
+  def section_hash(visuals, omits: {}, first_pr: nil, urls: nil)
+    embedded, notes = section_parts(visuals, urls || placeholder_urls(visuals), omits)
+    body = section_lines(embedded, placeholder_urls(embedded), notes, first_pr)
+    digests = embedded.map { |v| File.exist?(v.svg) ? Digest::SHA256.file(v.svg).hexdigest : 'missing' }
+    Digest::SHA256.hexdigest((body + digests).join("\n"))[0, 16]
+  end
+
+  def placeholder_urls(visuals) = visuals.to_h { |v| [ v.name, { 'light' => "#{v.name}-light.png", 'dark' => "#{v.name}-dark.png" } ] }
+
+  def url_for(urls, visual) = urls[visual.name] || urls[visual.name.to_sym]
+
+  # [embedded visuals, {name => reason}]: omitted visuals are dropped, and a
+  # selected visual with no url becomes an omission notice.
+  def section_parts(visuals, urls, omits)
+    notes = (omits || {}).to_h { |name, reason| [ name.to_s, reason ] }
+    shown = visuals.reject { |v| notes.key?(v.name) }
+    embedded, unlinked = shown.partition { |v| url_for(urls, v) }
+    [ embedded, notes.merge(unlinked.to_h { |v| [ v.name, 'no uploaded image' ] }) ]
   end
 
   def svg_title(svg) = svg_source(svg)[%r{<title\b[^>]*>(.*?)</title>}m, 1]&.strip
@@ -201,27 +216,25 @@ module PlanVisuals
   end
 
   # Pure: the marker-wrapped section from `urls` ({name => {light:, dark:}}).
-  # A visual with no urls is left out silently; `omits` say why aloud.
-  def compose(visuals, urls:, hash:, omits: {}, first_pr: nil)
-    lines = [ "#{START_PREFIX}#{hash} -->" ]
-    if visuals.empty? && omits.empty? && first_pr
-      lines << "Plan visuals: see ##{first_pr}."
-    else
-      lines += [ '## Plan visuals', '', 'Illustrative; plan.md wins on any conflict.', '' ]
-      visuals.each do |v|
-        u = urls[v.name] || urls[v.name.to_sym]
-        next unless u
+  # Omitted visuals are never embedded; a visual with no url is listed as
+  # omitted. `hash` defaults to the identity of exactly this output.
+  def compose(visuals, urls:, hash: nil, omits: {}, first_pr: nil)
+    embedded, notes = section_parts(visuals, urls, omits)
+    hash ||= section_hash(visuals, omits: omits, first_pr: first_pr, urls: urls)
+    ([ "#{START_PREFIX}#{hash} -->" ] + section_lines(embedded, urls, notes, first_pr) + [ END_MARK ]).join("\n")
+  end
 
-        light = u['light'] || u[:light]
-        dark = u['dark'] || u[:dark]
-        alt = (svg_title(v.svg) || v.name).gsub('"', '&quot;')
-        lines << %(<picture><source media="(prefers-color-scheme: dark)" srcset="#{dark}"><img src="#{light}" alt="#{alt}"></picture>)
-        lines << ''
-      end
-      omits.each { |name, reason| lines << "#{name} omitted: #{reason}" }
+  def section_lines(embedded, urls, notes, first_pr)
+    return [ "Plan visuals: see ##{first_pr}." ] if embedded.empty? && notes.empty? && first_pr
+
+    lines = [ '## Plan visuals', '', 'Illustrative; plan.md wins on any conflict.', '' ]
+    embedded.each do |v|
+      u = url_for(urls, v)
+      alt = (svg_title(v.svg) || v.name).gsub('"', '&quot;')
+      lines << %(<picture><source media="(prefers-color-scheme: dark)" srcset="#{u['dark'] || u[:dark]}"><img src="#{u['light'] || u[:light]}" alt="#{alt}"></picture>)
+      lines << ''
     end
-    lines << END_MARK
-    lines.join("\n")
+    lines + notes.map { |name, reason| "#{name} omitted: #{reason}" }
   end
 
   def current_hash(body) = body.to_s[SECTION, 1]
@@ -290,7 +303,7 @@ module PlanVisuals
       return Outcome.new(code: 3, lines: [ 'could not read the PR body' ]) unless ok
       return Outcome.new(code: 0, lines: [ 'unchanged' ]) if PlanVisuals.current_hash(body) == hash
 
-      return Outcome.new(code: 0, lines: [ 'would post', PlanVisuals.compose(visuals, urls: placeholder_urls(visuals), hash: hash, omits: omits, first_pr: link) ]) if dry_run
+      return Outcome.new(code: 0, lines: [ 'would post', PlanVisuals.compose(visuals, urls: PlanVisuals.placeholder_urls(visuals), hash: hash, omits: omits, first_pr: link) ]) if dry_run
 
       urls = upload(visuals, manifest)
       return Outcome.new(code: 3, lines: [ "upload failed, PR body left unchanged: #{@uploader.degradation_reason}" ]) unless urls
@@ -317,10 +330,6 @@ module PlanVisuals
     def unsettled_reason
       ok, why = PlanVisuals.settled?(@gh, @pr, @repo)
       ok ? nil : why
-    end
-
-    def placeholder_urls(visuals)
-      visuals.to_h { |v| [ v.name, { light: "#{v.name}-light.png", dark: "#{v.name}-dark.png" } ] }
     end
 
     # SS-1: every upload or none. A partial set returns nil, so no edit runs.
@@ -401,8 +410,7 @@ module PlanVisuals
 
     def self.run_compose(dir, opts, out, _gh, _uploader)
       visuals = PlanVisuals.select(dir, phase: opts[:phase])[:visuals]
-      out.puts(PlanVisuals.compose(visuals, urls: JSON.parse(opts[:urls] || '{}'),
-                                            hash: PlanVisuals.section_hash(visuals, omits: opts[:omit] || {}), omits: opts[:omit]))
+      out.puts(PlanVisuals.compose(visuals, urls: JSON.parse(opts[:urls] || '{}'), omits: opts[:omit] || {}))
       0
     end
 

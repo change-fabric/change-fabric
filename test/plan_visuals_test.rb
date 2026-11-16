@@ -304,6 +304,37 @@ class PlanVisualsScriptTest < Minitest::Test
     end
   end
 
+  def test_compose_never_embeds_an_omitted_visual
+    with_plan do |dir|
+      visuals = PV.select(dir, phase: 2)[:visuals]
+      out = PV.compose(visuals, urls: { "wire" => { "light" => "L1", "dark" => "D1" } }, omits: { "wire" => "redraw failed" })
+      refute_includes out, "<picture>"
+      assert_includes out, "wire omitted: redraw failed"
+    end
+  end
+
+  # compose and post share one identity: a section composed without urls
+  # does not match a complete post, so the post still uploads.
+  def test_an_incomplete_compose_does_not_block_a_later_post
+    with_plan do |dir|
+      visuals = PV.select(dir, phase: 2)[:visuals]
+      partial = PV.compose(visuals, urls: {})
+      assert_includes partial, "omitted: no uploaded image"
+      up = FakeUploader.new
+      outcome = PV::Poster.new(dir, pr: 7, gh: pr_gh(body: "Intro\n\n#{partial}"), uploader: up).post(phase: 2)
+      refute_equal [ "unchanged" ], outcome.lines
+      refute_empty up.paths
+    end
+  end
+
+  def test_compose_with_full_urls_matches_the_post_hash
+    with_plan do |dir|
+      visuals = PV.select(dir, phase: 2)[:visuals]
+      composed = PV.compose(visuals, urls: { "wire" => { "light" => "L", "dark" => "D" }, "arch" => { "light" => "L", "dark" => "D" } })
+      assert_equal PV.section_hash(visuals), PV.current_hash(composed)
+    end
+  end
+
   def test_compose_link_back
     out = PV.compose([], urls: {}, hash: "h", first_pr: "5")
     assert_equal "<!-- cf:plan-visuals sha=h -->\nPlan visuals: see #5.\n#{PV::END_MARK}", out
