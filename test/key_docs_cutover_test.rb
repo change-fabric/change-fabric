@@ -39,7 +39,7 @@ class KeyDocsCutoverTest < Minitest::Test
   def test_enrollment_doc_covers_remove_hooks_and_defer
     text = File.read(DOC)
     assert_includes text, "cf_keys.rb remove"
-    assert_includes text, "SessionStart key prompt"
+    assert_includes text, "Session start never asks about keys"
     assert_includes text, "UserPromptSubmit"
     assert_includes text, "cf_keys.rb defer"
   end

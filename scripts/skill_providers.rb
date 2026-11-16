@@ -5,7 +5,7 @@ require_relative 'cf_provider_registry'
 
 # Aggregates the paid providers skills declare in SKILL.md frontmatter
 # (`providers: [openai, ...]`) into { provider => [skill names] }, the
-# `required_providers` install.rb records for the SessionStart prompt. An
+# `required_providers` install.rb records for cf:enroll. An
 # undeclared provider name fails loudly: a typo would otherwise silently
 # skip enrollment prompting for that skill.
 module SkillProviders
@@ -42,6 +42,6 @@ module SkillProviders
     return 'paid providers required: none' if required.empty?
 
     list = required.map { |provider, skills| "#{provider} (#{skills.join(', ')})" }.join(', ')
-    "paid providers required: #{list}. Projects are prompted at SessionStart."
+    "paid providers required: #{list}. Run cf:enroll to add keys; paid skills run it on demand."
   end
 end

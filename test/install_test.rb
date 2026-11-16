@@ -118,7 +118,7 @@ class InstallerTest < Minitest::Test
     doctrine_digest.rb docker_doctrine_guard.rb change_merge_guard.rb change_tag_guard.rb
     telemetry_emit.rb presence_probe.rb secret_alert_poll.rb secret_ack.rb
     mode_command.rb away_guard.rb away_restate.rb
-    key_paste_guard.rb secrets_read_guard.rb key_enrollment_prompt.rb
+    key_paste_guard.rb secrets_read_guard.rb
   ].freeze
   EVENTS = %w[SessionStart PreToolUse PostToolUse UserPromptSubmit Stop SessionEnd SubagentStart].freeze
 

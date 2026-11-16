@@ -43,6 +43,8 @@ class InstallProvidersTest < Minitest::Test
     data = JSON.parse(File.read(File.join(paths.runtime_root, "installation.json")))
     assert_includes data.dig("required_providers", "gemini"), "cf:b-roll"
     assert_match(/paid providers required: .*gemini \(cf:b-roll, cf:walkthrough\)/, out)
+    assert_includes out, "Run cf:enroll to add keys; paid skills run it on demand."
+    refute_includes out, "SessionStart"
     assert File.file?(File.join(paths.state_root, "config", "providers.yml"))
   ensure
     FileUtils.remove_entry(home)

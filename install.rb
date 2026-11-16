@@ -479,7 +479,7 @@ module Install
 
   class Installer
     HOOKS = {
-      'SessionStart' => %w[skill_detect.rb ctx_session_start.rb doctrine_digest.rb secret_alert_poll.rb key_enrollment_prompt.rb],
+      'SessionStart' => %w[skill_detect.rb ctx_session_start.rb doctrine_digest.rb secret_alert_poll.rb],
       'PreToolUse' => %w[secrets_read_guard.rb client_name_guard.rb slop_remind.rb review_gate.rb noreply_guard.rb docker_doctrine_guard.rb change_merge_guard.rb change_tag_guard.rb change_stale_remind.rb presence_probe.rb],
       'PostToolUse' => %w[skill_inject.rb secret_ack.rb change_post_merge_check.rb],
       'UserPromptSubmit' => %w[key_paste_guard.rb prune_remind.rb inbox_prompt_hook.rb],
