@@ -72,6 +72,17 @@ class SimplicitySignalsTsTest < Minitest::Test
     assert_equal [ { "name" => "formatLegacyTotal", "file" => "src/format.ts", "line" => 5 } ], report["unused_ts"]
   end
 
+  def test_container_reads_head_not_the_working_tree
+    skip "set CF_DOCKER_TESTS=1 to run ts-prune in its container" unless ENV["CF_DOCKER_TESTS"] == "1"
+
+    dir = repo_with(ts: true)
+    FileUtils.rm(File.join(dir, "tsconfig.json"))
+    File.write(File.join(dir, "src/format.ts"), "export const formatTotal = 1;\n")
+    report = SimplicitySignals.run(repo: dir, base: "HEAD~1", head: "HEAD")
+
+    assert_equal [ { "name" => "formatLegacyTotal", "file" => "src/format.ts", "line" => 5 } ], report["unused_ts"]
+  end
+
   private
 
   # Commits a README as base, then the TS fixture (or a Ruby file) as head.

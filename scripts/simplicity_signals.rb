@@ -4,6 +4,7 @@
 require 'json'
 require 'open3'
 require 'prism'
+require 'tmpdir'
 
 # Evidence signals for the cf:simplicity lens. Reads a git range and reports
 # hints a reviewer can check: how much the range adds, which files and types it
@@ -351,9 +352,20 @@ module SimplicitySignals
   def unused_ts(range)
     changed = range.changed_files.select { |path| path.end_with?(*TS_EXTENSIONS) }
     return nil if changed.empty?
-    raise 'no tsconfig.json at the repo root' unless File.file?(File.join(range.repo, 'tsconfig.json'))
+    raise 'no tsconfig.json at the repo root' unless range.show(range.head, 'tsconfig.json')
 
-    parse_ts_prune(ts_prune_output(range.repo), changed)
+    Dir.mktmpdir('cf-ts-prune') do |dir|
+      snapshot(range, dir)
+      parse_ts_prune(ts_prune_output(dir), changed)
+    end
+  end
+
+  # Extracts the tree at head, so ts-prune sees the reviewed revision rather
+  # than whatever the working tree holds.
+  def snapshot(range, dir)
+    archive = range.git('archive', '--format=tar', range.head)
+    _out, err, status = Open3.capture3('tar', '-x', '-C', dir, stdin_data: archive, binmode: true)
+    raise "tar failed: #{err.strip}" unless status.success?
   end
 
   def ts_prune_output(repo)
