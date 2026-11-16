@@ -50,12 +50,17 @@ class ReviewQueue
   # session of unrelated review cycles would trip the escape valve and silently
   # stop gating; with it, only a batch that is never reviewed (a stuck or
   # non-compliant loop) climbs to the cap.
-  def ack
+  #
+  # A block narrows the ack to the rows it keeps, so a review shown only part
+  # of the queue never releases the rows it did not show; those stay queued.
+  def ack(&keep)
     rows = entries
-    mark_reviewed(rows)
-    delete(queue_file)
+    acked = keep ? rows.select(&keep) : rows
+    rest = rows - acked
+    mark_reviewed(acked)
+    rest.empty? ? delete(queue_file) : write(queue_file, rest.map { |row| "#{row[:skill]}\t#{row[:path]}\t#{row[:hash]}" })
     delete(rounds_file)
-    rows
+    acked
   end
 
   # A stable identity for a pending batch: the sorted (skill, path, hash)

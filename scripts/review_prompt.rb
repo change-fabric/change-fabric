@@ -23,7 +23,9 @@ module ReviewPrompt
   # PreToolUse, before it runs, so an "ack; push" chain reads the still
   # unreviewed queue and denies the whole thing. New edits after the ack change
   # their content hash and re-arm the review. keys is one queue key or several.
-  def build(entries, registry, keys)
+  # own_tree, when given, scopes the ack to the coordinator's tree (see
+  # review_ack.rb); "" means the tree is unknown.
+  def build(entries, registry, keys, own_tree: nil)
     by_name = registry.to_h { |skill| [ skill.name, skill ] }
     sections = entries.group_by { |entry| entry[:skill] }
                       .map { |name, rows| section(by_name[name], name, rows) }
@@ -38,7 +40,7 @@ module ReviewPrompt
       When its result arrives, address any findings, then record the verdict.
       The gate stays closed until this ack runs:
 
-          #{ack_command(keys)}
+          #{ack_command(keys, own_tree: own_tree)}
 
       Run that ack on its own, then re-run your push or PR as a separate command,
       or finish the turn. The gate reads the queue before a command runs, so
@@ -48,7 +50,10 @@ module ReviewPrompt
     TEXT
   end
 
-  def ack_command(keys) = Shellwords.join([ 'ruby', ACK_SCRIPT, *Array(keys) ])
+  def ack_command(keys, own_tree: nil)
+    scope = own_tree.nil? ? [] : [ "--own-tree=#{own_tree}" ]
+    Shellwords.join([ 'ruby', ACK_SCRIPT, *Array(keys), *scope ])
+  end
 
   def cap_notice(count)
     "[cf review] Round cap (#{ReviewQueue::CAP}) reached; #{count} file(s) " \

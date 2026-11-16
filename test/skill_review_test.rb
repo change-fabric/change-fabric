@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require "shellwords"
 require_relative "test_helpers"
 
 class SkillReviewTest < Minitest::Test
@@ -152,6 +153,34 @@ class SkillReviewTest < Minitest::Test
     enqueue("ruby", "/r/.claude/worktrees/agent-a/x.rb", "h1")
     assert_nil review_event({ "session_id" => "s1" })
     refute_empty ReviewQueue.new("s1").pending, "hidden is not reviewed"
+  end
+
+  def test_the_stop_ack_releases_only_the_rows_it_showed
+    enqueue("ruby", "/r/.claude/worktrees/agent-a/x.rb", "h1")
+    enqueue("ruby", "/p/own.rb", "h1")
+    reason = review_event({ "session_id" => "s1" })["reason"]
+    command = reason[/^\s+(ruby \S+review_ack\.rb.*)$/, 1]
+    assert_includes command, "--own-tree"
+    system(*Shellwords.split(command), out: File::NULL)
+    assert_equal [ "/r/.claude/worktrees/agent-a/x.rb" ], paths("s1"), "the hidden row stays queued"
+  end
+
+  def test_a_coordinator_inside_a_worktree_reviews_its_own_edits
+    root = File.realpath(Dir.mktmpdir)
+    tree = File.join(root, ".claude", "worktrees", "mine")
+    FileUtils.mkdir_p(tree)
+    GitFixture.git_init(tree)
+    path = File.join(tree, "own.rb")
+    File.write(path, "x")
+    event = { "session_id" => "s1", "tool_name" => "Edit", "tool_input" => { "file_path" => path } }
+    SkillInject.new(event, skills: SkillRegistry.load(@skills)).emit(StringIO.new)
+    assert_equal [ path ], paths("s1@mine")
+
+    reason = review_event({ "session_id" => "s1", "cwd" => tree })["reason"]
+    assert_includes reason, path
+    assert_includes reason, "s1@mine"
+  ensure
+    FileUtils.remove_entry(root) if root
   end
 
   def test_subagent_stop_reviews_its_own_key_whole

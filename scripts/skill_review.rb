@@ -30,14 +30,14 @@ class SkillReview
   def emit(io = $stdout)
     return if @event['stop_hook_active']
 
-    key = queue_key
-    return unless key
+    keys = queue_keys
+    return if keys.empty?
 
-    queue = ReviewQueue.new(key)
-    pending = in_scope(ReviewScope.covered(queue.pending, registry))
+    queues = keys.map { |key| ReviewQueue.new(key) }
+    pending = in_scope(ReviewScope.covered(queues.flat_map(&:pending), registry))
     return if pending.empty?
 
-    io.puts(JSON.generate(response(queue, pending, key)))
+    io.puts(JSON.generate(response(queues.first, pending, keys)))
   end
 
   private
@@ -46,32 +46,40 @@ class SkillReview
 
   def subagent_stop? = @event['hook_event_name'] == 'SubagentStop'
 
-  # A SubagentStop without an agent_id has no queue of its own to review.
-  def queue_key
-    return @event['session_id'].to_s unless subagent_stop?
+  # A SubagentStop without an agent_id has no queue of its own to review. The
+  # coordinator reads the key its own edits enqueue under (session@slug when
+  # it runs inside a worktree) plus the bare session key.
+  def queue_keys
+    session = @event['session_id'].to_s
+    unless subagent_stop?
+      return [] if session.empty?
+
+      return [ ReviewKey.for(@event), session ].uniq
+    end
 
     agent = @event['agent_id'].to_s
-    agent.empty? ? nil : "#{@event['session_id']}:#{agent}"
+    agent.empty? ? [] : [ "#{session}:#{agent}" ]
   end
 
-  # The coordinator sees only its own tree. An unresolvable cwd keeps every
-  # non-worktree row, so a missing cwd never silently drops the coordinator's
-  # own work.
+  def own_root = @own_root ||= ReviewKey.toplevel(@event['cwd']).to_s
+
+  # The coordinator sees only its own tree, minus agent worktrees nested
+  # below it. An unresolvable cwd keeps every non-worktree row, so a missing
+  # cwd never silently drops the coordinator's own work.
   def in_scope(rows)
     return rows if subagent_stop?
 
-    root = ReviewKey.toplevel(@event['cwd'])
-    rows.reject { |row| ReviewKey.agent_tree?(row[:path]) }
-        .select { |row| root.nil? || row[:path].to_s.start_with?("#{root}/") }
+    rows.select { |row| ReviewKey.own_tree?(row[:path], own_root) }
   end
 
   # Block to drive a review, unless the round cap is reached: then surface a
   # loud, non-blocking notice rather than silently swallowing further reviews.
-  def response(queue, pending, key)
+  def response(queue, pending, keys)
     return { systemMessage: ReviewPrompt.cap_notice(pending.size) } if queue.capped?(pending)
 
     queue.bump_round(pending)
-    { decision: 'block', reason: ReviewPrompt.build(pending, registry, key) }
+    scope = subagent_stop? ? nil : own_root
+    { decision: 'block', reason: ReviewPrompt.build(pending, registry, keys, own_tree: scope) }
   end
 end
 

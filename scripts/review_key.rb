@@ -43,6 +43,14 @@ module ReviewKey
 
   def agent_tree?(path) = path.to_s.include?(WORKTREES)
 
+  # A row the coordinator rooted at `root` owns: under its tree and not in an
+  # agent worktree nested below it. With no root, any non-worktree path.
+  def own_tree?(path, root)
+    return !agent_tree?(path) if root.to_s.empty?
+
+    path.to_s.start_with?("#{root}/") && !path.to_s.delete_prefix(root).include?(WORKTREES)
+  end
+
   def worktree_slug(path)
     root = toplevel(path)
     return unless root&.include?(WORKTREES)
