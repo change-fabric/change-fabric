@@ -87,7 +87,7 @@ module SecretIntakeHelpers
     project = File.join(home, "project")
     FileUtils.mkdir_p(project)
     SecretIntake::CLI.new(stdout: @out, stderr: @err, cwd: project, aws_factory: ->(_p, _r) { aws },
-                          poller: poller || SecretIntake::Poller.new(clock: clock, sleeper: ->(_) {}),
+                          poller: poller || SecretIntake::Poller.new(clock: clock, sleeper: ->(_) { }),
                           validator: validator, clock: clock, traps: traps,
                           bucket_factory: ->(a, name) { SecretIntake::IntakeBucket.new(aws: a, project: name, hex: -> { "abcd1234" }) })
   end

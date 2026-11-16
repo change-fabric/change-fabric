@@ -25,7 +25,7 @@ class SecretIntakeRedactionTest < Minitest::Test
     clock = -> { Time.utc(2030, 1, 1, 12) }
     cli = SecretIntake::CLI.new(stdout: out, stderr: err, cwd: project, aws_factory: ->(_p, _r) { aws },
                                 renderer: renderer, validator: validator, clock: clock, traps: false,
-                                poller: SecretIntake::Poller.new(clock: clock, sleeper: ->(_) {}))
+                                poller: SecretIntake::Poller.new(clock: clock, sleeper: ->(_) { }))
     code = cli.run(%w[intake --name API_TOKEN --validate openai])
     [ code, out.string, err.string, renderer.put_url ]
   end

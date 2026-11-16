@@ -58,7 +58,7 @@ class SecretIntakeTeardownTest < Minitest::Test
   def test_timeout_tears_down_and_exits_4
     with_temp_home do |home|
       ticks = [ Time.utc(2030, 1, 1, 12, 10), Time.utc(2030, 1, 1, 14) ]
-      poller = SecretIntake::Poller.new(clock: -> { ticks.size > 1 ? ticks.shift : ticks.first }, sleeper: ->(_) {})
+      poller = SecretIntake::Poller.new(clock: -> { ticks.size > 1 ? ticks.shift : ticks.first }, sleeper: ->(_) { })
       aws = FakeAws.new(responses: { "head-object" => not_found })
       assert_equal 4, cli_for(aws, home: home, poller: poller).run(ARGV_INTAKE)
       assert torn_down?(aws)
