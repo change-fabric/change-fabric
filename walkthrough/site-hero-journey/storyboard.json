@@ -296,61 +296,101 @@
       },
       "diagram": {
         "layout": {
-          "engine": "dagre",
-          "direction": "TB",
-          "max_zoom": 2.0
+          "engine": "manual",
+          "direction": "LR",
+          "max_zoom": 3.0
         },
         "theme": "dark",
         "nodes": [
           {
             "id": "metz",
             "label": "Sandi Metz",
-            "role": "muted"
+            "role": "muted",
+            "position": {
+              "x": 0,
+              "y": 0
+            }
           },
           {
             "id": "fowler",
             "label": "Martin Fowler",
-            "role": "muted"
+            "role": "muted",
+            "position": {
+              "x": 0,
+              "y": 80
+            }
           },
           {
             "id": "nielsen",
             "label": "Jakob Nielsen",
-            "role": "muted"
+            "role": "muted",
+            "position": {
+              "x": 0,
+              "y": 160
+            }
           },
           {
             "id": "houde",
             "label": "Houde and Hill",
-            "role": "muted"
+            "role": "muted",
+            "position": {
+              "x": 0,
+              "y": 240
+            }
           },
           {
             "id": "rubrics",
             "label": "Rubrics",
-            "icon": "list-checks"
+            "icon": "list-checks",
+            "position": {
+              "x": 294,
+              "y": 120
+            }
           },
           {
             "id": "commands",
             "label": "Commands",
-            "icon": "terminal"
+            "icon": "terminal",
+            "position": {
+              "x": 294,
+              "y": 200
+            }
           },
           {
             "id": "hooks",
             "label": "Hooks",
-            "icon": "lock"
+            "icon": "lock",
+            "position": {
+              "x": 294,
+              "y": 280
+            }
           },
           {
             "id": "cf",
             "label": "Change Fabric",
-            "role": "accent"
+            "role": "accent",
+            "position": {
+              "x": 550,
+              "y": 200
+            }
           },
           {
             "id": "agent",
             "label": "Your coding agent",
-            "icon": "robot"
+            "icon": "robot",
+            "position": {
+              "x": 904,
+              "y": 200
+            }
           },
           {
             "id": "code",
             "label": "Your code",
-            "icon": "code"
+            "icon": "code",
+            "position": {
+              "x": 1310,
+              "y": 200
+            }
           }
         ],
         "edges": [
@@ -409,6 +449,15 @@
         ],
         "steps": [
           {
+            "t_ms": 0,
+            "op": "fit_view",
+            "ids": [
+              "agent",
+              "code"
+            ],
+            "padding": 0.1
+          },
+          {
             "t_ms": 1300,
             "op": "add_node",
             "ids": [
@@ -419,7 +468,11 @@
           {
             "t_ms": 1400,
             "op": "fit_view",
-            "padding": 0.15,
+            "ids": [
+              "cf",
+              "agent"
+            ],
+            "padding": 0.1,
             "duration": 600
           },
           {
@@ -444,6 +497,12 @@
           {
             "t_ms": 3700,
             "op": "fit_view",
+            "ids": [
+              "rubrics",
+              "commands",
+              "hooks",
+              "cf"
+            ],
             "padding": 0.12,
             "duration": 700
           },
@@ -464,6 +523,13 @@
           {
             "t_ms": 6900,
             "op": "fit_view",
+            "ids": [
+              "metz",
+              "fowler",
+              "nielsen",
+              "houde",
+              "rubrics"
+            ],
             "padding": 0.08,
             "duration": 700
           },
@@ -477,6 +543,18 @@
               "e-nielsen",
               "e-houde"
             ]
+          },
+          {
+            "t_ms": 9700,
+            "op": "fit_view",
+            "ids": [
+              "rubrics",
+              "commands",
+              "hooks",
+              "cf"
+            ],
+            "padding": 0.12,
+            "duration": 700
           },
           {
             "t_ms": 10000,
@@ -536,7 +614,8 @@
       },
       "diagram": {
         "layout": {
-          "engine": "manual"
+          "engine": "manual",
+          "max_zoom": 3.0
         },
         "theme": "dark",
         "lanes": [
@@ -665,7 +744,12 @@
           {
             "t_ms": 0,
             "op": "fit_view",
-            "padding": 0.06
+            "ids": [
+              "load",
+              "a11y",
+              "security"
+            ],
+            "padding": 0.04
           },
           {
             "t_ms": 1650,
@@ -695,6 +779,16 @@
             "easing": "standard"
           },
           {
+            "t_ms": 4800,
+            "op": "fit_view",
+            "ids": [
+              "ux",
+              "cases"
+            ],
+            "padding": 0.06,
+            "duration": 500
+          },
+          {
             "t_ms": 5150,
             "op": "travel",
             "id": "pr",
@@ -711,6 +805,15 @@
             "result": "r-cases",
             "duration": 700,
             "easing": "standard"
+          },
+          {
+            "t_ms": 7800,
+            "op": "fit_view",
+            "ids": [
+              "report"
+            ],
+            "padding": 0.0,
+            "duration": 700
           }
         ]
       },
