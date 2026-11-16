@@ -16,20 +16,20 @@ It runs `npm pack` in the pinned Node image, checks the sha512 in `aws.yml`, and
 
 | kind (`data-group-kind`) | depth | border | corner slug |
 | --- | --- | --- | --- |
-| `cloud` | 1 | `#242F3E` solid, dark `#777E87` | `cloud` |
+| `cloud` | 1 | `#242F3E` solid | `cloud` |
 | `region` | 2 | `#00A4A6` dashed | `region` |
-| `vpc` | 3 | `#8C4FFF` solid, dark `#9258FF` | `virtual-private-cloud-vpc` |
+| `vpc` | 3 | `#8C4FFF` solid | `virtual-private-cloud-vpc` |
 | `availability-zone` | 4 | `#00A4A6` dashed | none |
 | `public-subnet` | 5 | `#7AA116` solid | `public-subnet` |
 | `private-subnet` | 5 | `#00A4A6` solid | `private-subnet` |
-| `security-group` | 6 | `#DD344C` solid, dark `#DF4259` | none |
+| `security-group` | 6 | `#DD344C` solid | none |
 | `auto-scaling-group` | 6 | `#ED7100` dashed | `auto-scaling-group` |
 
-A child kind is always strictly deeper than its parent, and nesting stops at 6. The border colors marked pack are read from the fill of the pack's own group icon; availability zone and security group have no group icon and follow AWS's published guidance. A `dark` value exists only where the official color falls under 3:1 on the default dark background; it is the official color mixed toward white just far enough to clear 3.1:1.
+A child kind is always strictly deeper than its parent, and nesting stops at 6. The border colors marked pack are read from the fill of the pack's own group icon; availability zone and security group have no group icon and follow AWS's published guidance.
 
-Declare each border as a custom property named `--aws-<kind>` in both theme blocks, with the light value from the table and the dark value (or the light one again), and stroke the group's rect with `var(--aws-<kind>)`. That name is what makes the color palette-exempt; the same hex anywhere else is an ordinary off-palette color.
+Declare each border as a custom property named `--aws-<kind>` with the official value from the table, the same in both themes, and stroke the group's rect with `var(--aws-<kind>)`. That name is what makes the color palette-exempt; the same hex anywhere else is an ordinary off-palette color.
 
-The official colors clear 3:1 against white, not against the default skin's `#F5F5F5`. An AWS diagram sets its light `--bg` to `#FFFFFF`.
+Group borders keep AWS's exact colors on the default skin, so `icon-contrast` does not grade them; some (the cloud navy on dark) fall under 3:1, which is accepted to match AWS's own diagrams. Icons and text keep their contrast checks.
 
 ## Contrast and plates
 

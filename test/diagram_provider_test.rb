@@ -64,9 +64,11 @@ class DiagramProviderTest < Minitest::Test
     assert(lint_source(stray).any? { |f| f.check == "palette" && f.message.include?("#8C4FFF") })
   end
 
-  def test_a_provider_role_failing_contrast_is_flagged
-    svg = CLEAN.sub("--aws-cloud: #777E87;", "--aws-cloud: #242F3E;")
-    assert(lint_source(svg).any? { |f| f.check == "icon-contrast" && f.element == "--aws-cloud" })
+  # Group borders use AWS's exact colors; the cloud navy on the dark --bg is
+  # under 3:1 and is accepted, not graded.
+  def test_official_group_borders_are_not_contrast_graded
+    assert_includes CLEAN, "--aws-cloud: #242F3E; --aws-vpc: #8C4FFF; --aws-private-subnet: #00A4A6; }\n    }"
+    assert_empty(lint_source(CLEAN).select { |f| f.check == "icon-contrast" })
   end
 
   def test_groups_must_nest_in_profile_depth_order
@@ -151,9 +153,30 @@ class DiagramProviderTest < Minitest::Test
     assert(lint_source(svg).any? { |f| f.check == "icon-contrast" && f.message.start_with?("light: tile #ED7100") })
   end
 
+  SUBNET_PLATE = %(<rect class="plate" x="72" y="120" width="24" height="24" rx="2" fill="#FFFFFF"/>)
+
+  # The subnet corner icon without its plate: cyan clears 3:1 on the dark
+  # --bg but not on dark --muted, so a dark finding means --muted was read.
+  def unplated = CLEAN.sub(SUBNET_PLATE, "")
+
+  def dark_subnet_flag?(svg) = lint_source(svg).any? { |f| f.check == "icon-contrast" && f.message.start_with?("dark: tile #00A4A6") }
+
   def test_a_group_fill_from_the_stylesheet_is_contrast_checked
-    svg = CLEAN.sub(".group > rect { fill: none;", ".group > rect { fill: var(--muted);")
-    assert(lint_source(svg).any? { |f| f.check == "icon-contrast" && f.message.start_with?("light: tile #00A4A6") })
+    refute dark_subnet_flag?(unplated)
+    assert dark_subnet_flag?(unplated.sub(".group > rect { fill: none;", ".group > rect { fill: var(--muted);"))
+  end
+
+  def test_a_transparent_group_shows_its_enclosing_group
+    svg = unplated.sub('<rect x="24" y="40" width="672" height="376" stroke="var(--aws-cloud)"/>',
+                       '<rect x="24" y="40" width="672" height="376" stroke="var(--aws-cloud)" style="fill: var(--muted)"/>')
+    refute_equal unplated, svg
+    assert dark_subnet_flag?(svg)
+  end
+
+  def test_an_important_inline_fill_beats_an_important_rule
+    svg = CLEAN.sub(".node > rect { fill: var(--surface);", ".node > rect { fill: var(--surface) !important;")
+               .sub('<rect x="104" y="168" width="176" height="56" rx="6"/>', '<rect x="104" y="168" width="176" height="56" rx="6" style="fill: var(--muted) !important"/>')
+    assert(lint_source(svg).any? { |f| f.check == "icon-contrast" && f.message.start_with?("light: tile #ED7100") })
   end
 
   def test_a_more_specific_earlier_fill_wins

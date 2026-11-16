@@ -10,19 +10,20 @@ integrity: sha512-IFMKVFIJge6wheO5zB0DRQnwvjViOSbtBEhTA6uD/l0l4TsCX5wLZl+y/oMKqJ
 release: "04302026"
 # Attribution cites the provider's own terms, never the package license.
 terms: https://aws.amazon.com/architecture/icons/
+# What the package's own pack.json declares. Stated for the record; the
+# provider's terms above, not this, govern the icons.
+package_license: CC-BY-ND-2.0
 attribution: AWS Architecture Icons, Copyright Amazon Web Services, Inc. or its affiliates. AWS and the service names shown are trademarks of Amazon.com, Inc. or its affiliates.
 max_depth: 6
 # Group chrome. depth orders nesting (a child is strictly deeper than its
-# parent); color is the official light-theme border, read from the pack's
-# own group SVG fill where one exists (source: pack) and from AWS's
-# published group guidance otherwise (source: guidance). dark is used only
-# where the official value fails 3:1 against the default dark --bg
-# (#2D3142): the official color mixed toward #FFFFFF until it clears 3.1:1.
+# parent); color is the official border, used exactly in both themes, read
+# from the pack's own group SVG fill where one exists (source: pack) and
+# from AWS's published group guidance otherwise (source: guidance). Group
+# borders are not contrast-graded; icons and text still are.
 groups:
   cloud:
     depth: 1
     color: "#242F3E"
-    dark: "#777E87"
     dash: solid
     corner: cloud
     source: pack
@@ -35,7 +36,6 @@ groups:
   vpc:
     depth: 3
     color: "#8C4FFF"
-    dark: "#9258FF"
     dash: solid
     corner: virtual-private-cloud-vpc
     source: pack
@@ -60,7 +60,6 @@ groups:
   security-group:
     depth: 6
     color: "#DD344C"
-    dark: "#DF4259"
     dash: solid
     corner: null
     source: guidance

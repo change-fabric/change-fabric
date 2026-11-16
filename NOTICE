@@ -151,7 +151,8 @@ cite, not under the license of the package that carries them:
   AWS Architecture Icons, Copyright Amazon Web Services, Inc. or its
   affiliates. https://aws.amazon.com/architecture/icons/
   Fetched from @squinch/pack-aws (https://github.com/jquatier/squinch),
-  which redistributes the icons unmodified.
+  which redistributes the icons unmodified. That package's own pack.json
+  declares CC-BY-ND-2.0; AWS's terms above govern the icons.
 
 The test suite uses only synthetic icons invented for it, under
 test/fixtures/cloud_icons/fake-pack.

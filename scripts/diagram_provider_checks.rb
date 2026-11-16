@@ -269,8 +269,9 @@ module DiagramProviderChecks
   end
 
   # Provider colors are trusted by provenance, never for legibility: an
-  # icon's area-weighted outermost tile color, and each provider group role,
-  # must clear STROKE_MIN against what it sits on in both themes. The fix is
+  # icon's area-weighted outermost tile color must clear STROKE_MIN against
+  # what it sits on in both themes. Provider group borders keep the official
+  # colors exactly and are not graded. The fix is
   # a surface plate behind the icon, never a recolor.
   class IconContrast < Base
     ID = "icon-contrast"
@@ -279,7 +280,7 @@ module DiagramProviderChecks
 
     def call(doc, _context)
       roles = Provider.roles(doc)
-      icons(doc, roles) + groups(doc, roles)
+      icons(doc, roles)
     end
 
     private
@@ -296,19 +297,6 @@ module DiagramProviderChecks
       end
     end
 
-    def groups(doc, roles)
-      return [] unless Provider.profile(doc.provider)
-
-      bg = Provider.hexes(roles, "var(--bg)")
-      names = roles[:dark].keys.select { |name| Provider.role_kind(doc.provider, name) }
-      names.flat_map do |name|
-        DiagramPalette.brand_failures(Provider.hexes(roles, "var(#{name})"), bg).map do |theme, ratio|
-          finding(name, "#{theme}: #{name} is #{ratio.round(2)}:1 on --bg, under #{DiagramPalette::STROKE_MIN}",
-                  "use the profile's dark value or a background that clears it")
-        end
-      end
-    end
-
     # A plate counts only when it shows: it must extend PLATE_PAD past the
     # icon on every side, since an opaque tile hides a plate of its own size.
     def background(doc, icon, roles)
@@ -319,15 +307,28 @@ module DiagramProviderChecks
       end
 
       kind, id = icon.owner
-      resolve(owner_fills(doc, kind, id), roles, kind == :node ? "var(--surface)" : "var(--bg)")
+      resolve(owner_fills(doc, kind, id), roles, kind == :node ? "var(--surface)" : "var(--bg)", enclosing(doc, kind, id))
     end
 
-    def resolve(fills, roles, default)
+    # A transparent (fill: none) owner shows whatever encloses it: walk the
+    # enclosing groups innermost first, then the diagram's --bg. An owner
+    # with no resolvable fill keeps the default for its kind.
+    def resolve(fills, roles, default, ancestors = [])
       %i[light dark].to_h do |theme|
         fill = fills[theme]
-        fill = default if fill.nil? || fill == "none"
+        fill = default if fill.nil?
+        fill = ancestors.lazy.map { |g| group_fills(@doc, g)[theme] }.find { |f| f && f != "none" } || "var(--bg)" if fill == "none"
         [ theme, DiagramPalette.resolve_hex(roles[theme], fill) ]
       end
+    end
+
+    # Groups enclosing the owner, innermost first.
+    def enclosing(doc, kind, id)
+      @doc = doc
+      element = kind == :node ? doc.node(id)&.element : doc.group(id)&.element
+      return [] unless element
+
+      doc.groups.select { |g| g.element != element && doc.descendant?(element, g.element) }.sort_by { |g| -g.depth }
     end
 
     def owner_fills(doc, kind, id)
@@ -349,14 +350,16 @@ module DiagramProviderChecks
     end
 
     # A shape's rendered fill per theme, by CSS precedence: an !important
-    # stylesheet rule, then inline style, then the last matching rule (dark
+    # inline style, then an !important stylesheet rule, then inline style, then the last matching rule (dark
     # rules over light), then the presentation attribute. Specificity is not
     # weighed.
     def shape_fills(doc, shape)
-      inline = fill_decl(shape.attributes["style"].to_s)&.first
+      inline, inline_important = fill_decl(shape.attributes["style"].to_s)
       attr = shape.attributes["fill"]
       theme_rules(doc).transform_values do |rules|
         value, important = sheet_fill(rules, shape)
+        next inline if inline_important
+
         (important && value) || inline || value || attr
       end
     end

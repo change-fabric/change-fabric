@@ -94,9 +94,10 @@ class CloudIconsTest < Minitest::Test
 
   def test_notices_cite_provider_terms_not_the_package_license
     text = CloudIcons.notices(%w[aws aws])
+    assert_includes text, "pack.json declares CC-BY-ND-2.0; the terms above govern the icons."
     assert_includes text, "https://aws.amazon.com/architecture/icons/"
     assert_includes text, "@squinch/pack-aws@0.19.0"
-    refute_match(/CC-BY|Apache|MIT/, text)
+    refute_match(/CC-BY|Apache|MIT/, text.sub("declares CC-BY-ND-2.0", ""), "the package license appears only as the declared-license line")
     assert_equal 1, text.scan("Terms:").size
   end
 end

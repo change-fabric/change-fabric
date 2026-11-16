@@ -213,13 +213,18 @@ module CloudIcons
   # THIRD_PARTY_NOTICES text for the providers a diagram uses. Cites the
   # provider's own terms and the package used to fetch, never the package
   # license as the icons' license.
+  def package_license_line(manifest)
+    license = manifest['package_license']
+    license ? "\nThe package's own pack.json declares #{license}; the terms above govern the icons." : ''
+  end
+
   def notices(providers)
     providers.uniq.filter_map { |p| manifest(p) }.map do |m|
       <<~TEXT
         #{m['title']}
         #{m['attribution']}
         Terms: #{m['terms']}
-        Fetched from the npm package #{m['package']}@#{m['version']}, release #{m['release']}, unmodified.
+        Fetched from the npm package #{m['package']}@#{m['version']}, release #{m['release']}, unmodified.#{package_license_line(m)}
       TEXT
     end.join("\n")
   end
