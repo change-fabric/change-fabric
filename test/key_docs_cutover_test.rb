@@ -9,8 +9,10 @@ class KeyDocsCutoverTest < Minitest::Test
   ROOT = File.expand_path("..", __dir__)
   PAID_DOCS = %w[skills/image/SKILL.md skills/roast/SKILL.md skills/narrate/SKILL.md skills/music/SKILL.md
                  skills/b-roll/SKILL.md skills/prototype/SKILL.md skills/walkthrough/SKILL.md
-                 skills/walkthrough/reference/release-check.md skills/walkthrough/reference/key-enrollment.md].freeze
-  DOC = File.join(ROOT, "skills/walkthrough/reference/key-enrollment.md")
+                 skills/walkthrough/reference/release-check.md skills/enroll/reference/key-enrollment.md].freeze
+  DOC = File.join(ROOT, "skills/enroll/reference/key-enrollment.md")
+  # Built so a plain grep for the old path finds nothing, this file included.
+  OLD_DOC = [ "walkthrough", "reference", "key-enrollment" ].join("/")
 
   def shipped_files
     Dir[File.join(ROOT, "{skills,scripts,hooks}/**/*.{md,rb}")]
@@ -37,9 +39,31 @@ class KeyDocsCutoverTest < Minitest::Test
   def test_enrollment_doc_covers_remove_hooks_and_defer
     text = File.read(DOC)
     assert_includes text, "cf_keys.rb remove"
-    assert_includes text, "SessionStart"
+    assert_includes text, "SessionStart does not prompt for keys"
     assert_includes text, "UserPromptSubmit"
     assert_includes text, "cf_keys.rb defer"
+  end
+
+  # A paid skill hands exit 4 to cf:enroll and re-runs; it never just tells
+  # the user to paste a snippet and stop.
+  def test_every_paid_skill_hands_exit_4_to_cf_enroll
+    paid = Dir[File.join(ROOT, "skills/*/SKILL.md")].select { |f| File.read(f).match?(/\A---\n.*?^providers:/m) }
+    refute_empty paid
+    missing = paid.reject { |f| File.read(f).include?("cf:enroll") }
+    assert_empty missing.map { |f| f.delete_prefix("#{ROOT}/") }
+  end
+
+  def test_optional_roast_callers_run_cf_enroll_on_exit_4
+    %w[plan resolve-threads brainstorm drive design].each do |name|
+      assert_includes File.read(File.join(ROOT, "skills/#{name}/SKILL.md")), "cf:enroll", name
+    end
+  end
+
+  def test_no_link_to_the_old_walkthrough_copy
+    offenders = (shipped_files + [ File.join(ROOT, "README.md") ]).select do |f|
+      File.read(f).include?(OLD_DOC)
+    end
+    assert_empty offenders.map { |f| f.delete_prefix("#{ROOT}/") }
   end
 
   def test_readme_carries_the_breaking_reenroll_note

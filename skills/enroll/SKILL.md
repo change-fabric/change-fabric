@@ -8,8 +8,7 @@ description: Enrolls the paid API keys (OpenAI, ElevenLabs, Gemini) that install
 
 Trigger: `/cf:enroll [provider...]`, or loaded by name by a paid skill with
 its `cf_enroll` line. The full key protocol (resolution order, expiry, exit
-codes) is `reference/key-enrollment.md` once it moves here; until then it is
-the cf:walkthrough copy.
+codes) is `reference/key-enrollment.md`.
 
 ## Input
 
