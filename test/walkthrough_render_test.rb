@@ -150,6 +150,35 @@ class WalkthroughRenderTest < Minitest::Test
     WalkthroughRender::Run.new(@root, **{ providers: providers, out: StringIO.new, gates: { roast: false } }.merge(opts)).call
   end
 
+  def anchor_board(word)
+    b = board
+    b["scenes"][0]["interactions"] = [ { "at" => { "word" => word }, "op" => "move", "target" => "#a", "duration_ms" => 100 } ]
+    File.write(File.join(@root, "storyboard.json"), JSON.pretty_generate(b))
+  end
+
+  # "Scene list speaks." at 50 ms a character: "speaks" starts at 550 ms,
+  # snapped to frame 17 at 30 fps.
+  def test_word_anchor_resolves_after_narration_and_stays_authored
+    anchor_board("speaks")
+    run_render
+    saved = JSON.parse(File.read(File.join(@root, "storyboard.json")))
+    op = saved["scenes"][0]["interactions"].first
+    assert_equal({ "word" => "speaks" }, op["at"])
+    refute op.key?("t_ms"), "the authored board keeps at, not the resolved t_ms"
+    assert_equal [], WalkthroughStoryboard.stale(saved, @root)
+    assert_equal 567, WalkthroughStoryboard.resolved_copy(saved, File.join(@root, ".cache"))["scenes"][0]["interactions"][0]["t_ms"]
+  end
+
+  def test_missing_anchor_word_fails_before_any_paid_image_or_music_call
+    anchor_board("shouts")
+    err = assert_raises(WalkthroughStoryboard::ValidationError) { run_render }
+    assert_includes err.message, '"shouts" is not in the narration'
+    assert_equal 3, @calls[:tts].size
+    assert_empty @calls[:music]
+    assert_empty @calls[:image]
+    assert_empty @calls[:capture]
+  end
+
   # A zoom with no focus still frames the scene, centred (issue #311).
   def test_camera_zoom_without_focus_is_applied
     b = JSON.parse(File.read(File.join(@root, "storyboard.json")))

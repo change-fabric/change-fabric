@@ -77,6 +77,20 @@ Live capture runs open-source Chromium, which cannot decode H.264 video or AAC a
 }
 ```
 
+## Word anchors
+
+An interaction op may land on a spoken word of its own scene's narration instead of a hand-counted time: it carries `at` in place of `t_ms` (exactly one of the two).
+
+```json
+{ "at": { "word": "change", "nth": 2, "offset_ms": -300 }, "op": "move", "target": "#ship", "duration_ms": 300 }
+```
+
+- `word` is one word, matched lowercased with punctuation stripped. `nth` (default 1) counts occurrences within the scene. `offset_ms` (default 0, may be negative) shifts the time. Lead the word by about 300 ms (`"offset_ms": -300`) so the motion settles as the word is heard.
+- The render resolves anchors after narration and before any image, b-roll, music, or capture call, from the scene's cached cf:narrate alignment. The resolved `t_ms` is scene-local: `narration_start` plus the word's start plus `offset_ms`, snapped once to the nearest frame at the board's fps. It is used in memory only; the saved board keeps `at`.
+- A negative result clamps to 0 with a warning. A missing word (or nth) fails the render and names the nearest words the narration does say; anchor on the spoken form ("three", not "3"). A time past the scene's end fails (the scene is never stretched), and resolved ops must be non-decreasing (the error names both ops).
+- An anchor resolves only against its own scene, so a scene without narration cannot use `at`. A navigate tap takes `t_ms`. Scene windows are not anchorable: `start_at` and `end_at` on a scene are rejected.
+- Before a scene is narrated its anchors cannot resolve, so `stale` reports its frames until the render narrates it.
+
 ## ai-broll scene
 
 A scene with `"kind": "ai-broll"` (default `screen`) is a short AI clip animated from an existing still, never UI. It has no `screen`, `interactions`, or `store`; narration, `timing`, `requirements` or `assumptions`, and transitions work as for any scene.

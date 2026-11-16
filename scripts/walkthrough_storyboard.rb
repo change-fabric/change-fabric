@@ -12,6 +12,7 @@ require_relative 'walkthrough_duck'
 require_relative 'walkthrough_environment'
 require_relative 'walkthrough_transition'
 require_relative 'walkthrough_live'
+require_relative 'walkthrough_words'
 
 # storyboard.json (schema_version 1) is the source of truth for a
 # walkthrough. This module validates it, derives scene durations (never
@@ -194,6 +195,7 @@ module WalkthroughStoryboard
     errors.concat(sfx_errors(scene, root))
     errors.concat(camera_errors(scene['camera']))
     errors.concat(scene_interaction_errors(scene))
+    errors.concat(anchor_scene_errors(scene))
     errors.concat(navigate_errors(scene, board))
     errors.concat(timeline_errors(scene, board))
     errors.concat(overlap_errors(scene, board))
@@ -441,7 +443,7 @@ module WalkthroughStoryboard
   # whose ops fail their shape checks is skipped; those errors say why.
   def timeline_errors(scene, board)
     list = scene['interactions']
-    return [] if list.nil?
+    return [] if list.nil? || unresolved?(scene)
 
     fps = fps(board)
     frames = PrototypeCapture.frame_count(PrototypeCapture.scene_duration(scene), fps)
@@ -484,6 +486,7 @@ module WalkthroughStoryboard
     lists = scene['interactions'].is_a?(Hash) ? scene['interactions'].values : [ scene['interactions'] ]
     navs = lists.flat_map { |l| Array(l).select { |op| op.is_a?(Hash) && op['navigate'] == true } }
     return [] if navs.empty?
+    return [ 'a navigate tap takes t_ms, not at (the scene length depends on it)' ] if navs.any? { |op| op.key?('at') }
     return [ 'a navigate tap needs a live scene (screen.url)' ] unless WalkthroughLive.live?(scene)
 
     errs = []
@@ -592,6 +595,8 @@ module WalkthroughStoryboard
       errors << "interaction #{i}: op #{op['op'].inspect} must be one of #{ops.join(', ')}" unless ops.include?(op['op'])
       errors << "interaction #{i}: target is required for #{op['op']}" if !%w[wait key].include?(op['op']) && op['target'].to_s.empty?
       errors.concat(op_shape_errors(op).map { |e| "interaction #{i}: #{e}" })
+      next errors.concat(anchor_shape_errors(op).map { |e| "interaction #{i}: #{e}" }) if op.key?('at')
+
       t = op['t_ms']
       if !t.is_a?(Integer) || t.negative?
         errors << "interaction #{i}: t_ms must be a non-negative integer"
@@ -626,6 +631,143 @@ module WalkthroughStoryboard
     end
     errors << 'store.prng_seed must be an integer' if store.key?('prng_seed') && !store['prng_seed'].is_a?(Integer)
     errors
+  end
+
+  # -- word anchors ----------------------------------------------------------
+
+  ANCHOR_KEYS = %w[word nth offset_ms].freeze
+  SCENE_ANCHOR_KEYS = %w[start_at end_at].freeze
+
+  # An op lands on a word of its own scene's narration with
+  # at: { word:, nth: (default 1), offset_ms: (default 0) }, instead of t_ms.
+  def anchor_shape_errors(op)
+    at = op['at']
+    return [ 'takes exactly one of t_ms or at' ] if op.key?('t_ms')
+    return [ 'at must be an object { word, nth, offset_ms }' ] unless at.is_a?(Hash)
+
+    errs = (at.keys - ANCHOR_KEYS).map { |k| "at.#{k} is not a known field (#{ANCHOR_KEYS.join(', ')})" }
+    word = at['word']
+    errs << 'at.word must be one spoken word' unless word.is_a?(String) && !word.strip.include?(' ') && !WalkthroughWords.normalize(word).empty?
+    errs << 'at.nth must be a positive integer' if at.key?('nth') && !(at['nth'].is_a?(Integer) && at['nth'].positive?)
+    errs << 'at.offset_ms must be an integer' if at.key?('offset_ms') && !at['offset_ms'].is_a?(Integer)
+    errs
+  end
+
+  def anchored_ops(scene) = WalkthroughLive.all_interactions(scene).select { |op| op.is_a?(Hash) && op.key?('at') }
+
+  # An anchored op not yet given its t_ms by resolve_anchors.
+  def unresolved?(scene) = anchored_ops(scene).any? { |op| !op.key?('t_ms') }
+
+  # Scene windows are not anchorable in v1, and an anchor resolves only
+  # against its own scene's narration.
+  def anchor_scene_errors(scene)
+    errs = SCENE_ANCHOR_KEYS.filter_map { |k| "#{k} is not supported; scene placement is derived (anchor ops with at)" if scene.key?(k) }
+    narrated = !scene.dig('narration', 'text').to_s.strip.empty?
+    errs << 'an op with at needs this scene to have narration' if !narrated && anchored_ops(scene).any?
+    errs
+  end
+
+  # Gives every anchored op its scene-local t_ms from the scene's cached
+  # narration alignment: narration start plus the word's start plus
+  # offset_ms, snapped once to the nearest frame. A negative time clamps to
+  # 0 with a warning. Raises ValidationError on a missing word or
+  # alignment, a time past the scene's end, or ops out of order; returns
+  # the warnings. Run after narration (measured_ms set), before capture.
+  def resolve_anchors(board, cache)
+    warnings = []
+    errors = []
+    scenes(board).each do |scene|
+      next if anchored_ops(scene).empty?
+
+      label = "scene #{scene['id'].inspect}"
+      begin
+        warnings.concat(resolve_scene(board, scene, cache).map { |w| "#{label}: #{w}" })
+      rescue WalkthroughWords::Missing, ValidationError => e
+        errors << "#{label}: #{e.message}"
+      end
+    end
+    raise ValidationError, errors.join("\n") unless errors.empty?
+
+    warnings
+  end
+
+  def resolve_scene(board, scene, cache)
+    words = scene_words(board, scene, cache)
+    duration = WalkthroughLive.duration_ms(board, scene)
+    warnings = []
+    interaction_lists(scene).each do |prefix, ops|
+      ops.each_with_index do |op, i|
+        next unless op.is_a?(Hash) && op.key?('at')
+
+        ms, warning = anchor_ms(scene, words, op['at'])
+        warnings << "#{prefix}interaction #{i} #{warning}" if warning
+        op['t_ms'] = snap_ms(ms, fps(board))
+        next if op['t_ms'] <= duration
+
+        raise ValidationError, "#{prefix}interaction #{i} (at #{op['at']['word'].inspect}) resolves to #{op['t_ms']} ms, past the scene's #{duration} ms"
+      end
+      order_errors(ops).each { |e| raise ValidationError, "#{prefix}#{e}" }
+    end
+    timeline_errors(scene, board).each { |e| raise ValidationError, e }
+    warnings
+  end
+
+  # Scene-local ms of an anchor, clamped at 0 with a warning.
+  def anchor_ms(scene, words, at)
+    ms = PrototypeCapture.narration_start_ms(scene) + WalkthroughWords.at(words, at['word'], at['nth'] || 1) + at['offset_ms'].to_i
+    return [ ms, nil ] unless ms.negative?
+
+    [ 0, "(at #{at['word'].inspect}) resolves to #{ms} ms; clamped to 0" ]
+  end
+
+  # The ms of the frame nearest ms, rounded up so frame_at maps it back to
+  # that same frame.
+  def snap_ms(ms, fps) = ((ms * fps / 1000.0).round * 1000.0 / fps).ceil
+
+  def interaction_lists(scene)
+    list = scene['interactions']
+    list.is_a?(Hash) ? list.map { |device, ops| [ "#{device} ", Array(ops) ] } : [ [ '', Array(list) ] ]
+  end
+
+  # Ordering after resolution, naming both ops.
+  def order_errors(ops)
+    ops.each_cons(2).with_index.filter_map do |(a, b), i|
+      next unless a['t_ms'].is_a?(Integer) && b['t_ms'].is_a?(Integer) && b['t_ms'] < a['t_ms']
+
+      "interaction #{i + 1} at #{b['t_ms']} ms is before interaction #{i} at #{a['t_ms']} ms; t_ms must be non-decreasing"
+    end
+  end
+
+  def scene_words(board, scene, cache)
+    path = WalkthroughCache.path(cache, :audio, audio_key(board, scene), 'alignment.json')
+    raise ValidationError, "no narration alignment at #{path} to resolve at anchors (narrate the scene first)" unless File.file?(path)
+
+    WalkthroughWords.from_alignment(JSON.parse(File.read(path)))
+  end
+
+  # A copy with every anchored op's resolved t_ms dropped, so the authored
+  # board keeps exactly one of t_ms or at.
+  def authored(board)
+    copy = JSON.parse(JSON.generate(board))
+    scenes(copy).each { |scene| anchored_ops(scene).each { |op| op.delete('t_ms') } }
+    copy
+  end
+
+  # A deep copy resolved against whatever alignments are cached; a scene
+  # that cannot resolve keeps its anchors unresolved, so its frames key
+  # cannot be computed and it reports stale until narrated.
+  def resolved_copy(board, cache)
+    copy = JSON.parse(JSON.generate(board))
+    scenes(copy).each do |scene|
+      next if anchored_ops(scene).empty?
+
+      begin
+        resolve_scene(copy, scene, cache)
+      rescue WalkthroughWords::Missing, ValidationError
+        anchored_ops(scene).each { |op| op.delete('t_ms') }
+      end
+    end
+    copy
   end
 
   # -- durations and timeline ----------------------------------------------
@@ -677,10 +819,11 @@ module WalkthroughStoryboard
   # Recomputed deps per scene id. frames_key is nil when it cannot be
   # computed yet (a from_scene dependency not captured, or a missing screen).
   def recompute_keys(board, root, final: false)
+    board = resolved_copy(board, File.join(root, '.cache')) if scenes(board).any? { |s| anchored_ops(s).any? }
     memo = {}
     scenes(board).to_h do |scene|
       frames = begin
-        prepare_frames(board, scene, root, memo, final: final)[:key]
+        unresolved?(scene) ? nil : prepare_frames(board, scene, root, memo, final: final)[:key]
       rescue ArgumentError, PrototypeCapture::UnsupportedContentError, Errno::ENOENT, TypeError
         nil
       end

@@ -177,6 +177,13 @@ module WalkthroughRender
       end
     end
 
+    # Ops anchored on a spoken word get their t_ms from the narration just
+    # generated, so a missing word fails here, before any paid image,
+    # b-roll, or music call.
+    def resolve_anchors!
+      WalkthroughStoryboard.resolve_anchors(@board, @cache).each { |w| say("warning: #{w}") }
+    end
+
     # validate! ran on the authored measured_ms; a navigate scene's line
     # is only known once its audio is measured, so recheck before capture.
     def navigate_fit!
@@ -927,6 +934,7 @@ module WalkthroughRender
       return nil if estimate_only
 
       generate_audio
+      resolve_anchors!
       navigate_fit!
       generate_images
       generate_broll
@@ -938,7 +946,7 @@ module WalkthroughRender
       @content_key = content_key(@final ? WalkthroughStoryboard.recompute_keys(@board, @root) : keys)
       manifest = WalkthroughManifest.build(@board, @root, keys: keys)
       generate_music(manifest.dig('timeline', 'total_ms'))
-      File.write(@board_path, "#{JSON.pretty_generate(@board)}\n")
+      File.write(@board_path, "#{JSON.pretty_generate(WalkthroughStoryboard.authored(@board))}\n")
       WalkthroughManifest.write(manifest, @root)
       ux = ux_lint(manifest)
       gate_final!(ux)
