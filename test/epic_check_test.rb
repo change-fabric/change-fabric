@@ -113,6 +113,14 @@ class EpicCheckTest < Minitest::Test
     assert_match(/\Acycle: P2#Phase 1, P2#Phase 2, P3#Phase 1/, out)
   end
 
+  def test_cli_order_on_structural_problems_reports_them
+    code, out, = cli("--order", "--plans-root", PLANS, File.join(FIXTURES, "defects/missing_node.md"))
+
+    assert_equal 1, code
+    assert_includes out, "P3#Phase 9"
+    refute_match(/Layer 1/, out)
+  end
+
   def test_cli_usage_errors_exit_two
     assert_equal 2, cli.first
     assert_equal 2, cli("--bogus", CLEAN).first

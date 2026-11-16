@@ -101,11 +101,12 @@ module EpicCheck
 
       epic = EpicStore.load(path, plans_root: flags[:plans_root] || PlanPaths.root)
       result = EpicCheck.run(epic)
-      lines = flags[:order] ? EpicCheck.order_lines(result.order) : result.problems
+      # An order from an epic with problems would silently drop the bad edges,
+      # so --order prints the problems instead and fails like validation.
+      lines = flags[:order] && result.ok? ? EpicCheck.order_lines(result.order) : result.problems
       lines.each { |line| out.puts(line) }
       out.puts('epic_check: clean') if !flags[:order] && result.ok?
-      failed = flags[:order] ? !result.order.cycle.empty? : !result.ok?
-      failed ? 1 : 0
+      result.ok? ? 0 : 1
     end
 
     def self.usage(err, target)
