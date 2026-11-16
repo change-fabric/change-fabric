@@ -122,11 +122,22 @@ module DiagramProviderChecks
 
     def leaks(doc)
       css = SvgChecks::DeclaredProperty.stylesheet(doc).gsub(/@media[^{]*\{/, "")
-      css.scan(/([^{}]+)\{[^{}]*\}/).flatten.flat_map { |list| list.split(",").map(&:strip) }.uniq.filter_map do |sel|
+      painting = css.scan(/([^{}]+)\{([^{}]*)\}/).reject { |_, body| inert?(body) }.map(&:first)
+      painting.flat_map { |list| list.split(",").map(&:strip) }.uniq.filter_map do |sel|
         next unless reaches?(doc, sel)
 
         finding("style", "selector #{sel.inspect} reaches into icon bodies and would recolor them", fix_for(sel))
       end
+    end
+
+    # Properties that never change how the artwork is drawn. A rule made only
+    # of these cannot recolor an icon; anything else is treated as painting.
+    INERT = %w[pointer-events cursor user-select transition transition-property
+               transition-duration transition-delay transition-timing-function].freeze
+
+    def inert?(body)
+      props = body.scan(/(?:\A|;)\s*([\w-]+)\s*:/).flatten.map(&:downcase)
+      !props.empty? && props.all? { |prop| INERT.include?(prop) }
     end
 
     def fix_for(sel)

@@ -125,6 +125,17 @@ class DiagramProviderTest < Minitest::Test
     assert(lint_source(svg).any? { |f| f.check == "group-nesting" && f.message.include?("subnet border 2 times") })
   end
 
+  def test_an_inert_rule_reaching_icons_is_allowed
+    svg = CLEAN.sub(".bg { fill: var(--bg); }", ".bg { fill: var(--bg); }\n    path { pointer-events: none; }")
+    assert(lint_source(svg).none? { |f| f.element == "style" })
+  end
+
+  def test_a_top_level_group_clipped_by_the_viewbox_is_flagged
+    svg = CLEAN.sub('<rect x="24" y="40" width="672" height="376" stroke="var(--aws-cloud)"/>',
+                    '<rect x="-24" y="40" width="768" height="440" stroke="var(--aws-cloud)"/>')
+    assert(lint_source(svg).any? { |f| f.check == "viewbox-clip" && f.element == "cloud" })
+  end
+
   def test_offline_cli_exits_zero_with_an_empty_cache
     Dir.mktmpdir do |cache|
       old = ENV.fetch("CF_CLOUD_ICONS_CACHE", nil)

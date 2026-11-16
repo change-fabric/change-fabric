@@ -86,7 +86,8 @@ module SvgChecks
       return [ finding("svg", "missing or malformed viewBox", "set viewBox=\"0 0 W H\"") ] unless vb
 
       boxes = doc.nodes.map { |n| [ n.id, n.box ] } + doc.texts.map { |t| [ t.key, context.text_box(t) ] } +
-              doc.edges.filter_map { |e| (box = edge_box(e)) && [ e.id, box ] }
+              doc.edges.filter_map { |e| (box = edge_box(e)) && [ e.id, box ] } +
+              doc.groups.map { |g| [ g.id, g.box ] }
       boxes.filter_map { |id, box| judge(id, box, vb) }
     end
 
