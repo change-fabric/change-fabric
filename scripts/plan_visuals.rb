@@ -112,23 +112,30 @@ module PlanVisuals
   end
 
   # diagrams/manifest.json as step 7a writes it and a redraw rewrites it. An
-  # entry whose SVG is unchanged keeps its `drawn_against`; a new or redrawn
-  # one takes the given `drawn_against` (default `plan`).
+  # entry whose SVG is unchanged keeps its `drawn_against` and its drift
+  # baselines (plan digest, phase count), so redrawing one visual never
+  # clears another's drift; a new or redrawn one takes the current values.
   def build_manifest(plan_dir, drawn_against: 'plan')
-    previous = (manifest(plan_dir) || {}).fetch('visuals', {})
+    old = manifest(plan_dir) || {}
+    now = { 'plan_sha256' => plan_digest(File.join(plan_dir, 'plan.md')), 'workflow_phase_count' => workflow_phase_count(plan_dir) }
     entries = visuals(plan_dir).select { |v| File.exist?(v.svg) }.to_h do |v|
-      [ v.name, manifest_entry(v, previous[v.name], drawn_against) ]
+      [ v.name, manifest_entry(v, old.fetch('visuals', {})[v.name], old, now, drawn_against) ]
     end
-    { 'version' => 1, 'plan_sha256' => plan_digest(File.join(plan_dir, 'plan.md')),
-      'workflow_phase_count' => workflow_phase_count(plan_dir), 'visuals' => entries }
+    { 'version' => 1, **now, 'visuals' => entries }
   end
 
-  def manifest_entry(visual, prior, drawn_against)
+  def manifest_entry(visual, prior, old, now, drawn_against)
     sha = Digest::SHA256.hexdigest(File.read(visual.svg))
-    kept = prior && prior['svg_sha256'] == sha ? prior['drawn_against'] : drawn_against
+    unchanged = prior && prior['svg_sha256'] == sha
+    baseline = unchanged ? now.keys.to_h { |k| [ k, prior.fetch(k, old[k]) ] } : now
     { 'svg_sha256' => sha, 'light_png' => "#{visual.name}-light.png", 'dark_png' => "#{visual.name}-dark.png",
-      'type' => visual.type, 'phases' => visual.phases, 'drawn_against' => kept }
+      'type' => visual.type, 'phases' => visual.phases, 'drawn_against' => unchanged ? prior['drawn_against'] : drawn_against,
+      **baseline }
   end
+
+  # A visual's drift baseline: its own entry, else the manifest-wide value
+  # an older manifest carries.
+  def baseline(manifest, visual, key) = manifest.dig('visuals', visual.name, key) || manifest[key]
 
   def write_manifest(plan_dir, drawn_against: 'plan')
     data = build_manifest(plan_dir, drawn_against: drawn_against)
@@ -173,7 +180,7 @@ module PlanVisuals
     unsure = []
     check_paths(visual, plan_text, pr[:files], drift)
     check_title(plan_dir, phase, pr, unsure)
-    check_digest(plan_dir, manifest, drift, unsure)
+    check_digest(visual, plan_dir, manifest, drift, unsure)
     check_timeline(visual, plan_dir, manifest, drift, unsure) if visual.timeline?
     if visual.timeline? && !unsure.empty?
       drift.concat(unsure)
@@ -201,16 +208,17 @@ module PlanVisuals
     unsure << "phase title \"#{title}\" overlaps the PR title or branch #{(overlap * 100).round} percent" if overlap < 0.5
   end
 
-  def check_digest(plan_dir, manifest, drift, unsure)
+  def check_digest(visual, plan_dir, manifest, drift, unsure)
     return unsure << 'no diagrams/manifest.json' unless manifest
 
-    drift << 'plan.md changed since the diagram was drawn' unless manifest['plan_sha256'] == plan_digest(File.join(plan_dir, 'plan.md'))
+    drawn = baseline(manifest, visual, 'plan_sha256')
+    drift << 'plan.md changed since the diagram was drawn' unless drawn == plan_digest(File.join(plan_dir, 'plan.md'))
   end
 
   def check_timeline(visual, plan_dir, manifest, drift, _unsure)
     return unless manifest
 
-    drawn = manifest['workflow_phase_count']
+    drawn = baseline(manifest, visual, 'workflow_phase_count')
     now = workflow_phase_count(plan_dir)
     drift << "#{visual.name} drawn for #{drawn} phases, workflow.js has #{now}" unless drawn == now
   end

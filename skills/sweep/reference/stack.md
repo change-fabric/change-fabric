@@ -61,6 +61,22 @@ does not run: say so and stop.
      the plan lands.
    - admin bypass: run `/cf:plan --judge` on the seeded goal, record each
      judged item with `stack_store.rb judged <slug> <text>`, and continue.
+4b. **Visuals.** Only for a stack started from a plan dir whose `## Visuals`
+   list is not empty, once this PR's CI is green and it is CLEAN. With
+   `<k>` this PR's phase number (its position in the stack) and `<first>`
+   the stack's first PR number:
+   - Run `ruby ~/.claude/cf/bin/plan_visuals.rb check <plan_dir> --pr <n>
+     --phase <k>`. Exit 0 or 2 (match or inconclusive) goes straight to the
+     post.
+   - Exit 1 (drift): redraw each drifted visual the way cf:plan step 7a
+     draws it (cf:diagram or cf:chart, lint, render light and dark PNGs),
+     then rewrite the manifest with `plan_visuals.rb manifest <plan_dir>
+     --drawn-against pr:<n>@<head sha>`. A visual whose redraw still fails
+     lint is posted as an omission with `--omit <name>='redraw failed'`.
+   - Post with `ruby ~/.claude/cf/bin/plan_visuals.rb post <plan_dir> --pr
+     <n> --phase <k> --first-pr <first> --require-settled`. Exit 4 (not
+     settled) waits and retries; exit 3 is reported and does not block the
+     hand off.
 5. **Hand off** by merge mode, below. Just before the hand off, record this
    PR's final head with `stack_store.rb set-pr <slug> <n> old_head_sha=<sha>`
    (`gh pr view <n> --json headRefOid`); the child cuts at it after the merge.

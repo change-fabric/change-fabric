@@ -513,6 +513,18 @@ class PlanVisualsScriptTest < Minitest::Test
     end
   end
 
+  def test_redrawing_one_visual_keeps_the_others_drift
+    with_plan(manifest: false) do |dir|
+      PV.write_manifest(dir)
+      File.write(File.join(dir, "workflow.js"), WORKFLOW.sub('{ title: "Wire the widget output" } ]', '{ title: "Wire the widget output" }, { title: "Ship it" } ]'))
+      File.write(File.join(dir, "diagrams", "flow.svg"), svg("flow", "Flow", "lib/widget.rb redrawn"))
+      PV.write_manifest(dir)
+
+      assert_equal "drift", check(dir, pr_gh)["plan"][:verdict]
+      assert_equal 3, PV.manifest(dir)["visuals"]["flow"]["workflow_phase_count"]
+    end
+  end
+
   def test_manifest_verb_writes_what_check_compares
     with_plan(manifest: false) do |dir|
       out = StringIO.new
@@ -521,7 +533,8 @@ class PlanVisualsScriptTest < Minitest::Test
       data = PV.manifest(dir)
       assert_equal %w[flow arch parse wire plan], data["visuals"].keys
       assert_equal({ "light_png" => "plan-light.png", "dark_png" => "plan-dark.png", "type" => "timeline",
-                     "phases" => "1,2", "drawn_against" => "plan" }, data["visuals"]["plan"].except("svg_sha256"))
+                     "phases" => "1,2", "drawn_against" => "plan", "plan_sha256" => data["plan_sha256"],
+                     "workflow_phase_count" => 2 }, data["visuals"]["plan"].except("svg_sha256"))
       assert_equal "match", check(dir, pr_gh)["plan"][:verdict]
     end
   end
