@@ -45,10 +45,25 @@ module ReviewKey
 
   # A row the coordinator rooted at `root` owns: under its tree and not in an
   # agent worktree nested below it. With no root, any non-worktree path.
+  # Both sides are compared by real path, so a checkout reached through a
+  # symlink still owns its rows.
   def own_tree?(path, root)
     return !agent_tree?(path) if root.to_s.empty?
 
-    path.to_s.start_with?("#{root}/") && !path.to_s.delete_prefix(root).include?(WORKTREES)
+    real = real_path(path)
+    real_root = real_path(root)
+    real.start_with?("#{real_root}/") && !real.delete_prefix(real_root).include?(WORKTREES)
+  end
+
+  # The physical path, resolving the deepest existing ancestor so a deleted
+  # file still normalizes.
+  def real_path(path)
+    path = File.expand_path(path.to_s)
+    head = path
+    head = File.dirname(head) until File.exist?(head) || head == File.dirname(head)
+    File.realpath(head) + path.delete_prefix(head)
+  rescue StandardError
+    path
   end
 
   def worktree_slug(path)

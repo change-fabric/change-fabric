@@ -183,6 +183,20 @@ class SkillReviewTest < Minitest::Test
     FileUtils.remove_entry(root) if root
   end
 
+  def test_a_symlinked_checkout_still_owns_its_rows
+    root = File.realpath(Dir.mktmpdir)
+    real = File.join(root, "real")
+    FileUtils.mkdir_p(real)
+    GitFixture.git_init(real)
+    link = File.join(root, "link")
+    File.symlink(real, link)
+    enqueue("ruby", File.join(link, "own.rb"), "h1")
+    reason = review_event({ "session_id" => "s1", "cwd" => link })["reason"]
+    assert_includes reason, File.join(link, "own.rb")
+  ensure
+    FileUtils.remove_entry(root) if root
+  end
+
   def test_subagent_stop_reviews_its_own_key_whole
     ReviewQueue.new("s1:ida").add("ruby", "/r/.claude/worktrees/agent-a/x.rb", "h1")
     enqueue("ruby", "/p/own.rb", "h1")
