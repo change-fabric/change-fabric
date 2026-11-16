@@ -11,7 +11,7 @@
 #
 # VERSION is the schema's own semver, independent of the cf skills toolkit's own
 # version (which is carried by the repo's skills/v* release tags, not by any
-# file in the tree; see RELEASING.md). Bump it only when a CHANGE.md
+# file in the tree; see ARCHITECTURE.md). Bump it only when a CHANGE.md
 # frontmatter field is added, removed, or renamed, and record the change in the
 # spec doc's changelog. A field-set change without a matching version bump, or a
 # version bump the doc does not reflect, is exactly what the drift test catches.

@@ -166,7 +166,7 @@ change_policy:
   admin_bypass:
     allowed: false
     require_change_pass: true
-    conditions: "not used; the maintainer merges every PR by hand once CI and the cf:change gate are both green, per this repo's own CLAUDE.md"
+    conditions: "not used; the maintainer merges every PR by hand once CI and the cf:change gate are both green, per this repo's own AGENTS.md"
 ---
 
 # Change management for change-fabric/change-fabric
@@ -224,13 +224,13 @@ actual practice. GitHub itself blocks a literal self-approval review (`gh pr
 review --approve` on your own PR fails), so approval on this repo typically
 comes from an agent-driven review (`cf:code-review`, `cf:drive`) rather
 than a second human. The maintainer still merges every PR by hand; this
-repo's own `CLAUDE.md` states that explicitly, and no agent should run `gh
+repo's own `AGENTS.md` states that explicitly, and no agent should run `gh
 pr merge` here without being told to.
 
 ## When admin-bypass merging is and is not acceptable
 
 - **Not acceptable, ever, on this repo**: `gh pr merge --admin` bypassing
-  the normal review or CI wait. This repo's `CLAUDE.md` states plainly that
+  the normal review or CI wait. This repo's `AGENTS.md` states plainly that
   the maintainer merges every PR manually; an agent should push, open or
   update the PR, and get CI and the `cf:change` gate green, then stop and
   wait to be told to merge.

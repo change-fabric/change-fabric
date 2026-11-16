@@ -113,7 +113,7 @@ class ChangeArtifactPublish
   def legacy_refusal
     failure('this repo still carries the deprecated contributors_team.artifacts block; ' \
             'the bundle was built but not published. Migrate to contributors_team.platform ' \
-            '(see scripts/CF_TEAM_SETUP.md); the legacy block is removed at schema 0.7.0')
+            '(see RELEASING.md, Team setup); the legacy block is removed at schema 0.7.0')
   end
 
   def missing_key_message

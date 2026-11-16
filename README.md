@@ -109,8 +109,8 @@ ruby scripts/cf_cli.rb doctor --host codex --json
 ```
 
 The report separates installed files, configured adapters, version evidence,
-and live-test scope. See [host compatibility](docs/agent-compatibility.md) and
-[the architecture](docs/architecture/agent-portability.md).
+and live-test scope. See [ARCHITECTURE.md](ARCHITECTURE.md) for host
+portability.
 
 ## Verify the install
 
@@ -191,7 +191,7 @@ one, which already had cf hooks in it.
 Merging to `main` stages work; nothing is released until the matching tag is
 pushed. Three tracks (the toolkit, the spec, and the site) each release on their
 own tag. See [RELEASING.md](RELEASING.md) for the full model and the runbook,
-and [CLAUDE.md](CLAUDE.md) for the rules this repo holds itself to.
+and [AGENTS.md](AGENTS.md) for the rules this repo holds itself to.
 
 ### From a merged PR to somebody's machine
 

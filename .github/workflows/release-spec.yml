@@ -7,7 +7,7 @@ name: release-spec
 #
 # Deliberately does not deploy the site. A spec release and a site deploy are
 # separate acts; deploy-site.yml enforces the one-way ordering between them
-# (the site may lag a spec release, never lead it). See RELEASING.md.
+# (the site may lag a spec release, never lead it). See PRINCIPLES.md.
 
 on:
   push:
