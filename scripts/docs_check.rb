@@ -13,15 +13,18 @@ module DocsCheck
   CAPS = { 'ARCHITECTURE.md' => 250, 'PRINCIPLES.md' => 150, 'AGENTS.md' => 80 }.freeze
   SHIM = "@AGENTS.md\n"
 
-  # A new markdown file has to be added here on purpose. `skills/**` and
-  # `walkthrough/**` are loose because skills are read at runtime.
+  # A new markdown file has to be added here on purpose. Skill and walkthrough
+  # entries name the exact shapes in use, so a stray notes.md or roast log fails.
   # `scripts/CF_TEAM_SETUP.md` is a one-line pointer kept because the frozen spec
   # text cites it. `platform/**` goes when platform/ does.
   ALLOWED = %w[
     README.md AGENTS.md CLAUDE.md ARCHITECTURE.md PRINCIPLES.md RELEASING.md
     CHANGELOG.md CHANGE.md NOTICE* LICENSE* site/DESIGN.md site/README.md
-    site/src/archive/*.md skills/**/* workflows/modes/*.md scripts/CF_TEAM_SETUP.md
-    telemetry/infra/lambda/SIGNING.md */infra/README.md walkthrough/**/*
+    site/src/archive/*.md skills/README.md skills/*/SKILL.md skills/*/VALIDATION.md
+    skills/*/reference/**/*.md skills/ctx/reference.md skills/prototype/fixtures/*/CONTRACT.md
+    workflows/modes/*.md scripts/CF_TEAM_SETUP.md
+    telemetry/infra/lambda/SIGNING.md */infra/README.md walkthrough/*/brief.md
+    walkthrough/*/storyboard.md walkthrough/*/ASSUMPTIONS.md
     test/fixtures/**/* platform/**/*
   ].freeze
 

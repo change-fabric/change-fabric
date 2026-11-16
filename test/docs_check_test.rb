@@ -19,6 +19,12 @@ class DocsCheckTest < Minitest::Test
     assert_equal [ "docs/rca/new.md: not in the living doc allowlist (scripts/docs_check.rb)" ], problems
   end
 
+  def test_stray_skill_and_walkthrough_docs_fail
+    stray = %w[skills/x/notes.md walkthrough/x/roast/r.md skills/x/reference/deep/a.md walkthrough/x/brief.md]
+    assert_equal %w[skills/x/notes.md walkthrough/x/roast/r.md],
+                 DocsCheck.unlisted(stray).map { |line| line.split(":").first }
+  end
+
   def test_the_shim_must_be_exactly_one_import
     assert_empty DocsCheck.shim("@AGENTS.md\n")
     refute_empty DocsCheck.shim("# Rules\n@AGENTS.md\n")

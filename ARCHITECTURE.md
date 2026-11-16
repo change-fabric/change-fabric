@@ -114,9 +114,9 @@ it applies regardless of their state. Each root's README covers its apply.
 
 The living set is `ARCHITECTURE.md`, `PRINCIPLES.md`, `AGENTS.md`, and
 `RELEASING.md`, plus `README.md`, `CHANGELOG.md`, `CHANGE.md`, the site and
-infra READMEs, and everything under `skills/`. `scripts/docs_check.rb` holds the
-allowlist and runs in `rake test`. The `skills/**` and `walkthrough/**` globs are
-deliberately loose because skills are runtime-read.
+infra READMEs, and the skill and walkthrough files in the shapes they use (`SKILL.md`,
+reference files, briefs, storyboards). `scripts/docs_check.rb` holds the
+allowlist and runs in `rake test`; a stray notes file or roast log fails it.
 
 ## History
 
