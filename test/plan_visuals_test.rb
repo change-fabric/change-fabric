@@ -492,4 +492,52 @@ class PlanVisualsScriptTest < Minitest::Test
       assert_match "BEHIND", out
     end
   end
+
+  # A workflow that loops `phase(spec.title)` has fewer literal calls than
+  # meta.phases entries; the count follows meta.phases, which tags index into.
+  def test_phase_count_follows_meta_phases_not_literal_calls
+    with_plan do |dir|
+      File.write(File.join(dir, "workflow.js"), <<~JS)
+        export const meta = { name: "d", phases: [ { title: "A" }, { title: "B" }, { title: "Verify" } ] }
+        for (const spec of specs) { phase(spec.title) }
+        phase("Verify")
+      JS
+      assert_equal 3, PV.workflow_phase_count(dir)
+    end
+  end
+
+  def test_phase_count_falls_back_to_calls_without_meta_phases
+    with_plan do |dir|
+      File.write(File.join(dir, "workflow.js"), "export const meta = { name: \"d\" }\nphase(\"A\")\n")
+      assert_equal 1, PV.workflow_phase_count(dir)
+    end
+  end
+
+  def test_manifest_verb_writes_what_check_compares
+    with_plan(manifest: false) do |dir|
+      out = StringIO.new
+      assert_equal 0, PV::CLI.run([ "manifest", dir ], out: out)
+      assert_match "5 visuals, 2 phases", out.string
+      data = PV.manifest(dir)
+      assert_equal %w[flow arch parse wire plan], data["visuals"].keys
+      assert_equal({ "light_png" => "plan-light.png", "dark_png" => "plan-dark.png", "type" => "timeline",
+                     "phases" => "1,2", "drawn_against" => "plan" }, data["visuals"]["plan"].except("svg_sha256"))
+      assert_equal "match", check(dir, pr_gh)["plan"][:verdict]
+    end
+  end
+
+  def test_manifest_rewrite_keeps_drawn_against_for_unchanged_svgs
+    with_plan(manifest: false) do |dir|
+      PV.write_manifest(dir)
+      File.write(File.join(dir, "diagrams", "wire.svg"), svg("sequence", "Wire v2", "out/"))
+      PV::CLI.run([ "manifest", dir, "--drawn-against", "pr:9@abc" ], out: StringIO.new)
+      visuals = PV.manifest(dir)["visuals"]
+      assert_equal "pr:9@abc", visuals["wire"]["drawn_against"]
+      assert_equal "plan", visuals["flow"]["drawn_against"]
+    end
+  end
+
+  def test_manifest_verb_needs_a_diagrams_dir
+    Dir.mktmpdir { |dir| assert_equal 2, PV::CLI.run([ "manifest", dir ], out: StringIO.new) }
+  end
 end

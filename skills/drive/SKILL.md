@@ -381,7 +381,9 @@ user only, a fenced handoff prompt for a fresh session.
    (`skills/plan/SKILL.md` step 7). Keep its id for 7a and 7b.
 7a. **Visualize** exactly as `cf:plan` step 7a: one background diagram agent
    from `skills/plan/reference/visualize-prompt.md`, skipped when the list is
-   empty, never a writer of the plan files.
+   empty, never a writer of the plan files. It reuses 7a's phase tags and
+   `diagrams/manifest.json`, and step 10 reuses cf:plan's step-10 chat
+   delivery of the light PNGs.
 7b. **Roast** exactly as `cf:plan` step 7b, in this session, estimate first:
    at most 2 rounds and 0.50 USD in total, the same failure handling, and the
    writing agent appends `## Roast`. Do not restate those steps here; follow

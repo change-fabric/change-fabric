@@ -41,10 +41,22 @@ For each entry:
        ruby ~/.claude/cf/bin/diagram_render.rb {{plan_dir}}/diagrams/<name>.svg
    On exit 3 (no Docker) skip rendering and report the gap.
 
+After the last visual renders, record what each was drawn against:
+
+    ruby ~/.claude/cf/bin/plan_visuals.rb manifest {{plan_dir}}
+
+It writes {{plan_dir}}/diagrams/manifest.json with each listed SVG's
+sha256, its PNG names, type, and phase tag, plus the plan.md digest and the
+workflow.js phase count that `plan_visuals.rb check` later compares against
+to catch a mid-plan pivot. Re-run it after any fix you apply in a roast
+round. Each visual's phase tag comes from its line in the list above; keep
+it on the line you report back.
+
 Every SVG carries `data-diagram-type` or `data-chart-type`, no literal
 absolute home path, and no em-dash, unicode bullet, ellipsis, or smart quote.
 
 Report back, one line per visual: relative path (diagrams/<name>.svg), type,
-purpose, measured: yes or no, rendered: yes or no. Then list anything dropped
+purpose with its `(phases: ...)` tag, measured: yes or no, rendered: yes or
+no. Then list anything dropped
 and why.
 ```
