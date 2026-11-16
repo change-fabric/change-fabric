@@ -175,7 +175,7 @@ class ChangeRun
       return abort_setup('docker is not available') unless ChangeDocker.available?
 
       @head_sha = base_sha
-      execute_schedule(config, schedule, base_ref)
+      execute_schedule(config, schedule, ChangeTrust::Base.new(ref: base_ref, sha: base_sha))
     end
   end
 
@@ -268,8 +268,9 @@ class ChangeRun
     [ lane.base_url(config.boot.target_url) ]
   end
 
-  def execute_schedule(config, schedule, base_ref)
-    trust = trust_verdict(config)
+  def execute_schedule(config, schedule, base)
+    base_ref = base.ref
+    trust = trust_verdict(config, base: base)
     untrusted = trust.head_digests.keys.reject { |step| trust.trusted?(step) }
     abort_and_exit(trust.refusal(untrusted.first)) unless untrusted.empty?
 
@@ -570,8 +571,8 @@ class ChangeRun
   # HEAD's host-run step definitions (as loaded from the working tree)
   # compared against the base branch's and this sha's approvals. Logged when
   # the base could not be fetched, so a stale comparison is never silent.
-  def trust_verdict(config, prefix: '', apps: nil)
-    verdict = ChangeTrust.evaluate(root: repo_root, head_sha: head_sha, profile: config.profile, apps: apps,
+  def trust_verdict(config, prefix: '', apps: nil, base: nil)
+    verdict = ChangeTrust.evaluate(root: repo_root, head_sha: head_sha, profile: config.profile, apps: apps, base: base,
                                    head_definitions: ChangeTrust.step_definitions(config, prefix: prefix))
     log("[change] trust: #{verdict.note}") if verdict.note
     verdict
@@ -725,8 +726,17 @@ class ChangeRun
     {
       'head' => head_sha, 'lanes' => findings.lanes.join(', '),
       'profile' => config.profile || '(none)', 'target' => config.boot.target_url,
-      'lane targets' => config.lane_targets.map { |lane, targets| "#{lane}=#{targets.join(',')}" }.join(', ')
+      'lane targets' => effective_lane_targets(config).map { |lane, targets| "#{lane}=#{targets.join(',')}" }.join(', ')
     }
+  end
+
+  # Lane targets with this run's overrides applied, as execution resolves them.
+  def effective_lane_targets(config)
+    config.lane_targets.to_h do |lane, targets|
+      next [ lane, targets ] unless lane_overrides.key?(lane)
+
+      [ lane, scheduled_targets(config, lane, scheduled_lane(config, lane)) ]
+    end
   end
 
   # Narrative sections that belong in the Markdown but not the CSV: the k6
@@ -735,7 +745,7 @@ class ChangeRun
   # acceptance criteria beside each case's verdict.
   def report_sections(config, lanes, instances)
     sections = []
-    sections << ChangeK6Narrative.section(config.lane('k6')['scenario']) if lanes.include?('k6')
+    sections << ChangeK6Narrative.section(scheduled_lane(config, 'k6')['scenario']) if lanes.include?('k6')
     sections << instances['browserless']&.timing_section if lanes.include?('browserless')
     sections << instances['testcases']&.acceptance_section if lanes.include?('testcases')
     sections << instances['command']&.report_section if lanes.include?('command')

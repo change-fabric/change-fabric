@@ -223,6 +223,33 @@ class ChangeRunScheduleTest < Minitest::Test
     assert_equal "fail", ChangeScheduleStore.new("weekly-load", "staging").latest["result"]
   end
 
+  def test_schedule_trust_uses_the_default_branch_not_the_gate_trunk
+    git("checkout", "-q", "-b", "develop")
+    git("push", "-q", "origin", "develop")
+    git("checkout", "-q", "main")
+    body = BASE_CHANGE_MD.sub("  boot:\n    target_url: http://app:3000", "  boot:\n    up: echo new-boot\n    target_url: http://app:3000")
+                         .sub("---\n\nSynthetic", "change_policy:\n  gate:\n    trunk: develop\n---\n\nSynthetic")
+    write("CHANGE.md", body)
+    git("commit", "-q", "-am", "new boot on main")
+    git("push", "-q", "origin", "main")
+    assert_includes body, "up: echo new-boot"
+    assert_includes body, "trunk: develop"
+    findings = Findings.new
+    findings.add(Finding.new(lane: "zap", check: "full scan", status: "pass"))
+
+    code, out = run_schedule(%w[schedule nightly-pentest], findings: findings)
+    assert_equal 0, code, out
+  end
+
+  def test_reports_describe_the_overridden_lanes
+    runner = StubRun.new(%w[schedule nightly-pentest], root: @repo)
+    config = ChangeConfig.load(File.join(@repo, "CHANGE.md"), profile: "staging")
+    runner.instance_variable_set(:@lane_overrides, { "zap" => { "targets" => [ "/only" ] }, "k6" => { "scenario" => { "assumptions" => "spike traffic" } } })
+
+    assert_includes runner.send(:report_meta, config, Findings.new)["lane targets"], "zap=https://staging.example.test/only"
+    assert_includes runner.send(:report_sections, config, [ "k6" ], {}).join, "spike traffic"
+  end
+
   def test_mode_flag_is_only_for_the_zap_scope
     code, out = capture { ChangeRun.new(%w[k6 --mode full]) }
     assert_equal 2, code
