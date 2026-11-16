@@ -139,8 +139,12 @@ class TrackerPolicy
   def comment_errors(template, field)
     return [ "#{field} must be a template name@version" ] unless template.is_a?(String) && template.match?(TEMPLATE)
 
-    enabled = @config&.dig('outbound', 'templates')
-    return [] unless enabled.is_a?(Array) && !enabled.include?(template)
+    # With a config supplied, an absent template list enables nothing; only
+    # standalone validation (no config) skips the wiring check.
+    return [] if @config.nil?
+
+    enabled = @config.dig('outbound', 'templates')
+    return [] if enabled.is_a?(Array) && enabled.include?(template)
 
     [ "#{field} names template '#{template}', which change_config.outbound.templates does not enable" ]
   end

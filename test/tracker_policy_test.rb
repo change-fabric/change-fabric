@@ -64,6 +64,14 @@ class TrackerPolicyTest < Minitest::Test
     assert_empty ExecutionConfigSchema.errors(config)
   end
 
+  def test_a_comment_template_needs_an_enabled_list_when_config_is_given
+    templated = policy["transitions"].values.find { |rule| rule.key?("comment") }
+    skip "fixture has no comment template" unless templated
+    bare = config.reject { |key, _| key == "outbound" }
+    assert_match(/does not enable/, errors_for(policy, cfg: bare).join)
+    assert_empty TrackerPolicy.errors({ "jira" => policy }).grep(/does not enable/)
+  end
+
   def test_absent_trackers_block_is_valid
     assert_empty TrackerPolicy.errors(nil)
   end
