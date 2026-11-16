@@ -387,6 +387,13 @@ class PlanVisualsScriptTest < Minitest::Test
     end
   end
 
+  def test_phase_titles_accept_single_quoted_strings
+    Dir.mktmpdir do |dir|
+      File.write(File.join(dir, "workflow.js"), "export const meta = { phases: [ { title: 'Schema' }, { title: \"Wire\" } ] }\n")
+      assert_equal %w[Schema Wire], PV.phase_titles(dir)
+    end
+  end
+
   def test_phase_count_reads_declared_phases_not_call_sites
     Dir.mktmpdir do |dir|
       File.write(File.join(dir, "workflow.js"), <<~JS)

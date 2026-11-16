@@ -107,7 +107,7 @@ module PlanVisuals
     return [] unless File.exist?(path)
 
     block = File.read(path)[/phases:\s*\[(.*?)\]/m, 1].to_s
-    block.scan(/title:\s*"([^"]*)"/).flatten
+    block.scan(/title:\s*(?:"([^"]*)"|'([^']*)'|`([^`]*)`)/).map(&:compact).map(&:first)
   end
 
   def manifest(plan_dir)
