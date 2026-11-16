@@ -91,6 +91,10 @@ module Install
     def vendor               = File.join(scripts, 'vendor')
     def vendor_glob          = Dir.glob(File.join(vendor, '**', '*')).select { |path| File.file?(path) }
     def vendor_dest(source, root = bin) = File.join(root, 'vendor', source.delete_prefix("#{vendor}/"))
+    # Library folders a script requires (scripts/secret_intake/*.rb). They
+    # install under the same relative path so require_relative resolves alike.
+    def lib_glob = Dir.glob(File.join(scripts, '*', '**', '*.rb')).reject { |path| path.start_with?("#{vendor}/") }
+    def lib_dest(source, root = bin) = File.join(root, source.delete_prefix("#{scripts}/"))
     def skill_sources        = Dir.glob(File.join(skills_dir, '*')).select { |p| File.directory?(p) }
     def script_dest(name)    = File.join(bin, name)
     def manifest             = File.join(bin, '.installed-manifest')
@@ -575,6 +579,7 @@ module Install
         FileUtils.chmod(0o755, dest)
       end
       place_vendor
+      place_libs
       place_provider_registry
       write_manifest(names)
     end
@@ -613,6 +618,14 @@ module Install
     def place_vendor(root = @paths.bin)
       @paths.vendor_glob.each do |source|
         dest = @paths.vendor_dest(source, root)
+        FileUtils.mkdir_p(File.dirname(dest))
+        FileUtils.cp(source, dest)
+      end
+    end
+
+    def place_libs(root = @paths.bin)
+      @paths.lib_glob.each do |source|
+        dest = @paths.lib_dest(source, root)
         FileUtils.mkdir_p(File.dirname(dest))
         FileUtils.cp(source, dest)
       end
@@ -685,6 +698,7 @@ module Install
         FileUtils.cp(source, File.join(@paths.runtime_bin, File.basename(source)))
       end
       place_vendor(@paths.runtime_bin)
+      place_libs(@paths.runtime_bin)
       config = File.join(@paths.runtime_root, 'config')
       FileUtils.mkdir_p(config)
       FileUtils.cp(File.join(File.dirname(@paths.skills_dir), 'config', 'host_capabilities.json'), config)
@@ -713,6 +727,7 @@ module Install
         [ @paths.script_dest(File.basename(source)), File.join(@paths.runtime_bin, File.basename(source)) ]
       end
       files.concat(@paths.vendor_glob.flat_map { |source| [ @paths.vendor_dest(source), @paths.vendor_dest(source, @paths.runtime_bin) ] })
+      files.concat(@paths.lib_glob.flat_map { |source| [ @paths.lib_dest(source), @paths.lib_dest(source, @paths.runtime_bin) ] })
       files << File.join(@paths.runtime_root, 'config', 'host_capabilities.json')
       files.concat(@paths.provider_registry_dests)
       files << File.expand_path('../../bin/cf', @paths.runtime_root)

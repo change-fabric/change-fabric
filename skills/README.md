@@ -30,6 +30,7 @@ the hooks never surface it. These are verbs the agent performs on demand.
 | `cf:active` | Direct command: sets away mode off, so the agent asks normally again. |
 | `cf:refactor` | Refactors a scope you name (PR, branch, repo, file, or glob), routing each file through the auto-firing skills that cover it. |
 | `cf:code-review` | Reviews a scope you name (PR, branch, files, or a feature description), verifies each candidate finding in an isolated worktree, and posts only what survives. Posts by default (`--signoff` asks first); on a second round it posts one consolidated root-cause review instead of more inline comments. |
+| `cf:secret-intake` | Stages a secret the user pastes into a short-lived upload page in their own AWS account; the bucket is deleted on every exit path and only status lines are printed. |
 | `cf:ctx` | Captures, recalls, and lists durable project context in the shim-owned .ctx store. |
 | `cf:prune` | Post-merge cleanup: fast-forwards the trunk and prunes merged branches and worktrees, local and remote, asking before it discards unmerged work or deletes any remote branch. |
 | `cf:resolve-threads` | Resolves every unresolved review thread on a PR, each evaluated in its own isolated worktree with the run's other threads and earlier fixes in view; fixes every instance of the bug class, dismisses, or defers to a human, then replies, resolves and pushes by default (`--signoff` asks first). Recurring feedback triggers a root-cause pass: a small cause is fixed in one commit, a large one starts cf:plan. |
