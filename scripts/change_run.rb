@@ -303,7 +303,7 @@ class ChangeRun
     manifest = run_manifest(config, schedule.lanes)
                .merge('schedule' => schedule.name, 'base' => "#{base_ref} #{head_sha[0, 12]}")
     report = write_report(config, findings, schedule.lanes, instances, app: nil, manifest: manifest)
-    path = ChangeScheduleStore.new(schedule.name, schedule.profile)
+    path = ChangeScheduleStore.new(schedule.name, schedule.profile, repo: ChangeScheduleStore.repo_key(repo_root))
                               .write(schedule_record(schedule, findings, report, started_at))
     summarize(findings, report, app: nil)
     log("[change] schedule record: #{path}")

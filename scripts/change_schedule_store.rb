@@ -1,12 +1,15 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 
+require 'digest'
 require 'fileutils'
 require 'json'
 require 'time'
 
 # The time-keyed record store for scheduled runs (0.19.0, unreleased). One
-# directory per (schedule, profile) under ~/.claude/cf/change/schedules, one
+# directory per (repository, schedule, profile) under
+# ~/.claude/cf/change/schedules, so two repos with the same schedule and
+# profile names never share a latest.json or a retention window; one
 # JSON file per run named by its finish time, and a `latest.json` pointer that
 # is replaced atomically (written to a temp file, then renamed) so a reader
 # never sees a half-written record.
@@ -23,13 +26,21 @@ class ChangeScheduleStore
 
   def self.default_root = File.join(Dir.home, '.claude', 'cf', 'change', 'schedules')
 
-  def initialize(schedule, profile, root: self.class.default_root)
+  # A stable, filesystem-safe identity for a checkout: its directory name
+  # plus a digest of its real path.
+  def self.repo_key(repo_root)
+    real = File.realpath(repo_root.to_s)
+    "#{File.basename(real).gsub(/[^A-Za-z0-9._-]/, '_')}-#{Digest::SHA256.hexdigest(real)[0, 12]}"
+  end
+
+  def initialize(schedule, profile, repo:, root: self.class.default_root)
     @schedule = schedule.to_s
     @profile = profile.to_s
+    @repo = repo.to_s
     @root = root
   end
 
-  def dir = File.join(@root, "#{@schedule}__#{@profile}")
+  def dir = File.join(@root, @repo, "#{@schedule}__#{@profile}")
   def latest_path = File.join(dir, LATEST)
 
   # Writes one run's record, repoints latest.json at it, prunes past RETAIN,

@@ -2,6 +2,7 @@
 
 require "minitest/autorun"
 require "tmpdir"
+require "fileutils"
 require "json"
 require_relative "../scripts/change_lane_k6"
 
@@ -93,5 +94,16 @@ class ChangeLaneK6Test < Minitest::Test
   def test_a_script_inside_the_repo_does_not_escape
     refute lane({ "script" => "load/soak.js" }).send(:script_escapes_repo?)
     assert lane({ "script" => "/etc/passwd" }).send(:script_escapes_repo?)
+  end
+
+  def test_an_in_repo_symlink_to_an_outside_script_escapes
+    Dir.mktmpdir do |dir|
+      repo = File.join(dir, "repo")
+      FileUtils.mkdir_p(File.join(repo, "load"))
+      File.write(File.join(dir, "outside.js"), "export default function () {}\n")
+      File.symlink(File.join(dir, "outside.js"), File.join(repo, "load", "soak.js"))
+      config = ChangeConfig::LaneConfig.new("k6", { "script" => "load/soak.js" }, repo)
+      assert ChangeLaneK6.new(config, Ctx.new("net", "http://app:3000")).send(:script_escapes_repo?)
+    end
   end
 end

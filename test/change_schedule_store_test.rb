@@ -6,7 +6,7 @@ require_relative "../scripts/change_schedule_store"
 class ChangeScheduleStoreTest < Minitest::Test
   def setup
     @root = Dir.mktmpdir
-    @store = ChangeScheduleStore.new("nightly-pentest", "staging", root: @root)
+    @store = ChangeScheduleStore.new("nightly-pentest", "staging", repo: "app-1", root: @root)
   end
 
   def teardown = FileUtils.remove_entry(@root)
@@ -17,7 +17,7 @@ class ChangeScheduleStoreTest < Minitest::Test
 
   def test_write_names_the_file_by_finish_time_and_points_latest_at_it
     path = @store.write(record(Time.utc(2026, 11, 16, 3, 0, 0)))
-    assert_equal File.join(@root, "nightly-pentest__staging", "20261116T030000Z.json"), path
+    assert_equal File.join(@root, "app-1", "nightly-pentest__staging", "20261116T030000Z.json"), path
     assert_equal "pass", @store.latest["result"]
   end
 
@@ -55,5 +55,22 @@ class ChangeScheduleStoreTest < Minitest::Test
 
   def test_default_root_is_under_the_change_store
     assert_equal File.join(Dir.home, ".claude", "cf", "change", "schedules"), ChangeScheduleStore.default_root
+  end
+
+  def test_two_repos_with_the_same_names_keep_separate_latest_records
+    other = ChangeScheduleStore.new("nightly-pentest", "staging", repo: "app-2", root: @root)
+    @store.write(record(Time.utc(2026, 11, 16, 3, 0, 0), result: "pass"))
+    other.write(record(Time.utc(2026, 11, 16, 4, 0, 0), result: "fail"))
+    assert_equal "pass", @store.latest["result"]
+    assert_equal 1, @store.records.size
+  end
+
+  def test_repo_key_is_stable_and_differs_by_path
+    Dir.mktmpdir do |a|
+      Dir.mktmpdir do |b|
+        assert_equal ChangeScheduleStore.repo_key(a), ChangeScheduleStore.repo_key(a)
+        refute_equal ChangeScheduleStore.repo_key(a), ChangeScheduleStore.repo_key(b)
+      end
+    end
   end
 end

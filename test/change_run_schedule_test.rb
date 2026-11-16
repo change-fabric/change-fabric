@@ -196,7 +196,7 @@ class ChangeRunScheduleTest < Minitest::Test
     code, out = run_schedule(%w[schedule nightly-pentest], findings: findings)
     assert_equal 0, code, out
 
-    latest = ChangeScheduleStore.new("nightly-pentest", "staging").latest
+    latest = ChangeScheduleStore.new("nightly-pentest", "staging", repo: ChangeScheduleStore.repo_key(@repo)).latest
     sha = git("rev-parse", "origin/main").strip
     assert_equal %w[finished_at lanes profile report_path result runner schedule sha started_at], latest.keys.sort
     assert_equal "pass", latest["result"]
@@ -220,7 +220,7 @@ class ChangeRunScheduleTest < Minitest::Test
     findings.add(Finding.new(lane: "k6", check: "t", status: "fail"))
     code, = run_schedule(%w[schedule weekly-load], findings: findings)
     assert_equal 1, code
-    assert_equal "fail", ChangeScheduleStore.new("weekly-load", "staging").latest["result"]
+    assert_equal "fail", ChangeScheduleStore.new("weekly-load", "staging", repo: ChangeScheduleStore.repo_key(@repo)).latest["result"]
   end
 
   def test_schedule_trust_uses_the_default_branch_not_the_gate_trunk

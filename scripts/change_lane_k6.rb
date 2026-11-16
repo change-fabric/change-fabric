@@ -71,14 +71,17 @@ class ChangeLaneK6 < ChangeLane
   # A configured script (per-PR lane or a schedule's k6.script override) is a
   # path relative to the repo root; one that resolves outside it (`../x.js`,
   # an absolute path elsewhere) is refused rather than mounted, so a config
-  # can never feed the runner a file the repo does not own.
+  # can never feed the runner a file the repo does not own. Both sides are
+  # compared as real paths, so an in-repo symlink to an outside file is
+  # refused too.
   def script_escapes_repo?
     configured = @config.path('script')
     return false unless configured
 
-    root = File.expand_path(@config.dir.to_s)
-    !configured.start_with?("#{root}/")
+    !canonical(configured).start_with?("#{canonical(@config.dir.to_s)}/")
   end
+
+  def canonical(path) = File.exist?(path) ? File.realpath(path) : File.expand_path(path)
 
   def script_escape_finding
     Finding.new(lane: 'k6', check: 'k6 script', target: base_url, status: 'fail', severity: 'high',
