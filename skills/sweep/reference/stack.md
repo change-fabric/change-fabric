@@ -3,6 +3,10 @@
 Stack mode lands a batch or stack of PRs strictly one at a time. The current
 PR is always the first one not merged. The store is a cache; gh is the truth.
 
+Report, land, and auto share this per-PR loop: every sweep mode lands one PR
+at a time at the head of line (`skills/sweep/SKILL.md`, One PR at a time).
+Stack mode differs only in where the order comes from.
+
 ## Invocations
 
 Forms: `/cf:sweep stack <plan_dir | #a #b ...>`, `/cf:sweep stack resume`,
@@ -21,11 +25,14 @@ Forms: `/cf:sweep stack <plan_dir | #a #b ...>`, `/cf:sweep stack resume`,
 Start a stack with:
 
 ```
+ruby ~/.claude/cf/bin/stack_store.rb claim <slug> --source stack
 ruby ~/.claude/cf/bin/stack_store.rb init <slug> --repo <o/r> --source plan|list \
   --mode <merge_ready|admin_bypass|yolo> [--plan-dir DIR] --pr N:URL:HEAD:SHA ...
 ```
 
-`init` also writes the `stack-<slug>` ctx pointer, so SessionStart surfaces
+`claim` takes the repo's one ACTIVE queue; if another queue (a sweep or
+another stack) holds it, stop and name the holder. `init` refuses without the
+claim. `init` also writes the `stack-<slug>` ctx pointer, so SessionStart surfaces
 a paused stack and offers `/cf:sweep stack resume`.
 
 Read the merge mode with `merge_mode_store.rb`. Under local only, stack mode
@@ -81,8 +88,10 @@ does not run: say so and stop.
    PR's final head with `stack_store.rb set-pr <slug> <n> old_head_sha=<sha>`
    (`gh pr view <n> --json headRefOid`); the child cuts at it after the merge.
    Re-record after any later push to this PR.
-6. **Advance.** `stack_store.rb advance <slug>`; the next PR rebases onto the
-   fresh trunk. After the last PR, clear the store and report what landed.
+6. **Advance.** Confirm with `gh pr view <n> --json state,mergedAt` that the
+   PR merged, then `stack_store.rb advance <slug> --expect <n>`; the next PR
+   rebases onto the fresh trunk. After the last PR, `stack_store.rb release
+   <slug>` and report what landed.
 
 ## Hand-off by merge mode
 

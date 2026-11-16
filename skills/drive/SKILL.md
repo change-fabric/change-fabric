@@ -40,7 +40,9 @@ writing agent from the plan, not from these params.
 Parse the first word of the args. If it is `thorough` or `quick`, consume it;
 otherwise the mode is `thorough` and the whole args string is the target.
 `cf:sweep` always passes `quick` explicitly, since thorough stops for an
-interview and refuses under away mode.
+interview and refuses under away mode. When nested under cf:sweep, a rebase
+is onto trunk only, never onto an unmerged PR, and drive touches only the PR
+it was given: the sweep hands it one PR at a time, at the head of line.
 
 `quick` is the single-PR driver: it fixes, pushes, waits for CI, and approves.
 `thorough` is a planner for a change too risky for one pass (money, auth, PII,

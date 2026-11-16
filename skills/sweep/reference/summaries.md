@@ -23,6 +23,9 @@ printing an empty heading.
    obvious what would make it eligible next tick.
 5. **Author warnings.** Any `warnAuthor` text, and whether it was posted to the
    PR or is being reported for a human to send.
+6. **Head of line.** `Head of line: <PR absolute URL>, N waiting`. In Order,
+   mark every queued PR behind the head "queued, untouched": the sweep works
+   one PR at a time and has not rebased or driven them.
 
 State the plan, not an argument for it. No praise, no restating each diff, no
 AI-slop glyphs.
@@ -32,8 +35,8 @@ AI-slop glyphs.
 At most 640 characters, plain prose, asked once for the whole queue rather than
 once per PR. Cover, in order: how many PRs are queued and in what order, the
 gates that must be satisfied by hand first, anything held and why, and what the
-run will do next (drive each queued PR through `cf:drive`, then merge in
-order). One go/no-go for the sequence.
+run will do next (drive the head PR through `cf:drive` and merge it, then the
+next, one at a time in order). One go/no-go for the sequence.
 
 ## Per-PR merge note (step 7)
 
@@ -41,7 +44,10 @@ When a PR merges as part of a sweep, its merge is otherwise indistinguishable
 from a hand merge, so say what the sweep knew: one line naming its position in
 the sweep order and any PR it was sequenced ahead of or behind. Only worth
 posting when the order was non-obvious (a conflict mitigation, an infra gate, a
-stacked branch).
+stacked branch). Name the next head of line, if any, in the same line.
+
+The handoff message under Merge ready names the merge method: squash or
+rebase only, no merge commit.
 
 ## Author warning comment
 
