@@ -17,10 +17,14 @@ require 'fileutils'
 #                      corners hits something outside it. A control inside an
 #                      `inert` or `aria-hidden="true"` subtree is not checked,
 #                      so a modal sheet marks the page behind it inert.
-#   clipped-text       a text element that clips (overflow hidden, clip, auto,
-#                      scroll, or text-overflow) with scroll size past client size,
-#                      or text or a control partly cut off by an ancestor's
-#                      non-visible overflow (a button sliced by the phone edge).
+#   clipped-text       a text element that clips (overflow hidden or clip, or
+#                      text-overflow) with scroll size past client size, or text
+#                      or a control partly cut off by an ancestor's hidden or
+#                      clip overflow (a button sliced by the phone edge). A
+#                      scrollable (overflow auto or scroll) container does not
+#                      count as a cut, since its content is reachable by
+#                      scrolling; only its visible part is checked against outer
+#                      clipping ancestors.
 #   caption-safe       a visible control or device frame reaching into the
 #                      bottom caption band (CAPTION_BAND of the viewport height),
 #                      where players draw cues.
@@ -45,14 +49,22 @@ require 'fileutils'
 #                      controls. The pinned Chromium has no H.264 or
 #                      AAC, so serve a VP9/Opus or AV1 transcode for filming.
 #
+# Each finding carries a readable `label` (role plus accessible name, else
+# the nearest heading, else trimmed text) beside its CSS `target` path.
+#
 # `data-ux-allow="<rule> ..."` on an element or ancestor opts it out of a rule.
+#
+# On a live scene (a real app filmed as it is), caption-safe and occlusion
+# are advisory: the page chrome is not ours to move, so they are reported but
+# never block --final (LIVE_ADVISORY).
 module PrototypeUxLint
-  VERSION = 3 # bump on any rule change so cached reports re-lint
+  VERSION = 5 # bump on any rule change so cached reports re-lint
   REPORT = 'ux-lint.json'
   SETTLE_FRAMES = 15 # also lint half a second after each click, once a toast has landed
   # Players draw a two-line cue in roughly the bottom tenth of the frame; the
   # band adds a margin above it.
   CAPTION_BAND = 0.15
+  LIVE_ADVISORY = %w[caption-safe occlusion].freeze
   DEVICE_TOLERANCE = 0.01
 
   class FindingsError < StandardError; end
@@ -131,8 +143,36 @@ module PrototypeUxLint
         if (by) { const t = by.split(/\s+/).map((id) => { const n = document.getElementById(id); return n ? n.textContent : ''; }).join(' ').trim(); if (t) return t; }
         const direct = (el.getAttribute('aria-label') || el.getAttribute('title') || inputLabel(el) || '').trim();
         if (direct) return direct;
+        const title = el instanceof SVGElement && el.querySelector(':scope > title');
+        if (title && title.textContent.trim()) return title.textContent.trim();
         const alt = Array.prototype.map.call(el.querySelectorAll('img[alt]'), (i) => i.alt).join(' ').trim();
         return (el.textContent.trim() || alt);
+      };
+      const ROLE = { A: 'link', BUTTON: 'button', NAV: 'navigation', H1: 'heading', H2: 'heading', H3: 'heading', H4: 'heading', H5: 'heading', H6: 'heading',
+                     LI: 'listitem', IMG: 'img', INPUT: 'input', SELECT: 'combobox', TEXTAREA: 'textbox', DIALOG: 'dialog', TABLE: 'table' };
+      const trim = (t, n) => { const s = (t || '').replace(/\s+/g, ' ').trim(); return s.slice(0, n); };
+      // A readable name for a finding: role plus accessible name, else the
+      // nearest heading, else the element's own trimmed text.
+      const HEADING = 'h1, h2, h3, h4, h5, h6, [role=heading]';
+      // The closest heading at or before el in document order, walking up
+      // through each ancestor's earlier siblings.
+      const nearestHeading = (el) => {
+        for (let n = el; n && n.nodeType === 1 && n !== document.body; n = n.parentElement) {
+          for (let s = n; s; s = s.previousElementSibling) {
+            const h = s.matches(HEADING) ? s : (s !== n && s.querySelector(HEADING));
+            if (h && h.textContent.trim()) return h;
+          }
+        }
+        return null;
+      };
+      const label = (el) => {
+        const role = el.getAttribute('role') || ROLE[el.tagName];
+        const name = trim(role || el.hasAttribute('aria-label') || el.hasAttribute('aria-labelledby') ? accName(el) : '', 50);
+        if (name) return (role || el.tagName.toLowerCase()) + ' "' + name + '"';
+        const h = nearestHeading(el);
+        if (h) return el.tagName.toLowerCase() + ' under heading "' + trim(h.textContent, 50) + '"';
+        const text = trim(el.textContent, 50);
+        return text ? el.tagName.toLowerCase() + ' "' + text + '"' : el.tagName.toLowerCase();
       };
       // An empty live region (role=status/alert or aria-live) that is not also a
       // toast, sheet, or dialog is the standard idle state of a status line, not a
@@ -151,9 +191,11 @@ module PrototypeUxLint
           const name = accName(el);
           const shown = shownInputLabel(el) || textRects(el).map((t) => t.text).join(' ');
           const r = el.getBoundingClientRect();
-          const iconButton = !overlay && (el.hasAttribute('aria-label') || el.hasAttribute('title') || el.hasAttribute('aria-labelledby')) && r.width <= 64 && r.height <= 64;
-          if (!name) out.push({ rule: 'empty-control', target: sel(el), detail: (overlay ? 'overlay' : 'control') + ' has no accessible name' });
-          else if (!shown && !iconButton) out.push({ rule: 'empty-control', target: sel(el), detail: (overlay ? 'overlay' : 'control') + ' renders no visible text (name "' + name.slice(0, 60) + '")' });
+          // An SVG link (a map region, a chart mark) is drawn, not written:
+          // its accessible name is its label.
+          const iconButton = !overlay && (el instanceof SVGElement || ((el.hasAttribute('aria-label') || el.hasAttribute('title') || el.hasAttribute('aria-labelledby')) && r.width <= 64 && r.height <= 64));
+          if (!name) out.push({ label: label(el), rule: 'empty-control', target: sel(el), detail: (overlay ? 'overlay' : 'control') + ' has no accessible name' });
+          else if (!shown && !iconButton) out.push({ label: label(el), rule: 'empty-control', target: sel(el), detail: (overlay ? 'overlay' : 'control') + ' renders no visible text (name "' + name.slice(0, 60) + '")' });
         });
         return out;
       };
@@ -168,7 +210,7 @@ module PrototypeUxLint
             if (x < 0 || y < 0 || x >= innerWidth || y >= innerHeight) continue;
             const hit = document.elementFromPoint(x, y);
             if (!hit || el.contains(hit) || hit.contains(el)) continue;
-            out.push({ rule: 'occlusion', target: sel(el), detail: 'covered by ' + sel(hit) + ' at ' + Math.round(x) + ',' + Math.round(y) });
+            out.push({ label: label(el), rule: 'occlusion', target: sel(el), detail: 'covered by ' + sel(hit) + ' at ' + Math.round(x) + ',' + Math.round(y) });
             break;
           }
         });
@@ -182,10 +224,10 @@ module PrototypeUxLint
           if (!Array.prototype.some.call(el.childNodes, (n) => n.nodeType === 3 && n.textContent.trim())) return;
           if (!visible(el) || allowed(el, 'clipped-text')) return;
           const cs = getComputedStyle(el);
-          const clips = (v) => /hidden|clip|auto|scroll/.test(v);
-          const x = el.scrollWidth > el.clientWidth + 1 && (clips(cs.overflowX) || cs.textOverflow !== 'clip');
+          const clips = (v) => /hidden|clip/.test(v);
+          const x = el.scrollWidth > el.clientWidth + 1 && !/auto|scroll/.test(cs.overflowX) && (clips(cs.overflowX) || cs.textOverflow !== 'clip');
           const y = el.scrollHeight > el.clientHeight + 1 && clips(cs.overflowY);
-          if (x || y) { out.push({ rule: 'clipped-text', target: sel(el), detail: 'text clipped ' + (x ? 'horizontally' : 'vertically') + ' ("' + el.textContent.trim().slice(0, 40) + '")' }); flagged.add(el); }
+          if (x || y) { out.push({ label: label(el), rule: 'clipped-text', target: sel(el), detail: 'text clipped ' + (x ? 'horizontally' : 'vertically') + ' ("' + el.textContent.trim().slice(0, 40) + '")' }); flagged.add(el); }
         });
         // Text or a control partly outside an ancestor that clips its overflow.
         // The padding box in viewport pixels: client sizes are layout pixels,
@@ -199,14 +241,26 @@ module PrototypeUxLint
           return { left, top, right: left + n.clientWidth * sx, bottom: top + n.clientHeight * sy };
         };
         const partly = (r, b) => r.right > b.left && r.left < b.right && r.bottom > b.top && r.top < b.bottom && (r.left < b.left - 1 || r.top < b.top - 1 || r.right > b.right + 1 || r.bottom > b.bottom + 1);
-        const cutBy = (el, rects) => {
+        const outside = (r, b) => r.right <= b.left || r.left >= b.right || r.bottom <= b.top || r.top >= b.bottom;
+        const within = (r, b) => ({ left: Math.max(r.left, b.left), top: Math.max(r.top, b.top), right: Math.min(r.right, b.right), bottom: Math.min(r.bottom, b.bottom) });
+        const cutBy = (el, start) => {
+          let rects = start;
           for (let a = el.parentElement; a && a !== document.documentElement; a = a.parentElement) {
             const cs = getComputedStyle(a);
-            if (!/hidden|clip|auto|scroll/.test(cs.overflowX + ' ' + cs.overflowY)) continue;
+            const ov = cs.overflowX + ' ' + cs.overflowY;
+            // A scroll box is no cut (its content is reachable by scrolling),
+            // but only its visible part can be cut by an outer ancestor.
+            if (/auto|scroll/.test(ov)) {
+              const b = clipBox(a);
+              rects = rects.filter((r) => !outside(r, b)).map((r) => within(r, b));
+              if (!rects.length) return null;
+              continue;
+            }
+            if (!/hidden|clip/.test(ov)) continue;
             const b = clipBox(a);
             if (rects.some((r) => partly(r, b))) return a;
             // Wholly clipped away here, so no outer ancestor shows any of it.
-            if (rects.every((r) => r.right <= b.left || r.left >= b.right || r.bottom <= b.top || r.top >= b.bottom)) return null;
+            if (rects.every((r) => outside(r, b))) return null;
           }
           return null;
         };
@@ -217,7 +271,7 @@ module PrototypeUxLint
           if (!control && !own) return;
           const rects = control ? [el.getBoundingClientRect()] : textRects(el).map((t) => t.r);
           const a = rects.length && cutBy(el, rects);
-          if (a) out.push({ rule: 'clipped-text', target: sel(el), detail: (control ? 'control' : 'text') + ' cut off by ' + sel(a) + ' ("' + el.textContent.trim().slice(0, 40) + '")' });
+          if (a) out.push({ label: label(el), rule: 'clipped-text', target: sel(el), detail: (control ? 'control' : 'text') + ' cut off by ' + sel(a) + ' ("' + el.textContent.trim().slice(0, 40) + '")' });
         });
         return out;
       };
@@ -233,7 +287,7 @@ module PrototypeUxLint
           if (!visible(el) || allowed(el, 'caption-safe')) return;
           if (!el.matches(DEVICE) && !interactive(el)) return;
           const r = el.getBoundingClientRect();
-          if (r.bottom > top + 1 && r.top < innerHeight) out.push({ rule: 'caption-safe', target: sel(el), detail: (el.matches(DEVICE) ? 'device frame' : 'control') + ' bottom ' + Math.round(r.bottom) + ' inside the caption band from ' + Math.round(top) });
+          if (r.bottom > top + 1 && r.top < innerHeight) out.push({ label: label(el), rule: 'caption-safe', target: sel(el), detail: (el.matches(DEVICE) ? 'device frame' : 'control') + ' bottom ' + Math.round(r.bottom) + ' inside the caption band from ' + Math.round(top) });
         });
         return out;
       };
@@ -242,13 +296,13 @@ module PrototypeUxLint
         const scopeOf = (el) => (el.getAttribute('data-cf-for') && document.getElementById(el.getAttribute('data-cf-for'))) || el.parentElement && el.parentElement.closest('[data-cf-state]');
         document.querySelectorAll('[data-cf-success]').forEach((el) => {
           const scope = scopeOf(el);
-          if (scope && visible(el) && scope.getAttribute('data-cf-state') === 'pending') out.push({ rule: 'contradictory-state', target: sel(el), detail: 'success shown while ' + sel(scope) + ' is pending' });
+          if (scope && visible(el) && scope.getAttribute('data-cf-state') === 'pending') out.push({ label: label(el), rule: 'contradictory-state', target: sel(el), detail: 'success shown while ' + sel(scope) + ' is pending' });
         });
         document.querySelectorAll('[data-cf-when]').forEach((el) => {
           const scope = scopeOf(el);
           if (!scope || !visible(el)) return;
           const state = scope.getAttribute('data-cf-state');
-          if (!el.getAttribute('data-cf-when').split(/\s+/).includes(state)) out.push({ rule: 'contradictory-state', target: sel(el), detail: 'shown for "' + el.getAttribute('data-cf-when') + '" while ' + sel(scope) + ' is "' + state + '"' });
+          if (!el.getAttribute('data-cf-when').split(/\s+/).includes(state)) out.push({ label: label(el), rule: 'contradictory-state', target: sel(el), detail: 'shown for "' + el.getAttribute('data-cf-when') + '" while ' + sel(scope) + ' is "' + state + '"' });
         });
         return out;
       };
@@ -257,7 +311,7 @@ module PrototypeUxLint
         document.querySelectorAll('video, audio').forEach((el) => {
           if ((el.tagName === 'VIDEO' && !visible(el)) || allowed(el, 'unplayable-media')) return;
           const bad = (el.error && el.error.code === 4) || el.networkState === 3;
-          if (bad) out.push({ rule: 'unplayable-media', target: sel(el), detail: 'capture browser cannot play ' + (el.currentSrc || (el.querySelector('source') || {}).src || 'its source').slice(-60) + ' (open-source Chromium has no H.264/AAC; use VP9/Opus or AV1)' });
+          if (bad) out.push({ label: label(el), rule: 'unplayable-media', target: sel(el), detail: 'capture browser cannot play ' + (el.currentSrc || (el.querySelector('source') || {}).src || 'its source').slice(-60) + ' (open-source Chromium has no H.264/AAC; use VP9/Opus or AV1)' });
         });
         return out;
       };
@@ -398,18 +452,52 @@ module PrototypeUxLint
 
   def total(reports) = reports.sum { |r| r['findings'].size }
 
+  # Findings deduped across scenes: the same rule on the same element with
+  # the same detail is one finding listing every scene it appears in.
+  # Returns [[finding, [scene_id]]] in first-seen order.
+  def distinct(reports)
+    groups = reports.flat_map { |r| r['findings'].map { |f| [ r['scene'], f ] } }
+                    .group_by { |_, f| [ f['rule'], f['target'], f['detail'].to_s.sub(/ at \d+,\d+\z/, '') ] }
+    groups.values.map { |items| [ items.first[1], items.map(&:first).uniq ] }
+  end
+
+  # One line per distinct finding: the readable label first, the CSS path
+  # as a secondary detail.
   def summary_lines(reports)
-    reports.flat_map do |r|
-      r['findings'].map { |f| "#{r['scene']}: #{f['rule']} #{f['target']} (frame #{f['frame']}): #{f['detail']}" }
+    distinct(reports).map do |f, scene_ids|
+      name = f['label'] || f['target']
+      path = f['label'] ? " [#{f['target']}]" : ''
+      "#{f['rule']} #{name} in #{scene_ids.join(', ')} (frame #{f['frame']}): #{f['detail']}#{path}"
     end
   end
 
-  # Raises when any finding is open, unless allowed.
-  def gate!(reports, allow: false)
-    n = total(reports)
-    return if n.zero? || allow
+  # The one-line verdict for a run: PASS, or N findings across M scenes.
+  def summary(reports)
+    found = distinct(reports)
+    verdict(scenes: reports.size, findings: found.size, hit: found.flat_map(&:last).uniq.size)
+  end
 
-    raise FindingsError, "#{n} UX lint finding(s) block --final (pass --allow-ux-findings to override):\n" \
-                         "#{summary_lines(reports).join("\n")}"
+  # Shared with WalkthroughClipcheck.summary so both gates read alike.
+  def verdict(scenes:, findings:, hit:)
+    findings.zero? ? "PASS (#{scenes} scene(s))" : "#{findings} finding(s) across #{hit} scene(s)"
+  end
+
+  # Raises when any finding is open, unless allowed.
+  # Raises when any blocking finding is open, unless allowed. `live` names
+  # the live scenes, whose LIVE_ADVISORY findings never block.
+  def gate!(reports, allow: false, live: [])
+    blocking = blocking(reports, live)
+    return if total(blocking).zero? || allow
+
+    raise FindingsError, "UX lint: #{summary(blocking)} block --final (pass --allow-ux-findings to override):\n" \
+                         "#{summary_lines(blocking).join("\n")}"
+  end
+
+  def blocking(reports, live)
+    reports.map do |r|
+      next r unless live.include?(r['scene'])
+
+      r.merge('findings' => r['findings'].reject { |f| LIVE_ADVISORY.include?(f['rule']) })
+    end
   end
 end

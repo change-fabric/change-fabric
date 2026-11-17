@@ -95,4 +95,41 @@ class WalkthroughCaptionsTest < Minitest::Test
     one = WalkthroughCaptions.cues([ w["Hi", 0, 400], w["you", 900, 1200] ])
     assert_equal 1, one.length
   end
+
+  def test_orphan_word_joins_the_previous_cue_of_its_sentence
+    w = ->(text, a, b) { { text: text, start_ms: a, end_ms: b } }
+    words = [ w["Hello", 0, 400], w["there", 500, 900], w["friend.", 1000, 1500] ]
+    # Forced: a two-word cue that closes before the sentence ends.
+    groups = [ words.first(2), [ words.last ] ]
+    merged = WalkthroughCaptions.merge_orphans(groups)
+    assert_equal [ words ], merged
+  end
+
+  def test_spilled_sentence_end_is_rebalanced_not_left_alone
+    text = "#{Array.new(10) { |i| "word#{i}xx" }.join(' ')} renewal."
+    cues = WalkthroughCaptions.cues(WalkthroughCaptions.word_spans(alignment(text, step: 0.05)))
+    assert_equal text, cues.flat_map { |c| c[:lines] }.join(" ")
+    cues.each do |c|
+      assert_operator c[:lines].length, :<=, WalkthroughCaptions::MAX_LINES
+      c[:lines].each { |l| assert_operator l.length, :<=, WalkthroughCaptions::MAX_LINE }
+      assert_operator c[:lines].join(" ").split.length, :>=, WalkthroughCaptions::MIN_WORDS
+      assert_operator c[:end_ms] - c[:start_ms], :>=, WalkthroughCaptions::MIN_CUE_MS
+    end
+    assert_equal 2, cues.length
+    refute_equal [ "renewal." ], cues.last[:lines]
+    cues.each_cons(2) { |a, b| assert_operator b[:start_ms], :>=, a[:end_ms] }
+  end
+
+  def test_orphan_merges_forward_when_it_opens_a_sentence
+    w = ->(text, a, b) { { text: text, start_ms: a, end_ms: b } }
+    words = [ w["Done.", 0, 900], w["Then", 2000, 2300], w["we", 2400, 2600], w["go.", 2700, 3200] ]
+    merged = WalkthroughCaptions.merge_orphans([ [ words[0] ], [ words[1] ], words[2..] ])
+    assert_equal [ [ words[0] ], words[1..] ], merged
+  end
+
+  def test_orphans_never_cross_a_long_silence
+    w = ->(text, a, b) { { text: text, start_ms: a, end_ms: b } }
+    cues = WalkthroughCaptions.cues([ w["Hello", 0, 500], w["there", 600, 1000], w["Later", 10_000, 10_300] ])
+    assert_equal [ [ "Hello there" ], [ "Later" ] ], cues.map { |c| c[:lines] }
+  end
 end
