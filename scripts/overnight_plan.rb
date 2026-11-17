@@ -179,15 +179,21 @@ module OvernightPlan
     out = []
     trunk = front.dig('change_policy', 'gate', 'trunk')
     out << [ 'trunk_model', decl(trunk, text, 'trunk') ] if trunk
-    pattern, rule = policy.tag_promotion.find { |p, r| policy.environment_for_rule(r, p) == 'production' }
-    return out unless pattern
+    rules = policy.tag_promotion.select { |p, r| policy.environment_for_rule(r, p) == 'production' }
+    return out if rules.empty?
 
+    pattern, rule = rules.first
     out << [ 'production_trigger', decl("tag #{pattern}", text, "tag:#{pattern}") ]
-    # As ChangeConfig#resolve_profile_name: a rule without a profile runs
-    # default_profile when one is set.
-    profile = policy.profile_for_rule(rule) || front.dig('change_config', 'default_profile')&.to_s
-    lanes = production_lanes(front['change_config'], profile)
-    out << [ 'production_lanes', decl(lanes.join(', '), text, profile ? "profile: #{profile}" : 'lanes:') ] if lanes
+    # A production tag can match several rules and change_run.rb gates on every
+    # matching profile, so the lanes are the union over all production rules.
+    # A rule without a profile runs default_profile when one is set, as
+    # ChangeConfig#resolve_profile_name does.
+    default = front.dig('change_config', 'default_profile')&.to_s
+    lanes = rules.values.filter_map do |r|
+      production_lanes(front['change_config'], policy.profile_for_rule(r) || default)
+    end.flatten.uniq.sort
+    profile = policy.profile_for_rule(rule)
+    out << [ 'production_lanes', decl(lanes.join(', '), text, profile ? "profile: #{profile}" : 'lanes:') ] unless lanes.empty?
     out
   end
 

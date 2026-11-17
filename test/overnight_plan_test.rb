@@ -105,6 +105,30 @@ class OvernightPlanTest < Minitest::Test
     assert_includes m["capabilities"]["production-tag"], "production profile runs k6"
   end
 
+  def test_overlapping_production_rules_union_their_lanes
+    repo = repo_with("CHANGE.md" => <<~MD)
+      ---
+      change_config:
+        lanes:
+          browserless: {}
+        profiles:
+          strict:
+            lanes:
+              zap: {}
+      change_policy:
+        promotion:
+          "tag:v*":
+            environment: production
+          "tag:v1*":
+            environment: production
+            profile: strict
+      ---
+    MD
+    m = OvernightPlan.manifest(repo)
+    assert_equal %w[browserless zap], m["fields"]["production_lanes"]["value"]
+    assert_includes m["capabilities"]["production-tag"], "production profile runs zap"
+  end
+
   def test_conflicting_safety_field_is_a_denial_not_a_guess
     m = manifest
     assert_nil m["fields"]["migration_command"]["value"]
