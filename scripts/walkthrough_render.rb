@@ -992,11 +992,12 @@ module WalkthroughRender
       gate_final!(ux)
       mp4 = assemble(manifest)
       loudness!(mp4)
-      draft_roast(manifest, mp4, ux) unless @final
-      say("b-roll spend about $#{format('%.2f', @budget.spent)}") if @budget.spent.positive?
       say("manifest #{manifest['manifest_hash']}")
       say("mp4 #{Digest::SHA256.file(mp4).hexdigest} #{mp4}")
+      # The draft reaches the user before its roast round, never after it.
       paths = deliver(mp4, manifest)
+      draft_roast(manifest, mp4, ux) unless @final
+      say("b-roll spend about $#{format('%.2f', @budget.spent)}") if @budget.spent.positive?
       craft = craft_report(paths[:mp4])
       warning = WalkthroughHousekeeping.size_warning(@root)
       say(warning) if warning
