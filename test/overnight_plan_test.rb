@@ -140,6 +140,13 @@ class OvernightPlanTest < Minitest::Test
     assert_equal({ "p1" => [], "p2" => [ "p1" ], "p3" => [ "p1" ] }, units.to_h { |u| [ u["id"], u["depends_on"] ] })
   end
 
+  def test_units_parse_the_cf_plan_phase_heading
+    units = OvernightPlan.plan_units(File.join(ROOT, "test/fixtures/epic/clean/plans/demo/web-sso"))
+    assert_equal [ [ "p1", "Accept tokens", [] ], [ "p2", "Use the shared client", [ "p1" ] ] ],
+                 units.map { |u| [ u["id"], u["title"], u["depends_on"] ] }
+    assert_equal "demo/web-sso#Phase 2", units.last["ref"]
+  end
+
   def test_adopts_in_flight_pr_and_worktree_never_rebuilds
     prs = [ { "number" => 41, "title" => "Show exports in the dashboard", "headRefName" => "exports-ui", "body" => "" },
             { "number" => 42, "title" => "Unrelated", "headRefName" => "misc", "body" => "" },

@@ -217,7 +217,12 @@ class OvernightStoreTest < Minitest::Test
   def test_two_run_ids_on_one_target_are_refused
     fresh("r1").claim_target(target: "production")
     assert_equal "r1", store("r1").claim_target(target: "production")["slug"], "the owner reclaims"
-    store("r1").release_target(target: "production")
+    token = store("r1").acquire_lease(session: "a")["token"]
+    advance
+    taken = store("r1").acquire_lease(session: "b")["token"]
+    assert_raises(OvernightStore::StaleToken) { store("r1").release_target(target: "production", token: token) }
+    assert File.exist?(store("r1").target_lock_path("production")), "the stale holder released nothing"
+    store("r1").release_target(target: "production", token: taken)
     fresh("r2").claim_target(target: "production")
     assert_raises(OvernightStore::Held) { store("r1").claim_target(target: "production") }
   end

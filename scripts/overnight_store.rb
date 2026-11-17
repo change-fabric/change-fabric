@@ -343,11 +343,16 @@ class OvernightStore
     raise Held.new("repo is claimed by #{e.holder ? e.holder['slug'] : 'an incomplete holder'}", e.holder)
   end
 
-  def release_target(target:)
-    file = target_lock_path(target)
-    holder = StackStore.holder(file)
-    FileUtils.rm_f(file) if holder.is_a?(Hash) && holder['slug'] == @run_id
-    StackStore.new(@repo_id, "overnight-#{@run_id}").release
+  # Fenced: a holder whose lease was taken over cannot drop the successor's
+  # ownership and let a sweep claim the repo mid-run.
+  def release_target(target:, token:)
+    with_lock do
+      check_token!(token, :any)
+      file = target_lock_path(target)
+      holder = StackStore.holder(file)
+      FileUtils.rm_f(file) if holder.is_a?(Hash) && holder['slug'] == @run_id
+      StackStore.new(@repo_id, "overnight-#{@run_id}").release
+    end
   end
 
   def target_lock_path(target) = File.join(OvernightStore.repo_base(@repo_id), "TARGET-#{StackStore.segment(target)}")

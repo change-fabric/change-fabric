@@ -76,6 +76,8 @@ module OvernightPlan
     'healthy' => %w[version_endpoint]
   }.freeze
 
+  # cf:plan writes `### Phase N: Title`; this plan's own style is `### PN. Title`.
+  PHASE_HEADING = /### (?:P(?:hase )?)(\d+)[.:] /
   RISKY_PRODUCTION_LANES = %w[k6 zap].freeze
   MODES = %w[local-only merge-ready admin-bypass yolo].freeze
   DEADLINES = { 'discovery' => 10, 'deploy' => 45, 'smoke' => 15 }.freeze
@@ -298,12 +300,14 @@ module OvernightPlan
     path = plan_dir && File.join(plan_dir, 'plan.md')
     return [] unless path && File.file?(path)
 
-    sections = File.read(path).split(/^(?=### P\d+\. )/).grep(/\A### P\d+\. /)
+    sections = File.read(path).split(/^(?=#{PHASE_HEADING})/).grep(/\A#{PHASE_HEADING}/)
+    numbers = sections.map { |s| s[/\A#{PHASE_HEADING}/, 1] }
     sections.each_with_index.map do |section, index|
-      number, title = section.lines.first.match(/\A### P(\d+)\. (.+)$/).captures
+      number = numbers[index]
+      title = section.lines.first.sub(/\A#{PHASE_HEADING}/, '')
       declared = section[/^depends_on:\s*(.+)$/i, 1]
-      deps = declared ? declared.scan(/P(\d+)/i).flatten.map { |n| "p#{n}" } : []
-      deps = [ "p#{sections[index - 1][/\A### P(\d+)/, 1]}" ] if declared.nil? && index.positive?
+      deps = declared ? declared.scan(/P(?:hase\s*)?(\d+)/i).flatten.map { |n| "p#{n}" } : []
+      deps = [ "p#{numbers[index - 1]}" ] if declared.nil? && index.positive?
       ref = "#{File.basename(File.dirname(File.expand_path(plan_dir)))}/#{File.basename(plan_dir)}#Phase #{number}"
       { 'id' => "p#{number}", 'phase' => number.to_i, 'ref' => ref, 'title' => title.strip, 'depends_on' => deps }
     end
