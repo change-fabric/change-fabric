@@ -520,6 +520,32 @@ end
 class WalkthroughLiveRetryTest < Minitest::Test
   # Every variant: live login, live capture job, and mixed jobs never replay;
   # only all-built-in jobs keep the batch retry.
+  # A live scene longer than the default call budget gets a call timeout
+  # sized to its run plus the setup margin; a short one keeps the default.
+  def test_capture_timeout_scales_with_the_scene
+    short = { "id" => "s", "timing" => { "min_ms" => 5_000 } }
+    assert_equal ChangeDocker::Browserless::FUNCTION_TIMEOUT_MS, WalkthroughLive.capture_timeout_ms({}, short)
+    long = { "id" => "l", "timing" => { "min_ms" => 150_000 } }
+    assert_equal 150_000 + WalkthroughLive::CAPTURE_MARGIN_MS, WalkthroughLive.capture_timeout_ms({}, long)
+    assert_equal 300_000 + WalkthroughLive::CAPTURE_MARGIN_MS, WalkthroughLive.capture_timeout_ms({}, long, long)
+  end
+
+  def test_run_with_retry_passes_a_scene_timeout_to_the_call
+    seen = nil
+    session = Object.new
+    session.define_singleton_method(:run_function) { |_c, **kw| seen = kw; {} }
+    PrototypeCapture.run_with_retry(session, "x", retries: 0, timeout_ms: 200_000)
+    assert_equal({ timeout_ms: 200_000 }, seen)
+  end
+
+  def test_function_url_and_read_timeout_follow_the_call_timeout
+    session = ChangeDocker::Browserless.new(port: 4321, token: "tok")
+    assert_includes session.function_url, "timeout=#{ChangeDocker::Browserless::FUNCTION_TIMEOUT_MS}"
+    assert_includes session.function_url([], timeout_ms: 200_000), "timeout=200000"
+    assert_equal 120, ChangeDocker::Browserless.read_timeout_s(ChangeDocker::Browserless::FUNCTION_TIMEOUT_MS)
+    assert_equal 205, ChangeDocker::Browserless.read_timeout_s(200_000)
+  end
+
   def test_live_work_is_never_replayed
     assert_equal 0, WalkthroughLive.retries_for([ { "html" => nil } ])
     assert_equal 0, WalkthroughLive.retries_for([ { "html" => "<p>" }, { "html" => nil } ])

@@ -733,6 +733,18 @@ module WalkthroughLive
   # A dropped connection after a live page acted leaves its state unknown, so
   # a job that drives the real app (no built-in html) is never replayed;
   # built-in compose and message pages are local and safe to retry.
+  # Page load, navigation, session seeding and frame encoding on top of the
+  # filmed run, inside one browserless call.
+  CAPTURE_MARGIN_MS = 60_000
+
+  # The browserless call budget for one live capture: the filmed run (the
+  # scene, plus the next scene of a navigate run) and CAPTURE_MARGIN_MS,
+  # never under the default call timeout.
+  def capture_timeout_ms(board, scene, next_scene = nil)
+    run = duration_ms(board, scene) + (next_scene ? duration_ms(board, next_scene) : 0)
+    [ ChangeDocker::Browserless::FUNCTION_TIMEOUT_MS, run + CAPTURE_MARGIN_MS ].max
+  end
+
   def retries_for(jobs) = jobs.any? { |j| j['html'].nil? } ? 0 : PrototypeCapture::BATCH_RETRIES
 
   # Re-raises any error with env values masked out of its message.
@@ -800,7 +812,9 @@ module WalkthroughLive
     jobs.each { |j| j['inset'] = run_inset(board, scene, next_scene, cut) if shots && j['dev']['name'] == 'desktop' }
     launch = BrowserlessJs.capture_launch_args(WalkthroughDevice.capture_scale(specs))
     code = capture_module(board, scene, jobs: jobs, session: browser_session)
-    result = guard(secrets) { PrototypeCapture.run_with_retry(session, code, retries: retries_for(jobs), launch_args: launch) }
+    # Only a scene past the default budget raises it.
+    timeout = capture_timeout_ms(board, scene, cut && next_scene).then { |t| t > ChangeDocker::Browserless::FUNCTION_TIMEOUT_MS ? t : nil }
+    result = guard(secrets) { PrototypeCapture.run_with_retry(session, code, retries: retries_for(jobs), launch_args: launch, timeout_ms: timeout) }
     runs = result['devices']
     lead = cut ? runs.find { |r| r['name'] == cut['device'] } : runs.first
     return lead['session'] unless shots
