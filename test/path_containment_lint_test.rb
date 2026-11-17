@@ -22,7 +22,9 @@ class PathContainmentLintTest < Minitest::Test
     "color_compile.rb: unless path_abs.start_with?(prefix)" =>
       "maps a host path to its lexical in-container mount path; resolving symlinks would point outside the mount",
     "plan_paths.rb: str.start_with?(\"\#{home}/\") ? str.sub(home, '~') : str" =>
-      "display only: collapses the home prefix to ~ in rendered text"
+      "display only: collapses the home prefix to ~ in rendered text",
+    "plan_visuals.rb: known = plan_text.include?(path) || files.any? { |f| f == path || f.end_with?(\"/\#{path}\") || f.start_with?(path) }" =>
+      "matches a diagram label against the PR's changed-file names; nothing is read from disk"
   }.freeze
 
   def hits
