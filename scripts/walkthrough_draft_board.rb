@@ -45,27 +45,42 @@ module WalkthroughDraftBoard
     text.size <= max ? text : "#{text[0, max - 3].rstrip}..."
   end
 
-  # A copy with every pending scene swapped for its placeholder card.
-  # A board with none is returned as is, so the render keeps working on the
-  # caller's board.
+  # A copy with every pending scene swapped for its placeholder card. A
+  # scene that takes its session, link, or store from a placeholder cannot
+  # be filmed either, so it becomes one too. A board with none is returned
+  # as is, so the render keeps working on the caller's board.
   def with_placeholders(board)
     return board unless Array(board['scenes']).any? { |s| pending?(s) }
 
     out = copy(board)
-    out['scenes'] = Array(out['scenes']).map { |s| pending?(s) ? placeholder(out, s) : s }
+    reasons = blocked(out)
+    out['scenes'] = Array(out['scenes']).map { |s| reasons.key?(s['id']) ? placeholder(out, s, reasons[s['id']]) : s }
     out
   end
 
-  def placeholder(board, scene)
+  PARENT_KEYS = [ %w[session_from_scene], %w[compose from_scene], %w[store from_scene] ].freeze
+
+  # { id => reason } for the pending scenes and, in story order, every scene
+  # whose parent is one of them.
+  def blocked(board)
+    WalkthroughStoryboard.scenes(board).each_with_object({}) do |scene, out|
+      next out[scene['id']] = reason(scene) if pending?(scene)
+
+      parent = PARENT_KEYS.map { |path| scene.dig(*path) }.find { |id| out.key?(id) }
+      out[scene['id']] = "needs scene #{parent}, #{out[parent]}" if parent
+    end
+  end
+
+  def placeholder(board, scene, why = reason(scene))
     planned = planned_ms(board, scene)
-    card = scene.slice(*PLACEHOLDER_KEEP)
+    card = scene.slice(*PLACEHOLDER_KEEP).merge('pending' => { 'reason' => why })
     card['kind'] = WalkthroughElement::KIND
     card['timing'] = (scene['timing'] || {}).merge('min_ms' => planned).except('duration_ms')
     title = clip(scene['title'].to_s.empty? ? scene['id'] : scene['title'])
     land = [ WalkthroughElement::ENTER_MS, planned / 4 ].min
     card['element'] = { 'theme' => theme(board),
                         'beats' => [ { 'id' => 'pending', 'type' => 'card', 'title' => title,
-                                       'subtitle' => clip("Not filmed yet: #{reason(scene)}"), 'land_at' => land } ] }
+                                       'subtitle' => clip("Not filmed yet: #{why}"), 'land_at' => land } ] }
     card
   end
 

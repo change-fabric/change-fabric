@@ -222,6 +222,8 @@ module WalkthroughRender
         spec = WalkthroughStoryboard.broll_spec(scene)
         res = if broll_cached?(scene)
                 { mode: 'generated', path: BRoll.cached_path(@cache, BRoll.asset_key(**broll_args(scene))) }
+        elsif @silent
+                { mode: spec['fallback'], path: nil, reason: 'the silent cut never generates' }
         else
                 @p[:broll].call(**broll_args(scene), fallback: spec['fallback'], cache_root: @cache, budget: @budget)
         end
@@ -1098,11 +1100,13 @@ module WalkthroughRender
     end
 
     # The silent cut's own flow: free steps only (no narration, images,
-    # b-roll, music, roast, or lint gate), and nothing written back to the
+    # paid b-roll, music, roast, or lint gate; an uncached b-roll clip takes
+    # its free fallback), and nothing written back to the
     # board or manifest.json.
     def silent_call
       WalkthroughStoryboard.validate!(@board, root: @root)
       WalkthroughCache.ensure_gitignore(@root)
+      generate_broll
       capture_frames
       keys = WalkthroughStoryboard.recompute_keys(@board, @root)
       WalkthroughStoryboard.fix_keys(@board, @root, keys)

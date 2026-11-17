@@ -358,6 +358,26 @@ class WalkthroughLiveTest < Minitest::Test
 
   def shots = @calls[:capture].select { |c| c[1] == :shots }.map(&:first)
 
+  def test_a_scene_taking_its_session_from_a_pending_scene_is_a_placeholder_too
+    b = board
+    b["scenes"].find { |sc| sc["id"] == "sign-in" }["pending"] = { "reason" => "not deployed" }
+    File.write(File.join(@root, "storyboard.json"), JSON.pretty_generate(b))
+    cards = []
+    card = lambda do |**kw|
+      cards << kw[:label]
+      FileUtils.mkdir_p(kw[:out_dir])
+      File.binwrite(File.join(kw[:out_dir], "000001.png"), "png")
+      File.write(File.join(kw[:out_dir], "cursor.json"), "[]")
+    end
+    result = render(providers: providers.merge(browser: ->(&blk) { blk.call(:session) }, capture: card,
+                                               lint: ->(**kw) { PrototypeUxLint.scene_report(kw[:label], []) }))
+    assert_equal %w[sign-in dashboard] * 2, cards, "both placeholder cards are prototype pages, in each cut"
+    reasons = result[:deliverable][:entry]["placeholders"]
+    assert_equal "not deployed", reasons["sign-in"]
+    assert_equal "needs scene sign-in, not deployed", reasons["dashboard"]
+    refute_includes shots, "dashboard"
+  end
+
   def test_render_sources_sessions_and_caches_live_scenes
     render
     assert_equal [ board["browser"] ] * 2, @calls[:live_browser], "browser options reach the live container (silent cut and draft)"

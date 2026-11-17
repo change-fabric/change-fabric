@@ -547,6 +547,15 @@ class WalkthroughRenderTest < Minitest::Test
     end
   end
 
+  def test_silent_cut_takes_the_free_broll_fallback_and_never_generates
+    write_broll_board
+    out = StringIO.new
+    run_render(out: out, providers: providers.merge(broll: broll_provider("generated")))
+    assert_equal 1, @calls[:broll].size, "only the narrated draft asks for the clip"
+    assert_includes out.string, "shed: b-roll kenburns fallback (the silent cut never generates)"
+    assert_match(/draft-01: silent; first cut, 4 scenes/, draft_lines(out.string).first)
+  end
+
   def test_broll_clip_is_normalized_and_enters_the_timeline_without_capture
     write_broll_board
     result = run_render(providers: providers.merge(broll: broll_provider("generated")))
@@ -594,7 +603,7 @@ class WalkthroughRenderTest < Minitest::Test
     assert(markers.none? { |m| File.read(m) == "[]" }, "a failed overlay leaves no b-roll completion marker")
     @calls.clear
     run_render(providers: overlay.call(true))
-    assert_equal [ true ], @calls[:overlay], "the next render retries the overlay instead of a cache hit"
+    assert_equal [ true, true ], @calls[:overlay], "the next render retries the overlay (silent cut fallback, then the clip) instead of a cache hit"
   end
 
   def test_broll_overlay_path_with_spaces_is_shell_escaped
