@@ -80,7 +80,14 @@ module WalkthroughRoast
   # The review contract for one roast round: the storyboard's review object over
   # the CHANGE.md defaults in `config` ({ kind:, audience: }). Raises
   # Roast::ReviewError (a RequestError) when audience or purpose is missing.
-  def review(board, config = {}) = Roast.resolve_review(storyboard: board['review'], config: config)
+  # A board that films a running app (any live scene) defaults to the film
+  # scope, so the critic grades camera work rather than the shipped product UI.
+  def review(board, config = {})
+    defaults = live?(board) ? config.merge(scope: 'film') : config
+    Roast.resolve_review(storyboard: board['review'], config: defaults)
+  end
+
+  def live?(board) = WalkthroughStoryboard.scenes(board).any? { |s| s['screen'].is_a?(Hash) && s['screen'].key?('url') }
 
   # Keyframes as [{ scene:, label:, frame: (0-based, whole video) }], in
   # video order. `overlays` maps scene id to { overlay => first local frame }.
@@ -134,7 +141,7 @@ module WalkthroughRoast
     return [] unless (last = history.last)
 
     responses = Array(last.dig(:response, 'responses'))
-    last[:critic]['issues'].reject.with_index do |issue, i|
+    Roast.normalize_issues(last[:critic]['issues'], last[:round]).reject.with_index do |issue, i|
       !Roast::BLOCKING.include?(issue['priority']) || rebutted?(issue, responses, i)
     end
   end
@@ -145,6 +152,7 @@ module WalkthroughRoast
   # no problem text can only mean the issue at its own position.
   def rebutted?(issue, responses, index)
     responses.each_with_index.any? do |r, i|
+      next r['verdict'] == 'rebut' if r['id'] && r['id'] == issue['id']
       next false unless rebuttal_for?(issue, r)
 
       named = r['problem'].to_s.strip

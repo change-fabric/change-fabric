@@ -20,7 +20,7 @@
   "cursor": { "sprite": "default", "scale": 1.0 },
   "look": { "grain": 6, "vignette": true },
   "hypotheses": [{ "id": "H-01", "text": "string", "dimension": "role|look_and_feel" }],
-  "review": { "kind": "explainer|promo|demo", "audience": "string", "purpose": ["outcome a viewer must be able to state afterward"] },
+  "review": { "kind": "explainer|promo|demo", "audience": "string", "purpose": ["outcome a viewer must be able to state afterward"], "scope": "film" },
   "scenes": []
 }
 ```
@@ -31,7 +31,7 @@ Composition (free, `skills/walkthrough/reference/video-tokens.json`): a video ty
 
 Clip check (free, `scripts/walkthrough_clipcheck.rb`, run by every render after capture and standalone on a scene frames dir): a screen that defines `window.__cfBoxes` (the diagram and element runtimes do) has its post-transform text and node boxes recorded on every captured frame into `boxes.json`. The render refuses any box crossing the frame edge or the safe area, any text overflowing its own box, and any text rendering under 28 px in 1080p output pixels (font size times camera scale); the message names the scene, time, frame, and element, and for small text the content to split into another scene. A layout that only fits by shrinking is refused, never shrunk. Fill outside 20 to 70 percent at the scene's fullest frame is a warning. Frames cached before the check have no `boxes.json` and are skipped until recaptured.
 
-`review` declares what the walkthrough is for; cf:roast judges against it (a purpose test over each outcome) and refuses to run without a non-empty `audience` and `purpose`. `kind` is `explainer` (no call to action required unless a purpose asks), `promo` (keeps the what, who, next-step test), or `demo` (must show the thing running). `validate` checks the shape when present and only warns when `review` is absent. CLI `--kind`, `--audience`, `--purpose` on roast.rb override it, and it overrides `change_config.design.roast.kind` and `.audience`.
+`review` declares what the walkthrough is for; cf:roast judges against it (a purpose test over each outcome) and refuses to run without a non-empty `audience` and `purpose`. `kind` is `explainer` (no call to action required unless a purpose asks), `promo` (keeps the what, who, next-step test), or `demo` (must show the thing running). `validate` checks the shape when present and only warns when `review` is absent. Optional `scope: "film"` (alias `as_shipped`) grades only the film (camera, framing, pacing, narration against the picture, captions) and sends product UI observations to a non-blocking `product_notes` list; a board with any live scene defaults to it. CLI `--kind`, `--audience`, `--purpose`, `--scope` on roast.rb override it, and it overrides `change_config.design.roast.kind` and `.audience`.
 
 `voice.pronunciations` is an optional list of aliases, `[{ "text": "CHANGE.md", "say": "change dot M D" }]`: the voice speaks `say` wherever `text` appears, while the narration text and the captions keep `text` (caption timing follows the spoken alias). Each `text` and `say` is a non-empty string and each `text` appears once. They become an ElevenLabs pronunciation dictionary of alias rules, created once per distinct rule set (cached under `.cache/pronunciation/` by content hash, no charge) and sent with every narration request; verified on `eleven_multilingual_v2`. Aliases are part of `audio_key`, so adding or changing one re-voices every narrated scene.
 
