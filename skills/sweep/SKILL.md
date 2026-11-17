@@ -164,6 +164,9 @@ finds an unfinished `sweep-*` record for the repo (or any other ACTIVE claim)
 resumes that queue, or stops naming the holder, and never starts a second
 queue. The recorded queue wins until it finishes, even if the order would now
 differ (a new PR opened, a hold cleared): new PRs wait for the next queue.
+The order is kept, not the eligibility: the tick re-applies the current trust policy
+(`eligibilityReasons`) to the recorded head, and one that fails, such as a newly
+`blocked` author's, is held with its reasons, never prepared or landed unattended.
 Only once no queue is open is a tick a full re-analysis; a PR that was
 `rebase_then_merge` last time may be `merge` now because its blocker landed.
 Nothing is cached between ticks except the trust policy and the open queue.

@@ -169,6 +169,14 @@ class SweepSkillTest < Minitest::Test
     assert_includes body, "The recorded queue wins until it finishes"
   end
 
+  # Resuming keeps the recorded order but never the recorded eligibility: a
+  # head whose author became blocked must not be landed unattended.
+  def test_a_resumed_head_is_rechecked_against_current_trust
+    body = section("## Loop mode")
+    assert_includes body, "re-applies the current trust policy"
+    assert_includes body, "never prepared or landed unattended"
+  end
+
   def test_failure_modes_cites_the_cap_gate
     section = skill_md[/^## Failure modes.*/m]
     assert_match(/101-PR page.*\[SW-6\]/, section)
