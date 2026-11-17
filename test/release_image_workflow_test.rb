@@ -43,6 +43,13 @@ class ReleaseImageWorkflowTest < Minitest::Test
     uses.each { |u| assert_match(/@[0-9a-f]{40}\z/, u) }
   end
 
+  def test_builds_for_amd64_and_arm64
+    steps = workflow["jobs"].values.flat_map { |j| j["steps"] }
+    build = steps.find { |s| s["uses"].to_s.start_with?("docker/build-push-action@") }
+    assert_equal "linux/amd64,linux/arm64", build["with"]["platforms"]
+    assert(steps.any? { |s| s["uses"].to_s.start_with?("docker/setup-qemu-action@") })
+  end
+
   def test_dockerfile_from_is_the_upstream_pin
     from = File.read(DOCKERFILE)[/^FROM\s+(\S+)/, 1]
     assert_equal ChangeDocker::BROWSERLESS_UPSTREAM, from
