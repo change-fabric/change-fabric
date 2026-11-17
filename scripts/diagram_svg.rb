@@ -177,6 +177,16 @@ module DiagramSvg
     def segments = subpaths.flatten(1)
   end
 
+  # A provider icon: a nested <svg class="icon"> inside a <g class="icon">.
+  # It is an opaque box to every other check; `body` is its inner markup,
+  # `owner` the nearest enclosing node or group as [:node | :group, id].
+  Icon = Data.define(:provider, :slug, :sha, :fallback, :box, :view_box, :body, :plate, :owner, :element)
+
+  # A provider group (`<g class="group" data-group-kind>`): its first rect is
+  # the border, its direct texts and icons the label chip. `parent` is the
+  # id of the nearest enclosing provider group, by document nesting.
+  Group = Data.define(:id, :kind, :box, :fill, :parent, :depth, :label_texts, :chip_icons, :element)
+
   # The parsed diagram.
   class Document
     attr_reader :source, :xml
@@ -199,8 +209,25 @@ module DiagramSvg
       Box.new(x: nums[0], y: nums[1], w: nums[2], h: nums[3])
     end
 
-    def elements = REXML::XPath.match(root, "//*")
-    def style_text = REXML::XPath.match(root, "//style").map(&:text).compact.join("\n")
+    # Every element outside an icon body: a nested <svg class="icon"> is an
+    # opaque box, so its own children never reach the shared checks.
+    def elements = @elements ||= all_elements.reject { |el| in_icon?(el) }
+    def all_elements = REXML::XPath.match(root, "//*")
+    def style_text = REXML::XPath.match(root, "//style").reject { |el| in_icon?(el) }.map(&:text).compact.join("\n")
+    def provider = attr("data-provider")
+
+    # True for a descendant of a nested <svg class="icon">.
+    def in_icon?(el)
+      node = el.parent
+      while node.is_a?(REXML::Element)
+        return true if icon_svg?(node)
+
+        node = node.parent
+      end
+      false
+    end
+
+    def icon_svg?(el) = el.name == "svg" && el != root && classes(el).include?("icon")
     def element_ids = elements.filter_map { |el| el.attributes["id"] }
 
     def nodes
@@ -214,11 +241,11 @@ module DiagramSvg
     end
 
     def texts
-      @texts ||= REXML::XPath.match(root, "//text").each_with_index.map { |el, i| build_text(el, i) }
+      @texts ||= REXML::XPath.match(root, "//text").reject { |el| in_icon?(el) }.each_with_index.map { |el, i| build_text(el, i) }
     end
 
     def edges
-      @edges ||= REXML::XPath.match(root, "//path").select { |el| classes(el).include?("edge") }.map do |el|
+      @edges ||= REXML::XPath.match(root, "//path").select { |el| !in_icon?(el) && classes(el).include?("edge") }.map do |el|
         a = el.attributes
         Edge.new(id: a["id"] || "#{a['data-from']}->#{a['data-to']}", from: a["data-from"], to: a["data-to"],
                  d: a["d"].to_s, marker_end: a["marker-end"], subpaths: PathData.subpaths(a["d"].to_s), element: el)
@@ -228,7 +255,77 @@ module DiagramSvg
     def node(id) = nodes.find { |n| n.id == id }
     def classes(el) = el.attributes["class"].to_s.split
 
+    def icons
+      @icons ||= all_elements.select { |el| icon_svg?(el) && !in_icon?(el) }.map { |svg| build_icon(svg) }
+    end
+
+    def groups
+      @groups ||= elements.select { |el| el.name == "g" && classes(el).include?("group") && el.attributes["data-group-kind"] }
+                          .filter_map { |g| build_group(g) }
+    end
+
+    def group(id) = groups.find { |g| g.id == id }
+
+    # Nodes whose element sits inside the group element.
+    def nodes_in(group) = nodes.select { |n| descendant?(n.element, group.element) }
+
+    def descendant?(el, ancestor)
+      node = el.parent
+      while node.is_a?(REXML::Element)
+        return true if node == ancestor
+
+        node = node.parent
+      end
+      false
+    end
+
     private
+
+    def build_icon(svg)
+      wrap = svg.parent
+      wrap = nil unless wrap.is_a?(REXML::Element) && wrap.name == "g" && classes(wrap).include?("icon")
+      wa = wrap ? wrap.attributes : {}
+      a = svg.attributes
+      box = Box.new(x: a["x"].to_f, y: a["y"].to_f, w: a["width"].to_f, h: a["height"].to_f)
+      # Paint order: only a plate drawn before the icon sits behind it.
+      before = wrap ? wrap.elements.to_a.take_while { |el| el != svg } : []
+      plate = before.find { |el| el.name == "rect" && classes(el).include?("plate") }
+      Icon.new(provider: wa["data-provider"], slug: wa["data-icon"], sha: wa["data-pack-sha"], fallback: wa["data-fallback"],
+               box: box, view_box: a["viewBox"], body: svg.children.map(&:to_s).join, plate: plate,
+               owner: owner_of(wrap || svg), element: svg)
+    end
+
+    def owner_of(el)
+      node = el.parent
+      while node.is_a?(REXML::Element) && node != root
+        cls = classes(node)
+        return [ :node, node.attributes["data-id"] || node.attributes["id"] ] if node.name == "g" && cls.include?("node")
+        return [ :group, node.attributes["data-id"] || node.attributes["id"] ] if node.name == "g" && cls.include?("group")
+
+        node = node.parent
+      end
+      nil
+    end
+
+    def build_group(g)
+      rect = g.elements.find { |el| el.name == "rect" }
+      return unless rect
+
+      parent = g.parent
+      depth = 1
+      parent_id = nil
+      while parent.is_a?(REXML::Element)
+        if parent.name == "g" && classes(parent).include?("group") && parent.attributes["data-group-kind"]
+          parent_id ||= parent.attributes["data-id"] || parent.attributes["id"]
+          depth += 1
+        end
+        parent = parent.parent
+      end
+      Group.new(id: g.attributes["data-id"] || g.attributes["id"], kind: g.attributes["data-group-kind"], box: Geometry.box(rect),
+                fill: rect.attributes["fill"], parent: parent_id, depth: depth,
+                label_texts: g.elements.select { |el| el.name == "text" }, chip_icons: g.elements.select { |el| el.name == "g" && classes(el).include?("icon") },
+                element: g)
+    end
 
     def build_text(el, index)
       a = el.attributes

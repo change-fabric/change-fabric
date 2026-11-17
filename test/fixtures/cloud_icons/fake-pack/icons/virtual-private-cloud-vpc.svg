@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="64px" height="64px" viewBox="0 0 64 64" version="1.1" xmlns="http://www.w3.org/2000/svg">
+    <title>Synthetic test icon</title>
+    <g stroke="none" fill="none" fill-rule="evenodd">
+        <rect fill="#8C4FFF" x="0" y="0" width="64" height="64"></rect>
+        <path d="M20 20 H44 V44 H20 Z" fill="#FFFFFF"></path>
+    </g>
+</svg>

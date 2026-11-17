@@ -61,8 +61,9 @@ module SvgChecks
     ID = "xml-safety"
     BANNED = %w[script foreignObject].freeze
 
+    # Icon bodies are opaque to the other checks but never to this one.
     def call(doc, _context)
-      doc.elements.flat_map do |el|
+      (doc.respond_to?(:all_elements) ? doc.all_elements : doc.elements).flat_map do |el|
         out = []
         out << finding(el.name, "<#{el.name}> is not allowed", "remove it") if BANNED.include?(el.name)
         el.attributes.each_attribute do |a|
@@ -85,7 +86,8 @@ module SvgChecks
       return [ finding("svg", "missing or malformed viewBox", "set viewBox=\"0 0 W H\"") ] unless vb
 
       boxes = doc.nodes.map { |n| [ n.id, n.box ] } + doc.texts.map { |t| [ t.key, context.text_box(t) ] } +
-              doc.edges.filter_map { |e| (box = edge_box(e)) && [ e.id, box ] }
+              doc.edges.filter_map { |e| (box = edge_box(e)) && [ e.id, box ] } +
+              doc.groups.map { |g| [ g.id, g.box ] }
       boxes.filter_map { |id, box| judge(id, box, vb) }
     end
 
@@ -153,13 +155,16 @@ module SvgChecks
     def call(doc, context)
       allowed = context.palette.map(&:upcase)
       declarations(doc).flat_map do |prop, decl|
-        decl.value.scan(COLOR).uniq.reject { |v| allowed.include?(v.upcase) }.map do |v|
+        decl.value.scan(COLOR).uniq.reject { |v| allowed.include?(v.upcase) || exempt?(doc, prop, v) }.map do |v|
           finding(decl.where, "color #{v} in #{DeclaredProperty.describe(decl, prop)} is not in the palette", "use a palette role")
         end
       end.uniq
     end
 
     private
+
+    # A subclass may exempt a value by provenance; the shared rule exempts none.
+    def exempt?(_doc, _prop, _value) = false
 
     def declarations(doc)
       PROPS.flat_map { |p| DeclaredProperty.all(doc, p).map { |d| [ p, d ] } } +

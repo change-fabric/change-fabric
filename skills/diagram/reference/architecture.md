@@ -55,6 +55,22 @@ See "Multi-line labels" in `grammar.md` for the arithmetic.
 - `overlap`: a group rect contains its nodes and its label; that containment is not a finding. Nodes inside different groups must still keep the 24px sibling gap.
 - `caps`: the usual 12 nodes and 16 edges. A system bigger than that becomes an overview diagram plus one diagram per group under `diagrams/<slug>/`.
 
+## Provider diagrams
+
+When the system runs on one cloud, set `data-provider` on the root and draw it in that provider's own vocabulary: official service icons in the nodes and official group chrome (Cloud, Region, VPC, availability zone, subnet, security group for AWS). The markup is "Provider diagrams" in `grammar.md`; the per-provider rules are in `providers/<provider>.md` (today: `providers/aws.md`). Subjects stay generic: an orders service, an upload API.
+
+Lay out outside in: the outermost group first, each nested group 24px inside its parent (16px is the floor), the corner chip and label in the top-left, and the nodes starting below the deepest chip. An edge crosses each group border at most once, and never through a label chip. Mirrored resources across availability zones are drawn once with an `xN` count in the label, so a multi-AZ system stays inside the caps.
+
+Five checks apply only to provider diagrams:
+
+- `icon-pack-provenance`: each `g.icon` holds an optional leading plate, one notice comment, and the `svg.icon`, in that order, and the `svg.icon` (viewBox, preserveAspectRatio, body; only x, y, width, and height vary) hashes the same as the pinned pack file normalized the same way. Nothing in the diagram may change how an icon renders: the pinned Chromium compares each icon as placed with the same svg alone, in both color schemes. An uncached pack or a fallback glyph is a warning.
+- `icon-box`: each icon has a size and a viewBox and sits inside its node or group, clear of the node's label.
+- `icon-contrast`: an icon's dominant tile color clears 3:1 against the first painted surface behind it (plate, owner shape, enclosing groups, then `--bg`) in both color schemes, all read as Chromium computes them; the fix is a plate, never a recolor. Provider group borders use the official colors exactly and are not graded. Both color checks need Docker: with `--no-measure` they report "Docker is required" rather than guess.
+- `group-nesting`: strict nesting in the profile's depth order, the 16px inset, nodes inside their group, no partial overlap, and at most one border crossing per edge.
+- `group-label-clearance`: the label chip stays inside its border, clear of child groups, nodes, and edges.
+
+`test/fixtures/diagram/clean_architecture_aws.svg` is a worked provider example; its icons come from a synthetic test pack, so it lints clean only against that pack.
+
 ## Worked example
 
 An upload path: a browser calls an API inside a private network; the API writes metadata to a database and enqueues work for a worker that writes to an object store. The API is the accented lead node. This exact file is `test/fixtures/diagram/clean_architecture.svg` and lints clean.

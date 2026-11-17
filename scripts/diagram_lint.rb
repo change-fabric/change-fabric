@@ -21,7 +21,10 @@ class DiagramLint
 
   class UsageError < StandardError; end
 
-  def initialize(measurer:, checks: DiagramChecks.all, type: nil, palette: DiagramChecks::DEFAULT_PALETTE)
+  # `packs` is the CloudIcons store provider icons are verified against;
+  # by default the local cache, which lint reads but never fills.
+  def initialize(measurer:, checks: DiagramChecks.all, type: nil, palette: DiagramChecks::DEFAULT_PALETTE, packs: nil)
+    @packs = packs
     @measurer = measurer
     @checks = checks
     @type = type
@@ -30,9 +33,13 @@ class DiagramLint
 
   def lint_file(path, doc = parse(path))
     type = @type || doc.attr("data-diagram-type")
-    context = DiagramChecks::Context.new(type: type, widths: @measurer.widths(doc), measured: @measurer.measured?, palette: @palette)
+    styles = @measurer.respond_to?(:styles) ? @measurer.styles(doc) : nil
+    context = DiagramChecks::Context.new(type: type, widths: @measurer.widths(doc), measured: @measurer.measured?, palette: @palette,
+                                           packs: packs, styles: styles)
     { path: path, type: type, findings: @checks.flat_map { |c| c.call(doc, context) } }
   end
+
+  def packs = @packs ||= CloudIcons::Store.cache
 
   def parse(path)
     DiagramSvg::Document.new(File.read(path))

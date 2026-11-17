@@ -186,6 +186,21 @@ module DiagramPalette
     ColorMath.contrast_ratio(ca, cb)
   end
 
+  # Provider icon tiles are palette-exempt by provenance only (the pack),
+  # and each must still clear STROKE_MIN against the background it sits on
+  # in both themes. Takes hexes per theme; returns [theme, ratio] pairs that
+  # fail.
+  def brand_failures(fg_by_theme, bg_by_theme, floor: STROKE_MIN)
+    %i[light dark].filter_map do |theme|
+      fg = fg_by_theme[theme]
+      bg = bg_by_theme[theme]
+      next unless fg && bg
+
+      ratio = contrast(fg, bg)
+      [ theme, ratio ] if ratio < floor
+    end
+  end
+
   def contrast_warnings(roles, theme)
     pairs = TEXT_ROLES.product(%w[--bg --surface]).map { |fg, bg| [ fg, bg, TEXT_MIN ] }
     pairs << [ "--accent", "--accent-tint", TEXT_MIN ] << [ "--line", "--bg", STROKE_MIN ]

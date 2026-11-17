@@ -1,0 +1,65 @@
+{
+  "name": "fake",
+  "title": "Synthetic test pack",
+  "release": "00000000",
+  "source": "test fixture",
+  "license": "test-only",
+  "attribution": "Synthetic icons invented for change-fabric tests; no provider artwork.",
+  "icons": {
+    "cloud": {
+      "file": "cloud.svg",
+      "title": "Fake Cloud",
+      "category": "Group"
+    },
+    "region": {
+      "file": "region.svg",
+      "title": "Fake Region",
+      "category": "Group"
+    },
+    "virtual-private-cloud-vpc": {
+      "file": "virtual-private-cloud-vpc.svg",
+      "title": "Fake VPC",
+      "category": "Group"
+    },
+    "private-subnet": {
+      "file": "private-subnet.svg",
+      "title": "Fake private subnet",
+      "category": "Group"
+    },
+    "public-subnet": {
+      "file": "public-subnet.svg",
+      "title": "Fake public subnet",
+      "category": "Group"
+    },
+    "function": {
+      "file": "function.svg",
+      "title": "Fake Function",
+      "category": "Compute"
+    },
+    "database": {
+      "file": "database.svg",
+      "title": "Fake Database",
+      "category": "Database"
+    },
+    "bucket": {
+      "file": "bucket.svg",
+      "title": "Fake Bucket",
+      "category": "Storage"
+    },
+    "gradient-tile": {
+      "file": "gradient-tile.svg",
+      "title": "Fake Gradient Tile",
+      "category": "Test"
+    }
+  },
+  "aliases": [
+    [
+      "fn",
+      "function"
+    ],
+    [
+      "db",
+      "database"
+    ]
+  ]
+}
