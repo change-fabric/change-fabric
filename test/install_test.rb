@@ -181,6 +181,17 @@ class InstallerTest < Minitest::Test
     end
   end
 
+  # Element and diagram scenes read these JS runtimes beside the installed
+  # walkthrough scripts; a missing copy crashed every element scene.
+  def test_installs_the_walkthrough_js_runtimes_in_both_bins
+    paths = install
+    %w[walkthrough_ease.js walkthrough_element.js].each do |name|
+      [paths.bin, paths.runtime_bin].each do |root|
+        assert File.exist?(File.join(root, name)), "#{name} missing from #{root}"
+      end
+    end
+  end
+
   def test_the_installed_axe_bundle_is_where_the_a11y_lane_looks_for_it
     paths = install
     relative = ChangeLaneA11y::AXE_BUNDLE.delete_prefix("#{File.join(@repo, 'scripts')}/")

@@ -91,9 +91,13 @@ module Install
     def vendor               = File.join(scripts, 'vendor')
     def vendor_glob          = Dir.glob(File.join(vendor, '**', '*')).select { |path| File.file?(path) }
     def vendor_dest(source, root = bin) = File.join(root, 'vendor', source.delete_prefix("#{vendor}/"))
-    # Library folders a script requires (scripts/secret_intake/*.rb). They
-    # install under the same relative path so require_relative resolves alike.
-    def lib_glob = Dir.glob(File.join(scripts, '*', '**', '*.rb')).reject { |path| path.start_with?("#{vendor}/") }
+    # Library folders a script requires (scripts/secret_intake/*.rb) and the
+    # JS runtimes a script reads beside itself (scripts/walkthrough_ease.js).
+    # They install under the same relative path so __dir__ lookups resolve alike.
+    def lib_glob
+      libs = Dir.glob(File.join(scripts, '*', '**', '*.rb')).reject { |path| path.start_with?("#{vendor}/") }
+      libs + Dir.glob(File.join(scripts, '*.js'))
+    end
     def lib_dest(source, root = bin) = File.join(root, source.delete_prefix("#{scripts}/"))
     def skill_sources        = Dir.glob(File.join(skills_dir, '*')).select { |p| File.directory?(p) }
     def script_dest(name)    = File.join(bin, name)
