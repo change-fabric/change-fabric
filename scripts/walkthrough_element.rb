@@ -301,6 +301,9 @@ module WalkthroughElement
     end
     out = starts.each_with_index.map do |(b, start, land, exit_at), i|
       exit_start = exit_at || starts[i + 1]&.at(1)
+      if !exit_at && exit_start && exit_start < land
+        errors << "element beat #{b['id'].inspect}: the next beat's entrance starts at #{exit_start} ms, before this beat lands (#{land} ms); land them further apart"
+      end
       exit_end = exit_start && (exit_start + b.fetch('exit_ms', EXIT_MS))
       errors.concat(bound_errors(b, land, exit_at, exit_end, duration, list[i - 1], starts[i - 1]&.at(2), i))
       { 'id' => b['id'], 'enter_ms' => start, 'land_ms' => land, 'exit_start_ms' => exit_start, 'exit_end_ms' => exit_end }

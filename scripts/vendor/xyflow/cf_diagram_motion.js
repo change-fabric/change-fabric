@@ -28,6 +28,7 @@
   const steps = (spec.steps || []).slice().sort((a, b) => a.t_ms - b.t_ms);
   const counts = steps.filter((s) => s.op === 'count');
   const draws = steps.filter((s) => s.op === 'draw');
+  const labels = steps.filter((s) => s.op === 'label');
 
   for (const n of spec.nodes) {
     const own = counts.filter((s) => s.id === n.id);
@@ -61,6 +62,9 @@
       const el = root.querySelector(`.react-flow__node[data-id="${CSS.escape(id)}"]`);
       const s = latest(counts, id, t);
       if (!el || !s) continue;
+      // A later label step takes the node's text back from a finished count.
+      const relabel = latest(labels, id, t);
+      if (relabel && relabel.t_ms > s.t_ms) continue;
       if (!el.hasAttribute('data-cf-count')) el.setAttribute('data-cf-count', '');
       const label = el.querySelector('.cf-node-label');
       const value = s.from + (s.to - s.from) * E.p(t, s.t_ms, s.duration == null ? COUNT_MS : s.duration);

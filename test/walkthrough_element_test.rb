@@ -120,6 +120,13 @@ class WalkthroughElementTest < Minitest::Test
     assert_match(/exits until 6200 ms, past the scene's 6000 ms/, errs)
   end
 
+  # The next entrance would fade this beat out before it ever lands.
+  def test_an_implicit_exit_before_the_landing_is_refused
+    errs = windows([ statement("a", 1000), statement("b", 1100) ])[:errors].join("\n")
+    assert_match(/beat "a": the next beat's entrance starts at 700 ms, before this beat lands \(1000 ms\)/, errs)
+    assert_empty windows([ statement("a", 1000), statement("b", 1400) ])[:errors]
+  end
+
   def test_window_errors_fail_validation_and_clamps_warn
     assert_match(/past the scene's 6000 ms/, errors(scene(beats: [ statement("a", 6500) ])).join("\n"))
     b = board_with(scene(beats: [ statement("a", 100) ]))
@@ -152,8 +159,8 @@ class WalkthroughElementTest < Minitest::Test
 
   def test_beat_and_step_anchors_resolve_and_the_authored_copy_drops_them
     s = scene(narration: "We ship the gate today",
-              beats: [ statement("a", { "word" => "ship" }), { "id" => "n", "type" => "number", "value" => 0, "land_at" => { "word" => "gate", "offset_ms" => -300 } } ],
-              steps: [ { "op" => "count", "id" => "n", "at" => { "word" => "today" }, "from" => 0, "to" => 5 } ])
+              beats: [ statement("a", { "word" => "ship" }), { "id" => "n", "type" => "number", "value" => 0, "land_at" => { "word" => "today" } } ],
+              steps: [ { "op" => "count", "id" => "n", "at" => { "word" => "gate" }, "from" => 0, "to" => 5 } ])
     b = board_with(s)
     assert_empty WalkthroughStoryboard.validate(b)
     assert WalkthroughStoryboard.unresolved?(s)
@@ -162,9 +169,9 @@ class WalkthroughElementTest < Minitest::Test
       WalkthroughStoryboard.resolve_anchors(b, cache)
     end
     beats = s["element"]["beats"]
-    # "ship" starts at char 3 (150 ms), "gate" at char 12 (600 ms) less 300, "today" at char 17 (850 ms); snapped to 60 fps frames.
-    assert_equal [ 150, 300 ], beats.map { |x| x["land_t_ms"] }
-    assert_equal 850, s["element"]["steps"].first["t_ms"]
+    # "ship" starts at char 3 (150 ms), "gate" at char 12 (600 ms), "today" at char 17 (850 ms); snapped to 60 fps frames.
+    assert_equal [ 150, 850 ], beats.map { |x| x["land_t_ms"] }
+    assert_equal 600, s["element"]["steps"].first["t_ms"]
     refute WalkthroughStoryboard.unresolved?(s)
     assert_equal 9, WalkthroughElement.plan(s, b)["beats"].first["land_f"]
     authored = WalkthroughStoryboard.authored(b)["scenes"].first["element"]

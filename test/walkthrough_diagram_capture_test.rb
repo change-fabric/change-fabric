@@ -100,8 +100,10 @@ class WalkthroughDiagramCaptureTest < Minitest::Test
       FileUtils.cp_r("#{File.expand_path('fixtures/walkthrough/architecture', __dir__)}/.", root)
       board = WalkthroughStoryboard.load(File.join(root, "storyboard.json"))
       scene = board["scenes"].first
-      scene["diagram"]["steps"] += [ { "t_ms" => 1500, "op" => "count", "id" => "api", "from" => 0, "to" => 1280, "duration" => 300 },
-                                     { "t_ms" => 1500, "op" => "draw", "id" => "e3", "duration" => 300 } ]
+      scene["diagram"]["steps"] += [ { "t_ms" => 1400, "op" => "count", "id" => "db", "from" => 0, "to" => 9, "duration" => 100 },
+                                     { "t_ms" => 1500, "op" => "count", "id" => "api", "from" => 0, "to" => 1280, "duration" => 300 },
+                                     { "t_ms" => 1500, "op" => "draw", "id" => "e3", "duration" => 300 },
+                                     { "t_ms" => 1700, "op" => "label", "id" => "db", "text" => "Done" } ]
       WalkthroughDiagram.write_screens(board, root)
       assert_empty WalkthroughStoryboard.validate(board, root: root)
       prep = PrototypeCapture.prepare(board, scene, root)
@@ -120,6 +122,9 @@ class WalkthroughDiagramCaptureTest < Minitest::Test
         boxes = JSON.parse(File.read(File.join(root, "run-0", WalkthroughClipcheck::BOXES)))["frames"]
         texts = ->(i) { boxes[i]["boxes"].select { |b| b["kind"] == "text" }.map { |b| b["text"] } }
         assert_includes texts.(boxes.size - 1), "1,280"
+        # A label step after a finished count takes the node's text back.
+        assert_includes texts.(boxes.size - 1), "Done"
+        refute_includes texts.(boxes.size - 1), "9"
         assert_includes texts.(0), "API"
       end
       dash = ChangeDocker.with_browserless(network: nil) do |session|
