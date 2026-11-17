@@ -452,7 +452,8 @@ module WalkthroughStoryboard
       end
     when 'scroll' then scroll_shape_errors(op)
     when 'tap' then tap_shape_errors(op)
-    else %w[ms ease press_ms navigate].filter_map { |k| "#{k} applies only to #{k.start_with?('press', 'nav') ? 'a tap' : 'a scroll'} op" if op.key?(k) }
+    when 'wait' then wait_shape_errors(op)
+    else %w[ms ease block offset_px press_ms navigate].filter_map { |k| "#{k} applies only to #{k.start_with?('press', 'nav') ? 'a tap' : 'a scroll'} op" if op.key?(k) }
     end
   end
 
@@ -469,12 +470,37 @@ module WalkthroughStoryboard
       errs << 'scroll ease needs ms'
     end
     errs << "scroll ease must be one of #{PrototypeCapture::SCROLL_EASES.join(', ')}" if op.key?('ease') && !PrototypeCapture::SCROLL_EASES.include?(op['ease'])
+    errs + scroll_align_errors(op)
+  end
+
+  # block and offset_px place an into-view scroll (no dx, dy or ms).
+  def scroll_align_errors(op)
+    keys = %w[block offset_px].select { |k| op.key?(k) }
+    return [] if keys.empty?
+
+    blocks = PrototypeCapture::SCROLL_BLOCKS
+    errs = []
+    errs << "scroll block must be one of #{blocks.join(', ')}" if op.key?('block') && !blocks.include?(op['block'])
+    errs << 'scroll offset_px must be an integer (pixels)' if op.key?('offset_px') && !op['offset_px'].is_a?(Integer)
+    errs << "scroll #{keys.join(' and ')} applies only to an into-view scroll (no dx, dy or ms)" if %w[dx dy ms].any? { |k| op.key?(k) }
+    errs
+  end
+
+  # A wait op with `selector` holds the ops after it until that selector is
+  # visible (state: visible, the only state), up to timeout_ms.
+  def wait_shape_errors(op)
+    range = PrototypeCapture::WAIT_FOR_RANGE
+    errs = []
+    errs << 'wait selector must be a non-empty string' if op.key?('selector') && !(op['selector'].is_a?(String) && !op['selector'].strip.empty?)
+    errs << 'wait state must be visible' if op.key?('state') && op['state'] != 'visible'
+    errs << "wait timeout_ms must be an integer in #{range.min}..#{range.max}" if op.key?('timeout_ms') && !(op['timeout_ms'].is_a?(Integer) && range.cover?(op['timeout_ms']))
+    errs << "wait #{%w[state timeout_ms].select { |k| op.key?(k) }.join(' and ')} needs selector" if !op.key?('selector') && (op.key?('state') || op.key?('timeout_ms'))
     errs
   end
 
   def tap_shape_errors(op)
     range = PrototypeCapture::PRESS_RANGE
-    errs = %w[ms ease dx dy].filter_map { |k| "#{k} applies only to a scroll op" if op.key?(k) }
+    errs = %w[ms ease dx dy block offset_px].filter_map { |k| "#{k} applies only to a scroll op" if op.key?(k) }
     errs << "tap press_ms must be an integer in #{range.min}..#{range.max}" if op.key?('press_ms') && !(op['press_ms'].is_a?(Integer) && range.cover?(op['press_ms']))
     errs << 'tap navigate must be true or false' if op.key?('navigate') && ![ true, false ].include?(op['navigate'])
     errs

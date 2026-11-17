@@ -52,6 +52,12 @@ module WalkthroughLive
   # and after a navigate run's last frame for the page to go quiet before
   # its session is exported.
   NAVIGATE_WAIT_MS = 5000
+  # How long a scroll, glide, move or hover polls for a target the live app
+  # renders lazily before the target counts as missing.
+  LAZY_TARGET_MS = 1500
+  # The bound on a scene's wait.selector; past it the scene warns (fails
+  # under strict targets) instead of hanging the run.
+  WAIT_SELECTOR_MS = 10_000
   # 95, not 90: q90 costs about 6 dB PSNR on small text against a PNG of
   # the same page (39.6 vs 45.4), more than the final x264 encode loses; q95
   # adds about a fifth to frame bytes.
@@ -526,6 +532,7 @@ module WalkthroughLive
         const dev = job.dev;
         const { context, page, client } = await openPage(dev);
         const pageErrors = [];
+        const misses = [];
         page.on("pageerror", (err) => pageErrors.push(String(err && err.message || err)));
         const seedId = await restore(page, client);
         await page.evaluateOnNewDocument(linkHook);
@@ -544,7 +551,7 @@ module WalkthroughLive
           const laid = await ensureViewport(page, { width: dev.w, height: dev.h, deviceScaleFactor: dev.dpr, mobile: false });
           if (laid[0] !== dev.w || laid[1] !== dev.h) throw new Error(`viewport mismatch: laid out at ${laid[0]}x${laid[1]}, not ${dev.w}x${dev.h}`);
         }
-        #{wait['selector'] ? "await page.waitForSelector(#{JSON.generate(wait['selector'])});" : ''}
+        #{wait['selector'] ? wait_selector_js(wait['selector']) : ''}
         #{wait['zoom'] ? "await page.evaluate((z) => { document.documentElement.style.zoom = String(z); }, #{wait['zoom'].to_f});" : ''}
         #{wait['style'] ? "await page.addStyleTag({ content: #{JSON.generate(wait['style'])} });" : ''}
         await sleep(#{wait['settle_ms'].to_i});
@@ -588,7 +595,7 @@ module WalkthroughLive
         const linkFrames = [];
         const st = { pos: { x: dev.w / 2, y: dev.h / 2 }, from: null, down: false, resting: null };
         st.from = st.pos;
-        const dispatch = (#{PrototypeCapture::DISPATCH_JS})(page, { aim, mobile: !!dev.mobile, st });
+        const dispatch = (#{PrototypeCapture::DISPATCH_JS})(page, { aim, mobile: !!dev.mobile, st, lazyMs: #{LAZY_TARGET_MS}, miss: (ev) => misses.push(ev) });
         let t0 = Date.now();
         for (let i = 0; i < job.events.length; i++) {
           const leaving = job.cutFrame !== undefined && i === job.cutFrame ? page.url() : null;
@@ -688,9 +695,17 @@ module WalkthroughLive
         }
         const out = await dumpSession(page, client);
         if (context) await context.close();
-        return { name: dev.name, frames: sampled.frames, ticks: sampled.ticks, cursor, pageErrors, lint, devices, overlays, links, linkFrames, composed, inset, insetHi, insetError, session: out };
+        return { name: dev.name, frames: sampled.frames, ticks: sampled.ticks, cursor, pageErrors, misses, lint, devices, overlays, links, linkFrames, composed, inset, insetHi, insetError, session: out };
       };
     JS
+  end
+
+  # A bounded wait for the scene's wait.selector: a timeout is recorded as a
+  # miss (a warning, or a failure under strict targets), never a hang.
+  def wait_selector_js(selector)
+    sel = JSON.generate(selector)
+    "try { await page.waitForSelector(#{sel}, { timeout: #{WAIT_SELECTOR_MS} }); } " \
+      "catch (e) { void e; misses.push({ kind: \"wait\", target: #{sel}, ms: #{WAIT_SELECTOR_MS} }); }"
   end
 
   # The capture module: every device of the scene runs in parallel against
@@ -799,6 +814,7 @@ module WalkthroughLive
     code = capture_module(board, scene, jobs: jobs, session: browser_session)
     result = guard(secrets) { PrototypeCapture.run_with_retry(session, code, retries: retries_for(jobs), launch_args: launch) }
     runs = result['devices']
+    runs.each { |r| PrototypeCapture.report_misses!(r['misses'], "scene #{scene['id']} (#{r['name']})") }
     lead = cut ? runs.find { |r| r['name'] == cut['device'] } : runs.first
     return lead['session'] unless shots
 
