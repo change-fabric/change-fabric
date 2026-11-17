@@ -22,6 +22,12 @@ class WalkthroughPreflightTest < Minitest::Test
     { "id" => id, "screen" => { "url" => "https://app.localhost/#{id}" } }.merge(extra)
   end
 
+  def op(name, target) = { "op" => name, "target" => target }
+
+  def job(label, url) = { "label" => label, "url" => url, "selectors" => [] }
+
+  def result(label, url, missing: [], error: nil) = { "label" => label, "url" => url, "missing" => missing, "error" => error }
+
   def board(scenes)
     { "personas" => { "member" => persona }, "scenes" => scenes }
   end
@@ -34,7 +40,8 @@ class WalkthroughPreflightTest < Minitest::Test
 
   def test_missing_screen_and_seed_are_reported
     Dir.mktmpdir do |root|
-      scene = { "id" => "list", "screen" => { "html" => "screens/list.html" }, "store" => { "seed" => "data/seed.json" } }
+      scene = { "id" => "list", "screen" => { "html" => "screens/list.html" },
+                "store" => { "seed" => "data/seed.json" } }
       errs = WalkthroughPreflight.asset_errors(root, [ scene ])
       assert_equal [ "list: screens/list.html is missing", "list: data/seed.json is missing" ], errs
     end
@@ -45,7 +52,8 @@ class WalkthroughPreflightTest < Minitest::Test
     errs = WalkthroughPreflight.live_config_errors(board(scenes), scenes, env: {})
     assert_includes errs, "admin: persona \"ghost\" has no login config"
     assert_includes errs, "env PF_EMAIL is not set (a live scene needs it)"
-    assert_empty WalkthroughPreflight.live_config_errors(board(scenes.first(1)), scenes.first(1), env: { "PF_EMAIL" => "x" })
+    member = scenes.first(1)
+    assert_empty WalkthroughPreflight.live_config_errors(board(member), member, env: { "PF_EMAIL" => "x" })
   end
 
   def test_prototype_board_needs_no_env
@@ -56,9 +64,8 @@ class WalkthroughPreflightTest < Minitest::Test
   def test_selector_jobs_stop_at_the_first_state_change_and_skip_session_scenes
     scenes = [
       live("landing", "screen" => { "url" => "https://app.localhost/", "wait" => { "selector" => "main" } },
-                      "interactions" => [ { "op" => "move", "target" => "#cta" }, { "op" => "click", "target" => "#cta" },
-                                          { "op" => "click", "target" => "#modal-ok" } ]),
-      live("inbox", "persona" => "member", "interactions" => [ { "op" => "scroll", "target" => "#inbox" } ]),
+                      "interactions" => [ op("move", "#cta"), op("click", "#cta"), op("click", "#modal-ok") ]),
+      live("inbox", "persona" => "member", "interactions" => [ op("scroll", "#inbox") ]),
       live("next", "session_from_scene" => "landing")
     ]
     jobs = WalkthroughPreflight.selector_jobs(board(scenes), scenes)
@@ -68,12 +75,11 @@ class WalkthroughPreflightTest < Minitest::Test
   end
 
   def test_check_selectors_reports_missing_and_unreachable
-    jobs = [ { "label" => "landing", "url" => "https://app.localhost/", "selectors" => [ "#cta" ] } ]
-    session = FakeSession.new({ "results" => [
-                                { "label" => "landing", "url" => "https://app.localhost/", "missing" => [ "#cta" ], "error" => nil },
-                                { "label" => "pricing", "url" => "https://app.localhost/p", "missing" => [], "error" => "net::ERR_CONNECTION_REFUSED" }
-                              ] })
-    errs = WalkthroughPreflight.check_selectors(session, board([]), jobs)
+    results = [ result("landing", "https://app.localhost/", missing: [ "#cta" ]),
+                result("pricing", "https://app.localhost/p", error: "net::ERR_CONNECTION_REFUSED") ]
+    session = FakeSession.new({ "results" => results })
+    errs = WalkthroughPreflight.check_selectors(session, board([]), [ job("landing", "https://app.localhost/") ])
+    assert_equal 2, errs.size
     assert_equal "landing: selector \"#cta\" not found on https://app.localhost/", errs[0]
     assert_match(/pricing: cannot reach .*ERR_CONNECTION_REFUSED.*start the app/, errs[1])
     assert_includes session.code, "waitForSelector"
@@ -83,7 +89,7 @@ class WalkthroughPreflightTest < Minitest::Test
     session = Object.new
     def session.run_function(_code) = raise("socket closed")
 
-    errs = WalkthroughPreflight.check_selectors(session, board([]), [ { "label" => "a", "url" => "https://x.test/", "selectors" => [] } ])
+    errs = WalkthroughPreflight.check_selectors(session, board([]), [ job("a", "https://x.test/") ])
     assert_match(/selector check could not run .*socket closed/, errs.first)
   end
 

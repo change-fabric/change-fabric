@@ -35,30 +35,38 @@ module WalkthroughPreflight
   module_function
 
   def asset_errors(root, scenes, runtimes: RUNTIMES)
-    missing = runtimes.reject { |path| File.file?(path) }.map { |path| "runtime #{path} is not installed; re-run install.rb" }
+    missing = runtimes.reject { |path| File.file?(path) }
+                      .map { |path| "runtime #{path} is not installed; re-run install.rb" }
     missing + scenes.flat_map do |scene|
-      [ scene.dig('screen', 'html'), scene.dig('store', 'seed') ].compact.reject { |rel| File.file?(File.join(root, rel)) }
-                                                                 .map { |rel| "#{scene['id']}: #{rel} is missing" }
+      [ scene.dig('screen', 'html'), scene.dig('store', 'seed') ].compact
+        .reject { |rel| File.file?(File.join(root, rel)) }
+        .map { |rel| "#{scene['id']}: #{rel} is missing" }
     end
   end
 
+  # A persona's login block, or nil when the persona or its login is absent.
+  def login_for(board, name)
+    persona = (board['personas'] || {})[name]
+    login = persona.is_a?(Hash) ? persona['login'] : nil
+    login.is_a?(Hash) ? login : nil
+  end
+
+  def persona_scenes(scenes) = scenes.select { |s| WalkthroughLive.live?(s) && s['persona'] }
+
   def live_config_errors(board, scenes, env: ENV)
-    personas = board['personas'] || {}
-    errs = scenes.select { |s| WalkthroughLive.live?(s) && s['persona'] }.filter_map do |scene|
-      login = personas[scene['persona']].is_a?(Hash) ? personas[scene['persona']]['login'] : nil
-      "#{scene['id']}: persona #{scene['persona'].inspect} has no login config" unless login.is_a?(Hash)
-    end
+    errs = persona_scenes(scenes).reject { |s| login_for(board, s['persona']) }
+                                 .map { |s| "#{s['id']}: persona #{s['persona'].inspect} has no login config" }
     return errs unless scenes.any? { |s| WalkthroughLive.realtime?(s) }
 
-    errs + WalkthroughLive.env_names(board).select { |n| env[n].to_s.empty? }.map { |n| "env #{n} is not set (a live scene needs it)" }
+    unset = WalkthroughLive.env_names(board).select { |n| env[n].to_s.empty? }
+    errs + unset.map { |n| "env #{n} is not set (a live scene needs it)" }
   end
 
   # One job per page to load: { 'label', 'url', 'selectors' }.
   def selector_jobs(board, scenes)
-    personas = board['personas'] || {}
-    logins = scenes.filter_map { |s| WalkthroughLive.live?(s) && s['persona'] }.uniq.filter_map do |name|
-      login = personas.dig(name, 'login')
-      next unless login.is_a?(Hash)
+    logins = persona_scenes(scenes).map { |s| s['persona'] }.uniq.filter_map do |name|
+      login = login_for(board, name)
+      next unless login
 
       { 'label' => "persona #{name} login", 'url' => login['url'],
         'selectors' => Array(login['steps']).filter_map { |st| st['selector'] }.uniq }
@@ -73,7 +81,8 @@ module WalkthroughPreflight
     list = [ scene.dig('screen', 'wait', 'selector') ].compact
     ops = WalkthroughLive.all_interactions(scene)
     ops.each do |op|
-      list << op['target'] if op['target'].is_a?(String) && !op['target'].empty?
+      target = op['target']
+      list << target if target.is_a?(String) && !target.empty?
       break if STATE_OPS.include?(op['op'])
     end
     list.uniq
@@ -90,13 +99,14 @@ module WalkthroughPreflight
           try {
             await page.goto(job.url, { waitUntil: "domcontentloaded", timeout: #{GOTO_TIMEOUT_MS} });
             for (const sel of job.selectors) {
-              try { await page.waitForSelector(sel, { timeout: #{SELECTOR_TIMEOUT_MS} }); } catch (e) { res.missing.push(sel); }
+              try { await page.waitForSelector(sel, { timeout: #{SELECTOR_TIMEOUT_MS} }); }
+              catch { res.missing.push(sel); }
             }
           } catch (e) {
             res.error = String(e && e.message || e);
           }
           results.push(res);
-          try { context ? await context.close() : await page.close(); } catch (e) { void e; }
+          try { context ? await context.close() : await page.close(); } catch { }
         }
         return { data: { results }, type: "application/json" };
       }
@@ -105,7 +115,10 @@ module WalkthroughPreflight
 
   def selector_errors(results)
     Array(results).flat_map do |r|
-      next [ "#{r['label']}: cannot reach #{r['url']} (#{r['error'].to_s.lines.first.to_s.strip}); start the app or fix the URL" ] if r['error']
+      if r['error']
+        reason = first_line(r['error'])
+        next [ "#{r['label']}: cannot reach #{r['url']} (#{reason}); start the app or fix the URL" ]
+      end
 
       Array(r['missing']).map { |sel| "#{r['label']}: selector #{sel.inspect} not found on #{r['url']}" }
     end
@@ -121,10 +134,10 @@ module WalkthroughPreflight
       check_selectors(session, board, jobs)
     end
   rescue StandardError => e
-    [ "live browser could not start (#{e.message.lines.first.to_s.strip}); check the board's browser network" ]
+    [ "live browser could not start (#{first_line(e.message)}); check the board's browser network" ]
   end
 
-  # Runs the selector check through a live session (Browserless).
+  # A crash inside the check is a preflight failure, not a render crash.
   def check_selectors(session, board, jobs)
     return [] if jobs.empty?
 
@@ -132,6 +145,8 @@ module WalkthroughPreflight
     data = JSON.parse(data) if data.is_a?(String)
     selector_errors(data['results'])
   rescue StandardError => e
-    [ "selector check could not run (#{e.class}: #{e.message.lines.first.to_s.strip}); is the app reachable?" ]
+    [ "selector check could not run (#{e.class}: #{first_line(e.message)}); is the app reachable?" ]
   end
+
+  def first_line(text) = text.to_s.lines.first.to_s.strip
 end
