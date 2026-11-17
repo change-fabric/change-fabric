@@ -35,7 +35,7 @@ const run = promisify(execFile);
 
 // Pinned to the same digest as scripts/change_docker.rb.
 const BROWSERLESS_IMAGE =
-  "ghcr.io/browserless/chromium:v2.38.1@sha256:78afaada9f7b049783bfed624e6b5e9a2d3438fc04bb46801ed777e82ae1501f";
+  "ghcr.io/change-fabric/browserless-cf:0.1.1@sha256:2a5fbca65a6bc962808a2ba409cd5e7e17584f61bd53bd461f572edc59f0a1d9";
 const HOST_ALIAS = process.env.CF_HOST_ALIAS ?? "host.docker.internal";
 
 const here = path.dirname(fileURLToPath(import.meta.url));

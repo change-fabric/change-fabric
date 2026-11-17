@@ -32,7 +32,7 @@ const run = promisify(execFile);
 // Pinned to the same digest as scripts/change_docker.rb, so the browser this
 // verification sees is the browser every other lane in the repo sees.
 const BROWSERLESS_IMAGE =
-  "ghcr.io/browserless/chromium:v2.38.1@sha256:78afaada9f7b049783bfed624e6b5e9a2d3438fc04bb46801ed777e82ae1501f";
+  "ghcr.io/change-fabric/browserless-cf:0.1.1@sha256:2a5fbca65a6bc962808a2ba409cd5e7e17584f61bd53bd461f572edc59f0a1d9";
 
 // The container reaches this process's server through Docker Desktop's host
 // alias. Overridable for a runtime that names the host differently.

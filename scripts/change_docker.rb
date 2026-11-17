@@ -22,11 +22,11 @@ module ChangeDocker
   # Two browserless pins with two roles, kept apart on purpose. The upstream
   # third-party digest is only the FROM of docker/browserless-cf/Dockerfile
   # (a test holds them equal). The runtime pin is what capture, diagram, and
-  # the lint lanes run; it stays on upstream until the first image/v* tag
-  # publishes browserless-cf, then a follow-up PR moves it to that ghcr digest.
+  # the lint lanes run: the published browserless-cf digest, moved by a
+  # follow-up PR after each image/v* tag. Rollback is reverting that pin.
   # See RELEASING.md, Image track.
   BROWSERLESS_UPSTREAM = 'ghcr.io/browserless/chromium:v2.38.1@sha256:78afaada9f7b049783bfed624e6b5e9a2d3438fc04bb46801ed777e82ae1501f'
-  BROWSERLESS_IMAGE = BROWSERLESS_UPSTREAM
+  BROWSERLESS_IMAGE = 'ghcr.io/change-fabric/browserless-cf:0.1.1@sha256:2a5fbca65a6bc962808a2ba409cd5e7e17584f61bd53bd461f572edc59f0a1d9'
   # The one Node image cf:color's Tailwind compile step runs under (and any
   # future lane that needs a throwaway Node CLI): Alpine keeps the pull
   # small, and the digest pins it the same way every other runner image here
