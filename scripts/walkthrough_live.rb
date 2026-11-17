@@ -247,11 +247,20 @@ module WalkthroughLive
         errs << 'after_line must be a non-empty string' if op.key?('after_line') && op['after_line'].to_s.empty?
         errs << 'after_line needs a live or compose scene' if !live && op.key?('after_line')
         errs << 'replace must be true' if op.key?('replace') && op['replace'] != true
-      elsif op.key?('env') || op.key?('after_line') || op.key?('replace')
-        errs << 'env and after_line apply only to a type op'
+        errs << 'volatile must be true' if op.key?('volatile') && op['volatile'] != true
+      elsif op.key?('env') || op.key?('after_line') || op.key?('replace') || op.key?('volatile')
+        errs << 'env, after_line, replace and volatile apply only to a type op'
       end
       errs.map { |e| "interaction #{i}: #{e}" }
     end
+  end
+
+  # The interactions as keyed: a volatile type op keys without its text, so a value that differs per take (a fresh signup email) re-keys
+  # neither this scene nor the scenes starting from its session.
+  def keyed_interactions(list)
+    return list.transform_values { |ops| keyed_interactions(Array(ops)) } if list.is_a?(Hash)
+
+    list.map { |op| op['volatile'] == true && op['text'] ? op.merge('text' => nil) : op }
   end
 
   # Every interaction of a scene, shared or per device.
@@ -349,7 +358,7 @@ module WalkthroughLive
   def frames_key(board, scene, parent_key: nil, root: nil)
     WalkthroughCache.key(live: url(scene), compose: compose_material(scene),
                          message: WalkthroughMessage.realtime?(scene) ? WalkthroughMessage.material(scene, root) : nil, persona: persona_spec(board, scene['persona']),
-                         session_from: parent_key, interactions: scene['interactions'] || [], wait: scene['wait'],
+                         session_from: parent_key, interactions: keyed_interactions(scene['interactions'] || []), wait: scene['wait'],
                          storage: scene['storage'], viewport: board['viewport'], fps: fps_for(board),
                          duration_ms: duration_ms(board, scene), browser: browser_opts(board),
                          devices: WalkthroughDevice.specs(board, scene), layout: WalkthroughDevice.layout_name(scene),

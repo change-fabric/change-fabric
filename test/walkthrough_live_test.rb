@@ -122,7 +122,7 @@ class WalkthroughLiveTest < Minitest::Test
     assert_equal "Name:", step["type"]["after_line"]
     assert_includes WalkthroughLive.capture_module(b, mail, jobs: [], session: nil), "if (ev.after_line) await page.$eval(ev.target"
     mail["interactions"][1]["after_line"] = "x"
-    assert(errors_for(b).any? { |e| e.include?("after_line apply only to a type op") })
+    assert(errors_for(b).any? { |e| e.include?("volatile apply only to a type op") })
     proto = live("proto", 1, "screen" => { "html" => "screens/a.html" },
                              "interactions" => [ { "t_ms" => 0, "op" => "type", "target" => "#b", "text" => "x", "after_line" => "A" } ])
     assert(errors_for(board([ proto ])).any? { |e| e.include?("after_line needs a live or compose scene") })
@@ -251,6 +251,24 @@ class WalkthroughLiveTest < Minitest::Test
     ENV["APP_PASSWORD"] = "another"
     assert_equal before, key(board, "sign-in")
     refute_includes JSON.generate(WalkthroughStoryboard.recompute_keys(board, @root)), SECRET
+  end
+
+  # A fresh signup email per take, typed as volatile text, re-keys neither
+  # its own scene nor the scenes that start from its session.
+  def test_volatile_typed_text_stays_out_of_the_key
+    typed = ->(text, extra = {}) do
+      b = board
+      b["scenes"][0]["interactions"] = [ { "t_ms" => 0, "op" => "type", "target" => "#email", "text" => text }.merge(extra) ]
+      b
+    end
+    a = typed.call("take1@example.com", "volatile" => true)
+    b = typed.call("take2@example.com", "volatile" => true)
+    assert_empty errors_for(a)
+    assert_equal key(a, "sign-in"), key(b, "sign-in")
+    assert_equal key(a, "dashboard"), key(b, "dashboard")
+    refute_equal key(typed.call("take1@example.com"), "dashboard"), key(typed.call("take2@example.com"), "dashboard")
+    bad = typed.call("x", "volatile" => "yes")
+    assert(errors_for(bad).any? { |e| e.include?("volatile must be true") })
   end
 
   # -- passthrough ----------------------------------------------------------
