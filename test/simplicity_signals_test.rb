@@ -59,6 +59,7 @@ class SimplicitySignalsTest < Minitest::Test
       GitFixture.git(dir, "add", "-A")
       GitFixture.git(dir, "commit", "-q", "--allow-empty", "-m", "c#{i}")
     end
+    yield dir if block_given?
     SimplicitySignals.run(repo: dir, base: "HEAD~1", head: "HEAD")
   end
 
@@ -93,6 +94,31 @@ class SimplicitySignalsTest < Minitest::Test
 
     assert_includes report["single_impl"], { "base" => "NotifierBase", "impls" => [ "A::Worker" ] }
     refute(report["single_impl"].any? { |entry| entry["base"] == "A::NotifierBase" })
+  end
+
+  def test_a_prepend_counts_as_a_mixin_consumer
+    report = inline_repo({ "README" => "x\n" }, {
+      "lib/app.rb" => "module Auditable; end\nclass App\n  include Auditable\nend\nclass Other\n  prepend Auditable\nend\n"
+    })
+
+    refute(report["single_impl"].any? { |entry| entry["base"] == "Auditable" })
+  end
+
+  def test_a_parenthesized_gem_call_is_a_new_dependency
+    report = inline_repo({ "Gemfile" => "source 'https://rubygems.org'\n" },
+                         { "Gemfile" => "source 'https://rubygems.org'\ngem('httparty')\n" })
+
+    assert_equal [ "httparty" ], report["deps"]["gemfile_added"]
+  end
+
+  # A user's diff.noprefix must not hide added lines from the parser.
+  def test_diff_noprefix_config_does_not_hide_added_lines
+    report = inline_repo({ "README" => "x\n" },
+                         { "lib/app.rb" => "class App\n  def build_legacy = 1\nend\n" }) do |dir|
+      GitFixture.git(dir, "config", "diff.noprefix", "true")
+    end
+
+    assert(report["unused_ruby"].any? { |hit| hit["name"] == "build_legacy" })
   end
 
   def test_a_mixin_used_through_another_module_counts_every_consumer

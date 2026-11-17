@@ -70,7 +70,7 @@ module SimplicitySignals
     def added_lines
       @added_lines ||= begin
         current = nil
-        git('diff', '-U0', base, head).each_line.with_object({}) do |line, acc|
+        git('diff', '-U0', '--src-prefix=a/', '--dst-prefix=b/', base, head).each_line.with_object({}) do |line, acc|
           current = line.chomp.delete_prefix('+++ b/') if line.start_with?('+++ b/')
           next unless (m = line.match(/\A@@ -\S+ \+(\d+)(?:,(\d+))? @@/))
 
@@ -184,7 +184,7 @@ module SimplicitySignals
   end
 
   def gems(source)
-    source.to_s.scan(/^\s*gem\s+['"]([^'"]+)['"]/).flatten.uniq
+    source.to_s.scan(/^\s*gem(?:\s+|\s*\(\s*)['"]([^'"]+)['"]/).flatten.uniq
   end
 
   def packages(source)
@@ -321,10 +321,11 @@ module SimplicitySignals
     candidates.find { |c| known.include?(c) } || ref
   end
 
-  # Includes in this type's own body; a nested class or module owns its own.
+  # Includes and prepends in this type's own body (both make it a consumer of
+  # the mixin); a nested class or module owns its own.
   def included_modules(class_node)
     own_nodes(class_node).filter_map do |node|
-      next unless node.is_a?(Prism::CallNode) && node.name == :include && node.receiver.nil?
+      next unless node.is_a?(Prism::CallNode) && %i[include prepend].include?(node.name) && node.receiver.nil?
 
       node.arguments&.arguments&.map(&:slice)
     end.flatten
