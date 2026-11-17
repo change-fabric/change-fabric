@@ -140,26 +140,36 @@ module WalkthroughRoast
   def open_blockers(history)
     return [] unless (last = history.last)
 
-    responses = Array(last.dig(:response, 'responses'))
+    responses = response_entries(last[:response])
     Roast.normalize_issues(last[:critic]['issues'], last[:round]).reject.with_index do |issue, i|
       !Roast::BLOCKING.include?(issue['priority']) || rebutted?(issue, responses, i)
     end
   end
 
-  def rebuttal_for?(issue, response) = response && response['verdict'] == 'rebut' && Roast.location(response) == Roast.location(issue)
+  REBUT_VERDICTS = %w[rebut rebutted].freeze
 
-  # A rebuttal names the issue by its problem text wherever it sits; one with
-  # no problem text can only mean the issue at its own position.
+  # The response entries, from { "responses": [...] } or a bare list.
+  def response_entries(response)
+    list = response.is_a?(Hash) ? response['responses'] : response
+    Array(list).select { |r| r.is_a?(Hash) }
+  end
+
+  def rebut?(response) = REBUT_VERDICTS.include?((response['verdict'] || response['decision']).to_s.strip.downcase)
+
+  # A response carrying an id answers only the issue with that id. One without
+  # (older files) names the issue by location plus its problem or summary text,
+  # or, with neither, the issue at its own position.
   def rebutted?(issue, responses, index)
     responses.each_with_index.any? do |r, i|
-      next r['verdict'] == 'rebut' if r['id'] && r['id'] == issue['id']
-      next false unless rebuttal_for?(issue, r)
+      next r['id'] == issue['id'] && rebut?(r) if r['id']
+      next false unless rebut?(r) && Roast.location(r) == Roast.location(issue)
 
-      named = r['problem'].to_s.strip
-      named.empty? ? i == index : issue['problem'].to_s.include?(named)
+      named = (r['problem'] || r['summary']).to_s.strip
+      problem = issue['problem'].to_s
+      named.empty? ? i == index : problem.include?(named) || named.include?(problem.strip)
     end
   end
-  private_class_method :rebuttal_for?, :rebutted?
+  private_class_method :rebutted?
 
   # -- run spend ledger ---------------------------------------------------
 
@@ -284,8 +294,9 @@ module WalkthroughRoast
   end
 
   def raise_open_blockers(blockers, label: 'roast', flag: '--allow-roast-findings')
-    lines = blockers.map { |i| "#{i['priority']} (#{Roast.location(i)}): #{i['problem']}" }
-    raise OpenFindingsError, "#{blockers.size} open P0/P1 #{label} finding(s) block --final (pass #{flag} to override):\n" \
+    lines = blockers.map { |i| "#{i['id'] || '(no id)'} #{i['severity'] || i['priority']} (#{Roast.location(i)}): #{Roast.summary_of(i['problem'])}" }
+    raise OpenFindingsError, "#{blockers.size} unrebutted P0/P1 #{label} finding(s) block --final (rebut each in the round's " \
+                             "response file, or pass #{flag} to override):\n" \
                              "#{lines.join("\n")}"
   end
 
