@@ -156,7 +156,7 @@ class WalkthroughLiveTest < Minitest::Test
   def test_render_fills_compose_from_the_caught_link
     File.write(File.join(@root, "storyboard.json"), JSON.pretty_generate(device_board))
     render
-    assert_equal %w[contact mobile mail text], shots
+    assert_equal %w[contact mobile mail text] * 2, shots, "the silent cut, then the narrated draft"
     mail, text = @calls[:compose]
     assert_equal [ "email", [ "ops@example.test" ], "Placement inquiry", "Name:\nNotes:\n" ], mail.values_at("channel", "cc", "subject", "body")
     assert_equal({ "channel" => "sms", "to" => [ "+15550100" ], "body" => "On my way" }, text)
@@ -360,9 +360,9 @@ class WalkthroughLiveTest < Minitest::Test
 
   def test_render_sources_sessions_and_caches_live_scenes
     render
-    assert_equal [ board["browser"] ], @calls[:live_browser], "browser options reach the live container"
-    assert_equal %w[member admin], @calls[:login], "one login per persona, reused across its scenes"
-    assert_equal %w[sign-in dashboard inbox reports admin landing], shots
+    assert_equal [ board["browser"] ] * 2, @calls[:live_browser], "browser options reach the live container (silent cut and draft)"
+    assert_equal %w[member admin] * 2, @calls[:login], "one login per persona per cut, reused across its scenes"
+    assert_equal %w[sign-in dashboard inbox reports admin landing] * 2, shots, "the silent cut, then the draft"
     assert_equal "sign-in", @calls[:capture].find { |c| c[0] == "dashboard" }[2], "session_from_scene hands the end session on"
     assert_nil @calls[:capture].find { |c| c[0] == "landing" }[2], "persona null starts logged out"
     refute(@calls[:docker].any? { |a| a.include?("%06d.jpg") && !a.each_cons(2).include?([ "--network", "none" ]) })

@@ -120,9 +120,9 @@ class WalkthroughDeliverablesTest < Minitest::Test
   end
 
   def test_pending_needs_a_reason
-    assert_empty B.pending_errors({ "pending" => { "reason" => "waiting" } })
-    refute_empty B.pending_errors({ "pending" => {} })
-    refute_empty B.pending_errors({ "pending" => "soon" })
+    assert_empty WalkthroughStoryboard.pending_errors({ "pending" => { "reason" => "waiting" } })
+    refute_empty WalkthroughStoryboard.pending_errors({ "pending" => {} })
+    refute_empty WalkthroughStoryboard.pending_errors({ "pending" => "soon" })
   end
 
   def test_silent_board_drops_music_and_voice_and_spaces_anchors

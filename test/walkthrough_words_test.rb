@@ -65,6 +65,8 @@ class WalkthroughWordsTest < Minitest::Test
 
   def seed_alignments(board)
     WalkthroughStoryboard.scenes(board).each do |scene|
+      next unless scene["narration"]
+
       dest = WalkthroughCache.path(@cache, :audio, WalkthroughStoryboard.audio_key(board, scene), "alignment.json")
       FileUtils.mkdir_p(File.dirname(dest))
       FileUtils.cp(File.join(ACCEPTANCE, "alignments", "#{scene['id']}.json"), dest)
@@ -133,7 +135,7 @@ class WalkthroughWordsTest < Minitest::Test
   def test_authored_copy_drops_resolved_times
     WalkthroughStoryboard.resolve_anchors(@board, @cache)
     authored = WalkthroughStoryboard.authored(@board)
-    assert(authored["scenes"].flat_map { |s| s["interactions"] }.none? { |op| op.key?("t_ms") })
+    assert(authored["scenes"].flat_map { |s| Array(s["interactions"]) }.none? { |op| op.key?("t_ms") })
     assert_equal [], WalkthroughStoryboard.validate(authored, root: ACCEPTANCE)
     refute_nil times(@board, "plan").first
   end

@@ -615,10 +615,10 @@ class WalkthroughStoryboardTest < Minitest::Test
 
   def test_anchor_shape_is_checked
     b = board
-    b["scenes"][0]["interactions"] = [ anchored({ "word" => "two words", "nth" => 0, "offset_ms" => 1.5, "scene" => "x" }) ]
+    b["scenes"][0]["interactions"] = [ anchored({ "word" => "two words", "nth" => 0, "offset_ms" => 1.5, "fallback_t_ms" => -1, "scene" => "x" }) ]
     errs = errors_for(b)
     [ "at.word must be one spoken word", "at.nth must be a positive integer", "at.offset_ms must be an integer",
-      "at.scene is not a known field (word, nth, offset_ms)" ].each { |e| assert_includes errs, "scene \"create\": interaction 0: #{e}" }
+      "at.scene is not a known field (word, nth, offset_ms, fallback_t_ms)", "at.fallback_t_ms must be a non-negative integer" ].each { |e| assert_includes errs, "scene \"create\": interaction 0: #{e}" }
     b["scenes"][0]["interactions"] = [ anchored("create") ]
     assert_includes errors_for(b), 'scene "create": interaction 0: at must be an object { word, nth, offset_ms }'
   end

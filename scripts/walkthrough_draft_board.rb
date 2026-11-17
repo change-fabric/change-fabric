@@ -33,13 +33,6 @@ module WalkthroughDraftBoard
 
   def reason(scene) = scene.dig('pending', 'reason').to_s.strip
 
-  def pending_errors(scene)
-    return [] unless pending?(scene)
-    return [] if scene['pending'].is_a?(Hash) && !reason(scene).empty? && (scene['pending'].keys - %w[reason]).empty?
-
-    [ 'pending must be { "reason": "<why it cannot be filmed yet>" }' ]
-  end
-
   # { id => reason } for every pending scene.
   def placeholders(board)
     WalkthroughStoryboard.scenes(board).select { |s| pending?(s) }.to_h { |s| [ s['id'], reason(s) ] }
@@ -53,7 +46,11 @@ module WalkthroughDraftBoard
   end
 
   # A copy with every pending scene swapped for its placeholder card.
+  # A board with none is returned as is, so the render keeps working on the
+  # caller's board.
   def with_placeholders(board)
+    return board unless Array(board['scenes']).any? { |s| pending?(s) }
+
     out = copy(board)
     out['scenes'] = Array(out['scenes']).map { |s| pending?(s) ? placeholder(out, s) : s }
     out

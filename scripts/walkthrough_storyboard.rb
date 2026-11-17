@@ -15,7 +15,6 @@ require_relative 'walkthrough_transition'
 require_relative 'walkthrough_live'
 require_relative 'walkthrough_look'
 require_relative 'walkthrough_words'
-require_relative 'walkthrough_draft_board'
 
 # storyboard.json (schema_version 1) is the source of truth for a
 # walkthrough. This module validates it, derives scene durations (never
@@ -238,7 +237,7 @@ module WalkthroughStoryboard
     errors.concat(camera_errors(scene['camera']))
     errors.concat(scene_interaction_errors(scene))
     errors.concat(anchor_scene_errors(scene))
-    errors.concat(WalkthroughDraftBoard.pending_errors(scene))
+    errors.concat(pending_errors(scene))
     errors.concat(navigate_errors(scene, board))
     errors.concat(timeline_errors(scene, board))
     errors.concat(overlap_errors(scene, board))
@@ -677,6 +676,15 @@ module WalkthroughStoryboard
     end
     errors << 'store.prng_seed must be an integer' if store.key?('prng_seed') && !store['prng_seed'].is_a?(Integer)
     errors
+  end
+
+  # A scene that cannot be filmed yet: `pending: { reason }`. Drafts render
+  # it as a placeholder card (WalkthroughDraftBoard); --final refuses it.
+  def pending_errors(scene)
+    pending = scene['pending']
+    return [] if pending.nil? || (pending.is_a?(Hash) && pending.keys == %w[reason] && !pending['reason'].to_s.strip.empty?)
+
+    [ 'pending must be { "reason": "<why it cannot be filmed yet>" }' ]
   end
 
   # -- word anchors ----------------------------------------------------------
