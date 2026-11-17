@@ -6,7 +6,7 @@ require_relative "../scripts/change_run"
 require_relative "../scripts/change_gate_check"
 require_relative "../scripts/change_schedule_store"
 
-# `change_run.rb schedule <name>` (0.19.0, unreleased): reads CHANGE.md from
+# `change_run.rb schedule <name>` (0.20.0): reads CHANGE.md from
 # the default branch, refuses unsafe runs before docker, and records into the
 # time-keyed schedule store, never the per-sha gate.
 class ChangeRunScheduleTest < Minitest::Test

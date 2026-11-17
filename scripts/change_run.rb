@@ -41,7 +41,7 @@ require_relative 'change_trust'
 #        change_run.rb schedule <name> [--repo PATH] [--dry-run]
 #        change_run.rb zap --mode full [--profile NAME]
 #
-# schedule <name> (0.19.0, unreleased) runs one change_config.schedules entry:
+# schedule <name> (0.20.0) runs one change_config.schedules entry:
 # its lanes, against its profile, with its per-lane overrides. CHANGE.md is
 # read from the default branch (origin/<default> after a fetch), never the
 # working tree, so boot steps are base-trusted and a branch cannot redefine

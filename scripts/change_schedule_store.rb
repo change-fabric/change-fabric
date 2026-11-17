@@ -6,7 +6,7 @@ require 'fileutils'
 require 'json'
 require 'time'
 
-# The time-keyed record store for scheduled runs (0.19.0, unreleased). One
+# The time-keyed record store for scheduled runs (0.20.0). One
 # directory per (repository, schedule, profile) under
 # ~/.claude/cf/change/schedules, so two repos with the same schedule and
 # profile names never share a latest.json or a retention window; one
