@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'json'
+require_relative 'prototype_ux_lint'
 
 # The free clip check for cf:walkthrough. The capture writes boxes.json beside
 # a scene's frames: for every captured frame, the post-transform box (after
@@ -116,9 +117,7 @@ module WalkthroughClipcheck
   # refusals across M scenes, so a clean run is never silent.
   def summary(results)
     hit = results.reject { |_, r| r[:refusals].empty? }
-    return "PASS (#{results.size} scene(s))" if hit.empty?
-
-    "#{hit.sum { |_, r| r[:refusals].size }} finding(s) across #{hit.size} scene(s)"
+    PrototypeUxLint.verdict(scenes: results.size, findings: hit.sum { |_, r| r[:refusals].size }, hit: hit.size)
   end
 
   # Checks a scene's frames directory; nil when it has no boxes.json (a

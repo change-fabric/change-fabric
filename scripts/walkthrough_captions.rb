@@ -56,8 +56,8 @@ module WalkthroughCaptions
   def groups(words)
     words.each_with_object([]) do |w, out|
       last = out.last
-      open = last && !last.last[:text].match?(SENTENCE_END) && w[:start_ms] - last.last[:end_ms] <= MAX_GAP_MS
-      if open && fits?(last + [ w ]) then last << w
+      joins = last && !last.last[:text].match?(SENTENCE_END) && w[:start_ms] - last.last[:end_ms] <= MAX_GAP_MS
+      if joins && fits?(last + [ w ]) then last << w
       else out << [ w ]
       end
     end

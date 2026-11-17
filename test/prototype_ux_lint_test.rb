@@ -118,6 +118,9 @@ class PrototypeUxLintTest < Minitest::Test
     "clipped" => [ '<div style="width:60px;overflow:hidden;white-space:nowrap">A very long label here</div>', %w[clipped-text] ],
     "inside-scrollable-nav" => [ '<nav style="position:absolute;top:20px;width:200px;height:60px;overflow:auto">' \
                                  '<a href="#a">One</a><br><a href="#b">Two</a><br><a href="#c">Three</a><br><a href="#d">Four</a></nav>', [] ],
+    "scroll-box-cut-by-outer-frame" => [ '<div style="position:absolute;top:20px;width:200px;height:40px;overflow:hidden">' \
+                                         '<div style="height:200px;overflow:auto"><button style="margin-top:20px">Ask Dana</button></div></div>',
+                                         %w[clipped-text] ],
     "scrollable-own-text" => [ '<div style="width:60px;overflow-x:auto;white-space:nowrap">A very long label here</div>', [] ],
     "cut-by-ancestor" => [ '<div style="position:absolute;top:20px;width:200px;height:40px;overflow:hidden"><button style="margin-top:20px">Ask Dana</button></div>',
                            %w[clipped-text] ],

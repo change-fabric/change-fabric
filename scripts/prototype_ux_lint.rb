@@ -20,9 +20,11 @@ require 'fileutils'
 #   clipped-text       a text element that clips (overflow hidden or clip, or
 #                      text-overflow) with scroll size past client size, or text
 #                      or a control partly cut off by an ancestor's hidden or
-#                      clip overflow (a button sliced by the phone edge). Content
-#                      inside a scrollable (overflow auto or scroll) container is
-#                      reachable by scrolling, so it is not reported.
+#                      clip overflow (a button sliced by the phone edge). A
+#                      scrollable (overflow auto or scroll) container does not
+#                      count as a cut, since its content is reachable by
+#                      scrolling; only its visible part is checked against outer
+#                      clipping ancestors.
 #   caption-safe       a visible control or device frame reaching into the
 #                      bottom caption band (CAPTION_BAND of the viewport height),
 #                      where players draw cues.
@@ -144,16 +146,24 @@ module PrototypeUxLint
       const trim = (t, n) => { const s = (t || '').replace(/\s+/g, ' ').trim(); return s.slice(0, n); };
       // A readable name for a finding: role plus accessible name, else the
       // nearest heading, else the element's own trimmed text.
+      const HEADING = 'h1, h2, h3, h4, h5, h6, [role=heading]';
+      // The closest heading at or before el in document order, walking up
+      // through each ancestor's earlier siblings.
+      const nearestHeading = (el) => {
+        for (let n = el; n && n.nodeType === 1 && n !== document.body; n = n.parentElement) {
+          for (let s = n; s; s = s.previousElementSibling) {
+            const h = s.matches(HEADING) ? s : (s !== n && s.querySelector(HEADING));
+            if (h && h.textContent.trim()) return h;
+          }
+        }
+        return null;
+      };
       const label = (el) => {
         const role = el.getAttribute('role') || ROLE[el.tagName];
         const name = trim(role || el.hasAttribute('aria-label') || el.hasAttribute('aria-labelledby') ? accName(el) : '', 50);
         if (name) return (role || el.tagName.toLowerCase()) + ' "' + name + '"';
-        for (let n = el; n && n.nodeType === 1 && n !== document.body; n = n.parentElement) {
-          for (let s = n; s; s = s.previousElementSibling) {
-            const h = s.matches('h1, h2, h3, h4, h5, h6, [role=heading]') ? s : (s !== n && s.querySelector('h1, h2, h3, h4, h5, h6, [role=heading]'));
-            if (h && h.textContent.trim()) return el.tagName.toLowerCase() + ' under heading "' + trim(h.textContent, 50) + '"';
-          }
-        }
+        const h = nearestHeading(el);
+        if (h) return el.tagName.toLowerCase() + ' under heading "' + trim(h.textContent, 50) + '"';
         const text = trim(el.textContent, 50);
         return text ? el.tagName.toLowerCase() + ' "' + text + '"' : el.tagName.toLowerCase();
       };
@@ -222,17 +232,26 @@ module PrototypeUxLint
           return { left, top, right: left + n.clientWidth * sx, bottom: top + n.clientHeight * sy };
         };
         const partly = (r, b) => r.right > b.left && r.left < b.right && r.bottom > b.top && r.top < b.bottom && (r.left < b.left - 1 || r.top < b.top - 1 || r.right > b.right + 1 || r.bottom > b.bottom + 1);
-        const cutBy = (el, rects) => {
+        const outside = (r, b) => r.right <= b.left || r.left >= b.right || r.bottom <= b.top || r.top >= b.bottom;
+        const within = (r, b) => ({ left: Math.max(r.left, b.left), top: Math.max(r.top, b.top), right: Math.min(r.right, b.right), bottom: Math.min(r.bottom, b.bottom) });
+        const cutBy = (el, start) => {
+          let rects = start;
           for (let a = el.parentElement; a && a !== document.documentElement; a = a.parentElement) {
             const cs = getComputedStyle(a);
             const ov = cs.overflowX + ' ' + cs.overflowY;
-            // Inside a scrollable container the content is reachable by scrolling.
-            if (/auto|scroll/.test(ov)) return null;
+            // A scroll box is no cut (its content is reachable by scrolling),
+            // but only its visible part can be cut by an outer ancestor.
+            if (/auto|scroll/.test(ov)) {
+              const b = clipBox(a);
+              rects = rects.filter((r) => !outside(r, b)).map((r) => within(r, b));
+              if (!rects.length) return null;
+              continue;
+            }
             if (!/hidden|clip/.test(ov)) continue;
             const b = clipBox(a);
             if (rects.some((r) => partly(r, b))) return a;
             // Wholly clipped away here, so no outer ancestor shows any of it.
-            if (rects.every((r) => r.right <= b.left || r.left >= b.right || r.bottom <= b.top || r.top >= b.bottom)) return null;
+            if (rects.every((r) => outside(r, b))) return null;
           }
           return null;
         };
@@ -446,9 +465,12 @@ module PrototypeUxLint
   # The one-line verdict for a run: PASS, or N findings across M scenes.
   def summary(reports)
     found = distinct(reports)
-    return "PASS (#{reports.size} scene(s))" if found.empty?
+    verdict(scenes: reports.size, findings: found.size, hit: found.flat_map(&:last).uniq.size)
+  end
 
-    "#{found.size} finding(s) across #{found.flat_map(&:last).uniq.size} scene(s)"
+  # Shared with WalkthroughClipcheck.summary so both gates read alike.
+  def verdict(scenes:, findings:, hit:)
+    findings.zero? ? "PASS (#{scenes} scene(s))" : "#{findings} finding(s) across #{hit} scene(s)"
   end
 
   # Raises when any finding is open, unless allowed.
