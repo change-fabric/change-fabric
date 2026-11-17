@@ -119,6 +119,17 @@ class WalkthroughDeliverablesTest < Minitest::Test
     assert_empty WalkthroughElement.errors(card)
   end
 
+  def test_a_tap_that_navigates_into_a_pending_scene_is_blocked_too
+    b = { "fps" => 30, "scenes" => [
+      { "id" => "list", "order" => 1, "interactions" => [ { "op" => "tap", "target" => "#row", "t_ms" => 500, "navigate" => true } ] },
+      { "id" => "detail", "order" => 2, "session_from_scene" => "list", "pending" => { "reason" => "not deployed" } },
+      { "id" => "after", "order" => 3, "session_from_scene" => "list" },
+      { "id" => "free", "order" => 4 }
+    ] }
+    assert_equal({ "detail" => "not deployed", "list" => "needs scene detail, not deployed",
+                   "after" => "needs scene list, needs scene detail, not deployed" }, B.blocked(b))
+  end
+
   def test_pending_needs_a_reason
     assert_empty WalkthroughStoryboard.pending_errors({ "pending" => { "reason" => "waiting" } })
     refute_empty WalkthroughStoryboard.pending_errors({ "pending" => {} })

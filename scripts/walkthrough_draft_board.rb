@@ -60,15 +60,28 @@ module WalkthroughDraftBoard
 
   PARENT_KEYS = [ %w[session_from_scene], %w[compose from_scene], %w[store from_scene] ].freeze
 
-  # { id => reason } for the pending scenes and, in story order, every scene
-  # whose parent is one of them.
+  # { id => reason } for the pending scenes, every scene whose parent is
+  # one of them, and every scene whose navigate tap lands on one, repeated
+  # until nothing more is blocked.
   def blocked(board)
-    WalkthroughStoryboard.scenes(board).each_with_object({}) do |scene, out|
-      next out[scene['id']] = reason(scene) if pending?(scene)
+    list = WalkthroughStoryboard.scenes(board)
+    out = list.select { |sc| pending?(sc) }.to_h { |sc| [ sc['id'], reason(sc) ] }
+    loop do
+      added = list.each_cons(2).to_a.push([ list.last, nil ]).filter_map do |scene, nxt|
+        next if out.key?(scene['id'])
 
-      parent = PARENT_KEYS.map { |path| scene.dig(*path) }.find { |id| out.key?(id) }
-      out[scene['id']] = "needs scene #{parent}, #{out[parent]}" if parent
+        other = PARENT_KEYS.map { |path| scene.dig(*path) }.find { |id| out.key?(id) }
+        other ||= nxt['id'] if nxt && out.key?(nxt['id']) && navigates?(scene)
+        [ scene['id'], "needs scene #{other}, #{out[other]}" ] if other
+      end
+      return out if added.empty?
+
+      out.merge!(added.to_h)
     end
+  end
+
+  def navigates?(scene)
+    WalkthroughStoryboard.interaction_lists(scene).any? { |_, ops| ops.any? { |op| op.is_a?(Hash) && op['navigate'] == true } }
   end
 
   def placeholder(board, scene, why = reason(scene))

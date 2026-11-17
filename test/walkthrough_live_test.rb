@@ -376,6 +376,9 @@ class WalkthroughLiveTest < Minitest::Test
     assert_equal "not deployed", reasons["sign-in"]
     assert_equal "needs scene sign-in, not deployed", reasons["dashboard"]
     refute_includes shots, "dashboard"
+    saved = JSON.parse(File.read(File.join(@root, "storyboard.json")))["scenes"].find { |sc| sc["id"] == "dashboard" }
+    assert_equal "sign-in", saved["session_from_scene"], "a blocked scene is written back as authored"
+    refute saved.key?("pending")
   end
 
   def test_render_sources_sessions_and_caches_live_scenes

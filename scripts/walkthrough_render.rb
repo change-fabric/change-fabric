@@ -1062,12 +1062,12 @@ module WalkthroughRender
 
     # -- drafts -----------------------------------------------------------------
 
-    # The board written back: resolved anchors dropped, and each pending
-    # scene kept as authored rather than as its placeholder card.
+    # The board written back: resolved anchors dropped, and every scene
+    # rendered as a placeholder (pending, or blocked by one) kept as authored.
     def authored_board
       out = WalkthroughStoryboard.authored(@board)
-      pending = Array(@source['scenes']).select { |sc| WalkthroughDraftBoard.pending?(sc) }
-      originals = pending.to_h { |sc| [ sc['id'], sc ] }
+      cards = WalkthroughDraftBoard.placeholders(@board)
+      originals = Array(@source['scenes']).select { |sc| cards.key?(sc['id']) }.to_h { |sc| [ sc['id'], sc ] }
       out['scenes'] = out['scenes'].map { |sc| originals.fetch(sc['id'], sc) }
       out
     end
