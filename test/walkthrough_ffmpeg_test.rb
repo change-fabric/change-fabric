@@ -121,7 +121,7 @@ class WalkthroughFfmpegTest < Minitest::Test
     refute(argv.any? { |a| a.include?("%06d") })
     g = graph(argv)
     assert_equal "[0:a]#{NORM},adelay=delays=0:all=1,#{BOUND}[n0]", g.first
-    assert_match(/loudnorm=I=-16:TP=-1\.5:LRA=11:print_format=json,/, g.last)
+    assert_match(/loudnorm=I=-16:TP=-3:LRA=11:print_format=json,/, g.last)
     refute_match(/alimiter/, g.last, "pass 1 measures the raw mix")
     assert_equal [ "-map", "[aout]", "-f", "null", "-" ], argv.last(5)
   end
