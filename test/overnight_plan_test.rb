@@ -83,6 +83,28 @@ class OvernightPlanTest < Minitest::Test
                  "k6 stays on by inheritance; zap keeps its base enabled: false"
   end
 
+  def test_tag_rule_without_profile_uses_default_profile
+    repo = repo_with("CHANGE.md" => <<~MD)
+      ---
+      change_config:
+        default_profile: prod
+        lanes:
+          browserless: {}
+        profiles:
+          prod:
+            lanes:
+              k6: {}
+      change_policy:
+        promotion:
+          "tag:v*":
+            environment: production
+      ---
+    MD
+    m = OvernightPlan.manifest(repo)
+    assert_equal %w[browserless k6], m["fields"]["production_lanes"]["value"]
+    assert_includes m["capabilities"]["production-tag"], "production profile runs k6"
+  end
+
   def test_conflicting_safety_field_is_a_denial_not_a_guess
     m = manifest
     assert_nil m["fields"]["migration_command"]["value"]

@@ -114,8 +114,10 @@ only the five away floor questions may be asked.
    is granted in reconcile mode, which plans nothing new until every action
    is reconciled.
 5. Ownership lock: the run takes the repo's ACTIVE claim shared with
-   cf:sweep stack mode, plus a per-target lock. A second run id on the same
-   target is refused.
+   cf:sweep stack mode and holds its LEASE (heartbeated with the run lease,
+   so sweep stale recovery cannot release it), plus a per-target lock. A
+   second run id on the same target is refused. Claim and release both need
+   the live fencing token.
 6. `resume` with no run id picks the only unfinished run and refuses when
    there are several.
 

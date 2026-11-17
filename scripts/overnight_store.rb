@@ -310,6 +310,7 @@ class OvernightStore
       holder = check_token!(token, :any, now)
       holder['expires_at'] = (now + LEASE_TTL).iso8601
       write_atomic(lease_path, holder)
+      stack.heartbeat(session: holder['session_id'], now: now) if stack.claimed?
       holder
     end
   end
@@ -327,9 +328,13 @@ class OvernightStore
   # Ownership lock: the repo's ACTIVE claim, shared with cf:sweep stack mode
   # (#448), so an overnight run and a sweep never land into one repo at once,
   # plus a per-target lock so a second run id on the same deployment target
-  # is refused.
-  def claim_target(target:)
-    StackStore.new(@repo_id, "overnight-#{@run_id}").claim(source: 'overnight')
+  # is refused. The claim also holds the stack LEASE under this run's session,
+  # heartbeated by renew_lease, so sweep's stale recovery sees a live holder
+  # and cannot release the claim mid-run.
+  def claim_target(target:, token:)
+    holder = with_lock { check_token!(token, :any) }
+    stack.claim(source: 'overnight')
+    stack.lease(session: holder['session_id'], now: clock.call)
     file = target_lock_path(target)
     data = { 'slug' => @run_id, 'target' => target.to_s, 'claimed_at' => clock.call.iso8601 }
     return data if StackStore.publish_exclusive(file, data)
@@ -351,9 +356,12 @@ class OvernightStore
       file = target_lock_path(target)
       holder = StackStore.holder(file)
       FileUtils.rm_f(file) if holder.is_a?(Hash) && holder['slug'] == @run_id
-      StackStore.new(@repo_id, "overnight-#{@run_id}").release
+      stack.unlease(session: lease&.dig('session_id'))
+      stack.release
     end
   end
+
+  def stack = StackStore.new(@repo_id, "overnight-#{@run_id}")
 
   def target_lock_path(target) = File.join(OvernightStore.repo_base(@repo_id), "TARGET-#{StackStore.segment(target)}")
 

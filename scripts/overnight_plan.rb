@@ -183,7 +183,9 @@ module OvernightPlan
     return out unless pattern
 
     out << [ 'production_trigger', decl("tag #{pattern}", text, "tag:#{pattern}") ]
-    profile = policy.profile_for_rule(rule)
+    # As ChangeConfig#resolve_profile_name: a rule without a profile runs
+    # default_profile when one is set.
+    profile = policy.profile_for_rule(rule) || front.dig('change_config', 'default_profile')&.to_s
     lanes = production_lanes(front['change_config'], profile)
     out << [ 'production_lanes', decl(lanes.join(', '), text, profile ? "profile: #{profile}" : 'lanes:') ] if lanes
     out
@@ -383,8 +385,8 @@ module OvernightPlan
       add[step, 'none', 'flags denied', "skipped: #{caps['flags'].join('; ')}"]
     else
       smoke = step.include?('smoke')
-    add[step, command, 'flags adapter tested at intake (planned: set then read back in staging)',
-        smoke ? 'pass' : 'read-back equals the agreed-final state', smoke ? "smoke #{DEADLINES['smoke']}m" : nil]
+      add[step, command, 'flags adapter tested at intake (planned: set then read back in staging)',
+          smoke ? 'pass' : 'read-back equals the agreed-final state', smoke ? "smoke #{DEADLINES['smoke']}m" : nil]
     end
   end
 

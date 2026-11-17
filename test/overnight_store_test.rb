@@ -15,7 +15,8 @@ class OvernightStoreTest < Minitest::Test
     @home = Dir.mktmpdir
     @prev = Dir.home
     ENV["HOME"] = @home
-    @now = Time.utc(2026, 1, 1, 22, 0, 0)
+    # Real time: StackStore judges its LEASE heartbeat against the wall clock.
+    @now = Time.now.utc
   end
 
   def teardown
@@ -214,22 +215,44 @@ class OvernightStoreTest < Minitest::Test
     assert_equal [ "r1" ], OvernightStore.unfinished(REPO)
   end
 
+  def leased(run, session)
+    s = fresh(run)
+    [ s, s.acquire_lease(session: session)["token"] ]
+  end
+
   def test_two_run_ids_on_one_target_are_refused
-    fresh("r1").claim_target(target: "production")
-    assert_equal "r1", store("r1").claim_target(target: "production")["slug"], "the owner reclaims"
-    token = store("r1").acquire_lease(session: "a")["token"]
+    r1, token = leased("r1", "a")
+    r1.claim_target(target: "production", token: token)
+    assert_equal "r1", r1.claim_target(target: "production", token: token)["slug"], "the owner reclaims"
+    r2, token2 = leased("r2", "c")
+    assert_raises(OvernightStore::Held) { r2.claim_target(target: "production", token: token2) }
+  end
+
+  def test_stale_holder_cannot_release_ownership
+    r1, token = leased("r1", "a")
+    r1.claim_target(target: "production", token: token)
     advance
     taken = store("r1").acquire_lease(session: "b")["token"]
     assert_raises(OvernightStore::StaleToken) { store("r1").release_target(target: "production", token: token) }
-    assert File.exist?(store("r1").target_lock_path("production")), "the stale holder released nothing"
+    assert File.exist?(r1.target_lock_path("production")), "the stale holder released nothing"
     store("r1").release_target(target: "production", token: taken)
-    fresh("r2").claim_target(target: "production")
-    assert_raises(OvernightStore::Held) { store("r1").claim_target(target: "production") }
+    r2, token2 = leased("r2", "c")
+    r2.claim_target(target: "production", token: token2)
+  end
+
+  def test_sweep_stale_recovery_cannot_release_a_live_overnight_claim
+    r1, token = leased("r1", "a")
+    r1.claim_target(target: "production", token: token)
+    claim = StackStore.new(REPO, "overnight-r1")
+    assert_raises(StackStore::Invalid) { claim.release(stale: true) }
+    assert claim.claimed?
+    assert_raises(StackStore::Held) { StackStore.new(REPO, "sweep-12-14").claim(source: "stack") }
   end
 
   def test_ownership_lock_is_shared_with_the_sweep_active_claim
     StackStore.new(REPO, "sweep-12-14").claim(source: "stack")
-    error = assert_raises(OvernightStore::Held) { fresh.claim_target(target: "production") }
+    s, token = leased("r1", "a")
+    error = assert_raises(OvernightStore::Held) { s.claim_target(target: "production", token: token) }
     assert_match(/sweep-12-14/, error.message)
   end
 end
