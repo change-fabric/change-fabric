@@ -1032,6 +1032,32 @@ class WalkthroughRenderTest < Minitest::Test
     assert_equal %w[silent narrated], kinds
   end
 
+  # A failed free cut stops the run before any paid call: the paid providers
+  # refuse outright, and none is ever reached.
+  def test_failed_silent_cut_stops_before_any_paid_call
+    refuse = ->(name) { ->(**) { raise "paid #{name} called after a failed silent cut" } }
+    ps = providers.merge(tts: refuse.call(:tts), music: refuse.call(:music), image: refuse.call(:image),
+                         broll: refuse.call(:broll), capture: ->(**) { raise Errno::ENOENT, "walkthrough_ease.js" })
+    out = StringIO.new
+    err = assert_raises(Errno::ENOENT) { run_render(providers: ps, out: out) }
+    assert_includes err.message, "walkthrough_ease.js"
+    assert_match(/silent cut failed: Errno::ENOENT: .*walkthrough_ease\.js; the run stopped before any paid call/, out.string)
+    refute_includes out.string, "the run goes on"
+  end
+
+  # The documented exception (#464): an uncached generated image is a paid
+  # step, so the free cut is skipped, said plainly, and the paid run goes on.
+  def test_silent_cut_skipped_for_an_uncached_generated_image
+    b = board
+    b["scenes"][0]["images"] = [ { "prompt" => "a hero", "size" => "1024x1024" } ]
+    File.write(File.join(@root, "storyboard.json"), JSON.pretty_generate(b))
+    out = StringIO.new
+    run_render(out: out)
+    assert_includes out.string, "silent cut: skipped: scene list needs an uncached generated image"
+    assert_equal 3, @calls[:tts].size, "the paid run goes on"
+    assert_equal %w[list detail hero], @calls[:capture], "only the narrated draft captured"
+  end
+
   def test_silent_cut_writes_nothing_back
     before = File.read(File.join(@root, "storyboard.json"))
     run = WalkthroughRender::Run.new(@root, providers: providers, out: StringIO.new, silent: true,

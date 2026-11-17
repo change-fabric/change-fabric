@@ -181,6 +181,35 @@ class InstallerTest < Minitest::Test
     end
   end
 
+  # Every file a script reads relative to its own __dir__ (a literal
+  # File.join(__dir__, ...) or File.expand_path(..., __dir__) that resolves
+  # inside scripts/) must sit at the same place in both installed bins. The
+  # walkthrough JS helpers once shipped in neither.
+  def test_every_dir_relative_file_a_script_loads_is_installed
+    paths = install
+    scripts = File.join(@repo, "scripts")
+    needed = dir_relative_reads(scripts)
+    assert_includes needed, File.join(scripts, "walkthrough_ease.js")
+    needed.each do |path|
+      relative = path.delete_prefix("#{scripts}/")
+      [ paths.bin, paths.runtime_bin ].each do |bin|
+        assert File.exist?(File.join(bin, relative)), "#{bin} is missing scripts/#{relative}"
+      end
+    end
+  end
+
+  def dir_relative_reads(scripts)
+    found = Dir.glob(File.join(scripts, "**", "*.rb")).flat_map do |file|
+      src = File.read(file)
+      dir = File.dirname(file)
+      joins = src.scan(/File\.join\(__dir__,\s*((?:'[^'#]*'\s*,?\s*)+)\)/).map do |(args)|
+        File.join(dir, *args.scan(/'([^']*)'/).flatten)
+      end
+      joins + src.scan(/File\.expand_path\('([^'#]*)',\s*__dir__\)/).map { |(rel)| File.expand_path(rel, dir) }
+    end
+    found.uniq.select { |path| path.start_with?("#{scripts}/") && File.file?(path) }
+  end
+
   def test_the_installed_axe_bundle_is_where_the_a11y_lane_looks_for_it
     paths = install
     relative = ChangeLaneA11y::AXE_BUNDLE.delete_prefix("#{File.join(@repo, 'scripts')}/")
