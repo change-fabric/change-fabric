@@ -46,6 +46,8 @@ module WalkthroughManifest
     }
     eq = WalkthroughStoryboard.voice_eq(board)
     manifest['voice_eq'] = eq if eq
+    look = WalkthroughLook.plan(board)
+    manifest['look'] = look.transform_keys(&:to_s) if look
     manifest.merge('manifest_hash' => manifest_hash(manifest))
   end
 

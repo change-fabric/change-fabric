@@ -519,10 +519,10 @@ class WalkthroughDiagramTest < Minitest::Test
   # out, retaken when the frame script gained safe_inset; the runtime's own
   # bytes are covered by capture tests, which give the same frames.
   ICONLESS_SCREENS = {
-    "architecture" => "569c58b00f63721d4211b0356e98ef5b3a1158c21a6310cb09e97d190ae4c039",
-    "diagram-colors" => "657f9f1226f06c3d1d43718e2a6d5603d6633ef2031bae4d6cc4323fc676d51d",
-    "diagram-flow" => "e5fc0757492518e6f98a60e125e48c2be37321d6b6c6af766ee8feb1c9271f70",
-    "diagram-lr" => "274e3388072a14f499a9896ff7859b5c2291d1a1097c9ee48a9037fb013b3986"
+    "architecture" => "2ee8dd11b072cc71da81dfa0dd9d4a52f2b03bf9d7a06c890ee46c01122c4b54",
+    "diagram-colors" => "6d527cabad93d682842b124ed98c492d2f88eeab88659aa2c28a623a94793b7a",
+    "diagram-flow" => "565c6a593f03be092fefb7b3c412dd6b4ce9792b77511b56228ebc4f9d9eb8c8",
+    "diagram-lr" => "ff4a0c3fe885b2e3555769da0f21c7c020ac366ceb9ed3286669ee49de4aab32"
   }.freeze
 
   def test_iconless_screens_keep_their_bytes

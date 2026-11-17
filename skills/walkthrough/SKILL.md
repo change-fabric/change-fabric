@@ -81,6 +81,13 @@ A `kind: "element"` scene is a short element film: one centered idea per frame o
 - Screen: none to write. The page is built in memory at capture from the scene, so there is no generated file and no drift; its key covers the page, the element runtime, and the helper.
 - Cost: no paid call beyond narration, as for a diagram. Element and diagram boards capture at 60 fps, and the clip check covers every element frame.
 
+## Look
+
+Depth is on by default in both themes: element and diagram pages draw cards and nodes on `--shadow-1` and `--shadow-2` over a two-stop `--bg-gradient` (the surface with a breath of accent at the top), all derived from the walkthrough's tokens. Grain and vignette are the opt-in board `look` (`{ "grain": 0..30, "vignette": true | false | radians }`, schema reference, Top level), added in the final FFmpeg pass on a fixed noise seed; a board without `look`, or with both off, renders byte for byte as before.
+
+- Choose per film with cf:imagine: the theme (dark or light) and whether the film wears grain and a vignette are a creative direction, so run cf:imagine (free by default) on the film's tone and record the pick in its `docs/creative/` record before setting `theme` and `look`. No house theme or look is imposed.
+- Keep grain low (4 to 8): it costs bitrate, and high grain bands under compression. Check the draft before raising it.
+
 ## Gates
 
 Two gates stand between a draft and `--final`.

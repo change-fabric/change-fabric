@@ -18,6 +18,7 @@
   "voice": { "provider": "elevenlabs", "voice_id": "string", "model": "eleven_multilingual_v2", "output_format": "mp3_44100_128" },
   "music": { "provider": "elevenlabs", "model": "music_v1", "prompt": "string", "composition_plan": null, "gain_db": -18 },
   "cursor": { "sprite": "default", "scale": 1.0 },
+  "look": { "grain": 6, "vignette": true },
   "hypotheses": [{ "id": "H-01", "text": "string", "dimension": "role|look_and_feel" }],
   "review": { "kind": "explainer|promo|demo", "audience": "string", "purpose": ["outcome a viewer must be able to state afterward"] },
   "scenes": []
@@ -39,6 +40,8 @@ Clip check (free, `scripts/walkthrough_clipcheck.rb`, run by every render after 
 `voice.eq` is optional narration EQ applied to the narration bus before the music duck: `"warm"` or `{ "low_shelf_hz": 150, "low_shelf_db": 3, "cut_hz": 3500, "cut_db": -2.5 }` (each hz/db pair optional but all-or-nothing, 20-20000 Hz, +-24 dB); it changes the manifest hash and so re-assembles, never `audio_key`.
 
 `music` may be `null` for a narration-only walkthrough.
+
+`look` is optional and off by default: `{ "grain": 6, "vignette": true }`. `grain` is an integer from 0 to 30 (FFmpeg temporal noise on a fixed seed, so a frame renders the same bytes every time; 4 to 8 reads as film, higher bands at low bitrate). `vignette` is `true` (angle pi/5), `false`, or an angle in radians above 0 and at most pi/2. Both are applied to the whole film in the final pass, before any burned captions, so captions stay clean. A `look` that is absent, or has `grain: 0` and `vignette: false`, plans nothing and leaves the render argv byte-identical. It changes the manifest hash and so re-assembles, never a `frames_key`. The look is a per-film creative choice made through cf:imagine. Separately, the depth tokens `--shadow-1`, `--shadow-2`, `--bg-from`, `--bg-to`, and `--bg-gradient` are always set on element and diagram pages in both themes; they are not part of `look`.
 
 `viewport.dpr` is optional. When it is absent, every capture (prototype, environment, live, compose) derives it per scene from the slot the desktop fills on the scene's stage: the stage is the canvas times `camera.zoom` when it magnifies (or 1.12x for a hero still's push-in), and the slot is that stage inside any browser frame. The dpr is the least integer that fills the slot to within 1.05x, clamped to 1..4: an unzoomed full-bleed scene stays at dpr 1, a 1.5x zoom captures at dpr 2. A phone's `dpr` is a floor the same rule can raise, and every device of a scene captures at the scene's largest dpr, which is also the scale the browser is launched at (headless Chromium's screencast and raw screenshots ignore an emulated dpr otherwise). Frames are stored on the stage and only ever scaled down before the camera crops, so no scene upsamples small text. Captures run with grayscale text antialiasing (LCD subpixel fringes smear under 4:2:0 chroma) and with the page's own cursor hidden, so the composited sprite is the only cursor. An explicit `dpr` always wins; pin `"dpr": 1` only when a soft zoom is acceptable. Every render prints a sharpness line from `scripts/walkthrough_sharpness.rb`: a capture stretched more than 1.05x into its slot (only possible under a pinned dpr) is listed as a warning. The derived dpr and the stage are in every `frames_key`, so changing a zoom recaptures. A crossfade parks the outgoing scene's cursor for the overlap, so two cursors never show at once.
 
@@ -412,7 +415,7 @@ Beat types and their fields:
 | type | Fields | Draws |
 | --- | --- | --- |
 | `statement` | `lines`: 1 or 2 strings, at most 36 characters each | Serif display text (`--font-serif`, Source Serif 4) at the statement size (96 px at 1080p), centered. |
-| `card` | `title` (required), `subtitle`, `badge`, `rows` (0 to 5 `{ label, value }`), `width` (320..1200, default 720) | A product card rebuilt at real size in the theme's surface, rule, and accent colours, with a soft shadow. |
+| `card` | `title` (required), `subtitle`, `badge`, `rows` (0 to 5 `{ label, value }`), `width` (320..1200, default 720) | A product card rebuilt at real size in the theme's surface, rule, and accent colours, with the theme's `--shadow-2`. |
 | `number` | `value` (number, required), `format`, `label` | A large number in tabular figures, its box as wide as the widest value it ever shows, so a count never changes its width. |
 | `line` | `points` (2 to 32 numbers), `projection` (1 to 32 numbers), `label` | A line with a gradient area fill; a `projection` continues it dashed and ends in a glow dot, fading in once the line is whole. |
 | `cursor` | `rows` (2 to 6 strings), `click` (row number, required), `click_ms` (after the landing, default 400), `controls` (0 to 4 `{ label, dims }`) | A list; a pointer glides in over 600 ms and clicks row `click`, which tints, and every control with `dims: true` dims to 0.35. |

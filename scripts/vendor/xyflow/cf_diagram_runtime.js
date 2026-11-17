@@ -87,16 +87,18 @@
   style.textContent = `${X.css}
 html, body, #cf-diagram-root { margin: 0; width: 100%; height: 100%; }
 :root { --font-sans: "Inter", system-ui, sans-serif; --font-serif: "Source Serif 4", Georgia, serif; }
-.react-flow { --xy-background-color: var(--cf-surface, #ffffff); background: var(--cf-surface, #ffffff); }
+body { background: var(--bg-gradient, var(--cf-surface, #ffffff)); }
+.react-flow { --xy-background-color: transparent; background: transparent; }
 .cf-node { box-sizing: border-box; height: ${NODE_H}px; display: flex; align-items: center; justify-content: center;
   padding: 0 12px; border: 2px solid var(--cf-line, #94a3b8); border-radius: 10px; background: var(--cf-node, #f8fafc);
-  color: var(--cf-text, #0f172a); font: 600 ${LABEL_PX}px/1.2 var(--font-sans, "Inter", system-ui, sans-serif); text-align: center; }
+  color: var(--cf-text, #0f172a); font: 600 ${LABEL_PX}px/1.2 var(--font-sans, "Inter", system-ui, sans-serif); text-align: center;
+  box-shadow: var(--shadow-1, none); }
 .cf-node[data-role="accent"] { border-color: var(--cf-accent, #2563eb); background: var(--cf-accent-tint, #dbeafe); }
 .cf-node[data-role="muted"] { border-color: var(--cf-rule, #cbd5e1); background: var(--cf-surface, #ffffff); color: var(--cf-muted, #475569); }
 .cf-node .react-flow__handle { visibility: hidden; pointer-events: none; }
 .cf-node .react-flow__handle-right { right: -4px; } .cf-node .react-flow__handle-left { left: -4px; }
 .cf-node .react-flow__handle-top { top: -4px; } .cf-node .react-flow__handle-bottom { bottom: -4px; }
-.react-flow__node[data-cf-hl="1"] .cf-node { border-color: var(--cf-accent, #2563eb); box-shadow: 0 0 0 4px var(--cf-accent-tint, #dbeafe); }
+.react-flow__node[data-cf-hl="1"] .cf-node { border-color: var(--cf-accent, #2563eb); box-shadow: 0 0 0 4px var(--cf-accent-tint, #dbeafe), var(--shadow-1, 0 0 #0000); }
 .react-flow__edge-path { stroke: var(--cf-line, #94a3b8); stroke-width: 2; }
 .react-flow__edge[data-cf-hl="1"] .react-flow__edge-path { stroke: var(--cf-accent, #2563eb); stroke-width: 3; }
 .cf-flow-halo { fill: var(--cf-accent-tint, #dbeafe); fill-opacity: 0.85; stroke: var(--cf-accent, #2563eb); stroke-opacity: 0.25; stroke-width: 1; }
@@ -104,7 +106,7 @@ html, body, #cf-diagram-root { margin: 0; width: 100%; height: 100%; }
 .cf-node-icon { flex: none; width: ${ICON_PX}px; height: ${ICON_PX}px; margin-right: ${ICON_GAP}px; fill: currentColor; }
 .cf-node[data-color] .cf-node-icon { color: var(--cf-item); }
 .cf-node[data-color] { border-color: var(--cf-item); background: var(--cf-item-tint); color: var(--cf-text, #0f172a); }
-.react-flow__node[data-cf-hl="1"] .cf-node[data-color] { border-color: var(--cf-item); box-shadow: 0 0 0 4px var(--cf-item-ring); }
+.react-flow__node[data-cf-hl="1"] .cf-node[data-color] { border-color: var(--cf-item); box-shadow: 0 0 0 4px var(--cf-item-ring), var(--shadow-1, 0 0 #0000); }
 .react-flow__edge.cf-colored .react-flow__edge-path { stroke: var(--cf-item); }
 .react-flow__edge.cf-colored[data-cf-hl="1"] .react-flow__edge-path { stroke: var(--cf-item); stroke-width: 3; }
 .react-flow__edge-text { fill: var(--cf-text, #0f172a); font: 500 ${LABEL_PX}px var(--font-sans, "Inter", system-ui, sans-serif); }
