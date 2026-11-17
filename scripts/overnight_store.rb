@@ -331,8 +331,16 @@ class OvernightStore
   # is refused. The claim also holds the stack LEASE under this run's session,
   # heartbeated by renew_lease, so sweep's stale recovery sees a live holder
   # and cannot release the claim mid-run.
+  # The whole acquisition runs under the run lock that release_target also
+  # takes, so a holder whose lease expires mid-claim cannot re-create
+  # ownership after its successor released it.
   def claim_target(target:, token:)
-    holder = with_lock { check_token!(token, :any) }
+    with_lock { claim_target_locked(target, check_token!(token, :any)) }
+  rescue StackStore::Held => e
+    raise Held.new("repo is claimed by #{e.holder ? e.holder['slug'] : 'an incomplete holder'}", e.holder)
+  end
+
+  def claim_target_locked(target, holder)
     stack.claim(source: 'overnight')
     stack.lease(session: holder['session_id'], now: clock.call)
     file = target_lock_path(target)
@@ -344,9 +352,8 @@ class OvernightStore
 
     raise Held.new("target #{target} is owned by run #{holder.is_a?(Hash) ? holder['slug'] : 'unknown'}",
                    holder.is_a?(Hash) ? holder : nil)
-  rescue StackStore::Held => e
-    raise Held.new("repo is claimed by #{e.holder ? e.holder['slug'] : 'an incomplete holder'}", e.holder)
   end
+  private :claim_target_locked
 
   # Fenced: a holder whose lease was taken over cannot drop the successor's
   # ownership and let a sweep claim the repo mid-run.

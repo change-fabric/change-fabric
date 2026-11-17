@@ -218,7 +218,7 @@ class OvernightPlanTest < Minitest::Test
 
   def test_merge_ready_hands_the_merge_to_stack_watch
     steps = OvernightPlan.schedule({ "id" => "p1", "origin" => "new" }, manifest, "merge-ready", false)
-    assert_match(/stack_watch\.rb/, steps.find { |s| s[0] == "merge" }[1])
+    assert_match(/stack_watch\.rb --pr <pr> --repo /, steps.find { |s| s[0] == "merge" }[1])
   end
 
   def test_yolo_refused_when_trunk_is_protected

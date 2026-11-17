@@ -356,7 +356,9 @@ module OvernightPlan
     add['review-gate', 'ruby ~/.claude/cf/bin/review_ack.rb <session_id>', 'review gate released', 'review recorded']
     add['change-gate', 'ruby ~/.claude/cf/bin/change_run.rb all', 'cf:change pass for the head sha', 'gate recorded']
     if mode == 'merge-ready'
-      add['merge', 'ruby ~/.claude/cf/bin/stack_watch.rb <pr>', 'ON-3 human merges; SW-2', 'merged tonight or handed over']
+      add['merge', 'ruby ~/.claude/cf/bin/stack_watch.rb --pr <pr> --repo <owner/name> --expect-sha <sha> ' \
+                   '--lease overnight-<run-id> --session <session_id>',
+          'ON-3 human merges; SW-2', 'merged tonight or handed over']
     else
       add['merge', 'gh pr merge <pr> --squash --admin --match-head-commit <sha>', 'ON-3 merge mode and SW-2', 'merged at <sha>']
     end
