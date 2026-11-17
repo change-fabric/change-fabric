@@ -871,7 +871,7 @@ module WalkthroughRender
     # roast/superseded/N/. --final never rescopes: it reports the change.
     def rescope_roast!(draft_keys)
       @roast_scenes = draft_keys.transform_values { |k| WalkthroughCache.key(k) }
-      archive = WalkthroughRoast.rescope!(roast_dir, @roast_scenes)
+      archive = WalkthroughRoast.rescope!(roast_dir, @roast_scenes, content: @content_key)
       say("roast: scenes changed materially, earlier rounds moved to #{relative(archive)}; a fresh loop starts") if archive
     end
 

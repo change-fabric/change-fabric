@@ -149,6 +149,23 @@ class WalkthroughRoastTest < Minitest::Test
     end
   end
 
+  # A capped loop roasted before scene tracking can still restart.
+  def test_a_legacy_ledger_restarts_once_on_changed_content_else_takes_a_baseline
+    Dir.mktmpdir do |dir|
+      round(dir, 4, [ issue("P1") ], score: 7)
+      WalkthroughRoast.record_content(dir, 4, "c1")
+      film = { "a" => "k1" }
+      assert_nil WalkthroughRoast.rescope!(dir, film, content: "c1")
+      assert_equal film, WalkthroughRoast.ledger(dir)["scenes"]
+    end
+    Dir.mktmpdir do |dir|
+      round(dir, 4, [ issue("P1") ], score: 7)
+      WalkthroughRoast.record_content(dir, 4, "c1")
+      assert WalkthroughRoast.rescope!(dir, { "a" => "k2" }, content: "c2")
+      assert_equal "no roast round yet", WalkthroughRoast.decide(dir, cap_usd: 99)[:reason]
+    end
+  end
+
   def test_capped_marker_ends_the_loop
     Dir.mktmpdir do |dir|
       round(dir, 1, [ issue("P2") ])

@@ -213,9 +213,25 @@ module WalkthroughRoast
   # Starts a fresh loop when the film changed materially since the loop's
   # scope was recorded: the rounds, keyframes and ledger move to superseded/N/, so the
   # round count, spend, and verdict restart. Returns the archive dir or nil.
-  def rescope!(dir, scenes)
+  #
+  # A ledger from before scene tracking has no baseline. Its loop restarts
+  # once if the content changed since its last round (it cannot tell a fix
+  # from a rework); otherwise the current scenes become its baseline.
+  def rescope!(dir, scenes, content: nil)
+    return nil unless scenes
+
     was = ledger(dir)['scenes']
-    return nil unless scenes && was && material_change?(was, scenes)
+    if was.nil?
+      last = Roast.load_history(dir).last
+      return nil unless last
+
+      unless content && ledger(dir)['content'][last[:round].to_s] != content
+        write_ledger(dir, ledger(dir).merge('scenes' => scenes))
+        return nil
+      end
+    elsif !material_change?(was, scenes)
+      return nil
+    end
 
     archive = File.join(dir, SUPERSEDED, (Dir.glob(File.join(dir, SUPERSEDED, '*')).size + 1).to_s)
     FileUtils.mkdir_p(archive)
