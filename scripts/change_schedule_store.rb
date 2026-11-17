@@ -45,14 +45,18 @@ class ChangeScheduleStore
   def latest_path = File.join(dir, LATEST)
 
   # Writes one run's record, repoints latest.json at it, prunes past RETAIN,
-  # and returns the record's path.
+  # and returns the record's path. An flock on .lock serializes overlapping
+  # runs, so pruning sees one consistent listing and never over-deletes.
   def write(record)
     FileUtils.mkdir_p(dir)
     body = JSON.pretty_generate(record)
-    path = reserve_and_write(stamp(record['finished_at']), body)
-    atomic_write(latest_path, body)
-    prune
-    path
+    File.open(File.join(dir, '.lock'), File::RDWR | File::CREAT) do |lock|
+      lock.flock(File::LOCK_EX)
+      path = reserve_and_write(stamp(record['finished_at']), body)
+      atomic_write(latest_path, body)
+      prune
+      path
+    end
   end
 
   def latest
@@ -97,6 +101,7 @@ class ChangeScheduleStore
 
   def prune
     excess = records.size - RETAIN
-    records.first(excess).each { |path| File.delete(path) } if excess.positive?
+    # rm_f: an overlapping writer may have pruned the same oldest file first.
+    records.first(excess).each { |path| FileUtils.rm_f(path) } if excess.positive?
   end
 end
