@@ -186,7 +186,7 @@ class InstallerTest < Minitest::Test
   def test_installs_the_walkthrough_js_runtimes_in_both_bins
     paths = install
     %w[walkthrough_ease.js walkthrough_element.js].each do |name|
-      [paths.bin, paths.runtime_bin].each do |root|
+      [ paths.bin, paths.runtime_bin ].each do |root|
         assert File.exist?(File.join(root, name)), "#{name} missing from #{root}"
       end
     end
