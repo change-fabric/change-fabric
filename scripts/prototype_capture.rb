@@ -32,6 +32,11 @@ module PrototypeCapture
   class ViewportMismatchError < StandardError; end
 
   FPS = 30
+  # A board made only of motion kinds (camera moves, eased entrances)
+  # defaults to 60 fps; a board with any screen scene keeps FPS, so screen
+  # capture time is not doubled. board.fps overrides either way.
+  MOTION_FPS = 60
+  MOTION_KINDS = [ WalkthroughDiagram::KIND ].freeze
   BATCH_FRAMES = 90
   # A diagram screen (scripts/vendor/xyflow/cf_diagram_runtime.js) sets
   # window.__cfDiagramReady = false on load and true once React Flow has
@@ -521,6 +526,13 @@ module PrototypeCapture
 
   def frame_ms(fps = FPS) = 1000.0 / fps
 
+  def board_fps(board) = board['fps'] || (motion_board?(board) ? MOTION_FPS : FPS)
+
+  def motion_board?(board)
+    scenes = Array(board['scenes'])
+    !scenes.empty? && scenes.all? { |s| s.is_a?(Hash) && MOTION_KINDS.include?(s['kind']) }
+  end
+
   def frame_count(duration_ms, fps = FPS) = (duration_ms * fps / 1000.0).ceil
 
   def frame_at(t_ms, fps = FPS) = (t_ms * fps / 1000.0).floor
@@ -750,6 +762,8 @@ module PrototypeCapture
         const dispatch = (#{DISPATCH_JS})(page, { aim: center, mobile: false, st });
         const frames = [];
         const cursor = [];
+        const boxes = [];
+        const hasBoxes = #{shots} && await page.evaluate(() => typeof window.__cfBoxes === "function");
         for (let i = 0; i <= last; i++) {
           const virtualMs = await page.evaluate((ms) => window.__cfAdvance(ms), stepMs);
           await page.evaluate((now) => {
@@ -773,6 +787,7 @@ module PrototypeCapture
               for (const d of await page.evaluate(() => window.__cfUx.devices())) devices.push(Object.assign({ frame: i }, d));
             }
             if (#{shots}) frames.push(#{BrowserlessJs.screenshot_js('client')});
+            if (hasBoxes) boxes.push(await page.evaluate(() => window.__cfBoxes()));
             cursor.push({ x: st.pos.x, y: st.pos.y, down: st.down });
           }
           st.down = false;
@@ -780,7 +795,7 @@ module PrototypeCapture
         const endState = await page.evaluate(() => (window.CFStore && typeof window.CFStore.dump === "function") ? window.CFStore.dump() : null);
         if (context) await context.close();
         const firstSeen = Object.fromEntries(Object.entries(overlays).filter(([, f]) => f >= first));
-        return { data: { frames, cursor, endState, blockedRequests, pageErrors, lint, devices, overlays: firstSeen }, type: "application/json" };
+        return { data: { frames, cursor, boxes, endState, blockedRequests, pageErrors, lint, devices, overlays: firstSeen }, type: "application/json" };
       }
     JS
   end
@@ -818,6 +833,7 @@ module PrototypeCapture
     # an older run's marker vouching for a mix of frames.
     FileUtils.rm_f(File.join(out_dir, 'end-state.json'))
     positions = []
+    boxes = []
     findings = []
     devices = []
     overlays = {}
@@ -840,14 +856,28 @@ module PrototypeCapture
         File.binwrite(File.join(out_dir, format('%06d.png', range.first + k + 1)), Base64.decode64(b64))
       end
       positions.concat(result['cursor'])
+      Array(result['boxes']).each_with_index { |b, k| boxes << { 'frame' => range.first + k, 't_ms' => (frame_ms(fps) * (range.first + k)).round, 'boxes' => b } }
       end_state = result['endState']
       measured = result['frames'].sum(&:bytesize) / [ result['frames'].size, 1 ].max
       size = batch_size(viewport, bytes_per_frame: measured)
     end
     File.write(File.join(out_dir, 'cursor.json'), JSON.pretty_generate(cursor_path(positions)))
+    write_boxes(out_dir, boxes, viewport)
     PrototypeUxLint.write(out_dir, PrototypeUxLint.scene_report(label, findings, overlays: overlays, devices: devices).merge('aim' => 'safe'))
     File.write(File.join(out_dir, 'end-state.json'), JSON.pretty_generate(end_state))
     out_dir
+  end
+
+  # The clip check's input: every captured frame's post-transform element
+  # boxes, for a screen that reports them (window.__cfBoxes). A screen that
+  # does not leaves no file, and a stale one from an older capture is removed.
+  def write_boxes(out_dir, boxes, viewport)
+    path = File.join(out_dir, 'boxes.json')
+    FileUtils.rm_f(path)
+    return if boxes.empty?
+
+    vp = DEFAULT_VIEWPORT.merge(viewport || {})
+    File.write(path, JSON.generate({ 'viewport' => { 'w' => vp['w'], 'h' => vp['h'] }, 'frames' => boxes }))
   end
 
   # Lints a scene whose frames are already cached, without screenshots: one
@@ -981,7 +1011,7 @@ module PrototypeCapture
     key = frames_key(html: sha256_file(html_path), inlined: Digest::SHA256.hexdigest(inline_screen(html_path, remap: remap, root: inline_root)),
                      tokens: board['tokens_css_sha256'], interactions: scene['interactions'] || [],
                      viewport: scene_viewport(board, scene), stage: WalkthroughSharpness.stage_size(board, scene),
-                     fps: board['fps'] || FPS, duration_ms: scene_duration(scene),
+                     fps: board_fps(board), duration_ms: scene_duration(scene),
                      seed: seed_path && sha256_file(seed_path),
                      mock_store: sha256_file(File.join(root, 'screens', 'mock-store.js')),
                      state: WalkthroughCache.key(state), prng_seed: prng, **(remap.empty? ? {} : { images: remap }),
@@ -997,10 +1027,10 @@ module PrototypeCapture
   # end-state.json that from_scene dependents resolve against.
   def capture_motion(board, scene, prep, session)
     duration = scene_duration(scene)
-    puts "#{scene['id']}: capturing #{frame_count(duration, board['fps'] || FPS)} frames"
+    puts "#{scene['id']}: capturing #{frame_count(duration, board_fps(board))} frames"
     capture(session: session, html: inline_screen(prep[:html_path], root: prep[:inline_root]), interactions: scene['interactions'] || [],
             duration_ms: duration, out_dir: prep[:out_dir], state: prep[:state], prng_seed: prep[:prng_seed],
-            viewport: scene_viewport(board, scene), fps: board['fps'] || FPS, label: scene['id'])
+            viewport: scene_viewport(board, scene), fps: board_fps(board), label: scene['id'])
     WalkthroughBrowserFrame.frame_dir!(board, scene, prep[:out_dir], work: prep[:root]) if WalkthroughBrowserFrame.browser?(scene)
   end
 

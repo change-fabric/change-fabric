@@ -6,6 +6,7 @@ require 'json'
 require_relative 'diagram_palette'
 require_relative 'diagram_text_fit'
 require_relative 'prototype_ux_lint'
+require_relative 'walkthrough_clipcheck'
 
 # Diagram scenes for cf:walkthrough: a full-frame React Flow diagram built and
 # moved on screen under the capture clock. The storyboard carries a `diagram`
@@ -698,11 +699,36 @@ module WalkthroughDiagram
     %(<script type="application/json" id="cf-diagram-icons">#{JSON.generate(paths.sort.to_h)}</script>\n)
   end
 
+  # The most nodes a diagram scene shows at once: `initial`, then add_node
+  # and remove replayed in step order. Over the density cap is a warning.
+  def max_visible_nodes(spec)
+    return 0 unless spec.is_a?(Hash)
+
+    node_ids = Array(spec['nodes']).grep(Hash).map { |n| n['id'] }
+    on = Array(spec['initial']) & node_ids
+    peak = on.size
+    Array(spec['steps']).grep(Hash).sort_by { |s| s['t_ms'].to_i }.each do |s|
+      ids = Array(s['ids'] || s['id']) & node_ids
+      on |= ids if s['op'] == 'add_node'
+      on -= ids if s['op'] == 'remove'
+      peak = [ peak, on.size ].max
+    end
+    peak
+  end
+
+  def density_warnings(scene)
+    cap = WalkthroughClipcheck.tokens.dig('density', 'max_visible_nodes')
+    peak = max_visible_nodes(scene['diagram'])
+    return [] if peak <= cap
+
+    [ "scene #{scene['id']}: #{peak} diagram nodes visible at once; the density cap is #{cap}, split the scene" ]
+  end
+
   # Where the scene sits in the frame: the bottom inset keeps the camera's
   # fit and focus targets above the caption band players draw cues in.
   def frame(board)
     viewport = PrototypeCapture::DEFAULT_VIEWPORT.merge((board || {})['viewport'] || {})
-    { 'bottom_inset' => (viewport['h'] * PrototypeUxLint::CAPTION_BAND).ceil }
+    { 'bottom_inset' => (viewport['h'] * PrototypeUxLint::CAPTION_BAND).ceil, 'safe_inset' => WalkthroughClipcheck.inset }
   end
 
   # The full, self-contained screen file for a diagram scene. root locates

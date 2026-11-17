@@ -223,6 +223,13 @@ class WalkthroughFfmpegTest < Minitest::Test
     assert_operator argv.index("-t"), :<, argv.index(plan[:output])
   end
 
+  def test_pass2_output_rate_follows_the_board_fps
+    argv = WalkthroughFfmpeg.pass2(plan, MEASURED)
+    assert_equal [ "-r", "30" ], argv[argv.rindex("-r"), 2]
+    argv = WalkthroughFfmpeg.pass2(plan.merge(fps: 60), MEASURED)
+    assert_equal [ "-r", "60" ], argv[argv.rindex("-r"), 2]
+  end
+
   def test_runaway_limit_is_timeline_plus_max_5s_or_5_percent
     assert_in_delta 11.0, WalkthroughFfmpeg.runaway_limit(6000)
     assert_in_delta 840.0, WalkthroughFfmpeg.runaway_limit(800_000)

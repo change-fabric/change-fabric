@@ -225,7 +225,7 @@ class WalkthroughDiagramTest < Minitest::Test
     md = WalkthroughStoryboard.render_md(@board)
     assert_includes md, "- Node `db`: Postgres (pinned)"
     assert_includes md, "- Edge `e2`: api -> db (writes)"
-    assert_includes md, "| 1600 | focus | db |"
+    assert_includes md, "| 1400 | highlight | db, e2 |"
   end
 
   TOKENS = <<~CSS
@@ -417,7 +417,18 @@ class WalkthroughDiagramTest < Minitest::Test
     assert_includes errs.join, "drifted"
   end
 
-  def icons_json(html) = JSON.parse(html[%r{<script type="application/json" id="cf-diagram-icons">(.*?)</script>}m, 1])
+  def test_frame_carries_the_safe_area_and_the_runtime_reads_tokens
+    assert_in_delta 0.05, WalkthroughDiagram.frame(@board)["safe_inset"]
+    runtime = File.read(WalkthroughDiagram::RUNTIME)
+    assert_includes runtime, "var(--font-sans"
+    assert_includes runtime, "--font-serif"
+    assert_includes runtime, "FRAME.safe_inset"
+    assert_includes runtime, "window.__cfBoxes"
+    label = runtime[/const LABEL_PX = (\d+);/, 1].to_i
+    assert_equal WalkthroughClipcheck.tokens.dig("type_scale", "label"), label
+  end
+
+  def icons_json(html) =JSON.parse(html[%r{<script type="application/json" id="cf-diagram-icons">(.*?)</script>}m, 1])
 
   def test_node_icons_take_a_vendored_name_and_a_weight
     node = spec["nodes"][0]
@@ -472,13 +483,13 @@ class WalkthroughDiagramTest < Minitest::Test
   # A screen with no node icon (and, for the uncoloured fixtures, no colour)
   # generates byte for byte what it did before icons existed. The hashes are
   # of each fixture's screen with the vendored bundle and runtime bodies cut
-  # out, taken from the generator before icon support; the runtime's own
+  # out, retaken when the frame script gained safe_inset; the runtime's own
   # bytes are covered by capture tests, which give the same frames.
   ICONLESS_SCREENS = {
-    "architecture" => "227c3d487319e4cb4569d5f96fddf22f4eed5a1b91fcb06460c76317a6e1a23f",
-    "diagram-colors" => "1c85190c2f1a6007284cb923c03ce378267376f0762c63226460bbd5b920f195",
-    "diagram-flow" => "13f83c885c57aa489d93196624c91567c05d180fc08e07aa7961d46efd9e834d",
-    "diagram-lr" => "13a5d7874484a258439441343a555efe98e7ae2379c244e6cf773eeca196ef88"
+    "architecture" => "569c58b00f63721d4211b0356e98ef5b3a1158c21a6310cb09e97d190ae4c039",
+    "diagram-colors" => "657f9f1226f06c3d1d43718e2a6d5603d6633ef2031bae4d6cc4323fc676d51d",
+    "diagram-flow" => "e5fc0757492518e6f98a60e125e48c2be37321d6b6c6af766ee8feb1c9271f70",
+    "diagram-lr" => "274e3388072a14f499a9896ff7859b5c2291d1a1097c9ee48a9037fb013b3986"
   }.freeze
 
   def test_iconless_screens_keep_their_bytes

@@ -80,6 +80,12 @@ class WalkthroughDiagramCaptureTest < Minitest::Test
         assert_empty recorder.results.flat_map { |r| Array(r["pageErrors"]) }
         assert_empty recorder.results.flat_map { |r| Array(r["blockedRequests"]) }
         assert_empty JSON.parse(File.read(File.join(prep[:out_dir], PrototypeUxLint::REPORT)))["findings"]
+        # Every captured frame recorded its boxes, and the clip check passes.
+        boxes = JSON.parse(File.read(File.join(prep[:out_dir], WalkthroughClipcheck::BOXES)))
+        assert_equal frames.size, boxes["frames"].size
+        assert(boxes["frames"].last["boxes"].any? { |b| b["kind"] == "text" && b["text"] == "Postgres" })
+        clip = WalkthroughClipcheck.check_dir(prep[:out_dir], scene["id"])
+        assert_empty clip[:refusals]
       end
     end
   end
@@ -255,15 +261,15 @@ class WalkthroughDiagramCaptureTest < Minitest::Test
         weight = n["icon_weight"] || "regular"
         want = n["color"] ? colors["nodes"][n["id"]]["color"] : WalkthroughDiagram::PALETTE_DARK["text"]
         assert_equal rgb.(want), got["fill"], "#{n['id']} icon colour"
-        assert_equal [ 20, 20 ], got["size"], "#{n['id']} icon sized to the label"
+        assert_equal [ 32, 32 ], got["size"], "#{n['id']} icon sized to the label"
         assert got["before_label"], "#{n['id']} icon sits before its label"
         assert_equal WalkthroughDiagram.icon_set.dig("icons", n["icon"], weight).map(&:first), got["paths"].map(&:first)
         if weight == "duotone"
           assert_includes got["paths"].map(&:last), "0.2", "#{n['id']} duotone second tone"
         end
-        label_w = n["label"].size * 11 + 40
-        want_w = (([ 140, label_w + 28 ].max) / 2.0).round * 2
-        assert_equal want_w, got["node_w"], "#{n['id']} width includes the icon" if label_w <= 260
+        label_w = n["label"].size * 17 + 56
+        want_w = (([ 220, label_w + 44 ].max) / 2.0).round * 2
+        assert_equal want_w, got["node_w"], "#{n['id']} width includes the icon" if label_w <= 460
       end
     end
   end
@@ -278,9 +284,9 @@ class WalkthroughDiagramCaptureTest < Minitest::Test
       path = File.join(root, "storyboard.json")
       board = WalkthroughStoryboard.load(path)
       spec = board["scenes"].first["diagram"]
-      spec["nodes"] = spec["nodes"].select { |n| %w[load report].include?(n["id"]) }
-      spec["edges"] = spec["edges"].select { |e| e["id"] == "e-load" }
-      spec["initial"] = %w[load report e-load]
+      spec["nodes"] = spec["nodes"].select { |n| n["id"] == "load" }
+      spec["edges"] = []
+      spec["initial"] = %w[load]
       spec["steps"] = []
       zooms = [ nil, 2.0 ].map do |max|
         max ? spec["layout"]["max_zoom"] = max : spec["layout"].delete("max_zoom")
@@ -288,7 +294,7 @@ class WalkthroughDiagramCaptureTest < Minitest::Test
         assert_empty WalkthroughStoryboard.validate(board, root: root)
         html = PrototypeCapture.inline_screen(File.join(root, board["scenes"].first.dig("screen", "html")), root: root)
         icons = ChangeDocker.with_browserless(network: nil) { |session| icon_probe(session, html, board["viewport"]) }
-        assert_equal [ 20, 20 ], icons["load"]["size"], "the icon scales with its node"
+        assert_equal [ 32, 32 ], icons["load"]["size"], "the icon scales with its node"
         icons["load"]["zoom"]
       end
       assert_in_delta 1.25, zooms[0], 0.01, "the default cap holds"

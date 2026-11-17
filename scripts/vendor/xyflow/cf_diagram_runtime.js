@@ -39,7 +39,11 @@
   // The generator's frame: how much of the viewport bottom the caption band
   // takes. Camera targets are fitted and centred in the area above it.
   const frameEl = document.getElementById('cf-diagram-frame');
-  const BOTTOM_INSET = (frameEl && JSON.parse(frameEl.textContent).bottom_inset) || 0;
+  const FRAME = frameEl ? JSON.parse(frameEl.textContent) : {};
+  const BOTTOM_INSET = FRAME.bottom_inset || 0;
+  // The video safe area (skills/walkthrough/reference/video-tokens.json): a
+  // fit or focus centres its target inside this inset, never top-left.
+  const SAFE_INSET = FRAME.safe_inset || 0;
   // Item colours the generator resolved from the theme ({ color, tint, ring }
   // hexes keyed by node id, edge id, and flow step index). A screen with no
   // coloured item has no such script and draws exactly as before.
@@ -52,14 +56,18 @@
   const ICONS = iconsEl ? JSON.parse(iconsEl.textContent) : {};
   const iconOf = (n) => (n.icon ? ICONS[`${n.icon}/${n.icon_weight || 'regular'}`] : null);
 
-  const NODE_H = 56;
-  const NODE_MIN_W = 140;
-  const NODE_MAX_W = 260;
-  const CHAR_W = 11;
-  const NODE_PAD_W = 40;
+  // Labels sit at the video type scale's label size (28 px at 1080p), so a
+  // fit at zoom 1 or more never renders text under the minimum the clip
+  // check enforces (scripts/walkthrough_clipcheck.rb).
+  const LABEL_PX = 28;
+  const NODE_H = 84;
+  const NODE_MIN_W = 220;
+  const NODE_MAX_W = 460;
+  const CHAR_W = 17;
+  const NODE_PAD_W = 56;
   // An icon is drawn at this size before the label, with ICON_GAP between.
-  const ICON_PX = 20;
-  const ICON_GAP = 8;
+  const ICON_PX = 32;
+  const ICON_GAP = 12;
   const DIM_OPACITY = 0.35;
   const FIT_MAX_ZOOM = 1.25;
   const FOCUS_MAX_ZOOM = 1.5;
@@ -78,10 +86,11 @@
   const style = document.createElement('style');
   style.textContent = `${X.css}
 html, body, #cf-diagram-root { margin: 0; width: 100%; height: 100%; }
+:root { --font-sans: "Inter", system-ui, sans-serif; --font-serif: "Source Serif 4", Georgia, serif; }
 .react-flow { --xy-background-color: var(--cf-surface, #ffffff); background: var(--cf-surface, #ffffff); }
 .cf-node { box-sizing: border-box; height: ${NODE_H}px; display: flex; align-items: center; justify-content: center;
   padding: 0 12px; border: 2px solid var(--cf-line, #94a3b8); border-radius: 10px; background: var(--cf-node, #f8fafc);
-  color: var(--cf-text, #0f172a); font: 600 16px/1.2 system-ui, sans-serif; text-align: center; }
+  color: var(--cf-text, #0f172a); font: 600 ${LABEL_PX}px/1.2 var(--font-sans, "Inter", system-ui, sans-serif); text-align: center; }
 .cf-node[data-role="accent"] { border-color: var(--cf-accent, #2563eb); background: var(--cf-accent-tint, #dbeafe); }
 .cf-node[data-role="muted"] { border-color: var(--cf-rule, #cbd5e1); background: var(--cf-surface, #ffffff); color: var(--cf-muted, #475569); }
 .cf-node .react-flow__handle { visibility: hidden; pointer-events: none; }
@@ -98,7 +107,7 @@ html, body, #cf-diagram-root { margin: 0; width: 100%; height: 100%; }
 .react-flow__node[data-cf-hl="1"] .cf-node[data-color] { border-color: var(--cf-item); box-shadow: 0 0 0 4px var(--cf-item-ring); }
 .react-flow__edge.cf-colored .react-flow__edge-path { stroke: var(--cf-item); }
 .react-flow__edge.cf-colored[data-cf-hl="1"] .react-flow__edge-path { stroke: var(--cf-item); stroke-width: 3; }
-.react-flow__edge-text { fill: var(--cf-text, #0f172a); font: 500 13px system-ui, sans-serif; }
+.react-flow__edge-text { fill: var(--cf-text, #0f172a); font: 500 ${LABEL_PX}px var(--font-sans, "Inter", system-ui, sans-serif); }
 .react-flow__edge-textbg { fill: var(--cf-surface, #ffffff); }
 `;
   document.head.appendChild(style);
@@ -240,7 +249,7 @@ html, body, #cf-diagram-root { margin: 0; width: 100%; height: 100%; }
     }
     const w = x1 - x0; const hgt = y1 - y0;
     const zoom = Math.min(maxZoom, Math.max(MIN_ZOOM, Math.min(size.w / (w * (1 + 2 * padding)), size.h / (hgt * (1 + 2 * padding)))));
-    return { x: size.w / 2 - (x0 + w / 2) * zoom, y: size.h / 2 - (y0 + hgt / 2) * zoom, zoom };
+    return { x: size.cx - (x0 + w / 2) * zoom, y: size.cy - (y0 + hgt / 2) * zoom, zoom };
   };
 
   // The nodes on screen at time `at`, replayed from the whole spec, so a
@@ -259,7 +268,12 @@ html, body, #cf-diagram-root { margin: 0; width: 100%; height: 100%; }
   // Folds every camera step up to t: each one tweens from wherever the
   // camera was when it started toward its own target.
   const cameraAt = (t, camera, positionAt, viewport) => {
-    const size = { w: viewport.w, h: Math.max(1, viewport.h - BOTTOM_INSET) };
+    // The area a target is fitted and centred in: the safe area, with its
+    // bottom raised to clear the caption band when that is taller.
+    const insetX = viewport.w * SAFE_INSET; const insetY = viewport.h * SAFE_INSET;
+    const bottom = Math.max(insetY, BOTTOM_INSET);
+    const w = Math.max(1, viewport.w - 2 * insetX); const hh = Math.max(1, viewport.h - insetY - bottom);
+    const size = { w, h: hh, cx: insetX + w / 2, cy: insetY + hh / 2 };
     const first = visibleAt(0);
     let cur = fitTarget(first.length ? first : nodeIds, 0.2, 0, positionAt, size);
     camera.forEach((s, i) => {
@@ -272,12 +286,12 @@ html, body, #cf-diagram-root { margin: 0; width: 100%; height: 100%; }
         target = fitTarget(ids.length ? ids : nodeIds, s.padding == null ? 0.2 : s.padding, endAt, positionAt, size);
       } else if (s.op === 'zoom_to') {
         const zoom = s.zoom;
-        const cx = (size.w / 2 - cur.x) / cur.zoom; const cy = (size.h / 2 - cur.y) / cur.zoom;
-        target = { x: size.w / 2 - cx * zoom, y: size.h / 2 - cy * zoom, zoom };
+        const cx = (size.cx - cur.x) / cur.zoom; const cy = (size.cy - cur.y) / cur.zoom;
+        target = { x: size.cx - cx * zoom, y: size.cy - cy * zoom, zoom };
       } else if (s.op === 'focus') {
         const p = positionAt(s.id, s.t_ms);
         const zoom = Math.min(Math.max(FOCUS_MAX_ZOOM, fitMaxZoom), Math.max(MIN_ZOOM, s.zoom || cur.zoom));
-        target = { x: size.w / 2 - (p.x + WIDTH[s.id] / 2) * zoom, y: size.h / 2 - (p.y + HEIGHT[s.id] / 2) * zoom, zoom };
+        target = { x: size.cx - (p.x + WIDTH[s.id] / 2) * zoom, y: size.cy - (p.y + HEIGHT[s.id] / 2) * zoom, zoom };
       }
       if (!target) return;
       const p = progress(end, s.t_ms, s.duration || 0);
@@ -429,6 +443,57 @@ html, body, #cf-diagram-root { margin: 0; width: 100%; height: 100%; }
       if (path) path.style.strokeWidth = on ? String(3 + 3 * Math.sin(Math.PI * clamp01((t - pulse.start) / pulse.duration))) : '';
       drawFlow(el, path, s.flows[id], t, own);
     }
+  };
+
+  // The clip check's per-frame input: the on-screen box (after the viewport
+  // transform) of every visible node and every visible text inside the
+  // diagram, the text's rendered px (font size times its effective scale),
+  // and whether it overflows its own box. Read by the capture after each
+  // frame; scripts/walkthrough_clipcheck.rb judges it.
+  const opacityOf = (el) => {
+    let o = 1;
+    for (let n = el; n && n !== document.body; n = n.parentElement) o *= Number(getComputedStyle(n).opacity);
+    return o;
+  };
+  const scaleOf = (el) => {
+    if (el instanceof SVGGraphicsElement) { const m = el.getScreenCTM(); return m ? Math.hypot(m.a, m.b) : 1; }
+    return el.offsetWidth > 0 ? el.getBoundingClientRect().width / el.offsetWidth : 1;
+  };
+  const overflows = (el) => {
+    if (el instanceof SVGElement) return false;
+    const box = el.closest('.cf-node') || el;
+    const cut = (n) => n.clientWidth > 0 && (n.scrollWidth > n.clientWidth + 1 || n.scrollHeight > n.clientHeight + 1);
+    return cut(el) || cut(box);
+  };
+  const rectOf = (r) => ({ x: Math.round(r.left * 10) / 10, y: Math.round(r.top * 10) / 10, w: Math.round(r.width * 10) / 10, h: Math.round(r.height * 10) / 10 });
+  const ownText = (el) => [...el.childNodes].filter((n) => n.nodeType === 3).map((n) => n.textContent).join('').trim();
+  // The lane layer (cf_diagram_lanes.js) draws its bands, labels, tokens,
+  // and report outside the React Flow root, so its layers are measured too.
+  window.__cfBoxes = () => {
+    if (!live.container) return [];
+    const out = [];
+    const roots = [live.container, ...document.querySelectorAll('.cf-lanes, .cf-lane-front')];
+    const all = (sel) => roots.flatMap((root) => [...root.querySelectorAll(sel)]);
+    // Internal `__cf_` nodes (the lane layer's invisible fit corners) are
+    // layout helpers, never drawn content.
+    for (const el of all('.react-flow__node, .cf-lane-front .cf-node')) {
+      if ((el.dataset.id || '').startsWith('__cf_') || opacityOf(el) < 0.05) continue;
+      const r = el.getBoundingClientRect();
+      // A display:none card (a lane result before it lands) has no box.
+      if (r.width === 0 || r.height === 0) continue;
+      out.push(Object.assign({ id: el.dataset.id || el.closest('[data-id]')?.dataset.id || 'lane-node', kind: 'node', text: '' }, rectOf(r)));
+    }
+    for (const el of all('*')) {
+      const text = ownText(el);
+      if (!text || opacityOf(el) < 0.05) continue;
+      const r = el.getBoundingClientRect();
+      if (r.width === 0 || r.height === 0) continue;
+      const host = el.closest('[data-id]');
+      if (host && host.dataset.id.startsWith('__cf_')) continue;
+      const px = parseFloat(getComputedStyle(el).fontSize) * scaleOf(el);
+      out.push(Object.assign({ id: host ? `${host.dataset.id}:${text}` : text, kind: 'text', text, font_px: Math.round(px * 10) / 10, overflow: overflows(el) }, rectOf(r)));
+    }
+    return out;
   };
 
   const raf = window.__cfRealRaf || window.requestAnimationFrame.bind(window);

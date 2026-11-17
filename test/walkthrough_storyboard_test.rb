@@ -35,12 +35,12 @@ class WalkthroughStoryboardTest < Minitest::Test
     assert_match(/review is absent/, WalkthroughStoryboard.warnings(b).first)
     b["review"] = { "kind" => "explainer", "audience" => "Engineers", "purpose" => [ "State the flow" ] }
     assert_empty WalkthroughStoryboard.validate(b, root: @root).grep(/review/)
-    assert_empty WalkthroughStoryboard.warnings(b)
+    assert_empty WalkthroughStoryboard.warnings(b).grep(/review/)
     b["review"] = { "kind" => "trailer", "audience" => " ", "purpose" => [] }
     errors = WalkthroughStoryboard.validate(b, root: @root).grep(/review/)
     assert_equal 3, errors.size
     b["review"] = { "kind" => "demo" }
-    assert_equal 2, WalkthroughStoryboard.warnings(b).size
+    assert_equal 2, WalkthroughStoryboard.warnings(b).grep(/review/).size
   end
 
   def test_zoom_with_pinned_dpr_one_warns
@@ -50,6 +50,69 @@ class WalkthroughStoryboardTest < Minitest::Test
     assert_equal [ "s1" ], WalkthroughStoryboard.warnings(b).map { |w| w[/scene (\S+):/, 1] }
     b["viewport"] = { "w" => 1920, "h" => 1080 }
     assert_empty WalkthroughStoryboard.warnings(b)
+  end
+
+  def test_logo_only_opening_scene_warns
+    b = board
+    assert_empty WalkthroughStoryboard.warnings(b).grep(/logo/)
+    b["scenes"][0] = scene("logo-intro", 1)
+    assert_match(/logo-intro.*opens on a logo-only scene/, WalkthroughStoryboard.warnings(b).grep(/logo/).first)
+    b["scenes"][0] = scene("create", 1, "screen" => { "html" => "screens/logo.html" })
+    assert_equal 1, WalkthroughStoryboard.warnings(b).grep(/logo/).size
+    b["scenes"][0] = scene("catalogue", 1)
+    assert_empty WalkthroughStoryboard.warnings(b).grep(/logo/)
+  end
+
+  def test_final_narration_must_end_before_the_film
+    b = board
+    # list: 4000 ms of voice plus 500 ms pad leaves 500 ms of tail.
+    assert_match(/list.*ends 500 ms before the film does/, WalkthroughStoryboard.warnings(b).grep(/final narration/).first)
+    b["scenes"][1]["timing"]["pad_ms"] = 1500
+    assert_empty WalkthroughStoryboard.warnings(b).grep(/final narration/)
+  end
+
+  def test_diagram_density_over_the_cap_warns
+    nodes = (1..8).map { |i| { "id" => "n#{i}", "label" => "Node #{i}" } }
+    diagram = { "nodes" => nodes, "edges" => [], "initial" => %w[n1 n2 n3 n4 n5],
+                "steps" => [ { "t_ms" => 500, "op" => "add_node", "id" => "n6" }, { "t_ms" => 900, "op" => "remove", "ids" => %w[n1 n2] },
+                             { "t_ms" => 1200, "op" => "add_node", "ids" => %w[n7 n8] } ] }
+    assert_equal 6, WalkthroughDiagram.max_visible_nodes(diagram)
+    b = board
+    b["scenes"][0] = scene("create", 1, "kind" => "diagram", "diagram" => diagram)
+    assert_empty WalkthroughStoryboard.warnings(b).grep(/density/)
+    diagram["steps"] << { "t_ms" => 1500, "op" => "add_node", "id" => "n1" }
+    assert_match(/create: 7 diagram nodes visible at once; the density cap is 6/, WalkthroughStoryboard.warnings(b).grep(/density/).first)
+  end
+
+  def test_motion_only_boards_default_to_sixty_fps
+    b = board.reject { |k, _| k == "fps" }
+    assert_equal 30, WalkthroughStoryboard.fps(b)
+    b["scenes"].each { |s| s["kind"] = "diagram" }
+    assert_equal 60, WalkthroughStoryboard.fps(b)
+    assert_equal 60, WalkthroughLive.fps_for(b)
+    b["fps"] = 24
+    assert_equal 24, WalkthroughStoryboard.fps(b)
+    b.delete("fps")
+    b["scenes"][0]["kind"] = "screen"
+    assert_equal 30, WalkthroughStoryboard.fps(b)
+  end
+
+  # The frames key carries the resolved fps, so a diagram board's implicit
+  # 60 and an authored 30 never share cached frames.
+  def test_frames_key_uses_the_resolved_board_fps
+    Dir.mktmpdir do |root|
+      FileUtils.cp_r("#{File.expand_path('fixtures/walkthrough/architecture', __dir__)}/.", root)
+      board = WalkthroughStoryboard.load(File.join(root, "storyboard.json"))
+      WalkthroughDiagram.write_screens(board, root)
+      scene = board["scenes"].first
+      board["fps"] = 30
+      thirty = PrototypeCapture.prepare(board, scene, root)[:key]
+      board.delete("fps")
+      assert_equal 60, PrototypeCapture.board_fps(board)
+      refute_equal thirty, PrototypeCapture.prepare(board, scene, root)[:key]
+      board["fps"] = 60
+      assert_equal PrototypeCapture.prepare(board.reject { |k, _| k == "fps" }, scene, root)[:key], PrototypeCapture.prepare(board, scene, root)[:key]
+    end
   end
 
   def test_voice_eq_validation

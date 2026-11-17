@@ -18,10 +18,10 @@
 
 | t_ms | op | target |
 | --- | --- | --- |
+| 0 | fit_view | web, api, queue, db |
 | 300 | add_node | db, queue |
 | 400 | connect | e2, e3 |
 | 600 | fit_view |  |
 | 1400 | highlight | db, e2 |
-| 1600 | focus | db |
 
 > An order enters through the web app and lands in Postgres.
