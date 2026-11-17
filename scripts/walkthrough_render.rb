@@ -13,6 +13,7 @@ require_relative 'prototype_ux_lint'
 require_relative 'walkthrough_cache'
 require_relative 'walkthrough_deliverables'
 require_relative 'walkthrough_draft_board'
+require_relative 'walkthrough_preflight'
 require_relative 'walkthrough_captions'
 require_relative 'walkthrough_clipcheck'
 require_relative 'elevenlabs'
@@ -51,6 +52,7 @@ module WalkthroughRender
       ChangeDocker.with_browserless(network: opts['network'], add_hosts: opts['add_hosts'] || [], &blk)
     },
     live_login: ->(**kw) { WalkthroughLive.login(**kw) },
+    preflight_selectors: ->(board, jobs) { WalkthroughPreflight.check_live(board, jobs) },
     live_capture: ->(**kw) { WalkthroughLive.capture(**kw) },
     roast: ->(**kw) { Roast.critique(**kw) },
     docker: ->(argv) { Open3.capture2e(*argv) },
@@ -689,6 +691,20 @@ module WalkthroughRender
       out
     end
 
+    # The free capture-side preflight (WalkthroughPreflight): runs before any
+    # paid call, so a missing runtime, persona, env var, or selector, or an
+    # unreachable app, stops the run with nothing spent.
+    def capture_preflight!
+      todo = scenes.select { |s| capture_target?(s) }
+      errors = WalkthroughPreflight.asset_errors(@root, todo) + WalkthroughPreflight.live_config_errors(@board, todo)
+      jobs = errors.empty? ? WalkthroughPreflight.selector_jobs(@board, todo) : []
+      errors += @p[:preflight_selectors].call(@board, jobs) unless jobs.empty?
+      return say('preflight: ok') if errors.empty?
+
+      raise WalkthroughPreflight::Error,
+            "preflight failed before any paid call (nothing spent):\n#{errors.join("\n")}"
+    end
+
     def preflight!
       out = ffmpeg!([ '-hide_banner', '-buildconf' ], 'buildconf')
       missing = %w[libass libx264].reject { |lib| out.include?("--enable-#{lib}") }
@@ -963,17 +979,22 @@ module WalkthroughRender
 
     # -- driver -------------------------------------------------------------
 
-    def call(estimate_only: false)
+    # estimate_only prints the estimate and stops; silent_only renders the
+    # free silent cut and stops before any paid call.
+    def call(estimate_only: false, silent_only: false)
       WalkthroughStoryboard.validate!(@board, root: @root)
       WalkthroughHousekeeping.ensure_location!(@root).each { |line| say(line) }
       WalkthroughCache.ensure_gitignore(@root)
       return silent_call if @silent
 
-      estimate
+      est = estimate
       sharpness!
       return nil if estimate_only
 
       refuse_placeholders! if @final
+      capture_preflight!
+      return silent_only_call(est) if silent_only
+
       silent_cut if silent_cut?
       generate_audio
       resolve_anchors!
@@ -1109,6 +1130,31 @@ module WalkthroughRender
       raise
     end
 
+    # --silent-only: the free cut alone, then the paid estimate as the next
+    # step. A board whose cut would need an uncached generated image cannot
+    # be cut for free, so it says so and stops.
+    def silent_only_call(est)
+      pending = uncached_image_scenes
+      result = nil
+      if pending.empty?
+        say('silent cut: rendering the free first cut; no paid call follows (--silent-only)')
+        result = Run.new(@root, providers: @providers, out: @out, board: WalkthroughDraftBoard.silent(@board),
+                                gates: @gates.merge(roast: false), burn_captions: @burn_captions, silent: true,
+                                provisional: anchored_board?).call
+      else
+        say("silent cut: not possible: scene #{pending.join(', ')} needs an uncached generated image (#464)")
+      end
+      say_next_step(est)
+      result
+    end
+
+    def say_next_step(est)
+      say('next step: review the silent cut, then run --draft to spend this estimate:')
+      say(ElevenLabs.format_estimate(est[:audio]))
+      say("OpenAI estimate: #{est[:images][:line]}")
+      say("Google estimate: #{est[:broll][:line]}") if est[:broll]
+    end
+
     def uncached_image_scenes
       scenes.select { |s| targeted?(s) && image_requests(s).any? { |r| !image_cached?(r) } }.map { |s| s['id'] }
     end
@@ -1178,7 +1224,7 @@ module WalkthroughRender
 end
 
 if __FILE__ == $PROGRAM_NAME
-  usage = 'usage: walkthrough_render.rb walkthrough/<slug> [--scene <id>] [--draft|--final|--final-only] [--estimate-only] [--max-usd <n>] [--burn-captions] ' \
+  usage = 'usage: walkthrough_render.rb walkthrough/<slug> [--scene <id>] [--draft|--final|--final-only] [--estimate-only|--silent-only] [--max-usd <n>] [--burn-captions] ' \
           '[--allow-ux-findings] [--allow-roast-findings] [--allow-fidelity-findings] [--no-roast] [--allow-sensitive] [--roast-max-usd <run cap>] [--recapture]' \
           "\n       walkthrough_render.rb walkthrough/<slug> --prune [--dry-run] | --cache-report"
   dir = ARGV.first
@@ -1195,6 +1241,7 @@ if __FILE__ == $PROGRAM_NAME
   scene = ARGV.include?('--scene') ? (ARGV[ARGV.index('--scene') + 1] || abort(usage)) : nil
   abort('--draft and --final are exclusive') if ARGV.include?('--draft') && ARGV.include?('--final')
   abort('--final-only is a final with no intermediate cut; it cannot take --draft') if ARGV.include?('--draft') && ARGV.include?('--final-only')
+  abort('--silent-only is a draft step; it cannot take --final or --final-only') if ARGV.include?('--silent-only') && ARGV.intersect?(%w[--final --final-only])
   max_usd = ARGV.include?('--max-usd') ? (ARGV[ARGV.index('--max-usd') + 1] || abort(usage)).to_f : BRoll::DEFAULT_CEILING_USD
   roast_usd = ARGV.include?('--roast-max-usd') ? (ARGV[ARGV.index('--roast-max-usd') + 1] || abort(usage)).to_f : nil
   begin
@@ -1211,9 +1258,9 @@ if __FILE__ == $PROGRAM_NAME
     WalkthroughRender::Run.new(dir, scene: scene, final: ARGV.include?('--final'), max_usd: max_usd,
                                burn_captions: ARGV.include?('--burn-captions'), gates: gates, recapture: ARGV.include?('--recapture'),
                                final_only: ARGV.include?('--final-only'))
-                          .call(estimate_only: ARGV.include?('--estimate-only'))
+                          .call(estimate_only: ARGV.include?('--estimate-only'), silent_only: ARGV.include?('--silent-only'))
   rescue PrototypeUxLint::FindingsError, WalkthroughRoast::OpenFindingsError, WalkthroughClipcheck::ClipError,
-         WalkthroughLoudness::LoudnessError => e
+         WalkthroughLoudness::LoudnessError, WalkthroughPreflight::Error => e
     abort("refused: #{e.message}")
   rescue WalkthroughEnv::NeedsEnrollment => e
     WalkthroughEnv.enroll_exit!(e)
