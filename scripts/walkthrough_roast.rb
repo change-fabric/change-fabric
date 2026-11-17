@@ -218,7 +218,8 @@ module WalkthroughRoast
   # once if the content changed since its last round (it cannot tell a fix
   # from a rework); otherwise the current scenes become its baseline.
   def rescope!(dir, scenes, content: nil)
-    return nil unless scenes
+    # An unreadable ledger stays fail-closed: its spend is unknown.
+    return nil unless scenes && !unreadable?(dir)
 
     was = ledger(dir)['scenes']
     if was.nil?

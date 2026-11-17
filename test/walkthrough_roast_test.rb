@@ -166,6 +166,15 @@ class WalkthroughRoastTest < Minitest::Test
     end
   end
 
+  def test_an_unreadable_ledger_is_never_rescoped
+    Dir.mktmpdir do |dir|
+      round(dir, 1, [ issue("P2") ])
+      File.write(File.join(dir, WalkthroughRoast::LEDGER), "{")
+      assert_nil WalkthroughRoast.rescope!(dir, { "a" => "k" }, content: "c")
+      assert_includes WalkthroughRoast.decide(dir)[:reason], "spend ledger unreadable"
+    end
+  end
+
   def test_capped_marker_ends_the_loop
     Dir.mktmpdir do |dir|
       round(dir, 1, [ issue("P2") ])
