@@ -174,6 +174,39 @@ class WalkthroughDiagramTest < Minitest::Test
     assert_includes joined, "step 7: highlight takes id or ids, not both"
   end
 
+  def test_count_and_draw_steps
+    spec["steps"] = [
+      { "t_ms" => 0, "op" => "count", "id" => "api", "from" => 0, "to" => 1280, "format" => { "suffix" => " rps" } },
+      { "t_ms" => 0, "op" => "draw", "id" => "e2", "duration" => 600 },
+      { "t_ms" => 0, "op" => "count", "id" => "e1", "from" => 0 },
+      { "t_ms" => 0, "op" => "draw", "id" => "api", "duration" => 0 },
+      { "t_ms" => 0, "op" => "count", "id" => "db", "from" => 0, "to" => 1, "format" => { "grouping" => "yes", "extra" => 1 } }
+    ]
+    joined = diagram_errs.join("\n")
+    refute_match(/step [01]:/, joined)
+    assert_includes joined, %(step 2: "e1" is not a node id)
+    assert_includes joined, "step 2: count needs to as a number"
+    assert_includes joined, %(step 3: "api" is not a edge id)
+    assert_includes joined, "step 3: duration must be positive for draw"
+    assert_includes joined, "step 4: format.extra is not a known field"
+    assert_includes joined, "step 4: format.grouping must be true or false"
+  end
+
+  # The motion layer and the shared easing are inlined only for a spec that
+  # counts or draws, so every other screen keeps its bytes.
+  def test_count_and_draw_inline_the_motion_layer
+    motion = File.read(WalkthroughDiagram::MOTION_RUNTIME)
+    ease = File.read(WalkthroughDiagram::EASE)
+    plain = WalkthroughDiagram.screen(scene, root: @root, board: @board)
+    refute_includes plain, motion
+    refute_includes plain, ease
+    spec["steps"] << { "t_ms" => 1500, "op" => "draw", "id" => "e3" }
+    html = WalkthroughDiagram.screen(scene, root: @root, board: @board)
+    assert_operator html.index(ease), :<, html.index(motion)
+    assert_operator html.index(motion), :<, html.index(File.read(WalkthroughDiagram::RUNTIME))
+    assert_operator html.index(File.read(WalkthroughDiagram::RUNTIME)), :<, html.index("window.__cfMotion.attach()")
+  end
+
   def test_flow_fields
     edge = spec["edges"].first["id"]
     spec["steps"] = [

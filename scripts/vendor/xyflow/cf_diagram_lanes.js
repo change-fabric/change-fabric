@@ -176,35 +176,11 @@
 
   // -- easing --------------------------------------------------------------
 
-  // The u in 0..1 where a rising fn(u) reaches p, by fixed-count bisection.
-  const bisect = (fn, p) => {
-    let lo = 0; let hi = 1;
-    for (let i = 0; i < 40; i += 1) { const mid = (lo + hi) / 2; if (fn(mid) < p) lo = mid; else hi = mid; }
-    return (lo + hi) / 2;
-  };
-  // A CSS cubic-bezier, solved for x by bisection so every frame lands on
-  // the same value whatever the engine.
-  const bezier = (x1, y1, x2, y2) => {
-    const at = (a, b, u) => 3 * a * u * (1 - u) * (1 - u) + 3 * b * u * u * (1 - u) + u * u * u;
-    return (p) => {
-      if (p <= 0) return 0;
-      if (p >= 1) return 1;
-      return at(y1, y2, bisect((u) => at(x1, x2, u), p));
-    };
-  };
-  const cubic = (p) => (p < 0.5 ? 4 * p * p * p : 1 - Math.pow(-2 * p + 2, 3) / 2);
-  const EASINGS = {
-    linear: (p) => clamp01(p), 'ease-in-out': (p) => cubic(clamp01(p)),
-    standard: bezier(0.4, 0, 0.2, 1), decelerate: bezier(0, 0, 0.2, 1), accelerate: bezier(0.4, 0, 1, 1),
-    emphasized: bezier(0.22, 1, 0.36, 1), settle: bezier(0.16, 1, 0.3, 1)
-  };
-  const easing = (name) => {
-    if (!name) return EASINGS.standard;
-    if (EASINGS[name]) return EASINGS[name];
-    const m = String(name).match(/^cubic-bezier\(([^)]*)\)$/);
-    const v = m ? m[1].split(',').map(Number) : [];
-    return v.length === 4 && v.every(Number.isFinite) ? bezier(...v) : EASINGS.standard;
-  };
+  // Every curve comes from scripts/walkthrough_ease.js (window.CfEase), the
+  // one easing source the walkthrough runtimes share, inlined ahead of this
+  // layer. A travel with no easing takes `standard`.
+  const { bisect, EASINGS } = window.CfEase;
+  const easing = (name) => window.CfEase.easing(name, 'standard');
 
   // -- prepare -----------------------------------------------------------
 

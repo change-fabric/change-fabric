@@ -9,6 +9,7 @@ require_relative 'prototype_imagegen'
 require_relative 'walkthrough_cache'
 require_relative 'walkthrough_diagram'
 require_relative 'walkthrough_duck'
+require_relative 'walkthrough_element'
 require_relative 'walkthrough_environment'
 require_relative 'walkthrough_transition'
 require_relative 'walkthrough_live'
@@ -32,7 +33,8 @@ module WalkthroughStoryboard
   PATCH_OPS = %w[set push delete].freeze
   MD_HEADER = 'Generated from storyboard.json; do not edit'
   BROLL_KIND = 'ai-broll'
-  SCENE_KINDS = [ nil, 'screen', BROLL_KIND, WalkthroughCompose::KIND, WalkthroughMessage::KIND, WalkthroughEnvironment::KIND, WalkthroughDiagram::KIND ].freeze
+  SCENE_KINDS = [ nil, 'screen', BROLL_KIND, WalkthroughCompose::KIND, WalkthroughMessage::KIND, WalkthroughEnvironment::KIND, WalkthroughDiagram::KIND,
+                  WalkthroughElement::KIND ].freeze
   BROLL_IMAGE_EXTS = %w[.png .jpg .jpeg .webp].freeze
   BROLL_SECONDS = (1..10)
   SFX_EXTS = %w[.mp3 .wav .m4a .aac .ogg .flac].freeze
@@ -150,7 +152,13 @@ module WalkthroughStoryboard
 
   # Advisory findings that never fail validation. Roast refuses to run without a
   # review audience and purpose, so their absence is worth saying early.
-  def warnings(board) = review_warnings(board) + soft_zoom_warnings(board) + density_warnings(board) + hook_warnings(board) + close_warnings(board)
+  def warnings(board) = review_warnings(board) + soft_zoom_warnings(board) + density_warnings(board) + element_warnings(board) + hook_warnings(board) +
+                        close_warnings(board)
+
+  # A beat whose entrance had to be clamped still lands on its frame.
+  def element_warnings(board)
+    scenes(board).select { |s| WalkthroughElement.element?(s) }.flat_map { |s| WalkthroughElement.warnings(s, board) }
+  end
 
   def density_warnings(board)
     scenes(board).select { |s| s.is_a?(Hash) && WalkthroughDiagram.diagram?(s) }.flat_map { |s| WalkthroughDiagram.density_warnings(s) }
@@ -239,6 +247,9 @@ module WalkthroughStoryboard
       errors.concat(WalkthroughDiagram.errors(scene, root, board: board))
       errors.concat(store_errors(scene, orders, root)) if scene['store']
       LIVE_ONLY.each { |key| errors << "#{key} needs a live board (a diagram scene is a prototype screen)" if scene.key?(key) && !scene[key].nil? }
+    elsif WalkthroughElement.element?(scene)
+      errors.concat(WalkthroughElement.errors(scene, board))
+      LIVE_ONLY.each { |key| errors << "#{key} needs a live board (an element scene is a generated page)" if scene.key?(key) && !scene[key].nil? }
     elsif WalkthroughEnvironment.environment?(scene)
       errors.concat(WalkthroughEnvironment.errors(scene, root))
       errors.concat(store_errors(scene, orders, root)) if scene['store']
@@ -280,9 +291,9 @@ module WalkthroughStoryboard
   # A screen scene needs screen.html; an ai-broll scene needs a broll block and
   # carries no screen.
   def kind_errors(scene, root)
-    return [ "kind #{scene['kind'].inspect} must be one of screen, #{BROLL_KIND}, #{WalkthroughCompose::KIND}, #{WalkthroughMessage::KIND}, #{WalkthroughEnvironment::KIND}, #{WalkthroughDiagram::KIND}" ] unless SCENE_KINDS.include?(scene['kind'])
+    return [ "kind #{scene['kind'].inspect} must be one of screen, #{BROLL_KIND}, #{WalkthroughCompose::KIND}, #{WalkthroughMessage::KIND}, #{WalkthroughEnvironment::KIND}, #{WalkthroughDiagram::KIND}, #{WalkthroughElement::KIND}" ] unless SCENE_KINDS.include?(scene['kind'])
     return broll_errors(scene, root) if broll?(scene)
-    return [] if WalkthroughLive.builtin?(scene)
+    return [] if WalkthroughLive.builtin?(scene) || WalkthroughElement.element?(scene)
 
     screen = scene['screen'].is_a?(Hash) ? scene['screen'] : {}
     return [ 'screen takes exactly one of html or url' ] if screen.key?('html') && screen.key?('url')
@@ -684,17 +695,30 @@ module WalkthroughStoryboard
     errs
   end
 
-  def anchored_ops(scene) = WalkthroughLive.all_interactions(scene).select { |op| op.is_a?(Hash) && op.key?('at') }
+  # Ops that take a t_ms from an anchor: interaction ops and element steps.
+  def anchored_ops(scene)
+    WalkthroughLive.all_interactions(scene).select { |op| op.is_a?(Hash) && op.key?('at') } + WalkthroughElement.anchored_steps(scene)
+  end
 
-  # An anchored op not yet given its t_ms by resolve_anchors.
-  def unresolved?(scene) = anchored_ops(scene).any? { |op| !op.key?('t_ms') }
+  # Any anchor in the scene: an op, or an element beat's land_at or exit_at.
+  def anchored?(scene) = anchored_ops(scene).any? || WalkthroughElement.anchored_beats(scene).any?
+
+  # An anchored op (or element beat) not yet resolved by resolve_anchors.
+  def unresolved?(scene) = anchored_ops(scene).any? { |op| !op.key?('t_ms') } || !WalkthroughElement.resolved?(scene)
+
+  # Back to the authored shape: exactly one of t_ms or at on every op, and
+  # no resolved time beside an anchored beat.
+  def unresolve!(scene)
+    anchored_ops(scene).each { |op| op.delete('t_ms') }
+    WalkthroughElement.strip_resolved!(scene)
+  end
 
   # Scene windows are not anchorable in v1, and an anchor resolves only
   # against its own scene's narration.
   def anchor_scene_errors(scene)
     errs = SCENE_ANCHOR_KEYS.filter_map { |k| "#{k} is not supported; scene placement is derived (anchor ops with at)" if scene.key?(k) }
     narrated = !scene.dig('narration', 'text').to_s.strip.empty?
-    errs << 'an op with at needs this scene to have narration' if !narrated && anchored_ops(scene).any?
+    errs << 'an op with at needs this scene to have narration' if !narrated && anchored?(scene)
     errs
   end
 
@@ -708,7 +732,7 @@ module WalkthroughStoryboard
     warnings = []
     errors = []
     scenes(board).each do |scene|
-      next if anchored_ops(scene).empty?
+      next unless anchored?(scene)
 
       label = "scene #{scene['id'].inspect}"
       begin
@@ -740,7 +764,28 @@ module WalkthroughStoryboard
       order_errors(ops).each { |e| raise ValidationError, "#{prefix}#{e}" }
     end
     timeline_errors(scene, board).each { |e| raise ValidationError, e }
+    warnings.concat(resolve_element(board, scene, words)) if WalkthroughElement.element?(scene)
     warnings
+  end
+
+  # An element scene's anchored steps take a t_ms like an op; its anchored
+  # beat times are resolved beside the anchor, then every beat window is
+  # checked against the scene (bounds, order, clamps as warnings).
+  def resolve_element(board, scene, words)
+    rate = fps(board)
+    warnings = WalkthroughElement.steps(scene).each_with_index.filter_map do |step, i|
+      next unless step.key?('at')
+
+      ms, warning = anchor_ms(scene, words, step['at'])
+      step['t_ms'] = snap_ms(ms, rate)
+      "element step #{i} #{warning}" if warning
+    end
+    warnings + WalkthroughElement.resolve!(scene, board) do |at|
+      ms, warning = anchor_ms(scene, words, at)
+      [ snap_ms(ms, rate), warning ]
+    end
+  rescue WalkthroughElement::TimingError => e
+    raise ValidationError, e.message
   end
 
   # Scene-local ms of an anchor, clamped at 0 with a warning.
@@ -780,7 +825,7 @@ module WalkthroughStoryboard
   # board keeps exactly one of t_ms or at.
   def authored(board)
     copy = JSON.parse(JSON.generate(board))
-    scenes(copy).each { |scene| anchored_ops(scene).each { |op| op.delete('t_ms') } }
+    scenes(copy).each { |scene| unresolve!(scene) }
     copy
   end
 
@@ -790,12 +835,12 @@ module WalkthroughStoryboard
   def resolved_copy(board, cache)
     copy = JSON.parse(JSON.generate(board))
     scenes(copy).each do |scene|
-      next if anchored_ops(scene).empty?
+      next unless anchored?(scene)
 
       begin
         resolve_scene(copy, scene, cache)
       rescue WalkthroughWords::Missing, ValidationError
-        anchored_ops(scene).each { |op| op.delete('t_ms') }
+        unresolve!(scene)
       end
     end
     copy
@@ -850,7 +895,7 @@ module WalkthroughStoryboard
   # Recomputed deps per scene id. frames_key is nil when it cannot be
   # computed yet (a from_scene dependency not captured, or a missing screen).
   def recompute_keys(board, root, final: false)
-    board = resolved_copy(board, File.join(root, '.cache')) if scenes(board).any? { |s| anchored_ops(s).any? }
+    board = resolved_copy(board, File.join(root, '.cache')) if scenes(board).any? { |s| anchored?(s) }
     memo = {}
     scenes(board).to_h do |scene|
       frames = begin
@@ -1006,10 +1051,18 @@ module WalkthroughStoryboard
       "- B-roll prompt: #{spec['prompt']}" ]
   end
 
+  # What the scene films: its b-roll, its element beats, or its screen.
+  def screen_md(scene)
+    return broll_md(scene) if broll?(scene)
+    return WalkthroughElement.md(scene) if WalkthroughElement.element?(scene)
+
+    [ "- Screen: #{scene.dig('screen', 'html') || scene.dig('screen', 'url')}" ]
+  end
+
   def scene_md(scene, duration)
     out = [ "## #{scene['order']}. #{scene['title']} (`#{scene['id']}`)", '' ]
     out << "- Duration: #{duration} ms"
-    out.concat(broll?(scene) ? broll_md(scene) : [ "- Screen: #{scene.dig('screen', 'html') || scene.dig('screen', 'url')}" ])
+    out.concat(screen_md(scene))
     out << "- Persona: #{scene['persona']}" if scene['persona']
     out << "- Session from: #{scene['session_from_scene']}" if scene['session_from_scene']
     out << "- User goal: #{scene['user_goal']}" if scene['user_goal']

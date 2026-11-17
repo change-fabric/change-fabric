@@ -12,6 +12,7 @@ require_relative 'prototype_imagegen'
 require_relative 'prototype_ux_lint'
 require_relative 'walkthrough_cache'
 require_relative 'walkthrough_diagram'
+require_relative 'walkthrough_element'
 require_relative 'walkthrough_environment'
 require_relative 'walkthrough_browser_frame'
 require_relative 'walkthrough_sharpness'
@@ -36,7 +37,7 @@ module PrototypeCapture
   # defaults to 60 fps; a board with any screen scene keeps FPS, so screen
   # capture time is not doubled. board.fps overrides either way.
   MOTION_FPS = 60
-  MOTION_KINDS = [ WalkthroughDiagram::KIND ].freeze
+  MOTION_KINDS = [ WalkthroughDiagram::KIND, WalkthroughElement::KIND ].freeze
   BATCH_FRAMES = 90
   # A diagram screen (scripts/vendor/xyflow/cf_diagram_runtime.js) sets
   # window.__cfDiagramReady = false on load and true once React Flow has
@@ -982,6 +983,7 @@ module PrototypeCapture
     return 'ai-broll scene, rendered by walkthrough_render.rb' if scene['kind'] == 'ai-broll'
     return 'live scene, captured by walkthrough_render.rb' if scene.dig('screen', 'url')
     return 'compose scene, rendered in real time by walkthrough_compose.rb' if scene['kind'] == 'compose'
+    return nil if WalkthroughElement.element?(scene)
     return 'no screen.html to capture' if scene.dig('screen', 'html').to_s.empty?
 
     nil
@@ -991,6 +993,7 @@ module PrototypeCapture
   # from_scene chain via that scene's cached end-state.json.
   def prepare(board, scene, root, memo = {}, final: false, kit_dist: nil)
     return memo[scene['id']] if memo[scene['id']]
+    return memo[scene['id']] = prepare_element(board, scene, root) if WalkthroughElement.element?(scene)
 
     store = scene['store'] || {}
     seed_path = store['seed'] && File.join(root, store['seed'])
@@ -1023,12 +1026,30 @@ module PrototypeCapture
                           out_dir: File.join(root, '.cache', 'frames', key) }
   end
 
+  # An element scene has no screen file: its page is built in memory from
+  # the (anchor-resolved) scene, so the key covers the page itself. Raises
+  # WalkthroughElement::TimingError while an anchor is unresolved.
+  def prepare_element(board, scene, root)
+    html = WalkthroughElement.screen(scene, root: root, board: board)
+    prng = default_prng_seed(scene['id'])
+    sha = Digest::SHA256.hexdigest(html)
+    key = frames_key(html: sha, inlined: sha, tokens: board['tokens_css_sha256'], interactions: [], viewport: scene_viewport(board, scene),
+                     stage: WalkthroughSharpness.stage_size(board, scene), fps: board_fps(board), duration_ms: scene_duration(scene),
+                     state: WalkthroughCache.key({}), prng_seed: prng, **WalkthroughElement.key_material)
+    { key: key, state: {}, prng_seed: prng, html: html, html_path: nil, remap: {}, root: root, inline_root: root,
+      out_dir: File.join(root, '.cache', 'frames', key) }
+  end
+
+  # The page a prepared scene captures: an element scene's in-memory page,
+  # else its screen file with every local asset inlined.
+  def prepared_html(prep, remap: {}, root: prep[:inline_root]) = prep[:html] || inline_screen(prep[:html_path], remap: remap, root: root)
+
   # Records a scene's scripted motion into its frames cache, writing the
   # end-state.json that from_scene dependents resolve against.
   def capture_motion(board, scene, prep, session)
     duration = scene_duration(scene)
     puts "#{scene['id']}: capturing #{frame_count(duration, board_fps(board))} frames"
-    capture(session: session, html: inline_screen(prep[:html_path], root: prep[:inline_root]), interactions: scene['interactions'] || [],
+    capture(session: session, html: prepared_html(prep), interactions: scene['interactions'] || [],
             duration_ms: duration, out_dir: prep[:out_dir], state: prep[:state], prng_seed: prep[:prng_seed],
             viewport: scene_viewport(board, scene), fps: board_fps(board), label: scene['id'])
     WalkthroughBrowserFrame.frame_dir!(board, scene, prep[:out_dir], work: prep[:root]) if WalkthroughBrowserFrame.browser?(scene)
@@ -1080,7 +1101,7 @@ if __FILE__ == $PROGRAM_NAME
       prep = PrototypeCapture.prepare(board, scene, root, memo, kit_dist: kit_dist)
       if still
         dir = File.join(root, '.cache', 'stills', scene['id'])
-        PrototypeCapture.capture(session: session, html: PrototypeCapture.inline_screen(prep[:html_path], root: prep[:inline_root]), interactions: [],
+        PrototypeCapture.capture(session: session, html: PrototypeCapture.prepared_html(prep), interactions: [],
                                  duration_ms: PrototypeCapture.frame_ms, out_dir: dir, state: prep[:state],
                                  prng_seed: prep[:prng_seed], viewport: PrototypeCapture.scene_viewport(board, scene), label: scene['id'])
         puts "#{scene['id']}: still #{File.join(dir, '000001.png')}"

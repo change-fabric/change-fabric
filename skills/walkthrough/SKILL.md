@@ -68,6 +68,18 @@ A `kind: "diagram"` scene is a full-frame, animated node and edge diagram (React
 - Caption band and safe area: the camera fits and centres every target in the safe area (5 percent in from each edge) above the bottom caption band (15 percent of the viewport height), so `fit_view` and `focus` never park a node under the captions. The free clip check then refuses any frame where text or a node crosses the safe area, overflows, or renders under 28 px at 1080p (storyboard-schema.md, Clip check).
 - Known gap: the inset holds for camera targets only. A node that `move`s, or is added, between camera steps can drift into the caption band until the next camera step. Add a `fit_view` soon after any `move` or late `add_node`, and check the stills.
 - Attribution: the React Flow badge is hidden by choice; the credit and every bundled licence go in `THIRD_PARTY_NOTICES` (step 5) whenever a diagram scene exists.
+- Motion steps: `count` turns a node's label into a count-up and `draw` draws an edge on, both on the shared easing helper (schema reference, Diagram scene).
+
+## Element scenes
+
+A `kind: "element"` scene is a short element film: one centered idea per frame on a plain background, built from beats. Fields are in `reference/storyboard-schema.md` (Element scene); `reference/examples/element-film.json` is a worked example that renders silent and free.
+
+- When: a promo or a hook, where the story is a line, a number, a trend, or one product element, not a whole screen. A 20 to 40 s promo is mostly element scenes; an explainer mixes them with screen and diagram scenes.
+- Beats: `statement` (one or two serif lines), `card` (a product element rebuilt at real size), `number` (counts up with a `count` step), `line` (draws on with a `draw` step, with an optional dashed projection ending in a glow dot), `cursor` (a pointer clicks a row; the row tints and dependent controls dim).
+- Timing: `land_at` is the frame the beat is fully entered on, a t_ms or a word anchor such as `{ "word": "checks", "offset_ms": -300 }`, so the beat lands as the word is heard. The entrance (fade plus 0.96 to 1.0 scale-in, `enter_ms`, default 400) ends there; a clamp at the scene start or the previous exit is a warning, never a moved landing. Anchor on narration; author numbers only for a silent film.
+- Motion: one helper, `CfEase.p` in `scripts/walkthrough_ease.js`, cosine ease-in-out, driven by the frame number only. The diagram lane layer takes its curves from the same helper.
+- Screen: none to write. The page is built in memory at capture from the scene, so there is no generated file and no drift; its key covers the page, the element runtime, and the helper.
+- Cost: no paid call beyond narration, as for a diagram. Element and diagram boards capture at 60 fps, and the clip check covers every element frame.
 
 ## Gates
 

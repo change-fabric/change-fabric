@@ -90,6 +90,68 @@ class WalkthroughDiagramCaptureTest < Minitest::Test
     end
   end
 
+  # count and draw under the capture clock: the counted label ends on its
+  # formatted target, the drawn edge is undrawn before its step and whole
+  # after it, the page throws nothing, and two captures match.
+  def test_count_and_draw_steps_capture_deterministically
+    skip "docker not available" unless ChangeDocker.available?
+
+    Dir.mktmpdir do |root|
+      FileUtils.cp_r("#{File.expand_path('fixtures/walkthrough/architecture', __dir__)}/.", root)
+      board = WalkthroughStoryboard.load(File.join(root, "storyboard.json"))
+      scene = board["scenes"].first
+      scene["diagram"]["steps"] += [ { "t_ms" => 1400, "op" => "count", "id" => "db", "from" => 0, "to" => 9, "duration" => 100 },
+                                     { "t_ms" => 1500, "op" => "count", "id" => "api", "from" => 0, "to" => 1280, "duration" => 300 },
+                                     { "t_ms" => 1500, "op" => "draw", "id" => "e3", "duration" => 300 },
+                                     { "t_ms" => 1700, "op" => "label", "id" => "db", "text" => "Done" } ]
+      WalkthroughDiagram.write_screens(board, root)
+      assert_empty WalkthroughStoryboard.validate(board, root: root)
+      prep = PrototypeCapture.prepare(board, scene, root)
+      html = PrototypeCapture.inline_screen(prep[:html_path], root: root)
+      duration = PrototypeCapture.scene_duration(scene)
+      ChangeDocker.with_browserless(network: nil) do |session|
+        recorder = Recorder.new(session)
+        runs = 2.times.map do |n|
+          out = File.join(root, "run-#{n}")
+          PrototypeCapture.capture(session: recorder, html: html, interactions: [], duration_ms: duration, out_dir: out,
+                                   state: prep[:state], prng_seed: prep[:prng_seed], viewport: board["viewport"], label: scene["id"])
+          Dir[File.join(out, "*.png")].sort.map { |f| Digest::SHA256.file(f).hexdigest }
+        end
+        assert_equal runs[0], runs[1], "count and draw frames differ between captures"
+        assert_empty recorder.results.flat_map { |r| Array(r["pageErrors"]) }
+        boxes = JSON.parse(File.read(File.join(root, "run-0", WalkthroughClipcheck::BOXES)))["frames"]
+        texts = ->(i) { boxes[i]["boxes"].select { |b| b["kind"] == "text" }.map { |b| b["text"] } }
+        assert_includes texts.(boxes.size - 1), "1,280"
+        # A label step after a finished count takes the node's text back.
+        assert_includes texts.(boxes.size - 1), "Done"
+        refute_includes texts.(boxes.size - 1), "9"
+        assert_includes texts.(0), "API"
+      end
+      dash = ChangeDocker.with_browserless(network: nil) do |session|
+        code = <<~JS
+          export default async function ({ page }) {
+            await page.setViewport({ width: #{board.dig('viewport', 'w')}, height: #{board.dig('viewport', 'h')} });
+            await page.setContent(#{JSON.generate(PrototypeCapture.with_document_scripts(html, prng_seed: 1, state: nil))});
+            const deadline = Date.now() + 15000;
+            while (!(await page.evaluate(() => window.__cfDiagramReady === true)) && Date.now() < deadline) await new Promise((r) => setTimeout(r, 50));
+            const read = () => page.evaluate(() => {
+              const p = document.querySelector('.react-flow__edge[data-id="e3"] .react-flow__edge-path');
+              return p ? p.style.strokeDashoffset : null;
+            });
+            await page.evaluate(() => window.__cfAdvance(1000));
+            const before = await read();
+            await page.evaluate(() => window.__cfAdvance(1000));
+            const after = await read();
+            return { data: { before, after }, type: "application/json" };
+          }
+        JS
+        session.run_function(code)
+      end
+      assert_equal "1", dash["before"], "undrawn before its draw step"
+      assert_equal "0", dash["after"], "whole after its draw"
+    end
+  end
+
   # An LR dagre layout under a virtual clock: ranks run left to right, a node
   # never moves once shown (add_node does not reflow), and whenever the
   # camera rests on a fit or a focus its targets sit above the caption band.

@@ -257,8 +257,24 @@ class WalkthroughDiagramLanesTest < Minitest::Test
       re = /const #{name} = ([\d.]+);/
       assert_equal runtime[re, 1], lanes[re, 1], name
     end
-    # The runtime's ease is the lane layer's `ease-in-out`.
-    assert_equal runtime[/const ease = (.*)$/, 1], lanes[/const cubic = (.*)$/, 1]
+    # The runtime's ease is the shared helper's `ease-in-out`, which the lane
+    # layer takes its curves from (scripts/walkthrough_ease.js).
+    ease = File.read(WalkthroughDiagram::EASE)
+    assert_equal runtime[/const ease = (.*)$/, 1], ease[/const cubic = (.*)$/, 1]
+    assert_includes lanes, "window.CfEase"
+    refute_match(/const bezier = /, lanes, "the lane layer keeps no easing of its own")
+    motion = File.read(WalkthroughDiagram::MOTION_RUNTIME)
+    %w[NODE_MIN_W NODE_MAX_W CHAR_W NODE_PAD_W ICON_PX ICON_GAP].each do |name|
+      re = /const #{name} = ([\d.]+);/
+      assert_equal runtime[re, 1], motion[re, 1], "motion layer #{name}"
+    end
+  end
+
+  # The lane layer sizes laned cards itself, so a count stays off them.
+  def test_count_on_a_laned_node_is_refused
+    laned = spec["nodes"].find { |n| n["lane"] }["id"]
+    spec["steps"] << { "t_ms" => spec["steps"].map { |s| s["t_ms"] }.max, "op" => "count", "id" => laned, "from" => 0, "to" => 3 }
+    assert_match(/count on #{laned.inspect}, a node in a lane/, errs)
   end
 
   # Lane icons inline Phosphor glyphs just like node icons, so a board whose
