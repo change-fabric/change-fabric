@@ -166,10 +166,10 @@ module WalkthroughRoast
 
       named = (r['problem'] || r['summary']).to_s.strip
       problem = issue['problem'].to_s
-      named.empty? ? i == index : problem.include?(named) || named.include?(problem.strip)
+      named.empty? ? i == index : (problem.include?(named) || named.include?(problem.strip))
     end
   end
-  private_class_method :rebutted?
+  private_class_method :rebutted?, :rebut?, :response_entries
 
   # -- run spend ledger ---------------------------------------------------
 
@@ -294,7 +294,7 @@ module WalkthroughRoast
   end
 
   def raise_open_blockers(blockers, label: 'roast', flag: '--allow-roast-findings')
-    lines = blockers.map { |i| "#{i['id'] || '(no id)'} #{i['severity'] || i['priority']} (#{Roast.location(i)}): #{Roast.summary_of(i['problem'])}" }
+    lines = blockers.map { |i| "#{i['id'] || '(no id)'} #{i['priority']} (#{Roast.location(i)}): #{Roast.summary_of(i['problem'])}" }
     raise OpenFindingsError, "#{blockers.size} unrebutted P0/P1 #{label} finding(s) block --final (rebut each in the round's " \
                              "response file, or pass #{flag} to override):\n" \
                              "#{lines.join("\n")}"
