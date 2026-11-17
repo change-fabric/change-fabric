@@ -8,6 +8,7 @@ require 'uri'
 require_relative 'change_lane'
 require_relative 'change_docker'
 require_relative 'change_findings'
+require_relative 'path_canon'
 
 # The k6 load/burst lane. Runs the digest-pinned grafana/k6 image as a one-shot
 # container against the target on the run network, exporting the end-of-test
@@ -78,10 +79,8 @@ class ChangeLaneK6 < ChangeLane
     configured = @config.path('script')
     return false unless configured
 
-    !canonical(configured).start_with?("#{canonical(@config.dir.to_s)}/")
+    !PathCanon.strictly_within?(configured, @config.dir.to_s)
   end
-
-  def canonical(path) = File.exist?(path) ? File.realpath(path) : File.expand_path(path)
 
   def script_escape_finding
     Finding.new(lane: 'k6', check: 'k6 script', target: base_url, status: 'fail', severity: 'high',
