@@ -53,6 +53,16 @@ class PrototypeUxLintTest < Minitest::Test
     assert_equal "PASS (2 scene(s))", PrototypeUxLint.summary([ PrototypeUxLint.scene_report("a", []), PrototypeUxLint.scene_report("b", []) ])
   end
 
+  def test_caption_safe_and_occlusion_are_advisory_on_live_scenes
+    raw = %w[caption-safe occlusion].map { |rule| { "frame" => 0, "rule" => rule, "target" => "#row", "detail" => "d" } }
+    live = PrototypeUxLint.scene_report("app", raw)
+    assert_nil PrototypeUxLint.gate!([ live ], live: [ "app" ])
+    assert_raises(PrototypeUxLint::FindingsError) { PrototypeUxLint.gate!([ live ]) }
+    clipped = PrototypeUxLint.scene_report("app", raw + [ { "frame" => 0, "rule" => "clipped-text", "target" => "#t", "detail" => "d" } ])
+    err = assert_raises(PrototypeUxLint::FindingsError) { PrototypeUxLint.gate!([ clipped ], live: [ "app" ]) }
+    assert_includes err.message, "1 finding(s) across 1 scene(s)"
+  end
+
   def test_read_ignores_reports_from_another_version
     Dir.mktmpdir do |dir|
       PrototypeUxLint.write(dir, PrototypeUxLint.scene_report("a", []).merge("version" => 0))
@@ -121,6 +131,9 @@ class PrototypeUxLintTest < Minitest::Test
     "scroll-box-cut-by-outer-frame" => [ '<div style="position:absolute;top:20px;width:200px;height:40px;overflow:hidden">' \
                                          '<div style="height:200px;overflow:auto"><button style="margin-top:20px">Ask Dana</button></div></div>',
                                          %w[clipped-text] ],
+    "svg-link-with-label" => [ '<svg width="200" height="100"><a href="#r" aria-label="North region"><rect width="200" height="100"/></a></svg>', [] ],
+    "svg-link-with-title" => [ '<svg width="200" height="100"><a href="#r"><title>South region</title><rect width="200" height="100"/></a></svg>', [] ],
+    "svg-link-unnamed" => [ '<svg width="200" height="100"><a href="#r"><rect width="200" height="100"/></a></svg>', %w[empty-control] ],
     "scrollable-own-text" => [ '<div style="width:60px;overflow-x:auto;white-space:nowrap">A very long label here</div>', [] ],
     "cut-by-ancestor" => [ '<div style="position:absolute;top:20px;width:200px;height:40px;overflow:hidden"><button style="margin-top:20px">Ask Dana</button></div>',
                            %w[clipped-text] ],

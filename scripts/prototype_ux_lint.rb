@@ -53,13 +53,18 @@ require 'fileutils'
 # the nearest heading, else trimmed text) beside its CSS `target` path.
 #
 # `data-ux-allow="<rule> ..."` on an element or ancestor opts it out of a rule.
+#
+# On a live scene (a real app filmed as it is), caption-safe and occlusion
+# are advisory: the page chrome is not ours to move, so they are reported but
+# never block --final (LIVE_ADVISORY).
 module PrototypeUxLint
-  VERSION = 4 # bump on any rule change so cached reports re-lint
+  VERSION = 5 # bump on any rule change so cached reports re-lint
   REPORT = 'ux-lint.json'
   SETTLE_FRAMES = 15 # also lint half a second after each click, once a toast has landed
   # Players draw a two-line cue in roughly the bottom tenth of the frame; the
   # band adds a margin above it.
   CAPTION_BAND = 0.15
+  LIVE_ADVISORY = %w[caption-safe occlusion].freeze
   DEVICE_TOLERANCE = 0.01
 
   class FindingsError < StandardError; end
@@ -138,6 +143,8 @@ module PrototypeUxLint
         if (by) { const t = by.split(/\s+/).map((id) => { const n = document.getElementById(id); return n ? n.textContent : ''; }).join(' ').trim(); if (t) return t; }
         const direct = (el.getAttribute('aria-label') || el.getAttribute('title') || inputLabel(el) || '').trim();
         if (direct) return direct;
+        const title = el instanceof SVGElement && el.querySelector(':scope > title');
+        if (title && title.textContent.trim()) return title.textContent.trim();
         const alt = Array.prototype.map.call(el.querySelectorAll('img[alt]'), (i) => i.alt).join(' ').trim();
         return (el.textContent.trim() || alt);
       };
@@ -184,7 +191,9 @@ module PrototypeUxLint
           const name = accName(el);
           const shown = shownInputLabel(el) || textRects(el).map((t) => t.text).join(' ');
           const r = el.getBoundingClientRect();
-          const iconButton = !overlay && (el.hasAttribute('aria-label') || el.hasAttribute('title') || el.hasAttribute('aria-labelledby')) && r.width <= 64 && r.height <= 64;
+          // An SVG link (a map region, a chart mark) is drawn, not written:
+          // its accessible name is its label.
+          const iconButton = !overlay && (el instanceof SVGElement || ((el.hasAttribute('aria-label') || el.hasAttribute('title') || el.hasAttribute('aria-labelledby')) && r.width <= 64 && r.height <= 64));
           if (!name) out.push({ label: label(el), rule: 'empty-control', target: sel(el), detail: (overlay ? 'overlay' : 'control') + ' has no accessible name' });
           else if (!shown && !iconButton) out.push({ label: label(el), rule: 'empty-control', target: sel(el), detail: (overlay ? 'overlay' : 'control') + ' renders no visible text (name "' + name.slice(0, 60) + '")' });
         });
@@ -474,10 +483,21 @@ module PrototypeUxLint
   end
 
   # Raises when any finding is open, unless allowed.
-  def gate!(reports, allow: false)
-    return if total(reports).zero? || allow
+  # Raises when any blocking finding is open, unless allowed. `live` names
+  # the live scenes, whose LIVE_ADVISORY findings never block.
+  def gate!(reports, allow: false, live: [])
+    blocking = blocking(reports, live)
+    return if total(blocking).zero? || allow
 
-    raise FindingsError, "UX lint: #{summary(reports)} block --final (pass --allow-ux-findings to override):\n" \
-                         "#{summary_lines(reports).join("\n")}"
+    raise FindingsError, "UX lint: #{summary(blocking)} block --final (pass --allow-ux-findings to override):\n" \
+                         "#{summary_lines(blocking).join("\n")}"
+  end
+
+  def blocking(reports, live)
+    reports.map do |r|
+      next r unless live.include?(r['scene'])
+
+      r.merge('findings' => r['findings'].reject { |f| LIVE_ADVISORY.include?(f['rule']) })
+    end
   end
 end

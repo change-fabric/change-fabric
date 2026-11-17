@@ -819,7 +819,7 @@ module WalkthroughRender
     def gate_final!(reports)
       return unless @final
 
-      PrototypeUxLint.gate!(reports, allow: @gates[:allow_ux])
+      PrototypeUxLint.gate!(reports, allow: @gates[:allow_ux], live: scenes.select { |s| live?(s) }.map { |s| s['id'] })
       # --no-roast is the explicit offline opt-out; otherwise a finished roast loop is required.
       WalkthroughRoast.gate!(roast_dir, allow: @gates[:allow_roast], cap_usd: roast_cap, require_roast: @gates[:roast],
                                                   content: @content_key, **roast_stop)
