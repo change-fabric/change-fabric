@@ -1004,6 +1004,20 @@ module WalkthroughRender
       end.select { |path| File.file?(path) }
     end
 
+    # Remote fonts on the allowlist are fetched into .cache/fonts before any
+    # paid step, so a failed fetch stops the run naming its URL and capture
+    # itself reads only the cache, offline.
+    def fetch_fonts!
+      scenes.each do |scene|
+        next unless targeted?(scene) && PrototypeCapture.skip_reason(scene).nil? && !WalkthroughElement.element?(scene)
+
+        WalkthroughFonts.prefetch!(File.join(@root, scene.dig('screen', 'html')), @root, fetch: @p[:font_fetch])
+      end
+    rescue WalkthroughFonts::FetchError, WalkthroughFonts::HostError => e
+      say("fonts: #{e.message}; the run stopped before any paid call")
+      raise
+    end
+
     # -- driver -------------------------------------------------------------
 
     def call(estimate_only: false)
@@ -1011,6 +1025,7 @@ module WalkthroughRender
       WalkthroughHousekeeping.ensure_location!(@root).each { |line| say(line) }
       WalkthroughCache.ensure_gitignore(@root)
       WalkthroughHousekeeping.disk_preflight!(@root, free: @p[:free_bytes]) unless estimate_only
+      fetch_fonts!
       return silent_call if @silent
 
       estimate
@@ -1180,6 +1195,7 @@ module WalkthroughRender
     def silent_call
       WalkthroughStoryboard.validate!(@board, root: @root)
       WalkthroughCache.ensure_gitignore(@root)
+      fetch_fonts!
       generate_broll
       capture_frames
       keys = WalkthroughStoryboard.recompute_keys(@board, @root)

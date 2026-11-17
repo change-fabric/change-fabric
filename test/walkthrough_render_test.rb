@@ -1063,6 +1063,22 @@ class WalkthroughRenderTest < Minitest::Test
     refute_includes out.string, "the run goes on"
   end
 
+  # A remote font that cannot be fetched stops the run, naming its URL,
+  # before the silent cut, any capture, or any paid call.
+  def test_failed_font_fetch_stops_before_any_paid_call
+    url = "https://fonts.googleapis.com/css2?family=Inter"
+    File.write(File.join(@root, "screens", "list.html"), "<html><head><link rel='stylesheet' href='#{url}'></head><body>x</body></html>")
+    refuse = ->(name) { ->(**) { raise "paid #{name} called after a failed font fetch" } }
+    ps = providers.merge(tts: refuse.call(:tts), music: refuse.call(:music), image: refuse.call(:image), broll: refuse.call(:broll),
+                         capture: refuse.call(:capture),
+                         font_fetch: ->(u) { raise WalkthroughFonts::FetchError, "font fetch failed: #{u} returned HTTP 503" })
+    out = StringIO.new
+    err = assert_raises(WalkthroughFonts::FetchError) { run_render(providers: ps, out: out) }
+    assert_includes err.message, url
+    assert_includes out.string, "the run stopped before any paid call"
+    refute_includes out.string, "estimate"
+  end
+
   # The documented exception (#464): an uncached generated image is a paid
   # step, so the free cut is skipped, said plainly, and the paid run goes on.
   def test_silent_cut_skipped_for_an_uncached_generated_image

@@ -18,6 +18,7 @@ require_relative 'walkthrough_browser_frame'
 require_relative 'walkthrough_sharpness'
 require_relative 'walkthrough_timeline'
 require_relative 'path_canon'
+require_relative 'walkthrough_fonts'
 
 # Records a cf:prototype mock screen as a PNG frame sequence under a fixed,
 # controlled clock, in the pinned browserless container and nowhere else.
@@ -307,6 +308,7 @@ module PrototypeCapture
   def restore_opaque(html, opaque) = html.gsub(/#{OPAQUE_MARK}(\d+)#{OPAQUE_MARK}/o) { opaque.fetch(Regexp.last_match(1).to_i) }
 
   def inline_assets(html, path, dir, remap, root)
+    html = WalkthroughFonts.rewrite_links(html)
     check_supported!(html, File.basename(path))
     html = html.gsub(%r{<link\b[^>]*\bhref\s*=\s*(["'])([^"']+?\.css(?:[?#][^"']*)?)\1[^>]*>}im) do
       href = Regexp.last_match(2)
@@ -405,6 +407,9 @@ module PrototypeCapture
 
   def default_root(dir) = File.basename(dir) == 'screens' ? File.dirname(dir) : dir
 
+  # The walkthrough dir whose .cache/fonts holds a screen's fetched fonts.
+  def font_root(root, dir) = Array(root || default_root(dir)).first
+
   # Resolves a local ref against `dir`, refusing one that lands outside
   # `root` (after symlinks), so `../../etc/passwd` never reaches a frame.
   def asset_path(dir, ref, root = nil)
@@ -450,7 +455,12 @@ module PrototypeCapture
     css.gsub(CSS_IMPORT_RE) do
       ref = Regexp.last_match(2) || Regexp.last_match(4)
       cond = Regexp.last_match(5).to_s.strip
-      raise UnsupportedContentError, "#{label}: remote @import #{ref} is not supported" if remote?(ref)
+      if remote?(ref)
+        raise UnsupportedContentError, "#{label}: remote @import #{ref} is not supported" unless WalkthroughFonts.allowed?(ref)
+
+        body = WalkthroughFonts.import_css(ref, font_root(root, dir), label: label)
+        next cond.empty? ? body : "@media #{cond} {#{body}}"
+      end
       next Regexp.last_match(0) unless local_ref?(ref) && ref.split(/[?#]/).first.end_with?('.css')
 
       file = asset_path(dir, swap_keys(ref, remap), root)
@@ -470,7 +480,11 @@ module PrototypeCapture
     css = inline_css_imports(css.gsub(%r{/\*.*?\*/}m, ''), dir, label, remap, root, seen)
     css.gsub(/url\(\s*(["']?)([^"')]+)\1\s*\)/i) do
       ref = Regexp.last_match(2)
-      raise UnsupportedContentError, "#{label}: remote url(#{ref}) is not supported" if remote?(ref)
+      if remote?(ref)
+        raise UnsupportedContentError, "#{label}: remote url(#{ref}) is not supported" unless WalkthroughFonts.allowed?(ref)
+
+        next "url(\"#{WalkthroughFonts.font_uri(ref, font_root(root, dir), label: label)}\")"
+      end
 
       local_ref?(ref) ? "url(\"#{ref_uri(dir, ref, remap, root)}\")" : Regexp.last_match(0)
     end
