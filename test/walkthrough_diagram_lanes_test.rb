@@ -180,7 +180,7 @@ class WalkthroughDiagramLanesTest < Minitest::Test
                       { "t_ms" => 0, "op" => "travel", "lane" => "check-load", "id" => "load" },
                       { "t_ms" => 0, "op" => "travel", "lane" => "load", "ids" => [ "pr" ], "duration" => 0 },
                       { "t_ms" => 0, "op" => "pulse_edge", "id" => "load" },
-                      { "t_ms" => 0, "op" => "fit_view", "ids" => [ "load" ] } ]
+                      { "t_ms" => 0, "op" => "fit_view", "ids" => [ "check-load", "gate" ] } ]
     joined = errs
     assert_includes joined, "step 0: nil is not a lane id"
     assert_includes joined, 'step 1: "check-load" is not a lane id'
@@ -188,7 +188,18 @@ class WalkthroughDiagramLanesTest < Minitest::Test
     assert_includes joined, "step 2: travel takes one id, not ids"
     assert_includes joined, "step 2: duration must be positive for travel"
     assert_includes joined, 'step 3: "load" is not a edge id'
-    assert_includes joined, 'step 4: "load" is not a node id'
+    assert_includes joined, 'step 4: "gate" is not a node or lane or fit id'
+  end
+
+  def test_fit_view_frames_a_lane_or_the_report
+    last = spec["steps"].last["t_ms"]
+    spec["steps"] << { "t_ms" => last, "op" => "fit_view", "ids" => [ "load", "report" ] }
+    assert_empty errs
+    spec.delete("report")
+    assert_match(/"report" is not a node or lane or fit id/, errs)
+    spec["report"] = { "label" => "Report" }
+    spec["lanes"].first["id"] = "report"
+    assert_match(/id "report" is reserved/, errs)
   end
 
   def test_travel_easing_and_result
@@ -266,8 +277,10 @@ class WalkthroughDiagramLanesTest < Minitest::Test
     assert_includes internal, "__cf_lane_anchor_a"
     assert_includes internal, "__cf_lane_anchor_b"
     internal.each { |id| refute_match WalkthroughDiagram::ID_RE, id, "#{id} would pass as an authored id" }
-    # The only nodes the layer adds are its anchors.
-    assert_equal [ "ANCHORS[0]", "ANCHORS[1]" ], js.scan(/\{ id: (\w+\[\d\])/).flatten
+    # The only nodes the layer adds are its anchors: the board's corners and
+    # each fit region's pair, named `__cf_fit_<region>_a` and `_b`.
+    assert_equal [ "ANCHORS[0]", "ANCHORS[1]", "pair[0]", "pair[1]" ], js.scan(/\{ id: (\w+\[\d\])/).flatten
+    assert_includes js, "`__cf_fit_${rid}_a`"
     spec["nodes"].first["id"] = internal.first
     assert_match(/must match/, errs)
   end

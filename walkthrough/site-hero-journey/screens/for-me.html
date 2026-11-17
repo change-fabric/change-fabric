@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Is it for me?</title>
+  <link rel="stylesheet" href="tokens.css">
+  <link rel="stylesheet" href="journey.css">
+  <style>
+    main { gap: 40px; }
+    .who .ico { --s: 160px; color: var(--accent); }
+    .hosts .ico { --s: 88px; }
+    .hosts .tile { gap: 20px; }
+    .hosts .label { font-size: 40px; font-weight: 500; color: var(--muted); }
+    .wordmark { height: 88px; display: flex; align-items: center; font-family: var(--font-mono); font-weight: 700; font-size: 64px; letter-spacing: -0.02em; }
+  </style>
+</head>
+<body>
+  <main>
+    <p class="eyebrow">Is it for me?</p>
+    <h1 class="in">Already coding with an agent?</h1>
+    <div class="tiles who">
+      <figure class="tile in" style="--d:1200ms"><span class="ico" style="--src:url(assets/icons/phosphor-user-regular.svg)" aria-hidden="true"></span><figcaption>New to code</figcaption></figure>
+      <figure class="tile in" style="--d:1700ms"><span class="ico" style="--src:url(assets/icons/phosphor-rocket-regular.svg)" aria-hidden="true"></span><figcaption>Side projects</figcaption></figure>
+      <figure class="tile in" style="--d:2200ms"><span class="ico" style="--src:url(assets/icons/phosphor-users-regular.svg)" aria-hidden="true"></span><figcaption>Team repo</figcaption></figure>
+    </div>
+    <hr class="rule in" style="--d:3000ms">
+    <div class="tiles hosts" aria-label="Runs inside">
+      <figure class="tile in" style="--d:3200ms"><span class="ico" style="--src:url(assets/icons/simple-claudecode.svg)" aria-hidden="true"></span><figcaption class="label">Claude Code</figcaption></figure>
+      <figure class="tile in" style="--d:3400ms"><span class="wordmark" aria-hidden="true">codex</span><figcaption class="label">Codex CLI</figcaption></figure>
+      <figure class="tile in" style="--d:3600ms"><span class="ico" style="--src:url(assets/icons/simple-githubcopilot.svg)" aria-hidden="true"></span><figcaption class="label">Copilot CLI</figcaption></figure>
+      <figure class="tile in" style="--d:3800ms"><span class="ico" style="--src:url(assets/icons/simple-opencode.svg)" aria-hidden="true"></span><figcaption class="label">OpenCode</figcaption></figure>
+      <figure class="tile in" style="--d:4000ms"><span class="ico" style="--src:url(assets/icons/simple-pi.svg)" aria-hidden="true"></span><figcaption class="label">Pi</figcaption></figure>
+    </div>
+  </main>
+</body>
+</html>

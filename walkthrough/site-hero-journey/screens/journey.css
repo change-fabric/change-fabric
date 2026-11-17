@@ -1,0 +1,27 @@
+/* Shared layout for the hero's journey screens. Colours and type come from
+   tokens.css (the site dark theme). Content fills the frame above the
+   bottom 15 percent, so the player's caption band never covers it. Body
+   text is at least 40px and headings at least 72px, so a 1920x1080 frame
+   stays readable played back on a phone. */
+html, body { margin: 0; height: 100%; }
+body { background: var(--bg); color: var(--text); font-family: var(--font-sans); }
+main { box-sizing: border-box; height: 85vh; padding: 64px 120px 40px; display: flex; flex-direction: column; justify-content: center; gap: var(--space-3); }
+.eyebrow { font-family: var(--font-mono); font-size: 40px; color: var(--accent); margin: 0; }
+h1 { font-family: var(--font-serif); font-weight: 500; font-size: 96px; line-height: 1.08; margin: 0; letter-spacing: -0.01em; }
+.lede { font-size: 48px; line-height: 1.35; margin: 0; color: var(--muted); max-width: 1600px; }
+.cf { color: var(--accent); font-weight: 600; font-family: var(--font-mono); }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 40px 44px; }
+.in { animation: rise 300ms ease-out var(--d, 0ms) both; }
+@keyframes rise { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+@keyframes show { from { opacity: 0; } to { opacity: 1; } }
+@keyframes hide { from { opacity: 1; } to { opacity: 0; } }
+/* Icons and logos: each SVG under assets/icons is drawn as a mask over the
+   current text colour, so Phosphor glyphs and Simple Icons logos take the
+   theme ink instead of their own black fill. Decorative: the label beside
+   each one carries the name. */
+.ico { display: inline-block; flex: none; width: var(--s, 96px); height: var(--s, 96px); background: currentColor; -webkit-mask: var(--src) center / contain no-repeat; mask: var(--src) center / contain no-repeat; }
+.tiles { display: flex; justify-content: space-between; gap: var(--space-3); }
+.tile { flex: 1; display: flex; flex-direction: column; align-items: center; gap: var(--space-2); margin: 0; }
+.tile figcaption, .tile .label { font-size: 44px; font-weight: 600; text-align: center; }
+.tile .sub { font-size: 40px; color: var(--muted); }
+.rule { border: 0; border-top: 1px solid var(--border); margin: 0; }

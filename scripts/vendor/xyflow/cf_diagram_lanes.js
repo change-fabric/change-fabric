@@ -404,6 +404,22 @@
   const B = LAYOUT.bounds;
   spec.nodes.push({ id: ANCHORS[0], label: ' ', cf_width: ANCHOR_PX, cf_height: ANCHOR_PX, position: { x: Math.floor(B.x0), y: Math.floor(B.y0) } },
     { id: ANCHORS[1], label: ' ', cf_width: ANCHOR_PX, cf_height: ANCHOR_PX, position: { x: Math.ceil(B.x1) - ANCHOR_PX, y: Math.ceil(B.y1) - ANCHOR_PX } });
+  // A fit_view may name a lane (its band, from the name column through the
+  // travel stretch) or `report` (the results panel). Each region gets its
+  // own pair of invisible corners, and the step fits those instead.
+  const regions = {};
+  for (const b of LAYOUT.bands) regions[b.id] = union([b.label, flowBox(span[0], b.start, LAYOUT.reach - span[0], b.extent)]);
+  // The report region is the heading and its rows, not the panel's full
+  // height, so a fit on it is as large as the rows allow.
+  if (panel) regions.report = union([{ ...panel, h: Math.min(panel.h, PANEL_PAD * 2 + PANEL_HEAD + LAYOUT.rows.length * (RESULT_H + RESULT_GAP) - RESULT_GAP) }]);
+  const regionAnchors = {};
+  for (const [rid, R] of Object.entries(regions)) {
+    const pair = [`__cf_fit_${rid}_a`, `__cf_fit_${rid}_b`];
+    regionAnchors[rid] = pair;
+    spec.nodes.push({ id: pair[0], label: ' ', cf_width: ANCHOR_PX, cf_height: ANCHOR_PX, position: { x: Math.floor(R.x0), y: Math.floor(R.y0) } },
+      { id: pair[1], label: ' ', cf_width: ANCHOR_PX, cf_height: ANCHOR_PX, position: { x: Math.ceil(R.x1) - ANCHOR_PX, y: Math.ceil(R.y1) - ANCHOR_PX } });
+    ANCHORS.push(...pair);
+  }
   spec.initial = (spec.initial || []).concat(ANCHORS);
 
   // Every node takes its place and size from the record; the runtime
@@ -417,6 +433,7 @@
   spec.initial = (spec.initial || []).filter((id) => !owned.has(id));
   steps.forEach((s, i) => {
     if (s.op === 'travel') steps[i] = { t_ms: s.t_ms, op: 'add_node', ids: [] };
+    if (s.op === 'fit_view' && s.ids) steps[i] = Object.assign({}, s, { ids: s.ids.flatMap((id) => regionAnchors[id] || [id]) });
   });
   spec.steps = steps;
   specEl.textContent = JSON.stringify(spec);

@@ -45,7 +45,7 @@ module WalkthroughDiagram
   PADDING = (0.0..1.0)
   # layout.max_zoom: how far a fit may enlarge the picture (nodes, icons,
   # labels, and edges together). The runtime default is 1.25.
-  MAX_ZOOM = (0.5..2.0)
+  MAX_ZOOM = (0.5..3.0)
   LAYOUT_FIELDS = %w[engine direction max_zoom].freeze
   SPEC_FIELDS = %w[layout theme lanes lane_direction report nodes edges initial steps].freeze
   # Swimlanes: horizontal bands (or vertical columns) a node joins by `lane`.
@@ -153,6 +153,8 @@ module WalkthroughDiagram
     errs.concat(lanes_errors(spec, lanes))
     errs.concat(id_errors(nodes + edges + lanes))
     ids = { node: nodes.map { |n| n['id'] }, edge: edges.map { |e| e['id'] }, lane: lanes.map { |l| l['id'] } }
+    # fit_view alone may also name `report`, the results panel.
+    fit = spec.key?('report') && !lanes.empty? ? [ 'report' ] : []
     nodes.each { |n| errs.concat(node_errors(n, ids[:lane])) }
     edges.each { |e| errs.concat(edge_errors(e, ids[:node])) }
     initial = spec['initial'] || []
@@ -162,7 +164,7 @@ module WalkthroughDiagram
     else
       errs << 'diagram.initial must be a list of ids'
     end
-    errs.concat(steps_errors(spec['steps'] || [], ids, duration_ms))
+    errs.concat(steps_errors(spec['steps'] || [], ids.merge(fit: fit), duration_ms))
     errs.concat(owned_errors(spec, nodes, edges))
     errs.concat(fit_errors(spec, nodes, lanes))
   end
@@ -220,6 +222,9 @@ module WalkthroughDiagram
     errs << 'diagram.report.unit must be a non-empty string' if report.key?('unit') && !(report['unit'].is_a?(String) && !report['unit'].strip.empty?)
     errs << 'diagram.report needs lanes' if lanes.empty?
     errs << 'diagram.report needs horizontal lanes' if spec['lane_direction'] == 'vertical'
+    # fit_view reads `report` as the panel, so no node or lane may take it.
+    taken = (Array(spec['nodes']) + lanes).any? { |x| x.is_a?(Hash) && x['id'] == 'report' }
+    errs << 'diagram id "report" is reserved for the results panel when diagram.report is set' if taken
     errs
   end
 
@@ -317,7 +322,7 @@ module WalkthroughDiagram
       errs.concat(ref_errors([ step['id'] ], ids, %i[node]))
       errs << 'label needs a text string' unless step['text'].is_a?(String)
     when 'fit_view'
-      errs.concat(ref_errors(step['ids'], ids, %i[node])) if step.key?('ids')
+      errs.concat(ref_errors(step['ids'], ids, %i[node lane fit])) if step.key?('ids')
       errs << "padding must be a number in #{PADDING.min}..#{PADDING.max}" if step.key?('padding') && !range?(step['padding'], PADDING)
     when 'zoom_to'
       errs << "zoom must be a number in #{ZOOM.min}..#{ZOOM.max}" unless range?(step['zoom'], ZOOM)

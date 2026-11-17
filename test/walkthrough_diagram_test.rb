@@ -392,9 +392,11 @@ class WalkthroughDiagramTest < Minitest::Test
   def test_layout_max_zoom_is_an_optional_bounded_number
     spec["layout"] = { "engine" => "dagre", "max_zoom" => 2.0 }
     assert_empty diagram_errs
-    [ 2.5, 0.2, "2" ].each do |bad|
+    spec["layout"]["max_zoom"] = 3.0
+    assert_empty diagram_errs
+    [ 3.5, 0.2, "2" ].each do |bad|
       spec["layout"]["max_zoom"] = bad
-      assert_match(/diagram.layout.max_zoom must be a number in 0.5..2.0/, diagram_errs.join)
+      assert_match(/diagram.layout.max_zoom must be a number in 0.5..3.0/, diagram_errs.join)
     end
   end
 
