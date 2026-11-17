@@ -867,7 +867,8 @@ module WalkthroughRender
     def roast_stop = { target: @gates[:roast_target], rounds: @gates[:roast_rounds] }.compact
 
     # A materially reworked film (WalkthroughRoast.material_change?) starts a
-    # fresh roast loop; the old rounds move to roast/superseded/N/.
+    # fresh roast loop on its next draft; the old rounds move to
+    # roast/superseded/N/. --final never rescopes: it reports the change.
     def rescope_roast!(draft_keys)
       @roast_scenes = draft_keys.transform_values { |k| WalkthroughCache.key(k) }
       archive = WalkthroughRoast.rescope!(roast_dir, @roast_scenes)
@@ -997,7 +998,7 @@ module WalkthroughRender
       WalkthroughStoryboard.fix_keys(@board, @root, keys) unless @final
       draft_keys = @final ? WalkthroughStoryboard.recompute_keys(@board, @root) : keys
       @content_key = content_key(draft_keys)
-      rescope_roast!(draft_keys)
+      rescope_roast!(draft_keys) unless @final
       manifest = WalkthroughManifest.build(@board, @root, keys: keys)
       generate_music(manifest.dig('timeline', 'total_ms'))
       File.write(@board_path, "#{JSON.pretty_generate(authored_board)}\n")
