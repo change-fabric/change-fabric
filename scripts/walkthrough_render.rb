@@ -866,6 +866,14 @@ module WalkthroughRender
 
     def roast_stop = { target: @gates[:roast_target], rounds: @gates[:roast_rounds] }.compact
 
+    # A materially reworked film (WalkthroughRoast.material_change?) starts a
+    # fresh roast loop; the old rounds move to roast/superseded/N/.
+    def rescope_roast!(draft_keys)
+      @roast_scenes = draft_keys.transform_values { |k| WalkthroughCache.key(k) }
+      archive = WalkthroughRoast.rescope!(roast_dir, @roast_scenes)
+      say("roast: scenes changed materially, earlier rounds moved to #{relative(archive)}; a fresh loop starts") if archive
+    end
+
     def roast_verdict = WalkthroughRoast.decide(roast_dir, cap_usd: roast_cap, content: @content_key, **roast_stop)
 
     # One cf:roast round over the draft's keyframes and narration transcript, with
@@ -886,6 +894,7 @@ module WalkthroughRender
       Roast.write_round(roast_dir, inputs[:round], critic)
       WalkthroughRoast.record_spend(roast_dir, inputs[:round], usd)
       WalkthroughRoast.record_content(roast_dir, inputs[:round], @content_key)
+      WalkthroughRoast.record_scenes(roast_dir, @roast_scenes)
       report_roast_round(inputs[:round], critic)
     rescue WalkthroughEnv::Deferred => e
       # openai deferred: the optional round is skipped and the render goes on.
@@ -986,7 +995,9 @@ module WalkthroughRender
       # Authored deps stay at the authored (draft) quality: a final render's
       # keys live in the manifest only, so validate does not report stale.
       WalkthroughStoryboard.fix_keys(@board, @root, keys) unless @final
-      @content_key = content_key(@final ? WalkthroughStoryboard.recompute_keys(@board, @root) : keys)
+      draft_keys = @final ? WalkthroughStoryboard.recompute_keys(@board, @root) : keys
+      @content_key = content_key(draft_keys)
+      rescope_roast!(draft_keys)
       manifest = WalkthroughManifest.build(@board, @root, keys: keys)
       generate_music(manifest.dig('timeline', 'total_ms'))
       File.write(@board_path, "#{JSON.pretty_generate(authored_board)}\n")

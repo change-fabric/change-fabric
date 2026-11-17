@@ -162,7 +162,8 @@ module WalkthroughRoast
     raise JSON::ParserError, 'ledger is not an object' unless data.is_a?(Hash) && (data['rounds'] || {}).is_a?(Hash)
 
     content = data['content'].is_a?(Hash) ? data['content'] : {}
-    { 'rounds' => data['rounds'] || {}, 'capped' => data['capped'] == true, 'content' => content }
+    scenes = data['scenes'].is_a?(Hash) ? { 'scenes' => data['scenes'] } : {}
+    { 'rounds' => data['rounds'] || {}, 'capped' => data['capped'] == true, 'content' => content, **scenes }
   rescue JSON::ParserError
     { 'rounds' => {}, 'capped' => true, 'unreadable' => true, 'content' => {} }
   end
@@ -185,6 +186,41 @@ module WalkthroughRoast
   # The content key of what a round reviewed, so a later edit voids its pass.
   def record_content(dir, round, key)
     write_ledger(dir, ledger(dir).tap { |l| l['content'][round.to_s] = key })
+  end
+
+  # -- scope ---------------------------------------------------------------
+
+  # Where a superseded loop's rounds and ledger move when the film changes.
+  SUPERSEDED = 'superseded'
+
+  # The scene keys ({ id => digest }) the loop is scoped to: recorded on the
+  # first round of a scope, kept until the film changes materially.
+  def record_scenes(dir, scenes)
+    return if scenes.nil? || ledger(dir).key?('scenes')
+
+    write_ledger(dir, ledger(dir).merge('scenes' => scenes))
+  end
+
+  # A material change: a scene added, dropped or renamed, or at least half
+  # of the scenes re-keyed. A fix to one scene of several is not one.
+  def material_change?(was, now)
+    return true unless was.keys.sort == now.keys.sort
+
+    changed = now.count { |id, key| was[id] != key }
+    changed.positive? && changed * 2 >= now.size
+  end
+
+  # Starts a fresh loop when the film changed materially since the loop's
+  # scope was recorded: the rounds, keyframes and ledger move to superseded/N/, so the
+  # round count, spend, and verdict restart. Returns the archive dir or nil.
+  def rescope!(dir, scenes)
+    was = ledger(dir)['scenes']
+    return nil unless scenes && was && material_change?(was, scenes)
+
+    archive = File.join(dir, SUPERSEDED, (Dir.glob(File.join(dir, SUPERSEDED, '*')).size + 1).to_s)
+    FileUtils.mkdir_p(archive)
+    Dir.glob(File.join(dir, 'round-*')).push(File.join(dir, LEDGER), File.join(dir, 'keyframes')).each { |f| FileUtils.mv(f, archive) if File.exist?(f) }
+    archive
   end
 
   # A round skipped because it would pass the run cap: the loop is over.
