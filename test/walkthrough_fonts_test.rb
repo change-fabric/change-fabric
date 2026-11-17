@@ -73,6 +73,24 @@ class WalkthroughFontsTest < Minitest::Test
     assert_equal "https://fonts.gstatic.com/s/x.woff2", WalkthroughFonts.redirect_target(FONT_URL, "/s/x.woff2")
   end
 
+  def test_html_escaped_query_is_fetched_as_the_browser_would
+    File.write(@screen, "<link rel='stylesheet' href='https://fonts.googleapis.com/css2?family=Inter&amp;display=swap'>")
+    stub = ->(url) { (@fetched << url) && url.end_with?(".woff2") ? "B".b : SHEET }
+    with_fetcher(stub) { PrototypeCapture.inline_screen(@screen) }
+    assert_equal "https://fonts.googleapis.com/css2?family=Inter&display=swap", @fetched.first
+    @fetched.clear
+    WalkthroughFonts.prefetch!(@screen, Dir.mktmpdir, fetch: stub)
+    assert_equal "https://fonts.googleapis.com/css2?family=Inter&display=swap", @fetched.first
+  end
+
+  def test_prefetch_follows_nested_local_imports_and_stops_on_a_cycle
+    File.write(File.join(@root, "screens", "a.css"), "@import url('b.css');")
+    File.write(File.join(@root, "screens", "b.css"), "@import url('a.css'); @import url('#{CSS_URL}');")
+    File.write(@screen, "<link rel='stylesheet' href='a.css'>")
+    WalkthroughFonts.prefetch!(@screen, @root, fetch: @stub)
+    assert_equal [ CSS_URL, FONT_URL ], @fetched
+  end
+
   def test_second_render_hits_the_cache_with_no_network
     first = inline
     offline = ->(url) { raise "network touched for #{url}" }

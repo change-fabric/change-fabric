@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require 'cgi'
 require 'digest'
 require 'fileutils'
 require 'json'
@@ -28,6 +29,9 @@ module WalkthroughFonts
   URL_RE = /url\(\s*(["']?)([^"')]+)\1\s*\)/i
   LINK_RE = /<link\b[^>]*>/im
   HREF_RE = /\bhref\s*=\s*(["'])([^"']+)\1/im
+  REL_RE = /\brel\s*=\s*(["'])([^"']*)\1/im
+  MEDIA_RE = /\bmedia\s*=\s*(["'])([^"']*)\1/im
+  IMPORT_RE = /@import\s+(["'])([^"']+)\1/i
   HINT_RELS = %w[preconnect dns-prefetch preload prefetch].freeze
 
   # A process-wide fetcher override (tests stub HTTP here); nil uses net/http.
@@ -37,7 +41,10 @@ module WalkthroughFonts
 
   module_function
 
-  def absolute(url) = url.strip.start_with?('//') ? "https:#{url.strip}" : url.strip
+  def absolute(url)
+    url = url.strip
+    url.start_with?('//') ? "https:#{url}" : url
+  end
 
   def host(url)
     URI.parse(absolute(url)).host.to_s.downcase
@@ -60,15 +67,15 @@ module WalkthroughFonts
   # preload hint is dropped, since capture never touches the network.
   def rewrite_links(html)
     html.gsub(LINK_RE) do |tag|
-      href = tag[HREF_RE, 2]
+      href = tag[HREF_RE, 2]&.then { |h| href(h) }
       next tag unless href && remote?(href) && allowed?(href)
 
-      rel = tag[/\brel\s*=\s*(["'])([^"']*)\1/im, 2].to_s.downcase.split
+      rel = rels(tag)
       next '' if rel.intersect?(HINT_RELS)
       next tag unless rel.include?('stylesheet')
 
-      media = tag[/\bmedia\s*=\s*(["'])([^"']*)\1/im, 2]
-      cond = media && !media.strip.empty? && media.strip.casecmp('all') != 0 ? " #{media.strip}" : ''
+      media = tag[MEDIA_RE, 2].to_s.strip
+      cond = media.empty? || media.casecmp('all').zero? ? '' : " #{media}"
       %(<style>@import url("#{absolute(href)}")#{cond};</style>)
     end
   end
@@ -94,19 +101,39 @@ module WalkthroughFonts
     "data:#{FONT_MIME.fetch(ext, 'application/octet-stream')};base64,#{[ read(url, root, fetch) ].pack('m0')}"
   end
 
-  # Every allowlisted URL a screen pulls in directly (link hrefs, @import,
-  # url()), from the screen and the local stylesheets it links.
+  # Every remote URL a screen pulls in (link hrefs, @import, url()), from the
+  # screen and every local stylesheet it reaches through links and imports.
   def remote_refs(html_path)
     dir = File.dirname(File.expand_path(html_path))
     html = File.read(html_path)
-    css = html.scan(HREF_RE).map(&:last).reject { |r| remote?(r) }.filter_map do |r|
-      path = File.expand_path(r.split(/[?#]/).first, dir)
-      File.read(path) if path.end_with?('.css') && File.file?(path)
-    end
-    links = html.scan(LINK_RE).filter_map { |tag| tag[/\brel\s*=\s*(["'])[^"']*stylesheet/im] && tag[HREF_RE, 2] }
-    urls = links + ([ html ] + css).flat_map { |c| c.scan(URL_RE).map(&:last) + c.scan(/@import\s+(["'])([^"']+)\1/i).map(&:last) }
+    css = local_css(html.scan(HREF_RE).map { |m| href(m.last) }, dir, [])
+    urls = stylesheet_links(html) + ([ html ] + css).flat_map { |c| css_refs(c) }
     urls.select { |u| remote?(u) }.map { |u| absolute(u) }.uniq
   end
+
+  def rels(tag) = tag[REL_RE, 2].to_s.downcase.split
+
+  def stylesheet_links(html)
+    html.scan(LINK_RE).select { |tag| rels(tag).include?('stylesheet') }.filter_map { |tag| tag[HREF_RE, 2]&.then { |h| href(h) } }
+  end
+
+  def css_refs(css) = css.scan(URL_RE).map(&:last) + css.scan(IMPORT_RE).map(&:last)
+
+  # The text of each local .css file in refs and, recursively, the local
+  # stylesheets it imports; `seen` stops an import cycle.
+  def local_css(refs, dir, seen)
+    refs.reject { |r| remote?(r) }.flat_map do |r|
+      path = File.expand_path(r.split(/[?#]/).first, dir)
+      next [] unless path.end_with?('.css') && File.file?(path) && !seen.include?(path)
+
+      seen << path
+      body = File.read(path)
+      [ body ] + local_css(css_refs(body), File.dirname(path), seen)
+    end
+  end
+
+  # An attribute value as the browser reads it: `&amp;` in a query is `&`.
+  def href(value) = CGI.unescapeHTML(value)
 
   # Fetches (or finds cached) every allowlisted font a screen needs, before
   # any paid step. A host off the allowlist is left to the capture check.
