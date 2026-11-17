@@ -2,6 +2,7 @@
 
 require "minitest/autorun"
 require "tmpdir"
+require "fileutils"
 require "json"
 require_relative "../scripts/change_lane_k6"
 
@@ -74,5 +75,35 @@ class ChangeLaneK6Test < Minitest::Test
     config = ChangeConfig::LaneConfig.new("k6", { "env" => { "HEALTH_PATH" => "/healthz" } }, "/repo")
     ctx = Ctx.new("net", "http://app:3000", "http://localhost:3000/api/health")
     assert_equal "/healthz", ChangeLaneK6.new(config, ctx).send(:env)["HEALTH_PATH"]
+  end
+
+  # A script override (a schedule's k6.script) is repo-relative; one that
+  # escapes the repo root is refused before any container starts.
+  def test_a_script_escaping_the_repo_is_refused_without_a_docker_call
+    original = ChangeDocker.method(:run)
+    called = false
+    ChangeDocker.define_singleton_method(:run) { |**| called = true }
+    findings = lane({ "script" => "../outside.js" }).run
+    assert_equal "fail", findings.first.status
+    assert_match(/outside the repo root/, findings.first.detail)
+    refute called
+  ensure
+    ChangeDocker.define_singleton_method(:run, original)
+  end
+
+  def test_a_script_inside_the_repo_does_not_escape
+    refute lane({ "script" => "load/soak.js" }).send(:script_escapes_repo?)
+    assert lane({ "script" => "/etc/passwd" }).send(:script_escapes_repo?)
+  end
+
+  def test_an_in_repo_symlink_to_an_outside_script_escapes
+    Dir.mktmpdir do |dir|
+      repo = File.join(dir, "repo")
+      FileUtils.mkdir_p(File.join(repo, "load"))
+      File.write(File.join(dir, "outside.js"), "export default function () {}\n")
+      File.symlink(File.join(dir, "outside.js"), File.join(repo, "load", "soak.js"))
+      config = ChangeConfig::LaneConfig.new("k6", { "script" => "load/soak.js" }, repo)
+      assert ChangeLaneK6.new(config, Ctx.new("net", "http://app:3000")).send(:script_escapes_repo?)
+    end
   end
 end

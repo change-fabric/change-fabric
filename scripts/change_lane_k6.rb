@@ -8,6 +8,7 @@ require 'uri'
 require_relative 'change_lane'
 require_relative 'change_docker'
 require_relative 'change_findings'
+require_relative 'path_canon'
 
 # The k6 load/burst lane. Runs the digest-pinned grafana/k6 image as a one-shot
 # container against the target on the run network, exporting the end-of-test
@@ -48,6 +49,8 @@ class ChangeLaneK6 < ChangeLane
   JS
 
   def run
+    return [ script_escape_finding ] if script_escapes_repo?
+
     Dir.mktmpdir('cf-change-k6') do |dir|
       # Dir.mktmpdir defaults to 0700, owned by the host user running this
       # script. The k6 image runs its process as a fixed, non-root uid
@@ -65,6 +68,25 @@ class ChangeLaneK6 < ChangeLane
   end
 
   private
+
+  # A configured script (per-PR lane or a schedule's k6.script override) is a
+  # path relative to the repo root; one that resolves outside it (`../x.js`,
+  # an absolute path elsewhere) is refused rather than mounted, so a config
+  # can never feed the runner a file the repo does not own. Both sides are
+  # compared as real paths, so an in-repo symlink to an outside file is
+  # refused too.
+  def script_escapes_repo?
+    configured = @config.path('script')
+    return false unless configured
+
+    !PathCanon.strictly_within?(configured, @config.dir.to_s)
+  end
+
+  def script_escape_finding
+    Finding.new(lane: 'k6', check: 'k6 script', target: base_url, status: 'fail', severity: 'high',
+                detail: "k6 script '#{@config['script']}' resolves outside the repo root; " \
+                        'a script must be a path inside the repository')
+  end
 
   # The project's script when configured, else the built-in default written into
   # the mount dir. Returned as the container-side path under /work.

@@ -25,13 +25,18 @@ class ChangeLaneZap < ChangeLane
   # ZAP riskcode: 0 informational, 1 low, 2 medium, 3 high.
   RISK = { '0' => 'informational', '1' => 'low', '2' => 'medium', '3' => 'high' }.freeze
 
-  # Only the passive baseline runs here. Any other mode (an active `full`
-  # scan) is refused with one failing finding before any container starts:
-  # config validation already rejects full outside a schedule override, so
+  # The script each mode runs inside the pinned image.
+  SCRIPTS = { 'baseline' => 'zap-baseline.py', 'full' => 'zap-full-scan.py' }.freeze
+
+  # The passive baseline always runs. An active `full` scan runs only when the
+  # run context says the caller re-checked the profile's allow_active_scan
+  # opt-in (the schedule runner, or a standalone `zap --mode full`); anything
+  # else is refused with one failing finding before any container starts.
+  # Config validation already rejects full outside a schedule override, so
   # this is the last line of defense, and a refusal fails the lane rather than
   # reading as a clean run.
   def run
-    return [ mode_refusal ] unless mode == 'baseline'
+    return [ mode_refusal ] unless mode == 'baseline' || (mode == 'full' && active_scan_allowed?)
 
     targets.flat_map { |target| scan(target) }
   end
@@ -47,10 +52,12 @@ class ChangeLaneZap < ChangeLane
 
   def strict? = @config.fetch('strict', false)
 
+  def active_scan_allowed? = @context.respond_to?(:active_scan_allowed) && @context.active_scan_allowed == true
+
   def mode_refusal
     Finding.new(lane: 'zap', check: 'scan mode', target: targets.join(', '), status: 'fail', severity: 'high',
-                detail: "zap lane refused mode '#{mode}': only the passive baseline scan runs here; an active " \
-                        'scan (mode: full) runs only from a schedule whose profile sets allow_active_scan: true')
+                detail: "zap lane refused mode '#{mode}': an active scan (mode: full) runs only from a schedule " \
+                        'or a standalone zap --mode full run whose profile sets allow_active_scan: true')
   end
 
   def scan(target)
@@ -66,7 +73,7 @@ class ChangeLaneZap < ChangeLane
     ChangeDocker.run(
       network: @context.network,
       image: ChangeDocker::ZAP_IMAGE,
-      args: [ 'zap-baseline.py', '-t', target, '-J', report, '-r', 'report.html' ],
+      args: [ SCRIPTS.fetch(mode), '-t', target, '-J', report, '-r', 'report.html' ],
       mounts: { dir => '/zap/wrk' },
       name: "#{ChangeDocker::RESOURCE_PREFIX}zap-#{SecureRandom.hex(4)}"
     )
@@ -89,7 +96,7 @@ class ChangeLaneZap < ChangeLane
   # network-internal service url.
   def no_alert_finding(target, status, out)
     errored = exit_code(status) == 3
-    Finding.new(lane: 'zap', check: 'baseline scan', target: target,
+    Finding.new(lane: 'zap', check: "#{mode} scan", target: target,
                 status: errored ? 'fail' : 'pass', severity: errored ? 'high' : 'info',
                 detail: errored ? "ZAP could not scan the target: #{output_tail(out)}" : 'no alerts')
   end

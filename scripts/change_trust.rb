@@ -257,8 +257,10 @@ module ChangeTrust
   # them and against this sha's approvals.
   # `apps` names the app being run in a monorepo, so the base snapshot reads
   # only that app's config under this profile.
-  def evaluate(root:, head_sha:, head_definitions:, profile: nil, apps: nil, fetch: true)
-    base = resolve_base(root, fetch: fetch)
+  # `base` overrides the resolved base: a schedule compares against the
+  # default-branch snapshot it already loaded, not the per-PR gate trunk.
+  def evaluate(root:, head_sha:, head_definitions:, profile: nil, apps: nil, fetch: true, base: nil)
+    base ||= resolve_base(root, fetch: fetch)
     verify(head_digests: digests(head_definitions), base_digests: base_digests(root, base, profile, apps),
            approvals: ChangeApprovalStore.new(head_sha).approvals, head_sha: head_sha, base: base)
   end
