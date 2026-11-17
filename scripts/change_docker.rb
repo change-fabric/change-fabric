@@ -337,13 +337,19 @@ module ChangeDocker
     # nothing here retries.
     class TimedOut < RuntimeError; end
 
-    def run_function(code, launch_args: [])
+    # The client read timeout for a call with browserless timeout `ms`: the
+    # default call keeps its 120 s, a longer one waits 5 s past the server.
+    def self.read_timeout_s(ms) = [ 120, (ms / 1000.0).ceil + 5 ].max
+
+    # `timeout_ms` raises the per-call limit (a long live scene); the
+    # `timeout` query parameter overrides the container's TIMEOUT.
+    def run_function(code, launch_args: [], timeout_ms: FUNCTION_TIMEOUT_MS)
       if @local_tls_hosts
         code = ChangeLocalTls.wrap(code, @local_tls_hosts)
         launch_args = launch_args + [ ChangeLocalTls::LAUNCH_ARG ]
       end
-      uri = URI(function_url(launch_args))
-      response = post(uri, code, 'application/javascript')
+      uri = URI(function_url(launch_args, timeout_ms: timeout_ms))
+      response = post(uri, code, 'application/javascript', read_timeout: self.class.read_timeout_s(timeout_ms))
       unless response.is_a?(Net::HTTPSuccess)
         failure = "browserless /function failed: #{response.code} #{response.body}"
         raise TimedOut, failure if response.code.to_s == '408'
@@ -355,8 +361,8 @@ module ChangeDocker
 
     # Chromium flags (e.g. --ignore-certificate-errors) go in browserless's
     # `launch` query parameter, which starts this call's browser with them.
-    def function_url(launch_args = [])
-      url = "http://127.0.0.1:#{@port}/function?token=#{@token}&timeout=#{FUNCTION_TIMEOUT_MS}"
+    def function_url(launch_args = [], timeout_ms: FUNCTION_TIMEOUT_MS)
+      url = "http://127.0.0.1:#{@port}/function?token=#{@token}&timeout=#{timeout_ms}"
       return url if launch_args.empty?
 
       "#{url}&launch=#{URI.encode_www_form_component(JSON.generate('args' => launch_args))}"
@@ -379,9 +385,9 @@ module ChangeDocker
       false
     end
 
-    def post(uri, body, content_type)
+    def post(uri, body, content_type, read_timeout: 120)
       http = Net::HTTP.new(uri.host, uri.port)
-      http.read_timeout = 120
+      http.read_timeout = read_timeout
       request = Net::HTTP::Post.new(uri)
       request['Content-Type'] = content_type
       request.body = body

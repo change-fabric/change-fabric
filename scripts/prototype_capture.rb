@@ -942,10 +942,11 @@ module PrototypeCapture
 
   # Before each retry the container must still answer; if it does not, retrying
   # only talks into a void, so fail with a clear error instead.
-  def run_with_retry(session, code, retries: BATCH_RETRIES, launch_args: nil)
+  def run_with_retry(session, code, retries: BATCH_RETRIES, launch_args: nil, timeout_ms: nil)
     attempt = 0
+    opts = { launch_args: launch_args, timeout_ms: timeout_ms }.compact
     begin
-      launch_args ? session.run_function(code, launch_args: launch_args) : session.run_function(code)
+      opts.empty? ? session.run_function(code) : session.run_function(code, **opts)
     rescue *DROPPED => e
       attempt += 1
       raise if attempt > retries

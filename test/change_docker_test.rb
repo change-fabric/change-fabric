@@ -69,7 +69,7 @@ class ChangeDockerTest < Minitest::Test
   def scripted_session(*responses)
     session = browserless
     calls = []
-    session.define_singleton_method(:post) do |_uri, _body, _type|
+    session.define_singleton_method(:post) do |_uri, _body, _type, **|
       calls << 1
       responses.shift
     end
