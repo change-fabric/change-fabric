@@ -209,7 +209,8 @@ module WalkthroughPublish
     final = Dir.glob(File.join(arg, '*-final.mp4')).max_by { |f| File.mtime(f) }
     return final if final
 
-    draft = WalkthroughDeliverables.newest_draft(arg)
+    # A <slug>-draft.mp4 from before numbered drafts still publishes.
+    draft = WalkthroughDeliverables.newest_draft(arg) || Dir.glob(File.join(arg, '*-draft.mp4')).max_by { |f| File.mtime(f) }
     return draft if draft
 
     Dir.glob(File.join(arg, '.cache', 'render', '*', 'walkthrough.mp4')).max_by { |f| File.mtime(f) }

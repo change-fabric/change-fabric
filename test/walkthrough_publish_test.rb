@@ -202,6 +202,15 @@ class WalkthroughPublishTest < Minitest::Test
     end
   end
 
+  def test_locate_falls_back_to_a_legacy_unnumbered_draft
+    Dir.mktmpdir do |dir|
+      legacy = File.join(dir, "demo-draft.mp4").tap { |f| File.write(f, "x") }
+      assert_equal legacy, P.locate(dir)
+      File.write(File.join(dir, "demo-draft-01.mp4"), "x")
+      assert_equal File.join(dir, "demo-draft-01.mp4"), P.locate(dir), "a numbered draft wins"
+    end
+  end
+
   def test_locate_boards_takes_a_numbered_draft
     Dir.mktmpdir do |dir|
       FileUtils.mkdir_p(File.join(dir, "flats", "light"))
