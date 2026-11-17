@@ -13,6 +13,7 @@ class WalkthroughRenderTest < Minitest::Test
 
   LOUDNORM_OUT = "{\n \"input_i\" : \"-20.0\", \"input_tp\" : \"-2.0\", \"input_lra\" : \"5.0\",\n" \
                  " \"input_thresh\" : \"-30.0\", \"target_offset\" : \"0.1\"\n}\n"
+  EBUR128_OUT = File.read(File.join(__dir__, "fixtures", "walkthrough", "loudness", "compliant.txt"))
   Status = Struct.new(:ok) do
     def success? = ok
   end
@@ -99,9 +100,11 @@ class WalkthroughRenderTest < Minitest::Test
         @critic
       end,
       docker: lambda do |argv|
-        @calls[:docker] << argv
+        @calls[argv.include?("ebur128=peak=true") ? :loudness : :docker] << argv
         if argv.include?("-buildconf")
           [ "--enable-libass --enable-libx264", Status.new(true) ]
+        elsif argv.include?("ebur128=peak=true")
+          [ @ebur128_out || EBUR128_OUT, Status.new(true) ]
         elsif argv.include?("null")
           [ LOUDNORM_OUT, Status.new(true) ]
         elsif argv.last.end_with?("%03d.jpg")
@@ -312,6 +315,39 @@ class WalkthroughRenderTest < Minitest::Test
     refute_includes list_html.last, Base64.strict_encode64("png-medium")
     saved = JSON.parse(File.read(File.join(@root, "storyboard.json")))
     assert_equal [ keys["medium"] ], saved["scenes"][0]["deps"]["asset_keys"], "final leaves authored deps at draft quality"
+  end
+
+  def test_loudness_gate_runs_on_every_mix_and_refuses_only_a_final
+    out = StringIO.new
+    run_render(out: out)
+    assert_match(/loudness gate: pass: integrated -16\.2 LUFS/, out.string)
+    run_render
+    assert_equal 1, @calls[:loudness].size, "the grade is cached by the MP4 hash"
+
+    @ebur128_out = File.read(File.join(__dir__, "fixtures", "walkthrough", "loudness", "over_peak.txt"))
+    FileUtils.rm_f(Dir.glob(File.join(@root, ".cache", "render", "*", WalkthroughLoudness::CACHE)))
+    out = StringIO.new
+    assert run_render(out: out)[:mp4], "a draft logs the failure and goes on"
+    assert_match(/loudness gate: fail: true peak -0\.8 dBTP/, out.string)
+    err = assert_raises(WalkthroughLoudness::LoudnessError) { run_render(final: true, gates: { roast: false, allow_ux: true }) }
+    assert_includes err.message, "-16 +/- 1 LUFS"
+  end
+
+  def test_final_reports_the_craft_gate_and_never_spends_on_it
+    out = StringIO.new
+    result = run_render(final: true, gates: { roast: false, allow_ux: true }, out: out)
+    refute result[:craft][:approved]
+    assert_match(/craft gate: not approved: no craft roast round/, out.string)
+    assert_match(/roast\.rb --video \S+-final\.mp4 .*--estimate-only/, out.string)
+    assert File.file?(File.join(@root, "roast", WalkthroughCraft::BRIEF))
+    assert_empty @calls[:roast]
+
+    master = result[:deliverable][:mp4]
+    critic = { "score" => 9, "issues" => [], "craft" => { "version" => 1, "master_sha256" => WalkthroughCraft.sha256(master) } }
+    File.write(File.join(@root, "roast", "round-1.video.json"), JSON.generate(critic))
+    out = StringIO.new
+    assert run_render(final: true, gates: { roast: false, allow_ux: true }, out: out)[:craft][:approved], out.string
+    assert_nil run_render[:craft], "a draft is exempt"
   end
 
   def test_final_warns_when_a_screen_never_references_the_keyed_image

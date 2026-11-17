@@ -21,6 +21,8 @@ require_relative 'walkthrough_housekeeping'
 require_relative 'walkthrough_live'
 require_relative 'walkthrough_manifest'
 require_relative 'walkthrough_roast'
+require_relative 'walkthrough_craft'
+require_relative 'walkthrough_loudness'
 require_relative 'walkthrough_storyboard'
 
 # Orchestrates one walkthrough render: validate, estimate, generate missing
@@ -975,14 +977,41 @@ module WalkthroughRender
       ux = ux_lint(manifest)
       gate_final!(ux)
       mp4 = assemble(manifest)
+      loudness!(mp4)
       draft_roast(manifest, mp4, ux) unless @final
       say("b-roll spend about $#{format('%.2f', @budget.spent)}") if @budget.spent.positive?
       say("manifest #{manifest['manifest_hash']}")
       say("mp4 #{Digest::SHA256.file(mp4).hexdigest} #{mp4}")
       paths = deliver(mp4)
+      craft = craft_report(paths[:mp4])
       warning = WalkthroughHousekeeping.size_warning(@root)
       say(warning) if warning
-      { manifest: manifest, mp4: mp4, deliverable: paths }
+      { manifest: manifest, mp4: mp4, deliverable: paths, craft: craft }.compact
+    end
+
+    # The free master loudness gate (WalkthroughLoudness) on the mixed MP4.
+    # A draft logs a failure and goes on; --final refuses it.
+    def loudness!(mp4)
+      result = WalkthroughLoudness.cached_check(mp4, @board, docker: @p[:docker])
+      say(result.line)
+      return unless result.fail? && @final
+
+      raise WalkthroughLoudness::LoudnessError, "#{result.reason}; --final needs the master at -16 +/- 1 LUFS integrated, " \
+                                                'true peak at or under -2 dBTP'
+    end
+
+    # A final is the production master: it is approved only by a craft roast
+    # round bound to its SHA-256 (WalkthroughCraft). The render never spends
+    # on it; it writes the craft brief and prints the estimate command.
+    def craft_report(master)
+      return nil unless @final
+
+      FileUtils.mkdir_p(roast_dir)
+      File.write(File.join(roast_dir, WalkthroughCraft::BRIEF), "#{WalkthroughRoast.brief(@board)}\n")
+      verdict = WalkthroughCraft.verdict(roast_dir, master)
+      say("craft gate: #{verdict[:approved] ? 'approved' : 'not approved'}: #{verdict[:reason]}")
+      say("craft gate: estimate the paid craft round first: #{WalkthroughCraft.roast_command(master, roast_dir)}") unless verdict[:approved]
+      verdict
     end
 
     # -- housekeeping ---------------------------------------------------------
@@ -1080,7 +1109,8 @@ if __FILE__ == $PROGRAM_NAME
     WalkthroughRender::Run.new(dir, scene: scene, final: ARGV.include?('--final'), max_usd: max_usd,
                                burn_captions: ARGV.include?('--burn-captions'), gates: gates, recapture: ARGV.include?('--recapture'))
                           .call(estimate_only: ARGV.include?('--estimate-only'))
-  rescue PrototypeUxLint::FindingsError, WalkthroughRoast::OpenFindingsError, WalkthroughClipcheck::ClipError => e
+  rescue PrototypeUxLint::FindingsError, WalkthroughRoast::OpenFindingsError, WalkthroughClipcheck::ClipError,
+         WalkthroughLoudness::LoudnessError => e
     abort("refused: #{e.message}")
   rescue WalkthroughEnv::NeedsEnrollment => e
     WalkthroughEnv.enroll_exit!(e)

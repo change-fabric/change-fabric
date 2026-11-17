@@ -7,6 +7,7 @@ require 'json'
 require 'open3'
 require_relative 'change_docker'
 require_relative 'roast' unless defined?(Roast::Cli) # already loaded when roast.rb is the program
+require_relative 'roast_lens'
 require_relative 'walkthrough_cache'
 require_relative 'walkthrough_env'
 
@@ -34,7 +35,32 @@ module RoastVideo
   KIND_VIDEO = 'video'
   DEFAULT_DOCKER = ->(argv) { Open3.capture2e(*argv) }
   USAGE = 'usage: roast.rb --video MP4 --brief FILE [--transcript VTT] [--history DIR] [--out-dir DIR] ' \
-          '[--round N] [--max-usd N] [--model NAME|terra|sol] [--effort LEVEL] [--repo DIR] [--cache DIR] [--fps N] [--width N] [--estimate-only] [--allow-sensitive]'
+          '[--round N] [--max-usd N] [--model NAME|terra|sol] [--effort LEVEL] [--repo DIR] [--cache DIR] [--fps N] [--width N] [--lens NAME]... [--estimate-only] [--allow-sensitive]'
+
+  # The craft section of the video rubric, adapted in our own words from the
+  # editorial, visual, audio, and technical checklists of gitethanwoo/video-editing
+  # (MIT, notice in THIRD_PARTY_NOTICES). Bump CRAFT_VERSION when it changes:
+  # each round records the version it was judged under.
+  CRAFT_VERSION = 1
+  CRAFT_RUBRIC = <<~TEXT.chomp
+    Craft. Judge the film as a directed piece, not only as a correct one. Start the problem of
+    every craft issue with "craft:" and its area name, for example "craft: density:".
+    - composition: each frame carries one idea. The subject sits near the center or on a clear
+      axis, with generous empty space around it; nothing hugs the top-left corner, nothing crowds
+      the frame edge, and the eye knows where to land within a second.
+    - type: real typefaces, a display face for statements and a clean UI face for labels, never a
+      browser fallback. Sizes step on one scale, body text reads comfortably at 1080p, and every
+      line holds strong contrast against what sits behind it.
+    - density: a frame shows no more than a viewer can take in while it is on screen. Too many
+      nodes, labels, or cards at once is a finding; propose what to cut or move to its own beat.
+    - motion grammar: one easing family across the film, entrances and exits that mirror each
+      other, nothing that pops in unannounced, and motion that lands on the word the narrator is
+      saying rather than before or long after it.
+    - hook and close: the first seconds earn attention with the problem or the payoff, not a logo
+      or a title card; the last frame lands one clear takeaway and holds long enough to read.
+    A craft P0 is a frame a viewer cannot read or follow; a craft P1 is a frame that reads but
+    looks assembled rather than directed.
+  TEXT
 
   SYSTEM_PROMPT = <<~TEXT
     #{Roast::SYSTEM_PROMPT}
@@ -51,6 +77,8 @@ module RoastVideo
     - readability of on-screen text for the time it is actually visible.
     Every issue carries a timestamp (mm:ss, the moment it starts) and names the scene or cue in
     its where field. Check the brief's must-show list against what the video actually shows.
+
+    #{CRAFT_RUBRIC}
   TEXT
 
   SCHEMA = begin
@@ -129,30 +157,34 @@ module RoastVideo
     pick ? Roast.resolve_model(pick) : Roast.model_for(kind: KIND, config: config, env: env)
   end
 
-  def request_key(brief:, video_sha:, transcript:, history:, round:, fps:, width:, model: model_for, effort: Roast::DEFAULT_EFFORT)
+  # The craft version and any lenses join the key, so a critic cached under an
+  # older rubric is never recorded as a craft round.
+  def request_key(brief:, video_sha:, transcript:, history:, round:, fps:, width:, model: model_for, effort: Roast::DEFAULT_EFFORT, lenses: [])
     WalkthroughCache.key({ mode: 'video', model: model, brief: brief, video: video_sha, transcript: transcript,
-                           history: history, round: round, fps: fps, width: width }.merge(Roast.effort_key(effort)))
+                           history: history, round: round, fps: fps, width: width, craft: CRAFT_VERSION }
+                           .merge(lenses.empty? ? {} : { lenses: lenses.map { |l| [ l.name, Digest::SHA256.hexdigest(l.body) ] } })
+                           .merge(Roast.effort_key(effort)))
   end
 
-  def estimate(brief:, transcript:, history:, frame_count:, model: model_for)
-    chars = SYSTEM_PROMPT.size + brief.size + transcript.to_s.size + JSON.generate(history).size + (frame_count * 12)
+  def estimate(brief:, transcript:, history:, frame_count:, model: model_for, lenses: [])
+    chars = lenses.sum { |l| l.name.size + l.body.size } + SYSTEM_PROMPT.size + brief.size + transcript.to_s.size + JSON.generate(history).size + (frame_count * 12)
     input = (chars / 4) + (frame_count * FRAME_TOKENS)
     Roast.priced_usd(model, input, MAX_OUTPUT_TOKENS)
   end
 
-  def user_text(brief, history, round, transcript, duration)
+  def user_text(brief, history, round, transcript, duration, lenses = [])
     past = history.map do |h|
       "Round #{h[:round]} (#{h[:kind]}) critic:\n#{JSON.pretty_generate(h[:critic])}\n" \
         "Round #{h[:round]} (#{h[:kind]}) author response:\n#{h[:response] ? JSON.pretty_generate(h[:response]) : '(none recorded)'}"
     end
-    [ "Round #{round}, whole-video review. Video length about #{mmss(duration)}.", "Brief:\n#{brief}",
+    [ "Round #{round}, whole-video review. Video length about #{mmss(duration)}.", Roast.lens_text(lenses), "Brief:\n#{brief}",
       (transcript ? "Narration cues (WebVTT, with times):\n#{transcript}" : 'No narration transcript given.'),
       (past.empty? ? 'No earlier rounds.' : "Earlier rounds:\n#{past.join("\n\n")}"),
-      'The frames follow in order, each after its time label.' ].join("\n\n")
+      'The frames follow in order, each after its time label.' ].compact.join("\n\n")
   end
 
-  def build_request(brief:, frames:, transcript:, history:, round:, model: model_for, effort: Roast::DEFAULT_EFFORT)
-    content = [ { type: 'input_text', text: user_text(brief, history, round, transcript, frames.last[:time]) } ]
+  def build_request(brief:, frames:, transcript:, history:, round:, model: model_for, effort: Roast::DEFAULT_EFFORT, lenses: [])
+    content = [ { type: 'input_text', text: user_text(brief, history, round, transcript, frames.last[:time], lenses) } ]
     frames.each do |f|
       content << { type: 'input_text', text: "[#{mmss(f[:time])}]" }
       content << { type: 'input_image', detail: 'high',
@@ -186,9 +218,12 @@ module RoastVideo
     lines.join("\n")
   end
 
-  def write_round(dir, round, critic)
+  # The round JSON carries what it judged: the craft rubric version and the
+  # SHA-256 of the exact MP4, which WalkthroughCraft binds approval to.
+  def write_round(dir, round, critic, master_sha256: nil)
     FileUtils.mkdir_p(dir)
-    File.write(File.join(dir, "round-#{round}.video.json"), "#{JSON.pretty_generate(critic)}\n")
+    record = master_sha256 ? critic.merge('craft' => { 'version' => CRAFT_VERSION, 'master_sha256' => master_sha256 }) : critic
+    File.write(File.join(dir, "round-#{round}.video.json"), "#{JSON.pretty_generate(record)}\n")
     File.write(File.join(dir, "round-#{round}.video.md"), render_markdown(critic, round))
   end
 
@@ -201,7 +236,7 @@ module RoastVideo
       opts = parse(argv.dup)
       critique(opts, out, http, docker)
       0
-    rescue UsageError, Roast::UsageError, OptionParser::ParseError => e
+    rescue UsageError, Roast::UsageError, OptionParser::ParseError, RoastLens::UnknownLens => e
       out.puts("error: #{e.message}", USAGE)
       2
     rescue WalkthroughEnv::NeedsEnrollment => e
@@ -217,7 +252,7 @@ module RoastVideo
     def parse(args)
       repo = Roast::Cli.repo_arg(args)
       opts = { max_usd: Roast::DEFAULT_CEILING_USD, cache: '.cache', out_dir: Roast::DEFAULT_OUT_DIR, fps: FPS, width: WIDTH,
-               effort: Roast::DEFAULT_EFFORT, config_model: Roast::Cli.configured(repo)[:model] }
+               effort: Roast::DEFAULT_EFFORT, config_model: Roast::Cli.configured(repo)[:model], lens_names: [] }
       OptionParser.new do |o|
         o.on('--model NAME') { |v| opts[:model] = v }
         o.on('--effort LEVEL') { |v| opts[:effort] = v }
@@ -233,7 +268,9 @@ module RoastVideo
         o.on('--width N', Integer) { |v| opts[:width] = v }
         o.on('--estimate-only') { opts[:estimate_only] = true }
         o.on('--allow-sensitive') { opts[:allow_sensitive] = true }
+        o.on('--lens NAME') { |v| opts[:lens_names] << v }
       end.parse!(args)
+      opts[:lenses] = RoastLens.resolve(opts[:lens_names])
       raise UsageError, '--video is required' unless opts[:video]
       raise UsageError, '--brief is required' unless opts[:brief_file]
 
@@ -255,24 +292,26 @@ module RoastVideo
       dir = opts[:history] || opts[:out_dir]
       history = RoastVideo.load_history(dir)
       round = opts[:round] || RoastVideo.default_round(opts[:out_dir])
-      Roast.check_sensitive!(brief: brief, transcript: transcript, history: history, allow: opts[:allow_sensitive])
-      key = RoastVideo.request_key(brief: brief, video_sha: Digest::SHA256.file(opts[:video]).hexdigest, transcript: transcript,
+      lenses = opts[:lenses]
+      Roast.check_sensitive!(brief: brief, transcript: transcript, history: history, lenses: lenses, allow: opts[:allow_sensitive])
+      sha = Digest::SHA256.file(opts[:video]).hexdigest
+      key = RoastVideo.request_key(brief: brief, video_sha: sha, transcript: transcript,
                                    history: history, round: round, fps: opts[:fps], width: opts[:width],
-                                   model: opts[:model], effort: opts[:effort])
+                                   model: opts[:model], effort: opts[:effort], lenses: lenses)
       cache = [ opts[:cache], :roasts, key, 'json' ]
       cached = File.file?(WalkthroughCache.path(*cache))
-      est = RoastVideo.estimate(brief: brief, transcript: transcript, history: history, frame_count: frames.size, model: opts[:model])
+      est = RoastVideo.estimate(brief: brief, transcript: transcript, history: history, frame_count: frames.size, model: opts[:model], lenses: lenses)
       usd = cached ? 0.0 : est[:usd]
       warning = Roast.price_warning(est)
       out.puts(warning) if warning && !cached
-      out.puts("roast estimate: #{model_line(frames, est, cached)}, $#{format('%.2f', usd)} to spend")
+      out.puts("roast estimate: #{model_line(frames, est, cached, lenses)}, $#{format('%.2f', usd)} to spend")
       raise Roast::CeilingError, "$#{format('%.2f', usd)} would pass the $#{format('%.2f', opts[:max_usd])} ceiling" if usd > opts[:max_usd] + 1e-9
       return if opts[:estimate_only]
 
       request = RoastVideo.build_request(brief: brief, frames: frames, transcript: transcript, history: history, round: round,
-                                           model: opts[:model], effort: opts[:effort])
+                                           model: opts[:model], effort: opts[:effort], lenses: lenses)
       critic = fetch_critic(cache, request, out, http)
-      RoastVideo.write_round(opts[:out_dir], round, critic)
+      RoastVideo.write_round(opts[:out_dir], round, critic, master_sha256: sha)
       out.puts("roast: #{File.join(opts[:out_dir], "round-#{round}.video.json")} score #{critic['score']}/10")
     end
 
@@ -288,10 +327,10 @@ module RoastVideo
       JSON.parse(File.read(path))
     end
 
-    def model_line(frames, est, cached)
+    def model_line(frames, est, cached, lenses = [])
       return '1 call (cached)' if cached
 
-      "1 call to #{est[:model]}, #{frames.size} frame(s) over #{RoastVideo.mmss(frames.last[:time])}, " \
+      "1 call to #{est[:model]}, #{frames.size} frame(s)#{Roast::Cli.lens_count(lenses: lenses)} over #{RoastVideo.mmss(frames.last[:time])}, " \
         "about #{est[:tokens]} tokens in, up to #{MAX_OUTPUT_TOKENS} out, about $#{format('%.2f', est[:usd])}"
     end
     private_class_method :fetch_critic, :model_line

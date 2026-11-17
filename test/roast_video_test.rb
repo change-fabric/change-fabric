@@ -210,8 +210,52 @@ class RoastVideoTest < Minitest::Test
   def test_video_medium_effort_keeps_the_pre_effort_cache_key
     args = { brief: "b", video_sha: "abc", transcript: nil, history: [], round: 1, fps: 1.5, width: 1280 }
     legacy = WalkthroughCache.key({ mode: "video", model: "gpt-6.1-sol", **args.slice(:brief), video: "abc", transcript: nil,
-                                    history: [], round: 1, fps: 1.5, width: 1280 })
+                                    history: [], round: 1, fps: 1.5, width: 1280, craft: RoastVideo::CRAFT_VERSION })
     assert_equal legacy, RoastVideo.request_key(**args, model: "gpt-6.1-sol")
     refute_equal legacy, RoastVideo.request_key(**args, model: "gpt-6.1-sol", effort: "high")
+  end
+
+  def with_skills
+    prior = ENV.fetch("CF_SKILLS_DIR", nil)
+    ENV["CF_SKILLS_DIR"] = File.expand_path("../skills", __dir__)
+    yield
+  ensure
+    prior ? ENV["CF_SKILLS_DIR"] = prior : ENV.delete("CF_SKILLS_DIR")
+  end
+
+  def test_system_prompt_carries_the_craft_rubric
+    [ "composition", "type", "density", "motion grammar", "hook and close" ].each do |area|
+      assert_includes RoastVideo::SYSTEM_PROMPT, "- #{area}:"
+    end
+    assert_includes RoastVideo::SYSTEM_PROMPT, "craft:"
+  end
+
+  def test_lenses_change_the_cache_key_and_estimate
+    args = { brief: "b", video_sha: "abc", transcript: nil, history: [], round: 1, fps: 1.5, width: 1280, model: "gpt-6.1-sol" }
+    lens = RoastLens::Lens.new("cf:usability", "heuristics " * 400)
+    refute_equal RoastVideo.request_key(**args), RoastVideo.request_key(**args, lenses: [ lens ])
+    assert_operator RoastVideo.estimate(brief: "b", transcript: nil, history: [], frame_count: 3, lenses: [ lens ])[:tokens], :>,
+                    RoastVideo.estimate(brief: "b", transcript: nil, history: [], frame_count: 3)[:tokens]
+  end
+
+  def test_lens_reaches_the_video_request_and_round_binds_the_master
+    http = Http.new
+    out = StringIO.new
+    code = with_skills { RoastVideo::Cli.run(video_args + [ "--lens", "cf:usability" ], out: out, http: http, docker: fake_docker) }
+    assert_equal 0, code, out.string
+    assert_match(/1 lens\(es\)/, out.string)
+    text = JSON.parse(http.requests.first.body)["input"][1]["content"].first["text"]
+    assert_includes text, "Lens cf:usability:"
+    craft = JSON.parse(File.read(File.join(@roast, "round-2.video.json")))["craft"]
+    assert_equal({ "version" => RoastVideo::CRAFT_VERSION, "master_sha256" => Digest::SHA256.file(@mp4).hexdigest }, craft)
+  end
+
+  def test_estimate_only_with_lens_makes_no_request
+    http = Http.new
+    out = StringIO.new
+    code = with_skills { RoastVideo::Cli.run(video_args + [ "--lens", "cf:usability", "--estimate-only" ], out: out, http: http, docker: fake_docker) }
+    assert_equal 0, code, out.string
+    assert_empty http.requests
+    refute File.file?(File.join(@roast, "round-2.video.json"))
   end
 end

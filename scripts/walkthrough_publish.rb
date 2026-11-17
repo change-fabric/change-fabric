@@ -6,6 +6,7 @@ require 'open3'
 require_relative 'change_docker'
 require_relative 'change_screenshot_upload'
 require_relative 'prototype_flats'
+require_relative 'walkthrough_craft'
 
 # Publishes a rendered walkthrough MP4 to GitHub the way cf:screenshot publishes
 # images: through ChangeScreenshotUpload (the toolkit's one raw HTTPS call, so
@@ -188,6 +189,16 @@ module WalkthroughPublish
                           .select { |_theme, path| File.file?(path) }
   end
 
+  # A final master publishes only once the craft gate approves it
+  # (WalkthroughCraft); drafts and cache renders are exempt. Returns the
+  # refusal message, or nil.
+  def craft_refusal(mp4)
+    return nil unless mp4.to_s.end_with?('-final.mp4')
+
+    verdict = WalkthroughCraft.verdict(File.join(File.dirname(mp4), WalkthroughCraft::DIR), mp4)
+    verdict[:approved] ? nil : "craft gate: not approved: #{verdict[:reason]}"
+  end
+
   # Accepts an MP4 or a walkthrough/<slug> dir: its <slug>-final.mp4, else
   # its <slug>-draft.mp4, else the newest rendered MP4 left in the cache.
   def locate(arg)
@@ -207,6 +218,8 @@ if __FILE__ == $PROGRAM_NAME
   arg = ARGV.first
   abort(usage) if arg.nil? || arg.start_with?('--')
   mp4 = WalkthroughPublish.locate(arg) || abort("no rendered MP4 under #{arg}")
+  refusal = WalkthroughPublish.craft_refusal(File.expand_path(mp4))
+  abort("refused: #{refusal}") if refusal
   out = WalkthroughPublish.publish(File.expand_path(mp4), argv: ARGV.drop(1),
                                  boards: WalkthroughPublish.locate_boards(File.expand_path(arg)))
   target = out.target
