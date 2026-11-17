@@ -99,6 +99,8 @@ class WalkthroughRenderTest < Minitest::Test
         @calls[:roast] << kw[:shots].map { |s| File.basename(s) }
         @critic
       end,
+      # The disk preflight never depends on the machine running the tests.
+      free_bytes: ->(_root) { 1 << 50 },
       docker: lambda do |argv|
         # Share copies are tracked apart so render call counts stay exact.
         if argv.last.end_with?("-share.mp4")
