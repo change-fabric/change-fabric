@@ -33,12 +33,12 @@ class WalkthroughDiagramLanesTest < Minitest::Test
   # pin it. Update both only with a capture proof that laneless geometry is
   # unchanged, or changed on purpose and still passing the clip check
   # (test/walkthrough_diagram_capture_test.rb).
-  RUNTIME_SHA = "3b66ed8a475ac01d9b88afec4ac41475858c8fcaca6ca55ce7e78de806a28ee3"
+  RUNTIME_SHA = "7cd87e44d15412ea0b1dcf47fcfa76ff2342d451f91a30f19bf6ba2b3f6d545f"
   LANELESS_RAW = {
-    "architecture" => "e9cec9da29b8bf4b9acd39796b5514b9c5567f2cda7c44945b027af04d3752ee",
-    "diagram-lr" => "601fa1ad66a547cf87cb3985ae5c5275a1e7a59b016934e7e49b5d7008b13624",
-    "diagram-flow" => "1033449d7a73793588d1a13ced62ecb5e09e7045d01d26c1549cfb1a8361b6a7",
-    "diagram-colors" => "65f4e67649068bac74f82705fbfc268aafede2fee72939a8e32c8826538a1b80"
+    "architecture" => "276421aeea4fd874e82d471b01f8473ea427b7ee9df0524b1c198fff1653a1df",
+    "diagram-lr" => "c58de4c249779c4b2de87011a4514fe1b172789b0e4b2d6fd5351a47458f04e9",
+    "diagram-flow" => "890a8789ce3043b007076c635fc563c80b02124214d9bc67ebed179ab5f653cf",
+    "diagram-colors" => "32fea315132b7e55958481bf2abfa23a0fc651de7b1c838ea4812245acd688f4"
   }.freeze
 
   def setup

@@ -474,8 +474,10 @@ html, body, #cf-diagram-root { margin: 0; width: 100%; height: 100%; }
     const out = [];
     const roots = [live.container, ...document.querySelectorAll('.cf-lanes, .cf-lane-front')];
     const all = (sel) => roots.flatMap((root) => [...root.querySelectorAll(sel)]);
+    // Internal `__cf_` nodes (the lane layer's invisible fit corners) are
+    // layout helpers, never drawn content.
     for (const el of all('.react-flow__node, .cf-lane-front .cf-node')) {
-      if (opacityOf(el) < 0.05) continue;
+      if ((el.dataset.id || '').startsWith('__cf_') || opacityOf(el) < 0.05) continue;
       out.push(Object.assign({ id: el.dataset.id || el.closest('[data-id]')?.dataset.id || 'lane-node', kind: 'node', text: '' }, rectOf(el.getBoundingClientRect())));
     }
     for (const el of all('*')) {
@@ -484,6 +486,7 @@ html, body, #cf-diagram-root { margin: 0; width: 100%; height: 100%; }
       const r = el.getBoundingClientRect();
       if (r.width === 0 || r.height === 0) continue;
       const host = el.closest('[data-id]');
+      if (host && host.dataset.id.startsWith('__cf_')) continue;
       const px = parseFloat(getComputedStyle(el).fontSize) * scaleOf(el);
       out.push(Object.assign({ id: host ? `${host.dataset.id}:${text}` : text, kind: 'text', text, font_px: Math.round(px * 10) / 10, overflow: overflows(el) }, rectOf(r)));
     }

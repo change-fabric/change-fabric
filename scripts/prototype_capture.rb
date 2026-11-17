@@ -1011,7 +1011,7 @@ module PrototypeCapture
     key = frames_key(html: sha256_file(html_path), inlined: Digest::SHA256.hexdigest(inline_screen(html_path, remap: remap, root: inline_root)),
                      tokens: board['tokens_css_sha256'], interactions: scene['interactions'] || [],
                      viewport: scene_viewport(board, scene), stage: WalkthroughSharpness.stage_size(board, scene),
-                     fps: board['fps'] || FPS, duration_ms: scene_duration(scene),
+                     fps: board_fps(board), duration_ms: scene_duration(scene),
                      seed: seed_path && sha256_file(seed_path),
                      mock_store: sha256_file(File.join(root, 'screens', 'mock-store.js')),
                      state: WalkthroughCache.key(state), prng_seed: prng, **(remap.empty? ? {} : { images: remap }),
@@ -1027,10 +1027,10 @@ module PrototypeCapture
   # end-state.json that from_scene dependents resolve against.
   def capture_motion(board, scene, prep, session)
     duration = scene_duration(scene)
-    puts "#{scene['id']}: capturing #{frame_count(duration, board['fps'] || FPS)} frames"
+    puts "#{scene['id']}: capturing #{frame_count(duration, board_fps(board))} frames"
     capture(session: session, html: inline_screen(prep[:html_path], root: prep[:inline_root]), interactions: scene['interactions'] || [],
             duration_ms: duration, out_dir: prep[:out_dir], state: prep[:state], prng_seed: prep[:prng_seed],
-            viewport: scene_viewport(board, scene), fps: board['fps'] || FPS, label: scene['id'])
+            viewport: scene_viewport(board, scene), fps: board_fps(board), label: scene['id'])
     WalkthroughBrowserFrame.frame_dir!(board, scene, prep[:out_dir], work: prep[:root]) if WalkthroughBrowserFrame.browser?(scene)
   end
 

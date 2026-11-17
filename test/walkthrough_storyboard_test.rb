@@ -97,6 +97,24 @@ class WalkthroughStoryboardTest < Minitest::Test
     assert_equal 30, WalkthroughStoryboard.fps(b)
   end
 
+  # The frames key carries the resolved fps, so a diagram board's implicit
+  # 60 and an authored 30 never share cached frames.
+  def test_frames_key_uses_the_resolved_board_fps
+    Dir.mktmpdir do |root|
+      FileUtils.cp_r("#{File.expand_path('fixtures/walkthrough/architecture', __dir__)}/.", root)
+      board = WalkthroughStoryboard.load(File.join(root, "storyboard.json"))
+      WalkthroughDiagram.write_screens(board, root)
+      scene = board["scenes"].first
+      board["fps"] = 30
+      thirty = PrototypeCapture.prepare(board, scene, root)[:key]
+      board.delete("fps")
+      assert_equal 60, PrototypeCapture.board_fps(board)
+      refute_equal thirty, PrototypeCapture.prepare(board, scene, root)[:key]
+      board["fps"] = 60
+      assert_equal PrototypeCapture.prepare(board.reject { |k, _| k == "fps" }, scene, root)[:key], PrototypeCapture.prepare(board, scene, root)[:key]
+    end
+  end
+
   def test_voice_eq_validation
     b = board
     assert_empty errors_for(b).grep(/voice\.eq/)
