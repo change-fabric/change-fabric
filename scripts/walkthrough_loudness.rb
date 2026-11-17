@@ -27,7 +27,10 @@ module WalkthroughLoudness
   Result = Struct.new(:status, :reason, :integrated, :true_peak, keyword_init: true) do
     def pass? = status == :pass
 
-    def fail? = status == :fail
+    # :error is an operational failure (docker down), never a verdict on the MP4.
+    def fail? = %i[fail error].include?(status)
+
+    def error? = status == :error
 
     def skip? = status == :skip
 
@@ -96,7 +99,11 @@ module WalkthroughLoudness
   def check(mp4, board, docker: ->(a) { Open3.capture2e(*a) })
     return grade(nil, silent: true) if declared_silent?(board)
 
-    output, = docker.call(argv(mp4))
+    output, status = docker.call(argv(mp4))
+    if !status.success? && !output.to_s.include?('matches no streams')
+      return Result.new(status: :error, reason: "could not measure: #{output.to_s.lines.last(3).join.strip}")
+    end
+
     grade(parse(output))
   end
 
@@ -109,6 +116,8 @@ module WalkthroughLoudness
     return from_h(saved['result']) if saved.slice('sha256', 'silent') == key && saved['result']
 
     result = check(mp4, board, docker: docker)
+    return result if result.error?
+
     File.write(path, JSON.generate(key.merge('result' => result.to_h), allow_nan: true))
     result
   end

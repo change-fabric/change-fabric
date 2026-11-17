@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "minitest/autorun"
+require "tmpdir"
 require_relative "../scripts/walkthrough_loudness"
 
 # The free master loudness gate, graded from fixture ebur128 output. The real
@@ -70,5 +71,23 @@ class WalkthroughLoudnessTest < Minitest::Test
   def test_tolerance_edges
     assert WalkthroughLoudness.grade({ integrated: -17.0, true_peak: -2.0 }).pass?
     refute WalkthroughLoudness.grade({ integrated: -14.9, true_peak: -3.0 }).pass?
+  end
+  def test_a_failed_measurement_is_an_error_and_never_cached
+    Dir.mktmpdir do |dir|
+      mp4 = File.join(dir, "walkthrough.mp4").tap { |f| File.write(f, "mp4") }
+      calls = 0
+      down = lambda do |_argv|
+        calls += 1
+        [ "docker: Cannot connect to the Docker daemon", Struct.new(:ok) { def success? = ok }.new(false) ]
+      end
+      2.times do
+        result = WalkthroughLoudness.cached_check(mp4, NARRATED, docker: down)
+        assert result.error?
+        assert result.fail?, "an error still blocks a final"
+        assert_match(/could not measure/, result.reason)
+      end
+      assert_equal 2, calls, "the next run retries the measurement"
+      refute File.file?(File.join(dir, WalkthroughLoudness::CACHE))
+    end
   end
 end
