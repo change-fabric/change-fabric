@@ -478,7 +478,10 @@ html, body, #cf-diagram-root { margin: 0; width: 100%; height: 100%; }
     // layout helpers, never drawn content.
     for (const el of all('.react-flow__node, .cf-lane-front .cf-node')) {
       if ((el.dataset.id || '').startsWith('__cf_') || opacityOf(el) < 0.05) continue;
-      out.push(Object.assign({ id: el.dataset.id || el.closest('[data-id]')?.dataset.id || 'lane-node', kind: 'node', text: '' }, rectOf(el.getBoundingClientRect())));
+      const r = el.getBoundingClientRect();
+      // A display:none card (a lane result before it lands) has no box.
+      if (r.width === 0 || r.height === 0) continue;
+      out.push(Object.assign({ id: el.dataset.id || el.closest('[data-id]')?.dataset.id || 'lane-node', kind: 'node', text: '' }, rectOf(r)));
     }
     for (const el of all('*')) {
       const text = ownText(el);
