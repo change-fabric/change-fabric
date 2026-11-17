@@ -1,6 +1,6 @@
 # CHANGE.md frontmatter specification
 
-Schema version: 0.19.0
+Schema version: 0.20.0
 
 Status: stable. This is the golden reference for authoring a repo's
 `CHANGE.md` frontmatter. A maintainer or an AI agent creating a new repo's
@@ -159,6 +159,7 @@ up and confirm it is ready; `lanes` describes what to audit.
 | `change_config.lanes.zap.targets` | list of string | no (default the lane base url) | URLs in scope for the ZAP baseline. An entry may be relative (`/`, `/admin`), resolved against the lane base url exactly as `a11y.routes` and `browserless.routes` already resolve, or absolute. Omitted, the lane scans the lane base url itself. Prefer relative when `profiles` exist: an absolute literal is a single global value no profile can override, so it points every profile at the same host regardless of which one is active. A scope spanning two genuinely distinct services needs absolute urls; restate them per profile under `profiles.<profile>.lanes.zap.targets` below. |
 | `change_config.lanes.zap.strict` | boolean | no (default false) | When true, any low-risk-or-above alert fails; when false, only high-risk fails. |
 | `change_config.lanes.zap.auth` | map or null | no | Reserved for authenticated scans; the baseline runs unauthenticated. |
+| `change_config.lanes.zap.mode` | string | no (default `baseline`) | (0.20.0) `baseline` (passive) or `full` (an active scan). Here, on the per-PR lane, only `baseline` is accepted; `full` is an error outside a schedule override (see `change_config.schedules` below). |
 | `change_config.lanes.browserless.routes` | list of string or mapping | no (default `/`) | Routes to load at each viewport. A plain string is an unauthenticated route with no visual check. A mapping adds `path`, and optionally `auth` and `figma` below. |
 | `change_config.lanes.browserless.routes[].path` | string | yes, on a mapping route | The route path (or absolute url) to load. |
 | `change_config.lanes.browserless.routes[].auth` | boolean | no (default false) | Whether this route requires the session logged in via `lanes.browserless.auth` before it is checked. A route marked `auth: true` with no working `auth:` block is skipped with a named failing finding, never checked unauthenticated. |
@@ -611,6 +612,7 @@ worked example below.
 | `change_config.profiles.<profile>.boot.timeout_seconds` | integer | no | (0.17.0) Overrides `change_config.boot.timeout_seconds`. |
 | `change_config.profiles.<profile>.boot.add_hosts` | list of string | no | (0.15.0) Overrides `change_config.boot.add_hosts`. |
 | `change_config.profiles.<profile>.boot.ignore_https_errors` | boolean | no | (0.15.0) Overrides `change_config.boot.ignore_https_errors`. |
+| `change_config.profiles.<profile>.allow_active_scan` | boolean | no (default false) | (0.20.0) Opts this profile in as an active-scan target. Every schedule whose `zap.mode` is `full` and whose `profile` is this one is refused unless it is `true`. Never merged into the resolved config; `doctor` lists every url an active scan would hit. |
 | `change_config.profiles.<profile>.lanes.<lane>.enabled` | boolean | no | Overrides whether `<lane>` runs under this profile (e.g. skip `zap` locally, require it in staging). |
 | `change_config.profiles.<profile>.lanes.<lane>.base_url` | string | no | Overrides `<lane>`'s base URL for this profile. The lane's other fields (`routes`, `thresholds`, `viewports`, ...) are always inherited from the base `change_config.lanes.<lane>` block; a profile cannot set them. |
 | `change_config.profiles.<profile>.lanes.<lane>.basic_auth.username_env` | string | no | (0.3.0) Overrides `<lane>`'s Basic Auth username env var name for this profile, e.g. when staging sits behind a Basic Auth wall but local dev does not. |
@@ -670,6 +672,25 @@ worked example below.
 | `change_config.profiles.<profile>.lanes.testcases.auth.steps[].submit_selector` | string | no | (0.10.0) Overrides `testcases.auth.steps[].submit_selector` for this profile. |
 | `change_config.profiles.<profile>.lanes.testcases.auth.steps[].wait_for_selector` | string | no | (0.10.0) Overrides `testcases.auth.steps[].wait_for_selector` for this profile. |
 | `change_config.profiles.<profile>.lanes.testcases.auth.steps[].timeout_ms` | integer | no | (0.10.0) Overrides `testcases.auth.steps[].timeout_ms` for this profile. |
+
+### change_config.schedules (0.20.0): lanes on a clock
+
+A named schedule runs some lanes against one profile on a cron, separate from
+the per-PR sweep, so a heavy check (an active ZAP scan, a long k6 soak) can run
+on a rhythm without slowing every merge. Absent, nothing changes. A schedule
+takes `cron`, `profile`, `runner` and `lanes`, plus a per-lane override keyed
+by lane name that accepts that lane's own `change_config.lanes.<lane>` fields
+(other than `enabled`) and `zap.mode`. `doctor` prints each schedule and every
+url an active scan would hit.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `change_config.schedules.<schedule>.cron` | string | yes | (0.20.0) Five-field cron (minute, hour, day of month, month, day of week), interpreted in UTC. Each field takes `*`, numbers, ranges, steps and comma lists in range; no `@reboot`, no seconds field. The name matches `[a-z0-9][a-z0-9-]{0,40}`. |
+| `change_config.schedules.<schedule>.profile` | string | yes | (0.20.0) The `change_config.profiles` entry this schedule runs against. |
+| `change_config.schedules.<schedule>.runner` | string | yes | (0.20.0) `actions` (a generated scheduled GitHub Actions workflow) or `local` (the machine's native scheduler). |
+| `change_config.schedules.<schedule>.lanes` | list of string | yes | (0.20.0) A non-empty subset of the lanes, never `command` (the command lane has no scheduled execution). |
+| `change_config.schedules.<schedule>.zap.mode` | string | no (default `baseline`) | (0.20.0) `full` runs an active scan, accepted only when the schedule's profile sets `allow_active_scan: true`. |
+| `change_config.schedules.<schedule>.k6.script` | string | no | (0.20.0) A repo-relative k6 script for this schedule, such as a soak test, in place of `lanes.k6.script`. |
 
 ### change_config.apps (0.4.0): multiple apps, one governance policy
 
@@ -893,6 +914,7 @@ rules in a form the gate can enforce, and the body is expected to explain it.
 | `change_policy.promotion.<ref>.environment` | string | no (default the key itself) | (0.9.0) Human label for this promotion target, used in deny messages and `doctor` output. Useful when the pattern (`tag:release/*/v*`) does not read as an environment name. |
 | `change_policy.promotion.<ref>.require_trunk_ancestor` | string | no | (0.9.0) Tag rules only. Branch the tagged commit must be an ancestor of (or equal to). Ignored, and flagged by `doctor`, on a branch rule. |
 | `change_policy.promotion.<ref>.require_prior_tag` | string (glob) | no | (0.9.0) Tag rules only. A published tag matching this glob must already point at the same commit. |
+| `change_policy.promotion.<ref>.require_scheduled.<schedule>.max_age_days` | integer | no | (0.20.0) An opt-in freshness gate: the named `change_config.schedules` entry must have passed within this many days (1 to 90). Off unless a rule sets it; a PR merge into trunk never waits on it. `doctor` warns when a branch rule names a `runner: local` schedule, since the merge can be checked on another machine. |
 | `change_policy.promotion.<ref>.require_testcases` | boolean | no (default false) | (0.10.0) Additionally requires the recorded comprehensive pass for this ref to carry a passing `testcases` lane. Opt-in and stricter than `require_change_pass` alone, which asks only whether the run passed overall and is satisfied by a run that never ran the lane. Fails closed: a record with no entry for the lane is not a pass. |
 | `change_policy.admin_bypass.allowed` | boolean | no (default false) | Whether admin-bypass merging (`gh pr merge --admin`) is permitted at all for a protected branch. |
 | `change_policy.admin_bypass.require_change_pass` | boolean | no (default true) | Whether an allowed admin bypass still requires the cf:change gate to have passed. |

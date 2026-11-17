@@ -136,6 +136,7 @@ class ChangeAppRegistry
     lines.concat(gate_scope_errors(change_md_path))
     lines.concat(tracker_policy_errors(change_md_path))
     lines.concat(promotion_target_lines(change_md_path))
+    lines.concat(require_scheduled_lines(change_md_path))
 
     selected.each do |entry|
       lines << '' unless lines.empty?
@@ -169,6 +170,25 @@ class ChangeAppRegistry
     []
   end
   private_class_method :tracker_policy_errors
+
+  # promotion.<ref>.require_scheduled (0.20.0): every named
+  # schedule must be declared in the root change_config.schedules with a sane
+  # max_age_days, and a branch rule gated on a local-runner schedule is
+  # warned about. Silent when no rule sets require_scheduled.
+  def self.require_scheduled_lines(change_md_path)
+    policy = ChangePolicy.for_repo(File.dirname(change_md_path))
+    return [] unless policy
+
+    branch_rules = policy.branch_promotion.transform_keys { |branch| "promotion.#{branch}" }
+    tag_rules = policy.tag_promotion.transform_keys { |pattern| "promotion.tag:#{pattern}" }
+    rules = branch_rules.merge(tag_rules)
+    return [] unless rules.values.any? { |rule| rule.is_a?(Hash) && rule.key?('require_scheduled') }
+
+    schedules = ChangeScheduleConfig.new(ChangeFrontmatter.parse_file(change_md_path)['change_config'])
+    schedules.require_scheduled_errors(rules).map { |message| "error: #{message}" } +
+      schedules.require_scheduled_warnings(branch_rules)
+  end
+  private_class_method :require_scheduled_lines
 
   # For every protected branch, and every protected tag pattern, whose
   # promotion rule names a profile, every app required to gate it (the rule's

@@ -18,6 +18,25 @@ Every version below has a frozen, permanently addressable rendering at
 field set: major for a removed, renamed or newly required field, minor for a new
 optional field, patch for a documentation-only clarification.
 
+## [0.20.0] - 2026-11-17
+
+Lanes on a clock: named schedules that run the existing lanes against a
+profile, an opt-in active ZAP scan, and promotion rules that require a recent
+scheduled pass. Additive.
+
+### Added
+
+- `change_config.schedules.<schedule>` with `cron` (five-field, UTC),
+  `profile`, `runner`, `lanes`, and the per-schedule overrides `zap.mode` and
+  `k6.script`.
+- `change_config.lanes.zap.mode`: `baseline` (passive, the default) or `full`.
+  A per-PR lane accepts only `baseline`; `full` is an active scan, allowed only
+  in a schedule override.
+- `change_config.profiles.<profile>.allow_active_scan`: the per-profile opt-in
+  every `full` schedule against that profile requires.
+- `change_policy.promotion.<ref>.require_scheduled.<schedule>.max_age_days`: a
+  promotion gated on a passing scheduled run no older than the limit.
+
 ## [0.19.0] - 2026-11-16
 
 Plan phases run by an agent outside the harness, one outbound send path, and a

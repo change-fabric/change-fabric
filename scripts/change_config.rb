@@ -13,6 +13,7 @@ require_relative 'change_local_tls'
 require_relative 'change_command_config'
 require_relative 'emit_digest'
 require_relative 'execution_config_schema'
+require_relative 'change_schedule_config'
 
 # Parses and validates a project's change-fabric config. There is one
 # change-fabric file per repo, `CHANGE.md` at the repo root: its YAML
@@ -58,7 +59,11 @@ class ChangeConfig
   # and `base_url` vary per profile while routes, thresholds, and viewports
   # stay shared.
   PROFILE_LANE_KEYS = %w[enabled base_url basic_auth targets auth].freeze
-  PROFILE_TOP_KEYS = %w[project boot lanes].freeze
+  # `allow_active_scan` (0.20.0) is accepted on a profile but is
+  # never merged into the resolved config: it is the profile's opt-in to being
+  # an active-scan target, read only by ChangeScheduleConfig.
+  PROFILE_TOP_KEYS = %w[project boot lanes allow_active_scan].freeze
+  PROFILE_ONLY_KEYS = %w[allow_active_scan].freeze
 
   # basic_auth (0.3.0) is answered via page.authenticate() in a browser page, so
   # it only means anything on a lane that actually drives one.
@@ -188,7 +193,25 @@ class ChangeConfig
     config.lane_targets.each { |lane, targets| lines << "  #{lane}: #{targets.join(', ')}" }
     lines.concat(target_mismatch_warnings(config))
     lines.concat(testcase_suite_lines(config))
+    lines.concat(schedule_lines(config))
     lines
+  end
+
+  # change_config.schedules (0.20.0): one line per schedule, then
+  # every url a declared active scan would hit, so a human sees each active
+  # target before it is ever scanned. Silent when no schedules block exists,
+  # so a file without one reports exactly what it always did.
+  def self.schedule_lines(config)
+    return [] unless config.schedule_config.declared?
+
+    lines = [ 'schedules:' ]
+    config.schedule_config.schedules.each do |s|
+      lines << "  #{s.name}: runner=#{s.runner} cron=\"#{s.cron}\" profile=#{s.profile} lanes=#{s.lanes.join(', ')}"
+    end
+    targets = config.active_scan_targets
+    return lines << 'active-scan targets: none' if targets.empty?
+
+    lines + targets.map { |url, profile, name| "active-scan targets: #{url} (profile #{profile}, schedule #{name})" }
   end
 
   # The testcases lane's suite files, checked here rather than only at run
@@ -270,6 +293,8 @@ class ChangeConfig
   # invocation time instead of committed and hand-edited.
   def initialize(raw, dir, profile: nil, spec_version: nil, overrides: {})
     @dir = dir
+    @source = raw
+    @schedule_config = ChangeScheduleConfig.new(raw)
     @declared_spec_version = spec_version.to_s
     @profile_names = raw['profiles'].is_a?(Hash) ? raw['profiles'].keys.map(&:to_s) : []
     @profile = resolve_profile_name(raw, profile)
@@ -308,6 +333,21 @@ class ChangeConfig
 
   # The repo root: the directory holding CHANGE.md.
   def repo_root = @dir
+
+  # change_config.schedules (0.20.0), parsed from the file as
+  # authored, before any profile merge. Empty when the block is absent.
+  def schedule_config = @schedule_config
+
+  # Every url a declared active scan (a schedule with zap.mode: full) would
+  # hit, as [url, profile, schedule] triples. Resolved through the schedule's
+  # own profile, so it names exactly what that scan targets.
+  def active_scan_targets
+    @schedule_config.schedules.select(&:active_scan?).flat_map do |schedule|
+      resolved = ChangeConfig.new(@source, @dir, profile: schedule.profile)
+      lane = resolved.lane('zap').merge(schedule.override('zap'))
+      lane.targets(resolved.boot.target_url).map { |url| [ url, schedule.profile, schedule.name ] }
+    end
+  end
 
   # A stable digest of the config this run actually resolved, after the profile
   # merge and any CLI overrides. Recorded in the run manifest so two reports
@@ -397,7 +437,7 @@ class ChangeConfig
     profile = raw.dig('profiles', name)
     validate_profile_keys(name, profile)
     base = raw.reject { |key, _| %w[profiles default_profile].include?(key) }
-    deep_merge(base, profile)
+    deep_merge(base, profile.except(*PROFILE_ONLY_KEYS))
   end
 
   def validate_profile_keys(name, profile)
@@ -448,6 +488,9 @@ class ChangeConfig
     validate_basic_auth_lanes(lanes || {})
     validate_launch_args(lanes || {})
     validate_command_lane(lanes || {})
+    validate_zap_mode(lanes || {})
+    schedule_errors = @schedule_config.errors
+    raise ConfigError, schedule_errors.join('; ') unless schedule_errors.empty?
     boot_errors = boot.errors
     raise ConfigError, boot_errors.join('; ') unless boot_errors.empty?
     design_errors = ChangeSchema.design_errors(@raw['design'], apps: @raw['apps'].is_a?(Hash) ? @raw['apps'].keys : [])
@@ -456,6 +499,23 @@ class ChangeConfig
     # execution / outbound / trackers (0.19.0).
     execution_errors = ExecutionConfigSchema.errors(@raw)
     raise ConfigError, execution_errors.join('; ') unless execution_errors.empty?
+  end
+
+  # lanes.zap.mode (0.20.0): baseline is the only mode a per-PR
+  # lane may run. full is an active scan and is accepted only inside a
+  # schedule override whose profile has opted in (ChangeScheduleConfig).
+  def validate_zap_mode(lanes)
+    section = lanes['zap']
+    return unless section.is_a?(Hash) && section.key?('mode')
+
+    mode = section['mode']
+    return if mode == ChangeScheduleConfig::ZAP_DEFAULT_MODE
+
+    if mode == 'full'
+      raise ConfigError, 'lanes.zap.mode: full is an active scan and is accepted only inside a schedule ' \
+                         'override (change_config.schedules.<name>.zap.mode) whose profile sets allow_active_scan: true'
+    end
+    raise ConfigError, "lanes.zap.mode must be one of #{ChangeScheduleConfig::ZAP_MODES.join(', ')}; got #{mode.inspect}"
   end
 
   # lanes.command (0.17.0): see ChangeCommandConfig for the entry rules.

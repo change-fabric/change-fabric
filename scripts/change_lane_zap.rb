@@ -25,9 +25,19 @@ class ChangeLaneZap < ChangeLane
   # ZAP riskcode: 0 informational, 1 low, 2 medium, 3 high.
   RISK = { '0' => 'informational', '1' => 'low', '2' => 'medium', '3' => 'high' }.freeze
 
+  # Only the passive baseline runs here. Any other mode (an active `full`
+  # scan) is refused with one failing finding before any container starts:
+  # config validation already rejects full outside a schedule override, so
+  # this is the last line of defense, and a refusal fails the lane rather than
+  # reading as a clean run.
   def run
+    return [ mode_refusal ] unless mode == 'baseline'
+
     targets.flat_map { |target| scan(target) }
   end
+
+  # baseline (passive, the default) or full (active). Read from the lane config.
+  def mode = @config.fetch('mode', 'baseline').to_s
 
   private
 
@@ -36,6 +46,12 @@ class ChangeLaneZap < ChangeLane
   def targets = @config.targets(@context.target_url)
 
   def strict? = @config.fetch('strict', false)
+
+  def mode_refusal
+    Finding.new(lane: 'zap', check: 'scan mode', target: targets.join(', '), status: 'fail', severity: 'high',
+                detail: "zap lane refused mode '#{mode}': only the passive baseline scan runs here; an active " \
+                        'scan (mode: full) runs only from a schedule whose profile sets allow_active_scan: true')
+  end
 
   def scan(target)
     Dir.mktmpdir('cf-change-zap') do |dir|
