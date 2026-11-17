@@ -2,7 +2,7 @@
 
 require_relative 'change_schema'
 
-# change_config.schedules (0.19.0, unreleased): named schedules that run some
+# change_config.schedules (0.20.0): named schedules that run some
 # lanes on a clock against one profile, separate from the per-PR sweep. This
 # file only parses and validates the block into Schedule values; nothing here
 # runs a lane or installs a scheduler entry.

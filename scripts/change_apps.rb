@@ -171,7 +171,7 @@ class ChangeAppRegistry
   end
   private_class_method :tracker_policy_errors
 
-  # promotion.<ref>.require_scheduled (0.19.0, unreleased): every named
+  # promotion.<ref>.require_scheduled (0.20.0): every named
   # schedule must be declared in the root change_config.schedules with a sane
   # max_age_days, and a branch rule gated on a local-runner schedule is
   # warned about. Silent when no rule sets require_scheduled.

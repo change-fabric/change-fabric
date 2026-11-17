@@ -28,6 +28,30 @@ export interface ReleaseNote {
 }
 
 export const RELEASE_NOTES: Record<string, ReleaseNote> = {
+  "0.20.0": {
+    version: "0.20.0",
+    date: "2026-11-17",
+    headline: "Lanes on a clock: scheduled runs, an opt-in active scan, and promotions that require a recent scheduled pass.",
+    highlights: [
+      {
+        title: "change_config.schedules",
+        body:
+          "A named schedule runs the existing lanes against a profile on a five-field UTC cron, on a GitHub Actions or local runner, with its own zap.mode and k6.script overrides.",
+      },
+      {
+        title: "Active scans are opt-in",
+        body:
+          "lanes.zap.mode stays baseline on every PR. full is an active scan, accepted only in a schedule override whose profile sets allow_active_scan: true.",
+      },
+      {
+        title: "require_scheduled",
+        body:
+          "A promotion rule can require a passing run of a named schedule no older than max_age_days before it lets a change through.",
+      },
+    ],
+    upgrade:
+      "Additive. Nothing changes for a CHANGE.md that does not set the new keys.",
+  },
   "0.19.0": {
     version: "0.19.0",
     date: "2026-11-16",

@@ -18,7 +18,7 @@
 require_relative 'figma_url'
 
 module ChangeSchema
-  VERSION = '0.19.0'
+  VERSION = '0.20.0'
 
   # The six lanes, the authoritative list the config validator enforces: five
   # dockerized audit lanes plus a host-run command lane (0.17.0).
@@ -48,7 +48,7 @@ module ChangeSchema
   #             promotion targets before this version)
   #   <profile> any name under change_config.profiles
   #   <app>     any name under change_config.apps (an app in a monorepo, 0.4.0)
-  #   <schedule> any name under change_config.schedules (0.19.0, unreleased)
+  #   <schedule> any name under change_config.schedules (0.20.0)
   #   []        a field on each item of a list
   FIELDS = [
     # The one field outside both change_config: and change_policy: (0.3.0):
@@ -145,7 +145,7 @@ module ChangeSchema
     'change_config.lanes.zap.targets',
     'change_config.lanes.zap.strict',
     'change_config.lanes.zap.auth',
-    # lanes.zap.mode (0.19.0, unreleased): baseline (passive, the default) or
+    # lanes.zap.mode (0.20.0): baseline (passive, the default) or
     # full (an active scan). full is accepted only inside a schedule override
     # whose profile sets allow_active_scan: true.
     'change_config.lanes.zap.mode',
@@ -323,7 +323,7 @@ module ChangeSchema
     'change_config.profiles.<profile>.boot.timeout_seconds',
     'change_config.profiles.<profile>.boot.add_hosts',
     'change_config.profiles.<profile>.boot.ignore_https_errors',
-    # profiles.<profile>.allow_active_scan (0.19.0, unreleased): the per
+    # profiles.<profile>.allow_active_scan (0.20.0): the per
     # -profile opt-in an active ZAP scan needs before it may target the
     # profile. Absent or false, every zap.mode: full aimed at it is refused.
     'change_config.profiles.<profile>.allow_active_scan',
@@ -403,7 +403,7 @@ module ChangeSchema
     'change_config.profiles.<profile>.lanes.a11y.auth.steps[].submit_selector',
     'change_config.profiles.<profile>.lanes.a11y.auth.steps[].wait_for_selector',
     'change_config.profiles.<profile>.lanes.a11y.auth.steps[].timeout_ms',
-    # change_config.schedules (0.19.0, unreleased): named schedules that run
+    # change_config.schedules (0.20.0): named schedules that run
     # some lanes on a clock against one profile, separate from the per-PR
     # sweep. A schedule's per-lane override is keyed by lane name and takes
     # that lane's own fields; zap.mode and k6.script are the two it exists for.
@@ -471,7 +471,7 @@ module ChangeSchema
     # lane, so a repo can state that a merge here is gated on its regression
     # cases specifically and not only on the aggregate verdict.
     'change_policy.promotion.<ref>.require_testcases',
-    # promotion.<ref>.require_scheduled (0.19.0, unreleased): an opt-in
+    # promotion.<ref>.require_scheduled (0.20.0): an opt-in
     # freshness gate; the named schedule must have passed within
     # max_age_days. Off unless a rule sets it; PR merges never wait on it.
     'change_policy.promotion.<ref>.require_scheduled.<schedule>.max_age_days',

@@ -8,7 +8,7 @@ require_relative "../scripts/change_config"
 require_relative "../scripts/change_apps"
 require_relative "../scripts/change_schedule_config"
 
-# change_config.schedules (0.19.0, unreleased): parsing, every validation rule,
+# change_config.schedules (0.20.0): parsing, every validation rule,
 # the active-scan opt-in, the require_scheduled policy check, and doctor's
 # schedule report. Synthetic example.test hosts only.
 class ChangeScheduleConfigTest < Minitest::Test

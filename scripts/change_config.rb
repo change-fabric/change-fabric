@@ -59,7 +59,7 @@ class ChangeConfig
   # and `base_url` vary per profile while routes, thresholds, and viewports
   # stay shared.
   PROFILE_LANE_KEYS = %w[enabled base_url basic_auth targets auth].freeze
-  # `allow_active_scan` (0.19.0, unreleased) is accepted on a profile but is
+  # `allow_active_scan` (0.20.0) is accepted on a profile but is
   # never merged into the resolved config: it is the profile's opt-in to being
   # an active-scan target, read only by ChangeScheduleConfig.
   PROFILE_TOP_KEYS = %w[project boot lanes allow_active_scan].freeze
@@ -197,7 +197,7 @@ class ChangeConfig
     lines
   end
 
-  # change_config.schedules (0.19.0, unreleased): one line per schedule, then
+  # change_config.schedules (0.20.0): one line per schedule, then
   # every url a declared active scan would hit, so a human sees each active
   # target before it is ever scanned. Silent when no schedules block exists,
   # so a file without one reports exactly what it always did.
@@ -334,7 +334,7 @@ class ChangeConfig
   # The repo root: the directory holding CHANGE.md.
   def repo_root = @dir
 
-  # change_config.schedules (0.19.0, unreleased), parsed from the file as
+  # change_config.schedules (0.20.0), parsed from the file as
   # authored, before any profile merge. Empty when the block is absent.
   def schedule_config = @schedule_config
 
@@ -501,7 +501,7 @@ class ChangeConfig
     raise ConfigError, execution_errors.join('; ') unless execution_errors.empty?
   end
 
-  # lanes.zap.mode (0.19.0, unreleased): baseline is the only mode a per-PR
+  # lanes.zap.mode (0.20.0): baseline is the only mode a per-PR
   # lane may run. full is an active scan and is accepted only inside a
   # schedule override whose profile has opted in (ChangeScheduleConfig).
   def validate_zap_mode(lanes)
