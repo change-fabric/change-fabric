@@ -297,7 +297,6 @@ module Roast
   def check_review!(review)
     raise ReviewError, "roast refused: no audience (set --audience, storyboard review.audience, or change_config.design.roast.audience)" unless review[:audience]
     raise ReviewError, "roast refused: no purpose (set --purpose, or storyboard review.purpose as a list of outcomes)" if review[:purpose].empty?
-    raise ReviewError, "roast refused: scope must be one of #{SCOPES.keys.join(', ')}, got #{review[:scope].inspect}" if review[:scope] && !SCOPES.value?(review[:scope])
     return if review[:kind].nil? || KINDS.include?(review[:kind])
 
     raise ReviewError, "roast refused: kind must be one of #{KINDS.join(', ')}, got #{review[:kind].inspect}"
@@ -599,7 +598,7 @@ module Roast
     lines = [ "# Roast round #{round}", '', "Score: #{critic['score']}/10", '', critic['summary'], '' ]
     PRIORITIES.each do |p|
       critic['issues'].select { |i| i['priority'] == p }.each do |i|
-        lines << "- #{i['id'] ? "#{i['id']} " : ''}#{p} (#{location(i)}): #{i['problem']}" << "  Fix: #{i['fix']}"
+        lines << "- #{id_label(i)}#{p} (#{location(i)}): #{i['problem']}" << "  Fix: #{i['fix']}"
         saving = saving_line(i)
         lines << saving if saving
       end
@@ -613,6 +612,9 @@ module Roast
     lines << ''
     lines.join("\n")
   end
+
+  # The issue's id and a space for a markdown line, or nothing when it has none.
+  def id_label(issue) = issue['id'] ? "#{issue['id']} " : ''
 
   def write_round(dir, round, critic)
     critic = normalize_critic(critic, round)
@@ -822,14 +824,15 @@ module Roast
       dest = File.join(opts[:out_dir], "round-#{round}#{ext}.response.json")
       raise UsageError, "#{dest} exists; pass --force to overwrite" if File.exist?(dest) && !opts[:force]
 
-      scaffold = Roast.response_scaffold(JSON.parse(File.read(src)), round, prefix: "R#{round}#{opts[:video] ? 'V' : ''}")
+      scaffold = Roast.response_scaffold(JSON.parse(File.read(src)), round, prefix: "R#{round}#{ext.empty? ? '' : 'V'}")
       File.write(dest, "#{JSON.pretty_generate(scaffold)}\n")
       out.puts("roast respond: #{dest} (#{scaffold['responses'].size} issue(s)); fill in each verdict (accept or rebut) and reason")
       0
     end
 
     def latest_round(dir, ext)
-      Dir.glob(File.join(dir.to_s, "round-*#{ext}.json")).filter_map { |p| File.basename(p)[/\Around-(\d+)#{Regexp.escape(ext)}\.json\z/, 1]&.to_i }.max
+      pattern = /\Around-(\d+)#{Regexp.escape(ext)}\.json\z/
+      Dir.glob(File.join(dir.to_s, "round-*#{ext}.json")).filter_map { |p| File.basename(p)[pattern, 1]&.to_i }.max
     end
 
     def parse_settings(args)

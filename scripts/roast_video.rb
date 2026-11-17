@@ -208,7 +208,7 @@ module RoastVideo
     lines = [ "# Video roast round #{round}", '', "Score: #{critic['score']}/10", '', critic['summary'], '' ]
     Roast::PRIORITIES.each do |p|
       critic['issues'].select { |i| i['priority'] == p }.each do |i|
-        lines << "- #{i['id'] ? "#{i['id']} " : ''}#{p} [#{i['timestamp']}] (#{Roast.location(i)}): #{i['problem']}" << "  Fix: #{i['fix']}"
+        lines << "- #{Roast.id_label(i)}#{p} [#{i['timestamp']}] (#{Roast.location(i)}): #{i['problem']}" << "  Fix: #{i['fix']}"
         saving = Roast.saving_line(i)
         lines << saving if saving
       end

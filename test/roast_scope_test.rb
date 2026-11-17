@@ -125,4 +125,16 @@ class RoastScopeTest < Minitest::Test
     refute WalkthroughRoast.review(mock).key?(:scope)
     assert_equal "product", WalkthroughRoast.review(live.merge("review" => review.merge("scope" => "product")))[:scope]
   end
+
+  # Intended: the film default changes the prompt, so a live board's existing
+  # round re-keys (and re-runs once); a board with no scope keeps its key.
+  def test_film_default_rekeys_live_rounds_and_leaves_unscoped_keys_alone
+    base = { brief: "b", shots: [], history: [], round: 1 }
+    review = { "audience" => "A", "purpose" => [ "B" ] }
+    live = { "review" => review, "scenes" => [ { "id" => "a", "screen" => { "url" => "https://app.localhost/" } } ] }
+    old = Roast.request_key(**base, review: Roast.resolve_review(storyboard: review))
+    refute_equal old, Roast.request_key(**base, review: WalkthroughRoast.review(live))
+    mock = { "review" => review, "scenes" => [ { "id" => "a", "screen" => { "html" => "a.html" } } ] }
+    assert_equal old, Roast.request_key(**base, review: WalkthroughRoast.review(mock))
+  end
 end
