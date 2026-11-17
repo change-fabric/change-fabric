@@ -161,6 +161,8 @@ module WalkthroughLive
     errors.concat(persona_ref_errors(scene, board))
     errors.concat(session_from_errors(scene, orders, by_id))
     errors.concat(storage_errors(scene['storage']))
+    errors << 'cursor must be false (omit it to show the cursor)' if scene.key?('cursor') && scene['cursor'] != false
+    errors
   end
 
   def compose_scene_errors(scene, orders, by_id)
@@ -356,6 +358,7 @@ module WalkthroughLive
                          **(WalkthroughBrowserFrame.browser?(scene) ? { frame: WalkthroughBrowserFrame.material(scene) } : {}),
                          **(WalkthroughInset.inset?(scene) ? { inset: WalkthroughInset.material(scene) } : {}),
                          **PrototypeCapture.timeline_material(all_interactions(scene)),
+                         **(scene['cursor'] == false ? { cursor: false } : {}),
                          browserless: PrototypeCapture.browserless_digest, capture_version: CAPTURE_VERSION)
   end
 
@@ -951,13 +954,14 @@ module WalkthroughLive
       dir
     end
 
-    # The desktop arrow (hidden when there is no desktop) is cursor.json; a
+    # The desktop arrow (hidden when there is no desktop or the scene sets
+    # cursor: false) is cursor.json; a
     # phone's tap ripples are taps.json.
     def write_tracks(runs, out_dir)
       by_name = runs.to_h { |r| [ r['name'], r ] }
       frames = runs.first['cursor'].size
       desk = @layout.rect('desktop')
-      arrow = desk ? WalkthroughDevice.arrow_path(desk, by_name['desktop']['cursor']) : WalkthroughDevice.hidden_path(frames)
+      arrow = desk && @scene['cursor'] != false ? WalkthroughDevice.arrow_path(desk, by_name['desktop']['cursor']) : WalkthroughDevice.hidden_path(frames)
       File.write(File.join(out_dir, 'cursor.json'), JSON.pretty_generate(arrow))
       phone = @layout.rect('phone')
       return unless phone
