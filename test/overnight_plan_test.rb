@@ -239,6 +239,24 @@ class OvernightPlanTest < Minitest::Test
     assert_equal "x ****", OvernightPlan.mask("x ghp_abcDEF123")
   end
 
+  def test_a_quoted_secret_with_spaces_is_masked_whole
+    assert_equal "FLAGS_TOKEN=**** bin/flags", OvernightPlan.mask('FLAGS_TOKEN="private token value" bin/flags')
+    assert_equal "API_KEY=**** run", OvernightPlan.mask("API_KEY='a b' run")
+    assert_equal "FLAGS_TOKEN=**** x", OvernightPlan.mask('FLAGS_TOKEN="say \\"hi\\" there" x')
+  end
+
+  # Only the Plan-Phase trailer adopts: a body that mentions a prerequisite
+  # phase does not claim it.
+  def test_a_mentioned_prerequisite_phase_is_not_adopted
+    prs = [ { "number" => 45, "title" => "Docs", "headRefName" => "exports-docs",
+              "body" => "Depends on overnight/plan#Phase 1\n\nPlan-Phase: overnight/plan#Phase 3" } ]
+    out = Dir.chdir(ROOT) do
+      OvernightPlan.dry_run(repo: REPO, plan_dir: PLAN, mode: "admin-bypass", discovery: FakeDiscovery.new(prs: prs))
+    end
+    assert_includes out, "p1 Add the export endpoint (new)"
+    assert_includes out, "p3 Document exports (adopted PR #45 exports-docs)"
+  end
+
   def test_dry_run_never_builds_an_executor_and_states_execution_disabled
     out = dry_run
     refute Object.const_defined?(:OvernightExecutor)

@@ -7,6 +7,7 @@ require 'optparse'
 require_relative 'change_frontmatter'
 require_relative 'change_policy'
 require_relative 'overnight_store'
+require_relative 'plan_phase_trailer'
 
 # cf:overnight intake and dry-run. Resolves a typed capability manifest from
 # the repo's own files, each field carrying its value, its source (file:line
@@ -84,7 +85,9 @@ module OvernightPlan
   WALKTHROUGH_RESERVATION = { 'roast' => 2.0, 'render' => 1.0 }.freeze
   DECLARATION = /^\s*overnight\.([a-z_]+):\s*(.+?)\s*$/
   SECRET_PATTERNS = [
-    [ /\b([A-Z0-9_]*(?:TOKEN|SECRET|PASSWORD|API_KEY|KEY))=\S+/, '\1=****' ],
+    # A quoted value is masked to its closing quote (escapes included), so a
+    # value with spaces never leaks its tail.
+    [ /\b([A-Z0-9_]*(?:TOKEN|SECRET|PASSWORD|API_KEY|KEY))=(?:"(?:\\.|[^"\\])*"?|'[^']*'?|\S+)/, '\1=****' ],
     [ /\b(?:ghp_|gho_|ghs_|github_pat_|sk-|xox[abp]-)[A-Za-z0-9_-]+/, '****' ]
   ].freeze
 
@@ -321,14 +324,14 @@ module OvernightPlan
     end
   end
 
-  # Adopts in-flight work: a PR whose title matches the unit's, or whose body
-  # carries the unit's full plan reference (<area>/<slug>#Phase N, the sweep
-  # trailer form), so another plan's phase N is never adopted. Plus any
-  # worktree on its branch.
+  # Adopts in-flight work: a PR whose title matches the unit's, or whose
+  # Plan-Phase trailer names the unit's full reference. Only the trailer
+  # counts: a body that merely mentions a prerequisite phase ("Depends on
+  # ...#Phase 1") does not adopt that phase. Plus any worktree on its branch.
   def adopt(units, prs, worktrees)
     adopted = units.map do |unit|
       pr = prs.find do |p|
-        p['title'].to_s.casecmp?(unit['title']) || p['body'].to_s.match?(%r{(?<![\w/-])#{Regexp.escape(unit['ref'])}\b})
+        p['title'].to_s.casecmp?(unit['title']) || PlanPhaseTrailer.parse(p['body']) == unit['ref']
       end
       next unit.merge('origin' => 'new') unless pr
 
