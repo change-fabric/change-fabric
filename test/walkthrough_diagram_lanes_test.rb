@@ -17,26 +17,28 @@ class WalkthroughDiagramLanesTest < Minitest::Test
   FIXTURES = File.expand_path("fixtures/walkthrough", __dir__)
   LANES = File.join(FIXTURES, "diagram-swimlanes")
 
-  # sha256 of each laneless fixture screen as generated before lanes existed,
+  # sha256 of each laneless fixture screen, retaken when the frame script
+  # gained safe_inset and the runtime moved to the video type scale,
   # with the inlined bundle and runtime text swapped for fixed markers so a
   # later runtime change does not move these.
   LANELESS = {
-    "architecture" => "5f405d3125d375177ee403a08892183d006fee2056e7275497a14f46350c207b",
-    "diagram-lr" => "46b12a3c892fbd8371d4e80eae2830e96aba75d7333dabd53840a89c07dc14c1",
-    "diagram-flow" => "ae510a3d15e634abf11c39a62b7e25649c54fe17a3f2771ef95ec26b32564676",
-    "diagram-colors" => "17022d4c40c055ed58f82c9e8df52c52219d46381636b095d3d2b5df18895a08"
+    "architecture" => "e4f91afa4e36d08e85b94ff7a9c14573815a8b068c814bc826edec2ef2ab058b",
+    "diagram-lr" => "067314773ecbed99d5a002011b574933c5f15da9f628d170c27249ea26008bdf",
+    "diagram-flow" => "e1d83d292dcdbee943bb5fdf263412e4756c3d95b4f2163c0409ade52335bf08",
+    "diagram-colors" => "ab8a42a162f45ac487f3b38c3edc428f0df1cccc955a65fe4dea36927b206f7e"
   }.freeze
 
   # The same screens hashed whole, runtime and bundle included, and the
   # runtime file itself: the markers above hide any runtime edit, so these
   # pin it. Update both only with a capture proof that laneless geometry is
-  # unchanged (test/walkthrough_diagram_capture_test.rb).
-  RUNTIME_SHA = "3950138032cf1add3fc072206d81b24827c39c18e775759264dc20916c85cc94"
+  # unchanged, or changed on purpose and still passing the clip check
+  # (test/walkthrough_diagram_capture_test.rb).
+  RUNTIME_SHA = "8de8713676a8c4f853647d550b99497fa6f18be87dd4c00959fddf871a5adc0b"
   LANELESS_RAW = {
-    "architecture" => "f24b2e2be5bad89be190b23dedc2a884869ae9d5a87f7e7a63ff201608936cd4",
-    "diagram-lr" => "eb6ecee41bb53ea1b5e8221244068f5c864bc20c84e44221bcb6b6ebc72f20bb",
-    "diagram-flow" => "7a736e70a41780f9d1f0da7f686fdd87c34c2a621c4850a530cd216fa0243d3c",
-    "diagram-colors" => "24757381cdb93381c6109416c540cddf7e26a59af89fd862e801f12a22ce5b53"
+    "architecture" => "44e14d901768fe63fd9183cf61aa2d083476df3216915055709510af678e33d3",
+    "diagram-lr" => "6846c5877ef0f0517fc66687d6f20ab82feacb8ab998aa07fb24fa7f9ef059c6",
+    "diagram-flow" => "1813bb6a7e59353c6087a0de1801acaf875bb68424d0c8750072e198c7a609b1",
+    "diagram-colors" => "4517ec12ff0a52e39f45ec74d070e9edc86782495084f28c6f6ceb11b0a87c7a"
   }.freeze
 
   def setup

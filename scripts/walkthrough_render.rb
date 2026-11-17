@@ -12,6 +12,7 @@ require_relative 'prototype_imagegen'
 require_relative 'prototype_ux_lint'
 require_relative 'walkthrough_cache'
 require_relative 'walkthrough_captions'
+require_relative 'walkthrough_clipcheck'
 require_relative 'elevenlabs'
 require_relative 'ffmpeg_watchdog'
 require_relative 'walkthrough_env'
@@ -256,6 +257,22 @@ module WalkthroughRender
     def capture_frames
       with_session { |session| capture_all(session) } if capture_needed?(live: false)
       with_live_session { |session| capture_live(session) } if capture_needed?(live: true)
+      clip_check!
+    end
+
+    # The free clip check over every captured frame of each scene that
+    # recorded element boxes (scripts/walkthrough_clipcheck.rb). Fill is a
+    # warning; a crossing, an overflow, or text under the minimum refuses.
+    def clip_check!
+      memo = {}
+      refusals = scenes.select { |s| capture_target?(s) && !broll?(s) && !live?(s) }.flat_map do |scene|
+        result = WalkthroughClipcheck.check_dir(prep(scene, memo)[:out_dir], scene['id'])
+        next [] unless result
+
+        result[:warnings].each { |w| say("warning: #{w}") }
+        result[:refusals]
+      end
+      raise WalkthroughClipcheck::ClipError, "clip check:\n#{refusals.join("\n")}" unless refusals.empty?
     end
 
     def capture_needed?(live: false)
@@ -1056,7 +1073,7 @@ if __FILE__ == $PROGRAM_NAME
     WalkthroughRender::Run.new(dir, scene: scene, final: ARGV.include?('--final'), max_usd: max_usd,
                                burn_captions: ARGV.include?('--burn-captions'), gates: gates, recapture: ARGV.include?('--recapture'))
                           .call(estimate_only: ARGV.include?('--estimate-only'))
-  rescue PrototypeUxLint::FindingsError, WalkthroughRoast::OpenFindingsError => e
+  rescue PrototypeUxLint::FindingsError, WalkthroughRoast::OpenFindingsError, WalkthroughClipcheck::ClipError => e
     abort("refused: #{e.message}")
   rescue WalkthroughEnv::NeedsEnrollment => e
     WalkthroughEnv.enroll_exit!(e)

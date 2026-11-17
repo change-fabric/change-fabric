@@ -51,13 +51,13 @@
   // find Object.prototype.
   const colorOf = (id) => (Object.hasOwn(COLORS.nodes, id) ? COLORS.nodes[id] : null);
 
-  const NODE_H = 56;
-  const NODE_MIN_W = 140;
-  const NODE_MAX_W = 260;
-  const CHAR_W = 11;
-  const NODE_PAD_W = 40;
-  const ICON_PX = 20;
-  const ICON_GAP = 8;
+  const NODE_H = 84;
+  const NODE_MIN_W = 220;
+  const NODE_MAX_W = 460;
+  const CHAR_W = 17;
+  const NODE_PAD_W = 56;
+  const ICON_PX = 32;
+  const ICON_GAP = 12;
   const NODE_SEP = 60;
   // A node's horizontal padding plus border, and its border, as the
   // runtime's .cf-node draws them.
@@ -570,23 +570,23 @@ body { background: var(--cf-surface, #ffffff); }
 .cf-lanes[data-dir="vertical"] .cf-lane { top: 0; bottom: 0; border-left-width: 1px; border-right-width: 1px; }
 .cf-lane-label { position: absolute; left: 0; top: 0; transform-origin: 0 0; box-sizing: border-box; white-space: nowrap;
   padding: 0 0 0 ${LABEL_PAD_L}px; border-left: ${LABEL_BAR}px solid; color: var(--cf-text, #0f172a);
-  font: 600 ${FIT.lane_label.font}px/${LABEL_H}px system-ui, sans-serif; }
+  font: 600 ${FIT.lane_label.font}px/${LABEL_H}px var(--font-sans, "Inter", system-ui, sans-serif); }
 .cf-lane-label svg { width: 22px; height: 22px; margin-right: 8px; vertical-align: -4px; }
 ${ANCHORS.map((id) => `.react-flow__node[data-id="${id}"] .cf-node`).join(', ')} { visibility: hidden; }
 #cf-diagram-root .cf-node, .cf-lane-front .cf-node { font-size: ${FIT.checkpoint.font}px; line-height: ${FIT.checkpoint.line_h}px; overflow-wrap: anywhere; }
 ${laneRules}
 .cf-lane-panel { box-sizing: border-box; border: 1px solid; border-radius: 14px; padding: ${PANEL_PAD}px; }
-.cf-lane-panel-head { height: ${PANEL_HEAD}px; color: var(--cf-text, #0f172a); font: 600 22px/28px system-ui, sans-serif; white-space: nowrap; }
-.cf-lane-badge { margin-left: 10px; padding: 2px 10px; border-radius: 999px; font: 600 16px/22px system-ui, sans-serif;
+.cf-lane-panel-head { height: ${PANEL_HEAD}px; color: var(--cf-text, #0f172a); font: 600 22px/28px var(--font-sans, "Inter", system-ui, sans-serif); white-space: nowrap; }
+.cf-lane-badge { margin-left: 10px; padding: 2px 10px; border-radius: 999px; font: 600 16px/22px var(--font-sans, "Inter", system-ui, sans-serif);
   color: var(--cf-text, #0f172a); background: ${DIVIDER}; border: 1px solid ${DIVIDER}; }
 .cf-lane-row { box-sizing: border-box; display: flex; align-items: center; gap: 12px; padding: 0 14px;
-  border: 1px solid ${DIVIDER}; border-radius: 10px; white-space: nowrap; font: 600 18px/1 system-ui, sans-serif; color: var(--cf-text, #0f172a); }
+  border: 1px solid ${DIVIDER}; border-radius: 10px; white-space: nowrap; font: 600 18px/1 var(--font-sans, "Inter", system-ui, sans-serif); color: var(--cf-text, #0f172a); }
 .cf-lane-row i { flex: none; width: 10px; height: 10px; border-radius: 50%; }
-.cf-lane-row small { margin-left: auto; font: 500 15px/1 system-ui, sans-serif; color: var(--cf-muted, #475569); }
+.cf-lane-row small { margin-left: auto; font: 500 15px/1 var(--font-sans, "Inter", system-ui, sans-serif); color: var(--cf-muted, #475569); }
 .cf-lane-front > * { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
 .cf-lane-token { box-sizing: border-box; display: flex; align-items: center; justify-content: center; white-space: nowrap;
   border: 2px solid var(--cf-accent, #2563eb); border-radius: ${TOKEN_H / 2}px; background: var(--cf-accent-tint, #dbeafe);
-  color: var(--cf-text, #0f172a); font: 600 17px/1 system-ui, sans-serif; }
+  color: var(--cf-text, #0f172a); font: 600 17px/1 var(--font-sans, "Inter", system-ui, sans-serif); }
 .cf-lane-token svg { width: ${TOKEN_ICON}px; height: ${TOKEN_ICON}px; margin-right: 6px; fill: currentColor; flex: none; }
 .cf-lane-chip { box-sizing: border-box; width: ${2 * CHIP_R}px; height: ${2 * CHIP_R}px; border-radius: 50%; }
 .cf-lane-marker { border-radius: 50%; box-sizing: border-box; }

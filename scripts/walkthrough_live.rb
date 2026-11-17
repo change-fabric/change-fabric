@@ -260,7 +260,7 @@ module WalkthroughLive
 
   def viewport_for(board) = PrototypeCapture::DEFAULT_VIEWPORT.merge(board['viewport'] || {})
 
-  def fps_for(board) = board['fps'] || PrototypeCapture::FPS
+  def fps_for(board) = PrototypeCapture.board_fps(board)
 
   # A live scene's navigate cut (WalkthroughTimeline.cut), or nil.
   def navigate_cut(board, scene)

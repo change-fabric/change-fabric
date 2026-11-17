@@ -49,7 +49,7 @@ module WalkthroughStoryboard
 
   def load(path) = JSON.parse(File.read(path))
 
-  def fps(board) = board['fps'] || PrototypeCapture::FPS
+  def fps(board) = PrototypeCapture.board_fps(board)
 
   def scenes(board) = Array(board['scenes']).sort_by { |s| s['order'].to_i }
 
@@ -150,7 +150,38 @@ module WalkthroughStoryboard
 
   # Advisory findings that never fail validation. Roast refuses to run without a
   # review audience and purpose, so their absence is worth saying early.
-  def warnings(board) = review_warnings(board) + soft_zoom_warnings(board)
+  def warnings(board) = review_warnings(board) + soft_zoom_warnings(board) + density_warnings(board) + hook_warnings(board) + close_warnings(board)
+
+  def density_warnings(board)
+    scenes(board).select { |s| s.is_a?(Hash) && WalkthroughDiagram.diagram?(s) }.flat_map { |s| WalkthroughDiagram.density_warnings(s) }
+  end
+
+  # The hook: a film should open on its idea, not on a logo. A scene counts
+  # as logo-only when its id or screen file names a logo.
+  LOGO = %r{(?:\A|[-_./])logo(?:\z|[-_.])}i
+
+  def hook_warnings(board)
+    first = scenes(board).first
+    return [] unless first.is_a?(Hash)
+    return [] unless [ first['id'], first.dig('screen', 'html') ].compact.any? { |v| v.to_s.match?(LOGO) }
+
+    [ "scene #{first['id']}: the film opens on a logo-only scene; open on the idea and move the logo to the close" ]
+  end
+
+  # The close: the last line should end with room to land, at least
+  # CLOSE_TAIL_MS before the film does.
+  CLOSE_TAIL_MS = 1500
+
+  def close_warnings(board)
+    last = scenes(board).last
+    return [] unless last.is_a?(Hash) && last.dig('narration', 'measured_ms').to_i.positive?
+
+    spoken = PrototypeCapture.narration_start_ms(last) + last.dig('narration', 'measured_ms').to_i
+    tail = PrototypeCapture.scene_duration(last) - spoken
+    return [] if tail >= CLOSE_TAIL_MS
+
+    [ "scene #{last['id']}: the final narration ends #{tail} ms before the film does; leave at least #{CLOSE_TAIL_MS} ms (raise timing.pad_ms)" ]
+  end
 
   def review_warnings(board)
     return [ 'review is absent: roast refuses to run without an audience and a purpose (add a review object with kind, audience, purpose)' ] unless board.key?('review')

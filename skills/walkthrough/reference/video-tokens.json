@@ -1,0 +1,11 @@
+{
+  "frame": { "w": 1920, "h": 1080 },
+  "type_scale": { "label": 28, "body": 40, "statement": 96 },
+  "safe_area": { "inset": 0.05 },
+  "fill": { "min": 0.2, "max": 0.7 },
+  "density": { "max_visible_nodes": 6 },
+  "font": {
+    "sans": "\"Inter\", system-ui, sans-serif",
+    "serif": "\"Source Serif 4\", Georgia, serif"
+  }
+}
