@@ -216,6 +216,7 @@ class WalkthroughPublishTest < Minitest::Test
       FileUtils.mkdir_p(File.join(dir, "flats", "light"))
       File.write(File.join(dir, "flats", "light", "overview.png"), "x")
       assert_equal [ "light" ], P.locate_boards(File.join(dir, "demo-draft-03.mp4")).keys
+      assert_equal [ "light" ], P.locate_boards(File.join(dir, "demo-draft.mp4")).keys, "a legacy draft too"
     end
   end
 

@@ -183,7 +183,7 @@ module WalkthroughPublish
   # under .cache/render/<hash>/. Only boards that exist are returned.
   def locate_boards(arg)
     root = if File.directory?(arg) then arg
-    elsif arg.end_with?('-final.mp4') || arg.match?(/-draft-\d+\.mp4\z/) then File.dirname(arg)
+    elsif arg.end_with?('-final.mp4', '-draft.mp4') || arg.match?(/-draft-\d+\.mp4\z/) then File.dirname(arg)
     else File.expand_path('../../..', File.dirname(arg))
     end
     PrototypeFlats::THEMES.to_h { |theme| [ theme, PrototypeFlats.overview_path(root, theme) ] }
