@@ -241,6 +241,14 @@ class ChangeRunScheduleTest < Minitest::Test
     assert_equal 0, code, out
   end
 
+  def test_report_scope_names_the_schedule_and_profile_uniquely
+    runner = ChangeRun.allocate
+    schedule = Struct.new(:name, :profile).new("nightly", "staging")
+    first = runner.send(:schedule_report_scope, schedule)
+    assert_match(/\Aschedule-nightly-staging-\h{6}\z/, first)
+    refute_equal first, runner.send(:schedule_report_scope, schedule)
+  end
+
   def test_reports_describe_the_overridden_lanes
     runner = StubRun.new(%w[schedule nightly-pentest], root: @repo)
     config = ChangeConfig.load(File.join(@repo, "CHANGE.md"), profile: "staging")

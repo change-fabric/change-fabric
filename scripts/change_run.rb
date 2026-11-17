@@ -302,12 +302,20 @@ class ChangeRun
     findings, instances = with_app(config, trust: trust) { |ctx| execute(config, schedule.lanes, ctx) }
     manifest = run_manifest(config, schedule.lanes)
                .merge('schedule' => schedule.name, 'base' => "#{base_ref} #{head_sha[0, 12]}")
-    report = write_report(config, findings, schedule.lanes, instances, app: nil, manifest: manifest)
+    report = write_report(config, findings, schedule.lanes, instances, app: nil, manifest: manifest,
+                                                                       scope: schedule_report_scope(schedule))
     path = ChangeScheduleStore.new(schedule.name, schedule.profile, repo: ChangeScheduleStore.repo_key(repo_root))
                               .write(schedule_record(schedule, findings, report, started_at))
     summarize(findings, report, app: nil)
     log("[change] schedule record: #{path}")
     findings.passed? ? 0 : 1
+  end
+
+  # Two schedules (or two overlapping runs of one) finishing in the same second
+  # must not overwrite each other's report, so the name carries the schedule,
+  # its profile, and a short random run id.
+  def schedule_report_scope(schedule)
+    "schedule-#{schedule.name}-#{schedule.profile}-#{SecureRandom.hex(3)}"
   end
 
   def schedule_record(schedule, findings, report, started_at)
@@ -703,9 +711,9 @@ class ChangeRun
     [ lane_config.fetch('retries', 0).to_i, 0 ].max
   end
 
-  def write_report(config, findings, lanes, instances, app:, manifest: {})
+  def write_report(config, findings, lanes, instances, app:, manifest: {}, scope: @args.scope)
     ChangeReport.new(
-      project: config.project, scope: @args.scope, findings: findings, app: app,
+      project: config.project, scope: scope, findings: findings, app: app,
       meta: report_meta(config, findings),
       manifest: manifest,
       sections: report_sections(config, lanes, instances)

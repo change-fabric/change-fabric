@@ -40,6 +40,12 @@ class ChangeScheduleStoreTest < Minitest::Test
     assert_equal 2, @store.records.size
   end
 
+  def test_concurrent_same_second_writes_keep_every_record
+    time = Time.utc(2026, 11, 16)
+    Array.new(20) { Thread.new { @store.write(record(time)) } }.each(&:join)
+    assert_equal 20, @store.records.size
+  end
+
   def test_retention_keeps_the_newest_sixty
     base = Time.utc(2026, 1, 1)
     65.times { |i| @store.write(record(base + (i * 86_400))) }

@@ -4,6 +4,7 @@
 require 'digest'
 require 'fileutils'
 require 'json'
+require 'securerandom'
 require 'time'
 
 # The time-keyed record store for scheduled runs (0.20.0). One
@@ -47,9 +48,8 @@ class ChangeScheduleStore
   # and returns the record's path.
   def write(record)
     FileUtils.mkdir_p(dir)
-    path = unique_path(stamp(record['finished_at']))
     body = JSON.pretty_generate(record)
-    File.write(path, body)
+    path = reserve_and_write(stamp(record['finished_at']), body)
     atomic_write(latest_path, body)
     prune
     path
@@ -77,18 +77,20 @@ class ChangeScheduleStore
     Time.now.utc.strftime('%Y%m%dT%H%M%SZ')
   end
 
-  def unique_path(stamp)
-    path = File.join(dir, "#{stamp}.json")
-    suffix = 1
-    while File.exist?(path)
-      path = File.join(dir, "#{stamp}-#{suffix}.json")
-      suffix += 1
+  # Exclusive create, so two runs finishing in the same second never pick the
+  # same archive name: the loser of the race gets EEXIST and tries the next.
+  def reserve_and_write(stamp, body)
+    (0..).each do |suffix|
+      path = File.join(dir, suffix.zero? ? "#{stamp}.json" : "#{stamp}-#{suffix}.json")
+      File.open(path, File::WRONLY | File::CREAT | File::EXCL) { |f| f.write(body) }
+      return path
+    rescue Errno::EEXIST
+      next
     end
-    path
   end
 
   def atomic_write(path, body)
-    temp = "#{path}.#{Process.pid}.tmp"
+    temp = "#{path}.#{Process.pid}.#{SecureRandom.hex(4)}.tmp"
     File.write(temp, body)
     File.rename(temp, path)
   end
