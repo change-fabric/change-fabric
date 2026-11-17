@@ -83,7 +83,10 @@ module Install
     # OpenCode loads only plugins/*.{ts,js}, never a nested directory.
     def opencode_plugin_link    = File.join(opencode_plugins_root, 'cf-hooks.ts')
 
-    def scripts_glob         = Dir.glob(File.join(scripts, '*.rb'))
+    # Top-level scripts plus the JS helpers they read by __dir__ (the
+    # walkthrough easing and element runtimes), installed side by side so the
+    # manifest, prune, and runtime copy all cover them.
+    def scripts_glob         = Dir.glob(File.join(scripts, '*.{rb,js}'))
     # Assets a script reads at run time rather than requires: today the pinned
     # axe-core bundle the a11y lane injects instead of fetching from a CDN.
     # They install beside the scripts, keeping `__dir__`-relative lookups
@@ -576,7 +579,7 @@ module Install
       @paths.scripts_glob.each do |source|
         dest = @paths.script_dest(File.basename(source))
         FileUtils.cp(source, dest)
-        FileUtils.chmod(0o755, dest)
+        FileUtils.chmod(source.end_with?('.rb') ? 0o755 : 0o644, dest)
       end
       place_vendor
       place_libs

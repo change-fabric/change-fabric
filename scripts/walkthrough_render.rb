@@ -1087,16 +1087,30 @@ module WalkthroughRender
     # only on a draft run with paid audio still to generate.
     def silent_cut? = !@final && @paid_audio_pending
 
-    # Renders and delivers the silent cut. A failure here never blocks the
-    # paid run: it is reported and the run goes on.
+    # Renders and delivers the silent cut. It is free, so a failure here means
+    # something is broken (a missing runtime file, a dead browser) and the run
+    # stops before spending on narration or music. The one exception: a board
+    # needing an uncached generated image cannot be cut for free (issue #464),
+    # so the cut is skipped, said plainly, and the paid run goes on.
     def silent_cut
+      pending = uncached_image_scenes
+      unless pending.empty?
+        say("silent cut: skipped: scene #{pending.join(', ')} needs an uncached generated image, which the free cut " \
+            "never generates (#464); the paid run goes on")
+        return nil
+      end
       say('silent cut: rendering the free first cut before paid audio')
       Run.new(@root, providers: @providers, out: @out, board: WalkthroughDraftBoard.silent(@board),
                      gates: @gates.merge(roast: false), burn_captions: @burn_captions, silent: true,
                      provisional: anchored_board?).call
     rescue StandardError => e
-      say("silent cut: skipped (#{e.message.lines.first.to_s.strip}); the run goes on")
-      nil
+      say("silent cut failed: #{e.class}: #{e.message.lines.first.to_s.strip}; the run stopped before any paid call " \
+          '(no narration, music, image, or b-roll spend); fix the cause and rerun')
+      raise
+    end
+
+    def uncached_image_scenes
+      scenes.select { |s| targeted?(s) && image_requests(s).any? { |r| !image_cached?(r) } }.map { |s| s['id'] }
     end
 
     # The silent cut's own flow: free steps only (no narration, images,
