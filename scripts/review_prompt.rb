@@ -1,6 +1,7 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 
+require 'shellwords'
 require_relative 'review_queue'
 
 # The fixed review instructions handed to the agent when review-eligible files
@@ -11,15 +12,20 @@ module ReviewPrompt
   module_function
 
   ACK_SCRIPT = File.expand_path('review_ack.rb', __dir__)
+  # Hosts without an Agent tool rewrite this line to their native reviewer.
+  REVIEWER = 'Agent(subagent_type: "general-purpose", model: "haiku")'
 
-  # The review must run and return BEFORE the verdict is recorded, and the gate
-  # is released only by the explicit ack, never by being dispatched. So the
-  # prompt tells the agent to wait for the review (not background it), then run
-  # the ack command, then retry. The ack and the retry must be separate commands:
-  # the gate inspects the command at PreToolUse, before it runs, so an "ack; push"
-  # chain reads the still-unreviewed queue and denies the whole thing. New edits
-  # after the ack change their content hash and re-arm the review.
-  def build(entries, registry, session_id)
+  # The gate is released only by the explicit ack, never by the review being
+  # dispatched. Agent calls may return asynchronously, so the prompt does not ask
+  # the agent to block on the review; it says to run the ack once the review's
+  # result arrives, and that the gate stays closed until then. The ack and the
+  # retry must be separate commands: the gate inspects the command at
+  # PreToolUse, before it runs, so an "ack; push" chain reads the still
+  # unreviewed queue and denies the whole thing. New edits after the ack change
+  # their content hash and re-arm the review. keys is one queue key or several.
+  # own_tree, when given, scopes the ack to the coordinator's tree (see
+  # review_ack.rb); "" means the tree is unknown.
+  def build(entries, registry, keys, own_tree: nil)
     by_name = registry.to_h { |skill| [ skill.name, skill ] }
     sections = entries.group_by { |entry| entry[:skill] }
                       .map { |name, rows| section(by_name[name], name, rows) }
@@ -27,13 +33,14 @@ module ReviewPrompt
       [cf review] #{entries.size} file(s) changed this session under review-enabled
       skills have not been reviewed yet. Review them before this work leaves the machine.
 
-      Run the review now and WAIT for its result (do not background it):
-      Agent(subagent_type: "general-purpose", model: "haiku", run_in_background: false),
+      Launch the review now:
+      #{REVIEWER},
       giving it exactly the task below. Report only concrete violations as
       `path:line - smell -> smallest behavior-preserving fix`; if none, say "clean".
-      Address any findings, then record the verdict so the gate releases:
+      When its result arrives, address any findings, then record the verdict.
+      The gate stays closed until this ack runs:
 
-          #{ack_command(session_id)}
+          #{ack_command(keys, own_tree: own_tree)}
 
       Run that ack on its own, then re-run your push or PR as a separate command,
       or finish the turn. The gate reads the queue before a command runs, so
@@ -43,7 +50,10 @@ module ReviewPrompt
     TEXT
   end
 
-  def ack_command(session_id) = "ruby #{ACK_SCRIPT} #{session_id}"
+  def ack_command(keys, own_tree: nil)
+    scope = own_tree.nil? ? [] : [ "--own-tree=#{own_tree}" ]
+    Shellwords.join([ 'ruby', ACK_SCRIPT, *Array(keys), *scope ])
+  end
 
   def cap_notice(count)
     "[cf review] Round cap (#{ReviewQueue::CAP}) reached; #{count} file(s) " \

@@ -26,4 +26,12 @@ class ReviewAckTest < Minitest::Test
     out = `ruby #{SCRIPT} s2`
     refute_includes out, "gate released"
   end
+
+  def test_named_keys_are_acked_and_unnamed_siblings_are_not
+    %w[s1 s1:a1 s1:a2].each { |key| ReviewQueue.new(key).add("ruby", "/p/#{key}.rb", "h1") }
+    out = `ruby #{SCRIPT} s1 s1:a1`
+    assert_includes out, "Recorded 2 file(s)"
+    assert_empty ReviewQueue.new("s1:a1").pending
+    refute_empty ReviewQueue.new("s1:a2").pending, "a sibling agent stays pending"
+  end
 end

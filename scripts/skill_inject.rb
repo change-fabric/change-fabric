@@ -8,6 +8,7 @@ require_relative 'hook_event'
 require_relative 'skill_registry'
 require_relative 'skill_store'
 require_relative 'review_queue'
+require_relative 'review_key'
 
 # PostToolUse hook: after a file edit, surfaces every auto-skill whose match
 # rules cover the changed file. Each cheat sheet surfaces once per session, and
@@ -73,7 +74,7 @@ class SkillInject
     hash = content_hash(path)
     return unless hash
 
-    queue = ReviewQueue.new(@event['session_id'])
+    queue = ReviewQueue.new(ReviewKey.for(@event, path: path))
     skills.each { |skill| queue.add(skill.name, path, hash) }
   end
 
@@ -162,4 +163,8 @@ class SkillInject
   end
 end
 
-SkillInject.new(HookEvent.read).emit if __FILE__ == $PROGRAM_NAME
+if __FILE__ == $PROGRAM_NAME
+  event = HookEvent.read
+  HookEvent.debug_keys(event, 'skill_inject')
+  SkillInject.new(event).emit
+end

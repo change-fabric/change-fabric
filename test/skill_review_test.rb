@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require "shellwords"
 require_relative "test_helpers"
 
 class SkillReviewTest < Minitest::Test
@@ -40,7 +41,8 @@ class SkillReviewTest < Minitest::Test
     assert_equal "block", out["decision"]
     assert_includes out["reason"], "/p/user.rb"
     assert_includes out["reason"], "POODR-PRINCIPLES"
-    assert_includes out["reason"], "run_in_background: false"
+    refute_includes out["reason"], "run_in_background"
+    assert_includes out["reason"], "When its result arrives"
     assert_includes out["reason"], "review_ack.rb"
   end
 
@@ -107,4 +109,110 @@ class SkillReviewTest < Minitest::Test
       ReviewQueue.new("s1").ack
     end
   end
+
+  # Acceptance: a coordinator tree with three agent worktrees under
+  # .claude/worktrees/agent-a|b|c. Edits flow through skill_inject with and
+  # without agent_id; the coordinator's Stop sees only its own tree, and each
+  # agent key holds only that agent's files.
+  def test_coordinator_stop_is_scoped_to_its_own_tree
+    root = File.realpath(Dir.mktmpdir)
+    GitFixture.git_init(root)
+    trees = %w[agent-a agent-b agent-c].to_h do |slug|
+      dir = File.join(root, ".claude", "worktrees", slug)
+      FileUtils.mkdir_p(dir)
+      GitFixture.git_init(dir)
+      [ slug, dir ]
+    end
+    inject = lambda do |path, extra = {}|
+      File.write(path, "x")
+      event = { "session_id" => "s1", "tool_name" => "Edit", "tool_input" => { "file_path" => path } }
+      SkillInject.new(event.merge(extra), skills: SkillRegistry.load(@skills)).emit(StringIO.new)
+    end
+    inject.call(File.join(trees["agent-a"], "a.rb"), "agent_id" => "ida")
+    inject.call(File.join(trees["agent-b"], "b.rb"))
+    inject.call(File.join(trees["agent-c"], "c.rb"), "agent_id" => "idc")
+
+    stop = { "session_id" => "s1", "cwd" => root }
+    assert_nil review_event(stop), "no own-tree rows means no block"
+
+    own = File.join(root, "own.rb")
+    inject.call(own)
+    reason = review_event(stop)["reason"]
+    assert_includes reason, own
+    %w[a.rb b.rb c.rb].each { |name| refute_includes reason, "/#{name}" }
+
+    assert_equal [ File.join(trees["agent-a"], "a.rb") ], paths("s1:ida")
+    assert_equal [ File.join(trees["agent-b"], "b.rb") ], paths("s1@agent-b")
+    assert_equal [ File.join(trees["agent-c"], "c.rb") ], paths("s1:idc")
+    assert_equal [ own ], paths("s1")
+  ensure
+    FileUtils.remove_entry(root) if root
+  end
+
+  def test_legacy_agent_rows_in_the_coordinator_key_stay_queued_but_unshown
+    enqueue("ruby", "/r/.claude/worktrees/agent-a/x.rb", "h1")
+    assert_nil review_event({ "session_id" => "s1" })
+    refute_empty ReviewQueue.new("s1").pending, "hidden is not reviewed"
+  end
+
+  def test_the_stop_ack_releases_only_the_rows_it_showed
+    enqueue("ruby", "/r/.claude/worktrees/agent-a/x.rb", "h1")
+    enqueue("ruby", "/p/own.rb", "h1")
+    reason = review_event({ "session_id" => "s1" })["reason"]
+    command = reason[/^\s+(ruby \S+review_ack\.rb.*)$/, 1]
+    assert_includes command, "--own-tree"
+    system(*Shellwords.split(command), out: File::NULL)
+    assert_equal [ "/r/.claude/worktrees/agent-a/x.rb" ], paths("s1"), "the hidden row stays queued"
+  end
+
+  def test_a_coordinator_inside_a_worktree_reviews_its_own_edits
+    root = File.realpath(Dir.mktmpdir)
+    tree = File.join(root, ".claude", "worktrees", "mine")
+    FileUtils.mkdir_p(tree)
+    GitFixture.git_init(tree)
+    path = File.join(tree, "own.rb")
+    File.write(path, "x")
+    event = { "session_id" => "s1", "tool_name" => "Edit", "tool_input" => { "file_path" => path } }
+    SkillInject.new(event, skills: SkillRegistry.load(@skills)).emit(StringIO.new)
+    assert_equal [ path ], paths("s1@mine")
+
+    reason = review_event({ "session_id" => "s1", "cwd" => tree })["reason"]
+    assert_includes reason, path
+    assert_includes reason, "s1@mine"
+  ensure
+    FileUtils.remove_entry(root) if root
+  end
+
+  def test_a_symlinked_checkout_still_owns_its_rows
+    root = File.realpath(Dir.mktmpdir)
+    real = File.join(root, "real")
+    FileUtils.mkdir_p(real)
+    GitFixture.git_init(real)
+    link = File.join(root, "link")
+    File.symlink(real, link)
+    enqueue("ruby", File.join(link, "own.rb"), "h1")
+    reason = review_event({ "session_id" => "s1", "cwd" => link })["reason"]
+    assert_includes reason, File.join(link, "own.rb")
+  ensure
+    FileUtils.remove_entry(root) if root
+  end
+
+  def test_subagent_stop_reviews_its_own_key_whole
+    ReviewQueue.new("s1:ida").add("ruby", "/r/.claude/worktrees/agent-a/x.rb", "h1")
+    enqueue("ruby", "/p/own.rb", "h1")
+    reason = review_event({ "session_id" => "s1", "agent_id" => "ida", "hook_event_name" => "SubagentStop" })["reason"]
+    assert_includes reason, "agent-a/x.rb"
+    refute_includes reason, "/p/own.rb"
+    assert_includes reason, "review_ack.rb s1:ida"
+    assert_nil review_event({ "session_id" => "s1", "hook_event_name" => "SubagentStop" }),
+               "no agent_id, no agent queue to review"
+  end
+
+  def review_event(event)
+    io = StringIO.new
+    SkillReview.new(event, skills: SkillRegistry.load(@skills)).emit(io)
+    io.string.empty? ? nil : JSON.parse(io.string)
+  end
+
+  def paths(key) = ReviewQueue.new(key).pending.map { |row| row[:path] }.uniq
 end

@@ -5,6 +5,7 @@ require 'json'
 require_relative 'hook_event'
 require_relative 'skill_registry'
 require_relative 'review_queue'
+require_relative 'review_key'
 require_relative 'review_prompt'
 require_relative 'review_scope'
 require_relative 'guarded_command'
@@ -36,11 +37,11 @@ class ReviewGate
     return unless @event['tool_name'] == 'Bash'
     return unless GuardedCommand.push?(command) || GuardedCommand.pr_create?(command)
 
-    queue = ReviewQueue.new(@event['session_id'])
-    pending = ReviewScope.covered(queue.pending, registry)
+    by_key = pending_by_key
+    pending = by_key.values.flatten
     return if pending.empty?
 
-    io.puts(JSON.generate(response(queue, pending)))
+    io.puts(JSON.generate(response(ReviewQueue.new(@event['session_id']), pending, by_key.keys)))
   end
 
   private
@@ -52,11 +53,21 @@ class ReviewGate
     input.is_a?(Hash) ? input['command'].to_s : ''
   end
 
-  def response(queue, pending)
+  # Until the gate is scoped to the pushed branch diff, it keeps today's reach:
+  # every queue this session owns (its own, each agent's, each worktree's), so
+  # moving agent edits out of the coordinator key never lets a push through
+  # unreviewed. The ack it hands back names exactly the keys holding rows.
+  def pending_by_key
+    ReviewKey.keys_for_session(@event['session_id'].to_s).to_h do |key|
+      [ key, ReviewScope.covered(ReviewQueue.new(key).pending, registry) ]
+    end.reject { |_key, rows| rows.empty? }
+  end
+
+  def response(queue, pending, keys)
     return { systemMessage: ReviewPrompt.cap_notice(pending.size) } if queue.capped?(pending)
 
     queue.bump_round(pending)
-    deny(ReviewPrompt.build(pending, registry, @event['session_id']))
+    deny(ReviewPrompt.build(pending, registry, keys))
   end
 
   def deny(reason)
@@ -70,4 +81,8 @@ class ReviewGate
   end
 end
 
-ReviewGate.new(HookEvent.read).emit if __FILE__ == $PROGRAM_NAME
+if __FILE__ == $PROGRAM_NAME
+  event = HookEvent.read
+  HookEvent.debug_keys(event, 'review_gate')
+  ReviewGate.new(event).emit
+end

@@ -71,7 +71,7 @@ class CfHostHook
     contexts.concat(@rubrics)
     review = review_result
     if review['decision'] == 'block'
-      review['reason'] = @compiler.references(review['reason']).sub(/Agent\(subagent_type: "general-purpose", model: "haiku", run_in_background: false\)/,
+      review['reason'] = @compiler.references(review['reason']).sub(ReviewPrompt::REVIEWER,
         'Use the host-native reviewer or review the files directly when delegation is unavailable')
       return review
     end
