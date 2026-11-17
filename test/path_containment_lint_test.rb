@@ -24,7 +24,9 @@ class PathContainmentLintTest < Minitest::Test
     "plan_paths.rb: str.start_with?(\"\#{home}/\") ? str.sub(home, '~') : str" =>
       "display only: collapses the home prefix to ~ in rendered text",
     "plan_visuals.rb: known = plan_text.include?(path) || files.any? { |f| f == path || f.end_with?(\"/\#{path}\") || f.start_with?(path) }" =>
-      "matches a diagram label against the PR's changed-file names; nothing is read from disk"
+      "matches a diagram label against the PR's changed-file names; nothing is read from disk",
+    "simplicity_signals.rb: out.each_line.any? { |hit| !hit.start_with?(\"\#{range.head}:\#{path}:\#{line}:\") }" =>
+      "skips the definition's own line in git grep output; a commit-and-path string, not a filesystem path"
   }.freeze
 
   def hits
