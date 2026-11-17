@@ -201,20 +201,16 @@ module WalkthroughPublish
   end
 
   # Accepts an MP4 or a walkthrough/<slug> dir: its <slug>-final.mp4, else
-  # its newest <slug>-draft-NN.mp4 (highest number), else the newest
-  # rendered MP4 left in the cache.
+  # its highest numbered <slug>-draft-NN.mp4, else a <slug>-draft.mp4 from
+  # before numbered drafts, else the newest rendered MP4 left in the cache.
   def locate(arg)
     return arg if File.file?(arg)
 
-    final = Dir.glob(File.join(arg, '*-final.mp4')).max_by { |f| File.mtime(f) }
-    return final if final
-
-    # A <slug>-draft.mp4 from before numbered drafts still publishes.
-    draft = WalkthroughDeliverables.newest_draft(arg) || Dir.glob(File.join(arg, '*-draft.mp4')).max_by { |f| File.mtime(f) }
-    return draft if draft
-
-    Dir.glob(File.join(arg, '.cache', 'render', '*', 'walkthrough.mp4')).max_by { |f| File.mtime(f) }
+    newest(arg, '*-final.mp4') || WalkthroughDeliverables.newest_draft(arg) ||
+      newest(arg, '*-draft.mp4') || newest(arg, '.cache', 'render', '*', 'walkthrough.mp4')
   end
+
+  def newest(*pattern) = Dir.glob(File.join(*pattern)).max_by { |f| File.mtime(f) }
 end
 
 if __FILE__ == $PROGRAM_NAME
