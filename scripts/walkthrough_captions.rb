@@ -38,45 +38,90 @@ module WalkthroughCaptions
 
   def ms(seconds) = (seconds.to_f * 1000).round
 
-  # Greedy packing of words into cues of up to MAX_LINES lines of MAX_LINE.
+  # A cue shorter than this, or with fewer than MIN_WORDS words, is an
+  # orphan (a sentence's last word spilled into its own flash of a cue) and
+  # is merged into a neighbour.
+  MIN_CUE_MS = 1000
+  MIN_WORDS = 2
+  SENTENCE_END = /[.!?:]\z/
+
+  # Greedy packing of words into cues of up to MAX_LINES lines of MAX_LINE,
+  # then orphan merging.
   def cues(words)
-    out = []
-    lines = []
-    line = nil
-    first = nil
-    last = nil
-    words.each do |w|
-      if line && w[:start_ms] - last > MAX_GAP_MS
-        lines << line
-        out << { start_ms: first, end_ms: last, lines: lines }
-        lines = []
-        line = nil
-        first = nil
+    no_overlap(merge_orphans(groups(words)).map { |g| cue(g) })
+  end
+
+  # Word groups, one per cue: a group closes at a sentence end, a silence
+  # over MAX_GAP_MS, or when its next word would need a third line.
+  def groups(words)
+    words.each_with_object([]) do |w, out|
+      last = out.last
+      open = last && !last.last[:text].match?(SENTENCE_END) && w[:start_ms] - last.last[:end_ms] <= MAX_GAP_MS
+      if open && fits?(last + [ w ]) then last << w
+      else out << [ w ]
       end
-      if line&.match?(/[.!?:]\z/)
-        # A finished sentence closes its cue, so the next one starts fresh.
-        lines << line
-        out << { start_ms: first, end_ms: last, lines: lines }
-        lines = []
-        first = nil
-        line = w[:text]
-      elsif line && "#{line} #{w[:text]}".length <= MAX_LINE
-        line = "#{line} #{w[:text]}"
-      else
-        lines << line if line
-        if lines.length == MAX_LINES
-          out << { start_ms: first, end_ms: last, lines: lines }
-          lines = []
-          first = nil
-        end
-        line = w[:text]
-      end
-      first ||= w[:start_ms]
-      last = w[:end_ms]
     end
-    lines << line if line
-    out << { start_ms: first, end_ms: last, lines: lines } unless lines.empty?
-    no_overlap(out)
+  end
+
+  def lines(group)
+    group.each_with_object([]) do |w, out|
+      if out.last && "#{out.last} #{w[:text]}".length <= MAX_LINE then out[-1] = "#{out.last} #{w[:text]}"
+      else out << w[:text]
+      end
+    end
+  end
+
+  def fits?(group) = lines(group).length <= MAX_LINES
+
+  def cue(group) = { start_ms: group.first[:start_ms], end_ms: group.last[:end_ms], lines: lines(group) }
+
+  def orphan?(group) = group.length < MIN_WORDS || group.last[:end_ms] - group.first[:start_ms] < MIN_CUE_MS
+
+  # Two adjacent groups belong together when the first does not end a
+  # sentence and no long silence separates them.
+  def joinable?(head, tail)
+    !head.last[:text].match?(SENTENCE_END) && tail.first[:start_ms] - head.last[:end_ms] <= MAX_GAP_MS
+  end
+
+  # Folds each orphan into the previous cue of its sentence, else the next.
+  # When the two do not fit one cue, the words are rebalanced across both so
+  # neither is an orphan. Timings stay the aligned word timings.
+  def merge_orphans(groups)
+    out = groups.map(&:dup)
+    i = 0
+    while i < out.length
+      if orphan?(out[i]) && (joined = join_at(out, i))
+        out[joined[0], 2] = joined[1]
+        i = [ joined[0] - 1, 0 ].max
+      else
+        i += 1
+      end
+    end
+    out
+  end
+
+  def join_at(out, i)
+    [ i - 1, i ].each do |k|
+      next unless k >= 0 && k + 1 < out.length && joinable?(out[k], out[k + 1])
+
+      both = out[k] + out[k + 1]
+      return [ k, [ both ] ] if fits?(both)
+
+      split = rebalance(both)
+      return [ k, split ] if split
+    end
+    nil
+  end
+
+  # The latest split of `words` into two cues that both fit and neither is
+  # an orphan, or nil.
+  def rebalance(words)
+    (words.length - MIN_WORDS).downto(MIN_WORDS).each do |n|
+      head = words.first(n)
+      tail = words.drop(n)
+      return [ head, tail ] if fits?(head) && fits?(tail) && !orphan?(head) && !orphan?(tail)
+    end
+    nil
   end
 
   # Aligned word timings can overlap (a sentence's last word is stretched

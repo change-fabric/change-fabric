@@ -38,8 +38,19 @@ class PrototypeUxLintTest < Minitest::Test
     dirty = PrototypeUxLint.scene_report("b", [ { "frame" => 0, "rule" => "empty-control", "target" => "#t", "detail" => "d" } ])
     assert_nil PrototypeUxLint.gate!([ clean ])
     err = assert_raises(PrototypeUxLint::FindingsError) { PrototypeUxLint.gate!([ clean, dirty ]) }
-    assert_includes err.message, "b: empty-control #t (frame 0): d"
+    assert_includes err.message, "empty-control #t in b (frame 0): d"
+    assert_includes err.message, "1 finding(s) across 1 scene(s)"
     assert_nil PrototypeUxLint.gate!([ dirty ], allow: true)
+  end
+
+  def test_summary_dedupes_across_scenes_and_labels_findings
+    nav = { "frame" => 3, "rule" => "clipped-text", "target" => "body > div > nav > a:nth-of-type(7)",
+            "label" => "link \"Settings\"", "detail" => "text cut off" }
+    reports = %w[one two three].map { |id| PrototypeUxLint.scene_report(id, [ nav ]) }
+    lines = PrototypeUxLint.summary_lines(reports)
+    assert_equal [ "clipped-text link \"Settings\" in one, two, three (frame 3): text cut off [body > div > nav > a:nth-of-type(7)]" ], lines
+    assert_equal "1 finding(s) across 3 scene(s)", PrototypeUxLint.summary(reports)
+    assert_equal "PASS (2 scene(s))", PrototypeUxLint.summary([ PrototypeUxLint.scene_report("a", []), PrototypeUxLint.scene_report("b", []) ])
   end
 
   def test_read_ignores_reports_from_another_version
@@ -105,6 +116,9 @@ class PrototypeUxLintTest < Minitest::Test
     "inert-behind-sheet" => [ '<div inert><button style="position:absolute;left:20px;top:20px">Confirm</button></div>' \
                               '<div class="toast" role="dialog">Approve loan?</div>', [] ],
     "clipped" => [ '<div style="width:60px;overflow:hidden;white-space:nowrap">A very long label here</div>', %w[clipped-text] ],
+    "inside-scrollable-nav" => [ '<nav style="position:absolute;top:20px;width:200px;height:60px;overflow:auto">' \
+                                 '<a href="#a">One</a><br><a href="#b">Two</a><br><a href="#c">Three</a><br><a href="#d">Four</a></nav>', [] ],
+    "scrollable-own-text" => [ '<div style="width:60px;overflow-x:auto;white-space:nowrap">A very long label here</div>', [] ],
     "cut-by-ancestor" => [ '<div style="position:absolute;top:20px;width:200px;height:40px;overflow:hidden"><button style="margin-top:20px">Ask Dana</button></div>',
                            %w[clipped-text] ],
     "inside-scaled-ancestor" => [ '<div style="position:absolute;top:60px;left:60px;width:200px;height:80px;overflow:hidden;border:10px solid #000;transform:scale(1.2)">' \

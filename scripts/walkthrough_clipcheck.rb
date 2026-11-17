@@ -112,6 +112,15 @@ module WalkthroughClipcheck
     []
   end
 
+  # The one-line verdict for a run over [[scene_id, result]]: PASS, or N
+  # refusals across M scenes, so a clean run is never silent.
+  def summary(results)
+    hit = results.reject { |_, r| r[:refusals].empty? }
+    return "PASS (#{results.size} scene(s))" if hit.empty?
+
+    "#{hit.sum { |_, r| r[:refusals].size }} finding(s) across #{hit.size} scene(s)"
+  end
+
   # Checks a scene's frames directory; nil when it has no boxes.json (a
   # screen kind that records none, or a cache from before the check).
   def check_dir(dir, label = File.basename(dir))
@@ -124,14 +133,14 @@ end
 
 if $PROGRAM_NAME == __FILE__
   abort('usage: walkthrough_clipcheck.rb <scene-frames-dir>...') if ARGV.empty?
-  refused = false
-  ARGV.each do |dir|
+  results = ARGV.filter_map do |dir|
     result = WalkthroughClipcheck.check_dir(dir)
     next puts("#{File.basename(dir)}: no #{WalkthroughClipcheck::BOXES}, skipped") unless result
 
     result[:warnings].each { |w| puts "warning: #{w}" }
     result[:refusals].each { |r| puts "refused: #{r}" }
-    refused ||= result[:refusals].any?
+    [ File.basename(dir), result ]
   end
-  exit(refused ? 1 : 0)
+  puts "clip check: #{WalkthroughClipcheck.summary(results)}"
+  exit(results.any? { |_, r| r[:refusals].any? } ? 1 : 0)
 end

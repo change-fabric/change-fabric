@@ -139,4 +139,11 @@ class WalkthroughClipcheckTest < Minitest::Test
       assert_nil WalkthroughClipcheck.check_dir(dir)
     end
   end
+
+  def test_summary_is_pass_or_counts_findings_across_scenes
+    clean = { refusals: [], warnings: [] }
+    dirty = { refusals: %w[a b], warnings: [] }
+    assert_equal "PASS (2 scene(s))", WalkthroughClipcheck.summary([ [ "s1", clean ], [ "s2", clean ] ])
+    assert_equal "2 finding(s) across 1 scene(s)", WalkthroughClipcheck.summary([ [ "s1", clean ], [ "s2", dirty ] ])
+  end
 end

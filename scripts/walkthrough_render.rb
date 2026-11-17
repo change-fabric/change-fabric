@@ -279,13 +279,12 @@ module WalkthroughRender
     # warning; a crossing, an overflow, or text under the minimum refuses.
     def clip_check!
       memo = {}
-      refusals = scenes.select { |s| capture_target?(s) && !broll?(s) && !live?(s) }.flat_map do |scene|
-        result = WalkthroughClipcheck.check_dir(prep(scene, memo)[:out_dir], scene['id'])
-        next [] unless result
-
-        result[:warnings].each { |w| say("warning: #{w}") }
-        result[:refusals]
+      results = scenes.select { |s| capture_target?(s) && !broll?(s) && !live?(s) }.filter_map do |scene|
+        WalkthroughClipcheck.check_dir(prep(scene, memo)[:out_dir], scene['id'])&.then { |r| [ scene['id'], r ] }
       end
+      results.each { |_, r| r[:warnings].each { |w| say("warning: #{w}") } }
+      say("clip check: #{WalkthroughClipcheck.summary(results)}")
+      refusals = results.flat_map { |_, r| r[:refusals] }
       raise WalkthroughClipcheck::ClipError, "clip check:\n#{refusals.join("\n")}" unless refusals.empty?
     end
 
@@ -789,7 +788,7 @@ module WalkthroughRender
       dir = render_dir(manifest)
       FileUtils.mkdir_p(dir)
       File.write(File.join(dir, PrototypeUxLint::REPORT), "#{JSON.pretty_generate({ 'scenes' => reports })}\n")
-      say("ux lint: #{PrototypeUxLint.total(reports)} finding(s), #{relative(File.join(dir, PrototypeUxLint::REPORT))}")
+      say("ux lint: #{PrototypeUxLint.summary(reports)}, #{relative(File.join(dir, PrototypeUxLint::REPORT))}")
       PrototypeUxLint.summary_lines(reports).each { |line| say("  #{line}") }
       reports
     end

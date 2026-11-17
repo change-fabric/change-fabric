@@ -669,7 +669,7 @@ class WalkthroughRenderTest < Minitest::Test
     report = JSON.parse(File.read(File.join(File.dirname(draft[:mp4]), "ux-lint.json")))
     assert_equal [ "detail" ], report["scenes"].reject { |r| r["findings"].empty? }.map { |r| r["scene"] }
     err = assert_raises(PrototypeUxLint::FindingsError) { run_render(final: true) }
-    assert_includes err.message, "detail: empty-control #toast"
+    assert_includes err.message, "empty-control #toast in detail"
     assert_includes err.message, "--allow-ux-findings"
     assert run_render(final: true, gates: { roast: false, allow_ux: true })[:mp4]
   end
