@@ -114,6 +114,17 @@ class InboxPathsTest < Minitest::Test
     end
   end
 
+  def test_project_check_follows_symlinks_and_rejects_relative_and_sibling_paths
+    outside = Dir.mktmpdir
+    File.symlink(outside, File.join(@home, "link"))
+    refute InboxPaths.project_cwd?(File.join(@home, "link", "proj"), home: @home)
+    refute InboxPaths.project_cwd?("project", home: @home)
+    refute InboxPaths.project_cwd?("#{@home}-sibling/project", home: @home)
+    refute InboxPaths.project_cwd?(@home, home: @home)
+  ensure
+    FileUtils.remove_entry(outside) if outside
+  end
+
   def test_default_root_not_minted_outside_pinned_home
     outside = Dir.mktmpdir
     assert_raises(InboxPaths::NotAProject) { InboxPaths.default_root(outside, home: @home) }

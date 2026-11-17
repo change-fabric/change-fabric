@@ -4,6 +4,7 @@
 require 'json'
 require 'shellwords'
 require_relative 'hook_event'
+require_relative 'path_canon'
 
 # PreToolUse: keeps secrets out of the model's view. Denies any file tool
 # whose path lands under ~/.claude/cf/secrets or on a .env or .env.<suffix>
@@ -90,8 +91,7 @@ class SecretsReadGuard
   end
 
   def under_secrets?(path)
-    full = resolve(path)
-    [ root, real(root) ].uniq.any? { |dir| full == dir || full.start_with?("#{dir}/") }
+    PathCanon.within?(resolve(path), root)
   end
 
   def root = File.join(@home, '.claude', 'cf', 'secrets')
@@ -99,16 +99,9 @@ class SecretsReadGuard
   def resolve(path)
     base = @event['cwd'].is_a?(String) ? @event['cwd'] : Dir.pwd
     full = File.expand_path(path.sub(/\A~(?=\/|\z)/, @home), base)
-    real(full)
-  end
-
-  # Follows symlinks on the longest existing prefix, so a link into the
-  # secrets dir is caught too.
-  def real(path)
-    return File.realpath(path) if File.exist?(path)
-
-    parent = File.dirname(path)
-    parent == path ? path : File.join(real(parent), File.basename(path))
+    # Follows symlinks on the longest existing prefix, so a link into the
+    # secrets dir is caught too.
+    PathCanon.real(full)
   end
 
   def deny(reason)

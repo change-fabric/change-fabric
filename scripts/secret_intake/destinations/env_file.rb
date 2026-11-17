@@ -3,6 +3,7 @@
 require 'open3'
 require_relative '../../cf_secret_store'
 require_relative 'errors'
+require_relative '../../path_canon'
 
 module SecretIntake
   module Destinations
@@ -70,14 +71,13 @@ module SecretIntake
         root = git('rev-parse', '--show-toplevel')&.strip or return nil
         return nil if git('check-ignore', '-q', '--', @path)
 
-        relative = relative_to(root)
+        relative = relative_to(root) or return nil
         append_ignore(File.join(root, '.gitignore'), relative)
         "appended /#{relative} to #{File.join(root, '.gitignore')} (it was not ignored)"
       end
 
       def relative_to(root)
-        real_dir = File.realpath(File.dirname(@path))
-        File.join(real_dir, File.basename(@path)).delete_prefix("#{File.realpath(root)}/")
+        PathCanon.relative(File.expand_path(@path), root, follow_leaf: false)
       end
 
       def append_ignore(file, relative)

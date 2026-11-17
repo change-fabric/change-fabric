@@ -3,6 +3,7 @@
 require 'digest'
 require 'fileutils'
 require 'find'
+require_relative 'path_canon'
 
 # Keeps a walkthrough dir's .cache bounded and its deliverables safe.
 #
@@ -93,7 +94,7 @@ module WalkthroughHousekeeping
   # link CF_WALKTHROUGH_CACHE_ROOT made, so screens can inline cached images.
   def in_managed_cache?(root, real, env = ENV)
     cache = managed_cache(root, env)
-    !cache.nil? && real.start_with?("#{cache}/")
+    !cache.nil? && PathCanon.strictly_within?(real, cache)
   rescue Error
     false
   end
@@ -243,9 +244,7 @@ module WalkthroughHousekeeping
   def inside?(cache, path)
     return false if File.symlink?(path)
 
-    File.realpath(path).start_with?("#{cache}/")
-  rescue Errno::ENOENT
-    false
+    File.exist?(path) && PathCanon.strictly_within?(path, cache)
   end
 
   # Deletes the plan's entries, rechecking each just before removal.

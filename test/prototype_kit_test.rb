@@ -28,6 +28,17 @@ class PrototypeKitTest < Minitest::Test
     end
   end
 
+  def test_owning_package_stays_inside_root_not_a_prefix_sibling
+    Dir.mktmpdir do |dir|
+      root = File.join(dir, "app")
+      FileUtils.mkdir_p(File.join(root, "src"))
+      File.write(File.join(dir, "package.json"), "{}")
+      assert_equal root, PrototypeKit.owning_package(root, "src/theme.css")
+      File.write(File.join(root, "src", "package.json"), "{}")
+      assert_equal File.join(root, "src"), PrototypeKit.owning_package(root, "src/theme.css")
+    end
+  end
+
   def test_package_manager_detection
     with_workspace(lockfile: "pnpm-lock.yaml") { |root| assert_equal "pnpm", PrototypeKit.package_manager(root) }
     with_workspace(lockfile: "package-lock.json") { |root| assert_equal "npm", PrototypeKit.package_manager(root) }

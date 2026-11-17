@@ -278,7 +278,7 @@ class ChangeLaneCommandTest < Minitest::Test
       MD
       digests = ChangeTrust.step_digests(ChangeConfig.load(path))
       assert_equal [ "command:itest" ], digests.keys
-      assert_match(/\Asha256:/, digests["command:itest"])
+      assert_match(/\A[0-9a-f]{64}\z/, digests["command:itest"])
     end
   end
 

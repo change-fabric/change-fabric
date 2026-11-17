@@ -16,6 +16,7 @@ require_relative 'walkthrough_environment'
 require_relative 'walkthrough_browser_frame'
 require_relative 'walkthrough_sharpness'
 require_relative 'walkthrough_timeline'
+require_relative 'path_canon'
 
 # Records a cf:prototype mock screen as a PNG frame sequence under a fixed,
 # controlled clock, in the pinned browserless container and nowhere else.
@@ -404,9 +405,9 @@ module PrototypeCapture
     path = File.expand_path(ref.split(/[?#]/).first, dir)
     raise UnsupportedContentError, "missing local asset #{ref}" unless File.file?(path)
 
-    bases = Array(root || default_root(dir)).map { |r| File.realpath(r) }
-    real = File.realpath(path)
-    inside = bases.any? { |base| real.start_with?(base + File::SEPARATOR) || WalkthroughHousekeeping.in_managed_cache?(base, real) }
+    bases = Array(root || default_root(dir)).map { |r| PathCanon.real(r) }
+    real = PathCanon.real(path)
+    inside = bases.any? { |base| PathCanon.strictly_within?(real, base) || WalkthroughHousekeeping.in_managed_cache?(base, real) }
     raise UnsupportedContentError, "local asset #{ref} resolves outside #{bases.join(', ')}" unless inside
 
     path

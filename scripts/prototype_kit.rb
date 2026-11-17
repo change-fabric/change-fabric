@@ -10,6 +10,7 @@ require_relative 'change_docker'
 require_relative 'color_compile'
 require_relative 'design_config'
 require_relative 'design_tokens'
+require_relative 'path_canon'
 
 # The durable kit package of a design target (spec 0.18.0): a private
 # workspace package, scaffolded once and reused by every prototype, that
@@ -66,7 +67,7 @@ module PrototypeKit
   # package.json: the app package that owns the theme.
   def owning_package(root, path)
     dir = File.dirname(File.join(root, path))
-    while dir.start_with?(root)
+    while PathCanon.within?(dir, root)
       return dir if File.file?(File.join(dir, 'package.json'))
       break if dir == root
 

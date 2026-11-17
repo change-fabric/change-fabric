@@ -3,6 +3,7 @@
 require 'digest'
 require 'fileutils'
 require 'json'
+require_relative 'emit_digest'
 
 # Content-addressed cache for walkthrough media. Keys are sha256 hex over a
 # canonical JSON (sorted keys, no whitespace) of the inputs, so the same
@@ -18,22 +19,13 @@ module WalkthroughCache
 
   module_function
 
-  def canonical_json(obj)
-    JSON.generate(canonicalize(obj))
-  end
+  def canonical_json(obj) = EmitDigest.canonical_json(obj)
 
-  def canonicalize(obj)
-    case obj
-    when Hash then obj.map { |k, v| [ k.to_s, canonicalize(v) ] }.sort_by(&:first).to_h
-    when Array then obj.map { |v| canonicalize(v) }
-    when Symbol then obj.to_s
-    else obj
-    end
-  end
+  def canonicalize(obj) = EmitDigest.canonicalize(obj)
 
-  def key(obj)
-    Digest::SHA256.hexdigest(canonical_json(obj))
-  end
+  # Always the canonical JSON, even for a String, so a key never moves: a
+  # String input hashes as its JSON literal, exactly as before EmitDigest.
+  def key(obj) = EmitDigest.of(canonical_json(obj))
 
   def path(root, kind, key, ext)
     File.join(root, kind.to_s, "#{key}.#{ext.to_s.delete_prefix('.')}")
