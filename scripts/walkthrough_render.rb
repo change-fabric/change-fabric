@@ -411,7 +411,7 @@ module WalkthroughRender
         warn_unmatched_remap(scene, prep)
         duration = PrototypeCapture.scene_duration(scene)
         say("#{scene['id']}: capturing #{scene_frames(scene)} frames")
-        @p[:capture].call(session: session, html: PrototypeCapture.inline_screen(prep[:html_path], remap: prep[:remap], root: prep[:root]),
+        @p[:capture].call(session: session, html: PrototypeCapture.prepared_html(prep, remap: prep[:remap], root: prep[:root]),
                           interactions: scene['interactions'] || [], duration_ms: duration, out_dir: prep[:out_dir],
                           state: prep[:state], prng_seed: prep[:prng_seed], viewport: PrototypeCapture.scene_viewport(@board, scene), fps: fps,
                           label: scene['id'])
@@ -618,7 +618,7 @@ module WalkthroughRender
     # Live, compose, and message scenes keep their recorded track.
     def drawn_cursor(input)
       scene = input[:scene]
-      return [] if WalkthroughDiagram.diagram?(scene)
+      return [] if WalkthroughDiagram.diagram?(scene) || WalkthroughElement.element?(scene)
       return input[:cursor] if live?(scene) || broll?(scene) || scene['kind'] == 'message'
       return [] if Array(scene['interactions']).none? { |op| POINTER_OPS.include?(op['op']) }
 
@@ -786,7 +786,7 @@ module WalkthroughRender
 
     def lint_scene(session, scene, prep)
       say("#{scene['id']}: ux lint")
-      @p[:lint].call(session: session, html: PrototypeCapture.inline_screen(prep[:html_path], remap: prep[:remap], root: prep[:root]),
+      @p[:lint].call(session: session, html: PrototypeCapture.prepared_html(prep, remap: prep[:remap], root: prep[:root]),
                      interactions: scene['interactions'] || [], duration_ms: PrototypeCapture.scene_duration(scene),
                      out_dir: prep[:out_dir], state: prep[:state], prng_seed: prep[:prng_seed], viewport: PrototypeCapture.scene_viewport(@board, scene),
                      fps: fps, label: scene['id'])

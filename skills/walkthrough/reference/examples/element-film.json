@@ -1,0 +1,174 @@
+{
+  "schema_version": 1,
+  "slug": "element-film",
+  "title": "Release checks in one pass",
+  "viewport": {
+    "w": 1920,
+    "h": 1080,
+    "dpr": 1
+  },
+  "music": null,
+  "review": {
+    "kind": "promo",
+    "audience": "Engineering leads choosing a release gate",
+    "purpose": [
+      "Show that every release check runs in one pass",
+      "Show the gate a reviewer approves"
+    ]
+  },
+  "scenes": [
+    {
+      "id": "idea",
+      "title": "The idea",
+      "order": 1,
+      "kind": "element",
+      "element": {
+        "theme": "dark",
+        "beats": [
+          {
+            "id": "hook",
+            "type": "statement",
+            "lines": [
+              "Every release check,",
+              "in one pass."
+            ],
+            "land_at": 500
+          },
+          {
+            "id": "checks",
+            "type": "number",
+            "value": 0,
+            "label": "checks run before each merge",
+            "land_at": 2600
+          },
+          {
+            "id": "trend",
+            "type": "line",
+            "label": "Time to a green gate, by week",
+            "points": [
+              42,
+              38,
+              35,
+              29,
+              24,
+              19
+            ],
+            "projection": [
+              15,
+              12
+            ],
+            "land_at": 5600
+          }
+        ],
+        "steps": [
+          {
+            "op": "count",
+            "id": "checks",
+            "t_ms": 2600,
+            "from": 0,
+            "to": 1280,
+            "duration": 1400
+          },
+          {
+            "op": "draw",
+            "id": "trend",
+            "t_ms": 5600,
+            "duration": 1400
+          }
+        ]
+      },
+      "assumptions": [
+        {
+          "id": "A-01",
+          "text": "The counts and the trend are illustrative, not measured."
+        }
+      ],
+      "timing": {
+        "min_ms": 8400,
+        "pad_ms": 0,
+        "transition": {
+          "type": "cut",
+          "ms": 0
+        }
+      }
+    },
+    {
+      "id": "product",
+      "title": "The product",
+      "order": 2,
+      "kind": "element",
+      "element": {
+        "theme": "dark",
+        "beats": [
+          {
+            "id": "gate",
+            "type": "card",
+            "title": "Release gate",
+            "subtitle": "main at 4f2c9e1",
+            "badge": "Passing",
+            "rows": [
+              {
+                "label": "Load",
+                "value": "p95 212 ms"
+              },
+              {
+                "label": "Accessibility",
+                "value": "0 violations"
+              },
+              {
+                "label": "Security",
+                "value": "0 high"
+              }
+            ],
+            "width": 760,
+            "land_at": 500
+          },
+          {
+            "id": "approve",
+            "type": "cursor",
+            "rows": [
+              "Load lane",
+              "Accessibility lane",
+              "Security lane"
+            ],
+            "controls": [
+              {
+                "label": "Approve"
+              },
+              {
+                "label": "Rerun",
+                "dims": true
+              }
+            ],
+            "click": 2,
+            "click_ms": 900,
+            "land_at": 3400,
+            "exit_at": 5600
+          },
+          {
+            "id": "close",
+            "type": "statement",
+            "lines": [
+              "Ship when it is green."
+            ],
+            "land_at": 6400
+          }
+        ]
+      },
+      "assumptions": [
+        {
+          "id": "A-02",
+          "text": "The gate card mirrors the report layout at real size."
+        }
+      ],
+      "timing": {
+        "min_ms": 8400,
+        "pad_ms": 0,
+        "transition": {
+          "type": "fade",
+          "ms": 400
+        }
+      }
+    }
+  ]
+}
