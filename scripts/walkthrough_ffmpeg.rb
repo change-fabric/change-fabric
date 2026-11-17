@@ -71,6 +71,14 @@ module WalkthroughFfmpeg
 
   module_function
 
+  # DETERMINISM at the board's output rate, so a 60 fps motion board is not
+  # decimated back to 30 at encode; a 30 fps board gets exactly DETERMINISM.
+  def determinism(fps)
+    out = DETERMINISM.dup
+    out[out.index('-r') + 1] = (fps || 30).to_s
+    out
+  end
+
   def seconds(ms) = format('%.3f', ms / 1000.0)
 
   def frame_seconds(frames, fps) = format('%.3f', frames.to_f / fps)
@@ -512,7 +520,7 @@ module WalkthroughFfmpeg
     subs = plan[:caption_track] == false ? [] : [ '-i', plan[:srt] ]
     track = subs.empty? ? [] : [ '-map', "#{io[:next]}:s", '-c:s', 'mov_text' ]
     head + [ '-progress', 'pipe:1', '-nostats' ] + inputs(plan, with_video: true) + subs +
-      [ '-filter_complex', graph.join(';'), '-map', '[vout]', '-map', '[aout]' ] + track + DETERMINISM + [ '-t', seconds(plan[:total_ms]), '-movflags', '+faststart', plan[:output] ]
+      [ '-filter_complex', graph.join(';'), '-map', '[vout]', '-map', '[aout]' ] + track + determinism(plan[:fps]) + [ '-t', seconds(plan[:total_ms]), '-movflags', '+faststart', plan[:output] ]
   end
 
   # Output seconds past which pass 2 is a runaway: timeline + max(5s, 5%).
