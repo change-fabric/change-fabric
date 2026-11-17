@@ -7,6 +7,7 @@ require_relative 'change_docker'
 require_relative 'change_screenshot_upload'
 require_relative 'prototype_flats'
 require_relative 'walkthrough_craft'
+require_relative 'walkthrough_deliverables'
 
 # Publishes a rendered walkthrough MP4 to GitHub the way cf:screenshot publishes
 # images: through ChangeScreenshotUpload (the toolkit's one raw HTTPS call, so
@@ -177,12 +178,12 @@ module WalkthroughPublish
     end
   end
 
-  # The flats overview PNGs for a walkthrough dir, a <slug>-draft.mp4 or
+  # The flats overview PNGs for a walkthrough dir, a <slug>-draft-NN.mp4 or
   # <slug>-final.mp4 deliverable beside its storyboard, or a rendered MP4
   # under .cache/render/<hash>/. Only boards that exist are returned.
   def locate_boards(arg)
     root = if File.directory?(arg) then arg
-    elsif arg.end_with?('-draft.mp4', '-final.mp4') then File.dirname(arg)
+    elsif arg.end_with?('-final.mp4') || arg.match?(/-draft-\d+\.mp4\z/) then File.dirname(arg)
     else File.expand_path('../../..', File.dirname(arg))
     end
     PrototypeFlats::THEMES.to_h { |theme| [ theme, PrototypeFlats.overview_path(root, theme) ] }
@@ -200,14 +201,17 @@ module WalkthroughPublish
   end
 
   # Accepts an MP4 or a walkthrough/<slug> dir: its <slug>-final.mp4, else
-  # its <slug>-draft.mp4, else the newest rendered MP4 left in the cache.
+  # its newest <slug>-draft-NN.mp4 (highest number), else the newest
+  # rendered MP4 left in the cache.
   def locate(arg)
     return arg if File.file?(arg)
 
-    %w[final draft].each do |kind|
-      found = Dir.glob(File.join(arg, "*-#{kind}.mp4")).reject { |f| f.end_with?('.pr.mp4') }.max_by { |f| File.mtime(f) }
-      return found if found
-    end
+    final = Dir.glob(File.join(arg, '*-final.mp4')).max_by { |f| File.mtime(f) }
+    return final if final
+
+    draft = WalkthroughDeliverables.newest_draft(arg)
+    return draft if draft
+
     Dir.glob(File.join(arg, '.cache', 'render', '*', 'walkthrough.mp4')).max_by { |f| File.mtime(f) }
   end
 end

@@ -44,3 +44,7 @@ The first attempt (2026-10-28, real keys present, estimate $0.04) stopped in fra
 | Integrated loudness (LUFS) | pending | pending |
 | Frame keys match | pending | pending |
 | Argv match | pending | pending |
+
+Draft delivery: a `--draft` run with narration not yet cached prints a fenced `walkthrough-draft:` line for `<slug>-draft-01.mp4` (the free silent cut, kind `silent` or `partial` in `<slug>-deliveries.json`) before the first `narrating` line, then one for the narrated draft. `--final-only` prints only the final's line.
+
+Relayed approval: when a parent session quotes the user verbatim approving a paid step (for example "narrate all scenes, est $0.42"), that quote is the approval for exactly that step at that estimate or less. Re-estimate first; a higher estimate, another paid step, or filming the quote does not name needs a new approval. A paraphrase is not approval.

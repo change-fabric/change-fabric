@@ -15,6 +15,7 @@ require_relative 'walkthrough_transition'
 require_relative 'walkthrough_live'
 require_relative 'walkthrough_look'
 require_relative 'walkthrough_words'
+require_relative 'walkthrough_draft_board'
 
 # storyboard.json (schema_version 1) is the source of truth for a
 # walkthrough. This module validates it, derives scene durations (never
@@ -237,6 +238,7 @@ module WalkthroughStoryboard
     errors.concat(camera_errors(scene['camera']))
     errors.concat(scene_interaction_errors(scene))
     errors.concat(anchor_scene_errors(scene))
+    errors.concat(WalkthroughDraftBoard.pending_errors(scene))
     errors.concat(navigate_errors(scene, board))
     errors.concat(timeline_errors(scene, board))
     errors.concat(overlap_errors(scene, board))
@@ -679,7 +681,7 @@ module WalkthroughStoryboard
 
   # -- word anchors ----------------------------------------------------------
 
-  ANCHOR_KEYS = %w[word nth offset_ms].freeze
+  ANCHOR_KEYS = %w[word nth offset_ms fallback_t_ms].freeze
   SCENE_ANCHOR_KEYS = %w[start_at end_at].freeze
 
   # An op lands on a word of its own scene's narration with
@@ -694,6 +696,7 @@ module WalkthroughStoryboard
     errs << 'at.word must be one spoken word' unless word.is_a?(String) && !word.strip.include?(' ') && !WalkthroughWords.normalize(word).empty?
     errs << 'at.nth must be a positive integer' if at.key?('nth') && !(at['nth'].is_a?(Integer) && at['nth'].positive?)
     errs << 'at.offset_ms must be an integer' if at.key?('offset_ms') && !at['offset_ms'].is_a?(Integer)
+    errs << 'at.fallback_t_ms must be a non-negative integer' if at.key?('fallback_t_ms') && !(at['fallback_t_ms'].is_a?(Integer) && !at['fallback_t_ms'].negative?)
     errs
   end
 

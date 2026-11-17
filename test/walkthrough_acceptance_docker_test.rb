@@ -34,6 +34,8 @@ class WalkthroughAcceptanceDockerTest < Minitest::Test
 
   def resolve!
     WalkthroughStoryboard.scenes(@board).each do |scene|
+      next unless scene["narration"]
+
       dest = WalkthroughCache.path(@dir, :audio, WalkthroughStoryboard.audio_key(@board, scene), "alignment.json")
       FileUtils.mkdir_p(File.dirname(dest))
       FileUtils.cp(File.join(ACCEPTANCE, "alignments", "#{scene['id']}.json"), dest)
