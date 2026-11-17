@@ -26,6 +26,8 @@ class DiagramProviderTest < Minitest::Test
   # Every SVG whose verdict depends on computed styles, read in one batch.
   STYLED = {
     clean: CLEAN,
+    gradient_tile: CLEAN.sub('<rect fill="#ED7100" x="0" y="0" width="64" height="64"></rect>',
+                             '<defs><linearGradient id="g"><stop offset="0" stop-color="#4F5D75"/><stop offset="1" stop-color="#6B7A90"/></linearGradient></defs><rect fill="url(#g)" x="0" y="0" width="64" height="64"></rect>'),
     descendant_rect: CLEAN.sub(".node > rect {", ".node rect {"),
     legend_rect: style(CLEAN, ".legend rect { fill: var(--surface); }"),
     bare_path: style(CLEAN, "path { fill: var(--ink); }"),
@@ -234,6 +236,11 @@ class DiagramProviderTest < Minitest::Test
   end
 
   def hidden?(findings) = findings.any? { |f| f.check == "icon-pack-provenance" && f.message.include?("does not render") }
+
+  def test_a_gradient_tile_is_reported_not_skipped
+    refute(styled(:clean).any? { |f| f.check == "icon-contrast" && f.message.include?("gradient") })
+    assert(styled(:gradient_tile).any? { |f| f.check == "icon-contrast" && f.message.include?("cannot be verified") })
+  end
 
   def test_every_icon_must_render
     refute hidden?(styled(:clean))

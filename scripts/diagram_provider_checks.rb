@@ -284,7 +284,20 @@ module DiagramProviderChecks
     def judge(doc, icon, styles, index)
       tiles = DiagramStyles::SCHEMES.to_h { |s| [ s.to_sym, tile_color(icon, styles[s.to_sym], index) ] }
       backs = DiagramStyles::SCHEMES.to_h { |s| [ s.to_sym, background(doc, icon, styles[s.to_sym], index) ] }
-      DiagramPalette.brand_failures(tiles, backs).map do |theme, ratio|
+      unverifiable = tiles.select { |_, tile| tile == PAINT_SERVER }.keys
+      unverifiable.map { |theme| gradient_finding(icon, theme) } + solid_failures(icon, tiles.except(*unverifiable), backs)
+    end
+
+    # A tile painted by a gradient or pattern has no single color to test, so
+    # it is reported rather than passed: a gradient can fall under 3:1 at
+    # every stop.
+    def gradient_finding(icon, theme)
+      finding(DiagramProviderChecks.where(icon), "#{theme}: the tile is painted by a gradient or pattern, so its contrast cannot be verified",
+              "give the tile a solid fill, or add <rect class=\"plate\"> behind the icon with a surface that clears #{DiagramPalette::STROKE_MIN}:1 against every stop")
+    end
+
+    def solid_failures(icon, tiles, backs)
+      DiagramPalette.brand_failures(tiles, backs.slice(*tiles.keys)).map do |theme, ratio|
         finding(DiagramProviderChecks.where(icon), "#{theme}: tile #{tiles[theme]} is #{ratio.round(2)}:1 on its background, under #{DiagramPalette::STROKE_MIN}",
                 "add <rect class=\"plate\"> behind the icon inside its g.icon, at least #{PLATE_PAD}px larger on every side, filled with a surface that clears #{DiagramPalette::STROKE_MIN}:1")
       end
@@ -323,12 +336,14 @@ module DiagramProviderChecks
     end
 
     # The computed fill covering the most area among the icon's shapes.
+    PAINT_SERVER = :paint_server
+
     def tile_color(icon, scheme, index)
       areas = Hash.new(0.0)
       REXML::XPath.match(icon.element, ".//*").each do |el|
         next unless SHAPES.include?(el.name)
 
-        color = fill(scheme, index, el)
+        color = fill(scheme, index, el) || (PAINT_SERVER if scheme.paint.dig(index[el], "fill").to_s.start_with?("url("))
         area = color && area(el)
         areas[color] += area if area
       end
