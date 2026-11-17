@@ -55,6 +55,7 @@ module WalkthroughRender
     live_capture: ->(**kw) { WalkthroughLive.capture(**kw) },
     roast: ->(**kw) { Roast.critique(**kw) },
     docker: ->(argv) { Open3.capture2e(*argv) },
+    free_bytes: ->(root) { WalkthroughHousekeeping.free_bytes(root) },
     # Pass 2 runs under a watchdog that kills it once its output clock passes
     # the timeline (FfmpegWatchdog); same [output, status] contract as docker.
     ffmpeg_watch: ->(argv, **kw) { FfmpegWatchdog.run(argv, **kw) }
@@ -978,6 +979,7 @@ module WalkthroughRender
       WalkthroughStoryboard.validate!(@board, root: @root)
       WalkthroughHousekeeping.ensure_location!(@root).each { |line| say(line) }
       WalkthroughCache.ensure_gitignore(@root)
+      WalkthroughHousekeeping.disk_preflight!(@root, free: @p[:free_bytes]) unless estimate_only
       return silent_call if @silent
 
       estimate
@@ -1240,7 +1242,7 @@ if __FILE__ == $PROGRAM_NAME
                                final_only: ARGV.include?('--final-only'))
                           .call(estimate_only: ARGV.include?('--estimate-only'))
   rescue PrototypeUxLint::FindingsError, WalkthroughRoast::OpenFindingsError, WalkthroughClipcheck::ClipError,
-         WalkthroughLoudness::LoudnessError => e
+         WalkthroughLoudness::LoudnessError, WalkthroughHousekeeping::NoSpaceError => e
     abort("refused: #{e.message}")
   rescue WalkthroughEnv::NeedsEnrollment => e
     WalkthroughEnv.enroll_exit!(e)

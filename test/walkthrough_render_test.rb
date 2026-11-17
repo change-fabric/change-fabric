@@ -517,6 +517,12 @@ class WalkthroughRenderTest < Minitest::Test
     assert_match(/hero/, err.message)
   end
 
+  def test_low_disk_refuses_before_any_paid_call
+    run = WalkthroughRender::Run.new(@root, providers: providers.merge(free_bytes: ->(_) { 1024 }), out: StringIO.new, gates: { roast: false })
+    assert_raises(WalkthroughHousekeeping::NoSpaceError) { run.call }
+    assert_empty @calls
+  end
+
   def test_estimate_only_spends_nothing
     out = StringIO.new
     WalkthroughRender::Run.new(@root, providers: providers, out: out).call(estimate_only: true)
