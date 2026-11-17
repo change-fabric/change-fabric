@@ -1064,7 +1064,8 @@ module WalkthroughRender
     # scene kept as authored rather than as its placeholder card.
     def authored_board
       out = WalkthroughStoryboard.authored(@board)
-      originals = Array(@source['scenes']).select { |sc| WalkthroughDraftBoard.pending?(sc) }.to_h { |sc| [ sc['id'], sc ] }
+      pending = Array(@source['scenes']).select { |sc| WalkthroughDraftBoard.pending?(sc) }
+      originals = pending.to_h { |sc| [ sc['id'], sc ] }
       out['scenes'] = out['scenes'].map { |sc| originals.fetch(sc['id'], sc) }
       out
     end
