@@ -156,7 +156,7 @@ class WalkthroughLiveTest < Minitest::Test
   def test_render_fills_compose_from_the_caught_link
     File.write(File.join(@root, "storyboard.json"), JSON.pretty_generate(device_board))
     render
-    assert_equal %w[contact mobile mail text], shots
+    assert_equal %w[contact mobile mail text] * 2, shots, "the silent cut, then the narrated draft"
     mail, text = @calls[:compose]
     assert_equal [ "email", [ "ops@example.test" ], "Placement inquiry", "Name:\nNotes:\n" ], mail.values_at("channel", "cc", "subject", "body")
     assert_equal({ "channel" => "sms", "to" => [ "+15550100" ], "body" => "On my way" }, text)
@@ -358,11 +358,34 @@ class WalkthroughLiveTest < Minitest::Test
 
   def shots = @calls[:capture].select { |c| c[1] == :shots }.map(&:first)
 
+  def test_a_scene_taking_its_session_from_a_pending_scene_is_a_placeholder_too
+    b = board
+    b["scenes"].find { |sc| sc["id"] == "sign-in" }["pending"] = { "reason" => "not deployed" }
+    File.write(File.join(@root, "storyboard.json"), JSON.pretty_generate(b))
+    cards = []
+    card = lambda do |**kw|
+      cards << kw[:label]
+      FileUtils.mkdir_p(kw[:out_dir])
+      File.binwrite(File.join(kw[:out_dir], "000001.png"), "png")
+      File.write(File.join(kw[:out_dir], "cursor.json"), "[]")
+    end
+    result = render(providers: providers.merge(browser: ->(&blk) { blk.call(:session) }, capture: card,
+                                               lint: ->(**kw) { PrototypeUxLint.scene_report(kw[:label], []) }))
+    assert_equal %w[sign-in dashboard] * 2, cards, "both placeholder cards are prototype pages, in each cut"
+    reasons = result[:deliverable][:entry]["placeholders"]
+    assert_equal "not deployed", reasons["sign-in"]
+    assert_equal "needs scene sign-in, not deployed", reasons["dashboard"]
+    refute_includes shots, "dashboard"
+    saved = JSON.parse(File.read(File.join(@root, "storyboard.json")))["scenes"].find { |sc| sc["id"] == "dashboard" }
+    assert_equal "sign-in", saved["session_from_scene"], "a blocked scene is written back as authored"
+    refute saved.key?("pending")
+  end
+
   def test_render_sources_sessions_and_caches_live_scenes
     render
-    assert_equal [ board["browser"] ], @calls[:live_browser], "browser options reach the live container"
-    assert_equal %w[member admin], @calls[:login], "one login per persona, reused across its scenes"
-    assert_equal %w[sign-in dashboard inbox reports admin landing], shots
+    assert_equal [ board["browser"] ] * 2, @calls[:live_browser], "browser options reach the live container (silent cut and draft)"
+    assert_equal %w[member admin] * 2, @calls[:login], "one login per persona per cut, reused across its scenes"
+    assert_equal %w[sign-in dashboard inbox reports admin landing] * 2, shots, "the silent cut, then the draft"
     assert_equal "sign-in", @calls[:capture].find { |c| c[0] == "dashboard" }[2], "session_from_scene hands the end session on"
     assert_nil @calls[:capture].find { |c| c[0] == "landing" }[2], "persona null starts logged out"
     refute(@calls[:docker].any? { |a| a.include?("%06d.jpg") && !a.each_cons(2).include?([ "--network", "none" ]) })

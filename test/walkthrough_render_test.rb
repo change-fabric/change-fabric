@@ -179,7 +179,7 @@ class WalkthroughRenderTest < Minitest::Test
     assert_equal 3, @calls[:tts].size
     assert_empty @calls[:music]
     assert_empty @calls[:image]
-    assert_empty @calls[:capture]
+    assert_equal %w[list detail hero], @calls[:capture], "only the free silent cut captured, before the anchor failed"
   end
 
   # A zoom with no focus still frames the scene, centred (issue #311).
@@ -257,11 +257,11 @@ class WalkthroughRenderTest < Minitest::Test
   def test_full_render_order_and_outputs
     log = StringIO.new
     result = run_render(out: log)
-    assert_equal %w[list detail hero], @calls[:capture], "from_scene dependency captured before its dependent"
+    assert_equal %w[list detail hero] * 2, @calls[:capture], "silent cut, then the narrated draft; from_scene dependency first"
     assert_equal 3, @calls[:tts].size
     assert_equal 1, @calls[:music].size
-    assert_equal 1, @calls[:browser].size
-    assert_equal 4, @calls[:docker].size, "buildconf, audio probe, pass 1, pass 2"
+    assert_equal 2, @calls[:browser].size, "one session for the silent cut, one for the draft"
+    assert_equal 7, @calls[:docker].size, "silent cut: buildconf, pass 1, pass 2; draft: buildconf, audio probe, pass 1, pass 2"
     pass2 = @calls[:docker].last
     assert_equal %w[docker run --rm --name], pass2.first(4)
     assert_includes pass2.join(" "), "--network none"
@@ -547,10 +547,19 @@ class WalkthroughRenderTest < Minitest::Test
     end
   end
 
+  def test_silent_cut_takes_the_free_broll_fallback_and_never_generates
+    write_broll_board
+    out = StringIO.new
+    run_render(out: out, providers: providers.merge(broll: broll_provider("generated")))
+    assert_equal 1, @calls[:broll].size, "only the narrated draft asks for the clip"
+    assert_includes out.string, "shed: b-roll kenburns fallback (the silent cut never generates)"
+    assert_match(/draft-01: silent; first cut, 4 scenes/, draft_lines(out.string).first)
+  end
+
   def test_broll_clip_is_normalized_and_enters_the_timeline_without_capture
     write_broll_board
     result = run_render(providers: providers.merge(broll: broll_provider("generated")))
-    assert_equal %w[list detail hero], @calls[:capture], "an ai-broll scene is never captured"
+    assert_equal %w[list detail hero] * 2, @calls[:capture], "an ai-broll scene is never captured (silent cut, then draft)"
     assert_equal [ { prompt: "slow push in", seconds: 4, model: "gemini-omni-1.1-flash", fallback: "kenburns" } ], @calls[:broll]
     shed = result[:manifest]["scenes"].last
     assert File.file?(File.join(@root, ".cache", "frames", shed["frames_key"], "cursor.json"))
@@ -594,7 +603,7 @@ class WalkthroughRenderTest < Minitest::Test
     assert(markers.none? { |m| File.read(m) == "[]" }, "a failed overlay leaves no b-roll completion marker")
     @calls.clear
     run_render(providers: overlay.call(true))
-    assert_equal [ true ], @calls[:overlay], "the next render retries the overlay instead of a cache hit"
+    assert_equal [ true, true ], @calls[:overlay], "the next render retries the overlay (silent cut fallback, then the clip) instead of a cache hit"
   end
 
   def test_broll_overlay_path_with_spaces_is_shell_escaped
@@ -857,16 +866,17 @@ class WalkthroughRenderTest < Minitest::Test
 
   def test_draft_and_final_land_beside_the_storyboard_and_survive_a_cache_delete
     draft = run_render
-    assert_equal File.join(@root, "demo-draft.mp4"), draft[:deliverable][:mp4]
-    assert_equal File.binread(draft[:mp4]), File.binread(File.join(@root, "demo-draft.mp4"))
-    assert File.file?(File.join(@root, "demo-draft.vtt"))
+    assert File.file?(File.join(@root, "demo-draft-01.mp4")), "the silent cut is draft-01"
+    assert_equal File.join(@root, "demo-draft-02.mp4"), draft[:deliverable][:mp4]
+    assert_equal File.binread(draft[:mp4]), File.binread(File.join(@root, "demo-draft-02.mp4"))
+    assert File.file?(File.join(@root, "demo-draft-02.vtt"))
     assert File.file?(draft[:mp4]), "the cache copy stays where the renderer expects it"
     final = run_render(final: true)
     assert_equal File.join(@root, "demo-final.mp4"), final[:deliverable][:mp4]
     FileUtils.rm_rf(File.join(@root, ".cache"))
     assert_equal "mp4", File.binread(File.join(@root, "demo-final.mp4"))
     assert File.file?(File.join(@root, "demo-final.vtt"))
-    assert File.file?(File.join(@root, "demo-draft.mp4"))
+    assert File.file?(File.join(@root, "demo-draft-02.mp4"))
     assert_empty Dir.glob(File.join(@root, ".demo-*.tmp-*")), "no temp file is left behind"
   end
 
@@ -901,7 +911,7 @@ class WalkthroughRenderTest < Minitest::Test
         assert File.file?(File.join(target, "render", File.basename(File.dirname(result[:mp4])), "walkthrough.mp4"))
         assert_includes @calls[:docker].last.join(" "), "source=#{target}\",target=#{File.readlink(link)}"
         assert_includes File.read(File.join(@root, ".gitignore")).lines.map(&:strip), ".cache"
-        assert File.file?(File.join(@root, "demo-draft.mp4"))
+        assert File.file?(File.join(@root, "demo-draft-02.mp4"))
       end
     end
   end
@@ -996,5 +1006,98 @@ class WalkthroughRenderTest < Minitest::Test
     assert run_render(final: true, gates: { roast: false, allow_roast: true, fidelity_targets: [ "portal" ] })[:mp4]
     signoff = JSON.parse(File.read(File.join(@root, WalkthroughRoast::FIDELITY_DIR, "signoff.json")))
     assert_equal 1, signoff["round"]
+  end
+  # -- draft delivery ---------------------------------------------------------
+
+  def draft_lines(text) = text.scan(/^```\n(walkthrough-draft: .*)\n```$/).flatten
+
+  def test_silent_cut_is_delivered_before_any_paid_call
+    out = StringIO.new
+    tts_at_cut = nil
+    spy = providers
+    capture = spy[:capture]
+    spy[:capture] = lambda do |**kw|
+      tts_at_cut ||= @calls[:tts].size
+      capture.call(**kw)
+    end
+    run_render(out: out, providers: spy)
+    assert_equal 0, tts_at_cut, "the first capture (the silent cut) ran before narration"
+    log = out.string
+    assert_operator log.index("silent cut:"), :<, log.index("list: narrating")
+    lines = draft_lines(log)
+    assert_equal 2, lines.size, "one fenced line per deliverable"
+    assert_match(%r{\Awalkthrough-draft: #{Regexp.escape(@root)}/demo-draft-01\.mp4 \| draft-01: silent; first cut, 3 scenes\z}, lines[0])
+    assert_match(%r{demo-draft-02\.mp4 \| draft-02: narrated; scenes list, detail and hero refilmed\z}, lines[1])
+    kinds = JSON.parse(File.read(File.join(@root, "demo-deliveries.json")))["deliveries"].map { |e| e["kind"] }
+    assert_equal %w[silent narrated], kinds
+  end
+
+  def test_silent_cut_writes_nothing_back
+    before = File.read(File.join(@root, "storyboard.json"))
+    run = WalkthroughRender::Run.new(@root, providers: providers, out: StringIO.new, silent: true,
+                                            board: WalkthroughDraftBoard.silent(WalkthroughStoryboard.load(File.join(@root, "storyboard.json"))))
+    run.call
+    assert_equal before, File.read(File.join(@root, "storyboard.json"))
+    refute File.exist?(File.join(@root, "manifest.json"))
+    assert_empty @calls[:tts]
+    assert_empty @calls[:music]
+  end
+
+  def test_no_silent_cut_once_audio_is_cached
+    run_render
+    out = StringIO.new
+    run_render(out: out)
+    refute_includes out.string, "silent cut:"
+    assert_equal 1, draft_lines(out.string).size
+    assert_match(/draft-03: narrated; no picture change/, draft_lines(out.string).first)
+  end
+
+  def test_final_only_produces_only_the_final
+    out = StringIO.new
+    result = run_render(final_only: true, out: out, gates: { roast: false, allow_ux: true })
+    assert_equal File.join(@root, "demo-final.mp4"), result[:deliverable][:mp4]
+    assert_empty Dir.glob(File.join(@root, "demo-draft-*.mp4"))
+    assert_equal [ "walkthrough-draft: #{@root}/demo-final.mp4 | final: final; first cut, 3 scenes" ], draft_lines(out.string)
+  end
+
+  def test_scene_regeneration_is_delivered_as_its_own_draft
+    run_render
+    out = StringIO.new
+    run_render(scene: "detail", out: out)
+    assert_match(/draft-03: scene; /, draft_lines(out.string).last)
+  end
+
+  def pending_board
+    b = board
+    b["scenes"][1]["pending"] = { "reason" => "waiting on PR 12" }
+    File.write(File.join(@root, "storyboard.json"), JSON.pretty_generate(b))
+  end
+
+  def test_pending_scene_renders_a_placeholder_and_a_partial_cut
+    pending_board
+    out = StringIO.new
+    result = run_render(out: out)
+    entry = result[:deliverable][:entry]
+    assert_equal "partial", entry["kind"]
+    assert_equal({ "detail" => "waiting on PR 12" }, entry["placeholders"])
+    assert_includes entry["caption"], "scene detail still a placeholder (waiting on PR 12)"
+    saved = JSON.parse(File.read(File.join(@root, "storyboard.json")))
+    assert_equal({ "reason" => "waiting on PR 12" }, saved["scenes"][1]["pending"], "the authored scene is written back, not its card")
+    assert_equal "screens/detail.html", saved["scenes"][1].dig("screen", "html")
+  end
+
+  def test_final_refuses_while_a_placeholder_remains
+    pending_board
+    err = assert_raises(WalkthroughStoryboard::ValidationError) { run_render(final: true) }
+    assert_includes err.message, "detail (waiting on PR 12)"
+    assert_empty @calls[:tts], "refused before any paid call"
+  end
+
+  def test_silent_cut_uses_provisional_timing_for_anchored_ops
+    anchor_board("speaks")
+    out = StringIO.new
+    run_render(out: out)
+    assert_includes draft_lines(out.string).first, "provisional timing (pre-narration)"
+    refute_includes draft_lines(out.string).last, "provisional"
   end
 end

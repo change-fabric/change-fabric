@@ -8,7 +8,8 @@ require_relative 'path_canon'
 # Keeps a walkthrough dir's .cache bounded and its deliverables safe.
 #
 # Deliverables: every render copies its MP4 and VTT out of the cache to
-# stable paths beside storyboard.json (<slug>-draft.mp4, <slug>-final.mp4),
+# versioned paths beside storyboard.json (WalkthroughDeliverables:
+# <slug>-draft-NN.mp4, <slug>-final.mp4),
 # written to a temp file in the same dir and renamed, so deleting .cache
 # never loses a video.
 #
@@ -115,11 +116,6 @@ module WalkthroughHousekeeping
 
   # -- deliverables ----------------------------------------------------------
 
-  def deliverable_paths(root, slug, final:)
-    stem = File.join(File.expand_path(root), "#{slug}-#{final ? 'final' : 'draft'}")
-    { mp4: "#{stem}.mp4", vtt: "#{stem}.vtt" }
-  end
-
   # Copies src to dest via a temp file in dest's dir, then renames it, and
   # checks the result by size and sha256. Returns dest.
   def atomic_copy(src, dest)
@@ -136,16 +132,6 @@ module WalkthroughHousekeeping
     ok = File.file?(dest) && File.size(dest) == File.size(src) &&
          Digest::SHA256.file(dest).hexdigest == Digest::SHA256.file(src).hexdigest
     raise Error, "deliverable #{dest} does not match #{src}" unless ok
-  end
-
-  # Writes the MP4 (and its VTT, when the render has one) to the stable
-  # paths. The cached copies stay where the renderer expects them.
-  def deliver(root, slug, mp4, final:)
-    paths = deliverable_paths(root, slug, final: final)
-    atomic_copy(mp4, paths[:mp4])
-    vtt = File.join(File.dirname(mp4), 'walkthrough.vtt')
-    File.file?(vtt) ? atomic_copy(vtt, paths[:vtt]) : paths.delete(:vtt)
-    paths
   end
 
   # -- sizes -----------------------------------------------------------------

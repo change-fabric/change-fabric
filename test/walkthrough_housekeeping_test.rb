@@ -135,15 +135,4 @@ class WalkthroughHousekeepingTest < Minitest::Test
     assert_includes warning, "--prune --dry-run"
     assert_includes warning, H::CACHE_ROOT_ENV
   end
-
-  def test_deliver_writes_atomically_and_survives_the_cache
-    dir = File.join(@cache, "render", "current")
-    File.write(File.join(dir, "walkthrough.vtt"), "WEBVTT\n")
-    paths = H.deliver(@root, "demo", File.join(dir, "walkthrough.mp4"), final: true)
-    assert_equal({ mp4: File.join(@root, "demo-final.mp4"), vtt: File.join(@root, "demo-final.vtt") }, paths)
-    FileUtils.rm_rf(@cache)
-    assert_equal "cur", File.binread(paths[:mp4])
-    assert_equal "WEBVTT\n", File.read(paths[:vtt])
-    assert_equal %w[demo-final.mp4 demo-final.vtt], Dir.children(@root).sort
-  end
 end

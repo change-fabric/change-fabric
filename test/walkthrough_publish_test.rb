@@ -192,6 +192,34 @@ class WalkthroughPublishTest < Minitest::Test
     end
   end
 
+  def test_locate_prefers_the_final_then_the_highest_numbered_draft
+    Dir.mktmpdir do |dir|
+      %w[demo-draft-02.mp4 demo-draft-10.mp4 demo-draft-09.mp4].each { |f| File.write(File.join(dir, f), "x") }
+      File.utime(Time.now + 100, Time.now + 100, File.join(dir, "demo-draft-09.mp4"))
+      assert_equal File.join(dir, "demo-draft-10.mp4"), P.locate(dir), "the number wins over mtime"
+      File.write(File.join(dir, "demo-final.mp4"), "x")
+      assert_equal File.join(dir, "demo-final.mp4"), P.locate(dir)
+    end
+  end
+
+  def test_locate_falls_back_to_a_legacy_unnumbered_draft
+    Dir.mktmpdir do |dir|
+      legacy = File.join(dir, "demo-draft.mp4").tap { |f| File.write(f, "x") }
+      assert_equal legacy, P.locate(dir)
+      File.write(File.join(dir, "demo-draft-01.mp4"), "x")
+      assert_equal File.join(dir, "demo-draft-01.mp4"), P.locate(dir), "a numbered draft wins"
+    end
+  end
+
+  def test_locate_boards_takes_a_numbered_draft
+    Dir.mktmpdir do |dir|
+      FileUtils.mkdir_p(File.join(dir, "flats", "light"))
+      File.write(File.join(dir, "flats", "light", "overview.png"), "x")
+      assert_equal [ "light" ], P.locate_boards(File.join(dir, "demo-draft-03.mp4")).keys
+      assert_equal [ "light" ], P.locate_boards(File.join(dir, "demo-draft.mp4")).keys, "a legacy draft too"
+    end
+  end
+
   def test_section_lists_boards_under_the_video
     sec = P.section("https://u/1", boards: [ [ "light", "https://u/L" ], [ "dark", "https://u/D" ] ])
     assert_includes sec, "https://u/1\n\n![Flats overview, light](https://u/L)\n\n![Flats overview, dark](https://u/D)\n#{P::END_MARK}"
@@ -246,7 +274,7 @@ class WalkthroughPublishTest < Minitest::Test
   def test_final_master_needs_the_craft_gate_and_drafts_are_exempt
     Dir.mktmpdir do |dir|
       final = File.join(dir, "demo-final.mp4").tap { |f| File.binwrite(f, "final") }
-      draft = File.join(dir, "demo-draft.mp4").tap { |f| File.binwrite(f, "draft") }
+      draft = File.join(dir, "demo-draft-01.mp4").tap { |f| File.binwrite(f, "draft") }
       assert_match(/craft gate: not approved: no craft roast round/, WalkthroughPublish.craft_refusal(final))
       assert_nil WalkthroughPublish.craft_refusal(draft)
       FileUtils.mkdir_p(File.join(dir, "roast"))

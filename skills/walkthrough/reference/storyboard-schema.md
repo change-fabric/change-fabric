@@ -102,6 +102,11 @@ An interaction op may land on a spoken word of its own scene's narration instead
 - An anchor resolves only against its own scene, so a scene without narration cannot use `at`. A navigate tap takes `t_ms`. Scene windows are not anchorable: `start_at` and `end_at` on a scene are rejected.
 - Element scenes take anchors too: a step carries `at` in place of `t_ms` like an op, and a beat's `land_at` or `exit_at` may be the same `{ word, nth, offset_ms }` object in place of a number (see Element scene).
 - Before a scene is narrated its anchors cannot resolve, so `stale` reports its frames until the render narrates it.
+- `fallback_t_ms` (optional, a non-negative integer inside the anchor object) is the time the free silent cut uses before narration exists. Without it the silent cut spaces the scene's anchors evenly in authored order. Resolution ignores it: narrated drafts and the final always land on the word.
+
+## Pending scenes
+
+`"pending": { "reason": "waiting on the billing PR" }` marks a scene that cannot be filmed yet. Every draft renders it as a titled card (the scene title plus the reason) for its planned length, in the film's theme, keeping its narration, and delivers the cut as `partial`; the authored scene is kept as written. `--final` refuses while any scene is pending. Remove `pending` once the scene can be filmed.
 
 ## ai-broll scene
 

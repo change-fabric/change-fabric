@@ -11,6 +11,8 @@ require_relative 'prototype_capture'
 require_relative 'prototype_imagegen'
 require_relative 'prototype_ux_lint'
 require_relative 'walkthrough_cache'
+require_relative 'walkthrough_deliverables'
+require_relative 'walkthrough_draft_board'
 require_relative 'walkthrough_captions'
 require_relative 'walkthrough_clipcheck'
 require_relative 'elevenlabs'
@@ -65,14 +67,20 @@ module WalkthroughRender
 
     # rubocop:disable Metrics/ParameterLists
     def initialize(root, scene: nil, final: false, providers: {}, out: $stdout, board: nil, max_usd: BRoll::DEFAULT_CEILING_USD,
-                   burn_captions: false, gates: {}, recapture: false)
+                   burn_captions: false, gates: {}, recapture: false, final_only: false, silent: false, provisional: false)
       # rubocop:enable Metrics/ParameterLists
       @root = File.expand_path(root)
       @gates = { allow_ux: false, allow_roast: false, roast: true, roast_max_usd: WalkthroughRoast::DEFAULT_CEILING_USD }.merge(gates)
       @only = scene
       @recapture = recapture
       @personas = {}
-      @final = final
+      # --final-only is a final with no intermediate cut; silent is the free
+      # first cut a draft run renders before paid audio (WalkthroughDraftBoard).
+      @final_only = final_only
+      @final = final || final_only
+      @silent = silent
+      @provisional = provisional
+      @providers = providers
       @burn_captions = burn_captions
       @p = DEFAULT_PROVIDERS.merge(providers)
       # An injected docker runner also runs pass 2 unless a watcher is given.
@@ -80,7 +88,8 @@ module WalkthroughRender
       @out = out
       @cache = File.join(@root, '.cache')
       @board_path = File.join(@root, 'storyboard.json')
-      @board = board || WalkthroughStoryboard.load(@board_path)
+      @source = board || WalkthroughStoryboard.load(@board_path)
+      @board = silent ? @source : WalkthroughDraftBoard.with_placeholders(@source)
       @budget = BRoll::Budget.new(max_usd)
     end
 
@@ -151,6 +160,7 @@ module WalkthroughRender
       clips = todo.select { |s| broll?(s) && !broll_cached?(s) }.map { |s| { seconds: WalkthroughStoryboard.broll_spec(s)['seconds'] } }
       est = { audio: ElevenLabs.estimate(chars: chars, music_ms: music_ms, model: voice['model']),
               images: PrototypeImagegen.estimate(images) }
+      @paid_audio_pending = chars.positive? || music_ms.positive?
       say(ElevenLabs.format_estimate(est[:audio]))
       say("OpenAI estimate: #{est[:images][:line]}")
       unless clips.empty?
@@ -212,6 +222,8 @@ module WalkthroughRender
         spec = WalkthroughStoryboard.broll_spec(scene)
         res = if broll_cached?(scene)
                 { mode: 'generated', path: BRoll.cached_path(@cache, BRoll.asset_key(**broll_args(scene))) }
+        elsif @silent
+                { mode: spec['fallback'], path: nil, reason: 'the silent cut never generates' }
         else
                 @p[:broll].call(**broll_args(scene), fallback: spec['fallback'], cache_root: @cache, budget: @budget)
         end
@@ -955,10 +967,14 @@ module WalkthroughRender
       WalkthroughStoryboard.validate!(@board, root: @root)
       WalkthroughHousekeeping.ensure_location!(@root).each { |line| say(line) }
       WalkthroughCache.ensure_gitignore(@root)
+      return silent_call if @silent
+
       estimate
       sharpness!
       return nil if estimate_only
 
+      refuse_placeholders! if @final
+      silent_cut if silent_cut?
       generate_audio
       resolve_anchors!
       navigate_fit!
@@ -972,17 +988,18 @@ module WalkthroughRender
       @content_key = content_key(@final ? WalkthroughStoryboard.recompute_keys(@board, @root) : keys)
       manifest = WalkthroughManifest.build(@board, @root, keys: keys)
       generate_music(manifest.dig('timeline', 'total_ms'))
-      File.write(@board_path, "#{JSON.pretty_generate(WalkthroughStoryboard.authored(@board))}\n")
+      File.write(@board_path, "#{JSON.pretty_generate(authored_board)}\n")
       WalkthroughManifest.write(manifest, @root)
       ux = ux_lint(manifest)
       gate_final!(ux)
       mp4 = assemble(manifest)
       loudness!(mp4)
-      draft_roast(manifest, mp4, ux) unless @final
-      say("b-roll spend about $#{format('%.2f', @budget.spent)}") if @budget.spent.positive?
       say("manifest #{manifest['manifest_hash']}")
       say("mp4 #{Digest::SHA256.file(mp4).hexdigest} #{mp4}")
-      paths = deliver(mp4)
+      # The draft reaches the user before its roast round, never after it.
+      paths = deliver(mp4, manifest)
+      draft_roast(manifest, mp4, ux) unless @final
+      say("b-roll spend about $#{format('%.2f', @budget.spent)}") if @budget.spent.positive?
       craft = craft_report(paths[:mp4])
       warning = WalkthroughHousekeeping.size_warning(@root)
       say(warning) if warning
@@ -1018,15 +1035,85 @@ module WalkthroughRender
 
     def slug = @board['slug'].to_s.empty? ? File.basename(@root) : @board['slug']
 
-    # Copies the render out of the cache to <slug>-draft.mp4 or
-    # <slug>-final.mp4 (and the VTT). Only once a final is verified on disk
+    # Copies the render out of the cache to the next <slug>-draft-NN.mp4, or
+    # <slug>-final.mp4 (and the VTT), records it in <slug>-deliveries.json,
+    # and prints its fenced walkthrough-draft line for the session to send.
+    # Delivery never pauses the run. Only once a final is verified on disk
     # does the cache get pruned.
-    def deliver(mp4)
-      WalkthroughHousekeeping.mark_current_render(File.dirname(mp4))
-      paths = WalkthroughHousekeeping.deliver(@root, slug, mp4, final: @final)
+    def deliver(mp4, manifest)
+      WalkthroughHousekeeping.mark_current_render(File.dirname(mp4)) unless @silent
+      scene_keys = manifest['scenes'].to_h { |e| [ e['id'], e['frames_key'] ] }
+      paths = WalkthroughDeliverables.deliver(@root, slug, mp4, kind: delivery_kind, scenes: scene_keys,
+                                                                placeholders: WalkthroughDraftBoard.placeholders(@board),
+                                                                provisional: @provisional)
       say("deliverable #{paths[:mp4]}")
+      say(WalkthroughDeliverables.fenced(paths[:line]))
       prune if @final
       paths
+    end
+
+    def delivery_kind
+      return 'final' if @final
+      return 'scene' if @only
+      return 'partial' unless WalkthroughDraftBoard.placeholders(@board).empty?
+
+      @silent || scenes.none? { |s| narrated?(s) } ? 'silent' : 'narrated'
+    end
+
+    # -- drafts -----------------------------------------------------------------
+
+    # The board written back: resolved anchors dropped, and every scene
+    # rendered as a placeholder (pending, or blocked by one) kept as authored.
+    def authored_board
+      out = WalkthroughStoryboard.authored(@board)
+      cards = WalkthroughDraftBoard.placeholders(@board)
+      originals = Array(@source['scenes']).select { |sc| cards.key?(sc['id']) }.to_h { |sc| [ sc['id'], sc ] }
+      out['scenes'] = out['scenes'].map { |sc| originals.fetch(sc['id'], sc) }
+      out
+    end
+
+    def anchored_board? = WalkthroughStoryboard.scenes(@source).any? { |sc| WalkthroughStoryboard.anchored?(sc) }
+
+    # A final never ships a placeholder card.
+    def refuse_placeholders!
+      pending = WalkthroughDraftBoard.placeholders(@board)
+      return if pending.empty?
+
+      raise WalkthroughStoryboard::ValidationError,
+            "--final refuses while scenes are placeholders: #{pending.map { |id, why| "#{id} (#{why})" }.join(', ')}; film them or render a draft"
+    end
+
+    # The free first cut runs before paid narration or music, so it is due
+    # only on a draft run with paid audio still to generate.
+    def silent_cut? = !@final && @paid_audio_pending
+
+    # Renders and delivers the silent cut. A failure here never blocks the
+    # paid run: it is reported and the run goes on.
+    def silent_cut
+      say('silent cut: rendering the free first cut before paid audio')
+      Run.new(@root, providers: @providers, out: @out, board: WalkthroughDraftBoard.silent(@board),
+                     gates: @gates.merge(roast: false), burn_captions: @burn_captions, silent: true,
+                     provisional: anchored_board?).call
+    rescue StandardError => e
+      say("silent cut: skipped (#{e.message.lines.first.to_s.strip}); the run goes on")
+      nil
+    end
+
+    # The silent cut's own flow: free steps only (no narration, images,
+    # paid b-roll, music, roast, or lint gate; an uncached b-roll clip takes
+    # its free fallback), and nothing written back to the
+    # board or manifest.json.
+    def silent_call
+      WalkthroughStoryboard.validate!(@board, root: @root)
+      WalkthroughCache.ensure_gitignore(@root)
+      generate_broll
+      capture_frames
+      keys = WalkthroughStoryboard.recompute_keys(@board, @root)
+      WalkthroughStoryboard.fix_keys(@board, @root, keys)
+      manifest = WalkthroughManifest.build(@board, @root, keys: keys)
+      mp4 = assemble(manifest)
+      paths = deliver(mp4, manifest)
+      { manifest: manifest, mp4: mp4, deliverable: paths }
     end
 
     # Drops superseded renders, dead frames and stills, and aged roast
@@ -1077,7 +1164,7 @@ module WalkthroughRender
 end
 
 if __FILE__ == $PROGRAM_NAME
-  usage = 'usage: walkthrough_render.rb walkthrough/<slug> [--scene <id>] [--draft|--final] [--estimate-only] [--max-usd <n>] [--burn-captions] ' \
+  usage = 'usage: walkthrough_render.rb walkthrough/<slug> [--scene <id>] [--draft|--final|--final-only] [--estimate-only] [--max-usd <n>] [--burn-captions] ' \
           '[--allow-ux-findings] [--allow-roast-findings] [--allow-fidelity-findings] [--no-roast] [--allow-sensitive] [--roast-max-usd <run cap>] [--recapture]' \
           "\n       walkthrough_render.rb walkthrough/<slug> --prune [--dry-run] | --cache-report"
   dir = ARGV.first
@@ -1093,6 +1180,7 @@ if __FILE__ == $PROGRAM_NAME
   end
   scene = ARGV.include?('--scene') ? (ARGV[ARGV.index('--scene') + 1] || abort(usage)) : nil
   abort('--draft and --final are exclusive') if ARGV.include?('--draft') && ARGV.include?('--final')
+  abort('--final-only is a final with no intermediate cut; it cannot take --draft') if ARGV.include?('--draft') && ARGV.include?('--final-only')
   max_usd = ARGV.include?('--max-usd') ? (ARGV[ARGV.index('--max-usd') + 1] || abort(usage)).to_f : BRoll::DEFAULT_CEILING_USD
   roast_usd = ARGV.include?('--roast-max-usd') ? (ARGV[ARGV.index('--roast-max-usd') + 1] || abort(usage)).to_f : nil
   begin
@@ -1107,7 +1195,8 @@ if __FILE__ == $PROGRAM_NAME
             allow_fidelity: ARGV.include?('--allow-fidelity-findings'), fidelity_targets: fidelity_targets }
   begin
     WalkthroughRender::Run.new(dir, scene: scene, final: ARGV.include?('--final'), max_usd: max_usd,
-                               burn_captions: ARGV.include?('--burn-captions'), gates: gates, recapture: ARGV.include?('--recapture'))
+                               burn_captions: ARGV.include?('--burn-captions'), gates: gates, recapture: ARGV.include?('--recapture'),
+                               final_only: ARGV.include?('--final-only'))
                           .call(estimate_only: ARGV.include?('--estimate-only'))
   rescue PrototypeUxLint::FindingsError, WalkthroughRoast::OpenFindingsError, WalkthroughClipcheck::ClipError,
          WalkthroughLoudness::LoudnessError => e
