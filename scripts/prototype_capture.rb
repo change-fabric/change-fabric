@@ -31,7 +31,8 @@ module PrototypeCapture
   # scene's viewport. A batch that raises it is retried on a fresh
   # connection; nothing from it is written to the cache.
   class ViewportMismatchError < StandardError; end
-  # A move, hover or wait target matched nothing, under strict targets.
+  # A move, hover or wait target matched nothing, or a click, tap, move or
+  # hover selector matched several elements, under strict targets.
   class TargetMissError < StandardError; end
 
   # Set to 1 to fail a capture on any missing move, hover or wait target
@@ -71,6 +72,10 @@ module PrototypeCapture
   SCROLL_EASES = ([ 'linear' ] + CSS_EASES.keys).freeze
   DEFAULT_SCROLL_EASE = 'ease-in-out'
   SCROLL_MS = (1..10_000)
+  # A wait op with `selector` waits (live scenes) up to timeout_ms, default
+  # this, for it to be visible before the ops after it.
+  WAIT_FOR_MS = 3000
+  WAIT_FOR_RANGE = (1..30_000)
   # A tap holds its pressed state this long before the real click lands.
   PRESS_MS = 120
   PRESS_RANGE = (1..1000)
@@ -160,30 +165,55 @@ module PrototypeCapture
   #
   # A scroll, glide, move or hover target is polled for up to io.lazyMs
   # (0: one look) before it counts as missing, so a lazily rendered element
-  # gets a moment to mount. A move or hover that still finds nothing goes
-  # to io.miss(ev) once per op, which the capture reports as a warning, or
-  # fails on under strict targets (see report_misses!).
+  # gets a moment to mount; a scroll also waits that long for its target to
+  # be laid out and visible (a <details> opened by the frame before). A
+  # move or hover that still finds nothing, a click, tap, move or hover
+  # selector that matches more than one element, and a wait op whose
+  # selector never becomes visible each go to io.miss once per op, which
+  # the capture reports as a warning, or fails on under strict targets
+  # (see report_misses!).
   DISPATCH_JS = <<~JS.chomp
     (page, io) => {
       const st = io.st;
       const lazy = io.lazyMs || 0;
       const lost = (ev) => new Error(`scroll target not found after ${lazy}ms: ${ev.target} (op ${ev.op}, t_ms ${ev.t_ms})`);
-      const present = async (sel) => {
-        const until = Date.now() + lazy;
+      const seen = (sel) => page.evaluate((s) => {
+        const el = document.querySelector(s);
+        if (!el) return 0;
+        const r = el.getBoundingClientRect();
+        return r.width > 0 && r.height > 0 && getComputedStyle(el).visibility !== "hidden" ? 2 : 1;
+      }, sel);
+      // Polls until the target exists (want 1) or is visible (want 2); the
+      // last look's state comes back either way.
+      const poll = async (sel, want, ms) => {
+        const until = Date.now() + ms;
         for (;;) {
-          if (await page.$(sel)) return true;
-          if (Date.now() >= until) return false;
+          const got = await seen(sel);
+          if (got >= want || Date.now() >= until) return got;
           await new Promise((r) => setTimeout(r, 50));
         }
       };
+      const present = async (sel) => (await poll(sel, 1, lazy)) > 0;
       const missed = new Set();
-      const miss = (ev) => {
-        if (missed.has(ev.op)) return;
-        missed.add(ev.op);
-        if (io.miss) io.miss(ev);
+      const miss = (ev, extra = {}) => {
+        const key = `${ev.op}:${extra.count ? "many" : ev.kind}`;
+        if (missed.has(key)) return;
+        missed.add(key);
+        if (io.miss) io.miss(Object.assign({}, ev, extra));
+      };
+      // A selector matching several elements acts on the first; say so,
+      // naming that element, since it is rarely the one the author meant.
+      const census = async (ev) => {
+        if (ev.first === false || !ev.target) return;
+        const c = await page.$$eval(ev.target, (els) => ({
+          count: els.length,
+          label: els.length ? `<${els[0].tagName.toLowerCase()}> ${JSON.stringify((els[0].getAttribute("aria-label") || els[0].textContent || "").trim().replace(/\\s+/g, " ").slice(0, 40))}` : ""
+        })).catch(() => ({ count: 0 }));
+        if (c.count > 1) miss(ev, { count: c.count, label: c.label });
       };
       const reach = async (ev) => {
         if ((ev.first !== false) && !(await present(ev.target))) { miss(ev); return null; }
+        await census(ev);
         const to = await io.aim(ev.target);
         if (!to) miss(ev);
         return to;
@@ -202,8 +232,11 @@ module PrototypeCapture
       return async (ev) => {
         switch (ev.kind) {
           case "scroll":
-            if (!(await present(ev.target))) throw lost(ev);
+            if ((await poll(ev.target, 2, lazy)) === 0) throw lost(ev);
             await page.evaluate(#{SCROLL_JS}, ev, #{JSON.generate(DEFAULT_SCROLL_BLOCK)});
+            return;
+          case "wait_for":
+            if ((await poll(ev.target, 2, io.lazyMs ? ev.timeout_ms : 0)) < 2) miss(ev);
             return;
           case "glide_step":
             if (ev.first && !(await present(ev.target))) throw lost(ev);
@@ -225,11 +258,13 @@ module PrototypeCapture
           case "click": {
             // A click never falls back to the last cursor spot: that would
             // press whatever control sits there.
+            await census(ev);
             st.pos = await need(ev.target, "click"); st.resting = ev.target;
             await press(st.pos); st.down = true;
             return;
           }
           case "dblclick": {
+            await census(ev);
             const to = await need(ev.target, "dblclick"); st.pos = to; st.resting = ev.target;
             await page.mouse.move(to.x, to.y);
             await page.mouse.click(to.x, to.y, { clickCount: 1 });
@@ -239,6 +274,7 @@ module PrototypeCapture
           }
           // The finger lands: pressed look on, ripple from this frame.
           case "press": {
+            await census(ev);
             st.pos = await need(ev.target, "tap"); st.resting = ev.target;
             await point(st.pos);
             await page.evaluate(#{PRESS_JS}, ev.target, true, pressCss);
@@ -864,7 +900,12 @@ module PrototypeCapture
   # its t_ms, and the selector.
   def miss_lines(misses, label)
     Array(misses).map do |m|
-      if m['kind'] == 'wait'
+      op = "#{m['kind'] == 'wait_for' ? 'wait' : m['kind'].to_s.delete_suffix('_step')} op #{m['op']} at t_ms #{m['t_ms']}"
+      if m['count']
+        "#{label}: #{op} selector matches #{m['count']} elements, acted on index 0 #{m['label']}: #{m['target']}"
+      elsif m['kind'] == 'wait_for'
+        "#{label}: #{op} never saw its selector visible within #{m['timeout_ms']}ms: #{m['target']}"
+      elsif m['kind'] == 'wait'
         "#{label}: wait.selector timed out after #{m['ms']}ms: #{m['target']}"
       else
         "#{label}: #{m['kind'].delete_suffix('_step')} op #{m['op']} at t_ms #{m['t_ms']} matched nothing: #{m['target']}"

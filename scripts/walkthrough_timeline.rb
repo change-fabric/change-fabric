@@ -24,7 +24,7 @@ module WalkthroughTimeline
   # Same-frame order: scrolls land first so every later aim reads the
   # scrolled page, then the pointer moves, hovers and presses, then input
   # that acts on the page, then a tap's release, and a navigate last.
-  SEQ = { 'scroll' => 0, 'glide_step' => 0, 'move_step' => 1, 'hover' => 2, 'press' => 3,
+  SEQ = { 'wait_for' => 0, 'scroll' => 0, 'glide_step' => 0, 'move_step' => 1, 'hover' => 2, 'press' => 3,
           'type_char' => 4, 'key' => 4, 'click' => 4, 'dblclick' => 4, 'release' => 5, 'navigate' => 6 }.freeze
   KINDS = SEQ.keys.freeze
 
@@ -150,6 +150,9 @@ module WalkthroughTimeline
     when 'click', 'dblclick', 'hover' then ev.call(start, op['op'])
     when 'type' then add_type(op, index, fps, events)
     when 'key' then ev.call(start, 'key', { 'keys' => PrototypeCapture.key_chord(op['keys']) })
+    when 'wait'
+      payload = { 'state' => 'visible', 'timeout_ms' => op['timeout_ms'] || PrototypeCapture::WAIT_FOR_MS }
+      events << event(start, 'wait_for', op['selector'], payload, index) if op['selector']
     when 'tap' then add_tap(op, index, start, fps, events, intervals)
     when 'scroll'
       if op['ms']

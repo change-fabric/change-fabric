@@ -63,6 +63,33 @@ class WalkthroughScrollTargetTest < Minitest::Test
     assert_empty io.string
   end
 
+  def test_ambiguous_selector_warns_with_the_element_acted_on
+    io = StringIO.new
+    miss = { "kind" => "click", "target" => "details > summary", "op" => 1, "t_ms" => 600, "count" => 3, "label" => '<summary> "Billing"' }
+    PrototypeCapture.report_misses!([ miss ], "scene s2", strict: false, io: io)
+    assert_includes io.string, 'warning: scene s2: click op 1 at t_ms 600 selector matches 3 elements, acted on index 0 <summary> "Billing": details > summary'
+    assert_raises(PrototypeCapture::TargetMissError) { PrototypeCapture.report_misses!([ miss ], "scene s2", strict: true, io: StringIO.new) }
+    assert_equal 4, PrototypeCapture::DISPATCH_JS.scan("await census(ev)").size, "move/hover (reach), click, dblclick and press"
+  end
+
+  def test_wait_op_with_selector_validates_and_builds_an_event
+    assert_empty errs("op" => "wait", "selector" => "#panel", "state" => "visible", "timeout_ms" => 2000)
+    assert_empty errs("op" => "wait", "duration_ms" => 500)
+    assert_includes errs("op" => "wait", "selector" => ""), "wait selector must be a non-empty string"
+    assert_includes errs("op" => "wait", "selector" => "#p", "state" => "attached"), "wait state must be visible"
+    assert_includes errs("op" => "wait", "selector" => "#p", "timeout_ms" => 0), "wait timeout_ms must be an integer in 1..30000"
+    assert_includes errs("op" => "wait", "timeout_ms" => 100), "wait timeout_ms needs selector"
+    ops = [ { "t_ms" => 0, "op" => "click", "target" => "summary" },
+            { "t_ms" => 300, "op" => "wait", "selector" => "#inside" },
+            { "t_ms" => 300, "op" => "scroll", "target" => "#inside" } ]
+    frame = WalkthroughTimeline.build(ops, fps: 30, frames: 30).events_by_frame[9]
+    assert_equal %w[wait_for scroll], frame.map { |e| e["kind"] }, "the wait runs before a same-frame scroll"
+    assert_equal({ "kind" => "wait_for", "target" => "#inside", "op" => 1, "t_ms" => 300, "state" => "visible", "timeout_ms" => 3000 }, frame.first)
+    io = StringIO.new
+    PrototypeCapture.report_misses!([ frame.first ], "scene s3", strict: false, io: io)
+    assert_includes io.string, "scene s3: wait op 1 at t_ms 300 never saw its selector visible within 3000ms: #inside"
+  end
+
   def test_live_capture_polls_and_bounds_wait
     scene = { "id" => "s", "screen" => { "url" => "https://app.localhost/" }, "wait" => { "selector" => "main" } }
     js = WalkthroughLive.run_device_js({ "viewport" => { "w" => 1280, "h" => 720 } }, scene)
