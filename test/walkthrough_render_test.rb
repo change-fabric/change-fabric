@@ -511,6 +511,20 @@ class WalkthroughRenderTest < Minitest::Test
     assert_match(/hero/, err.message)
   end
 
+def test_silent_only_renders_the_free_cut_and_stops_before_paid_calls
+  out = StringIO.new
+  result = WalkthroughRender::Run.new(@root, providers: providers, out: out, gates: { roast: false }).call(silent_only: true)
+  assert_equal %w[list detail hero], @calls[:capture], "the silent cut only"
+  assert_empty @calls[:tts]
+  assert_empty @calls[:music]
+  assert_empty @calls[:image]
+  assert_empty @calls[:roast]
+  assert result[:mp4]
+  assert_match(/preflight: ok/, out.string)
+  assert_match(/next step: review the silent cut, then run --draft/, out.string)
+  assert_operator out.string.index("next step"), :<, out.string.rindex("ElevenLabs estimate")
+end
+
   def test_estimate_only_spends_nothing
     out = StringIO.new
     WalkthroughRender::Run.new(@root, providers: providers, out: out).call(estimate_only: true)

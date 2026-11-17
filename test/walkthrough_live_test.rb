@@ -317,6 +317,10 @@ class WalkthroughLiveTest < Minitest::Test
         @calls[:live_browser] << opts
         blk.call(:session)
       end,
+      preflight_selectors: lambda do |_board, jobs|
+        @calls[:preflight] << jobs.map { |j| j["label"] }
+        @preflight_errors || []
+      end,
       live_login: lambda do |**kw|
         @calls[:login] << (kw[:persona].equal?(kw[:board]["personas"]["admin"]) ? "admin" : "member")
         { "cookies" => [ { "name" => "sid", "value" => "v" } ], "origins" => {} }
@@ -347,6 +351,28 @@ class WalkthroughLiveTest < Minitest::Test
         end
       end }
   end
+
+def test_preflight_failure_stops_before_any_paid_call
+  tts = []
+  @preflight_errors = [ "landing: selector \"#cta\" not found on https://app.localhost/landing" ]
+  File.write(File.join(@root, "storyboard.json"), JSON.pretty_generate(board))
+  ps = providers.merge(tts: ->(**kw) { tts << kw })
+  err = assert_raises(WalkthroughPreflight::Error) do
+    WalkthroughRender::Run.new(@root, providers: ps, out: StringIO.new, gates: { roast: false }).call
+  end
+  assert_match(/nothing spent.*#cta/m, err.message)
+  assert_empty tts, "no narration before the preflight passes"
+  assert_empty @calls[:capture], "no silent cut either"
+  assert_equal [ [ "persona member login", "persona admin login", "sign-in", "landing" ] ], @calls[:preflight]
+end
+
+def test_preflight_refuses_a_missing_login_env
+  ENV.delete("APP_PASSWORD")
+  File.write(File.join(@root, "storyboard.json"), JSON.pretty_generate(board))
+  err = assert_raises(WalkthroughPreflight::Error) { render }
+  assert_match(/env APP_PASSWORD is not set/, err.message)
+  assert_empty @calls[:preflight], "no browser opens once a local check fails"
+end
 
   def render(**opts)
     File.write(File.join(@root, "storyboard.json"), JSON.pretty_generate(board)) unless File.file?(File.join(@root, "storyboard.json"))
