@@ -4,6 +4,7 @@
 require 'yaml'
 require_relative 'change_frontmatter'
 require_relative 'change_schema'
+require_relative 'tracker_policy'
 
 # Reads the `change_policy:` block from a repo's CHANGE.md, the single
 # change-fabric file. CHANGE.md's prose body is the governance FAQ a human and an
@@ -247,6 +248,10 @@ class ChangePolicy
   end
 
   def gate_errors = ChangeSchema.gate_errors(@policy)
+
+  # change_policy.trackers (0.19.0). config is the change_config block, for
+  # the checks that span both (a policy's wiring, an enabled template).
+  def tracker_errors(config: nil) = TrackerPolicy.errors(@policy['trackers'], config: config)
 
   # The gate mapping, or {} when absent or malformed (a scalar or list), so a
   # bad block falls back to the conservative defaults instead of raising.

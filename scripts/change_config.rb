@@ -12,6 +12,7 @@ require_relative 'change_suite'
 require_relative 'change_local_tls'
 require_relative 'change_command_config'
 require_relative 'emit_digest'
+require_relative 'execution_config_schema'
 
 # Parses and validates a project's change-fabric config. There is one
 # change-fabric file per repo, `CHANGE.md` at the repo root: its YAML
@@ -451,6 +452,10 @@ class ChangeConfig
     raise ConfigError, boot_errors.join('; ') unless boot_errors.empty?
     design_errors = ChangeSchema.design_errors(@raw['design'], apps: @raw['apps'].is_a?(Hash) ? @raw['apps'].keys : [])
     raise ConfigError, design_errors.join('; ') unless design_errors.empty?
+
+    # execution / outbound / trackers (0.19.0).
+    execution_errors = ExecutionConfigSchema.errors(@raw)
+    raise ConfigError, execution_errors.join('; ') unless execution_errors.empty?
   end
 
   # lanes.command (0.17.0): see ChangeCommandConfig for the entry rules.

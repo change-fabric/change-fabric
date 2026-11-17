@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://www.changefabric.org/schemas/cf.outbound.request-1.json",
+  "title": "cf.outbound.request/1",
+  "description": "One outbound effect submitted to scripts/outbound.rb. The effect key is sha256(execution_id|effect_id|channel|verb|canonical(target)); the body is not part of the key. operation picks exactly one shape: prose (roasted), template (versioned, typed values only) or typed (identifier fields only).",
+  "type": "object",
+  "required": ["schema", "execution_id", "phase_id", "effect_id", "channel", "verb", "target", "operation"],
+  "properties": {
+    "schema": { "const": "cf.outbound.request/1" },
+    "execution_id": { "type": "string", "minLength": 1 },
+    "phase_id": { "$ref": "#/$defs/slug" },
+    "effect_id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*\\.[a-z0-9_-]+\\.[0-9]+$" },
+    "channel": { "enum": ["github", "slack", "jira"] },
+    "verb": {
+      "enum": ["issue_create", "comment", "label_set", "asset_upload", "asset_branch_push", "pr_ready", "pr_merge",
+               "transition", "assign", "remote_link", "post"]
+    },
+    "target": { "$ref": "#/$defs/target" },
+    "operation": { "enum": ["prose", "template", "typed"] },
+    "kind": { "enum": ["issue", "comment", "reply", "design_ref"] },
+    "body_file": { "type": "string", "pattern": "^outbound/payloads/[0-9a-f]{64}\\.md$" },
+    "assets": { "type": "array", "items": { "type": "string", "pattern": "^outbound/payloads/[0-9a-f]{64}\\.(png|jpe?g)$" } },
+    "template": { "type": "string", "pattern": "^[a-z][a-z0-9_]*@[1-9][0-9]*$" },
+    "values": { "type": "object", "additionalProperties": { "type": ["string", "integer"] } },
+    "fields": { "type": "object", "minProperties": 1, "additionalProperties": { "type": ["string", "integer", "boolean", "array"] } }
+  },
+  "additionalProperties": false,
+  "oneOf": [
+    {
+      "title": "prose",
+      "properties": {
+        "operation": { "const": "prose" },
+        "verb": { "enum": ["issue_create", "comment", "post"] }
+      },
+      "required": ["kind", "body_file"],
+      "not": { "anyOf": [{ "required": ["template"] }, { "required": ["values"] }, { "required": ["fields"] }] }
+    },
+    {
+      "title": "template",
+      "properties": {
+        "operation": { "const": "template" },
+        "verb": { "enum": ["comment", "post"] }
+      },
+      "required": ["template", "values"],
+      "not": { "anyOf": [{ "required": ["kind"] }, { "required": ["body_file"] }, { "required": ["assets"] }, { "required": ["fields"] }] }
+    },
+    {
+      "title": "typed",
+      "properties": {
+        "operation": { "const": "typed" },
+        "verb": { "enum": ["label_set", "asset_upload", "asset_branch_push", "pr_ready", "pr_merge", "transition", "assign", "remote_link"] }
+      },
+      "required": ["fields"],
+      "not": { "anyOf": [{ "required": ["kind"] }, { "required": ["body_file"] }, { "required": ["template"] }, { "required": ["values"] }] }
+    }
+  ],
+  "$defs": {
+    "slug": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,62}$" },
+    "target": {
+      "type": "object",
+      "minProperties": 1,
+      "properties": {
+        "repo": { "type": "string", "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$" },
+        "issue": { "type": "integer", "minimum": 1 },
+        "pr": { "type": "integer", "minimum": 1 },
+        "site": { "type": "string" },
+        "key": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]{1,9}-[0-9]+$" },
+        "channel": { "type": "string" }
+      },
+      "additionalProperties": false
+    }
+  }
+}

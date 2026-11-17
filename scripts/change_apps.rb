@@ -134,6 +134,7 @@ class ChangeAppRegistry
       lines.concat(promotion_profile_coverage_errors(change_md_path, registry))
     end
     lines.concat(gate_scope_errors(change_md_path))
+    lines.concat(tracker_policy_errors(change_md_path))
     lines.concat(promotion_target_lines(change_md_path))
 
     selected.each do |entry|
@@ -155,6 +156,19 @@ class ChangeAppRegistry
     policy.gate_errors.map { |message| "error: #{message}" }
   end
   private_class_method :gate_scope_errors
+
+  # change_policy.trackers (0.19.0) is read by no guard, so doctor is where a
+  # bad tracker workflow (a person named as a holder, an unknown state) shows.
+  def self.tracker_policy_errors(change_md_path)
+    policy = ChangePolicy.for_repo(File.dirname(change_md_path))
+    return [] unless policy
+
+    config = ChangeFrontmatter.parse_file(change_md_path)['change_config']
+    policy.tracker_errors(config: config).map { |message| "error: #{message}" }
+  rescue StandardError
+    []
+  end
+  private_class_method :tracker_policy_errors
 
   # For every protected branch, and every protected tag pattern, whose
   # promotion rule names a profile, every app required to gate it (the rule's
