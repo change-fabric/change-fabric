@@ -334,6 +334,8 @@ class WalkthroughLiveTest < Minitest::Test
         end
         { "cookies" => [], "origins" => {}, "from" => kw[:scene]["id"] }
       end,
+      # The disk preflight never depends on the machine running the tests.
+      free_bytes: ->(_root) { 1 << 50 },
       docker: lambda do |argv|
         @calls[:docker] << argv
         if argv.include?("-buildconf") then [ "--enable-libass --enable-libx264", Status.new(true) ]

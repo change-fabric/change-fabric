@@ -129,6 +129,19 @@ class WalkthroughHousekeepingTest < Minitest::Test
     assert_equal 2, sizes["other"]
   end
 
+  def test_disk_preflight_refuses_under_the_free_threshold
+    assert_nil H.disk_preflight!(@root, ENV0, free: ->(_) { 6 * H::GB })
+    err = assert_raises(H::NoSpaceError) { H.disk_preflight!(@root, ENV0, free: ->(_) { 1 * H::GB }) }
+    assert_includes err.message, "--prune"
+    assert_includes err.message, H::MIN_FREE_ENV
+    assert_nil H.disk_preflight!(@root, { H::MIN_FREE_ENV => "0.5" }, free: ->(_) { 1 * H::GB })
+    assert_nil H.disk_preflight!(@root, ENV0, free: ->(_) { nil }), "an unknown free size never blocks"
+  end
+
+  def test_free_bytes_reads_the_cache_filesystem
+    assert_operator H.free_bytes(@root), :>, 0
+  end
+
   def test_size_warning_threshold
     assert_nil H.size_warning(@root, ENV0)
     warning = H.size_warning(@root, { H::WARN_ENV => "0.0000001" })

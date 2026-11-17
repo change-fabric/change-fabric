@@ -99,6 +99,8 @@ class WalkthroughRenderTest < Minitest::Test
         @calls[:roast] << kw[:shots].map { |s| File.basename(s) }
         @critic
       end,
+      # The disk preflight never depends on the machine running the tests.
+      free_bytes: ->(_root) { 1 << 50 },
       docker: lambda do |argv|
         # Share copies are tracked apart so render call counts stay exact.
         if argv.last.end_with?("-share.mp4")
@@ -515,6 +517,12 @@ class WalkthroughRenderTest < Minitest::Test
     File.write(File.join(@root, "storyboard.json"), JSON.generate(data))
     err = assert_raises(WalkthroughRender::MissingCacheError) { run_render(scene: "list") }
     assert_match(/hero/, err.message)
+  end
+
+  def test_low_disk_refuses_before_any_paid_call
+    run = WalkthroughRender::Run.new(@root, providers: providers.merge(free_bytes: ->(_) { 1024 }), out: StringIO.new, gates: { roast: false })
+    assert_raises(WalkthroughHousekeeping::NoSpaceError) { run.call }
+    assert_empty @calls
   end
 
   def test_estimate_only_spends_nothing

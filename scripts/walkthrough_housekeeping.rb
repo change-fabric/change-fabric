@@ -3,6 +3,7 @@
 require 'digest'
 require 'fileutils'
 require 'find'
+require 'open3'
 require_relative 'path_canon'
 
 # Keeps a walkthrough dir's .cache bounded and its deliverables safe.
@@ -39,7 +40,12 @@ module WalkthroughHousekeeping
 
   CURRENT_RENDER = 'CURRENT'
 
+  MIN_FREE_ENV = 'CF_WALKTHROUGH_MIN_FREE_GB'
+  # Enough for a long film's frames, render dir and Docker scratch.
+  DEFAULT_MIN_FREE_GB = 5.0
+
   class Error < StandardError; end
+  class NoSpaceError < Error; end
 
   module_function
 
@@ -190,6 +196,37 @@ module WalkthroughHousekeeping
       i += 1
     end
     i.zero? ? "#{n} B" : format('%.1f %s', v, units[i])
+  end
+
+  # -- free disk ---------------------------------------------------------------
+
+  # Free bytes on the filesystem holding the walkthrough's cache (the
+  # CF_WALKTHROUGH_CACHE_ROOT target when the link is set), or nil when df
+  # cannot say.
+  def free_bytes(root)
+    cache = cache_dir(root)
+    path = File.exist?(cache) ? File.realpath(cache) : File.expand_path(root)
+    out, status = Open3.capture2('df', '-Pk', path)
+    return nil unless status.success?
+
+    kb = out.lines.last.to_s.split[3]
+    kb&.match?(/\A\d+\z/) ? kb.to_i * 1024 : nil
+  rescue SystemCallError
+    nil
+  end
+
+  def min_free_gb(env = ENV) = env_float(MIN_FREE_ENV, DEFAULT_MIN_FREE_GB, env)
+
+  # Refuses a render before any paid call when the cache's disk has less
+  # free space than the threshold; a render that runs out mid-way dies after
+  # it has spent. An unknown free size never blocks.
+  def disk_preflight!(root, env = ENV, free: method(:free_bytes))
+    have = free.call(root)
+    limit = min_free_gb(env)
+    return nil if have.nil? || have >= limit * GB
+
+    raise NoSpaceError, "#{human(have)} free on the disk holding #{cache_dir(root)}, under #{limit} GB (#{MIN_FREE_ENV}); " \
+                        "run walkthrough_render.rb #{root} --prune, free Docker space (docker system prune), or lower #{MIN_FREE_ENV}"
   end
 
   # -- pruning -----------------------------------------------------------------
