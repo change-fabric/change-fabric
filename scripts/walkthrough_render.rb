@@ -307,16 +307,19 @@ module WalkthroughRender
     # whole film against a drifted site unannounced.
     def recapture_notice
       memo = {}
-      lines = scenes.filter_map do |scene|
-        next unless live?(scene) && capture_target?(scene) && !WalkthroughLive.pair_parent(@board, scene)
+      # A navigate pair films as one run, so either half targeted or stale
+      # recaptures both, as in capture_live.
+      lines = scenes.flat_map do |scene|
+        next [] unless live?(scene) && !WalkthroughLive.pair_parent(@board, scene)
 
-        pre = prep(scene, memo)
-        next "#{scene['id']} (--recapture or --scene)" if recapture?(scene)
-        next if captured?(scene, pre)
+        halves = [ scene, WalkthroughLive.pair_next(@board, scene) ].compact
+        next [] unless halves.any? { |s| capture_target?(s) }
+        next halves.map { |s| "#{s['id']} (--recapture or --scene)" } if halves.any? { |s| recapture?(s) }
+        next [] if halves.all? { |s| captured?(s, prep(s, memo)) }
 
-        "#{scene['id']} (#{WalkthroughLive.recapture_reason(@root, scene['id'], pre)})"
+        halves.map { |s| "#{s['id']} (#{WalkthroughLive.recapture_reason(@root, s['id'], prep(s, memo))})" }
       rescue ArgumentError
-        nil
+        []
       end
       return if lines.empty?
 
