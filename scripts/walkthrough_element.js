@@ -36,12 +36,13 @@
   style.textContent = `
 :root { --font-sans: ${FRAME.font ? FRAME.font.sans : '"Inter", system-ui, sans-serif'}; --font-serif: ${FRAME.font ? FRAME.font.serif : '"Source Serif 4", Georgia, serif'}; }
 html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: var(--cf-surface, #0f172a); }
+body { background: var(--bg-gradient, var(--cf-surface, #0f172a)); }
 #cf-element-root { position: relative; width: 100%; height: 100%; color: var(--cf-text, #f1f5f9); font-family: var(--font-sans); }
 .cf-beat { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; opacity: 0; will-change: opacity, transform; }
 .cf-statement { margin: 0; font: 600 ${TYPE.statement}px/1.32 var(--font-serif); letter-spacing: -0.01em; text-align: center; }
 .cf-statement span { display: block; white-space: nowrap; }
 .cf-card { box-sizing: border-box; padding: 48px; border-radius: 28px; background: var(--cf-node, #1e293b); border: 1px solid var(--cf-rule, #334155);
-  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.28); }
+  box-shadow: var(--shadow-2, 0 24px 64px rgba(0, 0, 0, 0.28)); }
 .cf-card-head { display: flex; align-items: center; justify-content: space-between; gap: 24px; }
 .cf-card-title { font: 600 ${Math.round(TYPE.body * 1.2)}px/1.2 var(--font-sans); white-space: nowrap; }
 .cf-card-sub { margin-top: 8px; font: 400 ${SMALL_PX}px/1.3 var(--font-sans); color: var(--cf-muted, #cbd5e1); white-space: nowrap; }
@@ -59,7 +60,7 @@ html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background:
 .cf-line { display: flex; flex-direction: column; align-items: center; gap: 24px; }
 .cf-line-label { font: 600 ${TYPE.body}px/1.2 var(--font-sans); white-space: nowrap; }
 .cf-list { box-sizing: border-box; width: 960px; padding: 24px; border-radius: 28px; background: var(--cf-node, #1e293b);
-  border: 1px solid var(--cf-rule, #334155); box-shadow: 0 24px 64px rgba(0, 0, 0, 0.28); position: relative; }
+  border: 1px solid var(--cf-rule, #334155); box-shadow: var(--shadow-2, 0 24px 64px rgba(0, 0, 0, 0.28)); position: relative; }
 .cf-list-row { padding: 20px 24px; border-radius: 16px; font: 500 ${Math.round(TYPE.body * 0.85)}px/1.3 var(--font-sans); white-space: nowrap; }
 .cf-controls { display: flex; gap: 16px; margin-top: 24px; padding: 0 8px; }
 .cf-control { padding: 14px 28px; border-radius: 14px; background: var(--cf-accent, #60a5fa); color: var(--cf-surface, #0f172a);

@@ -575,7 +575,14 @@ module WalkthroughRender
         cursor_png: container(File.join(dir, 'cursor.png')), srt: container(File.join(dir, 'captions.srt')),
         output: container(File.join(dir, 'walkthrough.mp4')), burn_captions: @burn_captions, music: music, duck_spans: duck_spans(inputs),
         voice_eq: WalkthroughStoryboard.voice_eq(@board), scenes: inputs.map { |i| plan_scene(i) },
-        sfx: sfx_tracks(inputs) }.merge(caption_plan)
+        sfx: sfx_tracks(inputs) }.merge(caption_plan, look_plan)
+    end
+
+    # The board `look` (grain, vignette), only when something is on, so a
+    # board without one, or with everything off, keeps its argv byte for byte.
+    def look_plan
+      look = WalkthroughLook.plan(@board)
+      look ? { look: look } : {}
     end
 
     # Board `captions` choices, only when set, so other plans stay identical.

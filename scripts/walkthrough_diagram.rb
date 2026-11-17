@@ -738,6 +738,29 @@ module WalkthroughDiagram
 
   def palette_css(colors) = ":root { #{colors.map { |k, v| "--cf-#{k}: #{v};" }.join(' ')} }"
 
+  # Default-on depth for both themes: two shadow steps and a two-stop
+  # background gradient whose top takes a breath of the accent over the
+  # surface. Element and diagram pages read these; grain and vignette are
+  # the opt-in board `look` (WalkthroughLook), never these.
+  DEPTH_SHADOWS = {
+    light: [ '0 2px 6px rgba(15, 23, 42, 0.08), 0 1px 2px rgba(15, 23, 42, 0.06)',
+             '0 24px 64px rgba(15, 23, 42, 0.14), 0 6px 16px rgba(15, 23, 42, 0.08)' ],
+    dark: [ '0 2px 8px rgba(0, 0, 0, 0.32), 0 1px 2px rgba(0, 0, 0, 0.24)',
+            '0 24px 64px rgba(0, 0, 0, 0.44), 0 6px 16px rgba(0, 0, 0, 0.28)' ]
+  }.freeze
+  DEPTH_ACCENT_SHARE = { light: 0.05, dark: 0.10 }.freeze
+
+  def depth_css(colors, theme)
+    surface = DiagramPalette.rgb(colors['surface'])
+    top = DiagramPalette.hex(DiagramPalette.mix(DiagramPalette.rgb(colors['accent']), surface, DEPTH_ACCENT_SHARE.fetch(theme))).downcase
+    one, two = DEPTH_SHADOWS.fetch(theme)
+    ":root { --shadow-1: #{one}; --shadow-2: #{two}; --bg-from: #{top}; --bg-to: #{colors['surface']}; " \
+      '--bg-gradient: linear-gradient(180deg, var(--bg-from), var(--bg-to)); }'
+  end
+
+  # The palette and depth tokens as one style body.
+  def tokens_css(colors, theme) = "#{palette_css(colors)}\n#{depth_css(colors, theme)}"
+
   # The item colours as JSON for the runtime, or nothing at all when the
   # spec has none, so an uncoloured screen keeps its bytes.
   def colors_script(spec, root)
@@ -806,7 +829,7 @@ module WalkthroughDiagram
       <head>
       <meta charset="utf-8">
       <title>#{title}</title>
-      <style>#{palette_css(palette(root, theme(scene['diagram'])))}</style>
+      <style>#{tokens_css(palette(root, theme(scene['diagram'])), theme(scene['diagram']))}</style>
       </head>
       <body>
       <main id="cf-diagram-root" aria-label="#{title}"></main>

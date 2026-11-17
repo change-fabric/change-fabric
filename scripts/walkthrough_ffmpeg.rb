@@ -4,6 +4,7 @@ require 'json'
 require 'shellwords'
 require_relative 'ffmpeg_square'
 require_relative 'walkthrough_duck'
+require_relative 'walkthrough_look'
 require_relative 'walkthrough_transition'
 
 # Pure FFmpeg argv generation for a walkthrough render. Nothing here shells
@@ -350,7 +351,8 @@ module WalkthroughFfmpeg
     # Captions are soft (a mov_text track) unless the plan asks to burn them in.
     # caption_track false means sidecar files only: nothing burned or muxed.
     burn = plan[:burn_captions] && plan[:caption_track] != false ? "subtitles=filename='#{plan[:srt]}'#{caption_style(plan)}," : ''
-    parts << "[#{acc}]#{burn}format=yuv420p[vout]"
+    look = plan[:look] ? "#{WalkthroughLook.filter(plan[:look])}," : ''
+    parts << "[#{acc}]#{look}#{burn}format=yuv420p[vout]"
     parts
   end
 

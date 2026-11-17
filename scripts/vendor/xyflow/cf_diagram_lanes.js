@@ -535,7 +535,7 @@
   }).join('\n');
   const css = document.createElement('style');
   css.textContent = `
-body { background: var(--cf-surface, #ffffff); }
+body { background: var(--bg-gradient, var(--cf-surface, #ffffff)); }
 #cf-diagram-root { position: relative; z-index: 1; }
 #cf-diagram-root .react-flow { background: transparent; --xy-background-color: transparent; }
 .cf-lanes, .cf-lane-front { position: fixed; inset: 0; pointer-events: none; overflow: visible; }

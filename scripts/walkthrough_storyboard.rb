@@ -13,6 +13,7 @@ require_relative 'walkthrough_element'
 require_relative 'walkthrough_environment'
 require_relative 'walkthrough_transition'
 require_relative 'walkthrough_live'
+require_relative 'walkthrough_look'
 require_relative 'walkthrough_words'
 
 # storyboard.json (schema_version 1) is the source of truth for a
@@ -74,6 +75,7 @@ module WalkthroughStoryboard
     errors.concat(pronunciation_errors(board.dig('voice', 'pronunciations')))
     errors.concat(music_errors(board)) unless list.empty?
     errors.concat(WalkthroughTransition.errors(board['transition']))
+    errors.concat(WalkthroughLook.errors(board['look']))
     orders = list.to_h { |s| [ s['id'], s['order'].to_i ] }
     by_id = list.to_h { |s| [ s['id'], s ] }
     list.each do |scene|

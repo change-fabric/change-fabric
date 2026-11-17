@@ -388,7 +388,7 @@ module WalkthroughElement
       <head>
       <meta charset="utf-8">
       <title>#{title}</title>
-      <style>#{WalkthroughDiagram.palette_css(colors)}</style>
+      <style>#{WalkthroughDiagram.tokens_css(colors, theme(scene))}</style>
       </head>
       <body>
       <main id="cf-element-root" aria-label="#{title}"></main>
