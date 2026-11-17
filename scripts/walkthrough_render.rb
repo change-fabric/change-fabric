@@ -318,6 +318,9 @@ module WalkthroughRender
         halves = [ scene, WalkthroughLive.pair_next(@board, scene) ].compact
         next [] unless halves.any? { |s| capture_target?(s) }
         next halves.map { |s| "#{s['id']} (--recapture or --scene)" } if halves.any? { |s| recapture?(s) }
+        # Word anchors key only once resolved; the call just before filming
+        # covers such a scene.
+        next [] if halves.any? { |s| WalkthroughStoryboard.unresolved?(s) }
         next [] if halves.all? { |s| captured?(s, prep(s, memo)) }
 
         halves.map { |s| "#{s['id']} (#{WalkthroughLive.recapture_reason(@root, s['id'], prep(s, memo))})" }

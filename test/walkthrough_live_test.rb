@@ -458,6 +458,15 @@ class WalkthroughLiveTest < Minitest::Test
     assert_match(/landing \(changed: [^)]*duration_ms/, @log.string)
   end
 
+  def test_a_cached_word_anchored_scene_reports_no_recapture
+    b = board
+    b["scenes"].find { |sc| sc["id"] == "inbox" }["interactions"] << { "at" => { "word" => "inbox" }, "op" => "click", "target" => "#archive" }
+    File.write(File.join(@root, "storyboard.json"), JSON.pretty_generate(b))
+    render
+    render
+    refute_includes @log.string, "live recapture:"
+  end
+
   def test_secret_never_reaches_a_written_artifact
     render
     files = Dir.glob(File.join(@root, "**", "*"), File::FNM_DOTMATCH).select { |f| File.file?(f) }
