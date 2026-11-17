@@ -6,6 +6,7 @@ require 'time'
 require 'fileutils'
 require 'open3'
 require 'digest'
+require 'socket'
 require_relative 'contributors_team'
 require_relative 'plan_phase_trailer'
 
@@ -22,9 +23,25 @@ require_relative 'plan_phase_trailer'
 class StackStore
   STATES = %w[pending preparing handed_off merged paused escalated].freeze
   MODES = %w[merge_ready admin_bypass yolo].freeze
-  SOURCES = %w[plan list].freeze
+  SOURCES = %w[plan list sweep].freeze
+  # Only the head of line may start being prepared or be handed off.
+  HEAD_ONLY = %w[preparing handed_off].freeze
+  LEASE_TTL = 900
 
   class Invalid < StandardError; end
+
+  # The repo's ACTIVE claim or LEASE is held by someone else. `holder` is the
+  # parsed holder JSON, or nil when the file is empty or unparseable, which
+  # still reads as held, never as free.
+  class Held < Invalid
+    attr_reader :kind, :holder
+
+    def initialize(kind, holder)
+      @kind = kind
+      @holder = holder
+      super("#{kind} by #{holder ? holder['slug'] : 'an incomplete holder'}")
+    end
+  end
 
   def self.for_dir(dir, slug)
     new(repo_key(dir), slug)
@@ -65,6 +82,104 @@ class StackStore
     Array(record['prs']).find { |pr| pr['state'] != 'merged' }
   end
 
+  def self.base_dir(dir) = File.join(root, repo_dir(repo_key(dir)))
+
+  # Holder JSON of a claim or lease file: nil when absent, :incomplete when
+  # the file exists but is empty or unparseable (callers treat that as held).
+  def self.holder(file)
+    return nil unless File.exist?(file)
+
+    data = JSON.parse(File.read(file))
+    data.is_a?(Hash) && data['slug'] ? data : :incomplete
+  rescue JSON::ParserError, SystemCallError
+    :incomplete
+  end
+
+  # Publishes `data` at `file` exclusively: temp file, fsync, then link(2),
+  # which fails with EEXIST when the name is taken, so a reader never sees a
+  # partial file and two writers never both win. Returns false when taken.
+  def self.publish_exclusive(file, data)
+    FileUtils.mkdir_p(File.dirname(file))
+    tmp = "#{file}.#{Process.pid}.#{rand(1 << 30)}.tmp"
+    File.open(tmp, File::WRONLY | File::CREAT | File::EXCL) do |io|
+      io.write(JSON.generate(data))
+      io.fsync
+    end
+    File.link(tmp, file)
+    true
+  rescue Errno::EEXIST
+    false
+  ensure
+    FileUtils.rm_f(tmp) if tmp
+  end
+
+  # True when `git rev-list --parents -n 1 <oid>` output names more than one
+  # parent: a merge commit landed and history is no longer linear.
+  def self.merge_commit?(rev_list_output) = rev_list_output.to_s.split.size > 2
+
+  # Which queue a sweep works on, given the base slug sweep-<first>-<last>.
+  # ACTIVE wins whatever its suffix; otherwise the highest unfinished
+  # base[-N] resumes; otherwise a new record at the first free suffix. A
+  # sweep's endpoints shift as its PRs merge (sweep-12-14 becomes 13-14 once
+  # #12 lands), so for a sweep base any unfinished sweep-* queue resumes: the
+  # recorded queue wins until it finishes.
+  def self.resolve(dir, base)
+    base = segment(base)
+    active = holder(File.join(base_dir(dir), 'ACTIVE'))
+    # A run that died between its final advance and its release leaves ACTIVE
+    # naming a finished queue; that claim is spent, so release it here.
+    if active.is_a?(Hash) && (record = for_dir(dir, active['slug']).read) && finished?(record)
+      for_dir(dir, active['slug']).release
+      active = nil
+    end
+    return resolve_active(active, base) if active
+
+    records = all_for_dir(dir)
+    family = records.select { |r| suffix(r['slug'].to_s, base) }
+    open = family.reject { |r| finished?(r) }.max_by { |r| suffix(r['slug'], base) } ||
+           records.find { |r| !finished?(r) && same_queue?(r['slug'], base) }
+    return { 'action' => 'resume', 'slug' => open['slug'] } if open
+
+    taken = family.map { |r| r['slug'] }
+    slug = ([ base ] + (2..taken.size + 2).map { |n| "#{base}-#{n}" }).find { |c| !taken.include?(c) }
+    { 'action' => 'new', 'slug' => slug }
+  end
+
+  def self.resolve_active(active, base)
+    raise Held.new('held', nil) if active == :incomplete
+    return { 'action' => 'resume', 'slug' => active['slug'] } if same_queue?(active['slug'], base)
+
+    raise Held.new('held', active)
+  end
+
+  def self.same_queue?(slug, base)
+    suffix(slug.to_s, base) || (base.start_with?('sweep-') && slug.to_s.start_with?('sweep-'))
+  end
+
+  # 1 for the base slug, N for base-N, nil for anything else.
+  def self.suffix(slug, base)
+    return 1 if slug == base
+
+    match = slug.match(/\A#{Regexp.escape(base)}-(\d+)\z/)
+    match && match[1].to_i
+  end
+
+  # The resume table: what to do with the head PR given its stored state and
+  # what gh reports. gh is the truth; the store is intent. A handed_off head
+  # whose live head is not the recorded one took a push while nobody watched,
+  # so it is prepared again rather than re-watched. A paused head waits for a
+  # human: only an explicit resume (the user ran the resume command after
+  # clearing the cause) prepares it again; an unattended tick reports.
+  # A merged head advances only once its merge commit has one parent.
+  def self.resume_action(store_state, gh_state, recorded_head: nil, live_head: nil, explicit: false, merge_commit: false)
+    return merge_commit ? 'escalate' : 'advance' if gh_state == 'MERGED'
+    return 'escalate' if gh_state == 'CLOSED'
+    return 'redrive' if store_state.to_s == 'handed_off' && live_head && recorded_head != live_head
+    return 'redrive' if store_state.to_s == 'paused' && explicit
+
+    { 'pending' => 'drive', 'preparing' => 'redrive', 'handed_off' => 'rewatch' }.fetch(store_state.to_s, 'report')
+  end
+
   attr_reader :slug
 
   def initialize(repo_id, slug)
@@ -83,17 +198,116 @@ class StackStore
     nil
   end
 
+  def active_path = File.join(File.dirname(path), 'ACTIVE')
+  def lease_path = File.join(File.dirname(path), 'LEASE')
+
+  # Claims the repo's one active queue for this slug. Resumes when the claim
+  # is already ours; raises Held naming the holder otherwise.
+  def claim(source: nil)
+    data = { 'slug' => @slug, 'source' => source.to_s, 'claimed_at' => Time.now.utc.iso8601 }
+    with_lock(active_path) do
+      return { 'claim' => 'created', 'slug' => @slug } if StackStore.publish_exclusive(active_path, data)
+
+      holder = StackStore.holder(active_path)
+      return { 'claim' => 'resumed', 'slug' => @slug } if holder.is_a?(Hash) && holder['slug'] == @slug
+
+      raise Held.new('held', holder.is_a?(Hash) ? holder : nil)
+    end
+  end
+
+  def claimed?
+    holder = StackStore.holder(active_path)
+    holder.is_a?(Hash) && holder['slug'] == @slug
+  end
+
+  # Removes ACTIVE only when it names this slug; a non-holder release is a
+  # no-op. `stale: true` clears this slug's claim only when it has no record
+  # and no live lease holder, and refuses otherwise. Stale recovery holds the
+  # ACTIVE lock (which init also takes) and then the LEASE lock for the whole
+  # check-and-remove, so no run can lease and init in between.
+  def release(stale: false)
+    return remove_claim unless stale
+
+    with_lock(active_path) do
+      raise Invalid, "#{@slug} has a record; resume or clear it" if read
+
+      with_lease_lock do
+        raise Invalid, "#{@slug} lease holder is still live" unless lease_takeable?(StackStore.holder(lease_path))
+
+        FileUtils.rm_f(lease_path)
+      end
+      released = claimed?
+      FileUtils.rm_f(active_path) if released
+      { 'released' => released, 'slug' => @slug }
+    end
+  end
+
+  # Acquires the executor lease. Exclusive even for the same slug; only the
+  # same session re-acquires its own. Takeover only when the holder's pid is
+  # gone on this host or its heartbeat is older than LEASE_TTL. The holder
+  # check and the replacement run under one lock, so two runs taking over the
+  # same stale lease cannot both win.
+  def lease(session:, pid: nil, now: Time.now.utc)
+    data = { 'slug' => @slug, 'pid' => pid&.to_i, 'host' => Socket.gethostname, 'session_id' => session.to_s,
+             'acquired_at' => now.iso8601, 'heartbeat_at' => now.iso8601 }
+    with_lease_lock do
+      return data if StackStore.publish_exclusive(lease_path, data)
+
+      holder = StackStore.holder(lease_path)
+      raise Held.new('leased', holder.is_a?(Hash) ? holder : nil) unless own_lease?(holder, session) ||
+                                                                         lease_takeable?(holder, now)
+
+      FileUtils.rm_f(lease_path)
+      return data if StackStore.publish_exclusive(lease_path, data)
+
+      raise Held.new('leased', nil)
+    end
+  end
+
+  def heartbeat(session:, now: Time.now.utc)
+    with_lease_lock do
+      holder = StackStore.holder(lease_path)
+      raise Invalid, "#{@slug} does not hold the lease for this session" unless own_lease?(holder, session)
+
+      holder['heartbeat_at'] = now.iso8601
+      tmp = "#{lease_path}.#{Process.pid}.tmp"
+      File.write(tmp, JSON.generate(holder))
+      File.rename(tmp, lease_path)
+      holder
+    end
+  end
+
+  # Frees the lease only for the session holding it, so a run whose expired
+  # lease was taken over cannot delete its successor's. `clear` is the manual
+  # reset and passes force: true.
+  def unlease(session: nil, force: false)
+    with_lease_lock do
+      holder = StackStore.holder(lease_path)
+      mine = force ? holder.is_a?(Hash) && holder['slug'] == @slug : own_lease?(holder, session)
+      FileUtils.rm_f(lease_path) if mine
+      { 'unleased' => mine ? @slug : nil }
+    end
+  end
+
   def init(repo:, source:, mode:, prs:, plan_dir: nil)
     validate!(SOURCES, source, 'source')
     validate!(MODES, mode, 'mode')
     prs = prs.map { |pr| stringify(pr) }
     prs.each { |pr| validate_phase!(pr) }
-    write(
-      'slug' => @slug, 'repo' => repo.to_s, 'source' => source.to_s,
-      'plan_dir' => plan_dir, 'mode' => mode.to_s,
-      'prs' => prs.map { |pr| blank_pr.merge(pr) },
-      'current' => 0, 'judged' => []
-    )
+    with_lock(active_path) do
+      raise Invalid, "claim #{@slug} before init (stack_store.rb claim #{@slug})" unless claimed?
+
+      existing = read
+      raise Invalid, "#{@slug} is finished and archived; use the next free suffix" if existing && StackStore.finished?(existing)
+      raise Invalid, "#{@slug} is unfinished; resume it rather than init" if existing
+
+      write(
+        'slug' => @slug, 'repo' => repo.to_s, 'source' => source.to_s,
+        'plan_dir' => plan_dir, 'mode' => mode.to_s,
+        'prs' => prs.map { |pr| blank_pr.merge(pr) },
+        'current' => 0, 'judged' => []
+      )
+    end
   end
 
   # Merges fields into the PR entry numbered `number`.
@@ -103,14 +317,21 @@ class StackStore
     validate_phase!(fields)
     update do |record|
       pr = find_pr!(record, number)
+      guard_head_of_line!(record, pr) if HEAD_ONLY.include?(fields['state'])
       pr.merge!(fields)
     end
   end
 
   # Marks the current PR merged and moves `current` to the next unmerged one.
-  def advance
+  # With `expect`, refuses unless the current PR is that number, so a
+  # duplicate or out-of-order advance is an error rather than a skip.
+  def advance(expect: nil)
     update do |record|
       current = StackStore.current_pr(record)
+      if expect && current&.dig('number').to_s != expect.to_s
+        raise Invalid, "advance expected ##{expect}, current is ##{current&.dig('number') || 'none'}"
+      end
+
       current['state'] = 'merged' if current
       record['current'] = Array(record['prs']).index { |pr| pr['state'] != 'merged' } || record['prs'].size
     end
@@ -132,10 +353,63 @@ class StackStore
 
   def clear
     FileUtils.rm_f(path) if persistable?
+    remove_claim
+    unlease(force: true)
     nil
   end
 
   private
+
+  def guard_head_of_line!(record, pr)
+    current = StackStore.current_pr(record)
+    return if current && current['number'].to_s == pr['number'].to_s
+
+    raise Invalid, "PR ##{pr['number']} is not head of line (current is ##{current&.dig('number') || 'none'})"
+  end
+
+  def remove_claim
+    with_lock(active_path) do
+      return { 'released' => false, 'slug' => @slug } unless claimed?
+
+      FileUtils.rm_f(active_path)
+      { 'released' => true, 'slug' => @slug }
+    end
+  end
+
+  def with_lease_lock(&) = with_lock(lease_path, &)
+
+  # Serializes every read-check-replace of ACTIVE or LEASE across processes;
+  # atomic publish alone cannot protect a check followed by a delete.
+  def with_lock(file)
+    FileUtils.mkdir_p(File.dirname(file))
+    File.open("#{file}.lock", File::RDWR | File::CREAT, 0o600) do |lock|
+      lock.flock(File::LOCK_EX)
+      yield
+    end
+  end
+
+  def own_lease?(holder, session)
+    holder.is_a?(Hash) && holder['slug'] == @slug && holder['session_id'] == session.to_s
+  end
+
+  def lease_takeable?(holder, now = Time.now.utc)
+    return true if holder.nil?
+    return File.mtime(lease_path) < now - LEASE_TTL if holder == :incomplete
+    return true if holder['host'] == Socket.gethostname && holder['pid'] && !pid_alive?(holder['pid'])
+
+    Time.parse(holder['heartbeat_at'].to_s) < now - LEASE_TTL
+  rescue ArgumentError, SystemCallError
+    true
+  end
+
+  def pid_alive?(pid)
+    Process.kill(0, pid.to_i)
+    true
+  rescue Errno::ESRCH
+    false
+  rescue Errno::EPERM
+    true
+  end
 
   def persistable? = !@repo_id.empty? && !@slug.empty?
 
@@ -187,28 +461,51 @@ class StackStore
   # The thin CLI stack mode drives from Bash. Every subcommand prints one JSON
   # line so the skill parses one shape.
   class CLI
-    USAGE = 'stack_store.rb init <slug> --repo o/r --source plan|list --mode MODE ' \
+    USAGE = 'stack_store.rb claim <slug> [--source S] | release <slug> [--stale] | resolve <base-slug> | ' \
+            'lease <slug> --session ID [--pid PID] | heartbeat <slug> --session ID | unlease <slug> --session ID | ' \
+            'init <slug> --repo o/r --source plan|list|sweep --mode MODE ' \
             '[--plan-dir DIR] --pr N:URL:HEAD:SHA ... | get <slug> | ' \
-            'set-pr <slug> <n> key=value ... | advance <slug> | pause <slug> <reason> | ' \
+            'set-pr <slug> <n> key=value ... | advance <slug> [--expect N] | pause <slug> <reason> | ' \
             'judged <slug> <text> | list | clear <slug>'
 
+    # Returns the exit status: 0 on success, 1 on a refusal or usage error, so
+    # a shell caller stops on a refused transition.
     def self.run(argv, out: $stdout, dir: Dir.pwd, ctx: method(:ctx_pointer))
       command, slug, *rest = argv
-      return out.puts(JSON.generate(StackStore.all_for_dir(dir))) if command == 'list'
-      return usage(out) if slug.to_s.empty?
+      return emit(out, StackStore.all_for_dir(dir)) if command == 'list'
+      return emit(out, { error: 'usage', usage: USAGE }, 1) if slug.to_s.empty?
+      return emit(out, StackStore.resolve(dir, slug)) if command == 'resolve'
 
-      store = StackStore.for_dir(dir, slug)
-      out.puts(JSON.generate(dispatch(command, store, rest, dir, ctx)))
+      result = dispatch(command, StackStore.for_dir(dir, slug), rest, dir, ctx)
+      emit(out, result, result.is_a?(Hash) && result[:error] ? 1 : 0)
+    rescue Held => e
+      emit(out, { error: e.kind, holder: e.holder }, 1)
     rescue Invalid => e
-      out.puts(JSON.generate(error: e.message))
+      emit(out, { error: e.message }, 1)
+    end
+
+    def self.emit(out, value, status = 0)
+      out.puts(JSON.generate(value))
+      status
     end
 
     def self.dispatch(command, store, rest, dir, ctx)
       case command
+      when 'claim' then store.claim(source: flag(rest, 'source'))
+      when 'release' then store.release(stale: rest.include?('--stale'))
+      when 'lease' then store.lease(session: flag(rest, 'session'), pid: flag(rest, 'pid'))
+      when 'heartbeat' then store.heartbeat(session: flag(rest, 'session'))
+      when 'unlease' then store.unlease(session: flag(rest, 'session'))
+      else record_command(command, store, rest, dir, ctx)
+      end
+    end
+
+    def self.record_command(command, store, rest, dir, ctx)
+      case command
       when 'init' then init(store, rest, dir, ctx)
       when 'get' then store.read
       when 'set-pr' then store.set_pr(rest.first, pairs(rest.drop(1)))
-      when 'advance' then advance(store, dir, ctx)
+      when 'advance' then advance(store, dir, ctx, flag(rest, 'expect'))
       when 'pause' then store.pause(rest.first)
       when 'judged' then store.add_judged(rest.join(' '))
       when 'clear' then clear(store, dir, ctx)
@@ -216,7 +513,10 @@ class StackStore
       end
     end
 
-    def self.usage(out) = out.puts(JSON.generate(error: 'usage', usage: USAGE))
+    def self.flag(args, name)
+      index = args.index("--#{name}")
+      index && args[index + 1]
+    end
 
     def self.init(store, rest, dir, ctx)
       flags, prs = parse_init(rest)
@@ -227,8 +527,8 @@ class StackStore
     end
 
     # A finished stack retires its ctx pointer so SessionStart stops offering a resume.
-    def self.advance(store, dir, ctx)
-      record = store.advance
+    def self.advance(store, dir, ctx, expect = nil)
+      record = store.advance(expect:)
       ctx.call(dir, store.slug, :retire) if StackStore.finished?(record)
       record
     end
@@ -278,4 +578,4 @@ class StackStore
   end
 end
 
-StackStore::CLI.run(ARGV) if __FILE__ == $PROGRAM_NAME
+exit(StackStore::CLI.run(ARGV)) if __FILE__ == $PROGRAM_NAME

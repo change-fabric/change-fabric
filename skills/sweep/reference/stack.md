@@ -3,6 +3,10 @@
 Stack mode lands a batch or stack of PRs strictly one at a time. The current
 PR is always the first one not merged. The store is a cache; gh is the truth.
 
+Report, land, and auto share this per-PR loop: every sweep mode lands one PR
+at a time at the head of line (`skills/sweep/SKILL.md`, One PR at a time).
+Stack mode differs only in where the order comes from.
+
 ## Invocations
 
 Forms: `/cf:sweep stack <plan_dir | #a #b ...>`, `/cf:sweep stack resume`,
@@ -21,12 +25,37 @@ Forms: `/cf:sweep stack <plan_dir | #a #b ...>`, `/cf:sweep stack resume`,
 Start a stack with:
 
 ```
+ruby ~/.claude/cf/bin/stack_store.rb claim <slug> --source stack
 ruby ~/.claude/cf/bin/stack_store.rb init <slug> --repo <o/r> --source plan|list \
   --mode <merge_ready|admin_bypass|yolo> [--plan-dir DIR] --pr N:URL:HEAD:SHA ...
 ```
 
-`init` also writes the `stack-<slug>` ctx pointer, so SessionStart surfaces
+`claim` takes the repo's one ACTIVE queue; if another queue (a sweep or
+another stack) holds it, stop and name the holder. `init` refuses without the
+claim. `init` also writes the `stack-<slug>` ctx pointer, so SessionStart surfaces
 a paused stack and offers `/cf:sweep stack resume`.
+
+## Executor lease
+
+`LEASE` in the same directory as ACTIVE says which run is executing the queue:
+`stack_store.rb lease <slug> --session <id> [--pid <pid>]`. It is exclusive
+even for the same slug, so two runs of one queue never execute at once; only
+the same session re-acquires its own lease. Takeover only when the holder's
+pid is gone on this host or its heartbeat is older than 900 seconds; otherwise
+it exits non-zero with `{"error":"leased"}` and the run stops. The check and
+the replacement run under one lock, so two takeovers never both win. Run
+`stack_store.rb heartbeat <slug> --session <id>` at each step of the per-PR
+loop, and `unlease <slug> --session <id>` on completion, pause, or abandon;
+it frees only this session's lease, never a successor's. While a PR waits on
+the maintainer, `stack_watch.rb --lease <slug> --session <id>` heartbeats on
+every poll, and `--baseline-sha <old_head_sha>` makes a head that moved
+before the watcher started read as a foreign push (exit 4).
+
+Claim and lease are published atomically (temp file, fsync, `link(2)`, which
+fails when the name exists), so neither is ever read half written. An empty or
+unparseable file reads as held, never as free. `stack_store.rb release <slug>
+--stale` clears a claim that has no record and no live lease holder, and
+refuses otherwise.
 
 Read the merge mode with `merge_mode_store.rb`. Under local only, stack mode
 does not run: say so and stop.
@@ -81,8 +110,10 @@ does not run: say so and stop.
    PR's final head with `stack_store.rb set-pr <slug> <n> old_head_sha=<sha>`
    (`gh pr view <n> --json headRefOid`); the child cuts at it after the merge.
    Re-record after any later push to this PR.
-6. **Advance.** `stack_store.rb advance <slug>`; the next PR rebases onto the
-   fresh trunk. After the last PR, clear the store and report what landed.
+6. **Advance.** Confirm with `gh pr view <n> --json state,mergedAt` that the
+   PR merged, then `stack_store.rb advance <slug> --expect <n>`; the next PR
+   rebases onto the fresh trunk. After the last PR, `stack_store.rb release
+   <slug>` and report what landed.
 
 ## Hand-off by merge mode
 

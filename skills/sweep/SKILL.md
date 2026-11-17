@@ -132,9 +132,10 @@ Orthogonal to trust: trust is "do I believe this person's code", run mode is
 "how interactive is this run". Taken from the invocation argument when given:
 
 - `report`: analyze and report, merge nothing. Do not ask whether to start:
-  under Merge ready, go straight on to `/cf:drive quick` for the first PR in
-  `autoMergeQueue` and hand off its URL, then take the next one as each
-  merges. An empty queue ends the run at the report.
+  under Merge ready, go straight on to `/cf:drive quick` for the head of line
+  in `autoMergeQueue` and hand off its URL, then take the next one as each
+  merges, one PR at a time (see One PR at a time below). An empty queue ends
+  the run at the report.
 - `land`: report, then drive and merge the eligible queue with one sign-off
   checkpoint before the first merge.
 - `auto` (the default): no questions at all after any trust question; drive
@@ -142,9 +143,9 @@ Orthogonal to trust: trust is "do I believe this person's code", run mode is
   loop mode.
 
 `auto` is the default whenever no mode word is given, interactive or not, away
-or not. Merge mode still gates every merge: under Merge ready step 7 still
-drives and pushes each queued PR but stops before merging, and the report
-names what it would have merged (see Merge mode and the change gate below).
+or not. Merge mode still gates every merge: under Merge ready, step 7 drives
+the head PR, hands off its URL, arms `stack_watch.rb`, and on merge rebases
+and readies the next (see Merge mode and the change gate below).
 
 `--signoff` with no mode word calls `AskUserQuestion` once: header `Sweep
 mode`, options **Report only** (first, recommended), **Land with sign-off**,
@@ -158,15 +159,148 @@ that stopped at two checkpoints per PR would not be a sweep.
 
 `/loop 30m /cf:sweep auto` keeps a development trunk current: every tick
 re-lists open PRs, reuses the recorded trust policy, re-runs the analysis
-against the trunk as it now stands, and lands what is eligible. Each tick is a
-full re-analysis, not a resumption; a PR that was `rebase_then_merge` last tick
-may be `merge` this tick because its blocker landed. Nothing is cached between
-ticks except the trust policy.
+against the trunk as it now stands, and lands what is eligible. A tick that
+finds an unfinished `sweep-*` record for the repo (or any other ACTIVE claim)
+resumes that queue, or stops naming the holder, and never starts a second
+queue. The recorded queue wins until it finishes, even if the order would now
+differ (a new PR opened, a hold cleared): new PRs wait for the next queue.
+The order is kept, not the eligibility: the tick re-applies the current trust policy
+(`eligibilityReasons`) to the recorded head, and one that fails, such as a newly
+`blocked` author's, is held with its reasons, never prepared or landed unattended.
+Only once no queue is open is a tick a full re-analysis; a PR that was
+`rebase_then_merge` last time may be `merge` now because its blocker landed.
+Nothing is cached between ticks except the trust policy and the open queue.
 
 When `CHANGE.md` declares a deploy target for trunk (a `change_config` profile
 matching the trunk environment), pass its summary into the Workflow so the
 infra gates are expressed against the real target, and report the deploy state
 of trunk after the last merge of a tick.
+
+## One PR at a time
+
+Every sweep mode (report, land, auto, stack, and a loop tick) works on one PR
+at a time. The head of line is the first PR in `autoMergeQueue` (or the stack
+order) that has not merged. Only the head is rebased, pushed to, driven,
+cf:change-gated, handed off, or merged [SW-7]. Every other queued PR is
+"queued, untouched" until it becomes head. Never run cf:change on a PR that is
+not head of line. At most one write agent per repo; read-only fan-out
+(gathering facts, overlap checks, trial merges) stays parallel.
+
+Change Fabric prefers rebase over merge and a linear history, regardless of
+the repo's branch protection settings: the chef's choice, not a probe of what
+the repo happens to require. Why serial: each merge puts every other open PR
+BEHIND, and the rebase that follows changes its head SHA, which throws away
+its CI run and its SHA-keyed cf:change gate record. Work done in parallel on
+the rest of the queue is wasted.
+
+The rule is enforced, not only written. Every mode records its queue with
+`stack_store.rb init` (non-stack slug `sweep-<first>-<last>`, the first and
+last PR numbers of `autoMergeQueue`, source `sweep`), and `set-pr` refuses
+`preparing` or `handed_off` on any PR that is not the head.
+
+### Controls
+
+- Queue order: `scripts/stack_store.rb` enforces head-only transitions. It
+  does not check gh and does not decide the merge method.
+- One active queue per repo: the ACTIVE claim, below.
+- One executor per queue: the LEASE, below.
+- Merge confirmation: the sweep always confirms a merge with
+  `gh pr view <n> --json state,mergedAt` before `advance`. This check lives
+  here in the skill, not in the store.
+- Merge method: squash or rebase only, below.
+
+### Active-queue claim
+
+`~/.claude/cf/stack/<repo_dir>/ACTIVE` names the one queue that owns the repo,
+in every mode including stack and loop. `stack_store.rb claim <slug>` creates
+it (or resumes, `{"claim":"resumed"}`, when it already names this slug); a
+claim held by another slug exits non-zero with `{"error":"held","holder":...}`.
+`init` refuses without the claim. `release <slug>` removes it only for its own
+slug; `clear` also releases. A run that gets `held` stops and reports the
+holder slug with its `/cf:sweep stack resume` or `stack_store.rb clear <slug>`
+command. It never starts a second queue.
+
+### Executor lease
+
+`LEASE` says which run is executing the queue; it is exclusive even for the
+same slug. Acquire, heartbeat, takeover, atomic publish, and `release --stale`
+are in `reference/stack.md`, Executor lease.
+
+### Command sequence
+
+`S=~/.claude/cf/bin/stack_store.rb`. Base slug `sweep-<first>-<last>` (stack
+mode keeps its own slug).
+
+1. `ruby $S resolve <base>`: ACTIVE wins whatever its suffix; otherwise the
+   highest unfinished `<base>` or `<base>-<N>` resumes; otherwise `new` at the
+   first free suffix. Any unfinished `sweep-*` queue resumes even when its
+   endpoints have shifted as PRs merged. A finished record is archived, never
+   revived, so a new queue over the same PRs is `<base>-2`, then `-3`. A held
+   claim stops here.
+2. `ruby $S claim <slug> --source sweep`, then `ruby $S lease <slug>
+   --session <id>` before anything writes the record; a `leased` reply
+   stops the run here.
+3. New: `ruby $S init <slug> --repo o/r --source sweep --mode <merge mode>
+   --pr N:URL:HEAD:SHA ...` for each queued PR in order. `init` refuses an
+   existing record, finished or not, so a late duplicate can never reset a
+   live queue. Resume: the resume table below.
+4. Per head PR: `ruby $S set-pr <slug> <n> state=preparing`, rebase onto
+   origin/<trunk> and `/cf:drive quick` nested under cf:sweep, then hand off or
+   merge by merge mode, then `gh pr view <n> --json state,mergedAt` must say
+   MERGED and the linear-history check must pass, then `ruby $S advance <slug>
+   --expect <n>`. Only then is the next PR touched.
+5. After the last PR: `ruby $S release <slug>` and `ruby $S unlease <slug>
+   --session <id>`.
+
+### Resume table
+
+Always run `gh pr view <n> --json state,mergedAt,headRefOid` on the head
+first; gh is the truth, the store is intent.
+
+| Store state of head | gh says | Action |
+|---|---|---|
+| any | MERGED | run the parent-count check first (Linear-history checks); linear: `advance <slug> --expect <n>`; merge commit: stay or go `paused` with `merge-commit` and escalate, never advance |
+| any | CLOSED unmerged | escalate, `pause <slug> closed` |
+| pending | OPEN | start step 4 |
+| preparing | OPEN | re-run drive from the rebase (idempotent) |
+| handed_off | OPEN, head is `old_head_sha` | never re-drive; re-arm the watcher (Handoff boundary) |
+| handed_off | OPEN, head moved | a push landed while nobody watched: `set-pr <slug> <n> state=preparing` and prepare again |
+| paused | OPEN | unattended tick: report the reason and stop. Explicit resume by the user after the cause is cleared: `set-pr <slug> <n> state=preparing` and prepare again |
+| escalated | OPEN | report the recorded reason; do not continue |
+
+### Handoff boundary
+
+The order is fixed: (a) `set-pr <slug> <n> state=handed_off
+old_head_sha=<sha>`, (b) post the PR's absolute URL, (c) arm `stack_watch.rb
+--pr <n> --repo o/r --expect-sha <sha> --baseline-sha <sha> --lease <slug>
+--session <id>` in the background; it heartbeats the lease every poll, so a
+long wait never lets it expire. Resume never
+re-drives a handed_off head; it re-posts nothing and only re-arms the watcher.
+The handoff message says "squash or rebase only, no merge commit".
+
+Watcher exit 0: confirm via gh, run the parent-count check, then `advance
+<slug> --expect <n>`. Exit 4 (foreign push), 5, or 6: `set-pr <slug> <n>
+state=preparing` and prepare the same head again. Exit 3, 7, or 2: `pause
+<slug> <reason>` (or escalate) and report. No non-zero exit ever moves to the
+next PR; the full table is in `reference/stack.md`.
+
+### Merge method
+
+Squash (the repo rule) or rebase only, never a merge commit. Admin bypass:
+`gh pr merge <n> --squash --admin`. Yolo: rebase and `git push origin
+HEAD:<trunk>`. If the repo allows neither squash nor rebase, escalate; never fall
+back to a merge commit.
+
+### Linear-history checks
+
+- Preflight, once per run: `gh api repos/{o}/{r} --jq '.allow_merge_commit'`;
+  if true, warn once in the summary that the repo allows merge commits but CF
+  does not.
+- After gh confirms a merge, before `advance`: `git fetch origin <trunk>`, take
+  the oid from `gh pr view <n> --json mergeCommit`, and run `git rev-list
+  --parents -n 1 <oid>`. More than one parent means a merge commit landed:
+  `pause <slug> merge-commit` and escalate (`StackStore.merge_commit?` is the
+  same check in Ruby).
 
 ## Workflow
 
@@ -208,21 +342,30 @@ of trunk after the last merge of a tick.
    answerable with every PR's data at once.
 5. **(SKILL.md)** [SW-3] Report, per `reference/summaries.md`'s sweep-summary format.
    Under `report` mode the run ends here, except under Merge ready, where it
-   continues at once (no go/no-go question) by driving the first PR in
-   `autoMergeQueue` (never a held PR) without merging and handing off its
-   URL, one PR at a time. An empty queue ends the run here.
+   continues at once (no go/no-go question) into step 7's head-of-line loop
+   (never a held PR). An empty queue ends the run here.
 6. **(SKILL.md, `land` mode only)** Landing checkpoint: one summary, at most
    640 characters, one go/no-go for the whole queue. Under `auto`, skip it.
-7. **(SKILL.md, `land` and `auto`)** [SW-2][SW-4][SW-5] Walk `autoMergeQueue` in order. For each
-   PR: post any `warnAuthor` comment first (a warning after the rebase is
-   wasted), then invoke `/cf:drive quick` against the PR (the bare form is
+7. **(SKILL.md, `land` and `auto`, and `report` under Merge ready)**
+   [SW-2][SW-4][SW-5][SW-7] The head-of-line loop. Init or resume the store
+   per the Command sequence above, then for the head PR only: post any
+   `warnAuthor` comment first (a warning after the rebase is wasted),
+   `set-pr <slug> <n> state=preparing`, then invoke `/cf:drive quick` against
+   the PR (the bare form is
    thorough, which plans instead of landing), with the inline instruction
    `nested under cf:sweep` (cf:drive runs straight through by default; the
    instruction makes a recurrence stop record a pointer instead of starting
-   cf:plan). When the plan's action is `rebase_then_merge`, that instruction
-   also tells drive to rebase the branch (on trunk or on the earlier PR the
-   order names) before driving it, and drive pushes the rebase to the
-   contributor's own branch; sweep never rebases or pushes by itself. Read
+   cf:plan). That instruction also tells drive to rebase the branch onto
+   origin/<trunk> (trunk per Scope) before driving it (a BEHIND or `rebase_then_merge` PR reaches
+   the head only after every PR ahead of it merged, so the rebase is onto
+   trunk, never onto an unmerged PR), and drive pushes the rebase to the
+   contributor's own branch; sweep never rebases or pushes by itself. Under
+   Merge ready, hand off per the Handoff boundary above: record handed_off,
+   post the URL, arm `stack_watch.rb`, and wait; watcher exit codes are in
+   `reference/stack.md`. Under Admin bypass and Yolo, merge per SW-2 and
+   SW-4 below. Either way, gh must confirm the merge before `stack_store.rb
+   advance <slug> --expect <n>`, and no next PR is driven before that
+   confirmation. Read
    drive's emitted `drive-result` block (`ciGreen`, `headSha`, `stoppedReason`)
    rather than inferring state from its prose; merge only when `ciGreen` is
    true, `headSha` matches the PR's current head, and `stoppedReason` is
@@ -232,8 +375,8 @@ of trunk after the last merge of a tick.
    `cf:change` lane on regardless of drive's own relevance call, and merging
    additionally requires a passing comprehensive `cf:change` run recorded for
    the head SHA; a missing record holds the PR rather than merging on CI
-   green alone. Merge, then re-fetch trunk before the
-   next PR: the next PR's mergeability changed the moment this one landed. If
+   green alone. After the merge, re-fetch trunk, `advance`, and re-read the
+   new head from gh: its mergeability changed the moment this one landed. If
    a merge fails, `cf:drive`'s `drive-result` reports `stoppedReason`, or it
    stops on recurrence, stop the queue, report, and leave the rest for the next
    sweep; do not skip
@@ -250,10 +393,10 @@ The sweep never bypasses either gate the toolkit already enforces.
 The session's active cf merge mode governs step 7 exactly as it governs
 `cf:drive`'s push. Under **Local only**, steps 0-6 still run in full and the
 report is the deliverable; step 7 does not run. **Merge ready** analyzes,
-drives, and pushes, but stops short of merging: the report becomes a merge
-order for the maintainer to execute. Only **Admin bypass** and **Yolo** reach
-an actual `gh pr merge`, and a sweep asked to land under Merge ready says so
-plainly rather than merging anyway.
+drives the head PR, hands it off, and waits for the maintainer's merge before
+touching the next. Only **Admin bypass** and **Yolo** reach an actual merge,
+and a sweep asked to land under Merge ready says so plainly rather than
+merging anyway.
 
 When trunk is itself a protected branch (`protected_branches: [main]` is the
 common case), every merge in step 7 is additionally gated by
@@ -276,8 +419,9 @@ it by default for any plan with more than one PR phase.
 
 - `/cf:sweep stack <plan_dir | #a #b ...>` starts a stack from a plan
   directory (one PR per phase) or an explicit PR list (slug
-  `prs-<first>-<last>`), recorded with `stack_store.rb init`. A stack from a
-  plan records each PR's phase as `stack_store.rb set-pr <slug> <n>
+  `prs-<first>-<last>`), recorded with `stack_store.rb claim` then
+  `stack_store.rb init`, and released with `stack_store.rb release` after
+  the last PR merges. A stack from a plan records each PR's phase as `stack_store.rb set-pr <slug> <n>
   'phase=<area>/<slug>#Phase N'`, taken from the plan's `### Phase N`
   heading the PR lands; that field is the recorded link. Position in the
   stack stays the fallback only for old records with no `phase`.
@@ -286,9 +430,9 @@ it by default for any plan with more than one PR phase.
 - `/cf:sweep stack status` prints the store merged with live gh state, plus
   the count of judged decisions and the plan.md path.
 
-Per PR: re-derive state from gh, rebase onto origin/main (`git rebase --onto
-origin/main <parent-old-head> <head>` once the parent squash merged, then
-`gh pr edit <n> --base main`), prepare with cf:drive quick nested under
+Per PR: re-derive state from gh, rebase onto origin/<trunk> (`git rebase --onto
+origin/<trunk> <parent-old-head> <head>` once the parent squash merged, then
+`gh pr edit <n> --base <trunk>`), prepare with cf:drive quick nested under
 cf:sweep stack (CI green, cf:resolve-threads run, no approval review), handle
 recurrence, hand off, advance the store.
 
@@ -296,7 +440,7 @@ recurrence, hand off, advance the store.
 |---|---|
 | merge ready | Post the PR's absolute URL; arm `stack_watch.rb` in the background; advance on merge or a "merged #N" message. |
 | admin bypass | Escalate if CHANGE.md forbids admin bypass; pass the cf:change gate when `ChangeGateCheck.required?` says so; `gh pr merge <n> --squash --admin`. |
-| yolo | No PRs. Rebase, test, `git push origin HEAD:main`, next branch. |
+| yolo | No PRs. Rebase, test, `git push origin HEAD:<trunk>`, next branch. |
 | local only | Stack mode does not run; say so. |
 
 Gates: a resolve-threads recurrence plan pauses the stack under merge ready
@@ -313,10 +457,11 @@ push escalates. `change_policy.gate.require_on` is available from spec
 |---|---|---|---|
 | SW-1 | Ask, or silently apply, a trust level | Author known by gh login; one primary-contributor-only set skips the question | Unknown author is blocked, never standard |
 | SW-2 | Merge a queued PR | Drive's `drive-result` block: `ciGreen && headSha` matches the PR's current head `&& !stoppedReason` | Hold; never merge on approval or prose alone |
-| SW-3 | Add a PR to `autoMergeQueue` | No conflict, `mergeable: MERGEABLE`, `mergeStateStatus` present and one of CLEAN/HAS_HOOKS/UNSTABLE (missing fails closed), base is trunk per gh (not the agent), not stacked, infra/migration gated, present in the computed order | Hold |
+| SW-3 | Add a PR to `autoMergeQueue` | No conflict, `mergeable: MERGEABLE`, `mergeStateStatus` present and one of CLEAN/HAS_HOOKS/UNSTABLE/BEHIND (missing fails closed; BEHIND is rebased at head of line), base is trunk per gh (not the agent), not stacked, infra/migration gated, present in the computed order | Hold |
 | SW-4 | Merge a `low` trust PR | A passing comprehensive `cf:change` run recorded for the head SHA | Hold even with green CI; a missing record never substitutes |
 | SW-5 | Push a fix or rebase commit to another contributor's branch | Allowed unattended (drive performs the push, never sweep itself) | N/A |
 | SW-6 | Run `auto` or `land` mode, or compute any landing order at all | `gh pr list --limit 101` returns fewer than 101 PRs (the full open set fit in one page) | Force `report` mode, hold every gathered PR, and say the cap was hit and by how many |
+| SW-7 | Rebase, push to, drive, cf:change-gate, hand off, or merge a PR | It is head of line (first unmerged in the recorded queue) and `stack_store.rb set-pr` accepted the transition | Leave it queued, untouched |
 
 ## Failure modes
 
@@ -349,5 +494,12 @@ push escalates. `change_policy.gate.require_on` is available from spec
   hand-assemble an order from the raw PR list; the order is the deliverable and
   a guessed one is worse than none.
 - A merge in step 7 fails: stop the queue at that PR, per step 7 [SW-2]. The
-  remaining PRs are re-analyzed from scratch on the next sweep, which is
-  exactly what loop mode does 30 minutes later.
+  next sweep resumes the recorded queue at that PR (the resume table), which
+  is exactly what loop mode does 30 minutes later.
+- Store refuses a transition: a second PR was about to be driven; stop and
+  report [SW-7]. Never work around the guard by editing the record.
+- An unfinished `sweep-*` record from an aborted run blocks a new queue:
+  resume it. `stack_store.rb clear <slug>` is the documented manual reset.
+- `claim` or `lease` returns held or leased: another queue or run owns the
+  repo; stop and name the holder. `release <slug> --stale` recovers a claim
+  left by a run that died before `init`.

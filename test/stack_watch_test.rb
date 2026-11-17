@@ -75,6 +75,25 @@ class StackWatchTest < Minitest::Test
     assert_equal 0, watch("--expect-sha", "bbb").first
   end
 
+  def test_head_moved_before_rearm_is_a_foreign_push
+    script([ view(head: "ccc") ])
+    code, event = watch("--baseline-sha", "aaa")
+    assert_equal [ 4, "ccc" ], [ code, event["head"] ]
+    script([ view, view(state: "MERGED") ])
+    assert_equal 0, watch("--baseline-sha", "aaa").first
+  end
+
+  def test_heartbeat_runs_every_poll
+    beats = 0
+    script([ view, view, view(state: "MERGED") ])
+    code, = StackWatch.new(pr: 12, repo: "acme/web", interval: 0, heartbeat: -> { beats += 1 }).run
+    assert_equal [ 0, 3 ], [ code, beats ]
+  end
+
+  def test_lease_flag_requires_session
+    assert_equal 2, watch("--lease", "sweep-1-2").first
+  end
+
   def test_new_thread_exits_five
     script([ view ], [ threads(true), threads(true, false) ])
     assert_equal 5, watch.first

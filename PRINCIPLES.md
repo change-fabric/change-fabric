@@ -70,6 +70,17 @@ from a real terminal.
 
 Enforcer: scripts/change_merge_guard.rb, scripts/change_tag_guard.rb, scripts/change_gate_check.rb
 
+## One PR at a time, rebased, linear history
+
+A sweep lands PRs serially: only the head of line (the first unmerged PR in
+the recorded queue) is rebased, driven, gated, handed off, or merged, and the
+next is touched only after gh confirms the merge. Change Fabric prefers rebase
+over merge and keeps history linear (squash or rebase, never a merge commit),
+regardless of what a repo's own branch protection allows. Each merge puts the
+rest BEHIND, and a rebase throws away their SHA-keyed CI and cf:change gate.
+
+Enforcer: scripts/stack_store.rb
+
 ## Merging stages, a human tag releases
 
 Nothing ships on merge. Each track releases when a human pushes its tag; no
