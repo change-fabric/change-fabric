@@ -430,6 +430,22 @@ class WalkthroughLiveTest < Minitest::Test
     assert_equal 1, pass2s.size, "--recapture reassembles despite an unchanged manifest"
   end
 
+  # Before filming, the render names each live scene it will recapture and
+  # the key input that moved; an unchanged film prints no notice.
+  def test_recapture_notice_names_the_changed_input
+    render
+    assert_includes @log.string, "landing (no earlier capture on record)"
+    render
+    refute_includes @log.string, "live recapture:"
+    b = JSON.parse(File.read(File.join(@root, "storyboard.json")))
+    b["scenes"].find { |sc| sc["id"] == "sign-in" }["screen"]["url"] = "https://app.localhost/sign-in-v2"
+    File.write(File.join(@root, "storyboard.json"), JSON.pretty_generate(b))
+    render
+    assert_includes @log.string, "sign-in (changed: live)"
+    assert_includes @log.string, "dashboard (changed: session_from)"
+    refute_includes @log.string, "inbox ("
+  end
+
   def test_secret_never_reaches_a_written_artifact
     render
     files = Dir.glob(File.join(@root, "**", "*"), File::FNM_DOTMATCH).select { |f| File.file?(f) }

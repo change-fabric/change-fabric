@@ -302,6 +302,28 @@ module WalkthroughRender
       end
     end
 
+    # Before anything films, which live scenes will recapture and why, so a
+    # key change (a toolkit upgrade, an edit upstream) never recaptures a
+    # whole film against a drifted site unannounced.
+    def recapture_notice
+      memo = {}
+      lines = scenes.filter_map do |scene|
+        next unless live?(scene) && capture_target?(scene) && !WalkthroughLive.pair_parent(@board, scene)
+
+        pre = prep(scene, memo)
+        next "#{scene['id']} (--recapture or --scene)" if recapture?(scene)
+        next if captured?(scene, pre)
+
+        "#{scene['id']} (#{WalkthroughLive.recapture_reason(@root, scene['id'], pre)})"
+      rescue ArgumentError
+        nil
+      end
+      return if lines.empty?
+
+      say("live recapture: #{lines.size} scene(s) will film the live app again:")
+      lines.each { |l| say("  #{l}") }
+    end
+
     # Captured in real time in the live browser: a live or compose scene.
     def live?(scene) = WalkthroughLive.realtime?(scene)
 
@@ -359,6 +381,7 @@ module WalkthroughRender
         pair = nxt ? { next_scene: nxt, next_out_dir: prep(nxt, memo)[:out_dir] } : {}
         ended = @p[:live_capture].call(**live_args(session, scene, prep(scene, memo)[:out_dir], start), compose: compose_spec(scene, memo), **pair)
         sessions[(nxt || scene)['id']] = ended
+        halves.each { |s| WalkthroughLive.record_inputs(@root, s['id'], prep(s, memo)) }
       end
     end
 
@@ -987,6 +1010,7 @@ module WalkthroughRender
       return nil if estimate_only
 
       refuse_placeholders! if @final
+      recapture_notice
       silent_cut if silent_cut?
       generate_audio
       resolve_anchors!
