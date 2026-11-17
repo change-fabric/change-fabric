@@ -12,6 +12,7 @@ require_relative 'prototype_imagegen'
 require_relative 'prototype_ux_lint'
 require_relative 'walkthrough_cache'
 require_relative 'walkthrough_deliverables'
+require_relative 'walkthrough_share'
 require_relative 'walkthrough_draft_board'
 require_relative 'walkthrough_captions'
 require_relative 'walkthrough_clipcheck'
@@ -1048,8 +1049,22 @@ module WalkthroughRender
                                                                 provisional: @provisional)
       say("deliverable #{paths[:mp4]}")
       say(WalkthroughDeliverables.fenced(paths[:line]))
+      share(paths[:mp4])
       prune if @final
       paths
+    end
+
+    # Writes the chat-sized <name>-share.mp4 beside the deliverable in the
+    # pinned FFmpeg container and prints its fenced walkthrough-share line.
+    def share(mp4)
+      encode = lambda do |args|
+        _, status = @p[:docker].call(docker_argv(args))
+        status.success?
+      end
+      result = WalkthroughShare.make(@root, mp4, encode: encode, work: WORK)
+      return say("share copy not made: #{result[:error]}") if result[:error]
+
+      say(WalkthroughDeliverables.fenced(WalkthroughShare.line(result[:path])))
     end
 
     def delivery_kind

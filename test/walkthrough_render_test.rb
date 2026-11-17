@@ -100,6 +100,12 @@ class WalkthroughRenderTest < Minitest::Test
         @critic
       end,
       docker: lambda do |argv|
+        # Share copies are tracked apart so render call counts stay exact.
+        if argv.last.end_with?("-share.mp4")
+          (@share_calls ||= []) << argv
+          File.binwrite(argv.last.sub(%r{\A/work/}, "#{@root}/"), "share")
+          return [ "", Status.new(true) ]
+        end
         @calls[argv.include?("ebur128=peak=true") ? :loudness : :docker] << argv
         if argv.include?("-buildconf")
           [ "--enable-libass --enable-libx264", Status.new(true) ]
@@ -1030,6 +1036,10 @@ class WalkthroughRenderTest < Minitest::Test
     assert_match(%r{demo-draft-02\.mp4 \| draft-02: narrated; scenes list, detail and hero refilmed\z}, lines[1])
     kinds = JSON.parse(File.read(File.join(@root, "demo-deliveries.json")))["deliveries"].map { |e| e["kind"] }
     assert_equal %w[silent narrated], kinds
+    shares = log.scan(/^```\n(walkthrough-share: .*)\n```$/).flatten
+    assert_equal [ "walkthrough-share: #{@root}/demo-draft-01-share.mp4", "walkthrough-share: #{@root}/demo-draft-02-share.mp4" ], shares
+    share_call = @share_calls.find { |a| a.last == "/work/demo-draft-01-share.mp4" }
+    assert_includes share_call, ChangeDocker::FFMPEG_IMAGE
   end
 
   # A failed free cut stops the run before any paid call: the paid providers
