@@ -452,7 +452,7 @@ module WalkthroughStoryboard
       end
     when 'scroll' then scroll_shape_errors(op)
     when 'tap' then tap_shape_errors(op)
-    else %w[ms ease press_ms navigate].filter_map { |k| "#{k} applies only to #{k.start_with?('press', 'nav') ? 'a tap' : 'a scroll'} op" if op.key?(k) }
+    else %w[ms ease block offset_px press_ms navigate].filter_map { |k| "#{k} applies only to #{k.start_with?('press', 'nav') ? 'a tap' : 'a scroll'} op" if op.key?(k) }
     end
   end
 
@@ -469,12 +469,25 @@ module WalkthroughStoryboard
       errs << 'scroll ease needs ms'
     end
     errs << "scroll ease must be one of #{PrototypeCapture::SCROLL_EASES.join(', ')}" if op.key?('ease') && !PrototypeCapture::SCROLL_EASES.include?(op['ease'])
+    errs + scroll_align_errors(op)
+  end
+
+  # block and offset_px place an into-view scroll (no dx, dy or ms).
+  def scroll_align_errors(op)
+    keys = %w[block offset_px].select { |k| op.key?(k) }
+    return [] if keys.empty?
+
+    blocks = PrototypeCapture::SCROLL_BLOCKS
+    errs = []
+    errs << "scroll block must be one of #{blocks.join(', ')}" if op.key?('block') && !blocks.include?(op['block'])
+    errs << 'scroll offset_px must be an integer (pixels)' if op.key?('offset_px') && !op['offset_px'].is_a?(Integer)
+    errs << "scroll #{keys.join(' and ')} applies only to an into-view scroll (no dx, dy or ms)" if %w[dx dy ms].any? { |k| op.key?(k) }
     errs
   end
 
   def tap_shape_errors(op)
     range = PrototypeCapture::PRESS_RANGE
-    errs = %w[ms ease dx dy].filter_map { |k| "#{k} applies only to a scroll op" if op.key?(k) }
+    errs = %w[ms ease dx dy block offset_px].filter_map { |k| "#{k} applies only to a scroll op" if op.key?(k) }
     errs << "tap press_ms must be an integer in #{range.min}..#{range.max}" if op.key?('press_ms') && !(op['press_ms'].is_a?(Integer) && range.cover?(op['press_ms']))
     errs << 'tap navigate must be true or false' if op.key?('navigate') && ![ true, false ].include?(op['navigate'])
     errs

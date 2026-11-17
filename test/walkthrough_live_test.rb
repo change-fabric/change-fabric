@@ -266,7 +266,7 @@ class WalkthroughLiveTest < Minitest::Test
     js = WalkthroughLive.capture_module(b, b["scenes"][1], jobs: jobs(b, b["scenes"][1]), session: nil)
     assert_includes js, "Security.setIgnoreCertificateErrors"
     assert_includes js, 'waitUntil: "domcontentloaded"'
-    assert_includes js, 'waitForSelector("main")'
+    assert_includes js, 'waitForSelector("main", { timeout: 10000 })'
     assert_includes js, "await sleep(200)"
     assert_includes js, '"tour":"on"'
     assert_operator js.index("evaluateOnNewDocument"), :<, js.index("page.goto")

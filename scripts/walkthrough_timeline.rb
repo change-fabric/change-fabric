@@ -17,7 +17,9 @@ require_relative 'walkthrough_transition'
 module WalkthroughTimeline
   # Part of every frames key of a scene that glides or taps. Bump it when
   # the meaning of an event changes (a new seq order, a new payload field).
-  VERSION = 1
+  # 2: every event carries its op index and t_ms (so a capture can name
+  # the op behind a missing target), and an instant scroll carries offset_px.
+  VERSION = 2
 
   # Same-frame order: scrolls land first so every later aim reads the
   # scrolled page, then the pointer moves, hovers and presses, then input
@@ -32,11 +34,12 @@ module WalkthroughTimeline
   FAMILIES = { 'glide' => 'scroll', 'scroll' => 'scroll', 'press' => 'press' }.freeze
   PLURAL = { 'scroll' => 'scrolls', 'press' => 'presses' }.freeze
 
-  Event = Struct.new(:frame, :seq, :kind, :target, :payload, :op_index, :sub, keyword_init: true) do
+  Event = Struct.new(:frame, :seq, :kind, :target, :payload, :op_index, :sub, :t_ms, keyword_init: true) do
     def sort_key = [ frame, seq, op_index, sub ]
 
-    # The event as the capture loops read it: kind and target plus payload.
-    def to_js = { 'kind' => kind, 'target' => target }.compact.merge(payload)
+    # The event as the capture loops read it: kind and target plus payload,
+    # with the op index and authored t_ms a missing-target report names.
+    def to_js = { 'kind' => kind, 'target' => target, 'op' => op_index, 't_ms' => t_ms }.compact.merge(payload)
   end
 
   Interval = Struct.new(:target, :from_frame, :to_frame, :kind, :op_index, keyword_init: true) do
@@ -130,7 +133,9 @@ module WalkthroughTimeline
     Array(ops).each_with_index do |op, i|
       raise ArgumentError, "unknown interaction op #{op['op']}" unless PrototypeCapture::OPS.include?(op['op'])
 
+      from = events.size
       add_op(op, i, fps, events, intervals)
+      events[from..].each { |e| e.t_ms = op['t_ms'].to_i }
     end
     late = events.select { |e| e.kind == 'release' && e.frame >= frames }
     Timeline.new(events: events, intervals: intervals, frames: frames, fps: fps, late: late)
@@ -152,7 +157,7 @@ module WalkthroughTimeline
         add_span(op, index, start, n, events, 'glide_step', op['ease'] || PrototypeCapture::DEFAULT_SCROLL_EASE)
         intervals << Interval.new(target: op['target'], from_frame: start, to_frame: start + n - 1, kind: 'glide', op_index: index)
       else
-        ev.call(start, 'scroll', { 'dx' => op['dx'], 'dy' => op['dy'], 'block' => op['block'] }.compact)
+        ev.call(start, 'scroll', { 'dx' => op['dx'], 'dy' => op['dy'], 'block' => op['block'], 'offset_px' => op['offset_px'] }.compact)
         intervals << Interval.new(target: op['target'], from_frame: start, to_frame: start, kind: 'scroll', op_index: index)
       end
     end

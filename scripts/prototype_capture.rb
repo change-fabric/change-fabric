@@ -31,6 +31,13 @@ module PrototypeCapture
   # scene's viewport. A batch that raises it is retried on a fresh
   # connection; nothing from it is written to the cache.
   class ViewportMismatchError < StandardError; end
+  # A move, hover or wait target matched nothing, under strict targets.
+  class TargetMissError < StandardError; end
+
+  # Set to 1 to fail a capture on any missing move, hover or wait target
+  # instead of warning (worth setting for the free silent cut, before any
+  # paid narration).
+  STRICT_ENV = 'CF_WALKTHROUGH_STRICT'
 
   FPS = 30
   # A board made only of motion kinds (camera moves, eased entrances)
@@ -108,6 +115,28 @@ module PrototypeCapture
       return true;
     }
   JS
+  # An instant scroll with no dx/dy brings its target into view aligned by
+  # `block` (start, center, end, nearest). Center is the default: it keeps
+  # context above and below the target and clears a sticky header that
+  # start would tuck it under, while nearest (the browser default) parks a
+  # target coming from below at the bottom edge.
+  SCROLL_BLOCKS = %w[start center end nearest].freeze
+  DEFAULT_SCROLL_BLOCK = 'center'
+  # In-page helper: one instant scroll. offset_px then moves the target that
+  # many pixels further down the viewport (room above it for a sticky
+  # header; negative lifts it), by scrolling its nearest scrollable ancestor.
+  SCROLL_JS = <<~JS.chomp
+    (s, dflt) => {
+      const el = document.querySelector(s.target);
+      if (!el) throw new Error(`scroll target not found: ${s.target}`);
+      if (s.dx !== undefined || s.dy !== undefined) { el.scrollBy({ left: s.dx || 0, top: s.dy || 0, behavior: "instant" }); return; }
+      el.scrollIntoView({ block: s.block || dflt, behavior: "instant" });
+      if (!s.offset_px) return;
+      let box = el.parentElement;
+      while (box && !(box.scrollHeight > box.clientHeight && /(auto|scroll)/.test(getComputedStyle(box).overflowY))) box = box.parentElement;
+      (box || document.scrollingElement || document.documentElement).scrollBy({ top: -s.offset_px, behavior: "instant" });
+    }
+  JS
   # In-page helper: one glide frame. The origin is read on the glide's first
   # frame, so each frame sets an absolute offset (origin plus the eased
   # delta) and never accumulates rounding.
@@ -127,10 +156,37 @@ module PrototypeCapture
   # resting), and io.onNavigate sees a navigate event. Each timeline event
   # runs through it in seq order, so a prototype scene and a live scene act
   # the same way on the same event; a missing click, tap, scroll or glide
-  # target fails the capture in both.
+  # target fails the capture in both, naming the op and its t_ms.
+  #
+  # A scroll, glide, move or hover target is polled for up to io.lazyMs
+  # (0: one look) before it counts as missing, so a lazily rendered element
+  # gets a moment to mount. A move or hover that still finds nothing goes
+  # to io.miss(ev) once per op, which the capture reports as a warning, or
+  # fails on under strict targets (see report_misses!).
   DISPATCH_JS = <<~JS.chomp
     (page, io) => {
       const st = io.st;
+      const at = (ev) => `op ${ev.op}, t_ms ${ev.t_ms}`;
+      const present = async (sel) => {
+        const until = Date.now() + (io.lazyMs || 0);
+        for (;;) {
+          if (await page.$(sel)) return true;
+          if (Date.now() >= until) return false;
+          await new Promise((r) => setTimeout(r, 50));
+        }
+      };
+      const missed = new Set();
+      const miss = (ev) => {
+        if (missed.has(ev.op)) return;
+        missed.add(ev.op);
+        if (io.miss) io.miss(ev);
+      };
+      const reach = async (ev) => {
+        if ((ev.first !== false) && !(await present(ev.target))) { miss(ev); return null; }
+        const to = await io.aim(ev.target);
+        if (!to) miss(ev);
+        return to;
+      };
       const need = async (sel, what) => {
         const to = await io.aim(sel);
         if (!to) throw new Error(`${what} target not found: ${sel}`);
@@ -145,23 +201,22 @@ module PrototypeCapture
       return async (ev) => {
         switch (ev.kind) {
           case "scroll":
-            await page.evaluate((s) => {
-              const el = document.querySelector(s.target);
-              if (!el) throw new Error(`scroll target not found: ${s.target}`);
-              if (s.dx === undefined && s.dy === undefined) el.scrollIntoView({ block: s.block || "center", behavior: "instant" });
-              else el.scrollBy({ left: s.dx || 0, top: s.dy || 0, behavior: "instant" });
-            }, ev);
+            if (!(await present(ev.target))) throw new Error(`scroll target not found after ${io.lazyMs || 0}ms: ${ev.target} (${at(ev)})`);
+            await page.evaluate(#{SCROLL_JS}, ev, #{JSON.generate(DEFAULT_SCROLL_BLOCK)});
             return;
-          case "glide_step": await page.evaluate(#{GLIDE_JS}, ev); return;
+          case "glide_step":
+            if (ev.first && !(await present(ev.target))) throw new Error(`scroll target not found after ${io.lazyMs || 0}ms: ${ev.target} (${at(ev)})`);
+            await page.evaluate(#{GLIDE_JS}, ev);
+            return;
           case "move_step": {
             if (ev.first) st.from = st.pos;
-            const to = await io.aim(ev.target);
+            const to = await reach(ev);
             if (to) { st.pos = { x: st.from.x + (to.x - st.from.x) * ev.p, y: st.from.y + (to.y - st.from.y) * ev.p }; await point(st.pos); }
             st.resting = ev.p >= 1 ? ev.target : null;
             return;
           }
           case "hover": {
-            const to = await io.aim(ev.target);
+            const to = await reach(ev);
             if (to) { st.pos = to; await point(to); }
             st.resting = ev.target;
             return;
@@ -760,7 +815,8 @@ module PrototypeCapture
         const overlays = {};
         const st = { pos: { x: #{vp['w'] / 2.0}, y: #{vp['h'] / 2.0} }, from: null, down: false, resting: null };
         st.from = st.pos;
-        const dispatch = (#{DISPATCH_JS})(page, { aim: center, mobile: false, st });
+        const misses = [];
+        const dispatch = (#{DISPATCH_JS})(page, { aim: center, mobile: false, st, miss: (ev) => misses.push(ev) });
         const frames = [];
         const cursor = [];
         const boxes = [];
@@ -796,9 +852,33 @@ module PrototypeCapture
         const endState = await page.evaluate(() => (window.CFStore && typeof window.CFStore.dump === "function") ? window.CFStore.dump() : null);
         if (context) await context.close();
         const firstSeen = Object.fromEntries(Object.entries(overlays).filter(([, f]) => f >= first));
-        return { data: { frames, cursor, boxes, endState, blockedRequests, pageErrors, lint, devices, overlays: firstSeen }, type: "application/json" };
+        return { data: { frames, cursor, boxes, endState, blockedRequests, pageErrors, lint, devices, overlays: firstSeen, misses }, type: "application/json" };
       }
     JS
+  end
+
+  def strict_targets?(env = ENV) = env[STRICT_ENV] == '1'
+
+  # One line per missing move, hover or wait target: the scene, the op and
+  # its t_ms, and the selector.
+  def miss_lines(misses, label)
+    Array(misses).map do |m|
+      if m['kind'] == 'wait'
+        "#{label}: wait.selector timed out after #{m['ms']}ms: #{m['target']}"
+      else
+        "#{label}: #{m['kind'].delete_suffix('_step')} op #{m['op']} at t_ms #{m['t_ms']} matched nothing: #{m['target']}"
+      end
+    end
+  end
+
+  # Prints each miss to stderr, then raises under strict targets, so a
+  # scene that never reached its target never ships quietly.
+  def report_misses!(misses, label, strict: strict_targets?, io: $stderr)
+    lines = miss_lines(misses, label)
+    return if lines.empty?
+
+    lines.each { |l| io.puts("warning: #{l}") }
+    raise TargetMissError, "#{lines.join('; ')} (#{STRICT_ENV}=1)" if strict
   end
 
   # Raises on any sign the page escaped the controlled environment.
@@ -838,6 +918,7 @@ module PrototypeCapture
     findings = []
     devices = []
     overlays = {}
+    misses = []
     end_state = nil
     # Each batch replays the scene from its seeded start, without screenshots
     # before its first frame, so the DOM, store, and clock it captures from are
@@ -852,6 +933,7 @@ module PrototypeCapture
       result = run_checked(session, code, viewport, label, frames: true)
       findings.concat(Array(result['lint']))
       devices.concat(Array(result['devices']))
+      misses |= Array(result['misses'])
       overlays = Array(result['overlays']).to_h.merge(overlays)
       result['frames'].each_with_index do |b64, k|
         File.binwrite(File.join(out_dir, format('%06d.png', range.first + k + 1)), Base64.decode64(b64))
@@ -862,6 +944,7 @@ module PrototypeCapture
       measured = result['frames'].sum(&:bytesize) / [ result['frames'].size, 1 ].max
       size = batch_size(viewport, bytes_per_frame: measured)
     end
+    report_misses!(misses, "scene #{label}")
     File.write(File.join(out_dir, 'cursor.json'), JSON.pretty_generate(cursor_path(positions)))
     write_boxes(out_dir, boxes, viewport)
     PrototypeUxLint.write(out_dir, PrototypeUxLint.scene_report(label, findings, overlays: overlays, devices: devices).merge('aim' => 'safe'))
