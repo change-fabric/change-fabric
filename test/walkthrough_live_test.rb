@@ -446,6 +446,18 @@ class WalkthroughLiveTest < Minitest::Test
     refute_includes @log.string, "inbox ("
   end
 
+  # A narration edit can change a cached live scene's duration only once
+  # audio is resolved; the recapture is still announced before filming.
+  def test_recapture_notice_covers_a_timing_change_from_narration
+    render
+    b = JSON.parse(File.read(File.join(@root, "storyboard.json")))
+    b["scenes"].find { |sc| sc["id"] == "landing" }["narration"]["text"] = "A much longer line for the landing scene, " * 8
+    File.write(File.join(@root, "storyboard.json"), JSON.pretty_generate(b))
+    render
+    assert_includes @log.string, "landing: capturing"
+    assert_match(/landing \(changed: [^)]*duration_ms/, @log.string)
+  end
+
   def test_secret_never_reaches_a_written_artifact
     render
     files = Dir.glob(File.join(@root, "**", "*"), File::FNM_DOTMATCH).select { |f| File.file?(f) }

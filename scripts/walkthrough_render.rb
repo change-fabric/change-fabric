@@ -272,7 +272,10 @@ module WalkthroughRender
     # browser options (network, extra hosts).
     def capture_frames
       with_session { |session| capture_all(session) } if capture_needed?(live: false)
-      with_live_session { |session| capture_live(session) } if capture_needed?(live: true)
+      if capture_needed?(live: true)
+        recapture_notice unless @silent
+        with_live_session { |session| capture_live(session) }
+      end
       clip_check!
     end
 
@@ -321,6 +324,11 @@ module WalkthroughRender
       rescue ArgumentError
         []
       end
+      # Called again just before filming, once narration timing is
+      # resolved; a line already printed is not repeated.
+      @noticed ||= []
+      lines -= @noticed
+      @noticed += lines
       return if lines.empty?
 
       say("live recapture: #{lines.size} scene(s) will film the live app again:")
