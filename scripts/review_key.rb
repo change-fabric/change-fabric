@@ -2,6 +2,7 @@
 # frozen_string_literal: true
 
 require 'open3'
+require_relative 'path_canon'
 
 # Picks which review queue an event's work belongs to. Subagents share their
 # parent's session_id, so keying by session alone pools every agent's edits into
@@ -50,20 +51,8 @@ module ReviewKey
   def own_tree?(path, root)
     return !agent_tree?(path) if root.to_s.empty?
 
-    real = real_path(path)
-    real_root = real_path(root)
-    real.start_with?("#{real_root}/") && !real.delete_prefix(real_root).include?(WORKTREES)
-  end
-
-  # The physical path, resolving the deepest existing ancestor so a deleted
-  # file still normalizes.
-  def real_path(path)
-    path = File.expand_path(path.to_s)
-    head = path
-    head = File.dirname(head) until File.exist?(head) || head == File.dirname(head)
-    File.realpath(head) + path.delete_prefix(head)
-  rescue StandardError
-    path
+    rel = PathCanon.relative(path, root)
+    !rel.nil? && rel != '.' && !"/#{rel}".include?(WORKTREES)
   end
 
   def worktree_slug(path)
