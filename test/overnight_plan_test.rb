@@ -73,7 +73,14 @@ class OvernightPlanTest < Minitest::Test
 
   def test_production_lanes_come_from_the_tag_rule_profile
     field = manifest["fields"]["production_lanes"]
-    assert_equal %w[browserless testcases], field["value"], "a disabled lane is left out"
+    assert_equal %w[a11y browserless testcases], field["value"], "base lanes inherited, a disabled lane left out"
+  end
+
+  def test_profile_lanes_inherit_the_base_lanes
+    config = { "lanes" => { "k6" => {}, "zap" => { "enabled" => false }, "a11y" => {} },
+               "profiles" => { "prod" => { "lanes" => { "a11y" => { "threshold" => "serious" }, "zap" => {} } } } }
+    assert_equal %w[a11y k6], OvernightPlan.production_lanes(config, "prod"),
+                 "k6 stays on by inheritance; zap keeps its base enabled: false"
   end
 
   def test_conflicting_safety_field_is_a_denial_not_a_guess
@@ -136,7 +143,8 @@ class OvernightPlanTest < Minitest::Test
   def test_adopts_in_flight_pr_and_worktree_never_rebuilds
     prs = [ { "number" => 41, "title" => "Show exports in the dashboard", "headRefName" => "exports-ui", "body" => "" },
             { "number" => 42, "title" => "Unrelated", "headRefName" => "misc", "body" => "" },
-            { "number" => 43, "title" => "Docs", "headRefName" => "exports-docs", "body" => "plan: a/b#Phase 3" } ]
+            { "number" => 43, "title" => "Docs", "headRefName" => "exports-docs", "body" => "Plan-Phase: overnight/plan#Phase 3" },
+            { "number" => 44, "title" => "Taxes", "headRefName" => "taxes", "body" => "Plan-Phase: billing/taxes#Phase 1" } ]
     trees = [ { "path" => "/w/exports-ui", "branch" => "exports-ui" } ]
     out = Dir.chdir(ROOT) do
       OvernightPlan.dry_run(repo: REPO, plan_dir: PLAN, mode: "admin-bypass",
@@ -145,6 +153,8 @@ class OvernightPlanTest < Minitest::Test
     assert_includes out, "p2 Show exports in the dashboard (adopted PR #41 exports-ui worktree /w/exports-ui)"
     assert_includes out, "p3 Document exports (adopted PR #43 exports-docs)"
     assert_includes out, "in-flight, not adopted: PR #42 misc"
+    assert_includes out, "p1 Add the export endpoint (new)", "another plan's phase 1 is not adopted"
+    assert_includes out, "in-flight, not adopted: PR #44 taxes"
     assert_includes out, "1. build: adopt exports-ui (never rebuilt)"
   end
 

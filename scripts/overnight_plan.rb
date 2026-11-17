@@ -195,8 +195,14 @@ module OvernightPlan
   def production_lanes(config, profile)
     return nil unless config.is_a?(Hash)
 
-    lanes = profile ? config.dig('profiles', profile, 'lanes') : config['lanes']
-    return nil unless lanes.is_a?(Hash)
+    # A profile deep-merges over the base lanes (ChangeConfig#merge_profile),
+    # so an omitted lane stays on and an override keeps its base fields.
+    base = config['lanes'].is_a?(Hash) ? config['lanes'] : {}
+    overrides = profile ? config.dig('profiles', profile, 'lanes') : nil
+    lanes = base.merge(overrides.is_a?(Hash) ? overrides : {}) do |_, a, b|
+      a.is_a?(Hash) && b.is_a?(Hash) ? a.merge(b) : b
+    end
+    return nil if lanes.empty?
 
     lanes.reject { |_, v| v.is_a?(Hash) && v['enabled'] == false }.keys.map(&:to_s).sort
   end
@@ -298,16 +304,19 @@ module OvernightPlan
       declared = section[/^depends_on:\s*(.+)$/i, 1]
       deps = declared ? declared.scan(/P(\d+)/i).flatten.map { |n| "p#{n}" } : []
       deps = [ "p#{sections[index - 1][/\A### P(\d+)/, 1]}" ] if declared.nil? && index.positive?
-      { 'id' => "p#{number}", 'phase' => number.to_i, 'title' => title.strip, 'depends_on' => deps }
+      ref = "#{File.basename(File.dirname(File.expand_path(plan_dir)))}/#{File.basename(plan_dir)}#Phase #{number}"
+      { 'id' => "p#{number}", 'phase' => number.to_i, 'ref' => ref, 'title' => title.strip, 'depends_on' => deps }
     end
   end
 
   # Adopts in-flight work: a PR whose title matches the unit's, or whose body
-  # carries the unit's plan phase trailer, plus any worktree on its branch.
+  # carries the unit's full plan reference (<area>/<slug>#Phase N, the sweep
+  # trailer form), so another plan's phase N is never adopted. Plus any
+  # worktree on its branch.
   def adopt(units, prs, worktrees)
     adopted = units.map do |unit|
       pr = prs.find do |p|
-        p['title'].to_s.casecmp?(unit['title']) || p['body'].to_s.match?(/#Phase #{unit['phase']}\b/)
+        p['title'].to_s.casecmp?(unit['title']) || p['body'].to_s.match?(%r{(?<![\w/-])#{Regexp.escape(unit['ref'])}\b})
       end
       next unit.merge('origin' => 'new') unless pr
 

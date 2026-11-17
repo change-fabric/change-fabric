@@ -268,7 +268,7 @@ class OvernightStore
 
   def self.canonical_json(value)
     case value
-    when Hash then "{#{value.keys.map(&:to_s).sort.map { |k| "#{k.to_json}:#{canonical_json(value[k] || value[k.to_sym])}" }.join(',')}}"
+    when Hash then "{#{value.map { |k, v| [ k.to_s, v ] }.sort_by(&:first).map { |k, v| "#{k.to_json}:#{canonical_json(v)}" }.join(',')}}"
     when Array then "[#{value.map { |v| canonical_json(v) }.join(',')}]"
     else value.to_json
     end

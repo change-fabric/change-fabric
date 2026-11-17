@@ -192,6 +192,8 @@ class OvernightStoreTest < Minitest::Test
     assert_equal OvernightStore.policy_hash({ "a" => [ 2 ], "b" => 1 }), hash, "key order does not matter"
     assert_equal hash, s.policy["sha256"]
     assert_raises(OvernightStore::Error) { s.freeze_policy({}, token: token) }
+    refute_equal OvernightStore.policy_hash({ "credential_isolation" => false }),
+                 OvernightStore.policy_hash({ "credential_isolation" => nil })
   end
 
   def test_run_selection
