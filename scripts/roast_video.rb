@@ -208,7 +208,7 @@ module RoastVideo
     lines = [ "# Video roast round #{round}", '', "Score: #{critic['score']}/10", '', critic['summary'], '' ]
     Roast::PRIORITIES.each do |p|
       critic['issues'].select { |i| i['priority'] == p }.each do |i|
-        lines << "- #{p} [#{i['timestamp']}] (#{Roast.location(i)}): #{i['problem']}" << "  Fix: #{i['fix']}"
+        lines << "- #{Roast.id_label(i)}#{p} [#{i['timestamp']}] (#{Roast.location(i)}): #{i['problem']}" << "  Fix: #{i['fix']}"
         saving = Roast.saving_line(i)
         lines << saving if saving
       end
@@ -221,6 +221,7 @@ module RoastVideo
   # The round JSON carries what it judged: the craft rubric version and the
   # SHA-256 of the exact MP4, which WalkthroughCraft binds approval to.
   def write_round(dir, round, critic, master_sha256: nil)
+    critic = Roast.normalize_critic(critic, round, prefix: "R#{round}V")
     FileUtils.mkdir_p(dir)
     record = master_sha256 ? critic.merge('craft' => { 'version' => CRAFT_VERSION, 'master_sha256' => master_sha256 }) : critic
     File.write(File.join(dir, "round-#{round}.video.json"), "#{JSON.pretty_generate(record)}\n")

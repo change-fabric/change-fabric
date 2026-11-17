@@ -182,7 +182,7 @@ class RoastTest < Minitest::Test
     code, text, http = run_cli
     assert_equal 0, code
     assert_operator text.index("estimate"), :<, text.index("roast:")
-    assert_equal CRITIC, JSON.parse(File.read(File.join(@roast, "round-1.json")))
+    assert_equal Roast.normalize_critic(CRITIC, 1), JSON.parse(File.read(File.join(@roast, "round-1.json")))
     assert_includes File.read(File.join(@roast, "round-1.md")), "P1 (home): No clear action"
     assert_equal 1, http.requests.size
   end

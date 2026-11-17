@@ -121,6 +121,46 @@ class WalkthroughRoastTest < Minitest::Test
     end
   end
 
+  # The final gate at the round cap: rebuttals by id (from roast.rb respond)
+  # clear their P1s, and a block names each unrebutted issue.
+  def test_gate_at_round_cap_counts_rebuttals_by_id_and_names_what_blocks
+    Dir.mktmpdir do |dir|
+      responses = [ { "id" => "R4-P1-1", "severity" => "P1", "where" => "s", "summary" => "x", "verdict" => "rebut", "reason" => "product" },
+                    { "id" => "R4-P1-2", "severity" => "P1", "where" => "s", "summary" => "y", "verdict" => "accept", "reason" => "" } ]
+      round(dir, 4, [ issue("P1"), issue("P1", "Caption hides nav") ], responses)
+      err = assert_raises(WalkthroughRoast::OpenFindingsError) { WalkthroughRoast.gate!(dir, cap_usd: 99) }
+      assert_includes err.message, "R4-P1-2 P1 (s): Caption hides nav"
+      refute_includes err.message, "R4-P1-1"
+      responses[1]["verdict"] = "Rebut"
+      round(dir, 4, [ issue("P1"), issue("P1", "Caption hides nav") ], responses)
+      assert_nil WalkthroughRoast.gate!(dir, cap_usd: 99)
+    end
+  end
+
+  # Superseded loops never count: a rebuttal there does not clear the current
+  # round, and a blocker there does not block --final.
+  def test_gate_reads_only_the_current_loop_not_superseded_rounds
+    Dir.mktmpdir do |dir|
+      old = File.join(dir, "superseded", "1")
+      FileUtils.mkdir_p(old)
+      round(old, 1, [ issue("P0", "Old blocker") ])
+      round(old, 2, [ issue("P1") ], [ { "id" => "R1-P1-1", "verdict" => "rebut" } ])
+      round(dir, 1, [ issue("P1") ], [ { "id" => "R9-P1-1", "verdict" => "rebut" } ])
+      history = Roast.load_history(dir)
+      assert_equal [ 1 ], history.map { |h| h[:round] }
+      assert_equal [ "R1-P1-1" ], WalkthroughRoast.open_blockers(history).map { |i| i["id"] }
+      round(dir, 1, [ issue("P1") ], [ { "id" => "R1-P1-1", "verdict" => "rebut" } ])
+      assert_empty WalkthroughRoast.open_blockers(Roast.load_history(dir))
+    end
+  end
+
+  def test_old_response_files_match_by_where_and_summary
+    Dir.mktmpdir do |dir|
+      round(dir, 1, [ issue("P1") ], [ { "where" => "s", "summary" => "Toast hides CTA", "decision" => "rebut" } ])
+      assert_empty WalkthroughRoast.open_blockers(Roast.load_history(dir))
+    end
+  end
+
   def test_decide_stops_at_the_round_cap
     Dir.mktmpdir do |dir|
       round(dir, 4, [ issue("P1") ])

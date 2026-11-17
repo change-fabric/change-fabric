@@ -43,6 +43,17 @@ module Roast
   DEFAULT_CAP = 4
   PRIORITIES = %w[P0 P1 P2].freeze
   BLOCKING = %w[P0 P1].freeze
+  # Review scopes, by accepted name. film (alias as_shipped) grades the camera
+  # work on an app as shipped, not the app's own product design; product (the
+  # default when unset) grades everything.
+  SCOPES = { 'product' => 'product', 'film' => 'film', 'as_shipped' => 'film' }.freeze
+  FILM_SCOPE = <<~TEXT.strip
+    Scope: film. The app on screen is already shipped and is not under review. Grade only the film:
+    camera work, framing and crop, pacing and cuts, narration accuracy against what is on screen, and
+    captions (timing, cue splits, readability). Product UI observations (colors, contrast, component
+    design, layout of the app itself, a native safe area) are not issues: put each in product_notes
+    instead, where they are logged for the product team and never scored.
+  TEXT
   DEFAULT_OUT_DIR = 'roast'
   VERDICTS = %w[pass partial fail].freeze
   # Rough planning figures, not a quote: USD per million tokens (input, output),
@@ -61,7 +72,7 @@ module Roast
   MIME = { '.png' => 'image/png', '.jpg' => 'image/jpeg', '.jpeg' => 'image/jpeg', '.webp' => 'image/webp' }.freeze
   USAGE = 'usage: roast.rb --brief FILE (--shot IMG... | --text FILE...) [--allow-sensitive] [--history DIR] [--out-dir DIR] [--round N] ' \
           '[--max-usd N] [--model NAME|terra|sol] [--effort none|low|medium|high|xhigh|max] [--cache DIR] [--transcript FILE] [--estimate-only] ' \
-          '[--storyboard FILE] [--kind explainer|promo|demo|email|doc|pr|post|arch|code|infra|fidelity] [--pair PROTO.png=REF.png]... [--audience TEXT] [--purpose OUTCOME]... [--lens NAME]... | roast.rb --video MP4 --brief FILE [...] | roast.rb infer [--storyboard FILE] [--text FILE]... | roast.rb decide --out-dir DIR [--target N] [--cap N] | roast.rb settings [--repo DIR]; ' \
+          '[--storyboard FILE] [--kind explainer|promo|demo|email|doc|pr|post|arch|code|infra|fidelity] [--pair PROTO.png=REF.png]... [--audience TEXT] [--purpose OUTCOME]... [--scope product|film|as_shipped] [--lens NAME]... | roast.rb --video MP4 --brief FILE [...] | roast.rb infer [--storyboard FILE] [--text FILE]... | roast.rb decide --out-dir DIR [--target N] [--cap N] | roast.rb respond --out-dir DIR [--round N] [--video] [--force] | roast.rb settings [--repo DIR]; ' \
           'flags win over the storyboard review object, which wins over change_config.design.roast in CHANGE.md (--repo DIR, default the working directory)'
 
   # arch, code and infra are CLI-only: CHANGE.md still validates against
@@ -118,6 +129,8 @@ module Roast
     When the message carries a Lenses block, apply each lens as an extra rubric alongside the kind, and
     name the lens (for example cf:terraform) at the start of the problem for any issue it raised.
     For text, the purpose outcomes are what the reader must be able to state or do after reading.
+    product_notes is a non-blocking list of observations about the product itself; leave it empty
+    unless the review contract names a scope that sends product observations there.
 
     Production facts you cannot see. The frames are sampled keyframes, not the full video, so do not
     infer motion or timing gaps from them alone. Captions may ship as sidecar srt or vtt files rather
@@ -136,7 +149,7 @@ module Roast
 
   SCHEMA = {
     type: 'object', additionalProperties: false,
-    required: %w[score summary issues thirty_second_test purpose_test],
+    required: %w[score summary issues product_notes thirty_second_test purpose_test],
     properties: {
       score: { type: 'number' },
       summary: { type: 'string' },
@@ -152,6 +165,13 @@ module Roast
               properties: SAVING_KEYS.to_h { |k| [ k.to_sym, { type: %w[integer null] } ] }
             }
           }
+        }
+      },
+      product_notes: {
+        type: 'array',
+        items: {
+          type: 'object', additionalProperties: false, required: %w[where note],
+          properties: { where: { type: 'string' }, note: { type: 'string' } }
         }
       },
       thirty_second_test: {
@@ -213,8 +233,49 @@ module Roast
     sources = [ flags, storyboard.is_a?(Hash) ? storyboard.transform_keys(&:to_s).transform_keys(&:to_sym) : {}, config ]
     pick = ->(key) { sources.map { |h| h[key] }.find { |v| !blank_review?(v) } }
     review = { kind: pick.call(:kind), audience: pick.call(:audience)&.to_s&.strip, purpose: Array(pick.call(:purpose)).map { |p| p.to_s.strip }.reject(&:empty?) }
+    scope = pick.call(:scope)
+    review[:scope] = scope_for(scope) if scope
     check_review!(review)
     review
+  end
+
+  # The canonical scope for a name (film for as_shipped); refuses an unknown one.
+  # A review with no scope carries no :scope key, so its cache key is unchanged.
+  def scope_for(name)
+    SCOPES.fetch(name.to_s.strip) { raise ReviewError, "roast refused: scope must be one of #{SCOPES.keys.join(', ')}, got #{name.inspect}" }
+  end
+
+  # The critic's issues, each with a stable id (R<round>-<priority>-<n>, n
+  # counted per priority in order) and a top-level severity, keeping any id or
+  # severity already present. Reads rounds logged before either field existed.
+  def normalize_issues(issues, round, prefix: "R#{round}")
+    counts = Hash.new(0)
+    Array(issues).map do |issue|
+      sev = issue['severity'] || issue['priority']
+      n = counts[sev] += 1
+      issue.merge('id' => issue['id'] || "#{prefix}-#{sev}-#{n}", 'severity' => sev)
+    end
+  end
+
+  # The critic with normalized issues and a product_notes list (empty when absent).
+  def normalize_critic(critic, round, prefix: "R#{round}")
+    critic.merge('issues' => normalize_issues(critic['issues'], round, prefix: prefix), 'product_notes' => Array(critic['product_notes']))
+  end
+
+  # A response.json scaffold for one round: one entry per issue with its id,
+  # severity, where, and a one-line summary, and an empty verdict (accept or
+  # rebut) and reason for the author to fill in. Product notes are not issues.
+  def response_scaffold(critic, round, prefix: "R#{round}")
+    entries = normalize_issues(critic['issues'], round, prefix: prefix).map do |i|
+      { 'id' => i['id'], 'severity' => i['severity'], 'where' => location(i), 'summary' => summary_of(i['problem']),
+        'verdict' => '', 'reason' => '' }
+    end
+    { 'round' => round, 'responses' => entries }
+  end
+
+  def summary_of(text, limit: 140)
+    line = text.to_s.strip.split(/(?<=[.!?])\s/).first.to_s
+    line.size > limit ? "#{line[0, limit - 1].rstrip}~" : line
   end
 
   # One --pair value as [prototype, reference] paths.
@@ -246,7 +307,8 @@ module Roast
 
     outcomes = review[:purpose].each_with_index.map { |p, i| "#{i + 1}. #{p}" }
     [ "Review contract:", "Kind: #{review[:kind] || '(not declared; apply no kind-specific requirement)'}",
-     "Audience: #{review[:audience]}", "Purpose outcomes a viewer must be able to state afterward:", *outcomes ].join("\n")
+     "Audience: #{review[:audience]}", "Purpose outcomes a viewer must be able to state afterward:", *outcomes,
+     *(review[:scope] == 'film' ? [ FILM_SCOPE ] : []) ].join("\n")
   end
 
   def next_round(dir)
@@ -457,6 +519,7 @@ module Roast
   def validate_critic!(critic)
     raise RequestError, 'roast score must be 0 to 10' unless critic['score'].is_a?(Numeric) && critic['score'].between?(0, 10)
     raise RequestError, 'roast issues must be a list' unless critic['issues'].is_a?(Array)
+    raise RequestError, 'roast product_notes must be a list' unless critic['product_notes'].nil? || critic['product_notes'].is_a?(Array)
 
     bad = critic['issues'].find { |i| !PRIORITIES.include?(i['priority']) }
     raise RequestError, "roast issue has an unknown priority: #{bad['priority'].inspect}" if bad
@@ -535,11 +598,14 @@ module Roast
     lines = [ "# Roast round #{round}", '', "Score: #{critic['score']}/10", '', critic['summary'], '' ]
     PRIORITIES.each do |p|
       critic['issues'].select { |i| i['priority'] == p }.each do |i|
-        lines << "- #{p} (#{location(i)}): #{i['problem']}" << "  Fix: #{i['fix']}"
+        lines << "- #{id_label(i)}#{p} (#{location(i)}): #{i['problem']}" << "  Fix: #{i['fix']}"
         saving = saving_line(i)
         lines << saving if saving
       end
     end
+    notes = Array(critic['product_notes'])
+    lines << '' << 'Product notes (not scored):' unless notes.empty?
+    notes.each { |n| lines << "- (#{n['where']}): #{n['note']}" }
     t = critic['thirty_second_test']
     lines << '' << "Purpose test: #{t['verdict']}. #{t['reason']}"
     Array(critic['purpose_test']).each { |o| lines << "- #{o['verdict']}: #{o['outcome']} (#{o['reason']})" }
@@ -547,7 +613,11 @@ module Roast
     lines.join("\n")
   end
 
+  # The issue's id and a space for a markdown line, or nothing when it has none.
+  def id_label(issue) = issue['id'] ? "#{issue['id']} " : ''
+
   def write_round(dir, round, critic)
+    critic = normalize_critic(critic, round)
     FileUtils.mkdir_p(dir)
     File.write(File.join(dir, "round-#{round}.json"), "#{JSON.pretty_generate(critic)}\n")
     File.write(File.join(dir, "round-#{round}.md"), render_markdown(critic, round))
@@ -581,6 +651,10 @@ module Roast
       if args.first == 'decide'
         args.shift
         return decide(parse_decide(args), out)
+      end
+      if args.first == 'respond'
+        args.shift
+        return respond(parse_respond(args), out)
       end
       if args.first == 'infer'
         args.shift
@@ -655,6 +729,7 @@ module Roast
         o.on('--kind KIND') { |v| opts[:flags][:kind] = v }
         o.on('--audience TEXT') { |v| opts[:flags][:audience] = v }
         o.on('--purpose OUTCOME') { |v| opts[:flags][:purpose] << v }
+        o.on('--scope SCOPE') { |v| opts[:flags][:scope] = v }
         o.on('--lens NAME') { |v| opts[:lens_names] << v }
         o.on('--pair PROTO=REF') { |v| (opts[:pairs] ||= []) << Roast.parse_pair(v) }
       end.parse!(args)
@@ -721,6 +796,43 @@ module Roast
         o.on('--cap N', Integer) { |v| opts[:cap] = v }
       end.parse!(args)
       opts
+    end
+
+    def parse_respond(args)
+      opts = { out_dir: DEFAULT_OUT_DIR, video: false, force: false }
+      OptionParser.new do |o|
+        o.on('--out-dir DIR') { |v| opts[:out_dir] = v }
+        o.on('--round N', Integer) { |v| opts[:round] = v }
+        o.on('--video') { opts[:video] = true }
+        o.on('--force') { opts[:force] = true }
+      end.parse!(args)
+      raise UsageError, "unexpected argument: #{args.first}" unless args.empty?
+
+      opts
+    end
+
+    # Scaffolds round-N.response.json (or round-N.video.response.json) from the
+    # round file, the latest round by default; never overwrites without --force.
+    def respond(opts, out)
+      ext = opts[:video] ? '.video' : ''
+      round = opts[:round] || latest_round(opts[:out_dir], ext)
+      raise UsageError, "no round-N#{ext}.json in #{opts[:out_dir]}" unless round
+
+      src = File.join(opts[:out_dir], "round-#{round}#{ext}.json")
+      raise Errno::ENOENT, src unless File.file?(src)
+
+      dest = File.join(opts[:out_dir], "round-#{round}#{ext}.response.json")
+      raise UsageError, "#{dest} exists; pass --force to overwrite" if File.exist?(dest) && !opts[:force]
+
+      scaffold = Roast.response_scaffold(JSON.parse(File.read(src)), round, prefix: "R#{round}#{ext.empty? ? '' : 'V'}")
+      File.write(dest, "#{JSON.pretty_generate(scaffold)}\n")
+      out.puts("roast respond: #{dest} (#{scaffold['responses'].size} issue(s)); fill in each verdict (accept or rebut) and reason")
+      0
+    end
+
+    def latest_round(dir, ext)
+      pattern = /\Around-(\d+)#{Regexp.escape(ext)}\.json\z/
+      Dir.glob(File.join(dir.to_s, "round-*#{ext}.json")).filter_map { |p| File.basename(p)[pattern, 1]&.to_i }.max
     end
 
     def parse_settings(args)
