@@ -166,9 +166,10 @@ module PrototypeCapture
   DISPATCH_JS = <<~JS.chomp
     (page, io) => {
       const st = io.st;
-      const at = (ev) => `op ${ev.op}, t_ms ${ev.t_ms}`;
+      const lazy = io.lazyMs || 0;
+      const lost = (ev) => new Error(`scroll target not found after ${lazy}ms: ${ev.target} (op ${ev.op}, t_ms ${ev.t_ms})`);
       const present = async (sel) => {
-        const until = Date.now() + (io.lazyMs || 0);
+        const until = Date.now() + lazy;
         for (;;) {
           if (await page.$(sel)) return true;
           if (Date.now() >= until) return false;
@@ -201,11 +202,11 @@ module PrototypeCapture
       return async (ev) => {
         switch (ev.kind) {
           case "scroll":
-            if (!(await present(ev.target))) throw new Error(`scroll target not found after ${io.lazyMs || 0}ms: ${ev.target} (${at(ev)})`);
+            if (!(await present(ev.target))) throw lost(ev);
             await page.evaluate(#{SCROLL_JS}, ev, #{JSON.generate(DEFAULT_SCROLL_BLOCK)});
             return;
           case "glide_step":
-            if (ev.first && !(await present(ev.target))) throw new Error(`scroll target not found after ${io.lazyMs || 0}ms: ${ev.target} (${at(ev)})`);
+            if (ev.first && !(await present(ev.target))) throw lost(ev);
             await page.evaluate(#{GLIDE_JS}, ev);
             return;
           case "move_step": {
