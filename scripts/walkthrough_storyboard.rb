@@ -270,7 +270,7 @@ module WalkthroughStoryboard
     errors
   end
 
-  LIVE_ONLY = %w[persona session_from_scene wait storage device devices layout].freeze
+  LIVE_ONLY = %w[persona session_from_scene wait storage device devices layout cursor].freeze
 
   # Interactions are a list, or for a live or compose scene a list per
   # device: { "desktop": [...], "phone": [...] }.

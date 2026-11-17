@@ -464,6 +464,32 @@ class WalkthroughLiveTest < Minitest::Test
     end
   end
 
+  # cursor: false never composites the arrow, not even at its canvas-centre
+  # start: every cursor.json point is off canvas.
+  def test_scene_writer_hides_the_cursor_when_the_scene_says_so
+    secrets = Object.new.tap { |o| o.define_singleton_method(:mask_deep) { |v| v } }
+    Dir.mktmpdir do |work|
+      docker = ->(_argv) { [ "", Status.new(true) ] }
+      scene = { "id" => "s", "cursor" => false }
+      runs = [ { "name" => "desktop", "frames" => [ Base64.strict_encode64("j") ] * 2, "ticks" => [ 0, 1 ], "links" => [], "lint" => [],
+                 "cursor" => [ { "x" => 640, "y" => 360, "down" => false }, { "x" => 640, "y" => 360, "down" => true } ] } ]
+      WalkthroughLive::SceneWriter.new(board: {}, scene: scene, secrets: secrets, docker: docker, work: work).write(runs, File.join(work, "out"))
+      track = JSON.parse(File.read(File.join(work, "out", "cursor.json")))
+      assert_equal WalkthroughDevice.hidden_path(2), track
+    end
+  end
+
+  def test_cursor_false_is_live_only_and_re_keys
+    b = board
+    b["scenes"][2]["cursor"] = true
+    assert(errors_for(b).any? { |e| e.include?("cursor must be false") })
+    b = board
+    b["scenes"][2]["cursor"] = false
+    refute_equal key(board, "inbox"), key(b, "inbox")
+    proto = live("proto", 1, "screen" => { "html" => "screens/a.html" }, "cursor" => false)
+    assert(errors_for(board([ proto ])).any? { |e| e.include?("cursor needs a screen.url") })
+  end
+
   # The browser launches at the scene's capture scale (its screencast ignores
   # the emulated dpr otherwise) with grayscale text, and the page's own
   # cursor is hidden on every document, so the sprite is the only cursor.
