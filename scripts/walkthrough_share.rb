@@ -23,7 +23,9 @@ module WalkthroughShare
 
   # FFmpeg args, paths as the container sees them under the work mount.
   def args(src, out, maxrate_k)
-    [ '-hide_banner', '-y', '-i', src, '-c:v', 'libx264', '-crf', '26', '-preset', 'medium',
+    # The optional maps keep the soft mov_text captions, which MP4 output
+    # would otherwise drop, so a muted viewer still reads them.
+    [ '-hide_banner', '-y', '-i', src, '-map', '0:v', '-map', '0:a?', '-map', '0:s?', '-c:s', 'copy', '-c:v', 'libx264', '-crf', '26', '-preset', 'medium',
       '-maxrate', "#{maxrate_k}k", '-bufsize', "#{maxrate_k * 2}k", '-pix_fmt', 'yuv420p',
       '-c:a', 'aac', '-b:a', '128k', '-movflags', '+faststart', out ]
   end

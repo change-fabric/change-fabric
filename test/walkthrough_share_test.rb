@@ -23,6 +23,7 @@ class WalkthroughShareTest < Minitest::Test
     assert_includes joined, "-maxrate 1800k -bufsize 3600k"
     assert_includes joined, "-c:a aac -b:a 128k"
     assert_includes joined, "-movflags +faststart"
+    assert_includes joined, "-map 0:s? -c:s copy", "soft captions survive the share copy"
     assert_equal "demo-draft-01-share.mp4", args.last
   end
 
