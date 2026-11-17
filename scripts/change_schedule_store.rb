@@ -67,8 +67,11 @@ class ChangeScheduleStore
     nil
   end
 
-  # Every run record, oldest first (the file names sort by time).
-  def records = Dir.glob(File.join(dir, '*.json')).reject { |path| File.basename(path) == LATEST }.sort
+  # Every run record, oldest first: by stamp, then by the numeric same-second
+  # suffix, so `-10` follows `-2` and the unsuffixed first run leads.
+  def records
+    Dir.glob(File.join(dir, '*.json')).reject { |path| File.basename(path) == LATEST }.sort_by { |path| order_key(path) }
+  end
 
   private
 
@@ -81,10 +84,18 @@ class ChangeScheduleStore
     Time.now.utc.strftime('%Y%m%dT%H%M%SZ')
   end
 
+  def order_key(path)
+    stamp, suffix = File.basename(path, '.json').split('-', 2)
+    [ stamp, suffix.to_i ]
+  end
+
   # Exclusive create, so two runs finishing in the same second never pick the
-  # same archive name: the loser of the race gets EEXIST and tries the next.
+  # same archive name. The suffix starts past the highest one on disk for the
+  # stamp, so a slot freed by pruning is never reused for a newer run.
   def reserve_and_write(stamp, body)
-    (0..).each do |suffix|
+    taken = Dir.glob(File.join(dir, "#{stamp}*.json")).map { |path| order_key(path) }.select { |key| key[0] == stamp }
+    start = taken.empty? ? 0 : taken.map(&:last).max + 1
+    (start..).each do |suffix|
       path = File.join(dir, suffix.zero? ? "#{stamp}.json" : "#{stamp}-#{suffix}.json")
       File.open(path, File::WRONLY | File::CREAT | File::EXCL) { |f| f.write(body) }
       return path

@@ -53,6 +53,13 @@ class ChangeScheduleStoreTest < Minitest::Test
     assert_equal 60, @store.records.size
   end
 
+  def test_same_second_retention_keeps_the_newest_runs
+    time = Time.utc(2026, 11, 16)
+    65.times { |i| @store.write(record(time, result: "run-#{i}")) }
+    kept = @store.records.map { |path| JSON.parse(File.read(path))["result"] }
+    assert_equal (5..64).map { |i| "run-#{i}" }, kept
+  end
+
   def test_retention_keeps_the_newest_sixty
     base = Time.utc(2026, 1, 1)
     65.times { |i| @store.write(record(base + (i * 86_400))) }
