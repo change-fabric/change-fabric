@@ -152,8 +152,7 @@ class CfHostHookTest < Minitest::Test
   end
 
   def test_corrupt_state_allows_silently
-    project = File.realpath(@home)
-    dir = File.join(@home, "state", "sessions", "claude", Digest::SHA256.hexdigest(project))
+    dir = File.join(@home, "state", "sessions", "claude", "by-id")
     FileUtils.mkdir_p(dir)
     File.write(File.join(dir, "#{Digest::SHA256.hexdigest('one')}.json"), "{not json")
     out, err, status = run_script(@payload.merge("tool_name" => "Bash", "tool_input" => { "command" => "git push" }))
