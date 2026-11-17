@@ -112,7 +112,7 @@ class WalkthroughRenderTest < Minitest::Test
         if argv.include?("-buildconf")
           [ "--enable-libass --enable-libx264", Status.new(true) ]
         elsif argv.include?("ebur128=peak=true")
-          [ @ebur128_out || EBUR128_OUT, Status.new(true) ]
+          [ @ebur128_queue&.shift || @ebur128_out || EBUR128_OUT, Status.new(true) ]
         elsif argv.include?("null")
           [ LOUDNORM_OUT, Status.new(true) ]
         elsif argv.last.end_with?("%03d.jpg")
@@ -339,6 +339,24 @@ class WalkthroughRenderTest < Minitest::Test
     assert_match(/loudness gate: fail: true peak -0\.8 dBTP/, out.string)
     err = assert_raises(WalkthroughLoudness::LoudnessError) { run_render(final: true, gates: { roast: false, allow_ux: true }) }
     assert_includes err.message, "-16 +/- 1 LUFS"
+  end
+
+  # AAC overshoot left a master at -0.8 dBTP behind a -3 dBTP limiter; pass 2
+  # reruns with the ceiling lowered by the overshoot and the master passes.
+  def test_master_over_the_peak_gate_rerenders_with_a_lower_ceiling
+    over = File.read(File.join(__dir__, "fixtures", "walkthrough", "loudness", "over_peak.txt"))
+    run_render
+    FileUtils.rm_rf(File.join(@root, ".cache", "render"))
+    @calls[:docker].clear
+    @ebur128_queue = [ over ]
+    out = StringIO.new
+    run_render(out: out)
+    pass2s = @calls[:docker].select { |a| a.join(" ").include?("alimiter") && !a.include?("null") }
+    assert_equal 2, pass2s.size, "one rerun after the over-peak master"
+    assert_includes pass2s.first.join(" "), WalkthroughFfmpeg::LIMITER
+    assert_includes pass2s.last.join(" "), "alimiter=limit=#{WalkthroughFfmpeg.limit(-4.7)}:"
+    assert_match(/master true peak -0\.8 dBTP over -2\.0 after AAC; re-rendering with limiter ceiling -4\.7 dBTP/, out.string)
+    assert_match(/loudness gate: pass: integrated -16\.2 LUFS, true peak/, out.string)
   end
 
   def test_final_reports_the_craft_gate_and_never_spends_on_it
