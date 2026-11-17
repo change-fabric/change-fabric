@@ -170,7 +170,7 @@ class ChangeRun
     schedule = resolve_schedule(raw)
     Dir.mktmpdir('cf-schedule') do |dir|
       config = load_base_config(dir, base_ref, schedule)
-      check_schedule_safety(config, schedule, base_ref)
+      check_schedule_safety(config, schedule, base_ref, base_sha)
       return print_schedule_plan(config, schedule, base_ref, base_sha) if @args.dry_run
       return abort_setup('docker is not available') unless ChangeDocker.available?
 
@@ -189,7 +189,9 @@ class ChangeRun
     ref = "origin/#{default}"
     sha = resolve_ref_sha("#{ref}^{commit}")
     abort_and_exit("schedule: #{ref} does not resolve; a schedule runs the default branch's CHANGE.md") unless sha
-    @base_change_md = git_show(ref, 'CHANGE.md')
+    # Read at the resolved sha, not the moving ref, so a fetch mid-run cannot
+    # swap the definitions the record attributes to this sha.
+    @base_change_md = git_show(sha, 'CHANGE.md')
     abort_and_exit("schedule: #{ref} has no CHANGE.md") unless @base_change_md
     raw = ChangeFrontmatter.parse(@base_change_md)['change_config']
     abort_and_exit("schedule: #{ref}:CHANGE.md has no change_config block") unless raw.is_a?(Hash)
@@ -221,8 +223,9 @@ class ChangeRun
 
   # Both refusals happen before docker is touched. Validation already rejects
   # an un-opted-in full scan; the re-check here is the runner's own guard.
-  def check_schedule_safety(config, schedule, base_ref)
+  def check_schedule_safety(config, schedule, base_ref, base_sha)
     @schedule = schedule
+    @base_sha = base_sha
     @lane_overrides = schedule.overrides
     if schedule.active_scan?
       unless config.schedule_config.allow_active_scan?(schedule.profile)
@@ -239,12 +242,12 @@ class ChangeRun
   # matched file set and every file's bytes must equal the base branch's, or
   # a branch-local case could change a verdict recorded against the base sha.
   def check_suites_match_base(lane, base_ref)
-    base_files = git_ls(base_ref)
+    base_files = git_ls(@base_sha)
     Array(lane['suites']).map(&:to_s).reject(&:empty?).each do |glob|
       working = Dir.glob(File.expand_path(glob, lane.dir.to_s)).select { |f| File.file?(f) }
                    .map { |f| f.delete_prefix("#{repo_root}/") }.sort
       base = base_files.select { |f| File.fnmatch?(glob.delete_prefix('./'), f, File::FNM_PATHNAME | File::FNM_EXTGLOB) }.sort
-      same = working == base && working.all? { |f| git_show(base_ref, f)&.b == File.binread(File.join(repo_root, f)) }
+      same = working == base && working.all? { |f| git_show(@base_sha, f)&.b == File.binread(File.join(repo_root, f)) }
       next if same
 
       abort_and_exit("schedule #{@schedule.name}: testcase suites '#{glob}' differ from #{base_ref}; " \
@@ -265,7 +268,7 @@ class ChangeRun
     return if rel.nil?
 
     working = lane.path('script')
-    base = git_show(base_ref, rel.to_s.delete_prefix('./'))
+    base = git_show(@base_sha, rel.to_s.delete_prefix('./'))
     return if base && File.exist?(working) && File.binread(working) == base.b
 
     abort_and_exit("schedule #{@schedule.name}: k6 script '#{rel}' differs from #{base_ref} (or is missing " \

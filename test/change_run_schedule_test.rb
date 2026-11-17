@@ -178,7 +178,7 @@ class ChangeRunScheduleTest < Minitest::Test
     schedule = ChangeScheduleConfig::Schedule.new(name: "x", cron: "0 3 * * *", profile: "staging", runner: "local",
                                                   lanes: %w[zap], overrides: { "zap" => { "mode" => "full" } })
     config = Struct.new(:schedule_config).new(Struct.new(:x) { def allow_active_scan?(_p) = false }.new)
-    code, out = capture { runner.send(:check_schedule_safety, config, schedule, "origin/main") }
+    code, out = capture { runner.send(:check_schedule_safety, config, schedule, "origin/main", "0" * 40) }
     assert_equal 2, code
     assert_match(/refusing an active zap scan/, out)
   end
@@ -188,6 +188,32 @@ class ChangeRunScheduleTest < Minitest::Test
     code, out = run_schedule(%w[schedule weekly-load --dry-run])
     assert_equal 2, code
     assert_match(/k6 script 'load\/soak\.js' differs from origin\/main/, out)
+  end
+
+  # origin/main moves between resolving the base sha and reading CHANGE.md;
+  # the run must still read the sha it resolved, not the newer ref.
+  class RacingRun < StubRun
+    attr_writer :advance_to
+
+    private
+
+    def resolve_ref_sha(ref)
+      sha = super
+      GitFixture.git(@root, "update-ref", "refs/remotes/origin/main", @advance_to) if @advance_to
+      @advance_to = nil
+      sha
+    end
+  end
+
+  def test_base_inputs_are_read_at_the_resolved_sha
+    write("CHANGE.md", BASE_CHANGE_MD.sub("nightly-pentest:", "renamed-pentest:"))
+    git("commit", "-qam", "rename schedule")
+    newer = git("rev-parse", "HEAD").strip
+    git("reset", "-q", "--hard", "HEAD~1")
+    runner = RacingRun.new(%w[schedule nightly-pentest --dry-run], root: @repo)
+    runner.advance_to = newer
+    code, out = capture { runner.run }
+    assert_equal 0, code, out
   end
 
   def test_a_run_writes_a_schedule_record_and_never_a_sha_record
@@ -265,6 +291,7 @@ class ChangeRunScheduleTest < Minitest::Test
     git("push", "-q", "origin", "main")
     runner = StubRun.new(%w[schedule nightly-pentest], root: @repo)
     runner.instance_variable_set(:@schedule, Struct.new(:name).new("nightly"))
+    runner.instance_variable_set(:@base_sha, git("rev-parse", "origin/main").strip)
     lane = ChangeConfig::LaneConfig.new("testcases", { "suites" => [ "suites/*.yml" ] }, @repo)
     guard = -> { capture { runner.send(:check_suites_match_base, lane, "origin/main") } }
 
