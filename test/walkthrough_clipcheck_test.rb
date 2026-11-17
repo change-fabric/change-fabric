@@ -28,6 +28,18 @@ class WalkthroughClipcheckTest < Minitest::Test
     assert_in_delta 0.05, t.dig("safe_area", "inset")
   end
 
+  def test_tokens_resolve_from_an_installed_skill_root
+    Dir.mktmpdir do |dir|
+      installed = File.join(dir, "installed")
+      FileUtils.mkdir_p(installed)
+      File.write(File.join(installed, WalkthroughClipcheck::TOKENS_FILE), "{}")
+      assert_equal File.join(installed, WalkthroughClipcheck::TOKENS_FILE),
+                   WalkthroughClipcheck.tokens_path([ File.join(dir, "missing"), installed ])
+      assert_raises(ArgumentError) { WalkthroughClipcheck.tokens_path([ File.join(dir, "missing") ]) }
+    end
+    assert_includes WalkthroughClipcheck.token_roots, File.join(Dir.home, ".claude", "skills", "cf:walkthrough", "reference")
+  end
+
   def test_boxes_inside_the_safe_area_pass
     r = WalkthroughClipcheck.check("s1", data([ frame(0, inside), frame(1, inside) ]))
     assert_empty r[:refusals]

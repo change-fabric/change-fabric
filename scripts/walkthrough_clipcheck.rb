@@ -21,12 +21,26 @@ module WalkthroughClipcheck
   class ClipError < StandardError; end
 
   BOXES = 'boxes.json'
-  TOKENS = File.expand_path('../skills/walkthrough/reference/video-tokens.json', __dir__)
+  TOKENS_FILE = 'video-tokens.json'
   OUTPUT_H = 1080.0
 
   module_function
 
-  def tokens = @tokens ||= JSON.parse(File.read(TOKENS)).freeze
+  # The checkout's reference dir, then the installed skill's (scripts run
+  # from ~/.claude/cf/bin, apart from the skills tree), as for compose
+  # templates (WalkthroughCompose.template_roots).
+  def token_roots
+    [ File.expand_path('../skills/walkthrough/reference', __dir__),
+      File.join(Dir.home, '.claude', 'skills', 'cf:walkthrough', 'reference'),
+      File.join(Dir.home, '.config', 'opencode', 'skills', 'cf-walkthrough', 'reference') ]
+  end
+
+  def tokens_path(roots = token_roots)
+    roots.map { |r| File.join(r, TOKENS_FILE) }.find { |f| File.file?(f) } or
+      raise ArgumentError, "#{TOKENS_FILE} not found in #{roots.join(', ')}"
+  end
+
+  def tokens = @tokens ||= JSON.parse(File.read(tokens_path)).freeze
 
   def inset = tokens.dig('safe_area', 'inset')
 

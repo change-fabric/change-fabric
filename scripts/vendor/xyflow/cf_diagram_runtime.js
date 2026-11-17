@@ -452,7 +452,7 @@ html, body, #cf-diagram-root { margin: 0; width: 100%; height: 100%; }
   // frame; scripts/walkthrough_clipcheck.rb judges it.
   const opacityOf = (el) => {
     let o = 1;
-    for (let n = el; n && n !== live.container; n = n.parentElement) o *= Number(getComputedStyle(n).opacity);
+    for (let n = el; n && n !== document.body; n = n.parentElement) o *= Number(getComputedStyle(n).opacity);
     return o;
   };
   const scaleOf = (el) => {
@@ -467,14 +467,18 @@ html, body, #cf-diagram-root { margin: 0; width: 100%; height: 100%; }
   };
   const rectOf = (r) => ({ x: Math.round(r.left * 10) / 10, y: Math.round(r.top * 10) / 10, w: Math.round(r.width * 10) / 10, h: Math.round(r.height * 10) / 10 });
   const ownText = (el) => [...el.childNodes].filter((n) => n.nodeType === 3).map((n) => n.textContent).join('').trim();
+  // The lane layer (cf_diagram_lanes.js) draws its bands, labels, tokens,
+  // and report outside the React Flow root, so its layers are measured too.
   window.__cfBoxes = () => {
     if (!live.container) return [];
     const out = [];
-    for (const el of live.container.querySelectorAll('.react-flow__node')) {
+    const roots = [live.container, ...document.querySelectorAll('.cf-lanes, .cf-lane-front')];
+    const all = (sel) => roots.flatMap((root) => [...root.querySelectorAll(sel)]);
+    for (const el of all('.react-flow__node, .cf-lane-front .cf-node')) {
       if (opacityOf(el) < 0.05) continue;
-      out.push(Object.assign({ id: el.dataset.id, kind: 'node', text: '' }, rectOf(el.getBoundingClientRect())));
+      out.push(Object.assign({ id: el.dataset.id || el.closest('[data-id]')?.dataset.id || 'lane-node', kind: 'node', text: '' }, rectOf(el.getBoundingClientRect())));
     }
-    for (const el of live.container.querySelectorAll('*')) {
+    for (const el of all('*')) {
       const text = ownText(el);
       if (!text || opacityOf(el) < 0.05) continue;
       const r = el.getBoundingClientRect();
