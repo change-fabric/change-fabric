@@ -354,7 +354,7 @@ class WalkthroughLiveTest < Minitest::Test
     WalkthroughRender::Run.new(@root, **{ providers: providers, out: @log, gates: { roast: false, allow_ux: true } }.merge(opts)).call
   end
 
-  def pass2s = Array(@calls[:docker]).select { |a| a.any? { |x| x.to_s.end_with?("walkthrough.mp4") } }
+  def pass2s = Array(@calls[:docker]).select { |a| !a.include?("ebur128=peak=true") && a.any? { |x| x.to_s.end_with?("walkthrough.mp4") } }
 
   def shots = @calls[:capture].select { |c| c[1] == :shots }.map(&:first)
 

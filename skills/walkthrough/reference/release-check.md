@@ -19,7 +19,8 @@ Record, from the run output and the cache:
 1. Manifest hash (printed as `manifest <hash>`).
 2. MP4 sha256 (printed as `mp4 <sha256> <path>`).
 3. Duration: `timeline.total_ms` from manifest.json.
-4. Integrated loudness: `input_i` from the pass 1 loudnorm JSON.
+4. Integrated loudness: `input_i` from the pass 1 loudnorm JSON, and the `loudness gate: pass` line the render prints for the master (-16 +/- 1 LUFS, true peak at or under -2 dBTP).
+5. Craft gate: `ruby scripts/walkthrough_craft.rb "$SCRATCH/greenfield"` prints `not approved` until a craft round reviews this master's SHA-256 (paid; estimate first with the command the render prints).
 
 Gates: the `--final` run must print `ux lint: 0 finding(s)` (every rule, including `caption-safe`, `device-frame`, and ancestor-clipped `clipped-text`); a finding means a fixture screen regressed. The final needs a finished roast loop: render `--draft` first and drive the loop to `stop` (or pass `--no-roast` for an offline check, which skips the gate only when no roast is on record). Do not pass `--allow-ux-findings` or `--allow-roast-findings` here. To exercise the roast gate, render `--draft` first (one paid round, estimate printed, under the run cap) and confirm `roast/round-1.json` and its keyframes exist.
 

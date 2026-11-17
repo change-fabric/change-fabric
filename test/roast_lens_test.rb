@@ -173,13 +173,13 @@ class RoastLensTest < Minitest::Test
     [ Roast::Cli.run(argv, out: out), out.string ]
   end
 
-  def test_cli_refuses_unknown_lens_and_lens_with_video
+  def test_cli_refuses_unknown_lens_and_routes_lens_with_video
     code, text = run_cli("--brief", @brief, "--text", @tf, "--kind", "infra", "--audience", "ops", "--purpose", "x", "--lens", "nope", "--estimate-only")
     assert_equal 2, code
     assert_match(/--lens nope is not a rubric skill/, text)
     code, text = run_cli("--video", "x.mp4", "--brief", @brief, "--lens", "cf:terraform")
-    assert_equal 2, code
-    assert_match(/lenses apply to stills and text only/, text)
+    refute_match(/lenses apply to stills and text only/, text)
+    assert_equal 1, code, "a lens is accepted with --video; only the missing MP4 fails"
   end
 
   def test_cli_estimate_names_lens_and_suggests

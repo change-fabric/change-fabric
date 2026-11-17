@@ -1,0 +1,4 @@
+Input #0, mov,mp4,m4a,3gp,3g2,mj2, from '/src/x.mp4':
+  Stream #0:0[0x1](und): Video: h264
+Stream map '0:a:0' matches no streams.
+To ignore this, add a trailing '?' to the map.

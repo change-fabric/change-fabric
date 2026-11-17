@@ -575,8 +575,6 @@ module Roast
     def run(argv, out: $stdout, http: nil, docker: RoastImageFit::DEFAULT_DOCKER)
       args = argv.dup
       if args.include?('--video')
-        raise UsageError, 'lenses apply to stills and text only, not --video' if args.include?('--lens')
-
         require_relative 'roast_video'
         return RoastVideo::Cli.run(args, out: out, http: http)
       end

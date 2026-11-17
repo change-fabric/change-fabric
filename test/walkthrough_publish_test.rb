@@ -242,4 +242,17 @@ class WalkthroughPublishTest < Minitest::Test
       assert_empty P.locate_boards(File.join(dir, "nowhere"))
     end
   end
+
+  def test_final_master_needs_the_craft_gate_and_drafts_are_exempt
+    Dir.mktmpdir do |dir|
+      final = File.join(dir, "demo-final.mp4").tap { |f| File.binwrite(f, "final") }
+      draft = File.join(dir, "demo-draft.mp4").tap { |f| File.binwrite(f, "draft") }
+      assert_match(/craft gate: not approved: no craft roast round/, WalkthroughPublish.craft_refusal(final))
+      assert_nil WalkthroughPublish.craft_refusal(draft)
+      FileUtils.mkdir_p(File.join(dir, "roast"))
+      File.write(File.join(dir, "roast", "round-1.video.json"),
+                 JSON.generate({ "issues" => [], "craft" => { "master_sha256" => Digest::SHA256.file(final).hexdigest } }))
+      assert_nil WalkthroughPublish.craft_refusal(final)
+    end
+  end
 end

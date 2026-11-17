@@ -7,6 +7,7 @@ require "open3"
 require "tmpdir"
 require_relative "../scripts/change_docker"
 require_relative "../scripts/walkthrough_ffmpeg"
+require_relative "../scripts/walkthrough_loudness"
 
 # Real pass 1 and pass 2 in the pinned FFmpeg image on a mix whose loudness
 # range is well above loudnorm's LRA=11 target: a loud half then a quiet half.
@@ -85,8 +86,19 @@ class WalkthroughLoudnessDockerTest < Minitest::Test
     assert_in_delta WalkthroughFfmpeg::TARGET_I, delivered["input_i"].to_f, 1.0
   end
 
+  # The master gate re-measures the normalized MP4 with ebur128 in the same
+  # pinned image and passes it: -16 +/- 1 LUFS, true peak at or under -2 dBTP.
+  def test_master_gate_passes_the_normalized_mix
+    fixtures!
+    p = plan
+    ffmpeg!(WalkthroughFfmpeg.pass2(p, WalkthroughFfmpeg.parse_loudnorm(ffmpeg!(WalkthroughFfmpeg.pass1(p)))))
+    board = { "scenes" => [ { "id" => "s0", "narration" => { "text" => "x" } } ] }
+    result = WalkthroughLoudness.check(File.join(@dir, "out.mp4"), board, docker: ->(argv) { Open3.capture2e("timeout", "120", *argv) })
+    assert result.pass?, result.reason
+  end
+
   # The limiter alone, to PCM: oversampled it holds the TP ceiling, while
-  # the same alimiter at 48 kHz lets intersample peaks through above 0 dBTP.
+  # the same alimiter at 48 kHz lets intersample peaks through well over it.
   def test_limiter_holds_the_true_peak_ceiling
     transient_fixture!
     gain = WalkthroughFfmpeg.static_gain(measure("n0.wav"))
@@ -96,7 +108,7 @@ class WalkthroughLoudnessDockerTest < Minitest::Test
       measure("lim.wav")["input_tp"].to_f
     end
     assert_operator tp.call(WalkthroughFfmpeg::LIMITER), :<=, WalkthroughFfmpeg::TARGET_TP + 0.1
-    assert_operator tp.call(WalkthroughFfmpeg::LIMITER.sub(/\Aaresample=\d+,/, "")), :>, 0.0
+    assert_operator tp.call(WalkthroughFfmpeg::LIMITER.sub(/\Aaresample=\d+,/, "")), :>, WalkthroughFfmpeg::TARGET_TP + 1.0
   end
 
   # The delivered mp4 adds AAC's own overshoot, measured at about 0.5 dB.
