@@ -97,6 +97,17 @@ class RoastVideoTest < Minitest::Test
     assert_equal 1, docker.calls.size, "frames are cached by MP4 digest"
   end
 
+  # Video shares the stills store, so a legacy critic the stills CLI moved out
+  # of <repo>/.cache/roasts is still found, and nothing lands in the repo.
+  def test_default_video_cache_is_the_shared_store_outside_the_repo
+    repo = File.join(@dir, "repo")
+    FileUtils.mkdir_p(repo)
+    args = [ "--repo", repo, "--video", @mp4, "--brief", @brief, "--out-dir", @roast ]
+    assert_equal 0, RoastVideo::Cli.run(args, out: StringIO.new, http: Http.new, docker: fake_docker)
+    refute File.exist?(File.join(repo, ".cache"))
+    refute_empty Dir.glob(File.join(Roast.default_cache(repo), "roasts", "*.json"))
+  end
+
   def video_args = [ "--video", @mp4, "--brief", @brief, "--out-dir", @roast, "--cache", File.join(@dir, ".cache"), "--round", "2" ]
 
   def test_video_roast_provider_failures_use_the_shared_exit_contract
