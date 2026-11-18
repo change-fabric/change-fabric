@@ -467,6 +467,28 @@ class WalkthroughLiveTest < Minitest::Test
     refute_includes @log.string, "live recapture:"
   end
 
+  def test_a_session_child_of_a_word_anchored_scene_reports_no_recapture
+    b = board
+    b["scenes"].find { |sc| sc["id"] == "inbox" }["interactions"] << { "at" => { "word" => "inbox" }, "op" => "click", "target" => "#archive" }
+    reports = b["scenes"].find { |sc| sc["id"] == "reports" }
+    reports.delete("persona")
+    reports["session_from_scene"] = "inbox"
+    File.write(File.join(@root, "storyboard.json"), JSON.pretty_generate(b))
+    render
+    render
+    refute_includes @log.string, "live recapture:"
+  end
+
+  # The silent cut names an anchored scene before it films it.
+  def test_the_silent_cut_announces_before_it_films
+    b = board
+    b["scenes"].find { |sc| sc["id"] == "inbox" }["interactions"] << { "at" => { "word" => "inbox" }, "op" => "click", "target" => "#archive" }
+    File.write(File.join(@root, "storyboard.json"), JSON.pretty_generate(b))
+    render
+    log = @log.string
+    assert_operator log.index("inbox (no earlier capture on record)"), :<, log.index("inbox: capturing")
+  end
+
   def test_secret_never_reaches_a_written_artifact
     render
     files = Dir.glob(File.join(@root, "**", "*"), File::FNM_DOTMATCH).select { |f| File.file?(f) }

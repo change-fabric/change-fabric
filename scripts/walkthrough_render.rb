@@ -273,7 +273,7 @@ module WalkthroughRender
     def capture_frames
       with_session { |session| capture_all(session) } if capture_needed?(live: false)
       if capture_needed?(live: true)
-        recapture_notice unless @silent
+        recapture_notice
         with_live_session { |session| capture_live(session) }
       end
       clip_check!
@@ -305,9 +305,11 @@ module WalkthroughRender
       end
     end
 
-    # Before anything films, which live scenes will recapture and why, so a
-    # key change (a toolkit upgrade, an edit upstream) never recaptures a
-    # whole film against a drifted site unannounced.
+    # Just before a run films the live app (the silent cut, then the
+    # narrated draft), which live scenes it will recapture and why, keyed
+    # on the board that run films, so a key change (a toolkit upgrade, an
+    # edit upstream) never recaptures a film against a drifted site
+    # unannounced.
     def recapture_notice
       memo = {}
       # A navigate pair films as one run, so either half targeted or stale
@@ -318,20 +320,12 @@ module WalkthroughRender
         halves = [ scene, WalkthroughLive.pair_next(@board, scene) ].compact
         next [] unless halves.any? { |s| capture_target?(s) }
         next halves.map { |s| "#{s['id']} (--recapture or --scene)" } if halves.any? { |s| recapture?(s) }
-        # Word anchors key only once resolved; the call just before filming
-        # covers such a scene.
-        next [] if halves.any? { |s| WalkthroughStoryboard.unresolved?(s) }
         next [] if halves.all? { |s| captured?(s, prep(s, memo)) }
 
         halves.map { |s| "#{s['id']} (#{WalkthroughLive.recapture_reason(@root, s['id'], prep(s, memo))})" }
       rescue ArgumentError
         []
       end
-      # Called again just before filming, once narration timing is
-      # resolved; a line already printed is not repeated.
-      @noticed ||= []
-      lines -= @noticed
-      @noticed += lines
       return if lines.empty?
 
       say("live recapture: #{lines.size} scene(s) will film the live app again:")
@@ -1024,7 +1018,6 @@ module WalkthroughRender
       return nil if estimate_only
 
       refuse_placeholders! if @final
-      recapture_notice
       silent_cut if silent_cut?
       generate_audio
       resolve_anchors!
