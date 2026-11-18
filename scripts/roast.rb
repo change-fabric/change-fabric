@@ -13,6 +13,7 @@ require_relative 'design_config'
 require_relative 'roast_kind'
 require_relative 'roast_image_fit'
 require_relative 'roast_lens'
+require_relative 'roast_response'
 require_relative 'sensitive_terms'
 require_relative 'walkthrough_cache'
 require_relative 'walkthrough_env'
@@ -61,7 +62,7 @@ module Roast
   MIME = { '.png' => 'image/png', '.jpg' => 'image/jpeg', '.jpeg' => 'image/jpeg', '.webp' => 'image/webp' }.freeze
   USAGE = 'usage: roast.rb --brief FILE (--shot IMG... | --text FILE...) [--allow-sensitive] [--history DIR] [--out-dir DIR] [--round N] ' \
           '[--max-usd N] [--model NAME|terra|sol] [--effort none|low|medium|high|xhigh|max] [--cache DIR] [--transcript FILE] [--estimate-only] ' \
-          '[--storyboard FILE] [--kind explainer|promo|demo|email|doc|pr|post|arch|code|infra|fidelity] [--pair PROTO.png=REF.png]... [--audience TEXT] [--purpose OUTCOME]... [--lens NAME]... | roast.rb --video MP4 --brief FILE [...] | roast.rb infer [--storyboard FILE] [--text FILE]... | roast.rb decide --out-dir DIR [--target N] [--cap N] | roast.rb settings [--repo DIR]; ' \
+          '[--storyboard FILE] [--kind explainer|promo|demo|email|doc|pr|post|arch|code|infra|fidelity] [--pair PROTO.png=REF.png]... [--audience TEXT] [--purpose OUTCOME]... [--lens NAME]... | roast.rb --video MP4 --brief FILE [...] | roast.rb infer [--storyboard FILE] [--text FILE]... | roast.rb decide --out-dir DIR [--target N] [--cap N] | roast.rb respond --out-dir DIR --round N (--accept-all | --verdicts FILE) | roast.rb settings [--repo DIR]; ' \
           'flags win over the storyboard review object, which wins over change_config.design.roast in CHANGE.md (--repo DIR, default the working directory)'
 
   # arch, code and infra are CLI-only: CHANGE.md still validates against
@@ -586,6 +587,10 @@ module Roast
         args.shift
         return infer(parse_infer(args), out)
       end
+      if args.first == 'respond'
+        args.shift
+        return respond(parse_respond(args), out)
+      end
       if args.first == 'settings'
         args.shift
         return settings(parse_settings(args), out)
@@ -721,6 +726,35 @@ module Roast
         o.on('--cap N', Integer) { |v| opts[:cap] = v }
       end.parse!(args)
       opts
+    end
+
+    def parse_respond(args)
+      opts = { out_dir: DEFAULT_OUT_DIR }
+      OptionParser.new do |o|
+        o.on('--out-dir DIR') { |v| opts[:out_dir] = v }
+        o.on('--round N', Integer) { |v| opts[:round] = v }
+        o.on('--accept-all') { opts[:accept_all] = true }
+        o.on('--verdicts FILE') { |v| opts[:verdicts] = v }
+      end.parse!(args)
+      raise UsageError, 'respond needs --round N' unless opts[:round]
+      raise UsageError, 'respond needs exactly one of --accept-all or --verdicts FILE' unless opts[:accept_all] ^ !opts[:verdicts].nil?
+
+      opts
+    end
+
+    # Writes round-N.response.json from round-N.json: every issue accepted with
+    # the critic's fix, or one verdict per issue, in order, from a JSON array.
+    def respond(opts, out)
+      critic = JSON.parse(File.read(File.join(opts[:out_dir], "round-#{opts[:round]}.json")))
+      verdicts = opts[:verdicts] && Array(JSON.parse(File.read(opts[:verdicts])))
+      response = verdicts ? RoastResponse.build(critic, verdicts) : RoastResponse.accept_all(critic)
+      path = File.join(opts[:out_dir], "round-#{opts[:round]}.response.json")
+      File.write(path, "#{JSON.pretty_generate(response)}\n")
+      out.puts("roast response: wrote #{path} (#{response['responses'].size} response(s))")
+      0
+    rescue RoastResponse::Invalid, JSON::ParserError => e
+      out.puts("error: roast response refused: #{e.message.lines.first&.strip}")
+      1
     end
 
     def parse_settings(args)

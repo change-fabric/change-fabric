@@ -14,8 +14,9 @@ Plan dir: {{plan_dir}}
 Target repo (for the palette): {{repo_path}}
 Plan: {{plan_dir}}/plan.md (read it in full first)
 
-Visual list from the plan's ## Visuals section, one per line (file name,
-type, purpose):
+Visual list from the plan's ## Visuals section, one per line in the pending
+form `diagrams/<name>.svg (pending), <type>, <purpose>`. The marker means
+not drawn yet; plan_check.rb checks the path only once it is gone:
 
 {{visual_list}}
 
@@ -56,7 +57,8 @@ the list above; keep it on the line you report back.
 Every SVG carries `data-diagram-type` or `data-chart-type`, no literal
 absolute home path, and no em-dash, unicode bullet, ellipsis, or smart quote.
 
-Report back, one line per visual: relative path (diagrams/<name>.svg), type,
+Report back, one line per visual, without the (pending) marker, so the
+writing agent can drop it: relative path (diagrams/<name>.svg), type,
 purpose with its `(phases: ...)` tag, measured: yes or no, rendered: yes or
 no. Then list anything dropped
 and why.
