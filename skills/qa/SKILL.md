@@ -239,8 +239,16 @@ For each passing flow:
 
    ```
    ruby ~/.claude/cf/bin/change_flow_run.rb <flow.yml> --promote \
-     --suite <suite-id> --case-id <case-id> --acceptance "<one sentence>" --tags smoke
+     [--suite <suite-id>] --case-id <case-id> --acceptance "<one sentence>" --tags smoke \
+     [--persona <name>]
    ```
+
+   `--suite` defaults to the flow file's name (`checkout.flow.yml` is suite
+   `checkout`). When the flow opens with a login that matches a persona in
+   `lanes.testcases.personas` (or the lane's `auth:`, the `default` persona),
+   the case gets `persona: <name>` and those login steps are dropped, because
+   the lane logs each persona in once per run. `--persona <name>` names it
+   outright.
 
    The renderer parses its own output back through the suite parser before
    printing, so what it emits is a file the `testcases` lane will accept. It

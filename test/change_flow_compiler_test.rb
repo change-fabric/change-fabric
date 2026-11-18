@@ -413,7 +413,7 @@ class ChangeFlowCompilerTest < Minitest::Test
     js = ChangeFlowCompiler.new([ { "goto" => "/" }, { "expect_visible" => "#app" } ],
                                 base_url: "https://app.example.org", env: ENV_FIXTURE).function_module
     assert_includes js, "export default async ({ page }) =>"
-    assert_includes js, "async function cfRunFlow(page, steps)"
+    assert_includes js, "async function cfRunFlow(page, steps, options = {})"
     assert_includes js, "async function resolveCodeSource(codeSource)"
     assert_includes js, '"verb":"expectVisible"'
   end

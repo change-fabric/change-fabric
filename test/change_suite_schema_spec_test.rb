@@ -91,6 +91,12 @@ class ChangeSuiteSchemaSpecTest < Minitest::Test
     assert_equal 1, item.retries
   end
 
+  def test_a_v3_file_loads_its_persona_fields
+    item = ChangeSuite.load_file(compat("v3")).cases.first
+    assert_equal "admin", item.persona
+    assert item.safe_retry
+  end
+
   def test_a_file_newer_than_the_install_names_the_update
     assert_equal ChangeSuiteSchema::SUITE_VERSION + 1, YAML.safe_load_file(compat("too-new"))["suite_version"],
                  "raise the too-new fixture with SUITE_VERSION"

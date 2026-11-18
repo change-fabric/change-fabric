@@ -292,10 +292,14 @@ class ChangeFlowCompiler
       }
     }
 
-    async function cfRunFlow(page, steps) {
-      const state = { lastResponse: null, vars: {} };
+    // `options` lets a caller resume a flow part way (startAt, with the
+    // captured vars it had) and stop it after a step (afterStep returns
+    // true), which is how the testcases lane resumes a case after a re-login.
+    async function cfRunFlow(page, steps, options = {}) {
+      const state = { lastResponse: null, vars: Object.assign({}, options.vars || {}) };
       const results = [];
       for (const step of steps) {
+        if (step.index < (options.startAt || 0)) continue;
         const record = { index: step.index, verb: step.verb, label: step.label, raw: step.raw === true, ok: true, error: null };
         try {
           const detail = await cfRunStep(page, step, state);
@@ -305,8 +309,10 @@ class ChangeFlowCompiler
           record.error = String(err);
         }
         results.push(record);
+        if (options.afterStep && (await options.afterStep(step, record))) break;
         if (!record.ok) break;
       }
+      results.vars = state.vars;
       return results;
     }
   JS

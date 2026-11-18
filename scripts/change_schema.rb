@@ -18,7 +18,7 @@
 require_relative 'figma_url'
 
 module ChangeSchema
-  VERSION = '0.21.0'
+  VERSION = '0.22.0'
 
   # The six lanes, the authoritative list the config validator enforces: five
   # dockerized audit lanes plus a host-run command lane (0.17.0).
@@ -49,6 +49,7 @@ module ChangeSchema
   #   <profile> any name under change_config.profiles
   #   <app>     any name under change_config.apps (an app in a monorepo, 0.4.0)
   #   <schedule> any name under change_config.schedules (0.20.0)
+  #   <persona> any name under change_config.lanes.testcases.personas (0.22.0)
   #   []        a field on each item of a list
   FIELDS = [
     # The one field outside both change_config: and change_policy: (0.3.0):
@@ -236,6 +237,36 @@ module ChangeSchema
     'change_config.lanes.testcases.auth.steps[].submit_selector',
     'change_config.lanes.testcases.auth.steps[].wait_for_selector',
     'change_config.lanes.testcases.auth.steps[].timeout_ms',
+    # expired_when (0.22.0): the declared probe that says a case's session
+    # ended mid-run, so the persona logs in again. No probe, no detection.
+    'change_config.lanes.testcases.auth.expired_when.selector',
+    'change_config.lanes.testcases.auth.expired_when.probe_url',
+    'change_config.lanes.testcases.auth.expired_when.expect_status',
+    # personas (0.22.0): named logins for the testcases lane, each the same
+    # login-flow block as testcases.auth (which is the `default` persona).
+    # A case picks one with `persona:` in its suite file.
+    'change_config.lanes.testcases.personas',
+    'change_config.lanes.testcases.personas.<persona>.login_url',
+    'change_config.lanes.testcases.personas.<persona>.email_env',
+    'change_config.lanes.testcases.personas.<persona>.password_env',
+    'change_config.lanes.testcases.personas.<persona>.email_selector',
+    'change_config.lanes.testcases.personas.<persona>.password_selector',
+    'change_config.lanes.testcases.personas.<persona>.submit_selector',
+    'change_config.lanes.testcases.personas.<persona>.wait_for_selector',
+    'change_config.lanes.testcases.personas.<persona>.timeout_ms',
+    'change_config.lanes.testcases.personas.<persona>.steps[].url',
+    'change_config.lanes.testcases.personas.<persona>.steps[].fields[].selector',
+    'change_config.lanes.testcases.personas.<persona>.steps[].fields[].env',
+    'change_config.lanes.testcases.personas.<persona>.steps[].fields[].code_source.url',
+    'change_config.lanes.testcases.personas.<persona>.steps[].fields[].code_source.pattern',
+    'change_config.lanes.testcases.personas.<persona>.steps[].fields[].code_source.timeout_ms',
+    'change_config.lanes.testcases.personas.<persona>.steps[].fields[].code_source.poll_interval_ms',
+    'change_config.lanes.testcases.personas.<persona>.steps[].submit_selector',
+    'change_config.lanes.testcases.personas.<persona>.steps[].wait_for_selector',
+    'change_config.lanes.testcases.personas.<persona>.steps[].timeout_ms',
+    'change_config.lanes.testcases.personas.<persona>.expired_when.selector',
+    'change_config.lanes.testcases.personas.<persona>.expired_when.probe_url',
+    'change_config.lanes.testcases.personas.<persona>.expired_when.expect_status',
     # change_config.design (0.13.0): per-project design governance. tokens.css
     # stays the one design source; Figma is an optional evidence bridge named
     # by URL; parity says which areas must match Figma and which diverge on

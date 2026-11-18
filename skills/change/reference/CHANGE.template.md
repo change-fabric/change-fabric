@@ -293,6 +293,8 @@ change_config:
       # gate_tags: [smoke]   # optional; only these tags' cases may fail the gate
       # viewport: { name: desktop, width: 1440, height: 900 }  # optional, the default
       # auth: same shape as lanes.browserless.auth above, for cases behind a login
+      #   plus optional expired_when: { probe_url: /api/me, expect_status: 401 } (or { selector: ... })
+      #   so a case whose session ends mid-run logs in again and resumes (0.22.0)
 
     # Optional (0.17.0): the project's own checks, run on the host. With a
     # design target (0.18.0) the kit drift check belongs here, so a theme

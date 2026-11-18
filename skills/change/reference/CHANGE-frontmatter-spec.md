@@ -1,6 +1,6 @@
 # CHANGE.md frontmatter specification
 
-Schema version: 0.21.0
+Schema version: 0.22.0
 
 Status: stable. This is the golden reference for authoring a repo's
 `CHANGE.md` frontmatter. A maintainer or an AI agent creating a new repo's
@@ -378,6 +378,31 @@ lane; `gate_tags` is the staged-adoption valve for a suite still being trusted.
 | `change_config.lanes.testcases.auth.steps[].submit_selector` | string | no (default `button[type="submit"]`) | CSS selector for this step's submit control. |
 | `change_config.lanes.testcases.auth.steps[].wait_for_selector` | string | no | Selector to wait for after this step's submit. |
 | `change_config.lanes.testcases.auth.steps[].timeout_ms` | integer | no (default 15000) | Timeout for this step's navigation, field waits, and post-submit wait. |
+| `change_config.lanes.testcases.auth.expired_when.selector` | string | no | (0.22.0) A CSS selector present and visible only when logged out. Once a step leaves it visible, the session has ended. Set this or `probe_url`, not both. |
+| `change_config.lanes.testcases.auth.expired_when.probe_url` | string | no | (0.22.0) A path the lane GETs from the page after each step, with the session's cookies and redirects not followed. Set this or `selector`, not both. |
+| `change_config.lanes.testcases.auth.expired_when.expect_status` | integer or list | yes with `probe_url` | (0.22.0) The status (or statuses) `probe_url` answers once the session is gone, for example 401, or 302 for a redirect to the login. Any listed 3xx matches any redirect. |
+| `change_config.lanes.testcases.personas` | mapping | no (default none) | (0.22.0) Named logins, each the same block as `testcases.auth`, so a suite can run cases as more than one user. A case picks one with `persona: <name>` (suite_version 3). `testcases.auth` is the implicit `default` persona, used by a case that names none; `anonymous` never logs in. Both names are reserved here. Each persona used by the selected cases logs in once per run, and its cookies and localStorage are seeded into every case's fresh browser context, so the cases of one persona share a server-side session: a case that logs out or changes session state affects later cases. Mid-case session-end detection happens only for a persona that declares `expired_when`: when its probe fires, the persona logs in again once, however many cases saw it, and the case resumes; an interrupted mutating step fails the case `auth_interrupted` unless the case sets `safe_retry: true`. Without `expired_when` there is no detection, and a case whose session ended fails normally. A case that logs out on purpose sets `expects_logout: true`. Not profile-overridable. |
+| `change_config.lanes.testcases.personas.<persona>.login_url` | string | no | (0.22.0) The same field as `testcases.auth.login_url`, for this persona's login. |
+| `change_config.lanes.testcases.personas.<persona>.email_env` | string | no | (0.22.0) The same field as `testcases.auth.email_env`, for this persona's login. |
+| `change_config.lanes.testcases.personas.<persona>.password_env` | string | no | (0.22.0) The same field as `testcases.auth.password_env`, for this persona's login. |
+| `change_config.lanes.testcases.personas.<persona>.email_selector` | string | no | (0.22.0) The same field as `testcases.auth.email_selector`, for this persona's login. |
+| `change_config.lanes.testcases.personas.<persona>.password_selector` | string | no | (0.22.0) The same field as `testcases.auth.password_selector`, for this persona's login. |
+| `change_config.lanes.testcases.personas.<persona>.submit_selector` | string | no | (0.22.0) The same field as `testcases.auth.submit_selector`, for this persona's login. |
+| `change_config.lanes.testcases.personas.<persona>.wait_for_selector` | string | no | (0.22.0) The same field as `testcases.auth.wait_for_selector`, for this persona's login. |
+| `change_config.lanes.testcases.personas.<persona>.timeout_ms` | integer | no | (0.22.0) The same field as `testcases.auth.timeout_ms`, for this persona's login. |
+| `change_config.lanes.testcases.personas.<persona>.steps[].url` | string | no | (0.22.0) The same field as `testcases.auth.steps[].url`, for this persona's login. |
+| `change_config.lanes.testcases.personas.<persona>.steps[].fields[].selector` | string | no | (0.22.0) The same field as `testcases.auth.steps[].fields[].selector`, for this persona's login. |
+| `change_config.lanes.testcases.personas.<persona>.steps[].fields[].env` | string | no | (0.22.0) The same field as `testcases.auth.steps[].fields[].env`, for this persona's login. |
+| `change_config.lanes.testcases.personas.<persona>.steps[].fields[].code_source.url` | string | no | (0.22.0) The same field as `testcases.auth.steps[].fields[].code_source.url`, for this persona's login. |
+| `change_config.lanes.testcases.personas.<persona>.steps[].fields[].code_source.pattern` | string | no | (0.22.0) The same field as `testcases.auth.steps[].fields[].code_source.pattern`, for this persona's login. |
+| `change_config.lanes.testcases.personas.<persona>.steps[].fields[].code_source.timeout_ms` | integer | no | (0.22.0) The same field as `testcases.auth.steps[].fields[].code_source.timeout_ms`, for this persona's login. |
+| `change_config.lanes.testcases.personas.<persona>.steps[].fields[].code_source.poll_interval_ms` | integer | no | (0.22.0) The same field as `testcases.auth.steps[].fields[].code_source.poll_interval_ms`, for this persona's login. |
+| `change_config.lanes.testcases.personas.<persona>.steps[].submit_selector` | string | no | (0.22.0) The same field as `testcases.auth.steps[].submit_selector`, for this persona's login. |
+| `change_config.lanes.testcases.personas.<persona>.steps[].wait_for_selector` | string | no | (0.22.0) The same field as `testcases.auth.steps[].wait_for_selector`, for this persona's login. |
+| `change_config.lanes.testcases.personas.<persona>.steps[].timeout_ms` | integer | no | (0.22.0) The same field as `testcases.auth.steps[].timeout_ms`, for this persona's login. |
+| `change_config.lanes.testcases.personas.<persona>.expired_when.selector` | string | no | (0.22.0) The same field as `testcases.auth.expired_when.selector`, for this persona. |
+| `change_config.lanes.testcases.personas.<persona>.expired_when.probe_url` | string | no | (0.22.0) The same field as `testcases.auth.expired_when.probe_url`, for this persona. |
+| `change_config.lanes.testcases.personas.<persona>.expired_when.expect_status` | integer or list | yes with `probe_url` | (0.22.0) The same field as `testcases.auth.expired_when.expect_status`, for this persona. |
 
 `lanes.testcases.base_url`, `lanes.testcases.basic_auth.*`, `lanes.testcases.retries`
 and `lanes.testcases.wait_for.*` are the generic `lanes.<lane>.*` fields above,
@@ -1668,3 +1693,8 @@ root `RELEASING.md`.
   browserless call, up to that many at once. The suite files the lane loads
   gain their own `suite_version` (see the suite-file spec); suites with
   unknown keys now fail to load.
+- 0.22.0: additive. Adds `change_config.lanes.testcases.personas`, named
+  logins in the `auth` block's shape. Each persona logs in once per run and
+  its session is seeded into each case that names it (suite_version 3
+  `cases[].persona`). Two suite files declaring the same `suite` id now fail
+  to load.

@@ -3,6 +3,7 @@
 
 require 'json'
 require 'date'
+require 'uri'
 require_relative 'change_lane'
 require_relative 'change_docker'
 require_relative 'change_lane_browserless'
@@ -10,6 +11,7 @@ require_relative 'change_findings'
 require_relative 'change_flow_compiler'
 require_relative 'change_suite'
 require_relative 'change_acceptance_grader'
+require_relative 'change_testcases_personas'
 
 # The deterministic regression lane. Runs committed test cases (suite files
 # referenced from CHANGE.md by glob) inside the same browserless Chromium
@@ -64,6 +66,13 @@ class ChangeLaneTestcases < ChangeLane
   # rejected. A rejection never started the case, so it is not an attempt and
   # consumes no `retries`.
   QUEUE_BACKOFF_S = [ 1, 2, 4, 8, 16 ].freeze
+  # The steps a case may replay after its persona logs in again: navigations,
+  # waits, reads and assertions. Anything else (click, fill, select, press,
+  # eval) may already have taken effect server side, so replaying it needs the
+  # case's `safe_retry: true`.
+  REPLAYABLE_VERBS = ChangeFlowCompiler::RUNTIME_VERBS.values_at(
+    'goto', 'wait_for', 'screenshot', 'capture', *ChangeFlowCompiler::ASSERTIONS
+  ).freeze
 
   # `grader` is the seam a test drives; a real run builds the default one, which
   # resolves its command from the environment and reports itself unavailable
@@ -83,7 +92,8 @@ class ChangeLaneTestcases < ChangeLane
   # entry per call the container accepted with its outcome and duration.
   def case_results
     Array(@results).map do |result|
-      { key: result[:case].qualified_id, status: result[:status], started_at_ms: result[:started_at_ms],
+      { key: result[:case].qualified_id, status: result[:outcome], persona: result[:case].persona_name,
+        started_at_ms: result[:started_at_ms],
         duration_ms: result[:duration_ms], attempts: result[:attempt_log] }
     end
   end
@@ -248,13 +258,27 @@ class ChangeLaneTestcases < ChangeLane
   # How many cases run at once (lanes.testcases.parallel, validated 1..10).
   def parallel = Integer(@config.fetch('parallel', DEFAULT_PARALLEL))
 
-  # The login flow, in exactly the shape the browserless lane's `auth:` block
-  # already has. Shared rather than restated: a repo that has already written
-  # its login once should not write a second dialect of it to run a test case
-  # behind that login.
-  def auth_config
-    raw = @config['auth']
-    raw.is_a?(Hash) ? ChangeLaneBrowserless::AuthConfig.new(raw) : nil
+  # A persona's login flow, in exactly the shape the browserless lane's
+  # `auth:` block already has. Shared rather than restated: a repo that has
+  # already written its login once should not write a second dialect of it to
+  # run a test case behind that login. `default` is the lane's `auth:` (no
+  # login when there is none), `anonymous` is never a login, and a name the
+  # lane does not define is :unknown.
+  def persona_auth(name)
+    return nil if name == 'anonymous'
+
+    raw = name == 'default' ? @config['auth'] : personas_config[name]
+    return ChangeLaneBrowserless::AuthConfig.new(raw) if raw.is_a?(Hash)
+
+    name == 'default' ? nil : :unknown
+  end
+
+  def personas_config = @config['personas'].is_a?(Hash) ? @config['personas'].transform_keys(&:to_s) : {}
+
+  # The persona a case logs in as, or nil when it runs without a login.
+  def login_persona(item)
+    auth = persona_auth(item.persona_name)
+    auth.is_a?(ChangeLaneBrowserless::AuthConfig) ? item.persona_name : nil
   end
 
   # --- findings ----------------------------------------------------------------
@@ -303,7 +327,9 @@ class ChangeLaneTestcases < ChangeLane
   # come back in case order whatever order the pool finished them in.
   def case_findings(selected, session)
     compiled = js_cases(selected)
+    @personas = PersonaCache.new { |name| log_in(session, name) }
     @run_started = clock
+    warm_personas(selected)
     runs = run_pool(selected.size) { |index| run_case(session, selected[index], compiled[index]) }
     @results = selected.each_with_index.map { |item, index| graded(item, runs[index]) }
     @results.map { |graded| case_finding(graded) }
@@ -325,6 +351,34 @@ class ChangeLaneTestcases < ChangeLane
     results
   end
 
+  # One login per persona the selection uses, before any case runs, so the
+  # first cases of a persona do not all race to be the one that logs in. A
+  # failed login is remembered by the cache and fails each of its cases.
+  def warm_personas(selected)
+    selected.filter_map { |item| login_persona(item) }.uniq.each do |name|
+      @personas.fetch(name)
+    rescue PersonaCache::LoginError
+      next
+    end
+  end
+
+  # The login call for one persona: its auth steps in a fresh context, then
+  # that context's cookies and localStorage, which every case of the persona
+  # is seeded with.
+  def log_in(session, name)
+    auth = persona_auth(name)
+    result = call_function(session, login_module(auth), login_budget_ms(auth))
+    return result['state'] if result && result['ok']
+
+    reason = result && (result['authError'] || result['callError'])
+    raise PersonaCache::LoginError, reason || 'the login call returned no result'
+  end
+
+  def login_budget_ms(auth)
+    derived = auth.steps.sum { |step| Integer(step[:timeout_ms]) + NAVIGATION_OVERHEAD_MS }
+    [ derived, CASE_BUDGET_FLOOR_MS ].max
+  end
+
   # The attempt lifecycle. An attempt is one call the container accepted. A
   # whole-case rerun after a failure happens only within `retries`, which the
   # loader allows only beside `safe_rerun: true`. The last attempt's record
@@ -336,11 +390,12 @@ class ChangeLaneTestcases < ChangeLane
     (item.retries + 1).times do |number|
       attempt_started = clock
       record = attempt(session, item, compiled, number + 1)
-      # Nothing ran (no usable payload, or a queue that never freed): not an
-      # attempt, and no reason to spend a rerun on it.
-      break if record.nil? || record['queueFull']
+      # Nothing ran (no usable payload, a queue that never freed, or a
+      # persona that could not log in): not an attempt, and no reason to
+      # spend a rerun on it.
+      break if record.nil? || record['queueFull'] || record['notAttempted']
 
-      attempts << { number: number + 1, outcome: record['ok'] ? 'pass' : 'fail',
+      attempts << { number: number + 1, outcome: attempt_outcome(record),
                     duration_ms: elapsed_ms(attempt_started) }
       break if record['ok']
     end
@@ -348,14 +403,89 @@ class ChangeLaneTestcases < ChangeLane
       duration_ms: elapsed_ms(started) }
   end
 
+  def attempt_outcome(record)
+    return 'auth_interrupted' if record['authInterrupted']
+
+    record['ok'] ? 'pass' : 'fail'
+  end
+
+  # One attempt of a case, seeded with its persona's session. Auth recovery
+  # happens inside the attempt: when the case sees its session end, the
+  # persona logs in again (once, however many cases saw it) and the case
+  # resumes at the interrupted step, unless that step may already have changed
+  # something server side.
+  def attempt(session, item, compiled, number)
+    return unknown_persona(item) if persona_auth(item.persona_name) == :unknown
+
+    persona = login_persona(item)
+    state, generation = persona ? @personas.fetch(persona) : [ nil, 0 ]
+    record = call_function(session, case_module(compiled, number, persona_js(item, state)), case_budget_ms(item))
+    return record unless persona && record.is_a?(Hash) && record['authExpired']
+
+    resume_after_expiry(session, item, compiled, number, persona, generation, record)
+  rescue PersonaCache::LoginError => e
+    { 'ok' => false, 'notAttempted' => true, 'steps' => [],
+      'authError' => "persona '#{item.persona_name}' could not log in: #{e.message}" }
+  end
+
+  def unknown_persona(item)
+    { 'ok' => false, 'notAttempted' => true, 'steps' => [],
+      'authError' => "the case names persona '#{item.persona_name}', which lanes.testcases.personas does not define" }
+  end
+
+  def resume_after_expiry(session, item, compiled, number, persona, generation, record)
+    expired = record['authExpired']
+    begin
+      state, = @personas.refresh(persona, generation)
+    rescue PersonaCache::LoginError => e
+      return record.merge('ok' => false, 'authError' => "the session ended and persona '#{persona}' could not log in again: #{e.message}")
+    end
+    restart = restart_index(compiled[:steps], Integer(expired['index']))
+    unless replayable?(item, compiled[:steps], restart, Integer(expired['index']))
+      return record.merge('ok' => false, 'authInterrupted' => true)
+    end
+
+    resume = { startAt: restart, vars: record['vars'] || {} }
+    second = call_function(session, case_module(compiled, number, persona_js(item, state), resume: resume),
+                           case_budget_ms(item))
+    merge_resumed(record, second, resume[:startAt])
+  end
+
+  # A resumed case restarts at the last navigation at or before the
+  # interrupted step, because a fresh context has none of the page state
+  # (typed fields, client-side state) the steps after that navigation built.
+  # Without one it restarts at the first step, on the persona's landing page.
+  def restart_index(steps, interrupted)
+    steps.select { |step| step[:index] <= interrupted && step[:verb] == 'goto' }.map { |step| step[:index] }.max || 0
+  end
+
+  # Every step from the restart to the interrupted one is replayed, so all of
+  # them must be safe to repeat, unless the case says replay is safe.
+  def replayable?(item, steps, from, to)
+    return true if item.safe_retry
+
+    steps.select { |step| step[:index].between?(from, to) }.all? { |step| REPLAYABLE_VERBS.include?(step[:verb]) }
+  end
+
+  # The resumed call's record, carrying the first call's steps before the
+  # interrupted one. A second session end in the same attempt fails the case.
+  def merge_resumed(first, second, start_at)
+    return first.merge('ok' => false, 'callError' => 'the resumed call after a re-login returned no result') unless second.is_a?(Hash)
+
+    earlier = Array(first['steps']).select { |step| step['index'].to_i < start_at }
+    merged = second.merge('steps' => earlier + Array(second['steps']), 'resumed' => true)
+    return merged unless second['authExpired']
+
+    merged.merge('ok' => false, 'authError' => 'the session ended again after a re-login in the same attempt')
+  end
+
   # One accepted call. A queue rejection is retried with backoff and is not an
   # attempt; a queue that never frees is a call error with no attempt made.
   # Any other failure (timeout, transport, browser crash) is a failed attempt.
-  def attempt(session, item, compiled, number)
+  def call_function(session, code, timeout_ms)
     rejections = 0
     begin
-      result = session.run_function(case_module(compiled, number), launch_args: launch_args,
-                                                                   timeout_ms: case_budget_ms(item))
+      result = session.run_function(code, launch_args: launch_args, timeout_ms: timeout_ms)
       result.is_a?(Hash) ? result : nil
     rescue ChangeDocker::Browserless::QueueRejected => e
       rejections += 1
@@ -382,7 +512,9 @@ class ChangeLaneTestcases < ChangeLane
   # absence is not a pass.
   def graded(item, run)
     record = run[:record]
-    { case: item, record: record, status: status_for(item, record),
+    status = status_for(item, record)
+    outcome = record&.dig('authInterrupted') ? 'auth_interrupted' : status
+    { case: item, record: record, status: status, outcome: outcome,
       attempts: [ run[:attempts].size, 1 ].max, attempt_log: run[:attempts],
       started_at_ms: run[:started_at_ms], duration_ms: run[:duration_ms] }
   end
@@ -500,15 +632,35 @@ class ChangeLaneTestcases < ChangeLane
     return "case did not run: #{graded[:case].qualified_id} produced no result" if record.nil?
     return "#{graded[:case].acceptance}#{quarantine_note(graded[:case])}" if record['ok']
 
-    "#{failure_reason(record)}#{ungated_note(graded)}"
+    "#{failure_reason(record)}#{expiry_hint(graded[:case], record)}#{ungated_note(graded)}"
   end
 
   def failure_reason(record)
-    return "login failed before the case ran: #{record['authError']}" if record['authError']
+    return auth_interrupted_reason(record) if record['authInterrupted']
+    return "login failed before the case ran: #{record['authError']}" if record['notAttempted']
+    return "auth: #{record['authError']}" if record['authError']
     return "the case's browserless call failed: #{record['callError']}" if record['callError']
 
     step = Array(record['steps']).find { |entry| entry['ok'] == false }
     step ? step['error'].to_s : 'case failed with no step-level error recorded'
+  end
+
+  # A step failure in a login persona that declares no `expired_when` may be
+  # a session that ended mid-case, which the lane cannot tell without a probe.
+  def expiry_hint(item, record)
+    persona = login_persona(item)
+    return '' unless persona && !record['authError'] && !record['callError'] && !record['authInterrupted']
+    return '' if persona_raw(persona).is_a?(Hash) && persona_raw(persona).key?('expired_when')
+
+    " (if persona '#{persona}' lost its session mid-case, declare expired_when on it so the lane " \
+      'logs in again and resumes)'
+  end
+
+  def auth_interrupted_reason(record)
+    expired = record['authExpired'] || {}
+    "auth_interrupted: the session ended at step #{expired['index'].to_i + 1} (#{expired['verb']}), which may " \
+      'already have taken effect server side, so it was not replayed; the persona logged in again for later ' \
+      'cases. Set safe_retry: true (suite_version 3) on the case if replaying that step is safe'
   end
 
   # A failing case that nothing gates still reports; it just cannot fail the
@@ -554,63 +706,185 @@ class ChangeLaneTestcases < ChangeLane
     end
   end
 
-  def js_auth
-    auth = auth_config
-    auth ? ChangeFlowCompiler.compile_auth(auth.steps, base_url: base_url) : nil
+  # What a case module knows about its persona: the seeded storage state, the
+  # persona's declared `expired_when` probe (nil when it declares none, which
+  # turns mid-case detection off), and whether a mutating step may be
+  # replayed. nil for a case that runs without a login.
+  def persona_js(item, state)
+    persona = login_persona(item)
+    return nil unless persona
+
+    { name: persona, seed: state, safeRetry: item.safe_retry == true,
+      expectsLogout: item.expects_logout == true, expiredWhen: expired_when_js(persona) }
+  end
+
+  def persona_raw(name) = name == 'default' ? @config['auth'] : personas_config[name]
+
+  # The persona's `expired_when`, compiled: a selector as given, or a probe
+  # url resolved against the base url with its statuses as a list.
+  def expired_when_js(persona)
+    rule = persona_raw(persona)&.dig('expired_when')
+    return nil unless rule.is_a?(Hash)
+    return { selector: rule['selector'].to_s } if rule['selector']
+
+    { probeUrl: URI.join(base_url, rule['probe_url'].to_s).to_s,
+      expectStatus: Array(rule['expect_status']).map { |status| Integer(status) } }
+  end
+
+  # The browser context and page every module opens: a fresh context so
+  # cookies, storage and scroll position never carry from one call into the
+  # next. Puppeteer renamed the call (createIncognitoBrowserContext ->
+  # createBrowserContext); both names are probed so the lane is not pinned to
+  # one puppeteer major beyond the browserless image pin itself.
+  def session_js
+    <<~JS
+      const basicAuth = #{JSON.generate(basic_auth)};
+      const viewport = #{JSON.generate(viewport)};
+      const deviceScaleFactor = #{JSON.generate(DEVICE_SCALE_FACTOR)};
+
+      async function newBrowserContext(browser) {
+        if (typeof browser.createBrowserContext === "function") return browser.createBrowserContext();
+        if (typeof browser.createIncognitoBrowserContext === "function") return browser.createIncognitoBrowserContext();
+        return null;
+      }
+
+      async function openSession(page) {
+        const browser = page.browser();
+        const context = await newBrowserContext(browser);
+        const casePage = context ? await context.newPage() : await browser.newPage();
+        await casePage.setViewport({
+          width: Number(viewport.width), height: Number(viewport.height),
+          deviceScaleFactor: deviceScaleFactor,
+        });
+        if (basicAuth) {
+          await casePage.authenticate({ username: basicAuth.username, password: basicAuth.password });
+          // page.authenticate() only fires on a WWW-Authenticate challenge,
+          // which some gates never send. Sending the header unconditionally
+          // works either way. btoa, not Buffer: this module runs inside
+          // browserless's function sandbox, which has no Node globals.
+          await casePage.setExtraHTTPHeaders({
+            Authorization: "Basic " + btoa(`${basicAuth.username}:${basicAuth.password}`),
+          });
+        }
+        return { context, page: casePage, lastAuthResponse: null };
+      }
+
+      async function closeSession(session) {
+        if (!session) return;
+        try { await session.page.close(); } catch (err) { void err; }
+        try { if (session.context) await session.context.close(); } catch (err) { void err; }
+      }
+    JS
+  end
+
+  # One login for one persona, in its own context, returning that context's
+  # cookies and the localStorage of the page the login ended on. The state is
+  # credentials in effect, so like a compiled `fill` it goes back into case
+  # modules and nowhere else: it is never logged or written to a report.
+  def login_module(auth)
+    <<~JS
+      export default async function ({ page }) {
+        const auth = #{JSON.generate(ChangeFlowCompiler.compile_auth(auth.steps, base_url: base_url))};
+        #{session_js}
+        #{ChangeFlowCompiler.auth_runtime_js}
+
+        const session = await openSession(page);
+        try {
+          for (const step of auth.steps) await runAuthStep(session, step);
+          let cookies = [];
+          try {
+            const client = await session.page.target().createCDPSession();
+            cookies = (await client.send("Network.getAllCookies")).cookies;
+          } catch (err) {
+            cookies = await session.page.cookies();
+          }
+          let origins = [];
+          try {
+            const origin = new URL(session.page.url()).origin;
+            const items = await session.page.evaluate(() => Object.entries(window.localStorage));
+            origins = [{ origin: origin, items: items }];
+          } catch (err) { void err; }
+          const landing = /^https?:/.test(session.page.url()) ? session.page.url() : null;
+          return { data: { ok: true, state: { cookies: cookies, origins: origins, landing: landing } }, type: "application/json" };
+        } catch (err) {
+          return { data: { ok: false, authError: String(err) }, type: "application/json" };
+        } finally {
+          await closeSession(session);
+        }
+      }
+    JS
   end
 
   # One module per case attempt: it runs that one case in its own browser
-  # context and returns its record. Retries are decided in Ruby (#run_case),
-  # so each attempt is its own call with its own budget, and a long suite
-  # never shares one call's time limit.
-  def case_module(compiled, attempt)
+  # context, seeded with its persona's session, and returns its record.
+  # Retries are decided in Ruby (#run_case), so each attempt is its own call
+  # with its own budget, and a long suite never shares one call's time limit.
+  # `resume` restarts a case at the step its expired session interrupted,
+  # after the persona logged in again.
+  def case_module(compiled, attempt, persona = nil, resume: nil)
     <<~JS
       export default async function ({ page }) {
         const testCase = #{JSON.generate(compiled)};
         const attempt = #{Integer(attempt)};
-        const auth = #{JSON.generate(js_auth)};
-        const basicAuth = #{JSON.generate(basic_auth)};
-        const viewport = #{JSON.generate(viewport)};
-        const deviceScaleFactor = #{JSON.generate(DEVICE_SCALE_FACTOR)};
+        const persona = #{JSON.generate(persona)};
+        const resume = #{JSON.generate(resume)};
+        #{session_js}
+        #{ChangeFlowCompiler.flow_runtime_js}
 
-        #{ChangeFlowCompiler.auth_and_flow_runtime_js}
-
-        // A case's own browser context, so cookies, storage and scroll
-        // position never carry from one case into the next. Puppeteer renamed
-        // this call (createIncognitoBrowserContext -> createBrowserContext);
-        // both names are probed so the lane is not pinned to one puppeteer
-        // major beyond the browserless image pin itself.
-        async function newBrowserContext(browser) {
-          if (typeof browser.createBrowserContext === "function") return browser.createBrowserContext();
-          if (typeof browser.createIncognitoBrowserContext === "function") return browser.createIncognitoBrowserContext();
-          return null;
-        }
-
-        async function openSession() {
-          const browser = page.browser();
-          const context = await newBrowserContext(browser);
-          const casePage = context ? await context.newPage() : await browser.newPage();
-          await casePage.setViewport({
-            width: Number(viewport.width), height: Number(viewport.height),
-            deviceScaleFactor: deviceScaleFactor,
+        // The persona's login, seeded rather than replayed: its cookies, and
+        // its localStorage written on the first document of each origin.
+        async function seedStorage(casePage, seed) {
+          if (!seed) return;
+          const cookies = (seed.cookies || []).map((c) => {
+            const out = { name: c.name, value: c.value, domain: c.domain, path: c.path,
+                          httpOnly: c.httpOnly === true, secure: c.secure === true };
+            if (typeof c.expires === "number" && c.expires > 0) out.expires = c.expires;
+            if (c.sameSite) out.sameSite = c.sameSite;
+            return out;
           });
-          if (basicAuth) {
-            await casePage.authenticate({ username: basicAuth.username, password: basicAuth.password });
-            // page.authenticate() only fires on a WWW-Authenticate challenge,
-            // which some gates never send. Sending the header unconditionally
-            // works either way. btoa, not Buffer: this module runs inside
-            // browserless's function sandbox, which has no Node globals.
-            await casePage.setExtraHTTPHeaders({
-              Authorization: "Basic " + btoa(`${basicAuth.username}:${basicAuth.password}`),
-            });
-          }
-          return { context, page: casePage, lastAuthResponse: null };
+          if (cookies.length > 0) await casePage.setCookie(...cookies);
+          const origins = seed.origins || [];
+          if (origins.length === 0) return;
+          await casePage.evaluateOnNewDocument((list) => {
+            try {
+              const entry = list.find((o) => o.origin === window.location.origin);
+              // Once per origin per case: the marker lives in sessionStorage,
+              // which survives reloads in this tab, so a key the case deletes
+              // stays deleted.
+              if (!entry || window.sessionStorage.getItem("__cf_seeded") === "1") return;
+              window.sessionStorage.setItem("__cf_seeded", "1");
+              for (const [key, value] of entry.items) {
+                if (window.localStorage.getItem(key) === null) window.localStorage.setItem(key, value);
+              }
+            } catch (err) { void err; }
+          }, origins);
         }
 
-        async function closeSession(session) {
-          if (!session) return;
-          try { await session.page.close(); } catch (err) { void err; }
-          try { if (session.context) await session.context.close(); } catch (err) { void err; }
+        // The session has ended only when the persona's declared probe says
+        // so: its `selector` is visible, or a GET of its `probe_url` answers
+        // one of `expect_status` (a redirect counts as any 3xx listed). No
+        // declaration, or a case that logs out on purpose, means no check.
+        async function sessionEnded(casePage) {
+          if (!persona || !persona.expiredWhen || persona.expectsLogout) return false;
+          const rule = persona.expiredWhen;
+          try {
+            if (rule.selector) {
+              const el = await casePage.$(rule.selector);
+              if (!el) return false;
+              return await el.evaluate((node) => {
+                const style = getComputedStyle(node);
+                return style.visibility !== "hidden" && style.display !== "none" && node.getClientRects().length > 0;
+              });
+            }
+            const status = await casePage.evaluate(async (url) => {
+              const response = await fetch(url, { credentials: "include", redirect: "manual", cache: "no-store" });
+              return response.type === "opaqueredirect" ? "redirect" : response.status;
+            }, rule.probeUrl);
+            if (status === "redirect") return rule.expectStatus.some((code) => code >= 300 && code < 400);
+            return rule.expectStatus.includes(status);
+          } catch (err) {
+            return false;
+          }
         }
 
         // What the page ended up being, for the acceptance grader to judge the
@@ -618,12 +892,12 @@ class ChangeLaneTestcases < ChangeLane
         // bounded here rather than on the host, and best-effort: a page that
         // cannot be read still yields a verdict from the steps, so a broken
         // observation degrades the grading rather than the run.
-        async function observe(page) {
+        async function observe(casePage) {
           try {
             return {
-              url: page.url(),
-              title: await page.title(),
-              text: await page.evaluate(
+              url: casePage.url(),
+              title: await casePage.title(),
+              text: await casePage.evaluate(
                 (limit) => (document.body ? document.body.innerText || "" : "").slice(0, limit),
                 #{OBSERVED_TEXT_LIMIT}
               ),
@@ -634,18 +908,29 @@ class ChangeLaneTestcases < ChangeLane
         }
 
         async function runOnce(testCase) {
-          const session = await openSession();
+          const session = await openSession(page);
           try {
-            if (auth) {
-              try {
-                for (const step of auth.steps) await runAuthStep(session, step);
-              } catch (err) {
-                return { ok: false, authError: String(err), steps: [], observation: null };
-              }
+            if (persona) await seedStorage(session.page, persona.seed);
+            // A seeded case starts where its persona's login landed, as it
+            // did when every case logged in on its own page, unless its first
+            // step navigates anyway.
+            const first = testCase.steps.find((step) => step.index >= (resume ? resume.startAt : 0));
+            if (persona && persona.seed && persona.seed.landing && first && first.verb !== "goto") {
+              await session.page.goto(persona.seed.landing, { waitUntil: "domcontentloaded" });
             }
-            const steps = await cfRunFlow(session.page, testCase.steps);
-            const ok = steps.every((step) => step.ok);
-            return { ok: ok, authError: null, steps: steps, observation: ok ? await observe(session.page) : null };
+            let expired = null;
+            const steps = await cfRunFlow(session.page, testCase.steps, {
+              startAt: resume ? resume.startAt : 0,
+              vars: resume ? resume.vars : {},
+              afterStep: async (step) => {
+                if (!(await sessionEnded(session.page))) return false;
+                expired = { index: step.index, verb: step.verb };
+                return true;
+              },
+            });
+            const ok = !expired && steps.every((step) => step.ok);
+            return { ok: ok, steps: steps, vars: steps.vars, authExpired: expired,
+                     observation: ok ? await observe(session.page) : null };
           } finally {
             await closeSession(session);
           }
@@ -653,8 +938,9 @@ class ChangeLaneTestcases < ChangeLane
 
         const result = await runOnce(testCase);
         return {
-          data: { index: testCase.index, id: testCase.id, attempt: attempt, ok: result.ok,
-                  authError: result.authError, steps: result.steps, observation: result.observation },
+          data: { index: testCase.index, id: testCase.id, attempt: attempt, ok: result.ok, authError: null,
+                  authExpired: result.authExpired, vars: result.vars, steps: result.steps,
+                  observation: result.observation },
           type: "application/json",
         };
       }

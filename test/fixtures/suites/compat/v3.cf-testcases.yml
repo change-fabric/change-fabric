@@ -1,0 +1,10 @@
+suite: compat-v3
+suite_version: 3
+cases:
+  - id: home
+    acceptance: The home page loads for an admin.
+    persona: admin
+    safe_retry: true
+    steps:
+      - goto: /
+      - expect_visible: main

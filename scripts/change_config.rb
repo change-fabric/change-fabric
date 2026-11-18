@@ -231,10 +231,20 @@ class ChangeConfig
       "error: lanes.testcases.gate_tags names '#{tag}', which no loaded case carries"
     end)
     lines.concat(quarantine_lines(set))
+    lines.concat(persona_lines(set, lane))
     lines << "testcases: this install reads suite_version up to #{ChangeSuiteSchema::SUITE_VERSION}"
     return lines unless set.errors.empty?
 
     lines << "testcases: #{set.cases.size} case(s) in #{set.suites.size} suite(s)"
+  end
+
+  # A case naming a persona the lane does not define runs as nobody, so it is
+  # an error here as well as a failing case at run time.
+  def self.persona_lines(set, lane)
+    defined = (lane['personas'].is_a?(Hash) ? lane['personas'].keys.map(&:to_s) : [])
+    (set.named_personas - defined).map do |name|
+      "error: a testcases case names persona '#{name}', which lanes.testcases.personas does not define"
+    end
   end
 
   # The quarantine debt, raised here rather than only at gate time. An expiry
@@ -489,6 +499,8 @@ class ChangeConfig
     validate_basic_auth_lanes(lanes || {})
     validate_launch_args(lanes || {})
     validate_testcases_parallel(lanes || {})
+    validate_testcases_personas(lanes || {})
+    validate_testcases_auth_expiry(lanes || {})
     validate_command_lane(lanes || {})
     validate_zap_mode(lanes || {})
     schedule_errors = @schedule_config.errors
@@ -554,6 +566,67 @@ class ChangeConfig
 
     raise ConfigError, "lanes.testcases.parallel must be an integer from #{TESTCASES_PARALLEL_RANGE.min} to " \
                        "#{TESTCASES_PARALLEL_RANGE.max}; got #{value.inspect}"
+  end
+
+  # lanes.testcases.personas (0.22.0): named logins, each the same shape as
+  # the lane's `auth:` block. `default` is that block and `anonymous` is no
+  # login, so neither may be redefined here.
+  def validate_testcases_personas(lanes)
+    section = lanes['testcases']
+    return unless section.is_a?(Hash) && section.key?('personas')
+
+    personas = section['personas']
+    raise ConfigError, "lanes.testcases.personas must be a mapping of persona name to an auth block; got #{personas.inspect}" unless personas.is_a?(Hash)
+
+    personas.each do |name, block|
+      validate_persona(name.to_s, block)
+      validate_expired_when(block['expired_when'], "lanes.testcases.personas.#{name}") if block.key?('expired_when')
+    end
+  end
+
+  def validate_testcases_auth_expiry(lanes)
+    auth = lanes['testcases'].is_a?(Hash) ? lanes['testcases']['auth'] : nil
+    validate_expired_when(auth['expired_when'], 'lanes.testcases.auth') if auth.is_a?(Hash) && auth.key?('expired_when')
+  end
+
+  # expired_when (0.22.0): exactly one probe, a selector shown only when
+  # logged out, or a probe_url whose GET answers expect_status once the
+  # session is gone.
+  def validate_expired_when(rule, where)
+    field = "#{where}.expired_when"
+    raise ConfigError, "#{field} must be a mapping with selector: or probe_url:; got #{rule.inspect}" unless rule.is_a?(Hash)
+
+    kinds = %w[selector probe_url].select { |key| rule.key?(key) }
+    raise ConfigError, "#{field} must set exactly one of selector or probe_url" unless kinds.size == 1
+    return validate_expired_selector(rule, field) if kinds == [ 'selector' ]
+
+    validate_expired_probe(rule, field)
+  end
+
+  def validate_expired_selector(rule, field)
+    raise ConfigError, "#{field}.selector must be a non-empty string" unless rule['selector'].is_a?(String) && !rule['selector'].strip.empty?
+    raise ConfigError, "#{field}.expect_status only goes with probe_url" if rule.key?('expect_status')
+  end
+
+  def validate_expired_probe(rule, field)
+    raise ConfigError, "#{field}.probe_url must be a path such as /api/me" unless rule['probe_url'].is_a?(String) && rule['probe_url'].start_with?('/')
+
+    statuses = Array(rule['expect_status'])
+    return if !statuses.empty? && statuses.all? { |code| code.is_a?(Integer) && code.between?(100, 599) }
+
+    raise ConfigError, "#{field}.expect_status must be an HTTP status or a list of them; got #{rule['expect_status'].inspect}"
+  end
+
+  def validate_persona(name, block)
+    if ChangeSuite::BUILTIN_PERSONAS.include?(name)
+      raise ConfigError, "lanes.testcases.personas.#{name} is reserved: `default` is the lane's auth: block and " \
+                         '`anonymous` is no login'
+    end
+    raise ConfigError, "lanes.testcases.personas has a name that is not letters, digits, - and _: #{name.inspect}" unless name.match?(/\A[A-Za-z0-9_-]+\z/)
+    return if block.is_a?(Hash) && !block.empty?
+
+    raise ConfigError, "lanes.testcases.personas.#{name} must be an auth block (login_url plus email_env and " \
+                       "password_env, or steps:); got #{block.inspect}"
   end
 
   # basic_auth only means anything on a lane that drives a real browser page
