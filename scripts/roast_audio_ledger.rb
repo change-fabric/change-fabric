@@ -24,15 +24,18 @@ class RoastAudioLedger
   # "gpt-transcribe | Transcription | - | - | $0.0045 / minute". Billed by the
   # minute, so the bound rounds the clip up to whole minutes.
   TRANSCRIBE_USD_PER_MINUTE = { 'gpt-transcribe' => 0.0045 }.freeze
-  # Audio tokens per second of input, measured by phase 3's calibration probe.
-  # Until it is set, judge calls cannot be bounded and are refused.
-  MEASURED_AUDIO_TOKENS_PER_SECOND = nil
+  # Audio tokens per second of input. Calibrated 2026-11-18 on gpt-audio-1.5:
+  # one probe of a 0.549 s mp3 billed 5 audio tokens (9.1/s); rounded up to 10
+  # because usage counts whole tokens. Judge reservations use twice this.
+  MEASURED_AUDIO_TOKENS_PER_SECOND = 10.0
   # The judge reserves this multiple of the measured rate.
   AUDIO_RATE_MARGIN = 2
   # The calibration probe's only pre-calibration bound: an assumed worst case.
   PROBE_TOKENS_PER_SECOND = 1000
   PROBE_MAX_OUTPUT_TOKENS = 16
   MAX_OUTPUT_TOKENS = 4000
+  # Chat formatting tokens around the messages, on top of the text bytes.
+  MESSAGE_OVERHEAD_TOKENS = 64
   OPS = %w[judge transcribe probe regen].freeze
   COUNTED = %w[settled reserved uncertain].freeze
 
@@ -65,21 +68,28 @@ class RoastAudioLedger
     end
   end
 
+  # The calibrated rate, a method so tests can stand one in.
+  def self.measured_rate = MEASURED_AUDIO_TOKENS_PER_SECOND
+
+  # Text is bounded at one token per UTF-8 byte (a token always covers at
+  # least one byte) plus the message overhead, at the text input rate it is
+  # billed at. Audio is bounded at twice the measured rate.
   def self.judge_bound(basis)
     price = AUDIO_PRICES[basis[:model]] or raise UnboundedCost, "no price for #{basis[:model].inspect}; refusing an unbounded call"
-    rate = MEASURED_AUDIO_TOKENS_PER_SECOND or raise UnboundedCost, 'no measured audio token rate yet (MEASURED_AUDIO_TOKENS_PER_SECOND); refusing an unbounded judge call'
+    rate = measured_rate or raise UnboundedCost, 'no measured audio token rate yet (MEASURED_AUDIO_TOKENS_PER_SECOND); refusing an unbounded judge call'
     duration = known!(basis, :duration_s)
     audio = (duration * AUDIO_RATE_MARGIN * rate).ceil
-    text = known!(basis, :prompt_bytes)
-    usd = ((audio + text) * price[:audio_in] + MAX_OUTPUT_TOKENS * price[:text_out]) / 1e6
-    { usd: usd.round(6), basis: basis.merge(provider: 'openai', audio_tokens: audio, text_tokens: text, output_tokens: MAX_OUTPUT_TOKENS) }
+    text = known!(basis, :prompt_bytes) + MESSAGE_OVERHEAD_TOKENS
+    output = basis[:max_output_tokens] || MAX_OUTPUT_TOKENS
+    usd = ((audio * price[:audio_in]) + (text * price[:text_in]) + (output * price[:text_out])) / 1e6
+    { usd: usd.round(6), basis: basis.merge(provider: 'openai', audio_tokens: audio, text_tokens: text, output_tokens: output) }
   end
 
   def self.probe_bound(basis)
     price = AUDIO_PRICES.fetch('gpt-audio-1.5')
     audio = (known!(basis, :duration_s) * PROBE_TOKENS_PER_SECOND).ceil
-    text = known!(basis, :prompt_bytes)
-    usd = ((audio + text) * price[:audio_in] + PROBE_MAX_OUTPUT_TOKENS * price[:text_out]) / 1e6
+    text = known!(basis, :prompt_bytes) + MESSAGE_OVERHEAD_TOKENS
+    usd = ((audio * price[:audio_in]) + (text * price[:text_in]) + (PROBE_MAX_OUTPUT_TOKENS * price[:text_out])) / 1e6
     { usd: usd.round(6), basis: basis.merge(provider: 'openai', model: 'gpt-audio-1.5', audio_tokens: audio, text_tokens: text, output_tokens: PROBE_MAX_OUTPUT_TOKENS) }
   end
 

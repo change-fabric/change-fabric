@@ -1,6 +1,9 @@
 # frozen_string_literal: true
 
+require 'base64'
+require 'fileutils'
 require 'json'
+require 'net/http'
 require 'optparse'
 require_relative 'roast' unless defined?(Roast::Cli) # already loaded when roast.rb is the program
 require_relative 'roast_audio_batch'
@@ -13,15 +16,186 @@ require_relative 'sensitive_terms'
 # cf:roast --audio: roasts a batch of narration clips, each with its WebVTT
 # captions. Every clip goes through a free deterministic gate with auto-fix
 # first, then a word check against the captions, then an OpenAI audio judge
-# for prosody, pacing, emphasis and TTS artifacts. This release runs the gate
-# and the word check (--stop-after gate|words); the judge is refused by name
-# until it lands.
+# for prosody, pacing, emphasis and TTS artifacts. The judge hears the gated
+# clip through Chat Completions (the Responses API takes no audio), cites
+# caption cues, and Ruby turns each cue into its m:ss.s stamp. Every paid call
+# goes through the run ledger.
 module RoastAudio
   DEFAULT_OUT_DIR = 'roast-audio'
   STAGES = %w[gate words judge].freeze
   DEFAULT_RUN_CEILING_USD = 1.0
-  NOT_YET = { 'judge' => 'judge lands in phase 3 (the audio judge)' }.freeze
-  USAGE = 'usage: roast.rb --audio CLIP.mp3 [--audio CLIP2.mp3]... --brief FILE [--vtt FILE]... [--alignment FILE]... ' \
+  NOT_YET = {}.freeze
+  CHAT_URL = 'https://api.openai.com/v1/chat/completions'
+  DEFAULT_MODEL = 'gpt-audio-1.5'
+  # Bump when the rubric or the reply shape changes: it is a judge dep, so
+  # every round judged under the old rubric goes stale.
+  RUBRIC_VERSION = 1
+  # The output cap a judge call sends and reserves (max_completion_tokens).
+  JUDGE_MAX_OUTPUT_TOKENS = RoastAudioLedger::MAX_OUTPUT_TOKENS
+  # How the reply's JSON is asked for: 'prompt' states the schema in the
+  # system prompt and parses the first JSON object of the reply. gpt-audio-1.5
+  # answered response_format json_schema with HTTP 400 "not supported with this
+  # model" (probed 2026-11-18), so 'json_schema' stays only for a model that takes it.
+  RESPONSE_FORMAT = 'prompt'
+  AREAS = %w[prosody pacing emphasis artifact].freeze
+
+  SYSTEM_PROMPT = <<~TEXT
+    You are a harsh, specific critic of one narration clip. You hear the audio and read its caption
+    cues, each with an index and a start time. Judge only what a measurement cannot:
+    - prosody: intonation, stress, phrasing that sounds read rather than spoken;
+    - pacing: words per minute, pauses that drag or rush, a clip that races or stalls;
+    - emphasis: the words the brief needs stressed, and stress on the wrong word;
+    - artifact: TTS glitches, metallic or robotic tone, clicks, odd breaths, warble, a
+      mispronounced word, audible noise or hum.
+    Do not judge word accuracy, loudness, levels, or file format; those are checked elsewhere.
+    Every issue cites the cue index it falls in. Priorities: P0 makes a listener stop trusting or
+    following the clip, P1 is clearly unnatural for the brief's audience, P2 is polish. Set revoice
+    true when only a new take can fix the issue.
+    Score 0 to 10 for the brief's audience. Anchors: 3 fails its audience, 5 has a blocking flaw,
+    7 is usable with clear fixes left, 9 is ready to ship to a client.
+    You may be given earlier rounds for this exact take; do not repeat a fixed issue.
+  TEXT
+
+  SCHEMA = {
+    type: 'object', additionalProperties: false, required: %w[score summary issues],
+    properties: {
+      score: { type: 'number' }, summary: { type: 'string' },
+      issues: { type: 'array', items: { type: 'object', additionalProperties: false, required: %w[priority cue area problem fix revoice],
+                                         properties: { priority: { type: 'string', enum: Roast::PRIORITIES }, cue: { type: 'integer' },
+                                                       area: { type: 'string', enum: AREAS }, problem: { type: 'string' },
+                                                       fix: { type: 'string' }, revoice: { type: 'boolean' } } } }
+    }
+  }.freeze
+
+  PROMPT_SHAPE = "Reply with exactly one JSON object and nothing else, matching this JSON Schema:\n#{JSON.generate(SCHEMA)}".freeze
+
+  module_function
+
+  def system_prompt = RESPONSE_FORMAT == 'json_schema' ? SYSTEM_PROMPT : "#{SYSTEM_PROMPT}\n#{PROMPT_SHAPE}"
+
+  def user_text(brief:, cues:, words:, history:)
+    numbered = cues.map { |c| "#{c.index}. [#{RoastVtt.mmss(c.start_ms)}] #{c.text}" }
+    word_line = "Word check (#{words['source']}): #{words['counts']['accepted']} accepted word error(s); timing #{words['timing']}. " \
+                'Word accuracy is handled there; do not report it.'
+    past = history.map { |h| "Round #{h['round']} critic:\n#{JSON.generate(h.slice('score', 'summary', 'issues'))}" }
+    [ "Brief:\n#{brief}", "Caption cues:\n#{numbered.join("\n")}", word_line,
+      past.empty? ? 'No earlier rounds for this take.' : "Earlier rounds:\n#{past.join("\n\n")}",
+      'The narration audio follows.' ].join("\n\n")
+  end
+
+  # A Chat Completions body with one input_audio part (gpt-audio models take
+  # audio only there). Returns { url:, body:, prompt_bytes: }.
+  def build_request(audio:, brief:, cues:, words:, history:, model: DEFAULT_MODEL, max_output: JUDGE_MAX_OUTPUT_TOKENS)
+    text = user_text(brief: brief, cues: cues, words: words, history: history)
+    body = { model: model, modalities: [ 'text' ], max_completion_tokens: max_output,
+             messages: [ { role: 'system', content: system_prompt },
+                         { role: 'user', content: [ { type: 'text', text: text },
+                                                    { type: 'input_audio', input_audio: { data: Base64.strict_encode64(File.binread(audio)), format: 'mp3' } } ] } ] }
+    schema = { type: 'json_schema', json_schema: { name: 'audio_roast', strict: true, schema: SCHEMA } }
+    body[:response_format] = schema if RESPONSE_FORMAT == 'json_schema'
+    bytes = system_prompt.bytesize + text.bytesize + (RESPONSE_FORMAT == 'json_schema' ? JSON.generate(schema).bytesize : 0)
+    { url: CHAT_URL, body: body, prompt_bytes: bytes }
+  end
+
+  def judge_bound(request, duration_s)
+    RoastAudioLedger.bound('judge', model: request[:body][:model], duration_s: duration_s, prompt_bytes: request[:prompt_bytes],
+                                    max_output_tokens: request[:body][:max_completion_tokens])
+  end
+
+  # Called only from inside ledger.spend. No retry: a retry would spend
+  # outside its reservation.
+  def post_chat(request, http)
+    uri = URI(request[:url])
+    begin
+      key = WalkthroughEnv.openai_key!
+      req = Net::HTTP::Post.new(uri)
+      req['Authorization'] = "Bearer #{key}"
+      req['Content-Type'] = 'application/json'
+      req.body = JSON.generate(request[:body])
+    rescue StandardError
+      raise RoastAudioLedger::PreDispatch, 'judge request not sent'
+    end
+    response = Roast.transport { (http || Roast.default_http(uri)).request(req) }
+    failure = CfProviderError.from_response(provider: 'openai', response: response, key: key)
+    raise failure if failure
+
+    JSON.parse(response.body)
+  end
+
+  # The critic from a Chat Completions body: the content parsed as JSON (or
+  # its first JSON object), validated, with each issue's where filled from
+  # its cue. Raises Roast::RequestError by name.
+  def parse_critic(body, cues:)
+    msg = body.dig('choices', 0, 'message') || {}
+    raise Roast::RequestError, "audio judge refused: #{msg['refusal']}" if msg['refusal']
+
+    text = msg['content'].to_s
+    critic = begin
+      JSON.parse(text)
+    rescue JSON::ParserError
+      first_object(text) or raise Roast::RequestError, 'audio judge reply has no JSON object'
+    end
+    validate!(critic, cues)
+    by_index = cues.to_h { |c| [ c.index, c ] }
+    critic.merge('issues' => critic['issues'].map { |i| i.merge('at' => RoastVtt.mmss(by_index[i['cue']].start_ms), 'where' => "cue #{i['cue']} at #{RoastVtt.mmss(by_index[i['cue']].start_ms)}") })
+  end
+
+  def first_object(text)
+    start = text.index('{') or return nil
+    depth = 0
+    in_string = false
+    escaped = false
+    text[start..].each_char.with_index do |ch, i|
+      if in_string
+        if escaped then escaped = false
+        elsif ch == '\\' then escaped = true
+        elsif ch == '"' then in_string = false
+        end
+      elsif ch == '"' then in_string = true
+      elsif ch == '{' then depth += 1
+      elsif ch == '}'
+        depth -= 1
+        return JSON.parse(text[start..start + i]) if depth.zero?
+      end
+    end
+    nil
+  rescue JSON::ParserError
+    nil
+  end
+
+  def validate!(critic, cues)
+    raise Roast::RequestError, 'audio judge reply is not an object' unless critic.is_a?(Hash)
+    raise Roast::RequestError, 'audio judge score must be 0 to 10' unless critic['score'].is_a?(Numeric) && critic['score'].between?(0, 10)
+    raise Roast::RequestError, 'audio judge issues must be a list' unless critic['issues'].is_a?(Array)
+
+    critic['issues'].each_with_index do |i, n|
+      problem = issue_problem(i, cues.size)
+      raise Roast::RequestError, "audio judge issue #{n + 1} #{problem}" if problem
+    end
+  end
+
+  def issue_problem(issue, cue_count)
+    return 'is not an object' unless issue.is_a?(Hash)
+    return "has an unknown priority #{issue['priority'].inspect}" unless Roast::PRIORITIES.include?(issue['priority'])
+    return "cites no valid cue (#{issue['cue'].inspect} of 1..#{cue_count})" unless issue['cue'].is_a?(Integer) && issue['cue'].between?(1, cue_count)
+    return "has an unknown area #{issue['area'].inspect}" unless AREAS.include?(issue['area'])
+    return 'has no revoice boolean' unless [ true, false ].include?(issue['revoice'])
+
+    'has an empty problem or fix' if issue['problem'].to_s.strip.empty? || issue['fix'].to_s.strip.empty?
+  end
+
+  def render_markdown(critic, round)
+    lines = [ "# Audio roast round #{round}", '', "Score: #{critic['score']}/10", '', critic['summary'].to_s, '' ]
+    Roast::PRIORITIES.each do |p|
+      critic['issues'].select { |i| i['priority'] == p }.each do |i|
+        lines << "- #{p} [#{i['where']}] #{i['area']}#{i['revoice'] ? ' (re-voice)' : ''}: #{i['problem']}" << "  Fix: #{i['fix']}"
+      end
+    end
+    "#{lines.join("\n")}\n"
+  end
+
+  private_class_method :first_object, :issue_problem
+  USAGE = 'usage: roast.rb decide --audio-batch DIR [--target N] [--max-attempts N] | roast.rb --audio CLIP.mp3 [--audio CLIP2.mp3]... --brief FILE [--vtt FILE]... [--alignment FILE]... ' \
           '[--manifest FILE] [--word-response FILE] [--out-dir DIR] [--stop-after gate|words|judge] [--model NAME] [--max-usd N] ' \
           '[--run-max-usd N] [--max-attempts N] [--cache DIR] [--estimate-only] [--no-fix] [--allow-sensitive] [--new-batch] ' \
           '[--lufs N] [--lufs-tol N] [--max-tp N] [--max-clipped N] [--noise-max DB] [--noise-window START-END]... ' \
@@ -38,7 +212,10 @@ module RoastAudio
     module_function
 
     def run(argv, out: $stdout, docker: RoastAudioGate::DEFAULT_DOCKER, http: nil)
-      opts = parse(argv.dup)
+      args = argv.dup
+      return decide(parse_decide(args.drop(1)), out) if args.first == 'decide'
+
+      opts = parse(args)
       process(opts, out, docker, http)
     rescue RoastAudioBatch::UsageError, RoastAudioGate::UsageError, Roast::UsageError, OptionParser::ParseError => e
       out.puts("error: #{e.message}", USAGE)
@@ -82,6 +259,25 @@ module RoastAudio
       check!(opts)
     end
 
+    def parse_decide(args)
+      opts = { target: Roast::DEFAULT_TARGET }
+      OptionParser.new do |o|
+        o.on('--audio-batch DIR') { |v| opts[:dir] = v }
+        o.on('--target N', Float) { |v| opts[:target] = v }
+        o.on('--max-attempts N', Integer) { |v| opts[:max_attempts] = v }
+      end.parse!(args)
+      raise RoastAudioBatch::UsageError, 'decide needs --audio-batch DIR' unless opts[:dir]
+
+      opts
+    end
+
+    def decide(opts, out)
+      lines, (stop, reason) = RoastAudioBatch.decide(opts[:dir], target: opts[:target], max_attempts: opts[:max_attempts])
+      lines.each { |l| out.puts(l) }
+      out.puts("roast decision: #{stop ? 'stop' : 'continue'}: #{reason}")
+      0
+    end
+
     def window(text)
       m = text.match(/\A(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?)\z/) or raise RoastAudioBatch::UsageError, "--noise-window wants START-END in seconds, got #{text}"
       s, e = m[1].to_f, m[2].to_f
@@ -97,11 +293,18 @@ module RoastAudio
       raise RoastAudioBatch::UsageError, "#{NOT_YET.fetch(opts[:stop_after])}; run --stop-after words for now" if NOT_YET.key?(opts[:stop_after])
       raise RoastAudioBatch::UsageError, '--max-attempts must be at least 1' if opts[:max_attempts] && opts[:max_attempts] < 1
 
+      opts[:model] ||= DEFAULT_MODEL
+
       RoastAudioGate.validate!(opts[:gate])
       opts
     end
 
     # Everything a stage's freshness hangs off, plus what the run itself is held to.
+    def settings(opts)
+      { 'gate_config_hash' => RoastAudioGate.config_hash(opts[:gate]), 'fix' => !opts[:no_fix], 'model' => opts[:model], 'rubric_version' => RUBRIC_VERSION,
+        'target' => Roast::DEFAULT_TARGET, 'run_max_usd' => opts[:run_max_usd], 'word_response' => opts[:word_response] }
+    end
+
     def batch_config_hash(opts)
       Digest::SHA256.hexdigest(JSON.generate({ gate: RoastAudioGate.config_hash(opts[:gate]), model: opts[:model], stop_after: opts[:stop_after],
                                                target: Roast::DEFAULT_TARGET, max_usd: opts[:max_usd], run_max_usd: opts[:run_max_usd] }))
@@ -115,16 +318,80 @@ module RoastAudio
       scan!(pairs, opts)
       return estimate(opts, pairs, out) if opts[:estimate_only]
 
-      batch = RoastAudioBatch.open(opts[:out_dir], pairs, config_hash: batch_config_hash(opts), brief: opts[:brief], manifest: opts[:manifest],
-                                                          max_attempts: opts[:max_attempts], new_batch: opts[:new_batch])
-      ledger = RoastAudioLedger.new(opts[:out_dir], cap_usd: opts[:run_max_usd], max_usd: opts[:max_usd])
-      results = batch['clips'].map do |c|
-        gate = gate_clip(opts, batch, c, out, docker)
-        words_clip(opts, c, gate, ledger, out, http) if opts[:stop_after] != 'gate' && gate['status'] == 'pass'
-        gate['terminal'] == [ 'guard' ] ? 'guard' : gate['status']
+      if opts[:stop_after] == 'judge' && !RoastAudioLedger::AUDIO_PRICES.key?(opts[:model])
+        raise RoastAudioLedger::UnboundedCost, "no price for #{opts[:model]}; refusing an unbounded judge call"
       end
-      out.puts("roast audio: #{results.count('pass')} of #{results.size} clip(s) pass the gate; batch #{RoastAudioBatch.index_path(opts[:out_dir])}")
-      results.include?('guard') ? 1 : 0
+
+      dir = opts[:out_dir]
+      RoastAudioBatch.open(dir, pairs, config_hash: batch_config_hash(opts), brief: opts[:brief], manifest: opts[:manifest],
+                                       max_attempts: opts[:max_attempts], new_batch: opts[:new_batch], settings: settings(opts))
+      ledger = RoastAudioLedger.new(dir, cap_usd: opts[:run_max_usd], max_usd: opts[:max_usd])
+      snap = RoastAudioBatch.snapshot(dir, target: Roast::DEFAULT_TARGET, stop_at: opts[:stop_after])
+      guard = false
+      snap[:clips].each do |c|
+        if c[:state] != 'retryable'
+          out.puts("#{c[:clip]['source_id']} (#{File.basename(c[:clip]['source_audio'])}): skipped, #{c[:state]}: #{c[:reason]} (unchanged, no attempt counted)")
+          next
+        end
+        guard |= process_clip(opts, snap[:batch], c, ledger, out, docker, http) == 'guard'
+      end
+      rows = RoastAudioBatch.summary!(dir, RoastAudioBatch.snapshot(dir, target: Roast::DEFAULT_TARGET, stop_at: opts[:stop_after]))
+      counts = rows.group_by { |r| r['state'] }.transform_values(&:size)
+      out.puts("roast audio: #{RoastAudioBatch::STATES.map { |st| "#{counts.fetch(st, 0)} #{st}" }.join(', ')}; summary #{File.join(dir, 'summary.md')}")
+      guard ? 1 : 0
+    end
+
+    # One attempt: counted first, then gate, words and judge in order, each
+    # reused while fresh. Returns the gate status, or 'guard'.
+    def process_clip(opts, batch, snap_clip, ledger, out, docker, http)
+      clip = snap_clip[:clip]
+      clip['attempts'] = RoastAudioBatch.bump_attempt!(opts[:out_dir], batch, clip['source_id'])
+      gate = gate_clip(opts, clip, snap_clip[:rec][:gate], out, docker)
+      return 'guard' if gate['terminal'] == [ 'guard' ]
+      return gate['status'] if opts[:stop_after] == 'gate' || gate['status'] != 'pass'
+
+      words = words_clip(opts, clip, gate, ledger, out, http)
+      judge_clip(opts, clip, gate, words, ledger, out, http) if opts[:stop_after] == 'judge'
+      gate['status']
+    end
+
+    # The judge on a passing gate, unless a round with the same deps exists.
+    def judge_clip(opts, clip, gate, words, ledger, out, http)
+      dir = opts[:out_dir]
+      id = clip['source_id']
+      batch = RoastAudioBatch.load(dir)
+      deps = RoastAudioBatch.judge_deps(batch, words['deps'])
+      existing = RoastAudioBatch.rounds(dir, id).map { |n| JSON.parse(File.read(File.join(RoastAudioBatch.clip_dir(dir, id), "round-#{n}.json"))) }
+      if (same = existing.reverse.find { |r| r['deps'] == deps })
+        out.puts("judge #{id}: round #{same['round']} score #{same['score']} (unchanged, no call)")
+        return same
+      end
+
+      cues = RoastVtt.parse_file(gate['output']['vtt'])
+      round = (RoastAudioBatch.rounds(dir, id).max || 0) + 1
+      request = RoastAudio.build_request(audio: gate['output']['audio'], brief: File.read(opts[:brief]).strip, cues: cues, words: words, history: [], model: opts[:model])
+      duration = gate.dig('measurements', 'output', 'duration_s') || gate.dig('measurements', 'source', 'duration_s')
+      body = ledger.spend('judge', RoastAudio.judge_bound(request, duration), clip: id, round: round) do
+        reply = RoastAudio.post_chat(request, http)
+        [ reply, reply['usage'] ]
+      end
+      critic = parse_or_log(body, cues, dir, id, round)
+      record = critic.merge('round' => round, 'deps' => deps, 'model' => opts[:model], 'usage' => body['usage'])
+      RoastAudioBatch.write_record(dir, id, "round-#{round}.json", record)
+      File.write(File.join(RoastAudioBatch.clip_dir(dir, id), "round-#{round}.md"), RoastAudio.render_markdown(critic, round))
+      blockers = RoastAudioBatch.blocking(critic)
+      out.puts("judge #{id}: round #{round} score #{critic['score']}, #{blockers} P0/P1")
+      record
+    end
+
+    # A reply that fails validation is logged raw and named; it was paid and settled already.
+    def parse_or_log(body, cues, dir, id, round)
+      RoastAudio.parse_critic(body, cues: cues)
+    rescue Roast::RequestError => e
+      raw = File.join(RoastAudioBatch.clip_dir(dir, id), 'raw', "round-#{round}.json")
+      FileUtils.mkdir_p(File.dirname(raw))
+      File.write(raw, JSON.pretty_generate(body))
+      raise Roast::RequestError, "#{e.message} (raw reply in #{raw})"
     end
 
     # Display only: what the run would reserve, read from existing records
@@ -138,6 +405,11 @@ module RoastAudio
           cost = words_estimate(opts, id, p)
           usd += cost.is_a?(Numeric) ? cost : 0
           line += ", words #{cost.is_a?(Numeric) ? format('$%.4f', cost) : cost}"
+        end
+        if opts[:stop_after] == 'judge'
+          cost = judge_estimate(opts, id)
+          usd += cost.is_a?(Numeric) ? cost : 0
+          line += ", judge #{cost.is_a?(Numeric) ? format('$%.4f', cost) : cost}"
         end
         out.puts("roast estimate: #{line}")
       end
@@ -155,6 +427,19 @@ module RoastAudio
       return 0.0 if File.file?(RoastAudioWords.cache_path(RoastAudioBatch.clip_dir(opts[:out_dir], id), gate['output']['audio_sha256'], RoastAudioWords::TRANSCRIBE_MODEL))
 
       RoastAudioWords.transcribe_bound(gate.dig('measurements', 'output', 'duration_s') || gate.dig('measurements', 'source', 'duration_s'))[:usd]
+    rescue RoastAudioLedger::UnboundedCost => e
+      "refused (#{e.message})"
+    end
+
+    def judge_estimate(opts, id)
+      path = File.join(RoastAudioBatch.clip_dir(opts[:out_dir], id), 'gate.json')
+      gate = File.file?(path) ? JSON.parse(File.read(path)) : nil
+      return 'unknown until the clip is gated (run --stop-after gate first)' unless gate&.dig('output', 'audio')
+
+      cues = RoastVtt.parse_file(gate['output']['vtt'])
+      words = { 'source' => 'transcribe', 'counts' => { 'accepted' => 0 }, 'timing' => 'unverified' }
+      request = RoastAudio.build_request(audio: gate['output']['audio'], brief: File.read(opts[:brief]).strip, cues: cues, words: words, history: [], model: opts[:model])
+      RoastAudio.judge_bound(request, gate.dig('measurements', 'output', 'duration_s') || gate.dig('measurements', 'source', 'duration_s'))[:usd]
     rescue RoastAudioLedger::UnboundedCost => e
       "refused (#{e.message})"
     end
@@ -192,37 +477,20 @@ module RoastAudio
       raise Roast::SensitiveError, "roast refused: #{hits.size} sensitive term(s) matched in the captions or manifest; pass --allow-sensitive to send anyway"
     end
 
-    # Gates one clip's current take unless a fresh gate.json already covers it,
-    # and returns the gate record.
-    def gate_clip(opts, batch, clip, out, docker)
+    # The fresh gate record from the snapshot, else a new gate run on the
+    # clip's current take.
+    def gate_clip(opts, clip, fresh, out, docker)
+      return fresh.tap { |r| out.puts("gate #{clip['source_id']} (#{File.basename(clip['source_audio'])}): #{r['status']} (unchanged)") } if fresh
+
       dir = opts[:out_dir]
       id = clip['source_id']
       cur = clip['current']
-      deps = RoastAudioGate.deps(audio_sha256: cur['audio_sha256'], vtt_sha256: clip['vtt_sha256'], cfg: opts[:gate], fix: !opts[:no_fix],
-                                 alignment_sha256: cur['alignment_sha256'])
-      record = RoastAudioBatch.fresh(dir, id, 'gate.json', deps)
-      if record && !outputs_intact?(record)
-        RoastAudioBatch.stale!(dir, id, 'gate.json')
-        record = nil
-      end
-      if record
-        out.puts("gate #{id} (#{File.basename(clip['source_audio'])}): #{record['status']} (unchanged, no attempt counted)")
-      else
-        attempt = RoastAudioBatch.bump_attempt!(dir, batch, id)
-        record = RoastAudioGate.run(audio: cur['audio'], vtt: clip['vtt'], id: id, attempt: attempt, cfg: opts[:gate], docker: docker,
-                                    out_dir: File.join(RoastAudioBatch.clip_dir(dir, id), 'fixed'), fix: !opts[:no_fix], words: words(cur),
-                                    alignment_sha256: cur['alignment_sha256'])
-        RoastAudioBatch.write_record(dir, id, 'gate.json', record)
-        RoastAudioBatch.set_state!(dir, batch, id, record['terminal'].empty? ? 'retryable' : 'blocked')
-        out.puts(gate_line(id, clip, record))
-      end
+      record = RoastAudioGate.run(audio: cur['audio'], vtt: clip['vtt'], id: id, attempt: clip['attempts'], cfg: opts[:gate], docker: docker,
+                                  out_dir: File.join(RoastAudioBatch.clip_dir(dir, id), 'fixed'), fix: !opts[:no_fix], words: words(cur),
+                                  alignment_sha256: cur['alignment_sha256'])
+      RoastAudioBatch.write_record(dir, id, 'gate.json', record)
+      out.puts(gate_line(id, clip, record))
       record
-    end
-
-    # A record is only as good as the files it approved: a missing or edited output is stale.
-    def outputs_intact?(record)
-      o = record['output'] or return true
-      [ %w[audio audio_sha256], %w[vtt vtt_sha256] ].all? { |f, h| RoastAudioBatch.sha(o[f]) == o[h] }
     end
 
     # Verified alignment word spans for the noise regions, else nil.
@@ -242,6 +510,6 @@ module RoastAudio
       parts.join('; ')
     end
 
-    private_class_method :window, :check!, :process, :estimate, :words_estimate, :words_clip, :scan!, :gate_clip, :outputs_intact?, :words, :gate_line
+    private_class_method :window, :check!, :process, :process_clip, :judge_clip, :parse_or_log, :estimate, :words_estimate, :judge_estimate, :words_clip, :scan!, :gate_clip, :words, :gate_line, :parse_decide, :settings
   end
 end
