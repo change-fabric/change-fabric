@@ -39,14 +39,28 @@ module ChangeTrustFiles
 
     def size(rel) = listing[rel]
 
+    # A symlink reads as its target path, as git stores it, so the working
+    # tree and a snapshot hash it the same way.
     def read(rel)
-      return File.binread(File.join(@git_root, rel)) unless @ref
+      return tree_read(rel) unless @ref
 
       out, status = Open3.capture2('git', '-C', @git_root, 'cat-file', 'blob', "#{@ref}:#{rel}", binmode: true)
       status.success? ? out : nil
     end
 
+    # The stored target of a symlink, nil for a regular file. Filled while
+    # listing.
+    def link_target(rel)
+      listing
+      @links_found[rel]
+    end
+
     private
+
+    def tree_read(rel)
+      full = File.join(@git_root, rel)
+      File.symlink?(full) ? File.readlink(full) : File.binread(full)
+    end
 
     def listing
       @listing ||= @ref ? ref_listing : tree_listing
@@ -56,10 +70,14 @@ module ChangeTrustFiles
       out, status = Open3.capture2('git', '-C', @git_root, 'ls-tree', '-r', '-l', '-z', @ref)
       return {} unless status.success?
 
+      @links_found = {}
       out.split("\0").each_with_object({}) do |line, files|
         meta, rel = line.split("\t", 2)
-        _mode, type, _obj, size = meta.split
-        files[rel] = size.to_i if type == 'blob'
+        mode, type, _obj, size = meta.split
+        next unless type == 'blob'
+
+        files[rel] = size.to_i
+        @links_found[rel] = read(rel).to_s if mode == '120000'
       end
     end
 
@@ -67,9 +85,15 @@ module ChangeTrustFiles
       out, status = Open3.capture2('git', '-C', @git_root, 'ls-files', '-c', '-o', '--exclude-standard', '-z')
       return {} unless status.success?
 
+      @links_found = {}
       out.split("\0").each_with_object({}) do |rel, files|
         full = File.join(@git_root, rel)
-        files[rel] = File.size(full) if File.file?(full)
+        if File.symlink?(full)
+          @links_found[rel] = File.readlink(full)
+          files[rel] = @links_found[rel].bytesize
+        elsif File.file?(full)
+          files[rel] = File.size(full)
+        end
       end
     end
   end
@@ -82,11 +106,33 @@ module ChangeTrustFiles
     error = escape_error(Array(entry['trust_paths']))
     return { 'files' => {}, 'error' => error } if error
 
-    rels = (run_files(entry['run'].to_s, source, cwd) + glob_files(Array(entry['trust_paths']), source)).uniq.sort
-    error = cap_error(rels, source)
+    rels = (run_files(entry['run'].to_s, source, cwd) + glob_files(Array(entry['trust_paths']), source)).uniq
+    rels, error = follow_links(rels, source)
+    error ||= cap_error(rels, source)
     return { 'files' => {}, 'error' => error } if error
 
     { 'files' => rels.to_h { |rel| [ rel, file_digest(source, rel) ] }, 'error' => nil }
+  end
+
+  # Adds the in-repo target of every covered symlink, so editing the file a
+  # link points at is a change too. A target outside the repo cannot be
+  # verified.
+  def follow_links(rels, source)
+    queue = rels.dup
+    covered = rels.to_set
+    until queue.empty?
+      rel = queue.shift
+      text = source.link_target(rel)
+      next unless text
+
+      target = text.start_with?('/') ? nil : normalize(File.join(File.dirname(rel), text))
+      return [ [], "symlink #{rel} points outside the repo; refused" ] unless target
+      next if covered.include?(target) || !source.paths.include?(target)
+
+      covered << target
+      queue << target
+    end
+    [ covered.to_a.sort, nil ]
   end
 
   def file_digest(source, rel)
@@ -101,10 +147,16 @@ module ChangeTrustFiles
     end
   end
 
+  # Shell operators and quoting are split away, so `bash x.sh; true` and
+  # `sh -c "bash x.sh"` both yield `x.sh`. Over-matching a token only adds
+  # coverage.
   def tokens(run)
-    Shellwords.split(run)
-  rescue ArgumentError
-    run.split
+    words = begin
+      Shellwords.split(run)
+    rescue ArgumentError
+      [ run ]
+    end
+    words.flat_map { |word| word.split(/[\s;&|<>()`$'"]+/) }.reject(&:empty?)
   end
 
   def glob_files(globs, source)

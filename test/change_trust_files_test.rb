@@ -93,6 +93,31 @@ class ChangeTrustFilesTest < Minitest::Test
     assert_match(%r{scripts/ci/lib\.sh}, verdict.refusal(STEP))
   end
 
+  def test_script_followed_by_a_shell_operator_is_covered
+    entry = { "name" => "ci", "run" => "bash scripts/ci.sh; sh -c 'bash scripts/b.sh'&&true" }
+    commit("scripts/ci.sh" => "a\n", "scripts/b.sh" => "b\n")
+    files = ChangeTrustFiles.cover(entry, ChangeTrustFiles::Source.working_tree(@repo))["files"]
+    assert_equal %w[scripts/b.sh scripts/ci.sh], files.keys
+  end
+
+  def test_symlink_covers_its_target_the_same_in_tree_and_snapshot
+    commit("scripts/real.sh" => "echo hi\n")
+    File.symlink("real.sh", File.join(@repo, "scripts/ci.sh"))
+    sha = commit({})
+    entry = { "name" => "ci", "run" => "bash scripts/ci.sh" }
+    tree = ChangeTrustFiles.cover(entry, ChangeTrustFiles::Source.working_tree(@repo))
+    snap = ChangeTrustFiles.cover(entry, ChangeTrustFiles::Source.at_ref(@repo, sha, @repo))
+    assert_equal %w[scripts/ci.sh scripts/real.sh], tree["files"].keys
+    assert_equal tree, snap
+  end
+
+  def test_symlink_outside_the_repo_is_refused
+    File.symlink("/etc/hosts", File.join(@repo, "ci.sh"))
+    entry = { "name" => "ci", "run" => "bash ci.sh" }
+    coverage = ChangeTrustFiles.cover(entry, ChangeTrustFiles::Source.working_tree(@repo))
+    assert_match(/points outside the repo/, coverage["error"])
+  end
+
   def test_file_missing_on_one_side_is_a_change
     base!("CHANGE.md" => change_md)
     head = commit("scripts/ci.sh" => "echo new\n")
