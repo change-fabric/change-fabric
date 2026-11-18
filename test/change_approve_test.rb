@@ -89,6 +89,22 @@ class ChangeApproveTest < Minitest::Test
     assert_empty ChangeApprovalStore.new(@sha).approvals
   end
 
+  def test_prints_the_prefix_to_type_on_its_own_line
+    _status, out, _err = approve(tty: true)
+    assert_match(/^type: #{@sha[0, 12]}$/, out)
+  end
+
+  def test_a_mismatch_names_the_expected_prefix
+    _status, _out, err = approve(tty: true, typed: @sha[0, 11])
+    assert_match(/expected #{@sha[0, 12]}, got #{@sha[0, 11]}/, err)
+  end
+
+  def test_the_full_sha_is_not_accepted_as_the_prefix
+    status, _out, _err = approve(tty: true, typed: @sha)
+    refute_equal 0, status
+    assert_empty ChangeApprovalStore.new(@sha).approvals
+  end
+
   def test_records_the_changed_step_digest_on_a_correct_prefix
     status, out, _err = approve(tty: true)
     assert_equal 0, status

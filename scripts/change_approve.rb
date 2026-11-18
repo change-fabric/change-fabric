@@ -104,11 +104,14 @@ module ChangeApprove
   end
 
   def confirmed?(sha, stdin:, stdout:, stderr:)
-    stdout.print "Confirm: type the first 12 characters of #{sha} to approve every step listed above: "
+    prefix = sha[0, 12]
+    stdout.puts "To approve every step listed above for #{sha}, type these 12 characters exactly:"
+    stdout.puts "type: #{prefix}"
+    stdout.print '> '
     typed = stdin.gets.to_s.strip
-    return true if typed == sha[0, 12]
+    return true if typed == prefix
 
-    stderr.puts '[change] confirmation did not match; nothing recorded.'
+    stderr.puts "[change] confirmation did not match (expected #{prefix}, got #{typed.empty? ? 'nothing' : typed}); nothing recorded."
     false
   end
 
