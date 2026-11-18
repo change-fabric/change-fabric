@@ -41,8 +41,9 @@ ruby ~/.claude/cf/bin/change_run.rb testcases --suite <suite-or-tag>
 ```
 
 `--out DIR` puts the report pair and the run's evidence dir
-(`testcases-<run-id>/`, per-attempt traces and screenshots) there instead of
-on the Desktop.
+(`testcases-<run-id>/`, per-attempt traces and screenshots, `report.html`
+and `junit.xml`) there instead of on the Desktop. Point a stakeholder at
+`report.html` and CI at `junit.xml`.
 
 No scoping model, no clarifying round, no generated script: phases 1 to 4 are
 skipped entirely. The selector matches a suite id or a case tag, and it is

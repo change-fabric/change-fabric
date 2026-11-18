@@ -27,6 +27,7 @@ require_relative 'change_lane_zap'
 require_relative 'change_lane_browserless'
 require_relative 'change_lane_testcases'
 require_relative 'change_testcases_evidence'
+require_relative 'change_testcases_report'
 require_relative 'change_lane_command'
 require_relative 'change_trust'
 
@@ -310,6 +311,7 @@ class ChangeRun
                .merge('schedule' => schedule.name, 'base' => "#{base_ref} #{head_sha[0, 12]}")
     report = write_report(config, findings, schedule.lanes, instances, app: nil, manifest: manifest,
                                                                        scope: schedule_report_scope(schedule))
+    write_testcases_report(config)
     path = ChangeScheduleStore.new(schedule.name, schedule.profile, repo: ChangeScheduleStore.repo_key(repo_root))
                               .write(schedule_record(schedule, findings, report, started_at))
     summarize(findings, report, app: nil)
@@ -576,11 +578,26 @@ class ChangeRun
     end
     manifest = run_manifest(config, lanes)
     report = write_report(config, findings, lanes, instances, app: label, manifest: manifest.merge(trust_rows(trust)))
+    write_testcases_report(config)
     gate_manifest = manifest.merge('trust' => trust.manifest(trust.head_digests.keys))
     record_gate(config, findings, report, app: label, manifest: gate_manifest)
     summarize(findings, report, app: label)
     publish_artifact(artifact, config, findings, report, app: label)
     { app: entry.name, passed: findings.passed?, failing: findings.failures.size, report: File.basename(report[:markdown]) }
+  end
+
+  # The testcases lane's own report.html and junit.xml in its run dir, and its
+  # run appended to the project's history ledger. Best effort: a report that
+  # could not be written is logged, never a changed verdict.
+  def write_testcases_report(config)
+    dir = evidence_dir(config)
+    return unless dir && File.exist?(File.join(dir, ChangeTestcasesEvidence::RESULTS_FILE))
+
+    paths = ChangeTestcasesReport.new(run_dir: dir, ledger: ChangeTestcasesReport.ledger_path(config.project, repo: repo_root,
+                                                                                        app: @evidence_app)).write
+    log("[change] testcases report: #{paths[:html]} (junit: #{paths[:junit]})")
+  rescue StandardError => e
+    log("[change] testcases report failed: #{e.message}")
   end
 
   def write_rollup(registry, results)

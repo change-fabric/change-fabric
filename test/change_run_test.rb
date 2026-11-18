@@ -499,6 +499,33 @@ class ChangeRunForTagAndGateStatusTest < Minitest::Test
     end
   end
 
+  def test_a_scheduled_run_writes_the_testcases_report_too
+    source = File.read(File.expand_path("../scripts/change_run.rb", __dir__))
+    schedule = source[/def execute_schedule.*?^  end$/m]
+    assert_includes schedule, "write_testcases_report(config)"
+  end
+
+  def test_the_testcases_report_is_written_into_the_run_dir
+    Dir.mktmpdir do |dir|
+      record = ChangeCaseResult.new(key: "s/c", suite: "s", id: "c", status: "pass", run_id: "r1")
+      File.write(File.join(dir, "case-results.jsonl"), "#{record.to_json}\n")
+      plain = ChangeRun.new(%w[all])
+      plain.define_singleton_method(:evidence_dir) { |_config| dir }
+      plain.define_singleton_method(:log) { |_line| nil }
+      ledger = File.join(dir, "ledger.jsonl")
+      original = ChangeTestcasesReport.method(:ledger_path)
+      ChangeTestcasesReport.define_singleton_method(:ledger_path) { |_project, **_scope| ledger }
+      begin
+        plain.send(:write_testcases_report, Struct.new(:project).new("app"))
+      ensure
+        ChangeTestcasesReport.define_singleton_method(:ledger_path, original)
+      end
+      assert File.exist?(File.join(dir, "report.html"))
+      assert File.exist?(File.join(dir, "junit.xml"))
+      assert_equal 1, File.readlines(ledger).size
+    end
+  end
+
   def test_out_names_the_report_dir_and_the_desktop_is_the_default
     plain = ChangeRun.new(%w[all])
     assert_equal File.expand_path("/tmp/qa-out"), plain.send(:parse_args, %w[testcases --out /tmp/qa-out]).out
