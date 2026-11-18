@@ -235,7 +235,7 @@ module ChangeTrustFiles
   # The repo's own absolute path changes from one checkout to the next, so a
   # run that names a file by it cannot be tied to a repo path.
   def refuse_absolute_into_repo(token, source)
-    roots = [ File.expand_path(source.git_root), (File.realpath(source.git_root) rescue nil) ].compact
+    roots = [ File.expand_path(source.git_root), (File.exist?(source.git_root) ? File.realpath(source.git_root) : nil) ].compact
     return unless roots.any? { |root| token == root || token.start_with?("#{root}/") }
 
     raise Escape, "run names #{token} by absolute path; use a repo-relative path"
