@@ -255,9 +255,9 @@ module ChangeQaFilm
     auth = persona_auth(options)
     require_secrets(auth)
     draft = opening_goto(options[:draft] ? load_draft(options[:draft])[:steps] : [], options[:url])
-    compiler = ChangeFlowCompiler.new(draft + [ { 'eval' => { 'script' => SNAPSHOT_JS } } ], base_url: options[:url],
+    compiler = ChangeFlowCompiler.new(draft + [ { 'eval' => { 'script' => SNAPSHOT_JS } } ], base_url: origin(options[:url]),
                                                                                           timeout_ms: 30_000)
-    code = probe_module(compiler, auth: auth && ChangeFlowCompiler.compile_auth(auth.steps, base_url: options[:url]),
+    code = probe_module(compiler, auth: auth && ChangeFlowCompiler.compile_auth(auth.steps, base_url: origin(options[:url])),
                                   basic_auth: basic_auth(options), viewport: lane_viewport(options))
     result = with_session(options) { |session| session.run_function(code, launch_args: launch_args(options)) }
     puts JSON.pretty_generate(probe_view(result))
@@ -291,6 +291,18 @@ module ChangeQaFilm
     [ path, uri.query && "?#{uri.query}", uri.fragment && "##{uri.fragment}" ].compact.join
   rescue URI::InvalidURIError
     '/'
+  end
+
+  # The staging url's scheme, host and port: the base every relative step
+  # resolves against, since the compiler joins base and path as strings.
+  def origin(url)
+    uri = URI.parse(url.to_s)
+    return url.to_s unless uri.host
+
+    port = uri.port == uri.default_port ? '' : ":#{uri.port}"
+    "#{uri.scheme}://#{uri.host}#{port}"
+  rescue URI::InvalidURIError
+    url.to_s
   end
 
   # The login outcome, each draft step's record, and the snapshot lifted out
@@ -332,10 +344,10 @@ module ChangeQaFilm
   def run_lane(options, suite_path, out)
     run_id = "#{Time.now.utc.strftime('%Y%m%dT%H%M%SZ')}-#{SecureRandom.hex(3)}"
     evidence = ChangeTestcasesEvidence.prepare(out, run_id)
-    lane_config = testcases_lane(options).merge('suites' => [ suite_path ], 'base_url' => options[:url],
+    lane_config = testcases_lane(options).merge('suites' => [ suite_path ], 'base_url' => origin(options[:url]),
                                                 'tags' => [], 'gate_tags' => [], 'parallel' => 1)
     with_session(options, mounts: { evidence => ChangeTestcasesEvidence::MOUNT }) do |session|
-      context = Context.new(target_url: options[:url], browserless: session, suite_select: [ SUITE ],
+      context = Context.new(target_url: origin(options[:url]), browserless: session, suite_select: [ SUITE ],
                             logger: ->(message) { warn message }, run_id: run_id, evidence_dir: evidence,
                             commit: nil, exports: %w[video], video_budget_mb: 512)
       ChangeLaneTestcases.new(lane_config, context).run.each { |finding| warn "[film] #{finding.status}: #{finding.detail}" }
@@ -357,7 +369,7 @@ module ChangeQaFilm
     record = read_jsonl(File.join(run_dir, ChangeTestcasesEvidence::RESULTS_FILE)).first || {}
     result_path = record['evidence_dir'] && File.join(record['evidence_dir'], 'result.json')
     results = result_path && File.exist?(result_path) ? JSON.parse(File.read(result_path))['steps'] : []
-    labels = ChangeFlowCompiler.new(entries.map { |entry| entry[:step] }, base_url: options[:url]).labels
+    labels = ChangeFlowCompiler.new(entries.map { |entry| entry[:step] }, base_url: origin(options[:url])).labels
     status = film_status(record, results, entries.size)
     rewrite_status(run_dir, status) if record['status'] && record['status'] != status
     write_reports(run_dir, options)

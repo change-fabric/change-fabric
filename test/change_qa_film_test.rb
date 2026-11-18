@@ -74,6 +74,13 @@ class ChangeQaFilmTest < Minitest::Test
     assert_equal "/", ChangeQaFilm.relative_opening("https://staging.example.test")
   end
 
+  def test_steps_resolve_against_the_staging_origin
+    url = "https://staging.example.test:8443/app/reports?tab=2"
+    assert_equal "https://staging.example.test:8443", ChangeQaFilm.origin(url)
+    compiler = ChangeFlowCompiler.new([ { "goto" => ChangeQaFilm.relative_opening(url) } ], base_url: ChangeQaFilm.origin(url))
+    assert_equal url, compiler.compile.first[:url]
+  end
+
   def test_rewrite_status_keeps_the_ungraded_verdict
     Dir.mktmpdir do |dir|
       path = File.join(dir, ChangeTestcasesEvidence::RESULTS_FILE)
