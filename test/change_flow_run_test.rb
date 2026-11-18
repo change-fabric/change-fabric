@@ -164,6 +164,25 @@ class ChangeFlowRunTest < Minitest::Test
     assert_equal 6, doc["cases"].first["steps"].size
   end
 
+  # The navigation wait after the submit belongs to the login: left behind, it
+  # would wait for a navigation the seeded case never makes.
+  def test_promote_drops_the_navigation_wait_after_the_login_submit
+    flow = LOGIN_FLOW.sub("  - click: \"#sign-in\"\n", "  - click: \"#sign-in\"\n  - wait_for: { state: domcontentloaded }\n")
+    doc, = promote_in(flow)
+    item = doc["cases"].first
+    assert_equal "admin", item["persona"]
+    assert_equal [ { "goto" => "/admin/users" }, { "expect_visible" => ".users" } ], item["steps"]
+  end
+
+  # A hash route is the page in a client-routed app, so two logins on one
+  # path are told apart by their route.
+  def test_login_path_matching_keeps_hash_routes
+    assert ChangeFlowLogin.same_path?("http://localhost:3000/#/admin-login", "/#/admin-login")
+    refute ChangeFlowLogin.same_path?("http://localhost:3000/#/admin-login", "/#/member-login")
+    refute ChangeFlowLogin.same_path?("http://localhost:3000/#/admin-login", "/")
+    assert ChangeFlowLogin.same_path?("http://localhost:3000/admin/login/", "/admin/login")
+  end
+
   # Two personas on one login form differ only in their credentials, so the
   # env vars the flow typed decide which one it was.
   def test_promote_tells_personas_on_one_form_apart_by_their_env

@@ -40,6 +40,7 @@ module ChangeFlowLogin
       return nil unless value(steps[position], 'click', 'selector') == auth_step[:submit_selector]
 
       position += 1
+      position += 1 if navigation_wait?(steps[position])
     end
     position += 1 if auth_step[:wait_for_selector] && value(steps[position], 'wait_for', 'selector') == auth_step[:wait_for_selector]
     position
@@ -55,6 +56,15 @@ module ChangeFlowLogin
     true
   end
 
+  # A bare `wait_for: { state: }` after the submit waits on the login's own
+  # navigation; a seeded case never makes it, so it goes with the login.
+  def navigation_wait?(step)
+    return false unless step.is_a?(Hash) && step['wait_for'].is_a?(Hash)
+
+    wait = step['wait_for']
+    wait.key?('state') && !wait.key?('selector') && !wait.key?('url_contains')
+  end
+
   def value(step, verb, key)
     return nil unless step.is_a?(Hash) && step.key?(verb)
 
@@ -63,12 +73,17 @@ module ChangeFlowLogin
   end
 
   # A flow names the login page with whatever host it explored; the config
-  # names a path. They match on the path.
+  # names a path. They match on the path and, since a hash route (#/login) is
+  # the page in a client-routed app, on that route too.
   def same_path?(flow_url, auth_url)
     return false if flow_url.nil?
 
-    path = ->(url) { URI.parse(url.to_s).path.to_s.sub(%r{/\z}, '') }
-    path.call(flow_url) == path.call(auth_url)
+    page = lambda do |url|
+      uri = URI.parse(url.to_s)
+      fragment = uri.fragment.to_s
+      [ uri.path.to_s.sub(%r{/\z}, ''), fragment.start_with?('/') ? fragment.split('?').first : '' ]
+    end
+    page.call(flow_url) == page.call(auth_url)
   rescue URI::InvalidURIError
     false
   end
