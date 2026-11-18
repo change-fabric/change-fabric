@@ -4,6 +4,8 @@ require "minitest/autorun"
 require "json"
 require "stringio"
 require "tmpdir"
+require "open3"
+require "base64"
 require_relative "../scripts/roast_audio"
 require_relative "roast_audio_helpers"
 require_relative "imagegen_helpers"
@@ -196,6 +198,12 @@ class RoastAudioBatchTest < Minitest::Test
     assert_equal "blocked", batch["clips"].first["state"]
   end
 
+  def test_roast_rb_help_lists_the_audio_modes
+    out = StringIO.new
+    assert_equal 0, Roast::Cli.run([ "--help" ], out: out)
+    %w[--audio --audio-regen --audio-batch --manifest --stop-after].each { |flag| assert_includes out.string, flag }
+  end
+
   def test_roast_rb_dispatches_audio
     require_relative "../scripts/roast"
     out = StringIO.new
@@ -286,7 +294,7 @@ class RoastAudioBatchTest < Minitest::Test
     docker = FakeDocker.new(tags: { "intro.mp3" => "noise_bed" })
     2.times { RoastAudio::Cli.run([ "--audio", a, "--brief", @brief, "--out-dir", @out, "--stop-after", "gate" ], out: StringIO.new, docker: docker) }
     assert_equal 1, batch["clips"].first["attempts"]
-    assert_match(/blocked: src-\h{8} \(gate terminal: noise\)/, decide)
+    assert_match(/blocked: src-\h{8} \(gate terminal: noise; regen report-only, not executable\)/, decide)
   end
 
   def test_a_changed_vtt_makes_a_judged_clip_retryable_again
@@ -332,5 +340,250 @@ class RoastAudioBatchTest < Minitest::Test
     RoastAudio::Cli.run([ "--audio", a, "--brief", @brief, "--out-dir", @out, "--stop-after", "words" ], out: StringIO.new,
                                                                                                       docker: FakeDocker.new(tags: { "intro.mp3" => "continuous" }))
     assert_match(/roast decision: continue: 1 clip\(s\) retryable/, decide)
+  end
+
+  # ---- manifest, regen proposals and approved re-voice ----------------------------
+
+  P1_PROSODY = { "priority" => "P1", "cue" => 2, "area" => "prosody", "problem" => "flat, read not spoken", "fix" => "f", "revoice" => true }.freeze
+
+  def flat_manifest(*names, voice: "voice-a", settings: nil)
+    path = File.join(@tmp, "narration.manifest.json")
+    clips = names.map { |n| { "file" => n, "text" => CUE_TEXT.join(" "), "voice_id" => voice, "settings" => settings }.compact }
+    File.write(path, JSON.generate({ "clips" => clips }))
+    path
+  end
+
+  # ElevenLabs with-timestamps reply: a real mp3 (changed by a suffix, so it is a new take) and a bound-able alignment.
+  def tts_transport(calls)
+    lambda do |request, _key|
+      calls << request
+      body = { "audio_base64" => Base64.strict_encode64(File.binread(File.join(FIXTURES, "continuous.mp3")) + "take#{calls.size}"),
+               "alignment" => alignment(exact_spans) }
+      ImagegenHelpers::FakeResponse.new("200", JSON.generate(body))
+    end
+  end
+
+  def regen(*ids, calls: [])
+    out = StringIO.new
+    code = with_enrolled("elevenlabs") { RoastAudio::Cli.run([ "--audio-regen", @out, *ids.flat_map { |i| [ "--approve", i ] } ], out: out, transport: tts_transport(calls)) }
+    [ code, out.string ]
+  end
+
+  def proposal(id) = JSON.parse(File.read(File.join(@out, id, "regen.json")))
+
+  def judged_with_manifest(*audios, http:, manifest: flat_manifest(*audios.map { |a| File.basename(a) }), extra: [])
+    out = StringIO.new
+    args = audios.flat_map { |a| [ "--audio", a ] } + [ "--brief", @brief, "--out-dir", @out, "--manifest", manifest, *extra ]
+    code = with_enrolled("openai") { RoastAudio::Cli.run(args, out: out, http: http, docker: FakeDocker.new(tags: { "intro.mp3" => "continuous", "outro.mp3" => "continuous" })) }
+    [ code, out.string ]
+  end
+
+  def test_persistent_source_clipping_proposes_a_revoice_with_a_gate_reason
+    a = stage_clip(File.join(@tmp, "a"), "continuous", as: "intro")
+    out = StringIO.new
+    RoastAudio::Cli.run([ "--audio", a, "--brief", @brief, "--out-dir", @out, "--manifest", flat_manifest("intro.mp3"), "--stop-after", "gate" ],
+                        out: out, docker: FakeDocker.new(tags: { "intro.mp3" => "clipped" }))
+    id = batch["clips"].first["source_id"]
+    prop = proposal(id)
+    assert_equal [ "revoice", true ], prop.values_at("action", "executable")
+    assert_includes prop["reasons"].map { |r| [ r["source"], r["id"] ] }, [ "gate", "clipping" ]
+    assert_equal "voice-a", prop["retake"]["voice_id"]
+    assert_in_delta 0.08 * CUE_TEXT.join(" ").length / 1000.0, prop["estimate_usd"], 1e-4
+  end
+
+  def test_a_prosody_p1_with_revoice_proposes_a_retake_with_a_judge_reason
+    a = bound_clip("a", "intro")
+    judged_with_manifest(a, http: Judge.new(score: 7, issues: [ P1_PROSODY, P1_PROSODY.merge("area" => "pacing", "cue" => 3, "problem" => "rushed") ]))
+    prop = proposal(batch["clips"].first["source_id"])
+    assert_equal "revoice", prop["action"]
+    assert_equal [ "judge" ], prop["reasons"].map { |r| r["source"] }.uniq
+    assert_equal({ "speed" => "-0.05 (pacing at cue 3)" }, prop["retake"]["settings_delta"])
+    assert_in_delta 0.95, prop["retake"]["settings"]["speed"]
+    assert_match(/cue 2: P1 prosody: flat/, prop["retake"]["instruction"])
+    assert_match(/blocked: src-\h{8} \(.*; regen proposed\)/, decide)
+  end
+
+  def test_an_artifact_raises_stability_capped_at_0_85
+    settings, delta = RoastAudioBatch.settings_delta({ "stability" => 0.8, "speed" => 1.18 },
+                                                     [ { "source" => "judge", "kind" => "revoice", "area" => "artifact", "cue" => 1, "detail" => "metallic" },
+                                                       { "source" => "judge", "kind" => "revoice", "area" => "pacing", "cue" => 2, "detail" => "drags" } ])
+    assert_equal [ 0.85, 1.2 ], settings.values_at("stability", "speed")
+    assert_equal %w[stability speed], delta.keys
+  end
+
+  def test_a_clip_with_no_manifest_entry_is_report_only
+    a = bound_clip("a", "intro")
+    judged_with_manifest(a, http: Judge.new(score: 7, issues: [ P1_PROSODY ]), manifest: flat_manifest("other.mp3"))
+    prop = proposal(batch["clips"].first["source_id"])
+    assert_equal [ "report-only", false ], prop.values_at("action", "executable")
+    assert_match(/no manifest entry/, prop["why"])
+    assert_nil prop["estimate_usd"]
+  end
+
+  def test_declining_leaves_the_proposal_ledger_and_audio_unchanged
+    a = bound_clip("a", "intro")
+    judged_with_manifest(a, http: Judge.new(score: 7, issues: [ P1_PROSODY ]))
+    id = batch["clips"].first["source_id"]
+    before = [ File.read(File.join(@out, id, "regen.json")), File.read(File.join(@out, "spend.json")), File.binread(a), batch["clips"].first["current"] ]
+    calls = []
+    code, out = regen(calls: calls)
+    assert_equal 2, code
+    assert_match(/nothing is re-voiced without approval/, out)
+    assert_empty calls
+    assert_equal before, [ File.read(File.join(@out, id, "regen.json")), File.read(File.join(@out, "spend.json")), File.binread(a), batch["clips"].first["current"] ]
+  end
+
+  def test_only_approved_clips_are_revoiced_and_a_fresh_process_resumes_on_the_take
+    a = bound_clip("a", "intro")
+    b = bound_clip("b", "outro")
+    judged_with_manifest(a, b, http: Judge.new(score: 7, issues: [ P1_PROSODY ]))
+    ida, idb = batch["clips"].map { |c| c["source_id"] }
+    b_before = batch["clips"][1]["current"]
+    calls = []
+    code, out = regen(ida, calls: calls)
+    assert_equal 0, code, out
+    assert_equal 1, calls.size
+    assert_equal "voice-a", calls.first.path[%r{text-to-speech/([^/]+)/}, 1]
+    cur = batch["clips"][0]["current"]
+    assert_equal File.join(@out, ida, "takes", "#{ida}.t1.mp3"), cur["audio"]
+    assert_equal "verified", RoastAudioWords.provenance(cur["alignment"], audio_sha256: cur["audio_sha256"])[:status]
+    assert_equal b_before, batch["clips"][1]["current"]
+    assert_equal [ "regen", "settled" ], JSON.parse(File.read(File.join(@out, "spend.json")))["entries"].last.values_at("op", "status")
+    assert_equal a, batch["clips"][0]["source_audio"], "the source id and source file never change"
+
+    script = File.expand_path("../scripts/roast.rb", __dir__)
+    tags = { "intro.mp3" => "continuous", "outro.mp3" => "continuous", File.basename(cur["audio"]) => "continuous" }
+    stdout, status = Open3.capture2e({ "CF_TEST_DOCKER_TAGS" => JSON.generate(tags), "CF_SENSITIVE_TERMS_FILE" => @terms },
+                                     RbConfig.ruby, "-r", File.expand_path("roast_audio_subprocess_boot.rb", __dir__), script,
+                                     "--audio", a, "--audio", b, "--brief", @brief, "--out-dir", @out, "--manifest", flat_manifest("intro.mp3", "outro.mp3"),
+                                     "--stop-after", "words")
+    assert status.success?, stdout
+    assert_match(/gate #{ida} \(intro\.mp3\): pass/, stdout)
+    assert_match(/words #{ida} \(intro\.mp3\): 0 raw, 0 accepted; source alignment, timing verified/, stdout)
+    assert_match(/#{idb} \(outro\.mp3\): skipped, blocked/, stdout)
+    assert Dir.glob(File.join(@out, ida, "stale", "*", "gate.json")).any?, "the old take's records went stale"
+    assert Dir.glob(File.join(@out, ida, "stale", "*", "round-1.json")).any?
+    assert_equal ida, JSON.parse(File.read(File.join(@out, ida, "gate.json")))["source_id"]
+    assert_equal cur["audio"], JSON.parse(File.read(File.join(@out, ida, "gate.json")))["input"]["audio"]
+  end
+
+  def test_an_exhausted_clip_is_refused_until_max_attempts_is_raised
+    a = bound_clip("a", "intro")
+    judged_with_manifest(a, http: Judge.new(score: 7, issues: [ P1_PROSODY ]), extra: [ "--max-attempts", "1" ])
+    id = batch["clips"].first["source_id"]
+    assert_equal [ "revoice", false ], proposal(id).values_at("action", "executable")
+    assert_match(/exhausted/, proposal(id)["why"])
+    calls = []
+    code, out = regen(id, calls: calls)
+    assert_equal 1, code
+    assert_match(/not executable \(exhausted/, out)
+    judged_with_manifest(a, http: Judge.new(score: 7, issues: [ P1_PROSODY ]), extra: [ "--max-attempts", "3" ])
+    assert proposal(id)["executable"]
+    code, = regen(id, calls: calls)
+    assert_equal 0, code
+    assert_equal 1, calls.size
+  end
+
+  def test_a_clip_edited_to_exhausted_after_the_proposal_is_refused_at_dispatch
+    a = bound_clip("a", "intro")
+    judged_with_manifest(a, http: Judge.new(score: 7, issues: [ P1_PROSODY ]))
+    id = batch["clips"].first["source_id"]
+    ledger = RoastAudioLedger.new(@out, cap_usd: 1.0, max_usd: 0.5)
+    # Exhaust the clip after the proposal is written and before dispatch.
+    RoastAudioBatch.singleton_class.alias_method(:real_summary!, :summary!)
+    RoastAudioBatch.define_singleton_method(:summary!) do |dir, snap|
+      rows = real_summary!(dir, snap)
+      b = JSON.parse(File.read(File.join(dir, "batch.json")))
+      b["clips"][0]["attempts"] = b["clips"][0]["max_attempts"]
+      File.write(File.join(dir, "batch.json"), JSON.generate(b))
+      rows
+    end
+    calls = []
+    code, out = regen(id, calls: calls)
+    assert_equal 1, code
+    assert_match(/attempts used at dispatch/, out)
+    assert_empty calls
+    refute(ledger.read["entries"].any? { |e| e["op"] == "regen" }, "the refused dispatch reserved nothing")
+  ensure
+    RoastAudioBatch.singleton_class.alias_method(:summary!, :real_summary!) if RoastAudioBatch.respond_to?(:real_summary!)
+  end
+
+  def test_a_regen_past_the_run_cap_is_refused
+    a = bound_clip("a", "intro")
+    judged_with_manifest(a, http: Judge.new(score: 7, issues: [ P1_PROSODY ]))
+    id = batch["clips"].first["source_id"]
+    b = batch
+    b["settings"]["run_max_usd"] = 0.005 # the judge settled at about $0.0024; a $0.009 re-voice no longer fits
+    File.write(File.join(@out, "batch.json"), JSON.generate(b))
+    calls = []
+    code, out = regen(id, calls: calls)
+    assert_equal 1, code
+    assert_match(/run cap/, out)
+    assert_empty calls
+  end
+
+  def test_caption_fixes_and_report_only_proposals_are_refused_by_name
+    a = bound_clip("a", "intro")
+    judged_with_manifest(a, http: Judge.new(score: 7, issues: [ P1_PROSODY.merge("revoice" => false) ]))
+    code, out = regen(batch["clips"].first["source_id"])
+    assert_equal 1, code
+    assert_match(/a report-only proposal is not re-voiced/, out)
+  end
+
+  # ---- per-clip manifest directory ----------------------------------------------
+
+  def clip_json(dir, stem, pauses:)
+    FileUtils.mkdir_p(dir)
+    parts = CUE_TEXT.each_with_index.map { |t, i| { "n" => i + 1, "line" => { "say" => t }, "gap_ms" => pauses[i] } }.reverse
+    File.write(File.join(dir, "#{stem}.json"), JSON.generate({ "parts" => parts, "speaker" => { "id" => "voice-b", "engine" => "eleven_flash_v2_5", "tune" => { "stability" => 0.6 } } }))
+    dir
+  end
+
+  MAP = [ "--text-path", "parts[].line.say", "--order-key", "n", "--pause-key", "gap_ms", "--voice-path", "speaker.id", "--model-path", "speaker.engine",
+          "--settings-path", "speaker.tune" ].freeze
+
+  def test_a_per_clip_directory_maps_nested_text_in_order_and_keeps_segments
+    dir = clip_json(File.join(@tmp, "clips"), "intro", pauses: [ 0, 0, 0 ])
+    entries = RoastAudioBatch.manifest(dir, map: { text_path: "parts[].line.say", order_key: "n", pause_key: "gap_ms", voice_path: "speaker.id",
+                                                   model_path: "speaker.engine", settings_path: "speaker.tune" })
+    e = entries.fetch("intro.mp3")
+    assert_equal CUE_TEXT.join(" "), e["text"]
+    assert_equal 3, e["segments"].size
+    assert_equal [ "voice-b", "eleven_flash_v2_5", { "stability" => 0.6 } ], e.values_at("voice_id", "model", "settings")
+    a = bound_clip("a", "intro")
+    judged_with_manifest(a, http: Judge.new(score: 7, issues: [ P1_PROSODY ]), manifest: dir, extra: MAP)
+    prop = proposal(batch["clips"].first["source_id"])
+    assert_equal [ "revoice", true, 0.6 ], [ prop["action"], prop["executable"], prop["retake"]["settings"]["stability"] ]
+  end
+
+  def test_segments_with_pauses_are_report_only_and_keep_their_boundaries
+    dir = clip_json(File.join(@tmp, "clips"), "intro", pauses: [ 400, 250, 0 ])
+    a = bound_clip("a", "intro")
+    judged_with_manifest(a, http: Judge.new(score: 7, issues: [ P1_PROSODY ]), manifest: dir, extra: MAP)
+    prop = proposal(batch["clips"].first["source_id"])
+    assert_equal [ "report-only", false ], prop.values_at("action", "executable")
+    assert_match(/3 segments with pauses \(pause_ms 400, 250, 0\)/, prop["why"])
+    assert_equal [ 400, 250, 0 ], prop["retake"]["segments"].map { |g| g["pause_ms"] }
+  end
+
+  def test_a_bad_or_ambiguous_manifest_exits_2
+    a = bound_clip("a", "intro")
+    bad = File.join(@tmp, "bad.json")
+    File.write(bad, JSON.generate({ "clips" => [ { "file" => "intro.mp3", "text" => "hi" } ] }))
+    code, out = judged_with_manifest(a, http: Judge.new(score: 9), manifest: bad)
+    assert_equal 2, code
+    assert_match(/has no voice_id/, out)
+    b = bound_clip("b", "intro")
+    code, out = judged_with_manifest(a, b, http: Judge.new(score: 9), manifest: flat_manifest("intro.mp3"))
+    assert_equal 2, code
+    assert_match(/matches 2 clips/, out)
+  end
+
+  def test_manifest_text_is_scanned_for_sensitive_terms
+    a = bound_clip("a", "intro")
+    File.write(@terms, "voice-a\n")
+    code, out = judged_with_manifest(a, http: Judge.new(score: 9))
+    assert_equal 1, code
+    assert_match(/sensitive term/, out)
   end
 end

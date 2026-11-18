@@ -142,10 +142,13 @@ class RoastAudioLedger
   def committed(data = read) = data['entries'].select { |e| COUNTED.include?(e['status']) }.sum { |e| e['status'] == 'settled' ? e['actual_usd'] : e['reserved_usd'] }
 
   # Reserves bound (from .bound) for op; returns the entry id, or raises Refused.
-  def reserve(op, bound, clip: nil, round: nil)
+  # guard runs under the same lock first, for a check that must hold at
+  # dispatch (a re-voice re-reading the clip's attempts).
+  def reserve(op, bound, clip: nil, round: nil, guard: nil)
     raise ArgumentError, "unknown op #{op}" unless OPS.include?(op)
 
     locked do |data|
+      guard&.call
       h = data['halted']
       raise Refused, "spend halted: entry #{h['entry']} cost $#{h['actual']} over its $#{h['reserved']} reservation; recalibrate and clear halted in #{spend_path}" if h
       raise Refused, "$#{fmt(bound[:usd])} would pass the $#{fmt(max_usd)} per-call ceiling" if bound[:usd] > max_usd + 1e-9
@@ -185,8 +188,8 @@ class RoastAudioLedger
   # Reserve, run the block, settle. The block gets the entry id and returns
   # [result, usage]. A PreDispatch error releases the reservation; any other
   # error leaves it uncertain (counted in full) and re-raises.
-  def spend(op, bound, clip: nil, round: nil)
-    id = reserve(op, bound, clip: clip, round: round)
+  def spend(op, bound, clip: nil, round: nil, guard: nil)
+    id = reserve(op, bound, clip: clip, round: round, guard: guard)
     begin
       result, usage = yield(id)
     rescue PreDispatch => e

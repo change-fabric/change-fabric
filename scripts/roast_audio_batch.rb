@@ -5,6 +5,8 @@ require 'fileutils'
 require 'json'
 require_relative 'roast_audio_ledger'
 require_relative 'roast_audio_words'
+require_relative 'elevenlabs'
+require_relative 'walkthrough_env'
 
 # The batch index of cf:roast --audio: DIR/batch.json is the only source of
 # batch membership. Each clip has an immutable source id (from the expanded
@@ -213,8 +215,12 @@ module RoastAudioBatch
     words = JSON.parse(File.read(path))
     inputs = { 'audio_sha256' => gate['deps']['audio_sha256'], 'vtt_sha256' => gate['deps']['vtt_sha256'] }
     valid, = RoastAudioWords.rebuttals(response_path(dir, batch, id), ops: words['ops'], source: words['source'], source_id: id, inputs: inputs,
-                                                                      brief: brief_text(batch), pronunciations: {})
+                                                                      brief: brief_text(batch), pronunciations: pronunciations_for(batch, clip))
     fresh(dir, id, 'words.json', gate['deps'].merge('rebuttal_sha256' => RoastAudioWords.sha256(valid)))
+  end
+
+  def pronunciations_for(batch, clip)
+    (manifest_for(batch)[File.basename(clip['source_audio'])] || {})['pronunciations'] || {}
   end
 
   def brief_text(batch)
@@ -305,7 +311,8 @@ module RoastAudioBatch
     batch = snap[:batch]
     snap[:clips].each { |c| batch['clips'].find { |x| x['source_id'] == c[:clip]['source_id'] }['state'] = c[:state] }
     write(dir, batch)
-    rows = snap[:clips].map { |c| summary_row(c) }
+    props = proposals!(dir, snap, target: (batch['settings'] || {})['target'] || 9)
+    rows = snap[:clips].map { |c| summary_row(c).merge('regen' => props.dig(c[:clip]['source_id'], 'action') || '-') }
     write_record(dir, '.', 'summary.json', { 'clips' => rows })
     head = %w[source_id source state attempts gate words timing score p0_p1 regen reason]
     md = [ '# Audio roast summary', '', "| #{head.join(' | ')} |", "|#{' --- |' * head.size}" ]
@@ -325,9 +332,17 @@ module RoastAudioBatch
     lines = STATES.filter_map do |s|
       next if by[s].empty?
 
-      "#{s}: #{by[s].map { |c| s == 'blocked' ? "#{c[:clip]['source_id']} (#{c[:reason]})" : c[:clip]['source_id'] }.join(', ')}"
+      "#{s}: #{by[s].map { |c| s == 'blocked' ? "#{c[:clip]['source_id']} (#{c[:reason]}#{regen_note(dir, c)})" : c[:clip]['source_id'] }.join(', ')}"
     end
     [ lines, verdict(dir, snap[:batch], by, pending_bound) ]
+  end
+
+  def regen_note(dir, c)
+    path = File.join(clip_dir(dir, c[:clip]['source_id']), 'regen.json')
+    return '' unless File.file?(path)
+
+    prop = JSON.parse(File.read(path))
+    "; regen #{prop['action'] == 'revoice' ? 'proposed' : prop['action']}#{prop['executable'] ? '' : ', not executable'}"
   end
 
   def verdict(dir, batch, by, pending_bound)
@@ -353,5 +368,278 @@ module RoastAudioBatch
     [ true, "the run ledger cannot authorize spend: #{e.message}" ]
   end
 
-  private_class_method :pick, :check_ids!, :diff_line, :file_ref, :clip, :words_fresh, :judge_fresh, :pending_stage, :blocked_reason, :verdict
+  # ---- regen proposals --------------------------------------------------------
+
+  REVOICE_GATE = %w[clipping noise loudness true_peak].freeze
+  WORD_REVOICE = %w[missing extra substituted].freeze
+  DEFAULT_SETTINGS = { 'stability' => 0.5, 'similarity_boost' => 0.75, 'speed' => 1.0 }.freeze
+  DEFAULT_TTS_MODEL = 'eleven_multilingual_v2'
+  DEFAULT_TTS_FORMAT = 'mp3_44100_128'
+
+  # Every reason this clip is not ready, from its fresh gate, words and judge.
+  def reasons(rec, target)
+    g, w, j = rec.values_at(:gate, :words, :judge)
+    out = []
+    Array(g && g['terminal']).each do |name|
+      kind = REVOICE_GATE.include?(name) ? 'revoice' : (name == 'captions' ? 'caption' : 'report')
+      out << { 'source' => 'gate', 'id' => name, 'kind' => kind, 'detail' => "gate #{name} #{g['checks'][name]['status']}: #{g['checks'][name]['measured'].to_json[0, 160]}" }
+    end
+    Array(w && w['ops']).reject { |o| o['rebutted'] }.each do |o|
+      kind = WORD_REVOICE.include?(o['kind']) ? 'revoice' : 'caption'
+      out << { 'source' => 'words', 'id' => o['id'], 'kind' => kind, 'cue' => o['cue'], 'at' => o['at'],
+               'detail' => "#{o['kind']}: expected #{o['expected'].inspect}, heard #{o['heard'].inspect}" }
+    end
+    Array(j && j['issues']).each do |i|
+      next unless %w[P0 P1].include?(i['priority'])
+
+      out << { 'source' => 'judge', 'id' => "#{i['priority']}-#{i['area']}-#{i['cue']}", 'kind' => i['revoice'] ? 'revoice' : 'report', 'cue' => i['cue'], 'at' => i['at'],
+               'area' => i['area'], 'detail' => "#{i['priority']} #{i['area']}: #{i['problem']}" }
+    end
+    out << { 'source' => 'judge', 'id' => 'score', 'kind' => 'report', 'detail' => "score #{j['score']} under #{target}" } if j && j['score'] < target && out.none? { |r| r['source'] == 'judge' }
+    out
+  end
+
+  # Deterministic setting changes from the judge's revoice issues.
+  def settings_delta(base, reasons)
+    settings = base.dup
+    delta = {}
+    reasons.select { |r| r['source'] == 'judge' && r['kind'] == 'revoice' }.each do |r|
+      if r['area'] == 'artifact' && !r['detail'].match?(/pronounc/i)
+        settings['stability'] = [ settings['stability'].to_f + 0.15, 0.85 ].min.round(2)
+        delta['stability'] = "+0.15 (#{r['area']} at cue #{r['cue']})"
+      elsif r['area'] == 'pacing' && (step = pace_step(r['detail']))
+        settings['speed'] = (settings['speed'].to_f + step).clamp(0.7, 1.2).round(2)
+        delta['speed'] = "#{format('%+.2f', step)} (pacing at cue #{r['cue']})"
+      end
+    end
+    [ settings, delta ]
+  end
+
+  def pace_step(text)
+    return -0.05 if text.match?(/fast|rush|hurr|rac(e|ing)|quick/i)
+
+    0.05 if text.match?(/slow|drag|stall|sluggish/i)
+  end
+
+  def instruction(reasons)
+    parts = reasons.select { |r| r['kind'] == 'revoice' }.map { |r| [ r['cue'] && "cue #{r['cue']}", r['detail'] ].compact.join(': ') }
+    hint = reasons.any? { |r| r['detail'].to_s.match?(/pronounc/i) } ? ' Add the mispronounced term to the manifest pronunciations.' : ''
+    "Retake the whole clip. #{parts.join('; ')}.#{hint}"
+  end
+
+  # The regen.json proposal for one non-ready clip of a snapshot.
+  def proposal(batch, snap_clip, entry, target:)
+    clip = snap_clip[:clip]
+    rs = reasons(snap_clip[:rec], target)
+    revoice = rs.any? { |r| r['kind'] == 'revoice' }
+    action = if revoice then 'revoice'
+    elsif rs.any? { |r| r['kind'] == 'caption' } then 'caption-fix'
+    else 'report-only'
+    end
+    out = { 'deps' => regen_deps(batch, snap_clip), 'source_id' => clip['source_id'], 'action' => action, 'reasons' => rs.map { |r| r.except('kind') } }
+    return out.merge('executable' => false, 'why' => why_not(action)) unless action == 'revoice'
+
+    revoice_proposal(out, clip, entry, rs)
+  end
+
+  def why_not(action) = action == 'caption-fix' ? 'fix the captions (or file a rebuttal) and re-run; no re-voice needed' : 'nothing a re-voice is known to fix'
+
+  def revoice_proposal(out, clip, entry, rs)
+    return out.merge('action' => 'report-only', 'executable' => false, 'why' => 'no manifest entry names this clip, so it cannot be re-voiced') unless entry
+
+    pauses = Array(entry['segments']).map { |g| g['pause_ms'].to_i }
+    settings, delta = settings_delta(DEFAULT_SETTINGS.merge(entry['settings'] || {}), rs)
+    retake = { 'text' => entry['text'], 'segments' => entry['segments'], 'voice_id' => entry['voice_id'], 'model' => entry['model'] || DEFAULT_TTS_MODEL,
+               'output_format' => entry['output_format'] || DEFAULT_TTS_FORMAT, 'settings' => settings, 'settings_delta' => delta, 'instruction' => instruction(rs) }
+    est = RoastAudioLedger.bound('regen', model: retake['model'], chars: retake['text'].length)[:usd]
+    out = out.merge('retake' => retake, 'estimate_usd' => est)
+    if pauses.any?(&:positive?)
+      return out.merge('action' => 'report-only', 'executable' => false,
+                       'why' => "the text is #{pauses.size} segments with pauses (pause_ms #{pauses.join(', ')}); one take cannot reproduce them faithfully, so re-voice the segments by hand")
+    end
+    return out.merge('executable' => false, 'why' => "exhausted: #{clip['attempts']} of #{clip['max_attempts']} attempts used; raise --max-attempts to allow a re-voice") if clip['attempts'] >= clip['max_attempts']
+
+    out.merge('executable' => true)
+  end
+
+  def regen_deps(batch, snap_clip)
+    rec = snap_clip[:rec]
+    base = rec[:judge] ? rec[:judge]['deps'] : (rec[:words] ? rec[:words]['deps'] : rec[:gate]&.dig('deps'))
+    (base || {}).merge('manifest_sha256' => (batch['settings'] || {})['manifest_sha256'], 'attempts' => snap_clip[:clip]['attempts'],
+                       'max_attempts' => snap_clip[:clip]['max_attempts'])
+  end
+
+  def manifest_for(batch)
+    st = batch['settings'] || {}
+    manifest(st['manifest'], map: (st['manifest_map'] || {}).transform_keys(&:to_sym))
+  end
+
+  # The manifest entry for a clip, by source file name. A name shared by two
+  # clips of the batch is ambiguous.
+  def entry_for(batch, clip, entries)
+    name = File.basename(clip['source_audio'])
+    raise UsageError, "manifest entry #{name} matches #{batch['clips'].count { |c| File.basename(c['source_audio']) == name }} clips" if batch['clips'].count { |c| File.basename(c['source_audio']) == name } > 1 && entries[name]
+
+    entries[name]
+  end
+
+  # Writes regen.json for every non-ready clip with a gate record, and drops it
+  # for ready ones. Returns { source_id => proposal }.
+  def proposals!(dir, snap, target:)
+    entries = manifest_for(snap[:batch])
+    snap[:clips].each_with_object({}) do |c, out|
+      path = File.join(clip_dir(dir, c[:clip]['source_id']), 'regen.json')
+      if c[:state] == 'ready' || c[:rec][:gate].nil? || c[:state] == 'retryable'
+        FileUtils.rm_f(path)
+        next
+      end
+
+      out[c[:clip]['source_id']] = proposal(snap[:batch], c, entry_for(snap[:batch], c[:clip], entries), target: target).tap do |prop|
+        write_record(dir, c[:clip]['source_id'], 'regen.json', prop)
+      end
+    end
+  end
+
+  # ---- approved re-voice -----------------------------------------------------
+
+  # Re-voices each approved clip from its current revoice proposal, through
+  # the ledger, into DIR/<id>/takes/<id>.t<n>.mp3 with a bound alignment
+  # sidecar, and points the clip's current take at it. Returns
+  # [[id, 'ok'|refusal message], ...]; clips not approved are untouched.
+  def regen!(dir, approve, transport: ElevenLabs::DEFAULT_TRANSPORT, sleeper: method(:sleep))
+    batch = load(dir) or raise UsageError, "no batch at #{index_path(dir)}"
+    st = batch['settings'] || {}
+    snap = snapshot(dir, target: st['target'] || 9)
+    summary!(dir, snap)
+    ledger = RoastAudioLedger.new(dir, cap_usd: st['run_max_usd'] || 1.0, max_usd: st['max_usd'] || 0.5)
+    approve.map do |id|
+      [ id, revoice_one(dir, id, ledger, transport, sleeper) ]
+    rescue RoastAudioLedger::Refused, UsageError => e
+      [ id, e.message ]
+    end
+  end
+
+  def revoice_one(dir, id, ledger, transport, sleeper)
+    raise UsageError, "#{id} is not a clip of this batch" unless load(dir)['clips'].any? { |c| c['source_id'] == id }
+
+    path = File.join(clip_dir(dir, id), 'regen.json')
+    raise RoastAudioLedger::Refused, "#{id} has no regen proposal (it is ready or still has work to run)" unless File.file?(path)
+
+    prop = JSON.parse(File.read(path))
+    raise RoastAudioLedger::Refused, "#{id}: a #{prop['action']} proposal is not re-voiced (#{prop['why']})" unless prop['action'] == 'revoice'
+    raise RoastAudioLedger::Refused, "#{id}: not executable (#{prop['why']})" unless prop['executable']
+
+    r = prop['retake']
+    bound = RoastAudioLedger.bound('regen', model: r['model'], chars: r['text'].length)
+    guard = lambda do
+      c = load(dir)['clips'].find { |x| x['source_id'] == id }
+      raise RoastAudioLedger::Refused, "#{id}: #{c['attempts']} of #{c['max_attempts']} attempts used at dispatch; raise --max-attempts first" unless c['attempts'] < c['max_attempts']
+    end
+    decoded = ledger.spend('regen', bound, clip: id, guard: guard) { [ tts(r, transport, sleeper), {} ] }
+    store_take!(dir, id, r, decoded)
+    'ok'
+  end
+
+  def tts(retake, transport, sleeper)
+    begin
+      key = WalkthroughEnv.elevenlabs_key!
+      req = ElevenLabs.tts_request(text: retake['text'], voice_id: retake['voice_id'], model: retake['model'], output_format: retake['output_format'],
+                                   settings: retake['settings'])
+    rescue StandardError
+      raise RoastAudioLedger::PreDispatch, 're-voice request not sent'
+    end
+    ElevenLabs.decode_tts(ElevenLabs.perform(req, transport: transport, sleeper: sleeper, key: key))
+  end
+
+  def store_take!(dir, id, retake, decoded)
+    batch = load(dir)
+    clip = batch['clips'].find { |c| c['source_id'] == id }
+    n = clip['takes'].to_i + 1
+    audio = File.join(clip_dir(dir, id), 'takes', "#{id}.t#{n}.mp3")
+    FileUtils.mkdir_p(File.dirname(audio))
+    File.binwrite(audio, decoded[:audio])
+    audio_sha = Digest::SHA256.file(audio).hexdigest
+    key = ElevenLabs.audio_key(**retake.slice('text', 'voice_id', 'model', 'output_format', 'settings').transform_keys(&:to_sym))
+    side = audio.sub(/\.mp3\z/, '.alignment.json')
+    File.write(side, JSON.generate({ 'audio_sha256' => audio_sha, 'alignment_sha256' => RoastAudioWords.sha256(decoded[:alignment]),
+                                     'generator' => { 'provider' => 'elevenlabs', 'voice_id' => retake['voice_id'], 'model' => retake['model'], 'request_key' => key },
+                                     'alignment' => decoded[:alignment] }))
+    clip['current'] = { 'audio' => audio, 'audio_sha256' => audio_sha, 'alignment' => side, 'alignment_sha256' => sha(side) }
+    clip['takes'] = n
+    write(dir, batch)
+  end
+
+  # ---- manifest ------------------------------------------------------------
+
+  # How to read a directory of per-clip JSON files: dotted paths, where
+  # `items[]` walks each element of an array. text_path may cross one array;
+  # its items are sorted by order_key and keep their own pause (pause_key).
+  DEFAULT_MAP = { text_path: 'text', order_key: nil, pause_key: 'pause_ms', voice_path: 'voice_id', model_path: 'model',
+                  settings_path: 'settings' }.freeze
+  ENTRY_KEYS = %w[file text segments voice_id model output_format settings pronunciations alignment noise_windows].freeze
+
+  # Manifest entries keyed by source file name: { 'intro.mp3' => entry }.
+  # A file is the flat form ({ "clips": [...] } or an array of entries); a
+  # directory holds one JSON per clip named <audio stem>.json, read through map.
+  def manifest(path, map: {})
+    return {} unless path
+
+    raw = File.directory?(path) ? Dir.glob(File.join(path, '*.json')).sort.map { |f| from_clip_json(f, DEFAULT_MAP.merge(map.compact)) } : flat_entries(path)
+    raw.each_with_object({}) do |e, out|
+      entry = validate_entry!(e)
+      raise UsageError, "manifest names #{entry['file']} twice" if out.key?(entry['file'])
+
+      out[entry['file']] = entry
+    end
+  end
+
+  def flat_entries(path)
+    data = JSON.parse(File.read(path))
+    list = data.is_a?(Hash) ? data['clips'] : data
+    raise UsageError, "manifest #{path} must be a list of clips or { \"clips\": [...] }" unless list.is_a?(Array)
+
+    list.map { |e| e.is_a?(Hash) ? e.slice(*ENTRY_KEYS).merge('segments' => e['segments'] || [ { 'text' => e['text'], 'pause_ms' => 0 } ]) : e }
+  end
+
+  def from_clip_json(file, map)
+    data = JSON.parse(File.read(file))
+    segments = segments_at(data, map[:text_path], map[:order_key], map[:pause_key])
+    { 'file' => data['file'] || "#{File.basename(file, '.json')}.mp3", 'text' => segments.map { |g| g['text'] }.join(' '), 'segments' => segments,
+      'voice_id' => dig_path(data, map[:voice_path]), 'model' => dig_path(data, map[:model_path]), 'settings' => dig_path(data, map[:settings_path]),
+      'pronunciations' => data['pronunciations'] }.compact
+  rescue JSON::ParserError => e
+    raise UsageError, "manifest file #{file} is not JSON (#{e.message[0, 60]})"
+  end
+
+  def dig_path(data, path)
+    return nil unless path
+
+    path.split('.').reduce(data) { |node, key| node.is_a?(Hash) ? node[key] : nil }
+  end
+
+  # [{ 'text', 'pause_ms' }] in order. Without `[]` the path names one string.
+  def segments_at(data, path, order_key, pause_key)
+    head, tail = path.split('[].', 2)
+    return [ { 'text' => dig_path(data, path), 'pause_ms' => 0 } ] unless tail
+
+    items = Array(dig_path(data, head))
+    items = items.sort_by { |i| [ i.is_a?(Hash) ? i[order_key].to_f : 0 ] }.to_a if order_key
+    items.map { |i| { 'text' => dig_path(i, tail), 'pause_ms' => i.is_a?(Hash) ? i[pause_key].to_i : 0 } }
+  end
+
+  def validate_entry!(entry)
+    raise UsageError, 'a manifest entry is not an object' unless entry.is_a?(Hash)
+
+    name = entry['file'].to_s
+    raise UsageError, 'a manifest entry has no file' if name.empty?
+    raise UsageError, "manifest entry #{name} has no text" if entry['text'].to_s.strip.empty? || Array(entry['segments']).any? { |g| g['text'].to_s.strip.empty? }
+    raise UsageError, "manifest entry #{name} has no voice_id" unless entry['voice_id'].is_a?(String) && !entry['voice_id'].empty?
+    raise UsageError, "manifest entry #{name} settings must be an object" unless entry['settings'].nil? || entry['settings'].is_a?(Hash)
+
+    entry
+  end
+
+  def manifest_sha(entries) = entries.empty? ? nil : RoastAudioWords.sha256(entries)
+
+  private_class_method :pick, :check_ids!, :diff_line, :file_ref, :clip, :revoice_one, :tts, :store_take!, :regen_note, :pace_step, :why_not, :revoice_proposal, :flat_entries, :from_clip_json, :segments_at, :validate_entry!, :words_fresh, :judge_fresh, :pending_stage, :blocked_reason, :verdict
 end
