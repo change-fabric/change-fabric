@@ -171,7 +171,7 @@ change_policy:
     # needed for the ready bar; the carve-outs are policy, not code.
     allowed: true
     require_change_pass: true
-    conditions: "the coordinating agent may squash-merge a PR only when it is rebased on main, CI is green, mergeStateStatus is CLEAN, it has 0 unresolved review threads, and a passing comprehensive cf:change run is recorded for the exact head SHA; a PR touching the merge or tag guards, the review gate, the sensitive-term or secret hooks, this change_policy block, the merge rules in AGENTS.md or PRINCIPLES.md, or a release workflow escalates to the maintainer, as does a thread contesting a settled decision, red CI or cf:change after three fix attempts, or a conflict needing a design choice; release tags, the Homebrew release, change_approve and change_override stay human-only, handed over after the merge as one ready-to-run script under ~/.claude/cf/manual/, batched across merges where possible"
+    conditions: "the coordinating agent may squash-merge a PR only when it is rebased on main, CI is green, mergeStateStatus is CLEAN, it has 0 unresolved review threads, and a passing comprehensive cf:change run is recorded for the exact head SHA; a PR touching the merge or tag guards, the review gate, the sensitive-term or secret hooks, this change_policy block, the merge rules in AGENTS.md or PRINCIPLES.md, or a release workflow escalates to the maintainer, as does a thread contesting a settled decision, red CI or cf:change after three fix attempts, or a conflict needing a design choice; release tags, the Homebrew release, change_approve and change_override stay human-only and are handed over as a ready-to-run script under ~/.claude/cf/manual/, not a question: a change_approve the cf:change run needs is handed over before the audit, and post-merge release steps after the merge, batched across merges where possible"
 ---
 
 # Change management for change-fabric/change-fabric
@@ -259,10 +259,12 @@ escalation cases go to the maintainer, who merges them by hand.
   or when a merge conflict needs a design choice.
 - **Human-only, always**: release tags (`skills/v*`, `spec/v*`, `site/v*`),
   the Homebrew release, `change_approve`, `change_override` and
-  `CF_ALLOW_UNGATED_MERGE`. The agent never runs or sets them. After a merge
-  with such a follow-up, it hands over the absolute path of a ready-to-run
-  script under `~/.claude/cf/manual/` (normally `release-toolkit.sh`),
-  batching several merges into one run where it can, rather than asking.
+  `CF_ALLOW_UNGATED_MERGE`. The agent never runs or sets them; it hands over
+  the absolute path of a ready-to-run script under `~/.claude/cf/manual/`
+  rather than asking. A `change_approve` the `cf:change` run needs (a changed
+  `boot.up`, for one) is handed over before the audit, since the gate cannot
+  pass without it. Release steps follow the merge (normally
+  `release-toolkit.sh`), batched across merges where it can.
 - `gh pr merge --admin` is gated on the same `cf:change` pass.
 
 ## What CI gates main
