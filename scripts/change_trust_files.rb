@@ -158,10 +158,27 @@ module ChangeTrustFiles
     bases = [ cwd ] + changed_dirs(words, cwd)
     words.flat_map do |token|
       bases.flat_map do |base|
-        rel = normalize(base.empty? ? token : File.join(base, token))
+        path = base.empty? ? token : File.join(base, token)
+        refuse_dotdot_after_link(path, source)
+        rel = normalize(path)
         rel ? resolve(rel, source) : []
       end
     end.uniq
+  end
+
+  # The shell applies `..` after following a symlinked directory, so
+  # collapsing it first would name the wrong file. Such a path fails closed.
+  def refuse_dotdot_after_link(path, source)
+    parts = path.split('/')
+    last = parts.rindex('..')
+    return unless last
+
+    parts.first(last).each_index do |index|
+      prefix = normalize(parts.first(index + 1).join('/'))
+      next unless prefix && source.link_target(prefix)
+
+      raise Escape, "#{path} climbs out of symlinked directory #{prefix}, which cannot be followed; refused"
+    end
   end
 
   def changed_dirs(words, cwd)

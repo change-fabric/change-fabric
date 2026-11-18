@@ -137,6 +137,14 @@ class ChangeTrustFilesTest < Minitest::Test
     assert_equal %w[alias ci.sh scripts/ci.sh], files.keys
   end
 
+  def test_dotdot_after_a_linked_directory_fails_closed
+    commit("other/ci.sh" => "a\n", "other/deep/x" => "x\n", "scripts/ci.sh" => "b\n")
+    File.symlink("../other/deep", File.join(@repo, "scripts/link"))
+    entry = { "name" => "ci", "run" => "bash scripts/link/../ci.sh" }
+    coverage = ChangeTrustFiles.cover(entry, ChangeTrustFiles::Source.working_tree(@repo))
+    assert_match(/cannot be followed/, coverage["error"])
+  end
+
   def test_cd_in_the_command_is_followed
     commit("scripts/ci.sh" => "a\n")
     entry = { "name" => "ci", "run" => "cd scripts && bash ci.sh" }
