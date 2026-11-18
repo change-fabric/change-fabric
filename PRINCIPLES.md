@@ -108,19 +108,10 @@ Enforcer: .github/workflows/release-skills.yml, .github/workflows/release-spec.y
 
 The `skills/vX.Y.Z` tag is the version. A toolkit PR bumps nothing. The tag must
 be plain semver, newly created, and strictly above every existing `skills/v*`
-tag, compared field by field as integers. Ask git for a checkout's version:
-`git describe --tags --match 'skills/v*'`.
+tag, compared field by field as integers. The tag bumps the Homebrew tap with
+no PR, and a daily check alarms while the tap trails the newest tag.
 
-Enforcer: .github/workflows/release-skills.yml
-
-## The Homebrew tap matches the latest toolkit tag
-
-A `skills/v*` tag bumps the tap formula with no PR: the formula is rewritten,
-built, tested, and pushed straight to the tap's main. A daily check fails and
-keeps one issue open while the tap trails the newest tag. The manual fix is
-`~/.claude/cf/manual/release-toolkit.sh`.
-
-Enforcer: .github/workflows/bump-tap-formula.yml, .github/workflows/tap-drift.yml
+Enforcer: .github/workflows/release-skills.yml, .github/workflows/bump-tap-formula.yml, .github/workflows/tap-drift.yml
 
 ## The site may lag a spec release, never lead one
 
