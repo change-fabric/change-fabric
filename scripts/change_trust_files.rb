@@ -63,6 +63,7 @@ module ChangeTrustFiles
     end
 
     def listing
+      @links_found ||= {}
       @listing ||= @ref ? ref_listing : tree_listing
     end
 
@@ -70,7 +71,6 @@ module ChangeTrustFiles
       out, status = Open3.capture2('git', '-C', @git_root, 'ls-tree', '-r', '-l', '-z', @ref)
       return {} unless status.success?
 
-      @links_found = {}
       out.split("\0").each_with_object({}) do |line, files|
         meta, rel = line.split("\t", 2)
         mode, type, _obj, size = meta.split
@@ -85,7 +85,6 @@ module ChangeTrustFiles
       out, status = Open3.capture2('git', '-C', @git_root, 'ls-files', '-c', '-o', '--exclude-standard', '-z')
       return {} unless status.success?
 
-      @links_found = {}
       out.split("\0").each_with_object({}) do |rel, files|
         full = File.join(@git_root, rel)
         if File.symlink?(full)
@@ -98,6 +97,9 @@ module ChangeTrustFiles
     end
   end
 
+  # A path whose symlinks lead outside the repo.
+  class Escape < StandardError; end
+
   module_function
 
   # { 'files' => { rel => sha256 }, 'error' => reason or nil } for one entry.
@@ -106,7 +108,11 @@ module ChangeTrustFiles
     error = escape_error(Array(entry['trust_paths']))
     return { 'files' => {}, 'error' => error } if error
 
-    rels = (run_files(entry['run'].to_s, source, cwd) + glob_files(Array(entry['trust_paths']), source)).uniq
+    begin
+      rels = (run_files(entry['run'].to_s, source, cwd) + glob_files(Array(entry['trust_paths']), source)).uniq
+    rescue Escape => e
+      return { 'files' => {}, 'error' => e.message }
+    end
     rels, error = follow_links(rels, source)
     error ||= cap_error(rels, source)
     return { 'files' => {}, 'error' => error } if error
@@ -141,22 +147,44 @@ module ChangeTrustFiles
   end
 
   def run_files(run, source, cwd)
-    tokens(run).filter_map do |token|
+    tokens(run).flat_map do |token|
       rel = normalize(cwd.empty? ? token : File.join(cwd, token))
-      rel if rel && source.paths.include?(rel)
+      rel ? resolve(rel, source) : []
     end
   end
 
-  # Shell operators and quoting are split away, so `bash x.sh; true` and
-  # `sh -c "bash x.sh"` both yield `x.sh`. Over-matching a token only adds
-  # coverage.
+  # The listed path `rel` names once symlinked directories in its prefix are
+  # followed, plus those links, so retargeting one is a change too. [] when
+  # it names no listed file.
+  def resolve(rel, source, depth = 0)
+    return [ rel ] if source.paths.include?(rel)
+    raise Escape, "symlink loop resolving #{rel}; refused" if depth > 40
+
+    parts = rel.split('/')
+    (1...parts.size).each do |count|
+      prefix = parts.first(count).join('/')
+      text = source.link_target(prefix)
+      next unless text
+
+      target = text.start_with?('/') ? nil : normalize(File.join(File.dirname(prefix), text))
+      raise Escape, "symlink #{prefix} points outside the repo; refused" unless target
+
+      found = resolve(File.join(target, *parts.drop(count)), source, depth + 1)
+      return found.empty? ? [] : [ prefix, *found ]
+    end
+    []
+  end
+
+  # Each shell word as quoted, and its pieces with operators and quotes
+  # split away, so `"a b.sh"`, `bash x.sh; true` and `sh -c "bash x.sh"` all
+  # yield the script. Over-matching a token only adds coverage.
   def tokens(run)
     words = begin
       Shellwords.split(run)
     rescue ArgumentError
       [ run ]
     end
-    words.flat_map { |word| word.split(/[\s;&|<>()`$'"]+/) }.reject(&:empty?)
+    words.flat_map { |word| [ word, *word.split(/[\s;&|<>()`$'"]+/) ] }.reject(&:empty?).uniq
   end
 
   def glob_files(globs, source)

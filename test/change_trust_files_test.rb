@@ -111,6 +111,30 @@ class ChangeTrustFilesTest < Minitest::Test
     assert_equal tree, snap
   end
 
+  def test_quoted_filename_with_a_space_is_covered
+    commit("scripts/ci check.sh" => "a\n")
+    entry = { "name" => "ci", "run" => 'bash "scripts/ci check.sh"' }
+    files = ChangeTrustFiles.cover(entry, ChangeTrustFiles::Source.working_tree(@repo))["files"]
+    assert_equal [ "scripts/ci check.sh" ], files.keys
+  end
+
+  def test_symlinked_directory_prefix_is_followed
+    commit("scripts/ci.sh" => "a\n")
+    File.symlink("scripts", File.join(@repo, "alias"))
+    sha = commit({})
+    entry = { "name" => "ci", "run" => "bash alias/ci.sh" }
+    tree = ChangeTrustFiles.cover(entry, ChangeTrustFiles::Source.working_tree(@repo))
+    assert_equal %w[alias scripts/ci.sh], tree["files"].keys
+    assert_equal tree, ChangeTrustFiles.cover(entry, ChangeTrustFiles::Source.at_ref(@repo, sha, @repo))
+  end
+
+  def test_symlinked_directory_outside_the_repo_is_refused
+    File.symlink("/tmp", File.join(@repo, "out"))
+    entry = { "name" => "ci", "run" => "bash out/ci.sh" }
+    coverage = ChangeTrustFiles.cover(entry, ChangeTrustFiles::Source.working_tree(@repo))
+    assert_match(/points outside the repo/, coverage["error"])
+  end
+
   def test_symlink_outside_the_repo_is_refused
     File.symlink("/etc/hosts", File.join(@repo, "ci.sh"))
     entry = { "name" => "ci", "run" => "bash ci.sh" }
