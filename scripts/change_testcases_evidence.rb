@@ -65,11 +65,12 @@ class ChangeTestcasesEvidence
   # checkpointed. A queue rejection was never an attempt, so its dir goes.
   def close_attempt(attempt, record)
     return record unless attempt
-    # Only a call that never ran is discarded; a resume that was rejected
+    # A terminated call, resumed or not, is rebuilt from its checkpoints. Only
+    # a call that never ran is discarded; a resume that was rejected
     # after the first call ran keeps everything that call checkpointed.
     return discard(attempt, record) if record.nil? || (record['queueFull'] && !record['resumed'])
 
-    record = partial(attempt, record) if record['callError'] && !record['resumed']
+    record = partial(attempt, record) if record['callError'] && !(record['resumed'] && record['queueFull'])
     record = record.merge('evidenceDir' => attempt.host_dir)
     write_screenshots(attempt, record)
     name = record['partialEvidence'] ? 'termination.json' : 'result.json'

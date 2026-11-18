@@ -1385,4 +1385,20 @@ class ChangeLaneTestcasesTest < Minitest::Test
       assert File.exist?(File.join(attempt.host_dir, "result.json"))
     end
   end
+
+  def test_a_resumed_call_that_dies_is_partial_evidence_with_both_segments
+    Dir.mktmpdir do |out|
+      root = ChangeTestcasesEvidence.prepare(out, "run-1")
+      evidence = ChangeTestcasesEvidence.new(root)
+      attempt = evidence.open_attempt(Struct.new(:suite, :id).new("s", "c"), 1, { case: "s/c" })
+      File.write(File.join(attempt.host_dir, "step-0001-a.json"), JSON.generate("record" => { "index" => 0, "ok" => true }))
+      File.write(File.join(attempt.host_dir, "step-0002-r.json"), JSON.generate("record" => { "index" => 1, "ok" => true }))
+      first = { "ok" => false, "steps" => [ { "index" => 0, "ok" => true } ], "authExpired" => { "index" => 0 } }
+      merged = ChangeLaneTestcases.allocate.send(:merge_resumed, first, { "ok" => false, "callError" => "408", "steps" => [] }, 0)
+      record = evidence.close_attempt(attempt, merged)
+      assert record["partialEvidence"]
+      assert_equal [ 0, 1 ], record["steps"].map { |step| step["index"] }
+      assert File.exist?(File.join(attempt.host_dir, "termination.json"))
+    end
+  end
 end
