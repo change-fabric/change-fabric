@@ -4,6 +4,7 @@ require 'digest'
 require 'open3'
 require 'pathname'
 require 'shellwords'
+require_relative 'path_canon'
 
 # The repo files a command lane entry runs, folded into its trust digest
 # (0.23.0). Editing a script the entry invokes changes what executes on the
@@ -230,22 +231,22 @@ module ChangeTrustFiles
     end
   end
 
-  # Each `cd` composes with every directory reached before it, so `cd a &&
-  # cd b` yields a/b. Over-matching only adds coverage.
   # The repo's own absolute path changes from one checkout to the next, so a
   # run that names a file by it cannot be tied to a repo path.
   def refuse_absolute_into_repo(token, source)
-    roots = [ File.expand_path(source.git_root), (File.exist?(source.git_root) ? File.realpath(source.git_root) : nil) ].compact
-    return unless roots.any? { |root| token == root || token.start_with?("#{root}/") }
+    return unless token.start_with?('/') && PathCanon.within?(token, source.git_root)
 
     raise Escape, "run names #{token} by absolute path; use a repo-relative path"
   end
 
   def refuse_under_gitlink(rel, source)
-    link = source.gitlinks.find { |gitlink| rel == gitlink || rel.start_with?("#{gitlink}/") }
+    parts = rel.split('/')
+    link = source.gitlinks.find { |gitlink| parts.first(gitlink.count('/') + 1).join('/') == gitlink }
     raise Escape, "#{rel} is inside submodule #{link}, whose files cannot be verified; refused" if link
   end
 
+  # Each `cd` composes with every directory reached before it, so `cd a &&
+  # cd b` yields a/b. Over-matching only adds coverage.
   def changed_dirs(words, cwd)
     words.each_cons(2).each_with_object([ cwd ]) do |(verb, dir), bases|
       next unless %w[cd pushd].include?(verb)
