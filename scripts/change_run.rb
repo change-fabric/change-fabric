@@ -1,6 +1,8 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 
+require 'digest'
+require 'json'
 require 'open3'
 require 'optparse'
 require 'securerandom'
@@ -683,11 +685,19 @@ class ChangeRun
     return nil unless resolve_lanes(config).include?('testcases')
 
     @evidence_dirs ||= {}
-    # One dir per app in a sweep, or two apps' cases would overwrite each
-    # other's records and attempt files.
-    parts = [ boot_run_id, config.profile, @evidence_app ].compact.map(&:to_s).reject(&:empty?)
-    run = [ parts.first, *parts.drop(1).map { |part| ChangeReport.slug_for(part) } ].join('-')
-    @evidence_dirs[config.object_id] ||= ChangeTestcasesEvidence.prepare(out_dir, run)
+    @evidence_dirs[config.object_id] ||= ChangeTestcasesEvidence.prepare(out_dir, evidence_run(config))
+  end
+
+  # One dir per profile and app in a sweep, or two apps' cases would overwrite
+  # each other's records and attempt files. The slugs keep the name readable;
+  # a digest of the exact (profile, app) pair keeps it unique when names slug
+  # or join alike.
+  def evidence_run(config)
+    scope = [ config.profile, @evidence_app ].map(&:to_s)
+    return boot_run_id if scope.all?(&:empty?)
+
+    readable = scope.reject(&:empty?).map { |part| ChangeReport.slug_for(part) }
+    [ boot_run_id, *readable, Digest::SHA256.hexdigest(JSON.generate(scope))[0, 8] ].join('-')
   end
 
   # Returns the lane instances alongside their findings so report_sections
