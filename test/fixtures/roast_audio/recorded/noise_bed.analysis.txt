@@ -1,0 +1,25 @@
+[silencedetect @ 0x7fffe4003480] silence_start: 0
+[silencedetect @ 0x7fffe4003480] silence_end: 0.10771 | silence_duration: 0.10771
+[silencedetect @ 0x7fffe4003480] silence_start: 0.130204
+[silencedetect @ 0x7fffe4003480] silence_end: 0.173651 | silence_duration: 0.0434467
+[silencedetect @ 0x7fffe4003480] silence_start: 0.175147
+[silencedetect @ 0x7fffe4003480] silence_end: 0.220499 | silence_duration: 0.0453515
+[silencedetect @ 0x7fffe4003480] silence_start: 0.221043
+[silencedetect @ 0x7fffe4003480] silence_end: 0.250204 | silence_duration: 0.029161
+[silencedetect @ 0x7fffe4003480] silence_start: 5.749819
+[silencedetect @ 0x7fffe4003480] silence_end: 5.81458 | silence_duration: 0.0647619
+[silencedetect @ 0x7fffe4003480] silence_start: 5.814603
+[silencedetect @ 0x7fffe4003480] silence_end: 5.8839 | silence_duration: 0.0692971
+[silencedetect @ 0x7fffe4003480] silence_start: 5.885261
+[silencedetect @ 0x7fffe4003480] silence_end: 5.96356 | silence_duration: 0.0782993
+[silencedetect @ 0x7fffe4003480] silence_start: 5.969025
+[Parsed_astats_0 @ 0x7fffe4003100] DC offset: 0.000047
+[Parsed_astats_0 @ 0x7fffe4003100] Peak level dB: -34.526135
+[Parsed_astats_0 @ 0x7fffe4003100] Peak count: 2.000000
+[Parsed_astats_0 @ 0x7fffe4003100] Number of samples: 264600
+[Parsed_ebur128_2 @ 0x7fffe4003600] Summary:
+  Integrated loudness:
+    I:         -40.0 LUFS
+  True peak:
+    Peak:      -34.3 dBFS
+[silencedetect @ 0x7fffe4003480] silence_end: 6 | silence_duration: 0.0309751

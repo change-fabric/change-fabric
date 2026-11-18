@@ -1,0 +1,13 @@
+WEBVTT
+
+1
+00:00:00.250 --> 00:00:02.000
+The first cue sits inside the tone.
+
+2
+00:00:02.000 --> 00:00:04.000
+The second cue continues with no pause.
+
+3
+00:00:04.000 --> 00:00:05.750
+The third cue ends where the tone ends.

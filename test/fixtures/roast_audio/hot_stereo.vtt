@@ -1,0 +1,7 @@
+WEBVTT
+
+00:00.000 --> 00:02.000
+A hot stereo clip with no padding.
+
+00:02.000 --> 00:04.000
+Its peaks pass the true peak limit.
