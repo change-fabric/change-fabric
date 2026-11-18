@@ -133,12 +133,15 @@ module ChangeTrustFiles
 
       target = text.start_with?('/') ? nil : normalize(File.join(File.dirname(rel), text))
       return [ [], "symlink #{rel} points outside the repo; refused" ] unless target
-      next if covered.include?(target) || !source.paths.include?(target)
 
-      covered << target
-      queue << target
+      (resolve(target, source) - covered.to_a).each do |found|
+        covered << found
+        queue << found
+      end
     end
     [ covered.to_a.sort, nil ]
+  rescue Escape => e
+    [ [], e.message ]
   end
 
   def file_digest(source, rel)
@@ -146,10 +149,28 @@ module ChangeTrustFiles
     body ? Digest::SHA256.hexdigest(body) : 'unreadable'
   end
 
+  # Every token is tried against the entry's working directory and every
+  # directory the command `cd`s or `pushd`s into, so `cd scripts && bash
+  # ci.sh` covers scripts/ci.sh. A directory change that is not a literal
+  # path cannot be followed, so the entry cannot be verified.
   def run_files(run, source, cwd)
-    tokens(run).flat_map do |token|
-      rel = normalize(cwd.empty? ? token : File.join(cwd, token))
-      rel ? resolve(rel, source) : []
+    words = tokens(run)
+    bases = [ cwd ] + changed_dirs(words, cwd)
+    words.flat_map do |token|
+      bases.flat_map do |base|
+        rel = normalize(base.empty? ? token : File.join(base, token))
+        rel ? resolve(rel, source) : []
+      end
+    end.uniq
+  end
+
+  def changed_dirs(words, cwd)
+    words.each_cons(2).filter_map do |verb, dir|
+      next unless %w[cd pushd].include?(verb)
+      rel = dir.match?(/[$`~*?]/) ? nil : normalize(cwd.empty? ? dir : File.join(cwd, dir))
+      raise Escape, "run changes directory to #{dir.inspect}, which cannot be followed; refused" unless rel
+
+      rel
     end
   end
 

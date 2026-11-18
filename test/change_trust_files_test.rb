@@ -128,6 +128,24 @@ class ChangeTrustFilesTest < Minitest::Test
     assert_equal tree, ChangeTrustFiles.cover(entry, ChangeTrustFiles::Source.at_ref(@repo, sha, @repo))
   end
 
+  def test_link_to_a_path_through_a_linked_directory_is_followed
+    commit("scripts/ci.sh" => "a\n")
+    File.symlink("scripts", File.join(@repo, "alias"))
+    File.symlink("alias/ci.sh", File.join(@repo, "ci.sh"))
+    entry = { "name" => "ci", "run" => "bash ci.sh" }
+    files = ChangeTrustFiles.cover(entry, ChangeTrustFiles::Source.working_tree(@repo))["files"]
+    assert_equal %w[alias ci.sh scripts/ci.sh], files.keys
+  end
+
+  def test_cd_in_the_command_is_followed
+    commit("scripts/ci.sh" => "a\n")
+    entry = { "name" => "ci", "run" => "cd scripts && bash ci.sh" }
+    files = ChangeTrustFiles.cover(entry, ChangeTrustFiles::Source.working_tree(@repo))["files"]
+    assert_equal [ "scripts/ci.sh" ], files.keys
+    entry["run"] = "cd $DIR && bash ci.sh"
+    assert_match(/cannot be followed/, ChangeTrustFiles.cover(entry, ChangeTrustFiles::Source.working_tree(@repo))["error"])
+  end
+
   def test_symlinked_directory_outside_the_repo_is_refused
     File.symlink("/tmp", File.join(@repo, "out"))
     entry = { "name" => "ci", "run" => "bash out/ci.sh" }
