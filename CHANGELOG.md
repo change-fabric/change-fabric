@@ -18,6 +18,27 @@ Every version below has a frozen, permanently addressable rendering at
 field set: major for a removed, renamed or newly required field, minor for a new
 optional field, patch for a documentation-only clarification.
 
+## [0.22.0] - 2026-11-18
+
+Test cases as named personas: each logs in once per run and shares its
+session with the cases that name it. Additive for CHANGE.md.
+
+### Added
+
+- `change_config.lanes.testcases.personas`: named logins, each the same block
+  as `lanes.testcases.auth`, which stays the implicit `default` persona.
+  `anonymous` never logs in. Suite files gain `cases[].persona` and
+  `cases[].safe_retry` (suite version 3).
+- When a case sees its session end, the persona logs in again exactly once,
+  however many cases saw it, and the case resumes. An interrupted mutating step
+  fails the case `auth_interrupted` unless it sets `safe_retry: true`.
+
+### Changed
+
+- The `default` persona logs in once per run, not once per case, so cases
+  behind one login share a server-side session.
+- Two suite files declaring the same `suite` id now fail to load.
+
 ## [0.21.0] - 2026-11-18
 
 Long test-case suites: one browserless call per case, an opt-in parallel pool,

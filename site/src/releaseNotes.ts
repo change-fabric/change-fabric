@@ -28,6 +28,24 @@ export interface ReleaseNote {
 }
 
 export const RELEASE_NOTES: Record<string, ReleaseNote> = {
+  "0.22.0": {
+    version: "0.22.0",
+    date: "2026-11-18",
+    headline: "Test cases run as named personas, each logged in once per run.",
+    highlights: [
+      {
+        title: "lanes.testcases.personas",
+        body:
+          "Named logins in the auth block's shape. A case names one with persona:, logs in once per run, and re-logs in once when a session ends.",
+      },
+      {
+        title: "Duplicate suite ids",
+        body: "Two suite files declaring the same suite id now fail to load, by name.",
+      },
+    ],
+    upgrade:
+      "Additive for CHANGE.md. Cases of one persona now share one login's server-side session instead of logging in per case.",
+  },
   "0.21.0": {
     version: "0.21.0",
     date: "2026-11-18",

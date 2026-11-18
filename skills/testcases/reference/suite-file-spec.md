@@ -1,6 +1,6 @@
 # Test-case suite file specification
 
-Suite version: 2
+Suite version: 3
 
 The schema for a change-fabric test-case suite file: the sidecar YAML the
 `testcases` lane loads and replays.
@@ -42,6 +42,7 @@ only adds optional fields, so an older file always loads on a newer install.
 | --- | --- |
 | 1 | The original field set: `suite`, and on each case `id`, `tags`, `acceptance`, `retries`, `quarantined`, `quarantine_reason`, `quarantine_until`, `steps`. |
 | 2 | `suite_version`, `cases[].timeout_ms`, `cases[].safe_rerun`. From this version on the loader is strict (below). |
+| 3 | `cases[].persona`, `cases[].safe_retry`. |
 
 The loader is strict. An unknown top-level or case key is refused by name, and
 a key newer than the file's declared `suite_version` is refused with the version
@@ -69,6 +70,8 @@ The Since column is the `suite_version` that added the field.
 | `cases[].retries` | integer | no (default 0) | How many times to re-run this case while it fails. Zero by default: a case that only passes sometimes is a finding, not a scheduling problem. A case that passed only after a retry is recorded as a pass with `flaky` beside it and its attempt count, never laundered into a clean first-run pass. A rerun replays every step of the failed attempt, including any click or submit that already took effect, so `retries` above zero is refused unless the case also sets `safe_rerun: true`. | 1 |
 | `cases[].safe_rerun` | boolean | yes when `retries` is above 0 | Says a whole-case rerun is safe: replaying the case's earlier actions after a failure cannot double-submit anything that matters. Without it `retries` is refused at load. | 2 |
 | `cases[].timeout_ms` | integer (1000..600000) | no | This case's browserless call budget. Each case runs in its own call; without this the lane derives the budget from the sum of the steps' timeouts plus 5000 ms per `goto`, never below 115000. | 2 |
+| `cases[].persona` | string | no (default `default`) | Who the case runs as: a name under `lanes.testcases.personas` in CHANGE.md, `default` (the lane's `auth:` block, or no login when it has none), or `anonymous` (never logs in). A name the lane does not define fails the case and is a doctor error. See Sessions. | 3 |
+| `cases[].safe_retry` | boolean | no (default false) | Says a mutating step (`click`, `fill`, `select`, `press`, `eval`) interrupted by an ended session may be replayed after the persona logs in again. Without it such a case fails `auth_interrupted`, because the action may already have taken effect server side. | 3 |
 | `cases[].quarantined` | boolean | no (default false) | Time-boxes this case out of the gate. It still runs and still reports; its failure just cannot fail the gate, and only until `quarantine_until`. Requires both companions below. | 1 |
 | `cases[].quarantine_reason` | string | yes when quarantined | Why this case is quarantined, in plain English. Required, because without it nobody can tell a known flake from a real defect somebody muted. | 1 |
 | `cases[].quarantine_until` | date (`YYYY-MM-DD`) | yes when quarantined | The day the quarantine ends. Quarantine is never permanent. The shield has already lapsed on this date, and the case gates again from then on with no second action from anybody. | 1 |
@@ -112,6 +115,24 @@ quoted attribute value (`a[title="Next >>"]`) are plain CSS.
 | assertion | expect_count | The number of elements matching the selector must equal the expected count. |
 | assertion | expect_equal | A captured `var` must equal a live read of `selector` (with `kind`) or a second captured `equals_var`. Compared as strings, so a captured number matches a count. A var no earlier step captures is refused at compile time. |
 | escape hatch | eval | Raw JS, run as-is in the page. Marked as raw in the compiled step and labeled as such in the report, so a reader can see exactly where the declarative contract was abandoned. Reach for it last. |
+
+## Sessions
+
+Each persona the selected cases use logs in once per run, in its own call. Its
+cookies and the localStorage of the page the login ended on are seeded into
+every case of that persona, each in its own fresh browser context. So the cases
+of one persona share one server-side session: a case that logs out, switches
+account or changes session state affects every later case of that persona.
+
+A case notices its session has ended when the persona's login page comes back,
+every field of its login form is on the page, or a page navigation answers 401.
+API calls answering 401 do not count; they are left to the case's assertions.
+The persona then logs in again exactly once, however many cases noticed at the
+same time, and the case resumes at the interrupted step with the new session,
+inside the same attempt. Only navigations, waits, reads and assertions are
+replayed. If the interrupted step was `click`, `fill`, `select`, `press` or
+`eval`, the case fails `auth_interrupted` instead, unless it sets
+`safe_retry: true`. A second session end in one attempt fails the case.
 
 ## Secrets
 
@@ -158,6 +179,8 @@ less than its author believes:
 - a `retries` above zero without `safe_rerun: true`
 - a `timeout_ms` outside 1000..600000
 - a duplicate case id within a suite
+- two suite files declaring the same `suite` id
+- a `persona` naming no persona in `lanes.testcases.personas`
 - a step naming an unknown verb, no verb, or more than one verb
 - a case with no `acceptance`
 - a quarantined case missing its `quarantine_reason` or its `quarantine_until`

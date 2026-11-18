@@ -29,7 +29,7 @@ module ChangeSuiteSchema
   # field set before the key existed. Every PR that adds a suite field raises
   # this by one and records the field in FIELD_VERSIONS, so an install can tell
   # a file written for a newer toolkit from a file with a typo.
-  SUITE_VERSION = 2
+  SUITE_VERSION = 3
 
   # The version a file declares when it says nothing.
   DEFAULT_SUITE_VERSION = 1
@@ -66,6 +66,14 @@ module ChangeSuiteSchema
     # (v2) This case's browserless call budget in ms (1000..600000). Without
     # it the lane derives one from the steps' timeouts.
     'cases[].timeout_ms',
+    # (v3) The persona this case runs as: a name under
+    # lanes.testcases.personas, `default` (the lane's `auth:`), or `anonymous`
+    # (no login). Unset means `default`.
+    'cases[].persona',
+    # (v3) Whether a mutating step interrupted by an expired session may be
+    # replayed after the re-login. Off by default, because the action may
+    # already have taken effect server side.
+    'cases[].safe_retry',
     # The time-boxed flake quarantine. All three keys or none: a quarantine
     # without a reason cannot be told from a defect somebody muted, and one
     # without an expiry is permanent, which is the state this feature exists to
@@ -85,7 +93,9 @@ module ChangeSuiteSchema
   FIELD_VERSIONS = {
     'suite_version' => 2,
     'cases[].safe_rerun' => 2,
-    'cases[].timeout_ms' => 2
+    'cases[].timeout_ms' => 2,
+    'cases[].persona' => 3,
+    'cases[].safe_retry' => 3
   }.freeze
 
   def self.field_version(field) = FIELD_VERSIONS.fetch(field, DEFAULT_SUITE_VERSION)

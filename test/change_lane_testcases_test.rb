@@ -542,7 +542,7 @@ class ChangeLaneTestcasesTest < Minitest::Test
       session = FakeSession.new(ok_result(2))
       lane(dir, {}, session: session).run
 
-      assert_includes session.code, "async function observe(page)"
+      assert_includes session.code, "async function observe(casePage)"
       assert_includes session.code, "observation: ok ? await observe(session.page) : null"
     end
   end
@@ -865,6 +865,191 @@ class ChangeLaneTestcasesTest < Minitest::Test
       assert_includes finding.detail, "queue stayed full"
       assert_equal 6, session.calls
       assert_empty instance.case_results.first[:attempts]
+    end
+  end
+
+  # --- personas (0.22.0, suite_version 3) -------------------------------------------
+
+  # A session that answers persona login calls itself and counts them by the
+  # persona's login url, and hands case calls to FakeSession.
+  class PersonaSession < FakeSession
+    attr_reader :logins
+
+    def initialize(records, login_ok: true)
+      super(records)
+      @logins = Hash.new(0)
+      @login_ok = login_ok
+    end
+
+    def run_function(code, launch_args: [], timeout_ms: nil)
+      return super unless code.include?("Network.getAllCookies")
+
+      url = code[%r{"url":"https://app\.example\.org(/[a-z-]+)"}, 1]
+      @lock.synchronize { @logins[url] += 1 }
+      return { "ok" => false, "authError" => "wrong password" } unless @login_ok
+
+      { "ok" => true, "state" => { "cookies" => [ { "name" => "sid", "value" => "s#{@logins[url]}" } ], "origins" => [] } }
+    end
+
+    def case_codes = @codes
+  end
+
+  PERSONAS = {
+    "auth" => { "login_url" => "/login", "email_env" => "E", "password_env" => "P" },
+    "personas" => { "admin" => { "login_url" => "/admin-login", "email_env" => "AE", "password_env" => "AP" } }
+  }.freeze
+
+  PERSONA_SUITE = <<~YAML
+    suite: roles
+    suite_version: 3
+    cases:
+      - id: as-default
+        acceptance: The default user sees the dashboard.
+        steps:
+          - goto: /dashboard
+      - id: as-admin
+        acceptance: An admin sees the admin page.
+        persona: admin
+        steps:
+          - goto: /admin
+          - click: "#save"
+          - expect_visible: ".saved"
+      - id: as-admin-too
+        acceptance: An admin sees the users page.
+        persona: admin
+        steps:
+          - goto: /admin/users
+      - id: as-nobody
+        acceptance: A visitor sees the landing page.
+        persona: anonymous
+        steps:
+          - goto: /
+  YAML
+
+  def persona_lane(dir, session)
+    lane(dir, PERSONAS, session: session)
+  end
+
+  def test_each_persona_logs_in_once_and_seeds_every_case
+    with_suite(PERSONA_SUITE) do |dir|
+      session = PersonaSession.new(ok_result(4))
+      persona_lane(dir, session).run
+
+      assert_equal({ "/login" => 1, "/admin-login" => 1 }, session.logins)
+      admin = session.case_codes.find { |code| code.include?('"id":"roles/as-admin"') }
+      assert_includes admin, '"name":"admin","seed":{"cookies":[{"name":"sid"'
+      nobody = session.case_codes.find { |code| code.include?('"id":"roles/as-nobody"') }
+      assert_includes nobody, "const persona = null;"
+    end
+  end
+
+  def test_a_case_naming_an_undefined_persona_fails_without_a_call
+    body = PERSONA_SUITE.sub("persona: admin\n    steps:\n      - goto: /admin\n", "persona: ghost\n    steps:\n      - goto: /admin\n")
+    with_suite(body) do |dir|
+      session = PersonaSession.new(ok_result(4))
+      lane_under_test = persona_lane(dir, session)
+      findings = step_findings(lane_under_test.run)
+      ghost = findings.find { |finding| finding.check == "roles/as-admin" }
+      assert_equal "fail", ghost.status
+      assert_includes ghost.detail, "persona 'ghost'"
+      refute(session.case_codes.any? { |code| code.include?('"id":"roles/as-admin"') })
+    end
+  end
+
+  def test_a_failed_persona_login_fails_its_cases_by_name
+    with_suite(PERSONA_SUITE) do |dir|
+      session = PersonaSession.new(ok_result(4), login_ok: false)
+      findings = step_findings(persona_lane(dir, session).run)
+      admin = findings.find { |finding| finding.check == "roles/as-admin" }
+      assert_equal "fail", admin.status
+      assert_includes admin.detail, "could not log in: wrong password"
+      assert_equal 1, session.logins["/admin-login"]
+    end
+  end
+
+  def expired_record(index, verb, ok_steps)
+    steps = (0...ok_steps).map { |i| { "index" => i, "label" => "s#{i}", "ok" => true } }
+    { "index" => 1, "ok" => false, "steps" => steps, "vars" => {},
+      "authExpired" => { "index" => index, "verb" => verb, "url" => "https://app.example.org/admin" } }
+  end
+
+  def pass_record(index) = { "index" => index, "ok" => true, "steps" => [] }
+
+  # The save went through server side, then the 401 showed up. Replaying it
+  # would save twice, so the case fails auth_interrupted and is not resumed,
+  # though the persona does log in again for the cases after it.
+  def test_a_mutation_before_its_401_is_auth_interrupted_and_not_replayed
+    with_suite(PERSONA_SUITE) do |dir|
+      records = ok_result(4)
+      records[1] = [ expired_record(1, "click", 2), pass_record(1) ]
+      session = PersonaSession.new(records)
+      under_test = persona_lane(dir, session)
+      findings = step_findings(under_test.run)
+
+      admin = findings.find { |finding| finding.check == "roles/as-admin" }
+      assert_equal "fail", admin.status
+      assert_includes admin.detail, "auth_interrupted"
+      assert_equal 1, session.case_codes.count { |code| code.include?('"id":"roles/as-admin"') }
+      assert_equal 2, session.logins["/admin-login"]
+      result = under_test.case_results.find { |entry| entry[:key] == "roles/as-admin" }
+      assert_equal "auth_interrupted", result[:status]
+      assert_equal "auth_interrupted", result[:attempts].last[:outcome]
+    end
+  end
+
+  def test_safe_retry_replays_the_interrupted_mutation_after_the_re_login
+    body = PERSONA_SUITE.sub("persona: admin\n    steps:\n      - goto: /admin\n",
+                             "persona: admin\n    safe_retry: true\n    steps:\n      - goto: /admin\n")
+    with_suite(body) do |dir|
+      records = ok_result(4)
+      records[1] = [ expired_record(1, "click", 2), pass_record(1) ]
+      session = PersonaSession.new(records)
+      under_test = persona_lane(dir, session)
+      findings = step_findings(under_test.run)
+
+      assert_equal "pass", findings.find { |finding| finding.check == "roles/as-admin" }.status
+      calls = session.case_codes.select { |code| code.include?('"id":"roles/as-admin"') }
+      assert_equal 2, calls.size
+      assert_includes calls.last, '"startAt":1'
+      assert_includes calls.last, '"value":"s2"'
+      result = under_test.case_results.find { |entry| entry[:key] == "roles/as-admin" }
+      assert_equal 1, result[:attempts].size, "auth recovery stays inside one attempt"
+    end
+  end
+
+  # A 401 on a navigation is safe to replay: re-login, then the case resumes
+  # at that goto with the new session.
+  def test_a_401_on_a_navigation_re_logs_in_and_resumes
+    with_suite(PERSONA_SUITE) do |dir|
+      records = ok_result(4)
+      records[2] = [ expired_record(0, "goto", 0), pass_record(2) ]
+      session = PersonaSession.new(records)
+      findings = step_findings(persona_lane(dir, session).run)
+
+      assert_equal "pass", findings.find { |finding| finding.check == "roles/as-admin-too" }.status
+      assert_equal 2, session.logins["/admin-login"]
+    end
+  end
+
+  def test_a_second_session_end_in_one_attempt_fails_the_case
+    with_suite(PERSONA_SUITE) do |dir|
+      records = ok_result(4)
+      records[2] = [ expired_record(0, "goto", 0), expired_record(0, "goto", 0) ]
+      session = PersonaSession.new(records)
+      findings = step_findings(persona_lane(dir, session).run)
+
+      case_finding = findings.find { |finding| finding.check == "roles/as-admin-too" }
+      assert_equal "fail", case_finding.status
+      assert_includes case_finding.detail, "ended again after a re-login"
+    end
+  end
+
+  def test_two_files_with_one_suite_id_fail_to_load
+    Dir.mktmpdir do |dir|
+      File.write(File.join(dir, "a.cf-testcases.yml"), SUITE)
+      File.write(File.join(dir, "b.cf-testcases.yml"), SUITE)
+      set = ChangeSuiteSet.load([ "*.cf-testcases.yml" ], dir)
+      assert(set.errors.any? { |error| error.include?("suite id 'checkout' is declared by more than one file") })
     end
   end
 end

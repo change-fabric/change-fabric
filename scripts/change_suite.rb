@@ -22,6 +22,10 @@ require_relative 'change_flow_compiler'
 class ChangeSuite
   Error = Class.new(StandardError)
 
+  # Persona names a case may use without declaring them: `default` is the
+  # lane's `auth:` block (no login when it has none), `anonymous` never logs in.
+  BUILTIN_PERSONAS = %w[default anonymous].freeze
+
   # A case's time-boxed flake quarantine: why it is quarantined, and the day the
   # quarantine ends.
   #
@@ -62,7 +66,10 @@ class ChangeSuite
   # stays raw here; the lane compiles it through ChangeFlowCompiler, which owns
   # the step vocabulary.
   TestCase = Struct.new(:suite, :id, :tags, :acceptance, :retries, :quarantine, :steps,
-                        :timeout_ms, :safe_rerun, keyword_init: true) do
+                        :timeout_ms, :safe_rerun, :persona, :safe_retry, keyword_init: true) do
+    # The persona the case runs as; `default` when the case names none.
+    def persona_name = persona || 'default'
+
     # A case's report-facing name, unique across every loaded suite.
     def qualified_id = "#{suite}/#{id}"
 
@@ -185,15 +192,28 @@ class ChangeSuite
     TestCase.new(suite: name, id: id, tags: string_list(raw_case['tags']), acceptance: acceptance,
                  retries: retries(raw_case['retries'], safe_rerun, where), safe_rerun: safe_rerun,
                  timeout_ms: case_timeout(raw_case['timeout_ms'], where),
+                 persona: persona(raw_case['persona'], where),
+                 safe_retry: boolean(raw_case['safe_retry'], 'safe_retry', where),
                  quarantine: quarantine(raw_case, name, id, path),
                  steps: steps(raw_case['steps'], name, id, path))
   end
 
-  def self.safe_rerun(value, where)
+  def self.safe_rerun(value, where) = boolean(value, 'safe_rerun', where)
+
+  def self.boolean(value, key, where)
     return false if value.nil?
     return value if [ true, false ].include?(value)
 
-    raise Error, "#{where} has a `safe_rerun` that is not true or false: #{value.inspect}"
+    raise Error, "#{where} has a `#{key}` that is not true or false: #{value.inspect}"
+  end
+
+  # The persona name, checked for shape only: which personas exist is the
+  # lane's config, so the lane and doctor check the name against it.
+  def self.persona(value, where)
+    return nil if value.nil?
+    return value if value.is_a?(String) && value.match?(/\A[A-Za-z0-9_-]+\z/)
+
+    raise Error, "#{where} has a `persona` that is not a name (letters, digits, - and _): #{value.inspect}"
   end
 
   def self.case_timeout(value, where)
@@ -299,8 +319,20 @@ class ChangeSuiteSet
         errors << e.message
       end
     end
-    new(suites, errors)
+    new(suites, errors + duplicate_suite_errors(suites))
   end
+
+  # Two files declaring one `suite` id make every `suite/case` key ambiguous,
+  # so a report row, a `--suite` selection and a history line could each mean
+  # either file. Reported by name rather than letting the later file win.
+  def self.duplicate_suite_errors(suites)
+    suites.group_by(&:name).select { |_name, group| group.size > 1 }.map do |name, group|
+      "suite id '#{name}' is declared by more than one file: #{group.map(&:path).join(', ')}"
+    end
+  end
+
+  # Every persona the loaded cases name, beyond `default` and `anonymous`.
+  def named_personas = cases.filter_map(&:persona).uniq - ChangeSuite::BUILTIN_PERSONAS
 
   def initialize(suites, errors)
     @suites = suites

@@ -41,29 +41,44 @@ module ChangeSuiteRender
   # author that doing so is safe. Without it the budget is dropped
   # (#dropped_retries? says so) rather than rendered into a file the lane
   # would refuse.
-  def suite_yaml(steps:, suite:, id:, acceptance:, tags: [], retries: nil, safe_rerun: false)
+  #
+  # `persona` names the login the case runs as (suite_version 3), in place of
+  # login steps the flow walked through by hand.
+  def suite_yaml(steps:, suite:, id:, acceptance:, tags: [], retries: nil, safe_rerun: false, persona: nil)
     document = suite_document(steps: steps, suite: suite, id: id, acceptance: acceptance,
-                              tags: tags, retries: retries, safe_rerun: safe_rerun)
+                              tags: tags, retries: retries, safe_rerun: safe_rerun, persona: persona)
     verify(document)
     YAML.dump(document)
   end
 
   def dropped_retries?(retries, safe_rerun) = retries.to_i.positive? && safe_rerun != true
 
-  def suite_document(steps:, suite:, id:, acceptance:, tags: [], retries: nil, safe_rerun: false)
+  def suite_document(steps:, suite:, id:, acceptance:, tags: [], retries: nil, safe_rerun: false, persona: nil)
     raise Error, 'a promoted case needs a suite id' if suite.to_s.strip.empty?
     raise Error, 'a promoted case needs a case id' if id.to_s.strip.empty?
     raise Error, 'a promoted case needs an acceptance criterion' if acceptance.to_s.strip.empty?
     raise Error, 'a promoted case needs at least one step' unless steps.is_a?(Array) && !steps.empty?
 
     rerun = retries.to_i.positive? && safe_rerun == true
+    persona = persona.to_s.strip
+    persona = nil if persona.empty? || persona == 'default'
     document = { 'suite' => suite.to_s.strip }
-    document['suite_version'] = ChangeSuiteSchema.field_version('cases[].safe_rerun') if rerun
-    document.merge('cases' => [ case_document(steps, id, acceptance, tags, rerun ? retries : nil) ])
+    version = needed_version(rerun, persona)
+    document['suite_version'] = version if version > ChangeSuiteSchema::DEFAULT_SUITE_VERSION
+    document.merge('cases' => [ case_document(steps, id, acceptance, tags, rerun ? retries : nil, persona) ])
   end
 
-  def case_document(steps, id, acceptance, tags, retries)
+  # The lowest suite_version that carries every field the case uses.
+  def needed_version(rerun, persona)
+    fields = []
+    fields << 'cases[].safe_rerun' if rerun
+    fields << 'cases[].persona' if persona
+    ([ ChangeSuiteSchema::DEFAULT_SUITE_VERSION ] + fields.map { |field| ChangeSuiteSchema.field_version(field) }).max
+  end
+
+  def case_document(steps, id, acceptance, tags, retries, persona = nil)
     entry = { 'id' => id.to_s.strip }
+    entry['persona'] = persona if persona
     list = Array(tags).map(&:to_s).map(&:strip).reject(&:empty?)
     entry['tags'] = list unless list.empty?
     entry['acceptance'] = acceptance.to_s.strip

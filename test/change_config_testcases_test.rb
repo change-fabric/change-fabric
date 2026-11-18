@@ -108,6 +108,38 @@ class ChangeConfigTestcasesTest < Minitest::Test
     end
   end
 
+  # --- personas (0.22.0) --------------------------------------------------------
+
+  ADMIN = { "login_url" => "/admin-login", "email_env" => "AE", "password_env" => "AP" }.freeze
+
+  def test_personas_accept_named_auth_blocks
+    with_config(base("personas" => { "admin" => ADMIN })) do |config, _root|
+      assert_equal "/admin-login", config.lane("testcases")["personas"]["admin"]["login_url"]
+    end
+  end
+
+  def test_personas_reserve_default_and_anonymous
+    %w[default anonymous].each do |name|
+      error = assert_raises(ChangeConfig::ConfigError) { with_config(base("personas" => { name => ADMIN })) { |_c, _r| } }
+      assert_match(/personas.#{name} is reserved/, error.message)
+    end
+  end
+
+  def test_personas_must_be_a_mapping_of_auth_blocks
+    [ [ "admin" ], { "admin" => "nope" }, { "bad name" => ADMIN } ].each do |value|
+      assert_raises(ChangeConfig::ConfigError) { with_config(base("personas" => value)) { |_c, _r| } }
+    end
+  end
+
+  def test_doctor_reports_a_case_naming_an_undefined_persona
+    suite = SUITE.sub("suite: checkout\n", "suite: checkout\nsuite_version: 3\n")
+                 .sub("    tags: [smoke]\n", "    tags: [smoke]\n    persona: ghost\n")
+    with_config(base, suite: suite) do |config, root|
+      assert_includes ChangeConfig.doctor_lines(root, config),
+                      "error: a testcases case names persona 'ghost', which lanes.testcases.personas does not define"
+    end
+  end
+
   # --- doctor --------------------------------------------------------------------
 
   def test_doctor_prints_the_installed_suite_version
