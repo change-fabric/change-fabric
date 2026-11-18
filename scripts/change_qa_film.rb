@@ -82,10 +82,9 @@ module ChangeQaFilm
     return { title: document.title, url: location.href, headings: headings, elements: elements };
   JS
 
-  Context = Struct.new(:target_url, :browserless, :suite_select, :signoff, :logger, :run_id, :evidence_dir,
+  Context = Struct.new(:target_url, :browserless, :suite_select, :logger, :run_id, :evidence_dir,
                        :commit, :exports, :video_budget_mb, keyword_init: true) do
     def log(message) = logger.call(message)
-    def signoff? = false
   end
 
   module_function
@@ -310,7 +309,8 @@ module ChangeQaFilm
   def probe_view(result)
     data = result.is_a?(Hash) ? result : {}
     records = Array(data['steps'])
-    snapshot = records.last if records.last && records.last['raw'] && records.last['ok']
+    last = records.last
+    snapshot = last if last && last['raw'] && last['ok']
     body = snapshot ? records[0...-1] : records
     { login: data['login'] || 'failed', login_error: data['loginError'],
       steps: body.map { |record| record.slice('index', 'label', 'ok', 'error', 'found') },
