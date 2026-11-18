@@ -98,7 +98,7 @@ Load cf:usability by name and apply its rubric. This skill carries no heuristic 
 
 - Target WCAG 2.2. Level AA is required; level AAA is advisory and never blocks.
 - Error, focus, and 320px states are optional in a mock. When a state is absent, the criteria that need it are `not evaluable`, not failed.
-- The criteria split three ways by what a mock can show. See `reference/wcag-design-time.md`:
+- The criteria split three ways by what a mock can show. Load cf:wcag by name, the single home for the rows:
   - checkable at design time from tokens and declared styles,
   - indicative on rendered frames,
   - not checkable until real code exists, deferred to cf:a11y.
