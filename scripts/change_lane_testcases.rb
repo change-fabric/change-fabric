@@ -582,7 +582,7 @@ class ChangeLaneTestcases < ChangeLane
     outcome = special_outcome(record) || status
     { case: item, record: record, status: status, outcome: outcome,
       attempts: [ run[:attempts].size, 1 ].max, attempt_log: run[:attempts],
-      started_at_ms: run[:started_at_ms], duration_ms: run[:duration_ms] }
+      started_at_ms: run[:started_at_ms], started_at: run[:started_at], duration_ms: run[:duration_ms] }
   end
 
   # --- graded acceptance --------------------------------------------------------

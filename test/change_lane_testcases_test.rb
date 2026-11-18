@@ -1255,6 +1255,7 @@ class ChangeLaneTestcasesTest < Minitest::Test
         records = File.readlines(File.join(root, "case-results.jsonl")).map { |line| ChangeCaseResult.from_h(JSON.parse(line)) }
         assert_equal %w[checkout/happy-path checkout/empty-cart], records.map(&:key)
         assert_equal [ "pass", "run-1", attempt ], [ records.first.status, records.first.run_id, records.first.evidence_dir ]
+        refute_nil records.first.started_at
       end
     end
   end
@@ -1400,5 +1401,9 @@ class ChangeLaneTestcasesTest < Minitest::Test
       assert_equal [ 0, 1 ], record["steps"].map { |step| step["index"] }
       assert File.exist?(File.join(attempt.host_dir, "termination.json"))
     end
+  end
+
+  def test_dot_ids_never_navigate_out_of_the_evidence_root
+    %w[. .. ...].each { |id| refute_includes [ ".", "..", "" ], ChangeTestcasesEvidence.slug(id) }
   end
 end

@@ -50,6 +50,7 @@ class ChangeTestcasesEvidence
   def self.slug(text)
     raw = text.to_s
     safe = raw.gsub(/[^A-Za-z0-9._-]/, '_')
+    safe = "_#{safe}" if safe.match?(/\A\.*\z/) # never `.`, `..` or empty
     safe == raw ? safe : "#{safe}-#{Digest::SHA256.hexdigest(raw)[0, 8]}"
   end
 

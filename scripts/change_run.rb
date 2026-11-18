@@ -685,7 +685,8 @@ class ChangeRun
     @evidence_dirs ||= {}
     # One dir per app in a sweep, or two apps' cases would overwrite each
     # other's records and attempt files.
-    run = @evidence_app ? "#{boot_run_id}-#{ChangeReport.slug_for(@evidence_app)}" : boot_run_id
+    parts = [ boot_run_id, config.profile, @evidence_app ].compact.map(&:to_s).reject(&:empty?)
+    run = [ parts.first, *parts.drop(1).map { |part| ChangeReport.slug_for(part) } ].join('-')
     @evidence_dirs[config.object_id] ||= ChangeTestcasesEvidence.prepare(out_dir, run)
   end
 

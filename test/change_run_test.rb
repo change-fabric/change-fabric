@@ -471,14 +471,14 @@ class ChangeRunForTagAndGateStatusTest < Minitest::Test
     Dir.mktmpdir do |out|
       plain = ChangeRun.new(%w[testcases --out] + [ out ])
       plain.instance_variable_set(:@args, plain.send(:parse_args, %w[testcases --out] + [ out ]))
-      config = Struct.new(:enabled_lanes).new(%w[testcases])
+      config = Struct.new(:enabled_lanes, :profile).new(%w[testcases], "staging")
       dirs = %w[portal admin].map do |app|
         plain.instance_variable_set(:@evidence_app, app)
         plain.instance_variable_set(:@evidence_dirs, nil)
         plain.send(:evidence_dir, config)
       end
       assert_equal 2, dirs.uniq.size
-      assert(dirs.all? { |path| File.basename(path).start_with?("testcases-") })
+      assert(dirs.all? { |path| File.basename(path).start_with?("testcases-") && path.include?("-staging-") })
     end
   end
 
