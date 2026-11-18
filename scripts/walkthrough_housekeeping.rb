@@ -4,6 +4,7 @@ require 'digest'
 require 'fileutils'
 require 'find'
 require 'open3'
+require_relative 'change_docker'
 require_relative 'path_canon'
 
 # Keeps a walkthrough dir's .cache bounded and its deliverables safe.
@@ -217,16 +218,37 @@ module WalkthroughHousekeeping
 
   def min_free_gb(env = ENV) = env_float(MIN_FREE_ENV, DEFAULT_MIN_FREE_GB, env)
 
-  # Refuses a render before any paid call when the cache's disk has less
-  # free space than the threshold; a render that runs out mid-way dies after
-  # it has spent. An unknown free size never blocks.
-  def disk_preflight!(root, env = ENV, free: method(:free_bytes))
-    have = free.call(root)
-    limit = min_free_gb(env)
-    return nil if have.nil? || have >= limit * GB
+  # Free bytes on the Docker VM's disk (OrbStack, Docker Desktop), where
+  # containers write: df / inside the already-pinned FFmpeg image, offline.
+  # runner takes the argv and returns [output, success]. nil when it cannot
+  # say (no daemon, a failed run, unparseable output).
+  def vm_free_bytes(runner = ->(argv) { Open3.capture2e(*argv).then { |out, st| [ out, st.success? ] } })
+    out, ok = runner.call(ChangeDocker.run_command(network: 'none', image: ChangeDocker::FFMPEG_IMAGE, entrypoint: 'df',
+                                                   args: [ '-Pk', '/' ]))
+    return nil unless ok
 
-    raise NoSpaceError, "#{human(have)} free on the disk holding #{cache_dir(root)}, under #{limit} GB (#{MIN_FREE_ENV}); " \
-                        "run walkthrough_render.rb #{root} --prune, free Docker space (docker system prune), or lower #{MIN_FREE_ENV}"
+    kb = out.to_s.lines.filter_map { |l| l.split[3] }.reverse.find { |f| f.match?(/\A\d+\z/) }
+    kb && (kb.to_i * 1024)
+  rescue SystemCallError
+    nil
+  end
+
+  # Refuses a render before any paid call when the cache's disk, or the
+  # Docker VM's disk the containers write to, has less free space than the
+  # threshold; a render that runs out mid-way dies after it has spent. An
+  # unknown free size never blocks.
+  def disk_preflight!(root, env = ENV, free: method(:free_bytes), vm_free: -> { })
+    limit = min_free_gb(env)
+    have = free.call(root)
+    if have && have < limit * GB
+      raise NoSpaceError, "#{human(have)} free on the disk holding #{cache_dir(root)}, under #{limit} GB (#{MIN_FREE_ENV}); " \
+                          "run walkthrough_render.rb #{root} --prune, free Docker space (docker system prune), or lower #{MIN_FREE_ENV}"
+    end
+    vm = vm_free.call
+    return nil if vm.nil? || vm >= limit * GB
+
+    raise NoSpaceError, "#{human(vm)} free on the Docker VM disk, under #{limit} GB (#{MIN_FREE_ENV}); " \
+                        "free Docker space (docker system prune, or grow the VM disk), or lower #{MIN_FREE_ENV}"
   end
 
   # -- pruning -----------------------------------------------------------------
