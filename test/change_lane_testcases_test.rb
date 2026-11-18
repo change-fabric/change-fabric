@@ -852,4 +852,19 @@ class ChangeLaneTestcasesTest < Minitest::Test
       assert(findings.any? { |finding| finding.fail? && finding.detail.include?("pull and run ruby install.rb") })
     end
   end
+
+  def test_a_queue_that_never_frees_fails_without_counting_an_attempt
+    rejected = ChangeDocker::Browserless::QueueRejected.new("429 queue full")
+    body = many_cases(1, "    retries: 2\n    safe_rerun: true\n")
+    with_suite(body) do |dir|
+      session = FakeSession.new([ [ rejected ] ])
+      instance = lane(dir, {}, session: session)
+      finding = step_findings(instance.run).first
+
+      assert finding.fail?
+      assert_includes finding.detail, "queue stayed full"
+      assert_equal 6, session.calls
+      assert_empty instance.case_results.first[:attempts]
+    end
+  end
 end

@@ -336,7 +336,9 @@ class ChangeLaneTestcases < ChangeLane
     (item.retries + 1).times do |number|
       attempt_started = clock
       record = attempt(session, item, compiled, number + 1)
-      break if record.nil?
+      # Nothing ran (no usable payload, or a queue that never freed): not an
+      # attempt, and no reason to spend a rerun on it.
+      break if record.nil? || record['queueFull']
 
       attempts << { number: number + 1, outcome: record['ok'] ? 'pass' : 'fail',
                     duration_ms: elapsed_ms(attempt_started) }
