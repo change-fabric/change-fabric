@@ -32,7 +32,7 @@ class InstallProvidersTest < Minitest::Test
     repo = File.expand_path("..", __dir__)
     required = SkillProviders.collect(Dir.glob(File.join(repo, "skills", "*")).select { |p| File.directory?(p) })
     assert_equal %w[cf:image cf:imagine cf:prototype cf:roast cf:walkthrough], required["openai"]
-    assert_equal %w[cf:music cf:narrate cf:walkthrough], required["elevenlabs"]
+    assert_equal %w[cf:music cf:narrate cf:roast cf:walkthrough], required["elevenlabs"]
     assert_equal %w[cf:b-roll cf:walkthrough], required["gemini"]
   end
 
