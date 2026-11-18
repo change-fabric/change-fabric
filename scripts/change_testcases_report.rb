@@ -2,6 +2,7 @@
 # frozen_string_literal: true
 
 require 'cgi'
+require 'digest'
 require 'fileutils'
 require 'json'
 require 'rexml/document'
@@ -25,7 +26,12 @@ class ChangeTestcasesReport
   HISTORY_RUNS = 10
   THUMBNAILS = %w[failure.png final.png resumed-final.png].freeze
 
-  def self.ledger_path(project) = File.join(LEDGER_ROOT, ChangeReport.slug_for(project), 'history.jsonl')
+  # One ledger per project, repository and app, so two apps (or two repos)
+  # sharing a project label never read each other's case history.
+  def self.ledger_path(project, repo: nil, app: nil)
+    scope = [ project, repo && "#{File.basename(repo)}-#{Digest::SHA256.hexdigest(File.expand_path(repo))[0, 8]}", app ]
+    File.join(LEDGER_ROOT, *scope.compact.map { |part| ChangeReport.slug_for(part) }, 'history.jsonl')
+  end
 
   attr_reader :records, :history
 

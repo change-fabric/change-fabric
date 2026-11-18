@@ -593,7 +593,8 @@ class ChangeRun
     dir = evidence_dir(config)
     return unless dir && File.exist?(File.join(dir, ChangeTestcasesEvidence::RESULTS_FILE))
 
-    paths = ChangeTestcasesReport.new(run_dir: dir, ledger: ChangeTestcasesReport.ledger_path(config.project)).write
+    paths = ChangeTestcasesReport.new(run_dir: dir, ledger: ChangeTestcasesReport.ledger_path(config.project, repo: repo_root,
+                                                                                        app: @evidence_app)).write
     log("[change] testcases report: #{paths[:html]} (junit: #{paths[:junit]})")
   rescue StandardError => e
     log("[change] testcases report failed: #{e.message}")

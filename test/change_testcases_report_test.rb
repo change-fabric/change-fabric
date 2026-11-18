@@ -95,5 +95,9 @@ class ChangeTestcasesReportTest < Minitest::Test
   def test_the_ledger_lives_outside_the_repo_per_project
     assert_equal File.join(Dir.home, ".claude", "cf", "testcases", "my-app", "history.jsonl"),
                  ChangeTestcasesReport.ledger_path("My App")
+    portal = ChangeTestcasesReport.ledger_path("app", repo: "/code/a", app: "portal")
+    admin = ChangeTestcasesReport.ledger_path("app", repo: "/code/a", app: "admin")
+    other_repo = ChangeTestcasesReport.ledger_path("app", repo: "/code/b", app: "portal")
+    assert_equal 3, [ portal, admin, other_repo ].uniq.size
   end
 end

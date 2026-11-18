@@ -163,7 +163,7 @@ The run dir also gets `report.html` (each case's status, persona, duration,
 acceptance verdict, its last 10 runs, and its screenshots linked relatively, so
 the dir can be copied anywhere) and `junit.xml` (one `testsuite` per suite) for
 CI. Every case result is appended to a history ledger outside the repo,
-`~/.claude/cf/testcases/<project>/history.jsonl`. The report flags a case as
+`~/.claude/cf/testcases/<project>/<repo>/[<app>/]history.jsonl`. The report flags a case as
 newly failing when the last run that executed it passed, and as flaky when it
 passed only after a failed attempt. A skipped case, and a case in the history
 this run did not select, are listed on their own and never count as failing.

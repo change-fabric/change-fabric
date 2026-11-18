@@ -514,7 +514,7 @@ class ChangeRunForTagAndGateStatusTest < Minitest::Test
       plain.define_singleton_method(:log) { |_line| nil }
       ledger = File.join(dir, "ledger.jsonl")
       original = ChangeTestcasesReport.method(:ledger_path)
-      ChangeTestcasesReport.define_singleton_method(:ledger_path) { |_project| ledger }
+      ChangeTestcasesReport.define_singleton_method(:ledger_path) { |_project, **_scope| ledger }
       begin
         plain.send(:write_testcases_report, Struct.new(:project).new("app"))
       ensure
