@@ -175,6 +175,28 @@ class PlanLensesTest < Minitest::Test
     assert_operator bounds.last, :>, bounds.first
   end
 
+  def test_cull_bound_reads_installed_cf_prefixed_dirs
+    plan("Plan.\n")
+    installed = File.join(@dir, "installed")
+    FileUtils.mkdir_p(File.join(installed, "cf:aws"))
+    FileUtils.cp(File.join(SKILLS_DIR, "aws", "SKILL.md"), File.join(installed, "cf:aws", "SKILL.md"))
+    files = %w[plan.md goal.md].map { |f| File.join(@dir, f) }
+    assert_in_delta PlanLenses.cull_bound(candidates: %w[cf:aws], files: files, skills_dir: SKILLS_DIR),
+                    PlanLenses.cull_bound(candidates: %w[cf:aws], files: files, skills_dir: installed)
+    assert_operator PlanLenses.cull_bound(candidates: %w[cf:aws], files: files, skills_dir: installed), :>,
+                    PlanLenses.cull_bound(candidates: [], files: files, skills_dir: installed)
+  end
+
+  def test_fit_flags_round_trip_multiword_values
+    inputs = roast_inputs
+    audience = "the engineer executing this plan in a fresh session"
+    args = [ "--brief", File.join(@dir, "goal.md"), "--text", inputs[:texts][0], "--kind", "doc",
+             "--audience", audience, "--purpose", "x", "--out-dir", File.join(@dir, "roast") ]
+    _, text = run_cli("fit", "--remaining", "0.50", "--", *args)
+    flags = Shellwords.split(text[/^plan lenses fit: (.*)$/, 1])
+    assert_equal audience, flags[flags.index("--audience") + 1]
+  end
+
   def test_fit_cli_prints_flags_and_skips
     inputs = roast_inputs
     args = [ "--brief", File.join(@dir, "goal.md"), "--text", inputs[:texts][0], "--text", inputs[:texts][1], "--kind", "doc",

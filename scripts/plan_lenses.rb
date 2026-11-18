@@ -2,6 +2,7 @@
 # frozen_string_literal: true
 
 require 'optparse'
+require 'shellwords'
 require 'stringio'
 require_relative 'roast'
 require_relative 'roast_lens'
@@ -95,9 +96,16 @@ module PlanLenses
   # Upper bound for the haiku cull: the prompt, the plan files and every
   # candidate SKILL.md, counted as Roast.estimate counts chars, plus its cap.
   def cull_bound(candidates:, files:, skills_dir: RoastLens.dir)
-    skills = candidates.map { |name| File.join(skills_dir, RoastLens.bare(name), 'SKILL.md') }
+    skills = candidates.filter_map { |name| skill_file(name, skills_dir) }
     chars = CULL_PROMPT.size + [ *files, *skills ].sum { |f| File.file?(f) ? File.size(f) : 0 }
     ((chars / 4 * CULL_RATES[:input]) + (CULL_OUTPUT_TOKENS * CULL_RATES[:output])) / 1_000_000.0
+  end
+
+  # A rubric's SKILL.md in the checkout layout (skills/aws) or the installed
+  # one (~/.claude/skills/cf:aws).
+  def skill_file(name, skills_dir)
+    bare = RoastLens.bare(name)
+    [ bare, "cf:#{bare}" ].map { |d| File.join(skills_dir, d, 'SKILL.md') }.find { |f| File.file?(f) }
   end
 
   # What a finished call costs the ledger: its reported usage, else its bound.
@@ -163,7 +171,7 @@ module PlanLenses
       return skipped(out) if result == :skip
 
       flags = [ *PlanLenses.lens_flags(result[:lenses] - [ ALWAYS ]), *without_shots(base, result[:inputs]) ]
-      out.puts("plan lenses fit: #{flags.join(' ')}")
+      out.puts("plan lenses fit: #{Shellwords.join(flags)}")
       out.puts(format('plan lenses bound: $%.4f of $%.4f remaining', result[:bound], opts[:remaining]))
       0
     end
