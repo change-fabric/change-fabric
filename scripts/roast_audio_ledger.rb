@@ -3,6 +3,7 @@
 require 'fileutils'
 require 'json'
 require 'securerandom'
+require_relative 'elevenlabs'
 
 # The one spend contract for cf:roast --audio. Every paid call (judge,
 # transcription, calibration probe, re-voice) reserves an upper bound in
@@ -32,8 +33,6 @@ class RoastAudioLedger
   PROBE_TOKENS_PER_SECOND = 1000
   PROBE_MAX_OUTPUT_TOKENS = 16
   MAX_OUTPUT_TOKENS = 4000
-  # ElevenLabs USD per 1K characters, the rate ElevenLabs.estimate uses.
-  REGEN_USD_PER_1K = { flash: 0.15, multilingual: 0.30 }.freeze
   OPS = %w[judge transcribe probe regen].freeze
   COUNTED = %w[settled reserved uncertain].freeze
 
@@ -52,7 +51,8 @@ class RoastAudioLedger
     @max_usd = max_usd
   end
 
-  def self.regen_rate(model) = model.to_s.include?('flash') || model.to_s.include?('turbo') ? REGEN_USD_PER_1K[:flash] : REGEN_USD_PER_1K[:multilingual]
+  # ElevenLabs USD per 1K characters: the same rate ElevenLabs.estimate uses.
+  def self.regen_rate(model) = ElevenLabs::TTS_USD_PER_1K[model.to_s.include?('flash') || model.to_s.include?('turbo') ? :flash : :multilingual]
 
   # { usd:, basis: } for one call, or UnboundedCost when a rate or quantity is unknown.
   def self.bound(op, **basis)

@@ -101,6 +101,11 @@ class RoastAudioLedgerTest < Minitest::Test
     assert_in_delta 0.009, RoastAudioLedger.bound("transcribe", model: "gpt-transcribe", duration_s: 61.0)[:usd]
   end
 
+  def test_regen_is_bounded_at_the_elevenlabs_estimate_rate
+    est = ElevenLabs.estimate(chars: 1234, music_ms: 0, model: "eleven_multilingual_v2")[:tts_usd]
+    assert_in_delta est, RoastAudioLedger.bound("regen", model: "eleven_multilingual_v2", chars: 1234)[:usd], 1e-4
+  end
+
   def test_concurrent_processes_never_pass_the_cap_or_lose_an_entry
     lock = File.join(@dir, "spend.lock")
     ledger.read
