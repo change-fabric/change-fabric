@@ -971,7 +971,7 @@ class ChangeLaneTestcasesTest < Minitest::Test
   def expired_record(index, verb, ok_steps)
     steps = (0...ok_steps).map { |i| { "index" => i, "label" => "s#{i}", "ok" => true } }
     { "index" => 1, "ok" => false, "steps" => steps, "vars" => {},
-      "authExpired" => { "index" => index, "verb" => verb, "url" => "https://app.example.org/admin" } }
+      "authExpired" => { "index" => index, "verb" => verb } }
   end
 
   def pass_record(index) = { "index" => index, "ok" => true, "steps" => [] }
@@ -1011,7 +1011,7 @@ class ChangeLaneTestcasesTest < Minitest::Test
       assert_equal "pass", findings.find { |finding| finding.check == "roles/as-admin" }.status
       calls = session.case_codes.select { |code| code.include?('"id":"roles/as-admin"') }
       assert_equal 2, calls.size
-      assert_includes calls.last, '"startAt":1'
+      assert_includes calls.last, '"startAt":0', "restarts at the goto before the click, rebuilding the page"
       assert_includes calls.last, '"value":"s2"'
       result = under_test.case_results.find { |entry| entry[:key] == "roles/as-admin" }
       assert_equal 1, result[:attempts].size, "auth recovery stays inside one attempt"
@@ -1071,6 +1071,33 @@ class ChangeLaneTestcasesTest < Minitest::Test
           assert $?.success?, output
         end
       end
+    end
+  end
+
+  # An assertion after a fill cannot be resumed on a fresh page without
+  # retyping the field, and the fill is not a step that may be repeated
+  # unasked, so the case is auth_interrupted.
+  def test_a_safe_step_after_a_fill_is_not_resumed_without_safe_retry
+    body = PERSONA_SUITE.sub("      - click: \"#save\"\n      - expect_visible: \".saved\"\n",
+                             "      - fill: { selector: \"#name\", value: x }\n      - expect_visible: \".saved\"\n")
+    with_suite(body) do |dir|
+      records = ok_result(4)
+      records[1] = [ expired_record(2, "expectVisible", 2), pass_record(1) ]
+      session = PersonaSession.new(records)
+      under_test = persona_lane(dir, session)
+      under_test.run
+      assert_equal "auth_interrupted", under_test.case_results.find { |entry| entry[:key] == "roles/as-admin" }[:status]
+    end
+  end
+
+  def test_a_seeded_case_starts_on_the_login_landing_page
+    with_suite(PERSONA_SUITE) do |dir|
+      session = PersonaSession.new(ok_result(4))
+      persona_lane(dir, session).run
+      login = ChangeLaneTestcases.new(ChangeConfig::LaneConfig.new("testcases", PERSONAS, dir), Ctx.new("net", "https://app.example.org"),
+                                      grader: FakeGrader.new).send(:login_module, ChangeLaneBrowserless::AuthConfig.new(PERSONAS["auth"]))
+      assert_includes login, "landing: landing"
+      assert_includes session.case_codes.first, 'first.verb !== "goto"'
     end
   end
 end

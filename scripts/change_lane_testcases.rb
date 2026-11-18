@@ -439,15 +439,32 @@ class ChangeLaneTestcases < ChangeLane
     rescue PersonaCache::LoginError => e
       return record.merge('ok' => false, 'authError' => "the session ended and persona '#{persona}' could not log in again: #{e.message}")
     end
-    return record.merge('ok' => false, 'authInterrupted' => true) unless replayable?(item, expired['verb'])
+    restart = restart_index(compiled[:steps], Integer(expired['index']))
+    unless replayable?(item, compiled[:steps], restart, Integer(expired['index']))
+      return record.merge('ok' => false, 'authInterrupted' => true)
+    end
 
-    resume = { startAt: Integer(expired['index']), vars: record['vars'] || {}, url: expired['url'].to_s }
+    resume = { startAt: restart, vars: record['vars'] || {} }
     second = call_function(session, case_module(compiled, number, persona_js(item, state), resume: resume),
                            case_budget_ms(item))
     merge_resumed(record, second, resume[:startAt])
   end
 
-  def replayable?(item, verb) = item.safe_retry || REPLAYABLE_VERBS.include?(verb.to_s)
+  # A resumed case restarts at the last navigation at or before the
+  # interrupted step, because a fresh context has none of the page state
+  # (typed fields, client-side state) the steps after that navigation built.
+  # Without one it restarts at the first step, on the persona's landing page.
+  def restart_index(steps, interrupted)
+    steps.select { |step| step[:index] <= interrupted && step[:verb] == 'goto' }.map { |step| step[:index] }.max || 0
+  end
+
+  # Every step from the restart to the interrupted one is replayed, so all of
+  # them must be safe to repeat, unless the case says replay is safe.
+  def replayable?(item, steps, from, to)
+    return true if item.safe_retry
+
+    steps.select { |step| step[:index].between?(from, to) }.all? { |step| REPLAYABLE_VERBS.include?(step[:verb]) }
+  end
 
   # The resumed call's record, carrying the first call's steps before the
   # interrupted one. A second session end in the same attempt fails the case.
@@ -764,7 +781,8 @@ class ChangeLaneTestcases < ChangeLane
             const items = await session.page.evaluate(() => Object.entries(window.localStorage));
             origins = [{ origin: origin, items: items }];
           } catch (err) { void err; }
-          return { data: { ok: true, state: { cookies: cookies, origins: origins } }, type: "application/json" };
+          const landing = /^https?:/.test(session.page.url()) ? session.page.url() : null;
+          return { data: { ok: true, state: { cookies: cookies, origins: origins, landing: landing } }, type: "application/json" };
         } catch (err) {
           return { data: { ok: false, authError: String(err) }, type: "application/json" };
         } finally {
@@ -877,18 +895,21 @@ class ChangeLaneTestcases < ChangeLane
           try {
             if (persona) await seedStorage(session.page, persona.seed);
             const watch = watchSession(session.page);
-            if (resume && resume.url && /^https?:/.test(resume.url)) {
-              await session.page.goto(resume.url, { waitUntil: "domcontentloaded" });
+            // A seeded case starts where its persona's login landed, as it
+            // did when every case logged in on its own page, unless its first
+            // step navigates anyway.
+            const first = testCase.steps.find((step) => step.index >= (resume ? resume.startAt : 0));
+            if (persona && persona.seed && persona.seed.landing && first && first.verb !== "goto") {
+              await session.page.goto(persona.seed.landing, { waitUntil: "domcontentloaded" });
             }
             let expired = null;
-            let beforeUrl = "";
             const steps = await cfRunFlow(session.page, testCase.steps, {
               startAt: resume ? resume.startAt : 0,
               vars: resume ? resume.vars : {},
-              beforeStep: async () => { watch.doc401 = false; beforeUrl = session.page.url(); },
+              beforeStep: async () => { watch.doc401 = false; },
               afterStep: async (step) => {
                 if (!(await sessionEnded(session.page, watch))) return false;
-                expired = { index: step.index, verb: step.verb, url: beforeUrl };
+                expired = { index: step.index, verb: step.verb };
                 return true;
               },
             });

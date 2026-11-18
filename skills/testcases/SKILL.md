@@ -114,8 +114,8 @@ cases:
 persona logs in once per run and its session is seeded into each of its cases,
 so those cases share one server-side session: a case that logs out affects the
 ones after it. When a case sees the session end, the persona logs in again once
-and the case resumes, unless the interrupted step was an action such as a
-click, which fails the case `auth_interrupted` unless it sets
+and the case replays from its last `goto`, unless that would repeat an action
+such as a click or fill, which fails the case `auth_interrupted` unless it sets
 `safe_retry: true`. Details are under Sessions in the suite-file spec.
 
 ## Read the output

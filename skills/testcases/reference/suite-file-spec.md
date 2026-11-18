@@ -128,11 +128,17 @@ A case notices its session has ended when the persona's login page comes back,
 every field of its login form is on the page, or a page navigation answers 401.
 API calls answering 401 do not count; they are left to the case's assertions.
 The persona then logs in again exactly once, however many cases noticed at the
-same time, and the case resumes at the interrupted step with the new session,
-inside the same attempt. Only navigations, waits, reads and assertions are
-replayed. If the interrupted step was `click`, `fill`, `select`, `press` or
-`eval`, the case fails `auth_interrupted` instead, unless it sets
-`safe_retry: true`. A second session end in one attempt fails the case.
+same time, and the case resumes with the new session, inside the same attempt.
+A fresh browser context has none of the page state the case built, so it
+restarts at the last `goto` at or before the interrupted step (or at the first
+step, on the page the login landed on) and replays from there. Only
+navigations, waits, reads and assertions are replayed. If any replayed step is
+`click`, `fill`, `select`, `press` or `eval`, the case fails `auth_interrupted`
+instead, unless it sets `safe_retry: true`. A second session end in one attempt
+fails the case.
+
+A seeded case starts on the page the persona's login ended on, as it did when
+each case logged in itself, unless its first step is a `goto`.
 
 ## Secrets
 
