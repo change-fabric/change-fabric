@@ -267,6 +267,8 @@ class RoastLensPlanRoutingTest < Minitest::Test
     assert_empty RoastLens.named_paths("See https://example.com/main.tf and version 1.2.3.")
     assert_equal [ "infra/main.tf" ], RoastLens.named_paths("Last, edit infra/main.tf.")
     assert_equal [ "infra/main.tf" ], RoastLens.named_paths("Update [infra/main.tf](https://example.com/main.tf).")
+    assert_equal %w[app.gemspec invoice.handlebars], RoastLens.named_paths("Update app.gemspec and invoice.handlebars.")
+    assert_includes routed("Update app.gemspec."), "cf:ruby"
     assert_equal %w[vite.config.ts eslint.config.js], RoastLens.named_paths("Update vite.config.ts and eslint.config.js.")
     assert_includes RoastLens.suggest_with_reasons([ [ "plan.md", "Update vite.config.ts." ] ], SKILLS_DIR, plan_text: true).keys, "cf:typescript"
   end
