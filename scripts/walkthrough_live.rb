@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'base64'
+require 'digest'
 require 'fileutils'
 require 'json'
 require 'open3'
@@ -39,7 +40,11 @@ module WalkthroughLive
   DEFAULT_WAIT = { 'until' => 'load', 'settle_ms' => 0 }.freeze
   STORAGE_AREAS = %w[sessionStorage localStorage].freeze
   LOGIN_STEPS = %w[fill click wait].freeze
-  BROWSER_KEYS = %w[add_hosts network ignore_https_errors].freeze
+  BROWSER_KEYS = %w[add_hosts network ignore_https_errors headers].freeze
+  # An RFC 9110 field name (a token).
+  HEADER_NAME_RE = /\A[!#$%&'*+.^_`|~0-9A-Za-z-]+\z/
+  # Names the browser sets itself; an override would break the request.
+  MANAGED_HEADERS = %w[host content-length connection cookie transfer-encoding upgrade].freeze
   OPS = PrototypeCapture::OPS
   # Keys that would carry a literal credential; a value only ever comes from
   # an env var name.
@@ -93,7 +98,30 @@ module WalkthroughLive
     errors << 'browser.network must be a non-empty string' if browser.key?('network') && browser['network'].to_s.strip.empty?
     errors << 'browser.network must not be none; a live scene needs the network' if browser['network'] == 'none'
     errors << 'browser.ignore_https_errors must be true or false' if browser.key?('ignore_https_errors') && ![ true, false ].include?(browser['ignore_https_errors'])
+    errors.concat(header_errors(browser['headers'], 'browser.headers')) if browser.key?('headers')
     errors
+  end
+
+  # Extra request headers, { name => value }. Errors name a header, never
+  # its value, which may be a token.
+  def header_errors(headers, label)
+    return [ "#{label} must be an object" ] unless headers.is_a?(Hash)
+
+    headers.flat_map do |name, value|
+      next [ "#{label} name #{name.to_s.inspect} is not a valid header name" ] unless name.to_s.match?(HEADER_NAME_RE)
+      next [ "#{label} #{name.inspect} is managed by the browser" ] if MANAGED_HEADERS.include?(name.downcase)
+      next [ "#{label} #{name.inspect} value must be a single-line string" ] unless value.is_a?(String) && !value.match?(/[\r\n\0]/)
+
+      []
+    end
+  end
+
+  # The board's browser.headers, then the scene's headers; a scene name
+  # replaces a board one case-insensitively.
+  def headers(board, scene = nil)
+    base = browser_opts(board)['headers'] || {}
+    own = (scene && scene['headers']) || {}
+    base.reject { |k, _| own.keys.any? { |o| o.casecmp?(k) } }.merge(own)
   end
 
   def persona_errors(personas)
@@ -162,18 +190,19 @@ module WalkthroughLive
     errors.concat(session_from_errors(scene, orders, by_id))
     errors.concat(storage_errors(scene['storage']))
     errors << 'cursor must be false (omit it to show the cursor)' if scene.key?('cursor') && scene['cursor'] != false
+    errors.concat(header_errors(scene['headers'], 'headers')) if scene.key?('headers')
     errors
   end
 
   def compose_scene_errors(scene, orders, by_id)
     errors = WalkthroughCompose.errors(scene, { orders: orders, realtime: by_id.select { |_, s| live?(s) }.keys })
-    %w[persona session_from_scene storage].each { |k| errors << "a compose scene takes no #{k}" if scene.key?(k) }
+    %w[persona session_from_scene storage headers].each { |k| errors << "a compose scene takes no #{k}" if scene.key?(k) }
     errors
   end
 
   def message_scene_errors(scene, board, orders, root)
     errors = WalkthroughMessage.errors(scene, { orders: orders, board: board, root: root })
-    %w[persona session_from_scene storage store].each { |k| errors << "a message scene takes no #{k}" if scene.key?(k) }
+    %w[persona session_from_scene storage store headers].each { |k| errors << "a message scene takes no #{k}" if scene.key?(k) }
     errors
   end
 
@@ -320,6 +349,13 @@ module WalkthroughLive
       @values = names.to_h { |n| [ n, env[n] ] }
     end
 
+    # A copy that also masks these literal values (a scene's header values).
+    def with(literals)
+      copy = dup
+      copy.instance_variable_set(:@values, @values.merge(literals.each_with_index.to_h { |v, i| [ "literal #{i}", v.to_s ] }))
+      copy
+    end
+
     def fetch(name)
       value = @values[name]
       raise MissingEnvError, "env #{name} is not set" if value.nil? || value.empty?
@@ -357,6 +393,10 @@ module WalkthroughLive
   # value is key material; changing a password does not re-key a scene.
   def frames_key(board, scene, parent_key: nil, root: nil) = WalkthroughCache.key(frames_inputs(board, scene, parent_key: parent_key, root: root))
 
+  # Header values are key material only as a digest, so a token never lands
+  # in a key's inputs.
+  def header_digest(board, scene) = Digest::SHA256.hexdigest(JSON.generate(headers(board, scene).sort))
+
   # The named inputs a live scene's frames key is made of.
   def frames_inputs(board, scene, parent_key: nil, root: nil)
     WalkthroughCache.canonicalize(live: url(scene), compose: compose_material(scene),
@@ -371,6 +411,7 @@ module WalkthroughLive
                          **(WalkthroughInset.inset?(scene) ? { inset: WalkthroughInset.material(scene) } : {}),
                          **PrototypeCapture.timeline_material(all_interactions(scene)),
                          **(scene['cursor'] == false ? { cursor: false } : {}),
+                         **(headers(board, scene).empty? ? {} : { headers: header_digest(board, scene) }),
                          browserless: PrototypeCapture.browserless_digest, capture_version: CAPTURE_VERSION)
   end
 
@@ -539,6 +580,7 @@ module WalkthroughLive
         #{restore_js(nil, nil)}
         #{dump_session_js}
         const { context, page, client } = await openPage(#{JSON.generate(desktop_spec(board))});
+        #{headers(board).empty? ? '' : "await page.setExtraHTTPHeaders(#{JSON.generate(headers(board))});"}
         await page.goto(#{JSON.generate(login['url'])}, { waitUntil: "domcontentloaded" });
         for (const step of #{JSON.generate(steps)}) {
           await page.waitForSelector(step.selector);
@@ -575,6 +617,7 @@ module WalkthroughLive
         const pageErrors = [];
         page.on("pageerror", (err) => pageErrors.push(String(err && err.message || err)));
         const seedId = await restore(page, client);
+        if (job.headers) await page.setExtraHTTPHeaders(job.headers);
         await page.evaluateOnNewDocument(linkHook);
         await page.evaluateOnNewDocument(hideCursor);
         const safe = async (fn, fallback) => { try { return await fn(); } catch (e) { void e; return fallback; } };
@@ -771,7 +814,7 @@ module WalkthroughLive
 
   def login(session:, board:, persona:, secrets:)
     values = persona_env_names(persona).to_h { |n| [ n, secrets.fetch(n) ] }
-    guard(secrets) { PrototypeCapture.run_with_retry(session, login_module(board, persona, values), retries: 0).fetch('session') }
+    guard(secrets.with(headers(board).values)) { PrototypeCapture.run_with_retry(session, login_module(board, persona, values), retries: 0).fetch('session') }
   end
 
   # A dropped connection after a live page acted leaves its state unknown, so
@@ -814,8 +857,11 @@ module WalkthroughLive
     { 'dev' => spec, 'plan' => plan, 'events' => timeline.events_by_frame,
       'lint' => PrototypeUxLint.lint_frames(plan, frames), 'band' => band, 'shots' => shots,
       'group' => WalkthroughDevice.group(scene, spec['name']),
-      'url' => url(scene), 'html' => page_html(scene, spec['name'], compose: compose, board: board, root: root) }
+      'url' => url(scene), 'html' => page_html(scene, spec['name'], compose: compose, board: board, root: root),
+      **job_headers(board, scene) }
   end
+
+  def job_headers(board, scene) = headers(board, scene).empty? ? {} : { 'headers' => headers(board, scene) }
 
   # The in-page caption band share: a browser frame maps it through the
   # frame's own transform; otherwise only the full-bleed desktop frame meets
@@ -858,6 +904,7 @@ module WalkthroughLive
     code = capture_module(board, scene, jobs: jobs, session: browser_session)
     # Only a scene past the default budget raises it.
     timeout = capture_timeout_ms(board, scene, cut && next_scene).then { |t| t > ChangeDocker::Browserless::FUNCTION_TIMEOUT_MS ? t : nil }
+    secrets = secrets.with(headers(board, scene).values)
     result = guard(secrets) { PrototypeCapture.run_with_retry(session, code, retries: retries_for(jobs), launch_args: launch, timeout_ms: timeout) }
     runs = result['devices']
     lead = cut ? runs.find { |r| r['name'] == cut['device'] } : runs.first
@@ -898,7 +945,7 @@ module WalkthroughLive
            PrototypeUxLint.lint_frames(WalkthroughTimeline.to_plan(tail), frames).map { |f| f + at }
     { 'dev' => spec, 'events' => events, 'lint' => lint.uniq.sort, 'band' => caption_band(board, scene), 'shots' => shots,
       'group' => WalkthroughDevice.group(scene, name), 'url' => url(scene), 'html' => nil,
-      'expectUrl' => url(nxt), 'cutFrame' => at, 'entryEvents' => after.first.to_a }
+      'expectUrl' => url(nxt), 'cutFrame' => at, 'entryEvents' => after.first.to_a, **job_headers(board, scene) }
   end
 
   # The desktop inset of a scene, or of a navigate run: the next scene's,
