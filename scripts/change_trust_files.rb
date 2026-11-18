@@ -198,14 +198,18 @@ module ChangeTrustFiles
     end
   end
 
+  # Each `cd` composes with every directory reached before it, so `cd a &&
+  # cd b` yields a/b. Over-matching only adds coverage.
   def changed_dirs(words, cwd)
-    words.each_cons(2).filter_map do |verb, dir|
+    words.each_cons(2).each_with_object([ cwd ]) do |(verb, dir), bases|
       next unless %w[cd pushd].include?(verb)
-      rel = dir.match?(/[$`~*?]/) ? nil : normalize(cwd.empty? ? dir : File.join(cwd, dir))
-      raise Escape, "run changes directory to #{dir.inspect}, which cannot be followed; refused" unless rel
+      raise Escape, "run changes directory to #{dir.inspect}, which cannot be followed; refused" if dir.match?(/[$`~*?]/)
 
-      rel
-    end
+      reached = bases.filter_map { |base| normalize(base.empty? ? dir : File.join(base, dir)) }
+      raise Escape, "run changes directory to #{dir.inspect}, outside the repo; refused" if reached.empty?
+
+      bases.concat(reached - bases)
+    end.drop(1)
   end
 
   # The listed path `rel` names once symlinked directories in its prefix are
@@ -230,13 +234,18 @@ module ChangeTrustFiles
   # Each shell word as quoted, and its pieces with operators and quotes
   # split away, so `"a b.sh"`, `bash x.sh; true` and `sh -c "bash x.sh"` all
   # yield the script. Over-matching a token only adds coverage.
-  def tokens(run)
+  # A word holding a nested command (`sh -c 'bash "a b.sh"'`) is split again
+  # with its own quoting, a few levels deep.
+  def tokens(run, depth = 0)
     words = begin
       Shellwords.split(run)
     rescue ArgumentError
       [ run ]
     end
-    words.flat_map { |word| [ word, *word.split(/[\s;&|<>()`$'"]+/) ] }.reject(&:empty?).uniq
+    words.flat_map do |word|
+      nested = depth < 3 && word.match?(/\s/) ? tokens(word, depth + 1) : []
+      [ word, *nested, *word.split(/[\s;&|<>()`$'"]+/) ]
+    end.reject(&:empty?)
   end
 
   # A glob whose leading directory is a symlink also matches under the

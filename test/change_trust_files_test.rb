@@ -177,6 +177,20 @@ class ChangeTrustFilesTest < Minitest::Test
     assert_equal %w[other/ci.sh scripts/alias], files.keys
   end
 
+  def test_successive_cds_compose
+    commit("scripts/nested/ci.sh" => "a\n")
+    entry = { "name" => "ci", "run" => "cd scripts && cd nested && bash ci.sh" }
+    files = ChangeTrustFiles.cover(entry, ChangeTrustFiles::Source.working_tree(@repo))["files"]
+    assert_equal [ "scripts/nested/ci.sh" ], files.keys
+  end
+
+  def test_nested_shell_quoting_is_parsed
+    commit("scripts/ci check.sh" => "a\n")
+    entry = { "name" => "ci", "run" => %q(sh -c 'bash "scripts/ci check.sh"') }
+    files = ChangeTrustFiles.cover(entry, ChangeTrustFiles::Source.working_tree(@repo))["files"]
+    assert_equal [ "scripts/ci check.sh" ], files.keys
+  end
+
   def test_cd_in_the_command_is_followed
     commit("scripts/ci.sh" => "a\n")
     entry = { "name" => "ci", "run" => "cd scripts && bash ci.sh" }
