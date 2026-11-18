@@ -532,7 +532,6 @@ class ChangeFlowCompilerTest < Minitest::Test
 
   def test_wait_for_url_takes_a_regex_and_refuses_a_bad_one
     assert_equal "done$", one("wait_for_url" => { "regex" => "done$" })[:match][:pattern]
-    assert_raises(ChangeFlowCompiler::Error) { one("wait_for_url" => { "regex" => "(" }) }
     assert_raises(ChangeFlowCompiler::Error) { one("wait_for_url" => { "glob" => "/a", "regex" => "a" }) }
   end
 
@@ -610,14 +609,44 @@ class ChangeFlowCompilerTest < Minitest::Test
   def test_network_idle_waits_for_the_triggered_request_to_finish
     page = STUB_PAGE.sub("return page;", <<~JS)
       page.onClick = () => {
-        page.emit("request", {});
-        setTimeout(() => page.emit("requestfinished", {}), 30);
+        const request = {};
+        page.emit("request", request);
+        setTimeout(() => page.emit("requestfinished", request), 30);
       };
       return page;
     JS
     steps = [ { "click" => "#save" }, { "wait_for_network_idle" => { "idle_ms" => 100, "timeout_ms" => 2000 } } ]
     result = run_flow(steps, page)
     assert_equal [ true, true ], result["steps"].map { |step| step["ok"] }
+    assert_equal 0, result["left"]
+  end
+
+  def test_a_finished_request_from_before_arming_does_not_end_the_idle_wait_early
+    page = STUB_PAGE.sub("return page;", <<~JS)
+      const old = { id: "old" };
+      page.onClick = () => {
+        const fresh = { id: "fresh" };
+        page.emit("request", fresh);
+        page.emit("requestfinished", old);
+        setTimeout(() => { page.finishedAt = Date.now(); page.emit("requestfinished", fresh); }, 150);
+      };
+      return page;
+    JS
+    steps = [ { "click" => "#save" }, { "wait_for_network_idle" => { "idle_ms" => 100, "timeout_ms" => 2000 } },
+              { "eval" => "1" } ]
+    script_page = page.sub("return page;", 'page.evaluate = async () => { if (!page.finishedAt) throw new Error("ran before the request finished"); }; return page;')
+    result = run_flow(steps, script_page)
+    assert_equal [ true, true, true ], result["steps"].map { |step| step["ok"] }, result.inspect
+  end
+
+  def test_a_regex_javascript_rejects_fails_the_wait_by_name
+    page = STUB_PAGE.sub("return page;", <<~JS)
+      page.onClick = () => page.emit("response", { url: () => "https://app.example.org/api/save", status: () => 200 });
+      return page;
+    JS
+    result = run_flow([ { "click" => "#save" }, { "wait_for_response" => { "url_regex" => "(?i)save", "timeout_ms" => 500 } } ], page)
+    assert_equal [ true, false ], result["steps"].map { |step| step["ok"] }
+    assert_match(/not a valid JavaScript regex/, result["steps"].last["error"])
     assert_equal 0, result["left"]
   end
 end

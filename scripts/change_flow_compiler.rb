@@ -226,7 +226,10 @@ class ChangeFlowCompiler
       if (match.pathOnly) {
         try { const parsed = new URL(url); target = parsed.pathname + parsed.search; } catch (err) { void err; }
       }
-      return new RegExp(match.pattern).test(target);
+      if (!match.regex) {
+        try { match.regex = new RegExp(match.pattern); } catch (err) { cfFail(`not a valid JavaScript regex: /${match.pattern}/ (${err.message})`); }
+      }
+      return match.regex.test(target);
     }
 
     async function cfPoll(check, timeoutMs, label) {
@@ -266,7 +269,7 @@ class ChangeFlowCompiler
       const listeners = [];
       let settled = false;
       let started = false;
-      let inflight = 0;
+      const inflight = new Set();
       let timer = null;
       let idleTimer = null;
       const on = (event, fn) => { page.on(event, fn); listeners.push([event, fn]); };
@@ -278,20 +281,25 @@ class ChangeFlowCompiler
         listeners.length = 0;
       };
       const finish = (value) => { if (settled) return; dispose(); resolveFn(value); };
+      const fail = (err) => { if (settled) return; dispose(); rejectFn(err); };
       const settle = () => {
         if (!started || settled) return;
         clearTimeout(idleTimer);
-        if (inflight === 0) idleTimer = setTimeout(() => finish({ idleMs: step.idleMs }), step.idleMs);
+        if (inflight.size === 0) idleTimer = setTimeout(() => finish({ idleMs: step.idleMs }), step.idleMs);
       };
       if (step.verb === "waitForResponse") {
         on("response", (response) => {
-          if (!cfUrlMatches(response.url(), step.match)) return;
+          let matched = false;
+          try { matched = cfUrlMatches(response.url(), step.match); } catch (err) { fail(err); return; }
+          if (!matched) return;
           if (step.status !== null && response.status() !== step.status) return;
           finish({ found: response.url(), status: response.status() });
         });
       } else {
-        const ended = () => { inflight = Math.max(0, inflight - 1); settle(); };
-        on("request", () => { inflight += 1; settle(); });
+        // Only requests that started after arming count, by identity: one
+        // already in flight finishing must not cancel out a new one.
+        const ended = (request) => { inflight.delete(request); settle(); };
+        on("request", (request) => { inflight.add(request); settle(); });
         on("requestfinished", ended);
         on("requestfailed", ended);
       }
@@ -750,12 +758,9 @@ class ChangeFlowCompiler
     raise Error, "#{verb} names both #{glob_key} and #{regex_key}" if keys.size > 1
 
     raw = require_string(spec, keys.first, verb)
+    # A regex is compiled by the browser runtime, in JavaScript's dialect, so
+    # it is checked there; an invalid one fails its step by name.
     if keys.first == regex_key
-      begin
-        Regexp.new(raw)
-      rescue RegexpError => e
-        raise Error, "#{verb} #{regex_key} is not a valid regex: #{e.message}"
-      end
       return { pattern: raw, pathOnly: false, description: "matching /#{raw}/" }
     end
 
