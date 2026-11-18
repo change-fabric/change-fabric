@@ -113,6 +113,29 @@ class RoastAudioBatchTest < Minitest::Test
     assert_equal 3, batch["clips"].first["attempts"]
   end
 
+  def test_estimate_only_runs_nothing_and_writes_nothing
+    a = stage_clip(File.join(@tmp, "a"), "continuous", as: "intro")
+    docker = FakeDocker.new
+    code, out = run_cli("--audio", a, "--estimate-only", docker: docker)
+    assert_equal 0, code
+    assert_match(/\$0\.00 to spend/, out)
+    assert_empty docker.calls
+    refute File.exist?(@out)
+  end
+
+  def test_a_deleted_or_edited_repair_output_regates
+    a = stage_clip(File.join(@tmp, "a"), "continuous", as: "intro")
+    run_cli("--audio", a)
+    gate = JSON.parse(File.read(File.join(@out, batch["clips"].first["source_id"], "gate.json")))
+    File.delete(gate["output"]["audio"])
+    _, out = run_cli("--audio", a)
+    refute_match(/unchanged/, out)
+    assert_equal 2, batch["clips"].first["attempts"]
+    File.write(gate["output"]["vtt"].sub(".a1.", ".a2."), "edited")
+    _, out = run_cli("--audio", a)
+    refute_match(/unchanged/, out)
+  end
+
   def test_a_changed_selection_exits_2_unless_new_batch
     a = stage_clip(File.join(@tmp, "a"), "continuous", as: "intro")
     b = stage_clip(File.join(@tmp, "b"), "continuous", as: "outro")

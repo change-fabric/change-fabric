@@ -107,6 +107,11 @@ module RoastAudio
       end
       pairs = RoastAudioBatch.pair(opts[:audios], vtts: opts[:vtts], alignments: opts[:alignments])
       scan!(pairs, opts)
+      if opts[:estimate_only]
+        out.puts("roast estimate: #{pairs.size} clip(s) through the free gate, $0.00 to spend; nothing was run")
+        return 0
+      end
+
       batch = RoastAudioBatch.open(opts[:out_dir], pairs, config_hash: batch_config_hash(opts), brief: opts[:brief], manifest: opts[:manifest],
                                                           max_attempts: opts[:max_attempts], new_batch: opts[:new_batch])
       results = batch['clips'].map { |c| gate_clip(opts, batch, c, out, docker) }
@@ -136,6 +141,10 @@ module RoastAudio
       deps = RoastAudioGate.deps(audio_sha256: cur['audio_sha256'], vtt_sha256: clip['vtt_sha256'], cfg: opts[:gate], fix: !opts[:no_fix],
                                  alignment_sha256: cur['alignment_sha256'])
       record = RoastAudioBatch.fresh(dir, id, 'gate.json', deps)
+      if record && !outputs_intact?(record)
+        RoastAudioBatch.stale!(dir, id, 'gate.json')
+        record = nil
+      end
       if record
         out.puts("gate #{id} (#{File.basename(clip['source_audio'])}): #{record['status']} (unchanged, no attempt counted)")
       else
@@ -148,6 +157,12 @@ module RoastAudio
         out.puts(gate_line(id, clip, record))
       end
       record['terminal'] == [ 'guard' ] ? 'guard' : record['status']
+    end
+
+    # A record is only as good as the files it approved: a missing or edited output is stale.
+    def outputs_intact?(record)
+      o = record['output'] or return true
+      [ %w[audio audio_sha256], %w[vtt vtt_sha256] ].all? { |f, h| RoastAudioBatch.sha(o[f]) == o[h] }
     end
 
     # Verified alignment word spans for the noise regions, else nil.
@@ -167,6 +182,6 @@ module RoastAudio
       parts.join('; ')
     end
 
-    private_class_method :window, :check!, :process, :scan!, :gate_clip, :words, :gate_line
+    private_class_method :window, :check!, :process, :scan!, :gate_clip, :outputs_intact?, :words, :gate_line
   end
 end
