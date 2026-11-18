@@ -55,6 +55,11 @@ module ChangeTrustFiles
       @links_found[rel]
     end
 
+    def links
+      listing
+      @links_found.keys
+    end
+
     private
 
     def tree_read(rel)
@@ -147,8 +152,11 @@ module ChangeTrustFiles
     text = source.link_target(rel)
     return nil unless text
 
-    target = text.start_with?('/') ? nil : normalize(File.join(File.dirname(rel), text))
-    target || raise(Escape, "symlink #{rel} points outside the repo; refused")
+    raise Escape, "symlink #{rel} points outside the repo; refused" if text.start_with?('/')
+
+    joined = File.join(File.dirname(rel), text)
+    refuse_dotdot_after_link(joined, source)
+    normalize(joined) || raise(Escape, "symlink #{rel} points outside the repo; refused")
   end
 
   def file_digest(source, rel)
@@ -240,23 +248,29 @@ module ChangeTrustFiles
     links + expanded.flat_map { |glob, _| source.paths.select { |rel| File.fnmatch?(glob, rel, GLOB_FLAGS) } }
   end
 
+  # Each directory symlink a leading part of `glob` matches, wildcards
+  # included, as [the glob rewritten under the link's target, the link].
+  def link_rewrites(glob, source)
+    parts = glob.split('/')
+    (1...parts.size).flat_map do |count|
+      pattern = parts.first(count).join('/')
+      source.links.select { |link| File.fnmatch?(pattern, link, GLOB_FLAGS) }.map do |link|
+        [ File.join(link_dest(link, source), *parts.drop(count)), link ]
+      end
+    end
+  end
+
   def through_links(globs, source)
     queue = globs.map { |glob| [ glob, nil ] }
     seen = []
-    until queue.empty? || seen.size > 200
+    until queue.empty?
+      raise Escape, "trust_paths expand through over #{MAX_FILES} symlinks; refused" if seen.size > MAX_FILES
+
       glob, link = queue.shift
+      next if seen.any? { |done, _| done == glob }
+
       seen << [ glob, link ]
-      parts = glob.split('/')
-      (1...parts.size).each do |count|
-        prefix = parts.first(count).join('/')
-        break if prefix.match?(/[*?\[{]/)
-
-        target = link_dest(prefix, source)
-        next unless target
-
-        queue << [ File.join(target, *parts.drop(count)), prefix ]
-        break
-      end
+      queue.concat(link_rewrites(glob, source))
     end
     seen
   end
