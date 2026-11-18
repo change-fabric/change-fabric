@@ -163,4 +163,30 @@ class ChangeFlowRunTest < Minitest::Test
     refute doc["cases"].first.key?("persona")
     assert_equal 6, doc["cases"].first["steps"].size
   end
+
+  # Two personas on one login form differ only in their credentials, so the
+  # env vars the flow typed decide which one it was.
+  def test_promote_tells_personas_on_one_form_apart_by_their_env
+    md = PERSONA_MD.sub("          personas:\n", <<~YAML.gsub(/^/, "          ").sub(/\A {10}/, "")
+      auth:
+        login_url: /admin/login
+        email_env: USER_EMAIL
+        password_env: USER_PASSWORD
+        email_selector: "#email"
+        password_selector: "#password"
+        submit_selector: "#sign-in"
+      personas:
+    YAML
+    )
+    Dir.mktmpdir do |dir|
+      File.write(File.join(dir, "CHANGE.md"), md)
+      flow = File.join(dir, "admin-users.flow.yml")
+      File.write(flow, LOGIN_FLOW)
+      out, = capture_io do
+        ChangeFlowRun.main([ flow, "--promote", "--change-md", File.join(dir, "CHANGE.md"),
+                             "--case-id", "list", "--acceptance", "An admin sees the users." ])
+      end
+      assert_equal "admin", YAML.safe_load(out)["cases"].first["persona"]
+    end
+  end
 end

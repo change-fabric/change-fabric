@@ -32,7 +32,7 @@ module ChangeFlowLogin
       position += 1
     end
     auth_step[:fields].each do |field|
-      return nil unless value(steps[position], 'fill', 'selector') == field[:selector]
+      return nil unless same_field?(steps[position], field)
 
       position += 1
     end
@@ -43,6 +43,16 @@ module ChangeFlowLogin
     end
     position += 1 if auth_step[:wait_for_selector] && value(steps[position], 'wait_for', 'selector') == auth_step[:wait_for_selector]
     position
+  end
+
+  # The same field typed from the same source: two personas often share one
+  # login form, and only the env var (or code_source) tells them apart.
+  def same_field?(step, field)
+    return false unless value(step, 'fill', 'selector') == field[:selector]
+    return value(step, 'fill', 'env') == field[:env] if field[:env]
+    return (step['fill']['code_source'] || {})['url'].to_s == field[:code_source][:url].to_s if field[:code_source]
+
+    true
   end
 
   def value(step, verb, key)
