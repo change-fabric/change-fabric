@@ -1,6 +1,6 @@
 # Test-case suite file specification
 
-Suite version: 3
+Suite version: 4
 
 The schema for a change-fabric test-case suite file: the sidecar YAML the
 `testcases` lane loads and replays.
@@ -43,6 +43,7 @@ only adds optional fields, so an older file always loads on a newer install.
 | 1 | The original field set: `suite`, and on each case `id`, `tags`, `acceptance`, `retries`, `quarantined`, `quarantine_reason`, `quarantine_until`, `steps`. |
 | 2 | `suite_version`, `cases[].timeout_ms`, `cases[].safe_rerun`. From this version on the loader is strict (below). |
 | 3 | `cases[].persona`, `cases[].safe_retry`. |
+| 4 | Step verbs `wait_for_url`, `wait_for_text`, `wait_until_hidden`, `wait_for_response`, `wait_for_network_idle`. |
 
 The loader is strict. An unknown top-level or case key is refused by name, and
 a key newer than the file's declared `suite_version` is refused with the version
@@ -108,6 +109,11 @@ quoted attribute value (`a[title="Next >>"]`) are plain CSS.
 | action | wait_for | Waits for a selector, a url fragment, or a navigation load state. |
 | action | screenshot | Captures a named screenshot at this point in the flow. `full_page: true` captures the whole scrollable page; `viewport: { width, height }` resizes for this capture only. |
 | action | capture | Reads a selector into a named variable: `{ selector, as: name, kind: text, number, or count }` (default `text`; `number` is the first number in the text, commas ignored). |
+| state wait | wait_for_url | (suite_version 4) Polls until the current url matches a glob (`wait_for_url: "/checkout/*"`, or `{ glob: }`) or a regex (`{ regex: }`). In a glob `*` stays within a path segment, `**` crosses them and `?` is one character; a pattern starting with `/` matches the path and query, anything else the full url. |
+| state wait | wait_for_text | (suite_version 4) Polls until the page text, or a `selector`'s text, contains `text` (`wait_for_text: Saved`, or `{ text:, selector: }`). |
+| state wait | wait_until_hidden | (suite_version 4) Waits until the selector is absent or hidden, such as a spinner going away. |
+| event wait | wait_for_response | (suite_version 4) Waits for a response whose url matches `url` (a glob, as `wait_for_url`) or `url_regex`, with an optional `status`. |
+| event wait | wait_for_network_idle | (suite_version 4) Waits until no request has been in flight for `idle_ms` (100 to 10000, default 500; `wait_for_network_idle: true` takes the default). |
 | assertion | expect_visible | The selector must be present and visible. |
 | assertion | expect_hidden | The selector must be absent or hidden. |
 | assertion | expect_text | The selector's text must `equals` or `contains` the expected string. |
@@ -152,6 +158,21 @@ probe off for it so its post-logout assertions run.
 
 A seeded case starts on the page the persona's login ended on, as it did when
 each case logged in itself, unless its first step is a `goto`.
+
+## State waits and event waits
+
+A state wait checks the page as it is, repeatedly, until its condition holds or
+its `timeout_ms` runs out, so it can sit anywhere in a case.
+
+An event wait observes something that happens, and an event that already
+happened cannot be observed. So an event wait attaches to the step before it
+(`after: previous`, the default): its listener is armed before that triggering
+step runs, and awaited after it, so a response that lands while the click is
+still returning is still caught. Its `timeout_ms` and the idle window start
+once the trigger has finished. `after: none` arms it when the wait itself
+starts, and an event wait that is the first step, or follows another event
+wait, arms the same way. Listeners are removed on a match, on the timeout, and
+when the triggering step fails.
 
 ## Secrets
 

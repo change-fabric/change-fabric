@@ -517,4 +517,107 @@ class ChangeFlowCompilerTest < Minitest::Test
     assert_includes js, "async function fillField(session, field, timeoutMs)"
     assert_includes js, "async function resolveCodeSource(codeSource)"
   end
+
+  # --- waits (suite_version 4) ---------------------------------------------------
+
+  def test_wait_for_url_compiles_a_glob_and_a_path_glob
+    full = one("wait_for_url" => "https://app.example.org/**/done")
+    assert_equal "^https://app\\.example\\.org/.*/done$", full[:match][:pattern]
+    refute full[:match][:pathOnly]
+    path = one("wait_for_url" => "/orders/*")
+    assert path[:match][:pathOnly]
+    assert_match Regexp.new(path[:match][:pattern]), "/orders/42"
+    refute_match Regexp.new(path[:match][:pattern]), "/orders/42/items"
+  end
+
+  def test_wait_for_url_takes_a_regex_and_refuses_a_bad_one
+    assert_equal "done$", one("wait_for_url" => { "regex" => "done$" })[:match][:pattern]
+    assert_raises(ChangeFlowCompiler::Error) { one("wait_for_url" => { "regex" => "(" }) }
+    assert_raises(ChangeFlowCompiler::Error) { one("wait_for_url" => { "glob" => "/a", "regex" => "a" }) }
+  end
+
+  def test_wait_for_text_and_wait_until_hidden
+    text = one("wait_for_text" => { "text" => "Saved", "selector" => "#toast" })
+    assert_equal [ "Saved", "#toast" ], [ text[:text], text[:selector] ]
+    assert_equal "waitUntilHidden", one("wait_until_hidden" => ".spinner")[:verb]
+  end
+
+  def test_event_waits_attach_to_the_previous_step_by_default
+    response = one("wait_for_response" => { "url" => "/api/save", "status" => 201 })
+    assert_equal [ "previous", 201 ], [ response[:after], response[:status] ]
+    idle = one("wait_for_network_idle" => true)
+    assert_equal [ 500, "previous" ], [ idle[:idleMs], idle[:after] ]
+    assert_equal "none", one("wait_for_network_idle" => { "idle_ms" => 200, "after" => "none" })[:after]
+  end
+
+  def test_event_waits_refuse_bad_options
+    assert_raises(ChangeFlowCompiler::Error) { one("wait_for_response" => { "url" => "/a", "status" => 99 }) }
+    assert_raises(ChangeFlowCompiler::Error) { one("wait_for_response" => { "url" => "/a", "after" => "next" }) }
+    assert_raises(ChangeFlowCompiler::Error) { one("wait_for_network_idle" => { "idle_ms" => 50 }) }
+  end
+
+  # Runs cfRunFlow in node against a stub page built on EventEmitter, so the
+  # order in which a listener is armed, and its removal, are checked without
+  # a browser. `page_js` builds the page; the script prints the step records
+  # and how many listeners are left.
+  def run_flow(steps, page_js)
+    skip "node not installed" unless system("command -v node >/dev/null 2>&1")
+    compiled = ChangeFlowCompiler.new(steps, base_url: "https://app.example.org", env: ENV_FIXTURE).compile
+    script = <<~JS
+      const { EventEmitter } = require("events");
+      #{ChangeFlowCompiler.flow_runtime_js}
+      const page = (() => { #{page_js} })();
+      cfRunFlow(page, #{JSON.generate(compiled)}).then((steps) => {
+        const left = ["response", "request", "requestfinished", "requestfailed"].reduce((n, e) => n + page.listenerCount(e), 0);
+        console.log(JSON.stringify({ steps: steps.map((s) => ({ ok: s.ok, error: s.error })), left: left }));
+      });
+    JS
+    JSON.parse(IO.popen([ "node", "-e", script ], &:read))
+  end
+
+  STUB_PAGE = <<~JS
+    const page = new EventEmitter();
+    page.url = () => "https://app.example.org/";
+    const button = { click: async () => { if (page.onClick) page.onClick(); } };
+    page.waitForSelector = async (selector) => { if (selector === "#missing") throw new Error("no #missing"); return button; };
+    return page;
+  JS
+
+  def test_a_response_landing_inside_the_click_is_still_matched
+    page = STUB_PAGE.sub("return page;", <<~JS)
+      page.onClick = () => page.emit("response", { url: () => "https://app.example.org/api/save", status: () => 201 });
+      return page;
+    JS
+    result = run_flow([ { "click" => "#save" }, { "wait_for_response" => { "url" => "/api/save", "status" => 201 } } ], page)
+    assert_equal [ true, true ], result["steps"].map { |step| step["ok"] }
+    assert_equal 0, result["left"]
+  end
+
+  def test_an_event_wait_that_times_out_removes_its_listener
+    steps = [ { "click" => "#save" }, { "wait_for_response" => { "url" => "/api/save", "timeout_ms" => 50 } } ]
+    result = run_flow(steps, STUB_PAGE)
+    assert_equal [ true, false ], result["steps"].map { |step| step["ok"] }
+    assert_match(/nothing matched within 50ms/, result["steps"].last["error"])
+    assert_equal 0, result["left"]
+  end
+
+  def test_a_failed_trigger_removes_the_armed_listener
+    result = run_flow([ { "click" => "#missing" }, { "wait_for_response" => "/api/save" } ], STUB_PAGE)
+    assert_equal [ false ], result["steps"].map { |step| step["ok"] }
+    assert_equal 0, result["left"]
+  end
+
+  def test_network_idle_waits_for_the_triggered_request_to_finish
+    page = STUB_PAGE.sub("return page;", <<~JS)
+      page.onClick = () => {
+        page.emit("request", {});
+        setTimeout(() => page.emit("requestfinished", {}), 30);
+      };
+      return page;
+    JS
+    steps = [ { "click" => "#save" }, { "wait_for_network_idle" => { "idle_ms" => 100, "timeout_ms" => 2000 } } ]
+    result = run_flow(steps, page)
+    assert_equal [ true, true ], result["steps"].map { |step| step["ok"] }
+    assert_equal 0, result["left"]
+  end
 end

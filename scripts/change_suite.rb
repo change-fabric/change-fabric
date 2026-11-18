@@ -197,7 +197,7 @@ class ChangeSuite
                  safe_retry: boolean(raw_case['safe_retry'], 'safe_retry', where),
                  expects_logout: boolean(raw_case['expects_logout'], 'expects_logout', where),
                  quarantine: quarantine(raw_case, name, id, path),
-                 steps: steps(raw_case['steps'], name, id, path))
+                 steps: steps(raw_case['steps'], name, id, path, version))
   end
 
   def self.safe_rerun(value, where) = boolean(value, 'safe_rerun', where)
@@ -260,12 +260,24 @@ class ChangeSuite
     raise Error, "#{where} has a `quarantine_until` that is not an ISO-8601 date (YYYY-MM-DD): #{value}"
   end
 
-  def self.steps(raw_steps, name, id, path)
+  def self.steps(raw_steps, name, id, path, version = ChangeSuiteSchema::DEFAULT_SUITE_VERSION)
     where = "suite '#{name}' case '#{id}' (#{path})"
     raise Error, "#{where} has no steps" unless raw_steps.is_a?(Array) && !raw_steps.empty?
 
-    raw_steps.each_with_index { |raw_step, index| check_verb(raw_step, index, where) }
+    raw_steps.each_with_index do |raw_step, index|
+      check_verb(raw_step, index, where)
+      check_verb_version(raw_step, index, where, version)
+    end
     raw_steps
+  end
+
+  def self.check_verb_version(raw_step, index, where, version)
+    verb = (raw_step.keys.map(&:to_s) & ChangeSuiteSchema::STEP_VERBS).first
+    added = ChangeSuiteSchema.verb_version(verb)
+    return if added <= version
+
+    raise Error, "#{where} step #{index + 1} uses `#{verb}`, added in suite_version #{added}, but declares " \
+                 "suite_version #{version}; set suite_version: #{added}"
   end
 
   # The verb check is structural and runs before the compiler sees the step, so

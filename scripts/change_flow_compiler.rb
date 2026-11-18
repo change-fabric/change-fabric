@@ -52,8 +52,16 @@ class ChangeFlowCompiler
   ACTIONS = %w[goto click fill select press wait_for screenshot capture].freeze
   ASSERTIONS = %w[expect_visible expect_hidden expect_text expect_url expect_status expect_count
                   expect_equal].freeze
+  # State waits poll the current page until a condition holds. Event waits
+  # observe something that happens, so the runtime arms their listener before
+  # the step that triggers it (the step before, unless `after: none`).
+  STATE_WAITS = %w[wait_for_url wait_for_text wait_until_hidden].freeze
+  EVENT_WAITS = %w[wait_for_response wait_for_network_idle].freeze
   ESCAPE_HATCH = 'eval'
-  VERBS = (ACTIONS + ASSERTIONS + [ ESCAPE_HATCH ]).freeze
+  VERBS = (ACTIONS + STATE_WAITS + EVENT_WAITS + ASSERTIONS + [ ESCAPE_HATCH ]).freeze
+  # Bounds for wait_for_network_idle's quiet window, in ms.
+  NETWORK_IDLE_RANGE = (100..10_000)
+  DEFAULT_NETWORK_IDLE_MS = 500
 
   # Every compiled step carries a `verb` in this camelCase runtime spelling, so
   # the JS runtime switches on one token while the flow file keeps snake_case.
@@ -211,6 +219,110 @@ class ChangeFlowCompiler
       }
     }
 
+    // A url matcher compiled on the host: a glob became a regex there. A
+    // pattern starting with "/" is matched against path plus query only.
+    function cfUrlMatches(url, match) {
+      let target = url;
+      if (match.pathOnly) {
+        try { const parsed = new URL(url); target = parsed.pathname + parsed.search; } catch (err) { void err; }
+      }
+      return new RegExp(match.pattern).test(target);
+    }
+
+    async function cfPoll(check, timeoutMs, label) {
+      const deadline = Date.now() + timeoutMs;
+      while (Date.now() < deadline) {
+        if (await check()) return;
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      cfFail(`${label}: not true within ${timeoutMs}ms`);
+    }
+
+    async function cfTextNow(page, step) {
+      try {
+        if (!step.selector) return await page.evaluate(() => (document.body ? document.body.innerText || "" : ""));
+        if (step.locator) {
+          const el = (await page.evaluateHandle(cfLocate, step.locator, "attached")).asElement();
+          return el ? await el.evaluate((node) => node.innerText || node.textContent || "") : "";
+        }
+        const el = await page.$(step.selector);
+        return el ? await el.evaluate((node) => node.innerText || node.textContent || "") : "";
+      } catch (err) {
+        return "";
+      }
+    }
+
+    function cfIsEventWait(step) { return !!step && (step.verb === "waitForResponse" || step.verb === "waitForNetworkIdle"); }
+
+    // An event wait's listener. Listening starts here, so a response that
+    // arrives while the triggering step is still running is not missed; the
+    // timeout and the idle window start at start(), after the trigger. Every
+    // listener is removed on a match, on the timeout, and on dispose().
+    function cfArm(page, step) {
+      let resolveFn;
+      let rejectFn;
+      const done = new Promise((resolve, reject) => { resolveFn = resolve; rejectFn = reject; });
+      done.catch(() => {});
+      const listeners = [];
+      let settled = false;
+      let started = false;
+      let inflight = 0;
+      let timer = null;
+      let idleTimer = null;
+      const on = (event, fn) => { page.on(event, fn); listeners.push([event, fn]); };
+      const dispose = () => {
+        settled = true;
+        clearTimeout(timer);
+        clearTimeout(idleTimer);
+        for (const [event, fn] of listeners) page.off(event, fn);
+        listeners.length = 0;
+      };
+      const finish = (value) => { if (settled) return; dispose(); resolveFn(value); };
+      const settle = () => {
+        if (!started || settled) return;
+        clearTimeout(idleTimer);
+        if (inflight === 0) idleTimer = setTimeout(() => finish({ idleMs: step.idleMs }), step.idleMs);
+      };
+      if (step.verb === "waitForResponse") {
+        on("response", (response) => {
+          if (!cfUrlMatches(response.url(), step.match)) return;
+          if (step.status !== null && response.status() !== step.status) return;
+          finish({ found: response.url(), status: response.status() });
+        });
+      } else {
+        const ended = () => { inflight = Math.max(0, inflight - 1); settle(); };
+        on("request", () => { inflight += 1; settle(); });
+        on("requestfinished", ended);
+        on("requestfailed", ended);
+      }
+      return {
+        index: step.index,
+        done: done,
+        dispose: dispose,
+        start() {
+          if (settled || started) return;
+          started = true;
+          timer = setTimeout(() => {
+            if (settled) return;
+            dispose();
+            rejectFn(new Error(`${step.label}: nothing matched within ${step.timeoutMs}ms`));
+          }, step.timeoutMs);
+          if (step.verb === "waitForNetworkIdle") settle();
+        },
+      };
+    }
+
+    async function cfAwaitEvent(page, step, state) {
+      const armed = state.armed && state.armed.index === step.index ? state.armed : cfArm(page, step);
+      state.armed = null;
+      try {
+        armed.start();
+        return await armed.done;
+      } finally {
+        armed.dispose();
+      }
+    }
+
     async function cfRunStep(page, step, state) {
       const timeout = step.timeoutMs;
       switch (step.verb) {
@@ -242,6 +354,18 @@ class ChangeFlowCompiler
             if (response) state.lastResponse = response;
           }
           return null;
+        case "waitForUrl":
+          await cfPoll(async () => cfUrlMatches(page.url(), step.match), timeout, step.label);
+          return { found: page.url() };
+        case "waitForText":
+          await cfPoll(async () => (await cfTextNow(page, step)).indexOf(step.text) !== -1, timeout, step.label);
+          return null;
+        case "waitUntilHidden":
+          await cfWait(page, step, timeout, "hidden");
+          return null;
+        case "waitForResponse":
+        case "waitForNetworkIdle":
+          return cfAwaitEvent(page, step, state);
         case "screenshot":
           return cfScreenshot(page, step);
         case "capture": {
@@ -296,10 +420,15 @@ class ChangeFlowCompiler
     // captured vars it had) and stop it after a step (afterStep returns
     // true), which is how the testcases lane resumes a case after a re-login.
     async function cfRunFlow(page, steps, options = {}) {
-      const state = { lastResponse: null, vars: Object.assign({}, options.vars || {}) };
+      const state = { lastResponse: null, vars: Object.assign({}, options.vars || {}), armed: null };
       const results = [];
-      for (const step of steps) {
-        if (step.index < (options.startAt || 0)) continue;
+      const pending = steps.filter((step) => step.index >= (options.startAt || 0));
+      for (let position = 0; position < pending.length; position += 1) {
+        const step = pending[position];
+        const next = pending[position + 1];
+        // Arm the next step's event wait before this step runs, so the event
+        // this step causes is observed even when it lands immediately.
+        if (cfIsEventWait(next) && next.after === "previous" && !cfIsEventWait(step)) state.armed = cfArm(page, next);
         const record = { index: step.index, verb: step.verb, label: step.label, raw: step.raw === true, ok: true, error: null };
         try {
           const detail = await cfRunStep(page, step, state);
@@ -309,9 +438,10 @@ class ChangeFlowCompiler
           record.error = String(err);
         }
         results.push(record);
-        if (options.afterStep && (await options.afterStep(step, record))) break;
-        if (!record.ok) break;
+        const stop = (options.afterStep && (await options.afterStep(step, record))) || !record.ok;
+        if (stop) break;
       }
+      if (state.armed) state.armed.dispose();
       results.vars = state.vars;
       return results;
     }
@@ -562,6 +692,88 @@ class ChangeFlowCompiler
 
   # `full_page: true` captures the whole scrollable page; `viewport:` resizes
   # for this capture only.
+  # --- waits ------------------------------------------------------------------
+
+  def compile_wait_for_url(value, _captured)
+    spec = spec_for(value, 'glob')
+    match = url_match(spec, 'glob', 'regex', 'wait_for_url')
+    { match: match, label: "wait_for_url #{match[:description]}" }
+  end
+
+  def compile_wait_for_text(value, _captured)
+    spec = spec_for(value, 'text')
+    text = require_string(spec, 'text', 'wait_for_text')
+    selector = spec['selector']&.to_s
+    { text: text, selector: selector, label: "wait_for_text #{text.inspect}#{" in #{selector}" if selector}" }
+  end
+
+  def compile_wait_until_hidden(value, _captured)
+    selector = selector_for(value, 'wait_until_hidden')
+    { selector: selector, label: "wait_until_hidden #{selector}" }
+  end
+
+  def compile_wait_for_response(value, _captured)
+    spec = spec_for(value, 'url')
+    match = url_match(spec, 'url', 'url_regex', 'wait_for_response')
+    status = spec['status']
+    raise Error, "wait_for_response status must be an HTTP status code, got #{status.inspect}" unless status.nil? || (status.is_a?(Integer) && (100..599).cover?(status))
+
+    { match: match, status: status, after: event_after(spec, 'wait_for_response'),
+      label: "wait_for_response #{match[:description]}#{" status #{status}" if status}" }
+  end
+
+  def compile_wait_for_network_idle(value, _captured)
+    spec = value == true ? {} : spec_for(value, 'idle_ms')
+    idle = spec.fetch('idle_ms', DEFAULT_NETWORK_IDLE_MS)
+    unless idle.is_a?(Integer) && NETWORK_IDLE_RANGE.cover?(idle)
+      raise Error, "wait_for_network_idle idle_ms must be an integer from #{NETWORK_IDLE_RANGE.min} to #{NETWORK_IDLE_RANGE.max}, got #{idle.inspect}"
+    end
+
+    { idleMs: idle, after: event_after(spec, 'wait_for_network_idle'), label: "wait_for_network_idle #{idle}ms" }
+  end
+
+  # `previous` (the default) arms the listener before the step before this
+  # one; `none` arms it when this step starts.
+  def event_after(spec, verb)
+    after = (spec['after'] || 'previous').to_s
+    return after if %w[previous none].include?(after)
+
+    raise Error, "#{verb} after must be previous or none, got #{after.inspect}"
+  end
+
+  # A glob (`*` within a path segment, `**` across them, `?` one character)
+  # or a regex, compiled to one regex source the runtime tests. A pattern
+  # starting with "/" matches the path and query rather than the full url.
+  def url_match(spec, glob_key, regex_key, verb)
+    keys = spec.slice(glob_key, regex_key).keys
+    raise Error, "#{verb} needs #{glob_key} or #{regex_key}" if keys.empty?
+    raise Error, "#{verb} names both #{glob_key} and #{regex_key}" if keys.size > 1
+
+    raw = require_string(spec, keys.first, verb)
+    if keys.first == regex_key
+      begin
+        Regexp.new(raw)
+      rescue RegexpError => e
+        raise Error, "#{verb} #{regex_key} is not a valid regex: #{e.message}"
+      end
+      return { pattern: raw, pathOnly: false, description: "matching /#{raw}/" }
+    end
+
+    { pattern: glob_regex(raw), pathOnly: raw.start_with?('/'), description: raw.inspect }
+  end
+
+  def glob_regex(glob)
+    body = glob.split(/(\*\*|\*|\?)/).map do |part|
+      case part
+      when '**' then '.*'
+      when '*' then '[^/]*'
+      when '?' then '.'
+      else Regexp.escape(part)
+      end
+    end.join
+    "^#{body}$"
+  end
+
   def compile_screenshot(value, _captured)
     spec = spec_for(value, 'name')
     name = (spec['name'] || 'screenshot').to_s

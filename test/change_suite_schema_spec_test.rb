@@ -53,7 +53,7 @@ class ChangeSuiteSchemaSpecTest < Minitest::Test
   # The vocabulary is the compiler's. A doc that named a verb the compiler does
   # not have would promise a step nothing can run.
   def test_every_documented_step_verb_is_one_the_compiler_compiles
-    documented = spec_text.scan(/^\| (?:action|assertion|escape hatch) \| (\S+) \|/).flatten
+    documented = spec_text.scan(/^\| (?:action|state wait|event wait|assertion|escape hatch) \| (\S+) \|/).flatten
     assert_equal ChangeSuiteSchema::STEP_VERBS.sort, documented.sort
   end
 
@@ -95,6 +95,11 @@ class ChangeSuiteSchemaSpecTest < Minitest::Test
     item = ChangeSuite.load_file(compat("v3")).cases.first
     assert_equal "admin", item.persona
     assert item.safe_retry
+  end
+
+  def test_a_v4_file_loads_its_waits
+    steps = ChangeSuite.load_file(compat("v4")).cases.first.steps
+    assert_equal 7, steps.size
   end
 
   def test_a_file_newer_than_the_install_names_the_update
