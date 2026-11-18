@@ -34,7 +34,7 @@ module WalkthroughHousekeeping
   DEFAULT_WARN_GB = 2.0
   GB = 1024**3
   # Content-keyed outputs that cost money or a long fetch to regenerate.
-  KEPT = %w[audio music images broll pronunciation icons].freeze
+  KEPT = %w[audio music images broll pronunciation icons fonts].freeze
   # Kept until older than the retention.
   AGED = %w[roasts].freeze
 
