@@ -85,6 +85,23 @@ class ChangeTestcasesReportTest < Minitest::Test
     end
   end
 
+  # The lane records an unclear or ungraded case as `fail`, never `pass`; the
+  # report must show it as a failure in both outputs.
+  def test_an_unclear_or_ungraded_case_renders_as_a_failure
+    with_run do |run_dir, ledger|
+      unclear = ChangeCaseResult.new(key: "checkout/pay", suite: "checkout", id: "pay", status: "fail", run_id: "r3",
+                                     attempts: [ { "number" => 1, "outcome" => "pass" } ], acceptance_verdict: "unclear")
+      ungraded = ChangeCaseResult.new(key: "checkout/ship", suite: "checkout", id: "ship", status: "fail", run_id: "r3",
+                                      attempts: [ { "number" => 1, "outcome" => "pass" } ])
+      report = ChangeTestcasesReport.new(run_dir: run_dir, ledger: ledger, records: [ unclear, ungraded ])
+      assert_includes report.render_html, '<span class="fail">fail</span>'
+      refute_includes report.render_html, '<span class="pass">'
+      doc = REXML::Document.new(report.render_junit)
+      assert_equal "2", doc.root.attributes["failures"]
+      assert_equal 2, REXML::XPath.match(doc, "//testcase/failure").size
+    end
+  end
+
   def test_records_default_to_the_run_dirs_case_results
     with_run do |run_dir, ledger|
       File.write(File.join(run_dir, "case-results.jsonl"), "#{record('pay', 'pass', 'r3').to_json}\n")
