@@ -52,11 +52,25 @@ class ChangeQaFilmTest < Minitest::Test
           "wait_for_selector" => "nav" }
       ]
     )
-    steps = ChangeQaFilm.login_steps(auth)
-    assert_equal({ "goto" => "/login" }, steps.first)
-    assert_equal({ "fill" => { "selector" => "#pass", "env" => "QA_PASS" } }, steps[3])
-    assert_equal({ "wait_for" => { "selector" => "nav" } }, steps.last)
     assert_equal %w[QA_USER QA_PASS], ChangeQaFilm.secret_names(auth)
+    compiler = ChangeFlowCompiler.new([ { "goto" => "/reports" } ], base_url: "https://s.test")
+    code = ChangeQaFilm.probe_module(compiler, auth: ChangeFlowCompiler.compile_auth(auth.steps, base_url: "https://s.test"),
+                                               basic_auth: { "username" => "u", "password" => "p" },
+                                               viewport: { "width" => 1280, "height" => 800 })
+    assert_includes code, "runAuthStep(session, step)", "probe logs in through the lanes' auth runtime"
+    assert_includes code, "page.authenticate"
+    assert_includes code, "https://s.test/login"
+  end
+
+  def test_an_ungraded_run_whose_steps_all_passed_is_a_pass
+    ok = [ { "ok" => true }, { "ok" => true } ]
+    assert_equal "pass", ChangeQaFilm.film_status({ "status" => "fail" }, ok, 2)
+    assert_equal "fail", ChangeQaFilm.film_status({ "status" => "fail", "acceptance_verdict" => "unclear" }, ok, 2)
+    assert_equal "fail", ChangeQaFilm.film_status({ "status" => "fail" }, ok.first(1), 2)
+  end
+
+  def test_an_omitted_persona_is_anonymous
+    assert_equal "anonymous", ChangeQaFilm.parse(%w[--url https://x.test])[:persona]
   end
 
   def test_secrets_come_from_env_then_the_store_and_report_what_is_missing
@@ -115,14 +129,13 @@ class ChangeQaFilmTest < Minitest::Test
   end
 
   def test_probe_view_hides_login_steps_and_lifts_the_snapshot
-    result = { "steps" => [
-      { "index" => 0, "label" => "fill #user from env QA_USER", "ok" => true },
-      { "index" => 1, "label" => "click /reports", "ok" => true },
-      { "index" => 2, "label" => "eval", "ok" => true, "raw" => true, "value" => { "title" => "Reports" } }
+    result = { "login" => "ok", "steps" => [
+      { "index" => 0, "label" => "goto /reports", "ok" => true },
+      { "index" => 1, "label" => "eval", "ok" => true, "raw" => true, "value" => { "title" => "Reports" } }
     ] }
-    view = ChangeQaFilm.probe_view(result, 1)
+    view = ChangeQaFilm.probe_view(result)
     assert_equal "ok", view[:login]
-    assert_equal [ 1 ], view[:steps].map { |step| step["index"] }
+    assert_equal [ 0 ], view[:steps].map { |step| step["index"] }
     assert_equal "Reports", view[:snapshot]["title"]
   end
 

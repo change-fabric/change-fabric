@@ -122,24 +122,32 @@ module ChangeQaFilm
     { acceptance: raw['acceptance'].to_s, steps: steps, checks: checks }
   end
 
-  # The persona's login as flow steps, for `probe`, which has no lane to log in
-  # for it: each auth step's page, its fields, its submit and its wait.
-  def login_steps(auth)
-    auth.steps.flat_map do |step|
-      list = []
-      list << { 'goto' => step[:url] } unless step[:url].to_s.empty?
-      step[:fields].each { |field| list << { 'fill' => login_fill(field) } }
-      list << { 'click' => step[:submit_selector] } if step[:submit_selector]
-      list << { 'wait_for' => { 'selector' => step[:wait_for_selector] } } if step[:wait_for_selector]
-      list
-    end
-  end
-
-  def login_fill(field)
-    return { 'selector' => field[:selector], 'env' => field[:env] } if field[:env] && !field[:env].empty?
-    return { 'selector' => field[:selector], 'code_source' => field[:code_source].transform_keys(&:to_s).compact } if field[:code_source]
-
-    raise Error, "login field #{field[:selector]} names no env or code_source"
+  # The browserless module `probe` runs: the lane's HTTP basic auth, then the
+  # persona's login through the same auth runtime the lanes use (it waits on
+  # each submit's navigation), then the draft. Carries credentials: never log it.
+  def probe_module(compiler, auth:, basic_auth:, viewport:)
+    <<~JS
+      #{ChangeFlowCompiler.auth_and_flow_runtime_js}
+      export default async ({ page }) => {
+        const basicAuth = #{JSON.generate(basic_auth)};
+        if (basicAuth) {
+          await page.authenticate({ username: basicAuth.username, password: basicAuth.password });
+          await page.setExtraHTTPHeaders({ Authorization: "Basic " + btoa(`${basicAuth.username}:${basicAuth.password}`) });
+        }
+        await page.setViewport(#{JSON.generate(viewport)});
+        const auth = #{JSON.generate(auth)};
+        if (auth) {
+          const session = { page: page, lastAuthResponse: null };
+          try {
+            for (const step of auth.steps) await runAuthStep(session, step);
+          } catch (err) {
+            return { data: { login: "failed", loginError: String(err), steps: [] }, type: "application/json" };
+          }
+        }
+        const steps = await cfRunFlow(page, #{JSON.generate(compiler.compile)});
+        return { data: { login: "ok", steps: steps }, type: "application/json" };
+      };
+    JS
   end
 
   # The env names a persona's login reads.
@@ -236,6 +244,7 @@ module ChangeQaFilm
       options[key] = value
     end
     raise ArgumentError, '--url is required' if options[:url].to_s.empty?
+    options[:persona] ||= 'anonymous'
 
     options
   end
@@ -244,11 +253,25 @@ module ChangeQaFilm
     auth = persona_auth(options)
     require_secrets(auth)
     draft = opening_goto(options[:draft] ? load_draft(options[:draft])[:steps] : [], options[:url])
-    steps = (auth ? login_steps(auth) : []) + draft + [ { 'eval' => { 'script' => SNAPSHOT_JS } } ]
-    compiler = ChangeFlowCompiler.new(steps, base_url: options[:url], timeout_ms: 30_000, viewport: lane_viewport(options))
-    result = with_session(options) { |session| session.run_function(compiler.function_module, launch_args: launch_args(options)) }
-    puts JSON.pretty_generate(probe_view(result, auth ? login_steps(auth).size : 0))
+    compiler = ChangeFlowCompiler.new(draft + [ { 'eval' => { 'script' => SNAPSHOT_JS } } ], base_url: options[:url],
+                                                                                          timeout_ms: 30_000)
+    code = probe_module(compiler, auth: auth && ChangeFlowCompiler.compile_auth(auth.steps, base_url: options[:url]),
+                                  basic_auth: basic_auth(options), viewport: lane_viewport(options))
+    result = with_session(options) { |session| session.run_function(code, launch_args: launch_args(options)) }
+    puts JSON.pretty_generate(probe_view(result))
     0
+  end
+
+  # The lane's basic_auth credentials, resolved like a persona's.
+  def basic_auth(options)
+    raw = testcases_lane(options)['basic_auth']
+    return nil unless raw.is_a?(Hash)
+
+    names = [ raw['username_env'], raw['password_env'] ].map(&:to_s)
+    missing = resolve_secrets(names.reject(&:empty?), store: secret_store)
+    raise Error, "basic_auth credentials not set: #{missing.join(', ')}; stage them with cf:secret-intake" unless missing.empty?
+
+    { 'username' => ENV[names[0]].to_s, 'password' => ENV[names[1]].to_s }
   end
 
   # The draft as it will be filmed: opening on a page, the staging url itself
@@ -258,15 +281,14 @@ module ChangeQaFilm
     first.is_a?(Hash) && first.key?('goto') ? steps : [ { 'goto' => url } ] + steps
   end
 
-  # Drops the login's own steps from the print, and lifts the snapshot out of
-  # the final eval record.
-  def probe_view(result, login_count)
-    records = Array(result.is_a?(Hash) ? result['steps'] : nil)
-    login = records.first(login_count)
+  # The login outcome, each draft step's record, and the snapshot lifted out
+  # of the final eval record.
+  def probe_view(result)
+    data = result.is_a?(Hash) ? result : {}
+    records = Array(data['steps'])
     snapshot = records.last if records.last && records.last['raw'] && records.last['ok']
-    body = records.drop(login_count)
-    body = body[0...-1] if snapshot
-    { login: login.all? { |record| record['ok'] } ? 'ok' : 'failed', login_error: login.find { |r| !r['ok'] }&.dig('error'),
+    body = snapshot ? records[0...-1] : records
+    { login: data['login'] || 'failed', login_error: data['loginError'],
       steps: body.map { |record| record.slice('index', 'label', 'ok', 'error', 'found') },
       snapshot: snapshot&.dig('value') }.compact
   end
@@ -277,6 +299,7 @@ module ChangeQaFilm
 
     auth = persona_auth(options)
     require_secrets(auth)
+    basic_auth(options)
     entries = plan(draft, flag_steps_for(options), options[:url], probe: !options[:flag_probe].to_s.empty?)
     out = File.expand_path(options[:out] || File.join(Dir.pwd, 'qa-film', Time.now.utc.strftime('%Y%m%dT%H%M%SZ')))
     FileUtils.mkdir_p(out)
@@ -324,13 +347,25 @@ module ChangeQaFilm
     result_path = record['evidence_dir'] && File.join(record['evidence_dir'], 'result.json')
     results = result_path && File.exist?(result_path) ? JSON.parse(File.read(result_path))['steps'] : []
     labels = ChangeFlowCompiler.new(entries.map { |entry| entry[:step] }, base_url: options[:url]).labels
-    status = record['status'] || 'fail'
+    status = film_status(record, results, entries.size)
     checklist_path = File.join(run_dir, 'checklist.md')
     File.write(checklist_path, checklist(entries: entries, labels: labels, results: results, flag: options[:flag],
                                          acceptance: acceptance, verdict: record['acceptance_verdict'], status: status))
     { status: status, checklist: checklist_path, video: video_path(run_dir), report: existing(run_dir, 'report.html'),
       pdf: existing(run_dir, 'report.pdf'), junit: existing(run_dir, 'junit.xml'), run_dir: run_dir,
       saved_suite: status == 'pass' ? options[:save_suite] : nil }.compact
+  end
+
+  # The lane's verdict, except that a run whose every step passed but whose
+  # acceptance was not graded (no grader on this host, or
+  # CF_SKIP_ACCEPTANCE_GRADING) is a pass: the checklist shows the criterion
+  # as not graded, so the evidence never claims a judgment nobody made. A
+  # graded `fail` or `unclear` stays a fail.
+  def film_status(record, results, step_count)
+    return record['status'] if record['status'] == 'pass'
+
+    all_ran = Array(results).size == step_count && Array(results).all? { |step| step['ok'] }
+    all_ran && record['acceptance_verdict'].nil? ? 'pass' : 'fail'
   end
 
   def flag_steps_for(options)

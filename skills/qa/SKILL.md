@@ -63,7 +63,11 @@ these cases are already committed.
 [--save-suite <path>]` films one flag-gated flow on a deployed environment,
 signed in as a persona, and leaves client UAT evidence: an MP4, `report.html`,
 `report.pdf`, `junit.xml` and a pass/fail `checklist.md`. Nobody writes a
-suite by hand; this session drafts it. No paid API call is made.
+suite by hand; this session drafts it. No paid API call is made: the
+acceptance sentence is graded by the lane's own grader (the local `claude -p`
+CLI). With no grader, or `CF_SKIP_ACCEPTANCE_GRADING=1`, a run whose every
+step passed is still a pass and the checklist marks the criterion not graded.
+`--persona` defaults to `anonymous`; lane `basic_auth` applies to both steps.
 
 What the project configures once:
 - The persona under `lanes.testcases.personas` in CHANGE.md, the same block as
