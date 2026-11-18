@@ -53,12 +53,17 @@ class ChangeTestcasesReport
   # Renders both files from the history as it stood before this run, then
   # appends this run to the ledger. Returns the paths written.
   def write
-    html = File.join(@run_dir, 'report.html')
+    html = write_html
     junit = File.join(@run_dir, 'junit.xml')
-    File.write(html, render_html)
     File.write(junit, render_junit)
     append_ledger
     { html: html, junit: junit, ledger: @ledger }
+  end
+
+  # report.html alone, from the history as read before this run was
+  # appended, so a later export can refresh it without a second ledger entry.
+  def write_html
+    File.join(@run_dir, 'report.html').tap { |path| File.write(path, render_html) }
   end
 
   def render_junit
@@ -84,12 +89,14 @@ class ChangeTestcasesReport
       <p class="meta">Run #{h(run_id)}#{commit ? " at #{h(commit[0, 12])}" : ''}. #{summary}</p>
       #{attention_section}
       <h2>Cases</h2>
-      <table><thead><tr><th>Case</th><th>Status</th><th>Persona</th><th>Duration</th><th>Attempts</th><th>Acceptance</th><th>Last #{HISTORY_RUNS} runs</th><th>Evidence</th></tr></thead>
+      <table><thead><tr><th>Case</th><th>Status</th><th>Persona</th><th>Duration</th><th>Attempts</th><th>Acceptance</th><th>Last #{HISTORY_RUNS} runs</th><th>Evidence</th><th>Video</th></tr></thead>
       <tbody>
       #{executed.map { |record| case_row(record) }.join("\n")}
       </tbody></table>
       #{skipped_section}
       #{absent_section}
+      #{export_section}
+      <script>document.body.setAttribute("data-cf-ready", "1");</script>
       </body></html>
     HTML
   end
@@ -150,7 +157,7 @@ class ChangeTestcasesReport
 
   def case_row(record)
     cells = [ h(record.key), status_cell(record), h(record.persona), duration(record.duration_ms), record.attempts.size,
-              h(record.acceptance_verdict || 'not graded'), history_cell(record), thumbnails(record) ]
+              h(record.acceptance_verdict || 'not graded'), history_cell(record), thumbnails(record), video_cell(record) ]
     "<tr>#{cells.map { |cell| "<td>#{cell}</td>" }.join}</tr>"
   end
 
@@ -194,6 +201,36 @@ class ChangeTestcasesReport
   end
 
   def relative(path) = path.delete_prefix("#{@run_dir}/")
+
+  EXPORTS_FILE = 'exports.json'
+
+  # What --export produced, from the run dir's exports.json. An export that
+  # failed is named here and nowhere near a case's verdict.
+  # Read fresh on each render, so a refresh after a later export shows it.
+  def exports
+    path = File.join(@run_dir, EXPORTS_FILE)
+    File.exist?(path) ? JSON.parse(File.read(path)) : {}
+  rescue JSON::ParserError
+    {}
+  end
+
+  def video_cell(record)
+    entry = exports.dig('video', record.key)
+    return '-' unless entry
+    return "<span class=\"tag\">export failed</span> #{h(entry['reason'])}" unless entry['status'] == 'ok'
+
+    "<a href=\"#{h(relative(entry['path']))}\">mp4</a>"
+  end
+
+  def export_section
+    failed = exports.flat_map do |kind, entries|
+      entries.is_a?(Hash) ? entries.reject { |_key, entry| entry['status'] == 'ok' }.map { |key, entry| [ kind, key, entry ] } : []
+    end
+    return '' if failed.empty?
+
+    items = failed.map { |kind, key, entry| "<li>#{h(kind)} #{h(key)}: #{h(entry['reason'])}</li>" }
+    "<h2>Exports that failed</h2><p>These change no case's result.</p><ul>#{items.join}</ul>"
+  end
 
   def skipped_section
     skipped = @records.select(&:skipped?)

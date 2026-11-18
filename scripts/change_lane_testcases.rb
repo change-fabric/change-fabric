@@ -15,6 +15,7 @@ require_relative 'change_acceptance_grader'
 require_relative 'change_testcases_personas'
 require_relative 'change_testcases_evidence'
 require_relative 'change_case_result'
+require_relative 'change_testcases_video'
 
 # The deterministic regression lane. Runs committed test cases (suite files
 # referenced from CHANGE.md by glob) inside the same browserless Chromium
@@ -84,8 +85,12 @@ class ChangeLaneTestcases < ChangeLane
   # for the same reason: a quarantine expiry is a date comparison, and a test
   # that could only assert it by waiting is not a test.
   # `sleeper` is the backoff seam, so a queue-rejection test does not wait.
-  def initialize(config, context, grader: nil, today: nil, sleeper: nil)
+  # `video_runner` and `free_space` are the --export video seams: the FFmpeg
+  # call and the free-bytes probe.
+  def initialize(config, context, grader: nil, today: nil, sleeper: nil, video_runner: nil, free_space: nil)
     super(config, context)
+    @video_runner = video_runner
+    @free_space = free_space || ->(dir) { ChangeTestcasesVideo.free_bytes(dir) }
     @grader = grader || ChangeAcceptanceGrader.new
     @today = today
     @sleeper = sleeper || ->(seconds) { sleep(seconds) }
@@ -361,7 +366,11 @@ class ChangeLaneTestcases < ChangeLane
     @personas = PersonaCache.new { |name| log_in(session, name) }
     @run_started = clock
     warm_personas(selected)
-    runs = run_pool(selected.size) { |index| run_case(session, selected[index], compiled[index]) }
+    start_video(selected.size)
+    runs = run_pool(selected.size) do |index|
+      run_case(session, selected[index], compiled[index]).tap { |run| queue_video(selected[index], run) }
+    end
+    finish_video
     @results = selected.each_with_index.map { |item, index| graded(item, runs[index]) }
     @results.map { |graded| case_finding(graded) }
   end
@@ -380,6 +389,68 @@ class ChangeLaneTestcases < ChangeLane
     end
     workers.each(&:join)
     results
+  end
+
+  # --- --export video ------------------------------------------------------------
+
+  def exports = @context.respond_to?(:exports) ? Array(@context.exports).map(&:to_s) : []
+
+  def video? = exports.include?('video') && !evidence.nil?
+
+  def video_budget_mb
+    value = @context.respond_to?(:video_budget_mb) ? @context.video_budget_mb : nil
+    Integer(value || ChangeTestcasesVideo::DEFAULT_BUDGET_MB)
+  end
+
+  # Below this a case's share records too little to be worth a video.
+  MIN_RECORDING_BYTES = 256 * 1024
+
+  def start_video(case_count)
+    return unless video?
+
+    root = evidence.root
+    @video_bytes = ChangeTestcasesVideo.per_case_bytes(free_bytes: @free_space.call(root), case_count: case_count,
+                                                       budget_mb: video_budget_mb)
+    @recording_open = case_count
+    @video_lock = Mutex.new
+    options = { reserve: ChangeTestcasesVideo.reserve_bytes(case_count), free: -> { @free_space.call(root) },
+                outstanding: -> { @recording_open * @video_bytes } }
+    options[:runner] = @video_runner if @video_runner
+    @encoder = ChangeTestcasesVideo::Encoder.new(**options)
+  end
+
+  # What a case module needs to record: its byte share and the title card.
+  # `used` is what an earlier segment of the same attempt already recorded,
+  # so a resumed case shares one allowance rather than getting a second.
+  def video_js(item, used = 0)
+    return nil unless @encoder && @video_bytes - used >= MIN_RECORDING_BYTES
+
+    { maxBytes: @video_bytes - used, fps: ChangeTestcasesVideo::FPS, maxWidth: ChangeTestcasesVideo::MAX_WIDTH,
+      maxHeight: ChangeTestcasesVideo::MAX_HEIGHT, title: item.qualified_id, acceptance: item.acceptance }
+  end
+
+  # Once a case is final: keep only its last attempt's frames and queue its
+  # encode, which runs beside the remaining cases.
+  def queue_video(item, run)
+    return unless @encoder
+
+    @video_lock.synchronize { @recording_open -= 1 }
+    return @encoder.failed(item.qualified_id, 'not enough free disk to record above the evidence reserve') if @video_bytes < MIN_RECORDING_BYTES
+
+    dirs = run[:attempts].filter_map { |entry| entry[:evidence_dir] }
+    return @encoder.failed(item.qualified_id, 'the case made no attempt to record') if dirs.empty?
+
+    dirs[0...-1].each { |dir| ChangeTestcasesVideo.drop_frames(dir) }
+    video = run[:record].is_a?(Hash) ? run[:record]['video'] || {} : {}
+    @encoder.add(key: item.qualified_id, attempt_dir: dirs.last, marks: video['marks'], stopped: video['stopped'],
+                 out: File.join(evidence.root, 'cases', ChangeTestcasesEvidence.slug(item.suite),
+                                ChangeTestcasesEvidence.slug(item.id), 'video.mp4'))
+  end
+
+  def finish_video
+    return unless @encoder
+
+    evidence.write_exports('video' => @encoder.finish)
   end
 
   # One login per persona the selection uses, before any case runs, so the
@@ -430,6 +501,10 @@ class ChangeLaneTestcases < ChangeLane
       attempts << { number: number + 1, outcome: attempt_outcome(record),
                     duration_ms: elapsed_ms(attempt_started), evidence_dir: record['evidenceDir'] }
       break if record['ok']
+
+      # A rerun follows; this attempt's frames will not be encoded, so they
+      # give their disk back before the next attempt records.
+      ChangeTestcasesVideo.drop_frames(record['evidenceDir']) if @encoder && record['evidenceDir'] && number < item.retries
     end
     { record: record, attempts: attempts, started_at_ms: elapsed_ms(@run_started, started),
       started_at: started_at, duration_ms: elapsed_ms(started) }
@@ -454,7 +529,8 @@ class ChangeLaneTestcases < ChangeLane
     persona = login_persona(item)
     state, generation = persona ? @personas.fetch(persona) : [ nil, 0 ]
     dir = evidence&.open_attempt(item, number, start_record(item, number, persona))
-    record = call_function(session, case_module(compiled, number, persona_js(item, state), evidence: dir&.js),
+    record = call_function(session, case_module(compiled, number, persona_js(item, state), evidence: dir&.js,
+                                                                                         video: dir && video_js(item)),
                            case_budget_ms(item))
     if persona && record.is_a?(Hash) && record['authExpired']
       record = resume_after_expiry(session, item, compiled, number, persona, generation, record, dir)
@@ -514,7 +590,8 @@ class ChangeLaneTestcases < ChangeLane
 
     resume = { startAt: restart, vars: record['vars'] || {} }
     second = call_function(session, case_module(compiled, number, persona_js(item, state), resume: resume,
-                                                                                           evidence: dir&.js),
+                                                                                           evidence: dir&.js,
+                                                                                           video: dir && video_js(item, record.dig('video', 'bytes').to_i)),
                            case_budget_ms(item))
     merge_resumed(record, second, resume[:startAt])
   end
@@ -545,10 +622,23 @@ class ChangeLaneTestcases < ChangeLane
     end
 
     earlier = Array(first['steps']).select { |step| step['index'].to_i < start_at }
-    merged = second.merge('steps' => earlier + Array(second['steps']), 'resumed' => true)
+    merged = second.merge('steps' => earlier + Array(second['steps']), 'resumed' => true,
+                          'video' => merged_video(first['video'], second['video']))
     return merged unless second['authExpired']
 
     merged.merge('ok' => false, 'authError' => 'the session ended again after a re-login in the same attempt')
+  end
+
+  # Both segments of a resumed recording: frames are already on disk in order
+  # (frame-a* then frame-r*), so only the caption marks need joining, the
+  # second segment's shifted to follow the first.
+  def merged_video(first, second)
+    return second || first unless first.is_a?(Hash) && second.is_a?(Hash)
+
+    offset = (first['frames'].to_i * 1000) / ChangeTestcasesVideo::FPS
+    marks = Array(first['marks']) + Array(second['marks']).map { |mark| mark.merge('ms' => mark['ms'].to_i + offset) }
+    { 'frames' => first['frames'].to_i + second['frames'].to_i, 'marks' => marks,
+      'stopped' => second['stopped'] || first['stopped'] }
   end
 
   # One accepted call. A queue rejection is retried with backoff and is not an
@@ -792,7 +882,7 @@ class ChangeLaneTestcases < ChangeLane
   # disk once its download completes, whatever happens to the call after.
   EVIDENCE_JS = <<~JS
     async function cfEvidenceWriter(page, evidence, tag) {
-      const none = { step: async () => {}, screenshot: async () => {}, flush: async () => {} };
+      const none = { tag: tag, write: async () => {}, step: async () => {}, screenshot: async () => {}, flush: async () => {} };
       if (!evidence) return none;
       let issued = 0;
       let finished = 0;
@@ -804,20 +894,29 @@ class ChangeLaneTestcases < ChangeLane
         return none;
       }
       async function write(name, content, base64) {
+        issued += 1;
         try {
           await page.evaluate((fileName, body, isBase64) => {
             const bytes = isBase64 ? Uint8Array.from(atob(body), (ch) => ch.charCodeAt(0)) : body;
             const link = document.createElement("a");
-            link.href = URL.createObjectURL(new Blob([bytes]));
+            const url = URL.createObjectURL(new Blob([bytes]));
+            link.href = url;
             link.download = fileName;
             document.body.appendChild(link);
             link.click();
             link.remove();
+            // Chrome has the blob once the click returns; revoke it after the
+            // download has had time to start so a long recording does not
+            // keep every frame alive in the page.
+            setTimeout(() => URL.revokeObjectURL(url), 10000);
           }, name, content, base64 === true);
-          issued += 1;
-        } catch (err) { void err; }
+        } catch (err) {
+          issued -= 1;
+        }
       }
       return {
+        tag: tag,
+        write: write,
         step: (record, log) => {
           const name = `step-${String(record.index + 1).padStart(4, "0")}-${tag}.json`;
           const entry = Object.assign({}, record);
@@ -836,6 +935,83 @@ class ChangeLaneTestcases < ChangeLane
         flush: async () => {
           const deadline = Date.now() + 5000;
           while (finished < issued && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 50));
+        },
+      };
+    }
+
+    async function cfTitleCard(page, writer, video) {
+      const card = await page.browser().newPage();
+      try {
+        await card.setViewport({ width: video.maxWidth, height: video.maxHeight });
+        await card.setContent("<body style='margin:0;display:flex;flex-direction:column;justify-content:center;" +
+          "align-items:center;height:100vh;font-family:sans-serif;background:#fff;color:#111'><h1></h1><p></p></body>");
+        await card.evaluate((title, text) => {
+          document.querySelector("h1").textContent = title;
+          document.querySelector("p").textContent = text;
+        }, video.title, video.acceptance);
+        await writer.write("title.jpg", await card.screenshot({ type: "jpeg", quality: 80, encoding: "base64" }), true);
+      } finally {
+        await card.close();
+      }
+    }
+
+    // --export video: keeps only the latest screencast frame and writes one
+    // JPEG per tick into the attempt dir, stopping at the case's byte share.
+    // The title card is a screenshot of a page of its own.
+    async function cfRecorder(page, writer, casePage, video) {
+      const idle = { mark: () => {}, stop: async () => null };
+      if (!video) return idle;
+      let started = Date.now();
+      const marks = [];
+      let latest = null;
+      let written = 0;
+      let bytes = 0;
+      let stopped = null;
+      let client = null;
+      try {
+        if (writer.tag === "a") await cfTitleCard(page, writer, video);
+        client = await casePage.target().createCDPSession();
+        client.on("Page.screencastFrame", (frame) => {
+          client.send("Page.screencastFrameAck", { sessionId: frame.sessionId }).catch(() => {});
+          latest = frame.data;
+        });
+        await client.send("Page.startScreencast", { format: "jpeg", quality: 70, maxWidth: video.maxWidth, maxHeight: video.maxHeight, everyNthFrame: 1 });
+      } catch (err) {
+        return { mark: () => {}, stop: async () => ({ frames: 0, marks: [], stopped: "recording could not start: " + String(err) }) };
+      }
+      // Captions are timed from the first recorded tick, not from the title
+      // card and screencast setup, which add no frames.
+      started = Date.now();
+      const timer = setInterval(() => {
+        if (stopped || latest === null) return;
+        const size = Math.floor((latest.length * 3) / 4);
+        if (bytes + size > video.maxBytes) { stopped = "byte budget reached"; return; }
+        bytes += size;
+        written += 1;
+        writer.write(`frame-${writer.tag}${String(written).padStart(6, "0")}.jpg`, latest, true);
+      }, Math.round(1000 / video.fps));
+      return {
+        mark: (label) => marks.push({ ms: Date.now() - started, label: label }),
+        stop: async () => {
+          clearInterval(timer);
+          try { await client.send("Page.stopScreencast"); } catch (err) { void err; }
+          // The end state is always the last frame, even for a case faster
+          // than one tick, unless the byte share is spent.
+          if (!stopped) {
+            // A fresh capture, since the last screencast frame can predate
+            // the final step's change; the frame is the fallback.
+            let last = latest;
+            try {
+              last = await casePage.screenshot({ type: "jpeg", quality: 70, encoding: "base64" });
+            } catch (err) { void err; }
+            const size = last === null ? 0 : Math.floor((last.length * 3) / 4);
+            if (last !== null && bytes + size <= video.maxBytes) {
+              bytes += size;
+              written += 1;
+              await writer.write(`frame-${writer.tag}${String(written).padStart(6, "0")}.jpg`, last, true);
+            }
+          }
+          return { frames: written, bytes: bytes, marks: marks, stopped: stopped };
         },
       };
     }
@@ -973,7 +1149,7 @@ class ChangeLaneTestcases < ChangeLane
   # after the persona logged in again.
   # `evidence` names the attempt's dir in the container; the module
   # checkpoints into it as it goes.
-  def case_module(compiled, attempt, persona = nil, resume: nil, evidence: nil)
+  def case_module(compiled, attempt, persona = nil, resume: nil, evidence: nil, video: nil)
     <<~JS
       export default async function ({ page }) {
         const testCase = #{JSON.generate(compiled)};
@@ -981,6 +1157,7 @@ class ChangeLaneTestcases < ChangeLane
         const persona = #{JSON.generate(persona)};
         const resume = #{JSON.generate(resume)};
         const evidence = #{JSON.generate(evidence)};
+        const video = #{JSON.generate(video)};
         #{session_js}
         #{ChangeFlowCompiler.flow_runtime_js}
         #{EVIDENCE_JS}
@@ -1067,6 +1244,7 @@ class ChangeLaneTestcases < ChangeLane
           try {
             if (persona) await seedStorage(session.page, persona.seed);
             const log = cfStepLog(session.page);
+            const recorder = await cfRecorder(page, writer, session.page, video);
             // A seeded case starts where its persona's login landed, as it
             // did when every case logged in on its own page, unless its first
             // step navigates anyway.
@@ -1075,20 +1253,29 @@ class ChangeLaneTestcases < ChangeLane
               await session.page.goto(persona.seed.landing, { waitUntil: "domcontentloaded" });
             }
             let expired = null;
+            // Captions mark each step as it starts: the first here, the rest
+            // from the step before it, since cfRunFlow has no pre-step hook.
+            if (first) recorder.mark(first.label);
             const steps = await cfRunFlow(session.page, testCase.steps, {
               startAt: resume ? resume.startAt : 0,
               vars: resume ? resume.vars : {},
               afterStep: async (step, record) => {
                 await writer.step(record, log.take());
                 if (!record.ok) await writer.screenshot(session.page, "failure.png");
-                if (!(await sessionEnded(session.page))) return false;
+                if (!(await sessionEnded(session.page))) {
+                  // The caption moves on only when the flow does.
+                  const following = testCase.steps.find((other) => other.index > step.index);
+                  if (record.ok && following) recorder.mark(following.label);
+                  return false;
+                }
                 expired = { index: step.index, verb: step.verb };
                 return true;
               },
             });
             const ok = !expired && steps.every((step) => step.ok);
+            const recording = await recorder.stop();
             await writer.screenshot(session.page, "final.png");
-            return { ok: ok, steps: steps, vars: steps.vars, authExpired: expired,
+            return { ok: ok, steps: steps, vars: steps.vars, authExpired: expired, video: recording,
                      observation: ok ? await observe(session.page) : null };
           } finally {
             await closeSession(session);
@@ -1099,7 +1286,7 @@ class ChangeLaneTestcases < ChangeLane
         const result = await runOnce(testCase);
         return {
           data: { index: testCase.index, id: testCase.id, attempt: attempt, ok: result.ok, authError: null,
-                  authExpired: result.authExpired, vars: result.vars, steps: result.steps,
+                  authExpired: result.authExpired, vars: result.vars, steps: result.steps, video: result.video,
                   observation: result.observation },
           type: "application/json",
         };
