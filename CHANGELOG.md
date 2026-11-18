@@ -38,7 +38,7 @@ CHANGE.md.
 - Over 200 covered files or 5 MB, the entry cannot be verified: it never
   matches the base branch and runs only once approved.
 - A `run` string that decides what runs only at run time (variable expansion,
-  `$( )`, backticks, `~`, `eval`, `sh -c`, a glob) cannot be verified unless the
+  `$( )`, backticks, `~`, `PATH=`, `eval`, `sh -c`, a glob) cannot be verified unless the
   entry declares `trust_paths`, and runs only once approved. So does a `run`
   that names a repo file by absolute path or a file inside a submodule.
 - Every command entry's digest changes once, so earlier approvals no longer
