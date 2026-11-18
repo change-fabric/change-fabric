@@ -183,6 +183,8 @@ class ChangeQaFilmTest < Minitest::Test
     compiler = ChangeFlowCompiler.new([ { "eval" => { "script" => ChangeQaFilm::SNAPSHOT_JS } } ], base_url: "https://staging.example.test")
     assert compiler.uses_eval?
     refute_match(/\.value\b/, ChangeQaFilm::SNAPSHOT_JS, "the snapshot must never read input values")
+    assert_includes ChangeQaFilm::SNAPSHOT_JS, '[aria-label="', "a labelled control gets an attribute selector"
+    assert_includes(ChangeQaFilm::SNAPSHOT_JS, "const name = clean(el.innerText);", ":has-text is for visible text only")
   end
 
   def test_probe_view_hides_login_steps_and_lifts_the_snapshot

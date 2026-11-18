@@ -66,10 +66,16 @@ module ChangeQaFilm
         const v = el.getAttribute(attr); if (v) return `[${attr}="${v}"]`;
       }
       if (el.id && /^[A-Za-z][\\w-]*$/.test(el.id)) return `#${el.id}`;
-      const name = clean(el.getAttribute("aria-label") || el.innerText);
-      if (name && !name.includes('"')) return `${el.tagName.toLowerCase()}:has-text("${name}")`;
-      if (el.getAttribute("name")) return `${el.tagName.toLowerCase()}[name="${el.getAttribute("name")}"]`;
-      return el.tagName.toLowerCase();
+      const tag = el.tagName.toLowerCase();
+      // :has-text matches visible text only, so a labelled control is pointed
+      // at by its full label attribute.
+      const label = el.getAttribute("aria-label");
+      if (label) return `${tag}[aria-label="${label.replace(/["\\\\]/g, "\\\\$&")}"]`;
+      const name = clean(el.innerText);
+      if (name && !name.includes('"')) return `${tag}:has-text("${name}")`;
+      const field = el.getAttribute("name");
+      if (field) return `${tag}[name="${field}"]`;
+      return tag;
     };
     const query = 'a,button,input,select,textarea,summary,[role=button],[role=link],[role=tab],' +
       '[role=menuitem],[role=checkbox],[role=row],[data-testid],[data-test]';
