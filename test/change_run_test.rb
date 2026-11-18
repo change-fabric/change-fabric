@@ -467,6 +467,21 @@ class ChangeRunForTagAndGateStatusTest < Minitest::Test
     assert_match(/could not resolve ref/, output)
   end
 
+  def test_each_app_in_a_sweep_gets_its_own_evidence_dir
+    Dir.mktmpdir do |out|
+      plain = ChangeRun.new(%w[testcases --out] + [ out ])
+      plain.instance_variable_set(:@args, plain.send(:parse_args, %w[testcases --out] + [ out ]))
+      config = Struct.new(:enabled_lanes).new(%w[testcases])
+      dirs = %w[portal admin].map do |app|
+        plain.instance_variable_set(:@evidence_app, app)
+        plain.instance_variable_set(:@evidence_dirs, nil)
+        plain.send(:evidence_dir, config)
+      end
+      assert_equal 2, dirs.uniq.size
+      assert(dirs.all? { |path| File.basename(path).start_with?("testcases-") })
+    end
+  end
+
   def test_out_names_the_report_dir_and_the_desktop_is_the_default
     plain = ChangeRun.new(%w[all])
     assert_equal File.expand_path("/tmp/qa-out"), plain.send(:parse_args, %w[testcases --out /tmp/qa-out]).out

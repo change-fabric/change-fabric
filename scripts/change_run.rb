@@ -562,6 +562,7 @@ class ChangeRun
     log("[change] warning: #{config.spec_version_mismatch}") if config.spec_version_mismatch
     prepare_zap_mode(config)
     label = multi ? entry.name : nil
+    @evidence_app = label
     log("[change] app: #{entry.name}") if multi
     lanes = resolve_lanes(config)
     prefix = multi ? "#{entry.name}/" : ''
@@ -682,7 +683,10 @@ class ChangeRun
     return nil unless resolve_lanes(config).include?('testcases')
 
     @evidence_dirs ||= {}
-    @evidence_dirs[config.object_id] ||= ChangeTestcasesEvidence.prepare(out_dir, boot_run_id)
+    # One dir per app in a sweep, or two apps' cases would overwrite each
+    # other's records and attempt files.
+    run = @evidence_app ? "#{boot_run_id}-#{ChangeReport.slug_for(@evidence_app)}" : boot_run_id
+    @evidence_dirs[config.object_id] ||= ChangeTestcasesEvidence.prepare(out_dir, run)
   end
 
   # Returns the lane instances alongside their findings so report_sections

@@ -110,12 +110,20 @@ class ChangeLaneTestcases < ChangeLane
       item = result[:case]
       ChangeCaseResult.new(
         key: item.qualified_id, suite: item.suite, id: item.id, persona: item.persona_name,
-        status: result[:outcome] == 'warn' ? 'fail' : result[:outcome], attempts: result[:attempt_log],
+        status: record_status(result), attempts: result[:attempt_log],
         duration_ms: result[:duration_ms], started_at: result[:started_at], commit: commit,
         run_id: run_id, evidence_dir: result[:record]&.dig('evidenceDir'),
         acceptance_verdict: result[:verdict]&.verdict
       )
     end
+  end
+
+  # A case whose steps passed but whose acceptance criterion was graded
+  # `fail` failed: the record says what happened, whatever the gate made of it.
+  def record_status(result)
+    return 'fail' if result[:outcome] == 'warn' || (result[:outcome] == 'pass' && result[:verdict]&.fail?)
+
+    result[:outcome]
   end
 
   # The call budget for one case, in ms. An explicit `cases[].timeout_ms`
@@ -804,6 +812,12 @@ class ChangeLaneTestcases < ChangeLane
           const name = `step-${String(record.index + 1).padStart(4, "0")}-${tag}.json`;
           const entry = Object.assign({}, record);
           delete entry.screenshot;
+          // A screenshot step's image is checkpointed too, so a call that
+          // dies later still leaves it.
+          if (record.screenshot) {
+            const shot = String(record.name || "screenshot").replace(/[^A-Za-z0-9._-]/g, "_");
+            write(`shot-${String(record.index + 1).padStart(4, "0")}-${shot}.png`, record.screenshot, true);
+          }
           return write(name, JSON.stringify({ record: entry, console: log.console, failedRequests: log.failedRequests }));
         },
         screenshot: async (casePage, name) => {

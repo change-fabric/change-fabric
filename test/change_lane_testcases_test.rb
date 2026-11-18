@@ -1339,4 +1339,31 @@ class ChangeLaneTestcasesTest < Minitest::Test
       end
     end
   end
+
+  def test_a_failed_acceptance_verdict_makes_the_case_record_fail
+    with_suite do |dir|
+      Dir.mktmpdir do |out|
+        root = ChangeTestcasesEvidence.prepare(out, "run-1")
+        config = ChangeConfig::LaneConfig.new("testcases", { "suites" => [ "*.cf-testcases.yml" ] }, dir)
+        grader = FakeGrader.new(verdicts: { "checkout/happy-path" => [ "fail", "wrong page" ] })
+        under_test = ChangeLaneTestcases.new(config, EvidenceCtx.new("net", "https://app.example.org",
+                                                                     EvidenceSession.new(ok_result(2), root), [], false, root, "run-1"),
+                                             grader: grader, sleeper: ->(_seconds) { })
+        under_test.run
+        records = File.readlines(File.join(root, "case-results.jsonl")).map { |line| JSON.parse(line) }
+        assert_equal [ %w[fail fail], %w[pass pass] ], records.map { |entry| entry.values_at("status", "acceptance_verdict") }
+      end
+    end
+  end
+
+  def test_a_screenshot_step_is_checkpointed_with_its_image
+    with_suite do |dir|
+      Dir.mktmpdir do |out|
+        root = ChangeTestcasesEvidence.prepare(out, "run-1")
+        session = EvidenceSession.new(ok_result(2), root)
+        evidence_lane(dir, root, session).run
+        assert_includes session.code, "write(`shot-${String(record.index + 1).padStart(4, \"0\")}-${shot}.png`, record.screenshot, true);"
+      end
+    end
+  end
 end
