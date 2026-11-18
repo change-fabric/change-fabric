@@ -545,7 +545,7 @@ module Roast
   def adopt_legacy_cache(repo, cache_root)
     legacy = File.join(repo, '.cache')
     moved = LEGACY_SUBDIRS.sum { |sub, glob| adopt_legacy_entries(File.join(legacy, sub), File.join(cache_root, sub), glob) }
-    Dir.rmdir(legacy) if Dir.exist?(legacy) && Dir.empty?(legacy)
+    remove_if_empty(legacy)
     moved
   end
 
@@ -558,10 +558,17 @@ module Roast
       target = File.join(dest, File.basename(e))
       File.exist?(target) ? FileUtils.rm_rf(e) : FileUtils.mv(e, target)
     end
-    Dir.rmdir(src) if Dir.empty?(src)
+    remove_if_empty(src)
     entries.size
   end
   private_class_method :adopt_legacy_entries
+
+  # Drops an emptied legacy dir, never a symlink (a linked .cache stays put and
+  # its external target is never touched).
+  def remove_if_empty(dir)
+    Dir.rmdir(dir) if !File.symlink?(dir) && Dir.exist?(dir) && Dir.empty?(dir)
+  end
+  private_class_method :remove_if_empty
 
   # The WalkthroughCache coordinates (root, kind, key, ext) of one cached critic.
   def cache_args(cache_root, key) = [ cache_root, :roasts, key, 'json' ]

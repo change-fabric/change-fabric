@@ -293,6 +293,21 @@ class RoastTest < Minitest::Test
     assert_equal 0, Roast.adopt_legacy_cache(repo, store)
   end
 
+  # A symlinked .cache is left in place (its target untouched) rather than
+  # failing rmdir, so the CLI still runs.
+  def test_symlinked_legacy_cache_root_is_kept
+    repo = File.join(@dir, "repo")
+    target = File.join(@dir, "external")
+    FileUtils.mkdir_p([ repo, File.join(target, "roasts") ])
+    File.write(File.join(target, "roasts", "abc.json"), "{}")
+    File.symlink(target, File.join(repo, ".cache"))
+    store = File.join(@dir, "store")
+    assert_equal 1, Roast.adopt_legacy_cache(repo, store)
+    assert File.symlink?(File.join(repo, ".cache"))
+    assert Dir.exist?(target)
+    assert_equal 0, Roast.adopt_legacy_cache(repo, store)
+  end
+
   def test_cli_without_cache_writes_nothing_inside_the_repo
     repo = File.join(@dir, "repo")
     FileUtils.mkdir_p(repo)
