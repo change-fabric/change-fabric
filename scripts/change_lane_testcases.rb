@@ -961,7 +961,7 @@ class ChangeLaneTestcases < ChangeLane
     async function cfRecorder(page, writer, casePage, video) {
       const idle = { mark: () => {}, stop: async () => null };
       if (!video) return idle;
-      const started = Date.now();
+      let started = Date.now();
       const marks = [];
       let latest = null;
       let written = 0;
@@ -979,6 +979,9 @@ class ChangeLaneTestcases < ChangeLane
       } catch (err) {
         return { mark: () => {}, stop: async () => ({ frames: 0, marks: [], stopped: "recording could not start: " + String(err) }) };
       }
+      // Captions are timed from the first recorded tick, not from the title
+      // card and screencast setup, which add no frames.
+      started = Date.now();
       const timer = setInterval(() => {
         if (stopped || latest === null) return;
         const size = Math.floor((latest.length * 3) / 4);
