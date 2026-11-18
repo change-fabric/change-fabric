@@ -154,6 +154,8 @@ ruby ~/.claude/cf/bin/walkthrough_render.rb walkthrough/<slug> --scene <id>
 
 Only that scene's stale keys regenerate (frames, audio, or images); everything else is read from the cache and the video reassembles. `walkthrough_storyboard.rb stale <json>` lists what would regenerate. A changed narration shifts later scene offsets and, when the total length changes, the music key; a changed `from_scene` dependency recaptures its dependents. Optional `voice.eq` (`"warm"` or `{low_shelf_hz, low_shelf_db, cut_hz, cut_db}`) EQs the narration bus only and re-assembles without re-narrating. Restyling or retiming the cursor needs no recapture: FFmpeg composites it from `cursor.json`.
 
+To check a draft's length, frame count, or streams, run `ruby ~/.claude/cf/bin/walkthrough_probe.rb walkthrough/<slug>/<slug>-draft-NN.mp4 [--json]`. It runs ffprobe in the pinned `ChangeDocker::FFMPEG_IMAGE` container, offline with the file mounted read-only, since FFmpeg is never on the host.
+
 ## Cache housekeeping
 
 Deliverables never live only in the cache. Every render copies its MP4 and VTT to `<slug>-draft.*` or `<slug>-final.*` beside `storyboard.json` (the storyboard `slug`, else the dir name), through a temp file in the same dir and a rename, checked by size and sha256. Deleting `.cache/` loses no video; it costs only a re-render, and re-paying for whatever paid outputs it held.
