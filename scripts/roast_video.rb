@@ -251,7 +251,7 @@ module RoastVideo
 
     def parse(args)
       repo = Roast::Cli.repo_arg(args)
-      opts = { max_usd: Roast::DEFAULT_CEILING_USD, cache: '.cache', out_dir: Roast::DEFAULT_OUT_DIR, fps: FPS, width: WIDTH,
+      opts = { max_usd: Roast::DEFAULT_CEILING_USD, out_dir: Roast::DEFAULT_OUT_DIR, fps: FPS, width: WIDTH,
                effort: Roast::DEFAULT_EFFORT, config_model: Roast::Cli.configured(repo)[:model], lens_names: [] }
       OptionParser.new do |o|
         o.on('--model NAME') { |v| opts[:model] = v }
@@ -271,6 +271,7 @@ module RoastVideo
         o.on('--lens NAME') { |v| opts[:lens_names] << v }
       end.parse!(args)
       opts[:lenses] = RoastLens.resolve(opts[:lens_names])
+      opts[:cache] ||= Roast::Cli.store_cache(repo)
       raise UsageError, '--video is required' unless opts[:video]
       raise UsageError, '--brief is required' unless opts[:brief_file]
 

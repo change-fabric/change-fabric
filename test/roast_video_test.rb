@@ -97,6 +97,36 @@ class RoastVideoTest < Minitest::Test
     assert_equal 1, docker.calls.size, "frames are cached by MP4 digest"
   end
 
+  # Video shares the stills store, so a legacy critic the stills CLI moved out
+  # of <repo>/.cache/roasts is still found, and nothing lands in the repo.
+  def test_default_video_cache_is_the_shared_store_outside_the_repo
+    repo = File.join(@dir, "repo")
+    FileUtils.mkdir_p(repo)
+    args = [ "--repo", repo, "--video", @mp4, "--brief", @brief, "--out-dir", @roast ]
+    assert_equal 0, RoastVideo::Cli.run(args, out: StringIO.new, http: Http.new, docker: fake_docker)
+    refute File.exist?(File.join(repo, ".cache"))
+    refute_empty Dir.glob(File.join(Roast.default_cache(repo), "roasts", "*.json"))
+  end
+
+  # A request fully cached under the old in-repo layout (critic and frames)
+  # stays free after the move: no Docker resample and no request.
+  def test_fully_cached_legacy_video_roast_makes_no_docker_call
+    repo = File.join(@dir, "repo")
+    FileUtils.mkdir_p(repo)
+    pristine = File.join(@dir, "roast-again")
+    FileUtils.cp_r(@roast, pristine)
+    args = [ "--video", @mp4, "--brief", @brief, "--round", "2" ]
+    assert_equal 0, RoastVideo::Cli.run(args + [ "--out-dir", @roast, "--cache", File.join(repo, ".cache") ], out: StringIO.new, http: Http.new, docker: fake_docker)
+    docker = fake_docker
+    http = Http.new
+    out = StringIO.new
+    assert_equal 0, RoastVideo::Cli.run(args + [ "--out-dir", pristine, "--repo", repo ], out: out, http: http, docker: docker), out.string
+    assert_empty docker.calls
+    assert_empty http.requests
+    refute File.exist?(File.join(repo, ".cache"))
+    refute_empty Dir.glob(File.join(Roast.default_cache(repo), "roast-video-frames", "*", ".done"))
+  end
+
   def video_args = [ "--video", @mp4, "--brief", @brief, "--out-dir", @roast, "--cache", File.join(@dir, ".cache"), "--round", "2" ]
 
   def test_video_roast_provider_failures_use_the_shared_exit_contract

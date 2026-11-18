@@ -527,6 +527,49 @@ module Roast
     File.file?(WalkthroughCache.path(*cache_args(cache_root, request_key(**inputs))))
   end
 
+  # The default cache root: the cf store keyed by project (the repo's real
+  # path, dashed as the ctx and inbox stores key it), never inside the repo,
+  # where untracked files trip format checks and block pushes.
+  def default_cache(repo, home: Dir.home)
+    File.join(home, '.claude', 'cf', 'roasts', File.realpath(repo).tr('/', '-'))
+  end
+
+  # Store subdirs the old in-repo default held, with the entries to move.
+  LEGACY_SUBDIRS = { 'roasts' => '*.json', 'roast-video-frames' => '*' }.freeze
+
+  # Moves what the old in-repo default (<repo>/.cache) held into cache_root:
+  # critic JSON under roasts/ and the video frame dirs (content-addressed, each
+  # with its .done marker) under roast-video-frames/, so a cached rerun stays
+  # free and needs no Docker. An entry the store already holds wins. Drops the
+  # emptied dirs. Returns the count of entries seen.
+  def adopt_legacy_cache(repo, cache_root)
+    legacy = File.join(repo, '.cache')
+    moved = LEGACY_SUBDIRS.sum { |sub, glob| adopt_legacy_entries(File.join(legacy, sub), File.join(cache_root, sub), glob) }
+    remove_if_empty(legacy)
+    moved
+  end
+
+  def adopt_legacy_entries(src, dest, glob)
+    entries = Dir.glob(File.join(src, glob))
+    return 0 if entries.empty?
+
+    FileUtils.mkdir_p(dest)
+    entries.each do |e|
+      target = File.join(dest, File.basename(e))
+      File.exist?(target) ? FileUtils.rm_rf(e) : FileUtils.mv(e, target)
+    end
+    remove_if_empty(src)
+    entries.size
+  end
+  private_class_method :adopt_legacy_entries
+
+  # Drops an emptied legacy dir, never a symlink (a linked .cache stays put and
+  # its external target is never touched).
+  def remove_if_empty(dir)
+    Dir.rmdir(dir) if !File.symlink?(dir) && Dir.exist?(dir) && Dir.empty?(dir)
+  end
+  private_class_method :remove_if_empty
+
   # The WalkthroughCache coordinates (root, kind, key, ext) of one cached critic.
   def cache_args(cache_root, key) = [ cache_root, :roasts, key, 'json' ]
   private_class_method :cache_args
@@ -635,7 +678,7 @@ module Roast
 
     def parse(args)
       repo = repo_arg(args)
-      opts = { shots: [], texts: [], max_usd: DEFAULT_CEILING_USD, cache: '.cache', out_dir: DEFAULT_OUT_DIR, effort: DEFAULT_EFFORT, flags: { purpose: [] }, lens_names: [] }
+      opts = { shots: [], texts: [], max_usd: DEFAULT_CEILING_USD, out_dir: DEFAULT_OUT_DIR, effort: DEFAULT_EFFORT, flags: { purpose: [] }, lens_names: [] }
              .merge(configured(repo).slice(:max_usd).merge(config_model: configured(repo)[:model], config_review: configured(repo).slice(:kind, :audience)))
       OptionParser.new do |o|
         o.on('--model NAME') { |v| opts[:model] = v }
@@ -664,7 +707,13 @@ module Roast
       raise UsageError, 'give at least one --shot or --text' if opts[:shots].empty? && opts[:texts].empty?
       raise UsageError, "unknown effort #{opts[:effort].inspect}; use one of #{EFFORTS.join(', ')}" unless EFFORTS.include?(opts[:effort])
 
-      opts.merge(lenses: RoastLens.resolve(opts[:lens_names]))
+      opts.merge(lenses: RoastLens.resolve(opts[:lens_names]), cache: opts[:cache] || store_cache(repo))
+    end
+
+    def store_cache(repo)
+      root = Roast.default_cache(repo)
+      Roast.adopt_legacy_cache(repo, root)
+      root
     end
 
     # --pair is the fidelity kind's input: each pair adds its prototype then
