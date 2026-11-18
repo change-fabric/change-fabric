@@ -70,12 +70,16 @@ module WalkthroughRender
 
     # rubocop:disable Metrics/ParameterLists
     def initialize(root, scene: nil, final: false, providers: {}, out: $stdout, board: nil, max_usd: nil,
-                   burn_captions: false, gates: {}, recapture: false, final_only: false, silent: false, provisional: false)
+                   burn_captions: false, gates: {}, recapture: false, final_only: false, silent: false, provisional: false,
+                   filmed: nil)
       # rubocop:enable Metrics/ParameterLists
       @root = File.expand_path(root)
       @gates = { allow_ux: false, allow_roast: false, roast: true, roast_max_usd: WalkthroughRoast::DEFAULT_CEILING_USD }.merge(gates)
       @only = scene
       @recapture = recapture
+      # Live scene id => frames key filmed by this invocation. The silent cut
+      # shares it with its draft, so --recapture films each key once.
+      @filmed = filmed || {}
       @personas = {}
       # --final-only is a final with no intermediate cut; silent is the free
       # first cut a draft run renders before paid audio (WalkthroughDraftBoard).
@@ -325,10 +329,10 @@ module WalkthroughRender
 
         halves = [ scene, WalkthroughLive.pair_next(@board, scene) ].compact
         next [] unless halves.any? { |s| capture_target?(s) }
-        next halves.map { |s| "#{s['id']} (--recapture or --scene)" } if halves.any? { |s| recapture?(s) }
-        next [] if halves.all? { |s| captured?(s, prep(s, memo)) }
+        forced = halves.any? { |s| recapture?(s, memo) }
+        next [] if !forced && halves.all? { |s| captured?(s, prep(s, memo)) }
 
-        halves.map { |s| "#{s['id']} (#{WalkthroughLive.recapture_reason(@root, s['id'], prep(s, memo))})" }
+        halves.map { |s| "#{s['id']} (#{recapture_why(s, memo, forced)})" }
       rescue ArgumentError
         []
       end
@@ -344,8 +348,25 @@ module WalkthroughRender
     def prep(scene, memo) = WalkthroughStoryboard.prepare_frames(@board, scene, @root, memo, final: @final)
 
     # A live scene's key cannot see the app change, so it recaptures only on
-    # --recapture, or when --scene names it or a scene it takes its session from.
-    def recapture?(scene) = live?(scene) && (@recapture || (!@only.nil? && capture_target?(scene)))
+    # --recapture (every live scene, changed or not), or when --scene names it
+    # or a scene it takes its session from. A key this invocation already
+    # filmed (in the silent cut) is fresh, so it is not filmed twice.
+    def recapture?(scene, memo = {})
+      return false unless live?(scene) && (@recapture || (!@only.nil? && capture_target?(scene)))
+
+      @filmed[scene['id']] != prep(scene, memo)[:key]
+    rescue ArgumentError
+      true
+    end
+
+    # Why a live scene films again: the flag that forced it, plus the key
+    # input that moved when its frames are stale too.
+    def recapture_why(scene, memo, forced)
+      why = captured?(scene, prep(scene, memo)) ? nil : WalkthroughLive.recapture_reason(@root, scene['id'], prep(scene, memo))
+      return why unless forced
+
+      [ @recapture ? 'forced by --recapture' : 'forced by --scene', why ].compact.join('; ')
+    end
 
     # A targeted scene, or any scene whose from_scene chain reaches one: a
     # regenerated scene can change its end state, which re-keys every
@@ -388,7 +409,7 @@ module WalkthroughRender
         nxt = WalkthroughLive.pair_next(@board, scene)
         halves = [ scene, nxt ].compact
         next unless halves.any? { |s| capture_target?(s) }
-        next if halves.all? { |s| captured?(s, prep(s, memo)) && !recapture?(s) }
+        next if halves.all? { |s| captured?(s, prep(s, memo)) && !recapture?(s, memo) }
 
         say("#{scene['id']}: capturing #{scene_frames(scene)} live frames#{" with #{nxt['id']} as one navigate run" if nxt}")
         start = start_session(session, scene, sessions)
@@ -396,7 +417,10 @@ module WalkthroughRender
         ended = @p[:live_capture].call(**live_args(session, scene, prep(scene, memo)[:out_dir], start), compose: compose_spec(scene, memo), **pair)
         refilmed.concat(halves.map { |s| s['id'] })
         sessions[(nxt || scene)['id']] = ended
-        halves.each { |s| WalkthroughLive.record_inputs(@root, s['id'], prep(s, memo)) }
+        halves.each do |s|
+          WalkthroughLive.record_inputs(@root, s['id'], prep(s, memo))
+          @filmed[s['id']] = prep(s, memo)[:key]
+        end
       end
     end
 
@@ -1234,7 +1258,7 @@ module WalkthroughRender
       say('silent cut: rendering the free first cut before paid audio')
       Run.new(@root, providers: @providers, out: @out, board: WalkthroughDraftBoard.silent(@board),
                      gates: @gates.merge(roast: false), burn_captions: @burn_captions, silent: true,
-                     provisional: anchored_board?).call
+                     provisional: anchored_board?, recapture: @recapture, filmed: @filmed).call
     rescue StandardError => e
       say("silent cut failed: #{e.class}: #{e.message.lines.first.to_s.strip}; the run stopped before any paid call " \
           '(no narration, music, image, or b-roll spend); fix the cause and rerun')
@@ -1313,7 +1337,8 @@ end
 if __FILE__ == $PROGRAM_NAME
   usage = 'usage: walkthrough_render.rb walkthrough/<slug> [--scene <id>] [--draft|--final|--final-only] [--estimate-only] [--max-usd <n>] [--burn-captions] ' \
           '[--allow-ux-findings] [--allow-roast-findings] [--allow-fidelity-findings] [--no-roast] [--allow-sensitive] [--roast-max-usd <run cap>] [--recapture]' \
-          "\n       walkthrough_render.rb walkthrough/<slug> --prune [--dry-run] | --cache-report"
+          "\n       walkthrough_render.rb walkthrough/<slug> --prune [--dry-run] | --cache-report" \
+          "\n  --recapture films every live scene again, changed or not (film after a deploy); without it only changed live scenes refilm"
   dir = ARGV.first
   abort(usage) if dir.nil? || dir.start_with?('--')
   if ARGV.include?('--prune') || ARGV.include?('--cache-report')
