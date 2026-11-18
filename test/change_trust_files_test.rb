@@ -283,6 +283,11 @@ class ChangeTrustFilesTest < Minitest::Test
     FileUtils.remove_entry(sub) if sub
   end
 
+  def test_quoted_name_followed_by_an_operator
+    commit("scripts/ci check.sh" => "a\n")
+    assert_equal [ "scripts/ci check.sh" ], cover({ "name" => "ci", "run" => 'bash "scripts/ci check.sh";true' })["files"].keys
+  end
+
   def test_line_continuation_is_joined
     commit("scripts/ci.sh" => "a\n")
     assert_equal [ "scripts/ci.sh" ], cover({ "name" => "ci", "run" => "bash scripts/\\\nci.sh" })["files"].keys
