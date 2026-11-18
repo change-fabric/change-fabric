@@ -18,7 +18,17 @@ class ChangeTestcasesVideoTest < Minitest::Test
     def signoff? = false
   end
 
-  Grader = Struct.new(:unavailable_reason)
+  # Grades every case pass: a case passes only on a pass verdict, and these
+  # tests assert an export failure leaves a passing case passing.
+  class Grader
+    def initialize(_reason = nil); end
+
+    def unavailable_reason = nil
+
+    def grade(observations)
+      observations.map { |o| ChangeAcceptanceGrader::Verdict.new(id: o[:id], verdict: "pass", rationale: "ok") }
+    end
+  end
   Status = Struct.new(:ok) { def success? = ok }
 
   # Writes what a recording module would: step traces, then JPEG frames until
@@ -90,6 +100,12 @@ class ChangeTestcasesVideoTest < Minitest::Test
   end
 
   def exports(root) = JSON.parse(File.read(File.join(root, "exports.json")))
+
+  def test_encode_runs_ffmpeg_as_the_host_user_with_no_network
+    argv = ChangeTestcasesVideo.encode_argv("/tmp/work")
+    assert_equal ChangeDocker.host_user, argv[argv.index("--user") + 1]
+    assert_equal "none", argv[argv.index("--network") + 1]
+  end
 
   def test_share_is_free_space_above_the_reserve_capped_and_split
     reserve = ChangeTestcasesVideo.reserve_bytes(4)

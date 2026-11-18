@@ -94,7 +94,7 @@ class ChangeTestcasesEvidence
   def write_exports(entries)
     path = File.join(@root, 'exports.json')
     current = File.exist?(path) ? JSON.parse(File.read(path)) : {}
-    File.write(path, "#{JSON.pretty_generate(current.merge(entries))}\n")
+    replace_file(path, "#{JSON.pretty_generate(current.merge(entries))}\n")
   end
 
   def write_records(records)

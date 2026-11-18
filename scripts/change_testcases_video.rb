@@ -95,7 +95,7 @@ module ChangeTestcasesVideo
 
   def encode_argv(work)
     ChangeDocker.run_command(
-      network: 'none', image: ChangeDocker::FFMPEG_IMAGE, mounts: { work => '/work' },
+      network: 'none', image: ChangeDocker::FFMPEG_IMAGE, mounts: { work => '/work' }, user: :host,
       args: [ '-y', '-v', 'error', '-framerate', FPS.to_s, '-i', '/work/%06d.jpg', '-i', '/work/captions.srt',
               '-map', '0:v', '-map', '1:s', '-r', FPS.to_s,
               '-vf', "scale=#{MAX_WIDTH}:#{MAX_HEIGHT}:force_original_aspect_ratio=decrease," \
