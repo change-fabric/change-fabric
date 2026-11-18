@@ -145,6 +145,21 @@ class ChangeTrustFilesTest < Minitest::Test
     assert_match(/cannot be followed/, coverage["error"])
   end
 
+  def test_shell_glob_in_run_is_expanded
+    commit("scripts/ci.sh" => "a\n")
+    entry = { "name" => "ci", "run" => "bash scripts/c*.sh" }
+    files = ChangeTrustFiles.cover(entry, ChangeTrustFiles::Source.working_tree(@repo))["files"]
+    assert_equal [ "scripts/ci.sh" ], files.keys
+  end
+
+  def test_trust_paths_glob_through_a_linked_directory
+    commit("scripts/helper.sh" => "a\n")
+    File.symlink("scripts", File.join(@repo, "alias"))
+    entry = { "name" => "ci", "run" => "true", "trust_paths" => [ "alias/**" ] }
+    files = ChangeTrustFiles.cover(entry, ChangeTrustFiles::Source.working_tree(@repo))["files"]
+    assert_equal %w[alias scripts/helper.sh], files.keys
+  end
+
   def test_cd_in_the_command_is_followed
     commit("scripts/ci.sh" => "a\n")
     entry = { "name" => "ci", "run" => "cd scripts && bash ci.sh" }

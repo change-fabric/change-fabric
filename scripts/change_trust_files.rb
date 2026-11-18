@@ -128,11 +128,8 @@ module ChangeTrustFiles
     covered = rels.to_set
     until queue.empty?
       rel = queue.shift
-      text = source.link_target(rel)
-      next unless text
-
-      target = text.start_with?('/') ? nil : normalize(File.join(File.dirname(rel), text))
-      return [ [], "symlink #{rel} points outside the repo; refused" ] unless target
+      target = link_dest(rel, source)
+      next unless target
 
       (resolve(target, source) - covered.to_a).each do |found|
         covered << found
@@ -142,6 +139,16 @@ module ChangeTrustFiles
     [ covered.to_a.sort, nil ]
   rescue Escape => e
     [ [], e.message ]
+  end
+
+  # The repo path the symlink at `rel` points to, nil when `rel` is not a
+  # link. Raises Escape when the target is outside the repo.
+  def link_dest(rel, source)
+    text = source.link_target(rel)
+    return nil unless text
+
+    target = text.start_with?('/') ? nil : normalize(File.join(File.dirname(rel), text))
+    target || raise(Escape, "symlink #{rel} points outside the repo; refused")
   end
 
   def file_digest(source, rel)
@@ -161,7 +168,9 @@ module ChangeTrustFiles
         path = base.empty? ? token : File.join(base, token)
         refuse_dotdot_after_link(path, source)
         rel = normalize(path)
-        rel ? resolve(rel, source) : []
+        next [] unless rel
+
+        rel.match?(/[*?\[]/) ? glob_files([ rel ], source) : resolve(rel, source)
       end
     end.uniq
   end
@@ -201,11 +210,8 @@ module ChangeTrustFiles
     parts = rel.split('/')
     (1...parts.size).each do |count|
       prefix = parts.first(count).join('/')
-      text = source.link_target(prefix)
-      next unless text
-
-      target = text.start_with?('/') ? nil : normalize(File.join(File.dirname(prefix), text))
-      raise Escape, "symlink #{prefix} points outside the repo; refused" unless target
+      target = link_dest(prefix, source)
+      next unless target
 
       found = resolve(File.join(target, *parts.drop(count)), source, depth + 1)
       return found.empty? ? [] : [ prefix, *found ]
@@ -225,8 +231,34 @@ module ChangeTrustFiles
     words.flat_map { |word| [ word, *word.split(/[\s;&|<>()`$'"]+/) ] }.reject(&:empty?).uniq
   end
 
+  # A glob whose leading directory is a symlink also matches under the
+  # link's in-repo target, and covers the link, since git lists the link and
+  # the target's files but never a path through the link.
   def glob_files(globs, source)
-    globs.flat_map { |glob| source.paths.select { |rel| File.fnmatch?(glob, rel, GLOB_FLAGS) } }
+    expanded = through_links(globs, source)
+    links = expanded.filter_map { |_, link| link }
+    links + expanded.flat_map { |glob, _| source.paths.select { |rel| File.fnmatch?(glob, rel, GLOB_FLAGS) } }
+  end
+
+  def through_links(globs, source)
+    queue = globs.map { |glob| [ glob, nil ] }
+    seen = []
+    until queue.empty? || seen.size > 200
+      glob, link = queue.shift
+      seen << [ glob, link ]
+      parts = glob.split('/')
+      (1...parts.size).each do |count|
+        prefix = parts.first(count).join('/')
+        break if prefix.match?(/[*?\[{]/)
+
+        target = link_dest(prefix, source)
+        next unless target
+
+        queue << [ File.join(target, *parts.drop(count)), prefix ]
+        break
+      end
+    end
+    seen
   end
 
   # A repo-relative path with `.` segments removed, or nil when it is
