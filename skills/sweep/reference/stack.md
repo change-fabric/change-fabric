@@ -169,6 +169,17 @@ Read `ChangePolicy.for_repo(root)`.
   the gate for a PR merge into trunk.
 - Then `gh pr merge <n> --squash --admin`.
 
+**Landing your first change_policy.** cf:change runs a `boot` step or a
+`command` lane entry only when it matches origin/<trunk>, or when a human has
+approved that exact definition for that commit. The PR that first adds a
+`change_policy` usually also adds a command or a boot step, so its own gate
+cannot pass until the user runs
+`ruby ~/.claude/cf/bin/change_approve.rb <head sha>` from a real terminal and
+types the 12-character prefix it prints. Escalate with that command and the
+head SHA; never run it for them. A rebase changes the head SHA and needs a new
+approval, so rebase first. Once that PR merges, later PRs that leave those
+steps unchanged need no approval.
+
 ### yolo
 
 No PRs are opened. Rebase the branch onto origin/<trunk>, run the tests,
