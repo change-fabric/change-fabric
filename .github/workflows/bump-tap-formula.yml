@@ -68,8 +68,10 @@ jobs:
           tap_dir="$(brew --repository change-fabric/cf)"
           formula="${tap_dir}/Formula/change-fabric.rb"
 
-          if grep -qF "url \"${url}\"" "$formula"; then
-            echo "Tap already at ${version}; nothing to do."
+          # A re-run of an older tag must never roll the tap backward.
+          current="$(sed -nE 's|^ *url ".*/skills/v([0-9]+\.[0-9]+\.[0-9]+)\.tar\.gz"$|\1|p' "$formula")"
+          if [ -n "$current" ] && ruby -e 'exit(Gem::Version.new(ARGV[0]) >= Gem::Version.new(ARGV[1]))' "$current" "$version"; then
+            echo "Tap already at ${current} (>= ${version}); nothing to do."
             exit 0
           fi
 
