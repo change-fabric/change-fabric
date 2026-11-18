@@ -156,6 +156,16 @@ class PlanLensesTest < Minitest::Test
       review: { kind: "doc", audience: "engineer", purpose: [ "x" ] }, lenses: RoastLens.resolve(lenses), model: Roast.model_for(kind: "doc") }
   end
 
+  def test_input_bound_covers_every_byte_of_a_token_dense_plan
+    inputs = roast_inputs
+    File.write(inputs[:texts][0], "\u{4e2d}" * 3000)
+    floor = File.read(inputs[:texts][0]).bytesize + Roast::SYSTEM_PROMPT.bytesize + JSON.generate(Roast::SCHEMA).bytesize
+    assert_operator PlanLenses.input_bound_tokens(inputs), :>=, floor
+    assert_operator PlanLenses.input_bound_tokens(inputs), :>, Roast.estimate(**inputs)[:tokens] * 3
+    shot = inputs.merge(shots: [ "a-light.png" ])
+    assert_equal PlanLenses::IMAGE_BOUND_TOKENS, PlanLenses.input_bound_tokens(shot) - PlanLenses.input_bound_tokens(inputs) - "\n\nScreens, in order: a-light.png".bytesize
+  end
+
   def test_underestimate_a_point_estimate_that_fits_is_not_sent
     inputs = roast_inputs
     point = Roast.estimate(**inputs)[:usd]

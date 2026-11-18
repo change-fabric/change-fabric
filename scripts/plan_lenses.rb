@@ -81,13 +81,25 @@ module PlanLenses
     dark + light + (images - dark - light).sort_by { |p| File.basename(p) }
   end
 
-  # Upper bound for one roast round: full input priced at the call's model,
-  # plus the enforced output cap, plus the one automatic retry roast.rb may
-  # make at RETRY_OUTPUT_TOKENS (its input billed again).
+  # Ceiling per image: roast.rb fits every shot to a 2048px long edge, and
+  # this is twice the per-image figure Roast.estimate uses.
+  IMAGE_BOUND_TOKENS = 2 * Roast::IMAGE_TOKENS
+
+  # Upper bound for one roast round. Input is the complete request text
+  # (system prompt, user text, response schema) at one token per byte, a
+  # ceiling for byte-level tokenizers, plus IMAGE_BOUND_TOKENS per shot.
+  # Output is the enforced cap plus the one automatic retry at
+  # RETRY_OUTPUT_TOKENS, whose input is billed again.
   def roast_bound(inputs)
-    tokens = Roast.estimate(**inputs.slice(:brief, :shots, :history, :texts, :transcript, :review, :lenses, :model))[:tokens]
+    tokens = input_bound_tokens(inputs)
     model = inputs[:model] || Roast::MODEL
     raw_usd(model, tokens, Roast::MAX_OUTPUT_TOKENS) + raw_usd(model, tokens, Roast::RETRY_OUTPUT_TOKENS)
+  end
+
+  def input_bound_tokens(inputs)
+    text = Roast.user_text(inputs[:brief], inputs[:history] || [], inputs[:round] || 1, inputs[:shots] || [],
+                           texts: inputs[:texts] || [], transcript: inputs[:transcript], review: inputs[:review], lenses: inputs[:lenses] || [])
+    text.bytesize + Roast::SYSTEM_PROMPT.bytesize + JSON.generate(Roast::SCHEMA).bytesize + ((inputs[:shots] || []).size * IMAGE_BOUND_TOKENS)
   end
 
   def raw_usd(model, input, output)
