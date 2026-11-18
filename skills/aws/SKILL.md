@@ -2,6 +2,8 @@
 name: cf:aws
 group: rubrics
 description: AWS Well-Architected rubric. A cf:roast lens only (--lens cf:aws); never auto-applied.
+lens:
+  keywords: [Lambda, DynamoDB, S3, CloudFront, ECS, Fargate, EKS, RDS, Aurora, SQS, SNS, EventBridge, CloudFormation, CDK]
 ---
 
 # AWS Cheat Sheet

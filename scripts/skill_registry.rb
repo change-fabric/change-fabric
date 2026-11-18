@@ -170,6 +170,9 @@ module SkillRegistry
       marker?(dir, detect)
     end
 
+    # The `detect:` globs, for callers that name the marker that fired.
+    def detect_markers = detect
+
     private
 
     # A `paths` glob fires if it matches the path directly or as a suffix; the
