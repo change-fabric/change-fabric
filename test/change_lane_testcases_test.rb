@@ -1406,4 +1406,11 @@ class ChangeLaneTestcasesTest < Minitest::Test
   def test_dot_ids_never_navigate_out_of_the_evidence_root
     %w[. .. ...].each { |id| refute_includes [ ".", "..", "" ], ChangeTestcasesEvidence.slug(id) }
   end
+
+  def test_case_records_use_the_runners_commit_when_given
+    ctx = Struct.new(:commit).new("abc123")
+    lane = ChangeLaneTestcases.allocate
+    lane.instance_variable_set(:@context, ctx)
+    assert_equal "abc123", lane.send(:commit)
+  end
 end

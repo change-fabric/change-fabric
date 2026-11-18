@@ -485,8 +485,13 @@ class ChangeLaneTestcases < ChangeLane
 
   def run_id = @context.respond_to?(:run_id) ? @context.run_id : nil
 
+  # The runner's resolved commit (a schedule's base sha) when it gives one,
+  # else the checkout's HEAD.
   def commit
     return @commit if defined?(@commit)
+
+    given = @context.respond_to?(:commit) ? @context.commit.to_s : ''
+    return @commit = given unless given.empty?
 
     out = IO.popen([ 'git', '-C', @config.dir.to_s, 'rev-parse', 'HEAD' ], err: File::NULL, &:read).to_s.strip
     @commit = out.empty? ? nil : out

@@ -131,7 +131,7 @@ class ChangeRun
   # `env_file_values` (parsed boot.env_file, a source for declared names).
   Context = Struct.new(:network, :target_url, :health_url, :browserless, :media, :suite_select, :signoff,
                        :logger, :run_id, :profile, :trust, :step_prefix, :env_file_values,
-                       :active_scan_allowed, :out_dir, :evidence_dir, keyword_init: true) do
+                       :active_scan_allowed, :out_dir, :evidence_dir, :commit, keyword_init: true) do
     def log(message) = logger.call(message)
     def signoff? = signoff == true
   end
@@ -657,7 +657,7 @@ class ChangeRun
       signoff: @args.signoff, logger: method(:log), run_id: boot_run_id, profile: config.profile,
       trust: trust, step_prefix: prefix, env_file_values: command_env_file_values(config),
       active_scan_allowed: @active_scan_allowed == true, out_dir: out_dir,
-      evidence_dir: evidence_dir(config)
+      evidence_dir: evidence_dir(config), commit: head_sha
     }
     if browser_needed?(config)
       boot = config.boot
