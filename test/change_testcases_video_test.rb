@@ -107,6 +107,28 @@ class ChangeTestcasesVideoTest < Minitest::Test
     assert_equal "none", argv[argv.index("--network") + 1]
   end
 
+  # The fresh end-of-case capture counts toward the bytes a resumed segment
+  # subtracts from its share.
+  def test_the_final_capture_counts_toward_the_recorded_bytes
+    skip "node not installed" unless system("command -v node >/dev/null 2>&1")
+
+    helper = ChangeLaneTestcases::EVIDENCE_JS[/^( *)async function cfRecorder\b.*?^\1\}\n/m]
+    script = <<~JS
+      #{helper}
+      const shot = "A".repeat(400000);
+      const writer = { tag: "r", write: async () => {} };
+      const client = { on: () => {}, send: async () => {} };
+      const casePage = { target: () => ({ createCDPSession: async () => client }), screenshot: async () => shot };
+      (async () => {
+        const recorder = await cfRecorder(null, writer, casePage, { fps: 5, maxBytes: 1000000, maxWidth: 1, maxHeight: 1 });
+        console.log(JSON.stringify(await recorder.stop()));
+      })();
+    JS
+    result = JSON.parse(IO.popen([ "node", "-e", script ], &:read))
+    assert_equal 1, result["frames"]
+    assert_equal 300_000, result["bytes"]
+  end
+
   def test_share_is_free_space_above_the_reserve_capped_and_split
     reserve = ChangeTestcasesVideo.reserve_bytes(4)
     assert_equal 64 * MB + 32 * MB, reserve

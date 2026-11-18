@@ -1004,7 +1004,9 @@ class ChangeLaneTestcases < ChangeLane
             try {
               last = await casePage.screenshot({ type: "jpeg", quality: 70, encoding: "base64" });
             } catch (err) { void err; }
-            if (last !== null && bytes + Math.floor((last.length * 3) / 4) <= video.maxBytes) {
+            const size = last === null ? 0 : Math.floor((last.length * 3) / 4);
+            if (last !== null && bytes + size <= video.maxBytes) {
+              bytes += size;
               written += 1;
               await writer.write(`frame-${writer.tag}${String(written).padStart(6, "0")}.jpg`, last, true);
             }
