@@ -139,4 +139,25 @@ class ChangeReportTest < Minitest::Test
       assert_match(/\| scattergram \| FAIL \| 2 \| scattergram\.md \|/, markdown)
     end
   end
+
+  # --- out_dir (--out) ------------------------------------------------------------
+
+  def test_out_dir_takes_the_pair_and_the_desktop_stays_the_default
+    around_desktop do |desktop|
+      Dir.mktmpdir do |out|
+        findings = Findings.new
+        paths = ChangeReport.new(project: "app", scope: "all", findings: findings, out_dir: out).write
+        assert_equal [ out ], paths.values.map { |path| File.dirname(path) }.uniq
+        default = ChangeReport.new(project: "app", scope: "all", findings: findings).write
+        assert_equal [ desktop ], default.values.map { |path| File.dirname(path) }.uniq
+      end
+    end
+  end
+
+  def test_rollup_honours_out_dir
+    Dir.mktmpdir do |out|
+      path = ChangeReport.rollup(project: "app", scope: "all", rows: [], out_dir: out)[:markdown]
+      assert_equal out, File.dirname(path)
+    end
+  end
 end

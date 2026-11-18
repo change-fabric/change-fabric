@@ -773,4 +773,21 @@ class ChangeArtifactTest < Minitest::Test
         "Connection: close\r\n\r\n#{body}"
     end
   end
+
+  def test_the_bundle_indexes_the_testcases_run_dir
+    Dir.mktmpdir do |root|
+      run_dir = File.join(root, "testcases-r1")
+      FileUtils.mkdir_p(run_dir)
+      File.write(File.join(run_dir, "case-results.jsonl"),
+                 "#{JSON.generate("key" => "checkout/pay", "status" => "fail", "evidence_dir" => "#{run_dir}/cases/checkout/pay/attempt-1", "run_id" => "r1")}\n")
+      bundle_dir = File.join(root, "bundle")
+      FileUtils.mkdir_p(bundle_dir)
+      bundle = ChangeArtifactBundle.new(dir: bundle_dir, manifest: manifest, media: nil, report: nil,
+                                        artifacts: artifacts, evidence_dir: run_dir)
+      bundle.send(:index_evidence)
+      index = JSON.parse(File.read(File.join(bundle_dir, "testcases-evidence.json")))
+      assert_equal run_dir, index["run_dir"]
+      assert_equal [ { "key" => "checkout/pay", "status" => "fail", "evidence_dir" => "#{run_dir}/cases/checkout/pay/attempt-1" } ], index["cases"]
+    end
+  end
 end

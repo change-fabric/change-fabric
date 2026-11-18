@@ -139,6 +139,26 @@ in the repo rather than working around the gate: a case nobody trusts is worse
 than no case. `gate_tags` exists for the one legitimate version of that, staged
 adoption of a brand-new suite whose cases should report before they gate.
 
+### Evidence
+
+Reports land on the Desktop, or in `--out DIR`
+(`change_run.rb testcases --out DIR`). Each run also writes
+`<out>/testcases-<run-id>/`, mounted into the browser container while the
+cases run:
+
+- `cases/<suite>/<id>/attempt-<n>/start.json`, written before the call.
+- `step-NNNN-a.json` per step, with the step's result, console errors and
+  failed requests, checkpointed while the case runs; `failure.png` when a step
+  fails and `final.png` at the end; a `screenshot` step's image as `shot-*.png`.
+- `result.json` once the call returns. A call that never returns (killed on
+  its budget, a browser crash) leaves `termination.json` instead, and the case
+  is `partial_evidence`, with every step it checkpointed.
+- `case-results.jsonl`, one record per case: key, persona, status (`pass`,
+  `fail`, `auth_interrupted`, `partial_evidence` or `skipped`), each attempt
+  with its outcome and evidence dir, duration, commit and run id.
+
+A retry keeps every attempt's dir, so a fail-then-pass case shows both.
+
 ## Quarantine a flaky case
 
 A case that is genuinely flaky can be time-boxed out of the gate instead of

@@ -466,4 +466,11 @@ class ChangeRunForTagAndGateStatusTest < Minitest::Test
     assert_equal 2, result
     assert_match(/could not resolve ref/, output)
   end
+
+  def test_out_names_the_report_dir_and_the_desktop_is_the_default
+    plain = ChangeRun.new(%w[all])
+    assert_equal File.expand_path("/tmp/qa-out"), plain.send(:parse_args, %w[testcases --out /tmp/qa-out]).out
+    assert_nil plain.send(:parse_args, %w[testcases]).out
+    assert_equal ChangeReport::DESKTOP, plain.send(:out_dir)
+  end
 end

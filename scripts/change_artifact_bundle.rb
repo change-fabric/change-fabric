@@ -8,6 +8,7 @@ require 'json'
 require_relative 'change_artifact_templates'
 require_relative 'change_artifact_view'
 require_relative 'change_docker'
+require_relative 'change_testcases_evidence'
 
 # Assembles one run's findings artifact: a self-contained static site directory
 # holding `index.html`, the run's `manifest.json`, the screenshots and
@@ -26,7 +27,10 @@ class ChangeArtifactBundle
 
   # `dir` is the bundle root, which is also the media sink's root: the lane has
   # already written screenshots and recordings into it by the time this runs.
-  def initialize(dir:, manifest:, media:, report:, artifacts:)
+  # `evidence_dir` is the testcases lane's run dir, when it ran; the bundle
+  # indexes it rather than copying it, since it can hold every attempt's files.
+  def initialize(dir:, manifest:, media:, report:, artifacts:, evidence_dir: nil)
+    @evidence_dir = evidence_dir
     @dir = dir
     @manifest = manifest
     @media = media
@@ -38,6 +42,7 @@ class ChangeArtifactBundle
   def build
     FileUtils.mkdir_p(@dir)
     copy_reports
+    index_evidence
     pdfs = render_pdfs
     write_manifest
     index = render_index
@@ -47,6 +52,21 @@ class ChangeArtifactBundle
   private
 
   def manifest_path = File.join(@dir, 'manifest.json')
+
+  EVIDENCE_INDEX = 'testcases-evidence.json'
+
+  # One entry per case from the run dir's case-result records: its key,
+  # status and evidence dir, so the bundle points at every attempt's evidence.
+  def index_evidence
+    return unless @evidence_dir
+
+    records = File.join(@evidence_dir, ChangeTestcasesEvidence::RESULTS_FILE)
+    cases = File.exist?(records) ? File.readlines(records).map { |line| JSON.parse(line).slice('key', 'status', 'evidence_dir') } : []
+    File.write(File.join(@dir, EVIDENCE_INDEX), "#{JSON.pretty_generate('run_dir' => @evidence_dir, 'cases' => cases)}\n")
+    @manifest = @manifest.merge('testcases_evidence' => EVIDENCE_INDEX)
+  rescue StandardError => e
+    @warnings << "testcases evidence index failed: #{e.message}"
+  end
 
   def write_manifest = File.write(manifest_path, "#{JSON.pretty_generate(@manifest)}\n")
 

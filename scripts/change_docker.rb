@@ -193,11 +193,13 @@ module ChangeDocker
   # live walkthrough can reach an app by its own hostname. `local_tls_hosts`
   # (a ChangeLocalTls.allowed_hosts list) ignores certificate errors for those
   # hosts only; every other HTTPS request is aborted.
-  def with_browserless(network:, add_hosts: [], local_tls_hosts: nil)
+  # `mounts` maps a host dir to a container path, for evidence the browser
+  # writes as downloads (the testcases lane's run dir at /cf-run).
+  def with_browserless(network:, add_hosts: [], local_tls_hosts: nil, mounts: {})
     token = SecureRandom.hex(8)
     name = "cf-change-bl-#{SecureRandom.hex(4)}"
     port = free_port
-    start_browserless(name, network, port, token, add_hosts)
+    start_browserless(name, network, port, token, add_hosts, mounts)
     begin
       session = Browserless.new(port: port, token: token, local_tls_hosts: local_tls_hosts)
       session.wait_ready or raise 'browserless did not become ready'
@@ -207,18 +209,19 @@ module ChangeDocker
     end
   end
 
-  def start_browserless(name, network, port, token, add_hosts = [])
-    out, status = Open3.capture2e({ 'TOKEN' => token.to_s }, *browserless_command(name, network, port, token, add_hosts))
+  def start_browserless(name, network, port, token, add_hosts = [], mounts = {})
+    out, status = Open3.capture2e({ 'TOKEN' => token.to_s }, *browserless_command(name, network, port, token, add_hosts, mounts))
     raise "failed to start browserless container: #{out.strip}" unless status.success?
   end
 
   # The browser container's argv, split out for the same reason as
   # run_command: the host alias is asserted in a test, not in a docker run.
-  def browserless_command(name, network, port, _token, add_hosts = [])
+  def browserless_command(name, network, port, _token, add_hosts = [], mounts = {})
     cmd = [ 'docker', 'run', '-d', '--rm', '--name', name, '--label', "#{OWNER_LABEL}=#{Process.pid}" ]
     cmd += [ '--network', network ] if network
     cmd += host_gateway_args
     Array(add_hosts).each { |entry| cmd += [ '--add-host', entry ] }
+    mounts.to_h.each { |host, target| cmd += mount_arg(host, target) }
     cmd += [ '-p', "127.0.0.1:#{port}:3000", '-e', 'TOKEN' ]
     browserless_limits.each { |key, value| cmd += [ '-e', "#{key}=#{value}" ] }
     cmd + [ BROWSERLESS_IMAGE ]

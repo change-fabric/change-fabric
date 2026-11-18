@@ -55,10 +55,10 @@ class ChangeArtifactStep
   # lines the runner should log. Any exception is caught and returned as one of
   # those lines: an artifact problem is reported, never raised into a run whose
   # audit already finished.
-  def finish(findings:, report:, run:)
+  def finish(findings:, report:, run:, evidence_dir: nil)
     manifest = build_manifest(findings, report, run)
     result = ChangeArtifactBundle.new(dir: @dir, manifest: manifest, media: @media,
-                                      report: report, artifacts: @artifacts).build
+                                      report: report, artifacts: @artifacts, evidence_dir: evidence_dir).build
     lines = [ "artifact bundle: #{result.dir}" ] + result.warnings.map { |warning| "artifact: #{warning}" }
     lines + publish_lines
   rescue StandardError => e

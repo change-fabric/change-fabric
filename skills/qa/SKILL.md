@@ -40,6 +40,10 @@ committed test cases and nothing else:
 ruby ~/.claude/cf/bin/change_run.rb testcases --suite <suite-or-tag>
 ```
 
+`--out DIR` puts the report pair and the run's evidence dir
+(`testcases-<run-id>/`, per-attempt traces and screenshots) there instead of
+on the Desktop.
+
 No scoping model, no clarifying round, no generated script: phases 1 to 4 are
 skipped entirely. The selector matches a suite id or a case tag, and it is
 repeatable. A selector matching nothing is a failing finding, never an empty

@@ -1203,4 +1203,140 @@ class ChangeLaneTestcasesTest < Minitest::Test
     page = "[ { url: () => 'https://app.example.org/', $: async () => #{VISIBLE}, evaluate: async () => 401 } ]"
     assert_equal [ false ], session_ended_answers(code, page)
   end
+
+  # --- evidence (P4) ------------------------------------------------------------------
+
+  EvidenceCtx = Struct.new(:network, :target_url, :browserless, :suite_select, :signoff, :evidence_dir, :run_id) do
+    def log(_message) = nil
+    def signoff? = false
+  end
+
+  # Plays the container's part: whatever a module would checkpoint is written
+  # into the mounted dir before the scripted outcome happens.
+  class EvidenceSession < FakeSession
+    def initialize(records, root, checkpoints: 1)
+      super(records)
+      @root = root
+      @checkpoints = checkpoints
+    end
+
+    def run_function(code, launch_args: [], timeout_ms: nil)
+      dir = code[%r{const evidence = \{"dir":"/cf-run/([^"]+)"\}}, 1]
+      if dir
+        host = File.join(@root, dir)
+        @checkpoints.times do |i|
+          File.write(File.join(host, format("step-%04d-a.json", i + 1)),
+                     JSON.generate("record" => { "index" => i, "label" => "step #{i + 1}", "ok" => true }))
+        end
+      end
+      super
+    end
+  end
+
+  def evidence_lane(dir, root, session, raw = {})
+    config = ChangeConfig::LaneConfig.new("testcases", { "suites" => [ "*.cf-testcases.yml" ] }.merge(raw), dir)
+    ChangeLaneTestcases.new(config, EvidenceCtx.new("net", "https://app.example.org", session, [], false, root, "run-1"),
+                            grader: FakeGrader.new, sleeper: ->(_seconds) { })
+  end
+
+  def attempt_dir(root, id, number) = File.join(root, "cases", "checkout", id, "attempt-#{number}")
+
+  def test_each_attempt_gets_a_start_and_result_and_the_run_gets_case_records
+    with_suite do |dir|
+      Dir.mktmpdir do |out|
+        root = ChangeTestcasesEvidence.prepare(out, "run-1")
+        evidence_lane(dir, root, EvidenceSession.new(ok_result(2), root)).run
+
+        attempt = attempt_dir(root, "happy-path", 1)
+        start = JSON.parse(File.read(File.join(attempt, "start.json")))
+        assert_equal [ "checkout/happy-path", 1 ], start.values_at("case", "attempt")
+        assert File.exist?(File.join(attempt, "result.json"))
+        assert File.exist?(File.join(attempt, "step-0001-a.json"))
+        records = File.readlines(File.join(root, "case-results.jsonl")).map { |line| ChangeCaseResult.from_h(JSON.parse(line)) }
+        assert_equal %w[checkout/happy-path checkout/empty-cart], records.map(&:key)
+        assert_equal [ "pass", "run-1", attempt ], [ records.first.status, records.first.run_id, records.first.evidence_dir ]
+      end
+    end
+  end
+
+  def test_a_killed_call_is_partial_evidence_with_its_checkpointed_steps
+    with_suite do |dir|
+      Dir.mktmpdir do |out|
+        root = ChangeTestcasesEvidence.prepare(out, "run-1")
+        records = ok_result(2)
+        records[0] = [ RuntimeError.new("browserless /function failed: 408 timed out") ]
+        under_test = evidence_lane(dir, root, EvidenceSession.new(records, root, checkpoints: 2))
+        finding = step_findings(under_test.run).find { |entry| entry.check == "checkout/happy-path" }
+
+        assert_equal "fail", finding.status
+        assert_includes finding.detail, "partial_evidence"
+        assert_includes finding.detail, "2 step(s) were checkpointed"
+        attempt = attempt_dir(root, "happy-path", 1)
+        assert File.exist?(File.join(attempt, "start.json"))
+        refute File.exist?(File.join(attempt, "result.json"))
+        assert_includes File.read(File.join(attempt, "termination.json")), "408 timed out"
+        record = under_test.case_records.first
+        assert_equal "partial_evidence", record.status
+        assert record.failure?
+      end
+    end
+  end
+
+  def test_a_fail_then_pass_retry_keeps_both_attempts_and_is_flaky
+    with_suite do |dir|
+      Dir.mktmpdir do |out|
+        root = ChangeTestcasesEvidence.prepare(out, "run-1")
+        records = ok_result(2)
+        records[1] = [ failed_result(1, [ { "index" => 0, "label" => "goto", "ok" => false, "error" => "boom" } ]), records[1] ]
+        under_test = evidence_lane(dir, root, EvidenceSession.new(records, root))
+        under_test.run
+
+        assert File.exist?(File.join(attempt_dir(root, "empty-cart", 1), "result.json"))
+        assert File.exist?(File.join(attempt_dir(root, "empty-cart", 2), "result.json"))
+        record = under_test.case_records.last
+        assert record.flaky?
+        assert_equal [ attempt_dir(root, "empty-cart", 1), attempt_dir(root, "empty-cart", 2) ],
+                     record.attempts.map { |entry| entry[:evidence_dir] }
+      end
+    end
+  end
+
+  def test_a_queue_rejection_leaves_no_attempt_dir
+    with_suite do |dir|
+      Dir.mktmpdir do |out|
+        root = ChangeTestcasesEvidence.prepare(out, "run-1")
+        records = ok_result(2)
+        rejected = ChangeDocker::Browserless::QueueRejected.new("429")
+        records[0] = Array.new(ChangeLaneTestcases::QUEUE_BACKOFF_S.size + 1) { rejected }
+        evidence_lane(dir, root, EvidenceSession.new(records, root)).run
+        refute Dir.exist?(attempt_dir(root, "happy-path", 1))
+      end
+    end
+  end
+
+  def test_the_module_checkpoints_each_step_into_the_attempt_dir
+    with_suite do |dir|
+      Dir.mktmpdir do |out|
+        root = ChangeTestcasesEvidence.prepare(out, "run-1")
+        session = EvidenceSession.new(ok_result(2), root)
+        evidence_lane(dir, root, session).run
+        assert_includes session.code, '"dir":"/cf-run/cases/checkout/happy-path/attempt-1"'
+        assert_includes session.code, "await writer.step(record, log.take());"
+        assert_includes session.code, "Browser.setDownloadBehavior"
+      end
+    end
+  end
+
+  def test_parallel_cases_share_the_evidence_tree_without_racing
+    with_suite do |dir|
+      Dir.mktmpdir do |out|
+        root = ChangeTestcasesEvidence.prepare(out, "run-1")
+        under_test = evidence_lane(dir, root, EvidenceSession.new(ok_result(2), root), "parallel" => 2)
+        20.times do
+          FileUtils.rm_rf(File.join(root, "cases"))
+          assert(step_findings(under_test.run).all? { |finding| finding.status == "pass" })
+        end
+      end
+    end
+  end
 end
