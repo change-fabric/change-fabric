@@ -494,6 +494,10 @@ class ChangeLaneTestcases < ChangeLane
       attempts << { number: number + 1, outcome: attempt_outcome(record),
                     duration_ms: elapsed_ms(attempt_started), evidence_dir: record['evidenceDir'] }
       break if record['ok']
+
+      # A rerun follows; this attempt's frames will not be encoded, so they
+      # give their disk back before the next attempt records.
+      ChangeTestcasesVideo.drop_frames(record['evidenceDir']) if @encoder && record['evidenceDir'] && number < item.retries
     end
     { record: record, attempts: attempts, started_at_ms: elapsed_ms(@run_started, started),
       started_at: started_at, duration_ms: elapsed_ms(started) }
@@ -579,7 +583,8 @@ class ChangeLaneTestcases < ChangeLane
 
     resume = { startAt: restart, vars: record['vars'] || {} }
     second = call_function(session, case_module(compiled, number, persona_js(item, state), resume: resume,
-                                                                                           evidence: dir&.js),
+                                                                                           evidence: dir&.js,
+                                                                                           video: dir && video_js(item)),
                            case_budget_ms(item))
     merge_resumed(record, second, resume[:startAt])
   end
@@ -610,10 +615,23 @@ class ChangeLaneTestcases < ChangeLane
     end
 
     earlier = Array(first['steps']).select { |step| step['index'].to_i < start_at }
-    merged = second.merge('steps' => earlier + Array(second['steps']), 'resumed' => true)
+    merged = second.merge('steps' => earlier + Array(second['steps']), 'resumed' => true,
+                          'video' => merged_video(first['video'], second['video']))
     return merged unless second['authExpired']
 
     merged.merge('ok' => false, 'authError' => 'the session ended again after a re-login in the same attempt')
+  end
+
+  # Both segments of a resumed recording: frames are already on disk in order
+  # (frame-a* then frame-r*), so only the caption marks need joining, the
+  # second segment's shifted to follow the first.
+  def merged_video(first, second)
+    return second || first unless first.is_a?(Hash) && second.is_a?(Hash)
+
+    offset = (first['frames'].to_i * 1000) / ChangeTestcasesVideo::FPS
+    marks = Array(first['marks']) + Array(second['marks']).map { |mark| mark.merge('ms' => mark['ms'].to_i + offset) }
+    { 'frames' => first['frames'].to_i + second['frames'].to_i, 'marks' => marks,
+      'stopped' => second['stopped'] || first['stopped'] }
   end
 
   # One accepted call. A queue rejection is retried with backoff and is not an
@@ -874,11 +892,16 @@ class ChangeLaneTestcases < ChangeLane
           await page.evaluate((fileName, body, isBase64) => {
             const bytes = isBase64 ? Uint8Array.from(atob(body), (ch) => ch.charCodeAt(0)) : body;
             const link = document.createElement("a");
-            link.href = URL.createObjectURL(new Blob([bytes]));
+            const url = URL.createObjectURL(new Blob([bytes]));
+            link.href = url;
             link.download = fileName;
             document.body.appendChild(link);
             link.click();
             link.remove();
+            // Chrome has the blob once the click returns; revoke it after the
+            // download has had time to start so a long recording does not
+            // keep every frame alive in the page.
+            setTimeout(() => URL.revokeObjectURL(url), 10000);
           }, name, content, base64 === true);
         } catch (err) {
           issued -= 1;

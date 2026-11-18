@@ -153,6 +153,18 @@ class ChangeTestcasesVideoTest < Minitest::Test
     end
   end
 
+  def test_a_failing_case_without_retries_keeps_its_frames_for_its_video
+    Dir.mktmpdir do |dir|
+      File.write(File.join(dir, "long.cf-testcases.yml"), suite(1))
+      root = ChangeTestcasesEvidence.prepare(dir, "run-1")
+      session = RecordingSession.new(root, fail_ids: [ "long/case-1" ])
+      config = ChangeConfig::LaneConfig.new("testcases", { "suites" => [ "*.cf-testcases.yml" ] }, dir)
+      ChangeLaneTestcases.new(config, Ctx.new(nil, "https://a.example.org", session, [], false, root, "run-1", [ "video" ], 40),
+                              grader: Grader.new("none"), video_runner: fake_ffmpeg, free_space: ->(_d) { 10_000 * MB }).run
+      assert_equal "ok", exports(root)["video"]["long/case-1"]["status"]
+    end
+  end
+
   def test_an_encode_failure_fails_only_that_export
     failing = ->(_argv) { [ "boom", Status.new(false) ] }
     run_lane(count: 2, free: 10_000 * MB, runner: failing) do |lane, _findings, root|
@@ -168,6 +180,40 @@ class ChangeTestcasesVideoTest < Minitest::Test
       File.write(File.join(first, "frame-a000001.jpg"), "x")
       ChangeTestcasesVideo.drop_frames(first)
       assert_empty ChangeTestcasesVideo.frames(first)
+    end
+  end
+
+  def test_a_resumed_recording_keeps_both_segments_captions
+    lane = ChangeLaneTestcases.allocate
+    merged = lane.send(:merged_video, { "frames" => 10, "marks" => [ { "ms" => 0, "label" => "goto /" } ] },
+                       { "frames" => 5, "marks" => [ { "ms" => 0, "label" => "goto / again" } ] })
+    assert_equal 15, merged["frames"]
+    assert_equal [ 0, 2000 ], merged["marks"].map { |mark| mark["ms"] }
+  end
+
+  def test_the_resumed_call_records_and_blob_urls_are_revoked
+    source = File.read(File.expand_path("../scripts/change_lane_testcases.rb", __dir__))
+    assert_includes source, "video: dir && video_js(item)),\n                           case_budget_ms(item))\n    merge_resumed"
+    assert_includes source, "URL.revokeObjectURL(url)"
+  end
+
+  # A failed attempt's frames are gone before the rerun records its own.
+  def test_a_failed_attempts_frames_are_freed_before_the_retry
+    Dir.mktmpdir do |dir|
+      File.write(File.join(dir, "long.cf-testcases.yml"),
+                 "suite: long\nsuite_version: 2\ncases:\n  - id: flaky\n    acceptance: It loads.\n    retries: 1\n    safe_rerun: true\n    steps:\n      - goto: /\n")
+      root = ChangeTestcasesEvidence.prepare(dir, "run-1")
+      seen = []
+      session = RecordingSession.new(root, fail_ids: [ "long/flaky" ])
+      session.define_singleton_method(:run_function) do |code, **kw|
+        seen << Dir.glob(File.join(root, "cases", "**", "frame-*.jpg")).size
+        @fail_ids = [] if seen.size > 1
+        super(code, **kw)
+      end
+      config = ChangeConfig::LaneConfig.new("testcases", { "suites" => [ "*.cf-testcases.yml" ] }, dir)
+      ChangeLaneTestcases.new(config, Ctx.new(nil, "https://a.example.org", session, [], false, root, "run-1", [ "video" ], 40),
+                              grader: Grader.new("none"), video_runner: fake_ffmpeg, free_space: ->(_d) { 10_000 * MB }).run
+      assert_equal [ 0, 0 ], seen
     end
   end
 end
