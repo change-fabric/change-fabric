@@ -7,6 +7,7 @@ require 'shellwords'
 require 'open3'
 require_relative 'b_roll'
 require_relative 'change_docker'
+require_relative 'path_canon'
 require_relative 'prototype_capture'
 require_relative 'prototype_imagegen'
 require_relative 'prototype_ux_lint'
@@ -938,7 +939,8 @@ module WalkthroughRender
 
     # The exact command that renders the draft a missing roast loop runs on.
     def draft_command
-      dir = @root.start_with?("#{Dir.pwd}/") ? @root.delete_prefix("#{Dir.pwd}/") : @root
+      rel = PathCanon.relative(@root, Dir.pwd)
+      dir = rel.nil? || rel == '.' ? @root : rel
       "ruby ~/.claude/cf/bin/walkthrough_render.rb #{dir} --draft"
     end
 
