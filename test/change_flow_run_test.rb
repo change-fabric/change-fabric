@@ -190,6 +190,9 @@ class ChangeFlowRunTest < Minitest::Test
     assert ChangeFlowLogin.same_path?("http://localhost:3000/login?tenant=admin", "/login?tenant=admin")
     refute ChangeFlowLogin.same_path?("http://localhost:3000/login?tenant=admin&next=/x", "/login?tenant=admin")
     refute ChangeFlowLogin.same_path?("http://localhost:3000/login?next=/settings", "/login")
+    assert ChangeFlowLogin.same_path?("http://localhost:3000/#/login?tenant=admin", "/#/login?tenant=admin")
+    refute ChangeFlowLogin.same_path?("http://localhost:3000/#/login?tenant=admin", "/#/login?tenant=member")
+    refute ChangeFlowLogin.same_path?("http://localhost:3000/#/login?next=/x", "/#/login")
     refute ChangeFlowLogin.same_path?("http://localhost:3000/login?tenant=admin", "/login?tenant=member")
     refute ChangeFlowLogin.same_path?("http://localhost:3000/login", "/login?tenant=member")
   end

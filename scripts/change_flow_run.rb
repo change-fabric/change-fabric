@@ -94,7 +94,12 @@ module ChangeFlowLogin
     [ uri.path.to_s.sub(%r{/\z}, ''), fragment.start_with?('/') ? fragment.split('?').first : '' ]
   end
 
-  def params(uri) = URI.decode_www_form(uri.query.to_s)
+  # The page's query and, for a hash route, the route's own query too.
+  def params(uri)
+    fragment = uri.fragment.to_s
+    route_query = fragment.start_with?('/') ? fragment.split('?', 2)[1].to_s : ''
+    URI.decode_www_form(uri.query.to_s) + URI.decode_www_form(route_query)
+  end
 end
 
 # Runs one declarative flow file against an ephemeral browserless Chromium
