@@ -62,7 +62,8 @@ A lens is the body of a cf rubric skill (for example cf:terraform, cf:aws, cf:re
 1. Run `ruby ~/.claude/cf/bin/roast.rb infer --text FILE...` and read the `roast lenses suggested:` line, the rubric skills whose paths match the inputs (including the `+++ b/` paths inside a diff). Nothing is applied silently.
 2. If candidates exist and the user named no lens, run one Agent (subagent_type general-purpose, model haiku, foreground). Give it the input file paths and each candidate's `~/.claude/skills/cf:NAME/SKILL.md`. Ask for a JSON list of the candidates whose rubric clearly applies to the input, with a one-line reason each. Drop any name it returns that is not in the candidate list.
 3. Pass each kept name as `--lens cf:NAME`. A lens the user named always applies, culled or not.
-4. Only `group: rubrics` skills are lenses; any other name exits 2. Lenses apply to stills, text, and `--video` roasts; in video mode they append to the video rubric as they do for stills. Lens bodies join the cache key, the estimate, and the sensitive-term scan.
+4. cf:plan step 7b selects its plan-roast lenses through `plan_lenses.rb` (cf:simplicity plus up to 3 routed), and culls them with one tools-off `claude -p --model haiku --max-turns 1` call (`--cull`), not debited against the roast budget.
+5. Only `group: rubrics` skills are lenses; any other name exits 2. Lenses apply to stills, text, and `--video` roasts; in video mode they append to the video rubric as they do for stills. Lens bodies join the cache key, the estimate, and the sensitive-term scan.
 
 ## Video mode
 

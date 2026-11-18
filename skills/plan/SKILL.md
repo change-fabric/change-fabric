@@ -209,8 +209,10 @@ fresh session that will execute the plan.
    filenames against the plan dir and silently skip every SVG.
 
 7b. **Roast.** Always runs, here in the main session, estimate first. Cap:
-   at most 2 rounds and 0.50 USD in total, tracked by summing the per-round
-   estimates. Never raise the cap.
+   at most 2 rounds and 0.50 USD in total. Never raise the cap. The ledger
+   debits every roast round at its upper bound,
+   or at its actual cost when the provider reports usage; `remaining` is
+   0.50 minus the debits so far.
 
    1. Inputs: `--brief <plan_dir>/goal.md --text plan.md --text goal.md`,
       one `--shot` for every
@@ -220,11 +222,27 @@ fresh session that will execute the plan.
       `--purpose` set to goal.md's outcomes, and
       `--out-dir <plan_dir>/roast`. The script is
       `ruby ~/.claude/cf/bin/roast.rb`.
-   2. Run with `--estimate-only` first and show the estimate. If round 1 is
-      over 0.50 USD, shorten the inputs: drop the dark PNGs first, then trim
-      plan.md quotes.
-   3. Run round 1 at `--max-usd` equal to the remaining budget (0.50 minus
-      the estimates spent so far).
+   2. Lenses. Run `ruby ~/.claude/cf/bin/plan_lenses.rb --plan-dir
+      <plan_dir> --repo <target repo> --cull`. It prints `plan lenses
+      always: cf:simplicity`, the ranked `plan lenses candidates:` with
+      reasons (paths named in the plan, `lens: keywords:`, `detect:`
+      markers), then culls them in one host `claude -p --model haiku
+      --max-turns 1` call with every tool off and the plan, goal and
+      candidate rubrics on stdin. That call runs on the Claude Code
+      subscription and is not debited. Read `plan lenses final:`
+      (cf:simplicity plus at most 3, in rank order). If `claude` is missing
+      or fails, or plan text matches a sensitive term (nothing is sent),
+      it prints a one-line `plan lenses cull skipped` note and
+      keeps the rule-based candidates under the cap; record the note.
+   3. Before each round, run `ruby ~/.claude/cf/bin/plan_lenses.rb fit
+      --remaining <usd> --keep <final routed names> -- <the step 1 args>`.
+      It drops routed lenses lowest rank first, then images (every
+      `-dark.png`, then every `-light.png`, in name order) until the bound
+      fits; goal.md, the complete plan.md and cf:simplicity always stay.
+      Use its `plan lenses fit:` flags for the `--estimate-only` call and
+      the real call, with `--max-usd` equal to `remaining`, and debit its
+      `plan lenses bound:`. On `roast skipped` (exit 3), record "roast
+      skipped" in `## Roast` and do not call the critic.
    4. Accept or rebut each P0, P1, and P2 finding yourself. `SendMessage`
       the writing agent to apply accepted text fixes, and resume the diagram
       agent to apply accepted visual fixes, re-lint, and re-render both
@@ -236,10 +254,10 @@ fresh session that will execute the plan.
       `reference/interview.md`, recorded as `Answered by: judge (roast)`.
    5. Round 2 runs only if
       `ruby ~/.claude/cf/bin/roast.rb decide --out-dir <plan_dir>/roast`
-      says continue and the summed estimates, round 2's own included, stay at
-      or under 0.50 USD. There is never a round 3.
-   6. The writing agent appends `## Roast` to plan.md: rounds run, score per
-      round and spend (summed estimates), each finding with its verdict
+      says continue and its own `fit` against what remains does not print
+      `roast skipped`. There is never a round 3.
+   6. The writing agent appends `## Roast` to plan.md: rounds run, lenses
+      applied, score per round and spend (the debits), each finding with its verdict
       (accepted, rebutted, or contested) and resolution, any open P0 or P1,
       and any skip reason.
    7. On a sensitive-term refusal (exit 1), scrub and retry once. Exit 4 (no
