@@ -1,0 +1,178 @@
+# frozen_string_literal: true
+
+require "minitest/autorun"
+require "json"
+require "tmpdir"
+require "yaml"
+require_relative "../scripts/change_qa_film"
+
+class ChangeQaFilmTest < Minitest::Test
+  FakeStore = Struct.new(:values) do
+    def read(name) = values[name]
+  end
+
+  def test_flag_probe_becomes_a_goto_and_a_body_check
+    steps = ChangeQaFilm.flag_steps(flag: "new-reports", probe: "/api/flags/{flag}", expect: "true")
+    assert_equal [ { "goto" => "/api/flags/new-reports" },
+                   { "expect_text" => { "selector" => "body", "contains" => "true" } } ], steps
+  end
+
+  def test_flag_without_probe_uses_the_visible_selector
+    assert_equal [ { "expect_visible" => "[data-testid=reports-nav]" } ],
+                 ChangeQaFilm.flag_steps(flag: "new-reports", selector: "[data-testid=reports-nav]")
+  end
+
+  def test_flag_needs_a_probe_or_a_selector
+    assert_raises(ChangeQaFilm::Error) { ChangeQaFilm.flag_steps(flag: "new-reports") }
+    assert_raises(ChangeQaFilm::Error) { ChangeQaFilm.flag_steps(flag: "", selector: "#x") }
+  end
+
+  def test_draft_strips_check_labels_and_keeps_them_in_order
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "draft.yml")
+      File.write(path, <<~YAML)
+        acceptance: The count on the card matches the filtered table.
+        steps:
+          - goto: /reports
+            check: Reports opens
+          - click: "text=Open orders"
+      YAML
+      draft = ChangeQaFilm.load_draft(path)
+      assert_equal [ { "goto" => "/reports" }, { "click" => "text=Open orders" } ], draft[:steps]
+      assert_equal [ "Reports opens", nil ], draft[:checks]
+      assert_match(/filtered table/, draft[:acceptance])
+    end
+  end
+
+  def test_login_steps_follow_a_multi_page_oidc_login
+    auth = ChangeLaneBrowserless::AuthConfig.new(
+      "steps" => [
+        { "url" => "/login", "fields" => [ { "selector" => "#user", "env" => "QA_USER" } ], "submit_selector" => "#next" },
+        { "fields" => [ { "selector" => "#pass", "env" => "QA_PASS" } ], "submit_selector" => "#go",
+          "wait_for_selector" => "nav" }
+      ]
+    )
+    steps = ChangeQaFilm.login_steps(auth)
+    assert_equal({ "goto" => "/login" }, steps.first)
+    assert_equal({ "fill" => { "selector" => "#pass", "env" => "QA_PASS" } }, steps[3])
+    assert_equal({ "wait_for" => { "selector" => "nav" } }, steps.last)
+    assert_equal %w[QA_USER QA_PASS], ChangeQaFilm.secret_names(auth)
+  end
+
+  def test_secrets_come_from_env_then_the_store_and_report_what_is_missing
+    env = { "QA_USER" => "set" }
+    store = FakeStore.new({ "QA_PASS" => "from-store\n" })
+    missing = ChangeQaFilm.resolve_secrets(%w[QA_USER QA_PASS QA_OTP], env: env, store: store)
+    assert_equal %w[QA_OTP], missing
+    assert_equal "from-store", env["QA_PASS"]
+    assert_equal "set", env["QA_USER"]
+  end
+
+  def draft(steps, checks)
+    { steps: steps, checks: checks, acceptance: "Counts match." }
+  end
+
+  def test_selector_flag_runs_on_the_opening_page
+    flag = ChangeQaFilm.flag_steps(flag: "f", selector: "#nav")
+    entries = ChangeQaFilm.plan(draft([ { "click" => "#a" } ], [ nil ]), flag, "https://staging.example.test", probe: false)
+    assert_equal [ { "goto" => "https://staging.example.test" }, { "expect_visible" => "#nav" }, { "click" => "#a" } ],
+                 entries.map { |entry| entry[:step] }
+    assert_equal [ false, true, false ], entries.map { |entry| entry[:flag] }
+    assert_equal "Open the page", entries.first[:check]
+  end
+
+  def test_probe_flag_runs_before_the_draft_opens_its_page
+    flag = ChangeQaFilm.flag_steps(flag: "f", probe: "/flags/{flag}")
+    entries = ChangeQaFilm.plan(draft([ { "goto" => "/reports" } ], [ "Open Reports" ]), flag, "https://s.test", probe: true)
+    assert_equal [ { "goto" => "/flags/f" }, { "expect_text" => { "selector" => "body", "contains" => "true" } },
+                   { "goto" => "/reports" } ], entries.map { |entry| entry[:step] }
+  end
+
+  def test_checklist_marks_the_flag_each_step_and_the_acceptance
+    flag = ChangeQaFilm.flag_steps(flag: "new-reports", selector: "#nav")
+    entries = ChangeQaFilm.plan(draft([ { "goto" => "/reports" }, { "expect_visible" => ".chip" } ], [ "Open Reports", nil ]),
+                                flag, "https://s.test", probe: false)
+    results = [ { "index" => 0, "ok" => true }, { "index" => 1, "ok" => true },
+                { "index" => 2, "ok" => false, "error" => "not visible" } ]
+    text = ChangeQaFilm.checklist(entries: entries, labels: [ "goto /reports", "flag", "expect_visible .chip" ],
+                                  results: results, flag: "new-reports", acceptance: "Counts match.",
+                                  verdict: "pass", status: "fail")
+    assert_match(/UAT checklist: FAIL/, text)
+    assert_match(/\[x\] PASS: Flag `new-reports` is on/, text)
+    assert_match(/\[x\] PASS: Open Reports/, text)
+    assert_match(/\[ \] FAIL: expect_visible \.chip \(not visible\)/, text)
+    assert_match(/PASS: Acceptance: Counts match\./, text)
+  end
+
+  def test_saved_suite_is_named_after_its_file
+    assert_equal "reports", ChangeQaFilm.suite_id("qa/reports.cf-testcases.yml")
+  end
+
+  def test_snapshot_compiles_as_an_eval_step
+    compiler = ChangeFlowCompiler.new([ { "eval" => { "script" => ChangeQaFilm::SNAPSHOT_JS } } ], base_url: "https://staging.example.test")
+    assert compiler.uses_eval?
+    refute_match(/\.value\b/, ChangeQaFilm::SNAPSHOT_JS, "the snapshot must never read input values")
+  end
+
+  def test_probe_view_hides_login_steps_and_lifts_the_snapshot
+    result = { "steps" => [
+      { "index" => 0, "label" => "fill #user from env QA_USER", "ok" => true },
+      { "index" => 1, "label" => "click /reports", "ok" => true },
+      { "index" => 2, "label" => "eval", "ok" => true, "raw" => true, "value" => { "title" => "Reports" } }
+    ] }
+    view = ChangeQaFilm.probe_view(result, 1)
+    assert_equal "ok", view[:login]
+    assert_equal [ 1 ], view[:steps].map { |step| step["index"] }
+    assert_equal "Reports", view[:snapshot]["title"]
+  end
+
+  def test_parse_requires_a_url_and_rejects_unknown_flags
+    assert_raises(ArgumentError) { ChangeQaFilm.parse(%w[--persona analyst]) }
+    assert_raises(ArgumentError) { ChangeQaFilm.parse(%w[--url https://x.test --bogus 1]) }
+    assert_equal "analyst", ChangeQaFilm.parse(%w[--url https://x.test --persona analyst])[:persona]
+  end
+
+  def test_unknown_persona_is_refused_before_any_browser_starts
+    Dir.mktmpdir do |dir|
+      change_md = File.join(dir, "CHANGE.md")
+      File.write(change_md, <<~MD)
+        ---
+        change_schema_version: #{ChangeSchema::VERSION}
+        change_config:
+          project: demo
+          lanes:
+            testcases:
+              enabled: true
+              personas:
+                analyst:
+                  login_url: /login
+                  email_env: QA_USER
+                  password_env: QA_PASS
+        ---
+      MD
+      _out, err = capture_io do
+        assert_equal 1, ChangeQaFilm.main(%W[probe --url https://staging.example.test --persona ghost --change-md #{change_md}])
+      end
+      assert_match(/persona 'ghost' is not defined/, err)
+    end
+  end
+
+  def test_summary_writes_the_checklist_from_the_run_records
+    Dir.mktmpdir do |dir|
+      attempt = File.join(dir, "cases", "film", "a", "attempt-1")
+      FileUtils.mkdir_p(attempt)
+      File.write(File.join(attempt, "result.json"),
+                 JSON.generate("steps" => [ { "index" => 0, "ok" => true }, { "index" => 1, "ok" => true } ]))
+      File.write(File.join(dir, ChangeTestcasesEvidence::RESULTS_FILE),
+                 "#{JSON.generate('status' => 'pass', 'evidence_dir' => attempt, 'acceptance_verdict' => 'pass')}\n")
+      File.write(File.join(dir, "exports.json"), JSON.generate("video" => { "film/a" => { "status" => "ok", "path" => "/x/out.mp4" } }))
+      options = { url: "https://staging.example.test", flag: "new-reports", flag_selector: "#reports" }
+      flag = ChangeQaFilm.flag_steps(flag: "new-reports", selector: "#reports")
+      entries = ChangeQaFilm.plan(draft([ { "goto" => "/reports" } ], [ "Reports opens" ]), flag, options[:url], probe: false)
+      summary = ChangeQaFilm.summarize(dir, options, entries, "Reports load.")
+      assert_equal "pass", summary[:status]
+      assert_equal "/x/out.mp4", summary[:video]
+      assert_match(/PASS: Reports opens/, File.read(summary[:checklist]))
+    end
+  end
+end

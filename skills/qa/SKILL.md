@@ -57,6 +57,46 @@ repeatable. A selector matching nothing is a failing finding, never an empty
 run. Report the lane's output and stop; there is nothing to promote, because
 these cases are already committed.
 
+## Film mode
+
+`/cf:qa film --url <staging> --persona <name> --flag <key> --steps "<clicks>"
+[--save-suite <path>]` films one flag-gated flow on a deployed environment,
+signed in as a persona, and leaves client UAT evidence: an MP4, `report.html`,
+`report.pdf`, `junit.xml` and a pass/fail `checklist.md`. Nobody writes a
+suite by hand; this session drafts it. No paid API call is made.
+
+What the project configures once:
+- The persona under `lanes.testcases.personas` in CHANGE.md, the same block as
+  `auth:`. An OIDC login that spans pages uses its `steps:` form (each step a
+  `url`, `fields` with `env:` names, a `submit_selector`, a
+  `wait_for_selector`). Its `env:` names come from the environment, else from
+  the project's cf secret store (stage each with `cf:secret-intake`). Never ask
+  for a value in chat, and never print one.
+- How the flag is confirmed, on the command line: `--flag-probe PATH` (an app
+  route, `{flag}` replaced by the key, whose body must contain `--flag-expect`,
+  default `true`) or `--flag-selector SEL` (an element shown only with the flag
+  on). With neither, ask which one.
+
+Steps, all through `ruby ~/.claude/cf/bin/change_qa_film.rb`:
+1. Draft. Run `probe --url URL --persona NAME [--steps draft.yml]`. It signs
+   in, runs the draft so far, and prints each step's result and a snapshot of
+   the page (title, url, headings, visible controls, each with a selector).
+   Write the next steps of `draft.yml` from the snapshot and the `--steps`
+   description, then probe again, until the whole description passes. A draft
+   is `acceptance:` (the sentence the client signs off on) and `steps:` in the
+   suite verbs (`skills/testcases/reference/suite-file-spec.md`), each with an
+   optional `check:`, its plain checklist line. Start it with a `goto`.
+   A count that must match a list is `capture` then `expect_equal`.
+2. Film. Run `run --url URL --persona NAME --flag KEY --draft draft.yml
+   (--flag-probe PATH | --flag-selector SEL) [--out DIR] [--save-suite PATH]`.
+   The flag check is the first assertion; the case runs through the testcases
+   lane with video on, so the login, evidence and acceptance grading are the
+   lane's. It prints JSON naming every file; exit 0 is a pass, 3 a fail. It
+   records no gate.
+3. Report the status, the checklist lines and the file paths. On a pass,
+   `--save-suite` writes the case (suite id from the file name, never over an
+   existing file); say that `lanes.testcases.suites` must cover it.
+
 Everything below is the exploratory mode, reached by a natural-language target.
 Use it to find out what to test; use `--suite` to check it still works.
 
