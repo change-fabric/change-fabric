@@ -11,3 +11,5 @@ boot.health.url: http://localhost:3000/up
 lane targets:
   a11y: https://staging.example.test
   zap: https://staging.example.test/, https://staging.example.test/admin
+policy: protected_branches: main
+policy: admin_bypass: not allowed

@@ -76,7 +76,8 @@ class CfCli
     parser.parse!(argv)
     case command
     when 'doctor'
-      report = CfDoctor.new(home: home).report(host: options[:host], surface: options[:surface], version: options[:version])
+      report = CfDoctor.new(home: home).report(host: options[:host], surface: options[:surface], version: options[:version],
+                                                  project: options[:project])
       if options[:json]
         io.puts JSON.pretty_generate(report)
       else
@@ -85,6 +86,10 @@ class CfCli
         io.puts "Adapter configured: #{report.dig('adapter', 'configured')}; active/trusted: not probed."
         io.puts "Version evidence: #{report.dig('capabilities', 'version_status')}; live scope: #{report.dig('capabilities', 'live_scope') || 'not run'}."
         io.puts "State: #{report['state_root']}"
+        if (change_md = report['change_md'])
+          io.puts "CHANGE.md: #{change_md['path']} (#{change_md['ok'] ? 'loads' : 'does not load'})"
+          change_md['lines'].each { |line| io.puts "  #{line}" }
+        end
         report['next_steps'].each { |step| io.puts step }
       end
     when 'mode'

@@ -25,6 +25,32 @@ class CfDoctorTest < Minitest::Test
     assert report["next_steps"].any? { |step| step.include?("/cf:roast") }
   end
 
+  def test_doctor_reports_the_project_change_md
+    Dir.mktmpdir do |project|
+      File.write(File.join(project, "CHANGE.md"), "---\nchange_config:\n  project: demo\n  lanes:\n    k6: { enabled: true }\n---\nbody\n")
+      report = CfDoctor.new(home: @home).report(host: "codex", version: "0.166.0", probe: false, project: project)
+      assert_equal File.join(project, "CHANGE.md"), report.dig("change_md", "path")
+      assert report.dig("change_md", "ok")
+      assert(report.dig("change_md", "lines").any? { |line| line.start_with?("policy: protected_branches") })
+    end
+  end
+
+  def test_doctor_reports_a_broken_change_md_as_not_ok
+    Dir.mktmpdir do |project|
+      File.write(File.join(project, "CHANGE.md"), "---\nchange_policy: {}\n---\nbody\n")
+      report = CfDoctor.new(home: @home).report(host: "codex", version: "0.166.0", probe: false, project: project)
+      refute report.dig("change_md", "ok")
+      assert_match(/change_config/, report.dig("change_md", "lines").join)
+    end
+  end
+
+  def test_doctor_omits_change_md_when_the_project_has_none
+    Dir.mktmpdir do |project|
+      report = CfDoctor.new(home: @home).report(host: "codex", version: "0.166.0", probe: false, project: project)
+      assert_nil report["change_md"]
+    end
+  end
+
   def test_manifest_preserves_modified_files_foreign_files_and_state
     managed = File.join(@home, "managed")
     modified = File.join(@home, "modified")
