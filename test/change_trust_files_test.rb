@@ -226,6 +226,7 @@ class ChangeTrustFilesTest < Minitest::Test
     "bash $(cat which)" => /command substitution/,
     "bash `cat which`" => /backticks/,
     "eval make ci" => /eval/,
+    "bash ~/project/scripts/ci.sh" => /tilde expansion/,
     "sh -c 'make ci'" => /nested shell/,
     "bash -lc 'make ci'" => /nested shell/,
     "bash scripts/c*.sh" => /a glob/

@@ -176,6 +176,7 @@ module ChangeTrustFiles
   OPAQUE = {
     'variable expansion or command substitution' => /\$/,
     'backticks' => /`/,
+    'tilde expansion' => /(\A|[\s;&|(=:])~/,
     'eval' => /(\A|[\s;&|(])eval\s/,
     'a nested shell (sh -c)' => /(\A|[\s;&|(\/])(ba|z|da|k)?sh\s+(-\w+\s+)*-\w*c\b/,
     'a glob' => /[*?\[]/
