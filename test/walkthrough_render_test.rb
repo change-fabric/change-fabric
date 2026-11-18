@@ -1079,6 +1079,17 @@ class WalkthroughRenderTest < Minitest::Test
     refute_includes out.string, "estimate"
   end
 
+  # A --scene run still prefetches every screen's fonts: dependents and the
+  # recomputed keys prepare scenes beyond the target.
+  def test_scene_run_prefetches_fonts_for_other_scenes
+    url = "https://fonts.googleapis.com/css2?family=Inter"
+    File.write(File.join(@root, "screens", "detail.html"), "<html><head><link rel='stylesheet' href='#{url}'></head><body>x</body></html>")
+    ps = providers.merge(font_fetch: ->(u) { raise WalkthroughFonts::FetchError, "font fetch failed: #{u} returned HTTP 503" })
+    err = assert_raises(WalkthroughFonts::FetchError) { run_render(providers: ps, scene: "list") }
+    assert_includes err.message, url
+    assert_empty @calls[:tts]
+  end
+
   # The documented exception (#464): an uncached generated image is a paid
   # step, so the free cut is skipped, said plainly, and the paid run goes on.
   def test_silent_cut_skipped_for_an_uncached_generated_image

@@ -75,7 +75,10 @@ class WalkthroughFontsTest < Minitest::Test
 
   def test_html_escaped_query_is_fetched_as_the_browser_would
     File.write(@screen, "<link rel='stylesheet' href='https://fonts.googleapis.com/css2?family=Inter&amp;display=swap'>")
-    stub = ->(url) { (@fetched << url) && url.end_with?(".woff2") ? "B".b : SHEET }
+    stub = lambda do |url|
+      @fetched << url
+      url.end_with?(".woff2") ? "B".b : SHEET
+    end
     with_fetcher(stub) { PrototypeCapture.inline_screen(@screen) }
     assert_equal "https://fonts.googleapis.com/css2?family=Inter&display=swap", @fetched.first
     @fetched.clear
@@ -100,6 +103,12 @@ class WalkthroughFontsTest < Minitest::Test
 
   def test_prefetch_skips_commented_imports_and_fragment_links
     File.write(@screen, "<a href='#'>top</a><a href=''>x</a><style>/* @import url('#{CSS_URL}'); */</style>")
+    WalkthroughFonts.prefetch!(@screen, @root, fetch: @stub)
+    assert_empty @fetched
+  end
+
+  def test_prefetch_ignores_opaque_inline_scripts
+    File.write(@screen, "<script data-cf-inline>const s = \"url(#{CSS_URL})\";</script>")
     WalkthroughFonts.prefetch!(@screen, @root, fetch: @stub)
     assert_empty @fetched
   end

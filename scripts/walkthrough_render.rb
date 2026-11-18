@@ -1006,10 +1006,11 @@ module WalkthroughRender
 
     # Remote fonts on the allowlist are fetched into .cache/fonts before any
     # paid step, so a failed fetch stops the run naming its URL and capture
-    # itself reads only the cache, offline.
+    # itself reads only the cache, offline. Every scene, not just a --scene
+    # target: dependents and recompute_keys prepare the other screens too.
     def fetch_fonts!
       scenes.each do |scene|
-        next unless targeted?(scene) && PrototypeCapture.skip_reason(scene).nil? && !WalkthroughElement.element?(scene)
+        next unless PrototypeCapture.skip_reason(scene).nil? && !WalkthroughElement.element?(scene)
 
         WalkthroughFonts.prefetch!(File.join(@root, scene.dig('screen', 'html')), @root, fetch: @p[:font_fetch])
       end

@@ -32,6 +32,9 @@ module WalkthroughFonts
   REL_RE = /\brel\s*=\s*(["'])([^"']*)\1/im
   MEDIA_RE = /\bmedia\s*=\s*(["'])([^"']*)\1/im
   IMPORT_RE = /@import\s+(["'])([^"']+)\1/i
+  # Same marker PrototypeCapture sets aside: a vendored bundle's strings are
+  # never markup or CSS the page loads.
+  OPAQUE_SCRIPT_RE = %r{<script\b[^>]*\sdata-cf-inline\b[^>]*>.*?</script>}im
   HINT_RELS = %w[preconnect dns-prefetch preload prefetch].freeze
 
   # A process-wide fetcher override (tests stub HTTP here); nil uses net/http.
@@ -105,7 +108,7 @@ module WalkthroughFonts
   # screen and every local stylesheet it reaches through links and imports.
   def remote_refs(html_path)
     dir = File.dirname(File.expand_path(html_path))
-    html = File.read(html_path)
+    html = File.read(html_path).gsub(OPAQUE_SCRIPT_RE, '')
     css = local_css(html.scan(HREF_RE).map { |m| href(m.last) } + css_refs(html), dir, [])
     urls = stylesheet_links(html) + ([ html ] + css).flat_map { |c| css_refs(c) }
     urls.select { |u| remote?(u) }.map { |u| absolute(u) }.uniq
