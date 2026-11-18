@@ -13,8 +13,6 @@ class RoastAudioWordsTest < Minitest::Test
   include RoastAudioHelpers
   include EnrollHelpers
 
-  CUE_TEXT = [ "The first cue sits inside the tone.", "The second cue continues with no pause.", "The third cue ends where the tone ends." ].freeze
-
   # Records each transcription request and answers with the documented reply shape ({ "text": ... }).
   class Http < ImagegenHelpers::FakeHttp
     def initialize(text) = super("200").tap { @text = text }
@@ -38,40 +36,7 @@ class RoastAudioWordsTest < Minitest::Test
     FileUtils.rm_rf(@tmp)
   end
 
-  # ElevenLabs-shaped alignment: words spread evenly over each [start, end] span.
-  def alignment(spans)
-    chars = []
-    starts = []
-    ends = []
-    spans.each_with_index do |(text, s, e), n|
-      words = text.split
-      step = (e - s) / words.size.to_f
-      words.each_with_index do |w, i|
-        ws = s + (i * step)
-        w.each_char.with_index do |ch, k|
-          chars << ch
-          starts << ((ws + (k * step / w.size)) / 1000.0)
-          ends << ((ws + ((k + 1) * step / w.size)) / 1000.0)
-        end
-        unless n == spans.size - 1 && i == words.size - 1
-          chars << " "
-          starts << ends.last
-          ends << ends.last
-        end
-      end
-    end
-    { "characters" => chars, "character_start_times_seconds" => starts, "character_end_times_seconds" => ends }
-  end
-
-  def sidecar(spans, audio_sha: @sha)
-    a = alignment(spans)
-    path = File.join(@tmp, "continuous.alignment.json")
-    File.write(path, JSON.generate({ "audio_sha256" => audio_sha, "alignment_sha256" => RoastAudioWords.sha256(a),
-                                     "generator" => { "provider" => "elevenlabs", "voice_id" => "v", "model" => "m", "request_key" => "k" }, "alignment" => a }))
-    path
-  end
-
-  def exact_spans = CUE_TEXT.zip([ [ 250, 2000 ], [ 2000, 4000 ], [ 4000, 5750 ] ]).map { |t, (s, e)| [ t, s, e ] }
+  def sidecar(spans, audio_sha: @sha) = write_sidecar(File.join(@tmp, "continuous.alignment.json"), spans, audio_sha)
 
   def gate(vtt: File.join(FIXTURES, "continuous.vtt"), status: "pass")
     { "status" => status, "deps" => { "audio_sha256" => @sha, "vtt_sha256" => Digest::SHA256.file(vtt).hexdigest, "config_hash" => "c", "fix" => true, "alignment_sha256" => nil },

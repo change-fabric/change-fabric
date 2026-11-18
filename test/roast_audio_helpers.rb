@@ -2,6 +2,7 @@
 
 require "digest"
 require "fileutils"
+require "json"
 
 # A stand-in for the FFmpeg container in cf:roast --audio tests. It answers
 # each docker argv with the output the real pinned image printed for the same
@@ -76,6 +77,47 @@ module RoastAudioHelpers
       [ "", Status.new(true) ]
     end
   end
+
+  CUE_TEXT = [ "The first cue sits inside the tone.", "The second cue continues with no pause.", "The third cue ends where the tone ends." ].freeze
+
+  # continuous.vtt's text, timed exactly to its cues.
+  def exact_spans = CUE_TEXT.zip([ [ 250, 2000 ], [ 2000, 4000 ], [ 4000, 5750 ] ]).map { |t, (s, e)| [ t, s, e ] }
+
+  # ElevenLabs-shaped alignment: words spread evenly over each [text, start_ms, end_ms] span.
+  def alignment(spans)
+    chars = []
+    starts = []
+    ends = []
+    spans.each_with_index do |(text, s, e), n|
+      words = text.split
+      step = (e - s) / words.size.to_f
+      words.each_with_index do |w, i|
+        ws = s + (i * step)
+        w.each_char.with_index do |ch, k|
+          chars << ch
+          starts << ((ws + (k * step / w.size)) / 1000.0)
+          ends << ((ws + ((k + 1) * step / w.size)) / 1000.0)
+        end
+        next if n == spans.size - 1 && i == words.size - 1
+
+        chars << " "
+        starts << ends.last
+        ends << ends.last
+      end
+    end
+    { "characters" => chars, "character_start_times_seconds" => starts, "character_end_times_seconds" => ends }
+  end
+
+  # A sidecar binding an alignment to the audio with this digest.
+  def write_sidecar(path, spans, audio_sha)
+    a = alignment(spans)
+    File.write(path, JSON.generate({ "audio_sha256" => audio_sha, "alignment_sha256" => RoastAudioWords.sha256(a),
+                                     "generator" => { "provider" => "elevenlabs", "voice_id" => "v", "model" => "m", "request_key" => "k" }, "alignment" => a }))
+    path
+  end
+
+  # A bound sidecar for a staged copy of continuous.mp3, beside it.
+  def bound_sidecar(audio) = write_sidecar(audio.sub(/\.mp3\z/, ".alignment.json"), exact_spans, Digest::SHA256.file(audio).hexdigest)
 
   # Copies a fixture clip and its captions into dir (optionally renamed).
   def stage_clip(dir, name, as: name)

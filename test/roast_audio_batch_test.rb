@@ -6,9 +6,12 @@ require "stringio"
 require "tmpdir"
 require_relative "../scripts/roast_audio"
 require_relative "roast_audio_helpers"
+require_relative "imagegen_helpers"
+require_relative "enroll_helpers"
 
 class RoastAudioBatchTest < Minitest::Test
   include RoastAudioHelpers
+  include EnrollHelpers
 
   def setup
     @tmp = Dir.mktmpdir("roast-audio-batch")
@@ -159,14 +162,6 @@ class RoastAudioBatchTest < Minitest::Test
     assert_match(/is a roast take; name its source clip instead/, out)
   end
 
-  def test_the_judge_is_refused_by_name_for_now
-    a = stage_clip(File.join(@tmp, "a"), "continuous", as: "intro")
-    out = StringIO.new
-    code = RoastAudio::Cli.run([ "--audio", a, "--brief", @brief, "--out-dir", @out ], out: out, docker: FakeDocker.new)
-    assert_equal 2, code
-    assert_match(/judge lands in phase 3/, out.string)
-  end
-
   def test_a_sensitive_caption_term_is_refused_unless_allowed
     a = stage_clip(File.join(@tmp, "a"), "continuous", as: "intro")
     File.write(@terms, "tone\n")
@@ -206,5 +201,136 @@ class RoastAudioBatchTest < Minitest::Test
     out = StringIO.new
     assert_equal 2, Roast::Cli.run([ "--audio", "x.mp3" ], out: out)
     assert_match(/--brief is required/, out.string)
+  end
+
+  # ---- states and decide ------------------------------------------------------
+
+  class Judge < ImagegenHelpers::FakeHttp
+    def initialize(score:, issues: []) = super("200").tap { @critic = { "score" => score, "summary" => "s", "issues" => issues } }
+
+    def request(req)
+      @requests << req
+      body = { "choices" => [ { "message" => { "content" => JSON.generate(@critic) } } ],
+               "usage" => { "prompt_tokens" => 600, "prompt_tokens_details" => { "audio_tokens" => 60 }, "completion_tokens" => 100 } }
+      ImagegenHelpers::FakeResponse.new("200", JSON.generate(body))
+    end
+  end
+
+  def judged(*audios, http:, **)
+    out = StringIO.new
+    args = audios.flat_map { |a| [ "--audio", a ] } + [ "--brief", @brief, "--out-dir", @out ]
+    code = with_enrolled("openai") { RoastAudio::Cli.run(args, out: out, http: http, docker: FakeDocker.new(tags: { "intro.mp3" => "continuous", "outro.mp3" => "continuous" })) }
+    [ code, out.string ]
+  end
+
+  def decide(*extra)
+    out = StringIO.new
+    RoastAudio::Cli.run([ "decide", "--audio-batch", @out, *extra ], out: out)
+    out.string
+  end
+
+  def bound_clip(dir, as) = stage_clip(File.join(@tmp, dir), "continuous", as: as).tap { |a| bound_sidecar(a) }
+
+  def test_a_clip_meeting_the_bar_is_ready_and_decide_stops
+    a = bound_clip("a", "intro")
+    code, out = judged(a, http: Judge.new(score: 9, issues: [ { "priority" => "P2", "cue" => 1, "area" => "pacing", "problem" => "p", "fix" => "f", "revoice" => false } ]))
+    assert_equal 0, code, out
+    assert_match(/1 ready/, out)
+    d = decide
+    assert_match(/\Aready: src-\h{8}$/, d)
+    assert_match(/roast decision: stop: all 1 clip\(s\) ready/, d)
+    rows = JSON.parse(File.read(File.join(@out, "summary.json")))["clips"]
+    assert_equal [ "ready", "pass", "0/0", "verified", 9, 0 ], rows.first.values_at("state", "gate", "words", "timing", "score", "p0_p1")
+    assert_includes File.read(File.join(@out, "summary.md")), "| ready |"
+  end
+
+  def test_score_or_a_p1_short_of_the_bar_is_blocked_not_ready
+    a = bound_clip("a", "intro")
+    judged(a, http: Judge.new(score: 8))
+    assert_match(/blocked: src-\h{8} \(score 8 under 9/, decide)
+    FileUtils.rm_rf(@out)
+    judged(a, http: Judge.new(score: 9, issues: [ { "priority" => "P1", "cue" => 2, "area" => "artifact", "problem" => "p", "fix" => "f", "revoice" => true } ]))
+    assert_match(/1 P0\/P1/, decide)
+    assert_match(/roast decision: stop: no clip is retryable/, decide)
+  end
+
+  def test_mixed_attempts_continue_and_the_exhausted_clip_is_skipped
+    a = bound_clip("a", "intro")
+    b = bound_clip("b", "outro")
+    judged(a, b, http: Judge.new(score: 6))
+    batch = JSON.parse(File.read(File.join(@out, "batch.json")))
+    batch["clips"][0]["attempts"] = 4
+    File.write(a.sub(".mp3", ".vtt"), File.read(a.sub(".mp3", ".vtt")).sub("no pause", "a pause")) # clip a goes stale too
+    File.write(b.sub(".mp3", ".vtt"), File.read(b.sub(".mp3", ".vtt")).sub("no pause", "a pause"))
+    File.write(File.join(@out, "batch.json"), JSON.generate(batch))
+    d = decide
+    assert_match(/^retryable: #{batch['clips'][1]['source_id']}$/, d)
+    assert_match(/^exhausted: #{batch['clips'][0]['source_id']}$/, d)
+    assert_match(/roast decision: continue: 1 clip\(s\) retryable/, d)
+    http = Judge.new(score: 6)
+    _, out = judged(a, b, http: http)
+    assert_match(/#{batch['clips'][0]['source_id']} \(intro\.mp3\): skipped, exhausted/, out)
+    assert_equal 4, JSON.parse(File.read(File.join(@out, "batch.json")))["clips"][0]["attempts"]
+    assert_equal 1, http.requests.size
+  end
+
+  def test_all_exhausted_or_blocked_stops
+    a = bound_clip("a", "intro")
+    judged(a, http: Judge.new(score: 3))
+    assert_match(/stop: no clip is retryable/, decide)
+    assert_match(/exhausted: src-/, decide("--max-attempts", "1"))
+  end
+
+  def test_a_repeated_terminal_gate_failure_is_blocked_and_costs_no_attempt
+    a = stage_clip(File.join(@tmp, "a"), "noise_bed", as: "intro")
+    docker = FakeDocker.new(tags: { "intro.mp3" => "noise_bed" })
+    2.times { RoastAudio::Cli.run([ "--audio", a, "--brief", @brief, "--out-dir", @out, "--stop-after", "gate" ], out: StringIO.new, docker: docker) }
+    assert_equal 1, batch["clips"].first["attempts"]
+    assert_match(/blocked: src-\h{8} \(gate terminal: noise\)/, decide)
+  end
+
+  def test_a_changed_vtt_makes_a_judged_clip_retryable_again
+    a = bound_clip("a", "intro")
+    judged(a, http: Judge.new(score: 6))
+    File.write(a.sub(".mp3", ".vtt"), File.read(a.sub(".mp3", ".vtt")).sub("no pause", "a pause"))
+    assert_match(/^retryable: src-/, decide)
+    assert Dir.glob(File.join(@out, "src-*", "stale", "*", "gate.json")).any?
+  end
+
+  def test_an_unreadable_ledger_stops
+    a = bound_clip("a", "intro")
+    RoastAudio::Cli.run([ "--audio", a, "--brief", @brief, "--out-dir", @out, "--stop-after", "gate" ], out: StringIO.new,
+                                                                                                      docker: FakeDocker.new(tags: { "intro.mp3" => "continuous" }))
+    File.write(File.join(@out, "spend.json"), "{broken")
+    assert_match(/roast decision: stop: the run ledger cannot authorize spend/, decide)
+  end
+
+  def test_a_sensitive_term_only_in_the_brief_is_refused
+    a = bound_clip("a", "intro")
+    File.write(@terms, "buyer\n")
+    code, out = judged(a, http: Judge.new(score: 9))
+    assert_equal 1, code
+    assert_match(/sensitive term\(s\) matched in the brief/, out)
+  end
+
+  def test_a_cached_guard_failure_still_exits_1
+    a = stage_clip(File.join(@tmp, "a"), "continuous", as: "intro")
+    long = ->(t) { t.gsub(/"duration": "[\d.]+"/, '"duration": "9999.000000"') }
+    docker = FakeDocker.new(tags: { "intro.mp3" => "continuous" }, edits: { "continuous.probe.json" => long })
+    codes = Array.new(2) { RoastAudio::Cli.run([ "--audio", a, "--brief", @brief, "--out-dir", @out, "--stop-after", "gate" ], out: StringIO.new, docker: docker) }
+    assert_equal [ 1, 1 ], codes
+  end
+
+  def test_decide_stops_when_the_budget_left_cannot_fund_the_next_call
+    a = bound_clip("a", "intro")
+    RoastAudio::Cli.run([ "--audio", a, "--brief", @brief, "--out-dir", @out, "--stop-after", "words", "--run-max-usd", "0.01" ], out: StringIO.new,
+                                                                                                                              docker: FakeDocker.new(tags: { "intro.mp3" => "continuous" }))
+    d = decide
+    assert_match(/^retryable: src-/, d)
+    assert_match(/roast decision: stop: the \$0\.0100 left of the run cap .* cannot fund/, d)
+    FileUtils.rm_rf(@out)
+    RoastAudio::Cli.run([ "--audio", a, "--brief", @brief, "--out-dir", @out, "--stop-after", "words" ], out: StringIO.new,
+                                                                                                      docker: FakeDocker.new(tags: { "intro.mp3" => "continuous" }))
+    assert_match(/roast decision: continue: 1 clip\(s\) retryable/, decide)
   end
 end

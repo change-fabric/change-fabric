@@ -1,0 +1,34 @@
+{
+  "id": "chatcmpl-recorded",
+  "object": "chat.completion",
+  "model": "gpt-audio-1.5",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "{\"score\":4,\"summary\":\"The narration feels mechanical and unnatural overall. The intonation is flat, the pacing is hurried, and there is no warmth or calmness. There are also artifacts that make it sound like a text-to-speech output rather than a human voice. These issues undermine the trust and engagement of a buyer evaluating the product.\",\"issues\":[{\"priority\":\"P0\",\"cue\":1,\"area\":\"artifact\",\"problem\":\"The voice sounds robotic and synthetic, with a metallic tone that breaks immersion.\",\"fix\":\"Record a new take with a natural human voice to eliminate the synthetic quality.\",\"revoice\":true},{\"priority\":\"P1\",\"cue\":1,\"area\":\"prosody\",\"problem\":\"The intonation is flat and monotone, making it sound read rather than spoken.\",\"fix\":\"Vary the pitch and inflection slightly to add natural contours to the delivery.\",\"revoice\":true},{\"priority\":\"P1\",\"cue\":2,\"area\":\"pacing\",\"problem\":\"The delivery is rushed with no pause as if racing through the text.\",\"fix\":\"Slow down the speech and add a slight pause between sentences to convey calmness.\",\"revoice\":true},{\"priority\":\"P2\",\"cue\":3,\"area\":\"emphasis\",\"problem\":\"Key words are not emphasized, so the feature being explained does not stand out.\",\"fix\":\"Identify and stress the important words to guide the listener's focus.\",\"revoice\":true}]}",
+        "refusal": null
+      },
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 621,
+    "completion_tokens": 287,
+    "total_tokens": 908,
+    "prompt_tokens_details": {
+      "cached_tokens": 0,
+      "audio_tokens": 60,
+      "text_tokens": 561,
+      "image_tokens": 0
+    },
+    "completion_tokens_details": {
+      "reasoning_tokens": 0,
+      "audio_tokens": 0,
+      "accepted_prediction_tokens": 0,
+      "rejected_prediction_tokens": 0,
+      "text_tokens": 287
+    }
+  }
+}

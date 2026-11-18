@@ -92,7 +92,7 @@ class RoastAudioLedgerTest < Minitest::Test
   def test_unknown_prices_and_quantities_raise_unbounded_cost
     assert_raises(RoastAudioLedger::UnboundedCost) { RoastAudioLedger.bound("transcribe", model: "whisper-1", duration_s: 6.0) }
     assert_raises(RoastAudioLedger::UnboundedCost) { RoastAudioLedger.bound("transcribe", model: "gpt-transcribe", duration_s: nil) }
-    assert_raises(RoastAudioLedger::UnboundedCost) { RoastAudioLedger.bound("judge", model: "gpt-audio-1.5", duration_s: 6.0, prompt_bytes: 100) }
+    assert_raises(RoastAudioLedger::UnboundedCost) { RoastAudioLedger.bound("judge", model: "gpt-audio-9", duration_s: 6.0, prompt_bytes: 100) }
     assert_raises(RoastAudioLedger::UnboundedCost) { RoastAudioLedger.bound("regen", model: "eleven_v3", chars: Float::NAN) }
   end
 

@@ -3,6 +3,8 @@
 require 'digest'
 require 'fileutils'
 require 'json'
+require_relative 'roast_audio_ledger'
+require_relative 'roast_audio_words'
 
 # The batch index of cf:roast --audio: DIR/batch.json is the only source of
 # batch membership. Each clip has an immutable source id (from the expanded
@@ -70,7 +72,10 @@ module RoastAudioBatch
   # result. A selection that adds or drops a source is a usage error unless
   # new_batch. Resume keeps each clip's current take and attempts and refreshes
   # the caption and alignment binding from this run's pairing.
-  def open(dir, pairs, config_hash:, brief: nil, manifest: nil, max_attempts: nil, new_batch: false)
+  # settings: what freshness is judged against later, so summary and decide
+  # can revalidate with no flags: gate_config_hash, fix, model, rubric_version,
+  # target, run_max_usd, word_response.
+  def open(dir, pairs, config_hash:, brief: nil, manifest: nil, max_attempts: nil, new_batch: false, settings: {})
     ids = check_ids!(pairs)
     old = load(dir)
     if old && !new_batch
@@ -79,7 +84,7 @@ module RoastAudioBatch
     end
     previous = (new_batch ? nil : old)&.fetch('clips')&.to_h { |c| [ c['source_id'], c ] } || {}
     clips = pairs.map { |p| clip(p, previous[source_id(p[:source_audio])], max_attempts) }
-    write(dir, { 'config_hash' => config_hash, 'brief' => file_ref(brief), 'manifest' => file_ref(manifest), 'clips' => clips })
+    write(dir, { 'config_hash' => config_hash, 'settings' => settings, 'brief' => file_ref(brief), 'manifest' => file_ref(manifest), 'clips' => clips })
   end
 
   def check_ids!(pairs)
@@ -158,5 +163,195 @@ module RoastAudioBatch
     path
   end
 
-  private_class_method :pick, :check_ids!, :diff_line, :file_ref, :clip
+  # ---- snapshot, states, summary, decide ----------------------------------
+
+  STATES = %w[ready retryable blocked exhausted].freeze
+
+  # The gate deps a clip's current inputs imply, hashed from disk now.
+  def gate_deps(batch, clip)
+    cur = clip['current']
+    st = batch['settings'] || {}
+    { 'audio_sha256' => sha(cur['audio']), 'vtt_sha256' => sha(clip['vtt']), 'config_hash' => st['gate_config_hash'], 'fix' => st.fetch('fix', true),
+      'alignment_sha256' => sha(cur['alignment']) }
+  end
+
+  def response_path(dir, batch, id) = (batch['settings'] || {})['word_response'] || File.join(clip_dir(dir, id), 'words.response.json')
+
+  def judge_deps(batch, words_deps)
+    st = batch['settings'] || {}
+    words_deps.merge('brief_sha256' => sha(batch.dig('brief', 'path')), 'model' => st['model'], 'rubric_version' => st['rubric_version'])
+  end
+
+  def rounds(dir, id) = Dir.glob(File.join(clip_dir(dir, id), 'round-*.json')).filter_map { |p| p[/round-(\d+)\.json\z/, 1]&.to_i }.sort
+
+  # One clip's records, revalidated against its current inputs first: any
+  # record whose deps differ, or whose approved outputs changed, moves to
+  # stale/ before anything reads it. Returns { gate:, words:, judge: } of fresh
+  # records (nil when missing or stale).
+  def revalidate(dir, batch, clip)
+    id = clip['source_id']
+    gate = fresh(dir, id, 'gate.json', gate_deps(batch, clip))
+    if gate && !outputs_intact?(gate)
+      stale!(dir, id, 'gate.json')
+      gate = nil
+    end
+    words = gate && words_fresh(dir, batch, clip, gate)
+    judge = words && judge_fresh(dir, batch, id, words)
+    { gate: gate, words: words, judge: judge }
+  end
+
+  def outputs_intact?(record)
+    o = record['output'] or return true
+    [ %w[audio audio_sha256], %w[vtt vtt_sha256] ].all? { |f, h| sha(o[f]) == o[h] }
+  end
+
+  def words_fresh(dir, batch, clip, gate)
+    id = clip['source_id']
+    path = File.join(clip_dir(dir, id), 'words.json')
+    return nil unless File.file?(path)
+
+    words = JSON.parse(File.read(path))
+    inputs = { 'audio_sha256' => gate['deps']['audio_sha256'], 'vtt_sha256' => gate['deps']['vtt_sha256'] }
+    valid, = RoastAudioWords.rebuttals(response_path(dir, batch, id), ops: words['ops'], source: words['source'], source_id: id, inputs: inputs,
+                                                                      brief: brief_text(batch), pronunciations: {})
+    fresh(dir, id, 'words.json', gate['deps'].merge('rebuttal_sha256' => RoastAudioWords.sha256(valid)))
+  end
+
+  def brief_text(batch)
+    path = batch.dig('brief', 'path')
+    path && File.file?(path) ? File.read(path) : ''
+  end
+
+  # The latest round whose deps match; older or mismatched rounds go to stale/.
+  def judge_fresh(dir, batch, id, words)
+    want = judge_deps(batch, words['deps'])
+    found = nil
+    rounds(dir, id).reverse_each do |n|
+      name = "round-#{n}.json"
+      record = JSON.parse(File.read(File.join(clip_dir(dir, id), name)))
+      if found.nil? && record['deps'] == want then found = record
+      elsif record['deps'] != want
+        stale!(dir, id, name)
+        md = File.join(clip_dir(dir, id), "round-#{n}.md")
+        FileUtils.rm_f(md)
+      end
+    end
+    found
+  end
+
+  def blocking(judge) = Array(judge && judge['issues']).count { |i| %w[P0 P1].include?(i['priority']) }
+
+  def ready?(rec, target)
+    g, w, j = rec.values_at(:gate, :words, :judge)
+    g && g['status'] == 'pass' && w && w['counts']['accepted'].zero? && j && blocking(j).zero? && j['score'] >= target
+  end
+
+  # [state, reason] for a clip over its fresh records. stop_at limits which
+  # stages count as done for a gate-only or words-only run.
+  def state(clip, rec, target:, max_attempts: nil, stop_at: 'judge')
+    cap = max_attempts || clip['max_attempts']
+    return [ 'ready', "score #{rec[:judge]['score']}, no P0/P1, no word errors" ] if ready?(rec, target)
+
+    pending = pending_stage(rec, stop_at)
+    return [ 'exhausted', "#{clip['attempts']} of #{cap} attempts used" ] if clip['attempts'] >= cap
+    return [ 'retryable', "#{pending} to run" ] if pending
+
+    [ 'blocked', blocked_reason(rec, target, stop_at) ]
+  end
+
+  def pending_stage(rec, stop_at)
+    return 'gate' unless rec[:gate]
+    return nil if stop_at == 'gate' || rec[:gate]['status'] != 'pass'
+    return 'words' unless rec[:words]
+    return nil if stop_at == 'words'
+
+    rec[:judge] ? nil : 'judge'
+  end
+
+  def blocked_reason(rec, target, stop_at)
+    g, w, j = rec.values_at(:gate, :words, :judge)
+    return "gate #{g['terminal'].empty? ? 'failed' : "terminal: #{g['terminal'].join(', ')}"}" if g['status'] != 'pass'
+    return "#{stop_at} done; unchanged since" if stop_at != 'judge'
+
+    parts = []
+    parts << "#{w['counts']['accepted']} word error(s)" if w['counts']['accepted'].positive?
+    parts << "#{blocking(j)} P0/P1" if blocking(j).positive?
+    parts << "score #{j['score']} under #{target}" if j['score'] < target
+    "#{parts.join(', ')}; needs a new take, a caption fix or a rebuttal"
+  end
+
+  # Every clip's fresh records and state, from one read of batch.json.
+  def snapshot(dir, target:, max_attempts: nil, stop_at: 'judge')
+    batch = load(dir) or raise UsageError, "no batch at #{index_path(dir)}"
+    clips = batch['clips'].map do |clip|
+      rec = revalidate(dir, batch, clip)
+      st, reason = state(clip, rec, target: target, max_attempts: max_attempts, stop_at: stop_at)
+      { clip: clip, rec: rec, state: st, reason: reason }
+    end
+    { batch: batch, clips: clips }
+  end
+
+  def summary_row(c)
+    rec = c[:rec]
+    g, w, j = rec.values_at(:gate, :words, :judge)
+    { 'source_id' => c[:clip]['source_id'], 'source' => File.basename(c[:clip]['source_audio']), 'state' => c[:state], 'reason' => c[:reason],
+      'attempts' => "#{c[:clip]['attempts']}/#{c[:clip]['max_attempts']}", 'gate' => g ? g['status'] : '-',
+      'words' => w ? "#{w['counts']['raw']}/#{w['counts']['accepted']}" : '-', 'timing' => w ? w['timing'] : '-',
+      'score' => j ? j['score'] : '-', 'p0_p1' => j ? blocking(j) : '-', 'regen' => '-' }
+  end
+
+  # summary.json and summary.md from one snapshot, and each clip's state in batch.json.
+  def summary!(dir, snap)
+    batch = snap[:batch]
+    snap[:clips].each { |c| batch['clips'].find { |x| x['source_id'] == c[:clip]['source_id'] }['state'] = c[:state] }
+    write(dir, batch)
+    rows = snap[:clips].map { |c| summary_row(c) }
+    write_record(dir, '.', 'summary.json', { 'clips' => rows })
+    head = %w[source_id source state attempts gate words timing score p0_p1 regen reason]
+    md = [ '# Audio roast summary', '', "| #{head.join(' | ')} |", "|#{' --- |' * head.size}" ]
+    md += rows.map { |r| "| #{head.map { |k| r[k].to_s.gsub('|', '/') }.join(' | ')} |" }
+    md << '' << 'words is raw/accepted errors; timing is verified only with bound alignment.' << ''
+    File.write(File.join(dir, 'summary.md'), md.join("\n"))
+    rows
+  end
+
+  # One stop decision for the batch. It continues only while some clip is
+  # retryable and the run ledger can still authorize spend.
+  # pending_bound: ->(batch, snap_clip) { usd of the clip's next paid call }.
+  def decide(dir, target:, max_attempts: nil, pending_bound: ->(_batch, _clip) { 0.0 })
+    snap = snapshot(dir, target: target, max_attempts: max_attempts)
+    summary!(dir, snap)
+    by = STATES.to_h { |s| [ s, snap[:clips].select { |c| c[:state] == s } ] }
+    lines = STATES.filter_map do |s|
+      next if by[s].empty?
+
+      "#{s}: #{by[s].map { |c| s == 'blocked' ? "#{c[:clip]['source_id']} (#{c[:reason]})" : c[:clip]['source_id'] }.join(', ')}"
+    end
+    [ lines, verdict(dir, snap[:batch], by, pending_bound) ]
+  end
+
+  def verdict(dir, batch, by, pending_bound)
+    return [ true, "all #{by['ready'].size} clip(s) ready" ] if by.values_at('retryable', 'blocked', 'exhausted').all?(&:empty?)
+    return [ true, 'no clip is retryable; blocked clips need a re-voice approval, a caption fix or a rebuttal' ] if by['retryable'].empty?
+
+    st = batch['settings'] || {}
+    cap = st['run_max_usd'] || 1.0
+    per_call = st['max_usd'] || cap
+    ledger = RoastAudioLedger.new(dir, cap_usd: cap, max_usd: per_call)
+    data = ledger.read
+    return [ true, 'the run ledger is halted' ] if data['halted']
+
+    left = cap - ledger.committed(data)
+    fundable = by['retryable'].select do |c|
+      usd = pending_bound.call(batch, c)
+      usd <= per_call + 1e-9 && usd <= left + 1e-9
+    end
+    return [ true, "the $#{format('%.4f', left)} left of the run cap (per call $#{format('%.2f', per_call)}) cannot fund any retryable clip's next call" ] if fundable.empty?
+
+    [ false, "#{fundable.size} clip(s) retryable" ]
+  rescue RoastAudioLedger::Refused, RoastAudioLedger::UnboundedCost => e
+    [ true, "the run ledger cannot authorize spend: #{e.message}" ]
+  end
+
+  private_class_method :pick, :check_ids!, :diff_line, :file_ref, :clip, :words_fresh, :judge_fresh, :pending_stage, :blocked_reason, :verdict
 end
