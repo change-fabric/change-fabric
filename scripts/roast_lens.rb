@@ -24,7 +24,7 @@ module RoastLens
   # A repo-relative path written in prose: segments joined by slashes, or a
   # single name ending in a short extension (vite.config.ts whole). URLs are stripped before scanning.
   PATH_TOKEN = %r{(?<![\w/.-])([\w.-]+(?:/[\w.-]+)+|[\w-]+(?:\.[\w-]+)*\.[a-z]{1,6})(?![\w/])}
-  URL = %r{\S+://\S+}
+  URL = %r{(?<![\w+.-])[a-z][a-z0-9+.-]*://[^\s()\[\]<>]+}i
 
   module_function
 
