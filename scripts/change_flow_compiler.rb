@@ -300,7 +300,6 @@ class ChangeFlowCompiler
       const results = [];
       for (const step of steps) {
         if (step.index < (options.startAt || 0)) continue;
-        if (options.beforeStep) await options.beforeStep(step);
         const record = { index: step.index, verb: step.verb, label: step.label, raw: step.raw === true, ok: true, error: null };
         try {
           const detail = await cfRunStep(page, step, state);

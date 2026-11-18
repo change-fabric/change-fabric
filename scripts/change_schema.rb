@@ -237,6 +237,11 @@ module ChangeSchema
     'change_config.lanes.testcases.auth.steps[].submit_selector',
     'change_config.lanes.testcases.auth.steps[].wait_for_selector',
     'change_config.lanes.testcases.auth.steps[].timeout_ms',
+    # expired_when (0.22.0): the declared probe that says a case's session
+    # ended mid-run, so the persona logs in again. No probe, no detection.
+    'change_config.lanes.testcases.auth.expired_when.selector',
+    'change_config.lanes.testcases.auth.expired_when.probe_url',
+    'change_config.lanes.testcases.auth.expired_when.expect_status',
     # personas (0.22.0): named logins for the testcases lane, each the same
     # login-flow block as testcases.auth (which is the `default` persona).
     # A case picks one with `persona:` in its suite file.
@@ -259,6 +264,9 @@ module ChangeSchema
     'change_config.lanes.testcases.personas.<persona>.steps[].submit_selector',
     'change_config.lanes.testcases.personas.<persona>.steps[].wait_for_selector',
     'change_config.lanes.testcases.personas.<persona>.steps[].timeout_ms',
+    'change_config.lanes.testcases.personas.<persona>.expired_when.selector',
+    'change_config.lanes.testcases.personas.<persona>.expired_when.probe_url',
+    'change_config.lanes.testcases.personas.<persona>.expired_when.expect_status',
     # change_config.design (0.13.0): per-project design governance. tokens.css
     # stays the one design source; Figma is an optional evidence bridge named
     # by URL; parity says which areas must match Figma and which diverge on

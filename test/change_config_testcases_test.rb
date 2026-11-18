@@ -125,6 +125,19 @@ class ChangeConfigTestcasesTest < Minitest::Test
     end
   end
 
+  def test_expired_when_takes_one_selector_or_one_probe
+    [ { "selector" => "#signed-out" }, { "probe_url" => "/api/me", "expect_status" => [ 401, 302 ] } ].each do |rule|
+      with_config(base("personas" => { "admin" => ADMIN.merge("expired_when" => rule) })) { |_c, _r| }
+      with_config(base("auth" => ADMIN.merge("expired_when" => rule))) { |_c, _r| }
+    end
+    [ {}, { "selector" => "#x", "probe_url" => "/me", "expect_status" => 401 }, { "probe_url" => "/me" },
+      { "probe_url" => "me", "expect_status" => 401 }, { "selector" => "" } ].each do |rule|
+      assert_raises(ChangeConfig::ConfigError) do
+        with_config(base("personas" => { "admin" => ADMIN.merge("expired_when" => rule) })) { |_c, _r| }
+      end
+    end
+  end
+
   def test_personas_must_be_a_mapping_of_auth_blocks
     [ [ "admin" ], { "admin" => "nope" }, { "bad name" => ADMIN } ].each do |value|
       assert_raises(ChangeConfig::ConfigError) { with_config(base("personas" => value)) { |_c, _r| } }

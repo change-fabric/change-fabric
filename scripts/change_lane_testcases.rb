@@ -3,6 +3,7 @@
 
 require 'json'
 require 'date'
+require 'uri'
 require_relative 'change_lane'
 require_relative 'change_docker'
 require_relative 'change_lane_browserless'
@@ -631,7 +632,7 @@ class ChangeLaneTestcases < ChangeLane
     return "case did not run: #{graded[:case].qualified_id} produced no result" if record.nil?
     return "#{graded[:case].acceptance}#{quarantine_note(graded[:case])}" if record['ok']
 
-    "#{failure_reason(record)}#{ungated_note(graded)}"
+    "#{failure_reason(record)}#{expiry_hint(graded[:case], record)}#{ungated_note(graded)}"
   end
 
   def failure_reason(record)
@@ -642,6 +643,17 @@ class ChangeLaneTestcases < ChangeLane
 
     step = Array(record['steps']).find { |entry| entry['ok'] == false }
     step ? step['error'].to_s : 'case failed with no step-level error recorded'
+  end
+
+  # A step failure in a login persona that declares no `expired_when` may be
+  # a session that ended mid-case, which the lane cannot tell without a probe.
+  def expiry_hint(item, record)
+    persona = login_persona(item)
+    return '' unless persona && !record['authError'] && !record['callError'] && !record['authInterrupted']
+    return '' if persona_raw(persona).is_a?(Hash) && persona_raw(persona).key?('expired_when')
+
+    " (if persona '#{persona}' lost its session mid-case, declare expired_when on it so the lane " \
+      'logs in again and resumes)'
   end
 
   def auth_interrupted_reason(record)
@@ -694,17 +706,29 @@ class ChangeLaneTestcases < ChangeLane
     end
   end
 
-  # What a case module knows about its persona: the seeded storage state, how
-  # to tell its session has ended (the login page or the login form's fields
-  # reappearing), and whether a mutating step may be replayed. nil for a case
-  # that runs without a login.
+  # What a case module knows about its persona: the seeded storage state, the
+  # persona's declared `expired_when` probe (nil when it declares none, which
+  # turns mid-case detection off), and whether a mutating step may be
+  # replayed. nil for a case that runs without a login.
   def persona_js(item, state)
     persona = login_persona(item)
     return nil unless persona
 
-    first = persona_auth(persona).steps.first
     { name: persona, seed: state, safeRetry: item.safe_retry == true,
-      detect: { loginSelectors: first[:fields].map { |field| field[:selector] }.reject(&:empty?) } }
+      expectsLogout: item.expects_logout == true, expiredWhen: expired_when_js(persona) }
+  end
+
+  def persona_raw(name) = name == 'default' ? @config['auth'] : personas_config[name]
+
+  # The persona's `expired_when`, compiled: a selector as given, or a probe
+  # url resolved against the base url with its statuses as a list.
+  def expired_when_js(persona)
+    rule = persona_raw(persona)&.dig('expired_when')
+    return nil unless rule.is_a?(Hash)
+    return { selector: rule['selector'].to_s } if rule['selector']
+
+    { probeUrl: URI.join(base_url, rule['probe_url'].to_s).to_s,
+      expectStatus: Array(rule['expect_status']).map { |status| Integer(status) } }
   end
 
   # The browser context and page every module opens: a fresh context so
@@ -836,41 +860,31 @@ class ChangeLaneTestcases < ChangeLane
           }, origins);
         }
 
-        // A 401 on a main-frame document response. XHR 401s are left to the
-        // case's own assertions: an API answering 401 is often the behaviour
-        // under test, not a lost session.
-        function watchSession(casePage) {
-          const watch = { doc401: false };
-          casePage.on("response", (response) => {
-            try {
-              if (response.status() === 401 && response.request().resourceType() === "document" &&
-                  response.frame() === casePage.mainFrame()) watch.doc401 = true;
-            } catch (err) { void err; }
-          });
-          return watch;
-        }
-
-        async function sessionEnded(casePage, watch) {
-          if (!persona || !persona.detect) return false;
-          if (watch.doc401) return true;
-          // The login url alone is not evidence: an app may show its login
-          // form at / and stay at / once signed in. Only a visible form is.
-          const selectors = persona.detect.loginSelectors || [];
-          if (selectors.length === 0) return false;
-          for (const selector of selectors) {
-            // Visible, not just present: an app may keep a hidden login
-            // dialog mounted on every page.
-            try {
-              const field = await casePage.$(selector);
-              if (!field) return false;
-              const shown = await field.evaluate((el) => {
-                const style = getComputedStyle(el);
-                return style.visibility !== "hidden" && style.display !== "none" && el.getClientRects().length > 0;
+        // The session has ended only when the persona's declared probe says
+        // so: its `selector` is visible, or a GET of its `probe_url` answers
+        // one of `expect_status` (a redirect counts as any 3xx listed). No
+        // declaration, or a case that logs out on purpose, means no check.
+        async function sessionEnded(casePage) {
+          if (!persona || !persona.expiredWhen || persona.expectsLogout) return false;
+          const rule = persona.expiredWhen;
+          try {
+            if (rule.selector) {
+              const el = await casePage.$(rule.selector);
+              if (!el) return false;
+              return await el.evaluate((node) => {
+                const style = getComputedStyle(node);
+                return style.visibility !== "hidden" && style.display !== "none" && node.getClientRects().length > 0;
               });
-              if (!shown) return false;
-            } catch (err) { return false; }
+            }
+            const status = await casePage.evaluate(async (url) => {
+              const response = await fetch(url, { credentials: "include", redirect: "manual", cache: "no-store" });
+              return response.type === "opaqueredirect" ? "redirect" : response.status;
+            }, rule.probeUrl);
+            if (status === "redirect") return rule.expectStatus.some((code) => code >= 300 && code < 400);
+            return rule.expectStatus.includes(status);
+          } catch (err) {
+            return false;
           }
-          return true;
         }
 
         // What the page ended up being, for the acceptance grader to judge the
@@ -897,7 +911,6 @@ class ChangeLaneTestcases < ChangeLane
           const session = await openSession(page);
           try {
             if (persona) await seedStorage(session.page, persona.seed);
-            const watch = watchSession(session.page);
             // A seeded case starts where its persona's login landed, as it
             // did when every case logged in on its own page, unless its first
             // step navigates anyway.
@@ -909,9 +922,8 @@ class ChangeLaneTestcases < ChangeLane
             const steps = await cfRunFlow(session.page, testCase.steps, {
               startAt: resume ? resume.startAt : 0,
               vars: resume ? resume.vars : {},
-              beforeStep: async () => { watch.doc401 = false; },
               afterStep: async (step) => {
-                if (!(await sessionEnded(session.page, watch))) return false;
+                if (!(await sessionEnded(session.page))) return false;
                 expired = { index: step.index, verb: step.verb };
                 return true;
               },

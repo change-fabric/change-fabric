@@ -927,8 +927,8 @@ class ChangeLaneTestcasesTest < Minitest::Test
           - goto: /
   YAML
 
-  def persona_lane(dir, session)
-    lane(dir, PERSONAS, session: session)
+  def persona_lane(dir, session, config = PERSONAS)
+    lane(dir, config, session: session)
   end
 
   def test_each_persona_logs_in_once_and_seeds_every_case
@@ -1108,34 +1108,99 @@ class ChangeLaneTestcasesTest < Minitest::Test
       session = PersonaSession.new(ok_result(4))
       persona_lane(dir, session).run
       code = session.case_codes.first
-      assert_includes code, "el.getClientRects().length > 0"
+      assert_includes code, "node.getClientRects().length > 0"
       assert_includes code, 'window.sessionStorage.getItem("__cf_seeded") === "1"'
     end
   end
 
-  # An app that shows its login form at / and stays at / after login: the
-  # url alone matching the login url is not an expiry. Only a visible login
-  # form (or a 401 document) is.
-  def test_a_login_url_match_without_a_visible_login_form_is_not_expiry
-    skip "node not installed" unless system("command -v node >/dev/null 2>&1")
-    with_suite(PERSONA_SUITE) do |dir|
+  SELECTOR_PERSONAS = PERSONAS.merge(
+    "personas" => { "admin" => PERSONAS["personas"]["admin"].merge("expired_when" => { "selector" => "#signed-out" }) }
+  ).freeze
+
+  PROBE_PERSONAS = PERSONAS.merge(
+    "personas" => { "admin" => PERSONAS["personas"]["admin"].merge(
+      "expired_when" => { "probe_url" => "/api/me", "expect_status" => 401 }
+    ) }
+  ).freeze
+
+  # Runs the generated sessionEnded helper in node against a fake page and
+  # returns what it answered for each page.
+  def session_ended_answers(code, pages_js)
+    helper = code[/^( *)async function sessionEnded\b.*?^\1\}\n/m]
+    script = <<~JS
+      const getComputedStyle = () => ({ visibility: "visible", display: "block" });
+      const persona = #{code[/const persona = (\{.*?\}|null);\n/, 1]};
+      #{helper}
+      const pages = #{pages_js};
+      (async () => { const out = []; for (const p of pages) out.push(await sessionEnded(p)); console.log(JSON.stringify(out)); })();
+    JS
+    JSON.parse(IO.popen([ "node", "-e", script ], &:read))
+  end
+
+  def admin_code(body, config)
+    with_suite(body) do |dir|
       session = PersonaSession.new(ok_result(4))
-      persona_lane(dir, session).run
-      code = session.case_codes.first
-      helper = code[/^( *)async function sessionEnded\b.*?^\1\}\n/m]
-      script = <<~JS
-        const getComputedStyle = () => ({ visibility: "visible", display: "block" });
-        const persona = { detect: { loginUrl: "https://a.org/", loginSelectors: ["#email", "#password"] } };
-        #{helper}
-        const field = { evaluate: async (fn) => fn({ getClientRects: () => [ 1 ] }) };
-        const page = (fields) => ({ url: () => "https://a.org/", $: async () => (fields ? field : null) });
-        (async () => console.log(JSON.stringify([
-          await sessionEnded(page(false), { doc401: false }),
-          await sessionEnded(page(true), { doc401: false }),
-          await sessionEnded(page(false), { doc401: true }),
-        ])))();
-      JS
-      assert_equal [ false, true, true ], JSON.parse(IO.popen([ "node", "-e", script ], &:read))
+      persona_lane(dir, session, config).run
+      return session.case_codes.find { |entry| entry.include?('"id":"roles/as-admin"') }
     end
+  end
+
+  VISIBLE = "({ evaluate: async (fn) => fn({ getClientRects: () => [ 1 ] }) })"
+
+  def test_a_declared_selector_detects_expiry_only_when_visible
+    skip "node not installed" unless system("command -v node >/dev/null 2>&1")
+    code = admin_code(PERSONA_SUITE, SELECTOR_PERSONAS)
+    assert_includes code, '"expiredWhen":{"selector":"#signed-out"}'
+    pages = "[ { url: () => '', $: async () => #{VISIBLE} }, { url: () => '', $: async () => null } ]"
+    assert_equal [ true, false ], session_ended_answers(code, pages)
+  end
+
+  def test_a_declared_probe_url_detects_expiry_by_status
+    skip "node not installed" unless system("command -v node >/dev/null 2>&1")
+    code = admin_code(PERSONA_SUITE, PROBE_PERSONAS)
+    assert_includes code, '"expiredWhen":{"probeUrl":"https://app.example.org/api/me","expectStatus":[401]}'
+    pages = "[401, 200].map((s) => ({ url: () => '', $: async () => null, evaluate: async () => s }))"
+    assert_equal [ true, false ], session_ended_answers(code, pages)
+  end
+
+  # No expired_when: no mid-case detection, no re-login, and a failing case
+  # says how to opt in.
+  def test_no_declaration_means_no_recovery_and_a_clear_failure
+    with_suite(PERSONA_SUITE) do |dir|
+      records = ok_result(4)
+      records[1] = { "index" => 1, "ok" => false, "steps" => [ { "index" => 0, "label" => "goto /admin", "ok" => false, "error" => "no .saved" } ] }
+      session = PersonaSession.new(records)
+      findings = step_findings(persona_lane(dir, session).run)
+      admin = findings.find { |finding| finding.check == "roles/as-admin" }
+      assert_equal "fail", admin.status
+      assert_includes admin.detail, "expired_when"
+      assert_equal 1, session.logins["/admin-login"]
+      code = session.case_codes.find { |entry| entry.include?('"id":"roles/as-admin"') }
+      assert_includes code, '"expiredWhen":null'
+      refute_includes code, "doc401"
+      next unless system("command -v node >/dev/null 2>&1")
+
+      assert_equal [ false ], session_ended_answers(code, "[ { url: () => '', $: async () => #{VISIBLE}, evaluate: async () => 401 } ]")
+    end
+  end
+
+  # A logout test asserts the logged-out page; its own logout is not expiry.
+  def test_expects_logout_skips_detection
+    skip "node not installed" unless system("command -v node >/dev/null 2>&1")
+    body = PERSONA_SUITE.sub("persona: admin\n    steps:\n      - goto: /admin\n",
+                             "persona: admin\n    expects_logout: true\n    steps:\n      - goto: /admin\n")
+    code = admin_code(body, SELECTOR_PERSONAS)
+    assert_includes code, '"expectsLogout":true'
+    assert_equal [ false ], session_ended_answers(code, "[ { url: () => '', $: async () => #{VISIBLE} } ]")
+  end
+
+  # An app that serves its login at / and stays at / once signed in: the url
+  # and a visible login form never read as expiry without a declared probe.
+  def test_a_login_url_equal_to_the_landing_url_is_not_expiry_without_a_probe
+    skip "node not installed" unless system("command -v node >/dev/null 2>&1")
+    config = PERSONAS.merge("personas" => { "admin" => PERSONAS["personas"]["admin"].merge("login_url" => "/") })
+    code = admin_code(PERSONA_SUITE, config)
+    page = "[ { url: () => 'https://app.example.org/', $: async () => #{VISIBLE}, evaluate: async () => 401 } ]"
+    assert_equal [ false ], session_ended_answers(code, page)
   end
 end

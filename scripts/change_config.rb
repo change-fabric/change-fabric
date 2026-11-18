@@ -500,6 +500,7 @@ class ChangeConfig
     validate_launch_args(lanes || {})
     validate_testcases_parallel(lanes || {})
     validate_testcases_personas(lanes || {})
+    validate_testcases_auth_expiry(lanes || {})
     validate_command_lane(lanes || {})
     validate_zap_mode(lanes || {})
     schedule_errors = @schedule_config.errors
@@ -579,7 +580,41 @@ class ChangeConfig
 
     personas.each do |name, block|
       validate_persona(name.to_s, block)
+      validate_expired_when(block['expired_when'], "lanes.testcases.personas.#{name}") if block.key?('expired_when')
     end
+  end
+
+  def validate_testcases_auth_expiry(lanes)
+    auth = lanes['testcases'].is_a?(Hash) ? lanes['testcases']['auth'] : nil
+    validate_expired_when(auth['expired_when'], 'lanes.testcases.auth') if auth.is_a?(Hash) && auth.key?('expired_when')
+  end
+
+  # expired_when (0.22.0): exactly one probe, a selector shown only when
+  # logged out, or a probe_url whose GET answers expect_status once the
+  # session is gone.
+  def validate_expired_when(rule, where)
+    field = "#{where}.expired_when"
+    raise ConfigError, "#{field} must be a mapping with selector: or probe_url:; got #{rule.inspect}" unless rule.is_a?(Hash)
+
+    kinds = %w[selector probe_url].select { |key| rule.key?(key) }
+    raise ConfigError, "#{field} must set exactly one of selector or probe_url" unless kinds.size == 1
+    return validate_expired_selector(rule, field) if kinds == [ 'selector' ]
+
+    validate_expired_probe(rule, field)
+  end
+
+  def validate_expired_selector(rule, field)
+    raise ConfigError, "#{field}.selector must be a non-empty string" unless rule['selector'].is_a?(String) && !rule['selector'].strip.empty?
+    raise ConfigError, "#{field}.expect_status only goes with probe_url" if rule.key?('expect_status')
+  end
+
+  def validate_expired_probe(rule, field)
+    raise ConfigError, "#{field}.probe_url must be a path such as /api/me" unless rule['probe_url'].is_a?(String) && rule['probe_url'].start_with?('/')
+
+    statuses = Array(rule['expect_status'])
+    return if !statuses.empty? && statuses.all? { |code| code.is_a?(Integer) && code.between?(100, 599) }
+
+    raise ConfigError, "#{field}.expect_status must be an HTTP status or a list of them; got #{rule['expect_status'].inspect}"
   end
 
   def validate_persona(name, block)

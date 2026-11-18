@@ -36,7 +36,7 @@ export const RELEASE_NOTES: Record<string, ReleaseNote> = {
       {
         title: "lanes.testcases.personas",
         body:
-          "Named logins in the auth block's shape. A case names one with persona:, logs in once per run, and re-logs in once when a session ends.",
+          "Named logins in the auth block's shape. A case names one with persona:, logs in once per run, and re-logs in once when its declared expired_when probe says the session ended.",
       },
       {
         title: "Duplicate suite ids",

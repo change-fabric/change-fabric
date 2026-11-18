@@ -66,7 +66,8 @@ class ChangeSuite
   # stays raw here; the lane compiles it through ChangeFlowCompiler, which owns
   # the step vocabulary.
   TestCase = Struct.new(:suite, :id, :tags, :acceptance, :retries, :quarantine, :steps,
-                        :timeout_ms, :safe_rerun, :persona, :safe_retry, keyword_init: true) do
+                        :timeout_ms, :safe_rerun, :persona, :safe_retry, :expects_logout,
+                        keyword_init: true) do
     # The persona the case runs as; `default` when the case names none.
     def persona_name = persona || 'default'
 
@@ -194,6 +195,7 @@ class ChangeSuite
                  timeout_ms: case_timeout(raw_case['timeout_ms'], where),
                  persona: persona(raw_case['persona'], where),
                  safe_retry: boolean(raw_case['safe_retry'], 'safe_retry', where),
+                 expects_logout: boolean(raw_case['expects_logout'], 'expects_logout', where),
                  quarantine: quarantine(raw_case, name, id, path),
                  steps: steps(raw_case['steps'], name, id, path))
   end

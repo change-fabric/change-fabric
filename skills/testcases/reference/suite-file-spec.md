@@ -72,6 +72,7 @@ The Since column is the `suite_version` that added the field.
 | `cases[].timeout_ms` | integer (1000..600000) | no | This case's browserless call budget. Each case runs in its own call; without this the lane derives the budget from the sum of the steps' timeouts plus 5000 ms per `goto`, never below 115000. | 2 |
 | `cases[].persona` | string | no (default `default`) | Who the case runs as: a name under `lanes.testcases.personas` in CHANGE.md, `default` (the lane's `auth:` block, or no login when it has none), or `anonymous` (never logs in). A name the lane does not define fails the case and is a doctor error. See Sessions. | 3 |
 | `cases[].safe_retry` | boolean | no (default false) | Says a mutating step (`click`, `fill`, `select`, `press`, `eval`) interrupted by an ended session may be replayed after the persona logs in again. Without it such a case fails `auth_interrupted`, because the action may already have taken effect server side. | 3 |
+| `cases[].expects_logout` | boolean | no (default false) | Says the case ends its own session on purpose, such as a logout test that then asserts the login form. Its persona's `expired_when` probe and the re-login are off for it, so its post-logout steps run. | 3 |
 | `cases[].quarantined` | boolean | no (default false) | Time-boxes this case out of the gate. It still runs and still reports; its failure just cannot fail the gate, and only until `quarantine_until`. Requires both companions below. | 1 |
 | `cases[].quarantine_reason` | string | yes when quarantined | Why this case is quarantined, in plain English. Required, because without it nobody can tell a known flake from a real defect somebody muted. | 1 |
 | `cases[].quarantine_until` | date (`YYYY-MM-DD`) | yes when quarantined | The day the quarantine ends. Quarantine is never permanent. The shield has already lapsed on this date, and the case gates again from then on with no second action from anybody. | 1 |
@@ -124,11 +125,21 @@ every case of that persona, each in its own fresh browser context. So the cases
 of one persona share one server-side session: a case that logs out, switches
 account or changes session state affects every later case of that persona.
 
-A case notices its session has ended when the persona's login page comes back,
-every field of its login form is on the page, or a page navigation answers 401.
-API calls answering 401 do not count; they are left to the case's assertions.
-The persona then logs in again exactly once, however many cases noticed at the
-same time, and the case resumes with the new session, inside the same attempt.
+A case notices its session has ended only when its persona declares
+`expired_when` in CHANGE.md, and only by that declaration:
+
+- `expired_when: { selector: "#signed-out" }`: an element present and visible
+  only when logged out is visible after a step.
+- `expired_when: { probe_url: /api/me, expect_status: 401 }`: a GET of that
+  path, sent from the page with its cookies after a step, answers one of the
+  listed statuses. A redirect matches any listed 3xx, such as 302 to the login.
+
+The lane never guesses from the url, the login form or a 401 page. With no
+`expired_when` there is no mid-case detection: a case whose session ended fails
+like any other, and its finding suggests declaring `expired_when`.
+When the probe fires, the persona logs in again exactly once, however many
+cases noticed at the same time, and the case resumes with the new session,
+inside the same attempt.
 A fresh browser context has none of the page state the case built, so it
 restarts at the last `goto` at or before the interrupted step (or at the first
 step, on the page the login landed on) and replays from there. Only
@@ -136,6 +147,8 @@ navigations, waits, reads and assertions are replayed. If any replayed step is
 `click`, `fill`, `select`, `press` or `eval`, the case fails `auth_interrupted`
 instead, unless it sets `safe_retry: true`. A second session end in one attempt
 fails the case.
+A case that logs out on purpose sets `expects_logout: true`, which turns the
+probe off for it so its post-logout assertions run.
 
 A seeded case starts on the page the persona's login ended on, as it did when
 each case logged in itself, unless its first step is a `goto`.

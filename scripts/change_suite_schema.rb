@@ -74,6 +74,9 @@ module ChangeSuiteSchema
     # replayed after the re-login. Off by default, because the action may
     # already have taken effect server side.
     'cases[].safe_retry',
+    # (v3) The case ends its own session on purpose (a logout test), so
+    # session-end detection and its re-login are off for it.
+    'cases[].expects_logout',
     # The time-boxed flake quarantine. All three keys or none: a quarantine
     # without a reason cannot be told from a defect somebody muted, and one
     # without an expiry is permanent, which is the state this feature exists to
@@ -95,7 +98,8 @@ module ChangeSuiteSchema
     'cases[].safe_rerun' => 2,
     'cases[].timeout_ms' => 2,
     'cases[].persona' => 3,
-    'cases[].safe_retry' => 3
+    'cases[].safe_retry' => 3,
+    'cases[].expects_logout' => 3
   }.freeze
 
   def self.field_version(field) = FIELD_VERSIONS.fetch(field, DEFAULT_SUITE_VERSION)

@@ -100,7 +100,11 @@ lanes:
   testcases:
     auth: { login_url: /login, email_env: QA_EMAIL, password_env: QA_PASSWORD }
     personas:
-      admin: { login_url: /login, email_env: QA_ADMIN_EMAIL, password_env: QA_ADMIN_PASSWORD }
+      admin:
+        login_url: /login
+        email_env: QA_ADMIN_EMAIL
+        password_env: QA_ADMIN_PASSWORD
+        expired_when: { probe_url: /api/me, expect_status: 401 }   # or { selector: "#signed-out" }
 ```
 
 ```yaml
@@ -113,10 +117,14 @@ cases:
 `auth:` is the `default` persona; `persona: anonymous` never logs in. Each
 persona logs in once per run and its session is seeded into each of its cases,
 so those cases share one server-side session: a case that logs out affects the
-ones after it. When a case sees the session end, the persona logs in again once
-and the case replays from its last `goto`, unless that would repeat an action
+ones after it. Only a persona that declares `expired_when` (a `selector`
+visible only when logged out, or a `probe_url` with `expect_status`) is checked
+for a mid-case session end; without it a lost session just fails the case.
+When the probe fires, the persona logs in again once and the case replays from
+its last `goto`, unless that would repeat an action
 such as a click or fill, which fails the case `auth_interrupted` unless it sets
-`safe_retry: true`. Details are under Sessions in the suite-file spec.
+`safe_retry: true`. A logout test sets `expects_logout: true` to turn the probe
+off. Details are under Sessions in the suite-file spec.
 
 ## Read the output
 
