@@ -258,9 +258,22 @@ module ChangeQaFilm
                                                                                           timeout_ms: 30_000)
     code = probe_module(compiler, auth: auth && ChangeFlowCompiler.compile_auth(auth.steps, base_url: origin(options[:url])),
                                   basic_auth: basic_auth(options), viewport: lane_viewport(testcases_lane(options)))
-    result = with_session(options) { |session| session.run_function(code, launch_args: launch_args(options)) }
+    budget = probe_budget_ms(auth, compiler)
+    result = with_session(options) do |session|
+      session.run_function(code, launch_args: launch_args(options), timeout_ms: budget)
+    end
     puts JSON.pretty_generate(probe_view(result))
     0
+  end
+
+  # One call runs the login and the whole draft, so its budget is every step's
+  # timeout plus a navigation allowance, as the lane budgets a case, and never
+  # below the default call budget.
+  def probe_budget_ms(auth, compiler)
+    overhead = ChangeLaneTestcases::NAVIGATION_OVERHEAD_MS
+    login = auth ? auth.steps.sum { |step| Integer(step[:timeout_ms]) + overhead } : 0
+    draft = compiler.compile.sum { |step| step[:timeoutMs].to_i + (step[:verb] == 'goto' ? overhead : 0) }
+    [ login + draft, ChangeDocker::Browserless::FUNCTION_TIMEOUT_MS ].max
   end
 
   # The lane's basic_auth credentials, resolved like a persona's.

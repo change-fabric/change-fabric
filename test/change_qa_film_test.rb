@@ -109,6 +109,16 @@ class ChangeQaFilmTest < Minitest::Test
     assert_equal({ "width" => 390, "height" => 900 }, ChangeQaFilm.lane_viewport(narrow))
   end
 
+  def test_probe_budget_covers_the_login_and_every_draft_step
+    auth = ChangeLaneBrowserless::AuthConfig.new(
+      "steps" => [ { "url" => "/a", "timeout_ms" => 60_000 }, { "url" => "/b", "timeout_ms" => 60_000 } ]
+    )
+    compiler = ChangeFlowCompiler.new([ { "goto" => "/r" }, { "click" => "#x" } ], base_url: "https://s.test", timeout_ms: 30_000)
+    assert_equal 130_000 + 65_000, ChangeQaFilm.probe_budget_ms(auth, compiler)
+    short = ChangeFlowCompiler.new([ { "goto" => "/" } ], base_url: "https://s.test", timeout_ms: 1_000)
+    assert_equal ChangeDocker::Browserless::FUNCTION_TIMEOUT_MS, ChangeQaFilm.probe_budget_ms(nil, short)
+  end
+
   def test_an_omitted_persona_is_anonymous
     assert_equal "anonymous", ChangeQaFilm.parse(%w[--url https://x.test])[:persona]
   end
