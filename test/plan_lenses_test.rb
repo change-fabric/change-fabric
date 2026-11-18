@@ -229,6 +229,16 @@ exit #{status}
     assert_equal 4, text[/^plan lenses final: .*$/].scan("--lens").size
   end
 
+  def test_cull_never_sends_a_sensitive_term
+    File.write(@terms, "secretclient\n")
+    plan("Ruby on Lambda for secretclient.\n")
+    sent = false
+    result = PlanLenses.cull([ [ "cf:aws", [ "keyword lambda" ] ] ], plan_dir: @dir, runner: ->(*) { sent = true })
+    refute sent
+    assert_match(/sensitive term matched; nothing sent/, result[:note])
+    assert_equal %w[cf:aws], result[:kept]
+  end
+
   def test_cull_drops_names_outside_the_candidates
     ranked = [ [ "cf:aws", [ "keyword lambda" ] ] ]
     plan("Lambda.
