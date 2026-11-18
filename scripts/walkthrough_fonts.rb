@@ -106,7 +106,7 @@ module WalkthroughFonts
   def remote_refs(html_path)
     dir = File.dirname(File.expand_path(html_path))
     html = File.read(html_path)
-    css = local_css(html.scan(HREF_RE).map { |m| href(m.last) }, dir, [])
+    css = local_css(html.scan(HREF_RE).map { |m| href(m.last) } + css_refs(html), dir, [])
     urls = stylesheet_links(html) + ([ html ] + css).flat_map { |c| css_refs(c) }
     urls.select { |u| remote?(u) }.map { |u| absolute(u) }.uniq
   end
@@ -117,13 +117,21 @@ module WalkthroughFonts
     html.scan(LINK_RE).select { |tag| rels(tag).include?('stylesheet') }.filter_map { |tag| tag[HREF_RE, 2]&.then { |h| href(h) } }
   end
 
-  def css_refs(css) = css.scan(URL_RE).map(&:last) + css.scan(IMPORT_RE).map(&:last)
+  # Comments are dropped first, as capture drops them, so a commented-out
+  # import never adds a fetch.
+  def css_refs(css)
+    css = css.gsub(%r{/\*.*?\*/}m, '')
+    css.scan(URL_RE).map(&:last) + css.scan(IMPORT_RE).map(&:last)
+  end
 
   # The text of each local .css file in refs and, recursively, the local
   # stylesheets it imports; `seen` stops an import cycle.
   def local_css(refs, dir, seen)
     refs.reject { |r| remote?(r) }.flat_map do |r|
-      path = File.expand_path(r.split(/[?#]/).first, dir)
+      file = r.split(/[?#]/).first.to_s
+      next [] if file.empty?
+
+      path = File.expand_path(file, dir)
       next [] unless path.end_with?('.css') && File.file?(path) && !seen.include?(path)
 
       seen << path

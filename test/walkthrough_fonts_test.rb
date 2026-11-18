@@ -91,6 +91,19 @@ class WalkthroughFontsTest < Minitest::Test
     assert_equal [ CSS_URL, FONT_URL ], @fetched
   end
 
+  def test_prefetch_seeds_from_inline_style_imports
+    File.write(File.join(@root, "screens", "theme.css"), "@import url('#{CSS_URL}');")
+    File.write(@screen, "<style>@import \"theme.css\";</style>")
+    WalkthroughFonts.prefetch!(@screen, @root, fetch: @stub)
+    assert_equal [ CSS_URL, FONT_URL ], @fetched
+  end
+
+  def test_prefetch_skips_commented_imports_and_fragment_links
+    File.write(@screen, "<a href='#'>top</a><a href=''>x</a><style>/* @import url('#{CSS_URL}'); */</style>")
+    WalkthroughFonts.prefetch!(@screen, @root, fetch: @stub)
+    assert_empty @fetched
+  end
+
   def test_second_render_hits_the_cache_with_no_network
     first = inline
     offline = ->(url) { raise "network touched for #{url}" }
