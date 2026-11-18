@@ -116,5 +116,8 @@ class ChangeTestcasesReportTest < Minitest::Test
     admin = ChangeTestcasesReport.ledger_path("app", repo: "/code/a", app: "admin")
     other_repo = ChangeTestcasesReport.ledger_path("app", repo: "/code/b", app: "portal")
     assert_equal 3, [ portal, admin, other_repo ].uniq.size
+    underscored = ChangeTestcasesReport.ledger_path("app", repo: "/code/a", app: "customer_portal")
+    dashed = ChangeTestcasesReport.ledger_path("app", repo: "/code/a", app: "customer-portal")
+    refute_equal underscored, dashed
   end
 end

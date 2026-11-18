@@ -27,10 +27,18 @@ class ChangeTestcasesReport
   THUMBNAILS = %w[failure.png final.png resumed-final.png].freeze
 
   # One ledger per project, repository and app, so two apps (or two repos)
-  # sharing a project label never read each other's case history.
+  # sharing a project label never read each other's case history. Each part
+  # past the project carries a digest of its exact value, so names that slug
+  # alike (`web_api`, `web-api`) still get their own ledger.
   def self.ledger_path(project, repo: nil, app: nil)
-    scope = [ project, repo && "#{File.basename(repo)}-#{Digest::SHA256.hexdigest(File.expand_path(repo))[0, 8]}", app ]
-    File.join(LEDGER_ROOT, *scope.compact.map { |part| ChangeReport.slug_for(part) }, 'history.jsonl')
+    scope = [ ChangeReport.slug_for(project) ]
+    scope << distinct_part(File.basename(repo), File.expand_path(repo)) if repo
+    scope << distinct_part(app, app) if app
+    File.join(LEDGER_ROOT, *scope, 'history.jsonl')
+  end
+
+  def self.distinct_part(label, identity)
+    "#{ChangeReport.slug_for(label)}-#{Digest::SHA256.hexdigest(identity.to_s)[0, 8]}"
   end
 
   attr_reader :records, :history
