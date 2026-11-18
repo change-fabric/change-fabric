@@ -195,11 +195,14 @@ module ChangeDocker
   # hosts only; every other HTTPS request is aborted.
   # `mounts` maps a host dir to a container path, for evidence the browser
   # writes as downloads (the testcases lane's run dir at /cf-run).
-  def with_browserless(network:, add_hosts: [], local_tls_hosts: nil, mounts: {})
+  # `allow_file_protocol` lets a page open file:// urls, which browserless
+  # refuses by default; only a container with nothing but a report dir
+  # mounted should ask for it.
+  def with_browserless(network:, add_hosts: [], local_tls_hosts: nil, mounts: {}, allow_file_protocol: false)
     token = SecureRandom.hex(8)
     name = "cf-change-bl-#{SecureRandom.hex(4)}"
     port = free_port
-    start_browserless(name, network, port, token, add_hosts, mounts)
+    start_browserless(name, network, port, token, add_hosts, mounts, allow_file_protocol)
     begin
       session = Browserless.new(port: port, token: token, local_tls_hosts: local_tls_hosts)
       session.wait_ready or raise 'browserless did not become ready'
@@ -209,14 +212,15 @@ module ChangeDocker
     end
   end
 
-  def start_browserless(name, network, port, token, add_hosts = [], mounts = {})
-    out, status = Open3.capture2e({ 'TOKEN' => token.to_s }, *browserless_command(name, network, port, token, add_hosts, mounts))
+  def start_browserless(name, network, port, token, add_hosts = [], mounts = {}, allow_file_protocol = false)
+    argv = browserless_command(name, network, port, token, add_hosts, mounts, allow_file_protocol: allow_file_protocol)
+    out, status = Open3.capture2e({ 'TOKEN' => token.to_s }, *argv)
     raise "failed to start browserless container: #{out.strip}" unless status.success?
   end
 
   # The browser container's argv, split out for the same reason as
   # run_command: the host alias is asserted in a test, not in a docker run.
-  def browserless_command(name, network, port, _token, add_hosts = [], mounts = {})
+  def browserless_command(name, network, port, _token, add_hosts = [], mounts = {}, allow_file_protocol: false)
     cmd = [ 'docker', 'run', '-d', '--rm', '--name', name, '--label', "#{OWNER_LABEL}=#{Process.pid}" ]
     cmd += [ '--network', network ] if network
     cmd += host_gateway_args
@@ -224,6 +228,7 @@ module ChangeDocker
     mounts.to_h.each { |host, target| cmd += mount_arg(host, target) }
     cmd += [ '-p', "127.0.0.1:#{port}:3000", '-e', 'TOKEN' ]
     browserless_limits.each { |key, value| cmd += [ '-e', "#{key}=#{value}" ] }
+    cmd += [ '-e', 'ALLOW_FILE_PROTOCOL=true' ] if allow_file_protocol
     cmd + [ BROWSERLESS_IMAGE ]
   end
 

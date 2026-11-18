@@ -168,6 +168,27 @@ newly failing when the last run that executed it passed, and as flaky when it
 passed only after a failed attempt. A skipped case, and a case in the history
 this run did not select, are listed on their own and never count as failing.
 
+### Exports
+
+`--export pdf,video` (on `change_run.rb testcases` or `all`) adds, in the run
+dir, with no paid call:
+
+- `pdf`: `report.pdf`, printed from `report.html` in the pinned browserless
+  image with the run dir mounted, so every screenshot resolves. It waits for
+  the page's ready marker and every image; an image that did not load fails
+  the PDF rather than printing a gap.
+- `video`: `cases/<suite>/<id>.mp4` per case, a title card then the case's
+  last attempt, with each step's label as a caption track. Frames stream to
+  the attempt dir as JPEG (at most 1280x800, 5 fps), encoded two at a time
+  whatever `parallel` is. Recording is budgeted: 64 MB plus 8 MB per case is
+  reserved for evidence, and recording gets the free space above that, capped
+  by `--video-budget-mb` (default 2048), split across the cases.
+
+An export that fails (no disk left above the reserve, an encode error) is
+listed in `exports.json` and in `report.html` under "Exports that failed", and
+changes no case's result. Narration is not part of `--export`: it is a
+separate opt-in that prints a cost estimate and needs explicit approval.
+
 ## Quarantine a flaky case
 
 A case that is genuinely flaky can be time-boxed out of the gate instead of

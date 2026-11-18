@@ -90,6 +90,13 @@ class ChangeTestcasesEvidence
     end.sort.map(&:last)
   end
 
+  # Merges one export kind's per-case outcomes into exports.json.
+  def write_exports(entries)
+    path = File.join(@root, 'exports.json')
+    current = File.exist?(path) ? JSON.parse(File.read(path)) : {}
+    File.write(path, "#{JSON.pretty_generate(current.merge(entries))}\n")
+  end
+
   def write_records(records)
     replace_file(File.join(@root, RESULTS_FILE), records.map { |record| "#{record.to_json}\n" }.join)
   end

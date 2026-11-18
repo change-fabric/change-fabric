@@ -28,6 +28,7 @@ require_relative 'change_lane_browserless'
 require_relative 'change_lane_testcases'
 require_relative 'change_testcases_evidence'
 require_relative 'change_testcases_report'
+require_relative 'browserless_pdf'
 require_relative 'change_lane_command'
 require_relative 'change_trust'
 
@@ -134,13 +135,15 @@ class ChangeRun
   # `env_file_values` (parsed boot.env_file, a source for declared names).
   Context = Struct.new(:network, :target_url, :health_url, :browserless, :media, :suite_select, :signoff,
                        :logger, :run_id, :profile, :trust, :step_prefix, :env_file_values,
-                       :active_scan_allowed, :out_dir, :evidence_dir, :commit, keyword_init: true) do
+                       :active_scan_allowed, :out_dir, :evidence_dir, :commit, :exports, :video_budget_mb,
+                       keyword_init: true) do
     def log(message) = logger.call(message)
     def signoff? = signoff == true
   end
 
   Args = Struct.new(:scope, :config_path, :profile, :apps, :target_url, :health_url, :publish, :suites,
-                    :for_tag, :ref, :signoff, :schedule, :repo, :dry_run, :zap_mode, :out, keyword_init: true)
+                    :for_tag, :ref, :signoff, :schedule, :repo, :dry_run, :zap_mode, :out, :exports,
+                    :video_budget_mb, keyword_init: true)
 
   def self.main(argv)
     new(argv).run
@@ -501,6 +504,8 @@ class ChangeRun
     dry_run = false
     zap_mode = nil
     out = nil
+    exports = []
+    video_budget_mb = nil
     rest = argv.drop(1)
     schedule = scope == 'schedule' && rest.first && !rest.first.start_with?('-') ? rest.shift : nil
     OptionParser.new do |o|
@@ -518,6 +523,8 @@ class ChangeRun
       o.on('--dry-run') { dry_run = true }
       o.on('--mode MODE') { |value| zap_mode = value }
       o.on('--out DIR') { |value| out = File.expand_path(value) }
+      o.on('--export LIST') { |value| exports.concat(value.split(',').map(&:strip).reject(&:empty?)) }
+      o.on('--video-budget-mb N', Integer) { |value| video_budget_mb = value }
     end.parse(rest)
     valid = %w[all sweep gate-status schedule] + ChangeConfig::LANES
     abort_and_exit("scope must be one of: #{valid.join(', ')}") unless valid.include?(scope)
@@ -530,13 +537,23 @@ class ChangeRun
     abort_and_exit('schedule needs a schedule name: change_run.rb schedule <name>') if scope == 'schedule' && schedule.nil?
     abort_and_exit('--dry-run applies only to schedule <name>') if dry_run && scope != 'schedule'
     abort_and_exit('--mode applies only to the zap scope') if zap_mode && scope != 'zap'
+    unknown_exports = exports - EXPORTS
+    abort_and_exit("--export takes #{EXPORTS.join(', ')}; got #{unknown_exports.join(', ')}") if unknown_exports.any?
+    abort_and_exit('--export applies to the testcases lane; run scope testcases or all') if
+      !exports.empty? && !%w[testcases all].include?(scope)
+    abort_and_exit('--video-budget-mb must be positive') if video_budget_mb && !video_budget_mb.positive?
     if zap_mode && !ChangeScheduleConfig::ZAP_MODES.include?(zap_mode)
       abort_and_exit("--mode must be one of #{ChangeScheduleConfig::ZAP_MODES.join(', ')}")
     end
     Args.new(scope: scope, config_path: path, profile: profile, apps: apps, target_url: target_url,
              health_url: health_url, publish: publish, suites: suites, for_tag: for_tag, ref: ref,
-             signoff: signoff, schedule: schedule, repo: repo, dry_run: dry_run, zap_mode: zap_mode, out: out)
+             signoff: signoff, schedule: schedule, repo: repo, dry_run: dry_run, zap_mode: zap_mode, out: out,
+             exports: exports.uniq, video_budget_mb: video_budget_mb)
   end
+
+  # What --export may name: the testcases report as a PDF, and one MP4 per
+  # case. Neither makes a paid call.
+  EXPORTS = %w[pdf video].freeze
 
   def overrides
     { target_url: @args.target_url, health_url: @args.health_url }.compact
@@ -596,8 +613,21 @@ class ChangeRun
     paths = ChangeTestcasesReport.new(run_dir: dir, ledger: ChangeTestcasesReport.ledger_path(config.project, repo: repo_root,
                                                                                         app: @evidence_app)).write
     log("[change] testcases report: #{paths[:html]} (junit: #{paths[:junit]})")
+    export_testcases_pdf(dir) if Array(@args.exports).include?('pdf')
   rescue StandardError => e
     log("[change] testcases report failed: #{e.message}")
+  end
+
+  # report.pdf beside report.html. A failure is logged and recorded in
+  # exports.json; it changes no case's result.
+  def export_testcases_pdf(dir)
+    entry = begin
+      { 'status' => 'ok', 'path' => BrowserlessPdf.render(dir) }
+    rescue StandardError => e
+      { 'status' => 'failed', 'reason' => e.message }
+    end
+    ChangeTestcasesEvidence.new(dir).write_exports('pdf' => { 'report' => entry })
+    log("[change] testcases pdf: #{entry['path'] || "failed, #{entry['reason']}"}")
   end
 
   def write_rollup(registry, results)
@@ -676,7 +706,8 @@ class ChangeRun
       signoff: @args.signoff, logger: method(:log), run_id: boot_run_id, profile: config.profile,
       trust: trust, step_prefix: prefix, env_file_values: command_env_file_values(config),
       active_scan_allowed: @active_scan_allowed == true, out_dir: out_dir,
-      evidence_dir: evidence_dir(config), commit: head_sha
+      evidence_dir: evidence_dir(config), commit: head_sha, exports: @args.exports,
+      video_budget_mb: @args.video_budget_mb
     }
     if browser_needed?(config)
       boot = config.boot

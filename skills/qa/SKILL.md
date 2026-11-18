@@ -45,6 +45,12 @@ ruby ~/.claude/cf/bin/change_run.rb testcases --suite <suite-or-tag>
 and `junit.xml`) there instead of on the Desktop. Point a stakeholder at
 `report.html` and CI at `junit.xml`.
 
+`--export pdf,video` adds `report.pdf` and one MP4 per case (title card, the
+case's last attempt, step captions) to the run dir, with no paid call; see
+`skills/testcases/SKILL.md` (Exports) for the disk budget. An export failure
+never changes a case's verdict. Narration is never part of it: it is a
+separate opt-in that needs a printed estimate and explicit approval first.
+
 No scoping model, no clarifying round, no generated script: phases 1 to 4 are
 skipped entirely. The selector matches a suite id or a case tag, and it is
 repeatable. A selector matching nothing is a failing finding, never an empty
