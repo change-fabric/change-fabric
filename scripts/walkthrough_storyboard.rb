@@ -491,7 +491,7 @@ module WalkthroughStoryboard
     return [] if list.nil? || unresolved?(scene)
 
     fps = fps(board)
-    frames = PrototypeCapture.frame_count(PrototypeCapture.scene_duration(scene), fps)
+    frames = timeline_frames(scene, fps)
     lists = list.is_a?(Hash) ? list.map { |device, ops| [ "#{device}: ", ops ] } : [ [ '', list ] ]
     lists.flat_map do |prefix, ops|
       next [] unless ops.is_a?(Array) && ops.all?(Hash)
@@ -500,6 +500,26 @@ module WalkthroughStoryboard
     rescue ArgumentError, TypeError
       []
     end
+  end
+
+  # The frames a scene's ops are checked against. Before narration is
+  # measured, a scene with no timing.min_ms has no length yet, so it gets a
+  # provisional one reaching its last event: nothing can be late until the
+  # voice sets the real length.
+  def timeline_frames(scene, fps)
+    frames = PrototypeCapture.frame_count(PrototypeCapture.scene_duration(scene), fps)
+    return frames unless provisional_length?(scene)
+
+    list = scene['interactions']
+    ops = (list.is_a?(Hash) ? list.values : [ list ]).flatten.select { |op| op.is_a?(Hash) && PrototypeCapture::OPS.include?(op['op']) }
+    last = WalkthroughTimeline.build(ops, fps: fps, frames: 0).events.map(&:frame).max
+    [ frames, last.to_i + 1 ].max
+  rescue ArgumentError, TypeError
+    frames
+  end
+
+  def provisional_length?(scene)
+    scene['narration'].is_a?(Hash) && !scene['narration'].key?('measured_ms') && scene.dig('timing', 'min_ms').nil?
   end
 
   # An overlapping transition blends the scene's first `ms` with the scene

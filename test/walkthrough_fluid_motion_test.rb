@@ -110,6 +110,19 @@ class WalkthroughFluidMotionTest < Minitest::Test
     assert_includes errors(board([ live("one", 1, "interactions" => late) ])), "op 0 (tap #a) releases at frame 69, past the scene's last frame 59"
   end
 
+  # Before narration exists a scene has no length yet, so validate sizes it
+  # provisionally from its ops instead of failing every tap at frame -1.
+  def test_an_unnarrated_scene_gets_a_provisional_length_from_its_ops
+    ops = [ { "t_ms" => 500, "op" => "tap", "target" => "#a", "press_ms" => 120 } ]
+    scene = live("closing", 1, "interactions" => ops, "narration" => { "text" => "Closing speaks." }, "timing" => {})
+    refute_includes errors(board([ scene ])), "past the scene's last frame"
+    overlap = ops + [ { "t_ms" => 1000, "op" => "scroll", "target" => "#f", "dy" => 10, "ms" => 900 },
+                      { "t_ms" => 1200, "op" => "scroll", "target" => "#f", "dy" => 10 } ]
+    assert_includes errors(board([ scene.merge("interactions" => overlap) ])), "scrolls on #f overlap", "other conflicts still apply"
+    measured = scene.merge("narration" => { "text" => "x", "measured_ms" => 100 })
+    assert_includes errors(board([ measured ])), "past the scene's last frame", "a measured scene keeps its real length"
+  end
+
   # Decision 7: the next scene leads with, and films only, the tapping device.
   def test_navigate_needs_the_same_device_next
     b = nav_board(second: { "device" => "desktop" })
