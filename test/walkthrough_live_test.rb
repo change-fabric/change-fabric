@@ -295,6 +295,55 @@ class WalkthroughLiveTest < Minitest::Test
     refute_includes WalkthroughLive.capture_module(b, b["scenes"][1], jobs: [], session: nil), "setIgnoreCertificateErrors"
   end
 
+  # Extra request headers: per board under browser.headers, per scene under
+  # headers (the scene wins on a name, case-insensitively). They reach the
+  # page before the first navigation and re-key the scene; values stay out of
+  # every error and log line.
+  def test_extra_headers_merge_and_reach_the_page_before_navigation
+    b = board
+    b["browser"]["headers"] = { "Accept-Encoding" => "gzip", "X-Board" => "b" }
+    scene = b["scenes"][1].merge("headers" => { "accept-encoding" => "identity", "X-Scene" => "s" })
+    assert_equal({ "X-Board" => "b", "accept-encoding" => "identity", "X-Scene" => "s" }, WalkthroughLive.headers(b, scene))
+    js = WalkthroughLive.capture_module(b, scene, jobs: jobs(b, scene), session: nil)
+    assert_includes js, "if (job.headers) await page.setExtraHTTPHeaders(job.headers);"
+    assert_operator js.index("setExtraHTTPHeaders"), :<, js.index("page.goto(job.url")
+    assert_includes js, '"headers":{"X-Board":"b","accept-encoding":"identity","X-Scene":"s"}'
+    assert_includes WalkthroughLive.login_module(b, b["personas"]["member"], { "APP_EMAIL" => "e", "APP_PASSWORD" => "p" }),
+                    'setExtraHTTPHeaders({"Accept-Encoding":"gzip","X-Board":"b"})'
+    refute_equal WalkthroughLive.frames_key(b, b["scenes"][1]), WalkthroughLive.frames_key(b, scene), "headers re-key the scene"
+    plain = board
+    assert_equal WalkthroughLive.frames_key(plain, plain["scenes"][1]), WalkthroughLive.frames_key(plain, plain["scenes"][1].merge("headers" => {})),
+                 "no headers keep the existing key"
+  end
+
+  def test_header_names_are_validated_and_values_never_echoed
+    b = board
+    b["browser"]["headers"] = { "Bad Name" => "hidden-board-value", "X-Ok" => "line\r\nbreak-hidden" }
+    b["scenes"][1]["headers"] = { "X-Ok" => 7, "Host" => "hidden-host" }
+    b["scenes"][2]["headers"] = "nope"
+    errs = errors_for(b)
+    assert(errs.any? { |e| e.include?("browser.headers name \"Bad Name\" is not a valid header name") }, errs.inspect)
+    assert(errs.any? { |e| e.include?("browser.headers \"X-Ok\" value must be a single-line string") }, errs.inspect)
+    assert(errs.any? { |e| e.include?("headers \"X-Ok\" value must be a single-line string") }, errs.inspect)
+    assert(errs.any? { |e| e.include?("headers \"Host\" is managed by the browser") }, errs.inspect)
+    assert(errs.any? { |e| e.include?("headers must be an object") }, errs.inspect)
+    refute_match(/hidden/, errs.join("\n"))
+    proto = { "id" => "p", "order" => 9, "title" => "p", "screen" => { "html" => "screens/p.html" }, "headers" => { "X-A" => "1" } }
+    assert(errors_for(board([ proto ])).any? { |e| e.include?("headers needs a screen.url") })
+  end
+
+  def test_header_values_are_masked_in_capture_errors
+    b = board
+    b["browser"]["headers"] = { "Authorization" => "Bearer hidden-token-123" }
+    failing = Object.new
+    def failing.run_function(*, **) = raise(StandardError, "upstream said Bearer hidden-token-123 was rejected")
+    err = assert_raises(WalkthroughLive::CaptureError) do
+      WalkthroughLive.capture(session: failing, board: b, scene: b["scenes"][1], out_dir: @root,
+                              secrets: WalkthroughLive::Secrets.new([]))
+    end
+    refute_includes err.message, "hidden-token-123"
+  end
+
   def test_live_scroll_keeps_the_shared_scroll_semantics
     variants = { { "target" => "#inbox" } => { "target" => "#inbox" },
                  { "target" => "#inbox", "dy" => 240 } => { "target" => "#inbox", "dy" => 240 },
