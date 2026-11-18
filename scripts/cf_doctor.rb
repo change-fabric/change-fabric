@@ -8,6 +8,7 @@ require 'shellwords'
 require_relative 'host_capabilities'
 require_relative 'cf_state'
 require_relative 'skill_compiler'
+require_relative 'change_apps'
 
 # Read-only installation diagnostics. File presence is never called discovery,
 # and configured hooks are never called trusted or active without host evidence.
@@ -18,7 +19,7 @@ class CfDoctor
     @opencode_root = File.join(xdg_config.to_s.empty? ? File.join(home, '.config') : xdg_config, 'opencode')
   end
 
-  def report(host:, surface: 'cli', version: nil, probe: true)
+  def report(host:, surface: 'cli', version: nil, probe: true, project: nil)
     raise ArgumentError, 'unknown host' unless SkillCompiler::HOSTS.include?(host)
 
     binary_version = version || (probe ? probe_version(host) : nil)
@@ -47,10 +48,21 @@ class CfDoctor
       'state_root' => CfState.root(home: @home), 'ruby' => RUBY_VERSION,
       'dependencies' => { 'ruby_supported' => Gem::Version.new(RUBY_VERSION) >= Gem::Version.new('3.2'),
                           'git_present' => executable?('git'), 'node_present' => executable?('node') },
-      'capabilities' => profile, 'next_steps' => advice }
+      'capabilities' => profile, 'change_md' => change_md(project), 'next_steps' => advice }
   end
 
   private
+
+  # The project CHANGE.md, validated by the same check as `change_config.rb
+  # doctor` (config, policy, and testcase suites). nil when there is none.
+  def change_md(project)
+    path = File.join(project.to_s, 'CHANGE.md')
+    return unless project && File.file?(path)
+
+    { 'path' => path, 'ok' => true, 'lines' => ChangeAppRegistry.doctor(path).lines.map(&:chomp) }
+  rescue StandardError => e
+    { 'path' => path, 'ok' => false, 'lines' => [ "error: #{e.message}" ] }
+  end
 
   def executable?(name)
     ENV.fetch('PATH', '').split(File::PATH_SEPARATOR).any? { |dir| File.executable?(File.join(dir, name)) }

@@ -242,6 +242,43 @@ class ChangeAppRegistryTest < Minitest::Test
     refute_match(/change_policy\.gate/, doctor_with_gate("\n    require_change_pass: false\n    require_on: promotion"))
   end
 
+  def git_repo_with_origin(root, branches)
+    system("git", "-C", root, "init", "-q", "-b", "main", exception: true)
+    system("git", "-C", root, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false",
+           "commit", "-q", "--allow-empty", "-m", "init", exception: true)
+    branches.each { |b| system("git", "-C", root, "update-ref", "refs/remotes/origin/#{b}", "HEAD", exception: true) }
+  end
+
+  def test_doctor_warns_when_default_protected_branches_are_missing_on_origin
+    Dir.mktmpdir do |root|
+      git_repo_with_origin(root, %w[main])
+      change_md = write_root(root, "project" => "my-app", "lanes" => { "k6" => { "enabled" => true } })
+      summary = ChangeAppRegistry.doctor(change_md)
+      assert_match(/policy: protected_branches: staging, production \(spec default; no change_policy block\)/, summary)
+      assert_match(/warning: protected_branches resolve to branches that don't exist on origin: staging, production/, summary)
+      assert_match(/policy: admin_bypass: not allowed/, summary)
+    end
+  end
+
+  def test_doctor_is_quiet_when_protected_branches_exist_on_origin
+    Dir.mktmpdir do |root|
+      git_repo_with_origin(root, %w[main])
+      change_md = write_root(root, { "project" => "my-app", "lanes" => { "k6" => { "enabled" => true } } },
+                             "protected_branches" => [ "main" ], "admin_bypass" => { "allowed" => true })
+      summary = ChangeAppRegistry.doctor(change_md)
+      assert_match(/policy: protected_branches: main$/, summary)
+      assert_match(/policy: admin_bypass: allowed/, summary)
+      refute_match(/don't exist on origin/, summary)
+    end
+  end
+
+  def test_doctor_skips_the_origin_check_without_origin_refs
+    Dir.mktmpdir do |root|
+      change_md = write_root(root, "project" => "my-app", "lanes" => { "k6" => { "enabled" => true } })
+      refute_match(/don't exist on origin/, ChangeAppRegistry.doctor(change_md))
+    end
+  end
+
   def doctor_with_gate(gate_yaml)
     Dir.mktmpdir do |root|
       change_md = File.join(root, "CHANGE.md")

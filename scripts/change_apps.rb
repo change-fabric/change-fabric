@@ -1,6 +1,7 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 
+require 'open3'
 require_relative 'change_config'
 require_relative 'change_frontmatter'
 require_relative 'change_policy'
@@ -143,9 +144,45 @@ class ChangeAppRegistry
       lines << "--- app: #{entry.name} (#{entry.config_path}) ---" if registry.multi_app?
       lines.concat(ChangeConfig.doctor_lines(entry.config_path, entry.load(profile: profile, overrides: overrides)))
     end
+    lines.concat(policy_lines(change_md_path))
 
     lines.join("\n")
   end
+
+  # The resolved merge policy, as the merge gate and cf:sweep read it. A
+  # CHANGE.md with no change_policy block resolves to the spec default
+  # [staging, production], which a trunk-only repo does not have; the gate
+  # then protects nothing that exists and admin bypass stays off, so say so
+  # here instead of letting a stack sweep discover it as an escalation.
+  def self.policy_lines(change_md_path)
+    root = File.dirname(change_md_path)
+    policy = ChangePolicy.for_repo(root)
+    return [] unless policy
+
+    declared = ChangeFrontmatter.parse_file(change_md_path)['change_policy'].is_a?(Hash)
+    branches = policy.protected_branches
+    lines = [ "policy: protected_branches: #{branches.join(', ')}#{' (spec default; no change_policy block)' unless declared}" ]
+    lines << "policy: admin_bypass: #{policy.admin_bypass_allowed? ? 'allowed' : 'not allowed'}"
+    on_origin = origin_branches(root)
+    missing = branches - on_origin
+    return lines if missing.empty? || on_origin.empty?
+
+    lines << "warning: protected_branches resolve to branches that don't exist on origin: #{missing.join(', ')}. " \
+             'Set change_policy.protected_branches to the branches this repo merges into.'
+  rescue StandardError
+    []
+  end
+  private_class_method :policy_lines
+
+  # Branch names under refs/remotes/origin, read locally (no fetch). Empty when
+  # the directory is not a git repo or has no origin refs, so the check stays
+  # silent rather than guessing.
+  def self.origin_branches(root)
+    out, status = Open3.capture2('git', '-C', root, 'for-each-ref', '--format=%(refname:lstrip=3)', 'refs/remotes/origin',
+                                 err: File::NULL)
+    status.success? ? out.lines.map(&:strip).reject { |name| name.empty? || name == 'HEAD' } : []
+  end
+  private_class_method :origin_branches
 
   # A bad change_policy.gate block never fails a guard (an invalid require_on
   # reads as every_merge, an invalid trunk as main), so doctor is where the

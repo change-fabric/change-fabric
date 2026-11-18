@@ -147,7 +147,12 @@ never reads as a foreign one.
 Read `ChangePolicy.for_repo(root)`.
 
 - If `!admin_bypass_allowed?`, escalate to the user: reconfigure CHANGE.md for
-  this repo, or help run the lanes in local Docker. Never set
+  this repo, or help run the lanes in local Docker. This holds even when
+  CHANGE.md has no `change_policy` block: the trunk fallback in Scope picks a
+  base branch, but it never grants admin bypass, which only
+  `change_policy.admin_bypass.allowed: true` does. Name
+  `change_config.rb doctor` in the escalation; it shows the resolved
+  `protected_branches` and warns when they do not exist on origin. Never set
   `CF_ALLOW_UNGATED_MERGE` and never run `change_override.rb`.
 - If `ChangeGateCheck.required?(policy, base: '<trunk>', kind: :pr_merge)`,
   ask the SHA gate record for the current head SHA directly:

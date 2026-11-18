@@ -66,6 +66,19 @@ for the full shape. A repo with no `change_config.apps` key is completely
 unaffected: single-app mode is a registry of exactly one entry, the root file
 itself.
 
+**Validate it.** The entry point is
+`ruby ~/.claude/cf/bin/change_config.rb doctor` from the repo root (add
+`--config PATH`, `--profile NAME`, or `--app NAME` as needed). It loads
+`change_config:`, checks the testcase suites, and prints the resolved policy:
+`protected_branches`, whether admin bypass is allowed, and a warning when a
+protected branch does not exist on origin. A `CHANGE.md` with no
+`change_policy:` block resolves to the spec default `[staging, production]`,
+so a trunk-only repo should declare `protected_branches: [main]`. Exit 2 means
+the file does not load. `cf_cli.rb doctor` prints the same report for the
+current directory's `CHANGE.md`. In Ruby, call `ChangeAppRegistry.doctor(path)`;
+load a single suite file with the public `ChangeSuite.load_file(path)`, or a
+glob list with `ChangeSuiteSet.load(globs, dir)`.
+
 ## Workflow
 
 1. **Resolve scope.** A PR (read its head, check it out so the run happens on
