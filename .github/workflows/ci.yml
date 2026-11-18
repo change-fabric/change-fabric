@@ -17,7 +17,7 @@ jobs:
     # least the expected number of runs, and the checks job passed.
     if: ${{ !cancelled() }}
     needs: [checks, test]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
       - uses: ruby/setup-ruby@v1
@@ -40,7 +40,7 @@ jobs:
 
   # Everything but the Ruby suite, run once.
   checks:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
       - uses: ruby/setup-ruby@v1
@@ -73,7 +73,7 @@ jobs:
   # count for the ci job to check.
   test:
     name: test (${{ matrix.shard }}/4)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
@@ -106,7 +106,7 @@ jobs:
           retention-days: 7
 
   platform:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: platform/api
@@ -141,7 +141,7 @@ jobs:
   # action; either way a required check that silently skips is worse than a job
   # that runs for two minutes on a docs-only PR.
   platform-web:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: platform/web
