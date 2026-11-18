@@ -534,23 +534,34 @@ module Roast
     File.join(home, '.claude', 'cf', 'roasts', File.realpath(repo).tr('/', '-'))
   end
 
-  # Moves critics cached under the old in-repo default (<repo>/.cache/roasts)
-  # into cache_root under the same key, so a rerun stays free; an entry the
-  # store already holds wins. Drops the emptied dirs. Returns the count seen.
+  # Store subdirs the old in-repo default held, with the entries to move.
+  LEGACY_SUBDIRS = { 'roasts' => '*.json', 'roast-video-frames' => '*' }.freeze
+
+  # Moves what the old in-repo default (<repo>/.cache) held into cache_root:
+  # critic JSON under roasts/ and the video frame dirs (content-addressed, each
+  # with its .done marker) under roast-video-frames/, so a cached rerun stays
+  # free and needs no Docker. An entry the store already holds wins. Drops the
+  # emptied dirs. Returns the count of entries seen.
   def adopt_legacy_cache(repo, cache_root)
     legacy = File.join(repo, '.cache')
-    files = Dir.glob(File.join(legacy, 'roasts', '*.json'))
-    return 0 if files.empty?
-
-    dest = File.join(cache_root, 'roasts')
-    FileUtils.mkdir_p(dest)
-    files.each do |f|
-      target = File.join(dest, File.basename(f))
-      File.exist?(target) ? FileUtils.rm_f(f) : FileUtils.mv(f, target)
-    end
-    [ File.join(legacy, 'roasts'), legacy ].each { |d| Dir.rmdir(d) if Dir.empty?(d) }
-    files.size
+    moved = LEGACY_SUBDIRS.sum { |sub, glob| adopt_legacy_entries(File.join(legacy, sub), File.join(cache_root, sub), glob) }
+    Dir.rmdir(legacy) if Dir.exist?(legacy) && Dir.empty?(legacy)
+    moved
   end
+
+  def adopt_legacy_entries(src, dest, glob)
+    entries = Dir.glob(File.join(src, glob))
+    return 0 if entries.empty?
+
+    FileUtils.mkdir_p(dest)
+    entries.each do |e|
+      target = File.join(dest, File.basename(e))
+      File.exist?(target) ? FileUtils.rm_rf(e) : FileUtils.mv(e, target)
+    end
+    Dir.rmdir(src) if Dir.empty?(src)
+    entries.size
+  end
+  private_class_method :adopt_legacy_entries
 
   # The WalkthroughCache coordinates (root, kind, key, ext) of one cached critic.
   def cache_args(cache_root, key) = [ cache_root, :roasts, key, 'json' ]
