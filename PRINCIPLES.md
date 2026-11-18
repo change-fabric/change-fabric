@@ -82,7 +82,7 @@ release, `change_approve` and `change_override` stay human, handed over as a
 script under `~/.claude/cf/manual/`. No hook checks threads or carve-out paths
 yet.
 
-Enforcer: scripts/change_merge_guard.rb, CHANGE.md change_policy.admin_bypass
+Enforcer: scripts/change_merge_guard.rb, CHANGE.md
 
 ## One PR at a time, rebased, linear history
 
