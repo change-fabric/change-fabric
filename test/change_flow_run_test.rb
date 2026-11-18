@@ -184,9 +184,12 @@ class ChangeFlowRunTest < Minitest::Test
   end
 
   # A query the config names (a tenant, an auth mode) picks the login, so the
-  # flow has to carry it; extra flow params such as a redirect do not matter.
+  # flow has to carry it. An extra flow param such as next= can change where
+  # the login lands, so it is not the configured login and its steps stay.
   def test_login_path_matching_keeps_the_configured_query
-    assert ChangeFlowLogin.same_path?("http://localhost:3000/login?tenant=admin&next=/x", "/login?tenant=admin")
+    assert ChangeFlowLogin.same_path?("http://localhost:3000/login?tenant=admin", "/login?tenant=admin")
+    refute ChangeFlowLogin.same_path?("http://localhost:3000/login?tenant=admin&next=/x", "/login?tenant=admin")
+    refute ChangeFlowLogin.same_path?("http://localhost:3000/login?next=/settings", "/login")
     refute ChangeFlowLogin.same_path?("http://localhost:3000/login?tenant=admin", "/login?tenant=member")
     refute ChangeFlowLogin.same_path?("http://localhost:3000/login", "/login?tenant=member")
   end

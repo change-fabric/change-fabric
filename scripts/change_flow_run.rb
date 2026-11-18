@@ -76,13 +76,15 @@ module ChangeFlowLogin
   # names a path. They match on the path and, since a hash route (#/login) is
   # the page in a client-routed app, on that route too. A query the config
   # names (a tenant, an auth mode) picks the login, so the flow must carry
-  # every one of its params; extra flow params such as a redirect are fine.
+  # exactly its params. A flow-only param such as next= can change where the
+  # login lands, which the seeded landing page would not reproduce, so such a
+  # flow keeps its login steps.
   def same_path?(flow_url, auth_url)
     return false if flow_url.nil?
 
     flow = URI.parse(flow_url.to_s)
     auth = URI.parse(auth_url.to_s)
-    page(flow) == page(auth) && (params(auth).to_a - params(flow).to_a).empty?
+    page(flow) == page(auth) && params(auth).sort == params(flow).sort
   rescue URI::InvalidURIError, ArgumentError
     false
   end
