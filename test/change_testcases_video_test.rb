@@ -195,6 +195,7 @@ class ChangeTestcasesVideoTest < Minitest::Test
     source = File.read(File.expand_path("../scripts/change_lane_testcases.rb", __dir__))
     assert_includes source, "video: dir && video_js(item, record.dig('video', 'bytes').to_i)),"
     assert_includes source, "URL.revokeObjectURL(url)"
+    assert_includes source, "let last = latest;\n            try {\n              last = await casePage.screenshot("
   end
 
   # A failed attempt's frames are gone before the rerun records its own.

@@ -995,8 +995,12 @@ class ChangeLaneTestcases < ChangeLane
           // The end state is always the last frame, even for a case faster
           // than one tick, unless the byte share is spent.
           if (!stopped) {
+            // A fresh capture, since the last screencast frame can predate
+            // the final step's change; the frame is the fallback.
             let last = latest;
-            try { if (last === null) last = await casePage.screenshot({ type: "jpeg", quality: 70, encoding: "base64" }); } catch (err) { void err; }
+            try {
+              last = await casePage.screenshot({ type: "jpeg", quality: 70, encoding: "base64" });
+            } catch (err) { void err; }
             if (last !== null && bytes + Math.floor((last.length * 3) / 4) <= video.maxBytes) {
               written += 1;
               await writer.write(`frame-${writer.tag}${String(written).padStart(6, "0")}.jpg`, last, true);
