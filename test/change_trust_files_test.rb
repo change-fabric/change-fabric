@@ -272,8 +272,19 @@ class ChangeTrustFilesTest < Minitest::Test
     assert_match(/inside submodule vendor\/tools/, cover(entry)["error"])
     snap = ChangeTrustFiles.cover(entry, ChangeTrustFiles::Source.at_ref(@repo, sha, @repo))
     assert_match(/inside submodule vendor\/tools/, snap["error"])
+    File.symlink("vendor/tools/ci.sh", File.join(@repo, "ci.sh"))
+    assert_match(/inside submodule/, cover({ "name" => "ci", "run" => "bash ci.sh" })["error"])
+    [ "vendor/tools/**", "vendor/*/helper.sh", "**/*.sh" ].each do |glob|
+      error = cover({ "name" => "ci", "run" => "true", "trust_paths" => [ glob ] })["error"]
+      assert_match(/reaches into submodule vendor\/tools/, error, glob)
+    end
   ensure
     FileUtils.remove_entry(sub) if sub
+  end
+
+  def test_line_continuation_is_joined
+    commit("scripts/ci.sh" => "a\n")
+    assert_equal [ "scripts/ci.sh" ], cover({ "name" => "ci", "run" => "bash scripts/\\\nci.sh" })["files"].keys
   end
 
   def test_plain_run_is_not_opaque

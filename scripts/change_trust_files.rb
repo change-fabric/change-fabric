@@ -245,6 +245,18 @@ module ChangeTrustFiles
     raise Escape, "#{rel} is inside submodule #{link}, whose files cannot be verified; refused" if link
   end
 
+  # A glob any leading part of which matches a submodule path would cover
+  # files git does not list here, so it cannot be verified.
+  def refuse_glob_into_gitlink(glob, source)
+    parts = glob.split('/')
+    deep = parts.index('**')
+    link = source.gitlinks.find do |gitlink|
+      (1..parts.size).any? { |count| File.fnmatch?(parts.first(count).join('/'), gitlink, GLOB_FLAGS) } ||
+        (deep && File.fnmatch?(File.join(*parts.first(deep), '**', '*'), "#{gitlink}/x", GLOB_FLAGS))
+    end
+    raise Escape, "trust_paths entry #{glob.inspect} reaches into submodule #{link}, whose files cannot be verified; refused" if link
+  end
+
   # Each `cd` composes with every directory reached before it, so `cd a &&
   # cd b` yields a/b. Over-matching only adds coverage.
   def changed_dirs(words, cwd)
@@ -265,6 +277,7 @@ module ChangeTrustFiles
   # followed, plus those links, so retargeting one is a change too. [] when
   # it names no listed file.
   def resolve(rel, source, depth = 0)
+    refuse_under_gitlink(rel, source)
     return [ rel ] if source.paths.include?(rel)
     raise Escape, "symlink loop resolving #{rel}; refused" if depth > 40
 
@@ -287,7 +300,7 @@ module ChangeTrustFiles
   # with its own quoting, a few levels deep.
   def tokens(run, depth = 0)
     words = begin
-      Shellwords.split(run)
+      Shellwords.split(run.gsub("\\\n", ''))
     rescue ArgumentError
       [ run ]
     end
@@ -302,6 +315,7 @@ module ChangeTrustFiles
   # the target's files but never a path through the link.
   def glob_files(globs, source)
     expanded = through_links(globs.map { |glob| glob.gsub(%r{(\A|/)(\./)+}, "\\1") }, source)
+    expanded.each { |glob, _| refuse_glob_into_gitlink(glob, source) }
     links = expanded.filter_map { |_, link| link }
     links + expanded.flat_map { |glob, _| source.paths.select { |rel| File.fnmatch?(glob, rel, GLOB_FLAGS) } }
   end
