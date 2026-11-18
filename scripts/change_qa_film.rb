@@ -258,7 +258,7 @@ module ChangeQaFilm
     compiler = ChangeFlowCompiler.new(draft + [ { 'eval' => { 'script' => SNAPSHOT_JS } } ], base_url: origin(options[:url]),
                                                                                           timeout_ms: 30_000)
     code = probe_module(compiler, auth: auth && ChangeFlowCompiler.compile_auth(auth.steps, base_url: origin(options[:url])),
-                                  basic_auth: basic_auth(options), viewport: lane_viewport(options))
+                                  basic_auth: basic_auth(options), viewport: lane_viewport(testcases_lane(options)))
     result = with_session(options) { |session| session.run_function(code, launch_args: launch_args(options)) }
     puts JSON.pretty_generate(probe_view(result))
     0
@@ -367,8 +367,7 @@ module ChangeQaFilm
 
   def summarize(run_dir, options, entries, acceptance)
     record = read_jsonl(File.join(run_dir, ChangeTestcasesEvidence::RESULTS_FILE)).first || {}
-    result_path = record['evidence_dir'] && File.join(record['evidence_dir'], 'result.json')
-    results = result_path && File.exist?(result_path) ? JSON.parse(File.read(result_path))['steps'] : []
+    results = attempt_steps(record['evidence_dir'])
     labels = ChangeFlowCompiler.new(entries.map { |entry| entry[:step] }, base_url: origin(options[:url])).labels
     status = film_status(record, results, entries.size)
     rewrite_status(run_dir, status) if record['status'] && record['status'] != status
@@ -393,6 +392,16 @@ module ChangeQaFilm
     steps = Array(results)
     all_ran = steps.size == step_count && steps.all? { |step| step['ok'] }
     all_ran && record['acceptance_verdict'].nil? ? 'pass' : 'fail'
+  end
+
+  # The attempt's step records: result.json for a call that returned, or
+  # termination.json for one that was cut off, which holds the steps it got
+  # through before the call died.
+  def attempt_steps(dir)
+    return [] unless dir
+
+    path = %w[result.json termination.json].map { |name| File.join(dir, name) }.find { |file| File.exist?(file) }
+    path ? Array(JSON.parse(File.read(path))['steps']) : []
   end
 
   # Puts the film verdict in the case record, so report.html, report.pdf and
@@ -473,9 +482,10 @@ module ChangeQaFilm
     nil
   end
 
-  def lane_viewport(options)
-    raw = testcases_lane(options)['viewport']
-    raw.is_a?(Hash) ? raw.slice('width', 'height') : { 'width' => 1280, 'height' => 800 }
+  def lane_viewport(lane)
+    raw = lane['viewport']
+    overrides = raw.is_a?(Hash) ? raw : {}
+    ChangeLaneTestcases::DEFAULT_VIEWPORT.merge(overrides.slice('width', 'height')).slice('width', 'height')
   end
 
   def launch_args(options) = Array(testcases_lane(options)['launch_args']).map(&:to_s)

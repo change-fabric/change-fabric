@@ -94,6 +94,21 @@ class ChangeQaFilmTest < Minitest::Test
     end
   end
 
+  def test_a_cut_off_attempt_reads_its_termination_steps
+    Dir.mktmpdir do |dir|
+      File.write(File.join(dir, "termination.json"), JSON.generate("steps" => [ { "index" => 0, "ok" => true } ]))
+      assert_equal [ { "index" => 0, "ok" => true } ], ChangeQaFilm.attempt_steps(dir)
+    end
+    assert_equal [], ChangeQaFilm.attempt_steps(nil)
+  end
+
+  def test_probe_viewport_matches_the_lane_default
+    lane = ChangeConfig::LaneConfig.new("testcases", {}, Dir.pwd)
+    assert_equal({ "width" => 1440, "height" => 900 }, ChangeQaFilm.lane_viewport(lane))
+    narrow = ChangeConfig::LaneConfig.new("testcases", { "viewport" => { "width" => 390 } }, Dir.pwd)
+    assert_equal({ "width" => 390, "height" => 900 }, ChangeQaFilm.lane_viewport(narrow))
+  end
+
   def test_an_omitted_persona_is_anonymous
     assert_equal "anonymous", ChangeQaFilm.parse(%w[--url https://x.test])[:persona]
   end
