@@ -183,6 +183,14 @@ class ChangeFlowRunTest < Minitest::Test
     assert ChangeFlowLogin.same_path?("http://localhost:3000/admin/login/", "/admin/login")
   end
 
+  # A query the config names (a tenant, an auth mode) picks the login, so the
+  # flow has to carry it; extra flow params such as a redirect do not matter.
+  def test_login_path_matching_keeps_the_configured_query
+    assert ChangeFlowLogin.same_path?("http://localhost:3000/login?tenant=admin&next=/x", "/login?tenant=admin")
+    refute ChangeFlowLogin.same_path?("http://localhost:3000/login?tenant=admin", "/login?tenant=member")
+    refute ChangeFlowLogin.same_path?("http://localhost:3000/login", "/login?tenant=member")
+  end
+
   # Two personas on one login form differ only in their credentials, so the
   # env vars the flow typed decide which one it was.
   def test_promote_tells_personas_on_one_form_apart_by_their_env

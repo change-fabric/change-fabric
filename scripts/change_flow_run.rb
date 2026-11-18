@@ -74,19 +74,25 @@ module ChangeFlowLogin
 
   # A flow names the login page with whatever host it explored; the config
   # names a path. They match on the path and, since a hash route (#/login) is
-  # the page in a client-routed app, on that route too.
+  # the page in a client-routed app, on that route too. A query the config
+  # names (a tenant, an auth mode) picks the login, so the flow must carry
+  # every one of its params; extra flow params such as a redirect are fine.
   def same_path?(flow_url, auth_url)
     return false if flow_url.nil?
 
-    page = lambda do |url|
-      uri = URI.parse(url.to_s)
-      fragment = uri.fragment.to_s
-      [ uri.path.to_s.sub(%r{/\z}, ''), fragment.start_with?('/') ? fragment.split('?').first : '' ]
-    end
-    page.call(flow_url) == page.call(auth_url)
-  rescue URI::InvalidURIError
+    flow = URI.parse(flow_url.to_s)
+    auth = URI.parse(auth_url.to_s)
+    page(flow) == page(auth) && (params(auth).to_a - params(flow).to_a).empty?
+  rescue URI::InvalidURIError, ArgumentError
     false
   end
+
+  def page(uri)
+    fragment = uri.fragment.to_s
+    [ uri.path.to_s.sub(%r{/\z}, ''), fragment.start_with?('/') ? fragment.split('?').first : '' ]
+  end
+
+  def params(uri) = URI.decode_www_form(uri.query.to_s)
 end
 
 # Runs one declarative flow file against an ephemeral browserless Chromium
