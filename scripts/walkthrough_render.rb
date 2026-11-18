@@ -388,6 +388,7 @@ module WalkthroughRender
         start = start_session(session, scene, sessions)
         pair = nxt ? { next_scene: nxt, next_out_dir: prep(nxt, memo)[:out_dir] } : {}
         ended = @p[:live_capture].call(**live_args(session, scene, prep(scene, memo)[:out_dir], start), compose: compose_spec(scene, memo), **pair)
+        refilmed.concat(halves.map { |s| s['id'] })
         sessions[(nxt || scene)['id']] = ended
         halves.each { |s| WalkthroughLive.record_inputs(@root, s['id'], prep(s, memo)) }
       end
@@ -462,6 +463,7 @@ module WalkthroughRender
                           interactions: scene['interactions'] || [], duration_ms: duration, out_dir: prep[:out_dir],
                           state: prep[:state], prng_seed: prep[:prng_seed], viewport: PrototypeCapture.scene_viewport(@board, scene), fps: fps,
                           label: scene['id'])
+        refilmed << scene['id']
         frame!(scene, prep)
       end
     end
@@ -475,6 +477,9 @@ module WalkthroughRender
     end
 
     def fps = WalkthroughStoryboard.fps(@board)
+
+    # The scene ids captured since the last delivery, for its summary.
+    def refilmed = @refilmed ||= []
 
     def viewport = @board['viewport'] || PrototypeCapture::DEFAULT_VIEWPORT
 
@@ -1107,7 +1112,8 @@ module WalkthroughRender
       scene_keys = manifest['scenes'].to_h { |e| [ e['id'], e['frames_key'] ] }
       paths = WalkthroughDeliverables.deliver(@root, slug, mp4, kind: delivery_kind, scenes: scene_keys,
                                                                 placeholders: WalkthroughDraftBoard.placeholders(@board),
-                                                                provisional: @provisional)
+                                                                provisional: @provisional, refilmed: refilmed.uniq)
+      @refilmed = []
       say("deliverable #{paths[:mp4]}")
       say(WalkthroughDeliverables.fenced(paths[:line]))
       share(paths[:mp4])
