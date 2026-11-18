@@ -120,6 +120,13 @@ class WalkthroughFontsTest < Minitest::Test
     assert_empty @fetched
   end
 
+  def test_async_print_media_link_applies_to_screen
+    File.write(@screen, "<link rel='stylesheet' href='#{CSS_URL}' media='print' onload=\"this.media='all'\">")
+    html = inline
+    refute_includes html, "@media print"
+    assert_includes html, "font-family: 'Inter'"
+  end
+
   def test_second_render_hits_the_cache_with_no_network
     first = inline
     offline = ->(url) { raise "network touched for #{url}" }

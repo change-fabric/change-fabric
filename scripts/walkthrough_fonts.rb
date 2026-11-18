@@ -77,7 +77,9 @@ module WalkthroughFonts
       next '' if rel.intersect?(HINT_RELS)
       next tag unless rel.include?('stylesheet')
 
-      media = tag[MEDIA_RE, 2].to_s.strip
+      # The async pattern (media="print" onload="this.media='all'") applies
+      # to every medium once loaded, which the inlined rules already are.
+      media = tag.match?(/\bonload\s*=/i) ? '' : tag[MEDIA_RE, 2].to_s.strip
       cond = media.empty? || media.casecmp('all').zero? ? '' : " #{media}"
       %(<style>@import url("#{absolute(href)}")#{cond};</style>)
     end
