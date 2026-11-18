@@ -244,7 +244,7 @@ module ChangeTrustFiles
     end
     words.flat_map do |word|
       nested = depth < 3 && word.match?(/\s/) ? tokens(word, depth + 1) : []
-      [ word, *nested, *word.split(/[\s;&|<>()`$'"]+/) ]
+      [ word, *nested, *word.split(/[\s;&|<>()`$='"]+/) ]
     end.reject(&:empty?)
   end
 

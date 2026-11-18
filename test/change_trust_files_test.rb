@@ -58,6 +58,8 @@ class ChangeTrustFilesTest < Minitest::Test
     sha
   end
 
+  def cover(entry) = ChangeTrustFiles.cover(entry, ChangeTrustFiles::Source.working_tree(@repo))
+
   def verdict_for(sha)
     defs = ChangeTrust.snapshot_definitions(@repo, sha)
     ChangeTrust.evaluate(root: @repo, head_sha: sha, head_definitions: defs, fetch: false)
@@ -96,7 +98,7 @@ class ChangeTrustFilesTest < Minitest::Test
   def test_script_followed_by_a_shell_operator_is_covered
     entry = { "name" => "ci", "run" => "bash scripts/ci.sh; sh -c 'bash scripts/b.sh'&&true" }
     commit("scripts/ci.sh" => "a\n", "scripts/b.sh" => "b\n")
-    files = ChangeTrustFiles.cover(entry, ChangeTrustFiles::Source.working_tree(@repo))["files"]
+    files = cover(entry)["files"]
     assert_equal %w[scripts/b.sh scripts/ci.sh], files.keys
   end
 
@@ -105,7 +107,7 @@ class ChangeTrustFilesTest < Minitest::Test
     File.symlink("real.sh", File.join(@repo, "scripts/ci.sh"))
     sha = commit({})
     entry = { "name" => "ci", "run" => "bash scripts/ci.sh" }
-    tree = ChangeTrustFiles.cover(entry, ChangeTrustFiles::Source.working_tree(@repo))
+    tree = cover(entry)
     snap = ChangeTrustFiles.cover(entry, ChangeTrustFiles::Source.at_ref(@repo, sha, @repo))
     assert_equal %w[scripts/ci.sh scripts/real.sh], tree["files"].keys
     assert_equal tree, snap
@@ -114,7 +116,7 @@ class ChangeTrustFilesTest < Minitest::Test
   def test_quoted_filename_with_a_space_is_covered
     commit("scripts/ci check.sh" => "a\n")
     entry = { "name" => "ci", "run" => 'bash "scripts/ci check.sh"' }
-    files = ChangeTrustFiles.cover(entry, ChangeTrustFiles::Source.working_tree(@repo))["files"]
+    files = cover(entry)["files"]
     assert_equal [ "scripts/ci check.sh" ], files.keys
   end
 
@@ -123,7 +125,7 @@ class ChangeTrustFilesTest < Minitest::Test
     File.symlink("scripts", File.join(@repo, "alias"))
     sha = commit({})
     entry = { "name" => "ci", "run" => "bash alias/ci.sh" }
-    tree = ChangeTrustFiles.cover(entry, ChangeTrustFiles::Source.working_tree(@repo))
+    tree = cover(entry)
     assert_equal %w[alias scripts/ci.sh], tree["files"].keys
     assert_equal tree, ChangeTrustFiles.cover(entry, ChangeTrustFiles::Source.at_ref(@repo, sha, @repo))
   end
@@ -133,7 +135,7 @@ class ChangeTrustFilesTest < Minitest::Test
     File.symlink("scripts", File.join(@repo, "alias"))
     File.symlink("alias/ci.sh", File.join(@repo, "ci.sh"))
     entry = { "name" => "ci", "run" => "bash ci.sh" }
-    files = ChangeTrustFiles.cover(entry, ChangeTrustFiles::Source.working_tree(@repo))["files"]
+    files = cover(entry)["files"]
     assert_equal %w[alias ci.sh scripts/ci.sh], files.keys
   end
 
@@ -141,14 +143,14 @@ class ChangeTrustFilesTest < Minitest::Test
     commit("other/ci.sh" => "a\n", "other/deep/x" => "x\n", "scripts/ci.sh" => "b\n")
     File.symlink("../other/deep", File.join(@repo, "scripts/link"))
     entry = { "name" => "ci", "run" => "bash scripts/link/../ci.sh" }
-    coverage = ChangeTrustFiles.cover(entry, ChangeTrustFiles::Source.working_tree(@repo))
+    coverage = cover(entry)
     assert_match(/cannot be followed/, coverage["error"])
   end
 
   def test_shell_glob_in_run_is_expanded
     commit("scripts/ci.sh" => "a\n")
     entry = { "name" => "ci", "run" => "bash scripts/c*.sh" }
-    files = ChangeTrustFiles.cover(entry, ChangeTrustFiles::Source.working_tree(@repo))["files"]
+    files = cover(entry)["files"]
     assert_equal [ "scripts/ci.sh" ], files.keys
   end
 
@@ -156,7 +158,7 @@ class ChangeTrustFilesTest < Minitest::Test
     commit("scripts/helper.sh" => "a\n")
     File.symlink("scripts", File.join(@repo, "alias"))
     entry = { "name" => "ci", "run" => "true", "trust_paths" => [ "alias/**" ] }
-    files = ChangeTrustFiles.cover(entry, ChangeTrustFiles::Source.working_tree(@repo))["files"]
+    files = cover(entry)["files"]
     assert_equal %w[alias scripts/helper.sh], files.keys
   end
 
@@ -165,7 +167,7 @@ class ChangeTrustFilesTest < Minitest::Test
     File.symlink("../other/deep", File.join(@repo, "scripts/link"))
     File.symlink("scripts/link/../ci.sh", File.join(@repo, "ci.sh"))
     entry = { "name" => "ci", "run" => "bash ci.sh" }
-    coverage = ChangeTrustFiles.cover(entry, ChangeTrustFiles::Source.working_tree(@repo))
+    coverage = cover(entry)
     assert_match(/cannot be followed/, coverage["error"])
   end
 
@@ -173,44 +175,51 @@ class ChangeTrustFilesTest < Minitest::Test
     commit("other/ci.sh" => "a\n", "scripts/x" => "x\n")
     File.symlink("../other", File.join(@repo, "scripts/alias"))
     entry = { "name" => "ci", "run" => "bash scripts/*/ci.sh" }
-    files = ChangeTrustFiles.cover(entry, ChangeTrustFiles::Source.working_tree(@repo))["files"]
+    files = cover(entry)["files"]
     assert_equal %w[other/ci.sh scripts/alias], files.keys
+  end
+
+  def test_literal_assignment_is_covered
+    commit("scripts/ci.sh" => "a\n")
+    entry = { "name" => "ci", "run" => 'SCRIPT=scripts/ci.sh; bash "$SCRIPT"' }
+    files = cover(entry)["files"]
+    assert_equal [ "scripts/ci.sh" ], files.keys
   end
 
   def test_successive_cds_compose
     commit("scripts/nested/ci.sh" => "a\n")
     entry = { "name" => "ci", "run" => "cd scripts && cd nested && bash ci.sh" }
-    files = ChangeTrustFiles.cover(entry, ChangeTrustFiles::Source.working_tree(@repo))["files"]
+    files = cover(entry)["files"]
     assert_equal [ "scripts/nested/ci.sh" ], files.keys
   end
 
   def test_nested_shell_quoting_is_parsed
     commit("scripts/ci check.sh" => "a\n")
     entry = { "name" => "ci", "run" => %q(sh -c 'bash "scripts/ci check.sh"') }
-    files = ChangeTrustFiles.cover(entry, ChangeTrustFiles::Source.working_tree(@repo))["files"]
+    files = cover(entry)["files"]
     assert_equal [ "scripts/ci check.sh" ], files.keys
   end
 
   def test_cd_in_the_command_is_followed
     commit("scripts/ci.sh" => "a\n")
     entry = { "name" => "ci", "run" => "cd scripts && bash ci.sh" }
-    files = ChangeTrustFiles.cover(entry, ChangeTrustFiles::Source.working_tree(@repo))["files"]
+    files = cover(entry)["files"]
     assert_equal [ "scripts/ci.sh" ], files.keys
     entry["run"] = "cd $DIR && bash ci.sh"
-    assert_match(/cannot be followed/, ChangeTrustFiles.cover(entry, ChangeTrustFiles::Source.working_tree(@repo))["error"])
+    assert_match(/cannot be followed/, cover(entry)["error"])
   end
 
   def test_symlinked_directory_outside_the_repo_is_refused
     File.symlink("/tmp", File.join(@repo, "out"))
     entry = { "name" => "ci", "run" => "bash out/ci.sh" }
-    coverage = ChangeTrustFiles.cover(entry, ChangeTrustFiles::Source.working_tree(@repo))
+    coverage = cover(entry)
     assert_match(/points outside the repo/, coverage["error"])
   end
 
   def test_symlink_outside_the_repo_is_refused
     File.symlink("/etc/hosts", File.join(@repo, "ci.sh"))
     entry = { "name" => "ci", "run" => "bash ci.sh" }
-    coverage = ChangeTrustFiles.cover(entry, ChangeTrustFiles::Source.working_tree(@repo))
+    coverage = cover(entry)
     assert_match(/points outside the repo/, coverage["error"])
   end
 
@@ -222,7 +231,7 @@ class ChangeTrustFilesTest < Minitest::Test
 
   def test_path_escaping_the_root_is_refused
     entry = { "name" => "ci", "run" => "true", "trust_paths" => [ "../outside/**" ] }
-    coverage = ChangeTrustFiles.cover(entry, ChangeTrustFiles::Source.working_tree(@repo))
+    coverage = cover(entry)
     assert_match(/escapes the repo root/, coverage["error"])
     errors = ChangeCommandConfig.errors({ "commands" => [ entry.merge("timeout_seconds" => 5) ] })
     assert(errors.any? { |error| error.include?("trust_paths") })
