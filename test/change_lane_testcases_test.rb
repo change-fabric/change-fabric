@@ -1101,21 +1101,41 @@ class ChangeLaneTestcasesTest < Minitest::Test
     end
   end
 
-  # The session-end checks in a real JS engine: a hash route only matches its
-  # own route, and a hidden login form on an authenticated page is not a
-  # logout.
-  def test_session_end_detection_respects_hash_routes_and_hidden_forms
+  # A hidden login form on an authenticated page is not a logout.
+  def test_session_end_detection_ignores_hidden_forms
     skip "node not installed" unless system("command -v node >/dev/null 2>&1")
     with_suite(PERSONA_SUITE) do |dir|
       session = PersonaSession.new(ok_result(4))
       persona_lane(dir, session).run
       code = session.case_codes.first
-      helper = code[/^( *)function samePath.*?^\1\}\n/m]
-      script = "#{helper}\nconsole.log(JSON.stringify([samePath('https://a.org/#/dashboard', 'https://a.org/#/login'), " \
-               "samePath('https://a.org/#/login', 'https://a.org/#/login'), samePath('https://a.org/x/', 'https://a.org/x')]))"
-      assert_equal [ false, true, true ], JSON.parse(IO.popen([ "node", "-e", script ], &:read))
       assert_includes code, "el.getClientRects().length > 0"
       assert_includes code, 'window.sessionStorage.getItem("__cf_seeded") === "1"'
+    end
+  end
+
+  # An app that shows its login form at / and stays at / after login: the
+  # url alone matching the login url is not an expiry. Only a visible login
+  # form (or a 401 document) is.
+  def test_a_login_url_match_without_a_visible_login_form_is_not_expiry
+    skip "node not installed" unless system("command -v node >/dev/null 2>&1")
+    with_suite(PERSONA_SUITE) do |dir|
+      session = PersonaSession.new(ok_result(4))
+      persona_lane(dir, session).run
+      code = session.case_codes.first
+      helper = code[/^( *)async function sessionEnded\b.*?^\1\}\n/m]
+      script = <<~JS
+        const getComputedStyle = () => ({ visibility: "visible", display: "block" });
+        const persona = { detect: { loginUrl: "https://a.org/", loginSelectors: ["#email", "#password"] } };
+        #{helper}
+        const field = { evaluate: async (fn) => fn({ getClientRects: () => [ 1 ] }) };
+        const page = (fields) => ({ url: () => "https://a.org/", $: async () => (fields ? field : null) });
+        (async () => console.log(JSON.stringify([
+          await sessionEnded(page(false), { doc401: false }),
+          await sessionEnded(page(true), { doc401: false }),
+          await sessionEnded(page(false), { doc401: true }),
+        ])))();
+      JS
+      assert_equal [ false, true, true ], JSON.parse(IO.popen([ "node", "-e", script ], &:read))
     end
   end
 end

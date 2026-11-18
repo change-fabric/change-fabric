@@ -704,8 +704,7 @@ class ChangeLaneTestcases < ChangeLane
 
     first = persona_auth(persona).steps.first
     { name: persona, seed: state, safeRetry: item.safe_retry == true,
-      detect: { loginUrl: first[:url].to_s.empty? ? nil : ChangeFlowCompiler.absolute_url(first[:url], base_url),
-                loginSelectors: first[:fields].map { |field| field[:selector] }.reject(&:empty?) } }
+      detect: { loginSelectors: first[:fields].map { |field| field[:selector] }.reject(&:empty?) } }
   end
 
   # The browser context and page every module opens: a fresh context so
@@ -851,24 +850,11 @@ class ChangeLaneTestcases < ChangeLane
           return watch;
         }
 
-        function samePath(a, b) {
-          try {
-            const x = new URL(a);
-            const y = new URL(b);
-            // A hash route (#/login) is the page in a client-routed app, so
-            // it has to match too when the login url carries one.
-            const route = (u) => (u.hash.startsWith("#/") ? u.hash.split("?")[0] : "");
-            return x.origin === y.origin && x.pathname.replace(/\\/$/, "") === y.pathname.replace(/\\/$/, "") &&
-              (route(y) === "" || route(x) === route(y));
-          } catch (err) {
-            return false;
-          }
-        }
-
         async function sessionEnded(casePage, watch) {
           if (!persona || !persona.detect) return false;
           if (watch.doc401) return true;
-          if (persona.detect.loginUrl && samePath(casePage.url(), persona.detect.loginUrl)) return true;
+          // The login url alone is not evidence: an app may show its login
+          // form at / and stay at / once signed in. Only a visible form is.
           const selectors = persona.detect.loginSelectors || [];
           if (selectors.length === 0) return false;
           for (const selector of selectors) {
