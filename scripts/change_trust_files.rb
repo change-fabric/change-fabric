@@ -110,7 +110,7 @@ module ChangeTrustFiles
   # { 'files' => { rel => sha256 }, 'error' => reason or nil } for one entry.
   # `cwd` is the entry's working directory, relative to the source root.
   def cover(entry, source, cwd: '')
-    error = escape_error(Array(entry['trust_paths']))
+    error = escape_error(Array(entry['trust_paths'])) || opaque_error(entry)
     return { 'files' => {}, 'error' => error } if error
 
     begin
@@ -159,6 +159,26 @@ module ChangeTrustFiles
     normalize(joined) || raise(Escape, "symlink #{rel} points outside the repo; refused")
   end
 
+  # Constructs that pick what runs only at run time. A static parse cannot
+  # see through them, so an entry using one without declaring trust_paths
+  # cannot be verified and runs only once approved.
+  OPAQUE = {
+    'variable expansion or command substitution' => /\$/,
+    'backticks' => /`/,
+    'eval' => /(\A|[\s;&|(])eval\s/,
+    'a nested shell (sh -c)' => /(\A|[\s;&|(\/])(ba|z|da|k)?sh\s+(-\w+\s+)*-\w*c\b/,
+    'a glob' => /[*?\[]/
+  }.freeze
+
+  def opaque_error(entry)
+    return nil unless Array(entry['trust_paths']).empty?
+
+    reason = OPAQUE.find { |_, pattern| entry['run'].to_s.match?(pattern) }&.first
+    return nil unless reason
+
+    "run uses #{reason}, which cannot be resolved statically; declare the files it runs in trust_paths"
+  end
+
   def file_digest(source, rel)
     body = source.read(rel)
     body ? Digest::SHA256.hexdigest(body) : 'unreadable'
@@ -203,6 +223,8 @@ module ChangeTrustFiles
   def changed_dirs(words, cwd)
     words.each_cons(2).each_with_object([ cwd ]) do |(verb, dir), bases|
       next unless %w[cd pushd].include?(verb)
+
+      dir = dir.sub(/[;&|)]+\z/, '')
       raise Escape, "run changes directory to #{dir.inspect}, which cannot be followed; refused" if dir.match?(/[$`~*?]/)
 
       reached = bases.filter_map { |base| normalize(base.empty? ? dir : File.join(base, dir)) }

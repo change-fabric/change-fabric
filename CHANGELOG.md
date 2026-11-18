@@ -37,6 +37,9 @@ CHANGE.md.
   needs `change_approve.rb`, and the refusal names the files.
 - Over 200 covered files or 5 MB, the entry cannot be verified: it never
   matches the base branch and runs only once approved.
+- A `run` string that decides what runs only at run time (variable expansion,
+  `$( )`, backticks, `eval`, `sh -c`, a glob) cannot be verified unless the
+  entry declares `trust_paths`, and runs only once approved.
 - Every command entry's digest changes once, so earlier approvals no longer
   match.
 

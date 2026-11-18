@@ -96,7 +96,7 @@ class ChangeTrustFilesTest < Minitest::Test
   end
 
   def test_script_followed_by_a_shell_operator_is_covered
-    entry = { "name" => "ci", "run" => "bash scripts/ci.sh; sh -c 'bash scripts/b.sh'&&true" }
+    entry = { "name" => "ci", "run" => "bash scripts/ci.sh; sh -c 'bash scripts/b.sh'&&true", "trust_paths" => [ "docs/**" ] }
     commit("scripts/ci.sh" => "a\n", "scripts/b.sh" => "b\n")
     files = cover(entry)["files"]
     assert_equal %w[scripts/b.sh scripts/ci.sh], files.keys
@@ -149,7 +149,7 @@ class ChangeTrustFilesTest < Minitest::Test
 
   def test_shell_glob_in_run_is_expanded
     commit("scripts/ci.sh" => "a\n")
-    entry = { "name" => "ci", "run" => "bash scripts/c*.sh" }
+    entry = { "name" => "ci", "run" => "bash scripts/c*.sh", "trust_paths" => [ "docs/**" ] }
     files = cover(entry)["files"]
     assert_equal [ "scripts/ci.sh" ], files.keys
   end
@@ -174,14 +174,14 @@ class ChangeTrustFilesTest < Minitest::Test
   def test_wildcard_prefix_follows_a_linked_directory
     commit("other/ci.sh" => "a\n", "scripts/x" => "x\n")
     File.symlink("../other", File.join(@repo, "scripts/alias"))
-    entry = { "name" => "ci", "run" => "bash scripts/*/ci.sh" }
+    entry = { "name" => "ci", "run" => "bash scripts/*/ci.sh", "trust_paths" => [ "docs/**" ] }
     files = cover(entry)["files"]
     assert_equal %w[other/ci.sh scripts/alias], files.keys
   end
 
   def test_literal_assignment_is_covered
     commit("scripts/ci.sh" => "a\n")
-    entry = { "name" => "ci", "run" => 'SCRIPT=scripts/ci.sh; bash "$SCRIPT"' }
+    entry = { "name" => "ci", "run" => 'SCRIPT=scripts/ci.sh; bash "$SCRIPT"', "trust_paths" => [ "docs/**" ] }
     files = cover(entry)["files"]
     assert_equal [ "scripts/ci.sh" ], files.keys
   end
@@ -190,6 +190,11 @@ class ChangeTrustFilesTest < Minitest::Test
     commit("scripts/helper.sh" => "a\n")
     entry = { "name" => "ci", "run" => "true", "trust_paths" => [ "./scripts/./**" ] }
     assert_equal [ "scripts/helper.sh" ], cover(entry)["files"].keys
+  end
+
+  def test_cd_followed_by_a_semicolon
+    commit("scripts/ci.sh" => "a\n")
+    assert_equal [ "scripts/ci.sh" ], cover({ "name" => "ci", "run" => "cd scripts; bash ci.sh" })["files"].keys
   end
 
   def test_successive_cds_compose
@@ -201,7 +206,7 @@ class ChangeTrustFilesTest < Minitest::Test
 
   def test_nested_shell_quoting_is_parsed
     commit("scripts/ci check.sh" => "a\n")
-    entry = { "name" => "ci", "run" => %q(sh -c 'bash "scripts/ci check.sh"') }
+    entry = { "name" => "ci", "run" => %q(sh -c 'bash "scripts/ci check.sh"'), "trust_paths" => [ "docs/**" ] }
     files = cover(entry)["files"]
     assert_equal [ "scripts/ci check.sh" ], files.keys
   end
@@ -212,7 +217,44 @@ class ChangeTrustFilesTest < Minitest::Test
     files = cover(entry)["files"]
     assert_equal [ "scripts/ci.sh" ], files.keys
     entry["run"] = "cd $DIR && bash ci.sh"
-    assert_match(/cannot be followed/, cover(entry)["error"])
+    assert_match(/cannot be resolved statically/, cover(entry)["error"])
+  end
+
+  OPAQUE_RUNS = {
+    'bash "$SCRIPT"' => /variable expansion/,
+    "bash ${DIR}/ci.sh" => /variable expansion/,
+    "bash $(cat which)" => /command substitution/,
+    "bash `cat which`" => /backticks/,
+    "eval make ci" => /eval/,
+    "sh -c 'make ci'" => /nested shell/,
+    "bash -lc 'make ci'" => /nested shell/,
+    "bash scripts/c*.sh" => /a glob/
+  }.freeze
+
+  def test_unresolvable_run_fails_closed_without_trust_paths
+    OPAQUE_RUNS.each do |run, reason|
+      error = cover({ "name" => "ci", "run" => run })["error"]
+      assert_match(reason, error, run)
+      assert_match(/declare the files it runs in trust_paths/, error, run)
+    end
+  end
+
+  def test_declared_trust_paths_lift_the_fail_closed_rule
+    commit("scripts/ci.sh" => "a\n")
+    coverage = cover({ "name" => "ci", "run" => 'bash "$SCRIPT"', "trust_paths" => [ "scripts/**" ] })
+    assert_nil coverage["error"]
+    assert_equal [ "scripts/ci.sh" ], coverage["files"].keys
+  end
+
+  def test_unresolvable_run_needs_approval_even_when_unchanged
+    head = base!("CHANGE.md" => change_md.sub("bash scripts/ci.sh ci HEAD", "bash $CI_SCRIPT"), "scripts/ci.sh" => "a\n")
+    verdict = verdict_for(head)
+    assert_equal [ STEP ], verdict.untrusted
+    assert_match(/cannot be verified: run uses variable expansion/, verdict.refusal(STEP))
+  end
+
+  def test_plain_run_is_not_opaque
+    assert_nil cover({ "name" => "ci", "run" => "bundle exec rake test && npm run lint -- --fix" })["error"]
   end
 
   def test_symlinked_directory_outside_the_repo_is_refused
