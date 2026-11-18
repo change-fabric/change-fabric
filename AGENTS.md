@@ -14,8 +14,11 @@ Read first:
 
 1. `install.rb` makes the live install match this checkout. Re-run it after
    pulling.
-2. Squash merge. The maintainer merges every PR by hand; do not merge unless
-   told.
+2. Squash merge. In admin-bypass mode the agent squash-merges a PR at the
+   ready bar in `CHANGE.md` (rebased, CI green, CLEAN, 0 open threads, cf:change
+   passed at head). Carve-out PRs and escalation triggers go to the maintainer.
+   Tags, the Homebrew release, `change_approve` and `change_override` stay
+   human: hand over a script under `~/.claude/cf/manual/`, not a question.
 3. Merging stages; a human-pushed tag releases. A toolkit PR bumps nothing (the
    `skills/v*` tag is the version). A spec or site change bumps
    `ChangeSchema::VERSION` or `site/VERSION` in the same PR. The browserless-cf

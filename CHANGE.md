@@ -164,9 +164,14 @@ change_policy:
       ci_gate: "the ci.yml run that gated the merge to main, plus deploy-site.yml's version and spec-release checks"
       ci_skippable: false
   admin_bypass:
-    allowed: false
+    # The merge guard reads `allowed` only for `gh pr merge --admin`. A plain
+    # `gh pr merge --squash` by an agent session in admin-bypass mode takes the
+    # normal path, which promotion.main's require_change_pass already gates on a
+    # passing comprehensive cf:change run for the head SHA. No guard change is
+    # needed for the ready bar; the carve-outs are policy, not code.
+    allowed: true
     require_change_pass: true
-    conditions: "not used; the maintainer merges every PR by hand once CI and the cf:change gate are both green, per this repo's own AGENTS.md"
+    conditions: "the coordinating agent may squash-merge a PR only when it is rebased on main, CI is green, mergeStateStatus is CLEAN, it has 0 unresolved review threads, and a passing comprehensive cf:change run is recorded for the exact head SHA; a PR touching the merge or tag guards, the review gate, the sensitive-term or secret hooks, this change_policy block, the merge rules in AGENTS.md or PRINCIPLES.md, or a release workflow escalates to the maintainer, as does a thread contesting a settled decision, red CI or cf:change after three fix attempts, or a conflict needing a design choice; release tags, the Homebrew release, change_approve and change_override stay human-only, handed over after the merge as one ready-to-run script under ~/.claude/cf/manual/, batched across merges where possible"
 ---
 
 # Change management for change-fabric/change-fabric
@@ -223,20 +228,42 @@ This repo currently has a single active maintainer, so self-review is the
 actual practice. GitHub itself blocks a literal self-approval review (`gh pr
 review --approve` on your own PR fails), so approval on this repo typically
 comes from an agent-driven review (`cf:code-review`, `cf:drive`) rather
-than a second human. The maintainer still merges every PR by hand; this
-repo's own `AGENTS.md` states that explicitly, and no agent should run `gh
-pr merge` here without being told to.
+than a second human. The coordinating agent squash-merges a PR itself once it
+meets the ready bar in `admin_bypass.conditions` above; carve-out PRs and
+escalation cases go to the maintainer, who merges them by hand.
 
 ## When admin-bypass merging is and is not acceptable
 
-- **Not acceptable, ever, on this repo**: `gh pr merge --admin` bypassing
-  the normal review or CI wait. This repo's `AGENTS.md` states plainly that
-  the maintainer merges every PR manually; an agent should push, open or
-  update the PR, and get CI and the `cf:change` gate green, then stop and
-  wait to be told to merge.
-- CI must be green and the comprehensive `cf:change` audit must have
-  passed for the head commit before a merge happens at all, regardless of
-  who performs it.
+- **Acceptable**: a plain `gh pr merge --squash` by the coordinating agent
+  in admin-bypass mode, once the PR is rebased on `main`, CI is green,
+  `mergeStateStatus` is `CLEAN`, it has 0 unresolved review threads, and a
+  passing comprehensive `cf:change` run is recorded for the exact head SHA.
+  The agent reports one line per merge (PR URL, SHA, why it met the bar, top
+  adversarial gap) and asks no question.
+- **Escalate to the maintainer, never agent-merged**: any PR touching
+  `scripts/change_merge_guard.rb`, `scripts/change_tag_guard.rb`,
+  `scripts/change_gate_check.rb`, `scripts/change_gate_store.rb`,
+  `scripts/change_policy.rb`, `scripts/change_override_store.rb`,
+  `scripts/change_trust.rb`, `scripts/change_tag_refs.rb`,
+  `scripts/guarded_command.rb`, `scripts/review_gate.rb`,
+  `scripts/review_ack.rb`, `scripts/review_key.rb`, `scripts/review_prompt.rb`,
+  `scripts/review_queue.rb`, `scripts/review_scope.rb`,
+  `scripts/client_name_guard.rb`, `scripts/sensitive_terms.rb`,
+  `scripts/secrets_read_guard.rb`, `scripts/key_paste_guard.rb`,
+  `scripts/secret_ack.rb`, `scripts/secret_alert_poll.rb`, this file's
+  `change_policy` block, the merge rules in `AGENTS.md` or `PRINCIPLES.md`,
+  `.github/workflows/release-*.yml`, `bump-tap-formula.yml`, `deploy-site.yml`
+  or any `.github/workflows/tag-*.yml`. Also escalate when a review thread
+  contests a settled maintainer decision or the agent would rebut a P1 rather
+  than fix it, when CI or `cf:change` is still red after three fix attempts,
+  or when a merge conflict needs a design choice.
+- **Human-only, always**: release tags (`skills/v*`, `spec/v*`, `site/v*`),
+  the Homebrew release, `change_approve`, `change_override` and
+  `CF_ALLOW_UNGATED_MERGE`. The agent never runs or sets them. After a merge
+  with such a follow-up, it hands over the absolute path of a ready-to-run
+  script under `~/.claude/cf/manual/` (normally `release-toolkit.sh`),
+  batching several merges into one run where it can, rather than asking.
+- `gh pr merge --admin` is gated on the same `cf:change` pass.
 
 ## What CI gates main
 

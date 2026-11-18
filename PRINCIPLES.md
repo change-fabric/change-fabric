@@ -70,6 +70,20 @@ from a real terminal.
 
 Enforcer: scripts/change_merge_guard.rb, scripts/change_tag_guard.rb, scripts/change_gate_check.rb
 
+## Agents merge at the ready bar; carve-outs escalate
+
+The coordinating agent squash-merges a PR only when it is rebased on main, CI
+is green, `mergeStateStatus` is CLEAN, it has 0 unresolved review threads, and
+a comprehensive `cf:change` run passed for the exact head SHA. A PR touching
+the merge or tag guards, the review gate, the sensitive-term or secret hooks,
+the `change_policy` block, these merge rules, or a release workflow escalates
+to the maintainer; the full path list is in `CHANGE.md`. Tags, the Homebrew
+release, `change_approve` and `change_override` stay human, handed over as a
+script under `~/.claude/cf/manual/`. No hook checks threads or carve-out paths
+yet.
+
+Enforcer: scripts/change_merge_guard.rb, CHANGE.md change_policy.admin_bypass
+
 ## One PR at a time, rebased, linear history
 
 A sweep lands PRs serially: only the head of line (the first unmerged PR in
