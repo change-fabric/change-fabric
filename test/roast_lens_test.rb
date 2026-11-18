@@ -220,6 +220,8 @@ class RoastLensPlanRoutingTest < Minitest::Test
     | cf:rails | Rails |
     | cf:terraform | Terraform, HCL |
     | cf:aws | Lambda, DynamoDB, S3, CloudFront, ECS, Fargate, EKS, RDS, Aurora, SQS, SNS, EventBridge, CloudFormation, CDK |
+    | cf:gcp | Cloud Run, GKE, Google Kubernetes Engine, BigQuery, Cloud Storage, Pub/Sub, Cloud SQL, Firestore, Cloud Functions, Spanner, Compute Engine, App Engine, Cloud Build |
+    | cf:azure | Azure Functions, AKS, Azure Kubernetes Service, Cosmos DB, App Service, Blob Storage, Service Bus, Entra ID, Key Vault, Azure SQL, Bicep, Container Apps, Event Grid |
   TABLE
 
   def rows
@@ -252,6 +254,8 @@ class RoastLensPlanRoutingTest < Minitest::Test
   def test_goal_fixtures_route_without_file_paths
     assert_includes routed("A plan for a serverless AWS service on Lambda and DynamoDB."), "cf:aws"
     assert_includes routed("A plan with screens."), "cf:usability"
+    assert_includes routed("A plan for a Cloud Run service."), "cf:gcp"
+    assert_includes routed("A plan for an Azure Functions app."), "cf:azure"
     assert_equal %w[cf:ruby cf:terraform], routed("A plan that rewrites Ruby or Terraform.")
   end
 
@@ -304,6 +308,22 @@ class RoastLensPlanRoutingTest < Minitest::Test
     assert_equal %w[cf:ai-slop], RoastLens.suggest(texts, SKILLS_DIR)
     diff = [ [ "change.diff", "+++ b/infra/main.tf\n" ] ]
     assert_equal %w[cf:ai-slop cf:terraform], RoastLens.suggest(diff, SKILLS_DIR)
+  end
+
+  def test_cloud_rubrics_are_listed_and_detected
+    assert_empty %w[aws azure gcp] - RoastLens.rubrics(SKILLS_DIR).keys
+    { "gcp" => %w[cloudbuild.yaml cloudbuild.yml .gcloudignore app.yaml],
+      "azure" => %w[azure.yaml main.bicep host.json] }.each do |name, markers|
+      skill = SkillRegistry.load(SKILLS_DIR).find { |s| s.name == "cf:#{name}" }
+      markers.each do |marker|
+        Dir.mktmpdir do |repo|
+          File.write(File.join(repo, marker), "")
+          assert skill.detected?(repo), "#{name} #{marker}"
+          assert_includes RoastLens.suggest_with_reasons([], SKILLS_DIR, repo: repo).keys, "cf:#{name}", marker
+        end
+      end
+      Dir.mktmpdir { |empty| refute skill.detected?(empty), name }
+    end
   end
 
   def test_lens_key_is_not_seen_by_registry_matching
