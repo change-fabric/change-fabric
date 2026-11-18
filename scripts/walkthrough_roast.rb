@@ -210,6 +210,21 @@ module WalkthroughRoast
     changed.positive? && changed * 2 >= now.size
   end
 
+  # One line on why a loop reset: the scenes added, dropped or re-keyed
+  # against the recorded scope, and the rule that tripped. A nil baseline is a
+  # ledger from before scene tracking whose content moved since its last round.
+  def change_summary(was, now)
+    return 'content changed since the last round and the ledger has no scene baseline' if was.nil?
+
+    added = now.keys - was.keys
+    dropped = was.keys - now.keys
+    rekeyed = now.keys.select { |id| was.key?(id) && was[id] != now[id] }
+    parts = [ "#{rekeyed.size} of #{now.size} scenes re-keyed#{" (#{rekeyed.join(', ')})" unless rekeyed.empty?}" ]
+    parts << "added #{added.join(', ')}" unless added.empty?
+    parts << "dropped #{dropped.join(', ')}" unless dropped.empty?
+    "#{parts.join('; ')} (threshold: half the scenes re-keyed, or any scene added, dropped or renamed)"
+  end
+
   # Starts a fresh loop when the film changed materially since the loop's
   # scope was recorded: the rounds, keyframes and ledger move to superseded/N/, so the
   # round count, spend, and verdict restart. Returns the archive dir or nil.
@@ -320,18 +335,26 @@ module WalkthroughRoast
   end
   private_class_method :raise_open_blockers
 
+  # Why --final refused with no round on record, naming the roast dir it read
+  # and the draft command that starts the loop.
+  def no_roast_message(dir, draft_command = nil)
+    run = draft_command ? "; run `#{draft_command}` first" : ''
+    "no draft roast on record in #{dir}#{run}; the roast loop runs on every draft before --final " \
+      '(pass --allow-roast-findings to override)'
+  end
+
   # Raises when --final has no finished roast loop behind it: no roast on
   # record (when one is required), an open P0 or P1 (also at a cap, which
   # reports them), or a loop that has neither converged nor hit a cap.
-  def gate!(dir, allow: false, cap_usd: DEFAULT_CEILING_USD, require_roast: false, target: TARGET, rounds: ROUND_CAP, content: nil)
+  def gate!(dir, allow: false, cap_usd: DEFAULT_CEILING_USD, require_roast: false, target: TARGET, rounds: ROUND_CAP, content: nil,
+            draft_command: nil)
     return if allow
 
     history = Roast.load_history(dir)
     if history.empty?
       return unless require_roast
 
-      raise OpenFindingsError, 'no draft roast on record; the roast loop runs on every draft before --final ' \
-                               '(pass --allow-roast-findings to override)'
+      raise OpenFindingsError, no_roast_message(dir, draft_command)
     end
     blockers = open_blockers(history)
     raise_open_blockers(blockers) unless blockers.empty?

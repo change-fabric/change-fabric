@@ -7,6 +7,7 @@ require 'shellwords'
 require 'open3'
 require_relative 'b_roll'
 require_relative 'change_docker'
+require_relative 'path_canon'
 require_relative 'prototype_capture'
 require_relative 'prototype_imagegen'
 require_relative 'prototype_ux_lint'
@@ -894,7 +895,7 @@ module WalkthroughRender
       PrototypeUxLint.gate!(reports, allow: @gates[:allow_ux])
       # --no-roast is the explicit offline opt-out; otherwise a finished roast loop is required.
       WalkthroughRoast.gate!(roast_dir, allow: @gates[:allow_roast], cap_usd: roast_cap, require_roast: @gates[:roast],
-                                                  content: @content_key, **roast_stop)
+                                        content: @content_key, draft_command: draft_command, **roast_stop)
       say("roast gate: #{roast_verdict[:reason]}") if @gates[:roast]
       fidelity_gate!
     end
@@ -936,13 +937,41 @@ module WalkthroughRender
 
     def roast_stop = { target: @gates[:roast_target], rounds: @gates[:roast_rounds] }.compact
 
+    # The exact command that renders the draft a missing roast loop runs on.
+    def draft_command
+      rel = PathCanon.relative(@root, Dir.pwd)
+      dir = rel.nil? || rel == '.' ? @root : rel
+      "ruby ~/.claude/cf/bin/walkthrough_render.rb #{Shellwords.escape(dir)} --draft"
+    end
+
+    # A --final with no roast on record refuses before any paid or captured
+    # work, printing the reason on the run output as well as in the error.
+    def refuse_unroasted!
+      return unless @gates[:roast] && !@gates[:allow_roast] && Roast.load_history(roast_dir).empty?
+
+      message = WalkthroughRoast.no_roast_message(WalkthroughRoast::DIR, draft_command)
+      say("refused: #{message}")
+      raise WalkthroughRoast::OpenFindingsError, message
+    end
+
     # A materially reworked film (WalkthroughRoast.material_change?) starts a
     # fresh roast loop on its next draft; the old rounds move to
     # roast/superseded/N/. --final never rescopes: it reports the change.
     def rescope_roast!(draft_keys)
       @roast_scenes = draft_keys.transform_values { |k| WalkthroughCache.key(k) }
+      was = roast_scope
       archive = WalkthroughRoast.rescope!(roast_dir, @roast_scenes, content: @content_key)
-      say("roast: scenes changed materially, earlier rounds moved to #{relative(archive)}; a fresh loop starts") if archive
+      return unless archive
+
+      say("roast: loop reset, #{WalkthroughRoast.change_summary(was, @roast_scenes)}; earlier rounds moved to " \
+          "#{relative(archive)}/, so the next round is logged as round-1")
+    end
+
+    # The scene scope the loop recorded, or nil (none yet, or unreadable).
+    def roast_scope
+      WalkthroughRoast.ledger(roast_dir)['scenes']
+    rescue JSON::ParserError
+      nil
     end
 
     def roast_verdict = WalkthroughRoast.decide(roast_dir, cap_usd: roast_cap, content: @content_key, **roast_stop)
@@ -1082,6 +1111,7 @@ module WalkthroughRender
       return nil if estimate_only
 
       refuse_placeholders! if @final
+      refuse_unroasted! if @final
       spend_gate!
       silent_cut if silent_cut?
       generate_audio

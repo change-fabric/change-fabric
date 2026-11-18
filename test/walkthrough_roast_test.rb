@@ -128,6 +128,19 @@ class WalkthroughRoastTest < Minitest::Test
     end
   end
 
+  # The reset line names what changed and the rule that tripped, so a fresh
+  # round-1 after a rework is never mistaken for a lost round.
+  def test_change_summary_names_changed_scenes_and_threshold
+    was = { "a" => "k1", "b" => "k2", "c" => "k3", "d" => "k4" }
+    line = WalkthroughRoast.change_summary(was, { "a" => "n1", "b" => "n2", "c" => "k3", "d" => "k4" })
+    assert_includes line, "2 of 4 scenes re-keyed (a, b)"
+    assert_includes line, "threshold: half the scenes"
+    line = WalkthroughRoast.change_summary(was, { "a" => "k1", "b" => "k2", "c" => "k3", "e" => "k5" })
+    assert_includes line, "added e"
+    assert_includes line, "dropped d"
+    assert_includes WalkthroughRoast.change_summary(nil, was), "no scene baseline"
+  end
+
   # A reworked film starts a fresh round count: the old loop's cap verdict
   # no longer applies once most scenes re-key, but a one-scene fix keeps it.
   def test_material_scene_change_resets_the_round_cap
