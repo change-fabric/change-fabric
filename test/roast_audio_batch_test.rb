@@ -638,4 +638,13 @@ class RoastAudioBatchTest < Minitest::Test
     tts = calls.find { |c| c.path.include?("text-to-speech") }
     assert_equal [ { "pronunciation_dictionary_id" => "dict-1", "version_id" => "v1" } ], tts.body["pronunciation_dictionary_locators"]
   end
+
+  def test_one_accepted_word_error_keeps_a_9_score_from_ready
+    a = stage_clip(File.join(@tmp, "a"), "continuous", as: "intro")
+    spans = exact_spans
+    spans[1] = [ "The second cue continues with pause.", 2000, 4000 ]
+    write_sidecar(a.sub(".mp3", ".alignment.json"), spans, Digest::SHA256.file(a).hexdigest)
+    judged(a, http: Judge.new(score: 9))
+    assert_match(/blocked: src-\h{8} \(1 word error\(s\)/, decide)
+  end
 end

@@ -559,7 +559,8 @@ module RoastAudioBatch
       locator = ElevenLabs.dictionary_locator(retake['pronunciations'], cache_root: cache_root, transport: transport, sleeper: sleeper) if retake['pronunciations']
       req = ElevenLabs.tts_request(text: retake['text'], voice_id: retake['voice_id'], model: retake['model'], output_format: retake['output_format'],
                                    settings: retake['settings'], locator: locator)
-    rescue WalkthroughEnv::MissingKeyError, ArgumentError, KeyError
+    rescue WalkthroughEnv::MissingKeyError, ArgumentError, KeyError, ElevenLabs::RequestError, CfProviderError::Failure
+      # Nothing billable left yet: the dictionary call failed or the key is missing.
       raise RoastAudioLedger::PreDispatch, 're-voice request not sent'
     end
     ElevenLabs.decode_tts(ElevenLabs.perform(req, transport: transport, sleeper: sleeper, key: key), aliased: !locator.nil?)
