@@ -77,7 +77,7 @@ class WalkthroughFfmpegTest < Minitest::Test
       "[6:a]#{NORM},atrim=duration=6.000,afade=t=out:st=3.500:d=2.500,volume='pow(10,(-12.00*clip(min((t-0.000)/0.100,(2.000-t)/0.500),0,1)+-6.00*clip(min((t-2.200)/0.300,(4.300-t)/0.500),0,1))/20)'" \
       ":eval=frame,volume=-18.0dB,#{BOUND}[mus]",
       "[n4][n5][mus]amix=inputs=3:normalize=0:duration=first,atrim=duration=6.000," \
-      "volume=+7.10dB,aresample=192000,alimiter=limit=0.7:attack=5:release=80:level=false:latency=true,#{NORM},#{BOUND}[aout]"
+      "volume=+7.10dB,aresample=192000,alimiter=limit=0.707:attack=5:release=80:level=false:latency=true,#{NORM},#{BOUND}[aout]"
     ]
     assert_equal expected, graph(argv)
     tail = argv[argv.index("-map")..]
@@ -377,8 +377,19 @@ class WalkthroughFfmpegCanvasScaleTest < WalkthroughFfmpegTest
   def test_pass2_graph_is_static_gain_plus_limiter
     wide = MEASURED.merge("input_i" => "-21.1", "input_lra" => "13.1")
     last = graph(WalkthroughFfmpeg.pass2(plan, wide)).last
-    assert_match(/volume=\+5\.10dB,aresample=192000,alimiter=limit=0\.7:/, last, "limited at 4x for true peak")
+    assert_match(/volume=\+5\.10dB,aresample=192000,alimiter=limit=0\.707:/, last, "limited at 4x for true peak")
     refute_match(/loudnorm|dynaudnorm/, graph(WalkthroughFfmpeg.pass2(plan, wide)).join(";"))
     assert_operator WalkthroughFfmpeg::LIMIT, :<=, 10**(WalkthroughFfmpeg::TARGET_TP / 20)
+  end
+
+  # AAC overshoot on a dense mix pushed a -3 dBTP limiter to -1.3 dBTP on the
+  # master; the rerun ceiling drops by the overshoot plus the margin.
+  def test_relevel_ceiling_lowers_by_the_overshoot
+    assert_nil WalkthroughFfmpeg.relevel_ceiling(-3.0, -2.4)
+    assert_nil WalkthroughFfmpeg.relevel_ceiling(-3.0, -2.0)
+    assert_nil WalkthroughFfmpeg.relevel_ceiling(-3.0, nil)
+    assert_nil WalkthroughFfmpeg.relevel_ceiling(-3.0, -Float::INFINITY)
+    assert_equal(-4.2, WalkthroughFfmpeg.relevel_ceiling(-3.0, -1.3))
+    assert_match(/alimiter=limit=0\.616:/, WalkthroughFfmpeg.pass2_level(MEASURED, -4.2))
   end
 end

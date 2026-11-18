@@ -38,14 +38,39 @@ module WalkthroughFfmpeg
   # Linear ceiling for TP -3 dBFS, rounded down so it never overshoots. It sits
   # 1 dB under the -2 dBTP master gate (WalkthroughLoudness) so AAC encoding
   # overshoot on the final MP4 still passes.
-  LIMIT = ((10**(TARGET_TP / 20)) * 100).floor / 100.0
   # alimiter limits samples, not reconstructed peaks; running it at 4x the
   # output rate makes its sample ceiling a true-peak ceiling. The mix is
   # resampled back to AUDIO_RATE right after.
   TRUE_PEAK_RATE = 48_000 * 4
-  LIMITER = "aresample=#{TRUE_PEAK_RATE},alimiter=limit=#{LIMIT}:attack=5:release=80:level=false:latency=true".freeze
+  # AAC encoding can still overshoot the limiter by a dB or more on a dense
+  # mix. When the encoded master measures over MASTER_MAX_TP, pass 2 reruns
+  # with the ceiling lowered by the overshoot plus RELEVEL_MARGIN_DB, at
+  # most RELEVEL_TRIES times.
+  MASTER_MAX_TP = -2.0
+  RELEVEL_MARGIN_DB = 0.5
+  RELEVEL_TRIES = 2
   # Bump whenever the leveling changes, so cached mixes re-render.
-  LEVEL_VERSION = 3
+  LEVEL_VERSION = 4
+
+  module_function
+
+  # Linear alimiter ceiling for `db` dBFS, rounded down so it never overshoots.
+  def limit(db = TARGET_TP) = ((10**(db / 20)) * 1000).floor / 1000.0
+
+  def limiter(db = TARGET_TP)
+    "aresample=#{TRUE_PEAK_RATE},alimiter=limit=#{limit(db)}:attack=5:release=80:level=false:latency=true"
+  end
+
+  LIMIT = limit
+  LIMITER = limiter.freeze
+
+  # The lower ceiling for the next pass 2 after the encoded master measured
+  # `master_tp` dBTP with `ceiling` in place, or nil when it already passes.
+  def relevel_ceiling(ceiling, master_tp)
+    return nil if master_tp.nil? || !master_tp.finite? || master_tp <= MASTER_MAX_TP
+
+    (ceiling - (master_tp - MASTER_MAX_TP) - RELEVEL_MARGIN_DB).floor(1)
+  end
   AUDIO_RATE = 48_000 # TRUE_PEAK_RATE is 4x this
   AUDIO_LAYOUT = 'stereo'
   # Pass 2 is killed once its output clock passes the timeline by this much.
@@ -71,8 +96,6 @@ module WalkthroughFfmpeg
                   '-crf', '18', '-threads', '4', '-c:a', 'aac', '-b:a', '192k' ].freeze
 
   class LoudnormParseError < StandardError; end
-
-  module_function
 
   # DETERMINISM at the board's output rate, so a 60 fps motion board is not
   # decimated back to 30 at encode; a 30 fps board gets exactly DETERMINISM.
@@ -473,9 +496,9 @@ module WalkthroughFfmpeg
 
   # Pass 2 level filters from the pass 1 JSON measurement: a fixed volume
   # then the peak limiter. Never loudnorm, so never dynamic.
-  def pass2_level(measured)
+  def pass2_level(measured, ceiling = TARGET_TP)
     gain = static_gain(measured) or return nil
-    "volume=#{format('%+.2f', gain)}dB,#{LIMITER}"
+    "volume=#{format('%+.2f', gain)}dB,#{limiter(ceiling)}"
   end
 
   # One line for the render log.
@@ -518,9 +541,9 @@ module WalkthroughFfmpeg
 
   # Pass 2 carries a hard -t at the timeline and machine-readable progress on
   # stdout, which the renderer's watchdog reads to stop a runaway encode.
-  def pass2(plan, measured)
+  def pass2(plan, measured, ceiling = TARGET_TP)
     io = audio_inputs(plan)
-    graph = video_graph(plan) + audio_graph(plan, pass2_level(measured))
+    graph = video_graph(plan) + audio_graph(plan, pass2_level(measured, ceiling))
     subs = plan[:caption_track] == false ? [] : [ '-i', plan[:srt] ]
     track = subs.empty? ? [] : [ '-map', "#{io[:next]}:s", '-c:s', 'mov_text' ]
     head + [ '-progress', 'pipe:1', '-nostats' ] + inputs(plan, with_video: true) + subs +

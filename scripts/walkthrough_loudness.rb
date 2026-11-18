@@ -88,7 +88,8 @@ module WalkthroughLoudness
     problems = []
     problems << "integrated #{fmt(i)} LUFS outside #{TARGET_I.to_i} +/- #{TOLERANCE_LU} LU" if (i - TARGET_I).abs > TOLERANCE_LU + 1e-9
     problems << "true peak #{fmt(tp)} dBTP above #{MAX_TP} dBTP" if tp && tp > MAX_TP + 1e-9
-    reason = problems.empty? ? "integrated #{fmt(i)} LUFS, true peak #{fmt(tp)} dBTP" : problems.join('; ')
+    measured = "integrated #{fmt(i)} LUFS, true peak #{fmt(tp)} dBTP"
+    reason = problems.empty? ? measured : "#{problems.join('; ')} (#{measured})"
     Result.new(status: problems.empty? ? :pass : :fail, reason: reason, **values)
   end
 

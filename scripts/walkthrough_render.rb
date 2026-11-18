@@ -789,9 +789,31 @@ module WalkthroughRender
       probe_audio!(plan)
       measured = WalkthroughFfmpeg.parse_loudnorm(ffmpeg!(WalkthroughFfmpeg.pass1(plan), 'pass 1'))
       say(WalkthroughFfmpeg.level_summary(measured))
-      argv = WalkthroughFfmpeg.pass2(plan, measured)
-      write_debug(dir, argv, measured) if ENV[DEBUG_ENV].to_s.strip != ''
-      verify_mp4!(mp4) { pass2!(argv, plan[:total_ms]) }
+      level!(mp4, plan, measured) do |argv|
+        write_debug(dir, argv, measured) if ENV[DEBUG_ENV].to_s.strip != ''
+        verify_mp4!(mp4) { pass2!(argv, plan[:total_ms]) }
+      end
+    end
+
+    # Runs pass 2, then measures the encoded master. AAC can overshoot the
+    # limiter, so a master over the true-peak gate reruns pass 2 with a lower
+    # ceiling (WalkthroughFfmpeg.relevel_ceiling) until it passes or the
+    # tries run out; the loudness gate then grades whatever is left.
+    def level!(mp4, plan, measured)
+      ceiling = WalkthroughFfmpeg::TARGET_TP
+      (WalkthroughFfmpeg::RELEVEL_TRIES + 1).times do |attempt|
+        yield WalkthroughFfmpeg.pass2(plan, measured, ceiling)
+        break if attempt == WalkthroughFfmpeg::RELEVEL_TRIES || WalkthroughFfmpeg.static_gain(measured).nil?
+
+        result = WalkthroughLoudness.cached_check(mp4, @board, docker: @p[:docker])
+        lower = WalkthroughFfmpeg.relevel_ceiling(ceiling, result.true_peak) or break
+
+        say(format('loudness: master true peak %.1f dBTP over %.1f after AAC; re-rendering with limiter ceiling %.1f dBTP',
+                   result.true_peak, WalkthroughFfmpeg::MASTER_MAX_TP, lower))
+        ceiling = lower
+        FileUtils.rm_f([ mp4, File.join(File.dirname(mp4), WalkthroughLoudness::CACHE) ])
+      end
+      mp4
     end
 
     def write_debug(dir, argv, measured)
