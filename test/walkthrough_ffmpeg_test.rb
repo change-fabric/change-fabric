@@ -245,6 +245,17 @@ class WalkthroughFfmpegTest < Minitest::Test
     assert_empty WalkthroughFfmpeg.probe_warnings(plan, "garbage")
   end
 
+  # A reused music plan longer than the film is trimmed to its span, so it
+  # is an info line, not a warning. A short or durationless bed still warns.
+  def test_a_music_bed_longer_than_its_span_is_info_not_a_warning
+    long = "/work/m.mp3,180.04\n"
+    assert_empty WalkthroughFfmpeg.probe_warnings(plan, long)
+    assert_equal [ "music bed /work/m.mp3 runs 180.04s, trimmed to its 6.00s span" ], WalkthroughFfmpeg.probe_notes(plan, long)
+    assert_empty WalkthroughFfmpeg.probe_notes(plan, "/work/m.mp3,5.8\n")
+    assert_match(/reports no duration/, WalkthroughFfmpeg.probe_warnings(plan, "/work/m.mp3,N\/A\n").first)
+    assert_match(/reports 0.10s against a 6.00s span/, WalkthroughFfmpeg.probe_warnings(plan, "/work/m.mp3,0.1\n").first)
+  end
+
   def test_probe_script_quotes_each_path
     script = WalkthroughFfmpeg.probe_script([ "/work/a b.mp3", "/work/it's.mp3" ])
     files = Shellwords.split(script[/\Afor f in (.*?); do/, 1])

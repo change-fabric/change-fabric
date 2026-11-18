@@ -783,6 +783,7 @@ module WalkthroughRender
 
     # Warns (never fails) on an audio input whose reported duration is
     # missing or wildly off its scene: a corrupt header or broken timestamps.
+    # A music bed longer than the film only gets an info line.
     def probe_audio!(plan)
       paths = WalkthroughFfmpeg.audio_expectations(plan).keys
       return if paths.empty?
@@ -791,6 +792,7 @@ module WalkthroughRender
                                                        args: [ '-c', WalkthroughFfmpeg.probe_script(paths) ],
                                                        mounts: { @root => WORK }, workdir: WORK))
       WalkthroughFfmpeg.probe_warnings(plan, out).each { |w| @out.puts "warning: #{w}" }
+      WalkthroughFfmpeg.probe_notes(plan, out).each { |n| @out.puts n }
     rescue StandardError => e
       @out.puts "warning: audio probe skipped (#{e.message.lines.first&.strip})"
     end
