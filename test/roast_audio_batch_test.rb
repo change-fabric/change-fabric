@@ -118,7 +118,7 @@ class RoastAudioBatchTest < Minitest::Test
     docker = FakeDocker.new
     code, out = run_cli("--audio", a, "--estimate-only", docker: docker)
     assert_equal 0, code
-    assert_match(/\$0\.00 to spend/, out)
+    assert_match(/up to \$0\.0000 to spend; nothing was run/, out)
     assert_empty docker.calls
     refute File.exist?(@out)
   end
@@ -159,15 +159,12 @@ class RoastAudioBatchTest < Minitest::Test
     assert_match(/is a roast take; name its source clip instead/, out)
   end
 
-  def test_later_stages_are_refused_by_name_for_now
+  def test_the_judge_is_refused_by_name_for_now
     a = stage_clip(File.join(@tmp, "a"), "continuous", as: "intro")
     out = StringIO.new
     code = RoastAudio::Cli.run([ "--audio", a, "--brief", @brief, "--out-dir", @out ], out: out, docker: FakeDocker.new)
     assert_equal 2, code
     assert_match(/judge lands in phase 3/, out.string)
-    code = RoastAudio::Cli.run([ "--audio", a, "--brief", @brief, "--stop-after", "words" ], out: out, docker: FakeDocker.new)
-    assert_equal 2, code
-    assert_match(/words lands in phase 2/, out.string)
   end
 
   def test_a_sensitive_caption_term_is_refused_unless_allowed
