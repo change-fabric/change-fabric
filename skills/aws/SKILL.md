@@ -5,6 +5,8 @@ description: AWS Well-Architected rubric. Auto-applied by the cf shim in AWS inf
 auto:
   basenames: [cdk.json, serverless.yml, serverless.yaml, samconfig.toml, template.yaml, template.yml, aws-exports.js]
   detect: [cdk.json, serverless.yml, serverless.yaml, samconfig.toml, template.yaml, template.yml, aws-exports.js, .aws]
+lens:
+  keywords: [Lambda, DynamoDB, S3, CloudFront, ECS, Fargate, EKS, RDS, Aurora, SQS, SNS, EventBridge, CloudFormation, CDK]
 ---
 
 # AWS Cheat Sheet

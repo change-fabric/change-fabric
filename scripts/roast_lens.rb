@@ -21,6 +21,10 @@ module RoastLens
   GIT_LINE = /^diff --git (?<rest>.+)$/
   QUOTED_PAIR = /\A("(?:[^"\\]|\\.)*"|a\/.+?) ("(?:[^"\\]|\\.)*"|b\/.+)\z/
   ESCAPES = { 'a' => "\a", 'b' => "\b", 't' => "\t", 'n' => "\n", 'v' => "\v", 'f' => "\f", 'r' => "\r" }.freeze
+  # A repo-relative path written in prose: segments joined by slashes, or a
+  # single name with a short extension. URLs are stripped before scanning.
+  PATH_TOKEN = %r{(?<![\w/.-])([\w.-]+(?:/[\w.-]+)+|[\w-]+\.[a-z]{1,6})(?![\w/])}
+  URL = %r{\S+://\S+}
 
   module_function
 
@@ -64,6 +68,74 @@ module RoastLens
     skills = SkillRegistry.load(skills_dir).select { |s| names.include?(bare(s.name)) }
     paths = texts.flat_map { |path, body| [ path, *diff_paths(body) ] }
     skills.select { |s| paths.any? { |p| s.matches?(p) } }.map { |s| "cf:#{bare(s.name)}" }.uniq.sort
+  end
+
+  # Opt-in, plan-aware routing: { "cf:name" => [reasons] }, keys sorted. With
+  # the defaults it names exactly what `suggest` does. `plan_text: true` also
+  # reads paths written in each body and the skills' `lens: keywords:`; a
+  # `repo:` directory adds every rubric whose detect markers are present.
+  # No cap, ranking or always-on here: that is the caller's policy.
+  def suggest_with_reasons(texts, skills_dir = dir, plan_text: false, repo: nil)
+    reasons = Hash.new { |h, k| h[k] = [] }
+    names = rubrics(skills_dir).keys
+    skills = SkillRegistry.load(skills_dir).select { |s| names.include?(bare(s.name)) }
+    texts.each do |path, body|
+      add_path_reasons(reasons, skills, [ path, *diff_paths(body) ])
+      # An all_files skill matches any path, so a path named in prose says
+      # nothing about it; only the input and diff paths route it.
+      add_path_reasons(reasons, skills.reject(&:all_files?), named_paths(body)) if plan_text
+    end
+    add_keyword_reasons(reasons, texts, skills_dir) if plan_text
+    add_detect_reasons(reasons, skills, repo) if repo
+    reasons.keys.sort.to_h { |k| [ k, reasons[k].uniq ] }
+  end
+
+  def add_path_reasons(reasons, skills, paths)
+    paths.uniq.each do |p|
+      skills.each { |s| reasons["cf:#{bare(s.name)}"] << "path #{p}" if s.matches?(p) }
+    end
+  end
+
+  # Paths written in a prose body: URLs removed first, and a sentence's
+  # closing period trimmed off the token.
+  def named_paths(body)
+    body.to_s.gsub(URL, ' ').scan(PATH_TOKEN).flatten.map { |t| t.sub(/\.+\z/, '') }.reject(&:empty?).uniq
+  end
+
+  # { "cf:name" => [keywords] } from each rubric's optional `lens: keywords:`.
+  def keywords(skills_dir = dir)
+    Dir.glob(File.join(skills_dir, '*', 'SKILL.md')).sort.each_with_object({}) do |path, acc|
+      meta, = parse(path)
+      next unless meta.is_a?(Hash) && meta['group'] == 'rubrics'
+
+      words = meta['lens'].is_a?(Hash) ? Array(meta['lens']['keywords']).map(&:to_s) : []
+      acc["cf:#{bare(meta['name'])}"] = words unless words.empty?
+    end
+  end
+
+  # Case-insensitive whole word, optional plural s, any whitespace run
+  # between the words of a multi-word keyword.
+  def keyword_pattern(word)
+    inner = word.split(/\s+/).map { |w| Regexp.escape(w) }.join('\s+')
+    /(?<![\w-])#{inner}s?(?![\w-])/i
+  end
+
+  def add_keyword_reasons(reasons, texts, skills_dir)
+    corpus = texts.map { |_, body| body.to_s }.join("\n")
+    keywords(skills_dir).each do |name, words|
+      words.each { |w| reasons[name] << "keyword #{w.downcase}" if corpus.match?(keyword_pattern(w)) }
+    end
+  end
+
+  # Only skills with explicit detect markers; the reason names the marker.
+  def add_detect_reasons(reasons, skills, repo)
+    skills.each do |skill|
+      markers = skill.detect_markers
+      next if markers.empty? || !skill.detected?(repo)
+
+      hit = markers.find { |m| Dir.glob(File.join(repo, m)).any? } || markers.first
+      reasons["cf:#{bare(skill.name)}"] << "detect #{hit}"
+    end
   end
 
   # Repo-relative paths named by a diff's path-bearing records.

@@ -6,6 +6,8 @@ auto:
   extensions: [rb, rake, gemspec, ru]
   basenames: [Rakefile, Gemfile, Guardfile]
   detect: [Gemfile, "*.gemspec", .ruby-version, Rakefile]
+lens:
+  keywords: [Ruby]
 ---
 
 # Ruby Design Cheat Sheet

@@ -6,6 +6,8 @@ auto:
   extensions: [erb, jbuilder]
   basenames: [routes.rb, application_controller.rb, application_record.rb, application_job.rb, application_mailer.rb, schema.rb]
   detect: [bin/rails, config/application.rb, config/routes.rb, config/environment.rb]
+lens:
+  keywords: [Rails]
 ---
 
 # Rails Cheat Sheet
