@@ -52,7 +52,7 @@ How light and dark reassign roles among the same authored colors. [proposal]
 
 ## Accessibility commitments
 
-AA contrast for every text pair, 24px minimum targets, a visible focus ring. [evidence: wcag-design-time.md#contrast]
+AA contrast for every text pair, 24px minimum targets, a visible focus ring. [evidence: cf:wcag#checkable-at-design-time]
 
 Contrast pairs pasted from `color_check.rb --json` output: [evidence: tokens.css#root]
 

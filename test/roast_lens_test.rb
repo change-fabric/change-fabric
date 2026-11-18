@@ -9,6 +9,7 @@ require_relative "../scripts/roast"
 require_relative "../scripts/roast_lens"
 require_relative "../scripts/roast_kind"
 require_relative "../scripts/change_schema"
+require_relative "../scripts/skill_route"
 
 class RoastLensTest < Minitest::Test
   SKILLS = {
@@ -222,6 +223,8 @@ class RoastLensPlanRoutingTest < Minitest::Test
     | cf:aws | Lambda, DynamoDB, S3, CloudFront, ECS, Fargate, EKS, RDS, Aurora, SQS, SNS, EventBridge, CloudFormation, CDK |
     | cf:gcp | Cloud Run, GKE, Google Kubernetes Engine, BigQuery, Cloud Storage, Pub/Sub, Cloud SQL, Firestore, Cloud Functions, Spanner, Compute Engine, App Engine, Cloud Build |
     | cf:azure | Azure Functions, AKS, Azure Kubernetes Service, Cosmos DB, App Service, Blob Storage, Service Bus, Entra ID, Key Vault, Azure SQL, Bicep, Container Apps, Event Grid |
+    | cf:security | login, log in, auth, sign-in, sign in, session, password, OAuth, JWT, OIDC, SAML, CSRF, secret |
+    | cf:wcag | screen, page, form, UI, component, accessibility, WCAG, keyboard, contrast, ARIA |
   TABLE
 
   def rows
@@ -256,6 +259,8 @@ class RoastLensPlanRoutingTest < Minitest::Test
     assert_includes routed("A plan with screens."), "cf:usability"
     assert_includes routed("A plan for a Cloud Run service."), "cf:gcp"
     assert_includes routed("A plan for an Azure Functions app."), "cf:azure"
+    assert_includes routed("A plan with a login flow."), "cf:security"
+    assert_includes routed("A plan with screens."), "cf:wcag"
     assert_equal %w[cf:ruby cf:terraform], routed("A plan that rewrites Ruby or Terraform.")
   end
 
@@ -324,6 +329,16 @@ class RoastLensPlanRoutingTest < Minitest::Test
       end
       Dir.mktmpdir { |empty| refute skill.detected?(empty), name }
     end
+  end
+
+  def test_security_is_lens_only_and_wcag_routes_tsx
+    skills = SkillRegistry.load(SKILLS_DIR)
+    refute(skills.any? { |s| s.name == "cf:security" })
+    %w[app/x.rb web/App.tsx infra/main.tf a.html login.js].each do |path|
+      refute_includes SkillRoute.new([ path ], skills: skills).by_skill.keys, "cf:security", path
+    end
+    assert_includes SkillRoute.new([ "web/App.tsx" ], skills: skills).by_skill.keys, "cf:wcag"
+    assert_includes RoastLens.rubrics(SKILLS_DIR).keys, "security"
   end
 
   def test_lens_key_is_not_seen_by_registry_matching
