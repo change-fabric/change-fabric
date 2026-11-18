@@ -1,0 +1,70 @@
+name: tap-drift
+
+# Daily alarm for the Homebrew tap (github.com/change-fabric/homebrew-cf).
+# Reads the newest skills/v* tag and the formula's url version through the
+# GitHub API, no brew needed. When the tap trails the tag the job fails red
+# and opens or updates one "Homebrew tap behind" issue; when it is in sync,
+# it closes that issue. The tap repo is public, so only GITHUB_TOKEN is used.
+
+on:
+  schedule:
+    - cron: "17 13 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: tap-drift
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.4"
+      - name: Compare the tap with the newest toolkit tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api --paginate "repos/${GITHUB_REPOSITORY}/git/matching-refs/tags/skills/v" \
+            --jq '.[].ref | sub("^refs/tags/"; "")' > "$RUNNER_TEMP/tags.txt"
+          curl -fsSL https://raw.githubusercontent.com/change-fabric/homebrew-cf/main/Formula/change-fabric.rb \
+            > "$RUNNER_TEMP/formula.rb"
+          ruby scripts/tap_drift.rb "$RUNNER_TEMP/tags.txt" "$RUNNER_TEMP/formula.rb" > "$RUNNER_TEMP/drift.txt"
+          cat "$RUNNER_TEMP/drift.txt"
+          tag="$(sed -n 's/^tag=//p' "$RUNNER_TEMP/drift.txt")"
+          formula="$(sed -n 's/^formula=//p' "$RUNNER_TEMP/drift.txt")"
+          behind="$(sed -n 's/^behind=//p' "$RUNNER_TEMP/drift.txt")"
+
+          existing="$(gh issue list --repo "$GITHUB_REPOSITORY" --state open \
+            --search 'in:title "Homebrew tap behind"' --json number,title \
+            --jq '[.[] | select(.title | startswith("Homebrew tap behind skills/v"))][0].number // empty')"
+
+          if [ "$behind" != "true" ]; then
+            if [ -n "$existing" ]; then
+              gh issue close "$existing" --repo "$GITHUB_REPOSITORY" \
+                --comment "Tap is at ${formula}, in sync with skills/v${tag}."
+            fi
+            echo "Tap in sync at ${formula}."
+            exit 0
+          fi
+
+          title="Homebrew tap behind skills/v${tag}"
+          body="The Homebrew tap formula (change-fabric/homebrew-cf, Formula/change-fabric.rb) is at ${formula}, but the newest toolkit tag is skills/v${tag}.
+
+          Fix: run \`~/.claude/cf/manual/release-toolkit.sh\`, or re-run the bump-tap-formula workflow for skills/v${tag}.
+
+          This issue closes itself on the next tap-drift run once the tap is in sync."
+          if [ -n "$existing" ]; then
+            gh issue edit "$existing" --repo "$GITHUB_REPOSITORY" --title "$title" --body "$body"
+          else
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" --body "$body"
+          fi
+          echo "::error::Homebrew tap is at ${formula}, behind skills/v${tag}."
+          exit 1

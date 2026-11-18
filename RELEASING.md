@@ -44,8 +44,11 @@ version.
    `release-skills.yml` rejects the tag unless it is plain `MAJOR.MINOR.PATCH`,
    newly created rather than moved, and strictly greater than every existing
    `skills/v*` tag. It then publishes a GitHub Release whose notes cover exactly
-   the commits since the previous toolkit tag. The Homebrew tap formula bump
-   runs off the same tag.
+   the commits since the previous toolkit tag. The same tag drives the
+   Homebrew tap with no PR: `bump-tap-formula.yml` rewrites, builds, and tests
+   the formula, then pushes it to the tap's main. `tap-drift.yml` fails daily
+   and keeps an issue open while the tap trails the newest tag. The one manual
+   command is `~/.claude/cf/manual/release-toolkit.sh`.
 
 A toolkit tag releases everything on `main` at that commit, so pick the number
 from what actually landed since the last one: a new skill or hook is a minor, a

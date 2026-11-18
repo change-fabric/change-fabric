@@ -6,8 +6,13 @@ name: bump-tap-formula
 # files outside the Cellar (~/.claude/, ~/.pi/, ~/.config/opencode/), which
 # core rejects. Separate repo from this one on purpose too: brew's `tap
 # user/name` shorthand requires a repo literally named `homebrew-name`, and
-# keeping formula-bump PRs out of this repo's own PR queue keeps the
-# TAP_BUMP_TOKEN scoped to a small repo instead of this one.
+# it keeps the TAP_BUMP_TOKEN scoped to a small repo instead of this one.
+#
+# The tag drives the tap with no PR: this job rewrites the formula's url and
+# sha256, builds and tests the edited formula, and only then pushes straight
+# to the tap's main. A re-run on a tap already at the tag's version exits 0.
+# Any other error fails the run red; tap-drift.yml alarms daily if the tap
+# still trails the newest skills/v* tag.
 #
 # Also separate from release-skills.yml on purpose: that workflow's only job
 # is publishing the GitHub Release, this one's only job is bumping the tap,
@@ -15,21 +20,19 @@ name: bump-tap-formula
 # independently. Triggers on the tag itself (a durable artifact) rather than
 # racing release-skills.yml inside the same push event.
 #
-# Inert until the tap exists and TAP_BUMP_TOKEN is set: the guard step below
-# skips cleanly rather than failing on every skills/v* tag in the meantime,
-# since this repo tags several times a day and a failing-by-default workflow
-# would just be noise until the tap is actually stood up.
+# Skips cleanly while TAP_BUMP_TOKEN is unset, so a fork or a repo without
+# the secret does not fail on every skills/v* tag.
 
 on:
   push:
     tags: ["skills/v*"]
 
 # This repo's own GITHUB_TOKEN does nothing here: the only auth used is the
-# TAP_BUMP_TOKEN PAT (via HOMEBREW_GITHUB_API_TOKEN), scoped to the tap repo.
+# TAP_BUMP_TOKEN PAT, scoped to the tap repo.
 permissions: {}
 
 concurrency:
-  group: bump-tap-formula-${{ github.ref }}
+  group: bump-tap-formula
   cancel-in-progress: false
 
 jobs:
@@ -40,23 +43,49 @@ jobs:
         id: gate
         run: |
           if [ -z "$TAP_BUMP_TOKEN" ]; then
-            echo "TAP_BUMP_TOKEN not set; skipping until change-fabric/homebrew-cf exists and the secret is configured."
+            echo "TAP_BUMP_TOKEN not set; skipping."
             echo "ready=false" >> "$GITHUB_OUTPUT"
           else
             echo "ready=true" >> "$GITHUB_OUTPUT"
           fi
         env:
           TAP_BUMP_TOKEN: ${{ secrets.TAP_BUMP_TOKEN }}
-      - name: Compute version from tag
-        if: steps.gate.outputs.ready == 'true'
-        run: echo "VERSION=${GITHUB_REF_NAME#skills/v}" >> "$GITHUB_ENV"
-      - name: Bump the tap formula
+      - name: Bump, build, test, and push the tap formula
         if: steps.gate.outputs.ready == 'true'
         env:
+          TAP_BUMP_TOKEN: ${{ secrets.TAP_BUMP_TOKEN }}
           HOMEBREW_GITHUB_API_TOKEN: ${{ secrets.TAP_BUMP_TOKEN }}
+          HOMEBREW_NO_AUTO_UPDATE: "1"
+          HOMEBREW_NO_INSTALL_FROM_API: "1"
         run: |
-          brew tap change-fabric/cf
-          brew bump-formula-pr \
-            --no-browse --no-audit \
-            --url "https://github.com/change-fabric/change-fabric/archive/refs/tags/skills/v${VERSION}.tar.gz" \
-            change-fabric/cf/change-fabric
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#skills/v}"
+          url="https://github.com/change-fabric/change-fabric/archive/refs/tags/skills/v${version}.tar.gz"
+
+          # Homebrew refuses to load a formula from a tap it has not been
+          # told to trust, so tap it explicitly, cloning with the token.
+          brew tap change-fabric/cf "https://x-access-token:${TAP_BUMP_TOKEN}@github.com/change-fabric/homebrew-cf.git"
+          tap_dir="$(brew --repository change-fabric/cf)"
+          formula="${tap_dir}/Formula/change-fabric.rb"
+
+          if grep -qF "url \"${url}\"" "$formula"; then
+            echo "Tap already at ${version}; nothing to do."
+            exit 0
+          fi
+
+          sha="$(curl -fsSL "$url" | shasum -a 256 | cut -d' ' -f1)"
+          URL="$url" SHA="$sha" ruby -i -pe '
+            sub(/^(\s*)url\s+".*"$/) { "#{$1}url \"#{ENV["URL"]}\"" }
+            sub(/^(\s*)sha256\s+".*"$/) { "#{$1}sha256 \"#{ENV["SHA"]}\"" }
+          ' "$formula"
+          grep -qF "url \"${url}\"" "$formula"
+          grep -qF "sha256 \"${sha}\"" "$formula"
+
+          brew install --build-from-source change-fabric/cf/change-fabric
+          brew test change-fabric/cf/change-fabric
+
+          cd "$tap_dir"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "change-fabric ${version}"
+          git push origin HEAD:main

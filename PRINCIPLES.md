@@ -113,6 +113,15 @@ tag, compared field by field as integers. Ask git for a checkout's version:
 
 Enforcer: .github/workflows/release-skills.yml
 
+## The Homebrew tap matches the latest toolkit tag
+
+A `skills/v*` tag bumps the tap formula with no PR: the formula is rewritten,
+built, tested, and pushed straight to the tap's main. A daily check fails and
+keeps one issue open while the tap trails the newest tag. The manual fix is
+`~/.claude/cf/manual/release-toolkit.sh`.
+
+Enforcer: .github/workflows/bump-tap-formula.yml, .github/workflows/tap-drift.yml
+
 ## The site may lag a spec release, never lead one
 
 A spec release never deploys the site. A site deploy fails unless the spec
