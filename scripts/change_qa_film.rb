@@ -253,11 +253,13 @@ module ChangeQaFilm
   def probe(options)
     auth = persona_auth(options)
     require_secrets(auth)
+    lane = testcases_lane(options)
+    base = origin(options[:url])
     draft = opening_goto(options[:draft] ? load_draft(options[:draft])[:steps] : [], options[:url])
-    compiler = ChangeFlowCompiler.new(draft + [ { 'eval' => { 'script' => SNAPSHOT_JS } } ], base_url: origin(options[:url]),
-                                                                                          timeout_ms: 30_000)
-    code = probe_module(compiler, auth: auth && ChangeFlowCompiler.compile_auth(auth.steps, base_url: origin(options[:url])),
-                                  basic_auth: basic_auth(options), viewport: lane_viewport(testcases_lane(options)))
+    compiler = ChangeFlowCompiler.new(draft + [ { 'eval' => { 'script' => SNAPSHOT_JS } } ], base_url: base,
+                                                                                          timeout_ms: step_timeout_ms(lane))
+    code = probe_module(compiler, auth: auth && ChangeFlowCompiler.compile_auth(auth.steps, base_url: base),
+                                  basic_auth: basic_auth(options), viewport: lane_viewport(lane))
     budget = probe_budget_ms(auth, compiler)
     result = with_session(options) do |session|
       session.run_function(code, launch_args: launch_args(options), timeout_ms: budget)
@@ -494,6 +496,9 @@ module ChangeQaFilm
   rescue StandardError
     nil
   end
+
+  # A step's default timeout, the same one filming compiles the draft with.
+  def step_timeout_ms(lane) = Integer(lane.fetch('timeout_ms', ChangeLaneTestcases::DEFAULT_TIMEOUT_MS))
 
   def lane_viewport(lane)
     raw = lane['viewport']

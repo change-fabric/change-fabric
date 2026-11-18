@@ -119,6 +119,13 @@ class ChangeQaFilmTest < Minitest::Test
     assert_equal ChangeDocker::Browserless::FUNCTION_TIMEOUT_MS, ChangeQaFilm.probe_budget_ms(nil, short)
   end
 
+  def test_probe_step_timeout_matches_the_filming_lane
+    assert_equal ChangeLaneTestcases::DEFAULT_TIMEOUT_MS,
+                 ChangeQaFilm.step_timeout_ms(ChangeConfig::LaneConfig.new("testcases", {}, Dir.pwd))
+    slow = ChangeConfig::LaneConfig.new("testcases", { "timeout_ms" => 45_000 }, Dir.pwd)
+    assert_equal 45_000, ChangeQaFilm.step_timeout_ms(slow)
+  end
+
   def test_an_omitted_persona_is_anonymous
     assert_equal "anonymous", ChangeQaFilm.parse(%w[--url https://x.test])[:persona]
   end
