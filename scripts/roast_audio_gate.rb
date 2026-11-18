@@ -294,11 +294,17 @@ module RoastAudioGate
   # Gates `audio` (the clip's current take) against `vtt`, repairing into
   # out_dir/<id>.a<attempt>.mp3 when allowed. Returns the gate.json record.
   # words: verified alignment word spans for the noise regions, or nil.
-  def run(audio:, vtt:, id:, attempt:, out_dir:, cfg:, docker: DEFAULT_DOCKER, fix: true, words: nil)
+  # The deps a gate.json is fresh against. Repair mode and the alignment
+  # (whose word spans pick the noise regions) change the verdict too.
+  def deps(audio_sha256:, vtt_sha256:, cfg:, fix:, alignment_sha256:)
+    { 'audio_sha256' => audio_sha256, 'vtt_sha256' => vtt_sha256, 'config_hash' => config_hash(cfg), 'fix' => fix, 'alignment_sha256' => alignment_sha256 }
+  end
+
+  def run(audio:, vtt:, id:, attempt:, out_dir:, cfg:, docker: DEFAULT_DOCKER, fix: true, words: nil, alignment_sha256: nil)
     audio_sha = Digest::SHA256.file(audio).hexdigest
     vtt_sha = Digest::SHA256.file(vtt).hexdigest
     cues = RoastVtt.parse_file(vtt)
-    base = { 'deps' => { 'audio_sha256' => audio_sha, 'vtt_sha256' => vtt_sha, 'config_hash' => config_hash(cfg) },
+    base = { 'deps' => deps(audio_sha256: audio_sha, vtt_sha256: vtt_sha, cfg: cfg, fix: fix, alignment_sha256: alignment_sha256),
              'source_id' => id, 'attempt' => attempt, 'input' => { 'audio' => audio, 'vtt' => vtt } }
     probed = probe(audio, docker: docker).merge('bytes' => File.size(audio))
     guarded = guard(probed)

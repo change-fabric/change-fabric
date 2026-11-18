@@ -133,14 +133,16 @@ module RoastAudio
       dir = opts[:out_dir]
       id = clip['source_id']
       cur = clip['current']
-      deps = { 'audio_sha256' => cur['audio_sha256'], 'vtt_sha256' => clip['vtt_sha256'], 'config_hash' => RoastAudioGate.config_hash(opts[:gate]) }
+      deps = RoastAudioGate.deps(audio_sha256: cur['audio_sha256'], vtt_sha256: clip['vtt_sha256'], cfg: opts[:gate], fix: !opts[:no_fix],
+                                 alignment_sha256: cur['alignment_sha256'])
       record = RoastAudioBatch.fresh(dir, id, 'gate.json', deps)
       if record
         out.puts("gate #{id} (#{File.basename(clip['source_audio'])}): #{record['status']} (unchanged, no attempt counted)")
       else
         attempt = RoastAudioBatch.bump_attempt!(dir, batch, id)
         record = RoastAudioGate.run(audio: cur['audio'], vtt: clip['vtt'], id: id, attempt: attempt, cfg: opts[:gate], docker: docker,
-                                    out_dir: File.join(RoastAudioBatch.clip_dir(dir, id), 'fixed'), fix: !opts[:no_fix], words: words(cur))
+                                    out_dir: File.join(RoastAudioBatch.clip_dir(dir, id), 'fixed'), fix: !opts[:no_fix], words: words(cur),
+                                    alignment_sha256: cur['alignment_sha256'])
         RoastAudioBatch.write_record(dir, id, 'gate.json', record)
         RoastAudioBatch.set_state!(dir, batch, id, record['terminal'].empty? ? 'retryable' : 'blocked')
         out.puts(gate_line(id, clip, record))

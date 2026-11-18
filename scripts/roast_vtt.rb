@@ -91,20 +91,31 @@ module RoastVtt
     out
   end
 
+  # Speech not covered by any cue, edges and interior alike, beyond the tolerance.
   def uncaptioned(cues, speech)
-    return [] if speech.empty?
+    covered = cues.map { |c| [ c.start_ms, c.end_ms ] }.sort
+    speech.flat_map { |s, e| uncovered(s, e, covered) }.filter_map do |s, e|
+      next unless e - s > EDGE_TOLERANCE_MS
 
-    first = cues.map(&:start_ms).min
-    last = cues.map(&:end_ms).max
+      failure('uncaptioned_speech', nil, s, "#{e - s} ms of speech at #{mmss(s)} to #{mmss(e)} has no cue")
+    end
+  end
+
+  def uncovered(start, finish, covered)
     out = []
-    lead = speech.first.first
-    tail = speech.last.last
-    out << failure('uncaptioned_speech', nil, lead, "speech starts #{first - lead} ms before the first cue") if lead < first - EDGE_TOLERANCE_MS
-    out << failure('uncaptioned_speech', nil, last, "speech ends #{tail - last} ms after the last cue") if tail > last + EDGE_TOLERANCE_MS
+    cursor = start
+    covered.each do |cs, ce|
+      break if cs >= finish
+      next if ce <= cursor
+
+      out << [ cursor, cs ] if cs > cursor
+      cursor = [ cursor, ce ].max
+    end
+    out << [ cursor, finish ] if finish > cursor
     out
   end
 
   def failure(rule, cue, at_ms, detail) = { 'rule' => rule, 'cue' => cue&.index, 'at' => mmss(at_ms), 'detail' => detail }
 
-  private_class_method :cue_lines, :cue_failures, :uncaptioned, :failure
+  private_class_method :cue_lines, :cue_failures, :uncaptioned, :uncovered, :failure
 end

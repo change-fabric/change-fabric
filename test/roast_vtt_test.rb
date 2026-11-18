@@ -63,6 +63,12 @@ class RoastVttTest < Minitest::Test
     assert_empty RoastVtt.structure([ cue(1, 1000, 2000) ], duration_ms: 4000, speech: [ [ 800, 2200 ] ])
   end
 
+  def test_speech_between_cues_with_no_cue_is_uncaptioned
+    failures = RoastVtt.structure([ cue(1, 0, 1000), cue(2, 5000, 6000) ], duration_ms: 6000, speech: [ [ 0, 6000 ] ])
+    assert_equal [ [ "uncaptioned_speech", "0:01.0" ] ], failures.map { |f| f.values_at("rule", "at") }
+    assert_empty RoastVtt.structure([ cue(1, 0, 1000), cue(2, 1200, 6000) ], duration_ms: 6000, speech: [ [ 0, 6000 ] ])
+  end
+
   def test_no_cues_fails
     assert_equal [ "no_cues" ], RoastVtt.structure([], duration_ms: 1000, speech: []).map { |f| f["rule"] }
   end

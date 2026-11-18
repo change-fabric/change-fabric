@@ -100,6 +100,19 @@ class RoastAudioBatchTest < Minitest::Test
     assert_equal 2, JSON.parse(File.read(File.join(@out, id, "gate.json")))["attempt"]
   end
 
+  def test_dropping_no_fix_or_adding_an_alignment_regates
+    a = stage_clip(File.join(@tmp, "a"), "continuous", as: "intro")
+    run_cli("--audio", a, "--no-fix")
+    code, out = run_cli("--audio", a)
+    assert_equal 0, code, out
+    refute_match(/unchanged/, out)
+    assert_equal 2, batch["clips"].first["attempts"]
+    File.write(a.sub(".mp3", ".alignment.json"), JSON.generate({ "alignment" => {} }))
+    _, out = run_cli("--audio", a)
+    refute_match(/unchanged/, out)
+    assert_equal 3, batch["clips"].first["attempts"]
+  end
+
   def test_a_changed_selection_exits_2_unless_new_batch
     a = stage_clip(File.join(@tmp, "a"), "continuous", as: "intro")
     b = stage_clip(File.join(@tmp, "b"), "continuous", as: "outro")
