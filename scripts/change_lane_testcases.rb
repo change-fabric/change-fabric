@@ -411,16 +411,21 @@ class ChangeLaneTestcases < ChangeLane
     root = evidence.root
     @video_bytes = ChangeTestcasesVideo.per_case_bytes(free_bytes: @free_space.call(root), case_count: case_count,
                                                        budget_mb: video_budget_mb)
-    options = { reserve: ChangeTestcasesVideo.reserve_bytes(case_count), free: -> { @free_space.call(root) } }
+    @recording_open = case_count
+    @video_lock = Mutex.new
+    options = { reserve: ChangeTestcasesVideo.reserve_bytes(case_count), free: -> { @free_space.call(root) },
+                outstanding: -> { @recording_open * @video_bytes } }
     options[:runner] = @video_runner if @video_runner
     @encoder = ChangeTestcasesVideo::Encoder.new(**options)
   end
 
   # What a case module needs to record: its byte share and the title card.
-  def video_js(item)
-    return nil unless @encoder && @video_bytes >= MIN_RECORDING_BYTES
+  # `used` is what an earlier segment of the same attempt already recorded,
+  # so a resumed case shares one allowance rather than getting a second.
+  def video_js(item, used = 0)
+    return nil unless @encoder && @video_bytes - used >= MIN_RECORDING_BYTES
 
-    { maxBytes: @video_bytes, fps: ChangeTestcasesVideo::FPS, maxWidth: ChangeTestcasesVideo::MAX_WIDTH,
+    { maxBytes: @video_bytes - used, fps: ChangeTestcasesVideo::FPS, maxWidth: ChangeTestcasesVideo::MAX_WIDTH,
       maxHeight: ChangeTestcasesVideo::MAX_HEIGHT, title: item.qualified_id, acceptance: item.acceptance }
   end
 
@@ -428,6 +433,8 @@ class ChangeLaneTestcases < ChangeLane
   # encode, which runs beside the remaining cases.
   def queue_video(item, run)
     return unless @encoder
+
+    @video_lock.synchronize { @recording_open -= 1 }
     return @encoder.failed(item.qualified_id, 'not enough free disk to record above the evidence reserve') if @video_bytes < MIN_RECORDING_BYTES
 
     dirs = run[:attempts].filter_map { |entry| entry[:evidence_dir] }
@@ -584,7 +591,7 @@ class ChangeLaneTestcases < ChangeLane
     resume = { startAt: restart, vars: record['vars'] || {} }
     second = call_function(session, case_module(compiled, number, persona_js(item, state), resume: resume,
                                                                                            evidence: dir&.js,
-                                                                                           video: dir && video_js(item)),
+                                                                                           video: dir && video_js(item, record.dig('video', 'bytes').to_i)),
                            case_budget_ms(item))
     merge_resumed(record, second, resume[:startAt])
   end

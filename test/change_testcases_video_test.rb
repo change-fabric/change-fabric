@@ -193,7 +193,7 @@ class ChangeTestcasesVideoTest < Minitest::Test
 
   def test_the_resumed_call_records_and_blob_urls_are_revoked
     source = File.read(File.expand_path("../scripts/change_lane_testcases.rb", __dir__))
-    assert_includes source, "video: dir && video_js(item)),\n                           case_budget_ms(item))\n    merge_resumed"
+    assert_includes source, "video: dir && video_js(item, record.dig('video', 'bytes').to_i)),"
     assert_includes source, "URL.revokeObjectURL(url)"
   end
 
@@ -215,5 +215,38 @@ class ChangeTestcasesVideoTest < Minitest::Test
                               grader: Grader.new("none"), video_runner: fake_ffmpeg, free_space: ->(_d) { 10_000 * MB }).run
       assert_equal [ 0, 0 ], seen
     end
+  end
+
+  # Two encodes and the cases still recording all draw on one pool of free
+  # bytes above the reserve.
+  def test_concurrent_encodes_cannot_both_spend_the_same_free_space
+    Dir.mktmpdir do |dir|
+      %w[a b].each do |name|
+        FileUtils.mkdir_p(File.join(dir, name))
+        File.binwrite(File.join(dir, name, "frame-a000001.jpg"), "x" * 1000)
+      end
+      gate = Queue.new
+      runner = lambda do |argv|
+        gate.pop
+        work = argv[argv.index("--mount") + 1][/source=([^"]+)"/, 1]
+        File.write(File.join(work, ChangeTestcasesVideo::OUT_NAME), "mp4")
+        [ "", Status.new(true) ]
+      end
+      encoder = ChangeTestcasesVideo::Encoder.new(reserve: 0, runner: runner, free: -> { 3000 })
+      %w[a b].each { |name| encoder.add(key: name, attempt_dir: File.join(dir, name), out: File.join(dir, "#{name}.mp4"), marks: []) }
+      sleep 0.2
+      2.times { gate << true }
+      statuses = encoder.finish.values.map { |entry| entry["status"] }.sort
+      assert_equal %w[failed ok], statuses
+    end
+  end
+
+  def test_a_resumed_segment_records_only_what_is_left_of_the_share
+    lane = ChangeLaneTestcases.allocate
+    lane.instance_variable_set(:@encoder, Object.new)
+    lane.instance_variable_set(:@video_bytes, 4 * MB)
+    item = Struct.new(:qualified_id, :acceptance).new("s/c", "ok")
+    assert_equal 3 * MB, lane.send(:video_js, item, MB)[:maxBytes]
+    assert_nil lane.send(:video_js, item, 4 * MB)
   end
 end

@@ -526,6 +526,29 @@ class ChangeRunForTagAndGateStatusTest < Minitest::Test
     end
   end
 
+  def test_a_failed_pdf_export_shows_in_the_refreshed_html
+    Dir.mktmpdir do |dir|
+      record = ChangeCaseResult.new(key: "s/c", suite: "s", id: "c", status: "pass", run_id: "r1")
+      File.write(File.join(dir, "case-results.jsonl"), "#{record.to_json}\n")
+      plain = ChangeRun.new(%w[testcases --export pdf])
+      plain.instance_variable_set(:@args, plain.send(:parse_args, %w[testcases --export pdf]))
+      plain.define_singleton_method(:evidence_dir) { |_config| dir }
+      plain.define_singleton_method(:log) { |_line| nil }
+      ledger = File.join(dir, "ledger.jsonl")
+      originals = [ ChangeTestcasesReport.method(:ledger_path), BrowserlessPdf.method(:render) ]
+      ChangeTestcasesReport.define_singleton_method(:ledger_path) { |_project, **_scope| ledger }
+      BrowserlessPdf.define_singleton_method(:render) { |*_args, **_kw| raise BrowserlessPdf::Error, "no container" }
+      begin
+        plain.send(:write_testcases_report, Struct.new(:project).new("app"))
+      ensure
+        ChangeTestcasesReport.define_singleton_method(:ledger_path, originals[0])
+        BrowserlessPdf.define_singleton_method(:render, originals[1])
+      end
+      assert_includes File.read(File.join(dir, "report.html")), "Exports that failed"
+      assert_equal 1, File.readlines(ledger).size
+    end
+  end
+
   def test_out_names_the_report_dir_and_the_desktop_is_the_default
     plain = ChangeRun.new(%w[all])
     assert_equal File.expand_path("/tmp/qa-out"), plain.send(:parse_args, %w[testcases --out /tmp/qa-out]).out

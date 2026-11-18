@@ -111,8 +111,12 @@ module ChangeTestcasesVideo
   class Encoder
     attr_reader :results
 
-    def initialize(reserve:, runner: ->(argv) { Open3.capture2e(*argv) }, free: nil)
+    # `outstanding` returns the recording bytes cases still running may yet
+    # write, which an encode must leave room for as well as the reserve.
+    def initialize(reserve:, runner: ->(argv) { Open3.capture2e(*argv) }, free: nil, outstanding: -> { 0 })
       @reserve = reserve
+      @outstanding = outstanding
+      @claimed = 0
       @runner = runner
       @free = free
       @results = {}
@@ -149,11 +153,13 @@ module ChangeTestcasesVideo
       return { 'status' => 'failed', 'reason' => 'no frames were recorded' } if recorded.empty?
 
       needed = recorded.sum { |path| File.size(path) } * 2
-      if @free && (@free.call - @reserve) < needed
-        return { 'status' => 'failed', 'reason' => 'not enough free disk to encode above the evidence reserve' }
-      end
+      return { 'status' => 'failed', 'reason' => 'not enough free disk to encode above the evidence reserve' } unless claim(needed)
 
-      run(job)
+      begin
+        run(job)
+      ensure
+        release(needed)
+      end
     rescue StandardError => e
       { 'status' => 'failed', 'reason' => "encode failed: #{e.message}" }
     ensure
@@ -174,6 +180,22 @@ module ChangeTestcasesVideo
       entry = { 'status' => 'ok', 'path' => job[:out] }
       job[:stopped] ? entry.merge('note' => "recording stopped early: #{job[:stopped]}") : entry
     end
+
+    # Claims disk for one encode against what is free, less the reserve, the
+    # other encodes' claims and what running cases may still record, so two
+    # workers can never both spend the same free bytes.
+    def claim(bytes)
+      return true unless @free
+
+      @lock.synchronize do
+        return false if @free.call - @reserve - @claimed - @outstanding.call < bytes
+
+        @claimed += bytes
+        true
+      end
+    end
+
+    def release(bytes) = @lock.synchronize { @claimed -= bytes if @free }
 
     def record(key, entry) = @lock.synchronize { @results[key] = entry }
   end

@@ -53,12 +53,17 @@ class ChangeTestcasesReport
   # Renders both files from the history as it stood before this run, then
   # appends this run to the ledger. Returns the paths written.
   def write
-    html = File.join(@run_dir, 'report.html')
+    html = write_html
     junit = File.join(@run_dir, 'junit.xml')
-    File.write(html, render_html)
     File.write(junit, render_junit)
     append_ledger
     { html: html, junit: junit, ledger: @ledger }
+  end
+
+  # report.html alone, from the history as read before this run was
+  # appended, so a later export can refresh it without a second ledger entry.
+  def write_html
+    File.join(@run_dir, 'report.html').tap { |path| File.write(path, render_html) }
   end
 
   def render_junit
@@ -201,13 +206,12 @@ class ChangeTestcasesReport
 
   # What --export produced, from the run dir's exports.json. An export that
   # failed is named here and nowhere near a case's verdict.
+  # Read fresh on each render, so a refresh after a later export shows it.
   def exports
-    @exports ||= begin
-      path = File.join(@run_dir, EXPORTS_FILE)
-      File.exist?(path) ? JSON.parse(File.read(path)) : {}
-    rescue JSON::ParserError
-      {}
-    end
+    path = File.join(@run_dir, EXPORTS_FILE)
+    File.exist?(path) ? JSON.parse(File.read(path)) : {}
+  rescue JSON::ParserError
+    {}
   end
 
   def video_cell(record)
