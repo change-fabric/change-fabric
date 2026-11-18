@@ -554,20 +554,37 @@ module WalkthroughFfmpeg
 
   # Warnings for inputs whose reported duration is missing, non-positive, or
   # wildly off the span they fill: the mark of a corrupt header or broken
-  # timestamps, which is what lets an unbounded audio branch run away.
+  # timestamps, which is what lets an unbounded audio branch run away. A
+  # music bed longer than its span is trimmed to fit, so it is a note instead.
   def probe_warnings(plan, output)
-    reported = output.to_s.lines.filter_map do |line|
-      path, dur = line.strip.split(',', 2)
-      [ path, dur ] if path&.start_with?('/') && dur
-    end.to_h
+    reported = probed(output)
     audio_expectations(plan).filter_map do |path, expected|
       next unless reported.key?(path)
 
       dur = Float(reported[path], exception: false)
       next "audio input #{path} reports no duration (header or timestamps corrupt?)" if dur.nil? || dur <= 0
-      next unless dur > (expected * 2) + 5 || (path == plan.dig(:music, :path) && dur < expected * 0.1)
+
+      music = path == plan.dig(:music, :path)
+      next unless (dur > (expected * 2) + 5 && !music) || (music && dur < expected * 0.1)
 
       format('audio input %<p>s reports %<d>.2fs against a %<e>.2fs span (header or timestamps corrupt?)', p: path, d: dur, e: expected)
     end
+  end
+
+  # Info lines: a music bed longer than its span, trimmed to fit.
+  def probe_notes(plan, output)
+    path = plan.dig(:music, :path)
+    expected = audio_expectations(plan)[path]
+    dur = path && Float(probed(output)[path].to_s, exception: false)
+    return [] unless dur && dur > (expected * 2) + 5
+
+    [ format('music bed %<p>s runs %<d>.2fs, trimmed to its %<e>.2fs span', p: path, d: dur, e: expected) ]
+  end
+
+  def probed(output)
+    output.to_s.lines.filter_map do |line|
+      path, dur = line.strip.split(',', 2)
+      [ path, dur ] if path&.start_with?('/') && dur
+    end.to_h
   end
 end
