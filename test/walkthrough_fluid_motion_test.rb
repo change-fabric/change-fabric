@@ -452,8 +452,8 @@ class WalkthroughFluidMotionTest < Minitest::Test
     Dir.mktmpdir do |root|
       out = StringIO.new
       WalkthroughRender::Run.new(root, board: nav_board, out: out, scene: "detail").send(:recapture_notice)
-      assert_includes out.string, "feed (--recapture or --scene)"
-      assert_includes out.string, "detail (--recapture or --scene)"
+      assert_includes out.string, "feed (forced by --scene"
+      assert_includes out.string, "detail (forced by --scene"
     end
   end
 
