@@ -266,6 +266,7 @@ class RoastLensPlanRoutingTest < Minitest::Test
     assert_equal({ "cf:ai-slop" => [ "path plan.md" ], "cf:terraform" => [ "path infra/main.tf" ] }, result)
     assert_empty RoastLens.named_paths("See https://example.com/main.tf and version 1.2.3.")
     assert_equal [ "infra/main.tf" ], RoastLens.named_paths("Last, edit infra/main.tf.")
+    assert_equal [ "infra/main.tf" ], RoastLens.named_paths("Update [infra/main.tf](https://example.com/main.tf).")
     assert_equal %w[vite.config.ts eslint.config.js], RoastLens.named_paths("Update vite.config.ts and eslint.config.js.")
     assert_includes RoastLens.suggest_with_reasons([ [ "plan.md", "Update vite.config.ts." ] ], SKILLS_DIR, plan_text: true).keys, "cf:typescript"
   end
