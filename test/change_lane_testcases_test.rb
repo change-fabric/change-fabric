@@ -1366,4 +1366,23 @@ class ChangeLaneTestcasesTest < Minitest::Test
       end
     end
   end
+
+  def test_ids_that_sanitize_alike_get_distinct_evidence_dirs
+    refute_equal ChangeTestcasesEvidence.slug("a/b"), ChangeTestcasesEvidence.slug("a_b")
+    assert_equal "a_b", ChangeTestcasesEvidence.slug("a_b")
+  end
+
+  def test_a_rejected_resume_keeps_the_first_calls_evidence
+    Dir.mktmpdir do |out|
+      root = ChangeTestcasesEvidence.prepare(out, "run-1")
+      evidence = ChangeTestcasesEvidence.new(root)
+      item = Struct.new(:suite, :id).new("s", "c")
+      attempt = evidence.open_attempt(item, 1, { case: "s/c" })
+      first = { "ok" => false, "steps" => [ { "index" => 0, "ok" => true } ], "authExpired" => { "index" => 0 } }
+      merged = ChangeLaneTestcases.allocate.send(:merge_resumed, first, { "ok" => false, "queueFull" => true, "callError" => "429" }, 0)
+      evidence.close_attempt(attempt, merged)
+      assert File.exist?(File.join(attempt.host_dir, "start.json"))
+      assert File.exist?(File.join(attempt.host_dir, "result.json"))
+    end
+  end
 end

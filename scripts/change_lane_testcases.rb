@@ -533,6 +533,10 @@ class ChangeLaneTestcases < ChangeLane
   # interrupted one. A second session end in the same attempt fails the case.
   def merge_resumed(first, second, start_at)
     return first.merge('ok' => false, 'callError' => 'the resumed call after a re-login returned no result') unless second.is_a?(Hash)
+    if second['queueFull']
+      return first.merge('ok' => false, 'resumed' => true, 'queueFull' => true,
+                         'callError' => "the resumed call after a re-login was not accepted: #{second['callError']}")
+    end
 
     earlier = Array(first['steps']).select { |step| step['index'].to_i < start_at }
     merged = second.merge('steps' => earlier + Array(second['steps']), 'resumed' => true)

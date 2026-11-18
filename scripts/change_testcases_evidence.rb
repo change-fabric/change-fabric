@@ -2,6 +2,7 @@
 # frozen_string_literal: true
 
 require 'base64'
+require 'digest'
 require 'fileutils'
 require 'json'
 require 'time'
@@ -43,7 +44,14 @@ class ChangeTestcasesEvidence
     @root = root
   end
 
-  def self.slug(text) = text.to_s.gsub(/[^A-Za-z0-9._-]/, '_')
+  # A filesystem-safe name that stays unique: when sanitizing changed the
+  # text, a short digest of the original is appended, so `a/b` and `a_b`
+  # never share a dir.
+  def self.slug(text)
+    raw = text.to_s
+    safe = raw.gsub(/[^A-Za-z0-9._-]/, '_')
+    safe == raw ? safe : "#{safe}-#{Digest::SHA256.hexdigest(raw)[0, 8]}"
+  end
 
   def open_attempt(item, number, start)
     relative = File.join('cases', self.class.slug(item.suite), self.class.slug(item.id), "attempt-#{number}")
@@ -57,9 +65,11 @@ class ChangeTestcasesEvidence
   # checkpointed. A queue rejection was never an attempt, so its dir goes.
   def close_attempt(attempt, record)
     return record unless attempt
-    return discard(attempt, record) if record.nil? || record['queueFull']
+    # Only a call that never ran is discarded; a resume that was rejected
+    # after the first call ran keeps everything that call checkpointed.
+    return discard(attempt, record) if record.nil? || (record['queueFull'] && !record['resumed'])
 
-    record = partial(attempt, record) if record['callError']
+    record = partial(attempt, record) if record['callError'] && !record['resumed']
     record = record.merge('evidenceDir' => attempt.host_dir)
     write_screenshots(attempt, record)
     name = record['partialEvidence'] ? 'termination.json' : 'result.json'
