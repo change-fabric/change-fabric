@@ -39,7 +39,6 @@ module WalkthroughRender
 
   class MissingCacheError < StandardError; end
   class FfmpegError < StandardError; end
-  # The run's paid estimate passes an explicit --max-usd ceiling.
   class SpendCeilingError < StandardError; end
 
   DEFAULT_PROVIDERS = {
@@ -174,6 +173,7 @@ module WalkthroughRender
         est[:broll] = BRoll.estimate(clips)
         say("Google estimate: #{est[:broll][:line]} (ceiling $#{format('%.2f', @budget.ceiling)})")
       end
+      @estimated_music_usd = est[:audio][:music_usd]
       @estimated_usd = (est[:audio][:total_usd] + est[:images][:usd] + est.dig(:broll, :usd).to_f).round(4)
       est
     end
@@ -495,6 +495,7 @@ module WalkthroughRender
       return unless @board['music']
       return if File.file?(music_path(total_ms))
 
+      recheck_music_spend!(music_ms(total_ms))
       say('music: composing')
       @p[:music].call(**music_block, length_ms: music_ms(total_ms), cache_root: @cache)
     end
@@ -1197,6 +1198,20 @@ module WalkthroughRender
       silent_cut unless @final
       raise SpendCeilingError, "the paid estimate #{money(@estimated_usd)} passes the --max-usd #{money(@max_usd)} ceiling; " \
                                'no paid call was made (narration, music, images, b-roll, roast); ' \
+                               'raise --max-usd to at least the estimate to approve it'
+    end
+
+    # Measured narration can lengthen the timeline (and rekey a cached bed),
+    # so the music cost is repriced at its real length before composing and
+    # the revised total is held to the ceiling again.
+    def recheck_music_spend!(length_ms)
+      actual = ElevenLabs.estimate(chars: 0, music_ms: length_ms, model: nil)[:music_usd]
+      @estimated_usd = (@estimated_usd.to_f - @estimated_music_usd.to_f + actual).round(4)
+      @estimated_music_usd = actual
+      return unless over_ceiling?
+
+      raise SpendCeilingError, "music at its measured length brings the paid estimate to #{money(@estimated_usd)}, past the " \
+                               "--max-usd #{money(@max_usd)} ceiling; music was not composed; " \
                                'raise --max-usd to at least the estimate to approve it'
     end
 

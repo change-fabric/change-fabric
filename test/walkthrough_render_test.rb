@@ -1087,7 +1087,12 @@ class WalkthroughRenderTest < Minitest::Test
 
   def paid_refusers = refusing(:tts, :music, :image, :broll, :roast)
 
+  # The authored measured_ms matches what the stub TTS measures, so the
+  # estimate prices the music bed at the length the run composes.
   def estimate_usd
+    b = board
+    b["scenes"].each { |s| s["narration"]["measured_ms"] = s["narration"]["text"].length * 50 }
+    File.write(File.join(@root, "storyboard.json"), JSON.pretty_generate(b))
     run = WalkthroughRender::Run.new(@root, providers: providers, out: StringIO.new, gates: { roast: false })
     run.call(estimate_only: true)
     run.instance_variable_get(:@estimated_usd)
@@ -1130,6 +1135,18 @@ class WalkthroughRenderTest < Minitest::Test
     assert result[:mp4]
     assert_equal 1, @calls[:music].size
     refute_empty @calls[:tts]
+  end
+
+  def test_music_repriced_after_long_narration_is_refused
+    est = estimate_usd
+    long = providers[:tts]
+    slow_tts = ->(**kw) { long.call(**kw).merge(measured_ms: 10_000) }
+    out = StringIO.new
+    err = assert_raises(WalkthroughRender::SpendCeilingError) do
+      run_render(providers: providers.merge(tts: slow_tts).merge(refusing(:music)), out: out, max_usd: est)
+    end
+    assert_includes err.message, "music at its measured length"
+    refute_includes out.string, "music: composing"
   end
 
   def test_uncached_image_over_the_ceiling_is_refused
