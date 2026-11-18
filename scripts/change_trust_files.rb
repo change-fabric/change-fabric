@@ -252,7 +252,7 @@ module ChangeTrustFiles
   # link's in-repo target, and covers the link, since git lists the link and
   # the target's files but never a path through the link.
   def glob_files(globs, source)
-    expanded = through_links(globs, source)
+    expanded = through_links(globs.map { |glob| glob.gsub(%r{(\A|/)(\./)+}, "\\1") }, source)
     links = expanded.filter_map { |_, link| link }
     links + expanded.flat_map { |glob, _| source.paths.select { |rel| File.fnmatch?(glob, rel, GLOB_FLAGS) } }
   end

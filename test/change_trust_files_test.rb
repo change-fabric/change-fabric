@@ -186,6 +186,12 @@ class ChangeTrustFilesTest < Minitest::Test
     assert_equal [ "scripts/ci.sh" ], files.keys
   end
 
+  def test_dot_prefixed_trust_glob_matches
+    commit("scripts/helper.sh" => "a\n")
+    entry = { "name" => "ci", "run" => "true", "trust_paths" => [ "./scripts/./**" ] }
+    assert_equal [ "scripts/helper.sh" ], cover(entry)["files"].keys
+  end
+
   def test_successive_cds_compose
     commit("scripts/nested/ci.sh" => "a\n")
     entry = { "name" => "ci", "run" => "cd scripts && cd nested && bash ci.sh" }
