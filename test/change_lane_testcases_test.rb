@@ -2,6 +2,7 @@
 
 require "minitest/autorun"
 require "tmpdir"
+require "tempfile"
 require "json"
 require "date"
 require_relative "../scripts/change_config"
@@ -1050,6 +1051,26 @@ class ChangeLaneTestcasesTest < Minitest::Test
       File.write(File.join(dir, "b.cf-testcases.yml"), SUITE)
       set = ChangeSuiteSet.load([ "*.cf-testcases.yml" ], dir)
       assert(set.errors.any? { |error| error.include?("suite id 'checkout' is declared by more than one file") })
+    end
+  end
+
+  # Both generated modules must parse as ES modules; a Ruby heredoc escape
+  # that eats a backslash only shows up as a 400 from the container.
+  def test_the_case_and_login_modules_are_valid_javascript
+    skip "node not installed" unless system("command -v node >/dev/null 2>&1")
+    with_suite(PERSONA_SUITE) do |dir|
+      session = PersonaSession.new(ok_result(4))
+      persona_lane(dir, session).run
+      login = ChangeLaneTestcases.new(ChangeConfig::LaneConfig.new("testcases", PERSONAS, dir), Ctx.new("net", "https://app.example.org"),
+                                      grader: FakeGrader.new).send(:login_module, ChangeLaneBrowserless::AuthConfig.new(PERSONAS["auth"]))
+      [ session.case_codes.first, login ].each do |code|
+        Tempfile.create([ "cf-module", ".mjs" ]) do |file|
+          file.write(code)
+          file.flush
+          output = IO.popen([ "node", "--check", file.path ], err: [ :child, :out ], &:read)
+          assert $?.success?, output
+        end
+      end
     end
   end
 end

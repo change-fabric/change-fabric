@@ -834,7 +834,7 @@ class ChangeLaneTestcases < ChangeLane
           try {
             const x = new URL(a);
             const y = new URL(b);
-            return x.origin === y.origin && x.pathname.replace(/\/$/, "") === y.pathname.replace(/\/$/, "");
+            return x.origin === y.origin && x.pathname.replace(/\\/$/, "") === y.pathname.replace(/\\/$/, "");
           } catch (err) {
             return false;
           }
