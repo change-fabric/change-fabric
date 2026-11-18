@@ -23,6 +23,14 @@ class InstallProvidersTest < Minitest::Test
     assert_equal({ "openai" => %w[cf:image cf:walk], "gemini" => %w[cf:walk] }, SkillProviders.collect(dirs))
   end
 
+  def test_reads_utf8_skills_without_a_utf8_locale
+    dir = skill("status", "providers: [openai]\n")
+    File.write(File.join(dir, "SKILL.md"), "---\nname: cf:status\nproviders: [openai]\n---\nWidth \u2264 80\n")
+    script = "require \"./scripts/skill_providers\"; p SkillProviders.collect([ARGV[0]])"
+    out = IO.popen({ "LANG" => "C", "LC_ALL" => "C" }, [ RbConfig.ruby, "-e", script, dir ], chdir: File.expand_path("..", __dir__), err: [ :child, :out ], &:read)
+    assert_includes out, "cf:status"
+  end
+
   def test_unknown_provider_fails_loudly
     err = assert_raises(SkillProviders::UnknownProvider) { SkillProviders.collect([ skill("x", "providers: [acme]\n") ]) }
     assert_includes err.message, "cf:x declares unknown provider \"acme\""

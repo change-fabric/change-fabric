@@ -1,6 +1,9 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 
+# Homebrew runs install with no UTF-8 locale; skill files are UTF-8.
+Encoding.default_external = Encoding::UTF_8
+
 require 'json'
 require 'fileutils'
 require 'rbconfig'

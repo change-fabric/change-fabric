@@ -32,7 +32,7 @@ module SkillProviders
 
   def declared(dir)
     path = File.join(dir, 'SKILL.md')
-    match = File.file?(path) && File.read(path).match(FRONT)
+    match = File.file?(path) && File.read(path, encoding: 'UTF-8').match(FRONT)
     front = match ? YAML.safe_load(match[:front]) : {}
     front = {} unless front.is_a?(Hash)
     [ front['name'] || File.basename(dir), Array(front['providers']).map(&:to_s) ]
