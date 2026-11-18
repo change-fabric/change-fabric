@@ -272,10 +272,31 @@ module RoastAudio
     end
 
     def decide(opts, out)
-      lines, (stop, reason) = RoastAudioBatch.decide(opts[:dir], target: opts[:target], max_attempts: opts[:max_attempts])
+      lines, (stop, reason) = RoastAudioBatch.decide(opts[:dir], target: opts[:target], max_attempts: opts[:max_attempts],
+                                                                 pending_bound: ->(batch, c) { pending_bound(opts[:dir], batch, c) })
       lines.each { |l| out.puts(l) }
       out.puts("roast decision: #{stop ? 'stop' : 'continue'}: #{reason}")
       0
+    end
+
+    # The bound of the next paid call a retryable clip would make: 0 when its
+    # next stage is free (the gate, bound alignment, a cached transcript).
+    def pending_bound(dir, batch, c)
+      gate = c[:rec][:gate]
+      return 0.0 unless gate && gate['status'] == 'pass'
+
+      id = c[:clip]['source_id']
+      duration = gate.dig('measurements', 'output', 'duration_s') || gate.dig('measurements', 'source', 'duration_s')
+      if c[:rec][:words].nil?
+        cur = c[:clip]['current']
+        free = RoastAudioWords.provenance(cur['alignment'], audio_sha256: cur['audio_sha256'])[:status] == 'verified' ||
+               File.file?(RoastAudioWords.cache_path(RoastAudioBatch.clip_dir(dir, id), gate['output']['audio_sha256'], RoastAudioWords::TRANSCRIBE_MODEL))
+        return free ? 0.0 : RoastAudioWords.transcribe_bound(duration)[:usd]
+      end
+      st = batch['settings'] || {}
+      request = RoastAudio.build_request(audio: gate['output']['audio'], brief: RoastAudioBatch.brief_text(batch).strip, cues: RoastVtt.parse_file(gate['output']['vtt']),
+                                         words: c[:rec][:words], history: [], model: st['model'] || DEFAULT_MODEL)
+      RoastAudio.judge_bound(request, duration)[:usd]
     end
 
     def window(text)
@@ -302,7 +323,7 @@ module RoastAudio
     # Everything a stage's freshness hangs off, plus what the run itself is held to.
     def settings(opts)
       { 'gate_config_hash' => RoastAudioGate.config_hash(opts[:gate]), 'fix' => !opts[:no_fix], 'model' => opts[:model], 'rubric_version' => RUBRIC_VERSION,
-        'target' => Roast::DEFAULT_TARGET, 'run_max_usd' => opts[:run_max_usd], 'word_response' => opts[:word_response] }
+        'target' => Roast::DEFAULT_TARGET, 'run_max_usd' => opts[:run_max_usd], 'max_usd' => opts[:max_usd], 'word_response' => opts[:word_response] }
     end
 
     def batch_config_hash(opts)
@@ -330,6 +351,7 @@ module RoastAudio
       guard = false
       snap[:clips].each do |c|
         if c[:state] != 'retryable'
+          guard ||= c[:rec][:gate]&.dig('terminal') == [ 'guard' ]
           out.puts("#{c[:clip]['source_id']} (#{File.basename(c[:clip]['source_audio'])}): skipped, #{c[:state]}: #{c[:reason]} (unchanged, no attempt counted)")
           next
         end
@@ -464,17 +486,17 @@ module RoastAudio
       record
     end
 
-    # The caption text and any manifest are what reach a provider as text, so
-    # they are scanned; audio content cannot be.
+    # The brief, the caption text and any manifest are what reach a provider
+    # as text, so they are scanned; audio content cannot be.
     def scan!(pairs, opts)
       return if opts[:allow_sensitive]
 
-      texts = pairs.flat_map { |p| RoastVtt.parse_file(p[:vtt]).map(&:text) }
+      texts = pairs.flat_map { |p| RoastVtt.parse_file(p[:vtt]).map(&:text) } + [ File.read(opts[:brief]) ]
       texts += SensitiveTerms.strings(JSON.parse(File.read(opts[:manifest]))) if opts[:manifest]
       hits = SensitiveTerms.matched(texts, SensitiveTerms.load)
       return if hits.empty?
 
-      raise Roast::SensitiveError, "roast refused: #{hits.size} sensitive term(s) matched in the captions or manifest; pass --allow-sensitive to send anyway"
+      raise Roast::SensitiveError, "roast refused: #{hits.size} sensitive term(s) matched in the brief, captions or manifest; pass --allow-sensitive to send anyway"
     end
 
     # The fresh gate record from the snapshot, else a new gate run on the
@@ -510,6 +532,6 @@ module RoastAudio
       parts.join('; ')
     end
 
-    private_class_method :window, :check!, :process, :process_clip, :judge_clip, :parse_or_log, :estimate, :words_estimate, :judge_estimate, :words_clip, :scan!, :gate_clip, :words, :gate_line, :parse_decide, :settings
+    private_class_method :window, :check!, :process, :process_clip, :judge_clip, :parse_or_log, :estimate, :words_estimate, :judge_estimate, :words_clip, :scan!, :gate_clip, :words, :gate_line, :parse_decide, :pending_bound, :settings
   end
 end

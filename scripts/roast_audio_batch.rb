@@ -317,7 +317,8 @@ module RoastAudioBatch
 
   # One stop decision for the batch. It continues only while some clip is
   # retryable and the run ledger can still authorize spend.
-  def decide(dir, target:, max_attempts: nil)
+  # pending_bound: ->(batch, snap_clip) { usd of the clip's next paid call }.
+  def decide(dir, target:, max_attempts: nil, pending_bound: ->(_batch, _clip) { 0.0 })
     snap = snapshot(dir, target: target, max_attempts: max_attempts)
     summary!(dir, snap)
     by = STATES.to_h { |s| [ s, snap[:clips].select { |c| c[:state] == s } ] }
@@ -326,21 +327,29 @@ module RoastAudioBatch
 
       "#{s}: #{by[s].map { |c| s == 'blocked' ? "#{c[:clip]['source_id']} (#{c[:reason]})" : c[:clip]['source_id'] }.join(', ')}"
     end
-    [ lines, verdict(dir, snap[:batch], by) ]
+    [ lines, verdict(dir, snap[:batch], by, pending_bound) ]
   end
 
-  def verdict(dir, batch, by)
+  def verdict(dir, batch, by, pending_bound)
     return [ true, "all #{by['ready'].size} clip(s) ready" ] if by.values_at('retryable', 'blocked', 'exhausted').all?(&:empty?)
     return [ true, 'no clip is retryable; blocked clips need a re-voice approval, a caption fix or a rebuttal' ] if by['retryable'].empty?
 
-    cap = (batch['settings'] || {})['run_max_usd'] || 1.0
-    ledger = RoastAudioLedger.new(dir, cap_usd: cap, max_usd: cap)
+    st = batch['settings'] || {}
+    cap = st['run_max_usd'] || 1.0
+    per_call = st['max_usd'] || cap
+    ledger = RoastAudioLedger.new(dir, cap_usd: cap, max_usd: per_call)
     data = ledger.read
     return [ true, 'the run ledger is halted' ] if data['halted']
-    return [ true, "the run cap $#{format('%.2f', cap)} is reached" ] if ledger.committed(data) >= cap - 1e-9
 
-    [ false, "#{by['retryable'].size} clip(s) retryable" ]
-  rescue RoastAudioLedger::Refused => e
+    left = cap - ledger.committed(data)
+    fundable = by['retryable'].select do |c|
+      usd = pending_bound.call(batch, c)
+      usd <= per_call + 1e-9 && usd <= left + 1e-9
+    end
+    return [ true, "the $#{format('%.4f', left)} left of the run cap (per call $#{format('%.2f', per_call)}) cannot fund any retryable clip's next call" ] if fundable.empty?
+
+    [ false, "#{fundable.size} clip(s) retryable" ]
+  rescue RoastAudioLedger::Refused, RoastAudioLedger::UnboundedCost => e
     [ true, "the run ledger cannot authorize spend: #{e.message}" ]
   end
 

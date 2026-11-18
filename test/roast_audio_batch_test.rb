@@ -304,4 +304,33 @@ class RoastAudioBatchTest < Minitest::Test
     File.write(File.join(@out, "spend.json"), "{broken")
     assert_match(/roast decision: stop: the run ledger cannot authorize spend/, decide)
   end
+
+  def test_a_sensitive_term_only_in_the_brief_is_refused
+    a = bound_clip("a", "intro")
+    File.write(@terms, "buyer\n")
+    code, out = judged(a, http: Judge.new(score: 9))
+    assert_equal 1, code
+    assert_match(/sensitive term\(s\) matched in the brief/, out)
+  end
+
+  def test_a_cached_guard_failure_still_exits_1
+    a = stage_clip(File.join(@tmp, "a"), "continuous", as: "intro")
+    long = ->(t) { t.gsub(/"duration": "[\d.]+"/, '"duration": "9999.000000"') }
+    docker = FakeDocker.new(tags: { "intro.mp3" => "continuous" }, edits: { "continuous.probe.json" => long })
+    codes = Array.new(2) { RoastAudio::Cli.run([ "--audio", a, "--brief", @brief, "--out-dir", @out, "--stop-after", "gate" ], out: StringIO.new, docker: docker) }
+    assert_equal [ 1, 1 ], codes
+  end
+
+  def test_decide_stops_when_the_budget_left_cannot_fund_the_next_call
+    a = bound_clip("a", "intro")
+    RoastAudio::Cli.run([ "--audio", a, "--brief", @brief, "--out-dir", @out, "--stop-after", "words", "--run-max-usd", "0.01" ], out: StringIO.new,
+                                                                                                                              docker: FakeDocker.new(tags: { "intro.mp3" => "continuous" }))
+    d = decide
+    assert_match(/^retryable: src-/, d)
+    assert_match(/roast decision: stop: the \$0\.0100 left of the run cap .* cannot fund/, d)
+    FileUtils.rm_rf(@out)
+    RoastAudio::Cli.run([ "--audio", a, "--brief", @brief, "--out-dir", @out, "--stop-after", "words" ], out: StringIO.new,
+                                                                                                      docker: FakeDocker.new(tags: { "intro.mp3" => "continuous" }))
+    assert_match(/roast decision: continue: 1 clip\(s\) retryable/, decide)
+  end
 end
