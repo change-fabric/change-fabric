@@ -22,8 +22,8 @@ module RoastLens
   QUOTED_PAIR = /\A("(?:[^"\\]|\\.)*"|a\/.+?) ("(?:[^"\\]|\\.)*"|b\/.+)\z/
   ESCAPES = { 'a' => "\a", 'b' => "\b", 't' => "\t", 'n' => "\n", 'v' => "\v", 'f' => "\f", 'r' => "\r" }.freeze
   # A repo-relative path written in prose: segments joined by slashes, or a
-  # single name with a short extension. URLs are stripped before scanning.
-  PATH_TOKEN = %r{(?<![\w/.-])([\w.-]+(?:/[\w.-]+)+|[\w-]+\.[a-z]{1,6})(?![\w/])}
+  # single name ending in a short extension (vite.config.ts whole). URLs are stripped before scanning.
+  PATH_TOKEN = %r{(?<![\w/.-])([\w.-]+(?:/[\w.-]+)+|[\w-]+(?:\.[\w-]+)*\.[a-z]{1,6})(?![\w/])}
   URL = %r{\S+://\S+}
 
   module_function
