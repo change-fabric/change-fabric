@@ -18,7 +18,8 @@ module RoastAudioHelpers
   class FakeDocker
     attr_reader :calls
 
-    # tags: source basename => recording tag (default: the basename's stem).
+    # tags: source basename => recording tag (default: the basename's stem, or
+    # the Hash's own default, so a test can answer every take alike).
     # edits: "<tag>.<kind>" => ->(text) { new_text }, to craft a case from a recording.
     def initialize(tags: {}, edits: {}, down: false)
       @tags = tags
@@ -59,7 +60,7 @@ module RoastAudioHelpers
     def tag(base)
       return "#{@last}.fixed" if base.match?(/\.a\d+\.mp3\z/)
 
-      @last = @tags.fetch(base, File.basename(base, ".*"))
+      @last = @tags[base] || File.basename(base, ".*")
     end
 
     def answer(tag, kind)

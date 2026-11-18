@@ -7,6 +7,7 @@ require 'net/http'
 require 'optparse'
 require_relative 'roast' unless defined?(Roast::Cli) # already loaded when roast.rb is the program
 require_relative 'roast_audio_batch'
+require_relative 'elevenlabs'
 require_relative 'roast_audio_gate'
 require_relative 'roast_audio_ledger'
 require_relative 'roast_audio_words'
@@ -195,8 +196,9 @@ module RoastAudio
   end
 
   private_class_method :first_object, :issue_problem
-  USAGE = 'usage: roast.rb decide --audio-batch DIR [--target N] [--max-attempts N] | roast.rb --audio CLIP.mp3 [--audio CLIP2.mp3]... --brief FILE [--vtt FILE]... [--alignment FILE]... ' \
-          '[--manifest FILE] [--word-response FILE] [--out-dir DIR] [--stop-after gate|words|judge] [--model NAME] [--max-usd N] ' \
+  USAGE = 'usage: roast.rb decide --audio-batch DIR [--target N] [--max-attempts N] | roast.rb --audio-regen DIR --approve CLIP_ID... [--allow-sensitive] | ' \
+          'roast.rb --audio CLIP.mp3 [--audio CLIP2.mp3]... --brief FILE [--vtt FILE]... [--alignment FILE]... ' \
+          '[--manifest FILE|DIR [--text-path PATH] [--order-key KEY] [--pause-key KEY] [--voice-path PATH] [--model-path PATH] [--settings-path PATH]] [--word-response FILE] [--out-dir DIR] [--stop-after gate|words|judge] [--model NAME] [--max-usd N] ' \
           '[--run-max-usd N] [--max-attempts N] [--cache DIR] [--estimate-only] [--no-fix] [--allow-sensitive] [--new-batch] ' \
           '[--lufs N] [--lufs-tol N] [--max-tp N] [--max-clipped N] [--noise-max DB] [--noise-window START-END]... ' \
           '[--pad-min S] [--pad-max S] [--sample-rate HZ] [--channels N] [--min-kbps N] [--fix-kbps N]'
@@ -211,9 +213,10 @@ module RoastAudio
   module Cli
     module_function
 
-    def run(argv, out: $stdout, docker: RoastAudioGate::DEFAULT_DOCKER, http: nil)
+    def run(argv, out: $stdout, docker: RoastAudioGate::DEFAULT_DOCKER, http: nil, transport: ElevenLabs::DEFAULT_TRANSPORT)
       args = argv.dup
       return decide(parse_decide(args.drop(1)), out) if args.first == 'decide'
+      return regen(parse_regen(args), out, transport) if args.include?('--audio-regen')
 
       opts = parse(args)
       process(opts, out, docker, http)
@@ -231,7 +234,7 @@ module RoastAudio
     end
 
     def parse(args)
-      opts = { audios: [], vtts: [], alignments: [], out_dir: DEFAULT_OUT_DIR, stop_after: 'judge', max_usd: Roast::DEFAULT_CEILING_USD,
+      opts = { audios: [], vtts: [], alignments: [], map: {}, out_dir: DEFAULT_OUT_DIR, stop_after: 'judge', max_usd: Roast::DEFAULT_CEILING_USD,
                run_max_usd: DEFAULT_RUN_CEILING_USD, cache: '.cache', gate: RoastAudioGate::DEFAULTS.dup.merge(noise_windows: []) }
       OptionParser.new do |o|
         o.on('--audio FILE') { |v| opts[:audios] << v }
@@ -239,6 +242,8 @@ module RoastAudio
         o.on('--vtt FILE') { |v| opts[:vtts] << v }
         o.on('--alignment FILE') { |v| opts[:alignments] << v }
         o.on('--manifest FILE') { |v| opts[:manifest] = v }
+        { '--text-path PATH' => :text_path, '--order-key KEY' => :order_key, '--pause-key KEY' => :pause_key, '--voice-path PATH' => :voice_path,
+          '--model-path PATH' => :model_path, '--settings-path PATH' => :settings_path }.each { |flag, key| o.on(flag) { |v| opts[:map][key] = v } }
         o.on('--word-response FILE') { |v| opts[:word_response] = v }
         o.on('--out-dir DIR') { |v| opts[:out_dir] = v }
         o.on('--stop-after STAGE') { |v| opts[:stop_after] = v }
@@ -257,6 +262,25 @@ module RoastAudio
       raise RoastAudioBatch::UsageError, "unexpected argument: #{args.first}" unless args.empty?
 
       check!(opts)
+    end
+
+    def parse_regen(args)
+      opts = { approve: [] }
+      OptionParser.new do |o|
+        o.on('--audio-regen DIR') { |v| opts[:dir] = v }
+        o.on('--approve CLIP_ID') { |v| opts[:approve] << v }
+        o.on('--allow-sensitive') { opts[:allow_sensitive] = true }
+      end.parse!(args)
+      raise RoastAudioBatch::UsageError, "unexpected argument: #{args.first}" unless args.empty?
+      raise RoastAudioBatch::UsageError, 'give at least one --approve CLIP_ID; nothing is re-voiced without approval' if opts[:approve].empty?
+
+      opts
+    end
+
+    def regen(opts, out, transport)
+      results = RoastAudioBatch.regen!(opts[:dir], opts[:approve].uniq, transport: transport, allow_sensitive: opts[:allow_sensitive])
+      results.each { |id, r| out.puts(r == 'ok' ? "regen #{id}: new take written; re-run the same --audio selection to gate it" : "regen #{id}: refused: #{r}") }
+      results.all? { |_, r| r == 'ok' } ? 0 : 1
     end
 
     def parse_decide(args)
@@ -323,7 +347,8 @@ module RoastAudio
     # Everything a stage's freshness hangs off, plus what the run itself is held to.
     def settings(opts)
       { 'gate_config_hash' => RoastAudioGate.config_hash(opts[:gate]), 'fix' => !opts[:no_fix], 'model' => opts[:model], 'rubric_version' => RUBRIC_VERSION,
-        'target' => Roast::DEFAULT_TARGET, 'run_max_usd' => opts[:run_max_usd], 'max_usd' => opts[:max_usd], 'word_response' => opts[:word_response] }
+        'target' => Roast::DEFAULT_TARGET, 'run_max_usd' => opts[:run_max_usd], 'max_usd' => opts[:max_usd], 'word_response' => opts[:word_response],
+        'manifest' => opts[:manifest], 'manifest_map' => opts[:map].transform_keys(&:to_s), 'manifest_sha256' => RoastAudioBatch.manifest_sha(opts[:entries]) }
     end
 
     def batch_config_hash(opts)
@@ -332,10 +357,16 @@ module RoastAudio
     end
 
     def process(opts, out, docker, http)
-      [ *opts[:audios], opts[:brief], *opts[:vtts], *opts[:alignments], opts[:manifest], opts[:word_response] ].compact.each do |f|
+      [ *opts[:audios], opts[:brief], *opts[:vtts], *opts[:alignments], opts[:word_response] ].compact.each do |f|
         raise Errno::ENOENT, f unless File.file?(f)
       end
+      raise Errno::ENOENT, opts[:manifest] if opts[:manifest] && !File.exist?(opts[:manifest])
+
+      opts[:entries] = RoastAudioBatch.manifest(opts[:manifest], map: opts[:map])
       pairs = RoastAudioBatch.pair(opts[:audios], vtts: opts[:vtts], alignments: opts[:alignments])
+      names = pairs.map { |p| File.basename(p[:source_audio]) }
+      shared = names.select { |n| names.count(n) > 1 && opts[:entries].key?(n) }.uniq
+      raise RoastAudioBatch::UsageError, "manifest entry #{shared.first} matches #{names.count(shared.first)} clips; rename the clips or split the batch" if shared.any?
       scan!(pairs, opts)
       return estimate(opts, pairs, out) if opts[:estimate_only]
 
@@ -475,8 +506,9 @@ module RoastAudio
       cur = clip['current']
       alignment = RoastAudioWords.provenance(cur['alignment'], audio_sha256: cur['audio_sha256'])
       response = opts[:word_response] || File.join(RoastAudioBatch.clip_dir(dir, id), 'words.response.json')
+      pron = Array((opts[:entries][File.basename(clip['source_audio'])] || {})['pronunciations']).to_h { |p| [ p['text'], p['say'] ] }
       record = RoastAudioWords.check(gate: gate, alignment: alignment, clip_dir: RoastAudioBatch.clip_dir(dir, id), id: id, ledger: ledger,
-                                     response_file: response, brief: File.read(opts[:brief]), http: http)
+                                     response_file: response, brief: File.read(opts[:brief]), pronunciations: pron, http: http)
       old = RoastAudioBatch.fresh(dir, id, 'words.json', record['deps'])
       RoastAudioBatch.stale!(dir, id, 'words.json') if old && old != record
       RoastAudioBatch.write_record(dir, id, 'words.json', record) unless old == record
@@ -492,7 +524,7 @@ module RoastAudio
       return if opts[:allow_sensitive]
 
       texts = pairs.flat_map { |p| RoastVtt.parse_file(p[:vtt]).map(&:text) } + [ File.read(opts[:brief]) ]
-      texts += SensitiveTerms.strings(JSON.parse(File.read(opts[:manifest]))) if opts[:manifest]
+      texts += SensitiveTerms.strings(opts[:entries])
       hits = SensitiveTerms.matched(texts, SensitiveTerms.load)
       return if hits.empty?
 
@@ -532,6 +564,6 @@ module RoastAudio
       parts.join('; ')
     end
 
-    private_class_method :window, :check!, :process, :process_clip, :judge_clip, :parse_or_log, :estimate, :words_estimate, :judge_estimate, :words_clip, :scan!, :gate_clip, :words, :gate_line, :parse_decide, :pending_bound, :settings
+    private_class_method :window, :check!, :process, :process_clip, :judge_clip, :parse_or_log, :estimate, :words_estimate, :judge_estimate, :words_clip, :scan!, :gate_clip, :words, :gate_line, :parse_decide, :pending_bound, :parse_regen, :regen, :settings
   end
 end

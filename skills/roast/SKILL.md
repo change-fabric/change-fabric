@@ -1,7 +1,7 @@
 ---
 name: cf:roast
 group: workflow
-providers: [openai]
+providers: [openai, elevenlabs]
 description: Multi-round roast of a UX, writing, a production architecture, a git diff, or Terraform or AWS infra, optionally through cf rubric lenses, a sub-skill of cf:design. An OpenAI vision model (the critic) reads screenshots plus the earlier rounds and returns a harsh, specific roast as JSON (score out of 10, P0/P1/P2 issues with where, problem, fix, and an estimated saving, and a purpose-test verdict per stated outcome); Claude accepts or rebuts each issue, applies the accepted fixes, re-captures, and starts the next round. Stops at a target score (default 9), a round cap (default 4), or a round with no P0 or P1. Each round is logged to a roast/ directory beside the artifact. Paid, so it runs only when invoked by name or loaded by cf:design, cf:walkthrough, cf:prototype, cf:plan, or cf:drive thorough, never auto-applied or chosen on a model guess. Usable alone on any set of screenshots or on a text (email, doc, PR description, post, diff, .tf file, architecture doc).
 ---
 
@@ -72,6 +72,56 @@ The rubric covers narration against the picture, pacing, abrupt cuts, cursor mot
 
 It reads the same history (stills rounds and earlier video rounds with their responses), prints the estimate first, refuses past `--max-usd` (default 0.5), and caches by model, effort (when not medium), brief, transcript, history, and the MP4 sha256. It writes `roast/round-N.video.json` (with `craft: { version, master_sha256 }`, the SHA-256 of the MP4 it watched) and `roast/round-N.video.md`, where N defaults to the latest stills round. Respond in `round-N.video.response.json`, same shape as the stills response. A 2-minute video is about 180 frames and roughly $0.40.
 
+## Audio roasts
+
+`roast.rb --audio CLIP.mp3 [--audio CLIP2.mp3]... --brief brief.txt` roasts a batch of narration clips, each with WebVTT captions, until every clip is client ready. Source: Chat Completions with `input_audio` and `gpt-transcribe`, https://developers.openai.com/api/docs/guides/audio-chat-completions and https://developers.openai.com/api/docs/guides/speech-to-text (checked 2026-11-17).
+
+Inputs and pairing. Captions pair by position (`--vtt`, one per `--audio`) or as the sibling `<stem>.vtt`; a bound alignment pairs the same way (`--alignment`, or `<stem>.alignment.json`). A missing VTT, a count mismatch, or a flag that disagrees with an existing sibling exits 2. `--out-dir` (default `roast-audio`) holds `batch.json`, the only record of batch membership. Each clip keeps an immutable id, `src-<8 hex of the expanded source path>`. Its current take starts as the source and moves to an approved re-voice, and the source file is never written. Re-running the same `--audio` selection resumes the batch. Adding or dropping a source exits 2 unless you pass `--new-batch`, and naming a take path as `--audio` exits 2.
+
+Each clip runs three stages in order (`--stop-after gate|words|judge`, default judge). One processed run is one attempt (`--max-attempts`, default 4).
+
+1. The gate is free and runs in the pinned FFmpeg container:
+
+| Check | Pass when (flag, default) | Auto-fix |
+|---|---|---|
+| Guard | at most 20 MB and 600 s | none |
+| Format | mp3, `--channels` 1, `--sample-rate` 44100, at least `--min-kbps` 128 | re-encode at `--fix-kbps` 192 |
+| Loudness, true peak | `--lufs` -16 +/- `--lufs-tol` 1, at most `--max-tp` -2 dBTP | two-pass loudnorm, TP target `--max-tp` - 1 |
+| Source clipping | no clipped samples (`--max-clipped` 0), peak under -0.1 dBFS | none: terminal |
+| DC offset | abs at most 0.005 | 20 Hz highpass |
+| Noise | RMS at most `--noise-max` -60 dBFS over expected pauses (alignment gaps, `--noise-window S-E`, or cue gaps of 0.2 s or more) | none: terminal; `unverified` with no such pause |
+| Edge pad | lead and tail in [`--pad-min` 0.1, `--pad-max` 0.5] s | trim, then pad to the midpoint, with the captions shifted by the measured delta |
+| Captions | structure only: ordered, inside speech, no uncaptioned speech | the trim shift; otherwise terminal |
+
+   Fixes go to `<id>/fixed/<id>.a<attempt>.mp3` with a shifted `.vtt` and are gated again. A target still missed after the fix is terminal. `--no-fix` reports without fixing.
+2. The word check compares speech against the cue text. With bound alignment it is free, and cue word boundaries are checked to +/-250 ms (timing `verified`). Otherwise one `gpt-transcribe` call, sent with no caption hint, transcribes the gated clip. The reply is cached by audio and model, and timing is `unverified`, shown in the summary but not blocking. Each op (`missing`, `extra`, `substituted`, `cue_timing`) has a stable id and a cue. To excuse a substitution from a transcript, write `<id>/words.response.json` (or pass `--word-response`):
+
+```json
+{ "source_id": "src-3f9a1c2b", "inputs": { "audio_sha256": "<gate.json deps>", "vtt_sha256": "<gate.json deps>" },
+  "rebuttals": [ { "op_id": "a1b2c3d4e5f6", "reason": "proper_noun", "evidence": "Kubernetes is spelled in the brief" } ] }
+```
+
+   Allowed reasons: `proper_noun` (the term is a manifest `pronunciations` key or is spelled in the brief), `number_format` (`"12 = twelve"`, the forms must normalize equal), and `homophone` (`"too/two"`, from a built-in list). Missing, extra, timing and alignment-sourced ops cannot be rebutted. A rebuttal for other inputs, an unknown op, or failing evidence is ignored with a warning.
+3. The judge, `gpt-audio-1.5` by default (`--model gpt-audio-mini`), hears the gated clip and judges only prosody, pacing, emphasis and TTS artifacts. It never judges word accuracy, loudness or format. Each issue cites a cue, and Ruby adds its m:ss.s stamp. It sets `revoice` when only a new take can fix the issue. The reply is JSON stated in the prompt, because the model rejects `json_schema`. An invalid reply exits 1 by name, and the raw reply goes to `<id>/raw/`.
+
+Ready means the gate passes, no word errors remain after valid rebuttals, there is no P0 or P1, and the score is at least 9. Every record carries the hashes it was computed from. A change to the audio, captions, alignment, gate flags, rebuttals, brief, model, rubric version or manifest moves the stale record to `<id>/stale/<n>/` before anything reads it. States: `ready`; `retryable` (a stage has work to do); `blocked` (unchanged since its last verdict: needs a re-voice, a caption fix or a rebuttal); `exhausted` (attempts used). The runner skips ready, blocked and exhausted clips without counting an attempt. `summary.md` has one row per clip: state, attempts, gate, words raw/accepted, timing, score, P0/P1 and regen. `roast.rb decide --audio-batch DIR` prints one line per state, then `roast decision: stop|continue: <reason>`. It continues only while a clip is retryable and the ledger can spend.
+
+Spend. Every paid call (transcription, judge, re-voice) first reserves an upper bound in `DIR/spend.json`, under a lock on `DIR/spend.lock`, then settles its real cost. The per-call ceiling is `--max-usd` (default 0.5) and the run cap is `--run-max-usd` (default 1.0) across every clip, round, transcription and re-voice. The judge bound is twice the measured audio rate (`RoastAudioLedger::MEASURED_AUDIO_TOKENS_PER_SECOND`, 10/s) plus one token per prompt byte plus the output cap. Transcription is bounded by the minute, and a re-voice by characters at the ElevenLabs rate. A call that cannot be bounded is refused. A call that settles above its reservation halts the batch until someone recalibrates and clears `halted` by hand. An unreadable ledger counts as the cap reached. `--estimate-only` prints the bounds and spends nothing.
+
+Re-voice. `--manifest` names each clip's text and voice. The flat form is `{ "clips": [ { "file": "intro.mp3", "text": "...", "voice_id": "...", "model": "...", "settings": {...}, "pronunciations": [ { "text": "...", "say": "..." } ] } ] }` (pronunciations as in cf:narrate; a re-voice applies them through an ElevenLabs pronunciation dictionary, and a mispronunciation is not executable until the term has one); cf:narrate's voice and text are the source for it. A directory of per-clip JSON files (`<audio stem>.json`) is read through dotted paths, where `[]` walks an array: `--text-path 'items[].line.text'` joined in `--order-key` order, `--pause-key` (default `pause_ms`) per item, `--voice-path`, `--model-path` and `--settings-path`. Manifest text is scanned for sensitive terms. Every non-ready clip gets `<id>/regen.json` with its reasons, a retake (text, voice, settings with deterministic deltas: an artifact raises stability by 0.15, capped at 0.85; pacing moves speed by 0.05, kept within 0.7 to 1.2), an instruction and an estimate. It is `revoice`, `caption-fix` (timing or structure), or `report-only` (no manifest entry, or text in segments with pauses that one take cannot reproduce). A proposal is executable only while an attempt remains. Deltas build on the settings of the current take, so a second round moves further.
+
+The loop:
+
+1. Run `ruby ~/.claude/cf/bin/roast.rb --audio <clips> --brief <brief> --manifest <manifest> --out-dir roast-audio` (show the `--estimate-only` line first).
+2. Read `roast-audio/summary.md`.
+3. Fix the free items: captions, and rebuttals with evidence.
+4. Once per round, ask with AskUserQuestion "Re-voice these N clips for about $X?", listing each `regen.json` reason and instruction. Never re-voice without that yes.
+5. On yes, run `ruby ~/.claude/cf/bin/roast.rb --audio-regen roast-audio --approve <source_id>...`. It re-checks attempts and scans the retake text for sensitive terms (`--allow-sensitive` overrides) at dispatch, and writes `<id>/takes/<id>.t<n>.mp3` with a bound alignment sidecar. Clips not approved are untouched.
+6. Re-run the same selection, which resumes the new takes: `ruby ~/.claude/cf/bin/roast.rb --audio <the same source mp3s> --brief <brief> --manifest <manifest> --out-dir roast-audio`.
+7. Run `ruby ~/.claude/cf/bin/roast.rb decide --audio-batch roast-audio`; on `continue` go to 2. Raise the cap only on the user's say-so, with `--max-attempts N` on the same selection.
+
+The audio itself cannot be scanned for sensitive terms; the captions and manifest text are. Noise under speech, or in a clip with no pause of 0.2 s or more, is left to the judge.
+
 ## The round
 
 1. Run `roast.rb` with `--estimate-only` for round 1 and show the user the `roast estimate:` line. The estimate is a rough token-based planning figure, not a quote. Each later round costs more as history grows.
@@ -98,7 +148,7 @@ Contested calls (a rebuttal the critic keeps repeating, a fix that conflicts wit
 
 ## Keys and cost
 
-`OPENAI_API_KEY` from this project's enrolled key only (env vars are ignored), needed only when a call is made. On exit 4 (a `cf_enroll` line), load the installed cf:enroll (`~/.claude/skills/cf:enroll/SKILL.md`; `cf-enroll` on Codex, Copilot, OpenCode and Pi) with that line verbatim, then re-run the step once; see `skills/enroll/reference/key-enrollment.md`. A provider rejection is named, never generic: exit 4 with `"reason":"revoked"` (enroll a new key), or exit 1 with a `cf_key_error` line naming `quota_exhausted` (never retried), `rate_limited` (after 3 attempts), `bad_request` (with the provider message) or `server`, plus the next step to relay; see Provider failures in that file. Never print or write it. The cache key is a hash of the model, the effort when not medium, round, brief, history, and the screenshot and text digests, so a rerun of identical inputs is a cache hit: no call, no key, $0.00. A changed screenshot or a new response file is a new key and a new paid call. Exit 5 means the provider is deferred for this project: relay its one-line `[cf] <provider> deferred until` note and continue without the paid output, never as an error.
+`OPENAI_API_KEY` from this project's enrolled key only (env vars are ignored), needed only when a call is made; `--audio-regen` needs the ElevenLabs key the same way. On exit 4 (a `cf_enroll` line), load the installed cf:enroll (`~/.claude/skills/cf:enroll/SKILL.md`; `cf-enroll` on Codex, Copilot, OpenCode and Pi) with that line verbatim, then re-run the step once; see `skills/enroll/reference/key-enrollment.md`. A provider rejection is named, never generic: exit 4 with `"reason":"revoked"` (enroll a new key), or exit 1 with a `cf_key_error` line naming `quota_exhausted` (never retried), `rate_limited` (after 3 attempts), `bad_request` (with the provider message) or `server`, plus the next step to relay; see Provider failures in that file. Never print or write it. The cache key is a hash of the model, the effort when not medium, round, brief, history, and the screenshot and text digests, so a rerun of identical inputs is a cache hit: no call, no key, $0.00. A changed screenshot or a new response file is a new key and a new paid call. Exit 5 means the provider is deferred for this project: relay its one-line `[cf] <provider> deferred until` note and continue without the paid output, never as an error.
 
 Image fit: a shot whose long edge passes 2048px is sent as a downscaled temp copy (lanczos, 2048px long edge) made in the pinned ffmpeg container, with a `roast: <shot> is WxH, sending a wxh copy` note. The original file is untouched and still keys the cache. If the container fails, the round fails by name (exit 1) and nothing is sent.
 
