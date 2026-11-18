@@ -15,3 +15,6 @@
 # Local change-fabric team private key (cf_team_init.rb/cf_team_join.rb),
 # base64 Ed25519 seed. Never committed; the public key lives in CHANGE.md.
 .env.cf-team
+
+# Tool caches written into a checkout (the old roast.rb default).
+/.cache/

@@ -260,6 +260,45 @@ class RoastTest < Minitest::Test
     assert_equal "none", Roast.check_effort!("none", "gpt-6.1-terra")
   end
 
+  # The default cache lives in the cf store keyed by project, never inside
+  # the repo, where untracked files trip format and pre-push checks.
+  def test_default_cache_lives_in_the_cf_store_by_project
+    home = File.join(@dir, "home")
+    repo = File.join(@dir, "repo")
+    FileUtils.mkdir_p(repo)
+    root = Roast.default_cache(repo, home: home)
+    assert_equal File.join(home, ".claude", "cf", "roasts", File.realpath(repo).tr("/", "-")), root
+    refute root.start_with?(File.realpath(repo))
+  end
+
+  # Old in-repo entries move to the store under the same key, so a rerun
+  # stays free, and the emptied .cache dir is removed.
+  def test_legacy_in_repo_cache_moves_to_the_store_with_its_key
+    repo = File.join(@dir, "repo")
+    old = File.join(repo, ".cache", "roasts")
+    FileUtils.mkdir_p(old)
+    File.write(File.join(old, "abc.json"), "{}")
+    store = File.join(@dir, "store")
+    FileUtils.mkdir_p(File.join(store, "roasts"))
+    File.write(File.join(store, "roasts", "kept.json"), "new")
+    File.write(File.join(old, "kept.json"), "old")
+    assert_equal 2, Roast.adopt_legacy_cache(repo, store)
+    assert_equal "{}", File.read(File.join(store, "roasts", "abc.json"))
+    assert_equal "new", File.read(File.join(store, "roasts", "kept.json"))
+    refute File.exist?(File.join(repo, ".cache"))
+    assert_equal 0, Roast.adopt_legacy_cache(repo, store)
+  end
+
+  def test_cli_without_cache_writes_nothing_inside_the_repo
+    repo = File.join(@dir, "repo")
+    FileUtils.mkdir_p(repo)
+    code = Roast::Cli.run([ "--repo", repo, "--brief", @brief, "--shot", @shot, "--out-dir", @roast,
+                            "--audience", "Dog groomers", "--purpose", "Book a slot" ], out: @out, http: RoastHttp.new)
+    assert_equal 0, code, @out.string
+    refute File.exist?(File.join(repo, ".cache"))
+    refute_empty Dir.glob(File.join(Roast.default_cache(repo), "roasts", "*.json"))
+  end
+
   def test_medium_effort_keeps_the_pre_effort_cache_key
     base = { brief: "b", shots: [ @shot ], history: [], round: 1, model: "gpt-6.1-sol" }
     legacy = WalkthroughCache.key({ model: "gpt-6.1-sol", brief: "b", round: 1, history: [], shots: [ Digest::SHA256.file(@shot).hexdigest ] })

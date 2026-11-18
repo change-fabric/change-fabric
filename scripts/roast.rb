@@ -527,6 +527,31 @@ module Roast
     File.file?(WalkthroughCache.path(*cache_args(cache_root, request_key(**inputs))))
   end
 
+  # The default cache root: the cf store keyed by project (the repo's real
+  # path, dashed as the ctx and inbox stores key it), never inside the repo,
+  # where untracked files trip format checks and block pushes.
+  def default_cache(repo, home: Dir.home)
+    File.join(home, '.claude', 'cf', 'roasts', File.realpath(repo).tr('/', '-'))
+  end
+
+  # Moves critics cached under the old in-repo default (<repo>/.cache/roasts)
+  # into cache_root under the same key, so a rerun stays free; an entry the
+  # store already holds wins. Drops the emptied dirs. Returns the count seen.
+  def adopt_legacy_cache(repo, cache_root)
+    legacy = File.join(repo, '.cache')
+    files = Dir.glob(File.join(legacy, 'roasts', '*.json'))
+    return 0 if files.empty?
+
+    dest = File.join(cache_root, 'roasts')
+    FileUtils.mkdir_p(dest)
+    files.each do |f|
+      target = File.join(dest, File.basename(f))
+      File.exist?(target) ? FileUtils.rm_f(f) : FileUtils.mv(f, target)
+    end
+    [ File.join(legacy, 'roasts'), legacy ].each { |d| Dir.rmdir(d) if Dir.empty?(d) }
+    files.size
+  end
+
   # The WalkthroughCache coordinates (root, kind, key, ext) of one cached critic.
   def cache_args(cache_root, key) = [ cache_root, :roasts, key, 'json' ]
   private_class_method :cache_args
@@ -635,7 +660,7 @@ module Roast
 
     def parse(args)
       repo = repo_arg(args)
-      opts = { shots: [], texts: [], max_usd: DEFAULT_CEILING_USD, cache: '.cache', out_dir: DEFAULT_OUT_DIR, effort: DEFAULT_EFFORT, flags: { purpose: [] }, lens_names: [] }
+      opts = { shots: [], texts: [], max_usd: DEFAULT_CEILING_USD, out_dir: DEFAULT_OUT_DIR, effort: DEFAULT_EFFORT, flags: { purpose: [] }, lens_names: [] }
              .merge(configured(repo).slice(:max_usd).merge(config_model: configured(repo)[:model], config_review: configured(repo).slice(:kind, :audience)))
       OptionParser.new do |o|
         o.on('--model NAME') { |v| opts[:model] = v }
@@ -664,7 +689,13 @@ module Roast
       raise UsageError, 'give at least one --shot or --text' if opts[:shots].empty? && opts[:texts].empty?
       raise UsageError, "unknown effort #{opts[:effort].inspect}; use one of #{EFFORTS.join(', ')}" unless EFFORTS.include?(opts[:effort])
 
-      opts.merge(lenses: RoastLens.resolve(opts[:lens_names]))
+      opts.merge(lenses: RoastLens.resolve(opts[:lens_names]), cache: opts[:cache] || store_cache(repo))
+    end
+
+    def store_cache(repo)
+      root = Roast.default_cache(repo)
+      Roast.adopt_legacy_cache(repo, root)
+      root
     end
 
     # --pair is the fidelity kind's input: each pair adds its prototype then
