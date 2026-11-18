@@ -73,9 +73,9 @@ module WalkthroughFonts
       href = tag[HREF_RE, 2]&.then { |h| href(h) }
       next tag unless href && remote?(href) && allowed?(href)
 
-      rel = rels(tag)
-      next '' if rel.intersect?(HINT_RELS)
-      next tag unless rel.include?('stylesheet')
+      unless stylesheet?(tag)
+        next rels(tag).intersect?(HINT_RELS) ? '' : tag
+      end
 
       # The async pattern (media="print" onload="this.media='all'") applies
       # to every medium once loaded, which the inlined rules already are.
@@ -118,8 +118,15 @@ module WalkthroughFonts
 
   def rels(tag) = tag[REL_RE, 2].to_s.downcase.split
 
+  # A stylesheet link, or a preload whose onload swaps its rel to stylesheet
+  # (the async loading pattern), which the page ends up applying either way.
+  def stylesheet?(tag)
+    rel = rels(tag)
+    rel.include?('stylesheet') || (rel.include?('preload') && tag.match?(/\bonload\s*=[^>]*stylesheet/i))
+  end
+
   def stylesheet_links(html)
-    html.scan(LINK_RE).select { |tag| rels(tag).include?('stylesheet') }.filter_map { |tag| tag[HREF_RE, 2]&.then { |h| href(h) } }
+    html.scan(LINK_RE).select { |tag| stylesheet?(tag) }.filter_map { |tag| tag[HREF_RE, 2]&.then { |h| href(h) } }
   end
 
   # Comments are dropped first, as capture drops them, so a commented-out

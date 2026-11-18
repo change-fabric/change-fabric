@@ -127,6 +127,13 @@ class WalkthroughFontsTest < Minitest::Test
     assert_includes html, "font-family: 'Inter'"
   end
 
+  def test_async_preload_link_is_fetched_and_inlined
+    File.write(@screen, "<link rel='preload' as='style' href='#{CSS_URL}' onload=\"this.rel='stylesheet'\">")
+    WalkthroughFonts.prefetch!(@screen, @root, fetch: @stub)
+    assert_equal [ CSS_URL, FONT_URL ], @fetched
+    assert_includes inline, "font-family: 'Inter'"
+  end
+
   def test_second_render_hits_the_cache_with_no_network
     first = inline
     offline = ->(url) { raise "network touched for #{url}" }
