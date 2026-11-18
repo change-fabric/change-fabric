@@ -919,13 +919,13 @@ class WalkthroughRenderTest < Minitest::Test
   # sync tools and later edits on Linux).
   def test_every_render_container_runs_as_the_host_user
     run_render(final: true)
-    refute_empty @calls[:docker]
-    @calls[:docker].each do |argv|
+    all = @calls[:docker] + @calls[:loudness] + @share_calls.to_a
+    refute_empty @share_calls.to_a, "the share copy was encoded"
+    all.each do |argv|
       at = argv.index("--user")
       refute_nil at, argv.join(" ")
       assert_equal "#{Process.uid}:#{Process.gid}", argv[at + 1]
     end
-    assert(@calls[:docker].any? { |argv| argv.last.end_with?("-share.mp4") })
   end
 
   def test_a_refused_cache_cleanup_warns_and_keeps_the_final
