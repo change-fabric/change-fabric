@@ -196,7 +196,7 @@ module RoastAudio
   end
 
   private_class_method :first_object, :issue_problem
-  USAGE = 'usage: roast.rb decide --audio-batch DIR [--target N] [--max-attempts N] | roast.rb --audio-regen DIR --approve CLIP_ID... | ' \
+  USAGE = 'usage: roast.rb decide --audio-batch DIR [--target N] [--max-attempts N] | roast.rb --audio-regen DIR --approve CLIP_ID... [--allow-sensitive] | ' \
           'roast.rb --audio CLIP.mp3 [--audio CLIP2.mp3]... --brief FILE [--vtt FILE]... [--alignment FILE]... ' \
           '[--manifest FILE|DIR [--text-path PATH] [--order-key KEY] [--pause-key KEY] [--voice-path PATH] [--model-path PATH] [--settings-path PATH]] [--word-response FILE] [--out-dir DIR] [--stop-after gate|words|judge] [--model NAME] [--max-usd N] ' \
           '[--run-max-usd N] [--max-attempts N] [--cache DIR] [--estimate-only] [--no-fix] [--allow-sensitive] [--new-batch] ' \
@@ -269,6 +269,7 @@ module RoastAudio
       OptionParser.new do |o|
         o.on('--audio-regen DIR') { |v| opts[:dir] = v }
         o.on('--approve CLIP_ID') { |v| opts[:approve] << v }
+        o.on('--allow-sensitive') { opts[:allow_sensitive] = true }
       end.parse!(args)
       raise RoastAudioBatch::UsageError, "unexpected argument: #{args.first}" unless args.empty?
       raise RoastAudioBatch::UsageError, 'give at least one --approve CLIP_ID; nothing is re-voiced without approval' if opts[:approve].empty?
@@ -277,7 +278,7 @@ module RoastAudio
     end
 
     def regen(opts, out, transport)
-      results = RoastAudioBatch.regen!(opts[:dir], opts[:approve].uniq, transport: transport)
+      results = RoastAudioBatch.regen!(opts[:dir], opts[:approve].uniq, transport: transport, allow_sensitive: opts[:allow_sensitive])
       results.each { |id, r| out.puts(r == 'ok' ? "regen #{id}: new take written; re-run the same --audio selection to gate it" : "regen #{id}: refused: #{r}") }
       results.all? { |_, r| r == 'ok' } ? 0 : 1
     end
@@ -505,7 +506,7 @@ module RoastAudio
       cur = clip['current']
       alignment = RoastAudioWords.provenance(cur['alignment'], audio_sha256: cur['audio_sha256'])
       response = opts[:word_response] || File.join(RoastAudioBatch.clip_dir(dir, id), 'words.response.json')
-      pron = (opts[:entries][File.basename(clip['source_audio'])] || {})['pronunciations'] || {}
+      pron = Array((opts[:entries][File.basename(clip['source_audio'])] || {})['pronunciations']).to_h { |p| [ p['text'], p['say'] ] }
       record = RoastAudioWords.check(gate: gate, alignment: alignment, clip_dir: RoastAudioBatch.clip_dir(dir, id), id: id, ledger: ledger,
                                      response_file: response, brief: File.read(opts[:brief]), pronunciations: pron, http: http)
       old = RoastAudioBatch.fresh(dir, id, 'words.json', record['deps'])

@@ -374,7 +374,7 @@ class RoastAudioBatchTest < Minitest::Test
   def judged_with_manifest(*audios, http:, manifest: flat_manifest(*audios.map { |a| File.basename(a) }), extra: [])
     out = StringIO.new
     args = audios.flat_map { |a| [ "--audio", a ] } + [ "--brief", @brief, "--out-dir", @out, "--manifest", manifest, *extra ]
-    code = with_enrolled("openai") { RoastAudio::Cli.run(args, out: out, http: http, docker: FakeDocker.new(tags: { "intro.mp3" => "continuous", "outro.mp3" => "continuous" })) }
+    code = with_enrolled("openai") { RoastAudio::Cli.run(args, out: out, http: http, docker: FakeDocker.new(tags: Hash.new("continuous"))) }
     [ code, out.string ]
   end
 
@@ -585,5 +585,57 @@ class RoastAudioBatchTest < Minitest::Test
     code, out = judged_with_manifest(a, http: Judge.new(score: 9))
     assert_equal 1, code
     assert_match(/sensitive term/, out)
+  end
+
+  def test_a_sensitive_term_added_to_the_manifest_later_is_refused_at_dispatch
+    a = bound_clip("a", "intro")
+    manifest = flat_manifest("intro.mp3")
+    judged_with_manifest(a, http: Judge.new(score: 7, issues: [ P1_PROSODY ]), manifest: manifest)
+    File.write(manifest, File.read(manifest).sub("The first cue", "The confidential cue"))
+    File.write(@terms, "confidential\n")
+    calls = []
+    code, out = regen(batch["clips"].first["source_id"], calls: calls)
+    assert_equal 1, code
+    assert_match(/sensitive term\(s\) in the retake text/, out)
+    assert_empty calls
+  end
+
+  def test_the_next_delta_builds_on_the_settings_of_the_current_take
+    a = bound_clip("a", "intro")
+    rushed = P1_PROSODY.merge("area" => "pacing", "problem" => "rushed")
+    judged_with_manifest(a, http: Judge.new(score: 7, issues: [ rushed ]))
+    id = batch["clips"].first["source_id"]
+    calls = []
+    regen(id, calls: calls)
+    judged_with_manifest(a, http: Judge.new(score: 7, issues: [ rushed ]))
+    assert_in_delta 0.9, proposal(id)["retake"]["settings"]["speed"]
+    regen(id, calls: calls)
+    assert_equal [ 0.95, 0.9 ], calls.map { |c| c.body["voice_settings"]["speed"] }
+  end
+
+  def test_a_mispronunciation_needs_pronunciations_and_then_uses_a_dictionary
+    a = bound_clip("a", "intro")
+    said = P1_PROSODY.merge("area" => "artifact", "problem" => "mispronounces Kubernetes")
+    judged_with_manifest(a, http: Judge.new(score: 7, issues: [ said ]))
+    id = batch["clips"].first["source_id"]
+    assert_equal false, proposal(id)["executable"]
+    assert_match(/pronunciations entry first/, proposal(id)["why"])
+    manifest = File.join(@tmp, "with-pron.json")
+    File.write(manifest, JSON.generate({ "clips" => [ { "file" => "intro.mp3", "text" => CUE_TEXT.join(" "), "voice_id" => "voice-a",
+                                                         "pronunciations" => { "Kubernetes" => "koo-ber-net-eez" } } ] }))
+    judged_with_manifest(a, http: Judge.new(score: 7, issues: [ said ]), manifest: manifest)
+    assert proposal(id)["executable"]
+    calls = []
+    out = StringIO.new
+    transport = lambda do |request, key|
+      calls << request
+      next ImagegenHelpers::FakeResponse.new("200", JSON.generate({ "id" => "dict-1", "version_id" => "v1" })) if request.path.include?("pronunciation-dictionaries")
+
+      tts_transport([]).call(request, key)
+    end
+    code = with_enrolled("elevenlabs") { RoastAudio::Cli.run([ "--audio-regen", @out, "--approve", id ], out: out, transport: transport) }
+    assert_equal 0, code, out.string
+    tts = calls.find { |c| c.path.include?("text-to-speech") }
+    assert_equal [ { "pronunciation_dictionary_id" => "dict-1", "version_id" => "v1" } ], tts.body["pronunciation_dictionary_locators"]
   end
 end

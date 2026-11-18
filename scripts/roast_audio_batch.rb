@@ -7,6 +7,7 @@ require_relative 'roast_audio_ledger'
 require_relative 'roast_audio_words'
 require_relative 'elevenlabs'
 require_relative 'walkthrough_env'
+require_relative 'sensitive_terms'
 
 # The batch index of cf:roast --audio: DIR/batch.json is the only source of
 # batch membership. Each clip has an immutable source id (from the expanded
@@ -220,7 +221,7 @@ module RoastAudioBatch
   end
 
   def pronunciations_for(batch, clip)
-    (manifest_for(batch)[File.basename(clip['source_audio'])] || {})['pronunciations'] || {}
+    Array((manifest_for(batch)[File.basename(clip['source_audio'])] || {})['pronunciations']).to_h { |p| [ p['text'], p['say'] ] }
   end
 
   def brief_text(batch)
@@ -448,14 +449,21 @@ module RoastAudioBatch
     return out.merge('action' => 'report-only', 'executable' => false, 'why' => 'no manifest entry names this clip, so it cannot be re-voiced') unless entry
 
     pauses = Array(entry['segments']).map { |g| g['pause_ms'].to_i }
-    settings, delta = settings_delta(DEFAULT_SETTINGS.merge(entry['settings'] || {}), rs)
+    # A re-voiced take records the settings that made it, so the next delta
+    # moves on from there rather than from the manifest again.
+    base = clip.dig('current', 'settings') || DEFAULT_SETTINGS.merge(entry['settings'] || {})
+    settings, delta = settings_delta(base, rs)
     retake = { 'text' => entry['text'], 'segments' => entry['segments'], 'voice_id' => entry['voice_id'], 'model' => entry['model'] || DEFAULT_TTS_MODEL,
-               'output_format' => entry['output_format'] || DEFAULT_TTS_FORMAT, 'settings' => settings, 'settings_delta' => delta, 'instruction' => instruction(rs) }
+               'output_format' => entry['output_format'] || DEFAULT_TTS_FORMAT, 'settings' => settings, 'settings_delta' => delta,
+               'pronunciations' => entry['pronunciations'], 'instruction' => instruction(rs) }.compact
     est = RoastAudioLedger.bound('regen', model: retake['model'], chars: retake['text'].length)[:usd]
     out = out.merge('retake' => retake, 'estimate_usd' => est)
     if pauses.any?(&:positive?)
       return out.merge('action' => 'report-only', 'executable' => false,
                        'why' => "the text is #{pauses.size} segments with pauses (pause_ms #{pauses.join(', ')}); one take cannot reproduce them faithfully, so re-voice the segments by hand")
+    end
+    if rs.any? { |r| r['detail'].to_s.match?(/pronounc/i) } && Array(retake['pronunciations']).empty?
+      return out.merge('executable' => false, 'why' => 'a mispronunciation needs a manifest pronunciations entry first; a retake with the same text would repeat it')
     end
     return out.merge('executable' => false, 'why' => "exhausted: #{clip['attempts']} of #{clip['max_attempts']} attempts used; raise --max-attempts to allow a re-voice") if clip['attempts'] >= clip['max_attempts']
 
@@ -506,20 +514,20 @@ module RoastAudioBatch
   # the ledger, into DIR/<id>/takes/<id>.t<n>.mp3 with a bound alignment
   # sidecar, and points the clip's current take at it. Returns
   # [[id, 'ok'|refusal message], ...]; clips not approved are untouched.
-  def regen!(dir, approve, transport: ElevenLabs::DEFAULT_TRANSPORT, sleeper: method(:sleep))
+  def regen!(dir, approve, transport: ElevenLabs::DEFAULT_TRANSPORT, sleeper: method(:sleep), allow_sensitive: false)
     batch = load(dir) or raise UsageError, "no batch at #{index_path(dir)}"
     st = batch['settings'] || {}
     snap = snapshot(dir, target: st['target'] || 9)
     summary!(dir, snap)
     ledger = RoastAudioLedger.new(dir, cap_usd: st['run_max_usd'] || 1.0, max_usd: st['max_usd'] || 0.5)
     approve.map do |id|
-      [ id, revoice_one(dir, id, ledger, transport, sleeper) ]
+      [ id, revoice_one(dir, id, ledger, transport, sleeper, allow_sensitive) ]
     rescue RoastAudioLedger::Refused, UsageError => e
       [ id, e.message ]
     end
   end
 
-  def revoice_one(dir, id, ledger, transport, sleeper)
+  def revoice_one(dir, id, ledger, transport, sleeper, allow_sensitive)
     raise UsageError, "#{id} is not a clip of this batch" unless load(dir)['clips'].any? { |c| c['source_id'] == id }
 
     path = File.join(clip_dir(dir, id), 'regen.json')
@@ -530,25 +538,31 @@ module RoastAudioBatch
     raise RoastAudioLedger::Refused, "#{id}: not executable (#{prop['why']})" unless prop['executable']
 
     r = prop['retake']
+    hits = allow_sensitive ? [] : SensitiveTerms.matched(SensitiveTerms.strings(r.slice('text', 'segments', 'pronunciations')), SensitiveTerms.load)
+    raise RoastAudioLedger::Refused, "#{id}: #{hits.size} sensitive term(s) in the retake text; pass --allow-sensitive to send anyway" unless hits.empty?
+
     bound = RoastAudioLedger.bound('regen', model: r['model'], chars: r['text'].length)
     guard = lambda do
       c = load(dir)['clips'].find { |x| x['source_id'] == id }
       raise RoastAudioLedger::Refused, "#{id}: #{c['attempts']} of #{c['max_attempts']} attempts used at dispatch; raise --max-attempts first" unless c['attempts'] < c['max_attempts']
     end
-    decoded = ledger.spend('regen', bound, clip: id, guard: guard) { [ tts(r, transport, sleeper), {} ] }
+    decoded = ledger.spend('regen', bound, clip: id, guard: guard) { [ tts(r, transport, sleeper, File.join(dir, 'cache')), {} ] }
     store_take!(dir, id, r, decoded)
     'ok'
   end
 
-  def tts(retake, transport, sleeper)
+  # The pronunciation dictionary is made before the reservation's call (it is
+  # cached, and ElevenLabs bills characters of speech, not dictionaries).
+  def tts(retake, transport, sleeper, cache_root)
     begin
       key = WalkthroughEnv.elevenlabs_key!
+      locator = ElevenLabs.dictionary_locator(retake['pronunciations'], cache_root: cache_root, transport: transport, sleeper: sleeper) if retake['pronunciations']
       req = ElevenLabs.tts_request(text: retake['text'], voice_id: retake['voice_id'], model: retake['model'], output_format: retake['output_format'],
-                                   settings: retake['settings'])
-    rescue StandardError
+                                   settings: retake['settings'], locator: locator)
+    rescue WalkthroughEnv::MissingKeyError, ArgumentError, KeyError
       raise RoastAudioLedger::PreDispatch, 're-voice request not sent'
     end
-    ElevenLabs.decode_tts(ElevenLabs.perform(req, transport: transport, sleeper: sleeper, key: key))
+    ElevenLabs.decode_tts(ElevenLabs.perform(req, transport: transport, sleeper: sleeper, key: key), aliased: !locator.nil?)
   end
 
   def store_take!(dir, id, retake, decoded)
@@ -564,7 +578,7 @@ module RoastAudioBatch
     File.write(side, JSON.generate({ 'audio_sha256' => audio_sha, 'alignment_sha256' => RoastAudioWords.sha256(decoded[:alignment]),
                                      'generator' => { 'provider' => 'elevenlabs', 'voice_id' => retake['voice_id'], 'model' => retake['model'], 'request_key' => key },
                                      'alignment' => decoded[:alignment] }))
-    clip['current'] = { 'audio' => audio, 'audio_sha256' => audio_sha, 'alignment' => side, 'alignment_sha256' => sha(side) }
+    clip['current'] = { 'audio' => audio, 'audio_sha256' => audio_sha, 'alignment' => side, 'alignment_sha256' => sha(side), 'settings' => retake['settings'] }
     clip['takes'] = n
     write(dir, batch)
   end
@@ -636,7 +650,18 @@ module RoastAudioBatch
     raise UsageError, "manifest entry #{name} has no voice_id" unless entry['voice_id'].is_a?(String) && !entry['voice_id'].empty?
     raise UsageError, "manifest entry #{name} settings must be an object" unless entry['settings'].nil? || entry['settings'].is_a?(Hash)
 
-    entry
+    entry.merge('pronunciations' => pronunciation_list(entry['pronunciations'], name)).compact
+  end
+
+  # cf:narrate's [{ "text", "say" }] list; a { text => say } object is accepted too.
+  def pronunciation_list(value, name)
+    return nil if value.nil?
+
+    list = value.is_a?(Hash) ? value.map { |t, say| { 'text' => t, 'say' => say } } : value
+    ok = list.is_a?(Array) && list.all? { |p| p.is_a?(Hash) && p['text'].is_a?(String) && p['say'].is_a?(String) }
+    raise UsageError, "manifest entry #{name} pronunciations must be [{ text, say }]" unless ok
+
+    list
   end
 
   def manifest_sha(entries) = entries.empty? ? nil : RoastAudioWords.sha256(entries)
