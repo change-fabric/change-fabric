@@ -113,6 +113,13 @@ class WalkthroughFontsTest < Minitest::Test
     assert_empty @fetched
   end
 
+  def test_layered_remote_import_is_refused_before_fetching
+    File.write(@screen, "<style>@import url('#{CSS_URL}') layer(fonts);</style>")
+    err = assert_raises(PrototypeCapture::UnsupportedContentError) { inline }
+    assert_includes err.message, "layer(fonts) is not supported"
+    assert_empty @fetched
+  end
+
   def test_second_render_hits_the_cache_with_no_network
     first = inline
     offline = ->(url) { raise "network touched for #{url}" }

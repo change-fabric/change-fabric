@@ -457,6 +457,7 @@ module PrototypeCapture
       cond = Regexp.last_match(5).to_s.strip
       if remote?(ref)
         raise UnsupportedContentError, "#{label}: remote @import #{ref} is not supported" unless WalkthroughFonts.allowed?(ref)
+        raise UnsupportedContentError, "#{label}: @import #{ref} with #{cond} is not supported" if layered?(cond)
 
         body = WalkthroughFonts.import_css(ref, font_root(root, dir), label: label)
         next cond.empty? ? body : "@media #{cond} {#{body}}"
@@ -465,12 +466,15 @@ module PrototypeCapture
 
       file = asset_path(dir, swap_keys(ref, remap), root)
       raise UnsupportedContentError, "#{label}: circular @import #{ref}" if seen.include?(file)
-      raise UnsupportedContentError, "#{label}: @import #{ref} with #{cond} is not supported" if cond.match?(/\b(?:layer|supports)\b/i)
+      raise UnsupportedContentError, "#{label}: @import #{ref} with #{cond} is not supported" if layered?(cond)
 
       body = inline_css(file, remap, root, seen)
       cond.empty? ? body : "@media #{cond} {#{body}}"
     end
   end
+
+  # A layer() or supports() condition has no @media equivalent to wrap in.
+  def layered?(cond) = cond.match?(/\b(?:layer|supports)\b/i)
 
   # Swaps every local url() in a CSS fragment for a data URI resolved
   # against `dir`; shared by linked stylesheets, <style> blocks, and style
