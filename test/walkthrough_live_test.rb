@@ -428,6 +428,8 @@ class WalkthroughLiveTest < Minitest::Test
     render(recapture: true)
     assert_equal 6, shots.size
     assert_equal 1, pass2s.size, "--recapture reassembles despite an unchanged manifest"
+    assert_includes @log.string, "narrated; scenes sign-in, dashboard, inbox, reports, admin and landing refilmed\n",
+                    "the summary names every scene --recapture refilmed, not only re-keyed ones"
   end
 
   # Before filming, the render names each live scene it will recapture and

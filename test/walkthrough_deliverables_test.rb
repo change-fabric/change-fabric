@@ -76,6 +76,14 @@ class WalkthroughDeliverablesTest < Minitest::Test
     assert_equal "draft-04: narrated; no picture change", again[:entry]["caption"]
   end
 
+  # A live recapture keeps a scene's frames key but changes its frames, so
+  # the caller names what it refilmed and the caption lists every one.
+  def test_refilmed_scenes_with_unchanged_keys_are_named
+    deliver(scenes: { "a" => "k1", "b" => "k2", "c" => "k3", "d" => "k4" })
+    out = deliver(scenes: { "a" => "k1", "b" => "k2b", "c" => "k3", "d" => "k4" }, refilmed: %w[d a c])
+    assert_equal "draft-02: narrated; scenes a, b, c and d refilmed", out[:entry]["caption"]
+  end
+
   def test_line_is_absolute_and_fenced_alone
     out = deliver(scenes: { "a" => "k" })
     assert_equal "walkthrough-draft: #{File.join(@root, 'demo-draft-01.mp4')} | draft-01: narrated; first cut, 1 scene", out[:line]

@@ -49,8 +49,9 @@ module WalkthroughDeliverables
 
   # Copies the render to its versioned path (and its VTT), records the
   # entry, and returns it with :mp4 and :line. scenes is { id => frames_key },
-  # placeholders { id => reason }.
-  def deliver(root, slug, mp4, kind:, scenes: {}, placeholders: {}, provisional: false)
+  # placeholders { id => reason }, refilmed the scene ids captured again this
+  # run (a live recapture keeps its key, so the keys alone miss it).
+  def deliver(root, slug, mp4, kind:, scenes: {}, placeholders: {}, provisional: false, refilmed: [])
     raise ArgumentError, "kind must be one of #{KINDS.join(', ')}" unless KINDS.include?(kind)
 
     number = kind == 'final' ? nil : next_number(root, slug)
@@ -62,7 +63,7 @@ module WalkthroughDeliverables
     entry = { 'number' => number, 'kind' => kind, 'file' => File.basename(paths[:mp4]),
               'sha256' => Digest::SHA256.file(paths[:mp4]).hexdigest, 'scenes' => scenes,
               'placeholders' => placeholders, 'provisional' => provisional }
-    entry['caption'] = caption(entry, list.last)
+    entry['caption'] = caption(entry, list.last, refilmed)
     write(root, slug, list + [ entry ])
     paths.merge(entry: entry, line: line(paths[:mp4], entry['caption']))
   end
@@ -80,10 +81,10 @@ module WalkthroughDeliverables
 
   # "draft-03: narrated; scenes b and d refilmed; scene e still a
   # placeholder (waiting on PR)". The first entry names its scene count.
-  def caption(entry, prev)
+  def caption(entry, prev, refilmed = [])
     parts = [ "#{label(entry['number'])}: #{entry['kind']}" ]
     parts << PROVISIONAL if entry['provisional']
-    parts.concat(changes(entry, prev))
+    parts.concat(changes(entry, prev, refilmed))
     parts.concat(entry['placeholders'].map do |id, reason|
       still = prev && prev['placeholders'].key?(id) ? 'still ' : ''
       "scene #{id} #{still}a placeholder (#{reason})"
@@ -91,14 +92,14 @@ module WalkthroughDeliverables
     parts.join('; ')
   end
 
-  def changes(entry, prev)
+  def changes(entry, prev, recaptured = [])
     scenes = entry['scenes']
     return [ "first cut, #{scenes.size} #{scenes.size == 1 ? 'scene' : 'scenes'}" ] unless prev
 
     was = prev['scenes']
     out = []
     added = scenes.keys - was.keys
-    refilmed = scenes.keys.select { |id| was.key?(id) && was[id] != scenes[id] }
+    refilmed = scenes.keys.select { |id| was.key?(id) && (was[id] != scenes[id] || recaptured.include?(id)) }
     filled = (prev['placeholders'].keys - entry['placeholders'].keys) & scenes.keys
     out << "#{scene_list(filled)} filmed" unless filled.empty?
     out << "#{scene_list(refilmed - filled)} refilmed" unless (refilmed - filled).empty?
