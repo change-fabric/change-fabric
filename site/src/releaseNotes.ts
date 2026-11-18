@@ -28,6 +28,24 @@ export interface ReleaseNote {
 }
 
 export const RELEASE_NOTES: Record<string, ReleaseNote> = {
+  "0.23.0": {
+    version: "0.23.0",
+    date: "2026-11-18",
+    headline: "A command entry's trust digest covers the scripts it runs.",
+    highlights: [
+      {
+        title: "Covered files",
+        body:
+          "Repo files named in a command entry's run string are hashed into its trust digest, so editing one needs change_approve like editing the entry.",
+      },
+      {
+        title: "lanes.command.commands[].trust_paths",
+        body: "Repo-relative globs for files a script sources, folded into the same digest.",
+      },
+    ],
+    upgrade:
+      "Additive for CHANGE.md. Every command entry's digest changes once, so approvals recorded before 0.23.0 no longer match.",
+  },
   "0.22.0": {
     version: "0.22.0",
     date: "2026-11-18",

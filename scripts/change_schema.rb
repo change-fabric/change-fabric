@@ -18,7 +18,7 @@
 require_relative 'figma_url'
 
 module ChangeSchema
-  VERSION = '0.22.0'
+  VERSION = '0.23.0'
 
   # The six lanes, the authoritative list the config validator enforces: five
   # dockerized audit lanes plus a host-run command lane (0.17.0).
@@ -215,6 +215,9 @@ module ChangeSchema
     'change_config.lanes.command.commands[].artifacts',
     'change_config.lanes.command.commands[].profiles',
     'change_config.lanes.command.commands[].retries',
+    # trust_paths (0.23.0): globs whose files fold into the entry's trust
+    # digest, beside the files its run string names.
+    'change_config.lanes.command.commands[].trust_paths',
     # testcases.auth: the same login-flow block browserless.auth already
     # defines, field for field, because a case behind a login has to get
     # through the same login. Expanded rather than cross-referenced so the

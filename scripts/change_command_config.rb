@@ -10,7 +10,7 @@ require_relative 'docker_doctrine_guard'
 # the line without reading this file. Separate from ChangeConfig because the
 # lane's entry shape has nothing in common with the browser and load lanes'.
 module ChangeCommandConfig
-  ENTRY_KEYS = %w[name run env timeout_seconds artifacts profiles retries].freeze
+  ENTRY_KEYS = %w[name run env timeout_seconds artifacts profiles retries trust_paths].freeze
   LANE_KEYS = %w[enabled commands].freeze
   NAME = /\A[a-z0-9][a-z0-9_-]{0,62}\z/
   ENV_NAME = /\A[A-Z_][A-Z0-9_]*\z/
@@ -59,6 +59,7 @@ module ChangeCommandConfig
     errors.concat(timeout_errors(entry['timeout_seconds'], "#{path}.timeout_seconds"))
     errors.concat(env_errors(entry['env'], "#{path}.env")) if entry.key?('env')
     errors.concat(artifact_errors(entry['artifacts'], "#{path}.artifacts")) if entry.key?('artifacts')
+    errors.concat(artifact_errors(entry['trust_paths'], "#{path}.trust_paths")) if entry.key?('trust_paths')
     errors.concat(profile_errors(entry['profiles'], "#{path}.profiles", profiles)) if entry.key?('profiles')
     errors.concat(retry_errors(entry['retries'], "#{path}.retries")) if entry.key?('retries')
     errors

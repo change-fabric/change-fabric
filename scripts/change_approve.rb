@@ -85,7 +85,7 @@ module ChangeApprove
     base_defs = (base.sha && ChangeTrust.snapshot_definitions(root, base.sha, profile: profile, apps: apps)) || {}
     head.filter_map do |step, fields|
       digest = ChangeTrust.digest(fields)
-      next if base_defs[step] && ChangeTrust.digest(base_defs[step]) == digest
+      next if base_defs[step] && ChangeTrust.base_match?(ChangeTrust.digest(base_defs[step]), digest)
       next if approvals.include?([ step, digest ])
 
       Pending.new(step: step, digest: digest, fields: fields, base_fields: base_defs[step], profile: profile)
