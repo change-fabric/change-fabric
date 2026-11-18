@@ -904,7 +904,8 @@ module WalkthroughLive
     code = capture_module(board, scene, jobs: jobs, session: browser_session)
     # Only a scene past the default budget raises it.
     timeout = capture_timeout_ms(board, scene, cut && next_scene).then { |t| t > ChangeDocker::Browserless::FUNCTION_TIMEOUT_MS ? t : nil }
-    result = guard(secrets.with(headers(board, scene).values)) { PrototypeCapture.run_with_retry(session, code, retries: retries_for(jobs), launch_args: launch, timeout_ms: timeout) }
+    secrets = secrets.with(headers(board, scene).values)
+    result = guard(secrets) { PrototypeCapture.run_with_retry(session, code, retries: retries_for(jobs), launch_args: launch, timeout_ms: timeout) }
     runs = result['devices']
     lead = cut ? runs.find { |r| r['name'] == cut['device'] } : runs.first
     return lead['session'] unless shots

@@ -332,6 +332,16 @@ class WalkthroughLiveTest < Minitest::Test
     assert(errors_for(board([ proto ])).any? { |e| e.include?("headers needs a screen.url") })
   end
 
+  # One navigate run is one page, so it cannot switch headers at the cut.
+  def test_a_navigate_pair_needs_the_same_headers
+    b = board
+    b["scenes"][0]["interactions"] = [ { "t_ms" => 1600, "op" => "tap", "target" => "#go", "navigate" => true } ]
+    b["scenes"][1]["headers"] = { "X-Next" => "hidden-next" }
+    errs = errors_for(b)
+    assert(errs.any? { |e| e.include?("a navigate pair films one page, so the next scene's headers must match") }, errs.inspect)
+    refute_match(/hidden-next/, errs.join("\n"))
+  end
+
   def test_header_values_are_masked_in_capture_errors
     b = board
     b["browser"]["headers"] = { "Authorization" => "Bearer hidden-token-123" }

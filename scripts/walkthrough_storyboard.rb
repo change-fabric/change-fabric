@@ -550,6 +550,9 @@ module WalkthroughStoryboard
     if nxt && WalkthroughLive.live?(nxt)
       errs.concat(navigate_next_errors(scene, nxt, lead))
       errs.concat(navigate_spec_errors(board, scene, nxt, lead))
+      unless WalkthroughLive.headers(board, scene) == WalkthroughLive.headers(board, nxt)
+        errs << "a navigate pair films one page, so the next scene's headers must match #{scene['id'].inspect}'s"
+      end
     end
     errs.concat(navigate_fit_errors(scene, board))
     errs.concat(navigate_device_length_errors(scene, board, lead))
