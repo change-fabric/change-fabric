@@ -120,7 +120,13 @@ module PlanLenses
   # skipped and the rule-based candidates apply under the cap.
   def cull(ranked, plan_dir:, skills_dir: RoastLens.dir, runner: method(:run_claude))
     names = ranked.map(&:first)
-    stdout, ok, why = runner.call(CULL_COMMAND, cull_input(names, plan_dir, skills_dir))
+    input = cull_input(names, plan_dir, skills_dir)
+    # Same scan roast.rb runs, but before anything leaves the machine.
+    unless SensitiveTerms.matched([ input ], SensitiveTerms.load).empty?
+      return { kept: names.first(MAX_ROUTED), note: 'plan lenses cull skipped (sensitive term matched; nothing sent); using rule-based candidates' }
+    end
+
+    stdout, ok, why = runner.call(CULL_COMMAND, input)
     picked = ok ? parse_cull(stdout) : nil
     return { kept: names & picked, note: nil } if picked
 

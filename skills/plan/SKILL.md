@@ -231,7 +231,8 @@ fresh session that will execute the plan.
       candidate rubrics on stdin. That call runs on the Claude Code
       subscription and is not debited. Read `plan lenses final:`
       (cf:simplicity plus at most 3, in rank order). If `claude` is missing
-      or fails, it prints a one-line `plan lenses cull skipped` note and
+      or fails, or plan text matches a sensitive term (nothing is sent),
+      it prints a one-line `plan lenses cull skipped` note and
       keeps the rule-based candidates under the cap; record the note.
    3. Before each round, run `ruby ~/.claude/cf/bin/plan_lenses.rb fit
       --remaining <usd> --keep <final routed names> -- <the step 1 args>`.
