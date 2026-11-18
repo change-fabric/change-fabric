@@ -115,6 +115,23 @@ class ChangeRunTest < Minitest::Test
     assert_equal [], runner.send(:parse_args, %w[testcases]).suites
   end
 
+  # --lane names one lane: an alias for the lane scope, so `all --lane a11y`
+  # and `a11y` run the same thing, and a conflicting scope is refused.
+  def test_lane_flag_narrows_all_to_one_lane
+    args = runner.send(:parse_args, %w[all --app portal --lane a11y --profile staging])
+    assert_equal "a11y", args.scope
+    assert_equal %w[portal], args.apps
+    assert_equal "a11y", runner.send(:parse_args, %w[--lane a11y]).scope
+    assert_equal "a11y", runner.send(:parse_args, %w[a11y --lane a11y]).scope
+  end
+
+  def test_lane_flag_refuses_an_unknown_lane_or_a_conflicting_scope
+    output = capture_stderr { assert_raises(SystemExit) { runner.send(:parse_args, %w[all --lane nope]) } }
+    assert_includes output, "--lane must be one of"
+    output = capture_stderr { assert_raises(SystemExit) { runner.send(:parse_args, %w[k6 --lane a11y]) } }
+    assert_includes output, "change_run.rb a11y"
+  end
+
   # A flag that is silently ignored is indistinguishable, from the outside, from
   # a filter that matched, so a scope no testcases lane runs in refuses it.
   def test_suite_flag_is_refused_on_a_scope_that_cannot_read_it
