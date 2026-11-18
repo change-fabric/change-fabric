@@ -818,6 +818,17 @@ class WalkthroughRenderTest < Minitest::Test
     assert run_render(final: true, gates: { roast: true, allow_roast: true })[:mp4]
   end
 
+  # The gate speaks before any capture: it names the missing roast and the
+  # exact --draft command, on the run output as well as in the error.
+  def test_final_without_a_roast_names_the_draft_command_before_capturing
+    out = StringIO.new
+    err = assert_raises(WalkthroughRoast::OpenFindingsError) { run_render(final: true, out: out, gates: { roast: true }) }
+    assert_includes err.message, "no draft roast on record"
+    assert_includes err.message, "walkthrough_render.rb #{@root} --draft"
+    assert_includes out.string, "--draft"
+    refute File.exist?(File.join(@root, "manifest.json")), "refused before any render work"
+  end
+
   def test_finished_loop_takes_no_further_paid_round
     WalkthroughRender::Run.new(@root, providers: providers, out: StringIO.new).call
     @calls[:roast].clear
