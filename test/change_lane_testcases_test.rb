@@ -1100,4 +1100,21 @@ class ChangeLaneTestcasesTest < Minitest::Test
       assert_includes session.case_codes.first, 'first.verb !== "goto"'
     end
   end
+
+  # The session-end checks in a real JS engine: a hash route only matches its
+  # own route, and a hidden login form on an authenticated page is not a
+  # logout.
+  def test_session_end_detection_respects_hash_routes_and_hidden_forms
+    skip "node not installed" unless system("command -v node >/dev/null 2>&1")
+    with_suite(PERSONA_SUITE) do |dir|
+      session = PersonaSession.new(ok_result(4))
+      persona_lane(dir, session).run
+      code = session.case_codes.first
+      helper = code[/^( *)function samePath.*?^\1\}\n/m]
+      script = "#{helper}\nconsole.log(JSON.stringify([samePath('https://a.org/#/dashboard', 'https://a.org/#/login'), " \
+               "samePath('https://a.org/#/login', 'https://a.org/#/login'), samePath('https://a.org/x/', 'https://a.org/x')]))"
+      assert_equal [ false, true, true ], JSON.parse(IO.popen([ "node", "-e", script ], &:read))
+      assert_includes code, "el.getClientRects().length > 0"
+    end
+  end
 end

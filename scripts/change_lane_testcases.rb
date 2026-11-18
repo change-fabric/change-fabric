@@ -852,7 +852,11 @@ class ChangeLaneTestcases < ChangeLane
           try {
             const x = new URL(a);
             const y = new URL(b);
-            return x.origin === y.origin && x.pathname.replace(/\\/$/, "") === y.pathname.replace(/\\/$/, "");
+            // A hash route (#/login) is the page in a client-routed app, so
+            // it has to match too when the login url carries one.
+            const route = (u) => (u.hash.startsWith("#/") ? u.hash.split("?")[0] : "");
+            return x.origin === y.origin && x.pathname.replace(/\\/$/, "") === y.pathname.replace(/\\/$/, "") &&
+              (route(y) === "" || route(x) === route(y));
           } catch (err) {
             return false;
           }
@@ -865,7 +869,17 @@ class ChangeLaneTestcases < ChangeLane
           const selectors = persona.detect.loginSelectors || [];
           if (selectors.length === 0) return false;
           for (const selector of selectors) {
-            try { if (!(await casePage.$(selector))) return false; } catch (err) { return false; }
+            // Visible, not just present: an app may keep a hidden login
+            // dialog mounted on every page.
+            try {
+              const field = await casePage.$(selector);
+              if (!field) return false;
+              const shown = await field.evaluate((el) => {
+                const style = getComputedStyle(el);
+                return style.visibility !== "hidden" && style.display !== "none" && el.getClientRects().length > 0;
+              });
+              if (!shown) return false;
+            } catch (err) { return false; }
           }
           return true;
         }
