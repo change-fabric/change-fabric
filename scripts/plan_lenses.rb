@@ -3,6 +3,8 @@
 
 require 'optparse'
 require 'shellwords'
+require 'open3'
+require 'json'
 require 'stringio'
 require_relative 'roast'
 require_relative 'roast_lens'
@@ -17,11 +19,12 @@ module PlanLenses
   CAP_USD = 0.50
   # Rank ties after reason count: clouds, then security, then wcag, then name.
   KIND_ORDER = %w[cf:aws cf:gcp cf:azure cf:security cf:wcag].freeze
-  # The haiku cull's rates per million tokens and its output cap.
-  CULL_RATES = { input: 1.0, output: 5.0 }.freeze
-  CULL_OUTPUT_TOKENS = 2000
-  CULL_PROMPT = 'Return a JSON list of the candidate rubric lenses that clearly apply to this plan, ' \
-                'each with a one-line reason. Drop any whose rubric does not apply.'
+  # The cull: one host `claude -p` turn on haiku with every tool off, the
+  # texts on stdin. It runs on the user's Claude Code subscription, so it is
+  # not debited against CAP_USD.
+  CULL_COMMAND = [ 'claude', '-p', '--model', 'haiku', '--max-turns', '1', '--tools', '' ].freeze
+  CULL_PROMPT = 'Below are a plan, its goal, and candidate rubric lenses. Reply with only a JSON array ' \
+                'of the candidate names (for example ["cf:aws"]) whose rubric clearly applies to this plan.'
   IMAGE = /\.(png|jpe?g|webp)\z/i
   PLAN_FILES = %w[plan.md goal.md].freeze
 
@@ -93,19 +96,50 @@ module PlanLenses
     ((input * rates[:input] * (long ? 2 : 1)) + (output * rates[:output] * (long ? 1.5 : 1))) / 1_000_000.0
   end
 
-  # Upper bound for the haiku cull: the prompt, the plan files and every
-  # candidate SKILL.md, counted as Roast.estimate counts chars, plus its cap.
-  def cull_bound(candidates:, files:, skills_dir: RoastLens.dir)
-    skills = candidates.filter_map { |name| skill_file(name, skills_dir) }
-    chars = CULL_PROMPT.size + [ *files, *skills ].sum { |f| File.file?(f) ? File.size(f) : 0 }
-    ((chars / 4 * CULL_RATES[:input]) + (CULL_OUTPUT_TOKENS * CULL_RATES[:output])) / 1_000_000.0
-  end
-
   # A rubric's SKILL.md in the checkout layout (skills/aws) or the installed
   # one (~/.claude/skills/cf:aws).
   def skill_file(name, skills_dir)
     bare = RoastLens.bare(name)
     [ bare, "cf:#{bare}" ].map { |d| File.join(skills_dir, d, 'SKILL.md') }.find { |f| File.file?(f) }
+  end
+
+  # { kept:, note: }. kept is the cull's answer filtered to the candidates;
+  # on a missing binary, a failed call or an unreadable answer, the cull is
+  # skipped and the rule-based candidates apply under the cap.
+  def cull(ranked, plan_dir:, skills_dir: RoastLens.dir, runner: method(:run_claude))
+    names = ranked.map(&:first)
+    stdout, ok, why = runner.call(CULL_COMMAND, cull_input(names, plan_dir, skills_dir))
+    picked = ok ? parse_cull(stdout) : nil
+    return { kept: names & picked, note: nil } if picked
+
+    { kept: names.first(MAX_ROUTED), note: "plan lenses cull skipped (#{why || 'unreadable answer'}); using rule-based candidates" }
+  end
+
+  def cull_input(names, plan_dir, skills_dir)
+    parts = PLAN_FILES.map { |f| "== #{f}\n#{File.read(File.join(plan_dir, f)) if File.file?(File.join(plan_dir, f))}" }
+    lenses = names.map { |n| "== candidate #{n}\n#{(f = skill_file(n, skills_dir)) ? File.read(f) : ''}" }
+    [ CULL_PROMPT, *parts, *lenses ].join("\n\n")
+  end
+
+  def parse_cull(text)
+    list = JSON.parse(text.to_s[/\[.*\]/m].to_s)
+    list.is_a?(Array) ? list.map { |n| "cf:#{RoastLens.bare(n.is_a?(Hash) ? n['name'] : n)}" } : nil
+  rescue JSON::ParserError
+    nil
+  end
+
+  # [stdout, ok, reason]; never raises.
+  def run_claude(command, input)
+    return [ '', false, 'claude not on PATH' ] unless on_path?(command.first)
+
+    stdout, _err, status = Open3.capture3(*command, stdin_data: input)
+    [ stdout, status.success?, status.success? ? nil : "claude exited #{status.exitstatus}" ]
+  rescue SystemCallError => e
+    [ '', false, e.class.name ]
+  end
+
+  def on_path?(bin)
+    ENV.fetch('PATH', '').split(File::PATH_SEPARATOR).any? { |d| File.executable?(File.join(d, bin)) }
   end
 
   # What a finished call costs the ledger: its reported usage, else its bound.
@@ -133,6 +167,7 @@ module PlanLenses
         o.on('--plan-dir DIR') { |v| opts[:plan_dir] = v }
         o.on('--repo DIR') { |v| opts[:repo] = v }
         o.on('--keep LIST') { |v| opts[:keep] = v.split(',').map(&:strip) }
+        o.on('--cull') { opts[:cull] = true }
       end.parse!(args)
       plan = File.join(opts[:plan_dir].to_s, 'plan.md')
       return missing(plan, out) unless File.file?(plan)
@@ -140,9 +175,11 @@ module PlanLenses
       ranked = PlanLenses.candidates(plan_dir: opts[:plan_dir], repo: opts[:repo])
       out.puts("plan lenses always: #{ALWAYS}")
       out.puts("plan lenses candidates: #{ranked.empty? ? '(none)' : ranked.map { |n, why| "#{n} (#{why.join('; ')})" }.join(', ')}")
-      unless ranked.empty?
-        files = PLAN_FILES.map { |f| File.join(opts[:plan_dir], f) }
-        out.puts(format('plan lenses cull bound: $%.4f', PlanLenses.cull_bound(candidates: ranked.map(&:first), files: files)))
+      opts[:keep] = [] if opts[:cull]
+      if opts[:cull] && !ranked.empty?
+        result = PlanLenses.cull(ranked, plan_dir: opts[:plan_dir])
+        out.puts(result[:note]) if result[:note]
+        opts[:keep] = result[:kept]
       end
       out.puts("plan lenses final: #{PlanLenses.lens_flags(PlanLenses.final(ranked, opts[:keep])).join(' ')}") if opts[:keep]
       0
