@@ -69,6 +69,22 @@ class ChangeQaFilmTest < Minitest::Test
     assert_equal "fail", ChangeQaFilm.film_status({ "status" => "fail" }, ok.first(1), 2)
   end
 
+  def test_opening_goto_keeps_only_the_staging_path
+    assert_equal "/app/reports?tab=2", ChangeQaFilm.relative_opening("https://staging.example.test/app/reports?tab=2")
+    assert_equal "/", ChangeQaFilm.relative_opening("https://staging.example.test")
+  end
+
+  def test_rewrite_status_keeps_the_ungraded_verdict
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, ChangeTestcasesEvidence::RESULTS_FILE)
+      File.write(path, "#{JSON.generate('status' => 'fail', 'acceptance_verdict' => nil)}\n")
+      ChangeQaFilm.rewrite_status(dir, "pass")
+      row = JSON.parse(File.read(path))
+      assert_equal "pass", row["status"]
+      assert_nil row["acceptance_verdict"]
+    end
+  end
+
   def test_an_omitted_persona_is_anonymous
     assert_equal "anonymous", ChangeQaFilm.parse(%w[--url https://x.test])[:persona]
   end
@@ -89,7 +105,7 @@ class ChangeQaFilmTest < Minitest::Test
   def test_selector_flag_runs_on_the_opening_page
     flag = ChangeQaFilm.flag_steps(flag: "f", selector: "#nav")
     entries = ChangeQaFilm.plan(draft([ { "click" => "#a" } ], [ nil ]), flag, "https://staging.example.test", probe: false)
-    assert_equal [ { "goto" => "https://staging.example.test" }, { "expect_visible" => "#nav" }, { "click" => "#a" } ],
+    assert_equal [ { "goto" => "/" }, { "expect_visible" => "#nav" }, { "click" => "#a" } ],
                  entries.map { |entry| entry[:step] }
     assert_equal [ false, true, false ], entries.map { |entry| entry[:flag] }
     assert_equal "Open the page", entries.first[:check]

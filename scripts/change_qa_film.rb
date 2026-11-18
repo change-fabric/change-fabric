@@ -4,6 +4,7 @@
 require 'fileutils'
 require 'json'
 require 'securerandom'
+require 'uri'
 require 'yaml'
 require_relative 'browserless_pdf'
 require_relative 'cf_project_identity'
@@ -278,7 +279,17 @@ module ChangeQaFilm
   # when the draft does not name one.
   def opening_goto(steps, url)
     first = steps.first
-    first.is_a?(Hash) && first.key?('goto') ? steps : [ { 'goto' => url } ] + steps
+    first.is_a?(Hash) && first.key?('goto') ? steps : [ { 'goto' => relative_opening(url) } ] + steps
+  end
+
+  # The staging url's own path, so a saved suite opens the same page on
+  # whatever base url replays it, never staging itself.
+  def relative_opening(url)
+    uri = URI.parse(url.to_s)
+    path = uri.path.to_s.empty? ? '/' : uri.path
+    [ path, uri.query && "?#{uri.query}", uri.fragment && "##{uri.fragment}" ].compact.join
+  rescue URI::InvalidURIError
+    '/'
   end
 
   # The login outcome, each draft step's record, and the snapshot lifted out
@@ -328,7 +339,6 @@ module ChangeQaFilm
                             commit: nil, exports: %w[video], video_budget_mb: 512)
       ChangeLaneTestcases.new(lane_config, context).run.each { |finding| warn "[film] #{finding.status}: #{finding.detail}" }
     end
-    write_reports(evidence, options)
     evidence
   end
 
@@ -348,6 +358,8 @@ module ChangeQaFilm
     results = result_path && File.exist?(result_path) ? JSON.parse(File.read(result_path))['steps'] : []
     labels = ChangeFlowCompiler.new(entries.map { |entry| entry[:step] }, base_url: options[:url]).labels
     status = film_status(record, results, entries.size)
+    rewrite_status(run_dir, status) if record['status'] && record['status'] != status
+    write_reports(run_dir, options)
     checklist_path = File.join(run_dir, 'checklist.md')
     File.write(checklist_path, checklist(entries: entries, labels: labels, results: results, flag: options[:flag],
                                          acceptance: acceptance, verdict: record['acceptance_verdict'], status: status))
@@ -366,6 +378,14 @@ module ChangeQaFilm
 
     all_ran = Array(results).size == step_count && Array(results).all? { |step| step['ok'] }
     all_ran && record['acceptance_verdict'].nil? ? 'pass' : 'fail'
+  end
+
+  # Puts the film verdict in the case record, so report.html, report.pdf and
+  # junit.xml agree with the checklist. The not-graded verdict is kept.
+  def rewrite_status(run_dir, status)
+    path = File.join(run_dir, ChangeTestcasesEvidence::RESULTS_FILE)
+    rows = read_jsonl(path).map { |row| row.merge('status' => status) }
+    File.write(path, rows.map { |row| "#{JSON.generate(row)}\n" }.join)
   end
 
   def flag_steps_for(options)
