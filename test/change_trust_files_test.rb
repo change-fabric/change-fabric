@@ -195,6 +195,7 @@ class ChangeTrustFilesTest < Minitest::Test
   def test_cd_followed_by_a_semicolon
     commit("scripts/ci.sh" => "a\n")
     assert_equal [ "scripts/ci.sh" ], cover({ "name" => "ci", "run" => "cd scripts; bash ci.sh" })["files"].keys
+    assert_equal [ "scripts/ci.sh" ], cover({ "name" => "ci", "run" => "cd scripts;bash ci.sh" })["files"].keys
   end
 
   def test_successive_cds_compose

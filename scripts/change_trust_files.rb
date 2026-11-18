@@ -265,7 +265,7 @@ module ChangeTrustFiles
     words.each_cons(2).each_with_object([ cwd ]) do |(verb, dir), bases|
       next unless %w[cd pushd].include?(verb)
 
-      dir = dir.sub(/[;&|)]+\z/, '')
+      dir = dir.split(/[;&|()<>]/).first.to_s
       raise Escape, "run changes directory to #{dir.inspect}, which cannot be followed; refused" if dir.match?(/[$`~*?]/)
 
       reached = bases.filter_map { |base| normalize(base.empty? ? dir : File.join(base, dir)) }
