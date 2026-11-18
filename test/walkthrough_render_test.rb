@@ -656,8 +656,8 @@ class WalkthroughRenderTest < Minitest::Test
 
   def test_ceiling_is_shared_and_scene_flag_skips_other_scenes
     write_broll_board
-    run_render(providers: providers.merge(broll: broll_provider("generated")), max_usd: 0.25)
-    assert_in_delta 0.25, @budgets.first.ceiling
+    run_render(providers: providers.merge(broll: broll_provider("generated")), max_usd: 5.0)
+    assert_in_delta 5.0, @budgets.first.ceiling
     @calls.clear
     run_render(scene: "list", providers: providers.merge(broll: broll_provider("generated")))
     assert_empty @calls[:broll]
@@ -1077,6 +1077,110 @@ class WalkthroughRenderTest < Minitest::Test
     assert_includes err.message, url
     assert_includes out.string, "the run stopped before any paid call"
     refute_includes out.string, "estimate"
+  end
+
+  # -- --max-usd ceiling ------------------------------------------------------
+
+  def refusing(*names)
+    names.to_h { |n| [ n, ->(**) { raise "paid #{n} called over the --max-usd ceiling" } ] }
+  end
+
+  def paid_refusers = refusing(:tts, :music, :image, :broll, :roast)
+
+  # The authored measured_ms matches what the stub TTS measures, so the
+  # estimate prices the music bed at the length the run composes.
+  def estimate_usd
+    b = board
+    b["scenes"].each { |s| s["narration"]["measured_ms"] = s["narration"]["text"].length * 50 }
+    File.write(File.join(@root, "storyboard.json"), JSON.pretty_generate(b))
+    run = WalkthroughRender::Run.new(@root, providers: providers, out: StringIO.new, gates: { roast: false })
+    run.call(estimate_only: true)
+    run.instance_variable_get(:@estimated_usd)
+  end
+
+  def test_zero_ceiling_delivers_the_silent_cut_and_refuses_every_paid_call
+    out = StringIO.new
+    err = assert_raises(WalkthroughRender::SpendCeilingError) do
+      run_render(providers: providers.merge(paid_refusers), out: out, max_usd: 0.0, gates: { roast: true })
+    end
+    assert_match(/paid estimate \$\d+\.\d\d passes the --max-usd \$0\.00 ceiling/, err.message)
+    assert File.file?(File.join(@root, "demo-draft-01.mp4")), "the free silent cut is delivered"
+    refute_includes out.string, "narrating"
+    refute_includes out.string, "music: composing"
+  end
+
+  def test_music_alone_over_the_ceiling_is_refused
+    b = board
+    b["scenes"].each { |s| s.delete("narration") }
+    File.write(File.join(@root, "storyboard.json"), JSON.pretty_generate(b))
+    out = StringIO.new
+    err = assert_raises(WalkthroughRender::SpendCeilingError) do
+      run_render(providers: providers.merge(paid_refusers), out: out, max_usd: 0.0)
+    end
+    assert_includes out.string, "narration $0.00"
+    assert_includes err.message, "--max-usd $0.00"
+  end
+
+  def test_ceiling_just_under_the_estimate_is_refused
+    est = estimate_usd
+    assert_operator est, :>, 0.01
+    assert_raises(WalkthroughRender::SpendCeilingError) do
+      run_render(providers: providers.merge(paid_refusers), max_usd: est - 0.001)
+    end
+  end
+
+  def test_ceiling_at_the_estimate_proceeds
+    est = estimate_usd
+    result = run_render(max_usd: est)
+    assert result[:mp4]
+    assert_equal 1, @calls[:music].size
+    refute_empty @calls[:tts]
+  end
+
+  def test_music_repriced_after_long_narration_is_refused
+    est = estimate_usd
+    long = providers[:tts]
+    slow_tts = ->(**kw) { long.call(**kw).merge(measured_ms: 10_000) }
+    out = StringIO.new
+    err = assert_raises(WalkthroughRender::SpendCeilingError) do
+      run_render(providers: providers.merge(tts: slow_tts).merge(refusing(:music)), out: out, max_usd: est)
+    end
+    assert_includes err.message, "music at its measured length"
+    refute_includes out.string, "music: composing"
+  end
+
+  def test_uncached_image_over_the_ceiling_is_refused
+    b = board
+    b["scenes"][0]["images"] = [ { "id" => "hero", "prompt" => "a hero", "size" => "1024x1024" } ]
+    File.write(File.join(@root, "storyboard.json"), JSON.pretty_generate(b))
+    assert_raises(WalkthroughRender::SpendCeilingError) do
+      run_render(providers: providers.merge(paid_refusers), max_usd: 0.0)
+    end
+  end
+
+  def test_broll_over_the_ceiling_is_refused_and_takes_the_free_fallback
+    write_broll_board
+    out = StringIO.new
+    assert_raises(WalkthroughRender::SpendCeilingError) do
+      run_render(providers: providers.merge(paid_refusers), out: out, max_usd: 0.0)
+    end
+    assert_includes out.string, "the silent cut never generates"
+  end
+
+  def test_final_over_the_ceiling_is_refused_without_a_cut
+    out = StringIO.new
+    assert_raises(WalkthroughRender::SpendCeilingError) do
+      run_render(providers: providers.merge(paid_refusers), out: out, max_usd: 0.0, final: true)
+    end
+    refute_includes out.string, "silent cut"
+  end
+
+  def test_roast_round_past_what_the_ceiling_leaves_is_skipped
+    est = estimate_usd
+    out = StringIO.new
+    result = run_render(providers: providers.merge(refusing(:roast)), out: out, max_usd: est, gates: { roast: true })
+    assert result[:mp4]
+    assert_includes out.string, "roast: skipped, the round"
   end
 
   # A --scene run still prefetches every screen's fonts: dependents and the

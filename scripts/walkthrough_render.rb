@@ -39,6 +39,7 @@ module WalkthroughRender
 
   class MissingCacheError < StandardError; end
   class FfmpegError < StandardError; end
+  class SpendCeilingError < StandardError; end
 
   DEFAULT_PROVIDERS = {
     tts: ->(**kw) { ElevenLabs.tts(**kw) },
@@ -68,7 +69,7 @@ module WalkthroughRender
     attr_reader :root
 
     # rubocop:disable Metrics/ParameterLists
-    def initialize(root, scene: nil, final: false, providers: {}, out: $stdout, board: nil, max_usd: BRoll::DEFAULT_CEILING_USD,
+    def initialize(root, scene: nil, final: false, providers: {}, out: $stdout, board: nil, max_usd: nil,
                    burn_captions: false, gates: {}, recapture: false, final_only: false, silent: false, provisional: false)
       # rubocop:enable Metrics/ParameterLists
       @root = File.expand_path(root)
@@ -92,7 +93,10 @@ module WalkthroughRender
       @board_path = File.join(@root, 'storyboard.json')
       @source = board || WalkthroughStoryboard.load(@board_path)
       @board = silent ? @source : WalkthroughDraftBoard.with_placeholders(@source)
-      @budget = BRoll::Budget.new(max_usd)
+      # An explicit --max-usd caps every paid call in the run (narration,
+      # music, images, b-roll, roast); without one only b-roll has a ceiling.
+      @max_usd = max_usd
+      @budget = BRoll::Budget.new(max_usd || BRoll::DEFAULT_CEILING_USD)
     end
 
     # Every progress line passes through the env-value mask.
@@ -169,6 +173,8 @@ module WalkthroughRender
         est[:broll] = BRoll.estimate(clips)
         say("Google estimate: #{est[:broll][:line]} (ceiling $#{format('%.2f', @budget.ceiling)})")
       end
+      @estimated_music_usd = est[:audio][:music_usd]
+      @estimated_usd = (est[:audio][:total_usd] + est[:images][:usd] + est.dig(:broll, :usd).to_f).round(4)
       est
     end
 
@@ -489,6 +495,7 @@ module WalkthroughRender
       return unless @board['music']
       return if File.file?(music_path(total_ms))
 
+      recheck_music_spend!(music_ms(total_ms))
       say('music: composing')
       @p[:music].call(**music_block, length_ms: music_ms(total_ms), cache_root: @cache)
     end
@@ -929,6 +936,7 @@ module WalkthroughRender
       inputs = roast_inputs(manifest, mp4, reports)
       usd = Roast.round_usd(@cache, **inputs)
       return roast_capped unless say_roast_estimate(inputs, usd)
+      return roast_over_max_usd(usd) if roast_over_max_usd?(usd)
 
       critic = @p[:roast].call(**inputs, cache_root: @cache, allow_sensitive: @gates[:allow_sensitive])
       Roast.write_round(roast_dir, inputs[:round], critic)
@@ -970,6 +978,15 @@ module WalkthroughRender
       say("roast estimate: #{inputs[:shots].size} keyframe(s) plus transcript, $#{format('%.2f', usd)} " \
           "(run cap $#{format('%.2f', roast_cap)}, $#{format('%.2f', left)} left)")
       usd <= left + 1e-9
+    end
+
+    # An explicit --max-usd also bounds the roast round: what the render's
+    # paid estimate left of it must cover the round.
+    def roast_over_max_usd?(usd) = !@max_usd.nil? && @estimated_usd.to_f + usd > @max_usd + 1e-9
+
+    def roast_over_max_usd(usd)
+      say("roast: skipped, the round #{money(usd)} plus the render estimate #{money(@estimated_usd.to_f)} " \
+          "passes the --max-usd #{money(@max_usd)} ceiling")
     end
 
     # The estimate passes what is left: the loop ends and the open findings are
@@ -1041,6 +1058,7 @@ module WalkthroughRender
       return nil if estimate_only
 
       refuse_placeholders! if @final
+      spend_gate!
       silent_cut if silent_cut?
       generate_audio
       resolve_anchors!
@@ -1167,6 +1185,36 @@ module WalkthroughRender
             "--final refuses while scenes are placeholders: #{pending.map { |id, why| "#{id} (#{why})" }.join(', ')}; film them or render a draft"
     end
 
+    def over_ceiling? = !@max_usd.nil? && @estimated_usd > @max_usd + 1e-9
+
+    def money(usd) = "$#{format('%.2f', usd)}"
+
+    # The estimate is compared against an explicit --max-usd before the first
+    # paid call. Over it, a draft still gets the free silent cut, and the run
+    # stops with no narration, music, image, b-roll, or roast spend.
+    def spend_gate!
+      return unless over_ceiling?
+
+      silent_cut unless @final
+      raise SpendCeilingError, "the paid estimate #{money(@estimated_usd)} passes the --max-usd #{money(@max_usd)} ceiling; " \
+                               'no paid call was made (narration, music, images, b-roll, roast); ' \
+                               'raise --max-usd to at least the estimate to approve it'
+    end
+
+    # Measured narration can lengthen the timeline (and rekey a cached bed),
+    # so the music cost is repriced at its real length before composing and
+    # the revised total is held to the ceiling again.
+    def recheck_music_spend!(length_ms)
+      actual = ElevenLabs.estimate(chars: 0, music_ms: length_ms, model: nil)[:music_usd]
+      @estimated_usd = (@estimated_usd.to_f - @estimated_music_usd.to_f + actual).round(4)
+      @estimated_music_usd = actual
+      return unless over_ceiling?
+
+      raise SpendCeilingError, "music at its measured length brings the paid estimate to #{money(@estimated_usd)}, past the " \
+                               "--max-usd #{money(@max_usd)} ceiling; music was not composed; " \
+                               'raise --max-usd to at least the estimate to approve it'
+    end
+
     # The free first cut runs before paid narration or music, so it is due
     # only on a draft run with paid audio still to generate.
     def silent_cut? = !@final && @paid_audio_pending
@@ -1280,7 +1328,7 @@ if __FILE__ == $PROGRAM_NAME
   scene = ARGV.include?('--scene') ? (ARGV[ARGV.index('--scene') + 1] || abort(usage)) : nil
   abort('--draft and --final are exclusive') if ARGV.include?('--draft') && ARGV.include?('--final')
   abort('--final-only is a final with no intermediate cut; it cannot take --draft') if ARGV.include?('--draft') && ARGV.include?('--final-only')
-  max_usd = ARGV.include?('--max-usd') ? (ARGV[ARGV.index('--max-usd') + 1] || abort(usage)).to_f : BRoll::DEFAULT_CEILING_USD
+  max_usd = ARGV.include?('--max-usd') ? (ARGV[ARGV.index('--max-usd') + 1] || abort(usage)).to_f : nil
   roast_usd = ARGV.include?('--roast-max-usd') ? (ARGV[ARGV.index('--roast-max-usd') + 1] || abort(usage)).to_f : nil
   begin
     roast = WalkthroughRoast.settings(Dir.pwd, roast: ARGV.include?('--no-roast') ? false : nil, max_usd: roast_usd)
@@ -1298,7 +1346,8 @@ if __FILE__ == $PROGRAM_NAME
                                final_only: ARGV.include?('--final-only'))
                           .call(estimate_only: ARGV.include?('--estimate-only'))
   rescue PrototypeUxLint::FindingsError, WalkthroughRoast::OpenFindingsError, WalkthroughClipcheck::ClipError,
-         WalkthroughLoudness::LoudnessError, WalkthroughHousekeeping::NoSpaceError => e
+         WalkthroughLoudness::LoudnessError, WalkthroughHousekeeping::NoSpaceError,
+         WalkthroughRender::SpendCeilingError => e
     abort("refused: #{e.message}")
   rescue WalkthroughEnv::NeedsEnrollment => e
     WalkthroughEnv.enroll_exit!(e)
