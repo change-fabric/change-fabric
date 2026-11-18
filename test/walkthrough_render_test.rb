@@ -824,10 +824,21 @@ class WalkthroughRenderTest < Minitest::Test
     out = StringIO.new
     err = assert_raises(WalkthroughRoast::OpenFindingsError) { run_render(final: true, out: out, gates: { roast: true }) }
     assert_includes err.message, "no draft roast on record"
-    assert_includes err.message, "walkthrough_render.rb #{@root} --draft"
+    assert_includes err.message, "walkthrough_render.rb #{Shellwords.escape(@root)} --draft"
     assert_includes out.string, "--draft"
     refute File.exist?(File.join(@root, "manifest.json")), "refused before any render work"
   end
+
+# A directory with a space comes back quoted, so the printed command
+# renders the same walkthrough when pasted.
+def test_draft_command_escapes_a_directory_with_spaces
+  spaced = File.join(File.dirname(@root), "My Project")
+  FileUtils.cp_r(@root, spaced)
+  cmd = WalkthroughRender::Run.new(spaced, providers: providers, out: StringIO.new).send(:draft_command)
+  assert_equal [ "ruby", "~/.claude/cf/bin/walkthrough_render.rb", spaced, "--draft" ], Shellwords.split(cmd)
+ensure
+  FileUtils.rm_rf(spaced) if spaced
+end
 
   def test_finished_loop_takes_no_further_paid_round
     WalkthroughRender::Run.new(@root, providers: providers, out: StringIO.new).call

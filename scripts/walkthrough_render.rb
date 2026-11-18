@@ -941,7 +941,7 @@ module WalkthroughRender
     def draft_command
       rel = PathCanon.relative(@root, Dir.pwd)
       dir = rel.nil? || rel == '.' ? @root : rel
-      "ruby ~/.claude/cf/bin/walkthrough_render.rb #{dir} --draft"
+      "ruby ~/.claude/cf/bin/walkthrough_render.rb #{Shellwords.escape(dir)} --draft"
     end
 
     # A --final with no roast on record refuses before any paid or captured
