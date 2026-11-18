@@ -499,6 +499,12 @@ class ChangeRunForTagAndGateStatusTest < Minitest::Test
     end
   end
 
+  def test_a_scheduled_run_writes_the_testcases_report_too
+    source = File.read(File.expand_path("../scripts/change_run.rb", __dir__))
+    schedule = source[/def execute_schedule.*?^  end$/m]
+    assert_includes schedule, "write_testcases_report(config)"
+  end
+
   def test_the_testcases_report_is_written_into_the_run_dir
     Dir.mktmpdir do |dir|
       record = ChangeCaseResult.new(key: "s/c", suite: "s", id: "c", status: "pass", run_id: "r1")
