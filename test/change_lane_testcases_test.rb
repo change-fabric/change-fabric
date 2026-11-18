@@ -1115,6 +1115,7 @@ class ChangeLaneTestcasesTest < Minitest::Test
                "samePath('https://a.org/#/login', 'https://a.org/#/login'), samePath('https://a.org/x/', 'https://a.org/x')]))"
       assert_equal [ false, true, true ], JSON.parse(IO.popen([ "node", "-e", script ], &:read))
       assert_includes code, "el.getClientRects().length > 0"
+      assert_includes code, 'window.sessionStorage.getItem("__cf_seeded") === "1"'
     end
   end
 end

@@ -809,8 +809,7 @@ class ChangeLaneTestcases < ChangeLane
         #{ChangeFlowCompiler.flow_runtime_js}
 
         // The persona's login, seeded rather than replayed: its cookies, and
-        // its localStorage written on each new document of the same origin
-        // unless the case has already set that key itself.
+        // its localStorage written on the first document of each origin.
         async function seedStorage(casePage, seed) {
           if (!seed) return;
           const cookies = (seed.cookies || []).map((c) => {
@@ -826,7 +825,11 @@ class ChangeLaneTestcases < ChangeLane
           await casePage.evaluateOnNewDocument((list) => {
             try {
               const entry = list.find((o) => o.origin === window.location.origin);
-              if (!entry) return;
+              // Once per origin per case: the marker lives in sessionStorage,
+              // which survives reloads in this tab, so a key the case deletes
+              // stays deleted.
+              if (!entry || window.sessionStorage.getItem("__cf_seeded") === "1") return;
+              window.sessionStorage.setItem("__cf_seeded", "1");
               for (const [key, value] of entry.items) {
                 if (window.localStorage.getItem(key) === null) window.localStorage.setItem(key, value);
               }
