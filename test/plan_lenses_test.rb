@@ -63,7 +63,6 @@ class PlanLensesTest < Minitest::Test
     _, text = run_cli("--plan-dir", @dir)
     assert_match(/candidates: .*cf:aws \(keyword lambda\)/, text)
     assert_match(/cf:terraform \(path infra\/main.tf\)/, text)
-    assert_match(/plan lenses cull bound: \$\d/, text)
   end
 
   def test_keep_ignores_unknown_and_keeps_rank_order
@@ -89,7 +88,7 @@ class PlanLensesTest < Minitest::Test
     assert_match(/plan.md not found/, text)
   end
 
-  # --- budget procedure (pure fit, fake bounds)
+  # --- budget procedure (roast rounds only; the cull is not debited) (pure fit, fake bounds)
 
   def weights(lens: 0.10, image: 0.05, base: 0.10)
     ->(lenses, inputs) { base + (lens * lenses.size) + (image * inputs.grep(PlanLenses::IMAGE).size) }
@@ -166,25 +165,74 @@ class PlanLensesTest < Minitest::Test
     assert_equal :skip, PlanLenses.fit(lenses: %w[cf:simplicity], inputs: [], remaining: remaining, bound: ->(*) { bound })
   end
 
-  def test_cull_bound_grows_with_each_candidate_and_skips_when_over
-    plan("Plan.\n")
-    files = %w[plan.md goal.md].map { |f| File.join(@dir, f) }
-    names = %w[cf:aws cf:ruby cf:rails cf:terraform cf:usability cf:refactoring cf:react cf:typescript cf:javascript cf:docker]
-    bounds = (0..10).map { |n| PlanLenses.cull_bound(candidates: names.first(n), files: files, skills_dir: SKILLS_DIR) }
-    bounds.each_cons(2) { |a, b| assert_operator b, :>, a }
-    assert_operator bounds.last, :>, bounds.first
+  # A fake `claude` on PATH that records its argv and stdin, then answers.
+  def stub_claude(answer: '["cf:ruby"]', status: 0)
+    bin = File.join(@dir, "bin")
+    FileUtils.mkdir_p(bin)
+    path = File.join(bin, "claude")
+    File.write(path, "#!/bin/sh
+printf '%s\n' \"$@\" > #{@dir}/argv
+cat > #{@dir}/stdin
+echo '#{answer}'
+exit #{status}
+")
+    File.chmod(0o755, path)
+    bin
   end
 
-  def test_cull_bound_reads_installed_cf_prefixed_dirs
-    plan("Plan.\n")
+  def with_path(path)
+    prior = ENV.fetch("PATH")
+    ENV["PATH"] = path
+    yield
+  ensure
+    ENV["PATH"] = prior
+  end
+
+  def cull_plan = plan("Ruby and Rails on Lambda with Terraform.
+")
+
+  def test_cull_runs_haiku_one_turn_with_tools_off_and_keeps_its_answer
+    cull_plan
+    _, text = with_path("#{stub_claude}:/usr/bin:/bin") { run_cli("--plan-dir", @dir, "--cull") }
+    assert_includes text, "plan lenses final: --lens cf:simplicity --lens cf:ruby
+"
+    argv = File.read(File.join(@dir, "argv")).split("
+", -1)
+    assert_equal [ "-p", "--model", "haiku", "--max-turns", "1", "--tools", "" ], argv[0, 7]
+    stdin = File.read(File.join(@dir, "stdin"))
+    assert_includes stdin, "Ruby and Rails on Lambda"
+    assert_includes stdin, "== candidate cf:aws"
+    refute_includes text, "skipped"
+  end
+
+  def test_cull_with_no_claude_on_path_falls_back_to_rules
+    cull_plan
+    _, text = with_path(File.join(@dir, "nowhere")) { run_cli("--plan-dir", @dir, "--cull") }
+    assert_includes text, "plan lenses cull skipped (claude not on PATH); using rule-based candidates"
+    assert_equal 4, text[/^plan lenses final: .*$/].scan("--lens").size
+  end
+
+  def test_cull_non_zero_exit_falls_back_to_rules
+    cull_plan
+    _, text = with_path("#{stub_claude(status: 2)}:/usr/bin:/bin") { run_cli("--plan-dir", @dir, "--cull") }
+    assert_includes text, "plan lenses cull skipped (claude exited 2)"
+    assert_equal 4, text[/^plan lenses final: .*$/].scan("--lens").size
+  end
+
+  def test_cull_drops_names_outside_the_candidates
+    ranked = [ [ "cf:aws", [ "keyword lambda" ] ] ]
+    plan("Lambda.
+")
+    result = PlanLenses.cull(ranked, plan_dir: @dir, runner: ->(*) { [ '["cf:aws","cf:nope"]', true, nil ] })
+    assert_equal({ kept: %w[cf:aws], note: nil }, result)
+  end
+
+  def test_skill_file_reads_installed_cf_prefixed_dirs
     installed = File.join(@dir, "installed")
     FileUtils.mkdir_p(File.join(installed, "cf:aws"))
-    FileUtils.cp(File.join(SKILLS_DIR, "aws", "SKILL.md"), File.join(installed, "cf:aws", "SKILL.md"))
-    files = %w[plan.md goal.md].map { |f| File.join(@dir, f) }
-    assert_in_delta PlanLenses.cull_bound(candidates: %w[cf:aws], files: files, skills_dir: SKILLS_DIR),
-                    PlanLenses.cull_bound(candidates: %w[cf:aws], files: files, skills_dir: installed)
-    assert_operator PlanLenses.cull_bound(candidates: %w[cf:aws], files: files, skills_dir: installed), :>,
-                    PlanLenses.cull_bound(candidates: [], files: files, skills_dir: installed)
+    File.write(File.join(installed, "cf:aws", "SKILL.md"), "x")
+    assert_equal File.join(installed, "cf:aws", "SKILL.md"), PlanLenses.skill_file("cf:aws", installed)
+    assert_equal File.join(SKILLS_DIR, "aws", "SKILL.md"), PlanLenses.skill_file("aws", SKILLS_DIR)
   end
 
   def test_fit_flags_round_trip_multiword_values
@@ -217,6 +265,8 @@ class PlanLensesStepWiringTest < Minitest::Test
   def test_step_7b_runs_the_lens_policy_and_fit
     assert_includes STEP, "plan_lenses.rb --plan-dir"
     assert_includes STEP, "plan_lenses.rb fit"
+    assert_includes STEP, "--cull"
+    refute_includes STEP, "cull bound"
     assert_includes STEP, "roast skipped"
     refute_match(/trim\s+plan\.md quotes/, STEP)
   end

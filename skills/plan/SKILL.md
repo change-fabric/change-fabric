@@ -247,7 +247,7 @@ tier 2 reclaim (worktrees, DB dumps) and resumes with `only`.
 
 7b. **Roast.** Always runs, here in the main session, estimate first. Cap:
    at most 2 rounds and 0.50 USD in total. Never raise the cap. The ledger
-   debits every charged call (the cull and each round) at its upper bound,
+   debits every roast round at its upper bound,
    or at its actual cost when the provider reports usage; `remaining` is
    0.50 minus the debits so far.
 
@@ -260,16 +260,16 @@ tier 2 reclaim (worktrees, DB dumps) and resumes with `only`.
       `--out-dir <plan_dir>/roast`. The script is
       `ruby ~/.claude/cf/bin/roast.rb`.
    2. Lenses. Run `ruby ~/.claude/cf/bin/plan_lenses.rb --plan-dir
-      <plan_dir> --repo <target repo>`. It prints `plan lenses always:
-      cf:simplicity`, the ranked `plan lenses candidates:` with reasons
-      (paths named in the plan, `lens: keywords:`, `detect:` markers), and
-      the cull's `plan lenses cull bound:`. If candidates exist and the cull
-      bound fits `remaining`, run the cf:roast haiku cull exactly as
-      cf:roast `## Lenses` step 2 describes, giving it plan.md, goal.md and
-      each candidate's `~/.claude/skills/cf:NAME/SKILL.md`, and debit the
-      bound. If it does not fit, skip the cull and keep every candidate.
-      Rerun with `--keep <kept names, comma separated>` and read
-      `plan lenses final:` (cf:simplicity plus at most 3, in rank order).
+      <plan_dir> --repo <target repo> --cull`. It prints `plan lenses
+      always: cf:simplicity`, the ranked `plan lenses candidates:` with
+      reasons (paths named in the plan, `lens: keywords:`, `detect:`
+      markers), then culls them in one host `claude -p --model haiku
+      --max-turns 1` call with every tool off and the plan, goal and
+      candidate rubrics on stdin. That call runs on the Claude Code
+      subscription and is not debited. Read `plan lenses final:`
+      (cf:simplicity plus at most 3, in rank order). If `claude` is missing
+      or fails, it prints a one-line `plan lenses cull skipped` note and
+      keeps the rule-based candidates under the cap; record the note.
    3. Before each round, run `ruby ~/.claude/cf/bin/plan_lenses.rb fit
       --remaining <usd> --keep <final routed names> -- <the step 1 args>`.
       It drops routed lenses lowest rank first, then images (every
