@@ -93,14 +93,19 @@ module ChangeTestcasesVideo
     sequence.size
   end
 
+  # A case whose call crashed has frames but no marks, so an empty
+  # captions.srt, which ffmpeg cannot read; it is encoded without subtitles.
   def encode_argv(work)
+    captions = File.size?(File.join(work, 'captions.srt'))
+    subtitles = captions ? [ '-i', '/work/captions.srt' ] : []
+    maps = captions ? [ '-map', '0:v', '-map', '1:s' ] : [ '-map', '0:v' ]
     ChangeDocker.run_command(
       network: 'none', image: ChangeDocker::FFMPEG_IMAGE, mounts: { work => '/work' }, user: :host,
-      args: [ '-y', '-v', 'error', '-framerate', FPS.to_s, '-i', '/work/%06d.jpg', '-i', '/work/captions.srt',
-              '-map', '0:v', '-map', '1:s', '-r', FPS.to_s,
+      args: [ '-y', '-v', 'error', '-framerate', FPS.to_s, '-i', '/work/%06d.jpg', *subtitles,
+              *maps, '-r', FPS.to_s,
               '-vf', "scale=#{MAX_WIDTH}:#{MAX_HEIGHT}:force_original_aspect_ratio=decrease," \
                      "pad=#{MAX_WIDTH}:#{MAX_HEIGHT}:(ow-iw)/2:(oh-ih)/2:white,setsar=1",
-              '-c:v', 'libx264', '-crf', '23', '-pix_fmt', 'yuv420p', '-c:s', 'mov_text',
+              '-c:v', 'libx264', '-crf', '23', '-pix_fmt', 'yuv420p', *(captions ? [ '-c:s', 'mov_text' ] : []),
               '-movflags', '+faststart', "/work/#{OUT_NAME}" ]
     )
   end

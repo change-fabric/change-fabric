@@ -129,6 +129,19 @@ class ChangeTestcasesVideoTest < Minitest::Test
     assert_equal 300_000, result["bytes"]
   end
 
+  def test_a_case_with_no_marks_encodes_without_subtitles
+    Dir.mktmpdir do |work|
+      File.write(File.join(work, "captions.srt"), "")
+      argv = ChangeTestcasesVideo.encode_argv(work)
+      refute_includes argv, "/work/captions.srt"
+      refute_includes argv, "1:s"
+      File.write(File.join(work, "captions.srt"), ChangeTestcasesVideo.srt([ { "ms" => 0, "label" => "goto /" } ], 1000))
+      argv = ChangeTestcasesVideo.encode_argv(work)
+      assert_includes argv, "/work/captions.srt"
+      assert_includes argv, "1:s"
+    end
+  end
+
   def test_share_is_free_space_above_the_reserve_capped_and_split
     reserve = ChangeTestcasesVideo.reserve_bytes(4)
     assert_equal 64 * MB + 32 * MB, reserve
