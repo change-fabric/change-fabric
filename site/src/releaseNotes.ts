@@ -28,6 +28,25 @@ export interface ReleaseNote {
 }
 
 export const RELEASE_NOTES: Record<string, ReleaseNote> = {
+  "0.21.0": {
+    version: "0.21.0",
+    date: "2026-11-18",
+    headline: "Long test-case suites: one call per case, an opt-in parallel pool, and versioned suite files.",
+    highlights: [
+      {
+        title: "lanes.testcases.parallel",
+        body:
+          "Each test case runs in its own browserless call with its own budget and duration. Serial by default, up to 10 at once.",
+      },
+      {
+        title: "suite_version",
+        body:
+          "Suite files declare the format version they were written for. An install that is too old says to pull and run install.rb.",
+      },
+    ],
+    upgrade:
+      "Additive for CHANGE.md. Suite files with unknown keys now fail to load, and retries needs safe_rerun: true.",
+  },
   "0.20.0": {
     version: "0.20.0",
     date: "2026-11-17",

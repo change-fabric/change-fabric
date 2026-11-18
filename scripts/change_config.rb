@@ -231,6 +231,7 @@ class ChangeConfig
       "error: lanes.testcases.gate_tags names '#{tag}', which no loaded case carries"
     end)
     lines.concat(quarantine_lines(set))
+    lines << "testcases: this install reads suite_version up to #{ChangeSuiteSchema::SUITE_VERSION}"
     return lines unless set.errors.empty?
 
     lines << "testcases: #{set.cases.size} case(s) in #{set.suites.size} suite(s)"
@@ -487,6 +488,7 @@ class ChangeConfig
 
     validate_basic_auth_lanes(lanes || {})
     validate_launch_args(lanes || {})
+    validate_testcases_parallel(lanes || {})
     validate_command_lane(lanes || {})
     validate_zap_mode(lanes || {})
     schedule_errors = @schedule_config.errors
@@ -536,6 +538,22 @@ class ChangeConfig
     return if args.is_a?(Array) && args.all? { |arg| arg.is_a?(String) && arg.match?(/\A--\S/) }
 
     raise ConfigError, "lanes.testcases.launch_args must be a list of Chromium flags, each starting with '--'; got #{args.inspect}"
+  end
+
+  # lanes.testcases.parallel (0.21.0): how many cases run at once, each in its
+  # own browserless call. 1 (serial) by default; 10 at most, the container's
+  # CONCURRENT, so the pool can never queue behind itself.
+  TESTCASES_PARALLEL_RANGE = (1..10)
+
+  def validate_testcases_parallel(lanes)
+    section = lanes['testcases']
+    return unless section.is_a?(Hash) && section.key?('parallel')
+
+    value = section['parallel']
+    return if value.is_a?(Integer) && TESTCASES_PARALLEL_RANGE.cover?(value)
+
+    raise ConfigError, "lanes.testcases.parallel must be an integer from #{TESTCASES_PARALLEL_RANGE.min} to " \
+                       "#{TESTCASES_PARALLEL_RANGE.max}; got #{value.inspect}"
   end
 
   # basic_auth only means anything on a lane that drives a real browser page

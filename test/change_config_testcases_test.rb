@@ -91,7 +91,31 @@ class ChangeConfigTestcasesTest < Minitest::Test
     assert_raises(ChangeConfig::ConfigError) { with_config(base("launch_args" => "--x")) { |_c, _r| } }
   end
 
+  # --- parallel ------------------------------------------------------------------
+
+  def test_parallel_accepts_one_to_ten
+    [ 1, 10 ].each do |value|
+      with_config(base("parallel" => value)) do |config, _root|
+        assert_equal value, config.lane("testcases")["parallel"]
+      end
+    end
+  end
+
+  def test_parallel_rejects_out_of_range_and_non_integers
+    [ 0, 11, "4", 2.5 ].each do |value|
+      error = assert_raises(ChangeConfig::ConfigError) { with_config(base("parallel" => value)) { |_c, _r| } }
+      assert_match(/lanes.testcases.parallel must be an integer from 1 to 10/, error.message)
+    end
+  end
+
   # --- doctor --------------------------------------------------------------------
+
+  def test_doctor_prints_the_installed_suite_version
+    with_config(base) do |config, root|
+      assert_includes ChangeConfig.doctor_lines(root, config),
+                      "testcases: this install reads suite_version up to #{ChangeSuiteSchema::SUITE_VERSION}"
+    end
+  end
 
   def test_doctor_counts_the_loaded_cases
     with_config(base) do |config, root|

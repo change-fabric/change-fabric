@@ -18,7 +18,7 @@
 require_relative 'figma_url'
 
 module ChangeSchema
-  VERSION = '0.20.0'
+  VERSION = '0.21.0'
 
   # The six lanes, the authoritative list the config validator enforces: five
   # dockerized audit lanes plus a host-run command lane (0.17.0).
@@ -204,6 +204,8 @@ module ChangeSchema
     # launch_args (0.16.0): extra Chromium flags for the browser the lane's
     # cases run in, passed through browserless's `launch` query parameter.
     'change_config.lanes.testcases.launch_args',
+    # parallel (0.21.0): cases run at once, one browserless call each.
+    'change_config.lanes.testcases.parallel',
     # 0.17.0: the host-run command lane's entries.
     'change_config.lanes.command.commands[].name',
     'change_config.lanes.command.commands[].run',

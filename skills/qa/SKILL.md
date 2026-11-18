@@ -245,7 +245,10 @@ For each passing flow:
    The renderer parses its own output back through the suite parser before
    printing, so what it emits is a file the `testcases` lane will accept. It
    drops the flow's `base_url`: the lane supplies that per profile, and a case
-   pinned to one machine's localhost only runs on that machine.
+   pinned to one machine's localhost only runs on that machine. A flow's
+   `retries` is carried only when the flow also sets `safe_rerun: true`,
+   because a rerun replays every action of the failed attempt; otherwise it is
+   dropped with a note on stderr.
 2. `--acceptance` is the sentence a person would use to say the flow worked,
    not a restatement of the steps. It is graded against the run by `cf:change`,
    and that verdict can fail the gate, so write what actually matters and

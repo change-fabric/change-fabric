@@ -61,7 +61,8 @@ class ChangeSuite
   # retry budget, an optional quarantine, and the declarative steps. `steps`
   # stays raw here; the lane compiles it through ChangeFlowCompiler, which owns
   # the step vocabulary.
-  TestCase = Struct.new(:suite, :id, :tags, :acceptance, :retries, :quarantine, :steps, keyword_init: true) do
+  TestCase = Struct.new(:suite, :id, :tags, :acceptance, :retries, :quarantine, :steps,
+                        :timeout_ms, :safe_rerun, keyword_init: true) do
     # A case's report-facing name, unique across every loaded suite.
     def qualified_id = "#{suite}/#{id}"
 
@@ -89,12 +90,17 @@ class ChangeSuite
     def quarantine_expired?(today = Date.today) = !quarantine.nil? && quarantine.expired?(today)
   end
 
-  attr_reader :name, :path, :cases
+  attr_reader :name, :path, :cases, :version
 
-  def initialize(name, path, cases)
+  # The inclusive bounds of `cases[].timeout_ms`: one second, so a typo in
+  # seconds rather than milliseconds is refused, up to ten minutes.
+  CASE_TIMEOUT_RANGE = (1_000..600_000)
+
+  def initialize(name, path, cases, version: ChangeSuiteSchema::DEFAULT_SUITE_VERSION)
     @name = name
     @path = path
     @cases = cases
+    @version = version
   end
 
   # Parses one suite file, raising Error with the offending file named. Every
@@ -105,22 +111,56 @@ class ChangeSuite
     raw = YAML.safe_load(File.read(path), aliases: true, permitted_classes: [ Date ])
     raise Error, "suite file is not a mapping: #{path}" unless raw.is_a?(Hash)
 
+    version = suite_version(raw, path)
+    check_keys(raw.keys, ChangeSuiteSchema::TOP_KEYS, '', version, "suite file #{path}")
+
     name = raw['suite'].to_s
     raise Error, "suite file has no `suite:` id: #{path}" if name.empty?
 
-    new(name, path, parse_cases(raw['cases'], name, path))
+    new(name, path, parse_cases(raw['cases'], name, path, version), version: version)
   rescue Psych::SyntaxError => e
     raise Error, "suite file is not valid YAML: #{path} (#{e.message})"
   rescue SystemCallError => e
     raise Error, "suite file could not be read: #{path} (#{e.message})"
   end
 
-  def self.parse_cases(raw_cases, name, path)
+  # The declared version, checked before any other key, so a file written for a
+  # newer toolkit says that rather than failing on its first new field.
+  def self.suite_version(raw, path)
+    return ChangeSuiteSchema::DEFAULT_SUITE_VERSION unless raw.key?('suite_version')
+
+    declared = raw['suite_version']
+    unless declared.is_a?(Integer) && declared >= 1
+      raise Error, "suite file #{path} has a suite_version that is not a positive integer: #{declared.inspect}"
+    end
+    raise Error, "#{ChangeSuiteSchema.too_new_message(declared)} (#{path})" if declared > ChangeSuiteSchema::SUITE_VERSION
+
+    declared
+  end
+
+  # Strict keys. An unknown key is refused by name, and a known key newer than
+  # the version the file declares is refused with the version that adds it, so
+  # a file can never quietly use a field its declared readers would ignore.
+  def self.check_keys(keys, allowed, prefix, version, where)
+    keys = keys.map(&:to_s)
+    unknown = keys - allowed
+    raise Error, "#{where} sets unknown key(s): #{unknown.sort.join(', ')}" if unknown.any?
+
+    keys.each do |key|
+      added = ChangeSuiteSchema.field_version("#{prefix}#{key}")
+      next if added <= version
+
+      raise Error, "#{where} uses `#{key}`, added in suite_version #{added}, but declares suite_version #{version}; " \
+                   "set suite_version: #{added}"
+    end
+  end
+
+  def self.parse_cases(raw_cases, name, path, version = ChangeSuiteSchema::DEFAULT_SUITE_VERSION)
     raise Error, "suite '#{name}' has no cases: #{path}" unless raw_cases.is_a?(Array) && !raw_cases.empty?
 
     seen = []
     raw_cases.each_with_index.map do |raw_case, index|
-      parsed = parse_case(raw_case, name, path, index)
+      parsed = parse_case(raw_case, name, path, index, version)
       raise Error, "suite '#{name}' declares case id '#{parsed.id}' more than once: #{path}" if seen.include?(parsed.id)
 
       seen << parsed.id
@@ -128,9 +168,11 @@ class ChangeSuite
     end
   end
 
-  def self.parse_case(raw_case, name, path, index)
+  def self.parse_case(raw_case, name, path, index, version = ChangeSuiteSchema::DEFAULT_SUITE_VERSION)
     where = "suite '#{name}' case #{index + 1} (#{path})"
     raise Error, "#{where} is not a mapping" unless raw_case.is_a?(Hash)
+
+    check_keys(raw_case.keys, ChangeSuiteSchema::CASE_KEYS, 'cases[].', version, where)
 
     id = raw_case['id'].to_s
     raise Error, "#{where} has no id" if id.empty?
@@ -138,10 +180,27 @@ class ChangeSuite
     acceptance = raw_case['acceptance'].to_s.strip
     raise Error, "suite '#{name}' case '#{id}' has no acceptance criterion (#{path})" if acceptance.empty?
 
+    where = "suite '#{name}' case '#{id}' (#{path})"
+    safe_rerun = safe_rerun(raw_case['safe_rerun'], where)
     TestCase.new(suite: name, id: id, tags: string_list(raw_case['tags']), acceptance: acceptance,
-                 retries: retries(raw_case['retries']),
+                 retries: retries(raw_case['retries'], safe_rerun, where), safe_rerun: safe_rerun,
+                 timeout_ms: case_timeout(raw_case['timeout_ms'], where),
                  quarantine: quarantine(raw_case, name, id, path),
                  steps: steps(raw_case['steps'], name, id, path))
+  end
+
+  def self.safe_rerun(value, where)
+    return false if value.nil?
+    return value if [ true, false ].include?(value)
+
+    raise Error, "#{where} has a `safe_rerun` that is not true or false: #{value.inspect}"
+  end
+
+  def self.case_timeout(value, where)
+    return nil if value.nil?
+    return value if value.is_a?(Integer) && CASE_TIMEOUT_RANGE.cover?(value)
+
+    raise Error, "#{where} has a `timeout_ms` outside #{CASE_TIMEOUT_RANGE.min}..#{CASE_TIMEOUT_RANGE.max}: #{value.inspect}"
   end
 
   # A quarantine is all three keys or none of them. Both companions are required
@@ -201,9 +260,17 @@ class ChangeSuite
     raise Error, "#{where} step #{index + 1} names more than one step verb: #{verbs.sort.join(', ')}" if verbs.size > 1
   end
 
-  def self.retries(value)
+  # A whole-case rerun replays every step of the failed attempt, including any
+  # click or submit that already took effect server side. So a rerun budget is
+  # refused unless the case also says `safe_rerun: true`, naming the missing
+  # field, rather than silently repeating a mutation nobody authorized.
+  def self.retries(value, safe_rerun, where)
     count = value.to_i
-    count.positive? ? count : 0
+    return 0 unless count.positive?
+    return count if safe_rerun
+
+    raise Error, "#{where} sets `retries: #{count}` without `safe_rerun: true`; a rerun replays every " \
+                 'earlier action of the failed attempt, so add safe_rerun: true (suite_version 2) only if that is safe'
   end
 
   def self.string_list(value) = Array(value).map(&:to_s).reject(&:empty?)

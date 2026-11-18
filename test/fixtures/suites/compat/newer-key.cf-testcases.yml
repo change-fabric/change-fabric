@@ -1,0 +1,9 @@
+# Uses the newest suite_version's key while declaring the version before it.
+suite: compat-newer-key
+suite_version: 1
+cases:
+  - id: home
+    acceptance: The home page loads.
+    timeout_ms: 60000
+    steps:
+      - goto: /

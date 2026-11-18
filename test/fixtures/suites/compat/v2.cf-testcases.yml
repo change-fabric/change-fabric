@@ -1,0 +1,11 @@
+suite: compat-v2
+suite_version: 2
+cases:
+  - id: home
+    acceptance: The home page loads.
+    timeout_ms: 60000
+    retries: 1
+    safe_rerun: true
+    steps:
+      - goto: /
+      - expect_visible: main

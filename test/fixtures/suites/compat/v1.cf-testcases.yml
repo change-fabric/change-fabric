@@ -1,0 +1,9 @@
+# Version 1: no suite_version, exactly the field set before the key existed.
+suite: compat-v1
+cases:
+  - id: home
+    tags: [smoke]
+    acceptance: The home page loads.
+    steps:
+      - goto: /
+      - expect_visible: main

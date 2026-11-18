@@ -4,6 +4,7 @@
 require 'json'
 require 'date'
 require_relative 'change_lane'
+require_relative 'change_docker'
 require_relative 'change_lane_browserless'
 require_relative 'change_findings'
 require_relative 'change_flow_compiler'
@@ -53,16 +54,50 @@ class ChangeLaneTestcases < ChangeLane
   # rather than on the host so a page with a megabyte of text does not make the
   # returned payload a function of the app's own verbosity.
   OBSERVED_TEXT_LIMIT = 4_000
+  # A case's call budget, when it sets no `timeout_ms`: the sum of its steps'
+  # timeouts plus this much per navigation, never below the default
+  # browserless call limit, the same floor a walkthrough live capture uses.
+  NAVIGATION_OVERHEAD_MS = 5_000
+  CASE_BUDGET_FLOOR_MS = ChangeDocker::Browserless::FUNCTION_TIMEOUT_MS
+  DEFAULT_PARALLEL = 1
+  # Seconds to wait before each retry of a call the container's queue
+  # rejected. A rejection never started the case, so it is not an attempt and
+  # consumes no `retries`.
+  QUEUE_BACKOFF_S = [ 1, 2, 4, 8, 16 ].freeze
 
   # `grader` is the seam a test drives; a real run builds the default one, which
   # resolves its command from the environment and reports itself unavailable
   # rather than raising when nothing is reachable. `today` is the second seam,
   # for the same reason: a quarantine expiry is a date comparison, and a test
   # that could only assert it by waiting is not a test.
-  def initialize(config, context, grader: nil, today: nil)
+  # `sleeper` is the backoff seam, so a queue-rejection test does not wait.
+  def initialize(config, context, grader: nil, today: nil, sleeper: nil)
     super(config, context)
     @grader = grader || ChangeAcceptanceGrader.new
     @today = today
+    @sleeper = sleeper || ->(seconds) { sleep(seconds) }
+  end
+
+  # Each run case's timing and attempt record, in case order: `started_at_ms`
+  # (offset from the lane's first call), `duration_ms`, and `attempts`, one
+  # entry per call the container accepted with its outcome and duration.
+  def case_results
+    Array(@results).map do |result|
+      { key: result[:case].qualified_id, status: result[:status], started_at_ms: result[:started_at_ms],
+        duration_ms: result[:duration_ms], attempts: result[:attempt_log] }
+    end
+  end
+
+  # The call budget for one case, in ms. An explicit `cases[].timeout_ms`
+  # wins; otherwise every step's timeout plus a navigation allowance per
+  # `goto`, floored so a short case keeps the default call limit.
+  def case_budget_ms(item)
+    return item.timeout_ms if item.timeout_ms
+
+    derived = item.steps.sum do |step|
+      step_timeout(step) + (step.key?('goto') ? NAVIGATION_OVERHEAD_MS : 0)
+    end
+    [ derived, CASE_BUDGET_FLOOR_MS ].max
   end
 
   def run
@@ -91,8 +126,8 @@ class ChangeLaneTestcases < ChangeLane
     return nil if @results.nil? || @results.empty?
 
     lines = [ '### Test cases and their acceptance criteria', '',
-              '| Case | Tags | Steps | Acceptance | Attempts | Criterion | Grader note | Quarantine |',
-              '| --- | --- | --- | --- | --- | --- | --- | --- |' ]
+              '| Case | Tags | Steps | Acceptance | Attempts | Duration | Criterion | Grader note | Quarantine |',
+              '| --- | --- | --- | --- | --- | --- | --- | --- | --- |' ]
     @results.each { |result| lines << acceptance_row(result) }
     lines.concat(acceptance_footnotes)
     lines.join("\n")
@@ -105,7 +140,7 @@ class ChangeLaneTestcases < ChangeLane
     verdict = result[:verdict]
     cells = [ item.qualified_id, item.tags.join(' '), result[:status].upcase,
               verdict ? verdict.verdict.upcase : 'NOT GRADED', result[:attempts],
-              flatten(item.acceptance), flatten(verdict&.rationale), quarantine_cell(item) ]
+              duration_cell(result[:duration_ms]), flatten(item.acceptance), flatten(verdict&.rationale), quarantine_cell(item) ]
     "| #{cells.map { |cell| cell.to_s.gsub('|', '\\|') }.join(' | ')} |"
   end
 
@@ -129,6 +164,8 @@ class ChangeLaneTestcases < ChangeLane
   end
 
   def flatten(text) = text.to_s.gsub(/\s+/, ' ').strip
+
+  def duration_cell(ms) = ms ? format('%.1f s', ms / 1000.0) : '-'
 
   def interactive? = ChangeAcceptanceGrader.interactive?
 
@@ -201,6 +238,16 @@ class ChangeLaneTestcases < ChangeLane
 
   def timeout_ms = Integer(@config.fetch('timeout_ms', DEFAULT_TIMEOUT_MS))
 
+  # A step's own timeout, beside the verb or inside its mapping, else the
+  # lane's, mirroring how the compiler resolves it.
+  def step_timeout(step)
+    inner = step.values.find { |value| value.is_a?(Hash) && value.key?('timeout_ms') }
+    Integer(step['timeout_ms'] || inner&.fetch('timeout_ms') || timeout_ms)
+  end
+
+  # How many cases run at once (lanes.testcases.parallel, validated 1..10).
+  def parallel = Integer(@config.fetch('parallel', DEFAULT_PARALLEL))
+
   # The login flow, in exactly the shape the browserless lane's `auth:` block
   # already has. Shared rather than restated: a repo that has already written
   # its login once should not write a second dialect of it to run a test case
@@ -250,21 +297,92 @@ class ChangeLaneTestcases < ChangeLane
     finding(check: 'suite selection', status: 'fail', severity: 'high', detail: detail)
   end
 
+  # One browserless call per case attempt, through a pool of `parallel`
+  # threads against the one container. Every case compiles before the first
+  # call, so a compile error stops the run before anything has acted. Results
+  # come back in case order whatever order the pool finished them in.
   def case_findings(selected, session)
-    result = session.run_function(scan_module(selected), launch_args: launch_args)
-    @results = graded(selected, Array(result))
+    compiled = js_cases(selected)
+    @run_started = clock
+    runs = run_pool(selected.size) { |index| run_case(session, selected[index], compiled[index]) }
+    @results = selected.each_with_index.map { |item, index| graded(item, runs[index]) }
     @results.map { |graded| case_finding(graded) }
   end
 
-  # Pairs each returned record back with the case that produced it, by index,
-  # and decides the verdict. A case with no record at all (the module returned
-  # short) fails: an unexplained absence is not a pass.
-  def graded(selected, records)
-    selected.each_with_index.map do |item, index|
-      record = records.find { |entry| entry['index'] == index }
-      { case: item, record: record, status: status_for(item, record),
-        attempts: record ? record['attempts'].to_i : 1 }
+  def run_pool(count)
+    results = Array.new(count)
+    queue = Queue.new
+    count.times { |index| queue << index }
+    queue.close
+    workers = Array.new([ parallel, count ].min) do
+      Thread.new do
+        while (index = queue.pop)
+          results[index] = yield(index)
+        end
+      end
     end
+    workers.each(&:join)
+    results
+  end
+
+  # The attempt lifecycle. An attempt is one call the container accepted. A
+  # whole-case rerun after a failure happens only within `retries`, which the
+  # loader allows only beside `safe_rerun: true`. The last attempt's record
+  # supplies the verdict.
+  def run_case(session, item, compiled)
+    started = clock
+    attempts = []
+    record = nil
+    (item.retries + 1).times do |number|
+      attempt_started = clock
+      record = attempt(session, item, compiled, number + 1)
+      break if record.nil?
+
+      attempts << { number: number + 1, outcome: record['ok'] ? 'pass' : 'fail',
+                    duration_ms: elapsed_ms(attempt_started) }
+      break if record['ok']
+    end
+    { record: record, attempts: attempts, started_at_ms: elapsed_ms(@run_started, started),
+      duration_ms: elapsed_ms(started) }
+  end
+
+  # One accepted call. A queue rejection is retried with backoff and is not an
+  # attempt; a queue that never frees is a call error with no attempt made.
+  # Any other failure (timeout, transport, browser crash) is a failed attempt.
+  def attempt(session, item, compiled, number)
+    rejections = 0
+    begin
+      result = session.run_function(case_module(compiled, number), launch_args: launch_args,
+                                                                   timeout_ms: case_budget_ms(item))
+      result.is_a?(Hash) ? result : nil
+    rescue ChangeDocker::Browserless::QueueRejected => e
+      rejections += 1
+      return queue_full(e) if rejections > QUEUE_BACKOFF_S.size
+
+      @sleeper.call(QUEUE_BACKOFF_S[rejections - 1])
+      retry
+    rescue StandardError => e
+      { 'ok' => false, 'callError' => e.message, 'steps' => [] }
+    end
+  end
+
+  def queue_full(error)
+    { 'ok' => false, 'queueFull' => true, 'steps' => [],
+      'callError' => "browserless queue stayed full after #{QUEUE_BACKOFF_S.size} retries: #{error.message}" }
+  end
+
+  def clock = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+
+  def elapsed_ms(from, to = clock) = ((to - from) * 1000).round
+
+  # Decides the verdict for one case from its last record. A case with no
+  # record at all (the call returned nothing usable) fails: an unexplained
+  # absence is not a pass.
+  def graded(item, run)
+    record = run[:record]
+    { case: item, record: record, status: status_for(item, record),
+      attempts: [ run[:attempts].size, 1 ].max, attempt_log: run[:attempts],
+      started_at_ms: run[:started_at_ms], duration_ms: run[:duration_ms] }
   end
 
   # --- graded acceptance --------------------------------------------------------
@@ -370,7 +488,9 @@ class ChangeLaneTestcases < ChangeLane
     return '' if record.nil? || record['ok']
 
     step = Array(record['steps']).find { |entry| entry['ok'] == false }
-    step ? "step #{step['index'].to_i + 1}: #{step['label']}" : 'login'
+    return "step #{step['index'].to_i + 1}: #{step['label']}" if step
+
+    record['callError'] ? 'browserless call' : 'login'
   end
 
   def detail_for(graded)
@@ -383,6 +503,7 @@ class ChangeLaneTestcases < ChangeLane
 
   def failure_reason(record)
     return "login failed before the case ran: #{record['authError']}" if record['authError']
+    return "the case's browserless call failed: #{record['callError']}" if record['callError']
 
     step = Array(record['steps']).find { |entry| entry['ok'] == false }
     step ? step['error'].to_s : 'case failed with no step-level error recorded'
@@ -427,7 +548,7 @@ class ChangeLaneTestcases < ChangeLane
   def js_cases(selected)
     selected.each_with_index.map do |item, index|
       compiler = ChangeFlowCompiler.new(item.steps, base_url: base_url, timeout_ms: timeout_ms)
-      { index: index, id: item.qualified_id, retries: item.retries, steps: compiler.compile }
+      { index: index, id: item.qualified_id, steps: compiler.compile }
     end
   end
 
@@ -436,15 +557,15 @@ class ChangeLaneTestcases < ChangeLane
     auth ? ChangeFlowCompiler.compile_auth(auth.steps, base_url: base_url) : nil
   end
 
-  # One module runs every selected case, each in its own browser context, and
-  # returns one record per case. A case with its own `retries:` budget is
-  # retried inside the same walk; the attempt count travels back with the
-  # record so a pass bought by a retry is recorded as `flaky` rather than
-  # laundered into a clean first-run pass.
-  def scan_module(selected)
+  # One module per case attempt: it runs that one case in its own browser
+  # context and returns its record. Retries are decided in Ruby (#run_case),
+  # so each attempt is its own call with its own budget, and a long suite
+  # never shares one call's time limit.
+  def case_module(compiled, attempt)
     <<~JS
       export default async function ({ page }) {
-        const cases = #{JSON.generate(js_cases(selected))};
+        const testCase = #{JSON.generate(compiled)};
+        const attempt = #{Integer(attempt)};
         const auth = #{JSON.generate(js_auth)};
         const basicAuth = #{JSON.generate(basic_auth)};
         const viewport = #{JSON.generate(viewport)};
@@ -528,19 +649,12 @@ class ChangeLaneTestcases < ChangeLane
           }
         }
 
-        const out = [];
-        for (const testCase of cases) {
-          let attempts = 0;
-          let result = null;
-          while (attempts <= testCase.retries) {
-            attempts += 1;
-            result = await runOnce(testCase);
-            if (result.ok) break;
-          }
-          out.push({ index: testCase.index, id: testCase.id, attempts: attempts, ok: result.ok,
-                     authError: result.authError, steps: result.steps, observation: result.observation });
-        }
-        return { data: out, type: "application/json" };
+        const result = await runOnce(testCase);
+        return {
+          data: { index: testCase.index, id: testCase.id, attempt: attempt, ok: result.ok,
+                  authError: result.authError, steps: result.steps, observation: result.observation },
+          type: "application/json",
+        };
       }
     JS
   end

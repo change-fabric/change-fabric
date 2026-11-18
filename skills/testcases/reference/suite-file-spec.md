@@ -1,5 +1,7 @@
 # Test-case suite file specification
 
+Suite version: 2
+
 The schema for a change-fabric test-case suite file: the sidecar YAML the
 `testcases` lane loads and replays.
 
@@ -28,19 +30,49 @@ Never inline in `CHANGE.md`. Cases belong with the flow they check, are
 reviewed by the people who own that flow, and would otherwise turn one
 governance file into every team's assertion dump.
 
+## Suite version
+
+A suite file declares the format version it was written against in a top-level
+`suite_version` integer. A file with none is version 1. The installed toolkit
+reads every version up to its own (the "Suite version" line above, and
+`ChangeSuiteSchema::SUITE_VERSION` in code; `doctor` prints it). Each version
+only adds optional fields, so an older file always loads on a newer install.
+
+| Version | Adds |
+| --- | --- |
+| 1 | The original field set: `suite`, and on each case `id`, `tags`, `acceptance`, `retries`, `quarantined`, `quarantine_reason`, `quarantine_until`, `steps`. |
+| 2 | `suite_version`, `cases[].timeout_ms`, `cases[].safe_rerun`. From this version on the loader is strict (below). |
+
+The loader is strict. An unknown top-level or case key is refused by name, and
+a key newer than the file's declared `suite_version` is refused with the version
+that adds it, so set `suite_version` to the highest version whose keys the file
+uses.
+
+Older installs. An install from suite version 2 on refuses a file that declares
+a newer version with `suite_version N needs a newer cf toolkit; pull and run
+ruby install.rb`. An install from before suite version 2 does not know the key
+at all and silently ignores `suite_version` and every newer key, running the
+case without them; a suite that relies on a newer key needs every runner on a
+current install.
+
 ## Fields
 
-| Field | Type | Required | Description |
-| --- | --- | --- | --- |
-| `suite` | string | yes | The suite's id. Names it in a report and in a tag or suite selection. Not derived from the filename, so moving the file never silently renames the suite. |
-| `cases[].id` | string | yes | This case's id, unique within the suite. Reported as `<suite>/<id>`, which is what a failing gate names. |
-| `cases[].tags` | list of string | no | Free-form tags. `lanes.testcases.tags` selects which cases run; `lanes.testcases.gate_tags` selects which may fail the gate. |
-| `cases[].acceptance` | string | yes | What a human means by "working" for this case, in plain English. Required, and rendered beside its verdict in the report. A selector assertion cannot catch a page that renders every expected element and still does the wrong thing; this sentence is graded against what the run observed, and that verdict can fail the gate. Write what actually matters, not a restatement of the steps. |
-| `cases[].retries` | integer | no (default 0) | How many times to re-run this case while it fails. Zero by default: a case that only passes sometimes is a finding, not a scheduling problem. A case that passed only after a retry is recorded as a pass with `flaky` beside it and its attempt count, never laundered into a clean first-run pass. |
-| `cases[].quarantined` | boolean | no (default false) | Time-boxes this case out of the gate. It still runs and still reports; its failure just cannot fail the gate, and only until `quarantine_until`. Requires both companions below. |
-| `cases[].quarantine_reason` | string | yes when quarantined | Why this case is quarantined, in plain English. Required, because without it nobody can tell a known flake from a real defect somebody muted. |
-| `cases[].quarantine_until` | date (`YYYY-MM-DD`) | yes when quarantined | The day the quarantine ends. Quarantine is never permanent. The shield has already lapsed on this date, and the case gates again from then on with no second action from anybody. |
-| `cases[].steps` | list of mapping | yes | The ordered steps. Each entry is a mapping naming exactly one verb below, plus an optional `timeout_ms`. The walk stops at the first failing step, because everything after it runs against a page that is no longer in the state the case described. |
+The Since column is the `suite_version` that added the field.
+
+| Field | Type | Required | Description | Since |
+| --- | --- | --- | --- | --- |
+| `suite_version` | integer | no (default 1) | The suite-file version this file was written against. Checked before any other key: a version above the installed one fails with the update message, and a key newer than the declared version fails naming the version that adds it. | 2 |
+| `suite` | string | yes | The suite's id. Names it in a report and in a tag or suite selection. Not derived from the filename, so moving the file never silently renames the suite. | 1 |
+| `cases[].id` | string | yes | This case's id, unique within the suite. Reported as `<suite>/<id>`, which is what a failing gate names. | 1 |
+| `cases[].tags` | list of string | no | Free-form tags. `lanes.testcases.tags` selects which cases run; `lanes.testcases.gate_tags` selects which may fail the gate. | 1 |
+| `cases[].acceptance` | string | yes | What a human means by "working" for this case, in plain English. Required, and rendered beside its verdict in the report. A selector assertion cannot catch a page that renders every expected element and still does the wrong thing; this sentence is graded against what the run observed, and that verdict can fail the gate. Write what actually matters, not a restatement of the steps. | 1 |
+| `cases[].retries` | integer | no (default 0) | How many times to re-run this case while it fails. Zero by default: a case that only passes sometimes is a finding, not a scheduling problem. A case that passed only after a retry is recorded as a pass with `flaky` beside it and its attempt count, never laundered into a clean first-run pass. A rerun replays every step of the failed attempt, including any click or submit that already took effect, so `retries` above zero is refused unless the case also sets `safe_rerun: true`. | 1 |
+| `cases[].safe_rerun` | boolean | yes when `retries` is above 0 | Says a whole-case rerun is safe: replaying the case's earlier actions after a failure cannot double-submit anything that matters. Without it `retries` is refused at load. | 2 |
+| `cases[].timeout_ms` | integer (1000..600000) | no | This case's browserless call budget. Each case runs in its own call; without this the lane derives the budget from the sum of the steps' timeouts plus 5000 ms per `goto`, never below 115000. | 2 |
+| `cases[].quarantined` | boolean | no (default false) | Time-boxes this case out of the gate. It still runs and still reports; its failure just cannot fail the gate, and only until `quarantine_until`. Requires both companions below. | 1 |
+| `cases[].quarantine_reason` | string | yes when quarantined | Why this case is quarantined, in plain English. Required, because without it nobody can tell a known flake from a real defect somebody muted. | 1 |
+| `cases[].quarantine_until` | date (`YYYY-MM-DD`) | yes when quarantined | The day the quarantine ends. Quarantine is never permanent. The shield has already lapsed on this date, and the case gates again from then on with no second action from anybody. | 1 |
+| `cases[].steps` | list of mapping | yes | The ordered steps. Each entry is a mapping naming exactly one verb below, plus an optional `timeout_ms`. The walk stops at the first failing step, because everything after it runs against a page that is no longer in the state the case described. | 1 |
 
 ## Step verbs
 
@@ -121,6 +153,10 @@ less than its author believes:
 
 - a `suites` glob matching no readable file
 - a suite file with no `suite:` id, or with no cases
+- a `suite_version` above the installed one, or not a positive integer
+- an unknown top-level or case key, or a key newer than the declared `suite_version`
+- a `retries` above zero without `safe_rerun: true`
+- a `timeout_ms` outside 1000..600000
 - a duplicate case id within a suite
 - a step naming an unknown verb, no verb, or more than one verb
 - a case with no `acceptance`
@@ -133,6 +169,7 @@ less than its author believes:
 
 ```yaml
 suite: checkout
+suite_version: 2
 cases:
   - id: guest-checkout-happy-path
     tags: [checkout, smoke]
@@ -140,6 +177,7 @@ cases:
       A guest can add an item and reach the confirmation page
       without creating an account.
     retries: 1
+    safe_rerun: true
     steps:
       - goto: /products/widget
       - click: "[data-test=add-to-cart]"

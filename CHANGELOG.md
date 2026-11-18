@@ -18,6 +18,33 @@ Every version below has a frozen, permanently addressable rendering at
 field set: major for a removed, renamed or newly required field, minor for a new
 optional field, patch for a documentation-only clarification.
 
+## [0.21.0] - 2026-11-18
+
+Long test-case suites: one browserless call per case, an opt-in parallel pool,
+and versioned suite files. Additive for CHANGE.md; stricter for suite files.
+
+### Added
+
+- `change_config.lanes.testcases.parallel` (integer 1 to 10, default 1): how
+  many test cases run at once. Each case now runs in its own browserless call
+  with its own budget, so a long suite no longer hits one 115 second ceiling,
+  and the report gives each case a duration.
+- Suite files (the testcases lane's sidecar YAML, versioned separately from
+  this spec) gain `suite_version` (suite version 2), `cases[].timeout_ms` and
+  `cases[].safe_rerun`. A file declaring a newer suite version than the install
+  reads fails with "pull and run ruby install.rb", and `doctor` prints the
+  suite version the install reads.
+
+### Changed
+
+- Suite files with stray keys now fail. The loader rejects any unknown
+  top-level or case key by name, and any key newer than the file's declared
+  `suite_version`. Previously such keys were silently ignored. Installs older
+  than this one still silently ignore `suite_version` and every newer key.
+- A case with `retries` above zero must also set `safe_rerun: true` (and so
+  `suite_version: 2`), because a rerun replays every action of the failed
+  attempt.
+
 ## [0.20.0] - 2026-11-17
 
 Lanes on a clock: named schedules that run the existing lanes against a

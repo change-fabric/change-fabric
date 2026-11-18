@@ -1,6 +1,6 @@
 # CHANGE.md frontmatter specification
 
-Schema version: 0.20.0
+Schema version: 0.21.0
 
 Status: stable. This is the golden reference for authoring a repo's
 `CHANGE.md` frontmatter. A maintainer or an AI agent creating a new repo's
@@ -359,6 +359,7 @@ lane; `gate_tags` is the staged-adoption valve for a suite still being trusted.
 | `change_config.lanes.testcases.viewport.height` | integer | no (default 900) | Viewport height in pixels. |
 | `change_config.lanes.testcases.timeout_ms` | integer | no (default 15000) | Default per-step timeout. A step may override it with its own `timeout_ms`. |
 | `change_config.lanes.testcases.launch_args` | list of string | no (default none) | (0.16.0) Extra Chromium flags for the browser every case runs in, passed to browserless as its `launch` args. Each entry must start with `--`. The motivating case: a step whose value comes from a `code_source` fetch runs inside the browser page, and Chromium's Local Network Access check blocks that page from fetching a private address such as `http://host.docker.internal:3925/otp` (`TypeError: Failed to fetch`); `["--disable-features=LocalNetworkAccessChecks"]` lifts it. Not profile-overridable. |
+| `change_config.lanes.testcases.parallel` | integer | no (default 1) | (0.21.0) How many cases run at once. Each case runs in its own browserless call with its own budget (`cases[].timeout_ms` in the suite file, else derived from its steps, never below 115000 ms), so a long suite never shares one call's time limit. 1 runs serially; at most 10, the container's concurrency, so the pool never queues behind itself. A full container queue is retried with backoff and never counts as an attempt. Not profile-overridable. |
 | `change_config.lanes.testcases.auth.login_url` | string | yes, to run a case behind a login (unless `auth.steps` is used instead) | The same login-flow block `lanes.browserless.auth` defines, field for field, because a case behind a login has to get through the same login. Login page path (relative to the lane's base url) or absolute url. |
 | `change_config.lanes.testcases.auth.email_env` | string | yes, to log in (shorthand form) | Name of the environment variable holding the real test login email/username. The value is never written into `CHANGE.md`. |
 | `change_config.lanes.testcases.auth.password_env` | string | yes, to log in (shorthand form) | Name of the environment variable holding the real test login password. Never written into `CHANGE.md`. |
@@ -1662,3 +1663,8 @@ root `RELEASING.md`.
   (`states`, `transitions`, typed `evidence`, `handoffs` by role, schema-fixed
   `locks`), so plan phases can run outside the harness through one outbound
   send path with a per-project tracker workflow. Nothing existing changes.
+- 0.21.0: additive. Adds `change_config.lanes.testcases.parallel` (integer 1
+  to 10, default 1): the testcases lane now runs each case in its own
+  browserless call, up to that many at once. The suite files the lane loads
+  gain their own `suite_version` (see the suite-file spec); suites with
+  unknown keys now fail to load.
