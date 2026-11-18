@@ -29,7 +29,7 @@ module ChangeSuiteSchema
   # field set before the key existed. Every PR that adds a suite field raises
   # this by one and records the field in FIELD_VERSIONS, so an install can tell
   # a file written for a newer toolkit from a file with a typo.
-  SUITE_VERSION = 3
+  SUITE_VERSION = 4
 
   # The version a file declares when it says nothing.
   DEFAULT_SUITE_VERSION = 1
@@ -103,6 +103,13 @@ module ChangeSuiteSchema
   }.freeze
 
   def self.field_version(field) = FIELD_VERSIONS.fetch(field, DEFAULT_SUITE_VERSION)
+
+  # The suite_version that introduced each step verb; a verb absent here is a
+  # version 1 verb. Same rule as FIELD_VERSIONS: a file using a verb newer than
+  # it declares is refused with the version that adds it.
+  VERB_VERSIONS = (ChangeFlowCompiler::STATE_WAITS + ChangeFlowCompiler::EVENT_WAITS).to_h { |verb| [ verb, 4 ] }.freeze
+
+  def self.verb_version(verb) = VERB_VERSIONS.fetch(verb, DEFAULT_SUITE_VERSION)
 
   # The keys a suite file may carry at the top level and on each case, derived
   # from FIELDS so the strict loader and the drift test read one list.

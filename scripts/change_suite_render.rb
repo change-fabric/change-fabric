@@ -63,17 +63,20 @@ module ChangeSuiteRender
     persona = persona.to_s.strip
     persona = nil if persona.empty? || persona == 'default'
     document = { 'suite' => suite.to_s.strip }
-    version = needed_version(rerun, persona)
+    version = needed_version(rerun, persona, steps)
     document['suite_version'] = version if version > ChangeSuiteSchema::DEFAULT_SUITE_VERSION
     document.merge('cases' => [ case_document(steps, id, acceptance, tags, rerun ? retries : nil, persona) ])
   end
 
   # The lowest suite_version that carries every field the case uses.
-  def needed_version(rerun, persona)
+  def needed_version(rerun, persona, steps = [])
+    verbs = Array(steps).flat_map { |step| step.is_a?(Hash) ? step.keys.map(&:to_s) : [] }
+    verb_versions = verbs.map { |verb| ChangeSuiteSchema.verb_version(verb) }
     fields = []
     fields << 'cases[].safe_rerun' if rerun
     fields << 'cases[].persona' if persona
-    ([ ChangeSuiteSchema::DEFAULT_SUITE_VERSION ] + fields.map { |field| ChangeSuiteSchema.field_version(field) }).max
+    ([ ChangeSuiteSchema::DEFAULT_SUITE_VERSION ] + verb_versions +
+      fields.map { |field| ChangeSuiteSchema.field_version(field) }).max
   end
 
   def case_document(steps, id, acceptance, tags, retries, persona = nil)

@@ -71,7 +71,8 @@ class ChangeLaneTestcases < ChangeLane
   # eval) may already have taken effect server side, so replaying it needs the
   # case's `safe_retry: true`.
   REPLAYABLE_VERBS = ChangeFlowCompiler::RUNTIME_VERBS.values_at(
-    'goto', 'wait_for', 'screenshot', 'capture', *ChangeFlowCompiler::ASSERTIONS
+    'goto', 'wait_for', 'screenshot', 'capture', *ChangeFlowCompiler::STATE_WAITS,
+    *ChangeFlowCompiler::EVENT_WAITS, *ChangeFlowCompiler::ASSERTIONS
   ).freeze
 
   # `grader` is the seam a test drives; a real run builds the default one, which

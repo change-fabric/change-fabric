@@ -1,0 +1,13 @@
+suite: compat-v4
+suite_version: 4
+cases:
+  - id: home
+    acceptance: The home page settles after sign in.
+    steps:
+      - goto: /
+      - click: "#sign-in"
+      - wait_for_response: { url: "/api/session", status: 200 }
+      - wait_for_url: "/home"
+      - wait_for_text: Welcome
+      - wait_until_hidden: ".spinner"
+      - wait_for_network_idle: { idle_ms: 300 }

@@ -98,4 +98,10 @@ class ChangeSuiteRenderTest < Minitest::Test
 
     assert_includes error.message, "not a valid suite file"
   end
+
+  def test_a_flow_using_a_wait_verb_renders_with_the_suite_version_that_adds_it
+    doc = YAML.safe_load(ChangeSuiteRender.suite_yaml(steps: [ { "goto" => "/" }, { "wait_for_text" => "Saved" } ],
+                                                      suite: "s", id: "c", acceptance: "It saves."))
+    assert_equal 4, doc["suite_version"]
+  end
 end
