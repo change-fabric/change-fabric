@@ -225,7 +225,8 @@ module RoastAudioWords
       a, b = evidence.split('=', 2).map(&:strip)
       return 'evidence must give both written forms as "A = B"' unless a && b && !a.empty? && !b.empty?
       return 'the two forms do not normalize equal' unless tokens(a) == tokens(b)
-      return 'the forms do not cover this op' unless tokens(a).include?(op['expected']) || tokens(b).include?(op['heard'])
+      covered = tokens(a) | tokens(b)
+      return 'the forms must account for both the expected and the heard word' unless covered.include?(op['expected']) && covered.include?(op['heard'])
     when 'homophone'
       pair = evidence.split(%r{[/,]}).map { |w| tokens(w).first }.compact.sort
       return 'evidence must give the pair as "a/b"' unless pair.size == 2

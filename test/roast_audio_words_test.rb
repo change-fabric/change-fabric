@@ -187,7 +187,11 @@ class RoastAudioWordsTest < Minitest::Test
     assert_nil RoastAudioWords.send(:evidence_problem, "homophone", "too/two", op, "", {})
     num = { "kind" => "substituted", "expected" => "twelve", "heard" => "dozen" }
     assert_match(/normalize equal/, RoastAudioWords.send(:evidence_problem, "number_format", "12 = a dozen", num, "", {}))
-    assert_nil RoastAudioWords.send(:evidence_problem, "number_format", "12 = twelve", num, "", {})
+    assert_match(/both the expected and the heard/, RoastAudioWords.send(:evidence_problem, "number_format", "12 = twelve", num, "", {}))
+    real = { "kind" => "substituted", "expected" => "twelve", "heard" => "ninety" }
+    assert_match(/both the expected and the heard/, RoastAudioWords.send(:evidence_problem, "number_format", "12 = twelve", real, "", {}))
+    same = { "kind" => "substituted", "expected" => "hundred", "heard" => "one" }
+    assert_nil RoastAudioWords.send(:evidence_problem, "number_format", "100 = one hundred", same, "", {})
   end
 
   def test_a_rebuttal_added_later_changes_rebuttal_sha_and_counts
