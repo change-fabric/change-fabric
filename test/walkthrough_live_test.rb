@@ -432,6 +432,49 @@ class WalkthroughLiveTest < Minitest::Test
                     "the summary names every scene --recapture refilmed, not only re-keyed ones"
   end
 
+  def ten_live = (1..10).map { |i| live("s#{i}", i, "persona" => "member") }
+
+  # A same-length narration edit leaves every frames key as it was but makes
+  # paid audio pending, so the silent cut films first.
+  def reword_first_scene
+    b = JSON.parse(File.read(File.join(@root, "storyboard.json")))
+    b["scenes"].first["narration"]["text"] = "Scene s1 speaks!"
+    File.write(File.join(@root, "storyboard.json"), JSON.pretty_generate(b))
+  end
+
+  # --recapture films every live scene again, changed or not, in the silent
+  # cut too, and each key only once per run; no cached frame is reused.
+  def test_recapture_refilms_every_unchanged_live_scene
+    File.write(File.join(@root, "storyboard.json"), JSON.pretty_generate(board(ten_live)))
+    render
+    old = Dir[File.join(@root, ".cache", "frames", "*", "*.jpg")].to_h { |f| [ f, File.binread(f) ] }
+    reword_first_scene
+    @calls.clear
+    render(recapture: true)
+    ids = (1..10).map { |i| "s#{i}" }
+    assert_equal ids, shots, "all 10 refilmed once: the silent cut films them and the draft reuses this run's frames"
+    assert_includes @log.string, "draft-03: silent; scenes s1, s2, s3, s4, s5, s6, s7, s8, s9 and s10 refilmed",
+                    "the silent cut films the live app again rather than reuse old frames"
+    assert_includes @log.string, "live recapture: 10 scene(s)"
+    ids.each { |id| assert_includes @log.string, "  #{id} (forced by --recapture)" }
+    old.each { |f, bytes| refute_equal bytes, File.binread(f), "#{f.delete_prefix(@root)} reused a cached frame" if File.file?(f) }
+  end
+
+  # Without the flag only a changed scene films again.
+  def test_without_recapture_only_changed_scenes_refilm
+    File.write(File.join(@root, "storyboard.json"), JSON.pretty_generate(board(ten_live)))
+    render
+    b = JSON.parse(File.read(File.join(@root, "storyboard.json")))
+    b["scenes"][2]["screen"]["url"] = "https://app.localhost/s3-v2"
+    File.write(File.join(@root, "storyboard.json"), JSON.pretty_generate(b))
+    reword_first_scene
+    @calls.clear
+    render
+    assert_equal %w[s3], shots
+    assert_includes @log.string, "live recapture: 1 scene(s)"
+    assert_includes @log.string, "s3 (changed: live)"
+  end
+
   # Before filming, the render names each live scene it will recapture and
   # the key input that moved; an unchanged film prints no notice.
   def test_recapture_notice_names_the_changed_input
