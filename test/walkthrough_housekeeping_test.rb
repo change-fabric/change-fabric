@@ -138,6 +138,31 @@ class WalkthroughHousekeepingTest < Minitest::Test
     assert_nil H.disk_preflight!(@root, ENV0, free: ->(_) { nil }), "an unknown free size never blocks"
   end
 
+  # The Docker VM has its own disk (OrbStack, Docker Desktop): a host with
+  # room can still fail "no space left on device" inside it.
+  def test_disk_preflight_also_refuses_a_low_docker_vm_disk
+    host = ->(_) { 50 * H::GB }
+    assert_nil H.disk_preflight!(@root, ENV0, free: host, vm_free: -> { 6 * H::GB })
+    err = assert_raises(H::NoSpaceError) { H.disk_preflight!(@root, ENV0, free: host, vm_free: -> { 1 * H::GB }) }
+    assert_includes err.message, "Docker VM disk"
+    assert_includes err.message, "docker system prune"
+    assert_includes err.message, H::MIN_FREE_ENV
+    assert_nil H.disk_preflight!(@root, ENV0, free: host, vm_free: -> { nil }), "an unknown VM size never blocks"
+  end
+
+  def test_vm_free_bytes_runs_df_in_the_pinned_ffmpeg_image
+    seen = nil
+    df = "WARNING: platform mismatch\nFilesystem 1024-blocks Used Available Capacity Mounted on\noverlay 100 40 2048 2% /\n"
+    assert_equal 2048 * 1024, H.vm_free_bytes(->(argv) { (seen = argv) && [ df, true ] })
+    assert_includes seen, ChangeDocker::FFMPEG_IMAGE
+    assert_equal [ "--entrypoint", "df" ], seen[seen.index("--entrypoint"), 2]
+    assert_equal [ "--network", "none" ], seen[seen.index("--network"), 2]
+    assert_equal [ "-Pk", "/" ], seen.last(2)
+    assert_nil H.vm_free_bytes(->(_) { [ df, false ] })
+    assert_nil H.vm_free_bytes(->(_) { [ "garbage", true ] })
+    assert_nil H.vm_free_bytes(->(_) { raise Errno::ENOENT, "docker" })
+  end
+
   def test_free_bytes_reads_the_cache_filesystem
     assert_operator H.free_bytes(@root), :>, 0
   end

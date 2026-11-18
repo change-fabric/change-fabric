@@ -56,6 +56,7 @@ module WalkthroughRender
     roast: ->(**kw) { Roast.critique(**kw) },
     docker: ->(argv) { Open3.capture2e(*argv) },
     free_bytes: ->(root) { WalkthroughHousekeeping.free_bytes(root) },
+    vm_free_bytes: -> { WalkthroughHousekeeping.vm_free_bytes },
     # Pass 2 runs under a watchdog that kills it once its output clock passes
     # the timeline (FfmpegWatchdog); same [output, status] contract as docker.
     ffmpeg_watch: ->(argv, **kw) { FfmpegWatchdog.run(argv, **kw) }
@@ -1010,7 +1011,7 @@ module WalkthroughRender
       WalkthroughStoryboard.validate!(@board, root: @root)
       WalkthroughHousekeeping.ensure_location!(@root).each { |line| say(line) }
       WalkthroughCache.ensure_gitignore(@root)
-      WalkthroughHousekeeping.disk_preflight!(@root, free: @p[:free_bytes]) unless estimate_only
+      WalkthroughHousekeeping.disk_preflight!(@root, free: @p[:free_bytes], vm_free: @p[:vm_free_bytes]) unless estimate_only
       return silent_call if @silent
 
       estimate
