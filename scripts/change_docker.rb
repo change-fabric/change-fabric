@@ -337,6 +337,12 @@ module ChangeDocker
     # nothing here retries.
     class TimedOut < RuntimeError; end
 
+    # A 429 or 503: the container's queue was full and the job never started.
+    # Nothing ran, so a caller may retry it without replaying any action.
+    class QueueRejected < RuntimeError; end
+
+    QUEUE_REJECTION_CODES = %w[429 503].freeze
+
     # The client read timeout for a call with browserless timeout `ms`: the
     # default call keeps its 120 s, a longer one waits 5 s past the server.
     def self.read_timeout_s(ms) = [ 120, (ms / 1000.0).ceil + 5 ].max
@@ -353,6 +359,7 @@ module ChangeDocker
       unless response.is_a?(Net::HTTPSuccess)
         failure = "browserless /function failed: #{response.code} #{response.body}"
         raise TimedOut, failure if response.code.to_s == '408'
+        raise QueueRejected, failure if QUEUE_REJECTION_CODES.include?(response.code.to_s)
         raise failure
       end
 

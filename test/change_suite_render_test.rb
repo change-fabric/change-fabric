@@ -48,10 +48,20 @@ class ChangeSuiteRenderTest < Minitest::Test
     refute_includes render, "base_url"
   end
 
-  def test_a_retry_budget_is_carried_when_the_flow_had_one
-    document = YAML.safe_load(render(retries: 2))
+  def test_a_retry_budget_is_carried_when_the_flow_says_a_rerun_is_safe
+    document = YAML.safe_load(render(retries: 2, safe_rerun: true))
 
+    assert_equal 2, document.fetch("suite_version")
     assert_equal 2, document.fetch("cases").first.fetch("retries")
+    assert document.fetch("cases").first.fetch("safe_rerun")
+  end
+
+  # Promotion never authorizes a rerun on the author's behalf: a budget with no
+  # safe_rerun is dropped, not rendered into a file the lane would refuse.
+  def test_a_retry_budget_without_safe_rerun_is_dropped
+    refute_includes render(retries: 2), "retries"
+    assert ChangeSuiteRender.dropped_retries?(2, false)
+    refute ChangeSuiteRender.dropped_retries?(2, true)
   end
 
   def test_no_retries_key_is_emitted_when_the_flow_had_none

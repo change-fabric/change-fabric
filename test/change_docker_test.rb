@@ -103,6 +103,16 @@ class ChangeDockerTest < Minitest::Test
     assert_equal 1, calls.size
   end
 
+  # A full queue never started the job, so it gets its own class: the
+  # testcases lane retries it with backoff and does not count it as an attempt.
+  def test_run_function_raises_queue_rejected_on_a_429_or_503
+    [ [ Net::HTTPTooManyRequests, "429" ], [ Net::HTTPServiceUnavailable, "503" ] ].each do |klass, code|
+      session, calls = scripted_session(http_response(klass, code, "queue full"), ok_response)
+      assert_raises(ChangeDocker::Browserless::QueueRejected) { session.run_function("code") }
+      assert_equal 1, calls.size
+    end
+  end
+
   def test_run_function_unwraps_a_success
     session, = scripted_session(ok_response)
     assert_equal [ "frame" ], session.run_function("code")

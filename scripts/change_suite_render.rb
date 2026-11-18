@@ -35,20 +35,31 @@ module ChangeSuiteRender
   # a suite file must not, because the lane supplies the base url per profile
   # and a case pinned to one developer's localhost is a case that only ever runs
   # for that developer.
-  def suite_yaml(steps:, suite:, id:, acceptance:, tags: [], retries: nil)
+  #
+  # A retry budget is carried only beside `safe_rerun: true`: a rerun replays
+  # every action of the failed attempt, and promotion cannot decide for the
+  # author that doing so is safe. Without it the budget is dropped
+  # (#dropped_retries? says so) rather than rendered into a file the lane
+  # would refuse.
+  def suite_yaml(steps:, suite:, id:, acceptance:, tags: [], retries: nil, safe_rerun: false)
     document = suite_document(steps: steps, suite: suite, id: id, acceptance: acceptance,
-                              tags: tags, retries: retries)
+                              tags: tags, retries: retries, safe_rerun: safe_rerun)
     verify(document)
     YAML.dump(document)
   end
 
-  def suite_document(steps:, suite:, id:, acceptance:, tags: [], retries: nil)
+  def dropped_retries?(retries, safe_rerun) = retries.to_i.positive? && safe_rerun != true
+
+  def suite_document(steps:, suite:, id:, acceptance:, tags: [], retries: nil, safe_rerun: false)
     raise Error, 'a promoted case needs a suite id' if suite.to_s.strip.empty?
     raise Error, 'a promoted case needs a case id' if id.to_s.strip.empty?
     raise Error, 'a promoted case needs an acceptance criterion' if acceptance.to_s.strip.empty?
     raise Error, 'a promoted case needs at least one step' unless steps.is_a?(Array) && !steps.empty?
 
-    { 'suite' => suite.to_s.strip, 'cases' => [ case_document(steps, id, acceptance, tags, retries) ] }
+    rerun = retries.to_i.positive? && safe_rerun == true
+    document = { 'suite' => suite.to_s.strip }
+    document['suite_version'] = ChangeSuiteSchema.field_version('cases[].safe_rerun') if rerun
+    document.merge('cases' => [ case_document(steps, id, acceptance, tags, rerun ? retries : nil) ])
   end
 
   def case_document(steps, id, acceptance, tags, retries)
@@ -56,7 +67,10 @@ module ChangeSuiteRender
     list = Array(tags).map(&:to_s).map(&:strip).reject(&:empty?)
     entry['tags'] = list unless list.empty?
     entry['acceptance'] = acceptance.to_s.strip
-    entry['retries'] = retries.to_i if retries.to_i.positive?
+    if retries.to_i.positive?
+      entry['retries'] = retries.to_i
+      entry['safe_rerun'] = true
+    end
     entry['steps'] = steps
     entry
   end

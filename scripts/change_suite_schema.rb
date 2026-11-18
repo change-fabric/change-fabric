@@ -23,6 +23,24 @@ module ChangeSuiteSchema
   # The human-facing authority the drift test checks this registry against.
   SPEC_DOC = 'skills/testcases/reference/suite-file-spec.md'
 
+  # The suite-file format's own version, an integer independent of
+  # ChangeSchema::VERSION. A file declares the version it was written against in
+  # its top-level `suite_version`; a file with none is version 1, exactly the
+  # field set before the key existed. Every PR that adds a suite field raises
+  # this by one and records the field in FIELD_VERSIONS, so an install can tell
+  # a file written for a newer toolkit from a file with a typo.
+  SUITE_VERSION = 2
+
+  # The version a file declares when it says nothing.
+  DEFAULT_SUITE_VERSION = 1
+
+  # What an install says to a file newer than itself. One string, used by the
+  # loader, the lane and doctor alike.
+  def self.too_new_message(declared)
+    "suite_version #{declared} needs a newer cf toolkit; pull and run ruby install.rb " \
+      "(this install reads suite_version up to #{SUITE_VERSION})"
+  end
+
   # `[]` marks a field on each item of a list, the same convention
   # ChangeSchema::FIELDS uses.
   FIELDS = [
@@ -30,6 +48,10 @@ module ChangeSuiteSchema
     # selection; it is not derived from the filename, so moving the file never
     # silently renames the suite.
     'suite',
+    # The suite-file version this file was written against (integer, default
+    # 1). Checked before anything else, so a newer file fails with an update
+    # message instead of an unknown-key error on its first new field.
+    'suite_version',
     'cases[].id',
     'cases[].tags',
     # The human-prose criterion: what a person means by "working" for this
@@ -38,6 +60,12 @@ module ChangeSuiteSchema
     # the verdict can fail the gate.
     'cases[].acceptance',
     'cases[].retries',
+    # (v2) A whole-case rerun replays every mutation the failed attempt already
+    # made, so `retries` is refused unless the author says it is safe.
+    'cases[].safe_rerun',
+    # (v2) This case's browserless call budget in ms (1000..600000). Without
+    # it the lane derives one from the steps' timeouts.
+    'cases[].timeout_ms',
     # The time-boxed flake quarantine. All three keys or none: a quarantine
     # without a reason cannot be told from a defect somebody muted, and one
     # without an expiry is permanent, which is the state this feature exists to
@@ -50,6 +78,22 @@ module ChangeSuiteSchema
     # a mapping naming exactly one verb from STEP_VERBS.
     'cases[].steps'
   ].freeze
+
+  # The suite_version that introduced each field. A field absent here is a
+  # version 1 field. A file that uses a field newer than the version it
+  # declares is refused with the version that adds it named.
+  FIELD_VERSIONS = {
+    'suite_version' => 2,
+    'cases[].safe_rerun' => 2,
+    'cases[].timeout_ms' => 2
+  }.freeze
+
+  def self.field_version(field) = FIELD_VERSIONS.fetch(field, DEFAULT_SUITE_VERSION)
+
+  # The keys a suite file may carry at the top level and on each case, derived
+  # from FIELDS so the strict loader and the drift test read one list.
+  TOP_KEYS = (FIELDS.reject { |field| field.include?('.') } + [ 'cases' ]).freeze
+  CASE_KEYS = FIELDS.filter_map { |field| field.delete_prefix('cases[].') if field.start_with?('cases[].') }.freeze
 
   # The step vocabulary is the compiler's, not a second copy of it: a verb the
   # compiler grows is a verb a suite file may use the same day, and a suite

@@ -46,22 +46,61 @@ class ChangeLaneTestcasesTest < Minitest::Test
     end
   end
 
-  # A stand-in browserless session that records the module it was handed and
-  # returns whatever the test wants back.
+  # A stand-in browserless session. Each call carries one case's module; the
+  # fake reads the case index the module embeds and returns that case's record
+  # from `records`. A record that is an Array is one entry per successive
+  # attempt, and an entry that is an Exception is raised instead. `code` joins
+  # every module it was handed, so a test can assert on what reached the
+  # container across all calls.
   class FakeSession
-    attr_reader :code, :launch_args
+    attr_reader :codes, :launch_args, :timeouts, :max_in_flight
 
-    def initialize(result) = @result = result
+    def initialize(records, delay: 0)
+      @records = records
+      @delay = delay
+      @codes = []
+      @timeouts = []
+      @lock = Mutex.new
+      @in_flight = 0
+      @max_in_flight = 0
+    end
 
-    def run_function(code, launch_args: [])
-      @code = code
-      @launch_args = launch_args
-      @result
+    def code = @codes.join("\n")
+
+    def calls = @codes.size
+
+    def run_function(code, launch_args: [], timeout_ms: nil)
+      index = code[/const testCase = \{"index":(\d+)/, 1].to_i
+      entry = @lock.synchronize do
+        @codes << code
+        @timeouts << timeout_ms
+        @launch_args = launch_args
+        @in_flight += 1
+        @max_in_flight = [ @max_in_flight, @in_flight ].max
+        next_entry(index)
+      end
+      sleep(@delay) if @delay.positive?
+      raise entry if entry.is_a?(Exception)
+
+      entry
+    ensure
+      @lock.synchronize { @in_flight -= 1 }
+    end
+
+    private
+
+    def next_entry(index)
+      record = @records[index] if @records[index].is_a?(Array)
+      record ||= @records.find { |item| item.is_a?(Hash) && item["index"] == index }
+      return record unless record.is_a?(Array)
+
+      record.size > 1 ? record.shift : record.first
     end
   end
 
   SUITE = <<~YAML
     suite: checkout
+    suite_version: 2
     cases:
       - id: happy-path
         tags: [checkout, smoke]
@@ -74,6 +113,7 @@ class ChangeLaneTestcasesTest < Minitest::Test
         tags: [checkout]
         acceptance: An empty cart says so.
         retries: 1
+        safe_rerun: true
         steps:
           - goto: /cart
           - expect_visible: "[data-test=empty]"
@@ -86,10 +126,10 @@ class ChangeLaneTestcasesTest < Minitest::Test
     end
   end
 
-  def lane(dir, raw = {}, session: nil, select: [], grader: FakeGrader.new, today: nil, signoff: false)
+  def lane(dir, raw = {}, session: nil, select: [], grader: FakeGrader.new, today: nil, signoff: false, sleeper: nil)
     config = ChangeConfig::LaneConfig.new("testcases", { "suites" => [ "*.cf-testcases.yml" ] }.merge(raw), dir)
     ChangeLaneTestcases.new(config, Ctx.new("net", "https://app.example.org", session, select, signoff),
-                            grader: grader, today: today)
+                            grader: grader, today: today, sleeper: sleeper || ->(_seconds) { })
   end
 
   # Only findings about the cases' steps, not the acceptance gradings that now
@@ -204,9 +244,11 @@ class ChangeLaneTestcasesTest < Minitest::Test
   def test_a_case_that_only_passed_on_a_retry_is_recorded_flaky
     with_suite do |dir|
       result = ok_result(2)
-      result[1] = { "index" => 1, "attempts" => 2, "ok" => true, "steps" => [] }
-      findings = step_findings(lane(dir, {}, session: FakeSession.new(result)).run)
+      result[1] = [ failed_result(1, []), { "index" => 1, "ok" => true, "steps" => [] } ]
+      session = FakeSession.new(result)
+      findings = step_findings(lane(dir, {}, session: session).run)
 
+      assert_equal 3, session.calls
       assert findings.last.pass?
       assert findings.last.flaky
       assert_equal 2, findings.last.attempts
@@ -215,7 +257,7 @@ class ChangeLaneTestcasesTest < Minitest::Test
 
   def test_a_case_with_no_returned_record_fails_rather_than_passing_silently
     with_suite do |dir|
-      findings = step_findings(lane(dir, {}, session: FakeSession.new([ ok_result(1).first ])).run)
+      findings = step_findings(lane(dir, {}, session: FakeSession.new([ ok_result(1).first, nil ])).run)
 
       assert findings.last.fail?
       assert_includes findings.last.detail, "produced no result"
@@ -296,7 +338,7 @@ class ChangeLaneTestcasesTest < Minitest::Test
       assert_includes session.code, "cfRunFlow"
       # One shared code_source helper, not one per embedded runtime: an ES
       # module rejects the duplicate declaration outright.
-      assert_equal 1, session.code.scan("async function resolveCodeSource").size
+      assert(session.codes.all? { |code| code.scan("async function resolveCodeSource").size == 1 })
     end
   end
 
@@ -318,6 +360,7 @@ class ChangeLaneTestcasesTest < Minitest::Test
 
       assert_includes instance.acceptance_section,
                       "| checkout/happy-path | checkout smoke | PASS | PASS | 1 | " \
+                      "#{instance.case_results.first[:duration_ms].then { |ms| format('%.1f s', ms / 1000.0) }} | " \
                       "A guest can reach the confirmation page. | looks right |"
     end
   end
@@ -670,6 +713,158 @@ class ChangeLaneTestcasesTest < Minitest::Test
 
       assert_includes failed.help, "change_override.rb"
       assert_includes instance.acceptance_section, "change_override.rb"
+    end
+  end
+
+  # --- per-case calls, budget, pool (suite v2) ---------------------------------------
+
+  def many_cases(count, extra = "")
+    cases = (0...count).map do |i|
+      "  - id: case-#{i}\n    acceptance: Case #{i} works.\n#{extra}    steps:\n      - goto: /p/#{i}\n"
+    end
+    "suite: long\nsuite_version: 2\ncases:\n#{cases.join}"
+  end
+
+  def test_each_case_is_its_own_call
+    with_suite do |dir|
+      session = FakeSession.new(ok_result(2))
+      lane(dir, {}, session: session).run
+
+      assert_equal 2, session.calls
+      assert_includes session.codes[0], "/products/widget"
+      refute_includes session.codes[0], "/cart"
+      assert_includes session.codes[1], "/cart"
+    end
+  end
+
+  # The acceptance target, stubbed: 40 cases of 60 s each would never fit one
+  # 115 s call, and each now gets its own call and its own duration.
+  def test_forty_long_cases_all_run_with_a_duration_each
+    with_suite(many_cases(40, "    timeout_ms: 60000\n")) do |dir|
+      session = FakeSession.new(ok_result(40))
+      instance = lane(dir, {}, session: session)
+      findings = step_findings(instance.run)
+
+      assert_equal 40, session.calls
+      assert_equal [ 60_000 ] * 40, session.timeouts
+      assert findings.all?(&:pass?)
+      assert(instance.case_results.all? { |result| result[:duration_ms].is_a?(Integer) && result[:attempts].size == 1 })
+    end
+  end
+
+  def test_an_explicit_case_timeout_is_the_budget
+    with_suite(many_cases(1, "    timeout_ms: 300000\n")) do |dir|
+      instance = lane(dir)
+      assert_equal 300_000, instance.case_budget_ms(instance.send(:suite_set).cases.first)
+    end
+  end
+
+  def test_a_short_case_budget_is_floored_at_the_default_call_limit
+    with_suite do |dir|
+      instance = lane(dir)
+      assert_equal 115_000, instance.case_budget_ms(instance.send(:suite_set).cases.first)
+    end
+  end
+
+  def test_a_long_case_budget_sums_step_timeouts_and_navigation
+    body = "suite: s\ncases:\n  - id: slow\n    acceptance: ok\n    steps:\n" \
+           "      - goto: /a\n        timeout_ms: 60000\n" \
+           "      - wait_for: { selector: '#x', timeout_ms: 50000 }\n" \
+           "      - click: '#y'\n"
+    with_suite(body) do |dir|
+      instance = lane(dir, { "timeout_ms" => 20_000 })
+      # 60000 + 5000 (goto) + 50000 + 20000 (lane default for the click)
+      assert_equal 135_000, instance.case_budget_ms(instance.send(:suite_set).cases.first)
+    end
+  end
+
+  def test_the_pool_never_exceeds_parallel_and_keeps_case_order
+    with_suite(many_cases(12)) do |dir|
+      session = FakeSession.new(ok_result(12), delay: 0.01)
+      findings = step_findings(lane(dir, { "parallel" => 3 }, session: session).run)
+
+      assert_operator session.max_in_flight, :<=, 3
+      assert_operator session.max_in_flight, :>, 1
+      assert_equal (0...12).map { |i| "long/case-#{i}" }, findings.map(&:check)
+    end
+  end
+
+  def test_serial_is_the_default
+    with_suite(many_cases(4)) do |dir|
+      session = FakeSession.new(ok_result(4), delay: 0.005)
+      lane(dir, {}, session: session).run
+      assert_equal 1, session.max_in_flight
+    end
+  end
+
+  # A full queue never started the case: it is retried with backoff, consumes
+  # no retry, and is not counted as an attempt.
+  def test_a_queue_rejection_is_not_an_attempt
+    rejected = ChangeDocker::Browserless::QueueRejected.new("429 queue full")
+    with_suite(many_cases(1)) do |dir|
+      waits = []
+      session = FakeSession.new([ [ rejected, rejected, ok_result(1).first ] ])
+      instance = lane(dir, {}, session: session, sleeper: ->(seconds) { waits << seconds })
+      findings = step_findings(instance.run)
+
+      assert findings.first.pass?
+      assert_equal 1, findings.first.attempts
+      assert_equal [ 1, 2 ], waits
+      assert_equal 1, instance.case_results.first[:attempts].size
+    end
+  end
+
+  def test_a_call_that_fails_outright_fails_the_case_by_name
+    with_suite(many_cases(1)) do |dir|
+      session = FakeSession.new([ [ ChangeDocker::Browserless::TimedOut.new("408 Request has timed out") ] ])
+      finding = step_findings(lane(dir, {}, session: session).run).first
+
+      assert finding.fail?
+      assert_equal "browserless call", finding.location
+      assert_includes finding.detail, "408"
+    end
+  end
+
+  # The earlier mutation of a failed attempt is never replayed without
+  # authorization: `retries` with no `safe_rerun` is refused before any call.
+  def test_retries_without_safe_rerun_is_refused_before_anything_runs
+    body = SUITE.sub("    safe_rerun: true\n", "")
+    with_suite(body) do |dir|
+      session = FakeSession.new(ok_result(2))
+      findings = lane(dir, {}, session: session).run
+
+      assert(findings.any? { |finding| finding.fail? && finding.detail.include?("without `safe_rerun: true`") })
+      refute(session.codes.any? { |code| code.include?("/cart") })
+    end
+  end
+
+  def test_an_unknown_case_key_is_refused
+    body = SUITE.sub("    safe_rerun: true\n", "    safe_rerun: true\n    retires: 2\n")
+    with_suite(body) do |dir|
+      findings = lane(dir, {}, session: FakeSession.new([])).run
+      assert(findings.any? { |finding| finding.detail.include?("unknown key(s): retires") })
+    end
+  end
+
+  def test_a_too_new_suite_names_the_update_in_the_lane
+    with_suite(SUITE.sub("suite_version: 2", "suite_version: 99")) do |dir|
+      findings = lane(dir, {}, session: FakeSession.new([])).run
+      assert(findings.any? { |finding| finding.fail? && finding.detail.include?("pull and run ruby install.rb") })
+    end
+  end
+
+  def test_a_queue_that_never_frees_fails_without_counting_an_attempt
+    rejected = ChangeDocker::Browserless::QueueRejected.new("429 queue full")
+    body = many_cases(1, "    retries: 2\n    safe_rerun: true\n")
+    with_suite(body) do |dir|
+      session = FakeSession.new([ [ rejected ] ])
+      instance = lane(dir, {}, session: session)
+      finding = step_findings(instance.run).first
+
+      assert finding.fail?
+      assert_includes finding.detail, "queue stayed full"
+      assert_equal 6, session.calls
+      assert_empty instance.case_results.first[:attempts]
     end
   end
 end

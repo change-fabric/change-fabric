@@ -68,10 +68,15 @@ module ChangeFlowRun
   # shows the YAML as a diff and writes it on an explicit answer, never
   # automatically and never as a commit.
   def promote(flow, options)
+    safe_rerun = flow['safe_rerun'] == true
     puts ChangeSuiteRender.suite_yaml(
       steps: flow['steps'], suite: options[:suite], id: options[:case_id],
-      acceptance: options[:acceptance], tags: options[:tags], retries: flow['retries']
+      acceptance: options[:acceptance], tags: options[:tags], retries: flow['retries'], safe_rerun: safe_rerun
     )
+    if ChangeSuiteRender.dropped_retries?(flow['retries'], safe_rerun)
+      warn "promote note: dropped retries: #{flow['retries']}; a case reruns only with safe_rerun: true, " \
+           'so add both by hand if replaying every step of a failed attempt is safe'
+    end
     0
   rescue ChangeSuiteRender::Error => e
     warn "promote error: #{e.message}"
