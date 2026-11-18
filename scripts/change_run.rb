@@ -489,7 +489,8 @@ class ChangeRun
   end
 
   def parse_args(argv)
-    scope = argv.first
+    scope = argv.first&.start_with?('-') ? nil : argv.first
+    lane = nil
     path = ChangeConfig::DEFAULT_PATH
     profile = nil
     apps = []
@@ -506,7 +507,7 @@ class ChangeRun
     out = nil
     exports = []
     video_budget_mb = nil
-    rest = argv.drop(1)
+    rest = scope ? argv.drop(1) : argv
     schedule = scope == 'schedule' && rest.first && !rest.first.start_with?('-') ? rest.shift : nil
     OptionParser.new do |o|
       o.on('--config PATH') { |value| path = value }
@@ -525,7 +526,9 @@ class ChangeRun
       o.on('--out DIR') { |value| out = File.expand_path(value) }
       o.on('--export LIST') { |value| exports.concat(value.split(',').map(&:strip).reject(&:empty?)) }
       o.on('--video-budget-mb N', Integer) { |value| video_budget_mb = value }
+      o.on('--lane NAME') { |value| lane = value }
     end.parse(rest)
+    scope = lane_scope(scope, lane) if lane
     valid = %w[all sweep gate-status schedule] + ChangeConfig::LANES
     abort_and_exit("scope must be one of: #{valid.join(', ')}") unless valid.include?(scope)
     # `--suite` narrows the testcases lane and nothing else reads it. Refusing
@@ -554,6 +557,15 @@ class ChangeRun
   # What --export may name: the testcases report as a PDF, and one MP4 per
   # case. Neither makes a paid call.
   EXPORTS = %w[pdf video].freeze
+
+  # `--lane NAME` is an alias for the lane scope: it narrows `all` (or no
+  # scope) to that one lane, and refuses a different scope rather than guess.
+  def lane_scope(scope, lane)
+    abort_and_exit("--lane must be one of: #{ChangeConfig::LANES.join(', ')}") unless ChangeConfig::LANES.include?(lane)
+    return lane if [ nil, 'all', lane ].include?(scope)
+
+    abort_and_exit("--lane #{lane} conflicts with scope #{scope}; run change_run.rb #{lane} [options]")
+  end
 
   def overrides
     { target_url: @args.target_url, health_url: @args.health_url }.compact
