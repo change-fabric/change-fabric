@@ -29,7 +29,9 @@ class ChangeReport
   # either one had actually been run against. The same mapping is stored in the
   # gate record, so a recorded pass can be traced back to the exact inputs that
   # produced it rather than trusted on the strength of the word "pass".
-  def initialize(project:, scope:, findings:, app: nil, meta: {}, sections: [], manifest: {})
+  # `out_dir` is where the pair is written: `--out`, else the Desktop.
+  def initialize(project:, scope:, findings:, app: nil, meta: {}, sections: [], manifest: {}, out_dir: DESKTOP)
+    @out_dir = out_dir || DESKTOP
     @project = project.to_s
     @scope = scope.to_s
     @findings = findings
@@ -43,7 +45,7 @@ class ChangeReport
   # Writes both files and returns their paths so the caller can name them in the
   # run summary and the gate record.
   def write
-    FileUtils.mkdir_p(DESKTOP)
+    FileUtils.mkdir_p(@out_dir)
     csv = csv_path
     md = md_path
     File.write(csv, render_csv)
@@ -59,10 +61,11 @@ class ChangeReport
   # combined findings CSV would mix rows whose `target` column is only
   # meaningful within one app's own base url, and would change the stable
   # column order the per-app CSV already promises.
-  def self.rollup(project:, scope:, rows:)
-    FileUtils.mkdir_p(DESKTOP)
+  def self.rollup(project:, scope:, rows:, out_dir: DESKTOP)
+    out_dir ||= DESKTOP
+    FileUtils.mkdir_p(out_dir)
     stamp = Time.now.utc.strftime('%Y%m%dT%H%M%SZ')
-    path = File.join(DESKTOP, "change-#{slug_for(project)}-sweep-#{stamp}.md")
+    path = File.join(out_dir, "change-#{slug_for(project)}-sweep-#{stamp}.md")
     lines = [
       "# Change-fabric sweep: #{project}", '', "Scope: #{scope}. Generated #{Time.now.utc.iso8601}.", '',
       '| App | Result | Failing findings | Report |', '| --- | --- | --- | --- |'
@@ -79,8 +82,8 @@ class ChangeReport
 
   private
 
-  def csv_path = File.join(DESKTOP, "#{base_name}.csv")
-  def md_path = File.join(DESKTOP, "#{base_name}.md")
+  def csv_path = File.join(@out_dir, "#{base_name}.csv")
+  def md_path = File.join(@out_dir, "#{base_name}.md")
 
   def slug(text) = self.class.slug_for(text)
 

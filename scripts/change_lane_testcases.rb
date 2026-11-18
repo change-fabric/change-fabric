@@ -4,6 +4,7 @@
 require 'json'
 require 'date'
 require 'uri'
+require 'time'
 require_relative 'change_lane'
 require_relative 'change_docker'
 require_relative 'change_lane_browserless'
@@ -12,6 +13,8 @@ require_relative 'change_flow_compiler'
 require_relative 'change_suite'
 require_relative 'change_acceptance_grader'
 require_relative 'change_testcases_personas'
+require_relative 'change_testcases_evidence'
+require_relative 'change_case_result'
 
 # The deterministic regression lane. Runs committed test cases (suite files
 # referenced from CHANGE.md by glob) inside the same browserless Chromium
@@ -99,6 +102,31 @@ class ChangeLaneTestcases < ChangeLane
     end
   end
 
+  # One ChangeCaseResult per run case, in case order: the record every report
+  # and the history ledger read. A failure gate_tags or a quarantine kept off
+  # the gate is still a failure here; the record says what happened.
+  def case_records
+    Array(@results).map do |result|
+      item = result[:case]
+      ChangeCaseResult.new(
+        key: item.qualified_id, suite: item.suite, id: item.id, persona: item.persona_name,
+        status: record_status(result), attempts: result[:attempt_log],
+        duration_ms: result[:duration_ms], started_at: result[:started_at], commit: commit,
+        run_id: run_id, evidence_dir: result[:record]&.dig('evidenceDir'),
+        acceptance_verdict: result[:verdict]&.verdict
+      )
+    end
+  end
+
+  # A case whose steps passed is a pass only when its acceptance criterion was
+  # graded `pass`. A `fail` or `unclear` verdict, or no grading at all, is not
+  # a pass: the record says what happened, whatever the gate made of it.
+  def record_status(result)
+    return 'fail' if result[:outcome] == 'warn' || (result[:outcome] == 'pass' && !result[:verdict]&.pass?)
+
+    result[:outcome]
+  end
+
   # The call budget for one case, in ms. An explicit `cases[].timeout_ms`
   # wins; otherwise every step's timeout plus a navigation allowance per
   # `goto`, floored so a short case keeps the default call limit.
@@ -119,7 +147,9 @@ class ChangeLaneTestcases < ChangeLane
     selected = suite_set.selected(tags, selectors: selectors)
     return errors + [ nothing_to_run ] if selected.empty?
 
-    errors + case_findings(selected, session) + acceptance_findings + quarantine_findings(selected)
+    findings = errors + case_findings(selected, session) + acceptance_findings + quarantine_findings(selected)
+    evidence&.write_records(case_records)
+    findings
   rescue ChangeFlowCompiler::Error => e
     [ finding(check: 'step compile', status: 'fail', severity: 'high',
               detail: "a case's steps could not be compiled: #{e.message}") ]
@@ -386,6 +416,7 @@ class ChangeLaneTestcases < ChangeLane
   # supplies the verdict.
   def run_case(session, item, compiled)
     started = clock
+    started_at = Time.now.utc.iso8601(3)
     attempts = []
     record = nil
     (item.retries + 1).times do |number|
@@ -397,17 +428,19 @@ class ChangeLaneTestcases < ChangeLane
       break if record.nil? || record['queueFull'] || record['notAttempted']
 
       attempts << { number: number + 1, outcome: attempt_outcome(record),
-                    duration_ms: elapsed_ms(attempt_started) }
+                    duration_ms: elapsed_ms(attempt_started), evidence_dir: record['evidenceDir'] }
       break if record['ok']
     end
     { record: record, attempts: attempts, started_at_ms: elapsed_ms(@run_started, started),
-      duration_ms: elapsed_ms(started) }
+      started_at: started_at, duration_ms: elapsed_ms(started) }
   end
 
-  def attempt_outcome(record)
-    return 'auth_interrupted' if record['authInterrupted']
+  def attempt_outcome(record) = special_outcome(record) || (record['ok'] ? 'pass' : 'fail')
 
-    record['ok'] ? 'pass' : 'fail'
+  def special_outcome(record)
+    return 'partial_evidence' if record&.dig('partialEvidence')
+
+    'auth_interrupted' if record&.dig('authInterrupted')
   end
 
   # One attempt of a case, seeded with its persona's session. Auth recovery
@@ -420,10 +453,13 @@ class ChangeLaneTestcases < ChangeLane
 
     persona = login_persona(item)
     state, generation = persona ? @personas.fetch(persona) : [ nil, 0 ]
-    record = call_function(session, case_module(compiled, number, persona_js(item, state)), case_budget_ms(item))
-    return record unless persona && record.is_a?(Hash) && record['authExpired']
-
-    resume_after_expiry(session, item, compiled, number, persona, generation, record)
+    dir = evidence&.open_attempt(item, number, start_record(item, number, persona))
+    record = call_function(session, case_module(compiled, number, persona_js(item, state), evidence: dir&.js),
+                           case_budget_ms(item))
+    if persona && record.is_a?(Hash) && record['authExpired']
+      record = resume_after_expiry(session, item, compiled, number, persona, generation, record, dir)
+    end
+    dir ? evidence.close_attempt(dir, record) : record
   rescue PersonaCache::LoginError => e
     { 'ok' => false, 'notAttempted' => true, 'steps' => [],
       'authError' => "persona '#{item.persona_name}' could not log in: #{e.message}" }
@@ -434,7 +470,37 @@ class ChangeLaneTestcases < ChangeLane
       'authError' => "the case names persona '#{item.persona_name}', which lanes.testcases.personas does not define" }
   end
 
-  def resume_after_expiry(session, item, compiled, number, persona, generation, record)
+  def start_record(item, number, persona)
+    { case: item.qualified_id, attempt: number, persona: persona || item.persona_name,
+      budget_ms: case_budget_ms(item), started_at: Time.now.utc.iso8601(3) }
+  end
+
+  # The run-scoped evidence dir from the run context, or nil when the run
+  # gives none (a caller driving the lane directly).
+  def evidence
+    return @evidence if defined?(@evidence)
+
+    root = @context.respond_to?(:evidence_dir) ? @context.evidence_dir : nil
+    @evidence = root ? ChangeTestcasesEvidence.new(root) : nil
+  end
+
+  def run_id = @context.respond_to?(:run_id) ? @context.run_id : nil
+
+  # The runner's resolved commit (a schedule's base sha) when it gives one,
+  # else the checkout's HEAD.
+  def commit
+    return @commit if defined?(@commit)
+
+    given = @context.respond_to?(:commit) ? @context.commit.to_s : ''
+    return @commit = given unless given.empty?
+
+    out = IO.popen([ 'git', '-C', @config.dir.to_s, 'rev-parse', 'HEAD' ], err: File::NULL, &:read).to_s.strip
+    @commit = out.empty? ? nil : out
+  rescue SystemCallError
+    @commit = nil
+  end
+
+  def resume_after_expiry(session, item, compiled, number, persona, generation, record, dir = nil)
     expired = record['authExpired']
     begin
       state, = @personas.refresh(persona, generation)
@@ -447,7 +513,8 @@ class ChangeLaneTestcases < ChangeLane
     end
 
     resume = { startAt: restart, vars: record['vars'] || {} }
-    second = call_function(session, case_module(compiled, number, persona_js(item, state), resume: resume),
+    second = call_function(session, case_module(compiled, number, persona_js(item, state), resume: resume,
+                                                                                           evidence: dir&.js),
                            case_budget_ms(item))
     merge_resumed(record, second, resume[:startAt])
   end
@@ -472,6 +539,10 @@ class ChangeLaneTestcases < ChangeLane
   # interrupted one. A second session end in the same attempt fails the case.
   def merge_resumed(first, second, start_at)
     return first.merge('ok' => false, 'callError' => 'the resumed call after a re-login returned no result') unless second.is_a?(Hash)
+    if second['queueFull']
+      return first.merge('ok' => false, 'resumed' => true, 'queueFull' => true,
+                         'callError' => "the resumed call after a re-login was not accepted: #{second['callError']}")
+    end
 
     earlier = Array(first['steps']).select { |step| step['index'].to_i < start_at }
     merged = second.merge('steps' => earlier + Array(second['steps']), 'resumed' => true)
@@ -514,10 +585,10 @@ class ChangeLaneTestcases < ChangeLane
   def graded(item, run)
     record = run[:record]
     status = status_for(item, record)
-    outcome = record&.dig('authInterrupted') ? 'auth_interrupted' : status
+    outcome = special_outcome(record) || status
     { case: item, record: record, status: status, outcome: outcome,
       attempts: [ run[:attempts].size, 1 ].max, attempt_log: run[:attempts],
-      started_at_ms: run[:started_at_ms], duration_ms: run[:duration_ms] }
+      started_at_ms: run[:started_at_ms], started_at: run[:started_at], duration_ms: run[:duration_ms] }
   end
 
   # --- graded acceptance --------------------------------------------------------
@@ -637,6 +708,7 @@ class ChangeLaneTestcases < ChangeLane
   end
 
   def failure_reason(record)
+    return partial_evidence_reason(record) if record['partialEvidence']
     return auth_interrupted_reason(record) if record['authInterrupted']
     return "login failed before the case ran: #{record['authError']}" if record['notAttempted']
     return "auth: #{record['authError']}" if record['authError']
@@ -655,6 +727,13 @@ class ChangeLaneTestcases < ChangeLane
 
     " (if persona '#{persona}' lost its session mid-case, declare expired_when on it so the lane " \
       'logs in again and resumes)'
+  end
+
+  def partial_evidence_reason(record)
+    steps = Array(record['steps'])
+    last = steps.last ? ", the last was step #{steps.last['index'].to_i + 1}: #{steps.last['label']}" : ''
+    "partial_evidence: the call ended before the case returned (#{record['callError']}); " \
+      "#{steps.size} step(s) were checkpointed#{last}; evidence in #{record['evidenceDir']}"
   end
 
   def auth_interrupted_reason(record)
@@ -706,6 +785,76 @@ class ChangeLaneTestcases < ChangeLane
       { index: index, id: item.qualified_id, steps: compiler.compile }
     end
   end
+
+  # Checkpoints to the mounted attempt dir. The function sandbox has no file
+  # system, so each file is a download from the function's own blank page into
+  # a download path on the mount, which Chrome writes as it goes. A file is on
+  # disk once its download completes, whatever happens to the call after.
+  EVIDENCE_JS = <<~JS
+    async function cfEvidenceWriter(page, evidence, tag) {
+      const none = { step: async () => {}, screenshot: async () => {}, flush: async () => {} };
+      if (!evidence) return none;
+      let issued = 0;
+      let finished = 0;
+      try {
+        const client = await page.target().createCDPSession();
+        client.on("Browser.downloadProgress", (event) => { if (event.state !== "inProgress") finished += 1; });
+        await client.send("Browser.setDownloadBehavior", { behavior: "allow", downloadPath: evidence.dir, eventsEnabled: true });
+      } catch (err) {
+        return none;
+      }
+      async function write(name, content, base64) {
+        try {
+          await page.evaluate((fileName, body, isBase64) => {
+            const bytes = isBase64 ? Uint8Array.from(atob(body), (ch) => ch.charCodeAt(0)) : body;
+            const link = document.createElement("a");
+            link.href = URL.createObjectURL(new Blob([bytes]));
+            link.download = fileName;
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+          }, name, content, base64 === true);
+          issued += 1;
+        } catch (err) { void err; }
+      }
+      return {
+        step: (record, log) => {
+          const name = `step-${String(record.index + 1).padStart(4, "0")}-${tag}.json`;
+          const entry = Object.assign({}, record);
+          delete entry.screenshot;
+          // A screenshot step's image is checkpointed too, so a call that
+          // dies later still leaves it.
+          if (record.screenshot) {
+            const shot = String(record.name || "screenshot").replace(/[^A-Za-z0-9._-]/g, "_");
+            write(`shot-${String(record.index + 1).padStart(4, "0")}-${shot}.png`, record.screenshot, true);
+          }
+          return write(name, JSON.stringify({ record: entry, console: log.console, failedRequests: log.failedRequests }));
+        },
+        screenshot: async (casePage, name) => {
+          try { await write(`${tag === "r" ? "resumed-" : ""}${name}`, await casePage.screenshot({ encoding: "base64" }), true); } catch (err) { void err; }
+        },
+        flush: async () => {
+          const deadline = Date.now() + 5000;
+          while (finished < issued && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 50));
+        },
+      };
+    }
+
+    // Console errors and failed requests, collected per step so each step's
+    // trace says what went wrong while it ran.
+    function cfStepLog(casePage) {
+      let current = { console: [], failedRequests: [] };
+      casePage.on("console", (message) => { if (message.type() === "error") current.console.push(message.text()); });
+      casePage.on("pageerror", (err) => current.console.push(String(err)));
+      casePage.on("requestfailed", (request) => {
+        current.failedRequests.push({ url: request.url(), error: (request.failure() || {}).errorText || "failed" });
+      });
+      casePage.on("response", (response) => {
+        if (response.status() >= 400) current.failedRequests.push({ url: response.url(), status: response.status() });
+      });
+      return { take: () => { const taken = current; current = { console: [], failedRequests: [] }; return taken; } };
+    }
+  JS
 
   # What a case module knows about its persona: the seeded storage state, the
   # persona's declared `expired_when` probe (nil when it declares none, which
@@ -822,15 +971,19 @@ class ChangeLaneTestcases < ChangeLane
   # with its own budget, and a long suite never shares one call's time limit.
   # `resume` restarts a case at the step its expired session interrupted,
   # after the persona logged in again.
-  def case_module(compiled, attempt, persona = nil, resume: nil)
+  # `evidence` names the attempt's dir in the container; the module
+  # checkpoints into it as it goes.
+  def case_module(compiled, attempt, persona = nil, resume: nil, evidence: nil)
     <<~JS
       export default async function ({ page }) {
         const testCase = #{JSON.generate(compiled)};
         const attempt = #{Integer(attempt)};
         const persona = #{JSON.generate(persona)};
         const resume = #{JSON.generate(resume)};
+        const evidence = #{JSON.generate(evidence)};
         #{session_js}
         #{ChangeFlowCompiler.flow_runtime_js}
+        #{EVIDENCE_JS}
 
         // The persona's login, seeded rather than replayed: its cookies, and
         // its localStorage written on the first document of each origin.
@@ -909,9 +1062,11 @@ class ChangeLaneTestcases < ChangeLane
         }
 
         async function runOnce(testCase) {
+          const writer = await cfEvidenceWriter(page, evidence, resume ? "r" : "a");
           const session = await openSession(page);
           try {
             if (persona) await seedStorage(session.page, persona.seed);
+            const log = cfStepLog(session.page);
             // A seeded case starts where its persona's login landed, as it
             // did when every case logged in on its own page, unless its first
             // step navigates anyway.
@@ -923,17 +1078,21 @@ class ChangeLaneTestcases < ChangeLane
             const steps = await cfRunFlow(session.page, testCase.steps, {
               startAt: resume ? resume.startAt : 0,
               vars: resume ? resume.vars : {},
-              afterStep: async (step) => {
+              afterStep: async (step, record) => {
+                await writer.step(record, log.take());
+                if (!record.ok) await writer.screenshot(session.page, "failure.png");
                 if (!(await sessionEnded(session.page))) return false;
                 expired = { index: step.index, verb: step.verb };
                 return true;
               },
             });
             const ok = !expired && steps.every((step) => step.ok);
+            await writer.screenshot(session.page, "final.png");
             return { ok: ok, steps: steps, vars: steps.vars, authExpired: expired,
                      observation: ok ? await observe(session.page) : null };
           } finally {
             await closeSession(session);
+            await writer.flush();
           }
         }
 

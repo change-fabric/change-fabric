@@ -466,4 +466,43 @@ class ChangeRunForTagAndGateStatusTest < Minitest::Test
     assert_equal 2, result
     assert_match(/could not resolve ref/, output)
   end
+
+  def test_each_app_in_a_sweep_gets_its_own_evidence_dir
+    Dir.mktmpdir do |out|
+      plain = ChangeRun.new(%w[testcases --out] + [ out ])
+      plain.instance_variable_set(:@args, plain.send(:parse_args, %w[testcases --out] + [ out ]))
+      config = Struct.new(:enabled_lanes, :profile).new(%w[testcases], "staging")
+      dirs = %w[portal admin].map do |app|
+        plain.instance_variable_set(:@evidence_app, app)
+        plain.instance_variable_set(:@evidence_dirs, nil)
+        plain.send(:evidence_dir, config)
+      end
+      assert_equal 2, dirs.uniq.size
+      assert(dirs.all? { |path| File.basename(path).start_with?("testcases-") && path.include?("-staging-") })
+    end
+  end
+
+  # Names that read alike once slugged, and tuples that join alike, still get
+  # their own dirs.
+  def test_app_and_profile_names_that_slug_alike_get_distinct_evidence_dirs
+    Dir.mktmpdir do |out|
+      plain = ChangeRun.new(%w[testcases --out] + [ out ])
+      plain.instance_variable_set(:@args, plain.send(:parse_args, %w[testcases --out] + [ out ]))
+      config = Struct.new(:enabled_lanes, :profile)
+      dirs = [ [ "staging", "web_api" ], [ "staging", "web-api" ], [ "staging-web", "api" ], [ "Staging", "web-api" ] ]
+             .map do |profile, app|
+        plain.instance_variable_set(:@evidence_app, app)
+        plain.instance_variable_set(:@evidence_dirs, nil)
+        plain.send(:evidence_dir, config.new(%w[testcases], profile))
+      end
+      assert_equal 4, dirs.uniq.size
+    end
+  end
+
+  def test_out_names_the_report_dir_and_the_desktop_is_the_default
+    plain = ChangeRun.new(%w[all])
+    assert_equal File.expand_path("/tmp/qa-out"), plain.send(:parse_args, %w[testcases --out /tmp/qa-out]).out
+    assert_nil plain.send(:parse_args, %w[testcases]).out
+    assert_equal ChangeReport::DESKTOP, plain.send(:out_dir)
+  end
 end

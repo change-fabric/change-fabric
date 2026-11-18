@@ -1203,4 +1203,233 @@ class ChangeLaneTestcasesTest < Minitest::Test
     page = "[ { url: () => 'https://app.example.org/', $: async () => #{VISIBLE}, evaluate: async () => 401 } ]"
     assert_equal [ false ], session_ended_answers(code, page)
   end
+
+  # --- evidence (P4) ------------------------------------------------------------------
+
+  EvidenceCtx = Struct.new(:network, :target_url, :browserless, :suite_select, :signoff, :evidence_dir, :run_id) do
+    def log(_message) = nil
+    def signoff? = false
+  end
+
+  # Plays the container's part: whatever a module would checkpoint is written
+  # into the mounted dir before the scripted outcome happens.
+  class EvidenceSession < FakeSession
+    def initialize(records, root, checkpoints: 1)
+      super(records)
+      @root = root
+      @checkpoints = checkpoints
+    end
+
+    def run_function(code, launch_args: [], timeout_ms: nil)
+      dir = code[%r{const evidence = \{"dir":"/cf-run/([^"]+)"\}}, 1]
+      if dir
+        host = File.join(@root, dir)
+        @checkpoints.times do |i|
+          File.write(File.join(host, format("step-%04d-a.json", i + 1)),
+                     JSON.generate("record" => { "index" => i, "label" => "step #{i + 1}", "ok" => true }))
+        end
+      end
+      super
+    end
+  end
+
+  def evidence_lane(dir, root, session, raw = {})
+    config = ChangeConfig::LaneConfig.new("testcases", { "suites" => [ "*.cf-testcases.yml" ] }.merge(raw), dir)
+    ChangeLaneTestcases.new(config, EvidenceCtx.new("net", "https://app.example.org", session, [], false, root, "run-1"),
+                            grader: FakeGrader.new, sleeper: ->(_seconds) { })
+  end
+
+  def attempt_dir(root, id, number) = File.join(root, "cases", "checkout", id, "attempt-#{number}")
+
+  def test_each_attempt_gets_a_start_and_result_and_the_run_gets_case_records
+    with_suite do |dir|
+      Dir.mktmpdir do |out|
+        root = ChangeTestcasesEvidence.prepare(out, "run-1")
+        evidence_lane(dir, root, EvidenceSession.new(ok_result(2), root)).run
+
+        attempt = attempt_dir(root, "happy-path", 1)
+        start = JSON.parse(File.read(File.join(attempt, "start.json")))
+        assert_equal [ "checkout/happy-path", 1 ], start.values_at("case", "attempt")
+        assert File.exist?(File.join(attempt, "result.json"))
+        assert File.exist?(File.join(attempt, "step-0001-a.json"))
+        records = File.readlines(File.join(root, "case-results.jsonl")).map { |line| ChangeCaseResult.from_h(JSON.parse(line)) }
+        assert_equal %w[checkout/happy-path checkout/empty-cart], records.map(&:key)
+        assert_equal [ "pass", "run-1", attempt ], [ records.first.status, records.first.run_id, records.first.evidence_dir ]
+        refute_nil records.first.started_at
+      end
+    end
+  end
+
+  def test_a_killed_call_is_partial_evidence_with_its_checkpointed_steps
+    with_suite do |dir|
+      Dir.mktmpdir do |out|
+        root = ChangeTestcasesEvidence.prepare(out, "run-1")
+        records = ok_result(2)
+        records[0] = [ RuntimeError.new("browserless /function failed: 408 timed out") ]
+        under_test = evidence_lane(dir, root, EvidenceSession.new(records, root, checkpoints: 2))
+        finding = step_findings(under_test.run).find { |entry| entry.check == "checkout/happy-path" }
+
+        assert_equal "fail", finding.status
+        assert_includes finding.detail, "partial_evidence"
+        assert_includes finding.detail, "2 step(s) were checkpointed"
+        attempt = attempt_dir(root, "happy-path", 1)
+        assert File.exist?(File.join(attempt, "start.json"))
+        refute File.exist?(File.join(attempt, "result.json"))
+        assert_includes File.read(File.join(attempt, "termination.json")), "408 timed out"
+        record = under_test.case_records.first
+        assert_equal "partial_evidence", record.status
+        assert record.failure?
+      end
+    end
+  end
+
+  def test_a_fail_then_pass_retry_keeps_both_attempts_and_is_flaky
+    with_suite do |dir|
+      Dir.mktmpdir do |out|
+        root = ChangeTestcasesEvidence.prepare(out, "run-1")
+        records = ok_result(2)
+        records[1] = [ failed_result(1, [ { "index" => 0, "label" => "goto", "ok" => false, "error" => "boom" } ]), records[1] ]
+        under_test = evidence_lane(dir, root, EvidenceSession.new(records, root))
+        under_test.run
+
+        assert File.exist?(File.join(attempt_dir(root, "empty-cart", 1), "result.json"))
+        assert File.exist?(File.join(attempt_dir(root, "empty-cart", 2), "result.json"))
+        record = under_test.case_records.last
+        assert record.flaky?
+        assert_equal [ attempt_dir(root, "empty-cart", 1), attempt_dir(root, "empty-cart", 2) ],
+                     record.attempts.map { |entry| entry[:evidence_dir] }
+      end
+    end
+  end
+
+  def test_a_queue_rejection_leaves_no_attempt_dir
+    with_suite do |dir|
+      Dir.mktmpdir do |out|
+        root = ChangeTestcasesEvidence.prepare(out, "run-1")
+        records = ok_result(2)
+        rejected = ChangeDocker::Browserless::QueueRejected.new("429")
+        records[0] = Array.new(ChangeLaneTestcases::QUEUE_BACKOFF_S.size + 1) { rejected }
+        evidence_lane(dir, root, EvidenceSession.new(records, root)).run
+        refute Dir.exist?(attempt_dir(root, "happy-path", 1))
+      end
+    end
+  end
+
+  def test_the_module_checkpoints_each_step_into_the_attempt_dir
+    with_suite do |dir|
+      Dir.mktmpdir do |out|
+        root = ChangeTestcasesEvidence.prepare(out, "run-1")
+        session = EvidenceSession.new(ok_result(2), root)
+        evidence_lane(dir, root, session).run
+        assert_includes session.code, '"dir":"/cf-run/cases/checkout/happy-path/attempt-1"'
+        assert_includes session.code, "await writer.step(record, log.take());"
+        assert_includes session.code, "Browser.setDownloadBehavior"
+      end
+    end
+  end
+
+  def test_parallel_cases_share_the_evidence_tree_without_racing
+    with_suite do |dir|
+      Dir.mktmpdir do |out|
+        root = ChangeTestcasesEvidence.prepare(out, "run-1")
+        under_test = evidence_lane(dir, root, EvidenceSession.new(ok_result(2), root), "parallel" => 2)
+        20.times do
+          FileUtils.rm_rf(File.join(root, "cases"))
+          assert(step_findings(under_test.run).all? { |finding| finding.status == "pass" })
+        end
+      end
+    end
+  end
+
+  def test_a_failed_acceptance_verdict_makes_the_case_record_fail
+    with_suite do |dir|
+      Dir.mktmpdir do |out|
+        root = ChangeTestcasesEvidence.prepare(out, "run-1")
+        config = ChangeConfig::LaneConfig.new("testcases", { "suites" => [ "*.cf-testcases.yml" ] }, dir)
+        grader = FakeGrader.new(verdicts: { "checkout/happy-path" => [ "fail", "wrong page" ] })
+        under_test = ChangeLaneTestcases.new(config, EvidenceCtx.new("net", "https://app.example.org",
+                                                                     EvidenceSession.new(ok_result(2), root), [], false, root, "run-1"),
+                                             grader: grader, sleeper: ->(_seconds) { })
+        under_test.run
+        records = File.readlines(File.join(root, "case-results.jsonl")).map { |line| JSON.parse(line) }
+        assert_equal [ %w[fail fail], %w[pass pass] ], records.map { |entry| entry.values_at("status", "acceptance_verdict") }
+      end
+    end
+  end
+
+  def record_statuses(grader)
+    with_suite do |dir|
+      Dir.mktmpdir do |out|
+        root = ChangeTestcasesEvidence.prepare(out, "run-1")
+        config = ChangeConfig::LaneConfig.new("testcases", { "suites" => [ "*.cf-testcases.yml" ] }, dir)
+        ctx = EvidenceCtx.new("net", "https://app.example.org", EvidenceSession.new(ok_result(2), root), [], false, root, "run-1")
+        ChangeLaneTestcases.new(config, ctx, grader: grader, sleeper: ->(_seconds) { }).run
+        return File.readlines(File.join(root, "case-results.jsonl")).map { |line| JSON.parse(line)["status"] }
+      end
+    end
+  end
+
+  # Unattended, a missing grader or an unclear verdict fails the run, so the
+  # record cannot call those cases passed.
+  def test_unjudged_acceptance_is_not_recorded_as_a_pass
+    assert_equal %w[fail fail], record_statuses(FakeGrader.new(reason: "no grader"))
+    assert_equal %w[fail pass], record_statuses(FakeGrader.new(verdicts: { "checkout/happy-path" => [ "unclear", "?" ] }))
+  end
+
+  def test_a_screenshot_step_is_checkpointed_with_its_image
+    with_suite do |dir|
+      Dir.mktmpdir do |out|
+        root = ChangeTestcasesEvidence.prepare(out, "run-1")
+        session = EvidenceSession.new(ok_result(2), root)
+        evidence_lane(dir, root, session).run
+        assert_includes session.code, "write(`shot-${String(record.index + 1).padStart(4, \"0\")}-${shot}.png`, record.screenshot, true);"
+      end
+    end
+  end
+
+  def test_ids_that_sanitize_alike_get_distinct_evidence_dirs
+    refute_equal ChangeTestcasesEvidence.slug("a/b"), ChangeTestcasesEvidence.slug("a_b")
+    assert_equal "a_b", ChangeTestcasesEvidence.slug("a_b")
+  end
+
+  def test_a_rejected_resume_keeps_the_first_calls_evidence
+    Dir.mktmpdir do |out|
+      root = ChangeTestcasesEvidence.prepare(out, "run-1")
+      evidence = ChangeTestcasesEvidence.new(root)
+      item = Struct.new(:suite, :id).new("s", "c")
+      attempt = evidence.open_attempt(item, 1, { case: "s/c" })
+      first = { "ok" => false, "steps" => [ { "index" => 0, "ok" => true } ], "authExpired" => { "index" => 0 } }
+      merged = ChangeLaneTestcases.allocate.send(:merge_resumed, first, { "ok" => false, "queueFull" => true, "callError" => "429" }, 0)
+      evidence.close_attempt(attempt, merged)
+      assert File.exist?(File.join(attempt.host_dir, "start.json"))
+      assert File.exist?(File.join(attempt.host_dir, "result.json"))
+    end
+  end
+
+  def test_a_resumed_call_that_dies_is_partial_evidence_with_both_segments
+    Dir.mktmpdir do |out|
+      root = ChangeTestcasesEvidence.prepare(out, "run-1")
+      evidence = ChangeTestcasesEvidence.new(root)
+      attempt = evidence.open_attempt(Struct.new(:suite, :id).new("s", "c"), 1, { case: "s/c" })
+      File.write(File.join(attempt.host_dir, "step-0001-a.json"), JSON.generate("record" => { "index" => 0, "ok" => true }))
+      File.write(File.join(attempt.host_dir, "step-0002-r.json"), JSON.generate("record" => { "index" => 1, "ok" => true }))
+      first = { "ok" => false, "steps" => [ { "index" => 0, "ok" => true } ], "authExpired" => { "index" => 0 } }
+      merged = ChangeLaneTestcases.allocate.send(:merge_resumed, first, { "ok" => false, "callError" => "408", "steps" => [] }, 0)
+      record = evidence.close_attempt(attempt, merged)
+      assert record["partialEvidence"]
+      assert_equal [ 0, 1 ], record["steps"].map { |step| step["index"] }
+      assert File.exist?(File.join(attempt.host_dir, "termination.json"))
+    end
+  end
+
+  def test_dot_ids_never_navigate_out_of_the_evidence_root
+    %w[. .. ...].each { |id| refute_includes [ ".", "..", "" ], ChangeTestcasesEvidence.slug(id) }
+  end
+
+  def test_case_records_use_the_runners_commit_when_given
+    ctx = Struct.new(:commit).new("abc123")
+    lane = ChangeLaneTestcases.allocate
+    lane.instance_variable_set(:@context, ctx)
+    assert_equal "abc123", lane.send(:commit)
+  end
 end

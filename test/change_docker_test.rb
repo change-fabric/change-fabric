@@ -337,4 +337,10 @@ class ChangeDockerTest < Minitest::Test
   private
 
   def test_prefix = "cf-change-test-#{SecureRandom.hex(4)}-"
+
+  def test_browserless_command_bind_mounts_the_evidence_dir
+    argv = ChangeDocker.browserless_command("cf-change-bl-x", nil, 1234, "tok", [], { "/tmp/run dir" => "/cf-run" })
+    assert_includes argv, 'type=bind,"source=/tmp/run dir",target=/cf-run'
+    assert_operator argv.index("--mount"), :<, argv.index(ChangeDocker::BROWSERLESS_IMAGE)
+  end
 end

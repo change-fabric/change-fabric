@@ -43,7 +43,7 @@ class ChangeLaneCommand < ChangeLane
     super(config, context)
     @runner = runner
     @trust = trust || context.trust
-    @desktop = desktop
+    @desktop = context.respond_to?(:out_dir) && context.out_dir ? context.out_dir : desktop
     @outcomes = []
   end
 

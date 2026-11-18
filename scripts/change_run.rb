@@ -1,6 +1,8 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 
+require 'digest'
+require 'json'
 require 'open3'
 require 'optparse'
 require 'securerandom'
@@ -24,6 +26,7 @@ require_relative 'change_lane_a11y'
 require_relative 'change_lane_zap'
 require_relative 'change_lane_browserless'
 require_relative 'change_lane_testcases'
+require_relative 'change_testcases_evidence'
 require_relative 'change_lane_command'
 require_relative 'change_trust'
 
@@ -130,13 +133,13 @@ class ChangeRun
   # `env_file_values` (parsed boot.env_file, a source for declared names).
   Context = Struct.new(:network, :target_url, :health_url, :browserless, :media, :suite_select, :signoff,
                        :logger, :run_id, :profile, :trust, :step_prefix, :env_file_values,
-                       :active_scan_allowed, keyword_init: true) do
+                       :active_scan_allowed, :out_dir, :evidence_dir, :commit, keyword_init: true) do
     def log(message) = logger.call(message)
     def signoff? = signoff == true
   end
 
   Args = Struct.new(:scope, :config_path, :profile, :apps, :target_url, :health_url, :publish, :suites,
-                    :for_tag, :ref, :signoff, :schedule, :repo, :dry_run, :zap_mode, keyword_init: true)
+                    :for_tag, :ref, :signoff, :schedule, :repo, :dry_run, :zap_mode, :out, keyword_init: true)
 
   def self.main(argv)
     new(argv).run
@@ -495,6 +498,7 @@ class ChangeRun
     repo = nil
     dry_run = false
     zap_mode = nil
+    out = nil
     rest = argv.drop(1)
     schedule = scope == 'schedule' && rest.first && !rest.first.start_with?('-') ? rest.shift : nil
     OptionParser.new do |o|
@@ -511,6 +515,7 @@ class ChangeRun
       o.on('--repo PATH') { |value| repo = value }
       o.on('--dry-run') { dry_run = true }
       o.on('--mode MODE') { |value| zap_mode = value }
+      o.on('--out DIR') { |value| out = File.expand_path(value) }
     end.parse(rest)
     valid = %w[all sweep gate-status schedule] + ChangeConfig::LANES
     abort_and_exit("scope must be one of: #{valid.join(', ')}") unless valid.include?(scope)
@@ -528,7 +533,7 @@ class ChangeRun
     end
     Args.new(scope: scope, config_path: path, profile: profile, apps: apps, target_url: target_url,
              health_url: health_url, publish: publish, suites: suites, for_tag: for_tag, ref: ref,
-             signoff: signoff, schedule: schedule, repo: repo, dry_run: dry_run, zap_mode: zap_mode)
+             signoff: signoff, schedule: schedule, repo: repo, dry_run: dry_run, zap_mode: zap_mode, out: out)
   end
 
   def overrides
@@ -559,6 +564,7 @@ class ChangeRun
     log("[change] warning: #{config.spec_version_mismatch}") if config.spec_version_mismatch
     prepare_zap_mode(config)
     label = multi ? entry.name : nil
+    @evidence_app = label
     log("[change] app: #{entry.name}") if multi
     lanes = resolve_lanes(config)
     prefix = multi ? "#{entry.name}/" : ''
@@ -578,7 +584,7 @@ class ChangeRun
   end
 
   def write_rollup(registry, results)
-    rollup = ChangeReport.rollup(project: registry.project, scope: @args.scope, rows: results)
+    rollup = ChangeReport.rollup(project: registry.project, scope: @args.scope, rows: results, out_dir: out_dir)
     log("[change] sweep report: #{rollup[:markdown]}")
   end
 
@@ -652,12 +658,14 @@ class ChangeRun
       health_url: config.boot.health_url, media: artifact&.media, suite_select: @args.suites,
       signoff: @args.signoff, logger: method(:log), run_id: boot_run_id, profile: config.profile,
       trust: trust, step_prefix: prefix, env_file_values: command_env_file_values(config),
-      active_scan_allowed: @active_scan_allowed == true
+      active_scan_allowed: @active_scan_allowed == true, out_dir: out_dir,
+      evidence_dir: evidence_dir(config), commit: head_sha
     }
     if browser_needed?(config)
       boot = config.boot
+      mounts = ctx_args[:evidence_dir] ? { ctx_args[:evidence_dir] => ChangeTestcasesEvidence::MOUNT } : {}
       ChangeDocker.with_browserless(network: network.name, add_hosts: boot.add_hosts,
-                                    local_tls_hosts: boot.local_tls_hosts) do |session|
+                                    local_tls_hosts: boot.local_tls_hosts, mounts: mounts) do |session|
         yield Context.new(browserless: session, **ctx_args)
       end
     else
@@ -666,6 +674,31 @@ class ChangeRun
   end
 
   def browser_needed?(config) = !(resolve_lanes(config) & BROWSER_LANES).empty?
+
+  # Where reports land: `--out DIR`, else the Desktop.
+  def out_dir = @args.out || ChangeReport::DESKTOP
+
+  # The testcases lane's run-scoped evidence root, `<out>/testcases-<run-id>`,
+  # created only when that lane runs. It is mounted into the browser
+  # container, so a case's checkpoints survive the call being killed.
+  def evidence_dir(config)
+    return nil unless resolve_lanes(config).include?('testcases')
+
+    @evidence_dirs ||= {}
+    @evidence_dirs[config.object_id] ||= ChangeTestcasesEvidence.prepare(out_dir, evidence_run(config))
+  end
+
+  # One dir per profile and app in a sweep, or two apps' cases would overwrite
+  # each other's records and attempt files. The slugs keep the name readable;
+  # a digest of the exact (profile, app) pair keeps it unique when names slug
+  # or join alike.
+  def evidence_run(config)
+    scope = [ config.profile, @evidence_app ].map(&:to_s)
+    return boot_run_id if scope.all?(&:empty?)
+
+    readable = scope.reject(&:empty?).map { |part| ChangeReport.slug_for(part) }
+    [ boot_run_id, *readable, Digest::SHA256.hexdigest(JSON.generate(scope))[0, 8] ].join('-')
+  end
 
   # Returns the lane instances alongside their findings so report_sections
   # can read a lane's own post-run state (today, browserless's per-cell
@@ -716,7 +749,7 @@ class ChangeRun
 
   def write_report(config, findings, lanes, instances, app:, manifest: {}, scope: @args.scope)
     ChangeReport.new(
-      project: config.project, scope: scope, findings: findings, app: app,
+      project: config.project, scope: scope, findings: findings, app: app, out_dir: out_dir,
       meta: report_meta(config, findings),
       manifest: manifest,
       sections: report_sections(config, lanes, instances)
@@ -815,7 +848,7 @@ class ChangeRun
       project: config.project, app: app, scope: @args.scope,
       profile: config.profile || '(none)', target: config.boot.target_url
     }
-    artifact.finish(findings: findings, report: report, run: run)
+    artifact.finish(findings: findings, report: report, run: run, evidence_dir: evidence_dir(config))
             .each { |line| log("[change] #{app ? "[#{app}] " : ''}#{line}") }
   end
 
