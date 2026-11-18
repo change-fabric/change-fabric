@@ -177,7 +177,7 @@ dir, with no paid call:
   image with the run dir mounted, so every screenshot resolves. It waits for
   the page's ready marker and every image; an image that did not load fails
   the PDF rather than printing a gap.
-- `video`: `cases/<suite>/<id>.mp4` per case, a title card then the case's
+- `video`: `cases/<suite>/<id>/video.mp4` per case, a title card then the case's
   last attempt, with each step's label as a caption track. Frames stream to
   the attempt dir as JPEG (at most 1280x800, 5 fps), encoded two at a time
   whatever `parallel` is. Recording is budgeted: 64 MB plus 8 MB per case is

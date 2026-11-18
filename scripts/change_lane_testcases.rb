@@ -444,7 +444,7 @@ class ChangeLaneTestcases < ChangeLane
     video = run[:record].is_a?(Hash) ? run[:record]['video'] || {} : {}
     @encoder.add(key: item.qualified_id, attempt_dir: dirs.last, marks: video['marks'], stopped: video['stopped'],
                  out: File.join(evidence.root, 'cases', ChangeTestcasesEvidence.slug(item.suite),
-                                "#{ChangeTestcasesEvidence.slug(item.id)}.mp4"))
+                                ChangeTestcasesEvidence.slug(item.id), 'video.mp4'))
   end
 
   def finish_video
@@ -1261,10 +1261,13 @@ class ChangeLaneTestcases < ChangeLane
               vars: resume ? resume.vars : {},
               afterStep: async (step, record) => {
                 await writer.step(record, log.take());
-                const following = testCase.steps.find((other) => other.index > step.index);
-                if (following) recorder.mark(following.label);
                 if (!record.ok) await writer.screenshot(session.page, "failure.png");
-                if (!(await sessionEnded(session.page))) return false;
+                if (!(await sessionEnded(session.page))) {
+                  // The caption moves on only when the flow does.
+                  const following = testCase.steps.find((other) => other.index > step.index);
+                  if (record.ok && following) recorder.mark(following.label);
+                  return false;
+                }
                 expired = { index: step.index, verb: step.verb };
                 return true;
               },

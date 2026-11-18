@@ -166,7 +166,7 @@ class ChangeTestcasesVideoTest < Minitest::Test
       assert(session.max_bytes.all? { |share| share == 4 * MB })
       assert_operator grown, :<, 64 * MB, "Ruby never holds frames"
       assert_equal 10, exports(root)["video"].count { |_key, entry| entry["status"] == "ok" }
-      assert_equal 10, Dir.glob(File.join(root, "cases", "long", "*.mp4")).size
+      assert_equal 10, Dir.glob(File.join(root, "cases", "long", "*", "video.mp4")).size
       assert(findings.reject { |finding| finding.check.end_with?("acceptance", "grading") }.all? { |finding| finding.status == "pass" })
     end
   end

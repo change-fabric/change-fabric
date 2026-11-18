@@ -56,8 +56,8 @@ class ChangeTestcasesExportDockerTest < Minitest::Test
       end
       exports = JSON.parse(File.read(File.join(root, "exports.json")))["video"]
       assert_equal %w[ok ok], exports.values_at("fixture/heading", "fixture/missing").map { |entry| entry["status"] }, exports.inspect
-      assert File.size(File.join(root, "cases", "fixture", "heading.mp4")).positive?
-      assert File.size(File.join(root, "cases", "fixture", "missing.mp4")).positive?
+      assert File.size(File.join(root, "cases", "fixture", "heading", "video.mp4")).positive?
+      assert File.size(File.join(root, "cases", "fixture", "missing", "video.mp4")).positive?
 
       html = ChangeTestcasesReport.new(run_dir: root, ledger: File.join(dir, "ledger.jsonl")).write[:html]
       assert_includes File.read(html), '<img src="cases/fixture/missing/attempt-1/failure.png"'
