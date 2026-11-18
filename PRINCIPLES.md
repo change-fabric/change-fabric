@@ -108,10 +108,10 @@ Enforcer: .github/workflows/release-skills.yml, .github/workflows/release-spec.y
 
 The `skills/vX.Y.Z` tag is the version. A toolkit PR bumps nothing. The tag must
 be plain semver, newly created, and strictly above every existing `skills/v*`
-tag, compared field by field as integers. Ask git for a checkout's version:
-`git describe --tags --match 'skills/v*'`.
+tag, compared field by field as integers. The tag bumps the Homebrew tap with
+no PR, and a daily check alarms while the tap trails the newest tag.
 
-Enforcer: .github/workflows/release-skills.yml
+Enforcer: .github/workflows/release-skills.yml, .github/workflows/bump-tap-formula.yml, .github/workflows/tap-drift.yml
 
 ## The site may lag a spec release, never lead one
 
