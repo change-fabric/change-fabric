@@ -1,0 +1,27 @@
+{
+  "config_hash": "44d4ef51b7ce23cecb9a9de70c9bb895f5c6fc06ce1a38b9492d24e6a6714b1d",
+  "brief": {
+    "path": "/Users/pst/code/change-fabric/wt-ra2/test/fixtures/roast_audio/brief.txt",
+    "sha256": "2f35f1bcf136b065d506ff118524b20d850f6e9286bc62c20c9d613d6ff407c8"
+  },
+  "manifest": null,
+  "clips": [
+    {
+      "source_id": "src-ddf7a7a9",
+      "source_audio": "/var/folders/tx/420lxwts38s91xskxz4r_t_w0000gn/T/roast-audio-batch20261118-80025-6q9jjr/a/intro.mp3",
+      "source_sha256": "d35b8bfbe189ec8b10852e5920d2cd19a68a2e238a0897abd8a1b7f8fe32451a",
+      "current": {
+        "audio": "/var/folders/tx/420lxwts38s91xskxz4r_t_w0000gn/T/roast-audio-batch20261118-80025-6q9jjr/a/intro.mp3",
+        "audio_sha256": "d35b8bfbe189ec8b10852e5920d2cd19a68a2e238a0897abd8a1b7f8fe32451a",
+        "alignment": null,
+        "alignment_sha256": null
+      },
+      "vtt": "/var/folders/tx/420lxwts38s91xskxz4r_t_w0000gn/T/roast-audio-batch20261118-80025-6q9jjr/a/intro.vtt",
+      "vtt_sha256": "3c8155dd3907268c97d868c48388a9578fb67f8d826376f7a7ee5aa41689baf4",
+      "takes": 0,
+      "attempts": 1,
+      "max_attempts": 4,
+      "state": "retryable"
+    }
+  ]
+}

@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require "digest"
 require "fileutils"
 
 # A stand-in for the FFmpeg container in cf:roast --audio tests. It answers
@@ -70,8 +71,8 @@ module RoastAudioHelpers
     def encode(argv)
       host = argv.join(" ")[/source=([^"]*)",target=\/out/, 1]
       FileUtils.mkdir_p(host)
-      File.binwrite(File.join(host, File.basename(argv.last)), "fixed #{argv.last}")
-      tag(input(argv))
+      # Same source, same bytes, as FFmpeg's encode is deterministic.
+      File.binwrite(File.join(host, File.basename(argv.last)), "fixed #{tag(input(argv))} #{Digest::SHA256.hexdigest(argv[0..-2].join(' '))}")
       [ "", Status.new(true) ]
     end
   end
