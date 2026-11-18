@@ -288,7 +288,7 @@ module BRoll
     args = frame_args(mode: mode, input: container(input, work), out_dir: container(out_dir, work), width: width,
                       height: height, fps: fps, frames: frames)
     output, status = docker.call(ChangeDocker.run_command(network: 'none', image: ChangeDocker::FFMPEG_IMAGE, args: args,
-                                                          mounts: { work => WORK }, workdir: WORK))
+                                                          mounts: { work => WORK }, workdir: WORK, user: :host))
     raise FfmpegError, "b-roll #{mode} frames failed:\n#{output.to_s.lines.last(10).join}" unless status.success?
     raise FfmpegError, "b-roll #{mode} wrote no frames" unless File.file?(File.join(out_dir, '000001.png'))
 
@@ -304,7 +304,7 @@ module BRoll
     dir = File.dirname(File.expand_path(path))
     args = %w[-v error -print_format json -show_streams -show_format] + [ File.join(WORK, File.basename(path)) ]
     argv = ChangeDocker.run_command(network: 'none', image: ChangeDocker::FFMPEG_IMAGE, entrypoint: 'ffprobe',
-                                    mounts: { dir => WORK }, workdir: WORK, args: args)
+                                    mounts: { dir => WORK }, workdir: WORK, args: args, user: :host)
     output, status = docker.call(argv)
     raise ProbeError, "ffprobe failed:\n#{output.to_s.lines.last(5).join}" unless status.success?
 

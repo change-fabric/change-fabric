@@ -91,7 +91,7 @@ module RoastImageFit
     args = [ '-hide_banner', '-nostdin', '-y', '-i', "/src/#{File.basename(shot)}", '-vf', "scale=#{w}:#{h}:flags=lanczos",
              '-frames:v', '1', '-map_metadata', '-1', '-fflags', '+bitexact', '-flags:v', '+bitexact', "#{WORK}/#{File.basename(dest)}" ]
     argv = ChangeDocker.run_command(network: 'none', image: ChangeDocker::FFMPEG_IMAGE, args: args,
-                                    mounts: { src => '/src', work => WORK }, workdir: WORK)
+                                    mounts: { src => '/src', work => WORK }, workdir: WORK, user: :host)
     output, status = docker.call(argv)
     raise FitError, "roast image fit failed for #{File.basename(shot)} (#{size.join('x')}):\n#{output.to_s.lines.last(6).join}" unless status.success? && File.file?(dest)
 

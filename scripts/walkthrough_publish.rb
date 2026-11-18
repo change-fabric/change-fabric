@@ -116,7 +116,7 @@ module WalkthroughPublish
            [ '-c:v', 'libx264', '-preset', 'medium', '-crf', rung.crf.to_s, '-pix_fmt', 'yuv420p',
              '-c:a', 'aac', '-b:a', '96k', '-movflags', '+faststart', work_path(out) ]
     ChangeDocker.run_command(network: 'none', image: ChangeDocker::FFMPEG_IMAGE, args: args,
-                             mounts: { File.dirname(File.expand_path(mp4)) => WORK }, workdir: WORK)
+                             mounts: { File.dirname(File.expand_path(mp4)) => WORK }, workdir: WORK, user: :host)
   end
 
   def work_path(path) = "#{WORK}/#{File.basename(path)}"

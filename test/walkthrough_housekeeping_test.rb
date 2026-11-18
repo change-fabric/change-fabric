@@ -99,6 +99,30 @@ class WalkthroughHousekeepingTest < Minitest::Test
     assert_equal "keep me", File.binread(File.join(@outside, "precious.mp4"))
   end
 
+  def test_a_cache_symlink_under_the_default_root_is_accepted
+    home = File.join(@tmp, "home")
+    target = File.join(home, ".cache", "cf-walkthrough", "demo-hand-made")
+    FileUtils.mkdir_p(File.dirname(target))
+    FileUtils.mv(@cache, target)
+    File.symlink(target, @cache)
+    plan = H.plan(@root, keep: keep, env: { "HOME" => home })
+    assert_includes dropped(plan), "render/old1"
+    assert_equal File.realpath(target), H.managed_cache(@root, { "HOME" => home })
+  end
+
+  def test_a_cache_symlink_to_an_allowed_root_itself_or_outside_it_is_refused
+    home = File.join(@tmp, "home")
+    base = File.join(home, ".cache", "cf-walkthrough")
+    FileUtils.mkdir_p(base)
+    FileUtils.rm_rf(@cache)
+    File.symlink(base, @cache)
+    assert_raises(H::Error) { H.plan(@root, keep: keep, env: { "HOME" => home }) }
+    File.unlink(@cache)
+    File.symlink(File.join(base, "..", "..", "..", "outside"), @cache)
+    assert_raises(H::Error) { H.plan(@root, keep: keep, env: { "HOME" => home }) }
+    assert_equal "keep me", File.binread(File.join(@outside, "precious.mp4"))
+  end
+
   def test_cache_root_override_links_to_a_stable_key
     ext = File.join(@tmp, "ext")
     FileUtils.rm_rf(@cache)

@@ -55,7 +55,7 @@ module WalkthroughLoudness
     ChangeDocker.run_command(network: 'none', image: ChangeDocker::FFMPEG_IMAGE,
                              args: [ '-hide_banner', '-nostdin', '-nostats', '-i', "#{WORK}/#{File.basename(mp4)}",
                                      '-map', '0:a:0', '-af', 'ebur128=peak=true', '-f', 'null', '-' ],
-                             mounts: { File.dirname(File.expand_path(mp4)) => WORK }, workdir: WORK)
+                             mounts: { File.dirname(File.expand_path(mp4)) => WORK }, workdir: WORK, user: :host)
   end
 
   # { integrated:, true_peak: } from the ebur128 summary, or nil when the

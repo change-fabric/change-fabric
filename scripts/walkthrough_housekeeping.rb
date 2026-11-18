@@ -83,18 +83,35 @@ module WalkthroughHousekeeping
   end
 
   # The cache's real path when it is safe to manage: a real dir, or a link
-  # to the configured root. Anything else is refused.
+  # whose real target sits strictly under an allowed root (the configured
+  # CF_WALKTHROUGH_CACHE_ROOT, or the default ~/.cache/cf-walkthrough).
+  # Anything else is refused, so a prune never deletes outside those roots.
   def managed_cache(root, env = ENV)
     link = cache_dir(root)
     return nil unless File.exist?(link)
     return File.realpath(link) unless File.symlink?(link)
 
-    target = external_target(root, env)
-    unless target && File.directory?(target) && File.realpath(link) == File.realpath(target)
-      raise Error, "refusing: #{link} is a symlink not created by #{CACHE_ROOT_ENV}"
+    real = File.realpath(link)
+    unless File.directory?(real) && allowed_roots(env).any? { |base| PathCanon.strictly_within?(real, base) }
+      raise Error, "refusing: #{link} links to #{real}, outside #{allowed_roots(env).join(' and ')} (#{CACHE_ROOT_ENV})"
     end
 
-    File.realpath(link)
+    real
+  end
+
+  # Where a symlinked cache may point: the configured root and the default.
+  def allowed_roots(env = ENV)
+    [ env[CACHE_ROOT_ENV].to_s.strip, default_root(env) ].reject(&:empty?)
+                                                       .map { |base| File.expand_path(base) }.uniq
+  end
+
+  def default_root(env = ENV)
+    xdg = env['XDG_CACHE_HOME'].to_s.strip
+    return File.join(File.expand_path(xdg), 'cf-walkthrough') unless xdg.empty?
+
+    home = env['HOME'].to_s.strip
+    base = home.empty? ? Dir.home : home
+    File.join(File.expand_path(base), '.cache', 'cf-walkthrough')
   end
 
   # True when real sits in root's .cache and that cache is a real dir or the

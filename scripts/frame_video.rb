@@ -37,7 +37,7 @@ module FrameVideo
   # failed the encode outright.
   def encode_argv(dir, fps:, crf: 18, size: nil)
     ChangeDocker.run_command(
-      network: "none", image: ChangeDocker::FFMPEG_IMAGE, mounts: { dir => "/work" },
+      network: "none", image: ChangeDocker::FFMPEG_IMAGE, mounts: { dir => "/work" }, user: :host,
       args: [ "-y", "-v", "error", "-framerate", fps.to_s, "-i", "/work/%06d.jpg", "-r", fps.to_s,
               *fit_filter(size),
               "-c:v", "libx264", "-crf", crf.to_s, "-pix_fmt", "yuv420p",

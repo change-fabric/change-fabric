@@ -86,7 +86,7 @@ module SiteMediaPublish
     work = '/work'
     argv = ChangeDocker.run_command(
       network: 'none', image: ChangeDocker::FFMPEG_IMAGE, entrypoint: 'ffprobe',
-      mounts: { File.dirname(File.expand_path(path)) => { target: work, readonly: true } }, workdir: work,
+      mounts: { File.dirname(File.expand_path(path)) => { target: work, readonly: true } }, workdir: work, user: :host,
       args: %w[-v error -print_format json -show_streams -show_format] + [ File.join(work, File.basename(path)) ]
     )
     out, status = runner.call(argv)
