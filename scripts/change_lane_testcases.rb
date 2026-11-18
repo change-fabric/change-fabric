@@ -118,10 +118,11 @@ class ChangeLaneTestcases < ChangeLane
     end
   end
 
-  # A case whose steps passed but whose acceptance criterion was graded
-  # `fail` failed: the record says what happened, whatever the gate made of it.
+  # A case whose steps passed is a pass only when its acceptance criterion was
+  # graded `pass`. A `fail` or `unclear` verdict, or no grading at all, is not
+  # a pass: the record says what happened, whatever the gate made of it.
   def record_status(result)
-    return 'fail' if result[:outcome] == 'warn' || (result[:outcome] == 'pass' && result[:verdict]&.fail?)
+    return 'fail' if result[:outcome] == 'warn' || (result[:outcome] == 'pass' && !result[:verdict]&.pass?)
 
     result[:outcome]
   end

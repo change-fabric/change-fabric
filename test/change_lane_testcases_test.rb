@@ -1357,6 +1357,25 @@ class ChangeLaneTestcasesTest < Minitest::Test
     end
   end
 
+  def record_statuses(grader)
+    with_suite do |dir|
+      Dir.mktmpdir do |out|
+        root = ChangeTestcasesEvidence.prepare(out, "run-1")
+        config = ChangeConfig::LaneConfig.new("testcases", { "suites" => [ "*.cf-testcases.yml" ] }, dir)
+        ctx = EvidenceCtx.new("net", "https://app.example.org", EvidenceSession.new(ok_result(2), root), [], false, root, "run-1")
+        ChangeLaneTestcases.new(config, ctx, grader: grader, sleeper: ->(_seconds) { }).run
+        return File.readlines(File.join(root, "case-results.jsonl")).map { |line| JSON.parse(line)["status"] }
+      end
+    end
+  end
+
+  # Unattended, a missing grader or an unclear verdict fails the run, so the
+  # record cannot call those cases passed.
+  def test_unjudged_acceptance_is_not_recorded_as_a_pass
+    assert_equal %w[fail fail], record_statuses(FakeGrader.new(reason: "no grader"))
+    assert_equal %w[fail pass], record_statuses(FakeGrader.new(verdicts: { "checkout/happy-path" => [ "unclear", "?" ] }))
+  end
+
   def test_a_screenshot_step_is_checkpointed_with_its_image
     with_suite do |dir|
       Dir.mktmpdir do |out|
