@@ -18,6 +18,32 @@ Every version below has a frozen, permanently addressable rendering at
 field set: major for a removed, renamed or newly required field, minor for a new
 optional field, patch for a documentation-only clarification.
 
+## [0.23.0] - 2026-11-18
+
+A command lane entry's trust digest covers the repo files it runs. Additive for
+CHANGE.md.
+
+### Added
+
+- `change_config.lanes.command.commands[].trust_paths`: repo-relative globs
+  whose files fold into the entry's trust digest, for scripts the entry's own
+  script sources.
+
+### Changed
+
+- A command entry's trust digest covers the content of each repo file named in
+  its `run` string, and of each `trust_paths` match. A file that differs from
+  the base branch, or exists on one side only, makes the entry a change that
+  needs `change_approve.rb`, and the refusal names the files.
+- Over 200 covered files or 5 MB, the entry cannot be verified: it never
+  matches the base branch and runs only once approved.
+- A `run` string that decides what runs only at run time (variable expansion,
+  `$( )`, backticks, `~`, `PATH=`, `eval`, `sh -c`, a glob) cannot be verified unless the
+  entry declares `trust_paths`, and runs only once approved. So does a `run`
+  that names a repo file by absolute path or a file inside a submodule.
+- Every command entry's digest changes once, so earlier approvals no longer
+  match.
+
 ## [0.22.0] - 2026-11-18
 
 Test cases as named personas: each logs in once per run and shares its

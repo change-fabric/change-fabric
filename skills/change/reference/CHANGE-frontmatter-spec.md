@@ -1,6 +1,6 @@
 # CHANGE.md frontmatter specification
 
-Schema version: 0.22.0
+Schema version: 0.23.0
 
 Status: stable. This is the golden reference for authoring a repo's
 `CHANGE.md` frontmatter. A maintainer or an AI agent creating a new repo's
@@ -304,6 +304,7 @@ fails a gate.
 | `change_config.lanes.command.commands[].artifacts` | list of string | no | (0.17.0) Repo-relative globs (no absolute path, no `..`) copied after the run, preserving their paths, into the Desktop folder and, when `contributors_team.platform` is set, the published bundle. A glob that matches nothing is a warning in the report, not a failure. |
 | `change_config.lanes.command.commands[].profiles` | list of string | no | (0.17.0) Profile names (each defined under `profiles:`) the entry runs under. Omitted, it runs under every profile and on unprofiled runs. |
 | `change_config.lanes.command.commands[].retries` | integer | no (default 0) | (0.17.0) 0 to 3 further attempts while the entry fails. A pass that needed one is recorded `flaky` with its attempt count. |
+| `change_config.lanes.command.commands[].trust_paths` | list of string | no | (0.23.0) Repo-relative globs (no absolute path, no `..`), matched from the repo root, whose files fold into the entry's trust digest. Use it for files a script sources. Every repo file named in `run` is covered without it. A covered file that differs from the base branch, or exists on one side only, makes the entry a change that needs approval. Over 200 covered files or 5 MB, the entry cannot be verified and runs only once approved. A `run` that decides what runs only at run time (variable expansion, `$( )`, backticks, `~`, `PATH=`, `eval`, `sh -c`, a glob) cannot be verified without `trust_paths`: declare the files it runs here, or it runs only once approved. |
 
 ```yaml
 change_config:
@@ -1698,3 +1699,7 @@ root `RELEASING.md`.
   its session is seeded into each case that names it (suite_version 3
   `cases[].persona`). Two suite files declaring the same `suite` id now fail
   to load.
+- 0.23.0: additive. Adds `change_config.lanes.command.commands[].trust_paths`.
+  A command entry's trust digest now covers the content of the repo files its
+  `run` names and its `trust_paths` match, so editing one needs approval like
+  editing the entry. Every command entry's digest changes once.
