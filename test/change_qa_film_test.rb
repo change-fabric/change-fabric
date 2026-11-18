@@ -67,6 +67,8 @@ class ChangeQaFilmTest < Minitest::Test
     assert_equal "pass", ChangeQaFilm.film_status({ "status" => "fail" }, ok, 2)
     assert_equal "fail", ChangeQaFilm.film_status({ "status" => "fail", "acceptance_verdict" => "unclear" }, ok, 2)
     assert_equal "fail", ChangeQaFilm.film_status({ "status" => "fail" }, ok.first(1), 2)
+    assert_equal "auth_interrupted", ChangeQaFilm.film_status({ "status" => "auth_interrupted" }, ok, 2)
+    assert_equal "fail", ChangeQaFilm.film_status({}, ok, 2)
   end
 
   def test_opening_goto_keeps_only_the_staging_path

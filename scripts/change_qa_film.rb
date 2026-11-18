@@ -385,11 +385,13 @@ module ChangeQaFilm
   # acceptance was not graded (no grader on this host, or
   # CF_SKIP_ACCEPTANCE_GRADING) is a pass: the checklist shows the criterion
   # as not graded, so the evidence never claims a judgment nobody made. A
-  # graded `fail` or `unclear` stays a fail.
+  # graded `fail` or `unclear` stays a fail, and any other lane status
+  # (auth_interrupted, partial_evidence) is kept as it is.
   def film_status(record, results, step_count)
-    return record['status'] if record['status'] == 'pass'
+    return record['status'] || 'fail' unless record['status'] == 'fail'
 
-    all_ran = Array(results).size == step_count && Array(results).all? { |step| step['ok'] }
+    steps = Array(results)
+    all_ran = steps.size == step_count && steps.all? { |step| step['ok'] }
     all_ran && record['acceptance_verdict'].nil? ? 'pass' : 'fail'
   end
 
