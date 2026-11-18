@@ -57,7 +57,7 @@ class ChangeTestcasesEvidence
   def open_attempt(item, number, start)
     relative = File.join('cases', self.class.slug(item.suite), self.class.slug(item.id), "attempt-#{number}")
     host_dir = shared_dir(relative)
-    File.write(File.join(host_dir, 'start.json'), "#{JSON.pretty_generate(start)}\n")
+    replace_file(File.join(host_dir, 'start.json'), "#{JSON.pretty_generate(start)}\n")
     Attempt.new(host_dir: host_dir, container_dir: File.join(MOUNT, relative))
   end
 
@@ -75,7 +75,7 @@ class ChangeTestcasesEvidence
     record = record.merge('evidenceDir' => attempt.host_dir)
     write_screenshots(attempt, record)
     name = record['partialEvidence'] ? 'termination.json' : 'result.json'
-    File.write(File.join(attempt.host_dir, name), "#{JSON.pretty_generate(without_images(record))}\n")
+    replace_file(File.join(attempt.host_dir, name), "#{JSON.pretty_generate(without_images(record))}\n")
     record
   end
 
@@ -91,10 +91,22 @@ class ChangeTestcasesEvidence
   end
 
   def write_records(records)
-    File.write(File.join(@root, RESULTS_FILE), records.map { |record| "#{record.to_json}\n" }.join)
+    replace_file(File.join(@root, RESULTS_FILE), records.map { |record| "#{record.to_json}\n" }.join)
   end
 
   private
+
+  # Every host write goes through a temp file renamed into place. On a Linux
+  # bind mount the browser's checkpoints belong to the container user, so the
+  # host cannot open one for writing, but it can replace it through the
+  # world-writable dir.
+  def replace_file(path, content)
+    temp = File.join(File.dirname(path), ".#{File.basename(path)}.tmp#{Process.pid}")
+    File.binwrite(temp, content)
+    File.rename(temp, path)
+  ensure
+    FileUtils.rm_f(temp) if temp && File.exist?(temp)
+  end
 
   def shared_dir(relative)
     path = @root
@@ -129,7 +141,7 @@ class ChangeTestcasesEvidence
       next unless step['screenshot'].is_a?(String)
 
       name = "shot-#{format('%04d', step['index'].to_i + 1)}-#{self.class.slug(step['name'] || 'screenshot')}.png"
-      File.binwrite(File.join(attempt.host_dir, name), Base64.decode64(step['screenshot']))
+      replace_file(File.join(attempt.host_dir, name), Base64.decode64(step['screenshot']))
     end
   end
 
